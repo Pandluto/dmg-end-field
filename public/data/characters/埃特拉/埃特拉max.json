@@ -1,0 +1,97 @@
+{
+  "name": "埃特拉",
+  "nameEn": "Estella",
+  "rarity": 4,
+  "profession": "近卫",
+  "weapon": "长柄武器",
+  "element": "ice",
+  "mainStat": "意志",
+  "subStat": "力量",
+  "tags": ["破防", "物理异常", "输出"],
+  "position": ["物理破防", "物理异常", "输出"],
+  "attributes": {
+    "level90": { "strength": 104, "agility": 97, "intelligence": 110, "will": 151, "atk": 312, "hp": 5495 }
+  },
+  "talents": [
+    {
+      "name": "同病相怜",
+      "description": "触发碎冰后，下一次战技「凝声」返还技力（不可叠加）。",
+      "skillEnergyRefund": 15
+    },
+    {
+      "name": "惰性使然",
+      "description": "不会被寒冷附着，并降低受到的寒冷伤害。",
+      "immuneIceAttach": true,
+      "iceDamageReduction": 0.2
+    }
+  ],
+  "potentials": [
+    { "id": 1, "name": "习惯性延误", "description": "连携技「失真」施加的物理脆弱持续时间+3秒。" },
+    { "id": 2, "name": "放低预期", "description": "终结技「震音」所需终结技能量-10%。" },
+    { "id": 3, "name": "延后工作", "description": "战技「凝声」制冷声波飞行距离+50%，并对首个命中敌人伤害+40%。" },
+    { "id": 4, "name": "生命大于任务", "description": "意志+10，力量+10。", "stats": { "will": 10, "strength": 10 } },
+    { "id": 5, "name": "活着就是胜利", "description": "每当有敌人被施加冻结后，获得5点终结技能量（每1秒最多触发一次）。" }
+  ],
+  "skills": {
+    "normalAttack": {
+      "name": "噪点",
+      "type": "普通攻击",
+      "description": "至多4段物理伤害；重击造成17点失衡；可下落攻击与处决攻击。",
+      "hitCount": 4,
+      "damage": {
+        "9": { "hit1": 0.45, "hit2": 0.54, "hit3": 0.63, "hit4": 0.72 },
+        "M3": { "hit1": 0.56, "hit2": 0.68, "hit3": 0.79, "hit4": 0.9 }
+      },
+      "multipliers": {
+        "9": { "hit1": 0.45, "hit2": 0.54, "hit3": 0.63, "hit4": 0.72, "execute": 7.2, "plunge": 1.44 },
+        "M3": { "hit1": 0.56, "hit2": 0.68, "hit3": 0.79, "hit4": 0.9, "execute": 9.0, "plunge": 1.8 }
+      },
+      "imbalanceValue": 17
+    },
+    "skill": {
+      "name": "凝声",
+      "type": "战技",
+      "description": "向前刺出长枪激发制冷声波，造成寒冷伤害并施加寒冷附着。",
+      "hitCount": 1,
+      "damage": {
+        "9": { "hit1": 2.8 },
+        "M3": { "hit1": 3.5 }
+      },
+      "multipliers": {
+        "9": { "damage": 2.8, "imbalance": 10 },
+        "M3": { "damage": 3.5, "imbalance": 10 }
+      },
+      "imbalanceValue": 10
+    },
+    "chainSkill": {
+      "name": "失真",
+      "type": "连携技",
+      "description": "冻结触发连携，对小范围敌人造成物理伤害并击飞；命中冻结目标时造成额外伤害并施加物理脆弱。",
+      "hitCount": 1,
+      "damage": {
+        "9": { "hit1": 2.88 },
+        "M3": { "hit1": 3.6 }
+      },
+      "multipliers": {
+        "9": { "cooldown": 18, "damageVsNormal": 2.88, "damageVsFrozen": 5.04, "imbalance": 10, "physicalVulnerability": 0.1, "physicalVulnerabilityDuration": 6 },
+        "M3": { "cooldown": 17, "damageVsNormal": 3.6, "damageVsFrozen": 6.3, "imbalance": 10, "physicalVulnerability": 0.15, "physicalVulnerabilityDuration": 6 }
+      },
+      "abnormalType": "launch"
+    },
+    "ultimate": {
+      "name": "震音",
+      "type": "终结技",
+      "description": "下砸枪柄对附近敌人造成物理伤害；若目标处于物理脆弱状态则强制击飞。",
+      "hitCount": 1,
+      "damage": {
+        "9": { "hit1": 8.8 },
+        "M3": { "hit1": 11.0 }
+      },
+      "multipliers": {
+        "9": { "energy": 70, "damage": 8.8, "imbalance": 15 },
+        "M3": { "energy": 70, "damage": 11.0, "imbalance": 20 }
+      },
+      "imbalanceValue": 15
+    }
+  }
+}

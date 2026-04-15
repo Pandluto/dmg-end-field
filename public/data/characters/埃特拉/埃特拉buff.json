@@ -1,0 +1,67 @@
+{
+  "name": "埃特拉",
+  "buffList": [
+    "物理脆弱-埃特拉-连携",
+    "物理脆弱-埃特拉-连携-M3",
+    "伤害倍率提升-埃特拉-潜能",
+    "意志属性提升-埃特拉-潜能",
+    "力量属性提升-埃特拉-潜能"
+  ],
+  "buffs": [
+    {
+      "displayName": "物理脆弱-埃特拉-连携",
+      "name": "失真",
+      "source": "skill",
+      "sourceName": "连携技-失真",
+      "type": "physicalVulnerability",
+      "value": 0.1,
+      "level": "9",
+      "description": "冻结触发连携，对小范围敌人造成物理伤害并击飞；命中冻结目标时造成额外伤害并施加物理脆弱。",
+      "condition": "命中冻结目标时",
+      "duration": 6
+    },
+    {
+      "displayName": "物理脆弱-埃特拉-连携-M3",
+      "name": "失真",
+      "source": "skill",
+      "sourceName": "连携技-失真",
+      "type": "physicalVulnerability",
+      "value": 0.15,
+      "level": "M3",
+      "description": "冻结触发连携，对小范围敌人造成物理伤害并击飞；命中冻结目标时造成额外伤害并施加物理脆弱。",
+      "condition": "命中冻结目标时",
+      "duration": 6
+    },
+    {
+      "displayName": "伤害倍率提升-埃特拉-潜能",
+      "name": "延后工作",
+      "source": "potential",
+      "sourceName": "潜能3-延后工作",
+      "type": "multiplierBonus",
+      "value": 0.4,
+      "level": "potentials-3",
+      "description": "战技“凝声”制冷声波飞行距离+50%，并对首个命中敌人伤害+40%。",
+      "condition": "首个命中敌人"
+    },
+    {
+      "displayName": "意志属性提升-埃特拉-潜能",
+      "name": "生命大于任务",
+      "source": "potential",
+      "sourceName": "潜能4-生命大于任务",
+      "type": "willBoost",
+      "value": 10,
+      "level": "potentials-4",
+      "description": "意志+10，力量+10。"
+    },
+    {
+      "displayName": "力量属性提升-埃特拉-潜能",
+      "name": "生命大于任务",
+      "source": "potential",
+      "sourceName": "潜能4-生命大于任务",
+      "type": "strengthBoost",
+      "value": 10,
+      "level": "potentials-4",
+      "description": "意志+10，力量+10。"
+    }
+  ]
+}

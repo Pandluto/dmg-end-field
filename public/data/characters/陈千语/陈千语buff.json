@@ -1,0 +1,41 @@
+{
+  "name": "陈千语",
+  "buffList": [
+    "攻击力百分比提升-陈千语-5层",
+    "伤害倍率乘倍-陈千语-潜能",
+    "物理伤害加成-陈千语-潜能"
+  ],
+  "buffs": [
+    {
+      "displayName": "攻击力百分比提升-陈千语-5层",
+      "name": "斩锋",
+      "source": "talent",
+      "sourceName": "天赋-斩锋",
+      "type": "atkPercentBoost",
+      "value": 0.4,
+      "level": "breakthrough2",
+      "description": "技能命中后攻击力每层+8%，叠满5层后攻击力提升40%",
+      "condition": "叠满5层"
+    },
+    {
+      "displayName": "伤害倍率乘倍-陈千语-潜能",
+      "name": "双剑奇侠",
+      "source": "potential",
+      "sourceName": "潜能3-双剑奇侠",
+      "type": "multiplierMultiplier",
+      "value": 1.1,
+      "level": "9",
+      "description": "战技、连携技、终结技的伤害倍率提升至1.1倍"
+    },
+    {
+      "displayName": "物理伤害加成-陈千语-潜能",
+      "name": "家传武学",
+      "source": "potential",
+      "sourceName": "潜能2-家传武学",
+      "type": "physicalDmgBonus",
+      "value": 0.08,
+      "level": "9",
+      "description": "敏捷+15，造成的物理伤害+8%"
+    }
+  ]
+}

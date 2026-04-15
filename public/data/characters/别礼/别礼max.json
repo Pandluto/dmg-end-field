@@ -1,0 +1,95 @@
+{
+  "name": "别礼",
+  "nameEn": "Last Rite",
+  "rarity": 6,
+  "profession": "突击",
+  "weapon": "双手剑",
+  "element": "ice",
+  "mainStat": "力量",
+  "subStat": "意志",
+  "tags": ["输出"],
+  "position": ["输出"],
+  "attributes": {
+    "level90": { "strength": 155, "agility": 104, "intelligence": 93, "will": 109, "atk": 332, "hp": 5495 }
+  },
+  "talents": [
+    {
+      "name": "低温症",
+      "description": "消耗法术附着后施加寒冷脆弱，效果与消耗层数相关，持续15秒。",
+      "coldVulnerabilityPerConsumedStack": 0.04,
+      "duration": 15
+    },
+    {
+      "name": "低温脆性",
+      "description": "终结技「临终别礼」命中寒冷脆弱目标时，寒冷脆弱效果按倍率放大。",
+      "coldVulnerabilityMultiplierInUltimate": 1.5
+    }
+  ],
+  "potentials": [
+    { "id": 1, "name": "守墓人之赠", "description": "受到低温灌注的主控干员重击命中时额外造成20%伤害与5点失衡。" },
+    { "id": 2, "name": "零度武装", "description": "力量+20，寒冷伤害+10%。", "stats": { "strength": 20, "iceDmgBonus": 0.1 } },
+    { "id": 3, "name": "统御严冬", "description": "连携技「噬冬」和终结技「临终别礼」伤害倍率提高至1.15倍。" },
+    { "id": 4, "name": "诚挚告别", "description": "终结技「临终别礼」所需终结技能量-15%。" },
+    { "id": 5, "name": "寒风再起", "description": "战技「塞什卡的秘传」返还技力额外+5，生成幻影追击伤害倍率提升至1.2倍。" }
+  ],
+  "skills": {
+    "normalAttack": {
+      "name": "严霜之舞",
+      "type": "普通攻击",
+      "description": "至多4段寒冷伤害；主控重击25点失衡；可下落攻击与处决攻击。",
+      "hitCount": 4,
+      "damage": {
+        "9": { "hit1": 0.54, "hit2": 0.99, "hit3": 1.22, "hit4": 1.62 },
+        "M3": { "hit1": 0.68, "hit2": 1.24, "hit3": 1.53, "hit4": 2.03 }
+      },
+      "multipliers": {
+        "9": { "hit1": 0.54, "hit2": 0.99, "hit3": 1.22, "hit4": 1.62, "execute": 7.2, "plunge": 1.44 },
+        "M3": { "hit1": 0.68, "hit2": 1.24, "hit3": 1.53, "hit4": 2.03, "execute": 9.0, "plunge": 1.8 }
+      },
+      "imbalanceValue": 25
+    },
+    "skill": {
+      "name": "塞什卡的秘传",
+      "type": "战技",
+      "description": "对主控武器进行低温灌注并返还技力，下一次重击触发幻影追击造成寒冷伤害并施加寒冷附着。",
+      "hitCount": 1,
+      "damage": {
+        "9": { "hit1": 2.56 },
+        "M3": { "hit1": 3.2 }
+      },
+      "multipliers": {
+        "9": { "phantomDamage": 2.56, "energyRefund": 30, "duration": 15, "ultimateEnergyGain": 16 },
+        "M3": { "phantomDamage": 3.2, "energyRefund": 30, "duration": 15, "ultimateEnergyGain": 16 }
+      }
+    },
+    "chainSkill": {
+      "name": "噬冬",
+      "type": "连携技",
+      "description": "目标3层及以上寒冷附着时可发动，消耗全部寒冷附着造成寒冷伤害并按层数获取终结技能量。",
+      "hitCount": 1,
+      "damage": {
+        "9": { "hit1": 1.28 },
+        "M3": { "hit1": 1.6 }
+      },
+      "multipliers": {
+        "9": { "cooldown": 9, "spikeDamage": 1.28, "slashBaseDamage": 1.28, "slashImbalance": 15, "extraDamagePerStack": 1.92, "baseUltimateEnergyGain": 40, "extraUltimateEnergyPerStack": 15 },
+        "M3": { "cooldown": 8, "spikeDamage": 1.6, "slashBaseDamage": 1.6, "slashImbalance": 15, "extraDamagePerStack": 2.4, "baseUltimateEnergyGain": 40, "extraUltimateEnergyPerStack": 15 }
+      }
+    },
+    "ultimate": {
+      "name": "临终别礼",
+      "type": "终结技",
+      "description": "披霜铠凝冰镰进行三次斩击，状态下免疫伤害；仅能从自身战技和连携技获得终结技能量。",
+      "hitCount": 3,
+      "damage": {
+        "9": { "hit1": 3.2, "hit2": 3.2, "hit3": 6.4 },
+        "M3": { "hit1": 4.0, "hit2": 4.0, "hit3": 8.0 }
+      },
+      "multipliers": {
+        "9": { "energy": 240, "hit1Damage": 3.2, "hit1Imbalance": 5, "hit2Damage": 3.2, "hit2Imbalance": 5, "hit3Damage": 6.4, "hit3Imbalance": 10 },
+        "M3": { "energy": 240, "hit1Damage": 4.0, "hit1Imbalance": 5, "hit2Damage": 4.0, "hit2Imbalance": 5, "hit3Damage": 8.0, "hit3Imbalance": 10 }
+      },
+      "imbalanceValue": 10
+    }
+  }
+}

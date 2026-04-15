@@ -1,0 +1,74 @@
+{
+  "name": "管理员",
+  "buffList": [
+    "攻击力百分比提升-管理员-本质瓦解",
+    "攻击力百分比提升-管理员-权能映射",
+    "额外倍率-管理员-战技",
+    "额外倍率-管理员-终结技",
+    "额外倍率-管理员-战技-专3",
+    "额外倍率-管理员-终结技-专3"
+  ],
+  "buffs": [
+    {
+      "displayName": "攻击力百分比提升-管理员-本质瓦解",
+      "name": "本质瓦解",
+      "source": "talent",
+      "sourceName": "天赋-本质瓦解",
+      "type": "atkPercentBoost",
+      "value": 0.3,
+      "level": "breakthrough2",
+      "description": "敌人附着的源石结晶被消耗后，自身攻击力提升"
+    },
+    {
+      "displayName": "攻击力百分比提升-管理员-权能映射",
+      "name": "权能映射",
+      "source": "potential",
+      "sourceName": "潜能2-权能映射",
+      "type": "atkPercentBoost",
+      "value": 0.15,
+      "level": "9",
+      "description": "天赋本质瓦解生效时，其他友方干员获得一半攻击力提升",
+      "condition": "天赋本质瓦解生效时"
+    },
+    {
+      "displayName": "额外倍率-管理员-战技",
+      "name": "锁闭序列",
+      "source": "skill",
+      "sourceName": "连携技-锁闭序列",
+      "type": "multiplierBoost",
+      "value": 3.2,
+      "level": "9",
+      "description": "破防/物理异常会击碎结晶造成额外伤害"
+    },
+    {
+      "displayName": "额外倍率-管理员-终结技",
+      "name": "轰击序列",
+      "source": "skill",
+      "sourceName": "终结技-轰击序列",
+      "type": "multiplierBoost",
+      "value": 4.8,
+      "level": "9",
+      "description": "消耗源石结晶触发额外伤害"
+    },
+    {
+      "displayName": "额外倍率-管理员-战技-专3",
+      "name": "锁闭序列",
+      "source": "skill",
+      "sourceName": "连携技-锁闭序列",
+      "type": "multiplierBoost",
+      "value": 4.0,
+      "level": "M3",
+      "description": "破防/物理异常会击碎结晶造成额外伤害"
+    },
+    {
+      "displayName": "额外倍率-管理员-终结技-专3",
+      "name": "轰击序列",
+      "source": "skill",
+      "sourceName": "终结技-轰击序列",
+      "type": "multiplierBoost",
+      "value": 6.0,
+      "level": "M3",
+      "description": "消耗源石结晶触发额外伤害"
+    }
+  ]
+}

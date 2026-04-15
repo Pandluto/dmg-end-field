@@ -1,0 +1,55 @@
+{
+  "name": "白夜新星",
+  "buffList": [
+    "源石技艺强度-白夜新星-施加异常-4",
+    "源石技艺强度-白夜新星-施加异常-9",
+    "法术伤害加成-白夜新星-施加异常-4",
+    "法术伤害加成-白夜新星-施加异常-9"
+  ],
+  "buffs": [
+    {
+      "displayName": "源石技艺强度-白夜新星-施加异常-4",
+      "name": "附术·白夜新星",
+      "source": "skill",
+      "sourceName": "skill3-附术·白夜新星",
+      "type": "sourceSkillBoost",
+      "value": 40,
+      "level": "4",
+      "description": "法术伤害 +19.2% 。 装备者施加 燃烧 或 导电 后，法术伤害 +19.2% ，源石技艺强度 +40 ，持续15秒。 同名效果无法叠加。",
+      "condition": "施加燃烧或导电后触发；同名效果无法叠加"
+    },
+    {
+      "displayName": "源石技艺强度-白夜新星-施加异常-9",
+      "name": "附术·白夜新星",
+      "source": "skill",
+      "sourceName": "skill3-附术·白夜新星",
+      "type": "sourceSkillBoost",
+      "value": 70,
+      "level": "9",
+      "description": "法术伤害 +33.6% 。 装备者施加 燃烧 或 导电 后，法术伤害 +33.6% ，源石技艺强度 +70 ，持续15秒。 同名效果无法叠加。",
+      "condition": "施加燃烧或导电后触发；同名效果无法叠加"
+    },
+    {
+      "displayName": "法术伤害加成-白夜新星-施加异常-4",
+      "name": "附术·白夜新星",
+      "source": "skill",
+      "sourceName": "skill3-附术·白夜新星",
+      "type": "artsDmgBonus",
+      "value": 0.192,
+      "level": "4",
+      "description": "法术伤害 +19.2% 。 装备者施加 燃烧 或 导电 后，法术伤害 +19.2% ，源石技艺强度 +40 ，持续15秒。 同名效果无法叠加。",
+      "condition": "施加燃烧或导电后触发；同名效果无法叠加"
+    },
+    {
+      "displayName": "法术伤害加成-白夜新星-施加异常-9",
+      "name": "附术·白夜新星",
+      "source": "skill",
+      "sourceName": "skill3-附术·白夜新星",
+      "type": "artsDmgBonus",
+      "value": 0.336,
+      "level": "9",
+      "description": "法术伤害 +33.6% 。 装备者施加 燃烧 或 导电 后，法术伤害 +33.6% ，源石技艺强度 +70 ，持续15秒。 同名效果无法叠加。",
+      "condition": "施加燃烧或导电后触发；同名效果无法叠加"
+    }
+  ]
+}

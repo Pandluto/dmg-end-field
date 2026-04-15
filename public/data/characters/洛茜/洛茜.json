@@ -1,0 +1,556 @@
+{
+  "name": "洛茜",
+  "nameEn": "Rossi",
+  "rarity": 6,
+  "profession": "近卫",
+  "weapon": "单手剑",
+  "element": "physical",
+  "mainStat": "敏捷",
+  "subStat": "智识",
+  "tags": [
+    "击飞",
+    "暴击",
+    "大量伤害"
+  ],
+  "position": [
+    "物理破防",
+    "物理异常",
+    "输出"
+  ],
+  "attributes": {
+    "level1": {
+      "strength": 9,
+      "agility": 23,
+      "intelligence": 14,
+      "will": 9,
+      "atk": 30,
+      "hp": 500
+    },
+    "level20": {
+      "strength": 28,
+      "agility": 55,
+      "intelligence": 36,
+      "will": 26,
+      "atk": 93,
+      "hp": 1566
+    },
+    "level40": {
+      "strength": 48,
+      "agility": 90,
+      "intelligence": 59,
+      "will": 44,
+      "atk": 159,
+      "hp": 2689
+    },
+    "level60": {
+      "strength": 68,
+      "agility": 124,
+      "intelligence": 83,
+      "will": 62,
+      "atk": 225,
+      "hp": 3811
+    },
+    "level80": {
+      "strength": 88,
+      "agility": 159,
+      "intelligence": 106,
+      "will": 80,
+      "atk": 291,
+      "hp": 4934
+    },
+    "level90": {
+      "strength": 97,
+      "agility": 176,
+      "intelligence": 118,
+      "will": 89,
+      "atk": 323,
+      "hp": 5495
+    }
+  },
+  "talents": [
+    {
+      "name": "斫痕",
+      "description": "战技“血红之影”的狼之珀命中后施加爪印斫痕，目标持续受到物理持续伤害，并提高其受到的物理/灼热伤害。",
+      "levels": {
+        "breakthrough1": {
+          "duration": 15,
+          "dotAtkScalePerSec": 0.25,
+          "physicalVulnerability": 0.06,
+          "fireVulnerability": 0.06
+        },
+        "breakthrough2": {
+          "duration": 25,
+          "dotAtkScalePerSec": 0.3,
+          "physicalVulnerability": 0.12,
+          "fireVulnerability": 0.12
+        }
+      }
+    },
+    {
+      "name": "沸血",
+      "description": "对爪印斫痕目标的技能暴击会触发额外灼热伤害并回复生命，若目标处于燃烧则效果提升。",
+      "levels": {
+        "breakthrough2": {
+          "extraFireDamageScale": 0.12,
+          "healByIntelligenceScale": 0.04,
+          "burningBonusMultiplier": 1.5
+        },
+        "breakthrough3": {
+          "extraFireDamageScale": 0.24,
+          "healByIntelligenceScale": 0.08,
+          "burningBonusMultiplier": 1.5
+        }
+      }
+    }
+  ],
+  "potentials": [
+    {
+      "id": 1,
+      "name": "憧憬的起点",
+      "description": "战技“血红之影”和连携技“燎影时刻”的伤害倍率提升至1.15倍；战技释放的狼之珀命中后返还10点技力。"
+    },
+    {
+      "id": 2,
+      "name": "理想的距离",
+      "description": "敏捷+20，暴击率+7%。",
+      "stats": {
+        "agility": 20,
+        "critRate": 0.07
+      }
+    },
+    {
+      "id": 3,
+      "name": "有形的责任",
+      "description": "天赋“沸血”效果加强：触发基础伤害倍率+8%，回复基础生命值+[智识×0.04]。"
+    },
+    {
+      "id": 4,
+      "name": "纯真的心愿",
+      "description": "终结技“利爪”奇袭所需终结技能量-15%。"
+    },
+    {
+      "id": 5,
+      "name": "传说的终点",
+      "description": "终结技“利爪”奇袭伤害倍率提升至1.1倍，暴击伤害额外+30%。"
+    }
+  ],
+  "skills": {
+    "normalAttack": {
+      "name": "沸腾狼血",
+      "type": "普通攻击",
+      "description": "至多5段物理伤害；作为主控时重击造成18点失衡；可下落攻击与处决攻击。",
+      "multipliers": {
+        "1": {
+          "hit1": 0.27,
+          "hit2": 0.32,
+          "hit3": 0.34,
+          "hit4": 0.41,
+          "hit5": 0.5,
+          "execute": 4.0,
+          "plunge": 0.8
+        },
+        "2": {
+          "hit1": 0.3,
+          "hit2": 0.35,
+          "hit3": 0.37,
+          "hit4": 0.45,
+          "hit5": 0.55,
+          "execute": 4.4,
+          "plunge": 0.88
+        },
+        "3": {
+          "hit1": 0.32,
+          "hit2": 0.38,
+          "hit3": 0.41,
+          "hit4": 0.49,
+          "hit5": 0.6,
+          "execute": 4.8,
+          "plunge": 0.96
+        },
+        "4": {
+          "hit1": 0.35,
+          "hit2": 0.41,
+          "hit3": 0.44,
+          "hit4": 0.53,
+          "hit5": 0.65,
+          "execute": 5.2,
+          "plunge": 1.04
+        },
+        "5": {
+          "hit1": 0.38,
+          "hit2": 0.44,
+          "hit3": 0.48,
+          "hit4": 0.57,
+          "hit5": 0.7,
+          "execute": 5.6,
+          "plunge": 1.12
+        },
+        "6": {
+          "hit1": 0.41,
+          "hit2": 0.47,
+          "hit3": 0.51,
+          "hit4": 0.61,
+          "hit5": 0.75,
+          "execute": 6.0,
+          "plunge": 1.2
+        },
+        "7": {
+          "hit1": 0.43,
+          "hit2": 0.5,
+          "hit3": 0.54,
+          "hit4": 0.65,
+          "hit5": 0.8,
+          "execute": 6.4,
+          "plunge": 1.28
+        },
+        "8": {
+          "hit1": 0.46,
+          "hit2": 0.54,
+          "hit3": 0.58,
+          "hit4": 0.69,
+          "hit5": 0.85,
+          "execute": 6.8,
+          "plunge": 1.36
+        },
+        "9": {
+          "hit1": 0.49,
+          "hit2": 0.57,
+          "hit3": 0.61,
+          "hit4": 0.73,
+          "hit5": 0.9,
+          "execute": 7.2,
+          "plunge": 1.44
+        },
+        "M1": {
+          "hit1": 0.52,
+          "hit2": 0.61,
+          "hit3": 0.65,
+          "hit4": 0.78,
+          "hit5": 0.96,
+          "execute": 7.7,
+          "plunge": 1.54
+        },
+        "M2": {
+          "hit1": 0.56,
+          "hit2": 0.65,
+          "hit3": 0.71,
+          "hit4": 0.84,
+          "hit5": 1.04,
+          "execute": 8.3,
+          "plunge": 1.66
+        },
+        "M3": {
+          "hit1": 0.61,
+          "hit2": 0.71,
+          "hit3": 0.77,
+          "hit4": 0.91,
+          "hit5": 1.13,
+          "execute": 9.0,
+          "plunge": 1.8
+        }
+      },
+      "imbalanceValue": 18
+    },
+    "skill": {
+      "name": "血红之影",
+      "type": "战技",
+      "description": "冲向目标造成物理伤害并施加击飞；若目标已破防会额外触发狼之珀造成灼热伤害。",
+      "multipliers": {
+        "1": {
+          "hit1": 0.85,
+          "hit1Imbalance": 5,
+          "hit2": 1.28,
+          "hit2Imbalance": 10
+        },
+        "2": {
+          "hit1": 0.94,
+          "hit1Imbalance": 5,
+          "hit2": 1.41,
+          "hit2Imbalance": 10
+        },
+        "3": {
+          "hit1": 1.02,
+          "hit1Imbalance": 5,
+          "hit2": 1.53,
+          "hit2Imbalance": 10
+        },
+        "4": {
+          "hit1": 1.11,
+          "hit1Imbalance": 5,
+          "hit2": 1.66,
+          "hit2Imbalance": 10
+        },
+        "5": {
+          "hit1": 1.19,
+          "hit1Imbalance": 5,
+          "hit2": 1.79,
+          "hit2Imbalance": 10
+        },
+        "6": {
+          "hit1": 1.28,
+          "hit1Imbalance": 5,
+          "hit2": 1.92,
+          "hit2Imbalance": 10
+        },
+        "7": {
+          "hit1": 1.37,
+          "hit1Imbalance": 5,
+          "hit2": 2.04,
+          "hit2Imbalance": 10
+        },
+        "8": {
+          "hit1": 1.45,
+          "hit1Imbalance": 5,
+          "hit2": 2.17,
+          "hit2Imbalance": 10
+        },
+        "9": {
+          "hit1": 1.54,
+          "hit1Imbalance": 5,
+          "hit2": 2.3,
+          "hit2Imbalance": 12
+        },
+        "M1": {
+          "hit1": 1.64,
+          "hit1Imbalance": 5,
+          "hit2": 2.46,
+          "hit2Imbalance": 12
+        },
+        "M2": {
+          "hit1": 1.77,
+          "hit1Imbalance": 5,
+          "hit2": 2.65,
+          "hit2Imbalance": 12
+        },
+        "M3": {
+          "hit1": 1.92,
+          "hit1Imbalance": 5,
+          "hit2": 2.88,
+          "hit2Imbalance": 15
+        }
+      },
+      "imbalanceValue": 15,
+      "abnormalType": "launch"
+    },
+    "chainSkill": {
+      "name": "燎影时刻",
+      "type": "连携技",
+      "description": "满足条件可连续发动两次；第二次可消耗附着层数造成额外伤害并提供暴击增益。",
+      "multipliers": {
+        "1": {
+          "cooldown": 15,
+          "hit1": 0.67,
+          "hit2": 1.33,
+          "extraPerStack": 0.8,
+          "hit2Imbalance": 5,
+          "critRateBonus": 0.15,
+          "critDmgBonus": 0.3,
+          "buffDuration": 15
+        },
+        "2": {
+          "cooldown": 15,
+          "hit1": 0.73,
+          "hit2": 1.47,
+          "extraPerStack": 0.88,
+          "hit2Imbalance": 5,
+          "critRateBonus": 0.15,
+          "critDmgBonus": 0.3,
+          "buffDuration": 15
+        },
+        "3": {
+          "cooldown": 15,
+          "hit1": 0.8,
+          "hit2": 1.6,
+          "extraPerStack": 0.96,
+          "hit2Imbalance": 5,
+          "critRateBonus": 0.15,
+          "critDmgBonus": 0.3,
+          "buffDuration": 15
+        },
+        "4": {
+          "cooldown": 15,
+          "hit1": 0.87,
+          "hit2": 1.73,
+          "extraPerStack": 1.04,
+          "hit2Imbalance": 5,
+          "critRateBonus": 0.17,
+          "critDmgBonus": 0.34,
+          "buffDuration": 15
+        },
+        "5": {
+          "cooldown": 15,
+          "hit1": 0.93,
+          "hit2": 1.87,
+          "extraPerStack": 1.12,
+          "hit2Imbalance": 5,
+          "critRateBonus": 0.17,
+          "critDmgBonus": 0.34,
+          "buffDuration": 15
+        },
+        "6": {
+          "cooldown": 15,
+          "hit1": 1.0,
+          "hit2": 2.0,
+          "extraPerStack": 1.2,
+          "hit2Imbalance": 5,
+          "critRateBonus": 0.17,
+          "critDmgBonus": 0.34,
+          "buffDuration": 15
+        },
+        "7": {
+          "cooldown": 15,
+          "hit1": 1.07,
+          "hit2": 2.13,
+          "extraPerStack": 1.28,
+          "hit2Imbalance": 5,
+          "critRateBonus": 0.19,
+          "critDmgBonus": 0.38,
+          "buffDuration": 15
+        },
+        "8": {
+          "cooldown": 15,
+          "hit1": 1.13,
+          "hit2": 2.27,
+          "extraPerStack": 1.36,
+          "hit2Imbalance": 5,
+          "critRateBonus": 0.19,
+          "critDmgBonus": 0.38,
+          "buffDuration": 15
+        },
+        "9": {
+          "cooldown": 15,
+          "hit1": 1.2,
+          "hit2": 2.4,
+          "extraPerStack": 1.44,
+          "hit2Imbalance": 5,
+          "critRateBonus": 0.21,
+          "critDmgBonus": 0.42,
+          "buffDuration": 15
+        },
+        "M1": {
+          "cooldown": 15,
+          "hit1": 1.28,
+          "hit2": 2.57,
+          "extraPerStack": 1.54,
+          "hit2Imbalance": 5,
+          "critRateBonus": 0.21,
+          "critDmgBonus": 0.42,
+          "buffDuration": 15
+        },
+        "M2": {
+          "cooldown": 15,
+          "hit1": 1.38,
+          "hit2": 2.77,
+          "extraPerStack": 1.66,
+          "hit2Imbalance": 5,
+          "critRateBonus": 0.23,
+          "critDmgBonus": 0.46,
+          "buffDuration": 15
+        },
+        "M3": {
+          "cooldown": 14,
+          "hit1": 1.5,
+          "hit2": 3.0,
+          "extraPerStack": 1.8,
+          "hit2Imbalance": 5,
+          "critRateBonus": 0.25,
+          "critDmgBonus": 0.5,
+          "buffDuration": 15
+        }
+      },
+      "abnormalType": "launch"
+    },
+    "ultimate": {
+      "name": "“利爪”奇袭",
+      "type": "终结技",
+      "description": "短时间多段灼热伤害后接两段高伤斩击并施加灼热附着，暴击时暴伤更高。",
+      "multipliers": {
+        "1": {
+          "energy": 110,
+          "stabTotal": 2.75,
+          "slash1": 1.11,
+          "slash2": 3.33,
+          "critDmgBonus": 0.6
+        },
+        "2": {
+          "energy": 110,
+          "stabTotal": 3.0,
+          "slash1": 1.22,
+          "slash2": 3.67,
+          "critDmgBonus": 0.6
+        },
+        "3": {
+          "energy": 110,
+          "stabTotal": 3.25,
+          "slash1": 1.33,
+          "slash2": 4.0,
+          "critDmgBonus": 0.6
+        },
+        "4": {
+          "energy": 110,
+          "stabTotal": 3.5,
+          "slash1": 1.44,
+          "slash2": 4.33,
+          "critDmgBonus": 0.6
+        },
+        "5": {
+          "energy": 110,
+          "stabTotal": 3.75,
+          "slash1": 1.56,
+          "slash2": 4.67,
+          "critDmgBonus": 0.6
+        },
+        "6": {
+          "energy": 110,
+          "stabTotal": 4.0,
+          "slash1": 1.67,
+          "slash2": 5.0,
+          "critDmgBonus": 0.6
+        },
+        "7": {
+          "energy": 110,
+          "stabTotal": 4.25,
+          "slash1": 1.78,
+          "slash2": 5.34,
+          "critDmgBonus": 0.6
+        },
+        "8": {
+          "energy": 110,
+          "stabTotal": 4.5,
+          "slash1": 1.89,
+          "slash2": 5.67,
+          "critDmgBonus": 0.6
+        },
+        "9": {
+          "energy": 110,
+          "stabTotal": 4.75,
+          "slash1": 2.0,
+          "slash2": 6.0,
+          "critDmgBonus": 0.6
+        },
+        "M1": {
+          "energy": 110,
+          "stabTotal": 5.25,
+          "slash1": 2.14,
+          "slash2": 6.42,
+          "critDmgBonus": 0.6
+        },
+        "M2": {
+          "energy": 110,
+          "stabTotal": 5.5,
+          "slash1": 2.31,
+          "slash2": 6.92,
+          "critDmgBonus": 0.6
+        },
+        "M3": {
+          "energy": 110,
+          "stabTotal": 6.0,
+          "slash1": 2.5,
+          "slash2": 7.5,
+          "critDmgBonus": 0.6
+        }
+      },
+      "imbalanceValue": 25
+    }
+  }
+}

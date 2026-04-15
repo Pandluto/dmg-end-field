@@ -1,0 +1,55 @@
+{
+  "name": "J.E.T.",
+  "buffList": [
+    "法术伤害加成-J.E.T.-战技-4",
+    "法术伤害加成-J.E.T.-连携技-4",
+    "法术伤害加成-J.E.T.-战技-9",
+    "法术伤害加成-J.E.T.-连携技-9"
+  ],
+  "buffs": [
+    {
+      "displayName": "法术伤害加成-J.E.T.-战技-4",
+      "name": "压制·太空物理学",
+      "source": "skill",
+      "sourceName": "skill3-压制·太空物理学",
+      "type": "artsDmgBonus",
+      "value": 0.192,
+      "level": "4",
+      "description": "法术伤害 +19.2% 。 装备者施放战技时，获得法术伤害 +19.2% ，持续15秒；装备者施放连携技时，获得法术伤害 +19.2% ，持续15秒。 两种效果独立生效，且均无法叠加。",
+      "condition": "施放战技后触发"
+    },
+    {
+      "displayName": "法术伤害加成-J.E.T.-连携技-4",
+      "name": "压制·太空物理学",
+      "source": "skill",
+      "sourceName": "skill3-压制·太空物理学",
+      "type": "artsDmgBonus",
+      "value": 0.192,
+      "level": "4",
+      "description": "法术伤害 +19.2% 。 装备者施放战技时，获得法术伤害 +19.2% ，持续15秒；装备者施放连携技时，获得法术伤害 +19.2% ，持续15秒。 两种效果独立生效，且均无法叠加。",
+      "condition": "施放连携技后触发"
+    },
+    {
+      "displayName": "法术伤害加成-J.E.T.-战技-9",
+      "name": "压制·太空物理学",
+      "source": "skill",
+      "sourceName": "skill3-压制·太空物理学",
+      "type": "artsDmgBonus",
+      "value": 0.336,
+      "level": "9",
+      "description": "法术伤害 +33.6% 。 装备者施放战技时，获得法术伤害 +33.6% ，持续15秒；装备者施放连携技时，获得法术伤害 +33.6% ，持续15秒。 两种效果独立生效，且均无法叠加。",
+      "condition": "施放战技后触发"
+    },
+    {
+      "displayName": "法术伤害加成-J.E.T.-连携技-9",
+      "name": "压制·太空物理学",
+      "source": "skill",
+      "sourceName": "skill3-压制·太空物理学",
+      "type": "artsDmgBonus",
+      "value": 0.336,
+      "level": "9",
+      "description": "法术伤害 +33.6% 。 装备者施放战技时，获得法术伤害 +33.6% ，持续15秒；装备者施放连携技时，获得法术伤害 +33.6% ，持续15秒。 两种效果独立生效，且均无法叠加。",
+      "condition": "施放连携技后触发"
+    }
+  ]
+}

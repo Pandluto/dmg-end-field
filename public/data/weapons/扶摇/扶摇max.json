@@ -1,0 +1,58 @@
+{
+  "name": "扶摇",
+  "rarity": 6,
+  "description": "宏山选剑局的高端佩剑产品，用于表彰有突出贡献的人士，命名由宏科院内部征集确定。",
+  "attackGrowth": {
+    "1": 50,
+    "80": 445,
+    "90": 495
+  },
+  "skills": {
+    "skill1": {
+      "name": "主能力提升·大",
+      "statType": "mainStat",
+      "levels": {
+        "7": {
+          "value": 98,
+          "description": "数值+98"
+        },
+        "9": {
+          "value": 132,
+          "description": "数值+132"
+        }
+      }
+    },
+    "skill2": {
+      "name": "暴击率提升·大",
+      "statType": "critRate",
+      "levels": {
+        "7": {
+          "value": 0.145,
+          "description": "暴击率+14.5%"
+        },
+        "9": {
+          "value": 0.195,
+          "description": "暴击率+19.5%"
+        }
+      }
+    },
+    "skill3": {
+      "name": "夜幕·青云",
+      "statType": "special",
+      "levels": {
+        "4": {
+          "description": "战技和终结技造成的物理伤害 +24.0% 。 对处于 失衡 状态的敌人造成的伤害 +56.0% 。",
+          "passive": {
+            "physicalDmgBonus": 0.24
+          }
+        },
+        "9": {
+          "description": "战技和终结技造成的物理伤害 +42.0% 。 对处于 失衡 状态的敌人造成的伤害 +98.0% 。",
+          "passive": {
+            "physicalDmgBonus": 0.42
+          }
+        }
+      }
+    }
+  }
+}

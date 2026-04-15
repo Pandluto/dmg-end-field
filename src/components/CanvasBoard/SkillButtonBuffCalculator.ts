@@ -1,0 +1,293 @@
+/**
+ * 技能按钮 Buff 计算模块
+ * 将 Buff 汇总计算逻辑独立出来，便于维护和复用
+ */
+
+import { SkillButtonBuff } from '../../hooks/useSkillButtonBuffs';
+
+/**
+ * Buff 汇总计算结果
+ * 用于伤害计算，所有值为原始小数（0.32 表示 32%）
+ */
+export interface BuffCalculationResult {
+  // 攻击力乘区
+  atkPercentBoost: number;   // 总攻击力百分比提升
+  flatAtk: number;           // 总固定攻击力
+  mainStatBoost: number;      // 总主属性提升
+  subStatBoost: number;       // 总副属性提升
+  allStatBoost: number;       // 总全属性提升
+  strengthBoost: number;      // 总力量提升
+  agilityBoost: number;       // 总敏捷提升
+  intelligenceBoost: number;  // 总智识提升
+  willBoost: number;          // 总意志提升
+
+  // 伤害加成区
+  physicalDmgBonus: number;   // 总物理伤害加成
+  magicDmgBonus: number;      // 总法术伤害加成
+  fireDmgBonus: number;       // 总灼热伤害加成
+  electricDmgBonus: number;   // 总电磁伤害加成
+  iceDmgBonus: number;        // 总寒冷伤害加成
+  natureDmgBonus: number;      // 总自然伤害加成
+  allElementDmgBonus: number; // 总全元素伤害加成
+  skillDmgBonus: number;      // 总战技伤害加成
+  chainSkillDmgBonus: number; // 总连携技伤害加成
+  ultimateDmgBonus: number;   // 总终结技伤害加成
+  normalAttackDmgBonus: number; // 总普攻伤害加成
+  allSkillDmgBonus: number; // 总所有技能伤害加成
+  
+  // 暴击区
+  critRateBoost: number;     // 总暴击率提升
+  critDmgBonusBoost: number;  // 总暴击伤害提升
+
+  // 脆弱区（Vulnerability）
+  physicalFragile: number;   // 总物理脆弱
+  fireFragile: number;        // 总灼热脆弱
+  electricFragile: number;   // 总电磁脆弱
+  iceFragile: number;        // 总寒冷脆弱
+  natureFragile: number;      // 总自然脆弱
+  magicFragile: number;      // 总法术脆弱
+
+  // 易伤区（Fragile）
+  physicalVulnerability: number;   // 总物理易伤
+  fireVulnerability: number;        // 总灼热易伤
+  electricVulnerability: number;   // 总电磁易伤
+  iceVulnerability: number;        // 总寒冷易伤
+  natureVulnerability: number;      // 总自然易伤
+  magicTakenDmgBonus: number;     // 总法术易伤
+
+  // 连击区（独立区域）
+  comboDamageBonus: number;        // 总连击增伤
+
+  // 伤害倍率区
+  multiplierBonus: number;       // 总伤害倍率提升（加法）
+  multiplierMultiplier: number;   // 总伤害倍率乘倍（乘法，初始为 1）
+
+  // 其他
+  sourceSkillBoost: number;   // 总源石技艺强度提升
+}
+
+/**
+ * 元素类型标签映射
+ * 用于显示元素名称
+ */
+export const ELEMENT_LABELS: Record<string, string> = {
+  ice: '寒冷',
+  fire: '灼热',
+  electric: '电磁',
+  physical: '物理',
+  nature: '自然',
+  magic: '法术',
+};
+
+/**
+ * 从 Buff 列表汇总计算各区加成
+ * @param buffs - 已选 Buff 列表
+ * @returns Buff 汇总计算结果
+ */
+export function calculateBuffTotals(buffs: SkillButtonBuff[]): BuffCalculationResult {
+  // 初始化结果，所有值默认为 0（乘法类初始为 1）
+  const result: BuffCalculationResult = {
+    atkPercentBoost: 0,
+    flatAtk: 0,
+    mainStatBoost: 0,
+    subStatBoost: 0,
+    allStatBoost: 0,
+    strengthBoost: 0,
+    agilityBoost: 0,
+    intelligenceBoost: 0,
+    willBoost: 0,
+    physicalDmgBonus: 0,
+    magicDmgBonus: 0,
+    fireDmgBonus: 0,
+    electricDmgBonus: 0,
+    iceDmgBonus: 0,
+    natureDmgBonus: 0,
+    allElementDmgBonus: 0,
+    skillDmgBonus: 0,
+    chainSkillDmgBonus: 0,
+    ultimateDmgBonus: 0,
+    normalAttackDmgBonus: 0,
+    allSkillDmgBonus: 0,
+    critRateBoost: 0,
+    critDmgBonusBoost: 0,
+    // 脆弱区
+    physicalFragile: 0,
+    fireFragile: 0,
+    electricFragile: 0,
+    iceFragile: 0,
+    natureFragile: 0,
+    magicFragile: 0,
+    // 易伤区
+    physicalVulnerability: 0,
+    fireVulnerability: 0,
+    electricVulnerability: 0,
+    iceVulnerability: 0,
+    natureVulnerability: 0,
+    magicTakenDmgBonus: 0,
+    // 连击区
+    comboDamageBonus: 0,
+    // 伤害倍率区
+    multiplierBonus: 0,
+    multiplierMultiplier: 1,  // 乘法初始为 1
+    sourceSkillBoost: 0,
+  };
+
+  buffs.forEach(buff => {
+    if (buff.type && buff.value !== undefined) {
+      const v = buff.value;
+      console.log("检索到buff",buff.type,":", v);
+      switch (buff.type) {
+        case 'atkPercentBoost': result.atkPercentBoost += v; break;
+        case 'mainStatBoost': result.mainStatBoost += v; break;
+        case 'subStatBoost': result.subStatBoost += v; break;
+        case 'allStatBoost': result.allStatBoost += v; break;
+        case 'strengthBoost': result.strengthBoost += v; break;
+        case 'agilityBoost': result.agilityBoost += v; break;
+        case 'intelligenceBoost': result.intelligenceBoost += v; break;
+        case 'willBoost': result.willBoost += v; break;
+        case 'physicalDmgBonus': result.physicalDmgBonus += v; break;
+        case 'magicDmgBonus': result.magicDmgBonus += v; break;
+        case 'fireDmgBonus': result.fireDmgBonus += v; break;
+        case 'electricDmgBonus': result.electricDmgBonus += v; break;
+        case 'iceDmgBonus': result.iceDmgBonus += v; break;
+        case 'natureDmgBonus': result.natureDmgBonus += v; break;
+        case 'allElementDmgBonus': result.allElementDmgBonus += v; break;
+        case 'skillDmgBonus': result.skillDmgBonus += v; break;
+        case 'chainSkillDmgBonus': result.chainSkillDmgBonus += v; break;
+        case 'ultimateDmgBonus': result.ultimateDmgBonus += v; break;
+        case 'normalAttackDmgBonus': result.normalAttackDmgBonus += v; break;
+        case 'allSkillDmgBonus': result.allSkillDmgBonus += v; break;
+        case 'critRateBoost': result.critRateBoost += v; break;
+        case 'critDmgBonusBoost': result.critDmgBonusBoost += v; break;
+        case 'physicalFragile': result.physicalFragile += v; break;
+        case 'fireFragile': result.fireFragile += v; break;
+        case 'electricFragile': result.electricFragile += v; break;
+        case 'iceFragile': result.iceFragile += v; break;
+        case 'natureFragile': result.natureFragile += v; break;
+        case 'magicFragile': result.magicFragile += v; break;
+        case 'physicalVulnerability': result.physicalVulnerability += v; break;
+        case 'fireVulnerability': result.fireVulnerability += v; break;
+        case 'electricVulnerability': result.electricVulnerability += v; break;
+        case 'iceVulnerability': result.iceVulnerability += v; break;
+        case 'natureVulnerability': result.natureVulnerability += v; break;
+        case 'magicTakenDmgBonus': result.magicTakenDmgBonus += v; break;
+        case 'comboDamageBonus': result.comboDamageBonus += v; break;
+        case 'multiplierBonus': result.multiplierBonus += v; break;
+        case 'multiplierMultiplier': result.multiplierMultiplier *= buff.value ?? 1; break;
+        case 'sourceSkillBoost': result.sourceSkillBoost += v; break;
+      }
+    }
+  });
+  console.log("检索后结果：",result);
+  return result;
+}
+
+/**
+ * !!!
+ * 根据干员元素属性和技能类型，计算伤害加成区
+ * @param characterElement - 干员元素属性（如 'ice', 'physical'）
+ * @param skillType - 技能类型（'A', 'B', 'E', 'Q'）
+ * @param parsedDamageBonus - 从 infoSnapshot 解析的伤害加成
+ * @param buffTotals - Buff 汇总结果
+ * @returns 元素伤害加成值（小数）
+ */
+export function calculateElementDmgBonus(
+  characterElement: string | undefined,
+  parsedDamageBonus: Record<string, number>,
+  buffTotals: BuffCalculationResult
+): number {
+  const isPhysical = characterElement === 'physical';
+
+  if (isPhysical) {
+    return (parsedDamageBonus.physicalDmgBonus || 0) + (buffTotals.physicalDmgBonus || 0);
+  } else {
+    const elementKey = `${characterElement}DmgBonus`;
+    const elementBonusFromBuff = (buffTotals[elementKey as keyof BuffCalculationResult] || 0) as number;
+    const elementBonusFromPanel = (parsedDamageBonus[elementKey] || 0) as number;
+
+    const elementBonus =
+      elementBonusFromBuff +
+      (buffTotals.magicDmgBonus || 0) +
+      (buffTotals.allElementDmgBonus || 0) +
+      elementBonusFromPanel +
+      (parsedDamageBonus.allElementDmgBonus || 0) +
+      (parsedDamageBonus.allDmgBonus || 0);
+    console.log("elementKey:", elementKey, " elementBonus:", elementBonus);
+    return elementBonus;
+  }
+} 
+
+/**
+ * 根据技能类型，计算技能伤害加成
+ * @param skillType - 技能类型
+ * @param parsedDamageBonus - 从 infoSnap 解析的伤害加成（面板基础值）
+ * @param buffTotals - Buff 汇总结果
+ * @returns 技能伤害加成值（小数）
+ */
+export function calculateSkillDmgBonus(
+  skillType: string,
+  parsedDamageBonus: Record<string, number>,
+  buffTotals: BuffCalculationResult
+): number {
+  switch (skillType) {
+    case 'A':
+      return parsedDamageBonus.normalAttackDmgBonus + buffTotals.normalAttackDmgBonus;
+    case 'B':
+      return parsedDamageBonus.skillDmgBonus + parsedDamageBonus.allSkillDmgBonus
+             + buffTotals.skillDmgBonus + buffTotals.allSkillDmgBonus;
+    case 'E':
+      return parsedDamageBonus.chainSkillDmgBonus + parsedDamageBonus.allSkillDmgBonus
+             + buffTotals.chainSkillDmgBonus + buffTotals.allSkillDmgBonus;
+    case 'Q':
+      return parsedDamageBonus.ultimateDmgBonus + parsedDamageBonus.allSkillDmgBonus
+             + buffTotals.ultimateDmgBonus + buffTotals.allSkillDmgBonus;
+    default:
+      return 0;
+  }
+}
+
+
+
+/**
+ * 根据干员元素属性，计算脆弱区
+ * @param characterElement - 干员元素属性（如 'physical', 'ice', 'fire'）
+ * @param buffTotals - Buff 汇总结果
+ * @returns 脆弱区值（小数）
+ */
+export function calculateVulnerabilityRate(
+  characterElement: string | undefined,
+  buffTotals: BuffCalculationResult
+): number {
+  const isPhysical = characterElement === 'physical';
+  if (isPhysical) {
+    return buffTotals.physicalVulnerability;
+  } else {
+    const elementKey = `${characterElement}Vulnerability`;
+    const elementVulnerability = buffTotals[elementKey as keyof BuffCalculationResult] || 0;
+
+    console.log("elementKey:", elementKey," vulnerability:", elementVulnerability);
+    return elementVulnerability + buffTotals.magicTakenDmgBonus;
+  }
+}
+
+/**
+ * 根据干员元素属性，计算易伤区
+ * @param characterElement - 干员元素属性（如 'physical', 'ice', 'fire'）
+ * @param buffTotals - Buff 汇总结果
+ * @returns 易伤区值（小数）
+ */
+export function calculateFragileRate(
+  characterElement: string | undefined,
+  buffTotals: BuffCalculationResult
+): number {
+  const isPhysical = characterElement === 'physical';
+  if (isPhysical) {
+    return buffTotals.physicalFragile;
+  } else {
+    const elementKey = `${characterElement}Fragile`;
+    const elementFragile = buffTotals[elementKey as keyof BuffCalculationResult] || 0;
+
+    console.log("elementKey:", elementKey," fragile:", elementFragile);
+    return elementFragile + buffTotals.magicFragile;
+  }
+}

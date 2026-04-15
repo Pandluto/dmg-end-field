@@ -1,0 +1,217 @@
+.skill-sandbox {
+  width: 200px;
+  background: var(--bg-primary);
+  border-left: var(--border-width) solid var(--border-color);
+  padding: var(--spacing-md);
+  min-height: 600px;
+  display: flex;
+  flex-direction: column;
+}
+
+.sandbox-title {
+  font-size: var(--font-size-lg);
+  font-weight: 700;
+  margin-bottom: var(--spacing-xs);
+}
+
+.sandbox-hint {
+  font-size: var(--font-size-xs);
+  color: #666;
+  margin-bottom: var(--spacing-lg);
+}
+
+.sandbox-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: #999;
+  font-size: var(--font-size-sm);
+}
+
+.sandbox-characters {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-lg);
+  position: relative;
+  overflow: visible;
+}
+
+.sandbox-characters > .sandbox-character:first-child {
+  margin-top: 4vh;
+}
+
+.sandbox-character {
+  --sandbox-hover-scale: 1.02;
+  --sandbox-active-z-index: 30;
+  --sandbox-base-z-index: 1;
+  --sandbox-corner-width: 6px;
+  --sandbox-corner-color: #ffff00;
+  --sandbox-card-long-edge: 168px;
+  --corner-len: 57px;
+
+  position: relative;
+  z-index: var(--sandbox-base-z-index);
+  padding: var(--spacing-sm);
+  border: none;
+  background: rgb(255 255 255 / 0.28);
+  opacity: 0.96;
+  transition: transform 0.2s ease, opacity 0.2s ease, background-color 0.2s ease;
+  transform-origin: center;
+}
+
+.sandbox-character--hoverable::before,
+.sandbox-character--hoverable::after {
+  content: '';
+  position: absolute;
+  width: var(--corner-len);
+  height: var(--corner-len);
+  pointer-events: none;
+  opacity: 0;
+  border-color: var(--sandbox-corner-color);
+  border-style: solid;
+  transition: opacity 0.2s ease;
+}
+
+.sandbox-character--hoverable::before {
+  top: 0;
+  left: 0;
+  border-width: var(--sandbox-corner-width) 0 0 var(--sandbox-corner-width);
+}
+
+.sandbox-character--hoverable::after {
+  right: 0;
+  bottom: 0;
+  border-width: 0 var(--sandbox-corner-width) var(--sandbox-corner-width) 0;
+}
+
+.sandbox-character--hoverable:hover,
+.sandbox-character--hoverable:focus-within {
+  transform: scale(var(--sandbox-hover-scale));
+  background: rgb(255 255 255 / 0.16);
+  z-index: var(--sandbox-active-z-index);
+  opacity: 1;
+}
+
+.sandbox-character--hoverable:hover::before,
+.sandbox-character--hoverable:hover::after,
+.sandbox-character--hoverable:focus-within::before,
+.sandbox-character--hoverable:focus-within::after {
+  opacity: 1;
+}
+
+@media (max-width: 1600px) {
+  .sandbox-character {
+    --corner-len: 52px;
+  }
+}
+
+@media (max-width: 1280px) {
+  .sandbox-character {
+    --corner-len: 48px;
+  }
+}
+/* 角色头 */
+.sandbox-character-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: var(--spacing-sm);
+  padding-bottom: var(--spacing-xs);
+  border-bottom: 1px solid #eee;
+}
+
+/* 角色名称 */
+.sandbox-character-name {
+  font-size: var(--font-size-sm);
+  font-weight: 700;
+  flex-shrink: 0;
+  color: #636363;
+}
+
+.sandbox-avatar {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  object-fit: cover;
+  flex-shrink: 0;
+  cursor: pointer;
+  transition: transform 0.2s ease, filter 0.2s ease, box-shadow 0.2s ease;
+}
+
+.sandbox-avatar:hover {
+  transform: scale(1.08);
+  filter: brightness(1.08) contrast(1.06);
+  box-shadow: 0 0 0 2px rgb(255 255 0 / 0.9), 0 4px 12px rgb(0 0 0 / 0.18);
+}
+
+.sandbox-skills {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: var(--spacing-sm);
+  position: relative;
+}
+
+/* 技能按钮与标签的包装容器（实现按钮+标签并排） */
+.sandbox-skill-item {
+  position: relative;
+  display: flex;
+  align-items: center;
+  height: 44px;
+}
+
+.sandbox-skill-button {
+  position: relative;
+  overflow: hidden;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: grab;
+  border: var(--border-width) solid #ffffff;
+  transition: transform 0.1s ease;
+  user-select: none;
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+}
+
+.sandbox-skill-button:hover {
+  transform: scale(1.1);
+}
+
+.sandbox-skill-button:active {
+  cursor: grabbing;
+  transform: scale(1.2);
+}
+
+.sandbox-skill-button .skill-icon {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 50%;
+  pointer-events: none;
+}
+
+.sandbox-skill-button .skill-label {
+  color: var(--text-secondary);
+  font-size: var(--font-size-md);
+  font-weight: 700;
+  pointer-events: none;
+  position: relative;
+  z-index: 1;
+}
+
+/* 技能按钮右侧的技能类型标注文字 */
+.sandbox-skill-tag {
+  margin-left: var(--spacing-xs);
+  font-size: 12px;
+  color: #636363;
+  white-space: nowrap;
+  pointer-events: none;
+  flex-shrink: 0;
+}

@@ -1,0 +1,95 @@
+{
+  "name": "管理员",
+  "nameEn": "Endministrator",
+  "rarity": 6,
+  "profession": "近卫",
+  "weapon": "单手剑",
+  "element": "physical",
+  "mainStat": "敏捷",
+  "subStat": "力量",
+  "tags": ["猛击", "控制"],
+  "position": ["物理破防", "物理异常", "输出"],
+  "attributes": {
+    "level90": { "strength": 123, "agility": 140, "intelligence": 96, "will": 107, "atk": 319, "hp": 5495 }
+  },
+  "talents": [
+    {
+      "name": "本质瓦解",
+      "description": "敌人附着的源石结晶被消耗后，自身攻击力提升",
+      "atkBonus": 0.30,
+      "duration": 15
+    },
+    {
+      "name": "现实静滞",
+      "description": "附着源石结晶的敌人受到物理伤害提升",
+      "physicalVulnerability": 0.20
+    }
+  ],
+  "potentials": [
+    { "id": 1, "name": "最后的苏醒", "description": "战技构成序列消耗源石结晶时，返还50点技力" },
+    { "id": 2, "name": "权能映射", "description": "天赋本质瓦解生效时，其他友方干员获得一半攻击力提升" }
+  ],
+  "skills": {
+    "normalAttack": {
+      "name": "毁伤序列",
+      "type": "普通攻击",
+      "description": "至多5段物理伤害；重击造成18点失衡；可下落攻击、处决失衡敌人",
+      "hitCount": 5,
+      "damage": {
+        "9": { "hit1": 0.41, "hit2": 0.49, "hit3": 0.54, "hit4": 0.62, "hit5": 0.72 },
+        "M3": { "hit1": 0.51, "hit2": 0.61, "hit3": 0.68, "hit4": 0.78, "hit5": 0.9 }
+      },
+      "multipliers": {
+        "9": { "hit1": 0.41, "hit2": 0.49, "hit3": 0.54, "hit4": 0.62, "hit5": 0.72, "execute": 7.20, "plunge": 1.44 },
+        "M3": { "hit1": 0.51, "hit2": 0.61, "hit3": 0.68, "hit4": 0.78, "hit5": 0.90, "execute": 9.00, "plunge": 1.80 }
+      },
+      "imbalanceValue": 18
+    },
+    "skill": {
+      "name": "构成序列",
+      "type": "战技",
+      "description": "前方范围物理伤害+猛击",
+      "hitCount": 1,
+      "damage": {
+        "9": { "hit1": 2.8 },
+        "M3": { "hit1": 3.5 }
+      },
+      "multipliers": {
+        "9": { "damage": 2.80 },
+        "M3": { "damage": 3.50 }
+      },
+      "imbalanceValue": 10,
+      "abnormalType": "slam"
+    },
+    "chainSkill": {
+      "name": "锁闭序列",
+      "type": "连携技",
+      "description": "突进伤害+附着源石结晶+封印；破防/物理异常会击碎结晶造成额外伤害",
+      "hitCount": 1,
+      "damage": {
+        "9": { "hit1": 0.8 },
+        "M3": { "hit1": 1.0 }
+      },
+      "multipliers": {
+        "9": { "damage": 0.80, "crystalDamage": 3.20, "sealDuration": 4 },
+        "M3": { "damage": 1.00, "crystalDamage": 4.00, "sealDuration": 5 }
+      },
+      "imbalanceValue": 10
+    },
+    "ultimate": {
+      "name": "轰击序列",
+      "type": "终结技",
+      "description": "扇形大范围物理伤害；消耗源石结晶触发额外伤害",
+      "hitCount": 1,
+      "damage": {
+        "9": { "hit1": 6.4 },
+        "M3": { "hit1": 8.0 }
+      },
+      "multipliers": {
+        "9": { "damage": 6.40, "extraDamage": 4.80 },
+        "M3": { "damage": 8.00, "extraDamage": 6.00 }
+      },
+      "imbalanceValue": 25
+    }
+  }
+}

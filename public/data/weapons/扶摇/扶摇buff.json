@@ -1,0 +1,31 @@
+{
+  "name": "扶摇",
+  "buffList": [
+    "终结技伤害加成-扶摇-战技-4",
+    "终结技伤害加成-扶摇-战技-9"
+  ],
+  "buffs": [
+    {
+      "displayName": "终结技伤害加成-扶摇-战技-4",
+      "name": "夜幕·青云",
+      "source": "skill",
+      "sourceName": "skill3-夜幕·青云",
+      "type": "ultimateDmgBonus",
+      "value": 0.24,
+      "level": "4",
+      "description": "战技和终结技造成的物理伤害 +24.0% 。 对处于 失衡 状态的敌人造成的伤害 +56.0% 。",
+      "condition": "战技和终结技造成的物理伤害 +21.0% 。 对处于 失衡 状态的敌人造成的伤害 +49.0% 。触发"
+    },
+    {
+      "displayName": "终结技伤害加成-扶摇-战技-9",
+      "name": "夜幕·青云",
+      "source": "skill",
+      "sourceName": "skill3-夜幕·青云",
+      "type": "ultimateDmgBonus",
+      "value": 0.42,
+      "level": "9",
+      "description": "战技和终结技造成的物理伤害 +42.0% 。 对处于 失衡 状态的敌人造成的伤害 +98.0% 。",
+      "condition": "战技和终结技造成的物理伤害 +42.0% 。 对处于 失衡 状态的敌人造成的伤害 +98.0% 。触发"
+    }
+  ]
+}

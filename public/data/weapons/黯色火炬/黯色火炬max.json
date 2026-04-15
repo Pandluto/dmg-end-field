@@ -1,0 +1,58 @@
+{
+  "name": "黯色火炬",
+  "rarity": 6,
+  "description": "雷神工业推出的新一代轻量化武器。整个剑身均采用特制的合成金属作为材料。深受“专业人士”青睐。",
+  "attackGrowth": {
+    "1": 50,
+    "80": 441,
+    "90": 490
+  },
+  "skills": {
+    "skill1": {
+      "name": "智识提升·大",
+      "statType": "intelligence",
+      "levels": {
+        "7": {
+          "value": 116,
+          "description": "数值+116"
+        },
+        "9": {
+          "value": 156,
+          "description": "数值+156"
+        }
+      }
+    },
+    "skill2": {
+      "name": "灼热伤害提升·大",
+      "statType": "burnDmgBonus",
+      "levels": {
+        "7": {
+          "value": 0.322,
+          "description": "数值+0.322"
+        },
+        "9": {
+          "value": 0.433,
+          "description": "数值+0.433"
+        }
+      }
+    },
+    "skill3": {
+      "name": "附术·觊觎堆叠",
+      "statType": "special",
+      "levels": {
+        "4": {
+          "description": "攻击力 +11.2% 。 场上每有一个敌人被施加 燃烧 或 腐蚀 状态时，装备者获得灼热和自然伤害 +12.8% ，持续20秒。 同名效果最多叠加2层，每层单独计算持续时间，每0.1秒最多触发一次。",
+          "passive": {
+            "atkPercent": 0.112
+          }
+        },
+        "9": {
+          "description": "攻击力 +19.6% 。 场上每有一个敌人被施加 燃烧 或 腐蚀 状态时，装备者获得灼热和自然伤害 +22.4% ，持续20秒。 同名效果最多叠加2层，每层单独计算持续时间，每0.1秒最多触发一次。",
+          "passive": {
+            "atkPercent": 0.196
+          }
+        }
+      }
+    }
+  }
+}

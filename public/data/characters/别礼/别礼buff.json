@@ -1,0 +1,115 @@
+{
+  "name": "别礼",
+  "buffList": [
+    "寒冷脆弱-别礼-消耗1层",
+    "寒冷脆弱-别礼-消耗2层",
+    "寒冷脆弱-别礼-消耗3层",
+    "寒冷脆弱-别礼-消耗4层",
+    "寒冷脆弱-别礼-终结技4层",
+    "伤害倍率提升-别礼-连携技-3层",
+    "伤害倍率提升-别礼-连携技-4层",
+    "伤害倍率提升-别礼-连携技-M3-3层",
+    "伤害倍率提升-别礼-连携技-M3-4层"
+  ],
+  "buffs": [
+    {
+      "displayName": "寒冷脆弱-别礼-消耗1层",
+      "name": "低温症",
+      "source": "talent",
+      "sourceName": "天赋-低温症",
+      "type": "iceVulnerability",
+      "value": 0.04,
+      "level": "breakthrough2",
+      "description": "消耗法术附着后施加寒冷脆弱，效果与消耗层数相关，持续15秒。",
+      "condition": "消耗1层附着"
+    },
+    {
+      "displayName": "寒冷脆弱-别礼-消耗2层",
+      "name": "低温症",
+      "source": "talent",
+      "sourceName": "天赋-低温症",
+      "type": "iceVulnerability",
+      "value": 0.08,
+      "level": "breakthrough2",
+      "description": "消耗法术附着后施加寒冷脆弱，效果与消耗层数相关，持续15秒。",
+      "condition": "消耗2层附着"
+    },
+    {
+      "displayName": "寒冷脆弱-别礼-消耗3层",
+      "name": "低温症",
+      "source": "talent",
+      "sourceName": "天赋-低温症",
+      "type": "iceVulnerability",
+      "value": 0.12,
+      "level": "breakthrough2",
+      "description": "消耗法术附着后施加寒冷脆弱，效果与消耗层数相关，持续15秒。",
+      "condition": "消耗3层附着"
+    },
+    {
+      "displayName": "寒冷脆弱-别礼-消耗4层",
+      "name": "低温症",
+      "source": "talent",
+      "sourceName": "天赋-低温症",
+      "type": "iceVulnerability",
+      "value": 0.16,
+      "level": "breakthrough2",
+      "description": "消耗法术附着后施加寒冷脆弱，效果与消耗层数相关，持续15秒。",
+      "condition": "消耗4层附着"
+    },
+    {
+      "displayName": "寒冷脆弱-别礼-终结技4层",
+      "name": "低温脆性",
+      "source": "talent",
+      "sourceName": "天赋-低温脆性",
+      "type": "iceVulnerability",
+      "value": 0.24,
+      "level": "breakthrough3",
+      "description": "终结技“临终别礼”命中寒冷脆弱目标时，寒冷脆弱效果按倍率放大。",
+      "condition": "终结技命中寒冷脆弱目标"
+    },
+    {
+      "displayName": "伤害倍率提升-别礼-连携技-3层",
+      "name": "噬冬",
+      "source": "skill",
+      "sourceName": "连携技-噬冬",
+      "type": "multiplierBonus",
+      "value": 5.76,
+      "level": "9",
+      "description": "目标3层及以上寒冷附着时可发动，消耗全部寒冷附着造成寒冷伤害并按层数获取终结技能量。",
+      "condition": "消耗3层附着"
+    },
+    {
+      "displayName": "伤害倍率提升-别礼-连携技-4层",
+      "name": "噬冬",
+      "source": "skill",
+      "sourceName": "连携技-噬冬",
+      "type": "multiplierBonus",
+      "value": 7.68,
+      "level": "9",
+      "description": "目标3层及以上寒冷附着时可发动，消耗全部寒冷附着造成寒冷伤害并按层数获取终结技能量。",
+      "condition": "消耗4层附着"
+    },
+    {
+      "displayName": "伤害倍率提升-别礼-连携技-M3-3层",
+      "name": "噬冬",
+      "source": "skill",
+      "sourceName": "连携技-噬冬",
+      "type": "multiplierBonus",
+      "value": 7.2,
+      "level": "M3",
+      "description": "目标3层及以上寒冷附着时可发动，消耗全部寒冷附着造成寒冷伤害并按层数获取终结技能量。",
+      "condition": "消耗3层附着"
+    },
+    {
+      "displayName": "伤害倍率提升-别礼-连携技-M3-4层",
+      "name": "噬冬",
+      "source": "skill",
+      "sourceName": "连携技-噬冬",
+      "type": "multiplierBonus",
+      "value": 9.6,
+      "level": "M3",
+      "description": "目标3层及以上寒冷附着时可发动，消耗全部寒冷附着造成寒冷伤害并按层数获取终结技能量。",
+      "condition": "消耗4层附着"
+    }
+  ]
+}

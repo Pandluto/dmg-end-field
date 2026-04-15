@@ -1,0 +1,46 @@
+{
+  "name": "J.E.T.",
+  "rarity": 6,
+  "description": "北进重工支援所的实验型高级产品，原型由其已解散的航空器研究中心设计。它载有源石增压喷射器，性能惊人。",
+  "attackGrowth": {
+    "1": 51,
+    "80": 449,
+    "90": 500
+  },
+  "skills": {
+    "skill1": {
+      "name": "主能力提升·大",
+      "statType": "mainStat",
+      "levels": {
+        "7": { "value": 98, "description": "主能力+98" },
+        "9": { "value": 132, "description": "主能力+132" }
+      }
+    },
+    "skill2": {
+      "name": "攻击提升·大",
+      "statType": "atkPercent",
+      "levels": {
+        "7": { "value": 0.29, "description": "攻击力+29.0%" },
+        "9": { "value": 0.39, "description": "攻击力+39.0%" }
+      }
+    },
+    "skill3": {
+      "name": "压制·太空物理学",
+      "statType": "special",
+      "levels": {
+        "4": {
+          "description": "法术伤害 +19.2% 。 装备者施放战技时，获得法术伤害 +19.2% ，持续15秒；装备者施放连携技时，获得法术伤害 +19.2% ，持续15秒。 两种效果独立生效，且均无法叠加。",
+          "passive": {
+            "artsDmgBonus": 0.192
+          }
+        },
+        "9": {
+          "description": "法术伤害 +33.6% 。 装备者施放战技时，获得法术伤害 +33.6% ，持续15秒；装备者施放连携技时，获得法术伤害 +33.6% ，持续15秒。 两种效果独立生效，且均无法叠加。",
+          "passive": {
+            "artsDmgBonus": 0.336
+          }
+        }
+      }
+    }
+  }
+}

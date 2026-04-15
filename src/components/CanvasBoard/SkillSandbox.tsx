@@ -1,0 +1,165 @@
+/**
+ * 技能沙盒（SkillSandbox）
+ *
+ * 位于画布界面右侧，显示当前已选干员及其四个技能按钮（A/B/E/Q）
+ * 用户从沙盒拖拽技能按钮到画布谱线上，完成"排轴"
+ *
+ * 渲染逻辑：
+ * - 遍历 selectedCharacters，为每个干员渲染一个 sandbox-character 卡片
+ * - 头像 img 优先显示，加载失败时隐藏（不显示断裂图）
+ * - 技能按钮优先显示 skillIconMap 对应的图标，缺失时退回文字标签
+ * - 按钮底色由干员 element 属性决定（通过 getElementBackgroundColor 取半透明底色）
+ */
+
+import React, { useEffect, useRef } from 'react';
+import { Character, SkillType, SKILL_LABELS } from '../../types';
+import { getElementBackgroundColor } from '../../utils/assetResolver';
+import './SkillSandbox.css';
+
+interface SkillSandboxProps {
+  /** 当前已选的干员列表（来自 AppState.selectedCharacters） */
+  selectedCharacters: Character[];
+  /** 拖拽开始回调，传递给 useCanvasDrag.handleSandboxDragStart */
+  onDragStart: (
+    characterId: string,
+    characterName: string,
+    skillType: SkillType,
+    lineIndex: number,
+    e: React.MouseEvent
+  ) => void;
+  /** 头像双击回调：用于打开干员配置界面 */
+  onAvatarDoubleClick: (characterId: string) => void;
+}
+
+const SKILL_TYPES: SkillType[] = ['A', 'B', 'E', 'Q'];
+
+/** 技能显示标签（用于按钮右侧标注） */
+const SKILL_DISPLAY_LABELS: Record<SkillType, string> = {
+  A: '重击',
+  B: '战技',
+  E: '连携',
+  Q: '终结',
+};
+
+export function SkillSandbox({ selectedCharacters, onDragStart, onAvatarDoubleClick }: SkillSandboxProps) {
+  const cardRefs = useRef<Record<string, HTMLDivElement | null>>({});
+
+  // 使用卡片长边实时计算角标长度，满足“角标长度=长边0.34倍”的视觉约束
+  useEffect(() => {
+    const visibleCards = selectedCharacters
+      .map((character) => cardRefs.current[character.id])
+      .filter((card): card is HTMLDivElement => Boolean(card));
+
+    if (visibleCards.length === 0) {
+      return;
+    }
+
+    const cornerRatio = 0.34;
+
+    // 将几何计算结果回写为 CSS 变量，样式层只消费变量，避免硬编码扩散
+    const updateCardMetrics = (card: HTMLDivElement) => {
+      const { width, height } = card.getBoundingClientRect();
+      const longEdge = Math.max(width, height);
+      card.style.setProperty('--sandbox-card-long-edge', `${longEdge}px`);
+      card.style.setProperty('--corner-len', `${longEdge * cornerRatio}px`);
+    };
+
+    visibleCards.forEach((card) => updateCardMetrics(card));
+
+    // 降级策略：当运行环境不支持 ResizeObserver 时，保留 CSS 断点默认值
+    if (typeof ResizeObserver === 'undefined') {
+      return;
+    }
+
+    // 通过观察尺寸变化保持角标比例稳定，同时避免改动业务拖拽与排轴逻辑
+    const observer = new ResizeObserver((entries) => {
+      entries.forEach((entry) => {
+        updateCardMetrics(entry.target as HTMLDivElement);
+      });
+    });
+
+    visibleCards.forEach((card) => observer.observe(card));
+
+    return () => {
+      observer.disconnect();
+    };
+  }, [selectedCharacters]);
+
+  if (selectedCharacters.length === 0) {
+    return (
+      <div className="skill-sandbox">
+        <div className="sandbox-empty">请先选择干员</div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="skill-sandbox">
+      {/* 遍历每个已选干员，渲染一个角色卡片 */}
+      <div className="sandbox-characters">
+        {selectedCharacters.map((character, index) => (
+          <div
+            key={character.id}
+            className="sandbox-character sandbox-character--hoverable"
+            ref={(node) => {
+              cardRefs.current[character.id] = node;
+            }}
+          >
+            {/* 角色头部：名称 + 头像 */}
+            <div className="sandbox-character-header">
+              {/* 头像 img：资源缺失时由 onError 隐藏，不显示断裂图 */}
+              {character.avatarUrl && (
+                <img
+                  className="sandbox-avatar"
+                  src={character.avatarUrl}
+                  alt={`${character.name} 头像`}
+                  style={{ backgroundColor: getElementBackgroundColor(character.element) }}
+                  onDoubleClick={() => {
+                    onAvatarDoubleClick(character.id);
+                  }}
+                  onError={(e) => {
+                    (e.target as HTMLImageElement).style.display = 'none';
+                  }}
+                />
+              )}
+              <span className="sandbox-character-name">{character.name}</span>
+            </div>
+
+            {/* 四个技能按钮网格（A/B/E/Q），每个按钮右侧带技能类型标注 */}
+            <div className="sandbox-skills">
+              {SKILL_TYPES.map((skillType) => (
+                <div key={skillType} className="sandbox-skill-item">
+                  <div
+                    className={`sandbox-skill-button skill-${skillType.toLowerCase()}`}
+                    style={{ backgroundColor: getElementBackgroundColor(character.element) }}
+                    onMouseDown={(e) => {
+                      onDragStart(character.id, character.name, skillType, index, e);
+                    }}
+                    title={`${character.name} - ${SKILL_LABELS[skillType]}`}
+                  >
+                    {/* 技能图标：优先渲染 skillIconMap 中的路径，缺失时退回文字 */}
+                    {character.skillIconMap?.[skillType] ? (
+                      <img
+                        className="skill-icon"
+                        src={character.skillIconMap[skillType]}
+                        alt={SKILL_LABELS[skillType]}
+                        onError={(e) => {
+                          (e.target as HTMLImageElement).style.display = 'none';
+                        }}
+                      />
+                    ) : null}
+                    {/* 兜底文字：图标加载成功时由父容器隐藏，失败时正常显示 */}
+                    <span className="skill-label">{skillType}</span>
+                  </div>
+                  {/* 技能类型标注（显示在按钮右侧） */}
+                  <span className="sandbox-skill-tag" 
+                  style={{ marginTop: 8 }}>{SKILL_DISPLAY_LABELS[skillType]}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}

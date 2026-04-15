@@ -1,0 +1,58 @@
+{
+  "name": "白夜新星",
+  "rarity": 6,
+  "description": "熔炉要塞铸造的武器之一。剑柄采用了拉丝设计，增加阻尼，握持感优良。剑身取自荒原上的稀有矿石。",
+  "attackGrowth": {
+    "1": 51,
+    "80": 454,
+    "90": 505
+  },
+  "skills": {
+    "skill1": {
+      "name": "主能力提升·大",
+      "statType": "mainStat",
+      "levels": {
+        "7": {
+          "value": 98,
+          "description": "数值+98"
+        },
+        "9": {
+          "value": 132,
+          "description": "数值+132"
+        }
+      }
+    },
+    "skill2": {
+      "name": "源石技艺强度提升·大",
+      "statType": "memoryStrength",
+      "levels": {
+        "7": {
+          "value": 58,
+          "description": "源石技艺强度+58"
+        },
+        "9": {
+          "value": 78,
+          "description": "源石技艺强度+78"
+        }
+      }
+    },
+    "skill3": {
+      "name": "附术·白夜新星",
+      "statType": "special",
+      "levels": {
+        "4": {
+          "description": "法术伤害 +19.2% 。 装备者施加 燃烧 或 导电 后，法术伤害 +19.2% ，源石技艺强度 +40 ，持续15秒。 同名效果无法叠加。",
+          "passive": {
+            "artsDmgBonus": 0.192
+          }
+        },
+        "9": {
+          "description": "法术伤害 +33.6% 。 装备者施加 燃烧 或 导电 后，法术伤害 +33.6% ，源石技艺强度 +70 ，持续15秒。 同名效果无法叠加。",
+          "passive": {
+            "artsDmgBonus": 0.336
+          }
+        }
+      }
+    }
+  }
+}

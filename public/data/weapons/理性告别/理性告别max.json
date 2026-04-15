@@ -1,0 +1,52 @@
+{
+  "name": "理性告别",
+  "rarity": 5,
+  "description": "雷神工业为支持人类对外探索而设计生产的高能型铳械，具有较强的环境适应能力，是大多探索者的标配武器。",
+  "attackGrowth": {
+    "1": 42,
+    "80": 369,
+    "90": 411
+  },
+  "skills": {
+    "skill1": {
+      "name": "力量提升·中",
+      "statType": "strength",
+      "levels": {
+        "7": {
+          "value": 92,
+          "description": "力量+92"
+        },
+        "9": {
+          "value": 124,
+          "description": "力量+124"
+        }
+      }
+    },
+    "skill2": {
+      "name": "灼热伤害提升·中",
+      "statType": "burnDmgBonus",
+      "levels": {
+        "7": {
+          "value": 0.258,
+          "description": "数值+0.258"
+        },
+        "9": {
+          "value": 0.347,
+          "description": "数值+0.347"
+        }
+      }
+    },
+    "skill3": {
+      "name": "追袭·旧时之援",
+      "statType": "special",
+      "levels": {
+        "4": {
+          "description": "战技伤害 +16.0% 。 装备者通过连携技造成 法术爆发 或施加 燃烧 时，获得攻击力 +25.6% ，持续15秒。 同名效果无法叠加。"
+        },
+        "9": {
+          "description": "战技伤害 +28.0% 。 装备者通过连携技造成 法术爆发 或施加 燃烧 时，获得攻击力 +44.8% ，持续15秒。 同名效果无法叠加。"
+        }
+      }
+    }
+  }
+}

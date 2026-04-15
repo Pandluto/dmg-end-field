@@ -1,0 +1,70 @@
+{
+  "name": "赫拉芬格",
+  "rarity": 6,
+  "description": "巫术时刻推出的古怪武器之一。刀身由寻常的冰块打造，但表面附着的奇特源石技艺让其变得坚不可摧。",
+  "attackGrowth": {
+    "1": 51,
+    "80": 454,
+    "90": 505
+  },
+  "skills": {
+    "skill1": {
+      "name": "力量提升·大",
+      "statType": "strength",
+      "levels": {
+        "7": {
+          "value": 116,
+          "description": "力量+116"
+        },
+        "9": {
+          "value": 156,
+          "description": "力量+156"
+        }
+      }
+    },
+    "skill2": {
+      "name": "攻击提升·大",
+      "statType": "atkPercent",
+      "levels": {
+        "7": {
+          "value": 0.29,
+          "description": "攻击力+29.0%"
+        },
+        "9": {
+          "value": 0.39,
+          "description": "攻击力+39.0%"
+        }
+      }
+    },
+    "skill3": {
+      "name": "迸发·切骨之寒",
+      "statType": "special",
+      "levels": {
+        "4": {
+          "description": "所有技能伤害+32.0%。装备者通过战技施加寒冷附着时，获得寒冷伤害+16.0%，持续15秒。装备者对寒冷附着的敌人造成连携技伤害时，获得寒冷伤害+32.0%，持续15秒。两种效果独立生效，且均无法叠加。",
+          "passive": {
+            "allSkillDmgBonus": 0.32
+          },
+          "effects": {
+            "allSkillDmgBonus": 0.32,
+            "skillApplyColdDmgBonus": 0.16,
+            "chainVsColdDmgBonus": 0.32,
+            "duration": 15
+          }
+        },
+        "9": {
+          "description": "所有技能伤害+56.0%。装备者通过战技施加寒冷附着时，获得寒冷伤害+28.0%，持续15秒。装备者对寒冷附着的敌人造成连携技伤害时，获得寒冷伤害+56.0%，持续15秒。两种效果独立生效，且均无法叠加。",
+          "passive": {
+            "allSkillDmgBonus": 0.56
+          },
+          "effects": {
+            "allSkillDmgBonus": 0.56,
+            "skillApplyColdDmgBonus": 0.28,
+            "chainVsColdDmgBonus": 0.56,
+            "duration": 15
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,58 @@
+{
+  "name": "古渠",
+  "rarity": 5,
+  "description": "宏山选剑局制造的优质大剑。较之同类产品，它更轻盈，但杀伤力却没有降低分毫。",
+  "attackGrowth": {
+    "1": 42,
+    "80": 369,
+    "90": 411
+  },
+  "skills": {
+    "skill1": {
+      "name": "力量提升·中",
+      "statType": "strength",
+      "levels": {
+        "7": {
+          "value": 92,
+          "description": "力量+92"
+        },
+        "9": {
+          "value": 124,
+          "description": "力量+124"
+        }
+      }
+    },
+    "skill2": {
+      "name": "源石技艺强度提升·中",
+      "statType": "memoryStrength",
+      "levels": {
+        "7": {
+          "value": 46,
+          "description": "源石技艺强度+46"
+        },
+        "9": {
+          "value": 62,
+          "description": "源石技艺强度+62"
+        }
+      }
+    },
+    "skill3": {
+      "name": "残暴·千秋旧土",
+      "statType": "special",
+      "levels": {
+        "4": {
+          "description": "源石技艺强度 +16 。 装备者 消耗 破防 层数后，物理伤害 +[8.0%×消耗层数] ，持续20秒。 同名效果无法叠加。",
+          "passive": {
+            "memoryStrength": 16
+          }
+        },
+        "9": {
+          "description": "源石技艺强度 +28 。 装备者 消耗 破防 层数后，物理伤害 +[14.0%×消耗层数] ，持续20秒。 同名效果无法叠加。",
+          "passive": {
+            "memoryStrength": 28
+          }
+        }
+      }
+    }
+  }
+}
