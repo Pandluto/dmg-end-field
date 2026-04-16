@@ -175,9 +175,10 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  cursor: default;
+  cursor: pointer;
   padding: 0 4px;
   flex-shrink: 0;      /* 禁止收缩 */
+  user-select: none;   /* 禁止文字选中 */
 }
 
 /* Buff 列表项悬停效果 - 文字 F0F0F0，背景黄色半透明 */
@@ -346,4 +347,27 @@
 .buff-detail-close-btn:hover {
   background: rgba(255, 255, 0, 0.3);
   color: #555555;
+}
+
+/* ==================== 拖拽相关样式 ==================== */
+
+/* Buff 项拖拽态 */
+.buff-item.is-dragging {
+  opacity: 0.5;
+  background: rgba(255, 255, 0, 0.5);
+}
+
+/* 拖拽中的 Buff 跟随鼠标 */
+.dragging-buff-follower {
+  position: fixed;
+  pointer-events: none;
+  z-index: 9999;
+  padding: 4px 8px;
+  background: rgba(255, 255, 0, 0.9);
+  border: 2px solid #000;
+  font-size: 12px;
+  font-weight: 700;
+  color: #000;
+  white-space: nowrap;
+  box-shadow: 2px 2px 4px rgba(0, 0, 0, 0.3);
 }

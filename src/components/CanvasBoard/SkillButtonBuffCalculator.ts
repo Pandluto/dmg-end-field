@@ -3,7 +3,7 @@
  * 将 Buff 汇总计算逻辑独立出来，便于维护和复用
  */
 
-import { SkillButtonBuff } from '../../hooks/useSkillButtonBuffs';
+import { SkillButtonBuff } from '../../types/storage';
 
 /**
  * Buff 汇总计算结果

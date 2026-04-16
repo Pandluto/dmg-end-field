@@ -2,6 +2,18 @@ import { Character } from '../../../types';
 import React from 'react';
 import { buildWeaponSearchIndex, searchWeapons } from '../../../utils/weaponFuzzySearch';
 import { parseEquipmentTextAndFill, isPercentField, EquipmentConfig } from '../../../utils/equipmentParser';
+import {
+  CharacterConfigJson,
+  DamageBonusSnapshot,
+  PanelSummary,
+  SkillLevelMode,
+  SkillPanelKey,
+  WeaponPotentialMode,
+} from '../../../types/storage';
+import {
+  getCharacterConfigMap,
+  setCharacterConfigMap,
+} from '../../../utils/storage';
 
 interface CharacterMaxData {
   name: string;
@@ -68,22 +80,6 @@ interface WeaponBuffData {
   buffs?: WeaponBuffItem[];
 }
 
-interface PanelSummary {
-  strength: number;
-  agility: number;
-  intelligence: number;
-  will: number;
-  atk: number;
-  baseAtk: number;
-  abilityBonus: number;
-  mainStatFinal: number;
-  subStatFinal: number;
-  characterAtk: number;
-  weaponAtk: number;
-  weaponAtkPercent: number;
-  weaponAllSkillDmgBonus: number;
-}
-
 interface LegacyEquipmentConfig extends Partial<EquipmentConfig> {
   mainStat?: number;
   subStat?: number;
@@ -91,36 +87,6 @@ interface LegacyEquipmentConfig extends Partial<EquipmentConfig> {
   burnDmgBonus?: number;
   artsDmgBonus?: number;
   magicDmgBoost?: number;
-}
-
-interface DamageBonusSnapshot {
-  physicalDmgBonus: number;
-  fireDmgBonus: number;
-  electricDmgBonus: number;
-  iceDmgBonus: number;
-  natureDmgBonus: number;
-  magicDmgBonus: number;
-  normalAttackDmgBonus: number;
-  skillDmgBonus: number;
-  chainSkillDmgBonus: number;
-  ultimateDmgBonus: number;
-  allSkillDmgBonus: number;
-  imbalanceDmgBonus: number;
-  allDmgBonus: number;
-}
-
-interface CharacterConfigJson {
-  characterId: string;
-  characterName: string;
-  characterPotential: string;
-  skillLevelModeMap: Record<SkillPanelKey, SkillLevelMode>;
-  weaponName: string;
-  weaponPotentialMode: WeaponPotentialMode;
-  equipment: EquipmentConfig;
-  panelSnapshot: PanelSummary | null;
-  infoSnapshot: string[];
-  infoSnap: DamageBonusSnapshot;
-  weaponBuffSnapshot: string[];
 }
 
 interface OperatorConfigPanelProps {
@@ -131,12 +97,8 @@ interface OperatorConfigPanelProps {
   onClose: () => void;
 }
 
-type SkillPanelKey = 'A' | 'B' | 'E' | 'Q';
-type SkillLevelMode = 'L9' | 'M3';
-type WeaponPotentialMode = 'P0' | 'PMAX';
 type AbilityField = 'strength' | 'agility' | 'intelligence' | 'will';
 const NONE_WEAPON_NAME = '无';
-const CHARACTER_CONFIG_SESSION_KEY = 'ddd.operator-config.character-config-map.v1';
 const DEFAULT_SKILL_LEVEL_MODE_MAP: Record<SkillPanelKey, SkillLevelMode> = {
   A: 'L9',
   B: 'L9',
@@ -256,6 +218,7 @@ const DEFAULT_DAMAGE_BONUS_SNAPSHOT: DamageBonusSnapshot = {
   imbalanceDmgBonus: 0,
   allDmgBonus: 0,
 };
+const STORAGE_WRITE_DEBOUNCE_MS = 300;
 
 const initCharacterConfig = (
   characterId: string,
@@ -279,32 +242,13 @@ const toFixedNumber = (value: number, digits = 2) => Number(value.toFixed(digits
 const toPercentText = (value: number, digits = 2) => `${toFixedNumber(value * 100, digits)}%`;
 
 const readCharacterConfigMapFromSession = (): Record<string, CharacterConfigJson> => {
-  if (typeof window === 'undefined') {
-    return {};
-  }
-  try {
-    const raw = window.sessionStorage.getItem(CHARACTER_CONFIG_SESSION_KEY);
-    if (!raw) {
-      return {};
-    }
-    const parsed = JSON.parse(raw);
-    if (!parsed || typeof parsed !== 'object') {
-      return {};
-    }
-    return parsed as Record<string, CharacterConfigJson>;
-  } catch {
-    return {};
-  }
+  // v3: 统一通过 storage.ts 的兼容层读取，合并 input + computed + display
+  return getCharacterConfigMap();
 };
 
 const writeCharacterConfigMapToSession = (value: Record<string, CharacterConfigJson>) => {
-  if (typeof window === 'undefined') {
-    return;
-  }
-  try {
-    window.sessionStorage.setItem(CHARACTER_CONFIG_SESSION_KEY, JSON.stringify(value));
-  } catch {
-  }
+  // v3: 通过 storage.ts 的兼容层统一写入，自动拆分为 input + computed + display
+  setCharacterConfigMap(value);
 };
 
 export function OperatorConfigPanel({
@@ -985,7 +929,13 @@ export function OperatorConfigPanel({
   }, [characterConfigMap, weaponStateKey]);
 
   React.useEffect(() => {
-    writeCharacterConfigMapToSession(characterConfigMap);
+    const timer = window.setTimeout(() => {
+      writeCharacterConfigMapToSession(characterConfigMap);
+    }, STORAGE_WRITE_DEBOUNCE_MS);
+
+    return () => {
+      window.clearTimeout(timer);
+    };
   }, [characterConfigMap]);
 
   React.useEffect(() => {

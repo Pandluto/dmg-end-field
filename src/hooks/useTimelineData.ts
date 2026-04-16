@@ -5,10 +5,9 @@
 
 import { useState, useCallback, useRef } from 'react';
 import { SkillButtonData, TimelineData } from '../types';
+import { STORAGE_KEYS } from '../constants/storage-keys';
 import { calculateNodeNumber } from '../utils/nodeNumbering';
-
-// sessionStorage key
-const STORAGE_KEY = 'ddd.timeline.data.v1';
+import { getStorageJson, setStorageJson } from '../utils/storage';
 
 /**
  * 创建空的排轴数据结构
@@ -129,7 +128,7 @@ export function useTimelineData(selectedCharacters: { name: string }[]) {
    */
   const saveTimelineData = useCallback((): TimelineData => {
     const dataToSave = timelineDataRef.current;
-    sessionStorage.setItem(STORAGE_KEY, JSON.stringify(dataToSave));
+    setStorageJson(STORAGE_KEYS.TIMELINE_DATA, dataToSave);
     console.log('【排轴数据】已保存到 sessionStorage:', dataToSave);
     return dataToSave;
   }, []);
@@ -139,9 +138,8 @@ export function useTimelineData(selectedCharacters: { name: string }[]) {
    * @returns 加载的数据对象，如果没有则返回 null
    */
   const loadTimelineData = useCallback((): TimelineData | null => {
-    const saved = sessionStorage.getItem(STORAGE_KEY);
-    if (saved) {
-      const parsed: TimelineData = JSON.parse(saved);
+    const parsed = getStorageJson<TimelineData | null>(STORAGE_KEYS.TIMELINE_DATA, null);
+    if (parsed) {
       setTimelineData(parsed);
       console.log('【排轴数据】已从 sessionStorage 加载:', parsed);
       return parsed;

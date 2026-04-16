@@ -3,8 +3,14 @@
 
 import { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import { useAppContext } from '../../../context/AppContext';
+import { STORAGE_KEYS } from '../../../constants/storage-keys';
 import { buildWeaponSearchIndex, searchWeapons } from '../../../utils/weaponFuzzySearch';
-import { getSelectedSkillButton, SkillButtonBuff } from '../../../hooks/useSkillButtonBuffs';
+import {
+  addSkillButtonBuff,
+  getSelectedSkillButton,
+} from '../../../hooks/useSkillButtonBuffs';
+import { SkillButtonBuff } from '../../../types/storage';
+import { getCharacterConfigMap, setStorageJson } from '../../../utils/storage';
 
 /**
  * Buff 数据项接口
@@ -43,18 +49,6 @@ interface BuffData {
 /**
  * 角色配置接口（来自 OperatorConfigPanel）
  */
-interface CharacterConfigJson {
-  characterId: string;
-  characterName: string;
-  weaponName: string;
-  // 其他字段省略
-}
-
-/**
- * sessionStorage key（与 OperatorConfigPanel 保持一致）
- */
-const CHARACTER_CONFIG_SESSION_KEY = 'ddd.operator-config.character-config-map.v1';
-
 /**
  * 从 sessionStorage 读取角色武器配置映射
  * 从 OperatorConfigPanel 存储的 characterConfigMap 中提取武器配置
@@ -63,13 +57,12 @@ const CHARACTER_CONFIG_SESSION_KEY = 'ddd.operator-config.character-config-map.v
  */
 const getCharacterWeapons = (characterNames: string[]): Record<string, string> => {
   try {
-    const data = sessionStorage.getItem(CHARACTER_CONFIG_SESSION_KEY);
-    if (!data) {
-      console.log('未找到角色配置数据，key:', CHARACTER_CONFIG_SESSION_KEY);
+    const configMap = getCharacterConfigMap();
+    if (Object.keys(configMap).length === 0) {
+      console.log('未找到角色配置数据，key: ddd.operator-config.character-input-map.v3');
       return {};
     }
-    const configMap: Record<string, CharacterConfigJson> = JSON.parse(data);
-    
+
     // 从配置映射中提取角色名到武器名的映射
     const weaponMap: Record<string, string> = {};
     Object.values(configMap).forEach((config) => {
@@ -138,6 +131,22 @@ export function DamageTab() {
   const clickTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const clickCountRef = useRef(0);
 
+  // ========== 拖拽状态管理 ==========
+  // 当前是否处于长按准备阶段
+  const [isLongPressPreparing, setIsLongPressPreparing] = useState(false);
+  // 当前是否进入拖拽状态
+  const [isDragging, setIsDragging] = useState(false);
+  // 当前被拖拽的 Buff 数据
+  const [draggedBuff, setDraggedBuff] = useState<BuffItem | null>(null);
+  // 当前拖拽位置
+  const [dragPosition, setDragPosition] = useState({ x: 0, y: 0 });
+  // 长按定时器引用
+  const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // 拖拽起始位置（用于判断是否真的在拖拽）
+  const dragStartPosRef = useRef({ x: 0, y: 0 });
+  // 是否已触发长按（用于区分点击和拖拽）
+  const hasLongPressedRef = useRef(false);
+
   /**
    * 构建 Buff 搜索索引
    * 从 buffList 中提取所有唯一的 source 值构建搜索索引
@@ -183,7 +192,7 @@ export function DamageTab() {
         setIsDrawerOpen(false);
       }
     };
-    
+
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
@@ -271,8 +280,7 @@ export function DamageTab() {
     try {
       const buffs = await loadAllBuffs();
       setBuffList(buffs);
-      // 存储到 sessionStorage
-      sessionStorage.setItem('allBuffList', JSON.stringify(buffs));
+      setStorageJson(STORAGE_KEYS.ALL_BUFF_LIST, buffs);
     } catch (error) {
       console.error('刷新 Buff 列表失败:', error);
     } finally {
@@ -292,18 +300,6 @@ export function DamageTab() {
     }
 
     // 从 sessionStorage 读取当前 Buff 数据
-    const key = 'ddd.skill-button-buffs.v1';
-    const data = sessionStorage.getItem(key);
-    const buttonBuffs: Record<string, SkillButtonBuff[]> = data ? JSON.parse(data) : {};
-    const currentBuffs = buttonBuffs[selectedButtonId] || [];
-
-    // 检查是否已存在
-    if (currentBuffs.some(b => b.displayName === buff.displayName)) {
-      console.log('Buff 已存在:', buff.displayName);
-      return false;
-    }
-
-    // 添加新 Buff
     const newBuff: SkillButtonBuff = {
       id: `buff-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
       displayName: buff.displayName,
@@ -313,8 +309,11 @@ export function DamageTab() {
       value: buff.value,
     };
 
-    buttonBuffs[selectedButtonId] = [...currentBuffs, newBuff];
-    sessionStorage.setItem(key, JSON.stringify(buttonBuffs));
+    const added = addSkillButtonBuff(selectedButtonId, newBuff);
+    if (!added) {
+      console.log('Buff 已存在:', buff.displayName);
+      return false;
+    }
 
     console.log('添加 Buff 到技能按钮:', buff.displayName);
     console.log(buff);
@@ -366,11 +365,137 @@ export function DamageTab() {
     setSelectedBuff(null);
   }, []);
 
+  // ========== 长按拖拽逻辑 ==========
+  const LONG_PRESS_THRESHOLD = 200; // 长按阈值 200ms（与双击一致）
+  const DRAG_THRESHOLD = 5; // 拖拽阈值 5px
+
+  /**
+   * 清理拖拽状态
+   */
+  const clearDragState = useCallback(() => {
+    setIsLongPressPreparing(false);
+    setIsDragging(false);
+    setDraggedBuff(null);
+    hasLongPressedRef.current = false;
+    if (longPressTimerRef.current) {
+      clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
+  }, []);
+
+  /**
+   * 检查点是否在 SkillButton 弹窗区域内
+   * 使用 document.querySelector 查找弹窗元素
+   */
+  const isPointInSkillButtonModal = useCallback((x: number, y: number): boolean => {
+    const modal = document.querySelector('.skill-button-modal');
+    if (!modal) return false;
+    const rect = modal.getBoundingClientRect();
+    return x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom;
+  }, []);
+
+  /**
+   * 处理 Buff 项鼠标按下（开始长按检测）
+   */
+  const handleBuffMouseDown = useCallback((buff: BuffItem, e: React.MouseEvent) => {
+    // 只有左键才触发
+    if (e.button !== 0) return;
+
+    // 记录起始位置
+    dragStartPosRef.current = { x: e.clientX, y: e.clientY };
+    hasLongPressedRef.current = false;
+
+    // 启动长按定时器
+    longPressTimerRef.current = setTimeout(() => {
+      hasLongPressedRef.current = true;
+      setIsLongPressPreparing(false);
+      setIsDragging(true);
+      setDraggedBuff(buff);
+      setDragPosition({ x: e.clientX, y: e.clientY });
+    }, LONG_PRESS_THRESHOLD);
+
+    setIsLongPressPreparing(true);
+  }, []);
+
+  /**
+   * 处理鼠标移动（拖拽中）
+   */
+  const handleMouseMove = useCallback((e: MouseEvent) => {
+    if (!isDragging) {
+      // 如果还没进入拖拽态，检查是否移动超过阈值
+      if (isLongPressPreparing && longPressTimerRef.current) {
+        const dx = Math.abs(e.clientX - dragStartPosRef.current.x);
+        const dy = Math.abs(e.clientY - dragStartPosRef.current.y);
+        if (dx > DRAG_THRESHOLD || dy > DRAG_THRESHOLD) {
+          // 移动超过阈值，取消长按
+          clearTimeout(longPressTimerRef.current);
+          longPressTimerRef.current = null;
+          setIsLongPressPreparing(false);
+        }
+      }
+      return;
+    }
+
+    // 更新拖拽位置
+    setDragPosition({ x: e.clientX, y: e.clientY });
+  }, [isDragging, isLongPressPreparing]);
+
+  /**
+   * 处理鼠标释放（拖拽结束）
+   */
+  const handleMouseUp = useCallback((e: MouseEvent) => {
+    // 如果还在长按准备阶段，说明是点击而非拖拽
+    if (isLongPressPreparing) {
+      if (longPressTimerRef.current) {
+        clearTimeout(longPressTimerRef.current);
+        longPressTimerRef.current = null;
+      }
+      setIsLongPressPreparing(false);
+
+      // 如果没有触发长按，让点击事件处理
+      if (!hasLongPressedRef.current) {
+        return;
+      }
+    }
+
+    // 如果不在拖拽态，不处理
+    if (!isDragging || !draggedBuff) {
+      return;
+    }
+
+    // 检查是否在 SkillButton 弹窗区域内释放
+    const isOverSkillButtonModal = isPointInSkillButtonModal(e.clientX, e.clientY);
+    if (isOverSkillButtonModal) {
+      // 执行添加
+      addBuffToSkillButton(draggedBuff);
+    }
+
+    // 清理状态
+    clearDragState();
+  }, [isDragging, isLongPressPreparing, draggedBuff, isPointInSkillButtonModal, addBuffToSkillButton, clearDragState]);
+
+  /**
+   * 全局鼠标事件监听
+   */
+  useEffect(() => {
+    if (isDragging || isLongPressPreparing) {
+      window.addEventListener('mousemove', handleMouseMove);
+      window.addEventListener('mouseup', handleMouseUp);
+      return () => {
+        window.removeEventListener('mousemove', handleMouseMove);
+        window.removeEventListener('mouseup', handleMouseUp);
+      };
+    }
+  }, [isDragging, isLongPressPreparing, handleMouseMove, handleMouseUp]);
+
   // 清理定时器
   useEffect(() => {
     return () => {
       if (clickTimerRef.current) {
         clearTimeout(clickTimerRef.current);
+      }
+      if (longPressTimerRef.current) {
+        clearTimeout(longPressTimerRef.current);
       }
     };
   }, []);
@@ -417,7 +542,7 @@ export function DamageTab() {
 
       {/* 陈列区 */}
       <div className="damage-display-section">
-      
+
         {/* Buff 列表 - 始终显示全部，不受搜索影响 */}
         <div className="buff-list">
           {buffList.length === 0 ? (
@@ -426,16 +551,17 @@ export function DamageTab() {
             buffList.map((buff, index) => (
               <div
                 key={index}
-                className="buff-item"
+                className={`buff-item${draggedBuff?.name === buff.name ? ' is-dragging' : ''}`}
                 title={buff.displayName}
                 onClick={() => handleBuffClick(buff)}
+                onMouseDown={(e) => handleBuffMouseDown(buff, e)}
               >
                 {buff.displayName}
               </div>
             ))
           )}
         </div>
-        
+
         {/* 刷新行 */}
         <div className="refresh-row">
           <button
@@ -447,6 +573,20 @@ export function DamageTab() {
           </button>
         </div>
       </div>
+
+      {/* 拖拽中的 Buff 跟随鼠标 */}
+      {isDragging && draggedBuff && (
+        <div
+          className="dragging-buff-follower"
+          style={{
+            left: dragPosition.x,
+            top: dragPosition.y,
+            transform: 'translate(-50%, -50%)',
+          }}
+        >
+          {draggedBuff.displayName}
+        </div>
+      )}
 
       {/* Buff 详情弹窗 */}
       {isModalOpen && selectedBuff && (

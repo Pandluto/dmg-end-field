@@ -25,6 +25,7 @@ import {
   DEFAULT_CANVAS_CONFIG,
 } from '../types';
 import { resolveAvatarUrl, resolveSkillIconUrl } from '../utils/assetResolver';
+import { cleanupStorage } from '../utils/storage';
 
 /** 所有支持的 Action 类型（Tagged Union）*/
 type AppAction =
@@ -202,6 +203,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   // 组件首次挂载时自动加载干员数据
   useEffect(() => {
+    cleanupStorage();
     loadCharacters();
   }, []);
 

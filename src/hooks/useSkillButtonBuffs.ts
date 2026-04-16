@@ -4,55 +4,29 @@
  */
 
 import { useState, useCallback, useEffect } from 'react';
-
-/**
- * Buff 数据接口
- */
-export interface SkillButtonBuff {
-  id: string;
-  name: string;
-  displayName: string;
-  sourceName: string;
-  level?: string;
-  type?: string;
-  value?: number;
-}
-
-/**
- * 技能按钮 Buff 映射
- * key: 技能按钮 ID
- * value: 该按钮关联的 Buff 列表
- */
-type SkillButtonBuffMap = Record<string, SkillButtonBuff[]>;
-
-// sessionStorage key
-const SKILL_BUTTON_BUFFS_KEY = 'ddd.skill-button-buffs.v1';
+import { STORAGE_KEYS } from '../constants/storage-keys';
+import { SkillButtonBuff, SkillButtonBuffMap } from '../types/storage';
+import {
+  getSkillButtonBuffMap,
+  safeSessionStorage,
+  setSkillButtonBuffMap,
+} from '../utils/storage';
 
 /**
  * 从 sessionStorage 加载 Buff 数据
  */
 const loadBuffsFromStorage = (): SkillButtonBuffMap => {
-  try {
-    const data = sessionStorage.getItem(SKILL_BUTTON_BUFFS_KEY);
-    if (data) {
-      return JSON.parse(data);
-    }
-  } catch (error) {
-    console.warn('加载技能按钮 Buff 数据失败:', error);
-  }
-  return {};
+  return getSkillButtonBuffMap();
 };
 
 /**
  * 保存 Buff 数据到 sessionStorage
  */
 const saveBuffsToStorage = (buffs: SkillButtonBuffMap) => {
-  try {
-    sessionStorage.setItem(SKILL_BUTTON_BUFFS_KEY, JSON.stringify(buffs));
-  } catch (error) {
-    console.warn('保存技能按钮 Buff 数据失败:', error);
-  }
+  setSkillButtonBuffMap(buffs);
 };
+
+const STORAGE_WRITE_DEBOUNCE_MS = 300;
 
 /**
  * 使用技能按钮 Buff 管理
@@ -64,7 +38,13 @@ export function useSkillButtonBuffs() {
 
   // 当数据变化时保存到 sessionStorage
   useEffect(() => {
-    saveBuffsToStorage(buttonBuffs);
+    const timer = window.setTimeout(() => {
+      saveBuffsToStorage(buttonBuffs);
+    }, STORAGE_WRITE_DEBOUNCE_MS);
+
+    return () => {
+      window.clearTimeout(timer);
+    };
   }, [buttonBuffs]);
 
   /**
@@ -91,12 +71,12 @@ export function useSkillButtonBuffs() {
       if (exists) {
         return prev; // 已存在则不添加
       }
-      
+
       const newBuff: SkillButtonBuff = {
         ...buff,
         id: `buff-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
       };
-      
+
       added = true;
       return {
         ...prev,
@@ -148,9 +128,9 @@ export function useSkillButtonBuffs() {
  */
 export const setSelectedSkillButton = (buttonId: string | null) => {
   if (buttonId) {
-    sessionStorage.setItem('ddd.selected-skill-button', buttonId);
+    safeSessionStorage.setItem(STORAGE_KEYS.SELECTED_SKILL_BUTTON, buttonId);
   } else {
-    sessionStorage.removeItem('ddd.selected-skill-button');
+    safeSessionStorage.removeItem(STORAGE_KEYS.SELECTED_SKILL_BUTTON);
   }
 };
 
@@ -159,7 +139,7 @@ export const setSelectedSkillButton = (buttonId: string | null) => {
  * @returns 技能按钮 ID 或 null
  */
 export const getSelectedSkillButton = (): string | null => {
-  return sessionStorage.getItem('ddd.selected-skill-button');
+  return safeSessionStorage.getItem(STORAGE_KEYS.SELECTED_SKILL_BUTTON);
 };
 
 /**
@@ -168,11 +148,29 @@ export const getSelectedSkillButton = (): string | null => {
  * @returns Buff 列表（包含完整字段）
  */
 export function getButtonBuffs(buttonId: string): SkillButtonBuff[] {
-  const key = 'ddd.skill-button-buffs.v1';
-  const data = sessionStorage.getItem(key);
-  if (data) {
-    const buttonBuffs: Record<string, SkillButtonBuff[]> = JSON.parse(data);
-    return buttonBuffs[buttonId] || [];
-  }
-  return [];
+  const buttonBuffs = getSkillButtonBuffMap();
+  return buttonBuffs[buttonId] || [];
 }
+
+export const addSkillButtonBuff = (buttonId: string, buff: SkillButtonBuff): boolean => {
+  const buttonBuffs = getSkillButtonBuffMap();
+  const currentBuffs = buttonBuffs[buttonId] || [];
+
+  if (currentBuffs.some((item) => item.displayName === buff.displayName)) {
+    return false;
+  }
+
+  buttonBuffs[buttonId] = [...currentBuffs, buff];
+  setSkillButtonBuffMap(buttonBuffs);
+  return true;
+};
+
+export const removeSkillButtonBuff = (buttonId: string, buffId: string): void => {
+  const buttonBuffs = getSkillButtonBuffMap();
+  if (!buttonBuffs[buttonId]) {
+    return;
+  }
+
+  buttonBuffs[buttonId] = buttonBuffs[buttonId].filter((buff) => buff.id !== buffId);
+  setSkillButtonBuffMap(buttonBuffs);
+};

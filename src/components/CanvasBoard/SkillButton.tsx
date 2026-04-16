@@ -1,7 +1,12 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { SkillButton as SkillButtonType, SKILL_LABELS, TimelineData } from '../../types';
 import { getElementBackgroundColor } from '../../utils/assetResolver';
-import { SkillButtonBuff, setSelectedSkillButton } from '../../hooks/useSkillButtonBuffs';
+import {
+  removeSkillButtonBuff,
+  setSelectedSkillButton,
+} from '../../hooks/useSkillButtonBuffs';
+import { SkillButtonBuff, SkillLevelMode } from '../../types/storage';
+import { getCharacterConfig, getSkillButtonBuffMap } from '../../utils/storage';
 import {
   calculateBuffTotals,
   calculateElementDmgBonus,
@@ -28,7 +33,7 @@ export function SkillButtonComponent({ button, size, onMouseDown, onContextMenu,
   // 当前技能按钮的 Buff 列表
   const [buffList, setBuffList] = useState<SkillButtonBuff[]>([]);
   // 当前角色的技能等级模式 (L9/M3)
-  const [skillLevelModeMap, setSkillLevelModeMap] = useState<Record<string, 'L9' | 'M3'>>({ A: 'L9', B: 'L9', E: 'L9', Q: 'L9' });
+  const [skillLevelModeMap, setSkillLevelModeMap] = useState<Record<string, SkillLevelMode>>({ A: 'L9', B: 'L9', E: 'L9', Q: 'L9' });
   // 角色技能乘数数据
   const [characterSkillData, setCharacterSkillData] = useState<{
     element?: string;
@@ -75,26 +80,17 @@ export function SkillButtonComponent({ button, size, onMouseDown, onContextMenu,
    * 从 sessionStorage 加载 Buff 列表
    */
   const loadBuffList = useCallback(() => {
-    const key = 'ddd.skill-button-buffs.v1';
-    const data = sessionStorage.getItem(key);
-    if (data) {
-      const buttonBuffs: Record<string, SkillButtonBuff[]> = JSON.parse(data);
-      setBuffList(buttonBuffs[button.id] || []);
-    } else {
-      setBuffList([]);
-    }
+    const buttonBuffs = getSkillButtonBuffMap();
+    setBuffList(buttonBuffs[button.id] || []);
   }, [button.id]);
 
   /**
    * 从 sessionStorage 加载 skillLevelModeMap（角色技能等级配置）
    */
-  const loadSkillLevelModeMap = useCallback((): Record<string, 'L9' | 'M3'> => {
-    const key = 'ddd.operator-config.character-config-map.v1';
-    const data = sessionStorage.getItem(key);
-    if (data) {
-      const configMap: Record<string, { skillLevelModeMap?: Record<string, 'L9' | 'M3'> }> = JSON.parse(data);
-      const characterConfig = configMap[button.characterId];
-      return characterConfig?.skillLevelModeMap ?? { A: 'L9', B: 'L9', E: 'L9', Q: 'L9' };
+  const loadSkillLevelModeMap = useCallback((): Record<string, SkillLevelMode> => {
+    const characterConfig = getCharacterConfig(button.characterId);
+    if (characterConfig) {
+      return characterConfig.skillLevelModeMap ?? { A: 'L9', B: 'L9', E: 'L9', Q: 'L9' };
     }
     return { A: 'L9', B: 'L9', E: 'L9', Q: 'L9' };
   }, [button.characterId]);
@@ -118,32 +114,27 @@ export function SkillButtonComponent({ button, size, onMouseDown, onContextMenu,
    * 从 sessionStorage 加载面板数据 
    */
   const loadPanelData = useCallback(() => {
-    const key = 'ddd.operator-config.character-config-map.v1';
-    const data = sessionStorage.getItem(key);
-    if (data) {
-      const configMap = JSON.parse(data);
-      const characterConfig = configMap[button.characterId];
-      if (characterConfig?.panelSnapshot) {
-        const snapshot = characterConfig.panelSnapshot;
-        const equipment = characterConfig.equipment ?? {};
-        setPanelData({
-          atk: snapshot.atk ?? 0,
-          critRate: 0.05 + (equipment.critRateBoost ?? 0),
-          critDmg: 0.5 + (equipment.critDmgBonusBoost ?? 0),
-          physicalDmgBonus: equipment.physicalDmgBonus ?? 0,
-          fireDmgBonus: equipment.fireDmgBonus ?? 0,
-          electricDmgBonus: equipment.electricDmgBonus ?? 0,
-          iceDmgBonus: equipment.iceDmgBonus ?? 0,
-          natureDmgBonus: equipment.natureDmgBonus ?? 0,
-          skillDmgBonus: equipment.skillDmgBonus ?? 0,
-          chainSkillDmgBonus: equipment.chainSkillDmgBonus ?? 0,
-          ultimateDmgBonus: equipment.ultimateDmgBonus ?? 0,
-          allSkillDmgBonus: (equipment.allSkillDmgBonus ?? 0) + (snapshot.weaponAllSkillDmgBonus ?? 0),
-          allDmgBonus: equipment.allDmgBonus ?? 0,
-        });
-        setInfoSnapshotLines(characterConfig.infoSnapshot ?? []);
-        setInfoSnap(characterConfig.infoSnap ?? {});
-      }
+    const characterConfig = getCharacterConfig(button.characterId);
+    if (characterConfig?.panelSnapshot) {
+      const snapshot = characterConfig.panelSnapshot;
+      const equipment = characterConfig.equipment ?? {};
+      setPanelData({
+        atk: snapshot.atk ?? 0,
+        critRate: 0.05 + (equipment.critRateBoost ?? 0),
+        critDmg: 0.5 + (equipment.critDmgBonusBoost ?? 0),
+        physicalDmgBonus: equipment.physicalDmgBonus ?? 0,
+        fireDmgBonus: equipment.fireDmgBonus ?? 0,
+        electricDmgBonus: equipment.electricDmgBonus ?? 0,
+        iceDmgBonus: equipment.iceDmgBonus ?? 0,
+        natureDmgBonus: equipment.natureDmgBonus ?? 0,
+        skillDmgBonus: equipment.skillDmgBonus ?? 0,
+        chainSkillDmgBonus: equipment.chainSkillDmgBonus ?? 0,
+        ultimateDmgBonus: equipment.ultimateDmgBonus ?? 0,
+        allSkillDmgBonus: (equipment.allSkillDmgBonus ?? 0) + (snapshot.weaponAllSkillDmgBonus ?? 0),
+        allDmgBonus: equipment.allDmgBonus ?? 0,
+      });
+      setInfoSnapshotLines(characterConfig.infoSnapshot ?? []);
+      setInfoSnap((characterConfig.infoSnap ?? {}) as unknown as Record<string, number>);
     }
   }, [button.characterId]);
 
@@ -152,15 +143,10 @@ export function SkillButtonComponent({ button, size, onMouseDown, onContextMenu,
    * @param buffId - Buff ID
    */
   const removeBuff = useCallback((buffId: string) => {
-    const key = 'ddd.skill-button-buffs.v1';
-    const data = sessionStorage.getItem(key);
-    if (data) {
-      const buttonBuffs: Record<string, SkillButtonBuff[]> = JSON.parse(data);
-      if (buttonBuffs[button.id]) {
-        buttonBuffs[button.id] = buttonBuffs[button.id].filter(b => b.id !== buffId);
-        sessionStorage.setItem(key, JSON.stringify(buttonBuffs));
-        loadBuffList(); // 重新加载列表
-      }
+    const buttonBuffs = getSkillButtonBuffMap();
+    if (buttonBuffs[button.id]) {
+      removeSkillButtonBuff(button.id, buffId);
+      loadBuffList(); // 重新加载列表
     }
   }, [button.id, loadBuffList]);
 
