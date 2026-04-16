@@ -52,6 +52,10 @@ interface UseCanvasDragProps {
   }, buttonId?: string) => void;
   /** 从排轴数据中移除技能按钮 */
   removeTimelineButton?: (staffIndex: number, buttonId: string) => void;
+  /** 更新技能按钮位置（移动按钮时使用，保留原 ID 和 Buff） */
+  updateSkillButtonPosition?: (staffIndex: number, buttonId: string, newPosition: { x: number; y: number }, newNodeIndex: number) => void;
+  /** 保存排轴数据 */
+  saveTimelineData?: () => void;
 }
 
 export interface UseCanvasDragReturn {
@@ -79,6 +83,8 @@ export function useCanvasDrag({
   dispatch,
   addTimelineButton,
   removeTimelineButton,
+  updateSkillButtonPosition,
+  saveTimelineData,
 }: UseCanvasDragProps): UseCanvasDragReturn {
   const [draggingState, setDraggingState] = useState<DraggingState | null>(null);
   const [mousePosition, setMousePosition] = useState({ x: 0, y: 0 });
@@ -120,7 +126,8 @@ export function useCanvasDrag({
 
   /**
    * 从画布已有按钮开始拖拽
-   * 仅处理 isFromSandbox=true 的按钮；保存原始按钮引用用于鼠标释放时还原
+   * 处理所有按钮（包括 isFromSandbox=true 和已有的按钮）
+   * 使用 updateSkillButtonPosition 更新位置，保留原按钮 ID 和 Buff 关联
    */
   const handleButtonMouseDown = useCallback(
     (e: React.MouseEvent, buttonId: string) => {
@@ -128,22 +135,14 @@ export function useCanvasDrag({
       e.stopPropagation();
 
       const button = skillButtons.find((b) => b.id === buttonId);
-      if (!button || !button.isFromSandbox) return;
+      if (!button) return;
 
       dispatch({ type: 'SELECT_SKILL_BUTTON', buttonId });
       dispatch({ type: 'SET_DRAGGING', buttonId, isDragging: true });
 
       const canvasRect = canvasRef.current?.getBoundingClientRect();
       if (canvasRect) {
-        // 从画布拖出时：先移除旧按钮，保存引用，鼠标释放时若未成功吸附则还原
-        dispatch({ type: 'REMOVE_SKILL_BUTTON', buttonId });
-
-        // 同时从排轴数据中移除按钮
-        // 注意：使用 lineIndex 作为 staffIndex，因为 timelineData 是按干员索引的
-        if (removeTimelineButton && button.lineIndex !== undefined) {
-          removeTimelineButton(button.lineIndex, buttonId);
-        }
-
+        // 保存原始按钮引用用于拖拽状态
         setDraggingState({
           id: button.id,
           characterId: button.characterId,
@@ -152,12 +151,12 @@ export function useCanvasDrag({
           lineIndex: button.lineIndex,
           offsetX: config.skillButtonSize / 2,
           offsetY: config.skillButtonSize / 2,
-          originalButton: button,  // 保存原始按钮用于释放失败时回退
+          originalButton: button,  // 保存原始按钮用于释放时更新位置
         });
         setMousePosition({ x: e.clientX, y: e.clientY });
       }
     },
-    [skillButtons, config, dispatch, canvasRef, removeTimelineButton]
+    [skillButtons, config, dispatch, canvasRef]
   );
 
   /**
@@ -173,10 +172,6 @@ export function useCanvasDrag({
 
     const handleMouseUp = (e: MouseEvent) => {
       if (!draggingState || !canvasRef.current) {
-        // 画布不存在时：若有原始按钮引用则还原
-        if (draggingState?.originalButton) {
-          dispatch({ type: 'ADD_SKILL_BUTTON', button: draggingState.originalButton });
-        }
         setDraggingState(null);
         return;
       }
@@ -217,52 +212,88 @@ export function useCanvasDrag({
             draggingState.characterId
           );
 
-          // ③ 查找干员 element 属性（用于渲染底色）
-          const characterElement = (selectedCharacters as { id: string; element?: string }[]).find(
-            c => c.id === draggingState.characterId
-          )?.element;
+          // 判断是移动已有按钮还是创建新按钮
+          // 只要有 originalButton 就按"移动已有按钮"处理
+          const isMovingExistingButton = !!draggingState.originalButton;
 
-          // ④ 创建 SkillButton 实例
-          const newButton: SkillButton = {
-            id: draggingState.id,
-            characterId: draggingState.characterId,
-            characterName: draggingState.characterName,
-            skillType: draggingState.skillType,
-            position: snappedPosition,
-            staffIndex,
-            lineIndex,
-            isDragging: false,
-            isSelected: false,
-            isFromSandbox: true,
-            // 派生字段：从资源路径解析函数获取
-            skillIconUrl: resolveSkillIconUrl(draggingState.characterName, draggingState.skillType),
-            element: characterElement,
-          };
+          if (isMovingExistingButton && updateSkillButtonPosition && draggingState.originalButton) {
+            // 移动已有按钮：使用 updateSkillButtonPosition 保留原 ID 和 Buff
+            const originalButton = draggingState.originalButton;
+            const oldStaffIndex = originalButton.lineIndex;
+            const buttonId = originalButton.id;
+            
+            // 如果移动到不同的 staff，需要先从原 staff 移除
+            if (oldStaffIndex !== lineIndex && removeTimelineButton) {
+              removeTimelineButton(oldStaffIndex, buttonId);
+              // 然后作为新按钮添加到新 staff
+              if (addTimelineButton) {
+                addTimelineButton({
+                  characterName: draggingState.characterName,
+                  skillType: draggingState.skillType,
+                  staffIndex: lineIndex,
+                  nodeIndex,
+                  position: snappedPosition,
+                }, buttonId);
+              }
+            } else {
+              // 同一 staff 内移动：更新位置
+              updateSkillButtonPosition(lineIndex, buttonId, snappedPosition, nodeIndex);
+            }
 
-          dispatch({ type: 'ADD_SKILL_BUTTON', button: newButton });
+            // 同步更新 AppContext 中按钮的位置和 lineIndex/staffIndex
+            dispatch({
+              type: 'SET_SKILL_BUTTON_POSITION',
+              buttonId: buttonId,
+              position: snappedPosition,
+              lineIndex: lineIndex,
+              staffIndex: lineIndex,
+            });
+            dispatch({ type: 'SET_DRAGGING', buttonId: buttonId, isDragging: false });
+          } else {
+            // ③ 查找干员 element 属性（用于渲染底色）
+            const characterElement = (selectedCharacters as { id: string; element?: string }[]).find(
+              c => c.id === draggingState.characterId
+            )?.element;
 
-          // ⑤ 添加到排轴数据（如果提供了 addTimelineButton 函数）
-          // 传入 draggingState.id 确保 timelineData 中的按钮 ID 与 AppContext 中的一致
-          // 注意：使用 lineIndex 作为 staffIndex，因为 timelineData 是按干员索引的，不是按 staff 组索引的
-          if (addTimelineButton) {
-            addTimelineButton({
+            // ④ 创建新 SkillButton 实例
+            const newButton: SkillButton = {
+              id: draggingState.id,
+              characterId: draggingState.characterId,
               characterName: draggingState.characterName,
               skillType: draggingState.skillType,
-              staffIndex: lineIndex,
-              nodeIndex,
               position: snappedPosition,
-            }, draggingState.id);
+              staffIndex,
+              lineIndex,
+              isDragging: false,
+              isSelected: false,
+              isFromSandbox: true,
+              // 派生字段：从资源路径解析函数获取
+              skillIconUrl: resolveSkillIconUrl(draggingState.characterName, draggingState.skillType),
+              element: characterElement,
+            };
+
+            dispatch({ type: 'ADD_SKILL_BUTTON', button: newButton });
+
+            // ⑤ 添加到排轴数据（如果提供了 addTimelineButton 函数）
+            if (addTimelineButton) {
+              addTimelineButton({
+                characterName: draggingState.characterName,
+                skillType: draggingState.skillType,
+                staffIndex: lineIndex,
+                nodeIndex,
+                position: snappedPosition,
+              }, draggingState.id);
+            }
           }
-        } else if (draggingState.originalButton) {
-          // 未找到匹配谱线时：还原到原始位置
-          dispatch({ type: 'ADD_SKILL_BUTTON', button: draggingState.originalButton });
         }
-      } else if (draggingState.originalButton) {
-        // 释放到画布外：还原到原始位置
-        dispatch({ type: 'ADD_SKILL_BUTTON', button: draggingState.originalButton });
       }
 
       setDraggingState(null);
+      
+      // 自动保存
+      if (saveTimelineData) {
+        saveTimelineData();
+      }
     };
 
     window.addEventListener('mousemove', handleMouseMove);
@@ -272,7 +303,7 @@ export function useCanvasDrag({
       window.removeEventListener('mousemove', handleMouseMove);
       window.removeEventListener('mouseup', handleMouseUp);
     };
-  }, [draggingState, config, canvasWidth, staffCount, selectedCharacters, dispatch, canvasRef]);
+  }, [draggingState, config, canvasWidth, staffCount, selectedCharacters, dispatch, canvasRef, addTimelineButton, removeTimelineButton, updateSkillButtonPosition, saveTimelineData]);
 
   return {
     draggingState,

@@ -5,7 +5,7 @@
  * 负责协调三个子模块之间的状态交互，是画布模块的顶层容器
  */
 
-import React, { useRef } from 'react';
+import React, { useRef, useEffect } from 'react';
 import { useAppContext } from '../../context/AppContext';
 import { getTotalCanvasHeight } from '../../utils/layout';
 import { SkillSandbox } from './SkillSandbox';
@@ -17,6 +17,7 @@ import { CanvasArea } from './components/CanvasArea';
 import { SidePanel } from '../SidePanel';
 import { DraggingOverlay } from './components/DraggingOverlay';
 import { OperatorConfigPanel } from './components/OperatorConfigPanel';
+import { SkillButton } from '../../types';
 import './CanvasBoard.css';
 
 export function CanvasBoard() {
@@ -42,8 +43,123 @@ export function CanvasBoard() {
     timelineData,
     addSkillButton: addTimelineButton,
     removeSkillButton: removeTimelineButton,
+    updateSkillButtonPosition,
+    updateButtonBuffIds,
     saveTimelineData,
+    loadTimelineData,
+    normalizeTimelineData,
   } = useTimelineData(selectedCharacters);
+
+  // 页面刷新后从 timelineData 恢复 skillButtons 到 AppContext
+  // 使用 ref 保证"只恢复一次"
+  const hasRestoredRef = useRef(false);
+
+  useEffect(() => {
+    if (hasRestoredRef.current) {
+      return; // 防止重复恢复
+    }
+    hasRestoredRef.current = true;
+
+    // 加载持久化的排轴数据（内部已做规范化）
+    const loadedData = loadTimelineData();
+    if (loadedData) {
+      // 额外校验：确保 staffLines 结构合法
+      console.log('【刷新恢复】数据校验:');
+      console.log('  - selectedCharacters:', selectedCharacters.length);
+      console.log('  - staffLines:', loadedData.staffLines.length);
+      
+      // 如果结构仍不匹配，再次规范化
+      let dataToRestore = loadedData;
+      if (loadedData.staffLines.length < selectedCharacters.length) {
+        console.warn('  - 结构不匹配，执行额外规范化');
+        dataToRestore = normalizeTimelineData(loadedData, selectedCharacters);
+      }
+      
+      // 将 timelineData 中的按钮转换为 AppContext 的 skillButtons
+      const restoredButtons: SkillButton[] = [];
+      dataToRestore.staffLines.forEach((staffLine) => {
+        // 确保 buttons 是数组
+        const buttons = Array.isArray(staffLine.buttons) ? staffLine.buttons : [];
+        buttons.forEach((btn) => {
+          restoredButtons.push({
+            id: btn.id,
+            characterId: btn.characterName, // timeline 中存的是 name，作为 id 使用
+            characterName: btn.characterName,
+            skillType: btn.skillType,
+            position: btn.position,
+            staffIndex: btn.staffIndex,
+            lineIndex: btn.staffIndex, // 兼容字段
+            isDragging: false,
+            isSelected: false,
+            isFromSandbox: false,
+          });
+        });
+      });
+
+      // 先清空现有按钮，再批量恢复
+      dispatch({ type: 'CLEAR_SKILL_BUTTONS' });
+      restoredButtons.forEach((button) => {
+        dispatch({ type: 'ADD_SKILL_BUTTON', button });
+      });
+
+      console.log('【刷新恢复】已从 timelineData 恢复按钮:', restoredButtons.length);
+    }
+  }, [dispatch, loadTimelineData, normalizeTimelineData, selectedCharacters]);
+
+  // 监听 Buff 添加事件，同步更新 timelineData 中的 buffIds
+  useEffect(() => {
+    const handleBuffAdded = (event: CustomEvent) => {
+      const { buttonId, buffId } = event.detail;
+      if (!buttonId || !buffId) return;
+
+      // 在 timelineData 中找到对应的按钮并更新 buffIds
+      timelineData.staffLines.forEach((staffLine) => {
+        const button = staffLine.buttons.find(b => b.id === buttonId);
+        if (button) {
+          const currentBuffIds = button.buffIds || [];
+          if (!currentBuffIds.includes(buffId)) {
+            updateButtonBuffIds(staffLine.staffIndex, buttonId, [...currentBuffIds, buffId]);
+            console.log('【Buff 同步】已更新 timelineData buffIds:', buttonId, buffId);
+          }
+        }
+      });
+      
+      // 自动保存由 debounce 统一处理
+    };
+
+    window.addEventListener('skillbutton-buff-added', handleBuffAdded as EventListener);
+    return () => {
+      window.removeEventListener('skillbutton-buff-added', handleBuffAdded as EventListener);
+    };
+  }, [timelineData, updateButtonBuffIds]);
+
+  // 监听 Buff 删除事件，同步更新 timelineData 中的 buffIds
+  useEffect(() => {
+    const handleBuffRemoved = (event: CustomEvent) => {
+      const { buttonId, buffId } = event.detail;
+      if (!buttonId || !buffId) return;
+
+      // 在 timelineData 中找到对应的按钮并更新 buffIds
+      timelineData.staffLines.forEach((staffLine) => {
+        const button = staffLine.buttons.find(b => b.id === buttonId);
+        if (button) {
+          const currentBuffIds = button.buffIds || [];
+          if (currentBuffIds.includes(buffId)) {
+            const newBuffIds = currentBuffIds.filter(id => id !== buffId);
+            updateButtonBuffIds(staffLine.staffIndex, buttonId, newBuffIds);
+            console.log('【Buff 同步】已从 timelineData 移除 buffId:', buttonId, buffId);
+          }
+        }
+      });
+      
+      // 自动保存由 debounce 统一处理
+    };
+
+    window.addEventListener('skillbutton-buff-removed', handleBuffRemoved as EventListener);
+    return () => {
+      window.removeEventListener('skillbutton-buff-removed', handleBuffRemoved as EventListener);
+    };
+  }, [timelineData, updateButtonBuffIds]);
 
   // 拖拽逻辑：处理技能沙盒按钮拖出、画布按钮拖动
   const { draggingState, mousePosition, handleSandboxDragStart, handleButtonMouseDown } = useCanvasDrag({
@@ -56,6 +172,8 @@ export function CanvasBoard() {
     dispatch,
     addTimelineButton,
     removeTimelineButton,
+    updateSkillButtonPosition,
+    saveTimelineData,
   });
 
   const handleBack = () => {

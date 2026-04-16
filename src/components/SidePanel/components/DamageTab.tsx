@@ -289,9 +289,10 @@ export function DamageTab() {
   }, [loadAllBuffs]);
 
   /**
-   * 添加 Buff 到当前选中的技能按钮
-   * @param buff - Buff 数据
-   */
+ * 添加 Buff 到当前选中的技能按钮
+ * 同时更新 timelineData 中的 buffIds（唯一持久化真相）
+ * @param buff - Buff 数据
+ */
   const addBuffToSkillButton = useCallback((buff: BuffItem) => {
     const selectedButtonId = getSelectedSkillButton();
     if (!selectedButtonId) {
@@ -299,9 +300,12 @@ export function DamageTab() {
       return false;
     }
 
+    // 生成 Buff ID
+    const buffId = `buff-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    
     // 从 sessionStorage 读取当前 Buff 数据
     const newBuff: SkillButtonBuff = {
-      id: `buff-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+      id: buffId,
       displayName: buff.displayName,
       name: buff.name,
       sourceName: buff.sourceName,
@@ -319,8 +323,9 @@ export function DamageTab() {
     console.log(buff);
     
     // 触发自定义事件，通知 SkillButton 弹窗刷新 Buff 列表
+    // 同时通知 CanvasBoard 更新 timelineData 中的 buffIds
     window.dispatchEvent(new CustomEvent('skillbutton-buff-added', { 
-      detail: { buttonId: selectedButtonId, buff: newBuff } 
+      detail: { buttonId: selectedButtonId, buff: newBuff, buffId } 
     }));
     
     return true;

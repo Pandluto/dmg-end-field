@@ -268,6 +268,7 @@ export interface SkillButtonData {
   nodeIndex: number;       // 节点索引（0 ~ N）
   nodeNumber: number;      // 节点编号（1 ~ 50, 51 ~ 100, ...）
   position: Position;      // 位置坐标
+  buffIds?: string[];      // 关联的 Buff ID 列表（持久化用）
 }
 
 /**

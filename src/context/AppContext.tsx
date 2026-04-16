@@ -35,7 +35,7 @@ type AppAction =
   | { type: 'SET_VIEW'; view: ViewType }
   | { type: 'ADD_SKILL_BUTTON'; button: SkillButton }
   | { type: 'REMOVE_SKILL_BUTTON'; buttonId: string }
-  | { type: 'SET_SKILL_BUTTON_POSITION'; buttonId: string; position: { x: number; y: number } }
+  | { type: 'SET_SKILL_BUTTON_POSITION'; buttonId: string; position: { x: number; y: number }; lineIndex?: number; staffIndex?: number }
   | { type: 'SELECT_SKILL_BUTTON'; buttonId: string | null }
   | { type: 'SET_DRAGGING'; buttonId: string; isDragging: boolean }
   | { type: 'TOGGLE_SKILL_BUTTON_LOCK'; buttonId: string }
@@ -100,12 +100,19 @@ function appReducer(state: AppState, action: AppAction): AppState {
         skillButtons: state.skillButtons.filter((btn) => btn.id !== action.buttonId),
       };
 
-    // 更新技能按钮位置
+    // 更新技能按钮位置（包括跨线移动时更新 lineIndex/staffIndex）
     case 'SET_SKILL_BUTTON_POSITION': {
       return {
         ...state,
         skillButtons: state.skillButtons.map((btn) =>
-          btn.id === action.buttonId ? { ...btn, position: action.position } : btn
+          btn.id === action.buttonId
+            ? {
+                ...btn,
+                position: action.position,
+                ...(action.lineIndex !== undefined && { lineIndex: action.lineIndex }),
+                ...(action.staffIndex !== undefined && { staffIndex: action.staffIndex }),
+              }
+            : btn
         ),
       };
     }

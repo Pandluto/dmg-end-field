@@ -4,9 +4,10 @@ import { getElementBackgroundColor } from '../../utils/assetResolver';
 import {
   removeSkillButtonBuff,
   setSelectedSkillButton,
+  getButtonBuffs,
 } from '../../hooks/useSkillButtonBuffs';
 import { SkillButtonBuff, SkillLevelMode } from '../../types/storage';
-import { getCharacterConfig, getSkillButtonBuffMap } from '../../utils/storage';
+import { getCharacterConfig } from '../../utils/storage';
 import {
   calculateBuffTotals,
   calculateElementDmgBonus,
@@ -79,11 +80,11 @@ export function SkillButtonComponent({ button, size, onMouseDown, onContextMenu,
   const clickCountRef = useRef(0);
 
   /**
-   * 从 sessionStorage 加载 Buff 列表
+   * 从 buffCache 加载 Buff 列表
    */
   const loadBuffList = useCallback(() => {
-    const buttonBuffs = getSkillButtonBuffMap();
-    setBuffList(buttonBuffs[button.id] || []);
+    const buffs = getButtonBuffs(button.id);
+    setBuffList(buffs);
   }, [button.id]);
 
   /**
@@ -141,15 +142,18 @@ export function SkillButtonComponent({ button, size, onMouseDown, onContextMenu,
   }, [button.characterId]);
 
   /**
-   * 从 sessionStorage 移除指定 Buff
+   * 移除指定 Buff
+   * 同时触发事件通知 CanvasBoard 更新 timelineData
    * @param buffId - Buff ID
    */
   const removeBuff = useCallback((buffId: string) => {
-    const buttonBuffs = getSkillButtonBuffMap();
-    if (buttonBuffs[button.id]) {
-      removeSkillButtonBuff(button.id, buffId);
-      loadBuffList(); // 重新加载列表
-    }
+    removeSkillButtonBuff(button.id, buffId);
+    loadBuffList(); // 重新加载列表
+    
+    // 触发事件通知 CanvasBoard 从 timelineData 中移除 buffId
+    window.dispatchEvent(new CustomEvent('skillbutton-buff-removed', {
+      detail: { buttonId: button.id, buffId }
+    }));
   }, [button.id, loadBuffList]);
 
   // 弹窗打开时加载数据，并设置当前选中的技能按钮
