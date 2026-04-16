@@ -15,6 +15,7 @@ import {
   calculateVulnerabilityRate,
   ELEMENT_LABELS,
 } from './SkillButtonBuffCalculator';
+import { useAppContext } from '../../context/AppContext';
 import './SkillButton.css';
 
 interface SkillButtonProps {
@@ -26,7 +27,8 @@ interface SkillButtonProps {
 }
 
 export function SkillButtonComponent({ button, size, onMouseDown, onContextMenu, timelineData }: SkillButtonProps) {
-  const { position, skillType, isSelected, isDragging, characterName, skillIconUrl, element } = button;
+  const { position, skillType, isSelected, isDragging, characterName, skillIconUrl, element, isLocked } = button;
+  const { dispatch } = useAppContext();
 
   // 弹窗显示状态
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -306,7 +308,18 @@ export function SkillButtonComponent({ button, size, onMouseDown, onContextMenu,
           <div className="skill-button-modal-pair">
             {/* 弹窗1：技能信息 */}
             <div className="skill-button-modal skill-button-modal-info">
-              <h4>技能信息</h4>
+              {/* 独立标题区 */}
+              <div className="modal-header">
+                <h4 className="modal-title">技能信息</h4>
+                <button
+                  className={`lock-control ${isLocked ? 'is-locked' : ''}`}
+                  onClick={() => dispatch({ type: 'TOGGLE_SKILL_BUTTON_LOCK', buttonId: button.id })}
+                  title={isLocked ? '点击解锁，解锁后可右键删除' : '点击锁定，锁定后右键不能删除'}
+                >
+                  <span className="lock-icon">{isLocked ? '🔒' : '🔓'}</span>
+                  <span className="lock-text">{isLocked ? '已锁定' : '未锁定'}</span>
+                </button>
+              </div>
               <div className="modal-content">
                 <p><strong>角色:</strong> {characterName}</p>
                 <p><strong>技能:</strong> {skillType} <strong>L{skillLevelModeMap[skillType].replace('L', '')}</strong></p>

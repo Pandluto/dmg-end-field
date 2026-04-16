@@ -81,8 +81,13 @@ export function CanvasBoard() {
     e.preventDefault();
     e.stopPropagation();
 
-    // 先从 skillButtons 中找到按钮，获取 lineIndex（干员索引）
+    // 检查按钮是否被锁定
     const button = skillButtons.find(b => b.id === buttonId);
+    if (button?.isLocked) {
+      return; // 锁定状态不响应右键删除
+    }
+
+    // 先从 skillButtons 中找到按钮，获取 lineIndex（干员索引）
     if (button && button.lineIndex !== undefined) {
       // 同时从 timelineData 中移除
       removeTimelineButton(button.lineIndex, buttonId);

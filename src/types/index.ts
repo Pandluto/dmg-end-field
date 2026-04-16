@@ -151,6 +151,8 @@ export interface SkillButton {
   skillIconUrl?: string;
   /** 派生字段：干员元素属性，用于渲染底色，由 useCanvasDrag 注入 */
   element?: string;
+  /** 运行时字段：是否锁定（锁定后右键不能删除），不进入持久化 */
+  isLocked?: boolean;
 }
 
 /**

@@ -52,7 +52,7 @@ interface BuffData {
 /**
  * 从 sessionStorage 读取角色武器配置映射
  * 从 OperatorConfigPanel 存储的 characterConfigMap 中提取武器配置
- * @param characterNames - 角色名称数组，用于过滤需要的武器配置
+ * @param characterNames - 角色名称数组（现在与 characterId 一致），用于过滤需要的武器配置
  * @returns 角色名到武器名的映射对象，解析失败返回空对象
  */
 const getCharacterWeapons = (characterNames: string[]): Record<string, string> => {
@@ -64,14 +64,14 @@ const getCharacterWeapons = (characterNames: string[]): Record<string, string> =
     }
 
     // 从配置映射中提取角色名到武器名的映射
+    // 注意：characterName 现在与 characterId 一致（storage.ts 中的兼容处理）
     const weaponMap: Record<string, string> = {};
-    Object.values(configMap).forEach((config) => {
-      // 只提取当前已选角色的武器配置
-      if (config.characterName && 
-          characterNames.includes(config.characterName) && 
+    Object.entries(configMap).forEach(([characterId, config]) => {
+      // 使用 characterId 进行匹配（与 selectedCharacters 中的 name 一致）
+      if (characterNames.includes(characterId) && 
           config.weaponName && 
           config.weaponName !== '无') {
-        weaponMap[config.characterName] = config.weaponName;
+        weaponMap[characterId] = config.weaponName;
       }
     });
     

@@ -102,6 +102,76 @@
   overflow-y: auto;
 }
 
+/* ==================== 弹窗标题区布局 ==================== */
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #ddd;
+}
+
+.modal-title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 700;
+  color: #000;
+}
+
+/* ==================== 锁定控件样式 ==================== */
+.lock-control {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  border: 1px solid #999;
+  background: #f5f5f5;
+  font-size: 11px;
+  font-weight: 500;
+  color: #333;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+}
+
+.lock-control:hover {
+  background: #e8e8e8;
+  border-color: #666;
+}
+
+.lock-control:active {
+  background: #ddd;
+  transform: scale(0.98);
+}
+
+/* 已锁定状态 */
+.lock-control.is-locked {
+  background: #fff0f0;
+  border-color: #c00;
+  color: #900;
+}
+
+.lock-control.is-locked:hover {
+  background: #ffe0e0;
+  border-color: #a00;
+}
+
+.lock-control.is-locked:active {
+  background: #ffd0d0;
+}
+
+/* 锁定图标 */
+.lock-icon {
+  font-size: 12px;
+  line-height: 1;
+}
+
+/* 锁定文字 */
+.lock-text {
+  font-size: 10px;
+}
+
 /* 弹窗1：技能信息 */
 .skill-button-modal-info {
   border-right: 1px solid #ddd;
@@ -398,3 +468,5 @@
 .skill-damage-expand-btn:hover {
   background: rgba(255, 255, 0, 0.3);
 }
+
+

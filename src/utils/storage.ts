@@ -345,7 +345,7 @@ function mergeV3ToV2(
 
   return {
     characterId,
-    characterName: '', // 运行时从角色数据源获取
+    characterName: characterId, // 使用 characterId 作为兼容值，保证不为空
     characterPotential: input.potential || '满潜',
     skillLevelModeMap: input.skillLevels || { A: 'L9', B: 'L9', E: 'L9', Q: 'L9' },
     weaponName: input.weapon?.name || '无',

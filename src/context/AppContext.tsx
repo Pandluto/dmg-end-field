@@ -38,6 +38,7 @@ type AppAction =
   | { type: 'SET_SKILL_BUTTON_POSITION'; buttonId: string; position: { x: number; y: number } }
   | { type: 'SELECT_SKILL_BUTTON'; buttonId: string | null }
   | { type: 'SET_DRAGGING'; buttonId: string; isDragging: boolean }
+  | { type: 'TOGGLE_SKILL_BUTTON_LOCK'; buttonId: string }
   | { type: 'CLEAR_SKILL_BUTTONS' };
 
 /** 初始状态：默认显示干员选择界面，无已选干员，无技能按钮 */
@@ -133,6 +134,16 @@ function appReducer(state: AppState, action: AppAction): AppState {
     // 清空画布
     case 'CLEAR_SKILL_BUTTONS':
       return { ...state, skillButtons: [] };
+
+    // 切换技能按钮锁定状态
+    case 'TOGGLE_SKILL_BUTTON_LOCK': {
+      return {
+        ...state,
+        skillButtons: state.skillButtons.map((btn) =>
+          btn.id === action.buttonId ? { ...btn, isLocked: !btn.isLocked } : btn
+        ),
+      };
+    }
 
     default:
       return state;
