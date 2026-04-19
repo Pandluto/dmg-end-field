@@ -372,28 +372,35 @@
   box-shadow: 2px 2px 4px rgba(0, 0, 0, 0.3);
 }
 
-/* IDE theme visual overrides */
+/* ============================================
+   杂志编辑风 IDE 主题覆盖
+   风格：暖米色背景、细腻线条、优雅留白
+   ============================================ */
+
+/* 面板整体 */
 .tool-panel-tabs,
 .tab-content-damage,
 .tab-content-function1,
 .tab-content-function2 {
-  background: var(--ide-bg-panel);
-  color: var(--ide-text-main);
+  background: var(--bg-surface);
+  color: var(--text-primary);
 }
 
 .tool-panel-tabs {
-  border-bottom: 1px solid var(--ide-border-subtle);
+  border-bottom: 1px solid var(--ide-border-light);
 }
 
+/* 标签按钮 */
 .tool-panel-tab {
   background: transparent;
-  color: var(--ide-text-muted);
+  color: var(--text-muted);
   border-color: transparent;
+  border-radius: 2px;
 }
 
 .tool-panel-tab:hover {
   background: var(--ide-bg-hover);
-  color: var(--ide-accent-strong);
+  color: var(--text-primary);
 }
 
 .tool-panel-tab:hover::after,
@@ -402,26 +409,29 @@
 }
 
 .tool-panel-tab.is-active {
-  background: var(--ide-bg-active);
-  color: var(--ide-accent-strong);
-  box-shadow: inset 0 -2px 0 var(--ide-accent);
+  background: var(--ide-bg-hover);
+  color: var(--text-primary);
+  box-shadow: none;
+  border-bottom: 2px solid var(--text-primary);
 }
 
+/* 输入框和按钮 */
 .damage-input,
 .refresh-button,
 .damage-search-drawer,
 .damage-search-option,
 .buff-detail-modal,
 .buff-detail-close-btn {
-  background: var(--ide-bg-panel-soft);
-  color: var(--ide-text-main);
-  border-color: var(--ide-border-subtle);
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  border: 1px solid var(--ide-border-light);
+  border-radius: 2px;
 }
 
 .damage-input::placeholder,
 .buff-empty,
 .damage-search-empty {
-  color: var(--ide-text-faint);
+  color: var(--text-faint);
 }
 
 .damage-input:focus,
@@ -429,37 +439,55 @@
 .damage-search-option:hover,
 .buff-detail-close-btn:hover {
   background: var(--ide-bg-hover);
-  color: var(--ide-accent-strong);
-  border-color: var(--ide-accent);
+  color: var(--text-primary);
+  border-color: var(--ide-border-medium);
 }
 
+/* Buff列表项 */
 .buff-item {
-  color: var(--ide-text-muted);
+  color: var(--text-muted);
+  border-radius: 2px;
 }
 
 .buff-item:hover,
 .buff-item.is-dragging {
   background: var(--ide-bg-hover);
-  color: var(--ide-accent-strong);
+  color: var(--text-primary);
 }
 
+/* Buff详情弹窗 */
 .buff-detail-modal {
-  box-shadow: var(--ide-shadow);
+  background: var(--bg-canvas);
+  border: 1px solid var(--ide-border-light);
+  border-radius: 4px;
+  box-shadow: none;
 }
 
 .buff-detail-modal h4 {
-  color: var(--ide-text-main);
-  border-bottom-color: var(--ide-border-subtle);
+  color: var(--text-primary);
+  border-bottom: 1px solid var(--ide-border-light);
 }
 
 .buff-detail-content {
-  color: var(--ide-text-muted);
+  color: var(--text-muted);
 }
 
+/* 拖拽跟随元素 */
 .dragging-buff-follower {
-  background: var(--ide-bg-accent);
-  border-color: var(--ide-accent);
-  color: var(--ide-text-main);
-  box-shadow: var(--ide-shadow);
+  background: var(--excel-green-soft);
+  border: 1px solid var(--excel-green);
+  color: var(--excel-green);
+  box-shadow: none;
+}
+
+/* 搜索下拉抽屉 */
+.damage-search-drawer {
+  border: 1px solid var(--ide-border-light);
+  border-radius: 2px;
+}
+
+/* 刷新按钮 */
+.refresh-button {
+  border-radius: 2px;
 }
 

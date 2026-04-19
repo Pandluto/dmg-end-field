@@ -1212,18 +1212,20 @@
   justify-content: flex-end;
 }
 
-/* IDE theme visual overrides */
+/* ============================================
+   杂志编辑风 IDE 主题覆盖
+   风格：暖米色背景、细腻线条、优雅留白
+   ============================================ */
+
+/* 画布整体 */
 .canvas-board,
 .canvas-layout {
-  background:
-    linear-gradient(90deg, rgba(255, 255, 255, 0.018) 1px, transparent 1px),
-    linear-gradient(180deg, var(--ide-bg-app), #18191c);
-  background-size: 24px 24px, auto;
-  color: var(--ide-text-main);
+  background: var(--bg-primary);
+  color: var(--text-primary);
 }
 
 .canvas-left-zone {
-  background: rgba(30, 31, 34, 0.72);
+  background: var(--bg-surface);
 }
 
 .canvas-right-zone {
@@ -1232,29 +1234,37 @@
 
 .canvas-right-zone.is-tool-panel,
 .canvas-right-zone.is-skill-sandbox {
-  border-left-color: var(--ide-border-strong);
-  box-shadow: inset 1px 0 0 rgba(255, 255, 255, 0.03);
+  border-left: 1px solid var(--ide-border-light);
 }
 
+/* 网格背景 */
 .canvas-grid-shell {
-  background: rgba(25, 26, 29, 0.74);
-  box-shadow: var(--ide-shadow);
+  background: var(--bg-surface);
+  box-shadow: none;
 }
 
 .canvas-grid-group {
-  border-color: var(--ide-border-strong);
-  background: rgba(37, 39, 44, 0.38);
+  border: 1px solid var(--ide-border-light);
+  background: transparent;
 }
 
 .canvas-grid-background {
-  --grid-line-color: rgba(154, 161, 173, 0.38);
+  --grid-line-color: var(--ide-border-subtle);
 }
 
+/* 底部区域 */
+.canvas-bottom-zone,
+.workbench-selection-bottom-bar {
+  background: transparent;
+}
+
+/* 配置面板遮罩 */
 .config-panel-overlay {
-  background: rgba(12, 13, 16, 0.58);
+  background: rgba(28, 28, 28, 0.15);
   backdrop-filter: blur(4px);
 }
 
+/* 配置面板基础样式 */
 .config-panel,
 .config-data-section,
 .config-skill-card,
@@ -1268,22 +1278,25 @@
 .config-weapon-drawer,
 .config-weapon-data-drawer,
 .config-cti-drawer {
-  background: var(--ide-bg-panel);
-  border-color: var(--ide-border-subtle);
-  color: var(--ide-text-main);
+  background: var(--bg-surface);
+  border: 1px solid var(--ide-border-light);
+  color: var(--text-primary);
+  border-radius: 2px;
 }
 
 .config-panel {
-  box-shadow: var(--ide-shadow);
+  box-shadow: none;
 }
 
+/* 配置面板按钮 */
 .config-panel-back-btn,
 .config-equip-sync-btn,
 .config-equip-copy-btn,
 .config-weapon-option {
-  background: var(--ide-bg-panel-soft);
-  color: var(--ide-text-main);
-  border-color: var(--ide-border-subtle);
+  background: transparent;
+  color: var(--text-primary);
+  border: 1px solid var(--ide-border-light);
+  border-radius: 2px;
 }
 
 .config-panel-back-btn:hover,
@@ -1297,10 +1310,10 @@
 .config-weapon-option:hover,
 .config-weapon-option.is-selected {
   background: var(--ide-bg-hover);
-  color: var(--ide-accent-strong);
-  border-color: var(--ide-accent);
+  border-color: var(--ide-border-medium);
 }
 
+/* 配置面板文字 */
 .config-data-title,
 .config-skill-key,
 .config-skill-name,
@@ -1308,19 +1321,86 @@
 .config-data-value,
 .config-talent-name,
 .config-talent-desc {
-  color: var(--ide-text-main);
+  color: var(--text-primary);
 }
 
 .config-data-item.is-main {
-  background: rgba(74, 165, 255, 0.16);
+  background: rgba(28, 28, 28, 0.06);
 }
 
 .config-data-item.is-sub {
-  background: rgba(154, 161, 173, 0.12);
+  background: rgba(28, 28, 28, 0.04);
 }
 
-.canvas-bottom-zone,
-.workbench-selection-bottom-bar {
-  background: linear-gradient(180deg, transparent, rgba(24, 25, 28, 0.94));
+/* 工具栏按钮 */
+.btn-back,
+.btn-save,
+.btn-calculate {
+  background: transparent;
+  color: var(--text-muted);
+  border: 1px solid var(--ide-border-light);
+  border-radius: 2px;
+}
+
+.btn-back:hover,
+.btn-save:hover,
+.btn-calculate:hover {
+  background: var(--ide-bg-hover);
+  color: var(--text-primary);
+  border-color: var(--ide-border-medium);
+}
+
+/* 圆形按钮 */
+.btn-add-group,
+.btn-remove-group {
+  background: transparent;
+  color: var(--text-muted);
+  border: 1px solid var(--ide-border-light);
+  border-radius: 50%;
+}
+
+.btn-add-group:hover,
+.btn-remove-group:hover {
+  background: var(--ide-bg-hover);
+  color: var(--text-primary);
+  border-color: var(--ide-border-medium);
+}
+
+/* 技能卡片 */
+.config-skill-level-switch {
+  background: transparent;
+  border: 1px solid var(--ide-border-light);
+}
+
+.config-skill-level-switch:hover {
+  background: var(--ide-bg-hover);
+}
+
+/* 开关滑块 */
+.config-skill-level-thumb,
+.config-weapon-potential-thumb {
+  background: var(--ide-border-medium);
+}
+
+.config-skill-level-switch:hover .config-skill-level-thumb,
+.config-weapon-potential-switch:hover .config-weapon-potential-thumb {
+  background: var(--ide-border-strong);
+}
+
+/* 输入框 */
+.config-cti-input {
+  color: var(--text-primary);
+}
+
+/* 头像指示器 */
+.config-avatar-item.is-active::after {
+  background: var(--excel-green-soft);
+}
+
+/* 错误状态 */
+.config-error-text {
+  background: var(--excel-green);
+  color: #ffffff;
+  border-color: var(--excel-green);
 }
 
