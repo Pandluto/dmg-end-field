@@ -19,6 +19,7 @@ import { DraggingOverlay } from './components/DraggingOverlay';
 import { OperatorConfigPanel } from './components/OperatorConfigPanel';
 import { SkillButton } from '../../types';
 import { migrateOldBuffStorage } from '../../utils/migrateStorage';
+import { onSkillButtonBuffAdded, onSkillButtonBuffRemoved } from '../../core/events/buffEvents';
 import './CanvasBoard.css';
 
 export function CanvasBoard() {
@@ -113,34 +114,26 @@ export function CanvasBoard() {
   // 监听 Buff 添加事件，仅用于触发 UI 刷新
   // 注意：Buff 数据已写入 skill-button 总表，不需要再从 timelineData 同步
   useEffect(() => {
-    const handleBuffAdded = (event: CustomEvent) => {
-      const { buttonId, buffId } = event.detail;
+    const unsubscribe = onSkillButtonBuffAdded(({ buttonId, buffId }) => {
       if (!buttonId || !buffId) return;
 
       console.log('【Buff 事件】已添加 Buff:', buttonId, buffId);
       // UI 刷新由 SkillButton 组件自行处理（通过 loadBuffList）
-    };
+    });
 
-    window.addEventListener('skillbutton-buff-added', handleBuffAdded as EventListener);
-    return () => {
-      window.removeEventListener('skillbutton-buff-added', handleBuffAdded as EventListener);
-    };
+    return unsubscribe;
   }, []);
 
   // 监听 Buff 删除事件，仅用于触发 UI 刷新
   useEffect(() => {
-    const handleBuffRemoved = (event: CustomEvent) => {
-      const { buttonId, buffId } = event.detail;
+    const unsubscribe = onSkillButtonBuffRemoved(({ buttonId, buffId }) => {
       if (!buttonId || !buffId) return;
 
       console.log('【Buff 事件】已移除 Buff:', buttonId, buffId);
       // UI 刷新由 SkillButton 组件自行处理（通过 loadBuffList）
-    };
+    });
 
-    window.addEventListener('skillbutton-buff-removed', handleBuffRemoved as EventListener);
-    return () => {
-      window.removeEventListener('skillbutton-buff-removed', handleBuffRemoved as EventListener);
-    };
+    return unsubscribe;
   }, []);
 
   // 拖拽逻辑：处理技能沙盒按钮拖出、画布按钮拖动

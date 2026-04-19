@@ -9,14 +9,11 @@ import {
 import { SkillButtonBuff, SkillLevelMode } from '../../types/storage';
 import { getCharacterConfig } from '../../utils/storage';
 import {
-  calculateBuffTotals,
-  calculateElementDmgBonus,
-  calculateSkillDmgBonus,
-  calculateFragileRate,
-  calculateVulnerabilityRate,
+  calculateSkillButtonDamage,
   ELEMENT_LABELS,
-} from './SkillButtonBuffCalculator';
+} from '../../core/calculators/skillButtonDamageCalculator';
 import { useAppContext } from '../../context/AppContext';
+import { emitSkillButtonBuffRemoved, onSkillButtonBuffAdded } from '../../core/events/buffEvents';
 import './SkillButton.css';
 
 interface SkillButtonProps {
@@ -149,11 +146,9 @@ export function SkillButtonComponent({ button, size, onMouseDown, onContextMenu,
   const removeBuff = useCallback((buffId: string) => {
     removeSkillButtonBuff(button.id, buffId);
     loadBuffList(); // 重新加载列表
-    
+
     // 触发事件通知 CanvasBoard 从 timelineData 中移除 buffId
-    window.dispatchEvent(new CustomEvent('skillbutton-buff-removed', {
-      detail: { buttonId: button.id, buffId }
-    }));
+    emitSkillButtonBuffRemoved(button.id, buffId);
   }, [button.id, loadBuffList]);
 
   // 弹窗打开时加载数据，并设置当前选中的技能按钮
@@ -172,18 +167,15 @@ export function SkillButtonComponent({ button, size, onMouseDown, onContextMenu,
 
   // 监听 Buff 添加事件，实时刷新 Buff 列表
   useEffect(() => {
-    const handleBuffAdded = (event: CustomEvent) => {
-      const { buttonId } = event.detail;
+    // 使用 events 层封装监听 Buff 添加事件
+    const unsubscribe = onSkillButtonBuffAdded(({ buttonId }) => {
       // 只有当 Buff 是添加到当前按钮时才刷新
       if (buttonId === button.id) {
         loadBuffList();
       }
-    };
+    });
 
-    window.addEventListener('skillbutton-buff-added', handleBuffAdded as EventListener);
-    return () => {
-      window.removeEventListener('skillbutton-buff-added', handleBuffAdded as EventListener);
-    };
+    return unsubscribe;
   }, [button.id, loadBuffList]);
 
   /**
@@ -390,109 +382,36 @@ export function SkillButtonComponent({ button, size, onMouseDown, onContextMenu,
                       return <p className="skill-damage-empty">无伤害数据</p>;
                     }
 
-                    // 计算 Buff 汇总
-                    const buffTotals = calculateBuffTotals(buffList);
-                    console.log("buffTotals:", buffTotals);
-                    
-                    // 直接使用 infoSnap JSON 数据
-                    const parsedDamageBonus = infoSnap;
-                    
-                    console.log("parsedDamageBonus:", parsedDamageBonus);
-
-                    // 计算元素伤害加成
-                    const elementDmgBonus = calculateElementDmgBonus(
-                      characterSkillData?.element,
-                      parsedDamageBonus,
-                      buffTotals
-                    );
-                    console.log("elementDmgBonus:", elementDmgBonus);
-                    
-                    // 计算技能伤害加成
-                    const skillDmgBonus = calculateSkillDmgBonus(
+                    // 使用 calculator 计算伤害
+                    const damageResult = calculateSkillButtonDamage({
+                      buffList,
+                      characterElement: characterSkillData?.element,
                       skillType,
-                      parsedDamageBonus,
-                      buffTotals
-                    );
-                    // 计算所有伤害加成
-                    const allDmgBonus = parsedDamageBonus.allDmgBonus + buffTotals.allElementDmgBonus;
-                    
-    
-                    console.log("面板:", panelData);
+                      levelKey,
+                      damage,
+                      panelData,
+                      infoSnap,
+                    });
 
-                    // 伤害加成区 = 1 + 元素 + 技能 + 所有技能 + 所有伤害 √
-                    const damageBonusRate = 1 + elementDmgBonus + skillDmgBonus  + allDmgBonus;
-
-                    // 暴击期望（面板基础值 + Buff 叠加）√
-                    const critRate = panelData.critRate + buffTotals.critRateBoost;
-                    const critDmg = panelData.critDmg + buffTotals.critDmgBonusBoost;
-                    const critExpected = 1 + critRate * critDmg;
-
-                    // 脆弱区（根据干员元素属性计算） 
-                    const fragileRate = calculateVulnerabilityRate(
-                      characterSkillData?.element,
-                      buffTotals
-                    );
-
-                    // 易伤区（根据干员元素属性计算）
-                    const vulnerabilityRate = calculateFragileRate(
-                      characterSkillData?.element,
-                      buffTotals
-                    );
-
-                    // 连击区（独立叠加）
-                    const comboDamageBonus = buffTotals.comboDamageBonus;
-
-                    // 防御区
-                    const defenseZone = 0.5;
-                    
-                    // 处理伤害倍率区（加到最后一个 hit）
-                    let processedDamage = { ...damage };
-                    const hitKeys = Object.keys(damage).filter(k =>
-                      !k.endsWith('Imbalance') && (
-                        k.startsWith('hit') ||
-                        k === 'damage' ||
-                        k === 'phantomDamage' ||
-                        k === 'spikeDamage' ||
-                        k === 'slashDamage' ||
-                        k === 'slashBaseDamage'
-                      )
-                    );
-                    if (hitKeys.length > 0) {
-                      const lastHitKey = hitKeys[hitKeys.length - 1];
-                      const originalHitValue = damage[lastHitKey];
-                      // 先加后乘
-                      const afterAdd = originalHitValue + buffTotals.multiplierBonus;
-                      console.log(afterAdd ,"=", originalHitValue ,"+", buffTotals.multiplierBonus);
-                      const afterMultiply = afterAdd * buffTotals.multiplierMultiplier;
-                      processedDamage[lastHitKey] = afterMultiply;
-                    }
-
-                    const calculateHit = (multiplierValue: number, critMultiplier: number) => {
-                      const base = panelData.atk * multiplierValue;
-                      const afterCrit = base * critMultiplier;
-                      const afterBonus = afterCrit * damageBonusRate;
-                      const afterDefense = afterBonus * defenseZone;
-                      const afterFragile = afterDefense * (1 + fragileRate);
-                      const afterVulnerability = afterFragile * (1 + vulnerabilityRate);
-                      const final = afterVulnerability * (1 + comboDamageBonus);
-                      return { base, afterCrit, afterBonus, afterDefense, afterFragile, afterVulnerability, final };
-                    };
-
-                    const hitResults = hitKeys.map((key, idx) => {
-                      const value = processedDamage[key];
-                      if (typeof value !== 'number') return null;
-                      const nonCrit = calculateHit(value, 1);
-                      const crit = calculateHit(value, 1 + critDmg);
-                      const expected = calculateHit(value, critExpected);
-                      return { key, index: idx + 1, nonCrit, crit, expected };
-                    }).filter(Boolean);
-
-                    const totalExpected = hitResults.reduce((sum, r) => sum + (r?.expected.final ?? 0), 0);
-                    const totalCrit = hitResults.reduce((sum, r) => sum + (r?.crit.final ?? 0), 0);
-                    const totalNonCrit = hitResults.reduce((sum, r) => sum + (r?.nonCrit.final ?? 0), 0);
-
-                    // 判断是否为物理属性
-                    const isPhysical = characterSkillData?.element === 'physical';
+                    const {
+                      buffTotals,
+                      elementDmgBonus,
+                      skillDmgBonus,
+                      damageBonusRate,
+                      critRate,
+                      critDmg,
+                      critExpected,
+                      fragileRate,
+                      vulnerabilityRate,
+                      comboDamageBonus,
+                      defenseZone,
+                      hitResults,
+                      totalExpected,
+                      totalCrit,
+                      totalNonCrit,
+                      processedDamage,
+                      isPhysical,
+                    } = damageResult;
 
                     return (
                       <>
@@ -500,14 +419,12 @@ export function SkillButtonComponent({ button, size, onMouseDown, onContextMenu,
                           <p className="skill-damage-title">{SKILL_LABELS[skillType]} L{skillLevelModeMap[skillType]}</p>
                           <div className="skill-damage-hits">
                             {hitResults.map((result) => (
-                              result && (
-                                <div key={result.key} className="skill-damage-hit-row" onDoubleClick={() => setIsExpanded(!isExpanded)}>
-                                  <span className="hit-label">{result.index}hit</span>
-                                  <span className="hit-value expected">期望: {result.expected.final.toFixed(0)}</span>
-                                  <span className="hit-value crit">暴: {result.crit.final.toFixed(0)}</span>
-                                  <span className="hit-value non-crit">常: {result.nonCrit.final.toFixed(0)}</span>
-                                </div>
-                              )
+                              <div key={result.key} className="skill-damage-hit-row" onDoubleClick={() => setIsExpanded(!isExpanded)}>
+                                <span className="hit-label">{result.index}hit</span>
+                                <span className="hit-value expected">期望: {result.expected.final.toFixed(0)}</span>
+                                <span className="hit-value crit">暴: {result.crit.final.toFixed(0)}</span>
+                                <span className="hit-value non-crit">常: {result.nonCrit.final.toFixed(0)}</span>
+                              </div>
                             ))}
                           </div>
                           <div className="skill-damage-total">
@@ -549,7 +466,7 @@ export function SkillButtonComponent({ button, size, onMouseDown, onContextMenu,
                                 <p>终结技伤害加成: {(skillDmgBonus * 100).toFixed(1)}%</p>
                               ) : null}
 
-                              <p>所有伤害加成: {(parsedDamageBonus.allDmgBonus * 100).toFixed(1)}%</p>
+                              <p>所有伤害加成: {(infoSnap.allDmgBonus * 100).toFixed(1)}%</p>
                               <p>伤害加成区: {damageBonusRate.toFixed(3)}</p>
 
                               {/* 脆弱区显示 */}
@@ -604,21 +521,19 @@ export function SkillButtonComponent({ button, size, onMouseDown, onContextMenu,
                               )}
                             </div>
                             {hitResults.map((result) => (
-                              result && (
-                                <div key={result.key} className="skill-damage-hit-detail">
-                                  <p className="hit-detail-title">{result.index}hit: {processedDamage[result.key] * 100}%</p>
-                                  <p>= {panelData.atk.toFixed(0)} × {processedDamage[result.key]} (基础伤害区)</p>
-                                  <p>  × {critExpected.toFixed(3)} (暴击期望)</p>
-                                  <p>  × {damageBonusRate.toFixed(3)} (伤害加成区)</p>
-                                  <p>  × {defenseZone} (防御区)</p>
-                                  {fragileRate > 0 && <p>  × {(1 + fragileRate).toFixed(3)} (脆弱区)</p>}
-                                  {vulnerabilityRate > 0 && <p>  × {(1 + vulnerabilityRate).toFixed(3)} (易伤区)</p>}
-                                  {comboDamageBonus > 0 && <p>  × {(1 + comboDamageBonus).toFixed(3)} (连击区)</p>}
-                                  <p>= {result.expected.final.toFixed(2)} (期望)</p>
-                                  <p>= {result.crit.final.toFixed(2)} (暴击)</p>
-                                  <p>= {result.nonCrit.final.toFixed(2)} (不暴)</p>
-                                </div>
-                              )
+                              <div key={result.key} className="skill-damage-hit-detail">
+                                <p className="hit-detail-title">{result.index}hit: {processedDamage[result.key] * 100}%</p>
+                                <p>= {panelData.atk.toFixed(0)} × {processedDamage[result.key]} (基础伤害区)</p>
+                                <p>  × {critExpected.toFixed(3)} (暴击期望)</p>
+                                <p>  × {damageBonusRate.toFixed(3)} (伤害加成区)</p>
+                                <p>  × {defenseZone} (防御区)</p>
+                                {fragileRate > 0 && <p>  × {(1 + fragileRate).toFixed(3)} (脆弱区)</p>}
+                                {vulnerabilityRate > 0 && <p>  × {(1 + vulnerabilityRate).toFixed(3)} (易伤区)</p>}
+                                {comboDamageBonus > 0 && <p>  × {(1 + comboDamageBonus).toFixed(3)} (连击区)</p>}
+                                <p>= {result.expected.final.toFixed(2)} (期望)</p>
+                                <p>= {result.crit.final.toFixed(2)} (暴击)</p>
+                                <p>= {result.nonCrit.final.toFixed(2)} (不暴)</p>
+                              </div>
                             ))}
                           </div>
                         )}
