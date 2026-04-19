@@ -1,22 +1,15 @@
 /**
  * App 根组件
- * 根据 currentView 决定渲染哪个界面：
- * - 'selection'：干员选择界面（SelectionPanel）
- * - 'canvas'：谱线编辑界面（CanvasBoard）
+ * 只负责渲染工作台框架，业务页面由 WorkbenchFrame 承载
  */
 
-import { useAppContext } from './context/AppContext';
-import { SelectionPanel } from './components/SelectionPanel';
-import { CanvasBoard } from './components/CanvasBoard';
+import { WorkbenchFrame } from './components/WorkbenchFrame';
 import './styles/global.css';
 
 function App() {
-  const { state } = useAppContext();
-
   return (
     <div className="app">
-      {state.currentView === 'selection' && <SelectionPanel />}
-      {state.currentView === 'canvas' && <CanvasBoard />}
+      <WorkbenchFrame />
     </div>
   );
 }

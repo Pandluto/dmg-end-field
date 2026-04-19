@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Excel背景</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            /* 页面背景 = Excel白色工作区 */
+            background-color: #ffffff;
+            min-height: 100vh;
+            position: relative;
+            overflow-x: hidden;
+        }
+
+        /* Excel 网格线背景 */
+        .excel-bg {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-image:
+                linear-gradient(#e0e0e0 1px, transparent 1px),
+                linear-gradient(90deg, #e0e0e0 1px, transparent 1px);
+            background-size: 60px 24px; /* 单元格大小 */
+        }
+
+        /* 顶部文字样式 */
+        .title-text {
+            position: relative;
+            z-index: 10;
+            text-align: center;
+            padding-top: 12vh;
+            font-size: 22px;
+            color: #e89da9; /* 柔和粉色 */
+            font-family: "Microsoft YaHei", sans-serif;
+            line-height: 1.8;
+            font-weight: 500;
+        }
+    </style>
+</head>
+<body>
+    <div class="excel-bg"></div>
+    <div class="title-text">
+        怎么还是没找到答案<br>
+        怎么还有些遗憾
+    </div>
+</body>
+</html>

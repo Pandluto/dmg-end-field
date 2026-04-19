@@ -1,22 +1,43 @@
 @import "tailwindcss";
 
 :root {
-  --bg-primary: #F0F0F0;
-  --bg-secondary: #000000;
-  --bg-accent: #ff3366;
+  --ide-bg-app: #1e1f22;
+  --ide-bg-surface: #25272c;
+  --ide-bg-panel: #2b2d33;
+  --ide-bg-panel-soft: #31343b;
+  --ide-bg-hover: #373b44;
+  --ide-bg-active: #3f4654;
+  --ide-bg-accent: #273a52;
+  --ide-border-subtle: #3f434d;
+  --ide-border-strong: #5a6070;
+  --ide-text-main: #d7dae0;
+  --ide-text-muted: #9aa1ad;
+  --ide-text-faint: #737b88;
+  --ide-accent: #4aa5ff;
+  --ide-accent-strong: #7cc4ff;
+  --ide-warning: #d7ba7d;
+  --ide-danger: #f7768e;
+  --ide-success: #89d185;
+  --ide-shadow: 0 12px 32px rgba(0, 0, 0, 0.28);
+  --ide-focus-ring: 0 0 0 1px var(--ide-accent);
+  --ide-transition: 140ms ease;
 
-  --text-primary: #000000;
-  --text-secondary: #ffffff;
+  --bg-primary: var(--ide-bg-app);
+  --bg-secondary: var(--ide-bg-active);
+  --bg-accent: var(--ide-accent);
 
-  --border-color: #1A1A1A;
-  --border-width: 2px;
+  --text-primary: var(--ide-text-main);
+  --text-secondary: var(--ide-text-main);
+
+  --border-color: var(--ide-border-subtle);
+  --border-width: 1px;
 
   --color-skill-a: #000000;
   --color-skill-b: #2196F3;
   --color-skill-e: #9C27B0;
   --color-skill-q: #FF5722;
 
-  --font-family: 'Inter', 'Arial', sans-serif;
+  --font-family: 'JetBrains Mono', 'Cascadia Code', 'Consolas', monospace;
   --font-size-xs: 10px;
   --font-size-sm: 12px;
   --font-size-md: 14px;
@@ -36,6 +57,15 @@
   --page-margin: 24px;
 }
 
+html,
+body,
+#root {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+
 * {
   margin: 0;
   padding: 0;
@@ -49,7 +79,12 @@ body {
   color: var(--text-primary);
   background: var(--bg-primary);
   min-width: 1024px;
-  overflow-x: auto;
+  overflow: hidden;
+}
+
+::selection {
+  background: rgba(74, 165, 255, 0.28);
+  color: var(--ide-text-main);
 }
 
 /* 按钮样式 */
@@ -59,15 +94,23 @@ button {
   border: var(--border-width) solid var(--border-color);
   padding: 8px 16px;
   font-weight: 500;
-  transition: all 0.2s;
-  background: var(--bg-primary);
+  transition: background-color var(--ide-transition), border-color var(--ide-transition), color var(--ide-transition), box-shadow var(--ide-transition);
+  background: var(--ide-bg-panel);
   color: var(--text-primary);
 }
 
 /* 漠标悬停时样式 */
 button:hover {
-  background: var(--bg-secondary);
-  color: var(--text-secondary);
+  background: var(--ide-bg-hover);
+  border-color: var(--ide-border-strong);
+  color: var(--ide-accent-strong);
+}
+
+button:focus-visible,
+input:focus-visible,
+textarea:focus-visible {
+  outline: none;
+  box-shadow: var(--ide-focus-ring);
 }
 
 /* 禁用按钮样式 */
@@ -78,10 +121,12 @@ button:disabled {
 
 /* 禁用按钮悬停时样式 */
 button:disabled:hover {
-  background: var(--bg-primary);
-  color: var(--text-primary);
+  background: var(--ide-bg-panel);
+  color: var(--ide-text-faint);
 }
 
 .app {
-  min-height: 100vh;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
 }

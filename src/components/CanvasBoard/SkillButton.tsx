@@ -22,9 +22,10 @@ interface SkillButtonProps {
   onMouseDown: (e: React.MouseEvent) => void;
   onContextMenu: (e: React.MouseEvent) => void;
   timelineData?: TimelineData;
+  onModalOpen?: () => void;
 }
 
-export function SkillButtonComponent({ button, size, onMouseDown, onContextMenu, timelineData }: SkillButtonProps) {
+export function SkillButtonComponent({ button, size, onMouseDown, onContextMenu, timelineData, onModalOpen }: SkillButtonProps) {
   const { position, skillType, isSelected, isDragging, characterName, skillIconUrl, element, isLocked } = button;
   const { dispatch } = useAppContext();
 
@@ -232,6 +233,8 @@ export function SkillButtonComponent({ button, size, onMouseDown, onContextMenu,
 
       // 打开居中弹窗
       setIsModalOpen(true);
+      // 通知父组件弹窗已打开（用于强制显示 ToolPanel）
+      onModalOpen?.();
       console.log('双击技能按钮，打开弹窗:', button.id);
 
       // 输出总数据结构到控制台

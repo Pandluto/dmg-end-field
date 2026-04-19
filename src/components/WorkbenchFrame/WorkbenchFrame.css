@@ -1,0 +1,231 @@
+.workbench-frame {
+  --workbench-top-zone-height: 35px;
+  position: relative;
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--bg-primary);
+}
+
+.workbench-content {
+  flex: 1 1 auto;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.workbench-top-zone {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 3200;
+  height: var(--workbench-top-zone-height);
+  overflow: hidden;
+  background: var(--bg-primary);
+  color: #000;
+  border-bottom: var(--border-width) solid var(--border-color);
+  border-radius: 0;
+  padding: 0 16px;
+  pointer-events: none;
+  box-sizing: border-box;
+  transform: translateY(-100%);
+  transition: transform 0.2s ease;
+}
+
+.workbench-top-zone.is-open {
+  transform: translateY(0);
+  pointer-events: auto;
+}
+
+.workbench-drawer-tabs {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.workbench-drawer-tab {
+  position: relative;
+  min-height: 28px;
+  padding: 4px 18px;
+  font-size: 13px;
+  font-weight: 700;
+  background: transparent;
+  color: #000;
+  border: var(--border-width) solid var(--border-color);
+  border-radius: 0;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  z-index: 2;
+  white-space: nowrap;
+}
+
+.workbench-drawer-tab:hover:not(:disabled) {
+  background: transparent;
+  color: #555555;
+}
+
+.workbench-drawer-tab:hover:not(:disabled)::after,
+.workbench-drawer-tab.is-active::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 80%;
+  height: 100%;
+  transform: translate(-50%, -50%) skewX(-20deg);
+  z-index: -1;
+}
+
+.workbench-drawer-tab:hover:not(:disabled)::after {
+  background: rgba(255, 255, 0, 0.5);
+}
+
+.workbench-drawer-tab.is-active::after {
+  background: rgba(255, 255, 0, 0.8);
+}
+
+.workbench-drawer-tab:disabled {
+  color: #999;
+  cursor: not-allowed;
+  border-color: #ccc;
+}
+
+.workbench-drawer-tab:disabled:hover {
+  background: transparent;
+  color: #999;
+}
+
+.workbench-drawer-tab:disabled:hover::after {
+  display: none;
+}
+
+.workbench-top-trigger {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+  min-height: 30px;
+  padding: 0 12px;
+  background: var(--bg-primary);
+  color: #000;
+  border: var(--border-width) solid var(--border-color);
+  border-radius: 0;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 700;
+  transition: background-color 0.2s ease;
+  white-space: nowrap;
+}
+
+.workbench-top-trigger:hover {
+  background: rgba(255, 255, 0, 0.3);
+}
+
+.workbench-trigger-text {
+  color: #000;
+}
+
+.workbench-trigger-divider {
+  color: #999;
+}
+
+.workbench-trigger-status {
+  color: #555;
+}
+
+.workbench-selection-bottom-bar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 3000;
+  height: 30px;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  padding: 0 8px;
+  pointer-events: none;
+}
+
+.workbench-selection-bottom-bar > .workbench-top-trigger {
+  grid-column: 1;
+  justify-self: start;
+  pointer-events: auto;
+}
+
+.selection-workbench-layout {
+  display: block;
+  height: 100%;
+  min-height: 0;
+  padding-bottom: 30px;
+  box-sizing: border-box;
+  overflow: hidden;
+}
+
+.selection-middle-zone {
+  min-width: 0;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* IDE theme visual overrides */
+.workbench-frame {
+  background:
+    radial-gradient(circle at 20% 0%, rgba(74, 165, 255, 0.08), transparent 32%),
+    linear-gradient(180deg, var(--ide-bg-app), #191a1d);
+  color: var(--ide-text-main);
+}
+
+.workbench-top-zone {
+  background: rgba(37, 39, 44, 0.96);
+  color: var(--ide-text-main);
+  border-bottom-color: var(--ide-border-strong);
+  box-shadow: var(--ide-shadow);
+  backdrop-filter: blur(10px);
+}
+
+.workbench-drawer-tab,
+.workbench-top-trigger {
+  background: var(--ide-bg-panel);
+  color: var(--ide-text-muted);
+  border-color: var(--ide-border-subtle);
+}
+
+.workbench-drawer-tab:hover:not(:disabled),
+.workbench-top-trigger:hover {
+  background: var(--ide-bg-hover);
+  color: var(--ide-accent-strong);
+  border-color: var(--ide-accent);
+}
+
+.workbench-drawer-tab:hover:not(:disabled)::after,
+.workbench-drawer-tab.is-active::after {
+  background: transparent;
+}
+
+.workbench-drawer-tab.is-active {
+  background: var(--ide-bg-accent);
+  color: var(--ide-accent-strong);
+  border-color: var(--ide-accent);
+  box-shadow: inset 0 -2px 0 var(--ide-accent);
+}
+
+.workbench-drawer-tab:disabled {
+  color: var(--ide-text-faint);
+  border-color: var(--ide-border-subtle);
+}
+
+.workbench-trigger-text {
+  color: var(--ide-text-main);
+}
+
+.workbench-trigger-divider,
+.workbench-trigger-status {
+  color: var(--ide-text-muted);
+}

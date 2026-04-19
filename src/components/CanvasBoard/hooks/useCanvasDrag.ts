@@ -165,12 +165,13 @@ export function useCanvasDrag({
           const { staffIndex, lineIndex, lineY } = nearestLine;
           const mouseX = e.clientX - canvasRect.left;
 
+          const effectiveCanvasWidth = canvasRect.width;
           const { snappedPosition, nodeIndex } = snapToNearestNode(
             { x: mouseX, y: lineY },
             config,
             staffIndex,
             lineIndex,
-            canvasWidth,
+            effectiveCanvasWidth,
             skillButtonsRef.current,
             draggingState.characterId
           );
