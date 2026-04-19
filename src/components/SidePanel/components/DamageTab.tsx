@@ -274,13 +274,15 @@ export function DamageTab() {
   /**
    * 刷新按钮点击处理函数
    * 加载所有 Buff 数据并更新列表
+   * 注意：候选 Buff 列表使用独立 key，与已选 Buff 实体表隔离
    */
   const handleRefresh = useCallback(async () => {
     setIsLoading(true);
     try {
       const buffs = await loadAllBuffs();
       setBuffList(buffs);
-      setStorageJson(STORAGE_KEYS.ALL_BUFF_LIST, buffs);
+      // 使用独立的候选 Buff key，避免覆盖已选 Buff 实体表
+      setStorageJson(STORAGE_KEYS.CANDIDATE_BUFF_LIST, buffs);
     } catch (error) {
       console.error('刷新 Buff 列表失败:', error);
     } finally {
@@ -290,7 +292,7 @@ export function DamageTab() {
 
   /**
  * 添加 Buff 到当前选中的技能按钮
- * 同时更新 timelineData 中的 buffIds（唯一持久化真相）
+ * 新模型：写入 buff-list 总表 + 更新 skill-button 总表的 selectedBuff
  * @param buff - Buff 数据
  */
   const addBuffToSkillButton = useCallback((buff: BuffItem) => {
@@ -300,32 +302,42 @@ export function DamageTab() {
       return false;
     }
 
-    // 生成 Buff ID
-    const buffId = `buff-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-    
-    // 从 sessionStorage 读取当前 Buff 数据
+    // 生成完整 Buff 对象（包含所有字段）
+    // buffId 由 addSkillButtonBuff 内部生成或使用传入的 id
     const newBuff: SkillButtonBuff = {
-      id: buffId,
-      displayName: buff.displayName,
+      id: '', // 占位，实际 id 由 addSkillButtonBuff 生成
       name: buff.name,
+      displayName: buff.displayName,
       sourceName: buff.sourceName,
+      level: buff.level,
       type: buff.type,
       value: buff.value,
+      description: buff.description,
+      source: buff.source,
+      condition: buff.condition,
     };
 
-    const added = addSkillButtonBuff(selectedButtonId, newBuff);
-    if (!added) {
-      console.log('Buff 已存在:', buff.displayName);
+    const result = addSkillButtonBuff(selectedButtonId, newBuff);
+    if (!result.success) {
+      console.log('Buff 添加失败:', buff.displayName);
       return false;
     }
 
-    console.log('添加 Buff 到技能按钮:', buff.displayName);
-    console.log(buff);
+    if (result.isDuplicate) {
+      console.log('Buff 已存在:', buff.displayName);
+      return true; // 幂等，返回成功
+    }
+
+    const actualBuffId = result.buffId!;
+    const finalBuff = { ...newBuff, id: actualBuffId };
+
+    console.log('添加 Buff 到技能按钮:', buff.displayName, actualBuffId);
+    console.log(finalBuff);
     
     // 触发自定义事件，通知 SkillButton 弹窗刷新 Buff 列表
-    // 同时通知 CanvasBoard 更新 timelineData 中的 buffIds
+    // 使用实际生成的 buffId
     window.dispatchEvent(new CustomEvent('skillbutton-buff-added', { 
-      detail: { buttonId: selectedButtonId, buff: newBuff, buffId } 
+      detail: { buttonId: selectedButtonId, buff: finalBuff, buffId: actualBuffId } 
     }));
     
     return true;

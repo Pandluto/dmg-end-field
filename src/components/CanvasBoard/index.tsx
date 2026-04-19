@@ -18,6 +18,7 @@ import { SidePanel } from '../SidePanel';
 import { DraggingOverlay } from './components/DraggingOverlay';
 import { OperatorConfigPanel } from './components/OperatorConfigPanel';
 import { SkillButton } from '../../types';
+import { migrateOldBuffStorage } from '../../utils/migrateStorage';
 import './CanvasBoard.css';
 
 export function CanvasBoard() {
@@ -44,7 +45,7 @@ export function CanvasBoard() {
     addSkillButton: addTimelineButton,
     removeSkillButton: removeTimelineButton,
     updateSkillButtonPosition,
-    updateButtonBuffIds,
+    moveSkillButtonToStaff,
     saveTimelineData,
     loadTimelineData,
     normalizeTimelineData,
@@ -59,6 +60,9 @@ export function CanvasBoard() {
       return; // 防止重复恢复
     }
     hasRestoredRef.current = true;
+
+    // 先执行旧缓存迁移（幂等）
+    migrateOldBuffStorage();
 
     // 加载持久化的排轴数据（内部已做规范化）
     const loadedData = loadTimelineData();
@@ -106,60 +110,38 @@ export function CanvasBoard() {
     }
   }, [dispatch, loadTimelineData, normalizeTimelineData, selectedCharacters]);
 
-  // 监听 Buff 添加事件，同步更新 timelineData 中的 buffIds
+  // 监听 Buff 添加事件，仅用于触发 UI 刷新
+  // 注意：Buff 数据已写入 skill-button 总表，不需要再从 timelineData 同步
   useEffect(() => {
     const handleBuffAdded = (event: CustomEvent) => {
       const { buttonId, buffId } = event.detail;
       if (!buttonId || !buffId) return;
 
-      // 在 timelineData 中找到对应的按钮并更新 buffIds
-      timelineData.staffLines.forEach((staffLine) => {
-        const button = staffLine.buttons.find(b => b.id === buttonId);
-        if (button) {
-          const currentBuffIds = button.buffIds || [];
-          if (!currentBuffIds.includes(buffId)) {
-            updateButtonBuffIds(staffLine.staffIndex, buttonId, [...currentBuffIds, buffId]);
-            console.log('【Buff 同步】已更新 timelineData buffIds:', buttonId, buffId);
-          }
-        }
-      });
-      
-      // 自动保存由 debounce 统一处理
+      console.log('【Buff 事件】已添加 Buff:', buttonId, buffId);
+      // UI 刷新由 SkillButton 组件自行处理（通过 loadBuffList）
     };
 
     window.addEventListener('skillbutton-buff-added', handleBuffAdded as EventListener);
     return () => {
       window.removeEventListener('skillbutton-buff-added', handleBuffAdded as EventListener);
     };
-  }, [timelineData, updateButtonBuffIds]);
+  }, []);
 
-  // 监听 Buff 删除事件，同步更新 timelineData 中的 buffIds
+  // 监听 Buff 删除事件，仅用于触发 UI 刷新
   useEffect(() => {
     const handleBuffRemoved = (event: CustomEvent) => {
       const { buttonId, buffId } = event.detail;
       if (!buttonId || !buffId) return;
 
-      // 在 timelineData 中找到对应的按钮并更新 buffIds
-      timelineData.staffLines.forEach((staffLine) => {
-        const button = staffLine.buttons.find(b => b.id === buttonId);
-        if (button) {
-          const currentBuffIds = button.buffIds || [];
-          if (currentBuffIds.includes(buffId)) {
-            const newBuffIds = currentBuffIds.filter(id => id !== buffId);
-            updateButtonBuffIds(staffLine.staffIndex, buttonId, newBuffIds);
-            console.log('【Buff 同步】已从 timelineData 移除 buffId:', buttonId, buffId);
-          }
-        }
-      });
-      
-      // 自动保存由 debounce 统一处理
+      console.log('【Buff 事件】已移除 Buff:', buttonId, buffId);
+      // UI 刷新由 SkillButton 组件自行处理（通过 loadBuffList）
     };
 
     window.addEventListener('skillbutton-buff-removed', handleBuffRemoved as EventListener);
     return () => {
       window.removeEventListener('skillbutton-buff-removed', handleBuffRemoved as EventListener);
     };
-  }, [timelineData, updateButtonBuffIds]);
+  }, []);
 
   // 拖拽逻辑：处理技能沙盒按钮拖出、画布按钮拖动
   const { draggingState, mousePosition, handleSandboxDragStart, handleButtonMouseDown } = useCanvasDrag({
@@ -171,9 +153,8 @@ export function CanvasBoard() {
     canvasRef,
     dispatch,
     addTimelineButton,
-    removeTimelineButton,
     updateSkillButtonPosition,
-    saveTimelineData,
+    moveTimelineButtonToStaff: moveSkillButtonToStaff,
   });
 
   const handleBack = () => {

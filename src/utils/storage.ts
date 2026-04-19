@@ -6,7 +6,15 @@ import {
   SkillButtonBuff,
   SkillButtonBuffMap,
 } from '../types/storage';
+import type {
+  PersistedSkillButton,
+  SkillButtonTable,
+  BuffList,
+} from '../types/storage';
 import { EquipmentConfig } from './equipmentParser';
+
+// 重新导出类型供外部使用
+export type { PersistedSkillButton, SkillButtonTable, BuffList };
 
 const isClient = typeof window !== 'undefined';
 
@@ -217,8 +225,12 @@ export function setCharacterDisplayCache(characterId: string, cache: CharacterDi
   setCharacterDisplayCacheMap(map);
 }
 
-// ----- Skill Button Buffs -----
+// ----- Skill Button Buffs (旧模型 - 仅迁移用) -----
 
+/**
+ * @deprecated 使用 skill-button 总表 + buff-list 总表替代
+ * 仅用于迁移旧数据，新代码不要直接调用
+ */
 export function getSkillButtonBuffMap(): SkillButtonBuffMap {
   const raw = safeSessionStorage.getItem(STORAGE_KEYS.SKILL_BUTTON_BUFFS);
   if (!raw) return {};
@@ -229,10 +241,17 @@ export function getSkillButtonBuffMap(): SkillButtonBuffMap {
   }
 }
 
+/**
+ * @deprecated 使用 skill-button 总表 + buff-list 总表替代
+ * 仅用于迁移旧数据，新代码不要直接调用
+ */
 export function setSkillButtonBuffMap(buffs: SkillButtonBuffMap): void {
   safeSessionStorage.setItem(STORAGE_KEYS.SKILL_BUTTON_BUFFS, JSON.stringify(buffs));
 }
 
+/**
+ * @deprecated 使用 useSkillButtonBuffs().addBuff 替代
+ */
 export function addBuffToSkillButton(buttonId: string, buff: SkillButtonBuff): boolean {
   const buttonBuffs = getSkillButtonBuffMap();
   const currentBuffs = buttonBuffs[buttonId] || [];
@@ -246,6 +265,9 @@ export function addBuffToSkillButton(buttonId: string, buff: SkillButtonBuff): b
   return true;
 }
 
+/**
+ * @deprecated 使用 useSkillButtonBuffs().removeBuff 替代
+ */
 export function removeBuffFromSkillButton(buttonId: string, buffId: string): void {
   const buttonBuffs = getSkillButtonBuffMap();
   if (!buttonBuffs[buttonId]) return;
@@ -254,6 +276,9 @@ export function removeBuffFromSkillButton(buttonId: string, buffId: string): voi
   setSkillButtonBuffMap(buttonBuffs);
 }
 
+/**
+ * @deprecated 使用 useSkillButtonBuffs().getBuffs 替代
+ */
 export function getButtonBuffs(buttonId: string): SkillButtonBuff[] {
   const buttonBuffs = getSkillButtonBuffMap();
   return buttonBuffs[buttonId] || [];
@@ -473,4 +498,131 @@ export function getStorageJson<T>(key: string, defaultValue: T): T {
 
 export function setStorageJson<T>(key: string, value: T): void {
   safeSessionStorage.setItem(key, JSON.stringify(value));
+}
+
+// ==================== v2 新缓存模型 - skill-button 总表 ====================
+
+/**
+ * 获取 skill-button 总表
+ * @returns Record<buttonId, PersistedSkillButton>
+ */
+export function getSkillButtonTable(): SkillButtonTable {
+  const raw = safeSessionStorage.getItem(STORAGE_KEYS.SKILL_BUTTON_TABLE);
+  if (!raw) return {};
+  try {
+    return JSON.parse(raw) as SkillButtonTable;
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * 设置 skill-button 总表
+ * @param table - 完整的 button 表
+ */
+export function setSkillButtonTable(table: SkillButtonTable): void {
+  safeSessionStorage.setItem(STORAGE_KEYS.SKILL_BUTTON_TABLE, JSON.stringify(table));
+}
+
+/**
+ * 根据 ID 获取单个 button
+ * @param buttonId - 按钮 ID
+ * @returns PersistedSkillButton | null
+ */
+export function getSkillButtonById(buttonId: string): PersistedSkillButton | null {
+  const table = getSkillButtonTable();
+  return table[buttonId] ?? null;
+}
+
+/**
+ * 插入或更新单个 button
+ * @param button - button 数据
+ */
+export function upsertSkillButton(button: PersistedSkillButton): void {
+  const table = getSkillButtonTable();
+  table[button.id] = {
+    ...button,
+    updatedAt: Date.now(),
+  };
+  setSkillButtonTable(table);
+}
+
+/**
+ * 根据 ID 删除 button
+ * @param buttonId - 按钮 ID
+ */
+export function removeSkillButtonById(buttonId: string): void {
+  const table = getSkillButtonTable();
+  delete table[buttonId];
+  setSkillButtonTable(table);
+}
+
+// ==================== v2 新缓存模型 - buff-list 总表 ====================
+
+/**
+ * 获取 buff-list 总表
+ * @returns SkillButtonBuff[]
+ */
+export function getAllBuffList(): BuffList {
+  const raw = safeSessionStorage.getItem(STORAGE_KEYS.ALL_BUFF_LIST);
+  if (!raw) return [];
+  try {
+    return JSON.parse(raw) as BuffList;
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * 设置 buff-list 总表
+ * @param list - Buff 列表
+ */
+export function setAllBuffList(list: BuffList): void {
+  safeSessionStorage.setItem(STORAGE_KEYS.ALL_BUFF_LIST, JSON.stringify(list));
+}
+
+/**
+ * 根据 ID 获取单个 Buff
+ * @param buffId - Buff ID
+ * @returns SkillButtonBuff | null
+ */
+export function getBuffById(buffId: string): SkillButtonBuff | null {
+  const list = getAllBuffList();
+  return list.find(b => b.id === buffId) ?? null;
+}
+
+/**
+ * 插入或更新单个 Buff
+ * @param buff - Buff 数据
+ */
+export function upsertBuff(buff: SkillButtonBuff): void {
+  const list = getAllBuffList();
+  const idx = list.findIndex(b => b.id === buff.id);
+  if (idx >= 0) {
+    list[idx] = buff;
+  } else {
+    list.push(buff);
+  }
+  setAllBuffList(list);
+}
+
+/**
+ * 根据 ID 删除 Buff
+ * @param buffId - Buff ID
+ */
+export function removeBuffById(buffId: string): void {
+  const list = getAllBuffList().filter(b => b.id !== buffId);
+  setAllBuffList(list);
+}
+
+/**
+ * 检查 Buff 是否被任何 button 引用
+ * @param buffId - Buff ID
+ * @returns boolean
+ */
+export function isBuffReferenced(buffId: string): boolean {
+  const table = getSkillButtonTable();
+  return Object.values(table).some(button => 
+    button.selectedBuff?.includes(buffId)
+  );
 }

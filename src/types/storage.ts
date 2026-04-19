@@ -134,14 +134,50 @@ export interface CharacterConfigJson {
 
 // ==================== SkillButton Buff 类型 ====================
 
+/**
+ * Buff 完整类型（v2 扩展）
+ * 所有字段必须包含，确保 Buff 内容完整
+ */
 export interface SkillButtonBuff {
-  id: string;
-  name: string;
-  displayName: string;
-  sourceName: string;
-  level?: string;
-  type?: string;
-  value?: number;
+  id: string;              // 稳定独立 ID
+  name: string;            // 内部名称
+  displayName: string;     // 展示名称
+  sourceName: string;      // 来源名称
+  level?: string;          // 等级
+  type?: string;           // 类型
+  value?: number;          // 数值
+  description?: string;    // 描述
+  source?: string;         // 来源
+  condition?: string;      // 触发条件
 }
 
 export type SkillButtonBuffMap = Record<string, SkillButtonBuff[]>;
+
+// ==================== v2 新缓存模型类型 ====================
+
+/**
+ * 持久化 SkillButton 类型
+ * 存储在 skill-button 总表中
+ */
+export interface PersistedSkillButton {
+  id: string;                           // 按钮唯一 ID
+  characterName: string;                // 干员名称
+  skillType: string;                    // 技能类型 A/B/E/Q
+  staffIndex: number;                   // 干员索引
+  nodeIndex: number;                    // 节点索引
+  nodeNumber: number;                   // 节点编号
+  position: { x: number; y: number };   // 位置坐标
+  selectedBuff: string[];               // 选中的 Buff ID 列表（只存引用）
+  createdAt?: number;                   // 创建时间
+  updatedAt?: number;                   // 更新时间
+}
+
+/**
+ * skill-button 总表类型
+ */
+export type SkillButtonTable = Record<string, PersistedSkillButton>;
+
+/**
+ * buff-list 总表类型
+ */
+export type BuffList = SkillButtonBuff[];

@@ -1,65 +1,95 @@
 /**
- * 技能按钮 Buff 管理 Hook
+ * 技能按钮 Buff 管理 Hook (v2 新缓存模型)
  * 管理每个技能按钮关联的 Buff 列表
- * 唯一持久化真相：timelineData（包含 buffIds）
- * 本 Hook 提供运行时读取/添加/删除接口，Buff 完整数据存储在 skill-button-buffs
+ * 
+ * 新模型：
+ * - skill-button 总表：存放所有 button，包含 selectedBuff（buffId 列表）
+ * - buff-list 总表：存放所有 Buff 完整数据
+ * - 本 Hook 提供运行时读取/添加/删除接口
  */
 
 import { useState, useCallback, useEffect } from 'react';
 import { STORAGE_KEYS } from '../constants/storage-keys';
-import { SkillButtonBuff, SkillButtonBuffMap } from '../types/storage';
+import { SkillButtonBuff } from '../types/storage';
 import {
-  getSkillButtonBuffMap,
   safeSessionStorage,
-  setSkillButtonBuffMap,
+  getSkillButtonById,
+  upsertSkillButton,
+  getBuffById,
+  upsertBuff,
+  removeBuffById,
+  isBuffReferenced,
+  getAllBuffList,
 } from '../utils/storage';
-import { TimelineData } from '../types';
 
 // Buff 数据缓存（用于运行时快速访问，不持久化）
-let buffCache: SkillButtonBuffMap = {};
+let buffCache: Record<string, SkillButtonBuff> = {};
 
 /**
- * 从 sessionStorage 加载 Buff 数据
+ * 从 buff-list 总表加载所有 Buff 到缓存
  */
-const loadBuffsFromStorage = (): SkillButtonBuffMap => {
-  return getSkillButtonBuffMap();
-};
-
-/**
- * 保存 Buff 数据到 sessionStorage
- */
-const saveBuffsToStorage = (buffs: SkillButtonBuffMap) => {
-  setSkillButtonBuffMap(buffs);
-};
-
-/**
- * 从 timelineData 提取所有 buffIds 并返回 Set
- */
-const extractAllBuffIdsFromTimeline = (timelineData: TimelineData): Set<string> => {
-  const buffIds = new Set<string>();
-  timelineData.staffLines.forEach(staffLine => {
-    staffLine.buttons.forEach(button => {
-      if (button.buffIds) {
-        button.buffIds.forEach(id => buffIds.add(id));
-      }
-    });
+const loadBuffsToCache = (): void => {
+  const list = getAllBuffList();
+  buffCache = {};
+  list.forEach(buff => {
+    buffCache[buff.id] = buff;
   });
-  return buffIds;
 };
 
 /**
- * 清理无效的 Buff 数据（timelineData 中不存在的 buffId）
+ * 纯函数：添加 Buff 到技能按钮
+ * 供 Hook 内 addBuff 和独立函数 addSkillButtonBuff 共用
+ * @param buttonId - 按钮 ID
+ * @param buff - Buff 数据（如果传入的 buff 已有 id，则使用该 id）
+ * @returns 添加结果和实际 buffId
  */
-const cleanupInvalidBuffs = (buffMap: SkillButtonBuffMap, validBuffIds: Set<string>): SkillButtonBuffMap => {
-  const cleaned: SkillButtonBuffMap = {};
-  Object.entries(buffMap).forEach(([buttonId, buffs]) => {
-    const validBuffs = buffs.filter(buff => validBuffIds.has(buff.id));
-    if (validBuffs.length > 0) {
-      cleaned[buttonId] = validBuffs;
-    }
+function addBuffToButtonHelper(
+  buttonId: string,
+  buff: Omit<SkillButtonBuff, 'id'> & { id?: string }
+): { success: boolean; buffId?: string; isDuplicate?: boolean } {
+  // 1. 检查 button 是否存在
+  const button = getSkillButtonById(buttonId);
+  if (!button) {
+    console.warn('[Buff] 按钮不存在:', buttonId);
+    return { success: false };
+  }
+
+  const currentSelectedBuff = button.selectedBuff || [];
+
+  // 2. 检查是否已存在相同 displayName 的 Buff
+  const exists = currentSelectedBuff.some(id => {
+    const existingBuff = buffCache[id] || getBuffById(id);
+    return existingBuff?.displayName === buff.displayName;
   });
-  return cleaned;
-};
+
+  if (exists) {
+    console.log('[Buff] 已存在相同 displayName 的 Buff:', buff.displayName);
+    return { success: true, buffId: undefined, isDuplicate: true };
+  }
+
+  // 3. 生成或使用传入的 buffId
+  const buffId = buff.id || `buff-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+
+  // 4. 构造完整 Buff 对象
+  const newBuff: SkillButtonBuff = {
+    ...buff,
+    id: buffId,
+  };
+
+  // 5. 写入 buff-list 总表
+  upsertBuff(newBuff);
+  buffCache[buffId] = newBuff;
+
+  // 6. 更新 skill-button 总表中的 selectedBuff
+  upsertSkillButton({
+    ...button,
+    selectedBuff: [...currentSelectedBuff, buffId],
+    updatedAt: Date.now(),
+  });
+
+  console.log('[Buff] 已添加到技能按钮:', buttonId, buff.displayName, buffId);
+  return { success: true, buffId };
+}
 
 /**
  * 使用技能按钮 Buff 管理
@@ -67,83 +97,53 @@ const cleanupInvalidBuffs = (buffMap: SkillButtonBuffMap, validBuffIds: Set<stri
  */
 export function useSkillButtonBuffs() {
   // 存储每个技能按钮的 Buff 列表（运行时内存态）
-  const [buttonBuffs, setButtonBuffs] = useState<SkillButtonBuffMap>(() => {
-    // 优先从缓存读取，否则从 storage 加载
-    if (Object.keys(buffCache).length === 0) {
-      buffCache = loadBuffsFromStorage();
-    }
-    return buffCache;
-  });
+  const [buttonBuffs, setButtonBuffs] = useState<Record<string, SkillButtonBuff[]>>({});
 
-  // 当数据变化时更新缓存（不自动持久化，由调用方控制）
+  // 初始化时加载缓存
   useEffect(() => {
-    buffCache = buttonBuffs;
-  }, [buttonBuffs]);
-
-  /**
-   * 从 timelineData 同步 Buff 数据
-   * 页面刷新后调用，根据 timelineData 中的 buffIds 恢复 Buff 数据
-   * @param timelineData - 排轴数据
-   */
-  const syncBuffsFromTimeline = useCallback((timelineData: TimelineData) => {
-    const validBuffIds = extractAllBuffIdsFromTimeline(timelineData);
-    const currentBuffs = loadBuffsFromStorage();
-    
-    // 清理无效的 Buff（保留 timelineData 中引用的 Buff）
-    const cleanedBuffs = cleanupInvalidBuffs(currentBuffs, validBuffIds);
-    
-    setButtonBuffs(cleanedBuffs);
-    saveBuffsToStorage(cleanedBuffs);
-    buffCache = cleanedBuffs;
-    
-    console.log('【Buff 同步】已从 timelineData 同步，有效 Buff 数量:', validBuffIds.size);
+    loadBuffsToCache();
   }, []);
 
   /**
    * 获取指定技能按钮的 Buff 列表
+   * 从 skill-button 总表读取 selectedBuff，再从 buff-list 总表解引用
    * @param buttonId - 技能按钮 ID
    * @returns Buff 列表
    */
   const getBuffs = useCallback((buttonId: string): SkillButtonBuff[] => {
-    return buttonBuffs[buttonId] || [];
-  }, [buttonBuffs]);
+    // 从 skill-button 总表读取 button
+    const button = getSkillButtonById(buttonId);
+    if (!button || !button.selectedBuff || button.selectedBuff.length === 0) {
+      return [];
+    }
+
+    // 根据 selectedBuff 中的 buffId 从缓存/总表解引用
+    return button.selectedBuff
+      .map(buffId => buffCache[buffId] || getBuffById(buffId))
+      .filter((buff): buff is SkillButtonBuff => buff !== null);
+  }, []);
 
   /**
    * 添加 Buff 到指定技能按钮
    * @param buttonId - 技能按钮 ID
-   * @param buff - Buff 数据
+   * @param buff - Buff 数据（不含 id，或包含 id）
    * @returns 是否添加成功，以及生成的 buffId
    */
-  const addBuff = useCallback((buttonId: string, buff: Omit<SkillButtonBuff, 'id'>): { success: boolean; buffId?: string } => {
-    let result = { success: false, buffId: undefined as string | undefined };
-    
-    setButtonBuffs(prev => {
-      const currentBuffs = prev[buttonId] || [];
-      // 检查是否已存在相同 displayName 的 Buff
-      const exists = currentBuffs.some(b => b.displayName === buff.displayName);
-      if (exists) {
-        return prev; // 已存在则不添加
+  const addBuff = useCallback((buttonId: string, buff: Omit<SkillButtonBuff, 'id'> & { id?: string }): { success: boolean; buffId?: string } => {
+    const result = addBuffToButtonHelper(buttonId, buff);
+
+    if (result.success && result.buffId) {
+      // 更新本地状态
+      const newBuff = buffCache[result.buffId];
+      if (newBuff) {
+        setButtonBuffs(prev => ({
+          ...prev,
+          [buttonId]: [...(prev[buttonId] || []), newBuff],
+        }));
       }
+    }
 
-      const newBuff: SkillButtonBuff = {
-        ...buff,
-        id: `buff-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-      };
-
-      result = { success: true, buffId: newBuff.id };
-      
-      const newBuffs = {
-        ...prev,
-        [buttonId]: [...currentBuffs, newBuff],
-      };
-      
-      // 同步到 storage
-      saveBuffsToStorage(newBuffs);
-      
-      return newBuffs;
-    });
-    
-    return result;
+    return { success: result.success, buffId: result.buffId };
   }, []);
 
   /**
@@ -152,18 +152,31 @@ export function useSkillButtonBuffs() {
    * @param buffId - Buff ID
    */
   const removeBuff = useCallback((buttonId: string, buffId: string) => {
-    setButtonBuffs(prev => {
-      const currentBuffs = prev[buttonId] || [];
-      const newBuffs = {
-        ...prev,
-        [buttonId]: currentBuffs.filter(b => b.id !== buffId),
-      };
-      
-      // 同步到 storage
-      saveBuffsToStorage(newBuffs);
-      
-      return newBuffs;
-    });
+    // 1. 从 skill-button 总表的 selectedBuff 中移除
+    const button = getSkillButtonById(buttonId);
+    if (button && button.selectedBuff) {
+      const newSelectedBuff = button.selectedBuff.filter(id => id !== buffId);
+      upsertSkillButton({
+        ...button,
+        selectedBuff: newSelectedBuff,
+        updatedAt: Date.now(),
+      });
+    }
+
+    // 2. 检查 Buff 是否还被其他按钮引用
+    if (!isBuffReferenced(buffId)) {
+      // 无引用则删除
+      removeBuffById(buffId);
+      delete buffCache[buffId];
+    }
+
+    // 3. 更新本地状态
+    setButtonBuffs(prev => ({
+      ...prev,
+      [buttonId]: (prev[buttonId] || []).filter(b => b.id !== buffId),
+    }));
+
+    console.log('[Buff] 已从技能按钮移除:', buttonId, buffId);
   }, []);
 
   /**
@@ -171,24 +184,58 @@ export function useSkillButtonBuffs() {
    * @param buttonId - 技能按钮 ID
    */
   const clearBuffs = useCallback((buttonId: string) => {
+    // 1. 读取 button 并保存旧 selectedBuff
+    const button = getSkillButtonById(buttonId);
+    if (!button || !button.selectedBuff || button.selectedBuff.length === 0) {
+      return;
+    }
+
+    const oldSelectedBuff = [...button.selectedBuff]; // 保存旧引用
+
+    // 2. 先将当前 button 的 selectedBuff 写回为空数组（先解绑）
+    upsertSkillButton({
+      ...button,
+      selectedBuff: [],
+      updatedAt: Date.now(),
+    });
+
+    // 3. 对旧 buffIds 执行引用检查（此时当前 button 已不持有这些 Buff）
+    oldSelectedBuff.forEach(buffId => {
+      if (!isBuffReferenced(buffId)) {
+        removeBuffById(buffId);
+        delete buffCache[buffId];
+        console.log('[Buff 清理] 删除无引用 Buff:', buffId);
+      }
+    });
+
+    // 4. 更新本地状态
     setButtonBuffs(prev => {
       const newMap = { ...prev };
       delete newMap[buttonId];
-      
-      // 同步到 storage
-      saveBuffsToStorage(newMap);
-      
       return newMap;
     });
+
+    console.log('[Buff] 已清空技能按钮的所有 Buff:', buttonId);
   }, []);
 
   /**
-   * 获取所有 Buff 数据（用于同步到 timelineData）
+   * 获取所有 Buff 数据
    * @returns 完整的 Buff Map
    */
-  const getAllBuffs = useCallback((): SkillButtonBuffMap => {
+  const getAllBuffs = useCallback((): Record<string, SkillButtonBuff[]> => {
     return buttonBuffs;
   }, [buttonBuffs]);
+
+  /**
+   * 从 storage 同步 Buff 数据到本地状态
+   * 页面刷新后调用
+   */
+  const syncBuffsFromStorage = useCallback(() => {
+    loadBuffsToCache();
+    // 清空本地状态，下次 getBuffs 会重新从 storage 读取
+    setButtonBuffs({});
+    console.log('[Buff] 已从 storage 同步');
+  }, []);
 
   return {
     buttonBuffs,
@@ -197,7 +244,7 @@ export function useSkillButtonBuffs() {
     removeBuff,
     clearBuffs,
     getAllBuffs,
-    syncBuffsFromTimeline,
+    syncBuffsFromStorage,
   };
 }
 
@@ -222,33 +269,33 @@ export const getSelectedSkillButton = (): string | null => {
 };
 
 /**
- * 获取指定按钮的完整 Buff 数据
+ * 获取指定按钮的完整 Buff 数据（独立函数版本）
  * @param buttonId - 按钮 ID
  * @returns Buff 列表（包含完整字段）
  */
 export function getButtonBuffs(buttonId: string): SkillButtonBuff[] {
-  const buttonBuffs = getSkillButtonBuffMap();
-  return buttonBuffs[buttonId] || [];
+  const button = getSkillButtonById(buttonId);
+  if (!button || !button.selectedBuff) {
+    return [];
+  }
+  return button.selectedBuff
+    .map(buffId => buffCache[buffId] || getBuffById(buffId))
+    .filter((buff): buff is SkillButtonBuff => buff !== null);
 }
 
 /**
  * 添加 Buff 到技能按钮（独立函数版本，供 DamageTab 使用）
+ * 纯函数实现，不调用任何 Hook
  * @param buttonId - 按钮 ID
- * @param buff - Buff 数据
- * @returns 是否添加成功
+ * @param buff - Buff 数据（如果传入的 buff 已有 id，则使用该 id）
+ * @returns 添加结果和实际 buffId
  */
-export const addSkillButtonBuff = (buttonId: string, buff: SkillButtonBuff): boolean => {
-  const buttonBuffs = getSkillButtonBuffMap();
-  const currentBuffs = buttonBuffs[buttonId] || [];
-
-  if (currentBuffs.some((item) => item.displayName === buff.displayName)) {
-    return false;
-  }
-
-  buttonBuffs[buttonId] = [...currentBuffs, buff];
-  setSkillButtonBuffMap(buttonBuffs);
-  return true;
-};
+export function addSkillButtonBuff(
+  buttonId: string,
+  buff: Omit<SkillButtonBuff, 'id'> & { id?: string }
+): { success: boolean; buffId?: string; isDuplicate?: boolean } {
+  return addBuffToButtonHelper(buttonId, buff);
+}
 
 /**
  * 从技能按钮移除 Buff（独立函数版本）
@@ -256,11 +303,17 @@ export const addSkillButtonBuff = (buttonId: string, buff: SkillButtonBuff): boo
  * @param buffId - Buff ID
  */
 export const removeSkillButtonBuff = (buttonId: string, buffId: string): void => {
-  const buttonBuffs = getSkillButtonBuffMap();
-  if (!buttonBuffs[buttonId]) {
-    return;
-  }
+  const button = getSkillButtonById(buttonId);
+  if (button && button.selectedBuff) {
+    const newSelectedBuff = button.selectedBuff.filter(id => id !== buffId);
+    upsertSkillButton({
+      ...button,
+      selectedBuff: newSelectedBuff,
+      updatedAt: Date.now(),
+    });
 
-  buttonBuffs[buttonId] = buttonBuffs[buttonId].filter((buff) => buff.id !== buffId);
-  setSkillButtonBuffMap(buttonBuffs);
+    if (!isBuffReferenced(buffId)) {
+      removeBuffById(buffId);
+    }
+  }
 };
