@@ -72,7 +72,15 @@ export function SelectionPanel() {
                   className="element-dot"
                   style={{ backgroundColor: ELEMENT_COLORS[character.element] || '#888' }}
                 />
-                {character.name.charAt(0)}
+                {character.avatarUrl ? (
+                  <img
+                    className="character-avatar-image"
+                    src={character.avatarUrl}
+                    alt={`${character.name} 头像`}
+                  />
+                ) : (
+                  character.name.charAt(0)
+                )}
               </div>
               {/* 干员信息 */}
               <div className="character-info">

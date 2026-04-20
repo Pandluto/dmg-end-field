@@ -1,0 +1,156 @@
+@import "tailwindcss";
+
+:root {
+  /* === 杂志编辑风配色系统 === */
+  /* Excel 绿主色调 */
+  --excel-green: #217346;
+  --excel-green-light: #2e8b57;
+  --excel-green-soft: rgba(33, 115, 70, 0.12);
+  --excel-green-muted: rgba(33, 115, 70, 0.5);
+
+  /* 背景色：暖米色调 */
+  --ide-bg-app: #F9F8F6;           /* 暖白画布 */
+  --ide-bg-surface: #F5F4F1;       /* 米白表面 */
+  --ide-bg-panel: #EFEDE9;         /* 暖灰面板 */
+  --ide-bg-panel-soft: #E8E6E1;     /* 柔和面板 */
+  --ide-bg-hover: #E2E0DB;          /* 悬停灰 */
+  --ide-bg-active: #D8D5CE;         /* 激活灰 */
+  --ide-bg-accent: var(--excel-green);  /* Excel 绿强调 */
+
+  /* 边框：细腻单色体系 */
+  --ide-border-subtle: rgba(33, 115, 70, 0.08);
+  --ide-border-light: rgba(33, 115, 70, 0.15);
+  --ide-border-medium: rgba(33, 115, 70, 0.25);
+  --ide-border-strong: rgba(33, 115, 70, 0.4);
+
+  /* 文字：柔和黑灰体系 */
+  --ide-text-main: #1C1C1C;        /* 主文字 */
+  --ide-text-muted: rgba(28, 28, 28, 0.6);    /* 次要文字 */
+  --ide-text-faint: rgba(28, 28, 28, 0.4);     /* 弱化文字 */
+
+  /* 强调：Excel 绿体系 */
+  --ide-accent: var(--excel-green);
+  --ide-accent-strong: var(--excel-green-light);
+
+  /* 功能色：Excel 绿体系 */
+  --ide-warning: var(--excel-green-muted);
+  --ide-danger: rgba(33, 115, 70, 0.7);
+  --ide-success: var(--excel-green-soft);
+
+  /* 阴影：极淡或无 */
+  --ide-shadow: 0 2px 8px rgba(33, 115, 70, 0.06);
+  --ide-shadow-hover: 0 4px 16px rgba(33, 115, 70, 0.1);
+  --ide-focus-ring: 0 0 0 2px rgba(33, 115, 70, 0.2);
+  --ide-transition: 200ms ease;
+
+  /* 兼容别名 */
+  --bg-primary: var(--ide-bg-app);
+  --bg-secondary: var(--ide-bg-active);
+  --bg-accent: var(--excel-green);
+
+  --text-primary: var(--ide-text-main);
+  --text-secondary: var(--ide-text-muted);
+
+  --border-color: rgba(33, 115, 70, 0.15);
+  --border-width: 1px;
+
+  /* 技能类型色（Excel 绿系） */
+  --color-skill-a: var(--excel-green);
+  --color-skill-b: var(--excel-green-light);
+  --color-skill-e: rgba(33, 115, 70, 0.6);
+  --color-skill-q: rgba(33, 115, 70, 0.8);
+
+  /* 字体 */
+  --font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Helvetica Neue', Arial, sans-serif;
+  --font-serif: 'Georgia', 'Times New Roman', serif;
+  --font-size-xs: 11px;
+  --font-size-sm: 12px;
+  --font-size-md: 14px;
+  --font-size-lg: 16px;
+  --font-size-xl: 20px;
+  --font-size-2xl: 24px;
+
+  /* 间距 */
+  --spacing-xs: 4px;
+  --spacing-sm: 8px;
+  --spacing-md: 12px;
+  --spacing-lg: 16px;
+  --spacing-xl: 24px;
+  --spacing-2xl: 32px;
+
+  --component-gap: 16px;
+  --section-gap: 32px;
+  --page-margin: 24px;
+}
+
+html,
+body,
+#root {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: var(--font-family);
+  font-size: var(--font-size-md);
+  color: var(--text-primary);
+  background: var(--bg-primary);
+  min-width: 1024px;
+  overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+::selection {
+  background: rgba(28, 28, 28, 0.1);
+  color: var(--ide-text-main);
+}
+
+/* 按钮基础样式 */
+button {
+  font-family: var(--font-family);
+  cursor: pointer;
+  border: var(--border-width) solid var(--border-color);
+  padding: 6px 14px;
+  font-weight: 500;
+  transition: all var(--ide-transition);
+  background: transparent;
+  color: var(--text-primary);
+  border-radius: 2px;
+}
+
+button:hover:not(:disabled) {
+  background: var(--ide-bg-hover);
+  border-color: var(--ide-border-medium);
+}
+
+button:focus-visible,
+input:focus-visible,
+textarea:focus-visible {
+  outline: none;
+  box-shadow: var(--ide-focus-ring);
+}
+
+button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+button:disabled:hover {
+  background: transparent;
+  color: var(--ide-text-faint);
+}
+
+.app {
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}

@@ -1,0 +1,38 @@
+:root,
+:root[data-theme="office-excel"] {
+  --theme-bg-window: #eceff4;
+  --theme-bg-content: #f3f3f3;
+  --theme-bg-nav: #e8ebf0;
+  --theme-bg-card: #ffffff;
+  --theme-bg-hover: #edf5f0;
+  --theme-bg-active: #e1f0e7;
+
+  --theme-text-title: #1a1a1a;
+  --theme-text-body: #333333;
+  --theme-text-muted: #5f6f65;
+  --theme-text-placeholder: #8a8a8a;
+
+  --theme-border-subtle: #e5e5e5;
+  --theme-border-default: #d1d1d1;
+  --theme-border-medium: #b8c7bd;
+  --theme-border-strong: #217346;
+
+  --theme-accent-main: #217346;
+  --theme-accent-strong: #185c37;
+  --theme-accent-bright: #50c878;
+  --theme-accent-lime: #b4e67e;
+  --theme-accent-soft: rgba(33, 115, 70, 0.1);
+
+  --theme-shadow-panel: 0 1px 2px rgba(24, 92, 55, 0.08);
+  --theme-shadow-hover: 0 2px 6px rgba(24, 92, 55, 0.12);
+  --theme-focus-ring: 0 0 0 2px rgba(80, 200, 120, 0.28);
+  --theme-transition: 150ms ease;
+
+  --theme-radius-control: 0;
+  --theme-radius-panel: 0;
+  --theme-radius-avatar: 50%;
+  --theme-radius-switch: 2px;
+
+  --theme-main-stat-bg: #fff59d;
+  --theme-sub-stat-bg: #d9d9d9;
+}
