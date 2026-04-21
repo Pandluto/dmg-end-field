@@ -117,11 +117,12 @@ export const CanvasArea = forwardRef<HTMLDivElement, CanvasAreaProps>(({
               <div className="canvas-damage-nodes">
                 {Array.from({ length: NODE_COUNT }, (_, nodeIndex) => {
                   const nodeCenterX = FIRST_COLUMN_WIDTH + nodeIndex * COLUMN_WIDTH + COLUMN_WIDTH / 2;
+                  const nodeTop = ROW_HEIGHT / 2 - 4;
                   return (
                     <div
                       key={`node-${staffIndex}-${lineIndex}-${nodeIndex}`}
                       className="canvas-damage-node"
-                      style={{ left: nodeCenterX - 1, top: -3 }}
+                      style={{ left: nodeCenterX - 1, top: nodeTop }}
                     />
                   );
                 })}

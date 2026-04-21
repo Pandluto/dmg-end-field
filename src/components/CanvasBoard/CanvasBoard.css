@@ -2230,7 +2230,7 @@
   position: absolute;
   width: 2px;
   height: 6px;
-  background: #b6b6b6;
+  background: rgb(0, 0, 255,0.5);
   transform: rotate(135deg);
   border-radius: 0;
 }
