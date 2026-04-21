@@ -2030,10 +2030,12 @@
   align-items: center;
   gap: 0;
   padding-top: 30px;
+  padding-bottom: 90px;
   box-sizing: border-box;
 }
 
 .canvas-grid-row {
+  position: relative;
   width: 1240px;
   padding-bottom: 30px;
   box-sizing: border-box;

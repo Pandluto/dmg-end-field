@@ -3,6 +3,13 @@ import type { MouseEvent } from 'react';
 import { Character, SkillButton, CanvasConfig } from '../../../types';
 import { SkillButtonComponent } from '../SkillButton';
 import type { TimelineData } from '../../../types';
+import {
+  getGridNodeCenterX,
+  getGridLineCenterY,
+  LINE_ROW_INDICES,
+  GRID_ROW_HEIGHT,
+  GRID_NODE_COUNT,
+} from '../../../core/calculators/gridSnapLayout';
 
 interface CanvasAreaProps {
   config: CanvasConfig;
@@ -19,15 +26,6 @@ interface CanvasAreaProps {
 // 表格行列标注：0行显示字母(A-O)，0列显示数字(1-8)
 const columnLabels = Array.from({ length: 15 }, (_, index) => String.fromCharCode(65 + index));
 const rowLabels = Array.from({ length: 8 }, (_, index) => String(index + 1));
-
-// 表格坐标常量
-const FIRST_COLUMN_WIDTH = 40;
-const COLUMN_WIDTH = 80;
-const ROW_HEIGHT = 30;
-// 谱线对齐表格行：用户看到的第1行=索引0，第2行=索引1，...
-// 第1条谱线→索引3，第2条→索引5，第3条→索引7，第4条→索引9
-const LINE_ROW_INDICES = [3, 5, 7, 9];
-const NODE_COUNT = 15; // 每行15个伤害节点
 
 export const CanvasArea = forwardRef<HTMLDivElement, CanvasAreaProps>(({
   config,
@@ -85,9 +83,9 @@ export const CanvasArea = forwardRef<HTMLDivElement, CanvasAreaProps>(({
   const renderStaffVisualGroup = (staffIndex: number) => {
     return (
       <div key={`staff-visual-${staffIndex}`} className="canvas-staff-visual-group" aria-hidden="true">
-        {LINE_ROW_INDICES.map((rowIndex, lineIndex) => {
+        {LINE_ROW_INDICES.map((_, lineIndex) => {
           const character = selectedCharacters[lineIndex];
-          const lineCenterY = rowIndex * ROW_HEIGHT + ROW_HEIGHT / 2;
+          const lineCenterY = getGridLineCenterY(lineIndex);
           
           return (
             <div
@@ -115,14 +113,13 @@ export const CanvasArea = forwardRef<HTMLDivElement, CanvasAreaProps>(({
               </div>
               
               <div className="canvas-damage-nodes">
-                {Array.from({ length: NODE_COUNT }, (_, nodeIndex) => {
-                  const nodeCenterX = FIRST_COLUMN_WIDTH + nodeIndex * COLUMN_WIDTH + COLUMN_WIDTH / 2;
-                  const nodeTop = ROW_HEIGHT / 2 - 4;
+                {Array.from({ length: GRID_NODE_COUNT }, (_, nodeIndex) => {
+                  const nodeCenterX = getGridNodeCenterX(nodeIndex);
                   return (
                     <div
                       key={`node-${staffIndex}-${lineIndex}-${nodeIndex}`}
                       className="canvas-damage-node"
-                      style={{ left: nodeCenterX - 1, top: nodeTop }}
+                      style={{ left: nodeCenterX - 1, top:  GRID_ROW_HEIGHT / 2 - 3 }}
                     />
                   );
                 })}

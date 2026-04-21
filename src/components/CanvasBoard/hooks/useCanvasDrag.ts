@@ -4,9 +4,14 @@
 
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { SkillType, SkillButton, CanvasConfig } from '../../../types';
-import { snapToNearestNode, findNearestLine } from '../../../utils/layout';
 import { generateId } from '../../../utils/helpers';
 import { resolveSkillIconUrl } from '../../../utils/assetResolver';
+import {
+  findNearestGridLine,
+  snapGridNodeX,
+  clientToGridCoords,
+  gridToCanvasCoords,
+} from '../../../core/calculators/gridSnapLayout';
 
 interface DraggingState {
   id: string;
@@ -145,6 +150,13 @@ export function useCanvasDrag({
       }
 
       const canvasRect = canvasRef.current.getBoundingClientRect();
+      const gridStack = canvasRef.current.querySelector('.canvas-grid-stack');
+      if (!gridStack) {
+        setDraggingState(null);
+        return;
+      }
+      const gridStackRect = gridStack.getBoundingClientRect();
+
       const isInsideCanvas =
         e.clientX >= canvasRect.left &&
         e.clientX <= canvasRect.right &&
@@ -152,10 +164,10 @@ export function useCanvasDrag({
         e.clientY <= canvasRect.bottom;
 
       if (isInsideCanvas) {
-        const nearestLine = findNearestLine(
-          e.clientY,
-          canvasRect,
-          config,
+        const { gridX, gridY } = clientToGridCoords(e.clientX, e.clientY, canvasRect, gridStackRect);
+
+        const nearestLine = findNearestGridLine(
+          gridY,
           staffCount,
           draggingState.characterId,
           selectedCharacters
@@ -163,30 +175,30 @@ export function useCanvasDrag({
 
         if (nearestLine) {
           const { staffIndex, lineIndex, lineY } = nearestLine;
-          const mouseX = e.clientX - canvasRect.left;
 
-          const effectiveCanvasWidth = canvasRect.width;
-          const { snappedPosition, nodeIndex } = snapToNearestNode(
-            { x: mouseX, y: lineY },
-            config,
-            staffIndex,
-            lineIndex,
-            effectiveCanvasWidth,
-            skillButtonsRef.current,
-            draggingState.characterId
+          const { nodeIndex, x: snappedNodeX } = snapGridNodeX(gridX);
+
+          const snappedPosition = gridToCanvasCoords(
+            snappedNodeX,
+            lineY,
+            canvasRect,
+            gridStackRect
           );
+
+          console.log('[吸附] grid坐标:', { gridX: Math.round(gridX), gridY: Math.round(gridY), snappedNodeX: Math.round(snappedNodeX), lineY: Math.round(lineY) });
+          console.log('[吸附] canvas坐标:', snappedPosition);
 
           const isMovingExistingButton = !!draggingState.originalButton;
 
           if (isMovingExistingButton && draggingState.originalButton) {
             const originalButton = draggingState.originalButton;
-            const oldStaffIndex = originalButton.lineIndex;
+            const oldStaffIndex = originalButton.staffIndex;
             const buttonId = originalButton.id;
 
-            if (oldStaffIndex !== lineIndex && moveTimelineButtonToStaff) {
-              moveTimelineButtonToStaff(oldStaffIndex, lineIndex, buttonId, snappedPosition, nodeIndex);
+            if (oldStaffIndex !== staffIndex && moveTimelineButtonToStaff) {
+              moveTimelineButtonToStaff(oldStaffIndex, staffIndex, buttonId, snappedPosition, nodeIndex);
             } else if (updateSkillButtonPosition) {
-              updateSkillButtonPosition(lineIndex, buttonId, snappedPosition, nodeIndex);
+              updateSkillButtonPosition(staffIndex, buttonId, snappedPosition, nodeIndex);
             }
 
             dispatch({
@@ -194,7 +206,7 @@ export function useCanvasDrag({
               buttonId,
               position: snappedPosition,
               lineIndex,
-              staffIndex: lineIndex,
+              staffIndex,
             });
             dispatch({ type: 'SET_DRAGGING', buttonId, isDragging: false });
           } else {
@@ -223,7 +235,7 @@ export function useCanvasDrag({
               addTimelineButton({
                 characterName: draggingState.characterName,
                 skillType: draggingState.skillType,
-                staffIndex: lineIndex,
+                staffIndex,
                 nodeIndex,
                 position: snappedPosition,
               }, draggingState.id);
