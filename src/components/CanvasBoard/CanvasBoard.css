@@ -2140,3 +2140,97 @@
   justify-content: center;
   line-height: 1;
 }
+
+/* ============================================
+   谱线视觉层 - 独立UI层覆盖在表格背景上方
+   ============================================ */
+
+/* 谱线组容器 - 与表格组同尺寸，绝对定位覆盖 */
+.canvas-staff-visual-group {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 1240px;
+  height: 270px;
+  z-index: 10;
+  pointer-events: none;
+}
+
+/* 单条谱线行单元 */
+.canvas-staff-visual-line {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 30px;
+  transform: translateY(-50%);
+}
+
+/* 谱线本体 */
+.canvas-staff-line {
+  position: absolute;
+  left: 40px;
+  right: 0;
+  top: 50%;
+  height: 1px;
+  background: #b6b6b6;
+  transform: translateY(-50%);
+}
+
+/* 干员身份区：头像+名字 */
+.canvas-staff-line-label {
+  position: absolute;
+  left: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  pointer-events: none;
+}
+
+/* 干员头像 */
+.canvas-staff-avatar {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  object-fit: cover;
+  flex-shrink: 0;
+}
+
+/* 头像占位符 */
+.canvas-staff-avatar-placeholder {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: #e0e0e0;
+  flex-shrink: 0;
+}
+
+/* 干员名字 */
+.canvas-staff-name {
+  font-size: 12px;
+  font-weight: 500;
+  color: #333333;
+  white-space: nowrap;
+  line-height: 1;
+}
+
+/* 伤害节点容器 */
+.canvas-damage-nodes {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  pointer-events: none;
+}
+
+/* 单个伤害节点 - 归档小斜线样式 */
+.canvas-damage-node {
+  position: absolute;
+  width: 2px;
+  height: 6px;
+  background: #b6b6b6;
+  transform: rotate(135deg);
+  border-radius: 0;
+}
