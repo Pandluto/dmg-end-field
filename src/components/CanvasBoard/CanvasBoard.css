@@ -2037,6 +2037,7 @@
   width: 1240px;
   padding-bottom: 30px;
   box-sizing: border-box;
+  overflow: visible;
 }
 
 .canvas-grid-group {
@@ -2154,6 +2155,7 @@
   height: 270px;
   z-index: 10;
   pointer-events: none;
+  overflow: visible;
 }
 
 /* 单条谱线行单元 */
@@ -2176,10 +2178,10 @@
   transform: translateY(-50%);
 }
 
-/* 干员身份区：头像+名字 */
+/* 干员身份区：头像+名字 - 移到第0列左侧 */
 .canvas-staff-line-label {
   position: absolute;
-  left: 8px;
+  left: -80px;
   top: 50%;
   transform: translateY(-50%);
   display: flex;
@@ -2188,10 +2190,10 @@
   pointer-events: none;
 }
 
-/* 干员头像 */
+/* 干员头像 - 复用沙盒44x44尺寸 */
 .canvas-staff-avatar {
-  width: 24px;
-  height: 24px;
+  width: 44px;
+  height: 44px;
   border-radius: 50%;
   object-fit: cover;
   flex-shrink: 0;
@@ -2199,20 +2201,21 @@
 
 /* 头像占位符 */
 .canvas-staff-avatar-placeholder {
-  width: 24px;
-  height: 24px;
+  width: 44px;
+  height: 44px;
   border-radius: 50%;
   background: #e0e0e0;
   flex-shrink: 0;
 }
 
-/* 干员名字 */
+/* 干员名字 - 复用沙盒样式 */
 .canvas-staff-name {
-  font-size: 12px;
-  font-weight: 500;
-  color: #333333;
+  font-size: var(--font-size-sm);
+  font-weight: 700;
+  color: var(--office-title);
   white-space: nowrap;
   line-height: 1;
+  margin-top: 0;
 }
 
 /* 伤害节点容器 */
