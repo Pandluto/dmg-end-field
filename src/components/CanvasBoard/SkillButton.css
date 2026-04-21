@@ -1,45 +1,107 @@
 .canvas-skill-button {
-  /* 使用 absolute 定位，使 left/top style 生效 */
   position: absolute;
-  overflow: hidden;
-  border-radius: 50%;
-  border: var(--border-width) solid #ffffff; /* 白色边框 */
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
   cursor: grab;
   z-index: 10;
-  transition: transform 0.1s ease;
+  overflow: visible;
+  border: 0;
+  background: transparent;
   user-select: none;
   -webkit-user-select: none;
   -moz-user-select: none;
   -ms-user-select: none;
+  touch-action: none;
 }
 
-/* 鼠标悬停时缩放 */
 .canvas-skill-button:hover {
-  transform: scale(1.05);
   z-index: 20;
 }
 
-/* 选中时边框颜色 */
 .canvas-skill-button.selected {
-  border-width: 3px;
-  border-color: var(--bg-primary);
   z-index: 30;
 }
 
-/* 拖动时缩放 */
 .canvas-skill-button.dragging {
   cursor: grabbing;
-  opacity: 0.8;
-  transform: scale(1.1);
   z-index: 40;
+  opacity: 0.86;
 }
 
-/* 技能图标：绝对定位覆盖整个圆形按钮 */
-.canvas-skill-button .skill-icon {
+.skill-button-anchor {
+  position: absolute;
+  left: var(--skill-button-radius);
+  top: var(--skill-button-radius);
+  width: 0;
+  height: 0;
+  pointer-events: none;
+}
+
+.skill-button-base {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 80px;
+  height: 30px;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+  padding: 0 10px 0 calc(var(--skill-button-radius) + 8px);
+  overflow: hidden;
+  background: var(--skill-button-element-color);
+  border: 1px solid rgba(24, 92, 55, 0.32);
+  border-radius: 0;
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.78) inset,
+    0 2px 8px rgba(26, 26, 26, 0.12);
+  transition:
+    border-color 0.14s ease,
+    box-shadow 0.14s ease,
+    filter 0.14s ease,
+    background-color 0.14s ease;
+}
+
+.skill-button-type {
+  color: #111111;
+  font-size: 14px;
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: 0.04em;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.5);
+}
+
+.skill-button-lock {
+  color: #185c37;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.skill-button-orb {
+  position: absolute;
+  left: calc(-1 * var(--skill-button-radius));
+  top: calc(-1 * var(--skill-button-radius));
+  width: var(--skill-button-size);
+  height: var(--skill-button-size);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  box-sizing: border-box;
+  border: 2px solid rgba(255, 255, 255, 0.92);
+  border-radius: 50%;
+  background: var(--skill-button-element-color);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.72) inset,
+    0 2px 8px rgba(26, 26, 26, 0.16);
+  z-index: 2;
+  transition:
+    border-color 0.14s ease,
+    box-shadow 0.14s ease,
+    filter 0.14s ease;
+}
+
+.skill-button-orb .skill-icon {
   position: absolute;
   inset: 0;
   width: 100%;
@@ -50,24 +112,59 @@
   z-index: 2;
 }
 
-/* 技能标签文字：绝对定位，z-index 高于图标以确保可读 */
-.canvas-skill-button .skill-label {
-  position: relative;
+.skill-button-orb .skill-label {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   z-index: 1;
-  color: var(--text-secondary);
+  color: #111111;
   font-size: var(--font-size-xl);
-  font-weight: 700;
+  font-weight: 800;
   pointer-events: none;
 }
 
-/* 干员名称文字 */
-.canvas-skill-button .skill-character-name {
-  position: relative;
-  z-index: 1;
-  color: var(--text-secondary);
-  font-size: var(--font-size-xs);
-  pointer-events: none;
-  margin-top: 2px;
+.canvas-skill-button:hover .skill-button-base {
+  border-color: rgba(24, 92, 55, 0.68);
+  filter: brightness(1.05);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.82) inset,
+    0 3px 10px rgba(24, 92, 55, 0.22);
+}
+
+.canvas-skill-button:hover .skill-button-orb {
+  border-color: #fff59d;
+  filter: brightness(1.04);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.82) inset,
+    0 3px 10px rgba(24, 92, 55, 0.24);
+}
+
+.canvas-skill-button.selected .skill-button-base {
+  border: 2px solid #fff59d;
+  box-shadow:
+    0 0 0 1px rgba(24, 92, 55, 0.55),
+    0 3px 12px rgba(24, 92, 55, 0.28);
+}
+
+.canvas-skill-button.selected .skill-button-orb {
+  border-color: #fff59d;
+  box-shadow:
+    0 0 0 2px rgba(24, 92, 55, 0.36),
+    0 3px 12px rgba(24, 92, 55, 0.28);
+}
+
+.canvas-skill-button.dragging .skill-button-base,
+.canvas-skill-button.dragging .skill-button-orb {
+  filter: saturate(1.08) brightness(1.06);
+  box-shadow:
+    0 0 0 2px rgba(255, 245, 157, 0.68),
+    0 6px 18px rgba(24, 92, 55, 0.28);
+}
+
+.canvas-skill-button.locked .skill-button-base {
+  border-color: rgba(24, 92, 55, 0.72);
 }
 
 /* ==================== 居中弹窗样式（模仿控制台紧凑布局） ==================== */

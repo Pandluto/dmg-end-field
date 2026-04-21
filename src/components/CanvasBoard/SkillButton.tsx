@@ -1,4 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
+import type { CSSProperties } from 'react';
 import { SkillButton as SkillButtonType, SKILL_LABELS, TimelineData } from '../../types';
 import { getElementBackgroundColor } from '../../utils/assetResolver';
 import {
@@ -28,6 +29,13 @@ interface SkillButtonProps {
 export function SkillButtonComponent({ button, size, onMouseDown, onContextMenu, timelineData, onModalOpen }: SkillButtonProps) {
   const { position, skillType, isSelected, isDragging, characterName, skillIconUrl, element, isLocked } = button;
   const { dispatch } = useAppContext();
+  const radius = size / 2;
+  const baseWidth = 80;
+  const baseHeight = 30;
+  const visualOffsetX = 40;
+  const visualOffsetY = 15;
+  const hitWidth = radius + baseWidth;
+  const hitHeight = Math.max(size, radius + baseHeight);
 
   // 弹窗显示状态
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -252,12 +260,11 @@ export function SkillButtonComponent({ button, size, onMouseDown, onContextMenu,
   }, []);
 
   /**
-   * 图标加载成功时：隐藏技能类型标签和干员名称，仅保留图标
-   * 通过 DOM 操作一次性隐藏两个文字节点，避免重复渲染
+   * 图标加载成功时：隐藏圆形图标内的兜底技能字母，底座文字继续显示。
    */
   const handleIconLoad = (e: React.SyntheticEvent<HTMLImageElement>) => {
     const parent = (e.target as HTMLImageElement).parentElement;
-    parent?.querySelectorAll('.skill-label, .skill-character-name').forEach(el => {
+    parent?.querySelectorAll('.skill-label').forEach(el => {
       (el as HTMLElement).style.display = 'none';
     });
   };
@@ -273,32 +280,40 @@ export function SkillButtonComponent({ button, size, onMouseDown, onContextMenu,
   return (
     <>
       <div
-        className={`canvas-skill-button ${isSelected ? 'selected' : ''} ${isDragging ? 'dragging' : ''}`}
+        className={`canvas-skill-button ${isSelected ? 'selected' : ''} ${isDragging ? 'dragging' : ''} ${isLocked ? 'locked' : ''}`}
         style={{
-          left: position.x - size / 2,
-          top: position.y - size / 2,
-          width: size,
-          height: size,
-          // 按干员 element 属性取半透明底色，适配半透明 PNG 技能图标
-          backgroundColor: getElementBackgroundColor(element ?? ''),
-        }}
+          left: position.x - radius - visualOffsetX,
+          top: position.y - radius - visualOffsetY,
+          width: hitWidth,
+          height: hitHeight,
+          '--skill-button-size': `${size}px`,
+          '--skill-button-radius': `${radius}px`,
+          '--skill-button-element-color': getElementBackgroundColor(element ?? ''),
+        } as CSSProperties}
         onMouseDown={handleMouseDown}
         onClick={handleClick}
         onContextMenu={onContextMenu}
       >
-        {/* skillIconUrl 有值时渲染图标，onLoad 成功后自动隐藏文字 */}
-        {skillIconUrl ? (
-          <img
-            className="skill-icon"
-            src={skillIconUrl}
-            alt={SKILL_LABELS[skillType]}
-            onLoad={handleIconLoad}
-            onError={handleIconError}
-          />
-        ) : null}
-        {/* 兜底文字：图标加载成功时由 handleIconLoad 隐藏，失败时正常显示 */}
-        <span className="skill-label">{skillType}</span>
-        <span className="skill-character-name">{characterName}</span>
+        <div className="skill-button-anchor">
+          <div className="skill-button-base">
+            <span className="skill-button-type">{skillType}</span>
+            {isLocked ? <span className="skill-button-lock">锁</span> : null}
+          </div>
+          <div className="skill-button-orb" title={`${characterName} - ${SKILL_LABELS[skillType]}`}>
+            {/* skillIconUrl 有值时渲染图标，onLoad 成功后自动隐藏圆内兜底文字 */}
+            {skillIconUrl ? (
+              <img
+                className="skill-icon"
+                src={skillIconUrl}
+                alt={SKILL_LABELS[skillType]}
+                onLoad={handleIconLoad}
+                onError={handleIconError}
+              />
+            ) : null}
+            {/* 兜底文字：图标加载成功时由 handleIconLoad 隐藏，失败时正常显示 */}
+            <span className="skill-label">{skillType}</span>
+          </div>
+        </div>
       </div>
 
       {/* 技能信息弹窗 + 技能伤害弹窗 */}

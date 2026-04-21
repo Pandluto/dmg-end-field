@@ -1,10 +1,10 @@
 /**
  * 拖拽遮罩层（DraggingOverlay）
  *
- * 渲染一个跟随鼠标移动的半透明按钮，在拖拽过程中始终显示在最顶层（z-index: 1000）
- * 不影响底层元素的鼠标事件（pointer-events: none）
+ * 只负责拖动中的视觉预览，不参与吸附、落点和存储计算。
  */
 
+import type { CSSProperties } from 'react';
 import { SkillType } from '../../../types';
 
 interface DraggingState {
@@ -24,29 +24,32 @@ interface DraggingOverlayProps {
 export function DraggingOverlay({ draggingState, mousePosition, buttonSize }: DraggingOverlayProps) {
   if (!draggingState) return null;
 
+  const radius = buttonSize / 2;
+  const baseWidth = 80;
+  const baseHeight = 30;
+  const visualOffsetX = 40;
+  const visualOffsetY = 15;
+
   return (
     <div
-      className="skill-button dragging"
+      className="dragging-skill-button-preview"
       style={{
-        position: 'fixed',
-        left: mousePosition.x - buttonSize / 2,
-        top: mousePosition.y - buttonSize / 2,
-        width: buttonSize,
-        height: buttonSize,
-        borderRadius: buttonSize / 2,
-        backgroundColor: '#333',
-        color: '#fff',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        fontSize: 14,
-        fontWeight: 'bold',
-        pointerEvents: 'none',
-        zIndex: 1000,
-        boxShadow: '0 4px 12px rgba(0,0,0,0.3)',
-      }}
+        left: mousePosition.x - radius - visualOffsetX,
+        top: mousePosition.y - radius - visualOffsetY,
+        width: radius + baseWidth,
+        height: Math.max(buttonSize, radius + baseHeight),
+        '--drag-preview-size': `${buttonSize}px`,
+        '--drag-preview-radius': `${radius}px`,
+      } as CSSProperties}
     >
-      {draggingState.skillType}
+      <div className="dragging-skill-button-anchor">
+        <div className="dragging-skill-button-base">
+          <span>{draggingState.skillType}</span>
+        </div>
+        <div className="dragging-skill-button-orb">
+          <span>{draggingState.skillType}</span>
+        </div>
+      </div>
     </div>
   );
 }

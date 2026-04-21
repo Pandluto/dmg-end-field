@@ -54,7 +54,6 @@ export const CanvasArea = forwardRef<HTMLDivElement, CanvasAreaProps>(({
       ));
   };
 
-  
   const renderGridGroups = () => {
     return Array.from({ length: staffCount }, (_, index) => (
       <div key={`grid-row-${index}`} className="canvas-grid-row">
