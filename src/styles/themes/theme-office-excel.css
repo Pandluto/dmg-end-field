@@ -4,6 +4,9 @@
   --theme-bg-content: #f3f3f3;
   --theme-bg-nav: #e8ebf0;
   --theme-bg-card: #ffffff;
+  --theme-bg-grid-area: #ffffff;
+  --theme-bg-grid-header: rgba(255, 245, 157, 0.3);
+  --theme-bg-workspace-panel: #F3F3F3;
   --theme-bg-hover: #edf5f0;
   --theme-bg-active: #e1f0e7;
 
@@ -13,6 +16,7 @@
   --theme-text-placeholder: #8a8a8a;
 
   --theme-border-subtle: #e5e5e5;
+  --theme-border-grid: #e0e0e0;
   --theme-border-default: #d1d1d1;
   --theme-border-medium: #b8c7bd;
   --theme-border-strong: #217346;

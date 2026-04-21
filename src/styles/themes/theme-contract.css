@@ -5,6 +5,9 @@
   --theme-bg-content: #f3f3f3;
   --theme-bg-nav: #e8ebf0;
   --theme-bg-card: #ffffff;
+  --theme-bg-grid-area: #ffffff;
+  --theme-bg-grid-header: rgba(255, 245, 157, 0.3);
+  --theme-bg-workspace-panel: #e8ebf0;
   --theme-bg-hover: #edf5f0;
   --theme-bg-active: #e1f0e7;
 
@@ -14,6 +17,7 @@
   --theme-text-placeholder: #8a8a8a;
 
   --theme-border-subtle: #e5e5e5;
+  --theme-border-grid: #e0e0e0;
   --theme-border-default: #d1d1d1;
   --theme-border-medium: #b8c7bd;
   --theme-border-strong: #217346;
@@ -64,9 +68,13 @@
   --office-content-bg: var(--theme-bg-content);
   --office-nav-bg: var(--theme-bg-nav);
   --office-card-bg: var(--theme-bg-card);
+  --office-grid-area-bg: var(--theme-bg-grid-area);
+  --office-grid-header-bg: var(--theme-bg-grid-header);
+  --office-workspace-panel-bg: var(--theme-bg-workspace-panel);
   --office-title: var(--theme-text-title);
   --office-body: var(--theme-text-body);
   --office-border: var(--theme-border-default);
+  --office-grid-line: var(--theme-border-grid);
   --office-placeholder: var(--theme-text-placeholder);
 
   --excel-green-deep: var(--theme-accent-strong);

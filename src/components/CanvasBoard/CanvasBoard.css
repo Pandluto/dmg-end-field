@@ -13,7 +13,7 @@
   position: relative;
   height: 100%;
   min-height: 0;
-  padding-bottom: 30px;
+  padding-bottom: 60px;
   box-sizing: border-box;
   overflow: hidden;
 }
@@ -1641,24 +1641,24 @@
 }
 
 .canvas-left-zone {
-  background: var(--office-content-bg);
+  background: var(--office-workspace-panel-bg);
 }
 
 .canvas-right-zone {
-  background: var(--office-card-bg);
+  background: var(--office-workspace-panel-bg);
   border-left-color: var(--office-border);
 }
 
 .canvas-grid-group {
-  border-color: var(--office-border);
+  border-color: var(--office-grid-line);
 }
 
 .canvas-grid-background {
-  --grid-line-color: #d9d9d9;
+  --grid-line-color: var(--office-grid-line);
 }
 
 .canvas-bottom-zone {
-  background: var(--office-window-bg);
+  background: var(--office-workspace-panel-bg);
   border-top: 1px solid var(--office-border);
 }
 
@@ -1990,7 +1990,7 @@
   width: auto;
   min-width: 1440px;
   max-width: none;
-  padding-bottom: 30px;
+  padding-bottom: 60px;
 }
 
 .canvas-left-zone {
@@ -2025,38 +2025,118 @@
 }
 
 .canvas-grid-stack {
-  width: 1160px;
+  width: 1240px;
   margin: 0 auto;
   align-items: center;
   gap: 0;
+  padding-top: 30px;
+  box-sizing: border-box;
 }
 
 .canvas-grid-row {
-  width: 1160px;
-  padding-bottom: 80px;
+  width: 1240px;
+  padding-bottom: 30px;
   box-sizing: border-box;
 }
 
 .canvas-grid-group {
-  width: 1160px;
+  width: 1240px;
   flex-basis: 270px;
   height: 270px;
   border: 0;
-  outline: 1px solid var(--office-border);
+  outline: 1px solid var(--office-grid-line);
   border-radius: 0;
   box-shadow: none;
-  background: transparent;
+  background: var(--office-grid-area-bg);
 }
 
 .canvas-grid-background {
   --grid-column-width: 80px;
   --grid-first-column-width: 40px;
   --grid-row-height: 30px;
-  --grid-line-color: #d9d9d9;
+  --grid-line-color: var(--office-grid-line);
   background-position:
     0 var(--grid-row-height),
     var(--grid-first-column-width) 0;
   background-size:
     100% var(--grid-row-height),
     var(--grid-column-width) 100%;
+}
+
+/* 0行/0列表头背景层 - 在表格线下方 */
+.canvas-grid-header-bg {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background:
+    linear-gradient(
+      var(--office-grid-header-bg),
+      var(--office-grid-header-bg)
+    ) 0 0 / 100% 30px no-repeat,
+    linear-gradient(
+      var(--office-grid-header-bg),
+      var(--office-grid-header-bg)
+    ) 0 0 / 40px 100% no-repeat;
+}
+
+/* 表格背景层 - 绘制所有线条 */
+.canvas-grid-background {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+}
+
+/* 表格行列标注层 - 文字在最上方 */
+.canvas-grid-labels {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+  color: var(--office-body);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+/* (0,0) 交叉格 - 透明背景 */
+.canvas-grid-corner {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 40px;
+  height: 30px;
+  background: transparent;
+}
+
+/* 列标注：A-O - 透明背景 */
+.canvas-grid-column-labels {
+  position: absolute;
+  left: 40px;
+  top: 0;
+  display: grid;
+  grid-template-columns: repeat(15, 80px);
+  width: 1200px;
+  height: 30px;
+  background: transparent;
+}
+
+/* 行标注：1-8 - 透明背景 */
+.canvas-grid-row-labels {
+  position: absolute;
+  left: 0;
+  top: 30px;
+  display: grid;
+  grid-template-rows: repeat(8, 30px);
+  width: 40px;
+  height: 240px;
+  background: transparent;
+}
+
+.canvas-grid-column-labels span,
+.canvas-grid-row-labels span {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
 }
