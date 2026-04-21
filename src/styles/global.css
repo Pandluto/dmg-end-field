@@ -22,7 +22,8 @@ body {
   font-size: var(--font-size-md);
   color: var(--text-primary);
   background: var(--office-window-bg);
-  min-width: 1024px;
+  min-width: 1440px;
+  min-height: 900px;
   overflow: hidden;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
