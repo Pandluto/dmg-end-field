@@ -3,14 +3,14 @@
  */
 
 import { useState, useCallback, useRef, useEffect } from 'react';
-import { SkillType, SkillButton, CanvasConfig } from '../../../types';
+import { SkillType, SkillButton, CanvasConfig, SkillButtonData } from '../../../types';
 import { generateId } from '../../../utils/helpers';
 import { resolveSkillIconUrl } from '../../../utils/assetResolver';
 import {
   findNearestGridLine,
   snapGridNodeX,
   clientToGridCoords,
-  gridToCanvasCoords,
+  gridToCanvasContentCoords,
 } from '../../../core/calculators/gridSnapLayout';
 
 interface DraggingState {
@@ -39,14 +39,14 @@ interface UseCanvasDragProps {
     nodeIndex: number;
     position: { x: number; y: number };
   }, buttonId?: string) => void;
-  updateSkillButtonPosition?: (staffIndex: number, buttonId: string, newPosition: { x: number; y: number }, newNodeIndex: number) => void;
+  updateSkillButtonPosition?: (staffIndex: number, buttonId: string, newPosition: { x: number; y: number }, newNodeIndex: number) => SkillButtonData | null;
   moveTimelineButtonToStaff?: (
     fromStaffIndex: number,
     toStaffIndex: number,
     buttonId: string,
     newPosition: { x: number; y: number },
     newNodeIndex: number
-  ) => void;
+  ) => SkillButtonData | null;
 }
 
 export interface UseCanvasDragReturn {
@@ -144,109 +144,123 @@ export function useCanvasDrag({
     };
 
     const handleMouseUp = (e: MouseEvent) => {
-      if (!draggingState || !canvasRef.current) {
-        setDraggingState(null);
-        return;
-      }
+      try {
+        if (!draggingState || !canvasRef.current) {
+          return;
+        }
 
-      const canvasRect = canvasRef.current.getBoundingClientRect();
-      const gridStack = canvasRef.current.querySelector('.canvas-grid-stack');
-      if (!gridStack) {
-        setDraggingState(null);
-        return;
-      }
-      const gridStackRect = gridStack.getBoundingClientRect();
+        const canvasRect = canvasRef.current.getBoundingClientRect();
+        const gridStack = canvasRef.current.querySelector('.canvas-grid-stack');
+        if (!gridStack) {
+          return;
+        }
+        const gridStackRect = gridStack.getBoundingClientRect();
 
-      const isInsideCanvas =
-        e.clientX >= canvasRect.left &&
-        e.clientX <= canvasRect.right &&
-        e.clientY >= canvasRect.top &&
-        e.clientY <= canvasRect.bottom;
+        const isInsideCanvas =
+          e.clientX >= canvasRect.left &&
+          e.clientX <= canvasRect.right &&
+          e.clientY >= canvasRect.top &&
+          e.clientY <= canvasRect.bottom;
 
-      if (isInsideCanvas) {
-        const { gridX, gridY } = clientToGridCoords(e.clientX, e.clientY, canvasRect, gridStackRect);
+        if (isInsideCanvas) {
+          const { gridX, gridY } = clientToGridCoords(e.clientX, e.clientY, canvasRect, gridStackRect);
 
-        const nearestLine = findNearestGridLine(
-          gridY,
-          staffCount,
-          draggingState.characterId,
-          selectedCharacters
-        );
-
-        if (nearestLine) {
-          const { staffIndex, lineIndex, lineY } = nearestLine;
-
-          const { nodeIndex, x: snappedNodeX } = snapGridNodeX(gridX);
-
-          const snappedPosition = gridToCanvasCoords(
-            snappedNodeX,
-            lineY,
-            canvasRect,
-            gridStackRect
+          const nearestLine = findNearestGridLine(
+            gridY,
+            staffCount,
+            draggingState.characterId,
+            selectedCharacters
           );
 
-          console.log('[吸附] grid坐标:', { gridX: Math.round(gridX), gridY: Math.round(gridY), snappedNodeX: Math.round(snappedNodeX), lineY: Math.round(lineY) });
-          console.log('[吸附] canvas坐标:', snappedPosition);
+          if (nearestLine) {
+            const { staffIndex, lineIndex, lineY } = nearestLine;
 
-          const isMovingExistingButton = !!draggingState.originalButton;
+            const { nodeIndex, x: snappedNodeX } = snapGridNodeX(gridX);
 
-          if (isMovingExistingButton && draggingState.originalButton) {
-            const originalButton = draggingState.originalButton;
-            const oldStaffIndex = originalButton.staffIndex;
-            const buttonId = originalButton.id;
+            const snappedPosition = gridToCanvasContentCoords(
+              snappedNodeX,
+              lineY,
+              canvasRef.current,
+              gridStack
+            );
 
-            if (oldStaffIndex !== staffIndex && moveTimelineButtonToStaff) {
-              moveTimelineButtonToStaff(oldStaffIndex, staffIndex, buttonId, snappedPosition, nodeIndex);
-            } else if (updateSkillButtonPosition) {
-              updateSkillButtonPosition(staffIndex, buttonId, snappedPosition, nodeIndex);
-            }
+            console.log('[吸附] grid坐标:', { gridX: Math.round(gridX), gridY: Math.round(gridY), snappedNodeX: Math.round(snappedNodeX), lineY: Math.round(lineY) });
+            console.log('[吸附] canvas坐标:', snappedPosition);
 
-            dispatch({
-              type: 'SET_SKILL_BUTTON_POSITION',
-              buttonId,
-              position: snappedPosition,
-              lineIndex,
-              staffIndex,
-            });
-            dispatch({ type: 'SET_DRAGGING', buttonId, isDragging: false });
-          } else {
-            const characterElement = (selectedCharacters as { id: string; element?: string }[]).find(
-              c => c.id === draggingState.characterId
-            )?.element;
+            const isMovingExistingButton = !!draggingState.originalButton;
 
-            const newButton: SkillButton = {
-              id: draggingState.id,
-              characterId: draggingState.characterId,
-              characterName: draggingState.characterName,
-              skillType: draggingState.skillType,
-              position: snappedPosition,
-              staffIndex,
-              lineIndex,
-              isDragging: false,
-              isSelected: false,
-              isFromSandbox: true,
-              skillIconUrl: resolveSkillIconUrl(draggingState.characterName, draggingState.skillType),
-              element: characterElement,
-            };
+            if (isMovingExistingButton && draggingState.originalButton) {
+              const originalButton = draggingState.originalButton;
+              const oldStaffIndex = originalButton.staffIndex;
+              const buttonId = originalButton.id;
 
-            dispatch({ type: 'ADD_SKILL_BUTTON', button: newButton });
+              let serviceResult: SkillButtonData | null = null;
 
-            if (addTimelineButton) {
-              addTimelineButton({
+              if (oldStaffIndex !== staffIndex && moveTimelineButtonToStaff) {
+                serviceResult = moveTimelineButtonToStaff(oldStaffIndex, staffIndex, buttonId, snappedPosition, nodeIndex);
+              } else if (updateSkillButtonPosition) {
+                serviceResult = updateSkillButtonPosition(staffIndex, buttonId, snappedPosition, nodeIndex);
+              }
+
+              if (serviceResult) {
+                dispatch({
+                  type: 'SET_SKILL_BUTTON_POSITION',
+                  buttonId,
+                  position: snappedPosition,
+                  lineIndex,
+                  staffIndex,
+                });
+                dispatch({ type: 'SET_DRAGGING', buttonId, isDragging: false });
+              } else {
+                console.error('[useCanvasDrag] service returned null, skipping dispatch');
+                dispatch({ type: 'SET_DRAGGING', buttonId, isDragging: false });
+              }
+            } else {
+              const characterElement = (selectedCharacters as { id: string; element?: string }[]).find(
+                c => c.id === draggingState.characterId
+              )?.element;
+
+              const newButton: SkillButton = {
+                id: draggingState.id,
+                characterId: draggingState.characterId,
                 characterName: draggingState.characterName,
                 skillType: draggingState.skillType,
-                staffIndex,
-                nodeIndex,
                 position: snappedPosition,
-              }, draggingState.id);
+                staffIndex,
+                lineIndex,
+                isDragging: false,
+                isSelected: false,
+                isFromSandbox: true,
+                skillIconUrl: resolveSkillIconUrl(draggingState.characterName, draggingState.skillType),
+                element: characterElement,
+              };
+
+              dispatch({ type: 'ADD_SKILL_BUTTON', button: newButton });
+
+              try {
+                if (addTimelineButton) {
+                  addTimelineButton({
+                    characterName: draggingState.characterName,
+                    skillType: draggingState.skillType,
+                    staffIndex,
+                    nodeIndex,
+                    position: snappedPosition,
+                  }, draggingState.id);
+                }
+              } catch (timelineError) {
+                console.error('[useCanvasDrag] addTimelineButton failed:', timelineError);
+                dispatch({ type: 'REMOVE_SKILL_BUTTON', buttonId: newButton.id });
+              }
             }
           }
+        } else if (draggingState.originalButton) {
+          dispatch({ type: 'SET_DRAGGING', buttonId: draggingState.originalButton.id, isDragging: false });
         }
-      } else if (draggingState.originalButton) {
-        dispatch({ type: 'SET_DRAGGING', buttonId: draggingState.originalButton.id, isDragging: false });
+      } catch (error) {
+        console.error('[useCanvasDrag] handleMouseUp error:', error);
+      } finally {
+        setDraggingState(null);
       }
-
-      setDraggingState(null);
     };
 
     window.addEventListener('mousemove', handleMouseMove);

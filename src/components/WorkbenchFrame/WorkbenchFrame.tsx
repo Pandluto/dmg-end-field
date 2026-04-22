@@ -5,18 +5,15 @@ import { CanvasBoard } from '../CanvasBoard';
 import { setSelectedSkillButton } from '../../hooks/useSkillButtonBuffs';
 import './WorkbenchFrame.css';
 
-export type WorkbenchMode =
-  | 'selection'
-  | 'timeline'
-  | 'toolPanel'
-  | 'operatorConfig';
+export type WorkbenchMode = 'selection' | 'timeline' | 'toolPanel';
 
 export function WorkbenchFrame() {
   const { state, dispatch } = useAppContext();
   const { currentView, selectedCharacters } = state;
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [workbenchMode, setWorkbenchMode] = useState<WorkbenchMode>('selection');
-  const [forceOpenOperatorConfig, setForceOpenOperatorConfig] = useState(false);
+  const [operatorConfigVisible, setOperatorConfigVisible] = useState(false);
+  const [operatorConfigCharacterId, setOperatorConfigCharacterId] = useState<string | null>(null);
   const [forceShowToolPanel, setForceShowToolPanel] = useState(false);
 
   const canAccessCanvas = selectedCharacters.length > 0;
@@ -40,7 +37,7 @@ export function WorkbenchFrame() {
       setSelectedSkillButton(null);
       dispatch({ type: 'SET_VIEW', view: 'selection' });
       setWorkbenchMode('selection');
-      setForceOpenOperatorConfig(false);
+      setOperatorConfigVisible(false);
       setForceShowToolPanel(false);
       closeDrawer();
       return;
@@ -48,13 +45,45 @@ export function WorkbenchFrame() {
 
     dispatch({ type: 'SET_VIEW', view: 'canvas' });
     setWorkbenchMode(mode);
-    setForceOpenOperatorConfig(mode === 'operatorConfig');
+    setOperatorConfigVisible(false);
     setForceShowToolPanel(false);
   }, [dispatch, selectedCharacters.length]);
 
+  const handleOperatorConfigClick = useCallback(() => {
+    if (selectedCharacters.length === 0) return;
+    // 如果在选人页，先切换到 canvas
+    if (currentView === 'selection') {
+      dispatch({ type: 'SET_VIEW', view: 'canvas' });
+      setWorkbenchMode('timeline');
+    }
+    // toggle 配置面板
+    setOperatorConfigVisible(prev => {
+      const next = !prev;
+      if (next && !operatorConfigCharacterId) {
+        setOperatorConfigCharacterId(selectedCharacters[0]?.id ?? null);
+      }
+      return next;
+    });
+  }, [selectedCharacters, currentView, dispatch, operatorConfigCharacterId]);
+
   const handleSkillButtonModalOpen = useCallback(() => {
     setForceShowToolPanel(true);
+    setOperatorConfigVisible(false);
   }, []);
+
+  const closeOperatorConfig = useCallback(() => {
+    setOperatorConfigVisible(false);
+    setOperatorConfigCharacterId(null);
+  }, []);
+
+  const openOperatorConfig = useCallback((characterId: string) => {
+    if (currentView === 'selection') {
+      dispatch({ type: 'SET_VIEW', view: 'canvas' });
+      setWorkbenchMode('timeline');
+    }
+    setOperatorConfigCharacterId(characterId);
+    setOperatorConfigVisible(true);
+  }, [currentView, dispatch]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -69,7 +98,6 @@ export function WorkbenchFrame() {
 
   const shouldShowToolPanel = (
     workbenchMode === 'toolPanel' ||
-    workbenchMode === 'operatorConfig' ||
     forceShowToolPanel
   );
 
@@ -81,8 +109,6 @@ export function WorkbenchFrame() {
         return '排轴';
       case 'toolPanel':
         return '侧边栏';
-      case 'operatorConfig':
-        return '角色配置';
       default:
         return '选人';
     }
@@ -132,9 +158,9 @@ export function WorkbenchFrame() {
             侧边栏
           </button>
           <button
-            className={`workbench-drawer-tab ${workbenchMode === 'operatorConfig' ? 'is-active' : ''}`}
+            className={`workbench-drawer-tab ${operatorConfigVisible ? 'is-active' : ''}`}
             type="button"
-            onClick={() => handleModeClick('operatorConfig')}
+            onClick={handleOperatorConfigClick}
             disabled={!canAccessCanvas}
             title={!canAccessCanvas ? '请先选择干员' : ''}
           >
@@ -154,13 +180,15 @@ export function WorkbenchFrame() {
             </div>
           </div>
         )}
-        {currentView === 'canvas' && (
+        {(currentView === 'canvas' || operatorConfigVisible) && (
           <CanvasBoard
             workbenchMode={workbenchMode}
             isToolPanelVisible={shouldShowToolPanel}
-            forceOpenOperatorConfig={forceOpenOperatorConfig}
+            operatorConfigVisible={operatorConfigVisible}
+            operatorConfigCharacterId={operatorConfigCharacterId}
             onSkillButtonModalOpen={handleSkillButtonModalOpen}
-            onForceOpenOperatorConfigHandled={() => setForceOpenOperatorConfig(false)}
+            onCloseOperatorConfig={closeOperatorConfig}
+            onOpenOperatorConfig={openOperatorConfig}
             workbenchControl={workbenchControl}
             isWorkbenchTopZoneOpen={isDrawerOpen}
           />

@@ -16,12 +16,14 @@ import { onSkillButtonBuffAdded, onSkillButtonBuffRemoved } from '../../core/eve
 import './CanvasBoard.css';
 
 interface CanvasBoardProps {
-  workbenchMode?: 'selection' | 'timeline' | 'toolPanel' | 'operatorConfig';
+  workbenchMode?: 'selection' | 'timeline' | 'toolPanel';
   isToolPanelVisible?: boolean;
   isWorkbenchTopZoneOpen?: boolean;
-  forceOpenOperatorConfig?: boolean;
+  operatorConfigVisible?: boolean;
+  operatorConfigCharacterId?: string | null;
   onSkillButtonModalOpen?: () => void;
-  onForceOpenOperatorConfigHandled?: () => void;
+  onCloseOperatorConfig?: () => void;
+  onOpenOperatorConfig?: (characterId: string) => void;
   workbenchControl?: React.ReactNode;
 }
 
@@ -29,16 +31,16 @@ export function CanvasBoard({
   workbenchMode: _workbenchMode = 'timeline',
   isToolPanelVisible = true,
   isWorkbenchTopZoneOpen = false,
-  forceOpenOperatorConfig = false,
+  operatorConfigVisible = false,
+  operatorConfigCharacterId = null,
   onSkillButtonModalOpen,
-  onForceOpenOperatorConfigHandled,
+  onCloseOperatorConfig,
+  onOpenOperatorConfig,
   workbenchControl,
 }: CanvasBoardProps) {
   const { state, dispatch } = useAppContext();
   const { selectedCharacters, canvasConfig, skillButtons } = state;
   const canvasRef = useRef<HTMLDivElement>(null);
-  const [isConfigPanelOpen, setIsConfigPanelOpen] = React.useState(false);
-  const [activeConfigCharacterId, setActiveConfigCharacterId] = React.useState<string | null>(null);
   const [staffCount, setStaffCount] = React.useState(canvasConfig.staffCount);
 
   const canvasWidth = useCanvasWidth(canvasConfig.canvasWidthPercent);
@@ -114,18 +116,7 @@ export function CanvasBoard({
     });
   }, []);
 
-  useEffect(() => {
-    if (!forceOpenOperatorConfig) {
-      return;
-    }
 
-    const targetCharacterId = activeConfigCharacterId ?? selectedCharacters[0]?.id ?? null;
-    if (targetCharacterId) {
-      setActiveConfigCharacterId(targetCharacterId);
-      setIsConfigPanelOpen(true);
-    }
-    onForceOpenOperatorConfigHandled?.();
-  }, [forceOpenOperatorConfig, activeConfigCharacterId, selectedCharacters, onForceOpenOperatorConfigHandled]);
 
   const { draggingState, mousePosition, handleSandboxDragStart, handleButtonMouseDown } = useCanvasDrag({
     config: canvasConfig,
@@ -178,17 +169,15 @@ export function CanvasBoard({
   };
 
   const handleAvatarDoubleClick = (characterId: string) => {
-    setActiveConfigCharacterId(characterId);
-    setIsConfigPanelOpen(true);
+    onOpenOperatorConfig?.(characterId);
   };
 
   const closeConfigPanel = () => {
-    setIsConfigPanelOpen(false);
-    setActiveConfigCharacterId(null);
+    onCloseOperatorConfig?.();
   };
 
   const handleConfigCharacterSelect = (characterId: string) => {
-    setActiveConfigCharacterId(characterId);
+    onOpenOperatorConfig?.(characterId);
   };
 
   const handleSaveTimeline = () => {
@@ -252,8 +241,8 @@ export function CanvasBoard({
       </div>
 
       <OperatorConfigPanel
-        isOpen={isConfigPanelOpen}
-        activeCharacterId={activeConfigCharacterId}
+        isOpen={operatorConfigVisible}
+        activeCharacterId={operatorConfigCharacterId}
         selectedCharacters={selectedCharacters}
         onSelectCharacter={handleConfigCharacterSelect}
         onClose={closeConfigPanel}

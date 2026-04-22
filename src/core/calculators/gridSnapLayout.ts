@@ -19,6 +19,8 @@ export const GRID_GROUP_WIDTH = 1240;
 export const GRID_GROUP_HEIGHT = 270;
 export const GRID_STACK_PADDING_TOP = 30;
 export const GRID_STACK_PADDING_BOTTOM = 90;
+export const GRID_GROUP_GAP = 30;
+export const GRID_GROUP_STRIDE = GRID_GROUP_HEIGHT + GRID_GROUP_GAP;
 export const LINE_ROW_INDICES = [3, 5, 7, 9] as const;
 
 export function clampGridNodeIndex(index: number): number {
@@ -35,7 +37,7 @@ export function getGridLineCenterY(lineIndex: number): number {
 }
 
 export function getGridGroupTop(staffIndex: number): number {
-  return GRID_STACK_PADDING_TOP + staffIndex * GRID_GROUP_HEIGHT;
+  return GRID_STACK_PADDING_TOP + staffIndex * GRID_GROUP_STRIDE;
 }
 
 export function getGridGroupBottom(staffIndex: number): number {
@@ -44,7 +46,7 @@ export function getGridGroupBottom(staffIndex: number): number {
 
 export function isInsideGridGroup(gridY: number, staffIndex: number): boolean {
   const top = getGridGroupTop(staffIndex);
-  const bottom = getGridGroupBottom(staffIndex) - GRID_STACK_PADDING_BOTTOM;
+  const bottom = getGridGroupBottom(staffIndex);
   return gridY >= top && gridY <= bottom;
 }
 
@@ -154,5 +156,24 @@ export function gridToCanvasCoords(
   return {
     x: gridX + offsetX,
     y: gridY + offsetY,
+  };
+}
+
+/**
+ * 将 grid 内容坐标转换为 canvas 内容坐标（考虑滚动）
+ * 用于生成按钮持久 position，而非视口坐标
+ */
+export function gridToCanvasContentCoords(
+  gridX: number,
+  gridY: number,
+  canvasElement: HTMLElement,
+  gridStackElement: Element
+): { x: number; y: number } {
+  const canvasRect = canvasElement.getBoundingClientRect();
+  const gridStackRect = gridStackElement.getBoundingClientRect();
+
+  return {
+    x: gridX + (gridStackRect.left - canvasRect.left) + canvasElement.scrollLeft,
+    y: gridY + (gridStackRect.top - canvasRect.top) + canvasElement.scrollTop,
   };
 }

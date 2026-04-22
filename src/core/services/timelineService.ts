@@ -108,7 +108,21 @@ export function addSkillButton(
     staffLines: [...timelineData.staffLines],
   };
 
-  const staffLine = { ...newTimelineData.staffLines[buttonData.staffIndex] };
+  // 防御脏数据：确保 staffLine 存在且 buttons/occupiedNodes 是数组
+  let staffLine = newTimelineData.staffLines[buttonData.staffIndex];
+  if (!staffLine) {
+    staffLine = {
+      staffIndex: buttonData.staffIndex,
+      characterName: buttonData.characterName,
+      buttons: [],
+      occupiedNodes: [],
+    };
+  }
+  staffLine = {
+    ...staffLine,
+    buttons: Array.isArray(staffLine.buttons) ? staffLine.buttons : [],
+    occupiedNodes: Array.isArray(staffLine.occupiedNodes) ? staffLine.occupiedNodes : [],
+  };
   newTimelineData.staffLines[buttonData.staffIndex] = staffLine;
 
   staffLine.buttons = [...staffLine.buttons, newButton]
@@ -184,9 +198,24 @@ export function updateSkillButtonPosition(
     });
   }
 
-  // 更新 timelineData
-  const staffLine = timelineData.staffLines[staffIndex];
-  const button = staffLine?.buttons.find(b => b.id === buttonId);
+  // 更新 timelineData - 防御脏数据
+  let staffLine = timelineData.staffLines[staffIndex];
+  if (!staffLine) {
+    staffLine = {
+      staffIndex,
+      characterName: '',
+      buttons: [],
+      occupiedNodes: [],
+    };
+  }
+  // 防御非数组
+  staffLine = {
+    ...staffLine,
+    buttons: Array.isArray(staffLine.buttons) ? staffLine.buttons : [],
+    occupiedNodes: Array.isArray(staffLine.occupiedNodes) ? staffLine.occupiedNodes : [],
+  };
+
+  const button = staffLine.buttons.find(b => b.id === buttonId);
 
   if (!button) {
     return { updatedButton: null, newTimelineData: timelineData };
@@ -207,7 +236,7 @@ export function updateSkillButtonPosition(
     staffLines: [...timelineData.staffLines],
   };
 
-  const newStaffLine = { ...newTimelineData.staffLines[staffIndex] };
+  const newStaffLine = { ...staffLine };
   newTimelineData.staffLines[staffIndex] = newStaffLine;
 
   newStaffLine.buttons = newStaffLine.buttons
@@ -247,12 +276,64 @@ export function moveSkillButtonToStaff(
     });
   }
 
-  // 更新 timelineData
-  const fromStaffLine = timelineData.staffLines[fromStaffIndex];
-  const toStaffLine = timelineData.staffLines[toStaffIndex];
-  const button = fromStaffLine?.buttons.find(b => b.id === buttonId);
+  // 更新 timelineData - 防御脏数据 + 兜底查找真实来源组
+  let actualFromStaffIndex = fromStaffIndex;
+  let fromStaffLine = timelineData.staffLines[fromStaffIndex];
 
-  if (!fromStaffLine || !toStaffLine || !button) {
+  // 先在指定 fromStaffIndex 查找
+  if (fromStaffLine && Array.isArray(fromStaffLine.buttons)) {
+    const foundButton = fromStaffLine.buttons.find(b => b.id === buttonId);
+    if (!foundButton) {
+      // 兜底：遍历全部 staffLines 查找真实来源组
+      for (let i = 0; i < timelineData.staffLines.length; i++) {
+        const staffLine = timelineData.staffLines[i];
+        if (staffLine && Array.isArray(staffLine.buttons)) {
+          const btn = staffLine.buttons.find(b => b.id === buttonId);
+          if (btn) {
+            actualFromStaffIndex = i;
+            fromStaffLine = staffLine;
+            break;
+          }
+        }
+      }
+    }
+  }
+
+  let toStaffLine = timelineData.staffLines[toStaffIndex];
+
+  // 防御 fromStaffLine 不存在或非数组
+  if (!fromStaffLine) {
+    fromStaffLine = {
+      staffIndex: actualFromStaffIndex,
+      characterName: '',
+      buttons: [],
+      occupiedNodes: [],
+    };
+  }
+  fromStaffLine = {
+    ...fromStaffLine,
+    buttons: Array.isArray(fromStaffLine.buttons) ? fromStaffLine.buttons : [],
+    occupiedNodes: Array.isArray(fromStaffLine.occupiedNodes) ? fromStaffLine.occupiedNodes : [],
+  };
+
+  // 防御 toStaffLine 不存在或非数组
+  if (!toStaffLine) {
+    toStaffLine = {
+      staffIndex: toStaffIndex,
+      characterName: '',
+      buttons: [],
+      occupiedNodes: [],
+    };
+  }
+  toStaffLine = {
+    ...toStaffLine,
+    buttons: Array.isArray(toStaffLine.buttons) ? toStaffLine.buttons : [],
+    occupiedNodes: Array.isArray(toStaffLine.occupiedNodes) ? toStaffLine.occupiedNodes : [],
+  };
+
+  const button = fromStaffLine.buttons.find(b => b.id === buttonId);
+
+  if (!button) {
     return { movedButton: null, newTimelineData: timelineData };
   }
 
@@ -270,9 +351,10 @@ export function moveSkillButtonToStaff(
     staffLines: [...timelineData.staffLines],
   };
 
-  const newFromStaffLine = { ...newTimelineData.staffLines[fromStaffIndex] };
-  const newToStaffLine = { ...newTimelineData.staffLines[toStaffIndex] };
-  newTimelineData.staffLines[fromStaffIndex] = newFromStaffLine;
+  // 使用归一化后的 staffLine 写回
+  const newFromStaffLine = { ...fromStaffLine };
+  const newToStaffLine = { ...toStaffLine };
+  newTimelineData.staffLines[actualFromStaffIndex] = newFromStaffLine;
   newTimelineData.staffLines[toStaffIndex] = newToStaffLine;
 
   newFromStaffLine.buttons = newFromStaffLine.buttons

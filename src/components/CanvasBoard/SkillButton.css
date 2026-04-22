@@ -169,24 +169,26 @@
 
 /* ==================== 居中弹窗样式（模仿控制台紧凑布局） ==================== */
 
-/* 弹窗遮罩层 - 不遮挡右区 ToolPanel */
+/* 弹窗遮罩层 - 只覆盖左区主工作区，不遮挡右区 ToolPanel */
 .skill-button-modal-overlay {
   position: fixed;
   top: 0;
-  left: 15%;
-  right: 0;
-  bottom: 0;
+  left: 0;
+  right: 240px;
+  bottom: 30px;
   background: rgba(0, 0, 0, 0.5);
-  z-index: 1000;
+  z-index: 2600;
 }
 
-/* 双弹窗容器 - 并排布局 */
+/* 双弹窗容器 - 并排布局，相对 overlay 居中 */
 .skill-button-modal-pair {
-  position: fixed;
+  position: absolute;
   top: 40px;
-  left: 580px;
+  left: 50%;
+  transform: translateX(-50%);
   display: flex;
   gap: 0;
+  max-width: calc(100% - 32px);
 }
 
 /* 弹窗容器基础样式 - 两个弹窗共用 */
@@ -197,6 +199,12 @@
   width: 290px;
   max-height: 80vh;
   overflow-y: auto;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.skill-button-modal::-webkit-scrollbar {
+  display: none;
 }
 
 /* ==================== 弹窗标题区布局 ==================== */
