@@ -22,6 +22,7 @@ interface CanvasBoardProps {
   operatorConfigVisible?: boolean;
   operatorConfigCharacterId?: string | null;
   onSkillButtonModalOpen?: () => void;
+  onSkillButtonModalClose?: () => void;
   onCloseOperatorConfig?: () => void;
   onOpenOperatorConfig?: (characterId: string) => void;
   workbenchControl?: React.ReactNode;
@@ -34,6 +35,7 @@ export function CanvasBoard({
   operatorConfigVisible = false,
   operatorConfigCharacterId = null,
   onSkillButtonModalOpen,
+  onSkillButtonModalClose,
   onCloseOperatorConfig,
   onOpenOperatorConfig,
   workbenchControl,
@@ -194,6 +196,10 @@ export function CanvasBoard({
     onSkillButtonModalOpen?.();
   };
 
+  const handleSkillButtonModalClose = () => {
+    onSkillButtonModalClose?.();
+  };
+
   return (
     <div className={`canvas-board ${isWorkbenchTopZoneOpen ? 'has-top-zone' : ''}`}>
       <div className="canvas-layout">
@@ -214,6 +220,7 @@ export function CanvasBoard({
             onCanvasClick={handleCanvasClick}
             timelineData={timelineData}
             onSkillButtonModalOpen={handleSkillButtonModalOpen}
+            onSkillButtonModalClose={handleSkillButtonModalClose}
           />
         </div>
 

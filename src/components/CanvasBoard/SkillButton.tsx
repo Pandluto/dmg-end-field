@@ -24,9 +24,10 @@ interface SkillButtonProps {
   onContextMenu: (e: React.MouseEvent) => void;
   timelineData?: TimelineData;
   onModalOpen?: () => void;
+  onModalClose?: () => void;
 }
 
-export function SkillButtonComponent({ button, size, onMouseDown, onContextMenu, timelineData, onModalOpen }: SkillButtonProps) {
+export function SkillButtonComponent({ button, size, onMouseDown, onContextMenu, timelineData, onModalOpen, onModalClose }: SkillButtonProps) {
   const { position, skillType, isSelected, isDragging, characterName, skillIconUrl, element, isLocked } = button;
   const { dispatch } = useAppContext();
   const radius = size / 2;
@@ -257,7 +258,8 @@ export function SkillButtonComponent({ button, size, onMouseDown, onContextMenu,
    */
   const handleCloseModal = useCallback(() => {
     setIsModalOpen(false);
-  }, []);
+    onModalClose?.();
+  }, [onModalClose]);
 
   /**
    * 图标加载成功时：隐藏圆形图标内的兜底技能字母，底座文字继续显示。

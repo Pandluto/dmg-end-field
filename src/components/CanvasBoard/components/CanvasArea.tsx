@@ -21,6 +21,7 @@ interface CanvasAreaProps {
   onCanvasClick: () => void;
   timelineData?: TimelineData;
   onSkillButtonModalOpen?: () => void;
+  onSkillButtonModalClose?: () => void;
 }
 
 // 表格行列标注：0行显示字母(A-O)，0列显示数字(1-8)
@@ -37,6 +38,7 @@ export const CanvasArea = forwardRef<HTMLDivElement, CanvasAreaProps>(({
   onCanvasClick,
   timelineData,
   onSkillButtonModalOpen,
+  onSkillButtonModalClose,
 }, canvasRef) => {
   const renderSkillButtons = () => {
     return skillButtons
@@ -50,6 +52,7 @@ export const CanvasArea = forwardRef<HTMLDivElement, CanvasAreaProps>(({
           onContextMenu={(event) => onButtonContextMenu(event, button.id)}
           timelineData={timelineData}
           onModalOpen={onSkillButtonModalOpen}
+          onModalClose={onSkillButtonModalClose}
         />
       ));
   };

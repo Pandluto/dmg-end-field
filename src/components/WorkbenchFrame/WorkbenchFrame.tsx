@@ -10,7 +10,7 @@ export type WorkbenchMode = 'selection' | 'timeline' | 'toolPanel';
 export function WorkbenchFrame() {
   const { state, dispatch } = useAppContext();
   const { currentView, selectedCharacters } = state;
-  const [isDrawerOpen, setIsDrawerOpen] = useState(false);
+  const [isDrawerOpen, setIsDrawerOpen] = useState(true);
   const [workbenchMode, setWorkbenchMode] = useState<WorkbenchMode>('selection');
   const [operatorConfigVisible, setOperatorConfigVisible] = useState(false);
   const [operatorConfigCharacterId, setOperatorConfigCharacterId] = useState<string | null>(null);
@@ -71,18 +71,27 @@ export function WorkbenchFrame() {
     setOperatorConfigVisible(false);
   }, []);
 
+  const handleSkillButtonModalClose = useCallback(() => {
+    setForceShowToolPanel(false);
+    setWorkbenchMode('timeline');
+    setOperatorConfigVisible(false);
+  }, []);
+
   const closeOperatorConfig = useCallback(() => {
     setOperatorConfigVisible(false);
     setOperatorConfigCharacterId(null);
+    setForceShowToolPanel(false);
+    setWorkbenchMode('timeline');
   }, []);
 
   const openOperatorConfig = useCallback((characterId: string) => {
     if (currentView === 'selection') {
       dispatch({ type: 'SET_VIEW', view: 'canvas' });
-      setWorkbenchMode('timeline');
     }
     setOperatorConfigCharacterId(characterId);
     setOperatorConfigVisible(true);
+    setForceShowToolPanel(false);
+    setWorkbenchMode('timeline');
   }, [currentView, dispatch]);
 
   useEffect(() => {
@@ -136,6 +145,8 @@ export function WorkbenchFrame() {
             className={`workbench-drawer-tab ${isSelectionActive ? 'is-active' : ''}`}
             type="button"
             onClick={() => handleModeClick('selection')}
+            disabled
+            title="选人入口暂时关闭"
           >
             选人
           </button>
@@ -187,6 +198,7 @@ export function WorkbenchFrame() {
             operatorConfigVisible={operatorConfigVisible}
             operatorConfigCharacterId={operatorConfigCharacterId}
             onSkillButtonModalOpen={handleSkillButtonModalOpen}
+            onSkillButtonModalClose={handleSkillButtonModalClose}
             onCloseOperatorConfig={closeOperatorConfig}
             onOpenOperatorConfig={openOperatorConfig}
             workbenchControl={workbenchControl}
