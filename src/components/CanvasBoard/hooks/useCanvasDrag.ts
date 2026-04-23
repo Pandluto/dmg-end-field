@@ -11,7 +11,12 @@ import {
   snapGridNodeX,
   clientToGridCoords,
   gridToCanvasContentCoords,
+  GRID_COLUMN_WIDTH,
+  GRID_FIRST_COLUMN_WIDTH,
+  clampGridNodeIndex,
+  GRID_NODE_COUNT,
 } from '../../../core/calculators/gridSnapLayout';
+import { calculateNodeNumber } from '../../../utils/nodeNumbering';
 
 interface DraggingState {
   id: string;
@@ -143,6 +148,45 @@ export function useCanvasDrag({
       setMousePosition({ x: e.clientX, y: e.clientY });
     };
 
+    const getGridContentOffsetX = (canvasElement: HTMLDivElement, gridStackElement: Element): number => {
+      const canvasRect = canvasElement.getBoundingClientRect();
+      const gridStackRect = gridStackElement.getBoundingClientRect();
+      return gridStackRect.left - canvasRect.left + canvasElement.scrollLeft;
+    };
+
+    const getButtonNodeIndex = (button: SkillButton, gridContentOffsetX: number): number => {
+      const persistedNodeIndex = (button as SkillButton & { nodeIndex?: number }).nodeIndex;
+      if (typeof persistedNodeIndex === 'number' && Number.isFinite(persistedNodeIndex)) {
+        return clampGridNodeIndex(persistedNodeIndex);
+      }
+
+      const gridX = button.position.x - gridContentOffsetX;
+      const firstNodeCenterX = GRID_FIRST_COLUMN_WIDTH + GRID_COLUMN_WIDTH / 2;
+      return clampGridNodeIndex(Math.round((gridX - firstNodeCenterX) / GRID_COLUMN_WIDTH));
+    };
+
+    const getOccupiedNodeIndices = (
+      staffIndex: number,
+      lineIndex: number,
+      movingButtonId: string | null,
+      gridContentOffsetX: number
+    ): Set<number> => {
+      const occupied = new Set<number>();
+
+      skillButtonsRef.current.forEach((button) => {
+        if (button.id === movingButtonId) return;
+        if (button.staffIndex !== staffIndex) return;
+        if (button.lineIndex !== lineIndex) return;
+
+        const nodeIndex = getButtonNodeIndex(button, gridContentOffsetX);
+        if (Number.isFinite(nodeIndex)) {
+          occupied.add(nodeIndex);
+        }
+      });
+
+      return occupied;
+    };
+
     const handleMouseUp = (e: MouseEvent) => {
       try {
         if (!draggingState || !canvasRef.current) {
@@ -175,7 +219,14 @@ export function useCanvasDrag({
           if (nearestLine) {
             const { staffIndex, lineIndex, lineY } = nearestLine;
 
-            const { nodeIndex, x: snappedNodeX } = snapGridNodeX(gridX);
+            const gridContentOffsetX = getGridContentOffsetX(canvasRef.current, gridStack);
+            const occupiedNodeIndices = getOccupiedNodeIndices(
+              staffIndex,
+              lineIndex,
+              draggingState.originalButton?.id ?? null,
+              gridContentOffsetX
+            );
+            const { nodeIndex, x: snappedNodeX } = snapGridNodeX(gridX, occupiedNodeIndices);
 
             const snappedPosition = gridToCanvasContentCoords(
               snappedNodeX,
@@ -191,15 +242,30 @@ export function useCanvasDrag({
 
             if (isMovingExistingButton && draggingState.originalButton) {
               const originalButton = draggingState.originalButton;
-              const oldStaffIndex = originalButton.staffIndex;
               const buttonId = originalButton.id;
+
+              // 持久层映射：staffIndex 用 lineIndex（干员索引），nodeIndex 用全局编号
+              const oldPersistenceStaffIndex = originalButton.lineIndex;
+              const newPersistenceStaffIndex = lineIndex;
+              const persistenceNodeIndex = staffIndex * GRID_NODE_COUNT + nodeIndex;
 
               let serviceResult: SkillButtonData | null = null;
 
-              if (oldStaffIndex !== staffIndex && moveTimelineButtonToStaff) {
-                serviceResult = moveTimelineButtonToStaff(oldStaffIndex, staffIndex, buttonId, snappedPosition, nodeIndex);
+              if (oldPersistenceStaffIndex !== newPersistenceStaffIndex && moveTimelineButtonToStaff) {
+                serviceResult = moveTimelineButtonToStaff(
+                  oldPersistenceStaffIndex,
+                  newPersistenceStaffIndex,
+                  buttonId,
+                  snappedPosition,
+                  persistenceNodeIndex
+                );
               } else if (updateSkillButtonPosition) {
-                serviceResult = updateSkillButtonPosition(staffIndex, buttonId, snappedPosition, nodeIndex);
+                serviceResult = updateSkillButtonPosition(
+                  newPersistenceStaffIndex,
+                  buttonId,
+                  snappedPosition,
+                  persistenceNodeIndex
+                );
               }
 
               if (serviceResult) {
@@ -209,6 +275,8 @@ export function useCanvasDrag({
                   position: snappedPosition,
                   lineIndex,
                   staffIndex,
+                  nodeIndex,
+                  nodeNumber: calculateNodeNumber(nodeIndex),
                 });
                 dispatch({ type: 'SET_DRAGGING', buttonId, isDragging: false });
               } else {
@@ -228,6 +296,8 @@ export function useCanvasDrag({
                 position: snappedPosition,
                 staffIndex,
                 lineIndex,
+                nodeIndex,
+                nodeNumber: calculateNodeNumber(nodeIndex),
                 isDragging: false,
                 isSelected: false,
                 isFromSandbox: true,
@@ -239,11 +309,14 @@ export function useCanvasDrag({
 
               try {
                 if (addTimelineButton) {
+                  // 持久层映射：staffIndex 用 lineIndex（干员索引），nodeIndex 用全局编号
+                  const persistenceStaffIndex = lineIndex;
+                  const persistenceNodeIndex = staffIndex * GRID_NODE_COUNT + nodeIndex;
                   addTimelineButton({
                     characterName: draggingState.characterName,
                     skillType: draggingState.skillType,
-                    staffIndex,
-                    nodeIndex,
+                    staffIndex: persistenceStaffIndex,
+                    nodeIndex: persistenceNodeIndex,
                     position: snappedPosition,
                   }, draggingState.id);
                 }

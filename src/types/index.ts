@@ -144,6 +144,8 @@ export interface SkillButton {
   position: Position;      // 按钮圆心在画布内的坐标
   staffIndex: number;      // 所属 staff 组索引（画布 Y 轴分组）
   lineIndex: number;       // 所属谱线索引
+  nodeIndex?: number;      // 所属伤害节点索引（用于吸附去重）
+  nodeNumber?: number;     // 节点编号（展示/持久化同步）
   isDragging: boolean;     // 是否正在拖拽
   isSelected: boolean;    // 是否被选中
   isFromSandbox: boolean;  // 是否从技能沙盒拖拽而来

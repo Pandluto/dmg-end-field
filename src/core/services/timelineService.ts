@@ -37,6 +37,8 @@ export function createEmptyTimelineData(characters: { name: string }[]): Timelin
 /**
  * 规范化 Timeline 数据
  * 确保 staffLines 长度与 selectedCharacters 一致
+ * 按 characterName 匹配旧缓存，禁止按下标继承
+ * 从有效按钮重建 occupiedNodes，不信任缓存中的旧占用
  */
 export function normalizeTimelineData(
   data: TimelineData,
@@ -45,18 +47,35 @@ export function normalizeTimelineData(
   const normalizedStaffLines: StaffLineData[] = [];
 
   for (let i = 0; i < characters.length; i++) {
-    const existingLine = data.staffLines[i];
-    if (existingLine) {
+    const characterName = characters[i].name;
+
+    // 按 characterName 匹配旧 line，禁止按下标继承
+    const existingLine = data.staffLines.find(
+      line => line.characterName === characterName
+    );
+
+    if (existingLine && Array.isArray(existingLine.buttons)) {
+      // 过滤：只保留属于当前角色的按钮
+      const validButtons = existingLine.buttons.filter(
+        btn => btn.characterName === characterName
+      );
+
+      // 从有效按钮重建 occupiedNodes，不信任缓存
+      const occupiedNodes = [...new Set(validButtons.map(btn => btn.nodeIndex))]
+        .filter(n => Number.isFinite(n) && n >= 0 && n < 15)
+        .sort((a, b) => a - b);
+
       normalizedStaffLines.push({
         staffIndex: i,
-        characterName: characters[i].name,
-        occupiedNodes: Array.isArray(existingLine.occupiedNodes) ? existingLine.occupiedNodes : [],
-        buttons: Array.isArray(existingLine.buttons) ? existingLine.buttons : [],
+        characterName,
+        occupiedNodes,
+        buttons: validButtons,
       });
     } else {
+      // 找不到同名角色，创建空 line
       normalizedStaffLines.push({
         staffIndex: i,
-        characterName: characters[i].name,
+        characterName,
         occupiedNodes: [],
         buttons: [],
       });

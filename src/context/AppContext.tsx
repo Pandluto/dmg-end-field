@@ -35,7 +35,15 @@ type AppAction =
   | { type: 'SET_VIEW'; view: ViewType }
   | { type: 'ADD_SKILL_BUTTON'; button: SkillButton }
   | { type: 'REMOVE_SKILL_BUTTON'; buttonId: string }
-  | { type: 'SET_SKILL_BUTTON_POSITION'; buttonId: string; position: { x: number; y: number }; lineIndex?: number; staffIndex?: number }
+  | {
+      type: 'SET_SKILL_BUTTON_POSITION';
+      buttonId: string;
+      position: { x: number; y: number };
+      lineIndex?: number;
+      staffIndex?: number;
+      nodeIndex?: number;
+      nodeNumber?: number;
+    }
   | { type: 'SELECT_SKILL_BUTTON'; buttonId: string | null }
   | { type: 'SET_DRAGGING'; buttonId: string; isDragging: boolean }
   | { type: 'TOGGLE_SKILL_BUTTON_LOCK'; buttonId: string }
@@ -111,6 +119,8 @@ function appReducer(state: AppState, action: AppAction): AppState {
                 position: action.position,
                 ...(action.lineIndex !== undefined && { lineIndex: action.lineIndex }),
                 ...(action.staffIndex !== undefined && { staffIndex: action.staffIndex }),
+                ...(action.nodeIndex !== undefined && { nodeIndex: action.nodeIndex }),
+                ...(action.nodeNumber !== undefined && { nodeNumber: action.nodeNumber }),
               }
             : btn
         ),

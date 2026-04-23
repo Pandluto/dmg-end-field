@@ -81,6 +81,9 @@ export function CanvasBoard({
     dataToRestore.staffLines.forEach((staffLine) => {
       const buttons = Array.isArray(staffLine.buttons) ? staffLine.buttons : [];
       buttons.forEach((btn) => {
+        const lineIndex = selectedCharacters.findIndex(
+          character => character.name === btn.characterName
+        );
         restoredButtons.push({
           id: btn.id,
           characterId: btn.characterName,
@@ -88,7 +91,9 @@ export function CanvasBoard({
           skillType: btn.skillType,
           position: btn.position,
           staffIndex: btn.staffIndex,
-          lineIndex: btn.staffIndex,
+          lineIndex: lineIndex >= 0 ? lineIndex : 0,
+          nodeIndex: btn.nodeIndex,
+          nodeNumber: btn.nodeNumber,
           isDragging: false,
           isSelected: false,
           isFromSandbox: false,
