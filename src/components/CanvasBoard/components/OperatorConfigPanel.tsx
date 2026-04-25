@@ -80,6 +80,8 @@ interface WeaponBuffData {
   buffs?: WeaponBuffItem[];
 }
 
+type WeaponUnconditionalSourceSlot = 'skill1' | 'skill2' | 'skill3';
+
 interface LegacyEquipmentConfig extends Partial<EquipmentConfig> {
   mainStat?: number;
   subStat?: number;
@@ -149,6 +151,33 @@ const STAT_TYPE_TO_ABILITY_FIELD: Record<string, AbilityField> = {
   intelligence: 'intelligence',
   will: 'will',
 };
+const WEAPON_FORMAL_STAT_TYPES = new Set<string>([
+  'atkPercent',
+  'fireDmgBonus',
+  'natureDmgBonus',
+  'ultimateChargeEfficiency',
+  'hpPercent',
+  'electricDmgBonus',
+  'critRate',
+  'magicDmgBonus',
+  'physicalDmgBonus',
+  'iceDmgBonus',
+  'memoryStrength',
+  'healingBonus',
+]);
+const WEAPON_PERCENTLIKE_STAT_TYPES = new Set<string>([
+  'atkPercent',
+  'fireDmgBonus',
+  'natureDmgBonus',
+  'ultimateChargeEfficiency',
+  'hpPercent',
+  'electricDmgBonus',
+  'critRate',
+  'magicDmgBonus',
+  'physicalDmgBonus',
+  'iceDmgBonus',
+  'healingBonus',
+]);
 // 默认潜在
 const getDefaultCharacterPotential = (rarity?: number) => (rarity === 6 ? '0潜' : '满潜');
 // 装备配置
@@ -486,6 +515,10 @@ export function OperatorConfigPanel({
 
   let weaponPassiveAtkPercent = 0;
   let weaponPassiveAtk = 0;
+  let weaponCritRate = 0;
+  let weaponHealingBonus = 0;
+  let weaponUltimateChargeEfficiency = 0;
+  let weaponHpPercent = 0;
 
   let weaponMemoryStrength = 0;
  
@@ -507,95 +540,48 @@ export function OperatorConfigPanel({
 
   const weaponOtherUnconditionalMap: Record<string, number> = {};// 其他非百分比加成
   // 百分比加成
-  const percentLikeKeySet = new Set<string>([
-    'atkPercent',
-    'subStat',
-    'subStatBoost',
-    'allStatBoost',
-
-    'critRate',
-    'critDmgBonus',
-
-    'magicDmgBoost',
-    'physicalDmgBonus',
-    'burnDmgBonus',
-    'iceDmgBonus',
-    'natureDmgBonus',
-    'electricDmgBonus',
-  
-    'allSkillDmgBonus',
-    'skillDmgBonus',
-    'chainSkillDmgBonus',
-    'ultimateDmgBonus',
-    'normalAttackDmgBonus',
-
-  ]);
-  const isPercentLike = (statType: string, value: number) => percentLikeKeySet.has(statType) || (value >= -1 && value <= 1);
+  const isPercentLike = (statType: string, value: number) => WEAPON_PERCENTLIKE_STAT_TYPES.has(statType) || (value >= -1 && value <= 1);
   const formatUnconditionalValue = (statType: string, value: number) =>
     isPercentLike(statType, value) ? toPercentText(value) : `${toFixedNumber(value)}`;
-  const recordWeaponUnconditional = (source: string, statType: string, value: number) => {
+  const recordWeaponUnconditional = (
+    source: string,
+    sourceSlot: WeaponUnconditionalSourceSlot,
+    statType: string,
+    value: number
+  ) => {
     if (!statType || !Number.isFinite(value)) {
       return;
     }
     weaponUnconditionalSourceLines.push(`${source} ${statType}: ${formatUnconditionalValue(statType, value)}`);
-    if (statType in STAT_TYPE_TO_ABILITY_FIELD) {
+    if (sourceSlot === 'skill1' && statType in STAT_TYPE_TO_ABILITY_FIELD) {
       const abilityField = STAT_TYPE_TO_ABILITY_FIELD[statType];
       weaponAbilityFlatByField[abilityField] += value;
       return;
     }
+    if (!WEAPON_FORMAL_STAT_TYPES.has(statType)) {
+      weaponOtherUnconditionalMap[statType] = (weaponOtherUnconditionalMap[statType] ?? 0) + value;
+      return;
+    }
   
     switch (statType) {
-      // 现有武器数据里 mainStat/mainStatBoost 表示“主能力固定值提升”，不是系数
-      case 'mainStat':
-      case 'mainStatBoost':
-        weaponMainStatFlatBonus += value;
-        return;
-      case 'subStatFlat':
-        weaponSubStatFlatBonus += value;
-        return;
-      case 'mainStatBoostRate':
-        weaponMainStatBoostBonus += value;
-        return;
-      case 'subStat':
-      case 'subStatBoost':
-        weaponSubStatBoostBonus += value;
-        return;
-      case 'allStatBoost':
-        weaponAllStatBoostBonus += value;
-        return;
-
-
       case 'atkPercent':
         weaponPassiveAtkPercent += value;
         return;
-      case 'atk':
-        weaponPassiveAtk += value;
+      case 'critRate':
+        weaponCritRate += value;
         return;
       case 'memoryStrength':
         weaponMemoryStrength += value;
         return;
-
-
-      case 'allSkillDmgBonus':
-        weaponAllSkillDmgBonus += value;
+      case 'ultimateChargeEfficiency':
+        weaponUltimateChargeEfficiency += value;
         return;
-      case 'skillDmgBonus':
-        weaponSkillDmgBonus += value;
+      case 'hpPercent':
+        weaponHpPercent += value;
         return;
-      case 'chainSkillDmgBonus':
-        weaponChainSkillDmgBonus += value;
+      case 'healingBonus':
+        weaponHealingBonus += value;
         return;
-      case 'ultimateDmgBonus':
-        weaponUltimateDmgBonus += value;
-        return;
-      case 'normalAttackDmgBonus':
-        weaponNormalAttackDmgBonus += value;
-        return;
-
-      //case 'allDmgBonus':
-      //  weaponAllDmgBonus += value;
-      //  return;
-
       case 'magicDmgBonus':
         weaponMagicDmgBonus += value;
         return;
@@ -604,6 +590,9 @@ export function OperatorConfigPanel({
         return;
       case 'fireDmgBonus':
         weaponFireDmgBonus += value;
+        return;
+      case 'electricDmgBonus':
+        weaponElectricDmgBonus += value;
         return;
       case 'iceDmgBonus':
         weaponIceDmgBonus += value;
@@ -617,14 +606,14 @@ export function OperatorConfigPanel({
 
   };
   if (weaponSkill1?.statType && Number.isFinite(weaponSkill1Value)) {
-    recordWeaponUnconditional(`skill1(${weaponSkill1.name ?? '-'})`, weaponSkill1.statType, weaponSkill1Value);
+    recordWeaponUnconditional(`skill1(${weaponSkill1.name ?? '-'})`, 'skill1', weaponSkill1.statType, weaponSkill1Value);
   }
   if (weaponSkill2?.statType && Number.isFinite(weaponSkill2Value)) {
-    recordWeaponUnconditional(`skill2(${weaponSkill2.name ?? '-'})`, weaponSkill2.statType, weaponSkill2Value);
+    recordWeaponUnconditional(`skill2(${weaponSkill2.name ?? '-'})`, 'skill2', weaponSkill2.statType, weaponSkill2Value);
   }
   Object.entries(weaponSkill3Passive).forEach(([passiveType, passiveValue]) => {
     if (typeof passiveValue === 'number') {
-      recordWeaponUnconditional(`skill3(${weaponSkill3?.name ?? '-'})`, passiveType, passiveValue);
+      recordWeaponUnconditional(`skill3(${weaponSkill3?.name ?? '-'})`, 'skill3', passiveType, passiveValue);
     }
   });
   const weaponBuffSnapshot =
@@ -975,6 +964,7 @@ export function OperatorConfigPanel({
       return;
     }
     const characterBaseAtk = level90Data.atk ?? 0;
+    const characterBaseHp = level90Data.hp ?? 0;
     const weaponBaseAtk = typeof weaponAttackAt90 === 'number' ? weaponAttackAt90 : 0;
     const equipment = normalizeEquipment(currentCharacterConfig?.equipment);
     const characterPotential = currentCharacterConfig?.characterPotential ?? getDefaultCharacterPotential(activeCharacter.rarity);
@@ -1010,9 +1000,13 @@ export function OperatorConfigPanel({
     const subAtkBonus = subStatFinal * 0.002;
     const abilityBonus = mainAtkBonus + subAtkBonus;
     const weaponAtkPercent = weaponPassiveAtkPercent + equipment.atkPercentBoost;
+    const critRate = 0.05 + weaponCritRate + (equipment.critRateBoost ?? 0);
+    const critDmg = 0.5 + (equipment.critDmgBonusBoost ?? 0);
+    const totalHp = characterBaseHp * (1 + weaponHpPercent) + equipment.hp;
     const baseAtk = (characterBaseAtk + weaponBaseAtk) * (1 + weaponAtkPercent) + weaponPassiveAtk + equipment.flatAtk;
     const atk = baseAtk * (1 + abilityBonus);
     const panelSnapshot: PanelSummary = {
+      hp: toFixedNumber(totalHp),
       strength: toFixedNumber(panelAbilityByField.strength),
       agility: toFixedNumber(panelAbilityByField.agility),
       intelligence: toFixedNumber(panelAbilityByField.intelligence),
@@ -1025,6 +1019,10 @@ export function OperatorConfigPanel({
       characterAtk: toFixedNumber(characterBaseAtk),
       weaponAtk: toFixedNumber(weaponBaseAtk),
       weaponAtkPercent: toFixedNumber(weaponAtkPercent * 100),
+      critRate: toFixedNumber(critRate, 4),
+      critDmg: toFixedNumber(critDmg, 4),
+      healingBonus: toFixedNumber(weaponHealingBonus, 4),
+      ultimateChargeEfficiency: toFixedNumber(weaponUltimateChargeEfficiency, 4),
       weaponAllSkillDmgBonus: toFixedNumber(weaponAllSkillDmgBonus),
     };
     const separator = '--------------------------------------------------';
@@ -1070,7 +1068,7 @@ export function OperatorConfigPanel({
       separator,
       '基础属性',
       separator,
-      `生命值:    ${level90Data.hp ?? '-'}`,
+      `生命值:    ${panelSnapshot.hp}`,
       separator,
       '攻击力计算：',
       `攻击力:    ${panelSnapshot.atk}`,
@@ -1079,17 +1077,17 @@ export function OperatorConfigPanel({
       ` 最终基础 = ${toFixedNumber(characterBaseAtk + weaponBaseAtk)} × ${toFixedNumber(1 + weaponAtkPercent)} + ${toFixedNumber(weaponPassiveAtk)} (武器) + ${toFixedNumber(equipment.flatAtk)} (装备) = ${panelSnapshot.baseAtk}`,
       ` 面板攻击 = ${panelSnapshot.baseAtk} × (1 + ${panelSnapshot.abilityBonus}%) = ${panelSnapshot.atk}`,
       separator,
-      `暴击率:    ${toFixedNumber(0.05 + equipment.critRateBoost)}`,
-      `暴击伤害:   ${toFixedNumber(0.5 + equipment.critDmgBonusBoost)}`,
+      `暴击率:    ${toPercentText(panelSnapshot.critRate, 2)}`,
+      `暴击伤害:   ${toPercentText(panelSnapshot.critDmg, 2)}`,
       separator,
       `源石技艺强度: ${toFixedNumber(weaponMemoryStrength + equipment.sourceSkillBoost)}`,
       separator,
       '抗性(省略)',
       separator,
-      '治疗效率加成:   代码没写',
+      `治疗效率加成:   ${toPercentText(weaponHealingBonus)}`,
       '受治疗效率加成:  代码没写',
       '连携技冷却缩减:  代码没写',
-      '终结技充能效率:  代码没写',
+      `终结技充能效率:  ${toPercentText(weaponUltimateChargeEfficiency)}`,
       '失衡效率加成:   代码没写',
       separator,
       '伤害加成：',

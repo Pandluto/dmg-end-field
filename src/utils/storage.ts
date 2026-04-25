@@ -354,6 +354,7 @@ function mergeV3ToV2(
     ? {
         atk: computed.panel.atk,
         baseAtk: computed.panel.baseAtk,
+        hp: computed.panel.hp ?? 0,
         strength: computed.panel.strength,
         agility: computed.panel.agility,
         intelligence: computed.panel.intelligence,
@@ -364,6 +365,10 @@ function mergeV3ToV2(
         characterAtk: computed.panel.characterAtk,
         weaponAtk: computed.panel.weaponAtk,
         weaponAtkPercent: computed.panel.weaponAtkPercent,
+        critRate: computed.panel.critRate ?? 0.05,
+        critDmg: computed.panel.critDmg ?? 0.5,
+        healingBonus: computed.panel.healingBonus ?? 0,
+        ultimateChargeEfficiency: computed.panel.ultimateChargeEfficiency ?? 0,
         weaponAllSkillDmgBonus: computed.panel.weaponAllSkillDmgBonus,
       }
     : null;
@@ -445,6 +450,7 @@ export function setCharacterConfig(characterId: string, config: CharacterConfigJ
       panel: {
         atk: config.panelSnapshot.atk,
         baseAtk: config.panelSnapshot.baseAtk,
+        hp: config.panelSnapshot.hp ?? 0,
         strength: config.panelSnapshot.strength,
         agility: config.panelSnapshot.agility,
         intelligence: config.panelSnapshot.intelligence,
@@ -455,6 +461,10 @@ export function setCharacterConfig(characterId: string, config: CharacterConfigJ
         characterAtk: config.panelSnapshot.characterAtk,
         weaponAtk: config.panelSnapshot.weaponAtk,
         weaponAtkPercent: config.panelSnapshot.weaponAtkPercent,
+        critRate: config.panelSnapshot.critRate ?? 0.05,
+        critDmg: config.panelSnapshot.critDmg ?? 0.5,
+        healingBonus: config.panelSnapshot.healingBonus ?? 0,
+        ultimateChargeEfficiency: config.panelSnapshot.ultimateChargeEfficiency ?? 0,
         weaponAllSkillDmgBonus: config.panelSnapshot.weaponAllSkillDmgBonus,
       },
       damageBonus: config.infoSnap,

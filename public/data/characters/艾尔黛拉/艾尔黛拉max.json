@@ -1,0 +1,206 @@
+{
+  "name": "艾尔黛拉",
+  "nameEn": "Ardelia",
+  "rarity": 6,
+  "profession": "辅助",
+  "weapon": "法术单元",
+  "element": "nature",
+  "mainStat": "智识",
+  "subStat": "意志",
+  "tags": [
+    "控制",
+    "增益",
+    "支援"
+  ],
+  "position": [
+    "控制",
+    "增益",
+    "支援"
+  ],
+  "attributes": {
+    "level90": {
+      "strength": 112,
+      "agility": 93,
+      "intelligence": 145,
+      "will": 118,
+      "atk": 323,
+      "hp": 5495
+    }
+  },
+  "talents": [
+    {
+      "name": "朋友的身影",
+      "description": "战技命中生成多利先生的影子，终结技分身落地有概率生成影子；主控触碰影子后回复生命值，主控满血时转治最低血量队友。",
+      "healBase": 90,
+      "healByWill": 0.75,
+      "shadowDuration": 10,
+      "maxShadows": 10,
+      "ultShadowChance": 0.1
+    },
+    {
+      "name": "山顶冲浪",
+      "description": "当战技“奔腾的多利”成功触发额外效果后，若附近存在其他腐蚀目标，会立即再对其发动一次战技；每次主动施放只触发一次。",
+      "extraCastOnNearbyCorroded": true,
+      "maxTriggerPerCast": 1
+    }
+  ],
+  "potentials": [
+    {
+      "id": 1,
+      "name": "羊的乐园",
+      "description": "战技消耗腐蚀后施加的物理脆弱与法术脆弱效果+8%。"
+    },
+    {
+      "id": 2,
+      "name": "游戏奖励",
+      "description": "天赋朋友的身影加强：触碰影子后以一半效果额外治疗另一名最低血量队友。"
+    },
+    {
+      "id": 3,
+      "name": "爆炸式喷发",
+      "description": "终结技持续时间+1秒，生成影子概率提升至原本的1.2倍。"
+    },
+    {
+      "id": 4,
+      "name": "岩中花朵",
+      "description": "终结技毛茸茸派对所需终结技能量-15%。"
+    },
+    {
+      "id": 5,
+      "name": "火山蒸汽",
+      "description": "连携技冷却-2秒，伤害倍率提升至原本1.2倍，腐蚀持续时间+4秒。"
+    }
+  ],
+  "skills": {
+    "normalAttack": {
+      "name": "岩石的轻语",
+      "type": "普通攻击",
+      "description": "至多4段自然伤害，主控重击造成18点失衡；可下落与处决。",
+      "hitCount": 4,
+      "damage": {
+        "9": {
+          "hit1": 0.54,
+          "hit2": 0.72,
+          "hit3": 0.95,
+          "hit4": 0.99
+        },
+        "M3": {
+          "hit1": 0.68,
+          "hit2": 0.9,
+          "hit3": 1.18,
+          "hit4": 1.24
+        }
+      },
+      "multipliers": {
+        "9": {
+          "hit1": 0.54,
+          "hit2": 0.72,
+          "hit3": 0.95,
+          "hit4": 0.99,
+          "execute": 7.2,
+          "plunge": 1.44
+        },
+        "M3": {
+          "hit1": 0.68,
+          "hit2": 0.9,
+          "hit3": 1.18,
+          "hit4": 1.24,
+          "execute": 9.0,
+          "plunge": 1.8
+        }
+      },
+      "imbalanceValue": 18
+    },
+    "skill": {
+      "name": "奔腾的多利",
+      "type": "战技",
+      "description": "骑多利冲撞造成自然伤害；若目标处于腐蚀则消耗腐蚀并施加物理/法术脆弱。",
+      "hitCount": 1,
+      "damage": {
+        "9": {
+          "hit1": 2.56
+        },
+        "M3": {
+          "hit1": 3.2
+        }
+      },
+      "multipliers": {
+        "9": {
+          "damage": 2.56,
+          "imbalance": 10,
+          "vulnerability": 0.16,
+          "vulnerabilityDuration": 30
+        },
+        "M3": {
+          "damage": 3.2,
+          "imbalance": 10,
+          "vulnerability": 0.2,
+          "vulnerabilityDuration": 30
+        }
+      },
+      "imbalanceValue": 10
+    },
+    "chainSkill": {
+      "name": "火山蘑菇云",
+      "type": "连携技",
+      "description": "抛掷火山云命中目标造成自然伤害，延迟爆炸对周围造成一半伤害并施加短暂腐蚀。",
+      "hitCount": 2,
+      "damage": {
+        "9": {
+          "hit1": 0.8,
+          "hit2": 2.0
+        },
+        "M3": {
+          "hit1": 1.0,
+          "hit2": 2.5
+        }
+      },
+      "multipliers": {
+        "9": {
+          "cooldown": 18,
+          "damage": 0.8,
+          "explosionDamage": 2.0,
+          "imbalance": 10,
+          "corrosionDuration": 7
+        },
+        "M3": {
+          "cooldown": 17,
+          "damage": 1.0,
+          "explosionDamage": 2.5,
+          "imbalance": 10,
+          "corrosionDuration": 7
+        }
+      },
+      "imbalanceValue": 10
+    },
+    "ultimate": {
+      "name": "毛茸茸派对",
+      "type": "终结技",
+      "description": "进入可移动持续施法，随机散射分身命中造成自然伤害，每敌人每0.3秒最多受一次伤害。",
+      "hitCount": 1,
+      "damage": {
+        "9": {
+          "hit1": 1.32
+        },
+        "M3": {
+          "hit1": 1.65
+        }
+      },
+      "multipliers": {
+        "9": {
+          "energy": 90,
+          "damage": 1.32,
+          "imbalance": 2,
+          "duration": 3
+        },
+        "M3": {
+          "energy": 90,
+          "damage": 1.65,
+          "imbalance": 3,
+          "duration": 3
+        }
+      },
+      "imbalanceValue": 2
+    }
+  }
+}

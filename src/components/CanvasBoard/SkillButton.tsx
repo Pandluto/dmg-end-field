@@ -130,8 +130,8 @@ export function SkillButtonComponent({ button, size, onMouseDown, onContextMenu,
       const equipment = characterConfig.equipment ?? {};
       setPanelData({
         atk: snapshot.atk ?? 0,
-        critRate: 0.05 + (equipment.critRateBoost ?? 0),
-        critDmg: 0.5 + (equipment.critDmgBonusBoost ?? 0),
+        critRate: snapshot.critRate ?? (0.05 + (equipment.critRateBoost ?? 0)),
+        critDmg: snapshot.critDmg ?? (0.5 + (equipment.critDmgBonusBoost ?? 0)),
         physicalDmgBonus: equipment.physicalDmgBonus ?? 0,
         fireDmgBonus: equipment.fireDmgBonus ?? 0,
         electricDmgBonus: equipment.electricDmgBonus ?? 0,
@@ -421,6 +421,7 @@ export function SkillButtonComponent({ button, size, onMouseDown, onContextMenu,
                       critRate,
                       critDmg,
                       critExpected,
+                      amplifyRate,
                       fragileRate,
                       vulnerabilityRate,
                       comboDamageBonus,
@@ -489,6 +490,20 @@ export function SkillButtonComponent({ button, size, onMouseDown, onContextMenu,
                               <p>所有伤害加成: {(infoSnap.allDmgBonus * 100).toFixed(1)}%</p>
                               <p>伤害加成区: {damageBonusRate.toFixed(3)}</p>
 
+                              {/* 增幅区显示 */}
+                              {amplifyRate > 0 && (
+                                <>
+                                  <p className="formula-section-title">【增幅区】</p>
+                                  <p>增幅区: +{(amplifyRate * 100).toFixed(1)}%</p>
+                                  {buffTotals.physicalAmplify > 0 && <p>物理增幅: +{(buffTotals.physicalAmplify * 100).toFixed(1)}%</p>}
+                                  {buffTotals.fireAmplify > 0 && <p>灼热增幅: +{(buffTotals.fireAmplify * 100).toFixed(1)}%</p>}
+                                  {buffTotals.electricAmplify > 0 && <p>电磁增幅: +{(buffTotals.electricAmplify * 100).toFixed(1)}%</p>}
+                                  {buffTotals.iceAmplify > 0 && <p>寒冷增幅: +{(buffTotals.iceAmplify * 100).toFixed(1)}%</p>}
+                                  {buffTotals.natureAmplify > 0 && <p>自然增幅: +{(buffTotals.natureAmplify * 100).toFixed(1)}%</p>}
+                                  {buffTotals.magicAmplify > 0 && <p>法术增幅: +{(buffTotals.magicAmplify * 100).toFixed(1)}%</p>}
+                                </>
+                              )}
+
                               {/* 脆弱区显示 */}
                               {fragileRate > 0 && (
                                 <>
@@ -547,6 +562,7 @@ export function SkillButtonComponent({ button, size, onMouseDown, onContextMenu,
                                 <p>  × {critExpected.toFixed(3)} (暴击期望)</p>
                                 <p>  × {damageBonusRate.toFixed(3)} (伤害加成区)</p>
                                 <p>  × {defenseZone} (防御区)</p>
+                                {amplifyRate > 0 && <p>  × {(1 + amplifyRate).toFixed(3)} (增幅区)</p>}
                                 {fragileRate > 0 && <p>  × {(1 + fragileRate).toFixed(3)} (脆弱区)</p>}
                                 {vulnerabilityRate > 0 && <p>  × {(1 + vulnerabilityRate).toFixed(3)} (易伤区)</p>}
                                 {comboDamageBonus > 0 && <p>  × {(1 + comboDamageBonus).toFixed(3)} (连击区)</p>}

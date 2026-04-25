@@ -56,6 +56,14 @@ export interface BuffCalculationResult {
   natureVulnerability: number;      // 总自然易伤
   magicTakenDmgBonus: number;     // 总法术易伤
 
+  // 增幅区（Amplify）
+  physicalAmplify: number;        // 总物理增幅
+  magicAmplify: number;           // 总法术增幅
+  fireAmplify: number;            // 总灼热增幅
+  electricAmplify: number;        // 总电磁增幅
+  iceAmplify: number;             // 总寒冷增幅
+  natureAmplify: number;          // 总自然增幅
+
   // 连击区（独立区域）
   comboDamageBonus: number;        // 总连击增伤
 
@@ -125,6 +133,13 @@ export function calculateBuffTotals(buffs: SkillButtonBuff[]): BuffCalculationRe
     iceVulnerability: 0,
     natureVulnerability: 0,
     magicTakenDmgBonus: 0,
+    // 增幅区
+    physicalAmplify: 0,
+    magicAmplify: 0,
+    fireAmplify: 0,
+    electricAmplify: 0,
+    iceAmplify: 0,
+    natureAmplify: 0,
     // 连击区
     comboDamageBonus: 0,
     // 伤害倍率区
@@ -171,6 +186,12 @@ export function calculateBuffTotals(buffs: SkillButtonBuff[]): BuffCalculationRe
         case 'iceVulnerability': result.iceVulnerability += v; break;
         case 'natureVulnerability': result.natureVulnerability += v; break;
         case 'magicTakenDmgBonus': result.magicTakenDmgBonus += v; break;
+        case 'physicalAmplify': result.physicalAmplify += v; break;
+        case 'magicAmplify': result.magicAmplify += v; break;
+        case 'fireAmplify': result.fireAmplify += v; break;
+        case 'electricAmplify': result.electricAmplify += v; break;
+        case 'iceAmplify': result.iceAmplify += v; break;
+        case 'natureAmplify': result.natureAmplify += v; break;
         case 'comboDamageBonus': result.comboDamageBonus += v; break;
         case 'multiplierBonus': result.multiplierBonus += v; break;
         case 'multiplierMultiplier': result.multiplierMultiplier *= buff.value ?? 1; break;
@@ -284,5 +305,26 @@ export function calculateFragileRate(
     const elementFragile = buffTotals[elementKey as keyof BuffCalculationResult] || 0;
 
     return elementFragile + buffTotals.magicFragile;
+  }
+}
+
+/**
+ * 根据干员元素属性，计算增幅区
+ * @param characterElement - 干员元素属性（如 'physical', 'ice', 'fire'）
+ * @param buffTotals - Buff 汇总结果
+ * @returns 增幅区值（小数）
+ */
+export function calculateAmplifyRate(
+  characterElement: string | undefined,
+  buffTotals: BuffCalculationResult
+): number {
+  const isPhysical = characterElement === 'physical';
+  if (isPhysical) {
+    return buffTotals.physicalAmplify;
+  } else {
+    const elementKey = `${characterElement}Amplify`;
+    const elementAmplify = buffTotals[elementKey as keyof BuffCalculationResult] || 0;
+
+    return elementAmplify + buffTotals.magicAmplify;
   }
 }

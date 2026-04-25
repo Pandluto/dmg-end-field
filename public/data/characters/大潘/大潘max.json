@@ -1,0 +1,209 @@
+{
+  "name": "大潘",
+  "nameEn": "Da Pan",
+  "rarity": 5,
+  "profession": "突击",
+  "weapon": "双手剑",
+  "element": "physical",
+  "mainStat": "力量",
+  "subStat": "意志",
+  "tags": [
+    "输出",
+    "破防联动"
+  ],
+  "position": [
+    "输出"
+  ],
+  "attributes": {
+    "level90": {
+      "strength": 175,
+      "agility": 96,
+      "intelligence": 94,
+      "will": 102,
+      "atk": 303,
+      "hp": 5495
+    }
+  },
+  "talents": [
+    {
+      "name": "勾芡",
+      "description": "每消耗1层破防后提升自身物理伤害，持续10秒，最多叠加4层。",
+      "physicalDmgBonusPerStack": 0.06,
+      "maxStacks": 4,
+      "duration": 10
+    },
+    {
+      "name": "尝尝咸淡",
+      "description": "终结技最后一击命中敌人获得备料，处于备料时连携技命中可恢复40%冷却并消耗1层。",
+      "stackDuration": 20,
+      "maxStacks": 2,
+      "chainCooldownRefundPercent": 0.4
+    }
+  ],
+  "potentials": [
+    {
+      "id": 1,
+      "name": "精烹细作",
+      "description": "若终结技至少击败一个敌人，自身物理伤害+30%，持续15秒，不可叠加。"
+    },
+    {
+      "id": 2,
+      "name": "五味调和",
+      "description": "天赋尝尝咸淡效果加强：备料持续+10秒，最大层数+1。"
+    },
+    {
+      "id": 3,
+      "name": "先进工作者",
+      "description": "力量+15，造成的物理伤害+8%。",
+      "stats": {
+        "strength": 15,
+        "physicalDmgBonus": 0.08
+      }
+    },
+    {
+      "id": 4,
+      "name": "自制酱料",
+      "description": "终结技切丝入锅！所需终结技能量-15%。"
+    },
+    {
+      "id": 5,
+      "name": "猛火收汁",
+      "description": "战技颠勺！仅命中单个敌人时额外施加1层破防（45秒内最多触发1次）。"
+    }
+  ],
+  "skills": {
+    "normalAttack": {
+      "name": "滚刀切！",
+      "type": "普通攻击",
+      "description": "至多4段物理伤害，主控重击20点失衡；可下落与处决攻击。",
+      "hitCount": 4,
+      "damage": {
+        "9": {
+          "hit1": 0.51,
+          "hit2": 0.6,
+          "hit3": 0.9,
+          "hit4": 1.09
+        },
+        "M3": {
+          "hit1": 0.63,
+          "hit2": 0.75,
+          "hit3": 1.13,
+          "hit4": 1.36
+        }
+      },
+      "multipliers": {
+        "9": {
+          "hit1": 0.51,
+          "hit2": 0.6,
+          "hit3": 0.9,
+          "hit4": 1.09,
+          "execute": 7.2,
+          "plunge": 1.44
+        },
+        "M3": {
+          "hit1": 0.63,
+          "hit2": 0.75,
+          "hit3": 1.13,
+          "hit4": 1.36,
+          "execute": 9.0,
+          "plunge": 1.8
+        }
+      },
+      "imbalanceValue": 20
+    },
+    "skill": {
+      "name": "颠勺！",
+      "type": "战技",
+      "description": "短暂蓄力后上挑，造成物理伤害并击飞。",
+      "hitCount": 1,
+      "damage": {
+        "9": {
+          "hit1": 2.4
+        },
+        "M3": {
+          "hit1": 3.0
+        }
+      },
+      "multipliers": {
+        "9": {
+          "damage": 2.4,
+          "imbalance": 10,
+          "launchDuration": 1.8
+        },
+        "M3": {
+          "damage": 3.0,
+          "imbalance": 10,
+          "launchDuration": 1.8
+        }
+      },
+      "imbalanceValue": 10
+    },
+    "chainSkill": {
+      "name": "加料！",
+      "type": "连携技",
+      "description": "敌人达到4层破防时可发动，造成大量物理伤害与猛击并提升本次猛击伤害。",
+      "hitCount": 1,
+      "damage": {
+        "9": {
+          "hit1": 5.2
+        },
+        "M3": {
+          "hit1": 6.5
+        }
+      },
+      "multipliers": {
+        "9": {
+          "cooldown": 20,
+          "damage": 5.2,
+          "imbalance": 15,
+          "slamDamageBonus": 0.15
+        },
+        "M3": {
+          "cooldown": 19,
+          "damage": 6.5,
+          "imbalance": 15,
+          "slamDamageBonus": 0.2
+        }
+      },
+      "imbalanceValue": 15
+    },
+    "ultimate": {
+      "name": "切丝入锅！",
+      "type": "终结技",
+      "description": "先击飞前方敌人，随后6段空中连斩并以终结一击击坠敌人。",
+      "hitCount": 7,
+      "damage": {
+        "9": {
+          "hit1": 0.4,
+          "hit2": 0.4,
+          "hit3": 0.4,
+          "hit4": 0.4,
+          "hit5": 0.4,
+          "hit6": 0.4,
+          "hit7": 3.2
+        },
+        "M3": {
+          "hit1": 0.5,
+          "hit2": 0.5,
+          "hit3": 0.5,
+          "hit4": 0.5,
+          "hit5": 0.5,
+          "hit6": 0.5,
+          "hit7": 4.0
+        }
+      },
+      "multipliers": {
+        "9": {
+          "energy": 90,
+          "airSlashDamage": 0.4,
+          "finisherDamage": 3.2
+        },
+        "M3": {
+          "energy": 90,
+          "airSlashDamage": 0.5,
+          "finisherDamage": 4.0
+        }
+      }
+    }
+  }
+}

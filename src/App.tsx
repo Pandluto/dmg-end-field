@@ -4,9 +4,14 @@
  */
 
 import { WorkbenchFrame } from './components/WorkbenchFrame';
+import { StorageDebugPage, isStorageDebugPath } from './components/StorageDebugPage';
 import './styles/global.css';
 
 function App() {
+  if (typeof window !== 'undefined' && isStorageDebugPath(window.location.pathname)) {
+    return <StorageDebugPage />;
+  }
+
   return (
     <div className="app">
       <WorkbenchFrame />

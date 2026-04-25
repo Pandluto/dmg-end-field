@@ -28,13 +28,29 @@
 }
 
 .character-grid {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: var(--component-gap);
   margin-bottom: var(--spacing-xl);
+
+  align-content: start;
+  grid-auto-rows: max-content;
+  
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.selection-panel .container {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
 }
 
 .character-card {
+  align-self: start;
   border: var(--border-width) solid var(--border-color);
   padding: var(--spacing-md);
   cursor: pointer;
@@ -368,7 +384,7 @@
 }
 
 .character-grid {
-  align-items: stretch;
+  align-items: stretch; 
 }
 
 .character-card {
@@ -516,4 +532,21 @@
 
 .selected-badge {
   border-radius: 0;
+}
+
+/* Selection scrolling fix: allow the picker to scroll when cards exceed viewport height */
+.selection-panel {
+  align-items: stretch;
+  justify-content: flex-start;
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-width: thin;
+}
+
+.selection-panel .container {
+  flex: 0 0 auto;
+  width: min(1000px, 100%);
+  margin: 0 auto;
+  padding-bottom: calc(var(--spacing-xl) + 32px);
+  box-sizing: border-box;
 }

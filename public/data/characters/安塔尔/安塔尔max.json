@@ -1,0 +1,98 @@
+{
+  "name": "安塔尔",
+  "nameEn": "Antal",
+  "rarity": 4,
+  "profession": "辅助",
+  "weapon": "法术单元",
+  "element": "electric",
+  "mainStat": "智识",
+  "subStat": "力量",
+  "tags": ["控制", "增益", "支援"],
+  "position": ["增益支援"],
+  "attributes": {
+    "level90": { "strength": 129, "agility": 86, "intelligence": 165, "will": 82, "atk": 297, "hp": 5495 }
+  },
+  "talents": [
+    {
+      "name": "即兴发挥",
+      "description": "队伍中处于增幅状态的干员造成技能伤害后，安塔尔为其回复生命值，每个干员每30秒最多触发1次。",
+      "baseHeal": 108,
+      "healByStrength": 0.9,
+      "cooldownPerAlly": 30
+    },
+    {
+      "name": "下意识",
+      "description": "有30%概率免疫物理伤害，并回复自身生命值。",
+      "procChance": 0.3,
+      "physicalDamageImmunity": true,
+      "baseHeal": 45,
+      "healByStrength": 0.38
+    }
+  ],
+  "potentials": [
+    { "id": 1, "name": "术法天分", "description": "终结技超频时刻提供的电磁增幅和灼热增幅效果提高至原本的1.1倍。" },
+    { "id": 2, "name": "自动化改良", "description": "终结技超频时刻所需终结技能量-10%。" },
+    { "id": 3, "name": "源石理论应用", "description": "被聚焦的敌人在聚焦期间被击败时，返还15点技力。" },
+    { "id": 4, "name": "奶奶的叮嘱", "description": "智识+10，最大生命值+10%。", "stats": { "intelligence": 10 } },
+    { "id": 5, "name": "高规格技术测试", "description": "聚焦同一目标20秒后，电磁脆弱和灼热脆弱效果提高4%。" }
+  ],
+  "skills": {
+    "normalAttack": {
+      "name": "交换电流",
+      "type": "普通攻击",
+      "description": "至多4段电磁伤害，主控重击15点失衡；可下落与处决攻击。",
+      "hitCount": 4,
+      "damage": {
+        "9": { "hit1": 0.41, "hit2": 0.50, "hit3": 0.61, "hit4": 0.92 },
+        "M3": { "hit1": 0.52, "hit2": 0.63, "hit3": 0.77, "hit4": 1.15 }
+      },
+      "multipliers": {
+        "9": { "hit1": 0.41, "hit2": 0.50, "hit3": 0.61, "hit4": 0.92, "execute": 7.20, "plunge": 1.44 },
+        "M3": { "hit1": 0.52, "hit2": 0.63, "hit3": 0.77, "hit4": 1.15, "execute": 9.00, "plunge": 1.80 }
+      },
+      "imbalanceValue": 15
+    },
+    "skill": {
+      "name": "指定研究对象",
+      "type": "战技",
+      "description": "施加长时间聚焦并造成电磁伤害，被聚焦目标同时受到电磁脆弱和灼热脆弱。",
+      "hitCount": 1,
+      "damage": {
+        "9": { "hit1": 1.60 },
+        "M3": { "hit1": 2.00 }
+      },
+      "multipliers": {
+        "9": { "damage": 1.60, "duration": 60, "electricVulnerability": 0.08, "fireVulnerability": 0.08 },
+        "M3": { "damage": 2.00, "duration": 60, "electricVulnerability": 0.10, "fireVulnerability": 0.10 }
+      }
+    },
+    "chainSkill": {
+      "name": "磁暴试验场",
+      "type": "连携技",
+      "description": "被聚焦目标进入物理异常或法术附着时可发动，触发能量爆炸并重新施加对应状态。",
+      "hitCount": 1,
+      "damage": {
+        "9": { "hit1": 2.72 },
+        "M3": { "hit1": 3.40 }
+      },
+      "multipliers": {
+        "9": { "cooldown": 25, "damage": 2.72, "imbalance": 10 },
+        "M3": { "cooldown": 24, "damage": 3.40, "imbalance": 10 }
+      }
+    },
+    "ultimate": {
+      "name": "超频时刻",
+      "type": "终结技",
+      "description": "对全队施加电磁增幅与灼热增幅。",
+      "hitCount": -1,
+      "damage": {
+        "9": {},
+        "M3": {}
+      },
+      "multipliers": {
+        "9": { "energy": 100, "electricAmplify": 0.16, "fireAmplify": 0.16, "duration": 12 },
+        "M3": { "energy": 100, "electricAmplify": 0.20, "fireAmplify": 0.20, "duration": 12 }
+      }
+    }
+  }
+}

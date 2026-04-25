@@ -1,0 +1,55 @@
+{
+  "name": "大潘",
+  "buffList": [
+    "物理伤害加成-大潘-天赋-4层",
+    "物理伤害加成-大潘-潜能",
+    "力量属性提升-大潘-潜能",
+    "物理伤害加成-大潘-潜能3"
+  ],
+  "buffs": [
+    {
+      "displayName": "物理伤害加成-大潘-天赋-4层",
+      "name": "勾芡",
+      "source": "talent",
+      "sourceName": "天赋-勾芡",
+      "type": "physicalDmgBonus",
+      "value": 0.24,
+      "level": "breakthrough2",
+      "description": "每消耗1层破防后提升自身物理伤害，持续10秒，最多叠加4层。",
+      "condition": "消耗4层破防后",
+      "duration": 10
+    },
+    {
+      "displayName": "物理伤害加成-大潘-潜能",
+      "name": "精烹细作",
+      "source": "potential",
+      "sourceName": "潜能1-精烹细作",
+      "type": "physicalDmgBonus",
+      "value": 0.3,
+      "level": "potentials-1",
+      "description": "若终结技至少击败一个敌人，自身物理伤害+30%，持续15秒，不可叠加。",
+      "condition": "终结技至少击败一个敌人后",
+      "duration": 15
+    },
+    {
+      "displayName": "力量属性提升-大潘-潜能",
+      "name": "先进工作者",
+      "source": "potential",
+      "sourceName": "潜能3-先进工作者",
+      "type": "strengthBoost",
+      "value": 15,
+      "level": "potentials-3",
+      "description": "力量+15，造成的物理伤害+8%。"
+    },
+    {
+      "displayName": "物理伤害加成-大潘-潜能3",
+      "name": "先进工作者",
+      "source": "potential",
+      "sourceName": "潜能3-先进工作者",
+      "type": "physicalDmgBonus",
+      "value": 0.08,
+      "level": "potentials-3",
+      "description": "力量+15，造成的物理伤害+8%。"
+    }
+  ]
+}

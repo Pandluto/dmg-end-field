@@ -63,8 +63,8 @@ public/data/characters/{角色名}/
 | `fireDmgBonus` | 灼热伤害加成 |
 | `electricDmgBonus` | 电磁伤害加成 |
 | `iceDmgBonus` | 寒冷伤害加成 |
-| `etherDmgBonus` | 自然伤害加成 |
-| `allDmgBonus` | 全元素伤害加成 |
+| `natureDmgBonus` | 自然伤害加成 |
+| `allElementDmgBonus` | 全元素伤害加成（Buff 侧） |
 | `skillDmgBonus` | 战技伤害加成 |
 | `chainSkillDmgBonus` | 连携技伤害加成 |
 | `ultimateDmgBonus` | 终结技伤害加成 |
@@ -73,7 +73,7 @@ public/data/characters/{角色名}/
 | `fireRes` | 灼热抗性 |
 | `electricRes` | 电磁抗性 |
 | `iceRes` | 寒冷抗性 |
-| `etherRes` | 自然抗性 |
+| `natureRes` | 自然抗性 |
 | `voidRes` | 超域抗性 |
 | `healingBonus` | 治疗效率加成 |
 | `incomingHealingBonus` | 受治疗效率加成 |
@@ -87,8 +87,14 @@ public/data/characters/{角色名}/
 | `fireVulnerability` | 灼热脆弱 |
 | `electricVulnerability` | 电磁脆弱 |
 | `iceVulnerability` | 寒冷脆弱 |
-| `etherVulnerability` | 自然脆弱 |
-| `magicVulnerability` | 法术脆弱 |
+| `natureVulnerability` | 自然易伤 |
+| `magicVulnerability` | 法术脆弱（历史/待兼容字段，当前运行时不作为推荐输出） |
+| `physicalAmplify` | 物理增幅 |
+| `fireAmplify` | 灼热增幅 |
+| `electricAmplify` | 电磁增幅 |
+| `iceAmplify` | 寒冷增幅 |
+| `natureAmplify` | 自然增幅 |
+| `magicAmplify` | 法术增幅 |
 | `comboDamageBonus` | 连击增伤 |
 | `atkPercentBoost` | 攻击力百分比提升 |
 | `strengthBoost` | 力量属性提升 |
@@ -97,12 +103,25 @@ public/data/characters/{角色名}/
 | `willBoost` | 意志属性提升 |
 | `multiplierBonus` | 伤害倍率提升（字段） |
 | `multiplierMultiplier` | 伤害倍率乘倍 |
-| `magicTakenDmgBonus` | 法术伤害加成（受伤害） |
+| `magicTakenDmgBonus` | 法术易伤 |
 
 | `mainStatBoost` | 主能力提升 |
 | `subStatBoost` | 副能力提升 |
 | `allStatBoost` | 全能力提升 |
 | `sourceSkillBoost` | 源石技艺强度提升 |
+
+说明：
+
+- `增幅区` 为独立乘区，和 `脆弱区 / 易伤区` 同级，不并入 `伤害加成区`。
+- 当前代码口径：
+  - `physical` 伤害只命中 `physicalAmplify`
+  - 元素伤害命中 `对应元素Amplify + magicAmplify`
+- 多个增幅 Buff 直接相加，最终按 `× (1 + amplifyRate)` 参与计算。
+- 当前字段口径补充：
+  - `allElementDmgBonus` 是 Buff 侧“全元素伤害加成”正式字段
+  - `allDmgBonus` 属于面板 / `infoSnap` 侧字段，不作为当前 Buff type 推荐输出
+  - `magicTakenDmgBonus` 为“法术易伤”正式字段
+  - `magicVulnerability` 仅保留历史语义说明，当前运行时不建议继续生成该 type
 
 ---
 

@@ -99,8 +99,8 @@ public/data/weapons/{武器名}/{武器名}buff.json
 | `fireDmgBonus` | 灼热伤害加成 |
 | `electricDmgBonus` | 电磁伤害加成 |
 | `iceDmgBonus` | 寒冷伤害加成 |
-| `etherDmgBonus` | 自然伤害加成 |
-| `allDmgBonus` | 全元素伤害加成 |
+| `natureDmgBonus` | 自然伤害加成 |
+| `allElementDmgBonus` | 全元素伤害加成（Buff 侧） |
 | `skillDmgBonus` | 战技伤害加成 |
 | `chainSkillDmgBonus` | 连携技伤害加成 |
 | `ultimateDmgBonus` | 终结技伤害加成 |
@@ -109,7 +109,7 @@ public/data/weapons/{武器名}/{武器名}buff.json
 | `fireRes` | 灼热抗性 |
 | `electricRes` | 电磁抗性 |
 | `iceRes` | 寒冷抗性 |
-| `etherRes` | 自然抗性 |
+| `natureRes` | 自然抗性 |
 | `voidRes` | 超域抗性 |
 | `healingBonus` | 治疗效率加成 |
 | `incomingHealingBonus` | 受治疗效率加成 |
@@ -123,9 +123,15 @@ public/data/weapons/{武器名}/{武器名}buff.json
 | `fireVulnerability` | 灼热脆弱 |
 | `electricVulnerability` | 电磁脆弱 |
 | `iceVulnerability` | 寒冷脆弱 |
-| `etherVulnerability` | 自然脆弱 |
+| `natureVulnerability` | 自然易伤 |
 | `magicTakenDmgBonus` | 法术易伤 |
-| `magicVulnerability` | 法术脆弱（异常/触发语义） |
+| `magicVulnerability` | 法术脆弱（历史/待兼容字段，当前运行时不作为推荐输出） |
+| `physicalAmplify` | 物理增幅 |
+| `fireAmplify` | 灼热增幅 |
+| `electricAmplify` | 电磁增幅 |
+| `iceAmplify` | 寒冷增幅 |
+| `natureAmplify` | 自然增幅 |
+| `magicAmplify` | 法术增幅 |
 | `comboDamageBonus` | 连击增伤 |
 | `atkPercentBoost` | 攻击力百分比提升 |
 
@@ -141,6 +147,20 @@ public/data/weapons/{武器名}/{武器名}buff.json
 
 | `multiplierBonus` | 伤害倍率提升 |
 | `multiplierMultiplier` | 伤害倍率乘倍 |
+
+说明：
+
+- `增幅区` 为独立乘区，和 `脆弱区 / 易伤区` 同级。
+- 武器 Buff 若语义为“增幅”，应直接落到 `*Amplify` 字段，不并入 `伤害加成区`，也不借道 `multiplierBonus / multiplierMultiplier`。
+- 当前代码口径：
+  - `physical` 伤害只命中 `physicalAmplify`
+  - 元素伤害命中 `对应元素Amplify + magicAmplify`
+- 多个增幅 Buff 直接相加，最终按 `× (1 + amplifyRate)` 参与结算。
+- 当前字段口径补充：
+  - `allElementDmgBonus` 是 Buff 侧“全元素伤害加成”正式字段
+  - `allDmgBonus` 属于面板 / `infoSnap` 侧字段，不作为当前 Buff type 推荐输出
+  - `magicTakenDmgBonus` 为“法术易伤”正式字段
+  - `magicVulnerability` 仅保留历史语义说明，当前运行时不建议继续生成该 type
 ## 4. 映射规则
 
 优先级规则：
@@ -225,10 +245,12 @@ public/data/weapons/{武器名}/{武器名}buff.json
 ### 5.4 叠层展开规则
 
 - 适用条件：文本中存在“最多叠加N层/可叠加N层”等明确层数。  
-- 输出条数：每个等级、每个触发语义，按 `1..N` 层生成 N 条 buff。  
-- 数值计算：`layerValue = baseValue * layerIndex`。  
-- 命名追加：`displayName` 末尾追加 `-{层数}层`。  
-- 条件文案：`condition` 保留触发条件，并明确“最多叠加N层”。
+- **叠层数量≤4时**：每个等级、每个触发语义，按 `1..N` 层生成 N 条 buff。  
+- **叠层数量＞4时（如狼之绯16层）**：直接按最高层数计入，生成 1 条 buff，value 取满层数值。
+  - 示例：狼血16层满层时物理+灼热伤害 = 每层1.6%×16 + 满层额外38.4% = 64%，按 0.64 计入
+- 数值计算（叠层≤4时）：`layerValue = baseValue * layerIndex`。  
+- 命名追加（叠层≤4时）：`displayName` 末尾追加 `-{层数}层`；叠层＞4时追加 `-满层`。  
+- 条件文案：`condition` 保留触发条件，并明确“最多叠加N层”或“满层触发”。
 
 ### 5.5 命名规则
 
@@ -303,6 +325,7 @@ public/data/weapons/{武器名}/{武器名}buff.json
 
 | 版本 | 日期 | 变更内容 |
 |------|------|----------|
+| 1.6 | 2026-04-25 | 新增叠层展开优化规则：叠层数量＞4时直接按满层计入，避免条目过多 |
 | 1.5 | 2026-04-11 | 明确区分法术易伤与法术脆弱 type：新增 `magicTakenDmgBonus`（法术易伤），保留 `magicVulnerability` 仅用于法术脆弱语义 |
 | 1.4 | 2026-04-11 | 根据落草/爆破单元反向补充：新增“常驻与条件混合文本”的提取口径、脆弱类映射口径、触发命名禁用占位词与数值合法性约束 |
 | 1.3 | 2026-04-10 | 根据光荣记忆buff补充叠层规则：新增“最多叠加N层”的解析、分层展开、命名后缀与数值换算规范 |

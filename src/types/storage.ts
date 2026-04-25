@@ -34,6 +34,7 @@ export interface CharacterComputedCache {
   panel: {
     atk: number;
     baseAtk: number;
+    hp: number;
     strength: number;
     agility: number;
     intelligence: number;
@@ -44,6 +45,10 @@ export interface CharacterComputedCache {
     characterAtk: number;
     weaponAtk: number;
     weaponAtkPercent: number;
+    critRate: number;
+    critDmg: number;
+    healingBonus: number;
+    ultimateChargeEfficiency: number;
     weaponAllSkillDmgBonus: number;
   };
   damageBonus: {
@@ -84,6 +89,7 @@ export interface VersionedStorageWrapper<T> {
 // ==================== v2 旧类型（兼容用） ====================
 
 export interface PanelSummary {
+  hp: number;
   strength: number;
   agility: number;
   intelligence: number;
@@ -96,6 +102,10 @@ export interface PanelSummary {
   characterAtk: number;
   weaponAtk: number;
   weaponAtkPercent: number;
+  critRate: number;
+  critDmg: number;
+  healingBonus: number;
+  ultimateChargeEfficiency: number;
   weaponAllSkillDmgBonus: number;
 }
 
