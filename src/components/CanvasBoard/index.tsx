@@ -26,6 +26,7 @@ interface CanvasBoardProps {
   onCloseOperatorConfig?: () => void;
   onOpenOperatorConfig?: (characterId: string) => void;
   workbenchControl?: React.ReactNode;
+  bottomRightControl?: React.ReactNode;
 }
 
 export function CanvasBoard({
@@ -39,6 +40,7 @@ export function CanvasBoard({
   onCloseOperatorConfig,
   onOpenOperatorConfig,
   workbenchControl,
+  bottomRightControl,
 }: CanvasBoardProps) {
   const { state, dispatch } = useAppContext();
   const { selectedCharacters, canvasConfig, skillButtons } = state;
@@ -248,7 +250,7 @@ export function CanvasBoard({
             />
           </div>
           <div className="canvas-bottom-zone-center" />
-          <div className="canvas-bottom-zone-right" />
+          <div className="canvas-bottom-zone-right">{bottomRightControl}</div>
         </div>
       </div>
 

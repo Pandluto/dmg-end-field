@@ -163,6 +163,17 @@ export interface SkillButtonBuff {
 
 export type SkillButtonBuffMap = Record<string, SkillButtonBuff[]>;
 
+export interface SkillButtonPanelConfig {
+  selectedBuff: string[];
+}
+
+export interface SkillButtonPanelSnapshot {
+  atk: number;
+  critRate: number;
+  critDmg: number;
+  characterComputed?: CharacterComputedCache | null;
+}
+
 // ==================== v2 新缓存模型类型 ====================
 
 /**
@@ -171,6 +182,7 @@ export type SkillButtonBuffMap = Record<string, SkillButtonBuff[]>;
  */
 export interface PersistedSkillButton {
   id: string;                           // 按钮唯一 ID
+  characterId?: string;                 // 干员 ID（兼容旧缓存可缺省）
   characterName: string;                // 干员名称
   skillType: string;                    // 技能类型 A/B/E/Q
   staffIndex: number;                   // 干员索引
@@ -178,6 +190,8 @@ export interface PersistedSkillButton {
   nodeNumber: number;                   // 节点编号
   position: { x: number; y: number };   // 位置坐标
   selectedBuff: string[];               // 选中的 Buff ID 列表（只存引用）
+  panelConfig?: SkillButtonPanelConfig; // 按钮专属面板配置
+  panelSnapshot?: SkillButtonPanelSnapshot | null; // 按钮专属最终面板
   createdAt?: number;                   // 创建时间
   updatedAt?: number;                   // 更新时间
 }

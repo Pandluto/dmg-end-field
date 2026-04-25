@@ -512,6 +512,20 @@ export function setStorageJson<T>(key: string, value: T): void {
 
 // ==================== v2 新缓存模型 - skill-button 总表 ====================
 
+function normalizePersistedSkillButton(button: PersistedSkillButton): PersistedSkillButton {
+  const selectedBuff = Array.isArray(button.selectedBuff) ? button.selectedBuff : [];
+
+  return {
+    ...button,
+    characterId: button.characterId || button.characterName,
+    selectedBuff,
+    panelConfig: button.panelConfig ?? {
+      selectedBuff: [...selectedBuff],
+    },
+    panelSnapshot: button.panelSnapshot ?? null,
+  };
+}
+
 /**
  * 获取 skill-button 总表
  * @returns Record<buttonId, PersistedSkillButton>
@@ -520,7 +534,13 @@ export function getSkillButtonTable(): SkillButtonTable {
   const raw = safeSessionStorage.getItem(STORAGE_KEYS.SKILL_BUTTON_TABLE);
   if (!raw) return {};
   try {
-    return JSON.parse(raw) as SkillButtonTable;
+    const parsed = JSON.parse(raw) as SkillButtonTable;
+    return Object.fromEntries(
+      Object.entries(parsed).map(([buttonId, button]) => [
+        buttonId,
+        normalizePersistedSkillButton(button),
+      ])
+    );
   } catch {
     return {};
   }
@@ -551,7 +571,7 @@ export function getSkillButtonById(buttonId: string): PersistedSkillButton | nul
 export function upsertSkillButton(button: PersistedSkillButton): void {
   const table = getSkillButtonTable();
   table[button.id] = {
-    ...button,
+    ...normalizePersistedSkillButton(button),
     updatedAt: Date.now(),
   };
   setSkillButtonTable(table);

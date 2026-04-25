@@ -6,9 +6,11 @@ import {
   removeSkillButtonBuff,
   setSelectedSkillButton,
   getButtonBuffs,
+  recomputeSkillButtonPanel,
 } from '../../hooks/useSkillButtonBuffs';
 import { SkillButtonBuff, SkillLevelMode } from '../../types/storage';
 import { getCharacterConfig } from '../../utils/storage';
+import { getSkillButtonById } from '../../core/repositories';
 import {
   calculateSkillButtonDamage,
   ELEMENT_LABELS,
@@ -124,14 +126,17 @@ export function SkillButtonComponent({ button, size, onMouseDown, onContextMenu,
    * 从 sessionStorage 加载面板数据 
    */
   const loadPanelData = useCallback(() => {
+    recomputeSkillButtonPanel(button.id);
+    const buttonStorage = getSkillButtonById(button.id);
     const characterConfig = getCharacterConfig(button.characterId);
     if (characterConfig?.panelSnapshot) {
+      const buttonSnapshot = buttonStorage?.panelSnapshot;
       const snapshot = characterConfig.panelSnapshot;
       const equipment = characterConfig.equipment ?? {};
       setPanelData({
-        atk: snapshot.atk ?? 0,
-        critRate: snapshot.critRate ?? (0.05 + (equipment.critRateBoost ?? 0)),
-        critDmg: snapshot.critDmg ?? (0.5 + (equipment.critDmgBonusBoost ?? 0)),
+        atk: buttonSnapshot?.atk ?? snapshot.atk ?? 0,
+        critRate: buttonSnapshot?.critRate ?? snapshot.critRate ?? (0.05 + (equipment.critRateBoost ?? 0)),
+        critDmg: buttonSnapshot?.critDmg ?? snapshot.critDmg ?? (0.5 + (equipment.critDmgBonusBoost ?? 0)),
         physicalDmgBonus: equipment.physicalDmgBonus ?? 0,
         fireDmgBonus: equipment.fireDmgBonus ?? 0,
         electricDmgBonus: equipment.electricDmgBonus ?? 0,
@@ -146,7 +151,7 @@ export function SkillButtonComponent({ button, size, onMouseDown, onContextMenu,
       setInfoSnapshotLines(characterConfig.infoSnapshot ?? []);
       setInfoSnap((characterConfig.infoSnap ?? {}) as unknown as Record<string, number>);
     }
-  }, [button.characterId]);
+  }, [button.characterId, button.id]);
 
   /**
    * 移除指定 Buff
@@ -156,10 +161,11 @@ export function SkillButtonComponent({ button, size, onMouseDown, onContextMenu,
   const removeBuff = useCallback((buffId: string) => {
     removeSkillButtonBuff(button.id, buffId);
     loadBuffList(); // 重新加载列表
+    loadPanelData();
 
     // 触发事件通知 CanvasBoard 从 timelineData 中移除 buffId
     emitSkillButtonBuffRemoved(button.id, buffId);
-  }, [button.id, loadBuffList]);
+  }, [button.id, loadBuffList, loadPanelData]);
 
   // 弹窗打开时加载数据，并设置当前选中的技能按钮
   useEffect(() => {
@@ -182,11 +188,12 @@ export function SkillButtonComponent({ button, size, onMouseDown, onContextMenu,
       // 只有当 Buff 是添加到当前按钮时才刷新
       if (buttonId === button.id) {
         loadBuffList();
+        loadPanelData();
       }
     });
 
     return unsubscribe;
-  }, [button.id, loadBuffList]);
+  }, [button.id, loadBuffList, loadPanelData]);
 
   /**
    * 处理鼠标按下事件

@@ -1,5 +1,6 @@
 .storage-debug-page {
-  min-height: 100vh;
+  height: 100vh;
+  overflow: auto;
   padding: 32px;
   color: #f4efe4;
   background:
@@ -69,14 +70,14 @@
   border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: 24px;
   background: rgba(7, 7, 7, 0.75);
-  overflow: hidden;
+  overflow: visible;
 }
 
 .storage-debug-markdown {
   margin: 0;
   padding: 24px 28px;
-  min-height: calc(100vh - 220px);
-  overflow: auto;
+  min-height: 0;
+  overflow: visible;
   white-space: pre-wrap;
   word-break: break-word;
   font: 14px/1.6 Consolas, Monaco, 'Courier New', monospace;
@@ -100,6 +101,6 @@
 
   .storage-debug-markdown {
     padding: 20px;
-    min-height: calc(100vh - 260px);
+    min-height: 0;
   }
 }

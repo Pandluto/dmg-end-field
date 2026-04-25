@@ -178,6 +178,27 @@ const WEAPON_PERCENTLIKE_STAT_TYPES = new Set<string>([
   'iceDmgBonus',
   'healingBonus',
 ]);
+const LEGACY_SKILL3_PASSIVE_PERCENTLIKE_STAT_TYPES = new Set<string>([
+  'atkPercent',
+  'subStat',
+  'subStatBoost',
+  'allStatBoost',
+  'critRate',
+  'critDmgBonus',
+  'magicDmgBoost',
+  'physicalDmgBonus',
+  'burnDmgBonus',
+  'fireDmgBonus',
+  'iceDmgBonus',
+  'natureDmgBonus',
+  'electricDmgBonus',
+  'magicDmgBonus',
+  'allSkillDmgBonus',
+  'skillDmgBonus',
+  'chainSkillDmgBonus',
+  'ultimateDmgBonus',
+  'normalAttackDmgBonus',
+]);
 // 默认潜在
 const getDefaultCharacterPotential = (rarity?: number) => (rarity === 6 ? '0潜' : '满潜');
 // 装备配置
@@ -540,7 +561,10 @@ export function OperatorConfigPanel({
 
   const weaponOtherUnconditionalMap: Record<string, number> = {};// 其他非百分比加成
   // 百分比加成
-  const isPercentLike = (statType: string, value: number) => WEAPON_PERCENTLIKE_STAT_TYPES.has(statType) || (value >= -1 && value <= 1);
+  const isPercentLike = (statType: string, value: number) =>
+    WEAPON_PERCENTLIKE_STAT_TYPES.has(statType) ||
+    LEGACY_SKILL3_PASSIVE_PERCENTLIKE_STAT_TYPES.has(statType) ||
+    (value >= -1 && value <= 1);
   const formatUnconditionalValue = (statType: string, value: number) =>
     isPercentLike(statType, value) ? toPercentText(value) : `${toFixedNumber(value)}`;
   const recordWeaponUnconditional = (
@@ -558,17 +582,40 @@ export function OperatorConfigPanel({
       weaponAbilityFlatByField[abilityField] += value;
       return;
     }
-    if (!WEAPON_FORMAL_STAT_TYPES.has(statType)) {
+    if (sourceSlot === 'skill2' && !WEAPON_FORMAL_STAT_TYPES.has(statType)) {
       weaponOtherUnconditionalMap[statType] = (weaponOtherUnconditionalMap[statType] ?? 0) + value;
       return;
     }
   
     switch (statType) {
+      case 'mainStat':
+      case 'mainStatBoost':
+        weaponMainStatFlatBonus += value;
+        return;
+      case 'subStatFlat':
+        weaponSubStatFlatBonus += value;
+        return;
+      case 'mainStatBoostRate':
+        weaponMainStatBoostBonus += value;
+        return;
+      case 'subStat':
+      case 'subStatBoost':
+        weaponSubStatBoostBonus += value;
+        return;
+      case 'allStatBoost':
+        weaponAllStatBoostBonus += value;
+        return;
       case 'atkPercent':
         weaponPassiveAtkPercent += value;
         return;
+      case 'atk':
+        weaponPassiveAtk += value;
+        return;
       case 'critRate':
         weaponCritRate += value;
+        return;
+      case 'critDmgBonus':
+        weaponOtherUnconditionalMap[statType] = (weaponOtherUnconditionalMap[statType] ?? 0) + value;
         return;
       case 'memoryStrength':
         weaponMemoryStrength += value;
@@ -581,6 +628,27 @@ export function OperatorConfigPanel({
         return;
       case 'healingBonus':
         weaponHealingBonus += value;
+        return;
+      case 'allSkillDmgBonus':
+        weaponAllSkillDmgBonus += value;
+        return;
+      case 'skillDmgBonus':
+        weaponSkillDmgBonus += value;
+        return;
+      case 'chainSkillDmgBonus':
+        weaponChainSkillDmgBonus += value;
+        return;
+      case 'ultimateDmgBonus':
+        weaponUltimateDmgBonus += value;
+        return;
+      case 'normalAttackDmgBonus':
+        weaponNormalAttackDmgBonus += value;
+        return;
+      case 'magicDmgBoost':
+        weaponMagicDmgBonus += value;
+        return;
+      case 'burnDmgBonus':
+        weaponFireDmgBonus += value;
         return;
       case 'magicDmgBonus':
         weaponMagicDmgBonus += value;

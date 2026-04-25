@@ -14,7 +14,7 @@ import {
   saveTimelineData as saveTimelineRepo,
   loadTimelineData as loadTimelineRepo,
 } from '../repositories';
-import { cleanupBuffsOnButtonRemove } from './buffService';
+import { cleanupBuffsOnButtonRemove, recomputeSkillButtonPanel } from './buffService';
 
 /**
  * 创建空的 Timeline 数据
@@ -108,6 +108,7 @@ export function addSkillButton(
   // 同时写入 skill-button 总表
   const persistedButton: PersistedSkillButton = {
     id: buttonId,
+    characterId: buttonData.characterName,
     characterName: buttonData.characterName,
     skillType: buttonData.skillType,
     staffIndex: buttonData.staffIndex,
@@ -115,10 +116,15 @@ export function addSkillButton(
     nodeNumber: newButton.nodeNumber,
     position: buttonData.position,
     selectedBuff: [],
+    panelConfig: {
+      selectedBuff: [],
+    },
+    panelSnapshot: null,
     createdAt: Date.now(),
     updatedAt: Date.now(),
   };
   upsertSkillButton(persistedButton);
+  recomputeSkillButtonPanel(buttonId);
 
   // 更新 timelineData
   const newTimelineData: TimelineData = {
@@ -436,7 +442,12 @@ export function updateSelectedBuffList(buttonId: string, buffIds: string[]): voi
     upsertSkillButton({
       ...existingButton,
       selectedBuff: buffIds,
+      panelConfig: {
+        ...(existingButton.panelConfig ?? { selectedBuff: [] }),
+        selectedBuff: [...buffIds],
+      },
       updatedAt: Date.now(),
     });
+    recomputeSkillButtonPanel(buttonId);
   }
 }

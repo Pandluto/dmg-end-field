@@ -112,6 +112,7 @@ export function migrateOldBuffStorage(): void {
     if (buttonInfo) {
       newSkillButtonTable[buttonId] = {
         id: buttonId,
+        characterId: buttonInfo.characterName,
         characterName: buttonInfo.characterName,
         skillType: buttonInfo.skillType,
         staffIndex: buttonInfo.staffIndex,
@@ -119,6 +120,10 @@ export function migrateOldBuffStorage(): void {
         nodeNumber: buttonInfo.nodeNumber,
         position: buttonInfo.position,
         selectedBuff: selectedBuffIds,
+        panelConfig: {
+          selectedBuff: [...selectedBuffIds],
+        },
+        panelSnapshot: null,
         createdAt: Date.now(),
         updatedAt: Date.now(),
       };
@@ -126,6 +131,7 @@ export function migrateOldBuffStorage(): void {
       // 如果找不到 button 信息，创建一个基本的记录
       newSkillButtonTable[buttonId] = {
         id: buttonId,
+        characterId: '',
         characterName: '',
         skillType: '',
         staffIndex: 0,
@@ -133,6 +139,10 @@ export function migrateOldBuffStorage(): void {
         nodeNumber: 0,
         position: { x: 0, y: 0 },
         selectedBuff: selectedBuffIds,
+        panelConfig: {
+          selectedBuff: [...selectedBuffIds],
+        },
+        panelSnapshot: null,
         createdAt: Date.now(),
         updatedAt: Date.now(),
       };

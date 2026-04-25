@@ -154,6 +154,11 @@
   pointer-events: auto;
 }
 
+.workbench-selection-bottom-bar > .workbench-top-trigger:last-child {
+  grid-column: 3;
+  justify-self: end;
+}
+
 /* 选人界面布局 */
 .selection-workbench-layout {
   display: block;

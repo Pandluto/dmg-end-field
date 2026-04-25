@@ -234,8 +234,8 @@ export function calculateSkillButtonDamage(
   const damageBonusRate = 1 + elementDmgBonus + skillDmgBonus + allDmgBonus;
 
   // 6. 计算暴击期望
-  const critRate = panelData.critRate + buffTotals.critRateBoost;
-  const critDmg = panelData.critDmg + buffTotals.critDmgBonusBoost;
+  const critRate = panelData.critRate;
+  const critDmg = panelData.critDmg;
   const critExpected = 1 + critRate * critDmg;
 
   // 7. 计算增幅区

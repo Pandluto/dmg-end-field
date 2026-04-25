@@ -14,9 +14,64 @@ import {
   removeBuffById,
   getAllBuffList,
 } from '../repositories';
+import { calculateBuffTotals } from '../calculators/buffCalculator';
+import { getCharacterConfig, getCharacterComputed } from '../../utils/storage';
 
 // 运行时缓存（用于快速访问）
 let buffCache: Record<string, SkillButtonBuff> = {};
+
+function buildSkillButtonPanelSnapshot(buttonId: string) {
+  const button = getSkillButtonById(buttonId);
+  if (!button) return null;
+
+  const characterId = button.characterId || button.characterName;
+  //const characterConfig = getCharacterConfig(characterId);  // 角色输入配置
+  const characterComputed = getCharacterComputed(characterId);  
+  // 角色计算值用ddd.operator-runtime.character-computed-map.v3
+
+  const nowTimePanel = characterComputed?.panel; // 当前时间面板数据
+ 
+  if ( !nowTimePanel ) {
+    return null;
+  }
+
+  //const equipment = characterComputed.equipment ?? {};
+  const buffList = getBuffsByButtonId(buttonId);
+  const buffTotals = calculateBuffTotals(buffList);
+  // 计算最终攻击力加成 统一成小数
+  const addAtkPercentBoost = buffTotals.atkPercentBoost + nowTimePanel.weaponAtkPercent * 0.01;
+  const abilityAtkPercentBonus = (nowTimePanel.subStatFinal * 0.2 + nowTimePanel.mainStatFinal * 0.5) * 0.01;
+  const nowBaseAtk = (nowTimePanel.characterAtk + nowTimePanel.weaponAtk) * (1 + addAtkPercentBoost);
+  //console.log("addAtkPercentBoost=", addAtkPercentBoost); 
+  //console.log("abilityAtkPercentBonus=", abilityAtkPercentBonus); 
+
+  return {
+    
+    atk: (nowBaseAtk * (1 + abilityAtkPercentBonus)),
+    critRate: (nowTimePanel.critRate ?? 0.05 ) + buffTotals.critRateBoost,
+    critDmg: (nowTimePanel.critDmg ?? 0.5 ) + buffTotals.critDmgBonusBoost,
+    // TODO: 使用 characterComputed 整合两个数据源
+    characterComputed,
+  };
+}
+
+export function recomputeSkillButtonPanel(buttonId: string): void {
+  const button = getSkillButtonById(buttonId);
+  if (!button) return;
+
+  const selectedBuff = [...(button.selectedBuff || [])];
+  const panelSnapshot = buildSkillButtonPanelSnapshot(buttonId);
+
+  upsertSkillButton({
+    ...button,
+    panelConfig: {
+      ...(button.panelConfig ?? { selectedBuff: [] }),
+      selectedBuff,
+    },
+    panelSnapshot,
+    updatedAt: Date.now(),
+  });
+}
 
 /**
  * 从 repository 加载所有 Buff 到缓存
@@ -82,8 +137,13 @@ export function addBuffToButton(
   upsertSkillButton({
     ...button,
     selectedBuff: [...currentSelectedBuff, buffId],
+    panelConfig: {
+      ...(button.panelConfig ?? { selectedBuff: [] }),
+      selectedBuff: [...currentSelectedBuff, buffId],
+    },
     updatedAt: Date.now(),
   });
+  recomputeSkillButtonPanel(buttonId);
 
   console.log('[buffService] 已添加 Buff:', buttonId, buff.displayName, buffId);
   return { success: true, buffId };
@@ -116,8 +176,13 @@ export function removeBuffFromButton(buttonId: string, buffId: string): void {
     upsertSkillButton({
       ...button,
       selectedBuff: newSelectedBuff,
+      panelConfig: {
+        ...(button.panelConfig ?? { selectedBuff: [] }),
+        selectedBuff: newSelectedBuff,
+      },
       updatedAt: Date.now(),
     });
+    recomputeSkillButtonPanel(buttonId);
   }
 
   // 2. 检查 Buff 是否还被其他 button 引用
@@ -148,8 +213,13 @@ export function clearButtonBuffs(buttonId: string): void {
   upsertSkillButton({
     ...button,
     selectedBuff: [],
+    panelConfig: {
+      ...(button.panelConfig ?? { selectedBuff: [] }),
+      selectedBuff: [],
+    },
     updatedAt: Date.now(),
   });
+  recomputeSkillButtonPanel(buttonId);
 
   // 3. 对旧 buffIds 执行引用检查（此时当前 button 已不持有这些 Buff）
   oldSelectedBuff.forEach(buffId => {
