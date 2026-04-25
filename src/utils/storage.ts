@@ -510,6 +510,14 @@ export function setStorageJson<T>(key: string, value: T): void {
   safeSessionStorage.setItem(key, JSON.stringify(value));
 }
 
+export function getSelectedCharacterIds(): string[] {
+  return getStorageJson<string[]>(STORAGE_KEYS.SELECTED_CHARACTERS, []);
+}
+
+export function setSelectedCharacterIds(characterIds: string[]): void {
+  setStorageJson(STORAGE_KEYS.SELECTED_CHARACTERS, characterIds);
+}
+
 // ==================== v2 新缓存模型 - skill-button 总表 ====================
 
 function normalizePersistedSkillButton(button: PersistedSkillButton): PersistedSkillButton {

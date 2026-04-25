@@ -1,424 +1,413 @@
-# review-todo0.5.12：武器正式字段收口 + `critRate` 进不了面板与伤害计算链路
+# review-todo0.5.12：重选角色后的主从表同步与恢复渲染
 
-## [任务理解]
+## [本轮目标]
 
-- 本轮要先收口武器正式字段，再修 `critRate` 进不了主链路的问题。
-- 武器 `skill2.statType` 和 `skill3.levels.*.passive` 的正式字段只保留 12 个：
-  - `atkPercent`
-  - `fireDmgBonus`
-  - `natureDmgBonus`
-  - `ultimateChargeEfficiency`
-  - `hpPercent`
-  - `electricDmgBonus`
-  - `critRate`
-  - `magicDmgBonus`
-  - `physicalDmgBonus`
-  - `iceDmgBonus`
-  - `memoryStrength`
-  - `healingBonus`
-- 其他字段不能再作为武器正式字段继续扩散进 `max.json.passive` 或 `skill2.statType`。
-- 当前已明确受影响武器是 `狼之绯`，它的 `skill2.statType = critRate`，数值本该进入武器面板、持久化缓存和技能伤害计算。
+本轮只解决一件事：
 
-## [当前结论]
+- 当用户在选人页重新确认角色列表后，系统必须正确处理：
+  - 哪些角色被保留
+  - 哪些角色是新增
+  - 哪些角色被移除
+  - 哪些角色虽然保留，但 1/2/3/4 位次发生了变化
 
-- 当前问题分两层：
-  - 第一层：武器正式字段口径失控，`OperatorConfigPanel.tsx` 仍在消费一批不应该继续保留的历史字段
-  - 第二层：即便 `critRate` 已经出现在武器数据里，也没有进入主链路
-- 完整调用链：
-  - `public/data/weapons/{武器名}/{武器名}max.json`
-  - `src/components/CanvasBoard/components/OperatorConfigPanel.tsx`
-  - `recordWeaponUnconditional()`
-  - `panelSnapshot`
-  - `src/utils/storage.ts`
-  - `src/components/CanvasBoard/SkillButton.tsx`
-  - `src/core/calculators/skillButtonDamageCalculator.ts`
-- 具体失败点：
-  - `OperatorConfigPanel.tsx` 近 `510-532` 的 `percentLikeKeySet` 和近 `547-615` 的 `recordWeaponUnconditional()` 仍在容纳大量历史字段
-  - 当前实际仍在代码里可命中的武器字段超过 12 个，已经超出口径
-  - `critRate` 虽然被写进 `percentLikeKeySet`，但 `recordWeaponUnconditional()` 没有 `case 'critRate'`
-  - `electricDmgBonus` 也没有 `case`
-  - `ultimateChargeEfficiency`、`hpPercent`、`healingBonus` 目前没有任何武器面板接入分支
-  - `src/types/storage.ts` 的 `CharacterComputedCache.panel` / `PanelSummary` 没有 `critRate`、`critDmg`
-  - `src/components/CanvasBoard/SkillButton.tsx` 近 `121-136` 的 `loadPanelData()` 直接写死：
-    - `critRate: 0.05 + equipment.critRateBoost`
-    - `critDmg: 0.5 + equipment.critDmgBonusBoost`
-- 当前需要保留的武器正式字段只有这 12 个：
-  - `atkPercent`
-  - `fireDmgBonus`
-  - `natureDmgBonus`
-  - `ultimateChargeEfficiency`
-  - `hpPercent`
-  - `electricDmgBonus`
-  - `critRate`
-  - `magicDmgBonus`
-  - `physicalDmgBonus`
-  - `iceDmgBonus`
-  - `memoryStrength`
-  - `healingBonus`
-- 当前应去除出正式口径的字段包括：
-  - `strength`
-  - `agility`
-  - `intelligence`
-  - `will`
-  - `mainStat`
-  - `mainStatBoost`
-  - `subStatFlat`
-  - `mainStatBoostRate`
-  - `subStat`
-  - `subStatBoost`
-  - `allStatBoost`
-  - `atk`
-  - `allSkillDmgBonus`
-  - `skillDmgBonus`
-  - `chainSkillDmgBonus`
-  - `ultimateDmgBonus`
-  - `normalAttackDmgBonus`
-  - `critDmgBonus`
-  - `magicDmgBoost`
-  - `burnDmgBonus`
-- 结果：
-  - 武器正式字段边界不清
-  - `狼之绯.skill2 = critRate` 不进配置面板最终值
-  - 刷新页面后不会恢复
-  - 技能按钮弹窗的暴击期望始终忽略武器 `critRate`
+最终要达到的结果是：
 
-## [必须改]
+1. 当前生效角色列表有明确主表，并进入持久化。
+2. 重选确认后，`timeline.data.v1` 和 `ddd.skill-button.v1` 按差量迁移，不再直接清空。
+3. 保留角色的按钮、排轴、Buff 不丢失，只跟着新位次迁移。
+4. 被移除角色的按钮和关联数据被清理。
+5. 浏览器刷新后，只有关键主表完整时才恢复渲染；否则直接冷启动。
 
-### 1. 先把武器正式字段收口成固定 12 个
+一句话收口：
 
-文件：
-
-- `src/components/CanvasBoard/components/OperatorConfigPanel.tsx`
-
-函数：
-
-- `recordWeaponUnconditional()`
-
-问题：
-
-- 当前 `recordWeaponUnconditional()` 仍在消费大量历史字段，已经超出武器正式字段范围。
-
-原因：
-
-- 现有逻辑同时支持：
-  - 四维属性字段
-  - 主副能力字段
-  - 全技能伤害字段
-  - `atk`
-  - `critDmgBonus`
-  - 历史别名字段
-- 这和当前武器字段口径冲突。
-
-修正要求：
-
-- `OperatorConfigPanel.tsx` 中武器正式字段只允许保留这 12 个入口：
-  - `atkPercent`
-  - `fireDmgBonus`
-  - `natureDmgBonus`
-  - `ultimateChargeEfficiency`
-  - `hpPercent`
-  - `electricDmgBonus`
-  - `critRate`
-  - `magicDmgBonus`
-  - `physicalDmgBonus`
-  - `iceDmgBonus`
-  - `memoryStrength`
-  - `healingBonus`
-- 删除或停止消费超出口径的武器字段分支：
-  - `strength/agility/intelligence/will`
-  - `mainStat/mainStatBoost/subStatFlat/mainStatBoostRate/subStat/subStatBoost/allStatBoost`
-  - `atk`
-  - `allSkillDmgBonus/skillDmgBonus/chainSkillDmgBonus/ultimateDmgBonus/normalAttackDmgBonus`
-  - `critDmgBonus`
-  - `magicDmgBoost`
-  - `burnDmgBonus`
-- `percentLikeKeySet` 也必须同步收口，不要留历史脏字段继续冒充正式口径。
-
-验证方式：
-
-- 武器 `skill2.statType` / `skill3.passive` 只再命中上述 12 个字段
-- 超出口径的旧字段不会再被当成正式武器字段参与面板累计
-- 不允许再出现“代码能吃但文档不认”的状态
+- 本轮要建立“主表 -> 从表 -> UI 恢复”的完整顺序。
 
 ---
 
-### 2. 在正式字段范围内补齐当前缺失字段入口
+## [总原则]
 
-文件：
+### 1. 主表先行
 
-- `src/components/CanvasBoard/components/OperatorConfigPanel.tsx`
+当前生效角色列表必须是主表。
 
-函数：
+- 主表：`selectedCharacters`
+- 从表：
+  - `ddd.timeline.data.v1`
+  - `ddd.skill-button.v1`
+  - `ddd.all-buff-list.v1`
+  - `character-input/computed/display`
 
-- `recordWeaponUnconditional()`
+原则是：
 
-问题：
+- 主表决定当前是谁、顺序是什么。
+- 从表只能跟随主表迁移和恢复。
+- 不允许从表脱离主表单独恢复。
 
-- 当前 12 个正式字段里，至少以下字段没有完整入口：
-  - `critRate`
-  - `electricDmgBonus`
-  - `ultimateChargeEfficiency`
-  - `hpPercent`
-  - `healingBonus`
+### 2. 重选必须做差量迁移
 
-原因：
+重选角色确认后，不允许继续使用：
 
-- `switch (statType)` 没有对应 `case`，或者没有对应面板累计变量。
+- 直接 `CLEAR_SKILL_BUTTONS`
+- 再重新生成空画布
 
-修正要求：
+因为这会把“保留角色”的旧排轴和按钮一起抹掉。
 
-- 在 `recordWeaponUnconditional()` 中补齐以下正式字段入口：
-  - `critRate`
-  - `electricDmgBonus`
-  - `ultimateChargeEfficiency`
-  - `hpPercent`
-  - `healingBonus`
-- 每个字段都必须有明确归属，不允许继续掉进 `weaponOtherUnconditionalMap`
-- 如果当前 `panelSnapshot` 没有对应字段承接，必须在同轮补齐，不要只做文案展示
+正确做法是：
 
-验证方式：
+- 先对比旧角色列表和新角色列表
+- 再按对比结果改持久化层
+- 最后再触发画布恢复
 
-- 这 5 个字段出现在武器 `max.json` 时，不再只显示调试文案，必须进入可消费的最终面板 / 缓存结构
+### 3. 浏览器刷新只认关键主表
+
+本轮把浏览器刷新的恢复门槛明确成两个 key：
+
+- `selectedCharacters`
+- `ddd.timeline.data.v1`
+
+规则固定为：
+
+- 两个都在：允许恢复渲染
+- 任意一个缺失：直接冷启动
+
+冷启动时：
+
+- `selectedCharacters = []`
+- `skillButtons = []`
+- `currentView = selection`
+- 不恢复任何从表
 
 ---
 
-### 3. 让武器无条件 `critRate` 真正进入面板累计
+## [实现细节]
+
+### 一、建立 `selectedCharacters` 主表持久化
 
 文件：
 
-- `src/types/storage.ts`
+- `src/constants/storage-keys.ts`
+- `src/utils/storage.ts`
+- `src/context/AppContext.tsx`
+
+要做的事：
+
+- 新增一个主表 key，例如：
+  - `ddd.selected-characters.v1`
+- 只存最小必要数据：
+  - `characterIds: string[]`
+- 顺序必须保留，因为顺序就是 1/2/3/4 位次。
+
+实现要求：
+
+- `AppContext.tsx` 中读取主表，恢复“当前生效角色列表”
+- `AppContext.tsx` 中监听当前生效角色列表变化，回写主表
+- 不要把完整 `Character` 对象整份落盘
+
+验证方式：
+
+- 刷新页面后，主表能按原顺序恢复
+- `/storage` 页面能看到 `ddd.selected-characters.v1`
+
+---
+
+### 二、把选人页拆成“草稿选人”和“已生效选人”
+
+文件：
+
+- `src/components/SelectionPanel/index.tsx`
+- `src/context/AppContext.tsx`
+- `src/components/WorkbenchFrame/WorkbenchFrame.tsx`
+
+要做的事：
+
+- 选人页中的勾选，不应立即污染当前画布上下文。
+- 当前应该至少分成两份状态：
+  - `draftSelectedCharacters`
+  - `confirmedSelectedCharacters`
+
+角色配置面板、技能沙盒、排轴、按钮恢复，必须统一吃：
+
+- `confirmedSelectedCharacters`
+
+实现要求：
+
+- 用户在选人页勾选时，只改 `draft`
+- 用户点击“开始排轴”时，才把 `draft` 提交为 `confirmed`
+- 提交时进入差量迁移，不允许先清空画布
+
+验证方式：
+
+- 在选人页还没确认前，画布不被临时勾选干扰
+- 点击“开始排轴”后，工作台才切到新角色顺序
+
+---
+
+### 三、确认重选时先做 diff
+
+文件：
+
+- `src/components/SelectionPanel/index.tsx`
+- `src/context/AppContext.tsx`
+- 如有需要可新增 `src/core/services/selectedCharacterService.ts`
+
+要做的事：
+
+- 在“旧 confirmed 列表”和“新 draft 列表”之间做对比
+
+对比结果必须产出 4 类：
+
+1. `keptCharacters`
+   - 旧有，新也有
+
+2. `addedCharacters`
+   - 旧没有，新有
+
+3. `removedCharacters`
+   - 旧有，新没有
+
+4. `movedCharacters`
+   - 人没变，但位次变化
+
+实现要求：
+
+- 身份只看 `character.id`
+- 位次只看数组下标
+
+示例：
+
+- 旧：`[A, B, C]`
+- 新：`[B, A, D]`
+
+diff 结果必须是：
+
+- 保留：`A, B`
+- 新增：`D`
+- 移除：`C`
+- 位次变化：`A, B`
+
+验证方式：
+
+- 把 diff 结果打印到日志或调试输出里，确保和预期一致
+
+---
+
+### 四、对 `ddd.timeline.data.v1` 做差量迁移
+
+文件：
+
+- `src/core/services/timelineService.ts`
+- `src/hooks/useTimelineData.ts`
+
+要做的事：
+
+- 新增一个专门处理“角色重选确认后”迁移时间轴的入口，例如：
+  - `reconcileTimelineDataBySelectedCharacters(...)`
+
+迁移规则：
+
+- 对保留角色：
+  - 保留原按钮和 occupiedNodes
+  - staffLine 跟着新位次重排
+
+- 对移除角色：
+  - 删除对应 staffLine
+
+- 对新增角色：
+  - 新建空 staffLine
+
+实现要求：
+
+- `timeline.staffLines` 的最终顺序必须严格等于新的角色顺序
+- 不允许继续按旧数组下标硬继承
+- `normalizeTimelineData()` 可以复用，但不能代替整个迁移流程
+
+验证方式：
+
+- `[A, B, C] -> [B, A, D]` 后：
+  - `staffLines[0].characterName === B`
+  - `staffLines[1].characterName === A`
+  - `staffLines[2].characterName === D`
+  - `A/B` 旧按钮仍在
+  - `C` 的 staffLine 被移除
+
+---
+
+### 五、对 `ddd.skill-button.v1` 做差量迁移
+
+文件：
+
+- `src/core/repositories/skillButtonRepository.ts`
+- `src/core/services/timelineService.ts`
+- `src/core/services/buffService.ts`
+
+要做的事：
+
+- `ddd.skill-button.v1` 里按钮是从属于角色和位次的。
+- 角色重选后，按钮不能留在旧 staffIndex。
+
+迁移规则：
+
+- 对保留角色：
+  - 保留按钮
+  - 更新按钮的 `staffIndex`
+  - 如果 UI 依赖 `lineIndex`，也要一起更新
+
+- 对移除角色：
+  - 删除该角色全部按钮
+  - 同时清理其 Buff 引用
+
+- 对新增角色：
+  - 不生成旧按钮
+  - 保持空位
+
+实现要求：
+
+- 迁移完成后，如按钮级面板依赖角色位次上下文，统一重算一次：
+  - `recomputeSkillButtonPanel(buttonId)`
+
+验证方式：
+
+- `[A, B, C] -> [B, A, D]` 后：
+  - `A/B` 的按钮仍在
+  - 它们的 `staffIndex` 已更新
+  - `C` 的按钮从 `ddd.skill-button.v1` 中消失
+
+---
+
+### 六、去掉 `CanvasBoard` 的一次性恢复门闩
+
+文件：
+
+- `src/components/CanvasBoard/index.tsx`
+
+要做的事：
+
+- 当前恢复逻辑被 `hasRestoredRef` 限制为只执行一次。
+- 这不适合“角色集合确认后再恢复”。
+
+实现要求：
+
+- 不再让恢复逻辑永久只跑一次
+- 恢复触发条件改成：
+  - 当前生效角色列表已就绪
+  - `timeline.data.v1` 已完成迁移或可正常读取
+- 画布按钮恢复时：
+  - `staffIndex`
+  - `lineIndex`
+  必须按新位次重新映射
+
+验证方式：
+
+- 重选角色确认后，不刷新页面，画布能立即按新顺序恢复
+
+---
+
+### 七、浏览器刷新后的恢复门槛
+
+文件：
+
+- `src/context/AppContext.tsx`
+- `src/components/CanvasBoard/index.tsx`
+- `src/hooks/useTimelineData.ts`
 - `src/utils/storage.ts`
 
-函数 / 类型：
+要做的事：
 
-- `CharacterComputedCache.panel`
-- `PanelSummary`
-- `mergeV3ToV2()`
-- `setCharacterConfig()`
+- 浏览器刷新后，不能继续“有啥读啥”。
+- 必须先判断关键主表是否完整。
 
-问题：
+关键主表只认两个：
 
-- 即使 `OperatorConfigPanel` 算出了武器暴击，当前缓存结构也没有字段承接。
+- `selectedCharacters`
+- `ddd.timeline.data.v1`
 
-原因：
+实现要求：
 
-- `panel` 和 `panelSnapshot` 只存：
-  - `atk / baseAtk / strength / agility / intelligence / will / weaponAtkPercent / weaponAllSkillDmgBonus`
-- 不存：
-  - `critRate`
-  - `critDmg`
+- 两个都在：允许恢复渲染
+- 任意一个缺失：直接冷启动
 
-修正要求：
+冷启动统一行为：
 
-- 在 [src/types/storage.ts](/C:/Users/zsk86/Desktop/dmg/dmg-end-field/src/types/storage.ts) 新增：
-  - `CharacterComputedCache.panel.critRate`
-  - `CharacterComputedCache.panel.critDmg`
-  - `PanelSummary.critRate`
-  - `PanelSummary.critDmg`
-- 在 [src/utils/storage.ts](/C:/Users/zsk86/Desktop/dmg/dmg-end-field/src/utils/storage.ts) 的：
-  - `mergeV3ToV2()`
-  - `setCharacterConfig()`
-  - `computed -> panelSnapshot` 映射
-  补齐这两个字段的读写
-- 老数据兼容要求：
-  - 旧缓存没有 `critRate / critDmg` 时，不要炸
-  - 缺字段时允许回落到默认基础值
+- `selectedCharacters = []`
+- `skillButtons = []`
+- `currentView = selection`
+- 不恢复：
+  - `ddd.skill-button.v1`
+  - `ddd.all-buff-list.v1`
+  - `character-input/computed/display`
 
 验证方式：
 
-- 选中 `狼之绯` 后刷新页面，再打开同一角色配置：
-  - `panelSnapshot.critRate` 仍带武器值
-  - `panelSnapshot.critDmg` 仍可正常读取
+- 只删 `selectedCharacters`，保留 `timeline.data.v1`：冷启动
+- 只删 `timeline.data.v1`，保留 `selectedCharacters`：冷启动
+- 两者都在：正常恢复
 
 ---
-
-### 4. `SkillButton` 不再本地硬编码暴击
-
-文件：
-
-- `src/components/CanvasBoard/SkillButton.tsx`
-
-函数：
-
-- `loadPanelData()`
-
-问题：
-
-- 当前技能按钮弹窗绕过了 `panelSnapshot` 的真实暴击结果，直接本地硬编码基础值。
-
-原因：
-
-- 近 `121-136` 现在写死：
-  - `critRate: 0.05 + (equipment.critRateBoost ?? 0)`
-  - `critDmg: 0.5 + (equipment.critDmgBonusBoost ?? 0)`
-- 这会把武器无条件暴击完全绕开。
-
-修正要求：
-
-- `loadPanelData()` 改为优先读取：
-  - `snapshot.critRate`
-  - `snapshot.critDmg`
-- 只有旧缓存缺字段时，才允许回退到基础值：
-  - `0.05 + equipment.critRateBoost`
-  - `0.5 + equipment.critDmgBonusBoost`
-- `panelData` 的其他字段保持原样，不做无关重构
-
-验证方式：
-
-- `狼之绯` 装备后双击技能按钮：
-  - 弹窗中的 `暴击率`
-  - `暴击期望`
-  必须包含武器贡献
-
----
-
-### 5. 保证技能伤害计算消费的是修正后的面板暴击
-
-文件：
-
-- `src/core/calculators/skillButtonDamageCalculator.ts`
-
-函数：
-
-- `calculateSkillButtonDamage()`
-
-问题：
-
-- 计算器本身不是根因，但要确认它继续吃的是修正后的 `panelData`，而不是旧硬编码结果。
-
-原因：
-
-- 当前 `calculateSkillButtonDamage()` 近 `236-239` 只做：
-  - `const critRate = panelData.critRate + buffTotals.critRateBoost`
-  - `const critDmg = panelData.critDmg + buffTotals.critDmgBonusBoost`
-
-修正要求：
-
-- 本文件原则上不需要重写公式
-- 只确认入参 `panelData.critRate / critDmg` 已经来自修正后的 `panelSnapshot`
-- 如果当前类型定义缺字段导致报错，只做最小类型补齐，不重构公式
-
-验证方式：
-
-- 同一个按钮，不加任何 Buff 时：
-  - `critRate` 已经包含武器 `critRate`
-- 再加候选 Buff `critRateBoost` 时：
-  - 总暴击率 = 武器无条件暴击 + Buff 暴击
-
----
-
-### 6. 补充面板日志和信息快照，避免“值生效但看不见”
-
-文件：
-
-- `src/components/CanvasBoard/components/OperatorConfigPanel.tsx`
-
-问题：
-
-- 当前面板文本里有：
-  - `暴击率: 0.05 + equipment.critRateBoost`
-  - `暴击伤害: 0.5 + equipment.critDmgBonusBoost`
-- 即使数值接通，日志和信息区仍会误导。
-
-原因：
-
-- 信息快照文案仍是旧口径。
-
-修正要求：
-
-- `infoSnapshotLines` / 调试文本里的暴击段，改成输出最终值
-- 文案口径要与 `panelSnapshot.critRate / critDmg` 一致
-- 不用新增复杂拆解，只要不再写死旧公式
-
-验证方式：
-
-- 装备 `狼之绯` 后，信息弹窗和技能伤害弹窗的暴击率显示一致
-
-## [可选优化]
-
-- 在 `recordWeaponUnconditional()` 的 `default` 分支对未知 `statType` 增加开发态警告，减少以后再出现 silent no-op。
 
 ## [不要动]
 
-- 不改武器搜索：
-  - `src/utils/weaponFuzzySearch.ts`
-- 不改 `public/data/weapons` 文件结构
-- 不改 `buff.json` 处理逻辑
-- 不改 `DamageTab`、`useSkillButtonBuffs.ts`、候选 Buff 实体表
-- 不改 `equipmentParser.ts`
-- 不批量修历史武器
-- 不重写 `calculateSkillButtonDamage()` 总公式
-- 不把去除的历史字段换个别名继续保留在武器正式口径里
+- 不要改武器、装备、Buff、伤害公式。
+- 不要顺手重构整个 `AppContext` 架构。
+- 不要再用“确认选人时直接 `CLEAR_SKILL_BUTTONS`”。
+- 不要让从表在关键主表缺失时单独恢复。
+- 不要只做 `selectedCharacters` 持久化而不处理差量迁移。
+
+---
 
 ## [验收标准 AC]
 
-- AC1：武器正式字段只剩这 12 个：
-  - `atkPercent`
-  - `fireDmgBonus`
-  - `natureDmgBonus`
-  - `ultimateChargeEfficiency`
-  - `hpPercent`
-  - `electricDmgBonus`
-  - `critRate`
-  - `magicDmgBonus`
-  - `physicalDmgBonus`
-  - `iceDmgBonus`
-  - `memoryStrength`
-  - `healingBonus`
-- AC2：超出口径的历史字段不再作为正式武器字段被消费
-- AC3：装备 `狼之绯` 后，配置面板最终暴击率包含 `skill2` 的 `critRate`
-- AC4：刷新页面后，`panelSnapshot.critRate / critDmg` 不丢失
-- AC5：双击技能按钮后，伤害弹窗 `暴击率 / 暴击伤害 / 暴击期望` 与配置面板一致
-- AC6：`calculateSkillButtonDamage()` 继续支持候选 Buff 的：
-  - `critRateBoost`
-  - `critDmgBonusBoost`
-  并在武器暴击基础上叠加
-- AC7：不装备 `狼之绯` 的旧角色旧武器，暴击显示不回退、不报错
+- AC1：`selectedCharacters` 有独立主表持久化，并且顺序可恢复。
+- AC2：重选确认时，系统能正确区分保留、新增、移除、位次变化。
+- AC3：保留角色的按钮和排轴不丢失，只迁移到新位次。
+- AC4：移除角色的按钮、排轴和关联 Buff 被清理。
+- AC5：新增角色生成空 staffLine，不继承旧按钮。
+- AC6：不刷新页面，确认重选后：
+  - 技能沙盒
+  - 角色配置面板
+  - 画布按钮
+  一起切到新顺序。
+- AC7：浏览器刷新后：
+  - 两个关键主表都在时，完整恢复渲染
+  - 任意一个缺失时，直接冷启动
+- AC8：`npm run build` 通过。
+
+---
 
 ## [回归检查项]
 
-1. 用现有武器数据扫一遍：
-   - `skill2.statType`
-   - `skill3.passive`
-   不应再出现超出 12 个正式字段的新写法被主链路吞进去
+1. `[A, B, C] -> [A, B, C]`
+   - 无变化时，不误删按钮。
 
-2. 不带武器时打开任意技能按钮：
-   - 暴击率仍是基础值 + 装备暴击
+2. `[A, B, C] -> [B, A, C]`
+   - 只有位次变化时，按钮保留并交换位次。
 
-3. 装备 `狼之绯`：
-   - 配置面板暴击率变化
-   - 技能按钮弹窗暴击率同步变化
+3. `[A, B, C] -> [B, A, D]`
+   - `C` 被删
+   - `D` 新增空位
+   - `A/B` 保留并迁移
 
-4. 装备 `狼之绯` 再给按钮添加一个 `critRateBoost` Buff：
-   - 最终暴击率继续上涨
-   - 伤害期望继续变化
+4. `[A, B] -> [A]`
+   - `B` 的 staffLine、按钮、Buff 一起被清理。
 
-5. 刷新页面：
-   - 当前角色武器配置仍在
-   - 面板暴击率和技能弹窗暴击率仍一致
+5. 浏览器刷新
+   - 两个关键主表都在：恢复正常
+   - 缺任意一个：直接冷启动
+
+---
 
 ## [给 Trae 的执行指令]
 
-1. 先改 `src/components/CanvasBoard/components/OperatorConfigPanel.tsx`
-   - 先把武器正式字段收口成 12 个
-   - 删掉超出口径的消费分支
-   - 再补 `critRate / electricDmgBonus / ultimateChargeEfficiency / hpPercent / healingBonus` 的正式入口
-   - 其中 `critRate` 必须进入最终面板累计
-
-2. 再改 `src/types/storage.ts` 和 `src/utils/storage.ts`
-   - 给 `computed.panel / panelSnapshot` 加 `critRate / critDmg`
-   - 做旧缓存兼容
-
-3. 再改 `src/components/CanvasBoard/SkillButton.tsx`
-   - `loadPanelData()` 改读 `panelSnapshot.critRate / critDmg`
-   - 只在缺字段时回退旧默认值
-
-4. 最后检查 `src/core/calculators/skillButtonDamageCalculator.ts`
-   - 只补必要类型，不重写公式
-
-5. 完成后必须提交：
+1. 先新增 `selectedCharacters` 主表持久化，只存角色 `id` 顺序。
+2. 再把选人页拆成“草稿选人”和“已生效选人”。
+3. 再实现确认重选时的 diff 逻辑。
+4. 再实现 `timeline.data.v1` 的差量迁移。
+5. 再实现 `ddd.skill-button.v1` 的差量迁移和清理。
+6. 最后改 `CanvasBoard` 的恢复逻辑和浏览器刷新门槛。
+7. 完成后必须提交：
    - 修改文件清单
-   - 武器正式字段收口后的最终名单
-   - `狼之绯` 装备前后暴击率对比
-   - 刷新页面后的恢复结果
-   - 技能按钮弹窗里暴击期望已吃到武器 `critRate` 的验证结果
+   - 旧选人 / 新选人 / diff 结果示例
+   - `timeline.data.v1` 迁移前后片段
+   - `ddd.skill-button.v1` 迁移前后片段
+   - 三组重选场景手测结果
+   - 两组浏览器刷新结果
+   - `npm run build` 结果

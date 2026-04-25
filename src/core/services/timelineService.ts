@@ -4,11 +4,18 @@
  * 不依赖 React，不访问 DOM
  */
 
-import { SkillButtonData, TimelineData, StaffLineData } from '../../types';
+import { SkillButtonData, TimelineData, StaffLineData, SkillType } from '../../types';
 import { PersistedSkillButton } from '../../types/storage';
 import { calculateNodeNumber } from '../../utils/nodeNumbering';
 import {
+  getGridGroupTop,
+  getGridLineCenterY,
+  GRID_NODE_COUNT,
+} from '../calculators/gridSnapLayout';
+import {
   getSkillButtonById,
+  getSkillButtonTable,
+  setSkillButtonTable,
   upsertSkillButton,
   removeSkillButtonById,
   saveTimelineData as saveTimelineRepo,
@@ -87,6 +94,108 @@ export function normalizeTimelineData(
     staffLines: normalizedStaffLines,
     updatedAt: Date.now(),
   };
+}
+
+function getButtonGroupIndex(globalNodeIndex: number): number {
+  if (!Number.isFinite(globalNodeIndex) || globalNodeIndex < 0) {
+    return 0;
+  }
+
+  return Math.floor(globalNodeIndex / GRID_NODE_COUNT);
+}
+
+function getReconciledButtonPosition(
+  globalNodeIndex: number,
+  lineIndex: number,
+  position: { x: number; y: number }
+): { x: number; y: number } {
+  return {
+    x: position.x,
+    y: getGridGroupTop(getButtonGroupIndex(globalNodeIndex)) + getGridLineCenterY(lineIndex),
+  };
+}
+
+function buildTimelineButtonsFromSkillButtonTable(
+  skillButtonTable: Record<string, PersistedSkillButton>,
+  nextCharacters: { name: string }[]
+): StaffLineData[] {
+  return nextCharacters.map((character, index) => {
+    const buttons = Object.values(skillButtonTable)
+      .filter((button) => button.characterName === character.name)
+      .map((button) => ({
+        id: button.id,
+        characterName: button.characterName,
+        skillType: button.skillType as SkillType,
+        staffIndex: index,
+        nodeIndex: button.nodeIndex,
+        nodeNumber: button.nodeNumber,
+        position: button.position,
+      }))
+      .sort((left, right) => left.nodeIndex - right.nodeIndex);
+
+    const occupiedNodes = [...new Set(buttons.map((button) => button.nodeIndex))]
+      .filter((nodeIndex) => Number.isFinite(nodeIndex) && nodeIndex >= 0)
+      .sort((left, right) => left - right);
+
+    return {
+      staffIndex: index,
+      characterName: character.name,
+      occupiedNodes,
+      buttons,
+    };
+  });
+}
+
+export function reconcileSelectionChange(
+  _prevCharacters: { id: string; name: string }[],
+  nextCharacters: { id: string; name: string }[]
+): TimelineData {
+  const nextCharacterIndexMap = new Map(
+    nextCharacters.map((character, index) => [character.name, index])
+  );
+
+  const currentTimelineData = loadTimelineRepo() ?? createEmptyTimelineData(nextCharacters);
+  const currentSkillButtonTable = getSkillButtonTable();
+  const nextSkillButtonTable: Record<string, PersistedSkillButton> = {};
+  const removedButtonBuffRefs: string[][] = [];
+
+  Object.values(currentSkillButtonTable).forEach((button) => {
+    const nextCharacterIndex = nextCharacterIndexMap.get(button.characterName);
+
+    if (nextCharacterIndex === undefined) {
+      removedButtonBuffRefs.push([...(button.selectedBuff || [])]);
+      return;
+    }
+
+    const nextButton = {
+      ...button,
+      staffIndex: nextCharacterIndex,
+      position: getReconciledButtonPosition(button.nodeIndex, nextCharacterIndex, button.position),
+      updatedAt: Date.now(),
+    };
+
+    nextSkillButtonTable[button.id] = nextButton;
+  });
+
+  setSkillButtonTable(nextSkillButtonTable);
+  removedButtonBuffRefs.forEach((buffIds) => {
+    cleanupBuffsOnButtonRemove(buffIds);
+  });
+
+  Object.keys(nextSkillButtonTable).forEach((buttonId) => {
+    recomputeSkillButtonPanel(buttonId);
+  });
+
+  const nextStaffLines = buildTimelineButtonsFromSkillButtonTable(nextSkillButtonTable, nextCharacters);
+
+  const nextTimelineData: TimelineData = {
+    ...currentTimelineData,
+    updatedAt: Date.now(),
+    staffLines: nextStaffLines,
+  };
+
+  saveTimelineRepo(nextTimelineData);
+  return nextTimelineData;
 }
 
 /**

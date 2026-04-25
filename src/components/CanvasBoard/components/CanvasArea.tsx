@@ -42,7 +42,6 @@ export const CanvasArea = forwardRef<HTMLDivElement, CanvasAreaProps>(({
 }, canvasRef) => {
   const renderSkillButtons = () => {
     return skillButtons
-      .filter((button) => button.isFromSandbox)
       .map((button) => (
         <SkillButtonComponent
           key={button.id}

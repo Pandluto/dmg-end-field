@@ -18,6 +18,7 @@ export const STORAGE_KEYS = {
   SKILL_BUTTON_BUFFS: 'ddd.skill-button-buffs.v1',
 
   // 其他存储
+  SELECTED_CHARACTERS: 'ddd.selected-characters.v1',
   SELECTED_SKILL_BUTTON: 'ddd.selected-skill-button',
   TIMELINE_DATA: 'ddd.timeline.data.v1',
 } as const;

@@ -11,6 +11,7 @@ import { DraggingOverlay } from './components/DraggingOverlay';
 import { OperatorConfigPanel } from './components/OperatorConfigPanel';
 import { Toolbar } from './components/Toolbar';
 import { SkillButton } from '../../types';
+import { resolveSkillIconUrl } from '../../utils/assetResolver';
 import { migrateOldBuffStorage } from '../../utils/migrateStorage';
 import { onSkillButtonBuffAdded, onSkillButtonBuffRemoved } from '../../core/events/buffEvents';
 import './CanvasBoard.css';
@@ -43,7 +44,7 @@ export function CanvasBoard({
   bottomRightControl,
 }: CanvasBoardProps) {
   const { state, dispatch } = useAppContext();
-  const { selectedCharacters, canvasConfig, skillButtons } = state;
+  const { currentView, selectedCharacters, canvasConfig, skillButtons } = state;
   const canvasRef = useRef<HTMLDivElement>(null);
   const [staffCount, setStaffCount] = React.useState(canvasConfig.staffCount);
 
@@ -61,18 +62,34 @@ export function CanvasBoard({
     normalizeTimelineData,
   } = useTimelineData(selectedCharacters);
 
-  const hasRestoredRef = useRef(false);
+  const restoredSignatureRef = useRef<string | null>(null);
+  const previousViewRef = useRef(currentView);
 
   useEffect(() => {
-    if (hasRestoredRef.current) {
+    const selectedCharacterSignature = selectedCharacters.map((character) => character.id).join('|');
+    const isEnteringCanvas = previousViewRef.current !== 'canvas' && currentView === 'canvas';
+    previousViewRef.current = currentView;
+
+    if (selectedCharacters.length === 0) {
+      restoredSignatureRef.current = null;
+      dispatch({ type: 'CLEAR_SKILL_BUTTONS' });
       return;
     }
-    hasRestoredRef.current = true;
+
+    if (currentView !== 'canvas') {
+      return;
+    }
+
+    if (restoredSignatureRef.current === selectedCharacterSignature && !isEnteringCanvas) {
+      return;
+    }
+    restoredSignatureRef.current = selectedCharacterSignature;
 
     migrateOldBuffStorage();
 
     const loadedData = loadTimelineData();
     if (!loadedData) {
+      dispatch({ type: 'CLEAR_SKILL_BUTTONS' });
       return;
     }
 
@@ -85,12 +102,13 @@ export function CanvasBoard({
     dataToRestore.staffLines.forEach((staffLine) => {
       const buttons = Array.isArray(staffLine.buttons) ? staffLine.buttons : [];
       buttons.forEach((btn) => {
+        const character = selectedCharacters.find((item) => item.name === btn.characterName);
         const lineIndex = selectedCharacters.findIndex(
           character => character.name === btn.characterName
         );
         restoredButtons.push({
           id: btn.id,
-          characterId: btn.characterName,
+          characterId: character?.id ?? btn.characterName,
           characterName: btn.characterName,
           skillType: btn.skillType,
           position: btn.position,
@@ -100,7 +118,9 @@ export function CanvasBoard({
           nodeNumber: btn.nodeNumber,
           isDragging: false,
           isSelected: false,
-          isFromSandbox: false,
+          isFromSandbox: true,
+          skillIconUrl: resolveSkillIconUrl(btn.characterName, btn.skillType),
+          element: character?.element,
         });
       });
     });
@@ -109,7 +129,7 @@ export function CanvasBoard({
     restoredButtons.forEach((button) => {
       dispatch({ type: 'ADD_SKILL_BUTTON', button });
     });
-  }, [dispatch, loadTimelineData, normalizeTimelineData, selectedCharacters]);
+  }, [currentView, dispatch, loadTimelineData, normalizeTimelineData, selectedCharacters]);
 
   useEffect(() => {
     return onSkillButtonBuffAdded(({ buttonId, buffId }) => {

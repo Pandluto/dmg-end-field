@@ -15,7 +15,7 @@ import {
   getAllBuffList,
 } from '../repositories';
 import { calculateBuffTotals } from '../calculators/buffCalculator';
-import { getCharacterConfig, getCharacterComputed } from '../../utils/storage';
+import { getCharacterComputed } from '../../utils/storage';
 
 // 运行时缓存（用于快速访问）
 let buffCache: Record<string, SkillButtonBuff> = {};
@@ -25,33 +25,27 @@ function buildSkillButtonPanelSnapshot(buttonId: string) {
   if (!button) return null;
 
   const characterId = button.characterId || button.characterName;
-  //const characterConfig = getCharacterConfig(characterId);  // 角色输入配置
-  const characterComputed = getCharacterComputed(characterId);  
-  // 角色计算值用ddd.operator-runtime.character-computed-map.v3
+  const characterComputed = getCharacterComputed(characterId);
+  const nowTimePanel = characterComputed?.panel;
 
-  const nowTimePanel = characterComputed?.panel; // 当前时间面板数据
- 
-  if ( !nowTimePanel ) {
+  if (!nowTimePanel) {
     return null;
   }
 
-  //const equipment = characterComputed.equipment ?? {};
   const buffList = getBuffsByButtonId(buttonId);
   const buffTotals = calculateBuffTotals(buffList);
-  // 计算最终攻击力加成 统一成小数
-  const addAtkPercentBoost = buffTotals.atkPercentBoost + nowTimePanel.weaponAtkPercent * 0.01;
-  const abilityAtkPercentBonus = (nowTimePanel.subStatFinal * 0.2 + nowTimePanel.mainStatFinal * 0.5) * 0.01;
-  const nowBaseAtk = (nowTimePanel.characterAtk + nowTimePanel.weaponAtk) * (1 + addAtkPercentBoost);
-  //console.log("addAtkPercentBoost=", addAtkPercentBoost); 
-  //console.log("abilityAtkPercentBonus=", abilityAtkPercentBonus); 
+
+  const currentAtkPercent = nowTimePanel.weaponAtkPercent * 0.01;
+  const rawAtk = nowTimePanel.characterAtk + nowTimePanel.weaponAtk;
+  const fixedAtk = nowTimePanel.baseAtk - rawAtk * (1 + currentAtkPercent);
+  const nextBaseAtk = rawAtk * (1 + currentAtkPercent + buffTotals.atkPercentBoost) + fixedAtk;
+  const abilityAtkPercentBonus = nowTimePanel.abilityBonus * 0.01;
+  const nextAtk = nextBaseAtk * (1 + abilityAtkPercentBonus);
 
   return {
-    
-    atk: (nowBaseAtk * (1 + abilityAtkPercentBonus)),
-    critRate: (nowTimePanel.critRate ?? 0.05 ) + buffTotals.critRateBoost,
-    critDmg: (nowTimePanel.critDmg ?? 0.5 ) + buffTotals.critDmgBonusBoost,
-    // TODO: 使用 characterComputed 整合两个数据源
-    characterComputed,
+    atk: nextAtk,
+    critRate: (nowTimePanel.critRate ?? 0.05) + buffTotals.critRateBoost,
+    critDmg: (nowTimePanel.critDmg ?? 0.5) + buffTotals.critDmgBonusBoost,
   };
 }
 
