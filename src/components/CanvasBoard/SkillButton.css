@@ -783,3 +783,51 @@
   color: var(--excel-green-deep);
 }
 
+/* ==================== 右键上下文菜单样式 ==================== */
+/* 继承技能按钮主题，像按钮延展层 */
+.skill-button-context-menu {
+  position: absolute;
+  z-index: 1000;
+  width: 80px;
+  overflow: hidden;
+  /* 复用 skill-button-base 的边框、阴影语言 */
+  background: var(--skill-button-element-color, #fff);
+  border: 1px solid rgba(24, 92, 55, 0.32);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.78) inset,
+    0 2px 8px rgba(26, 26, 26, 0.12);
+}
+
+.context-menu-item {
+  display: block;
+  width: 100%;
+  height: 32px;
+  border: none;
+  background: transparent;
+  font-size: 13px;
+  font-weight: 700;
+  text-align: center;
+  cursor: pointer;
+  color: #111111;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.5);
+  transition: filter 0.14s ease, background-color 0.14s ease;
+}
+
+.context-menu-item:hover {
+  filter: brightness(1.05);
+}
+
+.context-menu-item:active {
+  filter: brightness(0.95);
+}
+
+/* 危险项：在同一主题底上做强调，不是红色背景 */
+.context-menu-item-danger {
+  color: #8B0000;
+  text-shadow: none;
+}
+
+.context-menu-item-danger:hover {
+  background: rgba(139, 0, 0, 0.15);
+  filter: none;
+}

@@ -29,7 +29,7 @@ import { cleanupBuffsOnButtonRemove, recomputeSkillButtonPanel } from './buffSer
 export function createEmptyTimelineData(characters: { name: string }[]): TimelineData {
   const now = Date.now();
   return {
-    version: "1.0.0",
+    version: "1.1.0",
     createdAt: now,
     updatedAt: now,
     staffLines: characters.map((char, index) => ({

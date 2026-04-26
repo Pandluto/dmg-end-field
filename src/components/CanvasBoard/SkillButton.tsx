@@ -27,9 +27,24 @@ interface SkillButtonProps {
   timelineData?: TimelineData;
   onModalOpen?: () => void;
   onModalClose?: () => void;
+  contextMenuState?: { buttonId: string; position: { x: number; y: number } } | null;
+  onConfirmRemove?: () => void;
+  onCloseContextMenu?: () => void;
 }
 
-export function SkillButtonComponent({ button, size, onMouseDown, onContextMenu, timelineData, onModalOpen, onModalClose }: SkillButtonProps) {
+export function SkillButtonComponent({ button, size, onMouseDown, onContextMenu, timelineData, onModalOpen, onModalClose, contextMenuState, onConfirmRemove, onCloseContextMenu }: SkillButtonProps) {
+  /**
+   * position.y 语义约定（v1.1.0+）：
+   * - position.x: 按钮碰撞箱左边界（原始值，未做视觉偏移）
+   * - position.y: 底座中线（不是圆心！）
+   *   渲染时通过 `top: position.y - radius - visualOffsetY` 转换为 CSS top
+   *   其中 visualOffsetY = 15，用于对齐谱线中心
+   *
+   * 恢复兼容性说明：
+   * - timeline version < 1.1.0 时，position.y 存储的是旧语义（圆心），
+   *   恢复时会自动在 CanvasBoard 恢复链中补偿 +15px
+   * - timeline version >= 1.1.0 时，position.y 已是底座中线，无需补偿
+   */
   const { position, skillType, isSelected, isDragging, characterName, skillIconUrl, element, isLocked } = button;
   const { dispatch } = useAppContext();
   const radius = size / 2;
@@ -324,6 +339,38 @@ export function SkillButtonComponent({ button, size, onMouseDown, onContextMenu,
           </div>
         </div>
       </div>
+
+      {/* 右键上下文菜单 - 贴着按钮右侧，垂直中段对齐 */}
+      {contextMenuState?.buttonId === button.id && (
+        <div
+          className="skill-button-context-menu"
+          style={{
+            left: position.x + visualOffsetX,
+            top: position.y + radius - visualOffsetY,
+          }}
+        >
+          <button
+            className="context-menu-item context-menu-item-danger"
+            onClick={(e) => {
+              e.stopPropagation();
+              e.preventDefault();
+              onConfirmRemove?.();
+            }}
+          >
+            删除
+          </button>
+          <button
+            className="context-menu-item"
+            onClick={(e) => {
+              e.stopPropagation();
+              e.preventDefault();
+              onCloseContextMenu?.();
+            }}
+          >
+            取消
+          </button>
+        </div>
+      )}
 
       {/* 技能信息弹窗 + 技能伤害弹窗 */}
       {isModalOpen && (

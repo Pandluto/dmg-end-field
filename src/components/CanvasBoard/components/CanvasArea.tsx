@@ -22,6 +22,9 @@ interface CanvasAreaProps {
   timelineData?: TimelineData;
   onSkillButtonModalOpen?: () => void;
   onSkillButtonModalClose?: () => void;
+  contextMenuState?: { buttonId: string; position: { x: number; y: number } } | null;
+  onConfirmRemove?: () => void;
+  onCloseContextMenu?: () => void;
 }
 
 // 表格行列标注：0行显示字母(A-O)，0列显示数字(1-8)
@@ -39,6 +42,9 @@ export const CanvasArea = forwardRef<HTMLDivElement, CanvasAreaProps>(({
   timelineData,
   onSkillButtonModalOpen,
   onSkillButtonModalClose,
+  contextMenuState,
+  onConfirmRemove,
+  onCloseContextMenu,
 }, canvasRef) => {
   const renderSkillButtons = () => {
     return skillButtons
@@ -52,6 +58,9 @@ export const CanvasArea = forwardRef<HTMLDivElement, CanvasAreaProps>(({
           timelineData={timelineData}
           onModalOpen={onSkillButtonModalOpen}
           onModalClose={onSkillButtonModalClose}
+          contextMenuState={contextMenuState}
+          onConfirmRemove={onConfirmRemove}
+          onCloseContextMenu={onCloseContextMenu}
         />
       ));
   };

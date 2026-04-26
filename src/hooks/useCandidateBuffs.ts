@@ -6,7 +6,7 @@
 
 import { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import { CandidateBuff, BuffData } from '../core/domain/buff';
-import { setCandidateBuffList } from '../core/repositories';
+import { setCandidateBuffList, getCandidateBuffList } from '../core/repositories';
 import { getCharacterConfigMap } from '../utils/storage';
 import { buildWeaponSearchIndex, searchWeapons } from '../utils/weaponFuzzySearch';
 
@@ -82,8 +82,8 @@ export interface UseCandidateBuffsReturn {
  * @returns 候选 Buff 状态和操作
  */
 export function useCandidateBuffs(characterNames: string[]): UseCandidateBuffsReturn {
-  // 候选 Buff 列表
-  const [buffList, setBuffList] = useState<CandidateBuff[]>([]);
+  // 候选 Buff 列表：从 ddd.candidate-buff-list.v1 回填，避免切换后变空
+  const [buffList, setBuffList] = useState<CandidateBuff[]>(() => getCandidateBuffList());
   // 加载状态
   const [isLoading, setIsLoading] = useState(false);
   // 搜索关键词

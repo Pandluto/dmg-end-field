@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useAppContext } from '../../context/AppContext';
 import { SkillSandbox } from './SkillSandbox';
 import { useCanvasWidth } from './hooks/useCanvasWidth';
@@ -15,6 +15,13 @@ import { resolveSkillIconUrl } from '../../utils/assetResolver';
 import { migrateOldBuffStorage } from '../../utils/migrateStorage';
 import { onSkillButtonBuffAdded, onSkillButtonBuffRemoved } from '../../core/events/buffEvents';
 import './CanvasBoard.css';
+
+/**
+ * position.y 语义：
+ * - 旧缓存：position.y = 圆球中心，恢复时需要 +15 兼容到当前底座中线语义
+ * - 新缓存：position.y = 底座中线，恢复时不做补偿
+ */
+const POSITION_Y_SEMANTIC_VERSION = '1.1.0';
 
 interface CanvasBoardProps {
   workbenchMode?: 'selection' | 'timeline' | 'toolPanel';
@@ -99,6 +106,7 @@ export function CanvasBoard({
     }
 
     const restoredButtons: SkillButton[] = [];
+    const needPositionYCompensation = !dataToRestore.version || dataToRestore.version < POSITION_Y_SEMANTIC_VERSION;
     dataToRestore.staffLines.forEach((staffLine) => {
       const buttons = Array.isArray(staffLine.buttons) ? staffLine.buttons : [];
       buttons.forEach((btn) => {
@@ -106,12 +114,15 @@ export function CanvasBoard({
         const lineIndex = selectedCharacters.findIndex(
           character => character.name === btn.characterName
         );
+        const position = needPositionYCompensation
+          ? { x: btn.position.x, y: btn.position.y  }
+          : btn.position;
         restoredButtons.push({
           id: btn.id,
           characterId: character?.id ?? btn.characterName,
           characterName: btn.characterName,
           skillType: btn.skillType,
-          position: btn.position,
+          position,
           staffIndex: btn.staffIndex,
           lineIndex: lineIndex >= 0 ? lineIndex : 0,
           nodeIndex: btn.nodeIndex,
@@ -160,6 +171,29 @@ export function CanvasBoard({
     moveTimelineButtonToStaff: moveSkillButtonToStaff,
   });
 
+  const [contextMenuState, setContextMenuState] = useState<{
+    buttonId: string;
+    position: { x: number; y: number };
+  } | null>(null);
+
+  const handleConfirmRemoveSkillButton = () => {
+    if (!contextMenuState) return;
+    const { buttonId } = contextMenuState;
+    const button = skillButtons.find(item => item.id === buttonId);
+    if (button?.isLocked) {
+      return;
+    }
+    if (button && button.lineIndex !== undefined) {
+      removeTimelineButton(button.lineIndex, buttonId);
+    }
+    dispatch({ type: 'REMOVE_SKILL_BUTTON', buttonId });
+    setContextMenuState(null);
+  };
+
+  const handleCloseButtonContextMenu = () => {
+    setContextMenuState(null);
+  };
+
   const handleBack = () => {
     dispatch({ type: 'SET_VIEW', view: 'selection' });
     dispatch({ type: 'SELECT_SKILL_BUTTON', buttonId: null });
@@ -186,15 +220,16 @@ export function CanvasBoard({
       return;
     }
 
-    if (button && button.lineIndex !== undefined) {
-      removeTimelineButton(button.lineIndex, buttonId);
-    }
-
-    dispatch({ type: 'REMOVE_SKILL_BUTTON', buttonId });
+    dispatch({ type: 'SELECT_SKILL_BUTTON', buttonId });
+    setContextMenuState({
+      buttonId,
+      position: { x: button?.position.x ?? 0, y: button?.position.y ?? 0 },
+    });
   };
 
   const handleCanvasClick = () => {
     dispatch({ type: 'SELECT_SKILL_BUTTON', buttonId: null });
+    setContextMenuState(null);
   };
 
   const handleAvatarDoubleClick = (characterId: string) => {
@@ -243,6 +278,9 @@ export function CanvasBoard({
             timelineData={timelineData}
             onSkillButtonModalOpen={handleSkillButtonModalOpen}
             onSkillButtonModalClose={handleSkillButtonModalClose}
+            contextMenuState={contextMenuState}
+            onConfirmRemove={handleConfirmRemoveSkillButton}
+            onCloseContextMenu={handleCloseButtonContextMenu}
           />
         </div>
 

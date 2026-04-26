@@ -159,6 +159,7 @@ export interface SkillButtonBuff {
   description?: string;    // 描述
   source?: string;         // 来源
   condition?: string;      // 触发条件
+  refCount: number;        // 被引用次数，selectedBuff 解绑时 -1，0 时删除实体
 }
 
 export type SkillButtonBuffMap = Record<string, SkillButtonBuff[]>;

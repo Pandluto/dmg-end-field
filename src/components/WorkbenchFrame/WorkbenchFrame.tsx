@@ -175,7 +175,7 @@ export function WorkbenchFrame() {
             disabled={!canAccessCanvas}
             title={!canAccessCanvas ? '请先选择干员' : ''}
           >
-            侧边栏
+            陈列区
           </button>
           <button
             className={`workbench-drawer-tab ${operatorConfigVisible ? 'is-active' : ''}`}

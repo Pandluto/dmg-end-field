@@ -88,6 +88,7 @@ export function migrateOldBuffStorage(): void {
         description: buff.description || '',
         source: buff.source || buff.sourceName || '',
         condition: buff.condition || '',
+        refCount: 1,
       };
 
       // 添加到 buff-list（去重）
