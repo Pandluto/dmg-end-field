@@ -8,7 +8,7 @@ import { generateId } from '../../../utils/helpers';
 import { resolveSkillIconUrl } from '../../../utils/assetResolver';
 import {
   findNearestGridLine,
-  snapGridNodeX,
+  resolveSnappedGridNode,
   clientToGridCoords,
   gridToCanvasContentCoords,
   GRID_COLUMN_WIDTH,
@@ -226,16 +226,25 @@ export function useCanvasDrag({
               draggingState.originalButton?.id ?? null,
               gridContentOffsetX
             );
-            const { nodeIndex, x: snappedNodeX } = snapGridNodeX(gridX, occupiedNodeIndices);
+            const snappedResult = resolveSnappedGridNode(gridX, occupiedNodeIndices);
+
+            if (!snappedResult) {
+              console.log('[吸附] 满行无可用节点，取消放置');
+              dispatch({ type: 'SET_DRAGGING', buttonId: draggingState.id, isDragging: false });
+              setDraggingState(null);
+              return;
+            }
+
+            const { nodeIndex, nodeCenterX } = snappedResult;
 
             const snappedPosition = gridToCanvasContentCoords(
-              snappedNodeX,
+              nodeCenterX,
               lineY,
               canvasRef.current,
               gridStack
             );
 
-            console.log('[吸附] grid坐标:', { gridX: Math.round(gridX), gridY: Math.round(gridY), snappedNodeX: Math.round(snappedNodeX), lineY: Math.round(lineY) });
+            console.log('[吸附] grid坐标:', { gridX: Math.round(gridX), gridY: Math.round(gridY), nodeCenterX: Math.round(nodeCenterX), lineY: Math.round(lineY) });
             console.log('[吸附] canvas坐标:', snappedPosition);
 
             const isMovingExistingButton = !!draggingState.originalButton;

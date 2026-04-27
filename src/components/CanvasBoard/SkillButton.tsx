@@ -30,9 +30,10 @@ interface SkillButtonProps {
   contextMenuState?: { buttonId: string; position: { x: number; y: number } } | null;
   onConfirmRemove?: () => void;
   onCloseContextMenu?: () => void;
+  onCopy?: () => void;
 }
 
-export function SkillButtonComponent({ button, size, onMouseDown, onContextMenu, timelineData, onModalOpen, onModalClose, contextMenuState, onConfirmRemove, onCloseContextMenu }: SkillButtonProps) {
+export function SkillButtonComponent({ button, size, onMouseDown, onContextMenu, timelineData, onModalOpen, onModalClose, contextMenuState, onConfirmRemove, onCloseContextMenu, onCopy }: SkillButtonProps) {
   /**
    * position.y 语义约定（v1.1.0+）：
    * - position.x: 按钮碰撞箱左边界（原始值，未做视觉偏移）
@@ -358,6 +359,16 @@ export function SkillButtonComponent({ button, size, onMouseDown, onContextMenu,
             }}
           >
             删除
+          </button>
+          <button
+            className="context-menu-item"
+            onClick={(e) => {
+              e.stopPropagation();
+              e.preventDefault();
+              onCopy?.();
+            }}
+          >
+            复制
           </button>
           <button
             className="context-menu-item"

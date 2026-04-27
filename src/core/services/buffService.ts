@@ -432,6 +432,49 @@ export function deduplicateBuffEntities(): {
   return { merged, removed: removedBuffIds };
 }
 
+/**
+ * 将已存在的 Buff 引用附加到新按钮（复制场景使用）
+ * 规则：对每个 buffId → refCount + 1 → 更新按钮 selectedBuff → 同步 panelConfig.selectedBuff → recomputeSkillButtonPanel
+ * @param buttonId - 目标按钮 ID
+ * @param buffIds - 要附加的已有 buffId 列表
+ */
+export function attachExistingBuffsToButton(buttonId: string, buffIds: string[]): void {
+  if (!buffIds || buffIds.length === 0) return;
+
+  const button = getSkillButtonById(buttonId);
+  if (!button) {
+    console.warn('[buffService] attachExistingBuffsToButton: 按钮不存在:', buttonId);
+    return;
+  }
+
+  const currentSelectedBuff = button.selectedBuff || [];
+
+  buffIds.forEach(buffId => {
+    const buff = getBuffById(buffId);
+    if (buff) {
+      upsertBuff({ ...buff, refCount: (buff.refCount || 1) + 1 });
+      buffCache[buffId] = { ...buff, refCount: (buff.refCount || 1) + 1 };
+      console.log('[buffService] 复制按钮附加 Buff，refCount +1:', buffId, 'newRefCount=', (buff.refCount || 1) + 1);
+    } else {
+      console.warn('[buffService] attachExistingBuffsToButton: Buff 不存在:', buffId);
+    }
+  });
+
+  const newSelectedBuff = [...currentSelectedBuff, ...buffIds];
+  upsertSkillButton({
+    ...button,
+    selectedBuff: newSelectedBuff,
+    panelConfig: {
+      ...(button.panelConfig ?? { selectedBuff: [] }),
+      selectedBuff: newSelectedBuff,
+    },
+    updatedAt: Date.now(),
+  });
+
+  recomputeSkillButtonPanel(buttonId);
+  console.log('[buffService] attachExistingBuffsToButton 完成:', buttonId, '新增 buffIds:', buffIds);
+}
+
 // ===== 选中技能按钮 ID 的读写 =====
 
 import { STORAGE_KEYS } from '../../constants/storage-keys';

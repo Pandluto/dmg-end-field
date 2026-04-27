@@ -19,12 +19,14 @@ interface CanvasAreaProps {
   onButtonMouseDown: (event: MouseEvent, buttonId: string) => void;
   onButtonContextMenu: (event: MouseEvent, buttonId: string) => void;
   onCanvasClick: () => void;
+  onCanvasPlaceCopy: (e: MouseEvent) => void;
   timelineData?: TimelineData;
   onSkillButtonModalOpen?: () => void;
   onSkillButtonModalClose?: () => void;
   contextMenuState?: { buttonId: string; position: { x: number; y: number } } | null;
   onConfirmRemove?: () => void;
   onCloseContextMenu?: () => void;
+  onCopy?: () => void;
 }
 
 // 表格行列标注：0行显示字母(A-O)，0列显示数字(1-8)
@@ -38,13 +40,14 @@ export const CanvasArea = forwardRef<HTMLDivElement, CanvasAreaProps>(({
   skillButtons,
   onButtonMouseDown,
   onButtonContextMenu,
-  onCanvasClick,
+  onCanvasPlaceCopy,
   timelineData,
   onSkillButtonModalOpen,
   onSkillButtonModalClose,
   contextMenuState,
   onConfirmRemove,
   onCloseContextMenu,
+  onCopy,
 }, canvasRef) => {
   const renderSkillButtons = () => {
     return skillButtons
@@ -61,6 +64,7 @@ export const CanvasArea = forwardRef<HTMLDivElement, CanvasAreaProps>(({
           contextMenuState={contextMenuState}
           onConfirmRemove={onConfirmRemove}
           onCloseContextMenu={onCloseContextMenu}
+          onCopy={onCopy}
         />
       ));
   };
@@ -148,7 +152,7 @@ export const CanvasArea = forwardRef<HTMLDivElement, CanvasAreaProps>(({
       <div
         ref={canvasRef}
         className="canvas-container"
-        onClick={onCanvasClick}
+        onClick={onCanvasPlaceCopy}
       >
         <div className="canvas-grid-shell">
           <div className="canvas-grid-stack">

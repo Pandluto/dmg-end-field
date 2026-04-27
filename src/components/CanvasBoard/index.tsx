@@ -14,6 +14,21 @@ import { SkillButton } from '../../types';
 import { resolveSkillIconUrl } from '../../utils/assetResolver';
 import { migrateOldBuffStorage } from '../../utils/migrateStorage';
 import { onSkillButtonBuffAdded, onSkillButtonBuffRemoved } from '../../core/events/buffEvents';
+import { generateId } from '../../utils/helpers';
+import { calculateNodeNumber } from '../../utils/nodeNumbering';
+import {
+  clientToGridCoords,
+  findNearestStaffIndex,
+  getGridContentOffsetX,
+  getGridLineCenterY,
+  getOccupiedNodeIndicesForLine,
+  gridToCanvasContentCoords,
+  GRID_GROUP_STRIDE,
+  GRID_NODE_COUNT,
+  resolveSnappedGridNode,
+} from '../../core/calculators/gridSnapLayout';
+import { getSkillButtonById } from '../../core/repositories';
+import { attachExistingBuffsToButton } from '../../core/services/buffService';
 import './CanvasBoard.css';
 
 /**
@@ -156,8 +171,6 @@ export function CanvasBoard({
     });
   }, []);
 
-
-
   const { draggingState, mousePosition, handleSandboxDragStart, handleButtonMouseDown } = useCanvasDrag({
     config: canvasConfig,
     canvasWidth,
@@ -175,6 +188,27 @@ export function CanvasBoard({
     buttonId: string;
     position: { x: number; y: number };
   } | null>(null);
+
+  const [pendingCopy, setPendingCopy] = useState<{
+    sourceButtonId: string;
+    sourceButtonRuntime: SkillButton;
+    sourceSelectedBuff: string[];
+  } | null>(null);
+
+  const [copyHintMousePosition, setCopyHintMousePosition] = useState({ x: 0, y: 0 });
+
+  useEffect(() => {
+    if (!pendingCopy) return;
+
+    const handleMouseMove = (e: MouseEvent) => {
+      setCopyHintMousePosition({ x: e.clientX, y: e.clientY });
+    };
+
+    window.addEventListener('mousemove', handleMouseMove);
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+    };
+  }, [pendingCopy]);
 
   const handleConfirmRemoveSkillButton = () => {
     if (!contextMenuState) return;
@@ -194,9 +228,27 @@ export function CanvasBoard({
     setContextMenuState(null);
   };
 
+  const handleCopySkillButton = () => {
+    if (!contextMenuState) return;
+    const { buttonId } = contextMenuState;
+    const buttonRuntime = skillButtons.find(item => item.id === buttonId);
+    if (!buttonRuntime) return;
+
+    const buttonStorage = getSkillButtonById(buttonId);
+    const sourceSelectedBuff = buttonStorage?.selectedBuff ?? [];
+
+    setPendingCopy({
+      sourceButtonId: buttonId,
+      sourceButtonRuntime: buttonRuntime,
+      sourceSelectedBuff,
+    });
+    setContextMenuState(null);
+  };
+
   const handleBack = () => {
     dispatch({ type: 'SET_VIEW', view: 'selection' });
     dispatch({ type: 'SELECT_SKILL_BUTTON', buttonId: null });
+    setPendingCopy(null);
   };
 
   const handleAddStaffGroup = () => {
@@ -230,6 +282,95 @@ export function CanvasBoard({
   const handleCanvasClick = () => {
     dispatch({ type: 'SELECT_SKILL_BUTTON', buttonId: null });
     setContextMenuState(null);
+  };
+
+  const handleCanvasPlaceCopy = (e: React.MouseEvent) => {
+    if (!pendingCopy) {
+      dispatch({ type: 'SELECT_SKILL_BUTTON', buttonId: null });
+      setContextMenuState(null);
+      return;
+    }
+    if (!canvasRef.current) return;
+
+    const canvasRect = canvasRef.current.getBoundingClientRect();
+    const gridStackEl = canvasRef.current.querySelector('.canvas-grid-stack');
+    if (!gridStackEl) return;
+
+    const gridStackRect = gridStackEl.getBoundingClientRect();
+    const { gridX, gridY } = clientToGridCoords(e.clientX, e.clientY, canvasRect, gridStackRect);
+
+    const sourceLineIndex = pendingCopy.sourceButtonRuntime.lineIndex;
+    const staffIndex = findNearestStaffIndex(gridY, staffCount);
+    const lineY = staffIndex * GRID_GROUP_STRIDE + getGridLineCenterY(sourceLineIndex);
+
+    const gridContentOffsetX = getGridContentOffsetX(canvasRef.current, gridStackEl);
+    const occupiedNodeIndices = getOccupiedNodeIndicesForLine(
+      skillButtons,
+      staffIndex,
+      sourceLineIndex,
+      null,
+      gridContentOffsetX
+    );
+
+    const snappedResult = resolveSnappedGridNode(gridX, occupiedNodeIndices);
+    if (!snappedResult) {
+      console.log('[复制吸附] 满行无可用节点，取消复制');
+      setPendingCopy(null);
+      return;
+    }
+
+    const { nodeIndex: snappedNodeIndex, nodeCenterX } = snappedResult;
+
+    const snappedPosition = gridToCanvasContentCoords(
+      nodeCenterX,
+      lineY,
+      canvasRef.current,
+      gridStackEl
+    );
+
+    handlePlaceCopiedButton(staffIndex, sourceLineIndex, snappedNodeIndex, snappedPosition);
+  };
+
+  const handlePlaceCopiedButton = (
+    targetStaffIndex: number,
+    targetLineIndex: number,
+    targetNodeIndex: number,
+    targetPosition: { x: number; y: number }
+  ) => {
+    if (!pendingCopy) return;
+
+    const { sourceButtonRuntime, sourceSelectedBuff } = pendingCopy;
+    const newButtonId = generateId();
+
+    const newButtonRuntime: SkillButton = {
+      ...sourceButtonRuntime,
+      id: newButtonId,
+      staffIndex: targetStaffIndex,
+      lineIndex: targetLineIndex,
+      nodeIndex: targetNodeIndex,
+      nodeNumber: calculateNodeNumber(targetNodeIndex),
+      position: targetPosition,
+      isDragging: false,
+      isSelected: false,
+    };
+
+    dispatch({ type: 'ADD_SKILL_BUTTON', button: newButtonRuntime });
+
+    const persistenceStaffIndex = targetLineIndex;
+    const persistenceNodeIndex = targetStaffIndex * GRID_NODE_COUNT + targetNodeIndex;
+    addTimelineButton({
+      characterName: sourceButtonRuntime.characterName,
+      skillType: sourceButtonRuntime.skillType,
+      staffIndex: persistenceStaffIndex,
+      nodeIndex: persistenceNodeIndex,
+      position: targetPosition,
+    }, newButtonId);
+
+    if (sourceSelectedBuff.length > 0) {
+      attachExistingBuffsToButton(newButtonId, sourceSelectedBuff);
+    }
+
+    setPendingCopy(null);
   };
 
   const handleAvatarDoubleClick = (characterId: string) => {
@@ -275,12 +416,14 @@ export function CanvasBoard({
             onButtonMouseDown={handleButtonMouseDown}
             onButtonContextMenu={handleButtonContextMenu}
             onCanvasClick={handleCanvasClick}
+            onCanvasPlaceCopy={handleCanvasPlaceCopy}
             timelineData={timelineData}
             onSkillButtonModalOpen={handleSkillButtonModalOpen}
             onSkillButtonModalClose={handleSkillButtonModalClose}
             contextMenuState={contextMenuState}
             onConfirmRemove={handleConfirmRemoveSkillButton}
             onCloseContextMenu={handleCloseButtonContextMenu}
+            onCopy={handleCopySkillButton}
           />
         </div>
 
@@ -325,6 +468,26 @@ export function CanvasBoard({
         mousePosition={mousePosition}
         buttonSize={canvasConfig.skillButtonSize}
       />
+
+      {pendingCopy && (
+        <div
+          style={{
+            position: 'fixed',
+            left: copyHintMousePosition.x + 16,
+            top: copyHintMousePosition.y + 16,
+            background: 'rgba(0, 0, 0, 0.8)',
+            color: '#fff',
+            padding: '8px 12px',
+            borderRadius: 4,
+            fontSize: 13,
+            pointerEvents: 'none',
+            zIndex: 9999,
+            whiteSpace: 'nowrap',
+          }}
+        >
+          已复制，点击目标位置放置
+        </div>
+      )}
     </div>
   );
 }
