@@ -20,10 +20,10 @@ import {
   clientToGridCoords,
   findNearestStaffIndex,
   getGridContentOffsetX,
+  getGridGroupTop,
   getGridLineCenterY,
   getOccupiedNodeIndicesForLine,
   gridToCanvasContentCoords,
-  GRID_GROUP_STRIDE,
   GRID_NODE_COUNT,
   resolveSnappedGridNode,
 } from '../../core/calculators/gridSnapLayout';
@@ -301,7 +301,7 @@ export function CanvasBoard({
 
     const sourceLineIndex = pendingCopy.sourceButtonRuntime.lineIndex;
     const staffIndex = findNearestStaffIndex(gridY, staffCount);
-    const lineY = staffIndex * GRID_GROUP_STRIDE + getGridLineCenterY(sourceLineIndex);
+    const lineY = getGridGroupTop(staffIndex) + getGridLineCenterY(sourceLineIndex);
 
     const gridContentOffsetX = getGridContentOffsetX(canvasRef.current, gridStackEl);
     const occupiedNodeIndices = getOccupiedNodeIndicesForLine(
