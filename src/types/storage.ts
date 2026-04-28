@@ -1,4 +1,5 @@
 import { EquipmentConfig } from '../utils/equipmentParser';
+import { SandboxSkillHit } from './index';
 
 export type SkillPanelKey = 'A' | 'B' | 'E' | 'Q';
 export type SkillLevelMode = 'L9' | 'M3';
@@ -190,6 +191,10 @@ export interface PersistedSkillButton {
   nodeIndex: number;                    // 节点索引
   nodeNumber: number;                   // 节点编号
   position: { x: number; y: number };   // 位置坐标
+  runtimeSkillId?: string;              // 自定义技能稳定标识
+  skillDisplayName?: string;            // 技能显示名
+  skillIconUrl?: string;                // 技能图标
+  customHits?: SandboxSkillHit[];       // 自定义技能 hit 明细
   selectedBuff: string[];               // 选中的 Buff ID 列表（只存引用）
   panelConfig?: SkillButtonPanelConfig; // 按钮专属面板配置
   panelSnapshot?: SkillButtonPanelSnapshot | null; // 按钮专属最终面板

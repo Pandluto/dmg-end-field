@@ -16,6 +16,7 @@ import { migrateOldBuffStorage } from '../../utils/migrateStorage';
 import { onSkillButtonBuffAdded, onSkillButtonBuffRemoved } from '../../core/events/buffEvents';
 import { generateId } from '../../utils/helpers';
 import { calculateNodeNumber } from '../../utils/nodeNumbering';
+import { SKILL_BUTTON_BASELINE_OFFSET_Y } from '../../constants/canvas-layout';
 import {
   clientToGridCoords,
   findNearestStaffIndex,
@@ -33,8 +34,9 @@ import './CanvasBoard.css';
 
 /**
  * position.y 语义：
- * - 旧缓存：position.y = 圆球中心，恢复时需要 +15 兼容到当前底座中线语义
- * - 新缓存：position.y = 底座中线，恢复时不做补偿
+ * - timeline version < 1.1.0：恢复时原样使用缓存中的 position.y，不再追加任何补偿
+ * - timeline version >= 1.1.0：恢复时不信任缓存中的 position.y，统一按 nodeIndex + lineIndex 重建标准 Y
+ * - 标准 Y 的语义始终是“底座中线”
  */
 const POSITION_Y_SEMANTIC_VERSION = '1.1.0';
 
@@ -122,7 +124,7 @@ export function CanvasBoard({
     }
 
     const restoredButtons: SkillButton[] = [];
-    const needPositionYCompensation = !dataToRestore.version || dataToRestore.version < POSITION_Y_SEMANTIC_VERSION;
+    const useLegacyStoredPositionY = !dataToRestore.version || dataToRestore.version < POSITION_Y_SEMANTIC_VERSION;
     dataToRestore.staffLines.forEach((staffLine) => {
       const buttons = Array.isArray(staffLine.buttons) ? staffLine.buttons : [];
       buttons.forEach((btn) => {
@@ -130,9 +132,18 @@ export function CanvasBoard({
         const lineIndex = selectedCharacters.findIndex(
           character => character.name === btn.characterName
         );
-        const position = needPositionYCompensation
-          ? { x: btn.position.x, y: btn.position.y + 15 }
-          : btn.position;
+        const restoredGroupIndex =
+          typeof btn.nodeIndex === 'number' && Number.isFinite(btn.nodeIndex)
+            ? Math.floor(btn.nodeIndex / GRID_NODE_COUNT)
+            : 0;
+        const restoredLineIndex = lineIndex >= 0 ? lineIndex : 0;
+        const normalizedPositionY =
+          getGridGroupTop(restoredGroupIndex) +
+          getGridLineCenterY(restoredLineIndex) +
+          SKILL_BUTTON_BASELINE_OFFSET_Y;
+        const position = useLegacyStoredPositionY
+          ? { x: btn.position.x, y: btn.position.y  }
+          : { x: btn.position.x, y: normalizedPositionY };
         restoredButtons.push({
           id: btn.id,
           characterId: character?.id ?? btn.characterName,
@@ -146,7 +157,10 @@ export function CanvasBoard({
           isDragging: false,
           isSelected: false,
           isFromSandbox: true,
-          skillIconUrl: resolveSkillIconUrl(btn.characterName, btn.skillType),
+          runtimeSkillId: btn.runtimeSkillId,
+          skillDisplayName: btn.skillDisplayName,
+          skillIconUrl: btn.skillIconUrl ?? resolveSkillIconUrl(btn.characterName, btn.skillType),
+          customHits: btn.customHits,
           element: character?.element,
         });
       });
@@ -387,6 +401,10 @@ export function CanvasBoard({
       staffIndex: persistenceStaffIndex,
       nodeIndex: persistenceNodeIndex,
       position: targetPosition,
+      runtimeSkillId: sourceButtonRuntime.runtimeSkillId,
+      skillDisplayName: sourceButtonRuntime.skillDisplayName,
+      skillIconUrl: sourceButtonRuntime.skillIconUrl,
+      customHits: sourceButtonRuntime.customHits,
     }, newButtonId);
 
     if (sourceSelectedBuff.length > 0) {

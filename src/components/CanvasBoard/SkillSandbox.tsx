@@ -11,8 +11,8 @@
  * - 按钮底色由干员 element 属性决定（通过 getElementBackgroundColor 取半透明底色）
  */
 
-import React, { useEffect, useRef } from 'react';
-import { Character, SkillType, SKILL_LABELS } from '../../types';
+import React, { useEffect, useRef, useState } from 'react';
+import { Character, SandboxSkill, SkillType, SKILL_LABELS } from '../../types';
 import { getElementBackgroundColor } from '../../utils/assetResolver';
 import './SkillSandbox.css';
 
@@ -23,15 +23,13 @@ interface SkillSandboxProps {
   onDragStart: (
     characterId: string,
     characterName: string,
-    skillType: SkillType,
+    sandboxSkill: SandboxSkill,
     lineIndex: number,
     e: React.MouseEvent
   ) => void;
   /** 头像双击回调：用于打开干员配置界面 */
   onAvatarDoubleClick: (characterId: string) => void;
 }
-
-const SKILL_TYPES: SkillType[] = ['A', 'B', 'E', 'Q'];
 
 /** 技能显示标签（用于按钮右侧标注） */
 const SKILL_DISPLAY_LABELS: Record<SkillType, string> = {
@@ -41,8 +39,24 @@ const SKILL_DISPLAY_LABELS: Record<SkillType, string> = {
   Q: '终结',
 };
 
+function getCharacterSandboxSkills(character: Character): SandboxSkill[] {
+  if (Array.isArray(character.sandboxSkills) && character.sandboxSkills.length > 0) {
+    return character.sandboxSkills;
+  }
+
+  return (['A', 'B', 'E', 'Q'] as const).map((skillType) => ({
+    id: `fallback-${skillType}`,
+    displayName: SKILL_LABELS[skillType],
+    buttonType: skillType,
+    iconUrl: character.skillIconMap?.[skillType],
+    hitCount: 1,
+    source: character.librarySource ?? 'official',
+  }));
+}
+
 export function SkillSandbox({ selectedCharacters, onDragStart, onAvatarDoubleClick }: SkillSandboxProps) {
   const cardRefs = useRef<Record<string, HTMLDivElement | null>>({});
+  const [pageByCharacterId, setPageByCharacterId] = useState<Record<string, number>>({});
 
   // 使用卡片长边实时计算角标长度，满足“角标长度=长边0.34倍”的视觉约束
   useEffect(() => {
@@ -97,10 +111,24 @@ export function SkillSandbox({ selectedCharacters, onDragStart, onAvatarDoubleCl
     <div className="skill-sandbox">
       {/* 遍历每个已选干员，渲染一个角色卡片 */}
       <div className="sandbox-characters">
-        {selectedCharacters.map((character, index) => (
+        {selectedCharacters.map((character, index) => {
+          const sandboxSkills = getCharacterSandboxSkills(character);
+          const isLocalCharacter = character.librarySource === 'local';
+          const totalPages = Math.max(1, Math.ceil(sandboxSkills.length / 4));
+          const currentPage = Math.min(pageByCharacterId[character.id] ?? 0, totalPages - 1);
+          const visibleSkills = sandboxSkills.slice(currentPage * 4, currentPage * 4 + 4);
+          const visibleSlots = Array.from({ length: 4 }, (_, slotIndex) => visibleSkills[slotIndex] ?? null);
+          const updateCharacterPage = (nextPage: number) => {
+            setPageByCharacterId((prev) => ({
+              ...prev,
+              [character.id]: nextPage,
+            }));
+          };
+
+          return (
           <div
             key={character.id}
-            className="sandbox-character sandbox-character--hoverable"
+            className={`sandbox-character sandbox-character--hoverable ${isLocalCharacter ? 'sandbox-character--local' : 'sandbox-character--official'}`}
             ref={(node) => {
               cardRefs.current[character.id] = node;
             }}
@@ -123,42 +151,78 @@ export function SkillSandbox({ selectedCharacters, onDragStart, onAvatarDoubleCl
                 />
               )}
               <span className="sandbox-character-name">{character.name}</span>
+              {totalPages > 1 ? (
+                <div className="sandbox-skill-pager">
+                  <button
+                    type="button"
+                    className="sandbox-pager-button"
+                    onClick={() => updateCharacterPage(Math.max(0, currentPage - 1))}
+                    disabled={currentPage === 0}
+                    aria-label="上一页技能"
+                  >
+                    ‹
+                  </button>
+                  <span className="sandbox-pager-indicator">{currentPage + 1}/{totalPages}</span>
+                  <button
+                    type="button"
+                    className="sandbox-pager-button"
+                    onClick={() => updateCharacterPage(Math.min(totalPages - 1, currentPage + 1))}
+                    disabled={currentPage >= totalPages - 1}
+                    aria-label="下一页技能"
+                  >
+                    ›
+                  </button>
+                </div>
+              ) : null}
             </div>
 
-            {/* 四个技能按钮网格（A/B/E/Q），每个按钮右侧带技能类型标注 */}
             <div className="sandbox-skills">
-              {SKILL_TYPES.map((skillType) => (
-                <div key={skillType} className="sandbox-skill-item">
+              {visibleSlots.map((sandboxSkill, slotIndex) => (
+                <div
+                  key={sandboxSkill?.id ?? `empty-slot-${slotIndex}`}
+                  className={`sandbox-skill-item ${isLocalCharacter ? 'sandbox-skill-item--local' : ''} ${sandboxSkill ? '' : 'sandbox-skill-item--empty'}`}
+                >
+                  {sandboxSkill ? (
+                    <>
                   <div
-                    className={`sandbox-skill-button skill-${skillType.toLowerCase()}`}
+                    className={`sandbox-skill-button skill-${sandboxSkill.buttonType.toLowerCase()}`}
                     style={{ backgroundColor: getElementBackgroundColor(character.element) }}
                     onMouseDown={(e) => {
-                      onDragStart(character.id, character.name, skillType, index, e);
+                      onDragStart(character.id, character.name, sandboxSkill, index, e);
                     }}
-                    title={`${character.name} - ${SKILL_LABELS[skillType]}`}
+                    title={`${character.name} - ${sandboxSkill.displayName}`}
                   >
                     {/* 技能图标：优先渲染 skillIconMap 中的路径，缺失时退回文字 */}
-                    {character.skillIconMap?.[skillType] ? (
+                    {sandboxSkill.iconUrl ? (
                       <img
                         className="skill-icon"
-                        src={character.skillIconMap[skillType]}
-                        alt={SKILL_LABELS[skillType]}
+                        src={sandboxSkill.iconUrl}
+                        alt={sandboxSkill.displayName}
                         onError={(e) => {
                           (e.target as HTMLImageElement).style.display = 'none';
                         }}
                       />
                     ) : null}
                     {/* 兜底文字：图标加载成功时由父容器隐藏，失败时正常显示 */}
-                    <span className="skill-label">{skillType}</span>
+                    <span className="skill-label">{sandboxSkill.buttonType}</span>
                   </div>
-                  {/* 技能类型标注（显示在按钮右侧） */}
-                  <span className="sandbox-skill-tag" 
-                  style={{ marginTop: 8 }}>{SKILL_DISPLAY_LABELS[skillType]}</span>
+                  <div className="sandbox-skill-meta">
+                    <span className="sandbox-skill-tag">{SKILL_DISPLAY_LABELS[sandboxSkill.buttonType]}</span>
+                    {isLocalCharacter ? (
+                      <>
+                        <span className="sandbox-skill-name">{sandboxSkill.displayName}</span>
+                        <span className="sandbox-skill-hit-count">{sandboxSkill.hitCount} hit</span>
+                      </>
+                    ) : null}
+                  </div>
+                    </>
+                  ) : null}
                 </div>
               ))}
             </div>
           </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );

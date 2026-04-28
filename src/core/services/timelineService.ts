@@ -6,6 +6,7 @@
 
 import { SkillButtonData, TimelineData, StaffLineData, SkillType } from '../../types';
 import { PersistedSkillButton } from '../../types/storage';
+import { SKILL_BUTTON_BASELINE_OFFSET_Y } from '../../constants/canvas-layout';
 import { calculateNodeNumber } from '../../utils/nodeNumbering';
 import {
   getGridGroupTop,
@@ -111,9 +112,9 @@ function getReconciledButtonPosition(
 ): { x: number; y: number } {
   return {
     x: position.x,
-    // v1.1.0+ stores position.y as the base midline, not the orb center.
-    // 我的亲自手调，这里 +10才是对的
-    y: getGridGroupTop(getButtonGroupIndex(globalNodeIndex)) + getGridLineCenterY(lineIndex) + 10,
+    // 重选角色/重排 staff 时，统一按 nodeIndex + lineIndex 重建标准 Y。
+    // 标准 Y 语义固定为“底座中线”，不要再混入旧缓存补偿逻辑。
+    y: getGridGroupTop(getButtonGroupIndex(globalNodeIndex)) + getGridLineCenterY(lineIndex) + SKILL_BUTTON_BASELINE_OFFSET_Y,
   };
 }
 
@@ -132,6 +133,10 @@ function buildTimelineButtonsFromSkillButtonTable(
         nodeIndex: button.nodeIndex,
         nodeNumber: button.nodeNumber,
         position: button.position,
+        runtimeSkillId: button.runtimeSkillId,
+        skillDisplayName: button.skillDisplayName,
+        skillIconUrl: button.skillIconUrl,
+        customHits: button.customHits,
       }))
       .sort((left, right) => left.nodeIndex - right.nodeIndex);
 
@@ -226,6 +231,10 @@ export function addSkillButton(
     nodeIndex: buttonData.nodeIndex,
     nodeNumber: newButton.nodeNumber,
     position: buttonData.position,
+    runtimeSkillId: buttonData.runtimeSkillId,
+    skillDisplayName: buttonData.skillDisplayName,
+    skillIconUrl: buttonData.skillIconUrl,
+    customHits: buttonData.customHits,
     selectedBuff: [],
     panelConfig: {
       selectedBuff: [],

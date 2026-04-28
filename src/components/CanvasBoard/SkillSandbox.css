@@ -134,8 +134,40 @@
 .sandbox-character-name {
   font-size: var(--font-size-sm);
   font-weight: 700;
-  flex-shrink: 0;
+  flex: 1 1 auto;
+  min-width: 0;
   color: #636363;
+}
+
+.sandbox-skill-pager {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+}
+
+.sandbox-pager-button {
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 1px solid var(--office-border);
+  background: #fff;
+  color: var(--office-title);
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.sandbox-pager-button:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.sandbox-pager-indicator {
+  min-width: 28px;
+  text-align: center;
+  font-size: 11px;
+  color: var(--office-body);
 }
 
 .sandbox-avatar {
@@ -167,6 +199,13 @@
   display: flex;
   align-items: center;
   height: 44px;
+}
+
+.sandbox-skill-item--local {
+  height: 52px;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 4px 0;
 }
 
 .sandbox-skill-button {
@@ -223,6 +262,30 @@
   white-space: nowrap;
   pointer-events: none;
   flex-shrink: 0;
+}
+
+.sandbox-skill-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+  justify-content: center;
+  padding-top: 2px;
+}
+
+.sandbox-skill-name {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--office-title);
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sandbox-skill-hit-count {
+  font-size: 10px;
+  color: var(--office-body);
 }
 
 /* Excel Acrylic theme final overrides */
@@ -364,4 +427,8 @@
 .sandbox-character--hoverable:focus-within {
   background: var(--ide-bg-hover);
   box-shadow: none;
+}
+
+.sandbox-character--local .sandbox-character-name {
+  line-height: 1.2;
 }

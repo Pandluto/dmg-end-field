@@ -85,6 +85,24 @@ export interface Skill {
   abnormalType?: string;
 }
 
+export interface SandboxSkillHit {
+  key: string;
+  displayName: string;
+  multiplier: number;
+  element: ElementType;
+  skillType: SkillType;
+}
+
+export interface SandboxSkill {
+  id: string;
+  displayName: string;
+  buttonType: SkillType;
+  iconUrl?: string;
+  hitCount: number;
+  source: 'official' | 'local';
+  customHits?: SandboxSkillHit[];
+}
+
 /**
  * 干员完整数据
  * 从 public/data/characters/*.json 加载，包含属性、技能、天赋、潜能等
@@ -132,6 +150,8 @@ export interface Character {
   skillIconMap?: Partial<Record<SkillType, string>>;
   /** 数据来源：官方角色库或本地编辑器库 */
   librarySource?: 'official' | 'local';
+  /** 运行时沙盒技能列表，官方角色为四键，本地角色可多技能 */
+  sandboxSkills?: SandboxSkill[];
 }
 
 /**
@@ -153,6 +173,12 @@ export interface SkillButton {
   isFromSandbox: boolean;  // 是否从技能沙盒拖拽而来
   /** 派生字段：技能图标 URL，由 useCanvasDrag 创建按钮时注入 */
   skillIconUrl?: string;
+  /** 运行时字段：自定义技能稳定标识 */
+  runtimeSkillId?: string;
+  /** 运行时字段：技能显示名 */
+  skillDisplayName?: string;
+  /** 运行时字段：自定义技能 hit 明细 */
+  customHits?: SandboxSkillHit[];
   /** 派生字段：干员元素属性，用于渲染底色，由 useCanvasDrag 注入 */
   element?: string;
   /** 运行时字段：是否锁定（锁定后右键不能删除），不进入持久化 */
@@ -272,6 +298,10 @@ export interface SkillButtonData {
   nodeIndex: number;       // 节点索引（0 ~ N）
   nodeNumber: number;      // 节点编号（1 ~ 50, 51 ~ 100, ...）
   position: Position;      // 位置坐标
+  runtimeSkillId?: string; // 自定义技能稳定标识
+  skillDisplayName?: string; // 技能显示名
+  skillIconUrl?: string;   // 技能图标
+  customHits?: SandboxSkillHit[]; // 自定义技能 hit 明细
   buffIds?: string[];      // 关联的 Buff ID 列表（持久化用）
 }
 

@@ -20,6 +20,7 @@ import React, { createContext, useContext, useReducer, ReactNode, useEffect, use
 import {
   AppState,
   Character,
+  SandboxSkill,
   SkillButton,
   ViewType,
   DEFAULT_CANVAS_CONFIG,
@@ -65,6 +66,30 @@ const initialState: AppState = {
   skillButtons: [],
   loadedCharacters: [],
 };
+
+function buildOfficialSandboxSkills(character: Character): SandboxSkill[] {
+  const officialSkillMap = {
+    A: character.skills.normalAttack,
+    B: character.skills.skill,
+    E: character.skills.chainSkill,
+    Q: character.skills.ultimate,
+  } as const;
+
+  return (['A', 'B', 'E', 'Q'] as const).map((skillType) => {
+    const skill = officialSkillMap[skillType];
+    const multipliers = skill?.multipliers?.M3 ?? skill?.multipliers?.['9'] ?? {};
+    const hitCount = Object.keys(multipliers).filter((key) => /^hit\d+$/i.test(key)).length || 1;
+
+    return {
+      id: `official-${skillType}`,
+      displayName: skill?.name || skillType,
+      buttonType: skillType,
+      iconUrl: character.skillIconMap?.[skillType],
+      hitCount,
+      source: 'official',
+    };
+  });
+}
 
 /**
  * 状态更新纯函数
@@ -245,6 +270,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
               Q: resolveSkillIconUrl(character.name, 'Q'),
             };
             character.librarySource = 'official';
+            character.sandboxSkills = buildOfficialSandboxSkills(character);
             characters.push(character);
           }
         } catch (error) {

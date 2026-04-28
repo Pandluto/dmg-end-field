@@ -3,7 +3,7 @@
  */
 
 import { useState, useCallback, useRef, useEffect } from 'react';
-import { SkillType, SkillButton, CanvasConfig, SkillButtonData } from '../../../types';
+import { SkillType, SkillButton, CanvasConfig, SkillButtonData, SandboxSkill } from '../../../types';
 import { generateId } from '../../../utils/helpers';
 import { resolveSkillIconUrl } from '../../../utils/assetResolver';
 import {
@@ -23,6 +23,10 @@ interface DraggingState {
   characterId: string;
   characterName: string;
   skillType: SkillType;
+  runtimeSkillId?: string;
+  skillDisplayName?: string;
+  skillIconUrl?: string;
+  customHits?: SkillButton['customHits'];
   lineIndex: number;
   offsetX: number;
   offsetY: number;
@@ -43,6 +47,10 @@ interface UseCanvasDragProps {
     staffIndex: number;
     nodeIndex: number;
     position: { x: number; y: number };
+    runtimeSkillId?: string;
+    skillDisplayName?: string;
+    skillIconUrl?: string;
+    customHits?: SkillButton['customHits'];
   }, buttonId?: string) => void;
   updateSkillButtonPosition?: (staffIndex: number, buttonId: string, newPosition: { x: number; y: number }, newNodeIndex: number) => SkillButtonData | null;
   moveTimelineButtonToStaff?: (
@@ -60,7 +68,7 @@ export interface UseCanvasDragReturn {
   handleSandboxDragStart: (
     characterId: string,
     characterName: string,
-    skillType: SkillType,
+    sandboxSkill: SandboxSkill,
     lineIndex: number,
     e: React.MouseEvent
   ) => void;
@@ -91,7 +99,7 @@ export function useCanvasDrag({
     (
       characterId: string,
       characterName: string,
-      skillType: SkillType,
+      sandboxSkill: SandboxSkill,
       lineIndex: number,
       e: React.MouseEvent
     ) => {
@@ -102,7 +110,11 @@ export function useCanvasDrag({
         id: generateId(),
         characterId,
         characterName,
-        skillType,
+        skillType: sandboxSkill.buttonType,
+        runtimeSkillId: sandboxSkill.id,
+        skillDisplayName: sandboxSkill.displayName,
+        skillIconUrl: sandboxSkill.iconUrl,
+        customHits: sandboxSkill.customHits,
         lineIndex,
         offsetX: offset,
         offsetY: offset,
@@ -130,6 +142,10 @@ export function useCanvasDrag({
           characterId: button.characterId,
           characterName: button.characterName,
           skillType: button.skillType,
+          runtimeSkillId: button.runtimeSkillId,
+          skillDisplayName: button.skillDisplayName,
+          skillIconUrl: button.skillIconUrl,
+          customHits: button.customHits,
           lineIndex: button.lineIndex,
           offsetX: config.skillButtonSize / 2,
           offsetY: config.skillButtonSize / 2,
@@ -310,7 +326,10 @@ export function useCanvasDrag({
                 isDragging: false,
                 isSelected: false,
                 isFromSandbox: true,
-                skillIconUrl: resolveSkillIconUrl(draggingState.characterName, draggingState.skillType),
+                runtimeSkillId: draggingState.runtimeSkillId,
+                skillDisplayName: draggingState.skillDisplayName,
+                skillIconUrl: draggingState.skillIconUrl ?? resolveSkillIconUrl(draggingState.characterName, draggingState.skillType),
+                customHits: draggingState.customHits,
                 element: characterElement,
               };
 
@@ -327,6 +346,10 @@ export function useCanvasDrag({
                     staffIndex: persistenceStaffIndex,
                     nodeIndex: persistenceNodeIndex,
                     position: snappedPosition,
+                    runtimeSkillId: draggingState.runtimeSkillId,
+                    skillDisplayName: draggingState.skillDisplayName,
+                    skillIconUrl: draggingState.skillIconUrl,
+                    customHits: draggingState.customHits,
                   }, draggingState.id);
                 }
               } catch (timelineError) {

@@ -1,4 +1,4 @@
-import { Character, SkillMultiplier, SkillType } from '../../types';
+import { Character, SandboxSkill, SandboxSkillHit, SkillMultiplier, SkillType } from '../../types';
 
 const LOCAL_OPERATOR_LIBRARY_KEY = 'ddd.operator-editor.library.v1';
 
@@ -86,11 +86,45 @@ function buildSkillIconMap(draft: ImportedOperatorDraft) {
   return iconMap;
 }
 
+function sortHitEntries(left: [string, ImportedHitMetaDraft], right: [string, ImportedHitMetaDraft]) {
+  const leftNumber = Number(left[0].replace(/\D/g, ''));
+  const rightNumber = Number(right[0].replace(/\D/g, ''));
+  if (Number.isFinite(leftNumber) && Number.isFinite(rightNumber)) {
+    return leftNumber - rightNumber;
+  }
+  return left[0].localeCompare(right[0]);
+}
+
+function buildSandboxSkills(draft: ImportedOperatorDraft): SandboxSkill[] {
+  return Object.entries(draft.skills).map(([skillKey, skill]) => {
+    const customHits: SandboxSkillHit[] = Object.entries(skill.hitMeta)
+      .sort(sortHitEntries)
+      .map(([hitKey, hit]) => ({
+        key: hitKey,
+        displayName: hit.displayName || hitKey,
+        multiplier: hit.multiplier,
+        element: hit.element,
+        skillType: hit.skillType,
+      }));
+
+    return {
+      id: skillKey,
+      displayName: skill.displayName || skillKey,
+      buttonType: skill.buttonType,
+      iconUrl: skill.iconUrl || undefined,
+      hitCount: customHits.length > 0 ? customHits.length : skill.hitCount,
+      source: 'local',
+      customHits,
+    };
+  });
+}
+
 export function adaptImportedDraftToCharacter(draft: ImportedOperatorDraft): Character {
   const normalAttack = getFirstSkillByType(draft, 'A');
   const skill = getFirstSkillByType(draft, 'B');
   const chainSkill = getFirstSkillByType(draft, 'E');
   const ultimate = getFirstSkillByType(draft, 'Q');
+  const sandboxSkills = buildSandboxSkills(draft);
 
   return {
     id: draft.id,
@@ -142,6 +176,7 @@ export function adaptImportedDraftToCharacter(draft: ImportedOperatorDraft): Cha
     avatarUrl: draft.avatarUrl,
     skillIconMap: buildSkillIconMap(draft),
     librarySource: 'local',
+    sandboxSkills,
   };
 }
 

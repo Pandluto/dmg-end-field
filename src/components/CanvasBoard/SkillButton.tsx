@@ -43,9 +43,9 @@ export function SkillButtonComponent({ button, size, onMouseDown, onContextMenu,
    *   其中 visualOffsetY = 15，用于对齐谱线中心
    *
    * 恢复兼容性说明：
-   * - timeline version < 1.1.0 时，position.y 存储的是旧语义（圆心），
-   *   恢复时会自动在 CanvasBoard 恢复链中补偿 +15px
-   * - timeline version >= 1.1.0 时，position.y 已是底座中线，无需补偿
+   * - timeline version < 1.1.0 时：CanvasBoard 恢复链直接使用缓存中的 position.y
+   * - timeline version >= 1.1.0 时：CanvasBoard 恢复链按 nodeIndex + lineIndex 重建标准 Y
+   * - 本组件只消费最终的 position.y，不再区分旧缓存/新缓存细节
    */
   const { position, skillType, isSelected, isDragging, characterName, skillIconUrl, element, isLocked } = button;
   const { dispatch } = useAppContext();
