@@ -1,9 +1,21 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import './OperatorDraftPage.css';
+import assetPathsRaw from '../../asset-paths.txt?raw';
+import { loadReferenceOperatorDraft, loadReferenceOperatorNames } from './operatorDraftReference';
 
 const DRAFT_PAGE_PATH = '/draft';
 const DRAFT_STORAGE_KEY = 'ddd.operator-editor.draft.v1';
 const LIBRARY_STORAGE_KEY = 'ddd.operator-editor.library.v1';
+const RARITY_OPTIONS = [4, 5, 6] as const;
+const PROFESSION_OPTIONS = ['突击', '重装', '近卫', '辅助', '先锋', '术师'] as const;
+const WEAPON_OPTIONS = ['手铳', '双手剑', '长柄武器', '法术单元', '单手剑'] as const;
+const ABILITY_OPTIONS = ['力量', '敏捷', '智识', '意志'] as const;
+const ELEMENT_OPTIONS = ['physical', 'fire', 'ice', 'electric', 'nature'] as const;
+const ASSET_PATH_OPTIONS = assetPathsRaw
+  .split('\n')
+  .map((line) => line.trim())
+  .filter(Boolean);
+const AVATAR_ASSET_OPTIONS = ASSET_PATH_OPTIONS.filter((path) => /\/assets\/avatars\/[^/]+\/[^/]+\.png$/i.test(path) && !/连携技|战技|终结技|icon_/i.test(path));
 
 type HitSkillType = 'A' | 'B' | 'E' | 'Q';
 type HitElement = 'physical' | 'fire' | 'ice' | 'electric' | 'nature';
@@ -45,36 +57,35 @@ interface OperatorDraft {
   skills: Record<string, SkillDraft>;
 }
 
-interface CommandResult {
-  draft: OperatorDraft;
-  message: string;
-  effect?: 'save-draft' | 'save-library' | 'export-json';
-  selectedSkillKey?: string | null;
-  selectedHitKey?: string | null;
+function getSkillIndexFromKey(skillKey: string) {
+  const matched = skillKey.match(/(\d+)$/);
+  return matched ? Number(matched[1]) : 1;
 }
 
-interface CommandContext {
-  selectedSkillKey: string | null;
-  selectedHitKey: string | null;
+function getHitIndexFromKey(hitKey: string) {
+  const matched = hitKey.match(/(\d+)$/);
+  return matched ? Number(matched[1]) : 1;
 }
 
-function createDefaultHit(): HitMetaDraft {
+function createDefaultHit(hitKey = 'hit1'): HitMetaDraft {
+  const hitIndex = getHitIndexFromKey(hitKey);
   return {
     multiplier: 0,
-    displayName: '',
+    displayName: `第${hitIndex}击`,
     element: 'physical',
     skillType: 'A',
   };
 }
 
-function createDefaultSkill(buttonType: HitSkillType = 'A'): SkillDraft {
+function createDefaultSkill(buttonType: HitSkillType = 'A', skillKey = 'skill-1'): SkillDraft {
+  const skillIndex = getSkillIndexFromKey(skillKey);
   return {
-    displayName: '',
+    displayName: `新技能${skillIndex}`,
     buttonType,
     iconUrl: '',
     hitCount: 1,
     hitMeta: {
-      hit1: createDefaultHit(),
+      hit1: createDefaultHit('hit1'),
     },
   };
 }
@@ -100,7 +111,7 @@ function createDefaultDraft(): OperatorDraft {
       hp: 0,
     },
     skills: {
-      'skill-1': createDefaultSkill('A'),
+      'skill-1': createDefaultSkill('A', 'skill-1'),
     },
   };
 }
@@ -117,28 +128,30 @@ function syncHitCount(skill: SkillDraft) {
   skill.hitCount = Object.keys(skill.hitMeta).length;
 }
 
-function parseNumber(value: string) {
-  const next = Number(value);
-  if (Number.isNaN(next)) {
-    throw new Error(`无效数字: ${value}`);
-  }
-  return next;
+function normalizeDraft(value: OperatorDraft) {
+  Object.entries(value.skills).forEach(([skillKey, skill]) => {
+    if (!skill.displayName?.trim()) {
+      skill.displayName = createDefaultSkill(skill.buttonType, skillKey).displayName;
+    }
+    Object.entries(skill.hitMeta).forEach(([hitKey, hit]) => {
+      if (!hit.displayName?.trim()) {
+        hit.displayName = createDefaultHit(hitKey).displayName;
+      }
+    });
+    syncHitCount(skill);
+  });
+  return value;
 }
 
-function assertSkill(draft: OperatorDraft, skillKey: string) {
-  const skill = draft.skills[skillKey];
-  if (!skill) {
-    throw new Error(`未找到 skill: ${skillKey}`);
+function parseImportedDraft(rawText: string) {
+  const parsed = JSON.parse(rawText) as Partial<OperatorDraft>;
+  if (!parsed || typeof parsed !== 'object') {
+    throw new Error('JSON 根节点必须是对象');
   }
-  return skill;
-}
-
-function assertHit(skill: SkillDraft, hitKey: string) {
-  const hit = skill.hitMeta[hitKey];
-  if (!hit) {
-    throw new Error(`未找到 hit: ${hitKey}`);
+  if (!parsed.id || !parsed.name || !parsed.skills || typeof parsed.skills !== 'object') {
+    throw new Error('JSON 缺少 id / name / skills');
   }
-  return hit;
+  return normalizeDraft(parsed as OperatorDraft);
 }
 
 function getNextSkillKey(draft: OperatorDraft) {
@@ -157,243 +170,40 @@ function getNextHitKey(skill: SkillDraft) {
   return `hit${index}`;
 }
 
-function resolveSkillKey(rawSkillKey: string | undefined, context: CommandContext) {
-  if (rawSkillKey && rawSkillKey !== '.') {
-    return rawSkillKey;
-  }
-  if (!context.selectedSkillKey) {
-    throw new Error('当前没有选中的 skill');
-  }
-  return context.selectedSkillKey;
+function syncSkillOrderWithDraft(skillOrder: string[], draft: OperatorDraft) {
+  const keys = Object.keys(draft.skills);
+  const filtered = skillOrder.filter((key) => keys.includes(key));
+  const missing = keys.filter((key) => !filtered.includes(key));
+  return [...filtered, ...missing];
 }
 
-function resolveHitKey(rawHitKey: string | undefined, context: CommandContext) {
-  if (rawHitKey && rawHitKey !== '.') {
-    return rawHitKey;
+function moveSkillKey(skillOrder: string[], fromKey: string, toKey: string) {
+  if (fromKey === toKey) {
+    return skillOrder;
   }
-  if (!context.selectedHitKey) {
-    throw new Error('当前没有选中的 hit');
+
+  const nextOrder = [...skillOrder];
+  const fromIndex = nextOrder.indexOf(fromKey);
+  const toIndex = nextOrder.indexOf(toKey);
+  if (fromIndex === -1 || toIndex === -1) {
+    return skillOrder;
   }
-  return context.selectedHitKey;
+
+  nextOrder.splice(fromIndex, 1);
+  nextOrder.splice(toIndex, 0, fromKey);
+  return nextOrder;
 }
 
-function parseCommand(input: string, currentDraft: OperatorDraft, context: CommandContext): CommandResult {
-  const trimmed = input.trim();
-  if (!trimmed) {
-    throw new Error('命令为空');
-  }
-
-  const tokens = trimmed.split(/\s+/);
-  const draft = cloneDraft(currentDraft);
-
-  if (tokens[0] === 'set' && tokens[1] === 'operator' && tokens.length >= 4) {
-    const field = tokens[2];
-    const value = tokens.slice(3).join(' ');
-
-    if (!['id', 'name', 'avatarUrl', 'profession', 'weapon', 'element', 'mainStat', 'subStat', 'level', 'rarity'].includes(field)) {
-      throw new Error(`不支持的 operator 字段: ${field}`);
-    }
-
-    switch (field) {
-      case 'id':
-        draft.id = value;
-        break;
-      case 'name':
-        draft.name = value;
-        break;
-      case 'avatarUrl':
-        draft.avatarUrl = value;
-        break;
-      case 'profession':
-        draft.profession = value;
-        break;
-      case 'weapon':
-        draft.weapon = value;
-        break;
-      case 'element':
-        draft.element = value;
-        break;
-      case 'mainStat':
-        draft.mainStat = value;
-        break;
-      case 'subStat':
-        draft.subStat = value;
-        break;
-      case 'level':
-        draft.level = parseNumber(value);
-        break;
-      case 'rarity':
-        draft.rarity = parseNumber(value);
-        break;
-      default:
-        throw new Error(`不支持的 operator 字段: ${field}`);
-    }
-
-    return { draft, message: `已更新 operator.${field}` };
-  }
-
-  if (tokens[0] === 'set' && tokens[1] === 'attr' && tokens.length === 4) {
-    const field = tokens[2] as keyof OperatorDraft['attributes'];
-    if (!(field in draft.attributes)) {
-      throw new Error(`不支持的 attributes 字段: ${field}`);
-    }
-    draft.attributes[field] = parseNumber(tokens[3]);
-    return { draft, message: `已更新 attributes.${field}` };
-  }
-
-  if (tokens[0] === 'select' && tokens[1] === 'skill' && tokens.length === 3) {
-    const skillKey = tokens[2];
-    assertSkill(draft, skillKey);
-    const skill = draft.skills[skillKey];
-    const firstHitKey = Object.keys(skill.hitMeta)[0] ?? null;
-    return { draft, message: `已选中 skill: ${skillKey}`, selectedSkillKey: skillKey, selectedHitKey: firstHitKey };
-  }
-
-  if (tokens[0] === 'select' && tokens[1] === 'hit') {
-    if (tokens.length === 3) {
-      const skillKey = resolveSkillKey(undefined, context);
-      const skill = assertSkill(draft, skillKey);
-      const hitKey = tokens[2];
-      assertHit(skill, hitKey);
-      return { draft, message: `已选中 ${skillKey}.${hitKey}`, selectedSkillKey: skillKey, selectedHitKey: hitKey };
-    }
-
-    if (tokens.length === 4) {
-      const skillKey = tokens[2];
-      const skill = assertSkill(draft, skillKey);
-      const hitKey = tokens[3];
-      assertHit(skill, hitKey);
-      return { draft, message: `已选中 ${skillKey}.${hitKey}`, selectedSkillKey: skillKey, selectedHitKey: hitKey };
-    }
-  }
-
-  if (tokens[0] === 'add' && tokens[1] === 'skill') {
-    const skillKey = tokens[2] ?? getNextSkillKey(draft);
-    if (draft.skills[skillKey]) {
-      throw new Error(`skill 已存在: ${skillKey}`);
-    }
-    const buttonType = (tokens[3] as HitSkillType | undefined) ?? 'A';
-    draft.skills[skillKey] = createDefaultSkill(buttonType);
-    return { draft, message: `已新增 skill: ${skillKey}`, selectedSkillKey: skillKey, selectedHitKey: 'hit1' };
-  }
-
-  if (tokens[0] === 'remove' && tokens[1] === 'skill' && tokens.length <= 3) {
-    const skillKey = resolveSkillKey(tokens[2], context);
-    assertSkill(draft, skillKey);
-    delete draft.skills[skillKey];
-    const nextSkillKey = Object.keys(draft.skills)[0] ?? null;
-    const nextHitKey = nextSkillKey ? Object.keys(draft.skills[nextSkillKey].hitMeta)[0] ?? null : null;
-    return { draft, message: `已删除 skill: ${skillKey}`, selectedSkillKey: nextSkillKey, selectedHitKey: nextHitKey };
-  }
-
-  if (tokens[0] === 'set' && tokens[1] === 'skill') {
-    const explicitFieldCall = tokens.length >= 4 && ['displayName', 'iconUrl', 'buttonType', 'hitCount'].includes(tokens[2]);
-    const skillKey = explicitFieldCall ? resolveSkillKey(undefined, context) : resolveSkillKey(tokens[2], context);
-    const field = explicitFieldCall ? tokens[2] : tokens[3];
-    const value = explicitFieldCall ? tokens.slice(3).join(' ') : tokens.slice(4).join(' ');
-    if (!field || !value) {
-      throw new Error('set skill 命令不完整');
-    }
-    const skill = assertSkill(draft, skillKey);
-
-    if (field === 'displayName') {
-      skill.displayName = value;
-    } else if (field === 'iconUrl') {
-      skill.iconUrl = value;
-    } else if (field === 'buttonType') {
-      skill.buttonType = value as HitSkillType;
-    } else if (field === 'hitCount') {
-      const count = parseNumber(value);
-      if (count < 1) {
-        throw new Error('hitCount 不能小于 1');
-      }
-      const currentCount = Object.keys(skill.hitMeta).length;
-      if (count > currentCount) {
-        for (let index = currentCount + 1; index <= count; index += 1) {
-          skill.hitMeta[`hit${index}`] = createDefaultHit();
-        }
-      } else if (count < currentCount) {
-        for (let index = currentCount; index > count; index -= 1) {
-          delete skill.hitMeta[`hit${index}`];
-        }
-      }
-      syncHitCount(skill);
-    } else {
-      throw new Error(`不支持的 skill 字段: ${field}`);
-    }
-
-    return { draft, message: `已更新 ${skillKey}.${field}`, selectedSkillKey: skillKey };
-  }
-
-  if (tokens[0] === 'add' && tokens[1] === 'hit') {
-    const explicitSkill = tokens.length >= 4;
-    const skillKey = explicitSkill ? resolveSkillKey(tokens[2], context) : resolveSkillKey(undefined, context);
-    const skill = assertSkill(draft, skillKey);
-    const hitKey = explicitSkill ? (tokens[3] ?? getNextHitKey(skill)) : (tokens[2] ?? getNextHitKey(skill));
-    if (skill.hitMeta[hitKey]) {
-      throw new Error(`hit 已存在: ${hitKey}`);
-    }
-    skill.hitMeta[hitKey] = createDefaultHit();
-    syncHitCount(skill);
-    return { draft, message: `已新增 ${skillKey}.${hitKey}`, selectedSkillKey: skillKey, selectedHitKey: hitKey };
-  }
-
-  if (tokens[0] === 'remove' && tokens[1] === 'hit') {
-    const explicitSkill = tokens.length >= 4;
-    const skillKey = explicitSkill ? resolveSkillKey(tokens[2], context) : resolveSkillKey(undefined, context);
-    const skill = assertSkill(draft, skillKey);
-    const hitKey = explicitSkill ? resolveHitKey(tokens[3], context) : resolveHitKey(tokens[2], context);
-    assertHit(skill, hitKey);
-    delete skill.hitMeta[hitKey];
-    if (Object.keys(skill.hitMeta).length === 0) {
-      skill.hitMeta.hit1 = createDefaultHit();
-    }
-    syncHitCount(skill);
-    const nextHitKey = Object.keys(skill.hitMeta)[0] ?? null;
-    return { draft, message: `已删除 ${skillKey}.${hitKey}`, selectedSkillKey: skillKey, selectedHitKey: nextHitKey };
-  }
-
-  if (tokens[0] === 'set' && tokens[1] === 'hit') {
-    const shortFieldCall = tokens.length >= 4 && ['multiplier', 'displayName', 'element', 'skillType'].includes(tokens[2]);
-    const mediumFieldCall = tokens.length >= 5 && ['multiplier', 'displayName', 'element', 'skillType'].includes(tokens[3]);
-    const skillKey = shortFieldCall ? resolveSkillKey(undefined, context) : mediumFieldCall ? resolveSkillKey(tokens[2], context) : resolveSkillKey(tokens[2], context);
-    const skill = assertSkill(draft, skillKey);
-    const hitKey = shortFieldCall ? resolveHitKey(undefined, context) : mediumFieldCall ? resolveHitKey(undefined, context) : resolveHitKey(tokens[3], context);
-    const hit = assertHit(skill, hitKey);
-    const field = shortFieldCall ? tokens[2] : mediumFieldCall ? tokens[3] : tokens[4];
-    const value = shortFieldCall ? tokens.slice(3).join(' ') : mediumFieldCall ? tokens.slice(4).join(' ') : tokens.slice(5).join(' ');
-    if (!field || !value) {
-      throw new Error('set hit 命令不完整');
-    }
-
-    if (field === 'multiplier') {
-      hit.multiplier = parseNumber(value);
-    } else if (field === 'displayName') {
-      hit.displayName = value;
-    } else if (field === 'element') {
-      hit.element = value as HitElement;
-    } else if (field === 'skillType') {
-      hit.skillType = value as HitSkillType;
-    } else {
-      throw new Error(`不支持的 hit 字段: ${field}`);
-    }
-
-    return { draft, message: `已更新 ${skillKey}.${hitKey}.${field}`, selectedSkillKey: skillKey, selectedHitKey: hitKey };
-  }
-
-  if (trimmed === 'save draft') {
-    return { draft, message: '已保存草稿到 localStorage', effect: 'save-draft' };
-  }
-
-  if (trimmed === 'save library') {
-    return { draft, message: '已保存到角色库', effect: 'save-library' };
-  }
-
-  if (trimmed === 'export json') {
-    return { draft, message: '已导出 JSON 到剪贴板', effect: 'export-json' };
-  }
-
-  throw new Error(`无法识别命令: ${trimmed}`);
+function buildOrderedDraft(draft: OperatorDraft, skillOrder: string[]) {
+  const nextSkills: Record<string, SkillDraft> = {};
+  const nextOrder = syncSkillOrderWithDraft(skillOrder, draft);
+  nextOrder.forEach((skillKey) => {
+    nextSkills[skillKey] = draft.skills[skillKey];
+  });
+  return {
+    ...draft,
+    skills: nextSkills,
+  };
 }
 
 function loadDraftFromStorage() {
@@ -407,7 +217,7 @@ function loadDraftFromStorage() {
   }
 
   try {
-    return JSON.parse(raw) as OperatorDraft;
+    return parseImportedDraft(raw);
   } catch {
     return createDefaultDraft();
   }
@@ -419,18 +229,85 @@ async function copyText(text: string) {
   }
 }
 
+function renderInlineMarkdown(text: string, keyPrefix: string): ReactNode[] {
+  const parts = text.split(/(`[^`]+`|\*\*[^*]+\*\*)/g).filter(Boolean);
+  return parts.map((part, index) => {
+    if (part.startsWith('**') && part.endsWith('**')) {
+      return <strong key={`${keyPrefix}-b-${index}`}>{part.slice(2, -2)}</strong>;
+    }
+    if (part.startsWith('`') && part.endsWith('`')) {
+      return <code key={`${keyPrefix}-c-${index}`}>{part.slice(1, -1)}</code>;
+    }
+    return <span key={`${keyPrefix}-t-${index}`}>{part}</span>;
+  });
+}
+
+function renderMiniMarkdown(markdown: string): ReactNode[] {
+  const lines = markdown.split('\n');
+  const nodes: ReactNode[] = [];
+  let listItems: string[] = [];
+
+  const flushList = () => {
+    if (!listItems.length) return;
+    const items = listItems;
+    listItems = [];
+    nodes.push(
+      <ul key={`list-${nodes.length}`}>
+        {items.map((item, index) => (
+          <li key={`li-${index}`}>{renderInlineMarkdown(item, `list-${nodes.length}-${index}`)}</li>
+        ))}
+      </ul>
+    );
+  };
+
+  lines.forEach((rawLine, index) => {
+    const line = rawLine.trim();
+    if (!line) {
+      flushList();
+      return;
+    }
+
+    if (line.startsWith('- ')) {
+      listItems.push(line.slice(2));
+      return;
+    }
+
+    flushList();
+
+    if (line.startsWith('## ')) {
+      nodes.push(<h4 key={`h4-${index}`}>{renderInlineMarkdown(line.slice(3), `h4-${index}`)}</h4>);
+      return;
+    }
+
+    if (line.startsWith('# ')) {
+      nodes.push(<h3 key={`h3-${index}`}>{renderInlineMarkdown(line.slice(2), `h3-${index}`)}</h3>);
+      return;
+    }
+
+    nodes.push(<p key={`p-${index}`}>{renderInlineMarkdown(line, `p-${index}`)}</p>);
+  });
+
+  flushList();
+  return nodes;
+}
+
 export { isDraftPath };
 
 export function OperatorDraftPage() {
   const [draft, setDraft] = useState<OperatorDraft>(() => loadDraftFromStorage());
-  const [command, setCommand] = useState('');
+  const [referenceNames, setReferenceNames] = useState<string[]>([]);
+  const [selectedReferenceName, setSelectedReferenceName] = useState('');
+  const [localDraftIds, setLocalDraftIds] = useState<string[]>([]);
+  const [selectedLocalDraftId, setSelectedLocalDraftId] = useState('');
   const [messages, setMessages] = useState<string[]>([
-    '命令示例：set operator name 汤汤2号',
-    '命令示例：add skill skill-2 B',
-    '命令示例：set hit skill-1 hit1 multiplier 0.41',
+    '已进入干员模板编辑器',
   ]);
   const [selectedSkillKey, setSelectedSkillKey] = useState<string | null>(null);
   const [selectedHitKey, setSelectedHitKey] = useState<string | null>(null);
+  const [skillOrder, setSkillOrder] = useState<string[]>([]);
+  const [draggingSkillKey, setDraggingSkillKey] = useState<string | null>(null);
+  const [dragOverSkillKey, setDragOverSkillKey] = useState<string | null>(null);
+  const [jsonImportText, setJsonImportText] = useState('');
 
   useEffect(() => {
     const skillKeys = Object.keys(draft.skills);
@@ -438,6 +315,61 @@ export function OperatorDraftPage() {
       setSelectedSkillKey(skillKeys[0] ?? null);
     }
   }, [draft, selectedSkillKey]);
+
+  useEffect(() => {
+    setSkillOrder((prev) => {
+      const next = syncSkillOrderWithDraft(prev, draft);
+      return next.length === prev.length && next.every((skillKey, index) => skillKey === prev[index]) ? prev : next;
+    });
+  }, [draft]);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const loadReferenceOperators = async () => {
+      try {
+        if (!isMounted) {
+          return;
+        }
+        const names = await loadReferenceOperatorNames();
+        if (!isMounted) {
+          return;
+        }
+        setReferenceNames(names);
+        setSelectedReferenceName((prev) => prev || names[0] || '');
+      } catch (error) {
+        if (!isMounted) {
+          return;
+        }
+        const message = error instanceof Error ? error.message : 'operators-list 加载失败';
+        setMessages((prev) => [`[ERR] ${message}`, ...prev].slice(0, 12));
+      }
+    };
+
+    loadReferenceOperators();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+    const raw = window.localStorage.getItem(LIBRARY_STORAGE_KEY);
+    const localDraftIdsFromStorage: string[] = [];
+    if (raw) {
+      try {
+        const parsed = JSON.parse(raw) as Record<string, OperatorDraft>;
+        localDraftIdsFromStorage.push(...Object.keys(parsed));
+      } catch {
+        // ignore malformed local library
+      }
+    }
+    setLocalDraftIds(localDraftIdsFromStorage);
+    setSelectedLocalDraftId((prev) => prev || localDraftIdsFromStorage[0] || '');
+  }, [draft.id]);
 
   useEffect(() => {
     if (!selectedSkillKey || !draft.skills[selectedSkillKey]) {
@@ -454,7 +386,34 @@ export function OperatorDraftPage() {
   const selectedSkill = selectedSkillKey ? draft.skills[selectedSkillKey] : null;
   const selectedHit = selectedSkill && selectedHitKey ? selectedSkill.hitMeta[selectedHitKey] : null;
 
-  const draftJson = useMemo(() => JSON.stringify(draft, null, 2), [draft]);
+  const orderedDraft = useMemo(() => buildOrderedDraft(draft, skillOrder), [draft, skillOrder]);
+  const draftJson = useMemo(() => JSON.stringify(orderedDraft, null, 2), [orderedDraft]);
+  const operatorMarkdown = useMemo(() => {
+    const skillLines = Object.entries(orderedDraft.skills).map(([skillKey, skill]) => {
+      const hitSummary = Object.entries(skill.hitMeta)
+        .map(([hitKey, hit]) => `${hitKey}:${hit.displayName || '-'} / ${hit.element} / ${hit.skillType} / x${hit.multiplier}`)
+        .join('；');
+      return `- **${skill.displayName || skillKey}**（\`${skill.buttonType}\`，${skill.hitCount} hit）：${hitSummary || '无 hit'}`;
+    });
+
+    return [
+      '# 干员信息',
+      `**名称**：${draft.name}`,
+      `**ID**：\`${draft.id}\``,
+      `**等级**：${draft.level} / **稀有度**：${draft.rarity}`,
+      `**职业**：${draft.profession || '-'} / **武器**：${draft.weapon || '-'}`,
+      `**元素**：${draft.element || '-'} / **主属性**：${draft.mainStat || '-'} / **副属性**：${draft.subStat || '-'}`,
+      '## 基础属性',
+      `- 力量：${draft.attributes.strength}`,
+      `- 敏捷：${draft.attributes.agility}`,
+      `- 智识：${draft.attributes.intelligence}`,
+      `- 意志：${draft.attributes.will}`,
+      `- 攻击：${draft.attributes.atk}`,
+      `- 生命：${draft.attributes.hp}`,
+      '## 技能概览',
+      ...(skillLines.length ? skillLines : ['- 暂无技能']),
+    ].join('\n');
+  }, [draft, orderedDraft]);
 
   const updateOperatorField = <K extends keyof OperatorDraft>(field: K, value: OperatorDraft[K]) => {
     setDraft((prev) => ({ ...prev, [field]: value }));
@@ -498,51 +457,204 @@ export function OperatorDraftPage() {
     }));
   };
 
-  const applyCommand = async (nextCommand: string, autoRun = false) => {
-    setCommand(nextCommand);
-    if (!autoRun) {
+  const loadDraftIntoEditor = (nextDraft: OperatorDraft, message: string) => {
+    const normalizedDraft = normalizeDraft(cloneDraft(nextDraft));
+    const nextSkillOrder = Object.keys(normalizedDraft.skills);
+    const firstSkillKey = nextSkillOrder[0] ?? null;
+    const firstHitKey = firstSkillKey ? Object.keys(normalizedDraft.skills[firstSkillKey].hitMeta)[0] ?? null : null;
+    setDraft(buildOrderedDraft(normalizedDraft, nextSkillOrder));
+    setSkillOrder(nextSkillOrder);
+    setSelectedSkillKey(firstSkillKey);
+    setSelectedHitKey(firstHitKey);
+    setMessages((prev) => [message, ...prev].slice(0, 12));
+  };
+
+  const duplicateSelectedSkill = () => {
+    if (!selectedSkillKey || !selectedSkill) {
+      setMessages((prev) => ['[ERR] 当前没有可复制的 skill', ...prev].slice(0, 12));
+      return;
+    }
+
+    const nextSkillKey = getNextSkillKey(draft);
+    const duplicatedSkill = cloneDraft(selectedSkill);
+    const firstHitKey = Object.keys(duplicatedSkill.hitMeta)[0] ?? null;
+    const nextDraft = {
+      ...draft,
+      skills: {
+        ...draft.skills,
+        [nextSkillKey]: duplicatedSkill,
+      },
+    };
+    const nextSkillOrder = [...syncSkillOrderWithDraft(skillOrder, draft), nextSkillKey];
+    setDraft(buildOrderedDraft(nextDraft, nextSkillOrder));
+    setSkillOrder(nextSkillOrder);
+    setSelectedSkillKey(nextSkillKey);
+    setSelectedHitKey(firstHitKey);
+    setMessages((prev) => [`[OK] 已复制 skill：${selectedSkillKey} -> ${nextSkillKey}`, ...prev].slice(0, 12));
+  };
+
+  const importReferenceOperator = async () => {
+    if (!selectedReferenceName) {
+      setMessages((prev) => ['[ERR] 未选择参考干员', ...prev].slice(0, 12));
       return;
     }
 
     try {
-      const result = parseCommand(nextCommand, draft, { selectedSkillKey, selectedHitKey });
-      setDraft(result.draft);
-      setMessages((prev) => [`[OK] ${result.message}`, ...prev].slice(0, 12));
-
-      if (typeof result.selectedSkillKey !== 'undefined') {
-        setSelectedSkillKey(result.selectedSkillKey);
-      }
-      if (typeof result.selectedHitKey !== 'undefined') {
-        setSelectedHitKey(result.selectedHitKey);
-      }
-
-      if (result.effect === 'save-draft') {
-        window.localStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify(result.draft));
-      }
-
-      if (result.effect === 'save-library') {
-        const raw = window.localStorage.getItem(LIBRARY_STORAGE_KEY);
-        const library = raw ? (JSON.parse(raw) as Record<string, OperatorDraft>) : {};
-        library[result.draft.id] = result.draft;
-        window.localStorage.setItem(LIBRARY_STORAGE_KEY, JSON.stringify(library));
-      }
-
-      if (result.effect === 'export-json') {
-        await copyText(JSON.stringify(result.draft, null, 2));
-      }
-
-      setCommand('');
+      const nextDraft = await loadReferenceOperatorDraft(selectedReferenceName, {
+        assetPathOptions: ASSET_PATH_OPTIONS,
+        avatarAssetOptions: AVATAR_ASSET_OPTIONS,
+      });
+      loadDraftIntoEditor(nextDraft, `[OK] 已导入参考干员：${selectedReferenceName}`);
     } catch (error) {
-      const message = error instanceof Error ? error.message : '命令执行失败';
+      const message = error instanceof Error ? error.message : '参考干员导入失败';
       setMessages((prev) => [`[ERR] ${message}`, ...prev].slice(0, 12));
     }
   };
 
-  const runCommand = async () => {
-    await applyCommand(command, true);
+  const handleSaveDraft = () => {
+    window.localStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify(orderedDraft));
+    const raw = window.localStorage.getItem(LIBRARY_STORAGE_KEY);
+    const library = raw ? (JSON.parse(raw) as Record<string, OperatorDraft>) : {};
+    library[orderedDraft.id] = orderedDraft;
+    window.localStorage.setItem(LIBRARY_STORAGE_KEY, JSON.stringify(library));
+    setLocalDraftIds((prev) => (prev.includes(orderedDraft.id) ? prev : [...prev, orderedDraft.id]));
+    setSelectedLocalDraftId(orderedDraft.id);
+    setMessages((prev) => [`[OK] 已保存到本地：${orderedDraft.id}`, ...prev].slice(0, 12));
   };
 
-  const skillEntries = Object.entries(draft.skills);
+  const handleExportJson = async () => {
+    await copyText(JSON.stringify(orderedDraft, null, 2));
+    setMessages((prev) => ['[OK] 已导出 JSON 到剪贴板', ...prev].slice(0, 12));
+  };
+
+  const handleImportLocalDraft = () => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+    const raw = window.localStorage.getItem(LIBRARY_STORAGE_KEY);
+    if (!raw) {
+      setMessages((prev) => ['[ERR] 本地没有可导入数据', ...prev].slice(0, 12));
+      return;
+    }
+
+    try {
+      const parsed = JSON.parse(raw) as Record<string, OperatorDraft>;
+      const localDraft = parsed[selectedLocalDraftId];
+      if (!selectedLocalDraftId || !localDraft) {
+        setMessages((prev) => ['[ERR] 未找到所选本地角色', ...prev].slice(0, 12));
+        return;
+      }
+      loadDraftIntoEditor(localDraft, `[OK] 已从本地导入：${localDraft.id}`);
+    } catch {
+      setMessages((prev) => ['[ERR] 本地数据损坏，无法导入', ...prev].slice(0, 12));
+    }
+  };
+
+  const handleImportJsonText = () => {
+    const trimmedText = jsonImportText.trim();
+    if (!trimmedText) {
+      setMessages((prev) => ['[ERR] JSON 文本为空', ...prev].slice(0, 12));
+      return;
+    }
+
+    try {
+      const importedDraft = parseImportedDraft(trimmedText);
+      loadDraftIntoEditor(importedDraft, `[OK] 已从 JSON 文本导入：${importedDraft.id}`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'JSON 导入失败';
+      setMessages((prev) => [`[ERR] ${message}`, ...prev].slice(0, 12));
+    }
+  };
+
+  const handleAddSkill = () => {
+    const nextSkillKey = getNextSkillKey(draft);
+    const nextDraft = {
+      ...draft,
+      skills: {
+        ...draft.skills,
+        [nextSkillKey]: createDefaultSkill('A', nextSkillKey),
+      },
+    };
+    const nextSkillOrder = [...syncSkillOrderWithDraft(skillOrder, draft), nextSkillKey];
+    setDraft(buildOrderedDraft(nextDraft, nextSkillOrder));
+    setSkillOrder(nextSkillOrder);
+    setSelectedSkillKey(nextSkillKey);
+    setSelectedHitKey('hit1');
+    setMessages((prev) => [`[OK] 已新增 skill: ${nextSkillKey}`, ...prev].slice(0, 12));
+  };
+
+  const handleRemoveSkill = () => {
+    if (!selectedSkillKey || !draft.skills[selectedSkillKey]) {
+      setMessages((prev) => ['[ERR] 当前没有可删除的 skill', ...prev].slice(0, 12));
+      return;
+    }
+    const nextDraft = cloneDraft(draft);
+    delete nextDraft.skills[selectedSkillKey];
+    const nextSkillOrder = skillOrder.filter((skillKey) => skillKey !== selectedSkillKey);
+    const nextSelectedSkillKey = nextSkillOrder[0] ?? null;
+    const nextSelectedHitKey = nextSelectedSkillKey ? Object.keys(nextDraft.skills[nextSelectedSkillKey].hitMeta)[0] ?? null : null;
+    setDraft(buildOrderedDraft(nextDraft, nextSkillOrder));
+    setSkillOrder(nextSkillOrder);
+    setSelectedSkillKey(nextSelectedSkillKey);
+    setSelectedHitKey(nextSelectedHitKey);
+    setMessages((prev) => [`[OK] 已删除 skill: ${selectedSkillKey}`, ...prev].slice(0, 12));
+  };
+
+  const handleAddHit = () => {
+    if (!selectedSkillKey || !draft.skills[selectedSkillKey]) {
+      setMessages((prev) => ['[ERR] 当前没有可新增 hit 的 skill', ...prev].slice(0, 12));
+      return;
+    }
+    const skill = draft.skills[selectedSkillKey];
+    const nextHitKey = getNextHitKey(skill);
+    const nextDraft = cloneDraft(draft);
+    nextDraft.skills[selectedSkillKey].hitMeta[nextHitKey] = createDefaultHit(nextHitKey);
+    syncHitCount(nextDraft.skills[selectedSkillKey]);
+    setDraft(nextDraft);
+    setSelectedHitKey(nextHitKey);
+    setMessages((prev) => [`[OK] 已新增 ${selectedSkillKey}.${nextHitKey}`, ...prev].slice(0, 12));
+  };
+
+  const handleRemoveHit = () => {
+    if (!selectedSkillKey || !selectedHitKey || !draft.skills[selectedSkillKey]?.hitMeta[selectedHitKey]) {
+      setMessages((prev) => ['[ERR] 当前没有可删除的 hit', ...prev].slice(0, 12));
+      return;
+    }
+    const nextDraft = cloneDraft(draft);
+    const nextSkill = nextDraft.skills[selectedSkillKey];
+    delete nextSkill.hitMeta[selectedHitKey];
+    if (Object.keys(nextSkill.hitMeta).length === 0) {
+      nextSkill.hitMeta.hit1 = createDefaultHit('hit1');
+    }
+    syncHitCount(nextSkill);
+    const nextSelectedHitKey = Object.keys(nextSkill.hitMeta)[0] ?? null;
+    setDraft(nextDraft);
+    setSelectedHitKey(nextSelectedHitKey);
+    setMessages((prev) => [`[OK] 已删除 ${selectedSkillKey}.${selectedHitKey}`, ...prev].slice(0, 12));
+  };
+
+  const handleSkillDragStart = (skillKey: string) => {
+    setDraggingSkillKey(skillKey);
+    setDragOverSkillKey(skillKey);
+  };
+
+  const handleSkillDrop = (targetSkillKey: string) => {
+    if (!draggingSkillKey || draggingSkillKey === targetSkillKey) {
+      setDraggingSkillKey(null);
+      setDragOverSkillKey(null);
+      return;
+    }
+
+    const nextSkillOrder = moveSkillKey(skillOrder, draggingSkillKey, targetSkillKey);
+    setSkillOrder(nextSkillOrder);
+    setDraft((prev) => buildOrderedDraft(prev, nextSkillOrder));
+    setDraggingSkillKey(null);
+    setDragOverSkillKey(null);
+  };
+
+  const skillEntries = skillOrder
+    .filter((skillKey) => draft.skills[skillKey])
+    .map((skillKey) => [skillKey, draft.skills[skillKey]] as const);
 
   return (
     <main className="operator-draft-page">
@@ -554,28 +666,72 @@ export function OperatorDraftPage() {
                 <div className="operator-draft-panel-header">
                   <p className="operator-draft-eyebrow">Draft</p>
                   <h1>干员模板编辑器</h1>
-                  <p className="operator-draft-subtitle">命令改结构，工作台改细节，底部导出 JSON。</p>
+                  <p className="operator-draft-subtitle">参考导入、工作台编辑，底部导出 JSON。</p>
                 </div>
 
                 <div className="operator-draft-command-box">
-                  <textarea
-                    className="operator-draft-command-input"
-                    value={command}
-                    onChange={(event) => setCommand(event.target.value)}
-                    placeholder="输入命令，例如：set operator name 汤汤2号"
-                  />
                   <div className="operator-draft-command-actions">
-                    <button type="button" className="operator-draft-run-button" onClick={runCommand}>
-                      执行命令
+                    <button type="button" className="operator-draft-ghost-button" onClick={handleSaveDraft}>
+                      保存到本地
                     </button>
-                    <button type="button" className="operator-draft-ghost-button" onClick={() => applyCommand('save draft', true)}>
-                      保存草稿
-                    </button>
-                    <button type="button" className="operator-draft-ghost-button" onClick={() => applyCommand('export json', true)}>
+                    <button type="button" className="operator-draft-ghost-button" onClick={handleExportJson}>
                       导出 JSON
                     </button>
                   </div>
+                  <div className="operator-draft-reference-box">
+                    <label>
+                      <span>参考数据导入</span>
+                      <select value={selectedReferenceName} onChange={(event) => setSelectedReferenceName(event.target.value)}>
+                        <option value="">选择已有干员</option>
+                        {referenceNames.map((name) => (
+                          <option key={name} value={name}>
+                            {name}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <button type="button" className="operator-draft-ghost-button" onClick={importReferenceOperator}>
+                      导入参考数据
+                    </button>
+                  </div>
+                  <div className="operator-draft-reference-box">
+                    <label>
+                      <span>从本地导入</span>
+                      <select value={selectedLocalDraftId} onChange={(event) => setSelectedLocalDraftId(event.target.value)}>
+                        <option value="">选择本地角色</option>
+                        {localDraftIds.map((draftId) => (
+                          <option key={draftId} value={draftId}>
+                            {draftId}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <button type="button" className="operator-draft-ghost-button" onClick={handleImportLocalDraft}>
+                      导入本地数据
+                    </button>
+                  </div>
+                  <div className="operator-draft-reference-box">
+                    <label>
+                      <span>从 JSON 文本导入</span>
+                      <textarea
+                        value={jsonImportText}
+                        onChange={(event) => setJsonImportText(event.target.value)}
+                        placeholder="粘贴导出的 OperatorDraft JSON"
+                      />
+                    </label>
+                    <button type="button" className="operator-draft-ghost-button" onClick={handleImportJsonText}>
+                      导入 JSON 文本
+                    </button>
+                  </div>
                 </div>
+              </section>
+
+              <section className="operator-draft-markdown-panel">
+                <div className="operator-draft-section-header">
+                  <h3>干员信息</h3>
+                  <span>Markdown 预览</span>
+                </div>
+                <div className="operator-draft-markdown-body">{renderMiniMarkdown(operatorMarkdown)}</div>
               </section>
             </div>
 
@@ -603,27 +759,68 @@ export function OperatorDraftPage() {
                   </label>
                   <label>
                     <span>头像 URL</span>
-                    <input value={draft.avatarUrl} onChange={(event) => updateOperatorField('avatarUrl', event.target.value)} />
+                    <select value={draft.avatarUrl} onChange={(event) => updateOperatorField('avatarUrl', event.target.value)}>
+                      <option value="">未设置</option>
+                      {AVATAR_ASSET_OPTIONS.map((option) => (
+                        <option key={option} value={option}>
+                          {option}
+                        </option>
+                      ))}
+                    </select>
                   </label>
                   <label>
                     <span>职业</span>
-                    <input value={draft.profession} onChange={(event) => updateOperatorField('profession', event.target.value)} />
+                    <select value={draft.profession} onChange={(event) => updateOperatorField('profession', event.target.value)}>
+                      <option value="">未设置</option>
+                      {PROFESSION_OPTIONS.map((option) => (
+                        <option key={option} value={option}>
+                          {option}
+                        </option>
+                      ))}
+                    </select>
                   </label>
                   <label>
                     <span>武器</span>
-                    <input value={draft.weapon} onChange={(event) => updateOperatorField('weapon', event.target.value)} />
+                    <select value={draft.weapon} onChange={(event) => updateOperatorField('weapon', event.target.value)}>
+                      <option value="">未设置</option>
+                      {WEAPON_OPTIONS.map((option) => (
+                        <option key={option} value={option}>
+                          {option}
+                        </option>
+                      ))}
+                    </select>
                   </label>
                   <label>
                     <span>元素</span>
-                    <input value={draft.element} onChange={(event) => updateOperatorField('element', event.target.value)} />
+                    <select value={draft.element} onChange={(event) => updateOperatorField('element', event.target.value)}>
+                      {ELEMENT_OPTIONS.map((option) => (
+                        <option key={option} value={option}>
+                          {option}
+                        </option>
+                      ))}
+                    </select>
                   </label>
                   <label>
                     <span>主属性</span>
-                    <input value={draft.mainStat} onChange={(event) => updateOperatorField('mainStat', event.target.value)} />
+                    <select value={draft.mainStat} onChange={(event) => updateOperatorField('mainStat', event.target.value)}>
+                      <option value="">未设置</option>
+                      {ABILITY_OPTIONS.map((option) => (
+                        <option key={option} value={option}>
+                          {option}
+                        </option>
+                      ))}
+                    </select>
                   </label>
                   <label>
                     <span>副属性</span>
-                    <input value={draft.subStat} onChange={(event) => updateOperatorField('subStat', event.target.value)} />
+                    <select value={draft.subStat} onChange={(event) => updateOperatorField('subStat', event.target.value)}>
+                      <option value="">未设置</option>
+                      {ABILITY_OPTIONS.map((option) => (
+                        <option key={option} value={option}>
+                          {option}
+                        </option>
+                      ))}
+                    </select>
                   </label>
                   <label>
                     <span>等级</span>
@@ -631,7 +828,13 @@ export function OperatorDraftPage() {
                   </label>
                   <label>
                     <span>稀有度</span>
-                    <input type="number" value={draft.rarity} onChange={(event) => updateOperatorField('rarity', Number(event.target.value) || 0)} />
+                    <select value={draft.rarity} onChange={(event) => updateOperatorField('rarity', Number(event.target.value) || 0)}>
+                      {RARITY_OPTIONS.map((option) => (
+                        <option key={option} value={option}>
+                          {option}
+                        </option>
+                      ))}
+                    </select>
                   </label>
                   {(
                     [
@@ -660,10 +863,13 @@ export function OperatorDraftPage() {
                   <h3>技能列表</h3>
                   <div className="operator-draft-section-actions">
                     <span>{skillEntries.length} 个</span>
-                    <button type="button" className="operator-draft-ghost-button" onClick={() => applyCommand('add skill', true)}>
+                    <button type="button" className="operator-draft-ghost-button" onClick={handleAddSkill}>
                       新增技能
                     </button>
-                    <button type="button" className="operator-draft-ghost-button" onClick={() => applyCommand('remove skill', true)}>
+                    <button type="button" className="operator-draft-ghost-button" onClick={duplicateSelectedSkill}>
+                      复制技能
+                    </button>
+                    <button type="button" className="operator-draft-ghost-button" onClick={handleRemoveSkill}>
                       删除技能
                     </button>
                   </div>
@@ -672,8 +878,20 @@ export function OperatorDraftPage() {
                   <button
                     type="button"
                     key={skillKey}
-                    className={`operator-draft-skill-item${selectedSkillKey === skillKey ? ' is-active' : ''}`}
+                    draggable
+                    className={`operator-draft-skill-item${selectedSkillKey === skillKey ? ' is-active' : ''}${draggingSkillKey === skillKey ? ' is-dragging' : ''}${dragOverSkillKey === skillKey && draggingSkillKey !== skillKey ? ' is-drag-over' : ''}`}
                     onClick={() => setSelectedSkillKey(skillKey)}
+                    onDragStart={() => handleSkillDragStart(skillKey)}
+                    onDragEnter={() => setDragOverSkillKey(skillKey)}
+                    onDragOver={(event) => event.preventDefault()}
+                    onDrop={(event) => {
+                      event.preventDefault();
+                      handleSkillDrop(skillKey);
+                    }}
+                    onDragEnd={() => {
+                      setDraggingSkillKey(null);
+                      setDragOverSkillKey(null);
+                    }}
                   >
                     <div className="operator-draft-skill-icon-wrap">
                       {skill.iconUrl ? (
@@ -738,7 +956,7 @@ export function OperatorDraftPage() {
                       </label>
                       <label className="is-wide">
                         <span>技能图标</span>
-                        <input
+                        <select
                           value={selectedSkill.iconUrl}
                           onChange={(event) =>
                             updateSelectedSkill((skill) => ({
@@ -746,7 +964,14 @@ export function OperatorDraftPage() {
                               iconUrl: event.target.value,
                             }))
                           }
-                        />
+                        >
+                          <option value="">未设置</option>
+                          {ASSET_PATH_OPTIONS.map((option) => (
+                            <option key={option} value={option}>
+                              {option}
+                            </option>
+                          ))}
+                        </select>
                       </label>
                       <div className="operator-draft-inline-actions">
                         <span>{`hit 数：${selectedSkill.hitCount}`}</span>
@@ -792,10 +1017,10 @@ export function OperatorDraftPage() {
                   <h3>Hit 细节</h3>
                   <div className="operator-draft-section-actions">
                     <span>{selectedHitKey ?? '-'}</span>
-                    <button type="button" className="operator-draft-ghost-button" onClick={() => applyCommand('add hit', true)}>
+                    <button type="button" className="operator-draft-ghost-button" onClick={handleAddHit}>
                       新增 Hit
                     </button>
-                    <button type="button" className="operator-draft-ghost-button" onClick={() => applyCommand('remove hit', true)}>
+                    <button type="button" className="operator-draft-ghost-button" onClick={handleRemoveHit}>
                       删除 Hit
                     </button>
                   </div>

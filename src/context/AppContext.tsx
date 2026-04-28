@@ -25,6 +25,7 @@ import {
   DEFAULT_CANVAS_CONFIG,
 } from '../types';
 import { resolveAvatarUrl, resolveSkillIconUrl } from '../utils/assetResolver';
+import { loadLocalOperatorCharacters } from '../core/services/localOperatorAdapter';
 import {
   cleanupStorage,
   getSelectedCharacterIds,
@@ -244,6 +245,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
               E: resolveSkillIconUrl(character.name, 'E'),
               Q: resolveSkillIconUrl(character.name, 'Q'),
             };
+            character.librarySource = 'official';
             characters.push(character);
           }
         } catch (error) {
@@ -251,14 +253,22 @@ export function AppProvider({ children }: { children: ReactNode }) {
         }
       }
 
-      dispatch({ type: 'SET_LOADED_CHARACTERS', characters });
+      const localCharacters = loadLocalOperatorCharacters();
+      const mergedCharacters = [...characters];
+      localCharacters.forEach((localCharacter) => {
+        if (!mergedCharacters.some((character) => character.id === localCharacter.id)) {
+          mergedCharacters.push(localCharacter);
+        }
+      });
+
+      dispatch({ type: 'SET_LOADED_CHARACTERS', characters: mergedCharacters });
 
       const selectedCharacterIds = getSelectedCharacterIds();
       const hasTimelineData = Boolean(safeSessionStorage.getItem(STORAGE_KEYS.TIMELINE_DATA));
 
       if (selectedCharacterIds.length > 0 && hasTimelineData) {
         const restoredCharacters = selectedCharacterIds
-          .map((characterId) => characters.find((character) => character.id === characterId))
+          .map((characterId) => mergedCharacters.find((character) => character.id === characterId))
           .filter((character): character is Character => Boolean(character))
           .slice(0, 4);
 

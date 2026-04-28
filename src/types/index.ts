@@ -130,6 +130,8 @@ export interface Character {
   avatarUrl?: string;
   /** 派生字段：四个技能的图标路径映射，由 AppContext 根据 name 和 SkillType 生成 */
   skillIconMap?: Partial<Record<SkillType, string>>;
+  /** 数据来源：官方角色库或本地编辑器库 */
+  librarySource?: 'official' | 'local';
 }
 
 /**

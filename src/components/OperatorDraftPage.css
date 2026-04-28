@@ -21,7 +21,8 @@
 .operator-draft-skill-detail,
 .operator-draft-hit-detail,
 .operator-draft-json-panel,
-.operator-draft-history-side {
+.operator-draft-history-side,
+.operator-draft-markdown-panel {
   border: 1px solid #d8dde7;
   background: #ffffff;
   box-shadow: 0 1px 2px rgba(23, 30, 44, 0.04);
@@ -32,7 +33,6 @@
   flex-direction: column;
   gap: 10px;
   padding: 10px;
-  height: 100%;
   box-sizing: border-box;
 }
 
@@ -77,6 +77,40 @@
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
+}
+
+.operator-draft-reference-box {
+  display: grid;
+  gap: 6px;
+}
+
+.operator-draft-reference-box label {
+  display: grid;
+  gap: 4px;
+  font-size: 11px;
+  color: #59657a;
+}
+
+.operator-draft-reference-box label span {
+  font-weight: 600;
+}
+
+.operator-draft-reference-box select,
+.operator-draft-reference-box textarea {
+  width: 100%;
+  min-width: 0;
+  padding: 7px 8px;
+  border: 1px solid #cfd6e2;
+  background: #ffffff;
+  color: #1f2634;
+  font: inherit;
+  font-size: 12px;
+  box-sizing: border-box;
+}
+
+.operator-draft-reference-box textarea {
+  min-height: 88px;
+  resize: vertical;
 }
 
 .operator-draft-run-button,
@@ -145,7 +179,51 @@
 }
 
 .operator-draft-column-cli .operator-draft-command-panel {
+  flex: 0 0 auto;
   min-height: 0;
+}
+
+.operator-draft-markdown-panel {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+
+.operator-draft-markdown-body {
+  padding: 10px 12px 14px;
+}
+
+.operator-draft-markdown-body h3,
+.operator-draft-markdown-body h4,
+.operator-draft-markdown-body p,
+.operator-draft-markdown-body ul {
+  margin: 0 0 8px;
+}
+
+.operator-draft-markdown-body h3 {
+  font-size: 16px;
+}
+
+.operator-draft-markdown-body h4 {
+  font-size: 13px;
+}
+
+.operator-draft-markdown-body p,
+.operator-draft-markdown-body li {
+  font-size: 12px;
+  line-height: 1.45;
+  color: #425066;
+}
+
+.operator-draft-markdown-body code {
+  padding: 1px 5px;
+  background: #edf2fa;
+  color: #24456c;
+  font-size: 11px;
+}
+
+.operator-draft-markdown-body ul {
+  padding-left: 18px;
 }
 
 .operator-draft-basic-panel {
@@ -223,6 +301,7 @@
 }
 
 .operator-draft-basic-grid input,
+.operator-draft-basic-grid select,
 .operator-draft-skill-form input,
 .operator-draft-skill-form select,
 .operator-draft-hit-detail-card input,
@@ -261,6 +340,15 @@
 .operator-draft-skill-item.is-active,
 .operator-draft-hit-item.is-active {
   background: #edf4ff;
+}
+
+.operator-draft-skill-item.is-dragging {
+  opacity: 0.45;
+}
+
+.operator-draft-skill-item.is-drag-over {
+  background: #dce9ff;
+  box-shadow: inset 0 0 0 1px #8aa7d8;
 }
 
 .operator-draft-skill-icon-wrap {
