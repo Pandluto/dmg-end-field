@@ -216,6 +216,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
               E: resolveSkillIconUrl(character.name, 'E'),
               Q: resolveSkillIconUrl(character.name, 'Q'),
             };
+            character.librarySource = 'official';
             characters.push(character);
           }
         } catch (error) {

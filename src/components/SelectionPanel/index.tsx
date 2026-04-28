@@ -5,7 +5,10 @@
  * 状态来源：loadedCharacters（全部干员）、selectedCharacters（已选干员列表）
  */
 
+import { useEffect, useMemo, useState } from 'react';
 import { useAppContext } from '../../context/AppContext';
+import { loadLocalOperatorCharacters } from '../../core/services/localOperatorAdapter';
+import { Character } from '../../types';
 import './SelectionPanel.css';
 
 /** 干员元素属性 → CSS 颜色映射（用于元素圆点）*/
@@ -25,6 +28,16 @@ const ELEMENT_COLORS: Record<string, string> = {
 export function SelectionPanel() {
   const { state, dispatch } = useAppContext();
   const { loadedCharacters, selectedCharacters } = state;
+  const [localCharacters, setLocalCharacters] = useState<Character[]>([]);
+
+  const officialCharacters = useMemo(
+    () => loadedCharacters,
+    [loadedCharacters]
+  );
+
+  useEffect(() => {
+    setLocalCharacters(loadLocalOperatorCharacters());
+  }, []);
 
   /** 判断某干员是否已被选中 */
   const isSelected = (charId: string) =>
@@ -50,54 +63,73 @@ export function SelectionPanel() {
     }
   };
 
+  const renderCharacterCard = (character: Character) => (
+    <div
+      key={character.id}
+      className={`character-card ${isSelected(character.id) ? 'selected' : ''} ${
+        !isSelected(character.id) && isFull ? 'disabled' : ''
+      }`}
+      onClick={() => handleSelect(character)}
+    >
+      <div className="character-avatar">
+        <span
+          className="element-dot"
+          style={{ backgroundColor: ELEMENT_COLORS[character.element] || '#888' }}
+        />
+        {character.avatarUrl ? (
+          <img
+            className="character-avatar-image"
+            src={character.avatarUrl}
+            alt={`${character.name} 头像`}
+          />
+        ) : (
+          character.name.charAt(0)
+        )}
+      </div>
+      <div className="character-info">
+        <h3 className="character-name">
+          {character.name}
+          <span className="rarity">{'★'.repeat(character.rarity)}</span>
+        </h3>
+        <p className="character-profession">{character.profession}</p>
+        <p className="character-element">{character.element}</p>
+      </div>
+      {isSelected(character.id) && <div className="selected-badge">✓</div>}
+    </div>
+  );
+
   return (
     <div className="selection-panel">
       <div className="container">
         <h1 className="title">选择干员</h1>
         <p className="subtitle">已选择 {selectedCharacters.length} / 4 位干员</p>
 
-        {/* 干员卡片网格 */}
-        <div className="character-grid">
-          {loadedCharacters.map((character) => (
-            <div
-              key={character.id}
-              className={`character-card ${isSelected(character.id) ? 'selected' : ''} ${
-                !isSelected(character.id) && isFull ? 'disabled' : ''
-              }`}
-              onClick={() => handleSelect(character)}
-            >
-              {/* 头像区：首字母占位 + 元素属性小圆点 */}
-              <div className="character-avatar">
-                <span
-                  className="element-dot"
-                  style={{ backgroundColor: ELEMENT_COLORS[character.element] || '#888' }}
-                />
-                {character.avatarUrl ? (
-                  <img
-                    className="character-avatar-image"
-                    src={character.avatarUrl}
-                    alt={`${character.name} 头像`}
-                  />
-                ) : (
-                  character.name.charAt(0)
-                )}
-              </div>
-              {/* 干员信息 */}
-              <div className="character-info">
-                <h3 className="character-name">
-                  {character.name}
-                  <span className="rarity">{'★'.repeat(character.rarity)}</span>
-                </h3>
-                <p className="character-profession">{character.profession}</p>
-                <p className="character-element">{character.element}</p>
-              </div>
-              {/* 已选中时显示勾选标记 */}
-              {isSelected(character.id) && <div className="selected-badge">✓</div>}
+        <div className="character-library-columns">
+          <section className="character-library-section">
+            <div className="character-library-header">
+              <h2>官方角色</h2>
+              <span>{officialCharacters.length} 位</span>
             </div>
-          ))}
+            <div className="character-grid">
+              {officialCharacters.map(renderCharacterCard)}
+            </div>
+          </section>
+
+          <section className="character-library-section">
+            <div className="character-library-header">
+              <h2>本地角色</h2>
+              <span>{localCharacters.length} 位</span>
+            </div>
+            {localCharacters.length > 0 ? (
+              <div className="character-grid character-grid-local">
+                {localCharacters.map(renderCharacterCard)}
+              </div>
+            ) : (
+              <div className="character-library-empty">本地角色库为空</div>
+            )}
+          </section>
         </div>
 
-        {/* 确认按钮 */}
         <div className="actions">
           <button
             className="btn-confirm"
