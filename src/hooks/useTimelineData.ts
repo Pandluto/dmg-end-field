@@ -15,6 +15,7 @@ import {
   updateSkillButtonPosition as updateSkillButtonPositionService,
   moveSkillButtonToStaff as moveSkillButtonToStaffService,
   updateSelectedBuffList as updateSelectedBuffListService,
+  updateSkillButtonType as updateSkillButtonTypeService,
   getStaffButtons as getStaffButtonsService,
   saveTimelineData as saveTimelineDataService,
   loadTimelineData as loadTimelineDataService,
@@ -105,6 +106,25 @@ export function useTimelineData(selectedCharacters: { name: string }[]) {
   }, []);
 
   /**
+   * 更新技能按钮类型
+   * @param buttonId - 按钮 ID
+   * @param nextSkillType - 新的技能类型
+   * @returns 更新后的 SkillButtonData 或 null
+   */
+  const updateSkillButtonType = useCallback((
+    buttonId: string,
+    nextSkillType: 'A' | 'B' | 'E' | 'Q'
+  ): import('../types').SkillButtonData | null => {
+    const { updatedButton, newTimelineData } = updateSkillButtonTypeService(
+      timelineDataRef.current,
+      buttonId,
+      nextSkillType
+    );
+    setTimelineData(newTimelineData);
+    return updatedButton;
+  }, []);
+
+  /**
    * @deprecated 已废弃，不再执行任何操作
    * 旧方法曾用于从 timelineData 更新 buffIds，现已改为 no-op。
    * selectedBuff 的写入只能通过新主链路：addBuffToButtonHelper / removeSkillButtonBuff / clearBuffs / removeSkillButton
@@ -152,6 +172,7 @@ export function useTimelineData(selectedCharacters: { name: string }[]) {
     moveSkillButtonToStaff,
     updateButtonBuffIds,
     updateSelectedBuffList,
+    updateSkillButtonType,
     getStaffButtons,
     saveTimelineData,
     loadTimelineData,

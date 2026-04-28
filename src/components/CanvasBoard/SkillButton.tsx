@@ -31,9 +31,10 @@ interface SkillButtonProps {
   onConfirmRemove?: () => void;
   onCloseContextMenu?: () => void;
   onCopy?: () => void;
+  onChangeSkillType?: (buttonId: string, nextSkillType: 'A' | 'B' | 'E' | 'Q') => void;
 }
 
-export function SkillButtonComponent({ button, size, onMouseDown, onContextMenu, timelineData, onModalOpen, onModalClose, contextMenuState, onConfirmRemove, onCloseContextMenu, onCopy }: SkillButtonProps) {
+export function SkillButtonComponent({ button, size, onMouseDown, onContextMenu, timelineData, onModalOpen, onModalClose, contextMenuState, onConfirmRemove, onCloseContextMenu, onCopy, onChangeSkillType }: SkillButtonProps) {
   /**
    * position.y 语义约定（v1.1.0+）：
    * - position.x: 按钮碰撞箱左边界（原始值，未做视觉偏移）
@@ -98,11 +99,19 @@ export function SkillButtonComponent({ button, size, onMouseDown, onContextMenu,
   // infoSnap JSON 数据（从 sessionStorage 只读，不影响原数据）
   const [infoSnap, setInfoSnap] = useState<Record<string, number>>({});
 
+  // 图标加载失败状态，用于 CSS 类切换
+  const [iconLoadFailed, setIconLoadFailed] = useState(false);
+
   // 用于区分单击/双击/长按的引用
   const clickTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isLongPressRef = useRef(false);
   const clickCountRef = useRef(0);
+
+  // skillIconUrl 变化时重置图标加载失败状态
+  useEffect(() => {
+    setIconLoadFailed(false);
+  }, [skillIconUrl]);
 
   /**
    * 从 buffCache 加载 Buff 列表
@@ -287,19 +296,15 @@ export function SkillButtonComponent({ button, size, onMouseDown, onContextMenu,
   /**
    * 图标加载成功时：隐藏圆形图标内的兜底技能字母，底座文字继续显示。
    */
-  const handleIconLoad = (e: React.SyntheticEvent<HTMLImageElement>) => {
-    const parent = (e.target as HTMLImageElement).parentElement;
-    parent?.querySelectorAll('.skill-label').forEach(el => {
-      (el as HTMLElement).style.display = 'none';
-    });
+  const handleIconLoad = () => {
+    setIconLoadFailed(false);
   };
 
   /**
-   * 图标加载失败时：隐藏破损图标，文字标签自然显示作为兜底
-   * 不触发 handleIconLoad，保证文字正常展现
+   * 图标加载失败时：标记失败状态，CSS 类切换显示兜底文字
    */
-  const handleIconError = (e: React.SyntheticEvent<HTMLImageElement>) => {
-    (e.target as HTMLImageElement).style.display = 'none';
+  const handleIconError = () => {
+    setIconLoadFailed(true);
   };
 
   return (
@@ -325,18 +330,19 @@ export function SkillButtonComponent({ button, size, onMouseDown, onContextMenu,
             {isLocked ? <span className="skill-button-lock">锁</span> : null}
           </div>
           <div className="skill-button-orb" title={`${characterName} - ${SKILL_LABELS[skillType]}`}>
-            {/* skillIconUrl 有值时渲染图标，onLoad 成功后自动隐藏圆内兜底文字 */}
-            {skillIconUrl ? (
+            {/* skillIconUrl 有值且未失败时渲染图标 */}
+            {skillIconUrl && !iconLoadFailed ? (
               <img
                 className="skill-icon"
+                key={skillIconUrl}
                 src={skillIconUrl}
                 alt={SKILL_LABELS[skillType]}
                 onLoad={handleIconLoad}
                 onError={handleIconError}
               />
             ) : null}
-            {/* 兜底文字：图标加载成功时由 handleIconLoad 隐藏，失败时正常显示 */}
-            <span className="skill-label">{skillType}</span>
+            {/* 兜底文字：图标加载失败或无图标时显示 */}
+            <span className={`skill-label ${!iconLoadFailed && skillIconUrl ? 'hidden' : ''}`}>{skillType}</span>
           </div>
         </div>
       </div>
@@ -351,15 +357,37 @@ export function SkillButtonComponent({ button, size, onMouseDown, onContextMenu,
           }}
         >
           <button
-            className="context-menu-item context-menu-item-danger"
+            className="context-menu-item"
             onClick={(e) => {
               e.stopPropagation();
               e.preventDefault();
-              onConfirmRemove?.();
+              onCloseContextMenu?.();
             }}
           >
-            删除
+            取消
           </button>
+          <div className="context-menu-item-submenu">
+            <div className="context-menu-item context-menu-submenu-trigger">
+              <span>编辑</span>
+              <span className="context-menu-submenu-arrow">▶</span>
+            </div>
+            <div className="context-menu-submenu">
+              {(['A', 'B', 'E', 'Q'] as const).filter(type => type !== skillType).map((type) => (
+                <button
+                  key={type}
+                  className="context-menu-item"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    e.preventDefault();
+                    onChangeSkillType?.(button.id, type);
+                    onCloseContextMenu?.();
+                  }}
+                >
+                  {`改为${type}`}
+                </button>
+              ))}
+            </div>
+          </div>
           <button
             className="context-menu-item"
             onClick={(e) => {
@@ -371,14 +399,14 @@ export function SkillButtonComponent({ button, size, onMouseDown, onContextMenu,
             复制
           </button>
           <button
-            className="context-menu-item"
+            className="context-menu-item context-menu-item-danger"
             onClick={(e) => {
               e.stopPropagation();
               e.preventDefault();
-              onCloseContextMenu?.();
+              onConfirmRemove?.();
             }}
           >
-            取消
+            删除
           </button>
         </div>
       )}

@@ -27,6 +27,7 @@ interface CanvasAreaProps {
   onConfirmRemove?: () => void;
   onCloseContextMenu?: () => void;
   onCopy?: () => void;
+  onChangeSkillType?: (buttonId: string, nextSkillType: 'A' | 'B' | 'E' | 'Q') => void;
 }
 
 // 表格行列标注：0行显示字母(A-O)，0列显示数字(1-8)
@@ -48,6 +49,7 @@ export const CanvasArea = forwardRef<HTMLDivElement, CanvasAreaProps>(({
   onConfirmRemove,
   onCloseContextMenu,
   onCopy,
+  onChangeSkillType,
 }, canvasRef) => {
   const renderSkillButtons = () => {
     return skillButtons
@@ -65,6 +67,7 @@ export const CanvasArea = forwardRef<HTMLDivElement, CanvasAreaProps>(({
           onConfirmRemove={onConfirmRemove}
           onCloseContextMenu={onCloseContextMenu}
           onCopy={onCopy}
+          onChangeSkillType={onChangeSkillType}
         />
       ));
   };

@@ -5,11 +5,16 @@
 
 import { WorkbenchFrame } from './components/WorkbenchFrame';
 import { StorageDebugPage, isStorageDebugPath } from './components/StorageDebugPage';
+import { OperatorDraftPage, isDraftPath } from './components/OperatorDraftPage';
 import './styles/global.css';
 
 function App() {
   if (typeof window !== 'undefined' && isStorageDebugPath(window.location.pathname)) {
     return <StorageDebugPage />;
+  }
+
+  if (typeof window !== 'undefined' && isDraftPath(window.location.pathname)) {
+    return <OperatorDraftPage />;
   }
 
   return (

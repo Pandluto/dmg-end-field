@@ -82,6 +82,7 @@ export function CanvasBoard({
     saveTimelineData,
     loadTimelineData,
     normalizeTimelineData,
+    updateSkillButtonType: updateTimelineButtonType,
   } = useTimelineData(selectedCharacters);
 
   const restoredSignatureRef = useRef<string | null>(null);
@@ -130,7 +131,7 @@ export function CanvasBoard({
           character => character.name === btn.characterName
         );
         const position = needPositionYCompensation
-          ? { x: btn.position.x, y: btn.position.y  }
+          ? { x: btn.position.x, y: btn.position.y + 15 }
           : btn.position;
         restoredButtons.push({
           id: btn.id,
@@ -279,6 +280,28 @@ export function CanvasBoard({
     });
   };
 
+  const handleChangeSkillType = (buttonId: string, nextSkillType: 'A' | 'B' | 'E' | 'Q') => {
+    const button = skillButtons.find(item => item.id === buttonId);
+    if (!button) return;
+
+    const result = updateTimelineButtonType(buttonId, nextSkillType);
+    if (!result) {
+      console.warn(`[改类型] 失败: 按钮 ${buttonId} 不存在于 timelineData`);
+      return;
+    }
+
+    const newSkillIconUrl = resolveSkillIconUrl(button.characterName, nextSkillType);
+
+    dispatch({
+      type: 'UPDATE_SKILL_BUTTON_TYPE',
+      buttonId,
+      skillType: nextSkillType,
+      skillIconUrl: newSkillIconUrl,
+    });
+
+    console.log(`[改类型] buttonId=${buttonId}, ${button.skillType} -> ${nextSkillType}, 图标已更新`);
+  };
+
   const handleCanvasClick = () => {
     dispatch({ type: 'SELECT_SKILL_BUTTON', buttonId: null });
     setContextMenuState(null);
@@ -424,6 +447,7 @@ export function CanvasBoard({
             onConfirmRemove={handleConfirmRemoveSkillButton}
             onCloseContextMenu={handleCloseButtonContextMenu}
             onCopy={handleCopySkillButton}
+            onChangeSkillType={handleChangeSkillType}
           />
         </div>
 
