@@ -271,20 +271,26 @@
   min-width: 0;
   justify-content: center;
   padding-top: 2px;
+  overflow: hidden;
 }
-
 .sandbox-skill-name {
-  font-size: 12px;
+  font-size: 10px;
   font-weight: 700;
   color: var(--office-title);
   line-height: 1.2;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  max-width: 80px;
+  position: absolute;
+  left: 10px;
+  bottom: -5px;
+  z-index: 1;
+  pointer-events: none;
 }
 
 .sandbox-skill-hit-count {
-  font-size: 10px;
+  font-size: 9px;
   color: var(--office-body);
 }
 
