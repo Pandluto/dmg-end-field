@@ -16,7 +16,7 @@
  * - CLEAR_SKILL_BUTTONS：清空画布
  */
 
-import React, { createContext, useContext, useReducer, ReactNode, useEffect } from 'react';
+import React, { createContext, useContext, useReducer, ReactNode, useEffect, useRef } from 'react';
 import {
   AppState,
   Character,
@@ -25,11 +25,18 @@ import {
   DEFAULT_CANVAS_CONFIG,
 } from '../types';
 import { resolveAvatarUrl, resolveSkillIconUrl } from '../utils/assetResolver';
-import { cleanupStorage } from '../utils/storage';
+import {
+  cleanupStorage,
+  getSelectedCharacterIds,
+  safeSessionStorage,
+  setSelectedCharacterIds,
+} from '../utils/storage';
+import { STORAGE_KEYS } from '../constants/storage-keys';
 
 /** 所有支持的 Action 类型（Tagged Union）*/
 type AppAction =
   | { type: 'SET_LOADED_CHARACTERS'; characters: Character[] }
+  | { type: 'SET_SELECTED_CHARACTERS'; characters: Character[] }
   | { type: 'SELECT_CHARACTER'; character: Character }
   | { type: 'DESELECT_CHARACTER'; characterId: string }
   | { type: 'SET_VIEW'; view: ViewType }
@@ -47,6 +54,7 @@ type AppAction =
   | { type: 'SELECT_SKILL_BUTTON'; buttonId: string | null }
   | { type: 'SET_DRAGGING'; buttonId: string; isDragging: boolean }
   | { type: 'TOGGLE_SKILL_BUTTON_LOCK'; buttonId: string }
+  | { type: 'UPDATE_SKILL_BUTTON_TYPE'; buttonId: string; skillType: 'A' | 'B' | 'E' | 'Q'; skillIconUrl: string }
   | { type: 'CLEAR_SKILL_BUTTONS' };
 
 /** 初始状态：默认显示干员选择界面，无已选干员，无技能按钮 */
@@ -66,6 +74,9 @@ function appReducer(state: AppState, action: AppAction): AppState {
   switch (action.type) {
     case 'SET_LOADED_CHARACTERS':
       return { ...state, loadedCharacters: action.characters };
+
+    case 'SET_SELECTED_CHARACTERS':
+      return { ...state, selectedCharacters: action.characters };
 
     // 选择干员：已达 4 人上限或已选中则忽略
     case 'SELECT_CHARACTER': {
@@ -162,6 +173,22 @@ function appReducer(state: AppState, action: AppAction): AppState {
       };
     }
 
+    // 更新技能按钮类型
+    case 'UPDATE_SKILL_BUTTON_TYPE': {
+      return {
+        ...state,
+        skillButtons: state.skillButtons.map((btn) =>
+          btn.id === action.buttonId
+            ? {
+                ...btn,
+                skillType: action.skillType,
+                skillIconUrl: action.skillIconUrl,
+              }
+            : btn
+        ),
+      };
+    }
+
     default:
       return state;
   }
@@ -182,6 +209,7 @@ const AppContext = createContext<AppContextType | null>(null);
  */
 export function AppProvider({ children }: { children: ReactNode }) {
   const [state, dispatch] = useReducer(appReducer, initialState);
+  const selectedCharactersHydratedRef = useRef(false);
 
   /**
    * 从 public/data/characters/operators-list.json 动态加载所有干员名称列表，
@@ -225,8 +253,28 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }
 
       dispatch({ type: 'SET_LOADED_CHARACTERS', characters });
+
+      const selectedCharacterIds = getSelectedCharacterIds();
+      const hasTimelineData = Boolean(safeSessionStorage.getItem(STORAGE_KEYS.TIMELINE_DATA));
+
+      if (selectedCharacterIds.length > 0 && hasTimelineData) {
+        const restoredCharacters = selectedCharacterIds
+          .map((characterId) => characters.find((character) => character.id === characterId))
+          .filter((character): character is Character => Boolean(character))
+          .slice(0, 4);
+
+        if (
+          restoredCharacters.length > 0 &&
+          restoredCharacters.length === Math.min(selectedCharacterIds.length, 4)
+        ) {
+          dispatch({ type: 'SET_SELECTED_CHARACTERS', characters: restoredCharacters });
+          dispatch({ type: 'SET_VIEW', view: 'canvas' });
+        }
+      }
     } catch (error) {
       console.warn('Failed to load operators list:', error);
+    } finally {
+      selectedCharactersHydratedRef.current = true;
     }
   };
 
@@ -235,6 +283,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
     cleanupStorage();
     loadCharacters();
   }, []);
+
+  useEffect(() => {
+    if (!selectedCharactersHydratedRef.current) {
+      return;
+    }
+    setSelectedCharacterIds(state.selectedCharacters.map((character) => character.id));
+  }, [state.selectedCharacters]);
 
   return (
     <AppContext.Provider value={{ state, dispatch, loadCharacters }}>

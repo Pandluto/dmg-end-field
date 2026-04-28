@@ -19,6 +19,7 @@ import {
   clearButtonBuffs,
   setSelectedSkillButton,
   getSelectedSkillButton,
+  recomputeSkillButtonPanel,
 } from '../core/services/buffService';
 
 /**
@@ -162,3 +163,8 @@ export { addBuffToButton as addSkillButtonBuff };
  * @param buffId - Buff ID
  */
 export { removeBuffFromButton as removeSkillButtonBuff };
+
+/**
+ * 重算指定按钮的专属面板快照
+ */
+export { recomputeSkillButtonPanel };

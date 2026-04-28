@@ -1,0 +1,85 @@
+{
+  "id": "tongtong-custom-001",
+  "name": "汤汤2号",
+  "avatarUrl": "/assets/avatars/汤汤/汤汤头像.png",
+  "rarity": 6,
+  "profession": "术师",
+  "weapon": "手铳",
+  "element": "ice",
+  "mainStat": "敏捷",
+  "subStat": "力量",
+  "level": 90,
+  "attributes": {
+    "strength": 123,
+    "agility": 179,
+    "intelligence": 85,
+    "will": 102,
+    "atk": 321,
+    "hp": 5495
+  },
+  "skills": {
+    "skill-1": {
+      "displayName": "崩你脑壳！",
+      "buttonType": "A",
+      "iconUrl": "/assets/avatars/汤汤/汤汤普通攻击.png",
+      "buffSlots": [],
+      "hitCount": 2,
+      "hitMeta": {
+        "hit1": {
+          "multiplier": 0.41,
+          "displayName": "第一段",
+          "element": "ice",
+          "skillType": "A"
+        },
+        "hit2": {
+          "multiplier": 0.45,
+          "displayName": "第二段",
+          "element": "ice",
+          "skillType": "A"
+        }
+      }
+    },
+    "skill-2": {
+      "displayName": "踏潮卷浪！",
+      "buttonType": "B",
+      "iconUrl": "/assets/avatars/汤汤/汤汤战技.png",
+      "buffSlots": [],
+      "hitCount": 2,
+      "hitMeta": {
+        "hit1": {
+          "multiplier": 1.44,
+          "displayName": "本体命中",
+          "element": "ice",
+          "skillType": "B"
+        },
+        "hit2": {
+          "multiplier": 2.4,
+          "displayName": "水龙卷",
+          "element": "ice",
+          "skillType": "B"
+        }
+      }
+    },
+    "skill-3": {
+      "displayName": "混合技能示例",
+      "buttonType": "Q",
+      "iconUrl": "/assets/avatars/汤汤/汤汤终结技.png",
+      "buffSlots": [],
+      "hitCount": 2,
+      "hitMeta": {
+        "hit1": {
+          "multiplier": 5.6,
+          "displayName": "提前下落巨浪",
+          "element": "ice",
+          "skillType": "Q"
+        },
+        "hit2": {
+          "multiplier": 2.4,
+          "displayName": "额外水龙卷",
+          "element": "physical",
+          "skillType": "B"
+        }
+      }
+    }
+  }
+}

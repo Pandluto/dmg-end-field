@@ -19,9 +19,15 @@ interface CanvasAreaProps {
   onButtonMouseDown: (event: MouseEvent, buttonId: string) => void;
   onButtonContextMenu: (event: MouseEvent, buttonId: string) => void;
   onCanvasClick: () => void;
+  onCanvasPlaceCopy: (e: MouseEvent) => void;
   timelineData?: TimelineData;
   onSkillButtonModalOpen?: () => void;
   onSkillButtonModalClose?: () => void;
+  contextMenuState?: { buttonId: string; position: { x: number; y: number } } | null;
+  onConfirmRemove?: () => void;
+  onCloseContextMenu?: () => void;
+  onCopy?: () => void;
+  onChangeSkillType?: (buttonId: string, nextSkillType: 'A' | 'B' | 'E' | 'Q') => void;
 }
 
 // 表格行列标注：0行显示字母(A-O)，0列显示数字(1-8)
@@ -35,14 +41,18 @@ export const CanvasArea = forwardRef<HTMLDivElement, CanvasAreaProps>(({
   skillButtons,
   onButtonMouseDown,
   onButtonContextMenu,
-  onCanvasClick,
+  onCanvasPlaceCopy,
   timelineData,
   onSkillButtonModalOpen,
   onSkillButtonModalClose,
+  contextMenuState,
+  onConfirmRemove,
+  onCloseContextMenu,
+  onCopy,
+  onChangeSkillType,
 }, canvasRef) => {
   const renderSkillButtons = () => {
     return skillButtons
-      .filter((button) => button.isFromSandbox)
       .map((button) => (
         <SkillButtonComponent
           key={button.id}
@@ -53,6 +63,11 @@ export const CanvasArea = forwardRef<HTMLDivElement, CanvasAreaProps>(({
           timelineData={timelineData}
           onModalOpen={onSkillButtonModalOpen}
           onModalClose={onSkillButtonModalClose}
+          contextMenuState={contextMenuState}
+          onConfirmRemove={onConfirmRemove}
+          onCloseContextMenu={onCloseContextMenu}
+          onCopy={onCopy}
+          onChangeSkillType={onChangeSkillType}
         />
       ));
   };
@@ -140,7 +155,7 @@ export const CanvasArea = forwardRef<HTMLDivElement, CanvasAreaProps>(({
       <div
         ref={canvasRef}
         className="canvas-container"
-        onClick={onCanvasClick}
+        onClick={onCanvasPlaceCopy}
       >
         <div className="canvas-grid-shell">
           <div className="canvas-grid-stack">

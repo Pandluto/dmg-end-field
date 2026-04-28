@@ -1,0 +1,230 @@
+{
+  "name": "伊冯",
+  "nameEn": "Yvonne",
+  "rarity": 6,
+  "profession": "突击",
+  "weapon": "手铳",
+  "element": "ice",
+  "mainStat": "智识",
+  "subStat": "敏捷",
+  "tags": [
+    "协同",
+    "输出"
+  ],
+  "position": [
+    "协同输出"
+  ],
+  "attributes": {
+    "level90": {
+      "strength": 82,
+      "agility": 128,
+      "intelligence": 176,
+      "will": 105,
+      "atk": 321,
+      "hp": 5495
+    }
+  },
+  "talents": [
+    {
+      "name": "科技连击",
+      "description": "战技“冰冰弹·β型”成功施加冻结后，下一次普通攻击直接施放重击。",
+      "autoHeavyAfterFreeze": true,
+      "heavyDamageBonus": 0.5
+    },
+    {
+      "name": "冰点",
+      "description": "对寒冷附着目标造成暴击伤害提升，对冻结目标效果加倍。",
+      "critDmgVsCold": 0.2,
+      "doubleOnFrozen": true
+    }
+  ],
+  "potentials": [
+    {
+      "id": 1,
+      "name": "速冻帮手",
+      "description": "连携技“速冻仔·υ37”作用范围+20%，额外施放2次能量，造成伤害后额外获得15点终结技能量。"
+    },
+    {
+      "id": 2,
+      "name": "完美造物",
+      "description": "智识+20，暴击率+7%。",
+      "stats": {
+        "intelligence": 20,
+        "critRate": 0.07
+      }
+    },
+    {
+      "id": 3,
+      "name": "嘀嗒充能",
+      "description": "天赋“冰点”效果加强：对寒冷附着目标造成暴击伤害额外+10%，对冻结目标同样加倍。"
+    },
+    {
+      "id": 4,
+      "name": "叛逆心情",
+      "description": "战技“冰冰弹·β型”爆炸仅命中单个敌人时返还10点技力。"
+    },
+    {
+      "id": 5,
+      "name": "机巧专家",
+      "description": "终结技“冷冻射手”持续期间，攻击力+10%，暴击伤害+30%。"
+    }
+  ],
+  "skills": {
+    "normalAttack": {
+      "name": "雀跃扳机",
+      "type": "普通攻击",
+      "description": "至多5段寒冷伤害；主控重击17点失衡；可下落与处决攻击。",
+      "hitCount": 5,
+      "damage": {
+        "9": {
+          "hit1": 0.42,
+          "hit2": 0.45,
+          "hit3": 0.57,
+          "hit4": 0.74,
+          "hit5": 1.01
+        },
+        "M3": {
+          "hit1": 0.53,
+          "hit2": 0.56,
+          "hit3": 0.71,
+          "hit4": 0.92,
+          "hit5": 1.26
+        }
+      },
+      "multipliers": {
+        "9": {
+          "hit1": 0.42,
+          "hit2": 0.45,
+          "hit3": 0.57,
+          "hit4": 0.74,
+          "hit5": 1.01,
+          "execute": 7.2,
+          "plunge": 1.44
+        },
+        "M3": {
+          "hit1": 0.53,
+          "hit2": 0.56,
+          "hit3": 0.71,
+          "hit4": 0.92,
+          "hit5": 1.26,
+          "execute": 9.0,
+          "plunge": 1.8
+        }
+      },
+      "imbalanceValue": 17
+    },
+    "skill": {
+      "name": "冰冰弹·β型",
+      "type": "战技",
+      "description": "发射制冷弹爆炸造成寒冷伤害；命中寒冷/自然附着目标时消耗法术附着并强制冻结，按层数造成额外伤害并获得终结技能量。",
+      "hitCount": 2,
+      "damage": {
+        "9": {
+          "hit1": 2.0,
+          "hit2": 1.2
+        },
+        "M3": {
+          "hit1": 2.5,
+          "hit2": 1.5
+        }
+      },
+      "multipliers": {
+        "9": {
+          "baseDamage": 2.0,
+          "freezeDamage": 1.2,
+          "perStackExtraDamage": 1.6,
+          "imbalance": 10,
+          "freezeEnergyGain": 10,
+          "perStackExtraEnergyGain": 30
+        },
+        "M3": {
+          "baseDamage": 2.5,
+          "freezeDamage": 1.5,
+          "perStackExtraDamage": 2.0,
+          "imbalance": 10,
+          "freezeEnergyGain": 10,
+          "perStackExtraEnergyGain": 30
+        }
+      },
+      "imbalanceValue": 10
+    },
+    "chainSkill": {
+      "name": "速冻仔·υ37",
+      "type": "连携技",
+      "description": "主控对冻结敌人重击后可发动，部署速冻仔持续牵引并能量攻击，结束自爆并强制冻结；命中后额外获得终结技能量。",
+      "hitCount": 5,
+      "damage": {
+        "9": {
+          "hit1": 0.8,
+          "hit2": 0.8,
+          "hit3": 0.8,
+          "hit4": 0.8,
+          "hit5": 1.6
+        },
+        "M3": {
+          "hit1": 1.0,
+          "hit2": 1.0,
+          "hit3": 1.0,
+          "hit4": 1.0,
+          "hit5": 2.0
+        }
+      },
+      "multipliers": {
+        "9": {
+          "cooldown": 19,
+          "duration": 3,
+          "energyCastCount": 4,
+          "energyDamage": 0.8,
+          "explosionDamage": 1.6,
+          "explosionImbalance": 10,
+          "extraUltimateEnergyGain": 10
+        },
+        "M3": {
+          "cooldown": 18,
+          "duration": 3,
+          "energyCastCount": 4,
+          "energyDamage": 1.0,
+          "explosionDamage": 2.0,
+          "explosionImbalance": 10,
+          "extraUltimateEnergyGain": 10
+        }
+      },
+      "imbalanceValue": 10
+    },
+    "ultimate": {
+      "name": "冷冻射手",
+      "type": "终结技",
+      "description": "部署小嘀嗒辅助并切换主控，持续期间普攻强化并叠加暴击率，满层提升暴伤；结束前强力攻击变重击并可额外攻击冻结目标。",
+      "hitCount": -1,
+      "damage": {
+        "9": {},
+        "M3": {}
+      },
+      "multipliers": {
+        "9": {
+          "energy": 220,
+          "duration": 7,
+          "normalAttackDamage": 0.16,
+          "strongAttackDamage": 2.4,
+          "extraAttackDamage": 4.8,
+          "strongAttackImbalance": 20,
+          "maxStacks": 10,
+          "critRatePerStack": 0.03,
+          "fullStackCritDmg": 0.6
+        },
+        "M3": {
+          "energy": 220,
+          "duration": 7,
+          "normalAttackDamage": 0.2,
+          "strongAttackDamage": 3.0,
+          "extraAttackDamage": 6.0,
+          "strongAttackImbalance": 20,
+          "maxStacks": 10,
+          "critRatePerStack": 0.03,
+          "fullStackCritDmg": 0.6
+        }
+      },
+      "imbalanceValue": 20
+    }
+  }
+}

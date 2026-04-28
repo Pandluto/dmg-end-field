@@ -4,17 +4,24 @@
  * 不依赖 React，不访问 DOM
  */
 
-import { SkillButtonData, TimelineData, StaffLineData } from '../../types';
+import { SkillButtonData, TimelineData, StaffLineData, SkillType } from '../../types';
 import { PersistedSkillButton } from '../../types/storage';
 import { calculateNodeNumber } from '../../utils/nodeNumbering';
 import {
+  getGridGroupTop,
+  getGridLineCenterY,
+  GRID_NODE_COUNT,
+} from '../calculators/gridSnapLayout';
+import {
   getSkillButtonById,
+  getSkillButtonTable,
+  setSkillButtonTable,
   upsertSkillButton,
   removeSkillButtonById,
   saveTimelineData as saveTimelineRepo,
   loadTimelineData as loadTimelineRepo,
 } from '../repositories';
-import { cleanupBuffsOnButtonRemove } from './buffService';
+import { cleanupBuffsOnButtonRemove, recomputeSkillButtonPanel } from './buffService';
 
 /**
  * 创建空的 Timeline 数据
@@ -22,7 +29,7 @@ import { cleanupBuffsOnButtonRemove } from './buffService';
 export function createEmptyTimelineData(characters: { name: string }[]): TimelineData {
   const now = Date.now();
   return {
-    version: "1.0.0",
+    version: "1.1.0",
     createdAt: now,
     updatedAt: now,
     staffLines: characters.map((char, index) => ({
@@ -89,6 +96,110 @@ export function normalizeTimelineData(
   };
 }
 
+function getButtonGroupIndex(globalNodeIndex: number): number {
+  if (!Number.isFinite(globalNodeIndex) || globalNodeIndex < 0) {
+    return 0;
+  }
+
+  return Math.floor(globalNodeIndex / GRID_NODE_COUNT);
+}
+
+function getReconciledButtonPosition(
+  globalNodeIndex: number,
+  lineIndex: number,
+  position: { x: number; y: number }
+): { x: number; y: number } {
+  return {
+    x: position.x,
+    // v1.1.0+ stores position.y as the base midline, not the orb center.
+    // 我的亲自手调，这里 +10才是对的
+    y: getGridGroupTop(getButtonGroupIndex(globalNodeIndex)) + getGridLineCenterY(lineIndex) + 10,
+  };
+}
+
+function buildTimelineButtonsFromSkillButtonTable(
+  skillButtonTable: Record<string, PersistedSkillButton>,
+  nextCharacters: { name: string }[]
+): StaffLineData[] {
+  return nextCharacters.map((character, index) => {
+    const buttons = Object.values(skillButtonTable)
+      .filter((button) => button.characterName === character.name)
+      .map((button) => ({
+        id: button.id,
+        characterName: button.characterName,
+        skillType: button.skillType as SkillType,
+        staffIndex: index,
+        nodeIndex: button.nodeIndex,
+        nodeNumber: button.nodeNumber,
+        position: button.position,
+      }))
+      .sort((left, right) => left.nodeIndex - right.nodeIndex);
+
+    const occupiedNodes = [...new Set(buttons.map((button) => button.nodeIndex))]
+      .filter((nodeIndex) => Number.isFinite(nodeIndex) && nodeIndex >= 0)
+      .sort((left, right) => left - right);
+
+    return {
+      staffIndex: index,
+      characterName: character.name,
+      occupiedNodes,
+      buttons,
+    };
+  });
+}
+
+export function reconcileSelectionChange(
+  _prevCharacters: { id: string; name: string }[],
+  nextCharacters: { id: string; name: string }[]
+): TimelineData {
+  const nextCharacterIndexMap = new Map(
+    nextCharacters.map((character, index) => [character.name, index])
+  );
+
+  const currentTimelineData = loadTimelineRepo() ?? createEmptyTimelineData(nextCharacters);
+  const currentSkillButtonTable = getSkillButtonTable();
+  const nextSkillButtonTable: Record<string, PersistedSkillButton> = {};
+  const removedButtonBuffRefs: string[][] = [];
+
+  Object.values(currentSkillButtonTable).forEach((button) => {
+    const nextCharacterIndex = nextCharacterIndexMap.get(button.characterName);
+
+    if (nextCharacterIndex === undefined) {
+      removedButtonBuffRefs.push([...(button.selectedBuff || [])]);
+      return;
+    }
+
+    const nextButton = {
+      ...button,
+      staffIndex: nextCharacterIndex,
+      position: getReconciledButtonPosition(button.nodeIndex, nextCharacterIndex, button.position),
+      updatedAt: Date.now(),
+    };
+
+    nextSkillButtonTable[button.id] = nextButton;
+  });
+
+  setSkillButtonTable(nextSkillButtonTable);
+  removedButtonBuffRefs.forEach((buffIds) => {
+    cleanupBuffsOnButtonRemove(buffIds);
+  });
+
+  Object.keys(nextSkillButtonTable).forEach((buttonId) => {
+    recomputeSkillButtonPanel(buttonId);
+  });
+
+  const nextStaffLines = buildTimelineButtonsFromSkillButtonTable(nextSkillButtonTable, nextCharacters);
+
+  const nextTimelineData: TimelineData = {
+    ...currentTimelineData,
+    updatedAt: Date.now(),
+    staffLines: nextStaffLines,
+  };
+
+  saveTimelineRepo(nextTimelineData);
+  return nextTimelineData;
+}
+
 /**
  * 添加技能按钮
  * 同时写入 timeline.data 和 skill-button 总表
@@ -108,6 +219,7 @@ export function addSkillButton(
   // 同时写入 skill-button 总表
   const persistedButton: PersistedSkillButton = {
     id: buttonId,
+    characterId: buttonData.characterName,
     characterName: buttonData.characterName,
     skillType: buttonData.skillType,
     staffIndex: buttonData.staffIndex,
@@ -115,10 +227,15 @@ export function addSkillButton(
     nodeNumber: newButton.nodeNumber,
     position: buttonData.position,
     selectedBuff: [],
+    panelConfig: {
+      selectedBuff: [],
+    },
+    panelSnapshot: null,
     createdAt: Date.now(),
     updatedAt: Date.now(),
   };
   upsertSkillButton(persistedButton);
+  recomputeSkillButtonPanel(buttonId);
 
   // 更新 timelineData
   const newTimelineData: TimelineData = {
@@ -436,7 +553,77 @@ export function updateSelectedBuffList(buttonId: string, buffIds: string[]): voi
     upsertSkillButton({
       ...existingButton,
       selectedBuff: buffIds,
+      panelConfig: {
+        ...(existingButton.panelConfig ?? { selectedBuff: [] }),
+        selectedBuff: [...buffIds],
+      },
       updatedAt: Date.now(),
     });
+    recomputeSkillButtonPanel(buttonId);
   }
+}
+
+/**
+ * 更新技能按钮类型
+ * 同时更新 timeline.data 和 skill-button 总表
+ */
+export function updateSkillButtonType(
+  timelineData: TimelineData,
+  buttonId: string,
+  nextSkillType: SkillType
+): { updatedButton: SkillButtonData | null; updatedPersistedButton: PersistedSkillButton | null; newTimelineData: TimelineData } {
+  // 1. 查找按钮所在 staffLine
+  let targetStaffLine: StaffLineData | null = null;
+  let targetButton: SkillButtonData | null = null;
+  let targetStaffIndex = -1;
+
+  for (let i = 0; i < timelineData.staffLines.length; i++) {
+    const staffLine = timelineData.staffLines[i];
+    if (staffLine && Array.isArray(staffLine.buttons)) {
+      const btn = staffLine.buttons.find(b => b.id === buttonId);
+      if (btn) {
+        targetStaffLine = staffLine;
+        targetButton = btn;
+        targetStaffIndex = i;
+        break;
+      }
+    }
+  }
+
+  if (!targetStaffLine || !targetButton) {
+    return { updatedButton: null, updatedPersistedButton: null, newTimelineData: timelineData };
+  }
+
+  // 2. 更新 skill-button 总表
+  const existingPersistedButton = getSkillButtonById(buttonId);
+  let updatedPersistedButton: PersistedSkillButton | null = null;
+
+  if (existingPersistedButton) {
+    updatedPersistedButton = {
+      ...existingPersistedButton,
+      skillType: nextSkillType,
+      updatedAt: Date.now(),
+    };
+    upsertSkillButton(updatedPersistedButton);
+  }
+
+  // 3. 更新 timelineData
+  const updatedTimelineButton: SkillButtonData = {
+    ...targetButton,
+    skillType: nextSkillType,
+  };
+
+  const newTimelineData: TimelineData = {
+    ...timelineData,
+    updatedAt: Date.now(),
+    staffLines: [...timelineData.staffLines],
+  };
+
+  const newStaffLine: StaffLineData = {
+    ...targetStaffLine,
+    buttons: targetStaffLine.buttons.map(b => b.id === buttonId ? updatedTimelineButton : b),
+  };
+  newTimelineData.staffLines[targetStaffIndex] = newStaffLine;
+
+  return { updatedButton: updatedTimelineButton, updatedPersistedButton, newTimelineData };
 }

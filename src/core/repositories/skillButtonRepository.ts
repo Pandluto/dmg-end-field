@@ -8,6 +8,20 @@ import { STORAGE_KEYS } from '../../constants/storage-keys';
 import { PersistedSkillButton, SkillButtonTable } from '../../types/storage';
 import { safeSessionStorage } from '../../utils/storage';
 
+function normalizeSkillButton(button: PersistedSkillButton): PersistedSkillButton {
+  const selectedBuff = Array.isArray(button.selectedBuff) ? button.selectedBuff : [];
+
+  return {
+    ...button,
+    characterId: button.characterId || button.characterName,
+    selectedBuff,
+    panelConfig: button.panelConfig ?? {
+      selectedBuff: [...selectedBuff],
+    },
+    panelSnapshot: button.panelSnapshot ?? null,
+  };
+}
+
 /**
  * 获取 skill-button 总表
  */
@@ -15,7 +29,14 @@ export function getSkillButtonTable(): SkillButtonTable {
   const raw = safeSessionStorage.getItem(STORAGE_KEYS.SKILL_BUTTON_TABLE);
   if (!raw) return {};
   try {
-    return JSON.parse(raw) as SkillButtonTable;
+    const parsed = JSON.parse(raw) as SkillButtonTable;
+    const normalized = Object.fromEntries(
+      Object.entries(parsed).map(([buttonId, button]) => [
+        buttonId,
+        normalizeSkillButton(button),
+      ])
+    );
+    return normalized;
   } catch {
     return {};
   }
@@ -42,7 +63,7 @@ export function getSkillButtonById(buttonId: string): PersistedSkillButton | nul
 export function upsertSkillButton(button: PersistedSkillButton): void {
   const table = getSkillButtonTable();
   table[button.id] = {
-    ...button,
+    ...normalizeSkillButton(button),
     updatedAt: Date.now(),
   };
   setSkillButtonTable(table);

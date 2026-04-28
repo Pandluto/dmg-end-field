@@ -1,0 +1,207 @@
+{
+  "name": "狼卫",
+  "nameEn": "Wulfgard",
+  "rarity": 5,
+  "profession": "术师",
+  "weapon": "手铳",
+  "element": "fire",
+  "mainStat": "力量",
+  "subStat": "敏捷",
+  "tags": [
+    "法术附着",
+    "法术异常",
+    "输出"
+  ],
+  "position": [
+    "附着异常",
+    "输出"
+  ],
+  "attributes": {
+    "level90": {
+      "strength": 161,
+      "agility": 95,
+      "intelligence": 92,
+      "will": 111,
+      "atk": 294,
+      "hp": 5495
+    }
+  },
+  "talents": [
+    {
+      "name": "灼热獠牙",
+      "description": "每次施加燃烧后获得灼热獠牙状态，期间提升自身灼热伤害。",
+      "fireDmgBonus": 0.3,
+      "duration": 10
+    },
+    {
+      "name": "节制准则",
+      "description": "战技“灼热弹痕”成功消耗法术异常时返还技力。",
+      "skillEnergyRefund": 10
+    }
+  ],
+  "potentials": [
+    {
+      "id": 1,
+      "name": "独狼",
+      "description": "力量+15，敏捷+15。",
+      "stats": {
+        "strength": 15,
+        "agility": 15
+      }
+    },
+    {
+      "id": 2,
+      "name": "铳械改造",
+      "description": "天赋节制准则效果加强：额外返还10点技力。"
+    },
+    {
+      "id": 3,
+      "name": "狩猎时刻",
+      "description": "灼热獠牙状态下，战技触发额外效果时刷新自身灼热獠牙持续，并给队友提供50%效果。"
+    },
+    {
+      "id": 4,
+      "name": "狼群意志",
+      "description": "终结技狼之怒所需终结技能量-15%。"
+    },
+    {
+      "id": 5,
+      "name": "天生掠食者",
+      "description": "施放终结技狼之怒后立即刷新连携技爆裂手雷·β型冷却。"
+    }
+  ],
+  "skills": {
+    "normalAttack": {
+      "name": "多重连射",
+      "type": "普通攻击",
+      "description": "至多4段灼热伤害，主控重击18点失衡；可下落与处决攻击。",
+      "hitCount": 4,
+      "damage": {
+        "9": {
+          "hit1": 0.54,
+          "hit2": 0.63,
+          "hit3": 1.0,
+          "hit4": 1.22
+        },
+        "M3": {
+          "hit1": 0.68,
+          "hit2": 0.79,
+          "hit3": 1.25,
+          "hit4": 1.52
+        }
+      },
+      "multipliers": {
+        "9": {
+          "hit1": 0.54,
+          "hit2": 0.63,
+          "hit3": 1.0,
+          "hit4": 1.22,
+          "execute": 7.2,
+          "plunge": 1.44
+        },
+        "M3": {
+          "hit1": 0.68,
+          "hit2": 0.79,
+          "hit3": 1.25,
+          "hit4": 1.52,
+          "execute": 9.0,
+          "plunge": 1.8
+        }
+      },
+      "imbalanceValue": 18
+    },
+    "skill": {
+      "name": "灼热弹痕",
+      "type": "战技",
+      "description": "连射造成灼热伤害并在末段施加灼热附着；若目标处于燃烧或导电则改为消耗状态并追加高额伤害。",
+      "hitCount": 2,
+      "damage": {
+        "9": {
+          "hit1": 1.84,
+          "hit2": 6.8
+        },
+        "M3": {
+          "hit1": 2.3,
+          "hit2": 8.5
+        }
+      },
+      "multipliers": {
+        "9": {
+          "damage": 1.84,
+          "imbalance": 5,
+          "extraDamage": 6.8,
+          "extraImbalance": 5
+        },
+        "M3": {
+          "damage": 2.3,
+          "imbalance": 5,
+          "extraDamage": 8.5,
+          "extraImbalance": 5
+        }
+      },
+      "imbalanceValue": 5
+    },
+    "chainSkill": {
+      "name": "爆裂手雷·β型",
+      "type": "连携技",
+      "description": "有敌人被施加法术附着时可发动，投掷手雷爆炸造成灼热伤害并施加灼热附着。",
+      "hitCount": 1,
+      "damage": {
+        "9": {
+          "hit1": 1.08
+        },
+        "M3": {
+          "hit1": 1.35
+        }
+      },
+      "multipliers": {
+        "9": {
+          "cooldown": 20,
+          "damage": 1.08,
+          "imbalance": 10
+        },
+        "M3": {
+          "cooldown": 19,
+          "damage": 1.35,
+          "imbalance": 10
+        }
+      },
+      "imbalanceValue": 10
+    },
+    "ultimate": {
+      "name": "狼之怒",
+      "type": "终结技",
+      "description": "快速射击并施放狼之怒，造成5次灼热伤害并强制施加燃烧。",
+      "hitCount": 5,
+      "damage": {
+        "9": {
+          "hit1": 0.58,
+          "hit2": 0.58,
+          "hit3": 0.58,
+          "hit4": 0.58,
+          "hit5": 0.58
+        },
+        "M3": {
+          "hit1": 0.72,
+          "hit2": 0.72,
+          "hit3": 0.72,
+          "hit4": 0.72,
+          "hit5": 0.72
+        }
+      },
+      "multipliers": {
+        "9": {
+          "energy": 90,
+          "perHitDamage": 0.58,
+          "imbalance": 15
+        },
+        "M3": {
+          "energy": 90,
+          "perHitDamage": 0.72,
+          "imbalance": 15
+        }
+      },
+      "imbalanceValue": 15
+    }
+  }
+}

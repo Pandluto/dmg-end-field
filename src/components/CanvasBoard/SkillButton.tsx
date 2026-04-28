@@ -6,9 +6,11 @@ import {
   removeSkillButtonBuff,
   setSelectedSkillButton,
   getButtonBuffs,
+  recomputeSkillButtonPanel,
 } from '../../hooks/useSkillButtonBuffs';
 import { SkillButtonBuff, SkillLevelMode } from '../../types/storage';
 import { getCharacterConfig } from '../../utils/storage';
+import { getSkillButtonById } from '../../core/repositories';
 import {
   calculateSkillButtonDamage,
   ELEMENT_LABELS,
@@ -25,9 +27,26 @@ interface SkillButtonProps {
   timelineData?: TimelineData;
   onModalOpen?: () => void;
   onModalClose?: () => void;
+  contextMenuState?: { buttonId: string; position: { x: number; y: number } } | null;
+  onConfirmRemove?: () => void;
+  onCloseContextMenu?: () => void;
+  onCopy?: () => void;
+  onChangeSkillType?: (buttonId: string, nextSkillType: 'A' | 'B' | 'E' | 'Q') => void;
 }
 
-export function SkillButtonComponent({ button, size, onMouseDown, onContextMenu, timelineData, onModalOpen, onModalClose }: SkillButtonProps) {
+export function SkillButtonComponent({ button, size, onMouseDown, onContextMenu, timelineData, onModalOpen, onModalClose, contextMenuState, onConfirmRemove, onCloseContextMenu, onCopy, onChangeSkillType }: SkillButtonProps) {
+  /**
+   * position.y 语义约定（v1.1.0+）：
+   * - position.x: 按钮碰撞箱左边界（原始值，未做视觉偏移）
+   * - position.y: 底座中线（不是圆心！）
+   *   渲染时通过 `top: position.y - radius - visualOffsetY` 转换为 CSS top
+   *   其中 visualOffsetY = 15，用于对齐谱线中心
+   *
+   * 恢复兼容性说明：
+   * - timeline version < 1.1.0 时，position.y 存储的是旧语义（圆心），
+   *   恢复时会自动在 CanvasBoard 恢复链中补偿 +15px
+   * - timeline version >= 1.1.0 时，position.y 已是底座中线，无需补偿
+   */
   const { position, skillType, isSelected, isDragging, characterName, skillIconUrl, element, isLocked } = button;
   const { dispatch } = useAppContext();
   const radius = size / 2;
@@ -80,11 +99,19 @@ export function SkillButtonComponent({ button, size, onMouseDown, onContextMenu,
   // infoSnap JSON 数据（从 sessionStorage 只读，不影响原数据）
   const [infoSnap, setInfoSnap] = useState<Record<string, number>>({});
 
+  // 图标加载失败状态，用于 CSS 类切换
+  const [iconLoadFailed, setIconLoadFailed] = useState(false);
+
   // 用于区分单击/双击/长按的引用
   const clickTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isLongPressRef = useRef(false);
   const clickCountRef = useRef(0);
+
+  // skillIconUrl 变化时重置图标加载失败状态
+  useEffect(() => {
+    setIconLoadFailed(false);
+  }, [skillIconUrl]);
 
   /**
    * 从 buffCache 加载 Buff 列表
@@ -124,14 +151,17 @@ export function SkillButtonComponent({ button, size, onMouseDown, onContextMenu,
    * 从 sessionStorage 加载面板数据 
    */
   const loadPanelData = useCallback(() => {
+    recomputeSkillButtonPanel(button.id);
+    const buttonStorage = getSkillButtonById(button.id);
     const characterConfig = getCharacterConfig(button.characterId);
     if (characterConfig?.panelSnapshot) {
+      const buttonSnapshot = buttonStorage?.panelSnapshot;
       const snapshot = characterConfig.panelSnapshot;
       const equipment = characterConfig.equipment ?? {};
       setPanelData({
-        atk: snapshot.atk ?? 0,
-        critRate: 0.05 + (equipment.critRateBoost ?? 0),
-        critDmg: 0.5 + (equipment.critDmgBonusBoost ?? 0),
+        atk: buttonSnapshot?.atk ?? snapshot.atk ?? 0,
+        critRate: buttonSnapshot?.critRate ?? snapshot.critRate ?? (0.05 + (equipment.critRateBoost ?? 0)),
+        critDmg: buttonSnapshot?.critDmg ?? snapshot.critDmg ?? (0.5 + (equipment.critDmgBonusBoost ?? 0)),
         physicalDmgBonus: equipment.physicalDmgBonus ?? 0,
         fireDmgBonus: equipment.fireDmgBonus ?? 0,
         electricDmgBonus: equipment.electricDmgBonus ?? 0,
@@ -146,7 +176,7 @@ export function SkillButtonComponent({ button, size, onMouseDown, onContextMenu,
       setInfoSnapshotLines(characterConfig.infoSnapshot ?? []);
       setInfoSnap((characterConfig.infoSnap ?? {}) as unknown as Record<string, number>);
     }
-  }, [button.characterId]);
+  }, [button.characterId, button.id]);
 
   /**
    * 移除指定 Buff
@@ -156,10 +186,11 @@ export function SkillButtonComponent({ button, size, onMouseDown, onContextMenu,
   const removeBuff = useCallback((buffId: string) => {
     removeSkillButtonBuff(button.id, buffId);
     loadBuffList(); // 重新加载列表
+    loadPanelData();
 
     // 触发事件通知 CanvasBoard 从 timelineData 中移除 buffId
     emitSkillButtonBuffRemoved(button.id, buffId);
-  }, [button.id, loadBuffList]);
+  }, [button.id, loadBuffList, loadPanelData]);
 
   // 弹窗打开时加载数据，并设置当前选中的技能按钮
   useEffect(() => {
@@ -182,11 +213,12 @@ export function SkillButtonComponent({ button, size, onMouseDown, onContextMenu,
       // 只有当 Buff 是添加到当前按钮时才刷新
       if (buttonId === button.id) {
         loadBuffList();
+        loadPanelData();
       }
     });
 
     return unsubscribe;
-  }, [button.id, loadBuffList]);
+  }, [button.id, loadBuffList, loadPanelData]);
 
   /**
    * 处理鼠标按下事件
@@ -264,19 +296,15 @@ export function SkillButtonComponent({ button, size, onMouseDown, onContextMenu,
   /**
    * 图标加载成功时：隐藏圆形图标内的兜底技能字母，底座文字继续显示。
    */
-  const handleIconLoad = (e: React.SyntheticEvent<HTMLImageElement>) => {
-    const parent = (e.target as HTMLImageElement).parentElement;
-    parent?.querySelectorAll('.skill-label').forEach(el => {
-      (el as HTMLElement).style.display = 'none';
-    });
+  const handleIconLoad = () => {
+    setIconLoadFailed(false);
   };
 
   /**
-   * 图标加载失败时：隐藏破损图标，文字标签自然显示作为兜底
-   * 不触发 handleIconLoad，保证文字正常展现
+   * 图标加载失败时：标记失败状态，CSS 类切换显示兜底文字
    */
-  const handleIconError = (e: React.SyntheticEvent<HTMLImageElement>) => {
-    (e.target as HTMLImageElement).style.display = 'none';
+  const handleIconError = () => {
+    setIconLoadFailed(true);
   };
 
   return (
@@ -302,21 +330,86 @@ export function SkillButtonComponent({ button, size, onMouseDown, onContextMenu,
             {isLocked ? <span className="skill-button-lock">锁</span> : null}
           </div>
           <div className="skill-button-orb" title={`${characterName} - ${SKILL_LABELS[skillType]}`}>
-            {/* skillIconUrl 有值时渲染图标，onLoad 成功后自动隐藏圆内兜底文字 */}
-            {skillIconUrl ? (
+            {/* skillIconUrl 有值且未失败时渲染图标 */}
+            {skillIconUrl && !iconLoadFailed ? (
               <img
                 className="skill-icon"
+                key={skillIconUrl}
                 src={skillIconUrl}
                 alt={SKILL_LABELS[skillType]}
                 onLoad={handleIconLoad}
                 onError={handleIconError}
               />
             ) : null}
-            {/* 兜底文字：图标加载成功时由 handleIconLoad 隐藏，失败时正常显示 */}
-            <span className="skill-label">{skillType}</span>
+            {/* 兜底文字：图标加载失败或无图标时显示 */}
+            <span className={`skill-label ${!iconLoadFailed && skillIconUrl ? 'hidden' : ''}`}>{skillType}</span>
           </div>
         </div>
       </div>
+
+      {/* 右键上下文菜单 - 贴着按钮右侧，垂直中段对齐 */}
+      {contextMenuState?.buttonId === button.id && (
+        <div
+          className="skill-button-context-menu"
+          style={{
+            left: position.x + visualOffsetX,
+            top: position.y + radius - visualOffsetY,
+          }}
+        >
+          <button
+            className="context-menu-item"
+            onClick={(e) => {
+              e.stopPropagation();
+              e.preventDefault();
+              onCloseContextMenu?.();
+            }}
+          >
+            取消
+          </button>
+          <div className="context-menu-item-submenu">
+            <div className="context-menu-item context-menu-submenu-trigger">
+              <span>编辑</span>
+              <span className="context-menu-submenu-arrow">▶</span>
+            </div>
+            <div className="context-menu-submenu">
+              {(['A', 'B', 'E', 'Q'] as const).filter(type => type !== skillType).map((type) => (
+                <button
+                  key={type}
+                  className="context-menu-item"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    e.preventDefault();
+                    onChangeSkillType?.(button.id, type);
+                    onCloseContextMenu?.();
+                  }}
+                >
+                  {`改为${type}`}
+                </button>
+              ))}
+            </div>
+          </div>
+          <button
+            className="context-menu-item"
+            onClick={(e) => {
+              e.stopPropagation();
+              e.preventDefault();
+              onCopy?.();
+            }}
+          >
+            复制
+          </button>
+          <button
+            className="context-menu-item context-menu-item-danger"
+            onClick={(e) => {
+              e.stopPropagation();
+              e.preventDefault();
+              onConfirmRemove?.();
+            }}
+          >
+            删除
+          </button>
+        </div>
+      )}
 
       {/* 技能信息弹窗 + 技能伤害弹窗 */}
       {isModalOpen && (
@@ -421,6 +514,7 @@ export function SkillButtonComponent({ button, size, onMouseDown, onContextMenu,
                       critRate,
                       critDmg,
                       critExpected,
+                      amplifyRate,
                       fragileRate,
                       vulnerabilityRate,
                       comboDamageBonus,
@@ -489,6 +583,20 @@ export function SkillButtonComponent({ button, size, onMouseDown, onContextMenu,
                               <p>所有伤害加成: {(infoSnap.allDmgBonus * 100).toFixed(1)}%</p>
                               <p>伤害加成区: {damageBonusRate.toFixed(3)}</p>
 
+                              {/* 增幅区显示 */}
+                              {amplifyRate > 0 && (
+                                <>
+                                  <p className="formula-section-title">【增幅区】</p>
+                                  <p>增幅区: +{(amplifyRate * 100).toFixed(1)}%</p>
+                                  {buffTotals.physicalAmplify > 0 && <p>物理增幅: +{(buffTotals.physicalAmplify * 100).toFixed(1)}%</p>}
+                                  {buffTotals.fireAmplify > 0 && <p>灼热增幅: +{(buffTotals.fireAmplify * 100).toFixed(1)}%</p>}
+                                  {buffTotals.electricAmplify > 0 && <p>电磁增幅: +{(buffTotals.electricAmplify * 100).toFixed(1)}%</p>}
+                                  {buffTotals.iceAmplify > 0 && <p>寒冷增幅: +{(buffTotals.iceAmplify * 100).toFixed(1)}%</p>}
+                                  {buffTotals.natureAmplify > 0 && <p>自然增幅: +{(buffTotals.natureAmplify * 100).toFixed(1)}%</p>}
+                                  {buffTotals.magicAmplify > 0 && <p>法术增幅: +{(buffTotals.magicAmplify * 100).toFixed(1)}%</p>}
+                                </>
+                              )}
+
                               {/* 脆弱区显示 */}
                               {fragileRate > 0 && (
                                 <>
@@ -547,6 +655,7 @@ export function SkillButtonComponent({ button, size, onMouseDown, onContextMenu,
                                 <p>  × {critExpected.toFixed(3)} (暴击期望)</p>
                                 <p>  × {damageBonusRate.toFixed(3)} (伤害加成区)</p>
                                 <p>  × {defenseZone} (防御区)</p>
+                                {amplifyRate > 0 && <p>  × {(1 + amplifyRate).toFixed(3)} (增幅区)</p>}
                                 {fragileRate > 0 && <p>  × {(1 + fragileRate).toFixed(3)} (脆弱区)</p>}
                                 {vulnerabilityRate > 0 && <p>  × {(1 + vulnerabilityRate).toFixed(3)} (易伤区)</p>}
                                 {comboDamageBonus > 0 && <p>  × {(1 + comboDamageBonus).toFixed(3)} (连击区)</p>}

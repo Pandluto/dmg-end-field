@@ -130,6 +130,15 @@ export function WorkbenchFrame() {
       <span className="workbench-trigger-status">已选 {selectedCharacters.length}/4</span>
     </button>
   );
+  const handleOpenStorageDebug = useCallback(() => {
+    window.location.assign('/storage');
+  }, []);
+
+  const storageDebugControl = (
+    <button className="workbench-top-trigger" type="button" onClick={handleOpenStorageDebug}>
+      <span className="workbench-trigger-text">存储调试</span>
+    </button>
+  );
 
   useEffect(() => {
     if (currentView === 'canvas' && workbenchMode === 'selection') {
@@ -166,7 +175,7 @@ export function WorkbenchFrame() {
             disabled={!canAccessCanvas}
             title={!canAccessCanvas ? '请先选择干员' : ''}
           >
-            侧边栏
+            陈列区
           </button>
           <button
             className={`workbench-drawer-tab ${operatorConfigVisible ? 'is-active' : ''}`}
@@ -188,6 +197,7 @@ export function WorkbenchFrame() {
             </div>
             <div className="workbench-selection-bottom-bar">
               {workbenchControl}
+              {storageDebugControl}
             </div>
           </div>
         )}
@@ -202,6 +212,7 @@ export function WorkbenchFrame() {
             onCloseOperatorConfig={closeOperatorConfig}
             onOpenOperatorConfig={openOperatorConfig}
             workbenchControl={workbenchControl}
+            bottomRightControl={storageDebugControl}
             isWorkbenchTopZoneOpen={isDrawerOpen}
           />
         )}

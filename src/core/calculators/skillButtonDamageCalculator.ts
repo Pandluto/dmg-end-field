@@ -12,6 +12,7 @@ import {
   calculateSkillDmgBonus,
   calculateFragileRate,
   calculateVulnerabilityRate,
+  calculateAmplifyRate,
   ELEMENT_LABELS,
 } from './buffCalculator';
 
@@ -71,6 +72,7 @@ export interface DamageBreakdown {
   afterCrit: number;
   afterBonus: number;
   afterDefense: number;
+  afterAmplify: number;
   afterFragile: number;
   afterVulnerability: number;
   final: number;
@@ -96,6 +98,8 @@ export interface SkillButtonDamageResult {
   critDmg: number;
   /** 暴击期望倍率 */
   critExpected: number;
+  /** 增幅区倍率 */
+  amplifyRate: number;
   /** 脆弱区倍率 */
   fragileRate: number;
   /** 易伤区倍率 */
@@ -136,6 +140,7 @@ function calculateHitDamage(
   critMultiplier: number,
   damageBonusRate: number,
   defenseZone: number,
+  amplifyRate: number,
   fragileRate: number,
   vulnerabilityRate: number,
   comboDamageBonus: number
@@ -144,10 +149,11 @@ function calculateHitDamage(
   const afterCrit = base * critMultiplier;
   const afterBonus = afterCrit * damageBonusRate;
   const afterDefense = afterBonus * defenseZone;
-  const afterFragile = afterDefense * (1 + fragileRate);
+  const afterAmplify = afterDefense * (1 + amplifyRate);
+  const afterFragile = afterAmplify * (1 + fragileRate);
   const afterVulnerability = afterFragile * (1 + vulnerabilityRate);
   const final = afterVulnerability * (1 + comboDamageBonus);
-  return { base, afterCrit, afterBonus, afterDefense, afterFragile, afterVulnerability, final };
+  return { base, afterCrit, afterBonus, afterDefense, afterAmplify, afterFragile, afterVulnerability, final };
 }
 
 /**
@@ -228,17 +234,20 @@ export function calculateSkillButtonDamage(
   const damageBonusRate = 1 + elementDmgBonus + skillDmgBonus + allDmgBonus;
 
   // 6. 计算暴击期望
-  const critRate = panelData.critRate + buffTotals.critRateBoost;
-  const critDmg = panelData.critDmg + buffTotals.critDmgBonusBoost;
+  const critRate = panelData.critRate;
+  const critDmg = panelData.critDmg;
   const critExpected = 1 + critRate * critDmg;
 
-  // 7. 计算脆弱区
+  // 7. 计算增幅区
+  const amplifyRate = calculateAmplifyRate(characterElement, buffTotals);
+
+  // 8. 计算脆弱区
   const fragileRate = calculateVulnerabilityRate(characterElement, buffTotals);
 
-  // 8. 计算易伤区
+  // 9. 计算易伤区
   const vulnerabilityRate = calculateFragileRate(characterElement, buffTotals);
 
-  // 9. 连击区
+  // 10. 连击区
   const comboDamageBonus = buffTotals.comboDamageBonus;
 
   // 10. 防御区
@@ -270,15 +279,15 @@ export function calculateSkillButtonDamage(
 
     const nonCrit = calculateHitDamage(
       panelData.atk, value, 1, damageBonusRate,
-      defenseZone, fragileRate, vulnerabilityRate, comboDamageBonus
+      defenseZone, amplifyRate, fragileRate, vulnerabilityRate, comboDamageBonus
     );
     const crit = calculateHitDamage(
       panelData.atk, value, 1 + critDmg, damageBonusRate,
-      defenseZone, fragileRate, vulnerabilityRate, comboDamageBonus
+      defenseZone, amplifyRate, fragileRate, vulnerabilityRate, comboDamageBonus
     );
     const expected = calculateHitDamage(
       panelData.atk, value, critExpected, damageBonusRate,
-      defenseZone, fragileRate, vulnerabilityRate, comboDamageBonus
+      defenseZone, amplifyRate, fragileRate, vulnerabilityRate, comboDamageBonus
     );
 
     return { key, index: idx + 1, nonCrit, crit, expected };
@@ -301,6 +310,7 @@ export function calculateSkillButtonDamage(
     critRate,
     critDmg,
     critExpected,
+    amplifyRate,
     fragileRate,
     vulnerabilityRate,
     comboDamageBonus,

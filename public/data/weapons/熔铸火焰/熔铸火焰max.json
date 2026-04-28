@@ -1,0 +1,58 @@
+{
+  "name": "熔铸火焰",
+  "rarity": 6,
+  "description": "巫术时刻锻铸的锋利兵刃之一。特殊精炼使得剑身泛红，施术单元采取独特的液化源石方案，仿佛是熔炉中流下的一滴血泪。",
+  "attackGrowth": {
+    "1": 52,
+    "80": 458,
+    "90": 510
+  },
+  "skills": {
+    "skill1": {
+      "name": "智识提升·大",
+      "statType": "intelligence",
+      "levels": {
+        "7": {
+          "value": 116,
+          "description": "智识+116"
+        },
+        "9": {
+          "value": 156,
+          "description": "智识+156"
+        }
+      }
+    },
+    "skill2": {
+      "name": "攻击提升·大",
+      "statType": "atkPercent",
+      "levels": {
+        "7": {
+          "value": 0.29,
+          "description": "攻击力+29.0%"
+        },
+        "9": {
+          "value": 0.39,
+          "description": "攻击力+39.0%"
+        }
+      }
+    },
+    "skill3": {
+      "name": "夜幕·嘶鸣烈火",
+      "statType": "special",
+      "levels": {
+        "4": {
+          "description": "灼热伤害+25.6%。装备者施放终结技时，获得普通攻击伤害+120.0%，持续20秒。同名效果无法叠加。",
+          "passive": {
+            "fireDmgBonus": 0.256
+          }
+        },
+        "9": {
+          "description": "灼热伤害+44.8%。装备者施放终结技时，获得普通攻击伤害+210.0%，持续20秒。同名效果无法叠加。",
+          "passive": {
+            "fireDmgBonus": 0.448
+          }
+        }
+      }
+    }
+  }
+}

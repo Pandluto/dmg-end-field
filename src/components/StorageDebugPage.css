@@ -1,0 +1,106 @@
+.storage-debug-page {
+  height: 100vh;
+  overflow: auto;
+  padding: 32px;
+  color: #f4efe4;
+  background:
+    radial-gradient(circle at top left, rgba(228, 114, 54, 0.28), transparent 28%),
+    radial-gradient(circle at top right, rgba(84, 153, 199, 0.22), transparent 24%),
+    linear-gradient(180deg, #151515 0%, #0d0d0d 100%);
+  box-sizing: border-box;
+}
+
+.storage-debug-hero {
+  display: flex;
+  justify-content: space-between;
+  gap: 24px;
+  margin: 0 auto 24px;
+  padding: 24px 28px;
+  max-width: 1280px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 24px;
+  background: rgba(255, 250, 240, 0.05);
+  backdrop-filter: blur(12px);
+}
+
+.storage-debug-eyebrow {
+  margin: 0 0 8px;
+  font-size: 12px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: #f2a65a;
+}
+
+.storage-debug-hero h1 {
+  margin: 0;
+  font-size: clamp(32px, 4vw, 56px);
+  line-height: 1;
+}
+
+.storage-debug-subtitle {
+  margin: 12px 0 0;
+  max-width: 720px;
+  color: rgba(244, 239, 228, 0.78);
+}
+
+.storage-debug-actions {
+  min-width: 220px;
+  text-align: right;
+}
+
+.storage-debug-actions p {
+  margin: 8px 0 0;
+  color: rgba(244, 239, 228, 0.72);
+}
+
+.storage-debug-refresh {
+  border: 0;
+  border-radius: 999px;
+  padding: 10px 18px;
+  font: inherit;
+  font-weight: 700;
+  color: #1a130d;
+  background: #f2a65a;
+  cursor: pointer;
+}
+
+.storage-debug-content {
+  margin: 0 auto;
+  max-width: 1280px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 24px;
+  background: rgba(7, 7, 7, 0.75);
+  overflow: visible;
+}
+
+.storage-debug-markdown {
+  margin: 0;
+  padding: 24px 28px;
+  min-height: 0;
+  overflow: visible;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font: 14px/1.6 Consolas, Monaco, 'Courier New', monospace;
+  color: #f8f3e8;
+}
+
+@media (max-width: 800px) {
+  .storage-debug-page {
+    padding: 16px;
+  }
+
+  .storage-debug-hero {
+    flex-direction: column;
+    padding: 20px;
+  }
+
+  .storage-debug-actions {
+    min-width: 0;
+    text-align: left;
+  }
+
+  .storage-debug-markdown {
+    padding: 20px;
+    min-height: 0;
+  }
+}

@@ -76,14 +76,14 @@ function getFirstSkillByType(draft: ImportedOperatorDraft, buttonType: SkillType
 }
 
 function buildSkillIconMap(draft: ImportedOperatorDraft) {
-  const skillIconMap: Partial<Record<SkillType, string>> = {};
+  const iconMap: Partial<Record<SkillType, string>> = {};
   (['A', 'B', 'E', 'Q'] as const).forEach((skillType) => {
-    const skill = getFirstSkillByType(draft, skillType);
-    if (skill?.iconUrl) {
-      skillIconMap[skillType] = skill.iconUrl;
+    const matchedSkill = getFirstSkillByType(draft, skillType);
+    if (matchedSkill?.iconUrl) {
+      iconMap[skillType] = matchedSkill.iconUrl;
     }
   });
-  return skillIconMap;
+  return iconMap;
 }
 
 export function adaptImportedDraftToCharacter(draft: ImportedOperatorDraft): Character {

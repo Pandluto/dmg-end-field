@@ -63,8 +63,8 @@ public/data/characters/{角色名}/
 | `fireDmgBonus` | 灼热伤害加成 |
 | `electricDmgBonus` | 电磁伤害加成 |
 | `iceDmgBonus` | 寒冷伤害加成 |
-| `etherDmgBonus` | 自然伤害加成 |
-| `allDmgBonus` | 全元素伤害加成 |
+| `natureDmgBonus` | 自然伤害加成 |
+| `allElementDmgBonus` | 全元素伤害加成（Buff 侧） |
 | `skillDmgBonus` | 战技伤害加成 |
 | `chainSkillDmgBonus` | 连携技伤害加成 |
 | `ultimateDmgBonus` | 终结技伤害加成 |
@@ -73,7 +73,7 @@ public/data/characters/{角色名}/
 | `fireRes` | 灼热抗性 |
 | `electricRes` | 电磁抗性 |
 | `iceRes` | 寒冷抗性 |
-| `etherRes` | 自然抗性 |
+| `natureRes` | 自然抗性 |
 | `voidRes` | 超域抗性 |
 | `healingBonus` | 治疗效率加成 |
 | `incomingHealingBonus` | 受治疗效率加成 |
@@ -87,22 +87,93 @@ public/data/characters/{角色名}/
 | `fireVulnerability` | 灼热脆弱 |
 | `electricVulnerability` | 电磁脆弱 |
 | `iceVulnerability` | 寒冷脆弱 |
-| `etherVulnerability` | 自然脆弱 |
-| `magicVulnerability` | 法术脆弱 |
+| `natureVulnerability` | 自然易伤 |
+| `magicVulnerability` | 法术脆弱（历史/待兼容字段，当前运行时不作为推荐输出） |
+| `physicalAmplify` | 物理增幅 |
+| `fireAmplify` | 灼热增幅 |
+| `electricAmplify` | 电磁增幅 |
+| `iceAmplify` | 寒冷增幅 |
+| `natureAmplify` | 自然增幅 |
+| `magicAmplify` | 法术增幅 |
 | `comboDamageBonus` | 连击增伤 |
 | `atkPercentBoost` | 攻击力百分比提升 |
 | `strengthBoost` | 力量属性提升 |
 | `agilityBoost` | 敏捷属性提升 |
 | `intelligenceBoost` | 智识属性提升 |
 | `willBoost` | 意志属性提升 |
-| `multiplierBonus` | 伤害倍率提升（字段） |
-| `multiplierMultiplier` | 伤害倍率乘倍 |
-| `magicTakenDmgBonus` | 法术伤害加成（受伤害） |
+| `multiplierBonus` | 伤害倍率提升（对原倍率做加法） |
+| `multiplierMultiplier` | 伤害倍率乘倍（对原倍率做乘法） |
+| `multiplierOverride` | 整套技能倍率重写（可改写 hit 数和每段 hit 值） |
+| `magicTakenDmgBonus` | 法术易伤 |
 
 | `mainStatBoost` | 主能力提升 |
 | `subStatBoost` | 副能力提升 |
 | `allStatBoost` | 全能力提升 |
 | `sourceSkillBoost` | 源石技艺强度提升 |
+
+说明：
+
+- `增幅区` 为独立乘区，和 `脆弱区 / 易伤区` 同级，不并入 `伤害加成区`。
+- 当前代码口径：
+  - `physical` 伤害只命中 `physicalAmplify`
+  - 元素伤害命中 `对应元素Amplify + magicAmplify`
+- 多个增幅 Buff 直接相加，最终按 `× (1 + amplifyRate)` 参与计算。
+- 当前字段口径补充：
+  - `allElementDmgBonus` 是 Buff 侧“全元素伤害加成”正式字段
+  - `allDmgBonus` 属于面板 / `infoSnap` 侧字段，不作为当前 Buff type 推荐输出
+  - `magicTakenDmgBonus` 为“法术易伤”正式字段
+  - `magicVulnerability` 仅保留历史语义说明，当前运行时不建议继续生成该 type
+  - `multiplierBonus / multiplierMultiplier / multiplierOverride` 属于同一组“倍率类 Buff”，文档与数据维护时应靠近放置，体现其特殊性
+  - `multiplierOverride` 不走 `multiplierBonus / multiplierMultiplier` 的旧逻辑，它表示“直接覆盖当前技能的 damage 表”
+
+### 特例：`multiplierOverride`
+
+适用场景：
+
+- 某个 Buff 不是“提高最后一段 hit 倍率”
+- 而是直接把当前技能替换成一套新的倍率表
+- 通常会同时改写：
+  - `hit` 数量
+  - 每段 `hit` 的倍率值
+
+推荐写法：
+
+```json
+{
+  "displayName": "强化普攻重写-莱万汀-黄昏",
+  "name": "黄昏",
+  "source": "ultimate",
+  "sourceName": "终结技-黄昏",
+  "type": "multiplierOverride",
+  "value": {
+    "damage": {
+      "9": {
+        "hit1": 1.17,
+        "hit2": 1.46,
+        "hit3": 2.08,
+        "hit4": 3.65
+      },
+      "M3": {
+        "hit1": 1.46,
+        "hit2": 1.82,
+        "hit3": 2.6,
+        "hit4": 4.56
+      }
+    }
+  },
+  "level": "9/M3",
+  "description": "终结技黄昏持续期间，普通攻击得到强化，烈焰魔剑会协同莱万汀发动攻击。",
+  "condition": "终结技黄昏持续期间"
+}
+```
+
+规则：
+
+1. `type` 固定为 `multiplierOverride`
+2. `value` 不再是 number，而是一个对象
+3. `value.damage` 的字段结构对齐角色技能 json 中的 `damage`
+4. 第一版只建议写当前项目真实会用到的等级键，例如 `9` / `M3`
+5. 这类 Buff 属于“技能倍率重写”，不要再错误写成 `multiplierBonus`
 
 ---
 
@@ -201,6 +272,26 @@ public/data/characters/{角色名}/
   ]
 }
 ```
+
+### 示例 D：莱万汀（终结技期间强化普攻重写）
+
+```json
+{
+  "name": "莱万汀",
+  "buffList": [
+    "无视灼热抗性-莱万汀-天赋",
+    "强化普攻重写-莱万汀-黄昏"
+  ]
+}
+```
+
+说明：
+
+- `黄昏` 不是普通“普攻伤害加成”
+- 它会把普攻改写成一套新的 4 hit 倍率
+- 因此必须落成 `multiplierOverride`
+- 不要拆成 `normalAttackDmgBonus`
+- 也不要伪装成 `multiplierBonus`
 
 ### 对应的数值映射说明
 

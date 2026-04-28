@@ -1,0 +1,42 @@
+{
+  "name": "弧光",
+  "buffList": [
+    "电磁伤害加成-弧光-天赋",
+    "敏捷属性提升-弧光-潜能",
+    "智识属性提升-弧光-潜能"
+  ],
+  "buffs": [
+    {
+      "displayName": "电磁伤害加成-弧光-天赋",
+      "name": "荒野游人",
+      "source": "talent",
+      "sourceName": "天赋-荒野游人",
+      "type": "electricDmgBonus",
+      "value": 0.64,
+      "level": "breakthrough2",
+      "description": "战技成功触发3次额外效果后，按智识提升全队电磁伤害，持续15秒，不可叠加。",
+      "condition": "战技成功触发3次额外效果后（按智识800计入）",
+      "duration": 15
+    },
+    {
+      "displayName": "敏捷属性提升-弧光-潜能",
+      "name": "速战速决",
+      "source": "potential",
+      "sourceName": "潜能2-速战速决",
+      "type": "agilityBoost",
+      "value": 15,
+      "level": "potentials-2",
+      "description": "敏捷+15，智识+15。"
+    },
+    {
+      "displayName": "智识属性提升-弧光-潜能",
+      "name": "速战速决",
+      "source": "potential",
+      "sourceName": "潜能2-速战速决",
+      "type": "intelligenceBoost",
+      "value": 15,
+      "level": "potentials-2",
+      "description": "敏捷+15，智识+15。"
+    }
+  ]
+}

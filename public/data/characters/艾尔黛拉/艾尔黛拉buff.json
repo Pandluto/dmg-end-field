@@ -1,0 +1,59 @@
+{
+  "name": "艾尔黛拉",
+  "buffList": [
+    "物理脆弱-艾尔黛拉-战技",
+    "法术易伤-艾尔黛拉-战技",
+    "物理脆弱-艾尔黛拉-战技-M3",
+    "法术易伤-艾尔黛拉-战技-M3"
+  ],
+  "buffs": [
+    {
+      "displayName": "物理脆弱-艾尔黛拉-战技",
+      "name": "奔腾的多利",
+      "source": "skill",
+      "sourceName": "战技-奔腾的多利",
+      "type": "physicalVulnerability",
+      "value": 0.16,
+      "level": "9",
+      "description": "骑多利冲撞造成自然伤害；若目标处于腐蚀则消耗腐蚀并施加物理/法术脆弱。",
+      "condition": "消耗腐蚀时",
+      "duration": 30
+    },
+    {
+      "displayName": "法术易伤-艾尔黛拉-战技",
+      "name": "奔腾的多利",
+      "source": "skill",
+      "sourceName": "战技-奔腾的多利",
+      "type": "magicTakenDmgBonus",
+      "value": 0.16,
+      "level": "9",
+      "description": "骑多利冲撞造成自然伤害；若目标处于腐蚀则消耗腐蚀并施加物理/法术脆弱。",
+      "condition": "消耗腐蚀时",
+      "duration": 30
+    },
+    {
+      "displayName": "物理脆弱-艾尔黛拉-战技-M3",
+      "name": "奔腾的多利",
+      "source": "skill",
+      "sourceName": "战技-奔腾的多利",
+      "type": "physicalVulnerability",
+      "value": 0.2,
+      "level": "M3",
+      "description": "骑多利冲撞造成自然伤害；若目标处于腐蚀则消耗腐蚀并施加物理/法术脆弱。",
+      "condition": "消耗腐蚀时",
+      "duration": 30
+    },
+    {
+      "displayName": "法术易伤-艾尔黛拉-战技-M3",
+      "name": "奔腾的多利",
+      "source": "skill",
+      "sourceName": "战技-奔腾的多利",
+      "type": "magicTakenDmgBonus",
+      "value": 0.2,
+      "level": "M3",
+      "description": "骑多利冲撞造成自然伤害；若目标处于腐蚀则消耗腐蚀并施加物理/法术脆弱。",
+      "condition": "消耗腐蚀时",
+      "duration": 30
+    }
+  ]
+}

@@ -1,0 +1,151 @@
+{
+  "name": "伊冯",
+  "nameEn": "Yvonne",
+  "rarity": 6,
+  "profession": "突击",
+  "weapon": "手铳",
+  "element": "ice",
+  "mainStat": "智识",
+  "subStat": "敏捷",
+  "tags": ["协同", "输出"],
+  "position": ["协同输出"],
+  "attributes": {
+    "level1": { "strength": 8, "agility": 14, "intelligence": 24, "will": 10, "atk": 30, "hp": 500 },
+    "level20": { "strength": 24, "agility": 38, "intelligence": 57, "will": 30, "atk": 92, "hp": 1566 },
+    "level40": { "strength": 40, "agility": 64, "intelligence": 91, "will": 52, "atk": 157, "hp": 2689 },
+    "level60": { "strength": 57, "agility": 89, "intelligence": 125, "will": 73, "atk": 223, "hp": 3811 },
+    "level80": { "strength": 74, "agility": 115, "intelligence": 159, "will": 94, "atk": 288, "hp": 4934 },
+    "level90": { "strength": 82, "agility": 128, "intelligence": 176, "will": 105, "atk": 321, "hp": 5495 }
+  },
+  "talents": [
+    {
+      "name": "科技连击",
+      "description": "战技“冰冰弹·β型”成功施加冻结后，下一次普通攻击直接施放重击。",
+      "levels": {
+        "breakthrough1": { "autoHeavyAfterFreeze": true },
+        "breakthrough2": { "autoHeavyAfterFreeze": true, "heavyDamageBonus": 0.5 }
+      }
+    },
+    {
+      "name": "冰点",
+      "description": "对寒冷附着目标造成暴击伤害提升，对冻结目标效果加倍。",
+      "levels": {
+        "breakthrough2": { "critDmgVsCold": 0.1, "doubleOnFrozen": true },
+        "breakthrough3": { "critDmgVsCold": 0.2, "doubleOnFrozen": true }
+      }
+    }
+  ],
+  "potentials": [
+    {
+      "id": 1,
+      "name": "速冻帮手",
+      "description": "连携技“速冻仔·υ37”作用范围+20%，额外施放2次能量，造成伤害后额外获得15点终结技能量。"
+    },
+    {
+      "id": 2,
+      "name": "完美造物",
+      "description": "智识+20，暴击率+7%。",
+      "stats": {
+        "intelligence": 20,
+        "critRate": 0.07
+      }
+    },
+    {
+      "id": 3,
+      "name": "嘀嗒充能",
+      "description": "天赋“冰点”效果加强：对寒冷附着目标造成暴击伤害额外+10%，对冻结目标同样加倍。"
+    },
+    {
+      "id": 4,
+      "name": "叛逆心情",
+      "description": "战技“冰冰弹·β型”爆炸仅命中单个敌人时返还10点技力。"
+    },
+    {
+      "id": 5,
+      "name": "机巧专家",
+      "description": "终结技“冷冻射手”持续期间，攻击力+10%，暴击伤害+30%。"
+    }
+  ],
+  "skills": {
+    "normalAttack": {
+      "name": "雀跃扳机",
+      "type": "普通攻击",
+      "description": "至多5段寒冷伤害；主控重击17点失衡；可下落与处决攻击。",
+      "multipliers": {
+        "1": { "hit1": 0.24, "hit2": 0.25, "hit3": 0.32, "hit4": 0.41, "hit5": 0.56, "execute": 4.0, "plunge": 0.8 },
+        "2": { "hit1": 0.26, "hit2": 0.28, "hit3": 0.35, "hit4": 0.45, "hit5": 0.62, "execute": 4.4, "plunge": 0.88 },
+        "3": { "hit1": 0.28, "hit2": 0.30, "hit3": 0.38, "hit4": 0.49, "hit5": 0.67, "execute": 4.8, "plunge": 0.96 },
+        "4": { "hit1": 0.31, "hit2": 0.33, "hit3": 0.41, "hit4": 0.53, "hit5": 0.73, "execute": 5.2, "plunge": 1.04 },
+        "5": { "hit1": 0.33, "hit2": 0.35, "hit3": 0.44, "hit4": 0.58, "hit5": 0.79, "execute": 5.6, "plunge": 1.12 },
+        "6": { "hit1": 0.35, "hit2": 0.38, "hit3": 0.47, "hit4": 0.62, "hit5": 0.84, "execute": 6.0, "plunge": 1.2 },
+        "7": { "hit1": 0.38, "hit2": 0.40, "hit3": 0.50, "hit4": 0.66, "hit5": 0.90, "execute": 6.4, "plunge": 1.28 },
+        "8": { "hit1": 0.40, "hit2": 0.43, "hit3": 0.54, "hit4": 0.70, "hit5": 0.96, "execute": 6.8, "plunge": 1.36 },
+        "9": { "hit1": 0.42, "hit2": 0.45, "hit3": 0.57, "hit4": 0.74, "hit5": 1.01, "execute": 7.2, "plunge": 1.44 },
+        "M1": { "hit1": 0.45, "hit2": 0.48, "hit3": 0.61, "hit4": 0.79, "hit5": 1.08, "execute": 7.7, "plunge": 1.54 },
+        "M2": { "hit1": 0.49, "hit2": 0.52, "hit3": 0.65, "hit4": 0.85, "hit5": 1.17, "execute": 8.3, "plunge": 1.66 },
+        "M3": { "hit1": 0.53, "hit2": 0.56, "hit3": 0.71, "hit4": 0.92, "hit5": 1.26, "execute": 9.0, "plunge": 1.8 }
+      },
+      "imbalanceValue": 17
+    },
+    "skill": {
+      "name": "冰冰弹·β型",
+      "type": "战技",
+      "description": "发射制冷弹爆炸造成寒冷伤害；命中寒冷/自然附着目标时消耗法术附着并强制冻结，按层数造成额外伤害并获得终结技能量。",
+      "multipliers": {
+        "1": { "baseDamage": 1.11, "freezeDamage": 0.67, "perStackExtraDamage": 0.89, "imbalance": 10, "freezeEnergyGain": 10, "perStackExtraEnergyGain": 30 },
+        "2": { "baseDamage": 1.22, "freezeDamage": 0.73, "perStackExtraDamage": 0.98, "imbalance": 10, "freezeEnergyGain": 10, "perStackExtraEnergyGain": 30 },
+        "3": { "baseDamage": 1.33, "freezeDamage": 0.80, "perStackExtraDamage": 1.07, "imbalance": 10, "freezeEnergyGain": 10, "perStackExtraEnergyGain": 30 },
+        "4": { "baseDamage": 1.44, "freezeDamage": 0.87, "perStackExtraDamage": 1.16, "imbalance": 10, "freezeEnergyGain": 10, "perStackExtraEnergyGain": 30 },
+        "5": { "baseDamage": 1.55, "freezeDamage": 0.93, "perStackExtraDamage": 1.24, "imbalance": 10, "freezeEnergyGain": 10, "perStackExtraEnergyGain": 30 },
+        "6": { "baseDamage": 1.67, "freezeDamage": 1.00, "perStackExtraDamage": 1.33, "imbalance": 10, "freezeEnergyGain": 10, "perStackExtraEnergyGain": 30 },
+        "7": { "baseDamage": 1.78, "freezeDamage": 1.07, "perStackExtraDamage": 1.42, "imbalance": 10, "freezeEnergyGain": 10, "perStackExtraEnergyGain": 30 },
+        "8": { "baseDamage": 1.89, "freezeDamage": 1.13, "perStackExtraDamage": 1.51, "imbalance": 10, "freezeEnergyGain": 10, "perStackExtraEnergyGain": 30 },
+        "9": { "baseDamage": 2.00, "freezeDamage": 1.20, "perStackExtraDamage": 1.60, "imbalance": 10, "freezeEnergyGain": 10, "perStackExtraEnergyGain": 30 },
+        "M1": { "baseDamage": 2.14, "freezeDamage": 1.28, "perStackExtraDamage": 1.71, "imbalance": 10, "freezeEnergyGain": 10, "perStackExtraEnergyGain": 30 },
+        "M2": { "baseDamage": 2.30, "freezeDamage": 1.38, "perStackExtraDamage": 1.85, "imbalance": 10, "freezeEnergyGain": 10, "perStackExtraEnergyGain": 30 },
+        "M3": { "baseDamage": 2.50, "freezeDamage": 1.50, "perStackExtraDamage": 2.00, "imbalance": 10, "freezeEnergyGain": 10, "perStackExtraEnergyGain": 30 }
+      },
+      "imbalanceValue": 10
+    },
+    "chainSkill": {
+      "name": "速冻仔·υ37",
+      "type": "连携技",
+      "description": "主控对冻结敌人重击后可发动，部署速冻仔持续牵引并能量攻击，结束自爆并强制冻结；命中后额外获得终结技能量。",
+      "multipliers": {
+        "1": { "cooldown": 20, "duration": 3, "energyCastCount": 4, "energyDamage": 0.45, "explosionDamage": 0.89, "explosionImbalance": 10, "extraUltimateEnergyGain": 10 },
+        "2": { "cooldown": 20, "duration": 3, "energyCastCount": 4, "energyDamage": 0.49, "explosionDamage": 0.98, "explosionImbalance": 10, "extraUltimateEnergyGain": 10 },
+        "3": { "cooldown": 20, "duration": 3, "energyCastCount": 4, "energyDamage": 0.54, "explosionDamage": 1.07, "explosionImbalance": 10, "extraUltimateEnergyGain": 10 },
+        "4": { "cooldown": 20, "duration": 3, "energyCastCount": 4, "energyDamage": 0.58, "explosionDamage": 1.16, "explosionImbalance": 10, "extraUltimateEnergyGain": 10 },
+        "5": { "cooldown": 20, "duration": 3, "energyCastCount": 4, "energyDamage": 0.62, "explosionDamage": 1.25, "explosionImbalance": 10, "extraUltimateEnergyGain": 10 },
+        "6": { "cooldown": 20, "duration": 3, "energyCastCount": 4, "energyDamage": 0.67, "explosionDamage": 1.34, "explosionImbalance": 10, "extraUltimateEnergyGain": 10 },
+        "7": { "cooldown": 20, "duration": 3, "energyCastCount": 4, "energyDamage": 0.71, "explosionDamage": 1.42, "explosionImbalance": 10, "extraUltimateEnergyGain": 10 },
+        "8": { "cooldown": 20, "duration": 3, "energyCastCount": 4, "energyDamage": 0.76, "explosionDamage": 1.51, "explosionImbalance": 10, "extraUltimateEnergyGain": 10 },
+        "9": { "cooldown": 19, "duration": 3, "energyCastCount": 4, "energyDamage": 0.80, "explosionDamage": 1.60, "explosionImbalance": 10, "extraUltimateEnergyGain": 10 },
+        "M1": { "cooldown": 19, "duration": 3, "energyCastCount": 4, "energyDamage": 0.86, "explosionDamage": 1.71, "explosionImbalance": 10, "extraUltimateEnergyGain": 10 },
+        "M2": { "cooldown": 19, "duration": 3, "energyCastCount": 4, "energyDamage": 0.93, "explosionDamage": 1.85, "explosionImbalance": 10, "extraUltimateEnergyGain": 10 },
+        "M3": { "cooldown": 18, "duration": 3, "energyCastCount": 4, "energyDamage": 1.00, "explosionDamage": 2.00, "explosionImbalance": 10, "extraUltimateEnergyGain": 10 }
+      },
+      "imbalanceValue": 10
+    },
+    "ultimate": {
+      "name": "冷冻射手",
+      "type": "终结技",
+      "description": "部署小嘀嗒辅助并切换主控，持续期间普攻强化并叠加暴击率，满层提升暴伤；结束前强力攻击变重击并可额外攻击冻结目标。",
+      "multipliers": {
+        "1": { "energy": 220, "duration": 7, "normalAttackDamage": 0.089, "strongAttackDamage": 1.33, "extraAttackDamage": 2.67, "strongAttackImbalance": 20, "maxStacks": 10, "critRatePerStack": 0.03, "fullStackCritDmg": 0.60 },
+        "2": { "energy": 220, "duration": 7, "normalAttackDamage": 0.098, "strongAttackDamage": 1.47, "extraAttackDamage": 2.94, "strongAttackImbalance": 20, "maxStacks": 10, "critRatePerStack": 0.03, "fullStackCritDmg": 0.60 },
+        "3": { "energy": 220, "duration": 7, "normalAttackDamage": 0.107, "strongAttackDamage": 1.60, "extraAttackDamage": 3.20, "strongAttackImbalance": 20, "maxStacks": 10, "critRatePerStack": 0.03, "fullStackCritDmg": 0.60 },
+        "4": { "energy": 220, "duration": 7, "normalAttackDamage": 0.116, "strongAttackDamage": 1.73, "extraAttackDamage": 3.47, "strongAttackImbalance": 20, "maxStacks": 10, "critRatePerStack": 0.03, "fullStackCritDmg": 0.60 },
+        "5": { "energy": 220, "duration": 7, "normalAttackDamage": 0.125, "strongAttackDamage": 1.86, "extraAttackDamage": 3.74, "strongAttackImbalance": 20, "maxStacks": 10, "critRatePerStack": 0.03, "fullStackCritDmg": 0.60 },
+        "6": { "energy": 220, "duration": 7, "normalAttackDamage": 0.134, "strongAttackDamage": 2.00, "extraAttackDamage": 4.00, "strongAttackImbalance": 20, "maxStacks": 10, "critRatePerStack": 0.03, "fullStackCritDmg": 0.60 },
+        "7": { "energy": 220, "duration": 7, "normalAttackDamage": 0.143, "strongAttackDamage": 2.13, "extraAttackDamage": 4.27, "strongAttackImbalance": 20, "maxStacks": 10, "critRatePerStack": 0.03, "fullStackCritDmg": 0.60 },
+        "8": { "energy": 220, "duration": 7, "normalAttackDamage": 0.151, "strongAttackDamage": 2.26, "extraAttackDamage": 4.54, "strongAttackImbalance": 20, "maxStacks": 10, "critRatePerStack": 0.03, "fullStackCritDmg": 0.60 },
+        "9": { "energy": 220, "duration": 7, "normalAttackDamage": 0.160, "strongAttackDamage": 2.40, "extraAttackDamage": 4.80, "strongAttackImbalance": 20, "maxStacks": 10, "critRatePerStack": 0.03, "fullStackCritDmg": 0.60 },
+        "M1": { "energy": 220, "duration": 7, "normalAttackDamage": 0.172, "strongAttackDamage": 2.56, "extraAttackDamage": 5.14, "strongAttackImbalance": 20, "maxStacks": 10, "critRatePerStack": 0.03, "fullStackCritDmg": 0.60 },
+        "M2": { "energy": 220, "duration": 7, "normalAttackDamage": 0.185, "strongAttackDamage": 2.76, "extraAttackDamage": 5.54, "strongAttackImbalance": 20, "maxStacks": 10, "critRatePerStack": 0.03, "fullStackCritDmg": 0.60 },
+        "M3": { "energy": 220, "duration": 7, "normalAttackDamage": 0.200, "strongAttackDamage": 3.00, "extraAttackDamage": 6.00, "strongAttackImbalance": 20, "maxStacks": 10, "critRatePerStack": 0.03, "fullStackCritDmg": 0.60 }
+      },
+      "imbalanceValue": 20
+    }
+  }
+}

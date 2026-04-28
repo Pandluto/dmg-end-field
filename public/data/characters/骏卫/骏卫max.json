@@ -1,0 +1,258 @@
+{
+  "name": "骏卫",
+  "nameEn": "Pogranichnik",
+  "rarity": 6,
+  "profession": "先锋",
+  "weapon": "单手剑",
+  "element": "physical",
+  "mainStat": "意志",
+  "subStat": "敏捷",
+  "tags": [
+    "回能",
+    "破防联动",
+    "团队增益"
+  ],
+  "position": [
+    "回能支援",
+    "输出"
+  ],
+  "attributes": {
+    "level90": {
+      "strength": 101,
+      "agility": 110,
+      "intelligence": 97,
+      "will": 173,
+      "atk": 321,
+      "hp": 5495
+    }
+  },
+  "talents": [
+    {
+      "name": "活着的旗帜",
+      "description": "通过自身技能累计恢复指定技力后，获得可叠加的士气激昂（每层独立计时）。",
+      "energyNeededPerStack": 80,
+      "atkPercentPerStack": 0.08,
+      "artsPowerPerStack": 8,
+      "duration": 20,
+      "maxStacks": 3
+    },
+    {
+      "name": "战术教导",
+      "description": "任意干员触发终结技后续效果时，也会获得士气激昂。",
+      "grantedDuration": 10
+    }
+  ],
+  "potentials": [
+    {
+      "id": 1,
+      "name": "阵线扫荡",
+      "description": "战技粉碎阵线命中至少两个敌人时返还15点技力。"
+    },
+    {
+      "id": 2,
+      "name": "“行军”",
+      "description": "意志+20，造成的物理伤害+10%。",
+      "stats": {
+        "will": 20,
+        "physicalDmgBonus": 0.1
+      }
+    },
+    {
+      "id": 3,
+      "name": "战旗飘扬时",
+      "description": "天赋活着的旗帜强化：触发所需技力降低至60点，自身最大叠加层数+2。"
+    },
+    {
+      "id": 4,
+      "name": "塔卫二之盾",
+      "description": "终结技盾卫旗队，上前所需终结技能量-15%。"
+    },
+    {
+      "id": 5,
+      "name": "新铸剑锋",
+      "description": "连携技盈月邀击冷却-2秒，技力恢复量变为1.2倍。"
+    }
+  ],
+  "skills": {
+    "normalAttack": {
+      "name": "全面攻势",
+      "type": "普通攻击",
+      "description": "至多5段物理伤害，主控重击18点失衡；可下落与处决攻击。",
+      "hitCount": 5,
+      "damage": {
+        "9": {
+          "hit1": 0.41,
+          "hit2": 0.5,
+          "hit3": 0.59,
+          "hit4": 0.69,
+          "hit5": 0.77
+        },
+        "M3": {
+          "hit1": 0.52,
+          "hit2": 0.63,
+          "hit3": 0.74,
+          "hit4": 0.86,
+          "hit5": 0.97
+        }
+      },
+      "multipliers": {
+        "9": {
+          "hit1": 0.41,
+          "hit2": 0.5,
+          "hit3": 0.59,
+          "hit4": 0.69,
+          "hit5": 0.77,
+          "execute": 7.2,
+          "plunge": 1.44
+        },
+        "M3": {
+          "hit1": 0.52,
+          "hit2": 0.63,
+          "hit3": 0.74,
+          "hit4": 0.86,
+          "hit5": 0.97,
+          "execute": 9.0,
+          "plunge": 1.8
+        }
+      },
+      "imbalanceValue": 18
+    },
+    "skill": {
+      "name": "粉碎阵线",
+      "type": "战技",
+      "description": "前方两段斩击并施加碎甲，按消耗破防层数恢复技力（命中多目标仅恢复1次）。",
+      "hitCount": 2,
+      "damage": {
+        "9": {
+          "hit1": 1.54,
+          "hit2": 1.9
+        },
+        "M3": {
+          "hit1": 1.92,
+          "hit2": 2.38
+        }
+      },
+      "multipliers": {
+        "9": {
+          "hit1Damage": 1.54,
+          "hit1Imbalance": 5,
+          "hit2Damage": 1.9,
+          "hit2Imbalance": 5,
+          "energyOnConsume1": 5,
+          "energyOnConsume2": 10,
+          "energyOnConsume3": 20,
+          "energyOnConsume4": 30
+        },
+        "M3": {
+          "hit1Damage": 1.92,
+          "hit1Imbalance": 5,
+          "hit2Damage": 2.38,
+          "hit2Imbalance": 5,
+          "energyOnConsume1": 5,
+          "energyOnConsume2": 15,
+          "energyOnConsume3": 25,
+          "energyOnConsume4": 35
+        }
+      },
+      "imbalanceValue": 5
+    },
+    "chainSkill": {
+      "name": "盈月邀击",
+      "type": "连携技",
+      "description": "根据消耗最高破防层数发动最多3段斩击并恢复技力；消耗4层时第3段强化。",
+      "hitCount": 3,
+      "damage": {
+        "9": {
+          "hit1": 0.76,
+          "hit2": 0.97,
+          "hit3": 1.19
+        },
+        "M3": {
+          "hit1": 0.95,
+          "hit2": 1.22,
+          "hit3": 1.49
+        }
+      },
+      "multipliers": {
+        "9": {
+          "cooldown": 18,
+          "hit1Damage": 0.76,
+          "hit1Imbalance": 3,
+          "hit1EnergyRestore": 5,
+          "hit2Damage": 0.97,
+          "hit2Imbalance": 3,
+          "hit2EnergyRestore": 7,
+          "hit3Damage": 1.19,
+          "hit3Imbalance": 4,
+          "hit3EnergyRestore": 13,
+          "enhancedHit3Damage": 2.38,
+          "enhancedHit3Imbalance": 9,
+          "enhancedHit3EnergyRestore": 23
+        },
+        "M3": {
+          "cooldown": 17,
+          "hit1Damage": 0.95,
+          "hit1Imbalance": 3,
+          "hit1EnergyRestore": 5,
+          "hit2Damage": 1.22,
+          "hit2Imbalance": 3,
+          "hit2EnergyRestore": 7,
+          "hit3Damage": 1.49,
+          "hit3Imbalance": 4,
+          "hit3EnergyRestore": 13,
+          "enhancedHit3Damage": 2.97,
+          "enhancedHit3Imbalance": 9,
+          "enhancedHit3EnergyRestore": 23
+        }
+      }
+    },
+    "ultimate": {
+      "name": "盾卫旗队，上前",
+      "type": "终结技",
+      "description": "召唤盾卫进军并生成5点铁誓；后续可消耗铁誓触发袭扰，最后一点触发决胜。",
+      "hitCount": 6,
+      "damage": {
+        "9": {
+          "hit1": 2.4,
+          "hit2": 0.8,
+          "hit3": 0.8,
+          "hit4": 0.8,
+          "hit5": 0.8,
+          "hit6": 3.6
+        },
+        "M3": {
+          "hit1": 3.0,
+          "hit2": 1.0,
+          "hit3": 1.0,
+          "hit4": 1.0,
+          "hit5": 1.0,
+          "hit6": 4.5
+        }
+      },
+      "multipliers": {
+        "9": {
+          "energy": 90,
+          "oathDuration": 30,
+          "marchDamage": 2.4,
+          "marchImbalance": 10,
+          "harassDamage": 0.8,
+          "harassEnergyRestore": 7.5,
+          "finisherDamage": 3.6,
+          "finisherImbalance": 15,
+          "finisherEnergyRestore": 30
+        },
+        "M3": {
+          "energy": 90,
+          "oathDuration": 30,
+          "marchDamage": 3.0,
+          "marchImbalance": 10,
+          "harassDamage": 1.0,
+          "harassEnergyRestore": 10,
+          "finisherDamage": 4.5,
+          "finisherImbalance": 15,
+          "finisherEnergyRestore": 40
+        }
+      }
+    }
+  }
+}

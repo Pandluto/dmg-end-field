@@ -1,0 +1,54 @@
+{
+  "name": "余烬",
+  "buffList": [
+    "攻击力百分比提升-余烬-天赋-满层",
+    "力量属性提升-余烬-潜能",
+    "意志属性提升-余烬-潜能",
+    "攻击力百分比提升-余烬-潜能"
+  ],
+  "buffs": [
+    {
+      "displayName": "攻击力百分比提升-余烬-天赋-满层",
+      "name": "以铁还铁",
+      "source": "talent",
+      "sourceName": "天赋-以铁还铁",
+      "type": "atkPercentBoost",
+      "value": 0.27,
+      "level": "breakthrough3",
+      "description": "受到敌人伤害后提升攻击力，持续7秒，最多3层。",
+      "condition": "受到敌人伤害后满层(3层)",
+      "duration": 7
+    },
+    {
+      "displayName": "力量属性提升-余烬-潜能",
+      "name": "百战成钢",
+      "source": "potential",
+      "sourceName": "潜能2-百战成钢",
+      "type": "strengthBoost",
+      "value": 20,
+      "level": "potentials-2",
+      "description": "力量+20，意志+20。"
+    },
+    {
+      "displayName": "意志属性提升-余烬-潜能",
+      "name": "百战成钢",
+      "source": "potential",
+      "sourceName": "潜能2-百战成钢",
+      "type": "willBoost",
+      "value": 20,
+      "level": "potentials-2",
+      "description": "力量+20，意志+20。"
+    },
+    {
+      "displayName": "攻击力百分比提升-余烬-潜能",
+      "name": "铁誓",
+      "source": "potential",
+      "sourceName": "潜能5-铁誓",
+      "type": "atkPercentBoost",
+      "value": 0.1,
+      "level": "potentials-5",
+      "description": "终结技重燃誓约护盾效果1.2倍，且护盾存在期间持有者攻击力+10%。",
+      "condition": "护盾存在期间"
+    }
+  ]
+}

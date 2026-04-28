@@ -1,0 +1,162 @@
+{
+  "name": "赛希",
+  "buffList": [
+    "寒冷易伤-赛希-天赋",
+    "法术增幅-赛希-战技",
+    "法术增幅-赛希-战技-M3",
+    "法术增幅-赛希-潜能",
+    "寒冷增幅-赛希-终结技",
+    "自然增幅-赛希-终结技",
+    "寒冷增幅-赛希-终结技-追加增幅(按20%)",
+    "自然增幅-赛希-终结技-追加增幅(按20%)",
+    "寒冷增幅-赛希-终结技-M3",
+    "自然增幅-赛希-终结技-M3",
+    "寒冷增幅-赛希-终结技-M3-追加增幅(按20%)",
+    "自然增幅-赛希-终结技-M3-追加增幅(按20%)"
+  ],
+  "buffs": [
+    {
+      "displayName": "寒冷易伤-赛希-天赋",
+      "name": "启动进程",
+      "source": "talent",
+      "sourceName": "天赋-启动进程",
+      "type": "iceVulnerability",
+      "value": 0.1,
+      "level": "breakthrough2",
+      "description": "连携技“压力测试”命中处于寒冷附着或冻结状态目标时，使其受到寒冷伤害提升，持续5秒，不可叠加。",
+      "condition": "命中处于寒冷附着或冻结状态目标时",
+      "duration": 5
+    },
+    {
+      "displayName": "法术增幅-赛希-战技",
+      "name": "分布式拒绝服务",
+      "source": "skill",
+      "sourceName": "战技-分布式拒绝服务",
+      "type": "magicAmplify",
+      "value": 0.13,
+      "level": "9",
+      "description": "召唤支援晶体环绕主控，重击触发治疗（最多2次）；若主控满血则施加法术增幅，不可叠加。",
+      "condition": "主控满血时",
+      "duration": 25
+    },
+    {
+      "displayName": "法术增幅-赛希-战技-M3",
+      "name": "分布式拒绝服务",
+      "source": "skill",
+      "sourceName": "战技-分布式拒绝服务",
+      "type": "magicAmplify",
+      "value": 0.15,
+      "level": "M3",
+      "description": "召唤支援晶体环绕主控，重击触发治疗（最多2次）；若主控满血则施加法术增幅，不可叠加。",
+      "condition": "主控满血时",
+      "duration": 25
+    },
+    {
+      "displayName": "法术增幅-赛希-潜能",
+      "name": "敏捷实践",
+      "source": "potential",
+      "sourceName": "潜能1-敏捷实践",
+      "type": "magicAmplify",
+      "value": 0.05,
+      "level": "potentials-1",
+      "description": "支援晶体提供的法术增幅额外提高5%。",
+      "condition": "支援晶体生效时"
+    },
+    {
+      "displayName": "寒冷增幅-赛希-终结技",
+      "name": "栈溢出",
+      "source": "skill",
+      "sourceName": "终结技-栈溢出",
+      "type": "iceAmplify",
+      "value": 0.19,
+      "level": "9",
+      "description": "为全队提供寒冷与自然增幅，智识可额外提高增幅效果并有上限。",
+      "condition": "施放终结技“栈溢出”后",
+      "duration": 12
+    },
+    {
+      "displayName": "自然增幅-赛希-终结技",
+      "name": "栈溢出",
+      "source": "skill",
+      "sourceName": "终结技-栈溢出",
+      "type": "natureAmplify",
+      "value": 0.19,
+      "level": "9",
+      "description": "为全队提供寒冷与自然增幅，智识可额外提高增幅效果并有上限。",
+      "condition": "施放终结技“栈溢出”后",
+      "duration": 12
+    },
+    {
+      "displayName": "寒冷增幅-赛希-终结技-追加增幅(按20%)",
+      "name": "栈溢出",
+      "source": "skill",
+      "sourceName": "终结技-栈溢出",
+      "type": "iceAmplify",
+      "value": 0.2,
+      "level": "9",
+      "description": "为全队提供寒冷与自然增幅，智识可额外提高增幅效果并有上限。",
+      "condition": "施放终结技“栈溢出”后（智识追加增幅按20%计入）",
+      "duration": 12
+    },
+    {
+      "displayName": "自然增幅-赛希-终结技-追加增幅(按20%)",
+      "name": "栈溢出",
+      "source": "skill",
+      "sourceName": "终结技-栈溢出",
+      "type": "natureAmplify",
+      "value": 0.2,
+      "level": "9",
+      "description": "为全队提供寒冷与自然增幅，智识可额外提高增幅效果并有上限。",
+      "condition": "施放终结技“栈溢出”后（智识追加增幅按20%计入）",
+      "duration": 12
+    },
+    {
+      "displayName": "寒冷增幅-赛希-终结技-M3",
+      "name": "栈溢出",
+      "source": "skill",
+      "sourceName": "终结技-栈溢出",
+      "type": "iceAmplify",
+      "value": 0.24,
+      "level": "M3",
+      "description": "为全队提供寒冷与自然增幅，智识可额外提高增幅效果并有上限。",
+      "condition": "施放终结技“栈溢出”后",
+      "duration": 12
+    },
+    {
+      "displayName": "自然增幅-赛希-终结技-M3",
+      "name": "栈溢出",
+      "source": "skill",
+      "sourceName": "终结技-栈溢出",
+      "type": "natureAmplify",
+      "value": 0.24,
+      "level": "M3",
+      "description": "为全队提供寒冷与自然增幅，智识可额外提高增幅效果并有上限。",
+      "condition": "施放终结技“栈溢出”后",
+      "duration": 12
+    },
+    {
+      "displayName": "寒冷增幅-赛希-终结技-M3-追加增幅(按20%)",
+      "name": "栈溢出",
+      "source": "skill",
+      "sourceName": "终结技-栈溢出",
+      "type": "iceAmplify",
+      "value": 0.2,
+      "level": "M3",
+      "description": "为全队提供寒冷与自然增幅，智识可额外提高增幅效果并有上限。",
+      "condition": "施放终结技“栈溢出”后（智识追加增幅按20%计入）",
+      "duration": 12
+    },
+    {
+      "displayName": "自然增幅-赛希-终结技-M3-追加增幅(按20%)",
+      "name": "栈溢出",
+      "source": "skill",
+      "sourceName": "终结技-栈溢出",
+      "type": "natureAmplify",
+      "value": 0.2,
+      "level": "M3",
+      "description": "为全队提供寒冷与自然增幅，智识可额外提高增幅效果并有上限。",
+      "condition": "施放终结技“栈溢出”后（智识追加增幅按20%计入）",
+      "duration": 12
+    }
+  ]
+}

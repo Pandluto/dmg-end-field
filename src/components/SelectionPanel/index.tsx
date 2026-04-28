@@ -2,11 +2,12 @@
  * 干员选择界面（SelectionPanel）
  *
  * 用途：玩家从已加载的干员列表中选择最多 4 人，选择后点击"开始排轴"进入谱线编辑界面
- * 状态来源：loadedCharacters（全部干员）、selectedCharacters（已选干员列表）
+ * 状态来源：loadedCharacters（官方角色）、selectedCharacters（已选干员列表）
  */
 
 import { useEffect, useMemo, useState } from 'react';
 import { useAppContext } from '../../context/AppContext';
+import { reconcileSelectionChange } from '../../core/services/timelineService';
 import { loadLocalOperatorCharacters } from '../../core/services/localOperatorAdapter';
 import { Character } from '../../types';
 import './SelectionPanel.css';
@@ -29,36 +30,60 @@ export function SelectionPanel() {
   const { state, dispatch } = useAppContext();
   const { loadedCharacters, selectedCharacters } = state;
   const [localCharacters, setLocalCharacters] = useState<Character[]>([]);
-
   const officialCharacters = useMemo(
     () => loadedCharacters,
     [loadedCharacters]
   );
-
   useEffect(() => {
     setLocalCharacters(loadLocalOperatorCharacters());
   }, []);
+  const [draftCharacterIds, setDraftCharacterIds] = useState<string[]>([]);
+
+  useEffect(() => {
+    setDraftCharacterIds(selectedCharacters.map((character) => character.id));
+  }, [selectedCharacters]);
+
+  const mergedCharacterMap = useMemo(() => {
+    const nextMap = new Map<string, Character>();
+    officialCharacters.forEach((character) => {
+      nextMap.set(character.id, character);
+    });
+    localCharacters.forEach((character) => {
+      nextMap.set(character.id, character);
+    });
+    return nextMap;
+  }, [officialCharacters, localCharacters]);
+
+  const draftCharacters = useMemo(
+    () =>
+      draftCharacterIds
+        .map((characterId) => mergedCharacterMap.get(characterId))
+        .filter((character): character is Character => Boolean(character)),
+    [draftCharacterIds, mergedCharacterMap]
+  );
 
   /** 判断某干员是否已被选中 */
   const isSelected = (charId: string) =>
-    selectedCharacters.some((c) => c.id === charId);
+    draftCharacterIds.includes(charId);
 
   /** 是否已达 4 人上限 */
-  const isFull = selectedCharacters.length >= 4;
+  const isFull = draftCharacterIds.length >= 4;
 
   /** 切换干员选中状态 */
   const handleSelect = (character: typeof loadedCharacters[0]) => {
     if (isSelected(character.id)) {
-      dispatch({ type: 'DESELECT_CHARACTER', characterId: character.id });
+      setDraftCharacterIds((prev) => prev.filter((characterId) => characterId !== character.id));
     } else if (!isFull) {
-      dispatch({ type: 'SELECT_CHARACTER', character });
+      setDraftCharacterIds((prev) => [...prev, character.id]);
     }
   };
 
-  /** 确认选择 → 切换到谱线编辑界面，清空画布 */
+  /** 确认选择 → 差量迁移后切换到谱线编辑界面 */
   const handleConfirm = () => {
-    if (selectedCharacters.length > 0) {
+    if (draftCharacters.length > 0) {
+      reconcileSelectionChange(selectedCharacters, draftCharacters);
       dispatch({ type: 'CLEAR_SKILL_BUTTONS' });
+      dispatch({ type: 'SET_SELECTED_CHARACTERS', characters: draftCharacters });
       dispatch({ type: 'SET_VIEW', view: 'canvas' });
     }
   };
@@ -102,7 +127,7 @@ export function SelectionPanel() {
     <div className="selection-panel">
       <div className="container">
         <h1 className="title">选择干员</h1>
-        <p className="subtitle">已选择 {selectedCharacters.length} / 4 位干员</p>
+        <p className="subtitle">已选择 {draftCharacterIds.length} / 4 位干员</p>
 
         <div className="character-library-columns">
           <section className="character-library-section">
@@ -134,7 +159,7 @@ export function SelectionPanel() {
           <button
             className="btn-confirm"
             onClick={handleConfirm}
-            disabled={selectedCharacters.length === 0}
+            disabled={draftCharacterIds.length === 0}
           >
             开始排轴
           </button>

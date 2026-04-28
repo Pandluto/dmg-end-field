@@ -1,0 +1,666 @@
+{
+  "name": "莱万汀",
+  "nameEn": "Laevatain",
+  "rarity": 6,
+  "profession": "突击",
+  "weapon": "单手剑",
+  "element": "fire",
+  "mainStat": "智识",
+  "subStat": "力量",
+  "tags": [
+    "协同",
+    "输出"
+  ],
+  "position": [
+    "协同输出"
+  ],
+  "attributes": {
+    "level1": {
+      "strength": 13,
+      "agility": 9,
+      "intelligence": 22,
+      "will": 9,
+      "atk": 30,
+      "hp": 500
+    },
+    "level20": {
+      "strength": 36,
+      "agility": 28,
+      "intelligence": 55,
+      "will": 26,
+      "atk": 91,
+      "hp": 1566
+    },
+    "level40": {
+      "strength": 60,
+      "agility": 49,
+      "intelligence": 90,
+      "will": 44,
+      "atk": 156,
+      "hp": 2689
+    },
+    "level60": {
+      "strength": 85,
+      "agility": 69,
+      "intelligence": 125,
+      "will": 62,
+      "atk": 221,
+      "hp": 3811
+    },
+    "level80": {
+      "strength": 109,
+      "agility": 89,
+      "intelligence": 160,
+      "will": 80,
+      "atk": 285,
+      "hp": 4934
+    },
+    "level90": {
+      "strength": 121,
+      "agility": 99,
+      "intelligence": 177,
+      "will": 89,
+      "atk": 318,
+      "hp": 5495
+    }
+  },
+  "talents": [
+    {
+      "name": "灼心",
+      "description": "主控重击或处决命中后吸收周围敌人灼热附着，每层灼热附着获得1层熔火，最多4层。达到4层时无视敌人灼热抗性，持续20秒；附近敌人被击败时也会吸收其灼热附着。",
+      "levels": {
+        "default": {
+          "maxStacks": 4,
+          "ignoreFireResAtMaxStacks": 10,
+          "duration": 20
+        },
+        "breakthrough1": {
+          "maxStacks": 4,
+          "ignoreFireResAtMaxStacks": 15,
+          "duration": 20
+        },
+        "breakthrough3": {
+          "maxStacks": 4,
+          "ignoreFireResAtMaxStacks": 20,
+          "duration": 20
+        }
+      }
+    },
+    {
+      "name": "复燃",
+      "description": "生命值低于40%时获得庇护并持续回血，效果有触发间隔。",
+      "levels": {
+        "breakthrough2": {
+          "hpThreshold": 0.4,
+          "guard": 0.9,
+          "healPerSecondByMaxHp": 0.05,
+          "duration": 4,
+          "cooldown": 120
+        },
+        "breakthrough3": {
+          "hpThreshold": 0.4,
+          "guard": 0.9,
+          "healPerSecondByMaxHp": 0.05,
+          "duration": 8,
+          "cooldown": 120
+        }
+      }
+    }
+  ],
+  "potentials": [
+    {
+      "id": 1,
+      "name": "熔火之心",
+      "description": "战技“焚灭”追加攻击伤害倍率提升至原本1.2倍，命中后返还20点技力。"
+    },
+    {
+      "id": 2,
+      "name": "追忆之旅",
+      "description": "智识+20，普通攻击伤害+15%。",
+      "stats": {
+        "intelligence": 20,
+        "normalAttackDmgBonus": 0.15
+      }
+    },
+    {
+      "id": 3,
+      "name": "往事碎片",
+      "description": "战技“焚灭”造成的燃烧持续时间+50%，燃烧伤害提升至原本1.5倍。"
+    },
+    {
+      "id": 4,
+      "name": "冰淇淋熔炉",
+      "description": "终结技“黄昏”所需终结技能量-15%。"
+    },
+    {
+      "id": 5,
+      "name": "存在的证明",
+      "description": "终结技“黄昏”的强化普通攻击伤害倍率提升至原本1.2倍；终结技期间每击败1个敌人，持续时间+1秒（最多+7秒）。"
+    }
+  ],
+  "skills": {
+    "normalAttack": {
+      "name": "燃烬",
+      "type": "普通攻击",
+      "description": "至多5段灼热伤害；主控重击18点失衡；可下落与处决攻击。",
+      "multipliers": {
+        "1": {
+          "hit1": 0.16,
+          "hit2": 0.24,
+          "hit3": 0.25,
+          "hit4": 0.39,
+          "hit5": 0.53,
+          "execute": 4.0,
+          "plunge": 0.8
+        },
+        "2": {
+          "hit1": 0.18,
+          "hit2": 0.26,
+          "hit3": 0.28,
+          "hit4": 0.43,
+          "hit5": 0.58,
+          "execute": 4.4,
+          "plunge": 0.88
+        },
+        "3": {
+          "hit1": 0.19,
+          "hit2": 0.29,
+          "hit3": 0.3,
+          "hit4": 0.47,
+          "hit5": 0.64,
+          "execute": 4.8,
+          "plunge": 0.96
+        },
+        "4": {
+          "hit1": 0.21,
+          "hit2": 0.31,
+          "hit3": 0.33,
+          "hit4": 0.51,
+          "hit5": 0.69,
+          "execute": 5.2,
+          "plunge": 1.04
+        },
+        "5": {
+          "hit1": 0.22,
+          "hit2": 0.34,
+          "hit3": 0.35,
+          "hit4": 0.55,
+          "hit5": 0.74,
+          "execute": 5.6,
+          "plunge": 1.12
+        },
+        "6": {
+          "hit1": 0.24,
+          "hit2": 0.36,
+          "hit3": 0.38,
+          "hit4": 0.59,
+          "hit5": 0.8,
+          "execute": 6.0,
+          "plunge": 1.2
+        },
+        "7": {
+          "hit1": 0.26,
+          "hit2": 0.38,
+          "hit3": 0.4,
+          "hit4": 0.62,
+          "hit5": 0.85,
+          "execute": 6.4,
+          "plunge": 1.28
+        },
+        "8": {
+          "hit1": 0.27,
+          "hit2": 0.41,
+          "hit3": 0.43,
+          "hit4": 0.66,
+          "hit5": 0.9,
+          "execute": 6.8,
+          "plunge": 1.36
+        },
+        "9": {
+          "hit1": 0.29,
+          "hit2": 0.43,
+          "hit3": 0.45,
+          "hit4": 0.7,
+          "hit5": 0.95,
+          "execute": 7.2,
+          "plunge": 1.44
+        },
+        "M1": {
+          "hit1": 0.31,
+          "hit2": 0.46,
+          "hit3": 0.48,
+          "hit4": 0.75,
+          "hit5": 1.02,
+          "execute": 7.7,
+          "plunge": 1.54
+        },
+        "M2": {
+          "hit1": 0.33,
+          "hit2": 0.5,
+          "hit3": 0.52,
+          "hit4": 0.81,
+          "hit5": 1.1,
+          "execute": 8.3,
+          "plunge": 1.66
+        },
+        "M3": {
+          "hit1": 0.36,
+          "hit2": 0.54,
+          "hit3": 0.56,
+          "hit4": 0.88,
+          "hit5": 1.19,
+          "execute": 9.0,
+          "plunge": 1.8
+        }
+      },
+      "imbalanceValue": 18
+    },
+    "skill": {
+      "name": "焚灭",
+      "type": "战技",
+      "description": "召唤熔核碎片持续攻击并造成灼热伤害；4层熔火时触发追加攻击并施加短暂燃烧，终结技期间战技效果增强。",
+      "multipliers": {
+        "1": {
+          "initialExplosionDamage": 0.62,
+          "initialExplosionImbalance": 10,
+          "dotPerTickDamage": 0.06,
+          "extraDamage": 3.42,
+          "extraImbalance": 10,
+          "burnDuration": 5,
+          "extraUltimateEnergy": 100,
+          "ultimateHit1Damage": 1.47,
+          "ultimateHit1Imbalance": 10,
+          "ultimateHit2Damage": 1.64,
+          "ultimateHit2Imbalance": 10,
+          "ultimateExtraDamage": 4.0,
+          "ultimateExtraImbalance": 10,
+          "ultimateBurnDuration": 5
+        },
+        "2": {
+          "initialExplosionDamage": 0.68,
+          "initialExplosionImbalance": 10,
+          "dotPerTickDamage": 0.07,
+          "extraDamage": 3.76,
+          "extraImbalance": 10,
+          "burnDuration": 5,
+          "extraUltimateEnergy": 100,
+          "ultimateHit1Damage": 1.61,
+          "ultimateHit1Imbalance": 10,
+          "ultimateHit2Damage": 1.81,
+          "ultimateHit2Imbalance": 10,
+          "ultimateExtraDamage": 4.4,
+          "ultimateExtraImbalance": 10,
+          "ultimateBurnDuration": 5
+        },
+        "3": {
+          "initialExplosionDamage": 0.75,
+          "initialExplosionImbalance": 10,
+          "dotPerTickDamage": 0.08,
+          "extraDamage": 4.1,
+          "extraImbalance": 10,
+          "burnDuration": 5,
+          "extraUltimateEnergy": 100,
+          "ultimateHit1Damage": 1.76,
+          "ultimateHit1Imbalance": 10,
+          "ultimateHit2Damage": 1.97,
+          "ultimateHit2Imbalance": 10,
+          "ultimateExtraDamage": 4.8,
+          "ultimateExtraImbalance": 10,
+          "ultimateBurnDuration": 5
+        },
+        "4": {
+          "initialExplosionDamage": 0.81,
+          "initialExplosionImbalance": 10,
+          "dotPerTickDamage": 0.08,
+          "extraDamage": 4.45,
+          "extraImbalance": 10,
+          "burnDuration": 5,
+          "extraUltimateEnergy": 100,
+          "ultimateHit1Damage": 1.91,
+          "ultimateHit1Imbalance": 10,
+          "ultimateHit2Damage": 2.14,
+          "ultimateHit2Imbalance": 10,
+          "ultimateExtraDamage": 5.2,
+          "ultimateExtraImbalance": 10,
+          "ultimateBurnDuration": 5
+        },
+        "5": {
+          "initialExplosionDamage": 0.87,
+          "initialExplosionImbalance": 10,
+          "dotPerTickDamage": 0.09,
+          "extraDamage": 4.79,
+          "extraImbalance": 10,
+          "burnDuration": 5,
+          "extraUltimateEnergy": 100,
+          "ultimateHit1Damage": 2.05,
+          "ultimateHit1Imbalance": 10,
+          "ultimateHit2Damage": 2.3,
+          "ultimateHit2Imbalance": 10,
+          "ultimateExtraDamage": 5.6,
+          "ultimateExtraImbalance": 10,
+          "ultimateBurnDuration": 5
+        },
+        "6": {
+          "initialExplosionDamage": 0.93,
+          "initialExplosionImbalance": 10,
+          "dotPerTickDamage": 0.09,
+          "extraDamage": 5.13,
+          "extraImbalance": 10,
+          "burnDuration": 5,
+          "extraUltimateEnergy": 100,
+          "ultimateHit1Damage": 2.2,
+          "ultimateHit1Imbalance": 10,
+          "ultimateHit2Damage": 2.47,
+          "ultimateHit2Imbalance": 10,
+          "ultimateExtraDamage": 6.0,
+          "ultimateExtraImbalance": 10,
+          "ultimateBurnDuration": 5
+        },
+        "7": {
+          "initialExplosionDamage": 0.99,
+          "initialExplosionImbalance": 10,
+          "dotPerTickDamage": 0.1,
+          "extraDamage": 5.47,
+          "extraImbalance": 10,
+          "burnDuration": 5,
+          "extraUltimateEnergy": 100,
+          "ultimateHit1Damage": 2.35,
+          "ultimateHit1Imbalance": 10,
+          "ultimateHit2Damage": 2.63,
+          "ultimateHit2Imbalance": 10,
+          "ultimateExtraDamage": 6.4,
+          "ultimateExtraImbalance": 10,
+          "ultimateBurnDuration": 5
+        },
+        "8": {
+          "initialExplosionDamage": 1.06,
+          "initialExplosionImbalance": 10,
+          "dotPerTickDamage": 0.11,
+          "extraDamage": 5.81,
+          "extraImbalance": 10,
+          "burnDuration": 5,
+          "extraUltimateEnergy": 100,
+          "ultimateHit1Damage": 2.49,
+          "ultimateHit1Imbalance": 10,
+          "ultimateHit2Damage": 2.79,
+          "ultimateHit2Imbalance": 10,
+          "ultimateExtraDamage": 6.8,
+          "ultimateExtraImbalance": 10,
+          "ultimateBurnDuration": 5
+        },
+        "9": {
+          "initialExplosionDamage": 1.12,
+          "initialExplosionImbalance": 10,
+          "dotPerTickDamage": 0.11,
+          "extraDamage": 6.16,
+          "extraImbalance": 10,
+          "burnDuration": 5,
+          "extraUltimateEnergy": 100,
+          "ultimateHit1Damage": 2.64,
+          "ultimateHit1Imbalance": 10,
+          "ultimateHit2Damage": 2.96,
+          "ultimateHit2Imbalance": 10,
+          "ultimateExtraDamage": 7.2,
+          "ultimateExtraImbalance": 10,
+          "ultimateBurnDuration": 5
+        },
+        "M1": {
+          "initialExplosionDamage": 1.2,
+          "initialExplosionImbalance": 10,
+          "dotPerTickDamage": 0.12,
+          "extraDamage": 6.58,
+          "extraImbalance": 10,
+          "burnDuration": 5,
+          "extraUltimateEnergy": 100,
+          "ultimateHit1Damage": 2.82,
+          "ultimateHit1Imbalance": 10,
+          "ultimateHit2Damage": 3.16,
+          "ultimateHit2Imbalance": 10,
+          "ultimateExtraDamage": 7.7,
+          "ultimateExtraImbalance": 10,
+          "ultimateBurnDuration": 5
+        },
+        "M2": {
+          "initialExplosionDamage": 1.29,
+          "initialExplosionImbalance": 10,
+          "dotPerTickDamage": 0.13,
+          "extraDamage": 7.1,
+          "extraImbalance": 10,
+          "burnDuration": 5,
+          "extraUltimateEnergy": 100,
+          "ultimateHit1Damage": 3.04,
+          "ultimateHit1Imbalance": 10,
+          "ultimateHit2Damage": 3.41,
+          "ultimateHit2Imbalance": 10,
+          "ultimateExtraDamage": 8.3,
+          "ultimateExtraImbalance": 10,
+          "ultimateBurnDuration": 5
+        },
+        "M3": {
+          "initialExplosionDamage": 1.4,
+          "initialExplosionImbalance": 10,
+          "dotPerTickDamage": 0.14,
+          "extraDamage": 7.7,
+          "extraImbalance": 10,
+          "burnDuration": 5,
+          "extraUltimateEnergy": 100,
+          "ultimateHit1Damage": 3.3,
+          "ultimateHit1Imbalance": 10,
+          "ultimateHit2Damage": 3.7,
+          "ultimateHit2Imbalance": 10,
+          "ultimateExtraDamage": 9.0,
+          "ultimateExtraImbalance": 10,
+          "ultimateBurnDuration": 5
+        }
+      },
+      "imbalanceValue": 10
+    },
+    "chainSkill": {
+      "name": "沸腾",
+      "type": "连携技",
+      "description": "敌人进入燃烧或腐蚀时可发动，对目标造成灼热伤害并获取熔火与终结技能量。",
+      "multipliers": {
+        "1": {
+          "cooldown": 10,
+          "damage": 2.4,
+          "imbalance": 10,
+          "energyOnHit1": 25,
+          "energyOnHit2": 30,
+          "energyOnHit3Plus": 35
+        },
+        "2": {
+          "cooldown": 10,
+          "damage": 2.64,
+          "imbalance": 10,
+          "energyOnHit1": 25,
+          "energyOnHit2": 30,
+          "energyOnHit3Plus": 35
+        },
+        "3": {
+          "cooldown": 10,
+          "damage": 2.88,
+          "imbalance": 10,
+          "energyOnHit1": 25,
+          "energyOnHit2": 30,
+          "energyOnHit3Plus": 35
+        },
+        "4": {
+          "cooldown": 10,
+          "damage": 3.12,
+          "imbalance": 10,
+          "energyOnHit1": 25,
+          "energyOnHit2": 30,
+          "energyOnHit3Plus": 35
+        },
+        "5": {
+          "cooldown": 10,
+          "damage": 3.36,
+          "imbalance": 10,
+          "energyOnHit1": 25,
+          "energyOnHit2": 30,
+          "energyOnHit3Plus": 35
+        },
+        "6": {
+          "cooldown": 10,
+          "damage": 3.6,
+          "imbalance": 10,
+          "energyOnHit1": 25,
+          "energyOnHit2": 30,
+          "energyOnHit3Plus": 35
+        },
+        "7": {
+          "cooldown": 10,
+          "damage": 3.84,
+          "imbalance": 10,
+          "energyOnHit1": 25,
+          "energyOnHit2": 30,
+          "energyOnHit3Plus": 35
+        },
+        "8": {
+          "cooldown": 10,
+          "damage": 4.08,
+          "imbalance": 10,
+          "energyOnHit1": 25,
+          "energyOnHit2": 30,
+          "energyOnHit3Plus": 35
+        },
+        "9": {
+          "cooldown": 10,
+          "damage": 4.32,
+          "imbalance": 10,
+          "energyOnHit1": 25,
+          "energyOnHit2": 30,
+          "energyOnHit3Plus": 35
+        },
+        "M1": {
+          "cooldown": 10,
+          "damage": 4.62,
+          "imbalance": 10,
+          "energyOnHit1": 25,
+          "energyOnHit2": 30,
+          "energyOnHit3Plus": 35
+        },
+        "M2": {
+          "cooldown": 10,
+          "damage": 4.98,
+          "imbalance": 10,
+          "energyOnHit1": 25,
+          "energyOnHit2": 30,
+          "energyOnHit3Plus": 35
+        },
+        "M3": {
+          "cooldown": 9,
+          "damage": 5.4,
+          "imbalance": 10,
+          "energyOnHit1": 25,
+          "energyOnHit2": 30,
+          "energyOnHit3Plus": 35
+        }
+      },
+      "imbalanceValue": 10
+    },
+    "ultimate": {
+      "name": "黄昏",
+      "type": "终结技",
+      "description": "召唤烈焰魔剑并切换主控，持续期间普通攻击强化并协同攻击造成灼热伤害，第三段附加灼热附着。",
+      "multipliers": {
+        "1": {
+          "energy": 300,
+          "duration": 15,
+          "enhancedHit1": 0.65,
+          "enhancedHit2": 0.81,
+          "enhancedHit3": 1.15,
+          "enhancedHit4": 2.03
+        },
+        "2": {
+          "energy": 300,
+          "duration": 15,
+          "enhancedHit1": 0.71,
+          "enhancedHit2": 0.89,
+          "enhancedHit3": 1.27,
+          "enhancedHit4": 2.23
+        },
+        "3": {
+          "energy": 300,
+          "duration": 15,
+          "enhancedHit1": 0.78,
+          "enhancedHit2": 0.97,
+          "enhancedHit3": 1.39,
+          "enhancedHit4": 2.43
+        },
+        "4": {
+          "energy": 300,
+          "duration": 15,
+          "enhancedHit1": 0.84,
+          "enhancedHit2": 1.05,
+          "enhancedHit3": 1.5,
+          "enhancedHit4": 2.63
+        },
+        "5": {
+          "energy": 300,
+          "duration": 15,
+          "enhancedHit1": 0.91,
+          "enhancedHit2": 1.13,
+          "enhancedHit3": 1.62,
+          "enhancedHit4": 2.84
+        },
+        "6": {
+          "energy": 300,
+          "duration": 15,
+          "enhancedHit1": 0.97,
+          "enhancedHit2": 1.22,
+          "enhancedHit3": 1.73,
+          "enhancedHit4": 3.04
+        },
+        "7": {
+          "energy": 300,
+          "duration": 15,
+          "enhancedHit1": 1.04,
+          "enhancedHit2": 1.3,
+          "enhancedHit3": 1.85,
+          "enhancedHit4": 3.24
+        },
+        "8": {
+          "energy": 300,
+          "duration": 15,
+          "enhancedHit1": 1.1,
+          "enhancedHit2": 1.38,
+          "enhancedHit3": 1.96,
+          "enhancedHit4": 3.44
+        },
+        "9": {
+          "energy": 300,
+          "duration": 15,
+          "enhancedHit1": 1.17,
+          "enhancedHit2": 1.46,
+          "enhancedHit3": 2.08,
+          "enhancedHit4": 3.65
+        },
+        "M1": {
+          "energy": 300,
+          "duration": 15,
+          "enhancedHit1": 1.25,
+          "enhancedHit2": 1.56,
+          "enhancedHit3": 2.22,
+          "enhancedHit4": 3.9
+        },
+        "M2": {
+          "energy": 300,
+          "duration": 15,
+          "enhancedHit1": 1.34,
+          "enhancedHit2": 1.68,
+          "enhancedHit3": 2.4,
+          "enhancedHit4": 4.2
+        },
+        "M3": {
+          "energy": 300,
+          "duration": 15,
+          "enhancedHit1": 1.46,
+          "enhancedHit2": 1.82,
+          "enhancedHit3": 2.6,
+          "enhancedHit4": 4.56
+        }
+      }
+    }
+  }
+}

@@ -34,6 +34,7 @@ export interface CharacterComputedCache {
   panel: {
     atk: number;
     baseAtk: number;
+    hp: number;
     strength: number;
     agility: number;
     intelligence: number;
@@ -44,6 +45,10 @@ export interface CharacterComputedCache {
     characterAtk: number;
     weaponAtk: number;
     weaponAtkPercent: number;
+    critRate: number;
+    critDmg: number;
+    healingBonus: number;
+    ultimateChargeEfficiency: number;
     weaponAllSkillDmgBonus: number;
   };
   damageBonus: {
@@ -84,6 +89,7 @@ export interface VersionedStorageWrapper<T> {
 // ==================== v2 旧类型（兼容用） ====================
 
 export interface PanelSummary {
+  hp: number;
   strength: number;
   agility: number;
   intelligence: number;
@@ -96,6 +102,10 @@ export interface PanelSummary {
   characterAtk: number;
   weaponAtk: number;
   weaponAtkPercent: number;
+  critRate: number;
+  critDmg: number;
+  healingBonus: number;
+  ultimateChargeEfficiency: number;
   weaponAllSkillDmgBonus: number;
 }
 
@@ -149,9 +159,21 @@ export interface SkillButtonBuff {
   description?: string;    // 描述
   source?: string;         // 来源
   condition?: string;      // 触发条件
+  refCount: number;        // 被引用次数，selectedBuff 解绑时 -1，0 时删除实体
 }
 
 export type SkillButtonBuffMap = Record<string, SkillButtonBuff[]>;
+
+export interface SkillButtonPanelConfig {
+  selectedBuff: string[];
+}
+
+export interface SkillButtonPanelSnapshot {
+  atk: number;
+  critRate: number;
+  critDmg: number;
+  characterComputed?: CharacterComputedCache | null;
+}
 
 // ==================== v2 新缓存模型类型 ====================
 
@@ -161,6 +183,7 @@ export type SkillButtonBuffMap = Record<string, SkillButtonBuff[]>;
  */
 export interface PersistedSkillButton {
   id: string;                           // 按钮唯一 ID
+  characterId?: string;                 // 干员 ID（兼容旧缓存可缺省）
   characterName: string;                // 干员名称
   skillType: string;                    // 技能类型 A/B/E/Q
   staffIndex: number;                   // 干员索引
@@ -168,6 +191,8 @@ export interface PersistedSkillButton {
   nodeNumber: number;                   // 节点编号
   position: { x: number; y: number };   // 位置坐标
   selectedBuff: string[];               // 选中的 Buff ID 列表（只存引用）
+  panelConfig?: SkillButtonPanelConfig; // 按钮专属面板配置
+  panelSnapshot?: SkillButtonPanelSnapshot | null; // 按钮专属最终面板
   createdAt?: number;                   // 创建时间
   updatedAt?: number;                   // 更新时间
 }
