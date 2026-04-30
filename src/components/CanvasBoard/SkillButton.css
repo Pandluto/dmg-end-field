@@ -473,6 +473,110 @@
   margin-bottom: 6px;
 }
 
+.skill-damage-hit-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px;
+  background: #f5f5f5;
+  border: 1px solid #ddd;
+  cursor: pointer;
+  transition: background-color 0.2s, border-color 0.2s;
+}
+
+.skill-damage-hit-card:hover {
+  background: rgba(255, 255, 0, 0.3);
+}
+
+.skill-damage-hit-card.selected {
+  border-color: #185c37;
+  background: rgba(24, 92, 55, 0.08);
+}
+
+.hit-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.hit-card-title-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.hit-name {
+  font-size: 11px;
+  font-weight: 700;
+  color: #000;
+}
+
+.hit-multiplier,
+.damage-expected,
+.damage-crit,
+.damage-non-crit,
+.buff-count {
+  font-size: 11px;
+  color: #333;
+}
+
+.hit-multiplier,
+.damage-expected,
+.damage-crit,
+.damage-non-crit {
+  font-weight: 700;
+  color: #111;
+}
+
+.hit-card-damage,
+.hit-card-buffs,
+.hit-detail-stats,
+.hit-detail-buffs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.hit-card-damage {
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.damage-line {
+  font-size: 12px;
+  color: #444;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+  letter-spacing: 0.01em;
+}
+
+.buff-tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 6px;
+  font-size: 10px;
+  color: #185c37;
+  background: rgba(24, 92, 55, 0.08);
+  border: 1px solid rgba(24, 92, 55, 0.24);
+}
+
+.no-buff {
+  font-size: 10px;
+  color: #888;
+}
+
+.formula-buff-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+
 .skill-damage-hit-row {
   display: flex;
   align-items: center;
@@ -555,6 +659,16 @@
   margin-top: 6px;
   padding-bottom: 2px;
   border-bottom: 1px solid #ddd;
+}
+
+.formula-zone-section {
+  margin-top: 6px;
+}
+
+.formula-zone-total {
+  margin-top: 4px !important;
+  font-weight: 700;
+  color: #222 !important;
 }
 
 .skill-damage-hit-detail {

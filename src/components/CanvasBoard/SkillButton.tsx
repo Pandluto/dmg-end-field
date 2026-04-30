@@ -9,13 +9,14 @@ import {
   recomputeSkillButtonPanel,
 } from '../../hooks/useSkillButtonBuffs';
 import { SkillButtonBuff, SkillLevelMode } from '../../types/storage';
-import { getCharacterConfig, getRuntimeOperatorTemplateById } from '../../utils/storage';
+import { getCharacterConfig } from '../../utils/storage';
 import { getSkillButtonById } from '../../core/repositories';
 import {
-  calculateSkillButtonDamage,
-  ELEMENT_LABELS,
-  SkillButtonDamageResult,
-} from '../../core/calculators/skillButtonDamageCalculator';
+  buildSkillDamageModalViewModel,
+} from '../../core/calculators/skillDamageModalViewModel';
+import { calculateSkillButtonDamageV2 } from '../../core/calculators/skillButtonDamageCalculatorV2';
+import type { ResolvedSkillDamageTemplate } from '../../core/calculators/skillDamage.types';
+import { resolveSkillDamageTemplate } from '../../core/services/skillDamageTemplateResolver';
 import { useAppContext } from '../../context/AppContext';
 import { emitSkillButtonBuffRemoved, onSkillButtonBuffAdded } from '../../core/events/buffEvents';
 import './SkillButton.css';
@@ -65,8 +66,8 @@ export function SkillButtonComponent({ button, size, onMouseDown, onContextMenu,
   const [buffList, setBuffList] = useState<SkillButtonBuff[]>([]);
   // 当前角色的技能等级模式 (L9/M3)
   const [skillLevelModeMap, setSkillLevelModeMap] = useState<Record<string, SkillLevelMode>>({ A: 'L9', B: 'L9', E: 'L9', Q: 'L9' });
-  // 运行时模板 hit 数据（替代 max.json）
-  const [runtimeHits, setRuntimeHits] = useState<{ key: string; displayName: string; multiplier: number; element: string; skillType: string }[]>([]);
+  // 已解析的技能伤害模板（skill 是容器，hit 是计算单元）
+  const [resolvedTemplate, setResolvedTemplate] = useState<ResolvedSkillDamageTemplate | null>(null);
 
   // 当前选中的 hit（用于详情展示）
   const [selectedHitIndex, setSelectedHitIndex] = useState<number | null>(null);
@@ -102,6 +103,7 @@ export function SkillButtonComponent({ button, size, onMouseDown, onContextMenu,
   const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isLongPressRef = useRef(false);
   const clickCountRef = useRef(0);
+  const wasModalOpenRef = useRef(false);
 
   // skillIconUrl 变化时重置图标加载失败状态
   useEffect(() => {
@@ -127,38 +129,16 @@ export function SkillButtonComponent({ button, size, onMouseDown, onContextMenu,
     return { A: 'L9', B: 'L9', E: 'L9', Q: 'L9' };
   }, [button.characterId]);
 
-  /**
-   * 从运行时模板加载角色技能 hit 数据
-   * 替代原来的 max.json 读取
-   * 优先按 button.runtimeSkillId 查找，没有才 fallback 到 buttonType
-   */
-  const loadRuntimeSkillData = useCallback(() => {
-    const template = getRuntimeOperatorTemplateById(button.characterId);
+  const loadResolvedTemplate = useCallback(() => {
+    const template = resolveSkillDamageTemplate(button);
     if (!template) {
-      console.warn(`[SkillButton] 运行时模板不存在: ${button.characterId}`);
-      setRuntimeHits([]);
+      setResolvedTemplate(null);
       return;
     }
 
-    // 优先按 runtimeSkillId 查找，没有才 fallback 到 buttonType
-    let skill = null;
-    if ((button as SkillButtonType).runtimeSkillId) {
-      skill = template.skills.find(s => s.id === (button as SkillButtonType).runtimeSkillId);
-    }
-    if (!skill) {
-      skill = template.skills.find(s => s.buttonType === skillType);
-    }
-
-    if (!skill) {
-      console.warn(`[SkillButton] 技能不存在: ${skillType}, runtimeSkillId: ${(button as SkillButtonType).runtimeSkillId}`);
-      setRuntimeHits([]);
-      return;
-    }
-
-    // 设置 hit 数据
-    setRuntimeHits(skill.hits);
-    console.log(`[SkillButton] 已加载运行时模板: ${characterName} ${skillType}, hits: ${skill.hits.length}`);
-  }, [button, button.characterId, characterName, skillType]);
+    setResolvedTemplate(template);
+    console.log(`[SkillButton] 已加载解析模板: ${template.displayName} ${template.buttonType}, hits: ${template.hits.length}`);
+  }, [button]);
 
   /**
    * 从 sessionStorage 加载面板数据 
@@ -205,38 +185,59 @@ export function SkillButtonComponent({ button, size, onMouseDown, onContextMenu,
     emitSkillButtonBuffRemoved(button.id, buffId);
   }, [button.id, loadBuffList, loadPanelData]);
 
-  // 使用 useMemo 计算伤害结果，避免 render 阶段 setState
-  const damageResult = useMemo<SkillButtonDamageResult | null>(() => {
-    if (runtimeHits.length === 0 || !panelData) return null;
+  const damageResult = useMemo(() => {
+    if (!resolvedTemplate || resolvedTemplate.hits.length === 0 || !panelData) {
+      return null;
+    }
 
-    return calculateSkillButtonDamage({
-      buffList,
-      hits: runtimeHits.map(h => ({
-        key: h.key,
-        displayName: h.displayName,
-        multiplier: h.multiplier,
-        element: h.element as import('../../core/templates/operatorTemplate').RuntimeOperatorTemplateHit['element'],
-        skillType: h.skillType as import('../../core/templates/operatorTemplate').RuntimeOperatorTemplateHit['skillType'],
-      })),
-      panelData,
-      infoSnap,
+    return calculateSkillButtonDamageV2({
+      buttonId: button.id,
+      characterId: button.characterId,
+      runtimeSkillId: resolvedTemplate.runtimeSkillId,
+      template: resolvedTemplate,
+      buffs: buffList,
+      panel: {
+        atk: panelData.atk,
+        critRate: panelData.critRate,
+        critDmg: panelData.critDmg,
+      },
+      damageBonus: infoSnap as unknown as import('../../types/storage').DamageBonusSnapshot,
     });
-  }, [runtimeHits, buffList, panelData, infoSnap]);
+  }, [resolvedTemplate, panelData, button.id, button.characterId, buffList, infoSnap]);
+
+  const damageViewModel = useMemo(() => {
+    if (!resolvedTemplate || !damageResult || !panelData) {
+      return null;
+    }
+
+    return buildSkillDamageModalViewModel(
+      resolvedTemplate,
+      damageResult,
+      selectedHitIndex,
+      {
+        atk: panelData.atk,
+        critRate: panelData.critRate,
+        critDmg: panelData.critDmg,
+      }
+    );
+  }, [resolvedTemplate, damageResult, selectedHitIndex, panelData]);
 
   // 弹窗打开时加载数据，并设置当前选中的技能按钮
   useEffect(() => {
-    if (isModalOpen) {
+    if (isModalOpen && !wasModalOpenRef.current) {
       loadBuffList();
       setSkillLevelModeMap(loadSkillLevelModeMap());
-      loadRuntimeSkillData();
+      loadResolvedTemplate();
       loadPanelData();
       setIsExpanded(false);
-      setSelectedHitIndex(null);
+      setSelectedHitIndex(0);
       setSelectedSkillButton(button.id);
-    } else {
+    } else if (!isModalOpen && wasModalOpenRef.current) {
       setSelectedSkillButton(null);
     }
-  }, [isModalOpen, button.id, loadBuffList, loadSkillLevelModeMap, loadRuntimeSkillData, loadPanelData]);
+
+    wasModalOpenRef.current = isModalOpen;
+  }, [isModalOpen, button.id, loadBuffList, loadSkillLevelModeMap, loadResolvedTemplate, loadPanelData]);
 
   // 监听 Buff 添加事件，实时刷新 Buff 列表
   useEffect(() => {
@@ -513,64 +514,62 @@ export function SkillButtonComponent({ button, size, onMouseDown, onContextMenu,
               <div className="modal-content">
                 {damageResult ? (
                   (() => {
-                    const { hits: hitResults, summary } = damageResult;
-                    // 当前选中的 hit，默认第一段
-                    const activeHit = selectedHitIndex !== null ? hitResults[selectedHitIndex] : hitResults[0];
-                    const buffTotals = activeHit?.buffTotals;
-                    const isPhysical = activeHit?.hit.element === 'physical';
+                    if (!damageViewModel) {
+                      return <p className="skill-damage-empty">加载技能数据中...</p>;
+                    }
 
                     return (
                       <>
                         {/* 总览区 */}
                         <div className="skill-damage-summary">
-                          <p className="skill-damage-title">{SKILL_LABELS[skillType]} {runtimeHits.length}段</p>
+                          <p className="skill-damage-title">{damageViewModel.header.fullText}</p>
                           <div className="skill-damage-total">
-                            <span>总伤(期望): {summary.totalExpected.toFixed(0)}</span>
-                            <span>总伤(暴击): {summary.totalCrit.toFixed(0)}</span>
-                            <span>总伤(不暴): {summary.totalNonCrit.toFixed(0)}</span>
+                            <span>总伤(期望): {damageViewModel.summary.totalExpectedText}</span>
+                            <span>总伤(暴击): {damageViewModel.summary.totalCritText}</span>
+                            <span>总伤(非暴): {damageViewModel.summary.totalNonCritText}</span>
                           </div>
                         </div>
 
                         {/* Hit 列表区 */}
                         <div className="skill-damage-hits">
-                          {hitResults.map((hitResult, index) => (
+                          {damageViewModel.hitCards.map((hitCard, index) => (
                             <div
-                              key={hitResult.hit.key}
-                              className={`skill-damage-hit-card ${selectedHitIndex === index ? 'selected' : ''}`}
+                              key={hitCard.key}
+                              className={`skill-damage-hit-card ${hitCard.isSelected ? 'selected' : ''}`}
                               onClick={() => setSelectedHitIndex(index)}
                             >
                               <div className="hit-card-header">
-                                <span className="hit-name">{hitResult.hit.displayName}</span>
-                                <span className="hit-multiplier">{hitResult.hit.multiplier}%</span>
+                                <div className="hit-card-title-group">
+                                  <span className="hit-name">{hitCard.displayName}</span>
+                                  <span className="buff-count">{hitCard.buffCountText}</span>
+                                </div>
+                                <span className="hit-multiplier">{hitCard.multiplierText}</span>
                               </div>
                               <div className="hit-card-damage">
-                                <span className="damage-expected">{hitResult.expected.final.toFixed(0)}</span>
-                              </div>
-                              <div className="hit-card-buffs">
-                                {hitResult.appliedBuffs.length > 0 && (
-                                  <span className="buff-count">+{hitResult.appliedBuffs.length} Buff</span>
-                                )}
+                                <span className="damage-line">期望: <span className="damage-expected">{hitCard.expectedText}</span></span>
+                                <span className="damage-line">暴击: <span className="damage-crit">{hitCard.critText}</span></span>
+                                <span className="damage-line">非暴: <span className="damage-non-crit">{hitCard.nonCritText}</span></span>
                               </div>
                             </div>
                           ))}
                         </div>
 
                         {/* Hit 详情区 */}
-                        {activeHit && (
+                        {damageViewModel.activeHitDetail && (
                           <div className="skill-damage-hit-detail">
-                            <p className="hit-detail-title">{activeHit.hit.displayName} 详情</p>
+                            <p className="hit-detail-title">{damageViewModel.activeHitDetail.title}</p>
                             <div className="hit-detail-stats">
-                              <p>倍率: {activeHit.hit.multiplier}%</p>
-                              <p>元素: {ELEMENT_LABELS[activeHit.hit.element] || activeHit.hit.element}</p>
-                              <p>期望伤害: {activeHit.expected.final.toFixed(2)}</p>
-                              <p>暴击伤害: {activeHit.crit.final.toFixed(2)}</p>
-                              <p>非暴击伤害: {activeHit.nonCrit.final.toFixed(2)}</p>
+                              <p>倍率: {damageViewModel.activeHitDetail.multiplierText}</p>
+                              <p>元素: {damageViewModel.activeHitDetail.elementText}</p>
+                              <p>期望伤害: {damageViewModel.activeHitDetail.expectedText}</p>
+                              <p>暴击伤害: {damageViewModel.activeHitDetail.critText}</p>
+                              <p>非暴击伤害: {damageViewModel.activeHitDetail.nonCritText}</p>
                             </div>
                             <div className="hit-detail-buffs">
                               <p className="buff-section-title">生效 Buff:</p>
-                              {activeHit.appliedBuffs.length > 0 ? (
-                                activeHit.appliedBuffs.map(buff => (
-                                  <span key={buff.id} className="buff-tag">{buff.displayName}</span>
+                              {damageViewModel.activeHitDetail.appliedBuffTags.length > 0 ? (
+                                damageViewModel.activeHitDetail.appliedBuffTags.map((buffName) => (
+                                  <span key={buffName} className="buff-tag">{buffName}</span>
                                 ))
                               ) : (
                                 <span className="no-buff">无</span>
@@ -580,46 +579,33 @@ export function SkillButtonComponent({ button, size, onMouseDown, onContextMenu,
                         )}
 
                         {/* 展开计算过程 - 基于当前选中的 activeHit */}
-                        {isExpanded && buffTotals && activeHit && (
+                        {isExpanded && damageViewModel.activeHitFormula && (
                           <div className="skill-damage-expanded">
-                            <p className="skill-damage-expand-title">计算过程 - {activeHit.hit.displayName}</p>
+                            <p className="skill-damage-expand-title">{damageViewModel.activeHitFormula.title}</p>
                             <div className="skill-damage-formula">
                               <p className="formula-section-title">【面板属性】</p>
-                              <p>ATK: {panelData?.atk.toFixed(0)}</p>
-                              <p className="formula-section-title">【伤害加成区】</p>
-                              {isPhysical ? (
-                                <p>物理伤害加成: {(activeHit.elementDmgBonus * 100).toFixed(1)}%</p>
+                              {damageViewModel.activeHitFormula.panelLines.map((line) => (
+                                <p key={line}>{line}</p>
+                              ))}
+                              <p className="formula-section-title">【生效 Buff】</p>
+                              {damageViewModel.activeHitFormula.buffTags.length > 0 ? (
+                                <div className="formula-buff-tags">
+                                  {damageViewModel.activeHitFormula.buffTags.map((buffName) => (
+                                    <span key={buffName} className="buff-tag">{buffName}</span>
+                                  ))}
+                                </div>
                               ) : (
-                                <p>{ELEMENT_LABELS[activeHit.hit.element] || activeHit.hit.element}伤害加成: {(activeHit.elementDmgBonus * 100).toFixed(1)}%</p>
+                                <p>无</p>
                               )}
-                              <p>伤害加成区: {activeHit.damageBonusRate.toFixed(3)}</p>
-
-                              {/* 增幅区显示 */}
-                              {activeHit.amplifyRate > 0 && (
-                                <>
-                                  <p className="formula-section-title">【增幅区】</p>
-                                  <p>增幅区: +{(activeHit.amplifyRate * 100).toFixed(1)}%</p>
-                                </>
-                              )}
-
-                              {/* 脆弱区显示 */}
-                              {activeHit.fragileRate > 0 && (
-                                <>
-                                  <p className="formula-section-title">【脆弱区】</p>
-                                  <p>脆弱区: +{(activeHit.fragileRate * 100).toFixed(1)}%</p>
-                                </>
-                              )}
-
-                              {/* 易伤区显示 */}
-                              {activeHit.vulnerabilityRate > 0 && (
-                                <>
-                                  <p className="formula-section-title">【易伤区】</p>
-                                  <p>易伤区: +{(activeHit.vulnerabilityRate * 100).toFixed(1)}%</p>
-                                </>
-                              )}
-
-                              <p className="formula-section-title">【防御区】</p>
-                              <p>防御减免: {activeHit.defenseZone}</p>
+                              {damageViewModel.activeHitFormula.zoneSections.map((section) => (
+                                <div key={section.title} className="formula-zone-section">
+                                  <p className="formula-section-title">{section.title}</p>
+                                  {section.lines.map((line) => (
+                                    <p key={line}>{line}</p>
+                                  ))}
+                                  <p className="formula-zone-total">{section.totalText}</p>
+                                </div>
+                              ))}
                             </div>
                           </div>
                         )}
@@ -631,7 +617,7 @@ export function SkillButtonComponent({ button, size, onMouseDown, onContextMenu,
                     );
                   })()
                 ) : (
-                  <p className="skill-damage-empty">{!panelData ? '加载面板数据...' : '加载技能数据中...'}</p>
+                  <p className="skill-damage-empty">{!panelData ? '加载面板数据...' : '加载技能模板中...'}</p>
                 )}
               </div>
             </div>

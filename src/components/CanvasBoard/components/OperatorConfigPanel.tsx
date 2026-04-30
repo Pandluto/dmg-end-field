@@ -1200,6 +1200,27 @@ export function OperatorConfigPanel({
     // 供"基础数据攻击力"与"信息模块"直接读取
     setCharacterConfigMap((prev) => {
       const prevConfig = prev[weaponStateKey] ?? initCharacterConfig(resolvedActiveCharacterId, activeCharacter.name, activeCharacter.rarity);
+
+      // 相等性判断：比较关键字段是否真正变化
+      const isWeaponNameChanged = prevConfig.weaponName !== currentWeaponName;
+      const isWeaponPotentialModeChanged = prevConfig.weaponPotentialMode !== currentWeaponPotentialMode;
+      const isPanelSnapshotChanged = JSON.stringify(prevConfig.panelSnapshot) !== JSON.stringify(panelSnapshot);
+      const isInfoSnapshotChanged = JSON.stringify(prevConfig.infoSnapshot) !== JSON.stringify(infoSnapshot);
+      const isInfoSnapChanged = JSON.stringify(prevConfig.infoSnap) !== JSON.stringify(infoSnap);
+      const isWeaponBuffSnapshotChanged = JSON.stringify(prevConfig.weaponBuffSnapshot) !== JSON.stringify(weaponBuffSnapshot);
+
+      // 如果全部相等，直接返回 prev，避免触发更新
+      if (
+        !isWeaponNameChanged &&
+        !isWeaponPotentialModeChanged &&
+        !isPanelSnapshotChanged &&
+        !isInfoSnapshotChanged &&
+        !isInfoSnapChanged &&
+        !isWeaponBuffSnapshotChanged
+      ) {
+        return prev;
+      }
+
       return {
         ...prev,
         [weaponStateKey]: {

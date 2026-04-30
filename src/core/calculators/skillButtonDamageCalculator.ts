@@ -2,6 +2,14 @@
  * 技能按钮伤害计算器 (Hit 主导版本)
  * 纯计算层，不依赖 React、DOM、Storage、事件
  * 负责 per-hit Buff 过滤、倍率计算、hit 计算、总伤害计算
+ *
+ * @deprecated 已被 skillButtonDamageCalculatorV2.ts 替代。
+ * 当前页面主链已切到：
+ * - resolveSkillDamageTemplate()
+ * - calculateSkillButtonDamageV2()
+ * - buildSkillDamageModalViewModel()
+ *
+ * 本文件仅暂时保留，供历史对照和回滚参考，不应再接入新的页面逻辑。
  */
 
 import { SkillButtonBuff } from '../../types/storage';
@@ -120,6 +128,7 @@ export interface SkillButtonDamageResult {
  * @param buff - Buff
  * @param hit - hit 模板
  * @returns 是否匹配
+ * @deprecated 已被 skillButtonDamageCalculatorV2.ts 内部同名逻辑替代，不要再从新链路调用。
  */
 export function doesBuffApplyToHit(
   buff: SkillButtonBuff,
@@ -152,6 +161,7 @@ export function doesBuffApplyToHit(
  * @param hit - hit 模板
  * @param buffList - 完整 Buff 列表
  * @returns 该 hit 命中的 Buff 列表
+ * @deprecated 已被 skillButtonDamageCalculatorV2.ts 内部同名逻辑替代，不要再从新链路调用。
  */
 export function filterBuffsForHit(
   hit: RuntimeOperatorTemplateHit,
@@ -312,6 +322,7 @@ function calculateSingleHit(
  * 主入口函数
  * @param input 计算输入
  * @returns 计算结果
+ * @deprecated 页面主链已改用 calculateSkillButtonDamageV2()，此入口保留仅用于历史兼容和对照。
  */
 export function calculateSkillButtonDamage(
   input: SkillButtonDamageInput
@@ -337,5 +348,4 @@ export function calculateSkillButtonDamage(
     },
   };
 }
-
 

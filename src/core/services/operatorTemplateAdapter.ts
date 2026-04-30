@@ -202,17 +202,49 @@ export function buildRuntimeOperatorTemplateFromDraft(
 // ============================================================================
 
 /**
+ * 单段伤害字段白名单
+ * 用于识别非标准命名的单段伤害字段
+ */
+const SINGLE_HIT_DAMAGE_KEYS = ['damage', 'phantomDamage', 'spikeDamage', 'slashBaseDamage'];
+
+/**
  * 从官方技能 multiplier 对象提取 hit 列表
- * 例如: { hit1: 100, hit2: 200, damage: 300 } -> [{key: 'hit1', multiplier: 100}, ...]
+ * 支持多种命名规则：
+ * 1. hit1 / hit2 / hit3
+ * 2. hit1Damage / hit2Damage / hit3Damage
+ * 3. 单段白名单：damage / phantomDamage / spikeDamage / slashBaseDamage
  */
 function extractHitsFromMultiplier(
   multipliers: Record<string, number | undefined>,
   element: ElementType,
-  skillType: SkillType
+  skillType: SkillType,
+  characterName?: string
 ): RuntimeOperatorTemplateHit[] {
   const hits: RuntimeOperatorTemplateHit[] = [];
 
-  // 提取所有 hitX 字段
+  // 1. 优先识别 hitXDamage 格式（如 hit1Damage, hit2Damage）
+  const hitDamageEntries = Object.entries(multipliers)
+    .filter(([key, value]) => /^hit\d+Damage$/i.test(key) && typeof value === 'number')
+    .sort(([a], [b]) => {
+      const numA = Number(a.replace(/\D/g, ''));
+      const numB = Number(b.replace(/\D/g, ''));
+      return numA - numB;
+    });
+
+  if (hitDamageEntries.length > 0) {
+    hitDamageEntries.forEach(([key, value], index) => {
+      hits.push({
+        key: key.replace(/Damage$/i, ''), // 去掉 Damage 后缀作为 key
+        displayName: `第${index + 1}击`,
+        multiplier: value || 0,
+        element,
+        skillType,
+      });
+    });
+    return hits;
+  }
+
+  // 2. 识别 hitX 格式（如 hit1, hit2）
   const hitEntries = Object.entries(multipliers)
     .filter(([key, value]) => /^hit\d+$/i.test(key) && typeof value === 'number')
     .sort(([a], [b]) => {
@@ -231,29 +263,33 @@ function extractHitsFromMultiplier(
         skillType,
       });
     });
-  } else {
-    // 如果没有 hitX 字段，使用 damage 字段作为单段
-    const damage = multipliers.damage;
-    if (typeof damage === 'number') {
+    return hits;
+  }
+
+  // 3. 识别单段白名单字段
+  for (const singleKey of SINGLE_HIT_DAMAGE_KEYS) {
+    const value = multipliers[singleKey];
+    if (typeof value === 'number') {
       hits.push({
         key: 'hit1',
         displayName: '第1击',
-        multiplier: damage,
+        multiplier: value,
         element,
         skillType,
       });
+      return hits;
     }
   }
 
-  return hits.length > 0 ? hits : [
-    {
-      key: 'hit1',
-      displayName: '第1击',
-      multiplier: 0,
-      element,
-      skillType,
-    }
-  ];
+  // 4. 未识别到任何有效 hit，打印警告并返回空
+  console.warn(
+    `[extractHitsFromMultiplier] 未识别到有效 hit 数据:`,
+    `角色=${characterName || 'unknown'}`,
+    `技能=${skillType}`,
+    `multiplierKeys=${Object.keys(multipliers).join(',')}`
+  );
+
+  return [];
 }
 
 /**
@@ -279,7 +315,8 @@ export function buildRuntimeOperatorTemplateFromOfficialCharacter(
     const hits = extractHitsFromMultiplier(
       multipliers,
       character.element || 'physical',
-      skillType
+      skillType,
+      character.name
     );
 
     return {

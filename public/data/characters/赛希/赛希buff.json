@@ -20,7 +20,7 @@
       "name": "启动进程",
       "source": "talent",
       "sourceName": "天赋-启动进程",
-      "type": "iceVulnerability",
+      "type": "iceFragile",
       "value": 0.1,
       "level": "breakthrough2",
       "description": "连携技“压力测试”命中处于寒冷附着或冻结状态目标时，使其受到寒冷伤害提升，持续5秒，不可叠加。",
