@@ -1,52 +1,72 @@
-import { Character, SandboxSkill, SandboxSkillHit, SkillMultiplier, SkillType } from '../../types';
+import { Character, SandboxSkill, SkillMultiplier, SkillType } from '../../types';
+import type { OperatorDraft, RuntimeOperatorTemplate } from '../templates/operatorTemplate';
+import {
+  buildRuntimeOperatorTemplateFromDraft,
+  buildRuntimeTemplatesFromDraftMap,
+} from './operatorTemplateAdapter';
 
 const LOCAL_OPERATOR_LIBRARY_KEY = 'ddd.operator-editor.library.v1';
 
-type ImportedHitElement = 'physical' | 'fire' | 'ice' | 'electric' | 'nature';
-type ImportedHitSkillType = 'A' | 'B' | 'E' | 'Q';
+// ============================================================================
+// 本地角色库读取（返回 Draft Map）
+// ============================================================================
 
-interface ImportedHitMetaDraft {
-  multiplier: number;
-  displayName: string;
-  element: ImportedHitElement;
-  skillType: ImportedHitSkillType;
+/**
+ * 从 localStorage 加载本地角色草稿 Map
+ * @returns Record<characterId, OperatorDraft>
+ */
+export function loadLocalOperatorDraftMap(): Record<string, OperatorDraft> {
+  if (typeof window === 'undefined') {
+    return {};
+  }
+
+  const raw = window.localStorage.getItem(LOCAL_OPERATOR_LIBRARY_KEY);
+  if (!raw) {
+    return {};
+  }
+
+  try {
+    return JSON.parse(raw) as Record<string, OperatorDraft>;
+  } catch (error) {
+    console.warn('Failed to parse local operator library:', error);
+    return {};
+  }
 }
 
-interface ImportedSkillDraft {
-  displayName: string;
-  buttonType: ImportedHitSkillType;
-  iconUrl: string;
-  hitCount: number;
-  hitMeta: Record<string, ImportedHitMetaDraft>;
+// ============================================================================
+// 运行时模板读取
+// ============================================================================
+
+/**
+ * 加载本地角色运行时模板列表
+ * @returns RuntimeOperatorTemplate[]
+ */
+export function loadLocalOperatorTemplates(): RuntimeOperatorTemplate[] {
+  const draftMap = loadLocalOperatorDraftMap();
+  return buildRuntimeTemplatesFromDraftMap(draftMap);
 }
 
-interface ImportedOperatorDraft {
-  id: string;
-  name: string;
-  avatarUrl: string;
-  rarity: number;
-  profession: string;
-  weapon: string;
-  element: string;
-  mainStat: string;
-  subStat: string;
-  level: number;
-  attributes: {
-    strength: number;
-    agility: number;
-    intelligence: number;
-    will: number;
-    atk: number;
-    hp: number;
-  };
-  skills: Record<string, ImportedSkillDraft>;
+/**
+ * 根据 ID 加载单个本地角色运行时模板
+ * @param characterId - 角色 ID
+ * @returns RuntimeOperatorTemplate | null
+ */
+export function loadLocalOperatorTemplateById(
+  characterId: string
+): RuntimeOperatorTemplate | null {
+  const draftMap = loadLocalOperatorDraftMap();
+  const draft = draftMap[characterId];
+  if (!draft) return null;
+  return buildRuntimeOperatorTemplateFromDraft(draft);
 }
 
-type SkillDraft = ImportedSkillDraft;
+// ============================================================================
+// 旧版兼容：转换为 Character（过渡函数）
+// ============================================================================
 
-function toSkillMultiplier(skill: SkillDraft): SkillMultiplier {
+function toSkillMultiplier(hitMeta: Record<string, { multiplier: number }>): SkillMultiplier {
   const multipliers: SkillMultiplier = {};
-  Object.entries(skill.hitMeta).forEach(([hitKey, hit]) => {
+  Object.entries(hitMeta).forEach(([hitKey, hit]) => {
     multipliers[hitKey] = hit.multiplier;
   });
   return multipliers;
@@ -65,79 +85,48 @@ function createFallbackSkill(skillType: SkillType) {
   };
 }
 
-function getFirstSkillByType(draft: ImportedOperatorDraft, buttonType: SkillType) {
-  for (const skillKey of Object.keys(draft.skills)) {
-    const skill = draft.skills[skillKey];
-    if (skill.buttonType === buttonType) {
-      return skill;
-    }
-  }
-  return null;
-}
+/**
+ * 将运行时模板转换为旧版 Character（兼容过渡）
+ * @deprecated 建议逐步迁移到直接使用 RuntimeOperatorTemplate
+ */
+export function adaptRuntimeTemplateToLegacyCharacter(
+  template: RuntimeOperatorTemplate
+): Character {
 
-function buildSkillIconMap(draft: ImportedOperatorDraft) {
-  const iconMap: Partial<Record<SkillType, string>> = {};
-  (['A', 'B', 'E', 'Q'] as const).forEach((skillType) => {
-    const matchedSkill = getFirstSkillByType(draft, skillType);
-    if (matchedSkill?.iconUrl) {
-      iconMap[skillType] = matchedSkill.iconUrl;
-    }
-  });
-  return iconMap;
-}
+  const normalAttack = template.skills.find((s) => s.buttonType === 'A');
+  const skill = template.skills.find((s) => s.buttonType === 'B');
+  const chainSkill = template.skills.find((s) => s.buttonType === 'E');
+  const ultimate = template.skills.find((s) => s.buttonType === 'Q');
 
-function sortHitEntries(left: [string, ImportedHitMetaDraft], right: [string, ImportedHitMetaDraft]) {
-  const leftNumber = Number(left[0].replace(/\D/g, ''));
-  const rightNumber = Number(right[0].replace(/\D/g, ''));
-  if (Number.isFinite(leftNumber) && Number.isFinite(rightNumber)) {
-    return leftNumber - rightNumber;
-  }
-  return left[0].localeCompare(right[0]);
-}
-
-function buildSandboxSkills(draft: ImportedOperatorDraft): SandboxSkill[] {
-  return Object.entries(draft.skills).map(([skillKey, skill]) => {
-    const customHits: SandboxSkillHit[] = Object.entries(skill.hitMeta)
-      .sort(sortHitEntries)
-      .map(([hitKey, hit]) => ({
-        key: hitKey,
-        displayName: hit.displayName || hitKey,
-        multiplier: hit.multiplier,
-        element: hit.element,
-        skillType: hit.skillType,
-      }));
-
-    return {
-      id: skillKey,
-      displayName: skill.displayName || skillKey,
-      buttonType: skill.buttonType,
-      iconUrl: skill.iconUrl || undefined,
-      hitCount: customHits.length > 0 ? customHits.length : skill.hitCount,
-      source: 'local',
-      customHits,
-    };
-  });
-}
-
-export function adaptImportedDraftToCharacter(draft: ImportedOperatorDraft): Character {
-  const normalAttack = getFirstSkillByType(draft, 'A');
-  const skill = getFirstSkillByType(draft, 'B');
-  const chainSkill = getFirstSkillByType(draft, 'E');
-  const ultimate = getFirstSkillByType(draft, 'Q');
-  const sandboxSkills = buildSandboxSkills(draft);
+  // 构建 sandboxSkills（复用已有逻辑）
+  const sandboxSkills: SandboxSkill[] = template.skills.map((skill) => ({
+    id: skill.id,
+    displayName: skill.displayName,
+    buttonType: skill.buttonType,
+    iconUrl: skill.iconUrl,
+    hitCount: skill.hitCount,
+    source: 'local',
+    customHits: skill.hits.map((hit) => ({
+      key: hit.key,
+      displayName: hit.displayName,
+      multiplier: hit.multiplier,
+      element: hit.element,
+      skillType: hit.skillType,
+    })),
+  }));
 
   return {
-    id: draft.id,
-    name: draft.name,
-    nameEn: draft.name,
-    rarity: draft.rarity,
-    profession: (draft.profession || '未设置') as Character['profession'],
-    element: (draft.element || 'physical') as Character['element'],
-    mainStat: (draft.mainStat || '力量') as Character['mainStat'],
-    subStat: (draft.subStat || '敏捷') as Character['subStat'],
+    id: template.id,
+    name: template.name,
+    nameEn: template.name,
+    rarity: template.rarity,
+    profession: (template.profession || '未设置') as Character['profession'],
+    element: template.element,
+    mainStat: (template.mainStat || '力量') as Character['mainStat'],
+    subStat: (template.subStat || '敏捷') as Character['subStat'],
     attributes: {
-      level1: { ...draft.attributes },
-      level90: { ...draft.attributes },
+      level1: { ...template.attributes },
+      level90: { ...template.attributes },
     },
     skills: {
       normalAttack: normalAttack
@@ -145,7 +134,13 @@ export function adaptImportedDraftToCharacter(draft: ImportedOperatorDraft): Cha
             name: normalAttack.displayName,
             type: 'A',
             description: '',
-            multipliers: { M3: toSkillMultiplier(normalAttack) },
+            multipliers: {
+              M3: toSkillMultiplier(
+                Object.fromEntries(
+                  normalAttack.hits.map((h) => [h.key, { multiplier: h.multiplier }])
+                )
+              ),
+            },
           }
         : createFallbackSkill('A'),
       skill: skill
@@ -153,7 +148,13 @@ export function adaptImportedDraftToCharacter(draft: ImportedOperatorDraft): Cha
             name: skill.displayName,
             type: 'B',
             description: '',
-            multipliers: { M3: toSkillMultiplier(skill) },
+            multipliers: {
+              M3: toSkillMultiplier(
+                Object.fromEntries(
+                  skill.hits.map((h) => [h.key, { multiplier: h.multiplier }])
+                )
+              ),
+            },
           }
         : createFallbackSkill('B'),
       chainSkill: chainSkill
@@ -161,7 +162,13 @@ export function adaptImportedDraftToCharacter(draft: ImportedOperatorDraft): Cha
             name: chainSkill.displayName,
             type: 'E',
             description: '',
-            multipliers: { M3: toSkillMultiplier(chainSkill) },
+            multipliers: {
+              M3: toSkillMultiplier(
+                Object.fromEntries(
+                  chainSkill.hits.map((h) => [h.key, { multiplier: h.multiplier }])
+                )
+              ),
+            },
           }
         : createFallbackSkill('E'),
       ultimate: ultimate
@@ -169,32 +176,41 @@ export function adaptImportedDraftToCharacter(draft: ImportedOperatorDraft): Cha
             name: ultimate.displayName,
             type: 'Q',
             description: '',
-            multipliers: { M3: toSkillMultiplier(ultimate) },
+            multipliers: {
+              M3: toSkillMultiplier(
+                Object.fromEntries(
+                  ultimate.hits.map((h) => [h.key, { multiplier: h.multiplier }])
+                )
+              ),
+            },
           }
         : createFallbackSkill('Q'),
     },
-    avatarUrl: draft.avatarUrl,
-    skillIconMap: buildSkillIconMap(draft),
+    avatarUrl: template.avatarUrl || '',
+    skillIconMap: Object.fromEntries(
+      template.skills
+        .filter((s) => s.iconUrl)
+        .map((s) => [s.buttonType, s.iconUrl])
+    ) as Character['skillIconMap'],
     librarySource: 'local',
     sandboxSkills,
   };
 }
 
+/**
+ * 从本地角色库加载旧版 Character 列表（兼容过渡）
+ * @deprecated 建议逐步迁移到 loadLocalOperatorTemplates()
+ */
 export function loadLocalOperatorCharacters(): Character[] {
-  if (typeof window === 'undefined') {
-    return [];
-  }
+  const templates = loadLocalOperatorTemplates();
+  return templates.map(adaptRuntimeTemplateToLegacyCharacter);
+}
 
-  const raw = window.localStorage.getItem(LOCAL_OPERATOR_LIBRARY_KEY);
-  if (!raw) {
-    return [];
-  }
-
-  try {
-    const parsed = JSON.parse(raw) as Record<string, ImportedOperatorDraft>;
-    return Object.keys(parsed).map((characterId) => adaptImportedDraftToCharacter(parsed[characterId]));
-  } catch (error) {
-    console.warn('Failed to parse local operator library:', error);
-    return [];
-  }
+/**
+ * 从草稿直接转换为旧版 Character（兼容过渡）
+ * @deprecated 建议逐步迁移到 buildRuntimeOperatorTemplateFromDraft()
+ */
+export function adaptImportedDraftToCharacter(draft: OperatorDraft): Character {
+  const template = buildRuntimeOperatorTemplateFromDraft(draft);
+  return adaptRuntimeTemplateToLegacyCharacter(template);
 }

@@ -1,5 +1,5 @@
 import { EquipmentConfig } from '../utils/equipmentParser';
-import { SandboxSkillHit } from './index';
+import { SandboxSkillHit, SkillType, ElementType } from './index';
 
 export type SkillPanelKey = 'A' | 'B' | 'E' | 'Q';
 export type SkillLevelMode = 'L9' | 'M3';
@@ -146,6 +146,16 @@ export interface CharacterConfigJson {
 // ==================== SkillButton Buff 类型 ====================
 
 /**
+ * Buff 作用目标类型
+ * 用于表达 Buff 作用于哪个 hit、哪种 skillType、哪种 element
+ */
+export type SkillButtonBuffTarget =
+  | { mode: 'all' }                                    // 作用于所有 hit
+  | { mode: 'damageKey'; key: string }                 // 作用于特定 hit，如 'hit2'
+  | { mode: 'skillType'; skillType: SkillType }        // 作用于特定技能类型
+  | { mode: 'element'; element: ElementType };         // 作用于特定元素
+
+/**
  * Buff 完整类型（v2 扩展）
  * 所有字段必须包含，确保 Buff 内容完整
  */
@@ -161,6 +171,7 @@ export interface SkillButtonBuff {
   source?: string;         // 来源
   condition?: string;      // 触发条件
   refCount: number;        // 被引用次数，selectedBuff 解绑时 -1，0 时删除实体
+  target?: SkillButtonBuffTarget;  // 作用目标（可选，默认 'all'）
 }
 
 export type SkillButtonBuffMap = Record<string, SkillButtonBuff[]>;

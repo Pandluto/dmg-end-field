@@ -23,9 +23,11 @@ let buffCache: Record<string, SkillButtonBuff> = {};
 /**
  * 生成 Buff 内容的唯一签名
  * 用于全局去重：相同签名的 Buff 复用同一 buffId
+ * 包含 target 字段，确保不同作用域的 Buff 不会错误合并
  */
-export function getBuffIdentityKey(buff: Pick<SkillButtonBuff, 'name' | 'displayName' | 'sourceName' | 'level' | 'type' | 'value' | 'condition' | 'source'>): string {
-  return `${buff.name}||${buff.displayName}||${buff.sourceName}||${buff.level}||${buff.type}||${buff.value}||${buff.condition}||${buff.source}`;
+export function getBuffIdentityKey(buff: Pick<SkillButtonBuff, 'name' | 'displayName' | 'sourceName' | 'level' | 'type' | 'value' | 'condition' | 'source' | 'target'>): string {
+  const targetStr = buff.target ? JSON.stringify(buff.target) : 'all';
+  return `${buff.name}||${buff.displayName}||${buff.sourceName}||${buff.level}||${buff.type}||${buff.value}||${buff.condition}||${buff.source}||${targetStr}`;
 }
 
 /**

@@ -114,7 +114,7 @@ export function useTimelineData(selectedCharacters: { name: string }[]) {
   const updateSkillButtonType = useCallback((
     buttonId: string,
     nextSkillType: 'A' | 'B' | 'E' | 'Q'
-  ): import('../types').SkillButtonData | null => {
+  ): SkillButtonData | null => {
     const { updatedButton, newTimelineData } = updateSkillButtonTypeService(
       timelineDataRef.current,
       buttonId,

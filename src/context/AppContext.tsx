@@ -33,6 +33,12 @@ import {
   setSelectedCharacterIds,
 } from '../utils/storage';
 import { STORAGE_KEYS } from '../constants/storage-keys';
+import { loadLocalOperatorCharacters, loadLocalOperatorDraftMap } from '../core/services/localOperatorAdapter';
+import {
+  buildRuntimeOperatorTemplateFromOfficialCharacter,
+  buildRuntimeOperatorTemplateFromDraft,
+} from '../core/services/operatorTemplateAdapter';
+import { setRuntimeOperatorTemplateMap } from '../utils/storage';
 
 /** 所有支持的 Action 类型（Tagged Union）*/
 type AppAction =
@@ -280,28 +286,97 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
       dispatch({ type: 'SET_LOADED_CHARACTERS', characters });
 
+      // 加载本地角色（用于刷新恢复 - 兼容过渡）
+      const localCharacters = loadLocalOperatorCharacters();
+
+      // 构建可恢复角色 Map（官方 + 本地）
+      const restorableCharacterMap = new Map<string, Character>();
+      characters.forEach((char) => restorableCharacterMap.set(char.id, char));
+      localCharacters.forEach((char) => restorableCharacterMap.set(char.id, char));
+
       const selectedCharacterIds = getSelectedCharacterIds();
       const hasTimelineData = Boolean(safeSessionStorage.getItem(STORAGE_KEYS.TIMELINE_DATA));
 
       if (selectedCharacterIds.length > 0 && hasTimelineData) {
         const restoredCharacters = selectedCharacterIds
-          .map((characterId) => characters.find((character) => character.id === characterId))
+          .map((characterId) => restorableCharacterMap.get(characterId))
           .filter((character): character is Character => Boolean(character))
           .slice(0, 4);
 
-        if (
-          restoredCharacters.length > 0 &&
-          restoredCharacters.length === Math.min(selectedCharacterIds.length, 4)
-        ) {
+        const expectedCount = Math.min(selectedCharacterIds.length, 4);
+        const restoredIds = restoredCharacters.map((c) => c.id);
+        const missingIds = selectedCharacterIds.filter((id) => !restoredIds.includes(id));
+
+        if (restoredCharacters.length > 0 && restoredCharacters.length === expectedCount) {
           dispatch({ type: 'SET_SELECTED_CHARACTERS', characters: restoredCharacters });
           dispatch({ type: 'SET_VIEW', view: 'canvas' });
+          // 恢复成功后：定向重建模板表（只包含已恢复角色）
+          // 注：这里手动重建是为了首轮 hydration，后续变更统一由 selectedCharacters effect 接管
+          rebuildSelectedRuntimeTemplateMap(restoredCharacters);
+        } else {
+          console.warn('[AppContext] 角色恢复失败:', {
+            selectedCharacterIds,
+            restoredIds,
+            missingIds,
+            expectedCount,
+            actualCount: restoredCharacters.length,
+          });
+          // 恢复失败：显式清空模板表，避免残留旧数据
+          setRuntimeOperatorTemplateMap({});
+          console.log('[AppContext] 恢复失败，模板表已清空');
         }
+      } else {
+        // 无有效恢复条件（未选角色或无 timeline 数据）：清空残留模板表
+        setRuntimeOperatorTemplateMap({});
+        console.log('[AppContext] 无有效恢复条件，模板表已清空');
       }
     } catch (error) {
       console.warn('Failed to load operators list:', error);
     } finally {
       selectedCharactersHydratedRef.current = true;
     }
+  };
+
+  /**
+   * 按当前已选角色重建运行时模板表
+   * 这是唯一写入 ddd.operator-runtime.template-map.v1 的入口
+   * @param selectedCharacters - 当前已选角色列表
+   */
+  const rebuildSelectedRuntimeTemplateMap = (selectedCharacters: Character[]) => {
+    // 空选中态：清空模板表
+    if (selectedCharacters.length === 0) {
+      setRuntimeOperatorTemplateMap({});
+      console.log('[AppContext] 模板表已清空（无已选角色）');
+      return;
+    }
+
+    // 加载本地 draft map 用于本地角色定向查找
+    const localDraftMap = loadLocalOperatorDraftMap();
+
+    // 为每个已选角色构建模板
+    const nextMap: Record<string, ReturnType<typeof buildRuntimeOperatorTemplateFromOfficialCharacter>> = {};
+
+    selectedCharacters.forEach((character) => {
+      if (character.librarySource === 'official') {
+        // 官方角色：直接从 character 构建
+        nextMap[character.id] = buildRuntimeOperatorTemplateFromOfficialCharacter(character);
+      } else if (character.librarySource === 'local') {
+        // 本地角色：按 id 定向取 draft 后构建
+        const draft = localDraftMap[character.id];
+        if (draft) {
+          nextMap[character.id] = buildRuntimeOperatorTemplateFromDraft(draft);
+        } else {
+          console.warn(`[AppContext] 本地角色 ${character.id} 的 draft 不存在，跳过模板构建`);
+        }
+      }
+    });
+
+    setRuntimeOperatorTemplateMap(nextMap);
+    console.log('[AppContext] 模板表已重建:', {
+      selectedCount: selectedCharacters.length,
+      templateCount: Object.keys(nextMap).length,
+      ids: Object.keys(nextMap),
+    });
   };
 
   // 组件首次挂载时自动加载干员数据
@@ -314,7 +389,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
     if (!selectedCharactersHydratedRef.current) {
       return;
     }
+    // 同步选中角色 ID 到 sessionStorage
     setSelectedCharacterIds(state.selectedCharacters.map((character) => character.id));
+    // 同步重建运行时模板表（职责收紧：只包含当前已选角色）
+    rebuildSelectedRuntimeTemplateMap(state.selectedCharacters);
   }, [state.selectedCharacters]);
 
   return (

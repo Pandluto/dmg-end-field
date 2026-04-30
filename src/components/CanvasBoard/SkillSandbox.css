@@ -196,16 +196,21 @@
 /* 技能按钮与标签的包装容器（实现按钮+标签并排） */
 .sandbox-skill-item {
   position: relative;
-  display: flex;
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr);
   align-items: center;
+  column-gap: 8px;
   height: 44px;
 }
 
 .sandbox-skill-item--local {
-  height: 52px;
-  align-items: flex-start;
-  gap: 8px;
-  padding: 4px 0;
+  height: 58px;
+  align-items: start;
+  padding: 2px 0;
+}
+
+.sandbox-skill-item--empty {
+  visibility: hidden;
 }
 
 .sandbox-skill-button {
@@ -267,31 +272,31 @@
 .sandbox-skill-meta {
   display: flex;
   flex-direction: column;
-  gap: 1px;
+  gap: 2px;
   min-width: 0;
-  justify-content: center;
+  justify-content: flex-start;
+  align-self: stretch;
   padding-top: 2px;
   overflow: hidden;
 }
 .sandbox-skill-name {
-  font-size: 10px;
+  font-size: 9px;
   font-weight: 700;
   color: var(--office-title);
-  line-height: 1.2;
-  white-space: nowrap;
+  line-height: 1.15;
+  white-space: normal;
+  word-break: break-all;
   overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: 80px;
-  position: absolute;
-  left: 10px;
-  bottom: -5px;
-  z-index: 1;
-  pointer-events: none;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  max-height: 2.3em;
 }
 
 .sandbox-skill-hit-count {
   font-size: 9px;
   color: var(--office-body);
+  line-height: 1;
 }
 
 /* Excel Acrylic theme final overrides */

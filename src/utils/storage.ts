@@ -12,6 +12,10 @@ import type {
   BuffList,
 } from '../types/storage';
 import { EquipmentConfig } from './equipmentParser';
+import type {
+  RuntimeOperatorTemplate,
+  RuntimeOperatorTemplateMap,
+} from '../core/templates/operatorTemplate';
 
 // 重新导出类型供外部使用
 export type { PersistedSkillButton, SkillButtonTable, BuffList };
@@ -660,7 +664,46 @@ export function removeBuffById(buffId: string): void {
  */
 export function isBuffReferenced(buffId: string): boolean {
   const table = getSkillButtonTable();
-  return Object.values(table).some(button => 
+  return Object.values(table).some(button =>
     button.selectedBuff?.includes(buffId)
   );
+}
+
+// ==================== 运行时模板表 ====================
+
+/**
+ * 获取运行时干员模板表
+ * @returns Record<characterId, RuntimeOperatorTemplate>
+ */
+export function getRuntimeOperatorTemplateMap(): RuntimeOperatorTemplateMap {
+  const raw = safeSessionStorage.getItem(STORAGE_KEYS.RUNTIME_OPERATOR_TEMPLATE_MAP);
+  if (!raw) return {};
+  try {
+    return JSON.parse(raw) as RuntimeOperatorTemplateMap;
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * 设置运行时干员模板表
+ * @param templateMap - 完整的模板表
+ */
+export function setRuntimeOperatorTemplateMap(templateMap: RuntimeOperatorTemplateMap): void {
+  safeSessionStorage.setItem(
+    STORAGE_KEYS.RUNTIME_OPERATOR_TEMPLATE_MAP,
+    JSON.stringify(templateMap)
+  );
+}
+
+/**
+ * 根据 ID 获取单个运行时模板
+ * @param characterId - 干员 ID
+ * @returns RuntimeOperatorTemplate | null
+ */
+export function getRuntimeOperatorTemplateById(
+  characterId: string
+): RuntimeOperatorTemplate | null {
+  const map = getRuntimeOperatorTemplateMap();
+  return map[characterId] ?? null;
 }

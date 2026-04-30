@@ -21,6 +21,9 @@ export const STORAGE_KEYS = {
   SELECTED_CHARACTERS: 'ddd.selected-characters.v1',
   SELECTED_SKILL_BUTTON: 'ddd.selected-skill-button',
   TIMELINE_DATA: 'ddd.timeline.data.v1',
+
+  // 运行时模板表 - 官方和本地角色的统一运行时模板缓存（sessionStorage）
+  RUNTIME_OPERATOR_TEMPLATE_MAP: 'ddd.operator-runtime.template-map.v1',
 } as const;
 
 export type StorageKey = (typeof STORAGE_KEYS)[keyof typeof STORAGE_KEYS];
