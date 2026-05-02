@@ -13,7 +13,9 @@ import {
 import {
   getCharacterConfigMap,
   setCharacterConfigMap,
+  getRuntimeOperatorTemplateById,
 } from '../../../utils/storage';
+import type { RuntimeOperatorTemplateSkill } from '../../../core/templates/operatorTemplate';
 
 interface CharacterMaxData {
   name: string;
@@ -308,10 +310,8 @@ export function OperatorConfigPanel({
   onSelectCharacter,
   onClose,
 }: OperatorConfigPanelProps) {
-  // 面板关闭时直接不渲染，避免无意义的数据请求与布局计算
-  if (!isOpen) {
-    return null;
-  }
+  // 注意：不能在 Hook 之前做任何条件 return，否则违反 React Hook 规则
+  // 所有 Hook 必须无条件执行，"关闭时不渲染"的逻辑移到最终 JSX return
 
   // 头像层最多展示 4 人，和选人上限保持一致
   const visibleCharacters = selectedCharacters.slice(0, 4);
@@ -359,9 +359,23 @@ export function OperatorConfigPanel({
       return;
     }
 
+    // 获取 runtime template 检查是否有基础属性
+    const runtimeTemplate = getRuntimeOperatorTemplateById(activeCharacter.id);
+    const hasTemplateAttributes = runtimeTemplate?.attributes &&
+      typeof runtimeTemplate.attributes.atk === 'number';
+
+    // 如果 runtime template 有完整基础属性，不需要请求 max.json
+    if (hasTemplateAttributes) {
+      setCharacterMaxData(null);
+      setLoadError(null);
+      setIsLoading(false);
+      return;
+    }
+
     let aborted = false;
     const controller = new AbortController();
-    // 读取角色 max 面板数据：按“角色名/角色名max.json”约定路径拉取
+    // 读取角色 max 面板数据：按"角色名/角色名max.json"约定路径拉取
+    // 仅作为 runtime template 缺字段时的 fallback
     const loadMaxData = async () => {
       try {
         setIsLoading(true);
@@ -372,6 +386,11 @@ export function OperatorConfigPanel({
         );
         if (!response.ok) {
           throw new Error(`读取失败: ${response.status}`);
+        }
+        // 校验 content-type，防止 HTML 错误页面被当 JSON 解析
+        const contentType = response.headers.get('content-type');
+        if (!contentType || !contentType.includes('application/json')) {
+          throw new Error('响应格式错误：非 JSON 数据');
         }
         const payload = (await response.json()) as CharacterMaxData;
         if (!aborted) {
@@ -397,7 +416,7 @@ export function OperatorConfigPanel({
       aborted = true;
       controller.abort();
     };
-  }, [activeCharacter?.name]);
+  }, [activeCharacter?.id, activeCharacter?.name]);
 
   React.useEffect(() => {
     let aborted = false;
@@ -482,16 +501,39 @@ export function OperatorConfigPanel({
     setCtiInputValue('');
   }, [resolvedActiveCharacterId]);
 
-  // 常用派生数据：避免在 JSX 中重复可选链，提高可读性
-  const level90 = characterMaxData?.attributes?.level90;
-  const skills = characterMaxData?.skills;
-  // 统一技能渲染入口：保证 A/B/E/Q 的布局、交互和样式规则一致
-  const skillEntries: Array<{ key: SkillPanelKey; name: string; type: string }> = [
-    { key: 'A', name: skills?.normalAttack?.name ?? '-', type: skills?.normalAttack?.type ?? '' },
-    { key: 'B', name: skills?.skill?.name ?? '-', type: skills?.skill?.type ?? '' },
-    { key: 'E', name: skills?.chainSkill?.name ?? '-', type: skills?.chainSkill?.type ?? '' },
-    { key: 'Q', name: skills?.ultimate?.name ?? '-', type: skills?.ultimate?.type ?? '' },
-  ];
+  // ========== Runtime Template 统一驱动 ==========
+  // 读取运行时模板（支持官方角色和本地角色统一模板链）
+  const runtimeTemplate = resolvedActiveCharacterId
+    ? getRuntimeOperatorTemplateById(resolvedActiveCharacterId)
+    : null;
+
+  // 技能列表来源：从 runtime template 派生
+  const runtimeSkillEntries: RuntimeOperatorTemplateSkill[] = runtimeTemplate?.skills ?? [];
+
+  // 基础数据区来源：优先从 runtime template 派生，fallback 到 max.json
+  // runtime template 中的基础属性
+  const templateAttributes = runtimeTemplate?.attributes;
+  const templateElement = runtimeTemplate?.element;
+  const templateMainStat = runtimeTemplate?.mainStat;
+  const templateSubStat = runtimeTemplate?.subStat;
+  const templateLevel = runtimeTemplate?.level ?? 90;
+
+  // 判断是否有 runtime template 基础数据
+  const hasRuntimeBaseData = !!templateAttributes && typeof templateAttributes.atk === 'number';
+
+  // 常用派生数据：优先从 runtime template，fallback 到 max.json
+  const level90 = hasRuntimeBaseData
+    ? {
+        strength: templateAttributes!.strength,
+        agility: templateAttributes!.agility,
+        intelligence: templateAttributes!.intelligence,
+        will: templateAttributes!.will,
+        atk: templateAttributes!.atk,
+        hp: templateAttributes!.hp,
+      }
+    : characterMaxData?.attributes?.level90;
+
+
   const weaponStateKey = resolvedActiveCharacterId ?? '__panel__';
   const currentCharacterConfig = characterConfigMap[weaponStateKey] ?? null;
   const currentEquipment = normalizeEquipment(currentCharacterConfig?.equipment);
@@ -1022,12 +1064,16 @@ export function OperatorConfigPanel({
     if (!resolvedActiveCharacterId || !activeCharacter) {
       return;
     }
-    const level90Data = characterMaxData?.attributes?.level90;
+    // 统一使用已经整合好的 level90（优先 runtime template，fallback max.json）
+    const level90Data = level90;
     if (!level90Data) {
       return;
     }
-    const mainField = ABILITY_FIELD_MAP[characterMaxData?.mainStat ?? ''];
-    const subField = ABILITY_FIELD_MAP[characterMaxData?.subStat ?? ''];
+    // 统一主副属性来源：优先 runtime template，fallback characterMaxData
+    const unifiedMainStat = runtimeTemplate?.mainStat || characterMaxData?.mainStat || '';
+    const unifiedSubStat = runtimeTemplate?.subStat || characterMaxData?.subStat || '';
+    const mainField = ABILITY_FIELD_MAP[unifiedMainStat];
+    const subField = ABILITY_FIELD_MAP[unifiedSubStat];
     if (!mainField || !subField) {
       return;
     }
@@ -1095,8 +1141,9 @@ export function OperatorConfigPanel({
     };
     const separator = '--------------------------------------------------';
     const blockLine = '==================================================';
-    const mainStatName = characterMaxData?.mainStat ?? '主能力';
-    const subStatName = characterMaxData?.subStat ?? '副能力';
+    // 统一主副属性名称来源：优先 runtime template，fallback characterMaxData
+    const mainStatName = runtimeTemplate?.mainStat || characterMaxData?.mainStat || '主能力';
+    const subStatName = runtimeTemplate?.subStat || characterMaxData?.subStat || '副能力';
     const weaponPotentialLabel = currentWeaponPotentialMode === 'PMAX' ? '满潜' : '0潜';
     const weaponUnconditionalInfoLines =
       weaponUnconditionalSourceLines.length > 0 ? weaponUnconditionalSourceLines.map((line) => `  ${line}`) : ['  暂无'];
@@ -1253,6 +1300,11 @@ export function OperatorConfigPanel({
     equipSyncTrigger,
   ]);
 
+  // 面板关闭时返回 null（在 Hook 执行之后，符合 React 规则）
+  if (!isOpen) {
+    return null;
+  }
+
   return (
     <div className="config-panel-overlay" onClick={onClose}>
       <div
@@ -1276,81 +1328,108 @@ export function OperatorConfigPanel({
                     <p className="config-loading-text">数据加载中...</p>
                   ) : loadError ? (
                     <p className="config-error-text">{loadError}</p>
-                  ) : characterMaxData ? (
+                  ) : hasRuntimeBaseData || characterMaxData ? (
                     <div className="config-data-grid">
-                      <div className="config-data-item"><span className="config-data-label">名称</span><span className="config-data-value">{characterMaxData.name}</span></div>
-                      <div className="config-data-item"><span className="config-data-label">属性</span><span className="config-data-value">{characterMaxData.element}</span></div>
-                      <div className="config-data-item"><span className="config-data-label">等级</span><span className="config-data-value">90</span></div>
-                      <div className="config-data-item"><span className="config-data-label">攻击力</span><span className="config-data-value">{panelAtkDisplay || '-'}</span></div>
-                      {attributeTags.map((tag) => (
-                        <div
-                          key={tag.key}
-                          className={`config-data-item${characterMaxData.mainStat === tag.key ? ' is-main' : ''}${characterMaxData.subStat === tag.key ? ' is-sub' : ''}`}
-                        >
-                          <span className="config-data-label">{tag.label}</span>
-                          <span className="config-data-value">{tag.value}</span>
-                        </div>
-                      ))}
+                      <div className="config-data-item">
+                        <span className="config-data-label">名称</span>
+                        <span className="config-data-value">{runtimeTemplate?.name || characterMaxData?.name || '-'}</span>
+                      </div>
+                      <div className="config-data-item">
+                        <span className="config-data-label">属性</span>
+                        <span className="config-data-value">{templateElement || characterMaxData?.element || '-'}</span>
+                      </div>
+                      <div className="config-data-item">
+                        <span className="config-data-label">等级</span>
+                        <span className="config-data-value">{templateLevel}</span>
+                      </div>
+                      <div className="config-data-item">
+                        <span className="config-data-label">攻击力</span>
+                        <span className="config-data-value">{panelAtkDisplay || level90?.atk || '-'}</span>
+                      </div>
+                      {attributeTags.map((tag) => {
+                        const mainStat = templateMainStat || characterMaxData?.mainStat;
+                        const subStat = templateSubStat || characterMaxData?.subStat;
+                        return (
+                          <div
+                            key={tag.key}
+                            className={`config-data-item${mainStat === tag.key ? ' is-main' : ''}${subStat === tag.key ? ' is-sub' : ''}`}
+                          >
+                            <span className="config-data-label">{tag.label}</span>
+                            <span className="config-data-value">{tag.value}</span>
+                          </div>
+                        );
+                      })}
                     </div>
                   ) : (
-                    <p className="config-empty-text">暂无数据</p>
+                    <p className="config-empty-text">暂无基础数据</p>
                   )}
                 </section>
                 <section className="config-data-section config-scrollable-module">
-                  <h4 className="config-data-title">技能 ABEQ</h4>
-                  {isLoading ? (
-                    <p className="config-loading-text">技能读取中...</p>
-                  ) : loadError ? (
-                    <p className="config-error-text">技能读取失败</p>
-                  ) : skills ? (
-                    <div className="config-skill-grid">
-                      {skillEntries.map((skill) => (
-                        <div key={skill.key} className="config-skill-card">
-                          <div className="config-skill-content">
-                            <p className="config-skill-key">{skill.key}</p>
-                            <p className="config-skill-name">{skill.name}</p>
+                  <h4 className="config-data-title">技能</h4>
+                  {/* 技能区完全脱离 max.json，只依赖 runtime template */}
+                  {runtimeTemplate ? (
+                    runtimeSkillEntries.length > 0 ? (
+                      <div className="config-skill-grid">
+                        {runtimeSkillEntries.map((skill) => (
+                          <div key={skill.id} className="config-skill-card">
+                            <div className="config-skill-content">
+                              <p className="config-skill-key">{skill.buttonType}</p>
+                              <p className="config-skill-name">{skill.displayName}</p>
+                              <p className="config-skill-hits">{skill.hitCount}段</p>
+                            </div>
+                            {/* L9/M3 滑块 - 冻结逻辑，仅 UI 占位 */}
+                            {/* 本地角色隐藏滑块，官方角色显示但仅作为占位 */}
+                            {runtimeTemplate.source === 'official' ? (
+                              <button
+                                type="button"
+                                className={`config-skill-level-switch${skillLevelModeMap[skill.buttonType as SkillPanelKey] === 'M3' ? ' is-m3' : ''}`}
+                                onClick={() => {
+                                  // 冻结逻辑：仅切换 UI 状态，不影响计算
+                                  setSkillLevelModeMap((prev) => {
+                                    const nextMode: SkillLevelMode = prev[skill.buttonType as SkillPanelKey] === 'L9' ? 'M3' : 'L9';
+                                    const nextSkillLevelModeMap = {
+                                      ...prev,
+                                      [skill.buttonType as SkillPanelKey]: nextMode,
+                                    };
+                                    // 写回 session 但不影响伤害计算（冻结逻辑）
+                                    setCharacterConfigMap((prevConfigMap) => {
+                                      const currentConfig =
+                                        prevConfigMap[weaponStateKey] ??
+                                        initCharacterConfig(
+                                          resolvedActiveCharacterId ?? weaponStateKey,
+                                          activeCharacter?.name ?? weaponStateKey,
+                                          activeCharacter?.rarity
+                                        );
+                                      return {
+                                        ...prevConfigMap,
+                                        [weaponStateKey]: {
+                                          ...currentConfig,
+                                          skillLevelModeMap: nextSkillLevelModeMap,
+                                        },
+                                      };
+                                    });
+                                    return nextSkillLevelModeMap;
+                                  });
+                                }}
+                                aria-label={`${skill.buttonType} 等级切换`}
+                              >
+                                <span className="config-skill-level-thumb" />
+                                <span className="config-skill-level-label config-skill-level-label-l9">L9</span>
+                                <span className="config-skill-level-label config-skill-level-label-m3">M3</span>
+                              </button>
+                            ) : (
+                              <div className="config-skill-level-disabled">
+                                <span className="config-skill-level-fixed">L9</span>
+                              </div>
+                            )}
                           </div>
-                          <button
-                            type="button"
-                            className={`config-skill-level-switch${skillLevelModeMap[skill.key] === 'M3' ? ' is-m3' : ''}`}
-                            onClick={() => {
-                              // 单击滑块在 L9 / M3 间切换，只影响当前技能卡片
-                              setSkillLevelModeMap((prev) => {
-                                const nextMode: SkillLevelMode = prev[skill.key] === 'L9' ? 'M3' : 'L9';
-                                const nextSkillLevelModeMap = {
-                                  ...prev,
-                                  [skill.key]: nextMode,
-                                };
-                                setCharacterConfigMap((prevConfigMap) => {
-                                  const currentConfig =
-                                    prevConfigMap[weaponStateKey] ??
-                                    initCharacterConfig(
-                                      resolvedActiveCharacterId ?? weaponStateKey,
-                                      activeCharacter?.name ?? weaponStateKey,
-                                      activeCharacter?.rarity
-                                    );
-                                  return {
-                                    ...prevConfigMap,
-                                    [weaponStateKey]: {
-                                      ...currentConfig,
-                                      skillLevelModeMap: nextSkillLevelModeMap,
-                                    },
-                                  };
-                                });
-                                return nextSkillLevelModeMap;
-                              });
-                            }}
-                            aria-label={`${skill.key} 等级切换`}
-                          >
-                            <span className="config-skill-level-thumb" />
-                            <span className="config-skill-level-label config-skill-level-label-l9">L9</span>
-                            <span className="config-skill-level-label config-skill-level-label-m3">M3</span>
-                          </button>
-                        </div>
-                      ))}
-                    </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="config-empty-text">该角色暂无技能数据</p>
+                    )
                   ) : (
-                    <p className="config-empty-text">暂无技能数据</p>
+                    <p className="config-empty-text">未找到运行时技能模板</p>
                   )}
                 </section>
                 <section

@@ -858,6 +858,34 @@
   right: 6px;
 }
 
+/* 技能段数显示 */
+.config-skill-hits {
+  margin: 4px 0 0 0;
+  font-size: var(--font-size-xs);
+  color: #666666;
+  line-height: 1.2;
+}
+
+/* 本地角色 L9 固定态（冻结逻辑） */
+.config-skill-level-disabled {
+  width: 62px;
+  height: 24px;
+  border: 2px solid #000000;
+  border-radius: 2px;
+  background: #E0E0E0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  margin-left: auto;
+}
+
+.config-skill-level-fixed {
+  font-size: 11px;
+  font-weight: 700;
+  color: #888888;
+}
+
 .config-loading-text,
 .config-error-text,
 .config-empty-text {

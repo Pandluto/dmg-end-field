@@ -168,6 +168,11 @@ export function SkillButtonComponent({ button, size, onMouseDown, onContextMenu,
       });
       setInfoSnapshotLines(characterConfig.infoSnapshot ?? []);
       setInfoSnap((characterConfig.infoSnap ?? {}) as unknown as Record<string, number>);
+    } else {
+      // 当前按钮没有有效快照时，清空状态，避免显示上一个按钮的数据
+      setPanelData(null);
+      setInfoSnapshotLines([]);
+      setInfoSnap({});
     }
   }, [button.characterId, button.id]);
 
