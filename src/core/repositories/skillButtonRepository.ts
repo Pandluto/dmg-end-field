@@ -15,6 +15,10 @@ function normalizeSkillButton(button: PersistedSkillButton): PersistedSkillButto
     ...button,
     characterId: button.characterId || button.characterName,
     selectedBuff,
+    anomalyConfig: {
+      selectedStates: Array.isArray(button.anomalyConfig?.selectedStates) ? button.anomalyConfig!.selectedStates : [],
+      selectedDamages: Array.isArray(button.anomalyConfig?.selectedDamages) ? button.anomalyConfig!.selectedDamages : [],
+    },
     panelConfig: button.panelConfig ?? {
       selectedBuff: [...selectedBuff],
     },

@@ -187,6 +187,25 @@ export interface SkillButtonPanelSnapshot {
   characterComputed?: CharacterComputedCache | null;
 }
 
+export interface PersistedAnomalyCard {
+  id: string;
+  key: string;
+  label: string;
+  kind: 'state' | 'damage';
+  category: 'magic' | 'physical';
+  level: number;
+  sourceName?: string;
+  primaryText: string;
+  secondaryText: string;
+  tertiaryText?: string;
+  selectedBuffIds: string[];
+}
+
+export interface SkillButtonAnomalyConfig {
+  selectedStates: PersistedAnomalyCard[];
+  selectedDamages: PersistedAnomalyCard[];
+}
+
 // ==================== v2 新缓存模型类型 ====================
 
 /**
@@ -207,6 +226,7 @@ export interface PersistedSkillButton {
   skillIconUrl?: string;                // 技能图标
   customHits?: SandboxSkillHit[];       // 自定义技能 hit 明细
   selectedBuff: string[];               // 选中的 Buff ID 列表（只存引用）
+  anomalyConfig?: SkillButtonAnomalyConfig; // 按钮专属异常选择配置
   panelConfig?: SkillButtonPanelConfig; // 按钮专属面板配置
   panelSnapshot?: SkillButtonPanelSnapshot | null; // 按钮专属最终面板
   createdAt?: number;                   // 创建时间
