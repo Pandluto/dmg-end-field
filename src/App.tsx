@@ -6,6 +6,7 @@
 import { WorkbenchFrame } from './components/WorkbenchFrame';
 import { StorageDebugPage, isStorageDebugPath } from './components/StorageDebugPage';
 import { OperatorDraftPage, isDraftPath } from './components/OperatorDraftPage';
+import { BuffDraftPage, isBuffDraftPath } from './components/BuffDraftPage';
 import './styles/global.css';
 
 function App() {
@@ -15,6 +16,10 @@ function App() {
 
   if (typeof window !== 'undefined' && isDraftPath(window.location.pathname)) {
     return <OperatorDraftPage />;
+  }
+
+  if (typeof window !== 'undefined' && isBuffDraftPath(window.location.pathname)) {
+    return <BuffDraftPage />;
   }
 
   return (

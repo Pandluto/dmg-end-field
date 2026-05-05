@@ -7,10 +7,11 @@ import {
   setSelectedSkillButton,
   getButtonBuffs,
   recomputeSkillButtonPanel,
+  addSkillButtonBuff,
 } from '../../hooks/useSkillButtonBuffs';
 import { PersistedAnomalyCard, SkillButtonBuff, SkillLevelMode } from '../../types/storage';
 import { getCharacterConfig } from '../../utils/storage';
-import { getSkillButtonById, upsertSkillButton } from '../../core/repositories';
+import { getCandidateBuffList, getSkillButtonById, upsertSkillButton } from '../../core/repositories';
 import {
   buildSkillDamageModalViewModel,
 } from '../../core/calculators/skillDamageModalViewModel';
@@ -98,6 +99,25 @@ interface AnomalyDamageSegmentView {
   comboDamageBonusText: string;
 }
 
+interface LocalBuffSearchResult {
+  key: string;
+  sourceKind: 'local' | 'candidate';
+  groupId: string;
+  groupName: string;
+  itemId: string;
+  itemName: string;
+  effectId: string;
+  displayName: string;
+  name: string;
+  type?: string;
+  value?: number;
+  description?: string;
+  condition?: string;
+  sourceName: string;
+  source?: string;
+  level?: string;
+}
+
 interface DropdownOption<T extends string | number> {
   value: T;
   label: string;
@@ -146,6 +166,88 @@ function getAnomalyDurationOptions(option: AnomalyOption): number[] {
 
 function createAnomalyCardId(baseKey: string): string {
   return `${baseKey}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+const LOCAL_BUFF_LIBRARY_KEY = 'ddd.buff-editor.library.v1';
+
+function readLocalBuffSearchEntries(): LocalBuffSearchResult[] {
+  if (typeof window === 'undefined') {
+    return [];
+  }
+  try {
+    const raw = window.localStorage.getItem(LOCAL_BUFF_LIBRARY_KEY);
+    if (!raw) {
+      return [];
+    }
+    const parsed = JSON.parse(raw) as Record<string, {
+      id?: string;
+      name?: string;
+      sourceName?: string;
+      items?: Record<string, {
+        id?: string;
+        name?: string;
+        sourceName?: string;
+        effects?: Record<string, {
+          id?: string;
+          displayName?: string;
+          name?: string;
+          type?: string;
+          value?: number;
+          description?: string;
+          condition?: string;
+          sourceName?: string;
+          source?: string;
+          level?: string;
+        }>;
+      }>;
+    }>;
+
+    return Object.entries(parsed).flatMap(([groupId, group]) =>
+      Object.entries(group.items || {}).flatMap(([itemId, item]) =>
+        Object.entries(item.effects || {}).map(([effectId, effect]) => ({
+          key: `${groupId}/${itemId}/${effectId}`,
+          sourceKind: 'local',
+          groupId,
+          groupName: group.name || groupId,
+          itemId,
+          itemName: item.name || itemId,
+          effectId,
+          displayName: effect.displayName || effectId,
+          name: effect.name || effectId,
+          type: effect.type,
+          value: effect.value,
+          description: effect.description,
+          condition: effect.condition,
+          sourceName: effect.sourceName || item.sourceName || group.sourceName || group.name || groupId,
+          source: effect.source || 'local_custom',
+          level: effect.level || '',
+        }))
+      )
+    );
+  } catch {
+    return [];
+  }
+}
+
+function readCandidateBuffSearchEntries(): LocalBuffSearchResult[] {
+  return getCandidateBuffList().map((buff, index) => ({
+    key: `candidate-${index}-${buff.name}-${buff.displayName}`,
+    sourceKind: 'candidate',
+    groupId: '',
+    groupName: '陈列区 Buff',
+    itemId: '',
+    itemName: buff.sourceName || buff.source || '候选 Buff',
+    effectId: '',
+    displayName: buff.displayName,
+    name: buff.name,
+    type: buff.type,
+    value: buff.value,
+    description: buff.description,
+    condition: buff.condition,
+    sourceName: buff.sourceName,
+    source: buff.source,
+    level: buff.level || '',
+  }));
 }
 
 interface SkillButtonProps {
@@ -232,6 +334,9 @@ export function SkillButtonComponent({ button, size, onMouseDown, onContextMenu,
   const [openDropdownKey, setOpenDropdownKey] = useState<string | null>(null);
   const [selectedAnomalySegmentKey, setSelectedAnomalySegmentKey] = useState<string | null>(null);
   const [isAnomalyFormulaExpanded, setIsAnomalyFormulaExpanded] = useState(false);
+  const [isLocalBuffSearchOpen, setIsLocalBuffSearchOpen] = useState(false);
+  const [localBuffSearchKeyword, setLocalBuffSearchKeyword] = useState('');
+  const [buffSearchMode, setBuffSearchMode] = useState<'local' | 'candidate' | 'anomaly'>('local');
 
   // 图标加载失败状态，用于 CSS 类切换
   const [iconLoadFailed, setIconLoadFailed] = useState(false);
@@ -242,6 +347,7 @@ export function SkillButtonComponent({ button, size, onMouseDown, onContextMenu,
   const isLongPressRef = useRef(false);
   const clickCountRef = useRef(0);
   const wasModalOpenRef = useRef(false);
+  const localBuffSearchInputRef = useRef<HTMLInputElement | null>(null);
 
   // skillIconUrl 变化时重置图标加载失败状态
   useEffect(() => {
@@ -256,6 +362,34 @@ export function SkillButtonComponent({ button, size, onMouseDown, onContextMenu,
     setBuffList(buffs);
   }, [button.id]);
 
+  const localBuffSearchEntries = useMemo(() => readLocalBuffSearchEntries(), [isModalOpen]);
+  const candidateBuffSearchEntries = useMemo(() => readCandidateBuffSearchEntries(), [isModalOpen]);
+  const activeBuffSearchEntries = buffSearchMode === 'candidate'
+    ? candidateBuffSearchEntries
+    : localBuffSearchEntries;
+  const localBuffSearchResults = useMemo(() => {
+    if (buffSearchMode === 'anomaly') {
+      return [];
+    }
+    const keyword = localBuffSearchKeyword.trim().toLowerCase();
+    if (!keyword) {
+      return [];
+    }
+    return activeBuffSearchEntries.filter((entry) => {
+      const haystack = [
+        entry.displayName,
+        entry.name,
+        entry.groupName,
+        entry.itemName,
+        entry.type || '',
+        entry.description || '',
+        entry.condition || '',
+        entry.sourceName,
+      ].join('|').toLowerCase();
+      return haystack.includes(keyword);
+    }).slice(0, 50);
+  }, [activeBuffSearchEntries, buffSearchMode, localBuffSearchKeyword]);
+
   const loadPersistedAnomalyCards = useCallback(() => {
     const persistedButton = getSkillButtonById(button.id);
     const selectedStates = persistedButton?.anomalyConfig?.selectedStates ?? [];
@@ -263,6 +397,91 @@ export function SkillButtonComponent({ button, size, onMouseDown, onContextMenu,
     setSelectedAnomalyStates(selectedStates.map(normalizePersistedAnomalyCard));
     setSelectedAnomalyDamages(selectedDamages.map(normalizePersistedAnomalyCard));
   }, [button.id]);
+
+  const closeLocalBuffSearch = useCallback(() => {
+    setIsLocalBuffSearchOpen(false);
+    setLocalBuffSearchKeyword('');
+  }, []);
+
+  const openLocalBuffSearch = useCallback(() => {
+    setIsLocalBuffSearchOpen(true);
+    setBuffSearchMode('local');
+  }, []);
+
+  useEffect(() => {
+    if (!isLocalBuffSearchOpen) {
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      localBuffSearchInputRef.current?.focus();
+      localBuffSearchInputRef.current?.select();
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [isLocalBuffSearchOpen]);
+
+  useEffect(() => {
+    if (!isModalOpen) {
+      if (isLocalBuffSearchOpen) {
+        closeLocalBuffSearch();
+      }
+      return;
+    }
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      const isEditable =
+        target instanceof HTMLInputElement ||
+        target instanceof HTMLTextAreaElement ||
+        target instanceof HTMLSelectElement ||
+        !!target?.closest('[contenteditable="true"]');
+
+      if (isLocalBuffSearchOpen) {
+        if (event.key === 'Tab' && !event.shiftKey) {
+          event.preventDefault();
+          setBuffSearchMode((prev) => {
+            if (prev === 'local') return 'candidate';
+            if (prev === 'candidate') return 'anomaly';
+            return 'local';
+          });
+          return;
+        }
+        if (event.key === 'Escape') {
+          event.preventDefault();
+          closeLocalBuffSearch();
+        }
+        return;
+      }
+
+      if (event.key === 'Tab' && !event.shiftKey && !isEditable) {
+        event.preventDefault();
+        openLocalBuffSearch();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [closeLocalBuffSearch, isLocalBuffSearchOpen, isModalOpen, openLocalBuffSearch]);
+
+  const handleApplyLocalBuffSearchResult = useCallback((entry: LocalBuffSearchResult) => {
+    const result = addSkillButtonBuff(button.id, {
+      name: entry.name,
+      displayName: entry.displayName,
+      sourceName: entry.sourceName,
+      level: entry.level || '',
+      type: entry.type,
+      value: entry.value,
+      description: entry.description,
+      source: entry.source,
+      condition: entry.condition,
+      refCount: 1,
+    });
+
+    if (result.success) {
+      recomputeSkillButtonPanel(button.id);
+      loadBuffList();
+      closeLocalBuffSearch();
+    }
+  }, [button.id, closeLocalBuffSearch, loadBuffList]);
 
   const persistAnomalyCards = useCallback((nextStates: SelectedAnomalyCard[], nextDamages: SelectedAnomalyCard[]) => {
     const persistedButton = getSkillButtonById(button.id);
@@ -1046,6 +1265,186 @@ export function SkillButtonComponent({ button, size, onMouseDown, onContextMenu,
     </div>
   ), [openDropdownKey]);
 
+  const renderAnomalyPanel = useCallback(() => (
+    <div className="modal-content skill-anomaly-layout">
+      <div className="skill-anomaly-tree">
+        <div className="anomaly-category-tabs">
+          {ANOMALY_GROUPS.map((group) => (
+            <button
+              key={group.key}
+              className={`anomaly-category-tab${activeAnomalyGroup === group.key ? ' is-active' : ''}`}
+              onClick={() => {
+                setActiveAnomalyGroup(group.key);
+                setActiveAnomalyKey(null);
+              }}
+            >
+              {group.label}
+            </button>
+          ))}
+        </div>
+
+        <div className="anomaly-button-strip">
+          {ANOMALY_GROUPS.find((group) => group.key === activeAnomalyGroup)?.items.map((option) => (
+            <button
+              key={option.key}
+              className={`anomaly-strip-button${activeAnomaly?.key === option.key ? ' is-active' : ''}`}
+              onClick={() => handleSelectAnomaly(option)}
+            >
+              <span>{option.label}</span>
+            </button>
+          ))}
+        </div>
+
+        {activeAnomaly && (
+          <div className="anomaly-inline-panel">
+            <div className="anomaly-inline-panel-head">
+              <div>
+                <p className="anomaly-config-title">{activeAnomaly.label}</p>
+                <p className="anomaly-config-subtitle">{activeAnomaly.kind === 'state' ? '状态型异常演示' : '独立异常 hit 演示'}</p>
+              </div>
+              <button className="anomaly-apply-btn" onClick={handleApplyActiveAnomaly}>加入蓝框</button>
+            </div>
+
+            <div className="anomaly-inline-control-grid">
+              {activeAnomaly.usesAnomalyLevel !== false
+                ? renderAnomalyDropdown(
+                  `${activeAnomaly.key}-level`,
+                  '异常等级',
+                  `${activeAnomalyLevel} 层`,
+                  activeAnomaly.levelOptions.map((level) => ({ value: level, label: `${level} 层` })),
+                  (value) => setActiveAnomalyLevel(Number(value))
+                )
+                : renderAnomalyDropdown(
+                  `${activeAnomaly.key}-level`,
+                  '异常等级',
+                  '不适用',
+                  [],
+                  () => {},
+                  true
+                )}
+
+              {activeAnomaly.supportsSource
+                ? renderAnomalyDropdown(
+                  `${activeAnomaly.key}-source`,
+                  '来源角色',
+                  activeSourceCharacter?.name ?? '未选择',
+                  sourceCharacters.map((character) => ({ value: character.id, label: character.name })),
+                  (value) => setActiveAnomalySourceId(String(value))
+                )
+                : activeAnomaly.supportsDotToggle
+                  ? renderAnomalyDropdown(
+                    `${activeAnomaly.key}-mode`,
+                    '结果口径',
+                    includeDotInTotal ? '计入持续段' : '仅初始段',
+                    [
+                      { value: 'include', label: '计入持续段' },
+                      { value: 'initial', label: '仅初始段' },
+                    ],
+                    (value) => setIncludeDotInTotal(value === 'include')
+                  )
+                  : renderAnomalyDropdown(
+                    `${activeAnomaly.key}-mode`,
+                    '结果口径',
+                    '独立 hit',
+                    [],
+                    () => {},
+                    true
+                  )}
+
+              {activeAnomaly.supportsDuration && (
+                renderAnomalyDropdown(
+                  `${activeAnomaly.key}-duration`,
+                  '持续时间',
+                  `${activeDurationSeconds || 0}s`,
+                  getAnomalyDurationOptions(activeAnomaly).map((seconds) => ({ value: seconds, label: `${seconds}s` })),
+                  (value) => setActiveDurationSeconds(Number(value))
+                )
+              )}
+            </div>
+
+            <div className="anomaly-live-preview">
+              {activeAnomalyPreview ? (
+                activeAnomalyPreview.lines.map((line) => (
+                  <p key={line} className="anomaly-live-line">{line}</p>
+                ))
+              ) : (
+                <p className="anomaly-live-line">请选择异常项</p>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+
+      <div className="skill-anomaly-config">
+        <div className="skill-anomaly-board skill-anomaly-board-fixed">
+          <div className="skill-anomaly-board-section">
+            <p className="skill-anomaly-board-title">已选异常状态</p>
+            <div className="skill-anomaly-board-list">
+              {selectedAnomalyStates.length === 0 ? (
+                <div className="skill-button-buff-empty">导电 / 腐蚀 / 碎甲 会显示在这里</div>
+              ) : (
+                selectedAnomalyStates.map((card) => (
+                  <div
+                    key={card.id}
+                    className="anomaly-board-card is-state"
+                    onContextMenu={(e) => {
+                      e.preventDefault();
+                      removeAnomalyCard('state', card.id);
+                    }}
+                    title="右键移除"
+                  >
+                    <span className="anomaly-board-card-title">{card.primaryText}</span>
+                    <span>{card.secondaryText}</span>
+                    {card.tertiaryText ? <span>{card.tertiaryText}</span> : null}
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+          <div className="skill-anomaly-board-section">
+            <p className="skill-anomaly-board-title">已选异常伤害</p>
+            <div className="skill-anomaly-board-list">
+              {selectedAnomalyDamages.length === 0 ? (
+                <div className="skill-button-buff-empty">猛击 / 碎冰 / 燃烧 / 法爆 会显示在这里</div>
+              ) : (
+                selectedAnomalyDamages.map((card) => (
+                  <div
+                    key={card.id}
+                    className="anomaly-board-card is-damage"
+                    onContextMenu={(e) => {
+                      e.preventDefault();
+                      removeAnomalyCard('damage', card.id);
+                    }}
+                    title="右键移除"
+                  >
+                    <span className="anomaly-board-card-title">{card.primaryText}</span>
+                    <span>{card.secondaryText}</span>
+                    {card.tertiaryText ? <span>{card.tertiaryText}</span> : null}
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  ), [
+    activeAnomaly,
+    activeAnomalyGroup,
+    activeAnomalyLevel,
+    activeAnomalyPreview,
+    activeDurationSeconds,
+    activeSourceCharacter?.name,
+    handleApplyActiveAnomaly,
+    handleSelectAnomaly,
+    includeDotInTotal,
+    removeAnomalyCard,
+    renderAnomalyDropdown,
+    selectedAnomalyDamages,
+    selectedAnomalyStates,
+    sourceCharacters,
+  ]);
+
   return (
     <>
       <div
@@ -1153,7 +1552,78 @@ export function SkillButtonComponent({ button, size, onMouseDown, onContextMenu,
       {/* 技能信息弹窗 + 技能伤害弹窗 */}
       {isModalOpen && (
         <div className="skill-button-modal-overlay">
-          <div className="skill-button-modal-pair">
+          {isLocalBuffSearchOpen ? (
+            <div className="skill-button-inline-buff-search-mask" onClick={closeLocalBuffSearch}>
+              <div className={`skill-button-inline-buff-search${buffSearchMode === 'anomaly' ? ' is-anomaly-mode' : ''}`} onClick={(event) => event.stopPropagation()}>
+                <div className="skill-button-inline-buff-search-head">
+                  <h5>{buffSearchMode === 'local' ? '本地 Buff' : buffSearchMode === 'candidate' ? '陈列区 Buff' : '异常伤害'}</h5>
+                  <span>Tab 切换入口 / Esc 关闭</span>
+                </div>
+                <div className="skill-button-inline-buff-search-modes">
+                  <button
+                    type="button"
+                    className={`skill-button-inline-buff-search-mode${buffSearchMode === 'local' ? ' is-active' : ''}`}
+                    onClick={() => setBuffSearchMode('local')}
+                  >
+                    本地 Buff
+                  </button>
+                  <button
+                    type="button"
+                    className={`skill-button-inline-buff-search-mode${buffSearchMode === 'candidate' ? ' is-active' : ''}`}
+                    onClick={() => setBuffSearchMode('candidate')}
+                  >
+                    陈列区 Buff
+                  </button>
+                  <button
+                    type="button"
+                    className={`skill-button-inline-buff-search-mode${buffSearchMode === 'anomaly' ? ' is-active' : ''}`}
+                    onClick={() => setBuffSearchMode('anomaly')}
+                  >
+                    异常伤害
+                  </button>
+                </div>
+                {buffSearchMode === 'anomaly' ? renderAnomalyPanel() : (
+                  <>
+                    <input
+                      ref={localBuffSearchInputRef}
+                      className="skill-button-inline-buff-search-input"
+                      value={localBuffSearchKeyword}
+                      onChange={(event) => setLocalBuffSearchKeyword(event.target.value)}
+                      placeholder={buffSearchMode === 'local' ? '搜索组 / 项 / Buff / 类型 / 条件' : '搜索陈列区 Buff / 来源 / 类型 / 条件'}
+                    />
+                    <div className="skill-button-inline-buff-search-results">
+                      {localBuffSearchKeyword.trim().length === 0 ? (
+                        <div className="skill-button-inline-buff-search-empty">
+                          {buffSearchMode === 'local' ? '输入关键词后再显示本地 Buff 结果' : '输入关键词后再显示陈列区 Buff 结果'}
+                        </div>
+                      ) : localBuffSearchResults.length > 0 ? (
+                        localBuffSearchResults.map((entry) => (
+                          <button
+                            key={entry.key}
+                            type="button"
+                            className="skill-button-inline-buff-search-item"
+                            onClick={() => handleApplyLocalBuffSearchResult(entry)}
+                          >
+                            <div className="local-buff-search-item-head">
+                              <strong>{entry.displayName}</strong>
+                              <span>{entry.type || '暂无'}</span>
+                            </div>
+                            <p>{entry.groupName}{entry.itemName ? ` / ${entry.itemName}` : ''}</p>
+                            <p>数值: {entry.value ?? '-'}{entry.condition ? ` / ${entry.condition}` : ''}</p>
+                          </button>
+                        ))
+                      ) : (
+                        <div className="skill-button-inline-buff-search-empty">
+                          {buffSearchMode === 'local' ? '没有匹配到本地 Buff' : '没有匹配到陈列区 Buff'}
+                        </div>
+                      )}
+                    </div>
+                  </>
+                )}
+              </div>
+            </div>
+          ) : null}
+          <div className={`skill-button-modal-pair${isLocalBuffSearchOpen ? ' is-buff-search-open' : ''}`}>
             {/* 弹窗1：技能信息 */}
             <div className="skill-button-modal skill-button-modal-info">
               {/* 独立标题区 */}
@@ -1215,7 +1685,7 @@ export function SkillButtonComponent({ button, size, onMouseDown, onContextMenu,
                 <h5>已选异常</h5>
                 <div className="skill-button-anomaly-summary-list">
                   {[...selectedAnomalyStates, ...selectedAnomalyDamages].length === 0 ? (
-                    <div className="skill-button-buff-empty">前往异常伤害弹窗勾选要演示的异常项</div>
+                    <div className="skill-button-buff-empty">按 Tab 打开异常伤害页勾选要演示的异常项</div>
                   ) : (
                     [...selectedAnomalyStates, ...selectedAnomalyDamages].map((card) => (
                       <div key={card.id} className={`skill-button-anomaly-summary-card is-${card.kind}`}>
@@ -1234,174 +1704,7 @@ export function SkillButtonComponent({ button, size, onMouseDown, onContextMenu,
               <button className="modal-close-btn" onClick={handleCloseModal}>关闭</button>
             </div>
 
-            {/* 弹窗2：异常伤害（UI 演示版） */}
-            <div className="skill-button-modal skill-button-modal-anomaly">
-              <h4>异常伤害</h4>
-              <div className="modal-content skill-anomaly-layout">
-                <div className="skill-anomaly-tree">
-                  <div className="anomaly-category-tabs">
-                    {ANOMALY_GROUPS.map((group) => (
-                      <button
-                        key={group.key}
-                        className={`anomaly-category-tab${activeAnomalyGroup === group.key ? ' is-active' : ''}`}
-                        onClick={() => {
-                          setActiveAnomalyGroup(group.key);
-                          setActiveAnomalyKey(null);
-                        }}
-                      >
-                        {group.label}
-                      </button>
-                    ))}
-                  </div>
-
-                  <div className="anomaly-button-strip">
-                    {ANOMALY_GROUPS.find((group) => group.key === activeAnomalyGroup)?.items.map((option) => (
-                      <button
-                        key={option.key}
-                        className={`anomaly-strip-button${activeAnomaly?.key === option.key ? ' is-active' : ''}`}
-                        onClick={() => handleSelectAnomaly(option)}
-                      >
-                        <span>{option.label}</span>
-                      </button>
-                    ))}
-                  </div>
-
-                  {activeAnomaly && (
-                    <div className="anomaly-inline-panel">
-                      <div className="anomaly-inline-panel-head">
-                        <div>
-                          <p className="anomaly-config-title">{activeAnomaly.label}</p>
-                          <p className="anomaly-config-subtitle">{activeAnomaly.kind === 'state' ? '状态型异常演示' : '独立异常 hit 演示'}</p>
-                        </div>
-                        <button className="anomaly-apply-btn" onClick={handleApplyActiveAnomaly}>加入蓝框</button>
-                      </div>
-
-                      <div className="anomaly-inline-control-grid">
-                        {activeAnomaly.usesAnomalyLevel !== false
-                          ? renderAnomalyDropdown(
-                            `${activeAnomaly.key}-level`,
-                            '异常等级',
-                            `${activeAnomalyLevel} 层`,
-                            activeAnomaly.levelOptions.map((level) => ({ value: level, label: `${level} 层` })),
-                            (value) => setActiveAnomalyLevel(Number(value))
-                          )
-                          : renderAnomalyDropdown(
-                            `${activeAnomaly.key}-level`,
-                            '异常等级',
-                            '不适用',
-                            [],
-                            () => {},
-                            true
-                          )}
-
-                        {activeAnomaly.supportsSource
-                          ? renderAnomalyDropdown(
-                            `${activeAnomaly.key}-source`,
-                            '来源角色',
-                            activeSourceCharacter?.name ?? '未选择',
-                            sourceCharacters.map((character) => ({ value: character.id, label: character.name })),
-                            (value) => setActiveAnomalySourceId(String(value))
-                          )
-                          : activeAnomaly.supportsDotToggle
-                            ? renderAnomalyDropdown(
-                              `${activeAnomaly.key}-mode`,
-                              '结果口径',
-                              includeDotInTotal ? '计入持续段' : '仅初始段',
-                              [
-                                { value: 'include', label: '计入持续段' },
-                                { value: 'initial', label: '仅初始段' },
-                              ],
-                              (value) => setIncludeDotInTotal(value === 'include')
-                            )
-                            : renderAnomalyDropdown(
-                              `${activeAnomaly.key}-mode`,
-                              '结果口径',
-                              '独立 hit',
-                              [],
-                              () => {},
-                              true
-                            )}
-
-                        {activeAnomaly.supportsDuration && (
-                          renderAnomalyDropdown(
-                            `${activeAnomaly.key}-duration`,
-                            '持续时间',
-                            `${activeDurationSeconds || 0}s`,
-                            getAnomalyDurationOptions(activeAnomaly).map((seconds) => ({ value: seconds, label: `${seconds}s` })),
-                            (value) => setActiveDurationSeconds(Number(value))
-                          )
-                        )}
-                      </div>
-
-                      <div className="anomaly-live-preview">
-                        {activeAnomalyPreview ? (
-                          activeAnomalyPreview.lines.map((line) => (
-                            <p key={line} className="anomaly-live-line">{line}</p>
-                          ))
-                        ) : (
-                          <p className="anomaly-live-line">请选择异常项</p>
-                        )}
-                      </div>
-                    </div>
-                  )}
-                </div>
-
-                <div className="skill-anomaly-config">
-                  <div className="skill-anomaly-board skill-anomaly-board-fixed">
-                    <div className="skill-anomaly-board-section">
-                      <p className="skill-anomaly-board-title">已选异常状态</p>
-                      <div className="skill-anomaly-board-list">
-                        {selectedAnomalyStates.length === 0 ? (
-                          <div className="skill-button-buff-empty">导电 / 腐蚀 / 碎甲 会显示在这里</div>
-                        ) : (
-                          selectedAnomalyStates.map((card) => (
-                            <div
-                              key={card.id}
-                              className="anomaly-board-card is-state"
-                              onContextMenu={(e) => {
-                                e.preventDefault();
-                                removeAnomalyCard('state', card.id);
-                              }}
-                              title="右键移除"
-                            >
-                              <span className="anomaly-board-card-title">{card.primaryText}</span>
-                              <span>{card.secondaryText}</span>
-                              {card.tertiaryText ? <span>{card.tertiaryText}</span> : null}
-                            </div>
-                          ))
-                        )}
-                      </div>
-                    </div>
-                    <div className="skill-anomaly-board-section">
-                      <p className="skill-anomaly-board-title">已选异常伤害</p>
-                      <div className="skill-anomaly-board-list">
-                        {selectedAnomalyDamages.length === 0 ? (
-                          <div className="skill-button-buff-empty">猛击 / 碎冰 / 燃烧 / 法爆 会显示在这里</div>
-                        ) : (
-                          selectedAnomalyDamages.map((card) => (
-                            <div
-                              key={card.id}
-                              className="anomaly-board-card is-damage"
-                              onContextMenu={(e) => {
-                                e.preventDefault();
-                                removeAnomalyCard('damage', card.id);
-                              }}
-                              title="右键移除"
-                            >
-                              <span className="anomaly-board-card-title">{card.primaryText}</span>
-                              <span>{card.secondaryText}</span>
-                              {card.tertiaryText ? <span>{card.tertiaryText}</span> : null}
-                            </div>
-                          ))
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* 弹窗3：技能伤害 - Hit 主导版本 */}
+            {/* 弹窗2：技能伤害 - Hit 主导版本 */}
             <div className="skill-button-modal skill-button-modal-damage">
               <h4>技能伤害</h4>
               <div className="modal-content">

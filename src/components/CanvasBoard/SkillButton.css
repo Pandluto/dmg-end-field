@@ -213,6 +213,20 @@
   overflow-x: auto;
   overflow-y: hidden;
   padding: 0 8px 8px;
+  z-index: 1;
+}
+
+.skill-button-modal-pair.is-buff-search-open::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  right: 8px;
+  bottom: 8px;
+  left: 308px;
+  background: rgba(236, 239, 244, 0.74);
+  backdrop-filter: blur(2px);
+  pointer-events: none;
+  z-index: 2;
 }
 
 /* 弹窗容器基础样式 - 两个弹窗共用 */
@@ -305,6 +319,8 @@
 /* 弹窗1：技能信息 */
 .skill-button-modal-info {
   border-right: 1px solid #ddd;
+  position: relative;
+  z-index: 3;
 }
 
 /* 弹窗2：技能伤害 */
@@ -554,8 +570,9 @@
 .anomaly-button-strip {
   display: flex;
   flex-wrap: nowrap;
+  align-items: stretch;
   gap: 4px;
-  overflow: hidden;
+  overflow: visible;
   padding-bottom: 0;
 }
 
@@ -565,11 +582,12 @@
   justify-content: center;
   flex: 1 1 0;
   min-width: 0;
-  min-height: 26px;
-  padding: 0 4px;
+  min-height: 28px;
+  padding: 4px 6px;
   border: 1px solid var(--ide-border-light, #d7d7d7);
   background: #fff;
   font-size: 9px;
+  line-height: 1.2;
   color: #222;
   cursor: pointer;
   white-space: nowrap;
@@ -608,6 +626,7 @@
 
 .anomaly-inline-panel {
   padding: 8px;
+  padding-top: 0px;
   border-top: 1px solid var(--ide-border-light, #d7d7d7);
   background: rgba(244, 247, 244, 0.96);
   border: 1px solid var(--ide-border-light, #d7d7d7);
@@ -1108,6 +1127,162 @@
   margin-top: 8px;
   padding-top: 8px;
   border-top: 1px solid #ddd;
+}
+
+.skill-button-inline-buff-search-mask {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  display: grid;
+  place-items: start center;
+  padding-top: 36px;
+  background: rgba(238, 247, 241, 0.18);
+}
+
+.skill-button-inline-buff-search {
+  width: min(560px, calc(100vw - 80px));
+  max-height: min(520px, calc(100vh - 120px));
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--ide-border-subtle);
+  border-radius: var(--ide-radius-lg);
+  background: var(--ide-acrylic-bg-strong);
+  box-shadow: var(--ide-shadow);
+  backdrop-filter: blur(18px) saturate(1.2);
+}
+
+.skill-button-inline-buff-search.is-anomaly-mode {
+  width: min(560px, calc(100vw - 80px));
+  max-height: min(520px, calc(100vh - 120px));
+  overflow: hidden;
+}
+
+.skill-button-inline-buff-search.is-anomaly-mode .skill-anomaly-layout {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.skill-button-inline-buff-search.is-anomaly-mode .skill-anomaly-tree {
+  flex: 1 1 auto;
+  min-height: 0;
+  padding-bottom: 6px;
+}
+
+.skill-button-inline-buff-search.is-anomaly-mode .skill-anomaly-config {
+  flex: 0 0 auto;
+}
+
+.skill-button-inline-buff-search.is-anomaly-mode .skill-anomaly-board-fixed {
+  position: static;
+  bottom: auto;
+  box-shadow: none;
+}
+
+.skill-button-inline-buff-search-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.skill-button-inline-buff-search-head h5 {
+  margin: 0;
+  font-size: 13px;
+  color: var(--ide-text-main);
+}
+
+.skill-button-inline-buff-search-head span {
+  font-size: 11px;
+  color: var(--ide-text-muted);
+}
+
+.skill-button-inline-buff-search-modes {
+  display: flex;
+  gap: 6px;
+}
+
+.skill-button-inline-buff-search-mode {
+  border: 1px solid var(--ide-border-subtle);
+  background: rgba(255, 255, 255, 0.82);
+  color: var(--ide-text-muted);
+  font: inherit;
+  font-size: 11px;
+  padding: 5px 8px;
+  cursor: pointer;
+}
+
+.skill-button-inline-buff-search-mode.is-active {
+  background: rgba(232, 248, 238, 0.94);
+  color: var(--ide-accent-strong);
+  border-color: var(--ide-border-medium);
+}
+
+.skill-button-inline-buff-search-input {
+  width: 100%;
+  min-width: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--ide-border-subtle);
+  border-radius: var(--ide-radius-sm);
+  background: rgba(255, 255, 255, 0.86);
+  color: var(--ide-text-main);
+  font: inherit;
+  font-size: 12px;
+  box-sizing: border-box;
+}
+
+.skill-button-inline-buff-search-results {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  overflow: auto;
+}
+
+.skill-button-inline-buff-search-item {
+  display: grid;
+  gap: 4px;
+  padding: 8px 10px;
+  border: 1px solid var(--ide-border-subtle);
+  border-radius: var(--ide-radius-sm);
+  background: rgba(255, 255, 255, 0.84);
+  color: var(--ide-text-main);
+  text-align: left;
+  cursor: pointer;
+}
+
+.skill-button-inline-buff-search-item:hover {
+  border-color: var(--ide-border-medium);
+  background: rgba(232, 248, 238, 0.92);
+}
+
+.local-buff-search-item-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.local-buff-search-item-head strong {
+  font-size: 12px;
+  color: var(--ide-text-main);
+}
+
+.local-buff-search-item-head span,
+.skill-button-inline-buff-search-item p {
+  margin: 0;
+  font-size: 11px;
+  color: var(--ide-text-muted);
+}
+
+.skill-button-inline-buff-search-empty {
+  padding: 12px;
+  border: 1px dashed var(--ide-border-subtle);
+  border-radius: var(--ide-radius-sm);
+  font-size: 12px;
+  color: var(--ide-text-muted);
+  background: rgba(255, 255, 255, 0.62);
 }
 
 .skill-damage-expand-title {
