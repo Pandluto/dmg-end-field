@@ -1,6 +1,12 @@
 import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import type { CSSProperties } from 'react';
-import { SkillButton as SkillButtonType, SKILL_LABELS, TimelineData } from '../../types';
+import {
+  SkillButton as SkillButtonType,
+  SkillButtonSkillChangePayload,
+  SkillButtonSkillOption,
+  SKILL_LABELS,
+  TimelineData,
+} from '../../types';
 import { getElementBackgroundColor } from '../../utils/assetResolver';
 import {
   removeSkillButtonBuff,
@@ -27,7 +33,8 @@ import {
 import type { ResolvedSkillDamageTemplate } from '../../core/calculators/skillDamage.types';
 import { resolveSkillDamageTemplate } from '../../core/services/skillDamageTemplateResolver';
 import { useAppContext } from '../../context/AppContext';
-import { emitSkillButtonBuffRemoved, onSkillButtonBuffAdded } from '../../core/events/buffEvents';
+import { emitSkillButtonBuffAdded, emitSkillButtonBuffRemoved, onSkillButtonBuffAdded } from '../../core/events/buffEvents';
+import { buildBuffSearchIndex, searchBuffs } from '../../utils/buffFuzzySearch';
 import './SkillButton.css';
 
 type AnomalyCardKind = 'state' | 'damage';
@@ -262,10 +269,25 @@ interface SkillButtonProps {
   onConfirmRemove?: () => void;
   onCloseContextMenu?: () => void;
   onCopy?: () => void;
-  onChangeSkillType?: (buttonId: string, nextSkillType: 'A' | 'B' | 'E' | 'Q') => void;
+  onChangeSkillType?: (payload: SkillButtonSkillChangePayload) => void;
+  skillChangeOptions?: SkillButtonSkillOption[];
 }
 
-export function SkillButtonComponent({ button, size, onMouseDown, onContextMenu, timelineData, onModalOpen, onModalClose, contextMenuState, onConfirmRemove, onCloseContextMenu, onCopy, onChangeSkillType }: SkillButtonProps) {
+export function SkillButtonComponent({
+  button,
+  size,
+  onMouseDown,
+  onContextMenu,
+  timelineData,
+  onModalOpen,
+  onModalClose,
+  contextMenuState,
+  onConfirmRemove,
+  onCloseContextMenu,
+  onCopy,
+  onChangeSkillType,
+  skillChangeOptions = [],
+}: SkillButtonProps) {
   /**
    * position.y 语义约定（v1.1.0+）：
    * - position.x: 按钮碰撞箱左边界（原始值，未做视觉偏移）
@@ -367,28 +389,28 @@ export function SkillButtonComponent({ button, size, onMouseDown, onContextMenu,
   const activeBuffSearchEntries = buffSearchMode === 'candidate'
     ? candidateBuffSearchEntries
     : localBuffSearchEntries;
+  const activeBuffSearchIndex = useMemo(() => buildBuffSearchIndex(
+    activeBuffSearchEntries,
+    (entry) => [
+      entry.displayName,
+      entry.name,
+      entry.groupName,
+      entry.itemName,
+      entry.type,
+      entry.description,
+      entry.condition,
+      entry.sourceName,
+    ]
+  ), [activeBuffSearchEntries]);
   const localBuffSearchResults = useMemo(() => {
     if (buffSearchMode === 'anomaly') {
       return [];
     }
-    const keyword = localBuffSearchKeyword.trim().toLowerCase();
-    if (!keyword) {
+    if (!localBuffSearchKeyword.trim()) {
       return [];
     }
-    return activeBuffSearchEntries.filter((entry) => {
-      const haystack = [
-        entry.displayName,
-        entry.name,
-        entry.groupName,
-        entry.itemName,
-        entry.type || '',
-        entry.description || '',
-        entry.condition || '',
-        entry.sourceName,
-      ].join('|').toLowerCase();
-      return haystack.includes(keyword);
-    }).slice(0, 50);
-  }, [activeBuffSearchEntries, buffSearchMode, localBuffSearchKeyword]);
+    return searchBuffs(localBuffSearchKeyword, activeBuffSearchIndex).slice(0, 50);
+  }, [activeBuffSearchIndex, buffSearchMode, localBuffSearchKeyword]);
 
   const loadPersistedAnomalyCards = useCallback(() => {
     const persistedButton = getSkillButtonById(button.id);
@@ -407,6 +429,11 @@ export function SkillButtonComponent({ button, size, onMouseDown, onContextMenu,
     setIsLocalBuffSearchOpen(true);
     setBuffSearchMode('local');
   }, []);
+
+  const handleCloseModal = useCallback(() => {
+    setIsModalOpen(false);
+    onModalClose?.();
+  }, [onModalClose]);
 
   useEffect(() => {
     if (!isLocalBuffSearchOpen) {
@@ -452,6 +479,12 @@ export function SkillButtonComponent({ button, size, onMouseDown, onContextMenu,
         return;
       }
 
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        handleCloseModal();
+        return;
+      }
+
       if (event.key === 'Tab' && !event.shiftKey && !isEditable) {
         event.preventDefault();
         openLocalBuffSearch();
@@ -460,28 +493,7 @@ export function SkillButtonComponent({ button, size, onMouseDown, onContextMenu,
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [closeLocalBuffSearch, isLocalBuffSearchOpen, isModalOpen, openLocalBuffSearch]);
-
-  const handleApplyLocalBuffSearchResult = useCallback((entry: LocalBuffSearchResult) => {
-    const result = addSkillButtonBuff(button.id, {
-      name: entry.name,
-      displayName: entry.displayName,
-      sourceName: entry.sourceName,
-      level: entry.level || '',
-      type: entry.type,
-      value: entry.value,
-      description: entry.description,
-      source: entry.source,
-      condition: entry.condition,
-      refCount: 1,
-    });
-
-    if (result.success) {
-      recomputeSkillButtonPanel(button.id);
-      loadBuffList();
-      closeLocalBuffSearch();
-    }
-  }, [button.id, closeLocalBuffSearch, loadBuffList]);
+  }, [closeLocalBuffSearch, handleCloseModal, isLocalBuffSearchOpen, isModalOpen, openLocalBuffSearch]);
 
   const persistAnomalyCards = useCallback((nextStates: SelectedAnomalyCard[], nextDamages: SelectedAnomalyCard[]) => {
     const persistedButton = getSkillButtonById(button.id);
@@ -568,6 +580,33 @@ export function SkillButtonComponent({ button, size, onMouseDown, onContextMenu,
       setInfoSnap({});
     }
   }, [button.characterId, button.id]);
+
+  const handleApplyLocalBuffSearchResult = useCallback((entry: LocalBuffSearchResult) => {
+    const result = addSkillButtonBuff(button.id, {
+      name: entry.name,
+      displayName: entry.displayName,
+      sourceName: entry.sourceName,
+      level: entry.level || '',
+      type: entry.type,
+      value: entry.value,
+      description: entry.description,
+      source: entry.source,
+      condition: entry.condition,
+      refCount: 1,
+    });
+
+    if (result.success) {
+      recomputeSkillButtonPanel(button.id);
+      if (result.buffId) {
+        emitSkillButtonBuffAdded(button.id, result.buffId);
+      } else {
+        // 防御兜底：极端情况下没有 buffId 时，仍然同步当前弹窗本地状态
+        loadBuffList();
+        loadPanelData();
+      }
+      closeLocalBuffSearch();
+    }
+  }, [button.id, closeLocalBuffSearch, loadBuffList, loadPanelData]);
 
   /**
    * 移除指定 Buff
@@ -1144,14 +1183,6 @@ export function SkillButtonComponent({ button, size, onMouseDown, onContextMenu,
   }, [button.id, timelineData]);
 
   /**
-   * 关闭弹窗
-   */
-  const handleCloseModal = useCallback(() => {
-    setIsModalOpen(false);
-    onModalClose?.();
-  }, [onModalClose]);
-
-  /**
    * 图标加载成功时：隐藏圆形图标内的兜底技能字母，底座文字继续显示。
    */
   const handleIconLoad = () => {
@@ -1510,18 +1541,21 @@ export function SkillButtonComponent({ button, size, onMouseDown, onContextMenu,
               <span className="context-menu-submenu-arrow">▶</span>
             </div>
             <div className="context-menu-submenu">
-              {(['A', 'B', 'E', 'Q'] as const).filter(type => type !== skillType).map((type) => (
+              {skillChangeOptions.map((option, index) => (
                 <button
-                  key={type}
+                  key={`${option.nextRuntimeSkillId ?? option.nextSkillType}-${index}`}
                   className="context-menu-item"
                   onClick={(e) => {
                     e.stopPropagation();
                     e.preventDefault();
-                    onChangeSkillType?.(button.id, type);
+                    onChangeSkillType?.({
+                      buttonId: button.id,
+                      ...option,
+                    });
                     onCloseContextMenu?.();
                   }}
                 >
-                  {`改为${type}`}
+                  {`改为${option.nextSkillType} / ${option.nextSkillDisplayName ?? option.nextSkillType}`}
                 </button>
               ))}
             </div>

@@ -120,6 +120,12 @@
   border-color: var(--ide-border-medium);
 }
 
+.workbench-top-trigger.is-active {
+  background: var(--bg-accent);
+  color: var(--text-inverse, #fff);
+  border-color: var(--ide-accent);
+}
+
 .workbench-trigger-text {
   color: var(--text-primary);
   font-weight: 500;
@@ -157,6 +163,19 @@
 .workbench-selection-bottom-bar > .workbench-top-trigger:last-child {
   grid-column: 3;
   justify-self: end;
+}
+
+.workbench-bottom-actions {
+  grid-column: 3;
+  justify-self: end;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  pointer-events: auto;
+}
+
+.workbench-bottom-actions > .workbench-top-trigger {
+  justify-self: auto;
 }
 
 /* 选人界面布局 */

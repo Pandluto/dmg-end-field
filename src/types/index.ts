@@ -103,6 +103,18 @@ export interface SandboxSkill {
   customHits?: SandboxSkillHit[];
 }
 
+export interface SkillButtonSkillOption {
+  nextSkillType: SkillType;
+  nextRuntimeSkillId?: string;
+  nextSkillDisplayName?: string;
+  nextSkillIconUrl?: string;
+  nextCustomHits?: SandboxSkillHit[];
+}
+
+export interface SkillButtonSkillChangePayload extends SkillButtonSkillOption {
+  buttonId: string;
+}
+
 /**
  * 干员完整数据
  * 从 public/data/characters/*.json 加载，包含属性、技能、天赋、潜能等
@@ -292,6 +304,7 @@ export const DEFAULT_CANVAS_CONFIG: CanvasConfig = {
  */
 export interface SkillButtonData {
   id: string;              // 按钮唯一 ID
+  characterId?: string;    // 干员 ID（用于和本地角色配置缓存对齐）
   characterName: string;   // 干员名称（如：陈千语）
   skillType: SkillType;    // 技能类型 A/B/E/Q
   staffIndex: number;      // 干员索引（0=管理员, 1=干员2, 2=干员3, 3=干员4）

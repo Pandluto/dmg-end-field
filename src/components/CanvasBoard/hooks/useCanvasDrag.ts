@@ -42,6 +42,7 @@ interface UseCanvasDragProps {
   canvasRef: React.RefObject<HTMLDivElement | null>;
   dispatch: React.Dispatch<any>;
   addTimelineButton?: (buttonData: {
+    characterId?: string;
     characterName: string;
     skillType: SkillType;
     staffIndex: number;
@@ -341,6 +342,7 @@ export function useCanvasDrag({
                   const persistenceStaffIndex = lineIndex;
                   const persistenceNodeIndex = staffIndex * GRID_NODE_COUNT + nodeIndex;
                   addTimelineButton({
+                    characterId: draggingState.characterId,
                     characterName: draggingState.characterName,
                     skillType: draggingState.skillType,
                     staffIndex: persistenceStaffIndex,

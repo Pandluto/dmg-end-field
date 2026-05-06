@@ -4,7 +4,7 @@
  */
 
 import { useState, useCallback, useRef, useEffect } from 'react';
-import { SkillButtonData, TimelineData } from '../types';
+import { SkillButtonData, SkillButtonSkillChangePayload, TimelineData } from '../types';
 import { STORAGE_KEYS } from '../constants/storage-keys';
 import { setStorageJson } from '../utils/storage';
 import {
@@ -106,19 +106,16 @@ export function useTimelineData(selectedCharacters: { name: string }[]) {
   }, []);
 
   /**
-   * 更新技能按钮类型
-   * @param buttonId - 按钮 ID
-   * @param nextSkillType - 新的技能类型
+   * 更新技能按钮技能真相
+   * @param payload - 完整技能切换 payload
    * @returns 更新后的 SkillButtonData 或 null
    */
   const updateSkillButtonType = useCallback((
-    buttonId: string,
-    nextSkillType: 'A' | 'B' | 'E' | 'Q'
+    payload: SkillButtonSkillChangePayload
   ): SkillButtonData | null => {
     const { updatedButton, newTimelineData } = updateSkillButtonTypeService(
       timelineDataRef.current,
-      buttonId,
-      nextSkillType
+      payload
     );
     setTimelineData(newTimelineData);
     return updatedButton;

@@ -10,7 +10,13 @@ import { ToolPanel } from '../ToolPanel';
 import { DraggingOverlay } from './components/DraggingOverlay';
 import { OperatorConfigPanel } from './components/OperatorConfigPanel';
 import { Toolbar } from './components/Toolbar';
-import { SkillButton } from '../../types';
+import {
+  Character,
+  SandboxSkill,
+  SkillButton,
+  SkillButtonSkillChangePayload,
+  SkillButtonSkillOption,
+} from '../../types';
 import { resolveSkillIconUrl } from '../../utils/assetResolver';
 import { migrateOldBuffStorage } from '../../utils/migrateStorage';
 import { onSkillButtonBuffAdded, onSkillButtonBuffRemoved } from '../../core/events/buffEvents';
@@ -30,6 +36,7 @@ import {
 } from '../../core/calculators/gridSnapLayout';
 import { getSkillButtonById } from '../../core/repositories';
 import { attachExistingBuffsToButton } from '../../core/services/buffService';
+import { getRuntimeOperatorTemplateById } from '../../utils/storage';
 import './CanvasBoard.css';
 
 /**
@@ -39,6 +46,29 @@ import './CanvasBoard.css';
  * - 标准 Y 的语义始终是“底座中线”
  */
 const POSITION_Y_SEMANTIC_VERSION = '1.1.0';
+
+function buildSandboxSkillsFromRuntimeTemplate(characterId: string): SandboxSkill[] {
+  const template = getRuntimeOperatorTemplateById(characterId);
+  if (!template) {
+    return [];
+  }
+
+  return template.skills.map((skill) => ({
+    id: skill.id,
+    displayName: skill.displayName,
+    buttonType: skill.buttonType,
+    iconUrl: skill.iconUrl,
+    hitCount: skill.hitCount,
+    source: template.source,
+    customHits: skill.hits.map((hit) => ({
+      key: hit.key,
+      displayName: hit.displayName,
+      multiplier: hit.multiplier,
+      element: hit.element,
+      skillType: hit.skillType,
+    })),
+  }));
+}
 
 interface CanvasBoardProps {
   workbenchMode?: 'selection' | 'timeline' | 'toolPanel';
@@ -212,6 +242,63 @@ export function CanvasBoard({
 
   const [copyHintMousePosition, setCopyHintMousePosition] = useState({ x: 0, y: 0 });
 
+  const findCharacterForButton = (button: SkillButton): Character | undefined => {
+    return selectedCharacters.find((character) => character.id === button.characterId)
+      ?? selectedCharacters.find((character) => character.name === button.characterName);
+  };
+
+  const getCharacterSkillList = (button: SkillButton): SandboxSkill[] => {
+    const character = findCharacterForButton(button);
+    if (Array.isArray(character?.sandboxSkills) && character.sandboxSkills.length > 0) {
+      return character.sandboxSkills;
+    }
+
+    const runtimeSkills = buildSandboxSkillsFromRuntimeTemplate(character?.id ?? button.characterId);
+    if (runtimeSkills.length > 0) {
+      return runtimeSkills;
+    }
+
+    if (!character) {
+      return [];
+    }
+
+    return (['A', 'B', 'E', 'Q'] as const).map((skillType) => ({
+      id: `fallback-${character.id}-${skillType}`,
+      displayName: skillType,
+      buttonType: skillType,
+      iconUrl: character.skillIconMap?.[skillType] ?? resolveSkillIconUrl(character.name, skillType),
+      hitCount: 1,
+      source: character.librarySource ?? 'official',
+    }));
+  };
+
+  const isSameSkillOption = (button: SkillButton, option: SkillButtonSkillOption): boolean => {
+    if (button.runtimeSkillId && option.nextRuntimeSkillId) {
+      return button.runtimeSkillId === option.nextRuntimeSkillId;
+    }
+
+    if (button.skillDisplayName && option.nextSkillDisplayName) {
+      return button.skillType === option.nextSkillType && button.skillDisplayName === option.nextSkillDisplayName;
+    }
+
+    return button.skillType === option.nextSkillType && !button.runtimeSkillId;
+  };
+
+  const getSkillChangeOptions = (button: SkillButton): SkillButtonSkillOption[] => {
+    const character = findCharacterForButton(button);
+    return getCharacterSkillList(button)
+      .map((skill) => ({
+        nextSkillType: skill.buttonType,
+        nextRuntimeSkillId: skill.id,
+        nextSkillDisplayName: skill.displayName,
+        nextSkillIconUrl: skill.iconUrl
+          ?? character?.skillIconMap?.[skill.buttonType]
+          ?? resolveSkillIconUrl(button.characterName, skill.buttonType),
+        nextCustomHits: skill.customHits,
+      }))
+      .filter((option) => !isSameSkillOption(button, option));
+  };
+
   useEffect(() => {
     if (!pendingCopy) return;
 
@@ -294,26 +381,47 @@ export function CanvasBoard({
     });
   };
 
-  const handleChangeSkillType = (buttonId: string, nextSkillType: 'A' | 'B' | 'E' | 'Q') => {
-    const button = skillButtons.find(item => item.id === buttonId);
+  const handleChangeSkillType = (payload: SkillButtonSkillChangePayload) => {
+    const button = skillButtons.find(item => item.id === payload.buttonId);
     if (!button) return;
 
-    const result = updateTimelineButtonType(buttonId, nextSkillType);
-    if (!result) {
-      console.warn(`[改类型] 失败: 按钮 ${buttonId} 不存在于 timelineData`);
+    const resolvedTarget = getSkillChangeOptions(button).find((option) => {
+      if (payload.nextRuntimeSkillId && option.nextRuntimeSkillId) {
+        return option.nextRuntimeSkillId === payload.nextRuntimeSkillId;
+      }
+      if (payload.nextSkillDisplayName && option.nextSkillDisplayName) {
+        return option.nextSkillType === payload.nextSkillType && option.nextSkillDisplayName === payload.nextSkillDisplayName;
+      }
+      return option.nextSkillType === payload.nextSkillType;
+    });
+
+    if (!resolvedTarget) {
+      console.warn(`[改类型] 失败: 按钮 ${payload.buttonId} 未找到目标技能项`);
       return;
     }
 
-    const newSkillIconUrl = resolveSkillIconUrl(button.characterName, nextSkillType);
+    const result = updateTimelineButtonType({
+      buttonId: payload.buttonId,
+      ...resolvedTarget,
+    });
+    if (!result) {
+      console.warn(`[改类型] 失败: 按钮 ${payload.buttonId} 不存在于 timelineData`);
+      return;
+    }
 
     dispatch({
       type: 'UPDATE_SKILL_BUTTON_TYPE',
-      buttonId,
-      skillType: nextSkillType,
-      skillIconUrl: newSkillIconUrl,
+      buttonId: payload.buttonId,
+      skillType: result.skillType ?? resolvedTarget.nextSkillType,
+      runtimeSkillId: result.runtimeSkillId,
+      skillDisplayName: result.skillDisplayName,
+      skillIconUrl: result.skillIconUrl,
+      customHits: result.customHits,
     });
 
-    console.log(`[改类型] buttonId=${buttonId}, ${button.skillType} -> ${nextSkillType}, 图标已更新`);
+    console.log(
+      `[改类型] buttonId=${payload.buttonId}, ${button.skillType} -> ${resolvedTarget.nextSkillType}, runtimeSkillId=${resolvedTarget.nextRuntimeSkillId ?? 'N/A'}`
+    );
   };
 
   const handleCanvasClick = () => {
@@ -396,6 +504,7 @@ export function CanvasBoard({
     const persistenceStaffIndex = targetLineIndex;
     const persistenceNodeIndex = targetStaffIndex * GRID_NODE_COUNT + targetNodeIndex;
     addTimelineButton({
+      characterId: sourceButtonRuntime.characterId,
       characterName: sourceButtonRuntime.characterName,
       skillType: sourceButtonRuntime.skillType,
       staffIndex: persistenceStaffIndex,
@@ -466,6 +575,7 @@ export function CanvasBoard({
             onCloseContextMenu={handleCloseButtonContextMenu}
             onCopy={handleCopySkillButton}
             onChangeSkillType={handleChangeSkillType}
+            getSkillChangeOptions={getSkillChangeOptions}
           />
         </div>
 

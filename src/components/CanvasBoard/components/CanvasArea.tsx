@@ -1,6 +1,6 @@
 import { forwardRef } from 'react';
 import type { MouseEvent } from 'react';
-import { Character, SkillButton, CanvasConfig } from '../../../types';
+import { Character, SkillButton, CanvasConfig, SkillButtonSkillChangePayload, SkillButtonSkillOption } from '../../../types';
 import { SkillButtonComponent } from '../SkillButton';
 import type { TimelineData } from '../../../types';
 import {
@@ -27,7 +27,8 @@ interface CanvasAreaProps {
   onConfirmRemove?: () => void;
   onCloseContextMenu?: () => void;
   onCopy?: () => void;
-  onChangeSkillType?: (buttonId: string, nextSkillType: 'A' | 'B' | 'E' | 'Q') => void;
+  onChangeSkillType?: (payload: SkillButtonSkillChangePayload) => void;
+  getSkillChangeOptions?: (button: SkillButton) => SkillButtonSkillOption[];
 }
 
 // 表格行列标注：0行显示字母(A-O)，0列显示数字(1-8)
@@ -50,6 +51,7 @@ export const CanvasArea = forwardRef<HTMLDivElement, CanvasAreaProps>(({
   onCloseContextMenu,
   onCopy,
   onChangeSkillType,
+  getSkillChangeOptions,
 }, canvasRef) => {
   const renderSkillButtons = () => {
     return skillButtons
@@ -68,6 +70,7 @@ export const CanvasArea = forwardRef<HTMLDivElement, CanvasAreaProps>(({
           onCloseContextMenu={onCloseContextMenu}
           onCopy={onCopy}
           onChangeSkillType={onChangeSkillType}
+          skillChangeOptions={getSkillChangeOptions?.(button) ?? []}
         />
       ));
   };

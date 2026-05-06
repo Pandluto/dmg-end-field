@@ -94,17 +94,6 @@ export function WorkbenchFrame() {
     setWorkbenchMode('timeline');
   }, [currentView, dispatch]);
 
-  useEffect(() => {
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        closeDrawer();
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [closeDrawer]);
-
   const shouldShowToolPanel = (
     workbenchMode === 'toolPanel' ||
     forceShowToolPanel
@@ -130,14 +119,26 @@ export function WorkbenchFrame() {
       <span className="workbench-trigger-status">已选 {selectedCharacters.length}/4</span>
     </button>
   );
-  const handleOpenStorageDebug = useCallback(() => {
-    window.location.assign('/storage');
+  const handleOpenOperatorDraft = useCallback(() => {
+    window.location.assign('/draft');
   }, []);
 
-  const storageDebugControl = (
-    <button className="workbench-top-trigger" type="button" onClick={handleOpenStorageDebug}>
-      <span className="workbench-trigger-text">存储调试</span>
-    </button>
+  const handleOpenBuffDraft = useCallback(() => {
+    window.location.assign('/buff-draft');
+  }, []);
+
+  const bottomNavControls = (
+    <div className="workbench-bottom-actions">
+      <button className="workbench-top-trigger is-active" type="button">
+        <span className="workbench-trigger-text">主界面</span>
+      </button>
+      <button className="workbench-top-trigger" type="button" onClick={handleOpenOperatorDraft}>
+        <span className="workbench-trigger-text">编辑干员</span>
+      </button>
+      <button className="workbench-top-trigger" type="button" onClick={handleOpenBuffDraft}>
+        <span className="workbench-trigger-text">编辑BUFF</span>
+      </button>
+    </div>
   );
 
   useEffect(() => {
@@ -197,7 +198,7 @@ export function WorkbenchFrame() {
             </div>
             <div className="workbench-selection-bottom-bar">
               {workbenchControl}
-              {storageDebugControl}
+              {bottomNavControls}
             </div>
           </div>
         )}
@@ -212,7 +213,7 @@ export function WorkbenchFrame() {
             onCloseOperatorConfig={closeOperatorConfig}
             onOpenOperatorConfig={openOperatorConfig}
             workbenchControl={workbenchControl}
-            bottomRightControl={storageDebugControl}
+            bottomRightControl={bottomNavControls}
             isWorkbenchTopZoneOpen={isDrawerOpen}
           />
         )}

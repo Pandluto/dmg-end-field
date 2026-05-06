@@ -495,6 +495,30 @@ export function OperatorConfigPanel({
   }, [isWeaponDrawerOpen, isWeaponDataDrawerOpen, isCtiDrawerOpen, isEquipCopyDrawerOpen]);
 
   React.useEffect(() => {
+    if (!isOpen) {
+      return;
+    }
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') {
+        return;
+      }
+
+      if (isCtiDrawerOpen) {
+        setIsCtiDrawerOpen(false);
+        return;
+      }
+
+      onClose();
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isCtiDrawerOpen, isOpen, onClose]);
+
+  React.useEffect(() => {
     setIsWeaponDrawerOpen(false);
     setIsWeaponDataDrawerOpen(false);
     setIsCtiDrawerOpen(false);

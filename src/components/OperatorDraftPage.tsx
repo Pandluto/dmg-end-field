@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { pinyin } from 'pinyin-pro';
 import './OperatorDraftPage.css';
 import assetPathsRaw from '../../asset-paths.txt?raw';
 import { loadReferenceOperatorDraft, loadReferenceOperatorNames } from './operatorDraftReference';
+import { buildWeaponSearchIndex, searchWeapons } from '../utils/weaponFuzzySearch';
 
 const DRAFT_PAGE_PATH = '/draft';
 const DRAFT_STORAGE_KEY = 'ddd.operator-editor.draft.v1';
@@ -116,6 +118,30 @@ function createDefaultDraft(): OperatorDraft {
   };
 }
 
+function createEmptyDraft(nextId = 'custom-operator-001'): OperatorDraft {
+  return {
+    ...createDefaultDraft(),
+    id: nextId,
+    name: '新建干员',
+    skills: {},
+  };
+}
+
+function buildOperatorIdFromName(name: string) {
+  const trimmedName = name.trim();
+  if (!trimmedName) {
+    return '';
+  }
+  const rawPinyin = pinyin(trimmedName, { toneType: 'none', type: 'array' })
+    .map((item) => String(item).toLowerCase().replace(/[^a-z0-9]/g, ''))
+    .filter(Boolean)
+    .join('');
+  const normalized = (rawPinyin || trimmedName.toLowerCase())
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+  return normalized;
+}
+
 function isDraftPath(pathname: string) {
   return pathname === DRAFT_PAGE_PATH;
 }
@@ -162,6 +188,14 @@ function getNextSkillKey(draft: OperatorDraft) {
   return `skill-${index}`;
 }
 
+function getNextDraftId(existingIds: string[]) {
+  let index = 1;
+  while (existingIds.includes(`custom-operator-${String(index).padStart(3, '0')}`)) {
+    index += 1;
+  }
+  return `custom-operator-${String(index).padStart(3, '0')}`;
+}
+
 function getNextHitKey(skill: SkillDraft) {
   let index = 1;
   while (skill.hitMeta[`hit${index}`]) {
@@ -199,6 +233,30 @@ function buildOrderedDraft(draft: OperatorDraft, skillOrder: string[]) {
   const nextOrder = syncSkillOrderWithDraft(skillOrder, draft);
   nextOrder.forEach((skillKey) => {
     nextSkills[skillKey] = draft.skills[skillKey];
+  });
+  return {
+    ...draft,
+    skills: nextSkills,
+  };
+}
+
+function reorderDraftStructure(draft: OperatorDraft): OperatorDraft {
+  const nextSkills: Record<string, SkillDraft> = {};
+  const orderedSkillKeys = Object.keys(draft.skills);
+  orderedSkillKeys.forEach((skillKey, skillIndex) => {
+    const nextSkillKey = `skill-${skillIndex + 1}`;
+    const skill = cloneDraft(draft.skills[skillKey]);
+    const nextHitMeta: Record<string, HitMetaDraft> = {};
+    Object.entries(skill.hitMeta).forEach(([, hit], hitIndex) => {
+      const nextHitKey = `hit${hitIndex + 1}`;
+      nextHitMeta[nextHitKey] = {
+        ...hit,
+        displayName: hit.displayName?.trim() ? hit.displayName : createDefaultHit(nextHitKey).displayName,
+      };
+    });
+    skill.hitMeta = nextHitMeta;
+    syncHitCount(skill);
+    nextSkills[nextSkillKey] = skill;
   });
   return {
     ...draft,
@@ -291,6 +349,78 @@ function renderMiniMarkdown(markdown: string): ReactNode[] {
   return nodes;
 }
 
+interface SearchablePathSelectProps {
+  value: string;
+  options: string[];
+  placeholder: string;
+  onChange: (value: string) => void;
+}
+
+function SearchablePathSelect({ value, options, placeholder, onChange }: SearchablePathSelectProps) {
+  const [keyword, setKeyword] = useState(value);
+  const [isOpen, setIsOpen] = useState(false);
+  const searchIndex = useMemo(() => buildWeaponSearchIndex(options), [options]);
+  const matchedOptions = useMemo(() => {
+    const trimmed = keyword.trim();
+    if (!trimmed) {
+      return options.slice(0, 40);
+    }
+    const results = searchWeapons(trimmed, searchIndex);
+    return results.slice(0, 40);
+  }, [keyword, options, searchIndex]);
+
+  useEffect(() => {
+    setKeyword(value);
+  }, [value]);
+
+  return (
+    <div className="operator-draft-searchable-select">
+      <input
+        value={keyword}
+        onChange={(event) => {
+          const nextKeyword = event.target.value;
+          setKeyword(nextKeyword);
+          setIsOpen(true);
+          if (!nextKeyword.trim()) {
+            onChange('');
+          }
+        }}
+        onFocus={() => setIsOpen(true)}
+        onBlur={() => {
+          window.setTimeout(() => {
+            setIsOpen(false);
+            setKeyword(value);
+          }, 120);
+        }}
+        placeholder={placeholder}
+      />
+      {isOpen ? (
+        <div className="operator-draft-searchable-select-list">
+          {matchedOptions.length ? (
+            matchedOptions.map((option) => (
+              <button
+                type="button"
+                key={option}
+                className={`operator-draft-searchable-option${value === option ? ' is-active' : ''}`}
+                onMouseDown={(event) => {
+                  event.preventDefault();
+                  setKeyword(option);
+                  onChange(option);
+                  setIsOpen(false);
+                }}
+              >
+                {option}
+              </button>
+            ))
+          ) : (
+            <div className="operator-draft-searchable-empty">无匹配结果</div>
+          )}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 export { isDraftPath };
 
 export function OperatorDraftPage() {
@@ -308,6 +438,12 @@ export function OperatorDraftPage() {
   const [draggingSkillKey, setDraggingSkillKey] = useState<string | null>(null);
   const [dragOverSkillKey, setDragOverSkillKey] = useState<string | null>(null);
   const [jsonImportText, setJsonImportText] = useState('');
+  const [isExportJsonModalOpen, setIsExportJsonModalOpen] = useState(false);
+  const [isImportJsonModalOpen, setIsImportJsonModalOpen] = useState(false);
+  const [isDeleteLocalDraftModalOpen, setIsDeleteLocalDraftModalOpen] = useState(false);
+  const [isOverwriteDraftModalOpen, setIsOverwriteDraftModalOpen] = useState(false);
+  const [isOverwriteProtectionEnabled, setIsOverwriteProtectionEnabled] = useState(true);
+  const [loadedLocalDraftId, setLoadedLocalDraftId] = useState<string | null>(null);
 
   useEffect(() => {
     const skillKeys = Object.keys(draft.skills);
@@ -383,6 +519,20 @@ export function OperatorDraftPage() {
     }
   }, [draft, selectedSkillKey, selectedHitKey]);
 
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 's') {
+        event.preventDefault();
+        handleSaveDraft({
+          allowOverwriteOnConflict: !isOverwriteProtectionEnabled,
+        });
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [draft, skillOrder, isOverwriteProtectionEnabled]);
+
   const selectedSkill = selectedSkillKey ? draft.skills[selectedSkillKey] : null;
   const selectedHit = selectedSkill && selectedHitKey ? selectedSkill.hitMeta[selectedHitKey] : null;
 
@@ -416,7 +566,17 @@ export function OperatorDraftPage() {
   }, [draft, orderedDraft]);
 
   const updateOperatorField = <K extends keyof OperatorDraft>(field: K, value: OperatorDraft[K]) => {
-    setDraft((prev) => ({ ...prev, [field]: value }));
+    setDraft((prev) => {
+      if (field === 'name') {
+        const nextName = String(value);
+        return {
+          ...prev,
+          name: nextName,
+          id: buildOperatorIdFromName(nextName) || prev.id,
+        };
+      }
+      return { ...prev, [field]: value };
+    });
   };
 
   const updateAttributeField = (field: keyof OperatorDraft['attributes'], value: number) => {
@@ -505,26 +665,87 @@ export function OperatorDraftPage() {
         avatarAssetOptions: AVATAR_ASSET_OPTIONS,
       });
       loadDraftIntoEditor(nextDraft, `[OK] 已导入参考干员：${selectedReferenceName}`);
+      setLoadedLocalDraftId(null);
     } catch (error) {
       const message = error instanceof Error ? error.message : '参考干员导入失败';
       setMessages((prev) => [`[ERR] ${message}`, ...prev].slice(0, 12));
     }
   };
 
-  const handleSaveDraft = () => {
-    window.localStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify(orderedDraft));
+  const persistDraftToLibrary = (allowOverwrite: boolean) => {
     const raw = window.localStorage.getItem(LIBRARY_STORAGE_KEY);
     const library = raw ? (JSON.parse(raw) as Record<string, OperatorDraft>) : {};
+    if (!orderedDraft.id.trim()) {
+      setMessages((prev) => ['[ERR] 干员 ID 不能为空', ...prev].slice(0, 12));
+      return false;
+    }
+    if (library[orderedDraft.id] && loadedLocalDraftId !== orderedDraft.id && !allowOverwrite) {
+      setIsOverwriteDraftModalOpen(true);
+      return false;
+    }
+    window.localStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify(orderedDraft));
     library[orderedDraft.id] = orderedDraft;
     window.localStorage.setItem(LIBRARY_STORAGE_KEY, JSON.stringify(library));
     setLocalDraftIds((prev) => (prev.includes(orderedDraft.id) ? prev : [...prev, orderedDraft.id]));
     setSelectedLocalDraftId(orderedDraft.id);
+    setLoadedLocalDraftId(null);
     setMessages((prev) => [`[OK] 已保存到本地：${orderedDraft.id}`, ...prev].slice(0, 12));
+    return true;
   };
 
-  const handleExportJson = async () => {
+  const handleSaveDraft = (options?: { allowOverwriteOnConflict?: boolean }) => {
+    persistDraftToLibrary(Boolean(options?.allowOverwriteOnConflict));
+  };
+
+  const handleConfirmOverwriteDraft = () => {
+    const saved = persistDraftToLibrary(true);
+    if (saved) {
+      setMessages((prev) => [`[OK] 已覆盖本地干员：${orderedDraft.id}`, ...prev].slice(0, 12));
+    }
+    setIsOverwriteDraftModalOpen(false);
+  };
+
+  const handleCreateNewDraft = () => {
+    const nextId = getNextDraftId(localDraftIds);
+    loadDraftIntoEditor(createEmptyDraft(nextId), `[OK] 已新建空草稿：${nextId}`);
+    setSelectedLocalDraftId(nextId);
+    setLoadedLocalDraftId(null);
+  };
+
+  const handleSaveAsDraft = () => {
+    const nextId = getNextDraftId(localDraftIds);
+    const nextDraft = {
+      ...orderedDraft,
+      id: nextId,
+    };
+    loadDraftIntoEditor(nextDraft, `[OK] 已另存为新草稿：${nextId}`);
+    setSelectedLocalDraftId(nextId);
+    setLoadedLocalDraftId(null);
+  };
+
+  const handleReorderDraft = () => {
+    const nextDraft = reorderDraftStructure(orderedDraft);
+    const nextSkillOrder = Object.keys(nextDraft.skills);
+    const nextSelectedSkillKey = nextSkillOrder[0] ?? null;
+    const nextSelectedHitKey = nextSelectedSkillKey ? Object.keys(nextDraft.skills[nextSelectedSkillKey].hitMeta)[0] ?? null : null;
+    setDraft(buildOrderedDraft(nextDraft, nextSkillOrder));
+    setSkillOrder(nextSkillOrder);
+    setSelectedSkillKey(nextSelectedSkillKey);
+    setSelectedHitKey(nextSelectedHitKey);
+    setMessages((prev) => ['[OK] 已整理技能与 hit 编号', ...prev].slice(0, 12));
+  };
+
+  const handleOpenExportJsonModal = () => {
+    setIsExportJsonModalOpen(true);
+  };
+
+  const handleCopyExportJson = async () => {
     await copyText(JSON.stringify(orderedDraft, null, 2));
-    setMessages((prev) => ['[OK] 已导出 JSON 到剪贴板', ...prev].slice(0, 12));
+    setMessages((prev) => ['[OK] 已复制导出 JSON', ...prev].slice(0, 12));
+  };
+
+  const handleOpenImportJsonModal = () => {
+    setIsImportJsonModalOpen(true);
   };
 
   const handleImportLocalDraft = () => {
@@ -545,8 +766,43 @@ export function OperatorDraftPage() {
         return;
       }
       loadDraftIntoEditor(localDraft, `[OK] 已从本地导入：${localDraft.id}`);
+      setLoadedLocalDraftId(localDraft.id);
     } catch {
       setMessages((prev) => ['[ERR] 本地数据损坏，无法导入', ...prev].slice(0, 12));
+    }
+  };
+
+  const handleDeleteLocalDraft = () => {
+    if (typeof window === 'undefined' || !loadedLocalDraftId) {
+      setMessages((prev) => ['[ERR] 请先导入本地数据，再删除对应本地角色', ...prev].slice(0, 12));
+      return;
+    }
+
+    const raw = window.localStorage.getItem(LIBRARY_STORAGE_KEY);
+    if (!raw) {
+      setMessages((prev) => ['[ERR] 本地没有可删除数据', ...prev].slice(0, 12));
+      setIsDeleteLocalDraftModalOpen(false);
+      return;
+    }
+
+    try {
+      const parsed = JSON.parse(raw) as Record<string, OperatorDraft>;
+      if (!parsed[loadedLocalDraftId]) {
+        setMessages((prev) => ['[ERR] 未找到所选本地角色', ...prev].slice(0, 12));
+        setIsDeleteLocalDraftModalOpen(false);
+        return;
+      }
+      delete parsed[loadedLocalDraftId];
+      window.localStorage.setItem(LIBRARY_STORAGE_KEY, JSON.stringify(parsed));
+      const nextIds = Object.keys(parsed);
+      setLocalDraftIds(nextIds);
+      setSelectedLocalDraftId(nextIds[0] ?? '');
+      setLoadedLocalDraftId(null);
+      setMessages((prev) => [`[OK] 已删除本地角色：${loadedLocalDraftId}`, ...prev].slice(0, 12));
+    } catch {
+      setMessages((prev) => ['[ERR] 本地数据损坏，无法删除', ...prev].slice(0, 12));
+    } finally {
+      setIsDeleteLocalDraftModalOpen(false);
     }
   };
 
@@ -560,6 +816,7 @@ export function OperatorDraftPage() {
     try {
       const importedDraft = parseImportedDraft(trimmedText);
       loadDraftIntoEditor(importedDraft, `[OK] 已从 JSON 文本导入：${importedDraft.id}`);
+      setLoadedLocalDraftId(null);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'JSON 导入失败';
       setMessages((prev) => [`[ERR] ${message}`, ...prev].slice(0, 12));
@@ -652,6 +909,20 @@ export function OperatorDraftPage() {
     setDragOverSkillKey(null);
   };
 
+  const handleOpenBuffDraftPage = () => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+    window.location.assign('/buff-draft');
+  };
+
+  const handleOpenWorkbenchPage = () => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+    window.location.assign('/');
+  };
+
   const skillEntries = skillOrder
     .filter((skillKey) => draft.skills[skillKey])
     .map((skillKey) => [skillKey, draft.skills[skillKey]] as const);
@@ -671,11 +942,11 @@ export function OperatorDraftPage() {
 
                 <div className="operator-draft-command-box">
                   <div className="operator-draft-command-actions">
-                    <button type="button" className="operator-draft-ghost-button" onClick={handleSaveDraft}>
-                      保存到本地
-                    </button>
-                    <button type="button" className="operator-draft-ghost-button" onClick={handleExportJson}>
+                    <button type="button" className="operator-draft-ghost-button" onClick={handleOpenExportJsonModal}>
                       导出 JSON
+                    </button>
+                    <button type="button" className="operator-draft-ghost-button" onClick={handleOpenImportJsonModal}>
+                      导入 JSON
                     </button>
                   </div>
                   <div className="operator-draft-reference-box">
@@ -706,20 +977,26 @@ export function OperatorDraftPage() {
                         ))}
                       </select>
                     </label>
-                    <button type="button" className="operator-draft-ghost-button" onClick={handleImportLocalDraft}>
-                      导入本地数据
-                    </button>
+                    <div className="operator-draft-command-actions">
+                      <button type="button" className="operator-draft-ghost-button" onClick={handleImportLocalDraft}>
+                        导入本地数据
+                      </button>
+                      <button
+                        type="button"
+                        className="operator-draft-ghost-button"
+                        onClick={() => setIsDeleteLocalDraftModalOpen(true)}
+                        disabled={!loadedLocalDraftId}
+                      >
+                        删除本地数据
+                      </button>
+                    </div>
                   </div>
                   <div className="operator-draft-reference-box">
                     <label>
                       <span>从 JSON 文本导入</span>
-                      <textarea
-                        value={jsonImportText}
-                        onChange={(event) => setJsonImportText(event.target.value)}
-                        placeholder="粘贴导出的 OperatorDraft JSON"
-                      />
+                      <input value="点击打开导入弹窗" readOnly />
                     </label>
-                    <button type="button" className="operator-draft-ghost-button" onClick={handleImportJsonText}>
+                    <button type="button" className="operator-draft-ghost-button" onClick={handleOpenImportJsonModal}>
                       导入 JSON 文本
                     </button>
                   </div>
@@ -739,7 +1016,27 @@ export function OperatorDraftPage() {
               <section className="operator-draft-basic-panel">
                 <div className="operator-draft-section-header">
                   <h3>基础数据</h3>
-                  <span>{draft.id}</span>
+                    <div className="operator-draft-section-actions">
+                      <button
+                        type="button"
+                        className="operator-draft-ghost-button"
+                        onClick={() => setIsOverwriteProtectionEnabled((prev) => !prev)}
+                      >
+                        {isOverwriteProtectionEnabled ? '保护开' : '保护关'}
+                      </button>
+                      <button type="button" className="operator-draft-ghost-button" onClick={handleReorderDraft}>
+                        整理
+                      </button>
+                    <button type="button" className="operator-draft-ghost-button" onClick={handleCreateNewDraft}>
+                      新建
+                    </button>
+                    <button type="button" className="operator-draft-ghost-button" onClick={handleSaveAsDraft}>
+                      另存为
+                    </button>
+                      <button type="button" className="operator-draft-ghost-button" onClick={() => handleSaveDraft()}>
+                        保存到本地
+                      </button>
+                  </div>
                 </div>
                 <div className="operator-draft-basic-grid">
                   <div className="operator-draft-avatar-wrap operator-draft-avatar-wrap-dense">
@@ -757,17 +1054,15 @@ export function OperatorDraftPage() {
                     <span>ID</span>
                     <input value={draft.id} onChange={(event) => updateOperatorField('id', event.target.value)} />
                   </label>
-                  <label>
-                    <span>头像 URL</span>
-                    <select value={draft.avatarUrl} onChange={(event) => updateOperatorField('avatarUrl', event.target.value)}>
-                      <option value="">未设置</option>
-                      {AVATAR_ASSET_OPTIONS.map((option) => (
-                        <option key={option} value={option}>
-                          {option}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
+                    <label>
+                      <span>头像 URL</span>
+                      <SearchablePathSelect
+                        value={draft.avatarUrl}
+                        options={AVATAR_ASSET_OPTIONS}
+                        placeholder="搜索头像 URL"
+                        onChange={(nextValue) => updateOperatorField('avatarUrl', nextValue)}
+                      />
+                    </label>
                   <label>
                     <span>职业</span>
                     <select value={draft.profession} onChange={(event) => updateOperatorField('profession', event.target.value)}>
@@ -914,7 +1209,15 @@ export function OperatorDraftPage() {
               <section className="operator-draft-skill-detail">
               <div className="operator-draft-section-header">
                 <h3>技能预览</h3>
-                <span>{selectedSkillKey ?? '-'}</span>
+                <div className="operator-draft-section-actions">
+                  <span>{selectedSkillKey ?? '-'}</span>
+                  <button type="button" className="operator-draft-ghost-button" onClick={handleAddHit}>
+                    新增 Hit
+                  </button>
+                  <button type="button" className="operator-draft-ghost-button" onClick={handleRemoveHit}>
+                    删除 Hit
+                  </button>
+                </div>
               </div>
               {selectedSkill ? (
                 <>
@@ -956,22 +1259,17 @@ export function OperatorDraftPage() {
                       </label>
                       <label className="is-wide">
                         <span>技能图标</span>
-                        <select
+                        <SearchablePathSelect
                           value={selectedSkill.iconUrl}
-                          onChange={(event) =>
+                          options={ASSET_PATH_OPTIONS}
+                          placeholder="搜索技能图标 URL"
+                          onChange={(nextValue) =>
                             updateSelectedSkill((skill) => ({
                               ...skill,
-                              iconUrl: event.target.value,
+                              iconUrl: nextValue,
                             }))
                           }
-                        >
-                          <option value="">未设置</option>
-                          {ASSET_PATH_OPTIONS.map((option) => (
-                            <option key={option} value={option}>
-                              {option}
-                            </option>
-                          ))}
-                        </select>
+                        />
                       </label>
                       <div className="operator-draft-inline-actions">
                         <span>{`hit 数：${selectedSkill.hitCount}`}</span>
@@ -999,31 +1297,13 @@ export function OperatorDraftPage() {
                 <p className="operator-draft-empty">当前没有可预览的 skill。</p>
               )}
               </section>
-
-              <section className="operator-draft-json-panel">
-                <div className="operator-draft-section-header">
-                  <h3>JSON 预览</h3>
-                  <button type="button" className="operator-draft-copy-button" onClick={() => copyText(draftJson)}>
-                    复制
-                  </button>
-                </div>
-                <pre className="operator-draft-json">{draftJson}</pre>
-              </section>
             </div>
 
             <div className="operator-draft-column operator-draft-column-right">
               <section className="operator-draft-hit-detail">
                 <div className="operator-draft-section-header">
                   <h3>Hit 细节</h3>
-                  <div className="operator-draft-section-actions">
-                    <span>{selectedHitKey ?? '-'}</span>
-                    <button type="button" className="operator-draft-ghost-button" onClick={handleAddHit}>
-                      新增 Hit
-                    </button>
-                    <button type="button" className="operator-draft-ghost-button" onClick={handleRemoveHit}>
-                      删除 Hit
-                    </button>
-                  </div>
+                  <span>{selectedHitKey ?? '-'}</span>
                 </div>
                 {selectedHit ? (
                   <div className="operator-draft-hit-detail-card">
@@ -1104,11 +1384,116 @@ export function OperatorDraftPage() {
                     <li key={`${message}-${index}`}>{message}</li>
                   ))}
                 </ul>
+                <div className="operator-draft-history-footer">
+                  <button type="button" className="operator-draft-ghost-button" onClick={handleOpenWorkbenchPage}>
+                    主界面
+                  </button>
+                  <button type="button" className="operator-draft-ghost-button is-active">
+                    编辑干员
+                  </button>
+                  <button type="button" className="operator-draft-ghost-button" onClick={handleOpenBuffDraftPage}>
+                    编辑BUFF
+                  </button>
+                </div>
               </section>
             </div>
           </div>
         </section>
       </section>
+      {isExportJsonModalOpen ? (
+        <div className="operator-draft-modal-overlay" onClick={() => setIsExportJsonModalOpen(false)}>
+          <div className="operator-draft-modal" onClick={(event) => event.stopPropagation()}>
+            <div className="operator-draft-section-header">
+              <h3>导出 JSON</h3>
+              <span>预览后复制</span>
+            </div>
+            <pre className="operator-draft-json">{draftJson}</pre>
+            <div className="operator-draft-modal-actions">
+              <button type="button" className="operator-draft-ghost-button" onClick={() => setIsExportJsonModalOpen(false)}>
+                关闭
+              </button>
+              <button type="button" className="operator-draft-copy-button" onClick={handleCopyExportJson}>
+                复制
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+      {isImportJsonModalOpen ? (
+        <div className="operator-draft-modal-overlay" onClick={() => setIsImportJsonModalOpen(false)}>
+          <div className="operator-draft-modal" onClick={(event) => event.stopPropagation()}>
+            <div className="operator-draft-section-header">
+              <h3>导入 JSON 文本</h3>
+              <span>粘贴后确认</span>
+            </div>
+            <textarea
+              className="operator-draft-command-input"
+              value={jsonImportText}
+              onChange={(event) => setJsonImportText(event.target.value)}
+              placeholder="粘贴导出的 OperatorDraft JSON"
+            />
+            <div className="operator-draft-modal-actions">
+              <button type="button" className="operator-draft-ghost-button" onClick={() => setIsImportJsonModalOpen(false)}>
+                关闭
+              </button>
+              <button
+                type="button"
+                className="operator-draft-copy-button"
+                onClick={() => {
+                  handleImportJsonText();
+                  setIsImportJsonModalOpen(false);
+                }}
+              >
+                导入
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+      {isDeleteLocalDraftModalOpen ? (
+        <div className="operator-draft-modal-overlay" onClick={() => setIsDeleteLocalDraftModalOpen(false)}>
+          <div className="operator-draft-modal operator-draft-confirm-modal" onClick={(event) => event.stopPropagation()}>
+            <div className="operator-draft-section-header">
+              <h3>删除本地数据</h3>
+              <span>请确认</span>
+            </div>
+            <div className="operator-draft-confirm-body">
+              <p>{loadedLocalDraftId ? `确认删除当前已导入的本地角色草稿「${loadedLocalDraftId}」吗？` : '请先导入本地数据，再删除对应的本地角色草稿。'}</p>
+              <p>该操作只删除本地库记录，不会自动清空当前编辑器内容。</p>
+            </div>
+            <div className="operator-draft-modal-actions">
+              <button type="button" className="operator-draft-ghost-button" onClick={() => setIsDeleteLocalDraftModalOpen(false)}>
+                取消
+              </button>
+              <button type="button" className="operator-draft-copy-button operator-draft-danger-button" onClick={handleDeleteLocalDraft}>
+                确认删除
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+      {isOverwriteDraftModalOpen ? (
+        <div className="operator-draft-modal-overlay" onClick={() => setIsOverwriteDraftModalOpen(false)}>
+          <div className="operator-draft-modal operator-draft-confirm-modal" onClick={(event) => event.stopPropagation()}>
+            <div className="operator-draft-section-header">
+              <h3>干员 ID 重复</h3>
+              <span>请确认</span>
+            </div>
+            <div className="operator-draft-confirm-body">
+              <p>{`本地库中已存在 ID 为「${orderedDraft.id}」的干员。`}</p>
+              <p>确认后会用当前编辑器内容覆盖本地同 ID 干员。</p>
+            </div>
+            <div className="operator-draft-modal-actions">
+              <button type="button" className="operator-draft-ghost-button" onClick={() => setIsOverwriteDraftModalOpen(false)}>
+                取消
+              </button>
+              <button type="button" className="operator-draft-copy-button operator-draft-danger-button" onClick={handleConfirmOverwriteDraft}>
+                确认覆盖
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </main>
   );
 }

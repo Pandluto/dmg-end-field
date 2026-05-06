@@ -4,7 +4,7 @@
  * 不依赖 React，不访问 DOM
  */
 
-import { SkillButtonData, TimelineData, StaffLineData, SkillType } from '../../types';
+import { SkillButtonData, SkillButtonSkillChangePayload, TimelineData, StaffLineData, SkillType } from '../../types';
 import { PersistedSkillButton } from '../../types/storage';
 import { SKILL_BUTTON_BASELINE_OFFSET_Y } from '../../constants/canvas-layout';
 import { calculateNodeNumber } from '../../utils/nodeNumbering';
@@ -224,7 +224,7 @@ export function addSkillButton(
   // 同时写入 skill-button 总表
   const persistedButton: PersistedSkillButton = {
     id: buttonId,
-    characterId: buttonData.characterName,
+    characterId: buttonData.characterId || buttonData.characterName,
     characterName: buttonData.characterName,
     skillType: buttonData.skillType,
     staffIndex: buttonData.staffIndex,
@@ -578,9 +578,9 @@ export function updateSelectedBuffList(buttonId: string, buffIds: string[]): voi
  */
 export function updateSkillButtonType(
   timelineData: TimelineData,
-  buttonId: string,
-  nextSkillType: SkillType
+  payload: SkillButtonSkillChangePayload
 ): { updatedButton: SkillButtonData | null; updatedPersistedButton: PersistedSkillButton | null; newTimelineData: TimelineData } {
+  const { buttonId, nextSkillType, nextRuntimeSkillId, nextSkillDisplayName, nextSkillIconUrl, nextCustomHits } = payload;
   // 1. 查找按钮所在 staffLine
   let targetStaffLine: StaffLineData | null = null;
   let targetButton: SkillButtonData | null = null;
@@ -611,15 +611,24 @@ export function updateSkillButtonType(
     updatedPersistedButton = {
       ...existingPersistedButton,
       skillType: nextSkillType,
+      runtimeSkillId: nextRuntimeSkillId,
+      skillDisplayName: nextSkillDisplayName,
+      skillIconUrl: nextSkillIconUrl,
+      customHits: nextCustomHits,
       updatedAt: Date.now(),
     };
     upsertSkillButton(updatedPersistedButton);
+    recomputeSkillButtonPanel(buttonId);
   }
 
   // 3. 更新 timelineData
   const updatedTimelineButton: SkillButtonData = {
     ...targetButton,
     skillType: nextSkillType,
+    runtimeSkillId: nextRuntimeSkillId,
+    skillDisplayName: nextSkillDisplayName,
+    skillIconUrl: nextSkillIconUrl,
+    customHits: nextCustomHits,
   };
 
   const newTimelineData: TimelineData = {

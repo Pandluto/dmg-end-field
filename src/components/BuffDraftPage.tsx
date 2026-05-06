@@ -946,6 +946,20 @@ export function BuffDraftPage() {
     setMessages((prev) => [`[OK] 已删除 Buff 效果：${selectedEffectKey}`, ...prev].slice(0, 12));
   };
 
+  const handleOpenOperatorDraftPage = () => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+    window.location.assign('/draft');
+  };
+
+  const handleOpenWorkbenchPage = () => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+    window.location.assign('/');
+  };
+
   return (
     <main className="operator-draft-page buff-draft-page">
       <section className="operator-draft-shell">
@@ -1255,6 +1269,17 @@ export function BuffDraftPage() {
                     <li key={`${message}-${index}`}>{message}</li>
                   ))}
                 </ul>
+                <div className="operator-draft-history-footer">
+                  <button type="button" className="operator-draft-ghost-button" onClick={handleOpenWorkbenchPage}>
+                    主界面
+                  </button>
+                  <button type="button" className="operator-draft-ghost-button" onClick={handleOpenOperatorDraftPage}>
+                    编辑干员
+                  </button>
+                  <button type="button" className="operator-draft-ghost-button is-active">
+                    编辑BUFF
+                  </button>
+                </div>
               </section>
             </div>
           </div>
