@@ -8,7 +8,7 @@ import {
   getSelectedSkillButton,
 } from '../../../hooks/useSkillButtonBuffs';
 import { SkillButtonBuff } from '../../../types/storage';
-import { useCandidateBuffs } from '../../../hooks/useCandidateBuffs';
+import { searchManualCandidateBuffsByName, useCandidateBuffs } from '../../../hooks/useCandidateBuffs';
 import { useBuffInteraction } from '../../../hooks/useBuffInteraction';
 import { CandidateBuff } from '../../../core/domain/buff';
 import { emitSkillButtonBuffAdded } from '../../../core/events/buffEvents';
@@ -54,12 +54,14 @@ export function DamageTab() {
   // 从 AppContext 获取已选角色列表
   const { state } = useAppContext();
   const { selectedCharacters } = state;
-
-  // 提取角色名称列表
-  const characterNames = selectedCharacters.map(char => char.name);
+  const selectedCharacterRefs = selectedCharacters.map((char) => ({ id: char.id, name: char.name }));
 
   // 文本输入框的值（受控组件）
   const [inputValue, setInputValue] = useState('');
+  const [manualSourceKeyword, setManualSourceKeyword] = useState('');
+  const [manualSourceResults, setManualSourceResults] = useState<CandidateBuff[]>([]);
+  const [isManualSourceLoading, setIsManualSourceLoading] = useState(false);
+  const [manualSourceError, setManualSourceError] = useState('');
 
   // 使用候选 Buff Hook
   const {
@@ -72,7 +74,7 @@ export function DamageTab() {
     isDrawerOpen,
     setIsDrawerOpen,
     drawerHostRef,
-  } = useCandidateBuffs(characterNames);
+  } = useCandidateBuffs(selectedCharacterRefs);
 
   // 唯一添加入口：添加候选 Buff 到当前选中的技能按钮
   const handleAddCandidateBuff = useCallback((candidate: CandidateBuff) => {
@@ -129,6 +131,31 @@ export function DamageTab() {
     setInputValue(searchKeyword);
   }, [searchKeyword]);
 
+  const handleManualSourceSearch = useCallback(async () => {
+    const keyword = manualSourceKeyword.trim();
+    if (!keyword) {
+      setManualSourceResults([]);
+      setManualSourceError('');
+      return;
+    }
+
+    setIsManualSourceLoading(true);
+    setManualSourceError('');
+    try {
+      const results = await searchManualCandidateBuffsByName(keyword);
+      setManualSourceResults(results);
+      if (results.length === 0) {
+        setManualSourceError('未命中官方角色/武器 Buff');
+      }
+    } catch (error) {
+      console.error('手动搜索官方 Buff 失败:', error);
+      setManualSourceResults([]);
+      setManualSourceError('手动搜索失败，请检查名称或稍后重试');
+    } finally {
+      setIsManualSourceLoading(false);
+    }
+  }, [manualSourceKeyword]);
+
   return (
     <div className="tab-content-damage">
       {/* 文本输入区 - 抽屉宿主 */}
@@ -171,6 +198,38 @@ export function DamageTab() {
 
       {/* 陈列区 */}
       <div className="damage-display-section">
+        <div className="refresh-row">
+          <input
+            className="damage-input"
+            value={manualSourceKeyword}
+            onChange={(event) => setManualSourceKeyword(event.target.value)}
+            placeholder="按名字临时加载官方角色/武器 Buff（如：管理员 / 宏愿）"
+          />
+          <button
+            className="refresh-button"
+            onClick={handleManualSourceSearch}
+            disabled={isManualSourceLoading}
+            type="button"
+          >
+            {isManualSourceLoading ? '...' : '临时搜'}
+          </button>
+        </div>
+        {manualSourceError ? <div className="buff-empty">{manualSourceError}</div> : null}
+        {manualSourceResults.length > 0 && (
+          <div className="buff-list">
+            {manualSourceResults.map((buff, index) => (
+              <div
+                key={`manual-${buff.source}-${buff.name}-${index}`}
+                className={`buff-item${draggedBuff?.name === buff.name ? ' is-dragging' : ''}`}
+                title={`${buff.displayName} (${buff.source})`}
+                onClick={() => handleBuffClick(buff)}
+                onMouseDown={(e) => handleBuffMouseDown(buff, e)}
+              >
+                {buff.displayName}
+              </div>
+            ))}
+          </div>
+        )}
         {/* Buff 列表 - 始终显示全部，不受搜索影响 */}
         <div className="buff-list">
           {buffList.length === 0 ? (

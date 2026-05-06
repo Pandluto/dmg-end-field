@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { pinyin } from 'pinyin-pro';
 import './OperatorDraftPage.css';
 import './BuffDraftPage.css';
-import type { CandidateBuff } from '../core/domain/buff';
+import type { BuffEffectKind, BuffExtraHitConfig, CandidateBuff } from '../core/domain/buff';
 
 const BUFF_DRAFT_PAGE_PATH = '/buff-draft';
 const BUFF_DRAFT_STORAGE_KEY = 'ddd.buff-editor.draft.v1';
@@ -114,6 +115,32 @@ const PERCENT_STYLE_TYPES = new Set<string>([
   'multiplierMultiplier',
 ]);
 
+const BUFF_EFFECT_KIND_OPTIONS: BuffEffectKind[] = ['modifier', 'extraHit'];
+
+const DEFAULT_EXTRA_HIT_CONFIG: BuffExtraHitConfig = {
+  key: 'dianjian',
+  damageType: 'physical',
+  baseMultiplier: 2.5,
+  imbalanceValue: 10,
+  cooldownSeconds: 15,
+  trigger: 'physicalAbnormal',
+};
+
+function normalizeExtraHitConfig(value?: Partial<BuffExtraHitConfig>): BuffExtraHitConfig {
+  return {
+    key: value?.key?.trim() || DEFAULT_EXTRA_HIT_CONFIG.key,
+    damageType: value?.damageType || DEFAULT_EXTRA_HIT_CONFIG.damageType,
+    baseMultiplier: Number(value?.baseMultiplier ?? DEFAULT_EXTRA_HIT_CONFIG.baseMultiplier) || DEFAULT_EXTRA_HIT_CONFIG.baseMultiplier,
+    imbalanceValue: Number(value?.imbalanceValue ?? DEFAULT_EXTRA_HIT_CONFIG.imbalanceValue) || DEFAULT_EXTRA_HIT_CONFIG.imbalanceValue,
+    cooldownSeconds: Number(value?.cooldownSeconds ?? DEFAULT_EXTRA_HIT_CONFIG.cooldownSeconds) || DEFAULT_EXTRA_HIT_CONFIG.cooldownSeconds,
+    trigger: value?.trigger || DEFAULT_EXTRA_HIT_CONFIG.trigger,
+  };
+}
+
+function getEffectKindLabel(kind: BuffEffectKind | undefined) {
+  return kind === 'extraHit' ? '额外伤害段' : '普通加成';
+}
+
 interface BuffEffectDraft extends CandidateBuff {
   id: string;
 }
@@ -172,6 +199,7 @@ function createDefaultBuffEffect(buffKey = 'buff-1', sourceName = '本地自定�
     sourceName,
     description: '',
     condition: '',
+    effectKind: 'modifier',
   };
 }
 
@@ -221,6 +249,21 @@ function getNextDraftId(existingIds: string[]) {
     index += 1;
   }
   return `custom-buff-${pad3(index)}`;
+}
+
+function buildBuffDraftIdFromName(name: string) {
+  const trimmedName = name.trim();
+  if (!trimmedName) {
+    return '';
+  }
+  const rawPinyin = pinyin(trimmedName, { toneType: 'none', type: 'array' })
+    .map((item) => String(item).toLowerCase().replace(/[^a-z0-9]/g, ''))
+    .filter(Boolean)
+    .join('');
+  const normalized = (rawPinyin || trimmedName.toLowerCase())
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+  return normalized;
 }
 
 function getBuffTypeDisplayLabel(type?: string) {
@@ -273,6 +316,7 @@ function getNextEffectKey(item: BuffItemDraft) {
 
 function normalizeEffect(effectKey: string, effect: Partial<BuffEffectDraft>, item: BuffItemDraft): BuffEffectDraft {
   const fallback = createDefaultBuffEffect(effectKey, item.sourceName);
+  const effectKind = effect.effectKind === 'extraHit' ? 'extraHit' : 'modifier';
   return {
     ...fallback,
     ...effect,
@@ -285,7 +329,11 @@ function normalizeEffect(effectKey: string, effect: Partial<BuffEffectDraft>, it
     description: effect.description || '',
     condition: effect.condition || '',
     value: Number(effect.value ?? fallback.value) || 0,
-    type: effect.type ?? fallback.type,
+    type: effectKind === 'extraHit' ? '' : (effect.type ?? fallback.type),
+    effectKind,
+    extraHitConfig: effectKind === 'extraHit'
+      ? normalizeExtraHitConfig(effect.extraHitConfig)
+      : undefined,
   };
 }
 
@@ -582,7 +630,17 @@ export function BuffDraftPage() {
   }, [draft]);
 
   const updateDraftField = <K extends keyof BuffDraft>(field: K, value: BuffDraft[K]) => {
-    setDraft((prev) => ({ ...prev, [field]: value }));
+    setDraft((prev) => {
+      if (field === 'name') {
+        const nextName = String(value);
+        return {
+          ...prev,
+          name: nextName,
+          id: buildBuffDraftIdFromName(nextName) || prev.id,
+        };
+      }
+      return { ...prev, [field]: value };
+    });
   };
 
   const updateSelectedItem = (updater: (item: BuffItemDraft) => BuffItemDraft) => {
@@ -610,6 +668,18 @@ export function BuffDraftPage() {
           },
         },
       },
+    }));
+  };
+
+  const updateSelectedEffectKind = (nextKind: BuffEffectKind) => {
+    updateSelectedEffect((prev) => ({
+      ...prev,
+      effectKind: nextKind,
+      type: nextKind === 'extraHit' ? '' : prev.type,
+      value: nextKind === 'extraHit' ? 0 : prev.value,
+      extraHitConfig: nextKind === 'extraHit'
+        ? normalizeExtraHitConfig(prev.extraHitConfig)
+        : undefined,
     }));
   };
 
@@ -1156,7 +1226,9 @@ export function BuffDraftPage() {
                     </div>
                     <div className="operator-draft-skill-meta">
                       <strong>{effect.displayName || effectKey}</strong>
-                      <span>{`${effect.id} / ${getBuffTypeDisplayLabel(effect.type)} / ${formatBuffNumericValue(effect.type, effect.value)}`}</span>
+                      <span>{effect.effectKind === 'extraHit'
+                        ? `${effect.id} / 额外伤害段 / ${effect.extraHitConfig?.baseMultiplier ?? DEFAULT_EXTRA_HIT_CONFIG.baseMultiplier}x`
+                        : `${effect.id} / ${getBuffTypeDisplayLabel(effect.type)} / ${formatBuffNumericValue(effect.type, effect.value)}`}</span>
                     </div>
                   </button>
                 ))}
@@ -1201,14 +1273,30 @@ export function BuffDraftPage() {
                         <input value={selectedEffect.displayName} onChange={(event) => updateSelectedEffect((prev) => ({ ...prev, displayName: event.target.value }))} />
                       </label>
                       <label>
+                        <span>效果类型</span>
+                        <select
+                          value={selectedEffect.effectKind || 'modifier'}
+                          onChange={(event) => updateSelectedEffectKind(event.target.value as BuffEffectKind)}
+                        >
+                          {BUFF_EFFECT_KIND_OPTIONS.map((option) => (
+                            <option key={option} value={option}>{getEffectKindLabel(option)}</option>
+                          ))}
+                        </select>
+                      </label>
+                      <label>
                         <span>类型</span>
                         <div className="buff-draft-type-picker">
                           <input
                             value={buffTypeQuery}
                             onChange={(event) => setBuffTypeQuery(event.target.value)}
                             placeholder="搜索类型：法术 / 异伤 / 倍率 / 源石技艺"
+                            disabled={selectedEffect.effectKind === 'extraHit'}
                           />
-                          <select value={selectedEffect.type || ''} onChange={(event) => updateSelectedEffect((prev) => ({ ...prev, type: event.target.value }))}>
+                          <select
+                            value={selectedEffect.type || ''}
+                            onChange={(event) => updateSelectedEffect((prev) => ({ ...prev, type: event.target.value }))}
+                            disabled={selectedEffect.effectKind === 'extraHit'}
+                          >
                             <option value="">暂无</option>
                             {filteredBuffTypeOptions.map((option) => (
                               <option key={option} value={option}>{getBuffTypeDisplayLabel(option)}</option>
@@ -1219,10 +1307,114 @@ export function BuffDraftPage() {
                       <label>
                         <span>数值</span>
                         <div className="buff-draft-value-editor">
-                          <input type="number" value={selectedEffect.value ?? 0} onChange={(event) => updateSelectedEffect((prev) => ({ ...prev, value: Number(event.target.value) || 0 }))} />
-                          <small>{getBuffValueHint(selectedEffect.type, selectedEffect.value)}</small>
+                          <input
+                            type="number"
+                            value={selectedEffect.value ?? 0}
+                            onChange={(event) => updateSelectedEffect((prev) => ({ ...prev, value: Number(event.target.value) || 0 }))}
+                            disabled={selectedEffect.effectKind === 'extraHit'}
+                          />
+                          <small>
+                            {selectedEffect.effectKind === 'extraHit'
+                              ? '额外伤害段不走普通 modifier 数值，这里保持 0。'
+                              : getBuffValueHint(selectedEffect.type, selectedEffect.value)}
+                          </small>
                         </div>
                       </label>
+                      {selectedEffect.effectKind === 'extraHit' && (
+                        <div className="buff-draft-extra-hit-grid is-wide">
+                          <label>
+                            <span>额外段 Key</span>
+                            <input
+                              value={selectedEffect.extraHitConfig?.key || DEFAULT_EXTRA_HIT_CONFIG.key}
+                              onChange={(event) => updateSelectedEffect((prev) => ({
+                                ...prev,
+                                extraHitConfig: normalizeExtraHitConfig({
+                                  ...prev.extraHitConfig,
+                                  key: event.target.value,
+                                }),
+                              }))}
+                            />
+                          </label>
+                          <label>
+                            <span>伤害类型</span>
+                            <select
+                              value={selectedEffect.extraHitConfig?.damageType || DEFAULT_EXTRA_HIT_CONFIG.damageType}
+                              onChange={(event) => updateSelectedEffect((prev) => ({
+                                ...prev,
+                                extraHitConfig: normalizeExtraHitConfig({
+                                  ...prev.extraHitConfig,
+                                  damageType: event.target.value as BuffExtraHitConfig['damageType'],
+                                }),
+                              }))}
+                            >
+                              <option value="physical">物理</option>
+                              <option value="magic">法术</option>
+                              <option value="fire">灼热</option>
+                              <option value="electric">电磁</option>
+                              <option value="ice">寒冷</option>
+                              <option value="nature">自然</option>
+                            </select>
+                          </label>
+                          <label>
+                            <span>基础倍率</span>
+                            <input
+                              type="number"
+                              step="0.1"
+                              value={selectedEffect.extraHitConfig?.baseMultiplier ?? DEFAULT_EXTRA_HIT_CONFIG.baseMultiplier}
+                              onChange={(event) => updateSelectedEffect((prev) => ({
+                                ...prev,
+                                extraHitConfig: normalizeExtraHitConfig({
+                                  ...prev.extraHitConfig,
+                                  baseMultiplier: Number(event.target.value) || DEFAULT_EXTRA_HIT_CONFIG.baseMultiplier,
+                                }),
+                              }))}
+                            />
+                          </label>
+                          <label>
+                            <span>失衡值</span>
+                            <input
+                              type="number"
+                              value={selectedEffect.extraHitConfig?.imbalanceValue ?? DEFAULT_EXTRA_HIT_CONFIG.imbalanceValue}
+                              onChange={(event) => updateSelectedEffect((prev) => ({
+                                ...prev,
+                                extraHitConfig: normalizeExtraHitConfig({
+                                  ...prev.extraHitConfig,
+                                  imbalanceValue: Number(event.target.value) || DEFAULT_EXTRA_HIT_CONFIG.imbalanceValue,
+                                }),
+                              }))}
+                            />
+                          </label>
+                          <label>
+                            <span>冷却秒数</span>
+                            <input
+                              type="number"
+                              value={selectedEffect.extraHitConfig?.cooldownSeconds ?? DEFAULT_EXTRA_HIT_CONFIG.cooldownSeconds}
+                              onChange={(event) => updateSelectedEffect((prev) => ({
+                                ...prev,
+                                extraHitConfig: normalizeExtraHitConfig({
+                                  ...prev.extraHitConfig,
+                                  cooldownSeconds: Number(event.target.value) || DEFAULT_EXTRA_HIT_CONFIG.cooldownSeconds,
+                                }),
+                              }))}
+                            />
+                          </label>
+                          <label>
+                            <span>触发条件</span>
+                            <select
+                              value={selectedEffect.extraHitConfig?.trigger || DEFAULT_EXTRA_HIT_CONFIG.trigger}
+                              onChange={(event) => updateSelectedEffect((prev) => ({
+                                ...prev,
+                                extraHitConfig: normalizeExtraHitConfig({
+                                  ...prev.extraHitConfig,
+                                  trigger: event.target.value as BuffExtraHitConfig['trigger'],
+                                }),
+                              }))}
+                            >
+                              <option value="physicalAbnormal">物理异常后触发</option>
+                            </select>
+                          </label>
+                        </div>
+                      )}
                       <label className="is-wide">
                         <span>触发条件</span>
                         <input value={selectedEffect.condition || ''} onChange={(event) => updateSelectedEffect((prev) => ({ ...prev, condition: event.target.value }))} />
@@ -1250,8 +1442,18 @@ export function BuffDraftPage() {
                     <p><strong>组名称</strong>：{draft.name}</p>
                     <p><strong>自定义项</strong>：{selectedItem.name}</p>
                     <p><strong>效果名称</strong>：{selectedEffect.displayName}</p>
-                    <p><strong>类型</strong>：{selectedEffect.type ? getBuffTypeDisplayLabel(selectedEffect.type) : '暂无'}</p>
-                    <p><strong>数值</strong>：{formatBuffNumericValue(selectedEffect.type, selectedEffect.value)}</p>
+                    <p><strong>效果类型</strong>：{getEffectKindLabel(selectedEffect.effectKind)}</p>
+                    <p><strong>类型</strong>：{selectedEffect.effectKind === 'extraHit' ? '额外伤害段' : (selectedEffect.type ? getBuffTypeDisplayLabel(selectedEffect.type) : '暂无')}</p>
+                    <p><strong>数值</strong>：{selectedEffect.effectKind === 'extraHit' ? '-' : formatBuffNumericValue(selectedEffect.type, selectedEffect.value)}</p>
+                    {selectedEffect.effectKind === 'extraHit' && (
+                      <>
+                        <p><strong>额外段</strong>：{selectedEffect.extraHitConfig?.key || DEFAULT_EXTRA_HIT_CONFIG.key}</p>
+                        <p><strong>基础倍率</strong>：{selectedEffect.extraHitConfig?.baseMultiplier ?? DEFAULT_EXTRA_HIT_CONFIG.baseMultiplier}x</p>
+                        <p><strong>伤害类型</strong>：{selectedEffect.extraHitConfig?.damageType || DEFAULT_EXTRA_HIT_CONFIG.damageType}</p>
+                        <p><strong>失衡值</strong>：{selectedEffect.extraHitConfig?.imbalanceValue ?? DEFAULT_EXTRA_HIT_CONFIG.imbalanceValue}</p>
+                        <p><strong>冷却</strong>：{selectedEffect.extraHitConfig?.cooldownSeconds ?? DEFAULT_EXTRA_HIT_CONFIG.cooldownSeconds}s</p>
+                      </>
+                    )}
                     <p><strong>触发条件</strong>：{selectedEffect.condition || '-'}</p>
                     <p><strong>描述</strong>：{selectedEffect.description || '-'}</p>
                   </div>

@@ -41,7 +41,7 @@ function buildHitCards(
     critText: formatInteger(hitResult.crit.final),
     nonCritText: formatInteger(hitResult.nonCrit.final),
     buffCountText: hitResult.appliedBuffs.length > 0 ? `+${hitResult.appliedBuffs.length} Buff` : '无 Buff',
-    isSelected: (selectedHitIndex ?? 0) === index,
+    isSelected: selectedHitIndex === index,
   }));
 }
 
@@ -49,7 +49,10 @@ function buildHitDetail(
   result: SkillDamageCalcResultV2,
   selectedHitIndex: number | null
 ): HitDetailViewModel | null {
-  const activeHit = result.hits[selectedHitIndex ?? 0];
+  if (selectedHitIndex === null) {
+    return null;
+  }
+  const activeHit = result.hits[selectedHitIndex];
   if (!activeHit) {
     return null;
   }
@@ -71,7 +74,10 @@ function buildFormula(
   selectedHitIndex: number | null,
   panel: SkillDamagePanel
 ): FormulaViewModel | null {
-  const activeHit = result.hits[selectedHitIndex ?? 0];
+  if (selectedHitIndex === null) {
+    return null;
+  }
+  const activeHit = result.hits[selectedHitIndex];
   if (!activeHit) {
     return null;
   }

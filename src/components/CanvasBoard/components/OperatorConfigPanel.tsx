@@ -47,10 +47,6 @@ interface CharacterMaxData {
   };
 }
 
-interface WeaponListItem {
-  name: string;
-}
-
 interface WeaponMaxSkillLevelData {
   value?: number;
   description?: string;
@@ -68,6 +64,10 @@ interface WeaponMaxData {
   name: string;
   attackGrowth?: Record<string, number>;
   skills?: Record<string, WeaponMaxSkillData>;
+}
+
+interface WeaponListItem {
+  name: string;
 }
 
 interface WeaponBuffItem {
@@ -1140,6 +1140,7 @@ export function OperatorConfigPanel({
     const weaponAtkPercent = weaponPassiveAtkPercent + equipment.atkPercentBoost;
     const critRate = 0.05 + weaponCritRate + (equipment.critRateBoost ?? 0);
     const critDmg = 0.5 + (equipment.critDmgBonusBoost ?? 0);
+    const sourceSkill = weaponMemoryStrength + equipment.sourceSkillBoost;
     const totalHp = characterBaseHp * (1 + weaponHpPercent) + equipment.hp;
     const baseAtk = (characterBaseAtk + weaponBaseAtk) * (1 + weaponAtkPercent) + weaponPassiveAtk + equipment.flatAtk;
     const atk = baseAtk * (1 + abilityBonus);
@@ -1159,6 +1160,7 @@ export function OperatorConfigPanel({
       weaponAtkPercent: toFixedNumber(weaponAtkPercent * 100),
       critRate: toFixedNumber(critRate, 4),
       critDmg: toFixedNumber(critDmg, 4),
+      sourceSkill: toFixedNumber(sourceSkill),
       healingBonus: toFixedNumber(weaponHealingBonus, 4),
       ultimateChargeEfficiency: toFixedNumber(weaponUltimateChargeEfficiency, 4),
       weaponAllSkillDmgBonus: toFixedNumber(weaponAllSkillDmgBonus),
@@ -1219,7 +1221,7 @@ export function OperatorConfigPanel({
       `暴击率:    ${toPercentText(panelSnapshot.critRate, 2)}`,
       `暴击伤害:   ${toPercentText(panelSnapshot.critDmg, 2)}`,
       separator,
-      `源石技艺强度: ${toFixedNumber(weaponMemoryStrength + equipment.sourceSkillBoost)}`,
+      `源石技艺强度: ${panelSnapshot.sourceSkill}`,
       separator,
       '抗性(省略)',
       separator,

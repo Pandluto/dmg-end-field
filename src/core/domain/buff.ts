@@ -8,6 +8,19 @@
  * 用于 ddd.candidate-buff-list.v1，只包含展示和选择所需字段
  * 不要求稳定 id，不等同于 SkillButtonBuff
  */
+export type BuffEffectKind = 'modifier' | 'extraHit';
+export type BuffExtraHitTrigger = 'physicalAbnormal';
+export type BuffExtraHitDamageType = 'physical' | 'magic' | 'fire' | 'electric' | 'ice' | 'nature';
+
+export interface BuffExtraHitConfig {
+  key: string;
+  damageType: BuffExtraHitDamageType;
+  baseMultiplier: number;
+  imbalanceValue: number;
+  cooldownSeconds: number;
+  trigger: BuffExtraHitTrigger;
+}
+
 export interface CandidateBuff {
   displayName: string;  // Buff 显示名称，用于在 UI 中显示
   name: string;         // Buff 名称
@@ -18,6 +31,8 @@ export interface CandidateBuff {
   sourceName: string;   // Buff 来源名称，用于在 UI 中显示
   description: string;  // Buff 描述，用于在 UI 中显示
   condition?: string;   // Buff 触发条件（可选）
+  effectKind?: BuffEffectKind;
+  extraHitConfig?: BuffExtraHitConfig;
 }
 
 /**

@@ -10,12 +10,17 @@ import { setCandidateBuffList, getCandidateBuffList } from '../core/repositories
 import { getCharacterConfigMap } from '../utils/storage';
 import { buildWeaponSearchIndex, searchWeapons } from '../utils/weaponFuzzySearch';
 
+interface CandidateCharacterRef {
+  id: string;
+  name: string;
+}
+
 /**
  * 从 sessionStorage 读取角色武器配置映射
- * @param characterNames - 角色名称数组
- * @returns 角色名到武器名的映射对象
+ * @param characters - 已选角色引用
+ * @returns 角色显示名到武器名的映射对象
  */
-const getCharacterWeapons = (characterNames: string[]): Record<string, string> => {
+const getCharacterWeapons = (characters: CandidateCharacterRef[]): Record<string, string> => {
   try {
     const configMap = getCharacterConfigMap();
     if (Object.keys(configMap).length === 0) {
@@ -23,12 +28,16 @@ const getCharacterWeapons = (characterNames: string[]): Record<string, string> =
       return {};
     }
 
+    const selectedNameSet = new Set(characters.map((character) => character.name));
+    const selectedIdToNameMap = new Map(characters.map((character) => [character.id, character.name]));
     const weaponMap: Record<string, string> = {};
     Object.entries(configMap).forEach(([characterId, config]) => {
-      if (characterNames.includes(characterId) &&
-        config.weaponName &&
-        config.weaponName !== '无') {
-        weaponMap[characterId] = config.weaponName;
+      const selectedCharacterName =
+        selectedIdToNameMap.get(characterId) ||
+        (selectedNameSet.has(config.characterName) ? config.characterName : null);
+      if (selectedCharacterName && config.weaponName && config.weaponName !== '无') {
+        // 后续角色 buff 仍按显示名 charName 加载，这里统一把武器映射落到显示名。
+        weaponMap[selectedCharacterName] = config.weaponName;
       }
     });
 
@@ -52,6 +61,89 @@ const loadBuffFile = async (path: string): Promise<BuffData> => {
   }
   return response.json();
 };
+
+interface NameListItem {
+  name?: string;
+}
+
+async function loadNameList(path: string): Promise<string[]> {
+  const response = await fetch(path);
+  if (!response.ok) {
+    throw new Error(`加载失败: ${path}`);
+  }
+  const parsed = await response.json() as NameListItem[];
+  return parsed
+    .map((item) => item.name?.trim() || '')
+    .filter((name) => name.length > 0);
+}
+
+function normalizeKeyword(value: string): string {
+  return value.trim().toLowerCase();
+}
+
+function includesKeyword(name: string, keyword: string): boolean {
+  if (!keyword) {
+    return false;
+  }
+  return name.toLowerCase().includes(keyword);
+}
+
+function mapCharacterBuffJsonToCandidates(sourceName: string, data: BuffData): CandidateBuff[] {
+  return (data.buffs || []).map((buff) => ({
+    ...buff,
+    source: sourceName,
+  }));
+}
+
+function mapWeaponBuffJsonToCandidates(sourceName: string, data: BuffData): CandidateBuff[] {
+  return (data.buffs || []).map((buff) => ({
+    ...buff,
+    source: sourceName,
+  }));
+}
+
+async function loadAllCharacterCandidateBuffs(keyword: string): Promise<CandidateBuff[]> {
+  const operatorNames = await loadNameList('/data/characters/operators-list.json');
+  const matchedNames = operatorNames.filter((name) => includesKeyword(name, keyword));
+  const results = await Promise.allSettled(
+    matchedNames.map(async (name) => {
+      const path = `/data/characters/${name}/${name}buff.json`;
+      const data = await loadBuffFile(path);
+      return mapCharacterBuffJsonToCandidates(name, data);
+    })
+  );
+  return results
+    .filter((result): result is PromiseFulfilledResult<CandidateBuff[]> => result.status === 'fulfilled')
+    .flatMap((result) => result.value);
+}
+
+async function loadAllWeaponCandidateBuffs(keyword: string): Promise<CandidateBuff[]> {
+  const weaponNames = await loadNameList('/data/weapons/weapons-list.json');
+  const matchedNames = weaponNames.filter((name) => includesKeyword(name, keyword));
+  const results = await Promise.allSettled(
+    matchedNames.map(async (name) => {
+      const path = `/data/weapons/${name}/${name}buff.json`;
+      const data = await loadBuffFile(path);
+      return mapWeaponBuffJsonToCandidates(name, data);
+    })
+  );
+  return results
+    .filter((result): result is PromiseFulfilledResult<CandidateBuff[]> => result.status === 'fulfilled')
+    .flatMap((result) => result.value);
+}
+
+export async function searchManualCandidateBuffsByName(keyword: string): Promise<CandidateBuff[]> {
+  const normalizedKeyword = normalizeKeyword(keyword);
+  if (!normalizedKeyword) {
+    return [];
+  }
+
+  const [characterBuffs, weaponBuffs] = await Promise.all([
+    loadAllCharacterCandidateBuffs(normalizedKeyword),
+    loadAllWeaponCandidateBuffs(normalizedKeyword),
+  ]);
+  return [...characterBuffs, ...weaponBuffs];
+}
 
 export interface UseCandidateBuffsReturn {
   /** 候选 Buff 列表 */
@@ -78,10 +170,10 @@ export interface UseCandidateBuffsReturn {
 
 /**
  * 候选 Buff 管理 Hook
- * @param characterNames - 角色名称列表
+ * @param characters - 角色引用列表
  * @returns 候选 Buff 状态和操作
  */
-export function useCandidateBuffs(characterNames: string[]): UseCandidateBuffsReturn {
+export function useCandidateBuffs(characters: CandidateCharacterRef[]): UseCandidateBuffsReturn {
   // 候选 Buff 列表：从 ddd.candidate-buff-list.v1 回填，避免切换后变空
   const [buffList, setBuffList] = useState<CandidateBuff[]>(() => getCandidateBuffList());
   // 加载状态
@@ -139,16 +231,16 @@ export function useCandidateBuffs(characterNames: string[]): UseCandidateBuffsRe
    * 加载所有 Buff 数据并合并
    */
   const loadAllBuffs = useCallback(async (): Promise<CandidateBuff[]> => {
-    const characters = characterNames;
+    const characterNames = characters.map((character) => character.name);
     const weapons = getCharacterWeapons(characters);
 
     console.log('【刷新 Buff 数据】');
-    console.log('搜索的角色:', characters.length > 0 ? characters.join(', ') : '无');
+    console.log('搜索的角色:', characterNames.length > 0 ? characterNames.join(', ') : '无');
     console.log('角色武器配置:', weapons);
 
     const loadTasks: Array<{ path: string; source: string; type: 'character' | 'weapon' }> = [];
 
-    characters.forEach((charName) => {
+    characterNames.forEach((charName) => {
       if (charName) {
         loadTasks.push({
           path: `/data/characters/${charName}/${charName}buff.json`,
@@ -158,7 +250,7 @@ export function useCandidateBuffs(characterNames: string[]): UseCandidateBuffsRe
       }
     });
 
-    characters.forEach((charName) => {
+    characterNames.forEach((charName) => {
       const weaponName = weapons[charName];
       if (weaponName) {
         loadTasks.push({
@@ -196,7 +288,7 @@ export function useCandidateBuffs(characterNames: string[]): UseCandidateBuffsRe
 
     console.log(`共加载 ${allBuffs.length} 个 buff`);
     return allBuffs;
-  }, [characterNames]);
+  }, [characters]);
 
   /**
    * 刷新按钮点击处理函数

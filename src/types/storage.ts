@@ -1,4 +1,5 @@
 import { EquipmentConfig } from '../utils/equipmentParser';
+import type { BuffEffectKind, BuffExtraHitConfig } from '../core/domain/buff';
 import { SandboxSkillHit, SkillType, ElementType } from './index';
 
 export type SkillPanelKey = 'A' | 'B' | 'E' | 'Q';
@@ -48,6 +49,7 @@ export interface CharacterComputedCache {
     weaponAtkPercent: number;
     critRate: number;
     critDmg: number;
+    sourceSkill: number;
     healingBonus: number;
     ultimateChargeEfficiency: number;
     weaponAllSkillDmgBonus: number;
@@ -105,6 +107,7 @@ export interface PanelSummary {
   weaponAtkPercent: number;
   critRate: number;
   critDmg: number;
+  sourceSkill: number;
   healingBonus: number;
   ultimateChargeEfficiency: number;
   weaponAllSkillDmgBonus: number;
@@ -172,6 +175,8 @@ export interface SkillButtonBuff {
   condition?: string;      // 触发条件
   refCount: number;        // 被引用次数，selectedBuff 解绑时 -1，0 时删除实体
   target?: SkillButtonBuffTarget;  // 作用目标（可选，默认 'all'）
+  effectKind?: BuffEffectKind;     // Buff 效果类型（普通 modifier / 额外 hit）
+  extraHitConfig?: BuffExtraHitConfig; // 额外 hit 配置
 }
 
 export type SkillButtonBuffMap = Record<string, SkillButtonBuff[]>;

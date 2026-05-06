@@ -30,7 +30,7 @@ export function resolveSkillIconUrl(characterName: string, skillType: SkillType)
  */
 export function getElementBackgroundColor(element: string): string {
   const colorMap: Record<string, string> = {
-    physical:  'rgba(80, 80, 85, 1)',   // 深灰色
+    physical:  '#E0D6C8',               // 物理主题灰
     ice:       'rgba(200, 235, 255, 1)',   // 更浅冰蓝
     fire:      'rgba(255, 210, 195, 1)',   // 更浅暖
     electric:  'rgba(245, 245, 190, 1)',   // 更浅黄
