@@ -240,15 +240,17 @@ export function useCandidateBuffs(characters: CandidateCharacterRef[]): UseCandi
 
     const loadTasks: Array<{ path: string; source: string; type: 'character' | 'weapon' }> = [];
 
-    characterNames.forEach((charName) => {
-      if (charName) {
-        loadTasks.push({
-          path: `/data/characters/${charName}/${charName}buff.json`,
-          source: charName,
-          type: 'character',
-        });
-      }
-    });
+    // 暂时停用“刷新时按已选角色自动加载角色 Buff”。
+    // 保留下面的武器 Buff 刷新链路，以及 DamageTab 里的手动搜索入口。
+    // characterNames.forEach((charName) => {
+    //   if (charName) {
+    //     loadTasks.push({
+    //       path: `/data/characters/${charName}/${charName}buff.json`,
+    //       source: charName,
+    //       type: 'character',
+    //     });
+    //   }
+    // });
 
     characterNames.forEach((charName) => {
       const weaponName = weapons[charName];

@@ -7,6 +7,7 @@ import { useCanvasDrag } from './hooks/useCanvasDrag';
 import { useTimelineData } from '../../hooks/useTimelineData';
 import { CanvasArea } from './components/CanvasArea';
 import { ToolPanel } from '../ToolPanel';
+import { ReportTab } from '../ToolPanel/components/ReportTab';
 import { DraggingOverlay } from './components/DraggingOverlay';
 import { OperatorConfigPanel } from './components/OperatorConfigPanel';
 import { Toolbar } from './components/Toolbar';
@@ -36,7 +37,20 @@ import {
 } from '../../core/calculators/gridSnapLayout';
 import { getSkillButtonById } from '../../core/repositories';
 import { attachExistingBuffsToButton } from '../../core/services/buffService';
-import { getRuntimeOperatorTemplateById } from '../../utils/storage';
+import { getRuntimeOperatorTemplateById, setSelectedCharacterIds } from '../../utils/storage';
+import {
+  applyTimelineSnapshotPayload,
+  buildTimelineShareFile,
+  buildTimelineShareFileName,
+  deleteTimelineSnapshot,
+  listTimelineSnapshots,
+  parseTimelineShareFile,
+  restoreTimelineSnapshot,
+  saveTimelineSnapshot,
+  TIMELINE_SNAPSHOT_LIMIT,
+  type TimelineSnapshotEntry,
+  type TimelineShareFile,
+} from '../../utils/timelineSnapshotStorage';
 import './CanvasBoard.css';
 
 /**
@@ -101,6 +115,17 @@ export function CanvasBoard({
   const { currentView, selectedCharacters, canvasConfig, skillButtons } = state;
   const canvasRef = useRef<HTMLDivElement>(null);
   const [staffCount, setStaffCount] = React.useState(canvasConfig.staffCount);
+  const [isReportModalOpen, setIsReportModalOpen] = useState(false);
+  const [reportAutoGenerateToken, setReportAutoGenerateToken] = useState(0);
+  const [isSnapshotModalOpen, setIsSnapshotModalOpen] = useState(false);
+  const [isSaveSnapshotModalOpen, setIsSaveSnapshotModalOpen] = useState(false);
+  const [isShareModalOpen, setIsShareModalOpen] = useState(false);
+  const [snapshotDraftName, setSnapshotDraftName] = useState('');
+  const [shareDraftName, setShareDraftName] = useState('');
+  const [pendingRestoreSnapshot, setPendingRestoreSnapshot] = useState<TimelineSnapshotEntry | null>(null);
+  const [pendingImportShare, setPendingImportShare] = useState<TimelineShareFile | null>(null);
+  const [timelineSnapshots, setTimelineSnapshots] = useState<TimelineSnapshotEntry[]>([]);
+  const shareImportInputRef = useRef<HTMLInputElement>(null);
 
   const canvasWidth = useCanvasWidth(canvasConfig.canvasWidthPercent);
   useSelectStart();
@@ -535,9 +560,150 @@ export function CanvasBoard({
     onOpenOperatorConfig?.(characterId);
   };
 
-  const handleSaveTimeline = () => {
+  const refreshTimelineSnapshotList = () => {
+    setTimelineSnapshots(listTimelineSnapshots());
+  };
+
+  const handleOpenSaveSnapshotModal = () => {
+    setSnapshotDraftName('');
+    setIsSaveSnapshotModalOpen(true);
+  };
+
+  const handleCloseSaveSnapshotModal = () => {
+    setIsSaveSnapshotModalOpen(false);
+    setSnapshotDraftName('');
+  };
+
+  const handleSaveTimelineSnapshot = () => {
     saveTimelineData();
-    alert('排轴数据已保存');
+    setSelectedCharacterIds(selectedCharacters.map((character) => character.id));
+
+    const snapshot = saveTimelineSnapshot(snapshotDraftName);
+    if (!snapshot) {
+      alert('当前没有可保存的排轴数据');
+      return;
+    }
+
+    refreshTimelineSnapshotList();
+    handleCloseSaveSnapshotModal();
+    alert(`快照已保存：${snapshot.label}`);
+  };
+
+  const handleOpenSnapshotModal = () => {
+    refreshTimelineSnapshotList();
+    setIsSnapshotModalOpen(true);
+  };
+
+  const handleCloseSnapshotModal = () => {
+    setIsSnapshotModalOpen(false);
+    setPendingRestoreSnapshot(null);
+  };
+
+  const handleRequestRestoreSnapshot = (snapshot: TimelineSnapshotEntry) => {
+    setPendingRestoreSnapshot(snapshot);
+  };
+
+  const handleCancelRestoreSnapshot = () => {
+    setPendingRestoreSnapshot(null);
+  };
+
+  const handleConfirmRestoreSnapshot = () => {
+    if (!pendingRestoreSnapshot) {
+      return;
+    }
+
+    const restored = restoreTimelineSnapshot(pendingRestoreSnapshot.id);
+    if (!restored) {
+      alert('恢复失败：未找到对应快照');
+      return;
+    }
+
+    setPendingRestoreSnapshot(null);
+    window.location.reload();
+  };
+
+  const handleDeleteSnapshot = (snapshotId: string) => {
+    deleteTimelineSnapshot(snapshotId);
+    refreshTimelineSnapshotList();
+  };
+
+  const handleOpenShareModal = () => {
+    setShareDraftName('');
+    setIsShareModalOpen(true);
+  };
+
+  const handleCloseShareModal = () => {
+    setIsShareModalOpen(false);
+    setPendingImportShare(null);
+    if (shareImportInputRef.current) {
+      shareImportInputRef.current.value = '';
+    }
+  };
+
+  const handleExportTimelineJson = () => {
+    saveTimelineData();
+    setSelectedCharacterIds(selectedCharacters.map((character) => character.id));
+
+    const shareFile = buildTimelineShareFile(shareDraftName);
+    if (!shareFile) {
+      alert('当前没有可导出的排轴数据');
+      return;
+    }
+
+    const blob = new Blob([JSON.stringify(shareFile, null, 2)], {
+      type: 'application/json;charset=utf-8',
+    });
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = buildTimelineShareFileName(shareFile.label, shareFile.exportedAt);
+    link.click();
+    window.URL.revokeObjectURL(url);
+  };
+
+  const handleOpenShareImportPicker = () => {
+    shareImportInputRef.current?.click();
+  };
+
+  const handleShareFileSelected = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) {
+      return;
+    }
+
+    const rawText = await file.text();
+    const parsed = parseTimelineShareFile(rawText);
+    if (!parsed) {
+      alert('导入失败：文件不是有效的排轴分享 JSON');
+      event.target.value = '';
+      return;
+    }
+
+    setPendingImportShare(parsed);
+    event.target.value = '';
+  };
+
+  const handleCancelImportShare = () => {
+    setPendingImportShare(null);
+  };
+
+  const handleConfirmImportShare = () => {
+    if (!pendingImportShare) {
+      return;
+    }
+
+    applyTimelineSnapshotPayload(pendingImportShare.payload);
+    setPendingImportShare(null);
+    window.location.reload();
+  };
+
+  const handleOpenDamageReport = () => {
+    setIsReportModalOpen(true);
+    setReportAutoGenerateToken((prev) => prev + 1);
+  };
+
+  const handleCloseDamageReport = () => {
+    setIsReportModalOpen(false);
   };
 
   const handleSkillButtonModalOpen = () => {
@@ -599,7 +765,10 @@ export function CanvasBoard({
               onBack={handleBack}
               onAddGroup={handleAddStaffGroup}
               onRemoveGroup={handleRemoveStaffGroup}
-              onSave={handleSaveTimeline}
+              onSave={handleOpenSaveSnapshotModal}
+              onRestore={handleOpenSnapshotModal}
+              onShare={handleOpenShareModal}
+              onCalculate={handleOpenDamageReport}
             />
           </div>
           <div className="canvas-bottom-zone-center" />
@@ -620,6 +789,226 @@ export function CanvasBoard({
         mousePosition={mousePosition}
         buttonSize={canvasConfig.skillButtonSize}
       />
+
+      {isReportModalOpen && (
+        <div className="damage-report-modal-overlay" onClick={handleCloseDamageReport}>
+          <div className="damage-report-modal" onClick={(event) => event.stopPropagation()}>
+            <div className="damage-report-modal-head">
+              <div>
+                <h3>伤害结算报表</h3>
+                <p>独立报表窗口，不占用右侧陈列区</p>
+              </div>
+              <button type="button" className="modal-close-btn" onClick={handleCloseDamageReport}>
+                关闭
+              </button>
+            </div>
+            <ReportTab autoGenerateToken={reportAutoGenerateToken} />
+          </div>
+        </div>
+      )}
+
+      {isSnapshotModalOpen && (
+        <div className="timeline-snapshot-modal-overlay" onClick={handleCloseSnapshotModal}>
+          <div className="timeline-snapshot-modal" onClick={(event) => event.stopPropagation()}>
+            <div className="timeline-snapshot-modal-head">
+              <div>
+                <h3>恢复排轴快照</h3>
+                <p>恢复会覆盖当前 4 项排轴缓存，并在写回后自动刷新界面。仅保留最近 {TIMELINE_SNAPSHOT_LIMIT} 条快照。</p>
+              </div>
+              <button type="button" className="modal-close-btn" onClick={handleCloseSnapshotModal}>
+                关闭
+              </button>
+            </div>
+
+            {timelineSnapshots.length === 0 ? (
+              <div className="timeline-snapshot-empty">
+                当前还没有可恢复的快照。先点一次“保存”即可创建时间点。
+              </div>
+            ) : (
+              <div className="timeline-snapshot-list">
+                {timelineSnapshots.map((snapshot) => (
+                  <div key={snapshot.id} className="timeline-snapshot-item">
+                    <div className="timeline-snapshot-item-main">
+                      <strong>{snapshot.label}</strong>
+                      <span>
+                        {snapshot.summary.characterCount} 角色 / {snapshot.summary.buttonCount} 按钮 / {snapshot.summary.buffCount} Buff
+                      </span>
+                    </div>
+                    <div className="timeline-snapshot-item-actions">
+                      <button type="button" className="btn-save" onClick={() => handleRequestRestoreSnapshot(snapshot)}>
+                        恢复
+                      </button>
+                      <button
+                        type="button"
+                        className="btn-calculate timeline-snapshot-delete-btn"
+                        onClick={() => handleDeleteSnapshot(snapshot.id)}
+                      >
+                        删除
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {isSaveSnapshotModalOpen && (
+        <div className="timeline-snapshot-modal-overlay" onClick={handleCloseSaveSnapshotModal}>
+          <div className="timeline-snapshot-modal timeline-snapshot-save-modal" onClick={(event) => event.stopPropagation()}>
+            <div className="timeline-snapshot-modal-head">
+              <div>
+                <h3>保存排轴快照</h3>
+                <p>可自定义快照名称；留空时自动使用当前时间。仅保留最近 {TIMELINE_SNAPSHOT_LIMIT} 条快照。</p>
+              </div>
+              <button type="button" className="modal-close-btn" onClick={handleCloseSaveSnapshotModal}>
+                关闭
+              </button>
+            </div>
+
+            <label className="timeline-snapshot-form-label" htmlFor="timeline-snapshot-name">
+              快照名称
+            </label>
+            <input
+              id="timeline-snapshot-name"
+              className="timeline-snapshot-name-input"
+              type="text"
+              value={snapshotDraftName}
+              onChange={(event) => setSnapshotDraftName(event.target.value)}
+              placeholder="留空则使用时间戳"
+              maxLength={60}
+            />
+
+            <div className="timeline-snapshot-form-actions">
+              <button type="button" className="btn-calculate" onClick={handleCloseSaveSnapshotModal}>
+                取消
+              </button>
+              <button type="button" className="btn-save" onClick={handleSaveTimelineSnapshot}>
+                保存
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {pendingRestoreSnapshot && (
+        <div className="timeline-snapshot-modal-overlay" onClick={handleCancelRestoreSnapshot}>
+          <div className="timeline-snapshot-confirm-modal" onClick={(event) => event.stopPropagation()}>
+            <div className="timeline-snapshot-modal-head">
+              <div>
+                <h3>确认恢复快照</h3>
+                <p>将覆盖当前排轴缓存，并在恢复后自动刷新界面。</p>
+              </div>
+              <button type="button" className="modal-close-btn" onClick={handleCancelRestoreSnapshot}>
+                关闭
+              </button>
+            </div>
+
+            <div className="timeline-snapshot-confirm-body">
+              <strong>{pendingRestoreSnapshot.label}</strong>
+              <span>
+                {pendingRestoreSnapshot.summary.characterCount} 角色 / {pendingRestoreSnapshot.summary.buttonCount} 按钮 / {pendingRestoreSnapshot.summary.buffCount} Buff
+              </span>
+            </div>
+
+            <div className="timeline-snapshot-form-actions">
+              <button type="button" className="btn-calculate" onClick={handleCancelRestoreSnapshot}>
+                取消
+              </button>
+              <button type="button" className="btn-save" onClick={handleConfirmRestoreSnapshot}>
+                确认恢复
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {isShareModalOpen && (
+        <div className="timeline-snapshot-modal-overlay" onClick={handleCloseShareModal}>
+          <div className="timeline-snapshot-modal timeline-snapshot-share-modal" onClick={(event) => event.stopPropagation()}>
+            <div className="timeline-snapshot-modal-head">
+              <div>
+                <h3>排轴分享</h3>
+                <p>导出当前排轴 JSON，用于分享或外部留档。</p>
+              </div>
+              <button type="button" className="modal-close-btn" onClick={handleCloseShareModal}>
+                关闭
+              </button>
+            </div>
+
+            <div className="timeline-snapshot-confirm-body">
+              <strong>当前排轴导出</strong>
+              <span>{selectedCharacters.length} 角色 / {skillButtons.length} 运行时按钮 / 导出 4 项恢复数据</span>
+            </div>
+
+            <label className="timeline-snapshot-form-label" htmlFor="timeline-share-name">
+              导出文件名
+            </label>
+            <input
+              id="timeline-share-name"
+              className="timeline-snapshot-name-input"
+              type="text"
+              value={shareDraftName}
+              onChange={(event) => setShareDraftName(event.target.value)}
+              placeholder="留空则使用未命名"
+              maxLength={60}
+            />
+
+            <input
+              ref={shareImportInputRef}
+              className="timeline-share-file-input"
+              type="file"
+              accept="application/json,.json"
+              onChange={handleShareFileSelected}
+            />
+
+            <div className="timeline-snapshot-form-actions">
+              <button type="button" className="btn-save" onClick={handleOpenShareImportPicker}>
+                导入分享
+              </button>
+              <button type="button" className="btn-calculate" onClick={handleCloseShareModal}>
+                取消
+              </button>
+              <button type="button" className="btn-save" onClick={handleExportTimelineJson}>
+                一键导出 JSON
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {pendingImportShare && (
+        <div className="timeline-snapshot-modal-overlay" onClick={handleCancelImportShare}>
+          <div className="timeline-snapshot-confirm-modal" onClick={(event) => event.stopPropagation()}>
+            <div className="timeline-snapshot-modal-head">
+              <div>
+                <h3>确认导入分享</h3>
+                <p>将覆盖当前排轴缓存，并在导入后自动刷新界面。</p>
+              </div>
+              <button type="button" className="modal-close-btn" onClick={handleCancelImportShare}>
+                关闭
+              </button>
+            </div>
+
+            <div className="timeline-snapshot-confirm-body">
+              <strong>{pendingImportShare.label}</strong>
+              <span>
+                {pendingImportShare.payload.selectedCharacters.length} 角色 / {pendingImportShare.payload.allBuffList.length} Buff / 分享时间 {new Date(pendingImportShare.exportedAt).toLocaleString()}
+              </span>
+            </div>
+
+            <div className="timeline-snapshot-form-actions">
+              <button type="button" className="btn-calculate" onClick={handleCancelImportShare}>
+                取消
+              </button>
+              <button type="button" className="btn-save" onClick={handleConfirmImportShare}>
+                确认导入
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {pendingCopy && (
         <div

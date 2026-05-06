@@ -17,6 +17,7 @@ export interface TabDefinition {
  */
 export const SIDE_PANEL_TABS: TabDefinition[] = [
   { key: 'damage', label: '伤害加成' },
+  { key: 'report', label: '伤害报表' },
   { key: 'function1', label: '功能1' },
   { key: 'function2', label: '功能2' },
 ];

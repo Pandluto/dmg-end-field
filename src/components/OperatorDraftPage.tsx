@@ -679,7 +679,7 @@ export function OperatorDraftPage() {
       setMessages((prev) => ['[ERR] 干员 ID 不能为空', ...prev].slice(0, 12));
       return false;
     }
-    if (library[orderedDraft.id] && loadedLocalDraftId !== orderedDraft.id && !allowOverwrite) {
+    if (library[orderedDraft.id] && !allowOverwrite) {
       setIsOverwriteDraftModalOpen(true);
       return false;
     }
@@ -1033,7 +1033,11 @@ export function OperatorDraftPage() {
                     <button type="button" className="operator-draft-ghost-button" onClick={handleSaveAsDraft}>
                       另存为
                     </button>
-                      <button type="button" className="operator-draft-ghost-button" onClick={() => handleSaveDraft()}>
+                      <button
+                        type="button"
+                        className="operator-draft-ghost-button"
+                        onClick={() => handleSaveDraft({ allowOverwriteOnConflict: !isOverwriteProtectionEnabled })}
+                      >
                         保存到本地
                       </button>
                   </div>
@@ -1476,12 +1480,12 @@ export function OperatorDraftPage() {
         <div className="operator-draft-modal-overlay" onClick={() => setIsOverwriteDraftModalOpen(false)}>
           <div className="operator-draft-modal operator-draft-confirm-modal" onClick={(event) => event.stopPropagation()}>
             <div className="operator-draft-section-header">
-              <h3>干员 ID 重复</h3>
+              <h3>覆盖本地干员</h3>
               <span>请确认</span>
             </div>
             <div className="operator-draft-confirm-body">
               <p>{`本地库中已存在 ID 为「${orderedDraft.id}」的干员。`}</p>
-              <p>确认后会用当前编辑器内容覆盖本地同 ID 干员。</p>
+              <p>保护开启时，确认后会用当前编辑器内容覆盖本地同 ID 干员。</p>
             </div>
             <div className="operator-draft-modal-actions">
               <button type="button" className="operator-draft-ghost-button" onClick={() => setIsOverwriteDraftModalOpen(false)}>

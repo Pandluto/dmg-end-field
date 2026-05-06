@@ -787,3 +787,262 @@
   color: var(--office-title);
   border-bottom-color: var(--office-border);
 }
+
+.tab-content-report {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  color: var(--office-body);
+  background: var(--office-card-bg);
+}
+
+.report-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px;
+  border-bottom: 1px solid var(--office-border);
+  background: var(--office-nav-bg);
+}
+
+.report-page-switch {
+  display: flex;
+  gap: 8px;
+  flex: 1;
+  justify-content: flex-end;
+}
+
+.report-page-tab {
+  flex: 0 0 auto;
+  width: auto;
+  min-width: 88px;
+  padding: 0 12px;
+  border: 1px solid var(--office-border);
+  background: var(--office-card-bg);
+}
+
+.report-page {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.report-page-header h3 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 800;
+  color: var(--office-title);
+}
+
+.report-page-header p {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: var(--office-placeholder);
+}
+
+.report-text-panel {
+  border: 1px solid var(--office-border);
+  background: var(--office-card-bg);
+  padding: 12px 14px;
+}
+
+.report-text-block {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.report-text-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.report-panel-head-text {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0 0 10px;
+  margin-bottom: 10px;
+  border-bottom: 1px solid var(--office-border);
+}
+
+.report-panel-head-text h4 {
+  margin: 0;
+  font-size: 14px;
+  color: var(--office-title);
+}
+
+.report-panel-head-text span {
+  font-size: 12px;
+  color: var(--office-placeholder);
+}
+
+.report-text-line,
+.report-text-row {
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--office-body);
+}
+
+.report-text-line-main {
+  font-size: 15px;
+  font-weight: 800;
+  color: var(--office-title);
+}
+
+.report-text-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: baseline;
+}
+
+.report-text-rank {
+  width: 18px;
+  color: var(--office-placeholder);
+}
+
+.report-text-name {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--office-title);
+}
+
+.report-text-meta,
+.report-text-value {
+  font-size: 12px;
+  color: var(--office-body);
+}
+
+.report-tree {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.report-tree-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.report-tree-children {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-left: 22px;
+  padding-left: 12px;
+  border-left: 1px solid var(--office-border);
+}
+
+.report-tree-children-hit {
+  margin-top: 4px;
+}
+
+.report-tree-children-buff {
+  margin-top: 2px;
+}
+
+.report-tree-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 4px 0;
+}
+
+.report-tree-toggle {
+  flex: 0 0 auto;
+  border: none;
+  background: transparent;
+  padding: 0;
+  color: var(--excel-green-main);
+  font-size: 11px;
+  line-height: 1.4;
+  cursor: pointer;
+}
+
+.report-tree-toggle:hover {
+  color: var(--excel-green-deep);
+}
+
+.report-tree-main {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.report-tree-line {
+  color: var(--office-body);
+}
+
+.report-tree-line-button {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--office-title);
+}
+
+.report-tree-line-hit {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--office-title);
+}
+
+.report-tree-line-buff {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--office-title);
+}
+
+.report-tree-line-values,
+.report-tree-line-buff-meta {
+  font-size: 10px;
+  color: var(--office-body);
+}
+
+.report-detail-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(320px, 0.72fr);
+  gap: 12px;
+  min-height: 0;
+}
+
+.report-detail-left,
+.report-detail-right {
+  min-width: 0;
+  min-height: 0;
+}
+
+.report-detail-left {
+  border-right: 1px solid var(--office-border);
+  padding-right: 12px;
+}
+
+.report-detail-right {
+  padding-left: 4px;
+  overflow-y: auto;
+}
+
+.report-character-tree {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.report-tree-children-character {
+  margin-top: 4px;
+}
+
+.report-character-section {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 2px 0;
+}

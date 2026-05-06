@@ -555,6 +555,8 @@ export function BuffDraftPage() {
   const [jsonImportText, setJsonImportText] = useState('');
   const [buffTypeQuery, setBuffTypeQuery] = useState('');
   const [isExportPreviewOpen, setIsExportPreviewOpen] = useState(false);
+  const [isOverwriteDraftModalOpen, setIsOverwriteDraftModalOpen] = useState(false);
+  const [isOverwriteProtectionEnabled, setIsOverwriteProtectionEnabled] = useState(true);
   const [dragReadyTarget, setDragReadyTarget] = useState<{ kind: 'item' | 'effect'; key: string } | null>(null);
   const [dragOverTarget, setDragOverTarget] = useState<{ kind: 'item' | 'effect'; key: string } | null>(null);
   const dragTimerRef = useRef<number | null>(null);
@@ -705,12 +707,15 @@ export function BuffDraftPage() {
     setMessages((prev) => [`[OK] 已新建空组：${nextDraftId}`, ...prev].slice(0, 12));
   };
 
-  const handleSaveDraft = () => {
-    window.localStorage.setItem(BUFF_DRAFT_STORAGE_KEY, JSON.stringify(orderedDraft));
+  const persistDraftToLibrary = (allowOverwrite: boolean) => {
     const raw = window.localStorage.getItem(BUFF_LIBRARY_STORAGE_KEY);
     const library = raw ? (JSON.parse(raw) as Record<string, BuffDraft>) : {};
     const existingIds = Object.keys(library);
     const nextDraftId = orderedDraft.id.trim() || getNextDraftId(existingIds);
+    if (library[nextDraftId] && !allowOverwrite) {
+      setIsOverwriteDraftModalOpen(true);
+      return false;
+    }
     const nextDraft = {
       ...orderedDraft,
       id: nextDraftId,
@@ -724,6 +729,19 @@ export function BuffDraftPage() {
     setLocalDraftIds((prev) => (prev.includes(nextDraft.id) ? prev : [...prev, nextDraft.id]));
     setSelectedLocalDraftId(nextDraft.id);
     setMessages((prev) => [`[OK] 已保存到本地：${nextDraft.id}`, ...prev].slice(0, 12));
+    return true;
+  };
+
+  const handleSaveDraft = (options?: { allowOverwriteOnConflict?: boolean }) => {
+    persistDraftToLibrary(Boolean(options?.allowOverwriteOnConflict));
+  };
+
+  const handleConfirmOverwriteDraft = () => {
+    const saved = persistDraftToLibrary(true);
+    if (saved) {
+      setMessages((prev) => [`[OK] 已覆盖本地 Buff 组：${orderedDraft.id.trim() || '未命名'}`, ...prev].slice(0, 12));
+    }
+    setIsOverwriteDraftModalOpen(false);
   };
 
   const handleOpenExportPreview = () => {
@@ -778,6 +796,13 @@ export function BuffDraftPage() {
   const handleDeleteLocalDraft = () => {
     if (!selectedLocalDraftId) {
       setMessages((prev) => ['[ERR] 当前没有选中的本地组', ...prev].slice(0, 12));
+      return;
+    }
+    if (
+      typeof window !== 'undefined' &&
+      !window.confirm(`确认删除本地组「${selectedLocalDraftId}」吗？该操作不会自动清空当前编辑器内容。`)
+    ) {
+      setMessages((prev) => [`[OK] 已取消删除本地组：${selectedLocalDraftId}`, ...prev].slice(0, 12));
       return;
     }
     const raw = window.localStorage.getItem(BUFF_LIBRARY_STORAGE_KEY);
@@ -876,7 +901,9 @@ export function BuffDraftPage() {
         return;
       }
       event.preventDefault();
-      handleSaveDraft();
+      handleSaveDraft({
+        allowOverwriteOnConflict: !isOverwriteProtectionEnabled,
+      });
     };
 
     window.addEventListener('keydown', handleKeyDown);
@@ -884,7 +911,7 @@ export function BuffDraftPage() {
       window.removeEventListener('keydown', handleKeyDown);
       clearDragTimer();
     };
-  }, [orderedDraft]);
+  }, [orderedDraft, isOverwriteProtectionEnabled]);
 
   const handleImportJsonText = () => {
     const trimmedText = jsonImportText.trim();
@@ -940,6 +967,10 @@ export function BuffDraftPage() {
   const handleRemoveItem = () => {
     if (!selectedItemKey || !draft.items[selectedItemKey]) {
       setMessages((prev) => ['[ERR] 当前没有可删除的自定义项', ...prev].slice(0, 12));
+      return;
+    }
+    if (typeof window !== 'undefined' && !window.confirm(`确认删除自定义项「${selectedItemKey}」吗？`)) {
+      setMessages((prev) => [`[OK] 已取消删除自定义项：${selectedItemKey}`, ...prev].slice(0, 12));
       return;
     }
     const nextDraft = cloneValue(draft);
@@ -1006,6 +1037,10 @@ export function BuffDraftPage() {
   const handleRemoveEffect = () => {
     if (!selectedItemKey || !selectedItem || !selectedEffectKey || !selectedItem.effects[selectedEffectKey]) {
       setMessages((prev) => ['[ERR] 当前没有可删除的 Buff 效果', ...prev].slice(0, 12));
+      return;
+    }
+    if (typeof window !== 'undefined' && !window.confirm(`确认删除 Buff 效果「${selectedEffectKey}」吗？`)) {
+      setMessages((prev) => [`[OK] 已取消删除 Buff 效果：${selectedEffectKey}`, ...prev].slice(0, 12));
       return;
     }
     const nextDraft = cloneValue(draft);
@@ -1101,10 +1136,23 @@ export function BuffDraftPage() {
                 <div className="operator-draft-section-header">
                   <h3>基础信息</h3>
                   <div className="operator-draft-section-actions">
+                    <button
+                      type="button"
+                      className="operator-draft-ghost-button"
+                      onClick={() => setIsOverwriteProtectionEnabled((prev) => !prev)}
+                    >
+                      {isOverwriteProtectionEnabled ? '保护开' : '保护关'}
+                    </button>
                     <button type="button" className="operator-draft-ghost-button" onClick={handleNormalizeDraft}>整理</button>
                     <button type="button" className="operator-draft-ghost-button" onClick={handleCreateNewDraft}>新建</button>
                     <button type="button" className="operator-draft-ghost-button" onClick={handleSaveAsNewDraft}>另存为</button>
-                    <button type="button" className="operator-draft-ghost-button" onClick={handleSaveDraft}>保存到本地</button>
+                    <button
+                      type="button"
+                      className="operator-draft-ghost-button"
+                      onClick={() => handleSaveDraft({ allowOverwriteOnConflict: !isOverwriteProtectionEnabled })}
+                    >
+                      保存到本地
+                    </button>
                   </div>
                 </div>
                 <div className="operator-draft-basic-grid">
@@ -1504,6 +1552,28 @@ export function BuffDraftPage() {
             </div>
             <pre className="operator-draft-json buff-draft-modal-json">{draftJson}</pre>
           </section>
+        </div>
+      ) : null}
+      {isOverwriteDraftModalOpen ? (
+        <div className="operator-draft-modal-overlay" onClick={() => setIsOverwriteDraftModalOpen(false)}>
+          <div className="operator-draft-modal operator-draft-confirm-modal" onClick={(event) => event.stopPropagation()}>
+            <div className="operator-draft-section-header">
+              <h3>覆盖本地 Buff 组</h3>
+              <span>请确认</span>
+            </div>
+            <div className="operator-draft-confirm-body">
+              <p>{`本地库中已存在 ID 为「${orderedDraft.id.trim() || '未命名'}」的 Buff 组。`}</p>
+              <p>保护开启时，确认后会用当前编辑器内容覆盖本地同 ID Buff 组。</p>
+            </div>
+            <div className="operator-draft-modal-actions">
+              <button type="button" className="operator-draft-ghost-button" onClick={() => setIsOverwriteDraftModalOpen(false)}>
+                取消
+              </button>
+              <button type="button" className="operator-draft-copy-button operator-draft-danger-button" onClick={handleConfirmOverwriteDraft}>
+                确认覆盖
+              </button>
+            </div>
+          </div>
         </div>
       ) : null}
     </main>
