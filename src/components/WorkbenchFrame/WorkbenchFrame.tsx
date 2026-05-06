@@ -3,6 +3,7 @@ import { useAppContext } from '../../context/AppContext';
 import { SelectionPanel } from '../SelectionPanel';
 import { CanvasBoard } from '../CanvasBoard';
 import { setSelectedSkillButton } from '../../hooks/useSkillButtonBuffs';
+import { APP_ROUTE_PATHS, navigateToAppPath } from '../../utils/appRoute';
 import './WorkbenchFrame.css';
 
 export type WorkbenchMode = 'selection' | 'timeline' | 'toolPanel';
@@ -120,11 +121,11 @@ export function WorkbenchFrame() {
     </button>
   );
   const handleOpenOperatorDraft = useCallback(() => {
-    window.location.assign('/draft');
+    navigateToAppPath(APP_ROUTE_PATHS.draft);
   }, []);
 
   const handleOpenBuffDraft = useCallback(() => {
-    window.location.assign('/buff-draft');
+    navigateToAppPath(APP_ROUTE_PATHS.buffDraft);
   }, []);
 
   const bottomNavControls = (

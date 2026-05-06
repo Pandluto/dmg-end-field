@@ -4,6 +4,7 @@ import './OperatorDraftPage.css';
 import assetPathsRaw from '../../asset-paths.txt?raw';
 import { loadReferenceOperatorDraft, loadReferenceOperatorNames } from './operatorDraftReference';
 import { buildWeaponSearchIndex, searchWeapons } from '../utils/weaponFuzzySearch';
+import { APP_ROUTE_PATHS, navigateToAppPath } from '../utils/appRoute';
 
 const DRAFT_PAGE_PATH = '/draft';
 const DRAFT_STORAGE_KEY = 'ddd.operator-editor.draft.v1';
@@ -913,14 +914,14 @@ export function OperatorDraftPage() {
     if (typeof window === 'undefined') {
       return;
     }
-    window.location.assign('/buff-draft');
+    navigateToAppPath(APP_ROUTE_PATHS.buffDraft);
   };
 
   const handleOpenWorkbenchPage = () => {
     if (typeof window === 'undefined') {
       return;
     }
-    window.location.assign('/');
+    navigateToAppPath(APP_ROUTE_PATHS.home);
   };
 
   const skillEntries = skillOrder

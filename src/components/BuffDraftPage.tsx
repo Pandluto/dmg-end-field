@@ -3,6 +3,7 @@ import { pinyin } from 'pinyin-pro';
 import './OperatorDraftPage.css';
 import './BuffDraftPage.css';
 import type { BuffEffectKind, BuffExtraHitConfig, CandidateBuff } from '../core/domain/buff';
+import { APP_ROUTE_PATHS, navigateToAppPath } from '../utils/appRoute';
 
 const BUFF_DRAFT_PAGE_PATH = '/buff-draft';
 const BUFF_DRAFT_STORAGE_KEY = 'ddd.buff-editor.draft.v1';
@@ -1055,14 +1056,14 @@ export function BuffDraftPage() {
     if (typeof window === 'undefined') {
       return;
     }
-    window.location.assign('/draft');
+    navigateToAppPath(APP_ROUTE_PATHS.draft);
   };
 
   const handleOpenWorkbenchPage = () => {
     if (typeof window === 'undefined') {
       return;
     }
-    window.location.assign('/');
+    navigateToAppPath(APP_ROUTE_PATHS.home);
   };
 
   return (

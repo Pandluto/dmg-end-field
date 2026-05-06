@@ -3,22 +3,50 @@
  * 只负责渲染工作台框架，业务页面由 WorkbenchFrame 承载
  */
 
+import { useEffect, useState } from 'react';
 import { WorkbenchFrame } from './components/WorkbenchFrame';
 import { StorageDebugPage, isStorageDebugPath } from './components/StorageDebugPage';
 import { OperatorDraftPage, isDraftPath } from './components/OperatorDraftPage';
 import { BuffDraftPage, isBuffDraftPath } from './components/BuffDraftPage';
+import { getCurrentAppPath } from './utils/appRoute';
 import './styles/global.css';
 
 function App() {
-  if (typeof window !== 'undefined' && isStorageDebugPath(window.location.pathname)) {
+  const [currentPath, setCurrentPath] = useState(() => {
+    if (typeof window === 'undefined') {
+      return '/';
+    }
+    return getCurrentAppPath(window.location);
+  });
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return undefined;
+    }
+
+    const syncCurrentPath = () => {
+      setCurrentPath(getCurrentAppPath(window.location));
+    };
+
+    window.addEventListener('hashchange', syncCurrentPath);
+    window.addEventListener('popstate', syncCurrentPath);
+    syncCurrentPath();
+
+    return () => {
+      window.removeEventListener('hashchange', syncCurrentPath);
+      window.removeEventListener('popstate', syncCurrentPath);
+    };
+  }, []);
+
+  if (isStorageDebugPath(currentPath)) {
     return <StorageDebugPage />;
   }
 
-  if (typeof window !== 'undefined' && isDraftPath(window.location.pathname)) {
+  if (isDraftPath(currentPath)) {
     return <OperatorDraftPage />;
   }
 
-  if (typeof window !== 'undefined' && isBuffDraftPath(window.location.pathname)) {
+  if (isBuffDraftPath(currentPath)) {
     return <BuffDraftPage />;
   }
 
