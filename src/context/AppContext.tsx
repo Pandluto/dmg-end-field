@@ -26,7 +26,7 @@ import {
   ViewType,
   DEFAULT_CANVAS_CONFIG,
 } from '../types';
-import { resolveAvatarUrl, resolveSkillIconUrl } from '../utils/assetResolver';
+import { resolveAvatarUrl, resolvePublicPath, resolveSkillIconUrl } from '../utils/assetResolver';
 import {
   cleanupStorage,
   getSelectedCharacterIds,
@@ -263,7 +263,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
    */
   const loadCharacters = async () => {
     try {
-      const listResponse = await fetch('/data/characters/operators-list.json');
+      const listResponse = await fetch(resolvePublicPath('data/characters/operators-list.json'));
       if (!listResponse.ok) {
         console.warn('Failed to load operators-list.json');
         return;
@@ -275,7 +275,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       for (const operator of operatorList) {
         const fileName = `${operator.name}/${operator.name}.json`;
         try {
-          const response = await fetch(`/data/characters/${fileName}`);
+          const response = await fetch(resolvePublicPath(`data/characters/${fileName}`));
           if (response.ok) {
             const data = await response.json();
             const character = data as Character;

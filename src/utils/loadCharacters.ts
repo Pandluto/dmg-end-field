@@ -1,4 +1,5 @@
 import { Character } from '../types';
+import { resolvePublicPath } from './assetResolver';
 
 const CHARACTER_FILES = [
   '管理员.json',
@@ -15,7 +16,7 @@ export async function loadCharacters(): Promise<Character[]> {
 
   for (const fileName of CHARACTER_FILES) {
     try {
-      const response = await fetch(`/data/characters/${fileName}`);
+      const response = await fetch(resolvePublicPath(`data/characters/${fileName}`));
       if (!response.ok) {
         console.warn(`Failed to load ${fileName}: ${response.status}`);
         continue;

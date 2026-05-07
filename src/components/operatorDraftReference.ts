@@ -1,3 +1,5 @@
+import { resolvePublicPath } from '../utils/assetResolver';
+
 type HitSkillType = 'A' | 'B' | 'E' | 'Q';
 type HitElement = 'physical' | 'fire' | 'ice' | 'electric' | 'nature';
 
@@ -421,7 +423,7 @@ function buildImportedDraft(source: SourceCharacterData, options: ImportDraftOpt
 }
 
 export async function loadReferenceOperatorNames() {
-  const response = await fetch('/data/characters/operators-list.json');
+  const response = await fetch(resolvePublicPath('data/characters/operators-list.json'));
   if (!response.ok) {
     throw new Error(`operators-list 加载失败: ${response.status}`);
   }
@@ -430,7 +432,7 @@ export async function loadReferenceOperatorNames() {
 }
 
 export async function loadReferenceOperatorDraft(selectedReferenceName: string, options: ImportDraftOptions) {
-  const response = await fetch(`/data/characters/${selectedReferenceName}/${selectedReferenceName}.json`);
+  const response = await fetch(resolvePublicPath(`data/characters/${selectedReferenceName}/${selectedReferenceName}.json`));
   if (!response.ok) {
     throw new Error(`参考干员加载失败: ${response.status}`);
   }

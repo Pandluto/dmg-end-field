@@ -12,6 +12,7 @@ import type {
   SandboxSkill,
   SandboxSkillHit,
 } from '../../types';
+import { normalizeAssetUrl } from '../../utils/assetResolver';
 import type {
   OperatorDraft,
   OperatorDraftSkill,
@@ -164,7 +165,7 @@ function buildRuntimeSkillFromDraft(
     id: skillKey,
     displayName: skill.displayName || skillKey,
     buttonType: skill.buttonType,
-    iconUrl: skill.iconUrl || undefined,
+    iconUrl: skill.iconUrl ? normalizeAssetUrl(skill.iconUrl) : undefined,
     hitCount: hits.length > 0 ? hits.length : skill.hitCount,
     hits,
   };
@@ -183,7 +184,7 @@ export function buildRuntimeOperatorTemplateFromDraft(
   return {
     id: draft.id,
     name: draft.name,
-    avatarUrl: draft.avatarUrl || undefined,
+    avatarUrl: draft.avatarUrl ? normalizeAssetUrl(draft.avatarUrl) : undefined,
     rarity: draft.rarity,
     profession: draft.profession || '',
     weapon: draft.weapon || '',

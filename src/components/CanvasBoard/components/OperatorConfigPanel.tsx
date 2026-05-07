@@ -16,6 +16,7 @@ import {
   getRuntimeOperatorTemplateById,
 } from '../../../utils/storage';
 import type { RuntimeOperatorTemplateSkill } from '../../../core/templates/operatorTemplate';
+import { resolvePublicPath } from '../../../utils/assetResolver';
 
 interface CharacterMaxData {
   name: string;
@@ -381,7 +382,7 @@ export function OperatorConfigPanel({
         setIsLoading(true);
         setLoadError(null);
         const response = await fetch(
-          `/data/characters/${encodeURIComponent(activeCharacter.name)}/${encodeURIComponent(activeCharacter.name)}max.json`,
+          resolvePublicPath(`data/characters/${encodeURIComponent(activeCharacter.name)}/${encodeURIComponent(activeCharacter.name)}max.json`),
           { signal: controller.signal }
         );
         if (!response.ok) {
@@ -425,7 +426,7 @@ export function OperatorConfigPanel({
       try {
         setIsWeaponListLoading(true);
         setWeaponListLoadError(null);
-        const response = await fetch('/data/weapons/weapons-list.json', { signal: controller.signal });
+        const response = await fetch(resolvePublicPath('data/weapons/weapons-list.json'), { signal: controller.signal });
         if (!response.ok) {
           throw new Error(`读取失败: ${response.status}`);
         }

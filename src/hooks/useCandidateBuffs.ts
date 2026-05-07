@@ -9,6 +9,7 @@ import { CandidateBuff, BuffData } from '../core/domain/buff';
 import { setCandidateBuffList, getCandidateBuffList } from '../core/repositories';
 import { getCharacterConfigMap } from '../utils/storage';
 import { buildWeaponSearchIndex, searchWeapons } from '../utils/weaponFuzzySearch';
+import { resolvePublicPath } from '../utils/assetResolver';
 
 interface CandidateCharacterRef {
   id: string;
@@ -55,7 +56,7 @@ const getCharacterWeapons = (characters: CandidateCharacterRef[]): Record<string
  * @returns Promise<BuffData> Buff 数据对象
  */
 const loadBuffFile = async (path: string): Promise<BuffData> => {
-  const response = await fetch(path);
+  const response = await fetch(resolvePublicPath(path));
   if (!response.ok) {
     throw new Error(`加载失败: ${path}`);
   }
@@ -67,7 +68,7 @@ interface NameListItem {
 }
 
 async function loadNameList(path: string): Promise<string[]> {
-  const response = await fetch(path);
+  const response = await fetch(resolvePublicPath(path));
   if (!response.ok) {
     throw new Error(`加载失败: ${path}`);
   }
@@ -103,11 +104,11 @@ function mapWeaponBuffJsonToCandidates(sourceName: string, data: BuffData): Cand
 }
 
 async function loadAllCharacterCandidateBuffs(keyword: string): Promise<CandidateBuff[]> {
-  const operatorNames = await loadNameList('/data/characters/operators-list.json');
+  const operatorNames = await loadNameList('data/characters/operators-list.json');
   const matchedNames = operatorNames.filter((name) => includesKeyword(name, keyword));
   const results = await Promise.allSettled(
     matchedNames.map(async (name) => {
-      const path = `/data/characters/${name}/${name}buff.json`;
+      const path = `data/characters/${name}/${name}buff.json`;
       const data = await loadBuffFile(path);
       return mapCharacterBuffJsonToCandidates(name, data);
     })
@@ -118,11 +119,11 @@ async function loadAllCharacterCandidateBuffs(keyword: string): Promise<Candidat
 }
 
 async function loadAllWeaponCandidateBuffs(keyword: string): Promise<CandidateBuff[]> {
-  const weaponNames = await loadNameList('/data/weapons/weapons-list.json');
+  const weaponNames = await loadNameList('data/weapons/weapons-list.json');
   const matchedNames = weaponNames.filter((name) => includesKeyword(name, keyword));
   const results = await Promise.allSettled(
     matchedNames.map(async (name) => {
-      const path = `/data/weapons/${name}/${name}buff.json`;
+      const path = `data/weapons/${name}/${name}buff.json`;
       const data = await loadBuffFile(path);
       return mapWeaponBuffJsonToCandidates(name, data);
     })
@@ -256,7 +257,7 @@ export function useCandidateBuffs(characters: CandidateCharacterRef[]): UseCandi
       const weaponName = weapons[charName];
       if (weaponName) {
         loadTasks.push({
-          path: `/data/weapons/${weaponName}/${weaponName}buff.json`,
+          path: `data/weapons/${weaponName}/${weaponName}buff.json`,
           source: weaponName,
           type: 'weapon',
         });

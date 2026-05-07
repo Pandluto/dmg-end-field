@@ -4,6 +4,7 @@ import {
   buildRuntimeOperatorTemplateFromDraft,
   buildRuntimeTemplatesFromDraftMap,
 } from './operatorTemplateAdapter';
+import { normalizeAssetUrl } from '../../utils/assetResolver';
 
 const LOCAL_OPERATOR_LIBRARY_KEY = 'def.operator-editor.library.v1';
 
@@ -103,7 +104,7 @@ export function adaptRuntimeTemplateToLegacyCharacter(
     id: skill.id,
     displayName: skill.displayName,
     buttonType: skill.buttonType,
-    iconUrl: skill.iconUrl,
+    iconUrl: skill.iconUrl ? normalizeAssetUrl(skill.iconUrl) : undefined,
     hitCount: skill.hitCount,
     source: 'local',
     customHits: skill.hits.map((hit) => ({
@@ -186,11 +187,11 @@ export function adaptRuntimeTemplateToLegacyCharacter(
           }
         : createFallbackSkill('Q'),
     },
-    avatarUrl: template.avatarUrl || '',
+    avatarUrl: template.avatarUrl ? normalizeAssetUrl(template.avatarUrl) : '',
     skillIconMap: Object.fromEntries(
       template.skills
         .filter((s) => s.iconUrl)
-        .map((s) => [s.buttonType, s.iconUrl])
+        .map((s) => [s.buttonType, normalizeAssetUrl(s.iconUrl)])
     ) as Character['skillIconMap'],
     librarySource: 'local',
     sandboxSkills,

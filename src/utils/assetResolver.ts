@@ -1,13 +1,39 @@
 import type { SkillType } from '../types';
 import { SKILL_NAMES } from '../types';
 
+function isExternalUrl(path: string): boolean {
+  return /^(?:[a-z]+:)?\/\//i.test(path) || /^(?:data|blob|file):/i.test(path);
+}
+
+export function resolvePublicPath(path: string): string {
+  if (!path) {
+    return path;
+  }
+
+  if (isExternalUrl(path)) {
+    return path;
+  }
+
+  const normalizedPath = path
+    .replace(/^\.\//, '')
+    .replace(/^\/+/, '');
+  const baseUrl = import.meta.env.BASE_URL || './';
+  const normalizedBaseUrl = baseUrl.endsWith('/') ? baseUrl : `${baseUrl}/`;
+
+  return `${normalizedBaseUrl}${normalizedPath}`;
+}
+
+export function normalizeAssetUrl(path?: string | null): string {
+  return path ? resolvePublicPath(path) : '';
+}
+
 /**
  * 角色头像资源路径解析
  * 规范路径: /assets/avatars/<characterName>/<characterName>.png
  * @param characterName - 角色名称（URL 编码，兼容中文等特殊字符）
  */
 export function resolveAvatarUrl(characterName: string): string {
-  return `/assets/avatars/${encodeURIComponent(characterName)}/${encodeURIComponent(characterName)}.png`;
+  return resolvePublicPath(`assets/avatars/${encodeURIComponent(characterName)}/${encodeURIComponent(characterName)}.png`);
 }
 
 /**
@@ -20,7 +46,7 @@ export function resolveAvatarUrl(characterName: string): string {
  */
 export function resolveSkillIconUrl(characterName: string, skillType: SkillType): string {
   const skillName = SKILL_NAMES[skillType];
-  return `/assets/avatars/${encodeURIComponent(characterName)}/${encodeURIComponent(characterName)}${skillName}.png`;
+  return resolvePublicPath(`assets/avatars/${encodeURIComponent(characterName)}/${encodeURIComponent(characterName)}${skillName}.png`);
 }
 
 /**

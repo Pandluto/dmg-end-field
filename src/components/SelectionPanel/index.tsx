@@ -10,6 +10,7 @@ import { useAppContext } from '../../context/AppContext';
 import { reconcileSelectionChange } from '../../core/services/timelineService';
 import { loadLocalOperatorCharacters } from '../../core/services/localOperatorAdapter';
 import { Character } from '../../types';
+import { normalizeAssetUrl } from '../../utils/assetResolver';
 import './SelectionPanel.css';
 
 /** 干员元素属性 → CSS 颜色映射（用于元素圆点）*/
@@ -104,7 +105,7 @@ export function SelectionPanel() {
         {character.avatarUrl ? (
           <img
             className="character-avatar-image"
-            src={character.avatarUrl}
+            src={normalizeAssetUrl(character.avatarUrl)}
             alt={`${character.name} 头像`}
           />
         ) : (

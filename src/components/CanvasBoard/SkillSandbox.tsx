@@ -13,7 +13,7 @@
 
 import React, { useEffect, useRef, useState } from 'react';
 import { Character, SandboxSkill, SkillType, SKILL_LABELS } from '../../types';
-import { getElementBackgroundColor } from '../../utils/assetResolver';
+import { getElementBackgroundColor, normalizeAssetUrl } from '../../utils/assetResolver';
 import './SkillSandbox.css';
 
 interface SkillSandboxProps {
@@ -139,7 +139,7 @@ export function SkillSandbox({ selectedCharacters, onDragStart, onAvatarDoubleCl
               {character.avatarUrl && (
                 <img
                   className="sandbox-avatar"
-                  src={character.avatarUrl}
+                  src={normalizeAssetUrl(character.avatarUrl)}
                   alt={`${character.name} 头像`}
                   style={{ backgroundColor: getElementBackgroundColor(character.element) }}
                   onDoubleClick={() => {
@@ -196,7 +196,7 @@ export function SkillSandbox({ selectedCharacters, onDragStart, onAvatarDoubleCl
                     {sandboxSkill.iconUrl ? (
                       <img
                         className="skill-icon"
-                        src={sandboxSkill.iconUrl}
+                        src={normalizeAssetUrl(sandboxSkill.iconUrl)}
                         alt={sandboxSkill.displayName}
                         onError={(e) => {
                           (e.target as HTMLImageElement).style.display = 'none';

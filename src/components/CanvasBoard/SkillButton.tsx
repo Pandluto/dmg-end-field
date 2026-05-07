@@ -7,7 +7,7 @@ import {
   SKILL_LABELS,
   TimelineData,
 } from '../../types';
-import { getElementBackgroundColor } from '../../utils/assetResolver';
+import { getElementBackgroundColor, normalizeAssetUrl } from '../../utils/assetResolver';
 import {
   removeSkillButtonBuff,
   setSelectedSkillButton,
@@ -2403,8 +2403,8 @@ export function SkillButtonComponent({
             {skillIconUrl && !iconLoadFailed ? (
               <img
                 className="skill-icon"
-                key={skillIconUrl}
-                src={skillIconUrl}
+                key={normalizeAssetUrl(skillIconUrl)}
+                src={normalizeAssetUrl(skillIconUrl)}
                 alt={displayName}
                 onLoad={handleIconLoad}
                 onError={handleIconError}

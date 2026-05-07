@@ -11,6 +11,7 @@ import {
   parseDraftLibraryShareFile,
   type DraftLibraryShareFile,
 } from '../utils/draftShare';
+import { normalizeAssetUrl } from '../utils/assetResolver';
 
 const DRAFT_PAGE_PATH = '/draft';
 const DRAFT_STORAGE_KEY = 'def.operator-editor.draft.v1';
@@ -1170,7 +1171,7 @@ export function OperatorDraftPage() {
                 <div className="operator-draft-basic-grid">
                   <div className="operator-draft-avatar-wrap operator-draft-avatar-wrap-dense">
                     {draft.avatarUrl ? (
-                      <img className="operator-draft-avatar" src={draft.avatarUrl} alt={draft.name} />
+                      <img className="operator-draft-avatar" src={normalizeAssetUrl(draft.avatarUrl)} alt={draft.name} />
                     ) : (
                       <div className="operator-draft-avatar operator-draft-avatar-fallback">{draft.name.slice(0, 1)}</div>
                     )}
@@ -1319,7 +1320,7 @@ export function OperatorDraftPage() {
                   >
                     <div className="operator-draft-skill-icon-wrap">
                       {skill.iconUrl ? (
-                        <img src={skill.iconUrl} alt={skill.displayName || skillKey} className="operator-draft-skill-icon" />
+                        <img src={normalizeAssetUrl(skill.iconUrl)} alt={skill.displayName || skillKey} className="operator-draft-skill-icon" />
                       ) : (
                         <div className="operator-draft-skill-icon operator-draft-skill-icon-fallback">{skill.buttonType}</div>
                       )}
@@ -1352,7 +1353,7 @@ export function OperatorDraftPage() {
                 <>
                   <div className="operator-draft-skill-hero">
                     {selectedSkill.iconUrl ? (
-                      <img src={selectedSkill.iconUrl} alt={selectedSkill.displayName} className="operator-draft-skill-hero-icon" />
+                      <img src={normalizeAssetUrl(selectedSkill.iconUrl)} alt={selectedSkill.displayName} className="operator-draft-skill-hero-icon" />
                     ) : (
                       <div className="operator-draft-skill-hero-icon operator-draft-skill-icon-fallback">{selectedSkill.buttonType}</div>
                     )}
