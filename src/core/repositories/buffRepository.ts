@@ -1,6 +1,6 @@
 /**
  * Buff Repository
- * 只负责 ddd.all-buff-list.v1（已选 Buff 实体表）的读写
+ * 只负责 def.all-buff-list.v1（已选 Buff 实体表）的读写
  * 不依赖 React，不写业务规则
  */
 
@@ -57,3 +57,4 @@ export function removeBuffById(buffId: string): void {
   const list = getAllBuffList().filter(b => b.id !== buffId);
   setAllBuffList(list);
 }
+

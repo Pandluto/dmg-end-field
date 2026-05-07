@@ -5,7 +5,7 @@ import {
   buildRuntimeTemplatesFromDraftMap,
 } from './operatorTemplateAdapter';
 
-const LOCAL_OPERATOR_LIBRARY_KEY = 'ddd.operator-editor.library.v1';
+const LOCAL_OPERATOR_LIBRARY_KEY = 'def.operator-editor.library.v1';
 
 // ============================================================================
 // 本地角色库读取（返回 Draft Map）
@@ -214,3 +214,4 @@ export function adaptImportedDraftToCharacter(draft: OperatorDraft): Character {
   const template = buildRuntimeOperatorTemplateFromDraft(draft);
   return adaptRuntimeTemplateToLegacyCharacter(template);
 }
+

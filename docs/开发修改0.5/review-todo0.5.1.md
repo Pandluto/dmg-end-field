@@ -34,10 +34,10 @@
      - repository 不引入 React。
      - repository 不派发 UI 事件。
    - 主从约束：
-     - `skillButtonRepository` 只管 `ddd.skill-button.v1`。
-     - `buffRepository` 只管 `ddd.all-buff-list.v1`。
-     - `candidateBuffRepository` 只管 `ddd.candidate-buff-list.v1`。
-     - `timelineRepository` 只管 `ddd.timeline.data.v1`。
+     - `skillButtonRepository` 只管 `def.skill-button.v1`。
+     - `buffRepository` 只管 `def.all-buff-list.v1`。
+     - `candidateBuffRepository` 只管 `def.candidate-buff-list.v1`。
+     - `timelineRepository` 只管 `def.timeline.data.v1`。
      - `operatorConfigRepository` 只管角色配置和计算缓存相关读取。
 
 2. 新建 service 层
@@ -153,7 +153,7 @@
 - 删除单个 Buff 后，引用和实体清理正确。
 - 清空 Buff 后，无引用实体被删除。
 - 删除整个按钮后，无引用 Buff 被删除。
-- 刷新候选 Buff 后，`ddd.all-buff-list.v1` 不被覆盖。
+- 刷新候选 Buff 后，`def.all-buff-list.v1` 不被覆盖。
 - 跨谱线移动后，button id 和 selectedBuff 不丢。
 - 刷新页面后，timeline、button、buff 均恢复。
 
@@ -168,3 +168,4 @@
   - 仍保留兼容的旧入口列表
   - 构建结果
   - 回归手测结果
+

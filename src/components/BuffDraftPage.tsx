@@ -4,10 +4,17 @@ import './OperatorDraftPage.css';
 import './BuffDraftPage.css';
 import type { BuffEffectKind, BuffExtraHitConfig, CandidateBuff } from '../core/domain/buff';
 import { APP_ROUTE_PATHS, navigateToAppPath } from '../utils/appRoute';
+import {
+  buildDraftLibraryShareFile,
+  buildDraftLibraryShareFileName,
+  parseDraftLibraryShareFile,
+  type DraftLibraryShareFile,
+} from '../utils/draftShare';
 
 const BUFF_DRAFT_PAGE_PATH = '/buff-draft';
-const BUFF_DRAFT_STORAGE_KEY = 'ddd.buff-editor.draft.v1';
-const BUFF_LIBRARY_STORAGE_KEY = 'ddd.buff-editor.library.v1';
+const BUFF_DRAFT_STORAGE_KEY = 'def.buff-editor.draft.v1';
+const BUFF_LIBRARY_STORAGE_KEY = 'def.buff-editor.library.v1';
+const BUFF_LIBRARY_SHARE_TYPE = 'buff-library-share.v1';
 
 const BUFF_TYPE_OPTIONS = [
   'atkPercentBoost',
@@ -81,13 +88,13 @@ const BUFF_TYPE_LABELS: Record<(typeof BUFF_TYPE_OPTIONS)[number], { label: stri
   ultimateDmgBonus: { label: '终结技伤害加成', keywords: ['终结', '大招', 'ultimate'] },
   normalAttackDmgBonus: { label: '普攻伤害加成', keywords: ['普攻', '普通攻击'] },
   allSkillDmgBonus: { label: '全技能伤害加成', keywords: ['全技能', '技能'] },
-  physicalFragile: { label: '物理脆弱', keywords: ['物理', '脆弱'] },
+  physicalFragile: { label: '物伤易伤', keywords: ['物理', '物伤', '易伤', '受伤增加'] },
   fireFragile: { label: '灼热脆弱', keywords: ['灼热', '脆弱'] },
   electricFragile: { label: '电磁脆弱', keywords: ['电磁', '脆弱'] },
   iceFragile: { label: '寒冷脆弱', keywords: ['寒冷', '脆弱'] },
   natureFragile: { label: '自然脆弱', keywords: ['自然', '脆弱'] },
   magicFragile: { label: '法术脆弱', keywords: ['法术', '脆弱'] },
-  physicalVulnerability: { label: '物理易伤', keywords: ['物理', '易伤', '受伤增加'] },
+  physicalVulnerability: { label: '物理脆弱', keywords: ['物理', '脆弱'] },
   fireVulnerability: { label: '灼热易伤', keywords: ['灼热', '易伤'] },
   electricVulnerability: { label: '电磁易伤', keywords: ['电磁', '易伤'] },
   iceVulnerability: { label: '寒冷易伤', keywords: ['寒冷', '易伤'] },
@@ -553,14 +560,17 @@ export function BuffDraftPage() {
   const [messages, setMessages] = useState<string[]>(['已进入本地 Buff 编辑器']);
   const [selectedItemKey, setSelectedItemKey] = useState<string | null>(null);
   const [selectedEffectKey, setSelectedEffectKey] = useState<string | null>(null);
-  const [jsonImportText, setJsonImportText] = useState('');
   const [buffTypeQuery, setBuffTypeQuery] = useState('');
   const [isExportPreviewOpen, setIsExportPreviewOpen] = useState(false);
+  const [isShareModalOpen, setIsShareModalOpen] = useState(false);
   const [isOverwriteDraftModalOpen, setIsOverwriteDraftModalOpen] = useState(false);
   const [isOverwriteProtectionEnabled, setIsOverwriteProtectionEnabled] = useState(true);
+  const [shareDraftName, setShareDraftName] = useState('');
+  const [pendingImportShare, setPendingImportShare] = useState<DraftLibraryShareFile<BuffDraft> | null>(null);
   const [dragReadyTarget, setDragReadyTarget] = useState<{ kind: 'item' | 'effect'; key: string } | null>(null);
   const [dragOverTarget, setDragOverTarget] = useState<{ kind: 'item' | 'effect'; key: string } | null>(null);
   const dragTimerRef = useRef<number | null>(null);
+  const shareImportInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     const itemKeys = Object.keys(draft.items);
@@ -755,6 +765,142 @@ export function BuffDraftPage() {
     setMessages((prev) => ['[OK] 已复制导出 JSON', ...prev].slice(0, 12));
   };
 
+  const readLocalBuffLibrary = () => {
+    if (typeof window === 'undefined') {
+      return {} as Record<string, BuffDraft>;
+    }
+
+    const raw = window.localStorage.getItem(BUFF_LIBRARY_STORAGE_KEY);
+    if (!raw) {
+      return {} as Record<string, BuffDraft>;
+    }
+
+    try {
+      const parsed = JSON.parse(raw) as Record<string, unknown>;
+      return Object.fromEntries(
+        Object.entries(parsed).flatMap(([draftId, value]) => {
+          try {
+            const normalizedDraft = parseImportedBuffDraft(JSON.stringify(value));
+            return [[draftId, normalizedDraft] as const];
+          } catch {
+            return [];
+          }
+        })
+      );
+    } catch {
+      return {} as Record<string, BuffDraft>;
+    }
+  };
+
+  const downloadShareFile = (shareFile: DraftLibraryShareFile<BuffDraft>) => {
+    const blob = new Blob([JSON.stringify(shareFile, null, 2)], {
+      type: 'application/json;charset=utf-8',
+    });
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = buildDraftLibraryShareFileName(shareFile.label, shareFile.exportedAt);
+    link.click();
+    window.URL.revokeObjectURL(url);
+  };
+
+  const handleOpenShareModal = () => {
+    setShareDraftName('');
+    setPendingImportShare(null);
+    setIsShareModalOpen(true);
+  };
+
+  const handleCloseShareModal = () => {
+    setIsShareModalOpen(false);
+    setPendingImportShare(null);
+    setShareDraftName('');
+    if (shareImportInputRef.current) {
+      shareImportInputRef.current.value = '';
+    }
+  };
+
+  const handleExportLocalLibraryShare = () => {
+    const library = readLocalBuffLibrary();
+    const draftCount = Object.keys(library).length;
+    if (draftCount === 0) {
+      setMessages((prev) => ['[ERR] 本地没有可分享的 Buff 库数据', ...prev].slice(0, 12));
+      return;
+    }
+
+    const shareFile = buildDraftLibraryShareFile(BUFF_LIBRARY_SHARE_TYPE, library, shareDraftName);
+    downloadShareFile(shareFile);
+    setMessages((prev) => [`[OK] 已导出 Buff 分享：${shareFile.label}（${draftCount} 组）`, ...prev].slice(0, 12));
+  };
+
+  const handleOpenShareImportPicker = () => {
+    shareImportInputRef.current?.click();
+  };
+
+  const handleShareFileSelected = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) {
+      return;
+    }
+
+    const rawText = await file.text();
+    const parsedShare = parseDraftLibraryShareFile(rawText, BUFF_LIBRARY_SHARE_TYPE);
+    if (!parsedShare) {
+      setMessages((prev) => ['[ERR] 导入失败：文件不是有效的 Buff 分享 JSON', ...prev].slice(0, 12));
+      event.target.value = '';
+      return;
+    }
+
+    const normalizedPayload = Object.fromEntries(
+      Object.entries(parsedShare.payload).flatMap(([draftId, value]) => {
+        try {
+          const normalizedDraft = parseImportedBuffDraft(JSON.stringify(value));
+          return [[draftId, normalizedDraft] as const];
+        } catch {
+          return [];
+        }
+      })
+    ) as Record<string, BuffDraft>;
+
+    if (Object.keys(normalizedPayload).length === 0) {
+      setMessages((prev) => ['[ERR] 导入失败：分享文件内没有有效的 Buff 组', ...prev].slice(0, 12));
+      event.target.value = '';
+      return;
+    }
+
+    setPendingImportShare({
+      ...parsedShare,
+      payload: normalizedPayload,
+    });
+    event.target.value = '';
+  };
+
+  const handleCancelImportShare = () => {
+    setPendingImportShare(null);
+  };
+
+  const handleConfirmImportShare = () => {
+    if (typeof window === 'undefined' || !pendingImportShare) {
+      return;
+    }
+
+    const currentLibrary = readLocalBuffLibrary();
+    const nextLibrary = {
+      ...currentLibrary,
+      ...pendingImportShare.payload,
+    };
+    const nextIds = Object.keys(nextLibrary);
+    window.localStorage.setItem(BUFF_LIBRARY_STORAGE_KEY, JSON.stringify(nextLibrary));
+    setLocalDraftIds(nextIds);
+    setSelectedLocalDraftId((prev) => prev && nextLibrary[prev] ? prev : (Object.keys(pendingImportShare.payload)[0] ?? nextIds[0] ?? ''));
+    setIsShareModalOpen(false);
+    setShareDraftName('');
+    setPendingImportShare(null);
+    setMessages((prev) => [
+      `[OK] 已导入 Buff 分享：${pendingImportShare.label}（${Object.keys(pendingImportShare.payload).length} 组）`,
+      ...prev,
+    ].slice(0, 12));
+  };
+
   const handleImportLocalDraft = () => {
     if (typeof window === 'undefined') {
       return;
@@ -914,21 +1060,6 @@ export function BuffDraftPage() {
     };
   }, [orderedDraft, isOverwriteProtectionEnabled]);
 
-  const handleImportJsonText = () => {
-    const trimmedText = jsonImportText.trim();
-    if (!trimmedText) {
-      setMessages((prev) => ['[ERR] JSON 文本为空', ...prev].slice(0, 12));
-      return;
-    }
-    try {
-      const importedDraft = parseImportedBuffDraft(trimmedText);
-      loadDraftIntoEditor(importedDraft, `[OK] 已从 JSON 文本导入：${importedDraft.id}`);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'JSON 导入失败';
-      setMessages((prev) => [`[ERR] ${message}`, ...prev].slice(0, 12));
-    }
-  };
-
   const handleAddItem = () => {
     const nextItemKey = getNextItemKey(draft);
     const nextItem = createDefaultBuffItem(nextItemKey, draft.sourceName || draft.name);
@@ -1084,6 +1215,9 @@ export function BuffDraftPage() {
                     <button type="button" className="operator-draft-ghost-button" onClick={handleOpenExportPreview}>
                       导出 JSON
                     </button>
+                    <button type="button" className="operator-draft-ghost-button" onClick={handleOpenShareModal}>
+                      分享库
+                    </button>
                   </div>
 
                   <div className="operator-draft-reference-box">
@@ -1110,15 +1244,11 @@ export function BuffDraftPage() {
 
                   <div className="operator-draft-reference-box">
                     <label>
-                      <span>JSON 文本</span>
-                      <textarea
-                        value={jsonImportText}
-                        onChange={(event) => setJsonImportText(event.target.value)}
-                        placeholder="粘贴导出的本地 Buff 草稿 JSON"
-                      />
+                      <span>分享导入</span>
+                      <input value="点击打开分享弹窗" readOnly />
                     </label>
-                    <button type="button" className="operator-draft-ghost-button" onClick={handleImportJsonText}>
-                      导入 JSON
+                    <button type="button" className="operator-draft-ghost-button" onClick={handleOpenShareModal}>
+                      打开分享弹窗
                     </button>
                   </div>
                 </div>
@@ -1555,6 +1685,70 @@ export function BuffDraftPage() {
           </section>
         </div>
       ) : null}
+      {isShareModalOpen ? (
+        <div className="operator-draft-modal-overlay" onClick={handleCloseShareModal}>
+          <div className="operator-draft-modal operator-draft-share-modal" onClick={(event) => event.stopPropagation()}>
+            <div className="operator-draft-section-header">
+              <h3>Buff 库分享</h3>
+              <span>导出 / 导入本地库</span>
+            </div>
+            <div className="operator-draft-confirm-body">
+              <p>{`当前本地 Buff 库共有 ${localDraftIds.length} 个分组。`}</p>
+              <p>导出会打包整个本地 Buff 库；导入会把分享文件中的分组合并回本地库，并覆盖同 ID 分组。</p>
+            </div>
+            <label className="operator-draft-share-label">
+              <span>分享文件名</span>
+              <input
+                value={shareDraftName}
+                onChange={(event) => setShareDraftName(event.target.value)}
+                placeholder="留空则默认使用未命名"
+              />
+            </label>
+            <input
+              ref={shareImportInputRef}
+              type="file"
+              accept=".json,application/json"
+              className="operator-draft-file-input"
+              onChange={handleShareFileSelected}
+            />
+            <div className="operator-draft-modal-actions">
+              <button type="button" className="operator-draft-ghost-button" onClick={handleOpenShareImportPicker}>
+                导入分享
+              </button>
+              <button type="button" className="operator-draft-copy-button" onClick={handleExportLocalLibraryShare}>
+                一键导出 JSON
+              </button>
+            </div>
+            <div className="operator-draft-modal-actions">
+              <button type="button" className="operator-draft-ghost-button" onClick={handleCloseShareModal}>
+                关闭
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+      {pendingImportShare ? (
+        <div className="operator-draft-modal-overlay" onClick={handleCancelImportShare}>
+          <div className="operator-draft-modal operator-draft-confirm-modal" onClick={(event) => event.stopPropagation()}>
+            <div className="operator-draft-section-header">
+              <h3>确认导入 Buff 分享</h3>
+              <span>请确认</span>
+            </div>
+            <div className="operator-draft-confirm-body">
+              <p>{`即将导入分享「${pendingImportShare.label}」。`}</p>
+              <p>{`本次会写入 ${Object.keys(pendingImportShare.payload).length} 个 Buff 分组，并覆盖本地同 ID 记录。`}</p>
+            </div>
+            <div className="operator-draft-modal-actions">
+              <button type="button" className="operator-draft-ghost-button" onClick={handleCancelImportShare}>
+                取消
+              </button>
+              <button type="button" className="operator-draft-copy-button operator-draft-danger-button" onClick={handleConfirmImportShare}>
+                确认导入
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
       {isOverwriteDraftModalOpen ? (
         <div className="operator-draft-modal-overlay" onClick={() => setIsOverwriteDraftModalOpen(false)}>
           <div className="operator-draft-modal operator-draft-confirm-modal" onClick={(event) => event.stopPropagation()}>
@@ -1580,3 +1774,4 @@ export function BuffDraftPage() {
     </main>
   );
 }
+

@@ -228,9 +228,9 @@ Trae 执行：
 - 不要改 `OperatorConfigPanel`。
 - 不要改 Buff 添加、删除、清空逻辑。
 - 不要改 candidate Buff 逻辑。
-- 不要改 `ddd.skill-button.v1`。
-- 不要改 `ddd.all-buff-list.v1`。
-- 不要改 `ddd.candidate-buff-list.v1`。
+- 不要改 `def.skill-button.v1`。
+- 不要改 `def.all-buff-list.v1`。
+- 不要改 `def.candidate-buff-list.v1`。
 - 不要改 timeline 保存恢复逻辑。
 - 不要改 0.5.2 calculator。
 - 不要改伤害公式。
@@ -277,3 +277,4 @@ Trae 必须手测：
 8. 按回归检查项手测。
 
 本轮交付标准：`/timeline` 从“直接渲染 CanvasBoard”升级为“工作台壳承载 CanvasBoard”，但所有排轴、Buff、伤害功能保持不回退。
+

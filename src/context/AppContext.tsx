@@ -351,7 +351,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   /**
    * 按当前已选角色重建运行时模板表
-   * 这是唯一写入 ddd.operator-runtime.template-map.v1 的入口
+   * 这是唯一写入 def.operator-runtime.template-map.v1 的入口
    * @param selectedCharacters - 当前已选角色列表
    */
   const rebuildSelectedRuntimeTemplateMap = (selectedCharacters: Character[]) => {
@@ -426,3 +426,4 @@ export function useAppContext() {
   }
   return context;
 }
+

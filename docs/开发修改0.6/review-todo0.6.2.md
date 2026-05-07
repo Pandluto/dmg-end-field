@@ -1,7 +1,7 @@
 [任务理解]
 
-- 本轮不是继续扩模板层，而是**取缔当前“全量构建 `ddd.operator-runtime.template-map.v1`”的做法**。
-- 目标是把 `sessionStorage['ddd.operator-runtime.template-map.v1']` 收紧成：**当前运行时已选角色模板表**。
+- 本轮不是继续扩模板层，而是**取缔当前“全量构建 `def.operator-runtime.template-map.v1`”的做法**。
+- 目标是把 `sessionStorage['def.operator-runtime.template-map.v1']` 收紧成：**当前运行时已选角色模板表**。
 - 这次改动很精细，核心不是“功能能跑”，而是**职责边界收紧、写入时机正确、恢复链不回退**。
 - 当前根因已明确：`AppContext.loadCharacters()` 启动时把全部官方角色和全部本地角色都塞进模板表，职责过重，数据流边界错误。
 
@@ -35,7 +35,7 @@
      - 不允许在无已选角色时就写全量模板表
    - 验证方式：
      - 初次进入 selection 页面，未选择任何角色时：
-       - `sessionStorage['ddd.operator-runtime.template-map.v1']` 应为空或不存在
+       - `sessionStorage['def.operator-runtime.template-map.v1']` 应为空或不存在
        - 不能包含整个官方角色库
 
 2. 在 [src/context/AppContext.tsx](/C:/Users/zsk86/Desktop/dmg/dmg-end-field/src/context/AppContext.tsx) 内新增公共模板表重建函数
@@ -50,7 +50,7 @@
        - 输入：当前已选 `Character[]`
        - 输出：只包含这些角色的 `RuntimeOperatorTemplateMap`
        - 官方角色：调用 `buildRuntimeOperatorTemplateFromOfficialCharacter(character)`
-       - 本地角色：不要再从 `ddd.operator-editor.library.v1` 全量扫表，优先从当前 `Character` 身份恢复
+       - 本地角色：不要再从 `def.operator-editor.library.v1` 全量扫表，优先从当前 `Character` 身份恢复
          - 方案 A：给本地 `Character` 走 `adaptRuntimeTemplateToLegacyCharacter` 逆向来源太绕，不建议
          - 方案 B：当前已选本地角色仍然可通过 `loadLocalOperatorDraftMap()[character.id]` 定向取 draft 再建模板
        - 最终写入：
@@ -118,7 +118,7 @@
      - 不要保留旧值
    - 验证方式：
      - 清空所有已选角色后：
-       - `ddd.operator-runtime.template-map.v1` 为空对象或被清空
+       - `def.operator-runtime.template-map.v1` 为空对象或被清空
        - 不能残留上一次的角色模板
 
 6. 本地角色模板构建必须按 `character.id` 定向取 draft，不允许全量扫描本地库后全塞进模板表
@@ -178,19 +178,19 @@
 - 不要改 `SelectionPanel` 左右栏逻辑
 - 不要改 `SkillSandbox` 渲染逻辑
 - 不要改 `timelineService`、`SkillButton`、伤害弹窗
-- 不要把官方角色写进 `ddd.operator-editor.library.v1`
-- 不要把 `ddd.operator-runtime.template-map.v1` 当永久真相源
+- 不要把官方角色写进 `def.operator-editor.library.v1`
+- 不要把 `def.operator-runtime.template-map.v1` 当永久真相源
 - 不要顺手重命名 storage key
 - 不要回退“官方模板直接从 `character.skills` 构建”的修复
 
 [验收标准 AC]
 
-- AC1：首次进入 selection 页面、未选任何角色时，`sessionStorage['ddd.operator-runtime.template-map.v1']` 为空或不存在，不包含整个官方库
+- AC1：首次进入 selection 页面、未选任何角色时，`sessionStorage['def.operator-runtime.template-map.v1']` 为空或不存在，不包含整个官方库
 - AC2：手动选择 1 个官方角色后，模板表只包含这 1 个角色
 - AC3：再选择 1 个本地角色后，模板表只包含这 2 个角色
 - AC4：取消其中 1 个角色后，模板表同步移除该角色，只保留剩余已选角色
 - AC5：官方+本地混选后刷新浏览器，恢复成功时模板表只重建已选角色
-- AC6：如果恢复失败（例如本地已选角色已从 `ddd.operator-editor.library.v1` 删除），页面回到 selection，且模板表为空
+- AC6：如果恢复失败（例如本地已选角色已从 `def.operator-editor.library.v1` 删除），页面回到 selection，且模板表为空
 - AC7：`loadedCharacters` 仍只表示官方角色库，不混入本地角色
 - AC8：`npm run build` 通过
 
@@ -212,7 +212,7 @@
   - 刷新后仍只含 2 个角色
 - 路径 4：恢复失败
   - 先选 1 个本地角色进入 canvas
-  - 手动删掉 `ddd.operator-editor.library.v1` 里对应 id
+  - 手动删掉 `def.operator-editor.library.v1` 里对应 id
   - 刷新
   - 确认页面回 selection，模板表为空
 - 路径 5：取消选择
@@ -240,4 +240,4 @@
    - `loadCharacters()` 删掉了哪些全量构建代码
    - `rebuildSelectedRuntimeTemplateMap()` 的完整职责
    - 选择 / 取消 / 刷新恢复 / 恢复失败 四条路径的模板表结果
-   - `sessionStorage['ddd.operator-runtime.template-map.v1']` 在未选角色时的实际状态
+   - `sessionStorage['def.operator-runtime.template-map.v1']` 在未选角色时的实际状态

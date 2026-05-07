@@ -3,13 +3,13 @@
  * 将旧的缓存模型迁移到新的 v2 缓存模型
  * 
  * 旧模型：
- * - ddd.timeline.data.v1: buttons[] 中包含 buffIds
- * - ddd.skill-button-buffs.v1: Record<buttonId, Buff[]>
+ * - def.timeline.data.v1: buttons[] 中包含 buffIds
+ * - def.skill-button-buffs.v1: Record<buttonId, Buff[]>
  * 
  * 新模型：
- * - ddd.skill-button.v1: Record<buttonId, PersistedSkillButton>（包含 selectedBuff: string[]）
- * - ddd.all-buff-list.v1: Buff[]（所有 Buff 完整数据）
- * - ddd.timeline.data.v1: 只保留按钮引用和位置，不再包含 buffIds
+ * - def.skill-button.v1: Record<buttonId, PersistedSkillButton>（包含 selectedBuff: string[]）
+ * - def.all-buff-list.v1: Buff[]（所有 Buff 完整数据）
+ * - def.timeline.data.v1: 只保留按钮引用和位置，不再包含 buffIds
  */
 
 import { STORAGE_KEYS } from '../constants/storage-keys';
@@ -23,6 +23,55 @@ import {
   setAllBuffList,
   getSkillButtonBuffMap,
 } from './storage';
+
+const LEGACY_NAMESPACE_PREFIX = 'ddd.';
+const CURRENT_NAMESPACE_PREFIX = 'def.';
+
+function migrateNamespaceForStorage(
+  storage: Storage,
+  storageName: 'localStorage' | 'sessionStorage'
+): void {
+  const legacyKeys: string[] = [];
+
+  for (let index = 0; index < storage.length; index += 1) {
+    const key = storage.key(index);
+    if (key?.startsWith(LEGACY_NAMESPACE_PREFIX)) {
+      legacyKeys.push(key);
+    }
+  }
+
+  legacyKeys.forEach((legacyKey) => {
+    const nextKey = `${CURRENT_NAMESPACE_PREFIX}${legacyKey.slice(LEGACY_NAMESPACE_PREFIX.length)}`;
+    if (storage.getItem(nextKey) !== null) {
+      return;
+    }
+
+    const value = storage.getItem(legacyKey);
+    if (value === null) {
+      return;
+    }
+
+    storage.setItem(nextKey, value);
+    console.log(`[迁移] ${storageName}: ${legacyKey} -> ${nextKey}`);
+  });
+}
+
+/**
+ * 将历史 ddd.* 命名空间复制到新的 def.* 命名空间
+ * 幂等：如果新 key 已存在，则保留新 key，不覆盖用户当前数据
+ */
+export function migrateLegacyStorageNamespace(): void {
+  if (typeof window === 'undefined') {
+    return;
+  }
+
+  try {
+    migrateNamespaceForStorage(window.localStorage, 'localStorage');
+    migrateNamespaceForStorage(window.sessionStorage, 'sessionStorage');
+  } catch (error) {
+    console.warn('[迁移] 命名空间迁移失败', error);
+  }
+}
 
 /**
  * 检查是否需要迁移
@@ -40,6 +89,8 @@ export function needsMigration(): boolean {
  * 幂等：可重复执行，不会重复污染
  */
 export function migrateOldBuffStorage(): void {
+  migrateLegacyStorageNamespace();
+
   if (!needsMigration()) {
     console.log('[迁移] 无需迁移或已迁移完成');
     return;
@@ -170,3 +221,4 @@ export function forceRemigrate(): void {
   safeSessionStorage.removeItem(STORAGE_KEYS.SKILL_BUTTON_TABLE);
   migrateOldBuffStorage();
 }
+

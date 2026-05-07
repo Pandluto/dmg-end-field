@@ -125,8 +125,8 @@
    - 函数：
      - `updateSkillButtonType()`
    - 缓存 key / 主从结构：
-     - `ddd.timeline.data`
-     - `ddd.skill-button.v1`
+     - `def.timeline.data`
+     - `def.skill-button.v1`
    - 问题：
      - service 当前只改：
        - `skillType`
@@ -266,7 +266,7 @@
    - 只转发 payload，不要自己重复解析技能
 
 4. 再改 `src/core/services/timelineService.ts`
-   - 同步更新 `timeline.data` 和 `ddd.skill-button.v1`
+   - 同步更新 `timeline.data` 和 `def.skill-button.v1`
    - 把完整技能真相字段一起写回
 
 5. 完成后必须提交：
@@ -274,3 +274,4 @@
    - 右键菜单新数据源说明
    - 官方角色 / 本地角色 / 复制链 三条手测结果
    - `npm run build` 结果
+

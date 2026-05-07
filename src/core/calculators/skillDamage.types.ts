@@ -24,6 +24,16 @@ export interface SkillDamagePanel {
   critDmg: number;
 }
 
+export interface SkillDamagePanelBase {
+  baseAtk: number;
+  characterAtk: number;
+  weaponAtk: number;
+  weaponAtkPercent: number;
+  abilityBonus: number;
+  critRate: number;
+  critDmg: number;
+}
+
 export interface SkillDamageCalcInputV2 {
   buttonId: string;
   characterId: string;
@@ -31,6 +41,8 @@ export interface SkillDamageCalcInputV2 {
   template: ResolvedSkillDamageTemplate;
   buffs: SkillButtonBuff[];
   panel: SkillDamagePanel;
+  panelBase?: SkillDamagePanelBase;
+  disabledBuffIdsByHitKey?: Record<string, string[]>;
   damageBonus: DamageBonusSnapshot;
 }
 
@@ -60,12 +72,14 @@ export interface DamageZones {
   fragileRate: number;
   vulnerabilityRate: number;
   comboDamageBonus: number;
+  imbalanceDamageBonus: number;
   defenseZone: number;
 }
 
 export interface HitCalcResult {
   hit: ResolvedHitTemplate;
   appliedBuffs: SkillButtonBuff[];
+  panel: SkillDamagePanel;
   zones: DamageZones;
   multiplier: MultiplierAdjustment;
   nonCrit: DamageBreakdown;
@@ -100,20 +114,38 @@ export interface HitDetailViewModel {
   expectedText: string;
   critText: string;
   nonCritText: string;
-  appliedBuffTags: string[];
+  appliedBuffTags: AppliedBuffTagViewModel[];
   showNoBuff: boolean;
+}
+
+export interface AppliedBuffTagViewModel {
+  id: string;
+  label: string;
+  sourceName: string;
 }
 
 export interface FormulaViewModel {
   title: string;
   panelLines: string[];
-  zoneSections: Array<{
-    title: string;
-    lines: string[];
-    totalText: string;
-  }>;
   buffTags: string[];
   showNoBuff: boolean;
+  baseMultiplierText: string;
+  multiplierFormulaText: string;
+  formulaText: string;
+  elementBonusText: string;
+  skillBonusText: string;
+  allDamageBonusText: string;
+  damageBonusRateText: string;
+  amplifyFormulaText: string;
+  fragileFormulaText: string;
+  vulnerabilityFormulaText: string;
+  comboFormulaText: string;
+  imbalanceFormulaText: string;
+  defenseZoneText: string;
+  nonCritFormulaText: string;
+  expectedText: string;
+  critText: string;
+  nonCritText: string;
 }
 
 export interface SkillDamageModalViewModel {

@@ -140,7 +140,7 @@ export function addBuffToButton(
     return { success: true, buffId: undefined, isDuplicate: true };
   }
 
-  // 3. 先查全局 ddd.all-buff-list.v1 是否有同内容 Buff，有则复用
+  // 3. 先查全局 def.all-buff-list.v1 是否有同内容 Buff，有则复用
   const existingBuffId = findExistingBuffId(buff);
   let buffId: string;
 
@@ -316,7 +316,7 @@ export function isBuffReferenced(buffId: string): boolean {
 }
 
 /**
- * 从 ddd.skill-button.v1.selectedBuff 全量重建 ddd.all-buff-list.v1.refCount
+ * 从 def.skill-button.v1.selectedBuff 全量重建 def.all-buff-list.v1.refCount
  * 用于修复历史脏数据，或校验 refCount 是否失真
  * 规则：扫描所有按钮的 selectedBuff，统计每个 buffId 被引用次数，回写 refCount
  */
@@ -363,7 +363,7 @@ export function rebuildBuffRefCounts(): {
 }
 
 /**
- * 归并 ddd.all-buff-list.v1 中的重复 Buff 实体
+ * 归并 def.all-buff-list.v1 中的重复 Buff 实体
  * - 按 getBuffIdentityKey 分组
  * - 保留一个 canonical buffId
  * - 把 skill-button.v1 中指向重复 Buff 的引用都改写到 canonical buffId
@@ -504,3 +504,4 @@ export function setSelectedSkillButton(buttonId: string | null): void {
 export function getSelectedSkillButton(): string | null {
   return safeSessionStorage.getItem(STORAGE_KEYS.SELECTED_SKILL_BUTTON);
 }
+

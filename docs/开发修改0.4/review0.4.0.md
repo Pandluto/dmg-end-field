@@ -11,10 +11,10 @@
 
 | Key | 用途 | 所在文件 |
 |-----|------|----------|
-| `ddd.operator-config.character-config-map.v1` | 角色配置数据（武器、装备、面板等） | OperatorConfigPanel.tsx, SkillButton.tsx, DamageTab.tsx |
-| `ddd.skill-button-buffs.v1` | 技能按钮 Buff 列表 | useSkillButtonBuffs.ts, SkillButton.tsx, DamageTab.tsx |
-| `ddd.selected-skill-button` | 当前选中的技能按钮 ID | useSkillButtonBuffs.ts |
-| `ddd.timeline.data.v1` | 排轴数据 | useTimelineData.ts |
+| `def.operator-config.character-config-map.v1` | 角色配置数据（武器、装备、面板等） | OperatorConfigPanel.tsx, SkillButton.tsx, DamageTab.tsx |
+| `def.skill-button-buffs.v1` | 技能按钮 Buff 列表 | useSkillButtonBuffs.ts, SkillButton.tsx, DamageTab.tsx |
+| `def.selected-skill-button` | 当前选中的技能按钮 ID | useSkillButtonBuffs.ts |
+| `def.timeline.data.v1` | 排轴数据 | useTimelineData.ts |
 | `allBuffList` | 所有 Buff 列表缓存 | DamageTab.tsx |
 
 ---
@@ -27,10 +27,10 @@
 
 **描述**:
 项目中使用了多种不同的 key 命名风格：
-- `ddd.operator-config.character-config-map.v1` (规范)
-- `ddd.skill-button-buffs.v1` (规范)
-- `ddd.selected-skill-button` (规范)
-- `ddd.timeline.data.v1` (规范)
+- `def.operator-config.character-config-map.v1` (规范)
+- `def.skill-button-buffs.v1` (规范)
+- `def.selected-skill-button` (规范)
+- `def.timeline.data.v1` (规范)
 - `allBuffList` (❌ 不规范，无命名空间，无版本)
 
 **所在文件**:
@@ -43,8 +43,8 @@ sessionStorage.setItem('allBuffList', JSON.stringify(buffs));
 
 **修改建议**:
 ```typescript
-// 统一使用 ddd 命名空间 + 版本号
-const ALL_BUFF_LIST_KEY = 'ddd.all-buff-list.v1';
+// 统一使用 DEF 命名空间 + 版本号
+const ALL_BUFF_LIST_KEY = 'def.all-buff-list.v1';
 sessionStorage.setItem(ALL_BUFF_LIST_KEY, JSON.stringify(buffs));
 ```
 
@@ -58,12 +58,12 @@ sessionStorage.setItem(ALL_BUFF_LIST_KEY, JSON.stringify(buffs));
 同一个 key 在多个文件中重复定义，导致维护困难，容易出错。
 
 **重复定义的 Key**:
-1. `ddd.operator-config.character-config-map.v1`
+1. `def.operator-config.character-config-map.v1`
    - `OperatorConfigPanel.tsx:139` - 定义了 `CHARACTER_CONFIG_SESSION_KEY`
    - `SkillButton.tsx:92` - 直接硬编码
    - `DamageTab.tsx:56` - 重复定义 `CHARACTER_CONFIG_SESSION_KEY`
 
-2. `ddd.skill-button-buffs.v1`
+2. `def.skill-button-buffs.v1`
    - `useSkillButtonBuffs.ts:29` - 定义了 `SKILL_BUTTON_BUFFS_KEY`
    - `SkillButton.tsx:78` - 直接硬编码
    - `DamageTab.tsx:295` - 直接硬编码
@@ -73,11 +73,11 @@ sessionStorage.setItem(ALL_BUFF_LIST_KEY, JSON.stringify(buffs));
 ```typescript
 // src/constants/storage-keys.ts
 export const STORAGE_KEYS = {
-  CHARACTER_CONFIG_MAP: 'ddd.operator-config.character-config-map.v1',
-  SKILL_BUTTON_BUFFS: 'ddd.skill-button-buffs.v1',
-  SELECTED_SKILL_BUTTON: 'ddd.selected-skill-button',
-  TIMELINE_DATA: 'ddd.timeline.data.v1',
-  ALL_BUFF_LIST: 'ddd.all-buff-list.v1',
+  CHARACTER_CONFIG_MAP: 'def.operator-config.character-config-map.v1',
+  SKILL_BUTTON_BUFFS: 'def.skill-button-buffs.v1',
+  SELECTED_SKILL_BUTTON: 'def.selected-skill-button',
+  TIMELINE_DATA: 'def.timeline.data.v1',
+  ALL_BUFF_LIST: 'def.all-buff-list.v1',
 } as const;
 ```
 
@@ -262,9 +262,9 @@ useEffect(() => {
 // src/utils/storageCleanup.ts
 export const cleanupStorage = () => {
   const keys = Object.keys(sessionStorage);
-  const dddKeys = keys.filter(key => key.startsWith('ddd.'));
+  const DEFKeys = keys.filter(key => key.startsWith('def.'));
   
-  dddKeys.forEach(key => {
+  DEFKeys.forEach(key => {
     try {
       const data = sessionStorage.getItem(key);
       if (data) {
@@ -481,11 +481,11 @@ src/
 ### 5.1 storage-keys.ts
 ```typescript
 export const STORAGE_KEYS = {
-  CHARACTER_CONFIG_MAP: 'ddd.operator-config.character-config-map.v1',
-  SKILL_BUTTON_BUFFS: 'ddd.skill-button-buffs.v1',
-  SELECTED_SKILL_BUTTON: 'ddd.selected-skill-button',
-  TIMELINE_DATA: 'ddd.timeline.data.v1',
-  ALL_BUFF_LIST: 'ddd.all-buff-list.v1',
+  CHARACTER_CONFIG_MAP: 'def.operator-config.character-config-map.v1',
+  SKILL_BUTTON_BUFFS: 'def.skill-button-buffs.v1',
+  SELECTED_SKILL_BUTTON: 'def.selected-skill-button',
+  TIMELINE_DATA: 'def.timeline.data.v1',
+  ALL_BUFF_LIST: 'def.all-buff-list.v1',
 } as const;
 
 export type StorageKey = typeof STORAGE_KEYS[keyof typeof STORAGE_KEYS];
@@ -584,3 +584,4 @@ export function useSessionStorage<T>(
 - **低优先级问题 4 个**: 缺乏清理机制、类型定义分散、SSR 兼容、重复逻辑
 
 建议按照优先级逐步修复，优先解决高优先级问题，以确保代码的健壮性和可维护性。
+

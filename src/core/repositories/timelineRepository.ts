@@ -1,6 +1,6 @@
 /**
  * Timeline Repository
- * 只负责 ddd.timeline.data.v1 的读写
+ * 只负责 def.timeline.data.v1 的读写
  * 不依赖 React，不写业务规则
  */
 
@@ -34,3 +34,4 @@ export function loadTimelineData(): TimelineData | null {
 export function removeTimelineData(): void {
   safeSessionStorage.removeItem(STORAGE_KEYS.TIMELINE_DATA);
 }
+

@@ -43,8 +43,8 @@ export interface CandidateBuff {
 
 - `CandidateBuff` 不要求稳定 `id`。
 - `CandidateBuff` 不等同于 `SkillButtonBuff`。
-- `SkillButtonBuff` 只代表已选 Buff 实体，属于 `ddd.all-buff-list.v1`。
-- 候选 Buff 只属于 `ddd.candidate-buff-list.v1`。
+- `SkillButtonBuff` 只代表已选 Buff 实体，属于 `def.all-buff-list.v1`。
+- 候选 Buff 只属于 `def.candidate-buff-list.v1`。
 
 ### 2. 修正 candidateBuffRepository 类型边界
 
@@ -95,7 +95,7 @@ Hook 对外至少返回：
 
 - `useCandidateBuffs.ts` 只处理候选 Buff。
 - `useCandidateBuffs.ts` 不处理已选 Buff 添加。
-- `useCandidateBuffs.ts` 不访问 `ddd.all-buff-list.v1`。
+- `useCandidateBuffs.ts` 不访问 `def.all-buff-list.v1`。
 - 刷新候选 Buff 后只能调用 `setCandidateBuffList(buffs)`。
 - 不允许出现 `as unknown as SkillButtonBuff[]`。
 
@@ -208,10 +208,10 @@ Trae 执行：
 
 本轮禁止：
 
-- 不要改 `ddd.skill-button.v1` 结构。
-- 不要改 `ddd.all-buff-list.v1` 结构。
-- 不要改 `ddd.candidate-buff-list.v1` 结构。
-- 不要把候选 Buff 写入 `ddd.all-buff-list.v1`。
+- 不要改 `def.skill-button.v1` 结构。
+- 不要改 `def.all-buff-list.v1` 结构。
+- 不要改 `def.candidate-buff-list.v1` 结构。
+- 不要把候选 Buff 写入 `def.all-buff-list.v1`。
 - 不要恢复 `timelineData.buffIds -> selectedBuff` 写回链路。
 - 不要改 Buff 去重规则。
 - 不要改 Buff id 生成规则。
@@ -232,8 +232,8 @@ Trae 执行：
 6. `DamageTab.tsx` 不再直接维护完整候选 Buff 加载逻辑。
 7. `DamageTab.tsx` 不再直接维护完整拖拽状态机。
 8. 单击候选 Buff、搜索抽屉点击 Buff、拖拽释放 Buff 三条路径最终都调用同一个添加入口。
-9. 候选 Buff 刷新只写 `ddd.candidate-buff-list.v1`。
-10. `ddd.all-buff-list.v1` 仍只保存已选 Buff 实体。
+9. 候选 Buff 刷新只写 `def.candidate-buff-list.v1`。
+10. `def.all-buff-list.v1` 仍只保存已选 Buff 实体。
 11. `npm run build` 必须通过。
 
 ## [回归检查项]
@@ -249,9 +249,9 @@ Trae 必须手测以下路径：
 7. 长按拖拽候选 Buff 到 `.skill-button-modal` 外释放，不添加。
 8. 已选 Buff 已有 1 条时，再添加第 2 条，关闭技能按钮后重新打开，两条都存在。
 9. 删除已选 Buff 后，SkillButton 弹窗列表刷新。
-10. 刷新候选 Buff 后，`ddd.all-buff-list.v1` 中已选 Buff 实体不丢失。
-11. 检查 `ddd.candidate-buff-list.v1`：只包含候选 Buff 数据。
-12. 检查 `ddd.all-buff-list.v1`：只包含已选 Buff 实体，且 id 与 `skill-button.selectedBuff` 对应。
+10. 刷新候选 Buff 后，`def.all-buff-list.v1` 中已选 Buff 实体不丢失。
+11. 检查 `def.candidate-buff-list.v1`：只包含候选 Buff 数据。
+12. 检查 `def.all-buff-list.v1`：只包含已选 Buff 实体，且 id 与 `skill-button.selectedBuff` 对应。
 
 ## [给 Trae 的执行指令]
 
@@ -267,3 +267,4 @@ Trae 必须手测以下路径：
 8. 按回归检查项手测。
 
 本轮交付标准：Buff 候选区交互从 `DamageTab.tsx` 中分离出来，candidate 与 selected entity 类型边界收口，单击、搜索点击、拖拽释放三条添加路径保持一致，已选 Buff 缓存链路不回退。
+

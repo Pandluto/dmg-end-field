@@ -1,5 +1,5 @@
 {
-  "name": "ddd",
+  "name": "dmg-end-field",
   "private": true,
   "version": "0.0.0",
   "type": "module",
@@ -31,8 +31,8 @@
     "wait-on": "^8.0.3"
   },
   "build": {
-    "appId": "com.dmg.ddd",
-    "productName": "DDD战斗模拟器",
+    "appId": "com.dmg.def",
+    "productName": "DEF战斗模拟器",
     "directories": {
       "output": "release"
     },

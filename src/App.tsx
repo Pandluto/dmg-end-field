@@ -9,6 +9,7 @@ import { StorageDebugPage, isStorageDebugPath } from './components/StorageDebugP
 import { OperatorDraftPage, isDraftPath } from './components/OperatorDraftPage';
 import { BuffDraftPage, isBuffDraftPath } from './components/BuffDraftPage';
 import { getCurrentAppPath } from './utils/appRoute';
+import { migrateLegacyStorageNamespace } from './utils/migrateStorage';
 import './styles/global.css';
 
 function App() {
@@ -18,6 +19,10 @@ function App() {
     }
     return getCurrentAppPath(window.location);
   });
+
+  useEffect(() => {
+    migrateLegacyStorageNamespace();
+  }, []);
 
   useEffect(() => {
     if (typeof window === 'undefined') {

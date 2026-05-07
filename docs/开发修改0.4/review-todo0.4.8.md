@@ -2,7 +2,7 @@
 
 [任务理解]
 - 当前技能按钮缓存只有手动点击“保存”才会写入 `sessionStorage`，这不符合现在的交互强度，用户任意操作后都可能丢数据。
-- 同时当前按钮缓存结构过于简单，`timelineData` 只保存按钮位置/节点信息，而按钮对应的“已选 Buff”被单独散落在 `ddd.skill-button-buffs.*` 中，导致按钮缓存和 Buff 缓存不是同一个数据源。
+- 同时当前按钮缓存结构过于简单，`timelineData` 只保存按钮位置/节点信息，而按钮对应的“已选 Buff”被单独散落在 `def.skill-button-buffs.*` 中，导致按钮缓存和 Buff 缓存不是同一个数据源。
 - 另外当前 `DamageTab` 的 Buff 陈列区存在一个已确认 bug：武器 Buff 无法显示。根因不是 Buff 文件不存在，而是角色 -> 武器映射链路在 storage 兼容层中断了。
 - 本轮目标是把技能按钮缓存升级成“自动保存 + 按钮与 Buff 关联缓存”，并明确唯一数据源。
 
@@ -51,7 +51,7 @@
    - `buttons`
    - `buffRegistry`
    - 每个按钮对应的 `selectedBuffList`
-5. 梳理当前 `ddd.skill-button-buffs.*` 的使用链路，决定并落实唯一主数据源：
+5. 梳理当前 `def.skill-button-buffs.*` 的使用链路，决定并落实唯一主数据源：
    - 推荐做法：以升级后的 `timelineData` 为唯一主存储
    - `getSkillButtonBuffMap()` / `setSkillButtonBuffMap()` 不再作为长期独立真相来源
    - 如果为了最小改造保留兼容层，也必须保证最终写入来自同一份 `timelineData`
@@ -127,3 +127,4 @@
   - 手测删除按钮后无脏 Buff 引用
   - 手测 `DamageTab` 刷新 Buff 后武器 Buff 能显示
   - 执行 `npm run build`
+

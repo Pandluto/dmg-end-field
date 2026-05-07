@@ -4,7 +4,7 @@
 
 - 本轮不是改沙盒，不是改拖拽，不是改模板缓存职责。
 - 本轮要改的是 **SkillButton 伤害弹窗**，把它从“技能主导”改成“hit 主导”。
-- 当前官方角色伤害弹窗仍直接读取 `public/data/characters/<角色名>/<角色名>max.json`，没有走 `sessionStorage['ddd.operator-runtime.template-map.v1']`。
+- 当前官方角色伤害弹窗仍直接读取 `public/data/characters/<角色名>/<角色名>max.json`，没有走 `sessionStorage['def.operator-runtime.template-map.v1']`。
 - 当前伤害计算器仍是“整技能共用一锅 Buff 汇总”，而你现在要求的是：
   - 一个技能下有多个 hit
   - 每个 hit 自己决定吃哪些 Buff
@@ -622,7 +622,7 @@ const [selectedDamageHitKey, setSelectedDamageHitKey] = useState<string | null>(
 - 不要改 `SelectionPanel`
 - 不要改 `SkillSandbox` 分页布局
 - 不要改拖拽吸附、复制、恢复位置逻辑
-- 不要把 `ddd.operator-runtime.template-map.v1` 又改回全量角色仓库
+- 不要把 `def.operator-runtime.template-map.v1` 又改回全量角色仓库
 - 不要顺手重写 `buffService` 的引用计数模型
 - 不要回头再读 `max.json`
 
@@ -670,7 +670,7 @@ const [selectedDamageHitKey, setSelectedDamageHitKey] = useState<string | null>(
 ## [验收标准 AC]
 
 - AC1：SkillButton 伤害弹窗不再请求 `/data/characters/<角色名>/<角色名>max.json`
-- AC2：官方角色和本地角色都从 `ddd.operator-runtime.template-map.v1` 读取技能与 hit 数据
+- AC2：官方角色和本地角色都从 `def.operator-runtime.template-map.v1` 读取技能与 hit 数据
 - AC3：计算器输入结构以 `hits[]` 为主，不再以 `damage: Record<string, number>` 为主真相
 - AC4：每个 hit 有独立的 `appliedBuffs`、`buffTotals`、加成区、脆弱区、易伤区、增幅区、期望/暴击/不暴
 - AC5：`multiplierBonus` / `multiplierMultiplier` 不再默认只作用最后一段
@@ -747,3 +747,4 @@ const [selectedDamageHitKey, setSelectedDamageHitKey] = useState<string | null>(
    - 新的 `SkillButtonDamageInput` / `SkillButtonDamageResult` shape
    - 一个只作用 `hit2` 的 Buff 验证结果
    - `npm run build` 结果
+

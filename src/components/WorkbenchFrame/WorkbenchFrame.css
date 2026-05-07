@@ -178,6 +178,24 @@
   justify-self: auto;
 }
 
+.workbench-bottom-nav-button:hover {
+  background: linear-gradient(145deg, rgba(235, 249, 240, 0.98), rgba(212, 241, 221, 0.92));
+  color: #2c7a4b;
+  border-color: #8fd0a8;
+}
+
+.workbench-bottom-nav-button.is-active {
+  background: linear-gradient(145deg, rgba(224, 246, 231, 0.98), rgba(193, 232, 205, 0.94));
+  color: #23663f;
+  border-color: #7fc59a;
+  box-shadow: inset 0 -2px 0 rgba(79, 145, 104, 0.32);
+}
+
+.workbench-bottom-nav-button:hover .workbench-trigger-text,
+.workbench-bottom-nav-button.is-active .workbench-trigger-text {
+  color: inherit;
+}
+
 /* 选人界面布局 */
 .selection-workbench-layout {
   display: block;

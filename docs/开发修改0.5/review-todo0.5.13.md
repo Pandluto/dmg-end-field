@@ -5,8 +5,8 @@
 右键菜单 `编辑 > A / B / E / Q` 已触发点击，但**没有完成系统链路闭环**：
 
 - 运行时按钮类型没有真正改掉
-- 持久化主表 `ddd.timeline.data.v1` 没有同步更新
-- `ddd.skill-button.v1` 虽然被手改了 `skillType`，但这条写法不走正式 repository/service 入口
+- 持久化主表 `def.timeline.data.v1` 没有同步更新
+- `def.skill-button.v1` 虽然被手改了 `skillType`，但这条写法不走正式 repository/service 入口
 - 当前按钮图标、详情弹窗、刷新恢复链都存在不一致风险
 
 这不是一个菜单交互问题，而是一个**按钮类型主真相 + 运行时渲染 + 持久化同步**的系统修改。
@@ -54,10 +54,10 @@ const handleChangeSkillType = (buttonId: string, nextSkillType: 'A' | 'B' | 'E' 
 - 这个 action 名字本身就是“改位置”，不是“改技能类型”
 - 运行时 `state.skillButtons` 不会因为这段 dispatch 自动拿到新的 `skillType`
 - `skillIconUrl` 也没有重新 `resolveSkillIconUrl(characterName, nextSkillType)`
-- `ddd.timeline.data.v1` 没有任何更新入口被调用
-- `ddd.skill-button.v1` 是直接 `get table -> 改对象 -> set table` 手写覆盖，不是正式 service/repository 更新链
+- `def.timeline.data.v1` 没有任何更新入口被调用
+- `def.skill-button.v1` 是直接 `get table -> 改对象 -> set table` 手写覆盖，不是正式 service/repository 更新链
 
-### 2. `ddd.timeline.data.v1` 是按钮技能类型的明确主表之一，当前完全没改
+### 2. `def.timeline.data.v1` 是按钮技能类型的明确主表之一，当前完全没改
 
 代码事实：
 
@@ -79,8 +79,8 @@ const handleChangeSkillType = (buttonId: string, nextSkillType: 'A' | 'B' | 'E' 
 
 这意味着：
 
-- 当前菜单点击后，即使 `ddd.skill-button.v1` 被手改了
-- `ddd.timeline.data.v1` 里按钮 `skillType` 仍然是旧值
+- 当前菜单点击后，即使 `def.skill-button.v1` 被手改了
+- `def.timeline.data.v1` 里按钮 `skillType` 仍然是旧值
 - 刷新恢复时，`CanvasBoard` 仍然会从旧 timeline 数据恢复旧类型：
 
 ```ts
@@ -90,7 +90,7 @@ skillIconUrl: resolveSkillIconUrl(btn.characterName, btn.skillType),
 
 代码位置：[`src/components/CanvasBoard/index.tsx`](C:/Users/zsk86/Desktop/dmg/dmg-end-field/src/components/CanvasBoard/index.tsx:137)
 
-### 3. `ddd.skill-button.v1` 确实也存 `skillType`
+### 3. `def.skill-button.v1` 确实也存 `skillType`
 
 代码事实：
 
@@ -100,7 +100,7 @@ skillIconUrl: resolveSkillIconUrl(btn.characterName, btn.skillType),
 skillType: string;
 ```
 
-所以按钮类型修改不是只改 timeline 就够了，`ddd.skill-button.v1` 也要同步。
+所以按钮类型修改不是只改 timeline 就够了，`def.skill-button.v1` 也要同步。
 
 ---
 
@@ -145,12 +145,12 @@ export function updateSkillButtonType(
 
 这条 service 必须一次性完成两张主表同步：
 
-1. 更新 `ddd.timeline.data.v1`
+1. 更新 `def.timeline.data.v1`
    - 在 `timelineData.staffLines[*].buttons[*]` 中按 `buttonId` 找到目标按钮
    - 更新其 `skillType`
    - 保持 `position / nodeIndex / nodeNumber / characterName` 不变
 
-2. 更新 `ddd.skill-button.v1`
+2. 更新 `def.skill-button.v1`
    - 使用 [`src/core/repositories/skillButtonRepository.ts`](C:/Users/zsk86/Desktop/dmg/dmg-end-field/src/core/repositories/skillButtonRepository.ts) 的正式入口
    - 不要继续在 `CanvasBoard` 里手动 `getSkillButtonTable/setSkillButtonTable`
    - 推荐直接调用 `upsertSkillButton(...)`
@@ -163,8 +163,8 @@ export function updateSkillButtonType(
 #### 不要这样做
 
 - 不要把按钮类型更新写成位置更新的副作用
-- 不要只改 `ddd.skill-button.v1`
-- 不要只改 `ddd.timeline.data.v1`
+- 不要只改 `def.skill-button.v1`
+- 不要只改 `def.timeline.data.v1`
 
 #### 验证方式
 
@@ -298,7 +298,7 @@ case 'UPDATE_SKILL_BUTTON_TYPE':
 
 ---
 
-### 5. 明确 `ddd.skill-button.v1` 更新必须走 repository 正式入口
+### 5. 明确 `def.skill-button.v1` 更新必须走 repository 正式入口
 
 - 文件：
   - [`src/core/repositories/skillButtonRepository.ts`](C:/Users/zsk86/Desktop/dmg/dmg-end-field/src/core/repositories/skillButtonRepository.ts)
@@ -392,8 +392,8 @@ upsertSkillButton(updatedButton)
 
 检查同一个 `buttonId`：
 
-- `ddd.timeline.data.v1` 中按钮 `skillType` 已更新
-- `ddd.skill-button.v1` 中按钮 `skillType` 已更新
+- `def.timeline.data.v1` 中按钮 `skillType` 已更新
+- `def.skill-button.v1` 中按钮 `skillType` 已更新
 
 ### AC4：详情弹窗一致
 
@@ -423,7 +423,7 @@ upsertSkillButton(updatedButton)
    - 新复制按钮继承的是修改后的类型，不是旧类型
 
 4. 修改后移动按钮
-   - `ddd.timeline.data.v1` 不被旧值覆盖回去
+   - `def.timeline.data.v1` 不被旧值覆盖回去
 
 ---
 
@@ -432,8 +432,8 @@ upsertSkillButton(updatedButton)
 1. 先改 [`src/core/services/timelineService.ts`](C:/Users/zsk86/Desktop/dmg/dmg-end-field/src/core/services/timelineService.ts)
    - 新增正式 service：`updateSkillButtonType(...)`
    - 在这里同步更新：
-     - `ddd.timeline.data.v1`
-     - `ddd.skill-button.v1`
+     - `def.timeline.data.v1`
+     - `def.skill-button.v1`
 
 2. 再改 [`src/hooks/useTimelineData.ts`](C:/Users/zsk86/Desktop/dmg/dmg-end-field/src/hooks/useTimelineData.ts)
    - 暴露 `updateSkillButtonType(...)` hook 入口
@@ -452,8 +452,9 @@ upsertSkillButton(updatedButton)
 5. 完成后必须提交：
    - `handleChangeSkillType()` 修改前后对比
    - `timelineService` 新增入口签名
-   - `ddd.timeline.data.v1` 修改前后对比
-   - `ddd.skill-button.v1` 修改前后对比
+   - `def.timeline.data.v1` 修改前后对比
+   - `def.skill-button.v1` 修改前后对比
    - “当前渲染立即变化 / 刷新不回退 / 详情弹窗一致”三条手测结果
    - 构建结果
+
 

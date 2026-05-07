@@ -183,6 +183,7 @@ export type SkillButtonBuffMap = Record<string, SkillButtonBuff[]>;
 
 export interface SkillButtonPanelConfig {
   selectedBuff: string[];
+  manualDisabledBuffIdsBySegmentKey?: Record<string, string[]>;
 }
 
 export interface SkillButtonPanelSnapshot {
@@ -206,9 +207,27 @@ export interface PersistedAnomalyCard {
   selectedBuffIds: string[];
 }
 
+export interface AnomalyStateSnapshot {
+  id: number;
+  key: 'conductive' | 'corrosion' | 'armor-break';
+  label: string;
+  level: number;
+  sourceButtonId: string;
+  sourceCharacterId: string;
+  sourceCharacterName: string;
+  sourceSkillStrengthSnapshot: number;
+  effectValue: number;
+  durationSeconds?: number;
+  primaryText: string;
+  secondaryText: string;
+  tertiaryText?: string;
+  createdAt: number;
+}
+
 export interface SkillButtonAnomalyConfig {
-  selectedStates: PersistedAnomalyCard[];
+  selectedStatuses: PersistedAnomalyCard[];
   selectedDamages: PersistedAnomalyCard[];
+  selectedStateSnapshotIds: number[];
 }
 
 // ==================== v2 新缓存模型类型 ====================

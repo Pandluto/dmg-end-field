@@ -2,7 +2,7 @@
 
 ## 背景
 
-当前 `ddd.operator-config.character-config-map.v2` 的 value 结构存在明显混杂问题：
+当前 `def.operator-config.character-config-map.v2` 的 value 结构存在明显混杂问题：
 
 1. 一个 key 下同时存了：
    - 用户输入配置
@@ -106,7 +106,7 @@ key 要体现：
 ### 1. 角色输入配置主存储
 
 key:  
-`ddd.operator-config.character-input-map.v3`
+`def.operator-config.character-input-map.v3`
 
 结构：
 
@@ -142,7 +142,7 @@ key:
 ### 2. 角色计算缓存
 
 key:  
-`ddd.operator-runtime.character-computed-map.v3`
+`def.operator-runtime.character-computed-map.v3`
 
 结构：
 
@@ -196,7 +196,7 @@ key:
 ### 3. UI 文本缓存
 
 key:  
-`ddd.operator-ui.character-display-cache.v3`
+`def.operator-ui.character-display-cache.v3`
 
 结构：
 
@@ -287,16 +287,16 @@ equipment: {
 迁移逻辑：
 
 1. 读取旧 key：  
-`ddd.operator-config.character-config-map.v2`
+`def.operator-config.character-config-map.v2`
 
 2. 对每个角色提取输入字段，生成：  
-`ddd.operator-config.character-input-map.v3`
+`def.operator-config.character-input-map.v3`
 
 3. 对每个角色提取派生字段，生成：  
-`ddd.operator-runtime.character-computed-map.v3`
+`def.operator-runtime.character-computed-map.v3`
 
 4. 对每个角色提取展示文本，生成：  
-`ddd.operator-ui.character-display-cache.v3`
+`def.operator-ui.character-display-cache.v3`
 
 5. 写入新 key 后，保留旧 key 一个过渡版本周期
 6. 确认新结构稳定后，再删除旧 key
@@ -352,14 +352,15 @@ equipment: {
 
 ## 建议最终 key 方案
 
-1. `ddd.operator-config.character-input-map.v3`
-2. `ddd.operator-runtime.character-computed-map.v3`
-3. `ddd.operator-ui.character-display-cache.v3`
-4. `ddd.skill-button-buffs.v2`
-5. `ddd.timeline.data.v2`
+1. `def.operator-config.character-input-map.v3`
+2. `def.operator-runtime.character-computed-map.v3`
+3. `def.operator-ui.character-display-cache.v3`
+4. `def.skill-button-buffs.v2`
+5. `def.timeline.data.v2`
 
 ---
 
 ## 一句话结论
 
 0.4.1 的核心不是继续给旧 value 补字段，而是把“输入”“计算缓存”“展示文本”彻底拆开。
+

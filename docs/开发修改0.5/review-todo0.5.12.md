@@ -13,7 +13,7 @@
 最终要达到的结果是：
 
 1. 当前生效角色列表有明确主表，并进入持久化。
-2. 重选确认后，`timeline.data.v1` 和 `ddd.skill-button.v1` 按差量迁移，不再直接清空。
+2. 重选确认后，`timeline.data.v1` 和 `def.skill-button.v1` 按差量迁移，不再直接清空。
 3. 保留角色的按钮、排轴、Buff 不丢失，只跟着新位次迁移。
 4. 被移除角色的按钮和关联数据被清理。
 5. 浏览器刷新后，只有关键主表完整时才恢复渲染；否则直接冷启动。
@@ -32,9 +32,9 @@
 
 - 主表：`selectedCharacters`
 - 从表：
-  - `ddd.timeline.data.v1`
-  - `ddd.skill-button.v1`
-  - `ddd.all-buff-list.v1`
+  - `def.timeline.data.v1`
+  - `def.skill-button.v1`
+  - `def.all-buff-list.v1`
   - `character-input/computed/display`
 
 原则是：
@@ -63,7 +63,7 @@
 本轮把浏览器刷新的恢复门槛明确成两个 key：
 
 - `selectedCharacters`
-- `ddd.timeline.data.v1`
+- `def.timeline.data.v1`
 
 规则固定为：
 
@@ -92,7 +92,7 @@
 要做的事：
 
 - 新增一个主表 key，例如：
-  - `ddd.selected-characters.v1`
+  - `def.selected-characters.v1`
 - 只存最小必要数据：
   - `characterIds: string[]`
 - 顺序必须保留，因为顺序就是 1/2/3/4 位次。
@@ -106,7 +106,7 @@
 验证方式：
 
 - 刷新页面后，主表能按原顺序恢复
-- `/storage` 页面能看到 `ddd.selected-characters.v1`
+- `/storage` 页面能看到 `def.selected-characters.v1`
 
 ---
 
@@ -191,7 +191,7 @@ diff 结果必须是：
 
 ---
 
-### 四、对 `ddd.timeline.data.v1` 做差量迁移
+### 四、对 `def.timeline.data.v1` 做差量迁移
 
 文件：
 
@@ -232,7 +232,7 @@ diff 结果必须是：
 
 ---
 
-### 五、对 `ddd.skill-button.v1` 做差量迁移
+### 五、对 `def.skill-button.v1` 做差量迁移
 
 文件：
 
@@ -242,7 +242,7 @@ diff 结果必须是：
 
 要做的事：
 
-- `ddd.skill-button.v1` 里按钮是从属于角色和位次的。
+- `def.skill-button.v1` 里按钮是从属于角色和位次的。
 - 角色重选后，按钮不能留在旧 staffIndex。
 
 迁移规则：
@@ -270,7 +270,7 @@ diff 结果必须是：
 - `[A, B, C] -> [B, A, D]` 后：
   - `A/B` 的按钮仍在
   - 它们的 `staffIndex` 已更新
-  - `C` 的按钮从 `ddd.skill-button.v1` 中消失
+  - `C` 的按钮从 `def.skill-button.v1` 中消失
 
 ---
 
@@ -319,7 +319,7 @@ diff 结果必须是：
 关键主表只认两个：
 
 - `selectedCharacters`
-- `ddd.timeline.data.v1`
+- `def.timeline.data.v1`
 
 实现要求：
 
@@ -332,8 +332,8 @@ diff 结果必须是：
 - `skillButtons = []`
 - `currentView = selection`
 - 不恢复：
-  - `ddd.skill-button.v1`
-  - `ddd.all-buff-list.v1`
+  - `def.skill-button.v1`
+  - `def.all-buff-list.v1`
   - `character-input/computed/display`
 
 验证方式：
@@ -401,13 +401,14 @@ diff 结果必须是：
 2. 再把选人页拆成“草稿选人”和“已生效选人”。
 3. 再实现确认重选时的 diff 逻辑。
 4. 再实现 `timeline.data.v1` 的差量迁移。
-5. 再实现 `ddd.skill-button.v1` 的差量迁移和清理。
+5. 再实现 `def.skill-button.v1` 的差量迁移和清理。
 6. 最后改 `CanvasBoard` 的恢复逻辑和浏览器刷新门槛。
 7. 完成后必须提交：
    - 修改文件清单
    - 旧选人 / 新选人 / diff 结果示例
    - `timeline.data.v1` 迁移前后片段
-   - `ddd.skill-button.v1` 迁移前后片段
+   - `def.skill-button.v1` 迁移前后片段
    - 三组重选场景手测结果
    - 两组浏览器刷新结果
    - `npm run build` 结果
+

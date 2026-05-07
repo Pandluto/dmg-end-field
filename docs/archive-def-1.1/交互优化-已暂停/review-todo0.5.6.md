@@ -200,9 +200,9 @@ Trae 执行：
 - 不要修改 `CanvasArea`。
 - 不要修改 `SkillSandbox`。
 - 不要修改 `SkillButton`。
-- 不要改 `ddd.skill-button.v1`。
-- 不要改 `ddd.all-buff-list.v1`。
-- 不要改 `ddd.candidate-buff-list.v1`。
+- 不要改 `def.skill-button.v1`。
+- 不要改 `def.all-buff-list.v1`。
+- 不要改 `def.candidate-buff-list.v1`。
 - 不要改伤害公式。
 - 不要处理“增幅区”。
 
@@ -247,3 +247,4 @@ Trae 必须手测：
 8. 按回归检查项手测。
 
 本轮交付标准：SidePanel 从普通 tab 容器升级为工作台工具面板结构，但 Buff、排轴、伤害、缓存功能不回退。
+

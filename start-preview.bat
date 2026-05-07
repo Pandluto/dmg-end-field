@@ -2,7 +2,7 @@
 setlocal
 cd /d "%~dp0"
 
-title DDD Preview Launcher
+title DEF Preview Launcher
 
 echo [1/2] Building project...
 call npm run build
@@ -29,3 +29,4 @@ if errorlevel 1 (
   pause >nul
   exit /b 1
 )
+

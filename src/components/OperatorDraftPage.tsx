@@ -1,14 +1,21 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { pinyin } from 'pinyin-pro';
 import './OperatorDraftPage.css';
 import assetPathsRaw from '../../asset-paths.txt?raw';
 import { loadReferenceOperatorDraft, loadReferenceOperatorNames } from './operatorDraftReference';
 import { buildWeaponSearchIndex, searchWeapons } from '../utils/weaponFuzzySearch';
 import { APP_ROUTE_PATHS, navigateToAppPath } from '../utils/appRoute';
+import {
+  buildDraftLibraryShareFile,
+  buildDraftLibraryShareFileName,
+  parseDraftLibraryShareFile,
+  type DraftLibraryShareFile,
+} from '../utils/draftShare';
 
 const DRAFT_PAGE_PATH = '/draft';
-const DRAFT_STORAGE_KEY = 'ddd.operator-editor.draft.v1';
-const LIBRARY_STORAGE_KEY = 'ddd.operator-editor.library.v1';
+const DRAFT_STORAGE_KEY = 'def.operator-editor.draft.v1';
+const LIBRARY_STORAGE_KEY = 'def.operator-editor.library.v1';
+const OPERATOR_LIBRARY_SHARE_TYPE = 'operator-library-share.v1';
 const RARITY_OPTIONS = [4, 5, 6] as const;
 const PROFESSION_OPTIONS = ['突击', '重装', '近卫', '辅助', '先锋', '术师'] as const;
 const WEAPON_OPTIONS = ['手铳', '双手剑', '长柄武器', '法术单元', '单手剑'] as const;
@@ -438,13 +445,15 @@ export function OperatorDraftPage() {
   const [skillOrder, setSkillOrder] = useState<string[]>([]);
   const [draggingSkillKey, setDraggingSkillKey] = useState<string | null>(null);
   const [dragOverSkillKey, setDragOverSkillKey] = useState<string | null>(null);
-  const [jsonImportText, setJsonImportText] = useState('');
   const [isExportJsonModalOpen, setIsExportJsonModalOpen] = useState(false);
-  const [isImportJsonModalOpen, setIsImportJsonModalOpen] = useState(false);
+  const [isShareModalOpen, setIsShareModalOpen] = useState(false);
   const [isDeleteLocalDraftModalOpen, setIsDeleteLocalDraftModalOpen] = useState(false);
   const [isOverwriteDraftModalOpen, setIsOverwriteDraftModalOpen] = useState(false);
   const [isOverwriteProtectionEnabled, setIsOverwriteProtectionEnabled] = useState(true);
   const [loadedLocalDraftId, setLoadedLocalDraftId] = useState<string | null>(null);
+  const [shareDraftName, setShareDraftName] = useState('');
+  const [pendingImportShare, setPendingImportShare] = useState<DraftLibraryShareFile<OperatorDraft> | null>(null);
+  const shareImportInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     const skillKeys = Object.keys(draft.skills);
@@ -736,6 +745,45 @@ export function OperatorDraftPage() {
     setMessages((prev) => ['[OK] 已整理技能与 hit 编号', ...prev].slice(0, 12));
   };
 
+  const readLocalDraftLibrary = () => {
+    if (typeof window === 'undefined') {
+      return {} as Record<string, OperatorDraft>;
+    }
+
+    const raw = window.localStorage.getItem(LIBRARY_STORAGE_KEY);
+    if (!raw) {
+      return {} as Record<string, OperatorDraft>;
+    }
+
+    try {
+      const parsed = JSON.parse(raw) as Record<string, unknown>;
+      return Object.fromEntries(
+        Object.entries(parsed).flatMap(([draftId, value]) => {
+          try {
+            const normalizedDraft = parseImportedDraft(JSON.stringify(value));
+            return [[draftId, normalizedDraft] as const];
+          } catch {
+            return [];
+          }
+        })
+      );
+    } catch {
+      return {} as Record<string, OperatorDraft>;
+    }
+  };
+
+  const downloadShareFile = (shareFile: DraftLibraryShareFile<OperatorDraft>) => {
+    const blob = new Blob([JSON.stringify(shareFile, null, 2)], {
+      type: 'application/json;charset=utf-8',
+    });
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = buildDraftLibraryShareFileName(shareFile.label, shareFile.exportedAt);
+    link.click();
+    window.URL.revokeObjectURL(url);
+  };
+
   const handleOpenExportJsonModal = () => {
     setIsExportJsonModalOpen(true);
   };
@@ -745,8 +793,101 @@ export function OperatorDraftPage() {
     setMessages((prev) => ['[OK] 已复制导出 JSON', ...prev].slice(0, 12));
   };
 
-  const handleOpenImportJsonModal = () => {
-    setIsImportJsonModalOpen(true);
+  const handleOpenShareModal = () => {
+    setShareDraftName('');
+    setPendingImportShare(null);
+    setIsShareModalOpen(true);
+  };
+
+  const handleCloseShareModal = () => {
+    setIsShareModalOpen(false);
+    setPendingImportShare(null);
+    setShareDraftName('');
+    if (shareImportInputRef.current) {
+      shareImportInputRef.current.value = '';
+    }
+  };
+
+  const handleExportLocalLibraryShare = () => {
+    const library = readLocalDraftLibrary();
+    const draftCount = Object.keys(library).length;
+    if (draftCount === 0) {
+      setMessages((prev) => ['[ERR] 本地没有可分享的干员库数据', ...prev].slice(0, 12));
+      return;
+    }
+
+    const shareFile = buildDraftLibraryShareFile(OPERATOR_LIBRARY_SHARE_TYPE, library, shareDraftName);
+    downloadShareFile(shareFile);
+    setMessages((prev) => [`[OK] 已导出干员分享：${shareFile.label}（${draftCount} 个）`, ...prev].slice(0, 12));
+  };
+
+  const handleOpenShareImportPicker = () => {
+    shareImportInputRef.current?.click();
+  };
+
+  const handleShareFileSelected = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) {
+      return;
+    }
+
+    const rawText = await file.text();
+    const parsedShare = parseDraftLibraryShareFile(rawText, OPERATOR_LIBRARY_SHARE_TYPE);
+    if (!parsedShare) {
+      setMessages((prev) => ['[ERR] 导入失败：文件不是有效的干员分享 JSON', ...prev].slice(0, 12));
+      event.target.value = '';
+      return;
+    }
+
+    const normalizedPayload = Object.fromEntries(
+      Object.entries(parsedShare.payload).flatMap(([draftId, value]) => {
+        try {
+          const normalizedDraft = parseImportedDraft(JSON.stringify(value));
+          return [[draftId, normalizedDraft] as const];
+        } catch {
+          return [];
+        }
+      })
+    ) as Record<string, OperatorDraft>;
+
+    if (Object.keys(normalizedPayload).length === 0) {
+      setMessages((prev) => ['[ERR] 导入失败：分享文件内没有有效的干员草稿', ...prev].slice(0, 12));
+      event.target.value = '';
+      return;
+    }
+
+    setPendingImportShare({
+      ...parsedShare,
+      payload: normalizedPayload,
+    });
+    event.target.value = '';
+  };
+
+  const handleCancelImportShare = () => {
+    setPendingImportShare(null);
+  };
+
+  const handleConfirmImportShare = () => {
+    if (typeof window === 'undefined' || !pendingImportShare) {
+      return;
+    }
+
+    const currentLibrary = readLocalDraftLibrary();
+    const nextLibrary = {
+      ...currentLibrary,
+      ...pendingImportShare.payload,
+    };
+    const nextIds = Object.keys(nextLibrary);
+    window.localStorage.setItem(LIBRARY_STORAGE_KEY, JSON.stringify(nextLibrary));
+    setLocalDraftIds(nextIds);
+    setSelectedLocalDraftId((prev) => prev && nextLibrary[prev] ? prev : (Object.keys(pendingImportShare.payload)[0] ?? nextIds[0] ?? ''));
+    setIsShareModalOpen(false);
+    setShareDraftName('');
+    setPendingImportShare(null);
+    setMessages((prev) => [
+      `[OK] 已导入干员分享：${pendingImportShare.label}（${Object.keys(pendingImportShare.payload).length} 个）`,
+      ...prev,
+    ].slice(0, 12));
   };
 
   const handleImportLocalDraft = () => {
@@ -804,23 +945,6 @@ export function OperatorDraftPage() {
       setMessages((prev) => ['[ERR] 本地数据损坏，无法删除', ...prev].slice(0, 12));
     } finally {
       setIsDeleteLocalDraftModalOpen(false);
-    }
-  };
-
-  const handleImportJsonText = () => {
-    const trimmedText = jsonImportText.trim();
-    if (!trimmedText) {
-      setMessages((prev) => ['[ERR] JSON 文本为空', ...prev].slice(0, 12));
-      return;
-    }
-
-    try {
-      const importedDraft = parseImportedDraft(trimmedText);
-      loadDraftIntoEditor(importedDraft, `[OK] 已从 JSON 文本导入：${importedDraft.id}`);
-      setLoadedLocalDraftId(null);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'JSON 导入失败';
-      setMessages((prev) => [`[ERR] ${message}`, ...prev].slice(0, 12));
     }
   };
 
@@ -946,8 +1070,8 @@ export function OperatorDraftPage() {
                     <button type="button" className="operator-draft-ghost-button" onClick={handleOpenExportJsonModal}>
                       导出 JSON
                     </button>
-                    <button type="button" className="operator-draft-ghost-button" onClick={handleOpenImportJsonModal}>
-                      导入 JSON
+                    <button type="button" className="operator-draft-ghost-button" onClick={handleOpenShareModal}>
+                      分享库
                     </button>
                   </div>
                   <div className="operator-draft-reference-box">
@@ -994,11 +1118,11 @@ export function OperatorDraftPage() {
                   </div>
                   <div className="operator-draft-reference-box">
                     <label>
-                      <span>从 JSON 文本导入</span>
+                      <span>分享导入</span>
                       <input value="点击打开导入弹窗" readOnly />
                     </label>
-                    <button type="button" className="operator-draft-ghost-button" onClick={handleOpenImportJsonModal}>
-                      导入 JSON 文本
+                    <button type="button" className="operator-draft-ghost-button" onClick={handleOpenShareModal}>
+                      打开分享弹窗
                     </button>
                   </div>
                 </div>
@@ -1424,32 +1548,43 @@ export function OperatorDraftPage() {
           </div>
         </div>
       ) : null}
-      {isImportJsonModalOpen ? (
-        <div className="operator-draft-modal-overlay" onClick={() => setIsImportJsonModalOpen(false)}>
-          <div className="operator-draft-modal" onClick={(event) => event.stopPropagation()}>
+      {isShareModalOpen ? (
+        <div className="operator-draft-modal-overlay" onClick={handleCloseShareModal}>
+          <div className="operator-draft-modal operator-draft-share-modal" onClick={(event) => event.stopPropagation()}>
             <div className="operator-draft-section-header">
-              <h3>导入 JSON 文本</h3>
-              <span>粘贴后确认</span>
+              <h3>干员库分享</h3>
+              <span>导出 / 导入本地库</span>
             </div>
-            <textarea
-              className="operator-draft-command-input"
-              value={jsonImportText}
-              onChange={(event) => setJsonImportText(event.target.value)}
-              placeholder="粘贴导出的 OperatorDraft JSON"
+            <div className="operator-draft-confirm-body">
+              <p>{`当前本地干员库共有 ${localDraftIds.length} 个条目。`}</p>
+              <p>导出会打包整个本地干员库；导入会把分享文件中的干员合并回本地库，并覆盖同 ID 条目。</p>
+            </div>
+            <label className="operator-draft-share-label">
+              <span>分享文件名</span>
+              <input
+                value={shareDraftName}
+                onChange={(event) => setShareDraftName(event.target.value)}
+                placeholder="留空则默认使用未命名"
+              />
+            </label>
+            <input
+              ref={shareImportInputRef}
+              type="file"
+              accept=".json,application/json"
+              className="operator-draft-file-input"
+              onChange={handleShareFileSelected}
             />
             <div className="operator-draft-modal-actions">
-              <button type="button" className="operator-draft-ghost-button" onClick={() => setIsImportJsonModalOpen(false)}>
-                关闭
+              <button type="button" className="operator-draft-ghost-button" onClick={handleOpenShareImportPicker}>
+                导入分享
               </button>
-              <button
-                type="button"
-                className="operator-draft-copy-button"
-                onClick={() => {
-                  handleImportJsonText();
-                  setIsImportJsonModalOpen(false);
-                }}
-              >
-                导入
+              <button type="button" className="operator-draft-copy-button" onClick={handleExportLocalLibraryShare}>
+                一键导出 JSON
+              </button>
+            </div>
+            <div className="operator-draft-modal-actions">
+              <button type="button" className="operator-draft-ghost-button" onClick={handleCloseShareModal}>
+                关闭
               </button>
             </div>
           </div>
@@ -1472,6 +1607,28 @@ export function OperatorDraftPage() {
               </button>
               <button type="button" className="operator-draft-copy-button operator-draft-danger-button" onClick={handleDeleteLocalDraft}>
                 确认删除
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+      {pendingImportShare ? (
+        <div className="operator-draft-modal-overlay" onClick={handleCancelImportShare}>
+          <div className="operator-draft-modal operator-draft-confirm-modal" onClick={(event) => event.stopPropagation()}>
+            <div className="operator-draft-section-header">
+              <h3>确认导入干员分享</h3>
+              <span>请确认</span>
+            </div>
+            <div className="operator-draft-confirm-body">
+              <p>{`即将导入分享「${pendingImportShare.label}」。`}</p>
+              <p>{`本次会写入 ${Object.keys(pendingImportShare.payload).length} 个干员条目，并覆盖本地同 ID 记录。`}</p>
+            </div>
+            <div className="operator-draft-modal-actions">
+              <button type="button" className="operator-draft-ghost-button" onClick={handleCancelImportShare}>
+                取消
+              </button>
+              <button type="button" className="operator-draft-copy-button operator-draft-danger-button" onClick={handleConfirmImportShare}>
+                确认导入
               </button>
             </div>
           </div>
@@ -1502,3 +1659,4 @@ export function OperatorDraftPage() {
     </main>
   );
 }
+

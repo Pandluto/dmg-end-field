@@ -1,27 +1,54 @@
 /**
  * SkillButton Repository
- * 只负责 ddd.skill-button.v1 的读写
+ * 只负责 def.skill-button.v1 的读写
  * 不依赖 React，不写业务规则
  */
 
 import { STORAGE_KEYS } from '../../constants/storage-keys';
-import { PersistedSkillButton, SkillButtonTable } from '../../types/storage';
+import { PersistedSkillButton, SkillButtonAnomalyConfig, SkillButtonTable } from '../../types/storage';
 import { safeSessionStorage } from '../../utils/storage';
 
 function normalizeSkillButton(button: PersistedSkillButton): PersistedSkillButton {
+  const anomalyConfig = (button.anomalyConfig ?? {}) as {
+    selectedStatuses?: SkillButtonAnomalyConfig['selectedStatuses'];
+    selectedStates?: SkillButtonAnomalyConfig['selectedStatuses'];
+    selectedDamages?: SkillButtonAnomalyConfig['selectedDamages'];
+    selectedStateSnapshotIds?: unknown[];
+  };
   const selectedBuff = Array.isArray(button.selectedBuff) ? button.selectedBuff : [];
+  const manualDisabledBuffIdsBySegmentKey = Object.fromEntries(
+    Object.entries(button.panelConfig?.manualDisabledBuffIdsBySegmentKey ?? {}).map(([segmentKey, buffIds]) => [
+      segmentKey,
+      Array.isArray(buffIds) ? buffIds : [],
+    ])
+  );
 
   return {
     ...button,
     characterId: button.characterId || button.characterName,
     selectedBuff,
     anomalyConfig: {
-      selectedStates: Array.isArray(button.anomalyConfig?.selectedStates) ? button.anomalyConfig!.selectedStates : [],
-      selectedDamages: Array.isArray(button.anomalyConfig?.selectedDamages) ? button.anomalyConfig!.selectedDamages : [],
+      selectedStatuses: Array.isArray(anomalyConfig.selectedStatuses)
+        ? anomalyConfig.selectedStatuses
+        : Array.isArray(anomalyConfig.selectedStates)
+          ? anomalyConfig.selectedStates
+          : [],
+      selectedDamages: Array.isArray(anomalyConfig.selectedDamages) ? anomalyConfig.selectedDamages : [],
+      selectedStateSnapshotIds: Array.isArray(anomalyConfig.selectedStateSnapshotIds)
+        ? anomalyConfig.selectedStateSnapshotIds
+          .filter((id): id is number => typeof id === 'number')
+        : [],
     },
-    panelConfig: button.panelConfig ?? {
-      selectedBuff: [...selectedBuff],
-    },
+    panelConfig: button.panelConfig
+      ? {
+          ...button.panelConfig,
+          selectedBuff: Array.isArray(button.panelConfig.selectedBuff) ? button.panelConfig.selectedBuff : [...selectedBuff],
+          manualDisabledBuffIdsBySegmentKey,
+        }
+      : {
+          selectedBuff: [...selectedBuff],
+          manualDisabledBuffIdsBySegmentKey: {},
+        },
     panelSnapshot: button.panelSnapshot ?? null,
   };
 }
@@ -81,3 +108,4 @@ export function removeSkillButtonById(buttonId: string): void {
   delete table[buttonId];
   setSkillButtonTable(table);
 }
+

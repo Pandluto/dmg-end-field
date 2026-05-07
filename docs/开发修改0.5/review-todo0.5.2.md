@@ -138,7 +138,7 @@ Trae 执行：
 本轮禁止：
 
 - 不要重构 `OperatorConfigPanel.tsx`。
-- 不要改 `ddd.skill-button.v1`、`ddd.all-buff-list.v1`、`ddd.candidate-buff-list.v1` 的结构。
+- 不要改 `def.skill-button.v1`、`def.all-buff-list.v1`、`def.candidate-buff-list.v1` 的结构。
 - 不要修改 0.4 已稳定的数据主从关系。
 - 不要恢复 `timelineData.buffIds -> selectedBuff` 写回链路。
 - 不要改 Buff 添加、删除、清空、按钮删除的缓存逻辑。
@@ -181,3 +181,4 @@ Trae 必须手测以下路径：
 7. 如果发现旧公式存在疑似错误，只记录，不在本轮修。
 
 本轮交付标准：计算层完成第一步抽离，`SkillButton.tsx` 职责明显收窄，现有功能和显示结果不回退。
+

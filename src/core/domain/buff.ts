@@ -5,7 +5,7 @@
 
 /**
  * 候选 Buff 类型
- * 用于 ddd.candidate-buff-list.v1，只包含展示和选择所需字段
+ * 用于 def.candidate-buff-list.v1，只包含展示和选择所需字段
  * 不要求稳定 id，不等同于 SkillButtonBuff
  */
 export type BuffEffectKind = 'modifier' | 'extraHit';
@@ -41,3 +41,4 @@ export interface CandidateBuff {
 export interface BuffData {
   buffs?: CandidateBuff[];
 }
+

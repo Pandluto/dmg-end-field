@@ -36,9 +36,9 @@ export interface PersistedSkillButton {
 
 **1.2 修改 `src/constants/storage-keys.ts`**
 - [ ] 新增 key：
-  - `SKILL_BUTTON_TABLE` = 'ddd.skill-button.v1'
+  - `SKILL_BUTTON_TABLE` = 'def.skill-button.v1'
 - [ ] 确认已有：
-  - `ALL_BUFF_LIST` = 'ddd.all-buff-list.v1'
+  - `ALL_BUFF_LIST` = 'def.all-buff-list.v1'
 
 ---
 
@@ -123,10 +123,10 @@ export interface PersistedSkillButton {
 
 **6.1 新增迁移逻辑 `src/utils/migrateStorage.ts`**
 - [ ] 创建迁移函数 `migrateOldBuffStorage()`：
-  - 读取 `ddd.skill-button-buffs.v1`（旧格式）
-  - 读取 `ddd.timeline.data.v1` 中的 `buttons[].buffIds`
-  - 迁移到 `ddd.skill-button.v1` 总表
-  - 迁移到 `ddd.all-buff-list.v1` 总表
+  - 读取 `def.skill-button-buffs.v1`（旧格式）
+  - 读取 `def.timeline.data.v1` 中的 `buttons[].buffIds`
+  - 迁移到 `def.skill-button.v1` 总表
+  - 迁移到 `def.all-buff-list.v1` 总表
   - button 的 `selectedBuff` 只回填 buffId
   - 幂等：旧 key 不存在时直接跳过
   - 迁移完成后清空旧 key
@@ -150,7 +150,7 @@ export interface PersistedSkillButton {
 - [ ] AC2: 所有 button 统一保存在 `skill-button` 总表中
 - [ ] AC3: 所有 buff 统一保存在 `buff-list` 总表中
 - [ ] AC4: `skill-button` 总表中每个 button 的 `selectedBuff` 只保存 `buffId`
-- [ ] AC5: `SkillButton` 弹窗不再依赖 `ddd.skill-button-buffs.v1`
+- [ ] AC5: `SkillButton` 弹窗不再依赖 `def.skill-button-buffs.v1`
 - [ ] AC6: 刷新后按钮位置和已选 Buff 正常恢复
 - [ ] AC7: 跨谱线移动后 button `id` 和 `selectedBuff` 不丢
 - [ ] AC8: 删除按钮时相关缓存正确清理
@@ -167,3 +167,4 @@ export interface PersistedSkillButton {
 - [ ] 刷新恢复按钮正常
 - [ ] 右键删除、锁定、弹窗正常
 - [ ] DamageTab 刷新 Buff 列表正常
+

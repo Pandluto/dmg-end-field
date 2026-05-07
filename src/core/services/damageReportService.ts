@@ -1,10 +1,12 @@
 import type { SkillButton as RuntimeSkillButton, SkillType } from '../../types';
 import type { DamageBonusSnapshot, PersistedAnomalyCard, PersistedSkillButton, SkillButtonBuff } from '../../types/storage';
-import { getCharacterConfig, getCharacterInput, getRuntimeOperatorTemplateById } from '../../utils/storage';
+import { getCharacterComputed, getCharacterConfig, getCharacterInput, getRuntimeOperatorTemplateById } from '../../utils/storage';
 import { getBuffById, getSkillButtonById, loadTimelineData } from '../repositories';
 import { resolveSkillDamageTemplate } from './skillDamageTemplateResolver';
 import { calculateSkillButtonDamageV2 } from '../calculators/skillButtonDamageCalculatorV2';
 import { loadLocalOperatorDraftMap } from './localOperatorAdapter';
+import { buildAnomalyStateDerivedBuffs, buildAnomalyStateSnapshotBuffs } from './anomalyStateBuffs';
+import { getAnomalyStateSnapshotsByIds } from './anomalyStateSnapshotStorage';
 import {
   calculateAmplifyRate,
   calculateBuffTotals,
@@ -92,7 +94,7 @@ const EMPTY_DAMAGE_BONUS: DamageBonusSnapshot = {
   allDmgBonus: 0,
 };
 
-const LOCAL_BUFF_LIBRARY_KEY = 'ddd.buff-editor.library.v1';
+const LOCAL_BUFF_LIBRARY_KEY = 'def.buff-editor.library.v1';
 
 function isModifierBuff(buff: SkillButtonBuff): boolean {
   return buff.effectKind !== 'extraHit';
@@ -441,7 +443,8 @@ function calculateBreakdown(
   amplifyRate: number,
   fragileRate: number,
   vulnerabilityRate: number,
-  comboDamageBonus: number
+  comboDamageBonus: number,
+  imbalanceDamageBonus: number
 ): number {
   const base = panelAtk * multiplierValue;
   const afterCrit = base * critFactor;
@@ -450,7 +453,65 @@ function calculateBreakdown(
   const afterAmplify = afterDefense * (1 + amplifyRate);
   const afterFragile = afterAmplify * (1 + fragileRate);
   const afterVulnerability = afterFragile * (1 + vulnerabilityRate);
-  return afterVulnerability * (1 + comboDamageBonus);
+  const afterCombo = afterVulnerability * (1 + comboDamageBonus);
+  return afterCombo * (1 + imbalanceDamageBonus);
+}
+
+function buildPersistedDisabledBuffMap(button: PersistedSkillButton): Record<string, string[]> {
+  return Object.fromEntries(
+    Object.entries(button.panelConfig?.manualDisabledBuffIdsBySegmentKey ?? {}).map(([segmentKey, buffIds]) => [
+      segmentKey,
+      Array.isArray(buffIds) ? buffIds : [],
+    ])
+  );
+}
+
+function buildDamageReportPanelBase(button: PersistedSkillButton): {
+  baseAtk: number;
+  characterAtk: number;
+  weaponAtk: number;
+  weaponAtkPercent: number;
+  abilityBonus: number;
+  critRate: number;
+  critDmg: number;
+} | null {
+  const computedPanel = getCharacterComputed(button.characterId || button.characterName)?.panel;
+  if (!computedPanel) {
+    return null;
+  }
+
+  return {
+    baseAtk: computedPanel.baseAtk,
+    characterAtk: computedPanel.characterAtk,
+    weaponAtk: computedPanel.weaponAtk,
+    weaponAtkPercent: computedPanel.weaponAtkPercent,
+    abilityBonus: computedPanel.abilityBonus,
+    critRate: computedPanel.critRate ?? 0.05,
+    critDmg: computedPanel.critDmg ?? 0.5,
+  };
+}
+
+function buildDamageReportPanel(
+  panelBase: ReturnType<typeof buildDamageReportPanelBase>,
+  fallbackPanel: { atk: number; critRate: number; critDmg: number },
+  appliedBuffs: SkillButtonBuff[]
+): { atk: number; critRate: number; critDmg: number } {
+  if (!panelBase) {
+    return fallbackPanel;
+  }
+
+  const buffTotals = calculateBuffTotals(appliedBuffs.filter(isModifierBuff));
+  const currentAtkPercent = panelBase.weaponAtkPercent * 0.01;
+  const rawAtk = panelBase.characterAtk + panelBase.weaponAtk;
+  const fixedAtk = panelBase.baseAtk - rawAtk * (1 + currentAtkPercent);
+  const nextBaseAtk = rawAtk * (1 + currentAtkPercent + buffTotals.atkPercentBoost) + fixedAtk;
+  const abilityAtkPercentBonus = panelBase.abilityBonus * 0.01;
+
+  return {
+    atk: nextBaseAtk * (1 + abilityAtkPercentBonus),
+    critRate: (panelBase.critRate ?? 0.05) + buffTotals.critRateBoost,
+    critDmg: (panelBase.critDmg ?? 0.5) + buffTotals.critDmgBonusBoost,
+  };
 }
 
 function resolveAnomalyBaseMultiplierPercent(card: PersistedAnomalyCard): number {
@@ -459,10 +520,13 @@ function resolveAnomalyBaseMultiplierPercent(card: PersistedAnomalyCard): number
       return 160;
     case 'smash':
       return 150 * (1 + card.level);
+    case 'armor-break':
+      return 50 * (1 + card.level);
     case 'shatter-ice':
       return 120 * (1 + card.level);
+    case 'conductive':
+    case 'corrosion':
     case 'burn':
-      return 80 * (1 + card.level);
     case 'freeze':
       return 80 * (1 + card.level);
     case 'knockdown':
@@ -508,6 +572,8 @@ function buildAnomalyReportHits(
   button: PersistedSkillButton,
   characterDamageBonus: DamageBonusSnapshot,
   panel: { atk: number; critRate: number; critDmg: number },
+  panelBase: ReturnType<typeof buildDamageReportPanelBase>,
+  disabledBuffIdsBySegmentKey: Record<string, string[]>,
   normalHitCount: number,
   modifierBuffList: SkillButtonBuff[],
   extraHitBuffList: Array<SkillButtonBuff & { effectKind: 'extraHit'; extraHitConfig: NonNullable<SkillButtonBuff['extraHitConfig']> }>
@@ -516,17 +582,21 @@ function buildAnomalyReportHits(
   const template = getRuntimeOperatorTemplateById(button.characterId || button.characterName);
   const fallbackElement = template?.element;
   const parsedDamageBonusRecord = characterDamageBonus as unknown as Record<string, number>;
-  const sourceSkill = getCharacterConfig(button.characterId || button.characterName)?.panelSnapshot?.sourceSkill ?? 0;
-  const sourceSkillZone = 1 + sourceSkill / 100;
+  const baseSourceSkill = getCharacterConfig(button.characterId || button.characterName)?.panelSnapshot?.sourceSkill ?? 0;
 
   const anomalyRows = anomalyCards.map((card, index) => {
     const baseMultiplierPercent = resolveAnomalyBaseMultiplierPercent(card);
     const levelCoefficient = resolveAnomalyLevelCoefficient(card);
     const elementKey = resolveAnomalyElementKey(card, fallbackElement);
-    const appliedBuffs = (card.selectedBuffIds?.length ?? 0) === 0
+    const disabledBuffIds = new Set(disabledBuffIdsBySegmentKey[card.id] ?? []);
+    const appliedBuffs = ((card.selectedBuffIds?.length ?? 0) === 0
       ? modifierBuffList
-      : modifierBuffList.filter((buff) => card.selectedBuffIds.includes(buff.id));
+      : modifierBuffList.filter((buff) => card.selectedBuffIds.includes(buff.id)))
+      .filter((buff) => !disabledBuffIds.has(buff.id));
+    const segmentPanel = buildDamageReportPanel(panelBase, panel, appliedBuffs);
     const buffTotals = calculateBuffTotals(appliedBuffs);
+    const sourceSkill = baseSourceSkill + buffTotals.sourceSkillBoost;
+    const sourceSkillZone = 1 + sourceSkill / 100;
     const anomalyBaseMultiplier = (baseMultiplierPercent / 100) * levelCoefficient * sourceSkillZone;
     const multiplierAfterBonus = anomalyBaseMultiplier + buffTotals.multiplierBonus;
     const finalMultiplier = multiplierAfterBonus * buffTotals.multiplierMultiplier;
@@ -539,9 +609,10 @@ function buildAnomalyReportHits(
     const fragileRate = calculateVulnerabilityRate(elementKey, buffTotals);
     const vulnerabilityRate = calculateFragileRate(elementKey, buffTotals);
     const comboDamageBonus = buffTotals.comboDamageBonus;
+    const imbalanceDamageBonus = buffTotals.imbalanceDamageBonus + (elementKey === 'physical' ? (characterDamageBonus.imbalanceDmgBonus || 0) : 0);
     const defenseZone = 0.5;
-    const expected = calculateBreakdown(panel.atk, finalMultiplier, 1 + panel.critRate * panel.critDmg, damageBonusRate, defenseZone, amplifyRate, fragileRate, vulnerabilityRate, comboDamageBonus);
-    const nonCrit = calculateBreakdown(panel.atk, finalMultiplier, 1, damageBonusRate, defenseZone, amplifyRate, fragileRate, vulnerabilityRate, comboDamageBonus);
+    const expected = calculateBreakdown(segmentPanel.atk, finalMultiplier, 1 + segmentPanel.critRate * segmentPanel.critDmg, damageBonusRate, defenseZone, amplifyRate, fragileRate, vulnerabilityRate, comboDamageBonus, imbalanceDamageBonus);
+    const nonCrit = calculateBreakdown(segmentPanel.atk, finalMultiplier, 1, damageBonusRate, defenseZone, amplifyRate, fragileRate, vulnerabilityRate, comboDamageBonus, imbalanceDamageBonus);
 
     return {
       id: `anomaly-${button.id}-${card.id}`,
@@ -560,7 +631,11 @@ function buildAnomalyReportHits(
   const extraHitRows = extraHitBuffList.map((buff, index) => {
     const config = buff.extraHitConfig;
     const elementKey = config.damageType;
-    const buffTotals = calculateBuffTotals(modifierBuffList);
+    const segmentKey = `buff-extra-hit-${buff.id}`;
+    const disabledBuffIds = new Set(disabledBuffIdsBySegmentKey[segmentKey] ?? []);
+    const appliedBuffs = modifierBuffList.filter((item) => !disabledBuffIds.has(item.id));
+    const segmentPanel = buildDamageReportPanel(panelBase, panel, appliedBuffs);
+    const buffTotals = calculateBuffTotals(appliedBuffs);
     const damageBonusRate = 1
       + calculateElementDmgBonus(elementKey, parsedDamageBonusRecord, buffTotals)
       + calculateSkillDmgBonus('', parsedDamageBonusRecord, buffTotals)
@@ -569,10 +644,11 @@ function buildAnomalyReportHits(
     const fragileRate = calculateVulnerabilityRate(elementKey, buffTotals);
     const vulnerabilityRate = calculateFragileRate(elementKey, buffTotals);
     const comboDamageBonus = buffTotals.comboDamageBonus;
+    const imbalanceDamageBonus = buffTotals.imbalanceDamageBonus + (elementKey === 'physical' ? (characterDamageBonus.imbalanceDmgBonus || 0) : 0);
     const defenseZone = 0.5;
     const finalMultiplier = (config.baseMultiplier + buffTotals.multiplierBonus) * buffTotals.multiplierMultiplier;
-    const expected = calculateBreakdown(panel.atk, finalMultiplier, 1 + panel.critRate * panel.critDmg, damageBonusRate, defenseZone, amplifyRate, fragileRate, vulnerabilityRate, comboDamageBonus);
-    const nonCrit = calculateBreakdown(panel.atk, finalMultiplier, 1, damageBonusRate, defenseZone, amplifyRate, fragileRate, vulnerabilityRate, comboDamageBonus);
+    const expected = calculateBreakdown(segmentPanel.atk, finalMultiplier, 1 + segmentPanel.critRate * segmentPanel.critDmg, damageBonusRate, defenseZone, amplifyRate, fragileRate, vulnerabilityRate, comboDamageBonus, imbalanceDamageBonus);
+    const nonCrit = calculateBreakdown(segmentPanel.atk, finalMultiplier, 1, damageBonusRate, defenseZone, amplifyRate, fragileRate, vulnerabilityRate, comboDamageBonus, imbalanceDamageBonus);
 
     return {
       id: `extra-hit-${button.id}-${buff.id}`,
@@ -584,7 +660,7 @@ function buildAnomalyReportHits(
       damage: expected,
       expected,
       nonCrit,
-      buffs: toBuffRows(modifierBuffList),
+      buffs: toBuffRows(appliedBuffs),
     };
   });
 
@@ -606,8 +682,23 @@ function buildButtonReportRow(
     critRate: buttonSnapshot?.critRate ?? snapshot?.critRate ?? 0.05,
     critDmg: buttonSnapshot?.critDmg ?? snapshot?.critDmg ?? 0.5,
   };
+  const panelBase = buildDamageReportPanelBase(button);
+  const disabledBuffIdsBySegmentKey = buildPersistedDisabledBuffMap(button);
+  const disabledBuffIdsByHitKey = resolvedTemplate
+    ? Object.fromEntries(
+        resolvedTemplate.hits.map((hit) => [
+          hit.key,
+          disabledBuffIdsBySegmentKey[`normal-hit-${hit.key}`] ?? [],
+        ])
+      )
+    : {};
   const allBuffs = getButtonBuffs(button);
   const modifierBuffList = allBuffs.filter(isModifierBuff);
+  const anomalyStatuses = button.anomalyConfig?.selectedStatuses ?? [];
+  const anomalyStateSnapshots = getAnomalyStateSnapshotsByIds(button.anomalyConfig?.selectedStateSnapshotIds ?? []);
+  const stateDerivedBuffList = buildAnomalyStateDerivedBuffs(anomalyStatuses, button.skillType);
+  const stateSnapshotBuffList = buildAnomalyStateSnapshotBuffs(anomalyStateSnapshots);
+  const combinedModifierBuffList = [...modifierBuffList, ...stateDerivedBuffList, ...stateSnapshotBuffList];
   const extraHitBuffList = allBuffs.filter(isExtraHitBuff);
 
   const normalHits = resolvedTemplate
@@ -616,8 +707,10 @@ function buildButtonReportRow(
         characterId: runtimeButton.characterId,
         runtimeSkillId: resolvedTemplate.runtimeSkillId,
         template: resolvedTemplate,
-        buffs: modifierBuffList,
+        buffs: combinedModifierBuffList,
         panel,
+        panelBase: panelBase ?? undefined,
+        disabledBuffIdsByHitKey,
         damageBonus,
       }).hits.map((hit, index) => ({
         id: `normal-${button.id}-${hit.hit.key}-${index}`,
@@ -637,8 +730,10 @@ function buildButtonReportRow(
     button,
     damageBonus,
     panel,
+    panelBase,
+    disabledBuffIdsBySegmentKey,
     normalHits.length,
-    modifierBuffList,
+    combinedModifierBuffList,
     extraHitBuffList
   );
 
@@ -782,3 +877,4 @@ export function buildDamageReportSnapshot(): DamageReportSnapshot {
     characters,
   };
 }
+

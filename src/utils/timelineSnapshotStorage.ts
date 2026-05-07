@@ -1,7 +1,26 @@
 import { STORAGE_KEYS } from '../constants/storage-keys';
 import type { TimelineData } from '../types';
-import type { BuffList, SkillButtonTable } from '../types/storage';
-import { safeSessionStorage } from './storage';
+import type {
+  AnomalyStateSnapshot,
+  BuffList,
+  CharacterComputedCache,
+  CharacterDisplayCache,
+  CharacterInputConfig,
+  SkillButtonTable,
+} from '../types/storage';
+import {
+  getCharacterComputedMap,
+  getCharacterDisplayCacheMap,
+  getCharacterInputMap,
+  safeSessionStorage,
+  setCharacterComputedMap,
+  setCharacterDisplayCacheMap,
+  setCharacterInputMap,
+} from './storage';
+import {
+  getAnomalyStateSnapshotArchive,
+  setAnomalyStateSnapshotArchive,
+} from '../core/services/anomalyStateSnapshotStorage';
 
 export const TIMELINE_SNAPSHOT_LIMIT = 20;
 
@@ -10,6 +29,10 @@ export interface TimelineSnapshotPayload {
   timelineData: TimelineData;
   skillButtonTable: SkillButtonTable;
   allBuffList: BuffList;
+  anomalyStateSnapshots: AnomalyStateSnapshot[];
+  characterInputMap: Record<string, CharacterInputConfig>;
+  characterComputedMap: Record<string, CharacterComputedCache>;
+  characterDisplayCacheMap: Record<string, CharacterDisplayCache>;
 }
 
 export interface TimelineSnapshotSummary {
@@ -140,11 +163,28 @@ function isValidTimelineSnapshotPayload(value: unknown): value is TimelineSnapsh
   return (
     Array.isArray(candidate.selectedCharacters) &&
     Array.isArray(candidate.allBuffList) &&
+    Array.isArray(candidate.anomalyStateSnapshots) &&
     !!candidate.skillButtonTable &&
     typeof candidate.skillButtonTable === 'object' &&
     !!candidate.timelineData &&
-    Array.isArray(candidate.timelineData.staffLines)
+    Array.isArray(candidate.timelineData.staffLines) &&
+    (candidate.characterInputMap === undefined || typeof candidate.characterInputMap === 'object') &&
+    (candidate.characterComputedMap === undefined || typeof candidate.characterComputedMap === 'object') &&
+    (candidate.characterDisplayCacheMap === undefined || typeof candidate.characterDisplayCacheMap === 'object')
   );
+}
+
+function normalizeSnapshotPayload(payload: TimelineSnapshotPayload): TimelineSnapshotPayload {
+  return {
+    selectedCharacters: payload.selectedCharacters,
+    timelineData: payload.timelineData,
+    skillButtonTable: payload.skillButtonTable,
+    allBuffList: payload.allBuffList,
+    anomalyStateSnapshots: payload.anomalyStateSnapshots ?? [],
+    characterInputMap: payload.characterInputMap ?? {},
+    characterComputedMap: payload.characterComputedMap ?? {},
+    characterDisplayCacheMap: payload.characterDisplayCacheMap ?? {},
+  };
 }
 
 function readCurrentPayload(): TimelineSnapshotPayload | null {
@@ -152,6 +192,10 @@ function readCurrentPayload(): TimelineSnapshotPayload | null {
   const timelineData = readSessionJson<TimelineData | null>(STORAGE_KEYS.TIMELINE_DATA, null);
   const skillButtonTable = readSessionJson<SkillButtonTable>(STORAGE_KEYS.SKILL_BUTTON_TABLE, {});
   const allBuffList = readSessionJson<BuffList>(STORAGE_KEYS.ALL_BUFF_LIST, []);
+  const anomalyStateSnapshots = getAnomalyStateSnapshotArchive().snapshots;
+  const characterInputMap = getCharacterInputMap();
+  const characterComputedMap = getCharacterComputedMap();
+  const characterDisplayCacheMap = getCharacterDisplayCacheMap();
 
   if (!timelineData || selectedCharacters.length === 0) {
     return null;
@@ -162,6 +206,10 @@ function readCurrentPayload(): TimelineSnapshotPayload | null {
     timelineData,
     skillButtonTable,
     allBuffList,
+    anomalyStateSnapshots,
+    characterInputMap,
+    characterComputedMap,
+    characterDisplayCacheMap,
   };
 }
 
@@ -170,22 +218,31 @@ export function getCurrentTimelineSnapshotPayload(): TimelineSnapshotPayload | n
 }
 
 export function applyTimelineSnapshotPayload(payload: TimelineSnapshotPayload): void {
+  const normalizedPayload = normalizeSnapshotPayload(payload);
   safeSessionStorage.setItem(
     STORAGE_KEYS.SELECTED_CHARACTERS,
-    JSON.stringify(payload.selectedCharacters)
+    JSON.stringify(normalizedPayload.selectedCharacters)
   );
   safeSessionStorage.setItem(
     STORAGE_KEYS.TIMELINE_DATA,
-    JSON.stringify(payload.timelineData)
+    JSON.stringify(normalizedPayload.timelineData)
   );
   safeSessionStorage.setItem(
     STORAGE_KEYS.SKILL_BUTTON_TABLE,
-    JSON.stringify(payload.skillButtonTable)
+    JSON.stringify(normalizedPayload.skillButtonTable)
   );
   safeSessionStorage.setItem(
     STORAGE_KEYS.ALL_BUFF_LIST,
-    JSON.stringify(payload.allBuffList)
+    JSON.stringify(normalizedPayload.allBuffList)
   );
+  setAnomalyStateSnapshotArchive({
+    version: 'v1',
+    nextId: normalizedPayload.anomalyStateSnapshots.reduce((maxId, snapshot) => Math.max(maxId, snapshot.id), 0) + 1,
+    snapshots: normalizedPayload.anomalyStateSnapshots,
+  });
+  setCharacterInputMap(normalizedPayload.characterInputMap);
+  setCharacterComputedMap(normalizedPayload.characterComputedMap);
+  setCharacterDisplayCacheMap(normalizedPayload.characterDisplayCacheMap);
 }
 
 export function buildTimelineShareFile(customLabel?: string): TimelineShareFile | null {
@@ -198,7 +255,7 @@ export function buildTimelineShareFile(customLabel?: string): TimelineShareFile 
     type: 'timeline-share.v1',
     exportedAt: Date.now(),
     label: normalizeShareLabel(customLabel),
-    payload,
+    payload: normalizeSnapshotPayload(payload),
   };
 }
 
@@ -216,7 +273,7 @@ export function parseTimelineShareFile(rawText: string): TimelineShareFile | nul
       type: 'timeline-share.v1',
       exportedAt: typeof parsed.exportedAt === 'number' ? parsed.exportedAt : Date.now(),
       label: normalizeShareLabel(parsed.label),
-      payload: parsed.payload,
+      payload: normalizeSnapshotPayload(parsed.payload),
     };
   } catch {
     return null;
@@ -229,7 +286,12 @@ export function buildTimelineShareFileName(label: string, exportedAt: number): s
 }
 
 export function listTimelineSnapshots(): TimelineSnapshotEntry[] {
-  return [...readArchive().snapshots].sort((left, right) => right.createdAt - left.createdAt);
+  return [...readArchive().snapshots]
+    .map((snapshot) => ({
+      ...snapshot,
+      payload: normalizeSnapshotPayload(snapshot.payload),
+    }))
+    .sort((left, right) => right.createdAt - left.createdAt);
 }
 
 export function saveTimelineSnapshot(customLabel?: string): TimelineSnapshotEntry | null {
@@ -245,7 +307,7 @@ export function saveTimelineSnapshot(customLabel?: string): TimelineSnapshotEntr
     createdAt,
     label: normalizedLabel || formatSnapshotLabel(createdAt),
     summary: buildSnapshotSummary(payload),
-    payload,
+    payload: normalizeSnapshotPayload(payload),
   };
 
   const archive = readArchive();
@@ -260,7 +322,7 @@ export function restoreTimelineSnapshot(snapshotId: string): boolean {
     return false;
   }
 
-  applyTimelineSnapshotPayload(snapshot.payload);
+  applyTimelineSnapshotPayload(normalizeSnapshotPayload(snapshot.payload));
   return true;
 }
 

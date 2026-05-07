@@ -310,10 +310,10 @@ afterAmplify = afterDefense * (1 + amplifyRate)
 - 不改 `src/components/CanvasBoard/components/OperatorConfigPanel.tsx`
 - 不改 `infoSnap / panelSnapshot` 结构
 - 不改任何 storage key：
-  - `ddd.skill-button.v1`
-  - `ddd.all-buff-list.v1`
-  - `ddd.candidate-buff-list.v1`
-  - `ddd.timeline.data.v1`
+  - `def.skill-button.v1`
+  - `def.all-buff-list.v1`
+  - `def.candidate-buff-list.v1`
+  - `def.timeline.data.v1`
 - 不把 `增幅区` 合并进 `伤害加成区`
 - 不把 `增幅区` 借道 `multiplierBonus / multiplierMultiplier / skillMultiplierBonus`
 - 不重做弹窗 UI，不改样式主题
@@ -385,3 +385,4 @@ afterAmplify = afterDefense * (1 + amplifyRate)
    - 一张增幅 Buff 生效截图
    - 一张技能弹窗里“增幅区”显示截图
    - 一份确认未改 storage key 的说明
+

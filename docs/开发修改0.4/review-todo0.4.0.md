@@ -20,11 +20,11 @@
 
 [TODO 列表]
 1. 新增 `src/constants/storage-keys.ts`，集中定义以下 key，替换项目内重复硬编码：
-   - `ddd.operator-config.character-config-map.v1`
-   - `ddd.skill-button-buffs.v1`
-   - `ddd.selected-skill-button`
-   - `ddd.timeline.data.v1`
-   - `ddd.all-buff-list.v1`
+   - `def.operator-config.character-config-map.v1`
+   - `def.skill-button-buffs.v1`
+   - `def.selected-skill-button`
+   - `def.timeline.data.v1`
+   - `def.all-buff-list.v1`
 2. 新增 `src/utils/storage.ts`，提供统一工具函数，至少包含：
    - `getStorageJson`
    - `setStorageJson`
@@ -42,7 +42,7 @@
 [验收标准 AC]
 - AC1: 项目内不再存在散落的 storage key 字符串硬编码；所有相关 key 均来自 `src/constants/storage-keys.ts`。
 - AC2: `OperatorConfigPanel.tsx`、`SkillButton.tsx`、`DamageTab.tsx`、`useSkillButtonBuffs.ts`、`useTimelineData.ts` 中不再存在无 `try/catch` 保护的 `JSON.parse(sessionStorage...)` 路径。
-- AC3: `allBuffList` 不再以裸 key 写入，已替换为 `ddd.*` 命名空间 key。
+- AC3: `allBuffList` 不再以裸 key 写入，已替换为 `def.*` 命名空间 key。
 - AC4: 页面刷新后，角色配置、技能按钮 Buff、时间轴数据仍能正常恢复。
 - AC5: `npm run build` 通过。
 
@@ -75,3 +75,4 @@
   - 手动验证技能按钮 Buff 添加后刷新仍存在
   - 手动验证时间轴数据刷新后仍存在
   - 执行 `npm run build`
+

@@ -15,9 +15,9 @@ import {
   recomputeSkillButtonPanel,
   addSkillButtonBuff,
 } from '../../hooks/useSkillButtonBuffs';
-import { PersistedAnomalyCard, SkillButtonBuff, SkillLevelMode } from '../../types/storage';
+import { AnomalyStateSnapshot, PersistedAnomalyCard, SkillButtonBuff, SkillLevelMode } from '../../types/storage';
 import { getCharacterConfig } from '../../utils/storage';
-import { getCandidateBuffList, getSkillButtonById, upsertSkillButton } from '../../core/repositories';
+import { getCandidateBuffList, getSkillButtonById, getSkillButtonTable, upsertSkillButton } from '../../core/repositories';
 import {
   buildSkillDamageModalViewModel,
 } from '../../core/calculators/skillDamageModalViewModel';
@@ -25,17 +25,28 @@ import { calculateSkillButtonDamageV2 } from '../../core/calculators/skillButton
 import {
   calculateAmplifyRate,
   calculateBuffTotals,
-  calculateElementDmgBonus,
   calculateFragileRate,
-  calculateSkillDmgBonus,
   calculateVulnerabilityRate,
 } from '../../core/calculators/buffCalculator';
-import type { ResolvedSkillDamageTemplate } from '../../core/calculators/skillDamage.types';
+import type {
+  AppliedBuffTagViewModel,
+  ResolvedSkillDamageTemplate,
+  SkillDamagePanel,
+  SkillDamagePanelBase,
+} from '../../core/calculators/skillDamage.types';
 import { resolveSkillDamageTemplate } from '../../core/services/skillDamageTemplateResolver';
 import { useAppContext } from '../../context/AppContext';
 import { emitSkillButtonBuffAdded, emitSkillButtonBuffRemoved, onSkillButtonBuffAdded } from '../../core/events/buffEvents';
 import type { BuffExtraHitConfig } from '../../core/domain/buff';
 import { buildBuffSearchIndex, searchBuffs } from '../../utils/buffFuzzySearch';
+import { buildAnomalyStateDerivedBuffs, buildAnomalyStateSnapshotBuffs } from '../../core/services/anomalyStateBuffs';
+import { getCharacterComputed } from '../../utils/storage';
+import {
+  createAnomalyStateSnapshot,
+  getAnomalyStateSnapshotsByIds,
+  listAnomalyStateSnapshots,
+  removeAnomalyStateSnapshot,
+} from '../../core/services/anomalyStateSnapshotStorage';
 import './SkillButton.css';
 
 type AnomalyCardKind = 'state' | 'damage';
@@ -82,6 +93,41 @@ function isExtraHitBuff(buff: SkillButtonBuff): buff is SkillButtonBuff & { effe
   return buff.effectKind === 'extraHit' && !!buff.extraHitConfig;
 }
 
+function buildAppliedBuffTags(buffs: SkillButtonBuff[]): AppliedBuffTagViewModel[] {
+  return buffs.map((buff) => ({
+    id: buff.id,
+    label: buff.displayName,
+    sourceName: buff.sourceName,
+  }));
+}
+
+function getNormalHitSegmentKey(hitKey: string): string {
+  return `normal-hit-${hitKey}`;
+}
+
+function buildPanelFromBase(
+  panelBase: SkillDamagePanelBase | null,
+  fallbackPanel: SkillDamagePanel | null,
+  appliedBuffs: SkillButtonBuff[]
+): SkillDamagePanel | null {
+  if (!panelBase) {
+    return fallbackPanel;
+  }
+
+  const buffTotals = calculateBuffTotals(appliedBuffs.filter(isModifierBuff));
+  const currentAtkPercent = panelBase.weaponAtkPercent * 0.01;
+  const rawAtk = panelBase.characterAtk + panelBase.weaponAtk;
+  const fixedAtk = panelBase.baseAtk - rawAtk * (1 + currentAtkPercent);
+  const nextBaseAtk = rawAtk * (1 + currentAtkPercent + buffTotals.atkPercentBoost) + fixedAtk;
+  const abilityAtkPercentBonus = panelBase.abilityBonus * 0.01;
+
+  return {
+    atk: nextBaseAtk * (1 + abilityAtkPercentBonus),
+    critRate: (panelBase.critRate ?? 0.05) + buffTotals.critRateBoost,
+    critDmg: (panelBase.critDmg ?? 0.5) + buffTotals.critDmgBonusBoost,
+  };
+}
+
 interface AnomalyDamageSegmentView {
   key: string;
   sourceKind: 'anomaly' | 'buff-extra-hit';
@@ -89,7 +135,7 @@ interface AnomalyDamageSegmentView {
   sequenceTitle: string;
   compactTitle: string;
   buffText: string;
-  appliedBuffNames: string[];
+  appliedBuffTags: AppliedBuffTagViewModel[];
   elementText: string;
   elementKey: string;
   skillTypeText: string;
@@ -109,11 +155,22 @@ interface AnomalyDamageSegmentView {
   critValue: number;
   nonCritValue: number;
   formulaText: string;
+  elementBonusText: string;
+  skillBonusText: string;
+  allDamageBonusText: string;
   damageBonusRateText: string;
   amplifyRateText: string;
+  amplifyFormulaText: string;
   fragileRateText: string;
+  fragileFormulaText: string;
   vulnerabilityRateText: string;
+  vulnerabilityFormulaText: string;
   comboDamageBonusText: string;
+  comboFormulaText: string;
+  imbalanceDamageBonusText: string;
+  imbalanceFormulaText: string;
+  defenseZoneText: string;
+  nonCritFormulaText: string;
   imbalanceText?: string;
   cooldownText?: string;
   sourceBuffName?: string;
@@ -150,8 +207,8 @@ const ANOMALY_GROUPS: Array<{ key: AnomalyCategory; label: string; items: Anomal
     key: 'magic',
     label: '法术异常',
     items: [
-      { key: 'conductive', label: '导电', kind: 'state', category: 'magic', supportsSource: true, levelOptions: [1, 2, 3, 4] },
-      { key: 'corrosion', label: '腐蚀', kind: 'state', category: 'magic', supportsSource: true, supportsDuration: true, levelOptions: [1, 2, 3, 4] },
+      { key: 'conductive', label: '导电', kind: 'damage', category: 'magic', supportsSource: false, levelOptions: [1, 2, 3, 4] },
+      { key: 'corrosion', label: '腐蚀', kind: 'damage', category: 'magic', supportsSource: false, supportsDuration: true, levelOptions: [1, 2, 3, 4] },
       { key: 'burn', label: '燃烧', kind: 'damage', category: 'magic', supportsSource: false, supportsDotToggle: true, supportsDuration: true, levelOptions: [1, 2, 3, 4] },
       { key: 'freeze', label: '冻结', kind: 'damage', category: 'magic', supportsSource: false, supportsDuration: true, levelOptions: [1, 2, 3, 4] },
       { key: 'shatter-ice', label: '碎冰', kind: 'damage', category: 'magic', supportsSource: false, levelOptions: [1, 2, 3, 4] },
@@ -164,11 +221,31 @@ const ANOMALY_GROUPS: Array<{ key: AnomalyCategory; label: string; items: Anomal
     items: [
       { key: 'knockdown', label: '倒地', kind: 'damage', category: 'physical', supportsSource: false, usesAnomalyLevel: false, levelOptions: [1] },
       { key: 'launch', label: '击飞', kind: 'damage', category: 'physical', supportsSource: false, usesAnomalyLevel: false, levelOptions: [1] },
-      { key: 'armor-break', label: '碎甲', kind: 'state', category: 'physical', supportsSource: true, supportsDuration: true, levelOptions: [1, 2, 3, 4] },
+      { key: 'armor-break', label: '碎甲', kind: 'damage', category: 'physical', supportsSource: false, supportsDuration: true, levelOptions: [1, 2, 3, 4] },
       { key: 'smash', label: '猛击', kind: 'damage', category: 'physical', supportsSource: false, levelOptions: [1, 2, 3, 4] },
     ],
   },
 ];
+
+const ANOMALY_STATE_OPTIONS: Array<{ key: 'conductive' | 'corrosion' | 'armor-break'; label: string; category: AnomalyCategory; supportsDuration?: boolean; levelOptions: number[] }> = [
+  { key: 'conductive', label: '导电', category: 'magic', levelOptions: [1, 2, 3, 4] },
+  { key: 'corrosion', label: '腐蚀', category: 'magic', supportsDuration: true, levelOptions: [1, 2, 3, 4] },
+  { key: 'armor-break', label: '碎甲', category: 'physical', supportsDuration: true, levelOptions: [1, 2, 3, 4] },
+];
+
+const FIXED_STATE_OPTIONS: AnomalyOption[] = [
+  { key: 'combo-state', label: '连击', kind: 'state', category: 'physical', supportsSource: false, levelOptions: [1, 2, 3, 4] },
+  { key: 'imbalance-state', label: '失衡', kind: 'state', category: 'physical', supportsSource: false, usesAnomalyLevel: false, levelOptions: [1] },
+];
+
+const ALL_ANOMALY_OPTIONS: AnomalyOption[] = [
+  ...FIXED_STATE_OPTIONS,
+  ...ANOMALY_GROUPS.flatMap((group) => group.items),
+];
+
+function isFixedStateKey(key: string): boolean {
+  return FIXED_STATE_OPTIONS.some((option) => option.key === key);
+}
 
 function getAnomalyDurationOptions(option: AnomalyOption): number[] {
   switch (option.key) {
@@ -190,7 +267,7 @@ function createAnomalyCardId(baseKey: string): string {
   return `${baseKey}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
-const LOCAL_BUFF_LIBRARY_KEY = 'ddd.buff-editor.library.v1';
+const LOCAL_BUFF_LIBRARY_KEY = 'def.buff-editor.library.v1';
 
 function readLocalBuffSearchEntries(): LocalBuffSearchResult[] {
   if (typeof window === 'undefined') {
@@ -372,14 +449,21 @@ export function SkillButtonComponent({
   const [activeAnomalySourceId, setActiveAnomalySourceId] = useState<string | null>(null);
   const [includeDotInTotal, setIncludeDotInTotal] = useState(true);
   const [activeDurationSeconds, setActiveDurationSeconds] = useState(0);
-  const [selectedAnomalyStates, setSelectedAnomalyStates] = useState<SelectedAnomalyCard[]>([]);
+  const [activeAnomalyStateKey, setActiveAnomalyStateKey] = useState<'conductive' | 'corrosion' | 'armor-break' | null>(null);
+  const [activeAnomalyStateLevel, setActiveAnomalyStateLevel] = useState(1);
+  const [activeAnomalyStateSourceId, setActiveAnomalyStateSourceId] = useState<string | null>(null);
+  const [activeAnomalyStateDurationSeconds, setActiveAnomalyStateDurationSeconds] = useState(0);
+  const [selectedStatusCards, setSelectedStatusCards] = useState<SelectedAnomalyCard[]>([]);
   const [selectedAnomalyDamages, setSelectedAnomalyDamages] = useState<SelectedAnomalyCard[]>([]);
+  const [selectedAnomalyStateSnapshotIds, setSelectedAnomalyStateSnapshotIds] = useState<number[]>([]);
+  const [cachedAnomalyStateSnapshots, setCachedAnomalyStateSnapshots] = useState<AnomalyStateSnapshot[]>([]);
   const [openDropdownKey, setOpenDropdownKey] = useState<string | null>(null);
   const [selectedAnomalySegmentKey, setSelectedAnomalySegmentKey] = useState<string | null>(null);
   const [isAnomalyFormulaExpanded, setIsAnomalyFormulaExpanded] = useState(false);
   const [isLocalBuffSearchOpen, setIsLocalBuffSearchOpen] = useState(false);
   const [localBuffSearchKeyword, setLocalBuffSearchKeyword] = useState('');
-  const [buffSearchMode, setBuffSearchMode] = useState<'local' | 'candidate' | 'anomaly'>('local');
+  const [buffSearchMode, setBuffSearchMode] = useState<'local' | 'candidate' | 'anomaly' | 'anomaly-state' | 'state'>('local');
+  const [manuallyDisabledBuffIdsBySegmentKey, setManuallyDisabledBuffIdsBySegmentKey] = useState<Record<string, string[]>>({});
 
   // 图标加载失败状态，用于 CSS 类切换
   const [iconLoadFailed, setIconLoadFailed] = useState(false);
@@ -424,7 +508,7 @@ export function SkillButtonComponent({
     ]
   ), [activeBuffSearchEntries]);
   const localBuffSearchResults = useMemo(() => {
-    if (buffSearchMode === 'anomaly') {
+    if (buffSearchMode === 'anomaly' || buffSearchMode === 'state' || buffSearchMode === 'anomaly-state') {
       return [];
     }
     if (!localBuffSearchKeyword.trim()) {
@@ -433,12 +517,30 @@ export function SkillButtonComponent({
     return searchBuffs(localBuffSearchKeyword, activeBuffSearchIndex).slice(0, 50);
   }, [activeBuffSearchIndex, buffSearchMode, localBuffSearchKeyword]);
 
+  const refreshCachedAnomalyStateSnapshots = useCallback(() => {
+    setCachedAnomalyStateSnapshots(listAnomalyStateSnapshots());
+  }, []);
+
   const loadPersistedAnomalyCards = useCallback(() => {
     const persistedButton = getSkillButtonById(button.id);
-    const selectedStates = persistedButton?.anomalyConfig?.selectedStates ?? [];
+    const selectedStatuses = persistedButton?.anomalyConfig?.selectedStatuses ?? [];
     const selectedDamages = persistedButton?.anomalyConfig?.selectedDamages ?? [];
-    setSelectedAnomalyStates(selectedStates.map(normalizePersistedAnomalyCard));
+    const selectedStateSnapshotIds = persistedButton?.anomalyConfig?.selectedStateSnapshotIds ?? [];
+    setSelectedStatusCards(selectedStatuses.map(normalizePersistedAnomalyCard));
     setSelectedAnomalyDamages(selectedDamages.map(normalizePersistedAnomalyCard));
+    setSelectedAnomalyStateSnapshotIds(selectedStateSnapshotIds);
+    refreshCachedAnomalyStateSnapshots();
+  }, [button.id, refreshCachedAnomalyStateSnapshots]);
+  const loadPersistedManualBuffTweaks = useCallback(() => {
+    const persistedButton = getSkillButtonById(button.id);
+    const persistedMap = persistedButton?.panelConfig?.manualDisabledBuffIdsBySegmentKey ?? {};
+    const normalizedMap = Object.fromEntries(
+      Object.entries(persistedMap).map(([segmentKey, buffIds]) => [
+        segmentKey,
+        Array.isArray(buffIds) ? buffIds : [],
+      ])
+    );
+    setManuallyDisabledBuffIdsBySegmentKey(normalizedMap);
   }, [button.id]);
 
   const closeLocalBuffSearch = useCallback(() => {
@@ -489,6 +591,8 @@ export function SkillButtonComponent({
           setBuffSearchMode((prev) => {
             if (prev === 'local') return 'candidate';
             if (prev === 'candidate') return 'anomaly';
+            if (prev === 'anomaly') return 'anomaly-state';
+            if (prev === 'anomaly-state') return 'state';
             return 'local';
           });
           return;
@@ -516,7 +620,7 @@ export function SkillButtonComponent({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [closeLocalBuffSearch, handleCloseModal, isLocalBuffSearchOpen, isModalOpen, openLocalBuffSearch]);
 
-  const persistAnomalyCards = useCallback((nextStates: SelectedAnomalyCard[], nextDamages: SelectedAnomalyCard[]) => {
+  const persistAnomalyCards = useCallback((nextStatuses: SelectedAnomalyCard[], nextDamages: SelectedAnomalyCard[], nextStateSnapshotIds: number[]) => {
     const persistedButton = getSkillButtonById(button.id);
     if (!persistedButton) {
       return;
@@ -525,22 +629,41 @@ export function SkillButtonComponent({
     upsertSkillButton({
       ...persistedButton,
       anomalyConfig: {
-        selectedStates: nextStates,
+        selectedStatuses: nextStatuses,
         selectedDamages: nextDamages,
+        selectedStateSnapshotIds: nextStateSnapshotIds,
+      },
+      updatedAt: Date.now(),
+    });
+  }, [button.id]);
+  const persistManualBuffTweaks = useCallback((nextMap: Record<string, string[]>) => {
+    const persistedButton = getSkillButtonById(button.id);
+    if (!persistedButton) {
+      return;
+    }
+
+    upsertSkillButton({
+      ...persistedButton,
+      panelConfig: {
+        ...(persistedButton.panelConfig ?? { selectedBuff: [...(persistedButton.selectedBuff ?? [])] }),
+        selectedBuff: [...(persistedButton.selectedBuff ?? [])],
+        manualDisabledBuffIdsBySegmentKey: nextMap,
       },
       updatedAt: Date.now(),
     });
   }, [button.id]);
 
   const applyAnomalyCards = useCallback((
-    nextStates: SelectedAnomalyCard[],
+    nextStatuses: SelectedAnomalyCard[],
     nextDamages: SelectedAnomalyCard[],
+    nextStateSnapshotIds: number[],
     shouldPersist = true
   ) => {
-    setSelectedAnomalyStates(nextStates);
+    setSelectedStatusCards(nextStatuses);
     setSelectedAnomalyDamages(nextDamages);
+    setSelectedAnomalyStateSnapshotIds(nextStateSnapshotIds);
     if (shouldPersist) {
-      persistAnomalyCards(nextStates, nextDamages);
+      persistAnomalyCards(nextStatuses, nextDamages, nextStateSnapshotIds);
     }
   }, [persistAnomalyCards]);
 
@@ -653,6 +776,86 @@ export function SkillButtonComponent({
     () => buffList.filter(isExtraHitBuff),
     [buffList]
   );
+  const selectedAnomalyStateSnapshots = useMemo(
+    () => getAnomalyStateSnapshotsByIds(selectedAnomalyStateSnapshotIds),
+    [selectedAnomalyStateSnapshotIds]
+  );
+  const availableAnomalyStateSnapshots = useMemo(() => {
+    const selectedIdSet = new Set(selectedAnomalyStateSnapshotIds);
+    return cachedAnomalyStateSnapshots.filter((snapshot) => !selectedIdSet.has(snapshot.id));
+  }, [cachedAnomalyStateSnapshots, selectedAnomalyStateSnapshotIds]);
+  const anomalyStateSnapshotUsageCounts = useMemo(() => {
+    const usageCountMap = new Map<number, number>();
+    Object.values(getSkillButtonTable()).forEach((skillButton) => {
+      (skillButton.anomalyConfig?.selectedStateSnapshotIds ?? []).forEach((snapshotId) => {
+        usageCountMap.set(snapshotId, (usageCountMap.get(snapshotId) ?? 0) + 1);
+      });
+    });
+    return usageCountMap;
+  }, [selectedAnomalyStateSnapshotIds]);
+  const stateDerivedBuffList = useMemo(
+    () => [
+      ...buildAnomalyStateDerivedBuffs(selectedStatusCards, button.skillType),
+      ...buildAnomalyStateSnapshotBuffs(selectedAnomalyStateSnapshots),
+    ],
+    [selectedAnomalyStateSnapshots, selectedStatusCards, button.skillType]
+  );
+  const fullCombinedModifierBuffList = useMemo(
+    () => [...modifierBuffList, ...stateDerivedBuffList],
+    [modifierBuffList, stateDerivedBuffList]
+  );
+  const panelBase = useMemo<SkillDamagePanelBase | null>(() => {
+    const computedPanel = getCharacterComputed(button.characterId)?.panel;
+    if (!computedPanel) {
+      return null;
+    }
+
+    return {
+      baseAtk: computedPanel.baseAtk,
+      characterAtk: computedPanel.characterAtk,
+      weaponAtk: computedPanel.weaponAtk,
+      weaponAtkPercent: computedPanel.weaponAtkPercent,
+      abilityBonus: computedPanel.abilityBonus,
+      critRate: computedPanel.critRate ?? 0.05,
+      critDmg: computedPanel.critDmg ?? 0.5,
+    };
+  }, [button.characterId]);
+  const activeNormalHitSegmentKey = useMemo(
+    () => (selectedHitIndex !== null && resolvedTemplate?.hits[selectedHitIndex] ? getNormalHitSegmentKey(resolvedTemplate.hits[selectedHitIndex].key) : null),
+    [resolvedTemplate, selectedHitIndex]
+  );
+  const disabledBuffIdsByHitKey = useMemo(() => {
+    if (!resolvedTemplate) {
+      return {};
+    }
+
+    return resolvedTemplate.hits.reduce<Record<string, string[]>>((acc, hit) => {
+      const segmentKey = getNormalHitSegmentKey(hit.key);
+      acc[hit.key] = manuallyDisabledBuffIdsBySegmentKey[segmentKey] ?? [];
+      return acc;
+    }, {});
+  }, [manuallyDisabledBuffIdsBySegmentKey, resolvedTemplate]);
+
+  const fullDamageResult = useMemo(() => {
+    if (!resolvedTemplate || resolvedTemplate.hits.length === 0 || !panelData) {
+      return null;
+    }
+
+    return calculateSkillButtonDamageV2({
+        buttonId: button.id,
+        characterId: button.characterId,
+        runtimeSkillId: resolvedTemplate.runtimeSkillId,
+        template: resolvedTemplate,
+        buffs: fullCombinedModifierBuffList,
+        panel: {
+          atk: panelData.atk,
+          critRate: panelData.critRate,
+          critDmg: panelData.critDmg,
+        },
+        panelBase: panelBase ?? undefined,
+      damageBonus: infoSnap as unknown as import('../../types/storage').DamageBonusSnapshot,
+    });
+  }, [resolvedTemplate, panelData, button.id, button.characterId, fullCombinedModifierBuffList, panelBase, infoSnap]);
 
   const damageResult = useMemo(() => {
     if (!resolvedTemplate || resolvedTemplate.hits.length === 0 || !panelData) {
@@ -660,36 +863,116 @@ export function SkillButtonComponent({
     }
 
     return calculateSkillButtonDamageV2({
-      buttonId: button.id,
-      characterId: button.characterId,
-      runtimeSkillId: resolvedTemplate.runtimeSkillId,
-      template: resolvedTemplate,
-      buffs: modifierBuffList,
-      panel: {
-        atk: panelData.atk,
-        critRate: panelData.critRate,
-        critDmg: panelData.critDmg,
-      },
+        buttonId: button.id,
+        characterId: button.characterId,
+        runtimeSkillId: resolvedTemplate.runtimeSkillId,
+        template: resolvedTemplate,
+        buffs: fullCombinedModifierBuffList,
+        panel: {
+          atk: panelData.atk,
+          critRate: panelData.critRate,
+          critDmg: panelData.critDmg,
+        },
+        panelBase: panelBase ?? undefined,
+        disabledBuffIdsByHitKey,
       damageBonus: infoSnap as unknown as import('../../types/storage').DamageBonusSnapshot,
     });
-  }, [resolvedTemplate, panelData, button.id, button.characterId, modifierBuffList, infoSnap]);
+  }, [resolvedTemplate, panelData, button.id, button.characterId, fullCombinedModifierBuffList, panelBase, disabledBuffIdsByHitKey, infoSnap]);
 
   const damageViewModel = useMemo(() => {
     if (!resolvedTemplate || !damageResult || !panelData) {
       return null;
     }
 
+    const activeHitPanel = selectedHitIndex !== null ? damageResult.hits[selectedHitIndex]?.panel ?? panelData : panelData;
     return buildSkillDamageModalViewModel(
       resolvedTemplate,
       damageResult,
       selectedHitIndex,
       {
-        atk: panelData.atk,
-        critRate: panelData.critRate,
-        critDmg: panelData.critDmg,
+        atk: activeHitPanel.atk,
+        critRate: activeHitPanel.critRate,
+        critDmg: activeHitPanel.critDmg,
       }
     );
   }, [resolvedTemplate, damageResult, selectedHitIndex, panelData]);
+  const activeHitBuffOptions = useMemo(() => {
+    if (selectedHitIndex === null || !fullDamageResult) {
+      return [];
+    }
+    const hitResult = fullDamageResult.hits[selectedHitIndex];
+    return hitResult ? buildAppliedBuffTags(hitResult.appliedBuffs) : [];
+  }, [fullDamageResult, selectedHitIndex]);
+  const manualBuffOptionIdsBySegmentKey = useMemo<Record<string, Set<string>>>(() => {
+    const nextMap: Record<string, Set<string>> = {};
+
+    if (fullDamageResult) {
+      fullDamageResult.hits.forEach((hit) => {
+        nextMap[getNormalHitSegmentKey(hit.hit.key)] = new Set(hit.appliedBuffs.map((buff) => buff.id));
+      });
+    }
+
+    selectedAnomalyDamages.forEach((card) => {
+      const appliedBuffs = card.selectedBuffIds.length === 0
+        ? [...fullCombinedModifierBuffList]
+        : [...fullCombinedModifierBuffList.filter((buff) => card.selectedBuffIds.includes(buff.id) || buff.source === 'anomaly_state')];
+      nextMap[card.id] = new Set(appliedBuffs.map((buff) => buff.id));
+    });
+
+    extraHitBuffList.forEach((buff) => {
+      nextMap[`buff-extra-hit-${buff.id}`] = new Set(fullCombinedModifierBuffList.map((item) => item.id));
+    });
+
+    return nextMap;
+  }, [extraHitBuffList, fullCombinedModifierBuffList, fullDamageResult, selectedAnomalyDamages]);
+
+  useEffect(() => {
+    setManuallyDisabledBuffIdsBySegmentKey((prev) => {
+      const nextEntries = Object.entries(prev).flatMap(([segmentKey, buffIds]) => {
+        const availableIds = manualBuffOptionIdsBySegmentKey[segmentKey];
+        if (!availableIds) {
+          return [];
+        }
+        const nextBuffIds = buffIds.filter((buffId) => availableIds.has(buffId));
+        return nextBuffIds.length > 0 ? [[segmentKey, nextBuffIds] as const] : [];
+      });
+      return Object.fromEntries(nextEntries);
+    });
+  }, [manualBuffOptionIdsBySegmentKey]);
+
+  const isBuffManuallyActive = useCallback((segmentKey: string, buffId: string) => {
+    const disabledIds = manuallyDisabledBuffIdsBySegmentKey[segmentKey] ?? [];
+    return !disabledIds.includes(buffId);
+  }, [manuallyDisabledBuffIdsBySegmentKey]);
+
+  const toggleManualBuff = useCallback((segmentKey: string, buffId: string) => {
+    setManuallyDisabledBuffIdsBySegmentKey((prev) => {
+      const current = prev[segmentKey] ?? [];
+      const next = current.includes(buffId)
+        ? current.filter((id) => id !== buffId)
+        : [...current, buffId];
+      const nextMap = next.length === 0 ? (() => {
+        const { [segmentKey]: _removed, ...rest } = prev;
+        return rest;
+      })() : {
+        ...prev,
+        [segmentKey]: next,
+      };
+      persistManualBuffTweaks(nextMap);
+      return nextMap;
+    });
+  }, [persistManualBuffTweaks]);
+
+  const resetManualBuffTweaks = useCallback((segmentKey: string) => {
+    setManuallyDisabledBuffIdsBySegmentKey((prev) => {
+      if (!(segmentKey in prev)) {
+        return prev;
+      }
+      const { [segmentKey]: _removed, ...rest } = prev;
+      persistManualBuffTweaks(rest);
+      return rest;
+    });
+  }, [persistManualBuffTweaks]);
 
   const sourceCharacters = useMemo(() => {
     const selected = state.selectedCharacters.map((character) => ({
@@ -705,13 +988,21 @@ export function SkillButtonComponent({
   }, [state.selectedCharacters, button.characterId, characterName]);
 
   const activeAnomaly = useMemo(
-    () => ANOMALY_GROUPS.flatMap((group) => group.items).find((item) => item.key === activeAnomalyKey) ?? null,
+    () => ALL_ANOMALY_OPTIONS.find((item) => item.key === activeAnomalyKey) ?? null,
     [activeAnomalyKey]
+  );
+  const activeAnomalyStateOption = useMemo(
+    () => ANOMALY_STATE_OPTIONS.find((item) => item.key === activeAnomalyStateKey) ?? null,
+    [activeAnomalyStateKey]
   );
 
   const activeSourceCharacter = useMemo(
     () => sourceCharacters.find((character) => character.id === activeAnomalySourceId) ?? null,
     [sourceCharacters, activeAnomalySourceId]
+  );
+  const activeAnomalyStateSourceCharacter = useMemo(
+    () => sourceCharacters.find((character) => character.id === activeAnomalyStateSourceId) ?? null,
+    [sourceCharacters, activeAnomalyStateSourceId]
   );
 
   const getCharacterSourceSkillBoost = useCallback((characterId: string | null): number => {
@@ -719,62 +1010,58 @@ export function SkillButtonComponent({
     const config = getCharacterConfig(characterId);
     return config?.panelSnapshot?.sourceSkill ?? config?.equipment?.sourceSkillBoost ?? 0;
   }, []);
+  const getEffectiveCharacterSourceSkillBoost = useCallback((characterId: string | null, buffs: SkillButtonBuff[] = []): number => {
+    const baseSourceSkillBoost = getCharacterSourceSkillBoost(characterId);
+    if (buffs.length === 0) {
+      return baseSourceSkillBoost;
+    }
+    return baseSourceSkillBoost + calculateBuffTotals(buffs).sourceSkillBoost;
+  }, [getCharacterSourceSkillBoost]);
 
   const activeSourceSkillBoost = useMemo(
-    () => getCharacterSourceSkillBoost(activeAnomalySourceId),
-    [activeAnomalySourceId, getCharacterSourceSkillBoost]
+    () => getEffectiveCharacterSourceSkillBoost(
+      activeAnomalySourceId,
+      activeAnomalySourceId === button.characterId ? fullCombinedModifierBuffList : []
+    ),
+    [activeAnomalySourceId, button.characterId, fullCombinedModifierBuffList, getEffectiveCharacterSourceSkillBoost]
+  );
+  const activeAnomalyStateSourceSkillBoost = useMemo(
+    () => getEffectiveCharacterSourceSkillBoost(
+      activeAnomalyStateSourceId,
+      activeAnomalyStateSourceId === button.characterId ? fullCombinedModifierBuffList : []
+    ),
+    [activeAnomalyStateSourceId, button.characterId, fullCombinedModifierBuffList, getEffectiveCharacterSourceSkillBoost]
   );
 
   const activeAnomalyPreview = useMemo(() => {
     if (!activeAnomaly) return null;
 
     const currentOperatorLevel = 90;
-    const currentCharacterSourceSkillBoost = getCharacterSourceSkillBoost(button.characterId);
-    const effectEnhancement = activeSourceSkillBoost > 0
-      ? (2 * activeSourceSkillBoost) / (activeSourceSkillBoost + 300)
-      : 0;
+    const currentCharacterSourceSkillBoost = getEffectiveCharacterSourceSkillBoost(button.characterId, fullCombinedModifierBuffList);
     const levelCoefficient = activeAnomaly.category === 'magic'
       ? 1 + (currentOperatorLevel - 1) / 196
       : 1 + (currentOperatorLevel - 1) / 392;
 
-    if (activeAnomaly.key === 'conductive') {
-      const baseRate = [0.12, 0.16, 0.2, 0.24][activeAnomalyLevel - 1] ?? 0.12;
-      const amplifiedRate = baseRate * (1 + effectEnhancement);
+    if (activeAnomaly.key === 'combo-state') {
+      const comboSkillBonus = [30, 45, 60, 75][activeAnomalyLevel - 1] ?? 30;
+      const comboUltimateBonus = [20, 30, 40, 50][activeAnomalyLevel - 1] ?? 20;
       return {
         lines: [
-          `来源角色: ${activeSourceCharacter?.name ?? '未选择'}`,
-          `源石技艺强度: ${activeSourceSkillBoost.toFixed(1)}`,
-          `等级系数区: × ${levelCoefficient.toFixed(3)}`,
-          `源石技艺强度区: × ${(1 + activeSourceSkillBoost / 100).toFixed(3)}`,
-          `附带效果: ${(amplifiedRate * 100).toFixed(1)}% 法术易伤`,
+          '状态区入口',
+          `连击层数: ${activeAnomalyLevel} 层`,
+          `战技增伤: +${comboSkillBonus.toFixed(1)}%`,
+          `终结技增伤: +${comboUltimateBonus.toFixed(1)}%`,
+          `当前按钮类型: ${button.skillType}`,
         ],
       };
     }
 
-    if (activeAnomaly.key === 'armor-break') {
-      const baseRate = [0.12, 0.16, 0.2, 0.24][activeAnomalyLevel - 1] ?? 0.12;
+    if (activeAnomaly.key === 'imbalance-state') {
       return {
         lines: [
-          `来源角色: ${activeSourceCharacter?.name ?? '未选择'}`,
-          `源石技艺强度: ${activeSourceSkillBoost.toFixed(1)}`,
-          `等级系数区: × ${levelCoefficient.toFixed(3)}`,
-          `源石技艺强度区: × ${(1 + activeSourceSkillBoost / 100).toFixed(3)}`,
-          `附带效果: ${(baseRate * (1 + effectEnhancement) * 100).toFixed(1)}% 物伤易伤`,
-        ],
-      };
-    }
-
-    if (activeAnomaly.key === 'corrosion') {
-      const baseStart = [3.6, 4.8, 6, 7.2][activeAnomalyLevel - 1] ?? 3.6;
-      const baseTick = [0.84, 1.12, 1.4, 1.68][activeAnomalyLevel - 1] ?? 0.84;
-      const baseCap = [12, 16, 20, 24][activeAnomalyLevel - 1] ?? 12;
-      return {
-        lines: [
-          `来源角色: ${activeSourceCharacter?.name ?? '未选择'}`,
-          `源石技艺强度: ${activeSourceSkillBoost.toFixed(1)}`,
-          `等级系数区: × ${levelCoefficient.toFixed(3)}`,
-          `源石技艺强度区: × ${(1 + activeSourceSkillBoost / 100).toFixed(3)}`,
-          `附带效果: 初始 ${(baseStart * (1 + effectEnhancement)).toFixed(2)} / 每秒 ${(baseTick * (1 + effectEnhancement)).toFixed(2)} / 上限 ${(baseCap * (1 + effectEnhancement)).toFixed(2)}`,
+          '状态区入口',
+          '固定效果: 失衡 +30.0%',
+          '当前实现: 独立失衡区乘算',
         ],
       };
     }
@@ -783,8 +1070,12 @@ export function SkillButtonComponent({
       ? 160
       : activeAnomaly.key === 'smash'
         ? 150 * (1 + activeAnomalyLevel)
+        : activeAnomaly.key === 'armor-break'
+          ? 50 * (1 + activeAnomalyLevel)
         : activeAnomaly.key === 'shatter-ice'
           ? 120 * (1 + activeAnomalyLevel)
+          : activeAnomaly.key === 'conductive' || activeAnomaly.key === 'corrosion'
+            ? 80 * (1 + activeAnomalyLevel)
           : activeAnomaly.key === 'burn'
             ? 80 * (1 + activeAnomalyLevel)
             : activeAnomaly.key === 'freeze'
@@ -811,7 +1102,58 @@ export function SkillButtonComponent({
           : null,
       ].filter((line): line is string => Boolean(line)),
     };
-  }, [activeAnomaly, activeAnomalyLevel, activeAnomalySourceId, activeSourceCharacter?.name, activeSourceSkillBoost, button.characterId, getCharacterSourceSkillBoost, includeDotInTotal]);
+  }, [activeAnomaly, activeAnomalyLevel, activeAnomalySourceId, activeSourceCharacter?.name, activeSourceSkillBoost, button.characterId, fullCombinedModifierBuffList, getEffectiveCharacterSourceSkillBoost, includeDotInTotal]);
+
+  const activeAnomalyStatePreview = useMemo(() => {
+    if (!activeAnomalyStateOption) {
+      return null;
+    }
+
+    const effectEnhancement = activeAnomalyStateSourceSkillBoost > 0
+      ? (2 * activeAnomalyStateSourceSkillBoost) / (activeAnomalyStateSourceSkillBoost + 300)
+      : 0;
+
+    if (activeAnomalyStateOption.key === 'conductive') {
+      const baseRate = [0.12, 0.16, 0.2, 0.24][activeAnomalyStateLevel - 1] ?? 0.12;
+      const effectValue = baseRate * (1 + effectEnhancement);
+      return {
+        effectValue,
+        lines: [
+          `来源角色: ${activeAnomalyStateSourceCharacter?.name ?? '未选择'}`,
+          `源石技艺强度快照: ${activeAnomalyStateSourceSkillBoost.toFixed(1)}`,
+          `异常等级: ${activeAnomalyStateLevel} 层`,
+          `快照效果: ${(effectValue * 100).toFixed(1)}% 法术易伤`,
+        ],
+      };
+    }
+
+    if (activeAnomalyStateOption.key === 'armor-break') {
+      const baseRate = [0.12, 0.16, 0.2, 0.24][activeAnomalyStateLevel - 1] ?? 0.12;
+      const effectValue = baseRate * (1 + effectEnhancement);
+      return {
+        effectValue,
+        lines: [
+          `来源角色: ${activeAnomalyStateSourceCharacter?.name ?? '未选择'}`,
+          `源石技艺强度快照: ${activeAnomalyStateSourceSkillBoost.toFixed(1)}`,
+          `异常等级: ${activeAnomalyStateLevel} 层`,
+          `快照效果: ${(effectValue * 100).toFixed(1)}% 物伤易伤`,
+        ],
+      };
+    }
+
+    const baseStart = [3.6, 4.8, 6, 7.2][activeAnomalyStateLevel - 1] ?? 3.6;
+    const baseTick = [0.84, 1.12, 1.4, 1.68][activeAnomalyStateLevel - 1] ?? 0.84;
+    const baseCap = [12, 16, 20, 24][activeAnomalyStateLevel - 1] ?? 12;
+    return {
+      effectValue: 0,
+      lines: [
+        `来源角色: ${activeAnomalyStateSourceCharacter?.name ?? '未选择'}`,
+        `源石技艺强度快照: ${activeAnomalyStateSourceSkillBoost.toFixed(1)}`,
+        `异常等级: ${activeAnomalyStateLevel} 层`,
+        `快照效果: 初始 ${(baseStart * (1 + effectEnhancement)).toFixed(2)} / 每秒 ${(baseTick * (1 + effectEnhancement)).toFixed(2)} / 上限 ${(baseCap * (1 + effectEnhancement)).toFixed(2)}`,
+      ],
+    };
+  }, [activeAnomalyStateLevel, activeAnomalyStateOption, activeAnomalyStateSourceCharacter?.name, activeAnomalyStateSourceSkillBoost]);
 
   const buildMockAnomalyCard = useCallback((
     option: AnomalyOption,
@@ -820,6 +1162,25 @@ export function SkillButtonComponent({
     includeDot?: boolean,
     durationSeconds?: number
   ): SelectedAnomalyCard => {
+    if (option.key === 'combo-state' || option.key === 'imbalance-state') {
+      const comboSkillBonus = [30, 45, 60, 75][level - 1] ?? 30;
+      const comboUltimateBonus = [20, 30, 40, 50][level - 1] ?? 20;
+      return {
+        id: createAnomalyCardId(option.key),
+        key: option.key,
+        label: option.label,
+        kind: option.kind,
+        category: option.category,
+        level,
+        primaryText: option.label,
+        secondaryText: option.key === 'combo-state'
+          ? `战技 +${comboSkillBonus}% / 终结技 +${comboUltimateBonus}%`
+          : '状态区 +30%',
+        tertiaryText: option.key === 'combo-state' ? `${level} 层连击` : '固定入口',
+        selectedBuffIds: [],
+      };
+    }
+
     if (option.kind === 'state') {
       const stateValue = option.key === 'conductive'
         ? `${8 + level * 4}% 法术易伤`
@@ -847,8 +1208,12 @@ export function SkillButtonComponent({
 
     const baseHit = option.key === 'smash'
       ? `${150 * (1 + level)}% 独立 hit`
+      : option.key === 'armor-break'
+        ? `${50 * (1 + level)}% 独立 hit`
       : option.key === 'shatter-ice'
         ? `${120 * (1 + level)}% 物理 hit`
+        : option.key === 'conductive' || option.key === 'corrosion'
+          ? `${80 * (1 + level)}% 初始 hit`
         : option.key === 'magic-burst'
           ? '160% 法术爆发 hit'
           : option.key === 'burn'
@@ -879,8 +1244,6 @@ export function SkillButtonComponent({
     }
 
     const currentOperatorLevel = 90;
-    const currentCharacterSourceSkillBoost = getCharacterSourceSkillBoost(button.characterId);
-    const sourceSkillZone = 1 + currentCharacterSourceSkillBoost / 100;
     const parsedDamageBonus = infoSnap as unknown as import('../../types/storage').DamageBonusSnapshot;
     const parsedDamageBonusRecord = parsedDamageBonus as unknown as Record<string, number>;
 
@@ -890,10 +1253,13 @@ export function SkillButtonComponent({
           return 160;
         case 'smash':
           return 150 * (1 + card.level);
+        case 'armor-break':
+          return 50 * (1 + card.level);
         case 'shatter-ice':
           return 120 * (1 + card.level);
+        case 'conductive':
+        case 'corrosion':
         case 'burn':
-          return 80 * (1 + card.level);
         case 'freeze':
           return 80 * (1 + card.level);
         case 'knockdown':
@@ -973,7 +1339,8 @@ export function SkillButtonComponent({
       amplifyRate: number,
       fragileRate: number,
       vulnerabilityRate: number,
-      comboDamageBonus: number
+      comboDamageBonus: number,
+      imbalanceDamageBonus: number
     ): number => {
       const base = panelAtk * multiplierValue;
       const afterCrit = base * critFactor;
@@ -982,38 +1349,58 @@ export function SkillButtonComponent({
       const afterAmplify = afterDefense * (1 + amplifyRate);
       const afterFragile = afterAmplify * (1 + fragileRate);
       const afterVulnerability = afterFragile * (1 + vulnerabilityRate);
-      return afterVulnerability * (1 + comboDamageBonus);
+      const afterCombo = afterVulnerability * (1 + comboDamageBonus);
+      return afterCombo * (1 + imbalanceDamageBonus);
     };
 
-    const anomalySegments = selectedAnomalyDamages.map((card, index) => {
+    const anomalySegments = selectedAnomalyDamages.flatMap<AnomalyDamageSegmentView>((card, index) => {
       const baseMultiplierPercent = resolveBaseMultiplierPercent(card);
       const levelCoefficient = resolveLevelCoefficient(card);
       const elementKey = resolveElementKey(card);
       // 异常段默认吃当前按钮的全部已选 Buff；只有在异常段显式绑定了 selectedBuffIds 时，才改为局部筛选。
-      const appliedBuffs = card.selectedBuffIds.length === 0
-        ? modifierBuffList
-        : modifierBuffList.filter((buff) => card.selectedBuffIds.includes(buff.id));
-      const appliedBuffNames = appliedBuffs.map((buff) => buff.displayName);
+      const disabledBuffIds = new Set(manuallyDisabledBuffIdsBySegmentKey[card.id] ?? []);
+      const baseAppliedBuffs = card.selectedBuffIds.length === 0
+        ? [...fullCombinedModifierBuffList]
+        : [...fullCombinedModifierBuffList.filter((buff) => card.selectedBuffIds.includes(buff.id) || buff.source === 'anomaly_state')];
+      const appliedBuffs = baseAppliedBuffs.filter((buff) => !disabledBuffIds.has(buff.id));
+      const appliedBuffTags = buildAppliedBuffTags(appliedBuffs);
+      const segmentPanel = buildPanelFromBase(panelBase, panelData, appliedBuffs);
+      if (!segmentPanel) {
+        return [];
+      }
       const buffTotals = calculateBuffTotals(appliedBuffs);
-      // 异常段共享当前按钮面板快照，避免 atk/双暴在默认“吃全部已选 Buff”后重复叠加。
-      const anomalyAtk = panelData.atk;
-      const anomalyCritRate = panelData.critRate;
-      const anomalyCritDmg = panelData.critDmg;
+      const currentCharacterSourceSkillBoost = getEffectiveCharacterSourceSkillBoost(button.characterId, appliedBuffs);
+      const sourceSkillZone = 1 + currentCharacterSourceSkillBoost / 100;
+      const anomalyAtk = segmentPanel.atk;
+      const anomalyCritRate = segmentPanel.critRate;
+      const anomalyCritDmg = segmentPanel.critDmg;
       const anomalyCritMultiplier = 1 + anomalyCritDmg;
       const anomalyExpectedMultiplier = 1 + anomalyCritRate * anomalyCritDmg;
       const anomalyBaseMultiplier = (baseMultiplierPercent / 100) * levelCoefficient * sourceSkillZone;
       const multiplierAfterBonus = anomalyBaseMultiplier + buffTotals.multiplierBonus;
       const finalMultiplier = multiplierAfterBonus * buffTotals.multiplierMultiplier;
-      const allDamageBonus = elementKey === 'physical' ? (parsedDamageBonus.allDmgBonus || 0) : 0;
+      const isPhysical = elementKey === 'physical';
+      const elementBonus = isPhysical
+        ? (parsedDamageBonus.physicalDmgBonus || 0) + (buffTotals.physicalDmgBonus || 0)
+        : (((parsedDamageBonusRecord[`${elementKey}DmgBonus`] || 0) as number)
+          + (((buffTotals[`${elementKey}DmgBonus` as keyof typeof buffTotals] || 0) as number))
+          + ((parsedDamageBonusRecord.magicDmgBonus || 0) as number)
+          + (buffTotals.magicDmgBonus || 0)
+          + ((parsedDamageBonusRecord.allElementDmgBonus || 0) as number)
+          + (buffTotals.allElementDmgBonus || 0));
+      const skillBonus = 0;
+      const allDamageBonus = parsedDamageBonus.allDmgBonus || 0;
       const damageBonusRate = 1
-        + calculateElementDmgBonus(elementKey, parsedDamageBonusRecord, buffTotals)
-        + calculateSkillDmgBonus('', parsedDamageBonusRecord, buffTotals)
+        + elementBonus
+        + skillBonus
         + allDamageBonus;
       const amplifyRate = calculateAmplifyRate(elementKey, buffTotals);
       const fragileRate = calculateVulnerabilityRate(elementKey, buffTotals);
       const vulnerabilityRate = calculateFragileRate(elementKey, buffTotals);
       const comboDamageBonus = buffTotals.comboDamageBonus;
+      const imbalanceDamageBonus = buffTotals.imbalanceDamageBonus + (elementKey === 'physical' ? (parsedDamageBonus.imbalanceDmgBonus || 0) : 0);
       const defenseZone = 0.5;
+      const baseNonCrit = anomalyAtk * finalMultiplier;
       const nonCrit = calculateBreakdown(
         anomalyAtk,
         finalMultiplier,
@@ -1023,7 +1410,8 @@ export function SkillButtonComponent({
         amplifyRate,
         fragileRate,
         vulnerabilityRate,
-        comboDamageBonus
+        comboDamageBonus,
+        imbalanceDamageBonus
       );
       const crit = calculateBreakdown(
         anomalyAtk,
@@ -1034,7 +1422,8 @@ export function SkillButtonComponent({
         amplifyRate,
         fragileRate,
         vulnerabilityRate,
-        comboDamageBonus
+        comboDamageBonus,
+        imbalanceDamageBonus
       );
       const expected = calculateBreakdown(
         anomalyAtk,
@@ -1045,18 +1434,19 @@ export function SkillButtonComponent({
         amplifyRate,
         fragileRate,
         vulnerabilityRate,
-        comboDamageBonus
+        comboDamageBonus,
+        imbalanceDamageBonus
       );
       const sequenceNumber = damageViewModel.hitCards.length + index + 1;
 
-      return {
+      return [{
         key: card.id,
         sourceKind: 'anomaly' as const,
         title: `${sequenceNumber}段 · ${card.label}`,
         sequenceTitle: `${sequenceNumber}段`,
         compactTitle: `${card.label}`,
-        buffText: appliedBuffNames.length > 0 ? `+${appliedBuffNames.length} Buff` : '无 Buff',
-        appliedBuffNames,
+        buffText: appliedBuffTags.length > 0 ? `+${appliedBuffTags.length} Buff` : '无 Buff',
+        appliedBuffTags,
         elementText: resolveElementText(card),
         elementKey,
         skillTypeText: '',
@@ -1076,36 +1466,64 @@ export function SkillButtonComponent({
         critValue: crit,
         nonCritValue: nonCrit,
         formulaText: `(${baseMultiplierPercent.toFixed(1)}% × ${levelCoefficient.toFixed(3)} × ${sourceSkillZone.toFixed(3)} + ${(buffTotals.multiplierBonus * 100).toFixed(1)}%) × ${buffTotals.multiplierMultiplier.toFixed(3)} = ${(finalMultiplier * 100).toFixed(1)}%`,
+        elementBonusText: `${(elementBonus * 100).toFixed(1)}%`,
+        skillBonusText: `${(skillBonus * 100).toFixed(1)}%`,
+        allDamageBonusText: `${(allDamageBonus * 100).toFixed(1)}%`,
         damageBonusRateText: damageBonusRate.toFixed(3),
+        amplifyFormulaText: `1 + ${(amplifyRate * 100).toFixed(1)}% = ${(1 + amplifyRate).toFixed(3)}`,
         amplifyRateText: amplifyRate.toFixed(3),
+        fragileFormulaText: `1 + ${(fragileRate * 100).toFixed(1)}% = ${(1 + fragileRate).toFixed(3)}`,
         fragileRateText: fragileRate.toFixed(3),
+        vulnerabilityFormulaText: `1 + ${(vulnerabilityRate * 100).toFixed(1)}% = ${(1 + vulnerabilityRate).toFixed(3)}`,
         vulnerabilityRateText: vulnerabilityRate.toFixed(3),
+        comboFormulaText: `1 + ${(comboDamageBonus * 100).toFixed(1)}% = ${(1 + comboDamageBonus).toFixed(3)}`,
         comboDamageBonusText: comboDamageBonus.toFixed(3),
-      };
+        imbalanceFormulaText: `1 + ${(imbalanceDamageBonus * 100).toFixed(1)}% = ${(1 + imbalanceDamageBonus).toFixed(3)}`,
+        imbalanceDamageBonusText: imbalanceDamageBonus.toFixed(3),
+        defenseZoneText: defenseZone.toFixed(3),
+        nonCritFormulaText: `${anomalyAtk.toFixed(0)} × ${(finalMultiplier * 100).toFixed(1)}% × ${damageBonusRate.toFixed(3)} × ${defenseZone.toFixed(3)} × ${(1 + amplifyRate).toFixed(3)} × ${(1 + fragileRate).toFixed(3)} × ${(1 + vulnerabilityRate).toFixed(3)} × ${(1 + comboDamageBonus).toFixed(3)} × ${(1 + imbalanceDamageBonus).toFixed(3)} = ${nonCrit.toFixed(0)} (基础伤害 ${baseNonCrit.toFixed(0)})`,
+      }];
     });
 
-    const extraHitSegments = extraHitBuffList.map((buff, index) => {
+    const extraHitSegments = extraHitBuffList.flatMap<AnomalyDamageSegmentView>((buff, index) => {
       const extraHitConfig = buff.extraHitConfig;
       const elementKey = extraHitConfig.damageType;
       const sequenceNumber = damageViewModel.hitCards.length + anomalySegments.length + index + 1;
       const parsedDamageBonusRecord = parsedDamageBonus as unknown as Record<string, number>;
-      const appliedBuffs = modifierBuffList;
-      const appliedBuffNames = appliedBuffs.map((item) => item.displayName);
-      const buffTotals = calculateBuffTotals(appliedBuffs);
+      const segmentKey = `buff-extra-hit-${buff.id}`;
+      const disabledBuffIds = new Set(manuallyDisabledBuffIdsBySegmentKey[segmentKey] ?? []);
+      const combinedAppliedBuffs = fullCombinedModifierBuffList.filter((item) => !disabledBuffIds.has(item.id));
+      const appliedBuffTags = buildAppliedBuffTags(combinedAppliedBuffs);
+      const segmentPanel = buildPanelFromBase(panelBase, panelData, combinedAppliedBuffs);
+      if (!segmentPanel) {
+        return [];
+      }
+      const buffTotals = calculateBuffTotals(combinedAppliedBuffs);
+      const isPhysical = elementKey === 'physical';
+      const elementBonus = isPhysical
+        ? (parsedDamageBonus.physicalDmgBonus || 0) + (buffTotals.physicalDmgBonus || 0)
+        : (((parsedDamageBonusRecord[`${elementKey}DmgBonus`] || 0) as number)
+          + (((buffTotals[`${elementKey}DmgBonus` as keyof typeof buffTotals] || 0) as number))
+          + ((parsedDamageBonusRecord.magicDmgBonus || 0) as number)
+          + (buffTotals.magicDmgBonus || 0)
+          + ((parsedDamageBonusRecord.allElementDmgBonus || 0) as number)
+          + (buffTotals.allElementDmgBonus || 0));
+      const skillBonus = 0;
+      const allDamageBonus = parsedDamageBonus.allDmgBonus || 0;
       const damageBonusRate = 1
-        + calculateElementDmgBonus(elementKey, parsedDamageBonusRecord, buffTotals)
-        + calculateSkillDmgBonus('', parsedDamageBonusRecord, buffTotals)
-        + (elementKey === 'physical' ? (parsedDamageBonus.allDmgBonus || 0) : 0);
+        + elementBonus
+        + skillBonus
+        + allDamageBonus;
       const amplifyRate = calculateAmplifyRate(elementKey, buffTotals);
       const fragileRate = calculateVulnerabilityRate(elementKey, buffTotals);
       const vulnerabilityRate = calculateFragileRate(elementKey, buffTotals);
       const comboDamageBonus = buffTotals.comboDamageBonus;
+      const imbalanceDamageBonus = buffTotals.imbalanceDamageBonus + (elementKey === 'physical' ? (parsedDamageBonus.imbalanceDmgBonus || 0) : 0);
       const defenseZone = 0.5;
       const finalMultiplier = (extraHitConfig.baseMultiplier + buffTotals.multiplierBonus) * buffTotals.multiplierMultiplier;
-      // 点剑额外段共享当前按钮面板快照，避免把已经写进 panelData 的 ATK/双暴再次叠加。
-      const extraHitAtk = panelData.atk;
-      const extraHitCritRate = panelData.critRate;
-      const extraHitCritDmg = panelData.critDmg;
+      const extraHitAtk = segmentPanel.atk;
+      const extraHitCritRate = segmentPanel.critRate;
+      const extraHitCritDmg = segmentPanel.critDmg;
       const critMultiplier = 1 + extraHitCritDmg;
       const expectedMultiplier = 1 + extraHitCritRate * extraHitCritDmg;
       const calculateBreakdown = (
@@ -1120,20 +1538,22 @@ export function SkillButtonComponent({
         const afterAmplify = afterDefense * (1 + amplifyRate);
         const afterFragile = afterAmplify * (1 + fragileRate);
         const afterVulnerability = afterFragile * (1 + vulnerabilityRate);
-        return afterVulnerability * (1 + comboDamageBonus);
+        const afterCombo = afterVulnerability * (1 + comboDamageBonus);
+        return afterCombo * (1 + imbalanceDamageBonus);
       };
+      const baseNonCrit = extraHitAtk * finalMultiplier;
       const nonCrit = calculateBreakdown(extraHitAtk, finalMultiplier, 1);
       const crit = calculateBreakdown(extraHitAtk, finalMultiplier, critMultiplier);
       const expected = calculateBreakdown(extraHitAtk, finalMultiplier, expectedMultiplier);
 
-      return {
+      return [{
         key: `buff-extra-hit-${buff.id}`,
         sourceKind: 'buff-extra-hit' as const,
         title: `${sequenceNumber}段 · ${buff.displayName}`,
         sequenceTitle: `${sequenceNumber}段`,
         compactTitle: buff.displayName,
-        buffText: appliedBuffNames.length > 0 ? `+${appliedBuffNames.length} Buff` : '无 Buff',
-        appliedBuffNames,
+        buffText: appliedBuffTags.length > 0 ? `+${appliedBuffTags.length} Buff` : '无 Buff',
+        appliedBuffTags,
         elementText: extraHitConfig.damageType === 'physical' ? '物理' : extraHitConfig.damageType,
         elementKey,
         skillTypeText: '',
@@ -1153,23 +1573,54 @@ export function SkillButtonComponent({
         critValue: crit,
         nonCritValue: nonCrit,
         formulaText: `${extraHitAtk.toFixed(0)} × ${(extraHitConfig.baseMultiplier * 100).toFixed(1)}% 经 Buff 修正后 = ${(finalMultiplier * 100).toFixed(1)}%`,
+        elementBonusText: `${(elementBonus * 100).toFixed(1)}%`,
+        skillBonusText: `${(skillBonus * 100).toFixed(1)}%`,
+        allDamageBonusText: `${(allDamageBonus * 100).toFixed(1)}%`,
         damageBonusRateText: damageBonusRate.toFixed(3),
+        amplifyFormulaText: `1 + ${(amplifyRate * 100).toFixed(1)}% = ${(1 + amplifyRate).toFixed(3)}`,
         amplifyRateText: amplifyRate.toFixed(3),
+        fragileFormulaText: `1 + ${(fragileRate * 100).toFixed(1)}% = ${(1 + fragileRate).toFixed(3)}`,
         fragileRateText: fragileRate.toFixed(3),
+        vulnerabilityFormulaText: `1 + ${(vulnerabilityRate * 100).toFixed(1)}% = ${(1 + vulnerabilityRate).toFixed(3)}`,
         vulnerabilityRateText: vulnerabilityRate.toFixed(3),
+        comboFormulaText: `1 + ${(comboDamageBonus * 100).toFixed(1)}% = ${(1 + comboDamageBonus).toFixed(3)}`,
         comboDamageBonusText: comboDamageBonus.toFixed(3),
+        imbalanceFormulaText: `1 + ${(imbalanceDamageBonus * 100).toFixed(1)}% = ${(1 + imbalanceDamageBonus).toFixed(3)}`,
+        imbalanceDamageBonusText: imbalanceDamageBonus.toFixed(3),
+        defenseZoneText: defenseZone.toFixed(3),
+        nonCritFormulaText: `${extraHitAtk.toFixed(0)} × ${(finalMultiplier * 100).toFixed(1)}% × ${damageBonusRate.toFixed(3)} × ${defenseZone.toFixed(3)} × ${(1 + amplifyRate).toFixed(3)} × ${(1 + fragileRate).toFixed(3)} × ${(1 + vulnerabilityRate).toFixed(3)} × ${(1 + comboDamageBonus).toFixed(3)} × ${(1 + imbalanceDamageBonus).toFixed(3)} = ${nonCrit.toFixed(0)} (基础伤害 ${baseNonCrit.toFixed(0)})`,
         imbalanceText: String(extraHitConfig.imbalanceValue),
         cooldownText: `${extraHitConfig.cooldownSeconds}s`,
         sourceBuffName: buff.displayName,
-      };
+      }];
     });
 
     return [...anomalySegments, ...extraHitSegments];
-  }, [panelData, damageViewModel, selectedAnomalyDamages, getCharacterSourceSkillBoost, button.characterId, button.skillType, element, infoSnap, modifierBuffList, extraHitBuffList]);
+  }, [panelBase, panelData, damageViewModel, selectedAnomalyDamages, button.characterId, button.skillType, element, infoSnap, fullCombinedModifierBuffList, extraHitBuffList, manuallyDisabledBuffIdsBySegmentKey, getEffectiveCharacterSourceSkillBoost]);
 
   const activeAnomalySegment = useMemo(
     () => (selectedAnomalySegmentKey ? anomalyDamageSegments.find((segment) => segment.key === selectedAnomalySegmentKey) ?? null : null),
     [anomalyDamageSegments, selectedAnomalySegmentKey]
+  );
+  const anomalyBuffOptionsBySegmentKey = useMemo<Record<string, AppliedBuffTagViewModel[]>>(() => {
+    const nextMap: Record<string, AppliedBuffTagViewModel[]> = {};
+
+    selectedAnomalyDamages.forEach((card) => {
+      const appliedBuffs = card.selectedBuffIds.length === 0
+        ? [...fullCombinedModifierBuffList]
+        : [...fullCombinedModifierBuffList.filter((buff) => card.selectedBuffIds.includes(buff.id) || buff.source === 'anomaly_state')];
+      nextMap[card.id] = buildAppliedBuffTags(appliedBuffs);
+    });
+
+    extraHitBuffList.forEach((buff) => {
+      nextMap[`buff-extra-hit-${buff.id}`] = buildAppliedBuffTags(fullCombinedModifierBuffList);
+    });
+
+    return nextMap;
+  }, [extraHitBuffList, fullCombinedModifierBuffList, selectedAnomalyDamages]);
+  const activeAnomalyBuffOptions = useMemo(
+    () => (activeAnomalySegment ? (anomalyBuffOptionsBySegmentKey[activeAnomalySegment.key] ?? activeAnomalySegment.appliedBuffTags) : []),
+    [activeAnomalySegment, anomalyBuffOptionsBySegmentKey]
   );
   const isShowingAnomalyDetail = Boolean(activeAnomalySegment) && selectedHitIndex === null;
   const anomalyDamageSummary = useMemo(() => {
@@ -1183,6 +1634,18 @@ export function SkillButtonComponent({
       { expected: 0, crit: 0, nonCrit: 0 }
     );
   }, [anomalyDamageSegments]);
+  const totalNonCritSummaryFormula = useMemo(() => {
+    if (!damageViewModel) {
+      return '无';
+    }
+    const normalParts = damageViewModel.hitCards.map((hitCard) => `${hitCard.displayName} ${hitCard.nonCritText}`);
+    const anomalyParts = anomalyDamageSegments.map((segment) => `${segment.sequenceTitle} ${segment.nonCritText}`);
+    const allParts = [...normalParts, ...anomalyParts];
+    if (allParts.length === 0) {
+      return '无';
+    }
+    return `${allParts.join(' + ')} = ${(Number(damageViewModel.summary.totalNonCritText) + anomalyDamageSummary.nonCrit).toFixed(0)}`;
+  }, [anomalyDamageSegments, anomalyDamageSummary.nonCrit, damageViewModel]);
 
   useEffect(() => {
     if (!selectedAnomalySegmentKey) {
@@ -1209,9 +1672,14 @@ export function SkillButtonComponent({
       setActiveAnomalyKey(null);
       setActiveAnomalyLevel(1);
       setActiveAnomalySourceId(null);
+      setActiveAnomalyStateKey(null);
+      setActiveAnomalyStateLevel(1);
+      setActiveAnomalyStateSourceId(null);
+      setActiveAnomalyStateDurationSeconds(0);
       setIncludeDotInTotal(true);
       setActiveDurationSeconds(0);
       loadPersistedAnomalyCards();
+      loadPersistedManualBuffTweaks();
       setOpenDropdownKey(null);
       setSelectedAnomalySegmentKey(null);
       setIsAnomalyFormulaExpanded(false);
@@ -1220,7 +1688,33 @@ export function SkillButtonComponent({
     }
 
     wasModalOpenRef.current = isModalOpen;
-  }, [isModalOpen, button.id, button.characterId, characterName, loadBuffList, loadSkillLevelModeMap, loadResolvedTemplate, loadPanelData, buildMockAnomalyCard, loadPersistedAnomalyCards]);
+  }, [isModalOpen, button.id, button.characterId, characterName, loadBuffList, loadSkillLevelModeMap, loadResolvedTemplate, loadPanelData, buildMockAnomalyCard, loadPersistedAnomalyCards, loadPersistedManualBuffTweaks]);
+
+  const renderAppliedBuffButtons = useCallback((segmentKey: string | null, buffTags: AppliedBuffTagViewModel[]) => {
+    if (buffTags.length === 0) {
+      return <span className="no-buff">无</span>;
+    }
+
+    return buffTags.map((buff) => {
+      const isSelected = segmentKey ? isBuffManuallyActive(segmentKey, buff.id) : true;
+      return (
+        <button
+          type="button"
+          key={buff.id}
+          className={`buff-tag buff-tag-selectable${isSelected ? ' is-selected' : ''}`}
+          onClick={() => {
+            if (!segmentKey) {
+              return;
+            }
+            toggleManualBuff(segmentKey, buff.id);
+          }}
+          title={`${isSelected ? '点击停用' : '点击恢复'}：${buff.label} / ${buff.sourceName}`}
+        >
+          {buff.label}
+        </button>
+      );
+    });
+  }, [isBuffManuallyActive, toggleManualBuff]);
 
   // 监听 Buff 添加事件，实时刷新 Buff 列表
   useEffect(() => {
@@ -1323,6 +1817,13 @@ export function SkillButtonComponent({
     setIncludeDotInTotal(option.key === 'burn');
     setActiveAnomalySourceId(option.supportsSource ? (sourceCharacters[0]?.id ?? button.characterId) : null);
   }, [button.characterId, sourceCharacters]);
+  const handleSelectAnomalyState = useCallback((key: 'conductive' | 'corrosion' | 'armor-break') => {
+    const option = ANOMALY_STATE_OPTIONS.find((item) => item.key === key) ?? null;
+    setActiveAnomalyStateKey((prev) => (prev === key ? null : key));
+    setActiveAnomalyStateLevel(option?.levelOptions[0] ?? 1);
+    setActiveAnomalyStateDurationSeconds((option?.supportsDuration ? (getAnomalyDurationOptions({ ...option, kind: 'state', supportsSource: true } as AnomalyOption)[0] ?? 0) : 0));
+    setActiveAnomalyStateSourceId(sourceCharacters[0]?.id ?? button.characterId);
+  }, [button.characterId, sourceCharacters]);
 
   const handleApplyActiveAnomaly = useCallback(() => {
     if (!activeAnomaly) return;
@@ -1336,24 +1837,87 @@ export function SkillButtonComponent({
     );
 
     if (activeAnomaly.kind === 'state') {
-      const nextStates = [
-        ...selectedAnomalyStates.filter((card) => card.key !== activeAnomaly.key),
+      const nextStatuses = [
+        ...selectedStatusCards.filter((card) => card.key !== activeAnomaly.key),
         nextCard,
       ];
-      applyAnomalyCards(nextStates, selectedAnomalyDamages);
+      applyAnomalyCards(nextStatuses, selectedAnomalyDamages, selectedAnomalyStateSnapshotIds);
       return;
     }
 
-    applyAnomalyCards(selectedAnomalyStates, [...selectedAnomalyDamages, nextCard]);
-  }, [activeAnomaly, activeAnomalyLevel, activeAnomalySourceId, includeDotInTotal, activeDurationSeconds, sourceCharacters, buildMockAnomalyCard, selectedAnomalyStates, selectedAnomalyDamages, applyAnomalyCards]);
+    applyAnomalyCards(selectedStatusCards, [...selectedAnomalyDamages.filter((card) => card.key !== nextCard.key), nextCard], selectedAnomalyStateSnapshotIds);
+  }, [activeAnomaly, activeAnomalyLevel, activeAnomalySourceId, includeDotInTotal, activeDurationSeconds, sourceCharacters, buildMockAnomalyCard, selectedStatusCards, selectedAnomalyDamages, selectedAnomalyStateSnapshotIds, applyAnomalyCards]);
+
+  const handleCreateAnomalyStateSnapshot = useCallback(() => {
+    if (!activeAnomalyStateOption || !activeAnomalyStateSourceCharacter || !activeAnomalyStatePreview) {
+      return;
+    }
+    const snapshot = createAnomalyStateSnapshot({
+      key: activeAnomalyStateOption.key,
+      label: activeAnomalyStateOption.label,
+      level: activeAnomalyStateLevel,
+      sourceButtonId: button.id,
+      sourceCharacterId: activeAnomalyStateSourceCharacter.id,
+      sourceCharacterName: activeAnomalyStateSourceCharacter.name,
+      sourceSkillStrengthSnapshot: activeAnomalyStateSourceSkillBoost,
+      effectValue: activeAnomalyStatePreview.effectValue,
+      durationSeconds: activeAnomalyStateOption.supportsDuration ? activeAnomalyStateDurationSeconds : undefined,
+      primaryText: `${activeAnomalyStateOption.label} Lv${activeAnomalyStateLevel} · 来源 ${activeAnomalyStateSourceCharacter.name}`,
+      secondaryText: activeAnomalyStatePreview.lines[3] ?? activeAnomalyStateOption.label,
+      tertiaryText: activeAnomalyStateOption.supportsDuration ? `持续 ${activeAnomalyStateDurationSeconds}s` : '快照生效',
+    });
+    const nextIds = [
+      ...selectedAnomalyStateSnapshotIds.filter((id) => {
+        const existing = listAnomalyStateSnapshots().find((item) => item.id === id);
+        return existing?.key !== snapshot.key;
+      }),
+      snapshot.id,
+    ];
+    refreshCachedAnomalyStateSnapshots();
+    applyAnomalyCards(selectedStatusCards, selectedAnomalyDamages, nextIds);
+  }, [activeAnomalyStateDurationSeconds, activeAnomalyStateLevel, activeAnomalyStateOption, activeAnomalyStatePreview, activeAnomalyStateSourceCharacter, activeAnomalyStateSourceSkillBoost, applyAnomalyCards, button.id, refreshCachedAnomalyStateSnapshots, selectedAnomalyDamages, selectedAnomalyStateSnapshotIds, selectedStatusCards]);
 
   const removeAnomalyCard = useCallback((kind: AnomalyCardKind, cardId: string) => {
     if (kind === 'state') {
-      applyAnomalyCards(selectedAnomalyStates.filter((card) => card.id !== cardId), selectedAnomalyDamages);
+      applyAnomalyCards(selectedStatusCards.filter((card) => card.id !== cardId), selectedAnomalyDamages, selectedAnomalyStateSnapshotIds);
       return;
     }
-    applyAnomalyCards(selectedAnomalyStates, selectedAnomalyDamages.filter((card) => card.id !== cardId));
-  }, [selectedAnomalyStates, selectedAnomalyDamages, applyAnomalyCards]);
+    applyAnomalyCards(selectedStatusCards, selectedAnomalyDamages.filter((card) => card.id !== cardId), selectedAnomalyStateSnapshotIds);
+  }, [selectedStatusCards, selectedAnomalyDamages, selectedAnomalyStateSnapshotIds, applyAnomalyCards]);
+
+  const removeAnomalyStateSnapshotCard = useCallback((snapshotId: number) => {
+    applyAnomalyCards(
+      selectedStatusCards,
+      selectedAnomalyDamages,
+      selectedAnomalyStateSnapshotIds.filter((id) => id !== snapshotId)
+    );
+  }, [applyAnomalyCards, selectedAnomalyDamages, selectedAnomalyStateSnapshotIds, selectedStatusCards]);
+  const attachAnomalyStateSnapshotCard = useCallback((snapshotId: number) => {
+    const snapshot = cachedAnomalyStateSnapshots.find((item) => item.id === snapshotId);
+    if (!snapshot) {
+      return;
+    }
+
+    const nextIds = [
+      ...selectedAnomalyStateSnapshotIds.filter((id) => {
+        const existing = cachedAnomalyStateSnapshots.find((item) => item.id === id);
+        return existing?.key !== snapshot.key;
+      }),
+      snapshot.id,
+    ];
+
+    applyAnomalyCards(selectedStatusCards, selectedAnomalyDamages, nextIds);
+  }, [applyAnomalyCards, cachedAnomalyStateSnapshots, selectedAnomalyDamages, selectedAnomalyStateSnapshotIds, selectedStatusCards]);
+  const deleteAnomalyStateSnapshotCard = useCallback((snapshotId: number) => {
+    const usageCount = anomalyStateSnapshotUsageCounts.get(snapshotId) ?? 0;
+    if (usageCount > 0) {
+      window.alert('该快照仍被界面中的项目引用，需先全部卸载后才能删除。');
+      return;
+    }
+
+    removeAnomalyStateSnapshot(snapshotId);
+    refreshCachedAnomalyStateSnapshots();
+  }, [anomalyStateSnapshotUsageCounts, refreshCachedAnomalyStateSnapshots]);
 
   const renderAnomalyDropdown = useCallback(<T extends string | number>(
     dropdownKey: string,
@@ -1399,6 +1963,264 @@ export function SkillButtonComponent({
     </div>
   ), [openDropdownKey]);
 
+  const renderStatePanel = useCallback(() => (
+    <div className="modal-content skill-anomaly-layout">
+      <div className="skill-anomaly-tree">
+        <div className="anomaly-status-section">
+          <p className="skill-anomaly-board-title">状态区</p>
+          <div className="anomaly-button-strip">
+            {FIXED_STATE_OPTIONS.map((option) => (
+              <button
+                key={option.key}
+                className={`anomaly-strip-button${activeAnomaly?.key === option.key ? ' is-active' : ''}`}
+                onClick={() => handleSelectAnomaly(option)}
+              >
+                <span>{option.label}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {activeAnomaly && isFixedStateKey(activeAnomaly.key) ? (
+          <div className="anomaly-inline-panel">
+            <div className="anomaly-inline-panel-head">
+              <div>
+                <p className="anomaly-config-title">{activeAnomaly.label}</p>
+                <p className="anomaly-config-subtitle">{activeAnomaly.key === 'combo-state' ? '状态区连击增伤' : '状态区固定加成'}</p>
+              </div>
+              <button className="anomaly-apply-btn" onClick={handleApplyActiveAnomaly}>加入蓝框</button>
+            </div>
+
+            {activeAnomaly.usesAnomalyLevel !== false
+              ? (
+                <div className="anomaly-inline-control-grid">
+                  <div className="anomaly-inline-control">
+                    <p className="anomaly-config-label">层数</p>
+                    <div className="anomaly-button-strip">
+                      {activeAnomaly.levelOptions.map((level) => (
+                        <button
+                          key={`${activeAnomaly.key}-level-${level}`}
+                          type="button"
+                          className={`anomaly-strip-button${activeAnomalyLevel === level ? ' is-active' : ''}`}
+                          onClick={() => setActiveAnomalyLevel(level)}
+                        >
+                          <span>{level} 层</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )
+              : null}
+
+            <div className="anomaly-live-preview">
+              {activeAnomalyPreview ? (
+                activeAnomalyPreview.lines.map((line) => (
+                  <p key={line} className="anomaly-live-line">{line}</p>
+                ))
+              ) : (
+                <p className="anomaly-live-line">请选择状态项</p>
+              )}
+            </div>
+          </div>
+        ) : (
+          <div className="anomaly-live-preview">
+            <p className="anomaly-live-line">请选择状态项</p>
+          </div>
+        )}
+      </div>
+
+      <div className="skill-anomaly-config">
+        <div className="skill-anomaly-board skill-anomaly-board-fixed">
+          <div className="skill-anomaly-board-section">
+            <p className="skill-anomaly-board-title">已选状态区</p>
+            <div className="skill-anomaly-board-list">
+              {selectedStatusCards.length === 0 ? (
+                <div className="skill-button-buff-empty">连击 / 失衡 会显示在这里</div>
+              ) : (
+                selectedStatusCards.map((card) => (
+                  <div
+                    key={card.id}
+                    className="anomaly-board-card is-state"
+                    onContextMenu={(e) => {
+                      e.preventDefault();
+                      removeAnomalyCard('state', card.id);
+                    }}
+                    title="右键移除"
+                  >
+                    <span className="anomaly-board-card-title">{card.primaryText}</span>
+                    <span>{card.secondaryText}</span>
+                    {card.tertiaryText ? <span>{card.tertiaryText}</span> : null}
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  ), [
+    activeAnomaly,
+    activeAnomalyPreview,
+    handleApplyActiveAnomaly,
+    handleSelectAnomaly,
+    removeAnomalyCard,
+    selectedStatusCards,
+  ]);
+
+  const renderAnomalyStatePanel = useCallback(() => (
+    <div className="modal-content skill-anomaly-layout">
+      <div className="skill-anomaly-tree">
+        <div className="anomaly-status-section">
+          <p className="skill-anomaly-board-title">异常状态区</p>
+          <div className="anomaly-button-strip">
+            {ANOMALY_STATE_OPTIONS.map((option) => (
+              <button
+                key={option.key}
+                className={`anomaly-strip-button${activeAnomalyStateOption?.key === option.key ? ' is-active' : ''}`}
+                onClick={() => handleSelectAnomalyState(option.key)}
+              >
+                <span>{option.label}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {activeAnomalyStateOption ? (
+          <div className="anomaly-inline-panel">
+            <div className="anomaly-inline-panel-head">
+              <div>
+                <p className="anomaly-config-title">{activeAnomalyStateOption.label}</p>
+                <p className="anomaly-config-subtitle">异常状态快照 Buff</p>
+              </div>
+              <button className="anomaly-apply-btn" onClick={handleCreateAnomalyStateSnapshot}>创建快照</button>
+            </div>
+
+            <div className="anomaly-inline-control-grid">
+              {renderAnomalyDropdown(
+                `${activeAnomalyStateOption.key}-snapshot-level`,
+                '异常等级',
+                `${activeAnomalyStateLevel} 层`,
+                activeAnomalyStateOption.levelOptions.map((level) => ({ value: level, label: `${level} 层` })),
+                (value) => setActiveAnomalyStateLevel(Number(value))
+              )}
+              {renderAnomalyDropdown(
+                `${activeAnomalyStateOption.key}-snapshot-source`,
+                '来源角色',
+                activeAnomalyStateSourceCharacter?.name ?? '未选择',
+                sourceCharacters.map((character) => ({ value: character.id, label: character.name })),
+                (value) => setActiveAnomalyStateSourceId(String(value))
+              )}
+              {activeAnomalyStateOption.supportsDuration ? renderAnomalyDropdown(
+                `${activeAnomalyStateOption.key}-snapshot-duration`,
+                '持续时间',
+                `${activeAnomalyStateDurationSeconds || 0}s`,
+                getAnomalyDurationOptions({ ...activeAnomalyStateOption, kind: 'state', supportsSource: true } as AnomalyOption).map((seconds) => ({ value: seconds, label: `${seconds}s` })),
+                (value) => setActiveAnomalyStateDurationSeconds(Number(value))
+              ) : null}
+            </div>
+
+            <div className="anomaly-live-preview">
+              {activeAnomalyStatePreview ? (
+                activeAnomalyStatePreview.lines.map((line) => (
+                  <p key={line} className="anomaly-live-line">{line}</p>
+                ))
+              ) : (
+                <p className="anomaly-live-line">请选择异常状态项</p>
+              )}
+            </div>
+          </div>
+        ) : (
+          <div className="anomaly-live-preview">
+            <p className="anomaly-live-line">请选择异常状态项</p>
+          </div>
+        )}
+      </div>
+
+      <div className="skill-anomaly-config">
+        <div className="skill-anomaly-board skill-anomaly-board-fixed">
+          <div className="skill-anomaly-board-section">
+            <p className="skill-anomaly-board-title">已选异常状态快照</p>
+            <div className="skill-anomaly-board-list">
+              {selectedAnomalyStateSnapshots.length === 0 ? (
+                <div className="skill-button-buff-empty">导电 / 腐蚀 / 碎甲 快照会显示在这里</div>
+              ) : (
+                selectedAnomalyStateSnapshots.map((snapshot) => (
+                  <div
+                    key={snapshot.id}
+                    className="anomaly-board-card is-state"
+                    onContextMenu={(event) => {
+                      event.preventDefault();
+                      removeAnomalyStateSnapshotCard(snapshot.id);
+                    }}
+                    title="右键从当前角色卸载"
+                  >
+                    <span className="anomaly-board-card-title">{snapshot.primaryText}</span>
+                    <span>{snapshot.secondaryText}</span>
+                    {snapshot.tertiaryText ? <span>{snapshot.tertiaryText}</span> : null}
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+          <div className="skill-anomaly-board-section">
+            <p className="skill-anomaly-board-title">缓存异常状态快照</p>
+            <div className="skill-anomaly-board-list">
+              {availableAnomalyStateSnapshots.length === 0 ? (
+                <div className="skill-button-buff-empty">暂无可挂载快照，先在任意角色创建导电 / 腐蚀 / 碎甲快照</div>
+              ) : (
+                availableAnomalyStateSnapshots.map((snapshot) => (
+                  <div
+                    key={`available-${snapshot.id}`}
+                    className="anomaly-board-card is-state"
+                    onClick={() => attachAnomalyStateSnapshotCard(snapshot.id)}
+                    title="单击挂载到当前角色"
+                  >
+                    <div className="anomaly-board-card-topline">
+                      <span className="anomaly-board-card-title">{snapshot.primaryText}</span>
+                      <button
+                        type="button"
+                        className="anomaly-board-card-delete-btn"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          deleteAnomalyStateSnapshotCard(snapshot.id);
+                        }}
+                        disabled={(anomalyStateSnapshotUsageCounts.get(snapshot.id) ?? 0) > 0}
+                        title={(anomalyStateSnapshotUsageCounts.get(snapshot.id) ?? 0) > 0
+                          ? '该快照仍被界面中的项目引用，无法删除'
+                          : '删除缓存快照'}
+                      >
+                        删除
+                      </button>
+                    </div>
+                    <span>{snapshot.secondaryText}</span>
+                    {snapshot.tertiaryText ? <span>{snapshot.tertiaryText}</span> : null}
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  ), [
+    attachAnomalyStateSnapshotCard,
+    activeAnomalyStateDurationSeconds,
+    activeAnomalyStateLevel,
+    activeAnomalyStateOption,
+    activeAnomalyStatePreview,
+    activeAnomalyStateSourceCharacter?.name,
+    anomalyStateSnapshotUsageCounts,
+    availableAnomalyStateSnapshots,
+    deleteAnomalyStateSnapshotCard,
+    handleCreateAnomalyStateSnapshot,
+    handleSelectAnomalyState,
+    removeAnomalyStateSnapshotCard,
+    renderAnomalyDropdown,
+    selectedAnomalyStateSnapshots,
+    sourceCharacters,
+  ]);
+
   const renderAnomalyPanel = useCallback(() => (
     <div className="modal-content skill-anomaly-layout">
       <div className="skill-anomaly-tree">
@@ -1434,7 +2256,7 @@ export function SkillButtonComponent({
             <div className="anomaly-inline-panel-head">
               <div>
                 <p className="anomaly-config-title">{activeAnomaly.label}</p>
-                <p className="anomaly-config-subtitle">{activeAnomaly.kind === 'state' ? '状态型异常演示' : '独立异常 hit 演示'}</p>
+                <p className="anomaly-config-subtitle">异常伤害演示</p>
               </div>
               <button className="anomaly-apply-btn" onClick={handleApplyActiveAnomaly}>加入蓝框</button>
             </div>
@@ -1512,34 +2334,10 @@ export function SkillButtonComponent({
       <div className="skill-anomaly-config">
         <div className="skill-anomaly-board skill-anomaly-board-fixed">
           <div className="skill-anomaly-board-section">
-            <p className="skill-anomaly-board-title">已选异常状态</p>
-            <div className="skill-anomaly-board-list">
-              {selectedAnomalyStates.length === 0 ? (
-                <div className="skill-button-buff-empty">导电 / 腐蚀 / 碎甲 会显示在这里</div>
-              ) : (
-                selectedAnomalyStates.map((card) => (
-                  <div
-                    key={card.id}
-                    className="anomaly-board-card is-state"
-                    onContextMenu={(e) => {
-                      e.preventDefault();
-                      removeAnomalyCard('state', card.id);
-                    }}
-                    title="右键移除"
-                  >
-                    <span className="anomaly-board-card-title">{card.primaryText}</span>
-                    <span>{card.secondaryText}</span>
-                    {card.tertiaryText ? <span>{card.tertiaryText}</span> : null}
-                  </div>
-                ))
-              )}
-            </div>
-          </div>
-          <div className="skill-anomaly-board-section">
             <p className="skill-anomaly-board-title">已选异常伤害</p>
             <div className="skill-anomaly-board-list">
               {selectedAnomalyDamages.length === 0 ? (
-                <div className="skill-button-buff-empty">猛击 / 碎冰 / 燃烧 / 法爆 会显示在这里</div>
+                <div className="skill-button-buff-empty">导电 / 腐蚀 / 燃烧 / 冻结 / 碎冰 / 法爆 / 倒地 / 击飞 / 碎甲 / 猛击 会显示在这里</div>
               ) : (
                 selectedAnomalyDamages.map((card) => (
                   <div
@@ -1575,7 +2373,6 @@ export function SkillButtonComponent({
     removeAnomalyCard,
     renderAnomalyDropdown,
     selectedAnomalyDamages,
-    selectedAnomalyStates,
     sourceCharacters,
   ]);
 
@@ -1693,7 +2490,7 @@ export function SkillButtonComponent({
             <div className="skill-button-inline-buff-search-mask" onClick={closeLocalBuffSearch}>
               <div className={`skill-button-inline-buff-search${buffSearchMode === 'anomaly' ? ' is-anomaly-mode' : ''}`} onClick={(event) => event.stopPropagation()}>
                 <div className="skill-button-inline-buff-search-head">
-                  <h5>{buffSearchMode === 'local' ? '本地 Buff' : buffSearchMode === 'candidate' ? '陈列区 Buff' : '异常伤害'}</h5>
+                  <h5>{buffSearchMode === 'local' ? '本地 Buff' : buffSearchMode === 'candidate' ? '陈列区 Buff' : buffSearchMode === 'anomaly' ? '异常伤害' : buffSearchMode === 'anomaly-state' ? '异常状态区' : '状态区'}</h5>
                   <span>Tab 切换入口 / Esc 关闭</span>
                 </div>
                 <div className="skill-button-inline-buff-search-modes">
@@ -1718,8 +2515,22 @@ export function SkillButtonComponent({
                   >
                     异常伤害
                   </button>
+                  <button
+                    type="button"
+                    className={`skill-button-inline-buff-search-mode${buffSearchMode === 'anomaly-state' ? ' is-active' : ''}`}
+                    onClick={() => setBuffSearchMode('anomaly-state')}
+                  >
+                    异常状态区
+                  </button>
+                  <button
+                    type="button"
+                    className={`skill-button-inline-buff-search-mode${buffSearchMode === 'state' ? ' is-active' : ''}`}
+                    onClick={() => setBuffSearchMode('state')}
+                  >
+                    状态区
+                  </button>
                 </div>
-                {buffSearchMode === 'anomaly' ? renderAnomalyPanel() : (
+                {buffSearchMode === 'anomaly' ? renderAnomalyPanel() : buffSearchMode === 'anomaly-state' ? renderAnomalyStatePanel() : buffSearchMode === 'state' ? renderStatePanel() : (
                   <>
                     <input
                       ref={localBuffSearchInputRef}
@@ -1819,13 +2630,32 @@ export function SkillButtonComponent({
               </div>
 
               <div className="skill-button-buff-section skill-button-anomaly-summary-section">
-                <h5>已选异常</h5>
+                <h5>已选状态 / 异常</h5>
                 <div className="skill-button-anomaly-summary-list">
-                  {[...selectedAnomalyStates, ...selectedAnomalyDamages].length === 0 ? (
-                    <div className="skill-button-buff-empty">按 Tab 打开异常伤害页勾选要演示的异常项</div>
+                  {[...selectedStatusCards, ...selectedAnomalyStateSnapshots, ...selectedAnomalyDamages].length === 0 ? (
+                    <div className="skill-button-buff-empty">按 Tab 打开状态区、异常状态区或异常伤害页勾选要演示的项</div>
                   ) : (
-                    [...selectedAnomalyStates, ...selectedAnomalyDamages].map((card) => (
-                      <div key={card.id} className={`skill-button-anomaly-summary-card is-${card.kind}`}>
+                    [
+                      ...selectedStatusCards,
+                      ...selectedAnomalyStateSnapshots.map((snapshot) => ({
+                        ...snapshot,
+                        kind: 'state' as const,
+                      })),
+                      ...selectedAnomalyDamages,
+                    ].map((card) => (
+                      <div
+                        key={card.id}
+                        className={`skill-button-anomaly-summary-card is-${card.kind}`}
+                        onContextMenu={(e) => {
+                          e.preventDefault();
+                          if (typeof card.id === 'number') {
+                            removeAnomalyStateSnapshotCard(card.id);
+                            return;
+                          }
+                          removeAnomalyCard(card.kind, card.id);
+                        }}
+                        title="右键移除"
+                      >
                         <div className="anomaly-summary-head">
                           <span className="anomaly-summary-kind">{card.kind === 'state' ? '状态' : '伤害'}</span>
                           <span className="anomaly-summary-title">{card.primaryText}</span>
@@ -1861,6 +2691,7 @@ export function SkillButtonComponent({
                             <span>总伤(暴击): {(Number(damageViewModel.summary.totalCritText) + anomalyDamageSummary.crit).toFixed(0)}</span>
                             <span>总伤(非暴): {(Number(damageViewModel.summary.totalNonCritText) + anomalyDamageSummary.nonCrit).toFixed(0)}</span>
                           </div>
+                          <p className="skill-damage-total-formula">总伤(非暴)步骤: {totalNonCritSummaryFormula}</p>
                         </div>
 
                         {/* Hit 列表区 */}
@@ -1929,14 +2760,14 @@ export function SkillButtonComponent({
                               <p>非暴击伤害: {damageViewModel.activeHitDetail.nonCritText}</p>
                             </div>
                             <div className="hit-detail-buffs">
-                              <p className="buff-section-title">生效 Buff:</p>
-                              {damageViewModel.activeHitDetail.appliedBuffTags.length > 0 ? (
-                                damageViewModel.activeHitDetail.appliedBuffTags.map((buffName) => (
-                                  <span key={buffName} className="buff-tag">{buffName}</span>
-                                ))
-                              ) : (
-                                <span className="no-buff">无</span>
-                              )}
+                              <div className="hit-detail-buffs-head">
+                                <p className="buff-section-title">生效 Buff:</p>
+                                {activeNormalHitSegmentKey && (manuallyDisabledBuffIdsBySegmentKey[activeNormalHitSegmentKey]?.length ?? 0) > 0 ? (
+                                  <button type="button" className="buff-reset-btn" onClick={() => resetManualBuffTweaks(activeNormalHitSegmentKey)}>重置微调</button>
+                                ) : null}
+                              </div>
+                              <p className="buff-section-tip">点按按钮可临时启停本次计算</p>
+                              {renderAppliedBuffButtons(activeNormalHitSegmentKey, activeHitBuffOptions)}
                             </div>
                           </div>
                         )}
@@ -1963,14 +2794,14 @@ export function SkillButtonComponent({
                               <p>非暴击伤害: {activeAnomalySegment.nonCritText}</p>
                             </div>
                             <div className="hit-detail-buffs">
-                              <p className="buff-section-title">生效 Buff:</p>
-                              {activeAnomalySegment.appliedBuffNames.length > 0 ? (
-                                activeAnomalySegment.appliedBuffNames.map((buffName) => (
-                                  <span key={buffName} className="buff-tag">{buffName}</span>
-                                ))
-                              ) : (
-                                <span className="no-buff">无</span>
-                              )}
+                              <div className="hit-detail-buffs-head">
+                                <p className="buff-section-title">生效 Buff:</p>
+                                {(manuallyDisabledBuffIdsBySegmentKey[activeAnomalySegment.key]?.length ?? 0) > 0 ? (
+                                  <button type="button" className="buff-reset-btn" onClick={() => resetManualBuffTweaks(activeAnomalySegment.key)}>重置微调</button>
+                                ) : null}
+                              </div>
+                              <p className="buff-section-tip">点按按钮可临时启停本次计算</p>
+                              {renderAppliedBuffButtons(activeAnomalySegment.key, activeAnomalyBuffOptions)}
                             </div>
                           </div>
                         )}
@@ -1994,15 +2825,63 @@ export function SkillButtonComponent({
                               ) : (
                                 <p>无</p>
                               )}
-                              {damageViewModel.activeHitFormula.zoneSections.map((section) => (
-                                <div key={section.title} className="formula-zone-section">
-                                  <p className="formula-section-title">{section.title}</p>
-                                  {section.lines.map((line) => (
-                                    <p key={line}>{line}</p>
-                                  ))}
-                                  <p className="formula-zone-total">{section.totalText}</p>
-                                </div>
-                              ))}
+
+                              <div className="formula-zone-section">
+                                <p className="formula-section-title">【倍率区】</p>
+                                <p>基础倍率: {damageViewModel.activeHitFormula.baseMultiplierText}</p>
+                                <p>倍率 Buff 加算: {damageViewModel.activeHitFormula.multiplierFormulaText}</p>
+                                <p className="formula-zone-total">最终倍率 = {damageViewModel.activeHitFormula.formulaText}</p>
+                              </div>
+
+                              <div className="formula-zone-section">
+                                <p className="formula-section-title">【加成区】</p>
+                                <p>元素伤害加成 {damageViewModel.activeHitFormula.elementBonusText}</p>
+                                <p>技能伤害加成 {damageViewModel.activeHitFormula.skillBonusText}</p>
+                                <p>全伤害加成 {damageViewModel.activeHitFormula.allDamageBonusText}</p>
+                                <p className="formula-zone-total">加成区系数 = 1 + {damageViewModel.activeHitFormula.elementBonusText} + {damageViewModel.activeHitFormula.skillBonusText} + {damageViewModel.activeHitFormula.allDamageBonusText} = {damageViewModel.activeHitFormula.damageBonusRateText}</p>
+                              </div>
+
+                              <div className="formula-zone-section">
+                                <p className="formula-section-title">【增幅区】</p>
+                                <p>法术/元素增幅</p>
+                                <p className="formula-zone-total">增幅区 = {damageViewModel.activeHitFormula.amplifyFormulaText}</p>
+                              </div>
+
+                              <div className="formula-zone-section">
+                                <p className="formula-section-title">【脆弱区】</p>
+                                <p>脆弱效果</p>
+                                <p className="formula-zone-total">脆弱区 = {damageViewModel.activeHitFormula.fragileFormulaText}</p>
+                              </div>
+
+                              <div className="formula-zone-section">
+                                <p className="formula-section-title">【易伤区】</p>
+                                <p>易伤效果</p>
+                                <p className="formula-zone-total">易伤区 = {damageViewModel.activeHitFormula.vulnerabilityFormulaText}</p>
+                              </div>
+
+                              <div className="formula-zone-section">
+                                <p className="formula-section-title">【连击区】</p>
+                                <p>连击增伤</p>
+                                <p className="formula-zone-total">连击区 = {damageViewModel.activeHitFormula.comboFormulaText}</p>
+                              </div>
+
+                              <div className="formula-zone-section">
+                                <p className="formula-section-title">【失衡区】</p>
+                                <p>失衡增伤</p>
+                                <p className="formula-zone-total">失衡区 = {damageViewModel.activeHitFormula.imbalanceFormulaText}</p>
+                              </div>
+
+                              <div className="formula-zone-section">
+                                <p className="formula-section-title">【防御区】</p>
+                                <p>防御减免系数</p>
+                                <p className="formula-zone-total">防御区 = {damageViewModel.activeHitFormula.defenseZoneText}</p>
+                              </div>
+
+                              <p className="formula-section-title">【结果】</p>
+                              <p>非暴击总伤 = {damageViewModel.activeHitFormula.nonCritFormulaText}</p>
+                              <p>期望伤害: {damageViewModel.activeHitFormula.expectedText}</p>
+                              <p>暴击伤害: {damageViewModel.activeHitFormula.critText}</p>
+                              <p>非暴击伤害: {damageViewModel.activeHitFormula.nonCritText}</p>
                             </div>
                           </div>
                         )}
@@ -2011,36 +2890,94 @@ export function SkillButtonComponent({
                           <div className="skill-damage-expanded">
                             <p className="skill-damage-expand-title">{activeAnomalySegment.title} 计算过程</p>
                             <div className="skill-damage-formula">
-                              <p className="formula-section-title">【{activeAnomalySegment.title}】</p>
+                              <p className="formula-section-title">【面板属性】</p>
                               <p>ATK: {activeAnomalySegment.panelAtkText}</p>
                               <p>暴击率: {activeAnomalySegment.critRateText}</p>
                               <p>暴击伤害: {activeAnomalySegment.critDmgText}</p>
-                              <p>基础倍率: {activeAnomalySegment.baseMultiplierText}</p>
-                              <p>倍率Buff加算: {activeAnomalySegment.multiplierFormulaText}</p>
-                              <p className="formula-zone-total">最终倍率 = {activeAnomalySegment.formulaText}</p>
-                              <p>伤害加成区 = {activeAnomalySegment.damageBonusRateText}</p>
-                              <p>增幅区 = {activeAnomalySegment.amplifyRateText}</p>
-                              <p>脆弱区 = {activeAnomalySegment.fragileRateText}</p>
-                              <p>易伤区 = {activeAnomalySegment.vulnerabilityRateText}</p>
-                              <p>{activeAnomalySegment.sourceKind === 'anomaly' ? '异常区' : '连击区'} = {activeAnomalySegment.comboDamageBonusText}</p>
-                              {activeAnomalySegment.sourceKind === 'anomaly' && (
-                                <>
-                                  <p>源石技艺强度: {activeAnomalySegment.sourceSkillBoostText}</p>
-                                  <p>等级系数区: × {activeAnomalySegment.levelCoefficientText}</p>
-                                  <p>源石技艺强度区: × {activeAnomalySegment.sourceSkillZoneText}</p>
-                                </>
+
+                              <p className="formula-section-title">【生效 Buff】</p>
+                              {activeAnomalySegment.appliedBuffTags.length > 0 ? (
+                                <div className="formula-buff-tags">
+                                  {activeAnomalySegment.appliedBuffTags.map((buff) => (
+                                    <span key={buff.id} className="buff-tag">{buff.label}</span>
+                                  ))}
+                                </div>
+                              ) : (
+                                <p>无</p>
                               )}
+
+                              <div className="formula-zone-section">
+                                <p className="formula-section-title">【倍率区】</p>
+                                <p>基础倍率: {activeAnomalySegment.baseMultiplierText}</p>
+                                <p>倍率 Buff 加算: {activeAnomalySegment.multiplierFormulaText}</p>
+                                {activeAnomalySegment.sourceKind === 'anomaly' && (
+                                  <>
+                                    <p>源石技艺强度: {activeAnomalySegment.sourceSkillBoostText}</p>
+                                    <p>等级系数区: × {activeAnomalySegment.levelCoefficientText}</p>
+                                    <p>源石技艺强度区: × {activeAnomalySegment.sourceSkillZoneText}</p>
+                                  </>
+                                )}
+                                <p className="formula-zone-total">最终倍率 = {activeAnomalySegment.formulaText}</p>
+                              </div>
+
+                              <div className="formula-zone-section">
+                                <p className="formula-section-title">【加成区】</p>
+                                <p>元素伤害加成 {activeAnomalySegment.elementBonusText}</p>
+                                <p>技能伤害加成 {activeAnomalySegment.skillBonusText}</p>
+                                <p>全伤害加成 {activeAnomalySegment.allDamageBonusText}</p>
+                                <p className="formula-zone-total">加成区系数 = 1 + {activeAnomalySegment.elementBonusText} + {activeAnomalySegment.skillBonusText} + {activeAnomalySegment.allDamageBonusText} = {activeAnomalySegment.damageBonusRateText}</p>
+                              </div>
+
+                              <div className="formula-zone-section">
+                                <p className="formula-section-title">【增幅区】</p>
+                                <p>法术/元素增幅</p>
+                                <p className="formula-zone-total">增幅区 = {activeAnomalySegment.amplifyFormulaText}</p>
+                              </div>
+
+                              <div className="formula-zone-section">
+                                <p className="formula-section-title">【脆弱区】</p>
+                                <p>脆弱效果</p>
+                                <p className="formula-zone-total">脆弱区 = {activeAnomalySegment.fragileFormulaText}</p>
+                              </div>
+
+                              <div className="formula-zone-section">
+                                <p className="formula-section-title">【易伤区】</p>
+                                <p>易伤效果</p>
+                                <p className="formula-zone-total">易伤区 = {activeAnomalySegment.vulnerabilityFormulaText}</p>
+                              </div>
+
+                              <div className="formula-zone-section">
+                                <p className="formula-section-title">【连击区】</p>
+                                <p>连击增伤</p>
+                                <p className="formula-zone-total">连击区 = {activeAnomalySegment.comboFormulaText}</p>
+                              </div>
+
+                              <div className="formula-zone-section">
+                                <p className="formula-section-title">【失衡区】</p>
+                                <p>失衡增伤</p>
+                                <p className="formula-zone-total">失衡区 = {activeAnomalySegment.imbalanceFormulaText}</p>
+                              </div>
+
+                              <div className="formula-zone-section">
+                                <p className="formula-section-title">【防御区】</p>
+                                <p>防御减免系数</p>
+                                <p className="formula-zone-total">防御区 = {activeAnomalySegment.defenseZoneText}</p>
+                              </div>
+
                               {activeAnomalySegment.sourceKind === 'buff-extra-hit' && (
-                                <>
+                                <div className="formula-zone-section">
+                                  <p className="formula-section-title">【附加信息】</p>
                                   <p>来源 Buff: {activeAnomalySegment.sourceBuffName || '-'}</p>
                                   <p>失衡值: {activeAnomalySegment.imbalanceText || '-'}</p>
                                   <p>冷却文案: {activeAnomalySegment.cooldownText || '-'}</p>
-                                </>
+                                </div>
                               )}
+
+                              <p className="formula-section-title">【结果】</p>
+                              <p>非暴击总伤 = {activeAnomalySegment.nonCritFormulaText}</p>
                               <p>期望伤害: {activeAnomalySegment.expectedText}</p>
                               <p>暴击伤害: {activeAnomalySegment.critText}</p>
                               <p>非暴击伤害: {activeAnomalySegment.nonCritText}</p>
-                              <p>生效 Buff: {activeAnomalySegment.appliedBuffNames.length > 0 ? activeAnomalySegment.appliedBuffNames.join(' / ') : '无'}</p>
                             </div>
                           </div>
                         )}
@@ -2085,3 +3022,4 @@ export function SkillButtonComponent({
     </>
   );
 }
+

@@ -6,9 +6,9 @@
  *
  * 真相源：
  * - 官方角色：public/data/characters/*.json
- * - 本地角色：localStorage['ddd.operator-editor.library.v1']
+ * - 本地角色：localStorage['def.operator-editor.library.v1']
  *
- * 运行时模板表：sessionStorage['ddd.operator-runtime.template-map.v1']
+ * 运行时模板表：sessionStorage['def.operator-runtime.template-map.v1']
  */
 
 import type { ElementType, SkillType, AbilityType } from '../../types';
@@ -140,3 +140,4 @@ export interface OperatorDraft {
   };
   skills: Record<string, OperatorDraftSkill>;
 }
+

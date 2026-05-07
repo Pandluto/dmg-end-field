@@ -40,20 +40,20 @@ export interface BuffCalculationResult {
   critDmgBonusBoost: number;  // 总暴击伤害提升
 
   // 脆弱区（Vulnerability）
-  physicalFragile: number;   // 总物理脆弱
-  fireFragile: number;        // 总灼热脆弱
-  electricFragile: number;   // 总电磁脆弱
-  iceFragile: number;        // 总寒冷脆弱
-  natureFragile: number;      // 总自然脆弱
-  magicFragile: number;      // 总法术脆弱
+  physicalFragile: number;   // 总物伤易伤
+  fireFragile: number;        // 总灼热易伤
+  electricFragile: number;   // 总电磁易伤
+  iceFragile: number;        // 总寒冷易伤
+  natureFragile: number;      // 总自然易伤
+  magicFragile: number;      // 总法术易伤
 
-  // 易伤区（Fragile）
-  physicalVulnerability: number;   // 总物理易伤
-  fireVulnerability: number;        // 总灼热易伤
-  electricVulnerability: number;   // 总电磁易伤
-  iceVulnerability: number;        // 总寒冷易伤
-  natureVulnerability: number;      // 总自然易伤
-  magicTakenDmgBonus: number;     // 总法术易伤
+  // 脆弱区（Vulnerability）
+  physicalVulnerability: number;   // 总物理脆弱
+  fireVulnerability: number;        // 总灼热脆弱
+  electricVulnerability: number;   // 总电磁脆弱
+  iceVulnerability: number;        // 总寒冷脆弱
+  natureVulnerability: number;      // 总自然脆弱
+  magicTakenDmgBonus: number;     // 总法术脆弱
 
   // 连击区（独立区域）
   comboDamageBonus: number;        // 总连击增伤

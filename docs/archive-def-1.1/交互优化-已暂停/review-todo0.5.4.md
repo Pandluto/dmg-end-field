@@ -218,9 +218,9 @@ Trae 执行：
 - 不要新增 `WorkspaceShell`。
 - 不要改 `SidePanel`。
 - 不要改 Buff 添加、删除、清空逻辑。
-- 不要改 `ddd.skill-button.v1`。
-- 不要改 `ddd.all-buff-list.v1`。
-- 不要改 `ddd.candidate-buff-list.v1`。
+- 不要改 `def.skill-button.v1`。
+- 不要改 `def.all-buff-list.v1`。
+- 不要改 `def.candidate-buff-list.v1`。
 - 不要改 `timeline.data` 保存恢复规则。
 - 不要改 0.5.2 calculator。
 - 不要改伤害公式。
@@ -267,3 +267,4 @@ Trae 必须手测：
 8. 按回归检查项手测。
 
 本轮交付标准：应用具备 `/select` 和 `/timeline` 两个真实页面入口，现有功能不回退。
+

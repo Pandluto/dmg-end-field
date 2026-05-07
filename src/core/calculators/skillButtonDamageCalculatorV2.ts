@@ -15,6 +15,7 @@ import type {
   ResolvedHitTemplate,
   SkillDamageCalcInputV2,
   SkillDamageCalcResultV2,
+  SkillDamagePanel,
 } from './skillDamage.types';
 
 function doesBuffApplyToHit(buff: SkillButtonBuff, hit: ResolvedHitTemplate): boolean {
@@ -39,6 +40,28 @@ function filterBuffsForHit(hit: ResolvedHitTemplate, buffs: SkillButtonBuff[]): 
   return buffs.filter((buff) => doesBuffApplyToHit(buff, hit));
 }
 
+function buildPanelForHit(
+  appliedBuffs: SkillButtonBuff[],
+  input: SkillDamageCalcInputV2
+): SkillDamagePanel {
+  if (!input.panelBase) {
+    return input.panel;
+  }
+
+  const buffTotals = calculateBuffTotals(appliedBuffs);
+  const currentAtkPercent = input.panelBase.weaponAtkPercent * 0.01;
+  const rawAtk = input.panelBase.characterAtk + input.panelBase.weaponAtk;
+  const fixedAtk = input.panelBase.baseAtk - rawAtk * (1 + currentAtkPercent);
+  const nextBaseAtk = rawAtk * (1 + currentAtkPercent + buffTotals.atkPercentBoost) + fixedAtk;
+  const abilityAtkPercentBonus = input.panelBase.abilityBonus * 0.01;
+
+  return {
+    atk: nextBaseAtk * (1 + abilityAtkPercentBonus),
+    critRate: (input.panelBase.critRate ?? 0.05) + buffTotals.critRateBoost,
+    critDmg: (input.panelBase.critDmg ?? 0.5) + buffTotals.critDmgBonusBoost,
+  };
+}
+
 function calculateHitDamage(
   panelAtk: number,
   multiplierValue: number,
@@ -48,7 +71,8 @@ function calculateHitDamage(
   amplifyRate: number,
   fragileRate: number,
   vulnerabilityRate: number,
-  comboDamageBonus: number
+  comboDamageBonus: number,
+  imbalanceDamageBonus: number
 ): DamageBreakdown {
   const base = panelAtk * multiplierValue;
   const afterCrit = base * critMultiplier;
@@ -57,7 +81,8 @@ function calculateHitDamage(
   const afterAmplify = afterDefense * (1 + amplifyRate);
   const afterFragile = afterAmplify * (1 + fragileRate);
   const afterVulnerability = afterFragile * (1 + vulnerabilityRate);
-  const final = afterVulnerability * (1 + comboDamageBonus);
+  const afterCombo = afterVulnerability * (1 + comboDamageBonus);
+  const final = afterCombo * (1 + imbalanceDamageBonus);
 
   return {
     base,
@@ -118,9 +143,13 @@ function calculateHitZones(
     // 项目既有语义：
     // - 脆弱区 = Vulnerability
     // - 易伤区 = Fragile
+    // 例如：
+    // - physicalVulnerability = 物理脆弱
+    // - physicalFragile = 物伤易伤
     fragileRate: calculateVulnerabilityRate(hit.element, buffs),
     vulnerabilityRate: calculateFragileRate(hit.element, buffs),
     comboDamageBonus: buffs.comboDamageBonus,
+    imbalanceDamageBonus: buffs.imbalanceDamageBonus + (hit.element === 'physical' ? (damageBonus.imbalanceDmgBonus || 0) : 0),
     defenseZone: 0.5,
   };
 }
@@ -130,22 +159,25 @@ function calculateSingleHit(
   buffs: SkillButtonBuff[],
   input: SkillDamageCalcInputV2
 ): HitCalcResult {
-  const appliedBuffs = filterBuffsForHit(hit, buffs);
+  const disabledBuffIds = new Set(input.disabledBuffIdsByHitKey?.[hit.key] ?? []);
+  const appliedBuffs = filterBuffsForHit(hit, buffs).filter((buff) => !disabledBuffIds.has(buff.id));
+  const panel = buildPanelForHit(appliedBuffs, input);
   const buffTotals = calculateBuffTotals(appliedBuffs);
   const zones = calculateHitZones(hit, input.damageBonus, buffTotals);
   const multiplier = applyMultiplierAdjustments(hit.multiplier, buffTotals);
 
-  const critRate = input.panel.critRate;
-  const critDmg = input.panel.critDmg;
+  const critRate = panel.critRate;
+  const critDmg = panel.critDmg;
   const critExpected = 1 + critRate * critDmg;
 
   return {
     hit,
     appliedBuffs,
+    panel,
     zones,
     multiplier,
     nonCrit: calculateHitDamage(
-      input.panel.atk,
+      panel.atk,
       multiplier.afterMultiply,
       1,
       zones.damageBonusRate,
@@ -153,10 +185,11 @@ function calculateSingleHit(
       zones.amplifyRate,
       zones.fragileRate,
       zones.vulnerabilityRate,
-      zones.comboDamageBonus
+      zones.comboDamageBonus,
+      zones.imbalanceDamageBonus
     ),
     crit: calculateHitDamage(
-      input.panel.atk,
+      panel.atk,
       multiplier.afterMultiply,
       1 + critDmg,
       zones.damageBonusRate,
@@ -164,10 +197,11 @@ function calculateSingleHit(
       zones.amplifyRate,
       zones.fragileRate,
       zones.vulnerabilityRate,
-      zones.comboDamageBonus
+      zones.comboDamageBonus,
+      zones.imbalanceDamageBonus
     ),
     expected: calculateHitDamage(
-      input.panel.atk,
+      panel.atk,
       multiplier.afterMultiply,
       critExpected,
       zones.damageBonusRate,
@@ -175,7 +209,8 @@ function calculateSingleHit(
       zones.amplifyRate,
       zones.fragileRate,
       zones.vulnerabilityRate,
-      zones.comboDamageBonus
+      zones.comboDamageBonus,
+      zones.imbalanceDamageBonus
     ),
   };
 }

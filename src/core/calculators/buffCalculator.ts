@@ -40,21 +40,21 @@ export interface BuffCalculationResult {
   critRateBoost: number;     // 总暴击率提升
   critDmgBonusBoost: number;  // 总暴击伤害提升
 
-  // 脆弱区（Vulnerability）
-  physicalFragile: number;   // 总物理脆弱
-  fireFragile: number;        // 总灼热脆弱
-  electricFragile: number;   // 总电磁脆弱
-  iceFragile: number;        // 总寒冷脆弱
-  natureFragile: number;      // 总自然脆弱
-  magicFragile: number;      // 总法术脆弱
-
   // 易伤区（Fragile）
-  physicalVulnerability: number;   // 总物理易伤
-  fireVulnerability: number;        // 总灼热易伤
-  electricVulnerability: number;   // 总电磁易伤
-  iceVulnerability: number;        // 总寒冷易伤
-  natureVulnerability: number;      // 总自然易伤
-  magicTakenDmgBonus: number;     // 总法术易伤
+  physicalFragile: number;   // 总物伤易伤
+  fireFragile: number;        // 总灼热易伤
+  electricFragile: number;   // 总电磁易伤
+  iceFragile: number;        // 总寒冷易伤
+  natureFragile: number;      // 总自然易伤
+  magicFragile: number;      // 总法术易伤
+
+  // 脆弱区（Vulnerability）
+  physicalVulnerability: number;   // 总物理脆弱
+  fireVulnerability: number;        // 总灼热脆弱
+  electricVulnerability: number;   // 总电磁脆弱
+  iceVulnerability: number;        // 总寒冷脆弱
+  natureVulnerability: number;      // 总自然脆弱
+  magicTakenDmgBonus: number;     // 总法术脆弱
 
   // 增幅区（Amplify）
   physicalAmplify: number;        // 总物理增幅
@@ -66,6 +66,7 @@ export interface BuffCalculationResult {
 
   // 连击区（独立区域）
   comboDamageBonus: number;        // 总连击增伤
+  imbalanceDamageBonus: number;    // 总失衡增伤
 
   // 伤害倍率区
   multiplierBonus: number;       // 总伤害倍率提升（加法）
@@ -119,14 +120,14 @@ export function calculateBuffTotals(buffs: SkillButtonBuff[]): BuffCalculationRe
     allSkillDmgBonus: 0,
     critRateBoost: 0,
     critDmgBonusBoost: 0,
-    // 脆弱区
+    // 易伤区
     physicalFragile: 0,
     fireFragile: 0,
     electricFragile: 0,
     iceFragile: 0,
     natureFragile: 0,
     magicFragile: 0,
-    // 易伤区
+    // 脆弱区
     physicalVulnerability: 0,
     fireVulnerability: 0,
     electricVulnerability: 0,
@@ -142,6 +143,7 @@ export function calculateBuffTotals(buffs: SkillButtonBuff[]): BuffCalculationRe
     natureAmplify: 0,
     // 连击区
     comboDamageBonus: 0,
+    imbalanceDamageBonus: 0,
     // 伤害倍率区
     multiplierBonus: 0,
     multiplierMultiplier: 1,  // 乘法初始为 1
@@ -193,6 +195,7 @@ export function calculateBuffTotals(buffs: SkillButtonBuff[]): BuffCalculationRe
         case 'iceAmplify': result.iceAmplify += v; break;
         case 'natureAmplify': result.natureAmplify += v; break;
         case 'comboDamageBonus': result.comboDamageBonus += v; break;
+        case 'imbalanceDmgBonus': result.imbalanceDamageBonus += v; break;
         case 'multiplierBonus': result.multiplierBonus += v; break;
         case 'multiplierMultiplier': result.multiplierMultiplier *= buff.value ?? 1; break;
         case 'sourceSkillBoost': result.sourceSkillBoost += v; break;

@@ -25,9 +25,9 @@
 
 当前代码里已经出现：
 
-- `ddd.operator-config.character-input-map.v3`
-- `ddd.operator-runtime.character-computed-map.v3`
-- `ddd.operator-ui.character-display-cache.v3`
+- `def.operator-config.character-input-map.v3`
+- `def.operator-runtime.character-computed-map.v3`
+- `def.operator-ui.character-display-cache.v3`
 
 位置：
 
@@ -37,8 +37,8 @@
 
 但主业务组件实际仍然主要在读写：
 
-- `ddd.operator-config.character-config-map.v1`
-- `ddd.operator-config.character-config-map.v2`
+- `def.operator-config.character-config-map.v1`
+- `def.operator-config.character-config-map.v2`
 
 也就是：
 
@@ -82,7 +82,7 @@
 
 ### 问题 2：`useSkillButtonBuffs` 同时支持两种写法
 
-当前同一个 key `ddd.skill-button-buffs.v1` 有两种模式：
+当前同一个 key `def.skill-button-buffs.v1` 有两种模式：
 
 1. Hook 内状态驱动写入  
 位置：
@@ -236,7 +236,7 @@
 
 key：
 
-`ddd.operator-config.character-input-map.v3`
+`def.operator-config.character-input-map.v3`
 
 ```ts
 type CharacterInputMap = {
@@ -269,7 +269,7 @@ type CharacterInputMap = {
 
 key：
 
-`ddd.operator-runtime.character-computed-map.v3`
+`def.operator-runtime.character-computed-map.v3`
 
 ```ts
 type CharacterComputedMap = {
@@ -297,7 +297,7 @@ type CharacterComputedMap = {
 
 如果一定要保留，再单独一个：
 
-`ddd.operator-ui.character-display-cache.v3`
+`def.operator-ui.character-display-cache.v3`
 
 ```ts
 type CharacterDisplayCache = {
@@ -394,3 +394,4 @@ type CharacterDisplayCache = {
 
 当前最大问题不是 value 字段多，而是“旧主结构没退场，新结构没接管”。  
 0.4.2 应该直接把迁移思路砍掉，收死写入规则，让 v3 成为唯一结构。
+

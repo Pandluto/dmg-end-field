@@ -1,6 +1,6 @@
 /**
  * Candidate Buff Repository
- * 只负责 ddd.candidate-buff-list.v1（候选 Buff 列表）的读写
+ * 只负责 def.candidate-buff-list.v1（候选 Buff 列表）的读写
  * 不依赖 React，不写业务规则
  */
 
@@ -34,3 +34,4 @@ export function setCandidateBuffList(list: CandidateBuff[]): void {
 export function clearCandidateBuffList(): void {
   safeSessionStorage.removeItem(STORAGE_KEYS.CANDIDATE_BUFF_LIST);
 }
+

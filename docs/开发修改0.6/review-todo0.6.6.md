@@ -65,7 +65,7 @@
      - `{ mode: 'skillType'; skillType: SkillType }`
      - `{ mode: 'element'; element: ElementType }`
    - 主存储：
-     - `ddd.all-buff-list.v1`
+     - `def.all-buff-list.v1`
    - 当前按钮引用：
      - `PersistedSkillButton.selectedBuff: string[]`
    - 结论：
@@ -82,7 +82,7 @@
      - `selectedBuff`
      - `panelSnapshot`
    - 主存储：
-     - `ddd.skill-button.v1`
+     - `def.skill-button.v1`
    - 结论：
      - 当前按钮身份链已可支撑重写，不要这轮改按钮存储结构
 
@@ -462,7 +462,7 @@
 - 不要改 `timelineService.ts`
 - 不要改 `SelectionPanel`
 - 不要改按钮吸附 / 复制 / 恢复位置
-- 不要把 `ddd.operator-runtime.template-map.v1` 再改回全量角色仓库
+- 不要把 `def.operator-runtime.template-map.v1` 再改回全量角色仓库
 - 不要这轮顺手重构 `OperatorConfigPanel`
 
 [验收标准 AC]
@@ -732,3 +732,4 @@
      - 示例输出
      - 手测路径
      - `npm run build` 结果
+

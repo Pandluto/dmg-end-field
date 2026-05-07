@@ -130,13 +130,13 @@ export function WorkbenchFrame() {
 
   const bottomNavControls = (
     <div className="workbench-bottom-actions">
-      <button className="workbench-top-trigger is-active" type="button">
+      <button className="workbench-top-trigger workbench-bottom-nav-button is-active" type="button">
         <span className="workbench-trigger-text">主界面</span>
       </button>
-      <button className="workbench-top-trigger" type="button" onClick={handleOpenOperatorDraft}>
+      <button className="workbench-top-trigger workbench-bottom-nav-button" type="button" onClick={handleOpenOperatorDraft}>
         <span className="workbench-trigger-text">编辑干员</span>
       </button>
-      <button className="workbench-top-trigger" type="button" onClick={handleOpenBuffDraft}>
+      <button className="workbench-top-trigger workbench-bottom-nav-button" type="button" onClick={handleOpenBuffDraft}>
         <span className="workbench-trigger-text">编辑BUFF</span>
       </button>
     </div>

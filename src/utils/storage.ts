@@ -528,6 +528,12 @@ export function setSelectedCharacterIds(characterIds: string[]): void {
 
 function normalizePersistedSkillButton(button: PersistedSkillButton): PersistedSkillButton {
   const selectedBuff = Array.isArray(button.selectedBuff) ? button.selectedBuff : [];
+  const manualDisabledBuffIdsBySegmentKey = Object.fromEntries(
+    Object.entries(button.panelConfig?.manualDisabledBuffIdsBySegmentKey ?? {}).map(([segmentKey, buffIds]) => [
+      segmentKey,
+      Array.isArray(buffIds) ? buffIds : [],
+    ])
+  );
 
   return {
     ...button,
@@ -535,7 +541,15 @@ function normalizePersistedSkillButton(button: PersistedSkillButton): PersistedS
     selectedBuff,
     panelConfig: button.panelConfig ?? {
       selectedBuff: [...selectedBuff],
+      manualDisabledBuffIdsBySegmentKey: {},
     },
+    ...(button.panelConfig ? {
+      panelConfig: {
+        ...button.panelConfig,
+        selectedBuff: Array.isArray(button.panelConfig.selectedBuff) ? button.panelConfig.selectedBuff : [...selectedBuff],
+        manualDisabledBuffIdsBySegmentKey,
+      },
+    } : {}),
     panelSnapshot: button.panelSnapshot ?? null,
   };
 }

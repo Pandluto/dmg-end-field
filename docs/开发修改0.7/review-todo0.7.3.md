@@ -14,12 +14,12 @@
 [当前结论]
 
 - 当前实现存在固定误差源，但误差源只有一处：  
-  **`OperatorConfigPanel.tsx -> panelSnapshot -> ddd.operator-runtime.character-computed-map.v3`**
+  **`OperatorConfigPanel.tsx -> panelSnapshot -> def.operator-runtime.character-computed-map.v3`**
 - 现在的主链路是：
   - `OperatorConfigPanel.tsx` 先算角色面板
   - 再把 `atk / baseAtk / critRate / critDmg / sourceSkill` 等字段先 `toFixedNumber()`
   - 写入 `panelSnapshot`
-  - `storage.ts` 再把这份 round 过的 `panelSnapshot` 写入 `ddd.operator-runtime.character-computed-map.v3`
+  - `storage.ts` 再把这份 round 过的 `panelSnapshot` 写入 `def.operator-runtime.character-computed-map.v3`
   - `SkillButton.tsx` / `buffService.ts` 再直接从这份缓存继续算伤害
 - 所以现在的问题不是“公式链中段乱 round”，而是**输入给公式的缓存已经被 round 了**。
 - 主修复点只在：
@@ -76,7 +76,7 @@
        - `weaponAllSkillDmgBonus`
      - **只保留** `infoSnapshot` 文案中的 `toFixedNumber()`，因为那是展示层。
    - 验证方式：
-     - 运行后检查 `ddd.operator-runtime.character-computed-map.v3`
+     - 运行后检查 `def.operator-runtime.character-computed-map.v3`
      - `panel.atk / panel.baseAtk / panel.sourceSkill` 不再只保留 2 位或 4 位小数
 
 2. 文件 / 函数 / 字段
@@ -105,7 +105,7 @@
      - `setCharacterConfig()`
    - 问题：
      - 这层当前是把 `panelSnapshot` 原样拆到：
-       - `ddd.operator-runtime.character-computed-map.v3`
+       - `def.operator-runtime.character-computed-map.v3`
        - `getCharacterConfig()` 的兼容结构
      - 所以这里不是误差源，但它决定了“rounded 缓存会一路向下传播”。
    - 修正要求：
@@ -115,8 +115,8 @@
        - `mergeV3ToV2()`: `computed.panel.sourceSkill -> panelSnapshot.sourceSkill`
        - `setCharacterConfig()`: `config.panelSnapshot.sourceSkill -> computed.panel.sourceSkill`
    - 验证方式：
-     - `ddd.character-config-map.v1` 兼容读取出来的 `panelSnapshot.sourceSkill`
-     - 和 `ddd.operator-runtime.character-computed-map.v3.panel.sourceSkill`
+     - `def.character-config-map.v1` 兼容读取出来的 `panelSnapshot.sourceSkill`
+     - 和 `def.operator-runtime.character-computed-map.v3.panel.sourceSkill`
      - 数值一致，不再被额外截断
 
 4. 文件 / 函数 / 调用链
@@ -148,7 +148,7 @@
 - 不要改 `buffCalculator`
 - 不要改 `skillDamageModalViewModel` 的 `formatInteger / formatPercent / formatMultiplier`
 - 不要改异常段 `anomalyDamageSegments` 的公式结构
-- 不要改 `ddd.skill-button.v1`
+- 不要改 `def.skill-button.v1`
 - 不要把 `panelSnapshot` 拆成“rawPanel + displayPanel” 两套结构，本轮不需要这种重构
 
 [验收标准 AC]
@@ -157,7 +157,7 @@
    - `panelSnapshot` 写入缓存时不再调用 `toFixedNumber()` 截断数值
    - `infoSnapshot` 文案仍保持当前显示精度
 
-2. `ddd.operator-runtime.character-computed-map.v3`
+2. `def.operator-runtime.character-computed-map.v3`
    - `panel.atk`
    - `panel.baseAtk`
    - `panel.sourceSkill`
@@ -178,7 +178,7 @@
 
 6. 本地验证（IDE 范围内）
    - 检查 sessionStorage：
-     - `ddd.operator-runtime.character-computed-map.v3`
+     - `def.operator-runtime.character-computed-map.v3`
    - 确认 `panel.sourceSkill`、`panel.atk` 等字段不是被 `toFixedNumber()` 截成展示精度
 
 [给 Trae 的执行指令]
@@ -222,5 +222,6 @@
 5. 完成后必须提交：
    - 修改文件
    - `panelSnapshot` 哪些字段不再提前 round
-   - `ddd.operator-runtime.character-computed-map.v3` 一条角色的 `panel.atk / panel.sourceSkill` 前后示例
+   - `def.operator-runtime.character-computed-map.v3` 一条角色的 `panel.atk / panel.sourceSkill` 前后示例
    - `npm run build` 结果
+

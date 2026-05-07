@@ -53,7 +53,7 @@
        - 技能区显示空态或“未找到技能模板”
        - 不要 fallback 回旧 `characterMaxData.skills`
    - 验证方式：
-     - 官方角色打开配置面板时，技能区来自 `ddd.operator-runtime.template-map.v1`
+     - 官方角色打开配置面板时，技能区来自 `def.operator-runtime.template-map.v1`
      - 本地角色打开配置面板时，也能渲染真实技能列表
      - 不再依赖 `characterMaxData.skills` 组织技能卡
 
@@ -95,7 +95,7 @@
        - 不改 `panelSnapshot`
        - 不改 `infoSnap`
        - 不改 `SkillButton` 伤害计算输入
-       - 不改 `ddd.operator-runtime.template-map.v1`
+       - 不改 `def.operator-runtime.template-map.v1`
      - 官方角色：
        - 滑块显示但只作为占位 UI
      - 本地角色：
@@ -162,7 +162,7 @@
      - 若 runtime template 缺失：
        - 明确显示“未找到运行时技能模板”
        - 不要再从 `characterMaxData.skills` 硬推
-     - 同时确认 `AppContext` 当前已在角色选择链路中为已选角色构建 `ddd.operator-runtime.template-map.v1`
+     - 同时确认 `AppContext` 当前已在角色选择链路中为已选角色构建 `def.operator-runtime.template-map.v1`
    - 验证方式：
      - 已选本地角色打开配置面板时，技能区有内容
      - 本地角色技能名、hit 数与伤害弹窗一致

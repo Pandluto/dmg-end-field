@@ -560,6 +560,10 @@
   padding: 0 12px 12px;
 }
 
+.operator-draft-share-modal {
+  width: min(560px, calc(100vw - 64px));
+}
+
 .operator-draft-confirm-modal {
   width: min(480px, calc(100vw - 64px));
 }
@@ -575,6 +579,25 @@
   font-size: 12px;
   line-height: 1.45;
   color: #425066;
+}
+
+.operator-draft-share-label {
+  display: grid;
+  gap: 6px;
+  padding: 0 12px 12px;
+}
+
+.operator-draft-share-label span {
+  font-size: 12px;
+  color: #425066;
+}
+
+.operator-draft-share-label input {
+  width: 100%;
+}
+
+.operator-draft-file-input {
+  display: none;
 }
 
 .operator-draft-danger-button {

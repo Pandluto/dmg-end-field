@@ -3,7 +3,7 @@
 ## \[任务理解]
 
 - 本轮不是继续补丁式修 `sandboxSkills`，而是把 **官方角色** 和 **本地角色** 统一到一套“运行时模板层”。
-- 目标不是替换真相源。官方真相源仍是 `public/data/characters/*.json`，本地真相源仍是 `localStorage['ddd.operator-editor.library.v1']`。
+- 目标不是替换真相源。官方真相源仍是 `public/data/characters/*.json`，本地真相源仍是 `localStorage['def.operator-editor.library.v1']`。
 - 当前主问题不是 UI 样式，而是 **软件层同时吃两套模型**：
   - 官方角色：`Character.skills.normalAttack/skill/chainSkill/ultimate`
   - 本地角色：`OperatorDraft.skills[skillKey]`
@@ -29,7 +29,7 @@
   - `buildOrderedDraft()`
 - `/draft` 页已经支持三种输入源：
   - `loadReferenceOperatorDraft()`：参考官方角色导入
-  - `ddd.operator-editor.library.v1`：本地角色导入
+  - `def.operator-editor.library.v1`：本地角色导入
   - 粘贴 JSON：`parseImportedDraft()`
 
 当前问题：
@@ -83,7 +83,7 @@
 当前事实：
 
 - 本地角色读取自：
-  - `localStorage['ddd.operator-editor.library.v1']`
+  - `localStorage['def.operator-editor.library.v1']`
 - `ImportedOperatorDraft` / `ImportedSkillDraft` 类型在这里又定义了一遍。
 - `adaptImportedDraftToCharacter()` 做了两件事：
   1. 生成旧 `Character.skills.normalAttack/skill/chainSkill/ultimate`
@@ -145,7 +145,7 @@
 - `SkillButtonData` 已新增同名字段
 - `PersistedSkillButton` 已新增同名字段
 - `useCanvasDrag` 拖拽时会把 `sandboxSkill` 的身份带到运行时按钮
-- `timelineService.addSkillButton()` 也会把这些字段写入 `ddd.skill-button.v1`
+- `timelineService.addSkillButton()` 也会把这些字段写入 `def.skill-button.v1`
 
 这是当前项目里最接近统一模板层的部分。
 
@@ -196,7 +196,7 @@
 
 错误方向：
 
-- 直接把官方角色写进 `ddd.operator-editor.library.v1`
+- 直接把官方角色写进 `def.operator-editor.library.v1`
 - 让 `loadedCharacters` 变成官方+本地混合总表
 - 直接把 `OperatorDraft` 作为全软件唯一类型，不区分编辑层和运行时层
 
@@ -206,7 +206,7 @@
 
 推荐新 key：
 
-- `ddd.operator-runtime.template-map.v1`
+- `def.operator-runtime.template-map.v1`
 
 推荐存储位置：
 
@@ -215,7 +215,7 @@
 原因：
 
 - 官方角色来自静态 JSON，每次刷新可重建，不应写死到本地长期存储
-- 本地角色来自 `ddd.operator-editor.library.v1`，才是持久真相
+- 本地角色来自 `def.operator-editor.library.v1`，才是持久真相
 - 运行时模板表只是“官方 + 本地 -> 软件统一模板”的会话级派生缓存
 
 ***
@@ -338,7 +338,7 @@ export interface RuntimeOperatorTemplate {
 修正要求：
 
 - 删除本地重复的 draft 结构定义
-- 直接读取 `ddd.operator-editor.library.v1`
+- 直接读取 `def.operator-editor.library.v1`
 - 解析成公共 `OperatorDraft`
 - 通过公共适配器生成：
   - `RuntimeOperatorTemplate`
@@ -367,7 +367,7 @@ export interface RuntimeOperatorTemplate {
 必须新增：
 
 ```ts
-RUNTIME_OPERATOR_TEMPLATE_MAP: 'ddd.operator-runtime.template-map.v1'
+RUNTIME_OPERATOR_TEMPLATE_MAP: 'def.operator-runtime.template-map.v1'
 ```
 
 并补存储函数：
@@ -485,7 +485,7 @@ dispatch({ type: 'SET_LOADED_CHARACTERS', characters })
 
 ## \[不要动]
 
-- 不要把官方角色写回 `ddd.operator-editor.library.v1`
+- 不要把官方角色写回 `def.operator-editor.library.v1`
 - 不要让 `loadedCharacters` 变成官方+本地混合表
 - 不要把 `OperatorDraftPage.tsx` 页面状态也抽成全局状态
 - 不要一口气重写 `skillButtonDamageCalculator.ts`
@@ -548,13 +548,13 @@ dispatch({ type: 'SET_LOADED_CHARACTERS', characters })
 
 - AC1：`/draft` 页与主应用共用同一套模板归一化逻辑
 - AC2：官方角色和本地角色都能生成同型 `RuntimeOperatorTemplate`
-- AC3：运行时模板表存在 `sessionStorage['ddd.operator-runtime.template-map.v1']`
+- AC3：运行时模板表存在 `sessionStorage['def.operator-runtime.template-map.v1']`
 - AC4：刷新后模板表可由真相源重建
 
 ### 官方/本地边界 AC
 
 - AC5：`loadedCharacters` 仍只表示官方角色库
-- AC6：`ddd.operator-editor.library.v1` 仍只表示本地角色库
+- AC6：`def.operator-editor.library.v1` 仍只表示本地角色库
 - AC7：官方角色数量统计不被污染
 
 ### 主链路 AC
@@ -616,4 +616,5 @@ dispatch({ type: 'SET_LOADED_CHARACTERS', characters })
    - 官方模板示例
    - 本地模板示例
    - 当前仍依赖旧 `Character` 的消费方清单
+
 

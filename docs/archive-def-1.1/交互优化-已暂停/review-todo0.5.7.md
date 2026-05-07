@@ -242,9 +242,9 @@ Trae 执行：
 - 不要改 `useBuffInteraction`。
 - 不要改 `buffService`。
 - 不要改 `timelineService`。
-- 不要改 `ddd.skill-button.v1`。
-- 不要改 `ddd.all-buff-list.v1`。
-- 不要改 `ddd.candidate-buff-list.v1`。
+- 不要改 `def.skill-button.v1`。
+- 不要改 `def.all-buff-list.v1`。
+- 不要改 `def.candidate-buff-list.v1`。
 - 不要改 timeline 保存恢复规则。
 - 不要改 0.5.2 calculator。
 - 不要改伤害公式。
@@ -294,3 +294,4 @@ Trae 必须手测：
 10. 按回归检查项手测。
 
 本轮交付标准：工作台具备统一反馈入口，关键操作不再只依赖 alert/console，且现有排轴、Buff、伤害功能不回退。
+

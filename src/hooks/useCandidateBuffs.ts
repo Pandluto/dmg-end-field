@@ -174,7 +174,7 @@ export interface UseCandidateBuffsReturn {
  * @returns 候选 Buff 状态和操作
  */
 export function useCandidateBuffs(characters: CandidateCharacterRef[]): UseCandidateBuffsReturn {
-  // 候选 Buff 列表：从 ddd.candidate-buff-list.v1 回填，避免切换后变空
+  // 候选 Buff 列表：从 def.candidate-buff-list.v1 回填，避免切换后变空
   const [buffList, setBuffList] = useState<CandidateBuff[]>(() => getCandidateBuffList());
   // 加载状态
   const [isLoading, setIsLoading] = useState(false);
@@ -322,3 +322,4 @@ export function useCandidateBuffs(characters: CandidateCharacterRef[]): UseCandi
     drawerHostRef,
   };
 }
+

@@ -1,5 +1,6 @@
 import { ELEMENT_LABELS } from './buffCalculator';
 import type {
+  AppliedBuffTagViewModel,
   FormulaViewModel,
   HitCardViewModel,
   HitDetailViewModel,
@@ -27,6 +28,14 @@ function formatHitCardLabel(displayName: string): string {
     return `${match[1]}段`;
   }
   return displayName;
+}
+
+function buildAppliedBuffTags(result: SkillDamageCalcResultV2['hits'][number]['appliedBuffs']): AppliedBuffTagViewModel[] {
+  return result.map((buff) => ({
+    id: buff.id,
+    label: buff.displayName,
+    sourceName: buff.sourceName,
+  }));
 }
 
 function buildHitCards(
@@ -64,15 +73,14 @@ function buildHitDetail(
     expectedText: activeHit.expected.final.toFixed(2),
     critText: activeHit.crit.final.toFixed(2),
     nonCritText: activeHit.nonCrit.final.toFixed(2),
-    appliedBuffTags: activeHit.appliedBuffs.map((buff) => buff.displayName),
+    appliedBuffTags: buildAppliedBuffTags(activeHit.appliedBuffs),
     showNoBuff: activeHit.appliedBuffs.length === 0,
   };
 }
 
 function buildFormula(
   result: SkillDamageCalcResultV2,
-  selectedHitIndex: number | null,
-  panel: SkillDamagePanel
+  selectedHitIndex: number | null
 ): FormulaViewModel | null {
   if (selectedHitIndex === null) {
     return null;
@@ -85,48 +93,29 @@ function buildFormula(
   return {
     title: `计算过程 - ${activeHit.hit.displayName}`,
     panelLines: [
-      `ATK: ${formatInteger(panel.atk)}`,
-      `暴击率: ${formatPercent(panel.critRate)}`,
-      `暴击伤害: ${formatPercent(panel.critDmg)}`,
-    ],
-    zoneSections: [
-      {
-        title: '【加成区】',
-        lines: [
-          `元素伤害加成 ${formatPercent(activeHit.zones.elementBonus)}`,
-          `技能伤害加成 ${formatPercent(activeHit.zones.skillBonus)}`,
-          `全伤害加成 ${formatPercent(activeHit.zones.allDamageBonus)}`,
-        ],
-        totalText: `加成区系数 = 1 + ${formatPercent(activeHit.zones.elementBonus)} + ${formatPercent(activeHit.zones.skillBonus)} + ${formatPercent(activeHit.zones.allDamageBonus)} = ${activeHit.zones.damageBonusRate.toFixed(3)}`,
-      },
-      {
-        title: '【增幅区】',
-        lines: ['法术/元素增幅'],
-        totalText: `增幅区 = ${formatPercent(activeHit.zones.amplifyRate)}`,
-      },
-      {
-        title: '【脆弱区】',
-        lines: ['脆弱效果'],
-        totalText: `脆弱区 = ${formatPercent(activeHit.zones.fragileRate)}`,
-      },
-      {
-        title: '【易伤区】',
-        lines: ['易伤效果'],
-        totalText: `易伤区 = ${formatPercent(activeHit.zones.vulnerabilityRate)}`,
-      },
-      {
-        title: '【异常区】',
-        lines: ['连击异常伤害'],
-        totalText: `异常区 = ${formatPercent(activeHit.zones.comboDamageBonus)}`,
-      },
-      {
-        title: '【防御区】',
-        lines: ['防御减免系数'],
-        totalText: `防御区 = ${activeHit.zones.defenseZone.toFixed(3)}`,
-      },
+      `ATK: ${formatInteger(activeHit.panel.atk)}`,
+      `暴击率: ${formatPercent(activeHit.panel.critRate)}`,
+      `暴击伤害: ${formatPercent(activeHit.panel.critDmg)}`,
     ],
     buffTags: activeHit.appliedBuffs.map((buff) => buff.displayName),
     showNoBuff: activeHit.appliedBuffs.length === 0,
+    baseMultiplierText: formatPercent(activeHit.multiplier.base),
+    multiplierFormulaText: `(${formatPercent(activeHit.multiplier.base)} + ${formatPercent(activeHit.multiplier.afterBonus - activeHit.multiplier.base)}) × ${(activeHit.multiplier.afterMultiply / activeHit.multiplier.afterBonus).toFixed(3)}`,
+    formulaText: `(${formatPercent(activeHit.multiplier.base)} + ${formatPercent(activeHit.multiplier.afterBonus - activeHit.multiplier.base)}) × ${(activeHit.multiplier.afterMultiply / activeHit.multiplier.afterBonus).toFixed(3)} = ${formatPercent(activeHit.multiplier.afterMultiply)}`,
+    elementBonusText: formatPercent(activeHit.zones.elementBonus),
+    skillBonusText: formatPercent(activeHit.zones.skillBonus),
+    allDamageBonusText: formatPercent(activeHit.zones.allDamageBonus),
+    damageBonusRateText: activeHit.zones.damageBonusRate.toFixed(3),
+    amplifyFormulaText: `1 + ${formatPercent(activeHit.zones.amplifyRate)} = ${(1 + activeHit.zones.amplifyRate).toFixed(3)}`,
+    fragileFormulaText: `1 + ${formatPercent(activeHit.zones.fragileRate)} = ${(1 + activeHit.zones.fragileRate).toFixed(3)}`,
+    vulnerabilityFormulaText: `1 + ${formatPercent(activeHit.zones.vulnerabilityRate)} = ${(1 + activeHit.zones.vulnerabilityRate).toFixed(3)}`,
+    comboFormulaText: `1 + ${formatPercent(activeHit.zones.comboDamageBonus)} = ${(1 + activeHit.zones.comboDamageBonus).toFixed(3)}`,
+    imbalanceFormulaText: `1 + ${formatPercent(activeHit.zones.imbalanceDamageBonus)} = ${(1 + activeHit.zones.imbalanceDamageBonus).toFixed(3)}`,
+    defenseZoneText: activeHit.zones.defenseZone.toFixed(3),
+    nonCritFormulaText: `${formatInteger(activeHit.panel.atk)} × ${formatPercent(activeHit.multiplier.afterMultiply)} × ${activeHit.zones.damageBonusRate.toFixed(3)} × ${activeHit.zones.defenseZone.toFixed(3)} × ${(1 + activeHit.zones.amplifyRate).toFixed(3)} × ${(1 + activeHit.zones.fragileRate).toFixed(3)} × ${(1 + activeHit.zones.vulnerabilityRate).toFixed(3)} × ${(1 + activeHit.zones.comboDamageBonus).toFixed(3)} × ${(1 + activeHit.zones.imbalanceDamageBonus).toFixed(3)} = ${formatInteger(activeHit.nonCrit.final)} (基础伤害 ${formatInteger(activeHit.nonCrit.base)})`,
+    expectedText: activeHit.expected.final.toFixed(0),
+    critText: activeHit.crit.final.toFixed(0),
+    nonCritText: activeHit.nonCrit.final.toFixed(0),
   };
 }
 
@@ -134,7 +123,7 @@ export function buildSkillDamageModalViewModel(
   template: ResolvedSkillDamageTemplate,
   result: SkillDamageCalcResultV2,
   selectedHitIndex: number | null,
-  panel: SkillDamagePanel
+  _panel: SkillDamagePanel
 ): SkillDamageModalViewModel {
   return {
     header: {
@@ -150,6 +139,6 @@ export function buildSkillDamageModalViewModel(
     },
     hitCards: buildHitCards(result, selectedHitIndex),
     activeHitDetail: buildHitDetail(result, selectedHitIndex),
-    activeHitFormula: buildFormula(result, selectedHitIndex, panel),
+    activeHitFormula: buildFormula(result, selectedHitIndex),
   };
 }

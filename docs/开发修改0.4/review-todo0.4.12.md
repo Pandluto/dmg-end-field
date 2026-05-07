@@ -12,9 +12,9 @@
 [Review 结论]
 - 当前实现不满足 0.4.12 的目标缓存模型。
 - 当前代码仍然是：
-  - `ddd.timeline.data.v1` 中直接嵌套 `buttons[]`
+  - `def.timeline.data.v1` 中直接嵌套 `buttons[]`
   - `buttons[]` 中直接带 `buffIds`
-  - `ddd.skill-button-buffs.v1` 中按 `buttonId -> Buff[]` 分组保存 Buff 列表
+  - `def.skill-button-buffs.v1` 中按 `buttonId -> Buff[]` 分组保存 Buff 列表
 - 这会导致：
   - `timeline.data` 仍承担了按钮实体缓存职责，不只是时间线引用职责
   - button 没有进入统一 `skill-button` 总表
@@ -74,7 +74,7 @@
 2. `skill-button` 总表
    - 一个独立 key，存放所有 button。
    - 建议 key：
-     - `ddd.skill-button.v1`
+     - `def.skill-button.v1`
    - 建议 value：
      - `Record<buttonId, PersistedSkillButton>`
    - 每个 button 子项至少包含：
@@ -91,7 +91,7 @@
 3. `buff-list` 总表
    - 一个独立 key，存放所有 buff。
    - 建议继续使用：
-     - `ddd.all-buff-list.v1`
+     - `def.all-buff-list.v1`
    - 建议 value：
      - `Record<buffId, SkillButtonBuff>`
      - 如果项目更想沿用数组结构，也必须保证每项都有稳定独立 `id`，且提供按 `id` 查询能力。
@@ -108,18 +108,18 @@
      - `condition`
 
 [三个缓存的主从结构]
-- 主结构 1：`ddd.skill-button.v1`
+- 主结构 1：`def.skill-button.v1`
   - 这是所有 button 的主真相。
   - 管 button 自身字段。
   - 管 button 的 `selectedBuff`。
   - 任何“这个按钮选中了哪些 Buff”的变更，都先写这里。
 
-- 主结构 2：`ddd.all-buff-list.v1`
+- 主结构 2：`def.all-buff-list.v1`
   - 这是所有 Buff 内容的主真相。
   - 管每个 buff 的完整字段。
   - 任何“Buff 内容本身”的变更，都先写这里。
 
-- 从结构：`ddd.timeline.data.v1`
+- 从结构：`def.timeline.data.v1`
   - 这是排轴展示和恢复用的从结构。
   - 只负责：
     - staff 下有哪些按钮
@@ -226,11 +226,11 @@
 
 7. 做一次旧缓存迁移。
    - 旧数据来源：
-     - `ddd.timeline.data.v1` 中的 `buttons[].buffIds`
-     - `ddd.skill-button-buffs.v1` 中的 `Record<buttonId, Buff[]>`
+     - `def.timeline.data.v1` 中的 `buttons[].buffIds`
+     - `def.skill-button-buffs.v1` 中的 `Record<buttonId, Buff[]>`
    - 迁移目标：
-     - 建立 `ddd.skill-button.v1` 总表
-     - 建立 `ddd.all-buff-list.v1` 总表
+     - 建立 `def.skill-button.v1` 总表
+     - 建立 `def.all-buff-list.v1` 总表
      - 每个旧 button 迁移成 `skill-button` 总表中的一个子项
      - 每个旧 buff 迁移成 `buff-list` 总表中的一个子项
      - button 子项里的 `selectedBuff` 只回填 `buffId`
@@ -239,7 +239,7 @@
    - 迁移完成后应立即回写修正结果。
 
 8. 清理旧结构。
-   - `ddd.skill-button-buffs.v1` 不应再作为主数据源。
+   - `def.skill-button-buffs.v1` 不应再作为主数据源。
    - 若暂时保留兼容读取，必须标注为迁移入口，不能继续写新数据。
    - `ALL_BUFF_LIST` 改为 Buff 总表真相，不能继续只当候选列表缓存。
 
@@ -257,7 +257,7 @@
 - AC2: 所有 button 统一保存在 `skill-button` 总表中。
 - AC3: 所有 buff 统一保存在 `buff-list` 总表中。
 - AC4: `skill-button` 总表里每个 button 子项的 `selectedBuff` 只保存 `buffId`。
-- AC5: `SkillButton` 弹窗显示 Buff 时，不再依赖 `ddd.skill-button-buffs.v1` 这种 grouped map 作为真相。
+- AC5: `SkillButton` 弹窗显示 Buff 时，不再依赖 `def.skill-button-buffs.v1` 这种 grouped map 作为真相。
 - AC6: 刷新后，按钮位置恢复正常，按钮已选 Buff 恢复正常。
 - AC7: 跨谱线移动后，按钮 `id` 不变，button 子项里的 `selectedBuff` 不丢。
 - AC8: 删除按钮时，其 `timeline` 引用、`skill-button` 总表子项、关联 Buff 数据都能按预期清理。
@@ -288,3 +288,4 @@
     4. 删除 Buff
     5. 删除按钮
     6. 旧缓存迁移
+

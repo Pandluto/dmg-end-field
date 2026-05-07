@@ -23,7 +23,7 @@
      - 删除前没有保存该 button 的 `selectedBuff`。
      - 删除后无法知道哪些 Buff 需要做引用检查。
    - 影响：
-     - 删除整个技能按钮后，`ddd.all-buff-list.v1` 会残留无引用 Buff 实体。
+     - 删除整个技能按钮后，`def.all-buff-list.v1` 会残留无引用 Buff 实体。
    - 修正要求：
      - 删除 button 前先读取 `getSkillButtonById(buttonId)`。
      - 保存旧 `selectedBuff`。
@@ -39,7 +39,7 @@
      - 当前 button 自己会让每个 Buff 被判断为仍被引用。
      - 随后才清空 `selectedBuff`，导致已无引用的 Buff 没被删除。
    - 影响：
-     - 清空按钮 Buff 后，`ddd.all-buff-list.v1` 会残留孤儿 Buff。
+     - 清空按钮 Buff 后，`def.all-buff-list.v1` 会残留孤儿 Buff。
    - 修正要求：
      - 先保存旧 `selectedBuff`。
      - 先将当前 button 的 `selectedBuff` 写回为空数组。
@@ -108,10 +108,10 @@
 - 不要把 `timelineData.buttons[].buffIds` 恢复成主真相。
 
 [验收标准 AC]
-- AC1: 删除带 Buff 的技能按钮后，`ddd.skill-button.v1` 中该 button 被删除。
-- AC2: 删除带 Buff 的技能按钮后，只有无其他 button 引用的 Buff 会从 `ddd.all-buff-list.v1` 删除。
+- AC1: 删除带 Buff 的技能按钮后，`def.skill-button.v1` 中该 button 被删除。
+- AC2: 删除带 Buff 的技能按钮后，只有无其他 button 引用的 Buff 会从 `def.all-buff-list.v1` 删除。
 - AC3: 清空按钮 Buff 后，该 button 的 `selectedBuff` 为空数组。
-- AC4: 清空按钮 Buff 后，无引用 Buff 会从 `ddd.all-buff-list.v1` 删除。
+- AC4: 清空按钮 Buff 后，无引用 Buff 会从 `def.all-buff-list.v1` 删除。
 - AC5: 添加多个 Buff 后，关闭重开弹窗，所有 Buff 仍显示。
 - AC6: 添加多个 Buff 后，`CanvasBoard` 的事件监听不会再用旧 `timelineData.buffIds` 覆盖 `selectedBuff`。
 - AC7: `npm run build` 通过。
@@ -122,7 +122,7 @@
 - 清空按钮 Buff，`selectedBuff` 为空，无引用实体被清理。
 - 删除整个按钮，该按钮及无引用 Buff 均被清理。
 - 两个按钮共享同一个 Buff 时，删除其中一个按钮不得误删仍被另一个按钮引用的 Buff。
-- 点击刷新候选 Buff 列表后，`ddd.all-buff-list.v1` 不被覆盖。
+- 点击刷新候选 Buff 列表后，`def.all-buff-list.v1` 不被覆盖。
 
 [给 Trae 的执行指令]
 - 本轮只补 3 个剩余问题，不要动已修好的添加链路。
@@ -138,3 +138,4 @@
     2. 清空 Buff
     3. 删除按钮
     4. 共享 Buff 不被误删
+
