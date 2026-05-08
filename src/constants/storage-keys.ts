@@ -14,10 +14,6 @@ export const STORAGE_KEYS = {
   CANDIDATE_BUFF_LIST: 'def.candidate-buff-list.v1',
   ANOMALY_STATE_SNAPSHOT_ARCHIVE: 'def.anomaly-state-snapshot-archive.v1',
 
-  // 废弃/迁移用（不再作为主数据源）
-  /** @deprecated 仅用于迁移，新代码不要直接使用 */
-  SKILL_BUTTON_BUFFS: 'def.skill-button-buffs.v1',
-
   // 其他存储
   SELECTED_CHARACTERS: 'def.selected-characters.v1',
   SELECTED_SKILL_BUTTON: 'def.selected-skill-button',

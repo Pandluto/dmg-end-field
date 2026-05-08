@@ -26,6 +26,8 @@ interface ToolbarProps {
   onRestore?: () => void;
   /** 分享按钮点击事件 */
   onShare?: () => void;
+  /** 表格按钮点击事件 */
+  onTable?: () => void;
   /** 计算伤害/生成报表点击事件 */
   onCalculate?: () => void;
 }
@@ -47,6 +49,7 @@ export function Toolbar({
   onSave,
   onRestore,
   onShare,
+  onTable,
   onCalculate,
 }: ToolbarProps) {
   return (
@@ -85,6 +88,7 @@ export function Toolbar({
         <button className="btn-save" onClick={onSave}>保存</button>
         <button className="btn-save" onClick={onRestore}>恢复</button>
         <button className="btn-save" onClick={onShare}>分享</button>
+        <button className="btn-save" onClick={onTable}>表格</button>
         <button className="btn-calculate" onClick={onCalculate}>计算伤害</button>
       </div>
     </div>

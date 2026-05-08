@@ -118,6 +118,12 @@ function getReconciledButtonPosition(
   };
 }
 
+function rebuildOccupiedNodes(buttons: SkillButtonData[]): number[] {
+  return [...new Set(buttons.map((button) => button.nodeIndex))]
+    .filter((nodeIndex) => Number.isFinite(nodeIndex) && nodeIndex >= 0)
+    .sort((left, right) => left - right);
+}
+
 function buildTimelineButtonsFromSkillButtonTable(
   skillButtonTable: Record<string, PersistedSkillButton>,
   nextCharacters: { name: string }[]
@@ -140,14 +146,10 @@ function buildTimelineButtonsFromSkillButtonTable(
       }))
       .sort((left, right) => left.nodeIndex - right.nodeIndex);
 
-    const occupiedNodes = [...new Set(buttons.map((button) => button.nodeIndex))]
-      .filter((nodeIndex) => Number.isFinite(nodeIndex) && nodeIndex >= 0)
-      .sort((left, right) => left - right);
-
     return {
       staffIndex: index,
       characterName: character.name,
-      occupiedNodes,
+      occupiedNodes: rebuildOccupiedNodes(buttons),
       buttons,
     };
   });
@@ -273,8 +275,7 @@ export function addSkillButton(
   staffLine.buttons = [...staffLine.buttons, newButton]
     .sort((a, b) => a.nodeIndex - b.nodeIndex);
 
-  staffLine.occupiedNodes = [...staffLine.occupiedNodes, buttonData.nodeIndex]
-    .sort((a, b) => a - b);
+  staffLine.occupiedNodes = rebuildOccupiedNodes(staffLine.buttons);
 
   return { newButton, newTimelineData };
 }
@@ -312,9 +313,7 @@ export function removeSkillButton(
 
   if (button) {
     staffLine.buttons = staffLine.buttons.filter(b => b.id !== buttonId);
-    staffLine.occupiedNodes = staffLine.occupiedNodes
-      .filter(n => n !== button.nodeIndex)
-      .sort((a, b) => a - b);
+    staffLine.occupiedNodes = rebuildOccupiedNodes(staffLine.buttons);
   }
 
   return newTimelineData;
@@ -366,8 +365,6 @@ export function updateSkillButtonPosition(
     return { updatedButton: null, newTimelineData: timelineData };
   }
 
-  const oldNodeIndex = button.nodeIndex;
-
   const updatedButton: SkillButtonData = {
     ...button,
     position: newPosition,
@@ -388,10 +385,7 @@ export function updateSkillButtonPosition(
     .map(b => b.id === buttonId ? updatedButton : b)
     .sort((a, b) => a.nodeIndex - b.nodeIndex);
 
-  newStaffLine.occupiedNodes = newStaffLine.occupiedNodes
-    .filter(n => n !== oldNodeIndex)
-    .concat(newNodeIndex)
-    .sort((a, b) => a - b);
+  newStaffLine.occupiedNodes = rebuildOccupiedNodes(newStaffLine.buttons);
 
   return { updatedButton, newTimelineData };
 }
@@ -505,14 +499,11 @@ export function moveSkillButtonToStaff(
   newFromStaffLine.buttons = newFromStaffLine.buttons
     .filter(b => b.id !== buttonId)
     .sort((a, b) => a.nodeIndex - b.nodeIndex);
-  newFromStaffLine.occupiedNodes = newFromStaffLine.occupiedNodes
-    .filter(n => n !== button.nodeIndex)
-    .sort((a, b) => a - b);
+  newFromStaffLine.occupiedNodes = rebuildOccupiedNodes(newFromStaffLine.buttons);
 
   newToStaffLine.buttons = [...newToStaffLine.buttons, movedButton]
     .sort((a, b) => a.nodeIndex - b.nodeIndex);
-  newToStaffLine.occupiedNodes = [...newToStaffLine.occupiedNodes, newNodeIndex]
-    .sort((a, b) => a - b);
+  newToStaffLine.occupiedNodes = rebuildOccupiedNodes(newToStaffLine.buttons);
 
   return { movedButton, newTimelineData };
 }
@@ -536,19 +527,6 @@ export function loadTimelineData(): TimelineData | null {
  */
 export function getStaffButtons(timelineData: TimelineData, staffIndex: number): SkillButtonData[] {
   return timelineData.staffLines[staffIndex]?.buttons || [];
-}
-
-/**
- * @deprecated 已废弃，不再执行任何操作
- * 旧方法曾用于从 timelineData 更新 buffIds，现已改为 no-op。
- */
-export function updateButtonBuffIds(
-  _staffIndex: number,
-  _buttonId: string,
-  _buffIds: string[]
-): void {
-  // no-op: 禁止从旧 timelineData.buffIds 写回 skill-button 总表
-  console.warn('[deprecated] updateButtonBuffIds 已废弃，不再执行任何操作');
 }
 
 /**

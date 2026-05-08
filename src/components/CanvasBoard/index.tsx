@@ -19,7 +19,6 @@ import {
   SkillButtonSkillOption,
 } from '../../types';
 import { resolveSkillIconUrl } from '../../utils/assetResolver';
-import { migrateOldBuffStorage } from '../../utils/migrateStorage';
 import { onSkillButtonBuffAdded, onSkillButtonBuffRemoved } from '../../core/events/buffEvents';
 import { generateId } from '../../utils/helpers';
 import { calculateNodeNumber } from '../../utils/nodeNumbering';
@@ -37,6 +36,7 @@ import {
 } from '../../core/calculators/gridSnapLayout';
 import { getSkillButtonById } from '../../core/repositories';
 import { attachExistingBuffsToButton } from '../../core/services/buffService';
+import { APP_ROUTE_PATHS, navigateToAppPath } from '../../utils/appRoute';
 import { getRuntimeOperatorTemplateById, setSelectedCharacterIds } from '../../utils/storage';
 import {
   applyTimelineSnapshotPayload,
@@ -52,14 +52,6 @@ import {
   type TimelineShareFile,
 } from '../../utils/timelineSnapshotStorage';
 import './CanvasBoard.css';
-
-/**
- * position.y 语义：
- * - timeline version < 1.1.0：恢复时原样使用缓存中的 position.y，不再追加任何补偿
- * - timeline version >= 1.1.0：恢复时不信任缓存中的 position.y，统一按 nodeIndex + lineIndex 重建标准 Y
- * - 标准 Y 的语义始终是“底座中线”
- */
-const POSITION_Y_SEMANTIC_VERSION = '1.1.0';
 
 function buildSandboxSkillsFromRuntimeTemplate(characterId: string): SandboxSkill[] {
   const template = getRuntimeOperatorTemplateById(characterId);
@@ -111,6 +103,7 @@ export function CanvasBoard({
   workbenchControl,
   bottomRightControl,
 }: CanvasBoardProps) {
+  const isCandidatePanelEnabled = false;
   const { state, dispatch } = useAppContext();
   const { currentView, selectedCharacters, canvasConfig, skillButtons } = state;
   const canvasRef = useRef<HTMLDivElement>(null);
@@ -165,8 +158,6 @@ export function CanvasBoard({
     }
     restoredSignatureRef.current = selectedCharacterSignature;
 
-    migrateOldBuffStorage();
-
     const loadedData = loadTimelineData();
     if (!loadedData) {
       dispatch({ type: 'CLEAR_SKILL_BUTTONS' });
@@ -179,7 +170,6 @@ export function CanvasBoard({
     }
 
     const restoredButtons: SkillButton[] = [];
-    const useLegacyStoredPositionY = !dataToRestore.version || dataToRestore.version < POSITION_Y_SEMANTIC_VERSION;
     dataToRestore.staffLines.forEach((staffLine) => {
       const buttons = Array.isArray(staffLine.buttons) ? staffLine.buttons : [];
       buttons.forEach((btn) => {
@@ -191,24 +181,26 @@ export function CanvasBoard({
           typeof btn.nodeIndex === 'number' && Number.isFinite(btn.nodeIndex)
             ? Math.floor(btn.nodeIndex / GRID_NODE_COUNT)
             : 0;
+        const restoredNodeIndex =
+          typeof btn.nodeIndex === 'number' && Number.isFinite(btn.nodeIndex)
+            ? btn.nodeIndex % GRID_NODE_COUNT
+            : 0;
         const restoredLineIndex = lineIndex >= 0 ? lineIndex : 0;
         const normalizedPositionY =
           getGridGroupTop(restoredGroupIndex) +
           getGridLineCenterY(restoredLineIndex) +
           SKILL_BUTTON_BASELINE_OFFSET_Y;
-        const position = useLegacyStoredPositionY
-          ? { x: btn.position.x, y: btn.position.y  }
-          : { x: btn.position.x, y: normalizedPositionY };
+        const position = { x: btn.position.x, y: normalizedPositionY };
         restoredButtons.push({
           id: btn.id,
           characterId: character?.id ?? btn.characterName,
           characterName: btn.characterName,
           skillType: btn.skillType,
           position,
-          staffIndex: btn.staffIndex,
+          staffIndex: restoredGroupIndex,
           lineIndex: lineIndex >= 0 ? lineIndex : 0,
-          nodeIndex: btn.nodeIndex,
-          nodeNumber: btn.nodeNumber,
+          nodeIndex: restoredNodeIndex,
+          nodeNumber: calculateNodeNumber(restoredNodeIndex),
           isDragging: false,
           isSelected: false,
           isFromSandbox: true,
@@ -706,6 +698,10 @@ export function CanvasBoard({
     setIsReportModalOpen(false);
   };
 
+  const handleOpenReportSheet = () => {
+    navigateToAppPath(APP_ROUTE_PATHS.damageSheet);
+  };
+
   const handleSkillButtonModalOpen = () => {
     onSkillButtonModalOpen?.();
   };
@@ -745,8 +741,8 @@ export function CanvasBoard({
           />
         </div>
 
-        <aside className={`canvas-right-zone ${isToolPanelVisible ? 'is-tool-panel' : 'is-skill-sandbox'}`}>
-          {isToolPanelVisible ? (
+        <aside className={`canvas-right-zone ${isToolPanelVisible && isCandidatePanelEnabled ? 'is-tool-panel' : 'is-skill-sandbox'}`}>
+          {isToolPanelVisible && isCandidatePanelEnabled ? (
             <ToolPanel widthPercent={100} />
           ) : (
             <SkillSandbox
@@ -768,6 +764,7 @@ export function CanvasBoard({
               onSave={handleOpenSaveSnapshotModal}
               onRestore={handleOpenSnapshotModal}
               onShare={handleOpenShareModal}
+              onTable={handleOpenReportSheet}
               onCalculate={handleOpenDamageReport}
             />
           </div>
@@ -806,6 +803,7 @@ export function CanvasBoard({
           </div>
         </div>
       )}
+
 
       {isSnapshotModalOpen && (
         <div className="timeline-snapshot-modal-overlay" onClick={handleCloseSnapshotModal}>

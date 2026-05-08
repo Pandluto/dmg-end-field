@@ -4,13 +4,20 @@
  * 不依赖 React，不写业务规则
  */
 
-import { STORAGE_KEYS } from '../../constants/storage-keys';
 import {
   CharacterInputConfig,
   CharacterComputedCache,
   CharacterDisplayCache,
 } from '../../types/storage';
-import { getStorageJson } from '../../utils/storage';
+import {
+  getCharacterComputed as readCharacterComputed,
+  getCharacterComputedMap as readCharacterComputedMap,
+  getCharacterDisplayCache as readCharacterDisplayCache,
+  getCharacterDisplayCacheMap as readCharacterDisplayCacheMap,
+  getCharacterInput as readCharacterInput,
+  getCharacterInputMap as readCharacterInputMap,
+  inflateEquipmentDefaults,
+} from '../../utils/storage';
 
 // ===== Character Input Config =====
 
@@ -18,15 +25,14 @@ import { getStorageJson } from '../../utils/storage';
  * 获取角色输入配置 Map
  */
 export function getCharacterInputMap(): Record<string, CharacterInputConfig> {
-  return getStorageJson(STORAGE_KEYS.CHARACTER_INPUT_MAP, {});
+  return readCharacterInputMap();
 }
 
 /**
  * 获取单个角色输入配置
  */
 export function getCharacterInputConfig(characterId: string): CharacterInputConfig | null {
-  const map = getCharacterInputMap();
-  return map[characterId] ?? null;
+  return readCharacterInput(characterId);
 }
 
 // ===== Character Computed Cache =====
@@ -35,15 +41,14 @@ export function getCharacterInputConfig(characterId: string): CharacterInputConf
  * 获取角色计算缓存 Map
  */
 export function getCharacterComputedMap(): Record<string, CharacterComputedCache> {
-  return getStorageJson(STORAGE_KEYS.CHARACTER_COMPUTED_MAP, {});
+  return readCharacterComputedMap();
 }
 
 /**
  * 获取单个角色计算缓存
  */
 export function getCharacterComputedCache(characterId: string): CharacterComputedCache | null {
-  const map = getCharacterComputedMap();
-  return map[characterId] ?? null;
+  return readCharacterComputed(characterId);
 }
 
 // ===== Character Display Cache =====
@@ -52,13 +57,30 @@ export function getCharacterComputedCache(characterId: string): CharacterCompute
  * 获取角色展示缓存 Map
  */
 export function getCharacterDisplayMap(): Record<string, CharacterDisplayCache> {
-  return getStorageJson(STORAGE_KEYS.CHARACTER_DISPLAY_CACHE, {});
+  return readCharacterDisplayCacheMap();
 }
 
 /**
  * 获取单个角色展示缓存
  */
 export function getCharacterDisplayCache(characterId: string): CharacterDisplayCache | null {
-  const map = getCharacterDisplayMap();
-  return map[characterId] ?? null;
+  return readCharacterDisplayCache(characterId);
+}
+
+/**
+ * 获取角色最终源石技艺强度快照。
+ * 优先使用 computed.panel.sourceSkill，缺失时回退到输入层 equipment。
+ */
+export function getCharacterSourceSkillBoostSnapshot(characterId: string): number {
+  const computed = getCharacterComputedCache(characterId);
+  if (computed?.panel.sourceSkill !== undefined) {
+    return computed.panel.sourceSkill;
+  }
+
+  const input = getCharacterInputConfig(characterId);
+  if (!input) {
+    return 0;
+  }
+
+  return inflateEquipmentDefaults(input.equipment).sourceSkillBoost ?? 0;
 }

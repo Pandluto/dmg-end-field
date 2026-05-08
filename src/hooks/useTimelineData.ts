@@ -121,16 +121,6 @@ export function useTimelineData(selectedCharacters: { name: string }[]) {
     return updatedButton;
   }, []);
 
-  /**
-   * @deprecated 已废弃，不再执行任何操作
-   * 旧方法曾用于从 timelineData 更新 buffIds，现已改为 no-op。
-   * selectedBuff 的写入只能通过新主链路：addBuffToButtonHelper / removeSkillButtonBuff / clearBuffs / removeSkillButton
-   */
-  const updateButtonBuffIds = useCallback((_staffIndex: number, _buttonId: string, _buffIds: string[]) => {
-    // no-op: 禁止从旧 timelineData.buffIds 写回 skill-button 总表
-    console.warn('[deprecated] updateButtonBuffIds 已废弃，不再执行任何操作');
-  }, []);
-
   const getStaffButtons = useCallback((staffIndex: number): SkillButtonData[] => {
     return getStaffButtonsService(timelineData, staffIndex);
   }, [timelineData]);
@@ -167,7 +157,6 @@ export function useTimelineData(selectedCharacters: { name: string }[]) {
     removeSkillButton,
     updateSkillButtonPosition,
     moveSkillButtonToStaff,
-    updateButtonBuffIds,
     updateSelectedBuffList,
     updateSkillButtonType,
     getStaffButtons,

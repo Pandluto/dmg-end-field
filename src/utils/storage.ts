@@ -4,7 +4,6 @@ import {
   CharacterComputedCache,
   CharacterDisplayCache,
   SkillButtonBuff,
-  SkillButtonBuffMap,
 } from '../types/storage';
 import type {
   PersistedSkillButton,
@@ -229,65 +228,6 @@ export function setCharacterDisplayCache(characterId: string, cache: CharacterDi
   setCharacterDisplayCacheMap(map);
 }
 
-// ----- Skill Button Buffs (旧模型 - 仅迁移用) -----
-
-/**
- * @deprecated 使用 skill-button 总表 + buff-list 总表替代
- * 仅用于迁移旧数据，新代码不要直接调用
- */
-export function getSkillButtonBuffMap(): SkillButtonBuffMap {
-  const raw = safeSessionStorage.getItem(STORAGE_KEYS.SKILL_BUTTON_BUFFS);
-  if (!raw) return {};
-  try {
-    return JSON.parse(raw) as SkillButtonBuffMap;
-  } catch {
-    return {};
-  }
-}
-
-/**
- * @deprecated 使用 skill-button 总表 + buff-list 总表替代
- * 仅用于迁移旧数据，新代码不要直接调用
- */
-export function setSkillButtonBuffMap(buffs: SkillButtonBuffMap): void {
-  safeSessionStorage.setItem(STORAGE_KEYS.SKILL_BUTTON_BUFFS, JSON.stringify(buffs));
-}
-
-/**
- * @deprecated 使用 useSkillButtonBuffs().addBuff 替代
- */
-export function addBuffToSkillButton(buttonId: string, buff: SkillButtonBuff): boolean {
-  const buttonBuffs = getSkillButtonBuffMap();
-  const currentBuffs = buttonBuffs[buttonId] || [];
-
-  if (currentBuffs.some((item) => item.displayName === buff.displayName)) {
-    return false;
-  }
-
-  buttonBuffs[buttonId] = [...currentBuffs, buff];
-  setSkillButtonBuffMap(buttonBuffs);
-  return true;
-}
-
-/**
- * @deprecated 使用 useSkillButtonBuffs().removeBuff 替代
- */
-export function removeBuffFromSkillButton(buttonId: string, buffId: string): void {
-  const buttonBuffs = getSkillButtonBuffMap();
-  if (!buttonBuffs[buttonId]) return;
-
-  buttonBuffs[buttonId] = buttonBuffs[buttonId].filter((buff) => buff.id !== buffId);
-  setSkillButtonBuffMap(buttonBuffs);
-}
-
-/**
- * @deprecated 使用 useSkillButtonBuffs().getBuffs 替代
- */
-export function getButtonBuffs(buttonId: string): SkillButtonBuff[] {
-  const buttonBuffs = getSkillButtonBuffMap();
-  return buttonBuffs[buttonId] || [];
-}
-
 // ----- Selected Skill Button -----
 
 export function setSelectedSkillButton(buttonId: string | null): void {
@@ -496,10 +436,6 @@ export function setCharacterConfigMap(map: Record<string, CharacterConfigJson>):
     setCharacterConfig(characterId, config);
   }
 }
-
-// 旧函数名别名（供 DamageTab.tsx 使用）
-export const addBuffToSkillButtonStorage = addBuffToSkillButton;
-export const removeBuffFromSkillButtonStorage = removeBuffFromSkillButton;
 
 // 通用存储函数（兼容旧代码）
 export function getStorageJson<T>(key: string, defaultValue: T): T {

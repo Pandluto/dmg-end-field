@@ -4,12 +4,12 @@
  */
 
 import { useEffect, useState } from 'react';
+import { DamageSheetPage, isDamageSheetPath } from './components/DamageSheetPage';
 import { WorkbenchFrame } from './components/WorkbenchFrame';
 import { StorageDebugPage, isStorageDebugPath } from './components/StorageDebugPage';
 import { OperatorDraftPage, isDraftPath } from './components/OperatorDraftPage';
 import { BuffDraftPage, isBuffDraftPath } from './components/BuffDraftPage';
 import { getCurrentAppPath } from './utils/appRoute';
-import { migrateLegacyStorageNamespace } from './utils/migrateStorage';
 import './styles/global.css';
 
 function App() {
@@ -19,10 +19,6 @@ function App() {
     }
     return getCurrentAppPath(window.location);
   });
-
-  useEffect(() => {
-    migrateLegacyStorageNamespace();
-  }, []);
 
   useEffect(() => {
     if (typeof window === 'undefined') {
@@ -53,6 +49,10 @@ function App() {
 
   if (isBuffDraftPath(currentPath)) {
     return <BuffDraftPage />;
+  }
+
+  if (isDamageSheetPath(currentPath)) {
+    return <DamageSheetPage />;
   }
 
   return (

@@ -3,6 +3,7 @@ export const APP_ROUTE_PATHS = {
   draft: '/draft',
   buffDraft: '/buff-draft',
   storage: '/storage',
+  damageSheet: '/sheet',
 } as const;
 
 function normalizeRoutePath(rawPath: string): string {

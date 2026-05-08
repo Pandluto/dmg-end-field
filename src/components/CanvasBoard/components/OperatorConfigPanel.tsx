@@ -902,7 +902,7 @@ export function OperatorConfigPanel({
         setIsWeaponDataLoading(true);
         setWeaponDataLoadError(null);
         const response = await fetch(
-          `/data/weapons/${encodeURIComponent(currentWeaponName)}/${encodeURIComponent(currentWeaponName)}max.json`,
+          resolvePublicPath(`data/weapons/${encodeURIComponent(currentWeaponName)}/${encodeURIComponent(currentWeaponName)}max.json`),
           { signal: controller.signal }
         );
         if (!response.ok) {
@@ -946,7 +946,7 @@ export function OperatorConfigPanel({
         setIsWeaponBuffLoading(true);
         setWeaponBuffLoadError(null);
         const response = await fetch(
-          `/data/weapons/${encodeURIComponent(currentWeaponName)}/${encodeURIComponent(currentWeaponName)}buff.json`,
+          resolvePublicPath(`data/weapons/${encodeURIComponent(currentWeaponName)}/${encodeURIComponent(currentWeaponName)}buff.json`),
           { signal: controller.signal }
         );
         if (!response.ok) {
