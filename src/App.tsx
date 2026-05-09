@@ -8,7 +8,7 @@ import { DamageSheetPage, isDamageSheetPath } from './components/DamageSheetPage
 import { WorkbenchFrame } from './components/WorkbenchFrame';
 import { StorageDebugPage, isStorageDebugPath } from './components/StorageDebugPage';
 import { OperatorDraftPage, isDraftPath } from './components/OperatorDraftPage';
-import { BuffDraftPage, isBuffDraftPath } from './components/BuffDraftPage';
+import { BuffDraftPage, BuffDraftSheetPage, isBuffDraftPath, isBuffSheetPath } from './components/BuffDraftPage';
 import { getCurrentAppPath } from './utils/appRoute';
 import './styles/global.css';
 
@@ -49,6 +49,10 @@ function App() {
 
   if (isBuffDraftPath(currentPath)) {
     return <BuffDraftPage />;
+  }
+
+  if (isBuffSheetPath(currentPath)) {
+    return <BuffDraftSheetPage />;
   }
 
   if (isDamageSheetPath(currentPath)) {

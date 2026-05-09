@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react';
+import ExcelJS from 'exceljs';
 import { pinyin } from 'pinyin-pro';
 import './OperatorDraftPage.css';
 import './BuffDraftPage.css';
@@ -12,6 +13,7 @@ import {
 } from '../utils/draftShare';
 
 const BUFF_DRAFT_PAGE_PATH = '/buff-draft';
+const BUFF_SHEET_PAGE_PATH = '/sheet-buff';
 const BUFF_DRAFT_STORAGE_KEY = 'def.buff-editor.draft.v1';
 const BUFF_LIBRARY_STORAGE_KEY = 'def.buff-editor.library.v1';
 const BUFF_LIBRARY_SHARE_TYPE = 'buff-library-share.v1';
@@ -302,6 +304,10 @@ function isBuffDraftPath(pathname: string) {
   return pathname === BUFF_DRAFT_PAGE_PATH;
 }
 
+function isBuffSheetPath(pathname: string) {
+  return pathname === BUFF_SHEET_PAGE_PATH;
+}
+
 function cloneValue<T>(value: T): T {
   return JSON.parse(JSON.stringify(value));
 }
@@ -488,6 +494,26 @@ function loadDraftFromStorage() {
   }
 }
 
+function loadLocalBuffLibrary() {
+  if (typeof window === 'undefined') {
+    return {} as Record<string, BuffDraft>;
+  }
+
+  const raw = window.localStorage.getItem(BUFF_LIBRARY_STORAGE_KEY);
+  if (!raw) {
+    return {} as Record<string, BuffDraft>;
+  }
+
+  try {
+    const parsed = JSON.parse(raw) as Record<string, Partial<BuffDraft> & { buffs?: Record<string, Partial<BuffEffectDraft>> }>;
+    return Object.fromEntries(
+      Object.entries(parsed).map(([draftId, draftValue]) => [draftId, normalizeBuffDraft(draftValue)])
+    );
+  } catch {
+    return {} as Record<string, BuffDraft>;
+  }
+}
+
 async function copyText(text: string) {
   if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
     await navigator.clipboard.writeText(text);
@@ -551,7 +577,477 @@ function renderMiniMarkdown(markdown: string): ReactNode[] {
   return nodes;
 }
 
-export { isBuffDraftPath };
+type BuffSheetRow =
+  | {
+      kind: 'group';
+      key: string;
+      title: string;
+      summary: string;
+      searchText: string;
+    }
+  | {
+      kind: 'item';
+      key: string;
+      itemKey: string;
+      title: string;
+      idText: string;
+      summary: string;
+      description: string;
+      effectCount: number;
+      searchText: string;
+    }
+  | {
+      kind: 'effect';
+      key: string;
+      itemKey: string;
+      effectKey: string;
+      title: string;
+      idText: string;
+      effectKind: string;
+      typeLabel: string;
+      valueText: string;
+      sourceName: string;
+      condition: string;
+      description: string;
+      searchText: string;
+    };
+
+type BuffExplorerDragNode =
+  | {
+      kind: 'draft';
+      draftId: string;
+    }
+  | {
+      kind: 'item';
+      draftId: string;
+      itemKey: string;
+    }
+  | {
+      kind: 'effect';
+      draftId: string;
+      itemKey: string;
+      effectKey: string;
+    };
+
+type BuffExplorerDragState = {
+  source: BuffExplorerDragNode;
+  over: BuffExplorerDragNode | null;
+  x: number;
+  y: number;
+};
+
+function buildBuffSheetRows(draft: BuffDraft): BuffSheetRow[] {
+  const rows: BuffSheetRow[] = [
+    {
+      kind: 'group',
+      key: `group-${draft.id}`,
+      title: draft.name,
+      summary: `${Object.keys(draft.items).length} 个自定义项`,
+      searchText: `${draft.name} ${draft.id} ${draft.description} ${draft.sourceName}`.toLowerCase(),
+    },
+  ];
+
+  Object.entries(draft.items).forEach(([itemKey, item]) => {
+    rows.push({
+      kind: 'item',
+      key: `item-${itemKey}`,
+      itemKey,
+      title: item.name,
+      idText: item.id,
+      summary: `${Object.keys(item.effects).length} 个效果`,
+      description: item.description || '-',
+      effectCount: Object.keys(item.effects).length,
+      searchText: `${item.name} ${item.id} ${item.description} ${item.sourceName}`.toLowerCase(),
+    });
+
+    Object.entries(item.effects).forEach(([effectKey, effect]) => {
+      rows.push({
+        kind: 'effect',
+        key: `effect-${itemKey}-${effectKey}`,
+        itemKey,
+        effectKey,
+        title: effect.displayName || effectKey,
+        idText: effect.id,
+        effectKind: getEffectKindLabel(effect.effectKind),
+        typeLabel: effect.effectKind === 'extraHit'
+          ? '额外伤害段'
+          : (effect.type ? getBuffTypeDisplayLabel(effect.type) : '暂无'),
+        valueText: effect.effectKind === 'extraHit'
+          ? `${effect.extraHitConfig?.baseMultiplier ?? DEFAULT_EXTRA_HIT_CONFIG.baseMultiplier}x`
+          : formatBuffNumericValue(effect.type, effect.value),
+        sourceName: effect.sourceName || item.sourceName || draft.sourceName,
+        condition: effect.condition || '-',
+        description: effect.description || '-',
+        searchText: [
+          effect.displayName,
+          effect.id,
+          effect.type,
+          effect.condition,
+          effect.description,
+          effect.sourceName,
+          effect.effectKind,
+        ]
+          .filter(Boolean)
+          .join(' ')
+          .toLowerCase(),
+      });
+    });
+  });
+
+  return rows;
+}
+
+function reorderRecordEntries<T>(record: Record<string, T>, sourceKey: string, targetKey: string): Record<string, T> {
+  if (sourceKey === targetKey || !record[sourceKey] || !record[targetKey]) {
+    return record;
+  }
+  const entries = Object.entries(record);
+  const sourceIndex = entries.findIndex(([key]) => key === sourceKey);
+  const targetIndex = entries.findIndex(([key]) => key === targetKey);
+  if (sourceIndex < 0 || targetIndex < 0) {
+    return record;
+  }
+  const [movedEntry] = entries.splice(sourceIndex, 1);
+  entries.splice(targetIndex, 0, movedEntry);
+  return Object.fromEntries(entries);
+}
+
+function formatBuffExplorerDragKindLabel(kind: BuffExplorerDragNode['kind']): string {
+  if (kind === 'draft') {
+    return '组';
+  }
+  if (kind === 'item') {
+    return '项';
+  }
+  return '效果';
+}
+
+function buildCollapsedDraftState(library: Record<string, BuffDraft>): Record<string, boolean> {
+  return Object.fromEntries(Object.keys(library).map((draftId) => [draftId, true]));
+}
+
+function buildCollapsedItemState(
+  library: Record<string, BuffDraft>,
+  getItemCollapseKey: (draftId: string, itemKey: string) => string,
+): Record<string, boolean> {
+  return Object.fromEntries(
+    Object.entries(library).flatMap(([draftId, draft]) => (
+      Object.keys(draft.items).map((itemKey) => [getItemCollapseKey(draftId, itemKey), true] as const)
+    )),
+  );
+}
+
+interface BuffSheetColumn {
+  key: string;
+  title: string;
+  width: number;
+  group: string;
+  align?: 'left' | 'right' | 'center';
+}
+
+interface BuffWorkbookMergeInfo {
+  master: boolean;
+  colSpan: number;
+  rowSpan: number;
+  hidden: boolean;
+}
+
+interface BuffWorkbookCellView {
+  key: string;
+  address: string;
+  value: string;
+  width: number;
+  colSpan: number;
+  rowSpan: number;
+  align: 'left' | 'right' | 'center';
+  kind: 'group' | 'header' | 'character' | 'button' | 'data';
+  sourceRowKey?: string;
+  columnKey?: string;
+}
+
+interface BuffWorkbookRowView {
+  key: string;
+  rowNumber: number;
+  kind: BuffWorkbookCellView['kind'];
+  cells: BuffWorkbookCellView[];
+  sourceRow?: BuffSheetRow;
+}
+
+function renderBuffWorkbookCellContent(cell: BuffWorkbookCellView, sourceRow?: BuffSheetRow): ReactNode {
+  if (!sourceRow) {
+    return cell.value;
+  }
+  if (cell.columnKey !== 'name') {
+    return cell.value;
+  }
+  if (sourceRow.kind === 'group') {
+    return (
+      <span className="buff-sheet-grid-title-wrap">
+        <span className="buff-sheet-grid-title-main">
+          {sourceRow.title}
+          <span className="buff-sheet-grid-title-summary">{sourceRow.summary}</span>
+        </span>
+        <span className="buff-sheet-grid-title-sub">{sourceRow.key.replace(/^group-/, '')}</span>
+      </span>
+    );
+  }
+  if (sourceRow.kind === 'item') {
+    return (
+      <span className="buff-sheet-grid-title-wrap">
+        <span className="buff-sheet-grid-title-main">{sourceRow.title}</span>
+        <span className="buff-sheet-grid-title-sub">{sourceRow.idText}</span>
+      </span>
+    );
+  }
+  return cell.value;
+}
+
+function buildBuffSheetColumns(): BuffSheetColumn[] {
+  return [
+    { key: 'name', title: '名称', width: 200, group: '索引' },
+    { key: 'idText', title: 'ID', width: 110, group: '索引' },
+    { key: 'level', title: '层级', width: 60, group: '索引', align: 'center' },
+    { key: 'effectKind', title: '效果种类', width: 90, group: '效果区', align: 'center' },
+    { key: 'typeLabel', title: '类型', width: 170, group: '效果区' },
+    { key: 'valueText', title: '数值', width: 84, group: '效果区', align: 'right' },
+    { key: 'sourceName', title: '来源', width: 110, group: '文本区' },
+    { key: 'condition', title: '条件', width: 180, group: '文本区' },
+    { key: 'description', title: '描述', width: 240, group: '文本区' },
+  ];
+}
+
+function buildBuffColumnGroups(columns: BuffSheetColumn[]): Array<{ group: string; width: number; count: number }> {
+  const groups: Array<{ group: string; width: number; count: number }> = [];
+  columns.forEach((column) => {
+    const existing = groups[groups.length - 1];
+    if (existing && existing.group === column.group) {
+      existing.width += column.width;
+      existing.count += 1;
+      return;
+    }
+    groups.push({ group: column.group, width: column.width, count: 1 });
+  });
+  return groups;
+}
+
+function registerBuffMerge(
+  mergeMap: Record<string, BuffWorkbookMergeInfo>,
+  rowStart: number,
+  colStart: number,
+  rowEnd: number,
+  colEnd: number
+): void {
+  for (let row = rowStart; row <= rowEnd; row += 1) {
+    for (let col = colStart; col <= colEnd; col += 1) {
+      mergeMap[`${row}:${col}`] = {
+        master: row === rowStart && col === colStart,
+        colSpan: colEnd - colStart + 1,
+        rowSpan: rowEnd - rowStart + 1,
+        hidden: !(row === rowStart && col === colStart),
+      };
+    }
+  }
+}
+
+function getBuffWorkbookCellText(cell: ExcelJS.Cell): string {
+  const value = cell.value;
+  if (value == null) {
+    return '';
+  }
+  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+    return String(value);
+  }
+  if (typeof value === 'object' && 'richText' in value && Array.isArray(value.richText)) {
+    return value.richText.map((item) => item.text).join('');
+  }
+  if (typeof value === 'object' && 'text' in value && typeof value.text === 'string') {
+    return value.text;
+  }
+  return String(value);
+}
+
+function mapBuffWorkbookAlignment(value: ExcelJS.Alignment['horizontal'] | undefined): BuffWorkbookCellView['align'] {
+  if (value === 'right') {
+    return 'right';
+  }
+  if (value === 'center') {
+    return 'center';
+  }
+  return 'left';
+}
+
+function buildBuffWorkbookView(rows: BuffSheetRow[], columns: BuffSheetColumn[]): BuffWorkbookRowView[] {
+  const workbook = new ExcelJS.Workbook();
+  const worksheet = workbook.addWorksheet('Sheet-Buff');
+  const mergeMap: Record<string, BuffWorkbookMergeInfo> = {};
+  const rowKinds: Record<number, BuffWorkbookCellView['kind']> = {};
+  const sheetRowsByWorksheetRow: Record<number, BuffSheetRow> = {};
+  const columnGroups = buildBuffColumnGroups(columns);
+
+  let currentColumn = 1;
+  columnGroups.forEach((group) => {
+    const startColumn = currentColumn;
+    const endColumn = startColumn + group.count - 1;
+    if (group.count > 1) {
+      worksheet.mergeCells(1, startColumn, 1, endColumn);
+      registerBuffMerge(mergeMap, 1, startColumn, 1, endColumn);
+    }
+    const cell = worksheet.getCell(1, startColumn);
+    cell.value = group.group;
+    cell.alignment = { horizontal: 'center', vertical: 'middle' };
+    cell.font = { bold: true, color: { argb: 'FF185C37' }, size: 10 };
+    cell.fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: 'FFF3F7F4' },
+    };
+    currentColumn = endColumn + 1;
+  });
+  rowKinds[1] = 'group';
+  worksheet.getRow(1).height = 22;
+
+  columns.forEach((column, index) => {
+    const cell = worksheet.getCell(2, index + 1);
+    cell.value = column.title;
+    cell.font = { bold: true, color: { argb: 'FF202124' }, size: 10 };
+    cell.alignment = {
+      horizontal: column.align === 'right' ? 'right' : column.align === 'center' ? 'center' : 'left',
+      vertical: 'middle',
+    };
+    cell.fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: 'FFFDFDFD' },
+    };
+    cell.border = {
+      top: { style: 'thin', color: { argb: 'FFD7D7D7' } },
+      bottom: { style: 'thin', color: { argb: 'FFD7D7D7' } },
+      left: { style: 'thin', color: { argb: 'FFD7D7D7' } },
+      right: { style: 'thin', color: { argb: 'FFD7D7D7' } },
+    };
+    worksheet.getColumn(index + 1).width = Math.max(3, column.width / 10);
+  });
+  rowKinds[2] = 'header';
+  worksheet.getRow(2).height = 24;
+
+  let excelRowIndex = 3;
+  rows.forEach((row) => {
+    if (row.kind === 'group') {
+      worksheet.mergeCells(excelRowIndex, 1, excelRowIndex, columns.length);
+      registerBuffMerge(mergeMap, excelRowIndex, 1, excelRowIndex, columns.length);
+      const cell = worksheet.getCell(excelRowIndex, 1);
+      cell.value = `${row.title} · ${row.summary}`;
+      cell.font = { bold: true, color: { argb: 'FF202124' }, size: 10 };
+      cell.fill = {
+        type: 'pattern',
+        pattern: 'solid',
+        fgColor: { argb: 'FFEFF4F1' },
+      };
+      cell.border = {
+        bottom: { style: 'thin', color: { argb: 'FFD7D7D7' } },
+      };
+      worksheet.getRow(excelRowIndex).height = 22;
+      rowKinds[excelRowIndex] = 'character';
+      sheetRowsByWorksheetRow[excelRowIndex] = row;
+      excelRowIndex += 1;
+      return;
+    }
+
+    if (row.kind === 'item') {
+      worksheet.mergeCells(excelRowIndex, 1, excelRowIndex, columns.length);
+      registerBuffMerge(mergeMap, excelRowIndex, 1, excelRowIndex, columns.length);
+      const cell = worksheet.getCell(excelRowIndex, 1);
+      cell.value = `${row.title} · ${row.summary} · ${row.description}`;
+      cell.font = { bold: true, color: { argb: 'FF2B2F33' }, size: 10 };
+      cell.fill = {
+        type: 'pattern',
+        pattern: 'solid',
+        fgColor: { argb: 'FFF7F9F8' },
+      };
+      cell.border = {
+        bottom: { style: 'thin', color: { argb: 'FFE1E4E8' } },
+      };
+      worksheet.getRow(excelRowIndex).height = 20;
+      rowKinds[excelRowIndex] = 'button';
+      sheetRowsByWorksheetRow[excelRowIndex] = row;
+      excelRowIndex += 1;
+      return;
+    }
+
+    const values: Record<string, string> = {
+      name: row.title,
+      idText: row.idText,
+      level: '效果',
+      effectKind: row.effectKind,
+      typeLabel: row.typeLabel,
+      valueText: row.valueText,
+      sourceName: row.sourceName,
+      condition: row.condition,
+      description: row.description,
+    };
+
+    columns.forEach((column, index) => {
+      const cell = worksheet.getCell(excelRowIndex, index + 1);
+      cell.value = values[column.key] ?? '';
+      cell.alignment = {
+        horizontal: column.align === 'right' ? 'right' : column.align === 'center' ? 'center' : 'left',
+        vertical: 'middle',
+      };
+      cell.font = { size: 10, color: { argb: 'FF202124' } };
+      cell.border = {
+        top: { style: 'thin', color: { argb: 'FFE8EAED' } },
+        bottom: { style: 'thin', color: { argb: 'FFE8EAED' } },
+        left: { style: 'thin', color: { argb: 'FFE8EAED' } },
+        right: { style: 'thin', color: { argb: 'FFE8EAED' } },
+      };
+    });
+    worksheet.getRow(excelRowIndex).height = 20;
+    rowKinds[excelRowIndex] = 'data';
+    sheetRowsByWorksheetRow[excelRowIndex] = row;
+    excelRowIndex += 1;
+  });
+
+  const result: BuffWorkbookRowView[] = [];
+  for (let rowIndex = 1; rowIndex <= worksheet.rowCount; rowIndex += 1) {
+    const rowKind = rowKinds[rowIndex] ?? 'data';
+    const cells: BuffWorkbookCellView[] = [];
+
+    for (let colIndex = 1; colIndex <= columns.length; colIndex += 1) {
+      const mergeInfo = mergeMap[`${rowIndex}:${colIndex}`];
+      if (mergeInfo?.hidden) {
+        continue;
+      }
+      const cell = worksheet.getCell(rowIndex, colIndex);
+      const width = mergeInfo?.master
+        ? columns.slice(colIndex - 1, colIndex - 1 + (mergeInfo.colSpan || 1)).reduce((sum, column) => sum + column.width, 0)
+        : columns[colIndex - 1]?.width ?? 60;
+      cells.push({
+        key: `${rowIndex}:${colIndex}`,
+        address: cell.address,
+        value: getBuffWorkbookCellText(cell),
+        width,
+        colSpan: mergeInfo?.colSpan ?? 1,
+        rowSpan: mergeInfo?.rowSpan ?? 1,
+        align: mapBuffWorkbookAlignment(cell.alignment?.horizontal),
+        kind: rowKind,
+        sourceRowKey: sheetRowsByWorksheetRow[rowIndex]?.key,
+        columnKey: columns[colIndex - 1]?.key,
+      });
+    }
+
+    result.push({
+      key: `row-${rowIndex}`,
+      rowNumber: rowIndex,
+      kind: rowKind,
+      cells,
+      sourceRow: sheetRowsByWorksheetRow[rowIndex],
+    });
+  }
+
+  return result;
+}
+
+export { isBuffDraftPath, isBuffSheetPath };
 
 export function BuffDraftPage() {
   const [draft, setDraft] = useState<BuffDraft>(() => loadDraftFromStorage());
@@ -566,6 +1062,7 @@ export function BuffDraftPage() {
   const [isOverwriteDraftModalOpen, setIsOverwriteDraftModalOpen] = useState(false);
   const [isOverwriteProtectionEnabled, setIsOverwriteProtectionEnabled] = useState(true);
   const [shareDraftName, setShareDraftName] = useState('');
+  const [effectValueInput, setEffectValueInput] = useState('');
   const [pendingImportShare, setPendingImportShare] = useState<DraftLibraryShareFile<BuffDraft> | null>(null);
   const [dragReadyTarget, setDragReadyTarget] = useState<{ kind: 'item' | 'effect'; key: string } | null>(null);
   const [dragOverTarget, setDragOverTarget] = useState<{ kind: 'item' | 'effect'; key: string } | null>(null);
@@ -611,6 +1108,14 @@ export function BuffDraftPage() {
   const selectedItem = selectedItemKey ? draft.items[selectedItemKey] : null;
   const effectEntries = selectedItem ? Object.entries(selectedItem.effects) : [];
   const selectedEffect = selectedItem && selectedEffectKey ? selectedItem.effects[selectedEffectKey] : null;
+
+  useEffect(() => {
+    if (!selectedEffect || selectedEffect.effectKind === 'extraHit') {
+      setEffectValueInput('');
+      return;
+    }
+    setEffectValueInput(String(selectedEffect.value ?? 0));
+  }, [selectedEffect?.effectKind, selectedEffect?.id, selectedEffect?.value]);
 
   const filteredBuffTypeOptions = useMemo(() => {
     const keyword = buffTypeQuery.trim().toLowerCase();
@@ -694,6 +1199,37 @@ export function BuffDraftPage() {
         ? normalizeExtraHitConfig(prev.extraHitConfig)
         : undefined,
     }));
+  };
+
+  const handleEffectValueInputChange = (nextValue: string) => {
+    setEffectValueInput(nextValue);
+    if (nextValue.trim() === '') {
+      return;
+    }
+    const parsed = Number(nextValue);
+    if (Number.isFinite(parsed)) {
+      updateSelectedEffect((prev) => ({ ...prev, value: parsed }));
+    }
+  };
+
+  const finalizeEffectValueInput = () => {
+    if (!selectedEffect || selectedEffect.effectKind === 'extraHit') {
+      setEffectValueInput('');
+      return;
+    }
+    const trimmed = effectValueInput.trim();
+    if (trimmed === '') {
+      updateSelectedEffect((prev) => ({ ...prev, value: 0 }));
+      setEffectValueInput('0');
+      return;
+    }
+    const parsed = Number(trimmed);
+    if (!Number.isFinite(parsed)) {
+      setEffectValueInput(String(selectedEffect.value ?? 0));
+      return;
+    }
+    updateSelectedEffect((prev) => ({ ...prev, value: parsed }));
+    setEffectValueInput(String(parsed));
   };
 
   const loadDraftIntoEditor = (nextDraft: BuffDraft, message: string) => {
@@ -1197,6 +1733,13 @@ export function BuffDraftPage() {
     navigateToAppPath(APP_ROUTE_PATHS.home);
   };
 
+  const handleOpenBuffSheetPage = () => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+    navigateToAppPath(APP_ROUTE_PATHS.buffSheet);
+  };
+
   return (
     <main className="operator-draft-page buff-draft-page">
       <section className="operator-draft-shell">
@@ -1217,6 +1760,9 @@ export function BuffDraftPage() {
                     </button>
                     <button type="button" className="operator-draft-ghost-button" onClick={handleOpenShareModal}>
                       分享库
+                    </button>
+                    <button type="button" className="operator-draft-ghost-button" onClick={handleOpenBuffSheetPage}>
+                      Sheet-Buff
                     </button>
                   </div>
 
@@ -1488,8 +2034,9 @@ export function BuffDraftPage() {
                         <div className="buff-draft-value-editor">
                           <input
                             type="number"
-                            value={selectedEffect.value ?? 0}
-                            onChange={(event) => updateSelectedEffect((prev) => ({ ...prev, value: Number(event.target.value) || 0 }))}
+                            value={selectedEffect.effectKind === 'extraHit' ? 0 : effectValueInput}
+                            onChange={(event) => handleEffectValueInputChange(event.target.value)}
+                            onBlur={finalizeEffectValueInput}
                             disabled={selectedEffect.effectKind === 'extraHit'}
                           />
                           <small>
@@ -1657,6 +2204,9 @@ export function BuffDraftPage() {
                   <button type="button" className="operator-draft-ghost-button" onClick={handleOpenOperatorDraftPage}>
                     编辑干员
                   </button>
+                  <button type="button" className="operator-draft-ghost-button" onClick={handleOpenBuffSheetPage}>
+                    表格化
+                  </button>
                   <button type="button" className="operator-draft-ghost-button is-active">
                     编辑BUFF
                   </button>
@@ -1775,3 +2325,1457 @@ export function BuffDraftPage() {
   );
 }
 
+export function BuffDraftSheetPage() {
+  const [draft, setDraft] = useState<BuffDraft>(() => loadDraftFromStorage());
+  const [localLibrary, setLocalLibrary] = useState<Record<string, BuffDraft>>({});
+  const [selectedLocalDraftId, setSelectedLocalDraftId] = useState('');
+  const [filterKeyword, setFilterKeyword] = useState('');
+  const [buffTypeQuery, setBuffTypeQuery] = useState('');
+  const [collapsedItems, setCollapsedItems] = useState<Record<string, boolean>>({});
+  const [collapsedDraftIds, setCollapsedDraftIds] = useState<Record<string, boolean>>({});
+  const [isOverwriteProtectionEnabled, setIsOverwriteProtectionEnabled] = useState(true);
+  const [selectedWorkbookCell, setSelectedWorkbookCell] = useState<{ address: string; value: string; sourceRowKey?: string; columnKey?: string } | null>(null);
+  const [pendingFocusRowKey, setPendingFocusRowKey] = useState<string | null>(null);
+  const [effectValueInput, setEffectValueInput] = useState('');
+  const [isShareModalOpen, setIsShareModalOpen] = useState(false);
+  const [shareModalMode, setShareModalMode] = useState<'export' | 'import'>('export');
+  const [shareImportText, setShareImportText] = useState('');
+  const [shareImportError, setShareImportError] = useState('');
+  const [pendingImportShare, setPendingImportShare] = useState<DraftLibraryShareFile<BuffDraft> | null>(null);
+  const [contextMenu, setContextMenu] = useState<{
+    x: number;
+    y: number;
+    target: 'blank' | 'draft' | 'item' | 'effect';
+    draftId?: string;
+    itemKey?: string;
+    effectKey?: string;
+  } | null>(null);
+  const [dragState, setDragState] = useState<BuffExplorerDragState | null>(null);
+  const columns = useMemo(() => buildBuffSheetColumns(), []);
+  const getItemCollapseKey = useCallback((draftId: string, itemKey: string) => `${draftId}:${itemKey}`, []);
+  const dragHoldTimerRef = useRef<number | null>(null);
+  const pendingDragSourceRef = useRef<{ source: BuffExplorerDragNode; x: number; y: number } | null>(null);
+  const suppressExplorerClickRef = useRef(false);
+  const shareImportInputRef = useRef<HTMLInputElement>(null);
+
+  const applyExplorerDefaultCollapse = useCallback((nextLibrary: Record<string, BuffDraft>) => {
+    setCollapsedDraftIds(buildCollapsedDraftState(nextLibrary));
+    setCollapsedItems(buildCollapsedItemState(nextLibrary, getItemCollapseKey));
+  }, [getItemCollapseKey]);
+
+  const refreshLocalLibrary = useCallback(() => {
+    const nextLibrary = {
+      ...loadLocalBuffLibrary(),
+      [draft.id]: normalizeBuffDraft(draft),
+    };
+    setLocalLibrary(nextLibrary);
+    applyExplorerDefaultCollapse(nextLibrary);
+    setSelectedLocalDraftId((prev) => prev || draft.id || Object.keys(nextLibrary)[0] || '');
+  }, [applyExplorerDefaultCollapse, draft]);
+
+  const handleCollapseAllDrafts = useCallback(() => {
+    applyExplorerDefaultCollapse(localLibrary);
+  }, [applyExplorerDefaultCollapse, localLibrary]);
+
+  const handleExpandAllDrafts = useCallback(() => {
+    setCollapsedDraftIds(Object.fromEntries(Object.keys(localLibrary).map((draftId) => [draftId, false])));
+  }, [localLibrary]);
+
+  const handleCollapseAllItemsInDraft = useCallback((draftId: string) => {
+    const targetDraft = localLibrary[draftId];
+    if (!targetDraft) {
+      return;
+    }
+    setCollapsedItems((prev) => ({
+      ...prev,
+      ...Object.fromEntries(Object.keys(targetDraft.items).map((itemKey) => [getItemCollapseKey(draftId, itemKey), true])),
+    }));
+  }, [getItemCollapseKey, localLibrary]);
+
+  const handleExpandAllItemsInDraft = useCallback((draftId: string) => {
+    const targetDraft = localLibrary[draftId];
+    if (!targetDraft) {
+      return;
+    }
+    setCollapsedItems((prev) => ({
+      ...prev,
+      ...Object.fromEntries(Object.keys(targetDraft.items).map((itemKey) => [getItemCollapseKey(draftId, itemKey), false])),
+    }));
+  }, [getItemCollapseKey, localLibrary]);
+
+  const downloadSheetShareFile = useCallback((shareFile: DraftLibraryShareFile<BuffDraft>) => {
+    const blob = new Blob([JSON.stringify(shareFile, null, 2)], {
+      type: 'application/json;charset=utf-8',
+    });
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = buildDraftLibraryShareFileName(shareFile.label, shareFile.exportedAt);
+    link.click();
+    window.URL.revokeObjectURL(url);
+  }, []);
+
+  const currentSheetShareFile = useMemo(() => buildDraftLibraryShareFile(
+    BUFF_LIBRARY_SHARE_TYPE,
+    loadLocalBuffLibrary(),
+    draft.name || selectedLocalDraftId || 'buff-library',
+  ), [draft.name, selectedLocalDraftId]);
+  const currentSheetShareText = useMemo(() => JSON.stringify(currentSheetShareFile, null, 2), [currentSheetShareFile]);
+
+  const openSheetShareModal = useCallback((mode: 'export' | 'import') => {
+    setShareModalMode(mode);
+    setIsShareModalOpen(true);
+    setShareImportError('');
+    if (mode === 'import') {
+      setPendingImportShare(null);
+    }
+  }, []);
+
+  const closeSheetShareModal = useCallback(() => {
+    setIsShareModalOpen(false);
+    setShareImportError('');
+    setPendingImportShare(null);
+  }, []);
+
+  const handleExportSheetLibraryShare = useCallback(() => {
+    const library = loadLocalBuffLibrary();
+    const draftCount = Object.keys(library).length;
+    if (draftCount === 0) {
+      return;
+    }
+    const shareFile = buildDraftLibraryShareFile(
+      BUFF_LIBRARY_SHARE_TYPE,
+      library,
+      draft.name || selectedLocalDraftId || 'buff-library',
+    );
+    downloadSheetShareFile(shareFile);
+  }, [downloadSheetShareFile, draft.name, selectedLocalDraftId]);
+
+  const handleOpenSheetShareImportPicker = useCallback(() => {
+    shareImportInputRef.current?.click();
+  }, []);
+
+  const prepareSheetImportShare = useCallback((rawText: string) => {
+    const parsedShare = parseDraftLibraryShareFile(rawText, BUFF_LIBRARY_SHARE_TYPE);
+    if (!parsedShare) {
+      setPendingImportShare(null);
+      setShareImportError('JSON 无效，或不是 Buff 分享文件。');
+      return;
+    }
+    const normalizedPayload = Object.fromEntries(
+      Object.entries(parsedShare.payload).flatMap(([draftId, value]) => {
+        try {
+          const normalizedDraft = parseImportedBuffDraft(JSON.stringify(value));
+          return [[draftId, normalizedDraft] as const];
+        } catch {
+          return [];
+        }
+      }),
+    ) as Record<string, BuffDraft>;
+    if (Object.keys(normalizedPayload).length === 0) {
+      setPendingImportShare(null);
+      setShareImportError('JSON 中没有可导入的有效 Buff 分组。');
+      return;
+    }
+    setShareImportError('');
+    setPendingImportShare({
+      ...parsedShare,
+      payload: normalizedPayload,
+    });
+  }, []);
+
+  const handleSheetShareFileSelected = useCallback(async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) {
+      return;
+    }
+    const rawText = await file.text();
+    setShareImportText(rawText);
+    prepareSheetImportShare(rawText);
+    event.target.value = '';
+  }, [prepareSheetImportShare]);
+
+  const handleParseSheetImportText = useCallback(() => {
+    prepareSheetImportShare(shareImportText);
+  }, [prepareSheetImportShare, shareImportText]);
+
+  const handleCopySheetShareJson = useCallback(async () => {
+    await copyText(currentSheetShareText);
+  }, [currentSheetShareText]);
+
+  const handleCancelSheetImportShare = useCallback(() => {
+    setPendingImportShare(null);
+    setShareImportError('');
+  }, []);
+
+  const handleConfirmSheetImportShare = useCallback(() => {
+    if (!pendingImportShare) {
+      return;
+    }
+    const nextLibrary = {
+      ...loadLocalBuffLibrary(),
+      ...pendingImportShare.payload,
+    };
+    window.localStorage.setItem(BUFF_LIBRARY_STORAGE_KEY, JSON.stringify(nextLibrary));
+    setLocalLibrary(nextLibrary);
+    applyExplorerDefaultCollapse(nextLibrary);
+    const nextSelectedId = selectedLocalDraftId && nextLibrary[selectedLocalDraftId]
+      ? selectedLocalDraftId
+      : (Object.keys(pendingImportShare.payload)[0] ?? Object.keys(nextLibrary)[0] ?? '');
+    if (nextSelectedId && nextLibrary[nextSelectedId]) {
+      setSelectedLocalDraftId(nextSelectedId);
+      setDraft(nextLibrary[nextSelectedId]);
+      setPendingFocusRowKey(`group-${nextSelectedId}`);
+    }
+    setPendingImportShare(null);
+    setShareImportText('');
+    setShareImportError('');
+    setIsShareModalOpen(false);
+  }, [applyExplorerDefaultCollapse, pendingImportShare, selectedLocalDraftId]);
+
+  useEffect(() => {
+    const nextLibrary = {
+      ...loadLocalBuffLibrary(),
+      [draft.id]: normalizeBuffDraft(draft),
+    };
+    setLocalLibrary(nextLibrary);
+    applyExplorerDefaultCollapse(nextLibrary);
+    setSelectedLocalDraftId((prev) => prev || draft.id || Object.keys(nextLibrary)[0] || '');
+    // Only initialize once. Subsequent draft edits must not re-collapse the explorer.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const rows = useMemo(() => buildBuffSheetRows(draft), [draft]);
+  const visibleRows = useMemo(() => {
+    const keyword = filterKeyword.trim().toLowerCase();
+    if (!keyword) {
+      return rows.filter((row) => row.kind !== 'effect' || !collapsedItems[getItemCollapseKey(draft.id, row.itemKey)]);
+    }
+
+    const matchedItemKeys = new Set<string>();
+    rows.forEach((row) => {
+      if (row.kind === 'effect' && row.searchText.includes(keyword)) {
+        matchedItemKeys.add(row.itemKey);
+      }
+    });
+
+    return rows.filter((row) => {
+      if (row.kind === 'group') {
+        return true;
+      }
+      if (row.kind === 'item') {
+        return row.searchText.includes(keyword) || matchedItemKeys.has(row.itemKey);
+      }
+      return row.searchText.includes(keyword);
+    });
+  }, [collapsedItems, draft.id, filterKeyword, getItemCollapseKey, rows]);
+  const workbookRows = useMemo(() => buildBuffWorkbookView(visibleRows, columns), [columns, visibleRows]);
+  const filteredBuffTypeOptions = useMemo(() => {
+    const keyword = buffTypeQuery.trim().toLowerCase();
+    if (!keyword) {
+      return BUFF_TYPE_OPTIONS;
+    }
+    return BUFF_TYPE_OPTIONS.filter((option) => {
+      const meta = BUFF_TYPE_LABELS[option];
+      const haystack = [option, meta.label, ...meta.keywords].join('|').toLowerCase();
+      return haystack.includes(keyword);
+    });
+  }, [buffTypeQuery]);
+
+  useEffect(() => {
+    const resolveCellByRowKey = (rowKey: string) => {
+      const matchedRow = workbookRows.find((row) => row.sourceRow?.key === rowKey);
+      return matchedRow?.cells[0] ?? null;
+    };
+
+    if (pendingFocusRowKey) {
+      const targetCell = resolveCellByRowKey(pendingFocusRowKey);
+      if (targetCell) {
+        setSelectedWorkbookCell({
+          address: targetCell.address,
+          value: targetCell.value,
+          sourceRowKey: targetCell.sourceRowKey,
+          columnKey: targetCell.columnKey,
+        });
+        setPendingFocusRowKey(null);
+        return;
+      }
+    }
+
+    const firstDataRow = workbookRows.find((row) => row.kind === 'data') ?? workbookRows[0] ?? null;
+    const firstCell = firstDataRow?.cells[0] ?? null;
+    if (!firstCell) {
+      setSelectedWorkbookCell(null);
+      return;
+    }
+    if (!selectedWorkbookCell || !workbookRows.some((row) => row.cells.some((cell) => cell.address === selectedWorkbookCell.address))) {
+      setSelectedWorkbookCell({
+        address: firstCell.address,
+        value: firstCell.value,
+        sourceRowKey: firstCell.sourceRowKey,
+        columnKey: firstCell.columnKey,
+      });
+    }
+  }, [pendingFocusRowKey, selectedWorkbookCell, workbookRows]);
+
+  const handleLoadDraftById = useCallback((draftId: string) => {
+    const nextDraft = localLibrary[draftId];
+    if (!nextDraft) {
+      return;
+    }
+    setDraft(nextDraft);
+    setSelectedLocalDraftId(draftId);
+    setCollapsedDraftIds(buildCollapsedDraftState(localLibrary));
+    setCollapsedItems(buildCollapsedItemState(localLibrary, getItemCollapseKey));
+    setFilterKeyword('');
+    setSelectedWorkbookCell(null);
+    setPendingFocusRowKey(`group-${nextDraft.id}`);
+  }, [getItemCollapseKey, localLibrary]);
+
+  const handleOpenWorkbenchPage = () => {
+    navigateToAppPath(APP_ROUTE_PATHS.home);
+  };
+
+  const handleOpenBuffEditorPage = () => {
+    navigateToAppPath(APP_ROUTE_PATHS.buffDraft);
+  };
+
+  const toggleItemCollapsed = (itemKey: string) => {
+    const collapseKey = getItemCollapseKey(draft.id, itemKey);
+    setCollapsedItems((prev) => ({ ...prev, [collapseKey]: !prev[collapseKey] }));
+  };
+
+  const toggleDraftCollapsed = (draftId: string) => {
+    setCollapsedDraftIds((prev) => ({ ...prev, [draftId]: !prev[draftId] }));
+  };
+
+  const selectedWorkbookSummary = selectedWorkbookCell?.sourceRowKey
+    ? visibleRows.find((row) => row.key === selectedWorkbookCell.sourceRowKey)
+    : null;
+  const selectedItemKey = selectedWorkbookSummary?.kind === 'item'
+    ? selectedWorkbookSummary.itemKey
+    : selectedWorkbookSummary?.kind === 'effect'
+      ? selectedWorkbookSummary.itemKey
+      : null;
+  const selectedEffectKey = selectedWorkbookSummary?.kind === 'effect'
+    ? selectedWorkbookSummary.effectKey
+    : null;
+  const selectedItem = selectedItemKey ? draft.items[selectedItemKey] ?? null : null;
+  const selectedEffect = selectedItemKey && selectedEffectKey
+    ? draft.items[selectedItemKey]?.effects[selectedEffectKey] ?? null
+    : null;
+
+  useEffect(() => {
+    if (!selectedEffect || selectedEffect.effectKind === 'extraHit') {
+      setEffectValueInput('');
+      return;
+    }
+    setEffectValueInput(String(selectedEffect.value ?? 0));
+  }, [selectedEffect?.effectKind, selectedEffect?.id, selectedEffect?.value]);
+
+  const updateDraftField = useCallback(<K extends keyof BuffDraft>(field: K, value: BuffDraft[K]) => {
+    setDraft((prev) => {
+      if (field === 'name') {
+        const nextName = String(value);
+        return {
+          ...prev,
+          name: nextName,
+          id: buildBuffDraftIdFromName(nextName) || prev.id,
+        };
+      }
+      return { ...prev, [field]: value };
+    });
+  }, []);
+
+  const updateSelectedItem = useCallback((updater: (item: BuffItemDraft) => BuffItemDraft) => {
+    if (!selectedItemKey) {
+      return;
+    }
+    setDraft((prev) => ({
+      ...prev,
+      items: {
+        ...prev.items,
+        [selectedItemKey]: updater(prev.items[selectedItemKey]),
+      },
+    }));
+  }, [selectedItemKey]);
+
+  const updateSelectedEffect = useCallback((updater: (effect: BuffEffectDraft) => BuffEffectDraft) => {
+    if (!selectedItemKey || !selectedEffectKey) {
+      return;
+    }
+    setDraft((prev) => ({
+      ...prev,
+      items: {
+        ...prev.items,
+        [selectedItemKey]: {
+          ...prev.items[selectedItemKey],
+          effects: {
+            ...prev.items[selectedItemKey].effects,
+            [selectedEffectKey]: updater(prev.items[selectedItemKey].effects[selectedEffectKey]),
+          },
+        },
+      },
+    }));
+  }, [selectedEffectKey, selectedItemKey]);
+
+  const updateSelectedEffectKind = useCallback((nextKind: BuffEffectKind) => {
+    updateSelectedEffect((prev) => ({
+      ...prev,
+      effectKind: nextKind,
+      type: nextKind === 'extraHit' ? '' : prev.type,
+      value: nextKind === 'extraHit' ? 0 : prev.value,
+      extraHitConfig: nextKind === 'extraHit'
+        ? normalizeExtraHitConfig(prev.extraHitConfig)
+        : undefined,
+    }));
+  }, [updateSelectedEffect]);
+
+  const handleEffectValueInputChange = useCallback((nextValue: string) => {
+    setEffectValueInput(nextValue);
+    if (nextValue.trim() === '') {
+      return;
+    }
+    const parsed = Number(nextValue);
+    if (Number.isFinite(parsed)) {
+      updateSelectedEffect((prev) => ({ ...prev, value: parsed }));
+    }
+  }, [updateSelectedEffect]);
+
+  const finalizeEffectValueInput = useCallback(() => {
+    if (!selectedEffect || selectedEffect.effectKind === 'extraHit') {
+      setEffectValueInput('');
+      return;
+    }
+    const trimmed = effectValueInput.trim();
+    if (trimmed === '') {
+      updateSelectedEffect((prev) => ({ ...prev, value: 0 }));
+      setEffectValueInput('0');
+      return;
+    }
+    const parsed = Number(trimmed);
+    if (!Number.isFinite(parsed)) {
+      setEffectValueInput(String(selectedEffect.value ?? 0));
+      return;
+    }
+    updateSelectedEffect((prev) => ({ ...prev, value: parsed }));
+    setEffectValueInput(String(parsed));
+  }, [effectValueInput, selectedEffect, updateSelectedEffect]);
+
+  const persistDraftToLibrary = useCallback((allowOverwrite: boolean) => {
+    const library = loadLocalBuffLibrary();
+    const existingIds = Object.keys(library);
+    const nextDraftId = draft.id.trim() || getNextDraftId(existingIds);
+    if (library[nextDraftId] && nextDraftId !== selectedLocalDraftId && !allowOverwrite) {
+      return false;
+    }
+    const nextDraft = {
+      ...draft,
+      id: nextDraftId,
+    };
+    const nextLibrary = {
+      ...library,
+      [nextDraftId]: nextDraft,
+    };
+    window.localStorage.setItem(BUFF_LIBRARY_STORAGE_KEY, JSON.stringify(nextLibrary));
+    window.localStorage.setItem(BUFF_DRAFT_STORAGE_KEY, JSON.stringify(nextDraft));
+    setDraft(nextDraft);
+    setLocalLibrary(nextLibrary);
+    setSelectedLocalDraftId(nextDraftId);
+    setPendingFocusRowKey(`group-${nextDraftId}`);
+    return true;
+  }, [draft, selectedLocalDraftId]);
+
+  const handleSaveDraft = useCallback(() => {
+    persistDraftToLibrary(!isOverwriteProtectionEnabled);
+  }, [isOverwriteProtectionEnabled, persistDraftToLibrary]);
+
+  const handleCreateNewDraft = useCallback(() => {
+    const nextDraftId = getNextDraftId(Object.keys(localLibrary));
+    const nextDraft = createEmptyBuffDraft(nextDraftId);
+    setLocalLibrary((prev) => ({
+      ...prev,
+      [nextDraftId]: nextDraft,
+    }));
+    setDraft(nextDraft);
+    setSelectedLocalDraftId(nextDraftId);
+    setCollapsedDraftIds((prev) => ({
+      ...prev,
+      [nextDraftId]: true,
+    }));
+    setSelectedWorkbookCell(null);
+    setPendingFocusRowKey(`group-${nextDraftId}`);
+  }, [localLibrary]);
+
+  const handleNormalizeDraft = useCallback(() => {
+    const nextDraft = reorderDraftStructure(cloneValue(draft));
+    setDraft(nextDraft);
+    setPendingFocusRowKey(`group-${nextDraft.id}`);
+  }, [draft]);
+
+  const persistLibraryState = useCallback((nextLibrary: Record<string, BuffDraft>, nextSelectedId?: string) => {
+    window.localStorage.setItem(BUFF_LIBRARY_STORAGE_KEY, JSON.stringify(nextLibrary));
+    setLocalLibrary(nextLibrary);
+    if (nextSelectedId) {
+      setSelectedLocalDraftId(nextSelectedId);
+      if (nextLibrary[nextSelectedId]) {
+        setDraft(nextLibrary[nextSelectedId]);
+        window.localStorage.setItem(BUFF_DRAFT_STORAGE_KEY, JSON.stringify(nextLibrary[nextSelectedId]));
+      }
+    }
+  }, []);
+
+  const handleCreateDraftItem = useCallback((draftId: string) => {
+    const targetDraft = localLibrary[draftId];
+    if (!targetDraft) {
+      return;
+    }
+    const nextItemKey = getNextItemKey(targetDraft);
+    const nextItem = createDefaultBuffItem(nextItemKey, targetDraft.sourceName || targetDraft.name);
+    const nextDraft = {
+      ...cloneValue(targetDraft),
+      items: {
+        ...cloneValue(targetDraft.items),
+        [nextItemKey]: nextItem,
+      },
+    };
+    const nextLibrary = { ...localLibrary, [draftId]: nextDraft };
+    persistLibraryState(nextLibrary, draftId);
+    setCollapsedItems((prev) => ({ ...prev, [getItemCollapseKey(draftId, nextItemKey)]: false }));
+    setPendingFocusRowKey(`item-${nextItemKey}`);
+  }, [getItemCollapseKey, localLibrary, persistLibraryState]);
+
+  const handleDuplicateDraftItem = useCallback((draftId: string, itemKey: string) => {
+    const targetDraft = localLibrary[draftId];
+    const targetItem = targetDraft?.items[itemKey];
+    if (!targetDraft || !targetItem) {
+      return;
+    }
+    const nextItemKey = getNextItemKey(targetDraft);
+    const duplicated = cloneValue(targetItem);
+    duplicated.id = nextItemKey;
+    duplicated.name = `${targetItem.name}（副本）`;
+    const nextDraft = {
+      ...cloneValue(targetDraft),
+      items: {
+        ...cloneValue(targetDraft.items),
+        [nextItemKey]: duplicated,
+      },
+    };
+    const nextLibrary = { ...localLibrary, [draftId]: nextDraft };
+    persistLibraryState(nextLibrary, draftId);
+    setPendingFocusRowKey(`item-${nextItemKey}`);
+  }, [localLibrary, persistLibraryState]);
+
+  const handleDeleteDraftItem = useCallback((draftId: string, itemKey: string) => {
+    const targetDraft = localLibrary[draftId];
+    if (!targetDraft?.items[itemKey]) {
+      return;
+    }
+    if (!window.confirm(`确认删除自定义项「${itemKey}」吗？`)) {
+      return;
+    }
+    const nextDraft = cloneValue(targetDraft);
+    delete nextDraft.items[itemKey];
+    const nextLibrary = { ...localLibrary, [draftId]: nextDraft };
+    persistLibraryState(nextLibrary, draftId);
+    const nextItemKey = Object.keys(nextDraft.items)[0] ?? null;
+    setPendingFocusRowKey(nextItemKey ? `item-${nextItemKey}` : `group-${nextDraft.id}`);
+  }, [localLibrary, persistLibraryState]);
+
+  const handleCreateDraftEffect = useCallback((draftId: string, itemKey: string) => {
+    const targetDraft = localLibrary[draftId];
+    const targetItem = targetDraft?.items[itemKey];
+    if (!targetDraft || !targetItem) {
+      return;
+    }
+    const nextEffectKey = getNextEffectKey(targetItem);
+    const nextEffect = createDefaultBuffEffect(nextEffectKey, targetItem.sourceName || targetDraft.sourceName);
+    const nextDraft = cloneValue(targetDraft);
+    nextDraft.items[itemKey].effects[nextEffectKey] = nextEffect;
+    const nextLibrary = { ...localLibrary, [draftId]: nextDraft };
+    persistLibraryState(nextLibrary, draftId);
+    setCollapsedItems((prev) => ({ ...prev, [getItemCollapseKey(draftId, itemKey)]: false }));
+    setPendingFocusRowKey(`effect-${itemKey}-${nextEffectKey}`);
+  }, [getItemCollapseKey, localLibrary, persistLibraryState]);
+
+  const handleDuplicateDraftEffect = useCallback((draftId: string, itemKey: string, effectKey: string) => {
+    const targetDraft = localLibrary[draftId];
+    const targetItem = targetDraft?.items[itemKey];
+    const targetEffect = targetItem?.effects[effectKey];
+    if (!targetDraft || !targetItem || !targetEffect) {
+      return;
+    }
+    const nextEffectKey = getNextEffectKey(targetItem);
+    const duplicated = cloneValue(targetEffect);
+    duplicated.id = nextEffectKey;
+    duplicated.displayName = `${targetEffect.displayName}（副本）`;
+    duplicated.name = `${createDefaultBuffName(nextEffectKey)}_copy`;
+    const nextDraft = cloneValue(targetDraft);
+    nextDraft.items[itemKey].effects[nextEffectKey] = duplicated;
+    const nextLibrary = { ...localLibrary, [draftId]: nextDraft };
+    persistLibraryState(nextLibrary, draftId);
+    setPendingFocusRowKey(`effect-${itemKey}-${nextEffectKey}`);
+  }, [localLibrary, persistLibraryState]);
+
+  const handleDeleteDraftEffect = useCallback((draftId: string, itemKey: string, effectKey: string) => {
+    const targetDraft = localLibrary[draftId];
+    const targetItem = targetDraft?.items[itemKey];
+    if (!targetDraft || !targetItem?.effects[effectKey]) {
+      return;
+    }
+    if (!window.confirm(`确认删除 Buff 效果「${effectKey}」吗？`)) {
+      return;
+    }
+    const nextDraft = cloneValue(targetDraft);
+    delete nextDraft.items[itemKey].effects[effectKey];
+    const nextLibrary = { ...localLibrary, [draftId]: nextDraft };
+    persistLibraryState(nextLibrary, draftId);
+    const nextEffectKey = Object.keys(nextDraft.items[itemKey].effects)[0] ?? null;
+    setPendingFocusRowKey(nextEffectKey ? `effect-${itemKey}-${nextEffectKey}` : `item-${itemKey}`);
+  }, [localLibrary, persistLibraryState]);
+
+  const handleDeleteDraftGroup = useCallback((draftId: string) => {
+    if (!localLibrary[draftId]) {
+      return;
+    }
+    if (!window.confirm(`确认删除本地组「${draftId}」吗？`)) {
+      return;
+    }
+    const nextLibrary = cloneValue(localLibrary);
+    delete nextLibrary[draftId];
+    const nextSelectedId = Object.keys(nextLibrary)[0] ?? '';
+    window.localStorage.setItem(BUFF_LIBRARY_STORAGE_KEY, JSON.stringify(nextLibrary));
+    setLocalLibrary(nextLibrary);
+    setSelectedLocalDraftId(nextSelectedId);
+    if (nextSelectedId && nextLibrary[nextSelectedId]) {
+      setDraft(nextLibrary[nextSelectedId]);
+      setPendingFocusRowKey(`group-${nextSelectedId}`);
+    } else {
+      const nextDraftId = getNextDraftId([]);
+      const nextDraft = createEmptyBuffDraft(nextDraftId);
+      setDraft(nextDraft);
+      setPendingFocusRowKey(`group-${nextDraftId}`);
+    }
+  }, [localLibrary]);
+
+  const openContextMenu = useCallback((event: ReactMouseEvent, nextMenu: NonNullable<typeof contextMenu>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    setContextMenu(nextMenu);
+  }, []);
+
+  const getExplorerDragNodeKey = useCallback((node: BuffExplorerDragNode) => {
+    if (node.kind === 'draft') {
+      return `draft:${node.draftId}`;
+    }
+    if (node.kind === 'item') {
+      return `item:${node.draftId}:${node.itemKey}`;
+    }
+    return `effect:${node.draftId}:${node.itemKey}:${node.effectKey}`;
+  }, []);
+
+  const getExplorerDragNodeLabel = useCallback((node: BuffExplorerDragNode) => {
+    const targetDraft = localLibrary[node.draftId];
+    if (!targetDraft) {
+      return node.draftId;
+    }
+    if (node.kind === 'draft') {
+      return targetDraft.name || node.draftId;
+    }
+    const targetItem = targetDraft.items[node.itemKey];
+    if (!targetItem) {
+      return node.itemKey;
+    }
+    if (node.kind === 'item') {
+      return targetItem.name || node.itemKey;
+    }
+    const targetEffect = targetItem.effects[node.effectKey];
+    return targetEffect?.displayName || node.effectKey;
+  }, [localLibrary]);
+
+  const clearPendingExplorerDrag = useCallback(() => {
+    if (dragHoldTimerRef.current !== null) {
+      window.clearTimeout(dragHoldTimerRef.current);
+      dragHoldTimerRef.current = null;
+    }
+    pendingDragSourceRef.current = null;
+  }, []);
+
+  const consumeSuppressedExplorerClick = useCallback(() => {
+    if (!suppressExplorerClickRef.current) {
+      return false;
+    }
+    suppressExplorerClickRef.current = false;
+    return true;
+  }, []);
+
+  const canStartExplorerDrag = useCallback((node: BuffExplorerDragNode) => {
+    if (filterKeyword.trim()) {
+      return false;
+    }
+    if (node.kind === 'draft') {
+      return Boolean(collapsedDraftIds[node.draftId]);
+    }
+    if (node.kind === 'item') {
+      return Boolean(collapsedItems[getItemCollapseKey(node.draftId, node.itemKey)]);
+    }
+    return true;
+  }, [collapsedDraftIds, collapsedItems, filterKeyword, getItemCollapseKey]);
+
+  const isValidExplorerDropTarget = useCallback((source: BuffExplorerDragNode, target: BuffExplorerDragNode | null) => {
+    if (!target || source.kind !== target.kind) {
+      return false;
+    }
+    if (getExplorerDragNodeKey(source) === getExplorerDragNodeKey(target)) {
+      return false;
+    }
+    if (target.kind === 'draft') {
+      return canStartExplorerDrag(source) && canStartExplorerDrag(target);
+    }
+    if (target.kind === 'item') {
+      return source.draftId === target.draftId && canStartExplorerDrag(source) && canStartExplorerDrag(target);
+    }
+    if (source.kind !== 'effect') {
+      return false;
+    }
+    return source.draftId === target.draftId && source.itemKey === target.itemKey;
+  }, [canStartExplorerDrag, getExplorerDragNodeKey]);
+
+  const resolveExplorerDragNodeFromElement = useCallback((element: Element | null): BuffExplorerDragNode | null => {
+    const row = element instanceof HTMLElement ? element.closest<HTMLElement>('[data-buff-drag-kind]') : null;
+    if (!row) {
+      return null;
+    }
+    const kind = row.dataset.buffDragKind;
+    const draftId = row.dataset.buffDraftId;
+    if (!kind || !draftId) {
+      return null;
+    }
+    if (kind === 'draft') {
+      return { kind: 'draft', draftId };
+    }
+    const itemKey = row.dataset.buffItemKey;
+    if (!itemKey) {
+      return null;
+    }
+    if (kind === 'item') {
+      return { kind: 'item', draftId, itemKey };
+    }
+    const effectKey = row.dataset.buffEffectKey;
+    if (!effectKey) {
+      return null;
+    }
+    return { kind: 'effect', draftId, itemKey, effectKey };
+  }, []);
+
+  const applyExplorerReorder = useCallback((source: BuffExplorerDragNode, target: BuffExplorerDragNode) => {
+    if (!isValidExplorerDropTarget(source, target)) {
+      return;
+    }
+
+    if (source.kind === 'draft' && target.kind === 'draft') {
+      const nextLibrary = reorderRecordEntries(localLibrary, source.draftId, target.draftId);
+      persistLibraryState(nextLibrary, selectedLocalDraftId || source.draftId);
+      setPendingFocusRowKey(`group-${source.draftId}`);
+      return;
+    }
+
+    if (source.kind === 'item' && target.kind === 'item') {
+      const targetDraft = localLibrary[source.draftId];
+      if (!targetDraft) {
+        return;
+      }
+      const nextDraft = cloneValue(targetDraft);
+      nextDraft.items = reorderRecordEntries(nextDraft.items, source.itemKey, target.itemKey);
+      const nextLibrary = { ...localLibrary, [source.draftId]: nextDraft };
+      persistLibraryState(nextLibrary, selectedLocalDraftId || source.draftId);
+      setPendingFocusRowKey(`item-${source.itemKey}`);
+      return;
+    }
+
+    if (source.kind === 'effect' && target.kind === 'effect') {
+      const targetDraft = localLibrary[source.draftId];
+      const targetItem = targetDraft?.items[source.itemKey];
+      if (!targetDraft || !targetItem) {
+        return;
+      }
+      const nextDraft = cloneValue(targetDraft);
+      nextDraft.items[source.itemKey].effects = reorderRecordEntries(
+        nextDraft.items[source.itemKey].effects,
+        source.effectKey,
+        target.effectKey,
+      );
+      const nextLibrary = { ...localLibrary, [source.draftId]: nextDraft };
+      persistLibraryState(nextLibrary, selectedLocalDraftId || source.draftId);
+      setPendingFocusRowKey(`effect-${source.itemKey}-${source.effectKey}`);
+    }
+  }, [isValidExplorerDropTarget, localLibrary, persistLibraryState, selectedLocalDraftId]);
+
+  const handleExplorerPointerDown = useCallback((event: React.PointerEvent, source: BuffExplorerDragNode) => {
+    if (event.button !== 0 || !canStartExplorerDrag(source)) {
+      return;
+    }
+    const target = event.target as HTMLElement | null;
+    if (target?.closest('.buff-sheet-explorer-toggle')) {
+      return;
+    }
+    clearPendingExplorerDrag();
+    pendingDragSourceRef.current = {
+      source,
+      x: event.clientX,
+      y: event.clientY,
+    };
+    dragHoldTimerRef.current = window.setTimeout(() => {
+      suppressExplorerClickRef.current = true;
+      setContextMenu(null);
+      setDragState({ source, over: null, x: event.clientX, y: event.clientY });
+      pendingDragSourceRef.current = null;
+      dragHoldTimerRef.current = null;
+    }, 220);
+  }, [canStartExplorerDrag, clearPendingExplorerDrag]);
+
+  useEffect(() => {
+    if (!contextMenu) {
+      return undefined;
+    }
+    const handlePointerDown = () => setContextMenu(null);
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setContextMenu(null);
+      }
+    };
+    window.addEventListener('pointerdown', handlePointerDown);
+    window.addEventListener('keydown', handleEscape);
+    window.addEventListener('scroll', handlePointerDown, true);
+    return () => {
+      window.removeEventListener('pointerdown', handlePointerDown);
+      window.removeEventListener('keydown', handleEscape);
+      window.removeEventListener('scroll', handlePointerDown, true);
+    };
+  }, [contextMenu]);
+
+  useEffect(() => {
+    const handlePointerMove = (event: PointerEvent) => {
+      const pending = pendingDragSourceRef.current;
+      if (pending) {
+        const distance = Math.hypot(event.clientX - pending.x, event.clientY - pending.y);
+        if (distance > 6) {
+          clearPendingExplorerDrag();
+        }
+      }
+      if (!dragState) {
+        return;
+      }
+      event.preventDefault();
+      const hoveredNode = resolveExplorerDragNodeFromElement(document.elementFromPoint(event.clientX, event.clientY));
+      setDragState((prev) => {
+        if (!prev) {
+          return prev;
+        }
+        const nextOver = isValidExplorerDropTarget(prev.source, hoveredNode) ? hoveredNode : null;
+        const previousOverKey = prev.over ? getExplorerDragNodeKey(prev.over) : '';
+        const nextOverKey = nextOver ? getExplorerDragNodeKey(nextOver) : '';
+        if (previousOverKey === nextOverKey && prev.x === event.clientX && prev.y === event.clientY) {
+          return prev;
+        }
+        return {
+          ...prev,
+          over: nextOver,
+          x: event.clientX,
+          y: event.clientY,
+        };
+      });
+    };
+
+    const finalizeDrag = () => {
+      clearPendingExplorerDrag();
+      setDragState((prev) => {
+        if (prev?.over) {
+          applyExplorerReorder(prev.source, prev.over);
+        }
+        return null;
+      });
+    };
+
+    window.addEventListener('pointermove', handlePointerMove, true);
+    window.addEventListener('pointerup', finalizeDrag, true);
+    window.addEventListener('pointercancel', finalizeDrag, true);
+    window.addEventListener('blur', finalizeDrag);
+    return () => {
+      window.removeEventListener('pointermove', handlePointerMove, true);
+      window.removeEventListener('pointerup', finalizeDrag, true);
+      window.removeEventListener('pointercancel', finalizeDrag, true);
+      window.removeEventListener('blur', finalizeDrag);
+    };
+  }, [applyExplorerReorder, clearPendingExplorerDrag, dragState, getExplorerDragNodeKey, isValidExplorerDropTarget, resolveExplorerDragNodeFromElement]);
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      const isSaveShortcut = (event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 's';
+      if (!isSaveShortcut) {
+        return;
+      }
+      event.preventDefault();
+      handleSaveDraft();
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [handleSaveDraft]);
+
+  const renderFormulaEditor = () => {
+    if (!selectedWorkbookSummary) {
+      return <div className="damage-sheet-formula-value">{draft.description || 'Sheet-Buff workbook'}</div>;
+    }
+
+    if (selectedWorkbookSummary.kind === 'group') {
+      if (selectedWorkbookCell?.columnKey === 'idText') {
+        return <input className="buff-sheet-formula-input" value={draft.id} onChange={(event) => updateDraftField('id', event.target.value)} placeholder="组 ID" />;
+      }
+      if (selectedWorkbookCell?.columnKey === 'description') {
+        return <input className="buff-sheet-formula-input" value={draft.description} onChange={(event) => updateDraftField('description', event.target.value)} placeholder="组描述" />;
+      }
+      return <input className="buff-sheet-formula-input" value={draft.name} onChange={(event) => updateDraftField('name', event.target.value)} placeholder="组名称" />;
+    }
+
+    if (selectedWorkbookSummary.kind === 'item' && selectedItem) {
+      if (selectedWorkbookCell?.columnKey === 'idText') {
+        return <input className="buff-sheet-formula-input" value={selectedItem.id} onChange={(event) => updateSelectedItem((prev) => ({ ...prev, id: event.target.value }))} placeholder="项 ID" />;
+      }
+      if (selectedWorkbookCell?.columnKey === 'description') {
+        return <input className="buff-sheet-formula-input" value={selectedItem.description} onChange={(event) => updateSelectedItem((prev) => ({ ...prev, description: event.target.value }))} placeholder="项描述" />;
+      }
+      return <input className="buff-sheet-formula-input" value={selectedItem.name} onChange={(event) => updateSelectedItem((prev) => ({ ...prev, name: event.target.value }))} placeholder="项名称" />;
+    }
+
+    if (selectedWorkbookSummary.kind === 'effect' && selectedEffect) {
+      switch (selectedWorkbookCell?.columnKey) {
+        case 'idText':
+          return <div className="damage-sheet-formula-value">{selectedEffect.id}</div>;
+        case 'effectKind':
+          return (
+            <select className="buff-sheet-formula-input is-select" value={selectedEffect.effectKind || 'modifier'} onChange={(event) => updateSelectedEffectKind(event.target.value as BuffEffectKind)}>
+              {BUFF_EFFECT_KIND_OPTIONS.map((option) => (
+                <option key={option} value={option}>{getEffectKindLabel(option)}</option>
+              ))}
+            </select>
+          );
+        case 'typeLabel':
+          return (
+            <div className="buff-sheet-formula-type-editor">
+              <input
+                className="buff-sheet-formula-input buff-sheet-formula-type-search"
+                value={buffTypeQuery}
+                onChange={(event) => setBuffTypeQuery(event.target.value)}
+                placeholder="搜索类型：法术 / 异伤 / 倍率 / 源石技艺"
+                disabled={selectedEffect.effectKind === 'extraHit'}
+              />
+              <select
+                className="buff-sheet-formula-input is-select buff-sheet-formula-type-select"
+                value={selectedEffect.type || ''}
+                onChange={(event) => updateSelectedEffect((prev) => ({ ...prev, type: event.target.value }))}
+                disabled={selectedEffect.effectKind === 'extraHit'}
+              >
+                <option value="">暂无类型</option>
+                {filteredBuffTypeOptions.map((option) => (
+                  <option key={option} value={option}>{getBuffTypeDisplayLabel(option)}</option>
+                ))}
+              </select>
+            </div>
+          );
+        case 'valueText':
+          return (
+            <input
+              className="buff-sheet-formula-input"
+              type="number"
+              value={selectedEffect.effectKind === 'extraHit' ? 0 : effectValueInput}
+              onChange={(event) => handleEffectValueInputChange(event.target.value)}
+              onBlur={finalizeEffectValueInput}
+              disabled={selectedEffect.effectKind === 'extraHit'}
+              placeholder="数值"
+            />
+          );
+        case 'condition':
+          return <input className="buff-sheet-formula-input" value={selectedEffect.condition || ''} onChange={(event) => updateSelectedEffect((prev) => ({ ...prev, condition: event.target.value }))} placeholder="条件" />;
+        case 'description':
+          return <input className="buff-sheet-formula-input" value={selectedEffect.description || ''} onChange={(event) => updateSelectedEffect((prev) => ({ ...prev, description: event.target.value }))} placeholder="描述" />;
+        default:
+          return <input className="buff-sheet-formula-input" value={selectedEffect.displayName} onChange={(event) => updateSelectedEffect((prev) => ({ ...prev, displayName: event.target.value }))} placeholder="效果名称" />;
+      }
+    }
+
+    return <div className="damage-sheet-formula-value">{draft.description || 'Sheet-Buff workbook'}</div>;
+  };
+
+  const dragSourceKey = dragState ? getExplorerDragNodeKey(dragState.source) : '';
+  const dragTargetKey = dragState?.over ? getExplorerDragNodeKey(dragState.over) : '';
+  const dragSourceLabel = dragState ? getExplorerDragNodeLabel(dragState.source) : '';
+  const dragTargetLabel = dragState?.over ? getExplorerDragNodeLabel(dragState.over) : '';
+  const dragTargetKindLabel = dragState?.over ? formatBuffExplorerDragKindLabel(dragState.over.kind) : '';
+
+  return (
+    <main className="damage-sheet-page buff-sheet-page">
+      <header className="damage-sheet-topbar">
+        <div className="damage-sheet-topbar-left">
+          <button type="button" className="damage-sheet-back-button" onClick={handleOpenWorkbenchPage}>
+            返回主界面
+          </button>
+          <div className="damage-sheet-title-block">
+            <h1>Sheet-Buff</h1>
+            <p>沿用表格工作表框架，把 Buff 组、自定义项、效果三层平铺到同一张表里。</p>
+          </div>
+        </div>
+        <div className="damage-sheet-topbar-right">
+          <button type="button" className="damage-sheet-action-button" onClick={handleOpenBuffEditorPage}>
+            返回编辑器
+          </button>
+          <button type="button" className="damage-sheet-action-button" onClick={refreshLocalLibrary}>
+            刷新本地库
+          </button>
+        </div>
+      </header>
+
+      <section className="damage-sheet-ribbon buff-sheet-ribbon">
+        <div className="buff-sheet-ribbon-actions">
+          <button type="button" className="buff-sheet-tool-button" onClick={handleCreateNewDraft} title="新建组">
+            <span className="buff-sheet-tool-icon" aria-hidden="true">
+              <svg className="buff-sheet-tool-svg" viewBox="0 0 16 16" focusable="false">
+                <path d="M8 3.25v9.5M3.25 8h9.5" />
+              </svg>
+            </span>
+            <span className="buff-sheet-tool-text">新建</span>
+          </button>
+          <button type="button" className="buff-sheet-tool-button" onClick={handleSaveDraft} title="保存当前组">
+            <span className="buff-sheet-tool-icon" aria-hidden="true">
+              <svg className="buff-sheet-tool-svg" viewBox="0 0 16 16" focusable="false">
+                <path d="M3.25 2.75h7.5l2.25 2.25v8.25H3.25z" />
+                <path d="M5.25 2.75v3.5h4.5v-3.5M5.25 10.25h5.5" />
+              </svg>
+            </span>
+            <span className="buff-sheet-tool-text">保存</span>
+          </button>
+          <button type="button" className="buff-sheet-tool-button" onClick={handleNormalizeDraft} title="整理项与效果顺序">
+            <span className="buff-sheet-tool-icon" aria-hidden="true">
+              <svg className="buff-sheet-tool-svg" viewBox="0 0 16 16" focusable="false">
+                <path d="M4 4.5h7.5M4 8h5.5M4 11.5h7.5" />
+                <path d="M11 3.25l1.75 1.25L11 5.75" />
+              </svg>
+            </span>
+            <span className="buff-sheet-tool-text">整理</span>
+          </button>
+          <button
+            type="button"
+            className={`buff-sheet-tool-button${isOverwriteProtectionEnabled ? ' is-active' : ''}`}
+            onClick={() => setIsOverwriteProtectionEnabled((prev) => !prev)}
+            title="切换覆盖保护"
+          >
+            <span className="buff-sheet-tool-icon" aria-hidden="true">
+              <svg className="buff-sheet-tool-svg" viewBox="0 0 16 16" focusable="false">
+                <path d="M8 2.5l4 1.5v3.25c0 2.5-1.5 4.75-4 6.25-2.5-1.5-4-3.75-4-6.25V4z" />
+                <path d="M6.25 8.25L7.4 9.4l2.35-2.55" />
+              </svg>
+            </span>
+            <span className="buff-sheet-tool-text">{isOverwriteProtectionEnabled ? '保护开' : '保护关'}</span>
+          </button>
+          <button type="button" className="buff-sheet-tool-button" onClick={() => openSheetShareModal('export')} title="导出本地 Buff 库">
+            <span className="buff-sheet-tool-icon" aria-hidden="true">
+              <svg className="buff-sheet-tool-svg" viewBox="0 0 16 16" focusable="false">
+                <path d="M8 3v6.5" />
+                <path d="M5.75 7.25L8 9.5l2.25-2.25" />
+                <path d="M3.5 11.75h9" />
+              </svg>
+            </span>
+            <span className="buff-sheet-tool-text">导出</span>
+          </button>
+          <button type="button" className="buff-sheet-tool-button" onClick={() => openSheetShareModal('import')} title="导入 Buff 分享">
+            <span className="buff-sheet-tool-icon" aria-hidden="true">
+              <svg className="buff-sheet-tool-svg" viewBox="0 0 16 16" focusable="false">
+                <path d="M8 13V6.5" />
+                <path d="M5.75 8.75L8 6.5l2.25 2.25" />
+                <path d="M3.5 3.25h9" />
+              </svg>
+            </span>
+            <span className="buff-sheet-tool-text">导入</span>
+          </button>
+        </div>
+        <div className="damage-sheet-formula-bar">
+          <span className="damage-sheet-formula-address">{selectedWorkbookCell?.address ?? '-'}</span>
+          <span className="damage-sheet-formula-label">fx</span>
+          {renderFormulaEditor()}
+        </div>
+      </section>
+
+      <main className="damage-sheet-workspace">
+        <aside className="damage-sheet-sidebar buff-sheet-explorer" onContextMenu={(event) => openContextMenu(event, {
+          x: event.clientX,
+          y: event.clientY,
+          target: 'blank',
+        })}>
+          <div className="damage-sheet-sidebar-title">资源管理器</div>
+          <input
+            className="buff-sheet-search-input"
+            value={filterKeyword}
+            onChange={(event) => setFilterKeyword(event.target.value)}
+            placeholder="搜索组 / 项 / 效果"
+          />
+          <input
+            ref={shareImportInputRef}
+            type="file"
+            accept=".json,application/json"
+            className="operator-draft-file-input"
+            onChange={handleSheetShareFileSelected}
+          />
+          <div className="buff-sheet-explorer-tree">
+            {Object.entries(localLibrary).map(([draftId, draftValue]) => {
+              const isCollapsed = collapsedDraftIds[draftId];
+              const itemEntries = Object.entries(draftValue.items);
+              const draftDragNode: BuffExplorerDragNode = { kind: 'draft', draftId };
+              return (
+                <div key={draftId} className="buff-sheet-explorer-node">
+                  <button
+                    type="button"
+                    className={`buff-sheet-explorer-row${selectedLocalDraftId === draftId ? ' is-active' : ''}${dragSourceKey === getExplorerDragNodeKey(draftDragNode) ? ' is-drag-source' : ''}${dragTargetKey === getExplorerDragNodeKey(draftDragNode) ? ' is-drag-target' : ''}${canStartExplorerDrag(draftDragNode) ? ' is-draggable' : ''}`}
+                    data-buff-drag-kind="draft"
+                    data-buff-draft-id={draftId}
+                    onPointerDown={(event) => handleExplorerPointerDown(event, draftDragNode)}
+                    onClick={() => {
+                      if (consumeSuppressedExplorerClick()) {
+                        return;
+                      }
+                      handleLoadDraftById(draftId);
+                    }}
+                    onContextMenu={(event) => openContextMenu(event, {
+                      x: event.clientX,
+                      y: event.clientY,
+                      target: 'draft',
+                      draftId,
+                    })}
+                  >
+                    <span
+                      className="damage-sheet-row-toggle buff-sheet-explorer-toggle"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        toggleDraftCollapsed(draftId);
+                      }}
+                    >
+                      {isCollapsed ? '[+]' : '[-]'}
+                    </span>
+                    <span className="buff-sheet-explorer-label">{draftValue.name}</span>
+                  </button>
+                  {!isCollapsed ? (
+                    <div className="buff-sheet-explorer-children">
+                      {itemEntries.map(([itemKey, item]) => {
+                        const itemDragNode: BuffExplorerDragNode = { kind: 'item', draftId, itemKey };
+                        return (
+                        <div key={itemKey} className="buff-sheet-explorer-node">
+                          <button
+                            type="button"
+                            className={`buff-sheet-explorer-child${dragSourceKey === getExplorerDragNodeKey(itemDragNode) ? ' is-drag-source' : ''}${dragTargetKey === getExplorerDragNodeKey(itemDragNode) ? ' is-drag-target' : ''}${canStartExplorerDrag(itemDragNode) ? ' is-draggable' : ''}`}
+                            data-buff-drag-kind="item"
+                            data-buff-draft-id={draftId}
+                            data-buff-item-key={itemKey}
+                            onPointerDown={(event) => handleExplorerPointerDown(event, itemDragNode)}
+                            onClick={() => {
+                              if (consumeSuppressedExplorerClick()) {
+                                return;
+                              }
+                              handleLoadDraftById(draftId);
+                              setCollapsedItems((prev) => ({ ...prev, [getItemCollapseKey(draftId, itemKey)]: false }));
+                              setPendingFocusRowKey(`item-${itemKey}`);
+                            }}
+                            onContextMenu={(event) => openContextMenu(event, {
+                              x: event.clientX,
+                              y: event.clientY,
+                              target: 'item',
+                              draftId,
+                              itemKey,
+                            })}
+                          >
+                            <span
+                              className="damage-sheet-row-toggle buff-sheet-explorer-toggle"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                setCollapsedItems((prev) => ({
+                                  ...prev,
+                                  [getItemCollapseKey(draftId, itemKey)]: !prev[getItemCollapseKey(draftId, itemKey)],
+                                }));
+                              }}
+                            >
+                              {collapsedItems[getItemCollapseKey(draftId, itemKey)] ? '[+]' : '[-]'}
+                            </span>
+                            <span className="buff-sheet-explorer-label">{item.name}</span>
+                            <span className="buff-sheet-explorer-count">{Object.keys(item.effects).length}</span>
+                          </button>
+                          {!collapsedItems[getItemCollapseKey(draftId, itemKey)] ? (
+                            <div className="buff-sheet-explorer-children buff-sheet-explorer-effects">
+                              {Object.entries(item.effects).map(([effectKey, effect]) => {
+                                const effectDragNode: BuffExplorerDragNode = { kind: 'effect', draftId, itemKey, effectKey };
+                                return (
+                                <button
+                                  key={effectKey}
+                                  type="button"
+                                  className={`buff-sheet-explorer-effect${dragSourceKey === getExplorerDragNodeKey(effectDragNode) ? ' is-drag-source' : ''}${dragTargetKey === getExplorerDragNodeKey(effectDragNode) ? ' is-drag-target' : ''}${canStartExplorerDrag(effectDragNode) ? ' is-draggable' : ''}`}
+                                  data-buff-drag-kind="effect"
+                                  data-buff-draft-id={draftId}
+                                  data-buff-item-key={itemKey}
+                                  data-buff-effect-key={effectKey}
+                                  onPointerDown={(event) => handleExplorerPointerDown(event, effectDragNode)}
+                                  onClick={() => {
+                                    if (consumeSuppressedExplorerClick()) {
+                                      return;
+                                    }
+                                    handleLoadDraftById(draftId);
+                                    setPendingFocusRowKey(`effect-${itemKey}-${effectKey}`);
+                                  }}
+                                  onContextMenu={(event) => openContextMenu(event, {
+                                    x: event.clientX,
+                                    y: event.clientY,
+                                    target: 'effect',
+                                    draftId,
+                                    itemKey,
+                                    effectKey,
+                                  })}
+                                >
+                                  <span className="buff-sheet-explorer-bullet">·</span>
+                                  <span className="buff-sheet-explorer-label">{effect.displayName || effectKey}</span>
+                                </button>
+                                );
+                              })}
+                            </div>
+                          ) : null}
+                        </div>
+                        );
+                      })}
+                    </div>
+                  ) : null}
+                </div>
+              );
+            })}
+          </div>
+          {contextMenu ? (
+            <div
+              className="buff-sheet-context-menu"
+              style={{ left: `${contextMenu.x}px`, top: `${contextMenu.y}px` }}
+              onPointerDown={(event) => event.stopPropagation()}
+              onContextMenu={(event) => event.preventDefault()}
+            >
+              {contextMenu.target === 'blank' ? (
+                <>
+                  <button type="button" className="buff-sheet-context-menu-item" onClick={() => { handleCreateNewDraft(); setContextMenu(null); }}>
+                    新建组
+                  </button>
+                  <button type="button" className="buff-sheet-context-menu-item" onClick={() => { handleCollapseAllDrafts(); setContextMenu(null); }}>
+                    折叠全部组
+                  </button>
+                  <button type="button" className="buff-sheet-context-menu-item" onClick={() => { handleExpandAllDrafts(); setContextMenu(null); }}>
+                    展开全部组
+                  </button>
+                </>
+              ) : null}
+              {contextMenu.target === 'draft' && contextMenu.draftId ? (
+                <>
+                  <button type="button" className="buff-sheet-context-menu-item" onClick={() => { handleLoadDraftById(contextMenu.draftId!); setContextMenu(null); }}>
+                    打开组
+                  </button>
+                  <button type="button" className="buff-sheet-context-menu-item" onClick={() => { handleCollapseAllItemsInDraft(contextMenu.draftId!); setContextMenu(null); }}>
+                    折叠全部项
+                  </button>
+                  <button type="button" className="buff-sheet-context-menu-item" onClick={() => { handleExpandAllItemsInDraft(contextMenu.draftId!); setContextMenu(null); }}>
+                    展开全部项
+                  </button>
+                  <button type="button" className="buff-sheet-context-menu-item" onClick={() => { handleCreateDraftItem(contextMenu.draftId!); setContextMenu(null); }}>
+                    新建项
+                  </button>
+                  <button type="button" className="buff-sheet-context-menu-item" onClick={() => { handleDeleteDraftGroup(contextMenu.draftId!); setContextMenu(null); }}>
+                    删除组
+                  </button>
+                </>
+              ) : null}
+              {contextMenu.target === 'item' && contextMenu.draftId && contextMenu.itemKey ? (
+                <>
+                  <button type="button" className="buff-sheet-context-menu-item" onClick={() => { handleCreateDraftEffect(contextMenu.draftId!, contextMenu.itemKey!); setContextMenu(null); }}>
+                    新增效果
+                  </button>
+                  <button type="button" className="buff-sheet-context-menu-item" onClick={() => { handleCollapseAllItemsInDraft(contextMenu.draftId!); setContextMenu(null); }}>
+                    折叠全部项
+                  </button>
+                  <button type="button" className="buff-sheet-context-menu-item" onClick={() => { handleExpandAllItemsInDraft(contextMenu.draftId!); setContextMenu(null); }}>
+                    展开全部项
+                  </button>
+                  <button type="button" className="buff-sheet-context-menu-item" onClick={() => { handleDuplicateDraftItem(contextMenu.draftId!, contextMenu.itemKey!); setContextMenu(null); }}>
+                    复制项
+                  </button>
+                  <button type="button" className="buff-sheet-context-menu-item" onClick={() => { handleDeleteDraftItem(contextMenu.draftId!, contextMenu.itemKey!); setContextMenu(null); }}>
+                    删除项
+                  </button>
+                </>
+              ) : null}
+              {contextMenu.target === 'effect' && contextMenu.draftId && contextMenu.itemKey && contextMenu.effectKey ? (
+                <>
+                  <button type="button" className="buff-sheet-context-menu-item" onClick={() => { handleDuplicateDraftEffect(contextMenu.draftId!, contextMenu.itemKey!, contextMenu.effectKey!); setContextMenu(null); }}>
+                    复制效果
+                  </button>
+                  <button type="button" className="buff-sheet-context-menu-item" onClick={() => { handleDeleteDraftEffect(contextMenu.draftId!, contextMenu.itemKey!, contextMenu.effectKey!); setContextMenu(null); }}>
+                    删除效果
+                  </button>
+                </>
+              ) : null}
+            </div>
+          ) : null}
+        </aside>
+
+        <section className="damage-sheet-excel-shell">
+          <div className="damage-sheet-excel-scroll">
+            {workbookRows.length === 0 ? (
+              <div className="damage-sheet-empty-state">
+                <h2>当前没有可展示的 Buff 数据</h2>
+                <p>先在本地 Buff 编辑器里准备一组数据，再打开这张表。</p>
+              </div>
+            ) : (
+              workbookRows.map((row) => (
+                <div key={row.key} className={`damage-sheet-excel-row is-${row.kind}`}>
+                  <div className="damage-sheet-excel-row-number">
+                    {row.sourceRow?.kind === 'item' ? (
+                      <button
+                        type="button"
+                        className="damage-sheet-row-toggle"
+                        onClick={() => toggleItemCollapsed((row.sourceRow as Extract<BuffSheetRow, { kind: 'item' }>).itemKey)}
+                      >
+                        {collapsedItems[getItemCollapseKey(draft.id, (row.sourceRow as Extract<BuffSheetRow, { kind: 'item' }>).itemKey)] ? '[+]' : '[-]'}
+                      </button>
+                    ) : row.rowNumber}
+                  </div>
+                  <div className="damage-sheet-excel-row-cells">
+                    {row.cells.map((cell) => (
+                      <div
+                        key={cell.key}
+                        className={`damage-sheet-excel-cell is-${cell.kind} is-${cell.align}${selectedWorkbookCell?.address === cell.address ? ' is-active' : ''}`}
+                        style={{ width: `${cell.width}px` }}
+                        onClick={() => setSelectedWorkbookCell({
+                          address: cell.address,
+                          value: cell.value,
+                          sourceRowKey: cell.sourceRowKey,
+                          columnKey: cell.columnKey,
+                        })}
+                      >
+                        {renderBuffWorkbookCellContent(cell, row.sourceRow)}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </section>
+      </main>
+      {dragState ? (
+        <div
+          className="buff-sheet-drag-preview"
+          style={{ left: `${dragState.x + 8}px`, top: `${dragState.y + 10}px` }}
+        >
+          <div className="buff-sheet-drag-preview-title">{dragSourceLabel}</div>
+          <div className={`buff-sheet-drag-preview-drop${dragState.over ? ' is-active' : ''}`}>
+            {dragState.over
+              ? `将放到该${dragTargetKindLabel}位置：${dragTargetLabel}`
+              : '移动到同层级目标上方后松开'}
+          </div>
+        </div>
+      ) : null}
+      {isShareModalOpen ? (
+        <div className="buff-sheet-share-modal-mask" onClick={closeSheetShareModal}>
+          <div className="buff-sheet-share-modal" onClick={(event) => event.stopPropagation()}>
+            <div className="buff-sheet-share-modal-header">
+              <div className="buff-sheet-share-modal-tabs">
+                <button
+                  type="button"
+                  className={`buff-sheet-share-modal-tab${shareModalMode === 'export' ? ' is-active' : ''}`}
+                  onClick={() => setShareModalMode('export')}
+                >
+                  导出
+                </button>
+                <button
+                  type="button"
+                  className={`buff-sheet-share-modal-tab${shareModalMode === 'import' ? ' is-active' : ''}`}
+                  onClick={() => setShareModalMode('import')}
+                >
+                  导入
+                </button>
+              </div>
+              <button type="button" className="buff-sheet-share-modal-close" onClick={closeSheetShareModal} aria-label="关闭">
+                ×
+              </button>
+            </div>
+            {shareModalMode === 'export' ? (
+              <div className="buff-sheet-share-modal-body">
+                <div className="buff-sheet-share-modal-copybar">
+                  <div className="buff-sheet-share-modal-copyhint">预览当前本地 Buff 库分享 JSON</div>
+                  <div className="buff-sheet-share-modal-actions">
+                    <button type="button" className="buff-sheet-share-action" onClick={handleCopySheetShareJson}>
+                      复制 JSON
+                    </button>
+                    <button type="button" className="buff-sheet-share-action is-primary" onClick={handleExportSheetLibraryShare}>
+                      导出文件
+                    </button>
+                  </div>
+                </div>
+                <textarea
+                  className="buff-sheet-share-textarea is-preview"
+                  value={currentSheetShareText}
+                  readOnly
+                  spellCheck={false}
+                />
+              </div>
+            ) : (
+              <div className="buff-sheet-share-modal-body">
+                <div className="buff-sheet-share-modal-copybar">
+                  <div className="buff-sheet-share-modal-copyhint">支持直接粘贴 JSON，或选择本地分享文件</div>
+                  <div className="buff-sheet-share-modal-actions">
+                    <button type="button" className="buff-sheet-share-action" onClick={handleOpenSheetShareImportPicker}>
+                      导入文件
+                    </button>
+                    <button type="button" className="buff-sheet-share-action is-primary" onClick={handleParseSheetImportText}>
+                      读取粘贴内容
+                    </button>
+                  </div>
+                </div>
+                <textarea
+                  className="buff-sheet-share-textarea"
+                  value={shareImportText}
+                  onChange={(event) => {
+                    setShareImportText(event.target.value);
+                    if (shareImportError) {
+                      setShareImportError('');
+                    }
+                  }}
+                  placeholder="把 Buff 分享 JSON 粘贴到这里，或点击右上角导入文件。"
+                  spellCheck={false}
+                />
+                {shareImportError ? (
+                  <div className="buff-sheet-share-feedback is-error">{shareImportError}</div>
+                ) : null}
+                {pendingImportShare ? (
+                  <div className="buff-sheet-share-import-preview">
+                    <div className="buff-sheet-share-import-title">导入预览</div>
+                    <div className="buff-sheet-share-import-meta">
+                      <span>{`名称：${pendingImportShare.label}`}</span>
+                      <span>{`分组数：${Object.keys(pendingImportShare.payload).length}`}</span>
+                    </div>
+                    <div className="buff-sheet-share-modal-actions">
+                      <button type="button" className="buff-sheet-share-action" onClick={handleCancelSheetImportShare}>
+                        清空预览
+                      </button>
+                      <button type="button" className="buff-sheet-share-action is-primary" onClick={handleConfirmSheetImportShare}>
+                        确认导入
+                      </button>
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+            )}
+          </div>
+        </div>
+      ) : null}
+    </main>
+  );
+}

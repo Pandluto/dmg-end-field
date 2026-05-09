@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import type { MouseEvent as ReactMouseEvent } from 'react';
 import ExcelJS from 'exceljs';
 import type { SkillButton as RuntimeSkillButton, SkillButtonData, SkillType } from '../types';
 import type { CharacterInputConfig, PersistedSkillButton, SkillButtonBuff } from '../types/storage';
 import { useAppContext } from '../context/AppContext';
+import { STORAGE_KEYS } from '../constants/storage-keys';
 import { getCharacterComputed, getCharacterConfig, getCharacterInput } from '../utils/storage';
 import { APP_ROUTE_PATHS, navigateToAppPath } from '../utils/appRoute';
 import { getBuffById, getSkillButtonById, loadTimelineData, upsertSkillButton } from '../core/repositories';
@@ -37,6 +39,7 @@ interface SheetColumn {
 interface CharacterGroupRow {
   kind: 'character';
   id: string;
+  characterId: string;
   characterName: string;
   title: string;
   subtitle: string;
@@ -46,7 +49,9 @@ interface CharacterGroupRow {
 interface ButtonGroupRow {
   kind: 'button';
   id: string;
+  buttonId: string;
   characterId: string;
+  characterName: string;
   title: string;
   subtitle: string;
   meta: string;
@@ -95,6 +100,7 @@ interface WorkbookRowView {
   rowNumber: number;
   kind: WorkbookCellView['kind'];
   cells: WorkbookCellView[];
+  sourceRow?: SheetRow;
 }
 
 interface SelectedWorkbookCell {
@@ -104,7 +110,16 @@ interface SelectedWorkbookCell {
   columnKey?: string;
 }
 
+interface SheetContextMenuState {
+  x: number;
+  y: number;
+  target: 'sheet' | 'character' | 'group';
+  characterId?: string;
+  group?: string;
+}
+
 type SheetSidebarTab = 'related' | 'local' | 'anomaly' | 'state' | 'anomaly-state';
+type SheetOrderMode = 'character' | 'cast';
 
 interface UndoSnapshot {
   id: string;
@@ -186,6 +201,20 @@ function buildColumns(): SheetColumn[] {
     { key: 'crit', title: '暴击伤害', width: 84, group: '结果区', align: 'right' },
     { key: 'expected', title: '期望伤害', width: 84, group: '结果区', align: 'right' },
   ];
+}
+
+function sortButtonContextsByCastOrder(left: ButtonWithContext, right: ButtonWithContext): number {
+  const xDiff = (left.button.position?.x ?? 0) - (right.button.position?.x ?? 0);
+  if (Math.abs(xDiff) > 0.001) {
+    return xDiff;
+  }
+
+  const yDiff = (left.button.position?.y ?? 0) - (right.button.position?.y ?? 0);
+  if (Math.abs(yDiff) > 0.001) {
+    return yDiff;
+  }
+
+  return (left.button.nodeIndex ?? 0) - (right.button.nodeIndex ?? 0);
 }
 
 function buildRuntimeButton(button: PersistedSkillButton): RuntimeSkillButton {
@@ -467,7 +496,8 @@ function toPersistedButton(item: ButtonWithContext): PersistedSkillButton {
 }
 
 function buildSheetRows(
-  selectedCharacters: Array<{ id: string; name: string }>
+  selectedCharacters: Array<{ id: string; name: string }>,
+  orderMode: SheetOrderMode
 ): { rows: SheetRow[]; totalHitCount: number } {
   const timelineData = loadTimelineData();
   if (!timelineData) {
@@ -486,55 +516,87 @@ function buildSheetRows(
   let totalHitCount = 0;
   let rowIndex = 1;
 
-  selectedCharacters.forEach((character) => {
-    const characterButtons = flattenedButtons
-      .filter((item) => item.characterName === character.name)
-      .sort((left, right) => {
-        const leftNode = left.button.nodeIndex ?? 0;
-        const rightNode = right.button.nodeIndex ?? 0;
-        if (leftNode !== rightNode) {
-          return leftNode - rightNode;
-        }
-        return (left.button.position?.y ?? 0) - (right.button.position?.y ?? 0);
-      });
+  const selectedCharacterMap = new Map(
+    selectedCharacters.map((character) => [character.name, character])
+  );
 
-    if (characterButtons.length === 0) {
-      return;
-    }
-
+  const pushCharacterRow = (character: { id: string; name: string }) => {
     rows.push({
       kind: 'character',
       id: `character-${character.id}`,
+      characterId: character.id,
       characterName: character.name,
       title: character.name,
       subtitle: formatSkillLevels(getCharacterInput(character.id)),
       meta: formatCharacterMeta(character.id),
     });
+  };
 
-    characterButtons.forEach((item, buttonIndex) => {
-      const persistedButton = toPersistedButton(item);
-      const buttonName = persistedButton.skillDisplayName || persistedButton.skillType;
-      const hitRows = buildHitRowsForButton(
-        persistedButton,
-        character.id,
-        character.name,
-        rowIndex
-      );
+  const pushButtonRows = (
+    character: { id: string; name: string },
+    item: ButtonWithContext,
+    buttonIndex: number
+  ) => {
+    const persistedButton = toPersistedButton(item);
+    const buttonName = persistedButton.skillDisplayName || persistedButton.skillType;
+    const hitRows = buildHitRowsForButton(
+      persistedButton,
+      character.id,
+      character.name,
+      rowIndex
+    );
 
-      rows.push({
-        kind: 'button',
-        id: `button-${persistedButton.id}`,
-        characterId: character.id,
-        title: `${persistedButton.skillType} / ${buttonName}`,
-        subtitle: `按钮 ${buttonIndex + 1} · 节点 ${persistedButton.nodeNumber}`,
-        meta: `${hitRows.length} 个 Hit · 期望总伤 ${formatInteger(hitRows.reduce((sum, row) => sum + Number(row.values.expected || 0), 0))}`,
-      });
-
-      rows.push(...hitRows);
-      totalHitCount += hitRows.length;
-      rowIndex += hitRows.length;
+    rows.push({
+      kind: 'button',
+      id: `button-${persistedButton.id}`,
+      buttonId: persistedButton.id,
+      characterId: character.id,
+      characterName: character.name,
+      title: `${persistedButton.skillType} / ${buttonName}`,
+      subtitle: `按钮 ${buttonIndex} · 节点 ${persistedButton.nodeNumber}`,
+      meta: `${hitRows.length} 个 Hit · 期望总伤 ${formatInteger(hitRows.reduce((sum, row) => sum + Number(row.values.expected || 0), 0))}`,
     });
-  });
+
+    rows.push(...hitRows);
+    totalHitCount += hitRows.length;
+    rowIndex += hitRows.length;
+  };
+
+  if (orderMode === 'cast') {
+    const castOrderedButtons = flattenedButtons
+      .filter((item) => selectedCharacterMap.has(item.characterName))
+      .sort(sortButtonContextsByCastOrder);
+
+    castOrderedButtons.forEach((item, index) => {
+      const character = selectedCharacterMap.get(item.characterName);
+      if (!character) {
+        return;
+      }
+      pushButtonRows(character, item, index + 1);
+    });
+  } else {
+    selectedCharacters.forEach((character) => {
+      const characterButtons = flattenedButtons
+        .filter((item) => item.characterName === character.name)
+        .sort((left, right) => {
+          const leftNode = left.button.nodeIndex ?? 0;
+          const rightNode = right.button.nodeIndex ?? 0;
+          if (leftNode !== rightNode) {
+            return leftNode - rightNode;
+          }
+          return (left.button.position?.y ?? 0) - (right.button.position?.y ?? 0);
+        });
+
+      if (characterButtons.length === 0) {
+        return;
+      }
+
+      pushCharacterRow(character);
+      characterButtons.forEach((item, buttonIndex) => {
+        pushButtonRows(character, item, buttonIndex + 1);
+      });
+    });
+  }
 
   return { rows, totalHitCount };
 }
@@ -798,7 +860,46 @@ function buildFormulaText(hitRow: HitValueRow | null, columnKey: string | undefi
 function formatUndoLabel(timestamp: number): string {
   const date = new Date(timestamp);
   const pad = (value: number) => String(value).padStart(2, '0');
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
+  const milliseconds = String(date.getMilliseconds()).padStart(3, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}.${milliseconds}`;
+}
+
+function getUndoSnapshotEntryValue(snapshot: UndoSnapshot, key: string): string | null {
+  const matchedEntry = snapshot.sessionEntries.find(([entryKey]) => entryKey === key);
+  return matchedEntry?.[1] ?? null;
+}
+
+function buildUndoSnapshotBuffPreview(snapshot: UndoSnapshot): string[] {
+  const rawBuffList = getUndoSnapshotEntryValue(snapshot, STORAGE_KEYS.ALL_BUFF_LIST);
+  if (!rawBuffList) {
+    return [];
+  }
+
+  try {
+    const parsed = JSON.parse(rawBuffList) as SkillButtonBuff[];
+    if (!Array.isArray(parsed)) {
+      return [];
+    }
+
+    return parsed
+      .map((buff) => buff.displayName?.trim() || buff.name?.trim() || buff.id)
+      .filter((name, index, array) => Boolean(name) && array.indexOf(name) === index);
+  } catch {
+    return [];
+  }
+}
+
+function buildUndoSnapshotHoverText(snapshot: UndoSnapshot): string {
+  const buffPreview = buildUndoSnapshotBuffPreview(snapshot);
+  const buffLine = buffPreview.length > 0
+    ? buffPreview.slice(0, 10).join(' / ')
+    : '无 Buff';
+
+  return [
+    `时间：${formatUndoLabel(snapshot.createdAt)}`,
+    `操作：${snapshot.label}`,
+    `Buff：${buffLine}`,
+  ].join('\n');
 }
 
 function readUndoSnapshots(): UndoSnapshot[] {
@@ -913,6 +1014,7 @@ function buildWorkbookView(rows: SheetRow[], columns: SheetColumn[]): WorkbookRo
       rowNumber: rowIndex,
       kind: rowKind,
       cells,
+      sourceRow: sheetRowsByWorksheetRow[rowIndex],
     });
   }
 
@@ -956,9 +1058,41 @@ export function DamageSheetPage() {
   const [isUndoMenuOpen, setIsUndoMenuOpen] = useState(false);
   const [sidebarTab, setSidebarTab] = useState<SheetSidebarTab>('related');
   const [buffSearchKeyword, setBuffSearchKeyword] = useState('');
+  const [orderMode, setOrderMode] = useState<SheetOrderMode>('character');
+  const [collapsedCharacterIds, setCollapsedCharacterIds] = useState<Record<string, boolean>>({});
+  const [collapsedColumnGroups, setCollapsedColumnGroups] = useState<Record<string, boolean>>({});
+  const [contextMenu, setContextMenu] = useState<SheetContextMenuState | null>(null);
 
   const columns = useMemo(() => buildColumns(), []);
-  const workbookRows = useMemo(() => buildWorkbookView(rows, columns), [rows, columns]);
+  const collapsibleColumnGroups = useMemo(
+    () => Array.from(new Set(columns.map((column) => column.group).filter((group) => group !== '索引'))),
+    [columns]
+  );
+  const characterRowIds = useMemo(
+    () => rows.filter((row): row is CharacterGroupRow => row.kind === 'character').map((row) => row.characterId),
+    [rows]
+  );
+  const visibleColumns = useMemo(
+    () => columns.filter((column, index) => {
+      if (!collapsedColumnGroups[column.group]) {
+        return true;
+      }
+      return columns.findIndex((candidate) => candidate.group === column.group) === index;
+    }),
+    [collapsedColumnGroups, columns]
+  );
+  const visibleRows = useMemo(() => (
+    rows.filter((row) => {
+      if (orderMode === 'cast') {
+        return true;
+      }
+      if (row.kind === 'character') {
+        return true;
+      }
+      return !collapsedCharacterIds[row.characterId];
+    })
+  ), [collapsedCharacterIds, orderMode, rows]);
+  const workbookRows = useMemo(() => buildWorkbookView(visibleRows, visibleColumns), [visibleColumns, visibleRows]);
 
   const handleGenerate = useCallback(() => {
     setIsGenerating(true);
@@ -967,11 +1101,23 @@ export function DamageSheetPage() {
         state.selectedCharacters.map((character) => ({
           id: character.id,
           name: character.name,
-        }))
+        })),
+        orderMode
       );
       setRows(next.rows);
       setTotalHitCount(next.totalHitCount);
-      const firstWorkbookDataRow = buildWorkbookView(next.rows, columns).find((row) => row.kind === 'data');
+      const firstWorkbookDataRow = buildWorkbookView(
+        next.rows.filter((row) => {
+          if (orderMode === 'cast') {
+            return true;
+          }
+          if (row.kind === 'character') {
+            return true;
+          }
+          return !collapsedCharacterIds[row.characterId];
+        }),
+        visibleColumns
+      ).find((row) => row.kind === 'data');
       const firstWorkbookDataCell = firstWorkbookDataRow?.cells[0];
       setSelectedWorkbookCell(firstWorkbookDataCell ? {
         address: firstWorkbookDataCell.address,
@@ -982,7 +1128,7 @@ export function DamageSheetPage() {
     } finally {
       setIsGenerating(false);
     }
-  }, [columns, state.selectedCharacters]);
+  }, [collapsedCharacterIds, orderMode, state.selectedCharacters, visibleColumns]);
 
   useEffect(() => {
     handleGenerate();
@@ -1056,20 +1202,131 @@ export function DamageSheetPage() {
   } = anomalyState;
 
   const totalCharacterCount = state.selectedCharacters.length;
-  const totalButtonCount = rows.filter((row) => row.kind === 'button').length;
+  const totalButtonCount = visibleRows.filter((row) => row.kind === 'button').length;
+
+  const toggleCharacterCollapsed = useCallback((characterId: string) => {
+    setCollapsedCharacterIds((prev) => ({ ...prev, [characterId]: !prev[characterId] }));
+  }, []);
+
+  const toggleColumnGroupCollapsed = useCallback((group: string) => {
+    if (group === '索引') {
+      return;
+    }
+    setCollapsedColumnGroups((prev) => ({ ...prev, [group]: !prev[group] }));
+  }, []);
+
+  const setAllCharactersCollapsed = useCallback((collapsed: boolean) => {
+    setCollapsedCharacterIds(
+      characterRowIds.reduce<Record<string, boolean>>((accumulator, characterId) => {
+        accumulator[characterId] = collapsed;
+        return accumulator;
+      }, {})
+    );
+  }, [characterRowIds]);
+
+  const setAllColumnGroupsCollapsed = useCallback((collapsed: boolean) => {
+    setCollapsedColumnGroups(
+      collapsibleColumnGroups.reduce<Record<string, boolean>>((accumulator, group) => {
+        accumulator[group] = collapsed;
+        return accumulator;
+      }, {})
+    );
+  }, [collapsibleColumnGroups]);
+
+  const handleOpenContextMenu = useCallback((event: ReactMouseEvent, nextMenu: SheetContextMenuState) => {
+    event.preventDefault();
+    event.stopPropagation();
+    setContextMenu(nextMenu);
+  }, []);
+
+  const closeContextMenu = useCallback(() => {
+    setContextMenu(null);
+  }, []);
+
+  useEffect(() => {
+    if (!contextMenu) {
+      return undefined;
+    }
+
+    const handlePointerDown = () => setContextMenu(null);
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setContextMenu(null);
+      }
+    };
+
+    window.addEventListener('pointerdown', handlePointerDown);
+    window.addEventListener('keydown', handleEscape);
+    window.addEventListener('scroll', handlePointerDown, true);
+    return () => {
+      window.removeEventListener('pointerdown', handlePointerDown);
+      window.removeEventListener('keydown', handleEscape);
+      window.removeEventListener('scroll', handlePointerDown, true);
+    };
+  }, [contextMenu]);
+
+  const renderRowNumberCell = useCallback((row: WorkbookRowView) => {
+    const sourceRow = row.sourceRow;
+    if (orderMode === 'character' && sourceRow?.kind === 'character') {
+      return (
+        <button
+          type="button"
+          className="damage-sheet-row-toggle"
+          onClick={() => toggleCharacterCollapsed(sourceRow.characterId)}
+          onContextMenu={(event) => handleOpenContextMenu(event, {
+            x: event.clientX,
+            y: event.clientY,
+            target: 'character',
+            characterId: sourceRow.characterId,
+          })}
+        >
+          {collapsedCharacterIds[sourceRow.characterId] ? '[+]' : '[-]'}
+        </button>
+      );
+    }
+
+    return row.rowNumber;
+  }, [collapsedCharacterIds, handleOpenContextMenu, orderMode, toggleCharacterCollapsed]);
+
+  const renderWorkbookCellContent = useCallback((row: WorkbookRowView, cell: WorkbookCellView) => {
+    if (row.kind === 'group' && cell.value !== '索引') {
+      return (
+        <span className="damage-sheet-group-header">
+          <button
+            type="button"
+            className="damage-sheet-row-toggle damage-sheet-group-toggle"
+            onClick={(event) => {
+              event.stopPropagation();
+              toggleColumnGroupCollapsed(cell.value);
+            }}
+            onContextMenu={(event) => handleOpenContextMenu(event, {
+              x: event.clientX,
+              y: event.clientY,
+              target: 'group',
+              group: cell.value,
+            })}
+          >
+            {collapsedColumnGroups[cell.value] ? '[+]' : '[-]'}
+          </button>
+          <span className="damage-sheet-group-header-label">{cell.value}</span>
+        </span>
+      );
+    }
+    return cell.value;
+  }, [collapsedColumnGroups, handleOpenContextMenu, toggleColumnGroupCollapsed]);
 
   const handleExportXlsx = useCallback(async () => {
-    if (rows.length === 0) {
+    if (visibleRows.length === 0 || visibleColumns.length === 0) {
       return;
     }
 
     setIsExporting(true);
     try {
-      await exportRowsToWorkbook(rows, columns);
+      await exportRowsToWorkbook(visibleRows, visibleColumns);
     } finally {
       setIsExporting(false);
     }
-  }, [columns, rows]);
+  }, [visibleColumns, visibleRows]);
 
   const persistManualBuffTweaks = useCallback((nextMap: Record<string, string[]>) => {
     if (!selectedPersistedButton) {
@@ -1166,6 +1423,76 @@ export function DamageSheetPage() {
     handleRefreshAndKeepSelection();
   }, [handleRefreshAndKeepSelection]);
 
+  const contextMenuActions = useMemo(() => {
+    if (!contextMenu) {
+      return [];
+    }
+
+    const actions: Array<{ key: string; label: string; onSelect: () => void }> = [];
+    if (contextMenu.target === 'character' && orderMode === 'character' && contextMenu.characterId) {
+      const isCollapsed = collapsedCharacterIds[contextMenu.characterId];
+      actions.push({
+        key: 'toggle-character',
+        label: isCollapsed ? '展开当前角色' : '折叠当前角色',
+        onSelect: () => toggleCharacterCollapsed(contextMenu.characterId!),
+      });
+      actions.push({
+        key: 'collapse-all-characters',
+        label: '折叠全部角色',
+        onSelect: () => setAllCharactersCollapsed(true),
+      });
+      actions.push({
+        key: 'expand-all-characters',
+        label: '展开全部角色',
+        onSelect: () => setAllCharactersCollapsed(false),
+      });
+    }
+
+    if (contextMenu.target === 'sheet' && orderMode === 'character') {
+      actions.push({
+        key: 'collapse-all-characters',
+        label: '折叠全部角色',
+        onSelect: () => setAllCharactersCollapsed(true),
+      });
+      actions.push({
+        key: 'expand-all-characters',
+        label: '展开全部角色',
+        onSelect: () => setAllCharactersCollapsed(false),
+      });
+    }
+
+    if (contextMenu.target === 'group' && contextMenu.group) {
+      const isCollapsed = collapsedColumnGroups[contextMenu.group];
+      actions.push({
+        key: 'toggle-group',
+        label: isCollapsed ? `展开${contextMenu.group}` : `折叠${contextMenu.group}`,
+        onSelect: () => toggleColumnGroupCollapsed(contextMenu.group!),
+      });
+    }
+
+    actions.push({
+      key: 'collapse-all-groups',
+      label: '折叠全部列区',
+      onSelect: () => setAllColumnGroupsCollapsed(true),
+    });
+    actions.push({
+      key: 'expand-all-groups',
+      label: '展开全部列区',
+      onSelect: () => setAllColumnGroupsCollapsed(false),
+    });
+
+    return actions;
+  }, [
+    collapsedCharacterIds,
+    collapsedColumnGroups,
+    contextMenu,
+    orderMode,
+    setAllCharactersCollapsed,
+    setAllColumnGroupsCollapsed,
+    toggleCharacterCollapsed,
+    toggleColumnGroupCollapsed,
+  ]);
+
   return (
     <div className="damage-sheet-page">
       <header className="damage-sheet-topbar">
@@ -1196,6 +1523,7 @@ export function DamageSheetPage() {
                     type="button"
                     className="damage-sheet-undo-item"
                     onClick={() => handleRestoreUndoSnapshot(snapshot.id)}
+                    title={buildUndoSnapshotHoverText(snapshot)}
                   >
                     <strong>{formatUndoLabel(snapshot.createdAt)}</strong>
                     <span>{snapshot.label}</span>
@@ -1207,7 +1535,7 @@ export function DamageSheetPage() {
           <button type="button" className="damage-sheet-action-button" onClick={handleGenerate} disabled={isGenerating}>
             {isGenerating ? '刷新中...' : '刷新表格'}
           </button>
-          <button type="button" className="damage-sheet-action-button" onClick={handleExportXlsx} disabled={isExporting || rows.length === 0}>
+          <button type="button" className="damage-sheet-action-button" onClick={handleExportXlsx} disabled={isExporting || visibleRows.length === 0 || visibleColumns.length === 0}>
             {isExporting ? '导出中...' : '导出 XLSX'}
           </button>
           <button type="button" className="damage-sheet-action-button" disabled>
@@ -1387,7 +1715,14 @@ export function DamageSheetPage() {
           ) : null}
         </aside>
         <section className="damage-sheet-excel-shell">
-          <div className="damage-sheet-excel-scroll">
+          <div
+            className="damage-sheet-excel-scroll"
+            onContextMenu={(event) => handleOpenContextMenu(event, {
+              x: event.clientX,
+              y: event.clientY,
+              target: 'sheet',
+            })}
+          >
             {workbookRows.length === 0 ? (
               <div className="damage-sheet-empty-state">
                 <h2>当前没有可展示的 ExcelJS 数据</h2>
@@ -1395,28 +1730,119 @@ export function DamageSheetPage() {
               </div>
             ) : (
               workbookRows.map((row) => (
-                <div key={row.key} className={`damage-sheet-excel-row is-${row.kind}`}>
-                  <div className="damage-sheet-excel-row-number">{row.rowNumber}</div>
+                <div
+                  key={row.key}
+                  className={`damage-sheet-excel-row is-${row.kind}`}
+                  onContextMenu={(event) => {
+                    if (orderMode === 'character' && row.sourceRow?.kind === 'character') {
+                      handleOpenContextMenu(event, {
+                        x: event.clientX,
+                        y: event.clientY,
+                        target: 'character',
+                        characterId: row.sourceRow.characterId,
+                      });
+                      return;
+                    }
+                    handleOpenContextMenu(event, {
+                      x: event.clientX,
+                      y: event.clientY,
+                      target: 'sheet',
+                    });
+                  }}
+                >
+                  <div className="damage-sheet-excel-row-number">{renderRowNumberCell(row)}</div>
                   <div className="damage-sheet-excel-row-cells">
                     {row.cells.map((cell) => (
                       <div
                         key={cell.key}
                         className={`damage-sheet-excel-cell is-${cell.kind} is-${cell.align}${selectedWorkbookCell?.address === cell.address ? ' is-active' : ''}`}
                         style={{ width: `${cell.width}px` }}
-                        onClick={() => setSelectedWorkbookCell({
-                          address: cell.address,
-                          value: cell.value,
-                          sourceRowId: cell.sourceRowId,
-                          columnKey: cell.columnKey,
-                        })}
+                        onClick={() => {
+                          if (row.kind === 'group' && cell.value !== '索引') {
+                            toggleColumnGroupCollapsed(cell.value);
+                            return;
+                          }
+                          setSelectedWorkbookCell({
+                            address: cell.address,
+                            value: cell.value,
+                            sourceRowId: cell.sourceRowId,
+                            columnKey: cell.columnKey,
+                          });
+                        }}
+                        onContextMenu={(event) => {
+                          if (row.kind === 'group' && cell.value !== '索引') {
+                            handleOpenContextMenu(event, {
+                              x: event.clientX,
+                              y: event.clientY,
+                              target: 'group',
+                              group: cell.value,
+                            });
+                            return;
+                          }
+                          if (orderMode === 'character' && row.sourceRow?.kind === 'character') {
+                            handleOpenContextMenu(event, {
+                              x: event.clientX,
+                              y: event.clientY,
+                              target: 'character',
+                              characterId: row.sourceRow.characterId,
+                            });
+                            return;
+                          }
+                          handleOpenContextMenu(event, {
+                            x: event.clientX,
+                            y: event.clientY,
+                            target: 'sheet',
+                          });
+                        }}
                       >
-                        {cell.value}
+                        {renderWorkbookCellContent(row, cell)}
                       </div>
                     ))}
                   </div>
                 </div>
               ))
             )}
+            {contextMenu && contextMenuActions.length > 0 ? (
+              <div
+                className="damage-sheet-context-menu"
+                style={{ left: `${contextMenu.x}px`, top: `${contextMenu.y}px` }}
+                onPointerDown={(event) => event.stopPropagation()}
+                onContextMenu={(event) => event.preventDefault()}
+              >
+                {contextMenuActions.map((action) => (
+                  <button
+                    key={action.key}
+                    type="button"
+                    className="damage-sheet-context-menu-item"
+                    onClick={() => {
+                      action.onSelect();
+                      closeContextMenu();
+                    }}
+                  >
+                    {action.label}
+                  </button>
+                ))}
+              </div>
+            ) : null}
+          </div>
+          <div className="damage-sheet-workspace-footer">
+            <div className="damage-sheet-view-group">
+              <span className="damage-sheet-ribbon-label">排序方式</span>
+              <button
+                type="button"
+                className={`damage-sheet-mini-tab${orderMode === 'character' ? ' is-active' : ''}`}
+                onClick={() => setOrderMode('character')}
+              >
+                按角色
+              </button>
+              <button
+                type="button"
+                className={`damage-sheet-mini-tab${orderMode === 'cast' ? ' is-active' : ''}`}
+                onClick={() => setOrderMode('cast')}
+              >
+                按施放
+              </button>
+            </div>
           </div>
         </section>
       </main>

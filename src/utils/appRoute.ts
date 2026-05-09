@@ -2,6 +2,7 @@ export const APP_ROUTE_PATHS = {
   home: '/',
   draft: '/draft',
   buffDraft: '/buff-draft',
+  buffSheet: '/sheet-buff',
   storage: '/storage',
   damageSheet: '/sheet',
 } as const;

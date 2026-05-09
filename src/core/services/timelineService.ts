@@ -155,6 +155,39 @@ function buildTimelineButtonsFromSkillButtonTable(
   });
 }
 
+function buildTimelineDataFromSkillButtonTable(
+  skillButtonTable: Record<string, PersistedSkillButton>,
+  characters: { name: string }[],
+  existingTimelineData?: TimelineData | null
+): TimelineData {
+  const fallbackTimelineData = existingTimelineData ?? createEmptyTimelineData(characters);
+  return {
+    ...fallbackTimelineData,
+    updatedAt: Date.now(),
+    staffLines: buildTimelineButtonsFromSkillButtonTable(skillButtonTable, characters),
+  };
+}
+
+function collectTimelineButtonIds(timelineData: TimelineData): string[] {
+  return timelineData.staffLines.flatMap((staffLine) =>
+    (Array.isArray(staffLine.buttons) ? staffLine.buttons : []).map((button) => button.id)
+  );
+}
+
+function hasTimelineTableMismatch(
+  timelineData: TimelineData,
+  skillButtonTable: Record<string, PersistedSkillButton>
+): boolean {
+  const timelineButtonIds = collectTimelineButtonIds(timelineData).sort();
+  const tableButtonIds = Object.keys(skillButtonTable).sort();
+
+  if (timelineButtonIds.length !== tableButtonIds.length) {
+    return true;
+  }
+
+  return timelineButtonIds.some((buttonId, index) => buttonId !== tableButtonIds[index]);
+}
+
 export function reconcileSelectionChange(
   _prevCharacters: { id: string; name: string }[],
   nextCharacters: { id: string; name: string }[]
@@ -195,16 +228,53 @@ export function reconcileSelectionChange(
     recomputeSkillButtonPanel(buttonId);
   });
 
-  const nextStaffLines = buildTimelineButtonsFromSkillButtonTable(nextSkillButtonTable, nextCharacters);
-
-  const nextTimelineData: TimelineData = {
-    ...currentTimelineData,
-    updatedAt: Date.now(),
-    staffLines: nextStaffLines,
-  };
+  const nextTimelineData = buildTimelineDataFromSkillButtonTable(
+    nextSkillButtonTable,
+    nextCharacters,
+    currentTimelineData
+  );
 
   saveTimelineRepo(nextTimelineData);
   return nextTimelineData;
+}
+
+export function ensureTimelineDataConsistency(
+  characters: { id?: string; name: string }[]
+): TimelineData | null {
+  if (characters.length === 0) {
+    return null;
+  }
+
+  const currentTimelineData = loadTimelineRepo();
+  const currentSkillButtonTable = getSkillButtonTable();
+  const hasPersistedButtons = Object.keys(currentSkillButtonTable).length > 0;
+
+  if (!currentTimelineData) {
+    if (!hasPersistedButtons) {
+      return null;
+    }
+
+    const rebuiltTimelineData = buildTimelineDataFromSkillButtonTable(currentSkillButtonTable, characters);
+    saveTimelineRepo(rebuiltTimelineData);
+    return rebuiltTimelineData;
+  }
+
+  const normalizedTimelineData = normalizeTimelineData(currentTimelineData, characters);
+  if (hasTimelineTableMismatch(normalizedTimelineData, currentSkillButtonTable)) {
+    const rebuiltTimelineData = buildTimelineDataFromSkillButtonTable(
+      currentSkillButtonTable,
+      characters,
+      normalizedTimelineData
+    );
+    saveTimelineRepo(rebuiltTimelineData);
+    return rebuiltTimelineData;
+  }
+
+  if (JSON.stringify(currentTimelineData) !== JSON.stringify(normalizedTimelineData)) {
+    saveTimelineRepo(normalizedTimelineData);
+  }
+
+  return normalizedTimelineData;
 }
 
 /**
@@ -277,6 +347,7 @@ export function addSkillButton(
 
   staffLine.occupiedNodes = rebuildOccupiedNodes(staffLine.buttons);
 
+  saveTimelineRepo(newTimelineData);
   return { newButton, newTimelineData };
 }
 
@@ -316,6 +387,7 @@ export function removeSkillButton(
     staffLine.occupiedNodes = rebuildOccupiedNodes(staffLine.buttons);
   }
 
+  saveTimelineRepo(newTimelineData);
   return newTimelineData;
 }
 
@@ -387,6 +459,7 @@ export function updateSkillButtonPosition(
 
   newStaffLine.occupiedNodes = rebuildOccupiedNodes(newStaffLine.buttons);
 
+  saveTimelineRepo(newTimelineData);
   return { updatedButton, newTimelineData };
 }
 
@@ -505,6 +578,7 @@ export function moveSkillButtonToStaff(
     .sort((a, b) => a.nodeIndex - b.nodeIndex);
   newToStaffLine.occupiedNodes = rebuildOccupiedNodes(newToStaffLine.buttons);
 
+  saveTimelineRepo(newTimelineData);
   return { movedButton, newTimelineData };
 }
 
@@ -621,5 +695,6 @@ export function updateSkillButtonType(
   };
   newTimelineData.staffLines[targetStaffIndex] = newStaffLine;
 
+  saveTimelineRepo(newTimelineData);
   return { updatedButton: updatedTimelineButton, updatedPersistedButton, newTimelineData };
 }

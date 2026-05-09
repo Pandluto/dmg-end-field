@@ -9,7 +9,6 @@ import { STORAGE_KEYS } from '../constants/storage-keys';
 import { setStorageJson } from '../utils/storage';
 import {
   createEmptyTimelineData,
-  normalizeTimelineData,
   addSkillButton as addSkillButtonService,
   removeSkillButton as removeSkillButtonService,
   updateSkillButtonPosition as updateSkillButtonPositionService,
@@ -19,6 +18,8 @@ import {
   getStaffButtons as getStaffButtonsService,
   saveTimelineData as saveTimelineDataService,
   loadTimelineData as loadTimelineDataService,
+  normalizeTimelineData,
+  ensureTimelineDataConsistency,
 } from '../core/services/timelineService';
 
 export function useTimelineData(selectedCharacters: { name: string }[]) {
@@ -38,7 +39,7 @@ export function useTimelineData(selectedCharacters: { name: string }[]) {
     }
     saveTimerRef.current = setTimeout(() => {
       const dataToSave = timelineDataRef.current;
-      setStorageJson(STORAGE_KEYS.TIMELINE_DATA, dataToSave);
+      saveTimelineDataService(dataToSave);
       console.log('[timeline] autosaved to sessionStorage');
     }, 300);
 
@@ -133,7 +134,7 @@ export function useTimelineData(selectedCharacters: { name: string }[]) {
   }, []);
 
   const loadTimelineData = useCallback((): TimelineData | null => {
-    const parsed = loadTimelineDataService();
+    const parsed = ensureTimelineDataConsistency(selectedCharacters) ?? loadTimelineDataService();
     if (parsed) {
       const normalized = normalizeTimelineData(parsed, selectedCharacters);
       if (JSON.stringify(parsed) !== JSON.stringify(normalized)) {

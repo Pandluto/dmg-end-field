@@ -2636,6 +2636,7 @@
   padding: 14px 16px;
   border: 1px solid #d2cab9;
   background: rgba(255, 255, 255, 0.48);
+  position: relative;
 }
 
 .timeline-snapshot-item-main {
@@ -2660,6 +2661,64 @@
   align-items: center;
   gap: 8px;
   flex: 0 0 auto;
+}
+
+.timeline-snapshot-hover-card {
+  position: absolute;
+  left: 16px;
+  top: calc(100% + 8px);
+  width: min(420px, calc(100vw - 96px));
+  padding: 12px 14px;
+  border: 1px solid #d2cab9;
+  background: #fffdf8;
+  box-shadow: 0 12px 32px rgba(20, 18, 14, 0.18);
+  color: #2f2416;
+  opacity: 0;
+  transform: translateY(-4px);
+  pointer-events: none;
+  transition: opacity 0.16s ease, transform 0.16s ease;
+  z-index: 10;
+}
+
+.timeline-snapshot-item:hover .timeline-snapshot-hover-card {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.timeline-snapshot-hover-title {
+  font-size: 13px;
+  font-weight: 700;
+  margin-bottom: 6px;
+}
+
+.timeline-snapshot-hover-line,
+.timeline-snapshot-hover-section {
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.timeline-snapshot-hover-section {
+  margin-top: 8px;
+  color: #6e6252;
+  font-weight: 700;
+}
+
+.timeline-snapshot-hover-buffs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.timeline-snapshot-hover-buffs span {
+  display: inline-flex;
+  align-items: center;
+  min-height: 22px;
+  padding: 0 8px;
+  border: 1px solid rgba(210, 202, 185, 0.9);
+  background: rgba(255, 255, 255, 0.92);
+  color: #5b4c39;
+  font-size: 12px;
 }
 
 .timeline-snapshot-form-actions {

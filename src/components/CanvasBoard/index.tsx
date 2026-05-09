@@ -53,6 +53,35 @@ import {
 } from '../../utils/timelineSnapshotStorage';
 import './CanvasBoard.css';
 
+function formatPreciseTimestamp(timestamp: number): string {
+  const date = new Date(timestamp);
+  const year = date.getFullYear();
+  const month = `${date.getMonth() + 1}`.padStart(2, '0');
+  const day = `${date.getDate()}`.padStart(2, '0');
+  const hours = `${date.getHours()}`.padStart(2, '0');
+  const minutes = `${date.getMinutes()}`.padStart(2, '0');
+  const seconds = `${date.getSeconds()}`.padStart(2, '0');
+  const milliseconds = `${date.getMilliseconds()}`.padStart(3, '0');
+  return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}.${milliseconds}`;
+}
+
+function buildSnapshotBuffPreview(snapshot: TimelineSnapshotEntry): string[] {
+  const buffNames = snapshot.payload.allBuffList
+    .map((buff) => buff.displayName?.trim() || buff.name?.trim() || buff.id)
+    .filter((name, index, array) => Boolean(name) && array.indexOf(name) === index);
+
+  if (buffNames.length === 0) {
+    return ['无 Buff'];
+  }
+
+  const previewLimit = 8;
+  const preview = buffNames.slice(0, previewLimit);
+  if (buffNames.length > previewLimit) {
+    preview.push(`... 其余 ${buffNames.length - previewLimit} 项`);
+  }
+  return preview;
+}
+
 function buildSandboxSkillsFromRuntimeTemplate(characterId: string): SandboxSkill[] {
   const template = getRuntimeOperatorTemplateById(characterId);
   if (!template) {
@@ -831,6 +860,20 @@ export function CanvasBoard({
                       <span>
                         {snapshot.summary.characterCount} 角色 / {snapshot.summary.buttonCount} 按钮 / {snapshot.summary.buffCount} Buff
                       </span>
+                    </div>
+                    <div className="timeline-snapshot-hover-card">
+                      <div className="timeline-snapshot-hover-title">快照详情</div>
+                      <div className="timeline-snapshot-hover-line">保存时间：{formatPreciseTimestamp(snapshot.createdAt)}</div>
+                      <div className="timeline-snapshot-hover-line">快照 ID：{snapshot.id}</div>
+                      <div className="timeline-snapshot-hover-line">
+                        角色 {snapshot.summary.characterCount} / 按钮 {snapshot.summary.buttonCount} / Buff {snapshot.summary.buffCount}
+                      </div>
+                      <div className="timeline-snapshot-hover-section">Buff 内容</div>
+                      <div className="timeline-snapshot-hover-buffs">
+                        {buildSnapshotBuffPreview(snapshot).map((buffName) => (
+                          <span key={`${snapshot.id}-${buffName}`}>{buffName}</span>
+                        ))}
+                      </div>
                     </div>
                     <div className="timeline-snapshot-item-actions">
                       <button type="button" className="btn-save" onClick={() => handleRequestRestoreSnapshot(snapshot)}>
