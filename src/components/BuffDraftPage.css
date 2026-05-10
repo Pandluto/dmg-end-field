@@ -51,6 +51,54 @@
   overflow: auto;
 }
 
+.buff-draft-undo-wrap {
+  position: relative;
+}
+
+.buff-draft-undo-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  min-width: 240px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px;
+  background: #ffffff;
+  border: 1px solid #d8dde7;
+  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.12);
+  z-index: 40;
+}
+
+.buff-draft-undo-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 10px;
+  text-align: left;
+  border: 1px solid transparent;
+  background: transparent;
+  color: #1f2634;
+  font: inherit;
+  font-size: 11px;
+}
+
+.buff-draft-undo-item strong {
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.buff-draft-undo-item span {
+  font-size: 10px;
+  color: #64748b;
+}
+
+.buff-draft-undo-item:hover {
+  background: #eef4ff;
+  border-color: #315ea4;
+  color: #315ea4;
+}
+
 .buff-draft-effect-list {
   flex: 1 1 0;
   min-height: 0;
@@ -391,6 +439,54 @@
   font-size: 11px;
 }
 
+.buff-sheet-page .damage-sheet-undo-wrap {
+  position: relative;
+}
+
+.buff-sheet-page .damage-sheet-undo-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  min-width: 240px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px;
+  background: var(--office-card-bg, #ffffff);
+  border: 1px solid var(--office-border, #d8dde7);
+  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.12);
+  z-index: 40;
+}
+
+.buff-sheet-page .damage-sheet-undo-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 10px;
+  text-align: left;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--office-body, #1f2634);
+  font: inherit;
+  font-size: 11px;
+}
+
+.buff-sheet-page .damage-sheet-undo-item strong {
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.buff-sheet-page .damage-sheet-undo-item span {
+  font-size: 10px;
+  color: var(--text-muted, #64748b);
+}
+
+.buff-sheet-page .damage-sheet-undo-item:hover {
+  background: var(--ide-bg-hover, #eef4ff);
+  border-color: var(--excel-green-main, #185c37);
+  color: var(--excel-green-main, #185c37);
+}
+
 .buff-sheet-formula-input {
   min-width: 0;
   width: 100%;
@@ -592,6 +688,9 @@
 
 .buff-sheet-context-menu-item {
   min-height: 28px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
   padding: 0 10px;
   border: 0;
   background: transparent;
@@ -604,6 +703,31 @@
 .buff-sheet-context-menu-item:hover {
   background: var(--ide-bg-hover, #f3f7f4);
   color: var(--excel-green-main, #185c37);
+}
+
+.buff-sheet-context-menu-icon {
+  width: 12px;
+  min-width: 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: inherit;
+}
+
+.buff-sheet-context-menu-svg {
+  width: 12px;
+  height: 12px;
+  display: block;
+  stroke: currentColor;
+  stroke-width: 1.35;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  fill: none;
+}
+
+.buff-sheet-context-menu-label {
+  min-width: 0;
+  flex: 1 1 auto;
 }
 
 .buff-sheet-drag-preview {

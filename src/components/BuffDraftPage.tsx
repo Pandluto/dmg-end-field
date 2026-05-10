@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react';
 import ExcelJS from 'exceljs';
 import { pinyin } from 'pinyin-pro';
 import './OperatorDraftPage.css';
@@ -17,6 +17,19 @@ const BUFF_SHEET_PAGE_PATH = '/sheet-buff';
 const BUFF_DRAFT_STORAGE_KEY = 'def.buff-editor.draft.v1';
 const BUFF_LIBRARY_STORAGE_KEY = 'def.buff-editor.library.v1';
 const BUFF_LIBRARY_SHARE_TYPE = 'buff-library-share.v1';
+const BUFF_UNDO_STORAGE_KEY = 'def.buff-editor.undo.v1';
+const BUFF_UNDO_LIMIT = 8;
+
+interface BuffUndoSnapshot {
+  id: string;
+  createdAt: number;
+  label: string;
+  selectedDraftId?: string;
+  draftState?: BuffDraft;
+  selectedItemKey?: string | null;
+  selectedEffectKey?: string | null;
+  localEntries: Array<[string, string | null]>;
+}
 
 const BUFF_TYPE_OPTIONS = [
   'atkPercentBoost',
@@ -636,6 +649,155 @@ type BuffExplorerDragState = {
   y: number;
 };
 
+type BuffSheetContextMenuState = {
+  x: number;
+  y: number;
+  target: 'blank' | 'draft' | 'item' | 'effect';
+  draftId?: string;
+  itemKey?: string;
+  effectKey?: string;
+};
+
+type BuffSheetContextMenuAction = {
+  key: string;
+  label: string;
+  icon: 'new' | 'delete' | 'collapse' | 'expand' | 'open' | 'copy';
+  onClick: () => void;
+};
+
+function renderBuffSheetMenuIcon(icon: BuffSheetContextMenuAction['icon']) {
+  switch (icon) {
+    case 'new':
+      return <path d="M8 3.25v9.5M3.25 8h9.5" />;
+    case 'delete':
+      return (
+        <>
+          <path d="M4.25 5.25h7.5" />
+          <path d="M6.25 2.75h3.5" />
+          <path d="M5.25 5.25v6.5M8 5.25v6.5M10.75 5.25v6.5" />
+          <path d="M4.75 5.25l.5 7h5.5l.5-7" />
+        </>
+      );
+    case 'collapse':
+      return (
+        <>
+          <path d="M3.25 5.25h9.5" />
+          <path d="M5.75 8h6.5" />
+          <path d="M8.25 10.75h4" />
+        </>
+      );
+    case 'expand':
+      return (
+        <>
+          <path d="M3.25 5.25h9.5" />
+          <path d="M3.25 8h9.5" />
+          <path d="M3.25 10.75h9.5" />
+        </>
+      );
+    case 'open':
+      return (
+        <>
+          <path d="M3.25 4.25h3l1.25 1.5h5.25v6.5H3.25z" />
+          <path d="M7.5 5.75h5.25" />
+        </>
+      );
+    case 'copy':
+      return (
+        <>
+          <path d="M5.25 4.25h5.5v7.5h-5.5z" />
+          <path d="M8.75 4.25V3.25h-4.5v6.5h1" />
+        </>
+      );
+    default:
+      return null;
+  }
+}
+
+function formatBuffUndoLabel(timestamp: number): string {
+  const date = new Date(timestamp);
+  const pad = (value: number) => String(value).padStart(2, '0');
+  const milliseconds = String(date.getMilliseconds()).padStart(3, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}.${milliseconds}`;
+}
+
+function readBuffUndoSnapshots(): BuffUndoSnapshot[] {
+  if (typeof window === 'undefined') {
+    return [];
+  }
+  try {
+    const raw = window.localStorage.getItem(BUFF_UNDO_STORAGE_KEY);
+    if (!raw) {
+      return [];
+    }
+    const parsed = JSON.parse(raw) as BuffUndoSnapshot[];
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeBuffUndoSnapshots(snapshots: BuffUndoSnapshot[]): void {
+  if (typeof window === 'undefined') {
+    return;
+  }
+  window.localStorage.setItem(BUFF_UNDO_STORAGE_KEY, JSON.stringify(snapshots));
+}
+
+function captureBuffUndoSnapshot(
+  label: string,
+  options?: {
+    selectedDraftId?: string;
+    draftState?: BuffDraft;
+    selectedItemKey?: string | null;
+    selectedEffectKey?: string | null;
+  },
+): void {
+  if (typeof window === 'undefined') {
+    return;
+  }
+
+  const localEntries: Array<[string, string | null]> = [
+    [BUFF_DRAFT_STORAGE_KEY, window.localStorage.getItem(BUFF_DRAFT_STORAGE_KEY)],
+    [BUFF_LIBRARY_STORAGE_KEY, window.localStorage.getItem(BUFF_LIBRARY_STORAGE_KEY)],
+  ];
+
+  const snapshot: BuffUndoSnapshot = {
+    id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    createdAt: Date.now(),
+    label,
+    selectedDraftId: options?.selectedDraftId,
+    draftState: options?.draftState ? cloneValue(options.draftState) : undefined,
+    selectedItemKey: options?.selectedItemKey,
+    selectedEffectKey: options?.selectedEffectKey,
+    localEntries,
+  };
+
+  writeBuffUndoSnapshots([snapshot, ...readBuffUndoSnapshots()].slice(0, BUFF_UNDO_LIMIT));
+}
+
+function restoreBuffUndoSnapshot(snapshotId: string): BuffUndoSnapshot | null {
+  if (typeof window === 'undefined') {
+    return null;
+  }
+
+  const snapshots = readBuffUndoSnapshots();
+  const target = snapshots.find((item) => item.id === snapshotId);
+  if (!target) {
+    return null;
+  }
+
+  target.localEntries.forEach(([key, value]) => {
+    if (value == null) {
+      window.localStorage.removeItem(key);
+      return;
+    }
+    window.localStorage.setItem(key, value);
+  });
+
+  writeBuffUndoSnapshots(snapshots.filter((item) => item.id !== snapshotId));
+  return target;
+}
+
 function buildBuffSheetRows(draft: BuffDraft): BuffSheetRow[] {
   const rows: BuffSheetRow[] = [
     {
@@ -772,6 +934,19 @@ interface BuffWorkbookRowView {
   cells: BuffWorkbookCellView[];
   sourceRow?: BuffSheetRow;
 }
+
+type BuffWorkbookSelection = {
+  address: string;
+  value: string;
+  sourceRowKey?: string;
+  columnKey?: string;
+};
+
+type FormulaFocusSnapshot = {
+  focusId: string;
+  selectionStart?: number | null;
+  selectionEnd?: number | null;
+};
 
 function renderBuffWorkbookCellContent(cell: BuffWorkbookCellView, sourceRow?: BuffSheetRow): ReactNode {
   if (!sourceRow) {
@@ -1054,6 +1229,8 @@ export function BuffDraftPage() {
   const [localDraftIds, setLocalDraftIds] = useState<string[]>([]);
   const [selectedLocalDraftId, setSelectedLocalDraftId] = useState('');
   const [messages, setMessages] = useState<string[]>(['已进入本地 Buff 编辑器']);
+  const [undoSnapshots, setUndoSnapshots] = useState<BuffUndoSnapshot[]>([]);
+  const [isUndoMenuOpen, setIsUndoMenuOpen] = useState(false);
   const [selectedItemKey, setSelectedItemKey] = useState<string | null>(null);
   const [selectedEffectKey, setSelectedEffectKey] = useState<string | null>(null);
   const [buffTypeQuery, setBuffTypeQuery] = useState('');
@@ -1241,6 +1418,54 @@ export function BuffDraftPage() {
     setSelectedEffectKey(firstEffectKey);
     setMessages((prev) => [message, ...prev].slice(0, 12));
   };
+
+  const syncUndoSnapshots = useCallback(() => {
+    setUndoSnapshots(readBuffUndoSnapshots());
+  }, []);
+
+  const withUndo = useCallback((label: string, fn: () => void) => {
+    captureBuffUndoSnapshot(label, {
+      selectedDraftId: selectedLocalDraftId || draft.id || undefined,
+      draftState: draft,
+      selectedItemKey,
+      selectedEffectKey,
+    });
+    fn();
+    syncUndoSnapshots();
+  }, [draft, selectedEffectKey, selectedItemKey, selectedLocalDraftId, syncUndoSnapshots]);
+
+  const handleRestoreUndoSnapshot = useCallback((snapshotId: string) => {
+    const restored = restoreBuffUndoSnapshot(snapshotId);
+    if (!restored) {
+      return;
+    }
+
+    const nextLibrary = loadLocalBuffLibrary();
+    const nextDraftFromStorage = restored.draftState ? normalizeBuffDraft(cloneValue(restored.draftState)) : loadDraftFromStorage();
+    const nextSelectedId = restored.selectedDraftId && nextLibrary[restored.selectedDraftId]
+      ? restored.selectedDraftId
+      : (Object.keys(nextLibrary)[0] ?? nextDraftFromStorage.id);
+    const nextDraft = nextSelectedId && nextLibrary[nextSelectedId]
+      ? (restored.draftState ? nextDraftFromStorage : normalizeBuffDraft(cloneValue(nextLibrary[nextSelectedId])))
+      : nextDraftFromStorage;
+    const nextItemKey = restored.selectedItemKey && nextDraft.items[restored.selectedItemKey]
+      ? restored.selectedItemKey
+      : (Object.keys(nextDraft.items)[0] ?? null);
+    const nextEffectKey = nextItemKey
+      ? (restored.selectedEffectKey && nextDraft.items[nextItemKey].effects[restored.selectedEffectKey]
+        ? restored.selectedEffectKey
+        : (Object.keys(nextDraft.items[nextItemKey].effects)[0] ?? null))
+      : null;
+
+    setLocalDraftIds(Object.keys(nextLibrary));
+    setSelectedLocalDraftId(nextSelectedId);
+    setDraft(nextDraft);
+    setSelectedItemKey(nextItemKey);
+    setSelectedEffectKey(nextEffectKey);
+    setIsUndoMenuOpen(false);
+    syncUndoSnapshots();
+    setMessages((prev) => [`[OK] 已撤回：${restored.label}`, ...prev].slice(0, 12));
+  }, [syncUndoSnapshots]);
 
   const handleCreateNewDraft = () => {
     const raw = window.localStorage.getItem(BUFF_LIBRARY_STORAGE_KEY);
@@ -1481,35 +1706,30 @@ export function BuffDraftPage() {
       setMessages((prev) => ['[ERR] 当前没有选中的本地组', ...prev].slice(0, 12));
       return;
     }
-    if (
-      typeof window !== 'undefined' &&
-      !window.confirm(`确认删除本地组「${selectedLocalDraftId}」吗？该操作不会自动清空当前编辑器内容。`)
-    ) {
-      setMessages((prev) => [`[OK] 已取消删除本地组：${selectedLocalDraftId}`, ...prev].slice(0, 12));
-      return;
-    }
     const raw = window.localStorage.getItem(BUFF_LIBRARY_STORAGE_KEY);
     const library = raw ? (JSON.parse(raw) as Record<string, BuffDraft>) : {};
     if (!library[selectedLocalDraftId]) {
       setMessages((prev) => ['[ERR] 选中的本地组不存在', ...prev].slice(0, 12));
       return;
     }
-    delete library[selectedLocalDraftId];
-    window.localStorage.setItem(BUFF_LIBRARY_STORAGE_KEY, JSON.stringify(library));
-    const remainingIds = Object.keys(library);
-    const nextSelectedId = remainingIds[0] || '';
-    setLocalDraftIds(remainingIds);
-    setSelectedLocalDraftId(nextSelectedId);
-    if (draft.id === selectedLocalDraftId) {
-      const nextDraft = nextSelectedId ? normalizeBuffDraft(cloneValue(library[nextSelectedId])) : createEmptyBuffDraft(getNextDraftId(remainingIds));
-      setDraft(nextDraft);
-      setSelectedItemKey(Object.keys(nextDraft.items)[0] ?? null);
-      setSelectedEffectKey(
-        Object.keys(nextDraft.items)[0] ? Object.keys(nextDraft.items[Object.keys(nextDraft.items)[0]].effects)[0] ?? null : null
-      );
-      window.localStorage.setItem(BUFF_DRAFT_STORAGE_KEY, JSON.stringify(nextDraft));
-    }
-    setMessages((prev) => [`[OK] 已删除本地组：${selectedLocalDraftId}`, ...prev].slice(0, 12));
+    withUndo(`删除本地组 · ${selectedLocalDraftId}`, () => {
+      delete library[selectedLocalDraftId];
+      window.localStorage.setItem(BUFF_LIBRARY_STORAGE_KEY, JSON.stringify(library));
+      const remainingIds = Object.keys(library);
+      const nextSelectedId = remainingIds[0] || '';
+      setLocalDraftIds(remainingIds);
+      setSelectedLocalDraftId(nextSelectedId);
+      if (draft.id === selectedLocalDraftId) {
+        const nextDraft = nextSelectedId ? normalizeBuffDraft(cloneValue(library[nextSelectedId])) : createEmptyBuffDraft(getNextDraftId(remainingIds));
+        const nextItemKey = Object.keys(nextDraft.items)[0] ?? null;
+        const nextEffectKey = nextItemKey ? Object.keys(nextDraft.items[nextItemKey].effects)[0] ?? null : null;
+        setDraft(nextDraft);
+        setSelectedItemKey(nextItemKey);
+        setSelectedEffectKey(nextEffectKey);
+        window.localStorage.setItem(BUFF_DRAFT_STORAGE_KEY, JSON.stringify(nextDraft));
+      }
+      setMessages((prev) => [`[OK] 已删除本地组：${selectedLocalDraftId}`, ...prev].slice(0, 12));
+    });
   };
 
   const clearDragTimer = () => {
@@ -1637,18 +1857,16 @@ export function BuffDraftPage() {
       setMessages((prev) => ['[ERR] 当前没有可删除的自定义项', ...prev].slice(0, 12));
       return;
     }
-    if (typeof window !== 'undefined' && !window.confirm(`确认删除自定义项「${selectedItemKey}」吗？`)) {
-      setMessages((prev) => [`[OK] 已取消删除自定义项：${selectedItemKey}`, ...prev].slice(0, 12));
-      return;
-    }
-    const nextDraft = cloneValue(draft);
-    delete nextDraft.items[selectedItemKey];
-    const nextItemKey = Object.keys(nextDraft.items)[0] ?? null;
-    const nextEffectKey = nextItemKey ? Object.keys(nextDraft.items[nextItemKey].effects)[0] ?? null : null;
-    setDraft(nextDraft);
-    setSelectedItemKey(nextItemKey);
-    setSelectedEffectKey(nextEffectKey);
-    setMessages((prev) => [`[OK] 已删除自定义项：${selectedItemKey}`, ...prev].slice(0, 12));
+    withUndo(`删除自定义项 · ${selectedItemKey}`, () => {
+      const nextDraft = cloneValue(draft);
+      delete nextDraft.items[selectedItemKey];
+      const nextItemKey = Object.keys(nextDraft.items)[0] ?? null;
+      const nextEffectKey = nextItemKey ? Object.keys(nextDraft.items[nextItemKey].effects)[0] ?? null : null;
+      setDraft(nextDraft);
+      setSelectedItemKey(nextItemKey);
+      setSelectedEffectKey(nextEffectKey);
+      setMessages((prev) => [`[OK] 已删除自定义项：${selectedItemKey}`, ...prev].slice(0, 12));
+    });
   };
 
   const handleAddEffect = () => {
@@ -1707,16 +1925,14 @@ export function BuffDraftPage() {
       setMessages((prev) => ['[ERR] 当前没有可删除的 Buff 效果', ...prev].slice(0, 12));
       return;
     }
-    if (typeof window !== 'undefined' && !window.confirm(`确认删除 Buff 效果「${selectedEffectKey}」吗？`)) {
-      setMessages((prev) => [`[OK] 已取消删除 Buff 效果：${selectedEffectKey}`, ...prev].slice(0, 12));
-      return;
-    }
-    const nextDraft = cloneValue(draft);
-    delete nextDraft.items[selectedItemKey].effects[selectedEffectKey];
-    const nextEffectKey = Object.keys(nextDraft.items[selectedItemKey].effects)[0] ?? null;
-    setDraft(nextDraft);
-    setSelectedEffectKey(nextEffectKey);
-    setMessages((prev) => [`[OK] 已删除 Buff 效果：${selectedEffectKey}`, ...prev].slice(0, 12));
+    withUndo(`删除 Buff 效果 · ${selectedEffectKey}`, () => {
+      const nextDraft = cloneValue(draft);
+      delete nextDraft.items[selectedItemKey].effects[selectedEffectKey];
+      const nextEffectKey = Object.keys(nextDraft.items[selectedItemKey].effects)[0] ?? null;
+      setDraft(nextDraft);
+      setSelectedEffectKey(nextEffectKey);
+      setMessages((prev) => [`[OK] 已删除 Buff 效果：${selectedEffectKey}`, ...prev].slice(0, 12));
+    });
   };
 
   const handleOpenOperatorDraftPage = () => {
@@ -1739,6 +1955,10 @@ export function BuffDraftPage() {
     }
     navigateToAppPath(APP_ROUTE_PATHS.buffSheet);
   };
+
+  useEffect(() => {
+    syncUndoSnapshots();
+  }, [syncUndoSnapshots]);
 
   return (
     <main className="operator-draft-page buff-draft-page">
@@ -2191,6 +2411,34 @@ export function BuffDraftPage() {
               <section className="operator-draft-history operator-draft-history-side">
                 <div className="operator-draft-section-header">
                   <h3>操作记录</h3>
+                  <div className="operator-draft-section-actions">
+                    <div className="buff-draft-undo-wrap">
+                      <button
+                        type="button"
+                        className="operator-draft-ghost-button"
+                        onClick={() => setIsUndoMenuOpen((open) => !open)}
+                        disabled={undoSnapshots.length === 0}
+                      >
+                        撤回
+                      </button>
+                      {isUndoMenuOpen && undoSnapshots.length > 0 ? (
+                        <div className="buff-draft-undo-menu">
+                          {undoSnapshots.map((snapshot) => (
+                            <button
+                              key={snapshot.id}
+                              type="button"
+                              className="buff-draft-undo-item"
+                              onClick={() => handleRestoreUndoSnapshot(snapshot.id)}
+                              title={snapshot.label}
+                            >
+                              <strong>{formatBuffUndoLabel(snapshot.createdAt)}</strong>
+                              <span>{snapshot.label}</span>
+                            </button>
+                          ))}
+                        </div>
+                      ) : null}
+                    </div>
+                  </div>
                 </div>
                 <ul>
                   {messages.map((message, index) => (
@@ -2329,12 +2577,14 @@ export function BuffDraftSheetPage() {
   const [draft, setDraft] = useState<BuffDraft>(() => loadDraftFromStorage());
   const [localLibrary, setLocalLibrary] = useState<Record<string, BuffDraft>>({});
   const [selectedLocalDraftId, setSelectedLocalDraftId] = useState('');
+  const [undoSnapshots, setUndoSnapshots] = useState<BuffUndoSnapshot[]>([]);
+  const [isUndoMenuOpen, setIsUndoMenuOpen] = useState(false);
   const [filterKeyword, setFilterKeyword] = useState('');
   const [buffTypeQuery, setBuffTypeQuery] = useState('');
   const [collapsedItems, setCollapsedItems] = useState<Record<string, boolean>>({});
   const [collapsedDraftIds, setCollapsedDraftIds] = useState<Record<string, boolean>>({});
   const [isOverwriteProtectionEnabled, setIsOverwriteProtectionEnabled] = useState(true);
-  const [selectedWorkbookCell, setSelectedWorkbookCell] = useState<{ address: string; value: string; sourceRowKey?: string; columnKey?: string } | null>(null);
+  const [selectedWorkbookCell, setSelectedWorkbookCell] = useState<BuffWorkbookSelection | null>(null);
   const [pendingFocusRowKey, setPendingFocusRowKey] = useState<string | null>(null);
   const [effectValueInput, setEffectValueInput] = useState('');
   const [isShareModalOpen, setIsShareModalOpen] = useState(false);
@@ -2342,14 +2592,7 @@ export function BuffDraftSheetPage() {
   const [shareImportText, setShareImportText] = useState('');
   const [shareImportError, setShareImportError] = useState('');
   const [pendingImportShare, setPendingImportShare] = useState<DraftLibraryShareFile<BuffDraft> | null>(null);
-  const [contextMenu, setContextMenu] = useState<{
-    x: number;
-    y: number;
-    target: 'blank' | 'draft' | 'item' | 'effect';
-    draftId?: string;
-    itemKey?: string;
-    effectKey?: string;
-  } | null>(null);
+  const [contextMenu, setContextMenu] = useState<BuffSheetContextMenuState | null>(null);
   const [dragState, setDragState] = useState<BuffExplorerDragState | null>(null);
   const columns = useMemo(() => buildBuffSheetColumns(), []);
   const getItemCollapseKey = useCallback((draftId: string, itemKey: string) => `${draftId}:${itemKey}`, []);
@@ -2357,11 +2600,52 @@ export function BuffDraftSheetPage() {
   const pendingDragSourceRef = useRef<{ source: BuffExplorerDragNode; x: number; y: number } | null>(null);
   const suppressExplorerClickRef = useRef(false);
   const shareImportInputRef = useRef<HTMLInputElement>(null);
+  const formulaBarRef = useRef<HTMLDivElement>(null);
+  const pendingFormulaFocusRef = useRef<FormulaFocusSnapshot | null>(null);
+  const [formulaFocusRestoreToken, setFormulaFocusRestoreToken] = useState(0);
 
   const applyExplorerDefaultCollapse = useCallback((nextLibrary: Record<string, BuffDraft>) => {
     setCollapsedDraftIds(buildCollapsedDraftState(nextLibrary));
     setCollapsedItems(buildCollapsedItemState(nextLibrary, getItemCollapseKey));
   }, [getItemCollapseKey]);
+
+  const syncUndoSnapshots = useCallback(() => {
+    setUndoSnapshots(readBuffUndoSnapshots());
+  }, []);
+
+  const withUndo = useCallback((label: string, fn: () => void) => {
+    captureBuffUndoSnapshot(label, {
+      selectedDraftId: selectedLocalDraftId || draft.id || undefined,
+    });
+    fn();
+    syncUndoSnapshots();
+  }, [draft.id, selectedLocalDraftId, syncUndoSnapshots]);
+
+  const handleRestoreUndoSnapshot = useCallback((snapshotId: string) => {
+    const restored = restoreBuffUndoSnapshot(snapshotId);
+    if (!restored) {
+      return;
+    }
+
+    const nextLibrary = loadLocalBuffLibrary();
+    const nextDraftFromStorage = loadDraftFromStorage();
+    const nextSelectedId = restored.selectedDraftId && nextLibrary[restored.selectedDraftId]
+      ? restored.selectedDraftId
+      : (Object.keys(nextLibrary)[0] ?? nextDraftFromStorage.id);
+    const nextDraft = nextSelectedId && nextLibrary[nextSelectedId]
+      ? normalizeBuffDraft(cloneValue(nextLibrary[nextSelectedId]))
+      : nextDraftFromStorage;
+
+    setLocalLibrary(nextLibrary);
+    applyExplorerDefaultCollapse(nextLibrary);
+    setSelectedLocalDraftId(nextSelectedId);
+    setDraft(nextDraft);
+    setFilterKeyword('');
+    setSelectedWorkbookCell(null);
+    setPendingFocusRowKey(`group-${nextDraft.id}`);
+    setIsUndoMenuOpen(false);
+    syncUndoSnapshots();
+  }, [applyExplorerDefaultCollapse, syncUndoSnapshots]);
 
   const refreshLocalLibrary = useCallback(() => {
     const nextLibrary = {
@@ -2372,6 +2656,10 @@ export function BuffDraftSheetPage() {
     applyExplorerDefaultCollapse(nextLibrary);
     setSelectedLocalDraftId((prev) => prev || draft.id || Object.keys(nextLibrary)[0] || '');
   }, [applyExplorerDefaultCollapse, draft]);
+
+  useEffect(() => {
+    syncUndoSnapshots();
+  }, [syncUndoSnapshots]);
 
   const handleCollapseAllDrafts = useCallback(() => {
     applyExplorerDefaultCollapse(localLibrary);
@@ -2582,7 +2870,48 @@ export function BuffDraftSheetPage() {
     });
   }, [buffTypeQuery]);
 
+  useLayoutEffect(() => {
+    const snapshot = pendingFormulaFocusRef.current;
+    if (!snapshot) {
+      return;
+    }
+    const container = formulaBarRef.current;
+    if (!container) {
+      return;
+    }
+    const target = container.querySelector<HTMLElement>(`[data-formula-focus-id="${snapshot.focusId}"]`);
+    if (!target) {
+      return;
+    }
+    target.focus();
+    if ('setSelectionRange' in target && typeof snapshot.selectionStart === 'number' && typeof snapshot.selectionEnd === 'number') {
+      (target as HTMLInputElement).setSelectionRange(snapshot.selectionStart, snapshot.selectionEnd);
+    }
+    pendingFormulaFocusRef.current = null;
+  }, [formulaFocusRestoreToken]);
+
   useEffect(() => {
+    const resolveCellFromSelection = (selection: BuffWorkbookSelection | null) => {
+      if (!selection) {
+        return null;
+      }
+      if (selection.sourceRowKey) {
+        const matchedRow = workbookRows.find((row) => row.sourceRow?.key === selection.sourceRowKey);
+        if (matchedRow) {
+          if (selection.columnKey) {
+            const matchedCell = matchedRow.cells.find((cell) => cell.columnKey === selection.columnKey);
+            if (matchedCell) {
+              return matchedCell;
+            }
+          }
+          return matchedRow.cells[0] ?? null;
+        }
+      }
+      return workbookRows
+        .flatMap((row) => row.cells)
+        .find((cell) => cell.address === selection.address) ?? null;
+    };
+
     const resolveCellByRowKey = (rowKey: string) => {
       const matchedRow = workbookRows.find((row) => row.sourceRow?.key === rowKey);
       return matchedRow?.cells[0] ?? null;
@@ -2608,7 +2937,24 @@ export function BuffDraftSheetPage() {
       setSelectedWorkbookCell(null);
       return;
     }
-    if (!selectedWorkbookCell || !workbookRows.some((row) => row.cells.some((cell) => cell.address === selectedWorkbookCell.address))) {
+    const resolvedSelectedCell = resolveCellFromSelection(selectedWorkbookCell);
+    if (resolvedSelectedCell) {
+      if (
+        resolvedSelectedCell.address !== selectedWorkbookCell?.address
+        || resolvedSelectedCell.value !== selectedWorkbookCell?.value
+        || resolvedSelectedCell.sourceRowKey !== selectedWorkbookCell?.sourceRowKey
+        || resolvedSelectedCell.columnKey !== selectedWorkbookCell?.columnKey
+      ) {
+        setSelectedWorkbookCell({
+          address: resolvedSelectedCell.address,
+          value: resolvedSelectedCell.value,
+          sourceRowKey: resolvedSelectedCell.sourceRowKey,
+          columnKey: resolvedSelectedCell.columnKey,
+        });
+      }
+      return;
+    }
+    if (!selectedWorkbookCell) {
       setSelectedWorkbookCell({
         address: firstCell.address,
         value: firstCell.value,
@@ -2648,6 +2994,14 @@ export function BuffDraftSheetPage() {
   const toggleDraftCollapsed = (draftId: string) => {
     setCollapsedDraftIds((prev) => ({ ...prev, [draftId]: !prev[draftId] }));
   };
+
+  const setDraftCollapsed = useCallback((draftId: string, collapsed: boolean) => {
+    setCollapsedDraftIds((prev) => ({ ...prev, [draftId]: collapsed }));
+  }, []);
+
+  const setItemCollapsed = useCallback((draftId: string, itemKey: string, collapsed: boolean) => {
+    setCollapsedItems((prev) => ({ ...prev, [getItemCollapseKey(draftId, itemKey)]: collapsed }));
+  }, [getItemCollapseKey]);
 
   const selectedWorkbookSummary = selectedWorkbookCell?.sourceRowKey
     ? visibleRows.find((row) => row.key === selectedWorkbookCell.sourceRowKey)
@@ -2762,7 +3116,7 @@ export function BuffDraftSheetPage() {
     setEffectValueInput(String(parsed));
   }, [effectValueInput, selectedEffect, updateSelectedEffect]);
 
-  const persistDraftToLibrary = useCallback((allowOverwrite: boolean) => {
+  const persistDraftToLibrary = useCallback((allowOverwrite: boolean, focusRowKey?: string | null) => {
     const library = loadLocalBuffLibrary();
     const existingIds = Object.keys(library);
     const nextDraftId = draft.id.trim() || getNextDraftId(existingIds);
@@ -2782,13 +3136,26 @@ export function BuffDraftSheetPage() {
     setDraft(nextDraft);
     setLocalLibrary(nextLibrary);
     setSelectedLocalDraftId(nextDraftId);
-    setPendingFocusRowKey(`group-${nextDraftId}`);
+    setPendingFocusRowKey(focusRowKey ?? `group-${nextDraftId}`);
     return true;
   }, [draft, selectedLocalDraftId]);
 
   const handleSaveDraft = useCallback(() => {
-    persistDraftToLibrary(!isOverwriteProtectionEnabled);
-  }, [isOverwriteProtectionEnabled, persistDraftToLibrary]);
+    const activeElement = typeof document !== 'undefined' ? document.activeElement : null;
+    const formulaField = activeElement instanceof HTMLElement
+      ? activeElement.closest<HTMLElement>('[data-formula-focus-id]')
+      : null;
+    if (formulaField && formulaBarRef.current?.contains(formulaField)) {
+      const selectionCapable = formulaField as HTMLInputElement;
+      pendingFormulaFocusRef.current = {
+        focusId: formulaField.dataset.formulaFocusId || '',
+        selectionStart: typeof selectionCapable.selectionStart === 'number' ? selectionCapable.selectionStart : null,
+        selectionEnd: typeof selectionCapable.selectionEnd === 'number' ? selectionCapable.selectionEnd : null,
+      };
+      setFormulaFocusRestoreToken((prev) => prev + 1);
+    }
+    persistDraftToLibrary(!isOverwriteProtectionEnabled, selectedWorkbookCell?.sourceRowKey ?? null);
+  }, [isOverwriteProtectionEnabled, persistDraftToLibrary, selectedWorkbookCell]);
 
   const handleCreateNewDraft = useCallback(() => {
     const nextDraftId = getNextDraftId(Object.keys(localLibrary));
@@ -2872,16 +3239,15 @@ export function BuffDraftSheetPage() {
     if (!targetDraft?.items[itemKey]) {
       return;
     }
-    if (!window.confirm(`确认删除自定义项「${itemKey}」吗？`)) {
-      return;
-    }
-    const nextDraft = cloneValue(targetDraft);
-    delete nextDraft.items[itemKey];
-    const nextLibrary = { ...localLibrary, [draftId]: nextDraft };
-    persistLibraryState(nextLibrary, draftId);
-    const nextItemKey = Object.keys(nextDraft.items)[0] ?? null;
-    setPendingFocusRowKey(nextItemKey ? `item-${nextItemKey}` : `group-${nextDraft.id}`);
-  }, [localLibrary, persistLibraryState]);
+    withUndo(`删除自定义项 · ${itemKey}`, () => {
+      const nextDraft = cloneValue(targetDraft);
+      delete nextDraft.items[itemKey];
+      const nextLibrary = { ...localLibrary, [draftId]: nextDraft };
+      persistLibraryState(nextLibrary, draftId);
+      const nextItemKey = Object.keys(nextDraft.items)[0] ?? null;
+      setPendingFocusRowKey(nextItemKey ? `item-${nextItemKey}` : `group-${nextDraft.id}`);
+    });
+  }, [localLibrary, persistLibraryState, withUndo]);
 
   const handleCreateDraftEffect = useCallback((draftId: string, itemKey: string) => {
     const targetDraft = localLibrary[draftId];
@@ -2924,46 +3290,89 @@ export function BuffDraftSheetPage() {
     if (!targetDraft || !targetItem?.effects[effectKey]) {
       return;
     }
-    if (!window.confirm(`确认删除 Buff 效果「${effectKey}」吗？`)) {
-      return;
-    }
-    const nextDraft = cloneValue(targetDraft);
-    delete nextDraft.items[itemKey].effects[effectKey];
-    const nextLibrary = { ...localLibrary, [draftId]: nextDraft };
-    persistLibraryState(nextLibrary, draftId);
-    const nextEffectKey = Object.keys(nextDraft.items[itemKey].effects)[0] ?? null;
-    setPendingFocusRowKey(nextEffectKey ? `effect-${itemKey}-${nextEffectKey}` : `item-${itemKey}`);
-  }, [localLibrary, persistLibraryState]);
+    withUndo(`删除 Buff 效果 · ${effectKey}`, () => {
+      const nextDraft = cloneValue(targetDraft);
+      delete nextDraft.items[itemKey].effects[effectKey];
+      const nextLibrary = { ...localLibrary, [draftId]: nextDraft };
+      persistLibraryState(nextLibrary, draftId);
+      const nextEffectKey = Object.keys(nextDraft.items[itemKey].effects)[0] ?? null;
+      setPendingFocusRowKey(nextEffectKey ? `effect-${itemKey}-${nextEffectKey}` : `item-${itemKey}`);
+    });
+  }, [localLibrary, persistLibraryState, withUndo]);
 
   const handleDeleteDraftGroup = useCallback((draftId: string) => {
     if (!localLibrary[draftId]) {
       return;
     }
-    if (!window.confirm(`确认删除本地组「${draftId}」吗？`)) {
-      return;
-    }
-    const nextLibrary = cloneValue(localLibrary);
-    delete nextLibrary[draftId];
-    const nextSelectedId = Object.keys(nextLibrary)[0] ?? '';
-    window.localStorage.setItem(BUFF_LIBRARY_STORAGE_KEY, JSON.stringify(nextLibrary));
-    setLocalLibrary(nextLibrary);
-    setSelectedLocalDraftId(nextSelectedId);
-    if (nextSelectedId && nextLibrary[nextSelectedId]) {
-      setDraft(nextLibrary[nextSelectedId]);
-      setPendingFocusRowKey(`group-${nextSelectedId}`);
-    } else {
-      const nextDraftId = getNextDraftId([]);
-      const nextDraft = createEmptyBuffDraft(nextDraftId);
-      setDraft(nextDraft);
-      setPendingFocusRowKey(`group-${nextDraftId}`);
-    }
-  }, [localLibrary]);
+    withUndo(`删除本地组 · ${draftId}`, () => {
+      const nextLibrary = cloneValue(localLibrary);
+      delete nextLibrary[draftId];
+      const nextSelectedId = Object.keys(nextLibrary)[0] ?? '';
+      window.localStorage.setItem(BUFF_LIBRARY_STORAGE_KEY, JSON.stringify(nextLibrary));
+      setLocalLibrary(nextLibrary);
+      setSelectedLocalDraftId(nextSelectedId);
+      if (nextSelectedId && nextLibrary[nextSelectedId]) {
+        setDraft(nextLibrary[nextSelectedId]);
+        setPendingFocusRowKey(`group-${nextSelectedId}`);
+      } else {
+        const nextDraftId = getNextDraftId([]);
+        const nextDraft = createEmptyBuffDraft(nextDraftId);
+        setDraft(nextDraft);
+        setPendingFocusRowKey(`group-${nextDraftId}`);
+      }
+    });
+  }, [localLibrary, withUndo]);
 
-  const openContextMenu = useCallback((event: ReactMouseEvent, nextMenu: NonNullable<typeof contextMenu>) => {
+  const openContextMenu = useCallback((event: ReactMouseEvent, nextMenu: BuffSheetContextMenuState) => {
     event.preventDefault();
     event.stopPropagation();
     setContextMenu(nextMenu);
   }, []);
+
+  const openWorkbookContextMenu = useCallback((
+    event: ReactMouseEvent,
+    sourceRow?: BuffSheetRow,
+    selectedCell?: { address: string; value: string; sourceRowKey?: string; columnKey?: string },
+  ) => {
+    if (selectedCell) {
+      setSelectedWorkbookCell(selectedCell);
+    }
+    if (!sourceRow) {
+      openContextMenu(event, {
+        x: event.clientX,
+        y: event.clientY,
+        target: 'blank',
+      });
+      return;
+    }
+    if (sourceRow.kind === 'group') {
+      openContextMenu(event, {
+        x: event.clientX,
+        y: event.clientY,
+        target: 'draft',
+        draftId: draft.id,
+      });
+      return;
+    }
+    if (sourceRow.kind === 'item') {
+      openContextMenu(event, {
+        x: event.clientX,
+        y: event.clientY,
+        target: 'item',
+        draftId: draft.id,
+        itemKey: sourceRow.itemKey,
+      });
+      return;
+    }
+    openContextMenu(event, {
+      x: event.clientX,
+      y: event.clientY,
+      target: 'effect',
+      draftId: draft.id,
+      itemKey: sourceRow.itemKey,
+      effectKey: sourceRow.effectKey,
+    });
+  }, [draft.id, openContextMenu]);
 
   const getExplorerDragNodeKey = useCallback((node: BuffExplorerDragNode) => {
     if (node.kind === 'draft') {
@@ -3231,22 +3640,22 @@ export function BuffDraftSheetPage() {
 
     if (selectedWorkbookSummary.kind === 'group') {
       if (selectedWorkbookCell?.columnKey === 'idText') {
-        return <input className="buff-sheet-formula-input" value={draft.id} onChange={(event) => updateDraftField('id', event.target.value)} placeholder="组 ID" />;
+        return <input data-formula-focus-id="group-id" className="buff-sheet-formula-input" value={draft.id} onChange={(event) => updateDraftField('id', event.target.value)} placeholder="组 ID" />;
       }
       if (selectedWorkbookCell?.columnKey === 'description') {
-        return <input className="buff-sheet-formula-input" value={draft.description} onChange={(event) => updateDraftField('description', event.target.value)} placeholder="组描述" />;
+        return <input data-formula-focus-id="group-description" className="buff-sheet-formula-input" value={draft.description} onChange={(event) => updateDraftField('description', event.target.value)} placeholder="组描述" />;
       }
-      return <input className="buff-sheet-formula-input" value={draft.name} onChange={(event) => updateDraftField('name', event.target.value)} placeholder="组名称" />;
+      return <input data-formula-focus-id="group-name" className="buff-sheet-formula-input" value={draft.name} onChange={(event) => updateDraftField('name', event.target.value)} placeholder="组名称" />;
     }
 
     if (selectedWorkbookSummary.kind === 'item' && selectedItem) {
       if (selectedWorkbookCell?.columnKey === 'idText') {
-        return <input className="buff-sheet-formula-input" value={selectedItem.id} onChange={(event) => updateSelectedItem((prev) => ({ ...prev, id: event.target.value }))} placeholder="项 ID" />;
+        return <input data-formula-focus-id="item-id" className="buff-sheet-formula-input" value={selectedItem.id} onChange={(event) => updateSelectedItem((prev) => ({ ...prev, id: event.target.value }))} placeholder="项 ID" />;
       }
       if (selectedWorkbookCell?.columnKey === 'description') {
-        return <input className="buff-sheet-formula-input" value={selectedItem.description} onChange={(event) => updateSelectedItem((prev) => ({ ...prev, description: event.target.value }))} placeholder="项描述" />;
+        return <input data-formula-focus-id="item-description" className="buff-sheet-formula-input" value={selectedItem.description} onChange={(event) => updateSelectedItem((prev) => ({ ...prev, description: event.target.value }))} placeholder="项描述" />;
       }
-      return <input className="buff-sheet-formula-input" value={selectedItem.name} onChange={(event) => updateSelectedItem((prev) => ({ ...prev, name: event.target.value }))} placeholder="项名称" />;
+      return <input data-formula-focus-id="item-name" className="buff-sheet-formula-input" value={selectedItem.name} onChange={(event) => updateSelectedItem((prev) => ({ ...prev, name: event.target.value }))} placeholder="项名称" />;
     }
 
     if (selectedWorkbookSummary.kind === 'effect' && selectedEffect) {
@@ -3255,7 +3664,7 @@ export function BuffDraftSheetPage() {
           return <div className="damage-sheet-formula-value">{selectedEffect.id}</div>;
         case 'effectKind':
           return (
-            <select className="buff-sheet-formula-input is-select" value={selectedEffect.effectKind || 'modifier'} onChange={(event) => updateSelectedEffectKind(event.target.value as BuffEffectKind)}>
+            <select data-formula-focus-id="effect-kind" className="buff-sheet-formula-input is-select" value={selectedEffect.effectKind || 'modifier'} onChange={(event) => updateSelectedEffectKind(event.target.value as BuffEffectKind)}>
               {BUFF_EFFECT_KIND_OPTIONS.map((option) => (
                 <option key={option} value={option}>{getEffectKindLabel(option)}</option>
               ))}
@@ -3265,6 +3674,7 @@ export function BuffDraftSheetPage() {
           return (
             <div className="buff-sheet-formula-type-editor">
               <input
+                data-formula-focus-id="effect-type-search"
                 className="buff-sheet-formula-input buff-sheet-formula-type-search"
                 value={buffTypeQuery}
                 onChange={(event) => setBuffTypeQuery(event.target.value)}
@@ -3272,6 +3682,7 @@ export function BuffDraftSheetPage() {
                 disabled={selectedEffect.effectKind === 'extraHit'}
               />
               <select
+                data-formula-focus-id="effect-type-select"
                 className="buff-sheet-formula-input is-select buff-sheet-formula-type-select"
                 value={selectedEffect.type || ''}
                 onChange={(event) => updateSelectedEffect((prev) => ({ ...prev, type: event.target.value }))}
@@ -3287,6 +3698,7 @@ export function BuffDraftSheetPage() {
         case 'valueText':
           return (
             <input
+              data-formula-focus-id="effect-value"
               className="buff-sheet-formula-input"
               type="number"
               value={selectedEffect.effectKind === 'extraHit' ? 0 : effectValueInput}
@@ -3297,11 +3709,11 @@ export function BuffDraftSheetPage() {
             />
           );
         case 'condition':
-          return <input className="buff-sheet-formula-input" value={selectedEffect.condition || ''} onChange={(event) => updateSelectedEffect((prev) => ({ ...prev, condition: event.target.value }))} placeholder="条件" />;
+          return <input data-formula-focus-id="effect-condition" className="buff-sheet-formula-input" value={selectedEffect.condition || ''} onChange={(event) => updateSelectedEffect((prev) => ({ ...prev, condition: event.target.value }))} placeholder="条件" />;
         case 'description':
-          return <input className="buff-sheet-formula-input" value={selectedEffect.description || ''} onChange={(event) => updateSelectedEffect((prev) => ({ ...prev, description: event.target.value }))} placeholder="描述" />;
+          return <input data-formula-focus-id="effect-description" className="buff-sheet-formula-input" value={selectedEffect.description || ''} onChange={(event) => updateSelectedEffect((prev) => ({ ...prev, description: event.target.value }))} placeholder="描述" />;
         default:
-          return <input className="buff-sheet-formula-input" value={selectedEffect.displayName} onChange={(event) => updateSelectedEffect((prev) => ({ ...prev, displayName: event.target.value }))} placeholder="效果名称" />;
+          return <input data-formula-focus-id="effect-display-name" className="buff-sheet-formula-input" value={selectedEffect.displayName} onChange={(event) => updateSelectedEffect((prev) => ({ ...prev, displayName: event.target.value }))} placeholder="效果名称" />;
       }
     }
 
@@ -3313,6 +3725,76 @@ export function BuffDraftSheetPage() {
   const dragSourceLabel = dragState ? getExplorerDragNodeLabel(dragState.source) : '';
   const dragTargetLabel = dragState?.over ? getExplorerDragNodeLabel(dragState.over) : '';
   const dragTargetKindLabel = dragState?.over ? formatBuffExplorerDragKindLabel(dragState.over.kind) : '';
+  const currentContextMenuActions = useMemo<BuffSheetContextMenuAction[]>(() => {
+    if (!contextMenu) {
+      return [];
+    }
+    if (contextMenu.target === 'blank') {
+      return [
+        { key: 'new-draft', label: '新建组', icon: 'new', onClick: () => handleCreateNewDraft() },
+        { key: 'collapse-all-drafts', label: '折叠全部组', icon: 'collapse', onClick: () => handleCollapseAllDrafts() },
+        { key: 'expand-all-drafts', label: '展开全部组', icon: 'expand', onClick: () => handleExpandAllDrafts() },
+      ];
+    }
+    if (contextMenu.target === 'draft' && contextMenu.draftId) {
+      const isCollapsed = Boolean(collapsedDraftIds[contextMenu.draftId]);
+      return [
+        { key: 'open-draft', label: '打开组', icon: 'open', onClick: () => handleLoadDraftById(contextMenu.draftId!) },
+        {
+          key: 'toggle-draft-collapse',
+          label: isCollapsed ? '展开此组' : '折叠此组',
+          icon: isCollapsed ? 'expand' : 'collapse',
+          onClick: () => setDraftCollapsed(contextMenu.draftId!, !isCollapsed),
+        },
+        { key: 'collapse-draft-items', label: '折叠全部项', icon: 'collapse', onClick: () => handleCollapseAllItemsInDraft(contextMenu.draftId!) },
+        { key: 'expand-draft-items', label: '展开全部项', icon: 'expand', onClick: () => handleExpandAllItemsInDraft(contextMenu.draftId!) },
+        { key: 'create-item', label: '新建项', icon: 'new', onClick: () => handleCreateDraftItem(contextMenu.draftId!) },
+        { key: 'delete-draft', label: '删除组', icon: 'delete', onClick: () => handleDeleteDraftGroup(contextMenu.draftId!) },
+      ];
+    }
+    if (contextMenu.target === 'item' && contextMenu.draftId && contextMenu.itemKey) {
+      const collapseKey = getItemCollapseKey(contextMenu.draftId, contextMenu.itemKey);
+      const isCollapsed = Boolean(collapsedItems[collapseKey]);
+      return [
+        { key: 'create-effect', label: '新建效果', icon: 'new', onClick: () => handleCreateDraftEffect(contextMenu.draftId!, contextMenu.itemKey!) },
+        {
+          key: 'toggle-item-collapse',
+          label: isCollapsed ? '展开此项' : '折叠此项',
+          icon: isCollapsed ? 'expand' : 'collapse',
+          onClick: () => setItemCollapsed(contextMenu.draftId!, contextMenu.itemKey!, !isCollapsed),
+        },
+        { key: 'duplicate-item', label: '复制项', icon: 'copy', onClick: () => handleDuplicateDraftItem(contextMenu.draftId!, contextMenu.itemKey!) },
+        { key: 'delete-item', label: '删除项', icon: 'delete', onClick: () => handleDeleteDraftItem(contextMenu.draftId!, contextMenu.itemKey!) },
+      ];
+    }
+    if (contextMenu.target === 'effect' && contextMenu.draftId && contextMenu.itemKey && contextMenu.effectKey) {
+      return [
+        { key: 'duplicate-effect', label: '复制效果', icon: 'copy', onClick: () => handleDuplicateDraftEffect(contextMenu.draftId!, contextMenu.itemKey!, contextMenu.effectKey!) },
+        { key: 'delete-effect', label: '删除效果', icon: 'delete', onClick: () => handleDeleteDraftEffect(contextMenu.draftId!, contextMenu.itemKey!, contextMenu.effectKey!) },
+      ];
+    }
+    return [];
+  }, [
+    collapsedDraftIds,
+    collapsedItems,
+    contextMenu,
+    getItemCollapseKey,
+    handleCollapseAllDrafts,
+    handleCollapseAllItemsInDraft,
+    handleCreateDraftEffect,
+    handleCreateDraftItem,
+    handleCreateNewDraft,
+    handleDeleteDraftEffect,
+    handleDeleteDraftGroup,
+    handleDeleteDraftItem,
+    handleDuplicateDraftEffect,
+    handleDuplicateDraftItem,
+    handleExpandAllDrafts,
+    handleExpandAllItemsInDraft,
+    handleLoadDraftById,
+    setDraftCollapsed,
+    setItemCollapsed,
+  ]);
 
   return (
     <main className="damage-sheet-page buff-sheet-page">
@@ -3327,6 +3809,32 @@ export function BuffDraftSheetPage() {
           </div>
         </div>
         <div className="damage-sheet-topbar-right">
+          <div className="damage-sheet-undo-wrap">
+            <button
+              type="button"
+              className="damage-sheet-action-button"
+              onClick={() => setIsUndoMenuOpen((open) => !open)}
+              disabled={undoSnapshots.length === 0}
+            >
+              撤回
+            </button>
+            {isUndoMenuOpen && undoSnapshots.length > 0 ? (
+              <div className="damage-sheet-undo-menu">
+                {undoSnapshots.map((snapshot) => (
+                  <button
+                    key={snapshot.id}
+                    type="button"
+                    className="damage-sheet-undo-item"
+                    onClick={() => handleRestoreUndoSnapshot(snapshot.id)}
+                    title={snapshot.label}
+                  >
+                    <strong>{formatBuffUndoLabel(snapshot.createdAt)}</strong>
+                    <span>{snapshot.label}</span>
+                  </button>
+                ))}
+              </div>
+            ) : null}
+          </div>
           <button type="button" className="damage-sheet-action-button" onClick={handleOpenBuffEditorPage}>
             返回编辑器
           </button>
@@ -3399,7 +3907,7 @@ export function BuffDraftSheetPage() {
             <span className="buff-sheet-tool-text">导入</span>
           </button>
         </div>
-        <div className="damage-sheet-formula-bar">
+        <div ref={formulaBarRef} className="damage-sheet-formula-bar">
           <span className="damage-sheet-formula-address">{selectedWorkbookCell?.address ?? '-'}</span>
           <span className="damage-sheet-formula-label">fx</span>
           {renderFormulaEditor()}
@@ -3560,73 +4068,33 @@ export function BuffDraftSheetPage() {
               onPointerDown={(event) => event.stopPropagation()}
               onContextMenu={(event) => event.preventDefault()}
             >
-              {contextMenu.target === 'blank' ? (
-                <>
-                  <button type="button" className="buff-sheet-context-menu-item" onClick={() => { handleCreateNewDraft(); setContextMenu(null); }}>
-                    新建组
-                  </button>
-                  <button type="button" className="buff-sheet-context-menu-item" onClick={() => { handleCollapseAllDrafts(); setContextMenu(null); }}>
-                    折叠全部组
-                  </button>
-                  <button type="button" className="buff-sheet-context-menu-item" onClick={() => { handleExpandAllDrafts(); setContextMenu(null); }}>
-                    展开全部组
-                  </button>
-                </>
-              ) : null}
-              {contextMenu.target === 'draft' && contextMenu.draftId ? (
-                <>
-                  <button type="button" className="buff-sheet-context-menu-item" onClick={() => { handleLoadDraftById(contextMenu.draftId!); setContextMenu(null); }}>
-                    打开组
-                  </button>
-                  <button type="button" className="buff-sheet-context-menu-item" onClick={() => { handleCollapseAllItemsInDraft(contextMenu.draftId!); setContextMenu(null); }}>
-                    折叠全部项
-                  </button>
-                  <button type="button" className="buff-sheet-context-menu-item" onClick={() => { handleExpandAllItemsInDraft(contextMenu.draftId!); setContextMenu(null); }}>
-                    展开全部项
-                  </button>
-                  <button type="button" className="buff-sheet-context-menu-item" onClick={() => { handleCreateDraftItem(contextMenu.draftId!); setContextMenu(null); }}>
-                    新建项
-                  </button>
-                  <button type="button" className="buff-sheet-context-menu-item" onClick={() => { handleDeleteDraftGroup(contextMenu.draftId!); setContextMenu(null); }}>
-                    删除组
-                  </button>
-                </>
-              ) : null}
-              {contextMenu.target === 'item' && contextMenu.draftId && contextMenu.itemKey ? (
-                <>
-                  <button type="button" className="buff-sheet-context-menu-item" onClick={() => { handleCreateDraftEffect(contextMenu.draftId!, contextMenu.itemKey!); setContextMenu(null); }}>
-                    新增效果
-                  </button>
-                  <button type="button" className="buff-sheet-context-menu-item" onClick={() => { handleCollapseAllItemsInDraft(contextMenu.draftId!); setContextMenu(null); }}>
-                    折叠全部项
-                  </button>
-                  <button type="button" className="buff-sheet-context-menu-item" onClick={() => { handleExpandAllItemsInDraft(contextMenu.draftId!); setContextMenu(null); }}>
-                    展开全部项
-                  </button>
-                  <button type="button" className="buff-sheet-context-menu-item" onClick={() => { handleDuplicateDraftItem(contextMenu.draftId!, contextMenu.itemKey!); setContextMenu(null); }}>
-                    复制项
-                  </button>
-                  <button type="button" className="buff-sheet-context-menu-item" onClick={() => { handleDeleteDraftItem(contextMenu.draftId!, contextMenu.itemKey!); setContextMenu(null); }}>
-                    删除项
-                  </button>
-                </>
-              ) : null}
-              {contextMenu.target === 'effect' && contextMenu.draftId && contextMenu.itemKey && contextMenu.effectKey ? (
-                <>
-                  <button type="button" className="buff-sheet-context-menu-item" onClick={() => { handleDuplicateDraftEffect(contextMenu.draftId!, contextMenu.itemKey!, contextMenu.effectKey!); setContextMenu(null); }}>
-                    复制效果
-                  </button>
-                  <button type="button" className="buff-sheet-context-menu-item" onClick={() => { handleDeleteDraftEffect(contextMenu.draftId!, contextMenu.itemKey!, contextMenu.effectKey!); setContextMenu(null); }}>
-                    删除效果
-                  </button>
-                </>
-              ) : null}
+              {currentContextMenuActions.map((action) => (
+                <button
+                  key={action.key}
+                  type="button"
+                  className="buff-sheet-context-menu-item"
+                  onClick={() => {
+                    action.onClick();
+                    setContextMenu(null);
+                  }}
+                >
+                  <span className="buff-sheet-context-menu-icon" aria-hidden="true">
+                    <svg className="buff-sheet-context-menu-svg" viewBox="0 0 16 16" focusable="false">
+                      {renderBuffSheetMenuIcon(action.icon)}
+                    </svg>
+                  </span>
+                  <span className="buff-sheet-context-menu-label">{action.label}</span>
+                </button>
+              ))}
             </div>
           ) : null}
         </aside>
 
         <section className="damage-sheet-excel-shell">
-          <div className="damage-sheet-excel-scroll">
+          <div
+            className="damage-sheet-excel-scroll"
+            onContextMenu={(event) => openWorkbookContextMenu(event)}
+          >
             {workbookRows.length === 0 ? (
               <div className="damage-sheet-empty-state">
                 <h2>当前没有可展示的 Buff 数据</h2>
@@ -3634,8 +4102,15 @@ export function BuffDraftSheetPage() {
               </div>
             ) : (
               workbookRows.map((row) => (
-                <div key={row.key} className={`damage-sheet-excel-row is-${row.kind}`}>
-                  <div className="damage-sheet-excel-row-number">
+                <div
+                  key={row.key}
+                  className={`damage-sheet-excel-row is-${row.kind}`}
+                  onContextMenu={(event) => openWorkbookContextMenu(event, row.sourceRow)}
+                >
+                  <div
+                    className="damage-sheet-excel-row-number"
+                    onContextMenu={(event) => openWorkbookContextMenu(event, row.sourceRow)}
+                  >
                     {row.sourceRow?.kind === 'item' ? (
                       <button
                         type="button"
@@ -3653,6 +4128,12 @@ export function BuffDraftSheetPage() {
                         className={`damage-sheet-excel-cell is-${cell.kind} is-${cell.align}${selectedWorkbookCell?.address === cell.address ? ' is-active' : ''}`}
                         style={{ width: `${cell.width}px` }}
                         onClick={() => setSelectedWorkbookCell({
+                          address: cell.address,
+                          value: cell.value,
+                          sourceRowKey: cell.sourceRowKey,
+                          columnKey: cell.columnKey,
+                        })}
+                        onContextMenu={(event) => openWorkbookContextMenu(event, row.sourceRow, {
                           address: cell.address,
                           value: cell.value,
                           sourceRowKey: cell.sourceRowKey,

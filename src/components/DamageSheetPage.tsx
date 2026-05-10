@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import type { CSSProperties } from 'react';
 import type { MouseEvent as ReactMouseEvent } from 'react';
 import ExcelJS from 'exceljs';
 import type { SkillButton as RuntimeSkillButton, SkillButtonData, SkillType } from '../types';
@@ -113,13 +114,16 @@ interface SelectedWorkbookCell {
 interface SheetContextMenuState {
   x: number;
   y: number;
-  target: 'sheet' | 'character' | 'group';
+  target: 'sheet' | 'character' | 'group' | 'buff';
   characterId?: string;
   group?: string;
+  buffId?: string;
 }
 
 type SheetSidebarTab = 'related' | 'local' | 'anomaly' | 'state' | 'anomaly-state';
 type SheetOrderMode = 'character' | 'cast';
+type BuffFrameState = 'enabled' | 'disabled';
+type BuffFrameSpan = 'single' | 'start' | 'middle' | 'end';
 
 interface UndoSnapshot {
   id: string;
@@ -131,6 +135,38 @@ interface UndoSnapshot {
 const DAMAGE_SHEET_UNDO_KEY = 'def.damage-sheet.undo.v1';
 const DAMAGE_SHEET_UNDO_LIMIT = 5;
 const ENABLE_ADVANCED_SHEET_SIDEBAR = false;
+
+type DamageSheetContextMenuAction = {
+  key: string;
+  label: string;
+  icon: 'delete' | 'cancel' | 'confirm';
+  onSelect: () => void;
+};
+
+function renderDamageSheetMenuIcon(icon: DamageSheetContextMenuAction['icon']) {
+  switch (icon) {
+    case 'delete':
+      return (
+        <>
+          <path d="M4.25 5.25h7.5" />
+          <path d="M6.25 2.75h3.5" />
+          <path d="M5.25 5.25v6.5M8 5.25v6.5M10.75 5.25v6.5" />
+          <path d="M4.75 5.25l.5 7h5.5l.5-7" />
+        </>
+      );
+    case 'cancel':
+      return (
+        <>
+          <path d="M4 4l8 8" />
+          <path d="M12 4l-8 8" />
+        </>
+      );
+    case 'confirm':
+      return <path d="M6.25 8.25L7.4 9.4l2.35-2.55" />;
+    default:
+      return null;
+  }
+}
 
 interface WorkbookSheetBuildResult {
   workbook: ExcelJS.Workbook;
@@ -791,36 +827,115 @@ function workbookWidthToPixels(width: number | undefined): number {
   return Math.max(24, Math.round(safeWidth * 10));
 }
 
-function getRelevantBuffsForColumn(hitRow: HitValueRow, columnKey: string): SkillButtonBuff[] {
-  const { detail } = hitRow;
-  const { hitResult } = detail;
-
+function filterRelevantBuffsForColumn(
+  buffs: SkillButtonBuff[],
+  hit: HitCalcResult['hit'],
+  columnKey: string,
+): SkillButtonBuff[] {
   switch (columnKey) {
     case 'atk':
-      return hitResult.appliedBuffs.filter((buff) => ['atkPercentBoost', 'flatAtk', 'mainStatBoost', 'subStatBoost', 'allStatBoost', 'strengthBoost', 'agilityBoost', 'intelligenceBoost', 'willBoost'].includes(buff.type || ''));
+      return buffs.filter((buff) => ['atkPercentBoost', 'flatAtk', 'mainStatBoost', 'subStatBoost', 'allStatBoost', 'strengthBoost', 'agilityBoost', 'intelligenceBoost', 'willBoost'].includes(buff.type || ''));
     case 'critRate':
-      return hitResult.appliedBuffs.filter((buff) => buff.type === 'critRateBoost');
+      return buffs.filter((buff) => buff.type === 'critRateBoost');
     case 'critDmg':
-      return hitResult.appliedBuffs.filter((buff) => buff.type === 'critDmgBonusBoost');
+      return buffs.filter((buff) => buff.type === 'critDmgBonusBoost');
     case 'baseMultiplier':
     case 'bonusMultiplier':
     case 'finalMultiplier':
-      return hitResult.appliedBuffs.filter((buff) => buff.type === 'multiplierBonus' || buff.type === 'multiplierMultiplier');
+      return buffs.filter((buff) => buff.type === 'multiplierBonus' || buff.type === 'multiplierMultiplier');
     case 'damageBonusRate':
-      return hitResult.appliedBuffs.filter((buff) => isDamageBonusBuffForHit(buff, detail.hit));
+      return buffs.filter((buff) => isDamageBonusBuffForHit(buff, hit));
     case 'amplifyRate':
-      return hitResult.appliedBuffs.filter((buff) => isAmplifyBuffForHit(buff, detail.hit));
+      return buffs.filter((buff) => isAmplifyBuffForHit(buff, hit));
     case 'fragileRate':
-      return hitResult.appliedBuffs.filter((buff) => isFragileBuffForHit(buff, detail.hit));
+      return buffs.filter((buff) => isFragileBuffForHit(buff, hit));
     case 'vulnerabilityRate':
-      return hitResult.appliedBuffs.filter((buff) => isVulnerabilityBuffForHit(buff, detail.hit));
+      return buffs.filter((buff) => isVulnerabilityBuffForHit(buff, hit));
     case 'comboDamageBonus':
-      return hitResult.appliedBuffs.filter((buff) => buff.type === 'comboDamageBonus');
+      return buffs.filter((buff) => buff.type === 'comboDamageBonus');
     case 'imbalanceDamageBonus':
-      return hitResult.appliedBuffs.filter((buff) => buff.type === 'imbalanceDmgBonus');
+      return buffs.filter((buff) => buff.type === 'imbalanceDmgBonus');
     default:
-      return hitResult.appliedBuffs;
+      return buffs;
   }
+}
+
+function getRelevantBuffsForColumn(hitRow: HitValueRow, columnKey: string): SkillButtonBuff[] {
+  const { detail } = hitRow;
+  return filterRelevantBuffsForColumn(detail.hitResult.appliedBuffs, detail.hit, columnKey);
+}
+
+function getHighlightColumnKeyForBuff(buff: SkillButtonBuff | null): string | null {
+  switch (buff?.type) {
+    case 'atkPercentBoost':
+    case 'flatAtk':
+    case 'mainStatBoost':
+    case 'subStatBoost':
+    case 'allStatBoost':
+    case 'strengthBoost':
+    case 'agilityBoost':
+    case 'intelligenceBoost':
+    case 'willBoost':
+      return 'atk';
+    case 'critRateBoost':
+      return 'critRate';
+    case 'critDmgBonusBoost':
+      return 'critDmg';
+    case 'multiplierBonus':
+      return 'bonusMultiplier';
+    case 'multiplierMultiplier':
+      return 'finalMultiplier';
+    case 'physicalDmgBonus':
+    case 'magicDmgBonus':
+    case 'fireDmgBonus':
+    case 'electricDmgBonus':
+    case 'iceDmgBonus':
+    case 'natureDmgBonus':
+    case 'allElementDmgBonus':
+    case 'normalAttackDmgBonus':
+    case 'skillDmgBonus':
+    case 'chainSkillDmgBonus':
+    case 'ultimateDmgBonus':
+    case 'allSkillDmgBonus':
+    case 'allDmgBonus':
+      return 'damageBonusRate';
+    case 'physicalAmplify':
+    case 'magicAmplify':
+    case 'fireAmplify':
+    case 'electricAmplify':
+    case 'iceAmplify':
+    case 'natureAmplify':
+      return 'amplifyRate';
+    case 'physicalFragile':
+    case 'magicFragile':
+    case 'fireFragile':
+    case 'electricFragile':
+    case 'iceFragile':
+    case 'natureFragile':
+      return 'fragileRate';
+    case 'physicalVulnerability':
+    case 'magicTakenDmgBonus':
+    case 'fireVulnerability':
+    case 'electricVulnerability':
+    case 'iceVulnerability':
+    case 'natureVulnerability':
+      return 'vulnerabilityRate';
+    case 'comboDamageBonus':
+      return 'comboDamageBonus';
+    case 'imbalanceDmgBonus':
+      return 'imbalanceDamageBonus';
+    case 'sourceSkillBoost':
+      return 'sourceSkill';
+    default:
+      return null;
+  }
+}
+
+function summarizeBuffFrameStates(states: BuffFrameState[]): BuffFrameState | null {
+  if (states.length === 0) {
+    return null;
+  }
+  return states.every((state) => state === 'disabled') ? 'disabled' : 'enabled';
 }
 
 function buildFormulaText(hitRow: HitValueRow | null, columnKey: string | undefined, fallback: string): string {
@@ -1058,6 +1173,8 @@ export function DamageSheetPage() {
   const [isUndoMenuOpen, setIsUndoMenuOpen] = useState(false);
   const [sidebarTab, setSidebarTab] = useState<SheetSidebarTab>('related');
   const [buffSearchKeyword, setBuffSearchKeyword] = useState('');
+  const [selectedRelevantBuffId, setSelectedRelevantBuffId] = useState<string | null>(null);
+  const [framedRelevantBuffId, setFramedRelevantBuffId] = useState<string | null>(null);
   const [orderMode, setOrderMode] = useState<SheetOrderMode>('character');
   const [collapsedCharacterIds, setCollapsedCharacterIds] = useState<Record<string, boolean>>({});
   const [collapsedColumnGroups, setCollapsedColumnGroups] = useState<Record<string, boolean>>({});
@@ -1144,11 +1261,6 @@ export function DamageSheetPage() {
     selectedWorkbookCell?.value ?? '未选择单元格'
   );
   const selectedAddress = selectedWorkbookCell?.address ?? '-';
-  const relevantBuffs = useMemo(() => (
-    selectedHitRow && selectedWorkbookCell?.columnKey
-      ? getRelevantBuffsForColumn(selectedHitRow, selectedWorkbookCell.columnKey)
-      : []
-  ), [selectedHitRow, selectedWorkbookCell]);
   const selectedPersistedButton = useMemo(
     () => (selectedHitRow ? getSkillButtonById(selectedHitRow.buttonId) : null),
     [selectedHitRow]
@@ -1160,6 +1272,164 @@ export function DamageSheetPage() {
     }
     return selectedPersistedButton.panelConfig?.manualDisabledBuffIdsBySegmentKey?.[selectedSegmentKey] ?? [];
   }, [selectedPersistedButton, selectedSegmentKey]);
+  const relevantBuffs = useMemo(() => {
+    if (!selectedHitRow || !selectedWorkbookCell?.columnKey) {
+      return [];
+    }
+
+    const enabledRelevantBuffs = getRelevantBuffsForColumn(selectedHitRow, selectedWorkbookCell.columnKey);
+    if (!selectedPersistedButton || manuallyDisabledBuffIds.length === 0) {
+      return enabledRelevantBuffs;
+    }
+
+    const disabledRelevantBuffs = filterRelevantBuffsForColumn(
+      getButtonBuffs(selectedPersistedButton).filter((buff) => manuallyDisabledBuffIds.includes(buff.id)),
+      selectedHitRow.detail.hit,
+      selectedWorkbookCell.columnKey
+    );
+
+    const merged = [...enabledRelevantBuffs];
+    disabledRelevantBuffs.forEach((buff) => {
+      if (!merged.some((entry) => entry.id === buff.id)) {
+        merged.push(buff);
+      }
+    });
+    return merged;
+  }, [manuallyDisabledBuffIds, selectedHitRow, selectedPersistedButton, selectedWorkbookCell]);
+  const selectedRelevantBuff = useMemo(
+    () => relevantBuffs.find((buff) => buff.id === selectedRelevantBuffId) ?? null,
+    [relevantBuffs, selectedRelevantBuffId]
+  );
+  const framedRelevantBuff = useMemo(
+    () => relevantBuffs.find((buff) => buff.id === framedRelevantBuffId) ?? getBuffById(framedRelevantBuffId || ''),
+    [framedRelevantBuffId, relevantBuffs]
+  );
+  const framedRelevantBuffColumnKey = useMemo(
+    () => getHighlightColumnKeyForBuff(framedRelevantBuff ?? null),
+    [framedRelevantBuff]
+  );
+  const framedRelevantBuffButtonIds = useMemo(() => {
+    if (!framedRelevantBuffId) {
+      return new Set<string>();
+    }
+
+    const matchedButtonIds = new Set<string>();
+    rows.forEach((row) => {
+      if (row.kind !== 'button' && row.kind !== 'hit') {
+        return;
+      }
+      if (matchedButtonIds.has(row.buttonId)) {
+        return;
+      }
+      const persistedButton = getSkillButtonById(row.buttonId);
+      if (persistedButton?.selectedBuff?.includes(framedRelevantBuffId)) {
+        matchedButtonIds.add(row.buttonId);
+      }
+    });
+    return matchedButtonIds;
+  }, [framedRelevantBuffId, rows]);
+  const framedRelevantBuffRowStateByRowId = useMemo(() => {
+    if (!framedRelevantBuffId) {
+      return {} as Record<string, BuffFrameState>;
+    }
+
+    const hitStateByRowId = rows.reduce<Record<string, BuffFrameState>>((accumulator, row) => {
+      if (row.kind !== 'hit' || !framedRelevantBuffButtonIds.has(row.buttonId)) {
+        return accumulator;
+      }
+      const persistedButton = getSkillButtonById(row.buttonId);
+      const disabledBuffIds = persistedButton?.panelConfig?.manualDisabledBuffIdsBySegmentKey?.[`normal-hit-${row.detail.hit.key}`] ?? [];
+      accumulator[row.id] = disabledBuffIds.includes(framedRelevantBuffId) ? 'disabled' : 'enabled';
+      return accumulator;
+    }, {});
+
+    rows.forEach((row) => {
+      if (row.kind === 'button') {
+        const buttonHitRows = rows.filter(
+          (candidate): candidate is HitValueRow => candidate.kind === 'hit' && candidate.buttonId === row.buttonId
+        );
+        const childStates = buttonHitRows
+          .map((candidate) => hitStateByRowId[candidate.id])
+          .filter((state): state is BuffFrameState => Boolean(state));
+        const summary = childStates.length === buttonHitRows.length ? summarizeBuffFrameStates(childStates) : null;
+        if (summary) {
+          hitStateByRowId[row.id] = summary;
+        }
+      }
+      if (row.kind === 'character') {
+        const characterHitRows = rows.filter(
+          (candidate): candidate is HitValueRow => candidate.kind === 'hit' && candidate.characterId === row.characterId
+        );
+        const childStates = characterHitRows
+          .map((candidate) => hitStateByRowId[candidate.id])
+          .filter((state): state is BuffFrameState => Boolean(state));
+        if (childStates.length > 0 && childStates.length === characterHitRows.length) {
+          const summary = summarizeBuffFrameStates(childStates);
+          if (summary) {
+            hitStateByRowId[row.id] = summary;
+          }
+        }
+      }
+    });
+
+    return hitStateByRowId;
+  }, [framedRelevantBuffButtonIds, framedRelevantBuffId, rows]);
+  const framedRelevantBuffRowSpanByRowId = useMemo(() => {
+    if (!framedRelevantBuffColumnKey) {
+      return {} as Record<string, BuffFrameSpan>;
+    }
+
+    const highlightedRowIds = visibleRows
+      .map((row) => row.id)
+      .filter((rowId) => Boolean(framedRelevantBuffRowStateByRowId[rowId]));
+
+    return visibleRows.reduce<Record<string, BuffFrameSpan>>((accumulator, row, index) => {
+      if (!framedRelevantBuffRowStateByRowId[row.id]) {
+        return accumulator;
+      }
+      const previousRow = visibleRows[index - 1];
+      const nextRow = visibleRows[index + 1];
+      const hasPrevious = previousRow ? highlightedRowIds.includes(previousRow.id) : false;
+      const hasNext = nextRow ? highlightedRowIds.includes(nextRow.id) : false;
+      if (hasPrevious && hasNext) {
+        accumulator[row.id] = 'middle';
+      } else if (hasPrevious) {
+        accumulator[row.id] = 'end';
+      } else if (hasNext) {
+        accumulator[row.id] = 'start';
+      } else {
+        accumulator[row.id] = 'single';
+      }
+      return accumulator;
+    }, {});
+  }, [framedRelevantBuffColumnKey, framedRelevantBuffRowStateByRowId, visibleRows]);
+  const framedRelevantBuffOverlay = useMemo(() => {
+    if (!framedRelevantBuffColumnKey) {
+      return null;
+    }
+    const columnIndex = visibleColumns.findIndex((column) => column.key === framedRelevantBuffColumnKey);
+    if (columnIndex < 0) {
+      return null;
+    }
+    const left = visibleColumns
+      .slice(0, columnIndex)
+      .reduce((sum, column) => sum + column.width, 0);
+    return {
+      left,
+      width: visibleColumns[columnIndex].width,
+    };
+  }, [framedRelevantBuffColumnKey, visibleColumns]);
+  useEffect(() => {
+    if (selectedRelevantBuffId && relevantBuffs.some((buff) => buff.id === selectedRelevantBuffId)) {
+      return;
+    }
+    setSelectedRelevantBuffId(relevantBuffs[0]?.id ?? null);
+  }, [relevantBuffs, selectedRelevantBuffId]);
+  useEffect(() => {
+    if (framedRelevantBuffId && relevantBuffs.some((buff) => buff.id === framedRelevantBuffId)) {
+      setSelectedRelevantBuffId(framedRelevantBuffId);
+    }
+  }, [framedRelevantBuffId, relevantBuffs]);
   const localBuffSearchEntries = useMemo(() => readLocalBuffSearchEntries(), []);
   const filteredLocalBuffSearchResults = useMemo(() => {
     const keyword = buffSearchKeyword.trim().toLowerCase();
@@ -1314,6 +1584,44 @@ export function DamageSheetPage() {
     }
     return cell.value;
   }, [collapsedColumnGroups, handleOpenContextMenu, toggleColumnGroupCollapsed]);
+  const getWorkbookCellBuffFrameMeta = useCallback((row: WorkbookRowView, cell: WorkbookCellView) => {
+    const sourceRow = row.sourceRow;
+    if (!sourceRow || !framedRelevantBuffColumnKey) {
+      return { className: '', style: undefined as CSSProperties | undefined };
+    }
+
+    const rowState = framedRelevantBuffRowStateByRowId[sourceRow.id];
+    if (!rowState) {
+      return { className: '', style: undefined as CSSProperties | undefined };
+    }
+
+    const rowSpan = framedRelevantBuffRowSpanByRowId[sourceRow.id] ?? 'single';
+    const frameClassName = `${rowState === 'enabled' ? ' is-buff-linked' : ' is-buff-linked-muted'} is-buff-span-${rowSpan}`;
+
+    if (sourceRow.kind === 'hit') {
+      if (cell.columnKey !== framedRelevantBuffColumnKey) {
+        return { className: '', style: undefined as CSSProperties | undefined };
+      }
+      return { className: frameClassName, style: undefined as CSSProperties | undefined };
+    }
+
+    if ((sourceRow.kind === 'button' || sourceRow.kind === 'character') && cell.colSpan > 1 && framedRelevantBuffOverlay) {
+      return {
+        className: `${frameClassName} is-buff-linked-bridge`,
+        style: {
+          ['--buff-frame-left' as string]: `${framedRelevantBuffOverlay.left}px`,
+          ['--buff-frame-width' as string]: `${framedRelevantBuffOverlay.width}px`,
+        } as CSSProperties,
+      };
+    }
+
+    return { className: '', style: undefined as CSSProperties | undefined };
+  }, [
+    framedRelevantBuffColumnKey,
+    framedRelevantBuffOverlay,
+    framedRelevantBuffRowSpanByRowId,
+    framedRelevantBuffRowStateByRowId,
+  ]);
 
   const handleExportXlsx = useCallback(async () => {
     if (visibleRows.length === 0 || visibleColumns.length === 0) {
@@ -1348,20 +1656,24 @@ export function DamageSheetPage() {
     setUndoSnapshots(readUndoSnapshots());
   }, [handleGenerate]);
 
-  const toggleManualBuffForSelectedHit = useCallback((buffId: string) => {
+  const setManualBuffDisabledForSelectedHit = useCallback((buffId: string, disabled: boolean) => {
     if (!selectedPersistedButton || !selectedSegmentKey) {
       return;
     }
 
-    captureSessionSnapshot(`切换 Buff 命中 · ${selectedHitRow?.detail.buttonName ?? selectedPersistedButton.skillDisplayName ?? selectedPersistedButton.skillType}`);
     const currentMap = selectedPersistedButton.panelConfig?.manualDisabledBuffIdsBySegmentKey ?? {};
     const currentIds = currentMap[selectedSegmentKey] ?? [];
-    const nextIds = currentIds.includes(buffId)
-      ? currentIds.filter((id) => id !== buffId)
-      : [...currentIds, buffId];
+    const isCurrentlyDisabled = currentIds.includes(buffId);
+    if (isCurrentlyDisabled === disabled) {
+      return;
+    }
+
+    captureSessionSnapshot(`${disabled ? '取消勾选' : '勾选'} Buff 命中 · ${selectedHitRow?.detail.buttonName ?? selectedPersistedButton.skillDisplayName ?? selectedPersistedButton.skillType}`);
     const nextMap = {
       ...currentMap,
-      [selectedSegmentKey]: nextIds,
+      [selectedSegmentKey]: disabled
+        ? [...currentIds, buffId]
+        : currentIds.filter((id) => id !== buffId),
     };
     persistManualBuffTweaks(nextMap);
     recomputeSkillButtonPanel(selectedPersistedButton.id);
@@ -1428,22 +1740,49 @@ export function DamageSheetPage() {
       return [];
     }
 
-    const actions: Array<{ key: string; label: string; onSelect: () => void }> = [];
+    const actions: DamageSheetContextMenuAction[] = [];
+    if (contextMenu.target === 'buff' && contextMenu.buffId) {
+      const isDisabled = manuallyDisabledBuffIds.includes(contextMenu.buffId);
+      const isFramed = framedRelevantBuffId === contextMenu.buffId;
+      actions.push({
+        key: isFramed ? 'clear-buff-frame' : 'frame-buff',
+        label: isFramed ? '取消框选' : '框选',
+        icon: isFramed ? 'cancel' : 'confirm',
+        onSelect: () => setFramedRelevantBuffId(isFramed ? null : contextMenu.buffId!),
+      });
+      actions.push({
+        key: isDisabled ? 'enable-buff' : 'disable-buff',
+        label: isDisabled ? '勾选' : '取消勾选',
+        icon: isDisabled ? 'confirm' : 'delete',
+        onSelect: () => setManualBuffDisabledForSelectedHit(contextMenu.buffId!, !isDisabled),
+      });
+      actions.push({
+        key: 'cancel',
+        label: '取消',
+        icon: 'cancel',
+        onSelect: () => closeContextMenu(),
+      });
+      return actions;
+    }
+
     if (contextMenu.target === 'character' && orderMode === 'character' && contextMenu.characterId) {
       const isCollapsed = collapsedCharacterIds[contextMenu.characterId];
       actions.push({
         key: 'toggle-character',
         label: isCollapsed ? '展开当前角色' : '折叠当前角色',
+        icon: 'cancel',
         onSelect: () => toggleCharacterCollapsed(contextMenu.characterId!),
       });
       actions.push({
         key: 'collapse-all-characters',
         label: '折叠全部角色',
+        icon: 'cancel',
         onSelect: () => setAllCharactersCollapsed(true),
       });
       actions.push({
         key: 'expand-all-characters',
         label: '展开全部角色',
+        icon: 'cancel',
         onSelect: () => setAllCharactersCollapsed(false),
       });
     }
@@ -1452,11 +1791,13 @@ export function DamageSheetPage() {
       actions.push({
         key: 'collapse-all-characters',
         label: '折叠全部角色',
+        icon: 'cancel',
         onSelect: () => setAllCharactersCollapsed(true),
       });
       actions.push({
         key: 'expand-all-characters',
         label: '展开全部角色',
+        icon: 'cancel',
         onSelect: () => setAllCharactersCollapsed(false),
       });
     }
@@ -1466,6 +1807,7 @@ export function DamageSheetPage() {
       actions.push({
         key: 'toggle-group',
         label: isCollapsed ? `展开${contextMenu.group}` : `折叠${contextMenu.group}`,
+        icon: 'cancel',
         onSelect: () => toggleColumnGroupCollapsed(contextMenu.group!),
       });
     }
@@ -1473,11 +1815,13 @@ export function DamageSheetPage() {
     actions.push({
       key: 'collapse-all-groups',
       label: '折叠全部列区',
+      icon: 'cancel',
       onSelect: () => setAllColumnGroupsCollapsed(true),
     });
     actions.push({
       key: 'expand-all-groups',
       label: '展开全部列区',
+      icon: 'cancel',
       onSelect: () => setAllColumnGroupsCollapsed(false),
     });
 
@@ -1486,9 +1830,14 @@ export function DamageSheetPage() {
     collapsedCharacterIds,
     collapsedColumnGroups,
     contextMenu,
+    framedRelevantBuffId,
+    manuallyDisabledBuffIds,
     orderMode,
     setAllCharactersCollapsed,
     setAllColumnGroupsCollapsed,
+    closeContextMenu,
+    setManualBuffDisabledForSelectedHit,
+    setFramedRelevantBuffId,
     toggleCharacterCollapsed,
     toggleColumnGroupCollapsed,
   ]);
@@ -1585,7 +1934,7 @@ export function DamageSheetPage() {
           ) : null}
           <div className="damage-sheet-sidebar-note">
             {selectedWorkbookCell?.columnKey && selectedHitRow
-              ? `${selectedWorkbookCell.address} · ${selectedHitRow.detail.buttonName} · ${selectedHitRow.detail.hitLabel}`
+              ? `${selectedWorkbookCell.address} · ${selectedHitRow.detail.buttonName} · ${selectedHitRow.detail.hitLabel}${selectedRelevantBuff ? ` · ${selectedRelevantBuff.displayName}` : ''}`
               : '点击任意 Hit 单元格后，这里显示当前格子的相关 Buff。'}
           </div>
           {(!ENABLE_ADVANCED_SHEET_SIDEBAR || sidebarTab === 'related') ? (
@@ -1593,9 +1942,26 @@ export function DamageSheetPage() {
               {selectedHitRow ? (
                 relevantBuffs.length > 0 ? relevantBuffs.map((buff) => {
                   const isDisabled = manuallyDisabledBuffIds.includes(buff.id);
+                  const isSelected = selectedRelevantBuffId === buff.id;
+                  const isFramed = framedRelevantBuffId === buff.id;
                   return (
                     <div key={buff.id} className={`damage-sheet-buff-card${isDisabled ? ' is-muted' : ''}`} title={`来源：${buff.sourceName || buff.source || '未知'}\n类型：${buff.type || '未标注'}\n${buff.description || buff.condition || ''}`}>
-                      <button type="button" className={`damage-sheet-buff-tag${isDisabled ? '' : ' is-active'}`} onClick={() => toggleManualBuffForSelectedHit(buff.id)}>
+                      <button
+                        type="button"
+                        className={`damage-sheet-buff-tag${isDisabled ? '' : ' is-active'}${isSelected ? ' is-selected' : ''}${isFramed ? ' is-framed' : ''}`}
+                        onClick={() => setSelectedRelevantBuffId(buff.id)}
+                        onContextMenu={(event) => {
+                          event.preventDefault();
+                          event.stopPropagation();
+                          setSelectedRelevantBuffId(buff.id);
+                          handleOpenContextMenu(event, {
+                            x: event.clientX,
+                            y: event.clientY,
+                            target: 'buff',
+                            buffId: buff.id,
+                          });
+                        }}
+                      >
                         <span className="damage-sheet-buff-name">{buff.displayName}</span>
                         <span className="damage-sheet-buff-effect">{buff.type || 'Buff'}{typeof buff.value === 'number' ? ` ${buff.value >= 0 ? '+' : ''}${(buff.value * 100).toFixed(1)}%` : ''}</span>
                       </button>
@@ -1752,52 +2118,55 @@ export function DamageSheetPage() {
                 >
                   <div className="damage-sheet-excel-row-number">{renderRowNumberCell(row)}</div>
                   <div className="damage-sheet-excel-row-cells">
-                    {row.cells.map((cell) => (
-                      <div
-                        key={cell.key}
-                        className={`damage-sheet-excel-cell is-${cell.kind} is-${cell.align}${selectedWorkbookCell?.address === cell.address ? ' is-active' : ''}`}
-                        style={{ width: `${cell.width}px` }}
-                        onClick={() => {
-                          if (row.kind === 'group' && cell.value !== '索引') {
-                            toggleColumnGroupCollapsed(cell.value);
-                            return;
-                          }
-                          setSelectedWorkbookCell({
-                            address: cell.address,
-                            value: cell.value,
-                            sourceRowId: cell.sourceRowId,
-                            columnKey: cell.columnKey,
-                          });
-                        }}
-                        onContextMenu={(event) => {
-                          if (row.kind === 'group' && cell.value !== '索引') {
+                    {row.cells.map((cell) => {
+                      const buffFrameMeta = getWorkbookCellBuffFrameMeta(row, cell);
+                      return (
+                        <div
+                          key={cell.key}
+                          className={`damage-sheet-excel-cell is-${cell.kind} is-${cell.align}${selectedWorkbookCell?.address === cell.address ? ' is-active' : ''}${buffFrameMeta.className}`}
+                          style={{ width: `${cell.width}px`, ...buffFrameMeta.style }}
+                          onClick={() => {
+                            if (row.kind === 'group' && cell.value !== '索引') {
+                              toggleColumnGroupCollapsed(cell.value);
+                              return;
+                            }
+                            setSelectedWorkbookCell({
+                              address: cell.address,
+                              value: cell.value,
+                              sourceRowId: cell.sourceRowId,
+                              columnKey: cell.columnKey,
+                            });
+                          }}
+                          onContextMenu={(event) => {
+                            if (row.kind === 'group' && cell.value !== '索引') {
+                              handleOpenContextMenu(event, {
+                                x: event.clientX,
+                                y: event.clientY,
+                                target: 'group',
+                                group: cell.value,
+                              });
+                              return;
+                            }
+                            if (orderMode === 'character' && row.sourceRow?.kind === 'character') {
+                              handleOpenContextMenu(event, {
+                                x: event.clientX,
+                                y: event.clientY,
+                                target: 'character',
+                                characterId: row.sourceRow.characterId,
+                              });
+                              return;
+                            }
                             handleOpenContextMenu(event, {
                               x: event.clientX,
                               y: event.clientY,
-                              target: 'group',
-                              group: cell.value,
+                              target: 'sheet',
                             });
-                            return;
-                          }
-                          if (orderMode === 'character' && row.sourceRow?.kind === 'character') {
-                            handleOpenContextMenu(event, {
-                              x: event.clientX,
-                              y: event.clientY,
-                              target: 'character',
-                              characterId: row.sourceRow.characterId,
-                            });
-                            return;
-                          }
-                          handleOpenContextMenu(event, {
-                            x: event.clientX,
-                            y: event.clientY,
-                            target: 'sheet',
-                          });
-                        }}
-                      >
-                        {renderWorkbookCellContent(row, cell)}
-                      </div>
-                    ))}
+                          }}
+                        >
+                          {renderWorkbookCellContent(row, cell)}
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
               ))
@@ -1819,7 +2188,12 @@ export function DamageSheetPage() {
                       closeContextMenu();
                     }}
                   >
-                    {action.label}
+                    <span className="damage-sheet-context-menu-icon" aria-hidden="true">
+                      <svg className="damage-sheet-context-menu-svg" viewBox="0 0 16 16" focusable="false">
+                        {renderDamageSheetMenuIcon(action.icon)}
+                      </svg>
+                    </span>
+                    <span className="damage-sheet-context-menu-label">{action.label}</span>
                   </button>
                 ))}
               </div>

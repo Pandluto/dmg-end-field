@@ -315,6 +315,20 @@
   color: #0f3e26;
 }
 
+.damage-sheet-buff-tag.is-selected {
+  box-shadow: inset 0 0 0 1px var(--excel-green-main);
+  border-color: var(--excel-green-main);
+  background: rgba(232, 248, 238, 0.92);
+  color: #0f3e26;
+}
+
+.damage-sheet-buff-tag.is-framed {
+  box-shadow:
+    inset 0 0 0 1px var(--excel-green-main),
+    inset 0 0 0 2px rgba(255, 255, 255, 0.72);
+  border-color: var(--excel-green-main);
+}
+
 .damage-sheet-buff-card.is-muted .damage-sheet-buff-tag {
   opacity: 0.56;
 }
@@ -466,6 +480,9 @@
 
 .damage-sheet-context-menu-item {
   min-height: 28px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
   padding: 0 10px;
   border: 0;
   background: transparent;
@@ -478,6 +495,31 @@
 .damage-sheet-context-menu-item:hover {
   background: var(--ide-bg-hover);
   color: var(--excel-green-main);
+}
+
+.damage-sheet-context-menu-icon {
+  width: 12px;
+  min-width: 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: inherit;
+}
+
+.damage-sheet-context-menu-svg {
+  width: 12px;
+  height: 12px;
+  display: block;
+  stroke: currentColor;
+  stroke-width: 1.35;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  fill: none;
+}
+
+.damage-sheet-context-menu-label {
+  min-width: 0;
+  flex: 1 1 auto;
 }
 
 .damage-sheet-empty-state {
@@ -573,6 +615,8 @@
   box-sizing: border-box;
   white-space: nowrap;
   cursor: pointer;
+  position: relative;
+  isolation: isolate;
 }
 
 .damage-sheet-excel-cell:hover {
@@ -618,6 +662,90 @@
 .damage-sheet-excel-cell.is-active {
   background: color-mix(in srgb, var(--excel-green-soft) 65%, white);
   box-shadow: inset 0 0 0 2px var(--excel-green-main);
-  position: relative;
-  z-index: 1;
+  z-index: 2;
+}
+
+.damage-sheet-excel-cell.is-buff-linked::before,
+.damage-sheet-excel-cell.is-buff-linked-muted::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 1px;
+  bottom: 1px;
+  background: color-mix(in srgb, var(--excel-green-soft) 72%, white);
+  border-left: 1px solid rgba(24, 92, 55, 0.65);
+  border-right: 1px solid rgba(24, 92, 55, 0.65);
+  pointer-events: none;
+  z-index: 0;
+  box-sizing: border-box;
+}
+
+.damage-sheet-excel-cell.is-buff-linked-muted::before {
+  background: color-mix(in srgb, var(--excel-green-soft) 56%, white);
+  border-left-color: rgba(62, 102, 77, 0.42);
+  border-right-color: rgba(62, 102, 77, 0.42);
+}
+
+.damage-sheet-excel-cell.is-buff-linked-muted::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 1px;
+  bottom: 1px;
+  background:
+    linear-gradient(0deg, rgba(255, 255, 255, 0.32), rgba(255, 255, 255, 0.32)),
+    repeating-linear-gradient(
+      135deg,
+      rgba(92, 116, 102, 0.08) 0 6px,
+      rgba(255, 255, 255, 0.08) 6px 12px
+    );
+  pointer-events: none;
+  z-index: 0;
+  box-sizing: border-box;
+}
+
+.damage-sheet-excel-cell.is-buff-span-single::before,
+.damage-sheet-excel-cell.is-buff-span-single::after {
+  top: 1px;
+  bottom: 1px;
+}
+
+.damage-sheet-excel-cell.is-buff-span-single::before {
+  border-top: 1px solid rgba(24, 92, 55, 0.65);
+  border-bottom: 1px solid rgba(24, 92, 55, 0.65);
+}
+
+.damage-sheet-excel-cell.is-buff-span-start::before,
+.damage-sheet-excel-cell.is-buff-span-start::after {
+  top: 1px;
+  bottom: -1px;
+}
+
+.damage-sheet-excel-cell.is-buff-span-start::before {
+  border-top: 1px solid rgba(24, 92, 55, 0.65);
+}
+
+.damage-sheet-excel-cell.is-buff-span-middle::before,
+.damage-sheet-excel-cell.is-buff-span-middle::after {
+  top: -1px;
+  bottom: -1px;
+}
+
+.damage-sheet-excel-cell.is-buff-span-end::before,
+.damage-sheet-excel-cell.is-buff-span-end::after {
+  top: -1px;
+  bottom: 1px;
+}
+
+.damage-sheet-excel-cell.is-buff-span-end::before {
+  border-bottom: 1px solid rgba(24, 92, 55, 0.65);
+}
+
+.damage-sheet-excel-cell.is-buff-linked-bridge::before,
+.damage-sheet-excel-cell.is-buff-linked-bridge::after {
+  left: calc(var(--buff-frame-left) );
+  right: auto;
+  width: calc(var(--buff-frame-width) - 1px);
 }
