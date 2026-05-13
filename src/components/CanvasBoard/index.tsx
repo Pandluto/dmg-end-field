@@ -29,6 +29,7 @@ import {
   getGridContentOffsetX,
   getGridGroupTop,
   getGridLineCenterY,
+  getGridNodeCenterX,
   getOccupiedNodeIndicesForLine,
   gridToCanvasContentCoords,
   GRID_NODE_COUNT,
@@ -198,6 +199,12 @@ export function CanvasBoard({
       dataToRestore = normalizeTimelineData(loadedData, selectedCharacters);
     }
 
+    const gridStackElement = canvasRef.current?.querySelector('.canvas-grid-stack');
+    const restoredGridContentOffsetX =
+      canvasRef.current && gridStackElement
+        ? getGridContentOffsetX(canvasRef.current, gridStackElement)
+        : null;
+
     const restoredButtons: SkillButton[] = [];
     dataToRestore.staffLines.forEach((staffLine) => {
       const buttons = Array.isArray(staffLine.buttons) ? staffLine.buttons : [];
@@ -219,7 +226,11 @@ export function CanvasBoard({
           getGridGroupTop(restoredGroupIndex) +
           getGridLineCenterY(restoredLineIndex) +
           SKILL_BUTTON_BASELINE_OFFSET_Y;
-        const position = { x: btn.position.x, y: normalizedPositionY };
+        const normalizedPositionX =
+          restoredGridContentOffsetX !== null
+            ? restoredGridContentOffsetX + getGridNodeCenterX(restoredNodeIndex)
+            : btn.position.x;
+        const position = { x: normalizedPositionX, y: normalizedPositionY };
         restoredButtons.push({
           id: btn.id,
           characterId: character?.id ?? btn.characterName,
