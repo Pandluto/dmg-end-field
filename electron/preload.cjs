@@ -9,6 +9,8 @@ contextBridge.exposeInMainWorld('desktopRuntime', {
   role: roleFromArgs,
   getRole: () => ipcRenderer.invoke('desktop:get-role'),
   getShellState: () => ipcRenderer.invoke('desktop:get-shell-state'),
+  getDesktopSettings: () => ipcRenderer.invoke('desktop:get-settings'),
+  setDesktopScale: (scaleKey) => ipcRenderer.invoke('desktop:set-scale', scaleKey),
   openWeb: () => ipcRenderer.invoke('desktop:open-web'),
   quitApp: () => ipcRenderer.invoke('desktop:quit-app'),
   runAction: (action) => ipcRenderer.invoke('desktop:run-action', action),

@@ -71,6 +71,25 @@
         margin-top: 16px;
       }
 
+      .hero-settings {
+        display: grid;
+        gap: 8px;
+        margin-top: 16px;
+      }
+
+      .hero-settings-row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
+
+      .hero-settings-label {
+        font-size: 11px;
+        font-weight: 700;
+        color: #3d5a49;
+      }
+
       .runtime-strip {
         display: grid;
         grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -155,6 +174,11 @@
         background: #844444;
       }
 
+      .scale-button.is-active {
+        background: #2f7a50;
+        color: #fff;
+      }
+
       .status {
         margin-top: 12px;
         padding: 10px 12px;
@@ -218,6 +242,14 @@
           <button id="open-web" type="button" class="secondary-button">打开主界面</button>
           <button id="quit-app" type="button" class="danger-button">完全关闭</button>
         </div>
+        <div class="hero-settings">
+          <div class="hero-settings-row">
+            <span class="hero-settings-label">桌面倍率</span>
+            <button type="button" class="secondary-button scale-button" data-scale="1x">1x</button>
+            <button type="button" class="secondary-button scale-button" data-scale="1.25x">1.25x</button>
+            <button type="button" class="secondary-button scale-button" data-scale="1.5x">1.5x</button>
+          </div>
+        </div>
         <div class="runtime-strip">
           <div class="runtime-pill">
             <strong>角色</strong>
@@ -234,6 +266,10 @@
           <div class="runtime-pill">
             <strong>主机</strong>
             <span id="host-value">-</span>
+          </div>
+          <div class="runtime-pill">
+            <strong>倍率</strong>
+            <span id="scale-value">-</span>
           </div>
         </div>
       </section>
@@ -280,6 +316,7 @@
     <script>
       const runtime = window.desktopRuntime;
       const logElement = document.getElementById('log');
+      const scaleValueElement = document.getElementById('scale-value');
 
       const appendLog = (line) => {
         const current = logElement.textContent ? `${logElement.textContent}\n` : '';
@@ -294,12 +331,27 @@
         }
       };
 
+      const syncScaleButtons = (activeScale, savedScale) => {
+        document.querySelectorAll('[data-scale]').forEach((button) => {
+          const selected = button.getAttribute('data-scale') === savedScale;
+          button.classList.toggle('is-active', selected);
+        });
+        if (scaleValueElement) {
+          scaleValueElement.textContent =
+            activeScale === savedScale ? activeScale : `${activeScale} -> ${savedScale}`;
+        }
+      };
+
       const boot = async () => {
         const state = await runtime.getShellState();
         document.getElementById('role-value').textContent = runtime.role || '未知';
         document.getElementById('platform-value').textContent = `${state.platform}/${state.arch}`;
         document.getElementById('app-value').textContent = `${state.appName} ${state.appVersion}`;
         document.getElementById('host-value').textContent = state.hostname;
+        syncScaleButtons(
+          state.desktopSettings?.currentScale || '1x',
+          state.desktopSettings?.savedScale || state.desktopSettings?.currentScale || '1x'
+        );
         appendLog(`外壳就绪 | 角色=${runtime.role} | 平台=${state.platform} | 主机=${state.hostname}`);
         appendLog('主界面与 shell 现在都由 Electron 托管。');
       };
@@ -330,6 +382,10 @@
       document.getElementById('open-web').addEventListener('click', async () => {
         try {
           const result = await runtime.openWeb();
+          syncScaleButtons(
+            result.currentScale || '1x',
+            result.savedScale || result.currentScale || '1x'
+          );
           appendLog(`主界面已打开 | ${result.mode} | ${result.width}x${result.height}`);
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);
@@ -345,6 +401,29 @@
           const message = error instanceof Error ? error.message : String(error);
           appendLog(`完全关闭失败 | ${message}`);
         }
+      });
+
+      document.querySelectorAll('[data-scale]').forEach((button) => {
+        button.addEventListener('click', async () => {
+          const scaleKey = button.getAttribute('data-scale');
+          if (!scaleKey) {
+            return;
+          }
+
+          try {
+            appendLog(`正在保存桌面倍率 ${scaleKey}...`);
+            const settings = await runtime.setDesktopScale(scaleKey);
+            syncScaleButtons(settings.currentScale, settings.savedScale || settings.currentScale);
+            appendLog(
+              settings.restartRequired
+                ? `桌面倍率已保存 | 当前 ${settings.currentScale} | 关闭后下次启动应用 ${settings.savedScale}`
+                : `桌面倍率未变化 | 当前 ${settings.currentScale}`
+            );
+          } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            appendLog(`切换桌面倍率失败 | ${message}`);
+          }
+        });
       });
 
       boot();

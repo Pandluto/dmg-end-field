@@ -16,15 +16,19 @@ const DEV_WEB_URL = 'http://127.0.0.1:3030/';
 const DEV_SHELL_URL = 'http://127.0.0.1:3030/shell/index.html';
 const BRIDGE_HOST = '127.0.0.1';
 const BRIDGE_PORT = 31457;
-const MAIN_CONTENT_WIDTH = 1440;
+const MAIN_CONTENT_WIDTH = 1800;
 const MAIN_CONTENT_HEIGHT = 900;
 const SHELL_WIDTH = 540;
 const SHELL_HEIGHT = 680;
 const isDev = process.argv.includes('--dev');
 const shellOnly = process.argv.includes('--shell-only');
 const gotSingleInstanceLock = app.requestSingleInstanceLock();
+const DESKTOP_SCALE_PRESETS = {
+  '1x': '1',
+  '1.25x': '1.25',
+  '1.5x': '1.5',
+};
 app.commandLine.appendSwitch('high-dpi-support', '1');
-app.commandLine.appendSwitch('force-device-scale-factor', '1');
 
 let mainWindow = null;
 let shellWindow = null;
@@ -33,11 +37,66 @@ let shellStartedAt = null;
 let isAppQuitting = false;
 let isForceClosingMain = false;
 let appTray = null;
+let savedDesktopScaleKey = '1x';
+let activeDesktopScaleKey = '1x';
 
 if (!gotSingleInstanceLock) {
   app.quit();
   process.exit(0);
 }
+
+function getDesktopSettingsPath() {
+  return path.join(app.getPath('userData'), 'desktop-settings.json');
+}
+
+function loadDesktopSettings() {
+  try {
+    const filePath = getDesktopSettingsPath();
+    if (!fs.existsSync(filePath)) {
+      savedDesktopScaleKey = '1x';
+      return;
+    }
+
+    const parsed = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+    savedDesktopScaleKey =
+      typeof parsed.desktopScale === 'string' && DESKTOP_SCALE_PRESETS[parsed.desktopScale]
+        ? parsed.desktopScale
+        : '1x';
+  } catch {
+    savedDesktopScaleKey = '1x';
+  }
+}
+
+function saveDesktopSettings() {
+  try {
+    const filePath = getDesktopSettingsPath();
+    fs.mkdirSync(path.dirname(filePath), { recursive: true });
+    fs.writeFileSync(
+      filePath,
+      JSON.stringify({ desktopScale: savedDesktopScaleKey }, null, 2),
+      'utf-8'
+    );
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    console.error(`Failed to save desktop settings: ${detail}`);
+  }
+}
+
+function getDesktopSettingsPayload() {
+  return {
+    currentScale: activeDesktopScaleKey,
+    savedScale: savedDesktopScaleKey,
+    availableScales: Object.keys(DESKTOP_SCALE_PRESETS),
+    restartRequired: activeDesktopScaleKey !== savedDesktopScaleKey,
+  };
+}
+
+loadDesktopSettings();
+activeDesktopScaleKey = savedDesktopScaleKey;
+app.commandLine.appendSwitch(
+  'force-device-scale-factor',
+  DESKTOP_SCALE_PRESETS[activeDesktopScaleKey] ?? DESKTOP_SCALE_PRESETS['1x']
+);
 
 function buildWindowOptions(role, extra = {}) {
   return {
@@ -389,6 +448,7 @@ function getBridgeHealth() {
       state: getMainWindowState(),
       width: MAIN_CONTENT_WIDTH,
       height: MAIN_CONTENT_HEIGHT,
+      ...getDesktopSettingsPayload(),
     },
   };
 }
@@ -400,6 +460,7 @@ function openWeb() {
     mode: isDev ? 'vite' : 'electron',
     width: MAIN_CONTENT_WIDTH,
     height: MAIN_CONTENT_HEIGHT,
+    ...getDesktopSettingsPayload(),
   };
 }
 
@@ -491,7 +552,18 @@ ipcMain.handle('desktop:get-shell-state', () => ({
   shellVisible: Boolean(shellWindow && !shellWindow.isDestroyed() && shellWindow.isVisible()),
   webWindowManaged: Boolean(mainWindow && !mainWindow.isDestroyed()),
   webWindowVisible: Boolean(mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible()),
+  desktopSettings: getDesktopSettingsPayload(),
 }));
+ipcMain.handle('desktop:get-settings', () => getDesktopSettingsPayload());
+ipcMain.handle('desktop:set-scale', (_event, scaleKey) => {
+  if (typeof scaleKey !== 'string' || !DESKTOP_SCALE_PRESETS[scaleKey]) {
+    throw new Error(`Unsupported desktop scale: ${scaleKey}`);
+  }
+
+  savedDesktopScaleKey = scaleKey;
+  saveDesktopSettings();
+  return getDesktopSettingsPayload();
+});
 ipcMain.handle('desktop:open-web', () => openWeb());
 ipcMain.handle('desktop:quit-app', () => {
   app.quit();

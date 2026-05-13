@@ -74,6 +74,25 @@
         margin-top: 14px;
       }
 
+      .hero-settings {
+        display: grid;
+        gap: 8px;
+        margin-top: 14px;
+      }
+
+      .hero-settings-row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
+
+      .hero-settings-label {
+        font-size: 11px;
+        font-weight: 700;
+        color: #3d5a49;
+      }
+
       .runtime-strip {
         display: grid;
         grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -146,6 +165,11 @@
         background: #844444;
       }
 
+      .scale-button.is-active {
+        background: #2f7a50;
+        color: #fff;
+      }
+
       .status {
         margin-top: 10px;
         padding: 9px 10px;
@@ -194,6 +218,14 @@
           <button id="open-web" type="button" class="secondary-button">打开主界面</button>
           <button id="quit-app" type="button" class="danger-button">完全关闭</button>
         </div>
+        <div class="hero-settings">
+          <div class="hero-settings-row">
+            <span class="hero-settings-label">桌面倍率</span>
+            <button type="button" class="secondary-button scale-button" data-scale="1x">1x</button>
+            <button type="button" class="secondary-button scale-button" data-scale="1.25x">1.25x</button>
+            <button type="button" class="secondary-button scale-button" data-scale="1.5x">1.5x</button>
+          </div>
+        </div>
         <div class="runtime-strip">
           <div class="runtime-pill">
             <strong>角色</strong>
@@ -210,6 +242,10 @@
           <div class="runtime-pill">
             <strong>主机</strong>
             <span id="host-value">-</span>
+          </div>
+          <div class="runtime-pill">
+            <strong>倍率</strong>
+            <span id="scale-value">-</span>
           </div>
         </div>
       </section>
