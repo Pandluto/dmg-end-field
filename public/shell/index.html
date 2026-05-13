@@ -180,6 +180,46 @@
         color: #355242;
       }
 
+      .capture-panel {
+        display: grid;
+        gap: 10px;
+      }
+
+      .capture-toolbar {
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+      }
+
+      .capture-select {
+        width: 100%;
+        min-height: 36px;
+        border: 1px solid rgba(25, 52, 35, 0.18);
+        background: #f6fbf7;
+        color: #20432d;
+        font-size: 13px;
+        padding: 0 10px;
+      }
+
+      .capture-meta {
+        display: grid;
+        gap: 6px;
+        padding: 10px;
+        background: #f6fbf7;
+        border: 1px solid rgba(25, 52, 35, 0.08);
+        font-size: 12px;
+        color: #355242;
+      }
+
+      .capture-preview {
+        width: 100%;
+        min-height: 180px;
+        max-height: 280px;
+        object-fit: contain;
+        background: #e3ece5;
+        border: 1px solid rgba(25, 52, 35, 0.12);
+      }
+
       .log-card-head {
         display: flex;
         align-items: center;
@@ -253,8 +293,24 @@
       <section class="grid">
         <article class="section">
           <h2>捕获</h2>
-          <p>预留截图与窗口捕获入口。</p>
-          <button type="button" data-action="capture-probe">运行捕获探测</button>
+          <p>只列出标题命中 EndField 的窗口，由主进程后台持续抓帧并缓存最新截图。</p>
+          <div class="capture-panel">
+            <div class="capture-toolbar">
+              <button type="button" id="refresh-capture-sources" class="secondary-button">刷新源列表</button>
+              <button type="button" id="start-capture-session">开始捕获</button>
+              <button type="button" id="stop-capture-session" class="secondary-button">停止捕获</button>
+            </div>
+            <select id="capture-preset-select" class="capture-select">
+              <option value="Win32-Window">Win32-Window</option>
+            </select>
+            <select id="capture-source-select" class="capture-select">
+              <option value="">请选择 EndField 窗口</option>
+            </select>
+            <div class="capture-meta" id="capture-meta">
+              <div>源信息：尚未加载</div>
+            </div>
+            <img id="capture-preview" class="capture-preview" alt="捕获预览" />
+          </div>
           <div class="status" id="capture-status">空闲</div>
         </article>
 

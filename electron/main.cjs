@@ -2,6 +2,7 @@ const fs = require('fs');
 const http = require('http');
 const os = require('os');
 const path = require('path');
+const maa = require('@maaxyz/maa-node');
 const {
   app,
   BrowserWindow,
@@ -28,6 +29,32 @@ const DESKTOP_SCALE_PRESETS = {
   '1.25x': '1.25',
   '1.5x': '1.5',
 };
+const WIN32_CONTROLLER_PRESETS = {
+  'Win32-Window': {
+    name: 'Win32-Window',
+    label: '电脑端-默认',
+    description: 'Background + SendMessageWithCursorPos + PostMessage',
+    screencapMethod: maa.Win32ScreencapMethod.Background,
+    mouseMethod: maa.Win32InputMethod.SendMessageWithCursorPos,
+    keyboardMethod: maa.Win32InputMethod.PostMessage,
+  },
+  'Win32-Window-Background': {
+    name: 'Win32-Window-Background',
+    label: '电脑端-后台',
+    description: 'Background + SendMessageWithWindowPos + PostMessage',
+    screencapMethod: maa.Win32ScreencapMethod.Background,
+    mouseMethod: maa.Win32InputMethod.SendMessageWithWindowPos,
+    keyboardMethod: maa.Win32InputMethod.PostMessage,
+  },
+  'Win32-Front': {
+    name: 'Win32-Front',
+    label: '电脑端-前台',
+    description: 'ScreenDC + Seize + Seize',
+    screencapMethod: maa.Win32ScreencapMethod.ScreenDC,
+    mouseMethod: maa.Win32InputMethod.Seize,
+    keyboardMethod: maa.Win32InputMethod.Seize,
+  },
+};
 app.commandLine.appendSwitch('high-dpi-support', '1');
 
 let mainWindow = null;
@@ -39,6 +66,18 @@ let isForceClosingMain = false;
 let appTray = null;
 let savedDesktopScaleKey = '1x';
 let activeDesktopScaleKey = '1x';
+let captureSessionTimer = null;
+let captureSession = {
+  boundSourceId: null,
+  presetName: 'Win32-Window',
+  running: false,
+  intervalMs: 200,
+  latestFrame: null,
+  lastCapturedAt: null,
+  lastError: null,
+  lastSourceMeta: null,
+  controller: null,
+};
 
 if (!gotSingleInstanceLock) {
   app.quit();
@@ -464,6 +503,260 @@ function openWeb() {
   };
 }
 
+function normalizeCaptureSource(source) {
+  const handle = source.handle ?? source.Handle ?? source[0];
+  const className = source.className ?? source.class_name ?? source.ClassName ?? source[1];
+  const title = source.title ?? source.Title ?? source.windowName ?? source.window_name ?? source[2];
+  return {
+    id: String(handle),
+    handle: Number(handle),
+    name: title,
+    className: className || '',
+    displayId: '',
+    kind: 'window',
+    appIconDataUrl: null,
+    thumbnailDataUrl: null,
+    width: 0,
+    height: 0,
+    backend: 'maa-win32-controller',
+  };
+}
+
+function isEndFieldCaptureSource(source) {
+  if (!source || typeof source.name !== 'string' || typeof source.className !== 'string') {
+    return false;
+  }
+
+  return /endfield/i.test(source.name) && /UnityWndClass/i.test(source.className);
+}
+
+function getCapturePreset(presetName = 'Win32-Window') {
+  const preset = WIN32_CONTROLLER_PRESETS[presetName];
+  if (!preset) {
+    throw new Error(`Unsupported Win32 controller preset: ${presetName}`);
+  }
+
+  return preset;
+}
+
+function listCapturePresets() {
+  return Object.values(WIN32_CONTROLLER_PRESETS).map((preset) => ({
+    name: preset.name,
+    label: preset.label,
+    description: preset.description,
+  }));
+}
+
+async function listWin32CaptureSources() {
+  const windows = await maa.Win32Controller.find();
+  return Array.isArray(windows) ? windows : [];
+}
+
+async function getCaptureSources() {
+  const sources = await listWin32CaptureSources();
+  return sources.map(normalizeCaptureSource).filter((source) => isEndFieldCaptureSource(source));
+}
+
+function destroyCaptureController() {
+  if (!captureSession.controller) {
+    return;
+  }
+
+  try {
+    captureSession.controller.destroy();
+  } catch {}
+  captureSession.controller = null;
+}
+
+async function ensureCaptureController() {
+  if (!captureSession.boundSourceId) {
+    throw new Error('No capture source is bound.');
+  }
+
+  if (captureSession.controller) {
+    return captureSession.controller;
+  }
+
+  const preset = getCapturePreset(captureSession.presetName);
+  const controller = new maa.Win32Controller(
+    captureSession.boundSourceId,
+    preset.screencapMethod,
+    preset.mouseMethod,
+    preset.keyboardMethod
+  );
+  controller.screenshot_use_raw_size = true;
+
+  try {
+    await controller.post_connection().wait();
+  } catch (error) {
+    try {
+      controller.destroy();
+    } catch {}
+    throw error;
+  }
+
+  if (!controller.connected) {
+    try {
+      controller.destroy();
+    } catch {}
+    throw new Error('Maa Win32 controller failed to connect.');
+  }
+
+  captureSession.controller = controller;
+  return controller;
+}
+
+async function captureSourceFrame(sourceId) {
+  const sourceHandle = String(sourceId || '');
+  if (!sourceHandle) {
+    throw new Error('captureSourceFrame requires a valid window handle');
+  }
+
+  if (captureSession.boundSourceId !== sourceHandle) {
+    throw new Error(`Capture source is not bound: ${sourceHandle}`);
+  }
+
+  const controller = await ensureCaptureController();
+  await controller.post_screencap().wait();
+  const imageBuffer = controller.cached_image;
+  const resolution = controller.resolution;
+  if (!imageBuffer || !resolution) {
+    throw new Error('Target window is not capturable right now.');
+  }
+
+  const buffer = Buffer.from(imageBuffer);
+  if (!buffer.length) {
+    throw new Error('Maa screencap returned empty image.');
+  }
+
+  const [width, height] = resolution;
+  const dataUrl = `data:image/png;base64,${buffer.toString('base64')}`;
+  const sources = await getCaptureSources();
+  const matchedSource =
+    sources.find((source) => source.id === sourceHandle) ||
+    captureSession.lastSourceMeta || {
+      id: sourceHandle,
+      handle: Number(sourceHandle),
+      name: `Window ${sourceHandle}`,
+      className: '',
+      kind: 'window',
+      displayId: '',
+      appIconDataUrl: null,
+      thumbnailDataUrl: null,
+      width,
+      height,
+      backend: 'maa-win32-controller',
+    };
+
+  return {
+    source: matchedSource,
+    capturedAt: Date.now(),
+    width,
+    height,
+    imageDataUrl: dataUrl,
+  };
+}
+
+function getCaptureSessionState() {
+  const preset = getCapturePreset(captureSession.presetName);
+  return {
+    boundSourceId: captureSession.boundSourceId,
+    presetName: captureSession.presetName,
+    presetLabel: preset.label,
+    running: captureSession.running,
+    intervalMs: captureSession.intervalMs,
+    lastCapturedAt: captureSession.lastCapturedAt,
+    lastError: captureSession.lastError,
+    latestFrame: captureSession.latestFrame
+      ? {
+          capturedAt: captureSession.latestFrame.capturedAt,
+          width: captureSession.latestFrame.width,
+          height: captureSession.latestFrame.height,
+          sourceId: captureSession.latestFrame.source?.id ?? null,
+        }
+      : null,
+    source: captureSession.lastSourceMeta,
+  };
+}
+
+function resetCaptureSessionFrame() {
+  captureSession.latestFrame = null;
+  captureSession.lastCapturedAt = null;
+  captureSession.lastError = null;
+}
+
+async function bindCaptureSource(sourceId, presetName = 'Win32-Window') {
+  const sourceHandle = String(sourceId || '');
+  if (!sourceHandle) {
+    throw new Error('bindCaptureSource requires a valid window handle');
+  }
+
+  const sources = await getCaptureSources();
+  const matchedSource = sources.find((source) => source.id === sourceHandle);
+  if (!matchedSource) {
+    throw new Error(`Target window not found: ${sourceId}`);
+  }
+
+  getCapturePreset(presetName);
+  stopCaptureSession();
+  destroyCaptureController();
+  captureSession.boundSourceId = sourceHandle;
+  captureSession.presetName = presetName;
+  captureSession.lastSourceMeta = matchedSource;
+  resetCaptureSessionFrame();
+  return getCaptureSessionState();
+}
+
+async function runCaptureSessionTick() {
+  if (!captureSession.boundSourceId) {
+    captureSession.lastError = 'No capture source is bound.';
+    return;
+  }
+
+  try {
+    const frame = await captureSourceFrame(captureSession.boundSourceId);
+    captureSession.latestFrame = frame;
+    captureSession.lastCapturedAt = frame.capturedAt;
+    captureSession.lastSourceMeta = frame.source;
+    captureSession.lastError = null;
+  } catch (error) {
+    captureSession.lastError = error instanceof Error ? error.message : String(error);
+  }
+}
+
+function stopCaptureSession() {
+  if (captureSessionTimer) {
+    clearInterval(captureSessionTimer);
+    captureSessionTimer = null;
+  }
+
+  captureSession.running = false;
+  destroyCaptureController();
+  return getCaptureSessionState();
+}
+
+async function startCaptureSession(intervalMs = 200) {
+  const normalizedInterval = Number.isFinite(intervalMs)
+    ? Math.max(80, Math.min(2000, Math.round(intervalMs)))
+    : 200;
+
+  if (!captureSession.boundSourceId) {
+    throw new Error('No capture source is bound.');
+  }
+
+  stopCaptureSession();
+  captureSession.intervalMs = normalizedInterval;
+  captureSession.running = true;
+  await runCaptureSessionTick();
+  captureSessionTimer = setInterval(() => {
+    runCaptureSessionTick().catch((error) => {
+      captureSession.lastError = error instanceof Error ? error.message : String(error);
+    });
+  }, normalizedInterval);
+
+  return getCaptureSessionState();
+}
+
 function startBridgeServer() {
   if (bridgeServer) {
     return;
@@ -535,6 +828,7 @@ function startBridgeServer() {
 }
 
 function stopServers() {
+  stopCaptureSession();
   if (bridgeServer) {
     bridgeServer.close();
     bridgeServer = null;
@@ -569,6 +863,38 @@ ipcMain.handle('desktop:quit-app', () => {
   app.quit();
   return { ok: true };
 });
+ipcMain.handle('desktop:list-capture-presets', () => ({
+  ok: true,
+  presets: listCapturePresets(),
+}));
+ipcMain.handle('desktop:bind-capture-source', async (_event, sourceId, presetName) => ({
+  ok: true,
+  session: await bindCaptureSource(sourceId, presetName),
+}));
+ipcMain.handle('desktop:start-capture-session', async (_event, intervalMs) => ({
+  ok: true,
+  session: await startCaptureSession(intervalMs),
+}));
+ipcMain.handle('desktop:stop-capture-session', () => ({
+  ok: true,
+  session: stopCaptureSession(),
+}));
+ipcMain.handle('desktop:get-capture-session', () => ({
+  ok: true,
+  session: getCaptureSessionState(),
+}));
+ipcMain.handle('desktop:get-latest-capture-frame', () => ({
+  ok: true,
+  frame: captureSession.latestFrame,
+}));
+ipcMain.handle('desktop:list-capture-sources', async () => ({
+  ok: true,
+  sources: await getCaptureSources(),
+}));
+ipcMain.handle('desktop:capture-source-frame', async (_event, sourceId) => ({
+  ok: true,
+  frame: await captureSourceFrame(sourceId),
+}));
 
 ipcMain.handle('desktop:run-action', (_event, action) => {
   switch (action) {
@@ -576,7 +902,7 @@ ipcMain.handle('desktop:run-action', (_event, action) => {
       return {
         ok: true,
         title: 'Capture',
-        detail: 'Capture pipeline placeholder is wired. No screenshot backend has been attached yet.',
+        detail: 'Maa Win32 controller capture pipeline is ready. Use the shell capture panel to select a MaaEnd preset and grab frames.',
       };
     case 'vision-probe':
       return {

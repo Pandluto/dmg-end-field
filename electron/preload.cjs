@@ -13,5 +13,13 @@ contextBridge.exposeInMainWorld('desktopRuntime', {
   setDesktopScale: (scaleKey) => ipcRenderer.invoke('desktop:set-scale', scaleKey),
   openWeb: () => ipcRenderer.invoke('desktop:open-web'),
   quitApp: () => ipcRenderer.invoke('desktop:quit-app'),
+  listCapturePresets: () => ipcRenderer.invoke('desktop:list-capture-presets'),
+  bindCaptureSource: (sourceId, presetName) => ipcRenderer.invoke('desktop:bind-capture-source', sourceId, presetName),
+  startCaptureSession: (intervalMs) => ipcRenderer.invoke('desktop:start-capture-session', intervalMs),
+  stopCaptureSession: () => ipcRenderer.invoke('desktop:stop-capture-session'),
+  getCaptureSession: () => ipcRenderer.invoke('desktop:get-capture-session'),
+  getLatestCaptureFrame: () => ipcRenderer.invoke('desktop:get-latest-capture-frame'),
+  listCaptureSources: () => ipcRenderer.invoke('desktop:list-capture-sources'),
+  captureSourceFrame: (sourceId) => ipcRenderer.invoke('desktop:capture-source-frame', sourceId),
   runAction: (action) => ipcRenderer.invoke('desktop:run-action', action),
 });

@@ -16,6 +16,7 @@
     "electron:build": "npm run build && electron-builder --win portable"
   },
   "dependencies": {
+    "@maaxyz/maa-node": "^5.10.4",
     "exceljs": "^4.4.0",
     "fuse.js": "^7.3.0",
     "pinyin-pro": "^3.28.1",
@@ -44,6 +45,7 @@
     "files": [
       "dist/**",
       "electron/**",
+      "native/**",
       "agent/**",
       "package.json"
     ],
