@@ -5,9 +5,13 @@
   "type": "module",
   "main": "electron/main.cjs",
   "scripts": {
+    "agent:dev": "node agent/dev-agent.cjs",
+    "agent:dev:web": "node agent/dev-agent.cjs --open-web",
     "dev": "vite --host 127.0.0.1 --port 3030",
     "build": "tsc && vite build",
     "preview": "vite preview",
+    "app:dev": "concurrently -k \"npm:dev\" \"wait-on tcp:127.0.0.1:3030 && npm run agent:dev:web\"",
+    "electron:shell": "electron . --dev",
     "electron:dev": "concurrently -k \"npm:dev\" \"wait-on tcp:127.0.0.1:3030 && electron . --dev\"",
     "electron:build": "npm run build && electron-builder --win portable"
   },
@@ -40,6 +44,7 @@
     "files": [
       "dist/**",
       "electron/**",
+      "agent/**",
       "package.json"
     ],
     "win": {

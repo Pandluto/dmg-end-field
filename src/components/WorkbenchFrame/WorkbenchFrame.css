@@ -196,6 +196,14 @@
   color: inherit;
 }
 
+.workbench-shell-button:not(.is-active) {
+  border-color: #7fb995;
+}
+
+.workbench-shell-button:not(.is-active) .workbench-trigger-status {
+  color: #3b7754;
+}
+
 /* 选人界面布局 */
 .selection-workbench-layout {
   display: block;

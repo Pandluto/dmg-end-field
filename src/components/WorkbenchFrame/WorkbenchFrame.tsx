@@ -4,6 +4,7 @@ import { SelectionPanel } from '../SelectionPanel';
 import { CanvasBoard } from '../CanvasBoard';
 import { setSelectedSkillButton } from '../../hooks/useSkillButtonBuffs';
 import { APP_ROUTE_PATHS, navigateToAppPath } from '../../utils/appRoute';
+import { getLocalAgentHealth, requestCloseShell, requestOpenShell } from '../../utils/localAgent';
 import './WorkbenchFrame.css';
 
 export type WorkbenchMode = 'selection' | 'timeline' | 'toolPanel';
@@ -16,6 +17,7 @@ export function WorkbenchFrame() {
   const [operatorConfigVisible, setOperatorConfigVisible] = useState(false);
   const [operatorConfigCharacterId, setOperatorConfigCharacterId] = useState<string | null>(null);
   const [forceShowToolPanel, setForceShowToolPanel] = useState(false);
+  const [shellStatus, setShellStatus] = useState<'checking' | 'offline' | 'hidden' | 'visible' | 'opening' | 'closing'>('checking');
 
   const canAccessCanvas = selectedCharacters.length > 0;
   const isSelectionActive = currentView === 'selection';
@@ -128,6 +130,40 @@ export function WorkbenchFrame() {
     navigateToAppPath(APP_ROUTE_PATHS.buffDraft);
   }, []);
 
+  const syncLocalAgentStatus = useCallback(async () => {
+    try {
+      const health = await getLocalAgentHealth();
+      if (!health.shell.running || health.shell.state === 'missing') {
+        setShellStatus('hidden');
+        return;
+      }
+      setShellStatus(health.shell.state === 'visible' ? 'visible' : 'hidden');
+    } catch {
+      setShellStatus('offline');
+    }
+  }, []);
+
+  const handleToggleShell = useCallback(async () => {
+    if (shellStatus === 'visible') {
+      setShellStatus('closing');
+      try {
+        await requestCloseShell();
+        setShellStatus('hidden');
+      } catch {
+        setShellStatus('offline');
+      }
+      return;
+    }
+
+    setShellStatus('opening');
+    try {
+      const shell = await requestOpenShell();
+      setShellStatus(shell.state === 'visible' ? 'visible' : 'hidden');
+    } catch {
+      setShellStatus('offline');
+    }
+  }, [shellStatus]);
+
   const bottomNavControls = (
     <div className="workbench-bottom-actions">
       <button className="workbench-top-trigger workbench-bottom-nav-button is-active" type="button">
@@ -139,6 +175,18 @@ export function WorkbenchFrame() {
       <button className="workbench-top-trigger workbench-bottom-nav-button" type="button" onClick={handleOpenBuffDraft}>
         <span className="workbench-trigger-text">编辑BUFF</span>
       </button>
+      <button className="workbench-top-trigger workbench-bottom-nav-button workbench-shell-button" type="button" onClick={handleToggleShell}>
+        <span className="workbench-trigger-text">{shellStatus === 'visible' ? '收起Shell' : '打开Shell'}</span>
+        <span className="workbench-trigger-divider">|</span>
+        <span className="workbench-trigger-status">
+          {shellStatus === 'checking' && '检测中'}
+          {shellStatus === 'offline' && '桌面端未启动'}
+          {shellStatus === 'hidden' && '后台待命'}
+          {shellStatus === 'visible' && '已打开'}
+          {shellStatus === 'opening' && '打开中'}
+          {shellStatus === 'closing' && '收起中'}
+        </span>
+      </button>
     </div>
   );
 
@@ -147,6 +195,14 @@ export function WorkbenchFrame() {
       setWorkbenchMode('timeline');
     }
   }, [currentView, workbenchMode]);
+
+  useEffect(() => {
+    syncLocalAgentStatus();
+    const timer = window.setInterval(syncLocalAgentStatus, 5000);
+    return () => {
+      window.clearInterval(timer);
+    };
+  }, [syncLocalAgentStatus]);
 
   return (
     <div className={`workbench-frame ${isDrawerOpen ? 'has-top-zone' : ''}`}>

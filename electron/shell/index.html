@@ -1,0 +1,353 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>DEF 控制台</title>
+    <style>
+      :root {
+        color-scheme: light;
+        font-family: "Segoe UI", sans-serif;
+        background: #edf5ee;
+        color: #193423;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        padding: 22px;
+        background:
+          radial-gradient(circle at top right, rgba(95, 154, 118, 0.16), transparent 34%),
+          linear-gradient(135deg, #edf6ef 0%, #d8eadc 100%);
+      }
+
+      .shell {
+        max-width: 860px;
+        margin: 0 auto;
+        display: grid;
+        gap: 16px;
+      }
+
+      .hero,
+      .section,
+      .log-card {
+        background: rgba(255, 255, 255, 0.9);
+        border: 1px solid rgba(25, 52, 35, 0.12);
+        box-shadow: 0 18px 40px rgba(25, 52, 35, 0.1);
+      }
+
+      .hero {
+        padding: 24px;
+      }
+
+      .eyebrow {
+        margin: 0 0 10px;
+        font-size: 12px;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: #567062;
+      }
+
+      h1 {
+        margin: 0;
+        font-size: 30px;
+        line-height: 1.08;
+      }
+
+      .hero p {
+        margin: 10px 0 0;
+        max-width: 680px;
+        color: #466051;
+        line-height: 1.65;
+      }
+
+      .hero-actions {
+        display: flex;
+        gap: 12px;
+        margin-top: 16px;
+      }
+
+      .runtime-strip {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 10px;
+        margin-top: 18px;
+      }
+
+      .runtime-pill {
+        padding: 10px 12px;
+        background: #f4faf5;
+        border: 1px solid rgba(25, 52, 35, 0.08);
+      }
+
+      .runtime-pill strong {
+        display: block;
+        font-size: 11px;
+        color: #577162;
+        text-transform: uppercase;
+        letter-spacing: 0.07em;
+      }
+
+      .runtime-pill span {
+        display: block;
+        margin-top: 4px;
+        font-size: 14px;
+        font-weight: 700;
+        color: #173322;
+      }
+
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 16px;
+      }
+
+      .section {
+        padding: 18px;
+      }
+
+      .section h2 {
+        margin: 0;
+        font-size: 18px;
+      }
+
+      .section p {
+        margin: 8px 0 14px;
+        line-height: 1.6;
+        color: #4b6555;
+        min-height: 52px;
+      }
+
+      .section button,
+      .log-card button {
+        height: 40px;
+        border: 1px solid #1f5d3b;
+        background: #2f7a50;
+        color: #fff;
+        font-size: 14px;
+        font-weight: 700;
+      }
+
+      .section button:hover,
+      .log-card button:hover {
+        background: #286844;
+      }
+
+      .secondary-button {
+        background: #f6fbf7;
+        color: #20432d;
+      }
+
+      .secondary-button:hover {
+        background: #eaf5ec;
+      }
+
+      .danger-button {
+        border-color: #7d3b3b;
+        background: #965050;
+      }
+
+      .danger-button:hover {
+        background: #844444;
+      }
+
+      .status {
+        margin-top: 12px;
+        padding: 10px 12px;
+        background: #f6fbf7;
+        border: 1px solid rgba(25, 52, 35, 0.08);
+        font-size: 13px;
+        line-height: 1.5;
+        color: #355242;
+      }
+
+      .log-card {
+        padding: 18px;
+      }
+
+      .log-card-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+      }
+
+      .log-card-head h2 {
+        margin: 0;
+        font-size: 18px;
+      }
+
+      .log-card button {
+        min-width: 110px;
+      }
+
+      .log {
+        margin-top: 14px;
+        min-height: 220px;
+        max-height: 320px;
+        overflow: auto;
+        padding: 14px;
+        background: #f6fbf7;
+        border: 1px solid rgba(25, 52, 35, 0.08);
+        white-space: pre-wrap;
+        font-size: 13px;
+        line-height: 1.55;
+      }
+
+      @media (max-width: 760px) {
+        .runtime-strip,
+        .grid {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="shell">
+      <section class="hero">
+        <p class="eyebrow">独立 Electron 外壳</p>
+        <h1>桌面控制控制台</h1>
+        <p>
+          此外壳独立于 Web 前端，旨在成为本地控制平面，用于捕获、识别、指针自动化以及未来的 MaaEnd 集成。生产态启动时它会默认收起到系统托盘，作为浏览器界面误关后的保底入口。右上角关闭只会收起到托盘，只有“完全关闭”才会结束整个进程。
+        </p>
+        <div class="hero-actions">
+          <button id="open-web" type="button" class="secondary-button">打开主界面</button>
+          <button id="quit-app" type="button" class="danger-button">完全关闭</button>
+        </div>
+        <div class="runtime-strip">
+          <div class="runtime-pill">
+            <strong>角色</strong>
+            <span id="role-value">-</span>
+          </div>
+          <div class="runtime-pill">
+            <strong>平台</strong>
+            <span id="platform-value">-</span>
+          </div>
+          <div class="runtime-pill">
+            <strong>应用</strong>
+            <span id="app-value">-</span>
+          </div>
+          <div class="runtime-pill">
+            <strong>主机</strong>
+            <span id="host-value">-</span>
+          </div>
+        </div>
+      </section>
+
+      <section class="grid">
+        <article class="section">
+          <h2>捕获</h2>
+          <p>探测游戏窗口捕获将挂载的插槽。这是截图后端的未来归宿。</p>
+          <button type="button" data-action="capture-probe">运行捕获探测</button>
+          <div class="status" id="capture-status">空闲</div>
+        </article>
+
+        <article class="section">
+          <h2>视觉</h2>
+          <p>探测模板匹配、OCR 和 MaaEnd 识别任务将附加的插槽。</p>
+          <button type="button" data-action="vision-probe">运行视觉探测</button>
+          <div class="status" id="vision-status">空闲</div>
+        </article>
+
+        <article class="section">
+          <h2>指针</h2>
+          <p>探测原生鼠标和键盘控制后端将在稍后连接的插槽。</p>
+          <button type="button" data-action="pointer-probe">运行指针探测</button>
+          <div class="status" id="pointer-status">空闲</div>
+        </article>
+
+        <article class="section">
+          <h2>运行时</h2>
+          <p>探测外壳运行时本身。在连接原生模块之前验证本地桌面主机时很有用。</p>
+          <button type="button" data-action="runtime-probe">运行运行时探测</button>
+          <div class="status" id="runtime-status">空闲</div>
+        </article>
+      </section>
+
+      <section class="log-card">
+        <div class="log-card-head">
+          <h2>活动日志</h2>
+          <button id="clear-log" type="button">清空日志</button>
+        </div>
+        <div class="log" id="log"></div>
+      </section>
+    </main>
+
+    <script>
+      const runtime = window.desktopRuntime;
+      const logElement = document.getElementById('log');
+
+      const appendLog = (line) => {
+        const current = logElement.textContent ? `${logElement.textContent}\n` : '';
+        logElement.textContent = `${current}${line}`;
+        logElement.scrollTop = logElement.scrollHeight;
+      };
+
+      const setStatus = (id, value) => {
+        const target = document.getElementById(id);
+        if (target) {
+          target.textContent = value;
+        }
+      };
+
+      const boot = async () => {
+        const state = await runtime.getShellState();
+        document.getElementById('role-value').textContent = runtime.role || '未知';
+        document.getElementById('platform-value').textContent = `${state.platform}/${state.arch}`;
+        document.getElementById('app-value').textContent = `${state.appName} ${state.appVersion}`;
+        document.getElementById('host-value').textContent = state.hostname;
+        appendLog(`外壳就绪 | 角色=${runtime.role} | 平台=${state.platform} | 主机=${state.hostname}`);
+        appendLog('Web 前端在此布局中不由 Electron 管理。');
+      };
+
+      document.querySelectorAll('[data-action]').forEach((button) => {
+        button.addEventListener('click', async () => {
+          const action = button.getAttribute('data-action');
+          const statusId = `${action.split('-')[0]}-status`;
+          setStatus(statusId, '运行中...');
+
+          try {
+            const result = await runtime.runAction(action);
+            const line = `${result.title} | ${result.ok ? '成功' : '错误'} | ${result.detail}`;
+            setStatus(statusId, result.detail);
+            appendLog(line);
+          } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            setStatus(statusId, message);
+            appendLog(`错误 | ${action} | ${message}`);
+          }
+        });
+      });
+
+      document.getElementById('clear-log').addEventListener('click', () => {
+        logElement.textContent = '';
+      });
+
+      document.getElementById('open-web').addEventListener('click', async () => {
+        try {
+          const result = await runtime.openWeb();
+          appendLog(`主界面已打开 | ${result.url}`);
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          appendLog(`打开主界面失败 | ${message}`);
+        }
+      });
+
+      document.getElementById('quit-app').addEventListener('click', async () => {
+        try {
+          appendLog('正在完全关闭桌面进程...');
+          await runtime.quitApp();
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          appendLog(`完全关闭失败 | ${message}`);
+        }
+      });
+
+      boot();
+    </script>
+  </body>
+</html>
