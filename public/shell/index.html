@@ -189,7 +189,7 @@
       <section class="hero">
         <p class="eyebrow">独立 Electron 外壳</p>
         <h1>桌面控制控制台</h1>
-        <p>这是一个独立的小型桌面 GUI，不复用 Web 主界面的布局或路由。生产态启动时它会默认收起到系统托盘，作为浏览器界面误关后的保底入口。右上角关闭只会收起到托盘，只有“完全关闭”才会结束整个进程。</p>
+        <p>这是一个独立的小型桌面 GUI。现在主界面完全由 Electron 托管，固定为 1440x900 的 1x 内容区，并忽略 Windows 缩放。右上角关闭只会收起到托盘，只有“完全关闭”才会结束整个进程。</p>
         <div class="hero-actions">
           <button id="open-web" type="button" class="secondary-button">打开主界面</button>
           <button id="quit-app" type="button" class="danger-button">完全关闭</button>

@@ -27,7 +27,7 @@
     document.getElementById('app-value').textContent = `${state.appName} ${state.appVersion}`;
     document.getElementById('host-value').textContent = state.hostname;
     appendLog(`外壳就绪 | 角色=${runtime.role} | 平台=${state.platform} | 主机=${state.hostname}`);
-    appendLog('这是独立的小型 shell 开发页，和 Web 主界面分离。');
+    appendLog('主界面与 shell 现在都由 Electron 托管。');
   };
 
   document.querySelectorAll('[data-action]').forEach((button) => {
@@ -56,7 +56,7 @@
   document.getElementById('open-web').addEventListener('click', async () => {
     try {
       const result = await runtime.openWeb();
-      appendLog(`主界面已打开 | ${result.url}`);
+      appendLog(`主界面已打开 | ${result.mode} | ${result.width}x${result.height}`);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       appendLog(`打开主界面失败 | ${message}`);

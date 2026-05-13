@@ -2,23 +2,37 @@ const fs = require('fs');
 const http = require('http');
 const os = require('os');
 const path = require('path');
-const { app, BrowserWindow, ipcMain, Menu, Tray, nativeImage, shell } = require('electron');
+const {
+  app,
+  BrowserWindow,
+  ipcMain,
+  Menu,
+  Tray,
+  nativeImage,
+  shell,
+} = require('electron');
 
+const DEV_WEB_URL = 'http://127.0.0.1:3030/';
 const DEV_SHELL_URL = 'http://127.0.0.1:3030/shell/index.html';
-const WEB_HOST = '127.0.0.1';
-const WEB_PORT = 3030;
+const BRIDGE_HOST = '127.0.0.1';
 const BRIDGE_PORT = 31457;
+const MAIN_CONTENT_WIDTH = 1440;
+const MAIN_CONTENT_HEIGHT = 900;
+const SHELL_WIDTH = 540;
+const SHELL_HEIGHT = 680;
 const isDev = process.argv.includes('--dev');
+const shellOnly = process.argv.includes('--shell-only');
 const gotSingleInstanceLock = app.requestSingleInstanceLock();
+app.commandLine.appendSwitch('high-dpi-support', '1');
+app.commandLine.appendSwitch('force-device-scale-factor', '1');
 
+let mainWindow = null;
 let shellWindow = null;
 let bridgeServer = null;
-let webServer = null;
-let webOpenedAt = null;
 let shellStartedAt = null;
 let isAppQuitting = false;
-let isForceClosingShell = false;
-let shellTray = null;
+let isForceClosingMain = false;
+let appTray = null;
 
 if (!gotSingleInstanceLock) {
   app.quit();
@@ -28,6 +42,7 @@ if (!gotSingleInstanceLock) {
 function buildWindowOptions(role, extra = {}) {
   return {
     autoHideMenuBar: true,
+    useContentSize: true,
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
       contextIsolation: true,
@@ -38,10 +53,6 @@ function buildWindowOptions(role, extra = {}) {
   };
 }
 
-function getWebUrl() {
-  return `http://${WEB_HOST}:${WEB_PORT}`;
-}
-
 function createTrayIconImage() {
   const svg = `
     <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16">
@@ -49,7 +60,21 @@ function createTrayIconImage() {
       <rect x="4" y="4" width="8" height="8" rx="1.5" fill="#f4fff7"/>
     </svg>
   `.trim();
-  return nativeImage.createFromDataURL(`data:image/svg+xml;base64,${Buffer.from(svg).toString('base64')}`);
+  return nativeImage.createFromDataURL(
+    `data:image/svg+xml;base64,${Buffer.from(svg).toString('base64')}`
+  );
+}
+
+function getMainWindowState() {
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    return 'missing';
+  }
+
+  if (mainWindow.isVisible() && !mainWindow.isMinimized()) {
+    return 'visible';
+  }
+
+  return 'hidden';
 }
 
 function getShellVisibilityState() {
@@ -65,18 +90,23 @@ function getShellVisibilityState() {
 }
 
 function updateTrayMenu() {
-  if (!shellTray) {
+  if (!appTray) {
     return;
   }
 
+  const mainVisible = getMainWindowState() === 'visible';
   const shellVisible = getShellVisibilityState() === 'visible';
-  shellTray.setToolTip(shellVisible ? 'DEF 桌面端 Shell 已打开' : 'DEF 桌面端后台运行中');
-  shellTray.setContextMenu(
+  appTray.setToolTip(mainVisible ? 'DEF 主界面已打开' : 'DEF 桌面端后台运行中');
+  appTray.setContextMenu(
     Menu.buildFromTemplate([
       {
-        label: '打开主界面',
+        label: mainVisible ? '收起主界面' : '打开主界面',
         click: () => {
-          openWeb();
+          if (mainVisible) {
+            hideMainWindow();
+          } else {
+            restoreMainWindow();
+          }
         },
       },
       {
@@ -101,23 +131,131 @@ function updateTrayMenu() {
 }
 
 function createTray() {
-  if (isDev || shellTray) {
+  if (appTray) {
     return;
   }
 
-  shellTray = new Tray(createTrayIconImage());
-  shellTray.on('double-click', () => {
-    restoreShellWindow();
+  appTray = new Tray(createTrayIconImage());
+  appTray.on('double-click', () => {
+    restoreMainWindow();
   });
   updateTrayMenu();
 }
 
+function lockWindowZoom(windowInstance) {
+  if (!windowInstance || windowInstance.isDestroyed()) {
+    return;
+  }
+
+  const { webContents } = windowInstance;
+  webContents.setZoomFactor(1);
+  webContents.setZoomLevel(0);
+  webContents.setVisualZoomLevelLimits(1, 1).catch(() => {});
+}
+
+function applyWindowLifecycle(windowInstance, hideHandler, shouldAllowClose) {
+  windowInstance.on('close', (event) => {
+    if (shouldAllowClose()) {
+      return;
+    }
+
+    event.preventDefault();
+    hideHandler();
+  });
+
+  windowInstance.on('show', updateTrayMenu);
+  windowInstance.on('hide', updateTrayMenu);
+  windowInstance.on('restore', updateTrayMenu);
+  windowInstance.on('minimize', updateTrayMenu);
+}
+
+function createMainWindow() {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    restoreMainWindow();
+    return mainWindow;
+  }
+
+  mainWindow = new BrowserWindow(
+    buildWindowOptions('main', {
+      width: MAIN_CONTENT_WIDTH,
+      height: MAIN_CONTENT_HEIGHT,
+      minWidth: MAIN_CONTENT_WIDTH,
+      minHeight: MAIN_CONTENT_HEIGHT,
+      maxWidth: MAIN_CONTENT_WIDTH,
+      maxHeight: MAIN_CONTENT_HEIGHT,
+      resizable: false,
+      minimizable: true,
+      maximizable: false,
+      fullscreenable: false,
+      title: 'DEF战斗模拟器',
+      show: !shellOnly,
+      backgroundColor: '#f3f5f7',
+    })
+  );
+
+  if (isDev) {
+    mainWindow.loadURL(DEV_WEB_URL);
+  } else {
+    mainWindow.loadFile(path.join(__dirname, '..', 'dist', 'index.html'));
+  }
+
+  mainWindow.webContents.on('did-finish-load', () => {
+    lockWindowZoom(mainWindow);
+  });
+
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    shell.openExternal(url);
+    return { action: 'deny' };
+  });
+
+  applyWindowLifecycle(mainWindow, hideMainWindow, () => isAppQuitting || isForceClosingMain);
+
+  mainWindow.on('closed', () => {
+    mainWindow = null;
+    isForceClosingMain = false;
+    updateTrayMenu();
+  });
+
+  updateTrayMenu();
+  return mainWindow;
+}
+
+function restoreMainWindow() {
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    return createMainWindow();
+  }
+
+  if (mainWindow.isMinimized()) {
+    mainWindow.restore();
+  }
+
+  if (!mainWindow.isVisible()) {
+    mainWindow.show();
+  }
+
+  mainWindow.focus();
+  updateTrayMenu();
+  return mainWindow;
+}
+
+function hideMainWindow() {
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    mainWindow = null;
+    updateTrayMenu();
+    return false;
+  }
+
+  mainWindow.hide();
+  updateTrayMenu();
+  return true;
+}
+
 function createShellWindow(options = {}) {
-  const { startMinimized = false } = options;
+  const { startHidden = false } = options;
 
   if (shellWindow && !shellWindow.isDestroyed()) {
-    if (startMinimized) {
-      shellWindow.minimize();
+    if (startHidden) {
+      hideShellWindow();
     } else {
       restoreShellWindow();
     }
@@ -126,12 +264,13 @@ function createShellWindow(options = {}) {
 
   shellWindow = new BrowserWindow(
     buildWindowOptions('shell', {
-      width: 540,
-      height: 680,
+      width: SHELL_WIDTH,
+      height: SHELL_HEIGHT,
       minWidth: 420,
       minHeight: 560,
       title: 'DEF Desktop Shell',
-      show: isDev ? true : !startMinimized,
+      show: !startHidden,
+      backgroundColor: '#edf5ee',
     })
   );
   shellStartedAt = Date.now();
@@ -142,7 +281,11 @@ function createShellWindow(options = {}) {
     shellWindow.loadFile(path.join(__dirname, 'shell', 'index.html'));
   }
 
-  if (startMinimized && !isDev) {
+  shellWindow.webContents.on('did-finish-load', () => {
+    lockWindowZoom(shellWindow);
+  });
+
+  if (startHidden) {
     shellWindow.once('ready-to-show', () => {
       if (shellWindow && !shellWindow.isDestroyed()) {
         shellWindow.hide();
@@ -151,24 +294,11 @@ function createShellWindow(options = {}) {
     });
   }
 
-  shellWindow.on('close', (event) => {
-    if (isDev || isAppQuitting || isForceClosingShell) {
-      return;
-    }
-
-    event.preventDefault();
-    hideShellWindow();
-  });
-
-  shellWindow.on('show', updateTrayMenu);
-  shellWindow.on('hide', updateTrayMenu);
-  shellWindow.on('restore', updateTrayMenu);
-  shellWindow.on('minimize', updateTrayMenu);
+  applyWindowLifecycle(shellWindow, hideShellWindow, () => isAppQuitting);
 
   shellWindow.on('closed', () => {
     shellWindow = null;
     shellStartedAt = null;
-    isForceClosingShell = false;
     updateTrayMenu();
   });
 
@@ -180,8 +310,6 @@ function restoreShellWindow() {
   if (!shellWindow || shellWindow.isDestroyed()) {
     return createShellWindow();
   }
-
-  shellWindow.show();
 
   if (shellWindow.isMinimized()) {
     shellWindow.restore();
@@ -200,6 +328,7 @@ function hideShellWindow() {
   if (!shellWindow || shellWindow.isDestroyed()) {
     shellWindow = null;
     shellStartedAt = null;
+    updateTrayMenu();
     return false;
   }
 
@@ -212,6 +341,9 @@ function getSenderRole(event) {
   const senderWindow = BrowserWindow.fromWebContents(event.sender);
   if (!senderWindow) {
     return 'unknown';
+  }
+  if (senderWindow === mainWindow) {
+    return 'main';
   }
   if (senderWindow === shellWindow) {
     return 'shell';
@@ -248,24 +380,26 @@ function getBridgeHealth() {
   return {
     ok: true,
     service: 'def-local-bridge',
-    host: WEB_HOST,
+    host: BRIDGE_HOST,
     port: BRIDGE_PORT,
     shell: getShellRuntimeInfo(),
-    web: {
-      url: getWebUrl(),
-      openedAt: webOpenedAt,
+    main: {
+      running: Boolean(mainWindow && !mainWindow.isDestroyed()),
+      visible: Boolean(mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible()),
+      state: getMainWindowState(),
+      width: MAIN_CONTENT_WIDTH,
+      height: MAIN_CONTENT_HEIGHT,
     },
   };
 }
 
 function openWeb() {
-  const url = getWebUrl();
-  shell.openExternal(url);
-  webOpenedAt = Date.now();
+  restoreMainWindow();
   return {
     opened: true,
-    url,
-    openedAt: webOpenedAt,
+    mode: isDev ? 'vite' : 'electron',
+    width: MAIN_CONTENT_WIDTH,
+    height: MAIN_CONTENT_HEIGHT,
   };
 }
 
@@ -276,7 +410,7 @@ function startBridgeServer() {
 
   bridgeServer = http.createServer((request, response) => {
     const method = request.method || 'GET';
-    const requestUrl = new URL(request.url || '/', `http://${WEB_HOST}:${BRIDGE_PORT}`);
+    const requestUrl = new URL(request.url || '/', `http://${BRIDGE_HOST}:${BRIDGE_PORT}`);
 
     if (method === 'OPTIONS') {
       response.writeHead(204, buildJsonHeaders());
@@ -295,7 +429,7 @@ function startBridgeServer() {
         ok: true,
         shell: {
           started: true,
-          reason: 'launched',
+          reason: 'opened',
           ...getShellRuntimeInfo(),
         },
       });
@@ -332,91 +466,17 @@ function startBridgeServer() {
 
   bridgeServer.on('error', (error) => {
     const detail = error instanceof Error ? error.message : String(error);
-    console.error(`Bridge server failed on ${WEB_HOST}:${BRIDGE_PORT}: ${detail}`);
-    if (!isDev) {
-      restoreShellWindow();
-    }
-  });
-
-  bridgeServer.listen(BRIDGE_PORT, WEB_HOST);
-}
-
-function getContentType(filePath) {
-  if (filePath.endsWith('.html')) return 'text/html; charset=utf-8';
-  if (filePath.endsWith('.js')) return 'application/javascript; charset=utf-8';
-  if (filePath.endsWith('.css')) return 'text/css; charset=utf-8';
-  if (filePath.endsWith('.json')) return 'application/json; charset=utf-8';
-  if (filePath.endsWith('.svg')) return 'image/svg+xml';
-  if (filePath.endsWith('.png')) return 'image/png';
-  if (filePath.endsWith('.jpg') || filePath.endsWith('.jpeg')) return 'image/jpeg';
-  if (filePath.endsWith('.ico')) return 'image/x-icon';
-  return 'application/octet-stream';
-}
-
-function resolveDistPath(requestPathname) {
-  const normalized = requestPathname === '/' ? '/index.html' : requestPathname;
-  const distRoot = path.join(__dirname, '..', 'dist');
-  const candidatePath = path.normalize(path.join(distRoot, normalized));
-
-  if (!candidatePath.startsWith(distRoot)) {
-    return path.join(distRoot, 'index.html');
-  }
-
-  if (fs.existsSync(candidatePath) && fs.statSync(candidatePath).isFile()) {
-    return candidatePath;
-  }
-
-  return path.join(distRoot, 'index.html');
-}
-
-function startWebServer(onReady) {
-  if (webServer || isDev) {
-    if (typeof onReady === 'function') {
-      onReady();
-    }
-    return;
-  }
-
-  webServer = http.createServer((request, response) => {
-    const requestUrl = new URL(request.url || '/', getWebUrl());
-    const filePath = resolveDistPath(requestUrl.pathname);
-
-    fs.readFile(filePath, (error, data) => {
-      if (error) {
-        response.writeHead(500, { 'Content-Type': 'text/plain; charset=utf-8' });
-        response.end('Internal server error');
-        return;
-      }
-
-      response.writeHead(200, {
-        'Content-Type': getContentType(filePath),
-      });
-      response.end(data);
-    });
-  });
-
-  webServer.on('error', (error) => {
-    const detail = error instanceof Error ? error.message : String(error);
-    console.error(`Web server failed on ${WEB_HOST}:${WEB_PORT}: ${detail}`);
-    openWeb();
+    console.error(`Bridge server failed on ${BRIDGE_HOST}:${BRIDGE_PORT}: ${detail}`);
     restoreShellWindow();
   });
 
-  webServer.listen(WEB_PORT, WEB_HOST, () => {
-    if (typeof onReady === 'function') {
-      onReady();
-    }
-  });
+  bridgeServer.listen(BRIDGE_PORT, BRIDGE_HOST);
 }
 
 function stopServers() {
   if (bridgeServer) {
     bridgeServer.close();
     bridgeServer = null;
-  }
-  if (webServer) {
-    webServer.close();
-    webServer = null;
   }
 }
 
@@ -429,7 +489,8 @@ ipcMain.handle('desktop:get-shell-state', () => ({
   hostname: os.hostname(),
   shellWindowLoaded: Boolean(shellWindow && !shellWindow.isDestroyed()),
   shellVisible: Boolean(shellWindow && !shellWindow.isDestroyed() && shellWindow.isVisible()),
-  webWindowManaged: false,
+  webWindowManaged: Boolean(mainWindow && !mainWindow.isDestroyed()),
+  webWindowVisible: Boolean(mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible()),
 }));
 ipcMain.handle('desktop:open-web', () => openWeb());
 ipcMain.handle('desktop:quit-app', () => {
@@ -461,7 +522,7 @@ ipcMain.handle('desktop:run-action', (_event, action) => {
       return {
         ok: true,
         title: 'Runtime',
-        detail: `Electron shell is alive on ${process.platform}/${process.arch}.`,
+        detail: `Electron desktop host is alive on ${process.platform}/${process.arch}.`,
       };
     default:
       return {
@@ -473,51 +534,43 @@ ipcMain.handle('desktop:run-action', (_event, action) => {
 });
 
 app.whenReady().then(() => {
+  Menu.setApplicationMenu(null);
   createTray();
   startBridgeServer();
 
-  if (isDev) {
+  if (shellOnly) {
+    createMainWindow();
+    hideMainWindow();
     createShellWindow();
   } else {
-    createShellWindow({ startMinimized: true });
-    startWebServer(() => {
-      openWeb();
-    });
+    createMainWindow();
+    createShellWindow({ startHidden: true });
   }
 
   app.on('activate', () => {
-    if (isDev && BrowserWindow.getAllWindows().length === 0) {
-      createShellWindow();
+    if (shellOnly) {
+      restoreShellWindow();
       return;
     }
-
-    if (!isDev) {
-      restoreShellWindow();
-    }
+    restoreMainWindow();
   });
 });
 
 app.on('second-instance', () => {
-  if (isDev) {
-    restoreShellWindow();
-    return;
-  }
-
-  createShellWindow({ startMinimized: true });
-  openWeb();
+  restoreMainWindow();
 });
 
 app.on('before-quit', () => {
   isAppQuitting = true;
-  if (shellTray) {
-    shellTray.destroy();
-    shellTray = null;
+  if (appTray) {
+    appTray.destroy();
+    appTray = null;
   }
   stopServers();
 });
 
-app.on('window-all-closed', () => {
-  if (isDev && process.platform !== 'darwin') {
-    app.quit();
+app.on('window-all-closed', (event) => {
+  if (!isAppQuitting) {
+    event.preventDefault();
   }
 });

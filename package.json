@@ -10,8 +10,8 @@
     "dev": "vite --host 127.0.0.1 --port 3030",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "app:dev": "concurrently -k \"npm:dev\" \"wait-on tcp:127.0.0.1:3030 && npm run agent:dev:web\"",
-    "electron:shell": "electron . --dev",
+    "app:dev": "npm run electron:dev",
+    "electron:shell": "concurrently -k \"npm:dev\" \"wait-on tcp:127.0.0.1:3030 && electron . --dev --shell-only\"",
     "electron:dev": "concurrently -k \"npm:dev\" \"wait-on tcp:127.0.0.1:3030 && electron . --dev\"",
     "electron:build": "npm run build && electron-builder --win portable"
   },
