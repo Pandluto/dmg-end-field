@@ -12,8 +12,8 @@ import {
   type DraftLibraryShareFile,
 } from '../utils/draftShare';
 
-const BUFF_DRAFT_PAGE_PATH = '/buff-draft';
-const BUFF_SHEET_PAGE_PATH = '/sheet-buff';
+const BUFF_DRAFT_PAGE_PATH = APP_ROUTE_PATHS.buffDraft;
+const BUFF_SHEET_PAGE_PATH = APP_ROUTE_PATHS.buffSheet;
 const BUFF_DRAFT_STORAGE_KEY = 'def.buff-editor.draft.v1';
 const BUFF_LIBRARY_STORAGE_KEY = 'def.buff-editor.library.v1';
 const BUFF_LIBRARY_SHARE_TYPE = 'buff-library-share.v1';

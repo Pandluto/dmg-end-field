@@ -134,7 +134,7 @@ export function ReportTab({ autoGenerateToken = 0 }: ReportTabProps) {
 
           <div className="report-text-panel">
             <div className="report-panel-head report-panel-head-text">
-              <h4>角色伤害占比</h4>
+              <h4>干员伤害占比</h4>
               <span>按期望伤害汇总</span>
             </div>
             <div className="report-text-list">
@@ -253,7 +253,7 @@ export function ReportTab({ autoGenerateToken = 0 }: ReportTabProps) {
                 {reportCharacters.length === 0 ? (
                   <div className="report-tree-row report-tree-row-button">
                     <div className="report-tree-main">
-                      <span className="report-tree-label">当前没有可统计角色</span>
+                      <span className="report-tree-label">当前没有可统计干员</span>
                     </div>
                   </div>
                 ) : (

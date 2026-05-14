@@ -6,7 +6,6 @@
 import { useEffect, useState } from 'react';
 import { DamageSheetPage, isDamageSheetPath } from './components/DamageSheetPage';
 import { WorkbenchFrame } from './components/WorkbenchFrame';
-import { StorageDebugPage, isStorageDebugPath } from './components/StorageDebugPage';
 import { OperatorDraftPage, isDraftPath } from './components/OperatorDraftPage';
 import { BuffDraftPage, BuffDraftSheetPage, isBuffDraftPath, isBuffSheetPath } from './components/BuffDraftPage';
 import { getCurrentAppPath } from './utils/appRoute';
@@ -38,10 +37,6 @@ function App() {
       window.removeEventListener('popstate', syncCurrentPath);
     };
   }, []);
-
-  if (isStorageDebugPath(currentPath)) {
-    return <StorageDebugPage />;
-  }
 
   if (isDraftPath(currentPath)) {
     return <OperatorDraftPage />;

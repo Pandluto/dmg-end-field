@@ -56,6 +56,8 @@ const WIN32_CONTROLLER_PRESETS = {
   },
 };
 app.commandLine.appendSwitch('high-dpi-support', '1');
+const APP_ICON_PNG_PATH = path.join(__dirname, 'assets', 'icon.png');
+const APP_ICON_ICO_PATH = path.join(__dirname, 'assets', 'icon.ico');
 
 let mainWindow = null;
 let shellWindow = null;
@@ -141,6 +143,7 @@ function buildWindowOptions(role, extra = {}) {
   return {
     autoHideMenuBar: true,
     useContentSize: true,
+    icon: fs.existsSync(APP_ICON_PNG_PATH) ? APP_ICON_PNG_PATH : undefined,
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
       contextIsolation: true,
@@ -233,7 +236,10 @@ function createTray() {
     return;
   }
 
-  appTray = new Tray(createTrayIconImage());
+  const trayIcon = fs.existsSync(APP_ICON_PNG_PATH)
+    ? nativeImage.createFromPath(APP_ICON_PNG_PATH)
+    : createTrayIconImage();
+  appTray = new Tray(trayIcon);
   appTray.on('double-click', () => {
     restoreMainWindow();
   });
@@ -932,6 +938,9 @@ ipcMain.handle('desktop:run-action', (_event, action) => {
 });
 
 app.whenReady().then(() => {
+  if (process.platform === 'win32' && fs.existsSync(APP_ICON_ICO_PATH)) {
+    app.setAppUserModelId('com.dmg.def');
+  }
   Menu.setApplicationMenu(null);
   createTray();
   startBridgeServer();

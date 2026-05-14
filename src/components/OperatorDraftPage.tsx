@@ -13,7 +13,7 @@ import {
 } from '../utils/draftShare';
 import { normalizeAssetUrl } from '../utils/assetResolver';
 
-const DRAFT_PAGE_PATH = '/draft';
+const DRAFT_PAGE_PATH = APP_ROUTE_PATHS.draft;
 const DRAFT_STORAGE_KEY = 'def.operator-editor.draft.v1';
 const LIBRARY_STORAGE_KEY = 'def.operator-editor.library.v1';
 const OPERATOR_LIBRARY_SHARE_TYPE = 'operator-library-share.v1';
@@ -905,7 +905,7 @@ export function OperatorDraftPage() {
       const parsed = JSON.parse(raw) as Record<string, OperatorDraft>;
       const localDraft = parsed[selectedLocalDraftId];
       if (!selectedLocalDraftId || !localDraft) {
-        setMessages((prev) => ['[ERR] 未找到所选本地角色', ...prev].slice(0, 12));
+      setMessages((prev) => ['[ERR] 未找到所选本地干员', ...prev].slice(0, 12));
         return;
       }
       loadDraftIntoEditor(localDraft, `[OK] 已从本地导入：${localDraft.id}`);
@@ -917,7 +917,7 @@ export function OperatorDraftPage() {
 
   const handleDeleteLocalDraft = () => {
     if (typeof window === 'undefined' || !loadedLocalDraftId) {
-      setMessages((prev) => ['[ERR] 请先导入本地数据，再删除对应本地角色', ...prev].slice(0, 12));
+      setMessages((prev) => ['[ERR] 请先导入本地数据，再删除对应本地干员', ...prev].slice(0, 12));
       return;
     }
 
@@ -931,7 +931,7 @@ export function OperatorDraftPage() {
     try {
       const parsed = JSON.parse(raw) as Record<string, OperatorDraft>;
       if (!parsed[loadedLocalDraftId]) {
-        setMessages((prev) => ['[ERR] 未找到所选本地角色', ...prev].slice(0, 12));
+      setMessages((prev) => ['[ERR] 未找到所选本地干员', ...prev].slice(0, 12));
         setIsDeleteLocalDraftModalOpen(false);
         return;
       }
@@ -941,7 +941,7 @@ export function OperatorDraftPage() {
       setLocalDraftIds(nextIds);
       setSelectedLocalDraftId(nextIds[0] ?? '');
       setLoadedLocalDraftId(null);
-      setMessages((prev) => [`[OK] 已删除本地角色：${loadedLocalDraftId}`, ...prev].slice(0, 12));
+      setMessages((prev) => [`[OK] 已删除本地干员：${loadedLocalDraftId}`, ...prev].slice(0, 12));
     } catch {
       setMessages((prev) => ['[ERR] 本地数据损坏，无法删除', ...prev].slice(0, 12));
     } finally {
@@ -1095,7 +1095,7 @@ export function OperatorDraftPage() {
                     <label>
                       <span>从本地导入</span>
                       <select value={selectedLocalDraftId} onChange={(event) => setSelectedLocalDraftId(event.target.value)}>
-                        <option value="">选择本地角色</option>
+                        <option value="">选择本地干员</option>
                         {localDraftIds.map((draftId) => (
                           <option key={draftId} value={draftId}>
                             {draftId}
@@ -1599,7 +1599,7 @@ export function OperatorDraftPage() {
               <span>请确认</span>
             </div>
             <div className="operator-draft-confirm-body">
-              <p>{loadedLocalDraftId ? `确认删除当前已导入的本地角色草稿「${loadedLocalDraftId}」吗？` : '请先导入本地数据，再删除对应的本地角色草稿。'}</p>
+              <p>{loadedLocalDraftId ? `确认删除当前已导入的本地干员草稿「${loadedLocalDraftId}」吗？` : '请先导入本地数据，再删除对应的本地干员草稿。'}</p>
               <p>该操作只删除本地库记录，不会自动清空当前编辑器内容。</p>
             </div>
             <div className="operator-draft-modal-actions">

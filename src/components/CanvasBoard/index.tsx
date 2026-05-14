@@ -869,7 +869,7 @@ export function CanvasBoard({
                     <div className="timeline-snapshot-item-main">
                       <strong>{snapshot.label}</strong>
                       <span>
-                        {snapshot.summary.characterCount} 角色 / {snapshot.summary.buttonCount} 按钮 / {snapshot.summary.buffCount} Buff
+                        {snapshot.summary.characterCount} 干员 / {snapshot.summary.buttonCount} 按钮 / {snapshot.summary.buffCount} Buff
                       </span>
                     </div>
                     <div className="timeline-snapshot-hover-card">
@@ -877,7 +877,7 @@ export function CanvasBoard({
                       <div className="timeline-snapshot-hover-line">保存时间：{formatPreciseTimestamp(snapshot.createdAt)}</div>
                       <div className="timeline-snapshot-hover-line">快照 ID：{snapshot.id}</div>
                       <div className="timeline-snapshot-hover-line">
-                        角色 {snapshot.summary.characterCount} / 按钮 {snapshot.summary.buttonCount} / Buff {snapshot.summary.buffCount}
+                        干员 {snapshot.summary.characterCount} / 按钮 {snapshot.summary.buttonCount} / Buff {snapshot.summary.buffCount}
                       </div>
                       <div className="timeline-snapshot-hover-section">Buff 内容</div>
                       <div className="timeline-snapshot-hover-buffs">
@@ -960,7 +960,7 @@ export function CanvasBoard({
             <div className="timeline-snapshot-confirm-body">
               <strong>{pendingRestoreSnapshot.label}</strong>
               <span>
-                {pendingRestoreSnapshot.summary.characterCount} 角色 / {pendingRestoreSnapshot.summary.buttonCount} 按钮 / {pendingRestoreSnapshot.summary.buffCount} Buff
+                {pendingRestoreSnapshot.summary.characterCount} 干员 / {pendingRestoreSnapshot.summary.buttonCount} 按钮 / {pendingRestoreSnapshot.summary.buffCount} Buff
               </span>
             </div>
 
@@ -991,7 +991,7 @@ export function CanvasBoard({
 
             <div className="timeline-snapshot-confirm-body">
               <strong>当前排轴导出</strong>
-              <span>{selectedCharacters.length} 角色 / {skillButtons.length} 运行时按钮 / 导出 4 项恢复数据</span>
+              <span>{selectedCharacters.length} 干员 / {skillButtons.length} 运行时按钮 / 导出 4 项恢复数据</span>
             </div>
 
             <label className="timeline-snapshot-form-label" htmlFor="timeline-share-name">
@@ -1046,7 +1046,7 @@ export function CanvasBoard({
             <div className="timeline-snapshot-confirm-body">
               <strong>{pendingImportShare.label}</strong>
               <span>
-                {pendingImportShare.payload.selectedCharacters.length} 角色 / {pendingImportShare.payload.allBuffList.length} Buff / 分享时间 {new Date(pendingImportShare.exportedAt).toLocaleString()}
+                {pendingImportShare.payload.selectedCharacters.length} 干员 / {pendingImportShare.payload.allBuffList.length} Buff / 分享时间 {new Date(pendingImportShare.exportedAt).toLocaleString()}
               </span>
             </div>
 

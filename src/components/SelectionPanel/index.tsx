@@ -2,7 +2,7 @@
  * 干员选择界面（SelectionPanel）
  *
  * 用途：玩家从已加载的干员列表中选择最多 4 人，选择后点击"开始排轴"进入谱线编辑界面
- * 状态来源：loadedCharacters（官方角色）、selectedCharacters（已选干员列表）
+ * 状态来源：loadedCharacters（官方干员）、selectedCharacters（已选干员列表）
  */
 
 import { useEffect, useMemo, useState } from 'react';
@@ -133,7 +133,7 @@ export function SelectionPanel() {
         <div className="character-library-columns">
           <section className="character-library-section">
             <div className="character-library-header">
-              <h2>官方角色</h2>
+              <h2>官方干员</h2>
               <span>{officialCharacters.length} 位</span>
             </div>
             <div className="character-grid">
@@ -143,7 +143,7 @@ export function SelectionPanel() {
 
           <section className="character-library-section">
             <div className="character-library-header">
-              <h2>本地角色</h2>
+              <h2>本地干员</h2>
               <span>{localCharacters.length} 位</span>
             </div>
             {localCharacters.length > 0 ? (
@@ -151,7 +151,7 @@ export function SelectionPanel() {
                 {localCharacters.map(renderCharacterCard)}
               </div>
             ) : (
-              <div className="character-library-empty">本地角色库为空</div>
+              <div className="character-library-empty">本地干员库为空</div>
             )}
           </section>
         </div>

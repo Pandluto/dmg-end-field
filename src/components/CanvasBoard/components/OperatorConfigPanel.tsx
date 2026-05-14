@@ -1176,10 +1176,10 @@ export function OperatorConfigPanel({
       weaponUnconditionalSourceLines.length > 0 ? weaponUnconditionalSourceLines.map((line) => `  ${line}`) : ['  暂无'];
     const infoSnapshot = [
       blockLine,
-      `角色面板: ${activeCharacter.name} Lv.90 (${characterPotential})`,
+      `干员面板: ${activeCharacter.name} Lv.90 (${characterPotential})`,
       `武器: ${currentWeaponName} Lv.90 (${weaponPotentialLabel})`,
       blockLine,
-      '角色能力值：',
+      '干员能力值：',
       `力量: ${toFixedNumber(totalStrength)} \t | \t 敏捷: ${toFixedNumber(totalAgility)} \t | \t 智识: ${toFixedNumber(totalIntelligence)} \t | \t 意志: ${toFixedNumber(totalWill)}`,
       separator,
       '面板能力值（计算后）：',
@@ -1199,9 +1199,9 @@ export function OperatorConfigPanel({
       '主副能力换算',
       separator,
       `${mainStatName}(主): ${toFixedNumber(rawMainStat)} × (1 + ${toPercentText(mainStatScale)}) × (1 + ${toPercentText(allStatScale)}) = ${panelSnapshot.mainStatFinal}`,
-      ` = ${toFixedNumber(mainStatCharacterValue)} (角色+武器+装备) + 60 (好感)`,
+      ` = ${toFixedNumber(mainStatCharacterValue)} (干员+武器+装备) + 60 (好感)`,
       `${subStatName}(副): ${toFixedNumber(rawSubStat)} × (1 + ${toPercentText(subStatScale)}) × (1 + ${toPercentText(allStatScale)}) = ${panelSnapshot.subStatFinal}`,
-      ` = ${toFixedNumber(subStatCharacterValue)} (角色+武器+装备)`,
+      ` = ${toFixedNumber(subStatCharacterValue)} (干员+武器+装备)`,
       separator,
       '能力值加成：',
       `主能力攻击加成: +${toFixedNumber(mainAtkBonus * 100)}%`,
@@ -1214,7 +1214,7 @@ export function OperatorConfigPanel({
       separator,
       '攻击力计算：',
       `攻击力:    ${panelSnapshot.atk}`,
-      ` 基础攻击 = ${toFixedNumber(characterBaseAtk)} (角色) + ${toFixedNumber(weaponBaseAtk)} (武器) = ${toFixedNumber(characterBaseAtk + weaponBaseAtk)}`,
+      ` 基础攻击 = ${toFixedNumber(characterBaseAtk)} (干员) + ${toFixedNumber(weaponBaseAtk)} (武器) = ${toFixedNumber(characterBaseAtk + weaponBaseAtk)}`,
       ` 百分比加成 = (1 + ${toPercentText(weaponPassiveAtkPercent)} 武器 + ${toPercentText(equipment.atkPercentBoost)} 装备 + 0% 潜能)`,
       ` 最终基础 = ${toFixedNumber(characterBaseAtk + weaponBaseAtk)} × ${toFixedNumber(1 + weaponAtkPercent)} + ${toFixedNumber(weaponPassiveAtk)} (武器) + ${toFixedNumber(equipment.flatAtk)} (装备) = ${panelSnapshot.baseAtk}`,
       ` 面板攻击 = ${panelSnapshot.baseAtk} × (1 + ${panelSnapshot.abilityBonus}%) = ${panelSnapshot.atk}`,
@@ -1453,7 +1453,7 @@ export function OperatorConfigPanel({
                         ))}
                       </div>
                     ) : (
-                      <p className="config-empty-text">该角色暂无技能数据</p>
+                      <p className="config-empty-text">该干员暂无技能数据</p>
                     )
                   ) : (
                     <p className="config-empty-text">未找到运行时技能模板</p>

@@ -1,11 +1,18 @@
 export const APP_ROUTE_PATHS = {
   home: '/',
-  draft: '/draft',
-  buffDraft: '/buff-draft',
-  buffSheet: '/sheet-buff',
-  storage: '/storage',
-  damageSheet: '/sheet',
+  draft: '/operator-studio',
+  buffDraft: '/buff-studio',
+  buffSheet: '/buff-sheet',
+  damageSheet: '/damage-sheet',
 } as const;
+
+const APP_ROUTE_ALIASES: Record<string, string> = {
+  '/draft': APP_ROUTE_PATHS.draft,
+  '/character-studio': APP_ROUTE_PATHS.draft,
+  '/buff-draft': APP_ROUTE_PATHS.buffDraft,
+  '/sheet-buff': APP_ROUTE_PATHS.buffSheet,
+  '/sheet': APP_ROUTE_PATHS.damageSheet,
+};
 
 function normalizeRoutePath(rawPath: string): string {
   const trimmed = rawPath.trim();
@@ -22,10 +29,10 @@ function normalizeRoutePath(rawPath: string): string {
   }
 
   if (normalized.length > 1 && normalized.endsWith('/')) {
-    return normalized.slice(0, -1);
+    return APP_ROUTE_ALIASES[normalized.slice(0, -1)] ?? normalized.slice(0, -1);
   }
 
-  return normalized;
+  return APP_ROUTE_ALIASES[normalized] ?? normalized;
 }
 
 export function getCurrentAppPath(locationLike: Pick<Location, 'hash' | 'pathname'>): string {

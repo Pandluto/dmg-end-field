@@ -215,7 +215,7 @@ function formatCharacterMeta(characterId: string): string {
 function buildColumns(): SheetColumn[] {
   return [
     { key: 'characterName', title: '干员', width: 112, group: '索引', sticky: true },
-    { key: 'hitLabel', title: 'Hit', width: 64, group: '索引', sticky: true, align: 'center' },
+    { key: 'hitLabel', title: '命中', width: 64, group: '索引', sticky: true, align: 'center' },
     { key: 'skillType', title: '类型', width: 32, group: '索引', align: 'center' },
     { key: 'element', title: '属性', width: 32, group: '索引', align: 'center' },
     { key: 'baseMultiplier', title: '基础倍率', width: 76, group: '倍率区', align: 'right' },
@@ -479,7 +479,7 @@ function buildHitRowsForButton(
     rowIndex: rowIndexStart + index,
     values: {
       characterName,
-      hitLabel: hit.hit.displayName || hit.hit.key || `Hit ${index + 1}`,
+      hitLabel: hit.hit.displayName || hit.hit.key || `第${index + 1}击`,
       skillType: hit.hit.skillType,
       element: formatElementLabel(hit.hit.element),
       baseMultiplier: formatPercent(hit.multiplier.base),
@@ -492,8 +492,8 @@ function buildHitRowsForButton(
       damageBonusRate: formatRatio(hit.zones.damageBonusRate),
       defenseZone: formatRatio(hit.zones.defenseZone),
       amplifyRate: formatRatio(1 + hit.zones.amplifyRate),
-      fragileRate: formatRatio(1 + hit.zones.vulnerabilityRate),
-      vulnerabilityRate: formatRatio(1 + hit.zones.fragileRate),
+      fragileRate: formatRatio(1 + hit.zones.fragileRate),
+      vulnerabilityRate: formatRatio(1 + hit.zones.vulnerabilityRate),
       comboDamageBonus: formatRatio(1 + hit.zones.comboDamageBonus),
       imbalanceDamageBonus: formatRatio(1 + hit.zones.imbalanceDamageBonus),
       baseDamage: formatInteger(hit.nonCrit.base),
@@ -504,7 +504,7 @@ function buildHitRowsForButton(
     detail: {
       characterName,
       buttonName: persistedButton.skillDisplayName || persistedButton.skillType,
-      hitLabel: hit.hit.displayName || hit.hit.key || `Hit ${index + 1}`,
+      hitLabel: hit.hit.displayName || hit.hit.key || `第${index + 1}击`,
       hit: hit.hit,
       hitResult: hit,
     },
@@ -590,7 +590,7 @@ function buildSheetRows(
       characterName: character.name,
       title: `${persistedButton.skillType} / ${buttonName}`,
       subtitle: `按钮 ${buttonIndex} · 节点 ${persistedButton.nodeNumber}`,
-      meta: `${hitRows.length} 个 Hit · 期望总伤 ${formatInteger(hitRows.reduce((sum, row) => sum + Number(row.values.expected || 0), 0))}`,
+      meta: `${hitRows.length} 段命中 · 期望总伤 ${formatInteger(hitRows.reduce((sum, row) => sum + Number(row.values.expected || 0), 0))}`,
     });
 
     rows.push(...hitRows);
@@ -1668,7 +1668,7 @@ export function DamageSheetPage() {
       return;
     }
 
-    captureSessionSnapshot(`${disabled ? '取消勾选' : '勾选'} Buff 命中 · ${selectedHitRow?.detail.buttonName ?? selectedPersistedButton.skillDisplayName ?? selectedPersistedButton.skillType}`);
+    captureSessionSnapshot(`${disabled ? '取消勾选' : '勾选'} Buff 命中项 · ${selectedHitRow?.detail.buttonName ?? selectedPersistedButton.skillDisplayName ?? selectedPersistedButton.skillType}`);
     const nextMap = {
       ...currentMap,
       [selectedSegmentKey]: disabled
@@ -1769,19 +1769,19 @@ export function DamageSheetPage() {
       const isCollapsed = collapsedCharacterIds[contextMenu.characterId];
       actions.push({
         key: 'toggle-character',
-        label: isCollapsed ? '展开当前角色' : '折叠当前角色',
+      label: isCollapsed ? '展开当前干员' : '折叠当前干员',
         icon: 'cancel',
         onSelect: () => toggleCharacterCollapsed(contextMenu.characterId!),
       });
       actions.push({
         key: 'collapse-all-characters',
-        label: '折叠全部角色',
+      label: '折叠全部干员',
         icon: 'cancel',
         onSelect: () => setAllCharactersCollapsed(true),
       });
       actions.push({
         key: 'expand-all-characters',
-        label: '展开全部角色',
+      label: '展开全部干员',
         icon: 'cancel',
         onSelect: () => setAllCharactersCollapsed(false),
       });
@@ -1790,13 +1790,13 @@ export function DamageSheetPage() {
     if (contextMenu.target === 'sheet' && orderMode === 'character') {
       actions.push({
         key: 'collapse-all-characters',
-        label: '折叠全部角色',
+      label: '折叠全部干员',
         icon: 'cancel',
         onSelect: () => setAllCharactersCollapsed(true),
       });
       actions.push({
         key: 'expand-all-characters',
-        label: '展开全部角色',
+      label: '展开全部干员',
         icon: 'cancel',
         onSelect: () => setAllCharactersCollapsed(false),
       });
@@ -1906,7 +1906,7 @@ export function DamageSheetPage() {
           <strong>{totalButtonCount}</strong>
         </div>
         <div className="damage-sheet-ribbon-card">
-          <span className="damage-sheet-ribbon-label">Hit</span>
+          <span className="damage-sheet-ribbon-label">命中</span>
           <strong>{totalHitCount}</strong>
         </div>
         <div className="damage-sheet-formula-bar">
@@ -1935,7 +1935,7 @@ export function DamageSheetPage() {
           <div className="damage-sheet-sidebar-note">
             {selectedWorkbookCell?.columnKey && selectedHitRow
               ? `${selectedWorkbookCell.address} · ${selectedHitRow.detail.buttonName} · ${selectedHitRow.detail.hitLabel}${selectedRelevantBuff ? ` · ${selectedRelevantBuff.displayName}` : ''}`
-              : '点击任意 Hit 单元格后，这里显示当前格子的相关 Buff。'}
+              : '点击任意命中单元格后，这里显示当前格子的相关 Buff。'}
           </div>
           {(!ENABLE_ADVANCED_SHEET_SIDEBAR || sidebarTab === 'related') ? (
             <div className="damage-sheet-buff-grid">
@@ -1971,9 +1971,9 @@ export function DamageSheetPage() {
                   <div className="damage-sheet-detail-empty">当前格子没有命中相关 Buff。</div>
                 )
               ) : (
-              <div className="damage-sheet-detail-empty">先选中一个 Hit 格子。</div>
-            )}
-          </div>
+                <div className="damage-sheet-detail-empty">先选中一个命中格子。</div>
+              )}
+            </div>
           ) : null}
           {ENABLE_ADVANCED_SHEET_SIDEBAR && sidebarTab === 'local' ? (
             selectedPersistedButton ? (
@@ -2003,7 +2003,7 @@ export function DamageSheetPage() {
                 )}
               </div>
             ) : (
-              <div className="damage-sheet-detail-empty">先选中一个 Hit 格子。</div>
+              <div className="damage-sheet-detail-empty">先选中一个命中格子。</div>
             )
           ) : null}
           {ENABLE_ADVANCED_SHEET_SIDEBAR && sidebarTab === 'anomaly' ? (
@@ -2031,7 +2031,7 @@ export function DamageSheetPage() {
                 />
               </div>
             ) : (
-              <div className="damage-sheet-detail-empty">先选中一个 Hit 格子。</div>
+              <div className="damage-sheet-detail-empty">先选中一个命中格子。</div>
             )
           ) : null}
           {ENABLE_ADVANCED_SHEET_SIDEBAR && sidebarTab === 'state' ? (
@@ -2049,7 +2049,7 @@ export function DamageSheetPage() {
                 />
               </div>
             ) : (
-              <div className="damage-sheet-detail-empty">先选中一个 Hit 格子。</div>
+              <div className="damage-sheet-detail-empty">先选中一个命中格子。</div>
             )
           ) : null}
           {ENABLE_ADVANCED_SHEET_SIDEBAR && sidebarTab === 'anomaly-state' ? (
@@ -2076,7 +2076,7 @@ export function DamageSheetPage() {
                 />
               </div>
             ) : (
-              <div className="damage-sheet-detail-empty">先选中一个 Hit 格子。</div>
+              <div className="damage-sheet-detail-empty">先选中一个命中格子。</div>
             )
           ) : null}
         </aside>
@@ -2092,7 +2092,7 @@ export function DamageSheetPage() {
             {workbookRows.length === 0 ? (
               <div className="damage-sheet-empty-state">
                 <h2>当前没有可展示的 ExcelJS 数据</h2>
-                <p>先保证时间轴中有角色和按钮，再刷新这张表。</p>
+            <p>先保证时间轴中有干员和按钮，再刷新这张表。</p>
               </div>
             ) : (
               workbookRows.map((row) => (
@@ -2207,7 +2207,7 @@ export function DamageSheetPage() {
                 className={`damage-sheet-mini-tab${orderMode === 'character' ? ' is-active' : ''}`}
                 onClick={() => setOrderMode('character')}
               >
-                按角色
+                按干员
               </button>
               <button
                 type="button"

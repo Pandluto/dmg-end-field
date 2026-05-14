@@ -145,7 +145,7 @@ export function DamageTab() {
       const results = await searchManualCandidateBuffsByName(keyword);
       setManualSourceResults(results);
       if (results.length === 0) {
-        setManualSourceError('未命中官方角色/武器 Buff');
+        setManualSourceError('未命中官方干员/武器 Buff');
       }
     } catch (error) {
       console.error('手动搜索官方 Buff 失败:', error);
@@ -203,7 +203,7 @@ export function DamageTab() {
             className="damage-input"
             value={manualSourceKeyword}
             onChange={(event) => setManualSourceKeyword(event.target.value)}
-            placeholder="按名字临时加载官方角色/武器 Buff（如：管理员 / 宏愿）"
+            placeholder="按名字临时加载官方干员/武器 Buff（如：管理员 / 宏愿）"
           />
           <button
             className="refresh-button"

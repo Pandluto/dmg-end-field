@@ -242,7 +242,7 @@ export function WorkbenchFrame() {
             disabled={!canAccessCanvas}
             title={!canAccessCanvas ? '请先选择干员' : ''}
           >
-            角色配置
+            干员配置
           </button>
         </div>
       </div>
