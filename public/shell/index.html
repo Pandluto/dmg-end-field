@@ -93,35 +93,6 @@
         color: #3d5a49;
       }
 
-      .runtime-strip {
-        display: grid;
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-        gap: 8px;
-        margin-top: 14px;
-      }
-
-      .runtime-pill {
-        padding: 9px 10px;
-        background: #f4faf5;
-        border: 1px solid rgba(25, 52, 35, 0.08);
-      }
-
-      .runtime-pill strong {
-        display: block;
-        font-size: 10px;
-        color: #577162;
-        text-transform: uppercase;
-        letter-spacing: 0.07em;
-      }
-
-      .runtime-pill span {
-        display: block;
-        margin-top: 4px;
-        font-size: 13px;
-        font-weight: 700;
-        color: #173322;
-      }
-
       .grid {
         display: grid;
         grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -191,6 +162,10 @@
         flex-wrap: wrap;
       }
 
+      .capture-toolbar .capture-select {
+        flex: 1 1 220px;
+      }
+
       .capture-select {
         width: 100%;
         min-height: 36px;
@@ -240,8 +215,73 @@
         line-height: 1.55;
       }
 
+      .log-card.is-collapsed .log {
+        display: none;
+      }
+
+      .tool-actions {
+        display: grid;
+        gap: 10px;
+      }
+
+      .tool-row {
+        display: grid;
+        grid-template-columns: 96px 1fr;
+        gap: 10px;
+        align-items: center;
+      }
+
+      .tool-row .status {
+        margin-top: 0;
+      }
+
+      .llm-form {
+        display: grid;
+        gap: 10px;
+      }
+
+      .llm-field {
+        display: grid;
+        gap: 6px;
+      }
+
+      .llm-field label {
+        font-size: 12px;
+        font-weight: 700;
+        color: #355242;
+      }
+
+      .llm-input,
+      .llm-textarea,
+      .llm-output {
+        width: 100%;
+        border: 1px solid rgba(25, 52, 35, 0.18);
+        background: #f6fbf7;
+        color: #20432d;
+        font-size: 13px;
+        padding: 10px;
+        font: inherit;
+      }
+
+      .llm-textarea,
+      .llm-output {
+        min-height: 96px;
+        resize: vertical;
+      }
+
+      .llm-output {
+        white-space: pre-wrap;
+        line-height: 1.55;
+        overflow: auto;
+      }
+
+      .llm-actions {
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+      }
+
       @media (max-width: 620px) {
-        .runtime-strip,
         .grid {
           grid-template-columns: 1fr;
         }
@@ -266,28 +306,6 @@
             <button type="button" class="secondary-button scale-button" data-scale="1.5x">1.5x</button>
           </div>
         </div>
-        <div class="runtime-strip">
-          <div class="runtime-pill">
-            <strong>角色</strong>
-            <span id="role-value">-</span>
-          </div>
-          <div class="runtime-pill">
-            <strong>平台</strong>
-            <span id="platform-value">-</span>
-          </div>
-          <div class="runtime-pill">
-            <strong>app</strong>
-            <span id="app-value">-</span>
-          </div>
-          <div class="runtime-pill">
-            <strong>主机</strong>
-            <span id="host-value">-</span>
-          </div>
-          <div class="runtime-pill">
-            <strong>倍率</strong>
-            <span id="scale-value">-</span>
-          </div>
-        </div>
       </section>
 
       <section class="grid">
@@ -296,16 +314,13 @@
           <p>只列出标题命中 EndField 的窗口，由主进程后台持续抓帧并缓存最新截图。</p>
           <div class="capture-panel">
             <div class="capture-toolbar">
-              <button type="button" id="refresh-capture-sources" class="secondary-button">刷新源列表</button>
+              <select id="capture-source-select" class="capture-select">
+                <option value="">请选择 EndField 窗口</option>
+              </select>
+              <button type="button" id="refresh-capture-sources" class="secondary-button">刷新</button>
               <button type="button" id="start-capture-session">开始捕获</button>
               <button type="button" id="stop-capture-session" class="secondary-button">停止捕获</button>
             </div>
-            <select id="capture-preset-select" class="capture-select">
-              <option value="Win32-Window">Win32-Window</option>
-            </select>
-            <select id="capture-source-select" class="capture-select">
-              <option value="">请选择 EndField 窗口</option>
-            </select>
             <div class="capture-meta" id="capture-meta">
               <div>源信息：尚未加载</div>
             </div>
@@ -315,31 +330,60 @@
         </article>
 
         <article class="section">
-          <h2>视觉</h2>
-          <p>预留 MaaEnd 识图和 OCR 入口。</p>
-          <button type="button" data-action="vision-probe">运行视觉探测</button>
-          <div class="status" id="vision-status">空闲</div>
+          <h2>工具</h2>
+          <p>集中放置视觉、指针和运行时探测，减少占位。</p>
+          <div class="tool-actions">
+            <div class="tool-row">
+              <button type="button" data-action="vision-probe">视觉</button>
+              <div class="status" id="vision-status">空闲</div>
+            </div>
+            <div class="tool-row">
+              <button type="button" data-action="pointer-probe">指针</button>
+              <div class="status" id="pointer-status">空闲</div>
+            </div>
+            <div class="tool-row">
+              <button type="button" data-action="runtime-probe">运行时</button>
+              <div class="status" id="runtime-status">空闲</div>
+            </div>
+          </div>
         </article>
 
         <article class="section">
-          <h2>指针</h2>
-          <p>预留原生鼠标键盘控制入口。</p>
-          <button type="button" data-action="pointer-probe">运行指针探测</button>
-          <div class="status" id="pointer-status">空闲</div>
-        </article>
-
-        <article class="section">
-          <h2>运行时</h2>
-          <p>验证壳本身和本地运行环境。</p>
-          <button type="button" data-action="runtime-probe">运行运行时探测</button>
-          <div class="status" id="runtime-status">空闲</div>
+          <h2>模型接口</h2>
+          <p>手动接入方舟 Responses API，仅保留纯文本模型调用。</p>
+          <div class="llm-form">
+            <div class="llm-field">
+              <label for="ark-api-key">API Key</label>
+              <input id="ark-api-key" class="llm-input" type="password" placeholder="输入 Bearer Token，不会写入仓库" />
+            </div>
+            <div class="llm-field">
+              <label for="ark-model">Model</label>
+              <input id="ark-model" class="llm-input" type="text" value="doubao-seed-2-0-mini-260428" />
+            </div>
+            <div class="llm-field">
+              <label for="ark-prompt">Prompt</label>
+              <textarea id="ark-prompt" class="llm-textarea">给我一句简短回复。</textarea>
+            </div>
+            <div class="llm-actions">
+              <button id="ark-submit" type="button">发送请求</button>
+              <button id="ark-clear-output" type="button" class="secondary-button">清空结果</button>
+            </div>
+            <div class="status" id="ark-status">空闲</div>
+            <div class="llm-field">
+              <label for="ark-output">Response</label>
+              <pre id="ark-output" class="llm-output"></pre>
+            </div>
+          </div>
         </article>
       </section>
 
-      <section class="log-card">
+      <section class="log-card is-collapsed" id="log-card">
         <div class="log-card-head">
           <h2>活动日志</h2>
-          <button id="clear-log" type="button">清空日志</button>
+          <div class="capture-toolbar">
+            <button id="toggle-log" type="button" class="secondary-button">展开日志</button>
+            <button id="clear-log" type="button">清空日志</button>
+          </div>
         </div>
         <div class="log" id="log"></div>
       </section>

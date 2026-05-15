@@ -9,6 +9,8 @@ contextBridge.exposeInMainWorld('desktopRuntime', {
   role: roleFromArgs,
   getRole: () => ipcRenderer.invoke('desktop:get-role'),
   getShellState: () => ipcRenderer.invoke('desktop:get-shell-state'),
+  getLlmSettings: () => ipcRenderer.invoke('desktop:get-llm-settings'),
+  setLlmSettings: (payload) => ipcRenderer.invoke('desktop:set-llm-settings', payload),
   getDesktopSettings: () => ipcRenderer.invoke('desktop:get-settings'),
   setDesktopScale: (scaleKey) => ipcRenderer.invoke('desktop:set-scale', scaleKey),
   openWeb: () => ipcRenderer.invoke('desktop:open-web'),
@@ -21,5 +23,6 @@ contextBridge.exposeInMainWorld('desktopRuntime', {
   getLatestCaptureFrame: () => ipcRenderer.invoke('desktop:get-latest-capture-frame'),
   listCaptureSources: () => ipcRenderer.invoke('desktop:list-capture-sources'),
   captureSourceFrame: (sourceId) => ipcRenderer.invoke('desktop:capture-source-frame', sourceId),
+  invokeArkResponses: (payload) => ipcRenderer.invoke('desktop:invoke-ark-responses', payload),
   runAction: (action) => ipcRenderer.invoke('desktop:run-action', action),
 });

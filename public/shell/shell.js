@@ -1,8 +1,11 @@
 (function () {
   const runtime = window.desktopRuntime;
   const logElement = document.getElementById('log');
-  const scaleValueElement = document.getElementById('scale-value');
-  const capturePresetSelect = document.getElementById('capture-preset-select');
+  const logCardElement = document.getElementById('log-card');
+  const arkApiKeyInput = document.getElementById('ark-api-key');
+  const arkModelInput = document.getElementById('ark-model');
+  const arkPromptInput = document.getElementById('ark-prompt');
+  const arkOutputElement = document.getElementById('ark-output');
   const captureSourceSelect = document.getElementById('capture-source-select');
   const captureMetaElement = document.getElementById('capture-meta');
   const capturePreviewElement = document.getElementById('capture-preview');
@@ -12,6 +15,9 @@
   let latestCaptureFrameStamp = 0;
   let lastCaptureMetaMarkup = '';
   const statusCache = new Map();
+  const SHELL_STORAGE_KEYS = {
+    arkPrompt: 'def.shell.ark.prompt.v1',
+  };
 
   const appendLog = (line) => {
     const current = logElement.textContent ? `${logElement.textContent}\n` : '';
@@ -27,18 +33,53 @@
     }
   };
 
-  const formatCaptureSourceLabel = (source) => {
-    return `窗口 | ${source.name || '未命名'} | ${source.id}`;
+  const safeReadLocal = (key, fallback = '') => {
+    try {
+      return window.localStorage.getItem(key) ?? fallback;
+    } catch {
+      return fallback;
+    }
   };
 
-  const renderCapturePresetOptions = (presets) => {
-    capturePresetSelect.innerHTML = '';
-    presets.forEach((preset) => {
-      const option = document.createElement('option');
-      option.value = preset.name;
-      option.textContent = `${preset.name} | ${preset.label}`;
-      capturePresetSelect.appendChild(option);
-    });
+  const safeWriteLocal = (key, value) => {
+    try {
+      window.localStorage.setItem(key, value);
+    } catch {}
+  };
+
+  const extractArkText = (value) => {
+    if (value && typeof value === 'object' && Array.isArray(value.choices)) {
+      for (const choice of value.choices) {
+        const message = choice && typeof choice === 'object' ? choice.message : null;
+        if (message && typeof message === 'object' && typeof message.content === 'string' && message.content.trim()) {
+          return message.content.trim();
+        }
+      }
+    }
+
+    const texts = [];
+    const walk = (node) => {
+      if (!node) return;
+      if (Array.isArray(node)) {
+        node.forEach(walk);
+        return;
+      }
+      if (typeof node === 'object') {
+        if (node.type === 'output_text' && typeof node.text === 'string' && node.text.trim()) {
+          texts.push(node.text.trim());
+        }
+        if (typeof node.text === 'string' && node.text.trim()) {
+          texts.push(node.text.trim());
+        }
+        Object.values(node).forEach(walk);
+      }
+    };
+    walk(value);
+    return texts.join('\n\n');
+  };
+
+  const formatCaptureSourceLabel = (source) => {
+    return `窗口 | ${source.name || '未命名'} | ${source.id}`;
   };
 
   const renderCaptureSourceOptions = (sources) => {
@@ -57,47 +98,21 @@
     });
   };
 
-  const renderCaptureSourceMeta = (source, frame, session) => {
-    if (!source && !session) {
-      const markup = '<div>源信息：尚未加载</div>';
+  const renderCaptureSourceMeta = (_source, _frame, session) => {
+    if (!session) {
+      const markup = '<div>会话状态：未绑定窗口</div>';
       if (markup !== lastCaptureMetaMarkup) {
         captureMetaElement.innerHTML = markup;
         lastCaptureMetaMarkup = markup;
       }
       return;
     }
-
-    const lines = [
-      `名称：${source?.name || '未命名'}`,
-      `类型：${source?.kind || 'window'}`,
-      `ID：${source?.id || session?.boundSourceId || '-'}`,
-    ];
-    if (source?.backend) {
-      lines.push(`后端：${source.backend}`);
-    }
-    if (session?.presetName) {
-      lines.push(`预设：${session.presetName}${session.presetLabel ? ` | ${session.presetLabel}` : ''}`);
-    }
-    if (source?.displayId) {
-      lines.push(`显示器：${source.displayId}`);
-    }
-    if (source?.width && source?.height) {
-      lines.push(`窗口尺寸：${source.width}x${source.height}`);
-    }
-    if (frame) {
-      lines.push(`尺寸：${frame.width}x${frame.height}`);
-    }else{
-      lines.push(`尺寸：未抓取`);
-    }
-    if (session) {
-      lines.push(`会话状态：${session.running ? '运行中' : '已停止'}`);
-      lines.push(`刷新间隔：${session.intervalMs} ms`);
-      if (session.lastError) {
-        lines.push(`最近错误：${session.lastError}`);
-      }
-    }
-
-    const markup = lines.map((line) => `<div>${line}</div>`).join('');
+    const statusText = session.running
+      ? '运行中'
+      : session.boundSourceId
+        ? '已停止'
+        : '未绑定窗口';
+    const markup = `<div>会话状态：${statusText}</div>`;
     if (markup !== lastCaptureMetaMarkup) {
       captureMetaElement.innerHTML = markup;
       lastCaptureMetaMarkup = markup;
@@ -177,22 +192,13 @@
     }
   };
 
-  const refreshCapturePresets = async () => {
-    const payload = await runtime.listCapturePresets();
-    capturePresets = payload.presets || [];
-    renderCapturePresetOptions(capturePresets);
-    if (capturePresets[0]) {
-      capturePresetSelect.value = capturePresets[0].name;
-    }
-  };
-
   const bindSelectedSource = async () => {
     const selectedSource = syncSelectedCaptureSource();
     if (!selectedSource) {
       throw new Error('请先选择一个捕获源');
     }
 
-    const selectedPreset = capturePresetSelect.value || 'Win32-Window';
+    const selectedPreset = capturePresets[0]?.name || 'Win32-Window';
     const payload = await runtime.bindCaptureSource(selectedSource.id, selectedPreset);
     renderCaptureSourceMeta(selectedSource, null, payload.session);
     appendLog(`捕获源已绑定 | ${selectedPreset} | ${selectedSource.name || selectedSource.id}`);
@@ -204,10 +210,6 @@
       const selected = button.getAttribute('data-scale') === savedScale;
       button.classList.toggle('is-active', selected);
     });
-    if (scaleValueElement) {
-      scaleValueElement.textContent =
-        activeScale === savedScale ? activeScale : `${activeScale} -> ${savedScale}`;
-    }
   };
 
   const boot = async () => {
@@ -217,17 +219,18 @@
     }
 
     const state = await runtime.getShellState();
-    document.getElementById('role-value').textContent = runtime.role || '未知';
-    document.getElementById('platform-value').textContent = `${state.platform}/${state.arch}`;
-    document.getElementById('app-value').textContent = `${state.appName} ${state.appVersion}`;
-    document.getElementById('host-value').textContent = state.hostname;
     syncScaleButtons(
       state.desktopSettings?.currentScale || '1x',
       state.desktopSettings?.savedScale || state.desktopSettings?.currentScale || '1x'
     );
     appendLog(`外壳就绪 | 角色=${runtime.role} | 平台=${state.platform} | 主机=${state.hostname}`);
     appendLog('主界面与 shell 现在都由 Electron 托管。');
-    await refreshCapturePresets();
+    const presetPayload = await runtime.listCapturePresets();
+    capturePresets = presetPayload.presets || [];
+    const llmSettings = await runtime.getLlmSettings();
+    arkApiKeyInput.value = llmSettings.apiKey || '';
+    arkModelInput.value = llmSettings.model || arkModelInput.value;
+    arkPromptInput.value = safeReadLocal(SHELL_STORAGE_KEYS.arkPrompt, arkPromptInput.value);
     await refreshCaptureSources();
     startCaptureFramePolling();
   };
@@ -253,6 +256,11 @@
 
   document.getElementById('clear-log').addEventListener('click', () => {
     logElement.textContent = '';
+  });
+
+  document.getElementById('toggle-log').addEventListener('click', () => {
+    const collapsed = logCardElement.classList.toggle('is-collapsed');
+    document.getElementById('toggle-log').textContent = collapsed ? '展开日志' : '收起日志';
   });
 
   document.getElementById('open-web').addEventListener('click', async () => {
@@ -299,6 +307,53 @@
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       appendLog(`完全关闭失败 | ${message}`);
+    }
+  });
+
+  arkApiKeyInput.addEventListener('input', () => {
+    runtime.setLlmSettings({
+      apiKey: arkApiKeyInput.value,
+      model: arkModelInput.value,
+    }).catch(() => {});
+  });
+
+  arkModelInput.addEventListener('input', () => {
+    runtime.setLlmSettings({
+      apiKey: arkApiKeyInput.value,
+      model: arkModelInput.value,
+    }).catch(() => {});
+  });
+
+  arkPromptInput.addEventListener('input', () => {
+    safeWriteLocal(SHELL_STORAGE_KEYS.arkPrompt, arkPromptInput.value);
+  });
+
+  document.getElementById('ark-clear-output').addEventListener('click', () => {
+    arkOutputElement.textContent = '';
+    setStatus('ark-status', '空闲');
+  });
+
+  document.getElementById('ark-submit').addEventListener('click', async () => {
+    const payload = {
+      apiKey: arkApiKeyInput.value.trim(),
+      model: arkModelInput.value.trim(),
+      prompt: arkPromptInput.value.trim(),
+    };
+
+    setStatus('ark-status', '请求中...');
+    arkOutputElement.textContent = '';
+
+    try {
+      const result = await runtime.invokeArkResponses(payload);
+      const extractedText = extractArkText(result.data);
+      arkOutputElement.textContent = extractedText || JSON.stringify(result.data, null, 2);
+      setStatus('ark-status', `完成 | HTTP ${result.status}`);
+      appendLog(`模型接口完成 | ${payload.model} | HTTP ${result.status}`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      arkOutputElement.textContent = message;
+      setStatus('ark-status', '请求失败');
+      appendLog(`模型接口失败 | ${message}`);
     }
   });
 

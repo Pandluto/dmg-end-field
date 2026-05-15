@@ -3,6 +3,10 @@ import ExcelJS from 'exceljs';
 import { pinyin } from 'pinyin-pro';
 import './OperatorDraftPage.css';
 import './BuffDraftPage.css';
+import buffSheetAiSystemPromptRaw from '../prompts/buff-sheet-ai-system-prompt.md?raw';
+import { buildBuffTypeCatalogPromptSection } from '../ai/buffFillCatalog';
+import { createOpenAiResponseFormatPayload } from '../ai/buffFillSchema';
+import { convertBuffFillAiDraftToBuffDraft, validateBuffFillAiDraft } from '../ai/buffFillValidator';
 import type { BuffEffectKind, BuffExtraHitConfig, CandidateBuff } from '../core/domain/buff';
 import { APP_ROUTE_PATHS, navigateToAppPath } from '../utils/appRoute';
 import {
@@ -183,6 +187,145 @@ interface BuffDraft {
   source: string;
   description: string;
   items: Record<string, BuffItemDraft>;
+}
+
+type BuffSheetAiPreviewMode = 'json' | 'text';
+type BuffSheetAiPromptPreviewMode = 'system' | 'mapping' | 'final';
+
+const BUFF_SHEET_AI_SYSTEM_PROMPT_STORAGE_KEY = 'def.buff-sheet.ai.system-prompt.v1';
+const BUFF_SHEET_AI_SOURCE_TEXT_STORAGE_KEY = 'def.buff-sheet.ai.source-text.v1';
+const DEFAULT_BUFF_SHEET_AI_MODEL = 'doubao-seed-2-0-mini-260428';
+const AI_FILL_TIMEOUT_MS = 120000;
+const DEFAULT_BUFF_SHEET_AI_SYSTEM_PROMPT = buffSheetAiSystemPromptRaw.trim();
+
+function readBuffSheetAiStorage(key: string, fallback = '') {
+  if (typeof window === 'undefined') {
+    return fallback;
+  }
+  try {
+    return window.localStorage.getItem(key) ?? fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function writeBuffSheetAiStorage(key: string, value: string) {
+  if (typeof window === 'undefined') {
+    return;
+  }
+  try {
+    window.localStorage.setItem(key, value);
+  } catch {
+    // noop
+  }
+}
+
+function extractArkOutputText(value: unknown): string {
+  if (value && typeof value === 'object') {
+    const root = value as Record<string, unknown>;
+    if (Array.isArray(root.choices)) {
+      for (const choice of root.choices) {
+        if (choice && typeof choice === 'object') {
+          const message = (choice as Record<string, unknown>).message;
+          if (message && typeof message === 'object') {
+            const content = (message as Record<string, unknown>).content;
+            if (typeof content === 'string' && content.trim()) {
+              return content.trim();
+            }
+          }
+        }
+      }
+    }
+  }
+
+  const texts: string[] = [];
+  const visit = (node: unknown) => {
+    if (!node) return;
+    if (Array.isArray(node)) {
+      node.forEach(visit);
+      return;
+    }
+    if (typeof node === 'object') {
+      const candidate = node as Record<string, unknown>;
+      if (candidate.type === 'output_text' && typeof candidate.text === 'string' && candidate.text.trim()) {
+        texts.push(candidate.text.trim());
+      }
+      if (typeof candidate.text === 'string' && candidate.text.trim()) {
+        texts.push(candidate.text.trim());
+      }
+      Object.values(candidate).forEach(visit);
+    }
+  };
+  visit(value);
+  return texts.join('\n\n').trim();
+}
+
+function parseBuffSheetAiDraft(rawText: string): { draft: BuffDraft | null; errors: string[] } {
+  const normalizedText = rawText.trim();
+  if (!normalizedText) {
+    return { draft: null, errors: ['返回内容为空'] };
+  }
+
+  const candidates = [normalizedText];
+  const firstBraceIndex = normalizedText.indexOf('{');
+  const lastBraceIndex = normalizedText.lastIndexOf('}');
+  if (firstBraceIndex >= 0 && lastBraceIndex > firstBraceIndex) {
+    candidates.push(normalizedText.slice(firstBraceIndex, lastBraceIndex + 1));
+  }
+
+  const collectedErrors: string[] = [];
+  for (const candidateText of candidates) {
+    try {
+      const parsed = JSON.parse(candidateText) as Record<string, unknown>;
+      const candidateDraft = parsed && typeof parsed.draft === 'object' ? parsed.draft : parsed;
+      const validation = validateBuffFillAiDraft(candidateDraft);
+      if (!validation.ok) {
+        collectedErrors.push(...validation.errors);
+        continue;
+      }
+      return {
+        draft: normalizeBuffDraft(convertBuffFillAiDraftToBuffDraft(candidateDraft as never)),
+        errors: [],
+      };
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      collectedErrors.push(`JSON 解析失败：${detail}`);
+    }
+  }
+
+  return {
+    draft: null,
+    errors: Array.from(new Set(collectedErrors)),
+  };
+}
+
+function formatBuffSheetAiPreviewJson(rawText: string): string {
+  return rawText.trim() || '{}';
+}
+
+function buildBuffSheetAiRequestPrompt(systemPrompt: string, sourceText: string) {
+  const responseFormatPayload = createOpenAiResponseFormatPayload();
+  return [
+    systemPrompt.trim(),
+    '',
+    '以下是本次实际执行协议，优先级高于上面任何旧规则。',
+    '1. 只返回一个 JSON 对象。',
+    '2. 不要输出 Markdown 代码块。',
+    '3. 不要返回现有编辑器里的 item-1 / buff-1 对象结构。',
+    '4. 这次必须返回数组中间结构：items 是数组，effects 是数组。',
+    '5. 每条 effect 必须带 evidenceText 和 confidence。',
+    '6. modifier.type 只能从白名单里选；extraHit 只能在原文明确出现额外伤害段时使用。',
+    '7. 如果拿不准，宁可保守留空、留 0，也不要发明字段或机制。',
+    '',
+    'modifier.type 白名单词典：',
+    buildBuffTypeCatalogPromptSection(),
+    '',
+    '目标输出 schema：',
+    JSON.stringify(responseFormatPayload.json_schema.schema, null, 2),
+    '',
+    '待整理内容：',
+    sourceText.trim(),
+  ].join('\n');
 }
 
 type BuffItemInput = Omit<Partial<BuffItemDraft>, 'effects'> & {
@@ -2594,6 +2737,20 @@ export function BuffDraftSheetPage() {
   const [pendingImportShare, setPendingImportShare] = useState<DraftLibraryShareFile<BuffDraft> | null>(null);
   const [contextMenu, setContextMenu] = useState<BuffSheetContextMenuState | null>(null);
   const [dragState, setDragState] = useState<BuffExplorerDragState | null>(null);
+  const [isAiFillModalOpen, setIsAiFillModalOpen] = useState(false);
+  const [aiFillPreviewMode, setAiFillPreviewMode] = useState<BuffSheetAiPreviewMode>('text');
+  const [sharedAiModel, setSharedAiModel] = useState(DEFAULT_BUFF_SHEET_AI_MODEL);
+  const [hasSharedAiApiKey, setHasSharedAiApiKey] = useState(false);
+  const [aiFillSystemPrompt, setAiFillSystemPrompt] = useState(() => readBuffSheetAiStorage(BUFF_SHEET_AI_SYSTEM_PROMPT_STORAGE_KEY, DEFAULT_BUFF_SHEET_AI_SYSTEM_PROMPT));
+  const [aiFillSourceText, setAiFillSourceText] = useState(() => readBuffSheetAiStorage(BUFF_SHEET_AI_SOURCE_TEXT_STORAGE_KEY));
+  const [aiFillRawResponse, setAiFillRawResponse] = useState('');
+  const [aiFillPreviewDraft, setAiFillPreviewDraft] = useState<BuffDraft | null>(null);
+  const [aiFillStatus, setAiFillStatus] = useState('空闲');
+  const [isAiFillSubmitting, setIsAiFillSubmitting] = useState(false);
+  const [aiFillValidationErrors, setAiFillValidationErrors] = useState<string[]>([]);
+  const [aiFillElapsedSeconds, setAiFillElapsedSeconds] = useState(0);
+  const [aiFillRemainingSeconds, setAiFillRemainingSeconds] = useState(Math.round(AI_FILL_TIMEOUT_MS / 1000));
+  const [aiFillPromptPreviewMode, setAiFillPromptPreviewMode] = useState<BuffSheetAiPromptPreviewMode>('system');
   const columns = useMemo(() => buildBuffSheetColumns(), []);
   const getItemCollapseKey = useCallback((draftId: string, itemKey: string) => `${draftId}:${itemKey}`, []);
   const dragHoldTimerRef = useRef<number | null>(null);
@@ -2656,6 +2813,148 @@ export function BuffDraftSheetPage() {
     applyExplorerDefaultCollapse(nextLibrary);
     setSelectedLocalDraftId((prev) => prev || draft.id || Object.keys(nextLibrary)[0] || '');
   }, [applyExplorerDefaultCollapse, draft]);
+
+  const openAiFillModal = useCallback(() => {
+    setIsAiFillModalOpen(true);
+  }, []);
+
+  const closeAiFillModal = useCallback(() => {
+    setIsAiFillModalOpen(false);
+  }, []);
+
+  useEffect(() => {
+    if (!isAiFillModalOpen || !window.desktopRuntime?.getLlmSettings) {
+      return;
+    }
+
+    window.desktopRuntime.getLlmSettings()
+      .then((settings) => {
+        setSharedAiModel(settings.model || DEFAULT_BUFF_SHEET_AI_MODEL);
+        setHasSharedAiApiKey(Boolean(settings.hasApiKey));
+      })
+      .catch(() => {
+        setSharedAiModel(DEFAULT_BUFF_SHEET_AI_MODEL);
+        setHasSharedAiApiKey(false);
+      });
+  }, [isAiFillModalOpen]);
+
+  useEffect(() => {
+    if (!isAiFillSubmitting) {
+      return;
+    }
+
+    const startedAt = Date.now();
+    setAiFillElapsedSeconds(0);
+    setAiFillRemainingSeconds(Math.round(AI_FILL_TIMEOUT_MS / 1000));
+
+    const timer = window.setInterval(() => {
+      const elapsedMs = Date.now() - startedAt;
+      const elapsedSeconds = Math.min(Math.floor(elapsedMs / 1000), Math.round(AI_FILL_TIMEOUT_MS / 1000));
+      const remainingSeconds = Math.max(0, Math.ceil((AI_FILL_TIMEOUT_MS - elapsedMs) / 1000));
+      setAiFillElapsedSeconds(elapsedSeconds);
+      setAiFillRemainingSeconds(remainingSeconds);
+      setAiFillStatus(`请求中... 已用 ${elapsedSeconds}s / 剩余 ${remainingSeconds}s`);
+    }, 250);
+
+    return () => {
+      window.clearInterval(timer);
+    };
+  }, [isAiFillSubmitting]);
+
+  const aiFillMappingPrompt = useMemo(() => buildBuffTypeCatalogPromptSection(), []);
+  const aiFillFinalPrompt = useMemo(
+    () => buildBuffSheetAiRequestPrompt(aiFillSystemPrompt.trim(), aiFillSourceText.trim()),
+    [aiFillSourceText, aiFillSystemPrompt],
+  );
+
+  const handleSubmitAiFill = useCallback(async () => {
+    if (!window.desktopRuntime?.invokeArkResponses) {
+      setAiFillStatus('当前环境不可用');
+      setAiFillRawResponse('当前不是 Electron 桌面环境，无法调用模型接口。');
+      setAiFillPreviewDraft(null);
+      setAiFillValidationErrors([]);
+      return;
+    }
+
+    const sourceText = aiFillSourceText.trim();
+    const systemPrompt = aiFillSystemPrompt.trim();
+
+    if (!hasSharedAiApiKey) {
+      setAiFillStatus('缺少共享模型配置');
+      return;
+    }
+    if (!sourceText) {
+      setAiFillStatus('缺少待整理内容');
+      return;
+    }
+
+    setIsAiFillSubmitting(true);
+    setAiFillElapsedSeconds(0);
+    setAiFillRemainingSeconds(Math.round(AI_FILL_TIMEOUT_MS / 1000));
+    setAiFillStatus(`请求中... 已用 0s / 剩余 ${Math.round(AI_FILL_TIMEOUT_MS / 1000)}s`);
+    setAiFillValidationErrors([]);
+    try {
+      const result = await window.desktopRuntime.invokeArkResponses({
+        apiKey: '',
+        model: '',
+        prompt: buildBuffSheetAiRequestPrompt(systemPrompt, sourceText),
+      });
+      const text = extractArkOutputText(result.data) || JSON.stringify(result.data, null, 2);
+      const parsedResult = parseBuffSheetAiDraft(text);
+      setAiFillRawResponse(text);
+      setAiFillPreviewDraft(parsedResult.draft);
+      setAiFillValidationErrors(parsedResult.errors);
+      setAiFillElapsedSeconds(Math.round(result.durationMs / 1000));
+      setAiFillRemainingSeconds(Math.max(0, Math.round((result.timeoutMs - result.durationMs) / 1000)));
+      setAiFillStatus(
+        parsedResult.draft
+          ? `完成 | HTTP ${result.status} | 用时 ${(result.durationMs / 1000).toFixed(1)}s`
+          : `结果不合法 | HTTP ${result.status} | 用时 ${(result.durationMs / 1000).toFixed(1)}s`
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setAiFillRawResponse(message);
+      setAiFillPreviewDraft(null);
+      setAiFillValidationErrors([]);
+      setAiFillStatus(`请求失败 | 已用 ${aiFillElapsedSeconds}s | ${message}`);
+    } finally {
+      setIsAiFillSubmitting(false);
+    }
+  }, [aiFillElapsedSeconds, aiFillSourceText, aiFillSystemPrompt, hasSharedAiApiKey]);
+
+  const renderAiFillDraftTree = (previewDraft: BuffDraft | null) => {
+    if (!previewDraft) {
+      return <div className="buff-sheet-ai-empty">当前结果还不能解析成组级 Buff JSON。</div>;
+    }
+
+    return (
+      <div className="buff-sheet-ai-tree buff-sheet-explorer-tree">
+        <div className="buff-sheet-explorer-node">
+          <div className="buff-sheet-explorer-row is-static">
+            <span className="buff-sheet-explorer-label">{previewDraft.name || previewDraft.id}</span>
+          </div>
+          <div className="buff-sheet-explorer-children">
+            {Object.entries(previewDraft.items).map(([itemKey, item]) => (
+              <div key={itemKey} className="buff-sheet-explorer-node">
+                <div className="buff-sheet-explorer-child is-static">
+                  <span className="buff-sheet-explorer-label">{item.name || item.id}</span>
+                  <span className="buff-sheet-explorer-count">{Object.keys(item.effects).length}</span>
+                </div>
+                <div className="buff-sheet-explorer-children buff-sheet-explorer-effects">
+                  {Object.entries(item.effects).map(([effectKey, effect]) => (
+                    <div key={effectKey} className="buff-sheet-explorer-effect is-static">
+                      <span className="buff-sheet-explorer-bullet">·</span>
+                      <span className="buff-sheet-explorer-label">{effect.displayName || effect.name || effectKey}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    );
+  };
 
   useEffect(() => {
     syncUndoSnapshots();
@@ -3835,6 +4134,9 @@ export function BuffDraftSheetPage() {
               </div>
             ) : null}
           </div>
+          <button type="button" className="damage-sheet-action-button" onClick={openAiFillModal}>
+            AI填表
+          </button>
           <button type="button" className="damage-sheet-action-button" onClick={handleOpenBuffEditorPage}>
             返回编辑器
           </button>
@@ -4254,6 +4556,144 @@ export function BuffDraftSheetPage() {
                 ) : null}
               </div>
             )}
+          </div>
+        </div>
+      ) : null}
+      {isAiFillModalOpen ? (
+        <div className="buff-sheet-ai-modal-mask" onClick={closeAiFillModal}>
+          <div className="buff-sheet-ai-modal" onClick={(event) => event.stopPropagation()}>
+            <div className="buff-sheet-ai-modal-header">
+              <div>
+                <strong>AI填表</strong>
+                <span>面向组级别 Buff 的一版本预览开发</span>
+              </div>
+              <button type="button" className="buff-sheet-share-modal-close" onClick={closeAiFillModal} aria-label="关闭">
+                ×
+              </button>
+            </div>
+            <div className="buff-sheet-ai-modal-body">
+              <section className="buff-sheet-ai-panel">
+                <div className="buff-sheet-ai-panel-head">
+                  <div className="buff-sheet-ai-panel-title">系统提示词</div>
+                  <div className="buff-sheet-ai-preview-switch">
+                    <button
+                      type="button"
+                      className={`buff-sheet-share-modal-tab${aiFillPromptPreviewMode === 'system' ? ' is-active' : ''}`}
+                      onClick={() => setAiFillPromptPreviewMode('system')}
+                    >
+                      系统提示词
+                    </button>
+                    <button
+                      type="button"
+                      className={`buff-sheet-share-modal-tab${aiFillPromptPreviewMode === 'mapping' ? ' is-active' : ''}`}
+                      onClick={() => setAiFillPromptPreviewMode('mapping')}
+                    >
+                      映射词典
+                    </button>
+                    <button
+                      type="button"
+                      className={`buff-sheet-share-modal-tab${aiFillPromptPreviewMode === 'final' ? ' is-active' : ''}`}
+                      onClick={() => setAiFillPromptPreviewMode('final')}
+                    >
+                      最终请求
+                    </button>
+                  </div>
+                </div>
+                <div className="buff-sheet-ai-shared-banner">
+                  <strong>使用共享模型配置</strong>
+                  <span>{hasSharedAiApiKey ? `当前模型：${sharedAiModel}` : '当前未配置 API Key，请先到 shell 中设置。'}</span>
+                </div>
+                <textarea
+                  className="buff-sheet-ai-textarea is-system"
+                  value={
+                    aiFillPromptPreviewMode === 'system'
+                      ? aiFillSystemPrompt
+                      : aiFillPromptPreviewMode === 'mapping'
+                        ? aiFillMappingPrompt
+                        : aiFillFinalPrompt
+                  }
+                  onChange={(event) => {
+                    if (aiFillPromptPreviewMode !== 'system') {
+                      return;
+                    }
+                    const nextValue = event.target.value;
+                    setAiFillSystemPrompt(nextValue);
+                    writeBuffSheetAiStorage(BUFF_SHEET_AI_SYSTEM_PROMPT_STORAGE_KEY, nextValue);
+                  }}
+                  readOnly={aiFillPromptPreviewMode !== 'system'}
+                  spellCheck={false}
+                />
+              </section>
+              <section className="buff-sheet-ai-panel">
+                <div className="buff-sheet-ai-panel-title">复制内容</div>
+                <textarea
+                  className="buff-sheet-ai-textarea"
+                  value={aiFillSourceText}
+                  onChange={(event) => {
+                    const nextValue = event.target.value;
+                    setAiFillSourceText(nextValue);
+                    writeBuffSheetAiStorage(BUFF_SHEET_AI_SOURCE_TEXT_STORAGE_KEY, nextValue);
+                  }}
+                  placeholder="把技能描述、攻略文本或整理需求粘贴到这里。"
+                  spellCheck={false}
+                />
+              </section>
+              <section className="buff-sheet-ai-panel is-preview">
+                <div className="buff-sheet-ai-panel-head">
+                  <div className="buff-sheet-ai-panel-title">结果预览</div>
+                  <div className="buff-sheet-ai-preview-switch">
+                    <button
+                      type="button"
+                      className={`buff-sheet-share-modal-tab${aiFillPreviewMode === 'json' ? ' is-active' : ''}`}
+                      onClick={() => setAiFillPreviewMode('json')}
+                    >
+                      JSON
+                    </button>
+                    <button
+                      type="button"
+                      className={`buff-sheet-share-modal-tab${aiFillPreviewMode === 'text' ? ' is-active' : ''}`}
+                      onClick={() => setAiFillPreviewMode('text')}
+                    >
+                      纯文本
+                    </button>
+                  </div>
+                </div>
+                <div className="buff-sheet-ai-status">
+                  <div>{aiFillStatus}</div>
+                  <div>{`读秒：已用 ${aiFillElapsedSeconds}s / 剩余 ${aiFillRemainingSeconds}s`}</div>
+                </div>
+                {aiFillValidationErrors.length > 0 ? (
+                  <div className="buff-sheet-ai-error-list">
+                    {aiFillValidationErrors.map((error) => (
+                      <div key={error}>{error}</div>
+                    ))}
+                  </div>
+                ) : null}
+                {aiFillPreviewMode === 'json' ? (
+                  <pre className="buff-sheet-ai-json-preview">{formatBuffSheetAiPreviewJson(aiFillRawResponse)}</pre>
+                ) : (
+                  <div className="buff-sheet-ai-text-preview">
+                    {renderAiFillDraftTree(aiFillPreviewDraft)}
+                  </div>
+                )}
+              </section>
+            </div>
+            <div className="buff-sheet-ai-modal-footer">
+              <button
+                type="button"
+                className="buff-sheet-share-action is-primary"
+                onClick={handleSubmitAiFill}
+                disabled={isAiFillSubmitting}
+              >
+                {isAiFillSubmitting ? '生成中…' : '生成预览'}
+              </button>
+              <button type="button" className="buff-sheet-share-action" disabled title="一版本先占位，不写入当前组">
+                落实到当前组
+              </button>
+              <button type="button" className="buff-sheet-share-action" onClick={closeAiFillModal}>
+                关闭
+              </button>
+            </div>
           </div>
         </div>
       ) : null}

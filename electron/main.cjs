@@ -17,6 +17,7 @@ const DEV_WEB_URL = 'http://127.0.0.1:3030/';
 const DEV_SHELL_URL = 'http://127.0.0.1:3030/shell/index.html';
 const BRIDGE_HOST = '127.0.0.1';
 const BRIDGE_PORT = 31457;
+const ARK_RESPONSE_TIMEOUT_MS = 120000;
 const MAIN_CONTENT_WIDTH = 1700;
 const MAIN_CONTENT_HEIGHT = 900;
 const SHELL_WIDTH = 540;
@@ -68,6 +69,8 @@ let isForceClosingMain = false;
 let appTray = null;
 let savedDesktopScaleKey = '1x';
 let activeDesktopScaleKey = '1x';
+let sharedLlmApiKey = '';
+let sharedLlmModel = 'doubao-seed-2-0-mini-260428';
 let captureSessionTimer = null;
 let captureSession = {
   boundSourceId: null,
@@ -90,6 +93,10 @@ function getDesktopSettingsPath() {
   return path.join(app.getPath('userData'), 'desktop-settings.json');
 }
 
+function getLlmSettingsPath() {
+  return path.join(app.getPath('userData'), 'llm-settings.json');
+}
+
 function loadDesktopSettings() {
   try {
     const filePath = getDesktopSettingsPath();
@@ -108,6 +115,26 @@ function loadDesktopSettings() {
   }
 }
 
+function loadLlmSettings() {
+  try {
+    const filePath = getLlmSettingsPath();
+    if (!fs.existsSync(filePath)) {
+      sharedLlmApiKey = '';
+      sharedLlmModel = 'doubao-seed-2-0-mini-260428';
+      return;
+    }
+
+    const parsed = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+    sharedLlmApiKey = typeof parsed.apiKey === 'string' ? parsed.apiKey : '';
+    sharedLlmModel = typeof parsed.model === 'string' && parsed.model.trim()
+      ? parsed.model.trim()
+      : 'doubao-seed-2-0-mini-260428';
+  } catch {
+    sharedLlmApiKey = '';
+    sharedLlmModel = 'doubao-seed-2-0-mini-260428';
+  }
+}
+
 function saveDesktopSettings() {
   try {
     const filePath = getDesktopSettingsPath();
@@ -123,6 +150,24 @@ function saveDesktopSettings() {
   }
 }
 
+function saveLlmSettings() {
+  try {
+    const filePath = getLlmSettingsPath();
+    fs.mkdirSync(path.dirname(filePath), { recursive: true });
+    fs.writeFileSync(
+      filePath,
+      JSON.stringify({
+        apiKey: sharedLlmApiKey,
+        model: sharedLlmModel,
+      }, null, 2),
+      'utf-8'
+    );
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    console.error(`Failed to save llm settings: ${detail}`);
+  }
+}
+
 function getDesktopSettingsPayload() {
   return {
     currentScale: activeDesktopScaleKey,
@@ -132,7 +177,16 @@ function getDesktopSettingsPayload() {
   };
 }
 
+function getLlmSettingsPayload() {
+  return {
+    apiKey: sharedLlmApiKey,
+    model: sharedLlmModel,
+    hasApiKey: Boolean(sharedLlmApiKey),
+  };
+}
+
 loadDesktopSettings();
+loadLlmSettings();
 activeDesktopScaleKey = savedDesktopScaleKey;
 app.commandLine.appendSwitch(
   'force-device-scale-factor',
@@ -841,6 +895,81 @@ function stopServers() {
   }
 }
 
+async function invokeArkResponses(payload) {
+  const apiKey = typeof payload?.apiKey === 'string' && payload.apiKey.trim()
+    ? payload.apiKey.trim()
+    : sharedLlmApiKey;
+  const model = typeof payload?.model === 'string' && payload.model.trim()
+    ? payload.model.trim()
+    : sharedLlmModel;
+  const prompt = typeof payload?.prompt === 'string' ? payload.prompt.trim() : '';
+
+  if (!apiKey) {
+    throw new Error('API Key 不能为空');
+  }
+  if (!model) {
+    throw new Error('模型名不能为空');
+  }
+  if (!prompt) {
+    throw new Error('提示词不能为空');
+  }
+
+  const controller = new AbortController();
+  const startedAt = Date.now();
+  const timeoutId = setTimeout(() => controller.abort(), ARK_RESPONSE_TIMEOUT_MS);
+
+  try {
+    const response = await fetch('https://ark.cn-beijing.volces.com/api/v3/chat/completions', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model,
+        messages: [
+          {
+            role: 'user',
+            content: prompt,
+          },
+        ],
+        thinking: {
+          type: 'disabled',
+        },
+      }),
+      signal: controller.signal,
+    });
+
+    const rawText = await response.text();
+    let data = null;
+    try {
+      data = rawText ? JSON.parse(rawText) : null;
+    } catch {
+      data = null;
+    }
+
+    if (!response.ok) {
+      const detail = data?.error?.message || data?.message || rawText || `HTTP ${response.status}`;
+      throw new Error(detail);
+    }
+
+    return {
+      ok: true,
+      status: response.status,
+      durationMs: Date.now() - startedAt,
+      timeoutMs: ARK_RESPONSE_TIMEOUT_MS,
+      data: data ?? rawText,
+    };
+  } catch (error) {
+    if (error instanceof Error && error.name === 'AbortError') {
+      throw new Error(`模型请求超时（${Math.round(ARK_RESPONSE_TIMEOUT_MS / 1000)} 秒）`);
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
 ipcMain.handle('desktop:get-role', (event) => getSenderRole(event));
 ipcMain.handle('desktop:get-shell-state', () => ({
   appName: app.getName(),
@@ -854,6 +983,15 @@ ipcMain.handle('desktop:get-shell-state', () => ({
   webWindowVisible: Boolean(mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible()),
   desktopSettings: getDesktopSettingsPayload(),
 }));
+ipcMain.handle('desktop:get-llm-settings', () => getLlmSettingsPayload());
+ipcMain.handle('desktop:set-llm-settings', (_event, payload) => {
+  sharedLlmApiKey = typeof payload?.apiKey === 'string' ? payload.apiKey.trim() : '';
+  sharedLlmModel = typeof payload?.model === 'string' && payload.model.trim()
+    ? payload.model.trim()
+    : 'doubao-seed-2-0-mini-260428';
+  saveLlmSettings();
+  return getLlmSettingsPayload();
+});
 ipcMain.handle('desktop:get-settings', () => getDesktopSettingsPayload());
 ipcMain.handle('desktop:set-scale', (_event, scaleKey) => {
   if (typeof scaleKey !== 'string' || !DESKTOP_SCALE_PRESETS[scaleKey]) {
@@ -901,6 +1039,7 @@ ipcMain.handle('desktop:capture-source-frame', async (_event, sourceId) => ({
   ok: true,
   frame: await captureSourceFrame(sourceId),
 }));
+ipcMain.handle('desktop:invoke-ark-responses', async (_event, payload) => invokeArkResponses(payload));
 
 ipcMain.handle('desktop:run-action', (_event, action) => {
   switch (action) {

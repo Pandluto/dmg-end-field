@@ -794,6 +794,201 @@
   line-height: 1.2;
 }
 
+.buff-sheet-ai-modal-mask {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(15, 23, 42, 0.32);
+}
+
+.buff-sheet-ai-modal {
+  width: min(1380px, calc(100vw - 48px));
+  min-height: min(760px, calc(100vh - 48px));
+  max-height: calc(100vh - 48px);
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--office-border, #d2d8e3);
+  background: var(--office-card-bg, #fff);
+  box-shadow: 0 18px 48px rgba(15, 23, 42, 0.18);
+}
+
+.buff-sheet-ai-modal-header,
+.buff-sheet-ai-modal-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border-bottom: 1px solid #e5e9f0;
+}
+
+.buff-sheet-ai-modal-header strong {
+  display: block;
+  color: #1f2634;
+  font-size: 13px;
+}
+
+.buff-sheet-ai-modal-header span {
+  display: block;
+  margin-top: 4px;
+  color: var(--text-muted, #64748b);
+  font-size: 11px;
+}
+
+.buff-sheet-ai-modal-footer {
+  justify-content: flex-end;
+  border-top: 1px solid #e5e9f0;
+  border-bottom: 0;
+}
+
+.buff-sheet-ai-modal-body {
+  min-height: 0;
+  flex: 1 1 auto;
+  display: grid;
+  grid-template-columns: minmax(260px, 0.9fr) minmax(280px, 1fr) minmax(340px, 1.1fr);
+  gap: 12px;
+  padding: 12px;
+}
+
+.buff-sheet-ai-panel {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 10px;
+  border: 1px solid #e5e9f0;
+  background: #fbfcfc;
+}
+
+.buff-sheet-ai-panel.is-preview {
+  background: #fff;
+}
+
+.buff-sheet-ai-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.buff-sheet-ai-panel-title {
+  color: #1f2634;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.buff-sheet-ai-preview-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.buff-sheet-ai-label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  color: #425166;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.buff-sheet-ai-shared-banner {
+  display: grid;
+  gap: 4px;
+  padding: 10px 12px;
+  border: 1px solid #d2d8e3;
+  background: #f6faf7;
+}
+
+.buff-sheet-ai-shared-banner strong {
+  color: #1f2634;
+  font-size: 12px;
+}
+
+.buff-sheet-ai-shared-banner span {
+  color: #64748b;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.buff-sheet-ai-input,
+.buff-sheet-ai-textarea,
+.buff-sheet-ai-json-preview,
+.buff-sheet-ai-text-preview {
+  width: 100%;
+  border: 1px solid #d2d8e3;
+  background: #fff;
+  color: #1f2634;
+  box-sizing: border-box;
+}
+
+.buff-sheet-ai-input {
+  min-height: 30px;
+  padding: 0 10px;
+  font-size: 12px;
+}
+
+.buff-sheet-ai-textarea {
+  min-height: 0;
+  flex: 1 1 auto;
+  resize: none;
+  padding: 10px 12px;
+  font: 12px/1.55 'Consolas', 'SFMono-Regular', 'Microsoft YaHei UI', monospace;
+}
+
+.buff-sheet-ai-textarea.is-system {
+  min-height: 300px;
+}
+
+.buff-sheet-ai-status {
+  color: #64748b;
+  font-size: 11px;
+}
+
+.buff-sheet-ai-error-list {
+  display: grid;
+  gap: 4px;
+  padding: 8px 10px;
+  border: 1px solid #f3d0d0;
+  background: #fff4f4;
+  color: #b42318;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.buff-sheet-ai-json-preview,
+.buff-sheet-ai-text-preview {
+  min-height: 0;
+  flex: 1 1 auto;
+  overflow: auto;
+  padding: 10px 12px;
+}
+
+.buff-sheet-ai-json-preview {
+  margin: 0;
+  white-space: pre-wrap;
+  font: 12px/1.55 'Consolas', 'SFMono-Regular', 'Microsoft YaHei UI', monospace;
+}
+
+.buff-sheet-ai-tree {
+  min-width: 0;
+}
+
+.buff-sheet-explorer-row.is-static,
+.buff-sheet-explorer-child.is-static,
+.buff-sheet-explorer-effect.is-static {
+  cursor: default;
+}
+
+.buff-sheet-ai-empty {
+  color: #64748b;
+  font-size: 12px;
+}
+
 @media (max-width: 1600px) {
   .buff-sheet-explorer {
     padding: 6px;
@@ -801,5 +996,13 @@
 
   .buff-sheet-ribbon {
     grid-template-columns: 1fr;
+  }
+
+  .buff-sheet-ai-modal-body {
+    grid-template-columns: 1fr;
+  }
+
+  .buff-sheet-ai-textarea.is-system {
+    min-height: 180px;
   }
 }
