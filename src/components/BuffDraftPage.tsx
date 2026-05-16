@@ -5,8 +5,14 @@ import './OperatorDraftPage.css';
 import './BuffDraftPage.css';
 import buffSheetAiSystemPromptRaw from '../prompts/buff-sheet-ai-system-prompt.md?raw';
 import { buildBuffTypeCatalogPromptSection } from '../ai/buffFillCatalog';
-import { createOpenAiResponseFormatPayload } from '../ai/buffFillSchema';
-import { convertBuffFillAiDraftToBuffDraft, validateBuffFillAiDraft } from '../ai/buffFillValidator';
+import {
+  buildBuffFillSectionPrompt,
+  extractArkOutputText,
+  splitAiFillWorkflow,
+  type AiFillWorkflowState,
+} from '../ai/buffFillAgent';
+import { convertBuffFillAiDraftToBuffDraft, sanitizeBuffFillAiDraft, validateBuffFillAiDraft } from '../ai/buffFillValidator';
+import { BuffFillAgentModal } from './BuffFillAgentModal';
 import type { BuffEffectKind, BuffExtraHitConfig, CandidateBuff } from '../core/domain/buff';
 import { APP_ROUTE_PATHS, navigateToAppPath } from '../utils/appRoute';
 import {
@@ -139,7 +145,55 @@ const PERCENT_STYLE_TYPES = new Set<string>([
   'iceAmplify',
   'natureAmplify',
   'multiplierBonus',
-  'multiplierMultiplier',
+]);
+
+const DISPLAY_PERCENT_TYPES = new Set<string>([
+  'atkPercentBoost',
+  'mainStatBoost',
+  'subStatBoost',
+  'allStatBoost',
+  'critRateBoost',
+  'critDmgBonusBoost',
+  'physicalDmgBonus',
+  'magicDmgBonus',
+  'fireDmgBonus',
+  'electricDmgBonus',
+  'iceDmgBonus',
+  'natureDmgBonus',
+  'allElementDmgBonus',
+  'skillDmgBonus',
+  'chainSkillDmgBonus',
+  'ultimateDmgBonus',
+  'normalAttackDmgBonus',
+  'allSkillDmgBonus',
+  'physicalFragile',
+  'fireFragile',
+  'electricFragile',
+  'iceFragile',
+  'natureFragile',
+  'magicFragile',
+  'physicalVulnerability',
+  'fireVulnerability',
+  'electricVulnerability',
+  'iceVulnerability',
+  'natureVulnerability',
+  'magicTakenDmgBonus',
+  'physicalAmplify',
+  'magicAmplify',
+  'fireAmplify',
+  'electricAmplify',
+  'iceAmplify',
+  'natureAmplify',
+  'comboDamageBonus',
+  'sourceSkillBoost',
+]);
+
+const DISPLAY_FLAT_TYPES = new Set<string>([
+  'flatAtk',
+  'strengthBoost',
+  'agilityBoost',
+  'intelligenceBoost',
+  'willBoost',
 ]);
 
 const BUFF_EFFECT_KIND_OPTIONS: BuffEffectKind[] = ['modifier', 'extraHit'];
@@ -220,44 +274,53 @@ function writeBuffSheetAiStorage(key: string, value: string) {
   }
 }
 
-function extractArkOutputText(value: unknown): string {
-  if (value && typeof value === 'object') {
-    const root = value as Record<string, unknown>;
-    if (Array.isArray(root.choices)) {
-      for (const choice of root.choices) {
-        if (choice && typeof choice === 'object') {
-          const message = (choice as Record<string, unknown>).message;
-          if (message && typeof message === 'object') {
-            const content = (message as Record<string, unknown>).content;
-            if (typeof content === 'string' && content.trim()) {
-              return content.trim();
-            }
-          }
-        }
+function extractBalancedJsonObject(rawText: string) {
+  const text = rawText.trim();
+  const start = text.indexOf('{');
+  if (start < 0) {
+    return null;
+  }
+
+  let depth = 0;
+  let inString = false;
+  let isEscaped = false;
+
+  for (let index = start; index < text.length; index += 1) {
+    const char = text[index];
+    if (inString) {
+      if (isEscaped) {
+        isEscaped = false;
+        continue;
+      }
+      if (char === '\\') {
+        isEscaped = true;
+        continue;
+      }
+      if (char === '"') {
+        inString = false;
+      }
+      continue;
+    }
+
+    if (char === '"') {
+      inString = true;
+      continue;
+    }
+
+    if (char === '{') {
+      depth += 1;
+      continue;
+    }
+
+    if (char === '}') {
+      depth -= 1;
+      if (depth === 0) {
+        return text.slice(start, index + 1);
       }
     }
   }
 
-  const texts: string[] = [];
-  const visit = (node: unknown) => {
-    if (!node) return;
-    if (Array.isArray(node)) {
-      node.forEach(visit);
-      return;
-    }
-    if (typeof node === 'object') {
-      const candidate = node as Record<string, unknown>;
-      if (candidate.type === 'output_text' && typeof candidate.text === 'string' && candidate.text.trim()) {
-        texts.push(candidate.text.trim());
-      }
-      if (typeof candidate.text === 'string' && candidate.text.trim()) {
-        texts.push(candidate.text.trim());
-      }
-      Object.values(candidate).forEach(visit);
-    }
-  };
-  visit(value);
-  return texts.join('\n\n').trim();
+  return null;
 }
 
 function parseBuffSheetAiDraft(rawText: string): { draft: BuffDraft | null; errors: string[] } {
@@ -267,24 +330,24 @@ function parseBuffSheetAiDraft(rawText: string): { draft: BuffDraft | null; erro
   }
 
   const candidates = [normalizedText];
-  const firstBraceIndex = normalizedText.indexOf('{');
-  const lastBraceIndex = normalizedText.lastIndexOf('}');
-  if (firstBraceIndex >= 0 && lastBraceIndex > firstBraceIndex) {
-    candidates.push(normalizedText.slice(firstBraceIndex, lastBraceIndex + 1));
+  const balancedJson = extractBalancedJsonObject(normalizedText);
+  if (balancedJson && balancedJson !== normalizedText) {
+    candidates.push(balancedJson);
   }
 
   const collectedErrors: string[] = [];
   for (const candidateText of candidates) {
     try {
       const parsed = JSON.parse(candidateText) as Record<string, unknown>;
-      const candidateDraft = parsed && typeof parsed.draft === 'object' ? parsed.draft : parsed;
+      const candidateDraft = sanitizeBuffFillAiDraft(parsed && typeof parsed.draft === 'object' ? parsed.draft : parsed);
       const validation = validateBuffFillAiDraft(candidateDraft);
       if (!validation.ok) {
         collectedErrors.push(...validation.errors);
         continue;
       }
+      const normalizedDraft = normalizeBuffDraft(convertBuffFillAiDraftToBuffDraft(candidateDraft as never));
       return {
-        draft: normalizeBuffDraft(convertBuffFillAiDraftToBuffDraft(candidateDraft as never)),
+        draft: decorateAiPreviewDraft(normalizedDraft),
         errors: [],
       };
     } catch (error) {
@@ -299,33 +362,125 @@ function parseBuffSheetAiDraft(rawText: string): { draft: BuffDraft | null; erro
   };
 }
 
-function formatBuffSheetAiPreviewJson(rawText: string): string {
-  return rawText.trim() || '{}';
+type AiItemKind = 'talent' | 'potential' | 'skill' | 'fixed' | 'special' | 'other';
+
+const AI_ITEM_KIND_LABELS: Record<AiItemKind, string> = {
+  talent: '天赋',
+  potential: '潜能',
+  skill: '技能',
+  fixed: '固定值',
+  special: '特效',
+  other: '条目',
+};
+
+function includesAnyKeyword(text: string, keywords: string[]) {
+  return keywords.some((keyword) => text.includes(keyword));
 }
 
-function buildBuffSheetAiRequestPrompt(systemPrompt: string, sourceText: string) {
-  const responseFormatPayload = createOpenAiResponseFormatPayload();
-  return [
-    systemPrompt.trim(),
-    '',
-    '以下是本次实际执行协议，优先级高于上面任何旧规则。',
-    '1. 只返回一个 JSON 对象。',
-    '2. 不要输出 Markdown 代码块。',
-    '3. 不要返回现有编辑器里的 item-1 / buff-1 对象结构。',
-    '4. 这次必须返回数组中间结构：items 是数组，effects 是数组。',
-    '5. 每条 effect 必须带 evidenceText 和 confidence。',
-    '6. modifier.type 只能从白名单里选；extraHit 只能在原文明确出现额外伤害段时使用。',
-    '7. 如果拿不准，宁可保守留空、留 0，也不要发明字段或机制。',
-    '',
-    'modifier.type 白名单词典：',
-    buildBuffTypeCatalogPromptSection(),
-    '',
-    '目标输出 schema：',
-    JSON.stringify(responseFormatPayload.json_schema.schema, null, 2),
-    '',
-    '待整理内容：',
-    sourceText.trim(),
-  ].join('\n');
+function detectAiItemKind(item: BuffItemDraft): AiItemKind {
+  const texts = [
+    item.name,
+    item.description,
+    ...Object.values(item.effects).flatMap((effect) => [effect.displayName, effect.name, effect.description]),
+  ]
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase();
+
+  if (!texts) {
+    return 'other';
+  }
+
+  if (includesAnyKeyword(texts, ['潜能'])) {
+    return 'potential';
+  }
+  if (includesAnyKeyword(texts, ['技能', '普通攻击', '普攻', '战技', '连携技', '终结技', '重击', '下落攻击', '处决攻击'])) {
+    return 'skill';
+  }
+  if (includesAnyKeyword(texts, ['天赋', '突破', '阶段后可解锁', '阶段后效果提升'])) {
+    return 'talent';
+  }
+  if (includesAnyKeyword(texts, ['固定值', '基础攻击', '基础生命', '基础防御', '白值', '面板'])) {
+    return 'fixed';
+  }
+  if (includesAnyKeyword(texts, ['特效', '触发', '施放时', '命中时', '额外', '每次', '持续', '状态下'])) {
+    return 'special';
+  }
+  if (Object.keys(item.effects).length === 0) {
+    return 'other';
+  }
+  return 'special';
+}
+
+function appendAiItemKindSuffix(name: string, index: number, kind: AiItemKind) {
+  const trimmedName = name.trim();
+  const suffix = `-${index}${AI_ITEM_KIND_LABELS[kind]}`;
+  if (!trimmedName) {
+    return suffix.slice(1);
+  }
+  if (trimmedName.endsWith(suffix)) {
+    return trimmedName;
+  }
+  return `${trimmedName}${suffix}`;
+}
+
+function decorateAiPreviewDraft(draft: BuffDraft) {
+  const itemEntries = Object.entries(draft.items).map<[string, BuffItemDraft]>(([itemKey, item]) => {
+      const kind = detectAiItemKind(item);
+      let buffIndex = 0;
+      const nextEffects = Object.fromEntries(
+        Object.entries(item.effects).map(([effectKey, effect]) => {
+          buffIndex += 1;
+          const baseName = effect.name?.trim() || effect.displayName?.trim() || effectKey;
+          return [
+            effectKey,
+            {
+              ...effect,
+              name: appendAiItemKindSuffix(baseName, buffIndex, kind),
+            },
+          ];
+        })
+      ) as Record<string, BuffEffectDraft>;
+
+      return [
+        itemKey,
+        {
+          ...item,
+          effects: nextEffects,
+        },
+      ];
+    })
+    .filter(([, item]) => Object.keys(item.effects).length > 0);
+  const nextItems = Object.fromEntries(itemEntries) as Record<string, BuffItemDraft>;
+
+  return {
+    ...draft,
+    items: nextItems,
+  };
+}
+
+function mergeAiPreviewDrafts(drafts: BuffDraft[], workflow: AiFillWorkflowState) {
+  const merged = createEmptyBuffDraft('ai-buff-preview');
+  merged.name =
+    workflow.sourceKind === 'weapon'
+      ? '武器 Buff 预览'
+      : workflow.sourceKind === 'mixed'
+        ? '混合 Buff 预览'
+        : '角色 Buff 预览';
+  merged.sourceName = 'AI Workflow';
+  merged.source = 'ai_workflow';
+  merged.description = workflow.sections.map((section) => section.title).join(' / ');
+  merged.items = {};
+
+  let itemIndex = 0;
+  drafts.forEach((draft) => {
+    Object.values(draft.items).forEach((item) => {
+      itemIndex += 1;
+      merged.items[`item-${itemIndex}`] = normalizeItem(`item-${itemIndex}`, item, draft.sourceName || '本地自定义');
+    });
+  });
+
+  return decorateAiPreviewDraft(merged);
 }
 
 type BuffItemInput = Omit<Partial<BuffItemDraft>, 'effects'> & {
@@ -440,10 +595,73 @@ function getBuffTypeDisplayLabel(type?: string) {
   return meta ? `${meta.label} · ${type}` : type;
 }
 
+function getBuffTypePlainLabel(type?: string) {
+  if (!type) {
+    return '';
+  }
+  const meta = BUFF_TYPE_LABELS[type as keyof typeof BUFF_TYPE_LABELS];
+  return meta?.label || type;
+}
+
+function formatEffectValueForDisplay(effect: Partial<BuffEffectDraft>) {
+  const numericValue = Number(effect.value);
+  if (!Number.isFinite(numericValue) || numericValue === 0) {
+    return '';
+  }
+
+  const type = effect.type || '';
+  if (DISPLAY_PERCENT_TYPES.has(type)) {
+    return `${numericValue}%`;
+  }
+
+  if (type === 'multiplierBonus' || type === 'multiplierMultiplier') {
+    return numericValue >= 0 && numericValue <= 2 ? `${numericValue}x` : String(numericValue);
+  }
+
+  if (DISPLAY_FLAT_TYPES.has(type)) {
+    return `${numericValue}`;
+  }
+
+  return `${numericValue}`;
+}
+
+function buildFallbackEffectDisplayName(effectKey: string, effect: Partial<BuffEffectDraft>, fallbackName: string) {
+  const explicitDisplayName = effect.displayName?.trim();
+  const typeLabel = getBuffTypePlainLabel(effect.type);
+  const valueLabel = formatEffectValueForDisplay(effect);
+
+  if (explicitDisplayName) {
+    if (typeLabel && valueLabel) {
+      const hasTypeLabel = explicitDisplayName.includes(typeLabel);
+      const alreadyHasValuePrefix = explicitDisplayName.startsWith(valueLabel);
+      if (hasTypeLabel && !alreadyHasValuePrefix) {
+        return explicitDisplayName.replace(typeLabel, `${valueLabel}${typeLabel}`);
+      }
+    }
+    return explicitDisplayName;
+  }
+
+  if (typeLabel) {
+    return valueLabel ? `${valueLabel}${typeLabel}` : typeLabel;
+  }
+
+  const explicitName = effect.name?.trim();
+  if (explicitName && !/^custom_buff_\d+$/i.test(explicitName)) {
+    return explicitName;
+  }
+
+  const description = effect.description?.trim();
+  if (description) {
+    return description.length > 18 ? `${description.slice(0, 18)}...` : description;
+  }
+
+  return fallbackName || createDefaultBuffDisplayName(effectKey);
+}
+
 function formatBuffNumericValue(type: string | undefined, value: number | undefined) {
   const numericValue = Number(value ?? 0);
   if (PERCENT_STYLE_TYPES.has(type || '')) {
-    return `${(numericValue * 100).toFixed(1).replace(/\.0$/, '')}%`;
+    return `${(numericValue).toFixed(1).replace(/\.0$/, '')}%`;
   }
   return String(numericValue);
 }
@@ -491,7 +709,7 @@ function normalizeEffect(effectKey: string, effect: Partial<BuffEffectDraft>, it
     ...fallback,
     ...effect,
     id: effect.id?.trim() || effectKey,
-    displayName: effect.displayName?.trim() || fallback.displayName,
+    displayName: buildFallbackEffectDisplayName(effectKey, effect, fallback.displayName),
     name: effect.name?.trim() || fallback.name,
     level: effect.level || '',
     source: effect.source?.trim() || 'local_custom',
@@ -2743,8 +2961,10 @@ export function BuffDraftSheetPage() {
   const [hasSharedAiApiKey, setHasSharedAiApiKey] = useState(false);
   const [aiFillSystemPrompt, setAiFillSystemPrompt] = useState(() => readBuffSheetAiStorage(BUFF_SHEET_AI_SYSTEM_PROMPT_STORAGE_KEY, DEFAULT_BUFF_SHEET_AI_SYSTEM_PROMPT));
   const [aiFillSourceText, setAiFillSourceText] = useState(() => readBuffSheetAiStorage(BUFF_SHEET_AI_SOURCE_TEXT_STORAGE_KEY));
-  const [aiFillRawResponse, setAiFillRawResponse] = useState('');
+  const [aiFillRawResponseJson, setAiFillRawResponseJson] = useState('');
+  const [aiFillWorkflowLogs, setAiFillWorkflowLogs] = useState('');
   const [aiFillPreviewDraft, setAiFillPreviewDraft] = useState<BuffDraft | null>(null);
+  const [, setAiFillWorkflowState] = useState<AiFillWorkflowState | null>(null);
   const [aiFillStatus, setAiFillStatus] = useState('空闲');
   const [isAiFillSubmitting, setIsAiFillSubmitting] = useState(false);
   const [aiFillValidationErrors, setAiFillValidationErrors] = useState<string[]>([]);
@@ -2759,6 +2979,8 @@ export function BuffDraftSheetPage() {
   const shareImportInputRef = useRef<HTMLInputElement>(null);
   const formulaBarRef = useRef<HTMLDivElement>(null);
   const pendingFormulaFocusRef = useRef<FormulaFocusSnapshot | null>(null);
+  const lastAiFillSourceTextRef = useRef(aiFillSourceText);
+  const submittedAiFillSourceTextRef = useRef<string | null>(null);
   const [formulaFocusRestoreToken, setFormulaFocusRestoreToken] = useState(0);
 
   const applyExplorerDefaultCollapse = useCallback((nextLibrary: Record<string, BuffDraft>) => {
@@ -2862,29 +3084,72 @@ export function BuffDraftSheetPage() {
   }, [isAiFillSubmitting]);
 
   const aiFillMappingPrompt = useMemo(() => buildBuffTypeCatalogPromptSection(), []);
+  const aiFillWorkflowPreview = useMemo(() => splitAiFillWorkflow(aiFillSourceText.trim()), [aiFillSourceText]);
   const aiFillFinalPrompt = useMemo(
-    () => buildBuffSheetAiRequestPrompt(aiFillSystemPrompt.trim(), aiFillSourceText.trim()),
-    [aiFillSourceText, aiFillSystemPrompt],
+    () => {
+      if (aiFillWorkflowPreview.sections.length === 0) {
+        return '';
+      }
+      return aiFillWorkflowPreview.sections
+        .map((section) => [
+          `### ${section.title}`,
+          buildBuffFillSectionPrompt(aiFillSystemPrompt.trim(), aiFillMappingPrompt, section),
+        ].join('\n'))
+        .join('\n\n');
+    },
+    [aiFillMappingPrompt, aiFillSystemPrompt, aiFillWorkflowPreview],
   );
+
+  useEffect(() => {
+    if (isAiFillSubmitting) {
+      return;
+    }
+    if (submittedAiFillSourceTextRef.current && submittedAiFillSourceTextRef.current === aiFillSourceText) {
+      lastAiFillSourceTextRef.current = aiFillSourceText;
+      submittedAiFillSourceTextRef.current = null;
+      return;
+    }
+    if (lastAiFillSourceTextRef.current === aiFillSourceText) {
+      return;
+    }
+    lastAiFillSourceTextRef.current = aiFillSourceText;
+    setAiFillWorkflowState(null);
+    setAiFillPreviewDraft(null);
+    setAiFillRawResponseJson('');
+    setAiFillWorkflowLogs('');
+    setAiFillValidationErrors([]);
+    setAiFillElapsedSeconds(0);
+    setAiFillRemainingSeconds(Math.round(AI_FILL_TIMEOUT_MS / 1000));
+    setAiFillStatus('空闲');
+  }, [aiFillSourceText, isAiFillSubmitting]);
 
   const handleSubmitAiFill = useCallback(async () => {
     if (!window.desktopRuntime?.invokeArkResponses) {
       setAiFillStatus('当前环境不可用');
-      setAiFillRawResponse('当前不是 Electron 桌面环境，无法调用模型接口。');
+      setAiFillRawResponseJson(JSON.stringify({ error: '当前不是 Electron 桌面环境，无法调用模型接口。' }, null, 2));
+      setAiFillWorkflowLogs('[workflow] 当前不是 Electron 桌面环境，无法调用模型接口。');
       setAiFillPreviewDraft(null);
+      setAiFillWorkflowState(null);
       setAiFillValidationErrors([]);
       return;
     }
 
     const sourceText = aiFillSourceText.trim();
-    const systemPrompt = aiFillSystemPrompt.trim();
+    const workflow = splitAiFillWorkflow(sourceText);
+    const workflowLogs: string[] = [];
+    const appendWorkflowLog = (line: string) => {
+      workflowLogs.push(line);
+      setAiFillWorkflowLogs(workflowLogs.join('\n'));
+    };
 
     if (!hasSharedAiApiKey) {
       setAiFillStatus('缺少共享模型配置');
+      setAiFillWorkflowLogs('[workflow] 缺少共享模型配置。');
       return;
     }
     if (!sourceText) {
       setAiFillStatus('缺少待整理内容');
+      setAiFillWorkflowLogs('[workflow] 缺少待整理内容。');
       return;
     }
 
@@ -2893,34 +3158,151 @@ export function BuffDraftSheetPage() {
     setAiFillRemainingSeconds(Math.round(AI_FILL_TIMEOUT_MS / 1000));
     setAiFillStatus(`请求中... 已用 0s / 剩余 ${Math.round(AI_FILL_TIMEOUT_MS / 1000)}s`);
     setAiFillValidationErrors([]);
+    setAiFillWorkflowState(workflow);
+    setAiFillRawResponseJson('');
+    setAiFillWorkflowLogs('');
+    submittedAiFillSourceTextRef.current = sourceText;
+    appendWorkflowLog(`[workflow] detect source kind => ${workflow.sourceKind}`);
+    appendWorkflowLog(`[workflow] planned sections => ${workflow.sections.length}`);
     try {
-      const result = await window.desktopRuntime.invokeArkResponses({
-        apiKey: '',
-        model: '',
-        prompt: buildBuffSheetAiRequestPrompt(systemPrompt, sourceText),
-      });
-      const text = extractArkOutputText(result.data) || JSON.stringify(result.data, null, 2);
-      const parsedResult = parseBuffSheetAiDraft(text);
-      setAiFillRawResponse(text);
-      setAiFillPreviewDraft(parsedResult.draft);
-      setAiFillValidationErrors(parsedResult.errors);
-      setAiFillElapsedSeconds(Math.round(result.durationMs / 1000));
-      setAiFillRemainingSeconds(Math.max(0, Math.round((result.timeoutMs - result.durationMs) / 1000)));
+      const collectedDrafts: BuffDraft[] = [];
+      const collectedErrors: string[] = [];
+      const rawResponseSections: Array<{
+        id: string;
+        title: string;
+        promptLabel: string;
+        status: 'completed' | 'failed';
+        rawResponse: string;
+        errors: string[];
+      }> = [];
+      let lastStatus = 200;
+      let totalDurationMs = 0;
+      let timeoutMs = AI_FILL_TIMEOUT_MS;
+      let nextWorkflowState = workflow;
+
+      for (const section of workflow.sections) {
+        appendWorkflowLog(`[section:start] ${section.title} | prompt=${section.promptLabel} | sectionType=${section.sectionType} | sourceKind=${section.sourceKind}`);
+        appendWorkflowLog(`[section:input] ${section.rawText.length} chars / ${section.rawText.split('\n').filter(Boolean).length} lines`);
+        nextWorkflowState = {
+          ...nextWorkflowState,
+          sections: nextWorkflowState.sections.map((entry) =>
+            entry.id === section.id ? { ...entry, status: 'running' } : entry
+          ),
+        };
+        setAiFillWorkflowState(nextWorkflowState);
+
+        const result = await window.desktopRuntime.invokeArkResponses({
+          apiKey: '',
+          model: '',
+          prompt: buildBuffFillSectionPrompt(aiFillSystemPrompt.trim(), aiFillMappingPrompt, section),
+        });
+
+        const text = extractArkOutputText(result.data) || JSON.stringify(result.data, null, 2);
+        const parsedResult = parseBuffSheetAiDraft(text);
+        const keptItemCount = parsedResult.draft ? Object.keys(parsedResult.draft.items).length : 0;
+        const keptEffectCount = parsedResult.draft
+          ? Object.values(parsedResult.draft.items).reduce((sum, item) => sum + Object.keys(item.effects).length, 0)
+          : 0;
+        rawResponseSections.push({
+          id: section.id,
+          title: section.title,
+          promptLabel: section.promptLabel,
+          status: parsedResult.draft ? 'completed' : 'failed',
+          rawResponse: text,
+          errors: parsedResult.errors,
+        });
+        totalDurationMs += result.durationMs;
+        timeoutMs = result.timeoutMs;
+        lastStatus = result.status;
+
+        if (parsedResult.draft) {
+          collectedDrafts.push(parsedResult.draft);
+        }
+        if (parsedResult.errors.length > 0) {
+          collectedErrors.push(...parsedResult.errors.map((error) => `${section.title}: ${error}`));
+        }
+        appendWorkflowLog(`[section:output] ${section.title} | ${text.length} chars | keptItems=${keptItemCount} | keptEffects=${keptEffectCount}`);
+        if (parsedResult.errors.length > 0) {
+          parsedResult.errors.forEach((error) => appendWorkflowLog(`[section:error] ${section.title} | ${error}`));
+        } else {
+          appendWorkflowLog(`[section:ok] ${section.title} | no structural errors`);
+        }
+
+        nextWorkflowState = {
+          ...nextWorkflowState,
+          sections: nextWorkflowState.sections.map((entry) =>
+            entry.id === section.id
+              ? {
+                  ...entry,
+                  status: parsedResult.draft ? 'completed' : 'failed',
+                  rawResponse: text,
+                  errors: parsedResult.errors,
+                }
+              : entry
+          ),
+        };
+        setAiFillWorkflowState(nextWorkflowState);
+      }
+
+      const mergedDraft = collectedDrafts.length > 0 ? mergeAiPreviewDrafts(collectedDrafts, workflow) : null;
+      appendWorkflowLog(`[workflow:done] sections=${workflow.sections.length} | mergedItems=${mergedDraft ? Object.keys(mergedDraft.items).length : 0}`);
+      setAiFillRawResponseJson(JSON.stringify({
+        sourceKind: workflow.sourceKind,
+        sectionCount: workflow.sections.length,
+        sections: rawResponseSections,
+      }, null, 2));
+      setAiFillPreviewDraft(mergedDraft);
+      setAiFillValidationErrors(Array.from(new Set(collectedErrors)));
+      setAiFillElapsedSeconds(Math.round(totalDurationMs / 1000));
+      setAiFillRemainingSeconds(Math.max(0, Math.round((timeoutMs - totalDurationMs) / 1000)));
       setAiFillStatus(
-        parsedResult.draft
-          ? `完成 | HTTP ${result.status} | 用时 ${(result.durationMs / 1000).toFixed(1)}s`
-          : `结果不合法 | HTTP ${result.status} | 用时 ${(result.durationMs / 1000).toFixed(1)}s`
+        mergedDraft
+          ? `完成 | HTTP ${lastStatus} | 用时 ${(totalDurationMs / 1000).toFixed(1)}s | ${workflow.sections.length} 段`
+          : `结果不合法 | HTTP ${lastStatus} | 用时 ${(totalDurationMs / 1000).toFixed(1)}s | ${workflow.sections.length} 段`
       );
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      setAiFillRawResponse(message);
+      appendWorkflowLog(`[workflow:fail] ${message}`);
+      setAiFillRawResponseJson(JSON.stringify({ error: message }, null, 2));
       setAiFillPreviewDraft(null);
       setAiFillValidationErrors([]);
       setAiFillStatus(`请求失败 | 已用 ${aiFillElapsedSeconds}s | ${message}`);
     } finally {
       setIsAiFillSubmitting(false);
     }
-  }, [aiFillElapsedSeconds, aiFillSourceText, aiFillSystemPrompt, hasSharedAiApiKey]);
+  }, [aiFillElapsedSeconds, aiFillMappingPrompt, aiFillSourceText, aiFillSystemPrompt, hasSharedAiApiKey]);
+
+  const handleApplyAiFillPreview = useCallback(() => {
+    if (!aiFillPreviewDraft) {
+      setAiFillStatus('当前没有可落实的 AI 预览结果');
+      return;
+    }
+
+    const nextDraft = normalizeBuffDraft({
+      ...draft,
+      description: aiFillPreviewDraft.description || draft.description,
+      items: cloneValue(aiFillPreviewDraft.items),
+    });
+    const nextItemKey = Object.keys(nextDraft.items)[0] ?? null;
+    const nextEffectKey = nextItemKey ? Object.keys(nextDraft.items[nextItemKey].effects)[0] ?? null : null;
+    const nextLibrary = {
+      ...localLibrary,
+      [nextDraft.id]: nextDraft,
+    };
+
+    withUndo(`AI 填表落实到当前组 · ${nextDraft.id}`, () => {
+      window.localStorage.setItem(BUFF_LIBRARY_STORAGE_KEY, JSON.stringify(nextLibrary));
+      window.localStorage.setItem(BUFF_DRAFT_STORAGE_KEY, JSON.stringify(nextDraft));
+      setLocalLibrary(nextLibrary);
+      setDraft(nextDraft);
+      setSelectedLocalDraftId(nextDraft.id);
+      setSelectedWorkbookCell(null);
+      setPendingFocusRowKey(nextEffectKey ? `effect-${nextItemKey}-${nextEffectKey}` : nextItemKey ? `item-${nextItemKey}` : `group-${nextDraft.id}`);
+      setAiFillStatus(`已落实到当前组 | ${nextDraft.name || nextDraft.id} | ${Object.keys(nextDraft.items).length} 项`);
+    });
+
+    setIsAiFillModalOpen(false);
+  }, [aiFillPreviewDraft, draft, localLibrary, withUndo]);
 
   const renderAiFillDraftTree = (previewDraft: BuffDraft | null) => {
     if (!previewDraft) {
@@ -4559,144 +4941,39 @@ export function BuffDraftSheetPage() {
           </div>
         </div>
       ) : null}
-      {isAiFillModalOpen ? (
-        <div className="buff-sheet-ai-modal-mask" onClick={closeAiFillModal}>
-          <div className="buff-sheet-ai-modal" onClick={(event) => event.stopPropagation()}>
-            <div className="buff-sheet-ai-modal-header">
-              <div>
-                <strong>AI填表</strong>
-                <span>面向组级别 Buff 的一版本预览开发</span>
-              </div>
-              <button type="button" className="buff-sheet-share-modal-close" onClick={closeAiFillModal} aria-label="关闭">
-                ×
-              </button>
-            </div>
-            <div className="buff-sheet-ai-modal-body">
-              <section className="buff-sheet-ai-panel">
-                <div className="buff-sheet-ai-panel-head">
-                  <div className="buff-sheet-ai-panel-title">系统提示词</div>
-                  <div className="buff-sheet-ai-preview-switch">
-                    <button
-                      type="button"
-                      className={`buff-sheet-share-modal-tab${aiFillPromptPreviewMode === 'system' ? ' is-active' : ''}`}
-                      onClick={() => setAiFillPromptPreviewMode('system')}
-                    >
-                      系统提示词
-                    </button>
-                    <button
-                      type="button"
-                      className={`buff-sheet-share-modal-tab${aiFillPromptPreviewMode === 'mapping' ? ' is-active' : ''}`}
-                      onClick={() => setAiFillPromptPreviewMode('mapping')}
-                    >
-                      映射词典
-                    </button>
-                    <button
-                      type="button"
-                      className={`buff-sheet-share-modal-tab${aiFillPromptPreviewMode === 'final' ? ' is-active' : ''}`}
-                      onClick={() => setAiFillPromptPreviewMode('final')}
-                    >
-                      最终请求
-                    </button>
-                  </div>
-                </div>
-                <div className="buff-sheet-ai-shared-banner">
-                  <strong>使用共享模型配置</strong>
-                  <span>{hasSharedAiApiKey ? `当前模型：${sharedAiModel}` : '当前未配置 API Key，请先到 shell 中设置。'}</span>
-                </div>
-                <textarea
-                  className="buff-sheet-ai-textarea is-system"
-                  value={
-                    aiFillPromptPreviewMode === 'system'
-                      ? aiFillSystemPrompt
-                      : aiFillPromptPreviewMode === 'mapping'
-                        ? aiFillMappingPrompt
-                        : aiFillFinalPrompt
-                  }
-                  onChange={(event) => {
-                    if (aiFillPromptPreviewMode !== 'system') {
-                      return;
-                    }
-                    const nextValue = event.target.value;
-                    setAiFillSystemPrompt(nextValue);
-                    writeBuffSheetAiStorage(BUFF_SHEET_AI_SYSTEM_PROMPT_STORAGE_KEY, nextValue);
-                  }}
-                  readOnly={aiFillPromptPreviewMode !== 'system'}
-                  spellCheck={false}
-                />
-              </section>
-              <section className="buff-sheet-ai-panel">
-                <div className="buff-sheet-ai-panel-title">复制内容</div>
-                <textarea
-                  className="buff-sheet-ai-textarea"
-                  value={aiFillSourceText}
-                  onChange={(event) => {
-                    const nextValue = event.target.value;
-                    setAiFillSourceText(nextValue);
-                    writeBuffSheetAiStorage(BUFF_SHEET_AI_SOURCE_TEXT_STORAGE_KEY, nextValue);
-                  }}
-                  placeholder="把技能描述、攻略文本或整理需求粘贴到这里。"
-                  spellCheck={false}
-                />
-              </section>
-              <section className="buff-sheet-ai-panel is-preview">
-                <div className="buff-sheet-ai-panel-head">
-                  <div className="buff-sheet-ai-panel-title">结果预览</div>
-                  <div className="buff-sheet-ai-preview-switch">
-                    <button
-                      type="button"
-                      className={`buff-sheet-share-modal-tab${aiFillPreviewMode === 'json' ? ' is-active' : ''}`}
-                      onClick={() => setAiFillPreviewMode('json')}
-                    >
-                      JSON
-                    </button>
-                    <button
-                      type="button"
-                      className={`buff-sheet-share-modal-tab${aiFillPreviewMode === 'text' ? ' is-active' : ''}`}
-                      onClick={() => setAiFillPreviewMode('text')}
-                    >
-                      纯文本
-                    </button>
-                  </div>
-                </div>
-                <div className="buff-sheet-ai-status">
-                  <div>{aiFillStatus}</div>
-                  <div>{`读秒：已用 ${aiFillElapsedSeconds}s / 剩余 ${aiFillRemainingSeconds}s`}</div>
-                </div>
-                {aiFillValidationErrors.length > 0 ? (
-                  <div className="buff-sheet-ai-error-list">
-                    {aiFillValidationErrors.map((error) => (
-                      <div key={error}>{error}</div>
-                    ))}
-                  </div>
-                ) : null}
-                {aiFillPreviewMode === 'json' ? (
-                  <pre className="buff-sheet-ai-json-preview">{formatBuffSheetAiPreviewJson(aiFillRawResponse)}</pre>
-                ) : (
-                  <div className="buff-sheet-ai-text-preview">
-                    {renderAiFillDraftTree(aiFillPreviewDraft)}
-                  </div>
-                )}
-              </section>
-            </div>
-            <div className="buff-sheet-ai-modal-footer">
-              <button
-                type="button"
-                className="buff-sheet-share-action is-primary"
-                onClick={handleSubmitAiFill}
-                disabled={isAiFillSubmitting}
-              >
-                {isAiFillSubmitting ? '生成中…' : '生成预览'}
-              </button>
-              <button type="button" className="buff-sheet-share-action" disabled title="一版本先占位，不写入当前组">
-                落实到当前组
-              </button>
-              <button type="button" className="buff-sheet-share-action" onClick={closeAiFillModal}>
-                关闭
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
+      <BuffFillAgentModal
+        isOpen={isAiFillModalOpen}
+        hasSharedAiApiKey={hasSharedAiApiKey}
+        sharedAiModel={sharedAiModel}
+        promptPreviewMode={aiFillPromptPreviewMode}
+        onPromptPreviewModeChange={setAiFillPromptPreviewMode}
+        systemPrompt={aiFillSystemPrompt}
+        mappingPrompt={aiFillMappingPrompt}
+        finalPrompt={aiFillFinalPrompt}
+        onSystemPromptChange={(nextValue) => {
+          setAiFillSystemPrompt(nextValue);
+          writeBuffSheetAiStorage(BUFF_SHEET_AI_SYSTEM_PROMPT_STORAGE_KEY, nextValue);
+        }}
+        sourceText={aiFillSourceText}
+        onSourceTextChange={(nextValue) => {
+          setAiFillSourceText(nextValue);
+          writeBuffSheetAiStorage(BUFF_SHEET_AI_SOURCE_TEXT_STORAGE_KEY, nextValue);
+        }}
+        previewMode={aiFillPreviewMode}
+        onPreviewModeChange={setAiFillPreviewMode}
+        rawResponseJson={aiFillRawResponseJson}
+        status={aiFillStatus}
+        elapsedSeconds={aiFillElapsedSeconds}
+        remainingSeconds={aiFillRemainingSeconds}
+        validationErrors={aiFillValidationErrors}
+        renderPreview={renderAiFillDraftTree(aiFillPreviewDraft)}
+        workflowLogs={aiFillWorkflowLogs}
+        isSubmitting={isAiFillSubmitting}
+        canApply={Boolean(aiFillPreviewDraft)}
+        onSubmit={handleSubmitAiFill}
+        onApply={handleApplyAiFillPreview}
+        onClose={closeAiFillModal}
+      />
     </main>
   );
 }

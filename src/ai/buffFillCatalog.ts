@@ -588,7 +588,18 @@ export const BUFF_EXTRA_HIT_RULE: BuffExtraHitCatalogRule = {
 };
 
 export function buildBuffTypeCatalogPromptSection() {
-  return BUFF_TYPE_CATALOG.map((entry) => {
+  const header = [
+    '硬性映射规则：',
+    '1. effectKind=modifier 时，type 只能从以下白名单中严格选择，禁止输出空字符串。',
+    '2. 如果某句效果无法稳定映射到白名单 type，直接舍弃该 effect，不要生成占位 effect，不要猜测，不要造新 type。',
+    '3. 宁可少提取，也不能为了完整覆盖而输出白名单外机制。',
+    '4. 伤害免疫、治疗/回血、技力回复、持续时间增加、能量消耗降低、无视抗性、概率触发类特殊机制，默认视为当前版本不支持，直接舍弃。',
+    '5. 只有 effectKind=extraHit 时，type 才允许为空字符串。',
+    '',
+    'modifier.type 白名单：',
+  ].join('\n');
+
+  const catalog = BUFF_TYPE_CATALOG.map((entry) => {
     return [
       `${entry.id} | ${entry.label}`,
       `aliases: ${entry.aliases.join(' / ')}`,
@@ -597,4 +608,6 @@ export function buildBuffTypeCatalogPromptSection() {
       `notes: ${entry.notes}`,
     ].join('\n');
   }).join('\n\n');
+
+  return [header, catalog].join('\n');
 }

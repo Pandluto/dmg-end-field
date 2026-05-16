@@ -13,6 +13,101 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
+function isValidModifierEffect(effect: Record<string, unknown>) {
+  return effect.effectKind === 'modifier' && typeof effect.type === 'string' && BUFF_MODIFIER_TYPE_SET.has(effect.type);
+}
+
+function isValidExtraHitEffect(effect: Record<string, unknown>) {
+  return effect.effectKind === 'extraHit' && effect.type === '' && isRecord(effect.extraHitConfig);
+}
+
+function collectEffectText(effect: Record<string, unknown>) {
+  return [
+    effect.displayName,
+    effect.name,
+    effect.description,
+    effect.condition,
+    effect.evidenceText,
+  ]
+    .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+    .join(' ');
+}
+
+function hasTemplatePlaceholder(effect: Record<string, unknown>) {
+  return /\{[^}]+\}/.test(collectEffectText(effect));
+}
+
+function shouldDropZeroValueModifier(effect: Record<string, unknown>) {
+  if (effect.effectKind !== 'modifier') {
+    return false;
+  }
+  const numericValue = typeof effect.value === 'number' ? effect.value : Number(effect.value);
+  if (!Number.isFinite(numericValue) || numericValue !== 0) {
+    return false;
+  }
+  return hasTemplatePlaceholder(effect);
+}
+
+function shouldUseMultiplierMultiplier(effect: Record<string, unknown>) {
+  if (effect.effectKind !== 'modifier' || effect.type !== 'multiplierBonus') {
+    return false;
+  }
+  const numericValue = typeof effect.value === 'number' ? effect.value : Number(effect.value);
+  if (!Number.isFinite(numericValue) || numericValue <= 1) {
+    return false;
+  }
+  const text = collectEffectText(effect);
+  return /原本的\s*\d+(\.\d+)?倍/.test(text) || /提升至原本的\s*\d+(\.\d+)?倍/.test(text);
+}
+
+function normalizeSanitizedModifierEffect(effect: Record<string, unknown>) {
+  if (shouldUseMultiplierMultiplier(effect)) {
+    return {
+      ...effect,
+      type: 'multiplierMultiplier',
+    };
+  }
+  return effect;
+}
+
+export function sanitizeBuffFillAiDraft(candidate: unknown): unknown {
+  if (!isRecord(candidate) || !Array.isArray(candidate.items)) {
+    return candidate;
+  }
+
+  const sanitizedItems = candidate.items.map((item) => {
+    if (!isRecord(item) || !Array.isArray(item.effects)) {
+      return item;
+    }
+
+    const sanitizedEffects = item.effects.flatMap((effect) => {
+      if (!isRecord(effect)) {
+        return [];
+      }
+      if (isValidModifierEffect(effect)) {
+        if (shouldDropZeroValueModifier(effect)) {
+          return [];
+        }
+        return [normalizeSanitizedModifierEffect(effect)];
+      }
+      if (isValidExtraHitEffect(effect)) {
+        return [effect];
+      }
+      return [];
+    });
+
+    return {
+      ...item,
+      effects: sanitizedEffects,
+    };
+  });
+
+  return {
+    ...candidate,
+    items: sanitizedItems,
+  };
+}
+
 export function validateBuffFillAiDraft(candidate: unknown): BuffFillValidationResult {
   const errors: string[] = [];
 
