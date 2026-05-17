@@ -8,6 +8,7 @@ import { DamageSheetPage, isDamageSheetPath } from './components/DamageSheetPage
 import { WorkbenchFrame } from './components/WorkbenchFrame';
 import { OperatorDraftPage, isDraftPath } from './components/OperatorDraftPage';
 import { BuffDraftPage, BuffDraftSheetPage, isBuffDraftPath, isBuffSheetPath } from './components/BuffDraftPage';
+import { WeaponDraftSheetPage, isWeaponSheetPath } from './components/WeaponDraftPage';
 import { getCurrentAppPath } from './utils/appRoute';
 import './styles/global.css';
 
@@ -48,6 +49,10 @@ function App() {
 
   if (isBuffSheetPath(currentPath)) {
     return <BuffDraftSheetPage />;
+  }
+
+  if (isWeaponSheetPath(currentPath)) {
+    return <WeaponDraftSheetPage />;
   }
 
   if (isDamageSheetPath(currentPath)) {
