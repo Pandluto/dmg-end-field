@@ -813,7 +813,7 @@ function buildWeaponSheetRows(draft: WeaponDraft): WeaponSheetRow[] {
       LEVEL_KEYS.forEach((levelKey) => {
         Object.keys(skill.levels[levelKey][bucket]).forEach((key) => bucketKeys.add(key));
       });
-      bucketKeys.forEach((effectKey) => {
+      Array.from(bucketKeys).sort(new Intl.Collator('en', { numeric: true }).compare).forEach((effectKey) => {
         const effectIdText = `${skillKey}-effect${skill3EffectIndex}`;
         skill3EffectIndex += 1;
         rows.push({
