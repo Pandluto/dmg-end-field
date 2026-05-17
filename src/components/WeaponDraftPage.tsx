@@ -29,6 +29,7 @@ interface RawWeaponSkillData {
   name?: string;
   statType?: string;
   effectTypes?: Record<string, string>;
+  effectCategories?: Record<string, string>;
   levels?: Record<string, RawWeaponLevelData>;
 }
 
@@ -53,6 +54,7 @@ interface WeaponSkillData {
   name: string;
   statType: string;
   effectTypes: Record<string, string>;
+  effectCategories: Record<string, string>;
   levels: Record<string, WeaponLevelData>;
 }
 
@@ -383,6 +385,7 @@ function createEmptyWeaponSkillData(skillKey: WeaponSkillKey): WeaponSkillData {
     name: formatSkillDefaultName(skillKey),
     statType: '',
     effectTypes: {},
+    effectCategories: {},
     levels: Object.fromEntries(
       Array.from({ length: 9 }, (_, index) => {
         const levelKey = String(index + 1);
@@ -433,6 +436,23 @@ function normalizeWeaponDraft(raw: RawWeaponDraft | WeaponDraft | null | undefin
     nextSkill.statType = sourceSkill?.statType?.trim() || '';
     nextSkill.effectTypes = Object.fromEntries(
       Object.entries(sourceSkill?.effectTypes ?? {}).filter(([, value]) => typeof value === 'string' && value.trim()).map(([key, value]) => [key, value.trim()])
+    );
+    const effectKeys = new Set(Object.keys(nextSkill.effectTypes));
+    if (skillKey === 'skill3') {
+      const sourceLevels = sourceSkill?.levels ?? {};
+      Object.values(sourceLevels).forEach((level) => {
+        if (level) {
+          Object.keys(level.passive ?? {}).forEach((key) => effectKeys.add(key));
+          Object.keys(level.effects ?? {}).forEach((key) => effectKeys.add(key));
+        }
+      });
+    }
+    nextSkill.effectCategories = Object.fromEntries(
+      Array.from(effectKeys).map((effectKey) => {
+        const rawCategory = sourceSkill?.effectCategories?.[effectKey];
+        const category = typeof rawCategory === 'string' && rawCategory.trim() ? rawCategory.trim() : 'condition';
+        return [effectKey, category];
+      }),
     );
 
     Array.from({ length: 9 }, (_, index) => String(index + 1)).forEach((levelKey) => {
@@ -576,6 +596,22 @@ function getEffectBuffType(skillKey: WeaponSkillKey, skill: WeaponSkillData, eff
     return getSkillAutoBuffType(skillKey, skill.statType);
   }
   return skill.effectTypes[effectKey]?.trim() || '';
+}
+
+const EFFECT_CATEGORY_OPTIONS = [
+  { value: 'condition', label: '条件触发' },
+  { value: 'passive', label: '固定被动' },
+];
+
+function getEffectCategoryLabel(category: string) {
+  return EFFECT_CATEGORY_OPTIONS.find((option) => option.value === category)?.label ?? '条件触发';
+}
+
+function getEffectCategory(skillKey: WeaponSkillKey, skill: WeaponSkillData, effectKey: string): string {
+  if (skillKey === 'skill1' || skillKey === 'skill2') {
+    return 'condition';
+  }
+  return skill.effectCategories[effectKey]?.trim() || 'condition';
 }
 
 function autoFillAttackGrowthMilestones(attackGrowth: Record<string, number>) {
@@ -824,7 +860,7 @@ function buildWeaponSheetRows(draft: WeaponDraft): WeaponSheetRow[] {
           sourceEffectKey: effectKey,
           title: effectKey,
           idText: effectIdText,
-          slot: getBuffTypeDisplayLabel(getEffectBuffType(skillKey, skill, effectKey)),
+          slot: getEffectCategoryLabel(getEffectCategory(skillKey, skill, effectKey)),
           level: 'Lv1~Lv9',
           effectKey,
           valueText: `${LEVEL_KEYS.filter((levelKey) => typeof skill.levels[levelKey][bucket][effectKey] === 'number').length} 个等级`,
@@ -864,7 +900,7 @@ function columnIndexToLabel(index: number) {
   return label;
 }
 
-function buildWeaponWorkbookRows(rows: WeaponSheetRow[], columns: WeaponSheetColumn[]): WeaponWorkbookRow[] {
+function buildWeaponWorkbookRows(draft: WeaponDraft, rows: WeaponSheetRow[], columns: WeaponSheetColumn[]): WeaponWorkbookRow[] {
   return rows.map((row, rowIndex) => ({
     key: row.key,
     rowNumber: rowIndex + 1,
@@ -882,6 +918,9 @@ function buildWeaponWorkbookRows(rows: WeaponSheetRow[], columns: WeaponSheetCol
           case 'level':
             return row.level;
           case 'effectKey':
+            if (row.kind === 'effect' && row.skillKey === 'skill3' && row.bucket !== 'value') {
+              return getBuffTypeDisplayLabel(getEffectBuffType(row.skillKey, draft.skills[row.skillKey], row.sourceEffectKey));
+            }
             return row.effectKey;
           case 'valueText':
             return row.valueText;
@@ -943,14 +982,17 @@ function reorderWeaponDraft(draft: WeaponDraft): WeaponDraft {
     const nextSkill: WeaponSkillData = {
       ...skill,
       effectTypes: { ...skill.effectTypes },
+      effectCategories: { ...skill.effectCategories },
       levels: { ...skill.levels },
     };
     // Reorder effectTypes within each skill
     const effectEntries = Object.entries(skill.effectTypes);
     const reorderedEffectTypes: Record<string, string> = {};
+    const reorderedEffectCategories: Record<string, string> = {};
     effectEntries.forEach(([effectKey, effectType], effectIndex) => {
-      const nextEffectKey = `effect-${effectIndex + 1}`;
+      const nextEffectKey = `effect${effectIndex + 1}`;
       reorderedEffectTypes[nextEffectKey] = effectType;
+      reorderedEffectCategories[nextEffectKey] = skill.effectCategories?.[effectKey] || 'condition';
       // Update effects in all levels
       LEVEL_KEYS.forEach((levelKey) => {
         const level = nextSkill.levels[levelKey];
@@ -961,6 +1003,7 @@ function reorderWeaponDraft(draft: WeaponDraft): WeaponDraft {
       });
     });
     nextSkill.effectTypes = reorderedEffectTypes;
+    nextSkill.effectCategories = reorderedEffectCategories;
     nextSkills[skillKey] = nextSkill;
   });
 
@@ -1007,6 +1050,9 @@ export function WeaponDraftSheetPage() {
   const [shareImportError, setShareImportError] = useState('');
   const [shareDraftName] = useState('');
   const [pendingImportShare, setPendingImportShare] = useState<DraftLibraryShareFile<WeaponDraft> | null>(null);
+  const [isShareModalOpen, setIsShareModalOpen] = useState(false);
+  const [shareModalMode, setShareModalMode] = useState<'export' | 'import'>('export');
+  const [shareImportText, setShareImportText] = useState('');
   const [contextMenu, setContextMenu] = useState<WeaponSheetContextMenuState | null>(null);
   const [dragState, setDragState] = useState<WeaponExplorerDragState | null>(null);
   const shareImportInputRef = useRef<HTMLInputElement>(null);
@@ -1035,7 +1081,7 @@ export function WeaponDraftSheetPage() {
     });
     return filterRows(structuralRows, filterKeyword);
   }, [activeDraftId, collapsedLevels, collapsedSkills, filterKeyword, rows]);
-  const workbookRows = useMemo(() => buildWeaponWorkbookRows(visibleRows, columns), [columns, visibleRows]);
+  const workbookRows = useMemo(() => buildWeaponWorkbookRows(draft, visibleRows, columns), [columns, draft, visibleRows]);
   const filteredBuffTypeOptions = useMemo(() => {
     const keyword = buffTypeQuery.trim().toLowerCase();
     if (!keyword) {
@@ -1173,9 +1219,8 @@ export function WeaponDraftSheetPage() {
           : null;
       const buffTypeOptions = [
         { value: '', label: '未设置类型' },
-        ...WEAPON_BUFF_TYPE_OPTIONS.map((value) => ({ value, label: WEAPON_BUFF_TYPE_LABELS[value] ?? value })),
+        ...WEAPON_BUFF_TYPE_OPTIONS.map((value) => ({ value, label: getBuffTypeDisplayLabel(value) })),
       ];
-
       if (
         selectedWorkbookCell?.columnKey === 'name'
         || selectedWorkbookCell?.columnKey === 'idText'
@@ -1242,19 +1287,20 @@ export function WeaponDraftSheetPage() {
         }
         if (selectedWorkbookCell?.columnKey === 'slot' && skillKey === 'skill3' && bucket !== 'value') {
           return {
-            key: `${skillKey}:${bucket}:${sourceEffectKey}:buff-type`,
-            focusId: 'effect-buff-type',
+            key: `${skillKey}:${bucket}:${sourceEffectKey}:effect-category`,
+            focusId: 'effect-category',
             inputMode: 'text',
-            control: 'search-select',
-            value: draft.skills[skillKey].effectTypes[sourceEffectKey] ?? '',
+            control: 'select',
+            value: getEffectCategory(skillKey, draft.skills[skillKey], sourceEffectKey),
             placeholder: '',
-            options: buffTypeOptions,
+            options: EFFECT_CATEGORY_OPTIONS,
             apply: (baseDraft, rawInput) => {
-              const nextEffectTypes = { ...baseDraft.skills[skillKey].effectTypes };
-              if (rawInput.trim()) {
-                nextEffectTypes[sourceEffectKey] = rawInput.trim();
+              const trimmed = rawInput.trim();
+              const nextEffectCategories = { ...baseDraft.skills[skillKey].effectCategories };
+              if (trimmed && EFFECT_CATEGORY_OPTIONS.some((option) => option.value === trimmed)) {
+                nextEffectCategories[sourceEffectKey] = trimmed;
               } else {
-                delete nextEffectTypes[sourceEffectKey];
+                delete nextEffectCategories[sourceEffectKey];
               }
               return {
                 ...baseDraft,
@@ -1262,7 +1308,7 @@ export function WeaponDraftSheetPage() {
                   ...baseDraft.skills,
                   [skillKey]: {
                     ...baseDraft.skills[skillKey],
-                    effectTypes: nextEffectTypes,
+                    effectCategories: nextEffectCategories,
                   },
                 },
               };
@@ -1295,6 +1341,36 @@ export function WeaponDraftSheetPage() {
             value: 'value',
             placeholder: '',
             apply: (baseDraft) => baseDraft,
+          };
+        }
+        if (skillKey === 'skill3') {
+          return {
+            key: `${skillKey}:${bucket}:${sourceEffectKey}:buff-type`,
+            focusId: 'effect-buff-type',
+            inputMode: 'text',
+            control: 'search-select',
+            value: draft.skills[skillKey].effectTypes[sourceEffectKey] ?? '',
+            placeholder: '',
+            options: buffTypeOptions,
+            apply: (baseDraft, rawInput) => {
+              const trimmed = rawInput.trim();
+              const nextEffectTypes = { ...baseDraft.skills[skillKey].effectTypes };
+              if (trimmed) {
+                nextEffectTypes[sourceEffectKey] = trimmed;
+              } else {
+                delete nextEffectTypes[sourceEffectKey];
+              }
+              return {
+                ...baseDraft,
+                skills: {
+                  ...baseDraft.skills,
+                  [skillKey]: {
+                    ...baseDraft.skills[skillKey],
+                    effectTypes: nextEffectTypes,
+                  },
+                },
+              };
+            },
           };
         }
         return {
@@ -1500,6 +1576,14 @@ export function WeaponDraftSheetPage() {
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [handleSaveDraft]);
+
+  // Auto-persist draft on changes (debounced)
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      writeLocalStorageJson(WEAPON_DRAFT_STORAGE_KEY, draft);
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [draft]);
 
   const handleCreateNewDraft = useCallback(() => {
     const nextDraftId = buildNextCustomWeaponId(Object.keys(localLibrary));
@@ -1735,6 +1819,10 @@ export function WeaponDraftSheetPage() {
               ...skill.effectTypes,
               [newEffectKey]: effectType || 'atkPercentBoost',
             },
+            effectCategories: {
+              ...skill.effectCategories,
+              [newEffectKey]: skill.effectCategories[effectKey] || 'condition',
+            },
             levels: nextLevels,
           },
         },
@@ -1750,6 +1838,60 @@ export function WeaponDraftSheetPage() {
     localLibrary,
     shareDraftName || draft.name || 'weapon-library',
   ), [draft.name, localLibrary, shareDraftName]);
+
+  const currentShareText = useMemo(() => JSON.stringify(currentShareFile, null, 2), [currentShareFile]);
+
+  const openShareModal = useCallback((mode: 'export' | 'import') => {
+    setShareModalMode(mode);
+    setIsShareModalOpen(true);
+    setShareImportError('');
+    if (mode === 'import') {
+      setPendingImportShare(null);
+    }
+  }, []);
+
+  const closeShareModal = useCallback(() => {
+    setIsShareModalOpen(false);
+    setShareImportError('');
+    setPendingImportShare(null);
+  }, []);
+
+  const handleCopyShareJson = useCallback(async () => {
+    try {
+      await navigator.clipboard.writeText(currentShareText);
+    } catch {
+      const textarea = document.createElement('textarea');
+      textarea.value = currentShareText;
+      textarea.style.position = 'fixed';
+      textarea.style.opacity = '0';
+      document.body.appendChild(textarea);
+      textarea.select();
+      document.execCommand('copy');
+      document.body.removeChild(textarea);
+    }
+  }, [currentShareText]);
+
+  const prepareImportShare = useCallback((rawText: string) => {
+    const parsed = parseDraftLibraryShareFile(rawText, WEAPON_LIBRARY_SHARE_TYPE);
+    if (!parsed) {
+      setPendingImportShare(null);
+      setShareImportError('导入失败：文件不是有效的武器库分享 JSON。');
+      return;
+    }
+    const normalizedPayload = Object.fromEntries(
+      Object.entries(parsed.payload).map(([draftId, draftValue]) => [draftId, normalizeWeaponDraft({ ...(draftValue as RawWeaponDraft), id: draftId })]),
+    ) as Record<string, WeaponDraft>;
+    if (Object.keys(normalizedPayload).length === 0) {
+      setPendingImportShare(null);
+      setShareImportError('JSON 中没有可导入的有效武器。');
+      return;
+    }
+    setShareImportError('');
+    setPendingImportShare({
+      ...parsed,
+      payload: normalizedPayload,
+    } as DraftLibraryShareFile<WeaponDraft>);
+  }, []);
 
   const handleExportLocalLibrary = useCallback(() => {
     const blob = new Blob([JSON.stringify(currentShareFile, null, 2)], {
@@ -1767,30 +1909,25 @@ export function WeaponDraftSheetPage() {
     shareImportInputRef.current?.click();
   }, []);
 
+  const handleParseImportText = useCallback(() => {
+    prepareImportShare(shareImportText);
+  }, [prepareImportShare, shareImportText]);
+
+  const handleCancelImportShare = useCallback(() => {
+    setPendingImportShare(null);
+    setShareImportError('');
+  }, []);
+
   const handleShareFileSelected = useCallback(async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) {
       return;
     }
     const rawText = await file.text();
-    const parsed = parseDraftLibraryShareFile(rawText, WEAPON_LIBRARY_SHARE_TYPE);
-    if (!parsed) {
-      setShareImportError('导入失败：文件不是有效的武器库分享 JSON。');
-      event.target.value = '';
-      return;
-    }
-
-    const normalizedPayload = Object.fromEntries(
-      Object.entries(parsed.payload).map(([draftId, draftValue]) => [draftId, normalizeWeaponDraft({ ...(draftValue as RawWeaponDraft), id: draftId })]),
-    ) as Record<string, WeaponDraft>;
-
-    setPendingImportShare({
-      ...parsed,
-      payload: normalizedPayload,
-    } as DraftLibraryShareFile<WeaponDraft>);
-    setShareImportError('');
+    setShareImportText(rawText);
+    prepareImportShare(rawText);
     event.target.value = '';
-  }, []);
+  }, [prepareImportShare]);
 
   const handleConfirmImportShare = useCallback(() => {
     if (!pendingImportShare) {
@@ -1806,6 +1943,9 @@ export function WeaponDraftSheetPage() {
       : draft;
     persistLibraryState(nextLibrary, nextDraft, nextDraftId || selectedLocalDraftId || draft.id);
     setPendingImportShare(null);
+    setShareImportText('');
+    setShareImportError('');
+    setIsShareModalOpen(false);
   }, [draft, localLibrary, pendingImportShare, persistLibraryState, selectedLocalDraftId]);
 
   const openContextMenu = useCallback((event: ReactMouseEvent, nextMenu: WeaponSheetContextMenuState) => {
@@ -2403,7 +2543,7 @@ export function WeaponDraftSheetPage() {
             </span>
             <span className="buff-sheet-tool-text">{isOverwriteProtectionEnabled ? '保护开' : '保护关'}</span>
           </button>
-          <button type="button" className="buff-sheet-tool-button" onClick={handleExportLocalLibrary} title="导出本地武器库">
+          <button type="button" className="buff-sheet-tool-button" onClick={() => openShareModal('export')} title="导出本地武器库">
             <span className="buff-sheet-tool-icon" aria-hidden="true">
               <svg className="buff-sheet-tool-svg" viewBox="0 0 16 16" focusable="false">
                 <path d="M8 3v6.5" />
@@ -2413,7 +2553,7 @@ export function WeaponDraftSheetPage() {
             </span>
             <span className="buff-sheet-tool-text">导出</span>
           </button>
-          <button type="button" className="buff-sheet-tool-button" onClick={handleOpenShareImportPicker} title="导入武器分享">
+          <button type="button" className="buff-sheet-tool-button" onClick={() => openShareModal('import')} title="导入武器分享">
             <span className="buff-sheet-tool-icon" aria-hidden="true">
               <svg className="buff-sheet-tool-svg" viewBox="0 0 16 16" focusable="false">
                 <path d="M8 13V6.5" />
@@ -2844,27 +2984,97 @@ export function WeaponDraftSheetPage() {
         </div>
       ) : null}
 
-      {pendingImportShare ? (
-        <div className="operator-draft-modal-overlay" onClick={() => setPendingImportShare(null)}>
-          <div className="operator-draft-modal operator-draft-confirm-modal" onClick={(event) => event.stopPropagation()}>
-            <div className="operator-draft-section-header">
-              <div>
-                <h3>确认导入武器库</h3>
-                <p>会把分享文件中的武器合并进当前本地库。</p>
+      {isShareModalOpen ? (
+        <div className="buff-sheet-share-modal-mask" onClick={closeShareModal}>
+          <div className="buff-sheet-share-modal" onClick={(event) => event.stopPropagation()}>
+            <div className="buff-sheet-share-modal-header">
+              <div className="buff-sheet-share-modal-tabs">
+                <button
+                  type="button"
+                  className={`buff-sheet-share-modal-tab${shareModalMode === 'export' ? ' is-active' : ''}`}
+                  onClick={() => setShareModalMode('export')}
+                >
+                  导出
+                </button>
+                <button
+                  type="button"
+                  className={`buff-sheet-share-modal-tab${shareModalMode === 'import' ? ' is-active' : ''}`}
+                  onClick={() => setShareModalMode('import')}
+                >
+                  导入
+                </button>
               </div>
-            </div>
-            <div className="operator-draft-confirm-body">
-              <strong>{pendingImportShare.label}</strong>
-              <p>{`将导入 ${Object.keys(pendingImportShare.payload).length} 把武器。`}</p>
-            </div>
-            <div className="operator-draft-modal-actions">
-              <button type="button" className="operator-draft-ghost-button" onClick={() => setPendingImportShare(null)}>
-                取消
-              </button>
-              <button type="button" className="operator-draft-copy-button" onClick={handleConfirmImportShare}>
-                确认导入
+              <button type="button" className="buff-sheet-share-modal-close" onClick={closeShareModal} aria-label="关闭">
+                ×
               </button>
             </div>
+            {shareModalMode === 'export' ? (
+              <div className="buff-sheet-share-modal-body">
+                <div className="buff-sheet-share-modal-copybar">
+                  <div className="buff-sheet-share-modal-copyhint">预览当前本地武器库分享 JSON</div>
+                  <div className="buff-sheet-share-modal-actions">
+                    <button type="button" className="buff-sheet-share-action" onClick={handleCopyShareJson}>
+                      复制 JSON
+                    </button>
+                    <button type="button" className="buff-sheet-share-action is-primary" onClick={handleExportLocalLibrary}>
+                      导出文件
+                    </button>
+                  </div>
+                </div>
+                <textarea
+                  className="buff-sheet-share-textarea is-preview"
+                  value={currentShareText}
+                  readOnly
+                  spellCheck={false}
+                />
+              </div>
+            ) : (
+              <div className="buff-sheet-share-modal-body">
+                <div className="buff-sheet-share-modal-copybar">
+                  <div className="buff-sheet-share-modal-copyhint">支持直接粘贴 JSON，或选择本地分享文件</div>
+                  <div className="buff-sheet-share-modal-actions">
+                    <button type="button" className="buff-sheet-share-action" onClick={handleOpenShareImportPicker}>
+                      导入文件
+                    </button>
+                    <button type="button" className="buff-sheet-share-action is-primary" onClick={handleParseImportText}>
+                      读取粘贴内容
+                    </button>
+                  </div>
+                </div>
+                <textarea
+                  className="buff-sheet-share-textarea"
+                  value={shareImportText}
+                  onChange={(event) => {
+                    setShareImportText(event.target.value);
+                    if (shareImportError) {
+                      setShareImportError('');
+                    }
+                  }}
+                  placeholder="把武器分享 JSON 粘贴到这里，或点击右上角导入文件。"
+                  spellCheck={false}
+                />
+                {shareImportError ? (
+                  <div className="buff-sheet-share-feedback is-error">{shareImportError}</div>
+                ) : null}
+                {pendingImportShare ? (
+                  <div className="buff-sheet-share-import-preview">
+                    <div className="buff-sheet-share-import-title">导入预览</div>
+                    <div className="buff-sheet-share-import-meta">
+                      <span>{`名称：${pendingImportShare.label}`}</span>
+                      <span>{`武器数：${Object.keys(pendingImportShare.payload).length}`}</span>
+                    </div>
+                    <div className="buff-sheet-share-modal-actions">
+                      <button type="button" className="buff-sheet-share-action" onClick={handleCancelImportShare}>
+                        清空预览
+                      </button>
+                      <button type="button" className="buff-sheet-share-action is-primary" onClick={handleConfirmImportShare}>
+                        确认导入
+                      </button>
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+            )}
           </div>
         </div>
       ) : null}
