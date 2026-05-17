@@ -3990,11 +3990,8 @@ export function BuffDraftSheetPage() {
     const existingIds = Object.keys(library);
     const workingDraft = draftOverride ?? draft;
     const nextDraftId = workingDraft.id.trim() || getNextDraftId(existingIds);
-    const sourceDraftId = selectedLocalDraftId && library[selectedLocalDraftId]
-      ? selectedLocalDraftId
-      : null;
 
-    if (library[nextDraftId] && nextDraftId !== sourceDraftId && !allowOverwrite) {
+    if (library[nextDraftId] && !allowOverwrite) {
       setIsOverwriteDraftModalOpen(true);
       return false;
     }

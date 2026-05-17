@@ -1282,15 +1282,6 @@
   color: #475569;
 }
 
-.weapon-sheet-page .buff-sheet-explorer {
-  gap: 8px;
-  padding: 6px;
-}
-
-.weapon-sheet-page .buff-sheet-explorer-tree {
-  gap: 3px;
-}
-
 .weapon-sheet-page .buff-sheet-explorer-row,
 .weapon-sheet-page .buff-sheet-explorer-child {
   min-height: 24px;
@@ -1309,14 +1300,6 @@
 .weapon-sheet-page .buff-sheet-explorer-effect.is-active,
 .weapon-sheet-page .buff-sheet-explorer-effect:hover {
   color: var(--office-body, #1f2634);
-}
-
-.weapon-sheet-page .buff-sheet-explorer-children {
-  padding-left: 14px;
-}
-
-.weapon-sheet-page .buff-sheet-explorer-effects {
-  padding-left: 18px;
 }
 
 .weapon-sheet-page .buff-sheet-explorer-count {
@@ -1369,4 +1352,84 @@
 .weapon-sheet-page .damage-sheet-excel-row.weapon-sheet-row-effect .damage-sheet-excel-cell.is-left:first-child {
   font-weight: 600;
    color: var(--office-title, #0f172a);
+}
+
+.weapon-sheet-page .damage-sheet-excel-row.weapon-sheet-row-growth .damage-sheet-excel-row-number,
+.weapon-sheet-page .damage-sheet-excel-row.weapon-sheet-row-growth .damage-sheet-excel-cell {
+  background: #fff;
+  color: var(--office-body, #1f2634);
+}
+
+.weapon-sheet-growth-merged-cell {
+  padding: 0;
+}
+
+.weapon-sheet-growth-inline-grid {
+  display: grid;
+  grid-template-columns: repeat(10, minmax(0, 1fr));
+  gap: 0;
+  align-items: center;
+  min-height: 22px;
+  height: 100%;
+}
+
+.weapon-sheet-growth-inline-item {
+  min-width: 0;
+  height: 100%;
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  align-items: center;
+  gap: 0;
+  border-right: 1px solid var(--office-border, #d2d8e3);
+  background: #fff;
+}
+
+.weapon-sheet-growth-inline-item.is-active {
+  background: color-mix(in srgb, var(--excel-green-soft) 65%, white);
+  box-shadow: inset 0 0 0 2px var(--excel-green-main);
+  z-index: 2;
+}
+
+.weapon-sheet-growth-inline-item:first-child {
+  border-left: 1px solid var(--office-border, #d2d8e3);
+}
+
+.weapon-sheet-growth-inline-label {
+  height: 100%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--office-title, #0f172a);
+  font-size: 10px;
+  font-weight: 700;
+  background: color-mix(in srgb, var(--office-workspace-panel-bg, #eef2f6) 72%, white);
+  border-right: 1px solid var(--office-border, #d2d8e3);
+  white-space: nowrap;
+}
+
+.weapon-sheet-inline-input {
+  width: 100%;
+  min-height: 22px;
+  height: 100%;
+  padding: 0 6px;
+  border: 0;
+  background: transparent;
+  color: var(--office-body, #1f2634);
+  font: inherit;
+  font-size: 11px;
+  text-align: center;
+  box-shadow: none;
+  appearance: textfield;
+  -moz-appearance: textfield;
+}
+
+.weapon-sheet-inline-input:focus {
+  outline: none;
+  background: transparent;
+}
+
+.weapon-sheet-inline-input::-webkit-outer-spin-button,
+.weapon-sheet-inline-input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
 }
