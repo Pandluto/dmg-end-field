@@ -2945,9 +2945,11 @@ export function BuffDraftSheetPage() {
   const [collapsedItems, setCollapsedItems] = useState<Record<string, boolean>>({});
   const [collapsedDraftIds, setCollapsedDraftIds] = useState<Record<string, boolean>>({});
   const [isOverwriteProtectionEnabled, setIsOverwriteProtectionEnabled] = useState(true);
+  const [isOverwriteDraftModalOpen, setIsOverwriteDraftModalOpen] = useState(false);
   const [selectedWorkbookCell, setSelectedWorkbookCell] = useState<BuffWorkbookSelection | null>(null);
   const [pendingFocusRowKey, setPendingFocusRowKey] = useState<string | null>(null);
   const [effectValueInput, setEffectValueInput] = useState('');
+  const [formulaTextInput, setFormulaTextInput] = useState('');
   const [isShareModalOpen, setIsShareModalOpen] = useState(false);
   const [shareModalMode, setShareModalMode] = useState<'export' | 'import'>('export');
   const [shareImportText, setShareImportText] = useState('');
@@ -3754,6 +3756,114 @@ export function BuffDraftSheetPage() {
     }));
   }, [selectedEffectKey, selectedItemKey]);
 
+  const formulaTextBinding = useMemo(() => {
+    if (!selectedWorkbookSummary) {
+      return null;
+    }
+
+    if (selectedWorkbookSummary.kind === 'group') {
+      if (selectedWorkbookCell?.columnKey === 'idText') {
+        return {
+          key: 'group:id',
+          focusId: 'group-id',
+          value: draft.id,
+          placeholder: '组 ID',
+          commit: (nextValue: string) => updateDraftField('id', nextValue),
+        };
+      }
+      if (selectedWorkbookCell?.columnKey === 'description') {
+        return {
+          key: 'group:description',
+          focusId: 'group-description',
+          value: draft.description,
+          placeholder: '组描述',
+          commit: (nextValue: string) => updateDraftField('description', nextValue),
+        };
+      }
+      return {
+        key: 'group:name',
+        focusId: 'group-name',
+        value: draft.name,
+        placeholder: '组名称',
+        commit: (nextValue: string) => updateDraftField('name', nextValue),
+      };
+    }
+
+    if (selectedWorkbookSummary.kind === 'item' && selectedItem) {
+      if (selectedWorkbookCell?.columnKey === 'idText') {
+        return {
+          key: `item:${selectedItem.id}:id`,
+          focusId: 'item-id',
+          value: selectedItem.id,
+          placeholder: '项 ID',
+          commit: (nextValue: string) => updateSelectedItem((prev) => ({ ...prev, id: nextValue })),
+        };
+      }
+      if (selectedWorkbookCell?.columnKey === 'description') {
+        return {
+          key: `item:${selectedItem.id}:description`,
+          focusId: 'item-description',
+          value: selectedItem.description,
+          placeholder: '项描述',
+          commit: (nextValue: string) => updateSelectedItem((prev) => ({ ...prev, description: nextValue })),
+        };
+      }
+      return {
+        key: `item:${selectedItem.id}:name`,
+        focusId: 'item-name',
+        value: selectedItem.name,
+        placeholder: '项名称',
+        commit: (nextValue: string) => updateSelectedItem((prev) => ({ ...prev, name: nextValue })),
+      };
+    }
+
+    if (selectedWorkbookSummary.kind === 'effect' && selectedEffect) {
+      switch (selectedWorkbookCell?.columnKey) {
+        case 'condition':
+          return {
+            key: `effect:${selectedEffect.id}:condition`,
+            focusId: 'effect-condition',
+            value: selectedEffect.condition || '',
+            placeholder: '条件',
+            commit: (nextValue: string) => updateSelectedEffect((prev) => ({ ...prev, condition: nextValue })),
+          };
+        case 'description':
+          return {
+            key: `effect:${selectedEffect.id}:description`,
+            focusId: 'effect-description',
+            value: selectedEffect.description || '',
+            placeholder: '描述',
+            commit: (nextValue: string) => updateSelectedEffect((prev) => ({ ...prev, description: nextValue })),
+          };
+        default:
+          return {
+            key: `effect:${selectedEffect.id}:displayName`,
+            focusId: 'effect-display-name',
+            value: selectedEffect.displayName,
+            placeholder: '效果名称',
+            commit: (nextValue: string) => updateSelectedEffect((prev) => ({ ...prev, displayName: nextValue })),
+          };
+      }
+    }
+
+    return null;
+  }, [
+    draft.description,
+    draft.id,
+    draft.name,
+    selectedEffect,
+    selectedItem,
+    selectedWorkbookCell?.columnKey,
+    selectedWorkbookSummary,
+    updateDraftField,
+    updateSelectedEffect,
+    updateSelectedItem,
+  ]);
+
+  useEffect(() => {
+    setFormulaTextInput(formulaTextBinding?.value ?? '');
+  }, [formulaTextBinding?.key, formulaTextBinding?.value]);
+
   const updateSelectedEffectKind = useCallback((nextKind: BuffEffectKind) => {
     updateSelectedEffect((prev) => ({
       ...prev,
@@ -3797,26 +3907,112 @@ export function BuffDraftSheetPage() {
     setEffectValueInput(String(parsed));
   }, [effectValueInput, selectedEffect, updateSelectedEffect]);
 
-  const persistDraftToLibrary = useCallback((allowOverwrite: boolean, focusRowKey?: string | null) => {
+  const buildDraftWithFormulaTextInput = useCallback((baseDraft: BuffDraft) => {
+    if (!formulaTextBinding || formulaTextInput === formulaTextBinding.value) {
+      return baseDraft;
+    }
+
+    if (selectedWorkbookSummary?.kind === 'group') {
+      if (selectedWorkbookCell?.columnKey === 'idText') {
+        return { ...baseDraft, id: formulaTextInput };
+      }
+      if (selectedWorkbookCell?.columnKey === 'description') {
+        return { ...baseDraft, description: formulaTextInput };
+      }
+      return {
+        ...baseDraft,
+        name: formulaTextInput,
+        id: buildBuffDraftIdFromName(formulaTextInput) || baseDraft.id,
+      };
+    }
+
+    if (selectedWorkbookSummary?.kind === 'item' && selectedItemKey) {
+      const targetItem = baseDraft.items[selectedItemKey];
+      if (!targetItem) {
+        return baseDraft;
+      }
+
+      const nextItem = selectedWorkbookCell?.columnKey === 'idText'
+        ? { ...targetItem, id: formulaTextInput }
+        : selectedWorkbookCell?.columnKey === 'description'
+          ? { ...targetItem, description: formulaTextInput }
+          : { ...targetItem, name: formulaTextInput };
+
+      return {
+        ...baseDraft,
+        items: {
+          ...baseDraft.items,
+          [selectedItemKey]: nextItem,
+        },
+      };
+    }
+
+    if (selectedWorkbookSummary?.kind === 'effect' && selectedItemKey && selectedEffectKey) {
+      const targetItem = baseDraft.items[selectedItemKey];
+      const targetEffect = targetItem?.effects[selectedEffectKey];
+      if (!targetItem || !targetEffect) {
+        return baseDraft;
+      }
+
+      const nextEffect = selectedWorkbookCell?.columnKey === 'condition'
+        ? { ...targetEffect, condition: formulaTextInput }
+        : selectedWorkbookCell?.columnKey === 'description'
+          ? { ...targetEffect, description: formulaTextInput }
+          : { ...targetEffect, displayName: formulaTextInput };
+
+      return {
+        ...baseDraft,
+        items: {
+          ...baseDraft.items,
+          [selectedItemKey]: {
+            ...targetItem,
+            effects: {
+              ...targetItem.effects,
+              [selectedEffectKey]: nextEffect,
+            },
+          },
+        },
+      };
+    }
+
+    return baseDraft;
+  }, [
+    formulaTextBinding,
+    formulaTextInput,
+    selectedEffectKey,
+    selectedItemKey,
+    selectedWorkbookCell?.columnKey,
+    selectedWorkbookSummary,
+  ]);
+
+  const persistDraftToLibrary = useCallback((allowOverwrite: boolean, focusRowKey?: string | null, draftOverride?: BuffDraft) => {
     const library = loadLocalBuffLibrary();
     const existingIds = Object.keys(library);
-    const nextDraftId = draft.id.trim() || getNextDraftId(existingIds);
-    if (library[nextDraftId] && nextDraftId !== selectedLocalDraftId && !allowOverwrite) {
+    const workingDraft = draftOverride ?? draft;
+    const nextDraftId = workingDraft.id.trim() || getNextDraftId(existingIds);
+    const sourceDraftId = selectedLocalDraftId && library[selectedLocalDraftId]
+      ? selectedLocalDraftId
+      : null;
+
+    if (library[nextDraftId] && nextDraftId !== sourceDraftId && !allowOverwrite) {
+      setIsOverwriteDraftModalOpen(true);
       return false;
     }
+
     const nextDraft = {
-      ...draft,
+      ...workingDraft,
       id: nextDraftId,
     };
-    const nextLibrary = {
-      ...library,
-      [nextDraftId]: nextDraft,
-    };
+
+    const nextLibrary = { ...library };
+    nextLibrary[nextDraftId] = nextDraft;
+
     window.localStorage.setItem(BUFF_LIBRARY_STORAGE_KEY, JSON.stringify(nextLibrary));
     window.localStorage.setItem(BUFF_DRAFT_STORAGE_KEY, JSON.stringify(nextDraft));
     setDraft(nextDraft);
     setLocalLibrary(nextLibrary);
     setSelectedLocalDraftId(nextDraftId);
+    setIsOverwriteDraftModalOpen(false);
     setPendingFocusRowKey(focusRowKey ?? `group-${nextDraftId}`);
     return true;
   }, [draft, selectedLocalDraftId]);
@@ -3826,6 +4022,7 @@ export function BuffDraftSheetPage() {
     const formulaField = activeElement instanceof HTMLElement
       ? activeElement.closest<HTMLElement>('[data-formula-focus-id]')
       : null;
+    const nextDraft = buildDraftWithFormulaTextInput(draft);
     if (formulaField && formulaBarRef.current?.contains(formulaField)) {
       const selectionCapable = formulaField as HTMLInputElement;
       pendingFormulaFocusRef.current = {
@@ -3835,8 +4032,19 @@ export function BuffDraftSheetPage() {
       };
       setFormulaFocusRestoreToken((prev) => prev + 1);
     }
-    persistDraftToLibrary(!isOverwriteProtectionEnabled, selectedWorkbookCell?.sourceRowKey ?? null);
-  }, [isOverwriteProtectionEnabled, persistDraftToLibrary, selectedWorkbookCell]);
+    if (nextDraft !== draft) {
+      setDraft(nextDraft);
+    }
+    persistDraftToLibrary(!isOverwriteProtectionEnabled, selectedWorkbookCell?.sourceRowKey ?? null, nextDraft);
+  }, [buildDraftWithFormulaTextInput, draft, isOverwriteProtectionEnabled, persistDraftToLibrary, selectedWorkbookCell]);
+
+  const handleConfirmOverwriteDraft = useCallback(() => {
+    const nextDraft = buildDraftWithFormulaTextInput(draft);
+    if (nextDraft !== draft) {
+      setDraft(nextDraft);
+    }
+    persistDraftToLibrary(true, selectedWorkbookCell?.sourceRowKey ?? null, nextDraft);
+  }, [buildDraftWithFormulaTextInput, draft, persistDraftToLibrary, selectedWorkbookCell]);
 
   const handleCreateNewDraft = useCallback(() => {
     const nextDraftId = getNextDraftId(Object.keys(localLibrary));
@@ -4319,24 +4527,46 @@ export function BuffDraftSheetPage() {
       return <div className="damage-sheet-formula-value">{draft.description || 'Sheet-Buff workbook'}</div>;
     }
 
+    const commitFormulaTextInput = () => {
+      if (!formulaTextBinding) {
+        return;
+      }
+      if (formulaTextInput === formulaTextBinding.value) {
+        return;
+      }
+      formulaTextBinding.commit(formulaTextInput);
+    };
+
+    const handleFormulaTextInputKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
+      if (event.key === 'Enter') {
+        commitFormulaTextInput();
+        event.currentTarget.blur();
+        return;
+      }
+      if (event.key === 'Escape') {
+        setFormulaTextInput(formulaTextBinding?.value ?? '');
+        event.currentTarget.blur();
+      }
+    };
+
     if (selectedWorkbookSummary.kind === 'group') {
       if (selectedWorkbookCell?.columnKey === 'idText') {
-        return <input data-formula-focus-id="group-id" className="buff-sheet-formula-input" value={draft.id} onChange={(event) => updateDraftField('id', event.target.value)} placeholder="组 ID" />;
+        return <input data-formula-focus-id="group-id" className="buff-sheet-formula-input" value={formulaTextInput} onChange={(event) => setFormulaTextInput(event.target.value)} onBlur={commitFormulaTextInput} onKeyDown={handleFormulaTextInputKeyDown} placeholder="组 ID" />;
       }
       if (selectedWorkbookCell?.columnKey === 'description') {
-        return <input data-formula-focus-id="group-description" className="buff-sheet-formula-input" value={draft.description} onChange={(event) => updateDraftField('description', event.target.value)} placeholder="组描述" />;
+        return <input data-formula-focus-id="group-description" className="buff-sheet-formula-input" value={formulaTextInput} onChange={(event) => setFormulaTextInput(event.target.value)} onBlur={commitFormulaTextInput} onKeyDown={handleFormulaTextInputKeyDown} placeholder="组描述" />;
       }
-      return <input data-formula-focus-id="group-name" className="buff-sheet-formula-input" value={draft.name} onChange={(event) => updateDraftField('name', event.target.value)} placeholder="组名称" />;
+      return <input data-formula-focus-id="group-name" className="buff-sheet-formula-input" value={formulaTextInput} onChange={(event) => setFormulaTextInput(event.target.value)} onBlur={commitFormulaTextInput} onKeyDown={handleFormulaTextInputKeyDown} placeholder="组名称" />;
     }
 
     if (selectedWorkbookSummary.kind === 'item' && selectedItem) {
       if (selectedWorkbookCell?.columnKey === 'idText') {
-        return <input data-formula-focus-id="item-id" className="buff-sheet-formula-input" value={selectedItem.id} onChange={(event) => updateSelectedItem((prev) => ({ ...prev, id: event.target.value }))} placeholder="项 ID" />;
+        return <input data-formula-focus-id="item-id" className="buff-sheet-formula-input" value={formulaTextInput} onChange={(event) => setFormulaTextInput(event.target.value)} onBlur={commitFormulaTextInput} onKeyDown={handleFormulaTextInputKeyDown} placeholder="项 ID" />;
       }
       if (selectedWorkbookCell?.columnKey === 'description') {
-        return <input data-formula-focus-id="item-description" className="buff-sheet-formula-input" value={selectedItem.description} onChange={(event) => updateSelectedItem((prev) => ({ ...prev, description: event.target.value }))} placeholder="项描述" />;
+        return <input data-formula-focus-id="item-description" className="buff-sheet-formula-input" value={formulaTextInput} onChange={(event) => setFormulaTextInput(event.target.value)} onBlur={commitFormulaTextInput} onKeyDown={handleFormulaTextInputKeyDown} placeholder="项描述" />;
       }
-      return <input data-formula-focus-id="item-name" className="buff-sheet-formula-input" value={selectedItem.name} onChange={(event) => updateSelectedItem((prev) => ({ ...prev, name: event.target.value }))} placeholder="项名称" />;
+      return <input data-formula-focus-id="item-name" className="buff-sheet-formula-input" value={formulaTextInput} onChange={(event) => setFormulaTextInput(event.target.value)} onBlur={commitFormulaTextInput} onKeyDown={handleFormulaTextInputKeyDown} placeholder="项名称" />;
     }
 
     if (selectedWorkbookSummary.kind === 'effect' && selectedEffect) {
@@ -4390,11 +4620,11 @@ export function BuffDraftSheetPage() {
             />
           );
         case 'condition':
-          return <input data-formula-focus-id="effect-condition" className="buff-sheet-formula-input" value={selectedEffect.condition || ''} onChange={(event) => updateSelectedEffect((prev) => ({ ...prev, condition: event.target.value }))} placeholder="条件" />;
+          return <input data-formula-focus-id="effect-condition" className="buff-sheet-formula-input" value={formulaTextInput} onChange={(event) => setFormulaTextInput(event.target.value)} onBlur={commitFormulaTextInput} onKeyDown={handleFormulaTextInputKeyDown} placeholder="条件" />;
         case 'description':
-          return <input data-formula-focus-id="effect-description" className="buff-sheet-formula-input" value={selectedEffect.description || ''} onChange={(event) => updateSelectedEffect((prev) => ({ ...prev, description: event.target.value }))} placeholder="描述" />;
+          return <input data-formula-focus-id="effect-description" className="buff-sheet-formula-input" value={formulaTextInput} onChange={(event) => setFormulaTextInput(event.target.value)} onBlur={commitFormulaTextInput} onKeyDown={handleFormulaTextInputKeyDown} placeholder="描述" />;
         default:
-          return <input data-formula-focus-id="effect-display-name" className="buff-sheet-formula-input" value={selectedEffect.displayName} onChange={(event) => updateSelectedEffect((prev) => ({ ...prev, displayName: event.target.value }))} placeholder="效果名称" />;
+          return <input data-formula-focus-id="effect-display-name" className="buff-sheet-formula-input" value={formulaTextInput} onChange={(event) => setFormulaTextInput(event.target.value)} onBlur={commitFormulaTextInput} onKeyDown={handleFormulaTextInputKeyDown} placeholder="效果名称" />;
       }
     }
 
@@ -4844,6 +5074,30 @@ export function BuffDraftSheetPage() {
             {dragState.over
               ? `将放到该${dragTargetKindLabel}位置：${dragTargetLabel}`
               : '移动到同层级目标上方后松开'}
+          </div>
+        </div>
+      ) : null}
+      {isOverwriteDraftModalOpen ? (
+        <div className="operator-draft-modal-overlay" onClick={() => setIsOverwriteDraftModalOpen(false)}>
+          <div className="operator-draft-modal operator-draft-confirm-modal" onClick={(event) => event.stopPropagation()}>
+            <div className="operator-draft-section-header">
+              <div>
+                <h3>确认覆盖本地 Buff 组</h3>
+                <p>当前 ID 已存在于本地库中。</p>
+              </div>
+            </div>
+            <div className="operator-draft-confirm-body">
+              <strong>{draft.name || draft.id || '未命名 Buff 组'}</strong>
+              <p>保护开启时，确认后会用当前 Sheet-Buff 编辑内容覆盖本地同 ID Buff 组。</p>
+            </div>
+            <div className="operator-draft-modal-actions">
+              <button type="button" className="operator-draft-ghost-button" onClick={() => setIsOverwriteDraftModalOpen(false)}>
+                取消
+              </button>
+              <button type="button" className="operator-draft-copy-button operator-draft-danger-button" onClick={handleConfirmOverwriteDraft}>
+                确认覆盖
+              </button>
+            </div>
           </div>
         </div>
       ) : null}
