@@ -1386,8 +1386,21 @@
 
 .weapon-sheet-growth-inline-item.is-active {
   background: color-mix(in srgb, var(--excel-green-soft) 65%, white);
-  box-shadow: inset 0 0 0 2px var(--excel-green-main);
   z-index: 2;
+  position: relative;
+}
+
+.weapon-sheet-growth-inline-item.is-active::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  box-shadow: inset 0 0 0 2px var(--excel-green-main);
+  pointer-events: none;
+}
+
+.weapon-sheet-growth-inline-item.is-active .weapon-sheet-growth-inline-label {
+  background: transparent;
+  border-right-color: transparent;
 }
 
 .weapon-sheet-growth-inline-item:first-child {
@@ -1423,9 +1436,11 @@
   -moz-appearance: textfield;
 }
 
-.weapon-sheet-inline-input:focus {
+.weapon-sheet-inline-input:focus,
+.weapon-sheet-inline-input:focus-visible {
   outline: none;
   background: transparent;
+  box-shadow: none;
 }
 
 .weapon-sheet-inline-input::-webkit-outer-spin-button,

@@ -997,6 +997,8 @@ export function WeaponDraftSheetPage() {
   const [formulaInput, setFormulaInput] = useState('');
   const [selectedWorkbookCell, setSelectedWorkbookCell] = useState<WeaponWorkbookSelection | null>(null);
   const [pendingFocusRowKey, setPendingFocusRowKey] = useState<string | null>(null);
+  const [inlineEditingCellKey, setInlineEditingCellKey] = useState<string | null>(null);
+  const [inlineEditingValue, setInlineEditingValue] = useState('');
   const [collapsedDraftIds, setCollapsedDraftIds] = useState<Record<string, boolean>>({});
   const [collapsedSkills, setCollapsedSkills] = useState<Record<string, boolean>>({});
   const [collapsedLevels, setCollapsedLevels] = useState<Record<string, boolean>>({});
@@ -1695,6 +1697,54 @@ export function WeaponDraftSheetPage() {
     });
   }, [updateLibraryDraft]);
 
+  const handleDuplicateDraftEffect = useCallback((draftId: string, skillKey: WeaponSkillKey, bucket: WeaponEffectBucket, effectKey: string) => {
+    const currentSkill = draft.skills[skillKey];
+    let effectIndex = 1;
+    while (currentSkill.effectTypes[`effect${effectIndex}`]) {
+      effectIndex += 1;
+    }
+    const newEffectKey = `effect${effectIndex}`;
+    const effectType = currentSkill.effectTypes[effectKey];
+
+    updateLibraryDraft(draftId, (baseDraft) => {
+      const skill = baseDraft.skills[skillKey];
+      const nextLevels = { ...skill.levels };
+      LEVEL_KEYS.forEach((levelKey) => {
+        const level = nextLevels[levelKey];
+        const sourceValue = bucket === 'value' ? level.value : level[bucket][effectKey];
+        if (bucket === 'value') {
+          nextLevels[levelKey] = { ...level, value: sourceValue };
+        } else {
+          nextLevels[levelKey] = {
+            ...level,
+            [bucket]: {
+              ...level[bucket],
+              [newEffectKey]: sourceValue ?? 0,
+            },
+          };
+        }
+      });
+
+      return {
+        ...baseDraft,
+        skills: {
+          ...baseDraft.skills,
+          [skillKey]: {
+            ...skill,
+            effectTypes: {
+              ...skill.effectTypes,
+              [newEffectKey]: effectType || 'atkPercentBoost',
+            },
+            levels: nextLevels,
+          },
+        },
+      };
+    }, {
+      selectAfter: true,
+      focusRowKey: buildWeaponEffectRowKey(skillKey, bucket, newEffectKey),
+    });
+  }, [draft, updateLibraryDraft]);
+
   const currentShareFile = useMemo(() => buildDraftLibraryShareFile(
     WEAPON_LIBRARY_SHARE_TYPE,
     localLibrary,
@@ -1888,7 +1938,10 @@ export function WeaponDraftSheetPage() {
           onClick: () => setLevelCollapsed(contextMenu.draftId!, contextMenu.skillKey!, contextMenu.bucket!, contextMenu.effectKey!, !isCollapsed),
         },
         ...(contextMenu.skillKey === 'skill3'
-          ? [{ key: 'delete-effect', label: '删除效果', icon: 'delete' as const, onClick: () => handleDeleteDraftEffect(contextMenu.draftId!, contextMenu.skillKey!, contextMenu.bucket!, contextMenu.effectKey!) }]
+          ? [
+              { key: 'copy-effect', label: '复制效果', icon: 'new' as const, onClick: () => handleDuplicateDraftEffect(contextMenu.draftId!, contextMenu.skillKey!, contextMenu.bucket!, contextMenu.effectKey!) },
+              { key: 'delete-effect', label: '删除效果', icon: 'delete' as const, onClick: () => handleDeleteDraftEffect(contextMenu.draftId!, contextMenu.skillKey!, contextMenu.bucket!, contextMenu.effectKey!) },
+            ]
           : []),
       ];
     }
@@ -1904,6 +1957,7 @@ export function WeaponDraftSheetPage() {
     handleAutoFillEffectLevels,
     handleDeleteDraftEffect,
     handleDeleteDraftGroup,
+    handleDuplicateDraftEffect,
     handleLoadLocalDraft,
     setDraftCollapsed,
     setSkillCollapsed,
@@ -1959,15 +2013,13 @@ export function WeaponDraftSheetPage() {
     if (filterKeyword.trim()) {
       return false;
     }
-    if (node.kind === 'draft') {
-      return true;
+    // 只允许 skill3 的 effect 拖拽
+    if (node.kind === 'effect') {
+      return node.skillKey === 'skill3';
     }
-    if (node.kind === 'skill') {
-      return !collapsedDraftIds[node.draftId];
-    }
-    const skillCollapsedKey = `${node.draftId}:${node.skillKey}`;
-    return !collapsedDraftIds[node.draftId] && !collapsedSkills[skillCollapsedKey];
-  }, [collapsedDraftIds, collapsedSkills, filterKeyword]);
+    // draft 和 skill 不允许拖拽
+    return false;
+  }, [filterKeyword]);
 
   const isValidExplorerDropTarget = useCallback((source: WeaponExplorerDragNode, target: WeaponExplorerDragNode | null) => {
     if (!target || source.kind !== target.kind) {
@@ -2638,14 +2690,6 @@ export function WeaponDraftSheetPage() {
                                 inputMode="decimal"
                                 value={value == null ? '' : String(value)}
                                 placeholder=""
-                                onClick={(event) => {
-                                  event.stopPropagation();
-                                  setSelectedWorkbookCell({
-                                    address: inlineAddress,
-                                    sourceRowKey: sourceRow.key,
-                                    columnKey: 'valueText',
-                                  });
-                                }}
                                 onFocus={() => {
                                   setSelectedWorkbookCell({
                                     address: inlineAddress,
@@ -2689,25 +2733,85 @@ export function WeaponDraftSheetPage() {
                         })}
                       </div>
                     </div>
-                  ) : row.cells.map((cell) => (
-                    <div
-                      key={cell.key}
-                      className={`damage-sheet-excel-cell is-${row.kind} is-${cell.align}${selectedWorkbookCell?.address === cell.address ? ' is-active' : ''}`}
-                      style={{ width: `${cell.width}px` }}
-                      onClick={() => setSelectedWorkbookCell({
-                        address: cell.address,
-                        sourceRowKey: cell.sourceRowKey,
-                        columnKey: cell.columnKey,
-                      })}
-                      onContextMenu={(event) => openWorkbookContextMenu(event, row.sourceRow, {
-                        address: cell.address,
-                        sourceRowKey: cell.sourceRowKey,
-                        columnKey: cell.columnKey,
-                      })}
-                    >
-                      {cell.value}
-                    </div>
-                  ))}
+                  ) : row.cells.map((cell) => {
+                    const isSkillNameCell = row.sourceRow.kind === 'skill' && cell.columnKey === 'name';
+                    if (isSkillNameCell) {
+                      return (
+                        <div
+                          key={cell.key}
+                          className={`damage-sheet-excel-cell is-${row.kind} is-${cell.align}${selectedWorkbookCell?.address === cell.address ? ' is-active' : ''}`}
+                          style={{ width: `${cell.width}px` }}
+                          onContextMenu={(event) => openWorkbookContextMenu(event, row.sourceRow, {
+                            address: cell.address,
+                            sourceRowKey: cell.sourceRowKey,
+                            columnKey: cell.columnKey,
+                          })}
+                        >
+                          <input
+                            className="weapon-sheet-inline-input"
+                            type="text"
+                            value={inlineEditingCellKey === cell.key ? inlineEditingValue : cell.value}
+                            onFocus={() => {
+                              setInlineEditingCellKey(cell.key);
+                              setInlineEditingValue(cell.value);
+                              setSelectedWorkbookCell({
+                                address: cell.address,
+                                sourceRowKey: cell.sourceRowKey,
+                                columnKey: cell.columnKey,
+                              });
+                            }}
+                            onChange={(event) => setInlineEditingValue(event.target.value)}
+                            onBlur={() => {
+                              if (inlineEditingCellKey === cell.key) {
+                                const newName = inlineEditingValue.trim();
+                                if (newName && row.sourceRow.kind === 'skill') {
+                                  const skillKey = row.sourceRow.skillKey;
+                                  setDraft((prev) => normalizeWeaponDraft({
+                                    ...prev,
+                                    skills: {
+                                      ...prev.skills,
+                                      [skillKey]: {
+                                        ...prev.skills[skillKey],
+                                        name: newName,
+                                      },
+                                    },
+                                  }));
+                                }
+                                setInlineEditingCellKey(null);
+                              }
+                            }}
+                            onKeyDown={(event) => {
+                              if (event.key === 'Enter') {
+                                event.currentTarget.blur();
+                              }
+                              if (event.key === 'Escape') {
+                                setInlineEditingCellKey(null);
+                              }
+                            }}
+                          />
+                        </div>
+                      );
+                    }
+                    return (
+                      <div
+                        key={cell.key}
+                        className={`damage-sheet-excel-cell is-${row.kind} is-${cell.align}${selectedWorkbookCell?.address === cell.address ? ' is-active' : ''}`}
+                        style={{ width: `${cell.width}px` }}
+                        onClick={() => setSelectedWorkbookCell({
+                          address: cell.address,
+                          sourceRowKey: cell.sourceRowKey,
+                          columnKey: cell.columnKey,
+                        })}
+                        onContextMenu={(event) => openWorkbookContextMenu(event, row.sourceRow, {
+                          address: cell.address,
+                          sourceRowKey: cell.sourceRowKey,
+                          columnKey: cell.columnKey,
+                        })}
+                      >
+                        {cell.value}
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
             ))}
