@@ -6,6 +6,7 @@ const maa = require('@maaxyz/maa-node');
 const {
   app,
   BrowserWindow,
+  dialog,
   ipcMain,
   Menu,
   Tray,
@@ -1041,6 +1042,219 @@ ipcMain.handle('desktop:capture-source-frame', async (_event, sourceId) => ({
 }));
 ipcMain.handle('desktop:invoke-ark-responses', async (_event, payload) => invokeArkResponses(payload));
 
+// ── Image asset management ──
+
+const MANAGED_SUBDIR = 'assets/images';
+
+function getAssetsRoot() {
+  if (isDev) {
+    return path.join(__dirname, '..', 'public', 'assets');
+  }
+  return path.join(__dirname, '..', 'dist', 'assets');
+}
+
+function getManagedDir() {
+  const root = getAssetsRoot();
+  const dir = path.join(root, 'images');
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true });
+  }
+  return dir;
+}
+
+function syncImageManifest() {
+  const list = scanAllImageAssets();
+  const manifestPath = path.join(getManagedDir(), '_manifest.json');
+  const slim = list.map((entry) => ({
+    fileName: entry.fileName,
+    baseName: entry.baseName,
+    ext: entry.ext,
+    relativePath: entry.relativePath,
+    sizeBytes: entry.sizeBytes,
+    updatedAt: entry.updatedAt,
+    writable: entry.writable,
+  }));
+  try {
+    fs.writeFileSync(manifestPath, JSON.stringify(slim, null, 2), 'utf-8');
+  } catch {
+    // best-effort
+  }
+}
+
+function scanAllImageAssets() {
+  const assetsRoot = getAssetsRoot();
+  const managedDir = getManagedDir();
+  const managedDirNormalized = path.resolve(managedDir);
+  const results = [];
+
+  function walk(dirPath, relDir) {
+    let entries;
+    try {
+      entries = fs.readdirSync(dirPath, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      const fullPath = path.join(dirPath, entry.name);
+      const relPath = relDir ? `${relDir}/${entry.name}` : entry.name;
+      if (entry.isDirectory()) {
+        walk(fullPath, relPath);
+      } else if (entry.name === '_manifest.json') {
+        continue;
+      } else if (/\.(png|jpg|jpeg|webp|gif|svg)$/i.test(entry.name)) {
+        let stats;
+        try {
+          stats = fs.statSync(fullPath);
+        } catch {
+          continue;
+        }
+        const ext = path.extname(entry.name).toLowerCase();
+        const baseName = path.basename(entry.name, ext);
+        const normalizedRel = `assets/${relPath.replace(/\\/g, '/')}`;
+        const isWritable = path.resolve(fullPath).startsWith(managedDirNormalized);
+        results.push({
+          fileName: entry.name,
+          baseName,
+          ext,
+          relativePath: normalizedRel,
+          writable: isWritable,
+          sizeBytes: stats.size,
+          updatedAt: stats.mtimeMs,
+        });
+      }
+    }
+  }
+
+  walk(assetsRoot, '');
+  return results;
+}
+
+function findUniqueFileName(dirPath, baseName, ext) {
+  let candidate = `${baseName}${ext}`;
+  if (!fs.existsSync(path.join(dirPath, candidate))) {
+    return candidate;
+  }
+  let counter = 1;
+  while (true) {
+    candidate = `${baseName} (${counter})${ext}`;
+    if (!fs.existsSync(path.join(dirPath, candidate))) {
+      return candidate;
+    }
+    counter += 1;
+  }
+  return candidate;
+}
+
+ipcMain.handle('desktop:list-image-assets', () => {
+  return scanAllImageAssets();
+});
+
+ipcMain.handle('desktop:import-image-assets', async () => {
+  const win = BrowserWindow.getFocusedWindow();
+  if (!win) {
+    return scanAllImageAssets();
+  }
+
+  const result = await dialog.showOpenDialog(win, {
+    title: '选择要导入的图片',
+    filters: [
+      { name: '图片文件', extensions: ['png', 'jpg', 'jpeg', 'webp', 'gif', 'svg'] },
+    ],
+    properties: ['openFile', 'multiSelections'],
+  });
+
+  if (result.canceled || !result.filePaths || result.filePaths.length === 0) {
+    return scanAllImageAssets();
+  }
+
+  const targetDir = getManagedDir();
+
+  for (const sourcePath of result.filePaths) {
+    const sourceExt = path.extname(sourcePath).toLowerCase();
+    const sourceBaseName = path.basename(sourcePath, sourceExt);
+    const uniqueName = findUniqueFileName(targetDir, sourceBaseName, sourceExt);
+    const destPath = path.join(targetDir, uniqueName);
+    try {
+      fs.copyFileSync(sourcePath, destPath);
+    } catch {
+      // skip files that can't be copied
+    }
+  }
+
+  syncImageManifest();
+  return scanAllImageAssets();
+});
+
+ipcMain.handle('desktop:rename-image-asset', (_event, payload) => {
+  const { relativePath, newName } = payload || {};
+  if (!relativePath || typeof newName !== 'string' || newName.trim().length === 0) {
+    return { ok: false, error: '缺少参数' };
+  }
+
+  // Only allow renaming files in the managed directory
+  if (!relativePath.startsWith(`${MANAGED_SUBDIR}/`)) {
+    return { ok: false, error: '此文件为只读，不可重命名' };
+  }
+
+  const assetsRoot = getAssetsRoot();
+  const relWithoutPrefix = relativePath.replace(/^assets\//, '');
+  const oldPath = path.join(assetsRoot, relWithoutPrefix);
+
+  if (!fs.existsSync(oldPath)) {
+    return { ok: false, error: '文件不存在' };
+  }
+
+  const originalExt = path.extname(oldPath).toLowerCase();
+  const userExt = path.extname(newName.trim()).toLowerCase();
+  const cleanName = userExt ? path.basename(newName.trim(), userExt) : newName.trim();
+  const finalName = `${cleanName}${originalExt}`;
+  const newPath = path.join(path.dirname(oldPath), finalName);
+
+  if (oldPath === newPath) {
+    return { ok: true };
+  }
+
+  if (fs.existsSync(newPath)) {
+    return { ok: false, error: '目标文件名已存在' };
+  }
+
+  try {
+    fs.renameSync(oldPath, newPath);
+    syncImageManifest();
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: `重命名失败: ${err.message}` };
+  }
+});
+
+ipcMain.handle('desktop:delete-image-asset', (_event, payload) => {
+  const { relativePath } = payload || {};
+  if (!relativePath) {
+    return { ok: false, error: '缺少路径参数' };
+  }
+
+  // Only allow deleting files in the managed directory
+  if (!relativePath.startsWith(`${MANAGED_SUBDIR}/`)) {
+    return { ok: false, error: '此文件为只读，不可删除' };
+  }
+
+  const assetsRoot = getAssetsRoot();
+  const relWithoutPrefix = relativePath.replace(/^assets\//, '');
+  const targetPath = path.join(assetsRoot, relWithoutPrefix);
+
+  if (!fs.existsSync(targetPath)) {
+    return { ok: false, error: '文件不存在' };
+  }
+
+  try {
+    fs.unlinkSync(targetPath);
+    syncImageManifest();
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: `删除失败: ${err.message}` };
+  }
+});
+
 ipcMain.handle('desktop:run-action', (_event, action) => {
   switch (action) {
     case 'capture-probe':
@@ -1081,6 +1295,7 @@ app.whenReady().then(() => {
     app.setAppUserModelId('com.dmg.def');
   }
   Menu.setApplicationMenu(null);
+  syncImageManifest();
   createTray();
   startBridgeServer();
 

@@ -25,4 +25,8 @@ contextBridge.exposeInMainWorld('desktopRuntime', {
   captureSourceFrame: (sourceId) => ipcRenderer.invoke('desktop:capture-source-frame', sourceId),
   invokeArkResponses: (payload) => ipcRenderer.invoke('desktop:invoke-ark-responses', payload),
   runAction: (action) => ipcRenderer.invoke('desktop:run-action', action),
+  listImageAssets: () => ipcRenderer.invoke('desktop:list-image-assets'),
+  importImageAssets: () => ipcRenderer.invoke('desktop:import-image-assets'),
+  renameImageAsset: (payload) => ipcRenderer.invoke('desktop:rename-image-asset', payload),
+  deleteImageAsset: (payload) => ipcRenderer.invoke('desktop:delete-image-asset', payload),
 });

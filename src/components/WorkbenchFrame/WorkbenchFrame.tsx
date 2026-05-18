@@ -134,6 +134,10 @@ export function WorkbenchFrame() {
     navigateToAppPath(APP_ROUTE_PATHS.weaponSheet);
   }, []);
 
+  const handleOpenImageManager = useCallback(() => {
+    navigateToAppPath(APP_ROUTE_PATHS.imageManager);
+  }, []);
+
   const syncLocalAgentStatus = useCallback(async () => {
     try {
       const health = await getLocalAgentHealth();
@@ -181,6 +185,9 @@ export function WorkbenchFrame() {
       </button>
       <button className="workbench-top-trigger workbench-bottom-nav-button" type="button" onClick={handleOpenWeaponSheet}>
         <span className="workbench-trigger-text">编辑武器</span>
+      </button>
+      <button className="workbench-top-trigger workbench-bottom-nav-button" type="button" onClick={handleOpenImageManager}>
+        <span className="workbench-trigger-text">图片管理</span>
       </button>
       <button className="workbench-top-trigger workbench-bottom-nav-button workbench-shell-button" type="button" onClick={handleToggleShell}>
         <span className="workbench-trigger-text">{shellStatus === 'visible' ? '收起Shell' : '打开Shell'}</span>

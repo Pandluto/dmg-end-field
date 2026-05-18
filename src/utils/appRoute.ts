@@ -5,6 +5,7 @@ export const APP_ROUTE_PATHS = {
   buffSheet: '/buff-sheet',
   weaponSheet: '/weapon-sheet',
   damageSheet: '/damage-sheet',
+  imageManager: '/image-manager',
 } as const;
 
 const APP_ROUTE_ALIASES: Record<string, string> = {
