@@ -44,6 +44,22 @@ interface ImageAssetOpResult {
   error?: string;
 }
 
+interface ImageAssetImportItem {
+  fileName: string;
+  data: string;
+}
+
+interface ImageAssetImportFromBrowserPayload {
+  items: ImageAssetImportItem[];
+  targetDir?: string;
+}
+
+interface ImageAssetBatchOpResult {
+  ok: boolean;
+  results: { fileName: string; ok: boolean; error?: string }[];
+  error?: string;
+}
+
 interface DesktopRuntimeBridge {
   getLlmSettings: () => Promise<DesktopLlmSettingsPayload>;
   setLlmSettings: (payload: { apiKey: string; model: string }) => Promise<DesktopLlmSettingsPayload>;
@@ -52,6 +68,7 @@ interface DesktopRuntimeBridge {
   importImageAssets?: () => Promise<ImageAssetEntry[]>;
   renameImageAsset?: (payload: ImageAssetRenamePayload) => Promise<ImageAssetOpResult>;
   deleteImageAsset?: (payload: ImageAssetDeletePayload) => Promise<ImageAssetOpResult>;
+  importImageAssetsFromBrowser?: (payload: ImageAssetImportFromBrowserPayload) => Promise<ImageAssetBatchOpResult>;
 }
 
 interface Window {

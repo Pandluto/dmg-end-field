@@ -1,7 +1,7 @@
 /* ── ImageManager: thin overrides on top of damage-sheet / buff-sheet system ── */
 
-/* 3-column workspace */
-.buff-sheet-page .damage-sheet-workspace {
+/* 3-column workspace - ImageManager 专属布局 */
+.image-manager-workspace {
   grid-template-columns: 220px minmax(0, 1fr) 280px;
 }
 
@@ -343,7 +343,7 @@
 
 /* ── Responsive ── */
 @media (max-width: 1280px) {
-  .buff-sheet-page .damage-sheet-workspace {
+  .image-manager-workspace {
     grid-template-columns: 1fr;
     height: auto;
   }

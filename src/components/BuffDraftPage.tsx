@@ -4846,7 +4846,7 @@ export function BuffDraftSheetPage() {
         </div>
       </section>
 
-      <main className="damage-sheet-workspace">
+      <main className="damage-sheet-workspace buff-sheet-workspace">
         <aside className="damage-sheet-sidebar buff-sheet-explorer" onContextMenu={(event) => openContextMenu(event, {
           x: event.clientX,
           y: event.clientY,

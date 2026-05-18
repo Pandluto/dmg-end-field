@@ -1255,6 +1255,88 @@ ipcMain.handle('desktop:delete-image-asset', (_event, payload) => {
   }
 });
 
+ipcMain.handle('desktop:import-image-assets-from-browser', (_event, payload) => {
+  const { items, targetDir } = payload || {};
+  if (!items || !Array.isArray(items) || items.length === 0) {
+    return { ok: false, results: [], error: '缺少文件数据' };
+  }
+
+  const IMG_EXT_RE = /\.(png|jpg|jpeg|webp|gif|svg)$/i;
+  const managedDir = getManagedDir();
+
+  // Resolve target directory
+  let destDir = managedDir;
+  if (targetDir && typeof targetDir === 'string' && targetDir.trim().length > 0) {
+    const normalized = targetDir.trim().replace(/\\/g, '/').replace(/^\/+/, '').replace(/\/+$/, '');
+    // Prevent path traversal
+    if (/(^|\/)\.\.(\/|$)/.test(normalized)) {
+      return { ok: false, results: [], error: '非法目录路径' };
+    }
+    destDir = path.join(managedDir, normalized);
+    // Ensure destDir is still within managedDir
+    const resolvedDest = path.resolve(destDir);
+    const resolvedManaged = path.resolve(managedDir);
+    if (!resolvedDest.startsWith(resolvedManaged + path.sep) && resolvedDest !== resolvedManaged) {
+      return { ok: false, results: [], error: '越权目录访问' };
+    }
+  }
+
+  // Ensure target directory exists
+  if (!fs.existsSync(destDir)) {
+    try {
+      fs.mkdirSync(destDir, { recursive: true });
+    } catch (err) {
+      return { ok: false, results: [], error: `创建目录失败: ${err.message}` };
+    }
+  }
+
+  const results = [];
+  for (const item of items) {
+    const fileName = item.fileName;
+    const data = item.data;
+
+    if (!fileName || typeof fileName !== 'string' || !data || typeof data !== 'string') {
+      results.push({ fileName: fileName || '(unknown)', ok: false, error: '缺少文件名或数据' });
+      continue;
+    }
+
+    // Validate file name: no path separators, no traversal
+    const cleanName = path.basename(fileName);
+    if (cleanName !== fileName || fileName.includes('..') || fileName.startsWith('/') || fileName.startsWith('\\')) {
+      results.push({ fileName, ok: false, error: '非法文件名' });
+      continue;
+    }
+
+    // Validate extension
+    if (!IMG_EXT_RE.test(fileName)) {
+      results.push({ fileName, ok: false, error: '不支持的文件类型' });
+      continue;
+    }
+
+    const ext = path.extname(fileName).toLowerCase();
+    const baseName = path.basename(fileName, ext);
+    const uniqueName = findUniqueFileName(destDir, baseName, ext);
+    const destPath = path.join(destDir, uniqueName);
+
+    try {
+      const buffer = Buffer.from(data, 'base64');
+      fs.writeFileSync(destPath, buffer);
+      results.push({ fileName: uniqueName, ok: true });
+    } catch (err) {
+      results.push({ fileName, ok: false, error: `写入失败: ${err.message}` });
+    }
+  }
+
+  syncImageManifest();
+
+  const allOk = results.every((r) => r.ok);
+  return {
+    ok: allOk,
+    results,
+    ...(allOk ? {} : { error: '部分文件导入失败' }),
+  };
+});
+
 ipcMain.handle('desktop:run-action', (_event, action) => {
   switch (action) {
     case 'capture-probe':

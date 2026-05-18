@@ -1,7 +1,7 @@
 import type { ImageAssetEntry } from './types';
 
 interface ImageManagerRibbonProps {
-  isElectron: boolean;
+  canWriteAssets: boolean;
   loading: boolean;
   searchQuery: string;
   viewMode: 'list' | 'grid';
@@ -10,7 +10,6 @@ interface ImageManagerRibbonProps {
   fileInputRef: React.RefObject<HTMLInputElement>;
   onSearchChange: (q: string) => void;
   onImport: () => void;
-  onBrowserImport: () => void;
   onBrowserFileSelected: (e: React.ChangeEvent<HTMLInputElement>) => void;
   onRename: () => void;
   onDelete: () => void;
@@ -20,44 +19,40 @@ interface ImageManagerRibbonProps {
 
 export function ImageManagerRibbon(props: ImageManagerRibbonProps) {
   const {
-    isElectron, loading, searchQuery, viewMode,
+    canWriteAssets, loading, searchQuery, viewMode,
     selectedAsset, isWriteDisabled, fileInputRef,
-    onSearchChange, onImport, onBrowserImport,
+    onSearchChange, onImport,
     onBrowserFileSelected, onRename, onDelete,
     onRefresh, onToggleViewMode,
   } = props;
+
+  const writeDisabled = !selectedAsset || isWriteDisabled || !selectedAsset.writable;
 
   return (
     <section className="damage-sheet-ribbon buff-sheet-ribbon">
       <div className="buff-sheet-ribbon-actions">
         {/* Import */}
-        {isElectron ? (
-          <button className="buff-sheet-tool-button" type="button" onClick={onImport} disabled={loading}>
-            <span className="buff-sheet-tool-icon" aria-hidden="true">
-              <svg className="buff-sheet-tool-svg" viewBox="0 0 16 16" focusable="false">
-                <path d="M2.5 4.5l2-1.5h3l2 1.5h4v7.5H2.5z" />
-                <path d="M8 7v4.5M6 9l2-2 2 2" />
-              </svg>
-            </span>
-            <span className="buff-sheet-tool-text">导入</span>
-          </button>
-        ) : (
-          <button className="buff-sheet-tool-button" type="button" onClick={onBrowserImport} title="浏览器模式不支持写入，仅桌面端可用">
-            <span className="buff-sheet-tool-icon" aria-hidden="true">
-              <svg className="buff-sheet-tool-svg" viewBox="0 0 16 16" focusable="false">
-                <path d="M2.5 4.5l2-1.5h3l2 1.5h4v7.5H2.5z" />
-                <path d="M8 7v4.5M6 9l2-2 2 2" />
-              </svg>
-            </span>
-            <span className="buff-sheet-tool-text">导入</span>
-          </button>
-        )}
+        <button
+          className="buff-sheet-tool-button"
+          type="button"
+          disabled={loading || (!canWriteAssets)}
+          onClick={onImport}
+          title={canWriteAssets ? '导入图片' : '当前环境不支持写入'}
+        >
+          <span className="buff-sheet-tool-icon" aria-hidden="true">
+            <svg className="buff-sheet-tool-svg" viewBox="0 0 16 16" focusable="false">
+              <path d="M2.5 4.5l2-1.5h3l2 1.5h4v7.5H2.5z" />
+              <path d="M8 7v4.5M6 9l2-2 2 2" />
+            </svg>
+          </span>
+          <span className="buff-sheet-tool-text">导入</span>
+        </button>
 
         {/* Rename */}
         <button
           className="buff-sheet-tool-button"
           type="button"
-          disabled={!selectedAsset || isWriteDisabled || !selectedAsset.writable}
+          disabled={writeDisabled}
           onClick={onRename}
         >
           <span className="buff-sheet-tool-icon" aria-hidden="true">
@@ -73,7 +68,7 @@ export function ImageManagerRibbon(props: ImageManagerRibbonProps) {
         <button
           className="buff-sheet-tool-button"
           type="button"
-          disabled={!selectedAsset || isWriteDisabled || !selectedAsset.writable}
+          disabled={writeDisabled}
           onClick={onDelete}
         >
           <span className="buff-sheet-tool-icon" aria-hidden="true">
@@ -118,7 +113,7 @@ export function ImageManagerRibbon(props: ImageManagerRibbonProps) {
         />
       </div>
 
-      {/* Hidden file input for browser mode */}
+      {/* Hidden file input for browser import */}
       <input
         ref={fileInputRef}
         type="file"

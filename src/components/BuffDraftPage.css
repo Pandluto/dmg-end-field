@@ -196,6 +196,16 @@
   background: var(--office-bg, #f3f5f7);
 }
 
+/* Buff sheet 专属 workspace 布局 - 两栏：sidebar + 主内容 */
+.buff-sheet-workspace {
+  grid-template-columns: 220px minmax(0, 1fr);
+}
+
+/* Weapon sheet 专属 workspace 布局 - 两栏：sidebar + 主内容 */
+.weapon-sheet-workspace {
+  grid-template-columns: 220px minmax(0, 1fr);
+}
+
 .buff-sheet-explorer {
   gap: 6px;
   padding: 8px;

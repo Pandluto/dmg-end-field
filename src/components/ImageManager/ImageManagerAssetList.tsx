@@ -3,7 +3,6 @@ import type { ImageAssetEntry } from './types';
 interface ImageManagerAssetListProps {
   assets: ImageAssetEntry[];
   selectedPath: string | null;
-  currentDir: string;
   searchQuery: string;
   loading: boolean;
   viewMode: 'list' | 'grid';
@@ -12,13 +11,10 @@ interface ImageManagerAssetListProps {
 }
 
 export function ImageManagerAssetList(props: ImageManagerAssetListProps) {
-  const { assets, selectedPath, currentDir, searchQuery, loading, viewMode, assetUrl, onSelectAsset } = props;
-
-  const displayLabel = currentDir ? currentDir.replace(/^avatars\//, 'avatars / ') : '全部图片';
+  const { assets, selectedPath, searchQuery, loading, viewMode, assetUrl, onSelectAsset } = props;
 
   return (
     <section className="damage-sheet-excel-shell">
-      {/* Panel header  这个样式有问题我已经删了*/}
       {/* Content */}
       {loading && assets.length === 0 ? (
         <div className="image-manager-empty">加载中…</div>

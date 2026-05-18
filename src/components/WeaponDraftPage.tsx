@@ -773,6 +773,45 @@ function parseInlineLevelAddress(address?: string | null) {
   return match?.[1] ?? '';
 }
 
+/**
+ * Sheet-Weapon 是表格式编辑器，不允许浏览器 number input 的默认 stepper 行为干扰单元格编辑语义。
+ * 此函数用于拦截键盘事件，防止方向键、Backspace 等按键冒泡到外层的表格导航逻辑。
+ */
+function stopEditingKeyPropagation(event: React.KeyboardEvent<HTMLInputElement>, options?: { isNumberInput?: boolean }) {
+  const { isNumberInput = false } = options ?? {};
+
+  // 对所有输入框：阻止 Backspace/Delete 冒泡，防止触发外层行为
+  if (event.key === 'Backspace' || event.key === 'Delete') {
+    event.stopPropagation();
+    return;
+  }
+
+  // 对所有输入框：阻止 Home/End 冒泡
+  if (event.key === 'Home' || event.key === 'End') {
+    event.stopPropagation();
+    return;
+  }
+
+  // 对 number input：阻止上下方向键的默认增减值行为，并阻止冒泡
+  if (isNumberInput && (event.key === 'ArrowUp' || event.key === 'ArrowDown')) {
+    event.preventDefault();
+    event.stopPropagation();
+    return;
+  }
+
+  // 对所有输入框：阻止左右方向键冒泡（但保留默认光标移动行为）
+  if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
+    event.stopPropagation();
+    return;
+  }
+
+  // 阻止上下方向键冒泡（文本输入框保留默认行为，只阻止冒泡）
+  if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
+    event.stopPropagation();
+    return;
+  }
+}
+
 function buildWeaponSheetRows(draft: WeaponDraft): WeaponSheetRow[] {
   const rows: WeaponSheetRow[] = [
     {
@@ -2401,6 +2440,9 @@ export function WeaponDraftSheetPage() {
           }
         }}
         onKeyDown={(event) => {
+          // 拦截方向键、Backspace 等，防止冒泡到外层的表格导航逻辑
+          stopEditingKeyPropagation(event, { isNumberInput: formulaBinding.inputMode === 'number' });
+
           if (event.key === 'Enter') {
             const nextDraft = commitFormulaInput(draft);
             if (nextDraft !== draft) {
@@ -2537,7 +2579,7 @@ export function WeaponDraftSheetPage() {
         </div>
       </section>
 
-      <main className="damage-sheet-workspace">
+      <main className="damage-sheet-workspace weapon-sheet-workspace">
         <aside
           className="damage-sheet-sidebar buff-sheet-explorer"
           onContextMenu={(event) => openContextMenu(event, {
@@ -2763,10 +2805,13 @@ export function WeaponDraftSheetPage() {
                             <input
                               className="weapon-sheet-inline-input"
                               type="number"
+                              step="any"
+                              inputMode="decimal"
                               value={draft.attackGrowth[levelKey] == null ? '' : String(draft.attackGrowth[levelKey])}
                               placeholder="ATK"
                               onClick={(event) => event.stopPropagation()}
                               onChange={(event) => handleAttackGrowthChange(levelKey, event.target.value)}
+                              onKeyDown={(event) => stopEditingKeyPropagation(event, { isNumberInput: true })}
                             />
                           </div>
                         ))}
@@ -2848,6 +2893,7 @@ export function WeaponDraftSheetPage() {
                                     };
                                   });
                                 }}
+                                onKeyDown={(event) => stopEditingKeyPropagation(event, { isNumberInput: true })}
                               />
                             </div>
                           );
@@ -2902,6 +2948,9 @@ export function WeaponDraftSheetPage() {
                               }
                             }}
                             onKeyDown={(event) => {
+                              // 拦截方向键、Backspace 等，防止冒泡到外层的表格导航逻辑
+                              stopEditingKeyPropagation(event, { isNumberInput: false });
+
                               if (event.key === 'Enter') {
                                 event.currentTarget.blur();
                               }

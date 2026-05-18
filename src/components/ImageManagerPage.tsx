@@ -78,13 +78,15 @@ export function ImageManagerPage() {
   const initialDirSet = useRef(false);
 
   const isElectron = !!window.desktopRuntime?.listImageAssets;
+  const canWriteAssets = isElectron || !!window.desktopRuntime?.importImageAssetsFromBrowser;
+  const canListViaIpc = isElectron;
 
   // ── Load assets ──
 
   const loadAssets = async () => {
     setLoading(true);
     try {
-      if (isElectron) {
+      if (canListViaIpc) {
         const list = await window.desktopRuntime!.listImageAssets!();
         const sorted = [...list].sort((a, b) =>
           a.fileName.localeCompare(b.fileName, undefined, { numeric: true }),
@@ -139,11 +141,17 @@ export function ImageManagerPage() {
   }, [assets, currentDir, searchQuery]);
 
   const selectedAsset = useMemo(
-    () => assets.find((a) => a.relativePath === selectedPath) ?? null,
-    [assets, selectedPath],
+    () => filteredAssets.find((a) => a.relativePath === selectedPath) ?? null,
+    [filteredAssets, selectedPath],
   );
 
-  const isWriteDisabled = !isElectron;
+  useEffect(() => {
+    if (selectedPath && !filteredAssets.some((a) => a.relativePath === selectedPath)) {
+      setSelectedPath(null);
+    }
+  }, [filteredAssets, selectedPath]);
+
+  const isWriteDisabled = !canWriteAssets;
 
   // ── Flash message ──
 
@@ -154,31 +162,69 @@ export function ImageManagerPage() {
 
   // ── Import ──
 
+  const refreshAfterWrite = async () => {
+    await loadAssets();
+    setSelectedPath(null);
+  };
+
   const handleImport = async () => {
-    if (!isElectron) return;
+    if (isElectron) {
+      setLoading(true);
+      try {
+        const updated = await window.desktopRuntime!.importImageAssets!();
+        const sorted = [...updated].sort((a, b) =>
+          a.fileName.localeCompare(b.fileName, undefined, { numeric: true }),
+        );
+        setAssets(sorted);
+        flash('导入完成');
+      } catch (err) {
+        flash(`导入失败: ${err instanceof Error ? err.message : '未知错误'}`);
+      } finally {
+        setLoading(false);
+      }
+    } else {
+      fileInputRef.current?.click();
+    }
+  };
+
+  const handleBrowserFileSelected = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const files = event.target.files;
+    if (!files || files.length === 0) return;
+
+    if (!canWriteAssets) {
+      flash('当前环境不支持写入文件');
+      if (fileInputRef.current) fileInputRef.current.value = '';
+      return;
+    }
+
     setLoading(true);
     try {
-      const updated = await window.desktopRuntime!.importImageAssets!();
-      const sorted = [...updated].sort((a, b) =>
-        a.fileName.localeCompare(b.fileName, undefined, { numeric: true }),
+      const items = await Promise.all(
+        Array.from(files).map(async (file) => {
+          const buffer = await file.arrayBuffer();
+          const bytes = new Uint8Array(buffer);
+          let binary = '';
+          for (let i = 0; i < bytes.length; i++) {
+            binary += String.fromCharCode(bytes[i]);
+          }
+          return { fileName: file.name, data: btoa(binary) };
+        }),
       );
-      setAssets(sorted);
-      flash('导入完成');
+
+      const result = await window.desktopRuntime!.importImageAssetsFromBrowser!({ items });
+      if (result.ok) {
+        flash(`导入完成: ${result.results.filter((r) => r.ok).length} 个文件`);
+      } else {
+        const failed = result.results.filter((r) => !r.ok).map((r) => r.fileName).join(', ');
+        flash(result.error || `部分文件导入失败: ${failed}`);
+      }
+      await refreshAfterWrite();
     } catch (err) {
       flash(`导入失败: ${err instanceof Error ? err.message : '未知错误'}`);
     } finally {
       setLoading(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
     }
-  };
-
-  const handleBrowserImport = () => {
-    fileInputRef.current?.click();
-  };
-
-  const handleBrowserFileSelected = (event: React.ChangeEvent<HTMLInputElement>) => {
-    if (!event.target.files || event.target.files.length === 0) return;
-    flash('浏览器模式不支持写入文件，仅桌面端可导入到管理目录');
-    if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
   // ── Rename ──
@@ -191,7 +237,7 @@ export function ImageManagerPage() {
   };
 
   const commitRename = async () => {
-    if (!selectedAsset || !isElectron || !renameValue.trim()) {
+    if (!selectedAsset || !canWriteAssets || !renameValue.trim()) {
       setIsRenaming(false);
       return;
     }
@@ -227,7 +273,7 @@ export function ImageManagerPage() {
   };
 
   const handleDeleteConfirm = async () => {
-    if (!selectedAsset || !isElectron) {
+    if (!selectedAsset || !canWriteAssets) {
       setConfirmDelete(false);
       return;
     }
@@ -319,7 +365,7 @@ export function ImageManagerPage() {
 
       {/* ── Ribbon ── */}
       <ImageManagerRibbon
-        isElectron={isElectron}
+        canWriteAssets={canWriteAssets}
         loading={loading}
         searchQuery={searchQuery}
         viewMode={viewMode}
@@ -328,7 +374,6 @@ export function ImageManagerPage() {
         fileInputRef={fileInputRef}
         onSearchChange={setSearchQuery}
         onImport={handleImport}
-        onBrowserImport={handleBrowserImport}
         onBrowserFileSelected={handleBrowserFileSelected}
         onRename={startRename}
         onDelete={handleDeleteRequest}
@@ -340,7 +385,7 @@ export function ImageManagerPage() {
       {message && <div className="image-manager-toast">{message}</div>}
 
       {/* ── Workspace ── */}
-      <main className="damage-sheet-workspace">
+      <div className="damage-sheet-workspace image-manager-workspace">
         <ImageManagerExplorer
           dirTree={dirTree}
           currentDir={currentDir}
@@ -354,7 +399,6 @@ export function ImageManagerPage() {
         <ImageManagerAssetList
           assets={filteredAssets}
           selectedPath={selectedPath}
-          currentDir={currentDir}
           searchQuery={searchQuery}
           loading={loading}
           viewMode={viewMode}
@@ -366,14 +410,14 @@ export function ImageManagerPage() {
           selectedAsset={selectedAsset}
           selectedIndex={selectedIndex}
           filteredCount={filteredAssets.length}
-          isElectron={isElectron}
+          canWriteAssets={canWriteAssets}
           assetUrl={assetUrl}
           formatBytes={formatBytes}
           onGoPrev={goPrev}
           onGoNext={goNext}
           onStartRename={startRename}
         />
-      </main>
+      </div>
 
       {/* ── Rename modal ── */}
       <ImageManagerRenameModal

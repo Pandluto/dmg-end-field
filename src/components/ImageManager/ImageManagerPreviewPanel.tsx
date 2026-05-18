@@ -4,7 +4,7 @@ interface ImageManagerPreviewPanelProps {
   selectedAsset: ImageAssetEntry | null;
   selectedIndex: number;
   filteredCount: number;
-  isElectron: boolean;
+  canWriteAssets: boolean;
   assetUrl: (path: string) => string;
   formatBytes: (bytes: number) => string;
   onGoPrev: () => void;
@@ -13,7 +13,7 @@ interface ImageManagerPreviewPanelProps {
 }
 
 export function ImageManagerPreviewPanel(props: ImageManagerPreviewPanelProps) {
-  const { selectedAsset, selectedIndex, filteredCount, isElectron, assetUrl, formatBytes, onGoPrev, onGoNext, onStartRename } = props;
+  const { selectedAsset, selectedIndex, filteredCount, canWriteAssets, assetUrl, formatBytes, onGoPrev, onGoNext, onStartRename } = props;
 
   return (
     <aside className="damage-sheet-sidebar">
@@ -81,7 +81,7 @@ export function ImageManagerPreviewPanel(props: ImageManagerPreviewPanelProps) {
             <button
               className="buff-sheet-tool-button"
               type="button"
-              disabled={!isElectron || !selectedAsset.writable}
+              disabled={!canWriteAssets || !selectedAsset.writable}
               onClick={onStartRename}
             >
               <span className="buff-sheet-tool-text">重命名</span>
