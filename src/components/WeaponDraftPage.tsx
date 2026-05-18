@@ -16,7 +16,14 @@ const WEAPON_LIBRARY_STORAGE_KEY = 'def.weapon-sheet.library.v1';
 const WEAPON_LIBRARY_SHARE_TYPE = 'weapon-library-share.v1';
 
 type WeaponSkillKey = 'skill1' | 'skill2' | 'skill3';
-type WeaponEffectBucket = 'value' | 'passive' | 'effects';
+type WeaponEffectBucket = 'value' | 'effect';
+
+interface WeaponEffectData {
+  name: string;
+  type: string;
+  category: string;
+  levels: Record<string, number>;
+}
 
 interface RawWeaponLevelData {
   value?: number;
@@ -28,7 +35,10 @@ interface RawWeaponLevelData {
 interface RawWeaponSkillData {
   name?: string;
   statType?: string;
+  effects?: Record<string, { name?: string; type?: string; category?: string; levels?: Record<string, number> }>;
+  /** @deprecated 旧格式，迁移到 effects */
   effectTypes?: Record<string, string>;
+  /** @deprecated 旧格式，迁移到 effects */
   effectCategories?: Record<string, string>;
   levels?: Record<string, RawWeaponLevelData>;
 }
@@ -46,15 +56,12 @@ interface RawWeaponDraft {
 interface WeaponLevelData {
   value?: number;
   description: string;
-  passive: Record<string, number>;
-  effects: Record<string, number>;
 }
 
 interface WeaponSkillData {
   name: string;
   statType: string;
-  effectTypes: Record<string, string>;
-  effectCategories: Record<string, string>;
+  effects: Record<string, WeaponEffectData>;
   levels: Record<string, WeaponLevelData>;
 }
 
@@ -375,8 +382,6 @@ function createEmptyWeaponLevelData(): WeaponLevelData {
   return {
     value: undefined,
     description: '',
-    passive: {},
-    effects: {},
   };
 }
 
@@ -384,8 +389,7 @@ function createEmptyWeaponSkillData(skillKey: WeaponSkillKey): WeaponSkillData {
   return {
     name: formatSkillDefaultName(skillKey),
     statType: '',
-    effectTypes: {},
-    effectCategories: {},
+    effects: {},
     levels: Object.fromEntries(
       Array.from({ length: 9 }, (_, index) => {
         const levelKey = String(index + 1);
@@ -434,34 +438,73 @@ function normalizeWeaponDraft(raw: RawWeaponDraft | WeaponDraft | null | undefin
     const nextSkill = createEmptyWeaponSkillData(skillKey);
     nextSkill.name = sourceSkill?.name?.trim() || formatSkillDefaultName(skillKey);
     nextSkill.statType = sourceSkill?.statType?.trim() || '';
-    nextSkill.effectTypes = Object.fromEntries(
-      Object.entries(sourceSkill?.effectTypes ?? {}).filter(([, value]) => typeof value === 'string' && value.trim()).map(([key, value]) => [key, value.trim()])
-    );
-    const effectKeys = new Set(Object.keys(nextSkill.effectTypes));
-    if (skillKey === 'skill3') {
-      const sourceLevels = sourceSkill?.levels ?? {};
+    // 转换为 Raw 类型以便统一访问所有字段
+    const rawSkill = sourceSkill as RawWeaponSkillData | undefined;
+    // 检测格式：新格式有 effects，旧格式有 effectTypes/effectCategories
+    const hasNewEffects = rawSkill?.effects && Object.keys(rawSkill.effects).length > 0;
+    const hasOldEffects = (rawSkill?.effectTypes && Object.keys(rawSkill.effectTypes).length > 0)
+      || (rawSkill?.effectCategories && Object.keys(rawSkill.effectCategories).length > 0);
+
+    if (skillKey === 'skill3' && hasNewEffects) {
+      // 新格式：直接复制 effects，过滤无效条目
+      Object.entries(rawSkill!.effects!).forEach(([key, effect]) => {
+        if (!key.trim()) return;
+        const levels: Record<string, number> = {};
+        LEVEL_KEYS.forEach((levelKey) => {
+          const v = effect?.levels?.[levelKey];
+          if (typeof v === 'number') levels[levelKey] = v;
+        });
+        if (Object.keys(levels).length > 0) {
+          nextSkill.effects[key] = {
+            name: effect?.name?.trim() || key,
+            type: effect?.type?.trim() || '',
+            category: effect?.category?.trim() || 'condition',
+            levels,
+          };
+        }
+      });
+    } else if (skillKey === 'skill3' && hasOldEffects) {
+      // 旧格式迁移：从 effectTypes/effectCategories + level.passive/effects 收集
+      const effectKeys = new Set<string>();
+      Object.keys(rawSkill?.effectCategories ?? {}).forEach((key) => effectKeys.add(key));
+      Object.keys(rawSkill?.effectTypes ?? {}).forEach((key) => effectKeys.add(key));
+      const sourceLevels = rawSkill?.levels ?? {};
       Object.values(sourceLevels).forEach((level) => {
         if (level) {
           Object.keys(level.passive ?? {}).forEach((key) => effectKeys.add(key));
           Object.keys(level.effects ?? {}).forEach((key) => effectKeys.add(key));
         }
       });
-    }
-    nextSkill.effectCategories = Object.fromEntries(
-      Array.from(effectKeys).map((effectKey) => {
-        const rawCategory = sourceSkill?.effectCategories?.[effectKey];
-        const category = typeof rawCategory === 'string' && rawCategory.trim() ? rawCategory.trim() : 'condition';
-        return [effectKey, category];
-      }),
-    );
 
+      Array.from(effectKeys).forEach((effectKey) => {
+        const type = (rawSkill?.effectTypes?.[effectKey] || '').trim();
+        const rawCategory = rawSkill?.effectCategories?.[effectKey];
+        const category = typeof rawCategory === 'string' && rawCategory.trim()
+          ? rawCategory.trim()
+          : LEVEL_KEYS.some((levelKey) => typeof sourceLevels?.[levelKey]?.passive?.[effectKey] === 'number')
+            ? 'passive'
+            : 'condition';
+        const levels: Record<string, number> = {};
+        LEVEL_KEYS.forEach((levelKey) => {
+          const rawLevel = sourceLevels?.[levelKey];
+          if (!rawLevel) return;
+          const v = rawLevel.passive?.[effectKey]
+            ?? rawLevel.effects?.[effectKey];
+          if (typeof v === 'number') levels[levelKey] = v;
+        });
+        if (Object.keys(levels).length > 0) {
+          nextSkill.effects[effectKey] = { name: effectKey, type, category, levels };
+        }
+      });
+    }
+    // skill1/skill2 不需要 effects
+
+    // 复制 level 数据（只保留 value 和 description）
     Array.from({ length: 9 }, (_, index) => String(index + 1)).forEach((levelKey) => {
       const level = sourceSkill?.levels?.[levelKey];
       nextSkill.levels[levelKey] = {
         value: typeof level?.value === 'number' ? level.value : undefined,
         description: level?.description?.trim() || '',
-        passive: Object.fromEntries(Object.entries(level?.passive ?? {}).filter(([, value]) => typeof value === 'number')),
-        effects: Object.fromEntries(Object.entries(level?.effects ?? {}).filter(([, value]) => typeof value === 'number')),
       };
     });
 
@@ -595,7 +638,7 @@ function getEffectBuffType(skillKey: WeaponSkillKey, skill: WeaponSkillData, eff
   if (skillKey === 'skill1' || skillKey === 'skill2') {
     return getSkillAutoBuffType(skillKey, skill.statType);
   }
-  return skill.effectTypes[effectKey]?.trim() || '';
+  return skill.effects[effectKey]?.type || '';
 }
 
 const EFFECT_CATEGORY_OPTIONS = [
@@ -611,7 +654,7 @@ function getEffectCategory(skillKey: WeaponSkillKey, skill: WeaponSkillData, eff
   if (skillKey === 'skill1' || skillKey === 'skill2') {
     return 'condition';
   }
-  return skill.effectCategories[effectKey]?.trim() || 'condition';
+  return skill.effects[effectKey]?.category || 'condition';
 }
 
 function autoFillAttackGrowthMilestones(attackGrowth: Record<string, number>) {
@@ -644,28 +687,41 @@ function applyEffectLevelsInterpolation(
   bucket: WeaponEffectBucket,
   effectKey: string,
 ) {
-  const nextLevels = { ...draft.skills[skillKey].levels };
-  const startLevel = nextLevels['1'];
-  const endLevel = nextLevels['9'];
-  const startValue = bucket === 'value' ? startLevel.value : startLevel[bucket][effectKey];
-  const endValue = bucket === 'value' ? endLevel.value : endLevel[bucket][effectKey];
+  if (bucket === 'value') {
+    const nextLevels = { ...draft.skills[skillKey].levels };
+    const startLevel = nextLevels['1'];
+    const endLevel = nextLevels['9'];
+    const startValue = startLevel.value;
+    const endValue = endLevel.value;
+    if (!Number.isFinite(startValue) || !Number.isFinite(endValue)) {
+      return draft;
+    }
+    LEVEL_KEYS.forEach((levelKey, index) => {
+      const ratio = index / (LEVEL_KEYS.length - 1);
+      const interpolated = Number(startValue) + (Number(endValue) - Number(startValue)) * ratio;
+      nextLevels[levelKey] = { ...nextLevels[levelKey], value: Math.round(interpolated * 10000) / 10000 };
+    });
+    return {
+      ...draft,
+      skills: {
+        ...draft.skills,
+        [skillKey]: { ...draft.skills[skillKey], levels: nextLevels },
+      },
+    };
+  }
+  // effect bucket: read/write from skill.effects[effectKey].levels
+  const effect = draft.skills[skillKey].effects[effectKey];
+  if (!effect) return draft;
+  const startValue = effect.levels['1'];
+  const endValue = effect.levels['9'];
   if (!Number.isFinite(startValue) || !Number.isFinite(endValue)) {
     return draft;
   }
+  const nextEffectLevels = { ...effect.levels };
   LEVEL_KEYS.forEach((levelKey, index) => {
     const ratio = index / (LEVEL_KEYS.length - 1);
     const interpolated = Number(startValue) + (Number(endValue) - Number(startValue)) * ratio;
-    const rounded = Math.round(interpolated * 10000) / 10000;
-    const nextLevel = { ...nextLevels[levelKey] };
-    if (bucket === 'value') {
-      nextLevel.value = rounded;
-    } else {
-      nextLevel[bucket] = {
-        ...nextLevel[bucket],
-        [effectKey]: rounded,
-      };
-    }
-    nextLevels[levelKey] = nextLevel;
+    nextEffectLevels[levelKey] = Math.round(interpolated * 10000) / 10000;
   });
   return {
     ...draft,
@@ -673,7 +729,10 @@ function applyEffectLevelsInterpolation(
       ...draft.skills,
       [skillKey]: {
         ...draft.skills[skillKey],
-        levels: nextLevels,
+        effects: {
+          ...draft.skills[skillKey].effects,
+          [effectKey]: { ...effect, levels: nextEffectLevels },
+        },
       },
     },
   };
@@ -686,7 +745,7 @@ function buildWeaponEffectRowKey(
 ) {
   return bucket === 'value'
     ? `effect-${skillKey}-value`
-    : `effect-${skillKey}-${bucket}-${effectKey}`;
+    : `effect-${skillKey}-effect-${effectKey}`;
 }
 
 function buildWeaponEffectLevelsRowKey(
@@ -696,7 +755,14 @@ function buildWeaponEffectLevelsRowKey(
 ) {
   return bucket === 'value'
     ? `effect-levels-${skillKey}-value`
-    : `effect-levels-${skillKey}-${bucket}-${effectKey}`;
+    : `effect-levels-${skillKey}-effect-${effectKey}`;
+}
+
+function buildWeaponEffectIdText(
+  skillKey: WeaponSkillKey,
+  effectIndex: number,
+) {
+  return `${skillKey}-effect${effectIndex}`;
 }
 
 function parseInlineLevelAddress(address?: string | null) {
@@ -737,19 +803,9 @@ function buildWeaponSheetRows(draft: WeaponDraft): WeaponSheetRow[] {
 
   SKILL_KEYS.forEach((skillKey) => {
     const skill = draft.skills[skillKey];
+    const hasValue = LEVEL_KEYS.some((lk) => typeof skill.levels[lk].value === 'number');
     const effectCount = skillKey === 'skill3'
-      ? (() => {
-          const effectKeys = new Set<string>();
-          LEVEL_KEYS.forEach((levelKey) => {
-            const levelData = skill.levels[levelKey];
-            if (typeof levelData.value === 'number') {
-              effectKeys.add('__value__');
-            }
-            Object.keys(levelData.passive).forEach((key) => effectKeys.add(`passive:${key}`));
-            Object.keys(levelData.effects).forEach((key) => effectKeys.add(`effects:${key}`));
-          });
-          return effectKeys.size;
-        })()
+      ? Object.keys(skill.effects).length + (hasValue ? 1 : 0)
       : 1;
     rows.push({
       kind: 'skill',
@@ -799,19 +855,9 @@ function buildWeaponSheetRows(draft: WeaponDraft): WeaponSheetRow[] {
       return;
     }
 
-    const effectKeys = new Set<string>();
-    LEVEL_KEYS.forEach((levelKey) => {
-      const levelData = skill.levels[levelKey];
-      if (typeof levelData.value === 'number') {
-        effectKeys.add('__value__');
-      }
-      Object.keys(levelData.passive).forEach((key) => effectKeys.add(`passive:${key}`));
-      Object.keys(levelData.effects).forEach((key) => effectKeys.add(`effects:${key}`));
-    });
-
     let skill3EffectIndex = 1;
 
-    if (effectKeys.has('__value__')) {
+    if (hasValue) {
       rows.push({
         kind: 'effect',
         key: buildWeaponEffectRowKey(skillKey, 'value', 'value'),
@@ -819,7 +865,7 @@ function buildWeaponSheetRows(draft: WeaponDraft): WeaponSheetRow[] {
         bucket: 'value',
         sourceEffectKey: 'value',
         title: 'value',
-        idText: `${skillKey}-value`,
+        idText: buildWeaponEffectIdText(skillKey, skill3EffectIndex),
         slot: 'value',
         level: 'Lv1~Lv9',
         effectKey: 'value',
@@ -827,6 +873,7 @@ function buildWeaponSheetRows(draft: WeaponDraft): WeaponSheetRow[] {
         description: '技能主数值',
         searchText: buildSearchIndex([skill.name, skillKey, 'value']),
       });
+      skill3EffectIndex += 1;
       rows.push({
         kind: 'effectLevels',
         key: buildWeaponEffectLevelsRowKey(skillKey, 'value', 'value'),
@@ -844,44 +891,39 @@ function buildWeaponSheetRows(draft: WeaponDraft): WeaponSheetRow[] {
       });
     }
 
-    (['passive', 'effects'] as const).forEach((bucket) => {
-      const bucketKeys = new Set<string>();
-      LEVEL_KEYS.forEach((levelKey) => {
-        Object.keys(skill.levels[levelKey][bucket]).forEach((key) => bucketKeys.add(key));
+    // 遍历 skill.effects（插入顺序即显示顺序）
+    Object.entries(skill.effects).forEach(([effectKey, effectData]) => {
+      const buffType = effectData.type;
+      rows.push({
+        kind: 'effect',
+        key: buildWeaponEffectRowKey(skillKey, 'effect', effectKey),
+        skillKey,
+        bucket: 'effect',
+        sourceEffectKey: effectKey,
+        title: effectData.name,
+        idText: buildWeaponEffectIdText(skillKey, skill3EffectIndex),
+        slot: getEffectCategoryLabel(effectData.category),
+        level: 'Lv1~Lv9',
+        effectKey,
+        valueText: `${Object.keys(effectData.levels).length} 个等级`,
+        description: '',
+        searchText: buildSearchIndex([skill.name, skillKey, effectData.name, effectKey, buffType, getBuffTypeLabel(buffType)]),
       });
-      Array.from(bucketKeys).sort(new Intl.Collator('en', { numeric: true }).compare).forEach((effectKey) => {
-        const effectIdText = `${skillKey}-effect${skill3EffectIndex}`;
-        skill3EffectIndex += 1;
-        rows.push({
-          kind: 'effect',
-          key: buildWeaponEffectRowKey(skillKey, bucket, effectKey),
-          skillKey,
-          bucket,
-          sourceEffectKey: effectKey,
-          title: effectKey,
-          idText: effectIdText,
-          slot: getEffectCategoryLabel(getEffectCategory(skillKey, skill, effectKey)),
-          level: 'Lv1~Lv9',
-          effectKey,
-          valueText: `${LEVEL_KEYS.filter((levelKey) => typeof skill.levels[levelKey][bucket][effectKey] === 'number').length} 个等级`,
-          description: '',
-          searchText: buildSearchIndex([skill.name, skillKey, bucket, effectKey, getEffectBuffType(skillKey, skill, effectKey), getBuffTypeLabel(getEffectBuffType(skillKey, skill, effectKey))]),
-        });
-        rows.push({
-          kind: 'effectLevels',
-          key: buildWeaponEffectLevelsRowKey(skillKey, bucket, effectKey),
-          skillKey,
-          bucket,
-          sourceEffectKey: effectKey,
-          title: 'Lv',
-          idText: '',
-          slot: '',
-          level: '',
-          effectKey: '',
-          valueText: '',
-          description: '',
-          searchText: buildSearchIndex([skill.name, skillKey, bucket, effectKey, getEffectBuffType(skillKey, skill, effectKey), getBuffTypeLabel(getEffectBuffType(skillKey, skill, effectKey)), 'levels']),
-        });
+      skill3EffectIndex += 1;
+      rows.push({
+        kind: 'effectLevels',
+        key: buildWeaponEffectLevelsRowKey(skillKey, 'effect', effectKey),
+        skillKey,
+        bucket: 'effect',
+        sourceEffectKey: effectKey,
+        title: 'Lv',
+        idText: '',
+        slot: '',
+        level: '',
+        effectKey: '',
+        valueText: '',
+        description: '',
+        searchText: buildSearchIndex([skill.name, skillKey, effectData.name, effectKey, buffType, getBuffTypeLabel(buffType), 'levels']),
       });
     });
   });
@@ -951,17 +993,6 @@ function filterRows(rows: WeaponSheetRow[], keyword: string) {
   return rows.filter((row) => row.searchText.includes(normalizedKeyword));
 }
 
-function updateRecordKey<T>(record: Record<string, T>, sourceKey: string, nextKey: string) {
-  if (sourceKey === nextKey || !Object.prototype.hasOwnProperty.call(record, sourceKey)) {
-    return record;
-  }
-  const nextRecord: Record<string, T> = {};
-  Object.entries(record).forEach(([key, value]) => {
-    nextRecord[key === sourceKey ? nextKey : key] = value;
-  });
-  return nextRecord;
-}
-
 function moveRecordEntry<T>(record: Record<string, T>, fromKey: string, toKey: string) {
   const entries = Object.entries(record);
   const fromIndex = entries.findIndex(([key]) => key === fromKey);
@@ -981,29 +1012,19 @@ function reorderWeaponDraft(draft: WeaponDraft): WeaponDraft {
     const skill = draft.skills[skillKey];
     const nextSkill: WeaponSkillData = {
       ...skill,
-      effectTypes: { ...skill.effectTypes },
-      effectCategories: { ...skill.effectCategories },
-      levels: { ...skill.levels },
+      effects: { ...skill.effects },
+      levels: JSON.parse(JSON.stringify(skill.levels)),
     };
-    // Reorder effectTypes within each skill
-    const effectEntries = Object.entries(skill.effectTypes);
-    const reorderedEffectTypes: Record<string, string> = {};
-    const reorderedEffectCategories: Record<string, string> = {};
-    effectEntries.forEach(([effectKey, effectType], effectIndex) => {
-      const nextEffectKey = `effect${effectIndex + 1}`;
-      reorderedEffectTypes[nextEffectKey] = effectType;
-      reorderedEffectCategories[nextEffectKey] = skill.effectCategories?.[effectKey] || 'condition';
-      // Update effects in all levels
-      LEVEL_KEYS.forEach((levelKey) => {
-        const level = nextSkill.levels[levelKey];
-        if (level.effects[effectKey] !== undefined) {
-          level.effects[nextEffectKey] = level.effects[effectKey];
-          delete level.effects[effectKey];
-        }
+
+    if (skillKey === 'skill3') {
+      const effectEntries = Object.entries(nextSkill.effects);
+      const nextEffects: Record<string, WeaponEffectData> = {};
+      effectEntries.forEach(([_, effectData], index) => {
+        nextEffects[`effect${index + 1}`] = effectData;
       });
-    });
-    nextSkill.effectTypes = reorderedEffectTypes;
-    nextSkill.effectCategories = reorderedEffectCategories;
+      nextSkill.effects = nextEffects;
+    }
+
     nextSkills[skillKey] = nextSkill;
   });
 
@@ -1252,7 +1273,7 @@ export function WeaponDraftSheetPage() {
             key: `${skillKey}:effect-name`,
             focusId: 'effect-name',
             inputMode: 'text',
-            value: sourceEffectKey,
+            value: draft.skills[skillKey].effects[sourceEffectKey].name,
             placeholder: '效果名称',
             readOnly: bucket === 'value',
             apply: (baseDraft, rawInput) => {
@@ -1260,25 +1281,23 @@ export function WeaponDraftSheetPage() {
                 return baseDraft;
               }
               const trimmed = rawInput.trim();
-              if (!trimmed || trimmed === sourceEffectKey) {
+              if (!trimmed) {
                 return baseDraft;
               }
-              const nextLevels = { ...baseDraft.skills[skillKey].levels };
-              LEVEL_KEYS.forEach((levelKey) => {
-                nextLevels[levelKey] = {
-                  ...nextLevels[levelKey],
-                  [bucket]: updateRecordKey(nextLevels[levelKey][bucket], sourceEffectKey, trimmed),
+              const nextEffects = { ...baseDraft.skills[skillKey].effects };
+              if (nextEffects[sourceEffectKey]) {
+                nextEffects[sourceEffectKey] = {
+                  ...nextEffects[sourceEffectKey],
+                  name: trimmed,
                 };
-              });
-              const nextEffectTypes = updateRecordKey(baseDraft.skills[skillKey].effectTypes, sourceEffectKey, trimmed);
+              }
               return {
                 ...baseDraft,
                 skills: {
                   ...baseDraft.skills,
                   [skillKey]: {
                     ...baseDraft.skills[skillKey],
-                    effectTypes: nextEffectTypes,
-                    levels: nextLevels,
+                    effects: nextEffects,
                   },
                 },
               };
@@ -1287,7 +1306,7 @@ export function WeaponDraftSheetPage() {
         }
         if (selectedWorkbookCell?.columnKey === 'slot' && skillKey === 'skill3' && bucket !== 'value') {
           return {
-            key: `${skillKey}:${bucket}:${sourceEffectKey}:effect-category`,
+            key: `${skillKey}:effect:${sourceEffectKey}:effect-category`,
             focusId: 'effect-category',
             inputMode: 'text',
             control: 'select',
@@ -1296,11 +1315,12 @@ export function WeaponDraftSheetPage() {
             options: EFFECT_CATEGORY_OPTIONS,
             apply: (baseDraft, rawInput) => {
               const trimmed = rawInput.trim();
-              const nextEffectCategories = { ...baseDraft.skills[skillKey].effectCategories };
-              if (trimmed && EFFECT_CATEGORY_OPTIONS.some((option) => option.value === trimmed)) {
-                nextEffectCategories[sourceEffectKey] = trimmed;
-              } else {
-                delete nextEffectCategories[sourceEffectKey];
+              const nextEffects = { ...baseDraft.skills[skillKey].effects };
+              if (nextEffects[sourceEffectKey]) {
+                nextEffects[sourceEffectKey] = {
+                  ...nextEffects[sourceEffectKey],
+                  category: trimmed && EFFECT_CATEGORY_OPTIONS.some((option) => option.value === trimmed) ? trimmed : 'condition',
+                };
               }
               return {
                 ...baseDraft,
@@ -1308,7 +1328,7 @@ export function WeaponDraftSheetPage() {
                   ...baseDraft.skills,
                   [skillKey]: {
                     ...baseDraft.skills[skillKey],
-                    effectCategories: nextEffectCategories,
+                    effects: nextEffects,
                   },
                 },
               };
@@ -1345,20 +1365,21 @@ export function WeaponDraftSheetPage() {
         }
         if (skillKey === 'skill3') {
           return {
-            key: `${skillKey}:${bucket}:${sourceEffectKey}:buff-type`,
+            key: `${skillKey}:effect:${sourceEffectKey}:buff-type`,
             focusId: 'effect-buff-type',
             inputMode: 'text',
             control: 'search-select',
-            value: draft.skills[skillKey].effectTypes[sourceEffectKey] ?? '',
+            value: draft.skills[skillKey].effects[sourceEffectKey]?.type ?? '',
             placeholder: '',
             options: buffTypeOptions,
             apply: (baseDraft, rawInput) => {
               const trimmed = rawInput.trim();
-              const nextEffectTypes = { ...baseDraft.skills[skillKey].effectTypes };
-              if (trimmed) {
-                nextEffectTypes[sourceEffectKey] = trimmed;
-              } else {
-                delete nextEffectTypes[sourceEffectKey];
+              const nextEffects = { ...baseDraft.skills[skillKey].effects };
+              if (nextEffects[sourceEffectKey]) {
+                nextEffects[sourceEffectKey] = {
+                  ...nextEffects[sourceEffectKey],
+                  type: trimmed,
+                };
               }
               return {
                 ...baseDraft,
@@ -1366,7 +1387,7 @@ export function WeaponDraftSheetPage() {
                   ...baseDraft.skills,
                   [skillKey]: {
                     ...baseDraft.skills[skillKey],
-                    effectTypes: nextEffectTypes,
+                    effects: nextEffects,
                   },
                 },
               };
@@ -1379,31 +1400,8 @@ export function WeaponDraftSheetPage() {
           inputMode: 'text',
           value: sourceEffectKey,
           placeholder: '效果键',
-          apply: (baseDraft, rawInput) => {
-            const trimmed = rawInput.trim();
-            if (!trimmed || trimmed === sourceEffectKey) {
-              return baseDraft;
-            }
-            const nextLevels = { ...baseDraft.skills[skillKey].levels };
-            LEVEL_KEYS.forEach((levelKey) => {
-              nextLevels[levelKey] = {
-                ...nextLevels[levelKey],
-                [bucket]: updateRecordKey(nextLevels[levelKey][bucket], sourceEffectKey, trimmed),
-              };
-            });
-            const nextEffectTypes = updateRecordKey(baseDraft.skills[skillKey].effectTypes, sourceEffectKey, trimmed);
-            return {
-              ...baseDraft,
-              skills: {
-                ...baseDraft.skills,
-                [skillKey]: {
-                  ...baseDraft.skills[skillKey],
-                  effectTypes: nextEffectTypes,
-                  levels: nextLevels,
-                },
-              },
-            };
-          },
+          readOnly: true,
+          apply: (baseDraft) => baseDraft,
         };
       }
 
@@ -1425,10 +1423,9 @@ export function WeaponDraftSheetPage() {
     if (selectedWorkbookSummary.kind === 'effectLevels') {
       const inlineLevelKey = parseInlineLevelAddress(selectedWorkbookCell?.address);
       if (inlineLevelKey) {
-        const levelData = draft.skills[selectedWorkbookSummary.skillKey].levels[inlineLevelKey];
         const rawValue = selectedWorkbookSummary.bucket === 'value'
-          ? levelData.value
-          : levelData[selectedWorkbookSummary.bucket][selectedWorkbookSummary.sourceEffectKey];
+          ? draft.skills[selectedWorkbookSummary.skillKey].levels[inlineLevelKey]?.value
+          : draft.skills[selectedWorkbookSummary.skillKey].effects[selectedWorkbookSummary.sourceEffectKey]?.levels[inlineLevelKey];
         return {
           key: `${selectedWorkbookSummary.skillKey}:${selectedWorkbookSummary.bucket}:${selectedWorkbookSummary.sourceEffectKey}:level:${inlineLevelKey}`,
           focusId: 'effect-level-value',
@@ -1437,27 +1434,43 @@ export function WeaponDraftSheetPage() {
           placeholder: '',
           apply: (baseDraft, rawInput) => {
             const parsed = Number(rawInput);
-            const nextLevels = { ...baseDraft.skills[selectedWorkbookSummary.skillKey].levels };
-            const nextLevel = { ...nextLevels[inlineLevelKey] };
             if (selectedWorkbookSummary.bucket === 'value') {
-              nextLevel.value = rawInput.trim() && Number.isFinite(parsed) ? parsed : undefined;
-            } else {
-              const nextBucket = { ...nextLevel[selectedWorkbookSummary.bucket] };
-              if (rawInput.trim() && Number.isFinite(parsed)) {
-                nextBucket[selectedWorkbookSummary.sourceEffectKey] = parsed;
-              } else {
-                delete nextBucket[selectedWorkbookSummary.sourceEffectKey];
-              }
-              nextLevel[selectedWorkbookSummary.bucket] = nextBucket;
+              const nextLevels = { ...baseDraft.skills[selectedWorkbookSummary.skillKey].levels };
+              nextLevels[inlineLevelKey] = {
+                ...nextLevels[inlineLevelKey],
+                value: rawInput.trim() && Number.isFinite(parsed) ? parsed : undefined,
+              };
+              return {
+                ...baseDraft,
+                skills: {
+                  ...baseDraft.skills,
+                  [selectedWorkbookSummary.skillKey]: {
+                    ...baseDraft.skills[selectedWorkbookSummary.skillKey],
+                    levels: nextLevels,
+                  },
+                },
+              };
             }
-            nextLevels[inlineLevelKey] = nextLevel;
+            const nextEffects = { ...baseDraft.skills[selectedWorkbookSummary.skillKey].effects };
+            if (nextEffects[selectedWorkbookSummary.sourceEffectKey]) {
+              const nextLevels = { ...nextEffects[selectedWorkbookSummary.sourceEffectKey].levels };
+              if (rawInput.trim() && Number.isFinite(parsed)) {
+                nextLevels[inlineLevelKey] = parsed;
+              } else {
+                delete nextLevels[inlineLevelKey];
+              }
+              nextEffects[selectedWorkbookSummary.sourceEffectKey] = {
+                ...nextEffects[selectedWorkbookSummary.sourceEffectKey],
+                levels: nextLevels,
+              };
+            }
             return {
               ...baseDraft,
               skills: {
                 ...baseDraft.skills,
                 [selectedWorkbookSummary.skillKey]: {
                   ...baseDraft.skills[selectedWorkbookSummary.skillKey],
-                  levels: nextLevels,
+                  effects: nextEffects,
                 },
               },
             };
@@ -1687,37 +1700,27 @@ export function WeaponDraftSheetPage() {
   const handleCreateDraftEffect = useCallback((draftId: string, skillKey: WeaponSkillKey) => {
     updateLibraryDraft(draftId, (baseDraft) => {
       let effectIndex = 1;
-      while (LEVEL_KEYS.some((levelKey) => baseDraft.skills[skillKey].levels[levelKey].effects[`effect${effectIndex}`] != null)) {
+      while (baseDraft.skills[skillKey].effects[`effect${effectIndex}`]) {
         effectIndex += 1;
       }
       const effectKey = `effect${effectIndex}`;
-      const nextLevels = { ...baseDraft.skills[skillKey].levels };
-      LEVEL_KEYS.forEach((levelKey) => {
-        nextLevels[levelKey] = {
-          ...nextLevels[levelKey],
-          effects: {
-            ...nextLevels[levelKey].effects,
-            [effectKey]: 0,
-          },
-        };
-      });
+      const nextEffects = { ...baseDraft.skills[skillKey].effects };
+      const levels: Record<string, number> = {};
+      LEVEL_KEYS.forEach((levelKey) => { levels[levelKey] = 0; });
+      nextEffects[effectKey] = { name: effectKey, type: '', category: 'condition', levels };
       return {
         ...baseDraft,
         skills: {
           ...baseDraft.skills,
           [skillKey]: {
             ...baseDraft.skills[skillKey],
-            effectTypes: {
-              ...baseDraft.skills[skillKey].effectTypes,
-              [effectKey]: '',
-            },
-            levels: nextLevels,
+            effects: nextEffects,
           },
         },
       };
     }, {
       selectAfter: true,
-      focusRowKey: buildWeaponEffectRowKey(skillKey, 'effects', `effect${Object.keys((localLibrary[draftId] ?? draft).skills[skillKey].levels['1'].effects).length + 1}`),
+      focusRowKey: buildWeaponEffectRowKey(skillKey, 'effect', `effect${Object.keys((localLibrary[draftId] ?? draft).skills[skillKey].effects).length + 1}`),
     });
   }, [draft, localLibrary, updateLibraryDraft]);
 
@@ -1741,38 +1744,26 @@ export function WeaponDraftSheetPage() {
 
   const handleDeleteDraftEffect = useCallback((draftId: string, skillKey: WeaponSkillKey, bucket: WeaponEffectBucket, effectKey: string) => {
     updateLibraryDraft(draftId, (baseDraft) => {
-      const nextLevels = { ...baseDraft.skills[skillKey].levels };
-      LEVEL_KEYS.forEach((levelKey) => {
-        const nextLevel = nextLevels[levelKey];
-        if (bucket === 'value') {
-          nextLevels[levelKey] = {
-            ...nextLevel,
-            value: undefined,
-          };
-          return;
-        }
-        const nextBucket = { ...nextLevel[bucket] };
-        delete nextBucket[effectKey];
-        nextLevels[levelKey] = {
-          ...nextLevel,
-          [bucket]: nextBucket,
+      if (bucket === 'value') {
+        const nextLevels = { ...baseDraft.skills[skillKey].levels };
+        LEVEL_KEYS.forEach((levelKey) => {
+          nextLevels[levelKey] = { ...nextLevels[levelKey], value: undefined };
+        });
+        return {
+          ...baseDraft,
+          skills: {
+            ...baseDraft.skills,
+            [skillKey]: { ...baseDraft.skills[skillKey], levels: nextLevels },
+          },
         };
-      });
+      }
+      const nextEffects = { ...baseDraft.skills[skillKey].effects };
+      delete nextEffects[effectKey];
       return {
         ...baseDraft,
         skills: {
           ...baseDraft.skills,
-          [skillKey]: {
-            ...baseDraft.skills[skillKey],
-            effectTypes: bucket === 'value'
-              ? baseDraft.skills[skillKey].effectTypes
-              : (() => {
-                  const nextEffectTypes = { ...baseDraft.skills[skillKey].effectTypes };
-                  delete nextEffectTypes[effectKey];
-                  return nextEffectTypes;
-                })(),
-            levels: nextLevels,
-          },
+          [skillKey]: { ...baseDraft.skills[skillKey], effects: nextEffects },
         },
       };
     }, {
@@ -1783,53 +1774,31 @@ export function WeaponDraftSheetPage() {
 
   const handleDuplicateDraftEffect = useCallback((draftId: string, skillKey: WeaponSkillKey, bucket: WeaponEffectBucket, effectKey: string) => {
     const currentSkill = draft.skills[skillKey];
+    if (bucket === 'value') {
+      // value 效果不可复制
+      return;
+    }
     let effectIndex = 1;
-    while (currentSkill.effectTypes[`effect${effectIndex}`]) {
+    while (currentSkill.effects[`effect${effectIndex}`]) {
       effectIndex += 1;
     }
     const newEffectKey = `effect${effectIndex}`;
-    const effectType = currentSkill.effectTypes[effectKey];
+    const sourceEffect = currentSkill.effects[effectKey];
+    if (!sourceEffect) return;
 
     updateLibraryDraft(draftId, (baseDraft) => {
-      const skill = baseDraft.skills[skillKey];
-      const nextLevels = { ...skill.levels };
-      LEVEL_KEYS.forEach((levelKey) => {
-        const level = nextLevels[levelKey];
-        const sourceValue = bucket === 'value' ? level.value : level[bucket][effectKey];
-        if (bucket === 'value') {
-          nextLevels[levelKey] = { ...level, value: sourceValue };
-        } else {
-          nextLevels[levelKey] = {
-            ...level,
-            [bucket]: {
-              ...level[bucket],
-              [newEffectKey]: sourceValue ?? 0,
-            },
-          };
-        }
-      });
-
+      const nextEffects = { ...baseDraft.skills[skillKey].effects };
+      nextEffects[newEffectKey] = { ...sourceEffect };
       return {
         ...baseDraft,
         skills: {
           ...baseDraft.skills,
-          [skillKey]: {
-            ...skill,
-            effectTypes: {
-              ...skill.effectTypes,
-              [newEffectKey]: effectType || 'atkPercentBoost',
-            },
-            effectCategories: {
-              ...skill.effectCategories,
-              [newEffectKey]: skill.effectCategories[effectKey] || 'condition',
-            },
-            levels: nextLevels,
-          },
+          [skillKey]: { ...baseDraft.skills[skillKey], effects: nextEffects },
         },
       };
     }, {
       selectAfter: true,
-      focusRowKey: buildWeaponEffectRowKey(skillKey, bucket, newEffectKey),
+      focusRowKey: buildWeaponEffectRowKey(skillKey, 'effect', newEffectKey),
     });
   }, [draft, updateLibraryDraft]);
 
@@ -2138,7 +2107,9 @@ export function WeaponDraftSheetPage() {
     if (!skill) {
       return node.effectKey;
     }
-    return skill.effectTypes[node.effectKey] || node.effectKey;
+    //这里对了
+    return skill.effects[node.effectKey].name;
+    
   }, [localLibrary]);
 
   const clearPendingExplorerDrag = useCallback(() => {
@@ -2177,7 +2148,7 @@ export function WeaponDraftSheetPage() {
     if (source.kind !== 'effect') {
       return false;
     }
-    return source.draftId === target.draftId && source.skillKey === target.skillKey;
+    return source.draftId === target.draftId && source.skillKey === target.skillKey && source.bucket === target.bucket && source.bucket !== 'value';
   }, [canStartExplorerDrag, getExplorerDragNodeKey]);
 
   const resolveExplorerDragNodeFromElement = useCallback((element: Element | null): WeaponExplorerDragNode | null => {
@@ -2226,35 +2197,25 @@ export function WeaponDraftSheetPage() {
       // This is a simplified implementation
       setDraft(nextDraft);
       window.localStorage.setItem(WEAPON_DRAFT_STORAGE_KEY, JSON.stringify(nextDraft));
-    } else if (source.kind === 'effect' && target.kind === 'effect' && source.draftId === target.draftId && source.skillKey === target.skillKey) {
-      // Reorder effects within a skill
+    } else if (source.kind === 'effect' && target.kind === 'effect' && source.draftId === target.draftId && source.skillKey === target.skillKey && source.bucket === target.bucket && source.bucket !== 'value') {
+      // effects record 的插入顺序即显示顺序，拖拽直接移动 entry
       const targetDraft = localLibrary[source.draftId] || draft;
-      const skill = targetDraft.skills[source.skillKey];
-      const nextEffectTypes = moveRecordEntry(skill.effectTypes, source.effectKey, target.effectKey);
-      // Also need to reorder effects in all levels
-      const nextLevels: Record<string, WeaponLevelData> = {};
-      Object.entries(skill.levels).forEach(([levelKey, level]) => {
-        nextLevels[levelKey] = {
-          ...level,
-          effects: moveRecordEntry(level.effects, source.effectKey, target.effectKey),
-        };
-      });
-      const nextSkill: WeaponSkillData = {
-        ...skill,
-        effectTypes: nextEffectTypes,
-        levels: nextLevels,
-      };
+      const nextEffects = moveRecordEntry(targetDraft.skills[source.skillKey].effects, source.effectKey, target.effectKey);
       const nextDraft: WeaponDraft = {
         ...targetDraft,
         skills: {
           ...targetDraft.skills,
-          [source.skillKey]: nextSkill,
+          [source.skillKey]: {
+            ...targetDraft.skills[source.skillKey],
+            effects: nextEffects,
+          },
         },
       };
+      if (targetDraft.id === draft.id) {
+        setDraft(nextDraft);
+      }
       const nextLibrary = { ...localLibrary, [source.draftId]: nextDraft };
-      setDraft(nextDraft);
       setLocalLibrary(nextLibrary);
-      window.localStorage.setItem(WEAPON_DRAFT_STORAGE_KEY, JSON.stringify(nextDraft));
       window.localStorage.setItem(WEAPON_LIBRARY_STORAGE_KEY, JSON.stringify(nextLibrary));
     }
   }, [draft, isValidExplorerDropTarget, localLibrary]);
@@ -2680,7 +2641,7 @@ export function WeaponDraftSheetPage() {
                               >
                                 {isSkillCollapsed ? '[+]' : '[-]'}
                               </span>
-                              <span className="buff-sheet-explorer-label">{explorerDraft.skills[skillKey].name || skillKey}</span>
+                              <span className="buff-sheet-explorer-label">{getExplorerDragNodeLabel(skillDragNode)}</span>
                             </button>
                             {!isSkillCollapsed ? (
                               <div className="buff-sheet-explorer-children">
@@ -2727,7 +2688,8 @@ export function WeaponDraftSheetPage() {
                                         >
                                           {isEffectCollapsed ? '[+]' : '[-]'}
                                         </span>
-                                        <span className="buff-sheet-explorer-label">{row.effectKey}</span>
+                                        {/* 资源管理器这里显示 effect.name（已映射到 row.title），不能直接用 row.effectKey，否则会退回成 effect1/effect2。 */}
+                                        <span className="buff-sheet-explorer-label">{row.title}</span>
                                         <span className="buff-sheet-explorer-count">Lv1~Lv9</span>
                                       </button>
                                     </div>
@@ -2814,10 +2776,9 @@ export function WeaponDraftSheetPage() {
                       <div className="weapon-sheet-growth-inline-grid weapon-sheet-levels-inline-grid">
                         {LEVEL_KEYS.map((levelKey) => {
                           const sourceRow = row.sourceRow as Extract<WeaponSheetRow, { kind: 'effectLevels' }>;
-                          const levelData = draft.skills[sourceRow.skillKey].levels[levelKey];
                           const value = sourceRow.bucket === 'value'
-                            ? levelData.value
-                            : levelData[sourceRow.bucket][sourceRow.sourceEffectKey];
+                            ? draft.skills[sourceRow.skillKey].levels[levelKey]?.value
+                            : draft.skills[sourceRow.skillKey].effects[sourceRow.sourceEffectKey]?.levels[levelKey];
                           const inlineAddress = `Lv${levelKey}`;
                           const isInlineActive = selectedWorkbookCell?.sourceRowKey === sourceRow.key && selectedWorkbookCell.address === inlineAddress;
                           return (
@@ -2841,27 +2802,43 @@ export function WeaponDraftSheetPage() {
                                   const rawValue = event.target.value;
                                   setDraft((prev) => {
                                     const parsed = Number(rawValue);
-                                    const nextLevels = { ...prev.skills[sourceRow.skillKey].levels };
-                                    const nextLevel = { ...nextLevels[levelKey] };
                                     if (sourceRow.bucket === 'value') {
-                                      nextLevel.value = rawValue.trim() && Number.isFinite(parsed) ? parsed : undefined;
-                                    } else {
-                                      const nextBucket = { ...nextLevel[sourceRow.bucket] };
-                                      if (rawValue.trim() && Number.isFinite(parsed)) {
-                                        nextBucket[sourceRow.sourceEffectKey] = parsed;
-                                      } else {
-                                        delete nextBucket[sourceRow.sourceEffectKey];
-                                      }
-                                      nextLevel[sourceRow.bucket] = nextBucket;
+                                      const nextLevels = { ...prev.skills[sourceRow.skillKey].levels };
+                                      nextLevels[levelKey] = {
+                                        ...nextLevels[levelKey],
+                                        value: rawValue.trim() && Number.isFinite(parsed) ? parsed : undefined,
+                                      };
+                                      return {
+                                        ...prev,
+                                        skills: {
+                                          ...prev.skills,
+                                          [sourceRow.skillKey]: {
+                                            ...prev.skills[sourceRow.skillKey],
+                                            levels: nextLevels,
+                                          },
+                                        },
+                                      };
                                     }
-                                    nextLevels[levelKey] = nextLevel;
+                                    const nextEffects = { ...prev.skills[sourceRow.skillKey].effects };
+                                    if (nextEffects[sourceRow.sourceEffectKey]) {
+                                      const nextLevels = { ...nextEffects[sourceRow.sourceEffectKey].levels };
+                                      if (rawValue.trim() && Number.isFinite(parsed)) {
+                                        nextLevels[levelKey] = parsed;
+                                      } else {
+                                        delete nextLevels[levelKey];
+                                      }
+                                      nextEffects[sourceRow.sourceEffectKey] = {
+                                        ...nextEffects[sourceRow.sourceEffectKey],
+                                        levels: nextLevels,
+                                      };
+                                    }
                                     return {
                                       ...prev,
                                       skills: {
                                         ...prev.skills,
                                         [sourceRow.skillKey]: {
                                           ...prev.skills[sourceRow.skillKey],
-                                          levels: nextLevels,
+                                          effects: nextEffects,
                                         },
                                       },
                                     };
