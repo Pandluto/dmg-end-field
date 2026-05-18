@@ -1120,6 +1120,11 @@ export function WeaponDraftSheetPage() {
       return null;
     }
 
+    // 对于 effectLevels 类型，必须解析 address 来确定具体的 level
+    const inlineLevelKey = selectedWorkbookSummary.kind === 'effectLevels'
+      ? parseInlineLevelAddress(selectedWorkbookCell?.address)
+      : '';
+
     if (selectedWorkbookSummary.kind === 'weapon') {
       if (selectedWorkbookCell?.columnKey === 'slot') {
         return {
@@ -1421,13 +1426,12 @@ export function WeaponDraftSheetPage() {
     }
 
     if (selectedWorkbookSummary.kind === 'effectLevels') {
-      const inlineLevelKey = parseInlineLevelAddress(selectedWorkbookCell?.address);
       if (inlineLevelKey) {
         const rawValue = selectedWorkbookSummary.bucket === 'value'
           ? draft.skills[selectedWorkbookSummary.skillKey].levels[inlineLevelKey]?.value
           : draft.skills[selectedWorkbookSummary.skillKey].effects[selectedWorkbookSummary.sourceEffectKey]?.levels[inlineLevelKey];
         return {
-          key: `${selectedWorkbookSummary.skillKey}:${selectedWorkbookSummary.bucket}:${selectedWorkbookSummary.sourceEffectKey}:level:${inlineLevelKey}`,
+          key: `${selectedWorkbookSummary.skillKey}:${selectedWorkbookSummary.bucket}:${selectedWorkbookSummary.sourceEffectKey}:level:${inlineLevelKey}:${selectedWorkbookCell?.address ?? ''}`,
           focusId: 'effect-level-value',
           inputMode: 'number',
           value: rawValue == null ? '' : String(rawValue),
@@ -1489,7 +1493,7 @@ export function WeaponDraftSheetPage() {
     }
 
     return null;
-  }, [draft, selectedWorkbookCell?.columnKey, selectedWorkbookSummary]);
+  }, [draft, selectedWorkbookCell?.columnKey, selectedWorkbookCell?.address, selectedWorkbookCell?.sourceRowKey, selectedWorkbookSummary]);
 
   useEffect(() => {
     setFormulaInput(formulaBinding?.value ?? '');

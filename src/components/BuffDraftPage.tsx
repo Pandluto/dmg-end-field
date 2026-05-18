@@ -625,20 +625,41 @@ function formatEffectValueForDisplay(effect: Partial<BuffEffectDraft>) {
   return `${numericValue}`;
 }
 
+function escapeRegExp(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function sanitizeExplicitEffectDisplayName(displayName: string, typeLabel: string) {
+  if (!typeLabel) {
+    return displayName;
+  }
+
+  const escapedTypeLabel = escapeRegExp(typeLabel);
+  const repeatedTokenPattern = String.raw`(\d+(?:\.\d+)?(?:%|x)?)(?:\1)+`;
+  const naturalSentencePattern = new RegExp(`(^|[，,：:、\\s])((?:\\d+(?:\\.\\d+)?(?:%|x)?)+)(${escapedTypeLabel})(?=\\s*[+\\-]\\d)`);
+  const repeatedBeforeTypePattern = new RegExp(`(^|[，,：:、\\s])(${repeatedTokenPattern})(${escapedTypeLabel})`);
+
+  const normalizedNaturalSentence = displayName.replace(naturalSentencePattern, '$1$3');
+  return normalizedNaturalSentence.replace(repeatedBeforeTypePattern, '$1$3');
+}
+
 function buildFallbackEffectDisplayName(effectKey: string, effect: Partial<BuffEffectDraft>, fallbackName: string) {
   const explicitDisplayName = effect.displayName?.trim();
   const typeLabel = getBuffTypePlainLabel(effect.type);
   const valueLabel = formatEffectValueForDisplay(effect);
 
   if (explicitDisplayName) {
-    if (typeLabel && valueLabel) {
-      const hasTypeLabel = explicitDisplayName.includes(typeLabel);
-      const alreadyHasValuePrefix = explicitDisplayName.startsWith(valueLabel);
-      if (hasTypeLabel && !alreadyHasValuePrefix) {
-        return explicitDisplayName.replace(typeLabel, `${valueLabel}${typeLabel}`);
-      }
+    const defaultDisplayName = createDefaultBuffDisplayName(effectKey);
+    const isSystemGeneratedName = explicitDisplayName === fallbackName || explicitDisplayName === defaultDisplayName;
+    const isBareTypeLabel = !!typeLabel && explicitDisplayName === typeLabel;
+
+    // 这里必须保证幂等：
+    // - 用户/导入方已经写好的自然语言 displayName 不允许在刷新时被再次加工
+    // - 只有系统默认名，或纯类型名，才允许按“数值 + 类型”自动生成
+    if ((isSystemGeneratedName || isBareTypeLabel) && typeLabel) {
+      return valueLabel ? `${valueLabel}${typeLabel}` : typeLabel;
     }
-    return explicitDisplayName;
+    return sanitizeExplicitEffectDisplayName(explicitDisplayName, typeLabel);
   }
 
   if (typeLabel) {

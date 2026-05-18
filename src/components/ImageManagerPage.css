@@ -1,289 +1,123 @@
-/* ── Image Manager Page ── */
-/* Visual language inherits from BuffDraftPage / WeaponDraftPage */
-/* Primary accent: Excel green (#217346), not blue */
+/* ── ImageManager: thin overrides on top of damage-sheet / buff-sheet system ── */
 
-.image-manager-page {
-  height: 100vh;
-  overflow: hidden;
-  padding: 12px;
-  box-sizing: border-box;
-  background: #eef1f6;
-  color: #1f2634;
-  font-size: 12px;
-}
-
-.image-manager-shell {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  height: calc(100vh - 24px);
-  min-height: calc(100vh - 24px);
-}
-
-/* ── Toolbar ── */
-
-.image-manager-toolbar {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 10px;
-  border: 1px solid #d8dde7;
-  background: #ffffff;
-  box-shadow: 0 1px 2px rgba(24, 92, 55, 0.08);
-  flex-shrink: 0;
-}
-
-.image-manager-toolbar-left {
-  flex-shrink: 0;
-}
-
-.image-manager-title {
-  margin: 0;
-  font-size: 14px;
-  color: #1a1a1a;
-  white-space: nowrap;
-}
-
-.image-manager-toolbar-center {
-  flex: 1;
-  min-width: 0;
-}
-
-.image-manager-search {
-  width: 100%;
-  max-width: 320px;
-  padding: 6px 10px;
-  border: 1px solid #cfd6e2;
-  background: #ffffff;
-  color: #1f2634;
-  font: inherit;
-  font-size: 12px;
-  box-sizing: border-box;
-}
-
-.image-manager-search:focus {
-  outline: none;
-  border-color: var(--excel-green-main, #217346);
-  box-shadow: var(--theme-focus-ring, 0 0 0 2px rgba(80, 200, 120, 0.28));
-}
-
-.image-manager-toolbar-right {
-  display: flex;
-  gap: 6px;
-  flex-shrink: 0;
-}
-
-/* ── Buttons (matching buff-sheet-tool-button) ── */
-
-.image-manager-btn {
-  min-height: 26px;
-  padding: 4px 10px;
-  border: 1px solid transparent;
-  background: transparent;
-  color: var(--office-body, #1f2634);
-  font: inherit;
-  font-size: 12px;
-  cursor: pointer;
-  white-space: nowrap;
-  box-sizing: border-box;
-}
-
-.image-manager-btn:hover:not(:disabled) {
-  box-shadow: inset 0 0 0 1px var(--excel-green-main, #217346);
-  background: linear-gradient(180deg, #fbfdfb 0%, #edf5ef 100%);
-  color: var(--excel-green-main, #217346);
-}
-
-.image-manager-btn:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
-  color: #8a8a8a;
-}
-
-.image-manager-btn.is-active {
-  box-shadow: inset 0 0 0 1px var(--excel-green-main, #217346);
-  background: linear-gradient(180deg, #eff7f1 0%, #e2f0e5 100%);
-  color: var(--excel-green-main, #217346);
-}
-
-.image-manager-btn.is-disabled {
-  opacity: 0.5;
-  cursor: help;
-  color: #8a8a8a;
-}
-
-.image-manager-btn-danger {
-  /* default same as normal */;
-}
-
-.image-manager-btn-danger:hover:not(:disabled) {
-  box-shadow: inset 0 0 0 1px #a43e31;
-  background: linear-gradient(180deg, #fefaf9 0%, #fdf2f0 100%);
-  color: #a43e31;
+/* 3-column workspace */
+.buff-sheet-page .damage-sheet-workspace {
+  grid-template-columns: 220px minmax(0, 1fr) 280px;
 }
 
 /* ── Toast ── */
-
 .image-manager-toast {
-  padding: 8px 12px;
-  border: 1px solid var(--excel-green-main, #217346);
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--office-border, #d1d1d1);
   background: var(--ide-bg-hover, #edf5f0);
-  color: var(--excel-green-dark, #185c37);
-  font-size: 12px;
-  flex-shrink: 0;
-}
-
-/* ── Workbench grid ── */
-
-.image-manager-workbench {
-  flex: 1;
-  display: grid;
-  grid-template-columns: 200px minmax(0, 1fr) 280px;
-  gap: 10px;
-  min-height: 0;
-  height: 100%;
-  align-items: stretch;
-}
-
-/* ── Sidebar ── */
-
-.image-manager-sidebar {
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  border: 1px solid #d8dde7;
-  background: #ffffff;
-  box-shadow: 0 1px 2px rgba(24, 92, 55, 0.08);
-  overflow: hidden;
-}
-
-.image-manager-panel-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 10px;
-  border-bottom: 1px solid #e1e6ef;
-  flex-shrink: 0;
-}
-
-.image-manager-panel-header h3 {
-  margin: 0;
-  font-size: 13px;
-  color: #1f2634;
-}
-
-.image-manager-dir-list {
-  flex: 1;
-  list-style: none;
-  margin: 0;
-  padding: 6px;
-  overflow: auto;
-  display: grid;
-  gap: 2px;
-  align-content: start;
-}
-
-.image-manager-dir-item {
-  width: 100%;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 6px 8px;
-  border: 1px solid transparent;
-  background: transparent;
-  color: var(--office-body, #1f2634);
-  font: inherit;
-  font-size: 12px;
-  cursor: pointer;
-  text-align: left;
-  box-sizing: border-box;
-}
-
-.image-manager-dir-item:hover {
-  border-color: var(--excel-green-main, #217346);
-  background: var(--ide-bg-hover, #edf5f0);
-  color: var(--excel-green-main, #217346);
-}
-
-.image-manager-dir-item.is-active {
-  border-color: var(--excel-green-main, #217346);
-  background: var(--ide-bg-active, #e1f0e7);
-  color: var(--excel-green-main, #217346);
-}
-
-.image-manager-dir-parent {
-  font-weight: 600;
-}
-
-.image-manager-dir-child {
-  padding-left: 28px;
-  font-weight: 400;
-}
-
-.image-manager-dir-arrow {
-  width: 14px;
-  font-size: 10px;
-  flex-shrink: 0;
-  color: var(--text-muted, #5f6f65);
-}
-
-.image-manager-dir-label {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.image-manager-dir-sublist {
-  list-style: none;
-  margin: 0;
-  padding: 0 0 0 12px;
-  display: grid;
-  gap: 1px;
-}
-
-.image-manager-dir-count {
+  color: var(--excel-green-deep, #185c37);
   font-size: 11px;
-  color: var(--text-muted, #5f6f65);
+  font-weight: 600;
   flex-shrink: 0;
 }
 
+/* ── Explorer: sidebar hint ── */
 .image-manager-sidebar-hint {
   margin: 0;
   padding: 8px 10px;
   font-size: 10px;
   color: #8e7130;
-  border-top: 1px solid #e1e6ef;
+  border-top: 1px solid var(--office-border, #d1d1d1);
   flex-shrink: 0;
 }
 
-/* ── Main grid ── */
-
-.image-manager-main {
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  border: 1px solid #d8dde7;
-  background: #ffffff;
-  box-shadow: 0 1px 2px rgba(24, 92, 55, 0.08);
-  overflow: hidden;
+/* ── Asset list table (default view) ── */
+.image-manager-asset-table-wrap {
+  flex: 1;
+  overflow: auto;
+  min-height: 0;
 }
 
-.image-manager-count {
-  margin-left: 8px;
-  font-size: 11px;
+.image-manager-asset-table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+
+.image-manager-asset-table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: 6px 8px;
+  border-right: 1px solid var(--office-border, #d1d1d1);
+  border-bottom: 1px solid var(--office-border, #d1d1d1);
+  background: var(--office-workspace-panel-bg, #e8ebf0);
   color: var(--text-muted, #5f6f65);
-  font-weight: 400;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  text-align: left;
+  white-space: nowrap;
 }
 
-.image-manager-grid {
+.image-manager-asset-table td {
+  padding: 4px 8px;
+  border-right: 1px solid var(--office-border, #d1d1d1);
+  border-bottom: 1px solid var(--office-border, #d1d1d1);
+  font-size: 11px;
+  color: var(--office-body, #333333);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.image-manager-asset-table tr:hover td {
+  background: var(--ide-bg-hover, #edf5f0);
+}
+
+.image-manager-asset-table tr.is-selected td {
+  background: var(--ide-bg-active, #e1f0e7);
+}
+
+.image-manager-asset-table .col-thumb { width: 56px; text-align: center; }
+.image-manager-asset-table .col-name  { width: auto; }
+.image-manager-asset-table .col-dir   { width: 120px; }
+.image-manager-asset-table .col-type  { width: 60px; text-align: center; }
+.image-manager-asset-table .col-size  { width: 80px; text-align: right; }
+.image-manager-asset-table .col-stat  { width: 60px; text-align: center; }
+
+.image-manager-table-thumb {
+  width: 40px;
+  height: 40px;
+  object-fit: contain;
+  display: block;
+  margin: 0 auto;
+}
+
+.image-manager-table-thumb-box {
+  width: 40px;
+  height: 40px;
+  margin: 0 auto;
+  background-color: #2a2a2a;
+  background-image:
+    linear-gradient(45deg, #3a3a3a 25%, transparent 25%),
+    linear-gradient(-45deg, #3a3a3a 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, #3a3a3a 75%),
+    linear-gradient(-45deg, transparent 75%, #3a3a3a 75%);
+  background-size: 12px 12px;
+  background-position: 0 0, 0 6px, 6px -6px, -6px 0px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.image-manager-stat-writable { color: var(--excel-green-main, #217346); font-weight: 600; }
+.image-manager-stat-readonly { color: #8e7130; }
+
+/* ── Asset grid (secondary view) ── */
+.image-manager-asset-grid {
   flex: 1;
   overflow: auto;
   padding: 8px;
   display: grid;
   grid-template-columns: repeat(auto-fill, 80px);
-  gap: 10px;
+  gap: 8px;
   align-content: start;
   justify-content: center;
 }
@@ -298,8 +132,8 @@
   width: 100%;
   height: 100%;
   box-sizing: border-box;
-  border: 1px solid #d8dde7;
-  background: #ffffff;
+  border: 1px solid var(--office-border, #d1d1d1);
+  background: var(--office-card-bg, #ffffff);
   cursor: pointer;
   padding: 0;
   font: inherit;
@@ -318,24 +152,23 @@
   box-shadow: 0 0 0 1px var(--excel-green-main, #217346);
 }
 
-.image-manager-thumb {
+.image-manager-grid-thumb {
   position: relative;
   width: 100%;
   aspect-ratio: 1 / 1;
   display: block;
   overflow: hidden;
-  /* Dark checkerboard for transparent PNG visibility */
   background-color: #2a2a2a;
   background-image:
     linear-gradient(45deg, #3a3a3a 25%, transparent 25%),
     linear-gradient(-45deg, #3a3a3a 25%, transparent 25%),
     linear-gradient(45deg, transparent 75%, #3a3a3a 75%),
     linear-gradient(-45deg, transparent 75%, #3a3a3a 75%);
-  background-size: 16px 16px;
-  background-position: 0 0, 0 8px, 8px -8px, -8px 0px;
+  background-size: 12px 12px;
+  background-position: 0 0, 0 6px, 6px -6px, -6px 0px;
 }
 
-.image-manager-thumb img {
+.image-manager-grid-thumb img {
   display: block;
   width: 100%;
   height: 100%;
@@ -344,30 +177,30 @@
   z-index: 1;
 }
 
-.image-manager-thumb-fallback {
+.image-manager-grid-fallback {
   display: none;
   position: absolute;
   inset: 0;
   align-items: center;
   justify-content: center;
-  font-size: 18px;
+  font-size: 14px;
   font-weight: 700;
   color: #5f6f65;
   z-index: 2;
 }
 
 .image-manager-grid-info {
-  padding: 4px 6px;
-  border-top: 1px solid #e1e6ef;
+  padding: 2px 4px;
+  border-top: 1px solid var(--office-border, #d1d1d1);
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 2px;
 }
 
 .image-manager-grid-name {
   display: block;
-  font-size: 11px;
-  color: #1f2634;
+  font-size: 10px;
+  color: var(--office-body, #333333);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -376,35 +209,12 @@
 }
 
 .image-manager-grid-lock {
-  font-size: 10px;
+  font-size: 9px;
   flex-shrink: 0;
   opacity: 0.5;
 }
 
-/* ── Empty state ── */
-
-.image-manager-empty {
-  flex: 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--text-muted, #5f6f65);
-  font-size: 12px;
-  padding: 20px;
-}
-
-/* ── Preview panel ── */
-
-.image-manager-preview {
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  border: 1px solid #d8dde7;
-  background: #ffffff;
-  box-shadow: 0 1px 2px rgba(24, 92, 55, 0.08);
-  overflow: hidden;
-}
-
+/* ── Preview panel (right sidebar) ── */
 .image-manager-preview-body {
   flex: 1;
   display: flex;
@@ -413,56 +223,23 @@
   min-height: 0;
 }
 
-/* ── Preview badges ── */
-
-.image-manager-preview-badge {
-  padding: 6px 12px;
-  border-bottom: 1px solid #e1e6ef;
-  display: flex;
-  gap: 6px;
-}
-
-.image-manager-badge-writable,
-.image-manager-badge-readonly {
-  display: inline-block;
-  padding: 2px 8px;
-  font-size: 10px;
-  border: 1px solid;
-}
-
-.image-manager-badge-writable {
-  border-color: var(--excel-green-main, #217346);
-  color: var(--excel-green-main, #217346);
-  background: var(--ide-bg-active, #e1f0e7);
-}
-
-.image-manager-badge-readonly {
-  border-color: #8e7130;
-  color: #8e7130;
-  background: #fdf8ed;
-}
-
-/* ── Preview image ── */
-
 .image-manager-preview-image {
   position: relative;
-  padding: 12px;
   display: flex;
   align-items: center;
   justify-content: center;
-  border-bottom: 1px solid #e1e6ef;
+  border-bottom: 1px solid var(--office-border, #d1d1d1);
   min-height: 160px;
-  max-height: 280px;
+  max-height: 220px;
   overflow: hidden;
-  /* Dark checkerboard for transparent PNG visibility */
   background-color: #2a2a2a;
   background-image:
     linear-gradient(45deg, #3a3a3a 25%, transparent 25%),
     linear-gradient(-45deg, #3a3a3a 25%, transparent 25%),
     linear-gradient(45deg, transparent 75%, #3a3a3a 75%),
     linear-gradient(-45deg, transparent 75%, #3a3a3a 75%);
-  background-size: 16px 16px;
-  background-position: 0 0, 0 8px, 8px -8px, -8px 0px;
+  background-size: 14px 14px;
+  background-position: 0 0, 0 7px, 7px -7px, -7px 0px;
 }
 
 .image-manager-preview-image img {
@@ -479,7 +256,7 @@
   inset: 0;
   align-items: center;
   justify-content: center;
-  font-size: 24px;
+  font-size: 20px;
   font-weight: 700;
   color: #5f6f65;
   z-index: 2;
@@ -490,8 +267,8 @@
   align-items: center;
   justify-content: center;
   gap: 8px;
-  padding: 8px;
-  border-bottom: 1px solid #e1e6ef;
+  padding: 6px;
+  border-bottom: 1px solid var(--office-border, #d1d1d1);
 }
 
 .image-manager-preview-index {
@@ -501,40 +278,49 @@
   text-align: center;
 }
 
-.image-manager-preview-info {
-  padding: 10px 12px;
+.image-manager-preview-meta {
+  padding: 8px 10px;
   display: grid;
-  gap: 6px;
+  gap: 4px;
   margin: 0;
 }
 
-.image-manager-preview-info dt {
+.image-manager-preview-meta dt {
   font-size: 10px;
   text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: #8e7130;
+  letter-spacing: 0.06em;
+  color: var(--text-muted, #5f6f65);
   margin: 0;
 }
 
-.image-manager-preview-info dd {
+.image-manager-preview-meta dd {
   margin: 0 0 4px;
-  font-size: 12px;
-  color: #1f2634;
+  font-size: 11px;
+  color: var(--office-body, #333333);
   word-break: break-all;
 }
 
 .image-manager-preview-path {
-  font-size: 11px !important;
+  font-size: 10px !important;
   color: var(--text-muted, #5f6f65) !important;
   font-family: "Cascadia Code", "Fira Code", "JetBrains Mono", monospace;
 }
 
+/* ── Preview actions ── */
+.image-manager-preview-actions {
+  display: flex;
+  gap: 6px;
+  padding: 8px 10px;
+  border-top: 1px solid var(--office-border, #d1d1d1);
+}
+
+/* ── Rename modal input ── */
 .image-manager-rename-input {
   width: 100%;
-  padding: 4px 6px;
+  padding: 6px 8px;
   border: 1px solid var(--excel-green-main, #217346);
-  background: #ffffff;
-  color: #1f2634;
+  background: var(--office-card-bg, #ffffff);
+  color: var(--office-body, #333333);
   font: inherit;
   font-size: 12px;
   box-sizing: border-box;
@@ -542,86 +328,23 @@
 
 .image-manager-rename-input:focus {
   outline: none;
-  box-shadow: var(--theme-focus-ring, 0 0 0 2px rgba(80, 200, 120, 0.28));
+  box-shadow: 0 0 0 2px rgba(80, 200, 120, 0.28);
 }
 
-/* ── Footer nav ── */
-
-.image-manager-footer {
+/* ── Empty state in excel shell ── */
+.image-manager-empty {
+  flex: 1;
   display: flex;
-  gap: 6px;
-  flex-shrink: 0;
-}
-
-/* ── Modal ── */
-
-.image-manager-modal-overlay {
-  position: fixed;
-  inset: 0;
-  z-index: 100;
-  background: rgba(16, 22, 33, 0.42);
-  display: grid;
-  place-items: center;
-}
-
-.image-manager-modal {
-  min-width: 360px;
-  max-width: 480px;
-  border: 1px solid #d8dde7;
-  background: #ffffff;
-  box-shadow: 0 6px 20px rgba(24, 92, 55, 0.18);
-}
-
-.image-manager-modal-header {
-  padding: 12px;
-  border-bottom: 1px solid #e1e6ef;
-}
-
-.image-manager-modal-header h3 {
-  margin: 0;
-  font-size: 13px;
-  color: #1f2634;
-}
-
-.image-manager-modal-body {
-  padding: 12px;
-}
-
-.image-manager-modal-body p {
-  margin: 0;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted, #5f6f65);
   font-size: 12px;
-  line-height: 1.45;
-  color: #425066;
-}
-
-.image-manager-modal-actions {
-  display: flex;
-  gap: 8px;
-  justify-content: flex-end;
-  padding: 10px 12px;
-  border-top: 1px solid #e1e6ef;
-}
-
-/* ── Hidden file input ── */
-
-.image-manager-file-input {
-  display: none;
 }
 
 /* ── Responsive ── */
-
 @media (max-width: 1280px) {
-  .image-manager-page {
-    overflow: auto;
-  }
-
-  .image-manager-shell {
-    height: auto;
-  }
-
-  .image-manager-workbench {
+  .buff-sheet-page .damage-sheet-workspace {
     grid-template-columns: 1fr;
-    min-height: auto;
     height: auto;
   }
 }
