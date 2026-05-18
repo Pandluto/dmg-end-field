@@ -30,4 +30,6 @@ contextBridge.exposeInMainWorld('desktopRuntime', {
   renameImageAsset: (payload) => ipcRenderer.invoke('desktop:rename-image-asset', payload),
   deleteImageAsset: (payload) => ipcRenderer.invoke('desktop:delete-image-asset', payload),
   importImageAssetsFromBrowser: (payload) => ipcRenderer.invoke('desktop:import-image-assets-from-browser', payload),
+  createImageDirectory: (payload) => ipcRenderer.invoke('desktop:create-image-directory', payload),
+  deleteImageDirectory: (payload) => ipcRenderer.invoke('desktop:delete-image-directory', payload),
 });

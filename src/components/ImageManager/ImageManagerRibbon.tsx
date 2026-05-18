@@ -1,12 +1,13 @@
 import type { ImageAssetEntry } from './types';
 
 interface ImageManagerRibbonProps {
-  canWriteAssets: boolean;
+  canImport: boolean;
+  canRename: boolean;
+  canDeleteFile: boolean;
   loading: boolean;
   searchQuery: string;
   viewMode: 'list' | 'grid';
   selectedAsset: ImageAssetEntry | null;
-  isWriteDisabled: boolean;
   fileInputRef: React.RefObject<HTMLInputElement>;
   onSearchChange: (q: string) => void;
   onImport: () => void;
@@ -19,14 +20,15 @@ interface ImageManagerRibbonProps {
 
 export function ImageManagerRibbon(props: ImageManagerRibbonProps) {
   const {
-    canWriteAssets, loading, searchQuery, viewMode,
-    selectedAsset, isWriteDisabled, fileInputRef,
+    canImport, canRename, canDeleteFile, loading, searchQuery, viewMode,
+    selectedAsset, fileInputRef,
     onSearchChange, onImport,
     onBrowserFileSelected, onRename, onDelete,
     onRefresh, onToggleViewMode,
   } = props;
 
-  const writeDisabled = !selectedAsset || isWriteDisabled || !selectedAsset.writable;
+  const renameDisabled = !selectedAsset || !canRename || !selectedAsset.writable;
+  const deleteDisabled = !selectedAsset || !canDeleteFile || !selectedAsset.writable;
 
   return (
     <section className="damage-sheet-ribbon buff-sheet-ribbon">
@@ -35,9 +37,9 @@ export function ImageManagerRibbon(props: ImageManagerRibbonProps) {
         <button
           className="buff-sheet-tool-button"
           type="button"
-          disabled={loading || (!canWriteAssets)}
+          disabled={loading || !canImport}
           onClick={onImport}
-          title={canWriteAssets ? '导入图片' : '当前环境不支持写入'}
+          title={canImport ? '导入图片' : '当前环境不支持导入'}
         >
           <span className="buff-sheet-tool-icon" aria-hidden="true">
             <svg className="buff-sheet-tool-svg" viewBox="0 0 16 16" focusable="false">
@@ -52,7 +54,7 @@ export function ImageManagerRibbon(props: ImageManagerRibbonProps) {
         <button
           className="buff-sheet-tool-button"
           type="button"
-          disabled={writeDisabled}
+          disabled={renameDisabled}
           onClick={onRename}
         >
           <span className="buff-sheet-tool-icon" aria-hidden="true">
@@ -68,7 +70,7 @@ export function ImageManagerRibbon(props: ImageManagerRibbonProps) {
         <button
           className="buff-sheet-tool-button"
           type="button"
-          disabled={writeDisabled}
+          disabled={deleteDisabled}
           onClick={onDelete}
         >
           <span className="buff-sheet-tool-icon" aria-hidden="true">

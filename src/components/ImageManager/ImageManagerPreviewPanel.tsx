@@ -1,10 +1,11 @@
+import { managedDirLabel } from '../../utils/assetHostApi';
 import type { ImageAssetEntry } from './types';
 
 interface ImageManagerPreviewPanelProps {
   selectedAsset: ImageAssetEntry | null;
   selectedIndex: number;
   filteredCount: number;
-  canWriteAssets: boolean;
+  canRename: boolean;
   assetUrl: (path: string) => string;
   formatBytes: (bytes: number) => string;
   onGoPrev: () => void;
@@ -13,7 +14,7 @@ interface ImageManagerPreviewPanelProps {
 }
 
 export function ImageManagerPreviewPanel(props: ImageManagerPreviewPanelProps) {
-  const { selectedAsset, selectedIndex, filteredCount, canWriteAssets, assetUrl, formatBytes, onGoPrev, onGoNext, onStartRename } = props;
+  const { selectedAsset, selectedIndex, filteredCount, canRename, assetUrl, formatBytes, onGoPrev, onGoNext, onStartRename } = props;
 
   return (
     <aside className="damage-sheet-sidebar">
@@ -52,7 +53,7 @@ export function ImageManagerPreviewPanel(props: ImageManagerPreviewPanelProps) {
           {/* Meta */}
           <dl className="image-manager-preview-meta">
             <dt>目录</dt>
-            <dd>{selectedAsset.relativePath.split('/')[1] || '--'}</dd>
+            <dd>{managedDirLabel(selectedAsset.relativePath)}</dd>
 
             <dt>文件名</dt>
             <dd>{selectedAsset.fileName}</dd>
@@ -81,7 +82,7 @@ export function ImageManagerPreviewPanel(props: ImageManagerPreviewPanelProps) {
             <button
               className="buff-sheet-tool-button"
               type="button"
-              disabled={!canWriteAssets || !selectedAsset.writable}
+              disabled={!canRename || !selectedAsset.writable}
               onClick={onStartRename}
             >
               <span className="buff-sheet-tool-text">重命名</span>

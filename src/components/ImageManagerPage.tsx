@@ -1,15 +1,20 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { APP_ROUTE_PATHS, navigateToAppPath } from '../utils/appRoute';
 import { resolvePublicPath } from '../utils/assetResolver';
+import { assetHostApi, isManagedDir, toManagedRelative, fromManagedRelative, managedDirLabel } from '../utils/assetHostApi';
 import './ImageManagerPage.css';
 import { ImageManagerRibbon } from './ImageManager/ImageManagerRibbon';
 import { ImageManagerExplorer } from './ImageManager/ImageManagerExplorer';
 import { ImageManagerAssetList } from './ImageManager/ImageManagerAssetList';
 import { ImageManagerPreviewPanel } from './ImageManager/ImageManagerPreviewPanel';
 import { ImageManagerRenameModal } from './ImageManager/ImageManagerRenameModal';
+import { ImageManagerCreateFolderModal } from './ImageManager/ImageManagerCreateFolderModal';
+import { ImageManagerDeleteFolderModal } from './ImageManager/ImageManagerDeleteFolderModal';
 import type { ImageAssetEntry, DirGroup } from './ImageManager/types';
 
-// ── Helpers ──
+export { managedDirLabel };
+
+// ── Local helpers ──
 
 function assetUrl(relativePath: string): string {
   const isFileProtocol = window.location.protocol === 'file:';
@@ -52,6 +57,57 @@ function buildDirTree(assets: ImageAssetEntry[]): DirGroup[] {
   return groups;
 }
 
+interface DirActionSet {
+  canCreate: boolean;
+  canImport: boolean;
+  canDelete: boolean;
+  label: string;
+  reason?: string;
+}
+
+/** Determine contextual actions for a given Explorer dir node. */
+function dirActions(dir: string): DirActionSet {
+  const api = assetHostApi;
+
+  // "" (全部图片) and "images" both map to managed root
+  if (dir === '' || dir === 'images') {
+    return {
+      canCreate: api.canCreateDir,
+      canImport: api.canImport,
+      canDelete: false,
+      label: 'images（管理根目录）',
+      reason: api.canCreateDir ? undefined : '未接入宿主写入通道',
+    };
+  }
+
+  // Managed subdirectory
+  if (isManagedDir(dir)) {
+    return {
+      canCreate: api.canCreateDir,
+      canImport: api.canImport,
+      canDelete: api.canDeleteDir,
+      label: dir,
+      reason: api.canCreateDir ? undefined : '未接入宿主写入通道',
+    };
+  }
+
+  // Non-managed — show disabled menu
+  return {
+    canCreate: false,
+    canImport: false,
+    canDelete: false,
+    label: `${dir}（只读）`,
+    reason: '非管理目录，不可写入',
+  };
+}
+
+/** Resolve a frontend dir to the actual managed parent for create/import operations. */
+function resolveManagedParent(dir: string): string {
+  if (dir === '') return 'images';
+  if (!isManagedDir(dir)) return dir; // guarded by callers
+  return dir;
+}
+
 // ── Route guard ──
 
 export function isImageManagerPath(path: string): boolean {
@@ -73,35 +129,32 @@ export function ImageManagerPage() {
   const [renameValue, setRenameValue] = useState('');
   const [viewMode, setViewMode] = useState<'list' | 'grid'>('list');
 
+  const [dirCtxMenu, setDirCtxMenu] = useState<{ x: number; y: number; dir: string } | null>(null);
+
+  const [isCreatingFolder, setIsCreatingFolder] = useState(false);
+  const [folderName, setFolderName] = useState('');
+  const [folderParentDir, setFolderParentDir] = useState('');
+
+  const [isDeletingFolder, setIsDeletingFolder] = useState(false);
+  const [deleteFolderDir, setDeleteFolderDir] = useState('');
+  const [deleteFolderError, setDeleteFolderError] = useState<string | null>(null);
+
   const renameInputRef = useRef<HTMLInputElement>(null);
+  const folderInputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const initialDirSet = useRef(false);
-
-  const isElectron = !!window.desktopRuntime?.listImageAssets;
-  const canWriteAssets = isElectron || !!window.desktopRuntime?.importImageAssetsFromBrowser;
-  const canListViaIpc = isElectron;
+  const importTargetDirRef = useRef<string | undefined>(undefined);
 
   // ── Load assets ──
 
   const loadAssets = async () => {
     setLoading(true);
     try {
-      if (canListViaIpc) {
-        const list = await window.desktopRuntime!.listImageAssets!();
-        const sorted = [...list].sort((a, b) =>
-          a.fileName.localeCompare(b.fileName, undefined, { numeric: true }),
-        );
-        setAssets(sorted);
-      } else {
-        const manifestUrl = resolvePublicPath('assets/images/_manifest.json');
-        const res = await fetch(manifestUrl);
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const list: ImageAssetEntry[] = await res.json();
-        const sorted = [...list].sort((a, b) =>
-          a.fileName.localeCompare(b.fileName, undefined, { numeric: true }),
-        );
-        setAssets(sorted);
-      }
+      const list = await assetHostApi.listAssets();
+      const sorted = [...list].sort((a, b) =>
+        a.fileName.localeCompare(b.fileName, undefined, { numeric: true }),
+      );
+      setAssets(sorted);
     } catch (err) {
       setMessage(`加载失败: ${err instanceof Error ? err.message : '未知错误'}`);
     } finally {
@@ -151,8 +204,6 @@ export function ImageManagerPage() {
     }
   }, [filteredAssets, selectedPath]);
 
-  const isWriteDisabled = !canWriteAssets;
-
   // ── Flash message ──
 
   const flash = (msg: string) => {
@@ -160,71 +211,78 @@ export function ImageManagerPage() {
     setTimeout(() => setMessage(null), 3000);
   };
 
+  // ── Unified write-op helper ──
+
+  async function runWriteOp<T extends { ok: boolean; error?: string }>(
+    label: string,
+    fn: () => Promise<T>,
+    onOk?: (result: T) => void,
+  ): Promise<T> {
+    setLoading(true);
+    try {
+      const result = await fn();
+      if (result.ok) {
+        flash(`${label}成功`);
+        await loadAssets();
+        onOk?.(result);
+      } else {
+        flash(result.error || `${label}失败`);
+      }
+      return result;
+    } catch (err) {
+      flash(`${label}失败: ${err instanceof Error ? err.message : '未知错误'}`);
+      throw err;
+    } finally {
+      setLoading(false);
+    }
+  }
+
   // ── Import ──
 
-  const refreshAfterWrite = async () => {
-    await loadAssets();
-    setSelectedPath(null);
+  const getImportTargetDir = (): string | undefined => {
+    const raw = importTargetDirRef.current !== undefined ? importTargetDirRef.current : currentDir;
+    importTargetDirRef.current = undefined;
+    return toManagedRelative(raw);
   };
 
-  const handleImport = async () => {
-    if (isElectron) {
-      setLoading(true);
-      try {
-        const updated = await window.desktopRuntime!.importImageAssets!();
-        const sorted = [...updated].sort((a, b) =>
-          a.fileName.localeCompare(b.fileName, undefined, { numeric: true }),
-        );
-        setAssets(sorted);
-        flash('导入完成');
-      } catch (err) {
-        flash(`导入失败: ${err instanceof Error ? err.message : '未知错误'}`);
-      } finally {
-        setLoading(false);
-      }
-    } else {
-      fileInputRef.current?.click();
-    }
+  const handleImport = () => {
+    importTargetDirRef.current = undefined;
+    fileInputRef.current?.click();
+  };
+
+  const handleImportToDir = (dir: string) => {
+    importTargetDirRef.current = resolveManagedParent(dir);
+    setDirCtxMenu(null);
+    fileInputRef.current?.click();
   };
 
   const handleBrowserFileSelected = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const files = event.target.files;
     if (!files || files.length === 0) return;
 
-    if (!canWriteAssets) {
-      flash('当前环境不支持写入文件');
+    if (!assetHostApi.canImport) {
+      flash('当前环境不支持导入');
       if (fileInputRef.current) fileInputRef.current.value = '';
       return;
     }
 
-    setLoading(true);
-    try {
-      const items = await Promise.all(
-        Array.from(files).map(async (file) => {
-          const buffer = await file.arrayBuffer();
-          const bytes = new Uint8Array(buffer);
-          let binary = '';
-          for (let i = 0; i < bytes.length; i++) {
-            binary += String.fromCharCode(bytes[i]);
-          }
-          return { fileName: file.name, data: btoa(binary) };
-        }),
-      );
+    const targetDir = getImportTargetDir();
 
-      const result = await window.desktopRuntime!.importImageAssetsFromBrowser!({ items });
-      if (result.ok) {
-        flash(`导入完成: ${result.results.filter((r) => r.ok).length} 个文件`);
-      } else {
-        const failed = result.results.filter((r) => !r.ok).map((r) => r.fileName).join(', ');
-        flash(result.error || `部分文件导入失败: ${failed}`);
-      }
-      await refreshAfterWrite();
-    } catch (err) {
-      flash(`导入失败: ${err instanceof Error ? err.message : '未知错误'}`);
-    } finally {
-      setLoading(false);
-      if (fileInputRef.current) fileInputRef.current.value = '';
-    }
+    const items = await Promise.all(
+      Array.from(files).map(async (file) => {
+        const buffer = await file.arrayBuffer();
+        const bytes = new Uint8Array(buffer);
+        let binary = '';
+        for (let i = 0; i < bytes.length; i++) {
+          binary += String.fromCharCode(bytes[i]);
+        }
+        return { fileName: file.name, data: btoa(binary) };
+      }),
+    );
+
+    await runWriteOp('导入', () => assetHostApi.importFiles(items, targetDir));
+
+    if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
   // ── Rename ──
@@ -237,22 +295,17 @@ export function ImageManagerPage() {
   };
 
   const commitRename = async () => {
-    if (!selectedAsset || !canWriteAssets || !renameValue.trim()) {
+    if (!selectedAsset || !assetHostApi.canRename || !renameValue.trim()) {
       setIsRenaming(false);
       return;
     }
-    const result = await window.desktopRuntime!.renameImageAsset!({
-      relativePath: selectedAsset.relativePath,
-      newName: renameValue.trim(),
-    });
-    if (result.ok) {
-      flash('重命名成功');
-      setIsRenaming(false);
-      await loadAssets();
-      setSelectedPath(null);
-    } else {
-      flash(result.error || '重命名失败');
-    }
+    await runWriteOp('重命名', () =>
+      assetHostApi.renameFile(selectedAsset.relativePath, renameValue.trim()),
+      () => {
+        setIsRenaming(false);
+        setSelectedPath(null);
+      },
+    );
   };
 
   const cancelRename = () => {
@@ -265,7 +318,7 @@ export function ImageManagerPage() {
     if (e.key === 'Escape') cancelRename();
   };
 
-  // ── Delete ──
+  // ── Delete file ──
 
   const handleDeleteRequest = () => {
     if (!selectedAsset) return;
@@ -273,26 +326,120 @@ export function ImageManagerPage() {
   };
 
   const handleDeleteConfirm = async () => {
-    if (!selectedAsset || !canWriteAssets) {
+    if (!selectedAsset || !assetHostApi.canDeleteFile) {
       setConfirmDelete(false);
       return;
     }
-    const result = await window.desktopRuntime!.deleteImageAsset!({
-      relativePath: selectedAsset.relativePath,
-    });
-    if (result.ok) {
-      flash('删除成功');
+    await runWriteOp('删除', () => assetHostApi.deleteFile(selectedAsset.relativePath), () => {
       setConfirmDelete(false);
       setSelectedPath(null);
-      await loadAssets();
-    } else {
-      flash(result.error || '删除失败');
-      setConfirmDelete(false);
+    });
+  };
+
+  const handleDeleteCancel = () => setConfirmDelete(false);
+
+  // ── Create folder ──
+
+  const openCreateFolder = (dir: string) => {
+    const parent = resolveManagedParent(dir);
+    if (!isManagedDir(parent)) return;
+    setFolderParentDir(parent);
+    setFolderName('');
+    setIsCreatingFolder(true);
+    setDirCtxMenu(null);
+    setTimeout(() => folderInputRef.current?.focus(), 50);
+  };
+
+  const commitCreateFolder = async () => {
+    if (!assetHostApi.canCreateDir || !folderName.trim()) {
+      setIsCreatingFolder(false);
+      return;
+    }
+    const parentBackend = toManagedRelative(folderParentDir);
+    if (parentBackend === undefined && folderParentDir !== 'images') {
+      setIsCreatingFolder(false);
+      return;
+    }
+    await runWriteOp('创建文件夹', () =>
+      assetHostApi.createDirectory(folderName.trim(), parentBackend),
+      (result) => {
+        const createdBackendPath = result.createdPath || '';
+        setIsCreatingFolder(false);
+        setFolderName('');
+
+        const frontendDir = fromManagedRelative(createdBackendPath || undefined);
+
+        const topDir = folderParentDir.split('/')[0];
+        setExpandedDirs((prev) => {
+          const next = new Set(prev);
+          next.add(topDir);
+          return next;
+        });
+        setCurrentDir(frontendDir);
+        setSelectedPath(null);
+      },
+    );
+  };
+
+  const cancelCreateFolder = () => {
+    setIsCreatingFolder(false);
+    setFolderName('');
+  };
+
+  const handleCreateFolderKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') commitCreateFolder();
+    if (e.key === 'Escape') cancelCreateFolder();
+  };
+
+  // ── Delete folder ──
+
+  const openDeleteFolder = (dir: string) => {
+    if (!isManagedDir(dir) || dir === 'images') return;
+    setDeleteFolderDir(dir);
+    setDeleteFolderError(null);
+    setIsDeletingFolder(true);
+    setDirCtxMenu(null);
+  };
+
+  const commitDeleteFolder = async () => {
+    if (!assetHostApi.canDeleteDir || !deleteFolderDir) return;
+
+    const backendPath = toManagedRelative(deleteFolderDir);
+    if (!backendPath) {
+      setDeleteFolderError('无法删除根目录');
+      return;
+    }
+
+    setDeleteFolderError(null);
+    setLoading(true);
+    try {
+      const result = await assetHostApi.deleteDirectory(backendPath);
+      if (result.ok) {
+        flash('删除目录成功');
+        await loadAssets();
+        setIsDeletingFolder(false);
+        setDeleteFolderDir('');
+
+        if (currentDir === deleteFolderDir || currentDir.startsWith(deleteFolderDir + '/')) {
+          const parts = deleteFolderDir.split('/');
+          parts.pop();
+          setCurrentDir(parts.join('/'));
+        }
+        setSelectedPath(null);
+      } else {
+        setDeleteFolderError(result.error || '删除失败');
+      }
+    } catch (err) {
+      setDeleteFolderError(err instanceof Error ? err.message : '未知错误');
+    } finally {
+      setLoading(false);
     }
   };
 
-  const handleDeleteCancel = () => {
-    setConfirmDelete(false);
+  const cancelDeleteFolder = () => {
+    setIsDeletingFolder(false);
+    setDeleteFolderDir('');
+    setDeleteFolderError(null);
   };
 
   // ── Navigation ──
@@ -339,7 +486,24 @@ export function ImageManagerPage() {
     });
   };
 
+  // ── Directory context menu ──
+
+  const handleDirContextMenu = (e: React.MouseEvent, dir: string) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDirCtxMenu({ x: e.clientX, y: e.clientY, dir });
+  };
+
+  useEffect(() => {
+    if (!dirCtxMenu) return;
+    const close = () => setDirCtxMenu(null);
+    document.addEventListener('click', close, { once: true });
+    return () => document.removeEventListener('click', close);
+  }, [dirCtxMenu]);
+
   // ── Render ──
+
+  const api = assetHostApi;
 
   return (
     <main className="damage-sheet-page buff-sheet-page">
@@ -365,12 +529,13 @@ export function ImageManagerPage() {
 
       {/* ── Ribbon ── */}
       <ImageManagerRibbon
-        canWriteAssets={canWriteAssets}
+        canImport={api.canImport}
+        canRename={api.canRename}
+        canDeleteFile={api.canDeleteFile}
         loading={loading}
         searchQuery={searchQuery}
         viewMode={viewMode}
         selectedAsset={selectedAsset}
-        isWriteDisabled={isWriteDisabled}
         fileInputRef={fileInputRef}
         onSearchChange={setSearchQuery}
         onImport={handleImport}
@@ -391,9 +556,10 @@ export function ImageManagerPage() {
           currentDir={currentDir}
           expandedDirs={expandedDirs}
           totalCount={assets.length}
-          isElectron={isElectron}
+          backendLabel={api.backendLabel}
           onSelectDir={handleSelectDir}
           onToggleExpanded={handleToggleExpanded}
+          onContextMenu={handleDirContextMenu}
         />
 
         <ImageManagerAssetList
@@ -410,7 +576,7 @@ export function ImageManagerPage() {
           selectedAsset={selectedAsset}
           selectedIndex={selectedIndex}
           filteredCount={filteredAssets.length}
-          canWriteAssets={canWriteAssets}
+          canRename={api.canRename}
           assetUrl={assetUrl}
           formatBytes={formatBytes}
           onGoPrev={goPrev}
@@ -418,6 +584,47 @@ export function ImageManagerPage() {
           onStartRename={startRename}
         />
       </div>
+
+      {/* ── Directory context menu ── */}
+      {dirCtxMenu && (() => {
+        const actions = dirActions(dirCtxMenu.dir);
+        return (
+          <div
+            className="image-manager-ctx-menu"
+            style={{ left: dirCtxMenu.x, top: dirCtxMenu.y }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="image-manager-ctx-menu-header">{actions.label}</div>
+
+            <button
+              type="button"
+              disabled={!actions.canCreate}
+              title={!actions.canCreate ? (actions.reason || '不可用') : `在 ${actions.label} 下新建文件夹`}
+              onClick={() => openCreateFolder(dirCtxMenu.dir)}
+            >
+              新建文件夹
+            </button>
+
+            <button
+              type="button"
+              disabled={!actions.canImport}
+              title={!actions.canImport ? (actions.reason || '不可用') : `导入图片到 ${actions.label}`}
+              onClick={() => handleImportToDir(dirCtxMenu.dir)}
+            >
+              导入图片到此处
+            </button>
+
+            <button
+              type="button"
+              disabled={!actions.canDelete}
+              title={!actions.canDelete ? '根目录或非管理目录不可删除' : `删除 ${actions.label}`}
+              onClick={() => openDeleteFolder(dirCtxMenu.dir)}
+            >
+              删除文件夹
+            </button>
+          </div>
+        );
+      })()}
 
       {/* ── Rename modal ── */}
       <ImageManagerRenameModal
@@ -431,7 +638,28 @@ export function ImageManagerPage() {
         onKeyDown={handleRenameKeyDown}
       />
 
-      {/* ── Delete confirmation modal ── */}
+      {/* ── Create folder modal ── */}
+      <ImageManagerCreateFolderModal
+        isOpen={isCreatingFolder}
+        parentLabel={folderParentDir ? `"${folderParentDir}"` : '根目录'}
+        folderName={folderName}
+        inputRef={folderInputRef}
+        onFolderNameChange={setFolderName}
+        onCommit={commitCreateFolder}
+        onCancel={cancelCreateFolder}
+        onKeyDown={handleCreateFolderKeyDown}
+      />
+
+      {/* ── Delete folder modal ── */}
+      <ImageManagerDeleteFolderModal
+        isOpen={isDeletingFolder}
+        dirLabel={deleteFolderDir}
+        error={deleteFolderError}
+        onConfirm={commitDeleteFolder}
+        onCancel={cancelDeleteFolder}
+      />
+
+      {/* ── Delete file confirmation modal ── */}
       {confirmDelete && selectedAsset && (
         <div className="operator-draft-modal-overlay" onClick={handleDeleteCancel}>
           <div className="operator-draft-modal operator-draft-confirm-modal" onClick={(e) => e.stopPropagation()}>

@@ -1337,6 +1337,164 @@ ipcMain.handle('desktop:import-image-assets-from-browser', (_event, payload) => 
   };
 });
 
+ipcMain.handle('desktop:create-image-directory', (_event, payload) => {
+  const { dirName, parentDir } = payload || {};
+  if (!dirName || typeof dirName !== 'string' || dirName.trim().length === 0) {
+    return { ok: false, error: '请输入文件夹名' };
+  }
+
+  const cleanName = dirName.trim();
+  // Reject illegal directory names
+  if (/[<>:"|?*\\/]/.test(cleanName) || cleanName === '.' || cleanName === '..') {
+    return { ok: false, error: `非法文件夹名: "${cleanName}"` };
+  }
+
+  const managedDir = getManagedDir();
+
+  // Resolve parent directory
+  let parentPath = managedDir;
+  if (parentDir && typeof parentDir === 'string' && parentDir.trim().length > 0) {
+    const normalized = parentDir.trim().replace(/\\/g, '/').replace(/^\/+/, '').replace(/\/+$/, '');
+    // Prevent path traversal
+    if (/(^|\/)\.\.(\/|$)/.test(normalized)) {
+      return { ok: false, error: '非法目录路径' };
+    }
+    parentPath = path.join(managedDir, normalized);
+    const resolvedParent = path.resolve(parentPath);
+    const resolvedManaged = path.resolve(managedDir);
+    if (!resolvedParent.startsWith(resolvedManaged + path.sep) && resolvedParent !== resolvedManaged) {
+      return { ok: false, error: '越权目录访问' };
+    }
+    if (!fs.existsSync(parentPath)) {
+      return { ok: false, error: `父目录不存在: ${normalized}` };
+    }
+    const parentStat = fs.statSync(parentPath);
+    if (!parentStat.isDirectory()) {
+      return { ok: false, error: `路径不是目录: ${normalized}` };
+    }
+  }
+
+  const newDirPath = path.join(parentPath, cleanName);
+  if (fs.existsSync(newDirPath)) {
+    return { ok: false, error: `文件夹已存在: "${cleanName}"` };
+  }
+
+  try {
+    fs.mkdirSync(newDirPath, { recursive: true });
+  } catch (err) {
+    return { ok: false, error: `创建文件夹失败: ${err.message}` };
+  }
+
+  syncImageManifest();
+
+  // Return the path relative to managed dir
+  const createdRel = path.relative(managedDir, newDirPath).replace(/\\/g, '/');
+
+  return { ok: true, createdPath: createdRel };
+});
+
+ipcMain.handle('desktop:delete-image-directory', (_event, payload) => {
+  const { relativePath } = payload || {};
+  if (!relativePath || typeof relativePath !== 'string' || relativePath.trim().length === 0) {
+    return { ok: false, error: '缺少目录路径' };
+  }
+
+  const normalized = relativePath.trim().replace(/\\/g, '/').replace(/^\/+/, '').replace(/\/+$/, '');
+
+  // Reject root managed dir deletion
+  if (normalized === '' || normalized === '.') {
+    return { ok: false, error: '禁止删除根目录' };
+  }
+
+  // Prevent path traversal
+  if (/(^|\/)\.\.(\/|$)/.test(normalized)) {
+    return { ok: false, error: '非法目录路径' };
+  }
+
+  const managedDir = getManagedDir();
+  const targetPath = path.join(managedDir, normalized);
+  const resolvedTarget = path.resolve(targetPath);
+  const resolvedManaged = path.resolve(managedDir);
+
+  // Ensure target is within managed dir
+  if (!resolvedTarget.startsWith(resolvedManaged + path.sep)) {
+    return { ok: false, error: '越权目录访问' };
+  }
+
+  if (!fs.existsSync(targetPath)) {
+    return { ok: false, error: '目录不存在' };
+  }
+
+  const targetStat = fs.statSync(targetPath);
+  if (!targetStat.isDirectory()) {
+    return { ok: false, error: '路径不是目录' };
+  }
+
+  // Recursively scan for non-writable / locked files
+  const lockedFiles = [];
+  function scanLocked(dirPath) {
+    let entries;
+    try {
+      entries = fs.readdirSync(dirPath, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      const fullPath = path.join(dirPath, entry.name);
+      if (entry.isDirectory()) {
+        scanLocked(fullPath);
+      } else if (entry.isFile() && /\.(png|jpg|jpeg|webp|gif|svg)$/i.test(entry.name)) {
+        // Real writability check: try W_OK access
+        let writable = true;
+        try {
+          fs.accessSync(fullPath, fs.constants.W_OK);
+        } catch {
+          writable = false;
+        }
+        // Also check read-only attribute on Windows
+        if (writable && process.platform === 'win32') {
+          try {
+            const fileStat = fs.statSync(fullPath);
+            // Windows: readonly attribute = 0o444 or check mode bits
+            // fs.statSync doesn't expose Windows attributes directly,
+            // but if the file is read-only, W_OK access would have failed above.
+            // Double-check via mode: if user-write bit is missing, it's locked.
+            // eslint-disable-next-line no-bitwise
+            if ((fileStat.mode & 0o200) === 0) {
+              writable = false;
+            }
+          } catch {
+            writable = false;
+          }
+        }
+        if (!writable) {
+          lockedFiles.push(path.relative(managedDir, fullPath).replace(/\\/g, '/'));
+        }
+      }
+    }
+  }
+  scanLocked(targetPath);
+
+  if (lockedFiles.length > 0) {
+    return {
+      ok: false,
+      error: `目录包含锁定文件/只读资源，无法删除。受影响的文件: ${lockedFiles.slice(0, 5).join(', ')}${lockedFiles.length > 5 ? ` 等 ${lockedFiles.length} 个文件` : ''}`,
+      lockedFiles,
+    };
+  }
+
+  // Delete recursively
+  try {
+    fs.rmSync(targetPath, { recursive: true, force: true });
+  } catch (err) {
+    return { ok: false, error: `删除目录失败: ${err.message}` };
+  }
+
+  syncImageManifest();
+
+  return { ok: true };
+});
+
 ipcMain.handle('desktop:run-action', (_event, action) => {
   switch (action) {
     case 'capture-probe':

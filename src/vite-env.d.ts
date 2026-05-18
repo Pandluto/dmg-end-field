@@ -60,6 +60,22 @@ interface ImageAssetBatchOpResult {
   error?: string;
 }
 
+interface ImageAssetCreateDirPayload {
+  dirName: string;
+  parentDir?: string;
+}
+
+interface ImageAssetDeleteDirPayload {
+  relativePath: string;
+}
+
+interface ImageAssetDirOpResult {
+  ok: boolean;
+  error?: string;
+  createdPath?: string;
+  lockedFiles?: string[];
+}
+
 interface DesktopRuntimeBridge {
   getLlmSettings: () => Promise<DesktopLlmSettingsPayload>;
   setLlmSettings: (payload: { apiKey: string; model: string }) => Promise<DesktopLlmSettingsPayload>;
@@ -69,6 +85,8 @@ interface DesktopRuntimeBridge {
   renameImageAsset?: (payload: ImageAssetRenamePayload) => Promise<ImageAssetOpResult>;
   deleteImageAsset?: (payload: ImageAssetDeletePayload) => Promise<ImageAssetOpResult>;
   importImageAssetsFromBrowser?: (payload: ImageAssetImportFromBrowserPayload) => Promise<ImageAssetBatchOpResult>;
+  createImageDirectory?: (payload: ImageAssetCreateDirPayload) => Promise<ImageAssetDirOpResult>;
+  deleteImageDirectory?: (payload: ImageAssetDeleteDirPayload) => Promise<ImageAssetDirOpResult>;
 }
 
 interface Window {

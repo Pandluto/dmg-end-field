@@ -1,3 +1,4 @@
+import { managedDirLabel } from '../../utils/assetHostApi';
 import type { ImageAssetEntry } from './types';
 
 interface ImageManagerAssetListProps {
@@ -56,8 +57,8 @@ export function ImageManagerAssetList(props: ImageManagerAssetListProps) {
                     </div>
                   </td>
                   <td className="col-name" title={asset.fileName}>{asset.fileName}</td>
-                  <td className="col-dir" title={asset.relativePath}>
-                    {asset.relativePath.split('/')[1] || '--'}
+                  <td className="col-dir" title={managedDirLabel(asset.relativePath)}>
+                    {managedDirLabel(asset.relativePath)}
                   </td>
                   <td className="col-type">{asset.ext.toUpperCase().replace('.', '')}</td>
                   <td className="col-size">{formatSize(asset.sizeBytes)}</td>
