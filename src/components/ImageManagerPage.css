@@ -7,13 +7,20 @@
 
 /* ── Toast ── */
 .image-manager-toast {
-  padding: 6px 12px;
-  border-bottom: 1px solid var(--office-border, #d1d1d1);
+  position: fixed;
+  top: 68px;
+  right: 16px;
+  z-index: 3200;
+  max-width: min(420px, calc(100vw - 32px));
+  padding: 8px 12px;
+  border: 1px solid var(--office-border, #d1d1d1);
   background: var(--ide-bg-hover, #edf5f0);
   color: var(--excel-green-deep, #185c37);
   font-size: 11px;
   font-weight: 600;
-  flex-shrink: 0;
+  line-height: 1.45;
+  box-shadow: 0 8px 24px rgba(23, 30, 44, 0.18);
+  pointer-events: none;
 }
 
 /* ── Explorer: sidebar hint ── */
@@ -427,9 +434,16 @@
 }
 
 /* ── Directory context menu ── */
+.image-manager-ctx-menu-overlay {
+  display: block;
+  place-items: initial;
+  padding: 0;
+  background: transparent;
+}
+
 .image-manager-ctx-menu {
   position: fixed;
-  z-index: 1000;
+  z-index: 3001;
   background: var(--office-card-bg, #ffffff);
   border: 1px solid var(--office-border, #d1d1d1);
   box-shadow: 0 2px 8px rgba(0,0,0,0.15);

@@ -49,6 +49,8 @@ function walk(dirPath, relDir) {
 const list = walk(ASSETS_ROOT, '');
 list.sort((a, b) => a.fileName.localeCompare(b.fileName, undefined, { numeric: true }));
 
+// Legacy location kept for browser fallback compatibility.
+// The manifest content covers every builtin image under public/assets, not only assets/images.
 const manifestPath = path.join(ASSETS_ROOT, 'images', '_manifest.json');
 fs.mkdirSync(path.dirname(manifestPath), { recursive: true });
 fs.writeFileSync(manifestPath, JSON.stringify(list, null, 2), 'utf-8');

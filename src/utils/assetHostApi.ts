@@ -109,6 +109,8 @@ export const assetHostApi = {
       return window.desktopRuntime!.listImageAssets!();
     }
     const { resolvePublicPath } = await import('./assetResolver');
+    // Legacy browser fallback endpoint. Although the path is assets/images/_manifest.json,
+    // the manifest may contain the full builtin asset image set (for example assets/avatars/...).
     const url = resolvePublicPath(`${MANAGED_REL}/_manifest.json`);
     const res = await fetch(url);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);

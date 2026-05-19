@@ -1100,8 +1100,17 @@ function getAssetsRoot() {
   return path.join(__dirname, '..', 'dist', 'assets');
 }
 
-/** Builtin (read-only) images root: public/assets/images (dev) or dist/assets/images (prod). */
-function getBuiltinImagesDir() {
+/** Builtin (read-only) asset root: public/assets (dev) or dist/assets (prod). */
+function getBuiltinAssetsRoot() {
+  return getAssetsRoot();
+}
+
+/**
+ * Legacy browser-fallback manifest directory.
+ * The file path remains assets/images/_manifest.json for compatibility,
+ * but the manifest now lists every builtin image under the assets root.
+ */
+function getBuiltinManifestDir() {
   const root = getAssetsRoot();
   return path.join(root, 'images');
 }
@@ -1122,9 +1131,10 @@ function getManagedDir() {
 
 function syncImageManifest() {
   const list = scanAllImageAssets();
-  const builtinDir = getBuiltinImagesDir();
-  // Manifest only covers builtin images (browser fallback).
-  const manifestPath = path.join(builtinDir, '_manifest.json');
+  const manifestDir = getBuiltinManifestDir();
+  // Browser fallback still reads assets/images/_manifest.json.
+  // Despite the legacy path, its contents represent the full builtin asset image set.
+  const manifestPath = path.join(manifestDir, '_manifest.json');
   const slim = list
     .filter((entry) => entry.source !== 'user')
     .map((entry) => ({
@@ -1138,8 +1148,8 @@ function syncImageManifest() {
       source: 'builtin',
     }));
   try {
-    if (!fs.existsSync(builtinDir)) {
-      fs.mkdirSync(builtinDir, { recursive: true });
+    if (!fs.existsSync(manifestDir)) {
+      fs.mkdirSync(manifestDir, { recursive: true });
     }
     fs.writeFileSync(manifestPath, JSON.stringify(slim, null, 2), 'utf-8');
   } catch {
@@ -1175,7 +1185,7 @@ function addFileEntry(results, dirsWithFiles, fullPath, relPath, source, writabl
 }
 
 function scanAllImageAssets() {
-  const builtinDir = getBuiltinImagesDir();
+  const builtinAssetsRoot = getBuiltinAssetsRoot();
   const userDir = getUserImagesDir();
   const results = [];
   const dirsWithFiles = new Set();
@@ -1202,8 +1212,8 @@ function scanAllImageAssets() {
   }
 
   // ── Scan builtin (read-only) ──
-  if (fs.existsSync(builtinDir)) {
-    walk(builtinDir, 'images', 'builtin', false);
+  if (fs.existsSync(builtinAssetsRoot)) {
+    walk(builtinAssetsRoot, '', 'builtin', false);
   }
 
   // ── Scan user (writable) ──
@@ -1273,6 +1283,48 @@ function findUniqueFileName(dirPath, baseName, ext) {
     counter += 1;
   }
   return candidate;
+}
+
+function normalizeManagedAssetRelativePath(relativePath) {
+  if (!relativePath || typeof relativePath !== 'string') {
+    return null;
+  }
+
+  let normalized = relativePath.replace(/\\/g, '/').replace(/^\/+/, '').replace(/\/+$/, '');
+  const segments = normalized.split('/');
+  const resolved = [];
+  for (const seg of segments) {
+    if (seg === '.' || seg === '') continue;
+    if (seg === '..') {
+      resolved.pop();
+      continue;
+    }
+    resolved.push(seg);
+  }
+  normalized = resolved.join('/');
+
+  if (!normalized.startsWith(`${MANAGED_SUBDIR}/`)) {
+    return null;
+  }
+
+  return normalized;
+}
+
+function resolveManagedAssetPaths(relativePath) {
+  const normalized = normalizeManagedAssetRelativePath(relativePath);
+  if (!normalized) {
+    return null;
+  }
+
+  const relToImages = normalized.replace(/^assets\//, '');
+  const userRel = relToImages.replace(/^images\/?/, '');
+
+  return {
+    normalized,
+    relToImages,
+    userPath: path.resolve(getUserImagesDir(), userRel),
+    builtinPath: path.resolve(getAssetsRoot(), relToImages),
+  };
 }
 
 ipcMain.handle('desktop:list-image-assets', () => {
@@ -1433,27 +1485,11 @@ ipcMain.handle('desktop:reveal-in-explorer', async (_event, payload) => {
       return { ok: false, error: '缺少文件路径' };
     }
 
-    let normalized = relativePath.replace(/\\/g, '/').replace(/^\/+/, '').replace(/\/+$/, '');
-    const segments = normalized.split('/');
-    const resolved = [];
-    for (const seg of segments) {
-      if (seg === '.' || seg === '') continue;
-      if (seg === '..') { resolved.pop(); continue; }
-      resolved.push(seg);
-    }
-    normalized = resolved.join('/');
-
-    if (!normalized.startsWith('assets/images/')) {
+    const resolvedPaths = resolveManagedAssetPaths(relativePath);
+    if (!resolvedPaths) {
       return { ok: false, error: '非管理目录文件' };
     }
-
-    const relToImages = normalized.replace(/^assets\//, ''); // "images/foo/bar.png"
-
-    // Try user dir first, then builtin
-    const userDir = getUserImagesDir();
-    const userRel = relToImages.replace(/^images\//, '');
-    const userPath = path.resolve(userDir, userRel);
-    const builtinPath = path.resolve(getAssetsRoot(), relToImages);
+    const { userPath, builtinPath } = resolvedPaths;
 
     let absFile = null;
     if (fs.existsSync(userPath) && fs.statSync(userPath).isFile()) {
@@ -1536,18 +1572,18 @@ ipcMain.handle('desktop:rename-image-asset', (_event, payload) => {
     return { ok: false, error: '缺少参数' };
   }
 
-  // Only allow renaming files under managed logical prefix
-  if (!relativePath.startsWith(`${MANAGED_SUBDIR}/`)) {
+  const resolvedPaths = resolveManagedAssetPaths(relativePath);
+  if (!resolvedPaths) {
     return { ok: false, error: '此文件为只读，不可重命名' };
   }
+  const { userPath: oldPath, builtinPath } = resolvedPaths;
 
-  const userDir = getUserImagesDir();
-  const relWithoutPrefix = relativePath.replace(/^assets\//, '');
-  const oldPath = path.join(userDir, relWithoutPrefix);
-
-  // User files only — reject builtin files
-  if (!fs.existsSync(oldPath)) {
+  if (fs.existsSync(oldPath) && fs.statSync(oldPath).isFile()) {
+    // user file: writable
+  } else if (fs.existsSync(builtinPath) && fs.statSync(builtinPath).isFile()) {
     return { ok: false, error: '此文件为只读素材，不可重命名' };
+  } else {
+    return { ok: false, error: '文件不存在' };
   }
 
   const originalExt = path.extname(oldPath).toLowerCase();
@@ -1578,18 +1614,18 @@ ipcMain.handle('desktop:delete-image-asset', (_event, payload) => {
     return { ok: false, error: '缺少路径参数' };
   }
 
-  // Only allow deleting files under managed logical prefix
-  if (!relativePath.startsWith(`${MANAGED_SUBDIR}/`)) {
+  const resolvedPaths = resolveManagedAssetPaths(relativePath);
+  if (!resolvedPaths) {
     return { ok: false, error: '此文件为只读，不可删除' };
   }
+  const { userPath: targetPath, builtinPath } = resolvedPaths;
 
-  const userDir = getUserImagesDir();
-  const relWithoutPrefix = relativePath.replace(/^assets\//, '');
-  const targetPath = path.join(userDir, relWithoutPrefix);
-
-  // User files only — reject builtin files
-  if (!fs.existsSync(targetPath)) {
+  if (fs.existsSync(targetPath) && fs.statSync(targetPath).isFile()) {
+    // user file: writable
+  } else if (fs.existsSync(builtinPath) && fs.statSync(builtinPath).isFile()) {
     return { ok: false, error: '此文件为只读素材，不可删除' };
+  } else {
+    return { ok: false, error: '文件不存在' };
   }
 
   try {

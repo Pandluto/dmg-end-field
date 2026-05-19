@@ -19,6 +19,8 @@ import { ImageManagerPreviewPanel } from './ImageManager/ImageManagerPreviewPane
 import { ImageManagerRenameModal } from './ImageManager/ImageManagerRenameModal';
 import { ImageManagerCreateFolderModal } from './ImageManager/ImageManagerCreateFolderModal';
 import { ImageManagerDeleteFolderModal } from './ImageManager/ImageManagerDeleteFolderModal';
+import { ImageManagerContextMenu } from './ImageManager/ImageManagerContextMenu';
+import { ImageManagerToast } from './ImageManager/ImageManagerToast';
 import { ImageManagerHostStatus } from './ImageManager/ImageManagerHostStatus';
 import type { ImageAssetEntry, TreeNode, CtxTarget, DirActions, FileActions } from './ImageManager/types';
 
@@ -310,6 +312,14 @@ export function ImageManagerPage() {
   const previewAsset = useMemo(
     () => (previewAssetPath ? (assets.find((a) => a.relativePath === previewAssetPath) ?? null) : null),
     [assets, previewAssetPath],
+  );
+  const ctxMenuFileAsset = useMemo(
+    () => {
+      const target = ctxMenu?.target;
+      if (!target || target.kind !== 'file') return null;
+      return assets.find((a) => a.relativePath === target.relativePath) ?? null;
+    },
+    [assets, ctxMenu],
   );
 
   useEffect(() => {
@@ -680,6 +690,10 @@ export function ImageManagerPage() {
   const commitRenameDispatcher = () => {
     if (renameTarget?.kind === 'dir') commitRenameDir(); else commitRename();
   };
+  const ctxMenuDirActions = ctxMenu?.target.kind === 'dir' ? computeDirActions(ctxMenu.target.dir) : undefined;
+  const ctxMenuFileActions = ctxMenu?.target.kind === 'file'
+    ? (ctxMenuFileAsset ? computeFileActions(ctxMenuFileAsset) : { canRename: false, canDelete: false, canReveal: false, canCopyPath: true, reason: '文件未找到' })
+    : undefined;
 
   // ═══════════════════════════════════════════════════════
   // Render
@@ -708,7 +722,7 @@ export function ImageManagerPage() {
         onRefresh={loadAssets} onToggleViewMode={toggleViewMode}
       />
 
-      {message && <div className="image-manager-toast">{message}</div>}
+      <ImageManagerToast message={message} />
 
       <div className="damage-sheet-workspace image-manager-workspace">
         <ImageManagerExplorer
@@ -730,33 +744,20 @@ export function ImageManagerPage() {
         />
       </div>
 
-      {/* Context menu */}
-      {ctxMenu && (() => {
-        if (ctxMenu.target.kind === 'dir') {
-          const t = ctxMenu.target; const actions = computeDirActions(t.dir);
-          return (
-            <div className="image-manager-ctx-menu" style={{ left: ctxMenu.x, top: ctxMenu.y }} onClick={(e) => e.stopPropagation()}>
-              <div className="image-manager-ctx-menu-header">{t.label}</div>
-              <button type="button" disabled={!actions.canCreateDir} title={!actions.canCreateDir ? (actions.reason || '不可用') : `在 ${t.label} 下新建文件夹`} onClick={() => openCreateFolder(t.dir)}>新建文件夹</button>
-              <button type="button" disabled={!actions.canImport} title={!actions.canImport ? (actions.reason || '不可用') : `导入图片到 ${t.label}`} onClick={() => handleImportToDir(t.dir)}>导入图片到此处</button>
-              <button type="button" disabled={!actions.canRenameDir} title={!actions.canRenameDir ? (actions.reason || '根目录不可重命名') : `重命名 ${t.label}`} onClick={() => startRenameDir(ctxMenu.target)}>重命名文件夹</button>
-              <button type="button" disabled={!actions.canDeleteDir} title={!actions.canDeleteDir ? '根目录或非管理目录不可删除' : `删除 ${t.label}`} onClick={() => openDeleteFolder(t.dir)}>删除文件夹</button>
-              <button type="button" disabled={!actions.canReveal} title={!actions.canReveal ? (actions.reason || '不可用') : '在系统资源管理器中打开'} onClick={() => handleReveal(ctxMenu.target)}>在资源管理器中打开</button>
-            </div>
-          );
-        }
-        const t = ctxMenu.target; const asset = assets.find(a => a.relativePath === t.relativePath);
-        const actions = asset ? computeFileActions(asset) : { canRename: false, canDelete: false, canReveal: false, canCopyPath: true, reason: '文件未找到' };
-        return (
-          <div className="image-manager-ctx-menu" style={{ left: ctxMenu.x, top: ctxMenu.y }} onClick={(e) => e.stopPropagation()}>
-            <div className="image-manager-ctx-menu-header">{t.fileName}</div>
-            <button type="button" disabled={!actions.canRename} title={!actions.canRename ? (actions.reason || '不可用') : `重命名 ${t.fileName}`} onClick={() => startRename(ctxMenu.target)}>重命名</button>
-            <button type="button" disabled={!actions.canDelete} title={!actions.canDelete ? (actions.reason || '不可用') : `删除 ${t.fileName}`} onClick={() => handleDeleteFile(ctxMenu.target)}>删除</button>
-            <button type="button" disabled={!actions.canReveal} title={!actions.canReveal ? (actions.reason || '不可用') : '在系统资源管理器中显示'} onClick={() => handleReveal(ctxMenu.target)}>在资源管理器中显示</button>
-            <button type="button" disabled={!actions.canCopyPath} title="复制相对路径到剪贴板" onClick={() => handleCopyPath(ctxMenu.target)}>复制相对路径</button>
-          </div>
-        );
-      })()}
+      <ImageManagerContextMenu
+        ctxMenu={ctxMenu}
+        dirActions={ctxMenuDirActions}
+        fileActions={ctxMenuFileActions}
+        onClose={() => setCtxMenu(null)}
+        onCreateFolder={openCreateFolder}
+        onImportToDir={handleImportToDir}
+        onRenameDir={startRenameDir}
+        onDeleteDir={openDeleteFolder}
+        onReveal={handleReveal}
+        onRenameFile={startRename}
+        onDeleteFile={handleDeleteFile}
+        onCopyPath={handleCopyPath}
+      />
 
       <ImageManagerRenameModal
         isOpen={isRenaming}
