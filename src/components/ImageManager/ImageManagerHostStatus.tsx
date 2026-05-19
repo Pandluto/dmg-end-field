@@ -1,25 +1,25 @@
 import { useState } from 'react';
-import { getHostStatus } from '../../utils/assetHostApi';
-import type { HostStatus } from '../../utils/assetHostApi';
+import { getCapabilities } from '../../utils/imageBridge';
+import type { ImageManagerCapabilities } from '../../utils/imageBridge';
 
-const METHOD_LABELS: { key: keyof HostStatus['methods']; label: string }[] = [
-  { key: 'list', label: '列举' },
-  { key: 'importFiles', label: '导入' },
-  { key: 'rename', label: '重命名' },
-  { key: 'deleteFile', label: '删文件' },
-  { key: 'createDir', label: '建目录' },
-  { key: 'deleteDir', label: '删目录' },
+const CAP_LABELS: { key: keyof ImageManagerCapabilities; label: string }[] = [
+  { key: 'canList', label: '列举' },
+  { key: 'canImport', label: '导入' },
+  { key: 'canRename', label: '重命名' },
+  { key: 'canDeleteFile', label: '删文件' },
+  { key: 'canCreateDir', label: '建目录' },
+  { key: 'canDeleteDir', label: '删目录' },
 ];
 
-const MODE_LABELS: Record<HostStatus['mode'], string> = {
-  'electron-writable': '桌面可写',
-  'electron-readonly': '桌面只读',
-  'browser-readonly': '浏览器只读',
+const MODE_LABELS: Record<string, string> = {
+  '桌面端 · 可管理': '桌面可写',
+  '桌面端 · 受限': '桌面只读',
+  '浏览器端 · 只读预览': '浏览器只读',
 };
 
 export function ImageManagerHostStatus() {
   const [expanded, setExpanded] = useState(false);
-  const status = getHostStatus();
+  const caps = getCapabilities();
 
   return (
     <div className="image-manager-host-status">
@@ -27,30 +27,27 @@ export function ImageManagerHostStatus() {
         className="image-manager-host-status-toggle"
         type="button"
         onClick={() => setExpanded((v) => !v)}
-        title={status.backendLabel}
+        title={caps.backendLabel}
       >
-        <span className={`image-manager-host-status-dot image-manager-mode-${status.mode}`} />
-        <span className="image-manager-host-status-label">{MODE_LABELS[status.mode]}</span>
-        {status.missingHint && (
-          <span className="image-manager-host-status-warn">{status.missingHint}</span>
-        )}
+        <span className={`image-manager-host-status-dot image-manager-mode-${caps.isElectron ? (caps.isWritable ? 'electron-writable' : 'electron-readonly') : 'browser-readonly'}`} />
+        <span className="image-manager-host-status-label">{MODE_LABELS[caps.backendLabel] || caps.backendLabel}</span>
       </button>
 
       {expanded && (
         <div className="image-manager-host-status-detail">
           <div className="image-manager-host-status-row">
             <span className="image-manager-host-status-key">模式</span>
-            <span className="image-manager-host-status-val">{status.mode}</span>
+            <span className="image-manager-host-status-val">{caps.backendLabel}</span>
           </div>
           <div className="image-manager-host-status-row">
-            <span className="image-manager-host-status-key">hasDesktopRuntime</span>
-            <span className="image-manager-host-status-val">{status.hasDesktopRuntime ? 'true' : 'false'}</span>
+            <span className="image-manager-host-status-key">isElectron</span>
+            <span className="image-manager-host-status-val">{caps.isElectron ? 'true' : 'false'}</span>
           </div>
-          {METHOD_LABELS.map(({ key, label }) => (
+          {CAP_LABELS.map(({ key, label }) => (
             <div className="image-manager-host-status-row" key={key}>
               <span className="image-manager-host-status-key">{label}</span>
-              <span className={`image-manager-host-status-bool ${status.methods[key] ? 'is-ok' : 'is-missing'}`}>
-                {status.methods[key] ? 'true' : 'false'}
+              <span className={`image-manager-host-status-bool ${caps[key] ? 'is-ok' : 'is-missing'}`}>
+                {caps[key] ? 'true' : 'false'}
               </span>
             </div>
           ))}

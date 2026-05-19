@@ -1,4 +1,4 @@
-import { managedDirLabel } from '../../utils/assetHostApi';
+import { managedDirLabel } from '../../utils/imageFileService';
 import type { ImageAssetEntry } from './types';
 
 interface ImageManagerAssetListProps {
@@ -7,7 +7,7 @@ interface ImageManagerAssetListProps {
   searchQuery: string;
   loading: boolean;
   viewMode: 'list' | 'grid';
-  assetUrl: (path: string) => string;
+  assetUrl: (entry: ImageAssetEntry) => string;
   onSelectAsset: (path: string) => void;
   onContextMenu?: (e: React.MouseEvent, asset: ImageAssetEntry) => void;
 }
@@ -50,7 +50,7 @@ export function ImageManagerAssetList(props: ImageManagerAssetListProps) {
                     <div className="image-manager-table-thumb-box">
                       <img
                         className="image-manager-table-thumb"
-                        src={assetUrl(asset.relativePath)}
+                        src={assetUrl(asset)}
                         alt={asset.fileName}
                         onError={(e) => {
                           (e.currentTarget as HTMLImageElement).style.display = 'none';
@@ -90,7 +90,7 @@ export function ImageManagerAssetList(props: ImageManagerAssetListProps) {
               >
                 <div className="image-manager-grid-thumb">
                   <img
-                    src={assetUrl(asset.relativePath)}
+                    src={assetUrl(asset)}
                     alt={asset.fileName}
                     onError={(e) => {
                       const el = e.currentTarget as HTMLImageElement;

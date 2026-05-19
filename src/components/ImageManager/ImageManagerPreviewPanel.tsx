@@ -1,4 +1,4 @@
-import { managedDirLabel } from '../../utils/assetHostApi';
+import { managedDirLabel } from '../../utils/imageFileService';
 import type { ImageAssetEntry } from './types';
 
 interface ImageManagerPreviewPanelProps {
@@ -6,7 +6,7 @@ interface ImageManagerPreviewPanelProps {
   selectedIndex: number;
   filteredCount: number;
   canRename: boolean;
-  assetUrl: (path: string) => string;
+  assetUrl: (entry: ImageAssetEntry) => string;
   formatBytes: (bytes: number) => string;
   onGoPrev: () => void;
   onGoNext: () => void;
@@ -25,7 +25,7 @@ export function ImageManagerPreviewPanel(props: ImageManagerPreviewPanelProps) {
           {/* Preview image */}
           <div className="image-manager-preview-image">
             <img
-              src={assetUrl(selectedAsset.relativePath)}
+              src={assetUrl(selectedAsset)}
               alt={selectedAsset.fileName}
               onError={(e) => {
                 const el = e.currentTarget;

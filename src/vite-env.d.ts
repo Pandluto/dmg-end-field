@@ -26,6 +26,8 @@ interface ImageAssetEntry {
   baseName: string;
   ext: string;
   relativePath: string;
+  /** 'builtin' = 项目自带只读素材, 'user' = 用户可写素材 */
+  source?: 'builtin' | 'user';
   writable: boolean;
   sizeBytes: number;
   updatedAt: number;
