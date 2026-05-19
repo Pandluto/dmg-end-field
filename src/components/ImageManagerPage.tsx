@@ -195,14 +195,14 @@ export function ImageManagerPage() {
   const [confirmDelete, setConfirmDelete] = useState<CtxTarget | null>(null);
   const [isCreatingFolder, setIsCreatingFolder] = useState(false);
   const [folderName, setFolderName] = useState('');
-  const [folderParentDir, setFolderParentDir] = useState('');
+  const [folderParentViewDir, setFolderParentViewDir] = useState('');
+  const [folderParentWriteDir, setFolderParentWriteDir] = useState('');
   const [isDeletingFolder, setIsDeletingFolder] = useState(false);
   const [deleteFolderDir, setDeleteFolderDir] = useState('');
   const [deleteFolderError, setDeleteFolderError] = useState<string | null>(null);
 
   const renameInputRef = useRef<HTMLInputElement>(null);
   const folderInputRef = useRef<HTMLInputElement>(null);
-  const initialDirSet = useRef(false);
 
   // ── Host status ──
   const host = getHostStatus();
@@ -232,14 +232,6 @@ export function ImageManagerPage() {
   // ── Derived data ──
 
   const dirTree = useMemo(() => buildTree(assets), [assets]);
-
-  useEffect(() => {
-    if (!initialDirSet.current && dirTree.length > 0) {
-      initialDirSet.current = true;
-      setCurrentDir(dirTree[0].path);
-      setExpandedDirs(new Set([dirTree[0].path]));
-    }
-  }, [dirTree]);
 
   const filteredAssets = useMemo(() => {
     let list = assets;
@@ -326,11 +318,14 @@ export function ImageManagerPage() {
   const handleImportToDir = async (dir: string) => {
     if (!isDesktop) { flash('浏览器端不支持导入'); setCtxMenu(null); return; }
     setCtxMenu(null);
-    const norm = normalizeDir(dir);
-    const targetRel = toManagedRelative(norm);
+    // dir is already normalized; treat it as the write target.
+    // Capture the current view separately so we don't force-navigate.
+    const viewDir = currentDir;
+    const writeDir = dir;
+    const targetRel = toManagedRelative(writeDir);
     await runWriteOp('导入', () => assetHostApi.importToDir(targetRel), () => {
-      setCurrentDir(norm);
-      expandPathChain(norm);
+      setCurrentDir(viewDir);
+      expandPathChain(writeDir);
     });
   };
 
@@ -462,12 +457,16 @@ export function ImageManagerPage() {
   // ── Create folder ──
 
   const openCreateFolder = (dir: string) => {
-    const parent = normalizeDir(dir);
-    if (!isManagedDir(parent)) {
+    // dir is already normalized by handleDirContextMenu.  Treat it as the
+    // *write* target; capture the current view separately so we can restore
+    // the user's browsing context afterwards.
+    const writeDir = dir;
+    if (!isManagedDir(writeDir)) {
       flash('非管理目录不可新建文件夹');
       return;
     }
-    setFolderParentDir(parent);
+    setFolderParentViewDir(currentDir);
+    setFolderParentWriteDir(writeDir);
     setFolderName('');
     setIsCreatingFolder(true);
     setCtxMenu(null);
@@ -479,13 +478,13 @@ export function ImageManagerPage() {
       setIsCreatingFolder(false);
       return;
     }
-    const parentBackend = toManagedRelative(folderParentDir);
-    if (parentBackend === undefined && folderParentDir !== MANAGED_ROOT) {
+    const writeDir = folderParentWriteDir;
+    const viewDir = folderParentViewDir;
+    const parentBackend = toManagedRelative(writeDir);
+    if (parentBackend === undefined && writeDir !== MANAGED_ROOT) {
       setIsCreatingFolder(false);
       return;
     }
-
-    const parent = folderParentDir;
 
     await runWriteOp('创建文件夹', () =>
       assetHostApi.createDirectory(folderName.trim(), parentBackend),
@@ -494,11 +493,12 @@ export function ImageManagerPage() {
         setFolderName('');
         const createdBackendPath = result.createdPath || '';
         const newDir = fromManagedRelative(createdBackendPath || undefined);
-        expandPathChain(parent);
+        expandPathChain(writeDir);
         expandPathChain(newDir);
-        // Stay in parent dir so the user can see existing files; the new
-        // empty folder now appears in the tree via directory entries.
-        setCurrentDir(parent);
+        // Restore the view the user was on before the operation.
+        // writeDir may differ (e.g. '' view → 'images' write), but we
+        // must not change the browsing context.
+        setCurrentDir(viewDir);
         setSelectedPath(null);
       },
     );
@@ -888,7 +888,7 @@ export function ImageManagerPage() {
       {/* ── Create folder modal ── */}
       <ImageManagerCreateFolderModal
         isOpen={isCreatingFolder}
-        parentLabel={folderParentDir ? `"${folderParentDir}"` : '根目录'}
+        parentLabel={folderParentWriteDir ? `"${folderParentWriteDir}"` : '根目录'}
         folderName={folderName}
         inputRef={folderInputRef}
         onFolderNameChange={setFolderName}
