@@ -1,5 +1,5 @@
 // ── ImageManager Communication Layer ──
-// Unified entry point for desktop (Electron IPC) and browser (read-only).
+// Unified entry point for desktop IPC and browser bridge HTTP transport.
 // Does NOT contain path rules, file-system logic, or page state.
 // Path semantics belong to imageFileService.ts.
 
@@ -10,19 +10,24 @@ import {
   toUserImageRelPath,
 } from './imageFileService';
 
-// ── Bridge server constants ──
-
 const BRIDGE_ORIGIN = 'http://127.0.0.1:31457';
+const BRIDGE_TIMEOUT_MS = 15000;
+const CAPABILITY_TIMEOUT_MS = 2500;
 
-// ── Capability primitives ──
+type CapListener = (caps: ImageManagerCapabilities) => void;
 
-function hasHostMethod(name: string): boolean {
-  const rt = window.desktopRuntime;
-  if (!rt) return false;
-  return typeof (rt as unknown as Record<string, unknown>)[name] === 'function';
+interface BridgeCapabilityPayload {
+  canList: boolean;
+  canImport: boolean;
+  canRename: boolean;
+  canRenameDir: boolean;
+  canDeleteFile: boolean;
+  canCreateDir: boolean;
+  canDeleteDir: boolean;
+  canReveal: boolean;
+  backendLabel?: string;
+  transportKind?: ImageManagerCapabilities['transportKind'];
 }
-
-// ── Capabilities snapshot ──
 
 export interface ImageManagerCapabilities {
   canList: boolean;
@@ -36,9 +41,31 @@ export interface ImageManagerCapabilities {
   isElectron: boolean;
   isWritable: boolean;
   backendLabel: string;
+  transportKind: 'electron' | 'web-bridge' | 'browser-readonly';
 }
 
-export function getCapabilities(): ImageManagerCapabilities {
+function hasHostMethod(name: string): boolean {
+  const rt = window.desktopRuntime;
+  if (!rt) return false;
+  return typeof (rt as unknown as Record<string, unknown>)[name] === 'function';
+}
+
+function buildCapabilities(
+  partial: Omit<ImageManagerCapabilities, 'isWritable'>,
+): ImageManagerCapabilities {
+  const isWritable = partial.canImport
+    && partial.canRename
+    && partial.canRenameDir
+    && partial.canDeleteFile
+    && partial.canCreateDir
+    && partial.canDeleteDir;
+  return {
+    ...partial,
+    isWritable,
+  };
+}
+
+function getDesktopCapabilities(): ImageManagerCapabilities {
   const canList = hasHostMethod('listImageAssets');
   const canImport = hasHostMethod('importImageAssetsToDir');
   const canRename = hasHostMethod('renameImageAsset');
@@ -47,33 +74,212 @@ export function getCapabilities(): ImageManagerCapabilities {
   const canCreateDir = hasHostMethod('createImageDirectory');
   const canDeleteDir = hasHostMethod('deleteImageDirectory');
   const canReveal = hasHostMethod('revealInExplorer');
-  const isElectron = canList;
-  const isWritable = isElectron && canImport && canCreateDir && canRename;
-  const backendLabel = isElectron ? (isWritable ? '桌面端 · 可管理' : '桌面端 · 受限') : '浏览器端 · 只读预览';
+  const isWritable = canImport && canRename && canRenameDir && canDeleteFile && canCreateDir && canDeleteDir;
 
-  return { canList, canImport, canRename, canRenameDir, canDeleteFile, canCreateDir, canDeleteDir, canReveal, isElectron, isWritable, backendLabel };
+  return {
+    canList,
+    canImport,
+    canRename,
+    canRenameDir,
+    canDeleteFile,
+    canCreateDir,
+    canDeleteDir,
+    canReveal,
+    isElectron: true,
+    isWritable,
+    backendLabel: isWritable ? '桌面端 · 可管理' : '桌面端 · 受限',
+    transportKind: 'electron',
+  };
 }
 
-// ── Shared helpers ──
+function getBrowserReadonlyCapabilities(): ImageManagerCapabilities {
+  return buildCapabilities({
+    canList: true,
+    canImport: false,
+    canRename: false,
+    canRenameDir: false,
+    canDeleteFile: false,
+    canCreateDir: false,
+    canDeleteDir: false,
+    canReveal: false,
+    isElectron: false,
+    backendLabel: '浏览器端 · 只读预览',
+    transportKind: 'browser-readonly',
+  });
+}
 
-function requireDesktop(cap: keyof ImageManagerCapabilities): void {
-  if (!hasHostMethod(methodForCap(cap))) {
-    throw new Error('当前环境不支持此操作');
+function getWebBridgeCapabilities(payload: BridgeCapabilityPayload): ImageManagerCapabilities {
+  return buildCapabilities({
+    canList: Boolean(payload.canList),
+    canImport: Boolean(payload.canImport),
+    canRename: Boolean(payload.canRename),
+    canRenameDir: Boolean(payload.canRenameDir),
+    canDeleteFile: Boolean(payload.canDeleteFile),
+    canCreateDir: Boolean(payload.canCreateDir),
+    canDeleteDir: Boolean(payload.canDeleteDir),
+    canReveal: Boolean(payload.canReveal),
+    isElectron: false,
+    backendLabel: payload.backendLabel || '网页端 · 远程管理',
+    transportKind: payload.transportKind || 'web-bridge',
+  });
+}
+
+let currentCapabilities = hasHostMethod('listImageAssets')
+  ? getDesktopCapabilities()
+  : getBrowserReadonlyCapabilities();
+
+const capabilityListeners = new Set<CapListener>();
+let capabilityRefreshPromise: Promise<ImageManagerCapabilities> | null = null;
+
+function notifyCapabilityListeners() {
+  for (const listener of capabilityListeners) {
+    listener(currentCapabilities);
   }
 }
 
-function methodForCap(cap: keyof ImageManagerCapabilities): string {
-  const map: Record<string, string> = {
-    canList: 'listImageAssets',
-    canImport: 'importImageAssetsToDir',
-    canRename: 'renameImageAsset',
-    canRenameDir: 'renameImageDirectory',
-    canDeleteFile: 'deleteImageAsset',
-    canCreateDir: 'createImageDirectory',
-    canDeleteDir: 'deleteImageDirectory',
-    canReveal: 'revealInExplorer',
+function setCapabilities(next: ImageManagerCapabilities): ImageManagerCapabilities {
+  currentCapabilities = next;
+  notifyCapabilityListeners();
+  return currentCapabilities;
+}
+
+function isDesktopTransport(): boolean {
+  return hasHostMethod('listImageAssets');
+}
+
+async function fetchBridgeJson<T>(
+  pathname: string,
+  init?: RequestInit,
+  timeoutMs = BRIDGE_TIMEOUT_MS,
+): Promise<T> {
+  const controller = new AbortController();
+  const timer = window.setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(`${BRIDGE_ORIGIN}${pathname}`, {
+      ...init,
+      headers: {
+        'Content-Type': 'application/json',
+        ...(init?.headers || {}),
+      },
+      signal: controller.signal,
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(
+        typeof (data as { error?: unknown }).error === 'string'
+          ? (data as { error: string }).error
+          : `HTTP ${response.status}`,
+      );
+    }
+    return data as T;
+  } finally {
+    window.clearTimeout(timer);
+  }
+}
+
+async function readFileAsBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(reader.error || new Error(`读取文件失败: ${file.name}`));
+    reader.onload = () => {
+      const result = typeof reader.result === 'string' ? reader.result : '';
+      const [, base64 = ''] = result.split(',', 2);
+      resolve(base64);
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+async function pickBrowserImportItems(): Promise<{ fileName: string; data: string }[] | null> {
+  if (typeof document === 'undefined') return null;
+
+  const files = await new Promise<File[] | null>((resolve) => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.multiple = true;
+    input.accept = '.png,.jpg,.jpeg,.webp,.gif,.svg';
+    input.style.position = 'fixed';
+    input.style.left = '-9999px';
+    input.style.top = '-9999px';
+
+    let settled = false;
+    const finish = (picked: File[] | null) => {
+      if (settled) return;
+      settled = true;
+      window.removeEventListener('focus', handleFocus, true);
+      input.remove();
+      resolve(picked);
+    };
+    const handleFocus = () => {
+      window.setTimeout(() => {
+        if (!settled) finish(null);
+      }, 300);
+    };
+
+    input.addEventListener('change', () => {
+      const picked = input.files ? Array.from(input.files) : [];
+      finish(picked.length > 0 ? picked : null);
+    }, { once: true });
+
+    window.addEventListener('focus', handleFocus, true);
+    document.body.appendChild(input);
+    input.click();
+  });
+
+  if (!files || files.length === 0) return null;
+
+  const items = await Promise.all(files.map(async (file) => ({
+    fileName: file.name,
+    data: await readFileAsBase64(file),
+  })));
+  return items;
+}
+
+function requireCapability(cap: keyof ImageManagerCapabilities): { ok: true } | { ok: false; error: string } {
+  const caps = getCapabilities();
+  if (!caps[cap]) {
+    return { ok: false, error: '当前环境不支持此操作' };
+  }
+  return { ok: true };
+}
+
+export function getCapabilities(): ImageManagerCapabilities {
+  return currentCapabilities;
+}
+
+export function subscribeCapabilities(listener: CapListener): () => void {
+  capabilityListeners.add(listener);
+  return () => {
+    capabilityListeners.delete(listener);
   };
-  return map[cap] || '';
+}
+
+export async function refreshCapabilities(): Promise<ImageManagerCapabilities> {
+  if (isDesktopTransport()) {
+    return setCapabilities(getDesktopCapabilities());
+  }
+
+  if (capabilityRefreshPromise) return capabilityRefreshPromise;
+
+  capabilityRefreshPromise = (async () => {
+    try {
+      const response = await fetchBridgeJson<{ ok: boolean; capabilities: BridgeCapabilityPayload }>(
+        '/image-assets/capabilities',
+        { method: 'GET' },
+        CAPABILITY_TIMEOUT_MS,
+      );
+      if (!response.ok) {
+        return setCapabilities(getBrowserReadonlyCapabilities());
+      }
+      return setCapabilities(getWebBridgeCapabilities(response.capabilities));
+    } catch {
+      return setCapabilities(getBrowserReadonlyCapabilities());
+    } finally {
+      capabilityRefreshPromise = null;
+    }
+  })();
+
+  return capabilityRefreshPromise;
 }
 
 /** Build a URL for a user image served by the Electron bridge HTTP server. */
@@ -83,84 +289,178 @@ export function getUserImageUrl(entry: ImageAssetEntry): string | null {
   return `${BRIDGE_ORIGIN}/user-images/${encodeURI(rel).replace(/%2F/g, '/')}`;
 }
 
-// ── Unified API ──
-
 export const imageBridge = {
   getCapabilities,
-
-  // ── List ──
+  subscribeCapabilities,
+  refreshCapabilities,
 
   async listAssets(): Promise<ImageAssetEntry[]> {
-    if (hasHostMethod('listImageAssets')) {
-      return window.desktopRuntime!.listImageAssets!();
+    if (isDesktopTransport()) {
+      const list = await window.desktopRuntime!.listImageAssets!();
+      setCapabilities(getDesktopCapabilities());
+      return list;
     }
-    const { resolvePublicPath } = await import('./assetResolver');
-    const url = resolvePublicPath('assets/images/_manifest.json');
-    const res = await fetch(url);
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    return res.json();
-  },
 
-  // ── Import ──
+    try {
+      const response = await fetchBridgeJson<{ ok: boolean; items: ImageAssetEntry[] }>('/image-assets/list', { method: 'GET' });
+      void refreshCapabilities();
+      return response.items;
+    } catch {
+      const { resolvePublicPath } = await import('./assetResolver');
+      // Legacy browser fallback endpoint. Although the path is assets/images/_manifest.json,
+      // the manifest may contain the full builtin asset image set.
+      const url = resolvePublicPath('assets/images/_manifest.json');
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return res.json();
+    }
+  },
 
   async importToDir(targetDir?: string): Promise<{ ok: boolean; error?: string; imported?: string[] }> {
-    requireDesktop('canImport');
-    return window.desktopRuntime!.importImageAssetsToDir!({ targetDir });
-  },
+    if (isDesktopTransport()) {
+      const result = await window.desktopRuntime!.importImageAssetsToDir!({ targetDir });
+      setCapabilities(getDesktopCapabilities());
+      return result;
+    }
 
-  // ── Create directory ──
+    const cap = requireCapability('canImport');
+    if (!cap.ok) return cap;
+
+    const items = await pickBrowserImportItems();
+    if (!items) return { ok: false, error: '已取消' };
+
+    const response = await fetchBridgeJson<{ ok: boolean; error?: string; results?: { fileName: string; ok: boolean; error?: string }[] }>(
+      '/image-assets/import-from-browser',
+      {
+        method: 'POST',
+        body: JSON.stringify({ items, targetDir }),
+      },
+    );
+
+    return {
+      ok: response.ok,
+      error: response.error,
+      imported: response.results?.filter((item) => item.ok).map((item) => item.fileName),
+    };
+  },
 
   async createDirectory(dirName: string, parentDir?: string): Promise<{ ok: boolean; error?: string; createdPath?: string }> {
-    requireDesktop('canCreateDir');
-    return window.desktopRuntime!.createImageDirectory!({ dirName, parentDir });
-  },
+    if (isDesktopTransport()) {
+      const result = await window.desktopRuntime!.createImageDirectory!({ dirName, parentDir });
+      setCapabilities(getDesktopCapabilities());
+      return result;
+    }
 
-  // ── Delete directory ──
+    const cap = requireCapability('canCreateDir');
+    if (!cap.ok) return cap;
+
+    return fetchBridgeJson('/image-assets/create-directory', {
+      method: 'POST',
+      body: JSON.stringify({ dirName, parentDir }),
+    });
+  },
 
   async deleteDirectory(relativePath: string): Promise<{ ok: boolean; error?: string; lockedFiles?: string[] }> {
-    requireDesktop('canDeleteDir');
-    return window.desktopRuntime!.deleteImageDirectory!({ relativePath });
-  },
+    if (isDesktopTransport()) {
+      const result = await window.desktopRuntime!.deleteImageDirectory!({ relativePath });
+      setCapabilities(getDesktopCapabilities());
+      return result;
+    }
 
-  // ── Rename file ──
+    const cap = requireCapability('canDeleteDir');
+    if (!cap.ok) return cap;
+
+    return fetchBridgeJson('/image-assets/delete-directory', {
+      method: 'POST',
+      body: JSON.stringify({ relativePath }),
+    });
+  },
 
   async renameFile(relativePath: string, newName: string): Promise<{ ok: boolean; error?: string }> {
-    requireDesktop('canRename');
-    return window.desktopRuntime!.renameImageAsset!({ relativePath, newName });
-  },
+    if (isDesktopTransport()) {
+      const result = await window.desktopRuntime!.renameImageAsset!({ relativePath, newName });
+      setCapabilities(getDesktopCapabilities());
+      return result;
+    }
 
-  // ── Rename directory ──
+    const cap = requireCapability('canRename');
+    if (!cap.ok) return cap;
+
+    return fetchBridgeJson('/image-assets/rename-file', {
+      method: 'POST',
+      body: JSON.stringify({ relativePath, newName }),
+    });
+  },
 
   async renameDirectory(dirPath: string, newName: string): Promise<{ ok: boolean; error?: string; newPath?: string }> {
-    requireDesktop('canRenameDir');
-    return window.desktopRuntime!.renameImageDirectory!({ dirPath, newName });
-  },
+    if (isDesktopTransport()) {
+      const result = await window.desktopRuntime!.renameImageDirectory!({ dirPath, newName });
+      setCapabilities(getDesktopCapabilities());
+      return result;
+    }
 
-  // ── Delete file ──
+    const cap = requireCapability('canRenameDir');
+    if (!cap.ok) return cap;
+
+    return fetchBridgeJson('/image-assets/rename-directory', {
+      method: 'POST',
+      body: JSON.stringify({ dirPath, newName }),
+    });
+  },
 
   async deleteFile(relativePath: string): Promise<{ ok: boolean; error?: string }> {
-    requireDesktop('canDeleteFile');
-    return window.desktopRuntime!.deleteImageAsset!({ relativePath });
-  },
+    if (isDesktopTransport()) {
+      const result = await window.desktopRuntime!.deleteImageAsset!({ relativePath });
+      setCapabilities(getDesktopCapabilities());
+      return result;
+    }
 
-  // ── Reveal file ──
+    const cap = requireCapability('canDeleteFile');
+    if (!cap.ok) return cap;
+
+    return fetchBridgeJson('/image-assets/delete-file', {
+      method: 'POST',
+      body: JSON.stringify({ relativePath }),
+    });
+  },
 
   async revealFile(relativePath: string): Promise<{ ok: boolean; error?: string }> {
-    requireDesktop('canReveal');
     const validated = validateManagedFilePath(relativePath);
     if (!validated.ok) return validated;
-    return window.desktopRuntime!.revealInExplorer!({ kind: 'file', relativePath: validated.normalized });
+
+    if (isDesktopTransport()) {
+      const result = await window.desktopRuntime!.revealInExplorer!({ kind: 'file', relativePath: validated.normalized });
+      setCapabilities(getDesktopCapabilities());
+      return result;
+    }
+
+    const cap = requireCapability('canReveal');
+    if (!cap.ok) return cap;
+
+    return fetchBridgeJson('/image-assets/reveal-file', {
+      method: 'POST',
+      body: JSON.stringify({ relativePath: validated.normalized }),
+    });
   },
 
-  // ── Reveal directory ──
-
   async revealDirectory(dirPath: string): Promise<{ ok: boolean; error?: string }> {
-    requireDesktop('canReveal');
     const validated = validateManagedDirPath(dirPath);
     if (!validated.ok) return validated;
-    return window.desktopRuntime!.revealInExplorer!({ kind: 'dir', dirPath: validated.normalized });
+
+    if (isDesktopTransport()) {
+      const result = await window.desktopRuntime!.revealInExplorer!({ kind: 'dir', dirPath: validated.normalized });
+      setCapabilities(getDesktopCapabilities());
+      return result;
+    }
+
+    const cap = requireCapability('canReveal');
+    if (!cap.ok) return cap;
+
+    return fetchBridgeJson('/image-assets/reveal-directory', {
+      method: 'POST',
+      body: JSON.stringify({ dirPath: validated.normalized }),
+    });
   },
 };
 
-// Re-export for convenience (page layer needs these)
 export { isManagedDir, normalizeDir } from './imageFileService';

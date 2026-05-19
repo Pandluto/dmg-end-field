@@ -524,6 +524,27 @@ function writeJson(response, statusCode, payload) {
   response.end(JSON.stringify(payload));
 }
 
+function readJsonRequest(request) {
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    request.on('data', (chunk) => {
+      chunks.push(chunk);
+    });
+    request.on('end', () => {
+      if (chunks.length === 0) {
+        resolve({});
+        return;
+      }
+      try {
+        resolve(JSON.parse(Buffer.concat(chunks).toString('utf-8')));
+      } catch (error) {
+        reject(new Error('请求体不是合法 JSON'));
+      }
+    });
+    request.on('error', reject);
+  });
+}
+
 function getShellRuntimeInfo() {
   return {
     running: Boolean(shellWindow && !shellWindow.isDestroyed()),
@@ -823,107 +844,176 @@ function startBridgeServer() {
     return;
   }
 
-  bridgeServer = http.createServer((request, response) => {
+  bridgeServer = http.createServer(async (request, response) => {
     const method = request.method || 'GET';
     const requestUrl = new URL(request.url || '/', `http://${BRIDGE_HOST}:${BRIDGE_PORT}`);
 
-    if (method === 'OPTIONS') {
-      response.writeHead(204, buildJsonHeaders());
-      response.end();
-      return;
-    }
-
-    if (method === 'GET' && requestUrl.pathname === '/health') {
-      writeJson(response, 200, getBridgeHealth());
-      return;
-    }
-
-    if (method === 'POST' && requestUrl.pathname === '/open-shell') {
-      restoreShellWindow();
-      writeJson(response, 200, {
-        ok: true,
-        shell: {
-          started: true,
-          reason: 'opened',
-          ...getShellRuntimeInfo(),
-        },
-      });
-      return;
-    }
-
-    if (method === 'POST' && requestUrl.pathname === '/close-shell') {
-      const stopped = hideShellWindow();
-      writeJson(response, 200, {
-        ok: true,
-        shell: {
-          stopped,
-          reason: stopped ? 'hidden' : 'not-running',
-          ...getShellRuntimeInfo(),
-        },
-      });
-      return;
-    }
-
-    if (method === 'POST' && requestUrl.pathname === '/open-web') {
-      writeJson(response, 200, {
-        ok: true,
-        web: openWeb(),
-      });
-      return;
-    }
-
-    // ── User-image serving (read-only, no path rules in bridge) ──
-    if (method === 'GET' && requestUrl.pathname.startsWith('/user-images/')) {
-      const userDir = getUserImagesDir();
-      const relPath = decodeURIComponent(requestUrl.pathname.replace(/^\/user-images\//, ''));
-      // Reject path traversal
-      if (/(^|\/)\.\.(\/|$)/.test(relPath) || relPath.includes('\\')) {
-        response.writeHead(403);
-        response.end('Forbidden');
+    try {
+      if (method === 'OPTIONS') {
+        response.writeHead(204, buildJsonHeaders());
+        response.end();
         return;
       }
-      const absPath = path.resolve(userDir, relPath);
-      if (!absPath.startsWith(path.resolve(userDir) + path.sep)) {
-        response.writeHead(403);
-        response.end('Forbidden');
+
+      if (method === 'GET' && requestUrl.pathname === '/health') {
+        writeJson(response, 200, getBridgeHealth());
         return;
       }
-      if (!fs.existsSync(absPath) || !fs.statSync(absPath).isFile()) {
-        response.writeHead(404);
-        response.end('Not Found');
-        return;
-      }
-      const ext = path.extname(relPath).toLowerCase();
-      const mimeMap = {
-        '.png': 'image/png',
-        '.jpg': 'image/jpeg',
-        '.jpeg': 'image/jpeg',
-        '.webp': 'image/webp',
-        '.gif': 'image/gif',
-        '.svg': 'image/svg+xml',
-      };
-      const contentType = mimeMap[ext] || 'application/octet-stream';
-      try {
-        const data = fs.readFileSync(absPath);
-        response.writeHead(200, {
-          'Content-Type': contentType,
-          'Content-Length': data.length,
-          'Cache-Control': 'no-cache',
-          'Access-Control-Allow-Origin': '*',
+
+      if (method === 'GET' && requestUrl.pathname === '/image-assets/capabilities') {
+        writeJson(response, 200, {
+          ok: true,
+          capabilities: getWebImageAssetCapabilities(),
         });
-        response.end(data);
-      } catch {
-        response.writeHead(500);
-        response.end('Internal Server Error');
+        return;
       }
-      return;
-    }
 
-    writeJson(response, 404, {
-      ok: false,
-      error: 'not-found',
-      path: requestUrl.pathname,
-    });
+      if (method === 'GET' && requestUrl.pathname === '/image-assets/list') {
+        writeJson(response, 200, {
+          ok: true,
+          items: handleListImageAssets(),
+        });
+        return;
+      }
+
+      if (method === 'POST' && requestUrl.pathname === '/open-shell') {
+        restoreShellWindow();
+        writeJson(response, 200, {
+          ok: true,
+          shell: {
+            started: true,
+            reason: 'opened',
+            ...getShellRuntimeInfo(),
+          },
+        });
+        return;
+      }
+
+      if (method === 'POST' && requestUrl.pathname === '/close-shell') {
+        const stopped = hideShellWindow();
+        writeJson(response, 200, {
+          ok: true,
+          shell: {
+            stopped,
+            reason: stopped ? 'hidden' : 'not-running',
+            ...getShellRuntimeInfo(),
+          },
+        });
+        return;
+      }
+
+      if (method === 'POST' && requestUrl.pathname === '/open-web') {
+        writeJson(response, 200, {
+          ok: true,
+          web: openWeb(),
+        });
+        return;
+      }
+
+      if (method === 'POST' && requestUrl.pathname === '/image-assets/create-directory') {
+        writeJson(response, 200, handleCreateImageDirectory(await readJsonRequest(request)));
+        return;
+      }
+
+      if (method === 'POST' && requestUrl.pathname === '/image-assets/delete-directory') {
+        writeJson(response, 200, handleDeleteImageDirectory(await readJsonRequest(request)));
+        return;
+      }
+
+      if (method === 'POST' && requestUrl.pathname === '/image-assets/rename-directory') {
+        writeJson(response, 200, handleRenameImageDirectory(await readJsonRequest(request)));
+        return;
+      }
+
+      if (method === 'POST' && requestUrl.pathname === '/image-assets/rename-file') {
+        writeJson(response, 200, handleRenameImageAsset(await readJsonRequest(request)));
+        return;
+      }
+
+      if (method === 'POST' && requestUrl.pathname === '/image-assets/delete-file') {
+        writeJson(response, 200, handleDeleteImageAsset(await readJsonRequest(request)));
+        return;
+      }
+
+      if (method === 'POST' && requestUrl.pathname === '/image-assets/import-from-browser') {
+        writeJson(response, 200, handleImportImageAssetsFromBrowser(await readJsonRequest(request)));
+        return;
+      }
+
+      if (method === 'POST' && requestUrl.pathname === '/image-assets/reveal-file') {
+        writeJson(response, 200, await handleRevealInExplorer({
+          kind: 'file',
+          ...(await readJsonRequest(request)),
+        }));
+        return;
+      }
+
+      if (method === 'POST' && requestUrl.pathname === '/image-assets/reveal-directory') {
+        writeJson(response, 200, await handleRevealInExplorer({
+          kind: 'dir',
+          ...(await readJsonRequest(request)),
+        }));
+        return;
+      }
+
+      // ── User-image serving (read-only, no path rules in bridge) ──
+      if (method === 'GET' && requestUrl.pathname.startsWith('/user-images/')) {
+        const userDir = getUserImagesDir();
+        const relPath = decodeURIComponent(requestUrl.pathname.replace(/^\/user-images\//, ''));
+        if (/(^|\/)\.\.(\/|$)/.test(relPath) || relPath.includes('\\')) {
+          response.writeHead(403);
+          response.end('Forbidden');
+          return;
+        }
+        const absPath = path.resolve(userDir, relPath);
+        if (!absPath.startsWith(path.resolve(userDir) + path.sep)) {
+          response.writeHead(403);
+          response.end('Forbidden');
+          return;
+        }
+        if (!fs.existsSync(absPath) || !fs.statSync(absPath).isFile()) {
+          response.writeHead(404);
+          response.end('Not Found');
+          return;
+        }
+        const ext = path.extname(relPath).toLowerCase();
+        const mimeMap = {
+          '.png': 'image/png',
+          '.jpg': 'image/jpeg',
+          '.jpeg': 'image/jpeg',
+          '.webp': 'image/webp',
+          '.gif': 'image/gif',
+          '.svg': 'image/svg+xml',
+        };
+        const contentType = mimeMap[ext] || 'application/octet-stream';
+        try {
+          const data = fs.readFileSync(absPath);
+          response.writeHead(200, {
+            'Content-Type': contentType,
+            'Content-Length': data.length,
+            'Cache-Control': 'no-cache',
+            'Access-Control-Allow-Origin': '*',
+          });
+          response.end(data);
+        } catch {
+          response.writeHead(500);
+          response.end('Internal Server Error');
+        }
+        return;
+      }
+
+      writeJson(response, 404, {
+        ok: false,
+        error: 'not-found',
+        path: requestUrl.pathname,
+      });
+    } catch (error) {
+      writeJson(response, 500, {
+        ok: false,
+        error: error instanceof Error ? error.message : String(error),
+        path: requestUrl.pathname,
+      });
+    }
   });
 
   bridgeServer.on('error', (error) => {
@@ -1327,8 +1417,455 @@ function resolveManagedAssetPaths(relativePath) {
   };
 }
 
-ipcMain.handle('desktop:list-image-assets', () => {
+function getWebImageAssetCapabilities() {
+  return {
+    canList: true,
+    canImport: true,
+    canRename: true,
+    canRenameDir: true,
+    canDeleteFile: true,
+    canCreateDir: true,
+    canDeleteDir: true,
+    canReveal: true,
+    backendLabel: '网页端 · 可管理',
+    transportKind: 'web-bridge',
+  };
+}
+
+function handleListImageAssets() {
   return scanAllImageAssets();
+}
+
+function handleRenameImageDirectory(payload) {
+  const { dirPath, newName } = payload || {};
+  if (!dirPath || typeof dirPath !== 'string' || !newName || typeof newName !== 'string') {
+    return { ok: false, error: '缺少参数' };
+  }
+
+  const cleanName = newName.trim();
+  if (/[<>:"|?*\\/]/.test(cleanName) || cleanName === '.' || cleanName === '..') {
+    return { ok: false, error: `非法文件夹名: "${cleanName}"` };
+  }
+
+  const managedDir = getManagedDir();
+  const normalized = dirPath.replace(/\\/g, '/').replace(/^\/+/, '').replace(/\/+$/, '');
+
+  if (normalized === '' || normalized === '.') {
+    return { ok: false, error: '禁止重命名根目录' };
+  }
+  if (/(^|\/)\.\.(\/|$)/.test(normalized)) {
+    return { ok: false, error: '非法目录路径' };
+  }
+
+  const oldPath = path.join(managedDir, normalized);
+  const resolvedOld = path.resolve(oldPath);
+  const resolvedManaged = path.resolve(managedDir);
+  if (!resolvedOld.startsWith(resolvedManaged + path.sep)) {
+    return { ok: false, error: '越权目录访问' };
+  }
+  if (!fs.existsSync(oldPath)) {
+    return { ok: false, error: '目录不存在' };
+  }
+
+  const parentPath = path.dirname(oldPath);
+  const newPath = path.join(parentPath, cleanName);
+
+  if (oldPath === newPath) {
+    return { ok: true };
+  }
+  if (fs.existsSync(newPath)) {
+    return { ok: false, error: '目标目录已存在' };
+  }
+
+  try {
+    fs.renameSync(oldPath, newPath);
+    syncImageManifest();
+    const newRel = path.relative(managedDir, newPath).replace(/\\/g, '/');
+    return { ok: true, newPath: newRel };
+  } catch (err) {
+    return { ok: false, error: `重命名失败: ${err.message}` };
+  }
+}
+
+async function handleRevealInExplorer(payload) {
+  const { kind } = payload || {};
+
+  if (kind === 'file') {
+    const { relativePath } = payload;
+    if (!relativePath || typeof relativePath !== 'string') {
+      return { ok: false, error: '缺少文件路径' };
+    }
+
+    const resolvedPaths = resolveManagedAssetPaths(relativePath);
+    if (!resolvedPaths) {
+      return { ok: false, error: '非管理目录文件' };
+    }
+    const { userPath, builtinPath } = resolvedPaths;
+
+    let absFile = null;
+    if (fs.existsSync(userPath) && fs.statSync(userPath).isFile()) {
+      absFile = userPath;
+    } else if (fs.existsSync(builtinPath) && fs.statSync(builtinPath).isFile()) {
+      absFile = builtinPath;
+    }
+
+    if (!absFile) {
+      console.error('[reveal] file not found', { kind, relativePath, userPath, builtinPath });
+      return { ok: false, error: '文件不存在' };
+    }
+
+    try {
+      shell.showItemInFolder(absFile);
+    } catch (err) {
+      console.error('[reveal] showItemInFolder failed', { kind, relativePath, absFile, error: err.message });
+      return { ok: false, error: `显示文件失败: ${err.message}` };
+    }
+
+    return { ok: true };
+  }
+
+  if (kind === 'dir') {
+    const { dirPath } = payload;
+    if (!dirPath || typeof dirPath !== 'string') {
+      return { ok: false, error: '缺少目录路径' };
+    }
+
+    let normalized = dirPath.replace(/\\/g, '/').replace(/^\/+/, '').replace(/\/+$/, '');
+    if (normalized === '' || normalized === '.') {
+      return { ok: false, error: '无效目录路径' };
+    }
+    const segments = normalized.split('/');
+    const resolved = [];
+    for (const seg of segments) {
+      if (seg === '.' || seg === '') continue;
+      if (seg === '..') { resolved.pop(); continue; }
+      resolved.push(seg);
+    }
+    normalized = resolved.join('/');
+
+    if (normalized !== 'images' && !normalized.startsWith('images/')) {
+      return { ok: false, error: '目录不在管理范围内' };
+    }
+
+    const userDir = getUserImagesDir();
+    const userRel = normalized.replace(/^images\/?/, '');
+    const userPath = userRel ? path.resolve(userDir, userRel) : userDir;
+    const builtinPath = path.resolve(getAssetsRoot(), normalized);
+
+    let absDir = null;
+    if (fs.existsSync(userPath) && fs.statSync(userPath).isDirectory()) {
+      absDir = userPath;
+    } else if (fs.existsSync(builtinPath) && fs.statSync(builtinPath).isDirectory()) {
+      absDir = builtinPath;
+    }
+
+    if (!absDir) {
+      console.error('[reveal] dir not found', { kind, dirPath, userPath, builtinPath });
+      return { ok: false, error: '目录不存在' };
+    }
+
+    const err = await shell.openPath(absDir);
+    if (err && typeof err === 'string' && err.length > 0) {
+      console.error('[reveal] openPath failed', { kind, dirPath, absDir, error: err });
+      return { ok: false, error: `打开目录失败: ${err}` };
+    }
+
+    return { ok: true };
+  }
+
+  return { ok: false, error: `未知的 reveal kind: ${kind || '(缺失)'}` };
+}
+
+function handleRenameImageAsset(payload) {
+  const { relativePath, newName } = payload || {};
+  if (!relativePath || typeof newName !== 'string' || newName.trim().length === 0) {
+    return { ok: false, error: '缺少参数' };
+  }
+
+  const resolvedPaths = resolveManagedAssetPaths(relativePath);
+  if (!resolvedPaths) {
+    return { ok: false, error: '此文件为只读，不可重命名' };
+  }
+  const { userPath: oldPath, builtinPath } = resolvedPaths;
+
+  if (fs.existsSync(oldPath) && fs.statSync(oldPath).isFile()) {
+    // user file: writable
+  } else if (fs.existsSync(builtinPath) && fs.statSync(builtinPath).isFile()) {
+    return { ok: false, error: '此文件为只读素材，不可重命名' };
+  } else {
+    return { ok: false, error: '文件不存在' };
+  }
+
+  const originalExt = path.extname(oldPath).toLowerCase();
+  const userExt = path.extname(newName.trim()).toLowerCase();
+  const cleanName = userExt ? path.basename(newName.trim(), userExt) : newName.trim();
+  const finalName = `${cleanName}${originalExt}`;
+  const newPath = path.join(path.dirname(oldPath), finalName);
+
+  if (oldPath === newPath) {
+    return { ok: true };
+  }
+
+  if (fs.existsSync(newPath)) {
+    return { ok: false, error: '目标文件名已存在' };
+  }
+
+  try {
+    fs.renameSync(oldPath, newPath);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: `重命名失败: ${err.message}` };
+  }
+}
+
+function handleDeleteImageAsset(payload) {
+  const { relativePath } = payload || {};
+  if (!relativePath) {
+    return { ok: false, error: '缺少路径参数' };
+  }
+
+  const resolvedPaths = resolveManagedAssetPaths(relativePath);
+  if (!resolvedPaths) {
+    return { ok: false, error: '此文件为只读，不可删除' };
+  }
+  const { userPath: targetPath, builtinPath } = resolvedPaths;
+
+  if (fs.existsSync(targetPath) && fs.statSync(targetPath).isFile()) {
+    // user file: writable
+  } else if (fs.existsSync(builtinPath) && fs.statSync(builtinPath).isFile()) {
+    return { ok: false, error: '此文件为只读素材，不可删除' };
+  } else {
+    return { ok: false, error: '文件不存在' };
+  }
+
+  try {
+    fs.unlinkSync(targetPath);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: `删除失败: ${err.message}` };
+  }
+}
+
+function handleImportImageAssetsFromBrowser(payload) {
+  const { items, targetDir } = payload || {};
+  if (!items || !Array.isArray(items) || items.length === 0) {
+    return { ok: false, results: [], error: '缺少文件数据' };
+  }
+
+  const IMG_EXT_RE = /\.(png|jpg|jpeg|webp|gif|svg)$/i;
+  const managedDir = getManagedDir();
+
+  let destDir = managedDir;
+  if (targetDir && typeof targetDir === 'string' && targetDir.trim().length > 0) {
+    const normalized = targetDir.trim().replace(/\\/g, '/').replace(/^\/+/, '').replace(/\/+$/, '');
+    if (/(^|\/)\.\.(\/|$)/.test(normalized)) {
+      return { ok: false, results: [], error: '非法目录路径' };
+    }
+    destDir = path.join(managedDir, normalized);
+    const resolvedDest = path.resolve(destDir);
+    const resolvedManaged = path.resolve(managedDir);
+    if (!resolvedDest.startsWith(resolvedManaged + path.sep) && resolvedDest !== resolvedManaged) {
+      return { ok: false, results: [], error: '越权目录访问' };
+    }
+  }
+
+  if (!fs.existsSync(destDir)) {
+    try {
+      fs.mkdirSync(destDir, { recursive: true });
+    } catch (err) {
+      return { ok: false, results: [], error: `创建目录失败: ${err.message}` };
+    }
+  }
+
+  const results = [];
+  for (const item of items) {
+    const fileName = item.fileName;
+    const data = item.data;
+
+    if (!fileName || typeof fileName !== 'string' || !data || typeof data !== 'string') {
+      results.push({ fileName: fileName || '(unknown)', ok: false, error: '缺少文件名或数据' });
+      continue;
+    }
+
+    const cleanName = path.basename(fileName);
+    if (cleanName !== fileName || fileName.includes('..') || fileName.startsWith('/') || fileName.startsWith('\\')) {
+      results.push({ fileName, ok: false, error: '非法文件名' });
+      continue;
+    }
+
+    if (!IMG_EXT_RE.test(fileName)) {
+      results.push({ fileName, ok: false, error: '不支持的文件类型' });
+      continue;
+    }
+
+    const ext = path.extname(fileName).toLowerCase();
+    const baseName = path.basename(fileName, ext);
+    const uniqueName = findUniqueFileName(destDir, baseName, ext);
+    const destPath = path.join(destDir, uniqueName);
+
+    try {
+      const buffer = Buffer.from(data, 'base64');
+      fs.writeFileSync(destPath, buffer);
+      results.push({ fileName: uniqueName, ok: true });
+    } catch (err) {
+      results.push({ fileName, ok: false, error: `写入失败: ${err.message}` });
+    }
+  }
+
+  syncImageManifest();
+
+  const allOk = results.every((r) => r.ok);
+  return {
+    ok: allOk,
+    results,
+    ...(allOk ? {} : { error: '部分文件导入失败' }),
+  };
+}
+
+function handleCreateImageDirectory(payload) {
+  const { dirName, parentDir } = payload || {};
+  if (!dirName || typeof dirName !== 'string' || dirName.trim().length === 0) {
+    return { ok: false, error: '请输入文件夹名' };
+  }
+
+  const cleanName = dirName.trim();
+  if (/[<>:"|?*\\/]/.test(cleanName) || cleanName === '.' || cleanName === '..') {
+    return { ok: false, error: `非法文件夹名: "${cleanName}"` };
+  }
+
+  const managedDir = getManagedDir();
+
+  let parentPath = managedDir;
+  if (parentDir && typeof parentDir === 'string' && parentDir.trim().length > 0) {
+    const normalized = parentDir.trim().replace(/\\/g, '/').replace(/^\/+/, '').replace(/\/+$/, '');
+    if (/(^|\/)\.\.(\/|$)/.test(normalized)) {
+      return { ok: false, error: '非法目录路径' };
+    }
+    parentPath = path.join(managedDir, normalized);
+    const resolvedParent = path.resolve(parentPath);
+    const resolvedManaged = path.resolve(managedDir);
+    if (!resolvedParent.startsWith(resolvedManaged + path.sep) && resolvedParent !== resolvedManaged) {
+      return { ok: false, error: '越权目录访问' };
+    }
+    if (!fs.existsSync(parentPath)) {
+      return { ok: false, error: `父目录不存在: ${normalized}` };
+    }
+    const parentStat = fs.statSync(parentPath);
+    if (!parentStat.isDirectory()) {
+      return { ok: false, error: `路径不是目录: ${normalized}` };
+    }
+  }
+
+  const newDirPath = path.join(parentPath, cleanName);
+  if (fs.existsSync(newDirPath)) {
+    return { ok: false, error: `文件夹已存在: "${cleanName}"` };
+  }
+
+  try {
+    fs.mkdirSync(newDirPath, { recursive: true });
+  } catch (err) {
+    return { ok: false, error: `创建文件夹失败: ${err.message}` };
+  }
+
+  syncImageManifest();
+
+  const createdRel = path.relative(managedDir, newDirPath).replace(/\\/g, '/');
+
+  return { ok: true, createdPath: createdRel };
+}
+
+function handleDeleteImageDirectory(payload) {
+  const { relativePath } = payload || {};
+  if (!relativePath || typeof relativePath !== 'string' || relativePath.trim().length === 0) {
+    return { ok: false, error: '缺少目录路径' };
+  }
+
+  const normalized = relativePath.trim().replace(/\\/g, '/').replace(/^\/+/, '').replace(/\/+$/, '');
+
+  if (normalized === '' || normalized === '.') {
+    return { ok: false, error: '禁止删除根目录' };
+  }
+
+  if (/(^|\/)\.\.(\/|$)/.test(normalized)) {
+    return { ok: false, error: '非法目录路径' };
+  }
+
+  const managedDir = getManagedDir();
+  const targetPath = path.join(managedDir, normalized);
+  const resolvedTarget = path.resolve(targetPath);
+  const resolvedManaged = path.resolve(managedDir);
+
+  if (!resolvedTarget.startsWith(resolvedManaged + path.sep)) {
+    return { ok: false, error: '越权目录访问' };
+  }
+
+  if (!fs.existsSync(targetPath)) {
+    return { ok: false, error: '目录不存在' };
+  }
+
+  const targetStat = fs.statSync(targetPath);
+  if (!targetStat.isDirectory()) {
+    return { ok: false, error: '路径不是目录' };
+  }
+
+  const lockedFiles = [];
+  function scanLocked(dirPath) {
+    let entries;
+    try {
+      entries = fs.readdirSync(dirPath, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      const fullPath = path.join(dirPath, entry.name);
+      if (entry.isDirectory()) {
+        scanLocked(fullPath);
+      } else if (entry.isFile() && /\.(png|jpg|jpeg|webp|gif|svg)$/i.test(entry.name)) {
+        let writable = true;
+        try {
+          fs.accessSync(fullPath, fs.constants.W_OK);
+        } catch {
+          writable = false;
+        }
+        if (writable && process.platform === 'win32') {
+          try {
+            const fileStat = fs.statSync(fullPath);
+            if ((fileStat.mode & 0o200) === 0) {
+              writable = false;
+            }
+          } catch {
+            writable = false;
+          }
+        }
+        if (!writable) {
+          lockedFiles.push(path.relative(managedDir, fullPath).replace(/\\/g, '/'));
+        }
+      }
+    }
+  }
+  scanLocked(targetPath);
+
+  if (lockedFiles.length > 0) {
+    return {
+      ok: false,
+      error: `目录包含锁定文件/只读资源，无法删除。受影响的文件: ${lockedFiles.slice(0, 5).join(', ')}${lockedFiles.length > 5 ? ` 等 ${lockedFiles.length} 个文件` : ''}`,
+      lockedFiles,
+    };
+  }
+
+  try {
+    fs.rmSync(targetPath, { recursive: true, force: true });
+  } catch (err) {
+    return { ok: false, error: `删除目录失败: ${err.message}` };
+  }
+
+  syncImageManifest();
+
+  return { ok: true };
+}
+
+ipcMain.handle('desktop:list-image-assets', () => {
+  return handleListImageAssets();
 });
 
 ipcMain.handle('desktop:import-image-assets', async () => {
@@ -1424,457 +1961,19 @@ ipcMain.handle('desktop:import-image-assets-to-dir', async (_event, payload) => 
   return { ok: true, imported: importedFiles };
 });
 
-ipcMain.handle('desktop:rename-image-directory', (_event, payload) => {
-  const { dirPath, newName } = payload || {};
-  if (!dirPath || typeof dirPath !== 'string' || !newName || typeof newName !== 'string') {
-    return { ok: false, error: '缺少参数' };
-  }
+ipcMain.handle('desktop:rename-image-directory', (_event, payload) => handleRenameImageDirectory(payload));
 
-  const cleanName = newName.trim();
-  if (/[<>:"|?*\\/]/.test(cleanName) || cleanName === '.' || cleanName === '..') {
-    return { ok: false, error: `非法文件夹名: "${cleanName}"` };
-  }
+ipcMain.handle('desktop:reveal-in-explorer', async (_event, payload) => handleRevealInExplorer(payload));
 
-  // dirPath is relative to managed dir, e.g. "sub1" or "sub1/nested"
-  const managedDir = getManagedDir();
-  const normalized = dirPath.replace(/\\/g, '/').replace(/^\/+/, '').replace(/\/+$/, '');
+ipcMain.handle('desktop:rename-image-asset', (_event, payload) => handleRenameImageAsset(payload));
 
-  if (normalized === '' || normalized === '.') {
-    return { ok: false, error: '禁止重命名根目录' };
-  }
-  if (/(^|\/)\.\.(\/|$)/.test(normalized)) {
-    return { ok: false, error: '非法目录路径' };
-  }
+ipcMain.handle('desktop:delete-image-asset', (_event, payload) => handleDeleteImageAsset(payload));
 
-  const oldPath = path.join(managedDir, normalized);
-  const resolvedOld = path.resolve(oldPath);
-  const resolvedManaged = path.resolve(managedDir);
-  if (!resolvedOld.startsWith(resolvedManaged + path.sep)) {
-    return { ok: false, error: '越权目录访问' };
-  }
-  if (!fs.existsSync(oldPath)) {
-    return { ok: false, error: '目录不存在' };
-  }
+ipcMain.handle('desktop:import-image-assets-from-browser', (_event, payload) => handleImportImageAssetsFromBrowser(payload));
 
-  const parentPath = path.dirname(oldPath);
-  const newPath = path.join(parentPath, cleanName);
+ipcMain.handle('desktop:create-image-directory', (_event, payload) => handleCreateImageDirectory(payload));
 
-  if (oldPath === newPath) {
-    return { ok: true };
-  }
-  if (fs.existsSync(newPath)) {
-    return { ok: false, error: '目标目录已存在' };
-  }
-
-  try {
-    fs.renameSync(oldPath, newPath);
-    syncImageManifest();
-    const newRel = path.relative(managedDir, newPath).replace(/\\/g, '/');
-    return { ok: true, newPath: newRel };
-  } catch (err) {
-    return { ok: false, error: `重命名失败: ${err.message}` };
-  }
-});
-
-ipcMain.handle('desktop:reveal-in-explorer', async (_event, payload) => {
-  const { kind } = payload || {};
-
-  if (kind === 'file') {
-    const { relativePath } = payload;
-    if (!relativePath || typeof relativePath !== 'string') {
-      return { ok: false, error: '缺少文件路径' };
-    }
-
-    const resolvedPaths = resolveManagedAssetPaths(relativePath);
-    if (!resolvedPaths) {
-      return { ok: false, error: '非管理目录文件' };
-    }
-    const { userPath, builtinPath } = resolvedPaths;
-
-    let absFile = null;
-    if (fs.existsSync(userPath) && fs.statSync(userPath).isFile()) {
-      absFile = userPath;
-    } else if (fs.existsSync(builtinPath) && fs.statSync(builtinPath).isFile()) {
-      absFile = builtinPath;
-    }
-
-    if (!absFile) {
-      console.error('[reveal] file not found', { kind, relativePath, userPath, builtinPath });
-      return { ok: false, error: '文件不存在' };
-    }
-
-    try {
-      shell.showItemInFolder(absFile);
-    } catch (err) {
-      console.error('[reveal] showItemInFolder failed', { kind, relativePath, absFile, error: err.message });
-      return { ok: false, error: `显示文件失败: ${err.message}` };
-    }
-
-    return { ok: true };
-  }
-
-  if (kind === 'dir') {
-    const { dirPath } = payload;
-    if (!dirPath || typeof dirPath !== 'string') {
-      return { ok: false, error: '缺少目录路径' };
-    }
-
-    let normalized = dirPath.replace(/\\/g, '/').replace(/^\/+/, '').replace(/\/+$/, '');
-    if (normalized === '' || normalized === '.') {
-      return { ok: false, error: '无效目录路径' };
-    }
-    const segments = normalized.split('/');
-    const resolved = [];
-    for (const seg of segments) {
-      if (seg === '.' || seg === '') continue;
-      if (seg === '..') { resolved.pop(); continue; }
-      resolved.push(seg);
-    }
-    normalized = resolved.join('/');
-
-    if (normalized !== 'images' && !normalized.startsWith('images/')) {
-      return { ok: false, error: '目录不在管理范围内' };
-    }
-
-    // Try user dir first, then builtin
-    const userDir = getUserImagesDir();
-    const userRel = normalized.replace(/^images\/?/, '');
-    const userPath = userRel ? path.resolve(userDir, userRel) : userDir;
-    const builtinPath = path.resolve(getAssetsRoot(), normalized);
-
-    let absDir = null;
-    if (fs.existsSync(userPath) && fs.statSync(userPath).isDirectory()) {
-      absDir = userPath;
-    } else if (fs.existsSync(builtinPath) && fs.statSync(builtinPath).isDirectory()) {
-      absDir = builtinPath;
-    }
-
-    if (!absDir) {
-      console.error('[reveal] dir not found', { kind, dirPath, userPath, builtinPath });
-      return { ok: false, error: '目录不存在' };
-    }
-
-    const err = await shell.openPath(absDir);
-    if (err && typeof err === 'string' && err.length > 0) {
-      console.error('[reveal] openPath failed', { kind, dirPath, absDir, error: err });
-      return { ok: false, error: `打开目录失败: ${err}` };
-    }
-
-    return { ok: true };
-  }
-
-  return { ok: false, error: `未知的 reveal kind: ${kind || '(缺失)'}` };
-});
-
-ipcMain.handle('desktop:rename-image-asset', (_event, payload) => {
-  const { relativePath, newName } = payload || {};
-  if (!relativePath || typeof newName !== 'string' || newName.trim().length === 0) {
-    return { ok: false, error: '缺少参数' };
-  }
-
-  const resolvedPaths = resolveManagedAssetPaths(relativePath);
-  if (!resolvedPaths) {
-    return { ok: false, error: '此文件为只读，不可重命名' };
-  }
-  const { userPath: oldPath, builtinPath } = resolvedPaths;
-
-  if (fs.existsSync(oldPath) && fs.statSync(oldPath).isFile()) {
-    // user file: writable
-  } else if (fs.existsSync(builtinPath) && fs.statSync(builtinPath).isFile()) {
-    return { ok: false, error: '此文件为只读素材，不可重命名' };
-  } else {
-    return { ok: false, error: '文件不存在' };
-  }
-
-  const originalExt = path.extname(oldPath).toLowerCase();
-  const userExt = path.extname(newName.trim()).toLowerCase();
-  const cleanName = userExt ? path.basename(newName.trim(), userExt) : newName.trim();
-  const finalName = `${cleanName}${originalExt}`;
-  const newPath = path.join(path.dirname(oldPath), finalName);
-
-  if (oldPath === newPath) {
-    return { ok: true };
-  }
-
-  if (fs.existsSync(newPath)) {
-    return { ok: false, error: '目标文件名已存在' };
-  }
-
-  try {
-    fs.renameSync(oldPath, newPath);
-    return { ok: true };
-  } catch (err) {
-    return { ok: false, error: `重命名失败: ${err.message}` };
-  }
-});
-
-ipcMain.handle('desktop:delete-image-asset', (_event, payload) => {
-  const { relativePath } = payload || {};
-  if (!relativePath) {
-    return { ok: false, error: '缺少路径参数' };
-  }
-
-  const resolvedPaths = resolveManagedAssetPaths(relativePath);
-  if (!resolvedPaths) {
-    return { ok: false, error: '此文件为只读，不可删除' };
-  }
-  const { userPath: targetPath, builtinPath } = resolvedPaths;
-
-  if (fs.existsSync(targetPath) && fs.statSync(targetPath).isFile()) {
-    // user file: writable
-  } else if (fs.existsSync(builtinPath) && fs.statSync(builtinPath).isFile()) {
-    return { ok: false, error: '此文件为只读素材，不可删除' };
-  } else {
-    return { ok: false, error: '文件不存在' };
-  }
-
-  try {
-    fs.unlinkSync(targetPath);
-    return { ok: true };
-  } catch (err) {
-    return { ok: false, error: `删除失败: ${err.message}` };
-  }
-});
-
-ipcMain.handle('desktop:import-image-assets-from-browser', (_event, payload) => {
-  const { items, targetDir } = payload || {};
-  if (!items || !Array.isArray(items) || items.length === 0) {
-    return { ok: false, results: [], error: '缺少文件数据' };
-  }
-
-  const IMG_EXT_RE = /\.(png|jpg|jpeg|webp|gif|svg)$/i;
-  const managedDir = getManagedDir();
-
-  // Resolve target directory
-  let destDir = managedDir;
-  if (targetDir && typeof targetDir === 'string' && targetDir.trim().length > 0) {
-    const normalized = targetDir.trim().replace(/\\/g, '/').replace(/^\/+/, '').replace(/\/+$/, '');
-    // Prevent path traversal
-    if (/(^|\/)\.\.(\/|$)/.test(normalized)) {
-      return { ok: false, results: [], error: '非法目录路径' };
-    }
-    destDir = path.join(managedDir, normalized);
-    // Ensure destDir is still within managedDir
-    const resolvedDest = path.resolve(destDir);
-    const resolvedManaged = path.resolve(managedDir);
-    if (!resolvedDest.startsWith(resolvedManaged + path.sep) && resolvedDest !== resolvedManaged) {
-      return { ok: false, results: [], error: '越权目录访问' };
-    }
-  }
-
-  // Ensure target directory exists
-  if (!fs.existsSync(destDir)) {
-    try {
-      fs.mkdirSync(destDir, { recursive: true });
-    } catch (err) {
-      return { ok: false, results: [], error: `创建目录失败: ${err.message}` };
-    }
-  }
-
-  const results = [];
-  for (const item of items) {
-    const fileName = item.fileName;
-    const data = item.data;
-
-    if (!fileName || typeof fileName !== 'string' || !data || typeof data !== 'string') {
-      results.push({ fileName: fileName || '(unknown)', ok: false, error: '缺少文件名或数据' });
-      continue;
-    }
-
-    // Validate file name: no path separators, no traversal
-    const cleanName = path.basename(fileName);
-    if (cleanName !== fileName || fileName.includes('..') || fileName.startsWith('/') || fileName.startsWith('\\')) {
-      results.push({ fileName, ok: false, error: '非法文件名' });
-      continue;
-    }
-
-    // Validate extension
-    if (!IMG_EXT_RE.test(fileName)) {
-      results.push({ fileName, ok: false, error: '不支持的文件类型' });
-      continue;
-    }
-
-    const ext = path.extname(fileName).toLowerCase();
-    const baseName = path.basename(fileName, ext);
-    const uniqueName = findUniqueFileName(destDir, baseName, ext);
-    const destPath = path.join(destDir, uniqueName);
-
-    try {
-      const buffer = Buffer.from(data, 'base64');
-      fs.writeFileSync(destPath, buffer);
-      results.push({ fileName: uniqueName, ok: true });
-    } catch (err) {
-      results.push({ fileName, ok: false, error: `写入失败: ${err.message}` });
-    }
-  }
-
-  syncImageManifest();
-
-  const allOk = results.every((r) => r.ok);
-  return {
-    ok: allOk,
-    results,
-    ...(allOk ? {} : { error: '部分文件导入失败' }),
-  };
-});
-
-ipcMain.handle('desktop:create-image-directory', (_event, payload) => {
-  const { dirName, parentDir } = payload || {};
-  if (!dirName || typeof dirName !== 'string' || dirName.trim().length === 0) {
-    return { ok: false, error: '请输入文件夹名' };
-  }
-
-  const cleanName = dirName.trim();
-  // Reject illegal directory names
-  if (/[<>:"|?*\\/]/.test(cleanName) || cleanName === '.' || cleanName === '..') {
-    return { ok: false, error: `非法文件夹名: "${cleanName}"` };
-  }
-
-  const managedDir = getManagedDir();
-
-  // Resolve parent directory
-  let parentPath = managedDir;
-  if (parentDir && typeof parentDir === 'string' && parentDir.trim().length > 0) {
-    const normalized = parentDir.trim().replace(/\\/g, '/').replace(/^\/+/, '').replace(/\/+$/, '');
-    // Prevent path traversal
-    if (/(^|\/)\.\.(\/|$)/.test(normalized)) {
-      return { ok: false, error: '非法目录路径' };
-    }
-    parentPath = path.join(managedDir, normalized);
-    const resolvedParent = path.resolve(parentPath);
-    const resolvedManaged = path.resolve(managedDir);
-    if (!resolvedParent.startsWith(resolvedManaged + path.sep) && resolvedParent !== resolvedManaged) {
-      return { ok: false, error: '越权目录访问' };
-    }
-    if (!fs.existsSync(parentPath)) {
-      return { ok: false, error: `父目录不存在: ${normalized}` };
-    }
-    const parentStat = fs.statSync(parentPath);
-    if (!parentStat.isDirectory()) {
-      return { ok: false, error: `路径不是目录: ${normalized}` };
-    }
-  }
-
-  const newDirPath = path.join(parentPath, cleanName);
-  if (fs.existsSync(newDirPath)) {
-    return { ok: false, error: `文件夹已存在: "${cleanName}"` };
-  }
-
-  try {
-    fs.mkdirSync(newDirPath, { recursive: true });
-  } catch (err) {
-    return { ok: false, error: `创建文件夹失败: ${err.message}` };
-  }
-
-  syncImageManifest();
-
-  // Return the path relative to managed dir
-  const createdRel = path.relative(managedDir, newDirPath).replace(/\\/g, '/');
-
-  return { ok: true, createdPath: createdRel };
-});
-
-ipcMain.handle('desktop:delete-image-directory', (_event, payload) => {
-  const { relativePath } = payload || {};
-  if (!relativePath || typeof relativePath !== 'string' || relativePath.trim().length === 0) {
-    return { ok: false, error: '缺少目录路径' };
-  }
-
-  const normalized = relativePath.trim().replace(/\\/g, '/').replace(/^\/+/, '').replace(/\/+$/, '');
-
-  // Reject root managed dir deletion
-  if (normalized === '' || normalized === '.') {
-    return { ok: false, error: '禁止删除根目录' };
-  }
-
-  // Prevent path traversal
-  if (/(^|\/)\.\.(\/|$)/.test(normalized)) {
-    return { ok: false, error: '非法目录路径' };
-  }
-
-  const managedDir = getManagedDir();
-  const targetPath = path.join(managedDir, normalized);
-  const resolvedTarget = path.resolve(targetPath);
-  const resolvedManaged = path.resolve(managedDir);
-
-  // Ensure target is within managed dir
-  if (!resolvedTarget.startsWith(resolvedManaged + path.sep)) {
-    return { ok: false, error: '越权目录访问' };
-  }
-
-  if (!fs.existsSync(targetPath)) {
-    return { ok: false, error: '目录不存在' };
-  }
-
-  const targetStat = fs.statSync(targetPath);
-  if (!targetStat.isDirectory()) {
-    return { ok: false, error: '路径不是目录' };
-  }
-
-  // Recursively scan for non-writable / locked files
-  const lockedFiles = [];
-  function scanLocked(dirPath) {
-    let entries;
-    try {
-      entries = fs.readdirSync(dirPath, { withFileTypes: true });
-    } catch {
-      return;
-    }
-    for (const entry of entries) {
-      const fullPath = path.join(dirPath, entry.name);
-      if (entry.isDirectory()) {
-        scanLocked(fullPath);
-      } else if (entry.isFile() && /\.(png|jpg|jpeg|webp|gif|svg)$/i.test(entry.name)) {
-        // Real writability check: try W_OK access
-        let writable = true;
-        try {
-          fs.accessSync(fullPath, fs.constants.W_OK);
-        } catch {
-          writable = false;
-        }
-        // Also check read-only attribute on Windows
-        if (writable && process.platform === 'win32') {
-          try {
-            const fileStat = fs.statSync(fullPath);
-            // Windows: readonly attribute = 0o444 or check mode bits
-            // fs.statSync doesn't expose Windows attributes directly,
-            // but if the file is read-only, W_OK access would have failed above.
-            // Double-check via mode: if user-write bit is missing, it's locked.
-            // eslint-disable-next-line no-bitwise
-            if ((fileStat.mode & 0o200) === 0) {
-              writable = false;
-            }
-          } catch {
-            writable = false;
-          }
-        }
-        if (!writable) {
-          lockedFiles.push(path.relative(managedDir, fullPath).replace(/\\/g, '/'));
-        }
-      }
-    }
-  }
-  scanLocked(targetPath);
-
-  if (lockedFiles.length > 0) {
-    return {
-      ok: false,
-      error: `目录包含锁定文件/只读资源，无法删除。受影响的文件: ${lockedFiles.slice(0, 5).join(', ')}${lockedFiles.length > 5 ? ` 等 ${lockedFiles.length} 个文件` : ''}`,
-      lockedFiles,
-    };
-  }
-
-  // Delete recursively
-  try {
-    fs.rmSync(targetPath, { recursive: true, force: true });
-  } catch (err) {
-    return { ok: false, error: `删除目录失败: ${err.message}` };
-  }
-
-  syncImageManifest();
-
-  return { ok: true };
-});
+ipcMain.handle('desktop:delete-image-directory', (_event, payload) => handleDeleteImageDirectory(payload));
 
 ipcMain.handle('desktop:run-action', (_event, action) => {
   switch (action) {

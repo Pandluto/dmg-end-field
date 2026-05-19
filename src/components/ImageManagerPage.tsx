@@ -1,7 +1,15 @@
 import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { APP_ROUTE_PATHS, navigateToAppPath } from '../utils/appRoute';
 import { resolvePublicPath } from '../utils/assetResolver';
-import { imageBridge, getCapabilities, isManagedDir, normalizeDir, getUserImageUrl } from '../utils/imageBridge';
+import {
+  imageBridge,
+  getCapabilities,
+  subscribeCapabilities,
+  refreshCapabilities,
+  isManagedDir,
+  normalizeDir,
+  getUserImageUrl,
+} from '../utils/imageBridge';
 import {
   MANAGED_ROOT,
   toManagedRelative,
@@ -151,8 +159,7 @@ function buildTree(assets: ImageAssetEntry[]): TreeNode[] {
 
 // ── Action capability helpers (UI-layer: translate caps → button states) ──
 
-function computeDirActions(dir: string): DirActions {
-  const caps = getCapabilities();
+function computeDirActions(dir: string, caps: ReturnType<typeof getCapabilities>): DirActions {
   const isRoot = dir === MANAGED_ROOT;
 
   if (!isManagedDir(dir)) {
@@ -176,8 +183,7 @@ function computeDirActions(dir: string): DirActions {
   };
 }
 
-function computeFileActions(asset: ImageAssetEntry): FileActions {
-  const caps = getCapabilities();
+function computeFileActions(asset: ImageAssetEntry, caps: ReturnType<typeof getCapabilities>): FileActions {
   if (!asset.writable) {
     return { canRename: false, canDelete: false, canReveal: false, canCopyPath: true, reason: '非管理目录，只读' };
   }
@@ -247,8 +253,7 @@ export function ImageManagerPage() {
   const hasRestoredSessionRef = useRef(false);
 
   // ── Capabilities ──
-  const caps = getCapabilities();
-  const isDesktop = caps.isElectron;
+  const [caps, setCaps] = useState(() => getCapabilities());
 
   // ═══════════════════════════════════════════════════════
   // Data loading
@@ -271,6 +276,12 @@ export function ImageManagerPage() {
   }, []);
 
   useEffect(() => { loadAssets(); }, [loadAssets]);
+
+  useEffect(() => {
+    const unsubscribe = subscribeCapabilities(setCaps);
+    void refreshCapabilities();
+    return unsubscribe;
+  }, []);
 
   // ═══════════════════════════════════════════════════════
   // Derived data
@@ -412,7 +423,7 @@ export function ImageManagerPage() {
   // ── Import (ribbon) ──
 
   const handleImport = async () => {
-    if (!isDesktop) { flash('浏览器端不支持导入'); return; }
+    if (!caps.canImport) { flash('当前环境不支持导入'); return; }
     const writeDir = normalizeDir(browseDir);
     await runWriteOp('导入', () => imageBridge.importToDir(toManagedRelative(writeDir)), () => {
       expandPathChain(writeDir);
@@ -422,7 +433,7 @@ export function ImageManagerPage() {
   // ── Import to dir (context menu) ──
 
   const handleImportToDir = async (dir: string) => {
-    if (!isDesktop) { flash('浏览器端不支持导入'); setCtxMenu(null); return; }
+    if (!caps.canImport) { flash('当前环境不支持导入'); setCtxMenu(null); return; }
     setCtxMenu(null);
     const writeDir = dir;
     await runWriteOp('导入', () => imageBridge.importToDir(toManagedRelative(writeDir)), () => {
@@ -690,9 +701,9 @@ export function ImageManagerPage() {
   const commitRenameDispatcher = () => {
     if (renameTarget?.kind === 'dir') commitRenameDir(); else commitRename();
   };
-  const ctxMenuDirActions = ctxMenu?.target.kind === 'dir' ? computeDirActions(ctxMenu.target.dir) : undefined;
+  const ctxMenuDirActions = ctxMenu?.target.kind === 'dir' ? computeDirActions(ctxMenu.target.dir, caps) : undefined;
   const ctxMenuFileActions = ctxMenu?.target.kind === 'file'
-    ? (ctxMenuFileAsset ? computeFileActions(ctxMenuFileAsset) : { canRename: false, canDelete: false, canReveal: false, canCopyPath: true, reason: '文件未找到' })
+    ? (ctxMenuFileAsset ? computeFileActions(ctxMenuFileAsset, caps) : { canRename: false, canDelete: false, canReveal: false, canCopyPath: true, reason: '文件未找到' })
     : undefined;
 
   // ═══════════════════════════════════════════════════════
@@ -713,7 +724,7 @@ export function ImageManagerPage() {
       </header>
 
       <ImageManagerRibbon
-        isDesktop={isDesktop} canImport={caps.canImport} canRename={caps.canRename}
+        canImport={caps.canImport} canRename={caps.canRename}
         canDeleteFile={caps.canDeleteFile} loading={loading} searchQuery={searchQuery}
         viewMode={viewMode} selectedAsset={previewAsset}
         onSearchChange={setSearchQuery} onImport={handleImport}

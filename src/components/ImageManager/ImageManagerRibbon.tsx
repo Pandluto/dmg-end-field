@@ -1,7 +1,6 @@
 import type { ImageAssetEntry } from './types';
 
 interface ImageManagerRibbonProps {
-  isDesktop: boolean;
   canImport: boolean;
   canRename: boolean;
   canDeleteFile: boolean;
@@ -19,7 +18,7 @@ interface ImageManagerRibbonProps {
 
 export function ImageManagerRibbon(props: ImageManagerRibbonProps) {
   const {
-    isDesktop, canImport, canRename, canDeleteFile, loading, searchQuery, viewMode,
+    canImport, canRename, canDeleteFile, loading, searchQuery, viewMode,
     selectedAsset,
     onSearchChange, onImport,
     onRename, onDelete,
@@ -27,7 +26,7 @@ export function ImageManagerRibbon(props: ImageManagerRibbonProps) {
   } = props;
 
   const importDisabled = loading || !canImport;
-  const importTitle = !isDesktop ? '浏览器端不支持导入' : !canImport ? '缺少导入能力' : '导入图片（系统对话框）';
+  const importTitle = !canImport ? '缺少导入能力' : '导入图片';
   const renameDisabled = !selectedAsset || !canRename || !selectedAsset.writable;
   const deleteDisabled = !selectedAsset || !canDeleteFile || !selectedAsset.writable;
 
