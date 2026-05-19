@@ -27,9 +27,12 @@ contextBridge.exposeInMainWorld('desktopRuntime', {
   runAction: (action) => ipcRenderer.invoke('desktop:run-action', action),
   listImageAssets: () => ipcRenderer.invoke('desktop:list-image-assets'),
   importImageAssets: () => ipcRenderer.invoke('desktop:import-image-assets'),
+  importImageAssetsToDir: (payload) => ipcRenderer.invoke('desktop:import-image-assets-to-dir', payload),
   renameImageAsset: (payload) => ipcRenderer.invoke('desktop:rename-image-asset', payload),
+  renameImageDirectory: (payload) => ipcRenderer.invoke('desktop:rename-image-directory', payload),
   deleteImageAsset: (payload) => ipcRenderer.invoke('desktop:delete-image-asset', payload),
   importImageAssetsFromBrowser: (payload) => ipcRenderer.invoke('desktop:import-image-assets-from-browser', payload),
   createImageDirectory: (payload) => ipcRenderer.invoke('desktop:create-image-directory', payload),
   deleteImageDirectory: (payload) => ipcRenderer.invoke('desktop:delete-image-directory', payload),
+  revealInExplorer: (payload) => ipcRenderer.invoke('desktop:reveal-in-explorer', payload),
 });

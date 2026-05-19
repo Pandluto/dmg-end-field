@@ -1,6 +1,7 @@
 import type { ImageAssetEntry } from './types';
 
 interface ImageManagerRibbonProps {
+  isDesktop: boolean;
   canImport: boolean;
   canRename: boolean;
   canDeleteFile: boolean;
@@ -8,10 +9,8 @@ interface ImageManagerRibbonProps {
   searchQuery: string;
   viewMode: 'list' | 'grid';
   selectedAsset: ImageAssetEntry | null;
-  fileInputRef: React.RefObject<HTMLInputElement>;
   onSearchChange: (q: string) => void;
   onImport: () => void;
-  onBrowserFileSelected: (e: React.ChangeEvent<HTMLInputElement>) => void;
   onRename: () => void;
   onDelete: () => void;
   onRefresh: () => void;
@@ -20,26 +19,28 @@ interface ImageManagerRibbonProps {
 
 export function ImageManagerRibbon(props: ImageManagerRibbonProps) {
   const {
-    canImport, canRename, canDeleteFile, loading, searchQuery, viewMode,
-    selectedAsset, fileInputRef,
+    isDesktop, canImport, canRename, canDeleteFile, loading, searchQuery, viewMode,
+    selectedAsset,
     onSearchChange, onImport,
-    onBrowserFileSelected, onRename, onDelete,
+    onRename, onDelete,
     onRefresh, onToggleViewMode,
   } = props;
 
+  const importDisabled = loading || !canImport;
+  const importTitle = !isDesktop ? '浏览器端不支持导入' : !canImport ? '缺少导入能力' : '导入图片（系统对话框）';
   const renameDisabled = !selectedAsset || !canRename || !selectedAsset.writable;
   const deleteDisabled = !selectedAsset || !canDeleteFile || !selectedAsset.writable;
 
   return (
     <section className="damage-sheet-ribbon buff-sheet-ribbon">
       <div className="buff-sheet-ribbon-actions">
-        {/* Import */}
+        {/* Import — desktop native dialog */}
         <button
           className="buff-sheet-tool-button"
           type="button"
-          disabled={loading || !canImport}
+          disabled={importDisabled}
           onClick={onImport}
-          title={canImport ? '导入图片' : '当前环境不支持导入'}
+          title={importTitle}
         >
           <span className="buff-sheet-tool-icon" aria-hidden="true">
             <svg className="buff-sheet-tool-svg" viewBox="0 0 16 16" focusable="false">
@@ -56,6 +57,7 @@ export function ImageManagerRibbon(props: ImageManagerRibbonProps) {
           type="button"
           disabled={renameDisabled}
           onClick={onRename}
+          title={!selectedAsset ? '请先选择文件' : !selectedAsset.writable ? '只读文件不可重命名' : '重命名'}
         >
           <span className="buff-sheet-tool-icon" aria-hidden="true">
             <svg className="buff-sheet-tool-svg" viewBox="0 0 16 16" focusable="false">
@@ -72,6 +74,7 @@ export function ImageManagerRibbon(props: ImageManagerRibbonProps) {
           type="button"
           disabled={deleteDisabled}
           onClick={onDelete}
+          title={!selectedAsset ? '请先选择文件' : !selectedAsset.writable ? '只读文件不可删除' : '删除'}
         >
           <span className="buff-sheet-tool-icon" aria-hidden="true">
             <svg className="buff-sheet-tool-svg" viewBox="0 0 16 16" focusable="false">
@@ -114,16 +117,6 @@ export function ImageManagerRibbon(props: ImageManagerRibbonProps) {
           style={{ width: '100%', maxWidth: 320 }}
         />
       </div>
-
-      {/* Hidden file input for browser import */}
-      <input
-        ref={fileInputRef}
-        type="file"
-        accept="image/png,image/jpeg,image/webp,image/gif,image/svg+xml"
-        multiple
-        className="operator-draft-file-input"
-        onChange={onBrowserFileSelected}
-      />
     </section>
   );
 }

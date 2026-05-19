@@ -16,7 +16,9 @@
       "Bash(kill %1)",
       "Bash(mkdir -p \"c:/Users/zsk86/Desktop/dmg/dmg-end-field/src/components/ImageManager\")",
       "Bash(node --check electron/main.cjs)",
-      "Bash(node --check electron/preload.cjs)"
+      "Bash(node --check electron/preload.cjs)",
+      "Bash(node -c electron/main.cjs)",
+      "Bash(node -c electron/preload.cjs)"
     ],
     "additionalDirectories": [
       "c:\\Users\\zsk86\\Desktop\\dmg\\dmg-end-field\\src\\components"

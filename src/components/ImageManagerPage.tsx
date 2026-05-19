@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { APP_ROUTE_PATHS, navigateToAppPath } from '../utils/appRoute';
 import { resolvePublicPath } from '../utils/assetResolver';
-import { assetHostApi, isManagedDir, toManagedRelative, fromManagedRelative, managedDirLabel } from '../utils/assetHostApi';
+import { assetHostApi, isManagedDir, toManagedRelative, fromManagedRelative, managedDirLabel, getHostStatus } from '../utils/assetHostApi';
 import './ImageManagerPage.css';
 import { ImageManagerRibbon } from './ImageManager/ImageManagerRibbon';
 import { ImageManagerExplorer } from './ImageManager/ImageManagerExplorer';
@@ -10,9 +10,18 @@ import { ImageManagerPreviewPanel } from './ImageManager/ImageManagerPreviewPane
 import { ImageManagerRenameModal } from './ImageManager/ImageManagerRenameModal';
 import { ImageManagerCreateFolderModal } from './ImageManager/ImageManagerCreateFolderModal';
 import { ImageManagerDeleteFolderModal } from './ImageManager/ImageManagerDeleteFolderModal';
-import type { ImageAssetEntry, DirGroup } from './ImageManager/types';
+import { ImageManagerHostStatus } from './ImageManager/ImageManagerHostStatus';
+import type { ImageAssetEntry, TreeNode, CtxTarget, DirActions, FileActions } from './ImageManager/types';
 
 export { managedDirLabel };
+
+// ── Normalize empty dir to managed root ──
+
+const MANAGED_ROOT = 'images';
+
+function normalizeDir(dir: string): string {
+  return dir === '' ? MANAGED_ROOT : dir;
+}
 
 // ── Local helpers ──
 
@@ -31,81 +40,132 @@ function formatBytes(bytes: number): string {
   return `${(bytes / 1048576).toFixed(2)} MB`;
 }
 
-function buildDirTree(assets: ImageAssetEntry[]): DirGroup[] {
-  const map = new Map<string, Map<string, number>>();
-  for (const a of assets) {
+/** Build a recursive tree from flat asset entries (files + empty dirs). */
+function buildTree(assets: ImageAssetEntry[]): TreeNode[] {
+  const files = assets.filter((a) => a.kind !== 'dir');
+  const emptyDirs = assets.filter((a) => a.kind === 'dir');
+
+  // Count files per directory
+  const dirCounts = new Map<string, number>();
+  for (const a of files) {
     const parts = a.relativePath.replace(/^assets\//, '').split('/');
-    const topDir = parts[0];
-    if (!topDir) continue;
-    if (!map.has(topDir)) map.set(topDir, new Map());
-    const subMap = map.get(topDir)!;
-    const subDir = parts.length > 2 ? parts[1] : '';
-    subMap.set(subDir, (subMap.get(subDir) || 0) + 1);
-  }
-  const groups: DirGroup[] = [];
-  for (const [topDir, subMap] of map.entries()) {
-    let total = 0;
-    const subDirs: { name: string; count: number }[] = [];
-    for (const [name, count] of subMap.entries()) {
-      total += count;
-      if (name) subDirs.push({ name, count });
+    parts.pop();
+    for (let i = 1; i <= parts.length; i++) {
+      const dirPath = parts.slice(0, i).join('/');
+      dirCounts.set(dirPath, (dirCounts.get(dirPath) || 0) + 1);
     }
-    subDirs.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
-    groups.push({ topDir, subDirs, totalCount: total });
   }
-  groups.sort((a, b) => a.topDir.localeCompare(b.topDir));
-  return groups;
+
+  // Ensure empty managed dirs have count 0
+  for (const d of emptyDirs) {
+    const dirPath = d.relativePath.replace(/^assets\//, '');
+    if (!dirCounts.has(dirPath)) {
+      dirCounts.set(dirPath, 0);
+    }
+  }
+
+  const treeMap = new Map<string, TreeNode>();
+
+  // Create nodes from file parent directories
+  for (const a of files) {
+    const parts = a.relativePath.replace(/^assets\//, '').split('/');
+    for (let i = 0; i < parts.length - 1; i++) {
+      const dirPath = parts.slice(0, i + 1).join('/');
+      if (!treeMap.has(dirPath)) {
+        treeMap.set(dirPath, {
+          name: parts[i],
+          path: dirPath,
+          isManaged: isManagedDir(dirPath),
+          count: dirCounts.get(dirPath) || 0,
+          children: [],
+        });
+      }
+    }
+  }
+
+  // Create nodes from empty directory entries
+  for (const d of emptyDirs) {
+    const dirPath = d.relativePath.replace(/^assets\//, '');
+    if (!treeMap.has(dirPath)) {
+      treeMap.set(dirPath, {
+        name: d.fileName,
+        path: dirPath,
+        isManaged: true,
+        count: 0,
+        children: [],
+      });
+    }
+  }
+
+  const roots: TreeNode[] = [];
+  for (const [dirPath, node] of treeMap) {
+    const parentParts = dirPath.split('/');
+    parentParts.pop();
+    const parentPath = parentParts.join('/');
+    if (parentPath && treeMap.has(parentPath)) {
+      treeMap.get(parentPath)!.children.push(node);
+    } else {
+      roots.push(node);
+    }
+  }
+
+  const sortChildren = (nodes: TreeNode[]) => {
+    nodes.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
+    for (const n of nodes) sortChildren(n.children);
+  };
+  sortChildren(roots);
+
+  return roots;
 }
 
-interface DirActionSet {
-  canCreate: boolean;
-  canImport: boolean;
-  canDelete: boolean;
-  label: string;
-  reason?: string;
-}
-
-/** Determine contextual actions for a given Explorer dir node. */
-function dirActions(dir: string): DirActionSet {
+/** Compute action capabilities for a directory (dir is already normalized). */
+function computeDirActions(dir: string): DirActions {
   const api = assetHostApi;
+  const status = getHostStatus();
+  const isRoot = dir === MANAGED_ROOT;
 
-  // "" (全部图片) and "images" both map to managed root
-  if (dir === '' || dir === 'images') {
+  if (!isManagedDir(dir)) {
     return {
-      canCreate: api.canCreateDir,
-      canImport: api.canImport,
-      canDelete: false,
-      label: 'images（管理根目录）',
-      reason: api.canCreateDir ? undefined : '未接入宿主写入通道',
+      canCreateDir: false, canImport: false, canRenameDir: false,
+      canDeleteDir: false, canReveal: false,
+      reason: '非管理目录，只读',
     };
   }
 
-  // Managed subdirectory
-  if (isManagedDir(dir)) {
-    return {
-      canCreate: api.canCreateDir,
-      canImport: api.canImport,
-      canDelete: api.canDeleteDir,
-      label: dir,
-      reason: api.canCreateDir ? undefined : '未接入宿主写入通道',
-    };
-  }
+  const missing: string[] = [];
+  if (!status.methods.createDir) missing.push('createImageDirectory');
+  if (!status.methods.importToDir) missing.push('importImageAssetsToDir');
+  if (!status.methods.renameDir) missing.push('renameImageDirectory');
+  if (!status.methods.deleteDir) missing.push('deleteImageDirectory');
+  if (!status.methods.reveal) missing.push('revealInExplorer');
 
-  // Non-managed — show disabled menu
   return {
-    canCreate: false,
-    canImport: false,
-    canDelete: false,
-    label: `${dir}（只读）`,
-    reason: '非管理目录，不可写入',
+    canCreateDir: api.canCreateDir,
+    canImport: api.canImport,
+    canRenameDir: api.canRenameDir && !isRoot,
+    canDeleteDir: api.canDeleteDir && !isRoot,
+    canReveal: api.canReveal,
+    reason: missing.length > 0 ? `缺少: ${missing.join(', ')}` : undefined,
   };
 }
 
-/** Resolve a frontend dir to the actual managed parent for create/import operations. */
-function resolveManagedParent(dir: string): string {
-  if (dir === '') return 'images';
-  if (!isManagedDir(dir)) return dir; // guarded by callers
-  return dir;
+/** Compute action capabilities for a file. */
+function computeFileActions(asset: ImageAssetEntry): FileActions {
+  const api = assetHostApi;
+  if (!asset.writable) {
+    return { canRename: false, canDelete: false, canReveal: false, canCopyPath: true, reason: '非管理目录，只读' };
+  }
+  const missing: string[] = [];
+  if (!api.canRename) missing.push('renameImageAsset');
+  if (!api.canDeleteFile) missing.push('deleteImageAsset');
+  if (!api.canReveal) missing.push('revealInExplorer');
+  return {
+    canRename: api.canRename,
+    canDelete: api.canDeleteFile,
+    canReveal: api.canReveal,
+    canCopyPath: true,
+    reason: missing.length > 0 ? `缺少: ${missing.join(', ')}` : undefined,
+  };
 }
 
 // ── Route guard ──
@@ -117,6 +177,7 @@ export function isImageManagerPath(path: string): boolean {
 // ── Component ──
 
 export function ImageManagerPage() {
+  // ── Data state ──
   const [assets, setAssets] = useState<ImageAssetEntry[]>([]);
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
@@ -124,30 +185,32 @@ export function ImageManagerPage() {
   const [expandedDirs, setExpandedDirs] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
-  const [confirmDelete, setConfirmDelete] = useState(false);
-  const [isRenaming, setIsRenaming] = useState(false);
-  const [renameValue, setRenameValue] = useState('');
   const [viewMode, setViewMode] = useState<'list' | 'grid'>('list');
 
-  const [dirCtxMenu, setDirCtxMenu] = useState<{ x: number; y: number; dir: string } | null>(null);
-
+  // ── Modal / menu state ──
+  const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; target: CtxTarget } | null>(null);
+  const [isRenaming, setIsRenaming] = useState(false);
+  const [renameValue, setRenameValue] = useState('');
+  const [renameTarget, setRenameTarget] = useState<CtxTarget | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState<CtxTarget | null>(null);
   const [isCreatingFolder, setIsCreatingFolder] = useState(false);
   const [folderName, setFolderName] = useState('');
   const [folderParentDir, setFolderParentDir] = useState('');
-
   const [isDeletingFolder, setIsDeletingFolder] = useState(false);
   const [deleteFolderDir, setDeleteFolderDir] = useState('');
   const [deleteFolderError, setDeleteFolderError] = useState<string | null>(null);
 
   const renameInputRef = useRef<HTMLInputElement>(null);
   const folderInputRef = useRef<HTMLInputElement>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const initialDirSet = useRef(false);
-  const importTargetDirRef = useRef<string | undefined>(undefined);
+
+  // ── Host status ──
+  const host = getHostStatus();
+  const isDesktop = host.isElectronLike;
 
   // ── Load assets ──
 
-  const loadAssets = async () => {
+  const loadAssets = useCallback(async () => {
     setLoading(true);
     try {
       const list = await assetHostApi.listAssets();
@@ -160,23 +223,21 @@ export function ImageManagerPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
     loadAssets();
-  }, []);
+  }, [loadAssets]);
 
   // ── Derived data ──
 
-  const dirTree = useMemo(() => buildDirTree(assets), [assets]);
+  const dirTree = useMemo(() => buildTree(assets), [assets]);
 
   useEffect(() => {
     if (!initialDirSet.current && dirTree.length > 0) {
       initialDirSet.current = true;
-      const first = dirTree[0];
-      const firstSub = first.subDirs.length > 0 ? `${first.topDir}/${first.subDirs[0].name}` : first.topDir;
-      setCurrentDir(firstSub);
-      setExpandedDirs(new Set([first.topDir]));
+      setCurrentDir(dirTree[0].path);
+      setExpandedDirs(new Set([dirTree[0].path]));
     }
   }, [dirTree]);
 
@@ -211,7 +272,20 @@ export function ImageManagerPage() {
     setTimeout(() => setMessage(null), 3000);
   };
 
-  // ── Unified write-op helper ──
+  // ── Helper: expand a directory path chain ──
+
+  const expandPathChain = (dir: string) => {
+    setExpandedDirs((prev) => {
+      const next = new Set(prev);
+      const parts = dir.split('/');
+      for (let i = 0; i < parts.length; i++) {
+        next.add(parts.slice(0, i + 1).join('/'));
+      }
+      return next;
+    });
+  };
+
+  // ── Unified write-op helper (IO only, no state restore) ──
 
   async function runWriteOp<T extends { ok: boolean; error?: string }>(
     label: string,
@@ -224,6 +298,7 @@ export function ImageManagerPage() {
       if (result.ok) {
         flash(`${label}成功`);
         await loadAssets();
+        // onOk runs AFTER loadAssets completes — callers set state here
         onOk?.(result);
       } else {
         flash(result.error || `${label}失败`);
@@ -239,77 +314,69 @@ export function ImageManagerPage() {
 
   // ── Import ──
 
-  const getImportTargetDir = (): string | undefined => {
-    const raw = importTargetDirRef.current !== undefined ? importTargetDirRef.current : currentDir;
-    importTargetDirRef.current = undefined;
-    return toManagedRelative(raw);
+  const handleImport = async () => {
+    if (!isDesktop) { flash('浏览器端不支持导入'); return; }
+    const dir = normalizeDir(currentDir);
+    const targetRel = toManagedRelative(dir);
+    await runWriteOp('导入', () => assetHostApi.importToDir(targetRel), () => {
+      expandPathChain(dir);
+    });
   };
 
-  const handleImport = () => {
-    importTargetDirRef.current = undefined;
-    fileInputRef.current?.click();
+  const handleImportToDir = async (dir: string) => {
+    if (!isDesktop) { flash('浏览器端不支持导入'); setCtxMenu(null); return; }
+    setCtxMenu(null);
+    const norm = normalizeDir(dir);
+    const targetRel = toManagedRelative(norm);
+    await runWriteOp('导入', () => assetHostApi.importToDir(targetRel), () => {
+      setCurrentDir(norm);
+      expandPathChain(norm);
+    });
   };
 
-  const handleImportToDir = (dir: string) => {
-    importTargetDirRef.current = resolveManagedParent(dir);
-    setDirCtxMenu(null);
-    fileInputRef.current?.click();
-  };
+  // ── Rename (file) ──
 
-  const handleBrowserFileSelected = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const files = event.target.files;
-    if (!files || files.length === 0) return;
-
-    if (!assetHostApi.canImport) {
-      flash('当前环境不支持导入');
-      if (fileInputRef.current) fileInputRef.current.value = '';
-      return;
-    }
-
-    const targetDir = getImportTargetDir();
-
-    const items = await Promise.all(
-      Array.from(files).map(async (file) => {
-        const buffer = await file.arrayBuffer();
-        const bytes = new Uint8Array(buffer);
-        let binary = '';
-        for (let i = 0; i < bytes.length; i++) {
-          binary += String.fromCharCode(bytes[i]);
-        }
-        return { fileName: file.name, data: btoa(binary) };
-      }),
-    );
-
-    await runWriteOp('导入', () => assetHostApi.importFiles(items, targetDir));
-
-    if (fileInputRef.current) fileInputRef.current.value = '';
-  };
-
-  // ── Rename ──
-
-  const startRename = () => {
-    if (!selectedAsset) return;
-    setRenameValue(selectedAsset.baseName);
+  const startRename = (target?: CtxTarget) => {
+    const t = target || (selectedAsset ? { kind: 'file' as const, relativePath: selectedAsset.relativePath, fileName: selectedAsset.fileName, isManaged: selectedAsset.writable } : null);
+    if (!t || t.kind !== 'file') return;
+    setCtxMenu(null);
+    setRenameTarget(t);
+    setRenameValue(t.relativePath.split('/').pop()!.replace(/\.[^.]+$/, ''));
     setIsRenaming(true);
     setTimeout(() => renameInputRef.current?.select(), 50);
   };
 
   const commitRename = async () => {
-    if (!selectedAsset || !assetHostApi.canRename || !renameValue.trim()) {
+    const target = renameTarget;
+    if (!target || target.kind !== 'file' || !assetHostApi.canRename || !renameValue.trim()) {
       setIsRenaming(false);
+      setRenameTarget(null);
       return;
     }
+
+    const oldRelativePath = target.relativePath;
+    const ext = oldRelativePath.split('/').pop()!.match(/\.[^.]+$/)?.[0] || '';
+    const newFullName = `${renameValue.trim()}${ext}`;
+    const dir = oldRelativePath.replace(/\/[^/]+$/, '');
+    const newPath = `${dir}/${newFullName}`;
+
     await runWriteOp('重命名', () =>
-      assetHostApi.renameFile(selectedAsset.relativePath, renameValue.trim()),
+      assetHostApi.renameFile(oldRelativePath, newFullName),
       () => {
         setIsRenaming(false);
-        setSelectedPath(null);
+        setRenameTarget(null);
+        setSelectedPath(newPath);
+        // Keep current dir — extract frontend path from asset prefix
+        const dirFrontend = dir.replace(/^assets\//, '');
+        setCurrentDir(dirFrontend);
+        expandPathChain(dirFrontend);
       },
     );
   };
 
   const cancelRename = () => {
     setIsRenaming(false);
+    setRenameTarget(null);
     setRenameValue('');
   };
 
@@ -318,35 +385,92 @@ export function ImageManagerPage() {
     if (e.key === 'Escape') cancelRename();
   };
 
-  // ── Delete file ──
+  // ── Rename directory ──
 
-  const handleDeleteRequest = () => {
-    if (!selectedAsset) return;
-    setConfirmDelete(true);
+  const startRenameDir = (target: CtxTarget) => {
+    if (target.kind !== 'dir') return;
+    setCtxMenu(null);
+    setRenameTarget(target);
+    const norm = normalizeDir(target.dir);
+    setRenameValue(norm.split('/').pop() || norm);
+    setIsRenaming(true);
+    setTimeout(() => renameInputRef.current?.select(), 50);
   };
 
-  const handleDeleteConfirm = async () => {
-    if (!selectedAsset || !assetHostApi.canDeleteFile) {
-      setConfirmDelete(false);
+  const commitRenameDir = async () => {
+    const target = renameTarget;
+    if (!target || target.kind !== 'dir' || !assetHostApi.canRenameDir || !renameValue.trim()) {
+      setIsRenaming(false);
+      setRenameTarget(null);
       return;
     }
-    await runWriteOp('删除', () => assetHostApi.deleteFile(selectedAsset.relativePath), () => {
-      setConfirmDelete(false);
-      setSelectedPath(null);
+
+    const norm = normalizeDir(target.dir);
+    const dirPath = toManagedRelative(norm);
+    if (!dirPath) {
+      flash('无法重命名根目录');
+      setIsRenaming(false);
+      setRenameTarget(null);
+      return;
+    }
+
+    const newName = renameValue.trim();
+    const oldFrontend = norm;
+
+    await runWriteOp('重命名目录', () =>
+      assetHostApi.renameDirectory(dirPath, newName),
+      (result) => {
+        setIsRenaming(false);
+        setRenameTarget(null);
+        if (result.newPath) {
+          const newFrontend = fromManagedRelative(result.newPath);
+          setCurrentDir(newFrontend);
+          setExpandedDirs((prev) => {
+            const next = new Set(prev);
+            next.delete(oldFrontend);
+            next.add(newFrontend);
+            return next;
+          });
+        }
+      },
+    );
+  };
+
+  // ── Delete file ──
+
+  const handleDeleteFile = (target: CtxTarget) => {
+    if (target.kind !== 'file') return;
+    setCtxMenu(null);
+    setConfirmDelete(target);
+  };
+
+  const handleDeleteFileConfirm = async () => {
+    const target = confirmDelete;
+    if (!target || target.kind !== 'file' || !assetHostApi.canDeleteFile) {
+      setConfirmDelete(null);
+      return;
+    }
+    const delPath = target.relativePath;
+    await runWriteOp('删除', () => assetHostApi.deleteFile(delPath), () => {
+      setConfirmDelete(null);
+      if (selectedPath === delPath) setSelectedPath(null);
     });
   };
 
-  const handleDeleteCancel = () => setConfirmDelete(false);
+  const handleDeleteFileCancel = () => setConfirmDelete(null);
 
   // ── Create folder ──
 
   const openCreateFolder = (dir: string) => {
-    const parent = resolveManagedParent(dir);
-    if (!isManagedDir(parent)) return;
+    const parent = normalizeDir(dir);
+    if (!isManagedDir(parent)) {
+      flash('非管理目录不可新建文件夹');
+      return;
+    }
     setFolderParentDir(parent);
     setFolderName('');
     setIsCreatingFolder(true);
-    setDirCtxMenu(null);
+    setCtxMenu(null);
     setTimeout(() => folderInputRef.current?.focus(), 50);
   };
 
@@ -356,26 +480,25 @@ export function ImageManagerPage() {
       return;
     }
     const parentBackend = toManagedRelative(folderParentDir);
-    if (parentBackend === undefined && folderParentDir !== 'images') {
+    if (parentBackend === undefined && folderParentDir !== MANAGED_ROOT) {
       setIsCreatingFolder(false);
       return;
     }
+
+    const parent = folderParentDir;
+
     await runWriteOp('创建文件夹', () =>
       assetHostApi.createDirectory(folderName.trim(), parentBackend),
       (result) => {
-        const createdBackendPath = result.createdPath || '';
         setIsCreatingFolder(false);
         setFolderName('');
-
-        const frontendDir = fromManagedRelative(createdBackendPath || undefined);
-
-        const topDir = folderParentDir.split('/')[0];
-        setExpandedDirs((prev) => {
-          const next = new Set(prev);
-          next.add(topDir);
-          return next;
-        });
-        setCurrentDir(frontendDir);
+        const createdBackendPath = result.createdPath || '';
+        const newDir = fromManagedRelative(createdBackendPath || undefined);
+        expandPathChain(parent);
+        expandPathChain(newDir);
+        // Stay in parent dir so the user can see existing files; the new
+        // empty folder now appears in the tree via directory entries.
+        setCurrentDir(parent);
         setSelectedPath(null);
       },
     );
@@ -394,16 +517,16 @@ export function ImageManagerPage() {
   // ── Delete folder ──
 
   const openDeleteFolder = (dir: string) => {
-    if (!isManagedDir(dir) || dir === 'images') return;
-    setDeleteFolderDir(dir);
+    const norm = normalizeDir(dir);
+    if (!isManagedDir(norm) || norm === MANAGED_ROOT) return;
+    setDeleteFolderDir(norm);
     setDeleteFolderError(null);
     setIsDeletingFolder(true);
-    setDirCtxMenu(null);
+    setCtxMenu(null);
   };
 
   const commitDeleteFolder = async () => {
     if (!assetHostApi.canDeleteDir || !deleteFolderDir) return;
-
     const backendPath = toManagedRelative(deleteFolderDir);
     if (!backendPath) {
       setDeleteFolderError('无法删除根目录');
@@ -411,6 +534,8 @@ export function ImageManagerPage() {
     }
 
     setDeleteFolderError(null);
+    const delDir = deleteFolderDir;
+
     setLoading(true);
     try {
       const result = await assetHostApi.deleteDirectory(backendPath);
@@ -419,12 +544,17 @@ export function ImageManagerPage() {
         await loadAssets();
         setIsDeletingFolder(false);
         setDeleteFolderDir('');
-
-        if (currentDir === deleteFolderDir || currentDir.startsWith(deleteFolderDir + '/')) {
-          const parts = deleteFolderDir.split('/');
+        // State recovery AFTER loadAssets
+        if (currentDir === delDir || currentDir.startsWith(delDir + '/')) {
+          const parts = delDir.split('/');
           parts.pop();
           setCurrentDir(parts.join('/'));
         }
+        setExpandedDirs((prev) => {
+          const next = new Set(prev);
+          next.delete(delDir);
+          return next;
+        });
         setSelectedPath(null);
       } else {
         setDeleteFolderError(result.error || '删除失败');
@@ -440,6 +570,28 @@ export function ImageManagerPage() {
     setIsDeletingFolder(false);
     setDeleteFolderDir('');
     setDeleteFolderError(null);
+  };
+
+  // ── Reveal in Explorer ──
+
+  const handleReveal = async (target: CtxTarget) => {
+    setCtxMenu(null);
+    if (target.kind === 'dir') {
+      const dir = normalizeDir(target.dir);
+      const result = await assetHostApi.revealDirectory(dir);
+      if (!result.ok) flash(result.error || '打开目录失败');
+    } else {
+      const result = await assetHostApi.revealFile(target.relativePath);
+      if (!result.ok) flash(result.error || '显示文件失败');
+    }
+  };
+
+  // ── Copy path ──
+
+  const handleCopyPath = (target: CtxTarget) => {
+    setCtxMenu(null);
+    const path = target.kind === 'file' ? target.relativePath : normalizeDir(target.dir);
+    navigator.clipboard.writeText(path).then(() => flash('路径已复制'));
   };
 
   // ── Navigation ──
@@ -486,20 +638,58 @@ export function ImageManagerPage() {
     });
   };
 
-  // ── Directory context menu ──
+  // ── Context menu ──
 
   const handleDirContextMenu = (e: React.MouseEvent, dir: string) => {
     e.preventDefault();
     e.stopPropagation();
-    setDirCtxMenu({ x: e.clientX, y: e.clientY, dir });
+    const norm = normalizeDir(dir);
+    const isRoot = norm === MANAGED_ROOT;
+    const managed = isManagedDir(norm);
+    setCtxMenu({
+      x: e.clientX,
+      y: e.clientY,
+      target: {
+        kind: 'dir',
+        dir: norm,
+        label: dir === '' ? '全部图片' : isRoot ? 'images（根目录）' : norm,
+        isRoot,
+        isManaged: managed,
+      },
+    });
+  };
+
+  const handleFileContextMenu = (e: React.MouseEvent, asset: ImageAssetEntry) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setCtxMenu({
+      x: e.clientX,
+      y: e.clientY,
+      target: {
+        kind: 'file',
+        relativePath: asset.relativePath,
+        fileName: asset.fileName,
+        isManaged: asset.writable,
+      },
+    });
   };
 
   useEffect(() => {
-    if (!dirCtxMenu) return;
-    const close = () => setDirCtxMenu(null);
+    if (!ctxMenu) return;
+    const close = () => setCtxMenu(null);
     document.addEventListener('click', close, { once: true });
-    return () => document.removeEventListener('click', close);
-  }, [dirCtxMenu]);
+    document.addEventListener('contextmenu', close, { once: true });
+    return () => {
+      document.removeEventListener('click', close);
+      document.removeEventListener('contextmenu', close);
+    };
+  }, [ctxMenu]);
+
+  // ── Commit rename dispatcher ──
+  const commitRenameDispatcher = () => {
+    if (renameTarget?.kind === 'dir') commitRenameDir();
+    else commitRename();
+  };
 
   // ── Render ──
 
@@ -529,6 +719,7 @@ export function ImageManagerPage() {
 
       {/* ── Ribbon ── */}
       <ImageManagerRibbon
+        isDesktop={isDesktop}
         canImport={api.canImport}
         canRename={api.canRename}
         canDeleteFile={api.canDeleteFile}
@@ -536,12 +727,19 @@ export function ImageManagerPage() {
         searchQuery={searchQuery}
         viewMode={viewMode}
         selectedAsset={selectedAsset}
-        fileInputRef={fileInputRef}
         onSearchChange={setSearchQuery}
         onImport={handleImport}
-        onBrowserFileSelected={handleBrowserFileSelected}
-        onRename={startRename}
-        onDelete={handleDeleteRequest}
+        onRename={() => startRename()}
+        onDelete={() => {
+          if (selectedAsset) {
+            setConfirmDelete({
+              kind: 'file',
+              relativePath: selectedAsset.relativePath,
+              fileName: selectedAsset.fileName,
+              isManaged: selectedAsset.writable,
+            });
+          }
+        }}
         onRefresh={loadAssets}
         onToggleViewMode={toggleViewMode}
       />
@@ -560,6 +758,7 @@ export function ImageManagerPage() {
           onSelectDir={handleSelectDir}
           onToggleExpanded={handleToggleExpanded}
           onContextMenu={handleDirContextMenu}
+          footer={<ImageManagerHostStatus />}
         />
 
         <ImageManagerAssetList
@@ -570,6 +769,7 @@ export function ImageManagerPage() {
           viewMode={viewMode}
           assetUrl={assetUrl}
           onSelectAsset={setSelectedPath}
+          onContextMenu={handleFileContextMenu}
         />
 
         <ImageManagerPreviewPanel
@@ -581,46 +781,91 @@ export function ImageManagerPage() {
           formatBytes={formatBytes}
           onGoPrev={goPrev}
           onGoNext={goNext}
-          onStartRename={startRename}
+          onStartRename={() => startRename()}
         />
       </div>
 
-      {/* ── Directory context menu ── */}
-      {dirCtxMenu && (() => {
-        const actions = dirActions(dirCtxMenu.dir);
+      {/* ── Context menu ── */}
+      {ctxMenu && (() => {
+        if (ctxMenu.target.kind === 'dir') {
+          const t = ctxMenu.target;
+          const actions = computeDirActions(t.dir);
+          return (
+            <div
+              className="image-manager-ctx-menu"
+              style={{ left: ctxMenu.x, top: ctxMenu.y }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="image-manager-ctx-menu-header">{t.label}</div>
+
+              <button type="button" disabled={!actions.canCreateDir}
+                title={!actions.canCreateDir ? (actions.reason || '不可用') : `在 ${t.label} 下新建文件夹`}
+                onClick={() => openCreateFolder(t.dir)}>
+                新建文件夹
+              </button>
+
+              <button type="button" disabled={!actions.canImport}
+                title={!actions.canImport ? (actions.reason || '不可用') : `导入图片到 ${t.label}`}
+                onClick={() => handleImportToDir(t.dir)}>
+                导入图片到此处
+              </button>
+
+              <button type="button" disabled={!actions.canRenameDir}
+                title={!actions.canRenameDir ? (actions.reason || '根目录不可重命名') : `重命名 ${t.label}`}
+                onClick={() => startRenameDir(ctxMenu.target)}>
+                重命名文件夹
+              </button>
+
+              <button type="button" disabled={!actions.canDeleteDir}
+                title={!actions.canDeleteDir ? '根目录或非管理目录不可删除' : `删除 ${t.label}`}
+                onClick={() => openDeleteFolder(t.dir)}>
+                删除文件夹
+              </button>
+
+              <button type="button" disabled={!actions.canReveal}
+                title={!actions.canReveal ? (actions.reason || '不可用') : '在系统资源管理器中打开'}
+                onClick={() => handleReveal(ctxMenu.target)}>
+                在资源管理器中打开
+              </button>
+            </div>
+          );
+        }
+
+        // File context menu
+        const t = ctxMenu.target;
+        const asset = assets.find(a => a.relativePath === t.relativePath);
+        const actions = asset ? computeFileActions(asset) : { canRename: false, canDelete: false, canReveal: false, canCopyPath: true, reason: '文件未找到' };
+
         return (
           <div
             className="image-manager-ctx-menu"
-            style={{ left: dirCtxMenu.x, top: dirCtxMenu.y }}
+            style={{ left: ctxMenu.x, top: ctxMenu.y }}
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="image-manager-ctx-menu-header">{actions.label}</div>
+            <div className="image-manager-ctx-menu-header">{t.fileName}</div>
 
-            <button
-              type="button"
-              disabled={!actions.canCreate}
-              title={!actions.canCreate ? (actions.reason || '不可用') : `在 ${actions.label} 下新建文件夹`}
-              onClick={() => openCreateFolder(dirCtxMenu.dir)}
-            >
-              新建文件夹
+            <button type="button" disabled={!actions.canRename}
+              title={!actions.canRename ? (actions.reason || '不可用') : `重命名 ${t.fileName}`}
+              onClick={() => startRename(ctxMenu.target)}>
+              重命名
             </button>
 
-            <button
-              type="button"
-              disabled={!actions.canImport}
-              title={!actions.canImport ? (actions.reason || '不可用') : `导入图片到 ${actions.label}`}
-              onClick={() => handleImportToDir(dirCtxMenu.dir)}
-            >
-              导入图片到此处
+            <button type="button" disabled={!actions.canDelete}
+              title={!actions.canDelete ? (actions.reason || '不可用') : `删除 ${t.fileName}`}
+              onClick={() => handleDeleteFile(ctxMenu.target)}>
+              删除
             </button>
 
-            <button
-              type="button"
-              disabled={!actions.canDelete}
-              title={!actions.canDelete ? '根目录或非管理目录不可删除' : `删除 ${actions.label}`}
-              onClick={() => openDeleteFolder(dirCtxMenu.dir)}
-            >
-              删除文件夹
+            <button type="button" disabled={!actions.canReveal}
+              title={!actions.canReveal ? (actions.reason || '不可用') : '在系统资源管理器中显示'}
+              onClick={() => handleReveal(ctxMenu.target)}>
+              在资源管理器中显示
+            </button>
+
+            <button type="button" disabled={!actions.canCopyPath}
+              title="复制相对路径到剪贴板"
+              onClick={() => handleCopyPath(ctxMenu.target)}>
+              复制相对路径
             </button>
           </div>
         );
@@ -629,13 +874,15 @@ export function ImageManagerPage() {
       {/* ── Rename modal ── */}
       <ImageManagerRenameModal
         isOpen={isRenaming}
-        currentName={selectedAsset?.fileName ?? ''}
+        currentName={renameTarget?.kind === 'dir' ? normalizeDir(renameTarget.dir) : renameTarget?.kind === 'file' ? renameTarget.fileName : ''}
         renameValue={renameValue}
         renameInputRef={renameInputRef}
         onRenameValueChange={setRenameValue}
-        onCommit={commitRename}
+        onCommit={commitRenameDispatcher}
         onCancel={cancelRename}
         onKeyDown={handleRenameKeyDown}
+        title={renameTarget?.kind === 'dir' ? '重命名文件夹' : '重命名文件'}
+        hint={renameTarget?.kind === 'dir' ? '输入新的文件夹名' : '输入基础名，不改变扩展名'}
       />
 
       {/* ── Create folder modal ── */}
@@ -660,8 +907,8 @@ export function ImageManagerPage() {
       />
 
       {/* ── Delete file confirmation modal ── */}
-      {confirmDelete && selectedAsset && (
-        <div className="operator-draft-modal-overlay" onClick={handleDeleteCancel}>
+      {confirmDelete && confirmDelete.kind === 'file' && (
+        <div className="operator-draft-modal-overlay" onClick={handleDeleteFileCancel}>
           <div className="operator-draft-modal operator-draft-confirm-modal" onClick={(e) => e.stopPropagation()}>
             <div className="operator-draft-section-header">
               <div>
@@ -670,13 +917,13 @@ export function ImageManagerPage() {
               </div>
             </div>
             <div className="operator-draft-confirm-body">
-              <p>确定要删除 <strong>{selectedAsset.fileName}</strong> 吗？</p>
+              <p>确定要删除 <strong>{confirmDelete.fileName}</strong> 吗？</p>
             </div>
             <div className="operator-draft-modal-actions">
-              <button className="operator-draft-ghost-button" type="button" onClick={handleDeleteCancel}>
+              <button className="operator-draft-ghost-button" type="button" onClick={handleDeleteFileCancel}>
                 取消
               </button>
-              <button className="operator-draft-copy-button operator-draft-danger-button" type="button" onClick={handleDeleteConfirm}>
+              <button className="operator-draft-copy-button operator-draft-danger-button" type="button" onClick={handleDeleteFileConfirm}>
                 确认删除
               </button>
             </div>

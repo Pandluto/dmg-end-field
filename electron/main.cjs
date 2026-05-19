@@ -1087,6 +1087,9 @@ function scanAllImageAssets() {
   const managedDirNormalized = path.resolve(managedDir);
   const results = [];
 
+  // Track which relative dir paths (e.g. "images/sub") contain at least one image file
+  const dirsWithFiles = new Set();
+
   function walk(dirPath, relDir) {
     let entries;
     try {
@@ -1121,11 +1124,54 @@ function scanAllImageAssets() {
           sizeBytes: stats.size,
           updatedAt: stats.mtimeMs,
         });
+        // Mark all ancestor dirs as having files
+        const parts = relPath.split('/');
+        for (let i = 0; i < parts.length; i++) {
+          dirsWithFiles.add(parts.slice(0, i + 1).join('/'));
+        }
       }
     }
   }
 
   walk(assetsRoot, '');
+
+  // Also add empty managed directories so they appear in the tree
+  function walkEmptyManagedDirs(dirPath, relDir) {
+    let entries;
+    try {
+      entries = fs.readdirSync(dirPath, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    const hasDirectImageFiles = entries.some(
+      (e) => e.isFile() && /\.(png|jpg|jpeg|webp|gif|svg)$/i.test(e.name),
+    );
+    // A managed dir is "empty" (no image files in it) when it's not in dirsWithFiles
+    // but we only report it if it has no direct image files AND no subdirectories with files
+    if (relDir && !dirsWithFiles.has(relDir)) {
+      const managedRel = `assets/${relDir.replace(/\\/g, '/')}`;
+      results.push({
+        kind: 'dir',
+        fileName: path.basename(dirPath),
+        baseName: '',
+        ext: '',
+        relativePath: managedRel,
+        writable: true,
+        sizeBytes: 0,
+        updatedAt: 0,
+      });
+    }
+    for (const entry of entries) {
+      if (entry.isDirectory()) {
+        const fullPath = path.join(dirPath, entry.name);
+        const relPath = relDir ? `${relDir}/${entry.name}` : entry.name;
+        walkEmptyManagedDirs(fullPath, relPath);
+      }
+    }
+  }
+
+  walkEmptyManagedDirs(managedDir, 'images');
+
   return results;
 }
 
@@ -1183,6 +1229,231 @@ ipcMain.handle('desktop:import-image-assets', async () => {
 
   syncImageManifest();
   return scanAllImageAssets();
+});
+
+ipcMain.handle('desktop:import-image-assets-to-dir', async (_event, payload) => {
+  const win = BrowserWindow.getFocusedWindow();
+  if (!win) {
+    return { ok: false, error: '无活动窗口' };
+  }
+
+  const result = await dialog.showOpenDialog(win, {
+    title: '选择要导入的图片',
+    filters: [
+      { name: '图片文件', extensions: ['png', 'jpg', 'jpeg', 'webp', 'gif', 'svg'] },
+    ],
+    properties: ['openFile', 'multiSelections'],
+  });
+
+  if (result.canceled || !result.filePaths || result.filePaths.length === 0) {
+    return { ok: false, error: '已取消' };
+  }
+
+  const managedDir = getManagedDir();
+
+  // Resolve target directory
+  let targetDir = managedDir;
+  const targetDirParam = payload?.targetDir;
+  if (targetDirParam && typeof targetDirParam === 'string' && targetDirParam.trim().length > 0) {
+    const normalized = targetDirParam.trim().replace(/\\/g, '/').replace(/^\/+/, '').replace(/\/+$/, '');
+    if (/(^|\/)\.\.(\/|$)/.test(normalized)) {
+      return { ok: false, error: '非法目录路径' };
+    }
+    targetDir = path.join(managedDir, normalized);
+    const resolvedDest = path.resolve(targetDir);
+    const resolvedManaged = path.resolve(managedDir);
+    if (!resolvedDest.startsWith(resolvedManaged + path.sep) && resolvedDest !== resolvedManaged) {
+      return { ok: false, error: '越权目录访问' };
+    }
+    if (!fs.existsSync(targetDir)) {
+      fs.mkdirSync(targetDir, { recursive: true });
+    }
+  }
+
+  const importedFiles = [];
+  for (const sourcePath of result.filePaths) {
+    const sourceExt = path.extname(sourcePath).toLowerCase();
+    const sourceBaseName = path.basename(sourcePath, sourceExt);
+    const uniqueName = findUniqueFileName(targetDir, sourceBaseName, sourceExt);
+    const destPath = path.join(targetDir, uniqueName);
+    try {
+      fs.copyFileSync(sourcePath, destPath);
+      importedFiles.push(uniqueName);
+    } catch {
+      // skip files that can't be copied
+    }
+  }
+
+  syncImageManifest();
+  return { ok: true, imported: importedFiles };
+});
+
+ipcMain.handle('desktop:rename-image-directory', (_event, payload) => {
+  const { dirPath, newName } = payload || {};
+  if (!dirPath || typeof dirPath !== 'string' || !newName || typeof newName !== 'string') {
+    return { ok: false, error: '缺少参数' };
+  }
+
+  const cleanName = newName.trim();
+  if (/[<>:"|?*\\/]/.test(cleanName) || cleanName === '.' || cleanName === '..') {
+    return { ok: false, error: `非法文件夹名: "${cleanName}"` };
+  }
+
+  // dirPath is relative to managed dir, e.g. "sub1" or "sub1/nested"
+  const managedDir = getManagedDir();
+  const normalized = dirPath.replace(/\\/g, '/').replace(/^\/+/, '').replace(/\/+$/, '');
+
+  if (normalized === '' || normalized === '.') {
+    return { ok: false, error: '禁止重命名根目录' };
+  }
+  if (/(^|\/)\.\.(\/|$)/.test(normalized)) {
+    return { ok: false, error: '非法目录路径' };
+  }
+
+  const oldPath = path.join(managedDir, normalized);
+  const resolvedOld = path.resolve(oldPath);
+  const resolvedManaged = path.resolve(managedDir);
+  if (!resolvedOld.startsWith(resolvedManaged + path.sep)) {
+    return { ok: false, error: '越权目录访问' };
+  }
+  if (!fs.existsSync(oldPath)) {
+    return { ok: false, error: '目录不存在' };
+  }
+
+  const parentPath = path.dirname(oldPath);
+  const newPath = path.join(parentPath, cleanName);
+
+  if (oldPath === newPath) {
+    return { ok: true };
+  }
+  if (fs.existsSync(newPath)) {
+    return { ok: false, error: '目标目录已存在' };
+  }
+
+  try {
+    fs.renameSync(oldPath, newPath);
+    syncImageManifest();
+    const newRel = path.relative(managedDir, newPath).replace(/\\/g, '/');
+    return { ok: true, newPath: newRel };
+  } catch (err) {
+    return { ok: false, error: `重命名失败: ${err.message}` };
+  }
+});
+
+ipcMain.handle('desktop:reveal-in-explorer', async (_event, payload) => {
+  const { kind } = payload || {};
+
+  if (kind === 'file') {
+    const { relativePath } = payload;
+    if (!relativePath || typeof relativePath !== 'string') {
+      return { ok: false, error: '缺少文件路径' };
+    }
+
+    // Normalize to POSIX, strip leading/trailing slashes
+    let normalized = relativePath.replace(/\\/g, '/').replace(/^\/+/, '').replace(/\/+$/, '');
+    // Resolve . and .. segments
+    const segments = normalized.split('/');
+    const resolved = [];
+    for (const seg of segments) {
+      if (seg === '.' || seg === '') continue;
+      if (seg === '..') { resolved.pop(); continue; }
+      resolved.push(seg);
+    }
+    normalized = resolved.join('/');
+
+    // Must start with assets/images/
+    if (!normalized.startsWith('assets/images/')) {
+      return { ok: false, error: '非管理目录文件' };
+    }
+
+    // Map to real absolute path
+    const assetsRoot = getAssetsRoot();
+    const absFile = path.resolve(assetsRoot, normalized.replace(/^assets\//, ''));
+    const absManaged = path.resolve(getManagedDir());
+
+    // Verify still within managed dir
+    if (!absFile.startsWith(absManaged + path.sep)) {
+      return { ok: false, error: '越权路径访问' };
+    }
+
+    if (!fs.existsSync(absFile)) {
+      console.error('[reveal] file not found', { kind, relativePath, absFile });
+      return { ok: false, error: '文件不存在' };
+    }
+
+    const stat = fs.statSync(absFile);
+    if (!stat.isFile()) {
+      console.error('[reveal] path is not a file', { kind, relativePath, absFile });
+      return { ok: false, error: '路径不是文件' };
+    }
+
+    try {
+      shell.showItemInFolder(absFile);
+    } catch (err) {
+      console.error('[reveal] showItemInFolder failed', { kind, relativePath, absFile, error: err.message });
+      return { ok: false, error: `显示文件失败: ${err.message}` };
+    }
+
+    return { ok: true };
+  }
+
+  if (kind === 'dir') {
+    const { dirPath } = payload;
+    if (!dirPath || typeof dirPath !== 'string') {
+      return { ok: false, error: '缺少目录路径' };
+    }
+
+    // Normalize to POSIX
+    let normalized = dirPath.replace(/\\/g, '/').replace(/^\/+/, '').replace(/\/+$/, '');
+    // Reject empty
+    if (normalized === '' || normalized === '.') {
+      return { ok: false, error: '无效目录路径' };
+    }
+    // Resolve . and ..
+    const segments = normalized.split('/');
+    const resolved = [];
+    for (const seg of segments) {
+      if (seg === '.' || seg === '') continue;
+      if (seg === '..') { resolved.pop(); continue; }
+      resolved.push(seg);
+    }
+    normalized = resolved.join('/');
+
+    // Must start with images
+    if (normalized !== 'images' && !normalized.startsWith('images/')) {
+      return { ok: false, error: '目录不在管理范围内' };
+    }
+
+    // Map: images -> assets/images, images/foo -> assets/images/foo
+    const absDir = path.resolve(getAssetsRoot(), normalized);
+    const absManaged = path.resolve(getManagedDir());
+
+    // For images root, absDir equals absManaged
+    if (!absDir.startsWith(absManaged + path.sep) && absDir !== absManaged) {
+      return { ok: false, error: '越权目录访问' };
+    }
+
+    if (!fs.existsSync(absDir)) {
+      console.error('[reveal] dir not found', { kind, dirPath, absDir });
+      return { ok: false, error: '目录不存在' };
+    }
+
+    const stat = fs.statSync(absDir);
+    if (!stat.isDirectory()) {
+      console.error('[reveal] path is not a directory', { kind, dirPath, absDir });
+      return { ok: false, error: '路径不是目录' };
+    }
+
+    const err = await shell.openPath(absDir);
+    if (err && typeof err === 'string' && err.length > 0) {
+      console.error('[reveal] openPath failed', { kind, dirPath, absDir, error: err });
+      return { ok: false, error: `打开目录失败: ${err}` };
+    }
+
+    return { ok: true };
+  }
+
+  return { ok: false, error: `未知的 reveal kind: ${kind || '(缺失)'}` };
 });
 
 ipcMain.handle('desktop:rename-image-asset', (_event, payload) => {

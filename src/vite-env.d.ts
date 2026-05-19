@@ -21,6 +21,7 @@ interface DesktopLlmSettingsPayload {
 }
 
 interface ImageAssetEntry {
+  kind?: 'file' | 'dir';
   fileName: string;
   baseName: string;
   ext: string;
@@ -76,17 +77,50 @@ interface ImageAssetDirOpResult {
   lockedFiles?: string[];
 }
 
+interface ImageAssetRenameDirPayload {
+  dirPath: string;
+  newName: string;
+}
+
+interface ImageAssetRenameDirResult {
+  ok: boolean;
+  error?: string;
+  newPath?: string;
+}
+
+type ImageAssetRevealPayload =
+  | { kind: 'file'; relativePath: string }
+  | { kind: 'dir'; dirPath: string };
+
+interface ImageAssetRevealResult {
+  ok: boolean;
+  error?: string;
+}
+
+interface ImageAssetImportToDirPayload {
+  targetDir?: string;
+}
+
+interface ImageAssetImportToDirResult {
+  ok: boolean;
+  error?: string;
+  imported?: string[];
+}
+
 interface DesktopRuntimeBridge {
   getLlmSettings: () => Promise<DesktopLlmSettingsPayload>;
   setLlmSettings: (payload: { apiKey: string; model: string }) => Promise<DesktopLlmSettingsPayload>;
   invokeArkResponses: (payload: DesktopArkResponsePayload) => Promise<DesktopArkResponseResult>;
   listImageAssets?: () => Promise<ImageAssetEntry[]>;
   importImageAssets?: () => Promise<ImageAssetEntry[]>;
+  importImageAssetsToDir?: (payload: ImageAssetImportToDirPayload) => Promise<ImageAssetImportToDirResult>;
   renameImageAsset?: (payload: ImageAssetRenamePayload) => Promise<ImageAssetOpResult>;
+  renameImageDirectory?: (payload: ImageAssetRenameDirPayload) => Promise<ImageAssetRenameDirResult>;
   deleteImageAsset?: (payload: ImageAssetDeletePayload) => Promise<ImageAssetOpResult>;
   importImageAssetsFromBrowser?: (payload: ImageAssetImportFromBrowserPayload) => Promise<ImageAssetBatchOpResult>;
   createImageDirectory?: (payload: ImageAssetCreateDirPayload) => Promise<ImageAssetDirOpResult>;
   deleteImageDirectory?: (payload: ImageAssetDeleteDirPayload) => Promise<ImageAssetDirOpResult>;
+  revealInExplorer?: (payload: ImageAssetRevealPayload) => Promise<ImageAssetRevealResult>;
 }
 
 interface Window {

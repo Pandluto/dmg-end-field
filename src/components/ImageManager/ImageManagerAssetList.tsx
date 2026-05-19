@@ -9,10 +9,11 @@ interface ImageManagerAssetListProps {
   viewMode: 'list' | 'grid';
   assetUrl: (path: string) => string;
   onSelectAsset: (path: string) => void;
+  onContextMenu?: (e: React.MouseEvent, asset: ImageAssetEntry) => void;
 }
 
 export function ImageManagerAssetList(props: ImageManagerAssetListProps) {
-  const { assets, selectedPath, searchQuery, loading, viewMode, assetUrl, onSelectAsset } = props;
+  const { assets, selectedPath, searchQuery, loading, viewMode, assetUrl, onSelectAsset, onContextMenu } = props;
 
   return (
     <section className="damage-sheet-excel-shell">
@@ -42,6 +43,7 @@ export function ImageManagerAssetList(props: ImageManagerAssetListProps) {
                   key={asset.relativePath}
                   className={selectedPath === asset.relativePath ? 'is-selected' : ''}
                   onClick={() => onSelectAsset(asset.relativePath)}
+                  onContextMenu={(e) => onContextMenu?.(e, asset)}
                   style={{ cursor: 'pointer' }}
                 >
                   <td className="col-thumb">
@@ -83,6 +85,7 @@ export function ImageManagerAssetList(props: ImageManagerAssetListProps) {
                 className={`image-manager-grid-item ${selectedPath === asset.relativePath ? 'is-selected' : ''}`}
                 type="button"
                 onClick={() => onSelectAsset(asset.relativePath)}
+                onContextMenu={(e) => onContextMenu?.(e, asset)}
                 title={asset.fileName}
               >
                 <div className="image-manager-grid-thumb">

@@ -26,6 +26,91 @@
   flex-shrink: 0;
 }
 
+/* ── Host status diagnostic (bottom of explorer sidebar) ── */
+.image-manager-host-status {
+  border-top: 1px solid var(--office-border, #d1d1d1);
+  flex-shrink: 0;
+}
+
+.image-manager-host-status-toggle {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  padding: 6px 10px;
+  border: none;
+  background: none;
+  cursor: pointer;
+  font: inherit;
+  font-size: 10px;
+  color: var(--text-muted, #5f6f65);
+  text-align: left;
+}
+
+.image-manager-host-status-toggle:hover {
+  background: var(--ide-bg-hover, #edf5f0);
+}
+
+.image-manager-host-status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.image-manager-mode-electron-writable { background: var(--excel-green-main, #217346); }
+.image-manager-mode-electron-readonly { background: #d4a017; }
+.image-manager-mode-browser-readonly { background: #8e908c; }
+.image-manager-mode-browser-backend { background: #4a90d9; }
+
+.image-manager-host-status-label {
+  flex-shrink: 0;
+  font-weight: 600;
+}
+
+.image-manager-host-status-warn {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #c44;
+  font-size: 9px;
+  min-width: 0;
+}
+
+.image-manager-host-status-detail {
+  padding: 4px 10px 8px;
+  font-size: 10px;
+  display: grid;
+  gap: 2px;
+}
+
+.image-manager-host-status-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.image-manager-host-status-key {
+  color: var(--text-muted, #5f6f65);
+}
+
+.image-manager-host-status-val {
+  color: var(--office-body, #333333);
+  font-weight: 600;
+}
+
+.image-manager-host-status-bool {
+  font-weight: 600;
+}
+
+.image-manager-host-status-bool.is-ok {
+  color: var(--excel-green-main, #217346);
+}
+
+.image-manager-host-status-bool.is-missing {
+  color: #c44;
+}
+
 /* ── Asset list table (default view) ── */
 .image-manager-asset-table-wrap {
   flex: 1;

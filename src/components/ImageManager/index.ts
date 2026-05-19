@@ -5,4 +5,5 @@ export { ImageManagerPreviewPanel } from './ImageManagerPreviewPanel';
 export { ImageManagerRenameModal } from './ImageManagerRenameModal';
 export { ImageManagerCreateFolderModal } from './ImageManagerCreateFolderModal';
 export { ImageManagerDeleteFolderModal } from './ImageManagerDeleteFolderModal';
-export type { ImageAssetEntry, DirGroup } from './types';
+export { ImageManagerHostStatus } from './ImageManagerHostStatus';
+export type { ImageAssetEntry, TreeNode, CtxTarget, DirActions, FileActions } from './types';

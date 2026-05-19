@@ -1528,5 +1528,23 @@
     "sizeBytes": 6006,
     "updatedAt": 1768927429000,
     "writable": false
+  },
+  {
+    "fileName": "images",
+    "baseName": "",
+    "ext": "",
+    "relativePath": "assets/images",
+    "sizeBytes": 0,
+    "updatedAt": 0,
+    "writable": true
+  },
+  {
+    "fileName": "weapons",
+    "baseName": "",
+    "ext": "",
+    "relativePath": "assets/images/weapons",
+    "sizeBytes": 0,
+    "updatedAt": 0,
+    "writable": true
   }
 ]
