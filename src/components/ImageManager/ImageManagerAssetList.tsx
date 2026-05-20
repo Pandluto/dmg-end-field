@@ -1,3 +1,4 @@
+import { memo } from 'react';
 import { managedDirLabel } from '../../utils/imageFileService';
 import type { ImageAssetEntry } from './types';
 
@@ -12,7 +13,7 @@ interface ImageManagerAssetListProps {
   onContextMenu?: (e: React.MouseEvent, asset: ImageAssetEntry) => void;
 }
 
-export function ImageManagerAssetList(props: ImageManagerAssetListProps) {
+export const ImageManagerAssetList = memo(function ImageManagerAssetList(props: ImageManagerAssetListProps) {
   const { assets, selectedPath, searchQuery, loading, viewMode, assetUrl, onSelectAsset, onContextMenu } = props;
 
   return (
@@ -116,7 +117,7 @@ export function ImageManagerAssetList(props: ImageManagerAssetListProps) {
       )}
     </section>
   );
-}
+});
 
 function formatSize(bytes: number): string {
   if (!bytes || bytes <= 0) return '--';

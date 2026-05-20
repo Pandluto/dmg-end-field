@@ -73,7 +73,7 @@ function writeImageManagerSessionState(state: ImageManagerSessionState): void {
 
 // ── UI presentation helpers (belongs to interaction layer) ──
 
-function assetUrl(entry: ImageAssetEntry): string {
+function buildAssetUrl(entry: ImageAssetEntry): string {
   const userUrl = getUserImageUrl(entry);
   if (userUrl) return userUrl;
   const isFileProtocol = window.location.protocol === 'file:';
@@ -83,7 +83,7 @@ function assetUrl(entry: ImageAssetEntry): string {
   return resolvePublicPath(path);
 }
 
-function formatBytes(bytes: number): string {
+function formatAssetBytes(bytes: number): string {
   if (!bytes || bytes <= 0) return '--';
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1048576) return `${(bytes / 1024).toFixed(1)} KB`;
@@ -92,46 +92,44 @@ function formatBytes(bytes: number): string {
 
 // ── Tree builder (UI data transformation) ──
 
-function buildTree(assets: ImageAssetEntry[]): TreeNode[] {
-  const files = assets.filter((a) => a.kind !== 'dir');
-  const emptyDirs = assets.filter((a) => a.kind === 'dir');
-
-  const dirCounts = new Map<string, number>();
-  for (const a of files) {
-    const parts = a.relativePath.replace(/^assets\//, '').split('/');
-    parts.pop();
-    for (let i = 1; i <= parts.length; i++) {
-      const dirPath = parts.slice(0, i).join('/');
-      dirCounts.set(dirPath, (dirCounts.get(dirPath) || 0) + 1);
-    }
-  }
-
-  for (const d of emptyDirs) {
-    const dirPath = d.relativePath.replace(/^assets\//, '');
-    if (!dirCounts.has(dirPath)) dirCounts.set(dirPath, 0);
-  }
-
+function deriveAssetCollections(assets: ImageAssetEntry[]) {
+  const availableDirSet = new Set<string>(['']);
+  const assetPathSet = new Set<string>();
+  const assetByPath = new Map<string, ImageAssetEntry>();
   const treeMap = new Map<string, TreeNode>();
+  const emptyDirs: Array<{ dirPath: string; name: string }> = [];
 
-  for (const a of files) {
-    const parts = a.relativePath.replace(/^assets\//, '').split('/');
-    for (let i = 0; i < parts.length - 1; i++) {
-      const dirPath = parts.slice(0, i + 1).join('/');
+  for (const asset of assets) {
+    assetPathSet.add(asset.relativePath);
+    assetByPath.set(asset.relativePath, asset);
+    const stripped = asset.relativePath.replace(/^assets\//, '');
+
+    if (asset.kind === 'dir') {
+      availableDirSet.add(stripped);
+      emptyDirs.push({ dirPath: stripped, name: asset.fileName });
+      continue;
+    }
+
+    const dirParts = stripped.split('/');
+    dirParts.pop();
+    for (let i = 1; i <= dirParts.length; i++) {
+      const dirPath = dirParts.slice(0, i).join('/');
+      availableDirSet.add(dirPath);
       if (!treeMap.has(dirPath)) {
         treeMap.set(dirPath, {
-          name: parts[i], path: dirPath,
+          name: dirParts[i - 1], path: dirPath,
           isManaged: isManagedDir(dirPath),
-          count: dirCounts.get(dirPath) || 0, children: [],
+          count: 0, children: [],
         });
       }
+      treeMap.get(dirPath)!.count += 1;
     }
   }
 
   for (const d of emptyDirs) {
-    const dirPath = d.relativePath.replace(/^assets\//, '');
-    if (!treeMap.has(dirPath)) {
-      treeMap.set(dirPath, {
-        name: d.fileName, path: dirPath,
+    if (!treeMap.has(d.dirPath)) {
+      treeMap.set(d.dirPath, {
+        name: d.name, path: d.dirPath,
         isManaged: true, count: 0, children: [],
       });
     }
@@ -154,7 +152,7 @@ function buildTree(assets: ImageAssetEntry[]): TreeNode[] {
     for (const n of nodes) sortChildren(n.children);
   };
   sortChildren(roots);
-  return roots;
+  return { dirTree: roots, availableDirSet, assetPathSet, assetByPath };
 }
 
 // ── Action capability helpers (UI-layer: translate caps → button states) ──
@@ -251,6 +249,7 @@ export function ImageManagerPage() {
   const folderInputRef = useRef<HTMLInputElement>(null);
   const pendingSessionRestoreRef = useRef<ImageManagerSessionState | null>(readImageManagerSessionState());
   const hasRestoredSessionRef = useRef(false);
+  const messageTimerRef = useRef<number | null>(null);
 
   // ── Capabilities ──
   const [caps, setCaps] = useState(() => getCapabilities());
@@ -287,50 +286,47 @@ export function ImageManagerPage() {
   // Derived data
   // ═══════════════════════════════════════════════════════
 
-  const dirTree = useMemo(() => buildTree(assets), [assets]);
+  const { dirTree, availableDirSet, assetPathSet, assetByPath } = useMemo(
+    () => deriveAssetCollections(assets),
+    [assets],
+  );
 
-  const assetPathSet = useMemo(() => new Set(assets.map((a) => a.relativePath)), [assets]);
-  const availableDirSet = useMemo(() => {
-    const dirs = new Set<string>(['']);
-    for (const asset of assets) {
-      const stripped = asset.relativePath.replace(/^assets\//, '');
-      if (asset.kind === 'dir') {
-        dirs.add(stripped);
-        continue;
-      }
-      const parts = stripped.split('/');
-      parts.pop();
-      for (let i = 1; i <= parts.length; i++) {
-        dirs.add(parts.slice(0, i).join('/'));
-      }
+  const { filteredAssets, filteredAssetIndexByPath } = useMemo(() => {
+    const prefix = browseDir ? `assets/${browseDir}/` : '';
+    const query = searchQuery.trim().toLowerCase();
+    if (!prefix && !query) {
+      return {
+        filteredAssets: assets,
+        filteredAssetIndexByPath: new Map(assets.map((asset, index) => [asset.relativePath, index])),
+      };
     }
-    return dirs;
-  }, [assets]);
 
-  const filteredAssets = useMemo(() => {
-    let list = assets;
-    if (browseDir) {
-      const prefix = `assets/${browseDir}/`;
-      list = list.filter((a) => a.relativePath.startsWith(prefix));
-    }
-    if (searchQuery.trim()) {
-      const q = searchQuery.trim().toLowerCase();
-      list = list.filter((a) => a.fileName.toLowerCase().includes(q));
-    }
-    return list;
+    const nextAssets = assets.filter((asset) => {
+      if (prefix && !asset.relativePath.startsWith(prefix)) return false;
+      if (query && !asset.fileName.toLowerCase().includes(query)) return false;
+      return true;
+    });
+    return {
+      filteredAssets: nextAssets,
+      filteredAssetIndexByPath: new Map(nextAssets.map((asset, index) => [asset.relativePath, index])),
+    };
   }, [assets, browseDir, searchQuery]);
 
   const previewAsset = useMemo(
-    () => (previewAssetPath ? (assets.find((a) => a.relativePath === previewAssetPath) ?? null) : null),
-    [assets, previewAssetPath],
+    () => (previewAssetPath ? (assetByPath.get(previewAssetPath) ?? null) : null),
+    [assetByPath, previewAssetPath],
+  );
+  const selectedAsset = useMemo(
+    () => (selectedAssetPath ? (assetByPath.get(selectedAssetPath) ?? null) : null),
+    [assetByPath, selectedAssetPath],
   );
   const ctxMenuFileAsset = useMemo(
     () => {
       const target = ctxMenu?.target;
       if (!target || target.kind !== 'file') return null;
-      return assets.find((a) => a.relativePath === target.relativePath) ?? null;
+      return assetByPath.get(target.relativePath) ?? null;
     },
-    [assets, ctxMenu],
+    [assetByPath, ctxMenu],
   );
 
   useEffect(() => {
@@ -370,21 +366,42 @@ export function ImageManagerPage() {
 
   useEffect(() => {
     if (!hasLoadedAssets || !hasRestoredSessionRef.current) return;
-    writeImageManagerSessionState({
-      browseDir,
-      selectedAssetPath,
-      previewAssetPath,
-      expandedDirs: Array.from(expandedDirs),
-    });
+    const timeoutId = window.setTimeout(() => {
+      writeImageManagerSessionState({
+        browseDir,
+        selectedAssetPath,
+        previewAssetPath,
+        expandedDirs: Array.from(expandedDirs),
+      });
+    }, 180);
+    return () => window.clearTimeout(timeoutId);
   }, [browseDir, selectedAssetPath, previewAssetPath, expandedDirs, hasLoadedAssets]);
+
+  useEffect(() => () => {
+    if (messageTimerRef.current !== null) {
+      window.clearTimeout(messageTimerRef.current);
+    }
+  }, []);
 
   // ═══════════════════════════════════════════════════════
   // Shared helpers
   // ═══════════════════════════════════════════════════════
 
-  const flash = (msg: string) => { setMessage(msg); setTimeout(() => setMessage(null), 3000); };
+  const assetUrl = useCallback((entry: ImageAssetEntry) => buildAssetUrl(entry), []);
+  const formatBytes = useCallback((bytes: number) => formatAssetBytes(bytes), []);
 
-  const expandPathChain = (dir: string) => {
+  const flash = useCallback((msg: string) => {
+    setMessage(msg);
+    if (messageTimerRef.current !== null) {
+      window.clearTimeout(messageTimerRef.current);
+    }
+    messageTimerRef.current = window.setTimeout(() => {
+      setMessage(null);
+      messageTimerRef.current = null;
+    }, 3000);
+  }, []);
+
+  const expandPathChain = useCallback((dir: string) => {
     if (!dir) return;
     setExpandedDirs((prev) => {
       const next = new Set(prev);
@@ -392,7 +409,7 @@ export function ImageManagerPage() {
       for (let i = 0; i < parts.length; i++) next.add(parts.slice(0, i + 1).join('/'));
       return next;
     });
-  };
+  }, []);
 
   async function runWriteOp<T extends { ok: boolean; error?: string }>(
     label: string, fn: () => Promise<T>, onOk?: (result: T) => void,
@@ -422,36 +439,36 @@ export function ImageManagerPage() {
 
   // ── Import (ribbon) ──
 
-  const handleImport = async () => {
+  const handleImport = useCallback(async () => {
     if (!caps.canImport) { flash('当前环境不支持导入'); return; }
     const writeDir = normalizeDir(browseDir);
     await runWriteOp('导入', () => imageBridge.importToDir(toManagedRelative(writeDir)), () => {
       expandPathChain(writeDir);
     });
-  };
+  }, [browseDir, caps.canImport, expandPathChain, flash]);
 
   // ── Import to dir (context menu) ──
 
-  const handleImportToDir = async (dir: string) => {
+  const handleImportToDir = useCallback(async (dir: string) => {
     if (!caps.canImport) { flash('当前环境不支持导入'); setCtxMenu(null); return; }
     setCtxMenu(null);
     const writeDir = dir;
     await runWriteOp('导入', () => imageBridge.importToDir(toManagedRelative(writeDir)), () => {
       expandPathChain(writeDir);
     });
-  };
+  }, [caps.canImport, expandPathChain, flash]);
 
   // ── Rename file ──
 
-  const startRename = (target?: CtxTarget) => {
-    const t = target || (previewAsset ? { kind: 'file' as const, relativePath: previewAsset.relativePath, fileName: previewAsset.fileName, isManaged: previewAsset.writable } : null);
+  const startRename = useCallback((target?: CtxTarget) => {
+    const t = target || (selectedAsset ? { kind: 'file' as const, relativePath: selectedAsset.relativePath, fileName: selectedAsset.fileName, isManaged: selectedAsset.writable } : null);
     if (!t || t.kind !== 'file') return;
     setCtxMenu(null);
     setRenameTarget(t);
     setRenameValue(t.relativePath.split('/').pop()!.replace(/\.[^.]+$/, ''));
     setIsRenaming(true);
     setTimeout(() => renameInputRef.current?.select(), 50);
-  };
+  }, [selectedAsset]);
 
   const commitRename = async () => {
     const target = renameTarget;
@@ -470,22 +487,22 @@ export function ImageManagerPage() {
     });
   };
 
-  const cancelRename = () => { setIsRenaming(false); setRenameTarget(null); setRenameValue(''); };
-  const handleRenameKeyDown = (e: React.KeyboardEvent) => {
+  const cancelRename = useCallback(() => { setIsRenaming(false); setRenameTarget(null); setRenameValue(''); }, []);
+  const handleRenameKeyDown = useCallback((e: React.KeyboardEvent) => {
     if (e.key === 'Enter') commitRename();
     if (e.key === 'Escape') cancelRename();
-  };
+  }, [cancelRename]);
 
   // ── Rename directory ──
 
-  const startRenameDir = (target: CtxTarget) => {
+  const startRenameDir = useCallback((target: CtxTarget) => {
     if (target.kind !== 'dir') return;
     setCtxMenu(null); setRenameTarget(target);
     const norm = normalizeDir(target.dir);
     setRenameValue(norm.split('/').pop() || norm);
     setIsRenaming(true);
     setTimeout(() => renameInputRef.current?.select(), 50);
-  };
+  }, []);
 
   const commitRenameDir = async () => {
     const target = renameTarget;
@@ -522,7 +539,11 @@ export function ImageManagerPage() {
 
   // ── Delete file ──
 
-  const handleDeleteFile = (target: CtxTarget) => { if (target.kind !== 'file') return; setCtxMenu(null); setConfirmDelete(target); };
+  const handleDeleteFile = useCallback((target: CtxTarget) => {
+    if (target.kind !== 'file') return;
+    setCtxMenu(null);
+    setConfirmDelete(target);
+  }, []);
 
   const handleDeleteFileConfirm = async () => {
     const target = confirmDelete;
@@ -535,11 +556,11 @@ export function ImageManagerPage() {
     });
   };
 
-  const handleDeleteFileCancel = () => setConfirmDelete(null);
+  const handleDeleteFileCancel = useCallback(() => setConfirmDelete(null), []);
 
   // ── Create folder ──
 
-  const openCreateFolder = (dir: string) => {
+  const openCreateFolder = useCallback((dir: string) => {
     if (!isManagedDir(dir)) { flash('非管理目录不可新建文件夹'); return; }
     setFolderParentViewDir(browseDir);
     setFolderParentWriteDir(dir);
@@ -547,7 +568,7 @@ export function ImageManagerPage() {
     setIsCreatingFolder(true);
     setCtxMenu(null);
     setTimeout(() => folderInputRef.current?.focus(), 50);
-  };
+  }, [browseDir, flash]);
 
   const commitCreateFolder = async () => {
     if (!caps.canCreateDir || !folderName.trim()) { setIsCreatingFolder(false); return; }
@@ -565,20 +586,20 @@ export function ImageManagerPage() {
     });
   };
 
-  const cancelCreateFolder = () => { setIsCreatingFolder(false); setFolderName(''); };
-  const handleCreateFolderKeyDown = (e: React.KeyboardEvent) => {
+  const cancelCreateFolder = useCallback(() => { setIsCreatingFolder(false); setFolderName(''); }, []);
+  const handleCreateFolderKeyDown = useCallback((e: React.KeyboardEvent) => {
     if (e.key === 'Enter') commitCreateFolder();
     if (e.key === 'Escape') cancelCreateFolder();
-  };
+  }, [cancelCreateFolder]);
 
   // ── Delete folder ──
 
-  const openDeleteFolder = (dir: string) => {
+  const openDeleteFolder = useCallback((dir: string) => {
     const norm = normalizeDir(dir);
     if (!isManagedDir(norm) || norm === MANAGED_ROOT) return;
     setDeleteFolderDir(norm); setDeleteFolderError(null);
     setIsDeletingFolder(true); setCtxMenu(null);
-  };
+  }, []);
 
   const commitDeleteFolder = async () => {
     if (!caps.canDeleteDir || !deleteFolderDir) return;
@@ -615,11 +636,11 @@ export function ImageManagerPage() {
     }
   };
 
-  const cancelDeleteFolder = () => { setIsDeletingFolder(false); setDeleteFolderDir(''); setDeleteFolderError(null); };
+  const cancelDeleteFolder = useCallback(() => { setIsDeletingFolder(false); setDeleteFolderDir(''); setDeleteFolderError(null); }, []);
 
   // ── Reveal ──
 
-  const handleReveal = async (target: CtxTarget) => {
+  const handleReveal = useCallback(async (target: CtxTarget) => {
     setCtxMenu(null);
     if (target.kind === 'dir') {
       const result = await imageBridge.revealDirectory(normalizeDir(target.dir));
@@ -628,51 +649,53 @@ export function ImageManagerPage() {
       const result = await imageBridge.revealFile(target.relativePath);
       if (!result.ok) flash(result.error || '显示文件失败');
     }
-  };
+  }, [flash]);
 
   // ── Copy path ──
 
-  const handleCopyPath = (target: CtxTarget) => {
+  const handleCopyPath = useCallback((target: CtxTarget) => {
     setCtxMenu(null);
     const path = target.kind === 'file' ? target.relativePath : normalizeDir(target.dir);
     navigator.clipboard.writeText(path).then(() => flash('路径已复制'));
-  };
+  }, [flash]);
 
   // ═══════════════════════════════════════════════════════
   // UI event handlers
   // ═══════════════════════════════════════════════════════
 
-  const handleOpenWorkbench = () => navigateToAppPath(APP_ROUTE_PATHS.home);
-  const handleOpenOperatorDraft = () => navigateToAppPath(APP_ROUTE_PATHS.draft);
-  const handleOpenBuffDraft = () => navigateToAppPath(APP_ROUTE_PATHS.buffDraft);
+  const handleOpenWorkbench = useCallback(() => navigateToAppPath(APP_ROUTE_PATHS.home), []);
+  const handleOpenOperatorDraft = useCallback(() => navigateToAppPath(APP_ROUTE_PATHS.draft), []);
+  const handleOpenBuffDraft = useCallback(() => navigateToAppPath(APP_ROUTE_PATHS.buffDraft), []);
 
-  const previewIndex = previewAsset ? filteredAssets.findIndex((a) => a.relativePath === previewAsset.relativePath) : -1;
+  const previewIndex = previewAsset
+    ? (filteredAssetIndexByPath.get(previewAsset.relativePath) ?? -1)
+    : -1;
 
-  const goNext = () => {
+  const goNext = useCallback(() => {
     if (filteredAssets.length === 0) return;
     const next = (previewIndex + 1) % filteredAssets.length;
     setPreviewAssetPath(filteredAssets[next].relativePath);
     setSelectedAssetPath(filteredAssets[next].relativePath);
-  };
+  }, [filteredAssets, previewIndex]);
 
-  const goPrev = () => {
+  const goPrev = useCallback(() => {
     if (filteredAssets.length === 0) return;
     const prev = (previewIndex - 1 + filteredAssets.length) % filteredAssets.length;
     setPreviewAssetPath(filteredAssets[prev].relativePath);
     setSelectedAssetPath(filteredAssets[prev].relativePath);
-  };
+  }, [filteredAssets, previewIndex]);
 
-  const toggleViewMode = () => setViewMode((prev) => (prev === 'list' ? 'grid' : 'list'));
+  const toggleViewMode = useCallback(() => setViewMode((prev) => (prev === 'list' ? 'grid' : 'list')), []);
 
-  const handleSelectDir = (dir: string) => { setBrowseDir(dir); setSelectedAssetPath(null); };
+  const handleSelectDir = useCallback((dir: string) => { setBrowseDir(dir); setSelectedAssetPath(null); }, []);
 
-  const handleToggleExpanded = (dir: string) => {
+  const handleToggleExpanded = useCallback((dir: string) => {
     setExpandedDirs((prev) => { const next = new Set(prev); if (next.has(dir)) next.delete(dir); else next.add(dir); return next; });
-  };
+  }, []);
 
-  const handleSelectAsset = (path: string) => { setSelectedAssetPath(path); setPreviewAssetPath(path); };
+  const handleSelectAsset = useCallback((path: string) => { setSelectedAssetPath(path); setPreviewAssetPath(path); }, []);
 
-  const handleDirContextMenu = (e: React.MouseEvent, dir: string) => {
+  const handleDirContextMenu = useCallback((e: React.MouseEvent, dir: string) => {
     e.preventDefault(); e.stopPropagation();
     const norm = normalizeDir(dir);
     const isRoot = norm === MANAGED_ROOT;
@@ -680,15 +703,15 @@ export function ImageManagerPage() {
       x: e.clientX, y: e.clientY,
       target: { kind: 'dir', dir: norm, label: dir === '' ? '全部图片' : isRoot ? 'images（根目录）' : norm, isRoot, isManaged: isManagedDir(norm) },
     });
-  };
+  }, []);
 
-  const handleFileContextMenu = (e: React.MouseEvent, asset: ImageAssetEntry) => {
+  const handleFileContextMenu = useCallback((e: React.MouseEvent, asset: ImageAssetEntry) => {
     e.preventDefault(); e.stopPropagation();
     setCtxMenu({
       x: e.clientX, y: e.clientY,
       target: { kind: 'file', relativePath: asset.relativePath, fileName: asset.fileName, isManaged: asset.writable },
     });
-  };
+  }, []);
 
   useEffect(() => {
     if (!ctxMenu) return;
@@ -698,13 +721,25 @@ export function ImageManagerPage() {
     return () => { document.removeEventListener('click', close); document.removeEventListener('contextmenu', close); };
   }, [ctxMenu]);
 
-  const commitRenameDispatcher = () => {
+  const commitRenameDispatcher = useCallback(() => {
     if (renameTarget?.kind === 'dir') commitRenameDir(); else commitRename();
-  };
+  }, [commitRename, commitRenameDir, renameTarget]);
   const ctxMenuDirActions = ctxMenu?.target.kind === 'dir' ? computeDirActions(ctxMenu.target.dir, caps) : undefined;
   const ctxMenuFileActions = ctxMenu?.target.kind === 'file'
     ? (ctxMenuFileAsset ? computeFileActions(ctxMenuFileAsset, caps) : { canRename: false, canDelete: false, canReveal: false, canCopyPath: true, reason: '文件未找到' })
     : undefined;
+  const hostStatusFooter = useMemo(() => <ImageManagerHostStatus />, []);
+  const handleToolbarRename = useCallback(() => startRename(), [startRename]);
+  const handleToolbarDelete = useCallback(() => {
+    if (!selectedAsset) return;
+    setConfirmDelete({
+      kind: 'file',
+      relativePath: selectedAsset.relativePath,
+      fileName: selectedAsset.fileName,
+      isManaged: selectedAsset.writable,
+    });
+  }, [selectedAsset]);
+  const handlePreviewRename = useCallback(() => startRename(), [startRename]);
 
   // ═══════════════════════════════════════════════════════
   // Render
@@ -726,10 +761,10 @@ export function ImageManagerPage() {
       <ImageManagerRibbon
         canImport={caps.canImport} canRename={caps.canRename}
         canDeleteFile={caps.canDeleteFile} loading={loading} searchQuery={searchQuery}
-        viewMode={viewMode} selectedAsset={previewAsset}
+        viewMode={viewMode} selectedAsset={selectedAsset}
         onSearchChange={setSearchQuery} onImport={handleImport}
-        onRename={() => startRename()}
-        onDelete={() => { if (previewAsset) setConfirmDelete({ kind: 'file', relativePath: previewAsset.relativePath, fileName: previewAsset.fileName, isManaged: previewAsset.writable }); }}
+        onRename={handleToolbarRename}
+        onDelete={handleToolbarDelete}
         onRefresh={loadAssets} onToggleViewMode={toggleViewMode}
       />
 
@@ -740,7 +775,7 @@ export function ImageManagerPage() {
           dirTree={dirTree} currentDir={browseDir} expandedDirs={expandedDirs}
           totalCount={assets.length} backendLabel={caps.backendLabel}
           onSelectDir={handleSelectDir} onToggleExpanded={handleToggleExpanded}
-          onContextMenu={handleDirContextMenu} footer={<ImageManagerHostStatus />}
+          onContextMenu={handleDirContextMenu} footer={hostStatusFooter}
         />
         <ImageManagerAssetList
           assets={filteredAssets} selectedPath={selectedAssetPath} searchQuery={searchQuery}
@@ -751,7 +786,7 @@ export function ImageManagerPage() {
           selectedAsset={previewAsset} selectedIndex={previewIndex}
           filteredCount={filteredAssets.length} canRename={caps.canRename}
           assetUrl={assetUrl} formatBytes={formatBytes}
-          onGoPrev={goPrev} onGoNext={goNext} onStartRename={() => startRename()}
+          onGoPrev={goPrev} onGoNext={goNext} onStartRename={handlePreviewRename}
         />
       </div>
 

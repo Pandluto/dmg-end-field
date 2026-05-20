@@ -306,6 +306,7 @@ export const imageBridge = {
       void refreshCapabilities();
       return response.items;
     } catch {
+      setCapabilities(getBrowserReadonlyCapabilities());
       const { resolvePublicPath } = await import('./assetResolver');
       // Legacy browser fallback endpoint. Although the path is assets/images/_manifest.json,
       // the manifest may contain the full builtin asset image set.

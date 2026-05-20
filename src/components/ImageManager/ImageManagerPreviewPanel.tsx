@@ -1,3 +1,4 @@
+import { memo } from 'react';
 import { managedDirLabel } from '../../utils/imageFileService';
 import type { ImageAssetEntry } from './types';
 
@@ -13,7 +14,7 @@ interface ImageManagerPreviewPanelProps {
   onStartRename: () => void;
 }
 
-export function ImageManagerPreviewPanel(props: ImageManagerPreviewPanelProps) {
+export const ImageManagerPreviewPanel = memo(function ImageManagerPreviewPanel(props: ImageManagerPreviewPanelProps) {
   const { selectedAsset, selectedIndex, filteredCount, canRename, assetUrl, formatBytes, onGoPrev, onGoNext, onStartRename } = props;
 
   return (
@@ -94,4 +95,4 @@ export function ImageManagerPreviewPanel(props: ImageManagerPreviewPanelProps) {
       )}
     </aside>
   );
-}
+});

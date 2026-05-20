@@ -1,3 +1,4 @@
+import { memo } from 'react';
 import type { TreeNode } from './types';
 
 interface ImageManagerExplorerProps {
@@ -12,7 +13,7 @@ interface ImageManagerExplorerProps {
   footer?: React.ReactNode;
 }
 
-function TreeNodeRow({
+const TreeNodeRow = memo(function TreeNodeRow({
   node,
   depth,
   currentDir,
@@ -79,9 +80,9 @@ function TreeNodeRow({
       )}
     </div>
   );
-}
+});
 
-export function ImageManagerExplorer(props: ImageManagerExplorerProps) {
+export const ImageManagerExplorer = memo(function ImageManagerExplorer(props: ImageManagerExplorerProps) {
   const { dirTree, currentDir, expandedDirs, totalCount, backendLabel, onSelectDir, onToggleExpanded, onContextMenu, footer } = props;
 
   return (
@@ -121,4 +122,4 @@ export function ImageManagerExplorer(props: ImageManagerExplorerProps) {
       {footer}
     </aside>
   );
-}
+});
