@@ -655,9 +655,17 @@ export function ImageManagerPage() {
 
   const handleCopyPath = useCallback((target: CtxTarget) => {
     setCtxMenu(null);
-    const path = target.kind === 'file' ? target.relativePath : normalizeDir(target.dir);
+    const path = target.kind === 'file'
+      ? (() => {
+        const asset = assetByPath.get(target.relativePath);
+        if (asset?.source === 'user') {
+          return getUserImageUrl(asset) ?? target.relativePath;
+        }
+        return target.relativePath;
+      })()
+      : normalizeDir(target.dir);
     navigator.clipboard.writeText(path).then(() => flash('路径已复制'));
-  }, [flash]);
+  }, [assetByPath, flash]);
 
   // ═══════════════════════════════════════════════════════
   // UI event handlers
