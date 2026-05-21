@@ -819,7 +819,7 @@ function buildWeaponSheetRows(draft: WeaponDraft): WeaponSheetRow[] {
       key: `weapon-${draft.id}`,
       title: draft.name,
       idText: draft.id,
-      slot: draft.type || '-',
+      slot: '占位',
       level: '-',
       effectKey: '-',
       valueText: `${draft.rarity}★`,
@@ -1024,14 +1024,6 @@ function buildWeaponWorkbookRows(draft: WeaponDraft, rows: WeaponSheetRow[], col
   }));
 }
 
-function filterRows(rows: WeaponSheetRow[], keyword: string) {
-  const normalizedKeyword = keyword.trim().toLowerCase();
-  if (!normalizedKeyword) {
-    return rows;
-  }
-  return rows.filter((row) => row.searchText.includes(normalizedKeyword));
-}
-
 function moveRecordEntry<T>(record: Record<string, T>, fromKey: string, toKey: string) {
   const entries = Object.entries(record);
   const fromIndex = entries.findIndex(([key]) => key === fromKey);
@@ -1113,6 +1105,7 @@ export function WeaponDraftSheetPage() {
   const [isShareModalOpen, setIsShareModalOpen] = useState(false);
   const [shareModalMode, setShareModalMode] = useState<'export' | 'import'>('export');
   const [shareImportText, setShareImportText] = useState('');
+  const [exportScope, setExportScope] = useState<'current' | 'all'>('current');
   const [contextMenu, setContextMenu] = useState<WeaponSheetContextMenuState | null>(null);
   const [dragState, setDragState] = useState<WeaponExplorerDragState | null>(null);
   const shareImportInputRef = useRef<HTMLInputElement>(null);
@@ -1139,8 +1132,9 @@ export function WeaponDraftSheetPage() {
       }
       return true;
     });
-    return filterRows(structuralRows, filterKeyword);
-  }, [activeDraftId, collapsedLevels, collapsedSkills, filterKeyword, rows]);
+    // 搜索只影响左侧资源管理器，不影响右侧表格
+    return structuralRows;
+  }, [activeDraftId, collapsedLevels, collapsedSkills, rows]);
   const workbookRows = useMemo(() => buildWeaponWorkbookRows(draft, visibleRows, columns), [columns, draft, visibleRows]);
   const filteredBuffTypeOptions = useMemo(() => {
     const keyword = buffTypeQuery.trim().toLowerCase();
@@ -1685,6 +1679,39 @@ export function WeaponDraftSheetPage() {
     setCollapsedLevels((prev) => ({ ...prev, [collapseKey]: nextCollapsed }));
   }, []);
 
+  const handleCollapseAllExplorer = useCallback(() => {
+    const entries = { ...localLibrary };
+    if (draft.id && !entries[draft.id]) {
+      entries[draft.id] = cloneValue(draft);
+    }
+    const nextDraftCollapsed: Record<string, boolean> = {};
+    const nextSkillCollapsed: Record<string, boolean> = {};
+    const nextLevelCollapsed: Record<string, boolean> = {};
+
+    Object.values(entries).forEach((entry) => {
+      nextDraftCollapsed[entry.id] = true;
+      SKILL_KEYS.forEach((skillKey) => {
+        nextSkillCollapsed[`${entry.id}:${skillKey}`] = true;
+        const effectRows = buildWeaponSheetRows(entry)
+          .filter((row): row is Extract<WeaponSheetRow, { kind: 'effect' }> => row.kind === 'effect')
+          .filter((row) => row.skillKey === skillKey);
+        effectRows.forEach((row) => {
+          nextLevelCollapsed[`${entry.id}:${skillKey}:${row.bucket}:${row.sourceEffectKey}`] = true;
+        });
+      });
+    });
+
+    setCollapsedDraftIds(nextDraftCollapsed);
+    setCollapsedSkills(nextSkillCollapsed);
+    setCollapsedLevels(nextLevelCollapsed);
+  }, [draft, localLibrary]);
+
+  const handleExpandAllExplorer = useCallback(() => {
+    setCollapsedDraftIds({});
+    setCollapsedSkills({});
+    setCollapsedLevels({});
+  }, []);
+
   const handleAttackGrowthChange = useCallback((levelKey: string, rawValue: string) => {
     setDraft((prev) => {
       const nextAttackGrowth = { ...prev.attackGrowth };
@@ -1845,11 +1872,28 @@ export function WeaponDraftSheetPage() {
     });
   }, [draft, updateLibraryDraft]);
 
-  const currentShareFile = useMemo(() => buildDraftLibraryShareFile(
-    WEAPON_LIBRARY_SHARE_TYPE,
-    localLibrary,
-    shareDraftName || draft.name || 'weapon-library',
-  ), [draft.name, localLibrary, shareDraftName]);
+  const currentShareFile = useMemo(() => {
+    // 根据导出范围生成 payload
+    let payload: Record<string, WeaponDraft>;
+    let label: string;
+    if (exportScope === 'current') {
+      // 导出当前：payload 只包含当前 draft
+      payload = draft.id ? { [draft.id]: draft } : {};
+      label = draft.name || 'weapon';
+    } else {
+      // 导出全部：payload 为整个 localLibrary，当前 draft 覆盖同 id 条目
+      payload = { ...localLibrary };
+      if (draft.id) {
+        payload[draft.id] = draft;
+      }
+      label = shareDraftName || draft.name || 'weapon-library';
+    }
+    return buildDraftLibraryShareFile(
+      WEAPON_LIBRARY_SHARE_TYPE,
+      payload,
+      label,
+    );
+  }, [draft, exportScope, localLibrary, shareDraftName]);
 
   const currentShareText = useMemo(() => JSON.stringify(currentShareFile, null, 2), [currentShareFile]);
 
@@ -2039,6 +2083,8 @@ export function WeaponDraftSheetPage() {
     if (contextMenu.target === 'blank') {
       return [
         { key: 'new-weapon', label: '新建武器', icon: 'new', onClick: () => handleCreateNewDraft() },
+        { key: 'collapse-all', label: '全部折叠', icon: 'collapse', onClick: () => handleCollapseAllExplorer() },
+        { key: 'expand-all', label: '全部展开', icon: 'expand', onClick: () => handleExpandAllExplorer() },
       ];
     }
     if (contextMenu.target === 'draft' && contextMenu.draftId) {
@@ -2107,9 +2153,11 @@ export function WeaponDraftSheetPage() {
     handleCreateNewDraft,
     handleAutoFillAttackGrowth,
     handleAutoFillEffectLevels,
+    handleCollapseAllExplorer,
     handleDeleteDraftEffect,
     handleDeleteDraftGroup,
     handleDuplicateDraftEffect,
+    handleExpandAllExplorer,
     handleLoadLocalDraft,
     setDraftCollapsed,
     setSkillCollapsed,
@@ -2123,6 +2171,15 @@ export function WeaponDraftSheetPage() {
     }
     return Object.values(entries).sort((left, right) => left.name.localeCompare(right.name, 'zh-Hans-CN'));
   }, [draft, localLibrary]);
+
+  const filteredExplorerEntries = useMemo(() => {
+    const keyword = filterKeyword.trim().toLowerCase();
+    if (!keyword) {
+      return explorerEntries;
+    }
+    // 搜索只按武器名称匹配，不影响右侧表格
+    return explorerEntries.filter((entry) => entry.name.trim().toLowerCase().includes(keyword));
+  }, [explorerEntries, filterKeyword]);
 
   // Explorer drag helpers
   const getExplorerDragNodeKey = useCallback((node: WeaponExplorerDragNode) => {
@@ -2571,7 +2628,11 @@ export function WeaponDraftSheetPage() {
             <span className="buff-sheet-tool-text">导入</span>
           </button>
         </div>
-        
+
+        <div className="weapon-sheet-image-slot" aria-hidden="true">
+          <div className="weapon-sheet-image-slot-square" />
+        </div>
+
         <div className="damage-sheet-formula-bar">
           <span className="damage-sheet-formula-address">{selectedWorkbookCell?.address ?? '-'}</span>
           <span className="damage-sheet-formula-label">fx</span>
@@ -2593,7 +2654,7 @@ export function WeaponDraftSheetPage() {
             className="buff-sheet-search-input"
             value={filterKeyword}
             onChange={(event) => setFilterKeyword(event.target.value)}
-            placeholder="搜索武器 / skill / effect"
+            placeholder="按武器名称搜索"
           />
           <input
             ref={shareImportInputRef}
@@ -2603,9 +2664,9 @@ export function WeaponDraftSheetPage() {
             onChange={handleShareFileSelected}
           />
           <div className="buff-sheet-explorer-tree">
-            {explorerEntries.length === 0 ? (
+            {filteredExplorerEntries.length === 0 ? (
               <div className="damage-sheet-detail-empty">当前还没有本地保存的武器。</div>
-            ) : explorerEntries.map((entry) => {
+            ) : filteredExplorerEntries.map((entry) => {
               const explorerDraft = entry.id === selectedLocalDraftId ? draft : entry;
               const isDraftCollapsed = Boolean(collapsedDraftIds[entry.id]);
               const draftDragNode: WeaponExplorerDragNode = { kind: 'draft', draftId: entry.id };
@@ -3041,7 +3102,22 @@ export function WeaponDraftSheetPage() {
             {shareModalMode === 'export' ? (
               <div className="buff-sheet-share-modal-body">
                 <div className="buff-sheet-share-modal-copybar">
-                  <div className="buff-sheet-share-modal-copyhint">预览当前本地武器库分享 JSON</div>
+                  <div className="buff-sheet-share-modal-tabs">
+                    <button
+                      type="button"
+                      className={`buff-sheet-share-modal-tab${exportScope === 'current' ? ' is-active' : ''}`}
+                      onClick={() => setExportScope('current')}
+                    >
+                      导出当前
+                    </button>
+                    <button
+                      type="button"
+                      className={`buff-sheet-share-modal-tab${exportScope === 'all' ? ' is-active' : ''}`}
+                      onClick={() => setExportScope('all')}
+                    >
+                      导出全部
+                    </button>
+                  </div>
                   <div className="buff-sheet-share-modal-actions">
                     <button type="button" className="buff-sheet-share-action" onClick={handleCopyShareJson}>
                       复制 JSON

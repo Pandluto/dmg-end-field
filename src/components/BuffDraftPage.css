@@ -1255,6 +1255,10 @@
     grid-template-columns: 1fr;
   }
 
+  .weapon-sheet-page .buff-sheet-ribbon {
+    grid-template-columns: 1fr;
+  }
+
   .buff-sheet-ai-modal-body {
     grid-template-columns: 1fr;
   }
@@ -1315,6 +1319,27 @@
 .weapon-sheet-page .buff-sheet-explorer-count {
   font-size: 10px;
   font-weight: 600;
+}
+
+.weapon-sheet-page .buff-sheet-ribbon {
+  grid-template-columns: auto auto minmax(0, 1fr);
+  align-items: center;
+}
+
+.weapon-sheet-image-slot {
+  width: 46px;
+  min-width: 46px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  align-self: center;
+}
+
+.weapon-sheet-image-slot-square {
+  width: 46px;
+  aspect-ratio: 1 / 1;
+  border: 1px dashed var(--office-border, #d2d8e3);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.96) 0%, rgba(241, 245, 249, 0.96) 100%);
 }
 
 .weapon-sheet-inline-select {
