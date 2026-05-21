@@ -3,12 +3,15 @@ import { pinyin } from 'pinyin-pro';
 import './BuffDraftPage.css';
 import './OperatorDraftPage.css';
 import { APP_ROUTE_PATHS, navigateToAppPath } from '../utils/appRoute';
+import { resolvePublicPath } from '../utils/assetResolver';
 import {
   buildDraftLibraryShareFile,
   buildDraftLibraryShareFileName,
   parseDraftLibraryShareFile,
   type DraftLibraryShareFile,
 } from '../utils/draftShare';
+import { imageBridge, getUserImageUrl } from '../utils/imageBridge';
+import type { ImageAssetEntry } from './ImageManager/types';
 
 const WEAPON_SHEET_PAGE_PATH = APP_ROUTE_PATHS.weaponSheet;
 const WEAPON_DRAFT_STORAGE_KEY = 'def.weapon-sheet.draft.v1';
@@ -49,6 +52,7 @@ interface RawWeaponDraft {
   rarity?: number;
   type?: string;
   description?: string;
+  imgUrl?: string;
   attackGrowth?: Record<string, number>;
   skills?: Record<string, RawWeaponSkillData>;
 }
@@ -71,8 +75,19 @@ interface WeaponDraft {
   rarity: number;
   type: string;
   description: string;
+  imgUrl: string;
   attackGrowth: Record<string, number>;
   skills: Record<WeaponSkillKey, WeaponSkillData>;
+}
+
+interface WeaponImageOption {
+  key: string;
+  fileName: string;
+  baseName: string;
+  relativePath: string;
+  source: 'builtin' | 'user';
+  displayUrl: string;
+  searchText: string;
 }
 
 type WeaponSheetRow =
@@ -181,7 +196,7 @@ interface FormulaBinding {
   inputMode: 'text' | 'number';
   value: string;
   placeholder: string;
-  control?: 'input' | 'select' | 'search-select';
+  control?: 'input' | 'select' | 'search-select' | 'image-search-select';
   readOnly?: boolean;
   options?: Array<{ value: string; label: string }>;
   onValueChange?: (value: string) => void;
@@ -406,6 +421,7 @@ function createEmptyWeaponDraft(nextId = 'custom-weapon-001'): WeaponDraft {
     rarity: 6,
     type: '',
     description: '',
+    imgUrl: '',
     attackGrowth: {},
     skills: {
       skill1: createEmptyWeaponSkillData('skill1'),
@@ -423,6 +439,7 @@ function normalizeWeaponDraft(raw: RawWeaponDraft | WeaponDraft | null | undefin
     rarity: Number(raw?.rarity ?? 6) || 6,
     type: raw?.type?.trim() || '',
     description: raw?.description?.trim() || '',
+    imgUrl: raw?.imgUrl?.trim() || '',
     attackGrowth: Object.fromEntries(
       Object.entries(raw?.attackGrowth ?? {}).filter(([, value]) => typeof value === 'number')
     ),
@@ -632,6 +649,31 @@ function buildBuffTypeSearchText(buffType: string) {
     return '';
   }
   return buildSearchIndex([trimmed, getBuffTypeLabel(trimmed), getBuffTypeDisplayLabel(trimmed)]);
+}
+
+function buildWeaponImageAssetUrl(entry: ImageAssetEntry) {
+  const userUrl = getUserImageUrl(entry);
+  if (userUrl) return userUrl;
+  const isFileProtocol = window.location.protocol === 'file:';
+  const path = isFileProtocol
+    ? entry.relativePath
+    : entry.relativePath.split('/').map(encodeURIComponent).join('/');
+  return resolvePublicPath(path);
+}
+
+function buildWeaponImageOption(entry: ImageAssetEntry): WeaponImageOption | null {
+  if (entry.kind === 'dir') return null;
+  const displayUrl = buildWeaponImageAssetUrl(entry);
+  const source = entry.source === 'user' ? 'user' : 'builtin';
+  return {
+    key: entry.relativePath,
+    fileName: entry.fileName,
+    baseName: entry.baseName,
+    relativePath: entry.relativePath,
+    source,
+    displayUrl,
+    searchText: buildSearchIndex([entry.fileName, entry.baseName, entry.relativePath, displayUrl, source]),
+  };
 }
 
 function getEffectBuffType(skillKey: WeaponSkillKey, skill: WeaponSkillData, effectKey: string) {
@@ -1086,9 +1128,14 @@ export { isWeaponSheetPath };
 export function WeaponDraftSheetPage() {
   const [draft, setDraft] = useState<WeaponDraft>(() => loadDraftFromStorage());
   const [localLibrary, setLocalLibrary] = useState<Record<string, WeaponDraft>>(() => loadLocalWeaponLibrary());
+  const [imageAssets, setImageAssets] = useState<ImageAssetEntry[]>([]);
+  const [imageAssetsLoading, setImageAssetsLoading] = useState(false);
+  const [imageAssetsError, setImageAssetsError] = useState('');
   const [selectedLocalDraftId, setSelectedLocalDraftId] = useState('');
   const [filterKeyword, setFilterKeyword] = useState('');
   const [buffTypeQuery, setBuffTypeQuery] = useState('');
+  const [weaponImageQuery, setWeaponImageQuery] = useState('');
+  const [weaponImageLoadFailed, setWeaponImageLoadFailed] = useState(false);
   const [formulaInput, setFormulaInput] = useState('');
   const [selectedWorkbookCell, setSelectedWorkbookCell] = useState<WeaponWorkbookSelection | null>(null);
   const [pendingFocusRowKey, setPendingFocusRowKey] = useState<string | null>(null);
@@ -1143,6 +1190,17 @@ export function WeaponDraftSheetPage() {
     }
     return WEAPON_BUFF_TYPE_OPTIONS.filter((option) => buildBuffTypeSearchText(option).toLowerCase().includes(keyword));
   }, [buffTypeQuery]);
+  const weaponImageOptions = useMemo(
+    () => imageAssets.map(buildWeaponImageOption).filter((option): option is WeaponImageOption => option !== null),
+    [imageAssets],
+  );
+  const filteredWeaponImageOptions = useMemo(() => {
+    const keyword = weaponImageQuery.trim().toLowerCase();
+    if (!keyword) {
+      return weaponImageOptions;
+    }
+    return weaponImageOptions.filter((option) => option.searchText.toLowerCase().includes(keyword));
+  }, [weaponImageOptions, weaponImageQuery]);
   const selectedWorkbookSummary = selectedWorkbookCell?.sourceRowKey
     ? visibleRows.find((row) => row.key === selectedWorkbookCell.sourceRowKey) ?? null
     : null;
@@ -1161,12 +1219,13 @@ export function WeaponDraftSheetPage() {
     if (selectedWorkbookSummary.kind === 'weapon') {
       if (selectedWorkbookCell?.columnKey === 'slot') {
         return {
-          key: 'weapon:type',
-          focusId: 'weapon-type',
+          key: 'weapon:imgUrl',
+          focusId: 'weapon-img-url',
           inputMode: 'text',
-          value: draft.type,
-          placeholder: '武器类型',
-          apply: (baseDraft, rawInput) => ({ ...baseDraft, type: rawInput }),
+          control: 'image-search-select',
+          value: draft.imgUrl,
+          placeholder: '搜索武器主图',
+          apply: (baseDraft, rawInput) => ({ ...baseDraft, imgUrl: rawInput.trim() }),
         };
       }
       if (selectedWorkbookCell?.columnKey === 'idText') {
@@ -1533,8 +1592,37 @@ export function WeaponDraftSheetPage() {
   }, [formulaBinding?.key, formulaBinding?.value]);
 
   useEffect(() => {
+    let cancelled = false;
+    setImageAssetsLoading(true);
+    setImageAssetsError('');
+    imageBridge.listAssets()
+      .then((assets) => {
+        if (cancelled) return;
+        setImageAssets(assets);
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        setImageAssets([]);
+        setImageAssetsError(error instanceof Error ? error.message : '图片资源加载失败');
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setImageAssetsLoading(false);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
     setBuffTypeQuery('');
+    setWeaponImageQuery('');
   }, [formulaBinding?.key]);
+
+  useEffect(() => {
+    setWeaponImageLoadFailed(false);
+  }, [draft.imgUrl]);
 
   useEffect(() => {
     const firstDataRow = workbookRows[0];
@@ -1871,6 +1959,16 @@ export function WeaponDraftSheetPage() {
       focusRowKey: buildWeaponEffectRowKey(skillKey, 'effect', newEffectKey),
     });
   }, [draft, updateLibraryDraft]);
+
+  const handleSelectWeaponImage = useCallback((displayUrl: string) => {
+    setDraft((prev) => normalizeWeaponDraft({ ...prev, imgUrl: displayUrl }));
+    setWeaponImageLoadFailed(false);
+  }, []);
+
+  const handleClearWeaponImage = useCallback(() => {
+    setDraft((prev) => normalizeWeaponDraft({ ...prev, imgUrl: '' }));
+    setWeaponImageLoadFailed(false);
+  }, []);
 
   const currentShareFile = useMemo(() => {
     // 根据导出范围生成 payload
@@ -2471,6 +2569,63 @@ export function WeaponDraftSheetPage() {
       );
     }
 
+    if (formulaBinding.control === 'image-search-select') {
+      return (
+        <div className="weapon-sheet-image-formula-editor">
+          <input
+            data-formula-focus-id={`${formulaBinding.focusId}-search`}
+            className="buff-sheet-formula-input weapon-sheet-image-formula-search"
+            value={weaponImageQuery}
+            onChange={(event) => setWeaponImageQuery(event.target.value)}
+            placeholder="搜索图片：文件名 / baseName / 路径 / URL"
+          />
+          <div className="weapon-sheet-image-formula-results">
+            <div className="weapon-sheet-image-formula-toolbar">
+              <button
+                type="button"
+                className={`weapon-sheet-image-option weapon-sheet-image-option-clear${!draft.imgUrl ? ' is-active' : ''}`}
+                onClick={() => handleClearWeaponImage()}
+              >
+                <span className="weapon-sheet-image-option-thumb weapon-sheet-image-option-thumb-empty">无图</span>
+                <span className="weapon-sheet-image-option-meta">
+                  <strong>清空主图</strong>
+                  <span>移除当前武器顶层 imgUrl</span>
+                </span>
+              </button>
+            </div>
+            {imageAssetsLoading ? (
+              <div className="weapon-sheet-image-picker-empty">图片资源加载中…</div>
+            ) : imageAssetsError ? (
+              <div className="weapon-sheet-image-picker-empty">图片资源加载失败：{imageAssetsError}</div>
+            ) : filteredWeaponImageOptions.length === 0 ? (
+              <div className="weapon-sheet-image-picker-empty">没有匹配的图片</div>
+            ) : (
+              <div className="weapon-sheet-image-picker-list">
+                {filteredWeaponImageOptions.map((option) => (
+                  <button
+                    key={option.key}
+                    type="button"
+                    className={`weapon-sheet-image-option${draft.imgUrl === option.displayUrl ? ' is-active' : ''}`}
+                    onMouseDown={(event) => event.preventDefault()}
+                    onClick={() => handleSelectWeaponImage(option.displayUrl)}
+                  >
+                    <span className="weapon-sheet-image-option-thumb">
+                      <img src={option.displayUrl} alt={option.fileName} />
+                    </span>
+                    <span className="weapon-sheet-image-option-meta">
+                      <strong>{option.fileName}</strong>
+                      <span>{option.relativePath}</span>
+                      <em>{option.source === 'user' ? 'user' : 'builtin'}</em>
+                    </span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      );
+    }
+
     if (formulaBinding.readOnly) {
       return (
         <input
@@ -2629,8 +2784,23 @@ export function WeaponDraftSheetPage() {
           </button>
         </div>
 
-        <div className="weapon-sheet-image-slot" aria-hidden="true">
-          <div className="weapon-sheet-image-slot-square" />
+        <div className={`weapon-sheet-image-slot${draft.imgUrl ? ' has-image' : ''}${weaponImageLoadFailed ? ' is-broken' : ''}`} title={draft.imgUrl || '武器主图预览'}>
+          <div className="weapon-sheet-image-slot-square">
+            {draft.imgUrl && !weaponImageLoadFailed ? (
+              <img
+                className="weapon-sheet-image-preview"
+                src={draft.imgUrl}
+                alt={draft.name || '武器主图'}
+                onError={() => setWeaponImageLoadFailed(true)}
+              />
+            ) : null}
+            {draft.imgUrl && weaponImageLoadFailed ? (
+              <span className="weapon-sheet-image-fallback">加载失败</span>
+            ) : null}
+            {!draft.imgUrl ? (
+              <span className="weapon-sheet-image-fallback">主图</span>
+            ) : null}
+          </div>
         </div>
 
         <div className="damage-sheet-formula-bar">

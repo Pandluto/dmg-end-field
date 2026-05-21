@@ -1338,8 +1338,151 @@
 .weapon-sheet-image-slot-square {
   width: 46px;
   aspect-ratio: 1 / 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
   border: 1px dashed var(--office-border, #d2d8e3);
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.96) 0%, rgba(241, 245, 249, 0.96) 100%);
+}
+
+.weapon-sheet-image-slot.has-image .weapon-sheet-image-slot-square {
+  border-style: solid;
+}
+
+.weapon-sheet-image-preview {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.weapon-sheet-image-fallback {
+  padding: 6px;
+  color: var(--text-muted, #64748b);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1.35;
+  text-align: center;
+}
+
+.weapon-sheet-image-slot.is-broken .weapon-sheet-image-slot-square {
+  border-style: dashed;
+}
+
+.weapon-sheet-page .damage-sheet-formula-bar {
+  position: relative;
+  overflow: visible;
+}
+
+.weapon-sheet-image-formula-editor {
+  position: relative;
+  min-width: 0;
+}
+
+.weapon-sheet-image-formula-results {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  z-index: 70;
+  display: grid;
+  gap: 6px;
+  padding: 8px;
+  border: 1px solid var(--office-border, #d2d8e3);
+  background: var(--office-card-bg, #fff);
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.16);
+  max-height: min(360px, calc(100vh - 220px));
+  overflow: hidden;
+}
+
+.weapon-sheet-image-formula-toolbar {
+  display: grid;
+}
+
+.weapon-sheet-image-picker-list {
+  max-height: min(280px, calc(100vh - 300px));
+  overflow: auto;
+  display: grid;
+  gap: 6px;
+}
+
+.weapon-sheet-image-option {
+  width: 100%;
+  display: grid;
+  grid-template-columns: 56px minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+  padding: 6px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--office-body, #1f2634);
+  text-align: left;
+}
+
+.weapon-sheet-image-option:hover,
+.weapon-sheet-image-option.is-active {
+  border-color: var(--excel-green-main, #185c37);
+  background: var(--ide-bg-hover, #f3f7f4);
+}
+
+.weapon-sheet-image-option-thumb {
+  width: 56px;
+  aspect-ratio: 1 / 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  border: 1px solid var(--office-border, #d2d8e3);
+  background: #f8fafc;
+}
+
+.weapon-sheet-image-option-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.weapon-sheet-image-option-meta {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.weapon-sheet-image-option-meta strong,
+.weapon-sheet-image-option-meta span,
+.weapon-sheet-image-option-meta em {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.weapon-sheet-image-option-meta strong {
+  color: var(--office-title, #0f172a);
+  font-size: 11px;
+}
+
+.weapon-sheet-image-option-meta span,
+.weapon-sheet-image-option-meta em {
+  color: var(--text-muted, #64748b);
+  font-size: 10px;
+}
+
+.weapon-sheet-image-option-meta em {
+  font-style: normal;
+}
+
+.weapon-sheet-image-picker-empty {
+  min-height: 76px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px;
+  color: var(--text-muted, #64748b);
+  font-size: 11px;
+  text-align: center;
 }
 
 .weapon-sheet-inline-select {
