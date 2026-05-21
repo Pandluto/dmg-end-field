@@ -676,6 +676,35 @@ function buildWeaponImageOption(entry: ImageAssetEntry): WeaponImageOption | nul
   };
 }
 
+function decodeWeaponImageDisplayUrl(url: string) {
+  const trimmed = url.trim();
+  if (!trimmed) {
+    return '';
+  }
+  try {
+    return decodeURIComponent(trimmed);
+  } catch {
+    return trimmed.replace(/%([0-9A-Fa-f]{2})/g, (match) => {
+      try {
+        return decodeURIComponent(match);
+      } catch {
+        return match;
+      }
+    });
+  }
+}
+
+function formatWeaponImageCellValue(url: string) {
+  const decoded = decodeWeaponImageDisplayUrl(url);
+  if (!decoded) {
+    return '占位';
+  }
+  if (decoded.length <= 36) {
+    return decoded;
+  }
+  return `...${decoded.slice(-33)}`;
+}
+
 function getEffectBuffType(skillKey: WeaponSkillKey, skill: WeaponSkillData, effectKey: string) {
   if (skillKey === 'skill1' || skillKey === 'skill2') {
     return getSkillAutoBuffType(skillKey, skill.statType);
@@ -861,12 +890,12 @@ function buildWeaponSheetRows(draft: WeaponDraft): WeaponSheetRow[] {
       key: `weapon-${draft.id}`,
       title: draft.name,
       idText: draft.id,
-      slot: '占位',
+      slot: formatWeaponImageCellValue(draft.imgUrl),
       level: '-',
       effectKey: '-',
       valueText: `${draft.rarity}★`,
       description: draft.description || '-',
-      searchText: buildSearchIndex([draft.name, draft.id, draft.type, draft.description, String(draft.attackGrowth['1'] ?? ''), String(draft.attackGrowth['90'] ?? '')]),
+      searchText: buildSearchIndex([draft.name, draft.id, draft.type, draft.description, draft.imgUrl, String(draft.attackGrowth['1'] ?? ''), String(draft.attackGrowth['90'] ?? '')]),
     },
     {
       kind: 'growth',
@@ -1135,6 +1164,7 @@ export function WeaponDraftSheetPage() {
   const [filterKeyword, setFilterKeyword] = useState('');
   const [buffTypeQuery, setBuffTypeQuery] = useState('');
   const [weaponImageQuery, setWeaponImageQuery] = useState('');
+  const [isWeaponImageDrawerOpen, setIsWeaponImageDrawerOpen] = useState(false);
   const [weaponImageLoadFailed, setWeaponImageLoadFailed] = useState(false);
   const [formulaInput, setFormulaInput] = useState('');
   const [selectedWorkbookCell, setSelectedWorkbookCell] = useState<WeaponWorkbookSelection | null>(null);
@@ -1156,6 +1186,7 @@ export function WeaponDraftSheetPage() {
   const [contextMenu, setContextMenu] = useState<WeaponSheetContextMenuState | null>(null);
   const [dragState, setDragState] = useState<WeaponExplorerDragState | null>(null);
   const shareImportInputRef = useRef<HTMLInputElement>(null);
+  const weaponImageFormulaRef = useRef<HTMLDivElement>(null);
   const pendingDragSourceRef = useRef<{ source: WeaponExplorerDragNode; x: number; y: number } | null>(null);
   const dragHoldTimerRef = useRef<number | null>(null);
   const suppressExplorerClickRef = useRef(false);
@@ -1617,12 +1648,36 @@ export function WeaponDraftSheetPage() {
 
   useEffect(() => {
     setBuffTypeQuery('');
-    setWeaponImageQuery('');
-  }, [formulaBinding?.key]);
+    setWeaponImageQuery(formulaBinding?.control === 'image-search-select' ? (formulaBinding.value ?? '') : '');
+    setIsWeaponImageDrawerOpen(false);
+  }, [formulaBinding?.control, formulaBinding?.key, formulaBinding?.value]);
 
   useEffect(() => {
     setWeaponImageLoadFailed(false);
   }, [draft.imgUrl]);
+
+  useEffect(() => {
+    if (!isWeaponImageDrawerOpen) {
+      return undefined;
+    }
+    const handlePointerDown = (event: PointerEvent) => {
+      if (weaponImageFormulaRef.current?.contains(event.target as Node)) {
+        return;
+      }
+      setIsWeaponImageDrawerOpen(false);
+    };
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setIsWeaponImageDrawerOpen(false);
+      }
+    };
+    window.addEventListener('pointerdown', handlePointerDown, true);
+    window.addEventListener('keydown', handleEscape, true);
+    return () => {
+      window.removeEventListener('pointerdown', handlePointerDown, true);
+      window.removeEventListener('keydown', handleEscape, true);
+    };
+  }, [isWeaponImageDrawerOpen]);
 
   useEffect(() => {
     const firstDataRow = workbookRows[0];
@@ -1963,11 +2018,13 @@ export function WeaponDraftSheetPage() {
   const handleSelectWeaponImage = useCallback((displayUrl: string) => {
     setDraft((prev) => normalizeWeaponDraft({ ...prev, imgUrl: displayUrl }));
     setWeaponImageLoadFailed(false);
+    setIsWeaponImageDrawerOpen(false);
   }, []);
 
   const handleClearWeaponImage = useCallback(() => {
     setDraft((prev) => normalizeWeaponDraft({ ...prev, imgUrl: '' }));
     setWeaponImageLoadFailed(false);
+    setIsWeaponImageDrawerOpen(false);
   }, []);
 
   const currentShareFile = useMemo(() => {
@@ -2571,15 +2628,17 @@ export function WeaponDraftSheetPage() {
 
     if (formulaBinding.control === 'image-search-select') {
       return (
-        <div className="weapon-sheet-image-formula-editor">
+        <div className="weapon-sheet-image-formula-editor" ref={weaponImageFormulaRef}>
           <input
             data-formula-focus-id={`${formulaBinding.focusId}-search`}
             className="buff-sheet-formula-input weapon-sheet-image-formula-search"
             value={weaponImageQuery}
             onChange={(event) => setWeaponImageQuery(event.target.value)}
+            onClick={() => setIsWeaponImageDrawerOpen(true)}
             placeholder="搜索图片：文件名 / baseName / 路径 / URL"
           />
-          <div className="weapon-sheet-image-formula-results">
+          {isWeaponImageDrawerOpen ? (
+            <div className="weapon-sheet-image-formula-results">
             <div className="weapon-sheet-image-formula-toolbar">
               <button
                 type="button"
@@ -2621,7 +2680,8 @@ export function WeaponDraftSheetPage() {
                 ))}
               </div>
             )}
-          </div>
+            </div>
+          ) : null}
         </div>
       );
     }

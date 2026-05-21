@@ -1404,20 +1404,24 @@
   max-height: min(280px, calc(100vh - 300px));
   overflow: auto;
   display: grid;
-  gap: 6px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
 }
 
 .weapon-sheet-image-option {
   width: 100%;
+  min-height: 80px;
+  height: 80px;
   display: grid;
-  grid-template-columns: 56px minmax(0, 1fr);
-  gap: 10px;
+  grid-template-columns: 64px minmax(0, 1fr);
+  gap: 8px;
   align-items: center;
-  padding: 6px;
-  border: 1px solid transparent;
-  background: transparent;
+  padding: 8px;
+  border: 1px solid var(--office-border, #d2d8e3);
+  background: #fff;
   color: var(--office-body, #1f2634);
   text-align: left;
+  border-radius: 4px;
 }
 
 .weapon-sheet-image-option:hover,
@@ -1427,8 +1431,8 @@
 }
 
 .weapon-sheet-image-option-thumb {
-  width: 56px;
-  aspect-ratio: 1 / 1;
+  width: 64px;
+  height: 64px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1447,7 +1451,8 @@
 .weapon-sheet-image-option-meta {
   min-width: 0;
   display: grid;
-  gap: 2px;
+  gap: 3px;
+  align-content: center;
 }
 
 .weapon-sheet-image-option-meta strong,
@@ -1483,6 +1488,22 @@
   color: var(--text-muted, #64748b);
   font-size: 11px;
   text-align: center;
+}
+
+.weapon-sheet-image-option-clear {
+  max-width: 280px;
+}
+
+@media (max-width: 1400px) {
+  .weapon-sheet-image-picker-list {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 1100px) {
+  .weapon-sheet-image-picker-list {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 .weapon-sheet-inline-select {
