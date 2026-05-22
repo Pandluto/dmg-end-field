@@ -1,13 +1,28 @@
+.equipment-sheet-page.buff-sheet-page .buff-sheet-ribbon {
+  grid-template-columns: auto auto minmax(0, 1fr);
+  align-items: center;
+}
+
 .equipment-sheet-page .damage-sheet-formula-bar {
   display: grid;
   grid-template-columns: 72px 24px minmax(0, 1fr);
   align-items: center;
   width: 100%;
   min-width: 0;
+  justify-self: stretch;
+  overflow: visible;
 }
 
 .equipment-sheet-page .damage-sheet-formula-value,
 .equipment-sheet-page .buff-sheet-formula-input {
+  width: 100%;
+  min-width: 0;
+}
+
+.equipment-sheet-page .weapon-sheet-image-formula-editor,
+.equipment-sheet-page .weapon-sheet-image-formula-search,
+.equipment-sheet-page .buff-sheet-formula-type-select,
+.equipment-sheet-page .buff-sheet-formula-type-search {
   width: 100%;
   min-width: 0;
 }

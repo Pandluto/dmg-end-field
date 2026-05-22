@@ -496,7 +496,7 @@ async function readEquipmentLibraryFromFile(): Promise<EquipmentLibrary> {
 async function writeEquipmentLibraryToFile(library: EquipmentLibrary): Promise<{ ok: boolean; error?: string }> {
   const bridge = window.desktopRuntime?.writeEquipmentLibrary;
   if (!bridge) {
-    return { ok: false, error: '当前 Web 环境无法直接写入本地 JSON，已保存到 localStorage，可通过导出 JSON 手动更新文件。' };
+    return { ok: false, error: '当前 Web 环境无法直接写入本地 JSON，请通过导出 JSON 手动更新文件。' };
   }
   const result = await bridge({ ...library, updatedAt: new Date().toISOString() });
   return result.ok ? { ok: true } : { ok: false, error: result.error || '写入装备库失败' };
@@ -537,6 +537,90 @@ function getEffectEntries(equipment: EquipmentItem) {
   return EFFECT_IDS.flatMap((effectId) => {
     const effect = equipment.effects[effectId];
     return effect ? [[effectId, effect] as const] : [];
+  });
+}
+
+function applyCellValueToLibrary(
+  library: EquipmentLibrary,
+  row: EquipmentRow,
+  columnKey: EquipmentSheetColumn['key'],
+  rawValue: string,
+) {
+  if (row.kind === 'set') {
+    return updateLibrarySet(library, row.gearSetId, (gearSet) => ({
+      ...gearSet,
+      name: columnKey === 'name' ? rawValue : gearSet.name,
+      gearSetId: gearSet.gearSetId,
+      buffId: columnKey === 'effectKey' ? rawValue : gearSet.buffId,
+      imgUrl: columnKey === 'description' ? rawValue : gearSet.imgUrl,
+    }));
+  }
+  if (row.kind === 'equipment') {
+    return updateLibraryEquipment(library, row.gearSetId, row.equipmentId, (equipment) => ({
+      ...equipment,
+      name: columnKey === 'name' ? rawValue : equipment.name,
+      part: columnKey === 'field' ? normalizePart(rawValue) : equipment.part,
+      imgUrl: columnKey === 'description' ? rawValue : equipment.imgUrl,
+    }));
+  }
+  if (row.kind === 'fixedStat') {
+    return updateLibraryEquipment(library, row.gearSetId, row.equipmentId, (equipment) => ({
+      ...equipment,
+      fixedStat: {
+        label: columnKey === 'name' ? rawValue : equipment.fixedStat?.label || '防御力',
+        typeKey: columnKey === 'effectKey' && ['defense', 'hp', 'flatAtk'].includes(rawValue) ? rawValue as EquipmentFixedTypeKey : equipment.fixedStat?.typeKey || 'defense',
+        value: columnKey === 'valueText' ? normalizeNumber(rawValue, equipment.fixedStat?.value) : equipment.fixedStat?.value || 0,
+        unit: equipment.fixedStat?.unit || 'flat',
+        raw: columnKey === 'description' ? rawValue : equipment.fixedStat?.raw,
+      },
+    }));
+  }
+  if (row.kind === 'effect') {
+    return updateLibraryEquipment(library, row.gearSetId, row.equipmentId, (equipment) => {
+      const effect = equipment.effects[row.effectId];
+      if (!effect) return equipment;
+      return {
+        ...equipment,
+        effects: {
+          ...equipment.effects,
+          [row.effectId]: {
+            ...effect,
+            label: columnKey === 'name' ? rawValue : effect.label,
+            category: columnKey === 'field' ? normalizeCategory(rawValue === '能力值' ? 'ability' : rawValue) : effect.category,
+            typeKey: columnKey === 'effectKey' ? rawValue : effect.typeKey,
+            unit: columnKey === 'valueText' ? normalizeUnit(rawValue === '%' ? 'percent' : rawValue) : effect.unit,
+            raw: columnKey === 'description' ? rawValue : effect.raw,
+          },
+        },
+      };
+    });
+  }
+  return library;
+}
+
+function applyEffectLevelToLibrary(
+  library: EquipmentLibrary,
+  row: Extract<EquipmentRow, { kind: 'effectLevels' }>,
+  levelKey: EquipmentLevelKey,
+  rawValue: string,
+) {
+  return updateLibraryEquipment(library, row.gearSetId, row.equipmentId, (equipment) => {
+    const effect = equipment.effects[row.effectId];
+    if (!effect) return equipment;
+    const nextLevels = { ...effect.levels };
+    const parsed = Number(rawValue);
+    if (rawValue.trim() && Number.isFinite(parsed)) {
+      nextLevels[levelKey] = parsed;
+    } else {
+      delete nextLevels[levelKey];
+    }
+    return {
+      ...equipment,
+      effects: {
+        ...equipment.effects,
+        [row.effectId]: { ...effect, levels: nextLevels },
+      },
+    };
   });
 }
 
@@ -784,7 +868,7 @@ function updateLibraryEquipment(
 export { isEquipmentSheetPath };
 
 export function EquipmentSheetPage() {
-  const [library, setLibrary] = useState<EquipmentLibrary>(() => normalizeEquipmentLibrary(readLocalStorageJson(EQUIPMENT_DRAFT_STORAGE_KEY, EMPTY_LIBRARY)));
+  const [library, setLibrary] = useState<EquipmentLibrary>(() => normalizeEquipmentLibrary(EMPTY_LIBRARY));
   const [selectedRowKey, setSelectedRowKey] = useState('');
   const [selectedCell, setSelectedCell] = useState<EquipmentSelection | null>(null);
   const [filterKeyword, setFilterKeyword] = useState('');
@@ -803,7 +887,9 @@ export function EquipmentSheetPage() {
   const [imageAssetsError, setImageAssetsError] = useState('');
   const [equipmentImageQuery, setEquipmentImageQuery] = useState('');
   const [isEquipmentImageDrawerOpen, setIsEquipmentImageDrawerOpen] = useState(false);
+  const [equipmentImageLoadFailed, setEquipmentImageLoadFailed] = useState(false);
   const [isDirty, setIsDirty] = useState(false);
+  const [isSaveConfirmModalOpen, setIsSaveConfirmModalOpen] = useState(false);
   const [isShareModalOpen, setIsShareModalOpen] = useState(false);
   const [shareModalMode, setShareModalMode] = useState<'export' | 'import'>('export');
   const [shareImportText, setShareImportText] = useState('');
@@ -821,14 +907,15 @@ export function EquipmentSheetPage() {
         if (cancelled) return;
         const cached = normalizeEquipmentLibrary(readLocalStorageJson(EQUIPMENT_DRAFT_STORAGE_KEY, EMPTY_LIBRARY));
         const hasCachedData = Object.keys(cached.gearSets).length > 0;
-        const useCached = hasCachedData
-          && JSON.stringify(cached.gearSets) !== JSON.stringify(fileLibrary.gearSets)
-          && window.confirm('检测到本地草稿与装备 JSON 不一致，是否使用 localStorage 草稿？选择“取消”将使用本地 JSON。');
-        const nextLibrary = useCached ? cached : fileLibrary;
+        const shouldUseCached = !window.desktopRuntime?.readEquipmentLibrary && hasCachedData;
+        const nextLibrary = shouldUseCached ? cached : fileLibrary;
         setLibrary(nextLibrary);
-        writeLocalStorageJson(EQUIPMENT_DRAFT_STORAGE_KEY, nextLibrary);
         setIsDirty(false);
-        setMessage(nextLibrary.migration?.reviewRequired ? '装备库已加载。迁移数据需要人工复核 typeKey 映射。' : '装备库已加载。');
+        if (shouldUseCached) {
+          setMessage('已从 localStorage 加载浏览器保存的装备库草稿。');
+          return;
+        }
+        setMessage(fileLibrary.migration?.reviewRequired ? '装备库已加载。迁移数据需要人工复核 typeKey 映射。' : '装备库已加载。');
       })
       .catch((error) => {
         if (cancelled) return;
@@ -912,6 +999,26 @@ export function EquipmentSheetPage() {
   );
   const workbookRows = useMemo(() => buildWorkbookRows(visibleRows), [visibleRows]);
   const selectedRow = useMemo(() => visibleRows.find((row) => row.key === selectedRowKey) ?? visibleRows[0] ?? null, [selectedRowKey, visibleRows]);
+  const previewImageMeta = useMemo(() => {
+    if (!selectedRow) {
+      return { imgUrl: '', title: '装备配图预览', alt: '装备配图' };
+    }
+    if (selectedRow.kind === 'set') {
+      const gearSet = library.gearSets[selectedRow.gearSetId];
+      return {
+        imgUrl: gearSet?.imgUrl?.trim() || '',
+        title: gearSet?.imgUrl?.trim() || '套装配图预览',
+        alt: gearSet?.name || '套装配图',
+      };
+    }
+    const gearSet = library.gearSets[selectedRow.gearSetId];
+    const equipment = gearSet?.equipments[selectedRow.equipmentId];
+    return {
+      imgUrl: equipment?.imgUrl?.trim() || '',
+      title: equipment?.imgUrl?.trim() || '装备配图预览',
+      alt: equipment?.name || '装备配图',
+    };
+  }, [library.gearSets, selectedRow]);
   const equipmentImageOptions = useMemo(
     () => imageAssets.map(buildEquipmentImageOption).filter((option): option is EquipmentImageOption => option !== null),
     [imageAssets],
@@ -949,23 +1056,10 @@ export function EquipmentSheetPage() {
   const mutateLibrary = useCallback((updater: (prev: EquipmentLibrary) => EquipmentLibrary) => {
     setLibrary((prev) => {
       const next = { ...updater(prev), updatedAt: new Date().toISOString() };
-      writeLocalStorageJson(EQUIPMENT_DRAFT_STORAGE_KEY, next);
       setIsDirty(true);
       return next;
     });
   }, []);
-
-  const handleSave = useCallback(async () => {
-    const emptyBuffSets = getGearSets(library).filter((gearSet) => !gearSet.buffId?.trim()).length;
-    const nextLibrary = { ...library, updatedAt: new Date().toISOString() };
-    writeLocalStorageJson(EQUIPMENT_DRAFT_STORAGE_KEY, nextLibrary);
-    const result = await writeEquipmentLibraryToFile(nextLibrary);
-    const warning = emptyBuffSets > 0 ? ` ${emptyBuffSets} 个套装 buffId 为空，请后续补齐。` : '';
-    if (result.ok) {
-      setIsDirty(false);
-    }
-    setMessage(result.ok ? `已保存到本地 JSON 和 localStorage。${warning}` : `${result.error}${warning}`);
-  }, [library]);
 
   const handleCreateNew = useCallback(() => {
     if (selectedRow?.kind === 'set') {
@@ -1405,79 +1499,11 @@ export function EquipmentSheetPage() {
   }, [addFixedStat, clearEffectLevels, clearFixedValue, collapsedEffectIds, collapsedEquipmentIds, collapsedGearSetIds, collapseAll, copyJsonToClipboard, createEffectInEquipment, createEquipmentInSet, createGearSet, deleteNode, duplicateEffect, duplicateEquipment, expandAll, expandCurrentEquipment, handleCreateNew, library.gearSets, parseLevelsFromRaw]);
 
   const updateCellValue = useCallback((row: EquipmentRow, columnKey: EquipmentSheetColumn['key'], rawValue: string) => {
-    mutateLibrary((prev) => {
-      if (row.kind === 'set') {
-        return updateLibrarySet(prev, row.gearSetId, (gearSet) => ({
-          ...gearSet,
-          name: columnKey === 'name' ? rawValue : gearSet.name,
-          gearSetId: gearSet.gearSetId,
-          buffId: columnKey === 'effectKey' ? rawValue : gearSet.buffId,
-          imgUrl: columnKey === 'description' ? rawValue : gearSet.imgUrl,
-        }));
-      }
-      if (row.kind === 'equipment') {
-        return updateLibraryEquipment(prev, row.gearSetId, row.equipmentId, (equipment) => ({
-          ...equipment,
-          name: columnKey === 'name' ? rawValue : equipment.name,
-          part: columnKey === 'field' ? normalizePart(rawValue) : equipment.part,
-          imgUrl: columnKey === 'description' ? rawValue : equipment.imgUrl,
-        }));
-      }
-      if (row.kind === 'fixedStat') {
-        return updateLibraryEquipment(prev, row.gearSetId, row.equipmentId, (equipment) => ({
-          ...equipment,
-          fixedStat: {
-            label: columnKey === 'name' ? rawValue : equipment.fixedStat?.label || '防御力',
-            typeKey: columnKey === 'effectKey' && ['defense', 'hp', 'flatAtk'].includes(rawValue) ? rawValue as EquipmentFixedTypeKey : equipment.fixedStat?.typeKey || 'defense',
-            value: columnKey === 'valueText' ? normalizeNumber(rawValue, equipment.fixedStat?.value) : equipment.fixedStat?.value || 0,
-            unit: equipment.fixedStat?.unit || 'flat',
-            raw: columnKey === 'description' ? rawValue : equipment.fixedStat?.raw,
-          },
-        }));
-      }
-      if (row.kind === 'effect') {
-        return updateLibraryEquipment(prev, row.gearSetId, row.equipmentId, (equipment) => {
-          const effect = equipment.effects[row.effectId];
-          if (!effect) return equipment;
-          return {
-            ...equipment,
-            effects: {
-              ...equipment.effects,
-              [row.effectId]: {
-                ...effect,
-                label: columnKey === 'name' ? rawValue : effect.label,
-                category: columnKey === 'field' ? normalizeCategory(rawValue === '能力值' ? 'ability' : rawValue) : effect.category,
-                typeKey: columnKey === 'effectKey' ? rawValue : effect.typeKey,
-                unit: columnKey === 'valueText' ? normalizeUnit(rawValue === '%' ? 'percent' : rawValue) : effect.unit,
-                raw: columnKey === 'description' ? rawValue : effect.raw,
-              },
-            },
-          };
-        });
-      }
-      return prev;
-    });
+    mutateLibrary((prev) => applyCellValueToLibrary(prev, row, columnKey, rawValue));
   }, [mutateLibrary]);
 
   const updateEffectLevel = useCallback((row: Extract<EquipmentRow, { kind: 'effectLevels' }>, levelKey: EquipmentLevelKey, rawValue: string) => {
-    mutateLibrary((prev) => updateLibraryEquipment(prev, row.gearSetId, row.equipmentId, (equipment) => {
-      const effect = equipment.effects[row.effectId];
-      if (!effect) return equipment;
-      const nextLevels = { ...effect.levels };
-      const parsed = Number(rawValue);
-      if (rawValue.trim() && Number.isFinite(parsed)) {
-        nextLevels[levelKey] = parsed;
-      } else {
-        delete nextLevels[levelKey];
-      }
-      return {
-        ...equipment,
-        effects: {
-          ...equipment.effects,
-          [row.effectId]: { ...effect, levels: nextLevels },
-        },
-      };
-    }));
+    mutateLibrary((prev) => applyEffectLevelToLibrary(prev, row, levelKey, rawValue));
   }, [mutateLibrary]);
 
   const selectedWorkbookRow = useMemo(
@@ -1646,12 +1672,70 @@ export function EquipmentSheetPage() {
     };
   }, [isEquipmentImageDrawerOpen]);
 
+  useEffect(() => {
+    setEquipmentImageLoadFailed(false);
+  }, [previewImageMeta.imgUrl]);
+
+  const buildLibraryWithCommittedFormulaInput = useCallback((baseLibrary: EquipmentLibrary) => {
+    if (!formulaBinding || formulaBinding.readOnly || formulaInput === formulaBinding.value || !selectedWorkbookRow || !selectedCell) {
+      return baseLibrary;
+    }
+    const row = selectedWorkbookRow.sourceRow;
+    if (row.kind === 'effectLevels') {
+      const levelKey = selectedCell.address.replace(/^Lv/, '') as EquipmentLevelKey;
+      if (!LEVEL_KEYS.includes(levelKey)) {
+        return baseLibrary;
+      }
+      return applyEffectLevelToLibrary(baseLibrary, row, levelKey, formulaInput);
+    }
+    return applyCellValueToLibrary(baseLibrary, row, selectedCell.columnKey, formulaInput);
+  }, [formulaBinding, formulaInput, selectedCell, selectedWorkbookRow]);
+
   const commitFormulaInput = useCallback(() => {
     if (!formulaBinding || formulaBinding.readOnly) {
       return;
     }
     formulaBinding.commit(formulaInput);
   }, [formulaBinding, formulaInput]);
+
+  const performSave = useCallback(async () => {
+    const committedLibrary = buildLibraryWithCommittedFormulaInput(library);
+    const emptyBuffSets = getGearSets(committedLibrary).filter((gearSet) => !gearSet.buffId?.trim()).length;
+    const nextLibrary = { ...committedLibrary, updatedAt: new Date().toISOString() };
+    const warning = emptyBuffSets > 0 ? ` ${emptyBuffSets} 个套装 buffId 为空，请后续补齐。` : '';
+    if (committedLibrary !== library) {
+      setLibrary(committedLibrary);
+    }
+    if (!window.desktopRuntime?.writeEquipmentLibrary) {
+      writeLocalStorageJson(EQUIPMENT_DRAFT_STORAGE_KEY, nextLibrary);
+      setLibrary(nextLibrary);
+      setIsDirty(false);
+      setIsSaveConfirmModalOpen(false);
+      setMessage(`浏览器环境已保存到 localStorage。${warning}`);
+      return;
+    }
+    const result = await writeEquipmentLibraryToFile(nextLibrary);
+    if (result.ok) {
+      writeLocalStorageJson(EQUIPMENT_DRAFT_STORAGE_KEY, nextLibrary);
+      setLibrary(nextLibrary);
+      setIsDirty(false);
+      setIsSaveConfirmModalOpen(false);
+    }
+    setMessage(result.ok ? `已保存到本地 JSON。缓存已同步更新。${warning}` : `${result.error}${warning}`);
+  }, [buildLibraryWithCommittedFormulaInput, library]);
+
+  const handleSave = useCallback(() => {
+    if (isOverwriteProtectionEnabled) {
+      setIsSaveConfirmModalOpen(true);
+      return;
+    }
+    void performSave();
+  }, [isOverwriteProtectionEnabled, performSave]);
+
+  const handleConfirmSave = useCallback(() => {
+    setIsSaveConfirmModalOpen(false);
+    void performSave();
+  }, [performSave]);
 
   const clearSelectedCell = useCallback(() => {
     if (!selectedWorkbookRow || !selectedCell) {
@@ -1678,6 +1762,17 @@ export function EquipmentSheetPage() {
       updateCellValue(row, columnKey, '');
     }
   }, [selectedCell, selectedWorkbookRow, updateCellValue, updateEffectLevel]);
+
+  useEffect(() => {
+    const handleSaveShortcut = (event: KeyboardEvent) => {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 's') {
+        event.preventDefault();
+        handleSave();
+      }
+    };
+    window.addEventListener('keydown', handleSaveShortcut);
+    return () => window.removeEventListener('keydown', handleSaveShortcut);
+  }, [handleSave]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -1743,7 +1838,9 @@ export function EquipmentSheetPage() {
     setShareModalMode(mode);
     setIsShareModalOpen(true);
     setShareImportError('');
-    setPendingImportShare(null);
+    if (mode === 'import') {
+      setPendingImportShare(null);
+    }
   }, []);
 
   const closeShareModal = useCallback(() => {
@@ -1752,20 +1849,68 @@ export function EquipmentSheetPage() {
     setPendingImportShare(null);
   }, []);
 
+  const handleCopyShareJson = useCallback(async () => {
+    try {
+      await navigator.clipboard.writeText(currentShareText);
+    } catch {
+      const textarea = document.createElement('textarea');
+      textarea.value = currentShareText;
+      textarea.style.position = 'fixed';
+      textarea.style.opacity = '0';
+      document.body.appendChild(textarea);
+      textarea.select();
+      document.execCommand('copy');
+      document.body.removeChild(textarea);
+    }
+  }, [currentShareText]);
+
+  const prepareImportShare = useCallback((rawText: string) => {
+    const parsed = parseDraftLibraryShareFile(rawText, EQUIPMENT_LIBRARY_SHARE_TYPE);
+    if (!parsed) {
+      setPendingImportShare(null);
+      setShareImportError('导入失败：文件不是有效的装备库分享 JSON。');
+      return;
+    }
+    const normalizedPayload = normalizeEquipmentLibrary({
+      gearSets: parsed.payload,
+    }).gearSets;
+    if (Object.keys(normalizedPayload).length === 0) {
+      setPendingImportShare(null);
+      setShareImportError('JSON 中没有可导入的有效套装。');
+      return;
+    }
+    setShareImportError('');
+    setPendingImportShare({
+      ...parsed,
+      payload: normalizedPayload,
+    } as DraftLibraryShareFile<EquipmentGearSet>);
+  }, []);
+
+  const handleExportLocalLibrary = useCallback(() => {
+    downloadJson(buildDraftLibraryShareFileName(currentShareFile.label, currentShareFile.exportedAt), currentShareText);
+  }, [currentShareFile.exportedAt, currentShareFile.label, currentShareText]);
+
+  const handleOpenShareImportPicker = useCallback(() => {
+    shareImportInputRef.current?.click();
+  }, []);
+
+  const handleParseImportText = useCallback(() => {
+    prepareImportShare(shareImportText);
+  }, [prepareImportShare, shareImportText]);
+
+  const handleCancelImportShare = useCallback(() => {
+    setPendingImportShare(null);
+    setShareImportError('');
+  }, []);
+
   const handleShareFileSelected = useCallback(async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     event.target.value = '';
     if (!file) return;
     const text = await file.text();
     setShareImportText(text);
-    const parsed = parseDraftLibraryShareFile(text, EQUIPMENT_LIBRARY_SHARE_TYPE) as DraftLibraryShareFile<EquipmentGearSet> | null;
-    if (!parsed) {
-      setShareImportError('导入失败：文件不是有效的装备库分享 JSON。');
-      return;
-    }
-    setPendingImportShare(parsed);
-    setShareImportError('');
-  }, []);
+    prepareImportShare(text);
+  }, [prepareImportShare]);
 
   const handleConfirmImportShare = useCallback(() => {
     if (!pendingImportShare) return;
@@ -2144,6 +2289,25 @@ export function EquipmentSheetPage() {
           </button>
         </div>
 
+        <div className={`weapon-sheet-image-slot${previewImageMeta.imgUrl ? ' has-image' : ''}${equipmentImageLoadFailed ? ' is-broken' : ''}`} title={previewImageMeta.title}>
+          <div className="weapon-sheet-image-slot-square">
+            {previewImageMeta.imgUrl && !equipmentImageLoadFailed ? (
+              <img
+                className="weapon-sheet-image-preview"
+                src={previewImageMeta.imgUrl}
+                alt={previewImageMeta.alt}
+                onError={() => setEquipmentImageLoadFailed(true)}
+              />
+            ) : null}
+            {previewImageMeta.imgUrl && equipmentImageLoadFailed ? (
+              <span className="weapon-sheet-image-fallback">加载失败</span>
+            ) : null}
+            {!previewImageMeta.imgUrl ? (
+              <span className="weapon-sheet-image-fallback">主图</span>
+            ) : null}
+          </div>
+        </div>
+
         <div className="damage-sheet-formula-bar">
           <span className="damage-sheet-formula-address">{selectedCell?.address ?? '-'}</span>
           <span className="damage-sheet-formula-label">fx</span>
@@ -2260,6 +2424,30 @@ export function EquipmentSheetPage() {
         </div>
       ) : null}
 
+      {isSaveConfirmModalOpen ? (
+        <div className="operator-draft-modal-overlay" onClick={() => setIsSaveConfirmModalOpen(false)}>
+          <div className="operator-draft-modal operator-draft-confirm-modal" onClick={(event) => event.stopPropagation()}>
+            <div className="operator-draft-section-header">
+              <div>
+                <h3>确认保存装备库</h3>
+                <p>保护开启时，保存前需要确认覆盖本地装备 JSON。</p>
+              </div>
+            </div>
+            <div className="operator-draft-confirm-body">
+              <p>确认后会将当前 Sheet Equipment 编辑内容写入本地装备库文件。</p>
+            </div>
+            <div className="operator-draft-modal-actions">
+              <button type="button" className="operator-draft-ghost-button" onClick={() => setIsSaveConfirmModalOpen(false)}>
+                取消
+              </button>
+              <button type="button" className="operator-draft-copy-button operator-draft-danger-button" onClick={handleConfirmSave}>
+                确认保存
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       {isShareModalOpen ? (
         <div className="buff-sheet-share-modal-mask" onClick={closeShareModal}>
           <div className="buff-sheet-share-modal" onClick={(event) => event.stopPropagation()}>
@@ -2277,27 +2465,46 @@ export function EquipmentSheetPage() {
                     <button type="button" className={`buff-sheet-share-modal-tab${exportScope === 'current' ? ' is-active' : ''}`} onClick={() => setExportScope('current')}>导出当前</button>
                     <button type="button" className={`buff-sheet-share-modal-tab${exportScope === 'all' ? ' is-active' : ''}`} onClick={() => setExportScope('all')}>导出全部</button>
                   </div>
-                  <button type="button" className="operator-draft-copy-button" onClick={() => downloadJson(buildDraftLibraryShareFileName(currentShareFile.label, currentShareFile.exportedAt), currentShareText)}>导出文件</button>
+                  <div className="buff-sheet-share-modal-actions">
+                    <button type="button" className="buff-sheet-share-action" onClick={handleCopyShareJson}>复制 JSON</button>
+                    <button type="button" className="buff-sheet-share-action is-primary" onClick={handleExportLocalLibrary}>导出文件</button>
+                  </div>
                 </div>
-                <textarea className="buff-sheet-share-modal-textarea" readOnly value={currentShareText} />
+                <textarea className="buff-sheet-share-textarea is-preview" readOnly value={currentShareText} spellCheck={false} />
               </div>
             ) : (
               <div className="buff-sheet-share-modal-body">
                 <div className="buff-sheet-share-modal-copybar">
-                  <button type="button" className="operator-draft-copy-button" onClick={() => shareImportInputRef.current?.click()}>导入文件</button>
+                  <div className="buff-sheet-share-modal-copyhint">支持直接粘贴 JSON，或选择本地分享文件</div>
+                  <div className="buff-sheet-share-modal-actions">
+                    <button type="button" className="buff-sheet-share-action" onClick={handleOpenShareImportPicker}>导入文件</button>
+                    <button type="button" className="buff-sheet-share-action is-primary" onClick={handleParseImportText}>读取粘贴内容</button>
+                  </div>
                 </div>
-                <textarea className="buff-sheet-share-modal-textarea" value={shareImportText} onChange={(event) => {
-                  setShareImportText(event.target.value);
-                  const parsed = parseDraftLibraryShareFile(event.target.value, EQUIPMENT_LIBRARY_SHARE_TYPE) as DraftLibraryShareFile<EquipmentGearSet> | null;
-                  setPendingImportShare(parsed);
-                  setShareImportError(parsed ? '' : 'JSON 不是有效的装备分享格式。');
-                }} placeholder="把装备分享 JSON 粘贴到这里，或点击导入文件。" />
+                <textarea
+                  className="buff-sheet-share-textarea"
+                  value={shareImportText}
+                  onChange={(event) => {
+                    setShareImportText(event.target.value);
+                    if (shareImportError) {
+                      setShareImportError('');
+                    }
+                  }}
+                  placeholder="把装备分享 JSON 粘贴到这里，或点击右上角导入文件。"
+                  spellCheck={false}
+                />
                 {shareImportError ? <div className="buff-sheet-share-feedback is-error">{shareImportError}</div> : null}
                 {pendingImportShare ? (
                   <div className="buff-sheet-share-import-preview">
                     <div className="buff-sheet-share-import-title">导入预览</div>
-                    <p>{`即将导入 ${Object.keys(pendingImportShare.payload).length} 个套装。`}</p>
-                    <button type="button" className="operator-draft-copy-button" onClick={handleConfirmImportShare}>确认导入</button>
+                    <div className="buff-sheet-share-import-meta">
+                      <span>{`名称：${pendingImportShare.label}`}</span>
+                      <span>{`套装数：${Object.keys(pendingImportShare.payload).length}`}</span>
+                    </div>
+                    <div className="buff-sheet-share-modal-actions">
+                      <button type="button" className="buff-sheet-share-action" onClick={handleCancelImportShare}>清空预览</button>
+                      <button type="button" className="buff-sheet-share-action is-primary" onClick={handleConfirmImportShare}>确认导入</button>
+                    </div>
                   </div>
                 ) : null}
               </div>
