@@ -1975,6 +1975,42 @@ ipcMain.handle('desktop:create-image-directory', (_event, payload) => handleCrea
 
 ipcMain.handle('desktop:delete-image-directory', (_event, payload) => handleDeleteImageDirectory(payload));
 
+function getEquipmentLibraryPath() {
+  const devPath = path.join(__dirname, '..', 'public', 'data', 'equipments', 'equipments.json');
+  const prodPath = path.join(__dirname, '..', 'dist', 'data', 'equipments', 'equipments.json');
+  if (fs.existsSync(devPath) || !fs.existsSync(prodPath)) {
+    return devPath;
+  }
+  return prodPath;
+}
+
+ipcMain.handle('desktop:read-equipment-library', () => {
+  try {
+    const filePath = getEquipmentLibraryPath();
+    if (!fs.existsSync(filePath)) {
+      return { ok: false, error: `装备库文件不存在：${filePath}`, path: filePath };
+    }
+    return {
+      ok: true,
+      path: filePath,
+      data: JSON.parse(fs.readFileSync(filePath, 'utf-8')),
+    };
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : String(error) };
+  }
+});
+
+ipcMain.handle('desktop:write-equipment-library', (_event, payload) => {
+  try {
+    const filePath = getEquipmentLibraryPath();
+    fs.mkdirSync(path.dirname(filePath), { recursive: true });
+    fs.writeFileSync(filePath, `${JSON.stringify(payload, null, 2)}\n`, 'utf-8');
+    return { ok: true, path: filePath };
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : String(error) };
+  }
+});
+
 ipcMain.handle('desktop:run-action', (_event, action) => {
   switch (action) {
     case 'capture-probe':

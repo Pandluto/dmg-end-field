@@ -1,0 +1,61 @@
+.equipment-sheet-page .damage-sheet-formula-bar {
+  display: grid;
+  grid-template-columns: 72px 24px minmax(0, 1fr);
+  align-items: center;
+  width: 100%;
+  min-width: 0;
+}
+
+.equipment-sheet-page .damage-sheet-formula-value,
+.equipment-sheet-page .buff-sheet-formula-input {
+  width: 100%;
+  min-width: 0;
+}
+
+.equipment-sheet-page .buff-sheet-formula-type-editor {
+  display: grid;
+  grid-template-columns: minmax(180px, 0.8fr) minmax(260px, 1.2fr);
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+}
+
+.equipment-sheet-save-status {
+  flex: 0 0 auto;
+  min-width: 52px;
+  text-align: center;
+  color: rgba(226, 232, 240, 0.72);
+  font-size: 12px;
+  line-height: 24px;
+}
+
+.equipment-sheet-save-status.is-dirty {
+  color: #fbbf24;
+}
+
+.equipment-sheet-explorer-all {
+  margin-bottom: 6px;
+}
+
+.equipment-sheet-page .damage-sheet-excel-row-number {
+  align-items: center;
+  justify-content: center;
+}
+
+.equipment-sheet-page .damage-sheet-excel-row-number > .damage-sheet-row-toggle,
+.equipment-sheet-page .buff-sheet-explorer-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+  text-align: center;
+}
+
+.equipment-sheet-page .damage-sheet-excel-cell.is-col-name {
+  justify-content: flex-start;
+  text-align: left;
+}
+
+.equipment-sheet-page .damage-sheet-excel-cell.is-col-name .weapon-sheet-inline-input {
+  text-align: left;
+}

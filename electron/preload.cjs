@@ -35,4 +35,6 @@ contextBridge.exposeInMainWorld('desktopRuntime', {
   createImageDirectory: (payload) => ipcRenderer.invoke('desktop:create-image-directory', payload),
   deleteImageDirectory: (payload) => ipcRenderer.invoke('desktop:delete-image-directory', payload),
   revealInExplorer: (payload) => ipcRenderer.invoke('desktop:reveal-in-explorer', payload),
+  readEquipmentLibrary: () => ipcRenderer.invoke('desktop:read-equipment-library'),
+  writeEquipmentLibrary: (payload) => ipcRenderer.invoke('desktop:write-equipment-library', payload),
 });

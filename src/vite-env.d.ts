@@ -99,6 +99,13 @@ interface ImageAssetRevealResult {
   error?: string;
 }
 
+interface EquipmentLibraryFileOpResult {
+  ok: boolean;
+  data?: unknown;
+  error?: string;
+  path?: string;
+}
+
 interface ImageAssetImportToDirPayload {
   targetDir?: string;
 }
@@ -123,6 +130,8 @@ interface DesktopRuntimeBridge {
   createImageDirectory?: (payload: ImageAssetCreateDirPayload) => Promise<ImageAssetDirOpResult>;
   deleteImageDirectory?: (payload: ImageAssetDeleteDirPayload) => Promise<ImageAssetDirOpResult>;
   revealInExplorer?: (payload: ImageAssetRevealPayload) => Promise<ImageAssetRevealResult>;
+  readEquipmentLibrary?: () => Promise<EquipmentLibraryFileOpResult>;
+  writeEquipmentLibrary?: (payload: unknown) => Promise<EquipmentLibraryFileOpResult>;
 }
 
 interface Window {
