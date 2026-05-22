@@ -134,6 +134,10 @@ export function WorkbenchFrame() {
     navigateToAppPath(APP_ROUTE_PATHS.weaponSheet);
   }, []);
 
+  const handleOpenOperatorConfig = useCallback(() => {
+    navigateToAppPath(APP_ROUTE_PATHS.operatorConfig);
+  }, []);
+
   const handleOpenImageManager = useCallback(() => {
     navigateToAppPath(APP_ROUTE_PATHS.imageManager);
   }, []);
@@ -185,6 +189,9 @@ export function WorkbenchFrame() {
       </button>
       <button className="workbench-top-trigger workbench-bottom-nav-button" type="button" onClick={handleOpenWeaponSheet}>
         <span className="workbench-trigger-text">编辑武器</span>
+      </button>
+      <button className="workbench-top-trigger workbench-bottom-nav-button" type="button" onClick={handleOpenOperatorConfig}>
+        <span className="workbench-trigger-text">角色配置</span>
       </button>
       <button className="workbench-top-trigger workbench-bottom-nav-button" type="button" onClick={handleOpenImageManager}>
         <span className="workbench-trigger-text">图片管理</span>

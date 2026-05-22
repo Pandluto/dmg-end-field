@@ -11,7 +11,8 @@ import { BuffDraftPage, BuffDraftSheetPage, isBuffDraftPath, isBuffSheetPath } f
 import { WeaponDraftSheetPage, isWeaponSheetPath } from './components/WeaponDraftPage';
 import { EquipmentSheetPage, isEquipmentSheetPath } from './components/EquipmentSheetPage';
 import { ImageManagerPage, isImageManagerPath } from './components/ImageManagerPage';
-import { getCurrentAppPath } from './utils/appRoute';
+import { OperatorConfigPage } from './components/OperatorConfigPage';
+import { APP_ROUTE_PATHS, getCurrentAppPath } from './utils/appRoute';
 import './styles/global.css';
 
 function App() {
@@ -67,6 +68,10 @@ function App() {
 
   if (isImageManagerPath(currentPath)) {
     return <ImageManagerPage />;
+  }
+
+  if (currentPath === APP_ROUTE_PATHS.operatorConfig) {
+    return <OperatorConfigPage />;
   }
 
   return (

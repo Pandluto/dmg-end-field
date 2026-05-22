@@ -1698,5 +1698,15 @@
     "updatedAt": 1768927429000,
     "writable": false,
     "source": "builtin"
+  },
+  {
+    "fileName": "operator-config-equip-stage-bg.png",
+    "baseName": "operator-config-equip-stage-bg",
+    "ext": ".png",
+    "relativePath": "assets/images/operator-config-equip-stage-bg.png",
+    "sizeBytes": 404531,
+    "updatedAt": 1779450966495.665,
+    "writable": false,
+    "source": "builtin"
   }
 ]

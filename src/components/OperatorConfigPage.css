@@ -1,0 +1,1073 @@
+.operator-config-page-root {
+  --operator-config-page-panel-bg: #E8EBF0;
+
+  min-height: 100vh;
+  padding: 24px;
+  box-sizing: border-box;
+  background: var(--operator-config-page-panel-bg);
+}
+
+.operator-config-page-shell {
+  width: min(1680px, 100%);
+  margin: 0 auto;
+}
+
+.operator-config-page-panel {
+  width: 100%;
+  max-width: none;
+  min-height: calc(100vh - 48px);
+  height: calc(100vh - 48px);
+}
+
+.operator-config-page-panel .config-panel-content {
+  min-height: 0;
+}
+
+.operator-config-page-panel .config-main-area {
+  max-width: calc(100% - 130px);
+}
+
+.operator-config-page-panel .config-top-grid {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 0.7fr) minmax(0, 0.3fr);
+}
+
+.operator-config-page-equip-zone,
+.operator-config-page-weapon-zone {
+  min-width: 0;
+  min-height: 100%;
+}
+
+.operator-config-page-weapon-spacer {
+  min-width: 0;
+  min-height: 100%;
+}
+
+.operator-config-page-weapon-zone .config-weapon-selector {
+  min-height: 0;
+}
+
+.config-weapon-choose-showcase {
+  display: flex;
+  width: 100%;
+  min-height: 100px;
+  align-items: stretch;
+  border: 1px solid #D1D1D1;
+  background: #FFD600;
+}
+
+.config-weapon-config {
+  margin-top: 6px;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 360px;
+  border: 1px solid #D1D1D1;
+  background: #F3F3F3;
+  box-sizing: border-box;
+  min-height: 0;
+}
+
+.config-weapon-config-container {
+  display: flex;
+  flex-direction: column;
+  flex: 0 0 auto;
+}
+
+.config-weapon-config-text {
+  font-size: 14px;
+  font-weight: 500;
+
+  margin: 6px 6px 0 6px;
+  padding: 4px;
+  
+  color: #000000;
+  border: 1px solid #000000;
+}
+.config-weapon-config-container-3 {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: flex-end;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.config-weapon-config-text-3 {
+  font-size: 14px;
+  font-weight: 500;
+  flex: 1 1 auto;
+  min-height: 0;
+  margin: 6px;
+  padding: 4px;
+  
+  color: #000000;
+  border: 1px solid #000000;
+}
+.config-weapon-config-button-row {
+  display: inline-flex; /* 弹性布局 */
+  flex-direction: row;
+  align-items: flex-start;
+  gap: 0px;
+  margin-top: 6px;
+  margin-left: 6px;
+  width: fit-content;
+  padding: 8px;
+  background: transparent;
+  border-radius: 999px;
+  border: 1px solid #000000;
+}
+
+
+.config-weapon-config-button {
+  position: relative;
+  width: 24px;
+  height: 8px;
+  border: none;
+  border-radius: 999px;
+  border: 1px solid #000000;
+  transform: rotate(-45deg);
+  appearance: none;
+  -webkit-appearance: none;
+  padding: 0;
+  margin: 0;
+  cursor: pointer;
+}
+
+.config-weapon-config-button::before {
+  content: '';
+  position: absolute;
+  inset: -8px;
+}
+
+.config-weapon-config-button.is-current {
+  background: #FFF000;
+}
+
+.config-weapon-config-button.is-lit {
+  background: #FFFFFF;
+}
+
+.config-weapon-config-button.is-dim {
+  background: #757575;
+}
+
+.config-weapon-choose-content-area {
+  flex: 1;
+  min-width: 0;
+  padding: 12px;
+}
+
+.config-weapon-choose-content-button {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: flex-start;
+  gap: 6px;
+  width: 100%;
+  min-width: 0;
+  border: none;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  color: #111827;
+}
+
+.config-weapon-choose-name {
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.config-weapon-choose-detail {
+  width: 100%;
+  font-size: 12px;
+  line-height: 1.35;
+  color: #374151;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.config-weapon-choose-img-area {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex: 0 0 70%;
+  min-width: 0;
+  margin-left: 6px;
+  margin-top: 6px;
+  margin-bottom: 6px;
+  width: 70%;
+  border: 1px solid #3D3719;
+  border-right: none;
+  box-sizing: border-box;
+}
+
+.config-weapon-choose-img-square {
+  position: relative;
+  flex: 0 0 auto;
+  height: 100%;
+  aspect-ratio: 1 / 1;
+  border-left: 1px solid #3D3719;
+  background: transparent;
+  overflow: hidden;
+}
+
+.config-weapon-choose-img-button {
+  padding: 0;
+  margin: 0;
+  appearance: none;
+  -webkit-appearance: none;
+  cursor: pointer;
+}
+
+.config-weapon-choose-img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: cover;
+}
+
+
+
+.operator-config-page-weapon-star-showcase {
+  margin-top: 6px;
+  display: flex;
+  width: 100%;
+  min-height: 96px;
+  align-items: stretch;
+  justify-content: flex-end;
+  border: 1px solid #D1D1D1;
+  background: #D9D9D9;
+  padding: 0;
+}
+
+.operator-config-page-weapon-star-square-box {
+  width: 96px;
+  aspect-ratio: 1 / 1;
+  border: 1px solid #D1D1D1;
+  background: #828282;
+  position: relative;
+  overflow: hidden;
+  flex: 0 0 auto;
+  padding: 0;
+  margin: 0;
+  appearance: none;
+  -webkit-appearance: none;
+  cursor: pointer;
+}
+
+.operator-config-page-weapon-star-svg {
+  width: 80px;
+  height: 80px;
+  display: block;
+  color: #666666;
+}
+
+.operator-config-page-weapon-star-svg--full {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  transform: none;
+}
+
+.operator-config-page-weapon-star-square-box:hover,
+.operator-config-page-weapon-star-square-box:active,
+.operator-config-page-weapon-star-square-box:focus,
+.operator-config-page-weapon-star-square-box:focus-visible {
+  background: #D9D9D9 !important;
+  outline: none !important;
+}
+
+.operator-config-page-weapon-star-svg polygon {
+  transition: fill 0.15s ease, filter 0.15s ease;
+}
+
+.operator-config-page-weapon-star-square-box.is-zero:hover .operator-config-page-weapon-star-svg polygon,
+.operator-config-page-weapon-star-square-box.is-zero:active .operator-config-page-weapon-star-svg polygon {
+  fill: #FFF59D !important;
+}
+
+.operator-config-page-weapon-star-square-box.is-max .operator-config-page-weapon-star-svg polygon {
+  filter: drop-shadow(0 0 3px rgba(255, 240, 0, 0.95)) drop-shadow(0 0 7px rgba(255, 245, 157, 0.85));
+}
+
+/* 装备区域 */
+.operator-config-page-equip-zone {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  overflow: hidden;
+}
+
+.operator-config-page-equip-circles {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+}
+
+.operator-config-page-equip-button-groups {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+}
+
+.operator-config-page-equip-button-group {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  width: 66px;
+  gap: 3px;
+  background: rgba(223, 223, 223, 0.5);
+  pointer-events: none;
+}
+
+.operator-config-page-equip-button-textdiv   {
+  width: 100%;
+  height: 20px;
+  padding: 1px;
+  border: 1px solid #000000;
+  background: transparent;
+  box-sizing: border-box;
+  text-align: flex-start;
+
+  font-size: 12px;
+  font-weight: 400;
+}
+
+.operator-config-page-equip-button-row {
+  display: inline-flex;
+  align-items: flex-start;
+  gap: 0;
+  width: 100%;
+  padding: 6px;
+  background: transparent;
+  border: 1px solid #000000;
+  border-radius: 999px;
+  box-sizing: border-box;
+}
+
+.operator-config-page-equip-button {
+  position: relative;
+  width: 18px;
+  height: 6px;
+  border: 1px solid #000000;
+  border-radius: 999px;
+  transform: rotate(-45deg);
+  appearance: none;
+  -webkit-appearance: none;
+  padding: 0;
+  margin: 0;
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+.operator-config-page-equip-button::before {
+  content: '';
+  position: absolute;
+  inset: -8px;
+}
+
+.operator-config-page-equip-button.is-current {
+  background: #26BAFB;
+}
+
+.operator-config-page-equip-button.is-lit {
+  background: #26BAFB;
+}
+
+.operator-config-page-equip-button.is-dim {
+  background: #757575;
+}
+
+.operator-config-page-equip-circle {
+  position: absolute;
+  width: 100px;
+  height: 100px;
+  border: 1px solid #000000;
+  border-radius: 5%;
+  background: rgba(255, 255, 255, 0.82);
+  transform: translate(-50%, -50%);
+  overflow: hidden;
+  padding: 0;
+  margin: 0;
+  appearance: none;
+  -webkit-appearance: none;
+  cursor: pointer;
+}
+
+.operator-config-page-equip-circle-image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.operator-config-page-equip-circle-fallback {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 8px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #1f2937;
+  box-sizing: border-box;
+}
+
+.operator-config-page-equip-circle--1 {
+  left: 98px;
+  top: 120px;
+}
+
+.operator-config-page-equip-button-group--1 {
+  left: 154px;
+  top: 70px;
+}
+
+.operator-config-page-equip-circle--2 {
+  left: 294px;
+  top: 115px;
+}
+
+.operator-config-page-equip-button-group--2 {
+  left: 382px;
+  top: 65px;
+}
+
+.operator-config-page-equip-circle--3 {
+  left: 296px;
+  top: 266px;
+}
+
+.operator-config-page-equip-button-group--3 {
+  left: 384px;
+  top: 216px;
+}
+
+.operator-config-page-equip-circle--4 {
+  left: 97px;
+  top: 344px;
+}
+
+.operator-config-page-equip-button-group--4 {
+  left: 152px;
+  top: 293px;
+}
+/* 装备title */
+.operator-config-page-equip-zone > .config-data-title {
+  position: absolute;
+  top: 4px;
+  left: 10%;
+  z-index: 1;
+  width: auto;
+  margin: 0;
+  text-align: left;
+  transform: translateX(-50%);
+}
+/* 装备可视化区域 */
+.operator-config-page-equip-visual {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
+}
+/* 装备可视化区域顶部 */
+.operator-config-page-equip-visual-top {
+  position: relative;
+  flex: 0 0 auto;
+  width: 100%;
+  aspect-ratio: 914 / 984;
+  background-color: #F3F3F3;
+  background-image: url('/assets/images/operator-config-equip-stage-bg.png');
+  background-repeat: no-repeat;
+  background-position: center top;
+  background-size: 100% auto;
+}
+/* 装备可视化区域底部 */
+.operator-config-page-equip-visual-bottom {
+  flex: 1;
+  min-height: 0;
+  border-top: 1px solid #D1D1D1;
+  background: #F3F3F3;
+}
+
+.operator-config-page-equip-archive {
+  display: none;
+}
+
+.operator-config-page-operator-panel {
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  gap: var(--spacing-sm);
+  min-width: 0;
+  min-height: 0;
+}
+
+.operator-config-page-operator-zone {
+  min-width: 0;
+  min-height: 0;
+}
+
+.operator-config-page-section {
+  border: 1px solid #D1D1D1;
+  background: #F0F0F0;
+  padding: var(--spacing-sm);
+  min-width: 0;
+  min-height: 0;
+}
+
+.operator-config-page-scrollable {
+  overflow-y: auto;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.operator-config-page-scrollable::-webkit-scrollbar {
+  display: none;
+}
+
+.operator-config-page-section-title {
+  font-size: var(--font-size-md);
+  font-weight: 700;
+  margin: 0 0 var(--spacing-sm);
+}
+
+.operator-config-page-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--spacing-sm);
+}
+
+.operator-config-page-stat-item {
+  border: 2px solid #000000;
+  padding: var(--spacing-xs);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.operator-config-page-stat-item.is-main {
+  background: var(--theme-main-stat-bg);
+}
+
+.operator-config-page-stat-item.is-sub {
+  background: var(--theme-sub-stat-bg);
+}
+
+.operator-config-page-stat-label {
+  font-size: var(--font-size-xs);
+  color: #000000;
+}
+
+.operator-config-page-stat-value {
+  font-size: var(--font-size-sm);
+  font-weight: 700;
+  color: #000000;
+}
+
+.operator-config-page-skills-section {
+  background: #FFFFFF;
+}
+
+.operator-config-page-role-section {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.operator-config-page-role-content {
+  flex: 1 1 auto;
+  display: flex;
+  align-items: flex-start;
+  min-width: 0;
+  min-height: 0;
+}
+
+.operator-config-page-role-layout {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+  min-width: 0;
+}
+
+.operator-config-page-level-body {
+  position: relative;
+  width: 100%;
+  min-height: 96px;
+}
+
+.operator-config-page-level-track {
+  display: grid;
+  grid-template-columns: repeat(8, minmax(0, 1fr));
+  gap: 6px;
+  width: calc(100% - 70px);
+  max-width: calc(100% - 70px);
+  align-items: center;
+}
+
+.operator-config-page-level-slot {
+  width: 100%;
+  aspect-ratio: 9 / 3;
+  border: 1px solid #666666;
+  background: #FFFFFF;
+  padding: 0;
+  margin: 0;
+  appearance: none;
+  -webkit-appearance: none;
+  cursor: pointer;
+  
+}
+
+.operator-config-page-level-slot.is-active {
+  background: #FFF59D;
+}
+
+.operator-config-page-level-badge-box {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 62px;
+  aspect-ratio: 1 / 1;
+  border: 1px solid #D1D1D1;
+  background: #828282;
+  overflow: hidden;
+  padding: 0;
+  box-sizing: border-box;
+  appearance: none;
+  -webkit-appearance: none;
+  margin: 0;
+  cursor: pointer;
+}
+
+.operator-config-page-level-badge-box:hover,
+.operator-config-page-level-badge-box:active,
+.operator-config-page-level-badge-box:focus,
+.operator-config-page-level-badge-box:focus-visible {
+  background: #D9D9D9 !important;
+  outline: none !important;
+}
+
+.operator-config-page-level-badge-svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  color: #666666;
+  transform: none;
+}
+
+.operator-config-page-level-badge-svg polygon {
+  transition: fill 0.15s ease, filter 0.15s ease;
+}
+
+.operator-config-page-level-badge-box.is-max .operator-config-page-level-badge-svg polygon {
+  filter: drop-shadow(0 0 3px rgba(255, 240, 0, 0.95)) drop-shadow(0 0 7px rgba(255, 245, 157, 0.85));
+}
+
+.operator-config-page-role-meta {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  width: 100%;
+}
+
+.operator-config-page-role-meta-box {
+  position: absolute;
+  width: 120px;
+  min-height: 52px;
+  border: 1px solid #000000;
+  background: transparent;
+  padding: var(--spacing-xs);
+  box-sizing: border-box;
+  color: #000000;
+  pointer-events: auto;
+}
+
+.operator-config-page-role-level-box {
+  left: 0;
+  top: 20px;
+}
+
+.operator-config-page-role-potential-box {
+  left: 240px;
+  top: 20px;
+}
+
+.operator-config-page-track-list {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.operator-config-page-track-row {
+  display: flex;
+  flex-direction: column;
+  padding: 8px 0 0;
+}
+
+.operator-config-page-track-heading {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+  color: #000000;
+}
+
+.operator-config-page-track-key {
+  flex: 0 0 auto;
+  min-width: 14px;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+  color: #000000;
+}
+
+.operator-config-page-track-label {
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
+  color: #000000;
+  letter-spacing: 0.01em;
+}
+
+.operator-config-page-track-sublabel {
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
+  color: #666666;
+}
+
+.operator-config-page-track-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 64px;
+  align-items: center;
+  gap: 6px;
+}
+
+.operator-config-page-track-slots {
+  display: grid;
+  grid-template-columns: repeat(8, minmax(0, 1fr));
+  gap: 6px;
+  align-items: center;
+}
+
+.operator-config-page-track-slot {
+  width: 100%;
+  aspect-ratio: 9 / 3;
+  border: 1px solid #666666;
+
+  border-radius: 0;
+  background: #FFFFFF;
+  cursor: pointer;
+  padding: 0;
+}
+
+.operator-config-page-track-slot.is-active {
+  background: #FFF59D;
+}
+
+.operator-config-page-track-badge-group {
+  width: 64px;
+  height: 52px;
+  background: transparent;
+  display: grid;
+  grid-template-columns: 28px 28px;
+  grid-template-rows: 24px 24px;
+  grid-template-areas:
+    "left top"
+    "left bottom";
+  align-items: center;
+  justify-content: end;
+  column-gap: 0;
+  row-gap: 0;
+  justify-self: end;
+  position: relative;
+}
+
+.operator-config-page-track-badge-btn {
+  width: 28px;
+  height: 24px;
+  border: none;
+  padding: 0;
+  margin: 0;
+  background: transparent;
+  appearance: none;
+  -webkit-appearance: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: transform 0.15s ease;
+  box-shadow: none;
+  color: inherit;
+}
+
+.operator-config-page-track-badge-btn--left {
+  grid-area: left;
+  align-self: center;
+  transform: translateX(2px);
+  z-index: 2;
+}
+
+.operator-config-page-track-badge-btn--top {
+  grid-area: top;
+  transform: translate(-4px, 0px);
+  z-index: 1;
+}
+
+.operator-config-page-track-badge-btn--bottom {
+  grid-area: bottom;
+  transform: translate(-4px, 0px);
+  z-index: 1;
+}
+
+.operator-config-page-track-badge-btn:hover,
+.operator-config-page-track-badge-btn:active,
+.operator-config-page-track-badge-btn:focus,
+.operator-config-page-track-badge-btn:focus-visible {
+  background: transparent !important;
+  border-color: transparent !important;
+  box-shadow: none !important;
+  outline: none !important;
+  color: inherit !important;
+}
+
+.operator-config-page-track-badge-btn:hover .operator-config-page-track-hex-svg polygon,
+.operator-config-page-track-badge-btn:active .operator-config-page-track-hex-svg polygon {
+  opacity: 0.88;
+}
+
+.operator-config-page-track-badge-btn:focus-visible .operator-config-page-track-hex-svg polygon {
+  stroke: #000000;
+  stroke-width: 1.25;
+}
+
+.operator-config-page-track-hex-svg {
+  width: 28px;
+  height: 24px;
+  display: block;
+  background: transparent;
+  overflow: visible;
+}
+
+.operator-config-page-track-hex-svg polygon {
+  transition: opacity 0.15s ease, stroke 0.15s ease;
+}
+
+.operator-config-page-equip-row--6 {
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+}
+
+.operator-config-page-equip-row--4 {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.operator-config-page-equip-row--3 {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.operator-config-page-avatar-fallback {
+  width: 100%;
+  height: 100%;
+  border: 2px solid #000000;
+  border-radius: 50%;
+  background: #d9d9d9;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  font-weight: 700;
+  color: #000000;
+}
+
+.operator-config-page-panel .config-equip-copy-drawer-host {
+  gap: 6px;
+}
+
+.operator-config-page-panel .config-equip-copy-drawer {
+  width: 320px;
+}
+
+.operator-config-page-panel .config-equip-copy-textarea {
+  width: 320px;
+  height: 96px;
+}
+
+.operator-config-page-equip-values-box {
+  display: block;
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  padding: 0;
+  gap: 0;
+  overflow: hidden;
+  background: transparent;
+  background-color: transparent;
+  background-image: url('/assets/images/operator-config-equip-stage-bg.png');
+  background-repeat: no-repeat;
+  background-position: top center;
+  background-size: contain;
+  aspect-ratio: 914 / 984;
+}
+
+.operator-config-page-equip-box-title {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  z-index: 1;
+  pointer-events: none;
+}
+
+.operator-config-page-picker-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.42);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  z-index: 80;
+}
+
+.operator-config-page-picker-modal {
+  width: min(960px, 100%);
+  max-height: min(78vh, 860px);
+  background: #f3f4f6;
+  border: 1px solid #111827;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.operator-config-page-picker-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 16px;
+  border-bottom: 1px solid #111827;
+  background: #e5e7eb;
+}
+
+.operator-config-page-picker-title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+  color: #111827;
+}
+
+.operator-config-page-picker-close {
+  border: 1px solid #111827;
+  background: #ffffff;
+  color: #111827;
+  padding: 6px 12px;
+  cursor: pointer;
+}
+
+.operator-config-page-picker-body {
+  overflow: auto;
+  padding: 16px;
+}
+
+.operator-config-page-picker-message {
+  margin: 0;
+  font-size: 14px;
+  color: #374151;
+}
+
+.operator-config-page-picker-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 12px;
+}
+
+.operator-config-page-picker-option {
+  border: 1px solid #111827;
+  background: #ffffff;
+  padding: 8px;
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  text-align: left;
+  cursor: pointer;
+}
+
+.operator-config-page-picker-option-image {
+  width: 64px;
+  height: 64px;
+  flex: 0 0 auto;
+  border: 1px solid #9ca3af;
+  background: #e5e7eb;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.operator-config-page-picker-option-img {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: cover;
+}
+
+.config-weapon-choose-img-fallback {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 10px;
+  text-align: center;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.3;
+  color: #1f2937;
+}
+
+.operator-config-page-picker-option-fallback {
+  font-size: 12px;
+  font-weight: 700;
+  color: #111827;
+}
+
+.operator-config-page-picker-option-meta {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  gap: 4px;
+}
+
+.operator-config-page-picker-option-name {
+  font-size: 13px;
+  font-weight: 700;
+  color: #111827;
+}
+
+.operator-config-page-picker-option-id {
+  font-size: 11px;
+  color: #4b5563;
+  word-break: break-all;
+}
+
+@media (max-width: 1440px) {
+  .operator-config-page-root {
+    padding: 16px;
+  }
+
+  .operator-config-page-panel {
+    min-height: calc(100vh - 32px);
+    height: calc(100vh - 32px);
+  }
+}

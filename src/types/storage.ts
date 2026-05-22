@@ -6,6 +6,68 @@ export type SkillPanelKey = 'A' | 'B' | 'E' | 'Q';
 export type SkillLevelMode = 'L9' | 'M3';
 export type WeaponPotentialMode = 'P0' | 'PMAX';
 
+export interface OperatorConfigPageEntryConfig {
+  level: number | string;
+}
+
+export interface OperatorConfigPageEntryState {
+  id: string;
+  config: OperatorConfigPageEntryConfig;
+  data: Record<string, unknown>;
+}
+
+export interface OperatorConfigPageEquipmentPieceState {
+  id: string;
+  entryCount: number;
+  entries: OperatorConfigPageEntryState[];
+  config: Record<string, never>;
+  data: Record<string, unknown>;
+}
+
+export interface OperatorConfigPageCharacterState {
+  id: string;
+  config: {
+    level: number | string;
+    potential: string;
+  };
+  data: Record<string, unknown>;
+}
+
+export interface OperatorConfigPageWeaponState {
+  id: string;
+  config: {
+    level: number | string;
+    potential: string;
+    skillLevels: {
+      skill1: number;
+      skill2: number;
+      skill3: number;
+    };
+  };
+  data: Record<string, unknown>;
+}
+
+export interface OperatorConfigPageSkillsState {
+  id: string;
+  config: Record<SkillPanelKey, string>;
+  data: Record<string, unknown>;
+}
+
+export interface OperatorConfigPageCharacterConfig {
+  character: OperatorConfigPageCharacterState;
+  weapon: OperatorConfigPageWeaponState;
+  equipment: {
+    accessory1: OperatorConfigPageEquipmentPieceState;
+    accessory2: OperatorConfigPageEquipmentPieceState;
+    armor: OperatorConfigPageEquipmentPieceState;
+    glove: OperatorConfigPageEquipmentPieceState;
+  };
+  skills: OperatorConfigPageSkillsState;
+  panel: Record<string, unknown>;
+}
+
+export type OperatorConfigPageCache = Record<string, OperatorConfigPageCharacterConfig>;
+
 // ==================== v3 新类型定义 ====================
 
 /**

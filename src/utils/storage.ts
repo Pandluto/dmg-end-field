@@ -3,6 +3,7 @@ import {
   CharacterInputConfig,
   CharacterComputedCache,
   CharacterDisplayCache,
+  OperatorConfigPageCache,
   SkillButtonBuff,
 } from '../types/storage';
 import type {
@@ -52,6 +53,20 @@ export const safeSessionStorage = {
     }
   },
 };
+
+export function getOperatorConfigPageCache(): OperatorConfigPageCache {
+  const raw = safeSessionStorage.getItem(STORAGE_KEYS.OPERATOR_CONFIG_PAGE_CACHE);
+  if (!raw) return {};
+  try {
+    return JSON.parse(raw) as OperatorConfigPageCache;
+  } catch {
+    return {};
+  }
+}
+
+export function setOperatorConfigPageCache(cache: OperatorConfigPageCache): void {
+  safeSessionStorage.setItem(STORAGE_KEYS.OPERATOR_CONFIG_PAGE_CACHE, JSON.stringify(cache));
+}
 
 // ==================== Equipment 处理函数 ====================
 

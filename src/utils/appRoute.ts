@@ -5,6 +5,7 @@ export const APP_ROUTE_PATHS = {
   buffSheet: '/buff-sheet',
   weaponSheet: '/weapon-sheet',
   equipmentSheet: '/sheet-equipment',
+  operatorConfig: '/operator-config',
   damageSheet: '/damage-sheet',
   imageManager: '/image-manager',
 } as const;
