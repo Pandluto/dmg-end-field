@@ -1,5 +1,6 @@
 node_modules
 dist
 release
+release-latest/
 .DS_Store
 *.log
