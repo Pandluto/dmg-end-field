@@ -4,3 +4,14 @@ release
 release-latest/
 .DS_Store
 *.log
+.vscode/
+.claude/
+.trae/
+.codex-temp-*
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
