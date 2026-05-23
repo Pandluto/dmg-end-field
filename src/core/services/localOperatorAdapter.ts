@@ -65,10 +65,10 @@ export function loadLocalOperatorTemplateById(
 // 旧版兼容：转换为 Character（过渡函数）
 // ============================================================================
 
-function toSkillMultiplier(hitMeta: Record<string, { multiplier: number }>): SkillMultiplier {
+function toSkillMultiplier(hitMeta: Record<string, { multiplier: number; levels?: Record<string, number> }>, levelKey = 'M3'): SkillMultiplier {
   const multipliers: SkillMultiplier = {};
   Object.entries(hitMeta).forEach(([hitKey, hit]) => {
-    multipliers[hitKey] = hit.multiplier;
+    multipliers[hitKey] = hit.levels?.[levelKey] ?? hit.multiplier;
   });
   return multipliers;
 }
@@ -82,6 +82,67 @@ function createFallbackSkill(skillType: SkillType) {
       M3: {
         hit1: 0,
       },
+    },
+  };
+}
+
+function buildCharacterAttributes(template: RuntimeOperatorTemplate): Character['attributes'] {
+  if (!template.attributeLevels) {
+    return {
+      level1: { ...template.attributes },
+      level90: { ...template.attributes },
+    };
+  }
+
+  const levels = template.attributeLevels;
+  return {
+    level1: {
+      strength: levels.strength.level1,
+      agility: levels.agility.level1,
+      intelligence: levels.intelligence.level1,
+      will: levels.will.level1,
+      atk: levels.atk.level1,
+      hp: levels.hp.level1,
+    },
+    level20: {
+      strength: levels.strength.level20,
+      agility: levels.agility.level20,
+      intelligence: levels.intelligence.level20,
+      will: levels.will.level20,
+      atk: levels.atk.level20,
+      hp: levels.hp.level20,
+    },
+    level40: {
+      strength: levels.strength.level40,
+      agility: levels.agility.level40,
+      intelligence: levels.intelligence.level40,
+      will: levels.will.level40,
+      atk: levels.atk.level40,
+      hp: levels.hp.level40,
+    },
+    level60: {
+      strength: levels.strength.level60,
+      agility: levels.agility.level60,
+      intelligence: levels.intelligence.level60,
+      will: levels.will.level60,
+      atk: levels.atk.level60,
+      hp: levels.hp.level60,
+    },
+    level80: {
+      strength: levels.strength.level80,
+      agility: levels.agility.level80,
+      intelligence: levels.intelligence.level80,
+      will: levels.will.level80,
+      atk: levels.atk.level80,
+      hp: levels.hp.level80,
+    },
+    level90: {
+      strength: levels.strength.level90,
+      agility: levels.agility.level90,
+      intelligence: levels.intelligence.level90,
+      will: levels.will.level90,
+      atk: levels.atk.level90,
+      hp: levels.hp.level90,
     },
   };
 }
@@ -111,6 +172,7 @@ export function adaptRuntimeTemplateToLegacyCharacter(
       key: hit.key,
       displayName: hit.displayName,
       multiplier: hit.multiplier,
+      levels: hit.levels,
       element: hit.element,
       skillType: hit.skillType,
     })),
@@ -125,10 +187,7 @@ export function adaptRuntimeTemplateToLegacyCharacter(
     element: template.element,
     mainStat: (template.mainStat || '力量') as Character['mainStat'],
     subStat: (template.subStat || '敏捷') as Character['subStat'],
-    attributes: {
-      level1: { ...template.attributes },
-      level90: { ...template.attributes },
-    },
+    attributes: buildCharacterAttributes(template),
     skills: {
       normalAttack: normalAttack
         ? {
@@ -215,4 +274,3 @@ export function adaptImportedDraftToCharacter(draft: OperatorDraft): Character {
   const template = buildRuntimeOperatorTemplateFromDraft(draft);
   return adaptRuntimeTemplateToLegacyCharacter(template);
 }
-

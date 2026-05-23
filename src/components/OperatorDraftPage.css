@@ -1,7 +1,7 @@
 .operator-draft-page {
   height: 100vh;
   overflow: hidden;
-  padding: 12px;
+  padding: 6px;
   box-sizing: border-box;
   background: #eef1f6;
   color: #1f2634;
@@ -10,9 +10,9 @@
 .operator-draft-shell {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  height: calc(100vh - 24px);
-  min-height: calc(100vh - 24px);
+  gap: 6px;
+  height: calc(100vh - 12px);
+  min-height: calc(100vh - 12px);
 }
 
 .operator-draft-command-panel,
@@ -31,34 +31,44 @@
 .operator-draft-command-panel {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  padding: 10px;
+  gap: 6px;
+  padding: 6px;
   box-sizing: border-box;
 }
 
 .operator-draft-panel-header h1,
 .operator-draft-section-header h3 {
   margin: 0;
+  font-size: 14px;
+  line-height: 1.2;
 }
 
 .operator-draft-eyebrow {
-  margin: 0 0 4px;
+  display: none;
+}
+
+.operator-draft-panel-header {
+  display: none;
+}
+
+/*
+  The studio is an editing surface; keep explanatory chrome out of the vertical budget.
+*/
+.operator-draft-subtitle {
+  display: none;
+}
+
+.operator-draft-eyebrow {
+  margin: 0;
   text-transform: uppercase;
   letter-spacing: 0.14em;
   font-size: 11px;
   color: #8e7130;
 }
 
-.operator-draft-subtitle {
-  margin: 4px 0 0;
-  font-size: 12px;
-  line-height: 1.35;
-  color: #5b667a;
-}
-
 .operator-draft-command-box {
   display: grid;
-  gap: 8px;
+  gap: 6px;
 }
 
 .operator-draft-command-input {
@@ -76,12 +86,12 @@
 .operator-draft-command-chips {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: 4px;
 }
 
 .operator-draft-reference-box {
   display: grid;
-  gap: 6px;
+  gap: 4px;
 }
 
 .operator-draft-reference-box label {
@@ -99,7 +109,7 @@
 .operator-draft-reference-box textarea {
   width: 100%;
   min-width: 0;
-  padding: 7px 8px;
+  padding: 4px 6px;
   border: 1px solid #cfd6e2;
   background: #ffffff;
   color: #1f2634;
@@ -121,8 +131,8 @@
   background: #ffffff;
   color: #24456c;
   font: inherit;
-  font-size: 12px;
-  padding: 6px 10px;
+  font-size: 11px;
+  padding: 4px 7px;
   cursor: pointer;
 }
 
@@ -135,7 +145,7 @@
 
 .operator-draft-context,
 .operator-draft-history-side {
-  padding: 10px;
+  padding: 6px;
 }
 
 .operator-draft-context strong {
@@ -159,8 +169,8 @@
 .operator-draft-workbench {
   flex: 1;
   display: grid;
-  grid-template-columns: 240px 500px minmax(0, 1fr) 290px;
-  gap: 10px;
+  grid-template-columns: 210px minmax(500px, 0.95fr) minmax(0, 1fr) 360px;
+  gap: 6px;
   min-height: 0;
   height: 100%;
   align-items: stretch;
@@ -170,7 +180,7 @@
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 6px;
   min-height: 0;
 }
 
@@ -187,6 +197,7 @@
   flex: 1;
   min-height: 0;
   overflow: auto;
+  display: none;
 }
 
 .operator-draft-markdown-body {
@@ -234,8 +245,8 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
-  padding: 10px 12px;
+  gap: 6px;
+  padding: 6px 8px;
   border-bottom: 1px solid #e1e6ef;
 }
 
@@ -247,17 +258,19 @@
 .operator-draft-section-actions {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
   flex-wrap: wrap;
   justify-content: flex-end;
 }
 
 .operator-draft-basic-grid {
   display: grid;
-  grid-template-columns: 64px repeat(3, minmax(120px, 1fr));
-  gap: 10px;
-  padding: 12px;
+  grid-template-columns: 44px repeat(4, minmax(86px, 1fr));
+  gap: 6px;
+  padding: 6px;
   align-items: start;
+  max-height: calc(100vh - 90px);
+  overflow: auto;
 }
 
 .operator-draft-avatar-wrap-dense {
@@ -265,8 +278,8 @@
 }
 
 .operator-draft-avatar {
-  width: 56px;
-  height: 56px;
+  width: 40px;
+  height: 40px;
   object-fit: cover;
   border: 1px solid #cfd6e2;
   background: #edf3fb;
@@ -284,7 +297,7 @@
 .operator-draft-skill-form label,
 .operator-draft-hit-detail-card label {
   display: grid;
-  gap: 4px;
+  gap: 2px;
   min-width: 0;
   font-size: 11px;
   color: #59657a;
@@ -308,7 +321,7 @@
 .operator-draft-hit-detail-card select {
   min-width: 0;
   width: 100%;
-  padding: 7px 8px;
+  padding: 4px 6px;
   border: 1px solid #d2d8e3;
   background: #ffffff;
   color: #1f2634;
@@ -327,8 +340,8 @@
   width: 100%;
   display: grid;
   grid-template-columns: 34px 1fr;
-  gap: 8px;
-  padding: 8px 10px;
+  gap: 6px;
+  padding: 6px 8px;
   border: 0;
   border-bottom: 1px solid #edf1f6;
   background: transparent;
@@ -400,15 +413,15 @@
 .operator-draft-skill-hero {
   display: grid;
   grid-template-columns: 32px minmax(0, 1fr);
-  gap: 8px;
-  padding: 10px;
+  gap: 6px;
+  padding: 6px;
   border-bottom: 1px solid #e1e6ef;
 }
 
 .operator-draft-skill-form {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 104px;
-  gap: 8px;
+  gap: 6px;
 }
 
 .operator-draft-skill-form .is-wide,
@@ -431,8 +444,8 @@
   overflow: auto;
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
-  padding: 10px;
+  gap: 6px;
+  padding: 6px;
   align-content: start;
 }
 
@@ -440,7 +453,7 @@
   display: flex;
   flex-direction: column;
   gap: 2px;
-  padding: 8px;
+  padding: 6px;
   border: 1px solid #dfe5ef;
   background: #ffffff;
   color: inherit;
@@ -479,13 +492,69 @@
 
 .operator-draft-hit-detail {
   min-height: 0;
-  flex: 0 0 320px;
+  flex: 0 0 auto;
+  overflow: hidden;
 }
 
 .operator-draft-hit-detail-card {
   display: grid;
-  gap: 8px;
-  padding: 10px;
+  gap: 6px;
+  padding: 6px;
+  overflow: auto;
+}
+
+.operator-draft-hit-levels {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+  min-width: 0;
+}
+
+.operator-draft-attribute-matrix {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: 58px repeat(6, minmax(54px, 1fr));
+  gap: 4px;
+  align-items: center;
+  min-width: 0;
+}
+
+.operator-draft-attribute-cell {
+  min-width: 0;
+  min-height: 24px;
+  display: flex;
+  align-items: center;
+  padding: 0 4px;
+  border: 1px solid #d2d8e3;
+  background: #f6f8fb;
+  color: #59657a;
+  font-size: 11px;
+  font-weight: 700;
+  box-sizing: border-box;
+}
+
+.operator-draft-attribute-cell-head {
+  justify-content: center;
+}
+
+.operator-draft-attribute-name {
+  justify-content: flex-start;
+}
+
+.operator-draft-attribute-input {
+  position: relative;
+}
+
+.operator-draft-attribute-input span {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+}
+
+.operator-draft-attribute-input input {
+  text-align: right;
 }
 
 .operator-draft-empty {

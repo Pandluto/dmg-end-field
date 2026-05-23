@@ -2,6 +2,8 @@ import React from 'react';
 import './CanvasBoard/CanvasBoard.css';
 import './OperatorConfigPage.css';
 import { useAppContext } from '../context/AppContext';
+import { STORAGE_KEYS } from '../constants/storage-keys';
+import { adaptRuntimeTemplateToLegacyCharacter, loadLocalOperatorCharacters } from '../core/services/localOperatorAdapter';
 import type { Character, SkillType } from '../types';
 import type {
   OperatorConfigPageCache,
@@ -9,7 +11,7 @@ import type {
   OperatorConfigPageEquipmentPieceState,
   OperatorConfigPageEntryState,
 } from '../types/storage';
-import { getOperatorConfigPageCache, setOperatorConfigPageCache } from '../utils/storage';
+import { getOperatorConfigPageCache, getRuntimeOperatorTemplateMap, safeSessionStorage, setOperatorConfigPageCache } from '../utils/storage';
 
 type AttributeItem = {
   label: string;
@@ -84,6 +86,20 @@ interface WeaponData {
 type OperatorSkillKey = 'A' | 'B' | 'E' | 'Q';
 type CharacterAttributeKey = keyof Character['attributes'];
 type RawWeaponLibrary = Record<string, Partial<WeaponData> & { id?: string; imgUrl?: string }>;
+type SkillHitDetail = {
+  key: string;
+  displayName: string;
+  value: number | string;
+  element: string;
+  skillType: OperatorSkillKey;
+};
+type SkillDetailGroup = {
+  id: string;
+  displayName: string;
+  buttonType: OperatorSkillKey;
+  iconUrl?: string;
+  hits: SkillHitDetail[];
+};
 
 const SKILL_ITEMS = [
   { key: 'A', name: '普攻占位' },
@@ -150,8 +166,8 @@ const EQUIPMENT_FORM_ROWS = [
   },
 ] as const;
 
-const CHARACTER_LEVEL_VALUES = [1, 20, 30, 40, 50, 60, 70, 80, 90] as const;
-const CHARACTER_LEVEL_LABELS = ['1级', '20级', '30级', '40级', '50级', '60级', '70级', '80级', '90级'] as const;
+const CHARACTER_LEVEL_VALUES = [1, 20, 40, 60, 80, 90] as const;
+const CHARACTER_LEVEL_LABELS = ['1级', '20级', '40级', '60级', '80级', '90级'] as const;
 const DEFAULT_WEAPON_SKILL_LEVELS = {
   skill1: 9,
   skill2: 9,
@@ -216,6 +232,26 @@ function readLocalStorageJson<T>(key: string, fallback: T): T {
     return raw ? (JSON.parse(raw) as T) : fallback;
   } catch {
     return fallback;
+  }
+}
+
+function readSelectedCharacterIdsFromSession(): string[] {
+  const raw = safeSessionStorage.getItem(STORAGE_KEYS.SELECTED_CHARACTERS);
+  if (!raw) {
+    return [];
+  }
+
+  try {
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) {
+      return [];
+    }
+
+    return parsed
+      .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+      .slice(0, 4);
+  } catch {
+    return [];
   }
 }
 
@@ -584,11 +620,85 @@ function stageToSkillMode(stage: number): string {
   return `M${stage - SLOT_COUNT}`;
 }
 
+function resolveHitValue(hit: { multiplier?: number; levels?: Record<string, number> }, levelKey: string): number | string {
+  const leveledValue = hit.levels?.[levelKey];
+  if (typeof leveledValue === 'number') {
+    return leveledValue;
+  }
+  if (typeof hit.multiplier === 'number') {
+    return hit.multiplier;
+  }
+  return '-';
+}
+
+function buildFallbackSkillDetails(
+  skillKey: OperatorSkillKey,
+  skill: Character['skills'][keyof Character['skills']] | undefined,
+  levelKey: string
+): SkillDetailGroup[] {
+  if (!skill) {
+    return [];
+  }
+
+  const multiplier = skill.multipliers[levelKey] ?? skill.multipliers.M3 ?? {};
+  const hits = Object.entries(multiplier)
+    .filter(([, value]) => typeof value === 'number')
+    .map(([hitKey, value]) => ({
+      key: hitKey,
+      displayName: hitKey,
+      value: value ?? '-',
+      element: 'unknown',
+      skillType: skillKey,
+    }));
+
+  return [{
+    id: skillKey,
+    displayName: skill.name || skillKey,
+    buttonType: skillKey,
+    hits,
+  }];
+}
+
+function buildSkillDetailGroups(character: Partial<Character>, skillKey: OperatorSkillKey, levelKey: string): SkillDetailGroup[] {
+  const sandboxSkills = character.sandboxSkills ?? [];
+  const sandboxGroups = sandboxSkills
+    .filter((skill) => skill.buttonType === skillKey)
+    .map((skill) => ({
+      id: skill.id,
+      displayName: skill.displayName || skill.id,
+      buttonType: skill.buttonType,
+      iconUrl: skill.iconUrl,
+      hits: (skill.customHits ?? []).map((hit) => {
+        const hitWithLevels = hit as typeof hit & { levels?: Record<string, number> };
+        return {
+          key: hit.key,
+          displayName: hit.displayName || hit.key,
+          value: resolveHitValue(hitWithLevels, levelKey),
+          element: hit.element,
+          skillType: hit.skillType,
+        };
+      }),
+    }));
+
+  if (sandboxGroups.length > 0) {
+    return sandboxGroups;
+  }
+
+  const fallbackByKey: Record<OperatorSkillKey, Character['skills'][keyof Character['skills']] | undefined> = {
+    A: character.skills?.normalAttack,
+    B: character.skills?.skill,
+    E: character.skills?.chainSkill,
+    Q: character.skills?.ultimate,
+  };
+  return buildFallbackSkillDetails(skillKey, fallbackByKey[skillKey], levelKey);
+}
+
 type SkillTrackRowProps = {
   skillKey: string;
   label: string;
   stage: number;
   onChange: (nextStage: number) => void;
+  onOpenDetails: () => void;
 };
 
 function formatSkillStage(stage: number) {
@@ -673,7 +783,7 @@ function WeaponStarGlyph({
   );
 }
 
-function SkillTrackRow({ skillKey, label, stage, onChange }: SkillTrackRowProps) {
+function SkillTrackRow({ skillKey, label, stage, onChange, onOpenDetails }: SkillTrackRowProps) {
   const currentStage = stage;
   const currentLevelLabel = formatSkillStage(currentStage);
 
@@ -681,8 +791,21 @@ function SkillTrackRow({ skillKey, label, stage, onChange }: SkillTrackRowProps)
     <div className="operator-config-page-track-row">
       <div className="operator-config-page-track-heading">
         <span className="operator-config-page-track-key">{skillKey}</span>
-        <span className="operator-config-page-track-label">{label}</span>
+        <button
+          type="button"
+          className="operator-config-page-track-label-button"
+          onClick={onOpenDetails}
+        >
+          <span className="operator-config-page-track-label">{label}</span>
+        </button>
         <span className="operator-config-page-track-sublabel">{currentLevelLabel}</span>
+        <button
+          type="button"
+          className="operator-config-page-track-detail-button"
+          onClick={onOpenDetails}
+        >
+          详情
+        </button>
       </div>
       <div className="operator-config-page-track-body">
         <div className="operator-config-page-track-slots">
@@ -739,12 +862,121 @@ function SkillTrackRow({ skillKey, label, stage, onChange }: SkillTrackRowProps)
   );
 }
 
+function SkillDetailModal({
+  skillKey,
+  levelKey,
+  groups,
+  onClose,
+}: {
+  skillKey: OperatorSkillKey;
+  levelKey: string;
+  groups: SkillDetailGroup[];
+  onClose: () => void;
+}) {
+  return (
+    <div className="operator-config-page-skill-modal-backdrop" onClick={onClose}>
+      <div
+        className="operator-config-page-skill-modal"
+        onClick={(event) => {
+          event.stopPropagation();
+        }}
+      >
+        <div className="operator-config-page-skill-modal-header">
+          <div>
+            <h3 className="operator-config-page-skill-modal-title">{`${skillKey} 技能详情`}</h3>
+            <span className="operator-config-page-skill-modal-subtitle">{`当前等级 ${levelKey}`}</span>
+          </div>
+          <button type="button" className="operator-config-page-picker-close" onClick={onClose}>
+            关闭
+          </button>
+        </div>
+        <div className="operator-config-page-skill-modal-body">
+          {groups.length === 0 ? (
+            <p className="operator-config-page-picker-message">当前角色没有该类型技能数据。</p>
+          ) : (
+            groups.map((group) => (
+              <section key={group.id} className="operator-config-page-skill-card-group">
+                <div className="operator-config-page-skill-card-header">
+                  {group.iconUrl ? (
+                    <img className="operator-config-page-skill-card-icon" src={group.iconUrl} alt={group.displayName} />
+                  ) : (
+                    <span className="operator-config-page-skill-card-icon-fallback">{group.buttonType}</span>
+                  )}
+                  <div className="operator-config-page-skill-card-meta">
+                    <strong>{group.displayName}</strong>
+                    <span>{`${group.buttonType} / ${group.hits.length} hit`}</span>
+                  </div>
+                </div>
+                <div className="operator-config-page-skill-hit-grid">
+                  {group.hits.length === 0 ? (
+                    <p className="operator-config-page-skill-empty-hit">无 hit 数据</p>
+                  ) : (
+                    group.hits.map((hit) => (
+                      <div key={`${group.id}-${hit.key}`} className="operator-config-page-skill-hit-card">
+                        <span className="operator-config-page-skill-hit-key">{hit.key}</span>
+                        <strong>{hit.displayName}</strong>
+                        <span>{`${hit.value} | ${hit.element} | ${hit.skillType}`}</span>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </section>
+            ))
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function OperatorConfigPage() {
   const { state } = useAppContext();
-  const visibleCharacters = React.useMemo(
-    () => (state.selectedCharacters.length > 0 ? state.selectedCharacters : state.loadedCharacters).slice(0, 4),
+  const selectedCharacterIds = React.useMemo(
+    () => readSelectedCharacterIdsFromSession(),
     [state.loadedCharacters, state.selectedCharacters]
   );
+  const localCharacters = React.useMemo(
+    () => loadLocalOperatorCharacters(),
+    [state.loadedCharacters, state.selectedCharacters]
+  );
+  const runtimeCharacters = React.useMemo(
+    () => Object.values(getRuntimeOperatorTemplateMap()).map(adaptRuntimeTemplateToLegacyCharacter),
+    [state.loadedCharacters, state.selectedCharacters]
+  );
+  const visibleCharacters = React.useMemo(() => {
+    const localCharacterMap = new Map(localCharacters.map((character) => [character.id, character] as const));
+    const runtimeCharacterMap = new Map(runtimeCharacters.map((character) => [character.id, character] as const));
+    const officialCharacterMap = new Map(state.loadedCharacters.map((character) => [character.id, character] as const));
+
+    return selectedCharacterIds
+      .map((characterId) => (
+        localCharacterMap.get(characterId)
+        ?? runtimeCharacterMap.get(characterId)
+        ?? officialCharacterMap.get(characterId)
+        ?? null
+      ))
+      .filter((character): character is Character => Boolean(character));
+  }, [localCharacters, runtimeCharacters, selectedCharacterIds, state.loadedCharacters]);
+  React.useEffect(() => {
+    const localCharacterMap = new Map(localCharacters.map((character) => [character.id, character] as const));
+    const runtimeCharacterMap = new Map(runtimeCharacters.map((character) => [character.id, character] as const));
+    const officialCharacterMap = new Map(state.loadedCharacters.map((character) => [character.id, character] as const));
+
+    console.log('[OperatorConfigPage] selected character resolution', selectedCharacterIds.map((characterId) => ({
+      id: characterId,
+      source: localCharacterMap.has(characterId)
+        ? 'local'
+        : runtimeCharacterMap.has(characterId)
+          ? 'runtime'
+          : officialCharacterMap.has(characterId)
+            ? 'official'
+            : 'missing',
+      resolvedName: localCharacterMap.get(characterId)?.name
+        ?? runtimeCharacterMap.get(characterId)?.name
+        ?? officialCharacterMap.get(characterId)?.name
+        ?? null,
+    })));
+  }, [localCharacters, runtimeCharacters, selectedCharacterIds, state.loadedCharacters]);
   const [configMap, setConfigMap] = React.useState<OperatorConfigPageCache>(() => getOperatorConfigPageCache());
   const [activeCharacterId, setActiveCharacterId] = React.useState<string | null>(() => visibleCharacters[0]?.id ?? null);
   const [equipmentLibrary, setEquipmentLibrary] = React.useState<EquipmentLibrary | null>(null);
@@ -756,10 +988,11 @@ export function OperatorConfigPage() {
   const [ctiInputValue, setCtiInputValue] = React.useState('');
   const [isCtiDrawerOpen, setIsCtiDrawerOpen] = React.useState(false);
   const [equipmentTooltip, setEquipmentTooltip] = React.useState<{ text: string; x: number; y: number } | null>(null);
+  const [activeSkillDetailKey, setActiveSkillDetailKey] = React.useState<OperatorSkillKey | null>(null);
   const ctiSelectorRef = React.useRef<HTMLDivElement | null>(null);
   const weaponConfigIndices = React.useMemo(() => Array.from({ length: 9 }, (_, index) => index + 1), []);
   const equipConfigIndices = React.useMemo(() => Array.from({ length: 3 }, (_, index) => index + 1), []);
-  const levelIndices = React.useMemo(() => Array.from({ length: 8 }, (_, index) => index + 1), []);
+  const levelIndices = React.useMemo(() => Array.from({ length: CHARACTER_LEVEL_VALUES.length - 1 }, (_, index) => index + 1), []);
 
   const persistConfigMap = React.useCallback((nextConfigMap: OperatorConfigPageCache) => {
     setOperatorConfigPageCache(nextConfigMap);
@@ -778,13 +1011,19 @@ export function OperatorConfigPage() {
 
       setConfigMap((prev) => {
         const existing = prev[characterId];
+        const nextCharacterData = createCharacterData(character);
         const nextCharacterConfig = existing
           ? {
             ...existing,
             character: {
               ...existing.character,
               id: character.id,
-              data: createCharacterData(character),
+              data: nextCharacterData,
+            },
+            skills: {
+              ...existing.skills,
+              id: character.id,
+              data: nextCharacterData.skills as Record<string, unknown>,
             },
           }
           : createDefaultCharacterConfig(character);
@@ -849,6 +1088,12 @@ export function OperatorConfigPage() {
   const attributeKey = levelValueToAttributeKey(currentConfig?.character.config.level ?? 90);
   const currentAttributes = currentCharacterData.attributes?.[attributeKey] ?? currentCharacterData.attributes?.level90;
   const skillData = (currentConfig?.skills.data ?? EMPTY_RECORD) as Partial<Record<OperatorSkillKey, { name?: string; type?: string }>>;
+  const activeSkillDetailLevel = activeSkillDetailKey
+    ? currentConfig?.skills.config[activeSkillDetailKey] ?? DEFAULT_SKILL_MODE
+    : DEFAULT_SKILL_MODE;
+  const activeSkillDetailGroups = activeSkillDetailKey
+    ? buildSkillDetailGroups(activeCharacter ?? currentCharacterData, activeSkillDetailKey, activeSkillDetailLevel)
+    : [];
   const currentWeaponName = currentConfig?.weapon.id ?? '';
   const currentWeaponLevel = Number(currentConfig?.weapon.config.level ?? 90);
   const currentWeaponImageUrl = resolveStoredImageUrl(currentWeaponData.imgUrl) || resolveWeaponImageUrl(currentWeaponName);
@@ -1276,6 +1521,7 @@ export function OperatorConfigPage() {
                           skillKey={skill.key}
                           label={skillData[skill.key]?.name ?? skill.name}
                           stage={skillModeToStage(currentConfig?.skills.config[skill.key as SkillType] ?? DEFAULT_SKILL_MODE)}
+                          onOpenDetails={() => setActiveSkillDetailKey(skill.key)}
                           onChange={(nextStage) => {
                             updateCurrentConfig((prev) => ({
                               ...prev,
@@ -1605,7 +1851,6 @@ export function OperatorConfigPage() {
                         }}
                       />
                     ) : null}
-                    <span className="operator-config-page-avatar-fallback">{character.name.slice(-1)}</span>
                   </button>
                 ))}
               </div>
@@ -1696,6 +1941,14 @@ export function OperatorConfigPage() {
         >
           {equipmentTooltip.text}
         </div>
+      ) : null}
+      {activeSkillDetailKey ? (
+        <SkillDetailModal
+          skillKey={activeSkillDetailKey}
+          levelKey={activeSkillDetailLevel}
+          groups={activeSkillDetailGroups}
+          onClose={() => setActiveSkillDetailKey(null)}
+        />
       ) : null}
       {isWeaponPickerOpen ? (
         <div className="operator-config-page-picker-backdrop" onClick={() => setIsWeaponPickerOpen(false)}>

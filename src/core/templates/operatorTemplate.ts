@@ -13,6 +13,10 @@
 
 import type { ElementType, SkillType, AbilityType } from '../../types';
 
+export type OperatorAttributeLevelKey = 'level1' | 'level20' | 'level40' | 'level60' | 'level80' | 'level90';
+export type OperatorAttributeKey = 'strength' | 'agility' | 'intelligence' | 'will' | 'atk' | 'hp';
+export type OperatorDraftAttributeLevels = Record<OperatorAttributeKey, Record<OperatorAttributeLevelKey, number>>;
+
 /**
  * 运行时技能段（hit）模板
  */
@@ -23,6 +27,8 @@ export interface RuntimeOperatorTemplateHit {
   displayName: string;
   /** 伤害倍率 */
   multiplier: number;
+  /** 各技能等级对应倍率 */
+  levels?: Record<string, number>;
   /** 元素类型 */
   element: ElementType;
   /** 技能类型（A/B/E/Q） */
@@ -81,6 +87,8 @@ export interface RuntimeOperatorTemplate {
     atk: number;
     hp: number;
   };
+  /** 完整等级维度属性 */
+  attributeLevels?: OperatorDraftAttributeLevels;
   /** 来源：official = 官方角色, local = 本地角色 */
   source: 'official' | 'local';
   /** 技能列表（支持多技能） */
@@ -98,10 +106,12 @@ export type RuntimeOperatorTemplateMap = Record<string, RuntimeOperatorTemplate>
  * 用于 /draft 页面和本地角色库
  */
 export interface OperatorDraftHit {
-  multiplier: number;
+  /** 旧结构兼容字段，读取后会迁移到 levels */
+  multiplier?: number;
   displayName: string;
   element: ElementType;
   skillType: SkillType;
+  levels: Record<string, number>;
 }
 
 /**
@@ -130,14 +140,7 @@ export interface OperatorDraft {
   mainStat: string;
   subStat: string;
   level: number;
-  attributes: {
-    strength: number;
-    agility: number;
-    intelligence: number;
-    will: number;
-    atk: number;
-    hp: number;
-  };
+  attributes: OperatorDraftAttributeLevels;
   skills: Record<string, OperatorDraftSkill>;
 }
 

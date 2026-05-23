@@ -17,10 +17,17 @@ import type {
   OperatorDraft,
   OperatorDraftSkill,
   OperatorDraftHit,
+  OperatorDraftAttributeLevels,
+  OperatorAttributeLevelKey,
+  OperatorAttributeKey,
   RuntimeOperatorTemplate,
   RuntimeOperatorTemplateSkill,
   RuntimeOperatorTemplateHit,
 } from '../templates/operatorTemplate';
+
+const SKILL_LEVEL_KEYS = ['L1', 'L2', 'L3', 'L4', 'L5', 'L6', 'L7', 'L8', 'L9', 'M1', 'M2', 'M3'] as const;
+const ATTRIBUTE_LEVEL_KEYS = ['level1', 'level20', 'level40', 'level60', 'level80', 'level90'] as const satisfies readonly OperatorAttributeLevelKey[];
+const ATTRIBUTE_KEYS = ['strength', 'agility', 'intelligence', 'will', 'atk', 'hp'] as const satisfies readonly OperatorAttributeKey[];
 
 // ============================================================================
 // 工具函数
@@ -39,10 +46,10 @@ function getHitIndexFromKey(hitKey: string): number {
 function createDefaultHit(hitKey = 'hit1'): OperatorDraftHit {
   const hitIndex = getHitIndexFromKey(hitKey);
   return {
-    multiplier: 0,
     displayName: `第${hitIndex}击`,
     element: 'physical',
     skillType: 'A',
+    levels: Object.fromEntries(SKILL_LEVEL_KEYS.map((levelKey) => [levelKey, 0])),
   };
 }
 
@@ -71,18 +78,56 @@ function createDefaultDraft(): OperatorDraft {
     mainStat: '',
     subStat: '',
     level: 90,
-    attributes: {
-      strength: 0,
-      agility: 0,
-      intelligence: 0,
-      will: 0,
-      atk: 0,
-      hp: 0,
-    },
+    attributes: createDefaultAttributeLevels(),
     skills: {
       'skill-1': createDefaultSkill('A', 'skill-1'),
     },
   };
+}
+
+function createDefaultAttributeLevels(value = 0): OperatorDraftAttributeLevels {
+  return Object.fromEntries(
+    ATTRIBUTE_KEYS.map((attributeKey) => [
+      attributeKey,
+      Object.fromEntries(ATTRIBUTE_LEVEL_KEYS.map((levelKey) => [levelKey, value])),
+    ])
+  ) as OperatorDraftAttributeLevels;
+}
+
+function normalizeAttributeLevels(rawAttributes: unknown): OperatorDraftAttributeLevels {
+  const source = rawAttributes && typeof rawAttributes === 'object' ? rawAttributes as Record<string, unknown> : {};
+  return Object.fromEntries(
+    ATTRIBUTE_KEYS.map((attributeKey) => {
+      const rawValue = source[attributeKey];
+      const legacyValue = typeof rawValue === 'number' ? rawValue : 0;
+      const levelSource = rawValue && typeof rawValue === 'object' ? rawValue as Record<string, unknown> : {};
+      return [
+        attributeKey,
+        Object.fromEntries(
+          ATTRIBUTE_LEVEL_KEYS.map((levelKey) => [
+            levelKey,
+            typeof levelSource[levelKey] === 'number' ? levelSource[levelKey] : legacyValue,
+          ])
+        ),
+      ];
+    })
+  ) as OperatorDraftAttributeLevels;
+}
+
+function levelToAttributeLevelKey(level: number): OperatorAttributeLevelKey {
+  if (level >= 90) return 'level90';
+  if (level >= 80) return 'level80';
+  if (level >= 60) return 'level60';
+  if (level >= 40) return 'level40';
+  if (level >= 20) return 'level20';
+  return 'level1';
+}
+
+function resolveAttributeSnapshot(attributes: OperatorDraftAttributeLevels, level: number) {
+  const levelKey = levelToAttributeLevelKey(level);
+  return Object.fromEntries(
+    ATTRIBUTE_KEYS.map((attributeKey) => [attributeKey, attributes[attributeKey]?.[levelKey] ?? attributes[attributeKey]?.level90 ?? 0])
+  ) as RuntimeOperatorTemplate['attributes'];
 }
 
 // ============================================================================
@@ -94,6 +139,7 @@ function createDefaultDraft(): OperatorDraft {
  * 确保所有技能段都有显示名称，同步 hitCount
  */
 export function normalizeOperatorDraft(draft: OperatorDraft): OperatorDraft {
+  draft.attributes = normalizeAttributeLevels(draft.attributes);
   Object.entries(draft.skills).forEach(([skillKey, skill]) => {
     if (!skill.displayName?.trim()) {
       skill.displayName = createDefaultSkill(skill.buttonType, skillKey).displayName;
@@ -102,6 +148,11 @@ export function normalizeOperatorDraft(draft: OperatorDraft): OperatorDraft {
       if (!hit.displayName?.trim()) {
         hit.displayName = createDefaultHit(hitKey).displayName;
       }
+      const fallbackValue = typeof hit.multiplier === 'number' ? hit.multiplier : 0;
+      hit.levels = Object.fromEntries(
+        SKILL_LEVEL_KEYS.map((levelKey) => [levelKey, typeof hit.levels?.[levelKey] === 'number' ? hit.levels[levelKey] : fallbackValue])
+      );
+      delete hit.multiplier;
     });
     // 同步 hitCount
     skill.hitCount = Object.keys(skill.hitMeta).length;
@@ -147,7 +198,8 @@ function buildRuntimeHitFromDraft(
   return {
     key: hitKey,
     displayName: hit.displayName || hitKey,
-    multiplier: hit.multiplier,
+    multiplier: hit.levels?.M3 ?? 0,
+    levels: hit.levels,
     element: hit.element,
     skillType: hit.skillType,
   };
@@ -177,22 +229,24 @@ function buildRuntimeSkillFromDraft(
 export function buildRuntimeOperatorTemplateFromDraft(
   draft: OperatorDraft
 ): RuntimeOperatorTemplate {
-  const skills = Object.entries(draft.skills).map(([skillKey, skill]) =>
+  const normalizedDraft = normalizeOperatorDraft(draft);
+  const skills = Object.entries(normalizedDraft.skills).map(([skillKey, skill]) =>
     buildRuntimeSkillFromDraft(skillKey, skill)
   );
 
   return {
-    id: draft.id,
-    name: draft.name,
-    avatarUrl: draft.avatarUrl ? normalizeAssetUrl(draft.avatarUrl) : undefined,
-    rarity: draft.rarity,
-    profession: draft.profession || '',
-    weapon: draft.weapon || '',
-    element: (draft.element || 'physical') as ElementType,
-    mainStat: (draft.mainStat || '') as RuntimeOperatorTemplate['mainStat'],
-    subStat: (draft.subStat || '') as RuntimeOperatorTemplate['subStat'],
-    level: draft.level,
-    attributes: { ...draft.attributes },
+    id: normalizedDraft.id,
+    name: normalizedDraft.name,
+    avatarUrl: normalizedDraft.avatarUrl ? normalizeAssetUrl(normalizedDraft.avatarUrl) : undefined,
+    rarity: normalizedDraft.rarity,
+    profession: normalizedDraft.profession || '',
+    weapon: normalizedDraft.weapon || '',
+    element: (normalizedDraft.element || 'physical') as ElementType,
+    mainStat: (normalizedDraft.mainStat || '') as RuntimeOperatorTemplate['mainStat'],
+    subStat: (normalizedDraft.subStat || '') as RuntimeOperatorTemplate['subStat'],
+    level: normalizedDraft.level,
+    attributes: resolveAttributeSnapshot(normalizedDraft.attributes, normalizedDraft.level),
+    attributeLevels: normalizedDraft.attributes,
     source: 'local',
     skills,
   };
@@ -238,6 +292,7 @@ function extractHitsFromMultiplier(
         key: key.replace(/Damage$/i, ''), // 去掉 Damage 后缀作为 key
         displayName: `第${index + 1}击`,
         multiplier: value || 0,
+        levels: { M3: value || 0 },
         element,
         skillType,
       });
@@ -260,6 +315,7 @@ function extractHitsFromMultiplier(
         key,
         displayName: `第${index + 1}击`,
         multiplier: value || 0,
+        levels: { M3: value || 0 },
         element,
         skillType,
       });
@@ -275,6 +331,7 @@ function extractHitsFromMultiplier(
         key: 'hit1',
         displayName: '第1击',
         multiplier: value,
+        levels: { M3: value },
         element,
         skillType,
       });
@@ -400,6 +457,7 @@ export function buildSandboxSkillsFromRuntimeTemplate(
       key: hit.key,
       displayName: hit.displayName,
       multiplier: hit.multiplier,
+      levels: hit.levels,
       element: hit.element,
       skillType: hit.skillType,
     })),

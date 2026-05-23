@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { pinyin } from 'pinyin-pro';
 import './OperatorDraftPage.css';
 import assetPathsRaw from '../../asset-paths.txt?raw';
@@ -27,15 +27,38 @@ const ASSET_PATH_OPTIONS = assetPathsRaw
   .map((line) => line.trim())
   .filter(Boolean);
 const AVATAR_ASSET_OPTIONS = ASSET_PATH_OPTIONS.filter((path) => /\/assets\/avatars\/[^/]+\/[^/]+\.png$/i.test(path) && !/连携技|战技|终结技|icon_/i.test(path));
+const SKILL_LEVEL_KEYS = ['L1', 'L2', 'L3', 'L4', 'L5', 'L6', 'L7', 'L8', 'L9', 'M1', 'M2', 'M3'] as const;
+const ATTRIBUTE_LEVEL_KEYS = ['level1', 'level20', 'level40', 'level60', 'level80', 'level90'] as const;
+const ATTRIBUTE_ROWS = [
+  ['strength', '力量'],
+  ['agility', '敏捷'],
+  ['intelligence', '智识'],
+  ['will', '意志'],
+  ['atk', '攻击'],
+  ['hp', '生命'],
+] as const;
+const ATTRIBUTE_LEVEL_LABELS: Record<AttributeLevelKey, string> = {
+  level1: '1',
+  level20: '20',
+  level40: '40',
+  level60: '60',
+  level80: '80',
+  level90: '90',
+};
 
 type HitSkillType = 'A' | 'B' | 'E' | 'Q';
 type HitElement = 'physical' | 'fire' | 'ice' | 'electric' | 'nature';
+type SkillLevelKey = (typeof SKILL_LEVEL_KEYS)[number];
+type AttributeLevelKey = (typeof ATTRIBUTE_LEVEL_KEYS)[number];
+type AttributeKey = (typeof ATTRIBUTE_ROWS)[number][0];
+type AttributeLevels = Record<AttributeKey, Record<AttributeLevelKey, number>>;
 
 interface HitMetaDraft {
-  multiplier: number;
+  multiplier?: number;
   displayName: string;
   element: HitElement;
   skillType: HitSkillType;
+  levels: Record<SkillLevelKey, number>;
 }
 
 interface SkillDraft {
@@ -57,14 +80,7 @@ interface OperatorDraft {
   mainStat: string;
   subStat: string;
   level: number;
-  attributes: {
-    strength: number;
-    agility: number;
-    intelligence: number;
-    will: number;
-    atk: number;
-    hp: number;
-  };
+  attributes: AttributeLevels;
   skills: Record<string, SkillDraft>;
 }
 
@@ -81,11 +97,20 @@ function getHitIndexFromKey(hitKey: string) {
 function createDefaultHit(hitKey = 'hit1'): HitMetaDraft {
   const hitIndex = getHitIndexFromKey(hitKey);
   return {
-    multiplier: 0,
     displayName: `第${hitIndex}击`,
     element: 'physical',
     skillType: 'A',
+    levels: Object.fromEntries(SKILL_LEVEL_KEYS.map((levelKey) => [levelKey, 0])) as Record<SkillLevelKey, number>,
   };
+}
+
+function createDefaultAttributeLevels(value = 0): AttributeLevels {
+  return Object.fromEntries(
+    ATTRIBUTE_ROWS.map(([attributeKey]) => [
+      attributeKey,
+      Object.fromEntries(ATTRIBUTE_LEVEL_KEYS.map((levelKey) => [levelKey, value])),
+    ])
+  ) as AttributeLevels;
 }
 
 function createDefaultSkill(buttonType: HitSkillType = 'A', skillKey = 'skill-1'): SkillDraft {
@@ -113,14 +138,7 @@ function createDefaultDraft(): OperatorDraft {
     mainStat: '',
     subStat: '',
     level: 90,
-    attributes: {
-      strength: 0,
-      agility: 0,
-      intelligence: 0,
-      will: 0,
-      atk: 0,
-      hp: 0,
-    },
+    attributes: createDefaultAttributeLevels(),
     skills: {
       'skill-1': createDefaultSkill('A', 'skill-1'),
     },
@@ -163,7 +181,28 @@ function syncHitCount(skill: SkillDraft) {
   skill.hitCount = Object.keys(skill.hitMeta).length;
 }
 
+function normalizeAttributeLevels(rawAttributes: unknown): AttributeLevels {
+  const source = rawAttributes && typeof rawAttributes === 'object' ? rawAttributes as Record<string, unknown> : {};
+  return Object.fromEntries(
+    ATTRIBUTE_ROWS.map(([attributeKey]) => {
+      const rawValue = source[attributeKey];
+      const legacyValue = typeof rawValue === 'number' ? rawValue : 0;
+      const levelSource = rawValue && typeof rawValue === 'object' ? rawValue as Record<string, unknown> : {};
+      return [
+        attributeKey,
+        Object.fromEntries(
+          ATTRIBUTE_LEVEL_KEYS.map((levelKey) => [
+            levelKey,
+            typeof levelSource[levelKey] === 'number' ? levelSource[levelKey] : legacyValue,
+          ])
+        ),
+      ];
+    })
+  ) as AttributeLevels;
+}
+
 function normalizeDraft(value: OperatorDraft) {
+  value.attributes = normalizeAttributeLevels(value.attributes);
   Object.entries(value.skills).forEach(([skillKey, skill]) => {
     if (!skill.displayName?.trim()) {
       skill.displayName = createDefaultSkill(skill.buttonType, skillKey).displayName;
@@ -172,6 +211,11 @@ function normalizeDraft(value: OperatorDraft) {
       if (!hit.displayName?.trim()) {
         hit.displayName = createDefaultHit(hitKey).displayName;
       }
+      const fallbackValue = typeof hit.multiplier === 'number' ? hit.multiplier : 0;
+      hit.levels = Object.fromEntries(
+        SKILL_LEVEL_KEYS.map((levelKey) => [levelKey, typeof hit.levels?.[levelKey] === 'number' ? hit.levels[levelKey] : fallbackValue])
+      ) as Record<SkillLevelKey, number>;
+      delete hit.multiplier;
     });
     syncHitCount(skill);
   });
@@ -552,7 +596,7 @@ export function OperatorDraftPage() {
   const operatorMarkdown = useMemo(() => {
     const skillLines = Object.entries(orderedDraft.skills).map(([skillKey, skill]) => {
       const hitSummary = Object.entries(skill.hitMeta)
-        .map(([hitKey, hit]) => `${hitKey}:${hit.displayName || '-'} / ${hit.element} / ${hit.skillType} / x${hit.multiplier}`)
+        .map(([hitKey, hit]) => `${hitKey}:${hit.displayName || '-'} / ${hit.element} / ${hit.skillType} / M3 ${hit.levels?.M3 ?? 0}`)
         .join('；');
       return `- **${skill.displayName || skillKey}**（\`${skill.buttonType}\`，${skill.hitCount} hit）：${hitSummary || '无 hit'}`;
     });
@@ -565,12 +609,7 @@ export function OperatorDraftPage() {
       `**职业**：${draft.profession || '-'} / **武器**：${draft.weapon || '-'}`,
       `**元素**：${draft.element || '-'} / **主属性**：${draft.mainStat || '-'} / **副属性**：${draft.subStat || '-'}`,
       '## 基础属性',
-      `- 力量：${draft.attributes.strength}`,
-      `- 敏捷：${draft.attributes.agility}`,
-      `- 智识：${draft.attributes.intelligence}`,
-      `- 意志：${draft.attributes.will}`,
-      `- 攻击：${draft.attributes.atk}`,
-      `- 生命：${draft.attributes.hp}`,
+      ...ATTRIBUTE_ROWS.map(([attributeKey, label]) => `- ${label}：1/${draft.attributes[attributeKey].level1} 20/${draft.attributes[attributeKey].level20} 40/${draft.attributes[attributeKey].level40} 60/${draft.attributes[attributeKey].level60} 80/${draft.attributes[attributeKey].level80} 90/${draft.attributes[attributeKey].level90}`),
       '## 技能概览',
       ...(skillLines.length ? skillLines : ['- 暂无技能']),
     ].join('\n');
@@ -590,12 +629,15 @@ export function OperatorDraftPage() {
     });
   };
 
-  const updateAttributeField = (field: keyof OperatorDraft['attributes'], value: number) => {
+  const updateAttributeField = (field: AttributeKey, levelKey: AttributeLevelKey, value: number) => {
     setDraft((prev) => ({
       ...prev,
       attributes: {
         ...prev.attributes,
-        [field]: value,
+        [field]: {
+          ...prev.attributes[field],
+          [levelKey]: value,
+        },
       },
     }));
   };
@@ -1261,25 +1303,29 @@ export function OperatorDraftPage() {
                       ))}
                     </select>
                   </label>
-                  {(
-                    [
-                      ['strength', '力量'],
-                      ['agility', '敏捷'],
-                      ['intelligence', '智识'],
-                      ['will', '意志'],
-                      ['atk', '攻击'],
-                      ['hp', '生命'],
-                    ] as const
-                  ).map(([key, label]) => (
-                    <label key={key}>
-                      <span>{label}</span>
-                      <input
-                        type="number"
-                        value={draft.attributes[key]}
-                        onChange={(event) => updateAttributeField(key, Number(event.target.value) || 0)}
-                      />
-                    </label>
-                  ))}
+                  <div className="operator-draft-attribute-matrix">
+                    <div className="operator-draft-attribute-cell operator-draft-attribute-cell-head">属性</div>
+                    {ATTRIBUTE_LEVEL_KEYS.map((levelKey) => (
+                      <div key={levelKey} className="operator-draft-attribute-cell operator-draft-attribute-cell-head">
+                        {ATTRIBUTE_LEVEL_LABELS[levelKey]}
+                      </div>
+                    ))}
+                    {ATTRIBUTE_ROWS.map(([attributeKey, label]) => (
+                      <Fragment key={attributeKey}>
+                        <div className="operator-draft-attribute-cell operator-draft-attribute-name">{label}</div>
+                        {ATTRIBUTE_LEVEL_KEYS.map((levelKey) => (
+                          <label key={`${attributeKey}-${levelKey}`} className="operator-draft-attribute-input">
+                            <span>{`${label} ${ATTRIBUTE_LEVEL_LABELS[levelKey]}`}</span>
+                            <input
+                              type="number"
+                              value={draft.attributes[attributeKey]?.[levelKey] ?? 0}
+                              onChange={(event) => updateAttributeField(attributeKey, levelKey, Number(event.target.value) || 0)}
+                            />
+                          </label>
+                        ))}
+                      </Fragment>
+                    ))}
+                  </div>
                 </div>
               </section>
 
@@ -1417,7 +1463,7 @@ export function OperatorDraftPage() {
                       >
                         <span className="operator-draft-hit-badge">{hitKey}</span>
                         <strong>{hit.displayName || '未命名 hit'}</strong>
-                        <span>{`multiplier: ${hit.multiplier}`}</span>
+                        <span>{`M3: ${hit.levels?.M3 ?? 0}`}</span>
                         <span>{`${hit.element} / ${hit.skillType}`}</span>
                       </button>
                     ))}
@@ -1449,20 +1495,27 @@ export function OperatorDraftPage() {
                         }
                       />
                     </label>
-                    <label>
-                      <span>倍率</span>
-                      <input
-                        type="number"
-                        step="0.01"
-                        value={selectedHit.multiplier}
-                        onChange={(event) =>
-                          updateSelectedHit((hit) => ({
-                            ...hit,
-                            multiplier: Number(event.target.value) || 0,
-                          }))
-                        }
-                      />
-                    </label>
+                    <div className="operator-draft-hit-levels">
+                      {SKILL_LEVEL_KEYS.map((levelKey) => (
+                        <label key={levelKey}>
+                          <span>{levelKey}</span>
+                          <input
+                            type="number"
+                            step="0.01"
+                            value={selectedHit.levels?.[levelKey] ?? 0}
+                            onChange={(event) =>
+                              updateSelectedHit((hit) => ({
+                                ...hit,
+                                levels: {
+                                  ...hit.levels,
+                                  [levelKey]: Number(event.target.value) || 0,
+                                },
+                              }))
+                            }
+                          />
+                        </label>
+                      ))}
+                    </div>
                     <label>
                       <span>伤害属性</span>
                       <select

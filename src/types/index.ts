@@ -89,6 +89,7 @@ export interface SandboxSkillHit {
   key: string;
   displayName: string;
   multiplier: number;
+  levels?: Record<string, number>;
   element: ElementType;
   skillType: SkillType;
 }

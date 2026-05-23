@@ -472,6 +472,7 @@ export function getSelectedCharacterIds(): string[] {
 }
 
 export function setSelectedCharacterIds(characterIds: string[]): void {
+  console.log('[storage] setSelectedCharacterIds', characterIds);
   setStorageJson(STORAGE_KEYS.SELECTED_CHARACTERS, characterIds);
 }
 

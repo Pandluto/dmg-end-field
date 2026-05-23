@@ -759,7 +759,7 @@
 
 .operator-config-page-level-track {
   display: grid;
-  grid-template-columns: repeat(8, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 6px;
   width: calc(100% - 70px);
   max-width: calc(100% - 70px);
@@ -892,11 +892,39 @@
   letter-spacing: 0.01em;
 }
 
+.operator-config-page-track-label-button {
+  min-width: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
 .operator-config-page-track-sublabel {
   font-size: 12px;
   font-weight: 700;
   line-height: 1;
   color: #666666;
+}
+
+.operator-config-page-track-detail-button {
+  flex: 0 0 auto;
+  min-height: 18px;
+  padding: 0 5px;
+  border: 1px solid #666666;
+  background: #FFFFFF;
+  color: #000000;
+  font-size: 10px;
+  line-height: 16px;
+  cursor: pointer;
+}
+
+.operator-config-page-track-label-button:hover .operator-config-page-track-label,
+.operator-config-page-track-detail-button:hover {
+  color: #111827;
+  background: #FFF59D;
 }
 
 .operator-config-page-track-body {
@@ -1016,6 +1044,167 @@
   transition: opacity 0.15s ease, stroke 0.15s ease;
 }
 
+.operator-config-page-skill-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 85;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(15, 23, 42, 0.42);
+}
+
+.operator-config-page-skill-modal {
+  width: min(860px, 100%);
+  max-height: min(78vh, 820px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid #111827;
+  background: #F3F4F6;
+}
+
+.operator-config-page-skill-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 16px;
+  border-bottom: 1px solid #111827;
+  background: #E5E7EB;
+}
+
+.operator-config-page-skill-modal-title {
+  margin: 0;
+  color: #111827;
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.operator-config-page-skill-modal-subtitle {
+  display: block;
+  margin-top: 4px;
+  color: #4B5563;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.operator-config-page-skill-modal-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  overflow: auto;
+  padding: 16px;
+}
+
+.operator-config-page-skill-card-group {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  border: 1px solid #111827;
+  background: #FFFFFF;
+  padding: 10px;
+}
+
+.operator-config-page-skill-card-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.operator-config-page-skill-card-icon,
+.operator-config-page-skill-card-icon-fallback {
+  width: 44px;
+  height: 44px;
+  flex: 0 0 auto;
+  border: 1px solid #111827;
+  background: #E5E7EB;
+}
+
+.operator-config-page-skill-card-icon {
+  object-fit: cover;
+  display: block;
+}
+
+.operator-config-page-skill-card-icon-fallback {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #111827;
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.operator-config-page-skill-card-meta {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.operator-config-page-skill-card-meta strong {
+  color: #111827;
+  font-size: 14px;
+  line-height: 1.2;
+}
+
+.operator-config-page-skill-card-meta span {
+  color: #4B5563;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.operator-config-page-skill-hit-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 8px;
+}
+
+.operator-config-page-skill-hit-card {
+  min-width: 0;
+  min-height: 70px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px;
+  border: 1px solid #9CA3AF;
+  background: #F9FAFB;
+  color: #111827;
+  overflow: hidden;
+}
+
+.operator-config-page-skill-hit-card strong,
+.operator-config-page-skill-hit-card span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.operator-config-page-skill-hit-card strong {
+  font-size: 12px;
+  line-height: 1.2;
+}
+
+.operator-config-page-skill-hit-card span {
+  font-size: 11px;
+  line-height: 1.25;
+}
+
+.operator-config-page-skill-hit-key {
+  color: #4B5563;
+  font-weight: 700;
+}
+
+.operator-config-page-skill-empty-hit {
+  margin: 0;
+  color: #4B5563;
+  font-size: 12px;
+}
+
 .operator-config-page-equip-row--6 {
   grid-template-columns: repeat(6, minmax(0, 1fr));
 }
@@ -1026,20 +1215,6 @@
 
 .operator-config-page-equip-row--3 {
   grid-template-columns: repeat(3, minmax(0, 1fr));
-}
-
-.operator-config-page-avatar-fallback {
-  width: 100%;
-  height: 100%;
-  border: 2px solid #000000;
-  border-radius: 50%;
-  background: #d9d9d9;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 14px;
-  font-weight: 700;
-  color: #000000;
 }
 
 .operator-config-page-panel .config-equip-copy-drawer-host {

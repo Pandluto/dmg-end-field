@@ -392,7 +392,7 @@ function buildSkillRows(
     displayName: string;
     buttonType: string;
     hitCount: number;
-    hitMeta: Record<string, { multiplier: number; displayName: string; element: string; skillType: string }>;
+    hitMeta: Record<string, { multiplier?: number; levels?: Record<string, number>; displayName: string; element: string; skillType: string }>;
   }>,
   skillLevels: Record<string, string> | undefined
 ): DamageReportCharacterRow['skills'] {
@@ -402,9 +402,13 @@ function buildSkillRows(
       return order.indexOf(left[1].buttonType) - order.indexOf(right[1].buttonType);
     })
     .map(([skillId, skill]) => {
+      const levelKey = skillLevels?.[skill.buttonType] || 'M3';
       const hits = Object.entries(skill.hitMeta || {})
         .sort(([leftKey], [rightKey]) => leftKey.localeCompare(rightKey, 'zh-CN'))
-        .map(([hitKey, hit]) => `${hitKey} / ${hit.displayName} / ${(hit.multiplier * 100).toFixed(1)}% / ${formatElementLabel(hit.element)} / ${formatSkillTypeLabel(hit.skillType)}`);
+        .map(([hitKey, hit]) => {
+          const multiplier = hit.levels?.[levelKey] ?? hit.levels?.M3 ?? hit.multiplier ?? 0;
+          return `${hitKey} / ${hit.displayName} / ${(multiplier * 100).toFixed(1)}% / ${formatElementLabel(hit.element)} / ${formatSkillTypeLabel(hit.skillType)}`;
+        });
 
       return {
         id: skillId,
@@ -413,6 +417,19 @@ function buildSkillRows(
         hitLines: hits,
       };
     });
+}
+
+function resolveDraftAttributeValue(attributes: Record<string, unknown>, attributeKey: string, levelKey = 'level90'): number {
+  const rawValue = attributes[attributeKey];
+  if (typeof rawValue === 'number') {
+    return rawValue;
+  }
+  if (rawValue && typeof rawValue === 'object') {
+    const levelValues = rawValue as Record<string, unknown>;
+    const value = levelValues[levelKey] ?? levelValues.level90;
+    return typeof value === 'number' ? value : 0;
+  }
+  return 0;
 }
 
 function formatDamageSourceLabel(sourceKind: DamageReportHitRow['sourceKind']): string {
@@ -770,8 +787,8 @@ function buildCharacterReportRow(characterId: string, fallbackName: string): Dam
   const attributeLines = draft
     ? [
         `等级 ${draft.level}`,
-        `力量 ${draft.attributes.strength}　敏捷 ${draft.attributes.agility}　智力 ${draft.attributes.intelligence}　意志 ${draft.attributes.will}`,
-        `攻击 ${draft.attributes.atk}　生命 ${draft.attributes.hp}`,
+        `力量 ${resolveDraftAttributeValue(draft.attributes, 'strength')}　敏捷 ${resolveDraftAttributeValue(draft.attributes, 'agility')}　智力 ${resolveDraftAttributeValue(draft.attributes, 'intelligence')}　意志 ${resolveDraftAttributeValue(draft.attributes, 'will')}`,
+        `攻击 ${resolveDraftAttributeValue(draft.attributes, 'atk')}　生命 ${resolveDraftAttributeValue(draft.attributes, 'hp')}`,
       ]
     : ['本地角色库未找到该角色草稿'];
 

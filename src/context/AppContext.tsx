@@ -306,8 +306,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
       characters.forEach((char) => restorableCharacterMap.set(char.id, char));
       localCharacters.forEach((char) => restorableCharacterMap.set(char.id, char));
 
-      const selectedCharacterIds = getSelectedCharacterIds();
-      const hasTimelineData = Boolean(safeSessionStorage.getItem(STORAGE_KEYS.TIMELINE_DATA));
+        const selectedCharacterIds = getSelectedCharacterIds();
+        const hasTimelineData = Boolean(safeSessionStorage.getItem(STORAGE_KEYS.TIMELINE_DATA));
+        console.log('[AppContext] restore check', {
+          selectedCharacterIds,
+          rawSelectedCharacters: safeSessionStorage.getItem(STORAGE_KEYS.SELECTED_CHARACTERS),
+          hasTimelineData,
+          rawTimelineData: safeSessionStorage.getItem(STORAGE_KEYS.TIMELINE_DATA),
+        });
 
       if (selectedCharacterIds.length > 0 && hasTimelineData) {
         const restoredCharacters = selectedCharacterIds
@@ -337,11 +343,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
           setRuntimeOperatorTemplateMap({});
           console.log('[AppContext] 恢复失败，模板表已清空');
         }
-      } else {
-        // 无有效恢复条件（未选角色或无 timeline 数据）：清空残留模板表
-        setRuntimeOperatorTemplateMap({});
-        console.log('[AppContext] 无有效恢复条件，模板表已清空');
-      }
+        } else {
+          // 无有效恢复条件（未选角色或无 timeline 数据）：清空残留模板表
+          console.log('[AppContext] restore skipped', {
+            reason: selectedCharacterIds.length === 0 ? 'selected-character-ids-empty' : 'timeline-data-missing',
+            selectedCharacterIds,
+            hasTimelineData,
+          });
+          setRuntimeOperatorTemplateMap({});
+          console.log('[AppContext] 无有效恢复条件，模板表已清空');
+        }
     } catch (error) {
       console.warn('Failed to load operators list:', error);
     } finally {
@@ -426,4 +437,3 @@ export function useAppContext() {
   }
   return context;
 }
-

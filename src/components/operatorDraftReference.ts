@@ -2,12 +2,20 @@ import { resolvePublicPath } from '../utils/assetResolver';
 
 type HitSkillType = 'A' | 'B' | 'E' | 'Q';
 type HitElement = 'physical' | 'fire' | 'ice' | 'electric' | 'nature';
+const SKILL_LEVEL_KEYS = ['L1', 'L2', 'L3', 'L4', 'L5', 'L6', 'L7', 'L8', 'L9', 'M1', 'M2', 'M3'] as const;
+const ATTRIBUTE_LEVEL_KEYS = ['level1', 'level20', 'level40', 'level60', 'level80', 'level90'] as const;
+const ATTRIBUTE_KEYS = ['strength', 'agility', 'intelligence', 'will', 'atk', 'hp'] as const;
+type SkillLevelKey = (typeof SKILL_LEVEL_KEYS)[number];
+type AttributeLevelKey = (typeof ATTRIBUTE_LEVEL_KEYS)[number];
+type AttributeKey = (typeof ATTRIBUTE_KEYS)[number];
+type AttributeLevels = Record<AttributeKey, Record<AttributeLevelKey, number>>;
 
 interface HitMetaDraft {
-  multiplier: number;
+  multiplier?: number;
   displayName: string;
   element: HitElement;
   skillType: HitSkillType;
+  levels: Record<SkillLevelKey, number>;
 }
 
 interface SkillDraft {
@@ -29,14 +37,7 @@ export interface ImportedOperatorDraft {
   mainStat: string;
   subStat: string;
   level: number;
-  attributes: {
-    strength: number;
-    agility: number;
-    intelligence: number;
-    will: number;
-    atk: number;
-    hp: number;
-  };
+  attributes: AttributeLevels;
   skills: Record<string, SkillDraft>;
 }
 
@@ -58,7 +59,12 @@ interface SourceCharacterData {
   mainStat?: string;
   subStat?: string;
   attributes?: {
-    level90?: ImportedOperatorDraft['attributes'];
+    level1?: Record<AttributeKey, number>;
+    level20?: Record<AttributeKey, number>;
+    level40?: Record<AttributeKey, number>;
+    level60?: Record<AttributeKey, number>;
+    level80?: Record<AttributeKey, number>;
+    level90?: Record<AttributeKey, number>;
   };
   skills?: {
     normalAttack?: SourceCharacterSkill;
@@ -79,11 +85,20 @@ function createDefaultHit(hitKey = 'hit1'): HitMetaDraft {
   const matched = hitKey.match(/(\d+)$/);
   const hitIndex = matched ? Number(matched[1]) : 1;
   return {
-    multiplier: 0,
     displayName: `第${hitIndex}击`,
     element: 'physical',
     skillType: 'A',
+    levels: Object.fromEntries(SKILL_LEVEL_KEYS.map((levelKey) => [levelKey, 0])) as Record<SkillLevelKey, number>,
   };
+}
+
+function createDefaultAttributeLevels(value = 0): AttributeLevels {
+  return Object.fromEntries(
+    ATTRIBUTE_KEYS.map((attributeKey) => [
+      attributeKey,
+      Object.fromEntries(ATTRIBUTE_LEVEL_KEYS.map((levelKey) => [levelKey, value])),
+    ])
+  ) as AttributeLevels;
 }
 
 function createDefaultSkill(buttonType: HitSkillType = 'A', skillKey = 'skill-1'): SkillDraft {
@@ -112,14 +127,7 @@ function createDefaultDraft(): ImportedOperatorDraft {
     mainStat: '',
     subStat: '',
     level: 90,
-    attributes: {
-      strength: 0,
-      agility: 0,
-      intelligence: 0,
-      will: 0,
-      atk: 0,
-      hp: 0,
-    },
+    attributes: createDefaultAttributeLevels(),
     skills: {
       'skill-1': createDefaultSkill('A', 'skill-1'),
     },
@@ -130,11 +138,36 @@ function buildDefaultOperatorId(name: string) {
   return `custom-${name.replace(/\s+/g, '-').toLowerCase() || 'operator'}`;
 }
 
-function resolveImportedMultiplierSet(skill?: SourceCharacterSkill) {
+function normalizeSourceSkillLevelKey(levelKey: string): SkillLevelKey | null {
+  const normalized = levelKey.toUpperCase();
+  if ((SKILL_LEVEL_KEYS as readonly string[]).includes(normalized)) {
+    return normalized as SkillLevelKey;
+  }
+  if (/^\d+$/.test(levelKey)) {
+    const numericLevel = Number(levelKey);
+    if (numericLevel >= 1 && numericLevel <= 9) {
+      return `L${numericLevel}` as SkillLevelKey;
+    }
+  }
+  return null;
+}
+
+function resolveImportedMultiplierSets(skill?: SourceCharacterSkill): Partial<Record<SkillLevelKey, Record<string, number>>> {
   if (!skill?.multipliers) {
     return {};
   }
-  return skill.multipliers.M3 ?? skill.multipliers['9'] ?? Object.values(skill.multipliers)[0] ?? {};
+  const result: Partial<Record<SkillLevelKey, Record<string, number>>> = {};
+  Object.entries(skill.multipliers).forEach(([levelKey, multiplierSet]) => {
+    const normalizedKey = normalizeSourceSkillLevelKey(levelKey);
+    if (normalizedKey) {
+      result[normalizedKey] = multiplierSet;
+    }
+  });
+
+  if (!result.M3) {
+    result.M3 = skill.multipliers.M3 ?? skill.multipliers['9'] ?? Object.values(skill.multipliers)[0] ?? {};
+  }
+  return result;
 }
 
 function isImportedDamageKey(key: string) {
@@ -281,14 +314,15 @@ function toImportedHitDisplayName(sourceKey: string, hitIndex: number) {
 }
 
 function mapImportedHits(
-  multiplierSet: Record<string, number>,
+  multiplierSets: Partial<Record<SkillLevelKey, Record<string, number>>>,
   element: string,
   skillType: HitSkillType,
   excludedKeys: string[] = []
 ) {
   const normalizedElement = ELEMENT_OPTIONS.includes(element as HitElement) ? (element as HitElement) : 'physical';
+  const baseMultiplierSet = multiplierSets.M3 ?? multiplierSets.L9 ?? Object.values(multiplierSets)[0] ?? {};
   const entries = sortImportedDamageEntries(
-    Object.entries(multiplierSet).filter(
+    Object.entries(baseMultiplierSet).filter(
       ([key, value]) =>
         typeof value === 'number' &&
         Number.isFinite(value) &&
@@ -313,8 +347,14 @@ function mapImportedHits(
   const hitMeta: Record<string, HitMetaDraft> = {};
   entries.forEach(([sourceKey, multiplier], index) => {
     const hitKey = `hit${index + 1}`;
+    const levels = Object.fromEntries(
+      SKILL_LEVEL_KEYS.map((levelKey) => [
+        levelKey,
+        typeof multiplierSets[levelKey]?.[sourceKey] === 'number' ? multiplierSets[levelKey][sourceKey] : multiplier,
+      ])
+    ) as Record<SkillLevelKey, number>;
     hitMeta[hitKey] = {
-      multiplier,
+      levels,
       displayName: toImportedHitDisplayName(sourceKey, index + 1),
       element: normalizedElement,
       skillType,
@@ -366,7 +406,7 @@ function buildImportedSkill(
 ) {
   const skill = createDefaultSkill(buttonType, skillKey);
   const { hitMeta, hitCount } = mapImportedHits(
-    resolveImportedMultiplierSet(sourceSkill),
+    resolveImportedMultiplierSets(sourceSkill),
     operatorElement,
     buttonType
   );
@@ -377,6 +417,23 @@ function buildImportedSkill(
     hitCount,
     hitMeta,
   };
+}
+
+function buildImportedAttributeLevels(sourceAttributes: SourceCharacterData['attributes'] | undefined): AttributeLevels {
+  const fallbackLevel90 = sourceAttributes?.level90 ?? {} as Record<AttributeKey, number>;
+  return Object.fromEntries(
+    ATTRIBUTE_KEYS.map((attributeKey) => [
+      attributeKey,
+      Object.fromEntries(
+        ATTRIBUTE_LEVEL_KEYS.map((levelKey) => [
+          levelKey,
+          typeof sourceAttributes?.[levelKey]?.[attributeKey] === 'number'
+            ? sourceAttributes[levelKey][attributeKey]
+            : (typeof fallbackLevel90[attributeKey] === 'number' ? fallbackLevel90[attributeKey] : 0),
+        ])
+      ),
+    ])
+  ) as AttributeLevels;
 }
 
 function buildImportedDraft(source: SourceCharacterData, options: ImportDraftOptions): ImportedOperatorDraft {
@@ -417,7 +474,7 @@ function buildImportedDraft(source: SourceCharacterData, options: ImportDraftOpt
     mainStat: source.mainStat || '',
     subStat: source.subStat || '',
     level: 90,
-    attributes: source.attributes?.level90 || fallback.attributes,
+    attributes: buildImportedAttributeLevels(source.attributes),
     skills,
   };
 }
