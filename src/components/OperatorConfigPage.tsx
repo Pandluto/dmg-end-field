@@ -59,12 +59,20 @@ interface WeaponSkillData {
   name?: string;
   statType?: string;
   levels?: Record<string, WeaponSkillLevelData>;
+  effects?: Record<string, {
+    name?: string;
+    type?: string;
+    category?: string;
+    levels?: Record<string, number>;
+  }>;
 }
 
 interface WeaponData {
   name: string;
   rarity?: number;
+  type?: string;
   description?: string;
+  imgUrl?: string;
   attackGrowth?: Record<string, number>;
   skills?: {
     skill1?: WeaponSkillData;
@@ -154,6 +162,28 @@ const EMPTY_RECORD: Record<string, unknown> = {};
 const EQUIPMENT_SLOT_KEYS = ['accessory1', 'accessory2', 'armor', 'glove'] as const;
 type EquipmentSlotKey = (typeof EQUIPMENT_SLOT_KEYS)[number];
 type EquipmentEntryIndex = 0 | 1 | 2;
+const WEAPON_SKILL1_TYPE_MAP: Record<string, string> = {
+  敏捷提升: 'agilityBoost',
+  力量提升: 'strengthBoost',
+  意志提升: 'willBoost',
+  智识提升: 'intelligenceBoost',
+  主能力提升: 'mainStatBoost',
+  副能力提升: 'subStatBoost',
+};
+const WEAPON_SKILL2_TYPE_MAP: Record<string, string> = {
+  攻击提升: 'atkPercentBoost',
+  生命提升: 'hp',
+  物理伤害提升: 'physicalDmgBonus',
+  灼热伤害提升: 'fireDmgBonus',
+  电磁伤害提升: 'electricDmgBonus',
+  寒冷伤害提升: 'iceDmgBonus',
+  自然伤害提升: 'natureDmgBonus',
+  暴击率提升: 'critRateBoost',
+  源石技艺提升: 'sourceSkillBoost',
+  终结技充能效率提升: 'ultimateChargeEfficiency',
+  法术伤害提升: 'magicDmgBonus',
+  治疗效率提升: 'healingBonus',
+};
 const WEAPON_LIBRARY_STORAGE_KEY = 'def.weapon-sheet.library.v1';
 const EQUIPMENT_LIBRARY_STORAGE_KEY = 'def.equipment-sheet.draft.v1';
 const EQUIPMENT_SLOT_METAS = [
@@ -242,6 +272,7 @@ function normalizeWeaponLibrary(raw: unknown): Record<string, WeaponData & { id:
       id: String(rawWeapon?.id || draftId || weaponName),
       name: weaponName,
       rarity: typeof rawWeapon?.rarity === 'number' ? rawWeapon.rarity : 6,
+      type: String(rawWeapon?.type || ''),
       description: String(rawWeapon?.description || ''),
       attackGrowth: rawWeapon?.attackGrowth ?? {},
       imgUrl: String(rawWeapon?.imgUrl || ''),
@@ -410,6 +441,96 @@ function getEquipmentEntryDisplayParts(entry: OperatorConfigPageEntryState | und
     tail,
     full: `${head} ${tail}`,
   };
+}
+
+function formatWeaponRarityType(weapon: Partial<WeaponData>): string {
+  const rarityText = typeof weapon.rarity === 'number' ? `${weapon.rarity}★` : '';
+  const typeText = weapon.type?.trim() ?? '';
+  return [rarityText, typeText].filter(Boolean).join(' / ');
+}
+
+function formatWeaponMetaLine(level: number, attack: number | null): string {
+  return `Lv.${level} / ATK ${attack ?? '---'}`;
+}
+
+function formatWeaponSkillValue(levelData: WeaponSkillLevelData | undefined): string {
+  if (typeof levelData?.value === 'number') {
+    return String(levelData.value);
+  }
+  return levelData?.description?.trim() || '-';
+}
+
+function getWeaponSkillEnglishType(skillKey: 'skill1' | 'skill2' | 'skill3', statType?: string): string {
+  const trimmed = statType?.trim() ?? '';
+  if (!trimmed) {
+    return '';
+  }
+  if (skillKey === 'skill1') {
+    return WEAPON_SKILL1_TYPE_MAP[trimmed] ?? '';
+  }
+  if (skillKey === 'skill2') {
+    return WEAPON_SKILL2_TYPE_MAP[trimmed] ?? '';
+  }
+  return '';
+}
+
+function getWeaponSummaryParts(label: string, typeKey: string, tail: string): { label: string; typeKey: string; tail: string; full: string } {
+  return {
+    label,
+    typeKey,
+    tail,
+    full: `${label} · ${typeKey} ${tail}`.trim(),
+  };
+}
+
+function formatWeaponSkillSummary(skillKey: 'skill1' | 'skill2', skill: WeaponSkillData | undefined, level: number): { label: string; typeKey: string; tail: string; full: string } {
+  if (!skill) {
+    return {
+      label: '未选择武器',
+      typeKey: '',
+      tail: '',
+      full: '未选择武器',
+    };
+  }
+  const levelData = skill.levels?.[String(level)];
+  const chineseLabel = skill.statType?.trim() || skill.name?.trim() || '-';
+  const englishType = getWeaponSkillEnglishType(skillKey, skill.statType);
+  return getWeaponSummaryParts(chineseLabel, englishType || '-', `+ ${formatWeaponSkillValue(levelData)}`);
+}
+
+function buildWeaponSkill3Lines(skill: WeaponSkillData | undefined, level: number): Array<{ label: string; typeKey: string; tail: string; full: string }> {
+  if (!skill) {
+    return [{ label: '未选择武器', typeKey: '', tail: '', full: '未选择武器' }];
+  }
+
+  const effectLines = Object.entries(skill.effects ?? {})
+    .map(([effectKey, effect]) => {
+      const value = effect.levels?.[String(level)];
+      if (typeof value !== 'number') {
+        return null;
+      }
+      const name = effect.name?.trim() || '效果';
+      return getWeaponSummaryParts(name, effect.type?.trim() || effectKey, `+ ${value}`);
+    })
+    .filter((line): line is { label: string; typeKey: string; tail: string; full: string } => Boolean(line));
+  if (effectLines.length > 0) {
+    return effectLines;
+  }
+
+  const levelData = skill.levels?.[String(level)];
+  const passiveEntries = Object.entries(levelData?.passive ?? {});
+  if (passiveEntries.length > 0) {
+    return passiveEntries.map(([key, value]) => getWeaponSummaryParts(key, 'passive', `+ ${String(value)}`));
+  }
+
+  const description = levelData?.description?.trim() || skill.name?.trim() || '未选择武器';
+  const lines = description
+    .split(/\r?\n|；|;/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+  return lines.length > 0
+    ? lines.map((line) => ({ label: line, typeKey: '', tail: '', full: line }))
+    : [{ label: '未选择武器', typeKey: '', tail: '', full: '未选择武器' }];
 }
 
 function parsePotentialToCount(potential: string): number {
@@ -659,13 +780,13 @@ export function OperatorConfigPage() {
         const existing = prev[characterId];
         const nextCharacterConfig = existing
           ? {
-              ...existing,
-              character: {
-                ...existing.character,
-                id: character.id,
-                data: createCharacterData(character),
-              },
-            }
+            ...existing,
+            character: {
+              ...existing.character,
+              id: character.id,
+              data: createCharacterData(character),
+            },
+          }
           : createDefaultCharacterConfig(character);
         const next = { ...prev, [characterId]: nextCharacterConfig };
         setOperatorConfigPageCache(next);
@@ -730,17 +851,16 @@ export function OperatorConfigPage() {
   const skillData = (currentConfig?.skills.data ?? EMPTY_RECORD) as Partial<Record<OperatorSkillKey, { name?: string; type?: string }>>;
   const currentWeaponName = currentConfig?.weapon.id ?? '';
   const currentWeaponLevel = Number(currentConfig?.weapon.config.level ?? 90);
-  const currentWeaponImageUrl = resolveStoredImageUrl((currentWeaponData as Partial<WeaponData> & { imgUrl?: string }).imgUrl) || resolveWeaponImageUrl(currentWeaponName);
+  const currentWeaponImageUrl = resolveStoredImageUrl(currentWeaponData.imgUrl) || resolveWeaponImageUrl(currentWeaponName);
   const currentWeaponAttack = currentWeaponData.attackGrowth?.[String(currentWeaponLevel)] ?? currentWeaponData.attackGrowth?.['90'] ?? null;
   const currentWeaponSkill1Data = currentWeaponData.skills?.skill1;
   const currentWeaponSkill2Data = currentWeaponData.skills?.skill2;
   const currentWeaponSkill3Data = currentWeaponData.skills?.skill3;
-  const currentWeaponSkill1Text =
-    currentWeaponSkill1Data?.levels?.[String(weaponSkillLevel1)]?.description ?? currentWeaponSkill1Data?.name ?? '未选择武器';
-  const currentWeaponSkill2Text =
-    currentWeaponSkill2Data?.levels?.[String(weaponSkillLevel2)]?.description ?? currentWeaponSkill2Data?.name ?? '未选择武器';
-  const currentWeaponSkill3Text =
-    currentWeaponSkill3Data?.levels?.[String(weaponSkillLevel3)]?.description ?? currentWeaponSkill3Data?.name ?? '未选择武器';
+  const currentWeaponRarityType = formatWeaponRarityType(currentWeaponData);
+  const currentWeaponSkill1Text = formatWeaponSkillSummary('skill1', currentWeaponSkill1Data, weaponSkillLevel1);
+  const currentWeaponSkill2Text = formatWeaponSkillSummary('skill2', currentWeaponSkill2Data, weaponSkillLevel2);
+  const currentWeaponSkill3Lines = buildWeaponSkill3Lines(currentWeaponSkill3Data, weaponSkillLevel3);
+  const currentWeaponMetaLine = formatWeaponMetaLine(currentWeaponLevel, currentWeaponAttack);
   const attributeItems = React.useMemo<ReadonlyArray<AttributeItem>>(() => {
     return [
       { label: '名称', value: currentCharacterData.name ?? activeCharacter?.name ?? '角色占位' },
@@ -865,12 +985,12 @@ export function OperatorConfigPage() {
       const nextEntries = piece.entries.map((entry, index) =>
         index === entryIndex
           ? {
-              ...entry,
-              config: {
-                ...entry.config,
-                level: nextLevel,
-              },
-            }
+            ...entry,
+            config: {
+              ...entry.config,
+              level: nextLevel,
+            },
+          }
           : entry
       );
 
@@ -985,103 +1105,103 @@ export function OperatorConfigPage() {
               <div className="config-top-grid">
                 <section className="config-data-section config-equip-panel config-scrollable-module operator-config-page-equip-zone">
                   <h4 className="config-data-title">装备</h4>
-                    <div className="operator-config-page-equip-visual">
-                      <div className="operator-config-page-equip-visual-top" aria-hidden="true">
-                        <div className="operator-config-page-equip-circles">
-                          {EQUIPMENT_SLOT_METAS.map((slotMeta) => {
-                            const equipmentPiece = currentConfig?.equipment[slotMeta.slotKey];
-                            const equipmentData = equipmentPiece?.data as Partial<EquipmentItem> | undefined;
-                            const imageUrl = resolveStoredImageUrl(equipmentData?.imgUrl);
-                            return (
-                              <button
-                                key={slotMeta.slotKey}
-                                type="button"
-                                className={`operator-config-page-equip-circle ${slotMeta.circleClass}`}
-                                aria-label={`选择${slotMeta.part}`}
-                                onClick={() => {
-                                  setEquipmentPickerSlot(slotMeta.slotKey);
-                                }}
-                              >
-                                {imageUrl ? (
-                                  <img
-                                    className="operator-config-page-equip-circle-image"
-                                    src={imageUrl}
-                                    alt={equipmentData?.name ?? slotMeta.part}
-                                  />
-                                ) : (
-                                  <span className="operator-config-page-equip-circle-fallback">{equipmentData?.name ?? slotMeta.part}</span>
-                                )}
-                              </button>
-                            );
-                          })}
-                        </div>
-                        <div className="operator-config-page-equip-button-groups">
-                          {EQUIPMENT_SLOT_METAS.map((slotMeta) => (
-                            <div key={slotMeta.slotKey} className={`operator-config-page-equip-button-group ${slotMeta.groupClass}`}>
-                              {([0, 1, 2] as const).map((entryIndex) => {
-                                const currentLevel = getEquipmentEntryLevel(slotMeta.slotKey, entryIndex);
-                                const isEntryActive = isEquipmentEntryActive(slotMeta.slotKey, entryIndex);
-                                const entry = currentConfig?.equipment[slotMeta.slotKey].entries[entryIndex];
-                                const entryDisplay = isEntryActive
-                                  ? getEquipmentEntryDisplayParts(entry, currentLevel)
-                                  : { head: '无', tail: '', full: '无' };
-                                return (
-                                  <React.Fragment key={`${slotMeta.slotKey}-${entryIndex}`}>
-                                    <div className={`operator-config-page-equip-button-textdiv${isEntryActive ? '' : ' is-disabled'}`}>
-                                      <span
-                                        className="operator-config-page-equip-button-text"
-                                        onMouseEnter={(event) => {
-                                          const rect = event.currentTarget.getBoundingClientRect();
-                                          setEquipmentTooltip({
-                                            text: entryDisplay.full,
-                                            x: rect.left - 4,
-                                            y: rect.bottom - 44,
-                                          });
-                                        }}
-                                        onMouseMove={(event) => {
-                                          const rect = event.currentTarget.getBoundingClientRect();
-                                          setEquipmentTooltip({
-                                            text: entryDisplay.full,
-                                            x: rect.left - 4,
-                                            y: rect.bottom - 44,
-                                          });
-                                        }}
-                                        onMouseLeave={() => {
-                                          setEquipmentTooltip(null);
-                                        }}
-                                      >
-                                        <span className="operator-config-page-equip-button-text-head">{entryDisplay.head}</span>
-                                        {entryDisplay.tail ? <span className="operator-config-page-equip-button-text-tail">{entryDisplay.tail}</span> : null}
-                                      </span>
-                                    </div>
-                                    <div className={`operator-config-page-equip-button-row ${slotMeta.rowClass}${isEntryActive ? '' : ' is-disabled'}`}>
-                                      {equipConfigIndices.map((buttonNumber) => (
-                                        <button
-                                          key={`${slotMeta.slotKey}-${entryIndex}-${buttonNumber}`}
-                                          type="button"
-                                          className={`operator-config-page-equip-button ${getEquipmentConfigButtonState(buttonNumber, Number(currentLevel))}`}
-                                          aria-label={`${slotMeta.slotKey} 词条 ${entryIndex + 1} 档位 L${buttonNumber}`}
-                                          aria-pressed={buttonNumber === Number(currentLevel)}
-                                          disabled={!isEntryActive}
-                                          onClick={() => {
-                                            updateEquipmentEntryLevel(
-                                              slotMeta.slotKey,
-                                              entryIndex,
-                                              Number(currentLevel) === buttonNumber ? buttonNumber - 1 : buttonNumber
-                                            );
-                                          }}
-                                        />
-                                      ))}
-                                    </div>
-                                  </React.Fragment>
-                                );
-                              })}
-                            </div>
-                          ))}
-                        </div>
+                  <div className="operator-config-page-equip-visual">
+                    <div className="operator-config-page-equip-visual-top" aria-hidden="true">
+                      <div className="operator-config-page-equip-circles">
+                        {EQUIPMENT_SLOT_METAS.map((slotMeta) => {
+                          const equipmentPiece = currentConfig?.equipment[slotMeta.slotKey];
+                          const equipmentData = equipmentPiece?.data as Partial<EquipmentItem> | undefined;
+                          const imageUrl = resolveStoredImageUrl(equipmentData?.imgUrl);
+                          return (
+                            <button
+                              key={slotMeta.slotKey}
+                              type="button"
+                              className={`operator-config-page-equip-circle ${slotMeta.circleClass}`}
+                              aria-label={`选择${slotMeta.part}`}
+                              onClick={() => {
+                                setEquipmentPickerSlot(slotMeta.slotKey);
+                              }}
+                            >
+                              {imageUrl ? (
+                                <img
+                                  className="operator-config-page-equip-circle-image"
+                                  src={imageUrl}
+                                  alt={equipmentData?.name ?? slotMeta.part}
+                                />
+                              ) : (
+                                <span className="operator-config-page-equip-circle-fallback">{equipmentData?.name ?? slotMeta.part}</span>
+                              )}
+                            </button>
+                          );
+                        })}
                       </div>
-                      <div className="operator-config-page-equip-visual-bottom" aria-hidden="true" />
+                      <div className="operator-config-page-equip-button-groups">
+                        {EQUIPMENT_SLOT_METAS.map((slotMeta) => (
+                          <div key={slotMeta.slotKey} className={`operator-config-page-equip-button-group ${slotMeta.groupClass}`}>
+                            {([0, 1, 2] as const).map((entryIndex) => {
+                              const currentLevel = getEquipmentEntryLevel(slotMeta.slotKey, entryIndex);
+                              const isEntryActive = isEquipmentEntryActive(slotMeta.slotKey, entryIndex);
+                              const entry = currentConfig?.equipment[slotMeta.slotKey].entries[entryIndex];
+                              const entryDisplay = isEntryActive
+                                ? getEquipmentEntryDisplayParts(entry, currentLevel)
+                                : { head: '无', tail: '', full: '无' };
+                              return (
+                                <React.Fragment key={`${slotMeta.slotKey}-${entryIndex}`}>
+                                  <div className={`operator-config-page-equip-button-textdiv${isEntryActive ? '' : ' is-disabled'}`}>
+                                    <span
+                                      className="operator-config-page-equip-button-text"
+                                      onMouseEnter={(event) => {
+                                        const rect = event.currentTarget.getBoundingClientRect();
+                                        setEquipmentTooltip({
+                                          text: entryDisplay.full,
+                                          x: rect.left - 4,
+                                          y: rect.bottom - 44,
+                                        });
+                                      }}
+                                      onMouseMove={(event) => {
+                                        const rect = event.currentTarget.getBoundingClientRect();
+                                        setEquipmentTooltip({
+                                          text: entryDisplay.full,
+                                          x: rect.left - 4,
+                                          y: rect.bottom - 44,
+                                        });
+                                      }}
+                                      onMouseLeave={() => {
+                                        setEquipmentTooltip(null);
+                                      }}
+                                    >
+                                      <span className="operator-config-page-equip-button-text-head">{entryDisplay.head}</span>
+                                      {entryDisplay.tail ? <span className="operator-config-page-equip-button-text-tail">{entryDisplay.tail}</span> : null}
+                                    </span>
+                                  </div>
+                                  <div className={`operator-config-page-equip-button-row ${slotMeta.rowClass}${isEntryActive ? '' : ' is-disabled'}`}>
+                                    {equipConfigIndices.map((buttonNumber) => (
+                                      <button
+                                        key={`${slotMeta.slotKey}-${entryIndex}-${buttonNumber}`}
+                                        type="button"
+                                        className={`operator-config-page-equip-button ${getEquipmentConfigButtonState(buttonNumber, Number(currentLevel))}`}
+                                        aria-label={`${slotMeta.slotKey} 词条 ${entryIndex + 1} 档位 L${buttonNumber}`}
+                                        aria-pressed={buttonNumber === Number(currentLevel)}
+                                        disabled={!isEntryActive}
+                                        onClick={() => {
+                                          updateEquipmentEntryLevel(
+                                            slotMeta.slotKey,
+                                            entryIndex,
+                                            Number(currentLevel) === buttonNumber ? buttonNumber - 1 : buttonNumber
+                                          );
+                                        }}
+                                      />
+                                    ))}
+                                  </div>
+                                </React.Fragment>
+                              );
+                            })}
+                          </div>
+                        ))}
+                      </div>
                     </div>
+                    <div className="operator-config-page-equip-visual-bottom" aria-hidden="true" />
+                  </div>
                   <div className="operator-config-page-equip-archive" aria-hidden="true" data-archived-row-count={EQUIPMENT_FORM_ROWS.length}>
                     {/* 旧装备数值表单存档：后续可能恢复
                     <div className="config-equip-values-box operator-config-page-equip-values-box">
@@ -1180,51 +1300,51 @@ export function OperatorConfigPage() {
                           <div className="operator-config-page-level-track" aria-label="角色等级滑条">
                             {levelIndices.map((levelNumber) => (
                               <button
-                              key={levelNumber}
-                              type="button"
-                              className={`operator-config-page-level-slot${levelNumber <= characterLevelCount ? ' is-active' : ''}`}
-                              aria-label={`等级按钮 ${levelNumber}`}
-                              aria-pressed={levelNumber <= characterLevelCount}
-                              onClick={() => {
-                                const nextCount = characterLevelCount >= levelNumber ? levelNumber - 1 : levelNumber;
-                                updateCurrentConfig((prev) => ({
-                                  ...prev,
-                                  character: {
-                                    ...prev.character,
-                                    config: {
-                                      ...prev.character.config,
-                                      level: levelCountToValue(nextCount),
+                                key={levelNumber}
+                                type="button"
+                                className={`operator-config-page-level-slot${levelNumber <= characterLevelCount ? ' is-active' : ''}`}
+                                aria-label={`等级按钮 ${levelNumber}`}
+                                aria-pressed={levelNumber <= characterLevelCount}
+                                onClick={() => {
+                                  const nextCount = characterLevelCount >= levelNumber ? levelNumber - 1 : levelNumber;
+                                  updateCurrentConfig((prev) => ({
+                                    ...prev,
+                                    character: {
+                                      ...prev.character,
+                                      config: {
+                                        ...prev.character.config,
+                                        level: levelCountToValue(nextCount),
+                                      },
                                     },
+                                  }));
+                                }}
+                              />
+                            ))}
+                          </div>
+                          <button
+                            type="button"
+                            className={`operator-config-page-level-badge-box${characterPotentialCount > 0 ? ' is-active' : ''}${characterPotentialCount === 6 ? ' is-max' : ''}`}
+                            aria-label={`角色五角星计数器，当前 ${characterPotentialCount}`}
+                            aria-pressed={characterPotentialCount > 0}
+                            onClick={(event) => {
+                              updateCurrentConfig((prev) => ({
+                                ...prev,
+                                character: {
+                                  ...prev.character,
+                                  config: {
+                                    ...prev.character.config,
+                                    potential: countToPotential(characterPotentialCount >= 6 ? 1 : characterPotentialCount + 1),
                                   },
-                                }));
-                              }}
-                            />
-                          ))}
-                        </div>
-                        <button
-                          type="button"
-                          className={`operator-config-page-level-badge-box${characterPotentialCount > 0 ? ' is-active' : ''}${characterPotentialCount === 6 ? ' is-max' : ''}`}
-                          aria-label={`角色五角星计数器，当前 ${characterPotentialCount}`}
-                          aria-pressed={characterPotentialCount > 0}
-                          onClick={(event) => {
-                            updateCurrentConfig((prev) => ({
-                              ...prev,
-                              character: {
-                                ...prev.character,
-                                config: {
-                                  ...prev.character.config,
-                                  potential: countToPotential(characterPotentialCount >= 6 ? 1 : characterPotentialCount + 1),
                                 },
-                              },
-                            }));
-                            event.currentTarget.blur();
-                          }}
-                        >
-                          <WeaponStarGlyph
-                            className="operator-config-page-level-badge-svg"
-                            count={characterPotentialCount}
-                            viewBox="-24 -26 126 122"
-                          />
+                              }));
+                              event.currentTarget.blur();
+                            }}
+                          >
+                            <WeaponStarGlyph
+                              className="operator-config-page-level-badge-svg"
+                              count={characterPotentialCount}
+                              viewBox="-24 -26 126 122"
+                            />
                           </button>
                         </div>
                         <div className="operator-config-page-role-meta">
@@ -1255,12 +1375,13 @@ export function OperatorConfigPage() {
                         }}
                       >
                         <span className="config-weapon-choose-name">{currentWeaponName || '未选择武器'}</span>
-                        <span className="config-weapon-choose-detail">{`ATK ${currentWeaponAttack ?? '---'} / Lv.${currentWeaponLevel}`}</span>
-                        <span className="config-weapon-choose-detail">{currentWeaponSkill1Text}</span>
-                        <span className="config-weapon-choose-detail">{currentWeaponSkill2Text}</span>
-                        <span className="config-weapon-choose-detail">{currentWeaponSkill3Text}</span>
+
                       </button>
                       <div className="config-weapon-choose-img-area">
+                        <div className="config-weapon-choose-detail-textarea">
+                          <span className="config-weapon-choose-meta-line">{currentWeaponRarityType || '武器信息未接入'}</span>
+                          <span className="config-weapon-choose-meta-line">{currentWeaponMetaLine}</span>
+                        </div>
                         <button
                           type="button"
                           className="config-weapon-choose-img-square config-weapon-choose-img-button"
@@ -1338,7 +1459,15 @@ export function OperatorConfigPage() {
                             />
                           ))}
                         </div>
-                        <div className="config-weapon-config-text">{weaponSkillLevel1}</div>
+                          <div className="config-weapon-config-text">
+                            <span className="config-weapon-config-value">{weaponSkillLevel1}</span>
+                            <span className="config-weapon-config-summary">
+                              <span className="config-weapon-config-summary-label">{currentWeaponSkill1Text.label}</span>
+                              {currentWeaponSkill1Text.typeKey ? <span className="config-weapon-config-summary-dot">·</span> : null}
+                              {currentWeaponSkill1Text.typeKey ? <span className="config-weapon-config-summary-type">{currentWeaponSkill1Text.typeKey}</span> : null}
+                              {currentWeaponSkill1Text.tail ? <span className="config-weapon-config-summary-tail">{currentWeaponSkill1Text.tail}</span> : null}
+                            </span>
+                          </div>
                       </div>
                       <div className="config-weapon-config-container">
                         <div className="config-weapon-config-button-row" aria-label="武器配置按钮组 2">
@@ -1367,7 +1496,15 @@ export function OperatorConfigPage() {
                             />
                           ))}
                         </div>
-                        <div className="config-weapon-config-text">{weaponSkillLevel2}</div>
+                          <div className="config-weapon-config-text">
+                            <span className="config-weapon-config-value">{weaponSkillLevel2}</span>
+                            <span className="config-weapon-config-summary">
+                              <span className="config-weapon-config-summary-label">{currentWeaponSkill2Text.label}</span>
+                              {currentWeaponSkill2Text.typeKey ? <span className="config-weapon-config-summary-dot">·</span> : null}
+                              {currentWeaponSkill2Text.typeKey ? <span className="config-weapon-config-summary-type">{currentWeaponSkill2Text.typeKey}</span> : null}
+                              {currentWeaponSkill2Text.tail ? <span className="config-weapon-config-summary-tail">{currentWeaponSkill2Text.tail}</span> : null}
+                            </span>
+                          </div>
                       </div>
                       <div className="config-weapon-config-container-3">
                         <div className="config-weapon-config-button-row" aria-label="武器配置按钮组 3">
@@ -1396,7 +1533,19 @@ export function OperatorConfigPage() {
                             />
                           ))}
                         </div>
-                        <div className="config-weapon-config-text-3">{weaponSkillLevel3}</div>
+                        <div className="config-weapon-config-text-3">
+                          <span className="config-weapon-config-value">{weaponSkillLevel3}</span>
+                            <span className="config-weapon-config-summary config-weapon-config-summary--multiline">
+                              {currentWeaponSkill3Lines.map((line, index) => (
+                                <span key={`weapon-skill3-${index}`} className="config-weapon-config-summary-line">
+                                  <span className="config-weapon-config-summary-label">{line.label}</span>
+                                  {line.typeKey ? <span className="config-weapon-config-summary-dot">·</span> : null}
+                                  {line.typeKey ? <span className="config-weapon-config-summary-type">{line.typeKey}</span> : null}
+                                  {line.tail ? <span className="config-weapon-config-summary-tail">{line.tail}</span> : null}
+                                </span>
+                              ))}
+                            </span>
+                        </div>
                       </div>
                     </div>
                   </div>
