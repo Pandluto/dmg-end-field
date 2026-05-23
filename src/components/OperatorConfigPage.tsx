@@ -157,9 +157,9 @@ type EquipmentEntryIndex = 0 | 1 | 2;
 const WEAPON_LIBRARY_STORAGE_KEY = 'def.weapon-sheet.library.v1';
 const EQUIPMENT_LIBRARY_STORAGE_KEY = 'def.equipment-sheet.draft.v1';
 const EQUIPMENT_SLOT_METAS = [
-  { slotKey: 'accessory1', groupClass: 'operator-config-page-equip-button-group--1', rowClass: 'operator-config-page-equip-button-row--1', part: '配件', circleClass: 'operator-config-page-equip-circle--1' },
+  { slotKey: 'armor', groupClass: 'operator-config-page-equip-button-group--1', rowClass: 'operator-config-page-equip-button-row--1', part: '护甲', circleClass: 'operator-config-page-equip-circle--1' },
   { slotKey: 'accessory2', groupClass: 'operator-config-page-equip-button-group--2', rowClass: 'operator-config-page-equip-button-row--2', part: '配件', circleClass: 'operator-config-page-equip-circle--2' },
-  { slotKey: 'armor', groupClass: 'operator-config-page-equip-button-group--3', rowClass: 'operator-config-page-equip-button-row--3', part: '护甲', circleClass: 'operator-config-page-equip-circle--3' },
+  { slotKey: 'accessory1', groupClass: 'operator-config-page-equip-button-group--3', rowClass: 'operator-config-page-equip-button-row--3', part: '配件', circleClass: 'operator-config-page-equip-circle--3' },
   { slotKey: 'glove', groupClass: 'operator-config-page-equip-button-group--4', rowClass: 'operator-config-page-equip-button-row--4', part: '护手', circleClass: 'operator-config-page-equip-circle--4' },
 ] as const satisfies ReadonlyArray<{ slotKey: EquipmentSlotKey; groupClass: string; rowClass: string; part: EquipmentPart; circleClass: string }>;
 
@@ -254,7 +254,7 @@ function normalizeWeaponLibrary(raw: unknown): Record<string, WeaponData & { id:
 function createEquipmentEntry(entryId: string): OperatorConfigPageEntryState {
   return {
     id: entryId,
-    config: { level: 3 },
+    config: { level: 0 },
     data: {},
   };
 }
@@ -262,7 +262,7 @@ function createEquipmentEntry(entryId: string): OperatorConfigPageEntryState {
 function createEquipmentPiece(pieceId = ''): OperatorConfigPageEquipmentPieceState {
   return {
     id: pieceId,
-    entryCount: 3,
+    entryCount: 0,
     entries: [
       createEquipmentEntry('entry1'),
       createEquipmentEntry('entry2'),
@@ -357,7 +357,7 @@ function createEquipmentPieceFromItem(item: EquipmentItem): OperatorConfigPageEq
     .filter((effect): effect is EquipmentEffect => Boolean(effect))
     .map((effect) => ({
       id: effect.effectId,
-      config: { level: 3 },
+      config: { level: 0 },
       data: effect as unknown as Record<string, unknown>,
     }));
 
@@ -368,10 +368,47 @@ function createEquipmentPieceFromItem(item: EquipmentItem): OperatorConfigPageEq
 
   return {
     id: item.equipmentId,
-    entryCount: Math.max(1, Math.min(3, effectEntries.length || 1)),
+    entryCount: Math.max(0, Math.min(3, effectEntries.length)),
     entries: fallbackEntries,
     config: {},
     data: item as unknown as Record<string, unknown>,
+  };
+}
+
+function formatEquipmentEffectValue(effect: EquipmentEffect | undefined, level: number | string): string {
+  if (!effect) return '0';
+  const key = String(level) as EquipmentLevelKey;
+  const numericValue = typeof effect.levels[key] === 'number' ? effect.levels[key] : 0;
+  const suffix = effect.unit === 'percent' ? '%' : '';
+  return `${numericValue}${suffix}`;
+}
+
+function truncateMiddleText(text: string, startCount: number, endCount: number): string {
+  if (text.length <= startCount + endCount + 1) {
+    return text;
+  }
+  return `${text.slice(0, startCount)}…${text.slice(-endCount)}`;
+}
+
+function getEquipmentEntryDisplayParts(entry: OperatorConfigPageEntryState | undefined, level: number | string): {
+  head: string;
+  tail: string;
+  full: string;
+} {
+  if (!entry?.data || Object.keys(entry.data).length === 0) {
+    return {
+      head: '无',
+      tail: '',
+      full: '无',
+    };
+  }
+  const effect = entry.data as unknown as EquipmentEffect;
+  const head = `${effect.label} · ${effect.typeKey}`;
+  const tail = `+ ${formatEquipmentEffectValue(effect, level)}`;
+  return {
+    head: truncateMiddleText(head, 4, 5),
+    tail,
+    full: `${head} ${tail}`,
   };
 }
 
@@ -597,6 +634,7 @@ export function OperatorConfigPage() {
   const [isWeaponPickerOpen, setIsWeaponPickerOpen] = React.useState(false);
   const [ctiInputValue, setCtiInputValue] = React.useState('');
   const [isCtiDrawerOpen, setIsCtiDrawerOpen] = React.useState(false);
+  const [equipmentTooltip, setEquipmentTooltip] = React.useState<{ text: string; x: number; y: number } | null>(null);
   const ctiSelectorRef = React.useRef<HTMLDivElement | null>(null);
   const weaponConfigIndices = React.useMemo(() => Array.from({ length: 9 }, (_, index) => index + 1), []);
   const equipConfigIndices = React.useMemo(() => Array.from({ length: 3 }, (_, index) => index + 1), []);
@@ -751,8 +789,31 @@ export function OperatorConfigPage() {
     return 'is-dim';
   }, []);
 
+  const getEquipmentConfigButtonState = React.useCallback((buttonNumber: number, count: number) => {
+    if (count === 0) {
+      return 'is-dim';
+    }
+
+    if (buttonNumber === count) {
+      return 'is-current';
+    }
+
+    if (buttonNumber < count) {
+      return 'is-lit';
+    }
+
+    return 'is-dim';
+  }, []);
+
   const getEquipmentEntryLevel = React.useCallback(
-    (slotKey: EquipmentSlotKey, entryIndex: EquipmentEntryIndex) => currentConfig?.equipment[slotKey].entries[entryIndex]?.config.level ?? 3,
+    (slotKey: EquipmentSlotKey, entryIndex: EquipmentEntryIndex) => currentConfig?.equipment[slotKey].entries[entryIndex]?.config.level ?? 0,
+    [currentConfig]
+  );
+  const isEquipmentEntryActive = React.useCallback(
+    (slotKey: EquipmentSlotKey, entryIndex: EquipmentEntryIndex) => {
+      const entryCount = currentConfig?.equipment[slotKey].entryCount ?? 0;
+      return entryIndex < entryCount;
+    },
     [currentConfig]
   );
   const equipmentOptionsByPart = React.useMemo<Record<EquipmentPart, EquipmentItem[]>>(() => {
@@ -798,6 +859,9 @@ export function OperatorConfigPage() {
   const updateEquipmentEntryLevel = React.useCallback((slotKey: EquipmentSlotKey, entryIndex: EquipmentEntryIndex, nextLevel: number) => {
     updateCurrentConfig((prev) => {
       const piece = prev.equipment[slotKey];
+      if (entryIndex >= piece.entryCount) {
+        return prev;
+      }
       const nextEntries = piece.entries.map((entry, index) =>
         index === entryIndex
           ? {
@@ -892,6 +956,21 @@ export function OperatorConfigPage() {
     };
   }, [isCtiDrawerOpen]);
 
+  React.useEffect(() => {
+    if (!equipmentTooltip) {
+      return;
+    }
+
+    const handlePointerDown = () => {
+      setEquipmentTooltip(null);
+    };
+
+    document.addEventListener('mousedown', handlePointerDown);
+    return () => {
+      document.removeEventListener('mousedown', handlePointerDown);
+    };
+  }, [equipmentTooltip]);
+
   return (
     <div className="operator-config-page-root">
       <div className="operator-config-page-shell">
@@ -941,22 +1020,54 @@ export function OperatorConfigPage() {
                             <div key={slotMeta.slotKey} className={`operator-config-page-equip-button-group ${slotMeta.groupClass}`}>
                               {([0, 1, 2] as const).map((entryIndex) => {
                                 const currentLevel = getEquipmentEntryLevel(slotMeta.slotKey, entryIndex);
+                                const isEntryActive = isEquipmentEntryActive(slotMeta.slotKey, entryIndex);
+                                const entry = currentConfig?.equipment[slotMeta.slotKey].entries[entryIndex];
+                                const entryDisplay = isEntryActive
+                                  ? getEquipmentEntryDisplayParts(entry, currentLevel)
+                                  : { head: '无', tail: '', full: '无' };
                                 return (
                                   <React.Fragment key={`${slotMeta.slotKey}-${entryIndex}`}>
-                                    <div className="operator-config-page-equip-button-textdiv">{currentLevel}</div>
-                                    <div className={`operator-config-page-equip-button-row ${slotMeta.rowClass}`}>
+                                    <div className={`operator-config-page-equip-button-textdiv${isEntryActive ? '' : ' is-disabled'}`}>
+                                      <span
+                                        className="operator-config-page-equip-button-text"
+                                        onMouseEnter={(event) => {
+                                          const rect = event.currentTarget.getBoundingClientRect();
+                                          setEquipmentTooltip({
+                                            text: entryDisplay.full,
+                                            x: rect.left - 4,
+                                            y: rect.bottom - 44,
+                                          });
+                                        }}
+                                        onMouseMove={(event) => {
+                                          const rect = event.currentTarget.getBoundingClientRect();
+                                          setEquipmentTooltip({
+                                            text: entryDisplay.full,
+                                            x: rect.left - 4,
+                                            y: rect.bottom - 44,
+                                          });
+                                        }}
+                                        onMouseLeave={() => {
+                                          setEquipmentTooltip(null);
+                                        }}
+                                      >
+                                        <span className="operator-config-page-equip-button-text-head">{entryDisplay.head}</span>
+                                        {entryDisplay.tail ? <span className="operator-config-page-equip-button-text-tail">{entryDisplay.tail}</span> : null}
+                                      </span>
+                                    </div>
+                                    <div className={`operator-config-page-equip-button-row ${slotMeta.rowClass}${isEntryActive ? '' : ' is-disabled'}`}>
                                       {equipConfigIndices.map((buttonNumber) => (
                                         <button
                                           key={`${slotMeta.slotKey}-${entryIndex}-${buttonNumber}`}
                                           type="button"
-                                          className={`operator-config-page-equip-button ${getWeaponConfigButtonState(buttonNumber, Number(currentLevel))}`}
-                                          aria-label={`${slotMeta.slotKey} 词条 ${entryIndex + 1} 档位 ${buttonNumber}`}
-                                          aria-pressed={buttonNumber <= Number(currentLevel)}
+                                          className={`operator-config-page-equip-button ${getEquipmentConfigButtonState(buttonNumber, Number(currentLevel))}`}
+                                          aria-label={`${slotMeta.slotKey} 词条 ${entryIndex + 1} 档位 L${buttonNumber}`}
+                                          aria-pressed={buttonNumber === Number(currentLevel)}
+                                          disabled={!isEntryActive}
                                           onClick={() => {
                                             updateEquipmentEntryLevel(
                                               slotMeta.slotKey,
                                               entryIndex,
-                                              getNextWeaponConfigCount(Number(currentLevel), buttonNumber)
+                                              Number(currentLevel) === buttonNumber ? buttonNumber - 1 : buttonNumber
                                             );
                                           }}
                                         />
@@ -1424,6 +1535,17 @@ export function OperatorConfigPage() {
               ) : null}
             </div>
           </div>
+        </div>
+      ) : null}
+      {equipmentTooltip ? (
+        <div
+          className="operator-config-page-equip-tooltip"
+          style={{
+            left: `${equipmentTooltip.x}px`,
+            top: `${equipmentTooltip.y}px`,
+          }}
+        >
+          {equipmentTooltip.text}
         </div>
       ) : null}
       {isWeaponPickerOpen ? (

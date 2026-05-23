@@ -329,15 +329,62 @@
 
 .operator-config-page-equip-button-textdiv   {
   width: 100%;
-  height: 20px;
-  padding: 1px;
+  height: 24px;
+  padding: 0 3px;
   border: 1px solid #000000;
   background: transparent;
   box-sizing: border-box;
-  text-align: flex-start;
-
-  font-size: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  overflow: hidden;
+  text-align: left;
+  font-size: 9px;
+  line-height: 1.1;
   font-weight: 400;
+  position: relative;
+  pointer-events: auto;
+}
+
+.operator-config-page-equip-button-textdiv.is-disabled {
+  color: rgba(0, 0, 0, 0.65);
+}
+
+.operator-config-page-equip-button-text {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  overflow: hidden;
+  width: 100%;
+}
+
+.operator-config-page-equip-button-text-head {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.operator-config-page-equip-button-text-tail {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: clip;
+}
+
+.operator-config-page-equip-tooltip {
+  position: fixed;
+  min-width: 66px;
+  max-width: 140px;
+  padding: 4px 6px;
+  border: 1px solid #000000;
+  background: rgba(255, 255, 255, 0.5);
+  color: #000000;
+  font-size: 10px;
+  line-height: 1.2;
+  white-space: normal;
+  word-break: break-word;
+  z-index: 9999;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.18);
+  pointer-events: none;
 }
 
 .operator-config-page-equip-button-row {
@@ -350,6 +397,10 @@
   border: 1px solid #000000;
   border-radius: 999px;
   box-sizing: border-box;
+}
+
+.operator-config-page-equip-button-row.is-disabled {
+  opacity: 0.65;
 }
 
 .operator-config-page-equip-button {
@@ -365,6 +416,10 @@
   margin: 0;
   cursor: pointer;
   pointer-events: auto;
+}
+
+.operator-config-page-equip-button:disabled {
+  cursor: default;
 }
 
 .operator-config-page-equip-button::before {
