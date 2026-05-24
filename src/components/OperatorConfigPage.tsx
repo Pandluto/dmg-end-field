@@ -166,8 +166,8 @@ const EQUIPMENT_FORM_ROWS = [
   },
 ] as const;
 
-const CHARACTER_LEVEL_VALUES = [1, 20, 40, 60, 80, 90] as const;
-const CHARACTER_LEVEL_LABELS = ['1级', '20级', '40级', '60级', '80级', '90级'] as const;
+const CHARACTER_LEVEL_VALUES = [1, 20, 30, 40, 50, 60, 70, 80, 90] as const;
+const CHARACTER_LEVEL_LABELS = ['1级', '20级', '30级', '40级', '50级', '60级', '70级', '80级', '90级'] as const;
 const DEFAULT_WEAPON_SKILL_LEVELS = {
   skill1: 9,
   skill2: 9,
@@ -791,13 +791,7 @@ function SkillTrackRow({ skillKey, label, stage, onChange, onOpenDetails }: Skil
     <div className="operator-config-page-track-row">
       <div className="operator-config-page-track-heading">
         <span className="operator-config-page-track-key">{skillKey}</span>
-        <button
-          type="button"
-          className="operator-config-page-track-label-button"
-          onClick={onOpenDetails}
-        >
-          <span className="operator-config-page-track-label">{label}</span>
-        </button>
+        <span className="operator-config-page-track-label">{label}</span>
         <span className="operator-config-page-track-sublabel">{currentLevelLabel}</span>
         <button
           type="button"
@@ -992,7 +986,7 @@ export function OperatorConfigPage() {
   const ctiSelectorRef = React.useRef<HTMLDivElement | null>(null);
   const weaponConfigIndices = React.useMemo(() => Array.from({ length: 9 }, (_, index) => index + 1), []);
   const equipConfigIndices = React.useMemo(() => Array.from({ length: 3 }, (_, index) => index + 1), []);
-  const levelIndices = React.useMemo(() => Array.from({ length: CHARACTER_LEVEL_VALUES.length - 1 }, (_, index) => index + 1), []);
+  const levelIndices = React.useMemo(() => Array.from({ length: 8 }, (_, index) => index + 1), []);
 
   const persistConfigMap = React.useCallback((nextConfigMap: OperatorConfigPageCache) => {
     setOperatorConfigPageCache(nextConfigMap);
