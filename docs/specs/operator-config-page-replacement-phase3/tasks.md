@@ -1,0 +1,151 @@
+# OperatorConfigPage 面板数据显示与计算逻辑 Phase 3 Tasks
+
+## Tasks
+
+- [ ] 在 `OperatorConfigPage` 增加返回主界面按钮。
+- [ ] 返回按钮使用 `navigateToAppPath(APP_ROUTE_PATHS.home)`。
+- [ ] 确认返回时不清空 `OperatorConfigPage` 缓存。
+- [ ] 保持当前“面板数据”栏 UI 布局不变。
+- [ ] 不新增“面板数据”栏常驻字段。
+- [ ] 将 `基础数据` 标题文字改为 `面板数据` 可点击入口。
+- [ ] 点击 `面板数据` 标题打开 markdown 面板详情弹窗。
+- [ ] 面板详情弹窗内容来自 `ConfigSnapshot.detailMarkdown`。
+- [ ] `detailMarkdown` 包含干员面板、干员能力值、面板能力值、装备、主副能力换算、能力值加成、基础属性、攻击力计算、暴击、源石技艺、抗性、治疗与充能、伤害加成、武器。
+- [ ] 未实现字段在 markdown 中显示 `未实现` 或 `暂无`，不伪造数值。
+- [ ] 明确显示字段与 `ConfigSnapshot` 存储字段分离。
+- [ ] 增加显示映射层，从 `ConfigSnapshot` 派生常驻面板和 markdown 展示。
+- [ ] 显示字段按 `基础 / 主副能力 / 四维能力 / 暴击与技艺 / 效率 / 元素伤害 / 技能伤害 / 特殊伤害` 分组。
+- [ ] `基础` 显示 `生命值 / 攻击力 / 防御力`。
+- [ ] `主副能力` 显示 `主能力 / 副能力`，并表达能力名称和计算后数值。
+- [ ] `四维能力` 显示 `力量 / 敏捷 / 智识 / 意志`。
+- [ ] `暴击与技艺` 显示 `暴击率 / 暴击伤害 / 源石技艺强度`。
+- [ ] `效率` 显示 `治疗效率加成 / 受治疗效率加成 / 连携技冷却缩减 / 终结技充能效率 / 失衡效率加成`。
+- [ ] `元素伤害` 显示 `物理伤害加成 / 灼热伤害加成 / 电磁伤害加成 / 寒冷伤害加成 / 自然伤害加成`。
+- [ ] `技能伤害` 显示 `普通攻击伤害加成 / 战技伤害加成 / 连携技伤害加成 / 终结技伤害加成`。
+- [ ] `特殊伤害` 显示 `对失衡目标伤害加成`。
+- [ ] 保留角色等级区现有 8 个按钮布局。
+- [ ] 将 `30 / 50 / 70` 等级按钮显示为禁用态。
+- [ ] 禁止 `30 / 50 / 70` 写入角色等级配置。
+- [ ] 禁止 `30 / 50 / 70` 触发面板重算。
+- [ ] 确认 `1 / 20 / 40 / 60 / 80 / 90` 仍可点击。
+- [ ] 将可用角色等级映射到 `level1 / level20 / level40 / level60 / level80 / level90`。
+- [ ] 在 `90级` 按钮旁边增加好感值入口。
+- [ ] 好感值入口使用独立图层或浮层方式，不挤占既有等级按钮。
+- [ ] 好感值输入为可编辑数值文本框，默认值为 `60`。
+- [ ] 好感值变化触发 `panel.calc` 重算。
+- [ ] 好感值进入当前 operator 配置和 `ConfigSnapshot.operator`。
+- [ ] 梳理旧 `OperatorConfigPanel.tsx` 面板计算规则。
+- [ ] 明确旧 `panelSnapshot / infoSnap / infoSnapshot` 只作为参考，不作为 Phase 3 目标结构。
+- [ ] 定义新的 `ConfigSnapshot` 顶层结构：`panel / operator / weapon / equipment / buff / detailMarkdown`。
+- [ ] 将 `ConfigSnapshot.panel` 拆为 `calc / display`。
+- [ ] `panel.calc` 消费 `operator / weapon / equipment`。
+- [ ] `panel.calc` 不自动消费 `buff`。
+- [ ] `panel.display` 只消费 `panel.calc`。
+- [ ] `panel.calc` 保留 `allSkillDmgBonus / magicDmgBonus / allDmgBonus` 等原子字段，不在 calc 层拆分。
+- [ ] `panel.display` 展开 `allSkillDmgBonus / magicDmgBonus / allDmgBonus` 到对应显示项。
+- [ ] Phase 3 不使用 `allElementDmgBonus`；旧 `allElementDmgBonus` 语义统一收敛到 `magicDmgBonus`。
+- [ ] `magicDmgBonus` 表示非物理元素通用伤害加成，只展开到 `灼热 / 电磁 / 寒冷 / 自然`。
+- [ ] `allDmgBonus` 表示全伤害加成，展开到 `物理 / 灼热 / 电磁 / 寒冷 / 自然`。
+- [ ] `panel.display` 展开结果仅用于展示，不反向参与计算。
+- [ ] 常驻面板和 markdown 详情只读取 `panel.display`。
+- [ ] 统一使用 `operator` 命名，不新增 `character` 命名。
+- [ ] 新增独立面板计算模块。
+- [ ] 避免把面板计算继续写入 `OperatorConfigPage.tsx`。
+- [ ] 定义面板计算输入结构。
+- [ ] 定义角色输入：基础属性、主属性、副属性、等级。
+- [ ] 定义武器输入：当前武器等级、技能档位、武器攻击、武器技能明细和武器汇总贡献。
+- [ ] 武器攻击读取 `attackGrowth.<当前武器等级>`，缺失时可回退 `attackGrowth.90`。
+- [ ] 武器技能档位读取 `weapon.config.skillLevels.skill1 / skill2 / skill3`。
+- [ ] 不再使用旧 panel 的固定武器技能等级规则。
+- [ ] `skill1 / skill2` 读取当前档位 `levels.<当前等级>.value` 与 `statType`。
+- [ ] `skill1.statType` 只使用 weapon sheet 的 `skill1` 可选字段映射。
+- [ ] `skill1` 的 `strengthBoost / agilityBoost / intelligenceBoost / willBoost` 按四维固定值处理。
+- [ ] `skill1` 的 `mainStatBoost / subStatBoost` 按主副能力固定值处理，不与装备同名百分比混用。
+- [ ] `skill2.statType` 只使用 weapon sheet 的 `skill2` 可选字段映射。
+- [ ] `skill2` 的 `hp` 按生命百分比处理，MUST 归一化为 `weapon.totals.hpPercent`。
+- [ ] `skill2` 的 `critDmgBonusBoost` 按暴击伤害提升处理，进入 `weapon.totals.critDmgBonusBoost`。
+- [ ] `skill3` 读取当前档位 `effects.<effectKey>.levels.<当前等级>` 与 `effect.type`。
+- [ ] 生成 `ConfigSnapshot.weapon.skills` 明细。
+- [ ] 每条武器技能明细保存 `skillKey / effectKey / label / typeKey / level / value / raw`。
+- [ ] 生成 `ConfigSnapshot.weapon.totals`，按 `typeKey` 汇总当前档位数值。
+- [ ] `panel.calc` 只消费 `weapon.attack` 与 `weapon.totals`，不直接遍历武器技能明细。
+- [ ] 武器贡献必须先进入 `panel.calc`，不得由 `weapon.skills` 或 `weapon.totals` 直接驱动 `panel.display`。
+- [ ] `panel.display` 只消费 `panel.calc` 派生后的结果。
+- [ ] `skill3` 只有 `category = passive` 的 effect 进入 `weapon.totals` 并被 `panel.calc` 消费。
+- [ ] `skill3` 的 `category = condition` effect 视为 buff 候选，进入明细和 markdown。
+- [ ] `skill3` 的 `category = condition` effect 不进入 `weapon.totals`，不参与 `panel.calc`。
+- [ ] `skill3` 的 `category = condition` effect 保留 `typeKey / level / value / raw`，供后续 buff 链路消费。
+- [ ] 定义装备输入：当前装备词条档位汇总。
+- [ ] 明确装备贡献唯一正式来源为当前 4 件装备的有效词条和档位。
+- [ ] Phase 3 只汇总装备单件有效词条，不汇总装备三件套/套装效果。
+- [ ] 装备三件套/套装效果留到 Phase 4。
+- [ ] 移除 Phase 3 对旧手填 `equipment` 数值对象的兼容要求。
+- [ ] 确认历史旧手填 `equipment` 缓存不迁移、不参与新面板计算。
+- [ ] `fixedStat` 可进入 `ConfigSnapshot.equipment` 原始信息，但 Phase 3 不参与计算。
+- [ ] `fixedStat.defense / hp / flatAtk` 不补防御、生命或攻击。
+- [ ] 生成 `ConfigSnapshot.equipment.effects` 明细。
+- [ ] 每条装备 effect 明细保存 `effectId / label / typeKey / level / value / unit / raw`。
+- [ ] 百分比类装备 effect 在内部统一按小数存储，例如 `10% = 0.1`。
+- [ ] 生成 `ConfigSnapshot.equipment.totals`。
+- [ ] `equipment.totals` 按 `typeKey` 汇总。
+- [ ] 多条相同 `typeKey` 的装备 effect 当前档位值直接相加。
+- [ ] 显示层将小数百分比格式化为 `%` 文案。
+- [ ] `ConfigSnapshot.panel` 只消费 `equipment.totals`，不直接遍历装备明细。
+- [ ] 写入装备 effect 命中字段白名单。
+- [ ] 装备 `攻击力` 命中 `atkPercentBoost`，不命中 `flatAtk`。
+- [ ] 装备 `生命值` 命中 `hpPercent`，不命中固定 `hp`。
+- [ ] 装备 `暴击伤害` 命中 `critDmgBonusBoost`。
+- [ ] 装备 `全伤害减免` 保留为 `damageReduction`，当前显示为 `未接入`。
+- [ ] 装备 `法术伤害加成` 保留为 `magicDmgBonus`，由 `panel.display` 展开，不直接显示独立行。
+- [ ] 装备 `寒冷和电磁伤害加成` 保留为 `iceElectricDmgBonus`，本阶段不拆分。
+- [ ] 装备 `灼热和自然伤害加成` 保留为 `fireNatureDmgBonus`，本阶段不拆分。
+- [ ] 将复合装备字段拆分留给后续 utils / 映射层任务。
+- [ ] 实现前复核并纠正攻击力、主副能力换算与 `abilityBonus` 公式。
+- [ ] 实现力量、敏捷、智识、意志汇总规则。
+- [ ] 实现主属性额外当前好感值 `favorValue` 规则，默认 `60`。
+- [ ] 按旧 panel 草案记录主副属性百分比和全属性百分比规则，并在实现前复核。
+- [ ] 主副属性百分比消费 `equipment.totals.mainStatBoost / subStatBoost`。
+- [ ] 复核武器 `weaponAllStatBoostBonus` 是否继续进入 `allStatScale`。
+- [ ] Phase 3 不从装备读取 `allStatBoost`、固定能力值或 `fixedStat` 参与四维计算。
+- [ ] 按旧 panel 草案记录能力攻击加成规则：主属性 `* 0.005`，副属性 `* 0.002`，并在实现前复核。
+- [ ] `panel.calc.abilityBonus` 内部按小数记录；旧链路兼容字段按百分数点暴露。
+- [ ] 按旧 panel 草案记录分步攻击力规则：`rawAtk / atkPercent / baseAtk / panelAtk`，并在实现前复核。
+- [ ] 攻击力详情展示 `基础攻击 / 百分比加成 / 最终基础 / 面板攻击` 四段。
+- [ ] 攻击力百分比消费 `equipment.totals.atkPercentBoost`，不消费 `equipment.flatAtk`。
+- [ ] `panel.calc.atkPercent` 内部按小数记录；旧链路兼容字段 `weaponAtkPercent` 保持旧语义和百分数点单位。
+- [ ] 实现生命值规则。
+- [ ] 生命值消费 `equipment.totals.hpPercent`，不消费 `equipment.hp`。
+- [ ] 实现暴击率和暴击伤害规则。
+- [ ] 暴击率消费 `equipment.totals.critRateBoost`。
+- [ ] 暴击伤害默认 `0.5`，并汇总 `equipment.totals.critDmgBonusBoost / weapon.totals.critDmgBonusBoost`。
+- [ ] 武器 `skill2` 与 `skill3 category = passive` 的暴击伤害贡献统一归一化为 `weapon.totals.critDmgBonusBoost`。
+- [ ] 历史或武器字段 `critDmgBonus` 若出现，Phase 3 统一归一化为 `critDmgBonusBoost`。
+- [ ] 汇总元素伤害加成、技能类型伤害加成和全伤害加成。
+- [ ] `panel.calc.damageBonus` 不包含 `allElementDmgBonus`。
+- [ ] `panel.display.damageBonus.physicalDmgBonus = physicalDmgBonus + allDmgBonus`。
+- [ ] `panel.display.damageBonus.fire/electric/ice/nature = 对应元素DmgBonus + magicDmgBonus + allDmgBonus`。
+- [ ] `panel.display.damageBonus.skill/chainSkill/ultimate = 对应技能DmgBonus + allSkillDmgBonus`。
+- [ ] `panel.display.damageBonus.normalAttackDmgBonus = normalAttackDmgBonus`。
+- [ ] `panel.display.damageBonus.imbalanceDmgBonus = imbalanceDmgBonus`。
+- [ ] 输出统一 `ConfigSnapshot`。
+- [ ] 将最终面板计算结果和原子字段放入 `ConfigSnapshot.panel.calc`。
+- [ ] 将显示映射结果放入 `ConfigSnapshot.panel.display`。
+- [ ] 将当前 operator 原始数据和配置放入 `ConfigSnapshot.operator`。
+- [ ] 将当前武器配置、攻击和贡献放入 `ConfigSnapshot.weapon`。
+- [ ] 将当前 4 件装备和汇总贡献放入 `ConfigSnapshot.equipment`。
+- [ ] `ConfigSnapshot.buff.operator / weapon / equipment` 暂只统计可替代 buff 的 `id`。
+- [ ] Phase 3 不保存完整 buff 明细，不定义 buff 参数、触发条件、数值或开关状态。
+- [ ] `ConfigSnapshot.buff` 不作为常驻面板计算结果，后续再修正式 buff 链路。
+- [ ] 将 markdown 详情放入 `ConfigSnapshot.detailMarkdown`。
+- [ ] 让 `OperatorConfigPage` 读取新计算模块输出并渲染。
+- [ ] 确认缺失数据时显示空态，不伪造面板数值。
+- [ ] 回归验证返回、角色切换、等级切换、武器切换、装备档位切换。
+
+## Explicit Non-Tasks
+
+- [ ] 不把角色等级按钮改成 6 个。
+- [ ] 不调整技能区高度。
+- [ ] 不调整技能槽位和尾标布局。
+- [ ] 不实现 `30 / 50 / 70` 插值或就近取值。
+- [ ] 不直接复制旧 `OperatorConfigPanel.tsx` 的组件状态管理。
+- [ ] 不新增独立角色选择器。
