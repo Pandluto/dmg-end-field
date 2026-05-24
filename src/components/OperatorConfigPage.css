@@ -807,11 +807,8 @@
   background: #FFF59D;
 }
 
-.operator-config-page-level-slot.is-disabled,
-.operator-config-page-level-slot:disabled {
-  background: #BDBDBD;
-  cursor: default;
-  opacity: 0.72;
+.operator-config-page-level-slot.is-disabled {
+  cursor: not-allowed;
 }
 
 .operator-config-page-favor-input-layer {

@@ -1844,7 +1844,7 @@ export function OperatorConfigPage() {
                                   className={`operator-config-page-level-slot${levelNumber <= characterLevelCount ? ' is-active' : ''}${isDisabledLevel ? ' is-disabled' : ''}`}
                                   aria-label={`等级按钮 ${levelNumber}`}
                                   aria-pressed={levelNumber <= characterLevelCount}
-                                  disabled={isDisabledLevel}
+                                  aria-disabled={isDisabledLevel}
                                   onClick={() => {
                                     if (isDisabledLevel) return;
                                     const nextCount = characterLevelCount >= levelNumber ? levelNumber - 1 : levelNumber;
