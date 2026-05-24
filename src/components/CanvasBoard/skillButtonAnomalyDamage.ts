@@ -191,10 +191,9 @@ export function buildAnomalyDamageSegments({
         + (((buffTotals[`${elementKey}DmgBonus` as keyof typeof buffTotals] || 0) as number))
         + ((parsedDamageBonusRecord.magicDmgBonus || 0) as number)
         + (buffTotals.magicDmgBonus || 0)
-        + ((parsedDamageBonusRecord.allElementDmgBonus || 0) as number)
-        + (buffTotals.allElementDmgBonus || 0));
+        + ((parsedDamageBonusRecord.allElementDmgBonus || 0) as number));
     const skillBonus = 0;
-    const allDamageBonus = damageBonus.allDmgBonus || 0;
+    const allDamageBonus = (damageBonus.allDmgBonus || 0) + (buffTotals.allDmgBonus || 0);
     const damageBonusRate = 1 + elementBonus + skillBonus + allDamageBonus;
     const amplifyRate = calculateAmplifyRate(elementKey, buffTotals);
     const fragileRate = calculateVulnerabilityRate(elementKey, buffTotals);
@@ -275,10 +274,9 @@ export function buildAnomalyDamageSegments({
         + (((buffTotals[`${elementKey}DmgBonus` as keyof typeof buffTotals] || 0) as number))
         + ((parsedDamageBonusRecord.magicDmgBonus || 0) as number)
         + (buffTotals.magicDmgBonus || 0)
-        + ((parsedDamageBonusRecord.allElementDmgBonus || 0) as number)
-        + (buffTotals.allElementDmgBonus || 0));
+        + ((parsedDamageBonusRecord.allElementDmgBonus || 0) as number));
     const skillBonus = 0;
-    const allDamageBonus = damageBonus.allDmgBonus || 0;
+    const allDamageBonus = (damageBonus.allDmgBonus || 0) + (buffTotals.allDmgBonus || 0);
     const damageBonusRate = 1 + elementBonus + skillBonus + allDamageBonus;
     const amplifyRate = calculateAmplifyRate(elementKey, buffTotals);
     const fragileRate = calculateVulnerabilityRate(elementKey, buffTotals);

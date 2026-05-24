@@ -114,13 +114,10 @@ function toDamageBonusRecord(damageBonus: DamageBonusSnapshot): Record<string, n
 }
 
 function calculateAllDamageBonus(
-  hit: ResolvedHitTemplate,
-  damageBonus: DamageBonusSnapshot
+  damageBonus: DamageBonusSnapshot,
+  buffs: ReturnType<typeof calculateBuffTotals>
 ): number {
-  if (hit.element === 'physical') {
-    return damageBonus.allDmgBonus || 0;
-  }
-  return 0;
+  return (damageBonus.allDmgBonus || 0) + (buffs.allDmgBonus || 0);
 }
 
 function calculateHitZones(
@@ -131,7 +128,7 @@ function calculateHitZones(
   const parsedDamageBonus = toDamageBonusRecord(damageBonus);
   const elementBonus = calculateElementDmgBonus(hit.element, parsedDamageBonus, buffs);
   const skillBonus = calculateSkillDmgBonus(hit.skillType, parsedDamageBonus, buffs);
-  const allDamageBonus = calculateAllDamageBonus(hit, damageBonus);
+  const allDamageBonus = calculateAllDamageBonus(damageBonus, buffs);
   const damageBonusRate = 1 + elementBonus + skillBonus + allDamageBonus;
 
   return {

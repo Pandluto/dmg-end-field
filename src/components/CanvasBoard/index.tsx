@@ -9,7 +9,6 @@ import { CanvasArea } from './components/CanvasArea';
 import { ToolPanel } from '../ToolPanel';
 import { ReportTab } from '../ToolPanel/components/ReportTab';
 import { DraggingOverlay } from './components/DraggingOverlay';
-import { OperatorConfigPanel } from './components/OperatorConfigPanel';
 import { Toolbar } from './components/Toolbar';
 import {
   Character,
@@ -38,7 +37,8 @@ import {
 import { getSkillButtonById } from '../../core/repositories';
 import { attachExistingBuffsToButton } from '../../core/services/buffService';
 import { APP_ROUTE_PATHS, navigateToAppPath } from '../../utils/appRoute';
-import { getRuntimeOperatorTemplateById, setSelectedCharacterIds } from '../../utils/storage';
+import { STORAGE_KEYS } from '../../constants/storage-keys';
+import { getRuntimeOperatorTemplateById, safeSessionStorage, setSelectedCharacterIds } from '../../utils/storage';
 import {
   applyTimelineSnapshotPayload,
   buildTimelineShareFile,
@@ -110,11 +110,8 @@ interface CanvasBoardProps {
   workbenchMode?: 'selection' | 'timeline' | 'toolPanel';
   isToolPanelVisible?: boolean;
   isWorkbenchTopZoneOpen?: boolean;
-  operatorConfigVisible?: boolean;
-  operatorConfigCharacterId?: string | null;
   onSkillButtonModalOpen?: () => void;
   onSkillButtonModalClose?: () => void;
-  onCloseOperatorConfig?: () => void;
   onOpenOperatorConfig?: (characterId: string) => void;
   workbenchControl?: React.ReactNode;
   bottomRightControl?: React.ReactNode;
@@ -124,11 +121,8 @@ export function CanvasBoard({
   workbenchMode: _workbenchMode = 'timeline',
   isToolPanelVisible = true,
   isWorkbenchTopZoneOpen = false,
-  operatorConfigVisible = false,
-  operatorConfigCharacterId = null,
   onSkillButtonModalOpen,
   onSkillButtonModalClose,
-  onCloseOperatorConfig,
   onOpenOperatorConfig,
   workbenchControl,
   bottomRightControl,
@@ -581,15 +575,12 @@ export function CanvasBoard({
   };
 
   const handleAvatarDoubleClick = (characterId: string) => {
-    onOpenOperatorConfig?.(characterId);
-  };
-
-  const closeConfigPanel = () => {
-    onCloseOperatorConfig?.();
-  };
-
-  const handleConfigCharacterSelect = (characterId: string) => {
-    onOpenOperatorConfig?.(characterId);
+    safeSessionStorage.setItem(STORAGE_KEYS.OPERATOR_CONFIG_ACTIVE_CHARACTER, characterId);
+    if (onOpenOperatorConfig) {
+      onOpenOperatorConfig(characterId);
+      return;
+    }
+    navigateToAppPath(APP_ROUTE_PATHS.operatorConfig);
   };
 
   const refreshTimelineSnapshotList = () => {
@@ -812,14 +803,6 @@ export function CanvasBoard({
           <div className="canvas-bottom-zone-right">{bottomRightControl}</div>
         </div>
       </div>
-
-      <OperatorConfigPanel
-        isOpen={operatorConfigVisible}
-        activeCharacterId={operatorConfigCharacterId}
-        selectedCharacters={selectedCharacters}
-        onSelectCharacter={handleConfigCharacterSelect}
-        onClose={closeConfigPanel}
-      />
 
       <DraggingOverlay
         draggingState={draggingState ? { id: draggingState.id, skillType: draggingState.skillType } : null}

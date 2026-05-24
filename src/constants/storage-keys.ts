@@ -1,5 +1,6 @@
 export const STORAGE_KEYS = {
   OPERATOR_CONFIG_PAGE_CACHE: 'def.operator-config.page-cache.v1',
+  OPERATOR_CONFIG_ACTIVE_CHARACTER: 'def.operator-config.active-character.v1',
   // v3 主存储 - 角色输入配置
   CHARACTER_INPUT_MAP: 'def.operator-config.character-input-map.v3',
   // v3 计算缓存

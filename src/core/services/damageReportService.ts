@@ -617,7 +617,7 @@ function buildAnomalyReportHits(
     const anomalyBaseMultiplier = (baseMultiplierPercent / 100) * levelCoefficient * sourceSkillZone;
     const multiplierAfterBonus = anomalyBaseMultiplier + buffTotals.multiplierBonus;
     const finalMultiplier = multiplierAfterBonus * buffTotals.multiplierMultiplier;
-    const allDamageBonus = elementKey === 'physical' ? (characterDamageBonus.allDmgBonus || 0) : 0;
+    const allDamageBonus = (characterDamageBonus.allDmgBonus || 0) + (buffTotals.allDmgBonus || 0);
     const damageBonusRate = 1
       + calculateElementDmgBonus(elementKey, parsedDamageBonusRecord, buffTotals)
       + calculateSkillDmgBonus('', parsedDamageBonusRecord, buffTotals)
@@ -656,7 +656,8 @@ function buildAnomalyReportHits(
     const damageBonusRate = 1
       + calculateElementDmgBonus(elementKey, parsedDamageBonusRecord, buffTotals)
       + calculateSkillDmgBonus('', parsedDamageBonusRecord, buffTotals)
-      + (elementKey === 'physical' ? (characterDamageBonus.allDmgBonus || 0) : 0);
+      + (characterDamageBonus.allDmgBonus || 0)
+      + (buffTotals.allDmgBonus || 0);
     const amplifyRate = calculateAmplifyRate(elementKey, buffTotals);
     const fragileRate = calculateVulnerabilityRate(elementKey, buffTotals);
     const vulnerabilityRate = calculateFragileRate(elementKey, buffTotals);

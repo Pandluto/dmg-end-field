@@ -32,12 +32,14 @@ import { resolveSkillDamageTemplate } from '../../core/services/skillDamageTempl
 import { useAppContext } from '../../context/AppContext';
 import { emitSkillButtonBuffAdded, emitSkillButtonBuffRemoved, onSkillButtonBuffAdded } from '../../core/events/buffEvents';
 import { buildBuffSearchIndex, searchBuffs } from '../../utils/buffFuzzySearch';
+import { refreshSnapshotCandidateBuffsForCharacterIds } from '../../core/services/operatorConfigCandidateBuffService';
 import {
   type AnomalyDamageSegmentView,
   getNormalHitSegmentKey,
   isExtraHitBuff,
   isModifierBuff,
   type LocalBuffSearchResult,
+  readCandidateBuffSearchEntries,
   readLocalBuffSearchEntries,
   buildAppliedBuffTags,
 } from './skillButton.shared';
@@ -81,7 +83,6 @@ export function SkillButtonComponent({
   onChangeSkillType,
   skillChangeOptions = [],
 }: SkillButtonProps) {
-  const isCandidateBuffInteractionEnabled = false;
   /**
    * position.y 语义约定（v1.1.0+）：
    * - position.x: 按钮碰撞箱左边界（原始值，未做视觉偏移）
@@ -144,6 +145,7 @@ export function SkillButtonComponent({
   const [isLocalBuffSearchOpen, setIsLocalBuffSearchOpen] = useState(false);
   const [localBuffSearchKeyword, setLocalBuffSearchKeyword] = useState('');
   const [buffSearchMode, setBuffSearchMode] = useState<'local' | 'anomaly' | 'anomaly-state' | 'state'>('local');
+  const [candidateBuffRefreshToken, setCandidateBuffRefreshToken] = useState(0);
   const [manuallyDisabledBuffIdsBySegmentKey, setManuallyDisabledBuffIdsBySegmentKey] = useState<Record<string, string[]>>({});
 
   // 图标加载失败状态，用于 CSS 类切换
@@ -170,7 +172,13 @@ export function SkillButtonComponent({
     setBuffList(buffs);
   }, [button.id]);
 
-  const localBuffSearchEntries = useMemo(() => readLocalBuffSearchEntries(), [isModalOpen]);
+  const localBuffSearchEntries = useMemo(() => {
+    if (!isModalOpen) return [];
+    return [
+      ...readLocalBuffSearchEntries(),
+      ...readCandidateBuffSearchEntries(),
+    ];
+  }, [candidateBuffRefreshToken, isModalOpen, isLocalBuffSearchOpen]);
   const activeBuffSearchEntries = localBuffSearchEntries;
   const activeBuffSearchIndex = useMemo(() => buildBuffSearchIndex(
     activeBuffSearchEntries,
@@ -226,12 +234,15 @@ export function SkillButtonComponent({
     if (!isLocalBuffSearchOpen) {
       return;
     }
+    refreshSnapshotCandidateBuffsForCharacterIds([button.characterId])
+      .then(() => setCandidateBuffRefreshToken((token) => token + 1))
+      .catch((error) => console.error('刷新技能按钮候选 Buff 失败:', error));
     const timer = window.setTimeout(() => {
       localBuffSearchInputRef.current?.focus();
       localBuffSearchInputRef.current?.select();
     }, 0);
     return () => window.clearTimeout(timer);
-  }, [isLocalBuffSearchOpen]);
+  }, [button.characterId, isLocalBuffSearchOpen]);
 
   useEffect(() => {
     if (!isModalOpen) {
@@ -966,15 +977,6 @@ export function SkillButtonComponent({
                   >
                     本地 Buff
                   </button>
-                  {isCandidateBuffInteractionEnabled ? (
-                    <button
-                      type="button"
-                      className="skill-button-inline-buff-search-mode"
-                      onClick={() => undefined}
-                    >
-                      陈列区 Buff
-                    </button>
-                  ) : null}
                   <button
                     type="button"
                     className={`skill-button-inline-buff-search-mode${buffSearchMode === 'anomaly' ? ' is-active' : ''}`}

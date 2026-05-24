@@ -4,6 +4,8 @@ import { SelectionPanel } from '../SelectionPanel';
 import { CanvasBoard } from '../CanvasBoard';
 import { setSelectedSkillButton } from '../../hooks/useSkillButtonBuffs';
 import { APP_ROUTE_PATHS, navigateToAppPath } from '../../utils/appRoute';
+import { STORAGE_KEYS } from '../../constants/storage-keys';
+import { safeSessionStorage } from '../../utils/storage';
 import { getLocalAgentHealth, requestCloseShell, requestOpenShell } from '../../utils/localAgent';
 import './WorkbenchFrame.css';
 
@@ -14,8 +16,6 @@ export function WorkbenchFrame() {
   const { currentView, selectedCharacters } = state;
   const [isDrawerOpen, setIsDrawerOpen] = useState(true);
   const [workbenchMode, setWorkbenchMode] = useState<WorkbenchMode>('selection');
-  const [operatorConfigVisible, setOperatorConfigVisible] = useState(false);
-  const [operatorConfigCharacterId, setOperatorConfigCharacterId] = useState<string | null>(null);
   const [forceShowToolPanel, setForceShowToolPanel] = useState(false);
   const [shellStatus, setShellStatus] = useState<'checking' | 'offline' | 'hidden' | 'visible' | 'opening' | 'closing'>('checking');
 
@@ -40,7 +40,6 @@ export function WorkbenchFrame() {
       setSelectedSkillButton(null);
       dispatch({ type: 'SET_VIEW', view: 'selection' });
       setWorkbenchMode('selection');
-      setOperatorConfigVisible(false);
       setForceShowToolPanel(false);
       closeDrawer();
       return;
@@ -48,54 +47,33 @@ export function WorkbenchFrame() {
 
     dispatch({ type: 'SET_VIEW', view: 'canvas' });
     setWorkbenchMode(mode);
-    setOperatorConfigVisible(false);
     setForceShowToolPanel(false);
   }, [dispatch, selectedCharacters.length]);
 
   const handleOperatorConfigClick = useCallback(() => {
     if (selectedCharacters.length === 0) return;
-    // 如果在选人页，先切换到 canvas
-    if (currentView === 'selection') {
-      dispatch({ type: 'SET_VIEW', view: 'canvas' });
-      setWorkbenchMode('timeline');
+    const characterId = selectedCharacters[0]?.id;
+    if (characterId) {
+      safeSessionStorage.setItem(STORAGE_KEYS.OPERATOR_CONFIG_ACTIVE_CHARACTER, characterId);
     }
-    // toggle 配置面板
-    setOperatorConfigVisible(prev => {
-      const next = !prev;
-      if (next && !operatorConfigCharacterId) {
-        setOperatorConfigCharacterId(selectedCharacters[0]?.id ?? null);
-      }
-      return next;
-    });
-  }, [selectedCharacters, currentView, dispatch, operatorConfigCharacterId]);
+    navigateToAppPath(APP_ROUTE_PATHS.operatorConfig);
+  }, [selectedCharacters]);
 
   const handleSkillButtonModalOpen = useCallback(() => {
     setForceShowToolPanel(true);
-    setOperatorConfigVisible(false);
   }, []);
 
   const handleSkillButtonModalClose = useCallback(() => {
     setForceShowToolPanel(false);
     setWorkbenchMode('timeline');
-    setOperatorConfigVisible(false);
-  }, []);
-
-  const closeOperatorConfig = useCallback(() => {
-    setOperatorConfigVisible(false);
-    setOperatorConfigCharacterId(null);
-    setForceShowToolPanel(false);
-    setWorkbenchMode('timeline');
   }, []);
 
   const openOperatorConfig = useCallback((characterId: string) => {
-    if (currentView === 'selection') {
-      dispatch({ type: 'SET_VIEW', view: 'canvas' });
-    }
-    setOperatorConfigCharacterId(characterId);
-    setOperatorConfigVisible(true);
+    safeSessionStorage.setItem(STORAGE_KEYS.OPERATOR_CONFIG_ACTIVE_CHARACTER, characterId);
     setForceShowToolPanel(false);
     setWorkbenchMode('timeline');
-  }, [currentView, dispatch]);
+    navigateToAppPath(APP_ROUTE_PATHS.operatorConfig);
+  }, []);
 
   const shouldShowToolPanel = (
     workbenchMode === 'toolPanel' ||
@@ -135,8 +113,12 @@ export function WorkbenchFrame() {
   }, []);
 
   const handleOpenOperatorConfig = useCallback(() => {
+    const characterId = selectedCharacters[0]?.id;
+    if (characterId) {
+      safeSessionStorage.setItem(STORAGE_KEYS.OPERATOR_CONFIG_ACTIVE_CHARACTER, characterId);
+    }
     navigateToAppPath(APP_ROUTE_PATHS.operatorConfig);
-  }, []);
+  }, [selectedCharacters]);
 
   const handleOpenImageManager = useCallback(() => {
     navigateToAppPath(APP_ROUTE_PATHS.imageManager);
@@ -257,7 +239,7 @@ export function WorkbenchFrame() {
             陈列区
           </button>
           <button
-            className={`workbench-drawer-tab ${operatorConfigVisible ? 'is-active' : ''}`}
+            className="workbench-drawer-tab"
             type="button"
             onClick={handleOperatorConfigClick}
             disabled={!canAccessCanvas}
@@ -280,15 +262,12 @@ export function WorkbenchFrame() {
             </div>
           </div>
         )}
-        {(currentView === 'canvas' || operatorConfigVisible) && (
+        {currentView === 'canvas' && (
           <CanvasBoard
             workbenchMode={workbenchMode}
             isToolPanelVisible={shouldShowToolPanel}
-            operatorConfigVisible={operatorConfigVisible}
-            operatorConfigCharacterId={operatorConfigCharacterId}
             onSkillButtonModalOpen={handleSkillButtonModalOpen}
             onSkillButtonModalClose={handleSkillButtonModalClose}
-            onCloseOperatorConfig={closeOperatorConfig}
             onOpenOperatorConfig={openOperatorConfig}
             workbenchControl={workbenchControl}
             bottomRightControl={bottomNavControls}

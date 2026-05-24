@@ -19,7 +19,6 @@ export type BuffModifierType =
   | 'iceDmgBonus'
   | 'natureDmgBonus'
   | 'allDmgBonus'
-  | 'allElementDmgBonus'
   | 'skillDmgBonus'
   | 'chainSkillDmgBonus'
   | 'ultimateDmgBonus'
@@ -211,11 +210,11 @@ export const BUFF_TYPE_CATALOG: readonly BuffTypeCatalogEntry[] = [
     id: 'magicDmgBonus',
     label: '法术伤害加成',
     valueStyle: 'ratio',
-    aliases: ['法伤', '法术增伤', '魔法伤害'],
-    positivePatterns: ['法术伤害提高', '法伤提升'],
+    aliases: ['法伤', '法术增伤', '魔法伤害', '全元素增伤', '元素伤害提高', '元素增伤'],
+    positivePatterns: ['法术伤害提高', '法伤提升', '全元素伤害提高', '元素伤害提高'],
     negativePatterns: ['法术易伤', '法术脆弱'],
-    examplePhrases: ['法术伤害提高20%'],
-    notes: '仅用于己方法术伤害加成。',
+    examplePhrases: ['法术伤害提高20%', '元素伤害提高15%'],
+    notes: '用于己方法术/元素总伤害加成；旧 allElementDmgBonus 口径在新链路统一收敛到这里。',
     canInferFromImplicitText: true,
   }),
   createEntry({
@@ -271,17 +270,6 @@ export const BUFF_TYPE_CATALOG: readonly BuffTypeCatalogEntry[] = [
     negativePatterns: ['全元素伤害提高', '元素伤害提高', '受到的伤害提高'],
     examplePhrases: ['造成的所有伤害提高15%', '全伤害提高12%'],
     notes: '覆盖物理与所有元素/法术伤害；不要用于“受到的伤害提高”。',
-    canInferFromImplicitText: true,
-  }),
-  createEntry({
-    id: 'allElementDmgBonus',
-    label: '全元素伤害加成（旧字段）',
-    valueStyle: 'ratio',
-    aliases: ['全元素增伤', '元素伤害提高', '元素增伤'],
-    positivePatterns: ['全元素伤害提高', '元素伤害提高'],
-    negativePatterns: ['物理伤害提高'],
-    examplePhrases: ['元素伤害提高15%'],
-    notes: '旧字段；新链路优先使用 magicDmgBonus 表达元素/法术总加成。',
     canInferFromImplicitText: true,
   }),
   createEntry({

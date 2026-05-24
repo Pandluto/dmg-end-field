@@ -8,6 +8,8 @@
     "agent:dev": "node agent/dev-agent.cjs",
     "agent:dev:web": "node agent/dev-agent.cjs --open-web",
     "dev": "vite --host 127.0.0.1 --port 3030",
+    "test:operator-panel": "node scripts/run-ts-test.mjs /src/core/calculators/operatorPanelCalculator.test.ts",
+    "smoke:operator-config": "node scripts/run-electron-smoke.mjs",
     "build": "tsc && vite build",
     "preview": "vite preview",
     "app:dev": "npm run electron:dev",

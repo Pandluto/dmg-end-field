@@ -6,16 +6,19 @@ import type {
   CharacterComputedCache,
   CharacterDisplayCache,
   CharacterInputConfig,
+  OperatorConfigPageCache,
   SkillButtonTable,
 } from '../types/storage';
 import {
   getCharacterComputedMap,
   getCharacterDisplayCacheMap,
   getCharacterInputMap,
+  getOperatorConfigPageCache,
   safeSessionStorage,
   setCharacterComputedMap,
   setCharacterDisplayCacheMap,
   setCharacterInputMap,
+  setOperatorConfigPageCache,
 } from './storage';
 import {
   getAnomalyStateSnapshotArchive,
@@ -33,6 +36,7 @@ export interface TimelineSnapshotPayload {
   characterInputMap: Record<string, CharacterInputConfig>;
   characterComputedMap: Record<string, CharacterComputedCache>;
   characterDisplayCacheMap: Record<string, CharacterDisplayCache>;
+  operatorConfigPageCache: OperatorConfigPageCache;
 }
 
 export interface TimelineSnapshotSummary {
@@ -170,7 +174,8 @@ function isValidTimelineSnapshotPayload(value: unknown): value is TimelineSnapsh
     Array.isArray(candidate.timelineData.staffLines) &&
     (candidate.characterInputMap === undefined || typeof candidate.characterInputMap === 'object') &&
     (candidate.characterComputedMap === undefined || typeof candidate.characterComputedMap === 'object') &&
-    (candidate.characterDisplayCacheMap === undefined || typeof candidate.characterDisplayCacheMap === 'object')
+    (candidate.characterDisplayCacheMap === undefined || typeof candidate.characterDisplayCacheMap === 'object') &&
+    (candidate.operatorConfigPageCache === undefined || typeof candidate.operatorConfigPageCache === 'object')
   );
 }
 
@@ -184,6 +189,7 @@ function normalizeSnapshotPayload(payload: TimelineSnapshotPayload): TimelineSna
     characterInputMap: payload.characterInputMap ?? {},
     characterComputedMap: payload.characterComputedMap ?? {},
     characterDisplayCacheMap: payload.characterDisplayCacheMap ?? {},
+    operatorConfigPageCache: payload.operatorConfigPageCache ?? {},
   };
 }
 
@@ -196,6 +202,7 @@ function readCurrentPayload(): TimelineSnapshotPayload | null {
   const characterInputMap = getCharacterInputMap();
   const characterComputedMap = getCharacterComputedMap();
   const characterDisplayCacheMap = getCharacterDisplayCacheMap();
+  const operatorConfigPageCache = getOperatorConfigPageCache();
 
   if (!timelineData || selectedCharacters.length === 0) {
     return null;
@@ -210,6 +217,7 @@ function readCurrentPayload(): TimelineSnapshotPayload | null {
     characterInputMap,
     characterComputedMap,
     characterDisplayCacheMap,
+    operatorConfigPageCache,
   };
 }
 
@@ -243,6 +251,7 @@ export function applyTimelineSnapshotPayload(payload: TimelineSnapshotPayload): 
   setCharacterInputMap(normalizedPayload.characterInputMap);
   setCharacterComputedMap(normalizedPayload.characterComputedMap);
   setCharacterDisplayCacheMap(normalizedPayload.characterDisplayCacheMap);
+  setOperatorConfigPageCache(normalizedPayload.operatorConfigPageCache);
 }
 
 export function buildTimelineShareFile(customLabel?: string): TimelineShareFile | null {

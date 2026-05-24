@@ -154,7 +154,7 @@ export function calculateBuffTotals(buffs: SkillButtonBuff[]): BuffCalculationRe
         case 'iceDmgBonus': result.iceDmgBonus += v; break;
         case 'natureDmgBonus': result.natureDmgBonus += v; break;
         case 'allDmgBonus': result.allDmgBonus += v; break;
-        case 'allElementDmgBonus': result.allElementDmgBonus += v; break;
+        case 'allElementDmgBonus': result.magicDmgBonus += v; break;
         case 'skillDmgBonus': result.skillDmgBonus += v; break;
         case 'chainSkillDmgBonus': result.chainSkillDmgBonus += v; break;
         case 'ultimateDmgBonus': result.ultimateDmgBonus += v; break;
@@ -203,9 +203,7 @@ export function calculateElementDmgBonus(
 
   if (isPhysical) {
     return (parsedDamageBonus.physicalDmgBonus || 0)
-      + (buffTotals.physicalDmgBonus || 0)
-      + (parsedDamageBonus.allDmgBonus || 0)
-      + (buffTotals.allDmgBonus || 0);
+      + (buffTotals.physicalDmgBonus || 0);
   } else {
     const elementKey = `${characterElement}DmgBonus`;
     const elementBonusFromBuff = (buffTotals[elementKey as keyof BuffCalculationResult] || 0) as number;
@@ -214,12 +212,9 @@ export function calculateElementDmgBonus(
     const elementBonus =
       elementBonusFromBuff +
       (buffTotals.magicDmgBonus || 0) +
-      (buffTotals.allElementDmgBonus || 0) +
-      (buffTotals.allDmgBonus || 0) +
       elementBonusFromPanel +
-      (parsedDamageBonus.allElementDmgBonus || 0) +
-      (parsedDamageBonus.allDmgBonus || 0);
-    console.log("elementKey:", elementKey, " elementBonus:", elementBonus);
+      (parsedDamageBonus.magicDmgBonus || 0) +
+      (parsedDamageBonus.allElementDmgBonus || 0);
     return elementBonus;
   }
 } 

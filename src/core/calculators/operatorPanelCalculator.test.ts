@@ -1,8 +1,17 @@
 import { buildConfigSnapshot } from './operatorPanelCalculator.ts';
+import { calculateSkillButtonDamageV2 } from './skillButtonDamageCalculatorV2.ts';
+import { buildSnapshotEquipmentCandidateBuffs, buildSnapshotWeaponCandidateBuffs } from '../services/operatorConfigCandidateBuffService.ts';
+import type { DamageBonusSnapshot } from '../../types/storage.ts';
 
 function assertEqual(actual: unknown, expected: unknown, message: string): void {
   if (actual !== expected) {
     throw new Error(`${message}: expected ${String(expected)}, got ${String(actual)}`);
+  }
+}
+
+function assertAlmostEqual(actual: number, expected: number, message: string): void {
+  if (Math.abs(actual - expected) > 0.000001) {
+    throw new Error(`${message}: expected ${expected}, got ${actual}`);
   }
 }
 
@@ -172,6 +181,13 @@ const snapshot = buildConfigSnapshot({
           },
         ],
       },
+      {
+        slotKey: 'accessory1',
+        equipmentId: 'equip-third',
+        name: '三件套测试装备',
+        part: '配件',
+        effects: [],
+      },
     ],
   },
 });
@@ -191,3 +207,105 @@ assertEqual(snapshot.equipment.totals.iceElectricDmgBonus, 0.11, 'ice/electric c
 assertEqual(snapshot.equipment.totals.fireNatureDmgBonus, 0.12, 'fire/nature composite equipment bonus normalizes to decimal');
 assertEqual(snapshot.panel.display.damageBonus.iceDmgBonus, 0.15, 'phase3 does not split ice/electric composite bonus into display');
 assertEqual(snapshot.panel.display.damageBonus.natureDmgBonus, 0.15, 'phase3 does not split fire/nature composite bonus into display');
+
+const weaponCandidates = buildSnapshotWeaponCandidateBuffs(snapshot);
+assertEqual(weaponCandidates.length, 1, 'only condition skill3 enters snapshot candidate buffs');
+assertEqual(weaponCandidates[0].type, 'atkPercentBoost', 'weapon skill3 condition keeps type');
+assertEqual(weaponCandidates[0].origin, 'operatorConfigSnapshot', 'weapon candidate is tagged as snapshot-derived');
+assertEqual(weaponCandidates[0].ownerCharacterId, 'op-test', 'weapon candidate records owner character');
+
+const equipmentLibrary = {
+  gearSets: {
+    'set-test': {
+      gearSetId: 'set-test',
+      name: '测试三件套',
+      equipments: {
+        'equip-test': { equipmentId: 'equip-test' },
+        'equip-crit': { equipmentId: 'equip-crit' },
+        'equip-third': { equipmentId: 'equip-third' },
+      },
+      threePieceBuffs: {
+        effect1: {
+          effectId: 'effect1',
+          name: '三件套全伤害',
+          category: 'condition',
+          typeKey: 'allDmgBonus',
+          value: 0.12,
+          raw: '三件套：全伤害 +12%',
+        },
+      },
+    },
+  },
+};
+const equipmentCandidates = buildSnapshotEquipmentCandidateBuffs(snapshot, equipmentLibrary);
+assertEqual(equipmentCandidates.length, 1, 'three selected equipments trigger three-piece candidate');
+assertEqual(equipmentCandidates[0].type, 'allDmgBonus', 'three-piece candidate keeps all damage type');
+assertEqual(equipmentCandidates[0].ownerCharacterId, 'op-test', 'three-piece candidate records owner character');
+
+const twoPieceSnapshot = {
+  ...snapshot,
+  equipment: {
+    ...snapshot.equipment,
+    pieces: snapshot.equipment.pieces.slice(0, 2),
+  },
+};
+assertEqual(buildSnapshotEquipmentCandidateBuffs(twoPieceSnapshot, equipmentLibrary).length, 0, 'two selected equipments do not trigger three-piece candidate');
+
+function emptyDamageBonus(overrides: Partial<DamageBonusSnapshot> = {}): DamageBonusSnapshot {
+  return {
+    physicalDmgBonus: 0,
+    fireDmgBonus: 0,
+    electricDmgBonus: 0,
+    iceDmgBonus: 0,
+    natureDmgBonus: 0,
+    magicDmgBonus: 0,
+    normalAttackDmgBonus: 0,
+    skillDmgBonus: 0,
+    chainSkillDmgBonus: 0,
+    ultimateDmgBonus: 0,
+    allSkillDmgBonus: 0,
+    imbalanceDmgBonus: 0,
+    allDmgBonus: 0,
+    ...overrides,
+  };
+}
+
+const physicalDamage = calculateSkillButtonDamageV2({
+  buttonId: 'button-physical',
+  characterId: 'op-test',
+  runtimeSkillId: 'skill-physical',
+  template: {
+    characterId: 'op-test',
+    characterName: '测试干员',
+    runtimeSkillId: 'skill-physical',
+    displayName: '物理测试',
+    buttonType: 'A',
+    hits: [{ key: 'hit1', displayName: '物理段', multiplier: 1, element: 'physical', skillType: 'A' }],
+  },
+  buffs: [],
+  panel: { atk: 100, critRate: 0, critDmg: 0 },
+  damageBonus: emptyDamageBonus({ physicalDmgBonus: 0.2, allDmgBonus: 0.1 }),
+});
+assertAlmostEqual(physicalDamage.hits[0].zones.elementBonus, 0.2, 'physical element zone excludes allDmgBonus');
+assertAlmostEqual(physicalDamage.hits[0].zones.allDamageBonus, 0.1, 'physical all damage zone includes allDmgBonus once');
+assertAlmostEqual(physicalDamage.hits[0].nonCrit.final, 65, 'physical damage applies allDmgBonus exactly once');
+
+const fireDamage = calculateSkillButtonDamageV2({
+  buttonId: 'button-fire',
+  characterId: 'op-test',
+  runtimeSkillId: 'skill-fire',
+  template: {
+    characterId: 'op-test',
+    characterName: '测试干员',
+    runtimeSkillId: 'skill-fire',
+    displayName: '火伤测试',
+    buttonType: 'A',
+    hits: [{ key: 'hit1', displayName: '火伤段', multiplier: 1, element: 'fire', skillType: 'A' }],
+  },
+  buffs: [],
+  panel: { atk: 100, critRate: 0, critDmg: 0 },
+  damageBonus: emptyDamageBonus({ fireDmgBonus: 0.05, magicDmgBonus: 0.2, allDmgBonus: 0.1 }),
+});
+assertAlmostEqual(fireDamage.hits[0].zones.elementBonus, 0.25, 'element zone includes element and magic bonuses');
+assertAlmostEqual(fireDamage.hits[0].zones.allDamageBonus, 0.1, 'element all damage zone includes allDmgBonus once');
+assertAlmostEqual(fireDamage.hits[0].nonCrit.final, 67.5, 'element damage applies allDmgBonus exactly once');

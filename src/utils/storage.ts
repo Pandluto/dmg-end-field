@@ -3,9 +3,13 @@ import {
   CharacterInputConfig,
   CharacterComputedCache,
   CharacterDisplayCache,
+  CharacterConfigJson,
+  DamageBonusSnapshot,
   OperatorConfigPageCache,
+  PanelSummary,
   SkillButtonBuff,
 } from '../types/storage';
+import type { ConfigSnapshot } from '../core/calculators/operatorPanelCalculator';
 import type {
   PersistedSkillButton,
   SkillButtonTable,
@@ -80,6 +84,102 @@ export function getOperatorConfigPageCache(): OperatorConfigPageCache {
 
 export function setOperatorConfigPageCache(cache: OperatorConfigPageCache): void {
   safeSessionStorage.setItem(STORAGE_KEYS.OPERATOR_CONFIG_PAGE_CACHE, JSON.stringify(cache));
+}
+
+function toStorageNumber(value: unknown, fallback = 0): number {
+  return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
+}
+
+function buildCharacterComputedFromConfigSnapshot(snapshot: ConfigSnapshot): CharacterComputedCache {
+  const display = snapshot.panel.display;
+  const calc = snapshot.panel.calc;
+  return {
+    fingerprint: JSON.stringify({
+      source: STORAGE_KEYS.OPERATOR_CONFIG_PAGE_CACHE,
+      operator: {
+        id: snapshot.operator.id,
+        level: snapshot.operator.level,
+        potential: snapshot.operator.potential,
+        favorValue: snapshot.operator.favorValue,
+      },
+      weapon: snapshot.weapon.config,
+      equipment: snapshot.equipment.pieces.map((piece) => ({
+        slotKey: piece.slotKey,
+        equipmentId: piece.equipmentId,
+        effects: piece.effects.map((effect) => ({
+          effectId: effect.effectId,
+          level: effect.level,
+          value: effect.value,
+          typeKey: effect.typeKey,
+        })),
+      })),
+    }),
+    panel: {
+      atk: toStorageNumber(display.atk),
+      baseAtk: toStorageNumber(display.baseAtk),
+      hp: toStorageNumber(display.hp),
+      strength: toStorageNumber(calc.strength),
+      agility: toStorageNumber(calc.agility),
+      intelligence: toStorageNumber(calc.intelligence),
+      will: toStorageNumber(calc.will),
+      abilityBonus: toStorageNumber(display.abilityBonus) * 100,
+      mainStatFinal: toStorageNumber(display.mainStatFinal),
+      subStatFinal: toStorageNumber(display.subStatFinal),
+      characterAtk: toStorageNumber(calc.operatorAtk),
+      weaponAtk: toStorageNumber(calc.weaponAtk),
+      weaponAtkPercent: toStorageNumber(display.weaponAtkPercent),
+      critRate: toStorageNumber(display.critRate, 0.05),
+      critDmg: toStorageNumber(display.critDmg, 0.5),
+      sourceSkill: toStorageNumber(display.sourceSkill),
+      healingBonus: toStorageNumber(calc.healingBonus),
+      ultimateChargeEfficiency: toStorageNumber(calc.ultimateChargeEfficiency),
+      weaponAllSkillDmgBonus: toStorageNumber(snapshot.weapon.totals.allSkillDmgBonus),
+    },
+    damageBonus: {
+      ...calc.damageBonus,
+    },
+  };
+}
+
+function buildPanelSummaryFromComputed(computed: CharacterComputedCache): PanelSummary {
+  return {
+    atk: computed.panel.atk,
+    baseAtk: computed.panel.baseAtk,
+    hp: computed.panel.hp ?? 0,
+    strength: computed.panel.strength,
+    agility: computed.panel.agility,
+    intelligence: computed.panel.intelligence,
+    will: computed.panel.will,
+    abilityBonus: computed.panel.abilityBonus,
+    mainStatFinal: computed.panel.mainStatFinal,
+    subStatFinal: computed.panel.subStatFinal,
+    characterAtk: computed.panel.characterAtk,
+    weaponAtk: computed.panel.weaponAtk,
+    weaponAtkPercent: computed.panel.weaponAtkPercent,
+    critRate: computed.panel.critRate ?? 0.05,
+    critDmg: computed.panel.critDmg ?? 0.5,
+    sourceSkill: computed.panel.sourceSkill ?? 0,
+    healingBonus: computed.panel.healingBonus ?? 0,
+    ultimateChargeEfficiency: computed.panel.ultimateChargeEfficiency ?? 0,
+    weaponAllSkillDmgBonus: computed.panel.weaponAllSkillDmgBonus,
+  };
+}
+
+function buildCharacterConfigFromConfigSnapshot(characterId: string, snapshot: ConfigSnapshot): CharacterConfigJson {
+  const computed = buildCharacterComputedFromConfigSnapshot(snapshot);
+  return {
+    characterId,
+    characterName: snapshot.operator.name || characterId,
+    characterPotential: snapshot.operator.potential || '满潜',
+    skillLevelModeMap: snapshot.operator.skillConfig as CharacterConfigJson['skillLevelModeMap'],
+    weaponName: snapshot.weapon.name || '无',
+    weaponPotentialMode: snapshot.weapon.config.potential === '满潜' ? 'PMAX' : 'P0',
+    equipment: inflateEquipmentDefaults({}),
+    panelSnapshot: buildPanelSummaryFromComputed(computed),
+    infoSnapshot: snapshot.detailMarkdown ? snapshot.detailMarkdown.split('\n') : [],
+    infoSnap: computed.damageBonus,
+    weaponBuffSnapshot: snapshot.weapon.skills.skill3.effects.map((effect) => `${effect.label}: ${effect.value}`),
+  };
 }
 
 // ==================== Equipment 处理函数 ====================
@@ -203,9 +303,15 @@ export function setCharacterInput(characterId: string, config: CharacterInputCon
 
 export function getCharacterComputedMap(): Record<string, CharacterComputedCache> {
   const raw = safeSessionStorage.getItem(STORAGE_KEYS.CHARACTER_COMPUTED_MAP);
-  if (!raw) return {};
-  const wrapper = parseV3Wrapper<CharacterComputedCache>(raw);
-  return wrapper?.data ?? {};
+  const wrapper = raw ? parseV3Wrapper<CharacterComputedCache>(raw) : null;
+  const result: Record<string, CharacterComputedCache> = {
+    ...(wrapper?.data ?? {}),
+  };
+  const snapshotCache = getOperatorConfigPageCache();
+  Object.entries(snapshotCache).forEach(([characterId, snapshot]) => {
+    result[characterId] = buildCharacterComputedFromConfigSnapshot(snapshot);
+  });
+  return result;
 }
 
 export function setCharacterComputedMap(map: Record<string, CharacterComputedCache>): void {
@@ -214,6 +320,8 @@ export function setCharacterComputedMap(map: Record<string, CharacterComputedCac
 }
 
 export function getCharacterComputed(characterId: string): CharacterComputedCache | null {
+  const snapshot = getOperatorConfigPageCache()[characterId];
+  if (snapshot) return buildCharacterComputedFromConfigSnapshot(snapshot);
   const map = getCharacterComputedMap();
   return map[characterId] ?? null;
 }
@@ -293,8 +401,6 @@ export function cleanupStorage(): void {
 
 // ==================== 兼容层（v2 -> v3 适配）====================
 
-import { CharacterConfigJson, DamageBonusSnapshot, PanelSummary } from '../types/storage';
-
 const DEFAULT_DAMAGE_BONUS_SNAPSHOT: DamageBonusSnapshot = {
   physicalDmgBonus: 0,
   fireDmgBonus: 0,
@@ -366,6 +472,8 @@ function mergeV3ToV2(
  * 兼容函数：获取角色配置（v2 格式）
  */
 export function getCharacterConfig(characterId: string): CharacterConfigJson | null {
+  const snapshot = getOperatorConfigPageCache()[characterId];
+  if (snapshot) return buildCharacterConfigFromConfigSnapshot(characterId, snapshot);
   const input = getCharacterInput(characterId);
   const computed = getCharacterComputed(characterId);
   const display = getCharacterDisplayCache(characterId);
@@ -379,9 +487,15 @@ export function getCharacterConfigMap(): Record<string, CharacterConfigJson> {
   const inputMap = getCharacterInputMap();
   const computedMap = getCharacterComputedMap();
   const displayMap = getCharacterDisplayCacheMap();
+  const snapshotCache = getOperatorConfigPageCache();
 
   const result: Record<string, CharacterConfigJson> = {};
   for (const characterId of Object.keys(inputMap)) {
+    const snapshot = snapshotCache[characterId];
+    if (snapshot) {
+      result[characterId] = buildCharacterConfigFromConfigSnapshot(characterId, snapshot);
+      continue;
+    }
     const merged = mergeV3ToV2(
       characterId,
       inputMap[characterId],
@@ -392,6 +506,11 @@ export function getCharacterConfigMap(): Record<string, CharacterConfigJson> {
       result[characterId] = merged;
     }
   }
+  Object.entries(snapshotCache).forEach(([characterId, snapshot]) => {
+    if (!result[characterId]) {
+      result[characterId] = buildCharacterConfigFromConfigSnapshot(characterId, snapshot);
+    }
+  });
   return result;
 }
 

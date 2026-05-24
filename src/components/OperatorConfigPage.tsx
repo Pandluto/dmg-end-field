@@ -540,6 +540,50 @@ function buildDraftMapFromSnapshotCache(cache: OperatorConfigPageCache, characte
   );
 }
 
+function findEquipmentItemInLibrary(equipmentLibrary: EquipmentLibrary | null, equipmentId: string): EquipmentItem | null {
+  if (!equipmentLibrary || !equipmentId) return null;
+  return Object.values(equipmentLibrary.gearSets)
+    .flatMap((gearSet) => Object.values(gearSet.equipments))
+    .find((item) => item.equipmentId === equipmentId) ?? null;
+}
+
+function getEquipmentEffectLevelValue(effect: Partial<EquipmentEffect> | undefined, level: number | string): number {
+  const levels = effect?.levels;
+  if (!levels) return 0;
+  const value = levels[String(level) as EquipmentLevelKey];
+  return typeof value === 'number' ? value : 0;
+}
+
+function hydrateEquipmentPieceFromLibrary(
+  piece: OperatorConfigPageEquipmentPieceState,
+  libraryItem: EquipmentItem
+): OperatorConfigPageEquipmentPieceState {
+  const libraryPiece = createEquipmentPieceFromItem(libraryItem);
+  const previousEntryByEffectId = new Map(
+    piece.entries.map((entry) => {
+      const effect = entry.data as Partial<EquipmentEffect>;
+      return [String(effect.effectId ?? entry.id), entry] as const;
+    })
+  );
+
+  return {
+    ...libraryPiece,
+    entries: libraryPiece.entries.map((entry, index) => {
+      const effect = entry.data as Partial<EquipmentEffect>;
+      const previousEntry = previousEntryByEffectId.get(String(effect.effectId ?? entry.id)) ?? piece.entries[index];
+      return previousEntry
+        ? {
+          ...entry,
+          config: {
+            ...entry.config,
+            level: previousEntry.config.level,
+          },
+        }
+        : entry;
+    }),
+  };
+}
+
 function hydrateDraftConfigFromLibraries(
   config: OperatorConfigPageCharacterConfig,
   weaponLibrary: Record<string, WeaponData & { id: string; imgUrl: string }>,
@@ -569,19 +613,9 @@ function hydrateDraftConfigFromLibraries(
   EQUIPMENT_SLOT_KEYS.forEach((slotKey) => {
     const piece = nextEquipment[slotKey];
     if (!piece.id) return;
-    const currentData = piece.data as Partial<EquipmentItem>;
-    if (currentData.imgUrl) return;
-    const libraryItem = Object.values(equipmentLibrary.gearSets)
-      .flatMap((gearSet) => Object.values(gearSet.equipments))
-      .find((item) => item.equipmentId === piece.id);
-    if (!libraryItem?.imgUrl) return;
-    nextEquipment[slotKey] = {
-      ...piece,
-      data: {
-        ...piece.data,
-        imgUrl: libraryItem.imgUrl,
-      },
-    };
+    const libraryItem = findEquipmentItemInLibrary(equipmentLibrary, piece.id);
+    if (!libraryItem) return;
+    nextEquipment[slotKey] = hydrateEquipmentPieceFromLibrary(piece, libraryItem);
     equipmentChanged = true;
   });
 
@@ -621,8 +655,7 @@ function createEquipmentPieceFromItem(item: EquipmentItem): OperatorConfigPageEq
 
 function formatEquipmentEffectValue(effect: EquipmentEffect | undefined, level: number | string): string {
   if (!effect) return '0';
-  const key = String(level) as EquipmentLevelKey;
-  const numericValue = typeof effect.levels[key] === 'number' ? effect.levels[key] : 0;
+  const numericValue = getEquipmentEffectLevelValue(effect, level);
   const suffix = effect.unit === 'percent' ? '%' : '';
   return `${numericValue}${suffix}`;
 }
@@ -793,9 +826,7 @@ function buildEquipmentPiecesForSnapshot(config: OperatorConfigPageCharacterConf
       .map((entry) => {
         const effect = entry.data as Partial<EquipmentEffect>;
         const level = entry.config.level;
-        const value = typeof effect.levels?.[String(level) as EquipmentLevelKey] === 'number'
-          ? effect.levels[String(level) as EquipmentLevelKey] ?? 0
-          : 0;
+        const value = getEquipmentEffectLevelValue(effect, level);
         return {
           effectId: String(effect.effectId ?? entry.id),
           label: String(effect.label ?? entry.id),
@@ -1222,7 +1253,12 @@ export function OperatorConfigPage() {
     })));
   }, [localCharacters, runtimeCharacters, selectedCharacterIds, state.loadedCharacters]);
   const [configMap, setConfigMap] = React.useState<OperatorConfigPageDraftMap>(() => buildDraftMapFromSnapshotCache(getOperatorConfigPageCache(), visibleCharacters));
-  const [activeCharacterId, setActiveCharacterId] = React.useState<string | null>(() => visibleCharacters[0]?.id ?? null);
+  const [activeCharacterId, setActiveCharacterId] = React.useState<string | null>(() => {
+    const cachedActiveCharacterId = safeSessionStorage.getItem(STORAGE_KEYS.OPERATOR_CONFIG_ACTIVE_CHARACTER);
+    return visibleCharacters.some((character) => character.id === cachedActiveCharacterId)
+      ? cachedActiveCharacterId
+      : visibleCharacters[0]?.id ?? null;
+  });
   const [equipmentLibrary, setEquipmentLibrary] = React.useState<EquipmentLibrary | null>(null);
   const [equipmentLibraryError, setEquipmentLibraryError] = React.useState<string | null>(null);
   const [equipmentPickerSlot, setEquipmentPickerSlot] = React.useState<EquipmentSlotKey | null>(null);
@@ -1291,12 +1327,16 @@ export function OperatorConfigPage() {
       if (prev && visibleCharacters.some((character) => character.id === prev)) {
         return prev;
       }
-      return visibleCharacters[0]?.id ?? null;
+      const cachedActiveCharacterId = safeSessionStorage.getItem(STORAGE_KEYS.OPERATOR_CONFIG_ACTIVE_CHARACTER);
+      return visibleCharacters.some((character) => character.id === cachedActiveCharacterId)
+        ? cachedActiveCharacterId
+        : visibleCharacters[0]?.id ?? null;
     });
   }, [visibleCharacters]);
 
   React.useEffect(() => {
     if (!activeCharacterId) return;
+    safeSessionStorage.setItem(STORAGE_KEYS.OPERATOR_CONFIG_ACTIVE_CHARACTER, activeCharacterId);
     ensureCharacterConfig(activeCharacterId);
   }, [activeCharacterId, ensureCharacterConfig]);
 

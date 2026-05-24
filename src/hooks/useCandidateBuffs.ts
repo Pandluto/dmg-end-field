@@ -7,6 +7,7 @@
 import { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import { CandidateBuff, BuffData } from '../core/domain/buff';
 import { setCandidateBuffList, getCandidateBuffList } from '../core/repositories';
+import { buildSnapshotCandidateBuffs, mergeCandidateBuffs } from '../core/services/operatorConfigCandidateBuffService';
 import { getCharacterConfigMap } from '../utils/storage';
 import { buildWeaponSearchIndex, searchWeapons } from '../utils/weaponFuzzySearch';
 import { resolvePublicPath } from '../utils/assetResolver';
@@ -80,6 +81,18 @@ async function loadNameList(path: string): Promise<string[]> {
 
 function normalizeKeyword(value: string): string {
   return value.trim().toLowerCase();
+}
+
+function buffMatchesKeyword(buff: CandidateBuff, keyword: string): boolean {
+  if (!keyword) return false;
+  return [
+    buff.source,
+    buff.sourceName,
+    buff.displayName,
+    buff.name,
+    buff.description,
+    buff.condition ?? '',
+  ].some((value) => value.toLowerCase().includes(keyword));
 }
 
 function includesKeyword(name: string, keyword: string): boolean {
@@ -198,21 +211,30 @@ export function useCandidateBuffs(characters: CandidateCharacterRef[]): UseCandi
    * 搜索匹配的 source 列表
    */
   const matchedSources = useMemo(() => {
-    if (!searchKeyword.trim()) {
+    const normalizedKeyword = normalizeKeyword(searchKeyword);
+    if (!normalizedKeyword) {
       return [];
     }
-    return searchWeapons(searchKeyword, buffSearchIndex);
-  }, [searchKeyword, buffSearchIndex]);
+    const sourceMatches = searchWeapons(searchKeyword, buffSearchIndex);
+    const directMatches = buffList
+      .filter((buff) => buffMatchesKeyword(buff, normalizedKeyword))
+      .map((buff) => buff.source);
+    return Array.from(new Set([...sourceMatches, ...directMatches]));
+  }, [searchKeyword, buffSearchIndex, buffList]);
 
   /**
    * 获取匹配到的 Buff 列表
    */
   const matchedBuffs = useMemo(() => {
-    if (matchedSources.length === 0) {
+    const normalizedKeyword = normalizeKeyword(searchKeyword);
+    if (matchedSources.length === 0 && !normalizedKeyword) {
       return [];
     }
-    return buffList.filter(buff => matchedSources.includes(buff.source));
-  }, [matchedSources, buffList]);
+    return buffList.filter((buff) => (
+      matchedSources.includes(buff.source)
+      || buffMatchesKeyword(buff, normalizedKeyword)
+    ));
+  }, [matchedSources, buffList, searchKeyword]);
 
   /**
    * 点击外部关闭抽屉
@@ -282,12 +304,14 @@ export function useCandidateBuffs(characters: CandidateCharacterRef[]): UseCandi
       })
     );
 
-    const allBuffs: CandidateBuff[] = [];
+    const jsonBuffs: CandidateBuff[] = [];
     results.forEach((result) => {
       if (result.status === 'fulfilled') {
-        allBuffs.push(...result.value);
+        jsonBuffs.push(...result.value);
       }
     });
+    const snapshotBuffs = await buildSnapshotCandidateBuffs(characters);
+    const allBuffs = mergeCandidateBuffs(getCandidateBuffList(), jsonBuffs, snapshotBuffs);
 
     console.log(`共加载 ${allBuffs.length} 个 buff`);
     return allBuffs;
@@ -323,4 +347,3 @@ export function useCandidateBuffs(characters: CandidateCharacterRef[]): UseCandi
     drawerHostRef,
   };
 }
-

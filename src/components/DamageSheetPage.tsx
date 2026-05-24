@@ -205,10 +205,11 @@ function formatSkillLevels(input: CharacterInputConfig | null): string {
 
 function formatCharacterMeta(characterId: string): string {
   const input = getCharacterInput(characterId);
+  const config = getCharacterConfig(characterId);
   const computed = getCharacterComputed(characterId);
   const sourceSkill = computed?.panel.sourceSkill ?? input?.equipment.sourceSkillBoost ?? 0;
-  const weaponName = input?.weapon.name?.trim() || '未配置武器';
-  const potential = input?.potential ?? '未配置潜能';
+  const weaponName = input?.weapon.name?.trim() || config?.weaponName || '未配置武器';
+  const potential = input?.potential ?? config?.characterPotential ?? '未配置潜能';
   return `${potential} · ${weaponName} · 源石技艺 ${formatRatio(sourceSkill)}`;
 }
 
