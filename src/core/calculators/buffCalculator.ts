@@ -29,6 +29,7 @@ export interface BuffCalculationResult {
   electricDmgBonus: number;   // 总电磁伤害加成
   iceDmgBonus: number;        // 总寒冷伤害加成
   natureDmgBonus: number;      // 总自然伤害加成
+  allDmgBonus: number;         // 总全伤害加成
   allElementDmgBonus: number; // 总全元素伤害加成
   skillDmgBonus: number;      // 总战技伤害加成
   chainSkillDmgBonus: number; // 总连携技伤害加成
@@ -112,6 +113,7 @@ export function calculateBuffTotals(buffs: SkillButtonBuff[]): BuffCalculationRe
     electricDmgBonus: 0,
     iceDmgBonus: 0,
     natureDmgBonus: 0,
+    allDmgBonus: 0,
     allElementDmgBonus: 0,
     skillDmgBonus: 0,
     chainSkillDmgBonus: 0,
@@ -168,6 +170,7 @@ export function calculateBuffTotals(buffs: SkillButtonBuff[]): BuffCalculationRe
         case 'electricDmgBonus': result.electricDmgBonus += v; break;
         case 'iceDmgBonus': result.iceDmgBonus += v; break;
         case 'natureDmgBonus': result.natureDmgBonus += v; break;
+        case 'allDmgBonus': result.allDmgBonus += v; break;
         case 'allElementDmgBonus': result.allElementDmgBonus += v; break;
         case 'skillDmgBonus': result.skillDmgBonus += v; break;
         case 'chainSkillDmgBonus': result.chainSkillDmgBonus += v; break;
@@ -222,7 +225,10 @@ export function calculateElementDmgBonus(
   const isPhysical = characterElement === 'physical';
 
   if (isPhysical) {
-    return (parsedDamageBonus.physicalDmgBonus || 0) + (buffTotals.physicalDmgBonus || 0);
+    return (parsedDamageBonus.physicalDmgBonus || 0)
+      + (buffTotals.physicalDmgBonus || 0)
+      + (parsedDamageBonus.allDmgBonus || 0)
+      + (buffTotals.allDmgBonus || 0);
   } else {
     const elementKey = `${characterElement}DmgBonus`;
     const elementBonusFromBuff = (buffTotals[elementKey as keyof BuffCalculationResult] || 0) as number;
@@ -232,6 +238,7 @@ export function calculateElementDmgBonus(
       elementBonusFromBuff +
       (buffTotals.magicDmgBonus || 0) +
       (buffTotals.allElementDmgBonus || 0) +
+      (buffTotals.allDmgBonus || 0) +
       elementBonusFromPanel +
       (parsedDamageBonus.allElementDmgBonus || 0) +
       (parsedDamageBonus.allDmgBonus || 0);

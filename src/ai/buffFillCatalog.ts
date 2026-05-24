@@ -18,6 +18,7 @@ export type BuffModifierType =
   | 'electricDmgBonus'
   | 'iceDmgBonus'
   | 'natureDmgBonus'
+  | 'allDmgBonus'
   | 'allElementDmgBonus'
   | 'skillDmgBonus'
   | 'chainSkillDmgBonus'
@@ -262,14 +263,25 @@ export const BUFF_TYPE_CATALOG: readonly BuffTypeCatalogEntry[] = [
     canInferFromImplicitText: true,
   }),
   createEntry({
+    id: 'allDmgBonus',
+    label: '全伤害加成',
+    valueStyle: 'ratio',
+    aliases: ['所有伤害加成', '所有伤害提高', '全伤害增伤', '通用增伤'],
+    positivePatterns: ['全伤害提高', '所有伤害提高', '造成的伤害提高'],
+    negativePatterns: ['全元素伤害提高', '元素伤害提高', '受到的伤害提高'],
+    examplePhrases: ['造成的所有伤害提高15%', '全伤害提高12%'],
+    notes: '覆盖物理与所有元素/法术伤害；不要用于“受到的伤害提高”。',
+    canInferFromImplicitText: true,
+  }),
+  createEntry({
     id: 'allElementDmgBonus',
-    label: '全元素伤害加成',
+    label: '全元素伤害加成（旧字段）',
     valueStyle: 'ratio',
     aliases: ['全元素增伤', '元素伤害提高', '元素增伤'],
     positivePatterns: ['全元素伤害提高', '元素伤害提高'],
     negativePatterns: ['物理伤害提高'],
     examplePhrases: ['元素伤害提高15%'],
-    notes: '只在文本明确覆盖多个元素时使用。',
+    notes: '旧字段；新链路优先使用 magicDmgBonus 表达元素/法术总加成。',
     canInferFromImplicitText: true,
   }),
   createEntry({
