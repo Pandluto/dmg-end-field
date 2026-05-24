@@ -66,6 +66,7 @@ export interface EquipmentPieceInput {
   equipmentId: string;
   name: string;
   part?: string;
+  imgUrl?: string;
   fixedStat?: unknown;
   effects: EquipmentEffectInput[];
 }
@@ -108,23 +109,23 @@ export interface ConfigSnapshot {
 }
 
 export interface PanelCalcSnapshot {
-  atk: number;
-  hp: number;
   strength: number;
   agility: number;
   intelligence: number;
   will: number;
-  baseAtk: number;
-  abilityBonus: number;
-  mainStatFinal: number;
-  subStatFinal: number;
   operatorAtk: number;
   weaponAtk: number;
-  atkPercent: number;
-  weaponAtkPercent: number;
-  critRate: number;
-  critDmg: number;
-  sourceSkill: number;
+  operatorHp: number;
+  favorValue: number;
+  mainStatBoost: number;
+  subStatBoost: number;
+  allStatBoost: number;
+  atkPercentBoost: number;
+  flatAtk: number;
+  hpPercent: number;
+  critRateBoost: number;
+  critDmgBonusBoost: number;
+  sourceSkillBoost: number;
   healingBonus: number;
   receivedHealingBonus: number;
   chainCooldownReduction: number;
@@ -135,6 +136,32 @@ export interface PanelCalcSnapshot {
 }
 
 export interface PanelDisplaySnapshot {
+  atk: number;
+  hp: number;
+  baseAtk: number;
+  abilityBonus: number;
+  mainStatFinal: number;
+  subStatFinal: number;
+  weaponAtkPercent: number;
+  critRate: number;
+  critDmg: number;
+  sourceSkill: number;
+  attackDetail: {
+    rawAtk: number;
+    atkPercent: number;
+    flatAtk: number;
+    baseAtk: number;
+    panelAtk: number;
+  };
+  abilityDetail: {
+    rawMainStat: number;
+    rawSubStat: number;
+    mainStatScale: number;
+    subStatScale: number;
+    allStatScale: number;
+    mainAtkBonus: number;
+    subAtkBonus: number;
+  };
   groups: DisplayGroup[];
   damageBonus: DamageBonusSnapshot;
 }
@@ -200,6 +227,7 @@ export interface EquipmentSnapshot {
     equipmentId: string;
     name: string;
     part: string;
+    imgUrl?: string;
     fixedStat?: unknown;
     effects: EquipmentEffectInput[];
   }>;
@@ -520,6 +548,7 @@ function buildEquipmentSnapshot(input: OperatorPanelInput['equipment']): Equipme
       equipmentId: piece.equipmentId,
       name: piece.name,
       part: piece.part ?? '',
+      imgUrl: piece.imgUrl,
       fixedStat: piece.fixedStat,
       effects: piece.effects,
     };
@@ -550,21 +579,37 @@ function formatPercent(value: number): string {
 }
 
 function buildDisplay(calc: PanelCalcSnapshot, mainStat: string, subStat: string): PanelDisplaySnapshot {
+  const mainField = resolveAbilityField(mainStat);
+  const subField = resolveAbilityField(subStat);
+  const rawMainStat = mainField ? calc[mainField] : 0;
+  const rawSubStat = subField ? calc[subField] : 0;
+  const mainStatFinal = rawMainStat * (1 + calc.mainStatBoost) * (1 + calc.allStatBoost);
+  const subStatFinal = rawSubStat * (1 + calc.subStatBoost) * (1 + calc.allStatBoost);
+  const mainAtkBonus = mainStatFinal * 0.005;
+  const subAtkBonus = subStatFinal * 0.002;
+  const abilityBonus = mainAtkBonus + subAtkBonus;
+  const rawAtk = calc.operatorAtk + calc.weaponAtk;
+  const baseAtk = rawAtk * (1 + calc.atkPercentBoost) + calc.flatAtk;
+  const atk = baseAtk * (1 + abilityBonus);
+  const hp = calc.operatorHp * (1 + calc.hpPercent);
+  const critRate = 0.05 + calc.critRateBoost;
+  const critDmg = 0.5 + calc.critDmgBonusBoost;
+  const sourceSkill = calc.sourceSkillBoost;
   const damageBonus = buildDisplayDamageBonus(calc.damageBonus);
   const groups: DisplayGroup[] = [
     {
       title: '基础',
       items: [
-        { label: '生命值', value: formatNumber(calc.hp) },
-        { label: '攻击力', value: formatNumber(calc.atk) },
+        { label: '生命值', value: formatNumber(hp) },
+        { label: '攻击力', value: formatNumber(atk) },
         { label: '防御力', value: '暂无' },
       ],
     },
     {
       title: '主副能力',
       items: [
-        { label: '主能力', value: `${mainStat || '-'} ${formatNumber(calc.mainStatFinal)}` },
-        { label: '副能力', value: `${subStat || '-'} ${formatNumber(calc.subStatFinal)}` },
+        { label: '主能力', value: `${mainStat || '-'} ${formatNumber(mainStatFinal)}` },
+        { label: '副能力', value: `${subStat || '-'} ${formatNumber(subStatFinal)}` },
       ],
     },
     {
@@ -579,9 +624,9 @@ function buildDisplay(calc: PanelCalcSnapshot, mainStat: string, subStat: string
     {
       title: '暴击与技艺',
       items: [
-        { label: '暴击率', value: formatPercent(calc.critRate) },
-        { label: '暴击伤害', value: formatPercent(calc.critDmg) },
-        { label: '源石技艺强度', value: formatNumber(calc.sourceSkill) },
+        { label: '暴击率', value: formatPercent(critRate) },
+        { label: '暴击伤害', value: formatPercent(critDmg) },
+        { label: '源石技艺强度', value: formatNumber(sourceSkill) },
       ],
     },
     {
@@ -620,7 +665,36 @@ function buildDisplay(calc: PanelCalcSnapshot, mainStat: string, subStat: string
       ],
     },
   ];
-  return { groups, damageBonus };
+  return {
+    atk: round(atk),
+    hp: round(hp),
+    baseAtk: round(baseAtk),
+    abilityBonus: round(abilityBonus),
+    mainStatFinal: round(mainStatFinal),
+    subStatFinal: round(subStatFinal),
+    weaponAtkPercent: round(calc.atkPercentBoost * 100),
+    critRate: round(critRate),
+    critDmg: round(critDmg),
+    sourceSkill: round(sourceSkill),
+    attackDetail: {
+      rawAtk: round(rawAtk),
+      atkPercent: round(calc.atkPercentBoost),
+      flatAtk: round(calc.flatAtk),
+      baseAtk: round(baseAtk),
+      panelAtk: round(atk),
+    },
+    abilityDetail: {
+      rawMainStat: round(rawMainStat),
+      rawSubStat: round(rawSubStat),
+      mainStatScale: round(calc.mainStatBoost),
+      subStatScale: round(calc.subStatBoost),
+      allStatScale: round(calc.allStatBoost),
+      mainAtkBonus: round(mainAtkBonus),
+      subAtkBonus: round(subAtkBonus),
+    },
+    groups,
+    damageBonus,
+  };
 }
 
 function buildMarkdown(snapshot: Omit<ConfigSnapshot, 'detailMarkdown'>): string {
@@ -640,9 +714,9 @@ function buildMarkdown(snapshot: Omit<ConfigSnapshot, 'detailMarkdown'>): string
   });
   lines.push('## 攻击力计算');
   lines.push(`- 基础攻击 = ${formatNumber(snapshot.panel.calc.operatorAtk)} + ${formatNumber(snapshot.panel.calc.weaponAtk)}`);
-  lines.push(`- 百分比加成 = ${formatPercent(snapshot.panel.calc.atkPercent)}`);
-  lines.push(`- 最终基础 = ${formatNumber(snapshot.panel.calc.baseAtk)}`);
-  lines.push(`- 面板攻击 = ${formatNumber(snapshot.panel.calc.atk)}`);
+  lines.push(`- 百分比加成 = ${formatPercent(snapshot.panel.display.attackDetail.atkPercent)}`);
+  lines.push(`- 最终基础 = ${formatNumber(snapshot.panel.display.baseAtk)}`);
+  lines.push(`- 面板攻击 = ${formatNumber(snapshot.panel.display.atk)}`);
   lines.push('');
   lines.push('## 干员能力值');
   lines.push(`- 力量: ${formatNumber(snapshot.operator.baseAttributes.strength)}`);
@@ -657,12 +731,12 @@ function buildMarkdown(snapshot: Omit<ConfigSnapshot, 'detailMarkdown'>): string
   lines.push(`- 意志: ${formatNumber(snapshot.panel.calc.will)}`);
   lines.push('');
   lines.push('## 主副能力换算');
-  lines.push(`- 主能力: ${snapshot.operator.mainStat || '-'} ${formatNumber(snapshot.panel.calc.mainStatFinal)}`);
-  lines.push(`- 副能力: ${snapshot.operator.subStat || '-'} ${formatNumber(snapshot.panel.calc.subStatFinal)}`);
+  lines.push(`- 主能力: ${snapshot.operator.mainStat || '-'} ${formatNumber(snapshot.panel.display.mainStatFinal)}`);
+  lines.push(`- 副能力: ${snapshot.operator.subStat || '-'} ${formatNumber(snapshot.panel.display.subStatFinal)}`);
   lines.push(`- 好感: ${formatNumber(snapshot.operator.favorValue)}`);
   lines.push('');
   lines.push('## 能力值加成');
-  lines.push(`- 总能力攻击加成: ${formatPercent(snapshot.panel.calc.abilityBonus)}`);
+  lines.push(`- 总能力攻击加成: ${formatPercent(snapshot.panel.display.abilityBonus)}`);
   lines.push('');
   lines.push('## 抗性');
   lines.push('- 未实现');
@@ -718,37 +792,30 @@ export function buildConfigSnapshot(input: OperatorPanelInput): ConfigSnapshot {
   if (mainField) abilityByField[mainField] += favorValue + (weapon.totals.mainStatBoost ?? 0);
   if (subField) abilityByField[subField] += weapon.totals.subStatBoost ?? 0;
 
-  const rawMainStat = mainField ? abilityByField[mainField] : 0;
-  const rawSubStat = subField ? abilityByField[subField] : 0;
   const mainStatScale = equipment.totals.mainStatBoost ?? 0;
   const subStatScale = equipment.totals.subStatBoost ?? 0;
   const allStatScale = weapon.totals.allStatBoost ?? 0;
-  const mainStatFinal = rawMainStat * (1 + mainStatScale) * (1 + allStatScale);
-  const subStatFinal = rawSubStat * (1 + subStatScale) * (1 + allStatScale);
-  const abilityBonus = mainStatFinal * 0.005 + subStatFinal * 0.002;
   const operatorAtk = attributes.atk;
   const weaponAtk = weapon.attack;
-  const atkPercent = (weapon.totals.atkPercentBoost ?? 0) + (equipment.totals.atkPercentBoost ?? 0);
-  const baseAtk = (operatorAtk + weaponAtk) * (1 + atkPercent) + (weapon.totals.atk ?? 0);
   const calcDamageBonus = createDamageBonusFromTotals(equipment.totals, weapon.totals);
   const calc: PanelCalcSnapshot = {
-    atk: round(baseAtk * (1 + abilityBonus)),
-    hp: round(attributes.hp * (1 + (weapon.totals.hpPercent ?? 0) + (equipment.totals.hpPercent ?? 0))),
     strength: round(abilityByField.strength),
     agility: round(abilityByField.agility),
     intelligence: round(abilityByField.intelligence),
     will: round(abilityByField.will),
-    baseAtk: round(baseAtk),
-    abilityBonus: round(abilityBonus),
-    mainStatFinal: round(mainStatFinal),
-    subStatFinal: round(subStatFinal),
     operatorAtk,
     weaponAtk,
-    atkPercent: round(atkPercent),
-    weaponAtkPercent: round(atkPercent * 100),
-    critRate: round(0.05 + (weapon.totals.critRateBoost ?? 0) + (equipment.totals.critRateBoost ?? 0)),
-    critDmg: round(0.5 + (weapon.totals.critDmgBonusBoost ?? 0) + (equipment.totals.critDmgBonusBoost ?? 0)),
-    sourceSkill: round((weapon.totals.sourceSkillBoost ?? 0) + (equipment.totals.sourceSkillBoost ?? 0)),
+    operatorHp: attributes.hp,
+    favorValue,
+    mainStatBoost: round(mainStatScale),
+    subStatBoost: round(subStatScale),
+    allStatBoost: round(allStatScale),
+    atkPercentBoost: round((weapon.totals.atkPercentBoost ?? 0) + (equipment.totals.atkPercentBoost ?? 0)),
+    flatAtk: round(weapon.totals.atk ?? 0),
+    hpPercent: round((weapon.totals.hpPercent ?? 0) + (equipment.totals.hpPercent ?? 0)),
+    critRateBoost: round((weapon.totals.critRateBoost ?? 0) + (equipment.totals.critRateBoost ?? 0)),
+    critDmgBonusBoost: round((weapon.totals.critDmgBonusBoost ?? 0) + (equipment.totals.critDmgBonusBoost ?? 0)),
+    sourceSkillBoost: round((weapon.totals.sourceSkillBoost ?? 0) + (equipment.totals.sourceSkillBoost ?? 0)),
     healingBonus: round((weapon.totals.healingBonus ?? 0) + (equipment.totals.healingBonus ?? 0)),
     receivedHealingBonus: 0,
     chainCooldownReduction: 0,

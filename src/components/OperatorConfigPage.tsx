@@ -249,6 +249,14 @@ function isSameConfigSnapshot(currentSnapshot: ConfigSnapshot | undefined, nextS
   }
 }
 
+function isReusableConfigSnapshot(snapshot: ConfigSnapshot | undefined): boolean {
+  return (
+    typeof snapshot?.panel?.display?.atk === 'number'
+    && typeof snapshot.panel.display.hp === 'number'
+    && typeof snapshot.panel.calc?.atkPercentBoost === 'number'
+  );
+}
+
 function readSelectedCharacterIdsFromSession(): string[] {
   const raw = safeSessionStorage.getItem(STORAGE_KEYS.SELECTED_CHARACTERS);
   if (!raw) {
@@ -480,6 +488,7 @@ function createCharacterConfigFromSnapshot(snapshot: ConfigSnapshot, sourceChara
         equipmentId: piece.equipmentId,
         name: piece.name,
         part: piece.part,
+        imgUrl: piece.imgUrl,
         fixedStat: piece.fixedStat,
       },
     };
@@ -529,6 +538,61 @@ function buildDraftMapFromSnapshotCache(cache: OperatorConfigPageCache, characte
       createCharacterConfigFromSnapshot(snapshot, characterMap.get(characterId) ?? null),
     ])
   );
+}
+
+function hydrateDraftConfigFromLibraries(
+  config: OperatorConfigPageCharacterConfig,
+  weaponLibrary: Record<string, WeaponData & { id: string; imgUrl: string }>,
+  equipmentLibrary: EquipmentLibrary | null
+): OperatorConfigPageCharacterConfig {
+  const weaponName = config.weapon.id || config.sourceSnapshot?.weapon.name || config.sourceSnapshot?.weapon.id || '';
+  const weaponData = weaponLibrary[weaponName];
+  let nextConfig = config;
+  const currentWeaponData = config.weapon.data as Partial<WeaponData>;
+  if (weaponData && (!currentWeaponData.skills || !currentWeaponData.attackGrowth)) {
+    nextConfig = {
+      ...nextConfig,
+      weapon: {
+        ...nextConfig.weapon,
+        id: weaponData.name,
+        data: weaponData as unknown as Record<string, unknown>,
+      },
+    };
+  }
+
+  if (!equipmentLibrary) {
+    return nextConfig;
+  }
+
+  let equipmentChanged = false;
+  const nextEquipment = { ...nextConfig.equipment };
+  EQUIPMENT_SLOT_KEYS.forEach((slotKey) => {
+    const piece = nextEquipment[slotKey];
+    if (!piece.id) return;
+    const currentData = piece.data as Partial<EquipmentItem>;
+    if (currentData.imgUrl) return;
+    const libraryItem = Object.values(equipmentLibrary.gearSets)
+      .flatMap((gearSet) => Object.values(gearSet.equipments))
+      .find((item) => item.equipmentId === piece.id);
+    if (!libraryItem?.imgUrl) return;
+    nextEquipment[slotKey] = {
+      ...piece,
+      data: {
+        ...piece.data,
+        imgUrl: libraryItem.imgUrl,
+      },
+    };
+    equipmentChanged = true;
+  });
+
+  if (!equipmentChanged) {
+    return nextConfig;
+  }
+
+  return {
+    ...nextConfig,
+    equipment: nextEquipment,
+  };
 }
 
 function createEquipmentPieceFromItem(item: EquipmentItem): OperatorConfigPageEquipmentPieceState {
@@ -748,6 +812,7 @@ function buildEquipmentPiecesForSnapshot(config: OperatorConfigPageCharacterConf
       equipmentId: piece.id,
       name: String(pieceData.name ?? piece.id ?? ''),
       part: String(pieceData.part ?? ''),
+      imgUrl: String(pieceData.imgUrl ?? ''),
       fixedStat: pieceData.fixedStat,
       effects,
     };
@@ -1256,6 +1321,21 @@ export function OperatorConfigPage() {
     loadLibraries();
   }, []);
 
+  React.useEffect(() => {
+    if (Object.keys(weaponLibrary).length === 0 && !equipmentLibrary) return;
+    setConfigMap((prev) => {
+      let changed = false;
+      const next = Object.fromEntries(
+        Object.entries(prev).map(([characterId, config]) => {
+          const hydrated = hydrateDraftConfigFromLibraries(config, weaponLibrary, equipmentLibrary);
+          if (hydrated !== config) changed = true;
+          return [characterId, hydrated];
+        })
+      );
+      return changed ? next : prev;
+    });
+  }, [equipmentLibrary, weaponLibrary]);
+
   const currentConfig = activeCharacterId ? configMap[activeCharacterId] ?? null : null;
   const activeCharacter = activeCharacterId ? getCharacterById(activeCharacterId) : null;
   const characterLevelCount = levelValueToCount(currentConfig?.character.config.level ?? 90);
@@ -1288,7 +1368,12 @@ export function OperatorConfigPage() {
   const currentWeaponSkill3Lines = buildWeaponSkill3Lines(currentWeaponSkill3Data, weaponSkillLevel3);
   const currentWeaponMetaLine = formatWeaponMetaLine(currentWeaponLevel, currentWeaponAttack);
   const configSnapshot = React.useMemo<ConfigSnapshot | null>(() => {
-    if (currentConfig?.sourceSnapshot) return currentConfig.sourceSnapshot;
+    const sourceSnapshot: ConfigSnapshot | undefined = currentConfig?.sourceSnapshot;
+    if (sourceSnapshot && isReusableConfigSnapshot(sourceSnapshot)) return sourceSnapshot;
+    const currentWeaponData = (currentConfig?.weapon.data ?? EMPTY_RECORD) as Partial<WeaponData>;
+    if (sourceSnapshot?.weapon.name && !currentWeaponData.skills) {
+      return null;
+    }
     const input = buildOperatorPanelInput(currentConfig, activeCharacter);
     return input ? buildConfigSnapshot(input) : null;
   }, [activeCharacter, currentConfig]);
@@ -1305,11 +1390,12 @@ export function OperatorConfigPage() {
 
   const attributeItems = React.useMemo<ReadonlyArray<AttributeItem>>(() => {
     const calc = configSnapshot?.panel.calc;
+    const display = configSnapshot?.panel.display;
     return [
       { label: '名称', value: configSnapshot?.operator.name || currentCharacterData.name || activeCharacter?.name || '角色占位' },
       { label: '属性', value: configSnapshot?.operator.element || currentCharacterData.element || activeCharacter?.element || '属性占位' },
       { label: '等级', value: String(configSnapshot?.operator.level ?? currentConfig?.character.config.level ?? 90) },
-      { label: '攻击力', value: String(calc?.atk ?? currentAttributes?.atk ?? '0000') },
+      { label: '攻击力', value: String(display?.atk ?? currentAttributes?.atk ?? '0000') },
       { label: '力量', value: String(calc?.strength ?? currentAttributes?.strength ?? '000'), tone: 'main' },
       { label: '敏捷', value: String(calc?.agility ?? currentAttributes?.agility ?? '000') },
       { label: '智识', value: String(calc?.intelligence ?? currentAttributes?.intelligence ?? '000'), tone: 'sub' },

@@ -37,18 +37,18 @@
 - [ ] 梳理旧 `OperatorConfigPanel.tsx` 面板计算规则。
 - [ ] 明确旧 `panelSnapshot / infoSnap / infoSnapshot` 只作为参考，不作为 Phase 3 目标结构。
 - [ ] 定义新的 `ConfigSnapshot` 顶层结构：`panel / operator / weapon / equipment / buff / detailMarkdown`。
-- [ ] 将 `ConfigSnapshot.panel` 拆为 `calc / formula / display`。
+- [ ] 将 `ConfigSnapshot.panel` 拆为 `calc / display`。
 - [ ] `panel.calc` 消费 `operator / weapon / equipment`。
 - [ ] `panel.calc` 不自动消费 `buff`。
 - [ ] `panel.calc` 仅保存进入公式前的原子汇总字段，不保存已经吃入公式后的最终结果。
-- [ ] `panel.formula` 只消费 `panel.calc`。
-- [ ] `panel.display` 只消费 `panel.formula`。
+- [ ] `panel.display` 只基于 `panel.calc` 生成，不直接消费 `operator / weapon / equipment / buff`。
+- [ ] `panel.display` 保存公式后展示结果、显示映射结果和可展示公式过程。
 - [ ] `panel.calc` 保留 `allSkillDmgBonus / magicDmgBonus / allDmgBonus` 等原子字段，不在 calc 层拆分。
-- [ ] `panel.formula.damageBonus` 展开 `allSkillDmgBonus / magicDmgBonus / allDmgBonus` 到对应结果项。
+- [ ] `panel.display.damageBonus` 展开 `allSkillDmgBonus / magicDmgBonus / allDmgBonus` 到对应展示结果项。
 - [ ] Phase 3 不使用 `allElementDmgBonus`；旧 `allElementDmgBonus` 语义统一收敛到 `magicDmgBonus`。
 - [ ] `magicDmgBonus` 表示非物理元素通用伤害加成，只展开到 `灼热 / 电磁 / 寒冷 / 自然`。
 - [ ] `allDmgBonus` 表示全伤害加成，展开到 `物理 / 灼热 / 电磁 / 寒冷 / 自然`。
-- [ ] `panel.display` 仅格式化 `panel.formula` 结果，不反向参与计算。
+- [ ] `panel.display` 的公式后结果不反向参与 `panel.calc` 汇总。
 - [ ] 常驻面板和 markdown 详情只读取 `panel.display`。
 - [ ] 统一使用 `operator` 命名，不新增 `character` 命名。
 - [ ] 新增独立面板计算模块。
@@ -72,8 +72,7 @@
 - [ ] 生成 `ConfigSnapshot.weapon.totals`，按 `typeKey` 汇总当前档位数值。
 - [ ] `panel.calc` 只消费 `weapon.attack` 与 `weapon.totals`，不直接遍历武器技能明细。
 - [ ] 武器贡献必须先进入 `panel.calc`，不得由 `weapon.skills` 或 `weapon.totals` 直接驱动 `panel.display`。
-- [ ] `panel.formula` 只消费 `panel.calc` 派生公式结果。
-- [ ] `panel.display` 只消费 `panel.formula`。
+- [ ] `panel.display` 只基于 `panel.calc` 生成公式后展示结果。
 - [ ] `skill3` 只有 `category = passive` 的 effect 进入 `weapon.totals` 并被 `panel.calc` 消费。
 - [ ] `skill3` 的 `category = condition` effect 视为 buff 候选，进入明细和 markdown。
 - [ ] `skill3` 的 `category = condition` effect 不进入 `weapon.totals`，不参与 `panel.calc`。
@@ -99,7 +98,7 @@
 - [ ] 装备 `生命值` 命中 `hpPercent`，不命中固定 `hp`。
 - [ ] 装备 `暴击伤害` 命中 `critDmgBonusBoost`。
 - [ ] 装备 `全伤害减免` 保留为 `damageReduction`，当前显示为 `未接入`。
-- [ ] 装备 `法术伤害加成` 保留为 `magicDmgBonus`，由 `panel.formula.damageBonus` 展开，不直接显示独立行。
+- [ ] 装备 `法术伤害加成` 保留为 `magicDmgBonus`，由 `panel.display.damageBonus` 展开，不直接显示独立行。
 - [ ] 装备 `寒冷和电磁伤害加成` 保留为 `iceElectricDmgBonus`，本阶段不拆分。
 - [ ] 装备 `灼热和自然伤害加成` 保留为 `fireNatureDmgBonus`，本阶段不拆分。
 - [ ] 将复合装备字段拆分留给后续 utils / 映射层任务。
@@ -111,7 +110,7 @@
 - [ ] 复核武器 `weaponAllStatBoostBonus` 是否继续进入 `allStatScale`。
 - [ ] Phase 3 不从装备读取 `allStatBoost`、固定能力值或 `fixedStat` 参与四维计算。
 - [ ] 按旧 panel 草案记录能力攻击加成规则：主属性 `* 0.005`，副属性 `* 0.002`，并在实现前复核。
-- [ ] `panel.formula.abilityBonus` 内部按小数记录；旧链路兼容字段按百分数点暴露。
+- [ ] `panel.display.abilityBonus` 内部按小数记录；旧链路兼容字段按百分数点暴露。
 - [ ] 按旧 panel 草案记录分步攻击力规则：`rawAtk / atkPercent / baseAtk / panelAtk`，并在实现前复核。
 - [ ] 攻击力详情展示 `基础攻击 / 百分比加成 / 最终基础 / 面板攻击` 四段。
 - [ ] 攻击力百分比消费 `equipment.totals.atkPercentBoost`，不消费 `equipment.flatAtk`。
@@ -125,15 +124,14 @@
 - [ ] 历史或武器字段 `critDmgBonus` 若出现，Phase 3 统一归一化为 `critDmgBonusBoost`。
 - [ ] 汇总元素伤害加成、技能类型伤害加成和全伤害加成。
 - [ ] `panel.calc.damageBonus` 不包含 `allElementDmgBonus`。
-- [ ] `panel.formula.damageBonus.physicalDmgBonus = physicalDmgBonus + allDmgBonus`。
-- [ ] `panel.formula.damageBonus.fire/electric/ice/nature = 对应元素DmgBonus + magicDmgBonus + allDmgBonus`。
-- [ ] `panel.formula.damageBonus.skill/chainSkill/ultimate = 对应技能DmgBonus + allSkillDmgBonus`。
-- [ ] `panel.formula.damageBonus.normalAttackDmgBonus = normalAttackDmgBonus`。
-- [ ] `panel.formula.damageBonus.imbalanceDmgBonus = imbalanceDmgBonus`。
+- [ ] `panel.display.damageBonus.physicalDmgBonus = physicalDmgBonus + allDmgBonus`。
+- [ ] `panel.display.damageBonus.fire/electric/ice/nature = 对应元素DmgBonus + magicDmgBonus + allDmgBonus`。
+- [ ] `panel.display.damageBonus.skill/chainSkill/ultimate = 对应技能DmgBonus + allSkillDmgBonus`。
+- [ ] `panel.display.damageBonus.normalAttackDmgBonus = normalAttackDmgBonus`。
+- [ ] `panel.display.damageBonus.imbalanceDmgBonus = imbalanceDmgBonus`。
 - [ ] 输出统一 `ConfigSnapshot`。
 - [ ] 将进入公式前的原子汇总字段放入 `ConfigSnapshot.panel.calc`。
-- [ ] 将公式计算结果、伤害分流结果和必要中间值放入 `ConfigSnapshot.panel.formula`。
-- [ ] 将显示映射结果放入 `ConfigSnapshot.panel.display`。
+- [ ] 将公式计算结果、伤害分流结果、必要中间值和显示映射结果放入 `ConfigSnapshot.panel.display`。
 - [ ] 将当前 operator 原始数据和配置放入 `ConfigSnapshot.operator`。
 - [ ] 将当前武器配置、攻击和贡献放入 `ConfigSnapshot.weapon`。
 - [ ] 将当前 4 件装备和汇总贡献放入 `ConfigSnapshot.equipment`。

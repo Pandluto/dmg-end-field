@@ -179,8 +179,10 @@ const snapshot = buildConfigSnapshot({
 assertEqual(snapshot.weapon.totals.hpPercent, 0.2, 'skill2 hp normalizes to hpPercent');
 assertEqual(snapshot.equipment.totals.agilityBoost, 8, 'equipment agility enters equipment totals');
 assertEqual(snapshot.panel.calc.agility, 58, 'equipment agility enters panel agility');
+assertEqual('atk' in snapshot.panel.calc, false, 'panel calc does not store formula result atk');
 assertEqual(snapshot.weapon.totals.atkPercentBoost ?? 0, 0, 'condition skill3 does not enter weapon totals');
-assertEqual(snapshot.panel.calc.critDmg, 0.82, 'crit damage sums default, equipment, skill3 passive');
+assertEqual(snapshot.panel.calc.critDmgBonusBoost, 0.32, 'crit damage boost stays atomic in panel calc');
+assertEqual(snapshot.panel.display.critDmg, 0.82, 'crit damage display sums default, equipment, skill3 passive');
 assertEqual(snapshot.panel.display.damageBonus.fireDmgBonus, 0.15, 'magicDmgBonus expands to non-physical elements');
 assertEqual(snapshot.panel.display.damageBonus.physicalDmgBonus, 0.07, 'magicDmgBonus does not expand to physical');
 assertEqual(snapshot.panel.display.damageBonus.skillDmgBonus, 0.05, 'allSkillDmgBonus expands to skill damage');
