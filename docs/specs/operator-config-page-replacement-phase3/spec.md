@@ -113,24 +113,28 @@ Phase 3 的目标是继续完善这个界面的显示内容和计算逻辑：页
 #### Scenario: 显示映射
 
 - WHEN 页面渲染常驻面板区域或 markdown 详情
-- THEN 通过显示映射读取 `ConfigSnapshot.panel.calc`
+- THEN 通过显示映射读取 `ConfigSnapshot.panel.formula`
 - AND 显示映射可以分组、换名、合并或隐藏字段
 - AND 例如 `allSkillDmgBonus` 这类字段可以作为独立存储字段存在，即使当前显示面板不直接展示
 - AND 显示映射输出到 `ConfigSnapshot.panel.display`
 - AND 常驻面板与 markdown 详情只读取 `panel.display`
 
-#### Scenario: display 层展开全局加成
+#### Scenario: calc / formula / display 职责
 
-- WHEN `panel.display` 从 `panel.calc` 派生显示字段
-- THEN `panel.calc` 中的原子字段保持不拆分
+- WHEN 生成 `ConfigSnapshot.panel`
+- THEN `panel.calc` SHALL 作为公式前原子汇总层
+- AND `panel.calc` 只负责汇总 `operator / weapon / equipment` 的常驻贡献
+- AND `panel.calc` 中的原子字段保持不拆分、不分流、不吃入后续公式
+- AND `panel.formula` SHALL 作为公式消费层，消费 `panel.calc` 得到后续计算结果
+- AND `panel.display` SHALL 作为展示映射层，消费 `panel.formula` 生成常驻面板和 markdown 展示字段
+- AND `panel.display` 不承担公式计算职责
 - AND `allSkillDmgBonus / magicDmgBonus / allDmgBonus` 等字段在 `panel.calc` 中独立保存
-- AND `panel.display` 负责将这些字段展开到对应显示项
-- AND 展开结果仅用于展示，不反向参与计算
-- AND `panel.calc` 消费 `operator / weapon / equipment` 时不执行这些显示拆分
+- AND 全局伤害、全技能伤害、元素通用伤害的展开 SHALL 发生在 `panel.formula.damageBonus`，不发生在 `panel.calc`
+- AND `panel.formula.damageBonus` 的展开结果可被 `panel.display` 格式化展示，也可被后续伤害链路消费
 - AND Phase 3 不使用 `allElementDmgBonus`
 - AND 旧代码中的 `allElementDmgBonus` 语义 SHALL 收敛到 `magicDmgBonus`
 - AND `magicDmgBonus` 在 Phase 3 表示非物理元素通用伤害加成
-- AND `magicDmgBonus` 展开到 `灼热 / 电磁 / 寒冷 / 自然` 伤害显示项，不展开到 `物理伤害加成`
+- AND `magicDmgBonus` 在 `panel.formula` 展开到 `灼热 / 电磁 / 寒冷 / 自然` 伤害结果，不展开到 `物理伤害加成`
 - AND `allDmgBonus` 保持为全伤害加成，不与 `magicDmgBonus` 合并
 
 ### Requirement: 面板详情 markdown 弹窗
@@ -259,7 +263,7 @@ Phase 3 的目标是继续完善这个界面的显示内容和计算逻辑：页
 - THEN 显示可编辑数值文本框
 - AND 默认值为 `60`
 - AND 用户可以修改好感值数值
-- AND 数值变化后触发 `panel.calc` 重算
+- AND 数值变化后触发 `ConfigSnapshot.panel` 重新生成
 - AND 常驻面板与 markdown 详情通过 `panel.display` 读取重算后的结果
 
 #### Scenario: 好感值存储
@@ -267,7 +271,8 @@ Phase 3 的目标是继续完善这个界面的显示内容和计算逻辑：页
 - WHEN 保存当前角色配置
 - THEN 好感值作为当前 operator 配置的一部分保存
 - AND `ConfigSnapshot.operator` SHALL 包含当前好感值
-- AND `ConfigSnapshot.panel.calc` SHALL 消费该好感值
+- AND `ConfigSnapshot.panel.calc` SHALL 保留该好感值进入公式前的原子来源
+- AND `ConfigSnapshot.panel.formula` SHALL 消费该好感值参与主能力换算
 
 ### Requirement: 面板计算输入
 
@@ -368,7 +373,8 @@ Phase 3 的目标是继续完善这个界面的显示内容和计算逻辑：页
 - AND `ConfigSnapshot.panel.calc` 不直接遍历 `weapon.skills` 明细
 - AND `weapon.skills` 与 `weapon.totals` 不直接驱动 `panel.display`
 - AND 武器贡献必须先进入 `panel.calc`
-- AND `panel.display` 只消费 `panel.calc` 派生后的结果
+- AND `panel.formula` 只消费 `panel.calc` 派生公式结果
+- AND `panel.display` 只消费 `panel.formula`
 - AND 多条武器明细命中同一个 `typeKey` 时当前档位数值直接相加
 - AND 未识别 `typeKey` 的武器明细保留在 `weapon.skills` 与详情 markdown 中，但不进入 `weapon.totals`
 
@@ -429,8 +435,9 @@ Phase 3 的目标是继续完善这个界面的显示内容和计算逻辑：页
 - WHEN 生成 `ConfigSnapshot.equipment`
 - THEN 输出 `totals`
 - AND `totals` 按 effect 的 `typeKey` 汇总
-- AND `ConfigSnapshot.panel` 只消费 `equipment.totals`
-- AND `ConfigSnapshot.panel` 不直接遍历 4 件装备明细
+- AND `ConfigSnapshot.panel.calc` 只消费 `equipment.totals`
+- AND `ConfigSnapshot.panel.calc` 不直接遍历 4 件装备明细
+- AND `ConfigSnapshot.panel.formula` 只消费 `panel.calc`，不直接遍历 4 件装备明细
 
 #### Scenario: 同字段汇总规则
 
@@ -496,7 +503,8 @@ Phase 3 的目标是继续完善这个界面的显示内容和计算逻辑：页
 - WHEN 装备 effect 命中 `法术伤害加成`
 - THEN 该字段保留为 `magicDmgBonus`
 - AND `panel.calc.damageBonus.magicDmgBonus` 独立保存该原子字段
-- AND `panel.display` 将 `magicDmgBonus` 展开到对应元素伤害显示项
+- AND `panel.formula.damageBonus` 将 `magicDmgBonus` 展开到对应元素伤害结果
+- AND `panel.display` 只格式化 `panel.formula.damageBonus` 的结果
 - AND 常驻显示面板不直接显示单独的 `法术伤害加成` 行
 
 #### Scenario: 装备复合伤害字段
@@ -522,15 +530,20 @@ Phase 3 的目标是继续完善这个界面的显示内容和计算逻辑：页
 #### Scenario: 能力值汇总
 
 - WHEN 计算力量、敏捷、智识、意志
-- THEN 先取当前等级角色基础能力值
+- THEN `panel.calc.strength / agility / intelligence / will` 保存公式前四维原子汇总值
+- AND 四维原子汇总值先取当前等级角色基础能力值
 - AND 加上武器无条件能力值贡献
-- AND 装备的 `mainStatBoost / subStatBoost` 只在主副属性百分比阶段参与计算
+- AND 加上装备命中的四维固定值贡献
+- AND `panel.calc` 中的四维字段只是汇总值，不代表已经进入 `abilityBonus` 或攻击力公式
+- AND 主副能力换算 SHALL 发生在 `panel.formula`，不发生在 `panel.calc`
+- AND 装备的 `mainStatBoost / subStatBoost` 只在 `panel.formula` 的主副属性百分比阶段参与计算
 - AND Phase 3 不读取装备 `fixedStat` 或旧 `equipment` 手填对象来补固定能力值
 
 #### Scenario: 主副属性
 
 - WHEN 计算主副属性
-- THEN 主属性字段来自角色模板 `mainStat`
+- THEN 在 `panel.formula` 中计算主副属性换算
+- AND 主属性字段来自角色模板 `mainStat`
 - AND 副属性字段来自角色模板 `subStat`
 - AND 主属性额外加当前好感值 `favorValue`
 - AND `favorValue` 默认值为 `60`
@@ -540,11 +553,13 @@ Phase 3 的目标是继续完善这个界面的显示内容和计算逻辑：页
 #### Scenario: 主副属性百分比
 
 - WHEN 计算最终主副属性
-- THEN 先按旧 `OperatorConfigPanel` 公式记录，待复核纠正
+- THEN 在 `panel.formula` 中按旧 `OperatorConfigPanel` 公式记录，待复核纠正
+- AND `rawMainStat` 从 `panel.calc` 中当前主能力对应的四维原子汇总值读取
+- AND `rawSubStat` 从 `panel.calc` 中当前副能力对应的四维原子汇总值读取
 - AND 主属性按 `mainStatFinal = rawMainStat * (1 + mainStatScale) * (1 + allStatScale)` 计算
 - AND 副属性按 `subStatFinal = rawSubStat * (1 + subStatScale) * (1 + allStatScale)` 计算
-- AND `mainStatScale` SHALL 包含装备 `equipment.totals.mainStatBoost`
-- AND `subStatScale` SHALL 包含装备 `equipment.totals.subStatBoost`
+- AND `mainStatScale` SHALL 来自 `panel.calc.mainStatBoost`
+- AND `subStatScale` SHALL 来自 `panel.calc.subStatBoost`
 - AND `allStatScale` SHALL 保留旧公式位置
 - AND Phase 3 装备白名单未包含 `allStatBoost`，因此装备侧暂不汇总 `equipment.totals.allStatBoost`
 - AND 武器侧 `weaponAllStatBoostBonus` 是否进入 `allStatScale` SHALL 在实现前复核
@@ -552,32 +567,33 @@ Phase 3 的目标是继续完善这个界面的显示内容和计算逻辑：页
 #### Scenario: 能力攻击加成
 
 - WHEN 计算能力攻击加成
-- THEN 先按旧 `OperatorConfigPanel` 公式记录，待复核纠正
+- THEN 在 `panel.formula` 中计算，待复核纠正
 - AND 主属性攻击加成为 `mainStatFinal * 0.005`
 - AND 副属性攻击加成为 `subStatFinal * 0.002`
 - AND 总能力攻击加成为 `abilityBonus = mainAtkBonus + subAtkBonus`
-- AND `panel.calc.abilityBonus` 内部单位暂按小数记录
-- AND 旧链路兼容字段 `abilityBonus` 若继续暴露给伤害计算 SHALL 保持旧单位：百分数点，即 `panel.calc.abilityBonus * 100`
+- AND `panel.formula.abilityBonus` 内部单位暂按小数记录
+- AND 旧链路兼容字段 `abilityBonus` 若继续暴露给伤害计算 SHALL 保持旧单位：百分数点，即 `panel.formula.abilityBonus * 100`
 
 #### Scenario: 攻击力
 
 - WHEN 计算面板攻击力
-- THEN 先按旧 `OperatorConfigPanel` 的分步攻击力公式记录，待复核纠正
-- AND `rawAtk = operatorAtk + weaponAtk`
-- AND `equipmentAtkPercent = equipment.totals.atkPercentBoost`
-- AND `atkPercent = weaponPassiveAtkPercent + equipmentAtkPercent`
-- AND `baseAtk = rawAtk * (1 + atkPercent) + weaponPassiveAtk`
-- AND `panelAtk = baseAtk * (1 + abilityBonus)`
+- THEN 在 `panel.formula` 中按旧 `OperatorConfigPanel` 的分步攻击力公式记录，待复核纠正
+- AND `rawAtk = panel.calc.operatorAtk + panel.calc.weaponAtk`
+- AND `atkPercent = panel.calc.atkPercentBoost`
+- AND `baseAtk = rawAtk * (1 + atkPercent) + panel.calc.flatAtk`
+- AND `panelAtk = baseAtk * (1 + panel.formula.abilityBonus)`
 - AND 攻击力详情 SHALL 展示 `基础攻击 / 百分比加成 / 最终基础 / 面板攻击` 四段
-- AND `panel.calc.atkPercent` 内部单位暂按小数记录
+- AND `panel.calc.atkPercentBoost` 内部单位暂按小数记录
 - AND 旧链路兼容字段 `weaponAtkPercent` 若继续暴露给伤害计算 SHALL 保持旧语义：武器攻击百分比与装备攻击百分比之和
-- AND 旧链路兼容字段 `weaponAtkPercent` 若继续暴露给伤害计算 SHALL 保持旧单位：百分数点，即 `panel.calc.atkPercent * 100`
+- AND 旧链路兼容字段 `weaponAtkPercent` 若继续暴露给伤害计算 SHALL 保持旧单位：百分数点，即 `panel.calc.atkPercentBoost * 100`
 - AND Phase 3 不读取 `equipment.flatAtk`
 
 #### Scenario: 生命值
 
 - WHEN 计算面板生命值
-- THEN `panelHp = operatorHp * (1 + weaponHpPercent + equipment.totals.hpPercent)`
+- THEN `panel.calc.operatorHp` 保存角色基础生命值
+- AND `panel.calc.hpPercent` 汇总武器与装备生命百分比
+- AND `panel.formula.hp = panel.calc.operatorHp * (1 + panel.calc.hpPercent)`
 - AND Phase 3 不读取 `equipment.hp`
 
 #### Scenario: 暴击
@@ -593,7 +609,8 @@ Phase 3 的目标是继续完善这个界面的显示内容和计算逻辑：页
 - AND 叠加武器 `skill2` 汇总到 `weapon.totals.critDmgBonusBoost` 的贡献
 - AND 叠加武器 `skill3 category = passive` 汇总到 `weapon.totals.critDmgBonusBoost` 的贡献
 - AND 武器或历史字段若出现 `critDmgBonus`，Phase 3 SHALL 归一化为 `critDmgBonusBoost`
-- AND `panel.calc.critDmg = 0.5 + equipment.totals.critDmgBonusBoost + weapon.totals.critDmgBonusBoost`
+- AND `panel.calc.critDmgBonusBoost` 汇总装备与武器的暴击伤害提升原子值
+- AND `panel.formula.critDmg = 0.5 + panel.calc.critDmgBonusBoost`
 
 #### Scenario: 伤害加成
 
@@ -605,16 +622,17 @@ Phase 3 的目标是继续完善这个界面的显示内容和计算逻辑：页
 - AND 旧代码或旧数据中的 `allElementDmgBonus` 若进入 Phase 3 迁移边界，SHALL 归入 `magicDmgBonus`
 - AND `magicDmgBonus` SHALL 作为非物理元素通用伤害加成
 - AND `allDmgBonus` SHALL 作为全伤害加成
-- AND `panel.display.damageBonus.physicalDmgBonus = physicalDmgBonus + allDmgBonus`
-- AND `panel.display.damageBonus.fireDmgBonus = fireDmgBonus + magicDmgBonus + allDmgBonus`
-- AND `panel.display.damageBonus.electricDmgBonus = electricDmgBonus + magicDmgBonus + allDmgBonus`
-- AND `panel.display.damageBonus.iceDmgBonus = iceDmgBonus + magicDmgBonus + allDmgBonus`
-- AND `panel.display.damageBonus.natureDmgBonus = natureDmgBonus + magicDmgBonus + allDmgBonus`
-- AND `panel.display.damageBonus.normalAttackDmgBonus = normalAttackDmgBonus`
-- AND `panel.display.damageBonus.skillDmgBonus = skillDmgBonus + allSkillDmgBonus`
-- AND `panel.display.damageBonus.chainSkillDmgBonus = chainSkillDmgBonus + allSkillDmgBonus`
-- AND `panel.display.damageBonus.ultimateDmgBonus = ultimateDmgBonus + allSkillDmgBonus`
-- AND `panel.display.damageBonus.imbalanceDmgBonus = imbalanceDmgBonus`
+- AND `panel.formula.damageBonus.physicalDmgBonus = physicalDmgBonus + allDmgBonus`
+- AND `panel.formula.damageBonus.fireDmgBonus = fireDmgBonus + magicDmgBonus + allDmgBonus`
+- AND `panel.formula.damageBonus.electricDmgBonus = electricDmgBonus + magicDmgBonus + allDmgBonus`
+- AND `panel.formula.damageBonus.iceDmgBonus = iceDmgBonus + magicDmgBonus + allDmgBonus`
+- AND `panel.formula.damageBonus.natureDmgBonus = natureDmgBonus + magicDmgBonus + allDmgBonus`
+- AND `panel.formula.damageBonus.normalAttackDmgBonus = normalAttackDmgBonus`
+- AND `panel.formula.damageBonus.skillDmgBonus = skillDmgBonus + allSkillDmgBonus`
+- AND `panel.formula.damageBonus.chainSkillDmgBonus = chainSkillDmgBonus + allSkillDmgBonus`
+- AND `panel.formula.damageBonus.ultimateDmgBonus = ultimateDmgBonus + allSkillDmgBonus`
+- AND `panel.formula.damageBonus.imbalanceDmgBonus = imbalanceDmgBonus`
+- AND `panel.display.damageBonus` 只格式化 `panel.formula.damageBonus`，不重复执行分流公式
 
 ### Requirement: ConfigSnapshot 输出
 
@@ -624,49 +642,50 @@ Phase 3 的目标是继续完善这个界面的显示内容和计算逻辑：页
 
 ```mermaid
 flowchart TD
-  Operator["ConfigSnapshot.operator\n基础属性 / 主副能力 / favorValue"] --> Calc["panel.calc\n唯一常驻计算层"]
+  Operator["ConfigSnapshot.operator\n基础属性 / 主副能力 / favorValue"] --> Calc["panel.calc\n公式前原子汇总层"]
   Weapon["ConfigSnapshot.weapon\nattack / totals"] --> Calc
   Equipment["ConfigSnapshot.equipment\ntotals"] --> Calc
   Buff["ConfigSnapshot.buff\noperator/weapon/equipment id 占位"] -. "不进入常驻 calc" .-> BuffLater["后续 buff 链路消费"]
 
-  Calc --> AbilityChain["主副能力与 abilityBonus 链路"]
-  AbilityChain --> AbilityRaw["rawMain/rawSub\n= operator 四维 + weapon 固定四维/主副固定 + favorValue"]
-  AbilityRaw --> AbilityScale["main/sub/all scale\n= equipment 百分比 + 待复核 weapon 百分比"]
+  Calc --> Formula["panel.formula\n公式消费层"]
+  Formula --> AbilityChain["主副能力与 abilityBonus 链路"]
+  AbilityChain --> AbilityRaw["rawMain/rawSub\n= panel.calc 四维原子汇总 + favorValue"]
+  AbilityRaw --> AbilityScale["main/sub/all scale\n= panel.calc 百分比原子字段"]
   AbilityScale --> AbilityFinal["mainFinal/subFinal\n= raw * (1 + scale) * (1 + allScale)"]
   AbilityFinal --> AbilityBonus["abilityBonus\n= mainFinal*0.005 + subFinal*0.002"]
 
-  Calc --> AtkChain["攻击力链路"]
-  AtkChain --> RawAtk["rawAtk = operatorAtk + weaponAtk"]
-  RawAtk --> AtkPercent["atkPercent = weaponAtkPercent + equipmentAtkPercent"]
-  AtkPercent --> BaseAtk["baseAtk = rawAtk*(1+atkPercent)+weaponPassiveAtk"]
+  Formula --> AtkChain["攻击力链路"]
+  AtkChain --> RawAtk["rawAtk = panel.calc.operatorAtk + panel.calc.weaponAtk"]
+  RawAtk --> AtkPercent["atkPercent = panel.calc.atkPercentBoost"]
+  AtkPercent --> BaseAtk["baseAtk = rawAtk*(1+atkPercent)+panel.calc.flatAtk"]
   BaseAtk --> PanelAtk["atk = baseAtk*(1+abilityBonus)"]
 
-  Calc --> HpChain["生命值链路"]
-  HpChain --> PanelHp["hp = operatorHp*(1 + weaponHpPercent + equipmentHpPercent)"]
+  Formula --> HpChain["生命值链路"]
+  HpChain --> PanelHp["hp = panel.calc.operatorHp*(1 + panel.calc.hpPercent)"]
 
-  Calc --> OtherCalc["其他 calc 原子字段"]
-  OtherCalc --> Crit["critRate / critDmg"]
-  OtherCalc --> SourceSkill["sourceSkillBoost"]
-  OtherCalc --> DamageBonus["damageBonus\n元素/技能/全局/特殊伤害"]
+  Formula --> OtherFormula["其他 formula 字段"]
+  OtherFormula --> Crit["critRate / critDmg"]
+  OtherFormula --> SourceSkill["sourceSkillBoost"]
+  OtherFormula --> DamageBonus["damageBonus 分流\n元素/技能/全局/特殊伤害"]
 
-  AbilityBonus --> PanelCalc["ConfigSnapshot.panel.calc"]
-  PanelAtk --> PanelCalc
-  PanelHp --> PanelCalc
-  Crit --> PanelCalc
-  SourceSkill --> PanelCalc
-  DamageBonus --> PanelCalc
+  AbilityBonus --> PanelFormula["ConfigSnapshot.panel.formula"]
+  PanelAtk --> PanelFormula
+  PanelHp --> PanelFormula
+  Crit --> PanelFormula
+  SourceSkill --> PanelFormula
+  DamageBonus --> PanelFormula
 
-  PanelCalc --> Compat["旧链路兼容字段"]
+  PanelFormula --> Compat["旧链路兼容字段"]
   Compat --> CompatAtk["weaponAtkPercent = atkPercent * 100"]
   Compat --> CompatAbility["abilityBonus = abilityBonus * 100"]
 
-  PanelCalc --> Display["panel.display\n只消费 panel.calc"]
-  Display --> Expand["展开 allSkillDmgBonus / magicDmgBonus / allDmgBonus"]
-  Expand --> UI["常驻面板 + detailMarkdown"]
+  PanelFormula --> Display["panel.display\n只消费 panel.formula"]
+  Display --> UI["常驻面板 + detailMarkdown"]
 
   Operator -. "不直接驱动显示" .-> DisplayBoundary["display 不直接消费来源数据"]
   Weapon -. "不直接驱动显示" .-> DisplayBoundary
   Equipment -. "不直接驱动显示" .-> DisplayBoundary
+  Calc -. "不直接驱动显示" .-> DisplayBoundary
 ```
 
 #### Scenario: 顶层结构
@@ -709,16 +728,20 @@ flowchart TD
 #### Scenario: panel 分组
 
 - WHEN 面板计算完成
-- THEN `ConfigSnapshot.panel` 分为 `calc` 与 `display`
-- AND `ConfigSnapshot.panel.calc` 保存最终计算结果、原子字段和必要中间值
+- THEN `ConfigSnapshot.panel` 分为 `calc / formula / display`
+- AND `ConfigSnapshot.panel.calc` 保存公式前原子汇总字段，不保存吃入后续公式后的最终结果
+- AND `ConfigSnapshot.panel.formula` 保存消费 `panel.calc` 后得到的公式结果、分流结果和必要中间值
 - AND `ConfigSnapshot.panel.display` 保存面向常驻面板和 markdown 的显示映射结果
 - AND `panel.calc` 消费 `ConfigSnapshot.operator / ConfigSnapshot.weapon / ConfigSnapshot.equipment`
 - AND `panel.calc` 不消费 `ConfigSnapshot.buff`
-- AND `panel.display` 只消费 `panel.calc`
+- AND `panel.formula` 只消费 `panel.calc`
+- AND `panel.display` 只消费 `panel.formula`
 - AND 页面常驻面板和 `detailMarkdown` 不直接从 `operator / weapon / equipment` 拼显示值
-- AND `panel.calc` 至少包含 `atk / hp / strength / agility / intelligence / will / baseAtk / abilityBonus / operatorAtk / weaponAtk / weaponAtkPercent / critRate / critDmg / sourceSkill`
+- AND `panel.calc` 至少包含 `operatorAtk / weaponAtk / operatorHp / strength / agility / intelligence / will / atkPercentBoost / hpPercent / critRateBoost / critDmgBonusBoost / sourceSkillBoost`
+- AND `panel.formula` 至少包含 `atk / hp / baseAtk / abilityBonus / mainStatFinal / subStatFinal / weaponAtkPercent / critRate / critDmg / sourceSkill`
 - AND 伤害加成进入 `ConfigSnapshot.panel.calc.damageBonus`
 - AND `damageBonus` 至少包含 `physicalDmgBonus / fireDmgBonus / electricDmgBonus / iceDmgBonus / natureDmgBonus / magicDmgBonus / normalAttackDmgBonus / skillDmgBonus / chainSkillDmgBonus / ultimateDmgBonus / allSkillDmgBonus / imbalanceDmgBonus / allDmgBonus`
+- AND 分流后的伤害加成进入 `ConfigSnapshot.panel.formula.damageBonus`
 
 #### Scenario: detailMarkdown
 

@@ -58,7 +58,21 @@ export function getOperatorConfigPageCache(): OperatorConfigPageCache {
   const raw = safeSessionStorage.getItem(STORAGE_KEYS.OPERATOR_CONFIG_PAGE_CACHE);
   if (!raw) return {};
   try {
-    return JSON.parse(raw) as OperatorConfigPageCache;
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object') return {};
+    return Object.fromEntries(
+      Object.entries(parsed as Record<string, unknown>).filter(([, value]) => {
+        if (!value || typeof value !== 'object') return false;
+        return (
+          'panel' in value
+          && 'operator' in value
+          && 'weapon' in value
+          && 'equipment' in value
+          && 'buff' in value
+          && 'detailMarkdown' in value
+        );
+      })
+    ) as OperatorConfigPageCache;
   } catch {
     return {};
   }

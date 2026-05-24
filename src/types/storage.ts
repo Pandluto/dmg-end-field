@@ -1,5 +1,6 @@
 import { EquipmentConfig } from '../utils/equipmentParser';
 import type { BuffEffectKind, BuffExtraHitConfig } from '../core/domain/buff';
+import type { ConfigSnapshot } from '../core/calculators/operatorPanelCalculator';
 import { SandboxSkillHit, SkillType, ElementType } from './index';
 
 export type SkillPanelKey = 'A' | 'B' | 'E' | 'Q';
@@ -29,6 +30,7 @@ export interface OperatorConfigPageCharacterState {
   config: {
     level: number | string;
     potential: string;
+    favorValue?: number;
   };
   data: Record<string, unknown>;
 }
@@ -63,10 +65,10 @@ export interface OperatorConfigPageCharacterConfig {
     glove: OperatorConfigPageEquipmentPieceState;
   };
   skills: OperatorConfigPageSkillsState;
-  panel: Record<string, unknown>;
+  sourceSnapshot?: ConfigSnapshot;
 }
 
-export type OperatorConfigPageCache = Record<string, OperatorConfigPageCharacterConfig>;
+export type OperatorConfigPageCache = Record<string, ConfigSnapshot>;
 
 // ==================== v3 新类型定义 ====================
 

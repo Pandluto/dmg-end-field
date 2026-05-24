@@ -1,0 +1,787 @@
+type AbilityName = '力量' | '敏捷' | '智识' | '意志';
+type AbilityField = 'strength' | 'agility' | 'intelligence' | 'will';
+
+export interface OperatorPanelAttributes {
+  atk: number;
+  hp: number;
+  strength: number;
+  agility: number;
+  intelligence: number;
+  will: number;
+}
+
+export interface OperatorPanelInput {
+  operator: {
+    id: string;
+    name: string;
+    level: number | string;
+    potential: string;
+    element?: string;
+    mainStat?: string;
+    subStat?: string;
+    favorValue?: number;
+    skillConfig?: Record<string, string>;
+    attributes: Partial<Record<string, OperatorPanelAttributes>>;
+  };
+  weapon?: {
+    id?: string;
+    name?: string;
+    config?: {
+      level?: number | string;
+      potential?: string;
+      skillLevels?: {
+        skill1?: number;
+        skill2?: number;
+        skill3?: number;
+      };
+    };
+    data?: {
+      attackGrowth?: Record<string, number>;
+      skills?: {
+        skill1?: WeaponSkillInput;
+        skill2?: WeaponSkillInput;
+        skill3?: WeaponSkillInput;
+      };
+    };
+  };
+  equipment?: {
+    pieces?: EquipmentPieceInput[];
+  };
+}
+
+export interface WeaponSkillInput {
+  name?: string;
+  statType?: string;
+  levels?: Record<string, { value?: number; description?: string; passive?: Record<string, unknown> }>;
+  effects?: Record<string, {
+    name?: string;
+    type?: string;
+    category?: string;
+    levels?: Record<string, number>;
+  }>;
+}
+
+export interface EquipmentPieceInput {
+  slotKey: string;
+  equipmentId: string;
+  name: string;
+  part?: string;
+  fixedStat?: unknown;
+  effects: EquipmentEffectInput[];
+}
+
+export interface EquipmentEffectInput {
+  effectId: string;
+  label: string;
+  typeKey: string;
+  level: number | string;
+  value: number;
+  unit?: 'flat' | 'percent' | string;
+  raw?: string;
+}
+
+export interface ConfigSnapshot {
+  panel: {
+    calc: PanelCalcSnapshot;
+    display: PanelDisplaySnapshot;
+  };
+  operator: {
+    id: string;
+    name: string;
+    level: number | string;
+    potential: string;
+    element: string;
+    mainStat: string;
+    subStat: string;
+    favorValue: number;
+    skillConfig: Record<string, string>;
+    baseAttributes: OperatorPanelAttributes;
+  };
+  weapon: WeaponSnapshot;
+  equipment: EquipmentSnapshot;
+  buff: {
+    operator: string[];
+    weapon: string[];
+    equipment: string[];
+  };
+  detailMarkdown: string;
+}
+
+export interface PanelCalcSnapshot {
+  atk: number;
+  hp: number;
+  strength: number;
+  agility: number;
+  intelligence: number;
+  will: number;
+  baseAtk: number;
+  abilityBonus: number;
+  mainStatFinal: number;
+  subStatFinal: number;
+  operatorAtk: number;
+  weaponAtk: number;
+  atkPercent: number;
+  weaponAtkPercent: number;
+  critRate: number;
+  critDmg: number;
+  sourceSkill: number;
+  healingBonus: number;
+  receivedHealingBonus: number;
+  chainCooldownReduction: number;
+  ultimateChargeEfficiency: number;
+  imbalanceEfficiency: number;
+  damageReduction: number;
+  damageBonus: DamageBonusSnapshot;
+}
+
+export interface PanelDisplaySnapshot {
+  groups: DisplayGroup[];
+  damageBonus: DamageBonusSnapshot;
+}
+
+export interface DisplayGroup {
+  title: string;
+  items: Array<{ label: string; value: string }>;
+}
+
+export interface DamageBonusSnapshot {
+  physicalDmgBonus: number;
+  fireDmgBonus: number;
+  electricDmgBonus: number;
+  iceDmgBonus: number;
+  natureDmgBonus: number;
+  magicDmgBonus: number;
+  normalAttackDmgBonus: number;
+  skillDmgBonus: number;
+  chainSkillDmgBonus: number;
+  ultimateDmgBonus: number;
+  allSkillDmgBonus: number;
+  imbalanceDmgBonus: number;
+  allDmgBonus: number;
+}
+
+export interface WeaponSnapshot {
+  id: string;
+  name: string;
+  config: {
+    level: number | string;
+    potential: string;
+    skillLevels: {
+      skill1: number;
+      skill2: number;
+      skill3: number;
+    };
+  };
+  attack: number;
+  skills: {
+    skill1?: WeaponSkillDetail;
+    skill2?: WeaponSkillDetail;
+    skill3: {
+      effects: WeaponSkillDetail[];
+    };
+  };
+  totals: Record<string, number>;
+}
+
+export interface WeaponSkillDetail {
+  skillKey: string;
+  effectKey?: string;
+  label: string;
+  typeKey: string;
+  category?: string;
+  level: number;
+  value: number;
+  raw?: unknown;
+}
+
+export interface EquipmentSnapshot {
+  pieces: Array<{
+    slotKey: string;
+    equipmentId: string;
+    name: string;
+    part: string;
+    fixedStat?: unknown;
+    effects: EquipmentEffectInput[];
+  }>;
+  totals: Record<string, number>;
+}
+
+const EMPTY_ATTRIBUTES: OperatorPanelAttributes = {
+  atk: 0,
+  hp: 0,
+  strength: 0,
+  agility: 0,
+  intelligence: 0,
+  will: 0,
+};
+
+const ABILITY_NAME_TO_FIELD: Record<AbilityName, AbilityField> = {
+  力量: 'strength',
+  敏捷: 'agility',
+  智识: 'intelligence',
+  意志: 'will',
+};
+
+const WEAPON_SKILL1_TYPE_MAP: Record<string, string> = {
+  敏捷提升: 'agilityBoost',
+  力量提升: 'strengthBoost',
+  意志提升: 'willBoost',
+  智识提升: 'intelligenceBoost',
+  主能力提升: 'mainStatBoost',
+  副能力提升: 'subStatBoost',
+};
+
+const WEAPON_SKILL2_TYPE_MAP: Record<string, string> = {
+  攻击提升: 'atkPercentBoost',
+  生命提升: 'hpPercent',
+  物理伤害提升: 'physicalDmgBonus',
+  灼热伤害提升: 'fireDmgBonus',
+  电磁伤害提升: 'electricDmgBonus',
+  寒冷伤害提升: 'iceDmgBonus',
+  自然伤害提升: 'natureDmgBonus',
+  暴击率提升: 'critRateBoost',
+  暴击伤害提升: 'critDmgBonusBoost',
+  源石技艺提升: 'sourceSkillBoost',
+  终结技充能效率提升: 'ultimateChargeEfficiency',
+  法术伤害提升: 'magicDmgBonus',
+  治疗效率提升: 'healingBonus',
+};
+
+const WEAPON_TOTAL_FIELDS = new Set([
+  'strengthBoost',
+  'agilityBoost',
+  'intelligenceBoost',
+  'willBoost',
+  'mainStatBoost',
+  'subStatBoost',
+  'allStatBoost',
+  'atkPercentBoost',
+  'atk',
+  'hpPercent',
+  'critRateBoost',
+  'critDmgBonusBoost',
+  'sourceSkillBoost',
+  'ultimateChargeEfficiency',
+  'healingBonus',
+  'physicalDmgBonus',
+  'fireDmgBonus',
+  'electricDmgBonus',
+  'iceDmgBonus',
+  'natureDmgBonus',
+  'magicDmgBonus',
+  'iceElectricDmgBonus',
+  'fireNatureDmgBonus',
+  'normalAttackDmgBonus',
+  'skillDmgBonus',
+  'chainSkillDmgBonus',
+  'ultimateDmgBonus',
+  'allSkillDmgBonus',
+  'imbalanceDmgBonus',
+  'allDmgBonus',
+]);
+
+const EQUIPMENT_TOTAL_FIELDS = new Set([
+  'strengthBoost',
+  'agilityBoost',
+  'intelligenceBoost',
+  'willBoost',
+  'atkPercentBoost',
+  'sourceSkillBoost',
+  'ultimateChargeEfficiency',
+  'chainSkillDmgBonus',
+  'mainStatBoost',
+  'damageReduction',
+  'hpPercent',
+  'healingBonus',
+  'normalAttackDmgBonus',
+  'ultimateDmgBonus',
+  'magicDmgBonus',
+  'subStatBoost',
+  'critRateBoost',
+  'critDmgBonusBoost',
+  'physicalDmgBonus',
+  'skillDmgBonus',
+  'imbalanceDmgBonus',
+  'iceElectricDmgBonus',
+  'allSkillDmgBonus',
+  'fireNatureDmgBonus',
+  'allDmgBonus',
+]);
+
+const PERCENT_FIELDS = new Set([
+  'atkPercentBoost',
+  'hpPercent',
+  'critRateBoost',
+  'critDmgBonusBoost',
+  'mainStatBoost',
+  'subStatBoost',
+  'allStatBoost',
+  'ultimateChargeEfficiency',
+  'healingBonus',
+  'receivedHealingBonus',
+  'chainCooldownReduction',
+  'imbalanceEfficiency',
+  'damageReduction',
+  'physicalDmgBonus',
+  'fireDmgBonus',
+  'electricDmgBonus',
+  'iceDmgBonus',
+  'natureDmgBonus',
+  'magicDmgBonus',
+  'normalAttackDmgBonus',
+  'skillDmgBonus',
+  'chainSkillDmgBonus',
+  'ultimateDmgBonus',
+  'allSkillDmgBonus',
+  'imbalanceDmgBonus',
+  'allDmgBonus',
+]);
+
+const DAMAGE_BONUS_FIELDS = [
+  'physicalDmgBonus',
+  'fireDmgBonus',
+  'electricDmgBonus',
+  'iceDmgBonus',
+  'natureDmgBonus',
+  'magicDmgBonus',
+  'normalAttackDmgBonus',
+  'skillDmgBonus',
+  'chainSkillDmgBonus',
+  'ultimateDmgBonus',
+  'allSkillDmgBonus',
+  'imbalanceDmgBonus',
+  'allDmgBonus',
+] as const satisfies ReadonlyArray<keyof DamageBonusSnapshot>;
+
+function toNumber(value: unknown, fallback = 0): number {
+  return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
+}
+
+function round(value: number, digits = 6): number {
+  return Number(value.toFixed(digits));
+}
+
+function normalizeTypeKey(typeKey: string): string {
+  if (typeKey === 'hp') return 'hpPercent';
+  if (typeKey === 'critDmgBonus') return 'critDmgBonusBoost';
+  if (typeKey === 'allElementDmgBonus') return 'magicDmgBonus';
+  if (typeKey === 'atkPercent') return 'atkPercentBoost';
+  if (typeKey === 'memoryStrength') return 'sourceSkillBoost';
+  return typeKey;
+}
+
+function normalizeValue(typeKey: string, value: number, unit?: string): number {
+  if (unit === 'percent' || PERCENT_FIELDS.has(typeKey)) {
+    return Math.abs(value) > 1 ? value / 100 : value;
+  }
+  return value;
+}
+
+function addTotal(totals: Record<string, number>, typeKey: string, value: number, unit?: string): void {
+  const normalizedTypeKey = normalizeTypeKey(typeKey);
+  const normalizedValue = normalizeValue(normalizedTypeKey, value, unit);
+  totals[normalizedTypeKey] = round((totals[normalizedTypeKey] ?? 0) + normalizedValue);
+}
+
+function getLevelKey(level: number | string): string {
+  const numeric = typeof level === 'number' ? level : Number(level);
+  if (numeric >= 90) return 'level90';
+  if (numeric >= 80) return 'level80';
+  if (numeric >= 60) return 'level60';
+  if (numeric >= 40) return 'level40';
+  if (numeric >= 20) return 'level20';
+  return 'level1';
+}
+
+function resolveAttributes(input: OperatorPanelInput['operator']): OperatorPanelAttributes {
+  return input.attributes[getLevelKey(input.level)] ?? input.attributes.level90 ?? input.attributes.level1 ?? EMPTY_ATTRIBUTES;
+}
+
+function resolveAbilityField(name?: string): AbilityField | null {
+  return name && name in ABILITY_NAME_TO_FIELD ? ABILITY_NAME_TO_FIELD[name as AbilityName] : null;
+}
+
+function createEmptyDamageBonus(): DamageBonusSnapshot {
+  return {
+    physicalDmgBonus: 0,
+    fireDmgBonus: 0,
+    electricDmgBonus: 0,
+    iceDmgBonus: 0,
+    natureDmgBonus: 0,
+    magicDmgBonus: 0,
+    normalAttackDmgBonus: 0,
+    skillDmgBonus: 0,
+    chainSkillDmgBonus: 0,
+    ultimateDmgBonus: 0,
+    allSkillDmgBonus: 0,
+    imbalanceDmgBonus: 0,
+    allDmgBonus: 0,
+  };
+}
+
+function createDamageBonusFromTotals(...totalsList: Array<Record<string, number>>): DamageBonusSnapshot {
+  const damageBonus = createEmptyDamageBonus();
+  totalsList.forEach((totals) => {
+    DAMAGE_BONUS_FIELDS.forEach((field) => {
+      damageBonus[field] = round(damageBonus[field] + (totals[field] ?? 0));
+    });
+  });
+  return damageBonus;
+}
+
+function buildWeaponSnapshot(input: OperatorPanelInput['weapon']): WeaponSnapshot {
+  const config = {
+    level: input?.config?.level ?? 90,
+    potential: input?.config?.potential ?? '0潜',
+    skillLevels: {
+      skill1: input?.config?.skillLevels?.skill1 ?? 9,
+      skill2: input?.config?.skillLevels?.skill2 ?? 9,
+      skill3: input?.config?.skillLevels?.skill3 ?? 4,
+    },
+  };
+  const attack = input?.data?.attackGrowth?.[String(config.level)] ?? input?.data?.attackGrowth?.['90'] ?? 0;
+  const totals: Record<string, number> = {};
+  const skills = input?.data?.skills ?? {};
+  const skill1 = buildWeaponSkillDetail('skill1', skills.skill1, config.skillLevels.skill1, WEAPON_SKILL1_TYPE_MAP);
+  if (skill1) {
+    addTotal(totals, skill1.typeKey, skill1.value);
+  }
+  const skill2 = buildWeaponSkillDetail('skill2', skills.skill2, config.skillLevels.skill2, WEAPON_SKILL2_TYPE_MAP);
+  if (skill2) {
+    addTotal(totals, skill2.typeKey, skill2.value);
+  }
+  const skill3Effects = Object.entries(skills.skill3?.effects ?? {}).reduce<WeaponSkillDetail[]>((acc, [effectKey, effect]) => {
+    const value = effect.levels?.[String(config.skillLevels.skill3)];
+    if (typeof value !== 'number') return acc;
+    const detail: WeaponSkillDetail = {
+      skillKey: 'skill3',
+      effectKey,
+      label: effect.name ?? effectKey,
+      typeKey: normalizeTypeKey(effect.type ?? effectKey),
+      category: effect.category,
+      level: config.skillLevels.skill3,
+      value: normalizeValue(normalizeTypeKey(effect.type ?? effectKey), value),
+      raw: effect,
+    };
+    acc.push(detail);
+    if (effect.category === 'passive' && WEAPON_TOTAL_FIELDS.has(detail.typeKey)) {
+      addTotal(totals, detail.typeKey, value);
+    }
+    return acc;
+  }, []);
+
+  return {
+    id: input?.id ?? '',
+    name: input?.name ?? input?.id ?? '',
+    config,
+    attack,
+    skills: {
+      ...(skill1 ? { skill1 } : {}),
+      ...(skill2 ? { skill2 } : {}),
+      skill3: {
+        effects: skill3Effects,
+      },
+    },
+    totals,
+  };
+}
+
+function buildWeaponSkillDetail(
+  skillKey: 'skill1' | 'skill2',
+  skill: WeaponSkillInput | undefined,
+  level: number,
+  typeMap: Record<string, string>
+): WeaponSkillDetail | undefined {
+  if (!skill) return undefined;
+  const levelData = skill.levels?.[String(level)];
+  if (typeof levelData?.value !== 'number') return undefined;
+  const rawType = skill.statType ?? '';
+  const typeKey = normalizeTypeKey(typeMap[rawType] ?? rawType);
+  return {
+    skillKey,
+    label: skill.name ?? rawType,
+    typeKey,
+    level,
+    value: normalizeValue(typeKey, levelData.value),
+    raw: skill,
+  };
+}
+
+function buildEquipmentSnapshot(input: OperatorPanelInput['equipment']): EquipmentSnapshot {
+  const totals: Record<string, number> = {};
+  const pieces = (input?.pieces ?? []).map((piece) => {
+    piece.effects.forEach((effect) => {
+      if (EQUIPMENT_TOTAL_FIELDS.has(normalizeTypeKey(effect.typeKey))) {
+        addTotal(totals, effect.typeKey, effect.value, effect.unit);
+      }
+    });
+    return {
+      slotKey: piece.slotKey,
+      equipmentId: piece.equipmentId,
+      name: piece.name,
+      part: piece.part ?? '',
+      fixedStat: piece.fixedStat,
+      effects: piece.effects,
+    };
+  });
+  return { pieces, totals };
+}
+
+function buildDisplayDamageBonus(damageBonus: DamageBonusSnapshot): DamageBonusSnapshot {
+  return {
+    ...damageBonus,
+    physicalDmgBonus: round(damageBonus.physicalDmgBonus + damageBonus.allDmgBonus),
+    fireDmgBonus: round(damageBonus.fireDmgBonus + damageBonus.magicDmgBonus + damageBonus.allDmgBonus),
+    electricDmgBonus: round(damageBonus.electricDmgBonus + damageBonus.magicDmgBonus + damageBonus.allDmgBonus),
+    iceDmgBonus: round(damageBonus.iceDmgBonus + damageBonus.magicDmgBonus + damageBonus.allDmgBonus),
+    natureDmgBonus: round(damageBonus.natureDmgBonus + damageBonus.magicDmgBonus + damageBonus.allDmgBonus),
+    skillDmgBonus: round(damageBonus.skillDmgBonus + damageBonus.allSkillDmgBonus),
+    chainSkillDmgBonus: round(damageBonus.chainSkillDmgBonus + damageBonus.allSkillDmgBonus),
+    ultimateDmgBonus: round(damageBonus.ultimateDmgBonus + damageBonus.allSkillDmgBonus),
+  };
+}
+
+function formatNumber(value: number): string {
+  return Number.isInteger(value) ? String(value) : value.toFixed(2);
+}
+
+function formatPercent(value: number): string {
+  return `${round(value * 100, 2)}%`;
+}
+
+function buildDisplay(calc: PanelCalcSnapshot, mainStat: string, subStat: string): PanelDisplaySnapshot {
+  const damageBonus = buildDisplayDamageBonus(calc.damageBonus);
+  const groups: DisplayGroup[] = [
+    {
+      title: '基础',
+      items: [
+        { label: '生命值', value: formatNumber(calc.hp) },
+        { label: '攻击力', value: formatNumber(calc.atk) },
+        { label: '防御力', value: '暂无' },
+      ],
+    },
+    {
+      title: '主副能力',
+      items: [
+        { label: '主能力', value: `${mainStat || '-'} ${formatNumber(calc.mainStatFinal)}` },
+        { label: '副能力', value: `${subStat || '-'} ${formatNumber(calc.subStatFinal)}` },
+      ],
+    },
+    {
+      title: '四维能力',
+      items: [
+        { label: '力量', value: formatNumber(calc.strength) },
+        { label: '敏捷', value: formatNumber(calc.agility) },
+        { label: '智识', value: formatNumber(calc.intelligence) },
+        { label: '意志', value: formatNumber(calc.will) },
+      ],
+    },
+    {
+      title: '暴击与技艺',
+      items: [
+        { label: '暴击率', value: formatPercent(calc.critRate) },
+        { label: '暴击伤害', value: formatPercent(calc.critDmg) },
+        { label: '源石技艺强度', value: formatNumber(calc.sourceSkill) },
+      ],
+    },
+    {
+      title: '效率',
+      items: [
+        { label: '治疗效率加成', value: formatPercent(calc.healingBonus) },
+        { label: '受治疗效率加成', value: '暂无' },
+        { label: '连携技冷却缩减', value: '暂无' },
+        { label: '终结技充能效率', value: formatPercent(calc.ultimateChargeEfficiency) },
+        { label: '失衡效率加成', value: '暂无' },
+      ],
+    },
+    {
+      title: '元素伤害',
+      items: [
+        { label: '物理伤害加成', value: formatPercent(damageBonus.physicalDmgBonus) },
+        { label: '灼热伤害加成', value: formatPercent(damageBonus.fireDmgBonus) },
+        { label: '电磁伤害加成', value: formatPercent(damageBonus.electricDmgBonus) },
+        { label: '寒冷伤害加成', value: formatPercent(damageBonus.iceDmgBonus) },
+        { label: '自然伤害加成', value: formatPercent(damageBonus.natureDmgBonus) },
+      ],
+    },
+    {
+      title: '技能伤害',
+      items: [
+        { label: '普通攻击伤害加成', value: formatPercent(damageBonus.normalAttackDmgBonus) },
+        { label: '战技伤害加成', value: formatPercent(damageBonus.skillDmgBonus) },
+        { label: '连携技伤害加成', value: formatPercent(damageBonus.chainSkillDmgBonus) },
+        { label: '终结技伤害加成', value: formatPercent(damageBonus.ultimateDmgBonus) },
+      ],
+    },
+    {
+      title: '特殊伤害',
+      items: [
+        { label: '对失衡目标伤害加成', value: formatPercent(damageBonus.imbalanceDmgBonus) },
+      ],
+    },
+  ];
+  return { groups, damageBonus };
+}
+
+function buildMarkdown(snapshot: Omit<ConfigSnapshot, 'detailMarkdown'>): string {
+  const lines: string[] = [
+    `# ${snapshot.operator.name || '未选择干员'} 面板数据`,
+    '',
+    `- 干员面板: ${snapshot.operator.name || '-'} Lv.${snapshot.operator.level}`,
+    `- 武器: ${snapshot.weapon.name || '未选择武器'} Lv.${snapshot.weapon.config.level}`,
+    '',
+  ];
+  snapshot.panel.display.groups.forEach((group) => {
+    lines.push(`## ${group.title}`);
+    group.items.forEach((item) => {
+      lines.push(`- ${item.label}: ${item.value}`);
+    });
+    lines.push('');
+  });
+  lines.push('## 攻击力计算');
+  lines.push(`- 基础攻击 = ${formatNumber(snapshot.panel.calc.operatorAtk)} + ${formatNumber(snapshot.panel.calc.weaponAtk)}`);
+  lines.push(`- 百分比加成 = ${formatPercent(snapshot.panel.calc.atkPercent)}`);
+  lines.push(`- 最终基础 = ${formatNumber(snapshot.panel.calc.baseAtk)}`);
+  lines.push(`- 面板攻击 = ${formatNumber(snapshot.panel.calc.atk)}`);
+  lines.push('');
+  lines.push('## 干员能力值');
+  lines.push(`- 力量: ${formatNumber(snapshot.operator.baseAttributes.strength)}`);
+  lines.push(`- 敏捷: ${formatNumber(snapshot.operator.baseAttributes.agility)}`);
+  lines.push(`- 智识: ${formatNumber(snapshot.operator.baseAttributes.intelligence)}`);
+  lines.push(`- 意志: ${formatNumber(snapshot.operator.baseAttributes.will)}`);
+  lines.push('');
+  lines.push('## 面板能力值（计算后）');
+  lines.push(`- 力量: ${formatNumber(snapshot.panel.calc.strength)}`);
+  lines.push(`- 敏捷: ${formatNumber(snapshot.panel.calc.agility)}`);
+  lines.push(`- 智识: ${formatNumber(snapshot.panel.calc.intelligence)}`);
+  lines.push(`- 意志: ${formatNumber(snapshot.panel.calc.will)}`);
+  lines.push('');
+  lines.push('## 主副能力换算');
+  lines.push(`- 主能力: ${snapshot.operator.mainStat || '-'} ${formatNumber(snapshot.panel.calc.mainStatFinal)}`);
+  lines.push(`- 副能力: ${snapshot.operator.subStat || '-'} ${formatNumber(snapshot.panel.calc.subStatFinal)}`);
+  lines.push(`- 好感: ${formatNumber(snapshot.operator.favorValue)}`);
+  lines.push('');
+  lines.push('## 能力值加成');
+  lines.push(`- 总能力攻击加成: ${formatPercent(snapshot.panel.calc.abilityBonus)}`);
+  lines.push('');
+  lines.push('## 抗性');
+  lines.push('- 未实现');
+  lines.push('');
+  lines.push('## 装备');
+  if (snapshot.equipment.pieces.length === 0) {
+    lines.push('- 暂无');
+  } else {
+    snapshot.equipment.pieces.forEach((piece) => {
+      lines.push(`- ${piece.name || piece.equipmentId}: ${piece.effects.map((effect) => `${effect.label} ${effect.value}${effect.unit === 'percent' ? '%' : ''}`).join(' / ') || '暂无词条'}`);
+    });
+  }
+  lines.push('');
+  lines.push('## 武器无条件触发');
+  const passiveDetails = [
+    snapshot.weapon.skills.skill1,
+    snapshot.weapon.skills.skill2,
+    ...snapshot.weapon.skills.skill3.effects.filter((effect) => effect.category === 'passive'),
+  ].filter((detail): detail is WeaponSkillDetail => Boolean(detail));
+  if (passiveDetails.length === 0) {
+    lines.push('- 暂无');
+  } else {
+    passiveDetails.forEach((detail) => {
+      lines.push(`- ${detail.label}: ${detail.typeKey} +${detail.value}`);
+    });
+  }
+  lines.push('');
+  lines.push('## 武器有条件触发');
+  const conditionDetails = snapshot.weapon.skills.skill3.effects.filter((effect) => effect.category === 'condition');
+  if (conditionDetails.length === 0) {
+    lines.push('- 暂无');
+  } else {
+    conditionDetails.forEach((detail) => {
+      lines.push(`- ${detail.label}: ${detail.typeKey} +${detail.value}`);
+    });
+  }
+  return lines.join('\n');
+}
+
+export function buildConfigSnapshot(input: OperatorPanelInput): ConfigSnapshot {
+  const attributes = resolveAttributes(input.operator);
+  const weapon = buildWeaponSnapshot(input.weapon);
+  const equipment = buildEquipmentSnapshot(input.equipment);
+  const mainField = resolveAbilityField(input.operator.mainStat);
+  const subField = resolveAbilityField(input.operator.subStat);
+  const favorValue = toNumber(input.operator.favorValue, 60);
+  const abilityByField: Record<AbilityField, number> = {
+    strength: attributes.strength + (weapon.totals.strengthBoost ?? 0) + (equipment.totals.strengthBoost ?? 0),
+    agility: attributes.agility + (weapon.totals.agilityBoost ?? 0) + (equipment.totals.agilityBoost ?? 0),
+    intelligence: attributes.intelligence + (weapon.totals.intelligenceBoost ?? 0) + (equipment.totals.intelligenceBoost ?? 0),
+    will: attributes.will + (weapon.totals.willBoost ?? 0) + (equipment.totals.willBoost ?? 0),
+  };
+  if (mainField) abilityByField[mainField] += favorValue + (weapon.totals.mainStatBoost ?? 0);
+  if (subField) abilityByField[subField] += weapon.totals.subStatBoost ?? 0;
+
+  const rawMainStat = mainField ? abilityByField[mainField] : 0;
+  const rawSubStat = subField ? abilityByField[subField] : 0;
+  const mainStatScale = equipment.totals.mainStatBoost ?? 0;
+  const subStatScale = equipment.totals.subStatBoost ?? 0;
+  const allStatScale = weapon.totals.allStatBoost ?? 0;
+  const mainStatFinal = rawMainStat * (1 + mainStatScale) * (1 + allStatScale);
+  const subStatFinal = rawSubStat * (1 + subStatScale) * (1 + allStatScale);
+  const abilityBonus = mainStatFinal * 0.005 + subStatFinal * 0.002;
+  const operatorAtk = attributes.atk;
+  const weaponAtk = weapon.attack;
+  const atkPercent = (weapon.totals.atkPercentBoost ?? 0) + (equipment.totals.atkPercentBoost ?? 0);
+  const baseAtk = (operatorAtk + weaponAtk) * (1 + atkPercent) + (weapon.totals.atk ?? 0);
+  const calcDamageBonus = createDamageBonusFromTotals(equipment.totals, weapon.totals);
+  const calc: PanelCalcSnapshot = {
+    atk: round(baseAtk * (1 + abilityBonus)),
+    hp: round(attributes.hp * (1 + (weapon.totals.hpPercent ?? 0) + (equipment.totals.hpPercent ?? 0))),
+    strength: round(abilityByField.strength),
+    agility: round(abilityByField.agility),
+    intelligence: round(abilityByField.intelligence),
+    will: round(abilityByField.will),
+    baseAtk: round(baseAtk),
+    abilityBonus: round(abilityBonus),
+    mainStatFinal: round(mainStatFinal),
+    subStatFinal: round(subStatFinal),
+    operatorAtk,
+    weaponAtk,
+    atkPercent: round(atkPercent),
+    weaponAtkPercent: round(atkPercent * 100),
+    critRate: round(0.05 + (weapon.totals.critRateBoost ?? 0) + (equipment.totals.critRateBoost ?? 0)),
+    critDmg: round(0.5 + (weapon.totals.critDmgBonusBoost ?? 0) + (equipment.totals.critDmgBonusBoost ?? 0)),
+    sourceSkill: round((weapon.totals.sourceSkillBoost ?? 0) + (equipment.totals.sourceSkillBoost ?? 0)),
+    healingBonus: round((weapon.totals.healingBonus ?? 0) + (equipment.totals.healingBonus ?? 0)),
+    receivedHealingBonus: 0,
+    chainCooldownReduction: 0,
+    ultimateChargeEfficiency: round((weapon.totals.ultimateChargeEfficiency ?? 0) + (equipment.totals.ultimateChargeEfficiency ?? 0)),
+    imbalanceEfficiency: 0,
+    damageReduction: round(equipment.totals.damageReduction ?? 0),
+    damageBonus: calcDamageBonus,
+  };
+  const display = buildDisplay(calc, input.operator.mainStat ?? '', input.operator.subStat ?? '');
+  const snapshotWithoutMarkdown: Omit<ConfigSnapshot, 'detailMarkdown'> = {
+    panel: { calc, display },
+    operator: {
+      id: input.operator.id,
+      name: input.operator.name,
+      level: input.operator.level,
+      potential: input.operator.potential,
+      element: input.operator.element ?? '',
+      mainStat: input.operator.mainStat ?? '',
+      subStat: input.operator.subStat ?? '',
+      favorValue,
+      skillConfig: input.operator.skillConfig ?? {},
+      baseAttributes: attributes,
+    },
+    weapon,
+    equipment,
+    buff: {
+      operator: [],
+      weapon: [],
+      equipment: [],
+    },
+  };
+  return {
+    ...snapshotWithoutMarkdown,
+    detailMarkdown: buildMarkdown(snapshotWithoutMarkdown),
+  };
+}

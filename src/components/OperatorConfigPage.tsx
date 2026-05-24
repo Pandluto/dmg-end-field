@@ -4,6 +4,8 @@ import './OperatorConfigPage.css';
 import { useAppContext } from '../context/AppContext';
 import { STORAGE_KEYS } from '../constants/storage-keys';
 import { adaptRuntimeTemplateToLegacyCharacter, loadLocalOperatorCharacters } from '../core/services/localOperatorAdapter';
+import { buildConfigSnapshot } from '../core/calculators/operatorPanelCalculator';
+import type { ConfigSnapshot, EquipmentPieceInput, OperatorPanelInput } from '../core/calculators/operatorPanelCalculator';
 import type { Character, SkillType } from '../types';
 import type {
   OperatorConfigPageCache,
@@ -12,6 +14,7 @@ import type {
   OperatorConfigPageEntryState,
 } from '../types/storage';
 import { getOperatorConfigPageCache, getRuntimeOperatorTemplateMap, safeSessionStorage, setOperatorConfigPageCache } from '../utils/storage';
+import { APP_ROUTE_PATHS, navigateToAppPath } from '../utils/appRoute';
 
 type AttributeItem = {
   label: string;
@@ -100,6 +103,7 @@ type SkillDetailGroup = {
   iconUrl?: string;
   hits: SkillHitDetail[];
 };
+type OperatorConfigPageDraftMap = Record<string, OperatorConfigPageCharacterConfig>;
 
 const SKILL_ITEMS = [
   { key: 'A', name: '普攻占位' },
@@ -178,6 +182,7 @@ const EMPTY_RECORD: Record<string, unknown> = {};
 const EQUIPMENT_SLOT_KEYS = ['accessory1', 'accessory2', 'armor', 'glove'] as const;
 type EquipmentSlotKey = (typeof EQUIPMENT_SLOT_KEYS)[number];
 type EquipmentEntryIndex = 0 | 1 | 2;
+const DISABLED_CHARACTER_LEVEL_COUNTS = new Set([2, 4, 6]);
 const WEAPON_SKILL1_TYPE_MAP: Record<string, string> = {
   敏捷提升: 'agilityBoost',
   力量提升: 'strengthBoost',
@@ -195,6 +200,7 @@ const WEAPON_SKILL2_TYPE_MAP: Record<string, string> = {
   寒冷伤害提升: 'iceDmgBonus',
   自然伤害提升: 'natureDmgBonus',
   暴击率提升: 'critRateBoost',
+  暴击伤害提升: 'critDmgBonusBoost',
   源石技艺提升: 'sourceSkillBoost',
   终结技充能效率提升: 'ultimateChargeEfficiency',
   法术伤害提升: 'magicDmgBonus',
@@ -232,6 +238,14 @@ function readLocalStorageJson<T>(key: string, fallback: T): T {
     return raw ? (JSON.parse(raw) as T) : fallback;
   } catch {
     return fallback;
+  }
+}
+
+function isSameConfigSnapshot(currentSnapshot: ConfigSnapshot | undefined, nextSnapshot: ConfigSnapshot): boolean {
+  try {
+    return JSON.stringify(currentSnapshot ?? null) === JSON.stringify(nextSnapshot);
+  } catch {
+    return false;
   }
 }
 
@@ -392,6 +406,7 @@ function createDefaultCharacterConfig(character: Character): OperatorConfigPageC
       config: {
         level: 90,
         potential: '0潜',
+        favorValue: 60,
       },
       data: createCharacterData(character),
     },
@@ -414,8 +429,106 @@ function createDefaultCharacterConfig(character: Character): OperatorConfigPageC
       },
       data: createCharacterData(character).skills as Record<string, unknown>,
     },
-    panel: {},
   };
+}
+
+function createCharacterConfigFromSnapshot(snapshot: ConfigSnapshot, sourceCharacter?: Character | null): OperatorConfigPageCharacterConfig {
+  const baseCharacterData = sourceCharacter
+    ? createCharacterData(sourceCharacter)
+    : {
+      id: snapshot.operator.id,
+      name: snapshot.operator.name,
+      element: snapshot.operator.element,
+      mainStat: snapshot.operator.mainStat,
+      subStat: snapshot.operator.subStat,
+      attributes: {
+        [levelValueToAttributeKey(snapshot.operator.level)]: snapshot.operator.baseAttributes,
+      },
+      skills: {},
+    };
+  const equipment = {
+    accessory1: createEquipmentPiece(),
+    accessory2: createEquipmentPiece(),
+    armor: createEquipmentPiece(),
+    glove: createEquipmentPiece(),
+  };
+
+  snapshot.equipment.pieces.forEach((piece) => {
+    if (!EQUIPMENT_SLOT_KEYS.includes(piece.slotKey as EquipmentSlotKey)) return;
+    const effectEntries = piece.effects.slice(0, 3).map((effect, index) => ({
+      id: effect.effectId || `entry${index + 1}`,
+      config: { level: effect.level },
+      data: {
+        effectId: effect.effectId || `effect${index + 1}`,
+        label: effect.label,
+        typeKey: effect.typeKey,
+        category: 'buff',
+        levels: { [String(effect.level)]: effect.value },
+        unit: effect.unit === 'percent' ? 'percent' : 'flat',
+        raw: effect.raw,
+      },
+    }));
+    equipment[piece.slotKey as EquipmentSlotKey] = {
+      id: piece.equipmentId,
+      entryCount: Math.max(0, Math.min(3, effectEntries.length)),
+      entries: [
+        ...effectEntries,
+        ...Array.from({ length: Math.max(0, 3 - effectEntries.length) }, (_, index) => createEquipmentEntry(`entry${effectEntries.length + index + 1}`)),
+      ].slice(0, 3),
+      config: {},
+      data: {
+        equipmentId: piece.equipmentId,
+        name: piece.name,
+        part: piece.part,
+        fixedStat: piece.fixedStat,
+      },
+    };
+  });
+
+  return {
+    character: {
+      id: snapshot.operator.id,
+      config: {
+        level: snapshot.operator.level,
+        potential: snapshot.operator.potential,
+        favorValue: snapshot.operator.favorValue,
+      },
+      data: baseCharacterData,
+    },
+    weapon: {
+      id: snapshot.weapon.name || snapshot.weapon.id,
+      config: snapshot.weapon.config,
+      data: {
+        id: snapshot.weapon.id,
+        name: snapshot.weapon.name,
+        attackGrowth: {
+          [String(snapshot.weapon.config.level)]: snapshot.weapon.attack,
+        },
+      },
+    },
+    equipment,
+    skills: {
+      id: snapshot.operator.id,
+      config: {
+        A: snapshot.operator.skillConfig.A ?? DEFAULT_SKILL_MODE,
+        B: snapshot.operator.skillConfig.B ?? DEFAULT_SKILL_MODE,
+        E: snapshot.operator.skillConfig.E ?? DEFAULT_SKILL_MODE,
+        Q: snapshot.operator.skillConfig.Q ?? DEFAULT_SKILL_MODE,
+      },
+      data: (baseCharacterData as Partial<Character>).skills as Record<string, unknown> ?? {},
+    },
+    sourceSnapshot: snapshot,
+  };
+}
+
+function buildDraftMapFromSnapshotCache(cache: OperatorConfigPageCache, characters: Character[]): OperatorConfigPageDraftMap {
+  const characterMap = new Map(characters.map((character) => [character.id, character] as const));
+  return Object.fromEntries(
+    Object.entries(cache).map(([characterId, snapshot]) => [
+      characterId,
+      createCharacterConfigFromSnapshot(snapshot, characterMap.get(characterId) ?? null),
+    ])
+  );
 }
 
 function createEquipmentPieceFromItem(item: EquipmentItem): OperatorConfigPageEquipmentPieceState {
@@ -599,6 +712,78 @@ function levelValueToAttributeKey(level: number | string): CharacterAttributeKey
   if (numeric >= 40) return 'level40';
   if (numeric >= 20) return 'level20';
   return 'level1';
+}
+
+function getOperatorFavorValue(config: OperatorConfigPageCharacterConfig | null | undefined): number {
+  const value = config?.character.config.favorValue;
+  return typeof value === 'number' && Number.isFinite(value) ? value : 60;
+}
+
+function buildEquipmentPiecesForSnapshot(config: OperatorConfigPageCharacterConfig | null): EquipmentPieceInput[] {
+  if (!config) return [];
+  return EQUIPMENT_SLOT_KEYS.map((slotKey) => {
+    const piece = config.equipment[slotKey];
+    const pieceData = piece.data as Partial<EquipmentItem> & { fixedStat?: unknown };
+    const effects = piece.entries
+      .slice(0, piece.entryCount)
+      .map((entry) => {
+        const effect = entry.data as Partial<EquipmentEffect>;
+        const level = entry.config.level;
+        const value = typeof effect.levels?.[String(level) as EquipmentLevelKey] === 'number'
+          ? effect.levels[String(level) as EquipmentLevelKey] ?? 0
+          : 0;
+        return {
+          effectId: String(effect.effectId ?? entry.id),
+          label: String(effect.label ?? entry.id),
+          typeKey: String(effect.typeKey ?? ''),
+          level,
+          value,
+          unit: effect.unit ?? 'flat',
+          raw: effect.raw,
+        };
+      })
+      .filter((effect) => effect.typeKey.length > 0);
+    return {
+      slotKey,
+      equipmentId: piece.id,
+      name: String(pieceData.name ?? piece.id ?? ''),
+      part: String(pieceData.part ?? ''),
+      fixedStat: pieceData.fixedStat,
+      effects,
+    };
+  }).filter((piece) => piece.equipmentId || piece.effects.length > 0);
+}
+
+function buildOperatorPanelInput(config: OperatorConfigPageCharacterConfig | null, activeCharacter: Character | null): OperatorPanelInput | null {
+  if (!config && !activeCharacter) return null;
+  const operatorData = (config?.character.data ?? {}) as Partial<Character>;
+  const weaponData = (config?.weapon.data ?? {}) as Partial<WeaponData>;
+  return {
+    operator: {
+      id: config?.character.id ?? activeCharacter?.id ?? '',
+      name: operatorData.name ?? activeCharacter?.name ?? '',
+      level: config?.character.config.level ?? 90,
+      potential: config?.character.config.potential ?? '0潜',
+      element: operatorData.element ?? activeCharacter?.element ?? '',
+      mainStat: operatorData.mainStat ?? activeCharacter?.mainStat ?? '',
+      subStat: operatorData.subStat ?? activeCharacter?.subStat ?? '',
+      favorValue: getOperatorFavorValue(config),
+      skillConfig: config?.skills.config,
+      attributes: operatorData.attributes ?? activeCharacter?.attributes ?? {},
+    },
+    weapon: {
+      id: config?.weapon.id ?? '',
+      name: weaponData.name ?? config?.weapon.id ?? '',
+      config: config?.weapon.config,
+      data: {
+        attackGrowth: weaponData.attackGrowth ?? {},
+        skills: weaponData.skills ?? {},
+      },
+    },
+    equipment: {
+      pieces: buildEquipmentPiecesForSnapshot(config),
+    },
+  };
 }
 
 function skillModeToStage(mode: string): number {
@@ -971,7 +1156,7 @@ export function OperatorConfigPage() {
         ?? null,
     })));
   }, [localCharacters, runtimeCharacters, selectedCharacterIds, state.loadedCharacters]);
-  const [configMap, setConfigMap] = React.useState<OperatorConfigPageCache>(() => getOperatorConfigPageCache());
+  const [configMap, setConfigMap] = React.useState<OperatorConfigPageDraftMap>(() => buildDraftMapFromSnapshotCache(getOperatorConfigPageCache(), visibleCharacters));
   const [activeCharacterId, setActiveCharacterId] = React.useState<string | null>(() => visibleCharacters[0]?.id ?? null);
   const [equipmentLibrary, setEquipmentLibrary] = React.useState<EquipmentLibrary | null>(null);
   const [equipmentLibraryError, setEquipmentLibraryError] = React.useState<string | null>(null);
@@ -983,13 +1168,13 @@ export function OperatorConfigPage() {
   const [isCtiDrawerOpen, setIsCtiDrawerOpen] = React.useState(false);
   const [equipmentTooltip, setEquipmentTooltip] = React.useState<{ text: string; x: number; y: number } | null>(null);
   const [activeSkillDetailKey, setActiveSkillDetailKey] = React.useState<OperatorSkillKey | null>(null);
+  const [isPanelDetailOpen, setIsPanelDetailOpen] = React.useState(false);
   const ctiSelectorRef = React.useRef<HTMLDivElement | null>(null);
   const weaponConfigIndices = React.useMemo(() => Array.from({ length: 9 }, (_, index) => index + 1), []);
   const equipConfigIndices = React.useMemo(() => Array.from({ length: 3 }, (_, index) => index + 1), []);
   const levelIndices = React.useMemo(() => Array.from({ length: 8 }, (_, index) => index + 1), []);
 
-  const persistConfigMap = React.useCallback((nextConfigMap: OperatorConfigPageCache) => {
-    setOperatorConfigPageCache(nextConfigMap);
+  const persistConfigMap = React.useCallback((nextConfigMap: OperatorConfigPageDraftMap) => {
     setConfigMap(nextConfigMap);
   }, []);
 
@@ -1005,6 +1190,7 @@ export function OperatorConfigPage() {
 
       setConfigMap((prev) => {
         const existing = prev[characterId];
+        const cachedSnapshot = getOperatorConfigPageCache()[characterId];
         const nextCharacterData = createCharacterData(character);
         const nextCharacterConfig = existing
           ? {
@@ -1020,9 +1206,10 @@ export function OperatorConfigPage() {
               data: nextCharacterData.skills as Record<string, unknown>,
             },
           }
+          : cachedSnapshot
+            ? createCharacterConfigFromSnapshot(cachedSnapshot, character)
           : createDefaultCharacterConfig(character);
         const next = { ...prev, [characterId]: nextCharacterConfig };
-        setOperatorConfigPageCache(next);
         return next;
       });
     },
@@ -1100,18 +1287,35 @@ export function OperatorConfigPage() {
   const currentWeaponSkill2Text = formatWeaponSkillSummary('skill2', currentWeaponSkill2Data, weaponSkillLevel2);
   const currentWeaponSkill3Lines = buildWeaponSkill3Lines(currentWeaponSkill3Data, weaponSkillLevel3);
   const currentWeaponMetaLine = formatWeaponMetaLine(currentWeaponLevel, currentWeaponAttack);
+  const configSnapshot = React.useMemo<ConfigSnapshot | null>(() => {
+    if (currentConfig?.sourceSnapshot) return currentConfig.sourceSnapshot;
+    const input = buildOperatorPanelInput(currentConfig, activeCharacter);
+    return input ? buildConfigSnapshot(input) : null;
+  }, [activeCharacter, currentConfig]);
+
+  React.useEffect(() => {
+    if (!activeCharacterId || !configSnapshot) return;
+    const snapshotCache = getOperatorConfigPageCache();
+    if (isSameConfigSnapshot(snapshotCache[activeCharacterId], configSnapshot)) return;
+    setOperatorConfigPageCache({
+      ...snapshotCache,
+      [activeCharacterId]: configSnapshot,
+    });
+  }, [activeCharacterId, configSnapshot]);
+
   const attributeItems = React.useMemo<ReadonlyArray<AttributeItem>>(() => {
+    const calc = configSnapshot?.panel.calc;
     return [
-      { label: '名称', value: currentCharacterData.name ?? activeCharacter?.name ?? '角色占位' },
-      { label: '属性', value: currentCharacterData.element ?? activeCharacter?.element ?? '属性占位' },
-      { label: '等级', value: String(currentConfig?.character.config.level ?? 90) },
-      { label: '攻击力', value: String(currentAttributes?.atk ?? '0000') },
-      { label: '力量', value: String(currentAttributes?.strength ?? '000'), tone: 'main' },
-      { label: '敏捷', value: String(currentAttributes?.agility ?? '000') },
-      { label: '智识', value: String(currentAttributes?.intelligence ?? '000'), tone: 'sub' },
-      { label: '意志', value: String(currentAttributes?.will ?? '000') },
+      { label: '名称', value: configSnapshot?.operator.name || currentCharacterData.name || activeCharacter?.name || '角色占位' },
+      { label: '属性', value: configSnapshot?.operator.element || currentCharacterData.element || activeCharacter?.element || '属性占位' },
+      { label: '等级', value: String(configSnapshot?.operator.level ?? currentConfig?.character.config.level ?? 90) },
+      { label: '攻击力', value: String(calc?.atk ?? currentAttributes?.atk ?? '0000') },
+      { label: '力量', value: String(calc?.strength ?? currentAttributes?.strength ?? '000'), tone: 'main' },
+      { label: '敏捷', value: String(calc?.agility ?? currentAttributes?.agility ?? '000') },
+      { label: '智识', value: String(calc?.intelligence ?? currentAttributes?.intelligence ?? '000'), tone: 'sub' },
+      { label: '意志', value: String(calc?.will ?? currentAttributes?.will ?? '000') },
     ];
-  }, [activeCharacter?.element, activeCharacter?.name, currentAttributes, currentCharacterData.name, currentConfig?.character.config.level]);
+  }, [activeCharacter?.element, activeCharacter?.name, configSnapshot, currentAttributes, currentCharacterData.element, currentCharacterData.name, currentConfig?.character.config.level]);
 
   const updateCurrentConfig = React.useCallback((updater: (current: OperatorConfigPageCharacterConfig) => OperatorConfigPageCharacterConfig) => {
     if (!activeCharacterId) return;
@@ -1122,9 +1326,10 @@ export function OperatorConfigPage() {
     if (!baseConfig) return;
 
     const nextConfig = updater(baseConfig);
+    const { sourceSnapshot: _sourceSnapshot, ...nextConfigWithoutSourceSnapshot } = nextConfig;
     persistConfigMap({
       ...configMap,
-      [activeCharacterId]: nextConfig,
+      [activeCharacterId]: nextConfigWithoutSourceSnapshot,
     });
   }, [activeCharacterId, configMap, getCharacterById, persistConfigMap]);
 
@@ -1335,7 +1540,7 @@ export function OperatorConfigPage() {
       <div className="operator-config-page-shell">
         <div className="config-panel operator-config-page-panel">
           <div className="config-panel-header">
-            <button className="config-panel-back-btn" type="button">
+            <button className="config-panel-back-btn" type="button" onClick={() => navigateToAppPath(APP_ROUTE_PATHS.home)}>
               返回
             </button>
           </div>
@@ -1493,7 +1698,13 @@ export function OperatorConfigPage() {
                 </section>
                 <div className="operator-config-page-operator-panel operator-config-page-operator-zone">
                   <section className="operator-config-page-section operator-config-page-stats-section operator-config-page-scrollable">
-                    <h4 className="operator-config-page-section-title">基础数据</h4>
+                    <button
+                      type="button"
+                      className="operator-config-page-section-title operator-config-page-panel-title-button"
+                      onClick={() => setIsPanelDetailOpen(true)}
+                    >
+                      面板数据
+                    </button>
                     <div className="operator-config-page-stats-grid">
                       {attributeItems.map((item) => (
                         <div
@@ -1538,29 +1749,55 @@ export function OperatorConfigPage() {
                       <div className="operator-config-page-role-layout">
                         <div className="operator-config-page-level-body">
                           <div className="operator-config-page-level-track" aria-label="角色等级滑条">
-                            {levelIndices.map((levelNumber) => (
-                              <button
-                                key={levelNumber}
-                                type="button"
-                                className={`operator-config-page-level-slot${levelNumber <= characterLevelCount ? ' is-active' : ''}`}
-                                aria-label={`等级按钮 ${levelNumber}`}
-                                aria-pressed={levelNumber <= characterLevelCount}
-                                onClick={() => {
-                                  const nextCount = characterLevelCount >= levelNumber ? levelNumber - 1 : levelNumber;
-                                  updateCurrentConfig((prev) => ({
-                                    ...prev,
-                                    character: {
-                                      ...prev.character,
-                                      config: {
-                                        ...prev.character.config,
-                                        level: levelCountToValue(nextCount),
+                            {levelIndices.map((levelNumber) => {
+                              const isDisabledLevel = DISABLED_CHARACTER_LEVEL_COUNTS.has(levelNumber);
+                              return (
+                                <button
+                                  key={levelNumber}
+                                  type="button"
+                                  className={`operator-config-page-level-slot${levelNumber <= characterLevelCount ? ' is-active' : ''}${isDisabledLevel ? ' is-disabled' : ''}`}
+                                  aria-label={`等级按钮 ${levelNumber}`}
+                                  aria-pressed={levelNumber <= characterLevelCount}
+                                  disabled={isDisabledLevel}
+                                  onClick={() => {
+                                    if (isDisabledLevel) return;
+                                    const nextCount = characterLevelCount >= levelNumber ? levelNumber - 1 : levelNumber;
+                                    updateCurrentConfig((prev) => ({
+                                      ...prev,
+                                      character: {
+                                        ...prev.character,
+                                        config: {
+                                          ...prev.character.config,
+                                          level: levelCountToValue(nextCount),
+                                        },
                                       },
-                                    },
-                                  }));
-                                }}
-                              />
-                            ))}
+                                    }));
+                                  }}
+                                />
+                              );
+                            })}
                           </div>
+                          <label className="operator-config-page-favor-input-layer">
+                            <span className="operator-config-page-favor-label">好感</span>
+                            <input
+                              className="operator-config-page-favor-input"
+                              type="number"
+                              value={getOperatorFavorValue(currentConfig)}
+                              onChange={(event) => {
+                                const nextValue = Number(event.target.value);
+                                updateCurrentConfig((prev) => ({
+                                  ...prev,
+                                  character: {
+                                    ...prev.character,
+                                    config: {
+                                      ...prev.character.config,
+                                      favorValue: Number.isFinite(nextValue) ? nextValue : 60,
+                                    },
+                                  },
+                                }));
+                              }}
+                            />
+                          </label>
                           <button
                             type="button"
                             className={`operator-config-page-level-badge-box${characterPotentialCount > 0 ? ' is-active' : ''}${characterPotentialCount === 6 ? ' is-max' : ''}`}
@@ -1934,6 +2171,26 @@ export function OperatorConfigPage() {
           }}
         >
           {equipmentTooltip.text}
+        </div>
+      ) : null}
+      {isPanelDetailOpen ? (
+        <div className="operator-config-page-panel-detail-backdrop" onClick={() => setIsPanelDetailOpen(false)}>
+          <div
+            className="operator-config-page-panel-detail-modal"
+            onClick={(event) => {
+              event.stopPropagation();
+            }}
+          >
+            <div className="operator-config-page-panel-detail-header">
+              <h3 className="operator-config-page-panel-detail-title">面板数据详情</h3>
+              <button type="button" className="operator-config-page-panel-detail-close" onClick={() => setIsPanelDetailOpen(false)}>
+                关闭
+              </button>
+            </div>
+            <pre className="operator-config-page-panel-detail-content">
+              {configSnapshot?.detailMarkdown ?? '暂无面板数据'}
+            </pre>
+          </div>
         </div>
       ) : null}
       {activeSkillDetailKey ? (
