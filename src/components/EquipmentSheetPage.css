@@ -74,3 +74,10 @@
 .equipment-sheet-page .damage-sheet-excel-cell.is-col-name .weapon-sheet-inline-input {
   text-align: left;
 }
+
+.equipment-sheet-page .equipment-sheet-row-three-piece-effect .damage-sheet-excel-cell,
+.equipment-sheet-page .equipment-sheet-row-three-piece-header .damage-sheet-excel-cell,
+.equipment-sheet-page .equipment-sheet-row-three-piece-effect .weapon-sheet-inline-input {
+  font-size: 12px;
+  font-weight: 400;
+}
