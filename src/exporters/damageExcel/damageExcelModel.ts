@@ -1,4 +1,5 @@
 import type { SkillButtonBuff, SkillButtonTable } from '../../types/storage.ts';
+import type { ConfigSnapshot } from '../../core/calculators/operatorPanelCalculator.ts';
 
 export interface DamageExcelColumn {
   key: string;
@@ -89,17 +90,12 @@ export interface DamageExcelHitRow {
 
 export type DamageExcelRow = DamageExcelCharacterRow | DamageExcelButtonRow | DamageExcelHitRow;
 
-export interface DamageExcelStorageEntry {
-  key: string;
-  value: string;
-}
-
 export interface BuildDamageExcelWorkbookInput {
   rows: DamageExcelRow[];
   columns: DamageExcelColumn[];
-  storageSnapshot?: DamageExcelStorageEntry[];
   allBuffList?: SkillButtonBuff[];
   skillButtonTable?: SkillButtonTable;
+  operatorConfigPageCache?: Record<string, ConfigSnapshot>;
 }
 
 export interface DamageExcelHitRecord {

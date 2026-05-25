@@ -2,13 +2,59 @@ import ExcelJS from 'exceljs';
 import type {
   BuildDamageExcelWorkbookInput,
   DamageExcelHitRow,
-  DamageExcelStorageEntry,
 } from './damageExcelModel.ts';
+import { STORAGE_KEYS } from '../../constants/storage-keys.ts';
+import type { ConfigSnapshot, PanelCalcSnapshot } from '../../core/calculators/operatorPanelCalculator.ts';
 import type { SkillButtonBuff } from '../../types/storage.ts';
 
 type BuffCellRefMap = Map<string, { type: string; cellRef: string; value: number }>;
 type BuffCellRef = NonNullable<ReturnType<BuffCellRefMap['get']>>;
 type RuntimeBuff = SkillButtonBuff & Record<string, unknown>;
+type CalcCellRefMap = Map<string, Map<string, string>>;
+type SourceCellRefMap = Map<string, Map<string, string>>;
+
+const CALC_FIELD_LABELS: Record<string, string> = {
+  strength: '力量',
+  agility: '敏捷',
+  intelligence: '智识',
+  will: '意志',
+  operatorAtk: '干员攻击',
+  weaponAtk: '武器攻击',
+  operatorHp: '干员生命',
+  mainStatFlatBonus: '主能力固定加值',
+  subStatFlatBonus: '副能力固定加值',
+  mainStatBoost: '主能力百分比',
+  subStatBoost: '副能力百分比',
+  allStatBoost: '全能力百分比',
+  atkPercentBoost: '攻击百分比',
+  flatAtk: '固定攻击',
+  hpPercent: '生命百分比',
+  critRateBoost: '暴击率加成',
+  critDmgBonusBoost: '暴击伤害加成',
+  sourceSkillBoost: '源石技艺强度',
+  healingBonus: '治疗效率',
+  receivedHealingBonus: '受治疗效率',
+  chainCooldownReduction: '连携技冷却缩减',
+  ultimateChargeEfficiency: '终结技充能效率',
+  imbalanceEfficiency: '失衡效率',
+  damageReduction: '伤害减免',
+};
+
+const DAMAGE_BONUS_LABELS: Record<string, string> = {
+  physicalDmgBonus: '物理伤害加成',
+  fireDmgBonus: '灼热伤害加成',
+  electricDmgBonus: '电磁伤害加成',
+  iceDmgBonus: '寒冷伤害加成',
+  natureDmgBonus: '自然伤害加成',
+  magicDmgBonus: '法术伤害加成',
+  normalAttackDmgBonus: '普通攻击伤害加成',
+  skillDmgBonus: '战技伤害加成',
+  chainSkillDmgBonus: '连携技伤害加成',
+  ultimateDmgBonus: '终结技伤害加成',
+  allSkillDmgBonus: '全技能伤害加成',
+  imbalanceDmgBonus: '对失衡目标伤害加成',
+  allDmgBonus: '全伤害加成',
+};
 
 function styleHeader(row: ExcelJS.Row): void {
   row.eachCell((cell) => {
@@ -97,29 +143,397 @@ function readBuffTextField(buff: SkillButtonBuff, key: string): string {
   return '';
 }
 
-function addOperatorSheet(workbook: ExcelJS.Workbook, input: BuildDamageExcelWorkbookInput): void {
+function addOperatorSheet(workbook: ExcelJS.Workbook, input: BuildDamageExcelWorkbookInput, sourceRefs: SourceCellRefMap): void {
   const sheet = workbook.addWorksheet('干员');
-  sheet.getRow(1).values = ['干员ID', '干员名', '技能等级', '面板摘要', '说明'];
+  sheet.getRow(1).values = ['干员ID', '干员名', '字段', '数值', '说明'];
   styleHeader(sheet.getRow(1));
 
-  const characterRows = getCharacterRows(input);
-  characterRows.forEach((row, index) => {
-    const excelRow = sheet.getRow(index + 2);
-    excelRow.values = [row.characterId, row.characterName, row.subtitle, row.meta, '从当前软件状态导出的干员源数据'];
-    styleBody(excelRow);
+  let rowNumber = 2;
+  getOperatorConfigSnapshots(input).forEach(([characterId, snapshot]) => {
+    const characterName = snapshot.operator.name || characterId;
+    const rows: Array<[string, number | string, string]> = [
+      ['等级', snapshot.operator.level, 'operator.level'],
+      ['潜能', snapshot.operator.potential, 'operator.potential'],
+      ['基础生命', snapshot.operator.baseAttributes.hp, 'operator.baseAttributes.hp'],
+      ['基础攻击', snapshot.operator.baseAttributes.atk, 'operator.baseAttributes.atk'],
+      ['力量', snapshot.operator.baseAttributes.strength, 'operator.baseAttributes.strength'],
+      ['敏捷', snapshot.operator.baseAttributes.agility, 'operator.baseAttributes.agility'],
+      ['智识', snapshot.operator.baseAttributes.intelligence, 'operator.baseAttributes.intelligence'],
+      ['意志', snapshot.operator.baseAttributes.will, 'operator.baseAttributes.will'],
+      ['主能力固定加值', snapshot.operator.mainStatFlatBonus, 'operator.mainStatFlatBonus'],
+      ['副能力固定加值', snapshot.operator.subStatFlatBonus, 'operator.subStatFlatBonus'],
+    ];
+    rows.forEach(([field, value, note]) => {
+      const excelRow = sheet.getRow(rowNumber);
+      excelRow.values = [characterId, characterName, field, value, note];
+      styleBody(excelRow);
+      if (typeof value === 'number') {
+        addSourceCellRef(sourceRefs, characterId, note, '干员', rowNumber);
+      }
+      rowNumber += 1;
+    });
   });
 
-  setColumnWidths(sheet, [18, 18, 26, 42, 36]);
+  if (rowNumber === 2) {
+    getCharacterRows(input).forEach((row) => {
+      const excelRow = sheet.getRow(rowNumber);
+      excelRow.values = [row.characterId, row.characterName, '技能等级', row.subtitle, row.meta];
+      styleBody(excelRow);
+      rowNumber += 1;
+    });
+  }
+
+  setColumnWidths(sheet, [18, 18, 24, 16, 42]);
   sheet.views = [{ state: 'frozen', ySplit: 1 }];
 }
 
-function addEmptySourceSheet(workbook: ExcelJS.Workbook, name: '武器' | '装备'): void {
-  const sheet = workbook.addWorksheet(name);
-  sheet.getRow(1).values = ['来源ID', '来源名称', '字段', '数值', '说明'];
+function addSourceCellRef(refs: SourceCellRefMap, characterId: string, path: string, sheetName: '干员' | '武器' | '装备', rowNumber: number): void {
+  const characterRefs = refs.get(characterId) ?? new Map<string, string>();
+  characterRefs.set(path, q(sheetName, `D${rowNumber}`));
+  refs.set(characterId, characterRefs);
+}
+
+function addSourceRow(
+  sheet: ExcelJS.Worksheet,
+  refs: SourceCellRefMap,
+  sheetName: '武器' | '装备',
+  rowNumber: number,
+  characterId: string,
+  characterName: string,
+  path: string,
+  field: string,
+  value: number | string,
+  note: string,
+): void {
+  const row = sheet.getRow(rowNumber);
+  row.values = [characterId, characterName, field, value, note];
+  styleBody(row);
+  if (typeof value === 'number') {
+    addSourceCellRef(refs, characterId, path, sheetName, rowNumber);
+  }
+}
+
+function addWeaponSourceSheet(workbook: ExcelJS.Workbook, snapshots: Array<[string, ConfigSnapshot]>, refs: SourceCellRefMap): void {
+  const sheet = workbook.addWorksheet('武器');
+  sheet.getRow(1).values = ['干员ID', '干员名', '字段', '数值', '说明'];
   styleHeader(sheet.getRow(1));
-  sheet.getRow(2).values = ['', '', '', '', '当前导出先把武器/装备产生的可计算修正统一归一到 Buff 表'];
-  styleBody(sheet.getRow(2));
-  setColumnWidths(sheet, [18, 24, 20, 16, 58]);
+
+  let rowNumber = 2;
+  snapshots.forEach(([characterId, snapshot]) => {
+    const characterName = snapshot.operator.name || characterId;
+    addSourceRow(sheet, refs, '武器', rowNumber, characterId, characterName, 'weapon.attack', '武器攻击', snapshot.weapon.attack, snapshot.weapon.name || snapshot.weapon.id);
+    rowNumber += 1;
+    Object.entries(snapshot.weapon.totals ?? {}).forEach(([field, value]) => {
+      if (typeof value !== 'number') return;
+      addSourceRow(sheet, refs, '武器', rowNumber, characterId, characterName, `weapon.totals.${field}`, field, value, 'weapon.totals');
+      rowNumber += 1;
+    });
+  });
+
+  if (rowNumber === 2) {
+    const row = sheet.getRow(2);
+    row.values = ['', '', '未捕获武器来源', 0, ''];
+    styleBody(row);
+  }
+
+  setColumnWidths(sheet, [18, 18, 28, 16, 42]);
+  sheet.views = [{ state: 'frozen', ySplit: 1 }];
+}
+
+function addEquipmentSourceSheet(workbook: ExcelJS.Workbook, snapshots: Array<[string, ConfigSnapshot]>, refs: SourceCellRefMap): void {
+  const sheet = workbook.addWorksheet('装备');
+  sheet.getRow(1).values = ['干员ID', '干员名', '字段', '数值', '说明'];
+  styleHeader(sheet.getRow(1));
+
+  let rowNumber = 2;
+  snapshots.forEach(([characterId, snapshot]) => {
+    const characterName = snapshot.operator.name || characterId;
+    Object.entries(snapshot.equipment.totals ?? {}).forEach(([field, value]) => {
+      if (typeof value !== 'number') return;
+      addSourceRow(sheet, refs, '装备', rowNumber, characterId, characterName, `equipment.totals.${field}`, field, value, 'equipment.totals');
+      rowNumber += 1;
+    });
+  });
+
+  if (rowNumber === 2) {
+    const row = sheet.getRow(2);
+    row.values = ['', '', '未捕获装备来源', 0, ''];
+    styleBody(row);
+  }
+
+  setColumnWidths(sheet, [18, 18, 28, 16, 42]);
+  sheet.views = [{ state: 'frozen', ySplit: 1 }];
+}
+
+function getOperatorConfigSnapshots(input: BuildDamageExcelWorkbookInput): Array<[string, ConfigSnapshot]> {
+  return Object.entries(input.operatorConfigPageCache ?? {}).filter(([, snapshot]) => Boolean(snapshot?.panel?.calc && snapshot?.panel?.display));
+}
+
+function getCalcRef(refs: CalcCellRefMap, characterId: string, path: string): string {
+  return refs.get(characterId)?.get(path) ?? '0';
+}
+
+function getSourceRef(refs: SourceCellRefMap, characterId: string, path: string): string {
+  return refs.get(characterId)?.get(path) ?? '0';
+}
+
+function joinAdditiveRefs(refs: string[]): string {
+  return refs.length > 0 ? refs.join('+') : '0';
+}
+
+function getCalcFormula(path: string, snapshot: ConfigSnapshot, sourceRefs: SourceCellRefMap, characterId: string): string {
+  const source = (sourcePath: string) => getSourceRef(sourceRefs, characterId, sourcePath);
+  const mainField = getAbilityField(snapshot.operator.mainStat);
+  const subField = getAbilityField(snapshot.operator.subStat);
+  switch (path) {
+    case 'strength':
+    case 'agility':
+    case 'intelligence':
+    case 'will': {
+      const refs = [
+        source(`operator.baseAttributes.${path}`),
+        source(`weapon.totals.${path}Boost`),
+        source(`equipment.totals.${path}Boost`),
+      ];
+      if (mainField === path) {
+        refs.push(source('operator.mainStatFlatBonus'), source('weapon.totals.mainStat'));
+      }
+      if (subField === path) {
+        refs.push(source('operator.subStatFlatBonus'), source('weapon.totals.subStat'));
+      }
+      return joinAdditiveRefs(refs);
+    }
+    case 'operatorAtk':
+      return source('operator.baseAttributes.atk');
+    case 'weaponAtk':
+      return source('weapon.attack');
+    case 'operatorHp':
+      return source('operator.baseAttributes.hp');
+    case 'mainStatFlatBonus':
+      return source('operator.mainStatFlatBonus');
+    case 'subStatFlatBonus':
+      return source('operator.subStatFlatBonus');
+    case 'mainStatBoost':
+      return source('equipment.totals.mainStatBoost');
+    case 'subStatBoost':
+      return source('equipment.totals.subStatBoost');
+    case 'allStatBoost':
+      return source('weapon.totals.allStatBoost');
+    case 'atkPercentBoost':
+    case 'hpPercent':
+    case 'critRateBoost':
+    case 'critDmgBonusBoost':
+    case 'sourceSkillBoost':
+    case 'healingBonus':
+    case 'ultimateChargeEfficiency':
+      return `${source(`weapon.totals.${path}`)}+${source(`equipment.totals.${path}`)}`;
+    case 'flatAtk':
+      return source('weapon.totals.atk');
+    case 'damageReduction':
+      return source('equipment.totals.damageReduction');
+    case 'receivedHealingBonus':
+    case 'chainCooldownReduction':
+    case 'imbalanceEfficiency':
+      return '0';
+    default:
+      if (path.startsWith('damageBonus.')) {
+        const field = path.slice('damageBonus.'.length);
+        return `${source(`weapon.totals.${field}`)}+${source(`equipment.totals.${field}`)}`;
+      }
+      return '0';
+  }
+}
+
+function getAbilityField(name: string | undefined): 'strength' | 'agility' | 'intelligence' | 'will' | null {
+  switch (name) {
+    case '力量':
+    case 'strength':
+      return 'strength';
+    case '敏捷':
+    case 'agility':
+      return 'agility';
+    case '智识':
+    case 'intelligence':
+      return 'intelligence';
+    case '意志':
+    case 'will':
+      return 'will';
+    default:
+      return null;
+  }
+}
+
+function q(sheetName: string, cell: string): string {
+  return `'${sheetName}'!${cell}`;
+}
+
+function addCalcRef(refs: CalcCellRefMap, characterId: string, path: string, rowNumber: number): void {
+  const characterRefs = refs.get(characterId) ?? new Map<string, string>();
+  characterRefs.set(path, q('快照', `D${rowNumber}`));
+  refs.set(characterId, characterRefs);
+}
+
+function addCalcRow(
+  sheet: ExcelJS.Worksheet,
+  rowNumber: number,
+  characterId: string,
+  characterName: string,
+  label: string,
+  formula: string,
+  value: number,
+): void {
+  const row = sheet.getRow(rowNumber);
+  row.values = [
+    characterId,
+    characterName,
+    label,
+    { formula, result: value },
+    'panel.calc',
+  ];
+  styleBody(row);
+}
+
+function addPanelCalcSnapshotSheet(workbook: ExcelJS.Workbook, snapshots: Array<[string, ConfigSnapshot]>, sourceRefs: SourceCellRefMap): CalcCellRefMap {
+  const sheet = workbook.addWorksheet('快照');
+  const refs: CalcCellRefMap = new Map();
+  sheet.getRow(1).values = ['干员ID', '干员名', '字段', '数值', '说明'];
+  styleHeader(sheet.getRow(1));
+
+  let rowNumber = 2;
+  snapshots.forEach(([characterId, snapshot]) => {
+    const characterName = snapshot.operator.name || characterId;
+    const calc = snapshot.panel.calc;
+    Object.entries(CALC_FIELD_LABELS).forEach(([field, label]) => {
+      addCalcRow(sheet, rowNumber, characterId, characterName, label, getCalcFormula(field, snapshot, sourceRefs, characterId), calc[field as keyof PanelCalcSnapshot] as number);
+      addCalcRef(refs, characterId, field, rowNumber);
+      rowNumber += 1;
+    });
+
+    Object.entries(DAMAGE_BONUS_LABELS).forEach(([field, label]) => {
+      const path = `damageBonus.${field}`;
+      addCalcRow(sheet, rowNumber, characterId, characterName, label, getCalcFormula(path, snapshot, sourceRefs, characterId), calc.damageBonus[field as keyof PanelCalcSnapshot['damageBonus']]);
+      addCalcRef(refs, characterId, path, rowNumber);
+      rowNumber += 1;
+    });
+  });
+
+  if (rowNumber === 2) {
+    const row = sheet.getRow(2);
+    row.values = ['', '', '未捕获 operator-config 面板计算快照', 0, 'panel.calc'];
+    styleBody(row);
+  }
+
+  setColumnWidths(sheet, [18, 18, 24, 18, 18]);
+  sheet.views = [{ state: 'frozen', ySplit: 1 }];
+  return refs;
+}
+
+function addPanelDisplayRow(
+  sheet: ExcelJS.Worksheet,
+  rowNumber: number,
+  characterId: string,
+  characterName: string,
+  path: string,
+  label: string,
+  formula: string,
+  cachedValue: number,
+  dependency: string,
+): void {
+  const row = sheet.getRow(rowNumber);
+  row.values = [
+    characterId,
+    characterName,
+    `${STORAGE_KEYS.OPERATOR_CONFIG_PAGE_CACHE}.panel.display.${path}`,
+    label,
+    { formula, result: cachedValue },
+    cachedValue,
+    dependency,
+  ];
+  styleBody(row);
+}
+
+function addPanelDisplaySheet(workbook: ExcelJS.Workbook, snapshots: Array<[string, ConfigSnapshot]>, calcRefs: CalcCellRefMap): void {
+  const sheet = workbook.addWorksheet('面板展示');
+  sheet.getRow(1).values = ['干员ID', '干员名', '来源路径', '字段', '公式值', '缓存值', '依赖'];
+  styleHeader(sheet.getRow(1));
+
+  let rowNumber = 2;
+  snapshots.forEach(([characterId, snapshot]) => {
+    const characterName = snapshot.operator.name || characterId;
+    const display = snapshot.panel.display;
+    const mainField = getAbilityField(snapshot.operator.mainStat);
+    const subField = getAbilityField(snapshot.operator.subStat);
+    const mainRaw = mainField ? getCalcRef(calcRefs, characterId, mainField) : '0';
+    const subRaw = subField ? getCalcRef(calcRefs, characterId, subField) : '0';
+    const mainStatFinalFormula = `${mainRaw}*(1+${getCalcRef(calcRefs, characterId, 'mainStatBoost')})*(1+${getCalcRef(calcRefs, characterId, 'allStatBoost')})`;
+    const subStatFinalFormula = `${subRaw}*(1+${getCalcRef(calcRefs, characterId, 'subStatBoost')})*(1+${getCalcRef(calcRefs, characterId, 'allStatBoost')})`;
+    const abilityBonusFormula = `E${rowNumber + 1}*0.005+E${rowNumber + 2}*0.002`;
+    const baseAtkFormula = `(${getCalcRef(calcRefs, characterId, 'operatorAtk')}+${getCalcRef(calcRefs, characterId, 'weaponAtk')})*(1+${getCalcRef(calcRefs, characterId, 'atkPercentBoost')})+${getCalcRef(calcRefs, characterId, 'flatAtk')}`;
+    const rows = [
+      ['hp', '生命值', `${getCalcRef(calcRefs, characterId, 'operatorHp')}*(1+${getCalcRef(calcRefs, characterId, 'hpPercent')})`, display.hp, 'operatorHp,hpPercent'],
+      ['mainStatFinal', '主能力最终值', mainStatFinalFormula, display.mainStatFinal, 'mainStat,mainStatBoost,allStatBoost'],
+      ['subStatFinal', '副能力最终值', subStatFinalFormula, display.subStatFinal, 'subStat,subStatBoost,allStatBoost'],
+      ['abilityBonus', '能力攻击加成', abilityBonusFormula, display.abilityBonus, 'mainStatFinal,subStatFinal'],
+      ['baseAtk', '基础攻击', baseAtkFormula, display.baseAtk, 'operatorAtk,weaponAtk,atkPercentBoost,flatAtk'],
+      ['atk', '面板攻击', `E${rowNumber + 4}*(1+E${rowNumber + 3})`, display.atk, 'baseAtk,abilityBonus'],
+      ['weaponAtkPercent', '武器攻击百分比', `${getCalcRef(calcRefs, characterId, 'atkPercentBoost')}*100`, display.weaponAtkPercent, 'atkPercentBoost'],
+      ['critRate', '暴击率', `0.05+${getCalcRef(calcRefs, characterId, 'critRateBoost')}`, display.critRate, 'critRateBoost'],
+      ['critDmg', '暴击伤害', `0.5+${getCalcRef(calcRefs, characterId, 'critDmgBonusBoost')}`, display.critDmg, 'critDmgBonusBoost'],
+      ['sourceSkill', '源石技艺强度', getCalcRef(calcRefs, characterId, 'sourceSkillBoost'), display.sourceSkill, 'sourceSkillBoost'],
+    ] as const;
+
+    rows.forEach(([path, label, formula, cachedValue, dependency]) => {
+      addPanelDisplayRow(sheet, rowNumber, characterId, characterName, path, label, formula, cachedValue, dependency);
+      rowNumber += 1;
+    });
+  });
+
+  if (rowNumber === 2) {
+    const row = sheet.getRow(2);
+    row.values = ['', '', `${STORAGE_KEYS.OPERATOR_CONFIG_PAGE_CACHE}.panel.display`, '未捕获 operator-config 展示面板', 0, 0, ''];
+    styleBody(row);
+  }
+
+  setColumnWidths(sheet, [18, 18, 76, 22, 18, 14, 42]);
+  sheet.views = [{ state: 'frozen', ySplit: 1 }];
+}
+
+function addPanelDamageBonusSheet(workbook: ExcelJS.Workbook, snapshots: Array<[string, ConfigSnapshot]>, calcRefs: CalcCellRefMap): void {
+  const sheet = workbook.addWorksheet('面板伤害加成');
+  sheet.getRow(1).values = ['干员ID', '干员名', '来源路径', '字段', '公式值', '缓存值', '依赖'];
+  styleHeader(sheet.getRow(1));
+
+  let rowNumber = 2;
+  snapshots.forEach(([characterId, snapshot]) => {
+    const characterName = snapshot.operator.name || characterId;
+    const displayDamageBonus = snapshot.panel.display.damageBonus;
+    const calc = (path: string) => getCalcRef(calcRefs, characterId, `damageBonus.${path}`);
+    const rows = [
+      ['physicalDmgBonus', '物理伤害加成', `${calc('physicalDmgBonus')}+${calc('allDmgBonus')}`, displayDamageBonus.physicalDmgBonus, 'physicalDmgBonus,allDmgBonus'],
+      ['fireDmgBonus', '灼热伤害加成', `${calc('fireDmgBonus')}+${calc('magicDmgBonus')}+${calc('allDmgBonus')}`, displayDamageBonus.fireDmgBonus, 'fireDmgBonus,magicDmgBonus,allDmgBonus'],
+      ['electricDmgBonus', '电磁伤害加成', `${calc('electricDmgBonus')}+${calc('magicDmgBonus')}+${calc('allDmgBonus')}`, displayDamageBonus.electricDmgBonus, 'electricDmgBonus,magicDmgBonus,allDmgBonus'],
+      ['iceDmgBonus', '寒冷伤害加成', `${calc('iceDmgBonus')}+${calc('magicDmgBonus')}+${calc('allDmgBonus')}`, displayDamageBonus.iceDmgBonus, 'iceDmgBonus,magicDmgBonus,allDmgBonus'],
+      ['natureDmgBonus', '自然伤害加成', `${calc('natureDmgBonus')}+${calc('magicDmgBonus')}+${calc('allDmgBonus')}`, displayDamageBonus.natureDmgBonus, 'natureDmgBonus,magicDmgBonus,allDmgBonus'],
+      ['normalAttackDmgBonus', '普通攻击伤害加成', calc('normalAttackDmgBonus'), displayDamageBonus.normalAttackDmgBonus, 'normalAttackDmgBonus'],
+      ['skillDmgBonus', '战技伤害加成', `${calc('skillDmgBonus')}+${calc('allSkillDmgBonus')}`, displayDamageBonus.skillDmgBonus, 'skillDmgBonus,allSkillDmgBonus'],
+      ['chainSkillDmgBonus', '连携技伤害加成', `${calc('chainSkillDmgBonus')}+${calc('allSkillDmgBonus')}`, displayDamageBonus.chainSkillDmgBonus, 'chainSkillDmgBonus,allSkillDmgBonus'],
+      ['ultimateDmgBonus', '终结技伤害加成', `${calc('ultimateDmgBonus')}+${calc('allSkillDmgBonus')}`, displayDamageBonus.ultimateDmgBonus, 'ultimateDmgBonus,allSkillDmgBonus'],
+      ['imbalanceDmgBonus', '对失衡目标伤害加成', calc('imbalanceDmgBonus'), displayDamageBonus.imbalanceDmgBonus, 'imbalanceDmgBonus'],
+    ] as const;
+
+    rows.forEach(([path, label, formula, cachedValue, dependency]) => {
+      addPanelDisplayRow(sheet, rowNumber, characterId, characterName, `damageBonus.${path}`, label, formula, cachedValue, dependency);
+      rowNumber += 1;
+    });
+  });
+
+  if (rowNumber === 2) {
+    const row = sheet.getRow(2);
+    row.values = ['', '', `${STORAGE_KEYS.OPERATOR_CONFIG_PAGE_CACHE}.panel.display.damageBonus`, '未捕获 operator-config 伤害加成面板', 0, 0, ''];
+    styleBody(row);
+  }
+
+  setColumnWidths(sheet, [18, 18, 88, 24, 18, 14, 48]);
   sheet.views = [{ state: 'frozen', ySplit: 1 }];
 }
 
@@ -259,26 +673,6 @@ function addBuffSheet(
   setColumnWidths(sheet, [24, 22, 24, 14, 18, 24, 10, 12, 42, 16]);
   sheet.views = [{ state: 'frozen', ySplit: 1 }];
   return refs;
-}
-
-function addSnapshotSheet(workbook: ExcelJS.Workbook, entries: DamageExcelStorageEntry[]): void {
-  const sheet = workbook.addWorksheet('快照');
-  sheet.getRow(1).values = ['键', '值', '说明'];
-  styleHeader(sheet.getRow(1));
-
-  if (entries.length === 0) {
-    sheet.getRow(2).values = ['导出', '未捕获存储快照', '快照只做留档，不参与公式计算'];
-    styleBody(sheet.getRow(2));
-  } else {
-    entries.forEach((entry, index) => {
-      const row = sheet.getRow(index + 2);
-      row.values = [entry.key, entry.value, '快照只做留档，不参与公式计算'];
-      styleBody(row);
-    });
-  }
-
-  setColumnWidths(sheet, [42, 90, 42]);
-  sheet.views = [{ state: 'frozen', ySplit: 1 }];
 }
 
 function addHitSheet(workbook: ExcelJS.Workbook, input: BuildDamageExcelWorkbookInput, hitRows: DamageExcelHitRow[], buffRefs: BuffCellRefMap): void {
@@ -440,11 +834,15 @@ export function buildDamageExcelWorkbook(input: BuildDamageExcelWorkbookInput): 
   workbook.calcProperties.fullCalcOnLoad = true;
 
   const hitRows = getHitRows(input);
-  addOperatorSheet(workbook, input);
-  addEmptySourceSheet(workbook, '武器');
-  addEmptySourceSheet(workbook, '装备');
+  const operatorConfigSnapshots = getOperatorConfigSnapshots(input);
+  const sourceRefs: SourceCellRefMap = new Map();
+  addOperatorSheet(workbook, input, sourceRefs);
+  addWeaponSourceSheet(workbook, operatorConfigSnapshots, sourceRefs);
+  addEquipmentSourceSheet(workbook, operatorConfigSnapshots, sourceRefs);
+  const calcRefs = addPanelCalcSnapshotSheet(workbook, operatorConfigSnapshots, sourceRefs);
+  addPanelDisplaySheet(workbook, operatorConfigSnapshots, calcRefs);
+  addPanelDamageBonusSheet(workbook, operatorConfigSnapshots, calcRefs);
   const buffRefs = addBuffSheet(workbook, input.allBuffList ?? []);
-  addSnapshotSheet(workbook, input.storageSnapshot ?? []);
   addHitSheet(workbook, input, hitRows, buffRefs);
   addDamageSheet(workbook, hitRows);
 

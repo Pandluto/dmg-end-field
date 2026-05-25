@@ -6,7 +6,7 @@ import type { SkillButton as RuntimeSkillButton, SkillButtonData, SkillType } fr
 import type { CharacterInputConfig, PersistedSkillButton, SkillButtonBuff } from '../types/storage';
 import { useAppContext } from '../context/AppContext';
 import { STORAGE_KEYS } from '../constants/storage-keys';
-import { getCharacterComputed, getCharacterConfig, getCharacterInput } from '../utils/storage';
+import { getCharacterComputed, getCharacterConfig, getCharacterInput, getOperatorConfigPageCache } from '../utils/storage';
 import { APP_ROUTE_PATHS, navigateToAppPath } from '../utils/appRoute';
 import { getAllBuffList, getBuffById, getSkillButtonById, getSkillButtonTable, loadTimelineData, upsertSkillButton } from '../core/repositories';
 import { buildAnomalyStateDerivedBuffs, buildAnomalyStateSnapshotBuffs } from '../core/services/anomalyStateBuffs';
@@ -16,7 +16,6 @@ import { calculateSkillButtonDamageV2 } from '../core/calculators/skillButtonDam
 import type { HitCalcResult } from '../core/calculators/skillDamage.types';
 import { addSkillButtonBuff, recomputeSkillButtonPanel } from '../hooks/useSkillButtonBuffs';
 import { buildDamageExcelWorkbook } from '../exporters/damageExcel/buildDamageExcelWorkbook';
-import type { DamageExcelStorageEntry } from '../exporters/damageExcel/damageExcelModel';
 import {
   type LocalBuffSearchResult,
   isModifierBuff,
@@ -1139,51 +1138,13 @@ function buildWorkbookView(rows: SheetRow[], columns: SheetColumn[]): WorkbookRo
   return result;
 }
 
-function readDamageExcelStorageSnapshot(): DamageExcelStorageEntry[] {
-  if (typeof window === 'undefined') {
-    return [];
-  }
-
-  const entries: DamageExcelStorageEntry[] = [];
-  const pushStorage = (prefix: 'sessionStorage' | 'localStorage', storage: Storage) => {
-    for (let index = 0; index < storage.length; index += 1) {
-      const key = storage.key(index);
-      if (!key) {
-        continue;
-      }
-      const value = storage.getItem(key);
-      if (value == null) {
-        continue;
-      }
-      entries.push({
-        key: `${prefix}:${key}`,
-        value,
-      });
-    }
-  };
-
-  try {
-    pushStorage('sessionStorage', window.sessionStorage);
-  } catch {
-    // Ignore unavailable browser storage during export.
-  }
-
-  try {
-    pushStorage('localStorage', window.localStorage);
-  } catch {
-    // Ignore unavailable browser storage during export.
-  }
-
-  return entries.sort((left, right) => left.key.localeCompare(right.key));
-}
-
 async function exportRowsToWorkbook(rows: SheetRow[], columns: SheetColumn[]): Promise<void> {
   const workbook = buildDamageExcelWorkbook({
     rows,
     columns,
     allBuffList: getAllBuffList(),
     skillButtonTable: getSkillButtonTable(),
-    storageSnapshot: readDamageExcelStorageSnapshot(),
+    operatorConfigPageCache: getOperatorConfigPageCache(),
   });
   const buffer = await workbook.xlsx.writeBuffer();
   const bytes = buffer instanceof Uint8Array
