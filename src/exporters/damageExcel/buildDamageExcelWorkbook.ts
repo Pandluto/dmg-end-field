@@ -338,7 +338,17 @@ function getCalcFormula(path: string, snapshot: ConfigSnapshot, sourceRefs: Sour
     default:
       if (path.startsWith('damageBonus.')) {
         const field = path.slice('damageBonus.'.length);
-        return `${source(`weapon.totals.${field}`)}+${source(`equipment.totals.${field}`)}`;
+        const refs = [
+          source(`weapon.totals.${field}`),
+          source(`equipment.totals.${field}`),
+        ];
+        if (field === 'iceDmgBonus' || field === 'electricDmgBonus') {
+          refs.push(source('weapon.totals.iceElectricDmgBonus'), source('equipment.totals.iceElectricDmgBonus'));
+        }
+        if (field === 'fireDmgBonus' || field === 'natureDmgBonus') {
+          refs.push(source('weapon.totals.fireNatureDmgBonus'), source('equipment.totals.fireNatureDmgBonus'));
+        }
+        return joinAdditiveRefs(refs);
       }
       return '0';
   }
