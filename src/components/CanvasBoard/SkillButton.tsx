@@ -158,6 +158,15 @@ export function SkillButtonComponent({
   const clickCountRef = useRef(0);
   const wasModalOpenRef = useRef(false);
   const localBuffSearchInputRef = useRef<HTMLInputElement | null>(null);
+  const selectedTeamCharacterIds = useMemo(() => {
+    const ids = state.selectedCharacters
+      .map((character) => character.id)
+      .filter((id): id is string => Boolean(id));
+    if (button.characterId && !ids.includes(button.characterId)) {
+      ids.push(button.characterId);
+    }
+    return ids;
+  }, [button.characterId, state.selectedCharacters]);
 
   // skillIconUrl 变化时重置图标加载失败状态
   useEffect(() => {
@@ -234,7 +243,7 @@ export function SkillButtonComponent({
     if (!isLocalBuffSearchOpen) {
       return;
     }
-    refreshSnapshotCandidateBuffsForCharacterIds([button.characterId])
+    refreshSnapshotCandidateBuffsForCharacterIds(selectedTeamCharacterIds)
       .then(() => setCandidateBuffRefreshToken((token) => token + 1))
       .catch((error) => console.error('刷新技能按钮候选 Buff 失败:', error));
     const timer = window.setTimeout(() => {
@@ -242,7 +251,7 @@ export function SkillButtonComponent({
       localBuffSearchInputRef.current?.select();
     }, 0);
     return () => window.clearTimeout(timer);
-  }, [button.characterId, isLocalBuffSearchOpen]);
+  }, [isLocalBuffSearchOpen, selectedTeamCharacterIds]);
 
   useEffect(() => {
     if (!isModalOpen) {

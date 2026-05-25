@@ -55,7 +55,7 @@ export interface BuffCalculationResult {
   electricVulnerability: number;   // 总电磁脆弱
   iceVulnerability: number;        // 总寒冷脆弱
   natureVulnerability: number;      // 总自然脆弱
-  magicTakenDmgBonus: number;     // 总法术脆弱
+  magicVulnerability: number;     // 总法术脆弱
 
   // 增幅区（Amplify）
   physicalAmplify: number;        // 总物理增幅
@@ -135,7 +135,7 @@ export function calculateBuffTotals(buffs: SkillButtonBuff[]): BuffCalculationRe
     electricVulnerability: 0,
     iceVulnerability: 0,
     natureVulnerability: 0,
-    magicTakenDmgBonus: 0,
+    magicVulnerability: 0,
     // 增幅区
     physicalAmplify: 0,
     magicAmplify: 0,
@@ -190,7 +190,7 @@ export function calculateBuffTotals(buffs: SkillButtonBuff[]): BuffCalculationRe
         case 'electricVulnerability': result.electricVulnerability += v; break;
         case 'iceVulnerability': result.iceVulnerability += v; break;
         case 'natureVulnerability': result.natureVulnerability += v; break;
-        case 'magicTakenDmgBonus': result.magicTakenDmgBonus += v; break;
+        case 'magicVulnerability': result.magicVulnerability += v; break;
         case 'physicalAmplify': result.physicalAmplify += v; break;
         case 'magicAmplify': result.magicAmplify += v; break;
         case 'fireAmplify': result.fireAmplify += v; break;
@@ -289,7 +289,7 @@ export function calculateVulnerabilityRate(
     const elementKey = `${characterElement}Vulnerability`;
     const elementVulnerability = buffTotals[elementKey as keyof BuffCalculationResult] || 0;
 
-    return elementVulnerability + buffTotals.magicTakenDmgBonus;
+    return elementVulnerability + buffTotals.magicVulnerability;
   }
 }
 

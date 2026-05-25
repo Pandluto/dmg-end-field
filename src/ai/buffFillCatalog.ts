@@ -35,7 +35,7 @@ export type BuffModifierType =
   | 'electricVulnerability'
   | 'iceVulnerability'
   | 'natureVulnerability'
-  | 'magicTakenDmgBonus'
+  | 'magicVulnerability'
   | 'physicalAmplify'
   | 'magicAmplify'
   | 'fireAmplify'
@@ -449,7 +449,7 @@ export const BUFF_TYPE_CATALOG: readonly BuffTypeCatalogEntry[] = [
     canInferFromImplicitText: false,
   }),
   createEntry({
-    id: 'magicTakenDmgBonus',
+    id: 'magicVulnerability',
     label: '法术脆弱',
     valueStyle: 'ratio',
     aliases: ['法术脆弱', '法脆弱'],

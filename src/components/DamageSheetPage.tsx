@@ -373,7 +373,7 @@ function isVulnerabilityBuffForHit(buff: SkillButtonBuff, hit: HitCalcResult['hi
   switch (buff.type) {
     case 'physicalVulnerability':
       return hit.element === 'physical';
-    case 'magicTakenDmgBonus':
+    case 'magicVulnerability':
       return hit.element !== 'physical';
     case 'fireVulnerability':
       return hit.element === 'fire';
@@ -915,7 +915,7 @@ function getHighlightColumnKeyForBuff(buff: SkillButtonBuff | null): string | nu
     case 'natureFragile':
       return 'fragileRate';
     case 'physicalVulnerability':
-    case 'magicTakenDmgBonus':
+    case 'magicVulnerability':
     case 'fireVulnerability':
     case 'electricVulnerability':
     case 'iceVulnerability':

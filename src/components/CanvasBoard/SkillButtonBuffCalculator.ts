@@ -54,7 +54,7 @@ export interface BuffCalculationResult {
   electricVulnerability: number;   // 总电磁脆弱
   iceVulnerability: number;        // 总寒冷脆弱
   natureVulnerability: number;      // 总自然脆弱
-  magicTakenDmgBonus: number;     // 总法术脆弱
+  magicVulnerability: number;     // 总法术脆弱
 
   // 连击区（独立区域）
   comboDamageBonus: number;        // 总连击增伤
@@ -125,7 +125,7 @@ export function calculateBuffTotals(buffs: SkillButtonBuff[]): BuffCalculationRe
     electricVulnerability: 0,
     iceVulnerability: 0,
     natureVulnerability: 0,
-    magicTakenDmgBonus: 0,
+    magicVulnerability: 0,
     // 连击区
     comboDamageBonus: 0,
     // 伤害倍率区
@@ -173,7 +173,7 @@ export function calculateBuffTotals(buffs: SkillButtonBuff[]): BuffCalculationRe
         case 'electricVulnerability': result.electricVulnerability += v; break;
         case 'iceVulnerability': result.iceVulnerability += v; break;
         case 'natureVulnerability': result.natureVulnerability += v; break;
-        case 'magicTakenDmgBonus': result.magicTakenDmgBonus += v; break;
+      case 'magicVulnerability': result.magicVulnerability += v; break;
         case 'comboDamageBonus': result.comboDamageBonus += v; break;
         case 'multiplierBonus': result.multiplierBonus += v; break;
         case 'multiplierMultiplier': result.multiplierMultiplier *= buff.value ?? 1; break;
@@ -268,7 +268,7 @@ export function calculateVulnerabilityRate(
     const elementVulnerability = buffTotals[elementKey as keyof BuffCalculationResult] || 0;
 
     console.log("elementKey:", elementKey," vulnerability:", elementVulnerability);
-    return elementVulnerability + buffTotals.magicTakenDmgBonus;
+    return elementVulnerability + buffTotals.magicVulnerability;
   }
 }
 
