@@ -197,6 +197,17 @@ function formatPercent(value: number): string {
   return Number.isFinite(value) ? `${(value * 100).toFixed(1)}%` : '-';
 }
 
+function formatBuffEffectValue(type: string | undefined, value: number | undefined): string {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    return '';
+  }
+  const sign = value >= 0 ? '+' : '';
+  if (type === 'sourceSkillBoost') {
+    return ` ${sign}${value.toFixed(1)}`;
+  }
+  return ` ${sign}${(value * 100).toFixed(1)}%`;
+}
+
 function formatSkillLevels(input: CharacterInputConfig | null): string {
   if (!input) {
     return 'A - / B - / E - / Q -';
@@ -1984,7 +1995,7 @@ export function DamageSheetPage() {
                         }}
                       >
                         <span className="damage-sheet-buff-name">{buff.displayName}</span>
-                        <span className="damage-sheet-buff-effect">{buff.type || 'Buff'}{typeof buff.value === 'number' ? ` ${buff.value >= 0 ? '+' : ''}${(buff.value * 100).toFixed(1)}%` : ''}</span>
+                        <span className="damage-sheet-buff-effect">{buff.type || 'Buff'}{formatBuffEffectValue(buff.type, buff.value)}</span>
                       </button>
                     </div>
                   );

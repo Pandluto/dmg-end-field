@@ -561,12 +561,12 @@ export const BUFF_TYPE_CATALOG: readonly BuffTypeCatalogEntry[] = [
   createEntry({
     id: 'sourceSkillBoost',
     label: '源石技艺强度',
-    valueStyle: 'ratio',
+    valueStyle: 'flat',
     aliases: ['源石技艺强度', '技艺强度', '记忆强度'],
     positivePatterns: ['源石技艺强度提升', '技艺强度提高'],
     negativePatterns: ['技能伤害提高'],
-    examplePhrases: ['源石技艺强度提高15%'],
-    notes: '只在文本明确指向源石技艺强度时使用。',
+    examplePhrases: ['源石技艺强度提高15%', '源石技艺强度 +15'],
+    notes: '只在文本明确指向源石技艺强度时使用；数值按点数记录，文本 15% 填 15。',
     canInferFromImplicitText: false,
   }),
 ] as const;

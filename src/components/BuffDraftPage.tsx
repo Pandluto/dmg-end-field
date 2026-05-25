@@ -185,7 +185,6 @@ const DISPLAY_PERCENT_TYPES = new Set<string>([
   'iceAmplify',
   'natureAmplify',
   'comboDamageBonus',
-  'sourceSkillBoost',
 ]);
 
 const DISPLAY_FLAT_TYPES = new Set<string>([
@@ -194,6 +193,7 @@ const DISPLAY_FLAT_TYPES = new Set<string>([
   'agilityBoost',
   'intelligenceBoost',
   'willBoost',
+  'sourceSkillBoost',
 ]);
 
 const BUFF_EFFECT_KIND_OPTIONS: BuffEffectKind[] = ['modifier', 'extraHit'];
@@ -691,6 +691,9 @@ function getBuffValueHint(type: string | undefined, value: number | undefined) {
   const numericValue = Number(value ?? 0);
   if (PERCENT_STYLE_TYPES.has(type || '')) {
     return `展示为 ${formatBuffNumericValue(type, numericValue)}，底层存储 ${numericValue}`;
+  }
+  if (DISPLAY_FLAT_TYPES.has(type || '')) {
+    return `当前按数值记录：${numericValue}`;
   }
   return `当前按小数记录：${numericValue}`;
 }

@@ -417,6 +417,9 @@ function normalizeTypeKey(typeKey: string): string {
 }
 
 function normalizeValue(typeKey: string, value: number, unit?: string): number {
+  if (typeKey === 'sourceSkillBoost') {
+    return value;
+  }
   if (unit === 'percent' || PERCENT_FIELDS.has(typeKey)) {
     return Math.abs(value) > 1 ? value / 100 : value;
   }
@@ -790,9 +793,9 @@ function buildMarkdown(snapshot: Omit<ConfigSnapshot, 'detailMarkdown'>): string
     lines.push('- 暂无');
   } else {
     snapshot.equipment.setBuffs.forEach((buff) => {
-      const valueText = buff.unit === 'percent'
+      const valueText = buff.unit === 'percent' && buff.typeKey !== 'sourceSkillBoost'
         ? formatPercent(normalizeValue(buff.typeKey, buff.value, buff.unit))
-        : formatNumber(buff.value);
+        : `${formatNumber(buff.value)}${buff.unit === 'percent' ? '%' : ''}`;
       lines.push(`- ${buff.gearSetName || buff.gearSetId}: ${buff.label} ${buff.typeKey} +${valueText}${buff.category === 'condition' ? '（条件）' : ''}`);
     });
   }
