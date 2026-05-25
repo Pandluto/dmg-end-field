@@ -41,7 +41,11 @@ export function SelectionPanel() {
   const [draftCharacterIds, setDraftCharacterIds] = useState<string[]>([]);
 
   useEffect(() => {
-    setDraftCharacterIds(selectedCharacters.map((character) => character.id));
+    setDraftCharacterIds(
+      selectedCharacters
+        .filter((character) => character.librarySource !== 'official')
+        .map((character) => character.id)
+    );
   }, [selectedCharacters]);
 
   const mergedCharacterMap = useMemo(() => {
@@ -71,7 +75,10 @@ export function SelectionPanel() {
   const isFull = draftCharacterIds.length >= 4;
 
   /** 切换干员选中状态 */
-  const handleSelect = (character: typeof loadedCharacters[0]) => {
+  const handleSelect = (character: Character) => {
+    if (character.librarySource === 'official') {
+      return;
+    }
     if (isSelected(character.id)) {
       setDraftCharacterIds((prev) => prev.filter((characterId) => characterId !== character.id));
     } else if (!isFull) {
@@ -89,14 +96,21 @@ export function SelectionPanel() {
     }
   };
 
-  const renderCharacterCard = (character: Character) => (
-    <div
-      key={character.id}
-      className={`character-card ${isSelected(character.id) ? 'selected' : ''} ${
-        !isSelected(character.id) && isFull ? 'disabled' : ''
-      }`}
-      onClick={() => handleSelect(character)}
-    >
+  const renderCharacterCard = (character: Character) => {
+    const isOfficialCharacter = character.librarySource === 'official';
+    const selected = isSelected(character.id);
+    const disabled = isOfficialCharacter || (!selected && isFull);
+
+    return (
+      <div
+        key={character.id}
+        className={`character-card ${selected ? 'selected' : ''} ${disabled ? 'disabled' : ''} ${
+          isOfficialCharacter ? 'character-card--official-disabled' : ''
+        }`}
+        onClick={() => handleSelect(character)}
+        aria-disabled={disabled}
+        title={isOfficialCharacter ? '官方干员已禁用，请选择本地干员' : undefined}
+      >
       <div className="character-avatar">
         <span
           className="element-dot"
@@ -120,9 +134,11 @@ export function SelectionPanel() {
         <p className="character-profession">{character.profession}</p>
         <p className="character-element">{character.element}</p>
       </div>
-      {isSelected(character.id) && <div className="selected-badge">✓</div>}
-    </div>
-  );
+        {isOfficialCharacter ? <div className="official-disabled-badge">禁用</div> : null}
+        {selected && <div className="selected-badge">✓</div>}
+      </div>
+    );
+  };
 
   return (
     <div className="selection-panel">

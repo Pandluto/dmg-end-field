@@ -629,6 +629,7 @@
   flex: 1;
   min-height: 0;
   flex-direction: column;
+  overflow: hidden;
 }
 /* 装备可视化区域顶部 */
 .operator-config-page-equip-visual-top {
@@ -644,10 +645,52 @@
 }
 /* 装备可视化区域底部 */
 .operator-config-page-equip-visual-bottom {
-  flex: 1;
-  min-height: 0;
+  flex: 0 0 48px;
+  min-height: 48px;
   border-top: 1px solid #D1D1D1;
   background: #F3F3F3;
+  padding: 4px 8px;
+  box-sizing: border-box;
+  overflow: auto;
+  font-size: 9px;
+  line-height: 1.15;
+}
+
+.operator-config-page-equip-set-title {
+  margin-bottom: 2px;
+  font-weight: 700;
+  color: #111827;
+}
+
+.operator-config-page-equip-set-lines {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.operator-config-page-equip-set-line {
+  min-width: 0;
+  gap: 2px;
+  font-size: 9px;
+}
+
+.operator-config-page-equip-set-line .config-weapon-config-summary-label {
+  max-width: 46%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.operator-config-page-equip-set-line .config-weapon-config-summary-type {
+  flex: 1 1 auto;
+}
+
+.operator-config-page-equip-set-line .config-weapon-config-summary-tail {
+  font-size: 9px;
+}
+
+.operator-config-page-equip-set-empty {
+  color: rgba(0, 0, 0, 0.55);
 }
 
 .operator-config-page-equip-archive {

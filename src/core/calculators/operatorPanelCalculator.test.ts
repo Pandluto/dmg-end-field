@@ -188,6 +188,37 @@ const snapshot = buildConfigSnapshot({
         part: '配件',
         effects: [],
       },
+      {
+        slotKey: 'accessory2',
+        equipmentId: 'equip-third',
+        name: '三件套测试装备复制槽',
+        part: '配件',
+        effects: [],
+      },
+    ],
+    setBuffs: [
+      {
+        gearSetId: 'set-passive-test',
+        gearSetName: '常驻三件套',
+        effectId: 'effect1',
+        label: '三件套技艺',
+        typeKey: 'sourceSkillBoost',
+        category: 'passive',
+        level: '三件套',
+        value: 5,
+        unit: 'flat',
+      },
+      {
+        gearSetId: 'set-condition-test',
+        gearSetName: '条件三件套',
+        effectId: 'effect1',
+        label: '三件套条件全伤害',
+        typeKey: 'allDmgBonus',
+        category: 'condition',
+        level: '三件套',
+        value: 99,
+        unit: 'percent',
+      },
     ],
   },
 });
@@ -199,14 +230,27 @@ assertEqual('atk' in snapshot.panel.calc, false, 'panel calc does not store form
 assertEqual(snapshot.weapon.totals.atkPercentBoost ?? 0, 0, 'condition skill3 does not enter weapon totals');
 assertEqual(snapshot.panel.calc.critDmgBonusBoost, 0.32, 'crit damage boost stays atomic in panel calc');
 assertEqual(snapshot.panel.display.critDmg, 0.82, 'crit damage display sums default, equipment, skill3 passive');
-assertEqual(snapshot.panel.display.damageBonus.fireDmgBonus, 0.15, 'magicDmgBonus expands to non-physical elements');
+assertEqual(snapshot.equipment.setBuffs.length, 2, 'equipment set buffs are preserved in snapshot');
+assertEqual(snapshot.equipment.totals.sourceSkillBoost, 5, 'passive three-piece buff enters equipment totals');
+assertEqual(snapshot.panel.calc.sourceSkillBoost, 5, 'passive three-piece buff enters panel calc');
+assertEqual(snapshot.panel.calc.damageBonus.allDmgBonus, 0, 'condition three-piece buff does not enter panel calc');
+assertEqual(snapshot.panel.display.damageBonus.magicDmgBonus, 0.15, 'magicDmgBonus stays atomic in display snapshot');
+assertEqual(snapshot.panel.display.damageBonus.fireDmgBonus, 0.27, 'fire display damage includes magic and split fire/nature bonus');
 assertEqual(snapshot.panel.display.damageBonus.physicalDmgBonus, 0.07, 'magicDmgBonus does not expand to physical');
 assertEqual(snapshot.panel.display.damageBonus.skillDmgBonus, 0.05, 'allSkillDmgBonus expands to skill damage');
 assertEqual(snapshot.panel.display.damageBonus.imbalanceDmgBonus, 0.09, 'imbalance damage passes through display');
 assertEqual(snapshot.equipment.totals.iceElectricDmgBonus, 0.11, 'ice/electric composite equipment bonus normalizes to decimal');
 assertEqual(snapshot.equipment.totals.fireNatureDmgBonus, 0.12, 'fire/nature composite equipment bonus normalizes to decimal');
-assertEqual(snapshot.panel.display.damageBonus.iceDmgBonus, 0.15, 'phase3 does not split ice/electric composite bonus into display');
-assertEqual(snapshot.panel.display.damageBonus.natureDmgBonus, 0.15, 'phase3 does not split fire/nature composite bonus into display');
+assertEqual(snapshot.panel.calc.damageBonus.iceDmgBonus, 0.11, 'ice/electric composite equipment bonus enters calc ice damage');
+assertEqual(snapshot.panel.calc.damageBonus.electricDmgBonus, 0.11, 'ice/electric composite equipment bonus enters calc electric damage');
+assertEqual(snapshot.panel.calc.damageBonus.fireDmgBonus, 0.12, 'fire/nature composite equipment bonus enters calc fire damage');
+assertEqual(snapshot.panel.calc.damageBonus.natureDmgBonus, 0.12, 'fire/nature composite equipment bonus enters calc nature damage');
+assertEqual(snapshot.panel.display.damageBonus.iceDmgBonus, 0.26, 'display ice damage includes magic and split ice/electric bonus');
+assertEqual(snapshot.panel.display.damageBonus.electricDmgBonus, 0.26, 'display electric damage includes magic and split ice/electric bonus');
+assertEqual(snapshot.panel.display.damageBonus.fireDmgBonus, 0.27, 'display fire damage includes magic and split fire/nature bonus');
+assertEqual(snapshot.panel.display.damageBonus.natureDmgBonus, 0.27, 'display nature damage includes magic and split fire/nature bonus');
+assertEqual(snapshot.detailMarkdown.includes('- 寒冷伤害加成: 26%'), true, 'detail markdown shows split ice/electric bonus');
+assertEqual(snapshot.detailMarkdown.includes('- 电磁伤害加成: 26%'), true, 'detail markdown shows split ice/electric bonus');
 
 const weaponCandidates = buildSnapshotWeaponCandidateBuffs(snapshot);
 assertEqual(weaponCandidates.length, 1, 'only condition skill3 enters snapshot candidate buffs');

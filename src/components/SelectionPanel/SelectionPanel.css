@@ -120,6 +120,10 @@
   cursor: not-allowed;
 }
 
+.character-card--official-disabled {
+  user-select: none;
+}
+
 .character-avatar {
   width: 48px;
   height: 48px;
@@ -196,6 +200,19 @@
   display: flex;
   align-items: center;
   justify-content: center;
+  font-size: var(--font-size-xs);
+  font-weight: 700;
+}
+
+.official-disabled-badge {
+  position: absolute;
+  top: var(--spacing-sm);
+  right: var(--spacing-sm);
+  padding: 2px 6px;
+  border: 1px solid var(--ide-border-light);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.82);
+  color: var(--ide-text-muted);
   font-size: var(--font-size-xs);
   font-weight: 700;
 }

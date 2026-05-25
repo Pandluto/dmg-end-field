@@ -66,7 +66,7 @@ export function buildAnomalyStateSnapshotBuffs(
         displayName: '导电',
         sourceName: snapshot.sourceCharacterName,
         level: `${snapshot.level}层`,
-        type: 'magicTakenDmgBonus',
+        type: 'magicFragile',
         value: snapshot.effectValue,
         description: '导电提供法术易伤',
         source: 'anomaly_state_snapshot',

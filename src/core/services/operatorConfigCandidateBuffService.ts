@@ -131,23 +131,22 @@ function getThreePieceBuffEntries(gearSet: EquipmentGearSetLike): EquipmentThree
 }
 
 export function buildSnapshotEquipmentCandidateBuffs(snapshot: ConfigSnapshot, equipmentLibrary: EquipmentLibraryLike): CandidateBuff[] {
-  const selectedEquipmentIds = new Set(
-    snapshot.equipment.pieces
-      .map((piece) => piece.equipmentId)
-      .filter((equipmentId) => equipmentId.length > 0)
-  );
-  if (selectedEquipmentIds.size < 3) return [];
+  const selectedEquipmentIds = snapshot.equipment.pieces
+    .map((piece) => piece.equipmentId)
+    .filter((equipmentId) => equipmentId.length > 0);
+  if (selectedEquipmentIds.length < 3) return [];
 
   return Object.entries(equipmentLibrary.gearSets || {}).flatMap(([fallbackSetId, gearSet]) => {
     const setEquipmentIds = Object.values(gearSet.equipments || {})
       .map((equipment) => equipment.equipmentId)
       .filter((equipmentId): equipmentId is string => Boolean(equipmentId));
-    const selectedCount = setEquipmentIds.filter((equipmentId) => selectedEquipmentIds.has(equipmentId)).length;
+    const selectedCount = selectedEquipmentIds.filter((equipmentId) => setEquipmentIds.includes(equipmentId)).length;
     if (selectedCount < 3) return [];
 
     const sourceName = gearSet.name || gearSet.gearSetId || fallbackSetId;
     return getThreePieceBuffEntries(gearSet)
       .map((buff, index): CandidateBuff | null => {
+        if (buff.category !== 'condition') return null;
         const type = normalizeBuffTypeKey(buff.typeKey || '');
         if (!type || typeof buff.value !== 'number' || !Number.isFinite(buff.value)) return null;
         return {

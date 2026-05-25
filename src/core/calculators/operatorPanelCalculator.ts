@@ -46,6 +46,7 @@ export interface OperatorPanelInput {
   };
   equipment?: {
     pieces?: EquipmentPieceInput[];
+    setBuffs?: EquipmentSetBuffInput[];
   };
 }
 
@@ -79,6 +80,12 @@ export interface EquipmentEffectInput {
   value: number;
   unit?: 'flat' | 'percent' | string;
   raw?: string;
+}
+
+export interface EquipmentSetBuffInput extends EquipmentEffectInput {
+  gearSetId: string;
+  gearSetName: string;
+  category?: 'positive' | 'passive' | 'condition' | string;
 }
 
 export interface ConfigSnapshot {
@@ -231,6 +238,7 @@ export interface EquipmentSnapshot {
     fixedStat?: unknown;
     effects: EquipmentEffectInput[];
   }>;
+  setBuffs: EquipmentSetBuffInput[];
   totals: Record<string, number>;
 }
 
@@ -356,6 +364,8 @@ const PERCENT_FIELDS = new Set([
   'iceDmgBonus',
   'natureDmgBonus',
   'magicDmgBonus',
+  'iceElectricDmgBonus',
+  'fireNatureDmgBonus',
   'normalAttackDmgBonus',
   'skillDmgBonus',
   'chainSkillDmgBonus',
@@ -453,6 +463,16 @@ function createDamageBonusFromTotals(...totalsList: Array<Record<string, number>
     DAMAGE_BONUS_FIELDS.forEach((field) => {
       damageBonus[field] = round(damageBonus[field] + (totals[field] ?? 0));
     });
+    const iceElectricDmgBonus = totals.iceElectricDmgBonus ?? 0;
+    if (iceElectricDmgBonus !== 0) {
+      damageBonus.iceDmgBonus = round(damageBonus.iceDmgBonus + iceElectricDmgBonus);
+      damageBonus.electricDmgBonus = round(damageBonus.electricDmgBonus + iceElectricDmgBonus);
+    }
+    const fireNatureDmgBonus = totals.fireNatureDmgBonus ?? 0;
+    if (fireNatureDmgBonus !== 0) {
+      damageBonus.fireDmgBonus = round(damageBonus.fireDmgBonus + fireNatureDmgBonus);
+      damageBonus.natureDmgBonus = round(damageBonus.natureDmgBonus + fireNatureDmgBonus);
+    }
   });
   return damageBonus;
 }
@@ -553,7 +573,13 @@ function buildEquipmentSnapshot(input: OperatorPanelInput['equipment']): Equipme
       effects: piece.effects,
     };
   });
-  return { pieces, totals };
+  const setBuffs = input?.setBuffs ?? [];
+  setBuffs.forEach((buff) => {
+    if ((buff.category === 'positive' || buff.category === 'passive') && EQUIPMENT_TOTAL_FIELDS.has(normalizeTypeKey(buff.typeKey))) {
+      addTotal(totals, buff.typeKey, buff.value, buff.unit);
+    }
+  });
+  return { pieces, setBuffs, totals };
 }
 
 function buildDisplayDamageBonus(damageBonus: DamageBonusSnapshot): DamageBonusSnapshot {
@@ -747,6 +773,18 @@ function buildMarkdown(snapshot: Omit<ConfigSnapshot, 'detailMarkdown'>): string
   } else {
     snapshot.equipment.pieces.forEach((piece) => {
       lines.push(`- ${piece.name || piece.equipmentId}: ${piece.effects.map((effect) => `${effect.label} ${effect.value}${effect.unit === 'percent' ? '%' : ''}`).join(' / ') || '暂无词条'}`);
+    });
+  }
+  lines.push('');
+  lines.push('## 三件套效果');
+  if (snapshot.equipment.setBuffs.length === 0) {
+    lines.push('- 暂无');
+  } else {
+    snapshot.equipment.setBuffs.forEach((buff) => {
+      const valueText = buff.unit === 'percent'
+        ? formatPercent(normalizeValue(buff.typeKey, buff.value, buff.unit))
+        : formatNumber(buff.value);
+      lines.push(`- ${buff.gearSetName || buff.gearSetId}: ${buff.label} ${buff.typeKey} +${valueText}${buff.category === 'condition' ? '（条件）' : ''}`);
     });
   }
   lines.push('');

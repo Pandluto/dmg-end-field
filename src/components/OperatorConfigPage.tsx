@@ -5,7 +5,7 @@ import { useAppContext } from '../context/AppContext';
 import { STORAGE_KEYS } from '../constants/storage-keys';
 import { adaptRuntimeTemplateToLegacyCharacter, loadLocalOperatorCharacters } from '../core/services/localOperatorAdapter';
 import { buildConfigSnapshot } from '../core/calculators/operatorPanelCalculator';
-import type { ConfigSnapshot, EquipmentPieceInput, OperatorPanelInput } from '../core/calculators/operatorPanelCalculator';
+import type { ConfigSnapshot, EquipmentPieceInput, EquipmentSetBuffInput, OperatorPanelInput } from '../core/calculators/operatorPanelCalculator';
 import type { Character, SkillType } from '../types';
 import type {
   OperatorConfigPageCache,
@@ -44,9 +44,21 @@ interface EquipmentItem {
   effects: Partial<Record<EquipmentEffectId, EquipmentEffect>>;
 }
 
+interface EquipmentThreePieceBuff {
+  effectId: string;
+  name: string;
+  category: 'positive' | 'passive' | 'condition' | '';
+  typeKey: string;
+  value: number;
+  unit: 'flat' | 'percent';
+  raw?: string;
+}
+
 interface EquipmentGearSet {
   gearSetId: string;
   name: string;
+  threePieceBuff?: EquipmentThreePieceBuff;
+  threePieceBuffs?: Record<string, EquipmentThreePieceBuff>;
   equipments: Record<string, EquipmentItem>;
 }
 
@@ -286,6 +298,28 @@ function normalizeEquipmentLibrary(raw: unknown): EquipmentLibrary {
   Object.entries(rawGearSets).forEach(([gearSetId, rawSet]) => {
     const setValue = rawSet as Partial<EquipmentGearSet>;
     const equipments: Record<string, EquipmentItem> = {};
+    const threePieceBuffs: Record<string, EquipmentThreePieceBuff> = {};
+    const rawThreePieceBuffs = setValue.threePieceBuffs && typeof setValue.threePieceBuffs === 'object'
+      ? setValue.threePieceBuffs
+      : {};
+    const normalizeThreePieceBuffCategory = (category: unknown): EquipmentThreePieceBuff['category'] => (
+      category === 'positive' || category === 'passive' || category === 'condition' ? category : ''
+    );
+    const normalizeThreePieceBuff = (effectId: string, rawBuff: Partial<EquipmentThreePieceBuff>): EquipmentThreePieceBuff => ({
+      effectId: String(rawBuff.effectId || effectId),
+      name: String(rawBuff.name || effectId),
+      category: normalizeThreePieceBuffCategory(rawBuff.category),
+      typeKey: String(rawBuff.typeKey || ''),
+      value: typeof rawBuff.value === 'number' && Number.isFinite(rawBuff.value) ? rawBuff.value : 0,
+      unit: rawBuff.unit === 'flat' ? 'flat' : 'percent',
+      raw: rawBuff.raw,
+    });
+    Object.entries(rawThreePieceBuffs).forEach(([effectId, rawBuff]) => {
+      threePieceBuffs[effectId] = normalizeThreePieceBuff(effectId, rawBuff as Partial<EquipmentThreePieceBuff>);
+    });
+    if (setValue.threePieceBuff && Object.keys(threePieceBuffs).length === 0) {
+      threePieceBuffs.effect1 = normalizeThreePieceBuff('effect1', setValue.threePieceBuff);
+    }
     const rawEquipments = setValue.equipments && typeof setValue.equipments === 'object' ? setValue.equipments : {};
     Object.entries(rawEquipments).forEach(([equipmentId, rawEquipment]) => {
       const itemValue = rawEquipment as Partial<EquipmentItem>;
@@ -314,6 +348,7 @@ function normalizeEquipmentLibrary(raw: unknown): EquipmentLibrary {
     next.gearSets[gearSetId] = {
       gearSetId: String(setValue.gearSetId || gearSetId),
       name: String(setValue.name || gearSetId),
+      ...(Object.keys(threePieceBuffs).length > 0 ? { threePieceBuffs } : {}),
       equipments,
     };
   });
@@ -850,7 +885,62 @@ function buildEquipmentPiecesForSnapshot(config: OperatorConfigPageCharacterConf
   }).filter((piece) => piece.equipmentId || piece.effects.length > 0);
 }
 
-function buildOperatorPanelInput(config: OperatorConfigPageCharacterConfig | null, activeCharacter: Character | null): OperatorPanelInput | null {
+function buildEquipmentSetBuffsForSnapshot(
+  config: OperatorConfigPageCharacterConfig | null,
+  equipmentLibrary: EquipmentLibrary | null
+): EquipmentSetBuffInput[] {
+  if (!config || !equipmentLibrary) return [];
+  const selectedEquipmentIds = EQUIPMENT_SLOT_KEYS.map((slotKey) => config.equipment[slotKey].id)
+    .filter((equipmentId) => equipmentId.length > 0);
+  if (selectedEquipmentIds.length < 3) return [];
+
+  return Object.values(equipmentLibrary.gearSets).flatMap((gearSet) => {
+    const setEquipmentIds = new Set(Object.entries(gearSet.equipments).flatMap(([equipmentId, equipment]) => [
+      equipmentId,
+      equipment.equipmentId,
+    ]));
+    const selectedCount = selectedEquipmentIds.filter((equipmentId) => setEquipmentIds.has(equipmentId)).length;
+    if (selectedCount < 3) return [];
+
+    return Object.values(gearSet.threePieceBuffs ?? {})
+      .filter((buff) => buff.typeKey.trim().length > 0)
+      .map((buff) => ({
+        effectId: buff.effectId,
+        label: buff.name || buff.effectId,
+        typeKey: buff.typeKey,
+        level: '三件套',
+        value: buff.value,
+        unit: buff.unit,
+        raw: buff.raw,
+        gearSetId: gearSet.gearSetId,
+        gearSetName: gearSet.name,
+        category: buff.category,
+      }));
+  });
+}
+
+function formatEquipmentSetBuffLine(buff: EquipmentSetBuffInput): { label: string; typeKey: string; tail: string; full: string } {
+  const displayValue = buff.unit === 'percent' && Math.abs(buff.value) <= 1
+    ? Number((buff.value * 100).toFixed(2))
+    : buff.value;
+  const suffix = buff.unit === 'percent' ? '%' : '';
+  const conditionText = buff.category === 'condition' ? '条件' : '常驻';
+  const label = `${buff.gearSetName || buff.gearSetId} · ${buff.label}`;
+  const typeKey = `${conditionText} · ${buff.typeKey}`;
+  const tail = `+ ${displayValue}${suffix}`;
+  return {
+    label,
+    typeKey,
+    tail,
+    full: `${label} · ${typeKey} ${tail}`,
+  };
+}
+
+function buildOperatorPanelInput(
+  config: OperatorConfigPageCharacterConfig | null,
+  activeCharacter: Character | null,
+  equipmentLibrary: EquipmentLibrary | null
+): OperatorPanelInput | null {
   if (!config && !activeCharacter) return null;
   const operatorData = (config?.character.data ?? {}) as Partial<Character>;
   const weaponData = (config?.weapon.data ?? {}) as Partial<WeaponData>;
@@ -878,6 +968,7 @@ function buildOperatorPanelInput(config: OperatorConfigPageCharacterConfig | nul
     },
     equipment: {
       pieces: buildEquipmentPiecesForSnapshot(config),
+      setBuffs: buildEquipmentSetBuffsForSnapshot(config, equipmentLibrary),
     },
   };
 }
@@ -1406,17 +1497,21 @@ export function OperatorConfigPage() {
   const currentWeaponSkill1Text = formatWeaponSkillSummary('skill1', currentWeaponSkill1Data, weaponSkillLevel1);
   const currentWeaponSkill2Text = formatWeaponSkillSummary('skill2', currentWeaponSkill2Data, weaponSkillLevel2);
   const currentWeaponSkill3Lines = buildWeaponSkill3Lines(currentWeaponSkill3Data, weaponSkillLevel3);
+  const currentEquipmentSetBuffLines = React.useMemo(
+    () => buildEquipmentSetBuffsForSnapshot(currentConfig, equipmentLibrary).map(formatEquipmentSetBuffLine),
+    [currentConfig, equipmentLibrary]
+  );
   const currentWeaponMetaLine = formatWeaponMetaLine(currentWeaponLevel, currentWeaponAttack);
   const configSnapshot = React.useMemo<ConfigSnapshot | null>(() => {
     const sourceSnapshot: ConfigSnapshot | undefined = currentConfig?.sourceSnapshot;
-    if (sourceSnapshot && isReusableConfigSnapshot(sourceSnapshot)) return sourceSnapshot;
+    if (sourceSnapshot && isReusableConfigSnapshot(sourceSnapshot) && !equipmentLibrary) return sourceSnapshot;
     const currentWeaponData = (currentConfig?.weapon.data ?? EMPTY_RECORD) as Partial<WeaponData>;
     if (sourceSnapshot?.weapon.name && !currentWeaponData.skills) {
       return null;
     }
-    const input = buildOperatorPanelInput(currentConfig, activeCharacter);
+    const input = buildOperatorPanelInput(currentConfig, activeCharacter, equipmentLibrary);
     return input ? buildConfigSnapshot(input) : null;
-  }, [activeCharacter, currentConfig]);
+  }, [activeCharacter, currentConfig, equipmentLibrary]);
 
   React.useEffect(() => {
     if (!activeCharacterId || !configSnapshot) return;
@@ -1770,7 +1865,23 @@ export function OperatorConfigPage() {
                         ))}
                       </div>
                     </div>
-                    <div className="operator-config-page-equip-visual-bottom" aria-hidden="true" />
+                    <div className="operator-config-page-equip-visual-bottom">
+                      <div className="operator-config-page-equip-set-title">三件套效果</div>
+                      <div className="operator-config-page-equip-set-lines">
+                        {currentEquipmentSetBuffLines.length > 0 ? (
+                          currentEquipmentSetBuffLines.map((line, index) => (
+                            <span key={`equipment-set-buff-${index}`} className="config-weapon-config-summary-line operator-config-page-equip-set-line">
+                              <span className="config-weapon-config-summary-label">{line.label}</span>
+                              {line.typeKey ? <span className="config-weapon-config-summary-dot">·</span> : null}
+                              {line.typeKey ? <span className="config-weapon-config-summary-type">{line.typeKey}</span> : null}
+                              {line.tail ? <span className="config-weapon-config-summary-tail">{line.tail}</span> : null}
+                            </span>
+                          ))
+                        ) : (
+                          <span className="operator-config-page-equip-set-empty">未触发三件套</span>
+                        )}
+                      </div>
+                    </div>
                   </div>
                   <div className="operator-config-page-equip-archive" aria-hidden="true" data-archived-row-count={EQUIPMENT_FORM_ROWS.length}>
                     {/* 旧装备数值表单存档：后续可能恢复

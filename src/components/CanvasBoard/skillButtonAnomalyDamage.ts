@@ -196,8 +196,8 @@ export function buildAnomalyDamageSegments({
     const allDamageBonus = (damageBonus.allDmgBonus || 0) + (buffTotals.allDmgBonus || 0);
     const damageBonusRate = 1 + elementBonus + skillBonus + allDamageBonus;
     const amplifyRate = calculateAmplifyRate(elementKey, buffTotals);
-    const fragileRate = calculateVulnerabilityRate(elementKey, buffTotals);
-    const vulnerabilityRate = calculateFragileRate(elementKey, buffTotals);
+    const fragileRate = calculateFragileRate(elementKey, buffTotals);
+    const vulnerabilityRate = calculateVulnerabilityRate(elementKey, buffTotals);
     const comboDamageBonus = buffTotals.comboDamageBonus;
     const imbalanceDamageBonus = buffTotals.imbalanceDamageBonus + (elementKey === 'physical' ? (damageBonus.imbalanceDmgBonus || 0) : 0);
     const defenseZone = 0.5;
@@ -279,8 +279,8 @@ export function buildAnomalyDamageSegments({
     const allDamageBonus = (damageBonus.allDmgBonus || 0) + (buffTotals.allDmgBonus || 0);
     const damageBonusRate = 1 + elementBonus + skillBonus + allDamageBonus;
     const amplifyRate = calculateAmplifyRate(elementKey, buffTotals);
-    const fragileRate = calculateVulnerabilityRate(elementKey, buffTotals);
-    const vulnerabilityRate = calculateFragileRate(elementKey, buffTotals);
+    const fragileRate = calculateFragileRate(elementKey, buffTotals);
+    const vulnerabilityRate = calculateVulnerabilityRate(elementKey, buffTotals);
     const comboDamageBonus = buffTotals.comboDamageBonus;
     const imbalanceDamageBonus = buffTotals.imbalanceDamageBonus + (elementKey === 'physical' ? (damageBonus.imbalanceDmgBonus || 0) : 0);
     const defenseZone = 0.5;

@@ -1369,15 +1369,15 @@ export function SkillButtonComponent({
                               </div>
 
                               <div className="formula-zone-section">
-                                <p className="formula-section-title">【脆弱区】</p>
-                                <p>脆弱效果</p>
-                                <p className="formula-zone-total">脆弱区 = {damageViewModel.activeHitFormula.fragileFormulaText}</p>
+                                <p className="formula-section-title">【易伤区】</p>
+                                <p>易伤效果</p>
+                                <p className="formula-zone-total">易伤区 = {damageViewModel.activeHitFormula.fragileFormulaText}</p>
                               </div>
 
                               <div className="formula-zone-section">
-                                <p className="formula-section-title">【易伤区】</p>
-                                <p>易伤效果</p>
-                                <p className="formula-zone-total">易伤区 = {damageViewModel.activeHitFormula.vulnerabilityFormulaText}</p>
+                                <p className="formula-section-title">【脆弱区】</p>
+                                <p>脆弱效果</p>
+                                <p className="formula-zone-total">脆弱区 = {damageViewModel.activeHitFormula.vulnerabilityFormulaText}</p>
                               </div>
 
                               <div className="formula-zone-section">
@@ -1456,15 +1456,15 @@ export function SkillButtonComponent({
                               </div>
 
                               <div className="formula-zone-section">
-                                <p className="formula-section-title">【脆弱区】</p>
-                                <p>脆弱效果</p>
-                                <p className="formula-zone-total">脆弱区 = {activeAnomalySegment.fragileFormulaText}</p>
+                                <p className="formula-section-title">【易伤区】</p>
+                                <p>易伤效果</p>
+                                <p className="formula-zone-total">易伤区 = {activeAnomalySegment.fragileFormulaText}</p>
                               </div>
 
                               <div className="formula-zone-section">
-                                <p className="formula-section-title">【易伤区】</p>
-                                <p>易伤效果</p>
-                                <p className="formula-zone-total">易伤区 = {activeAnomalySegment.vulnerabilityFormulaText}</p>
+                                <p className="formula-section-title">【脆弱区】</p>
+                                <p>脆弱效果</p>
+                                <p className="formula-zone-total">脆弱区 = {activeAnomalySegment.vulnerabilityFormulaText}</p>
                               </div>
 
                               <div className="formula-zone-section">

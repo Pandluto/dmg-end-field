@@ -950,12 +950,12 @@ function buildFormulaText(hitRow: HitValueRow | null, columnKey: string | undefi
     case 'fragileRate': {
       const buffs = getRelevantBuffsForColumn(hitRow, columnKey);
       const pieces = ['1.000', ...buffs.map((buff) => `${buff.value && buff.value >= 0 ? '+' : ''}${(buff.value ?? 0).toFixed(3)}`)];
-      return `${pieces.join(' ')} = ${(1 + hitResult.zones.vulnerabilityRate).toFixed(3)}`;
+      return `${pieces.join(' ')} = ${(1 + hitResult.zones.fragileRate).toFixed(3)}`;
     }
     case 'vulnerabilityRate': {
       const buffs = getRelevantBuffsForColumn(hitRow, columnKey);
       const pieces = ['1.000', ...buffs.map((buff) => `${buff.value && buff.value >= 0 ? '+' : ''}${(buff.value ?? 0).toFixed(3)}`)];
-      return `${pieces.join(' ')} = ${(1 + hitResult.zones.fragileRate).toFixed(3)}`;
+      return `${pieces.join(' ')} = ${(1 + hitResult.zones.vulnerabilityRate).toFixed(3)}`;
     }
     case 'amplifyRate': {
       const buffs = getRelevantBuffsForColumn(hitRow, columnKey);

@@ -623,8 +623,8 @@ function buildAnomalyReportHits(
       + calculateSkillDmgBonus('', parsedDamageBonusRecord, buffTotals)
       + allDamageBonus;
     const amplifyRate = calculateAmplifyRate(elementKey, buffTotals);
-    const fragileRate = calculateVulnerabilityRate(elementKey, buffTotals);
-    const vulnerabilityRate = calculateFragileRate(elementKey, buffTotals);
+    const fragileRate = calculateFragileRate(elementKey, buffTotals);
+    const vulnerabilityRate = calculateVulnerabilityRate(elementKey, buffTotals);
     const comboDamageBonus = buffTotals.comboDamageBonus;
     const imbalanceDamageBonus = buffTotals.imbalanceDamageBonus + (elementKey === 'physical' ? (characterDamageBonus.imbalanceDmgBonus || 0) : 0);
     const defenseZone = 0.5;
@@ -659,8 +659,8 @@ function buildAnomalyReportHits(
       + (characterDamageBonus.allDmgBonus || 0)
       + (buffTotals.allDmgBonus || 0);
     const amplifyRate = calculateAmplifyRate(elementKey, buffTotals);
-    const fragileRate = calculateVulnerabilityRate(elementKey, buffTotals);
-    const vulnerabilityRate = calculateFragileRate(elementKey, buffTotals);
+    const fragileRate = calculateFragileRate(elementKey, buffTotals);
+    const vulnerabilityRate = calculateVulnerabilityRate(elementKey, buffTotals);
     const comboDamageBonus = buffTotals.comboDamageBonus;
     const imbalanceDamageBonus = buffTotals.imbalanceDamageBonus + (elementKey === 'physical' ? (characterDamageBonus.imbalanceDmgBonus || 0) : 0);
     const defenseZone = 0.5;

@@ -137,14 +137,8 @@ function calculateHitZones(
     allDamageBonus,
     damageBonusRate,
     amplifyRate: calculateAmplifyRate(hit.element, buffs),
-    // 项目既有语义：
-    // - 脆弱区 = Vulnerability
-    // - 易伤区 = Fragile
-    // 例如：
-    // - physicalVulnerability = 物理脆弱
-    // - physicalFragile = 物伤易伤
-    fragileRate: calculateVulnerabilityRate(hit.element, buffs),
-    vulnerabilityRate: calculateFragileRate(hit.element, buffs),
+    fragileRate: calculateFragileRate(hit.element, buffs),
+    vulnerabilityRate: calculateVulnerabilityRate(hit.element, buffs),
     comboDamageBonus: buffs.comboDamageBonus,
     imbalanceDamageBonus: buffs.imbalanceDamageBonus + (hit.element === 'physical' ? (damageBonus.imbalanceDmgBonus || 0) : 0),
     defenseZone: 0.5,
