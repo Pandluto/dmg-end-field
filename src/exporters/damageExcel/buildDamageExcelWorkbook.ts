@@ -4,8 +4,11 @@ import type {
   DamageExcelHitRow,
   DamageExcelStorageEntry,
 } from './damageExcelModel.ts';
+import type { SkillButtonBuff } from '../../types/storage.ts';
 
-type BuffCellRefMap = Map<string, Map<string, string[]>>;
+type BuffCellRefMap = Map<string, { type: string; cellRef: string; value: number }>;
+type BuffCellRef = NonNullable<ReturnType<BuffCellRefMap['get']>>;
+type RuntimeBuff = SkillButtonBuff & Record<string, unknown>;
 
 function styleHeader(row: ExcelJS.Row): void {
   row.eachCell((cell) => {
@@ -66,7 +69,7 @@ function parseElementLabel(element: string | undefined): string {
   }
 }
 
-function getBuffTargetKey(buff: NonNullable<DamageExcelHitRow['detail']['hitResult']['appliedBuffs']>[number]): string {
+function getBuffTargetKey(buff: SkillButtonBuff): string {
   const target = buff.target;
   if (!target || target.mode === 'all') {
     return '';
@@ -81,6 +84,17 @@ function getBuffTargetKey(buff: NonNullable<DamageExcelHitRow['detail']['hitResu
     default:
       return '';
   }
+}
+
+function readBuffTextField(buff: SkillButtonBuff, key: string): string {
+  const value = (buff as RuntimeBuff)[key];
+  if (typeof value === 'string') {
+    return value;
+  }
+  if (typeof value === 'number' || typeof value === 'boolean') {
+    return String(value);
+  }
+  return '';
 }
 
 function addOperatorSheet(workbook: ExcelJS.Workbook, input: BuildDamageExcelWorkbookInput): void {
@@ -109,69 +123,140 @@ function addEmptySourceSheet(workbook: ExcelJS.Workbook, name: '武器' | '装�
   sheet.views = [{ state: 'frozen', ySplit: 1 }];
 }
 
-function addBuffCellRef(refs: BuffCellRefMap, hitId: string, type: string, cellRef: string): void {
-  const hitRefs = refs.get(hitId) ?? new Map<string, string[]>();
-  const typeRefs = hitRefs.get(type) ?? [];
-  typeRefs.push(cellRef);
-  hitRefs.set(type, typeRefs);
-  refs.set(hitId, hitRefs);
+function addBuffCellRef(refs: BuffCellRefMap, buffId: string, type: string, cellRef: string, value: number): void {
+  refs.set(buffId, { type, cellRef, value });
 }
 
-function getBuffCellRefs(refs: BuffCellRefMap, hitId: string, type: string): string[] {
-  return refs.get(hitId)?.get(type) ?? [];
+function getSelectedBuffIdsForHit(input: BuildDamageExcelWorkbookInput, hitRow: DamageExcelHitRow): string[] {
+  const button = input.skillButtonTable?.[hitRow.buttonId];
+  const selectedBuffIds = button?.panelConfig?.selectedBuff ?? [];
+  const segmentKey = `normal-hit-${hitRow.detail.hit.key}`;
+  const disabledBuffIds = new Set(button?.panelConfig?.manualDisabledBuffIdsBySegmentKey?.[segmentKey] ?? []);
+  return selectedBuffIds.filter((buffId) => !disabledBuffIds.has(buffId));
+}
+
+function getBuffCellRefs(refs: BuffCellRefMap, buffIds: string[], type: string): string[] {
+  return getBuffCellRefsForTypes(refs, buffIds, [type]);
+}
+
+function getBuffCellRefsForTypes(refs: BuffCellRefMap, buffIds: string[], types: string[]): string[] {
+  const typeSet = new Set(types);
+  return buffIds
+    .map((buffId) => refs.get(buffId))
+    .filter((ref): ref is BuffCellRef => ref !== undefined && typeSet.has(ref.type))
+    .map((ref) => ref.cellRef);
+}
+
+function sumBuffValuesForTypes(refs: BuffCellRefMap, buffIds: string[], types: string[]): number {
+  const typeSet = new Set(types);
+  return buffIds.reduce((total, buffId) => {
+    const ref = refs.get(buffId);
+    return ref && typeSet.has(ref.type) ? total + ref.value : total;
+  }, 0);
 }
 
 function sumFormula(refs: string[]): string {
   return refs.length > 0 ? refs.join('+') : '0';
 }
 
-function productFormula(refs: string[]): string {
-  return refs.length > 0 ? refs.join('*') : '1';
+function additiveFormula(baseValue: number, refs: string[]): string {
+  const pieces: string[] = [];
+  if (Math.abs(baseValue) > 0.0000001 || refs.length === 0) {
+    pieces.push(String(baseValue));
+  }
+  pieces.push(...refs);
+  return pieces.join('+');
 }
 
-function addBuffSheet(workbook: ExcelJS.Workbook, hitRows: DamageExcelHitRow[]): BuffCellRefMap {
+function multiplicativeFormula(baseValue: number, refs: string[]): string {
+  const pieces: string[] = [];
+  if (Math.abs(baseValue - 1) > 0.0000001 || refs.length === 0) {
+    pieces.push(String(baseValue));
+  }
+  pieces.push(...refs);
+  return pieces.join('*');
+}
+
+function getElementDamageBonusTypes(element: string | undefined): string[] {
+  if (element === 'physical') {
+    return ['physicalDmgBonus'];
+  }
+  const types = ['magicDmgBonus', 'allElementDmgBonus'];
+  if (element) {
+    types.unshift(`${element}DmgBonus`);
+  }
+  return types;
+}
+
+function getSkillDamageBonusTypes(skillType: string | undefined): string[] {
+  switch (skillType) {
+    case 'A':
+      return ['normalAttackDmgBonus'];
+    case 'B':
+      return ['skillDmgBonus', 'allSkillDmgBonus'];
+    case 'E':
+      return ['chainSkillDmgBonus', 'allSkillDmgBonus'];
+    case 'Q':
+      return ['ultimateDmgBonus', 'allSkillDmgBonus'];
+    default:
+      return [];
+  }
+}
+
+function getElementZoneTypes(element: string | undefined, suffix: 'Amplify' | 'Fragile' | 'Vulnerability'): string[] {
+  if (element === 'physical') {
+    return [`physical${suffix}`];
+  }
+  const types = [`magic${suffix}`];
+  if (element) {
+    types.unshift(`${element}${suffix}`);
+  }
+  return types;
+}
+
+function addBuffSheet(
+  workbook: ExcelJS.Workbook,
+  allBuffList: SkillButtonBuff[],
+): BuffCellRefMap {
   const sheet = workbook.addWorksheet('Buff');
   const refs: BuffCellRefMap = new Map();
   sheet.getRow(1).values = [
-    '命中ID',
     'Buff ID',
     '来源名称',
     '显示名称',
     '目标模式',
     '目标键',
     '类型',
-    '数值',
     '启用',
+    '数值',
     '说明',
+    'Tab',
   ];
   styleHeader(sheet.getRow(1));
 
   let rowNumber = 2;
-  hitRows.forEach((hitRow) => {
-    const buffs = hitRow.detail.hitResult.appliedBuffs ?? [];
-    buffs.forEach((buff) => {
-      const row = sheet.getRow(rowNumber);
-      row.values = [
-        hitRow.id,
-        buff.id,
-        buff.sourceName || buff.source || '',
-        buff.displayName || buff.name || buff.id,
-        buff.target?.mode ?? 'all',
-        getBuffTargetKey(buff),
-        buff.type || '',
-        buff.value ?? 0,
-        true,
-        buff.condition || buff.description || '',
-      ];
-      styleBody(row);
-      if (buff.type) {
-        addBuffCellRef(refs, hitRow.id, buff.type, `Buff!H${rowNumber}`);
-      }
-      rowNumber += 1;
-    });
+  allBuffList.forEach((buff) => {
+    const row = sheet.getRow(rowNumber);
+    row.values = [
+      buff.id,
+      buff.sourceName || buff.source || '',
+      buff.displayName || buff.name || buff.id,
+      buff.target?.mode ?? 'all',
+      getBuffTargetKey(buff),
+      buff.type || '',
+      true,
+      buff.value ?? 0,
+      buff.condition || buff.description || '',
+      readBuffTextField(buff, 'tab'),
+    ];
+    styleBody(row);
+    if (buff.type) {
+      addBuffCellRef(refs, buff.id, buff.type, `Buff!H${rowNumber}`, buff.value ?? 0);
+    }
+    rowNumber += 1;
   });
 
-  setColumnWidths(sheet, [24, 24, 22, 24, 14, 18, 24, 12, 10, 42]);
+  setColumnWidths(sheet, [24, 22, 24, 14, 18, 24, 10, 12, 42, 16]);
   sheet.views = [{ state: 'frozen', ySplit: 1 }];
   return refs;
 }
@@ -196,7 +281,7 @@ function addSnapshotSheet(workbook: ExcelJS.Workbook, entries: DamageExcelStorag
   sheet.views = [{ state: 'frozen', ySplit: 1 }];
 }
 
-function addHitSheet(workbook: ExcelJS.Workbook, hitRows: DamageExcelHitRow[], buffRefs: BuffCellRefMap): void {
+function addHitSheet(workbook: ExcelJS.Workbook, input: BuildDamageExcelWorkbookInput, hitRows: DamageExcelHitRow[], buffRefs: BuffCellRefMap): void {
   const sheet = workbook.addWorksheet('命中');
   sheet.getRow(1).values = [
     '命中ID',
@@ -230,20 +315,35 @@ function addHitSheet(workbook: ExcelJS.Workbook, hitRows: DamageExcelHitRow[], b
   hitRows.forEach((hitRow, index) => {
     const rowNumber = index + 2;
     const result = hitRow.detail.hitResult;
-    const hitId = hitRow.id;
     const element = hitRow.detail.hit.element;
+    const skillType = hitRow.detail.hit.skillType;
     const row = sheet.getRow(rowNumber);
-    const multiplierBonusFormula = sumFormula(getBuffCellRefs(buffRefs, hitId, 'multiplierBonus'));
-    const multiplierMultiplierFormula = productFormula(getBuffCellRefs(buffRefs, hitId, 'multiplierMultiplier'));
-    const allDmgFormula = sumFormula(getBuffCellRefs(buffRefs, hitId, 'allDmgBonus'));
-    const amplifyType = element === 'physical' ? 'physicalAmplify' : `${element}Amplify`;
-    const fragileType = element === 'physical' ? 'physicalFragile' : `${element}Fragile`;
-    const vulnerabilityType = element === 'physical' ? 'physicalVulnerability' : `${element}Vulnerability`;
-    const amplifyFormula = sumFormula(getBuffCellRefs(buffRefs, hitId, amplifyType));
-    const fragileFormula = sumFormula(getBuffCellRefs(buffRefs, hitId, fragileType));
-    const vulnerabilityFormula = sumFormula(getBuffCellRefs(buffRefs, hitId, vulnerabilityType));
-    const comboFormula = sumFormula(getBuffCellRefs(buffRefs, hitId, 'comboDamageBonus'));
-    const imbalanceFormula = sumFormula(getBuffCellRefs(buffRefs, hitId, 'imbalanceDmgBonus'));
+    const selectedBuffIds = getSelectedBuffIdsForHit(input, hitRow);
+    const multiplierBonusRefs = getBuffCellRefs(buffRefs, selectedBuffIds, 'multiplierBonus');
+    const multiplierMultiplierRefs = getBuffCellRefs(buffRefs, selectedBuffIds, 'multiplierMultiplier');
+    const baseMultiplierBonus = result.multiplier.afterBonus - result.multiplier.base - sumBuffValuesForTypes(buffRefs, selectedBuffIds, ['multiplierBonus']);
+    const selectedMultiplierProduct = selectedBuffIds.reduce((total, buffId) => {
+      const ref = buffRefs.get(buffId);
+      return ref?.type === 'multiplierMultiplier' ? total * ref.value : total;
+    }, 1);
+    const totalMultiplierProduct = result.multiplier.afterMultiply / Math.max(result.multiplier.afterBonus, 0.000001);
+    const baseMultiplierProduct = totalMultiplierProduct / selectedMultiplierProduct;
+    const elementDamageBonusTypes = getElementDamageBonusTypes(element);
+    const skillDamageBonusTypes = getSkillDamageBonusTypes(skillType);
+    const allDamageBonusTypes = ['allDmgBonus'];
+    const damageBonusRefs = getBuffCellRefsForTypes(
+      buffRefs,
+      selectedBuffIds,
+      [...elementDamageBonusTypes, ...skillDamageBonusTypes, ...allDamageBonusTypes],
+    );
+    const baseElementBonus = (result.zones.elementBonus ?? 0) - sumBuffValuesForTypes(buffRefs, selectedBuffIds, elementDamageBonusTypes);
+    const baseSkillBonus = (result.zones.skillBonus ?? 0) - sumBuffValuesForTypes(buffRefs, selectedBuffIds, skillDamageBonusTypes);
+    const baseAllDamageBonus = (result.zones.allDamageBonus ?? 0) - sumBuffValuesForTypes(buffRefs, selectedBuffIds, allDamageBonusTypes);
+    const amplifyFormula = sumFormula(getBuffCellRefsForTypes(buffRefs, selectedBuffIds, getElementZoneTypes(element, 'Amplify')));
+    const fragileFormula = sumFormula(getBuffCellRefsForTypes(buffRefs, selectedBuffIds, getElementZoneTypes(element, 'Fragile')));
+    const vulnerabilityFormula = sumFormula(getBuffCellRefsForTypes(buffRefs, selectedBuffIds, getElementZoneTypes(element, 'Vulnerability')));
+    const comboFormula = sumFormula(getBuffCellRefs(buffRefs, selectedBuffIds, 'comboDamageBonus'));
+    const imbalanceFormula = sumFormula(getBuffCellRefs(buffRefs, selectedBuffIds, 'imbalanceDmgBonus'));
     row.values = [
       hitRow.id,
       hitRow.characterId,
@@ -253,18 +353,18 @@ function addHitSheet(workbook: ExcelJS.Workbook, hitRows: DamageExcelHitRow[], b
       parseElementLabel(hitRow.detail.hit.element),
       hitRow.detail.hit.skillType || '',
       result.multiplier.base,
-      { formula: multiplierBonusFormula, result: result.multiplier.afterBonus - result.multiplier.base },
-      { formula: multiplierMultiplierFormula, result: result.multiplier.afterMultiply / Math.max(result.multiplier.afterBonus, 0.000001) },
+      { formula: additiveFormula(baseMultiplierBonus, multiplierBonusRefs), result: result.multiplier.afterBonus - result.multiplier.base },
+      { formula: multiplicativeFormula(baseMultiplierProduct, multiplierMultiplierRefs), result: totalMultiplierProduct },
       { formula: `H${rowNumber}+I${rowNumber}`, result: result.multiplier.afterBonus },
       { formula: `K${rowNumber}*J${rowNumber}`, result: result.multiplier.afterMultiply },
       result.panel.atk,
       result.panel.critRate,
       result.panel.critDmg,
-      result.zones.elementBonus ?? 0,
-      result.zones.skillBonus ?? 0,
-      result.zones.allDamageBonus ?? 0,
+      baseElementBonus,
+      baseSkillBonus,
+      baseAllDamageBonus,
       {
-        formula: `1+P${rowNumber}+Q${rowNumber}+R${rowNumber}${allDmgFormula === '0' ? '' : `+${allDmgFormula}`}`,
+        formula: `1+P${rowNumber}+Q${rowNumber}+R${rowNumber}${damageBonusRefs.length === 0 ? '' : `+${damageBonusRefs.join('+')}`}`,
         result: result.zones.damageBonusRate,
       },
       result.zones.defenseZone,
@@ -343,9 +443,9 @@ export function buildDamageExcelWorkbook(input: BuildDamageExcelWorkbookInput): 
   addOperatorSheet(workbook, input);
   addEmptySourceSheet(workbook, '武器');
   addEmptySourceSheet(workbook, '装备');
-  const buffRefs = addBuffSheet(workbook, hitRows);
+  const buffRefs = addBuffSheet(workbook, input.allBuffList ?? []);
   addSnapshotSheet(workbook, input.storageSnapshot ?? []);
-  addHitSheet(workbook, hitRows, buffRefs);
+  addHitSheet(workbook, input, hitRows, buffRefs);
   addDamageSheet(workbook, hitRows);
 
   return workbook;

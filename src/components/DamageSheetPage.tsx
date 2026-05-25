@@ -8,7 +8,7 @@ import { useAppContext } from '../context/AppContext';
 import { STORAGE_KEYS } from '../constants/storage-keys';
 import { getCharacterComputed, getCharacterConfig, getCharacterInput } from '../utils/storage';
 import { APP_ROUTE_PATHS, navigateToAppPath } from '../utils/appRoute';
-import { getBuffById, getSkillButtonById, loadTimelineData, upsertSkillButton } from '../core/repositories';
+import { getAllBuffList, getBuffById, getSkillButtonById, getSkillButtonTable, loadTimelineData, upsertSkillButton } from '../core/repositories';
 import { buildAnomalyStateDerivedBuffs, buildAnomalyStateSnapshotBuffs } from '../core/services/anomalyStateBuffs';
 import { getAnomalyStateSnapshotsByIds } from '../core/services/anomalyStateSnapshotStorage';
 import { resolveSkillDamageTemplate } from '../core/services/skillDamageTemplateResolver';
@@ -1181,6 +1181,8 @@ async function exportRowsToWorkbook(rows: SheetRow[], columns: SheetColumn[]): P
   const workbook = buildDamageExcelWorkbook({
     rows,
     columns,
+    allBuffList: getAllBuffList(),
+    skillButtonTable: getSkillButtonTable(),
     storageSnapshot: readDamageExcelStorageSnapshot(),
   });
   const buffer = await workbook.xlsx.writeBuffer();

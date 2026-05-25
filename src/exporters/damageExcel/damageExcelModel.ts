@@ -1,4 +1,4 @@
-import type { SkillButtonBuff } from '../../types/storage.ts';
+import type { SkillButtonBuff, SkillButtonTable } from '../../types/storage.ts';
 
 export interface DamageExcelColumn {
   key: string;
@@ -63,7 +63,6 @@ export interface DamageExcelHitResultSnapshot {
   expected: {
     final: number;
   };
-  appliedBuffs?: SkillButtonBuff[];
 }
 
 export interface DamageExcelHitRow {
@@ -99,6 +98,8 @@ export interface BuildDamageExcelWorkbookInput {
   rows: DamageExcelRow[];
   columns: DamageExcelColumn[];
   storageSnapshot?: DamageExcelStorageEntry[];
+  allBuffList?: SkillButtonBuff[];
+  skillButtonTable?: SkillButtonTable;
 }
 
 export interface DamageExcelHitRecord {
