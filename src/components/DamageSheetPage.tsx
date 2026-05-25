@@ -418,7 +418,7 @@ function buildHitRowsForButton(
   const characterConfig = getCharacterConfig(characterId);
   const computed = getCharacterComputed(characterId);
   const snapshot = characterConfig?.panelSnapshot;
-  const buttonSnapshot = persistedButton.panelSnapshot;
+  const buttonSnapshot = persistedButton.runtimeSnapshot;
 
   if (!template || !snapshot) {
     return [];
@@ -528,7 +528,7 @@ function toPersistedButton(item: ButtonWithContext): PersistedSkillButton {
     customHits: item.button.customHits,
     selectedBuff: [],
     panelConfig: { selectedBuff: [] },
-    panelSnapshot: null,
+    runtimeSnapshot: null,
   };
 }
 

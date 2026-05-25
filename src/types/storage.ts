@@ -31,6 +31,8 @@ export interface OperatorConfigPageCharacterState {
     level: number | string;
     potential: string;
     favorValue?: number;
+    mainStatFlatBonus?: number;
+    subStatFlatBonus?: number;
   };
   data: Record<string, unknown>;
 }
@@ -250,7 +252,7 @@ export interface SkillButtonPanelConfig {
   manualDisabledBuffIdsBySegmentKey?: Record<string, string[]>;
 }
 
-export interface SkillButtonPanelSnapshot {
+export interface SkillButtonRuntimeSnapshot {
   atk: number;
   critRate: number;
   critDmg: number;
@@ -265,6 +267,8 @@ export interface PersistedAnomalyCard {
   category: 'magic' | 'physical';
   level: number;
   sourceName?: string;
+  includeDotInTotal?: boolean;
+  durationSeconds?: number;
   primaryText: string;
   secondaryText: string;
   tertiaryText?: string;
@@ -316,7 +320,7 @@ export interface PersistedSkillButton {
   selectedBuff: string[];               // 选中的 Buff ID 列表（只存引用）
   anomalyConfig?: SkillButtonAnomalyConfig; // 按钮专属异常选择配置
   panelConfig?: SkillButtonPanelConfig; // 按钮专属面板配置
-  panelSnapshot?: SkillButtonPanelSnapshot | null; // 按钮专属最终面板
+  runtimeSnapshot?: SkillButtonRuntimeSnapshot | null; // 按钮运行时最终面板
   createdAt?: number;                   // 创建时间
   updatedAt?: number;                   // 更新时间
 }

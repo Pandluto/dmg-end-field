@@ -20,6 +20,8 @@ export interface OperatorPanelInput {
     mainStat?: string;
     subStat?: string;
     favorValue?: number;
+    mainStatFlatBonus?: number;
+    subStatFlatBonus?: number;
     skillConfig?: Record<string, string>;
     attributes: Partial<Record<string, OperatorPanelAttributes>>;
   };
@@ -101,7 +103,8 @@ export interface ConfigSnapshot {
     element: string;
     mainStat: string;
     subStat: string;
-    favorValue: number;
+    mainStatFlatBonus: number;
+    subStatFlatBonus: number;
     skillConfig: Record<string, string>;
     baseAttributes: OperatorPanelAttributes;
   };
@@ -123,7 +126,8 @@ export interface PanelCalcSnapshot {
   operatorAtk: number;
   weaponAtk: number;
   operatorHp: number;
-  favorValue: number;
+  mainStatFlatBonus: number;
+  subStatFlatBonus: number;
   mainStatBoost: number;
   subStatBoost: number;
   allStatBoost: number;
@@ -759,7 +763,8 @@ function buildMarkdown(snapshot: Omit<ConfigSnapshot, 'detailMarkdown'>): string
   lines.push('## 主副能力换算');
   lines.push(`- 主能力: ${snapshot.operator.mainStat || '-'} ${formatNumber(snapshot.panel.display.mainStatFinal)}`);
   lines.push(`- 副能力: ${snapshot.operator.subStat || '-'} ${formatNumber(snapshot.panel.display.subStatFinal)}`);
-  lines.push(`- 好感: ${formatNumber(snapshot.operator.favorValue)}`);
+  lines.push(`- 主能力固定加值: ${formatNumber(snapshot.operator.mainStatFlatBonus)}`);
+  lines.push(`- 副能力固定加值: ${formatNumber(snapshot.operator.subStatFlatBonus)}`);
   lines.push('');
   lines.push('## 能力值加成');
   lines.push(`- 总能力攻击加成: ${formatPercent(snapshot.panel.display.abilityBonus)}`);
@@ -820,15 +825,16 @@ export function buildConfigSnapshot(input: OperatorPanelInput): ConfigSnapshot {
   const equipment = buildEquipmentSnapshot(input.equipment);
   const mainField = resolveAbilityField(input.operator.mainStat);
   const subField = resolveAbilityField(input.operator.subStat);
-  const favorValue = toNumber(input.operator.favorValue, 60);
+  const mainStatFlatBonus = toNumber(input.operator.mainStatFlatBonus ?? input.operator.favorValue, 60);
+  const subStatFlatBonus = toNumber(input.operator.subStatFlatBonus, 0);
   const abilityByField: Record<AbilityField, number> = {
     strength: attributes.strength + (weapon.totals.strengthBoost ?? 0) + (equipment.totals.strengthBoost ?? 0),
     agility: attributes.agility + (weapon.totals.agilityBoost ?? 0) + (equipment.totals.agilityBoost ?? 0),
     intelligence: attributes.intelligence + (weapon.totals.intelligenceBoost ?? 0) + (equipment.totals.intelligenceBoost ?? 0),
     will: attributes.will + (weapon.totals.willBoost ?? 0) + (equipment.totals.willBoost ?? 0),
   };
-  if (mainField) abilityByField[mainField] += favorValue + (weapon.totals.mainStatBoost ?? 0);
-  if (subField) abilityByField[subField] += weapon.totals.subStatBoost ?? 0;
+  if (mainField) abilityByField[mainField] += mainStatFlatBonus + (weapon.totals.mainStatBoost ?? 0);
+  if (subField) abilityByField[subField] += subStatFlatBonus + (weapon.totals.subStatBoost ?? 0);
 
   const mainStatScale = equipment.totals.mainStatBoost ?? 0;
   const subStatScale = equipment.totals.subStatBoost ?? 0;
@@ -844,7 +850,8 @@ export function buildConfigSnapshot(input: OperatorPanelInput): ConfigSnapshot {
     operatorAtk,
     weaponAtk,
     operatorHp: attributes.hp,
-    favorValue,
+    mainStatFlatBonus,
+    subStatFlatBonus,
     mainStatBoost: round(mainStatScale),
     subStatBoost: round(subStatScale),
     allStatBoost: round(allStatScale),
@@ -873,7 +880,8 @@ export function buildConfigSnapshot(input: OperatorPanelInput): ConfigSnapshot {
       element: input.operator.element ?? '',
       mainStat: input.operator.mainStat ?? '',
       subStat: input.operator.subStat ?? '',
-      favorValue,
+      mainStatFlatBonus,
+      subStatFlatBonus,
       skillConfig: input.operator.skillConfig ?? {},
       baseAttributes: attributes,
     },

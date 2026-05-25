@@ -101,17 +101,19 @@ function buildMockAnomalyCard(
               ? `${80 * (1 + level)}% 初始 hit`
               : `${120 * (option.key === 'freeze' ? 1 + level / 2 : 1)}% 独立 hit`;
 
-  return {
-    id: createAnomalyCardId(option.key),
-    key: option.key,
-    label: option.label,
-    kind: option.kind,
-    category: option.category,
-    level,
-    primaryText: option.usesAnomalyLevel === false ? option.label : `${option.label} Lv${level}`,
-    secondaryText: baseHit,
-    tertiaryText: option.key === 'burn'
-      ? `${includeDot ? '计入持续段' : '不计持续段'}${durationSeconds ? ` · ${durationSeconds}s` : ''}`
+    return {
+      id: createAnomalyCardId(option.key),
+      key: option.key,
+      label: option.label,
+      kind: option.kind,
+      category: option.category,
+      level,
+      primaryText: option.usesAnomalyLevel === false ? option.label : `${option.label} Lv${level}`,
+      secondaryText: baseHit,
+      includeDotInTotal: option.key === 'burn' ? includeDot : undefined,
+      durationSeconds: option.supportsDuration ? durationSeconds : undefined,
+      tertiaryText: option.key === 'burn'
+        ? `${includeDot ? '计入持续段' : '不计持续段'}${durationSeconds ? ` · ${durationSeconds}s` : ''}`
       : durationSeconds
         ? `持续 ${durationSeconds}s`
         : '等待真实计算接入',

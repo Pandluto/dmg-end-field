@@ -100,7 +100,8 @@ function buildCharacterComputedFromConfigSnapshot(snapshot: ConfigSnapshot): Cha
         id: snapshot.operator.id,
         level: snapshot.operator.level,
         potential: snapshot.operator.potential,
-        favorValue: snapshot.operator.favorValue,
+        mainStatFlatBonus: snapshot.operator.mainStatFlatBonus,
+        subStatFlatBonus: snapshot.operator.subStatFlatBonus,
       },
       weapon: snapshot.weapon.config,
       equipment: snapshot.equipment.pieces.map((piece) => ({
@@ -612,6 +613,10 @@ export function setSelectedCharacterIds(characterIds: string[]): void {
 // ==================== v2 新缓存模型 - skill-button 总表 ====================
 
 function normalizePersistedSkillButton(button: PersistedSkillButton): PersistedSkillButton {
+  const legacyButton = button as PersistedSkillButton & {
+    panelSnapshot?: PersistedSkillButton['runtimeSnapshot'];
+  };
+  const { panelSnapshot: _legacyPanelSnapshot, ...buttonWithoutLegacySnapshot } = legacyButton;
   const selectedBuff = Array.isArray(button.selectedBuff) ? button.selectedBuff : [];
   const manualDisabledBuffIdsBySegmentKey = Object.fromEntries(
     Object.entries(button.panelConfig?.manualDisabledBuffIdsBySegmentKey ?? {}).map(([segmentKey, buffIds]) => [
@@ -621,7 +626,7 @@ function normalizePersistedSkillButton(button: PersistedSkillButton): PersistedS
   );
 
   return {
-    ...button,
+    ...buttonWithoutLegacySnapshot,
     characterId: button.characterId || button.characterName,
     selectedBuff,
     panelConfig: button.panelConfig ?? {
@@ -635,7 +640,7 @@ function normalizePersistedSkillButton(button: PersistedSkillButton): PersistedS
         manualDisabledBuffIdsBySegmentKey,
       },
     } : {}),
-    panelSnapshot: button.panelSnapshot ?? null,
+    runtimeSnapshot: button.runtimeSnapshot ?? legacyButton.panelSnapshot ?? null,
   };
 }
 
@@ -648,12 +653,16 @@ export function getSkillButtonTable(): SkillButtonTable {
   if (!raw) return {};
   try {
     const parsed = JSON.parse(raw) as SkillButtonTable;
-    return Object.fromEntries(
+    const normalized = Object.fromEntries(
       Object.entries(parsed).map(([buttonId, button]) => [
         buttonId,
         normalizePersistedSkillButton(button),
       ])
     );
+    if (JSON.stringify(normalized) !== raw) {
+      safeSessionStorage.setItem(STORAGE_KEYS.SKILL_BUTTON_TABLE, JSON.stringify(normalized));
+    }
+    return normalized;
   } catch {
     return {};
   }

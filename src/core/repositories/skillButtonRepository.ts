@@ -9,6 +9,10 @@ import { PersistedSkillButton, SkillButtonAnomalyConfig, SkillButtonTable } from
 import { safeSessionStorage } from '../../utils/storage';
 
 function normalizeSkillButton(button: PersistedSkillButton): PersistedSkillButton {
+  const legacyButton = button as PersistedSkillButton & {
+    panelSnapshot?: PersistedSkillButton['runtimeSnapshot'];
+  };
+  const { panelSnapshot: _legacyPanelSnapshot, ...buttonWithoutLegacySnapshot } = legacyButton;
   const anomalyConfig = (button.anomalyConfig ?? {}) as {
     selectedStatuses?: SkillButtonAnomalyConfig['selectedStatuses'];
     selectedStates?: SkillButtonAnomalyConfig['selectedStatuses'];
@@ -24,7 +28,7 @@ function normalizeSkillButton(button: PersistedSkillButton): PersistedSkillButto
   );
 
   return {
-    ...button,
+    ...buttonWithoutLegacySnapshot,
     characterId: button.characterId || button.characterName,
     selectedBuff,
     anomalyConfig: {
@@ -49,7 +53,7 @@ function normalizeSkillButton(button: PersistedSkillButton): PersistedSkillButto
           selectedBuff: [...selectedBuff],
           manualDisabledBuffIdsBySegmentKey: {},
         },
-    panelSnapshot: button.panelSnapshot ?? null,
+    runtimeSnapshot: button.runtimeSnapshot ?? legacyButton.panelSnapshot ?? null,
   };
 }
 
@@ -67,6 +71,9 @@ export function getSkillButtonTable(): SkillButtonTable {
         normalizeSkillButton(button),
       ])
     );
+    if (JSON.stringify(normalized) !== raw) {
+      safeSessionStorage.setItem(STORAGE_KEYS.SKILL_BUTTON_TABLE, JSON.stringify(normalized));
+    }
     return normalized;
   } catch {
     return {};

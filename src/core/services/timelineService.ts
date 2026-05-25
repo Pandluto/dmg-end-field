@@ -311,7 +311,7 @@ export function addSkillButton(
     panelConfig: {
       selectedBuff: [],
     },
-    panelSnapshot: null,
+    runtimeSnapshot: null,
     createdAt: Date.now(),
     updatedAt: Date.now(),
   };

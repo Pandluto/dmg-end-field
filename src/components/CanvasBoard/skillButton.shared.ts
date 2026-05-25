@@ -31,6 +31,8 @@ export interface SelectedAnomalyCard {
   category: AnomalyCategory;
   level: number;
   sourceName?: string;
+  includeDotInTotal?: boolean;
+  durationSeconds?: number;
   primaryText: string;
   secondaryText: string;
   tertiaryText?: string;

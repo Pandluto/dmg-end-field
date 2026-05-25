@@ -45,7 +45,7 @@ function findExistingBuffId(buff: Omit<SkillButtonBuff, 'id'>): string | null {
   return existing?.id ?? null;
 }
 
-function buildSkillButtonPanelSnapshot(buttonId: string) {
+function buildSkillButtonRuntimeSnapshot(buttonId: string) {
   const button = getSkillButtonById(buttonId);
   if (!button) return null;
 
@@ -79,7 +79,7 @@ export function recomputeSkillButtonPanel(buttonId: string): void {
   if (!button) return;
 
   const selectedBuff = [...(button.selectedBuff || [])];
-  const panelSnapshot = buildSkillButtonPanelSnapshot(buttonId);
+  const runtimeSnapshot = buildSkillButtonRuntimeSnapshot(buttonId);
 
   upsertSkillButton({
     ...button,
@@ -87,7 +87,7 @@ export function recomputeSkillButtonPanel(buttonId: string): void {
       ...(button.panelConfig ?? { selectedBuff: [] }),
       selectedBuff,
     },
-    panelSnapshot,
+    runtimeSnapshot,
     updatedAt: Date.now(),
   });
 }

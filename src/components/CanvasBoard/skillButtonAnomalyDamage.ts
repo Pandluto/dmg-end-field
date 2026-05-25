@@ -55,6 +55,14 @@ function resolveBaseMultiplierPercent(card: SelectedAnomalyCard): number {
   }
 }
 
+function resolveBurnDotTotalMultiplierPercent(card: SelectedAnomalyCard): number {
+  const durationSeconds = typeof card.durationSeconds === 'number' ? card.durationSeconds : 0;
+  if (card.key !== 'burn' || !card.includeDotInTotal || durationSeconds <= 0) {
+    return 0;
+  }
+  return 12 * (1 + card.level) * durationSeconds;
+}
+
 function resolveLevelCoefficient(card: SelectedAnomalyCard, operatorLevel: number): number {
   if (card.key === 'shatter-ice' || card.category === 'magic') {
     return 1 + (operatorLevel - 1) / 196;
@@ -206,8 +214,22 @@ export function buildAnomalyDamageSegments({
     const crit = calculateBreakdown(anomalyAtk, finalMultiplier, anomalyCritMultiplier, damageBonusRate, defenseZone, amplifyRate, fragileRate, vulnerabilityRate, comboDamageBonus, imbalanceDamageBonus);
     const expected = calculateBreakdown(anomalyAtk, finalMultiplier, anomalyExpectedMultiplier, damageBonusRate, defenseZone, amplifyRate, fragileRate, vulnerabilityRate, comboDamageBonus, imbalanceDamageBonus);
     const sequenceNumber = hitCards.length + index + 1;
+    const burnDotTotalMultiplierPercent = resolveBurnDotTotalMultiplierPercent(card);
+    const burnDotBaseMultiplier = (burnDotTotalMultiplierPercent / 100) * levelCoefficient * sourceSkillZone;
+    const burnDotMultiplierAfterBonus = burnDotBaseMultiplier + buffTotals.multiplierBonus;
+    const burnDotFinalMultiplier = burnDotMultiplierAfterBonus * buffTotals.multiplierMultiplier;
+    const burnDotBaseNonCrit = anomalyAtk * burnDotFinalMultiplier;
+    const burnDotNonCrit = burnDotTotalMultiplierPercent > 0
+      ? calculateBreakdown(anomalyAtk, burnDotFinalMultiplier, 1, damageBonusRate, defenseZone, amplifyRate, fragileRate, vulnerabilityRate, comboDamageBonus, imbalanceDamageBonus)
+      : 0;
+    const burnDotCrit = burnDotTotalMultiplierPercent > 0
+      ? calculateBreakdown(anomalyAtk, burnDotFinalMultiplier, anomalyCritMultiplier, damageBonusRate, defenseZone, amplifyRate, fragileRate, vulnerabilityRate, comboDamageBonus, imbalanceDamageBonus)
+      : 0;
+    const burnDotExpected = burnDotTotalMultiplierPercent > 0
+      ? calculateBreakdown(anomalyAtk, burnDotFinalMultiplier, anomalyExpectedMultiplier, damageBonusRate, defenseZone, amplifyRate, fragileRate, vulnerabilityRate, comboDamageBonus, imbalanceDamageBonus)
+      : 0;
 
-    return [{
+    const initialSegment: AnomalyDamageSegmentView = {
       key: card.id,
       sourceKind: 'anomaly',
       title: `${sequenceNumber}段 · ${card.label}`,
@@ -250,7 +272,32 @@ export function buildAnomalyDamageSegments({
       imbalanceDamageBonusText: imbalanceDamageBonus.toFixed(3),
       defenseZoneText: defenseZone.toFixed(3),
       nonCritFormulaText: `${anomalyAtk.toFixed(0)} × ${(finalMultiplier * 100).toFixed(1)}% × ${damageBonusRate.toFixed(3)} × ${defenseZone.toFixed(3)} × ${(1 + amplifyRate).toFixed(3)} × ${(1 + fragileRate).toFixed(3)} × ${(1 + vulnerabilityRate).toFixed(3)} × ${(1 + comboDamageBonus).toFixed(3)} × ${(1 + imbalanceDamageBonus).toFixed(3)} = ${nonCrit.toFixed(0)} (基础伤害 ${baseNonCrit.toFixed(0)})`,
-    }];
+    };
+
+    if (burnDotTotalMultiplierPercent <= 0) {
+      return [initialSegment];
+    }
+
+    const dotSegment: AnomalyDamageSegmentView = {
+      ...initialSegment,
+      key: `${card.id}-dot`,
+      title: `${sequenceNumber + 1}段 · ${card.label}持续`,
+      sequenceTitle: `${sequenceNumber + 1}段`,
+      compactTitle: `${card.label}持续`,
+      baseMultiplierText: `${burnDotTotalMultiplierPercent.toFixed(1)}%`,
+      multiplierText: `${(burnDotFinalMultiplier * 100).toFixed(1)}%`,
+      multiplierFormulaText: `(${(burnDotBaseMultiplier * 100).toFixed(1)}% + ${(buffTotals.multiplierBonus * 100).toFixed(1)}%) × ${buffTotals.multiplierMultiplier.toFixed(3)}`,
+      expectedText: burnDotExpected.toFixed(0),
+      critText: burnDotCrit.toFixed(0),
+      nonCritText: burnDotNonCrit.toFixed(0),
+      expectedValue: burnDotExpected,
+      critValue: burnDotCrit,
+      nonCritValue: burnDotNonCrit,
+      formulaText: `(${(12 * (1 + card.level)).toFixed(1)}% × ${(card.durationSeconds ?? 0).toFixed(0)}s × ${levelCoefficient.toFixed(3)} × ${sourceSkillZone.toFixed(3)} + ${(buffTotals.multiplierBonus * 100).toFixed(1)}%) × ${buffTotals.multiplierMultiplier.toFixed(3)} = ${(burnDotFinalMultiplier * 100).toFixed(1)}%`,
+      nonCritFormulaText: `${anomalyAtk.toFixed(0)} × ${(burnDotFinalMultiplier * 100).toFixed(1)}% × ${damageBonusRate.toFixed(3)} × ${defenseZone.toFixed(3)} × ${(1 + amplifyRate).toFixed(3)} × ${(1 + fragileRate).toFixed(3)} × ${(1 + vulnerabilityRate).toFixed(3)} × ${(1 + comboDamageBonus).toFixed(3)} × ${(1 + imbalanceDamageBonus).toFixed(3)} = ${burnDotNonCrit.toFixed(0)} (基础伤害 ${burnDotBaseNonCrit.toFixed(0)})`,
+    };
+
+    return [initialSegment, dotSegment];
   });
 
   const extraHitSegments = extraHitBuffList.flatMap<AnomalyDamageSegmentView>((buff, index) => {

@@ -860,8 +860,9 @@
   left: var(--operator-config-page-favor-left);
   z-index: 3;
   display: flex;
-  align-items: center;
-  gap: 4px;
+  flex-direction: column;
+  justify-content: center;
+  gap: 3px;
   width: var(--operator-config-page-favor-width);
   min-height: var(--operator-config-page-favor-height);
   padding: 4px 6px;
@@ -872,7 +873,15 @@
   pointer-events: auto;
 }
 
+.operator-config-page-favor-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+}
+
 .operator-config-page-favor-label {
+  flex: 0 0 42px;
   font-size: 12px;
   font-weight: 700;
   line-height: 1;

@@ -350,7 +350,7 @@ export function SkillButtonComponent({
     const buttonStorage = getSkillButtonById(button.id);
     const characterConfig = getCharacterConfig(button.characterId);
     if (characterConfig?.panelSnapshot) {
-      const buttonSnapshot = buttonStorage?.panelSnapshot;
+    const buttonSnapshot = buttonStorage?.runtimeSnapshot;
       const snapshot = characterConfig.panelSnapshot;
       const equipment = characterConfig.equipment ?? {};
       setPanelData({

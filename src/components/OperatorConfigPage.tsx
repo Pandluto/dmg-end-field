@@ -449,7 +449,8 @@ function createDefaultCharacterConfig(character: Character): OperatorConfigPageC
       config: {
         level: 90,
         potential: '0潜',
-        favorValue: 60,
+        mainStatFlatBonus: 60,
+        subStatFlatBonus: 0,
       },
       data: createCharacterData(character),
     },
@@ -535,7 +536,8 @@ function createCharacterConfigFromSnapshot(snapshot: ConfigSnapshot, sourceChara
       config: {
         level: snapshot.operator.level,
         potential: snapshot.operator.potential,
-        favorValue: snapshot.operator.favorValue,
+        mainStatFlatBonus: snapshot.operator.mainStatFlatBonus,
+        subStatFlatBonus: snapshot.operator.subStatFlatBonus,
       },
       data: baseCharacterData,
     },
@@ -846,9 +848,14 @@ function levelValueToAttributeKey(level: number | string): CharacterAttributeKey
   return 'level1';
 }
 
-function getOperatorFavorValue(config: OperatorConfigPageCharacterConfig | null | undefined): number {
-  const value = config?.character.config.favorValue;
+function getOperatorMainStatFlatBonus(config: OperatorConfigPageCharacterConfig | null | undefined): number {
+  const value = config?.character.config.mainStatFlatBonus ?? config?.character.config.favorValue;
   return typeof value === 'number' && Number.isFinite(value) ? value : 60;
+}
+
+function getOperatorSubStatFlatBonus(config: OperatorConfigPageCharacterConfig | null | undefined): number {
+  const value = config?.character.config.subStatFlatBonus;
+  return typeof value === 'number' && Number.isFinite(value) ? value : 0;
 }
 
 function buildEquipmentPiecesForSnapshot(config: OperatorConfigPageCharacterConfig | null): EquipmentPieceInput[] {
@@ -953,7 +960,8 @@ function buildOperatorPanelInput(
       element: operatorData.element ?? activeCharacter?.element ?? '',
       mainStat: operatorData.mainStat ?? activeCharacter?.mainStat ?? '',
       subStat: operatorData.subStat ?? activeCharacter?.subStat ?? '',
-      favorValue: getOperatorFavorValue(config),
+      mainStatFlatBonus: getOperatorMainStatFlatBonus(config),
+      subStatFlatBonus: getOperatorSubStatFlatBonus(config),
       skillConfig: config?.skills.config,
       attributes: operatorData.attributes ?? activeCharacter?.attributes ?? {},
     },
@@ -2014,27 +2022,50 @@ export function OperatorConfigPage() {
                               );
                             })}
                           </div>
-                          <label className="operator-config-page-favor-input-layer">
-                            <span className="operator-config-page-favor-label">好感</span>
-                            <input
-                              className="operator-config-page-favor-input"
-                              type="number"
-                              value={getOperatorFavorValue(currentConfig)}
-                              onChange={(event) => {
-                                const nextValue = Number(event.target.value);
-                                updateCurrentConfig((prev) => ({
-                                  ...prev,
-                                  character: {
-                                    ...prev.character,
-                                    config: {
-                                      ...prev.character.config,
-                                      favorValue: Number.isFinite(nextValue) ? nextValue : 60,
+                          <div className="operator-config-page-favor-input-layer">
+                            <label className="operator-config-page-favor-row">
+                              <span className="operator-config-page-favor-label">主能力</span>
+                              <input
+                                className="operator-config-page-favor-input"
+                                type="number"
+                                value={getOperatorMainStatFlatBonus(currentConfig)}
+                                onChange={(event) => {
+                                  const nextValue = Number(event.target.value);
+                                  updateCurrentConfig((prev) => ({
+                                    ...prev,
+                                    character: {
+                                      ...prev.character,
+                                      config: {
+                                        ...prev.character.config,
+                                        mainStatFlatBonus: Number.isFinite(nextValue) ? nextValue : 60,
+                                      },
                                     },
-                                  },
-                                }));
-                              }}
-                            />
-                          </label>
+                                  }));
+                                }}
+                              />
+                            </label>
+                            <label className="operator-config-page-favor-row">
+                              <span className="operator-config-page-favor-label">副能力</span>
+                              <input
+                                className="operator-config-page-favor-input"
+                                type="number"
+                                value={getOperatorSubStatFlatBonus(currentConfig)}
+                                onChange={(event) => {
+                                  const nextValue = Number(event.target.value);
+                                  updateCurrentConfig((prev) => ({
+                                    ...prev,
+                                    character: {
+                                      ...prev.character,
+                                      config: {
+                                        ...prev.character.config,
+                                        subStatFlatBonus: Number.isFinite(nextValue) ? nextValue : 0,
+                                      },
+                                    },
+                                  }));
+                                }}
+                              />
+                            </label>
+                          </div>
                           <button
                             type="button"
                             className={`operator-config-page-level-badge-box${characterPotentialCount > 0 ? ' is-active' : ''}${characterPotentialCount === 6 ? ' is-max' : ''}`}

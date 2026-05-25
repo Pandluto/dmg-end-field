@@ -24,7 +24,8 @@ const snapshot = buildConfigSnapshot({
     element: 'fire',
     mainStat: '力量',
     subStat: '敏捷',
-    favorValue: 60,
+    mainStatFlatBonus: 60,
+    subStatFlatBonus: 0,
     attributes: {
       level90: {
         atk: 100,
