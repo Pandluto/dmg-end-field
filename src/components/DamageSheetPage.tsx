@@ -1138,6 +1138,19 @@ function buildWorkbookView(rows: SheetRow[], columns: SheetColumn[]): WorkbookRo
   return result;
 }
 
+function formatLocalFileTimestamp(date = new Date()): string {
+  const pad = (value: number) => String(value).padStart(2, '0');
+  return [
+    date.getFullYear(),
+    pad(date.getMonth() + 1),
+    pad(date.getDate()),
+  ].join('-') + '-' + [
+    pad(date.getHours()),
+    pad(date.getMinutes()),
+    pad(date.getSeconds()),
+  ].join('-');
+}
+
 async function exportRowsToWorkbook(rows: SheetRow[], columns: SheetColumn[]): Promise<void> {
   const workbook = buildDamageExcelWorkbook({
     rows,
@@ -1159,7 +1172,7 @@ async function exportRowsToWorkbook(rows: SheetRow[], columns: SheetColumn[]): P
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement('a');
   anchor.href = url;
-  anchor.download = `伤害过程表-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')}.xlsx`;
+  anchor.download = `伤害过程表-${formatLocalFileTimestamp()}.xlsx`;
   document.body.appendChild(anchor);
   anchor.click();
   document.body.removeChild(anchor);
