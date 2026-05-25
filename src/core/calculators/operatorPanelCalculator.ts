@@ -267,8 +267,10 @@ const WEAPON_SKILL1_TYPE_MAP: Record<string, string> = {
   力量提升: 'strengthBoost',
   意志提升: 'willBoost',
   智识提升: 'intelligenceBoost',
-  主能力提升: 'mainStatBoost',
-  副能力提升: 'subStatBoost',
+  主能力提升: 'mainStat',
+  副能力提升: 'subStat',
+  mainStatBoost: 'mainStat',
+  subStatBoost: 'subStat',
 };
 
 const WEAPON_SKILL2_TYPE_MAP: Record<string, string> = {
@@ -292,6 +294,8 @@ const WEAPON_TOTAL_FIELDS = new Set([
   'agilityBoost',
   'intelligenceBoost',
   'willBoost',
+  'mainStat',
+  'subStat',
   'mainStatBoost',
   'subStatBoost',
   'allStatBoost',
@@ -833,8 +837,8 @@ export function buildConfigSnapshot(input: OperatorPanelInput): ConfigSnapshot {
     intelligence: attributes.intelligence + (weapon.totals.intelligenceBoost ?? 0) + (equipment.totals.intelligenceBoost ?? 0),
     will: attributes.will + (weapon.totals.willBoost ?? 0) + (equipment.totals.willBoost ?? 0),
   };
-  if (mainField) abilityByField[mainField] += mainStatFlatBonus + (weapon.totals.mainStatBoost ?? 0);
-  if (subField) abilityByField[subField] += subStatFlatBonus + (weapon.totals.subStatBoost ?? 0);
+  if (mainField) abilityByField[mainField] += mainStatFlatBonus + (weapon.totals.mainStat ?? 0);
+  if (subField) abilityByField[subField] += subStatFlatBonus + (weapon.totals.subStat ?? 0);
 
   const mainStatScale = equipment.totals.mainStatBoost ?? 0;
   const subStatScale = equipment.totals.subStatBoost ?? 0;

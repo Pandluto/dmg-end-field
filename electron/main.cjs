@@ -3,6 +3,7 @@ const http = require('http');
 const os = require('os');
 const path = require('path');
 const maa = require('@maaxyz/maa-node');
+const { tryServeDesktopApp } = require('./web-host.cjs');
 const {
   app,
   BrowserWindow,
@@ -18,6 +19,8 @@ const DEV_WEB_URL = 'http://127.0.0.1:3030/';
 const DEV_SHELL_URL = 'http://127.0.0.1:3030/shell/index.html';
 const BRIDGE_HOST = '127.0.0.1';
 const BRIDGE_PORT = 31457;
+const PROD_WEB_URL = `http://${BRIDGE_HOST}:${BRIDGE_PORT}/`;
+const PROD_SHELL_URL = `http://${BRIDGE_HOST}:${BRIDGE_PORT}/shell/index.html`;
 const ARK_RESPONSE_TIMEOUT_MS = 120000;
 const MAIN_CONTENT_WIDTH = 1700;
 const MAIN_CONTENT_HEIGHT = 900;
@@ -355,7 +358,7 @@ function createMainWindow() {
   if (isDev) {
     mainWindow.loadURL(DEV_WEB_URL);
   } else {
-    mainWindow.loadFile(path.join(__dirname, '..', 'dist', 'index.html'));
+    mainWindow.loadURL(PROD_WEB_URL);
   }
 
   mainWindow.webContents.on('did-finish-load', () => {
@@ -437,7 +440,7 @@ function createShellWindow(options = {}) {
   if (isDev) {
     shellWindow.loadURL(DEV_SHELL_URL);
   } else {
-    shellWindow.loadFile(path.join(__dirname, 'shell', 'index.html'));
+    shellWindow.loadURL(PROD_SHELL_URL);
   }
 
   shellWindow.webContents.on('did-finish-load', () => {
@@ -578,7 +581,8 @@ function openWeb() {
   restoreMainWindow();
   return {
     opened: true,
-    mode: isDev ? 'vite' : 'electron',
+    mode: isDev ? 'vite' : 'localhost',
+    url: isDev ? DEV_WEB_URL : PROD_WEB_URL,
     width: MAIN_CONTENT_WIDTH,
     height: MAIN_CONTENT_HEIGHT,
     ...getDesktopSettingsPayload(),
@@ -999,6 +1003,15 @@ function startBridgeServer() {
           response.writeHead(500);
           response.end('Internal Server Error');
         }
+        return;
+      }
+
+      if (!isDev && tryServeDesktopApp({
+        method,
+        requestUrl,
+        response,
+        distDir: path.join(__dirname, '..', 'dist'),
+      })) {
         return;
       }
 
