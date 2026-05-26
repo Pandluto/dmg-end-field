@@ -117,6 +117,11 @@
 
   const findSelectedArchive = () => archiveList.find((item) => getArchiveKey(item) === selectedArchiveKey) || null;
 
+  const formatArchiveRelativePath = (item) => {
+    const folder = item?.storageScope === 'share' ? 'sharedata' : 'localdata';
+    return `data/${folder}/${item?.fileName || ''}`;
+  };
+
   const renderArchiveList = () => {
     const listElement = document.getElementById('archive-list');
     if (!listElement) return;
@@ -128,17 +133,21 @@
     listElement.innerHTML = archiveList.map((item) => {
       const archiveKey = getArchiveKey(item);
       const scopeLabel = item.storageScope === 'share' ? 'sharedata' : 'localdata';
+      const relativePath = formatArchiveRelativePath(item);
+      const updatedAt = item.updatedAt ? new Date(item.updatedAt).toLocaleString('zh-CN', { hour12: false }) : '';
       return `
-      <button type="button" class="archive-item${archiveKey === selectedArchiveKey ? ' is-active' : ''}" data-archive="${escapeHtml(archiveKey)}">
+      <button type="button" class="archive-item${archiveKey === selectedArchiveKey ? ' is-active' : ''}" data-archive="${escapeHtml(archiveKey)}" title="${escapeHtml(item.path || relativePath)}">
         <div class="archive-title">
-          <span>[${escapeHtml(scopeLabel)}] ${escapeHtml(item.name || item.id)}${archiveKey === activeArchiveKey ? ' · 当前' : ''}</span>
-          <span>${escapeHtml(formatBytes(item.size))}</span>
+          <span class="archive-name">
+            <span class="archive-scope">${escapeHtml(scopeLabel)}</span>
+            ${escapeHtml(item.name || item.id)}
+            ${archiveKey === activeArchiveKey ? '<span class="archive-current">当前</span>' : ''}
+          </span>
+          <span class="archive-size">${escapeHtml(formatBytes(item.size))}</span>
         </div>
         <div class="archive-meta">
-          ${escapeHtml(item.fileName)}<br />
-          分组：${escapeHtml((item.sections || []).join(' / ') || '-')} · local ${escapeHtml(item.localKeys || 0)} · session ${escapeHtml(item.sessionKeys || 0)}<br />
-          路径：${escapeHtml(item.path || item.directory || '')}<br />
-          ${escapeHtml(item.updatedAt || '')}
+          <span class="archive-file">${escapeHtml(item.fileName)}</span>
+          <span class="archive-time">${escapeHtml(updatedAt)}</span>
         </div>
       </button>
     `;
@@ -173,17 +182,19 @@
       selectedArchiveKey = archiveList[0] ? getArchiveKey(archiveList[0]) : null;
     }
     renderArchiveList();
-    setStatus('localdata-status', `桌面端当前引用：${activeArchiveKey || '未设置'}；已读取 ${archiveList.length} 个存档`);
+    setStatus('localdata-status', `当前：${activeArchiveKey || '未设置'}；${archiveList.length} 个存档`);
   };
 
-  const exportArchive = async () => {
+  const exportArchive = async (storageScope = 'local') => {
     if (!runtime.saveLocalDataArchive) {
       setStatus('localdata-status', '当前运行时不支持保存存档');
       return;
     }
+    const normalizedScope = storageScope === 'local' ? 'local' : 'share';
+    const scopeLabel = normalizedScope === 'share' ? 'sharedata' : 'localdata';
     const name = document.getElementById('archive-name').value.trim();
     const description = document.getElementById('archive-desc').value.trim();
-    setStatus('localdata-status', '正在读取浏览器 now-storage 快照...');
+    setStatus('localdata-status', `正在读取浏览器 now-storage 快照并导出到 ${scopeLabel}...`);
     let nowStorage;
     try {
       nowStorage = await fetchLocalBridgeJson('/local-data/now-storage');
@@ -199,17 +210,17 @@
       return;
     }
     const archive = cloneNowStorageArchiveForSave(nowStorage.archive, name, description);
-    const saved = await runtime.saveLocalDataArchive({ ...archive, storageScope: 'share' });
+    const saved = await runtime.saveLocalDataArchive({ ...archive, storageScope: normalizedScope });
     if (!saved.ok) {
       setStatus('localdata-status', saved.error || '保存存档失败');
-      appendLog(`本地存档 | 保存失败 | ${saved.error || '-'}`);
+      appendLog(`本地存档 | 保存到 ${scopeLabel} 失败 | ${saved.error || '-'}`);
       return;
     }
     selectedArchiveKey = saved.meta ? getArchiveKey(saved.meta) : null;
     activeArchiveKey = saved.state?.activeFileName
       ? `${saved.state?.activeStorageScope || 'local'}:${saved.state.activeFileName}`
       : selectedArchiveKey;
-    appendLog(`本地存档 | 已保存 | ${saved.path}`);
+    appendLog(`本地存档 | 已保存到 ${scopeLabel} | ${saved.path}`);
     await refreshArchives();
   };
 
@@ -541,11 +552,19 @@
     document.getElementById('toggle-log').textContent = collapsed ? '展开日志' : '收起日志';
   });
 
-  document.getElementById('export-archive').addEventListener('click', () => {
-    exportArchive().catch((error) => {
+  document.getElementById('export-archive-share').addEventListener('click', () => {
+    exportArchive('share').catch((error) => {
       const message = error instanceof Error ? error.message : String(error);
       setStatus('localdata-status', message);
-      appendLog(`本地存档 | 导出异常 | ${message}`);
+      appendLog(`本地存档 | 导出到 sharedata 异常 | ${message}`);
+    });
+  });
+
+  document.getElementById('export-archive-local').addEventListener('click', () => {
+    exportArchive('local').catch((error) => {
+      const message = error instanceof Error ? error.message : String(error);
+      setStatus('localdata-status', message);
+      appendLog(`本地存档 | 导出到 localdata 异常 | ${message}`);
     });
   });
 

@@ -247,15 +247,18 @@
       .archive-list {
         display: grid;
         gap: 4px;
-        max-height: 150px;
-        overflow: auto;
+        max-height: 280px;
+        overflow-x: hidden;
+        overflow-y: auto;
+        padding-right: 2px;
       }
 
       .archive-item {
         width: 100%;
-        min-height: 42px;
+        min-width: 0;
+        min-height: 34px;
         height: auto;
-        padding: 6px 8px;
+        padding: 5px 8px;
         border-radius: 6px;
         text-align: left;
         background: transparent;
@@ -269,25 +272,67 @@
       .archive-title {
         display: flex;
         justify-content: space-between;
-        gap: 10px;
+        align-items: center;
+        gap: 8px;
         font-size: 12px;
         font-weight: 600;
         min-width: 0;
       }
 
-      .archive-title span:first-child {
+      .archive-name {
+        display: flex;
+        align-items: center;
+        gap: 5px;
         min-width: 0;
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
       }
 
+      .archive-scope,
+      .archive-current {
+        flex: 0 0 auto;
+        min-height: 15px;
+        padding: 0 5px;
+        border-radius: 4px;
+        background: #e8f0e8;
+        color: #28602a;
+        font-size: 10px;
+        font-weight: 600;
+      }
+
+      .archive-current {
+        background: #111;
+        color: #fff;
+      }
+
+      .archive-size {
+        flex: 0 0 auto;
+        color: #222;
+        font-variant-numeric: tabular-nums;
+      }
+
       .archive-meta {
-        margin-top: 3px;
+        display: flex;
+        justify-content: space-between;
+        gap: 8px;
+        margin-top: 2px;
         color: #777;
         font-size: 10px;
-        line-height: 1.35;
-        overflow-wrap: anywhere;
+        line-height: 1.25;
+        min-width: 0;
+      }
+
+      .archive-file,
+      .archive-time {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .archive-time {
+        flex: 0 0 auto;
       }
 
       .capture-preview {
@@ -421,7 +466,8 @@
               <div class="setting-control">
                 <button id="open-localdata" type="button">打开目录</button>
                 <button id="refresh-archives" type="button">刷新</button>
-                <button id="export-archive" type="button" class="primary-button">导出 Web 数据</button>
+                <button id="export-archive-local" type="button" class="primary-button">导出到 local</button>
+                <button id="export-archive-share" type="button">导出到 share</button>
               </div>
             </div>
             <div class="setting-row is-tall">
