@@ -41,6 +41,7 @@
   "build": {
     "appId": "com.dmg.def",
     "productName": "dmg-end-field",
+    "compression": "store",
     "directories": {
       "output": "release"
     },

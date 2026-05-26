@@ -18,3 +18,4 @@ release-latest/
 data/localdata/**
 !data/localdata/
 !data/localdata/.gitkeep
+DEF测试版.rar

@@ -15,6 +15,8 @@ import {
   toManagedRelative,
   fromManagedRelative,
   managedDirLabel,
+  formatAssetDisplayPath,
+  formatManagedDirDisplayPath,
   isPathUnderDir,
   replaceDirPrefix,
   replaceAssetDirPrefix,
@@ -656,16 +658,10 @@ export function ImageManagerPage() {
   const handleCopyPath = useCallback((target: CtxTarget) => {
     setCtxMenu(null);
     const path = target.kind === 'file'
-      ? (() => {
-        const asset = assetByPath.get(target.relativePath);
-        if (asset?.source === 'user') {
-          return getUserImageUrl(asset) ?? target.relativePath;
-        }
-        return target.relativePath;
-      })()
-      : normalizeDir(target.dir);
+      ? formatAssetDisplayPath(target.relativePath)
+      : formatManagedDirDisplayPath(target.dir);
     navigator.clipboard.writeText(path).then(() => flash('路径已复制'));
-  }, [assetByPath, flash]);
+  }, [flash]);
 
   // ═══════════════════════════════════════════════════════
   // UI event handlers
@@ -709,7 +705,13 @@ export function ImageManagerPage() {
     const isRoot = norm === MANAGED_ROOT;
     setCtxMenu({
       x: e.clientX, y: e.clientY,
-      target: { kind: 'dir', dir: norm, label: dir === '' ? '全部图片' : isRoot ? 'images（根目录）' : norm, isRoot, isManaged: isManagedDir(norm) },
+      target: {
+        kind: 'dir',
+        dir: norm,
+        label: dir === '' ? '全部图片' : isRoot ? `${formatManagedDirDisplayPath(norm)}（根目录）` : formatManagedDirDisplayPath(norm),
+        isRoot,
+        isManaged: isManagedDir(norm),
+      },
     });
   }, []);
 
@@ -825,14 +827,14 @@ export function ImageManagerPage() {
 
       <ImageManagerCreateFolderModal
         isOpen={isCreatingFolder}
-        parentLabel={folderParentWriteDir ? `"${folderParentWriteDir}"` : '根目录'}
+        parentLabel={folderParentWriteDir ? `"${formatManagedDirDisplayPath(folderParentWriteDir)}"` : formatManagedDirDisplayPath(MANAGED_ROOT)}
         folderName={folderName} inputRef={folderInputRef}
         onFolderNameChange={setFolderName} onCommit={commitCreateFolder}
         onCancel={cancelCreateFolder} onKeyDown={handleCreateFolderKeyDown}
       />
 
       <ImageManagerDeleteFolderModal
-        isOpen={isDeletingFolder} dirLabel={deleteFolderDir} error={deleteFolderError}
+        isOpen={isDeletingFolder} dirLabel={formatManagedDirDisplayPath(deleteFolderDir)} error={deleteFolderError}
         onConfirm={commitDeleteFolder} onCancel={cancelDeleteFolder}
       />
 

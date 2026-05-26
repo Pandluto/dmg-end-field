@@ -1,4 +1,5 @@
 import { memo } from 'react';
+import { formatManagedDirDisplayPath, MANAGED_ROOT } from '../../utils/imageFileService';
 import type { TreeNode } from './types';
 
 interface ImageManagerExplorerProps {
@@ -33,6 +34,7 @@ const TreeNodeRow = memo(function TreeNodeRow({
   const isExpanded = expandedDirs.has(node.path);
   const isActive = currentDir === node.path;
   const hasChildren = node.children.length > 0;
+  const displayName = node.path === MANAGED_ROOT ? formatManagedDirDisplayPath(node.path) : node.name;
 
   return (
     <div className="buff-sheet-explorer-node">
@@ -56,7 +58,7 @@ const TreeNodeRow = memo(function TreeNodeRow({
           </span>
         )}
         <span className="buff-sheet-explorer-label">
-          {node.name}
+          {displayName}
           {node.isManaged ? '' : ' ↗'}
         </span>
         <span className="buff-sheet-explorer-count">{node.count}</span>

@@ -6,6 +6,7 @@
 
 const MANAGED_REL = 'assets/images';
 export const MANAGED_ROOT = 'images';
+const DISPLAY_ROOT = 'data/images';
 
 // ── Path normalisation ──
 
@@ -64,11 +65,36 @@ export function managedDirLabel(relativePath: string): string {
   if (!relativePath.startsWith(prefix)) {
     const parts = relativePath.split('/');
     parts.pop();
-    return parts.join('/') || '/';
+    return formatAssetDisplayPath(parts.join('/'));
   }
   const stripped = relativePath.slice(prefix.length);
   const i = stripped.lastIndexOf('/');
-  return i === -1 ? '/' : stripped.slice(0, i);
+  return i === -1 ? DISPLAY_ROOT : `${DISPLAY_ROOT}/${stripped.slice(0, i)}`;
+}
+
+/** Format an internal asset path for Image Manager UI display. */
+export function formatAssetDisplayPath(relativePath: string): string {
+  const normalized = String(relativePath || '').replace(/\\/g, '/').replace(/^\/+/, '');
+  if (!normalized) return DISPLAY_ROOT;
+  if (normalized === 'assets') return DISPLAY_ROOT;
+  if (normalized.startsWith('assets/')) {
+    return `${DISPLAY_ROOT}/${normalized.slice('assets/'.length)}`;
+  }
+  if (normalized === MANAGED_ROOT) return DISPLAY_ROOT;
+  if (normalized.startsWith(`${MANAGED_ROOT}/`)) {
+    return `${DISPLAY_ROOT}/${normalized.slice(MANAGED_ROOT.length + 1)}`;
+  }
+  return normalized;
+}
+
+/** Format a frontend directory path for Image Manager UI display. */
+export function formatManagedDirDisplayPath(dir: string): string {
+  const normalized = normalizeDir(dir).replace(/\\/g, '/').replace(/\/+$/, '');
+  if (!normalized || normalized === MANAGED_ROOT) return DISPLAY_ROOT;
+  if (normalized.startsWith(`${MANAGED_ROOT}/`)) {
+    return `${DISPLAY_ROOT}/${normalized.slice(MANAGED_ROOT.length + 1)}`;
+  }
+  return formatAssetDisplayPath(normalized);
 }
 
 // ── Path prefix helpers (used by page layer for state recovery) ──

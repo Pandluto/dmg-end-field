@@ -1,5 +1,5 @@
 import { memo } from 'react';
-import { managedDirLabel } from '../../utils/imageFileService';
+import { formatAssetDisplayPath, managedDirLabel } from '../../utils/imageFileService';
 import type { ImageAssetEntry } from './types';
 
 interface ImageManagerPreviewPanelProps {
@@ -60,7 +60,7 @@ export const ImageManagerPreviewPanel = memo(function ImageManagerPreviewPanel(p
             <dd>{selectedAsset.fileName}</dd>
 
             <dt>路径</dt>
-            <dd className="image-manager-preview-path">{selectedAsset.relativePath}</dd>
+            <dd className="image-manager-preview-path">{formatAssetDisplayPath(selectedAsset.relativePath)}</dd>
 
             <dt>类型</dt>
             <dd>{selectedAsset.ext.toUpperCase().replace('.', '')}</dd>

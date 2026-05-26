@@ -541,6 +541,63 @@ function buildJsonHeaders() {
   };
 }
 
+const STATIC_MIME_TYPES = {
+  '.css': 'text/css; charset=utf-8',
+  '.gif': 'image/gif',
+  '.html': 'text/html; charset=utf-8',
+  '.ico': 'image/x-icon',
+  '.jpeg': 'image/jpeg',
+  '.jpg': 'image/jpeg',
+  '.js': 'text/javascript; charset=utf-8',
+  '.json': 'application/json; charset=utf-8',
+  '.map': 'application/json; charset=utf-8',
+  '.md': 'text/markdown; charset=utf-8',
+  '.png': 'image/png',
+  '.svg': 'image/svg+xml; charset=utf-8',
+  '.txt': 'text/plain; charset=utf-8',
+  '.webp': 'image/webp',
+};
+
+function tryServeStaticFromRoot({ method, requestUrl, response, rootDir, urlPrefix, cacheControl = 'no-cache' }) {
+  if (method !== 'GET' && method !== 'HEAD') {
+    return false;
+  }
+
+  const pathname = decodeURIComponent(requestUrl.pathname || '/');
+  if (!pathname.startsWith(urlPrefix)) {
+    return false;
+  }
+  if (pathname.includes('\\') || pathname.includes('\0') || pathname.includes('..')) {
+    response.writeHead(403, { 'Content-Type': 'text/plain; charset=utf-8' });
+    response.end(method === 'HEAD' ? '' : 'Forbidden');
+    return true;
+  }
+
+  const relPath = pathname.slice(urlPrefix.length).replace(/^\/+/, '');
+  const root = path.resolve(rootDir);
+  const filePath = path.resolve(root, relPath);
+  if (filePath !== root && !filePath.startsWith(root + path.sep)) {
+    response.writeHead(403, { 'Content-Type': 'text/plain; charset=utf-8' });
+    response.end(method === 'HEAD' ? '' : 'Forbidden');
+    return true;
+  }
+
+  if (!fs.existsSync(filePath) || !fs.statSync(filePath).isFile()) {
+    return false;
+  }
+
+  const body = fs.readFileSync(filePath);
+  const contentType = STATIC_MIME_TYPES[path.extname(filePath).toLowerCase()] || 'application/octet-stream';
+  response.writeHead(200, {
+    'Access-Control-Allow-Origin': '*',
+    'Cache-Control': cacheControl,
+    'Content-Length': body.length,
+    'Content-Type': contentType,
+  });
+  response.end(method === 'HEAD' ? '' : body);
+  return true;
+}
+
 function writeJson(response, statusCode, payload) {
   response.writeHead(statusCode, buildJsonHeaders());
   response.end(JSON.stringify(payload));
@@ -1145,6 +1202,21 @@ function startBridgeServer() {
         return;
       }
 
+      if (!isDev &&
+        requestUrl.pathname.startsWith('/assets/') &&
+        /\.(png|jpg|jpeg|webp|gif|svg|ico)$/i.test(requestUrl.pathname)) {
+        if (tryServeStaticFromRoot({
+          method,
+          requestUrl,
+          response,
+          rootDir: getAssetsRoot(),
+          urlPrefix: '/assets/',
+          cacheControl: 'no-cache',
+        })) {
+          return;
+        }
+      }
+
       if (!isDev && tryServeDesktopApp({
         method,
         requestUrl,
@@ -1339,10 +1411,43 @@ function getAssetsRoot() {
   if (isDev) {
     return path.join(__dirname, '..', 'public', 'assets');
   }
+  return ensureProductionAssetsRoot();
+}
+
+function getPackagedAssetsRoot() {
   return path.join(__dirname, '..', 'dist', 'assets');
 }
 
-/** Builtin (read-only) asset root: public/assets (dev) or dist/assets (prod). */
+function getProductionAssetsRoot() {
+  return path.join(getRuntimeDataRoot(), 'images');
+}
+
+function ensureProductionAssetsRoot() {
+  const targetRoot = getProductionAssetsRoot();
+  if (isDev) {
+    return targetRoot;
+  }
+  try {
+    const needsSeed = !fs.existsSync(targetRoot) ||
+      fs.readdirSync(targetRoot).length === 0 ||
+      !fs.existsSync(path.join(targetRoot, 'avatars'));
+    if (needsSeed) {
+      fs.mkdirSync(path.dirname(targetRoot), { recursive: true });
+      fs.cpSync(getPackagedAssetsRoot(), targetRoot, {
+        recursive: true,
+        force: false,
+        errorOnExist: false,
+      });
+      appendRuntimeLog('assets', `seeded production assets ${targetRoot}`);
+    }
+  } catch (error) {
+    appendRuntimeLog('assets', `seed failed ${error instanceof Error ? error.message : String(error)}`);
+  }
+  fs.mkdirSync(targetRoot, { recursive: true });
+  return targetRoot;
+}
+
+/** Builtin asset root: public/assets (dev) or external data/assets (prod). */
 function getBuiltinAssetsRoot() {
   return getAssetsRoot();
 }
@@ -1359,7 +1464,9 @@ function getBuiltinManifestDir() {
 
 /** User (writable) images root: userData/user-images/. Independent from Vite watch scope. */
 function getUserImagesDir() {
-  const dir = path.join(app.getPath('userData'), 'user-images');
+  const dir = isDev
+    ? path.join(app.getPath('userData'), 'user-images')
+    : getProductionAssetsRoot();
   if (!fs.existsSync(dir)) {
     fs.mkdirSync(dir, { recursive: true });
   }
@@ -1429,6 +1536,7 @@ function addFileEntry(results, dirsWithFiles, fullPath, relPath, source, writabl
 function scanAllImageAssets() {
   const builtinAssetsRoot = getBuiltinAssetsRoot();
   const userDir = getUserImagesDir();
+  const builtinAndUserShareRoot = path.resolve(builtinAssetsRoot) === path.resolve(userDir);
   const results = [];
   const dirsWithFiles = new Set();
 
@@ -1454,7 +1562,7 @@ function scanAllImageAssets() {
   }
 
   // ── Scan builtin (read-only) ──
-  if (fs.existsSync(builtinAssetsRoot)) {
+  if (!builtinAndUserShareRoot && fs.existsSync(builtinAssetsRoot)) {
     walk(builtinAssetsRoot, '', 'builtin', false);
   }
 
