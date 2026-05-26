@@ -2050,14 +2050,14 @@ export function DamageSheetPage() {
                   sourceCharacters={anomalyState.sourceCharacters}
                   selectedAnomalyDamages={anomalyState.selectedAnomalyDamages}
                   activeDurationSeconds={anomalyState.activeDurationSeconds}
-                  includeDotInTotal={anomalyState.includeDotInTotal}
+                  burnDamageMode={anomalyState.burnDamageMode}
                   onSetActiveAnomalyGroup={anomalyState.setActiveAnomalyGroup}
                   onResetActiveAnomalyKey={() => anomalyState.setActiveAnomalyKey(null)}
                   onSelectAnomaly={anomalyState.handleSelectAnomaly}
                   onApplyActiveAnomaly={() => withUndo(`异常区调整 · ${selectedPersistedButton.skillDisplayName ?? selectedPersistedButton.skillType}`, anomalyState.handleApplyActiveAnomaly)}
                   onSetActiveAnomalyLevel={anomalyState.setActiveAnomalyLevel}
                   onSetActiveAnomalySourceId={anomalyState.setActiveAnomalySourceId}
-                  onSetIncludeDotInTotal={anomalyState.setIncludeDotInTotal}
+                  onSetBurnDamageMode={anomalyState.setBurnDamageMode}
                   onSetActiveDurationSeconds={anomalyState.setActiveDurationSeconds}
                   onRemoveAnomalyCard={(kind, cardId) => withUndo(`移除异常卡 · ${selectedPersistedButton.skillDisplayName ?? selectedPersistedButton.skillType}`, () => anomalyState.removeAnomalyCard(kind, cardId))}
                 />

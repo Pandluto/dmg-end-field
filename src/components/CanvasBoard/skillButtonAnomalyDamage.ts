@@ -10,6 +10,7 @@ import {
   buildAppliedBuffTags,
   buildPanelFromBase,
   type AnomalyDamageSegmentView,
+  type BurnDamageMode,
   type SelectedAnomalyCard,
 } from './skillButton.shared';
 
@@ -57,10 +58,17 @@ function resolveBaseMultiplierPercent(card: SelectedAnomalyCard): number {
 
 function resolveBurnDotTotalMultiplierPercent(card: SelectedAnomalyCard): number {
   const durationSeconds = typeof card.durationSeconds === 'number' ? card.durationSeconds : 0;
-  if (card.key !== 'burn' || !card.includeDotInTotal || durationSeconds <= 0) {
+  if (card.key !== 'burn' || resolveBurnDamageMode(card) === 'initialOnly' || durationSeconds <= 0) {
     return 0;
   }
   return 12 * (1 + card.level) * durationSeconds;
+}
+
+function resolveBurnDamageMode(card: SelectedAnomalyCard): BurnDamageMode {
+  if (card.key !== 'burn') {
+    return 'initialOnly';
+  }
+  return card.burnDamageMode ?? (card.includeDotInTotal ? 'splitDot' : 'initialOnly');
 }
 
 function resolveLevelCoefficient(card: SelectedAnomalyCard, operatorLevel: number): number {
@@ -166,7 +174,8 @@ export function buildAnomalyDamageSegments({
   const currentOperatorLevel = 90;
   const parsedDamageBonusRecord = damageBonus as unknown as Record<string, number>;
 
-  const anomalySegments = selectedAnomalyDamages.flatMap<AnomalyDamageSegmentView>((card, index) => {
+  let anomalySequenceOffset = 0;
+  const anomalySegments = selectedAnomalyDamages.flatMap<AnomalyDamageSegmentView>((card) => {
     const baseMultiplierPercent = resolveBaseMultiplierPercent(card);
     const levelCoefficient = resolveLevelCoefficient(card, currentOperatorLevel);
     const elementKey = resolveElementKey(card, element);
@@ -213,7 +222,8 @@ export function buildAnomalyDamageSegments({
     const nonCrit = calculateBreakdown(anomalyAtk, finalMultiplier, 1, damageBonusRate, defenseZone, amplifyRate, fragileRate, vulnerabilityRate, comboDamageBonus, imbalanceDamageBonus);
     const crit = calculateBreakdown(anomalyAtk, finalMultiplier, anomalyCritMultiplier, damageBonusRate, defenseZone, amplifyRate, fragileRate, vulnerabilityRate, comboDamageBonus, imbalanceDamageBonus);
     const expected = calculateBreakdown(anomalyAtk, finalMultiplier, anomalyExpectedMultiplier, damageBonusRate, defenseZone, amplifyRate, fragileRate, vulnerabilityRate, comboDamageBonus, imbalanceDamageBonus);
-    const sequenceNumber = hitCards.length + index + 1;
+    const sequenceNumber = hitCards.length + anomalySequenceOffset + 1;
+    const burnDamageMode = resolveBurnDamageMode(card);
     const burnDotTotalMultiplierPercent = resolveBurnDotTotalMultiplierPercent(card);
     const burnDotBaseMultiplier = (burnDotTotalMultiplierPercent / 100) * levelCoefficient * sourceSkillZone;
     const burnDotMultiplierAfterBonus = burnDotBaseMultiplier + buffTotals.multiplierBonus;
@@ -275,14 +285,15 @@ export function buildAnomalyDamageSegments({
     };
 
     if (burnDotTotalMultiplierPercent <= 0) {
+      anomalySequenceOffset += 1;
       return [initialSegment];
     }
 
     const dotSegment: AnomalyDamageSegmentView = {
       ...initialSegment,
       key: `${card.id}-dot`,
-      title: `${sequenceNumber + 1}段 · ${card.label}持续`,
-      sequenceTitle: `${sequenceNumber + 1}段`,
+      title: `${burnDamageMode === 'splitDot' ? sequenceNumber + 1 : sequenceNumber}段 · ${card.label}持续`,
+      sequenceTitle: `${burnDamageMode === 'splitDot' ? sequenceNumber + 1 : sequenceNumber}段`,
       compactTitle: `${card.label}持续`,
       baseMultiplierText: `${burnDotTotalMultiplierPercent.toFixed(1)}%`,
       multiplierText: `${(burnDotFinalMultiplier * 100).toFixed(1)}%`,
@@ -297,6 +308,11 @@ export function buildAnomalyDamageSegments({
       nonCritFormulaText: `${anomalyAtk.toFixed(0)} × ${(burnDotFinalMultiplier * 100).toFixed(1)}% × ${damageBonusRate.toFixed(3)} × ${defenseZone.toFixed(3)} × ${(1 + amplifyRate).toFixed(3)} × ${(1 + fragileRate).toFixed(3)} × ${(1 + vulnerabilityRate).toFixed(3)} × ${(1 + comboDamageBonus).toFixed(3)} × ${(1 + imbalanceDamageBonus).toFixed(3)} = ${burnDotNonCrit.toFixed(0)} (基础伤害 ${burnDotBaseNonCrit.toFixed(0)})`,
     };
 
+    if (burnDamageMode === 'dotOnly') {
+      anomalySequenceOffset += 1;
+      return [dotSegment];
+    }
+    anomalySequenceOffset += 2;
     return [initialSegment, dotSegment];
   });
 

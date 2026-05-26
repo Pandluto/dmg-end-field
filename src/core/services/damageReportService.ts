@@ -556,10 +556,17 @@ function resolveAnomalyBaseMultiplierPercent(card: PersistedAnomalyCard): number
 
 function resolveBurnDotTotalMultiplierPercent(card: PersistedAnomalyCard): number {
   const durationSeconds = typeof card.durationSeconds === 'number' ? card.durationSeconds : 0;
-  if (card.key !== 'burn' || !card.includeDotInTotal || durationSeconds <= 0) {
+  if (card.key !== 'burn' || resolveBurnDamageMode(card) === 'initialOnly' || durationSeconds <= 0) {
     return 0;
   }
   return 12 * (1 + card.level) * durationSeconds;
+}
+
+function resolveBurnDamageMode(card: PersistedAnomalyCard): NonNullable<PersistedAnomalyCard['burnDamageMode']> {
+  if (card.key !== 'burn') {
+    return 'initialOnly';
+  }
+  return card.burnDamageMode ?? (card.includeDotInTotal ? 'splitDot' : 'initialOnly');
 }
 
 function resolveAnomalyLevelCoefficient(card: PersistedAnomalyCard): number {
@@ -609,7 +616,8 @@ function buildAnomalyReportHits(
   const parsedDamageBonusRecord = characterDamageBonus as unknown as Record<string, number>;
   const baseSourceSkill = getCharacterConfig(button.characterId || button.characterName)?.panelSnapshot?.sourceSkill ?? 0;
 
-  const anomalyRows = anomalyCards.flatMap((card, index) => {
+  let anomalySequenceOffset = 0;
+  const anomalyRows = anomalyCards.flatMap((card) => {
     const baseMultiplierPercent = resolveAnomalyBaseMultiplierPercent(card);
     const levelCoefficient = resolveAnomalyLevelCoefficient(card);
     const elementKey = resolveAnomalyElementKey(card, fallbackElement);
@@ -638,7 +646,8 @@ function buildAnomalyReportHits(
     const defenseZone = 0.5;
     const expected = calculateBreakdown(segmentPanel.atk, finalMultiplier, 1 + segmentPanel.critRate * segmentPanel.critDmg, damageBonusRate, defenseZone, amplifyRate, fragileRate, vulnerabilityRate, comboDamageBonus, imbalanceDamageBonus);
     const nonCrit = calculateBreakdown(segmentPanel.atk, finalMultiplier, 1, damageBonusRate, defenseZone, amplifyRate, fragileRate, vulnerabilityRate, comboDamageBonus, imbalanceDamageBonus);
-    const sequenceNumber = normalHitCount + index + 1;
+    const sequenceNumber = normalHitCount + anomalySequenceOffset + 1;
+    const burnDamageMode = resolveBurnDamageMode(card);
 
     const initialRow: DamageReportHitRow = {
       id: `anomaly-${button.id}-${card.id}`,
@@ -655,6 +664,7 @@ function buildAnomalyReportHits(
 
     const burnDotTotalMultiplierPercent = resolveBurnDotTotalMultiplierPercent(card);
     if (burnDotTotalMultiplierPercent <= 0) {
+      anomalySequenceOffset += 1;
       return [initialRow];
     }
 
@@ -663,17 +673,21 @@ function buildAnomalyReportHits(
     const burnDotExpected = calculateBreakdown(segmentPanel.atk, burnDotFinalMultiplier, 1 + segmentPanel.critRate * segmentPanel.critDmg, damageBonusRate, defenseZone, amplifyRate, fragileRate, vulnerabilityRate, comboDamageBonus, imbalanceDamageBonus);
     const burnDotNonCrit = calculateBreakdown(segmentPanel.atk, burnDotFinalMultiplier, 1, damageBonusRate, defenseZone, amplifyRate, fragileRate, vulnerabilityRate, comboDamageBonus, imbalanceDamageBonus);
 
-    return [
-      initialRow,
-      {
-        ...initialRow,
-        id: `anomaly-${button.id}-${card.id}-dot`,
-        title: `${sequenceNumber + 1}段 · ${card.label}持续`,
-        damage: burnDotExpected,
-        expected: burnDotExpected,
-        nonCrit: burnDotNonCrit,
-      },
-    ];
+    const dotRow = {
+      ...initialRow,
+      id: `anomaly-${button.id}-${card.id}-dot`,
+      title: `${burnDamageMode === 'splitDot' ? sequenceNumber + 1 : sequenceNumber}段 · ${card.label}持续`,
+      damage: burnDotExpected,
+      expected: burnDotExpected,
+      nonCrit: burnDotNonCrit,
+    };
+
+    if (burnDamageMode === 'dotOnly') {
+      anomalySequenceOffset += 1;
+      return [dotRow];
+    }
+    anomalySequenceOffset += 2;
+    return [initialRow, dotRow];
   });
 
   const extraHitRows = extraHitBuffList.map((buff, index) => {

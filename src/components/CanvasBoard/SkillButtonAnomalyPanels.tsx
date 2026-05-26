@@ -9,6 +9,7 @@ import {
   type AnomalyCardKind,
   type AnomalyCategory,
   type AnomalyOption,
+  type BurnDamageMode,
   type DropdownOption,
   type SelectedAnomalyCard,
 } from './skillButton.shared';
@@ -399,14 +400,14 @@ interface SkillButtonAnomalyPanelProps {
   sourceCharacters: CharacterRef[];
   selectedAnomalyDamages: SelectedAnomalyCard[];
   activeDurationSeconds: number;
-  includeDotInTotal: boolean;
+  burnDamageMode: BurnDamageMode;
   onSetActiveAnomalyGroup: (group: AnomalyCategory) => void;
   onResetActiveAnomalyKey: () => void;
   onSelectAnomaly: (option: AnomalyOption) => void;
   onApplyActiveAnomaly: () => void;
   onSetActiveAnomalyLevel: (level: number) => void;
   onSetActiveAnomalySourceId: (id: string) => void;
-  onSetIncludeDotInTotal: (value: boolean) => void;
+  onSetBurnDamageMode: (mode: BurnDamageMode) => void;
   onSetActiveDurationSeconds: (seconds: number) => void;
   onRemoveAnomalyCard: (kind: AnomalyCardKind, cardId: string) => void;
 }
@@ -420,14 +421,14 @@ export function SkillButtonAnomalyPanel({
   sourceCharacters,
   selectedAnomalyDamages,
   activeDurationSeconds,
-  includeDotInTotal,
+  burnDamageMode,
   onSetActiveAnomalyGroup,
   onResetActiveAnomalyKey,
   onSelectAnomaly,
   onApplyActiveAnomaly,
   onSetActiveAnomalyLevel,
   onSetActiveAnomalySourceId,
-  onSetIncludeDotInTotal,
+  onSetBurnDamageMode,
   onSetActiveDurationSeconds,
   onRemoveAnomalyCard,
 }: SkillButtonAnomalyPanelProps) {
@@ -503,12 +504,21 @@ export function SkillButtonAnomalyPanel({
                 <AnomalyDropdownField
                   dropdownKey={`${activeAnomaly.key}-mode`}
                   label="结果口径"
-                  valueLabel={includeDotInTotal ? '计入持续段' : '仅初始段'}
+                  valueLabel={
+                    burnDamageMode === 'dotOnly'
+                      ? '仅计入持续段'
+                      : burnDamageMode === 'splitDot'
+                        ? '分开计入持续段'
+                        : '仅计入初始段'
+                  }
                   options={[
-                    { value: 'include', label: '计入持续段' },
-                    { value: 'initial', label: '仅初始段' },
+                    { value: 'dotOnly', label: '仅计入持续段' },
+                    { value: 'initialOnly', label: '仅计入初始段' },
+                    { value: 'splitDot', label: '分开计入持续段' },
                   ]}
-                  onSelect={(value) => onSetIncludeDotInTotal(value === 'include')}
+                  onSelect={(value) => {
+                    onSetBurnDamageMode(value as BurnDamageMode);
+                  }}
                 />
               ) : (
                 <AnomalyDropdownField

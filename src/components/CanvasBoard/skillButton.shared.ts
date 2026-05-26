@@ -10,6 +10,7 @@ import type { PersistedAnomalyCard, SkillButtonBuff } from '../../types/storage'
 
 export type AnomalyCardKind = 'state' | 'damage';
 export type AnomalyCategory = 'magic' | 'physical';
+export type BurnDamageMode = 'dotOnly' | 'initialOnly' | 'splitDot';
 
 export interface AnomalyOption {
   key: string;
@@ -32,6 +33,7 @@ export interface SelectedAnomalyCard {
   level: number;
   sourceName?: string;
   includeDotInTotal?: boolean;
+  burnDamageMode?: BurnDamageMode;
   durationSeconds?: number;
   primaryText: string;
   secondaryText: string;

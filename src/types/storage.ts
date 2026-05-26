@@ -268,6 +268,7 @@ export interface PersistedAnomalyCard {
   level: number;
   sourceName?: string;
   includeDotInTotal?: boolean;
+  burnDamageMode?: 'dotOnly' | 'initialOnly' | 'splitDot';
   durationSeconds?: number;
   primaryText: string;
   secondaryText: string;

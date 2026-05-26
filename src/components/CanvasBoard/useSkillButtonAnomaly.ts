@@ -18,6 +18,7 @@ import {
   type AnomalyCardKind,
   type AnomalyCategory,
   type AnomalyOption,
+  type BurnDamageMode,
   normalizePersistedAnomalyCard,
   type SelectedAnomalyCard,
 } from './skillButton.shared';
@@ -40,7 +41,7 @@ function buildMockAnomalyCard(
   option: AnomalyOption,
   level: number,
   sourceName?: string,
-  includeDot?: boolean,
+  burnDamageMode: BurnDamageMode = 'initialOnly',
   durationSeconds?: number
 ): SelectedAnomalyCard {
   if (option.key === 'combo-state' || option.key === 'imbalance-state') {
@@ -110,15 +111,28 @@ function buildMockAnomalyCard(
       level,
       primaryText: option.usesAnomalyLevel === false ? option.label : `${option.label} Lv${level}`,
       secondaryText: baseHit,
-      includeDotInTotal: option.key === 'burn' ? includeDot : undefined,
+      includeDotInTotal: option.key === 'burn' ? burnDamageMode !== 'initialOnly' : undefined,
+      burnDamageMode: option.key === 'burn' ? burnDamageMode : undefined,
       durationSeconds: option.supportsDuration ? durationSeconds : undefined,
       tertiaryText: option.key === 'burn'
-        ? `${includeDot ? '计入持续段' : '不计持续段'}${durationSeconds ? ` · ${durationSeconds}s` : ''}`
+        ? `${formatBurnDamageModeLabel(burnDamageMode)}${durationSeconds ? ` · ${durationSeconds}s` : ''}`
       : durationSeconds
         ? `持续 ${durationSeconds}s`
         : '等待真实计算接入',
     selectedBuffIds: [],
   };
+}
+
+function formatBurnDamageModeLabel(mode: BurnDamageMode): string {
+  switch (mode) {
+    case 'dotOnly':
+      return '仅计入持续段';
+    case 'splitDot':
+      return '分开计入持续段';
+    case 'initialOnly':
+    default:
+      return '仅计入初始段';
+  }
 }
 
 export function useSkillButtonAnomaly({
@@ -133,7 +147,7 @@ export function useSkillButtonAnomaly({
   const [activeAnomalyKey, setActiveAnomalyKey] = useState<string | null>(null);
   const [activeAnomalyLevel, setActiveAnomalyLevel] = useState(1);
   const [activeAnomalySourceId, setActiveAnomalySourceId] = useState<string | null>(null);
-  const [includeDotInTotal, setIncludeDotInTotal] = useState(true);
+  const [burnDamageMode, setBurnDamageMode] = useState<BurnDamageMode>('dotOnly');
   const [activeDurationSeconds, setActiveDurationSeconds] = useState(0);
   const [activeAnomalyStateKey, setActiveAnomalyStateKey] = useState<'conductive' | 'corrosion' | 'armor-break' | null>(null);
   const [activeAnomalyStateLevel, setActiveAnomalyStateLevel] = useState(1);
@@ -290,7 +304,7 @@ export function useSkillButtonAnomaly({
       };
     }
 
-    const baseMultiplierPercent = activeAnomaly.key === 'magic-burst'
+    const initialBaseMultiplierPercent = activeAnomaly.key === 'magic-burst'
       ? 160
       : activeAnomaly.key === 'smash'
         ? 150 * (1 + activeAnomalyLevel)
@@ -307,6 +321,12 @@ export function useSkillButtonAnomaly({
                   : activeAnomaly.key === 'knockdown' || activeAnomaly.key === 'launch'
                     ? 120
                     : 0;
+    const burnDotMultiplierPercent = activeAnomaly.key === 'burn'
+      ? 12 * (1 + activeAnomalyLevel) * activeDurationSeconds
+      : 0;
+    const baseMultiplierPercent = activeAnomaly.key === 'burn' && burnDamageMode !== 'initialOnly'
+      ? burnDotMultiplierPercent
+      : initialBaseMultiplierPercent;
     const sourceSkillZone = 1 + currentCharacterSourceSkillBoost / 100;
     const finalMultiplierPercent = baseMultiplierPercent * levelCoefficient * sourceSkillZone;
 
@@ -316,17 +336,19 @@ export function useSkillButtonAnomaly({
     return {
       lines: [
         `源石技艺强度: ${currentCharacterSourceSkillBoost.toFixed(1)}`,
-        `基础倍率: ${baseMultiplierPercent.toFixed(1)}%`,
+        activeAnomaly.key === 'burn' && burnDamageMode !== 'initialOnly'
+          ? `基础倍率: ${(12 * (1 + activeAnomalyLevel)).toFixed(1)}% × ${activeDurationSeconds.toFixed(0)}s = ${baseMultiplierPercent.toFixed(1)}%`
+          : `基础倍率: ${baseMultiplierPercent.toFixed(1)}%`,
         `等级系数区: × ${levelCoefficient.toFixed(3)}`,
         `源石技艺强度区: × ${sourceSkillZone.toFixed(3)}`,
         `最终倍率: ${baseMultiplierPercent.toFixed(1)}% × ${levelCoefficient.toFixed(3)} × ${sourceSkillZone.toFixed(3)} = ${finalMultiplierPercent.toFixed(1)}%`,
         imbalanceGain !== null ? `失衡值增强后: ${imbalanceGain.toFixed(1)}` : null,
         activeAnomaly.key === 'burn'
-          ? `持续段倍率: ${(12 * (1 + activeAnomalyLevel)).toFixed(0)}%${includeDotInTotal ? '，总伤计入持续段' : '，总伤仅看初始段'}`
+          ? `结果口径: ${formatBurnDamageModeLabel(burnDamageMode)}`
           : null,
       ].filter((line): line is string => Boolean(line)),
     };
-  }, [activeAnomaly, activeAnomalyLevel, buttonCharacterId, buttonSkillType, fullCombinedModifierBuffList, getEffectiveCharacterSourceSkillBoost, includeDotInTotal]);
+  }, [activeAnomaly, activeAnomalyLevel, activeDurationSeconds, burnDamageMode, buttonCharacterId, buttonSkillType, fullCombinedModifierBuffList, getEffectiveCharacterSourceSkillBoost]);
 
   const activeAnomalyStatePreview = useMemo(() => {
     if (!activeAnomalyStateOption) {
@@ -399,7 +421,7 @@ export function useSkillButtonAnomaly({
     setActiveAnomalyLevel(option.levelOptions[0] ?? 1);
     const durationOptions = getAnomalyDurationOptions(option);
     setActiveDurationSeconds(durationOptions[0] ?? 0);
-    setIncludeDotInTotal(option.key === 'burn');
+    setBurnDamageMode(option.key === 'burn' ? 'dotOnly' : 'initialOnly');
     setActiveAnomalySourceId(option.supportsSource ? (sourceCharacters[0]?.id ?? buttonCharacterId) : null);
   }, [buttonCharacterId, sourceCharacters]);
 
@@ -418,7 +440,7 @@ export function useSkillButtonAnomaly({
       activeAnomaly,
       activeAnomalyLevel,
       sourceName,
-      includeDotInTotal,
+      burnDamageMode,
       activeDurationSeconds
     );
 
@@ -432,7 +454,7 @@ export function useSkillButtonAnomaly({
     }
 
     applyAnomalyCards(selectedStatusCards, [...selectedAnomalyDamages.filter((card) => card.key !== nextCard.key), nextCard], selectedAnomalyStateSnapshotIds);
-  }, [activeAnomaly, activeAnomalyLevel, activeAnomalySourceId, includeDotInTotal, activeDurationSeconds, sourceCharacters, selectedStatusCards, selectedAnomalyDamages, selectedAnomalyStateSnapshotIds, applyAnomalyCards]);
+  }, [activeAnomaly, activeAnomalyLevel, activeAnomalySourceId, burnDamageMode, activeDurationSeconds, sourceCharacters, selectedStatusCards, selectedAnomalyDamages, selectedAnomalyStateSnapshotIds, applyAnomalyCards]);
 
   const handleCreateAnomalyStateSnapshot = useCallback(() => {
     if (!activeAnomalyStateOption || !activeAnomalyStateSourceCharacter || !activeAnomalyStatePreview) {
@@ -516,7 +538,7 @@ export function useSkillButtonAnomaly({
     setActiveAnomalyStateLevel(1);
     setActiveAnomalyStateSourceId(null);
     setActiveAnomalyStateDurationSeconds(0);
-    setIncludeDotInTotal(true);
+    setBurnDamageMode('dotOnly');
     setActiveDurationSeconds(0);
   }, []);
 
@@ -545,7 +567,8 @@ export function useSkillButtonAnomaly({
     handleCreateAnomalyStateSnapshot,
     handleSelectAnomaly,
     handleSelectAnomalyState,
-    includeDotInTotal,
+    includeDotInTotal: burnDamageMode !== 'initialOnly',
+    burnDamageMode,
     loadPersistedAnomalyCards,
     fullCombinedModifierBuffList,
     removeAnomalyCard,
@@ -563,7 +586,8 @@ export function useSkillButtonAnomaly({
     setActiveAnomalyStateLevel,
     setActiveAnomalyStateSourceId,
     setActiveDurationSeconds,
-    setIncludeDotInTotal,
+    setIncludeDotInTotal: (value: boolean) => setBurnDamageMode(value ? 'splitDot' : 'initialOnly'),
+    setBurnDamageMode,
     sourceCharacters,
     stateDerivedBuffList,
     getEffectiveCharacterSourceSkillBoost,

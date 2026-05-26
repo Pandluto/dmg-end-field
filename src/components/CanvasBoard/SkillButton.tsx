@@ -456,6 +456,7 @@ export function SkillButtonComponent({
     selectedAnomalyDamages,
     selectedAnomalyStateSnapshots,
     selectedStatusCards,
+    burnDamageMode,
     setActiveAnomalyGroup,
     setActiveAnomalyKey,
     setActiveAnomalyLevel,
@@ -464,11 +465,10 @@ export function SkillButtonComponent({
     setActiveAnomalyStateLevel,
     setActiveAnomalyStateSourceId,
     setActiveDurationSeconds,
-    setIncludeDotInTotal,
+    setBurnDamageMode,
     sourceCharacters,
     getEffectiveCharacterSourceSkillBoost,
     activeDurationSeconds,
-    includeDotInTotal,
   } = useSkillButtonAnomaly({
     buttonId: button.id,
     buttonCharacterId: button.characterId,
@@ -1018,14 +1018,14 @@ export function SkillButtonComponent({
                     sourceCharacters={sourceCharacters}
                     selectedAnomalyDamages={selectedAnomalyDamages}
                     activeDurationSeconds={activeDurationSeconds}
-                    includeDotInTotal={includeDotInTotal}
+                    burnDamageMode={burnDamageMode}
                     onSetActiveAnomalyGroup={setActiveAnomalyGroup}
                     onResetActiveAnomalyKey={() => setActiveAnomalyKey(null)}
                     onSelectAnomaly={handleSelectAnomaly}
                     onApplyActiveAnomaly={handleApplyActiveAnomaly}
                     onSetActiveAnomalyLevel={setActiveAnomalyLevel}
                     onSetActiveAnomalySourceId={setActiveAnomalySourceId}
-                    onSetIncludeDotInTotal={setIncludeDotInTotal}
+                    onSetBurnDamageMode={setBurnDamageMode}
                     onSetActiveDurationSeconds={setActiveDurationSeconds}
                     onRemoveAnomalyCard={removeAnomalyCard}
                   />
