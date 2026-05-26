@@ -566,7 +566,7 @@ function resolveBurnDamageMode(card: PersistedAnomalyCard): NonNullable<Persiste
   if (card.key !== 'burn') {
     return 'initialOnly';
   }
-  return card.burnDamageMode ?? (card.includeDotInTotal ? 'splitDot' : 'initialOnly');
+  return card.burnDamageMode ?? (card.includeDotInTotal ? 'dotOnly' : 'initialOnly');
 }
 
 function resolveAnomalyLevelCoefficient(card: PersistedAnomalyCard): number {
@@ -662,32 +662,46 @@ function buildAnomalyReportHits(
       buffs: toBuffRows(appliedBuffs),
     };
 
-    const burnDotTotalMultiplierPercent = resolveBurnDotTotalMultiplierPercent(card);
-    if (burnDotTotalMultiplierPercent <= 0) {
+    const burnTickMultiplierPercent = 12 * (1 + card.level);
+    const burnDotMultiplierPercent = burnDamageMode === 'splitDot'
+      ? burnTickMultiplierPercent
+      : resolveBurnDotTotalMultiplierPercent(card);
+    if (burnDotMultiplierPercent <= 0) {
       anomalySequenceOffset += 1;
       return [initialRow];
     }
 
-    const burnDotBaseMultiplier = (burnDotTotalMultiplierPercent / 100) * levelCoefficient * sourceSkillZone;
+    const burnDotBaseMultiplier = (burnDotMultiplierPercent / 100) * levelCoefficient * sourceSkillZone;
     const burnDotFinalMultiplier = (burnDotBaseMultiplier + buffTotals.multiplierBonus) * buffTotals.multiplierMultiplier;
     const burnDotExpected = calculateBreakdown(segmentPanel.atk, burnDotFinalMultiplier, 1 + segmentPanel.critRate * segmentPanel.critDmg, damageBonusRate, defenseZone, amplifyRate, fragileRate, vulnerabilityRate, comboDamageBonus, imbalanceDamageBonus);
     const burnDotNonCrit = calculateBreakdown(segmentPanel.atk, burnDotFinalMultiplier, 1, damageBonusRate, defenseZone, amplifyRate, fragileRate, vulnerabilityRate, comboDamageBonus, imbalanceDamageBonus);
 
-    const dotRow = {
+    const buildDotRow = (sequence: number, keySuffix: string, titleSuffix = '持续'): DamageReportHitRow => ({
       ...initialRow,
-      id: `anomaly-${button.id}-${card.id}-dot`,
-      title: `${burnDamageMode === 'splitDot' ? sequenceNumber + 1 : sequenceNumber}段 · ${card.label}持续`,
+      id: `anomaly-${button.id}-${card.id}-${keySuffix}`,
+      title: `${sequence}段 · ${card.label}${titleSuffix}`,
       damage: burnDotExpected,
       expected: burnDotExpected,
       nonCrit: burnDotNonCrit,
-    };
+    });
+
+    if (burnDamageMode === 'splitDot') {
+      const hitCount = Math.max(1, Math.trunc(card.durationSeconds ?? 0));
+      const dotRows = Array.from({ length: hitCount }, (_, dotIndex) => buildDotRow(
+        sequenceNumber + dotIndex,
+        `dot-${dotIndex + 1}`,
+        `持续 ${dotIndex + 1}/${hitCount}`
+      ));
+      anomalySequenceOffset += hitCount;
+      return dotRows;
+    }
 
     if (burnDamageMode === 'dotOnly') {
       anomalySequenceOffset += 1;
-      return [dotRow];
+      return [buildDotRow(sequenceNumber, 'dot')];
     }
-    anomalySequenceOffset += 2;
-    return [initialRow, dotRow];
+    anomalySequenceOffset += 1;
+    return [initialRow];
   });
 
   const extraHitRows = extraHitBuffList.map((buff, index) => {

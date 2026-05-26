@@ -321,11 +321,12 @@ export function useSkillButtonAnomaly({
                   : activeAnomaly.key === 'knockdown' || activeAnomaly.key === 'launch'
                     ? 120
                     : 0;
-    const burnDotMultiplierPercent = activeAnomaly.key === 'burn'
-      ? 12 * (1 + activeAnomalyLevel) * activeDurationSeconds
+    const burnTickMultiplierPercent = activeAnomaly.key === 'burn'
+      ? 12 * (1 + activeAnomalyLevel)
       : 0;
+    const burnDotMultiplierPercent = burnTickMultiplierPercent * activeDurationSeconds;
     const baseMultiplierPercent = activeAnomaly.key === 'burn' && burnDamageMode !== 'initialOnly'
-      ? burnDotMultiplierPercent
+      ? (burnDamageMode === 'splitDot' ? burnTickMultiplierPercent : burnDotMultiplierPercent)
       : initialBaseMultiplierPercent;
     const sourceSkillZone = 1 + currentCharacterSourceSkillBoost / 100;
     const finalMultiplierPercent = baseMultiplierPercent * levelCoefficient * sourceSkillZone;
@@ -336,8 +337,10 @@ export function useSkillButtonAnomaly({
     return {
       lines: [
         `源石技艺强度: ${currentCharacterSourceSkillBoost.toFixed(1)}`,
-        activeAnomaly.key === 'burn' && burnDamageMode !== 'initialOnly'
+        activeAnomaly.key === 'burn' && burnDamageMode === 'dotOnly'
           ? `基础倍率: ${(12 * (1 + activeAnomalyLevel)).toFixed(1)}% × ${activeDurationSeconds.toFixed(0)}s = ${baseMultiplierPercent.toFixed(1)}%`
+          : activeAnomaly.key === 'burn' && burnDamageMode === 'splitDot'
+            ? `单段倍率: ${(12 * (1 + activeAnomalyLevel)).toFixed(1)}% × ${activeDurationSeconds.toFixed(0)} hit`
           : `基础倍率: ${baseMultiplierPercent.toFixed(1)}%`,
         `等级系数区: × ${levelCoefficient.toFixed(3)}`,
         `源石技艺强度区: × ${sourceSkillZone.toFixed(3)}`,
@@ -586,7 +589,7 @@ export function useSkillButtonAnomaly({
     setActiveAnomalyStateLevel,
     setActiveAnomalyStateSourceId,
     setActiveDurationSeconds,
-    setIncludeDotInTotal: (value: boolean) => setBurnDamageMode(value ? 'splitDot' : 'initialOnly'),
+    setIncludeDotInTotal: (value: boolean) => setBurnDamageMode(value ? 'dotOnly' : 'initialOnly'),
     setBurnDamageMode,
     sourceCharacters,
     stateDerivedBuffList,
