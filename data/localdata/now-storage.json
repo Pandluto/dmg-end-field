@@ -1,10 +1,10 @@
 {
   "type": "def.localdata.archive.v1",
   "schemaVersion": 1,
-  "id": "now-storage",
-  "name": "now-storage",
-  "createdAt": "2026-05-26T07:36:01.286Z",
-  "exportedAt": "2026-05-26T07:36:01.286Z",
+  "id": "localdata-20260526154723",
+  "name": "111",
+  "createdAt": "2026-05-26T07:47:23.383Z",
+  "exportedAt": "2026-05-26T07:47:23.383Z",
   "sections": [
     "all"
   ],
@@ -34724,7 +34724,7 @@
       "def.timeline.data.v1": {
         "version": "1.1.0",
         "createdAt": 1779751090421,
-        "updatedAt": 1779780742892,
+        "updatedAt": 1779781641393,
         "staffLines": [
           {
             "staffIndex": 0,
@@ -34735,12 +34735,11 @@
             ],
             "buttons": [
               {
-                "id": "tf9z01a2z",
+                "characterId": "peilika",
                 "characterName": "佩丽卡",
                 "skillType": "E",
                 "staffIndex": 0,
                 "nodeIndex": 4,
-                "nodeNumber": 5,
                 "position": {
                   "x": 513.6666717529297,
                   "y": 115
@@ -34770,7 +34769,9 @@
                     "element": "electric",
                     "skillType": "E"
                   }
-                ]
+                ],
+                "id": "tf9z01a2z",
+                "nodeNumber": 5
               },
               {
                 "id": "0dl627rc0",
@@ -34818,16 +34819,15 @@
             "occupiedNodes": [
               3,
               5,
-              8
+              7
             ],
             "buttons": [
               {
-                "id": "18vkouqx8",
+                "characterId": "langwei",
                 "characterName": "狼卫",
                 "skillType": "B",
                 "staffIndex": 1,
                 "nodeIndex": 3,
-                "nodeNumber": 4,
                 "position": {
                   "x": 433.6666717529297,
                   "y": 175
@@ -34857,15 +34857,16 @@
                     "element": "fire",
                     "skillType": "B"
                   }
-                ]
+                ],
+                "id": "18vkouqx8",
+                "nodeNumber": 4
               },
               {
-                "id": "tgsdbuu32",
+                "characterId": "langwei",
                 "characterName": "狼卫",
                 "skillType": "E",
                 "staffIndex": 1,
                 "nodeIndex": 5,
-                "nodeNumber": 6,
                 "position": {
                   "x": 593.6666717529297,
                   "y": 175
@@ -34895,17 +34896,18 @@
                     "element": "fire",
                     "skillType": "E"
                   }
-                ]
+                ],
+                "id": "tgsdbuu32",
+                "nodeNumber": 6
               },
               {
-                "id": "26o3sznwi",
+                "characterId": "langwei",
                 "characterName": "狼卫",
                 "skillType": "Q",
                 "staffIndex": 1,
-                "nodeIndex": 8,
-                "nodeNumber": 9,
+                "nodeIndex": 7,
                 "position": {
-                  "x": 833.6666717529297,
+                  "x": 753.6666717529297,
                   "y": 175
                 },
                 "runtimeSkillId": "skill-7",
@@ -35017,7 +35019,9 @@
                     "element": "fire",
                     "skillType": "Q"
                   }
-                ]
+                ],
+                "id": "26o3sznwi",
+                "nodeNumber": 8
               }
             ]
           }

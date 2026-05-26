@@ -15,3 +15,5 @@ release-latest/
 *.key
 *.p12
 *.pfx
+data/localdata/now-storage-state.json
+

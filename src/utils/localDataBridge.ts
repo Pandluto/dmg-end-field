@@ -81,6 +81,7 @@ const REQUIRED_CURRENT_SESSION_KEYS_BY_SECTION: Partial<Record<Exclude<LocalData
 const LOCAL_DATA_BRIDGE_ORIGIN = 'http://127.0.0.1:31457';
 const NOW_STORAGE_APPLY_MARKER_KEY = '__def.localdata.now-storage-apply.v1';
 const NOW_STORAGE_HANDLED_FORCE_AT_KEY = '__def.localdata.now-storage-handled-force-at.v1';
+const NOW_STORAGE_SKIPPED_BACKUP_AT_KEY = '__def.localdata.now-storage-skipped-backup-at.v1';
 const NOW_STORAGE_RELOAD_COUNT_KEY = '__def.localdata.now-storage-reload-count.v1';
 const NOW_STORAGE_LAST_RELOAD_AT_KEY = '__def.localdata.now-storage-last-reload-at.v1';
 const NOW_STORAGE_RELOAD_DEBOUNCE_MS = 5000;
@@ -384,6 +385,22 @@ function setHandledNowStorageForceAt(updatedAt: string): void {
   }
 }
 
+function getSkippedNowStorageBackupAt(): string | null {
+  try {
+    return window.sessionStorage.getItem(NOW_STORAGE_SKIPPED_BACKUP_AT_KEY);
+  } catch {
+    return null;
+  }
+}
+
+function setSkippedNowStorageBackupAt(updatedAt: string): void {
+  try {
+    window.sessionStorage.setItem(NOW_STORAGE_SKIPPED_BACKUP_AT_KEY, updatedAt);
+  } catch {
+    // Best-effort guard; skipping backup is only to protect the imported snapshot.
+  }
+}
+
 function getNowStorageReloadCount(syncKey: string): number {
   try {
     const raw = window.sessionStorage.getItem(NOW_STORAGE_RELOAD_COUNT_KEY);
@@ -504,6 +521,19 @@ async function syncNowStorageFromLocalBridge(): Promise<void> {
   });
 
   if (!result.state?.forceApply) {
+    const stateUpdatedAt = result.state?.updatedAt || null;
+    if (
+      stateUpdatedAt &&
+      getHandledNowStorageForceAt() === stateUpdatedAt &&
+      getSkippedNowStorageBackupAt() !== stateUpdatedAt
+    ) {
+      setSkippedNowStorageBackupAt(stateUpdatedAt);
+      console.log('[localDataBridge] now-storage backup skipped', {
+        reason: 'first-load-after-force-apply',
+        stateUpdatedAt,
+      });
+      return;
+    }
     await saveCurrentStorageToNowStorage();
     return;
   }
