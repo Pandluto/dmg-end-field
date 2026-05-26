@@ -17,10 +17,10 @@ const MIME_TYPES = {
   '.webp': 'image/webp',
 };
 
-function buildStaticHeaders(contentType, byteLength, isHtml) {
+function buildStaticHeaders(contentType, byteLength, isNoCache) {
   return {
     'Access-Control-Allow-Origin': '*',
-    'Cache-Control': isHtml ? 'no-cache' : 'public, max-age=31536000, immutable',
+    'Cache-Control': isNoCache ? 'no-cache' : 'public, max-age=31536000, immutable',
     'Content-Length': byteLength,
     'Content-Type': contentType,
   };
@@ -71,8 +71,10 @@ function tryServeDesktopApp({ method, requestUrl, response, distDir }) {
   const body = fs.readFileSync(filePath);
   const ext = path.extname(filePath).toLowerCase();
   const isHtml = useSpaFallback || ext === '.html';
+  const isShellAsset = normalizedPath === 'shell/index.html' || normalizedPath.startsWith('shell/');
+  const isNoCache = isHtml || isShellAsset;
   const contentType = MIME_TYPES[ext] || 'application/octet-stream';
-  sendBuffer(response, 200, buildStaticHeaders(contentType, body.length, isHtml), body, method);
+  sendBuffer(response, 200, buildStaticHeaders(contentType, body.length, isNoCache), body, method);
   return true;
 }
 

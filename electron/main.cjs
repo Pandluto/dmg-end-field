@@ -2,6 +2,7 @@ const fs = require('fs');
 const http = require('http');
 const os = require('os');
 const path = require('path');
+const { spawn } = require('child_process');
 const maa = require('@maaxyz/maa-node');
 const { tryServeDesktopApp } = require('./web-host.cjs');
 const {
@@ -446,8 +447,23 @@ function createShellWindow(options = {}) {
     shellWindow.loadURL(PROD_SHELL_URL);
   }
 
+  appendRuntimeLog('shell', `loadURL ${isDev ? DEV_SHELL_URL : PROD_SHELL_URL}`);
+
   shellWindow.webContents.on('did-finish-load', () => {
+    appendRuntimeLog('shell', `did-finish-load ${shellWindow.webContents.getURL()}`);
     lockWindowZoom(shellWindow);
+  });
+
+  shellWindow.webContents.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL) => {
+    appendRuntimeLog('shell', `did-fail-load ${errorCode} ${errorDescription || '-'} ${validatedURL || '-'}`);
+  });
+
+  shellWindow.webContents.on('console-message', (_event, level, message, line, sourceId) => {
+    appendRuntimeLog('shell-console', `${level} ${sourceId || '-'}:${line || 0} ${message}`);
+  });
+
+  shellWindow.webContents.on('render-process-gone', (_event, details) => {
+    appendRuntimeLog('shell', `render-process-gone ${JSON.stringify(details)}`);
   });
 
   if (startHidden) {
@@ -2148,11 +2164,66 @@ ipcMain.handle('desktop:write-equipment-library', (_event, payload) => {
 });
 
 function getLocalDataDirectory() {
-  return path.join(__dirname, '..', 'data', 'localdata');
+  if (isDev) {
+    return path.join(__dirname, '..', 'data', 'localdata');
+  }
+  return path.join(getRuntimeDataRoot(), 'localdata');
 }
 
 function getShareDataDirectory() {
+  if (isDev) {
+    return path.join(__dirname, '..', 'data', 'sharedata');
+  }
+  return path.join(getRuntimeDataRoot(), 'sharedata');
+}
+
+function getRuntimeDataRoot() {
+  const portableDir = process.env.PORTABLE_EXECUTABLE_DIR;
+  const executableDir = portableDir && portableDir.trim()
+    ? portableDir
+    : path.dirname(process.execPath);
+  return path.join(executableDir, 'data');
+}
+
+function getRuntimeLogDirectory() {
+  if (isDev) {
+    return path.join(__dirname, '..', 'data', 'logs');
+  }
+  return path.join(getRuntimeDataRoot(), 'logs');
+}
+
+function appendRuntimeLog(scope, message) {
+  try {
+    const dir = getRuntimeLogDirectory();
+    fs.mkdirSync(dir, { recursive: true });
+    const line = `${new Date().toISOString()} [${scope}] ${message}\n`;
+    fs.appendFileSync(path.join(dir, 'desktop.log'), line, 'utf-8');
+  } catch {
+    // Logging must never break app startup.
+  }
+}
+
+function getLegacyLocalDataDirectory() {
+  return path.join(__dirname, '..', 'data', 'localdata');
+}
+
+function getLegacyShareDataDirectory() {
   return path.join(__dirname, '..', 'data', 'sharedata');
+}
+
+function seedRuntimeDataDirectory(targetDir, legacyDir) {
+  if (isDev || fs.existsSync(targetDir) || !fs.existsSync(legacyDir)) {
+    return;
+  }
+  try {
+    fs.cpSync(legacyDir, targetDir, {
+      recursive: true,
+      force: false,
+      errorOnExist: false,
+    });
+  } catch {
+    // Packaged apps may not ship legacy data; runtime directories are created empty.
+  }
 }
 
 function getLocalDataStatePath() {
@@ -2174,12 +2245,14 @@ function sanitizeArchiveId(value) {
 
 function ensureLocalDataDirectory() {
   const dir = getLocalDataDirectory();
+  seedRuntimeDataDirectory(dir, getLegacyLocalDataDirectory());
   fs.mkdirSync(dir, { recursive: true });
   return dir;
 }
 
 function ensureShareDataDirectory() {
   const dir = getShareDataDirectory();
+  seedRuntimeDataDirectory(dir, getLegacyShareDataDirectory());
   fs.mkdirSync(dir, { recursive: true });
   return dir;
 }
@@ -2335,6 +2408,35 @@ function listLocalDataArchives() {
     ...listFromDirectory(ensureLocalDataDirectory(), 'local'),
   ]
     .sort((left, right) => String(right.updatedAt).localeCompare(String(left.updatedAt)));
+}
+
+async function openDirectoryInExplorer(directory) {
+  const resolved = path.resolve(directory);
+  fs.mkdirSync(resolved, { recursive: true });
+
+  if (process.platform === 'win32') {
+    try {
+      const child = spawn('explorer.exe', [resolved], {
+        detached: true,
+        stdio: 'ignore',
+        windowsHide: false,
+      });
+      child.unref();
+      return { ok: true, path: resolved };
+    } catch (error) {
+      const spawnMessage = error instanceof Error ? error.message : String(error);
+      const shellError = await shell.openPath(resolved);
+      if (shellError) {
+        return { ok: false, error: `${spawnMessage}; ${shellError}`, path: resolved };
+      }
+      return { ok: true, path: resolved };
+    }
+  }
+
+  const shellError = await shell.openPath(resolved);
+  return shellError
+    ? { ok: false, error: shellError, path: resolved }
+    : { ok: true, path: resolved };
 }
 
 function getMainWebContents() {
@@ -2674,11 +2776,18 @@ ipcMain.handle('desktop:delete-local-data-archive', (_event, payload) => {
 ipcMain.handle('desktop:reveal-local-data-archive', async (_event, payload) => {
   try {
     if (payload?.id || payload?.fileName) {
-      shell.showItemInFolder(resolveLocalDataPath(payload));
+      const filePath = resolveLocalDataPath(payload);
+      if (!fs.existsSync(filePath)) {
+        return { ok: false, error: '存档文件不存在', path: filePath };
+      }
+      shell.showItemInFolder(filePath);
+      return { ok: true, path: filePath };
     } else {
-      await shell.openPath(ensureShareDataDirectory());
+      const directory = payload?.storageScope === 'share'
+        ? ensureShareDataDirectory()
+        : ensureLocalDataDirectory();
+      return openDirectoryInExplorer(directory);
     }
-    return { ok: true, path: payload?.id || payload?.fileName ? resolveLocalDataPath(payload) : getShareDataDirectory() };
   } catch (error) {
     return { ok: false, error: error instanceof Error ? error.message : String(error) };
   }

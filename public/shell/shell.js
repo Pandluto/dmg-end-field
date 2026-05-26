@@ -25,10 +25,23 @@
   const LOCAL_BRIDGE_ORIGIN = 'http://127.0.0.1:31457';
 
   const appendLog = (line) => {
+    console.info(`[shell] ${line}`);
+    if (!logElement) {
+      return;
+    }
     const current = logElement.textContent ? `${logElement.textContent}\n` : '';
     logElement.textContent = `${current}${line}`;
     logElement.scrollTop = logElement.scrollHeight;
   };
+
+  window.addEventListener('error', (event) => {
+    appendLog(`Shell 脚本错误 | ${event.message || 'unknown'} | ${event.filename || '-'}:${event.lineno || 0}`);
+  });
+
+  window.addEventListener('unhandledrejection', (event) => {
+    const reason = event.reason instanceof Error ? event.reason.message : String(event.reason || 'unknown');
+    appendLog(`Shell 异步错误 | ${reason}`);
+  });
 
   const setStatus = (id, value) => {
     const target = document.getElementById(id);
@@ -492,6 +505,7 @@
   };
 
   const boot = async () => {
+    appendLog('Shell 初始化开始');
     if (!runtime) {
       appendLog('desktopRuntime 不可用；当前不是 Electron shell 环境。');
       return;
@@ -513,7 +527,10 @@
     await refreshArchives();
     await refreshCaptureSources();
     startCaptureFramePolling();
+    appendLog('Shell 初始化完成');
   };
+
+  appendLog('Shell 事件绑定开始');
 
   document.querySelectorAll('[data-action]').forEach((button) => {
     button.addEventListener('click', async () => {
@@ -740,5 +757,11 @@
     }
   });
 
-  boot();
+  appendLog('Shell 事件绑定完成');
+
+  boot().catch((error) => {
+    const message = error instanceof Error ? error.message : String(error);
+    setStatus('runtime-status', message);
+    appendLog(`Shell 初始化失败 | ${message}`);
+  });
 })();
