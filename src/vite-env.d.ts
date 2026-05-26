@@ -107,6 +107,7 @@ interface EquipmentLibraryFileOpResult {
 }
 
 type LocalDataSection = 'operators' | 'weapons' | 'equipments' | 'buffs' | 'timeline' | 'runtime' | 'all';
+type LocalDataStorageScope = 'local' | 'share';
 
 interface LocalDataArchivePayload {
   type: 'def.localdata.archive.v1';
@@ -128,6 +129,9 @@ interface LocalDataArchiveMeta {
   name: string;
   description?: string;
   fileName: string;
+  storageScope: LocalDataStorageScope;
+  archiveKey: string;
+  directory: string;
   path: string;
   createdAt?: string;
   exportedAt?: string;
@@ -158,6 +162,7 @@ interface LocalDataOpResult {
   path?: string;
   state?: {
     activeFileName: string | null;
+    activeStorageScope?: LocalDataStorageScope;
     updatedAt: string | null;
   };
   sections?: LocalDataSection[];
@@ -199,12 +204,12 @@ interface DesktopRuntimeBridge {
   readEquipmentLibrary?: () => Promise<EquipmentLibraryFileOpResult>;
   writeEquipmentLibrary?: (payload: unknown) => Promise<EquipmentLibraryFileOpResult>;
   listLocalDataArchives?: () => Promise<LocalDataOpResult>;
-  saveLocalDataArchive?: (payload: LocalDataArchivePayload) => Promise<LocalDataOpResult>;
-  readLocalDataArchive?: (payload: { id?: string; fileName?: string }) => Promise<LocalDataOpResult>;
-  deleteLocalDataArchive?: (payload: { id?: string; fileName?: string }) => Promise<LocalDataOpResult>;
-  revealLocalDataArchive?: (payload?: { id?: string; fileName?: string }) => Promise<LocalDataOpResult>;
+  saveLocalDataArchive?: (payload: LocalDataArchivePayload & { storageScope?: LocalDataStorageScope }) => Promise<LocalDataOpResult>;
+  readLocalDataArchive?: (payload: { id?: string; fileName?: string; storageScope?: LocalDataStorageScope }) => Promise<LocalDataOpResult>;
+  deleteLocalDataArchive?: (payload: { id?: string; fileName?: string; storageScope?: LocalDataStorageScope }) => Promise<LocalDataOpResult>;
+  revealLocalDataArchive?: (payload?: { id?: string; fileName?: string; storageScope?: LocalDataStorageScope }) => Promise<LocalDataOpResult>;
   requestLocalDataExport?: (options?: LocalDataRequestPayload['options']) => Promise<LocalDataOpResult>;
-  requestLocalDataImport?: (payload: { archive: LocalDataArchivePayload; fileName?: string; options?: LocalDataRequestPayload['options'] }) => Promise<LocalDataOpResult>;
+  requestLocalDataImport?: (payload: { archive: LocalDataArchivePayload; fileName?: string; storageScope?: LocalDataStorageScope; options?: LocalDataRequestPayload['options'] }) => Promise<LocalDataOpResult>;
   completeLocalDataExport?: (payload: LocalDataOpResult & { requestId: string }) => Promise<LocalDataOpResult>;
   completeLocalDataImport?: (payload: LocalDataOpResult & { requestId: string }) => Promise<LocalDataOpResult>;
   onLocalDataExportRequest?: (handler: (payload: LocalDataRequestPayload) => void | Promise<void>) => () => void;

@@ -15,8 +15,8 @@
   let latestCaptureFrameStamp = 0;
   let lastCaptureMetaMarkup = '';
   let archiveList = [];
-  let selectedArchiveFileName = null;
-  let activeArchiveFileName = null;
+  let selectedArchiveKey = null;
+  let activeArchiveKey = null;
   let isApplyingArchive = false;
   const statusCache = new Map();
   const SHELL_STORAGE_KEYS = {
@@ -113,30 +113,39 @@
     "'": '&#39;',
   }[char]));
 
+  const getArchiveKey = (item) => item?.archiveKey || `${item?.storageScope || 'local'}:${item?.fileName || ''}`;
+
+  const findSelectedArchive = () => archiveList.find((item) => getArchiveKey(item) === selectedArchiveKey) || null;
+
   const renderArchiveList = () => {
     const listElement = document.getElementById('archive-list');
     if (!listElement) return;
     if (archiveList.length === 0) {
-      listElement.innerHTML = '<div class="status">data/localdata 暂无存档</div>';
-      selectedArchiveFileName = null;
+      listElement.innerHTML = '<div class="status">data/sharedata 暂无共享存档</div>';
+      selectedArchiveKey = null;
       return;
     }
-    listElement.innerHTML = archiveList.map((item) => `
-      <button type="button" class="archive-item${item.fileName === selectedArchiveFileName ? ' is-active' : ''}" data-archive="${escapeHtml(item.fileName)}">
+    listElement.innerHTML = archiveList.map((item) => {
+      const archiveKey = getArchiveKey(item);
+      const scopeLabel = item.storageScope === 'share' ? 'sharedata' : 'localdata';
+      return `
+      <button type="button" class="archive-item${archiveKey === selectedArchiveKey ? ' is-active' : ''}" data-archive="${escapeHtml(archiveKey)}">
         <div class="archive-title">
-          <span>${escapeHtml(item.name || item.id)}${item.fileName === activeArchiveFileName ? ' · 当前' : ''}</span>
+          <span>[${escapeHtml(scopeLabel)}] ${escapeHtml(item.name || item.id)}${archiveKey === activeArchiveKey ? ' · 当前' : ''}</span>
           <span>${escapeHtml(formatBytes(item.size))}</span>
         </div>
         <div class="archive-meta">
           ${escapeHtml(item.fileName)}<br />
           分组：${escapeHtml((item.sections || []).join(' / ') || '-')} · local ${escapeHtml(item.localKeys || 0)} · session ${escapeHtml(item.sessionKeys || 0)}<br />
+          路径：${escapeHtml(item.path || item.directory || '')}<br />
           ${escapeHtml(item.updatedAt || '')}
         </div>
       </button>
-    `).join('');
+    `;
+    }).join('');
     listElement.querySelectorAll('[data-archive]').forEach((button) => {
       button.addEventListener('click', () => {
-        selectedArchiveFileName = button.getAttribute('data-archive');
+        selectedArchiveKey = button.getAttribute('data-archive');
         renderArchiveList();
       });
     });
@@ -154,15 +163,17 @@
       return;
     }
     archiveList = result.archives || [];
-    activeArchiveFileName = result.state?.activeFileName || null;
-    if (!selectedArchiveFileName && archiveList[0]) {
-      selectedArchiveFileName = archiveList[0].fileName;
+    activeArchiveKey = result.state?.activeFileName
+      ? `${result.state?.activeStorageScope || 'local'}:${result.state.activeFileName}`
+      : null;
+    if (!selectedArchiveKey && archiveList[0]) {
+      selectedArchiveKey = getArchiveKey(archiveList[0]);
     }
-    if (selectedArchiveFileName && !archiveList.some((item) => item.fileName === selectedArchiveFileName)) {
-      selectedArchiveFileName = archiveList[0]?.fileName || null;
+    if (selectedArchiveKey && !archiveList.some((item) => getArchiveKey(item) === selectedArchiveKey)) {
+      selectedArchiveKey = archiveList[0] ? getArchiveKey(archiveList[0]) : null;
     }
     renderArchiveList();
-    setStatus('localdata-status', `桌面端当前引用：${activeArchiveFileName || '未设置'}；已读取 ${archiveList.length} 个存档`);
+    setStatus('localdata-status', `桌面端当前引用：${activeArchiveKey || '未设置'}；已读取 ${archiveList.length} 个存档`);
   };
 
   const exportArchive = async () => {
@@ -188,14 +199,16 @@
       return;
     }
     const archive = cloneNowStorageArchiveForSave(nowStorage.archive, name, description);
-    const saved = await runtime.saveLocalDataArchive(archive);
+    const saved = await runtime.saveLocalDataArchive({ ...archive, storageScope: 'share' });
     if (!saved.ok) {
       setStatus('localdata-status', saved.error || '保存存档失败');
       appendLog(`本地存档 | 保存失败 | ${saved.error || '-'}`);
       return;
     }
-    selectedArchiveFileName = saved.meta?.fileName || null;
-    activeArchiveFileName = saved.state?.activeFileName || selectedArchiveFileName;
+    selectedArchiveKey = saved.meta ? getArchiveKey(saved.meta) : null;
+    activeArchiveKey = saved.state?.activeFileName
+      ? `${saved.state?.activeStorageScope || 'local'}:${saved.state.activeFileName}`
+      : selectedArchiveKey;
     appendLog(`本地存档 | 已保存 | ${saved.path}`);
     await refreshArchives();
   };
@@ -205,7 +218,8 @@
       setStatus('localdata-status', '同步正在进行，请稍候');
       return;
     }
-    if (!selectedArchiveFileName) {
+    const selectedArchive = findSelectedArchive();
+    if (!selectedArchive) {
       setStatus('localdata-status', '请先选择一个存档');
       return;
     }
@@ -215,7 +229,10 @@
     }
     const sections = getCheckedSections('import-sections');
     setStatus('localdata-status', '正在读取存档并写入 now-storage...');
-    const loaded = await runtime.readLocalDataArchive({ fileName: selectedArchiveFileName });
+    const loaded = await runtime.readLocalDataArchive({
+      fileName: selectedArchive.fileName,
+      storageScope: selectedArchive.storageScope,
+    });
     if (!loaded.ok || !loaded.archive) {
       setStatus('localdata-status', loaded.error || '读取存档失败');
       appendLog(`本地存档 | 读取失败 | ${loaded.error || '-'}`);
@@ -246,7 +263,8 @@
       try {
         desktopImport = await runtime.requestLocalDataImport({
           archive: loaded.archive,
-          fileName: selectedArchiveFileName,
+          fileName: selectedArchive.fileName,
+          storageScope: selectedArchive.storageScope,
           options: { sections, reload: true },
         });
       } catch (error) {
@@ -256,15 +274,17 @@
         };
       }
     }
-    activeArchiveFileName = desktopImport?.state?.activeFileName || selectedArchiveFileName;
+    activeArchiveKey = desktopImport?.state?.activeFileName
+      ? `${desktopImport.state?.activeStorageScope || selectedArchive.storageScope || 'local'}:${desktopImport.state.activeFileName}`
+      : getArchiveKey(selectedArchive);
     const writtenKeys = (desktopImport?.localKeys || 0) + (desktopImport?.sessionKeys || 0);
     const removedKeys = (desktopImport?.removedLocalKeys || 0) + (desktopImport?.removedSessionKeys || 0);
     setStatus(
       'localdata-status',
-      `now-storage 已替换并等待浏览器下次打开/F5应用；桌面写入 ${writtenKeys}，清理 ${removedKeys}；当前引用：${activeArchiveFileName}`,
+      `now-storage 已替换并等待浏览器下次打开/F5应用；桌面写入 ${writtenKeys}，清理 ${removedKeys}；当前引用：${activeArchiveKey}`,
     );
     appendLog(
-      `本地存档 | 已写入 now-storage | ${selectedArchiveFileName} | ${sections.join(' / ')} | 桌面写入 ${writtenKeys} 清理 ${removedKeys}${desktopImport?.ok === false ? ` | 桌面导入失败：${desktopImport.error || '-'}` : ''}`,
+      `本地存档 | 已写入 now-storage | ${getArchiveKey(selectedArchive)} | ${sections.join(' / ')} | 桌面写入 ${writtenKeys} 清理 ${removedKeys}${desktopImport?.ok === false ? ` | 桌面导入失败：${desktopImport.error || '-'}` : ''}`,
     );
     window.setTimeout(() => {
       isApplyingArchive = false;
@@ -272,7 +292,8 @@
   };
 
   const deleteArchive = async () => {
-    if (!selectedArchiveFileName) {
+    const selectedArchive = findSelectedArchive();
+    if (!selectedArchive) {
       setStatus('localdata-status', '请先选择一个存档');
       return;
     }
@@ -280,14 +301,17 @@
       setStatus('localdata-status', '当前运行时不支持删除存档');
       return;
     }
-    const result = await runtime.deleteLocalDataArchive({ fileName: selectedArchiveFileName });
+    const result = await runtime.deleteLocalDataArchive({
+      fileName: selectedArchive.fileName,
+      storageScope: selectedArchive.storageScope,
+    });
     if (!result.ok) {
       setStatus('localdata-status', result.error || '删除失败');
       appendLog(`本地存档 | 删除失败 | ${result.error || '-'}`);
       return;
     }
-    appendLog(`本地存档 | 已删除 | ${selectedArchiveFileName}`);
-    selectedArchiveFileName = null;
+    appendLog(`本地存档 | 已删除 | ${getArchiveKey(selectedArchive)}`);
+    selectedArchiveKey = null;
     await refreshArchives();
   };
 

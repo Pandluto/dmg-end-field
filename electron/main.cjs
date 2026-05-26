@@ -887,6 +887,7 @@ function startBridgeServer() {
         writeJson(response, 200, {
           ok: true,
           path: getLocalDataDirectory(),
+          sharePath: getShareDataDirectory(),
           state: readLocalDataState(),
           archives: listLocalDataArchives(),
         });
@@ -905,7 +906,10 @@ function startBridgeServer() {
           });
           return;
         }
-        const filePath = resolveLocalDataPath({ fileName: state.activeFileName });
+        const filePath = resolveLocalDataPath({
+          fileName: state.activeFileName,
+          storageScope: state.activeStorageScope,
+        });
         const archive = readLocalDataArchiveFile(filePath);
         writeJson(response, 200, {
           ok: true,
@@ -920,7 +924,8 @@ function startBridgeServer() {
       if (method === 'GET' && requestUrl.pathname === '/local-data/read') {
         const fileName = requestUrl.searchParams.get('fileName') || undefined;
         const id = requestUrl.searchParams.get('id') || undefined;
-        const filePath = resolveLocalDataPath({ fileName, id });
+        const storageScope = requestUrl.searchParams.get('storageScope') || requestUrl.searchParams.get('source') || undefined;
+        const filePath = resolveLocalDataPath({ fileName, id, storageScope });
         const archive = readLocalDataArchiveFile(filePath);
         writeJson(response, 200, {
           ok: true,
@@ -977,16 +982,18 @@ function startBridgeServer() {
           writeJson(response, 400, { ok: false, error: '存档 payload 无效' });
           return;
         }
+        const { storageScope: requestedStorageScope, source, scope, ...archivePayload } = payload;
         const archive = {
-          ...payload,
+          ...archivePayload,
           id: sanitizeArchiveId(payload.id || payload.name),
           name: typeof payload.name === 'string' && payload.name.trim()
             ? payload.name.trim()
             : sanitizeArchiveId(payload.id),
         };
-        const filePath = resolveLocalDataPath({ id: archive.id });
+        const storageScope = requestedStorageScope === 'local' || source === 'local' || scope === 'local' ? 'local' : 'share';
+        const filePath = resolveLocalDataPath({ id: archive.id, storageScope });
         fs.writeFileSync(filePath, `${JSON.stringify(archive, null, 2)}\n`, 'utf-8');
-        const state = writeLocalDataState(path.basename(filePath));
+        const state = writeLocalDataState(path.basename(filePath), storageScope);
         writeJson(response, 200, {
           ok: true,
           path: filePath,
@@ -2144,6 +2151,10 @@ function getLocalDataDirectory() {
   return path.join(__dirname, '..', 'data', 'localdata');
 }
 
+function getShareDataDirectory() {
+  return path.join(__dirname, '..', 'data', 'sharedata');
+}
+
 function getLocalDataStatePath() {
   return path.join(getLocalDataDirectory(), 'active-localdata.json');
 }
@@ -2167,26 +2178,38 @@ function ensureLocalDataDirectory() {
   return dir;
 }
 
+function ensureShareDataDirectory() {
+  const dir = getShareDataDirectory();
+  fs.mkdirSync(dir, { recursive: true });
+  return dir;
+}
+
+function getArchiveDirectory(storageScope = 'local') {
+  return storageScope === 'share' ? ensureShareDataDirectory() : ensureLocalDataDirectory();
+}
+
 function readLocalDataState() {
   try {
     const filePath = getLocalDataStatePath();
     if (!fs.existsSync(filePath)) {
-      return { activeFileName: null, updatedAt: null };
+      return { activeFileName: null, activeStorageScope: 'local', updatedAt: null };
     }
     const parsed = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
     return {
       activeFileName: typeof parsed.activeFileName === 'string' ? parsed.activeFileName : null,
+      activeStorageScope: parsed.activeStorageScope === 'share' ? 'share' : 'local',
       updatedAt: typeof parsed.updatedAt === 'string' ? parsed.updatedAt : null,
     };
   } catch {
-    return { activeFileName: null, updatedAt: null };
+    return { activeFileName: null, activeStorageScope: 'local', updatedAt: null };
   }
 }
 
-function writeLocalDataState(activeFileName) {
+function writeLocalDataState(activeFileName, activeStorageScope = 'local') {
   ensureLocalDataDirectory();
   const state = {
     activeFileName,
+    activeStorageScope: activeStorageScope === 'share' ? 'share' : 'local',
     updatedAt: new Date().toISOString(),
   };
   fs.writeFileSync(getLocalDataStatePath(), `${JSON.stringify(state, null, 2)}\n`, 'utf-8');
@@ -2240,7 +2263,7 @@ function writeNowStorageArchive(archive) {
 }
 
 function resolveLocalDataPath(payload = {}) {
-  const dir = ensureLocalDataDirectory();
+  const dir = getArchiveDirectory(payload.storageScope || payload.source || payload.scope || 'local');
   const fileName = sanitizeArchiveId(payload.fileName || payload.id || '');
   const normalizedFileName = fileName.toLowerCase().endsWith('.json') ? fileName : `${fileName}.json`;
   const resolved = path.resolve(dir, normalizedFileName);
@@ -2253,11 +2276,19 @@ function resolveLocalDataPath(payload = {}) {
 
 function buildLocalDataMeta(filePath, archive) {
   const stat = fs.statSync(filePath);
+  const localRoot = path.resolve(getLocalDataDirectory());
+  const shareRoot = path.resolve(getShareDataDirectory());
+  const resolved = path.resolve(filePath);
+  const storageScope = resolved.startsWith(shareRoot + path.sep) ? 'share' : 'local';
+  const directory = storageScope === 'share' ? shareRoot : localRoot;
   return {
     id: archive?.id || path.basename(filePath, '.json'),
     name: archive?.name || path.basename(filePath, '.json'),
     description: archive?.description,
     fileName: path.basename(filePath),
+    storageScope,
+    archiveKey: `${storageScope}:${path.basename(filePath)}`,
+    directory,
     path: filePath,
     createdAt: archive?.createdAt,
     exportedAt: archive?.exportedAt,
@@ -2278,8 +2309,7 @@ function readLocalDataArchiveFile(filePath) {
 }
 
 function listLocalDataArchives() {
-  const dir = ensureLocalDataDirectory();
-  return fs.readdirSync(dir)
+  const listFromDirectory = (dir, storageScope) => fs.readdirSync(dir)
     .filter((fileName) => {
       const lowerName = fileName.toLowerCase();
       return lowerName.endsWith('.json') &&
@@ -2299,7 +2329,11 @@ function listLocalDataArchives() {
           storage: { local: {}, session: {} },
         });
       }
-    })
+    });
+  return [
+    ...listFromDirectory(ensureShareDataDirectory(), 'share'),
+    ...listFromDirectory(ensureLocalDataDirectory(), 'local'),
+  ]
     .sort((left, right) => String(right.updatedAt).localeCompare(String(left.updatedAt)));
 }
 
@@ -2531,6 +2565,7 @@ ipcMain.handle('desktop:list-local-data-archives', () => {
     return {
       ok: true,
       path: getLocalDataDirectory(),
+      sharePath: getShareDataDirectory(),
       state: readLocalDataState(),
       archives: listLocalDataArchives(),
     };
@@ -2544,14 +2579,16 @@ ipcMain.handle('desktop:save-local-data-archive', (_event, payload) => {
     if (!payload || payload.type !== 'def.localdata.archive.v1') {
       return { ok: false, error: '存档 payload 无效' };
     }
+    const { storageScope: requestedStorageScope, source, scope, ...archivePayload } = payload;
     const archive = {
-      ...payload,
+      ...archivePayload,
       id: sanitizeArchiveId(payload.id || payload.name),
       name: typeof payload.name === 'string' && payload.name.trim() ? payload.name.trim() : sanitizeArchiveId(payload.id),
     };
-    const filePath = resolveLocalDataPath({ id: archive.id });
+    const storageScope = requestedStorageScope === 'local' || source === 'local' || scope === 'local' ? 'local' : 'share';
+    const filePath = resolveLocalDataPath({ id: archive.id, storageScope });
     fs.writeFileSync(filePath, `${JSON.stringify(archive, null, 2)}\n`, 'utf-8');
-    const state = writeLocalDataState(path.basename(filePath));
+    const state = writeLocalDataState(path.basename(filePath), storageScope);
     return { ok: true, path: filePath, meta: buildLocalDataMeta(filePath, archive), state };
   } catch (error) {
     return { ok: false, error: error instanceof Error ? error.message : String(error) };
@@ -2585,9 +2622,9 @@ ipcMain.handle('desktop:reveal-local-data-archive', async (_event, payload) => {
     if (payload?.id || payload?.fileName) {
       shell.showItemInFolder(resolveLocalDataPath(payload));
     } else {
-      await shell.openPath(ensureLocalDataDirectory());
+      await shell.openPath(ensureShareDataDirectory());
     }
-    return { ok: true, path: getLocalDataDirectory() };
+    return { ok: true, path: payload?.id || payload?.fileName ? resolveLocalDataPath(payload) : getShareDataDirectory() };
   } catch (error) {
     return { ok: false, error: error instanceof Error ? error.message : String(error) };
   }
@@ -2611,7 +2648,8 @@ ipcMain.handle('desktop:request-local-data-import', async (_event, payload) => {
       const archiveId = payload.archive.id || payload.fileName;
       const fileName = payload.fileName || (archiveId ? `${sanitizeArchiveId(archiveId)}.json` : null);
       if (fileName) {
-        result.state = writeLocalDataState(fileName);
+        const storageScope = payload.storageScope === 'share' || payload.source === 'share' || payload.scope === 'share' ? 'share' : 'local';
+        result.state = writeLocalDataState(fileName, storageScope);
       }
       reloadMainWindowAfterLocalDataImport();
     }

@@ -79,7 +79,6 @@ const REQUIRED_CURRENT_SESSION_KEYS_BY_SECTION: Partial<Record<Exclude<LocalData
 };
 
 const LOCAL_DATA_BRIDGE_ORIGIN = 'http://127.0.0.1:31457';
-const NOW_STORAGE_APPLY_MARKER_KEY = '__def.localdata.now-storage-apply.v1';
 const NOW_STORAGE_HANDLED_FORCE_AT_KEY = '__def.localdata.now-storage-handled-force-at.v1';
 const NOW_STORAGE_SKIPPED_BACKUP_AT_KEY = '__def.localdata.now-storage-skipped-backup-at.v1';
 const NOW_STORAGE_RELOAD_COUNT_KEY = '__def.localdata.now-storage-reload-count.v1';
@@ -89,14 +88,6 @@ const NOW_STORAGE_RELOAD_DEBOUNCE_MS = 5000;
 let isIpcBridgeInstalled = false;
 let isNowStorageBridgeStarted = false;
 let scheduledNowStorageReloadTimer: number | null = null;
-
-function getNowStorageApplyMarker(): string | null {
-  try {
-    return window.sessionStorage.getItem(NOW_STORAGE_APPLY_MARKER_KEY);
-  } catch {
-    return null;
-  }
-}
 
 function getStorage(area: StorageAreaName): Storage | null {
   if (typeof window === 'undefined') return null;
@@ -312,37 +303,6 @@ function makeArchiveContentSignature(archive: LocalDataArchive): string {
   });
 }
 
-function buildCurrentStorageArchiveLike(sections: LocalDataSection[]): LocalDataArchive {
-  return {
-    type: 'def.localdata.archive.v1',
-    schemaVersion: 1,
-    id: 'current-storage',
-    name: 'current-storage',
-    createdAt: '',
-    exportedAt: '',
-    sections,
-    storage: {
-      local: collectStorage('local', sections),
-      session: collectStorage('session', sections),
-    },
-  };
-}
-
-function doesCurrentStorageMatchArchive(archive: LocalDataArchive): boolean {
-  const sections = uniqueSections(archive.sections);
-  const archiveLike = buildCurrentStorageArchiveLike(sections);
-  archiveLike.storage.local = filterStorageValues('local', archiveLike.storage.local, sections);
-  archiveLike.storage.session = filterStorageValues('session', archiveLike.storage.session, sections);
-  return makeArchiveContentSignature(archiveLike) === makeArchiveContentSignature({
-    ...archive,
-    sections,
-    storage: {
-      local: filterStorageValues('local', archive.storage?.local, sections),
-      session: filterStorageValues('session', archive.storage?.session, sections),
-    },
-  });
-}
-
 async function fetchBridgeJson<T>(path: string, init?: RequestInit): Promise<T | null> {
   if (typeof window === 'undefined' || typeof window.fetch !== 'function') {
     return null;
@@ -358,14 +318,6 @@ async function fetchBridgeJson<T>(path: string, init?: RequestInit): Promise<T |
     return await response.json() as T;
   } catch {
     return null;
-  }
-}
-
-function setNowStorageApplyMarker(marker: string): void {
-  try {
-    window.sessionStorage.setItem(NOW_STORAGE_APPLY_MARKER_KEY, marker);
-  } catch {
-    // Ignore marker write failures; the archive has already been applied.
   }
 }
 
@@ -474,6 +426,14 @@ function scheduleNowStorageReload(reason: string): void {
   }, NOW_STORAGE_RELOAD_DEBOUNCE_MS);
 }
 
+function scheduleImmediateReload(reason: string): void {
+  console.log('[localDataBridge] now-storage reload scheduled', {
+    reason,
+    mode: 'bootstrap',
+  });
+  window.setTimeout(() => window.location.reload(), 0);
+}
+
 async function saveCurrentStorageToNowStorage(): Promise<void> {
   const archive = buildArchive({
     id: 'now-storage',
@@ -502,7 +462,7 @@ async function setNowStorageForceApply(forceApply: boolean): Promise<void> {
   }
 }
 
-async function syncNowStorageFromLocalBridge(): Promise<void> {
+async function syncNowStorageFromLocalBridge(options: { reloadMode?: 'scheduled' | 'immediate' } = {}): Promise<boolean> {
   const result = await fetchBridgeJson<{
     ok: boolean;
     error?: string;
@@ -511,10 +471,16 @@ async function syncNowStorageFromLocalBridge(): Promise<void> {
   }>('/local-data/now-storage');
 
   if (!result?.ok) {
-    return;
+    console.log('[localDataBridge] now-storage startup', {
+      ok: false,
+      action: 'skip',
+      reason: 'bridge-read-failed',
+    });
+    return false;
   }
 
-  console.log('[localDataBridge] now-storage forceApply', {
+  console.log('[localDataBridge] now-storage startup', {
+    ok: true,
     forceApply: Boolean(result.state?.forceApply),
     stateUpdatedAt: result.state?.updatedAt ?? null,
     hasArchive: Boolean(result.archive),
@@ -529,30 +495,34 @@ async function syncNowStorageFromLocalBridge(): Promise<void> {
     ) {
       setSkippedNowStorageBackupAt(stateUpdatedAt);
       console.log('[localDataBridge] now-storage backup skipped', {
+        action: 'skip-backup',
+        forceApply: false,
         reason: 'first-load-after-force-apply',
         stateUpdatedAt,
       });
-      return;
+      return false;
     }
+    console.log('[localDataBridge] now-storage action', {
+      action: 'save-browser-to-now-storage',
+      forceApply: false,
+      stateUpdatedAt,
+    });
     await saveCurrentStorageToNowStorage();
-    return;
+    return false;
   }
+
+  console.log('[localDataBridge] now-storage action', {
+    action: 'apply-now-storage-to-browser',
+    forceApply: true,
+    stateUpdatedAt: result.state.updatedAt,
+  });
 
   const forceUpdatedAt = result.state.updatedAt || 'unknown';
   const handledForceAt = getHandledNowStorageForceAt();
-  if (handledForceAt === forceUpdatedAt) {
-    console.log('[localDataBridge] now-storage forceApply skipped', {
-      reason: 'handled-updatedAt',
-      forceUpdatedAt,
-    });
-    await setNowStorageForceApply(false).catch(() => undefined);
-    return;
-  }
-
   if (!result.archive) {
     setHandledNowStorageForceAt(forceUpdatedAt);
     await setNowStorageForceApply(false);
-    return;
+    return false;
   }
 
   const marker = makeArchiveContentSignature(result.archive);
@@ -564,21 +534,17 @@ async function syncNowStorageFromLocalBridge(): Promise<void> {
     handledForceAt,
     reloadCount,
   });
-  if (getNowStorageApplyMarker() === marker) {
-    setHandledNowStorageForceAt(forceUpdatedAt);
+  if (handledForceAt === forceUpdatedAt) {
+    console.log('[localDataBridge] now-storage forceApply skipped', {
+      reason: 'handled-updatedAt',
+      forceUpdatedAt,
+    });
     await setNowStorageForceApply(false).catch(() => undefined);
-    return;
-  }
-  if (doesCurrentStorageMatchArchive(result.archive)) {
-    setNowStorageApplyMarker(marker);
-    setHandledNowStorageForceAt(forceUpdatedAt);
-    await setNowStorageForceApply(false).catch(() => undefined);
-    return;
+    return false;
   }
 
   try {
     applyArchive(result.archive, { sections: result.archive.sections, reload: false });
-    setNowStorageApplyMarker(marker);
     setHandledNowStorageForceAt(forceUpdatedAt);
     await setNowStorageForceApply(false).catch(() => undefined);
     if (reloadCount >= 1) {
@@ -587,43 +553,50 @@ async function syncNowStorageFromLocalBridge(): Promise<void> {
         syncKey,
         reloadCount,
       });
-      return;
+      return false;
     }
     setNowStorageReloadCount(syncKey, reloadCount + 1);
     console.log('[localDataBridge] now-storage reload scheduled', {
       syncKey,
       nextReloadCount: reloadCount + 1,
     });
-    scheduleNowStorageReload('forceApply');
+    if (options.reloadMode === 'immediate') {
+      scheduleImmediateReload('forceApply');
+    } else {
+      scheduleNowStorageReload('forceApply');
+    }
+    return true;
   } catch (error) {
     console.warn(
       '[localDataBridge] now-storage 同步失败',
       error instanceof Error ? error.message : error,
     );
+    return false;
   }
 }
 
-function installNowStorageBridge(): void {
-  if (isNowStorageBridgeStarted || typeof window === 'undefined') {
-    return;
+export async function bootstrapLocalDataBridge(): Promise<{ shouldRender: boolean }> {
+  if (typeof window === 'undefined') {
+    return { shouldRender: true };
   }
-
-  const runtime = window.desktopRuntime;
-  if (runtime) {
-    return;
+  if (window.desktopRuntime) {
+    return { shouldRender: true };
+  }
+  if (isNowStorageBridgeStarted) {
+    return { shouldRender: true };
   }
 
   isNowStorageBridgeStarted = true;
-  window.setTimeout(() => {
-    syncNowStorageFromLocalBridge().catch((error) => {
-      console.warn('[localDataBridge] now-storage 检查失败', error);
-    });
-  }, 200);
+  try {
+    const reloadScheduled = await syncNowStorageFromLocalBridge({ reloadMode: 'immediate' });
+    return { shouldRender: !reloadScheduled };
+  } catch (error) {
+    console.warn('[localDataBridge] now-storage bootstrap 失败', error);
+    return { shouldRender: true };
+  }
 }
 
 export function installLocalDataBridge(): void {
-  installNowStorageBridge();
-
   if (isIpcBridgeInstalled) {
     return;
   }
