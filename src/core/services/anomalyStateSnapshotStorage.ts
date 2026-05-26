@@ -14,12 +14,48 @@ const EMPTY_ARCHIVE: AnomalyStateSnapshotArchive = {
   snapshots: [],
 };
 
+function calculateStateEffectEnhancement(sourceSkillStrength: number): number {
+  return sourceSkillStrength > 0
+    ? (2 * sourceSkillStrength) / (sourceSkillStrength + 300)
+    : 0;
+}
+
+function resolveRateByLevel(level: number, values: number[]): number {
+  return values[Math.min(Math.max(level - 1, 0), values.length - 1)] ?? values[0] ?? 0;
+}
+
+function normalizeSnapshotEffect(snapshot: AnomalyStateSnapshot): AnomalyStateSnapshot {
+  const effectEnhancement = calculateStateEffectEnhancement(snapshot.sourceSkillStrengthSnapshot);
+
+  if (snapshot.key === 'conductive') {
+    const baseRate = resolveRateByLevel(snapshot.level, [0.12, 0.16, 0.2, 0.24]);
+    const effectValue = baseRate * (1 + effectEnhancement);
+    return {
+      ...snapshot,
+      effectValue,
+      secondaryText: `快照效果: ${(effectValue * 100).toFixed(1)}% 法术易伤`,
+    };
+  }
+
+  if (snapshot.key === 'armor-break') {
+    const baseRate = resolveRateByLevel(snapshot.level, [0.12, 0.16, 0.2, 0.24]);
+    const effectValue = baseRate * (1 + effectEnhancement);
+    return {
+      ...snapshot,
+      effectValue,
+      secondaryText: `快照效果: ${(effectValue * 100).toFixed(1)}% 物伤易伤`,
+    };
+  }
+
+  return snapshot;
+}
+
 function normalizeSnapshot(snapshot: AnomalyStateSnapshot): AnomalyStateSnapshot {
-  return {
+  return normalizeSnapshotEffect({
     ...snapshot,
     durationSeconds: typeof snapshot.durationSeconds === 'number' ? snapshot.durationSeconds : undefined,
     tertiaryText: snapshot.tertiaryText?.trim() || undefined,
-  };
+  });
 }
 
 export function getAnomalyStateSnapshotArchive(): AnomalyStateSnapshotArchive {

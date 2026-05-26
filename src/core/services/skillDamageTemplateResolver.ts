@@ -1,6 +1,19 @@
 import type { SkillButton as SkillButtonType } from '../../types';
 import type { ResolvedHitTemplate, ResolvedSkillDamageTemplate } from '../calculators/skillDamage.types';
-import { getRuntimeOperatorTemplateById } from '../../utils/storage';
+import { getCharacterInput, getRuntimeOperatorTemplateById } from '../../utils/storage';
+
+type LeveledHit = {
+  multiplier: number;
+  levels?: Record<string, number>;
+};
+
+function resolveSkillLevelMode(button: SkillButtonType): string {
+  return getCharacterInput(button.characterId)?.skillLevels?.[button.skillType] ?? 'M3';
+}
+
+function resolveHitMultiplier(hit: LeveledHit, levelKey: string): number {
+  return hit.levels?.[levelKey] ?? hit.multiplier;
+}
 
 function normalizeHits(
   button: SkillButtonType,
@@ -10,9 +23,11 @@ function normalizeHits(
     key: string;
     displayName: string;
     multiplier: number;
+    levels?: Record<string, number>;
     element: SkillButtonType['element'];
     skillType: SkillButtonType['skillType'];
-  }>
+  }>,
+  levelKey = resolveSkillLevelMode(button)
 ): ResolvedSkillDamageTemplate {
   return {
     characterId: button.characterId,
@@ -23,7 +38,7 @@ function normalizeHits(
     hits: hits.map((hit): ResolvedHitTemplate => ({
       key: hit.key,
       displayName: hit.displayName,
-      multiplier: hit.multiplier,
+      multiplier: resolveHitMultiplier(hit, levelKey),
       element: (hit.element ?? button.element ?? 'physical') as ResolvedHitTemplate['element'],
       skillType: hit.skillType,
     })),
@@ -63,6 +78,7 @@ export function resolveSkillDamageTemplate(
           key: hit.key,
           displayName: hit.displayName,
           multiplier: hit.multiplier,
+          levels: hit.levels,
           element: hit.element,
           skillType: hit.skillType,
         }))

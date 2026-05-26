@@ -5,11 +5,16 @@ import type {
 } from './damageExcelModel.ts';
 import { STORAGE_KEYS } from '../../constants/storage-keys.ts';
 import type { ConfigSnapshot, PanelCalcSnapshot } from '../../core/calculators/operatorPanelCalculator.ts';
-import type { SkillButtonBuff } from '../../types/storage.ts';
+import { buildAnomalyStateDerivedBuffs, buildAnomalyStateSnapshotBuffs } from '../../core/services/anomalyStateBuffs.ts';
+import { getAnomalyStateSnapshotsByIds } from '../../core/services/anomalyStateSnapshotStorage.ts';
+import type { PersistedSkillButton, SkillButtonBuff } from '../../types/storage.ts';
 
 type BuffCellRefMap = Map<string, { type: string; cellRef: string; value: number }>;
 type BuffCellRef = NonNullable<ReturnType<BuffCellRefMap['get']>>;
 type RuntimeBuff = SkillButtonBuff & Record<string, unknown>;
+type RuntimeHitResult = DamageExcelHitRow['detail']['hitResult'] & {
+  appliedBuffs?: SkillButtonBuff[];
+};
 type CalcCellRefMap = Map<string, Map<string, string>>;
 type SourceCellRefMap = Map<string, Map<string, string>>;
 
@@ -551,9 +556,45 @@ function addBuffCellRef(refs: BuffCellRefMap, buffId: string, type: string, cell
   refs.set(buffId, { type, cellRef, value });
 }
 
+function buildAnomalyStateBuffsForButton(button: PersistedSkillButton | undefined): SkillButtonBuff[] {
+  if (!button) {
+    return [];
+  }
+
+  const anomalyStatuses = button.anomalyConfig?.selectedStatuses ?? [];
+  const anomalyStateSnapshots = getAnomalyStateSnapshotsByIds(button.anomalyConfig?.selectedStateSnapshotIds ?? []);
+  return [
+    ...buildAnomalyStateDerivedBuffs(anomalyStatuses, button.skillType),
+    ...buildAnomalyStateSnapshotBuffs(anomalyStateSnapshots),
+  ];
+}
+
+function mergeBuffsById(...buffLists: SkillButtonBuff[][]): SkillButtonBuff[] {
+  const merged = new Map<string, SkillButtonBuff>();
+  buffLists.flat().forEach((buff) => {
+    merged.set(buff.id, buff);
+  });
+  return Array.from(merged.values());
+}
+
+function buildExportBuffList(input: BuildDamageExcelWorkbookInput): SkillButtonBuff[] {
+  return mergeBuffsById(
+    input.allBuffList ?? [],
+    ...Object.values(input.skillButtonTable ?? {}).map((button) => buildAnomalyStateBuffsForButton(button)),
+  );
+}
+
 function getSelectedBuffIdsForHit(input: BuildDamageExcelWorkbookInput, hitRow: DamageExcelHitRow): string[] {
+  const appliedBuffs = (hitRow.detail.hitResult as RuntimeHitResult).appliedBuffs;
+  if (appliedBuffs) {
+    return appliedBuffs.map((buff) => buff.id);
+  }
+
   const button = input.skillButtonTable?.[hitRow.buttonId];
-  const selectedBuffIds = button?.panelConfig?.selectedBuff ?? [];
+  const selectedBuffIds = [
+    ...(button?.panelConfig?.selectedBuff ?? []),
+    ...buildAnomalyStateBuffsForButton(button).map((buff) => buff.id),
+  ];
   const segmentKey = `normal-hit-${hitRow.detail.hit.key}`;
   const disabledBuffIds = new Set(button?.panelConfig?.manualDisabledBuffIdsBySegmentKey?.[segmentKey] ?? []);
   return selectedBuffIds.filter((buffId) => !disabledBuffIds.has(buffId));
@@ -852,7 +893,7 @@ export function buildDamageExcelWorkbook(input: BuildDamageExcelWorkbookInput): 
   const calcRefs = addPanelCalcSnapshotSheet(workbook, operatorConfigSnapshots, sourceRefs);
   addPanelDisplaySheet(workbook, operatorConfigSnapshots, calcRefs);
   addPanelDamageBonusSheet(workbook, operatorConfigSnapshots, calcRefs);
-  const buffRefs = addBuffSheet(workbook, input.allBuffList ?? []);
+  const buffRefs = addBuffSheet(workbook, buildExportBuffList(input));
   addHitSheet(workbook, input, hitRows, buffRefs);
   addDamageSheet(workbook, hitRows);
 

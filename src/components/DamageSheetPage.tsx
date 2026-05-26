@@ -21,6 +21,7 @@ import {
   isModifierBuff,
   readLocalBuffSearchEntries,
 } from './CanvasBoard/skillButton.shared';
+import { buildAnomalyDamageSegments } from './CanvasBoard/skillButtonAnomalyDamage';
 import {
   SkillButtonAnomalyPanel,
   SkillButtonAnomalyStatePanel,
@@ -310,6 +311,16 @@ function buildDamagePanelBase(characterId: string) {
   };
 }
 
+function parsePercentText(value: string): number {
+  const numeric = Number(value.replace('%', '').trim());
+  return Number.isFinite(numeric) ? numeric / 100 : 0;
+}
+
+function parseNumberText(value: string): number {
+  const numeric = Number(value.replace('%', '').trim());
+  return Number.isFinite(numeric) ? numeric : 0;
+}
+
 function isDamageBonusBuffForHit(buff: SkillButtonBuff, hit: HitCalcResult['hit']): boolean {
   switch (buff.type) {
     case 'allDmgBonus':
@@ -484,7 +495,7 @@ function buildHitRowsForButton(
     },
   });
 
-  return result.hits.map((hit, index) => ({
+  const normalRows: HitValueRow[] = result.hits.map((hit, index) => ({
     kind: 'hit',
     id: `${persistedButton.id}-${hit.hit.key}-${index}`,
     characterId,
@@ -522,6 +533,161 @@ function buildHitRowsForButton(
       hitResult: hit,
     },
   }));
+
+  const damageBonus = characterConfig?.infoSnap ?? {
+    physicalDmgBonus: 0,
+    fireDmgBonus: 0,
+    electricDmgBonus: 0,
+    iceDmgBonus: 0,
+    natureDmgBonus: 0,
+    magicDmgBonus: 0,
+    normalAttackDmgBonus: 0,
+    skillDmgBonus: 0,
+    chainSkillDmgBonus: 0,
+    ultimateDmgBonus: 0,
+    allSkillDmgBonus: 0,
+    imbalanceDmgBonus: 0,
+    allDmgBonus: 0,
+  };
+  const baseSourceSkill = computed?.panel.sourceSkill ?? 0;
+  const panelBase = buildDamagePanelBase(characterId) ?? null;
+  const anomalySegments = buildAnomalyDamageSegments({
+    panelBase,
+    panelData: {
+      atk: buttonSnapshot?.atk ?? snapshot.atk ?? 0,
+      critRate: buttonSnapshot?.critRate ?? snapshot.critRate ?? 0.05,
+      critDmg: buttonSnapshot?.critDmg ?? snapshot.critDmg ?? 0.5,
+    },
+    hitCards: result.hits.map((hit) => ({
+      displayName: hit.hit.displayName || hit.hit.key,
+      nonCritText: formatInteger(hit.nonCrit.final),
+    })),
+    selectedAnomalyDamages: persistedButton.anomalyConfig?.selectedDamages ?? [],
+    buttonCharacterId: characterId,
+    element: undefined,
+    damageBonus,
+    fullCombinedModifierBuffList: combinedBuffs,
+    extraHitBuffList: [],
+    manuallyDisabledBuffIdsBySegmentKey: persistedButton.panelConfig?.manualDisabledBuffIdsBySegmentKey ?? {},
+    getEffectiveCharacterSourceSkillBoost: (_sourceCharacterId, buffs = []) => (
+      baseSourceSkill + buffs.reduce((sum, buff) => (
+        buff.type === 'sourceSkillBoost' && typeof buff.value === 'number'
+          ? sum + buff.value
+          : sum
+      ), 0)
+    ),
+  });
+
+  const anomalyRows = anomalySegments.map((segment, index): HitValueRow => {
+    const baseMultiplier = parsePercentText(segment.baseMultiplierText);
+    const finalMultiplier = parsePercentText(segment.multiplierText);
+    const panelAtk = parseNumberText(segment.panelAtkText);
+    const critRate = parsePercentText(segment.critRateText);
+    const critDmg = parsePercentText(segment.critDmgText);
+    const hitResult: HitCalcResult = {
+      hit: {
+        key: segment.key,
+        displayName: segment.compactTitle,
+        multiplier: baseMultiplier,
+        element: segment.elementKey as HitCalcResult['hit']['element'],
+        skillType: persistedButton.skillType as HitCalcResult['hit']['skillType'],
+      },
+      appliedBuffs: combinedBuffs,
+      panel: {
+        atk: panelAtk,
+        critRate,
+        critDmg,
+      },
+      multiplier: {
+        base: baseMultiplier,
+        afterBonus: finalMultiplier,
+        afterMultiply: finalMultiplier,
+      },
+      zones: {
+        elementBonus: parsePercentText(segment.elementBonusText),
+        skillBonus: parsePercentText(segment.skillBonusText),
+        allDamageBonus: parsePercentText(segment.allDamageBonusText),
+        damageBonusRate: parseNumberText(segment.damageBonusRateText),
+        amplifyRate: parseNumberText(segment.amplifyRateText),
+        fragileRate: parseNumberText(segment.fragileRateText),
+        vulnerabilityRate: parseNumberText(segment.vulnerabilityRateText),
+        comboDamageBonus: parseNumberText(segment.comboDamageBonusText),
+        imbalanceDamageBonus: parseNumberText(segment.imbalanceDamageBonusText),
+        defenseZone: parseNumberText(segment.defenseZoneText),
+      },
+      nonCrit: {
+        base: panelAtk * finalMultiplier,
+        afterCrit: panelAtk * finalMultiplier,
+        afterBonus: 0,
+        afterDefense: 0,
+        afterAmplify: 0,
+        afterFragile: 0,
+        afterVulnerability: 0,
+        final: segment.nonCritValue,
+      },
+      crit: {
+        base: panelAtk * finalMultiplier,
+        afterCrit: 0,
+        afterBonus: 0,
+        afterDefense: 0,
+        afterAmplify: 0,
+        afterFragile: 0,
+        afterVulnerability: 0,
+        final: segment.critValue,
+      },
+      expected: {
+        base: panelAtk * finalMultiplier,
+        afterCrit: 0,
+        afterBonus: 0,
+        afterDefense: 0,
+        afterAmplify: 0,
+        afterFragile: 0,
+        afterVulnerability: 0,
+        final: segment.expectedValue,
+      },
+    };
+
+    return {
+      kind: 'hit',
+      id: `${persistedButton.id}-${segment.key}`,
+      characterId,
+      buttonId: persistedButton.id,
+      rowIndex: rowIndexStart + normalRows.length + index,
+      values: {
+        characterName,
+        hitLabel: segment.compactTitle,
+        skillType: '异常',
+        element: segment.elementText,
+        baseMultiplier: segment.baseMultiplierText,
+        bonusMultiplier: formatPercent(finalMultiplier - baseMultiplier),
+        finalMultiplier: segment.multiplierText,
+        atk: segment.panelAtkText,
+        critRate: segment.critRateText,
+        critDmg: segment.critDmgText,
+        sourceSkill: segment.sourceSkillBoostText,
+        damageBonusRate: segment.damageBonusRateText,
+        defenseZone: segment.defenseZoneText,
+        amplifyRate: formatRatio(1 + parseNumberText(segment.amplifyRateText)),
+        fragileRate: formatRatio(1 + parseNumberText(segment.fragileRateText)),
+        vulnerabilityRate: formatRatio(1 + parseNumberText(segment.vulnerabilityRateText)),
+        comboDamageBonus: formatRatio(1 + parseNumberText(segment.comboDamageBonusText)),
+        imbalanceDamageBonus: formatRatio(1 + parseNumberText(segment.imbalanceDamageBonusText)),
+        baseDamage: formatInteger(panelAtk * finalMultiplier),
+        nonCrit: segment.nonCritText,
+        crit: segment.critText,
+        expected: segment.expectedText,
+      },
+      detail: {
+        characterName,
+        buttonName: persistedButton.skillDisplayName || persistedButton.skillType,
+        hitLabel: segment.compactTitle,
+        hit: hitResult.hit,
+        hitResult,
+      },
+    };
+  });
+
+  return [...normalRows, ...anomalyRows];
 }
 
 function toPersistedButton(item: ButtonWithContext): PersistedSkillButton {

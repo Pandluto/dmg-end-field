@@ -370,6 +370,7 @@ export function useSkillButtonAnomaly({
         lines: [
           `来源角色: ${activeAnomalyStateSourceCharacter?.name ?? '未选择'}`,
           `源石技艺强度快照: ${activeAnomalyStateSourceSkillBoost.toFixed(1)}`,
+          `源石技艺强度区: × ${(1 + effectEnhancement).toFixed(3)}`,
           `异常等级: ${activeAnomalyStateLevel} 层`,
           `快照效果: ${(effectValue * 100).toFixed(1)}% 法术易伤`,
         ],
@@ -384,6 +385,7 @@ export function useSkillButtonAnomaly({
         lines: [
           `来源角色: ${activeAnomalyStateSourceCharacter?.name ?? '未选择'}`,
           `源石技艺强度快照: ${activeAnomalyStateSourceSkillBoost.toFixed(1)}`,
+          `源石技艺强度区: × ${(1 + effectEnhancement).toFixed(3)}`,
           `异常等级: ${activeAnomalyStateLevel} 层`,
           `快照效果: ${(effectValue * 100).toFixed(1)}% 物伤易伤`,
         ],
@@ -398,6 +400,7 @@ export function useSkillButtonAnomaly({
       lines: [
         `来源角色: ${activeAnomalyStateSourceCharacter?.name ?? '未选择'}`,
         `源石技艺强度快照: ${activeAnomalyStateSourceSkillBoost.toFixed(1)}`,
+        `源石技艺强度区: × ${(1 + effectEnhancement).toFixed(3)}`,
         `异常等级: ${activeAnomalyStateLevel} 层`,
         `快照效果: 初始 ${(baseStart * (1 + effectEnhancement)).toFixed(2)} / 每秒 ${(baseTick * (1 + effectEnhancement)).toFixed(2)} / 上限 ${(baseCap * (1 + effectEnhancement)).toFixed(2)}`,
       ],
@@ -474,7 +477,7 @@ export function useSkillButtonAnomaly({
       effectValue: activeAnomalyStatePreview.effectValue,
       durationSeconds: activeAnomalyStateOption.supportsDuration ? activeAnomalyStateDurationSeconds : undefined,
       primaryText: `${activeAnomalyStateOption.label} Lv${activeAnomalyStateLevel} · 来源 ${activeAnomalyStateSourceCharacter.name}`,
-      secondaryText: activeAnomalyStatePreview.lines[3] ?? activeAnomalyStateOption.label,
+      secondaryText: activeAnomalyStatePreview.lines[4] ?? activeAnomalyStateOption.label,
       tertiaryText: activeAnomalyStateOption.supportsDuration ? `持续 ${activeAnomalyStateDurationSeconds}s` : '快照生效',
     });
     const nextIds = [
