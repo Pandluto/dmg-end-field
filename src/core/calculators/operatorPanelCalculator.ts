@@ -153,6 +153,7 @@ export interface PanelDisplaySnapshot {
   abilityBonus: number;
   mainStatFinal: number;
   subStatFinal: number;
+  abilityValues: Record<AbilityField, number>;
   weaponAtkPercent: number;
   critRate: number;
   critDmg: number;
@@ -628,6 +629,14 @@ function buildDisplay(calc: PanelCalcSnapshot, mainStat: string, subStat: string
   const rawSubStat = subField ? calc[subField] : 0;
   const mainStatFinal = rawMainStat * (1 + calc.mainStatBoost) * (1 + calc.allStatBoost);
   const subStatFinal = rawSubStat * (1 + calc.subStatBoost) * (1 + calc.allStatBoost);
+  const abilityValues: Record<AbilityField, number> = {
+    strength: calc.strength,
+    agility: calc.agility,
+    intelligence: calc.intelligence,
+    will: calc.will,
+  };
+  if (mainField) abilityValues[mainField] = mainStatFinal;
+  if (subField) abilityValues[subField] = subStatFinal;
   const mainAtkBonus = mainStatFinal * 0.005;
   const subAtkBonus = subStatFinal * 0.002;
   const abilityBonus = mainAtkBonus + subAtkBonus;
@@ -658,10 +667,10 @@ function buildDisplay(calc: PanelCalcSnapshot, mainStat: string, subStat: string
     {
       title: '四维能力',
       items: [
-        { label: '力量', value: formatNumber(calc.strength) },
-        { label: '敏捷', value: formatNumber(calc.agility) },
-        { label: '智识', value: formatNumber(calc.intelligence) },
-        { label: '意志', value: formatNumber(calc.will) },
+        { label: '力量', value: formatNumber(abilityValues.strength) },
+        { label: '敏捷', value: formatNumber(abilityValues.agility) },
+        { label: '智识', value: formatNumber(abilityValues.intelligence) },
+        { label: '意志', value: formatNumber(abilityValues.will) },
       ],
     },
     {
@@ -715,6 +724,12 @@ function buildDisplay(calc: PanelCalcSnapshot, mainStat: string, subStat: string
     abilityBonus: round(abilityBonus),
     mainStatFinal: round(mainStatFinal),
     subStatFinal: round(subStatFinal),
+    abilityValues: {
+      strength: round(abilityValues.strength),
+      agility: round(abilityValues.agility),
+      intelligence: round(abilityValues.intelligence),
+      will: round(abilityValues.will),
+    },
     weaponAtkPercent: round(calc.atkPercentBoost * 100),
     critRate: round(critRate),
     critDmg: round(critDmg),

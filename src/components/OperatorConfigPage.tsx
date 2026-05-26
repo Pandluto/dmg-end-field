@@ -1539,10 +1539,10 @@ export function OperatorConfigPage() {
       { label: '属性', value: configSnapshot?.operator.element || currentCharacterData.element || activeCharacter?.element || '属性占位' },
       { label: '等级', value: String(configSnapshot?.operator.level ?? currentConfig?.character.config.level ?? 90) },
       { label: '攻击力', value: String(display?.atk ?? currentAttributes?.atk ?? '0000') },
-      { label: '力量', value: String(calc?.strength ?? currentAttributes?.strength ?? '000'), tone: 'main' },
-      { label: '敏捷', value: String(calc?.agility ?? currentAttributes?.agility ?? '000') },
-      { label: '智识', value: String(calc?.intelligence ?? currentAttributes?.intelligence ?? '000'), tone: 'sub' },
-      { label: '意志', value: String(calc?.will ?? currentAttributes?.will ?? '000') },
+      { label: '力量', value: String(display?.abilityValues?.strength ?? calc?.strength ?? currentAttributes?.strength ?? '000'), tone: 'main' },
+      { label: '敏捷', value: String(display?.abilityValues?.agility ?? calc?.agility ?? currentAttributes?.agility ?? '000') },
+      { label: '智识', value: String(display?.abilityValues?.intelligence ?? calc?.intelligence ?? currentAttributes?.intelligence ?? '000'), tone: 'sub' },
+      { label: '意志', value: String(display?.abilityValues?.will ?? calc?.will ?? currentAttributes?.will ?? '000') },
     ];
   }, [activeCharacter?.element, activeCharacter?.name, configSnapshot, currentAttributes, currentCharacterData.element, currentCharacterData.name, currentConfig?.character.config.level]);
 
