@@ -7,9 +7,9 @@
     <style>
       :root {
         color-scheme: light;
-        font-family: "Segoe UI", sans-serif;
-        background: #edf5ee;
-        color: #193423;
+        font-family: "Segoe UI", "Microsoft YaHei", sans-serif;
+        background: #fff;
+        color: #0f0f0f;
       }
 
       * {
@@ -18,374 +18,550 @@
 
       body {
         margin: 0;
-        min-height: 100vh;
-        padding: 18px;
-        background:
-          radial-gradient(circle at top right, rgba(95, 154, 118, 0.16), transparent 34%),
-          linear-gradient(135deg, #edf6ef 0%, #d8eadc 100%);
+        height: 100vh;
+        background: #fff;
+        font-size: 12px;
+        overflow: hidden;
       }
 
-      .shell {
-        max-width: 560px;
-        margin: 0 auto;
+      .app-shell {
         display: grid;
-        gap: 14px;
+        grid-template-columns: 176px minmax(0, 1fr);
+        height: 100vh;
+        overflow: hidden;
       }
 
-      .hero,
-      .section,
-      .log-card {
-        background: rgba(255, 255, 255, 0.92);
-        border: 1px solid rgba(25, 52, 35, 0.12);
-        box-shadow: 0 14px 32px rgba(25, 52, 35, 0.1);
+      .sidebar {
+        padding: 14px 4px;
+        overflow-y: auto;
       }
 
-      .hero,
-      .section,
-      .log-card {
-        padding: 16px;
-      }
-
-      .eyebrow {
-        margin: 0 0 8px;
-        font-size: 11px;
-        letter-spacing: 0.08em;
-        text-transform: uppercase;
-        color: #567062;
-      }
-
-      h1 {
-        margin: 0;
-        font-size: 24px;
-        line-height: 1.1;
-      }
-
-      .hero p,
-      .section p {
-        margin: 8px 0 0;
-        color: #466051;
-        line-height: 1.55;
-        font-size: 13px;
-      }
-
-      .hero-actions {
-        display: flex;
-        gap: 10px;
-        margin-top: 14px;
-      }
-
-      .hero-settings {
+      .close-mark {
+        width: 42px;
+        height: 32px;
         display: grid;
-        gap: 8px;
-        margin-top: 14px;
+        place-items: center;
+        margin-bottom: 10px;
+        font-size: 20px;
+        line-height: 1;
+        border-radius: 8px;
+        cursor: default;
       }
 
-      .hero-settings-row {
+      .close-mark:hover {
+        background: #f2f2f2;
+      }
+
+      .nav {
+        display: grid;
+        gap: 2px;
+      }
+
+      .nav-button {
+        width: 168px;
+        height: 36px;
+        border: 0;
+        border-radius: 8px;
+        background: transparent;
+        color: #222;
         display: flex;
         align-items: center;
         gap: 8px;
-        flex-wrap: wrap;
+        padding: 0 10px;
+        font: inherit;
+        font-size: 13px;
+        font-weight: 400;
+        text-align: left;
+        white-space: nowrap;
       }
 
-      .hero-settings-label {
-        font-size: 11px;
-        font-weight: 700;
-        color: #3d5a49;
+      .nav-button:hover,
+      .nav-button.is-active {
+        background: #f2f2f2;
       }
 
-      .grid {
-        display: grid;
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-        gap: 12px;
+      .nav-icon {
+        width: 18px;
+        text-align: center;
+        font-size: 15px;
+        color: #111;
       }
 
-      .section h2,
-      .log-card-head h2 {
+      .main {
+        min-width: 0;
+        height: 100vh;
+        overflow-y: auto;
+        padding: 12px 18px 18px 18px;
+      }
+
+      .page {
+        display: none;
+        max-width: 480px;
+        min-height: calc(100vh - 30px);
+      }
+
+      .page.is-active {
+        display: block;
+      }
+
+      .page-title {
         margin: 0;
-        font-size: 16px;
+        height: 48px;
+        display: flex;
+        align-items: flex-start;
+        font-size: 20px;
+        font-weight: 600;
+      }
+
+      .section-block {
+        border-top: 1px solid #ececec;
+      }
+
+      .setting-row {
+        display: grid;
+        grid-template-columns: minmax(112px, 0.78fr) minmax(190px, 1.22fr);
+        gap: 12px;
+        align-items: center;
+        min-height: 50px;
+        padding: 8px 0;
+        border-bottom: 1px solid #f0f0f0;
+      }
+
+      .setting-row.is-tall {
+        align-items: start;
+      }
+
+      .setting-title {
+        font-size: 14px;
+        font-weight: 500;
+      }
+
+      .setting-help {
+        margin-top: 4px;
+        color: #777;
+        font-size: 11px;
+        line-height: 1.35;
+      }
+
+      .setting-control {
+        display: flex;
+        justify-content: flex-end;
+        align-items: center;
+        gap: 6px;
+        flex-wrap: wrap;
+        min-width: 0;
+        font-size: 12px;
+      }
+
+      .setting-control.stack {
+        display: grid;
+        justify-content: stretch;
+        justify-items: stretch;
+        gap: 8px;
       }
 
       button {
-        height: 36px;
-        border: 1px solid #1f5d3b;
-        background: #2f7a50;
-        color: #fff;
-        font-size: 13px;
-        font-weight: 700;
+        min-height: 26px;
+        border: 0;
+        border-radius: 6px;
+        background: transparent;
+        color: #111;
+        padding: 0 8px;
+        font: inherit;
+        font-weight: 500;
       }
 
       button:hover {
-        background: #286844;
+        background: #f2f2f2;
       }
 
-      .secondary-button {
-        background: #f6fbf7;
-        color: #20432d;
-      }
-
-      .secondary-button:hover {
-        background: #eaf5ec;
-      }
-
-      .danger-button {
-        border-color: #7d3b3b;
-        background: #965050;
-      }
-
-      .danger-button:hover {
-        background: #844444;
-      }
-
-      .scale-button.is-active {
-        background: #2f7a50;
+      .primary-button {
+        background: #111;
         color: #fff;
       }
 
-      .status {
-        margin-top: 10px;
-        padding: 9px 10px;
-        background: #f6fbf7;
-        border: 1px solid rgba(25, 52, 35, 0.08);
-        font-size: 12px;
-        line-height: 1.5;
-        color: #355242;
+      .primary-button:hover {
+        background: #222;
       }
 
-      .capture-panel {
-        display: grid;
-        gap: 10px;
+      .danger-button {
+        color: #9b1c1c;
       }
 
-      .capture-toolbar {
-        display: flex;
-        gap: 10px;
-        flex-wrap: wrap;
+      .scale-button.is-active {
+        background: #111;
+        color: #fff;
       }
 
-      .capture-toolbar .capture-select {
-        flex: 1 1 220px;
-      }
-
-      .capture-select {
+      input,
+      textarea,
+      select {
         width: 100%;
-        min-height: 36px;
-        border: 1px solid rgba(25, 52, 35, 0.18);
-        background: #f6fbf7;
-        color: #20432d;
-        font-size: 13px;
-        padding: 0 10px;
+        min-height: 28px;
+        border: 0;
+        border-radius: 6px;
+        background: #f7f7f7;
+        color: #111;
+        padding: 5px 7px;
+        font: inherit;
       }
 
-      .capture-meta {
+      textarea {
+        min-height: 46px;
+        resize: vertical;
+      }
+
+      .inline-input {
+        max-width: 220px;
+      }
+
+      .check-grid {
         display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
         gap: 6px;
-        padding: 10px;
-        background: #f6fbf7;
-        border: 1px solid rgba(25, 52, 35, 0.08);
+      }
+
+      .check-row {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        min-height: 28px;
+        padding: 4px 6px;
+        border-radius: 6px;
+        background: #f7f7f7;
+        font-size: 11px;
+      }
+
+      .check-row input {
+        width: auto;
+        min-height: auto;
+      }
+
+      .status {
+        color: #777;
+        font-size: 11px;
+        line-height: 1.4;
+        text-align: right;
+      }
+
+      .archive-list {
+        display: grid;
+        gap: 4px;
+        max-height: 150px;
+        overflow: auto;
+      }
+
+      .archive-item {
+        width: 100%;
+        min-height: 42px;
+        height: auto;
+        padding: 6px 8px;
+        border-radius: 6px;
+        text-align: left;
+        background: transparent;
+      }
+
+      .archive-item.is-active,
+      .archive-item:hover {
+        background: #f2f2f2;
+      }
+
+      .archive-title {
+        display: flex;
+        justify-content: space-between;
+        gap: 10px;
         font-size: 12px;
-        color: #355242;
+        font-weight: 600;
+        min-width: 0;
+      }
+
+      .archive-title span:first-child {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .archive-meta {
+        margin-top: 3px;
+        color: #777;
+        font-size: 10px;
+        line-height: 1.35;
+        overflow-wrap: anywhere;
       }
 
       .capture-preview {
         width: 100%;
-        min-height: 180px;
-        max-height: 280px;
+        min-height: 130px;
+        max-height: 220px;
         object-fit: contain;
-        background: #e3ece5;
-        border: 1px solid rgba(25, 52, 35, 0.12);
+        background: #f7f7f7;
+        border-radius: 6px;
       }
 
-      .log-card-head {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 12px;
-      }
-
-      .log {
-        margin-top: 12px;
-        min-height: 160px;
-        max-height: 260px;
+      .capture-meta,
+      .log,
+      .llm-output {
+        min-height: 48px;
+        max-height: 160px;
         overflow: auto;
-        padding: 12px;
-        background: #f6fbf7;
-        border: 1px solid rgba(25, 52, 35, 0.08);
+        padding: 6px;
+        border-radius: 6px;
+        background: #f7f7f7;
+        color: #555;
         white-space: pre-wrap;
-        font-size: 12px;
-        line-height: 1.55;
+        font-size: 11px;
+        line-height: 1.4;
       }
 
       .log-card.is-collapsed .log {
         display: none;
       }
 
-      .tool-actions {
-        display: grid;
-        gap: 10px;
-      }
-
-      .tool-row {
-        display: grid;
-        grid-template-columns: 96px 1fr;
-        gap: 10px;
-        align-items: center;
-      }
-
-      .tool-row .status {
-        margin-top: 0;
-      }
-
-      .llm-form {
-        display: grid;
-        gap: 10px;
-      }
-
-      .llm-field {
-        display: grid;
-        gap: 6px;
-      }
-
-      .llm-field label {
-        font-size: 12px;
-        font-weight: 700;
-        color: #355242;
-      }
-
-      .llm-input,
-      .llm-textarea,
-      .llm-output {
-        width: 100%;
-        border: 1px solid rgba(25, 52, 35, 0.18);
-        background: #f6fbf7;
-        color: #20432d;
-        font-size: 13px;
-        padding: 10px;
-        font: inherit;
-      }
-
-      .llm-textarea,
-      .llm-output {
-        min-height: 96px;
-        resize: vertical;
-      }
-
-      .llm-output {
-        white-space: pre-wrap;
-        line-height: 1.55;
-        overflow: auto;
-      }
-
-      .llm-actions {
+      .toolbar {
         display: flex;
-        gap: 10px;
+        justify-content: flex-end;
+        align-items: center;
+        gap: 8px;
         flex-wrap: wrap;
       }
 
-      @media (max-width: 620px) {
-        .grid {
+      @media (max-width: 560px) {
+        .app-shell {
           grid-template-columns: 1fr;
+        }
+
+        .sidebar {
+          border-right: 0;
+          border-bottom: 1px solid #eee;
+          padding: 10px;
+          overflow: visible;
+        }
+
+        .nav {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+
+        .nav-button {
+          width: 100%;
+          font-size: 16px;
+        }
+
+        .main {
+          padding: 12px;
+        }
+
+        .setting-row {
+          grid-template-columns: 1fr;
+          gap: 8px;
+        }
+
+        .setting-control {
+          justify-content: flex-start;
         }
       }
     </style>
   </head>
   <body>
-    <main class="shell">
-      <section class="hero">
-        <p class="eyebrow">def</p>
-        <h1>def shell</h1>
-        <p>这是一个独立的小型桌面 GUI。现在 dmg-end-field 主界面完全由 Electron 托管，固定为 1440x900 的 1x 内容区，并忽略 Windows 缩放。右上角关闭只会收起到托盘，只有“完全关闭”才会结束整个进程。</p>
-        <div class="hero-actions">
-          <button id="open-web" type="button" class="secondary-button">打开主界面</button>
-          <button id="quit-app" type="button" class="danger-button">完全关闭</button>
+    <main class="app-shell">
+      <aside class="sidebar">
+        <div class="close-mark">×</div>
+        <nav class="nav">
+          <button class="nav-button is-active" type="button" data-page="localdata"><span class="nav-icon">▦</span>数据管理</button>
+          <button class="nav-button" type="button" data-page="capture"><span class="nav-icon">□</span>捕获</button>
+          <button class="nav-button" type="button" data-page="runtime"><span class="nav-icon">⚙</span>运行时</button>
+          <button class="nav-button" type="button" data-page="model"><span class="nav-icon">✦</span>模型接口</button>
+          <button class="nav-button" type="button" data-page="log"><span class="nav-icon">≡</span>活动日志</button>
+        </nav>
+      </aside>
+
+      <section class="main">
+        <div id="page-localdata" class="page is-active">
+          <h1 class="page-title">数据管理</h1>
+          <div class="section-block">
+            <div class="setting-row">
+              <div>
+                <div class="setting-title">存档名称</div>
+                <div class="setting-help">导出 Web storage 并保存为桌面端当前数据组。</div>
+              </div>
+              <div class="setting-control">
+                <input id="archive-name" class="inline-input" type="text" placeholder="例如：狼卫-Q轴-导电测试" />
+              </div>
+            </div>
+            <div class="setting-row is-tall">
+              <div>
+                <div class="setting-title">备注</div>
+                <div class="setting-help">记录版本、用途、改动范围。</div>
+              </div>
+              <div class="setting-control stack">
+                <textarea id="archive-desc" placeholder="可选"></textarea>
+              </div>
+            </div>
+            <div class="setting-row is-tall">
+              <div>
+                <div class="setting-title">导出分组</div>
+                <div class="setting-help">导出 Electron 托管 Web 的 localStorage/sessionStorage。</div>
+              </div>
+              <div class="setting-control stack">
+                <div class="check-grid" id="export-sections">
+                  <label class="check-row"><input type="checkbox" value="operators" checked />干员</label>
+                  <label class="check-row"><input type="checkbox" value="weapons" checked />武器</label>
+                  <label class="check-row"><input type="checkbox" value="equipments" checked />装备</label>
+                  <label class="check-row"><input type="checkbox" value="buffs" checked />Buff</label>
+                  <label class="check-row"><input type="checkbox" value="timeline" checked />排轴</label>
+                  <label class="check-row"><input type="checkbox" value="runtime" />运行缓存</label>
+                </div>
+              </div>
+            </div>
+            <div class="setting-row">
+              <div>
+                <div class="setting-title">Web 当前数据</div>
+                <div class="setting-help">导出后同时更新桌面端当前数据组引用。</div>
+              </div>
+              <div class="setting-control">
+                <button id="open-localdata" type="button">打开目录</button>
+                <button id="refresh-archives" type="button">刷新</button>
+                <button id="export-archive" type="button" class="primary-button">导出 Web 数据</button>
+              </div>
+            </div>
+            <div class="setting-row is-tall">
+              <div>
+                <div class="setting-title">存档列表</div>
+                <div class="setting-help" id="localdata-status">等待操作</div>
+              </div>
+              <div class="setting-control stack">
+                <div class="archive-list" id="archive-list"></div>
+              </div>
+            </div>
+            <div class="setting-row is-tall">
+              <div>
+                <div class="setting-title">导入分组</div>
+                <div class="setting-help">只替换 Web 中勾选的数据分组。</div>
+              </div>
+              <div class="setting-control stack">
+                <div class="check-grid" id="import-sections">
+                  <label class="check-row"><input type="checkbox" value="operators" checked />干员</label>
+                  <label class="check-row"><input type="checkbox" value="weapons" checked />武器</label>
+                  <label class="check-row"><input type="checkbox" value="equipments" checked />装备</label>
+                  <label class="check-row"><input type="checkbox" value="buffs" checked />Buff</label>
+                  <label class="check-row"><input type="checkbox" value="timeline" checked />排轴</label>
+                  <label class="check-row"><input type="checkbox" value="runtime" />运行缓存</label>
+                </div>
+              </div>
+            </div>
+            <div class="setting-row">
+              <div>
+                <div class="setting-title">同步替换</div>
+                <div class="setting-help">读取选中 JSON，替换 Web 数据并更新桌面端当前引用。</div>
+              </div>
+              <div class="setting-control">
+                <button id="delete-archive" type="button" class="danger-button">删除存档</button>
+                <button id="apply-archive" type="button" class="primary-button">同步替换</button>
+              </div>
+            </div>
+          </div>
         </div>
-        <div class="hero-settings">
-          <div class="hero-settings-row">
-            <span class="hero-settings-label">桌面倍率</span>
-            <button type="button" class="secondary-button scale-button" data-scale="1x">1x</button>
-            <button type="button" class="secondary-button scale-button" data-scale="1.25x">1.25x</button>
-            <button type="button" class="secondary-button scale-button" data-scale="1.5x">1.5x</button>
+
+        <div id="page-capture" class="page">
+          <h1 class="page-title">捕获</h1>
+          <div class="section-block">
+            <div class="setting-row is-tall">
+              <div>
+                <div class="setting-title">窗口源</div>
+                <div class="setting-help">只列出标题命中 EndField 的窗口。</div>
+              </div>
+              <div class="setting-control stack">
+                <select id="capture-source-select">
+                  <option value="">请选择窗口或屏幕源</option>
+                </select>
+                <div class="toolbar">
+                  <button type="button" id="refresh-capture-sources">刷新</button>
+                  <button type="button" id="start-capture-session" class="primary-button">开始捕获</button>
+                  <button type="button" id="stop-capture-session">停止捕获</button>
+                </div>
+                <div class="capture-meta" id="capture-meta">
+                  <div>会话状态：未绑定窗口</div>
+                </div>
+                <img id="capture-preview" class="capture-preview" alt="捕获预览" />
+                <div class="status" id="capture-status">空闲</div>
+              </div>
+            </div>
           </div>
         </div>
-      </section>
 
-      <section class="grid">
-        <article class="section">
-          <h2>捕获</h2>
-          <p>只列出标题命中 EndField 的窗口，由主进程后台持续抓帧并缓存最新截图。</p>
-          <div class="capture-panel">
-            <div class="capture-toolbar">
-              <select id="capture-source-select" class="capture-select">
-                <option value="">请选择 EndField 窗口</option>
-              </select>
-              <button type="button" id="refresh-capture-sources" class="secondary-button">刷新</button>
-              <button type="button" id="start-capture-session">开始捕获</button>
-              <button type="button" id="stop-capture-session" class="secondary-button">停止捕获</button>
+        <div id="page-runtime" class="page">
+          <h1 class="page-title">运行时</h1>
+          <div class="section-block">
+            <div class="setting-row">
+              <div><div class="setting-title">打开主界面</div><div class="setting-help">恢复 Electron 托管的 web 窗口。</div></div>
+              <div class="setting-control"><button id="open-web" type="button">打开主界面</button></div>
             </div>
-            <div class="capture-meta" id="capture-meta">
-              <div>源信息：尚未加载</div>
+            <div class="setting-row">
+              <div><div class="setting-title">桌面倍率</div><div class="setting-help">保存后下次启动生效。</div></div>
+              <div class="setting-control">
+                <button type="button" class="scale-button" data-scale="1x">1x</button>
+                <button type="button" class="scale-button" data-scale="1.25x">1.25x</button>
+                <button type="button" class="scale-button" data-scale="1.5x">1.5x</button>
+              </div>
             </div>
-            <img id="capture-preview" class="capture-preview" alt="捕获预览" />
-          </div>
-          <div class="status" id="capture-status">空闲</div>
-        </article>
-
-        <article class="section">
-          <h2>工具</h2>
-          <p>集中放置视觉、指针和运行时探测，减少占位。</p>
-          <div class="tool-actions">
-            <div class="tool-row">
-              <button type="button" data-action="vision-probe">视觉</button>
-              <div class="status" id="vision-status">空闲</div>
+            <div class="setting-row">
+              <div><div class="setting-title">视觉</div><div class="setting-help">探测视觉管线。</div></div>
+              <div class="setting-control"><button type="button" data-action="vision-probe">运行</button><div class="status" id="vision-status">空闲</div></div>
             </div>
-            <div class="tool-row">
-              <button type="button" data-action="pointer-probe">指针</button>
-              <div class="status" id="pointer-status">空闲</div>
+            <div class="setting-row">
+              <div><div class="setting-title">指针</div><div class="setting-help">探测指针后端。</div></div>
+              <div class="setting-control"><button type="button" data-action="pointer-probe">运行</button><div class="status" id="pointer-status">空闲</div></div>
             </div>
-            <div class="tool-row">
-              <button type="button" data-action="runtime-probe">运行时</button>
-              <div class="status" id="runtime-status">空闲</div>
+            <div class="setting-row">
+              <div><div class="setting-title">运行时</div><div class="setting-help">探测桌面宿主。</div></div>
+              <div class="setting-control"><button type="button" data-action="runtime-probe">运行</button><div class="status" id="runtime-status">空闲</div></div>
             </div>
-          </div>
-        </article>
-
-        <article class="section">
-          <h2>模型接口</h2>
-          <p>手动接入方舟 Responses API，仅保留纯文本模型调用。</p>
-          <div class="llm-form">
-            <div class="llm-field">
-              <label for="ark-api-key">API Key</label>
-              <input id="ark-api-key" class="llm-input" type="password" placeholder="输入 Bearer Token，不会写入仓库" />
+            <div class="setting-row">
+              <div><div class="setting-title">完全关闭</div><div class="setting-help">结束整个 Electron 进程。</div></div>
+              <div class="setting-control"><button id="quit-app" type="button" class="danger-button">完全关闭</button></div>
             </div>
-            <div class="llm-field">
-              <label for="ark-model">Model</label>
-              <input id="ark-model" class="llm-input" type="text" value="doubao-seed-2-0-mini-260428" />
-            </div>
-            <div class="llm-field">
-              <label for="ark-prompt">Prompt</label>
-              <textarea id="ark-prompt" class="llm-textarea">给我一句简短回复。</textarea>
-            </div>
-            <div class="llm-actions">
-              <button id="ark-submit" type="button">发送请求</button>
-              <button id="ark-clear-output" type="button" class="secondary-button">清空结果</button>
-            </div>
-            <div class="status" id="ark-status">空闲</div>
-            <div class="llm-field">
-              <label for="ark-output">Response</label>
-              <pre id="ark-output" class="llm-output"></pre>
-            </div>
-          </div>
-        </article>
-      </section>
-
-      <section class="log-card is-collapsed" id="log-card">
-        <div class="log-card-head">
-          <h2>活动日志</h2>
-          <div class="capture-toolbar">
-            <button id="toggle-log" type="button" class="secondary-button">展开日志</button>
-            <button id="clear-log" type="button">清空日志</button>
           </div>
         </div>
-        <div class="log" id="log"></div>
+
+        <div id="page-model" class="page">
+          <h1 class="page-title">模型接口</h1>
+          <div class="section-block">
+            <div class="setting-row">
+              <div><div class="setting-title">API Key</div></div>
+              <div class="setting-control"><input id="ark-api-key" class="inline-input" type="password" placeholder="Bearer Token" /></div>
+            </div>
+            <div class="setting-row">
+              <div><div class="setting-title">Model</div></div>
+              <div class="setting-control"><input id="ark-model" class="inline-input" type="text" value="doubao-seed-2-0-mini-260428" /></div>
+            </div>
+            <div class="setting-row is-tall">
+              <div><div class="setting-title">Prompt</div></div>
+              <div class="setting-control stack"><textarea id="ark-prompt">给我一句简短回复。</textarea></div>
+            </div>
+            <div class="setting-row">
+              <div><div class="setting-title">请求</div><div class="setting-help" id="ark-status">空闲</div></div>
+              <div class="setting-control"><button id="ark-clear-output" type="button">清空结果</button><button id="ark-submit" type="button" class="primary-button">发送请求</button></div>
+            </div>
+            <div class="setting-row is-tall">
+              <div><div class="setting-title">Response</div></div>
+              <div class="setting-control stack"><pre id="ark-output" class="llm-output"></pre></div>
+            </div>
+          </div>
+        </div>
+
+        <div id="page-log" class="page">
+          <h1 class="page-title">活动日志</h1>
+          <div class="section-block log-card" id="log-card">
+            <div class="setting-row">
+              <div><div class="setting-title">日志</div></div>
+              <div class="setting-control"><button id="toggle-log" type="button">收起日志</button><button id="clear-log" type="button">清空日志</button></div>
+            </div>
+            <div class="setting-row is-tall">
+              <div><div class="setting-title">内容</div></div>
+              <div class="setting-control stack"><div class="log" id="log"></div></div>
+            </div>
+          </div>
+        </div>
       </section>
     </main>
 

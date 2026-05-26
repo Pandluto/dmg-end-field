@@ -174,6 +174,108 @@
         background: #844444;
       }
 
+      .data-panel {
+        display: grid;
+        grid-template-columns: minmax(0, 0.95fr) minmax(0, 1.35fr);
+        gap: 14px;
+      }
+
+      .field-stack {
+        display: grid;
+        gap: 10px;
+      }
+
+      label {
+        display: grid;
+        gap: 5px;
+        font-size: 12px;
+        font-weight: 700;
+        color: #355242;
+      }
+
+      input,
+      textarea {
+        width: 100%;
+        border: 1px solid rgba(25, 52, 35, 0.18);
+        background: #fbfefb;
+        color: #193423;
+        font: inherit;
+        padding: 9px 10px;
+      }
+
+      textarea {
+        resize: vertical;
+        min-height: 66px;
+      }
+
+      .section-checks {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 8px;
+      }
+
+      .check-row {
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        min-height: 28px;
+        padding: 6px 8px;
+        background: #f6fbf7;
+        border: 1px solid rgba(25, 52, 35, 0.08);
+        font-size: 12px;
+        font-weight: 700;
+      }
+
+      .check-row input {
+        width: auto;
+      }
+
+      .button-row {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
+
+      .button-row button {
+        min-width: 96px;
+      }
+
+      .archive-list {
+        display: grid;
+        gap: 8px;
+        max-height: 300px;
+        overflow: auto;
+      }
+
+      .archive-item {
+        width: 100%;
+        border: 1px solid rgba(25, 52, 35, 0.12);
+        background: #f9fdfa;
+        padding: 10px;
+        text-align: left;
+        color: #193423;
+      }
+
+      .archive-item.is-active {
+        border-color: #2f7a50;
+        box-shadow: inset 3px 0 0 #2f7a50;
+      }
+
+      .archive-title {
+        display: flex;
+        justify-content: space-between;
+        gap: 10px;
+        font-size: 13px;
+        font-weight: 800;
+      }
+
+      .archive-meta {
+        margin-top: 5px;
+        font-size: 11px;
+        line-height: 1.45;
+        color: #5a7162;
+      }
+
       .scale-button.is-active {
         background: #2f7a50;
         color: #fff;
@@ -224,7 +326,8 @@
 
       @media (max-width: 760px) {
         .runtime-strip,
-        .grid {
+        .grid,
+        .data-panel {
           grid-template-columns: 1fr;
         }
       }
@@ -275,6 +378,52 @@
       </section>
 
       <section class="grid">
+        <article class="section data-panel" style="grid-column: 1 / -1;">
+          <div class="field-stack">
+            <h2>本地数据存档</h2>
+            <p>由 web 主界面导出和导入 storage；shell 只负责保存、读取和引用 data/localdata 下的 JSON 存档。</p>
+            <label>
+              存档名称
+              <input id="archive-name" type="text" placeholder="例如：狼卫-Q轴-导电测试" />
+            </label>
+            <label>
+              备注
+              <textarea id="archive-desc" placeholder="可选：记录版本、用途、改动范围"></textarea>
+            </label>
+            <div class="section-checks" id="export-sections">
+              <label class="check-row"><input type="checkbox" value="operators" checked />干员</label>
+              <label class="check-row"><input type="checkbox" value="weapons" checked />武器</label>
+              <label class="check-row"><input type="checkbox" value="equipments" checked />装备</label>
+              <label class="check-row"><input type="checkbox" value="buffs" checked />Buff</label>
+              <label class="check-row"><input type="checkbox" value="timeline" checked />排轴</label>
+              <label class="check-row"><input type="checkbox" value="runtime" />运行缓存</label>
+            </div>
+            <div class="button-row">
+              <button id="export-archive" type="button">导出当前</button>
+              <button id="refresh-archives" type="button" class="secondary-button">刷新列表</button>
+              <button id="open-localdata" type="button" class="secondary-button">打开目录</button>
+            </div>
+            <div class="status" id="localdata-status">等待操作</div>
+          </div>
+
+          <div class="field-stack">
+            <h2>存档列表</h2>
+            <div class="archive-list" id="archive-list"></div>
+            <div class="section-checks" id="import-sections">
+              <label class="check-row"><input type="checkbox" value="operators" checked />干员</label>
+              <label class="check-row"><input type="checkbox" value="weapons" checked />武器</label>
+              <label class="check-row"><input type="checkbox" value="equipments" checked />装备</label>
+              <label class="check-row"><input type="checkbox" value="buffs" checked />Buff</label>
+              <label class="check-row"><input type="checkbox" value="timeline" checked />排轴</label>
+              <label class="check-row"><input type="checkbox" value="runtime" />运行缓存</label>
+            </div>
+            <div class="button-row">
+              <button id="apply-archive" type="button">替换当前</button>
+              <button id="delete-archive" type="button" class="danger-button">删除存档</button>
+            </div>
+          </div>
+        </article>
+
         <article class="section">
           <h2>捕获</h2>
           <p>探测游戏窗口捕获将挂载的插槽。这是截图后端的未来归宿。</p>
@@ -317,6 +466,8 @@
       const runtime = window.desktopRuntime;
       const logElement = document.getElementById('log');
       const scaleValueElement = document.getElementById('scale-value');
+      let archiveList = [];
+      let selectedArchiveFileName = null;
 
       const appendLog = (line) => {
         const current = logElement.textContent ? `${logElement.textContent}\n` : '';
@@ -329,6 +480,156 @@
         if (target) {
           target.textContent = value;
         }
+      };
+
+      const getCheckedSections = (containerId) => {
+        const values = Array.from(document.querySelectorAll(`#${containerId} input[type="checkbox"]:checked`))
+          .map((input) => input.value);
+        return values.length > 0 ? values : ['all'];
+      };
+
+      const formatBytes = (value) => {
+        if (!Number.isFinite(value)) return '-';
+        if (value < 1024) return `${value} B`;
+        if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`;
+        return `${(value / 1024 / 1024).toFixed(1)} MB`;
+      };
+
+      const escapeHtml = (value) => String(value ?? '').replace(/[&<>"']/g, (char) => ({
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&#39;',
+      }[char]));
+
+      const renderArchiveList = () => {
+        const listElement = document.getElementById('archive-list');
+        if (!listElement) return;
+        if (archiveList.length === 0) {
+          listElement.innerHTML = '<div class="status">data/localdata 暂无存档</div>';
+          selectedArchiveFileName = null;
+          return;
+        }
+        listElement.innerHTML = archiveList.map((item) => `
+          <button type="button" class="archive-item${item.fileName === selectedArchiveFileName ? ' is-active' : ''}" data-archive="${item.fileName}">
+            <div class="archive-title">
+              <span>${escapeHtml(item.name || item.id)}</span>
+              <span>${escapeHtml(formatBytes(item.size))}</span>
+            </div>
+            <div class="archive-meta">
+              ${escapeHtml(item.fileName)}<br />
+              分组：${escapeHtml((item.sections || []).join(' / ') || '-')} · local ${escapeHtml(item.localKeys || 0)} · session ${escapeHtml(item.sessionKeys || 0)}<br />
+              ${escapeHtml(item.updatedAt || '')}
+            </div>
+          </button>
+        `).join('');
+        listElement.querySelectorAll('[data-archive]').forEach((button) => {
+          button.addEventListener('click', () => {
+            selectedArchiveFileName = button.getAttribute('data-archive');
+            renderArchiveList();
+          });
+        });
+      };
+
+      const refreshArchives = async () => {
+        if (!runtime.listLocalDataArchives) {
+          setStatus('localdata-status', '当前运行时不支持本地存档');
+          return;
+        }
+        const result = await runtime.listLocalDataArchives();
+        if (!result.ok) {
+          setStatus('localdata-status', result.error || '读取存档失败');
+          appendLog(`本地存档 | 读取失败 | ${result.error || '-'}`);
+          return;
+        }
+        archiveList = result.archives || [];
+        if (!selectedArchiveFileName && archiveList[0]) {
+          selectedArchiveFileName = archiveList[0].fileName;
+        }
+        if (selectedArchiveFileName && !archiveList.some((item) => item.fileName === selectedArchiveFileName)) {
+          selectedArchiveFileName = archiveList[0]?.fileName || null;
+        }
+        renderArchiveList();
+        setStatus('localdata-status', `已读取 ${archiveList.length} 个存档`);
+      };
+
+      const exportArchive = async () => {
+        if (!runtime.requestLocalDataExport || !runtime.saveLocalDataArchive) {
+          setStatus('localdata-status', '当前运行时不支持 web 数据导出');
+          return;
+        }
+        const name = document.getElementById('archive-name').value.trim();
+        const description = document.getElementById('archive-desc').value.trim();
+        const sections = getCheckedSections('export-sections');
+        setStatus('localdata-status', '正在请求 web 主界面导出...');
+        const exported = await runtime.requestLocalDataExport({ name, description, sections });
+        if (!exported.ok || !exported.archive) {
+          setStatus('localdata-status', exported.error || 'web 导出失败');
+          appendLog(`本地存档 | 导出失败 | ${exported.error || '-'}`);
+          return;
+        }
+        const saved = await runtime.saveLocalDataArchive(exported.archive);
+        if (!saved.ok) {
+          setStatus('localdata-status', saved.error || '保存存档失败');
+          appendLog(`本地存档 | 保存失败 | ${saved.error || '-'}`);
+          return;
+        }
+        selectedArchiveFileName = saved.meta?.fileName || null;
+        appendLog(`本地存档 | 已保存 | ${saved.path}`);
+        await refreshArchives();
+      };
+
+      const applyArchive = async () => {
+        if (!selectedArchiveFileName) {
+          setStatus('localdata-status', '请先选择一个存档');
+          return;
+        }
+        if (!runtime.readLocalDataArchive || !runtime.requestLocalDataImport) {
+          setStatus('localdata-status', '当前运行时不支持 web 数据导入');
+          return;
+        }
+        const sections = getCheckedSections('import-sections');
+        setStatus('localdata-status', '正在读取存档并请求 web 主界面替换...');
+        const loaded = await runtime.readLocalDataArchive({ fileName: selectedArchiveFileName });
+        if (!loaded.ok || !loaded.archive) {
+          setStatus('localdata-status', loaded.error || '读取存档失败');
+          appendLog(`本地存档 | 读取失败 | ${loaded.error || '-'}`);
+          return;
+        }
+        const imported = await runtime.requestLocalDataImport({
+          archive: loaded.archive,
+          options: { sections, reload: true },
+        });
+        if (!imported.ok) {
+          setStatus('localdata-status', imported.error || 'web 导入失败');
+          appendLog(`本地存档 | 导入失败 | ${imported.error || '-'}`);
+          return;
+        }
+        const writtenKeys = (imported.localKeys || 0) + (imported.sessionKeys || 0);
+        const removedKeys = (imported.removedLocalKeys || 0) + (imported.removedSessionKeys || 0);
+        setStatus('localdata-status', `桌面 Web storage 已替换；写入 ${writtenKeys}，清理 ${removedKeys}；${imported.origin || '-'}`);
+        appendLog(`本地存档 | 已替换桌面端 | ${selectedArchiveFileName} | ${sections.join(' / ')} | 写入 ${writtenKeys} 清理 ${removedKeys} | ${imported.href || imported.origin || '-'}`);
+      };
+
+      const deleteArchive = async () => {
+        if (!selectedArchiveFileName) {
+          setStatus('localdata-status', '请先选择一个存档');
+          return;
+        }
+        if (!runtime.deleteLocalDataArchive) {
+          setStatus('localdata-status', '当前运行时不支持删除存档');
+          return;
+        }
+        const result = await runtime.deleteLocalDataArchive({ fileName: selectedArchiveFileName });
+        if (!result.ok) {
+          setStatus('localdata-status', result.error || '删除失败');
+          appendLog(`本地存档 | 删除失败 | ${result.error || '-'}`);
+          return;
+        }
+        appendLog(`本地存档 | 已删除 | ${selectedArchiveFileName}`);
+        selectedArchiveFileName = null;
+        await refreshArchives();
       };
 
       const syncScaleButtons = (activeScale, savedScale) => {
@@ -354,6 +655,7 @@
         );
         appendLog(`外壳就绪 | 角色=${runtime.role} | 平台=${state.platform} | 主机=${state.hostname}`);
         appendLog('主界面与 shell 现在都由 Electron 托管。');
+        await refreshArchives();
       };
 
       document.querySelectorAll('[data-action]').forEach((button) => {
@@ -377,6 +679,45 @@
 
       document.getElementById('clear-log').addEventListener('click', () => {
         logElement.textContent = '';
+      });
+
+      document.getElementById('export-archive').addEventListener('click', () => {
+        exportArchive().catch((error) => {
+          const message = error instanceof Error ? error.message : String(error);
+          setStatus('localdata-status', message);
+          appendLog(`本地存档 | 导出异常 | ${message}`);
+        });
+      });
+
+      document.getElementById('refresh-archives').addEventListener('click', () => {
+        refreshArchives().catch((error) => {
+          const message = error instanceof Error ? error.message : String(error);
+          setStatus('localdata-status', message);
+        });
+      });
+
+      document.getElementById('apply-archive').addEventListener('click', () => {
+        applyArchive().catch((error) => {
+          const message = error instanceof Error ? error.message : String(error);
+          setStatus('localdata-status', message);
+          appendLog(`本地存档 | 导入异常 | ${message}`);
+        });
+      });
+
+      document.getElementById('delete-archive').addEventListener('click', () => {
+        deleteArchive().catch((error) => {
+          const message = error instanceof Error ? error.message : String(error);
+          setStatus('localdata-status', message);
+        });
+      });
+
+      document.getElementById('open-localdata').addEventListener('click', async () => {
+        try {
+          const result = await runtime.revealLocalDataArchive?.();
+          appendLog(result?.ok ? `本地存档 | 已打开目录 | ${result.path || ''}` : `本地存档 | 打开目录失败 | ${result?.error || '-'}`);
+        } catch (error) {
+          appendLog(`本地存档 | 打开目录异常 | ${error instanceof Error ? error.message : String(error)}`);
+        }
       });
 
       document.getElementById('open-web').addEventListener('click', async () => {

@@ -14,10 +14,15 @@
   let capturePollTimer = 0;
   let latestCaptureFrameStamp = 0;
   let lastCaptureMetaMarkup = '';
+  let archiveList = [];
+  let selectedArchiveFileName = null;
+  let activeArchiveFileName = null;
+  let isApplyingArchive = false;
   const statusCache = new Map();
   const SHELL_STORAGE_KEYS = {
     arkPrompt: 'def.shell.ark.prompt.v1',
   };
+  const LOCAL_BRIDGE_ORIGIN = 'http://127.0.0.1:31457';
 
   const appendLog = (line) => {
     const current = logElement.textContent ? `${logElement.textContent}\n` : '';
@@ -33,6 +38,46 @@
     }
   };
 
+  const fetchLocalBridgeJson = async (path, options = {}) => {
+    const response = await fetch(`${LOCAL_BRIDGE_ORIGIN}${path}`, {
+      cache: 'no-store',
+      ...options,
+    });
+    const payload = await response.json().catch(() => null);
+    if (!response.ok || !payload?.ok) {
+      throw new Error(payload?.error || `本地 bridge 请求失败：${path}`);
+    }
+    return payload;
+  };
+
+  const formatArchiveId = () => {
+    const date = new Date();
+    const pad = (value) => String(value).padStart(2, '0');
+    return `localdata-${date.getFullYear()}${pad(date.getMonth() + 1)}${pad(date.getDate())}${pad(date.getHours())}${pad(date.getMinutes())}${pad(date.getSeconds())}`;
+  };
+
+  const cloneNowStorageArchiveForSave = (archive, name, description) => {
+    const exportedAt = new Date().toISOString();
+    const archiveId = formatArchiveId();
+    return {
+      ...archive,
+      id: archiveId,
+      name: name || archiveId,
+      description: description || archive.description,
+      createdAt: exportedAt,
+      exportedAt,
+    };
+  };
+
+  const setActivePage = (pageKey) => {
+    document.querySelectorAll('.nav-button').forEach((button) => {
+      button.classList.toggle('is-active', button.getAttribute('data-page') === pageKey);
+    });
+    document.querySelectorAll('.page').forEach((page) => {
+      page.classList.toggle('is-active', page.id === `page-${pageKey}`);
+    });
+  };
+
   const safeReadLocal = (key, fallback = '') => {
     try {
       return window.localStorage.getItem(key) ?? fallback;
@@ -45,6 +90,205 @@
     try {
       window.localStorage.setItem(key, value);
     } catch {}
+  };
+
+  const getCheckedSections = (containerId) => {
+    const values = Array.from(document.querySelectorAll(`#${containerId} input[type="checkbox"]:checked`))
+      .map((input) => input.value);
+    return values.length > 0 ? values : ['all'];
+  };
+
+  const formatBytes = (value) => {
+    if (!Number.isFinite(value)) return '-';
+    if (value < 1024) return `${value} B`;
+    if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`;
+    return `${(value / 1024 / 1024).toFixed(1)} MB`;
+  };
+
+  const escapeHtml = (value) => String(value ?? '').replace(/[&<>"']/g, (char) => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;',
+  }[char]));
+
+  const renderArchiveList = () => {
+    const listElement = document.getElementById('archive-list');
+    if (!listElement) return;
+    if (archiveList.length === 0) {
+      listElement.innerHTML = '<div class="status">data/localdata 暂无存档</div>';
+      selectedArchiveFileName = null;
+      return;
+    }
+    listElement.innerHTML = archiveList.map((item) => `
+      <button type="button" class="archive-item${item.fileName === selectedArchiveFileName ? ' is-active' : ''}" data-archive="${escapeHtml(item.fileName)}">
+        <div class="archive-title">
+          <span>${escapeHtml(item.name || item.id)}${item.fileName === activeArchiveFileName ? ' · 当前' : ''}</span>
+          <span>${escapeHtml(formatBytes(item.size))}</span>
+        </div>
+        <div class="archive-meta">
+          ${escapeHtml(item.fileName)}<br />
+          分组：${escapeHtml((item.sections || []).join(' / ') || '-')} · local ${escapeHtml(item.localKeys || 0)} · session ${escapeHtml(item.sessionKeys || 0)}<br />
+          ${escapeHtml(item.updatedAt || '')}
+        </div>
+      </button>
+    `).join('');
+    listElement.querySelectorAll('[data-archive]').forEach((button) => {
+      button.addEventListener('click', () => {
+        selectedArchiveFileName = button.getAttribute('data-archive');
+        renderArchiveList();
+      });
+    });
+  };
+
+  const refreshArchives = async () => {
+    if (!runtime.listLocalDataArchives) {
+      setStatus('localdata-status', '当前运行时不支持本地存档');
+      return;
+    }
+    const result = await runtime.listLocalDataArchives();
+    if (!result.ok) {
+      setStatus('localdata-status', result.error || '读取存档失败');
+      appendLog(`本地存档 | 读取失败 | ${result.error || '-'}`);
+      return;
+    }
+    archiveList = result.archives || [];
+    activeArchiveFileName = result.state?.activeFileName || null;
+    if (!selectedArchiveFileName && archiveList[0]) {
+      selectedArchiveFileName = archiveList[0].fileName;
+    }
+    if (selectedArchiveFileName && !archiveList.some((item) => item.fileName === selectedArchiveFileName)) {
+      selectedArchiveFileName = archiveList[0]?.fileName || null;
+    }
+    renderArchiveList();
+    setStatus('localdata-status', `桌面端当前引用：${activeArchiveFileName || '未设置'}；已读取 ${archiveList.length} 个存档`);
+  };
+
+  const exportArchive = async () => {
+    if (!runtime.saveLocalDataArchive) {
+      setStatus('localdata-status', '当前运行时不支持保存存档');
+      return;
+    }
+    const name = document.getElementById('archive-name').value.trim();
+    const description = document.getElementById('archive-desc').value.trim();
+    setStatus('localdata-status', '正在读取浏览器 now-storage 快照...');
+    let nowStorage;
+    try {
+      nowStorage = await fetchLocalBridgeJson('/local-data/now-storage');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setStatus('localdata-status', message);
+      appendLog(`本地存档 | 读取 now-storage 失败 | ${message}`);
+      return;
+    }
+    if (!nowStorage.archive) {
+      setStatus('localdata-status', 'now-storage 暂无浏览器快照，请先打开或 F5 web 主界面');
+      appendLog('本地存档 | 保存失败 | now-storage 暂无浏览器快照');
+      return;
+    }
+    const archive = cloneNowStorageArchiveForSave(nowStorage.archive, name, description);
+    const saved = await runtime.saveLocalDataArchive(archive);
+    if (!saved.ok) {
+      setStatus('localdata-status', saved.error || '保存存档失败');
+      appendLog(`本地存档 | 保存失败 | ${saved.error || '-'}`);
+      return;
+    }
+    selectedArchiveFileName = saved.meta?.fileName || null;
+    activeArchiveFileName = saved.state?.activeFileName || selectedArchiveFileName;
+    appendLog(`本地存档 | 已保存 | ${saved.path}`);
+    await refreshArchives();
+  };
+
+  const applyArchive = async () => {
+    if (isApplyingArchive) {
+      setStatus('localdata-status', '同步正在进行，请稍候');
+      return;
+    }
+    if (!selectedArchiveFileName) {
+      setStatus('localdata-status', '请先选择一个存档');
+      return;
+    }
+    if (!runtime.readLocalDataArchive || !runtime.requestLocalDataImport) {
+      setStatus('localdata-status', '当前运行时不支持 web 数据导入');
+      return;
+    }
+    const sections = getCheckedSections('import-sections');
+    setStatus('localdata-status', '正在读取存档并写入 now-storage...');
+    const loaded = await runtime.readLocalDataArchive({ fileName: selectedArchiveFileName });
+    if (!loaded.ok || !loaded.archive) {
+      setStatus('localdata-status', loaded.error || '读取存档失败');
+      appendLog(`本地存档 | 读取失败 | ${loaded.error || '-'}`);
+      return;
+    }
+    isApplyingArchive = true;
+    try {
+      await fetchLocalBridgeJson('/local-data/now-storage', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(loaded.archive),
+      });
+      await fetchLocalBridgeJson('/local-data/now-storage-state', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ forceApply: true }),
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setStatus('localdata-status', message);
+      appendLog(`本地存档 | 写入 now-storage 失败 | ${message}`);
+      isApplyingArchive = false;
+      return;
+    }
+
+    let desktopImport = null;
+    if (runtime.requestLocalDataImport) {
+      try {
+        desktopImport = await runtime.requestLocalDataImport({
+          archive: loaded.archive,
+          fileName: selectedArchiveFileName,
+          options: { sections, reload: true },
+        });
+      } catch (error) {
+        desktopImport = {
+          ok: false,
+          error: error instanceof Error ? error.message : String(error),
+        };
+      }
+    }
+    activeArchiveFileName = desktopImport?.state?.activeFileName || selectedArchiveFileName;
+    const writtenKeys = (desktopImport?.localKeys || 0) + (desktopImport?.sessionKeys || 0);
+    const removedKeys = (desktopImport?.removedLocalKeys || 0) + (desktopImport?.removedSessionKeys || 0);
+    setStatus(
+      'localdata-status',
+      `now-storage 已替换并等待浏览器下次打开/F5应用；桌面写入 ${writtenKeys}，清理 ${removedKeys}；当前引用：${activeArchiveFileName}`,
+    );
+    appendLog(
+      `本地存档 | 已写入 now-storage | ${selectedArchiveFileName} | ${sections.join(' / ')} | 桌面写入 ${writtenKeys} 清理 ${removedKeys}${desktopImport?.ok === false ? ` | 桌面导入失败：${desktopImport.error || '-'}` : ''}`,
+    );
+    window.setTimeout(() => {
+      isApplyingArchive = false;
+    }, 800);
+  };
+
+  const deleteArchive = async () => {
+    if (!selectedArchiveFileName) {
+      setStatus('localdata-status', '请先选择一个存档');
+      return;
+    }
+    if (!runtime.deleteLocalDataArchive) {
+      setStatus('localdata-status', '当前运行时不支持删除存档');
+      return;
+    }
+    const result = await runtime.deleteLocalDataArchive({ fileName: selectedArchiveFileName });
+    if (!result.ok) {
+      setStatus('localdata-status', result.error || '删除失败');
+      appendLog(`本地存档 | 删除失败 | ${result.error || '-'}`);
+      return;
+    }
+    appendLog(`本地存档 | 已删除 | ${selectedArchiveFileName}`);
+    selectedArchiveFileName = null;
+    await refreshArchives();
   };
 
   const extractArkText = (value) => {
@@ -231,6 +475,7 @@
     arkApiKeyInput.value = llmSettings.apiKey || '';
     arkModelInput.value = llmSettings.model || arkModelInput.value;
     arkPromptInput.value = safeReadLocal(SHELL_STORAGE_KEYS.arkPrompt, arkPromptInput.value);
+    await refreshArchives();
     await refreshCaptureSources();
     startCaptureFramePolling();
   };
@@ -254,6 +499,15 @@
     });
   });
 
+  document.querySelectorAll('.nav-button').forEach((button) => {
+    button.addEventListener('click', () => {
+      const pageKey = button.getAttribute('data-page');
+      if (pageKey) {
+        setActivePage(pageKey);
+      }
+    });
+  });
+
   document.getElementById('clear-log').addEventListener('click', () => {
     logElement.textContent = '';
   });
@@ -261,6 +515,45 @@
   document.getElementById('toggle-log').addEventListener('click', () => {
     const collapsed = logCardElement.classList.toggle('is-collapsed');
     document.getElementById('toggle-log').textContent = collapsed ? '展开日志' : '收起日志';
+  });
+
+  document.getElementById('export-archive').addEventListener('click', () => {
+    exportArchive().catch((error) => {
+      const message = error instanceof Error ? error.message : String(error);
+      setStatus('localdata-status', message);
+      appendLog(`本地存档 | 导出异常 | ${message}`);
+    });
+  });
+
+  document.getElementById('refresh-archives').addEventListener('click', () => {
+    refreshArchives().catch((error) => {
+      const message = error instanceof Error ? error.message : String(error);
+      setStatus('localdata-status', message);
+    });
+  });
+
+  document.getElementById('apply-archive').addEventListener('click', () => {
+    applyArchive().catch((error) => {
+      const message = error instanceof Error ? error.message : String(error);
+      setStatus('localdata-status', message);
+      appendLog(`本地存档 | 导入异常 | ${message}`);
+    });
+  });
+
+  document.getElementById('delete-archive').addEventListener('click', () => {
+    deleteArchive().catch((error) => {
+      const message = error instanceof Error ? error.message : String(error);
+      setStatus('localdata-status', message);
+    });
+  });
+
+  document.getElementById('open-localdata').addEventListener('click', async () => {
+    try {
+      const result = await runtime.revealLocalDataArchive?.();
+      appendLog(result?.ok ? `本地存档 | 已打开目录 | ${result.path || ''}` : `本地存档 | 打开目录失败 | ${result?.error || '-'}`);
+    } catch (error) {
+      appendLog(`本地存档 | 打开目录异常 | ${error instanceof Error ? error.message : String(error)}`);
+    }
   });
 
   document.getElementById('open-web').addEventListener('click', async () => {

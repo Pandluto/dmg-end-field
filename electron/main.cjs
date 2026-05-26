@@ -24,8 +24,8 @@ const PROD_SHELL_URL = `http://${BRIDGE_HOST}:${BRIDGE_PORT}/shell/index.html`;
 const ARK_RESPONSE_TIMEOUT_MS = 120000;
 const MAIN_CONTENT_WIDTH = 1700;
 const MAIN_CONTENT_HEIGHT = 900;
-const SHELL_WIDTH = 540;
-const SHELL_HEIGHT = 680;
+const SHELL_WIDTH = 700;
+const SHELL_HEIGHT = 600;
 const isDev = process.argv.includes('--dev');
 const shellOnly = process.argv.includes('--shell-only');
 const gotSingleInstanceLock = app.requestSingleInstanceLock();
@@ -75,6 +75,9 @@ let savedDesktopScaleKey = '1x';
 let activeDesktopScaleKey = '1x';
 let sharedLlmApiKey = '';
 let sharedLlmModel = 'doubao-seed-2-0-mini-260428';
+let localDataRequestSeq = 1;
+const pendingLocalDataExports = new Map();
+const pendingLocalDataImports = new Map();
 let captureSessionTimer = null;
 let captureSession = {
   boundSourceId: null,
@@ -428,8 +431,8 @@ function createShellWindow(options = {}) {
     buildWindowOptions('shell', {
       width: SHELL_WIDTH,
       height: SHELL_HEIGHT,
-      minWidth: 420,
-      minHeight: 560,
+      minWidth: 640,
+      minHeight: 520,
       title: 'DEF Desktop Shell',
       show: !startHidden,
       backgroundColor: '#edf5ee',
@@ -876,6 +879,119 @@ function startBridgeServer() {
         writeJson(response, 200, {
           ok: true,
           items: handleListImageAssets(),
+        });
+        return;
+      }
+
+      if (method === 'GET' && requestUrl.pathname === '/local-data/list') {
+        writeJson(response, 200, {
+          ok: true,
+          path: getLocalDataDirectory(),
+          state: readLocalDataState(),
+          archives: listLocalDataArchives(),
+        });
+        return;
+      }
+
+      if (method === 'GET' && requestUrl.pathname === '/local-data/active') {
+        const state = readLocalDataState();
+        if (!state.activeFileName) {
+          writeJson(response, 200, {
+            ok: true,
+            path: getLocalDataDirectory(),
+            state,
+            archive: null,
+            meta: null,
+          });
+          return;
+        }
+        const filePath = resolveLocalDataPath({ fileName: state.activeFileName });
+        const archive = readLocalDataArchiveFile(filePath);
+        writeJson(response, 200, {
+          ok: true,
+          path: filePath,
+          state,
+          archive,
+          meta: buildLocalDataMeta(filePath, archive),
+        });
+        return;
+      }
+
+      if (method === 'GET' && requestUrl.pathname === '/local-data/read') {
+        const fileName = requestUrl.searchParams.get('fileName') || undefined;
+        const id = requestUrl.searchParams.get('id') || undefined;
+        const filePath = resolveLocalDataPath({ fileName, id });
+        const archive = readLocalDataArchiveFile(filePath);
+        writeJson(response, 200, {
+          ok: true,
+          path: filePath,
+          archive,
+          meta: buildLocalDataMeta(filePath, archive),
+        });
+        return;
+      }
+
+      if (method === 'GET' && requestUrl.pathname === '/local-data/now-storage') {
+        const archive = readNowStorageArchive();
+        writeJson(response, 200, {
+          ok: true,
+          path: getNowStoragePath(),
+          state: readNowStorageState(),
+          archive,
+          meta: archive ? buildLocalDataMeta(getNowStoragePath(), archive) : null,
+        });
+        return;
+      }
+
+      if (method === 'POST' && requestUrl.pathname === '/local-data/now-storage') {
+        const archive = await readJsonRequest(request);
+        const result = writeNowStorageArchive(archive);
+        writeJson(response, 200, {
+          ok: true,
+          ...result,
+          state: readNowStorageState(),
+        });
+        return;
+      }
+
+      if (method === 'GET' && requestUrl.pathname === '/local-data/now-storage-state') {
+        writeJson(response, 200, {
+          ok: true,
+          state: readNowStorageState(),
+        });
+        return;
+      }
+
+      if (method === 'POST' && requestUrl.pathname === '/local-data/now-storage-state') {
+        const payload = await readJsonRequest(request);
+        writeJson(response, 200, {
+          ok: true,
+          state: writeNowStorageState(Boolean(payload?.forceApply)),
+        });
+        return;
+      }
+
+      if (method === 'POST' && requestUrl.pathname === '/local-data/save') {
+        const payload = await readJsonRequest(request);
+        if (!payload || payload.type !== 'def.localdata.archive.v1') {
+          writeJson(response, 400, { ok: false, error: '存档 payload 无效' });
+          return;
+        }
+        const archive = {
+          ...payload,
+          id: sanitizeArchiveId(payload.id || payload.name),
+          name: typeof payload.name === 'string' && payload.name.trim()
+            ? payload.name.trim()
+            : sanitizeArchiveId(payload.id),
+        };
+        const filePath = resolveLocalDataPath({ id: archive.id });
+        fs.writeFileSync(filePath, `${JSON.stringify(archive, null, 2)}\n`, 'utf-8');
+        const state = writeLocalDataState(path.basename(filePath));
+        writeJson(response, 200, {
+          ok: true,
+          path: filePath,
+          meta: buildLocalDataMeta(filePath, archive),
+          state,
         });
         return;
       }
@@ -2023,6 +2139,495 @@ ipcMain.handle('desktop:write-equipment-library', (_event, payload) => {
     return { ok: false, error: error instanceof Error ? error.message : String(error) };
   }
 });
+
+function getLocalDataDirectory() {
+  return path.join(__dirname, '..', 'data', 'localdata');
+}
+
+function getLocalDataStatePath() {
+  return path.join(getLocalDataDirectory(), 'active-localdata.json');
+}
+
+function getNowStoragePath() {
+  return path.join(getLocalDataDirectory(), 'now-storage.json');
+}
+
+function getNowStorageStatePath() {
+  return path.join(getLocalDataDirectory(), 'now-storage-state.json');
+}
+
+function sanitizeArchiveId(value) {
+  const raw = typeof value === 'string' && value.trim() ? value.trim() : `localdata-${Date.now()}`;
+  return raw.replace(/[^a-zA-Z0-9._-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 80) || `localdata-${Date.now()}`;
+}
+
+function ensureLocalDataDirectory() {
+  const dir = getLocalDataDirectory();
+  fs.mkdirSync(dir, { recursive: true });
+  return dir;
+}
+
+function readLocalDataState() {
+  try {
+    const filePath = getLocalDataStatePath();
+    if (!fs.existsSync(filePath)) {
+      return { activeFileName: null, updatedAt: null };
+    }
+    const parsed = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+    return {
+      activeFileName: typeof parsed.activeFileName === 'string' ? parsed.activeFileName : null,
+      updatedAt: typeof parsed.updatedAt === 'string' ? parsed.updatedAt : null,
+    };
+  } catch {
+    return { activeFileName: null, updatedAt: null };
+  }
+}
+
+function writeLocalDataState(activeFileName) {
+  ensureLocalDataDirectory();
+  const state = {
+    activeFileName,
+    updatedAt: new Date().toISOString(),
+  };
+  fs.writeFileSync(getLocalDataStatePath(), `${JSON.stringify(state, null, 2)}\n`, 'utf-8');
+  return state;
+}
+
+function readNowStorageState() {
+  try {
+    const filePath = getNowStorageStatePath();
+    if (!fs.existsSync(filePath)) {
+      return { forceApply: false, updatedAt: null };
+    }
+    const parsed = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+    return {
+      forceApply: Boolean(parsed.forceApply),
+      updatedAt: typeof parsed.updatedAt === 'string' ? parsed.updatedAt : null,
+    };
+  } catch {
+    return { forceApply: false, updatedAt: null };
+  }
+}
+
+function writeNowStorageState(forceApply) {
+  ensureLocalDataDirectory();
+  const state = {
+    forceApply: Boolean(forceApply),
+    updatedAt: new Date().toISOString(),
+  };
+  fs.writeFileSync(getNowStorageStatePath(), `${JSON.stringify(state, null, 2)}\n`, 'utf-8');
+  return state;
+}
+
+function readNowStorageArchive() {
+  const filePath = getNowStoragePath();
+  if (!fs.existsSync(filePath)) {
+    return null;
+  }
+  return readLocalDataArchiveFile(filePath);
+}
+
+function writeNowStorageArchive(archive) {
+  ensureLocalDataDirectory();
+  if (!archive || archive.type !== 'def.localdata.archive.v1' || !archive.storage) {
+    throw new Error('now-storage payload 无效');
+  }
+  fs.writeFileSync(getNowStoragePath(), `${JSON.stringify(archive, null, 2)}\n`, 'utf-8');
+  return {
+    path: getNowStoragePath(),
+    meta: buildLocalDataMeta(getNowStoragePath(), archive),
+  };
+}
+
+function resolveLocalDataPath(payload = {}) {
+  const dir = ensureLocalDataDirectory();
+  const fileName = sanitizeArchiveId(payload.fileName || payload.id || '');
+  const normalizedFileName = fileName.toLowerCase().endsWith('.json') ? fileName : `${fileName}.json`;
+  const resolved = path.resolve(dir, normalizedFileName);
+  const root = path.resolve(dir);
+  if (!resolved.startsWith(root + path.sep) && resolved !== root) {
+    throw new Error(`非法存档路径：${normalizedFileName}`);
+  }
+  return resolved;
+}
+
+function buildLocalDataMeta(filePath, archive) {
+  const stat = fs.statSync(filePath);
+  return {
+    id: archive?.id || path.basename(filePath, '.json'),
+    name: archive?.name || path.basename(filePath, '.json'),
+    description: archive?.description,
+    fileName: path.basename(filePath),
+    path: filePath,
+    createdAt: archive?.createdAt,
+    exportedAt: archive?.exportedAt,
+    sections: Array.isArray(archive?.sections) ? archive.sections : [],
+    localKeys: archive?.storage?.local ? Object.keys(archive.storage.local).length : 0,
+    sessionKeys: archive?.storage?.session ? Object.keys(archive.storage.session).length : 0,
+    size: stat.size,
+    updatedAt: stat.mtime.toISOString(),
+  };
+}
+
+function readLocalDataArchiveFile(filePath) {
+  const archive = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+  if (!archive || archive.type !== 'def.localdata.archive.v1' || !archive.storage) {
+    throw new Error('不是有效的 localdata 存档');
+  }
+  return archive;
+}
+
+function listLocalDataArchives() {
+  const dir = ensureLocalDataDirectory();
+  return fs.readdirSync(dir)
+    .filter((fileName) => {
+      const lowerName = fileName.toLowerCase();
+      return lowerName.endsWith('.json') &&
+        lowerName !== 'active-localdata.json' &&
+        lowerName !== 'now-storage.json' &&
+        lowerName !== 'now-storage-state.json';
+    })
+    .map((fileName) => {
+      const filePath = path.join(dir, fileName);
+      try {
+        return buildLocalDataMeta(filePath, readLocalDataArchiveFile(filePath));
+      } catch {
+        return buildLocalDataMeta(filePath, {
+          id: path.basename(fileName, '.json'),
+          name: path.basename(fileName, '.json'),
+          sections: [],
+          storage: { local: {}, session: {} },
+        });
+      }
+    })
+    .sort((left, right) => String(right.updatedAt).localeCompare(String(left.updatedAt)));
+}
+
+function getMainWebContents() {
+  const win = restoreMainWindow();
+  if (!win || win.isDestroyed()) {
+    throw new Error('主界面不可用');
+  }
+  return win.webContents;
+}
+
+function waitForWebContentsReady(webContents, timeoutMs = 10000) {
+  if (!webContents.isLoading()) {
+    return Promise.resolve();
+  }
+
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      cleanup();
+      reject(new Error('主界面加载超时'));
+    }, timeoutMs);
+    const cleanup = () => {
+      clearTimeout(timer);
+      webContents.off('did-finish-load', handleReady);
+      webContents.off('did-fail-load', handleFail);
+    };
+    const handleReady = () => {
+      cleanup();
+      resolve();
+    };
+    const handleFail = (_event, _errorCode, errorDescription) => {
+      cleanup();
+      reject(new Error(`主界面加载失败：${errorDescription || 'unknown'}`));
+    };
+    webContents.once('did-finish-load', handleReady);
+    webContents.once('did-fail-load', handleFail);
+  });
+}
+
+async function requestMainRenderer(channel, pendingMap, payload, timeoutMs = 30000) {
+  const requestId = `localdata-${localDataRequestSeq++}`;
+  const webContents = getMainWebContents();
+  await waitForWebContentsReady(webContents);
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => {
+      pendingMap.delete(requestId);
+      resolve({ ok: false, error: '主界面响应超时' });
+    }, timeoutMs);
+    pendingMap.set(requestId, { resolve, timer });
+    webContents.send(channel, { requestId, ...payload });
+  });
+}
+
+function reloadMainWindowAfterLocalDataImport() {
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    return;
+  }
+  setTimeout(() => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.reloadIgnoringCache();
+    }
+  }, 180);
+}
+
+const LOCAL_DATA_LOCAL_PREFIXES = {
+  operators: ['def.operator-editor.'],
+  weapons: ['def.weapon-sheet.'],
+  equipments: ['def.equipment-sheet.'],
+  buffs: ['def.buff-editor.', 'def.buff-sheet.'],
+  timeline: ['def.timeline.snapshot-archive.v1'],
+  runtime: [],
+};
+
+const LOCAL_DATA_SESSION_KEYS = {
+  operators: [
+    'def.operator-config.active-character.v1',
+    'def.operator-config.character-input-map.v3',
+    'def.selected-characters.v1',
+  ],
+  weapons: [],
+  equipments: [],
+  buffs: [
+    'def.all-buff-list.v1',
+    'def.candidate-buff-list.v1',
+    'def.anomaly-state-snapshot-archive.v1',
+  ],
+  timeline: [
+    'def.selected-characters.v1',
+    'def.selected-skill-button',
+    'def.timeline.data.v1',
+    'def.skill-button.v1',
+    'def.all-buff-list.v1',
+    'def.anomaly-state-snapshot-archive.v1',
+  ],
+  runtime: [
+    'def.operator-config.page-cache.v1',
+    'def.operator-runtime.template-map.v1',
+    'def.operator-runtime.character-computed-map.v3',
+    'def.operator-ui.character-display-cache.v3',
+  ],
+};
+
+const LOCAL_DATA_REQUIRED_CURRENT_SESSION_KEYS = {
+  timeline: [
+    'def.selected-characters.v1',
+    'def.timeline.data.v1',
+    'def.skill-button.v1',
+    'def.all-buff-list.v1',
+  ],
+};
+
+async function applyLocalDataArchiveInMainWindow(archive, options = {}) {
+  const webContents = getMainWebContents();
+  await waitForWebContentsReady(webContents);
+  const payload = {
+    archive,
+    options,
+    localPrefixes: LOCAL_DATA_LOCAL_PREFIXES,
+    sessionKeys: LOCAL_DATA_SESSION_KEYS,
+    requiredSessionKeys: LOCAL_DATA_REQUIRED_CURRENT_SESSION_KEYS,
+  };
+  const script = `
+(() => {
+  const payload = ${JSON.stringify(payload)};
+  const knownSections = ['operators', 'weapons', 'equipments', 'buffs', 'timeline', 'runtime'];
+  const uniqueSections = (sections) => {
+    const source = Array.isArray(sections) && sections.length > 0 ? sections : ['all'];
+    return Array.from(new Set(source));
+  };
+  const sections = uniqueSections(payload.options?.sections || payload.archive?.sections);
+  const shouldIncludeLocalKey = (key) => {
+    if (sections.includes('all')) return key.startsWith('def.');
+    return sections.some((section) => {
+      const prefixes = payload.localPrefixes[section] || [];
+      return prefixes.some((prefix) => key === prefix || key.startsWith(prefix));
+    });
+  };
+  const shouldIncludeSessionKey = (key) => {
+    if (sections.includes('all')) return key.startsWith('def.');
+    return sections.some((section) => (payload.sessionKeys[section] || []).includes(key));
+  };
+  const listKeys = (storage) => {
+    const keys = [];
+    for (let index = 0; index < storage.length; index += 1) {
+      const key = storage.key(index);
+      if (key) keys.push(key);
+    }
+    return keys.sort();
+  };
+  const stringifyValue = (value) => typeof value === 'string' ? value : JSON.stringify(value ?? null);
+  const filterValues = (values, shouldInclude) => Object.fromEntries(
+    Object.entries(values || {}).filter(([key]) => shouldInclude(key))
+  );
+  const localValues = filterValues(payload.archive?.storage?.local, shouldIncludeLocalKey);
+  const sessionValues = filterValues(payload.archive?.storage?.session, shouldIncludeSessionKey);
+  const targetSections = sections.includes('all') ? knownSections : sections.filter((section) => section !== 'all');
+  const missingSections = targetSections.filter((section) => {
+    const requiredKeys = payload.requiredSessionKeys[section];
+    return Array.isArray(requiredKeys) && requiredKeys.length > 0 && !requiredKeys.some((key) => key in sessionValues);
+  });
+  if (missingSections.length > 0) {
+    const archiveSessionKeys = Object.keys(payload.archive?.storage?.session || {});
+    throw new Error(
+      '存档缺少当前态 sessionStorage，不能完成桌面端同步替换：' +
+      missingSections.join(' / ') +
+      '。当前存档 session key：' +
+      (archiveSessionKeys.join(', ') || '无')
+    );
+  }
+  const removeManaged = (storage, shouldInclude) => {
+    const keys = listKeys(storage).filter(shouldInclude);
+    keys.forEach((key) => storage.removeItem(key));
+    return keys.length;
+  };
+  const applyValues = (storage, values) => {
+    const failedKeys = [];
+    Object.entries(values).forEach(([key, value]) => {
+      const serialized = stringifyValue(value);
+      storage.setItem(key, serialized);
+      if (storage.getItem(key) !== serialized) {
+        failedKeys.push(key);
+      }
+    });
+    return { writtenKeys: Object.keys(values).length, failedKeys };
+  };
+  const removedLocalKeys = removeManaged(window.localStorage, shouldIncludeLocalKey);
+  const removedSessionKeys = removeManaged(window.sessionStorage, shouldIncludeSessionKey);
+  const localResult = applyValues(window.localStorage, localValues);
+  const sessionResult = applyValues(window.sessionStorage, sessionValues);
+  const failedKeys = [...localResult.failedKeys, ...sessionResult.failedKeys];
+  if (failedKeys.length > 0) {
+    throw new Error('桌面端 Web storage 写入校验失败：' + failedKeys.join(', '));
+  }
+  const touchedKeys = removedLocalKeys + removedSessionKeys + localResult.writtenKeys + sessionResult.writtenKeys;
+  if (touchedKeys === 0) {
+    throw new Error('存档和所选分组没有可替换的桌面端 Web storage key');
+  }
+  return {
+    ok: true,
+    sections,
+    localKeys: localResult.writtenKeys,
+    sessionKeys: sessionResult.writtenKeys,
+    removedLocalKeys,
+    removedSessionKeys,
+    origin: window.location.origin,
+    href: window.location.href,
+    localKeyNames: Object.keys(localValues),
+    sessionKeyNames: Object.keys(sessionValues),
+  };
+})()
+`;
+  return webContents.executeJavaScript(script, true);
+}
+
+function completeLocalDataRequest(pendingMap, payload) {
+  const requestId = payload?.requestId;
+  if (!requestId || !pendingMap.has(requestId)) {
+    return { ok: false, error: `未知请求：${requestId || '-'}` };
+  }
+  const pending = pendingMap.get(requestId);
+  pendingMap.delete(requestId);
+  clearTimeout(pending.timer);
+  pending.resolve(payload);
+  return { ok: true };
+}
+
+ipcMain.handle('desktop:list-local-data-archives', () => {
+  try {
+    return {
+      ok: true,
+      path: getLocalDataDirectory(),
+      state: readLocalDataState(),
+      archives: listLocalDataArchives(),
+    };
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : String(error) };
+  }
+});
+
+ipcMain.handle('desktop:save-local-data-archive', (_event, payload) => {
+  try {
+    if (!payload || payload.type !== 'def.localdata.archive.v1') {
+      return { ok: false, error: '存档 payload 无效' };
+    }
+    const archive = {
+      ...payload,
+      id: sanitizeArchiveId(payload.id || payload.name),
+      name: typeof payload.name === 'string' && payload.name.trim() ? payload.name.trim() : sanitizeArchiveId(payload.id),
+    };
+    const filePath = resolveLocalDataPath({ id: archive.id });
+    fs.writeFileSync(filePath, `${JSON.stringify(archive, null, 2)}\n`, 'utf-8');
+    const state = writeLocalDataState(path.basename(filePath));
+    return { ok: true, path: filePath, meta: buildLocalDataMeta(filePath, archive), state };
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : String(error) };
+  }
+});
+
+ipcMain.handle('desktop:read-local-data-archive', (_event, payload) => {
+  try {
+    const filePath = resolveLocalDataPath(payload);
+    const archive = readLocalDataArchiveFile(filePath);
+    return { ok: true, path: filePath, archive, meta: buildLocalDataMeta(filePath, archive) };
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : String(error) };
+  }
+});
+
+ipcMain.handle('desktop:delete-local-data-archive', (_event, payload) => {
+  try {
+    const filePath = resolveLocalDataPath(payload);
+    if (fs.existsSync(filePath)) {
+      fs.unlinkSync(filePath);
+    }
+    return { ok: true, path: filePath };
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : String(error) };
+  }
+});
+
+ipcMain.handle('desktop:reveal-local-data-archive', async (_event, payload) => {
+  try {
+    if (payload?.id || payload?.fileName) {
+      shell.showItemInFolder(resolveLocalDataPath(payload));
+    } else {
+      await shell.openPath(ensureLocalDataDirectory());
+    }
+    return { ok: true, path: getLocalDataDirectory() };
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : String(error) };
+  }
+});
+
+ipcMain.handle('desktop:request-local-data-export', async (_event, options) => {
+  try {
+    return await requestMainRenderer('desktop:local-data-export-request', pendingLocalDataExports, { options });
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : String(error) };
+  }
+});
+
+ipcMain.handle('desktop:request-local-data-import', async (_event, payload) => {
+  try {
+    if (!payload?.archive) {
+      return { ok: false, error: '缺少导入存档' };
+    }
+    const result = await applyLocalDataArchiveInMainWindow(payload.archive, payload.options || {});
+    if (result?.ok) {
+      const archiveId = payload.archive.id || payload.fileName;
+      const fileName = payload.fileName || (archiveId ? `${sanitizeArchiveId(archiveId)}.json` : null);
+      if (fileName) {
+        result.state = writeLocalDataState(fileName);
+      }
+      reloadMainWindowAfterLocalDataImport();
+    }
+    return result;
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : String(error) };
+  }
+});
+
+ipcMain.handle('desktop:complete-local-data-export', (_event, payload) => (
+  completeLocalDataRequest(pendingLocalDataExports, payload)
+));
+
+ipcMain.handle('desktop:complete-local-data-import', (_event, payload) => (
+  completeLocalDataRequest(pendingLocalDataImports, payload)
+));
 
 ipcMain.handle('desktop:run-action', (_event, action) => {
   switch (action) {

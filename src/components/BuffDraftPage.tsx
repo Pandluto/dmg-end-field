@@ -59,7 +59,7 @@ const BUFF_TYPE_OPTIONS = [
   'electricDmgBonus',
   'iceDmgBonus',
   'natureDmgBonus',
-  'allDmgBonus',
+  'allElementDmgBonus',
   'skillDmgBonus',
   'chainSkillDmgBonus',
   'ultimateDmgBonus',
@@ -76,7 +76,7 @@ const BUFF_TYPE_OPTIONS = [
   'electricVulnerability',
   'iceVulnerability',
   'natureVulnerability',
-  'magicVulnerability',
+  'magicTakenDmgBonus',
   'physicalAmplify',
   'magicAmplify',
   'fireAmplify',
@@ -102,29 +102,29 @@ const BUFF_TYPE_LABELS: Record<(typeof BUFF_TYPE_OPTIONS)[number], { label: stri
   critRateBoost: { label: '暴击率', keywords: ['暴击', '暴击率', 'crit'] },
   critDmgBonusBoost: { label: '暴击伤害', keywords: ['暴伤', '暴击伤害', 'crit'] },
   physicalDmgBonus: { label: '物理伤害加成', keywords: ['物理', '物伤'] },
-  magicDmgBonus: { label: '法术伤害加成', keywords: ['法术', '魔法', 'magic', '元素', '全元素'] },
+  magicDmgBonus: { label: '法术伤害加成', keywords: ['法术', '魔法', 'magic'] },
   fireDmgBonus: { label: '灼热伤害加成', keywords: ['灼热', '火', '火伤'] },
   electricDmgBonus: { label: '电磁伤害加成', keywords: ['电磁', '雷', '电伤'] },
   iceDmgBonus: { label: '寒冷伤害加成', keywords: ['寒冷', '冰', '冰伤'] },
   natureDmgBonus: { label: '自然伤害加成', keywords: ['自然', '自然伤害'] },
-  allDmgBonus: { label: '全伤害加成', keywords: ['全伤害', '所有伤害', '通用增伤'] },
+  allElementDmgBonus: { label: '全元素伤害加成', keywords: ['元素', '全元素', '法术'] },
   skillDmgBonus: { label: '战技伤害加成', keywords: ['战技', '技能', 'skill'] },
   chainSkillDmgBonus: { label: '连携技伤害加成', keywords: ['连携', '连携技'] },
   ultimateDmgBonus: { label: '终结技伤害加成', keywords: ['终结', '大招', 'ultimate'] },
   normalAttackDmgBonus: { label: '普攻伤害加成', keywords: ['普攻', '普通攻击'] },
   allSkillDmgBonus: { label: '全技能伤害加成', keywords: ['全技能', '技能'] },
-  physicalFragile: { label: '物理易伤', keywords: ['物理', '物伤', '易伤', '受伤增加'] },
-  fireFragile: { label: '灼热易伤', keywords: ['灼热', '易伤'] },
-  electricFragile: { label: '电磁易伤', keywords: ['电磁', '易伤'] },
-  iceFragile: { label: '寒冷易伤', keywords: ['寒冷', '易伤'] },
-  natureFragile: { label: '自然易伤', keywords: ['自然', '易伤'] },
-  magicFragile: { label: '法术易伤', keywords: ['法术', '易伤'] },
+  physicalFragile: { label: '物伤易伤', keywords: ['物理', '物伤', '易伤', '受伤增加'] },
+  fireFragile: { label: '灼热脆弱', keywords: ['灼热', '脆弱'] },
+  electricFragile: { label: '电磁脆弱', keywords: ['电磁', '脆弱'] },
+  iceFragile: { label: '寒冷脆弱', keywords: ['寒冷', '脆弱'] },
+  natureFragile: { label: '自然脆弱', keywords: ['自然', '脆弱'] },
+  magicFragile: { label: '法术脆弱', keywords: ['法术', '脆弱'] },
   physicalVulnerability: { label: '物理脆弱', keywords: ['物理', '脆弱'] },
-  fireVulnerability: { label: '灼热脆弱', keywords: ['灼热', '脆弱'] },
-  electricVulnerability: { label: '电磁脆弱', keywords: ['电磁', '脆弱'] },
-  iceVulnerability: { label: '寒冷脆弱', keywords: ['寒冷', '脆弱'] },
-  natureVulnerability: { label: '自然脆弱', keywords: ['自然', '脆弱'] },
-  magicVulnerability: { label: '法术脆弱', keywords: ['法术', '脆弱', '魔法'] },
+  fireVulnerability: { label: '灼热易伤', keywords: ['灼热', '易伤'] },
+  electricVulnerability: { label: '电磁易伤', keywords: ['电磁', '易伤'] },
+  iceVulnerability: { label: '寒冷易伤', keywords: ['寒冷', '易伤'] },
+  natureVulnerability: { label: '自然易伤', keywords: ['自然', '易伤'] },
+  magicTakenDmgBonus: { label: '法术易伤', keywords: ['法术', '异伤', '易伤', '魔法'] },
   physicalAmplify: { label: '物理增幅', keywords: ['物理', '增幅'] },
   magicAmplify: { label: '法术增幅', keywords: ['法术', '增幅'] },
   fireAmplify: { label: '灼热增幅', keywords: ['灼热', '增幅'] },
@@ -160,7 +160,7 @@ const DISPLAY_PERCENT_TYPES = new Set<string>([
   'electricDmgBonus',
   'iceDmgBonus',
   'natureDmgBonus',
-  'allDmgBonus',
+  'allElementDmgBonus',
   'skillDmgBonus',
   'chainSkillDmgBonus',
   'ultimateDmgBonus',
@@ -177,7 +177,7 @@ const DISPLAY_PERCENT_TYPES = new Set<string>([
   'electricVulnerability',
   'iceVulnerability',
   'natureVulnerability',
-  'magicVulnerability',
+  'magicTakenDmgBonus',
   'physicalAmplify',
   'magicAmplify',
   'fireAmplify',
@@ -185,6 +185,7 @@ const DISPLAY_PERCENT_TYPES = new Set<string>([
   'iceAmplify',
   'natureAmplify',
   'comboDamageBonus',
+  'sourceSkillBoost',
 ]);
 
 const DISPLAY_FLAT_TYPES = new Set<string>([
@@ -193,7 +194,6 @@ const DISPLAY_FLAT_TYPES = new Set<string>([
   'agilityBoost',
   'intelligenceBoost',
   'willBoost',
-  'sourceSkillBoost',
 ]);
 
 const BUFF_EFFECT_KIND_OPTIONS: BuffEffectKind[] = ['modifier', 'extraHit'];
@@ -691,9 +691,6 @@ function getBuffValueHint(type: string | undefined, value: number | undefined) {
   const numericValue = Number(value ?? 0);
   if (PERCENT_STYLE_TYPES.has(type || '')) {
     return `展示为 ${formatBuffNumericValue(type, numericValue)}，底层存储 ${numericValue}`;
-  }
-  if (DISPLAY_FLAT_TYPES.has(type || '')) {
-    return `当前按数值记录：${numericValue}`;
   }
   return `当前按小数记录：${numericValue}`;
 }

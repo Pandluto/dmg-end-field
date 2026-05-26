@@ -37,4 +37,23 @@ contextBridge.exposeInMainWorld('desktopRuntime', {
   revealInExplorer: (payload) => ipcRenderer.invoke('desktop:reveal-in-explorer', payload),
   readEquipmentLibrary: () => ipcRenderer.invoke('desktop:read-equipment-library'),
   writeEquipmentLibrary: (payload) => ipcRenderer.invoke('desktop:write-equipment-library', payload),
+  listLocalDataArchives: () => ipcRenderer.invoke('desktop:list-local-data-archives'),
+  saveLocalDataArchive: (payload) => ipcRenderer.invoke('desktop:save-local-data-archive', payload),
+  readLocalDataArchive: (payload) => ipcRenderer.invoke('desktop:read-local-data-archive', payload),
+  deleteLocalDataArchive: (payload) => ipcRenderer.invoke('desktop:delete-local-data-archive', payload),
+  revealLocalDataArchive: (payload) => ipcRenderer.invoke('desktop:reveal-local-data-archive', payload),
+  requestLocalDataExport: (options) => ipcRenderer.invoke('desktop:request-local-data-export', options),
+  requestLocalDataImport: (payload) => ipcRenderer.invoke('desktop:request-local-data-import', payload),
+  completeLocalDataExport: (payload) => ipcRenderer.invoke('desktop:complete-local-data-export', payload),
+  completeLocalDataImport: (payload) => ipcRenderer.invoke('desktop:complete-local-data-import', payload),
+  onLocalDataExportRequest: (handler) => {
+    const listener = (_event, payload) => handler(payload);
+    ipcRenderer.on('desktop:local-data-export-request', listener);
+    return () => ipcRenderer.removeListener('desktop:local-data-export-request', listener);
+  },
+  onLocalDataImportRequest: (handler) => {
+    const listener = (_event, payload) => handler(payload);
+    ipcRenderer.on('desktop:local-data-import-request', listener);
+    return () => ipcRenderer.removeListener('desktop:local-data-import-request', listener);
+  },
 });
