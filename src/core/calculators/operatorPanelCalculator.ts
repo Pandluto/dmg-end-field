@@ -289,6 +289,11 @@ const WEAPON_SKILL2_TYPE_MAP: Record<string, string> = {
   治疗效率提升: 'healingBonus',
 };
 
+const WEAPON_SKILL3_TYPE_MAP: Record<string, string> = {
+  主能力提升: 'mainStatBoost',
+  副能力提升: 'subStatBoost',
+};
+
 const WEAPON_TOTAL_FIELDS = new Set([
   'strengthBoost',
   'agilityBoost',
@@ -512,19 +517,20 @@ function buildWeaponSnapshot(input: OperatorPanelInput['weapon']): WeaponSnapsho
   const skill3Effects = Object.entries(skills.skill3?.effects ?? {}).reduce<WeaponSkillDetail[]>((acc, [effectKey, effect]) => {
     const value = effect.levels?.[String(config.skillLevels.skill3)];
     if (typeof value !== 'number') return acc;
+    const typeKey = normalizeTypeKey(WEAPON_SKILL3_TYPE_MAP[effect.type ?? effectKey] ?? effect.type ?? effectKey);
     const detail: WeaponSkillDetail = {
       skillKey: 'skill3',
       effectKey,
       label: effect.name ?? effectKey,
-      typeKey: normalizeTypeKey(effect.type ?? effectKey),
+      typeKey,
       category: effect.category,
       level: config.skillLevels.skill3,
-      value: normalizeValue(normalizeTypeKey(effect.type ?? effectKey), value),
+      value: normalizeValue(typeKey, value),
       raw: effect,
     };
     acc.push(detail);
-    if (effect.category === 'passive' && WEAPON_TOTAL_FIELDS.has(detail.typeKey)) {
-      addTotal(totals, detail.typeKey, value);
+    if (effect.category === 'passive' && WEAPON_TOTAL_FIELDS.has(typeKey)) {
+      addTotal(totals, typeKey, value);
     }
     return acc;
   }, []);
@@ -843,8 +849,8 @@ export function buildConfigSnapshot(input: OperatorPanelInput): ConfigSnapshot {
   if (mainField) abilityByField[mainField] += mainStatFlatBonus + (weapon.totals.mainStat ?? 0);
   if (subField) abilityByField[subField] += subStatFlatBonus + (weapon.totals.subStat ?? 0);
 
-  const mainStatScale = equipment.totals.mainStatBoost ?? 0;
-  const subStatScale = equipment.totals.subStatBoost ?? 0;
+  const mainStatScale = (weapon.totals.mainStatBoost ?? 0) + (equipment.totals.mainStatBoost ?? 0);
+  const subStatScale = (weapon.totals.subStatBoost ?? 0) + (equipment.totals.subStatBoost ?? 0);
   const allStatScale = weapon.totals.allStatBoost ?? 0;
   const operatorAtk = attributes.atk;
   const weaponAtk = weapon.attack;
