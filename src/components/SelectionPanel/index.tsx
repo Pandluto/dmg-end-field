@@ -1,187 +1,246 @@
-/**
- * 干员选择界面（SelectionPanel）
- *
- * 用途：玩家从已加载的干员列表中选择最多 4 人，选择后点击"开始排轴"进入谱线编辑界面
- * 状态来源：loadedCharacters（官方干员）、selectedCharacters（已选干员列表）
- */
-
 import { useEffect, useMemo, useState } from 'react';
 import { useAppContext } from '../../context/AppContext';
 import { reconcileSelectionChange } from '../../core/services/timelineService';
 import { loadLocalOperatorCharacters } from '../../core/services/localOperatorAdapter';
 import { Character } from '../../types';
 import { normalizeAssetUrl } from '../../utils/assetResolver';
+import { APP_ROUTE_PATHS, navigateToAppPath } from '../../utils/appRoute';
 import './SelectionPanel.css';
 
-/** 干员元素属性 → CSS 颜色映射（用于元素圆点）*/
-const ELEMENT_COLORS: Record<string, string> = {
-  physical: '#888888',
-  fire: '#ff6b35',
-  ice: '#6bcfff',
-  electric: '#ffd93d',
-  nature: '#78c88c',
+const ELEMENT_LABELS: Record<string, string> = {
+  physical: '物理',
+  fire: '火',
+  ice: '冰',
+  electric: '电',
+  nature: '自然',
 };
 
-/**
- * 干员选择面板
- * 展示所有已加载干员，支持选中/取消选中（最多 4 人），
- * 点击确认后切换到 canvas 视图并清空画布
- */
+const ELEMENT_COLORS: Record<string, string> = {
+  physical: '#8a8f98',
+  fire: '#d86a3a',
+  ice: '#3c91b7',
+  electric: '#c59a19',
+  nature: '#3b8b5a',
+};
+
 export function SelectionPanel() {
   const { state, dispatch } = useAppContext();
-  const { loadedCharacters, selectedCharacters } = state;
+  const { selectedCharacters } = state;
   const [localCharacters, setLocalCharacters] = useState<Character[]>([]);
-  const officialCharacters = useMemo(
-    () => loadedCharacters,
-    [loadedCharacters]
-  );
-  useEffect(() => {
-    setLocalCharacters(loadLocalOperatorCharacters());
-  }, []);
   const [draftCharacterIds, setDraftCharacterIds] = useState<string[]>([]);
+  const [query, setQuery] = useState('');
+
+  const refreshLocalCharacters = () => {
+    setLocalCharacters(loadLocalOperatorCharacters());
+  };
+
+  useEffect(() => {
+    refreshLocalCharacters();
+  }, []);
 
   useEffect(() => {
     setDraftCharacterIds(
       selectedCharacters
-        .filter((character) => character.librarySource !== 'official')
+        .filter((character) => character.librarySource === 'local')
         .map((character) => character.id)
+        .slice(0, 4)
     );
   }, [selectedCharacters]);
 
-  const mergedCharacterMap = useMemo(() => {
+  const localCharacterMap = useMemo(() => {
     const nextMap = new Map<string, Character>();
-    officialCharacters.forEach((character) => {
-      nextMap.set(character.id, character);
-    });
     localCharacters.forEach((character) => {
       nextMap.set(character.id, character);
     });
     return nextMap;
-  }, [officialCharacters, localCharacters]);
+  }, [localCharacters]);
 
   const draftCharacters = useMemo(
     () =>
       draftCharacterIds
-        .map((characterId) => mergedCharacterMap.get(characterId))
+        .map((characterId) => localCharacterMap.get(characterId))
         .filter((character): character is Character => Boolean(character)),
-    [draftCharacterIds, mergedCharacterMap]
+    [draftCharacterIds, localCharacterMap]
   );
 
-  /** 判断某干员是否已被选中 */
-  const isSelected = (charId: string) =>
-    draftCharacterIds.includes(charId);
+  const filteredCharacters = useMemo(() => {
+    const keyword = query.trim().toLowerCase();
+    if (!keyword) {
+      return localCharacters;
+    }
+    return localCharacters.filter((character) => {
+      const fields = [
+        character.name,
+        character.id,
+        character.profession,
+        character.element,
+        ELEMENT_LABELS[character.element],
+      ];
+      return fields.some((field) => String(field || '').toLowerCase().includes(keyword));
+    });
+  }, [localCharacters, query]);
 
-  /** 是否已达 4 人上限 */
+  const isSelected = (characterId: string) => draftCharacterIds.includes(characterId);
   const isFull = draftCharacterIds.length >= 4;
 
-  /** 切换干员选中状态 */
-  const handleSelect = (character: Character) => {
-    if (character.librarySource === 'official') {
-      return;
-    }
+  const toggleCharacter = (character: Character) => {
     if (isSelected(character.id)) {
       setDraftCharacterIds((prev) => prev.filter((characterId) => characterId !== character.id));
-    } else if (!isFull) {
-      setDraftCharacterIds((prev) => [...prev, character.id]);
+      return;
+    }
+    if (!isFull) {
+      setDraftCharacterIds((prev) => [...prev, character.id].slice(0, 4));
     }
   };
 
-  /** 确认选择 → 差量迁移后切换到谱线编辑界面 */
+  const removeSelected = (characterId: string) => {
+    setDraftCharacterIds((prev) => prev.filter((id) => id !== characterId));
+  };
+
+  const clearSelected = () => {
+    setDraftCharacterIds([]);
+  };
+
   const handleConfirm = () => {
-    if (draftCharacters.length > 0) {
-      reconcileSelectionChange(selectedCharacters, draftCharacters);
-      dispatch({ type: 'CLEAR_SKILL_BUTTONS' });
-      dispatch({ type: 'SET_SELECTED_CHARACTERS', characters: draftCharacters });
-      dispatch({ type: 'SET_VIEW', view: 'canvas' });
+    if (draftCharacters.length === 0) {
+      return;
     }
+    reconcileSelectionChange(selectedCharacters, draftCharacters);
+    dispatch({ type: 'CLEAR_SKILL_BUTTONS' });
+    dispatch({ type: 'SET_SELECTED_CHARACTERS', characters: draftCharacters });
+    dispatch({ type: 'SET_VIEW', view: 'canvas' });
   };
 
-  const renderCharacterCard = (character: Character) => {
-    const isOfficialCharacter = character.librarySource === 'official';
-    const selected = isSelected(character.id);
-    const disabled = isOfficialCharacter || (!selected && isFull);
+  const openOperatorDraft = () => {
+    navigateToAppPath(APP_ROUTE_PATHS.draft);
+  };
 
-    return (
-      <div
-        key={character.id}
-        className={`character-card ${selected ? 'selected' : ''} ${disabled ? 'disabled' : ''} ${
-          isOfficialCharacter ? 'character-card--official-disabled' : ''
-        }`}
-        onClick={() => handleSelect(character)}
-        aria-disabled={disabled}
-        title={isOfficialCharacter ? '官方干员已禁用，请选择本地干员' : undefined}
-      >
-      <div className="character-avatar">
-        <span
-          className="element-dot"
-          style={{ backgroundColor: ELEMENT_COLORS[character.element] || '#888' }}
+  const renderAvatar = (character: Character) => (
+    <div className="selection-character-avatar">
+      {character.avatarUrl ? (
+        <img
+          className="selection-character-avatar-image"
+          src={normalizeAssetUrl(character.avatarUrl)}
+          alt={`${character.name} 头像`}
         />
-        {character.avatarUrl ? (
-          <img
-            className="character-avatar-image"
-            src={normalizeAssetUrl(character.avatarUrl)}
-            alt={`${character.name} 头像`}
-          />
-        ) : (
-          character.name.charAt(0)
-        )}
-      </div>
-      <div className="character-info">
-        <h3 className="character-name">
-          {character.name}
-          <span className="rarity">{'★'.repeat(character.rarity)}</span>
-        </h3>
-        <p className="character-profession">{character.profession}</p>
-        <p className="character-element">{character.element}</p>
-      </div>
-        {isOfficialCharacter ? <div className="official-disabled-badge">禁用</div> : null}
-        {selected && <div className="selected-badge">✓</div>}
-      </div>
-    );
-  };
+      ) : (
+        <span>{character.name.charAt(0)}</span>
+      )}
+    </div>
+  );
 
   return (
     <div className="selection-panel">
-      <div className="container">
-        <h1 className="title">选择干员</h1>
-        <p className="subtitle">已选择 {draftCharacterIds.length} / 4 位干员</p>
+      <section className="selection-shell">
+        <header className="selection-header">
+          <div>
+            <h1 className="selection-title">选择本地干员</h1>
+            <p className="selection-subtitle">已选 {draftCharacterIds.length}/4</p>
+          </div>
+          <div className="selection-header-actions">
+            <button type="button" className="selection-ghost-button" onClick={refreshLocalCharacters}>
+              刷新
+            </button>
+            <button type="button" className="selection-ghost-button" onClick={openOperatorDraft}>
+              编辑干员
+            </button>
+          </div>
+        </header>
 
-        <div className="character-library-columns">
-          <section className="character-library-section">
-            <div className="character-library-header">
-              <h2>官方干员</h2>
-              <span>{officialCharacters.length} 位</span>
+        <div className="selection-workspace">
+          <aside className="selection-roster">
+            <div className="selection-section-header">
+              <span>出战队列</span>
+              <button type="button" onClick={clearSelected} disabled={draftCharacterIds.length === 0}>
+                清空
+              </button>
             </div>
-            <div className="character-grid">
-              {officialCharacters.map(renderCharacterCard)}
-            </div>
-          </section>
 
-          <section className="character-library-section">
-            <div className="character-library-header">
-              <h2>本地干员</h2>
-              <span>{localCharacters.length} 位</span>
+            <div className="selection-slots">
+              {Array.from({ length: 4 }, (_, index) => {
+                const character = draftCharacters[index];
+                return (
+                  <div key={character?.id || `empty-${index}`} className={`selection-slot${character ? ' is-filled' : ''}`}>
+                    {character ? (
+                      <>
+                        {renderAvatar(character)}
+                        <div className="selection-slot-text">
+                          <strong>{character.name}</strong>
+                          <span>{character.profession || '-'}</span>
+                        </div>
+                        <button type="button" className="selection-slot-remove" onClick={() => removeSelected(character.id)}>
+                          移除
+                        </button>
+                      </>
+                    ) : (
+                      <span className="selection-slot-empty">空位 {index + 1}</span>
+                    )}
+                  </div>
+                );
+              })}
             </div>
-            {localCharacters.length > 0 ? (
-              <div className="character-grid character-grid-local">
-                {localCharacters.map(renderCharacterCard)}
+
+            <button
+              type="button"
+              className="selection-confirm-button"
+              onClick={handleConfirm}
+              disabled={draftCharacters.length === 0}
+            >
+              开始排轴
+            </button>
+          </aside>
+
+          <section className="selection-library">
+            <div className="selection-toolbar">
+              <input
+                type="search"
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                placeholder="搜索名称 / 职业 / 属性"
+              />
+              <span>{filteredCharacters.length} / {localCharacters.length}</span>
+            </div>
+
+            {localCharacters.length === 0 ? (
+              <div className="selection-empty">
+                <strong>本地干员库为空</strong>
+                <button type="button" className="selection-ghost-button" onClick={openOperatorDraft}>
+                  新建干员
+                </button>
               </div>
             ) : (
-              <div className="character-library-empty">本地干员库为空</div>
+              <div className="selection-character-grid">
+                {filteredCharacters.map((character) => {
+                  const selected = isSelected(character.id);
+                  const disabled = !selected && isFull;
+                  return (
+                    <button
+                      key={character.id}
+                      type="button"
+                      className={`selection-character-card${selected ? ' is-selected' : ''}`}
+                      onClick={() => toggleCharacter(character)}
+                      disabled={disabled}
+                      title={disabled ? '最多选择 4 位干员' : character.name}
+                    >
+                      {renderAvatar(character)}
+                      <span className="selection-character-main">
+                        <strong>{character.name}</strong>
+                        <span>{character.profession || '-'}</span>
+                      </span>
+                      <span
+                        className="selection-element-pill"
+                        style={{ borderColor: ELEMENT_COLORS[character.element] || '#8a8f98' }}
+                      >
+                        {ELEMENT_LABELS[character.element] || character.element || '-'}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
             )}
           </section>
         </div>
-
-        <div className="actions">
-          <button
-            className="btn-confirm"
-            onClick={handleConfirm}
-            disabled={draftCharacterIds.length === 0}
-          >
-            开始排轴
-          </button>
-        </div>
-      </div>
+      </section>
     </div>
   );
 }

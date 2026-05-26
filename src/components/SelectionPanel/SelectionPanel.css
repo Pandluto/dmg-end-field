@@ -1,621 +1,319 @@
 .selection-panel {
   height: 100%;
   min-height: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: var(--spacing-xl);
+  padding: 28px;
+  background: var(--office-content-bg);
+  color: var(--office-title);
   overflow: hidden;
 }
 
-.selection-panel .container {
-  width: 60%;
-  max-width: 1000px;
-}
-
-.title {
-  font-size: var(--font-size-2xl);
-  font-weight: 700;
-  text-align: center;
-  margin-bottom: var(--spacing-sm);
-}
-
-.subtitle {
-  font-size: var(--font-size-md);
-  text-align: center;
-  color: #666;
-  margin-bottom: var(--spacing-xl);
-}
-
-.character-library-columns {
-  flex: 1 1 auto;
-  min-height: 0;
-  display: grid;
-  grid-template-columns: minmax(0, 2fr) minmax(280px, 1fr);
-  gap: var(--component-gap);
-  margin-bottom: var(--spacing-xl);
-}
-
-.character-library-section {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.character-library-header {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.character-library-header h2 {
-  margin: 0;
-  font-size: var(--font-size-lg);
-}
-
-.character-library-header span {
-  font-size: var(--font-size-sm);
-}
-
-.character-grid {
-  flex: 1 1 auto;
-  min-height: 0;
-  overflow-y: auto;
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: var(--component-gap);
-  margin-bottom: var(--spacing-xl);
-
-  align-content: start;
-  grid-auto-rows: max-content;
-  
-  scrollbar-width: none;
-  -ms-overflow-style: none;
-}
-.selection-panel .container {
-  display: flex;
-  flex-direction: column;
+.selection-shell {
+  width: min(1120px, 100%);
   height: 100%;
   min-height: 0;
+  margin: 0 auto;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 18px;
 }
 
-.character-grid-local {
-  grid-template-columns: 1fr;
+.selection-header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--office-border);
 }
 
-.character-library-empty {
-  min-height: 180px;
+.selection-title {
+  margin: 0;
+  font-size: 28px;
+  font-weight: 700;
+  line-height: 1.15;
+  color: var(--office-title);
+}
+
+.selection-subtitle {
+  margin: 6px 0 0;
+  color: var(--office-body);
+  font-size: 13px;
+}
+
+.selection-header-actions,
+.selection-section-header,
+.selection-toolbar {
   display: flex;
   align-items: center;
-  justify-content: center;
-  border: 1px dashed var(--ide-border-subtle);
-  background: rgba(255, 255, 255, 0.55);
-  color: var(--ide-text-muted);
-  border-radius: var(--ide-radius-md);
+  gap: 8px;
 }
 
-.character-card {
-  align-self: start;
-  border: var(--border-width) solid var(--border-color);
-  padding: var(--spacing-md);
-  cursor: pointer;
-  position: relative;
-  transition: all 0.2s;
-  background: var(--bg-primary);
+.selection-header-actions {
+  flex-wrap: wrap;
+  justify-content: flex-end;
 }
 
-.character-card:hover:not(.disabled) {
-  background: var(--bg-secondary);
-  color: var(--text-secondary);
+.selection-workspace {
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 300px minmax(0, 1fr);
+  gap: 18px;
 }
 
-.character-card.selected {
-  background: var(--bg-secondary);
-  color: var(--text-secondary);
+.selection-roster,
+.selection-library {
+  min-height: 0;
+  background: var(--office-card-bg);
+  border: 1px solid var(--office-border);
 }
 
-.character-card.disabled {
-  opacity: 0.5;
+.selection-roster {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  padding: 14px;
+}
+
+.selection-library {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  padding: 14px;
+}
+
+.selection-section-header {
+  justify-content: space-between;
+  min-height: 30px;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.selection-section-header button,
+.selection-ghost-button,
+.selection-slot-remove {
+  min-height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--office-border);
+  background: #fff;
+  color: var(--office-body);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.selection-section-header button:hover:not(:disabled),
+.selection-ghost-button:hover,
+.selection-slot-remove:hover {
+  border-color: var(--excel-green-main);
+  color: var(--excel-green-deep);
+  background: var(--ide-bg-hover);
+}
+
+.selection-section-header button:disabled,
+.selection-confirm-button:disabled {
+  opacity: 0.45;
   cursor: not-allowed;
 }
 
-.character-card--official-disabled {
-  user-select: none;
+.selection-slots {
+  min-height: 0;
+  display: grid;
+  align-content: start;
+  gap: 8px;
+  margin-top: 12px;
+  overflow-y: auto;
 }
 
-.character-avatar {
-  width: 48px;
-  height: 48px;
-  border: var(--border-width) solid currentColor;
-  border-radius: 50%;
-  display: flex;
+.selection-slot {
+  min-height: 58px;
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr) auto;
   align-items: center;
-  justify-content: center;
-  font-size: var(--font-size-xl);
-  font-weight: 700;
-  margin-bottom: var(--spacing-sm);
-  position: relative;
+  gap: 10px;
+  padding: 8px;
+  border: 1px dashed var(--office-border);
+  background: #fafafa;
 }
 
-.element-dot {
-  position: absolute;
-  top: -4px;
-  right: -4px;
-  width: 12px;
-  height: 12px;
-  border-radius: 50%;
-  border: 2px solid var(--bg-primary);
+.selection-slot.is-filled {
+  border-style: solid;
+  background: #f7fbf8;
 }
 
-.character-info {
-  text-align: left;
-}
-
-.character-name {
-  font-size: var(--font-size-md);
-  font-weight: 700;
-  margin-bottom: var(--spacing-xs);
-  display: flex;
-  align-items: center;
-  gap: var(--spacing-xs);
-}
-
-.rarity {
-  font-size: var(--font-size-xs);
-  color: #ffc107;
-}
-
-.character-profession {
-  font-size: var(--font-size-sm);
-  color: #666;
-  margin-bottom: 2px;
-}
-
-.character-card:hover:not(.disabled) .character-profession,
-.character-card.selected .character-profession {
-  color: #aaa;
-}
-
-.character-element {
-  font-size: var(--font-size-xs);
-  color: #999;
-  text-transform: capitalize;
-}
-
-.character-card:hover:not(.disabled) .character-element,
-.character-card.selected .character-element {
-  color: #ccc;
-}
-
-.selected-badge {
-  position: absolute;
-  top: var(--spacing-sm);
-  right: var(--spacing-sm);
-  width: 20px;
-  height: 20px;
-  background: var(--bg-accent);
-  color: white;
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: var(--font-size-xs);
-  font-weight: 700;
-}
-
-.official-disabled-badge {
-  position: absolute;
-  top: var(--spacing-sm);
-  right: var(--spacing-sm);
-  padding: 2px 6px;
-  border: 1px solid var(--ide-border-light);
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.82);
+.selection-slot-empty {
+  grid-column: 1 / -1;
   color: var(--ide-text-muted);
-  font-size: var(--font-size-xs);
-  font-weight: 700;
+  font-size: 12px;
 }
 
-.actions {
-  display: flex;
-  justify-content: center;
-  gap: var(--component-gap);
-  position: sticky;
-  bottom: 0;
-  z-index: 2;
-  margin-top: auto;
-  padding: 12px 0 8px;
-  background: linear-gradient(to bottom, rgba(244, 246, 248, 0), var(--office-content-bg) 35%);
+.selection-slot-text,
+.selection-character-main {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
 }
 
-.btn-confirm {
-  padding: 12px 32px;
-  font-size: var(--font-size-md);
-  font-weight: 700;
-  background: var(--bg-secondary);
-  color: var(--text-secondary);
-  border: var(--border-width) solid var(--border-color);
-}
-
-.btn-confirm:hover:not(:disabled) {
-  background: var(--bg-primary);
-  color: var(--text-primary);
-}
-
-/* ============================================
-   杂志编辑风 IDE 主题覆盖
-   风格：暖米色背景、细腻线条、优雅留白
-   ============================================ */
-
-.selection-panel {
-  background: var(--bg-primary);
-}
-
-.title {
-  color: var(--text-primary);
-}
-
-.subtitle {
-  color: var(--text-muted);
-}
-
-.character-card {
-  background: var(--bg-surface);
-  border: 1px solid var(--ide-border-light);
-  border-radius: 4px;
-}
-
-.character-card:hover:not(.disabled) {
-  background: var(--ide-bg-hover);
-  border-color: var(--ide-border-medium);
-}
-
-.character-card.selected {
-  background: var(--ide-bg-hover);
-  border-color: var(--ide-border-strong);
-}
-
-.character-card.disabled {
-  opacity: 0.4;
-}
-
-.character-name {
-  color: var(--text-primary);
-}
-
-.character-profession {
-  color: var(--text-muted);
-}
-
-.character-card:hover:not(.disabled) .character-profession,
-.character-card.selected .character-profession {
-  color: var(--text-muted);
-}
-
-.character-element {
-  color: var(--text-faint);
-}
-
-.character-card:hover:not(.disabled) .character-element,
-.character-card.selected .character-element {
-  color: var(--text-muted);
-}
-
-.selected-badge {
-  background: var(--excel-green);
-}
-
-.btn-confirm {
-  background: var(--ide-bg-panel);
-  color: var(--text-primary);
-  border: 1px solid var(--ide-border-light);
-  border-radius: 2px;
-}
-
-.btn-confirm:hover:not(:disabled) {
-  background: var(--ide-bg-hover);
-  border-color: var(--ide-border-medium);
-}
-
-/* Excel Acrylic theme final overrides */
-.selection-panel {
-  background:
-    radial-gradient(circle at 18% 8%, rgba(33, 163, 102, 0.16), transparent 30%),
-    linear-gradient(135deg, rgba(255, 255, 255, 0.52), rgba(225, 243, 231, 0.42)),
-    var(--ide-bg-app);
-  color: var(--ide-text-main);
-}
-
-.title {
-  color: var(--ide-text-main);
-}
-
-.subtitle {
-  color: var(--ide-text-muted);
-}
-
-.character-card {
-  background: var(--ide-acrylic-bg);
-  border-color: var(--ide-border-subtle);
-  border-radius: var(--ide-radius-md);
-  box-shadow: inset 0 1px 0 var(--ide-acrylic-highlight), 0 8px 24px rgba(16, 124, 65, 0.08);
-  backdrop-filter: blur(16px) saturate(1.16);
-}
-
-.character-card:hover:not(.disabled) {
-  background: linear-gradient(145deg, rgba(232, 248, 238, 0.96), rgba(202, 235, 213, 0.84));
-  border-color: var(--ide-border-medium);
-  box-shadow: var(--ide-shadow-hover);
-}
-
-.character-card.selected {
-  background: linear-gradient(145deg, rgba(216, 243, 225, 0.98), rgba(178, 222, 192, 0.9));
-  border-color: var(--ide-border-strong);
-  box-shadow: 0 18px 44px rgba(16, 124, 65, 0.16), inset 0 1px 0 var(--ide-acrylic-highlight);
-}
-
-.character-avatar {
-  border-color: rgba(255, 255, 255, 0.82);
-  box-shadow: 0 0 0 1px var(--ide-border-light), 0 8px 18px rgba(16, 124, 65, 0.1);
-}
-
-.selected-badge {
-  background: linear-gradient(145deg, #21a366, #107c41);
-  box-shadow: 0 8px 18px rgba(16, 124, 65, 0.24);
-}
-
-.btn-confirm {
-  background: linear-gradient(145deg, #21a366, #107c41);
-  color: #ffffff;
-  border-color: rgba(255, 255, 255, 0.6);
-  border-radius: var(--ide-radius-sm);
-  box-shadow: 0 14px 32px rgba(16, 124, 65, 0.22), inset 0 1px 0 rgba(255, 255, 255, 0.34);
-}
-
-.btn-confirm:hover:not(:disabled) {
-  background: linear-gradient(145deg, #31b776, #0e5f35);
-  color: #ffffff;
-  border-color: rgba(255, 255, 255, 0.8);
-  box-shadow: var(--ide-shadow-hover);
-}
-
-/* Office 365 Excel theme final overrides */
-.selection-panel {
-  background: var(--excel-gray-1);
-  color: var(--ide-text-main);
-}
-
-.character-card {
-  background: var(--excel-white);
-  border-color: var(--ide-border-light);
-  border-radius: var(--ide-radius-md);
-  box-shadow: var(--ide-shadow);
-  backdrop-filter: none;
-}
-
-.character-card:hover:not(.disabled) {
-  background: var(--ide-bg-hover);
-  border-color: var(--ide-border-medium);
-  box-shadow: var(--ide-shadow-hover);
-}
-
-.character-card.selected {
-  background: var(--ide-bg-active);
-  border-color: var(--excel-green-main);
-  box-shadow: inset 4px 0 0 var(--excel-green-main), var(--ide-shadow);
-}
-
-.character-avatar {
-  border-color: var(--ide-border-light);
-  box-shadow: none;
-}
-
-.selected-badge,
-.btn-confirm {
-  background: var(--excel-green-main);
-  color: var(--excel-white);
-  box-shadow: none;
-}
-
-.btn-confirm {
-  border-color: var(--excel-green-main);
-  border-radius: var(--ide-radius-sm);
-}
-
-.btn-confirm:hover:not(:disabled) {
-  background: var(--excel-green-deep);
-  border-color: var(--excel-green-deep);
-  color: var(--excel-white);
-  box-shadow: none;
-}
-
-/* Office 365 Excel start-page mapping */
-.selection-panel {
-  background: var(--office-content-bg);
-}
-
-.selection-panel .container {
-  background: transparent;
-}
-
-.title {
+.selection-slot-text strong,
+.selection-character-main strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   color: var(--office-title);
-  font-family: 'Segoe UI', var(--font-family);
-  font-size: 28px;
-  font-weight: 700;
-  letter-spacing: -0.02em;
+  font-size: 13px;
 }
 
-.subtitle {
+.selection-slot-text span,
+.selection-character-main span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   color: var(--office-body);
-  font-size: 14px;
+  font-size: 12px;
 }
 
-.character-grid {
-  align-items: stretch; 
+.selection-confirm-button {
+  min-height: 34px;
+  margin-top: 14px;
+  border: 1px solid var(--excel-green-main);
+  background: var(--excel-green-main);
+  color: #fff;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
 }
 
-.character-card {
-  background: var(--office-card-bg);
+.selection-confirm-button:hover:not(:disabled) {
+  border-color: var(--excel-green-deep);
+  background: var(--excel-green-deep);
+}
+
+.selection-toolbar {
+  justify-content: space-between;
+  gap: 12px;
+  padding-bottom: 12px;
+}
+
+.selection-toolbar input {
+  min-width: 0;
+  flex: 1 1 auto;
+  height: 32px;
+  padding: 0 10px;
   border: 1px solid var(--office-border);
-  border-radius: 0;
-  box-shadow: none;
+  background: #fff;
+  color: var(--office-title);
+  font: inherit;
+  font-size: 13px;
 }
 
-.character-card::before {
-  content: '';
-  display: block;
-  height: 6px;
-  margin: calc(var(--spacing-md) * -1) calc(var(--spacing-md) * -1) var(--spacing-sm);
-  background: linear-gradient(90deg, var(--excel-green-deep), var(--excel-green-main) 42%, var(--excel-green-bright) 78%, var(--excel-green-lime));
+.selection-toolbar span {
+  flex: 0 0 auto;
+  color: var(--office-body);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
 }
 
-.character-card:hover:not(.disabled) {
-  background: var(--office-card-bg);
+.selection-character-grid {
+  min-height: 0;
+  overflow-y: auto;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+  align-content: start;
+  gap: 10px;
+  padding-right: 2px;
+}
+
+.selection-character-card {
+  min-width: 0;
+  min-height: 66px;
+  display: grid;
+  grid-template-columns: 46px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 10px;
+  border: 1px solid var(--office-border);
+  background: #fff;
+  color: var(--office-title);
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+}
+
+.selection-character-card:hover:not(:disabled) {
   border-color: var(--excel-green-main);
-  box-shadow: inset 0 0 0 1px var(--excel-green-main);
+  background: #f7fbf8;
 }
 
-.character-card.selected {
-  background: #f4fbf6;
+.selection-character-card.is-selected {
   border-color: var(--excel-green-main);
+  background: #f1faf4;
   box-shadow: inset 4px 0 0 var(--excel-green-main);
 }
 
-.character-avatar {
-  border: 1px solid var(--office-border);
-  border-radius: 4px;
-  color: var(--excel-green-main);
-  background: #f4fbf6;
+.selection-character-card:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 
-.character-name {
-  color: var(--office-title);
+.selection-character-avatar {
+  width: 42px;
+  height: 42px;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  border: 1px solid var(--office-border);
+  background: #f4fbf6;
+  color: var(--excel-green-deep);
+  font-size: 18px;
   font-weight: 700;
 }
 
-.character-profession,
-.character-element {
-  color: var(--office-body);
-}
-
-.selected-badge {
-  background: var(--excel-green-main);
-  border-radius: 0;
-}
-
-.btn-confirm {
-  background: var(--excel-green-main);
-  border-color: var(--excel-green-main);
-  border-radius: 0;
-  color: var(--excel-white);
-}
-
-/* Selection card final rule: keep original size, simplify visuals */
-.selection-panel .container {
-  width: 60%;
-  max-width: 1000px;
-}
-
-.character-grid {
-  gap: var(--component-gap);
-}
-
-.character-card {
-  position: relative;
-  display: block;
-  padding: var(--spacing-md);
-  min-height: initial;
-  overflow: hidden;
-  background: var(--office-card-bg);
-  border: 1px solid var(--office-border);
-  border-radius: 0;
-  box-shadow: none;
-}
-
-.character-card::before {
-  content: none !important;
-  display: none !important;
-  background: none !important;
-}
-
-.character-card::after {
-  content: '';
-  position: absolute;
-  left: 0;
-  top: 0;
-  bottom: 0;
-  width: 0;
-  background: var(--excel-green-main);
-  transition: width 150ms ease;
-  pointer-events: none;
-}
-
-.character-card:hover:not(.disabled) {
-  background: var(--office-card-bg);
-  border-color: var(--office-border);
-  box-shadow: none;
-}
-
-.character-card:hover:not(.disabled)::after,
-.character-card.selected::after {
-  width: 4px;
-}
-
-.character-card.selected {
-  background: #f7fbf8;
-  border-color: var(--office-border);
-  box-shadow: none;
-}
-
-.character-avatar {
-  width: 48px;
-  height: 48px;
-  margin-bottom: var(--spacing-sm);
-  overflow: visible;
-  border: 1px solid var(--office-border);
-  border-radius: 0;
-  background: #f4fbf6;
-  color: var(--excel-green-main);
-}
-
-.character-avatar-image {
-  display: block;
+.selection-character-avatar-image {
   width: 100%;
   height: 100%;
   object-fit: cover;
-  border-radius: 0;
 }
 
-.element-dot {
-  position: absolute;
-  top: -4px;
-  right: -4px;
-  width: 12px;
-  height: 12px;
-  border-radius: 50%;
-  z-index: 1;
-  border-color: var(--office-card-bg);
-}
-
-.selected-badge {
-  border-radius: 0;
-}
-
-/* Selection scrolling fix: allow the picker to scroll when cards exceed viewport height */
-.selection-panel {
-  align-items: stretch;
-  justify-content: flex-start;
-  overflow-y: auto;
-  overflow-x: hidden;
-  scrollbar-width: thin;
-}
-
-.selection-panel .container {
+.selection-element-pill {
   flex: 0 0 auto;
-  width: min(1000px, 100%);
-  margin: 0 auto;
-  padding-bottom: calc(var(--spacing-xl) + 32px);
-  box-sizing: border-box;
+  min-width: 38px;
+  padding: 2px 7px;
+  border: 1px solid;
+  color: var(--office-body);
+  background: #fff;
+  text-align: center;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.selection-empty {
+  min-height: 220px;
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 12px;
+  border: 1px dashed var(--office-border);
+  color: var(--office-body);
+}
+
+.selection-empty strong {
+  color: var(--office-title);
+  font-size: 14px;
+}
+
+@media (max-width: 980px) {
+  .selection-panel {
+    padding: 18px;
+    overflow-y: auto;
+  }
+
+  .selection-shell {
+    height: auto;
+  }
+
+  .selection-workspace {
+    grid-template-columns: 1fr;
+  }
+
+  .selection-roster,
+  .selection-library {
+    min-height: 260px;
+  }
 }

@@ -112,6 +112,10 @@ export function WorkbenchFrame() {
     navigateToAppPath(APP_ROUTE_PATHS.weaponSheet);
   }, []);
 
+  const handleOpenEquipmentSheet = useCallback(() => {
+    navigateToAppPath(APP_ROUTE_PATHS.equipmentSheet);
+  }, []);
+
   const handleOpenOperatorConfig = useCallback(() => {
     const characterId = selectedCharacters[0]?.id;
     if (characterId) {
@@ -171,6 +175,9 @@ export function WorkbenchFrame() {
       </button>
       <button className="workbench-top-trigger workbench-bottom-nav-button" type="button" onClick={handleOpenWeaponSheet}>
         <span className="workbench-trigger-text">编辑武器</span>
+      </button>
+      <button className="workbench-top-trigger workbench-bottom-nav-button" type="button" onClick={handleOpenEquipmentSheet}>
+        <span className="workbench-trigger-text">编辑装备</span>
       </button>
       <button className="workbench-top-trigger workbench-bottom-nav-button" type="button" onClick={handleOpenOperatorConfig}>
         <span className="workbench-trigger-text">角色配置</span>

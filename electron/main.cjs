@@ -2412,6 +2412,10 @@ const LOCAL_DATA_SESSION_KEYS = {
     'def.operator-config.active-character.v1',
     'def.operator-config.character-input-map.v3',
     'def.selected-characters.v1',
+    'def.operator-config.page-cache.v1',
+    'def.operator-runtime.template-map.v1',
+    'def.operator-runtime.character-computed-map.v3',
+    'def.operator-ui.character-display-cache.v3',
   ],
   weapons: [],
   equipments: [],
@@ -2444,13 +2448,60 @@ const LOCAL_DATA_REQUIRED_CURRENT_SESSION_KEYS = {
     'def.all-buff-list.v1',
   ],
 };
+const LOCAL_DATA_EQUIPMENT_LIBRARY_STORAGE_KEY = 'def.equipment-sheet.draft.v1';
+
+function uniqueLocalDataSections(sections) {
+  const source = Array.isArray(sections) && sections.length > 0 ? sections : ['all'];
+  return Array.from(new Set(source));
+}
+
+function shouldSyncEquipmentLibraryFile(sections) {
+  const normalizedSections = uniqueLocalDataSections(sections);
+  return normalizedSections.includes('all') || normalizedSections.includes('equipments');
+}
+
+function parseArchiveStorageValue(value) {
+  if (typeof value !== 'string') {
+    return value;
+  }
+  try {
+    return JSON.parse(value);
+  } catch {
+    return value;
+  }
+}
+
+function syncEquipmentLibraryFileFromArchive(archive, sections) {
+  if (!shouldSyncEquipmentLibraryFile(sections)) {
+    return null;
+  }
+  const rawLibrary = archive?.storage?.local?.[LOCAL_DATA_EQUIPMENT_LIBRARY_STORAGE_KEY];
+  if (!rawLibrary) {
+    return null;
+  }
+  const library = parseArchiveStorageValue(rawLibrary);
+  if (!library || typeof library !== 'object' || !library.gearSets || typeof library.gearSets !== 'object') {
+    throw new Error('存档中的装备库数据无效，无法写入装备 JSON');
+  }
+  const filePath = getEquipmentLibraryPath();
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  fs.writeFileSync(filePath, `${JSON.stringify({
+    ...library,
+    updatedAt: new Date().toISOString(),
+  }, null, 2)}\n`, 'utf-8');
+  return filePath;
+}
 
 async function applyLocalDataArchiveInMainWindow(archive, options = {}) {
   const webContents = getMainWebContents();
   await waitForWebContentsReady(webContents);
+  const requestedSections = uniqueLocalDataSections(options.sections || archive?.sections);
   const payload = {
     archive,
-    options,
+    options: {
+      ...options,
+      sections: requestedSections,
+    },
     localPrefixes: LOCAL_DATA_LOCAL_PREFIXES,
     sessionKeys: LOCAL_DATA_SESSION_KEYS,
     requiredSessionKeys: LOCAL_DATA_REQUIRED_CURRENT_SESSION_KEYS,
@@ -2545,7 +2596,10 @@ async function applyLocalDataArchiveInMainWindow(archive, options = {}) {
   };
 })()
 `;
-  return webContents.executeJavaScript(script, true);
+  return webContents.executeJavaScript(script, true).then((result) => {
+    const equipmentLibraryPath = syncEquipmentLibraryFileFromArchive(archive, requestedSections);
+    return equipmentLibraryPath ? { ...result, equipmentLibraryPath } : result;
+  });
 }
 
 function completeLocalDataRequest(pendingMap, payload) {
