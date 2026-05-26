@@ -15,5 +15,6 @@ release-latest/
 *.key
 *.p12
 *.pfx
-data/localdata/now-storage-state.json
-
+data/localdata/**
+!data/localdata/
+!data/localdata/.gitkeep
