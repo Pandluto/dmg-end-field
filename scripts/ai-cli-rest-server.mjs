@@ -1,0 +1,214 @@
+import fs from 'node:fs';
+import http from 'node:http';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { createServer as createViteServer } from 'vite';
+
+const HOST = '127.0.0.1';
+const PORT = Number(process.env.AI_CLI_REST_PORT || 17321);
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const projectRoot = path.resolve(__dirname, '..');
+const storageDir = path.join(projectRoot, '.runtime', 'ai-cli-rest');
+
+class FileStorage {
+  constructor(filePath) {
+    this.filePath = filePath;
+    this.data = this.read();
+  }
+
+  read() {
+    try {
+      if (!fs.existsSync(this.filePath)) {
+        return {};
+      }
+      const parsed = JSON.parse(fs.readFileSync(this.filePath, 'utf-8'));
+      return parsed && typeof parsed === 'object' ? parsed : {};
+    } catch {
+      return {};
+    }
+  }
+
+  flush() {
+    fs.mkdirSync(path.dirname(this.filePath), { recursive: true });
+    fs.writeFileSync(this.filePath, JSON.stringify(this.data, null, 2), 'utf-8');
+  }
+
+  getItem(key) {
+    return Object.prototype.hasOwnProperty.call(this.data, key) ? String(this.data[key]) : null;
+  }
+
+  setItem(key, value) {
+    this.data[key] = String(value);
+    this.flush();
+  }
+
+  removeItem(key) {
+    delete this.data[key];
+    this.flush();
+  }
+
+  clear() {
+    this.data = {};
+    this.flush();
+  }
+}
+
+function installNodeWindowStorage() {
+  const localStorage = new FileStorage(path.join(storageDir, 'localStorage.json'));
+  const sessionStorage = new FileStorage(path.join(storageDir, 'sessionStorage.json'));
+  globalThis.window = {
+    localStorage,
+    sessionStorage,
+  };
+}
+
+function buildJsonHeaders() {
+  return {
+    'Content-Type': 'application/json; charset=utf-8',
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Methods': 'GET,POST,OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type',
+  };
+}
+
+function writeJson(response, statusCode, payload) {
+  response.writeHead(statusCode, buildJsonHeaders());
+  response.end(JSON.stringify(payload));
+}
+
+async function readJsonBody(request) {
+  const chunks = [];
+  for await (const chunk of request) {
+    chunks.push(chunk);
+  }
+  const raw = Buffer.concat(chunks).toString('utf-8').trim();
+  if (!raw) {
+    return undefined;
+  }
+  return JSON.parse(raw);
+}
+
+installNodeWindowStorage();
+
+const vite = await createViteServer({
+  configFile: path.join(projectRoot, 'vite.config.ts'),
+  server: { middlewareMode: true },
+  appType: 'custom',
+  logLevel: 'error',
+});
+
+const { handleAiCliRestRequest } = await vite.ssrLoadModule('/src/aiCli/aiCliRestAdapter.ts');
+const { readCurrentBuffDraft } = await vite.ssrLoadModule('/src/aiCli/aiCliCommandService.ts');
+const { readAgentRecordSnapshot } = await vite.ssrLoadModule('/src/aiCli/aiCliAgentInfrastructure.ts');
+
+const sseClients = new Set();
+
+function writeSse(response, eventName, payload) {
+  response.write(`event: ${eventName}\n`);
+  response.write(`data: ${JSON.stringify(payload)}\n\n`);
+}
+
+function broadcastAgentRecords() {
+  const payload = {
+    ok: true,
+    protocolVersion: 1,
+    ...readAgentRecordSnapshot(),
+  };
+  for (const client of sseClients) {
+    writeSse(client, 'agent.records', payload);
+  }
+}
+
+const heartbeatTimer = setInterval(() => {
+  for (const client of sseClients) {
+    writeSse(client, 'heartbeat', { ok: true, now: Date.now() });
+  }
+}, 15000);
+
+const server = http.createServer(async (request, response) => {
+  const method = request.method || 'GET';
+  const requestUrl = new URL(request.url || '/', `http://${HOST}:${PORT}`);
+
+  if (method === 'OPTIONS') {
+    response.writeHead(204, buildJsonHeaders());
+    response.end();
+    return;
+  }
+
+  if (method === 'GET' && requestUrl.pathname === '/health') {
+    writeJson(response, 200, {
+      ok: true,
+      service: 'def-ai-cli-rest',
+      host: HOST,
+      port: PORT,
+      storageDir,
+    });
+    return;
+  }
+
+  if (method === 'GET' && requestUrl.pathname === '/api/agent/events') {
+    response.writeHead(200, {
+      'Content-Type': 'text/event-stream; charset=utf-8',
+      'Cache-Control': 'no-cache, no-transform',
+      'Connection': 'keep-alive',
+      'Access-Control-Allow-Origin': '*',
+    });
+    response.write(': connected\n\n');
+    sseClients.add(response);
+    writeSse(response, 'agent.records', {
+      ok: true,
+      protocolVersion: 1,
+      ...readAgentRecordSnapshot(),
+    });
+    request.on('close', () => {
+      sseClients.delete(response);
+    });
+    return;
+  }
+
+  try {
+    const body = method === 'POST' ? await readJsonBody(request) : undefined;
+    const restResponse = handleAiCliRestRequest({
+      method,
+      path: requestUrl.pathname,
+      body,
+      client: requestUrl.searchParams.get('client') || 'rest',
+    }, readCurrentBuffDraft(), {
+      sourceText: '',
+    });
+    writeJson(response, restResponse.status, restResponse.body);
+    if (requestUrl.pathname !== '/api/agent/records' && requestUrl.pathname !== '/api/agent/logs' && requestUrl.pathname !== '/api/agent/sessions') {
+      broadcastAgentRecords();
+    }
+  } catch (error) {
+    writeJson(response, 500, {
+      ok: false,
+      error: {
+        code: 'internal-error',
+        message: error instanceof Error ? error.message : String(error),
+      },
+    });
+  }
+});
+
+server.listen(PORT, HOST, () => {
+  console.log(`[def-ai-cli-rest] listening on http://${HOST}:${PORT}`);
+});
+
+const close = async () => {
+  clearInterval(heartbeatTimer);
+  for (const client of sseClients) {
+    client.end();
+  }
+  sseClients.clear();
+  server.close();
+  await vite.close();
+};
+
+process.once('SIGINT', () => {
+  void close().finally(() => process.exit(0));
+});
+
+process.once('SIGTERM', () => {
+  void close().finally(() => process.exit(0));
+});

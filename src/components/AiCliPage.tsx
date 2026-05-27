@@ -1,6 +1,7 @@
-import { useMemo, useRef, useState, type FormEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import {
   createAiCliCommandRequest,
+  fail,
   formatDraftSummary,
   info,
   readCurrentBuffDraft,
@@ -35,6 +36,7 @@ export function AiCliPage() {
     ...formatDraftSummary(readCurrentBuffDraft()).map((line) => `current ${line}`),
   ]);
   const outputRef = useRef<HTMLPreElement>(null);
+  const lastAgentLogIdRef = useRef<string | null>(null);
 
   const prompt = useMemo(() => `def:${currentDraft.id}>`, [currentDraft.id]);
 
@@ -44,6 +46,46 @@ export function AiCliPage() {
       outputRef.current?.scrollTo({ top: outputRef.current.scrollHeight });
     }, 0);
   };
+
+  useEffect(() => {
+    if (typeof EventSource === 'undefined') {
+      return undefined;
+    }
+
+    const events = new EventSource('http://127.0.0.1:17321/api/agent/events');
+    events.addEventListener('agent.records', (event) => {
+      try {
+        const payload = JSON.parse(event.data) as {
+          operationLogs?: Array<{
+            id?: string;
+            client?: string;
+            command?: string;
+            ok?: boolean;
+            writes?: boolean;
+            errorCode?: string;
+          }>;
+        };
+        const latestLog = payload.operationLogs?.[0];
+        if (!latestLog?.id || latestLog.id === lastAgentLogIdRef.current) {
+          return;
+        }
+        lastAgentLogIdRef.current = latestLog.id;
+        appendLines([
+          `[agent] ${latestLog.client || '-'} ${latestLog.ok ? 'ok' : 'err'} ${latestLog.writes ? 'write' : 'read'} ${latestLog.command || '-'}${latestLog.errorCode ? ` error=${latestLog.errorCode}` : ''}`,
+        ]);
+      } catch {
+        appendLines([fail('agent SSE event parse failed')]);
+      }
+    });
+
+    events.onerror = () => {
+      appendLines([info('agent SSE reconnecting or AI REST is offline')]);
+    };
+
+    return () => {
+      events.close();
+    };
+  }, []);
 
   const handleSubmit = (event: FormEvent) => {
     event.preventDefault();

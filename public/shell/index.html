@@ -415,6 +415,7 @@
           <button class="nav-button is-active" type="button" data-page="localdata"><span class="nav-icon">▦</span>数据管理</button>
           <button class="nav-button" type="button" data-page="capture"><span class="nav-icon">□</span>捕获</button>
           <button class="nav-button" type="button" data-page="runtime"><span class="nav-icon">⚙</span>运行时</button>
+          <button class="nav-button" type="button" data-page="agent"><span class="nav-icon">⌁</span>Agent</button>
           <button class="nav-button" type="button" data-page="model"><span class="nav-icon">✦</span>模型接口</button>
           <button class="nav-button" type="button" data-page="log"><span class="nav-icon">≡</span>活动日志</button>
         </nav>
@@ -543,6 +544,14 @@
               <div class="setting-control"><button id="open-web" type="button">打开主界面</button></div>
             </div>
             <div class="setting-row">
+              <div><div class="setting-title">AI REST</div><div class="setting-help">管理本地 AI CLI REST 服务。</div></div>
+              <div class="setting-control">
+                <button id="refresh-ai-rest" type="button">刷新</button>
+                <button id="toggle-ai-rest" type="button" class="primary-button">启动</button>
+                <div class="status" id="ai-rest-status">检测中</div>
+              </div>
+            </div>
+            <div class="setting-row">
               <div><div class="setting-title">桌面倍率</div><div class="setting-help">保存后下次启动生效。</div></div>
               <div class="setting-control">
                 <button type="button" class="scale-button" data-scale="1x">1x</button>
@@ -591,6 +600,40 @@
             <div class="setting-row is-tall">
               <div><div class="setting-title">Response</div></div>
               <div class="setting-control stack"><pre id="ark-output" class="llm-output"></pre></div>
+            </div>
+          </div>
+        </div>
+
+        <div id="page-agent" class="page">
+          <h1 class="page-title">Agent</h1>
+          <div class="section-block">
+            <div class="setting-row">
+              <div>
+                <div class="setting-title">访问记录</div>
+                <div class="setting-help">读取 AI REST 的会话与操作日志。</div>
+              </div>
+              <div class="setting-control">
+                <button id="refresh-agent-records" type="button">刷新</button>
+                <div class="status" id="agent-records-status">等待刷新</div>
+              </div>
+            </div>
+            <div class="setting-row is-tall">
+              <div>
+                <div class="setting-title">操作日志</div>
+                <div class="setting-help">client、command、成功状态、写入范围。</div>
+              </div>
+              <div class="setting-control stack">
+                <div class="log" id="agent-operation-logs">暂无记录</div>
+              </div>
+            </div>
+            <div class="setting-row is-tall">
+              <div>
+                <div class="setting-title">会话</div>
+                <div class="setting-help">最近 agent session 与消息数。</div>
+              </div>
+              <div class="setting-control stack">
+                <div class="log" id="agent-sessions">暂无会话</div>
+              </div>
             </div>
           </div>
         </div>

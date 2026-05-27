@@ -34,6 +34,7 @@ test('AI CLI can perform CRUD and buff.fill through the terminal UI', async ({ p
   await expect(page.getByTestId('ai-cli-output')).toContainText('mode=buff.fill');
 
   await runCommand(page, 'help', 'DEF AI CLI command surface');
+  await runCommand(page, 'agent.guide', 'LLM agent guide:');
   await runCommand(page, '/purpose', 'purpose / 用途:');
   await runCommand(page, '/purpose', 'CN: 提供一个由软件本体控制的终端式桥接界面');
   await runCommand(page, 'spec', 'fill.check never writes');
@@ -124,6 +125,8 @@ test('AI CLI can perform CRUD and buff.fill through the terminal UI', async ({ p
   };
   await runCommand(page, `fill.check ${JSON.stringify(fillDraft)}`, '[ok] fill result valid: items=2 effects=3');
   await runCommand(page, `fill.apply ${JSON.stringify(fillDraft)}`, '[ok] fill applied: items=2 effects=3');
+  await runCommand(page, 'agent.logs 5', 'fill.apply');
+  await runCommand(page, 'agent.sessions 5', 'session-');
 
   const storedDraft = await page.evaluate((draftKey) => JSON.parse(window.localStorage.getItem(draftKey) || '{}'), DRAFT_KEY);
   expect(storedDraft.name).toBe('测试干员测试Buff');

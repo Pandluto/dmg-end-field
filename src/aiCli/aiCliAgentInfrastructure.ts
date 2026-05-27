@@ -207,6 +207,15 @@ export function readOperationLogs() {
   return readJsonStorage<AiAgentOperationLog[]>(AI_AGENT_OPERATION_LOGS_STORAGE_KEY, []);
 }
 
+export function readAgentRecordSnapshot() {
+  return {
+    sessions: readAgentSessions(),
+    activeSessionId: readActiveSessionId(),
+    operationLogs: readOperationLogs(),
+    permissionProfiles: readPermissionProfiles(),
+  };
+}
+
 export function appendOperationLog(log: Omit<AiAgentOperationLog, 'id' | 'createdAt'>) {
   const nextLog: AiAgentOperationLog = {
     id: createId('log'),

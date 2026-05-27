@@ -483,10 +483,16 @@ Recommended endpoints:
 
 ```text
 GET  /api/ai-cli/spec
+GET  /api/agent/guide
+GET  /api/agent/skills
 POST /api/ai-cli/run
 GET  /api/buff/current
 POST /api/buff/fill/check
 POST /api/buff/fill/apply
+GET  /api/agent/sessions
+GET  /api/agent/logs
+GET  /api/agent/records
+GET  /api/agent/events
 ```
 
 `POST /api/ai-cli/run` request:
@@ -537,6 +543,64 @@ REST rule:
 
 - REST endpoints must call the same validation and writer code as `/ai-cli`.
 - REST must not become a second implementation of Buff writing.
+
+Current local development entry:
+
+```text
+npm run ai-cli:rest
+```
+
+Shell-managed lifecycle endpoints:
+
+```text
+POST http://127.0.0.1:31457/open-ai-cli-rest
+POST http://127.0.0.1:31457/close-ai-cli-rest
+```
+
+The bridge health payload includes:
+
+```text
+aiCliRest.running
+aiCliRest.pid
+aiCliRest.startedAt
+aiCliRest.url
+```
+
+Default local URL:
+
+```text
+http://127.0.0.1:17321
+```
+
+Health check:
+
+```text
+GET /health
+```
+
+REST smoke:
+
+```text
+npm run smoke:ai-cli-rest
+```
+
+Agent record rendering:
+
+- Shell independent UI has an `Agent` page.
+- The page reads `GET http://127.0.0.1:17321/api/agent/records`.
+- The page subscribes to `GET http://127.0.0.1:17321/api/agent/events` with SSE.
+- The page shows recent operation logs and sessions.
+- REST broadcasts `agent.records` when command handling changes records.
+- Polling remains only as fallback when SSE is unavailable.
+- `/ai-cli` also exposes `agent.logs [limit]` and `agent.sessions [limit]`.
+
+LLM agent onboarding:
+
+- Third-party agents should call `GET /api/agent/guide` first.
+- The guide returns recommended flow, safety rules, write rules, and examples.
+- Agents can call `GET /api/agent/skills` to discover workflow-specific instructions.
+- The first skill is `buff.fill`.
+- `/ai-cli` exposes `agent.guide` for the same human-readable guidance in terminal form.
 
 ## Future MCP Wrapper
 

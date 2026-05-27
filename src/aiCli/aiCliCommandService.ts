@@ -16,6 +16,8 @@ import {
   assertPermission,
   ensureActiveSession,
   findPermissionProfile,
+  readAgentSessions,
+  readOperationLogs,
   updateSessionContext,
 } from './aiCliAgentInfrastructure';
 
@@ -228,6 +230,10 @@ function table(headers: string[], rows: string[][]) {
     widths.map((width) => '-'.repeat(width)).join('  '),
     ...rows.map(formatRow),
   ];
+}
+
+function formatDateTime(timestamp: number | null | undefined) {
+  return timestamp ? new Date(timestamp).toLocaleString('zh-CN', { hour12: false }) : '-';
 }
 
 export function ok(message: string) {
@@ -489,6 +495,9 @@ function executeCommand(rawCommand: string, draft: BuffDraft, sourceText: string
             ['fill', 'fill.task.copy', 'copy task package to clipboard / 复制任务包'],
             ['fill', 'fill.check <json>', 'validate BuffFillAiDraft without writing / 只校验不写入'],
             ['fill', 'fill.apply <json>', 'validate and apply BuffFillAiDraft / 校验并应用填表结果'],
+            ['agent', 'agent.logs [limit]', 'show recent agent operation logs / 查看智能体访问记录'],
+            ['agent', 'agent.sessions [limit]', 'show recent agent sessions / 查看智能体会话'],
+            ['agent', 'agent.guide', 'show first-call guide for LLM agents / 查看智能体首次接入指南'],
           ],
         ),
         '',
@@ -538,6 +547,56 @@ function executeCommand(rawCommand: string, draft: BuffDraft, sourceText: string
       });
     }
     return makeResponse({ lines: [fail('usage: route home|buff')] });
+  }
+
+  if (command === 'agent.logs') {
+    const limit = Math.max(1, Math.min(50, Number(args[0] || 10) || 10));
+    const rows = readOperationLogs().slice(0, limit).map((log) => [
+      formatDateTime(log.createdAt),
+      log.client,
+      log.ok ? 'ok' : 'err',
+      log.writes ? 'write' : 'read',
+      log.command,
+      log.errorCode || '-',
+    ]);
+    return makeResponse({
+      lines: rows.length
+        ? table(['time', 'client', 'ok', 'effect', 'command', 'error'], rows)
+        : [info('no agent logs')],
+    });
+  }
+
+  if (command === 'agent.guide') {
+    return makeResponse({
+      lines: [
+        'LLM agent guide:',
+        '  first call: GET /api/agent/guide',
+        '  skills: GET /api/agent/skills',
+        '  inspect: GET /api/buff/current or command draft.show',
+        '  dry-run: POST /api/buff/fill/check',
+        '  write: POST /api/buff/fill/apply only after validation and user intent',
+        '  events: GET /api/agent/events',
+        '',
+        'rule: agent proposes commands/JSON; app validates, logs, and writes.',
+      ],
+    });
+  }
+
+  if (command === 'agent.sessions') {
+    const limit = Math.max(1, Math.min(50, Number(args[0] || 10) || 10));
+    const rows = readAgentSessions().slice(0, limit).map((session) => [
+      formatDateTime(session.updatedAt),
+      session.client,
+      session.status,
+      String(session.messages.length),
+      session.context.lastCommand || '-',
+      session.id,
+    ]);
+    return makeResponse({
+      lines: rows.length
+        ? table(['updated', 'client', 'status', 'messages', 'last', 'sessionId'], rows)
+        : [info('no agent sessions')],
+    });
   }
 
   if (command === 'operator.add') {

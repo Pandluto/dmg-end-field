@@ -9,6 +9,8 @@ const shouldOpenWebOnBoot = process.argv.includes('--open-web');
 
 let shellProcess = null;
 let shellStartedAt = null;
+let aiCliRestProcess = null;
+let aiCliRestStartedAt = null;
 let webOpenedAt = null;
 
 function buildJsonHeaders() {
@@ -29,11 +31,24 @@ function isShellRunning() {
   return Boolean(shellProcess && !shellProcess.killed);
 }
 
+function isAiCliRestRunning() {
+  return Boolean(aiCliRestProcess && !aiCliRestProcess.killed);
+}
+
 function getShellRuntimeInfo() {
   return {
     running: isShellRunning(),
     pid: shellProcess?.pid ?? null,
     startedAt: shellStartedAt,
+  };
+}
+
+function getAiCliRestRuntimeInfo() {
+  return {
+    running: isAiCliRestRunning(),
+    pid: aiCliRestProcess?.pid ?? null,
+    startedAt: aiCliRestStartedAt,
+    url: 'http://127.0.0.1:17321',
   };
 }
 
@@ -111,6 +126,60 @@ function stopShell() {
   };
 }
 
+function startAiCliRest() {
+  if (isAiCliRestRunning()) {
+    return {
+      started: false,
+      reason: 'already-running',
+      ...getAiCliRestRuntimeInfo(),
+    };
+  }
+
+  const projectRoot = path.resolve(__dirname, '..');
+  aiCliRestProcess = spawn(process.execPath, ['scripts/ai-cli-rest-server.mjs'], {
+    cwd: projectRoot,
+    env: {
+      ...process.env,
+      AI_CLI_REST_PORT: '17321',
+    },
+    stdio: 'ignore',
+    detached: false,
+    windowsHide: true,
+  });
+  aiCliRestStartedAt = Date.now();
+
+  aiCliRestProcess.once('exit', () => {
+    aiCliRestProcess = null;
+    aiCliRestStartedAt = null;
+  });
+
+  return {
+    started: true,
+    reason: 'launched',
+    ...getAiCliRestRuntimeInfo(),
+  };
+}
+
+function stopAiCliRest() {
+  if (!isAiCliRestRunning()) {
+    return {
+      stopped: false,
+      reason: 'not-running',
+      ...getAiCliRestRuntimeInfo(),
+    };
+  }
+
+  aiCliRestProcess.kill();
+  return {
+    stopped: true,
+    reason: 'terminated',
+    running: false,
+    pid: null,
+    startedAt: null,
+    url: 'http://127.0.0.1:17321',
+  };
+}
+
 const server = http.createServer((request, response) => {
   const method = request.method || 'GET';
   const requestUrl = new URL(request.url || '/', `http://${HOST}:${PORT}`);
@@ -128,6 +197,7 @@ const server = http.createServer((request, response) => {
       host: HOST,
       port: PORT,
       shell: getShellRuntimeInfo(),
+      aiCliRest: getAiCliRestRuntimeInfo(),
       web: getWebRuntimeInfo(),
     });
     return;
@@ -145,6 +215,22 @@ const server = http.createServer((request, response) => {
     writeJson(response, 200, {
       ok: true,
       shell: stopShell(),
+    });
+    return;
+  }
+
+  if (method === 'POST' && requestUrl.pathname === '/open-ai-cli-rest') {
+    writeJson(response, 200, {
+      ok: true,
+      aiCliRest: startAiCliRest(),
+    });
+    return;
+  }
+
+  if (method === 'POST' && requestUrl.pathname === '/close-ai-cli-rest') {
+    writeJson(response, 200, {
+      ok: true,
+      aiCliRest: stopAiCliRest(),
     });
     return;
   }

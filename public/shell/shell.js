@@ -18,11 +18,15 @@
   let selectedArchiveKey = null;
   let activeArchiveKey = null;
   let isApplyingArchive = false;
+  let aiRestRunning = false;
+  let agentRecordsPollTimer = 0;
+  let agentEventSource = null;
   const statusCache = new Map();
   const SHELL_STORAGE_KEYS = {
     arkPrompt: 'def.shell.ark.prompt.v1',
   };
   const LOCAL_BRIDGE_ORIGIN = 'http://127.0.0.1:31457';
+  const AI_CLI_REST_ORIGIN = 'http://127.0.0.1:17321';
 
   const appendLog = (line) => {
     console.info(`[shell] ${line}`);
@@ -63,6 +67,23 @@
     return payload;
   };
 
+  const fetchAiRestJson = async (path, options = {}) => {
+    const response = await fetch(`${AI_CLI_REST_ORIGIN}${path}`, {
+      cache: 'no-store',
+      ...options,
+    });
+    const payload = await response.json().catch(() => null);
+    if (!response.ok || !payload?.ok) {
+      throw new Error(payload?.error?.message || payload?.error || `AI REST 请求失败：${path}`);
+    }
+    return payload;
+  };
+
+  const formatTime = (timestamp) => {
+    if (!timestamp) return '-';
+    return new Date(timestamp).toLocaleString('zh-CN', { hour12: false });
+  };
+
   const formatArchiveId = () => {
     const date = new Date();
     const pad = (value) => String(value).padStart(2, '0');
@@ -89,6 +110,117 @@
     document.querySelectorAll('.page').forEach((page) => {
       page.classList.toggle('is-active', page.id === `page-${pageKey}`);
     });
+  };
+
+  const renderAiRestStatus = (aiCliRest) => {
+    aiRestRunning = Boolean(aiCliRest?.running);
+    const toggleButton = document.getElementById('toggle-ai-rest');
+    if (toggleButton) {
+      toggleButton.textContent = aiRestRunning ? '停止' : '启动';
+      toggleButton.classList.toggle('danger-button', aiRestRunning);
+      toggleButton.classList.toggle('primary-button', !aiRestRunning);
+    }
+    const statusText = aiRestRunning
+      ? `运行中 | ${aiCliRest.url || 'http://127.0.0.1:17321'}`
+      : '未运行';
+    setStatus('ai-rest-status', statusText);
+    if (aiRestRunning) {
+      connectAgentEventStream();
+    } else {
+      disconnectAgentEventStream();
+    }
+  };
+
+  const refreshAiRestStatus = async () => {
+    const payload = await fetchLocalBridgeJson('/health');
+    renderAiRestStatus(payload.aiCliRest);
+    return payload.aiCliRest;
+  };
+
+  const toggleAiRest = async () => {
+    setStatus('ai-rest-status', aiRestRunning ? '正在停止...' : '正在启动...');
+    const payload = await fetchLocalBridgeJson(aiRestRunning ? '/close-ai-cli-rest' : '/open-ai-cli-rest', {
+      method: 'POST',
+    });
+    renderAiRestStatus(payload.aiCliRest);
+    appendLog(`AI REST | ${payload.aiCliRest?.running ? '已启动' : '已停止'} | ${payload.aiCliRest?.url || 'http://127.0.0.1:17321'}`);
+  };
+
+  const renderAgentRecords = (records) => {
+    const logsElement = document.getElementById('agent-operation-logs');
+    const sessionsElement = document.getElementById('agent-sessions');
+    const logs = records.operationLogs || [];
+    const sessions = records.sessions || [];
+
+    logsElement.textContent = logs.length
+      ? logs.slice(0, 30).map((log) => [
+          formatTime(log.createdAt),
+          log.client || '-',
+          log.ok ? 'ok' : 'err',
+          log.writes ? 'write' : 'read',
+          log.command || '-',
+          log.errorCode ? `error=${log.errorCode}` : '',
+          log.storage?.length ? `storage=${log.storage.join(',')}` : '',
+        ].filter(Boolean).join(' | ')).join('\n')
+      : '暂无记录';
+
+    sessionsElement.textContent = sessions.length
+      ? sessions.slice(0, 20).map((session) => [
+          formatTime(session.updatedAt),
+          session.client || '-',
+          session.status || '-',
+          `messages=${session.messages?.length || 0}`,
+          `last=${session.context?.lastCommand || '-'}`,
+          session.id || '-',
+        ].join(' | ')).join('\n')
+      : '暂无会话';
+
+    setStatus('agent-records-status', `logs=${logs.length} sessions=${sessions.length}`);
+  };
+
+  const refreshAgentRecords = async () => {
+    const records = await fetchAiRestJson('/api/agent/records');
+    renderAgentRecords(records);
+  };
+
+  const disconnectAgentEventStream = () => {
+    if (!agentEventSource) {
+      return;
+    }
+    agentEventSource.close();
+    agentEventSource = null;
+  };
+
+  const connectAgentEventStream = () => {
+    if (agentEventSource || typeof EventSource === 'undefined') {
+      return;
+    }
+    agentEventSource = new EventSource(`${AI_CLI_REST_ORIGIN}/api/agent/events`);
+    agentEventSource.addEventListener('agent.records', (event) => {
+      try {
+        renderAgentRecords(JSON.parse(event.data));
+      } catch (error) {
+        appendLog(`Agent SSE 解析失败 | ${error instanceof Error ? error.message : String(error)}`);
+      }
+    });
+    agentEventSource.onerror = () => {
+      setStatus('agent-records-status', 'SSE 重连中...');
+    };
+  };
+
+  const startAgentRecordsPolling = () => {
+    if (agentRecordsPollTimer) {
+      return;
+    }
+    agentRecordsPollTimer = window.setInterval(() => {
+      if (!aiRestRunning) {
+        return;
+      }
+      if (agentEventSource) {
+        return;
+      }
+      refreshAgentRecords().catch(() => {});
+    }, 5000);
   };
 
   const safeReadLocal = (key, fallback = '') => {
@@ -518,6 +650,17 @@
     );
     appendLog(`外壳就绪 | 角色=${runtime.role} | 平台=${state.platform} | 主机=${state.hostname}`);
     appendLog('主界面与 shell 现在都由 Electron 托管。');
+    await refreshAiRestStatus().catch((error) => {
+      const message = error instanceof Error ? error.message : String(error);
+      setStatus('ai-rest-status', message);
+      appendLog(`AI REST 状态读取失败 | ${message}`);
+    });
+    await refreshAgentRecords().catch((error) => {
+      const message = error instanceof Error ? error.message : String(error);
+      setStatus('agent-records-status', message);
+      appendLog(`Agent 记录读取失败 | ${message}`);
+    });
+    startAgentRecordsPolling();
     const presetPayload = await runtime.listCapturePresets();
     capturePresets = presetPayload.presets || [];
     const llmSettings = await runtime.getLlmSettings();
@@ -628,6 +771,30 @@
       const message = error instanceof Error ? error.message : String(error);
       appendLog(`打开主界面失败 | ${message}`);
     }
+  });
+
+  document.getElementById('refresh-ai-rest').addEventListener('click', () => {
+    refreshAiRestStatus().catch((error) => {
+      const message = error instanceof Error ? error.message : String(error);
+      setStatus('ai-rest-status', message);
+      appendLog(`AI REST 刷新失败 | ${message}`);
+    });
+  });
+
+  document.getElementById('toggle-ai-rest').addEventListener('click', () => {
+    toggleAiRest().catch((error) => {
+      const message = error instanceof Error ? error.message : String(error);
+      setStatus('ai-rest-status', message);
+      appendLog(`AI REST 切换失败 | ${message}`);
+    });
+  });
+
+  document.getElementById('refresh-agent-records').addEventListener('click', () => {
+    refreshAgentRecords().catch((error) => {
+      const message = error instanceof Error ? error.message : String(error);
+      setStatus('agent-records-status', message);
+      appendLog(`Agent 记录刷新失败 | ${message}`);
+    });
   });
 
   document.querySelectorAll('[data-scale]').forEach((button) => {

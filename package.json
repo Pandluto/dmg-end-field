@@ -7,6 +7,8 @@
   "scripts": {
     "agent:dev": "node agent/dev-agent.cjs",
     "agent:dev:web": "node agent/dev-agent.cjs --open-web",
+    "ai-cli:rest": "node scripts/ai-cli-rest-server.mjs",
+    "smoke:ai-cli-rest": "node scripts/ai-cli-rest-smoke.mjs",
     "dev": "vite --host 127.0.0.1 --port 3030",
     "test:operator-panel": "node scripts/run-ts-test.mjs /src/core/calculators/operatorPanelCalculator.test.ts",
     "smoke:operator-config": "node scripts/run-electron-smoke.mjs",

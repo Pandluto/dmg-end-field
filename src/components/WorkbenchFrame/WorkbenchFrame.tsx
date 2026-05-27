@@ -6,7 +6,11 @@ import { setSelectedSkillButton } from '../../hooks/useSkillButtonBuffs';
 import { APP_ROUTE_PATHS, navigateToAppPath } from '../../utils/appRoute';
 import { STORAGE_KEYS } from '../../constants/storage-keys';
 import { safeSessionStorage } from '../../utils/storage';
-import { getLocalAgentHealth, requestCloseShell, requestOpenShell } from '../../utils/localAgent';
+import {
+  getLocalAgentHealth,
+  requestCloseShell,
+  requestOpenShell,
+} from '../../utils/localAgent';
 import './WorkbenchFrame.css';
 
 export type WorkbenchMode = 'selection' | 'timeline' | 'toolPanel';
@@ -140,9 +144,9 @@ export function WorkbenchFrame() {
       const health = await getLocalAgentHealth();
       if (!health.shell.running || health.shell.state === 'missing') {
         setShellStatus('hidden');
-        return;
+      } else {
+        setShellStatus(health.shell.state === 'visible' ? 'visible' : 'hidden');
       }
-      setShellStatus(health.shell.state === 'visible' ? 'visible' : 'hidden');
     } catch {
       setShellStatus('offline');
     }

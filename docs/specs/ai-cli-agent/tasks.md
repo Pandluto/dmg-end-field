@@ -63,8 +63,8 @@
 
 - [ ] Task 7: 接入 Local REST Server
   - [x] 新增本地 REST TypeScript adapter。
-  - [ ] 新增本地 TypeScript REST server 入口。
-  - [ ] 只监听 `127.0.0.1`。
+  - [x] 新增本地 REST server 启动入口。
+  - [x] 只监听 `127.0.0.1`。
   - [x] 增加 `GET /api/ai-cli/spec` adapter。
   - [x] 增加 `POST /api/ai-cli/run` adapter。
   - [x] 增加 `GET /api/buff/current` adapter。
@@ -73,11 +73,11 @@
   - [x] REST adapter 必须调用同一套 command service 和 validator。
 
 - [ ] Task 8: 接入 Shell / 桌面壳生命周期
-  - [ ] 提供启动 REST server 的脚本或桌面壳调用入口。
-  - [ ] 提供关闭 REST server 的脚本或桌面壳调用入口。
+  - [x] 提供启动 REST server 的脚本或桌面壳调用入口。
+  - [x] 提供关闭 REST server 的脚本或桌面壳调用入口。
   - [ ] 提供端口占用检查。
-  - [ ] 提供健康检查。
-  - [ ] Shell 不实现业务规则。
+  - [x] 提供健康检查。
+  - [x] Shell 不实现业务规则。
 
 - [x] Task 9: Web UI 对齐
   - [x] `/ai-cli` 页面改为调用 command service。
@@ -85,11 +85,24 @@
   - [x] 保持桌面端导航入口 disabled。
   - [x] 终端输出仍保持 `[ok] / [err] / [info]`。
   - [x] `/purpose` 保持中英双语。
+  - [x] `/ai-cli` 支持 `agent.logs` 查看访问记录。
+  - [x] `/ai-cli` 支持 `agent.sessions` 查看会话记录。
+
+- [x] Task 9.5: Shell Agent 记录渲染
+  - [x] REST 暴露 `GET /api/agent/logs`。
+  - [x] REST 暴露 `GET /api/agent/sessions`。
+  - [x] REST 暴露 `GET /api/agent/records`。
+  - [x] REST 暴露 `GET /api/agent/events` SSE 事件流。
+  - [x] Shell 独立界面新增 Agent 页面。
+  - [x] Shell Agent 页面渲染 operation logs。
+  - [x] Shell Agent 页面渲染 sessions。
+  - [x] AI REST 运行时 Shell Agent 页面通过 SSE 刷新。
+  - [x] Shell Agent 页面保留轮询兜底。
 
 - [ ] Task 10: 验证
   - [x] 运行 `npm run build`。
   - [x] 运行现有 Playwright AI CLI smoke test。
-  - [ ] 新增 REST smoke test 或脚本。
-  - [ ] REST smoke 覆盖 `spec / draft.show / fill.check / fill.apply`。
+  - [x] 新增 REST smoke test 或脚本。
+  - [x] REST smoke 覆盖 `spec / draft.show / fill.check / fill.apply`。
   - [x] 验证 invalid payload 不写入。
   - [x] 验证 valid payload 写入并生成 undo snapshot。

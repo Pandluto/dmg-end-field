@@ -8,6 +8,7 @@ release-latest/
 .claude/
 .trae/
 .codex-temp-*
+.runtime/
 .env
 .env.*
 !.env.example

@@ -69,6 +69,8 @@ let mainWindow = null;
 let shellWindow = null;
 let bridgeServer = null;
 let shellStartedAt = null;
+let aiCliRestProcess = null;
+let aiCliRestStartedAt = null;
 let isAppQuitting = false;
 let isForceClosingMain = false;
 let appTray = null;
@@ -635,6 +637,19 @@ function getShellRuntimeInfo() {
   };
 }
 
+function isAiCliRestRunning() {
+  return Boolean(aiCliRestProcess && !aiCliRestProcess.killed);
+}
+
+function getAiCliRestRuntimeInfo() {
+  return {
+    running: isAiCliRestRunning(),
+    pid: aiCliRestProcess?.pid ?? null,
+    startedAt: aiCliRestStartedAt,
+    url: 'http://127.0.0.1:17321',
+  };
+}
+
 function getBridgeHealth() {
   return {
     ok: true,
@@ -642,6 +657,7 @@ function getBridgeHealth() {
     host: BRIDGE_HOST,
     port: BRIDGE_PORT,
     shell: getShellRuntimeInfo(),
+    aiCliRest: getAiCliRestRuntimeInfo(),
     main: {
       running: Boolean(mainWindow && !mainWindow.isDestroyed()),
       visible: Boolean(mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible()),
@@ -1102,6 +1118,22 @@ function startBridgeServer() {
         return;
       }
 
+      if (method === 'POST' && requestUrl.pathname === '/open-ai-cli-rest') {
+        writeJson(response, 200, {
+          ok: true,
+          aiCliRest: startAiCliRest(),
+        });
+        return;
+      }
+
+      if (method === 'POST' && requestUrl.pathname === '/close-ai-cli-rest') {
+        writeJson(response, 200, {
+          ok: true,
+          aiCliRest: stopAiCliRest(),
+        });
+        return;
+      }
+
       if (method === 'POST' && requestUrl.pathname === '/open-web') {
         writeJson(response, 200, {
           ok: true,
@@ -1251,6 +1283,7 @@ function startBridgeServer() {
 
 function stopServers() {
   stopCaptureSession();
+  stopAiCliRest();
   if (bridgeServer) {
     bridgeServer.close();
     bridgeServer = null;
@@ -1412,6 +1445,60 @@ function getAssetsRoot() {
     return path.join(__dirname, '..', 'public', 'assets');
   }
   return ensureProductionAssetsRoot();
+}
+
+function startAiCliRest() {
+  if (isAiCliRestRunning()) {
+    return {
+      started: false,
+      reason: 'already-running',
+      ...getAiCliRestRuntimeInfo(),
+    };
+  }
+
+  const scriptPath = path.join(__dirname, '..', 'scripts', 'ai-cli-rest-server.mjs');
+  aiCliRestProcess = spawn(process.execPath, [scriptPath], {
+    cwd: path.join(__dirname, '..'),
+    env: {
+      ...process.env,
+      AI_CLI_REST_PORT: '17321',
+    },
+    stdio: 'ignore',
+    detached: false,
+    windowsHide: true,
+  });
+  aiCliRestStartedAt = Date.now();
+
+  aiCliRestProcess.once('exit', () => {
+    aiCliRestProcess = null;
+    aiCliRestStartedAt = null;
+  });
+
+  return {
+    started: true,
+    reason: 'launched',
+    ...getAiCliRestRuntimeInfo(),
+  };
+}
+
+function stopAiCliRest() {
+  if (!isAiCliRestRunning()) {
+    return {
+      stopped: false,
+      reason: 'not-running',
+      ...getAiCliRestRuntimeInfo(),
+    };
+  }
+
+  aiCliRestProcess.kill();
+  return {
+    stopped: true,
+    reason: 'terminated',
+    running: false,
+    pid: null,
+    startedAt: null,
+    url: 'http://127.0.0.1:17321',
+  };
 }
 
 function getPackagedAssetsRoot() {

@@ -13,6 +13,15 @@ export interface LocalAgentHealth {
     visible?: boolean;
     state?: 'visible' | 'hidden' | 'missing';
   };
+  aiCliRest?: {
+    running: boolean;
+    pid: number | null;
+    startedAt: number | null;
+    url: string;
+    started?: boolean;
+    stopped?: boolean;
+    reason?: string;
+  };
   web: {
     url: string;
     openedAt: number | null;
@@ -57,4 +66,36 @@ export async function requestCloseShell(): Promise<LocalAgentHealth['shell']> {
   };
 
   return payload.shell;
+}
+
+export async function requestOpenAiCliRest(): Promise<NonNullable<LocalAgentHealth['aiCliRest']>> {
+  const response = await fetch(`${LOCAL_AGENT_BASE_URL}/open-ai-cli-rest`, {
+    method: 'POST',
+  });
+  if (!response.ok) {
+    throw new Error(`Open AI CLI REST request failed: ${response.status}`);
+  }
+
+  const payload = await response.json() as {
+    ok: boolean;
+    aiCliRest: NonNullable<LocalAgentHealth['aiCliRest']>;
+  };
+
+  return payload.aiCliRest;
+}
+
+export async function requestCloseAiCliRest(): Promise<NonNullable<LocalAgentHealth['aiCliRest']>> {
+  const response = await fetch(`${LOCAL_AGENT_BASE_URL}/close-ai-cli-rest`, {
+    method: 'POST',
+  });
+  if (!response.ok) {
+    throw new Error(`Close AI CLI REST request failed: ${response.status}`);
+  }
+
+  const payload = await response.json() as {
+    ok: boolean;
+    aiCliRest: NonNullable<LocalAgentHealth['aiCliRest']>;
+  };
+
+  return payload.aiCliRest;
 }
