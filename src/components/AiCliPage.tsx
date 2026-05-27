@@ -121,7 +121,7 @@ export function AiCliPage() {
     if (navigationTarget === 'home') {
       navigateToAppPath(APP_ROUTE_PATHS.home);
     } else if (navigationTarget === 'buff') {
-      navigateToAppPath(APP_ROUTE_PATHS.buffDraft);
+      navigateToAppPath(APP_ROUTE_PATHS.buffSheet);
     }
 
     appendLines([`${prompt} ${summarizeAiCliCommand(rawCommand)}`, ...result.lines]);

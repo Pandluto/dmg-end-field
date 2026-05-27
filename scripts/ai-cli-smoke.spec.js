@@ -35,6 +35,7 @@ test('AI CLI can perform CRUD and buff.fill through the terminal UI', async ({ p
 
   await runCommand(page, 'help', 'DEF AI CLI command surface');
   await runCommand(page, 'agent.guide', 'LLM agent guide:');
+  await runCommand(page, 'buff.list', 'ai-cli-smoke-draft');
   await runCommand(page, '/purpose', 'purpose / 用途:');
   await runCommand(page, '/purpose', 'CN: 提供一个由软件本体控制的终端式桥接界面');
   await runCommand(page, 'spec', 'fill.check never writes');
@@ -125,16 +126,22 @@ test('AI CLI can perform CRUD and buff.fill through the terminal UI', async ({ p
   };
   await runCommand(page, `fill.check ${JSON.stringify(fillDraft)}`, '[ok] fill result valid: items=2 effects=3');
   await runCommand(page, `fill.apply ${JSON.stringify(fillDraft)}`, '[ok] fill applied: items=2 effects=3');
+  await runCommand(page, 'buff.show agent-fill', 'name=测试干员完整 Buff');
+  await runCommand(page, 'buff.search 完整', 'agent-fill');
   await runCommand(page, 'agent.logs 5', 'fill.apply');
   await runCommand(page, 'agent.sessions 5', 'session-');
 
   const storedDraft = await page.evaluate((draftKey) => JSON.parse(window.localStorage.getItem(draftKey) || '{}'), DRAFT_KEY);
-  expect(storedDraft.name).toBe('测试干员测试Buff');
+  expect(storedDraft.id).toBe('agent-fill');
+  expect(storedDraft.name).toBe('测试干员完整 Buff');
   expect(Object.keys(storedDraft.items)).toEqual(['item-1', 'item-2']);
   expect(storedDraft.items['item-1'].effects['buff-1'].type).toBe('atkPercentBoost');
   expect(storedDraft.items['item-1'].effects['buff-1'].value).toBe(0.2);
   expect(storedDraft.items['item-1'].effects['buff-2'].type).toBe('critRateBoost');
   expect(storedDraft.items['item-2'].effects['buff-1'].type).toBe('skillDmgBonus');
+
+  const storedLibrary = await page.evaluate((libraryKey) => JSON.parse(window.localStorage.getItem(libraryKey) || '{}'), LIBRARY_KEY);
+  expect(storedLibrary['agent-fill'].name).toBe('测试干员完整 Buff');
 
   const selectedCharacters = await page.evaluate((key) => JSON.parse(window.sessionStorage.getItem(key) || '[]'), SELECTED_CHARACTERS_KEY);
   expect(selectedCharacters).toContain('codex-test-operator');

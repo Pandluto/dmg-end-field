@@ -22,7 +22,6 @@ import {
   type DraftLibraryShareFile,
 } from '../utils/draftShare';
 
-const BUFF_DRAFT_PAGE_PATH = APP_ROUTE_PATHS.buffDraft;
 const BUFF_SHEET_PAGE_PATH = APP_ROUTE_PATHS.buffSheet;
 const BUFF_DRAFT_STORAGE_KEY = 'def.buff-editor.draft.v1';
 const BUFF_LIBRARY_STORAGE_KEY = 'def.buff-editor.library.v1';
@@ -693,10 +692,6 @@ function getBuffValueHint(type: string | undefined, value: number | undefined) {
     return `展示为 ${formatBuffNumericValue(type, numericValue)}，底层存储 ${numericValue}`;
   }
   return `当前按小数记录：${numericValue}`;
-}
-
-function isBuffDraftPath(pathname: string) {
-  return pathname === BUFF_DRAFT_PAGE_PATH;
 }
 
 function isBuffSheetPath(pathname: string) {
@@ -1604,7 +1599,7 @@ function buildBuffWorkbookView(rows: BuffSheetRow[], columns: BuffSheetColumn[])
   return result;
 }
 
-export { isBuffDraftPath, isBuffSheetPath };
+export { isBuffSheetPath };
 
 export function BuffDraftPage() {
   const [draft, setDraft] = useState<BuffDraft>(() => loadDraftFromStorage());
@@ -3687,7 +3682,7 @@ export function BuffDraftSheetPage() {
   };
 
   const handleOpenBuffEditorPage = () => {
-    navigateToAppPath(APP_ROUTE_PATHS.buffDraft);
+    navigateToAppPath(APP_ROUTE_PATHS.buffSheet);
   };
 
   const toggleItemCollapsed = (itemKey: string) => {

@@ -72,6 +72,7 @@ const server = spawn(process.execPath, ['scripts/ai-cli-rest-server.mjs'], {
   env: {
     ...process.env,
     AI_CLI_REST_PORT: String(PORT),
+    AI_CLI_REST_STORAGE_MODE: 'runtime',
   },
   stdio: ['ignore', 'pipe', 'pipe'],
   windowsHide: true,
@@ -89,6 +90,9 @@ try {
   assert(guide.status === 200, `guide status=${guide.status}`);
   assert(guide.payload.ok === true, 'guide should be ok');
   assert(Array.isArray(guide.payload.recommendedFlow), 'guide should include recommended flow');
+  assert(guide.payload.mainTruth?.storage === 'localStorage.def.buff-editor.library.v1', 'guide should describe library as main truth');
+  assert(guide.payload.formats?.readFormat?.name === 'BuffDraft', 'guide should describe read format');
+  assert(guide.payload.formats?.writeProposalFormat?.name === 'BuffFillAiDraft', 'guide should describe write proposal format');
 
   const skills = await request('GET', '/api/agent/skills');
   assert(skills.status === 200, `skills status=${skills.status}`);
@@ -99,6 +103,8 @@ try {
   assert(spec.status === 200, `spec status=${spec.status}`);
   assert(spec.payload.ok === true, 'spec should be ok');
   assert(Array.isArray(spec.payload.endpoints), 'spec should expose endpoints');
+  assert(spec.payload.endpoints.includes('GET /api/buff/fill/template'), 'spec should expose fill template endpoint');
+  assert(spec.payload.formats?.writeProposalFormat?.shape?.includes('items is an array'), 'spec should warn about fill array format');
 
   const firstEvent = await readFirstSseEvent('/api/agent/events');
   assert(firstEvent.includes('event: agent.records'), 'SSE should emit agent.records');
@@ -106,6 +112,20 @@ try {
   const current = await request('GET', '/api/buff/current');
   assert(current.status === 200, `current status=${current.status}`);
   assert(current.payload.ok === true, 'current should be ok');
+  assert(current.payload.warning?.includes('Do not submit'), 'current should warn read shape is not fill shape');
+
+  const libraryBefore = await request('GET', '/api/buff/library');
+  assert(libraryBefore.status === 200, `library status=${libraryBefore.status}`);
+  assert(libraryBefore.payload.ok === true, 'library should be ok');
+  assert(Array.isArray(libraryBefore.payload.summary), 'library should include summary');
+  assert(libraryBefore.payload.warning?.includes('fill.check'), 'library should warn about write proposal format');
+
+  const fillTemplate = await request('GET', '/api/buff/fill/template');
+  assert(fillTemplate.status === 200, `fill template status=${fillTemplate.status}`);
+  assert(fillTemplate.payload.ok === true, 'fill template should be ok');
+  assert(Array.isArray(fillTemplate.payload.template.items), 'fill template items should be an array');
+  assert(Array.isArray(fillTemplate.payload.template.items[0].effects), 'fill template effects should be an array');
+  assert(fillTemplate.payload.template.items[0].effects[0].evidenceText, 'fill template should include evidenceText');
 
   const show = await request('POST', '/api/ai-cli/run', {
     protocolVersion: 1,
@@ -114,6 +134,14 @@ try {
   });
   assert(show.status === 200, `draft.show status=${show.status}`);
   assert(show.payload.ok === true, 'draft.show should be ok');
+
+  const list = await request('POST', '/api/ai-cli/run', {
+    protocolVersion: 1,
+    requestId: 'rest-smoke-buff-list',
+    command: 'buff.list',
+  });
+  assert(list.status === 200, `buff.list status=${list.status}`);
+  assert(list.payload.ok === true, 'buff.list should be ok');
 
   const invalidCheck = await request('POST', '/api/buff/fill/check', {
     protocolVersion: 1,
@@ -173,6 +201,19 @@ try {
   assert(apply.status === 200, `apply status=${apply.status}`);
   assert(apply.payload.ok === true, 'apply should pass for web-cli');
   assert(apply.payload.effects?.writes === true, 'apply should write');
+
+  const libraryEntry = await request('GET', '/api/buff/library/ai-result');
+  assert(libraryEntry.status === 200, `library entry status=${libraryEntry.status}`);
+  assert(libraryEntry.payload.ok === true, 'library entry should be readable after apply');
+  assert(libraryEntry.payload.draft?.id === 'ai-result', 'apply should upsert model draft id into library');
+
+  const search = await request('POST', '/api/ai-cli/run', {
+    protocolVersion: 1,
+    requestId: 'rest-smoke-buff-search',
+    command: 'buff.search REST',
+  });
+  assert(search.status === 200, `buff.search status=${search.status}`);
+  assert(search.payload.ok === true, 'buff.search should be ok');
 
   const logs = await request('GET', '/api/agent/logs');
   assert(logs.status === 200, `agent logs status=${logs.status}`);

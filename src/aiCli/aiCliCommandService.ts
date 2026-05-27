@@ -85,7 +85,7 @@ export function readCurrentBuffDraft(): BuffDraft {
   return readJsonStorage<BuffDraft>(BUFF_DRAFT_STORAGE_KEY, createFallbackDraft());
 }
 
-function readBuffLibrary(): Record<string, BuffDraft> {
+export function readBuffLibrary(): Record<string, BuffDraft> {
   return readJsonStorage<Record<string, BuffDraft>>(BUFF_LIBRARY_STORAGE_KEY, {});
 }
 
@@ -158,6 +158,19 @@ function persistDraft(nextDraft: BuffDraft, label: string) {
   writeUndoSnapshot(label, previousDraft);
   window.localStorage.setItem(BUFF_DRAFT_STORAGE_KEY, JSON.stringify(nextDraft));
   window.localStorage.setItem(BUFF_LIBRARY_STORAGE_KEY, JSON.stringify(nextLibrary));
+}
+
+function persistLibraryDraft(nextDraft: BuffDraft, label: string, setActiveDraft = true) {
+  const previousDraft = readCurrentBuffDraft();
+  const nextLibrary = {
+    ...readBuffLibrary(),
+    [nextDraft.id]: nextDraft,
+  };
+  writeUndoSnapshot(label, previousDraft);
+  window.localStorage.setItem(BUFF_LIBRARY_STORAGE_KEY, JSON.stringify(nextLibrary));
+  if (setActiveDraft) {
+    window.localStorage.setItem(BUFF_DRAFT_STORAGE_KEY, JSON.stringify(nextDraft));
+  }
 }
 
 export function splitAiCliCommand(input: string) {
@@ -276,6 +289,52 @@ export function formatDraftSummary(draft: BuffDraft) {
     `items=${itemCount}`,
     `effects=${effectCount}`,
   ];
+}
+
+export function formatLibrarySummary(library: Record<string, BuffDraft>) {
+  return Object.entries(library).map(([id, entry]) => {
+    const itemCount = Object.keys(entry.items || {}).length;
+    const effectCount = Object.values(entry.items || {}).reduce((sum, item) => sum + Object.keys(item.effects || {}).length, 0);
+    return {
+      id,
+      name: entry.name || id,
+      sourceName: entry.sourceName || '-',
+      items: itemCount,
+      effects: effectCount,
+    };
+  }).sort((a, b) => a.name.localeCompare(b.name, 'zh-CN'));
+}
+
+function searchLibrary(library: Record<string, BuffDraft>, keyword: string) {
+  const normalizedKeyword = keyword.trim().toLowerCase();
+  if (!normalizedKeyword) {
+    return formatLibrarySummary(library);
+  }
+  return formatLibrarySummary(library).filter((entry) => {
+    const draft = library[entry.id];
+    const haystack = [
+      entry.id,
+      entry.name,
+      entry.sourceName,
+      draft?.description,
+      ...Object.values(draft?.items || {}).flatMap((item) => [
+        item.id,
+        item.name,
+        item.sourceName,
+        item.description,
+        ...Object.values(item.effects || {}).flatMap((effect) => [
+          effect.id,
+          effect.displayName,
+          effect.name,
+          effect.sourceName,
+          effect.description,
+          effect.condition,
+          effect.type,
+        ]),
+      ]),
+    ].filter(Boolean).join(' ').toLowerCase();
+    return haystack.includes(normalizedKeyword);
+  });
 }
 
 function createItem(itemKey: string, name: string, options: Record<string, string>): BuffItemDraft {
@@ -416,16 +475,20 @@ function parseAiFillResult(rawText: string): { draft: BuffDraft | null; errors: 
 }
 
 function buildTaskPackage(currentDraft: BuffDraft, sourceText: string) {
+  const library = readBuffLibrary();
   return JSON.stringify({
     tool: 'buff.fill',
     protocolVersion: AI_CLI_PROTOCOL_VERSION,
     instruction: [
-      'Return exactly one BuffFillAiDraft JSON object.',
+      'Return exactly one BuffFillAiDraft JSON object for one library entry.',
       'No Markdown. No explanation. No wrapper fields.',
       'Only extract effects explicitly present in sourceText and supported by modifierCatalog.',
       'Use decimal numbers for percentages, for example 20% => 0.2.',
+      'Use a stable id. Existing id means update that library entry; new id means create a new entry.',
     ].join('\n'),
+    mainStorage: BUFF_LIBRARY_STORAGE_KEY,
     currentDraft,
+    librarySummary: formatLibrarySummary(library),
     sourceText,
     outputSchema: createBuffFillAiDraftSchema(),
     systemPrompt: buffSheetAiSystemPromptRaw.trim(),
@@ -486,8 +549,12 @@ function executeCommand(rawCommand: string, draft: BuffDraft, sourceText: string
             ['operator', 'operator.add <id> <name> [weapon=] [potential=] [skillLevel=]', 'create/select test operator / 创建并选中测试干员'],
             ['operator', 'operator.show [id]', 'read operator config / 查看干员配置'],
             ['operator', 'operator.delete <id>', 'delete test operator config / 删除测试干员配置'],
-            ['draft', 'draft.show', 'read current buff draft / 查看当前 Buff 草稿'],
-            ['draft', 'draft.rename <name>', 'rename current buff draft / 重命名当前 Buff 草稿'],
+            ['buff', 'buff.list [limit]', 'list Buff library entries / 查看 Buff 主库'],
+            ['buff', 'buff.show <id>', 'read one Buff library entry / 查看主库单个 Buff'],
+            ['buff', 'buff.search <keyword>', 'search Buff library / 搜索 Buff 主库'],
+            ['buff', 'buff.open <id>', 'set active draft from library / 从主库打开到当前编辑'],
+            ['draft', 'draft.show', 'read active draft only / 查看当前打开项'],
+            ['draft', 'draft.rename <name>', 'rename active draft and sync library / 重命名当前打开项并同步主库'],
             ['item', 'item.list | item.add | item.set | item.delete', 'CRUD buff items / 增删改查 Buff 分组'],
             ['effect', 'effect.list | effect.add | effect.set | effect.delete', 'CRUD modifier effects / 增删改查 Buff 效果'],
             ['fill', 'fill.source <text>', 'set source text for task package / 设置填表原文'],
@@ -501,6 +568,8 @@ function executeCommand(rawCommand: string, draft: BuffDraft, sourceText: string
           ],
         ),
         '',
+        `main truth: localStorage.${BUFF_LIBRARY_STORAGE_KEY}`,
+        `active editor state: localStorage.${BUFF_DRAFT_STORAGE_KEY}`,
         'quote values with spaces: item.add item-1 "测试天赋" desc="长描述"',
       ],
     });
@@ -510,8 +579,8 @@ function executeCommand(rawCommand: string, draft: BuffDraft, sourceText: string
     return makeResponse({
       lines: [
         'purpose / 用途:',
-        '  EN: Provide a terminal-style, app-controlled bridge for Codex/Claude to inspect and propose Buff edits.',
-        '  CN: 提供一个由软件本体控制的终端式桥接界面，让 Codex/Claude 查看并提交 Buff 修改。',
+        '  EN: Provide a terminal-style, app-controlled bridge for Codex/Claude to inspect the Buff library and propose edits.',
+        '  CN: 提供一个由软件本体控制的终端式桥接界面，让 Codex/Claude 查看 Buff 主库并提交修改。',
         '',
         'boundary / 边界:',
         '  EN: Agents produce commands or BuffFillAiDraft JSON; the app validates and writes.',
@@ -524,10 +593,12 @@ function executeCommand(rawCommand: string, draft: BuffDraft, sourceText: string
     return makeResponse({
       lines: [
         'contract:',
+        `  main truth is localStorage.${BUFF_LIBRARY_STORAGE_KEY}.`,
+        `  ${BUFF_DRAFT_STORAGE_KEY} is only the active editor draft.`,
         '  external agents may propose BuffFillAiDraft JSON only.',
         '  app validates modifier type, numeric value, required fields, and extraHit config.',
-        '  fill.check never writes; fill.apply writes draft/library and creates undo snapshot.',
-        '  CRUD commands write through the same localStorage draft/library path.',
+        '  fill.check never writes; fill.apply writes the library, sets active draft, and creates undo snapshot.',
+        '  buff.open only switches active editor draft from an existing library entry.',
         '',
         'storage touched:',
         `  localStorage.${BUFF_DRAFT_STORAGE_KEY}`,
@@ -572,13 +643,75 @@ function executeCommand(rawCommand: string, draft: BuffDraft, sourceText: string
         'LLM agent guide:',
         '  first call: GET /api/agent/guide',
         '  skills: GET /api/agent/skills',
-        '  inspect: GET /api/buff/current or command draft.show',
+        '  inspect truth: GET /api/buff/library or command buff.list',
+        '  inspect one: GET /api/buff/library/<id> or command buff.show <id>',
+        '  active editor only: GET /api/buff/current or command draft.show',
         '  dry-run: POST /api/buff/fill/check',
         '  write: POST /api/buff/fill/apply only after validation and user intent',
         '  events: GET /api/agent/events',
         '',
         'rule: agent proposes commands/JSON; app validates, logs, and writes.',
       ],
+    });
+  }
+
+  if (command === 'buff.list') {
+    const limit = Math.max(1, Math.min(200, Number(args[0] || 50) || 50));
+    const rows = formatLibrarySummary(readBuffLibrary()).slice(0, limit);
+    return makeResponse({
+      lines: rows.length
+        ? table(
+            ['id', 'name', 'sourceName', 'items', 'effects'],
+            rows.map((entry) => [entry.id, entry.name, entry.sourceName, String(entry.items), String(entry.effects)]),
+          )
+        : [info('buff library is empty')],
+      data: { library: rows },
+    });
+  }
+
+  if (command === 'buff.search') {
+    const keyword = args.join(' ').trim();
+    if (!keyword) {
+      return makeResponse({ lines: [fail('usage: buff.search <keyword>')] });
+    }
+    const rows = searchLibrary(readBuffLibrary(), keyword).slice(0, 50);
+    return makeResponse({
+      lines: rows.length
+        ? table(
+            ['id', 'name', 'sourceName', 'items', 'effects'],
+            rows.map((entry) => [entry.id, entry.name, entry.sourceName, String(entry.items), String(entry.effects)]),
+          )
+        : [info(`no library match: ${keyword}`)],
+      data: { library: rows },
+    });
+  }
+
+  if (command === 'buff.show') {
+    const [buffId] = args;
+    const library = readBuffLibrary();
+    const entry = buffId ? library[buffId] : null;
+    if (!buffId || !entry) {
+      return makeResponse({ lines: [fail('usage: buff.show <existingBuffId>')] });
+    }
+    return makeResponse({
+      lines: formatDraftSummary(entry),
+      data: { draft: entry },
+    });
+  }
+
+  if (command === 'buff.open') {
+    const [buffId] = args;
+    const library = readBuffLibrary();
+    const entry = buffId ? library[buffId] : null;
+    if (!buffId || !entry) {
+      return makeResponse({ lines: [fail('usage: buff.open <existingBuffId>')] });
+    }
+    writeUndoSnapshot(`AI CLI buff.open · ${buffId}`, readCurrentBuffDraft());
+    window.localStorage.setItem(BUFF_DRAFT_STORAGE_KEY, JSON.stringify(entry));
+    return writeResponse({
+      nextDraft: entry,
+      lines: [ok(`buff opened as active draft: ${buffId}`)],
+      storage: [BUFF_DRAFT_STORAGE_KEY, BUFF_UNDO_STORAGE_KEY],
     });
   }
 
@@ -938,12 +1071,8 @@ function executeCommand(rawCommand: string, draft: BuffDraft, sourceText: string
         error: { code: 'fill-invalid', message: 'fill result invalid', details: parsed.errors },
       });
     }
-    const nextDraft = {
-      ...draft,
-      description: parsed.draft.description || draft.description,
-      items: parsed.draft.items,
-    };
-    persistDraft(nextDraft, `AI CLI fill.apply · ${draft.id}`);
+    const nextDraft = parsed.draft;
+    persistLibraryDraft(nextDraft, `AI CLI fill.apply · ${nextDraft.id}`, true);
     const itemCount = Object.keys(nextDraft.items).length;
     const effectCount = Object.values(nextDraft.items).reduce((sum, item) => sum + Object.keys(item.effects).length, 0);
     return writeResponse({

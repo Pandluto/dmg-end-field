@@ -7,7 +7,7 @@ import { useEffect, useState } from 'react';
 import { DamageSheetPage, isDamageSheetPath } from './components/DamageSheetPage';
 import { WorkbenchFrame } from './components/WorkbenchFrame';
 import { OperatorDraftPage, isDraftPath } from './components/OperatorDraftPage';
-import { BuffDraftPage, BuffDraftSheetPage, isBuffDraftPath, isBuffSheetPath } from './components/BuffDraftPage';
+import { BuffDraftSheetPage, isBuffSheetPath } from './components/BuffDraftPage';
 import { WeaponDraftSheetPage, isWeaponSheetPath } from './components/WeaponDraftPage';
 import { EquipmentSheetPage, isEquipmentSheetPath } from './components/EquipmentSheetPage';
 import { ImageManagerPage, isImageManagerPath } from './components/ImageManagerPage';
@@ -48,10 +48,6 @@ function App() {
 
   if (isDraftPath(currentPath)) {
     return <OperatorDraftPage />;
-  }
-
-  if (isBuffDraftPath(currentPath)) {
-    return <BuffDraftPage />;
   }
 
   if (isBuffSheetPath(currentPath)) {

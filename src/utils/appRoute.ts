@@ -1,7 +1,6 @@
 export const APP_ROUTE_PATHS = {
   home: '/',
   draft: '/operator-studio',
-  buffDraft: '/buff-studio',
   buffSheet: '/buff-sheet',
   weaponSheet: '/weapon-sheet',
   equipmentSheet: '/sheet-equipment',
@@ -14,7 +13,8 @@ export const APP_ROUTE_PATHS = {
 const APP_ROUTE_ALIASES: Record<string, string> = {
   '/draft': APP_ROUTE_PATHS.draft,
   '/character-studio': APP_ROUTE_PATHS.draft,
-  '/buff-draft': APP_ROUTE_PATHS.buffDraft,
+  '/buff-studio': APP_ROUTE_PATHS.buffSheet,
+  '/buff-draft': APP_ROUTE_PATHS.buffSheet,
   '/sheet-buff': APP_ROUTE_PATHS.buffSheet,
   '/sheet-weapon': APP_ROUTE_PATHS.weaponSheet,
   '/equipment-sheet': APP_ROUTE_PATHS.equipmentSheet,

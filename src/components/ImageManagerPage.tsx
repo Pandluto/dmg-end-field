@@ -669,7 +669,7 @@ export function ImageManagerPage() {
 
   const handleOpenWorkbench = useCallback(() => navigateToAppPath(APP_ROUTE_PATHS.home), []);
   const handleOpenOperatorDraft = useCallback(() => navigateToAppPath(APP_ROUTE_PATHS.draft), []);
-  const handleOpenBuffDraft = useCallback(() => navigateToAppPath(APP_ROUTE_PATHS.buffDraft), []);
+  const handleOpenBuffDraft = useCallback(() => navigateToAppPath(APP_ROUTE_PATHS.buffSheet), []);
 
   const previewIndex = previewAsset
     ? (filteredAssetIndexByPath.get(previewAsset.relativePath) ?? -1)

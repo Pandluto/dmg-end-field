@@ -9,6 +9,8 @@ const PORT = Number(process.env.AI_CLI_REST_PORT || 17321);
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(__dirname, '..');
 const storageDir = path.join(projectRoot, '.runtime', 'ai-cli-rest');
+const nowStoragePath = path.join(projectRoot, 'data', 'localdata', 'now-storage.json');
+const storageMode = process.env.AI_CLI_REST_STORAGE_MODE || 'now-storage';
 
 class FileStorage {
   constructor(filePath) {
@@ -53,8 +55,118 @@ class FileStorage {
   }
 }
 
+class NowStorageLocalStorage {
+  constructor(filePath, fallbackFilePath) {
+    this.filePath = filePath;
+    this.fallback = new FileStorage(fallbackFilePath);
+    this.archive = this.readArchive();
+  }
+
+  readArchive() {
+    try {
+      if (!fs.existsSync(this.filePath)) {
+        return null;
+      }
+      const parsed = JSON.parse(fs.readFileSync(this.filePath, 'utf-8'));
+      if (!parsed || parsed.type !== 'def.localdata.archive.v1' || !parsed.storage) {
+        return null;
+      }
+      parsed.storage.local = parsed.storage.local && typeof parsed.storage.local === 'object'
+        ? parsed.storage.local
+        : {};
+      parsed.storage.session = parsed.storage.session && typeof parsed.storage.session === 'object'
+        ? parsed.storage.session
+        : {};
+      return parsed;
+    } catch {
+      return null;
+    }
+  }
+
+  ensureArchive() {
+    if (this.archive) {
+      return this.archive;
+    }
+    this.archive = {
+      type: 'def.localdata.archive.v1',
+      schemaVersion: 1,
+      id: 'now-storage',
+      name: 'now-storage',
+      createdAt: new Date().toISOString(),
+      exportedAt: new Date().toISOString(),
+      sections: ['all'],
+      storage: {
+        local: {},
+        session: {},
+      },
+    };
+    return this.archive;
+  }
+
+  flush() {
+    const archive = this.ensureArchive();
+    archive.exportedAt = new Date().toISOString();
+    fs.mkdirSync(path.dirname(this.filePath), { recursive: true });
+    fs.writeFileSync(this.filePath, `${JSON.stringify(archive, null, 2)}\n`, 'utf-8');
+  }
+
+  get local() {
+    return this.archive?.storage?.local || {};
+  }
+
+  refresh() {
+    const nextArchive = this.readArchive();
+    if (nextArchive) {
+      this.archive = nextArchive;
+    }
+  }
+
+  getItem(key) {
+    this.refresh();
+    if (!this.archive) {
+      return this.fallback.getItem(key);
+    }
+    if (!Object.prototype.hasOwnProperty.call(this.local, key)) {
+      return null;
+    }
+    const value = this.local[key];
+    return typeof value === 'string' ? value : JSON.stringify(value);
+  }
+
+  setItem(key, value) {
+    this.refresh();
+    const archive = this.ensureArchive();
+    try {
+      archive.storage.local[key] = JSON.parse(String(value));
+    } catch {
+      archive.storage.local[key] = String(value);
+    }
+    this.fallback.setItem(key, value);
+    this.flush();
+  }
+
+  removeItem(key) {
+    if (!this.archive) {
+      this.fallback.removeItem(key);
+      return;
+    }
+    delete this.archive.storage.local[key];
+    this.fallback.removeItem(key);
+    this.flush();
+  }
+
+  clear() {
+    const archive = this.ensureArchive();
+    archive.storage.local = {};
+    this.fallback.clear();
+    this.flush();
+  }
+}
+
 function installNodeWindowStorage() {
-  const localStorage = new FileStorage(path.join(storageDir, 'localStorage.json'));
+  const localStorage = storageMode === 'runtime'
+    ? new FileStorage(path.join(storageDir, 'localStorage.json'))
+    : new NowStorageLocalStorage(nowStoragePath, path.join(storageDir, 'localStorage.json'));
   const sessionStorage = new FileStorage(path.join(storageDir, 'sessionStorage.json'));
   globalThis.window = {
     localStorage,
@@ -142,6 +254,8 @@ const server = http.createServer(async (request, response) => {
       host: HOST,
       port: PORT,
       storageDir,
+      storageMode: storageMode === 'runtime' ? 'runtime' : 'now-storage',
+      nowStoragePath,
     });
     return;
   }
@@ -173,6 +287,7 @@ const server = http.createServer(async (request, response) => {
       path: requestUrl.pathname,
       body,
       client: requestUrl.searchParams.get('client') || 'rest',
+      query: Object.fromEntries(requestUrl.searchParams.entries()),
     }, readCurrentBuffDraft(), {
       sourceText: '',
     });

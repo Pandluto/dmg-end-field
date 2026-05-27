@@ -41,7 +41,7 @@ export function createDefaultPermissionProfiles(): AiAgentPermissionProfile[] {
       id: 'readonly-agent',
       name: 'Readonly Agent',
       client: 'rest',
-      allowedCommands: ['help', '/help', 'purpose', '/purpose', 'spec', '/spec', 'draft.show', 'item.list', 'effect.list', 'fill.task', 'fill.task.copy', 'fill.check'],
+      allowedCommands: ['help', '/help', 'purpose', '/purpose', 'spec', '/spec', 'buff.list', 'buff.show', 'buff.search', 'draft.show', 'item.list', 'effect.list', 'fill.task', 'fill.task.copy', 'fill.check'],
       allowedWorkflows: ['buff.fill'],
       canRead: true,
       canDryRun: true,
@@ -87,6 +87,7 @@ export function commandNeedsWrite(commandName: string) {
   return [
     'operator.add',
     'operator.delete',
+    'buff.open',
     'draft.rename',
     'item.add',
     'item.set',

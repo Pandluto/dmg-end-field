@@ -1081,7 +1081,7 @@ export function OperatorDraftPage() {
     if (typeof window === 'undefined') {
       return;
     }
-    navigateToAppPath(APP_ROUTE_PATHS.buffDraft);
+    navigateToAppPath(APP_ROUTE_PATHS.buffSheet);
   };
 
   const handleOpenWorkbenchPage = () => {

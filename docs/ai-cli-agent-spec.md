@@ -277,7 +277,7 @@ Example:
 {
   "protocolVersion": 1,
   "requestId": "req-001",
-  "command": "draft.show"
+    "command": "buff.list"
 }
 ```
 
@@ -334,12 +334,23 @@ operator.show [operatorId]
 operator.delete <operatorId>
 ```
 
+Buff library commands:
+
+```text
+buff.list [limit]
+buff.show <buffId>
+buff.search <keyword>
+buff.open <buffId>
+```
+
 Draft commands:
 
 ```text
 draft.show
 draft.rename <name>
 ```
+
+`def.buff-editor.library.v1` is the Buff source of truth. `def.buff-editor.draft.v1` is only the currently opened editor state.
 
 Buff item commands:
 
@@ -452,9 +463,9 @@ Expected behavior:
 
 - Run the same validation as `fill.check`.
 - If invalid, write nothing.
-- If valid, replace current draft `items`.
-- Keep current draft `id`, `name`, `sourceName`, and `source`.
-- Use AI result `description` only when non-empty.
+- If valid, upsert the AI result as one `def.buff-editor.library.v1` entry.
+- Use the AI result `id` as the library key.
+- Also set `def.buff-editor.draft.v1` to the same entry so the web editor opens the written Buff.
 - Create one undo snapshot.
 - Return the changed item/effect count.
 
@@ -486,7 +497,10 @@ GET  /api/ai-cli/spec
 GET  /api/agent/guide
 GET  /api/agent/skills
 POST /api/ai-cli/run
+GET  /api/buff/library
+GET  /api/buff/library/<id>
 GET  /api/buff/current
+GET  /api/buff/fill/template
 POST /api/buff/fill/check
 POST /api/buff/fill/apply
 GET  /api/agent/sessions
@@ -501,7 +515,7 @@ GET  /api/agent/events
 {
   "protocolVersion": 1,
   "requestId": "req-001",
-  "command": "draft.show"
+  "command": "buff.list"
 }
 ```
 
@@ -522,6 +536,13 @@ GET  /api/agent/events
 
 `POST /api/buff/fill/check` request:
 
+Important format distinction:
+
+- Read endpoints return app `BuffDraft` format: `items` and `effects` are object maps.
+- Fill endpoints accept agent `BuffFillAiDraft` format: `items` and `effects` are arrays.
+- Do not submit a `GET /api/buff/current` or `GET /api/buff/library/<id>` response directly to `fill.check`.
+- Use `GET /api/buff/fill/template` for a valid payload template.
+
 ```json
 {
   "protocolVersion": 1,
@@ -537,12 +558,13 @@ GET  /api/agent/events
 }
 ```
 
-`POST /api/buff/fill/apply` should use the same request body, but it may write after validation.
+`POST /api/buff/fill/apply` should use the same request body, but it may write after validation. A valid apply upserts `draft.id` into `def.buff-editor.library.v1` and then mirrors that entry into `def.buff-editor.draft.v1`.
 
 REST rule:
 
 - REST endpoints must call the same validation and writer code as `/ai-cli`.
 - REST must not become a second implementation of Buff writing.
+- Agents should read `GET /api/buff/library` first. `GET /api/buff/current` is only active editor state.
 
 Current local development entry:
 

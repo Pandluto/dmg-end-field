@@ -68,9 +68,12 @@
   - [x] 增加 `GET /api/ai-cli/spec` adapter。
   - [x] 增加 `POST /api/ai-cli/run` adapter。
   - [x] 增加 `GET /api/buff/current` adapter。
+  - [x] 增加 `GET /api/buff/library` adapter，作为 Buff 主真相读取入口。
+  - [x] 增加 `GET /api/buff/library/<id>` adapter，读取单个 Buff 主库条目。
   - [x] 增加 `POST /api/buff/fill/check` adapter。
   - [x] 增加 `POST /api/buff/fill/apply` adapter。
   - [x] REST adapter 必须调用同一套 command service 和 validator。
+  - [x] `fill.apply` 写入 `def.buff-editor.library.v1`，并同步当前 draft。
 
 - [ ] Task 8: 接入 Shell / 桌面壳生命周期
   - [x] 提供启动 REST server 的脚本或桌面壳调用入口。
@@ -103,6 +106,6 @@
   - [x] 运行 `npm run build`。
   - [x] 运行现有 Playwright AI CLI smoke test。
   - [x] 新增 REST smoke test 或脚本。
-  - [x] REST smoke 覆盖 `spec / draft.show / fill.check / fill.apply`。
+  - [x] REST smoke 覆盖 `spec / buff.list / library / draft.show / fill.check / fill.apply`。
   - [x] 验证 invalid payload 不写入。
   - [x] 验证 valid payload 写入并生成 undo snapshot。

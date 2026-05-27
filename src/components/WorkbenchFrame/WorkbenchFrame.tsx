@@ -108,8 +108,8 @@ export function WorkbenchFrame() {
     navigateToAppPath(APP_ROUTE_PATHS.draft);
   }, []);
 
-  const handleOpenBuffDraft = useCallback(() => {
-    navigateToAppPath(APP_ROUTE_PATHS.buffDraft);
+  const handleOpenBuffSheet = useCallback(() => {
+    navigateToAppPath(APP_ROUTE_PATHS.buffSheet);
   }, []);
 
   const handleOpenWeaponSheet = useCallback(() => {
@@ -181,7 +181,7 @@ export function WorkbenchFrame() {
       <button className="workbench-top-trigger workbench-bottom-nav-button" type="button" onClick={handleOpenOperatorDraft}>
         <span className="workbench-trigger-text">编辑干员</span>
       </button>
-      <button className="workbench-top-trigger workbench-bottom-nav-button" type="button" onClick={handleOpenBuffDraft}>
+      <button className="workbench-top-trigger workbench-bottom-nav-button" type="button" onClick={handleOpenBuffSheet}>
         <span className="workbench-trigger-text">编辑BUFF</span>
       </button>
       <button className="workbench-top-trigger workbench-bottom-nav-button" type="button" onClick={handleOpenWeaponSheet}>
