@@ -8,6 +8,7 @@ export const APP_ROUTE_PATHS = {
   operatorConfig: '/operator-config',
   damageSheet: '/damage-sheet',
   imageManager: '/image-manager',
+  aiCli: '/ai-cli',
 } as const;
 
 const APP_ROUTE_ALIASES: Record<string, string> = {

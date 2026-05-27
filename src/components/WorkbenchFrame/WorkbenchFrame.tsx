@@ -128,6 +128,13 @@ export function WorkbenchFrame() {
     navigateToAppPath(APP_ROUTE_PATHS.imageManager);
   }, []);
 
+  const handleOpenAiCli = useCallback(() => {
+    if (window.desktopRuntime) {
+      return;
+    }
+    navigateToAppPath(APP_ROUTE_PATHS.aiCli);
+  }, []);
+
   const syncLocalAgentStatus = useCallback(async () => {
     try {
       const health = await getLocalAgentHealth();
@@ -184,6 +191,15 @@ export function WorkbenchFrame() {
       </button>
       <button className="workbench-top-trigger workbench-bottom-nav-button" type="button" onClick={handleOpenImageManager}>
         <span className="workbench-trigger-text">图片管理</span>
+      </button>
+      <button
+        className="workbench-top-trigger workbench-bottom-nav-button"
+        type="button"
+        onClick={handleOpenAiCli}
+        disabled={Boolean(window.desktopRuntime)}
+        title={window.desktopRuntime ? 'AI CLI 暂不开放桌面端入口' : ''}
+      >
+        <span className="workbench-trigger-text">AI CLI</span>
       </button>
       <button className="workbench-top-trigger workbench-bottom-nav-button workbench-shell-button" type="button" onClick={handleToggleShell}>
         <span className="workbench-trigger-text">{shellStatus === 'visible' ? '收起Shell' : '打开Shell'}</span>

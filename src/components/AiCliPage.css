@@ -1,0 +1,58 @@
+.ai-cli-page,
+body:has(.ai-cli-page),
+#root:has(.ai-cli-page) {
+  background: #050607;
+}
+
+.ai-cli-page {
+  position: fixed;
+  inset: 0;
+  height: 100vh;
+  min-height: 0;
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) 36px;
+  color: #d7f8d7;
+  font-family: Consolas, 'Courier New', monospace;
+}
+
+.ai-cli-terminal-output {
+  margin: 0;
+  min-height: 0;
+  padding: 12px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: #d7f8d7;
+  background: #050607;
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.ai-cli-terminal-input-row {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px;
+  border-top: 1px solid #1f3b1f;
+  background: #081008;
+}
+
+.ai-cli-terminal-prompt {
+  color: #7cff7c;
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.ai-cli-terminal-input {
+  width: 100%;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: #f1fff1;
+  font: inherit;
+  font-size: 13px;
+}

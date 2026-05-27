@@ -11,6 +11,7 @@ import { BuffDraftPage, BuffDraftSheetPage, isBuffDraftPath, isBuffSheetPath } f
 import { WeaponDraftSheetPage, isWeaponSheetPath } from './components/WeaponDraftPage';
 import { EquipmentSheetPage, isEquipmentSheetPath } from './components/EquipmentSheetPage';
 import { ImageManagerPage, isImageManagerPath } from './components/ImageManagerPage';
+import { AiCliPage, isAiCliPath } from './components/AiCliPage';
 import { OperatorConfigPage } from './components/OperatorConfigPage';
 import { APP_ROUTE_PATHS, getCurrentAppPath } from './utils/appRoute';
 import { installLocalDataBridge } from './utils/localDataBridge';
@@ -71,6 +72,10 @@ function App() {
 
   if (isImageManagerPath(currentPath)) {
     return <ImageManagerPage />;
+  }
+
+  if (isAiCliPath(currentPath)) {
+    return <AiCliPage />;
   }
 
   if (currentPath === APP_ROUTE_PATHS.operatorConfig) {
