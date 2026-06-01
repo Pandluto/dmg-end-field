@@ -36,6 +36,20 @@ export type BuffModifierType =
   | 'iceVulnerability'
   | 'natureVulnerability'
   | 'magicVulnerability'
+  | 'allCorrosion'
+  | 'physicalCorrosion'
+  | 'magicCorrosion'
+  | 'fireCorrosion'
+  | 'electricCorrosion'
+  | 'iceCorrosion'
+  | 'natureCorrosion'
+  | 'allResistanceIgnore'
+  | 'physicalResistanceIgnore'
+  | 'magicResistanceIgnore'
+  | 'fireResistanceIgnore'
+  | 'electricResistanceIgnore'
+  | 'iceResistanceIgnore'
+  | 'natureResistanceIgnore'
   | 'physicalAmplify'
   | 'magicAmplify'
   | 'fireAmplify'
@@ -458,6 +472,160 @@ export const BUFF_TYPE_CATALOG: readonly BuffTypeCatalogEntry[] = [
     examplePhrases: ['法术脆弱20%'],
     notes: '偏向脆弱描述。',
     canInferFromImplicitText: false,
+  }),
+  createEntry({
+    id: 'allCorrosion',
+    label: '全属性降抗',
+    valueStyle: 'flat',
+    aliases: ['全属性降抗', '全部抗性降低', '全抗降低', '腐蚀'],
+    positivePatterns: ['全属性抗性降低', '全部抗性降低', '全抗降低', '腐蚀'],
+    negativePatterns: ['无视抗性', '穿透', '易伤', '脆弱'],
+    examplePhrases: ['全属性抗性降低10点'],
+    notes: '抗性区点数，数值按点录入。腐蚀异常快照使用该类型。',
+    canInferFromImplicitText: true,
+  }),
+  createEntry({
+    id: 'physicalCorrosion',
+    label: '物理降抗',
+    valueStyle: 'flat',
+    aliases: ['物理降抗', '物理抗性降低', '物抗降低'],
+    positivePatterns: ['物理抗性降低', '物理降抗', '物抗降低'],
+    negativePatterns: ['无视物理抗性', '物理穿透', '物理易伤', '物理脆弱'],
+    examplePhrases: ['物理抗性降低10点'],
+    notes: '抗性区点数，数值按点录入。',
+    canInferFromImplicitText: true,
+  }),
+  createEntry({
+    id: 'magicCorrosion',
+    label: '法术降抗',
+    valueStyle: 'flat',
+    aliases: ['法术降抗', '法术抗性降低', '法抗降低'],
+    positivePatterns: ['法术抗性降低', '法术降抗', '法抗降低'],
+    negativePatterns: ['无视法术抗性', '法术穿透', '法术易伤', '法术脆弱'],
+    examplePhrases: ['法术抗性降低10点'],
+    notes: '抗性区点数，数值按点录入，适用于灼热、电磁、寒冷、自然。',
+    canInferFromImplicitText: true,
+  }),
+  createEntry({
+    id: 'fireCorrosion',
+    label: '灼热降抗',
+    valueStyle: 'flat',
+    aliases: ['灼热降抗', '灼热抗性降低', '火抗降低'],
+    positivePatterns: ['灼热抗性降低', '灼热降抗', '火抗降低'],
+    negativePatterns: ['无视灼热抗性', '灼热穿透', '灼热易伤', '灼热脆弱'],
+    examplePhrases: ['灼热抗性降低10点'],
+    notes: '抗性区点数，数值按点录入。',
+    canInferFromImplicitText: true,
+  }),
+  createEntry({
+    id: 'electricCorrosion',
+    label: '电磁降抗',
+    valueStyle: 'flat',
+    aliases: ['电磁降抗', '电磁抗性降低', '雷抗降低'],
+    positivePatterns: ['电磁抗性降低', '电磁降抗', '雷抗降低'],
+    negativePatterns: ['无视电磁抗性', '电磁穿透', '电磁易伤', '电磁脆弱'],
+    examplePhrases: ['电磁抗性降低10点'],
+    notes: '抗性区点数，数值按点录入。',
+    canInferFromImplicitText: true,
+  }),
+  createEntry({
+    id: 'iceCorrosion',
+    label: '寒冷降抗',
+    valueStyle: 'flat',
+    aliases: ['寒冷降抗', '寒冷抗性降低', '冰抗降低'],
+    positivePatterns: ['寒冷抗性降低', '寒冷降抗', '冰抗降低'],
+    negativePatterns: ['无视寒冷抗性', '寒冷穿透', '寒冷易伤', '寒冷脆弱'],
+    examplePhrases: ['寒冷抗性降低10点'],
+    notes: '抗性区点数，数值按点录入。',
+    canInferFromImplicitText: true,
+  }),
+  createEntry({
+    id: 'natureCorrosion',
+    label: '自然降抗',
+    valueStyle: 'flat',
+    aliases: ['自然降抗', '自然抗性降低'],
+    positivePatterns: ['自然抗性降低', '自然降抗'],
+    negativePatterns: ['无视自然抗性', '自然穿透', '自然易伤', '自然脆弱'],
+    examplePhrases: ['自然抗性降低10点'],
+    notes: '抗性区点数，数值按点录入。',
+    canInferFromImplicitText: true,
+  }),
+  createEntry({
+    id: 'allResistanceIgnore',
+    label: '无视全部抗性',
+    valueStyle: 'flat',
+    aliases: ['无视抗性', '全抗性忽略', '全抗穿透'],
+    positivePatterns: ['无视抗性', '忽略全部抗性', '全抗穿透'],
+    negativePatterns: ['易伤', '脆弱', '伤害提高'],
+    examplePhrases: ['无视抗性10点'],
+    notes: '抗性区点数，数值按点录入，适用于所有伤害属性。',
+    canInferFromImplicitText: true,
+  }),
+  createEntry({
+    id: 'physicalResistanceIgnore',
+    label: '无视物理抗性',
+    valueStyle: 'flat',
+    aliases: ['无视物理抗性', '物理抗性忽略', '物理穿透'],
+    positivePatterns: ['无视物理抗性', '忽略物理抗性', '物理穿透'],
+    negativePatterns: ['物理易伤', '物理脆弱', '物理伤害提高'],
+    examplePhrases: ['无视物理抗性10点'],
+    notes: '抗性区点数，数值按点录入。',
+    canInferFromImplicitText: true,
+  }),
+  createEntry({
+    id: 'magicResistanceIgnore',
+    label: '无视法术抗性',
+    valueStyle: 'flat',
+    aliases: ['无视法术抗性', '法术抗性忽略', '法术穿透'],
+    positivePatterns: ['无视法术抗性', '忽略法术抗性', '法术穿透'],
+    negativePatterns: ['法术易伤', '法术脆弱', '法术伤害提高'],
+    examplePhrases: ['无视法术抗性10点'],
+    notes: '抗性区点数，数值按点录入。',
+    canInferFromImplicitText: true,
+  }),
+  createEntry({
+    id: 'fireResistanceIgnore',
+    label: '无视灼热抗性',
+    valueStyle: 'flat',
+    aliases: ['无视灼热抗性', '灼热抗性忽略', '火抗忽略', '灼热穿透'],
+    positivePatterns: ['无视灼热抗性', '忽略灼热抗性', '灼热穿透'],
+    negativePatterns: ['灼热易伤', '灼热脆弱', '灼热伤害提高'],
+    examplePhrases: ['无视灼热抗性10点'],
+    notes: '抗性区点数，数值按点录入。',
+    canInferFromImplicitText: true,
+  }),
+  createEntry({
+    id: 'electricResistanceIgnore',
+    label: '无视电磁抗性',
+    valueStyle: 'flat',
+    aliases: ['无视电磁抗性', '电磁抗性忽略', '雷抗忽略', '电磁穿透'],
+    positivePatterns: ['无视电磁抗性', '忽略电磁抗性', '电磁穿透'],
+    negativePatterns: ['电磁易伤', '电磁脆弱', '电磁伤害提高'],
+    examplePhrases: ['无视电磁抗性10点'],
+    notes: '抗性区点数，数值按点录入。',
+    canInferFromImplicitText: true,
+  }),
+  createEntry({
+    id: 'iceResistanceIgnore',
+    label: '无视寒冷抗性',
+    valueStyle: 'flat',
+    aliases: ['无视寒冷抗性', '寒冷抗性忽略', '冰抗忽略', '寒冷穿透'],
+    positivePatterns: ['无视寒冷抗性', '忽略寒冷抗性', '寒冷穿透'],
+    negativePatterns: ['寒冷易伤', '寒冷脆弱', '寒冷伤害提高'],
+    examplePhrases: ['无视寒冷抗性10点'],
+    notes: '抗性区点数，数值按点录入。',
+    canInferFromImplicitText: true,
+  }),
+  createEntry({
+    id: 'natureResistanceIgnore',
+    label: '无视自然抗性',
+    valueStyle: 'flat',
+    aliases: ['无视自然抗性', '自然抗性忽略', '自然穿透'],
+    positivePatterns: ['无视自然抗性', '忽略自然抗性', '自然穿透'],
+    negativePatterns: ['自然易伤', '自然脆弱', '自然伤害提高'],
+    examplePhrases: ['无视自然抗性10点'],
+    notes: '抗性区点数，数值按点录入。',
+    canInferFromImplicitText: true,
   }),
   createEntry({
     id: 'physicalAmplify',

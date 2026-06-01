@@ -241,6 +241,7 @@ function buildColumns(): SheetColumn[] {
     { key: 'sourceSkill', title: '源石技艺', width: 70, group: '面板区', align: 'right' },
     { key: 'damageBonusRate', title: '总加成', width: 68, group: '加成区', align: 'right' },
     { key: 'defenseZone', title: '防御区', width: 68, group: '乘区', align: 'right' },
+    { key: 'resistanceZone', title: '抗性区', width: 68, group: '乘区', align: 'right' },
     { key: 'amplifyRate', title: '增幅区', width: 68, group: '乘区', align: 'right' },
     { key: 'fragileRate', title: '易伤区', width: 68, group: '乘区', align: 'right' },
     { key: 'vulnerabilityRate', title: '脆弱区', width: 68, group: '乘区', align: 'right' },
@@ -411,6 +412,34 @@ function isVulnerabilityBuffForHit(buff: SkillButtonBuff, hit: HitCalcResult['hi
   }
 }
 
+function isResistanceBuffForHit(buff: SkillButtonBuff, hit: HitCalcResult['hit']): boolean {
+  switch (buff.type) {
+    case 'allCorrosion':
+    case 'allResistanceIgnore':
+      return true;
+    case 'physicalCorrosion':
+    case 'physicalResistanceIgnore':
+      return hit.element === 'physical';
+    case 'magicCorrosion':
+    case 'magicResistanceIgnore':
+      return hit.element !== 'physical';
+    case 'fireCorrosion':
+    case 'fireResistanceIgnore':
+      return hit.element === 'fire';
+    case 'electricCorrosion':
+    case 'electricResistanceIgnore':
+      return hit.element === 'electric';
+    case 'iceCorrosion':
+    case 'iceResistanceIgnore':
+      return hit.element === 'ice';
+    case 'natureCorrosion':
+    case 'natureResistanceIgnore':
+      return hit.element === 'nature';
+    default:
+      return false;
+  }
+}
+
 function formatElementLabel(element: string | undefined): string {
   switch (element) {
     case 'physical':
@@ -478,6 +507,7 @@ function buildHitRowsForButton(
     },
     panelBase: buildDamagePanelBase(characterId),
     disabledBuffIdsByHitKey,
+    targetResistance: persistedButton.resistanceConfig?.targetResistance,
     damageBonus: characterConfig?.infoSnap ?? {
       physicalDmgBonus: 0,
       fireDmgBonus: 0,
@@ -515,6 +545,7 @@ function buildHitRowsForButton(
       sourceSkill: formatRatio(computed?.panel.sourceSkill ?? 0),
       damageBonusRate: formatRatio(hit.zones.damageBonusRate),
       defenseZone: formatRatio(hit.zones.defenseZone),
+      resistanceZone: formatRatio(hit.zones.resistanceZone),
       amplifyRate: formatRatio(1 + hit.zones.amplifyRate),
       fragileRate: formatRatio(1 + hit.zones.fragileRate),
       vulnerabilityRate: formatRatio(1 + hit.zones.vulnerabilityRate),
@@ -566,6 +597,7 @@ function buildHitRowsForButton(
     buttonCharacterId: characterId,
     element: undefined,
     damageBonus,
+    targetResistance: persistedButton.resistanceConfig?.targetResistance,
     fullCombinedModifierBuffList: combinedBuffs,
     extraHitBuffList: [],
     manuallyDisabledBuffIdsBySegmentKey: persistedButton.panelConfig?.manualDisabledBuffIdsBySegmentKey ?? {},
@@ -584,6 +616,10 @@ function buildHitRowsForButton(
     const panelAtk = parseNumberText(segment.panelAtkText);
     const critRate = parsePercentText(segment.critRateText);
     const critDmg = parsePercentText(segment.critDmgText);
+    const resistanceBase = parseNumberText(segment.resistanceBaseText);
+    const corrosion = parseNumberText(segment.corrosionText);
+    const resistanceIgnore = parseNumberText(segment.resistanceIgnoreText);
+    const resistanceZone = parseNumberText(segment.resistanceZoneText);
     const hitResult: HitCalcResult = {
       hit: {
         key: segment.key,
@@ -614,12 +650,22 @@ function buildHitRowsForButton(
         comboDamageBonus: parseNumberText(segment.comboDamageBonusText),
         imbalanceDamageBonus: parseNumberText(segment.imbalanceDamageBonusText),
         defenseZone: parseNumberText(segment.defenseZoneText),
+        resistanceZone,
+        resistance: {
+          baseResistance: resistanceBase,
+          corrosion,
+          resistanceIgnore,
+          effectiveResistance: resistanceBase - corrosion,
+          resistanceZone,
+          formulaText: segment.resistanceFormulaText,
+        },
       },
       nonCrit: {
         base: panelAtk * finalMultiplier,
         afterCrit: panelAtk * finalMultiplier,
         afterBonus: 0,
         afterDefense: 0,
+        afterResistance: 0,
         afterAmplify: 0,
         afterFragile: 0,
         afterVulnerability: 0,
@@ -630,6 +676,7 @@ function buildHitRowsForButton(
         afterCrit: 0,
         afterBonus: 0,
         afterDefense: 0,
+        afterResistance: 0,
         afterAmplify: 0,
         afterFragile: 0,
         afterVulnerability: 0,
@@ -640,6 +687,7 @@ function buildHitRowsForButton(
         afterCrit: 0,
         afterBonus: 0,
         afterDefense: 0,
+        afterResistance: 0,
         afterAmplify: 0,
         afterFragile: 0,
         afterVulnerability: 0,
@@ -667,6 +715,7 @@ function buildHitRowsForButton(
         sourceSkill: segment.sourceSkillBoostText,
         damageBonusRate: segment.damageBonusRateText,
         defenseZone: segment.defenseZoneText,
+        resistanceZone: formatRatio(resistanceZone),
         amplifyRate: formatRatio(1 + parseNumberText(segment.amplifyRateText)),
         fragileRate: formatRatio(1 + parseNumberText(segment.fragileRateText)),
         vulnerabilityRate: formatRatio(1 + parseNumberText(segment.vulnerabilityRateText)),
@@ -1024,6 +1073,8 @@ function filterRelevantBuffsForColumn(
       return buffs.filter((buff) => buff.type === 'multiplierBonus' || buff.type === 'multiplierMultiplier');
     case 'damageBonusRate':
       return buffs.filter((buff) => isDamageBonusBuffForHit(buff, hit));
+    case 'resistanceZone':
+      return buffs.filter((buff) => isResistanceBuffForHit(buff, hit));
     case 'amplifyRate':
       return buffs.filter((buff) => isAmplifyBuffForHit(buff, hit));
     case 'fragileRate':
@@ -1085,6 +1136,21 @@ function getHighlightColumnKeyForBuff(buff: SkillButtonBuff | null): string | nu
     case 'iceAmplify':
     case 'natureAmplify':
       return 'amplifyRate';
+    case 'allCorrosion':
+    case 'physicalCorrosion':
+    case 'magicCorrosion':
+    case 'fireCorrosion':
+    case 'electricCorrosion':
+    case 'iceCorrosion':
+    case 'natureCorrosion':
+    case 'physicalResistanceIgnore':
+    case 'magicResistanceIgnore':
+    case 'fireResistanceIgnore':
+    case 'electricResistanceIgnore':
+    case 'iceResistanceIgnore':
+    case 'natureResistanceIgnore':
+    case 'allResistanceIgnore':
+      return 'resistanceZone';
     case 'physicalFragile':
     case 'magicFragile':
     case 'fireFragile':
@@ -1142,6 +1208,8 @@ function buildFormulaText(hitRow: HitValueRow | null, columnKey: string | undefi
     }
     case 'damageBonusRate':
       return `1.000 + ${hitResult.zones.elementBonus.toFixed(3)} + ${hitResult.zones.skillBonus.toFixed(3)} + ${hitResult.zones.allDamageBonus.toFixed(3)} = ${hitResult.zones.damageBonusRate.toFixed(3)}`;
+    case 'resistanceZone':
+      return hitResult.zones.resistance.formulaText;
     case 'bonusMultiplier':
       return `${formatPercent(hitResult.multiplier.afterBonus - hitResult.multiplier.base)} = ${formatPercent(hitResult.multiplier.afterBonus)} - ${formatPercent(hitResult.multiplier.base)}`;
     case 'finalMultiplier':

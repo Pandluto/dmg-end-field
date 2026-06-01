@@ -47,6 +47,22 @@ function normalizeSnapshotEffect(snapshot: AnomalyStateSnapshot): AnomalyStateSn
     };
   }
 
+  if (snapshot.key === 'corrosion') {
+    const initialCorrosion = resolveRateByLevel(snapshot.level, [3.6, 4.8, 6, 7.2]) * (1 + effectEnhancement);
+    const tickCorrosionPerSecond = resolveRateByLevel(snapshot.level, [0.84, 1.12, 1.4, 1.68]) * (1 + effectEnhancement);
+    const maxCorrosion = resolveRateByLevel(snapshot.level, [12, 16, 20, 24]) * (1 + effectEnhancement);
+    const currentCorrosion = typeof snapshot.currentCorrosion === 'number' ? snapshot.currentCorrosion : maxCorrosion;
+    return {
+      ...snapshot,
+      effectValue: currentCorrosion,
+      initialCorrosion,
+      tickCorrosionPerSecond,
+      maxCorrosion,
+      currentCorrosion,
+      secondaryText: `快照效果: ${currentCorrosion.toFixed(2)} 点全属性降抗`,
+    };
+  }
+
   return snapshot;
 }
 

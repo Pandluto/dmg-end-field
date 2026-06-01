@@ -16,6 +16,8 @@ import {
   assertPermission,
   ensureActiveSession,
   findPermissionProfile,
+  overwriteSessionState,
+  overwriteSessionSummary,
   readAgentSessions,
   readOperationLogs,
   updateSessionContext,
@@ -456,7 +458,8 @@ function parseAiFillResult(rawText: string): { draft: BuffDraft | null; errors: 
   for (const candidate of candidates) {
     try {
       const parsed = JSON.parse(candidate) as Record<string, unknown>;
-      const sanitized = sanitizeBuffFillAiDraft(parsed && typeof parsed.draft === 'object' ? parsed.draft : parsed);
+      const rawDraft = parsed && typeof parsed.draft === 'object' ? parsed.draft : parsed;
+      const sanitized = sanitizeBuffFillAiDraft(rawDraft);
       const validation = validateBuffFillAiDraft(sanitized);
       if (!validation.ok) {
         errors.push(...validation.errors);
@@ -563,7 +566,7 @@ function executeCommand(rawCommand: string, draft: BuffDraft, sourceText: string
             ['fill', 'fill.check <json>', 'validate BuffFillAiDraft without writing / 只校验不写入'],
             ['fill', 'fill.apply <json>', 'validate and apply BuffFillAiDraft / 校验并应用填表结果'],
             ['agent', 'agent.logs [limit]', 'show recent agent operation logs / 查看智能体访问记录'],
-            ['agent', 'agent.sessions [limit]', 'show recent agent sessions / 查看智能体会话'],
+            ['agent', 'agent.sessions [limit]', 'show current single agent session / 查看当前单会话'],
             ['agent', 'agent.guide', 'show first-call guide for LLM agents / 查看智能体首次接入指南'],
           ],
         ),
@@ -721,13 +724,14 @@ function executeCommand(rawCommand: string, draft: BuffDraft, sourceText: string
       formatDateTime(session.updatedAt),
       session.client,
       session.status,
+      session.summary || '-',
       String(session.messages.length),
       session.context.lastCommand || '-',
       session.id,
     ]);
     return makeResponse({
       lines: rows.length
-        ? table(['updated', 'client', 'status', 'messages', 'last', 'sessionId'], rows)
+        ? table(['updated', 'client', 'status', 'summary', 'messages', 'last', 'sessionId'], rows)
         : [info('no agent sessions')],
     });
   }
@@ -1099,11 +1103,7 @@ export function runAiCliCommand(
 ): AiCliCommandResult {
   const startedAt = performance.now();
   const commandName = splitAiCliCommand(request.command)[0]?.toLowerCase() || '';
-  const session = request.client === 'web-cli'
-    ? ensureActiveSession(request.client)
-    : context.sessionId
-      ? undefined
-      : ensureActiveSession(request.client);
+  const session = ensureActiveSession(request.client);
   const sessionId = context.sessionId || session?.id;
   const permission = findPermissionProfile(request.client);
   const permissionError = commandName ? assertPermission(permission, commandName) : null;
@@ -1143,9 +1143,25 @@ export function runAiCliCommand(
     lastCommand: commandName,
     lastValidationOk: response.ok,
   });
+  overwriteSessionSummary(`${response.ok ? 'ok' : 'err'} ${commandName || 'empty'} · ${summarizeAiCliCommand(request.command)}`);
+  overwriteSessionState({
+    currentWorkflow: 'buff.fill',
+    currentDraftId: response.nextDraft?.id ?? draft.id,
+    lastCommand: commandName,
+    lastOk: response.ok,
+    lastRequestId: request.requestId,
+    lastClient: request.client,
+    lastWrites: response.effects.writes,
+    lastStorage: response.effects.storage,
+    lastErrorCode: response.error?.code,
+    updatedAt: Date.now(),
+  });
   appendOperationLog({
+    requestId: request.requestId,
     sessionId,
     client: request.client,
+    permissionProfileId: permission.id,
+    operationType: response.effects.writes ? 'write' : 'command',
     command: summarizeAiCliCommand(request.command),
     ok: response.ok,
     durationMs: Math.round(performance.now() - startedAt),

@@ -5,8 +5,24 @@
  */
 
 import { STORAGE_KEYS } from '../../constants/storage-keys';
-import { PersistedSkillButton, SkillButtonAnomalyConfig, SkillButtonTable } from '../../types/storage';
+import { HitResistanceInput, PersistedSkillButton, SkillButtonAnomalyConfig, SkillButtonTable } from '../../types/storage';
 import { safeSessionStorage } from '../../utils/storage';
+
+function normalizeResistanceInput(input: unknown): HitResistanceInput {
+  const record = input && typeof input === 'object' ? input as Record<string, unknown> : {};
+  const readNumber = (key: keyof HitResistanceInput): number | undefined => {
+    const value = record[key];
+    return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+  };
+
+  return {
+    physicalResistance: readNumber('physicalResistance') ?? 0,
+    fireResistance: readNumber('fireResistance') ?? 0,
+    electricResistance: readNumber('electricResistance') ?? 0,
+    iceResistance: readNumber('iceResistance') ?? 0,
+    natureResistance: readNumber('natureResistance') ?? 0,
+  };
+}
 
 function normalizeSkillButton(button: PersistedSkillButton): PersistedSkillButton {
   const legacyButton = button as PersistedSkillButton & {
@@ -42,6 +58,9 @@ function normalizeSkillButton(button: PersistedSkillButton): PersistedSkillButto
         ? anomalyConfig.selectedStateSnapshotIds
           .filter((id): id is number => typeof id === 'number')
         : [],
+    },
+    resistanceConfig: {
+      targetResistance: normalizeResistanceInput(button.resistanceConfig?.targetResistance),
     },
     panelConfig: button.panelConfig
       ? {

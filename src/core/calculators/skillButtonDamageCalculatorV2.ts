@@ -4,6 +4,7 @@ import {
   calculateBuffTotals,
   calculateElementDmgBonus,
   calculateFragileRate,
+  calculateResistanceZone,
   calculateSkillDmgBonus,
   calculateVulnerabilityRate,
 } from './buffCalculator';
@@ -68,6 +69,7 @@ function calculateHitDamage(
   critMultiplier: number,
   damageBonusRate: number,
   defenseZone: number,
+  resistanceZone: number,
   amplifyRate: number,
   fragileRate: number,
   vulnerabilityRate: number,
@@ -78,7 +80,8 @@ function calculateHitDamage(
   const afterCrit = base * critMultiplier;
   const afterBonus = afterCrit * damageBonusRate;
   const afterDefense = afterBonus * defenseZone;
-  const afterAmplify = afterDefense * (1 + amplifyRate);
+  const afterResistance = afterDefense * resistanceZone;
+  const afterAmplify = afterResistance * (1 + amplifyRate);
   const afterFragile = afterAmplify * (1 + fragileRate);
   const afterVulnerability = afterFragile * (1 + vulnerabilityRate);
   const afterCombo = afterVulnerability * (1 + comboDamageBonus);
@@ -89,6 +92,7 @@ function calculateHitDamage(
     afterCrit,
     afterBonus,
     afterDefense,
+    afterResistance,
     afterAmplify,
     afterFragile,
     afterVulnerability,
@@ -123,19 +127,23 @@ function calculateAllDamageBonus(
 function calculateHitZones(
   hit: ResolvedHitTemplate,
   damageBonus: DamageBonusSnapshot,
-  buffs: ReturnType<typeof calculateBuffTotals>
+  buffs: ReturnType<typeof calculateBuffTotals>,
+  targetResistance: SkillDamageCalcInputV2['targetResistance']
 ): DamageZones {
   const parsedDamageBonus = toDamageBonusRecord(damageBonus);
   const elementBonus = calculateElementDmgBonus(hit.element, parsedDamageBonus, buffs);
   const skillBonus = calculateSkillDmgBonus(hit.skillType, parsedDamageBonus, buffs);
   const allDamageBonus = calculateAllDamageBonus(damageBonus, buffs);
   const damageBonusRate = 1 + elementBonus + skillBonus + allDamageBonus;
+  const resistance = calculateResistanceZone(hit.element, targetResistance, buffs);
 
   return {
     elementBonus,
     skillBonus,
     allDamageBonus,
     damageBonusRate,
+    resistanceZone: resistance.resistanceZone,
+    resistance,
     amplifyRate: calculateAmplifyRate(hit.element, buffs),
     fragileRate: calculateFragileRate(hit.element, buffs),
     vulnerabilityRate: calculateVulnerabilityRate(hit.element, buffs),
@@ -154,7 +162,7 @@ function calculateSingleHit(
   const appliedBuffs = filterBuffsForHit(hit, buffs).filter((buff) => !disabledBuffIds.has(buff.id));
   const panel = buildPanelForHit(appliedBuffs, input);
   const buffTotals = calculateBuffTotals(appliedBuffs);
-  const zones = calculateHitZones(hit, input.damageBonus, buffTotals);
+  const zones = calculateHitZones(hit, input.damageBonus, buffTotals, input.targetResistance);
   const multiplier = applyMultiplierAdjustments(hit.multiplier, buffTotals);
 
   const critRate = panel.critRate;
@@ -173,6 +181,7 @@ function calculateSingleHit(
       1,
       zones.damageBonusRate,
       zones.defenseZone,
+      zones.resistanceZone,
       zones.amplifyRate,
       zones.fragileRate,
       zones.vulnerabilityRate,
@@ -185,6 +194,7 @@ function calculateSingleHit(
       1 + critDmg,
       zones.damageBonusRate,
       zones.defenseZone,
+      zones.resistanceZone,
       zones.amplifyRate,
       zones.fragileRate,
       zones.vulnerabilityRate,
@@ -197,6 +207,7 @@ function calculateSingleHit(
       critExpected,
       zones.damageBonusRate,
       zones.defenseZone,
+      zones.resistanceZone,
       zones.amplifyRate,
       zones.fragileRate,
       zones.vulnerabilityRate,

@@ -286,6 +286,10 @@ export interface AnomalyStateSnapshot {
   sourceCharacterName: string;
   sourceSkillStrengthSnapshot: number;
   effectValue: number;
+  initialCorrosion?: number;
+  tickCorrosionPerSecond?: number;
+  maxCorrosion?: number;
+  currentCorrosion?: number;
   durationSeconds?: number;
   primaryText: string;
   secondaryText: string;
@@ -297,6 +301,18 @@ export interface SkillButtonAnomalyConfig {
   selectedStatuses: PersistedAnomalyCard[];
   selectedDamages: PersistedAnomalyCard[];
   selectedStateSnapshotIds: number[];
+}
+
+export interface HitResistanceInput {
+  physicalResistance?: number;
+  fireResistance?: number;
+  electricResistance?: number;
+  iceResistance?: number;
+  natureResistance?: number;
+}
+
+export interface SkillButtonResistanceConfig {
+  targetResistance: HitResistanceInput;
 }
 
 // ==================== v2 新缓存模型类型 ====================
@@ -320,6 +336,7 @@ export interface PersistedSkillButton {
   customHits?: SandboxSkillHit[];       // 自定义技能 hit 明细
   selectedBuff: string[];               // 选中的 Buff ID 列表（只存引用）
   anomalyConfig?: SkillButtonAnomalyConfig; // 按钮专属异常选择配置
+  resistanceConfig?: SkillButtonResistanceConfig; // 按钮专属目标抗性配置
   panelConfig?: SkillButtonPanelConfig; // 按钮专属面板配置
   runtimeSnapshot?: SkillButtonRuntimeSnapshot | null; // 按钮运行时最终面板
   createdAt?: number;                   // 创建时间

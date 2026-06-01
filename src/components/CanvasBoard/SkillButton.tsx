@@ -15,7 +15,7 @@ import {
   recomputeSkillButtonPanel,
   addSkillButtonBuff,
 } from '../../hooks/useSkillButtonBuffs';
-import { SkillButtonBuff, SkillLevelMode } from '../../types/storage';
+import { HitResistanceInput, SkillButtonBuff, SkillLevelMode } from '../../types/storage';
 import { getCharacterConfig } from '../../utils/storage';
 import { getCharacterComputedCache } from '../../core/repositories/operatorConfigRepository';
 import { getSkillButtonById, upsertSkillButton } from '../../core/repositories';
@@ -51,6 +51,14 @@ import {
 import { useSkillButtonAnomaly } from './useSkillButtonAnomaly';
 import { buildAnomalyBuffOptionsBySegmentKey, buildAnomalyDamageSegments } from './skillButtonAnomalyDamage';
 import './SkillButton.css';
+
+const EMPTY_TARGET_RESISTANCE: Required<HitResistanceInput> = {
+  physicalResistance: 0,
+  fireResistance: 0,
+  electricResistance: 0,
+  iceResistance: 0,
+  natureResistance: 0,
+};
 
 interface SkillButtonProps {
   button: SkillButtonType & { nodeNumber?: number };
@@ -114,6 +122,7 @@ export function SkillButtonComponent({
   const [skillLevelModeMap, setSkillLevelModeMap] = useState<Record<string, SkillLevelMode>>({ A: 'L9', B: 'L9', E: 'L9', Q: 'L9' });
   // 已解析的技能伤害模板（skill 是容器，hit 是计算单元）
   const [resolvedTemplate, setResolvedTemplate] = useState<ResolvedSkillDamageTemplate | null>(null);
+  const [targetResistance, setTargetResistance] = useState<Required<HitResistanceInput>>(EMPTY_TARGET_RESISTANCE);
 
   // 当前选中的 hit（用于详情展示）
   const [selectedHitIndex, setSelectedHitIndex] = useState<number | null>(null);
@@ -222,6 +231,10 @@ export function SkillButtonComponent({
       ])
     );
     setManuallyDisabledBuffIdsBySegmentKey(normalizedMap);
+    setTargetResistance({
+      ...EMPTY_TARGET_RESISTANCE,
+      ...(persistedButton?.resistanceConfig?.targetResistance ?? {}),
+    });
   }, [button.id]);
 
   const closeLocalBuffSearch = useCallback(() => {
@@ -317,6 +330,23 @@ export function SkillButtonComponent({
         manualDisabledBuffIdsBySegmentKey: nextMap,
       },
       updatedAt: Date.now(),
+    });
+  }, [button.id]);
+
+  const updateTargetResistance = useCallback((key: keyof HitResistanceInput, value: number) => {
+    const nextValue = Number.isFinite(value) ? value : 0;
+    setTargetResistance((prev) => {
+      const next = { ...prev, [key]: nextValue };
+      const persistedButton = getSkillButtonById(button.id);
+      if (persistedButton) {
+        upsertSkillButton({
+          ...persistedButton,
+          resistanceConfig: {
+            targetResistance: next,
+          },
+        });
+      }
+      return next;
     });
   }, [button.id]);
 
@@ -530,8 +560,9 @@ export function SkillButtonComponent({
         },
         panelBase: panelBase ?? undefined,
       damageBonus: infoSnap as unknown as import('../../types/storage').DamageBonusSnapshot,
+      targetResistance,
     });
-  }, [resolvedTemplate, panelData, button.id, button.characterId, fullCombinedModifierBuffList, panelBase, infoSnap]);
+  }, [resolvedTemplate, panelData, button.id, button.characterId, targetResistance, fullCombinedModifierBuffList, panelBase, infoSnap]);
 
   const damageResult = useMemo(() => {
     if (!resolvedTemplate || resolvedTemplate.hits.length === 0 || !panelData) {
@@ -552,8 +583,9 @@ export function SkillButtonComponent({
         panelBase: panelBase ?? undefined,
         disabledBuffIdsByHitKey,
       damageBonus: infoSnap as unknown as import('../../types/storage').DamageBonusSnapshot,
+      targetResistance,
     });
-  }, [resolvedTemplate, panelData, button.id, button.characterId, fullCombinedModifierBuffList, panelBase, disabledBuffIdsByHitKey, infoSnap]);
+  }, [resolvedTemplate, panelData, button.id, button.characterId, targetResistance, fullCombinedModifierBuffList, panelBase, disabledBuffIdsByHitKey, infoSnap]);
 
   const damageViewModel = useMemo(() => {
     if (!resolvedTemplate || !damageResult || !panelData) {
@@ -662,12 +694,13 @@ export function SkillButtonComponent({
       buttonCharacterId: button.characterId,
       element,
       damageBonus: infoSnap as unknown as import('../../types/storage').DamageBonusSnapshot,
+      targetResistance,
       fullCombinedModifierBuffList,
       extraHitBuffList,
       manuallyDisabledBuffIdsBySegmentKey,
       getEffectiveCharacterSourceSkillBoost,
     });
-  }, [panelBase, panelData, damageViewModel, selectedAnomalyDamages, button.characterId, button.skillType, element, infoSnap, fullCombinedModifierBuffList, extraHitBuffList, manuallyDisabledBuffIdsBySegmentKey, getEffectiveCharacterSourceSkillBoost]);
+  }, [panelBase, panelData, damageViewModel, selectedAnomalyDamages, button.characterId, button.skillType, targetResistance, element, infoSnap, fullCombinedModifierBuffList, extraHitBuffList, manuallyDisabledBuffIdsBySegmentKey, getEffectiveCharacterSourceSkillBoost]);
 
   const activeAnomalySegment = useMemo(
     () => (selectedAnomalySegmentKey ? anomalyDamageSegments.find((segment) => segment.key === selectedAnomalySegmentKey) ?? null : null),
@@ -1135,6 +1168,29 @@ export function SkillButtonComponent({
                 })()}
               </div>
 
+              <div className="skill-button-buff-section skill-button-resistance-section">
+                <h5>目标抗性</h5>
+                <div className="skill-button-resistance-grid">
+                  {[
+                    ['physicalResistance', '物理'],
+                    ['fireResistance', '灼热'],
+                    ['electricResistance', '电磁'],
+                    ['iceResistance', '寒冷'],
+                    ['natureResistance', '自然'],
+                  ].map(([key, label]) => (
+                    <label key={key} className="skill-button-resistance-field">
+                      <span>{label}</span>
+                      <input
+                        type="number"
+                        step="1"
+                        value={targetResistance[key as keyof HitResistanceInput] ?? 0}
+                        onChange={(event) => updateTargetResistance(key as keyof HitResistanceInput, Number(event.target.value))}
+                      />
+                    </label>
+                  ))}
+                </div>
+              </div>
+
               {/* Buff 列表 */}
               <div className="skill-button-buff-section">
                 <h5>已选 Buff</h5>
@@ -1407,6 +1463,12 @@ export function SkillButtonComponent({
                                 <p className="formula-zone-total">防御区 = {damageViewModel.activeHitFormula.defenseZoneText}</p>
                               </div>
 
+                              <div className="formula-zone-section">
+                                <p className="formula-section-title">【抗性区】</p>
+                                <p>抗性 / 降抗 / 无视抗性</p>
+                                <p className="formula-zone-total">抗性区 = {damageViewModel.activeHitFormula.resistanceFormulaText}</p>
+                              </div>
+
                               <p className="formula-section-title">【结果】</p>
                               <p>非暴击总伤 = {damageViewModel.activeHitFormula.nonCritFormulaText}</p>
                               <p>期望伤害: {damageViewModel.activeHitFormula.expectedText}</p>
@@ -1492,6 +1554,12 @@ export function SkillButtonComponent({
                                 <p className="formula-section-title">【防御区】</p>
                                 <p>防御减免系数</p>
                                 <p className="formula-zone-total">防御区 = {activeAnomalySegment.defenseZoneText}</p>
+                              </div>
+
+                              <div className="formula-zone-section">
+                                <p className="formula-section-title">【抗性区】</p>
+                                <p>抗性 / 降抗 / 无视抗性</p>
+                                <p className="formula-zone-total">抗性区 = {activeAnomalySegment.resistanceFormulaText}</p>
                               </div>
 
                               {activeAnomalySegment.sourceKind === 'buff-extra-hit' && (

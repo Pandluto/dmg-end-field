@@ -1,5 +1,6 @@
 import type { SkillType, ElementType } from '../../types';
-import type { DamageBonusSnapshot, SkillButtonBuff } from '../../types/storage';
+import type { ResistanceZoneResult } from './buffCalculator';
+import type { DamageBonusSnapshot, HitResistanceInput, SkillButtonBuff } from '../../types/storage';
 
 export interface ResolvedHitTemplate {
   key: string;
@@ -44,6 +45,7 @@ export interface SkillDamageCalcInputV2 {
   panelBase?: SkillDamagePanelBase;
   disabledBuffIdsByHitKey?: Record<string, string[]>;
   damageBonus: DamageBonusSnapshot;
+  targetResistance?: HitResistanceInput;
 }
 
 export interface DamageBreakdown {
@@ -51,6 +53,7 @@ export interface DamageBreakdown {
   afterCrit: number;
   afterBonus: number;
   afterDefense: number;
+  afterResistance: number;
   afterAmplify: number;
   afterFragile: number;
   afterVulnerability: number;
@@ -68,6 +71,8 @@ export interface DamageZones {
   skillBonus: number;
   allDamageBonus: number;
   damageBonusRate: number;
+  resistanceZone: number;
+  resistance: ResistanceZoneResult;
   amplifyRate: number;
   fragileRate: number;
   vulnerabilityRate: number;
@@ -136,6 +141,7 @@ export interface FormulaViewModel {
   skillBonusText: string;
   allDamageBonusText: string;
   damageBonusRateText: string;
+  resistanceFormulaText: string;
   amplifyFormulaText: string;
   fragileFormulaText: string;
   vulnerabilityFormulaText: string;

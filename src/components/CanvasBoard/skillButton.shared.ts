@@ -72,6 +72,11 @@ export interface AnomalyDamageSegmentView {
   skillBonusText: string;
   allDamageBonusText: string;
   damageBonusRateText: string;
+  resistanceBaseText: string;
+  corrosionText: string;
+  resistanceIgnoreText: string;
+  resistanceZoneText: string;
+  resistanceFormulaText: string;
   amplifyRateText: string;
   amplifyFormulaText: string;
   fragileRateText: string;

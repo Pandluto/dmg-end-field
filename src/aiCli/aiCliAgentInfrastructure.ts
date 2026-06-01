@@ -8,9 +8,10 @@ import {
 
 const AI_AGENT_SESSIONS_STORAGE_KEY = 'def.ai-agent.sessions.v1';
 const AI_AGENT_ACTIVE_SESSION_ID_STORAGE_KEY = 'def.ai-agent.active-session-id.v1';
+const AI_AGENT_SESSION_STORAGE_KEY = 'def.ai-agent.session.v1';
 const AI_AGENT_OPERATION_LOGS_STORAGE_KEY = 'def.ai-agent.operation-logs.v1';
 const AI_AGENT_PERMISSION_PROFILES_STORAGE_KEY = 'def.ai-agent.permission-profiles.v1';
-const AI_AGENT_LOG_LIMIT = 200;
+const AI_AGENT_CONTEXT_MESSAGE_LIMIT = 80;
 
 function createId(prefix: string) {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -127,91 +128,148 @@ export function assertPermission(profile: AiAgentPermissionProfile, commandName:
 }
 
 export function readAgentSessions() {
-  return readJsonStorage<AiAgentSession[]>(AI_AGENT_SESSIONS_STORAGE_KEY, []);
+  const session = readAgentSession();
+  return session ? [session] : [];
 }
 
 export function writeAgentSessions(sessions: AiAgentSession[]) {
-  writeJsonStorage(AI_AGENT_SESSIONS_STORAGE_KEY, sessions);
+  if (sessions[0]) {
+    writeAgentSession(sessions[0]);
+  }
 }
 
 export function readActiveSessionId() {
-  return readJsonStorage<string | null>(AI_AGENT_ACTIVE_SESSION_ID_STORAGE_KEY, null);
+  const singleSession = readJsonStorage<AiAgentSession | null>(AI_AGENT_SESSION_STORAGE_KEY, null);
+  return singleSession?.id ?? readJsonStorage<string | null>(AI_AGENT_ACTIVE_SESSION_ID_STORAGE_KEY, null);
 }
 
-export function ensureActiveSession(client: AiAgentClient) {
-  const sessions = readAgentSessions();
-  const activeSessionId = readActiveSessionId();
-  const existing = sessions.find((session) => session.id === activeSessionId && session.status === 'active');
-  if (existing) {
-    return existing;
-  }
-
+function createAgentSession(client: AiAgentClient): AiAgentSession {
   const now = Date.now();
-  const nextSession: AiAgentSession = {
+  return {
     id: createId('session'),
     createdAt: now,
     updatedAt: now,
     title: 'AI CLI Session',
     client,
     status: 'active',
+    summary: '',
     messages: [],
     context: {
       currentWorkflow: 'buff.fill',
     },
+    state: {},
   };
-  writeAgentSessions([nextSession, ...sessions]);
+}
+
+function normalizeAgentSession(session: AiAgentSession, client: AiAgentClient): AiAgentSession {
+  return {
+    ...session,
+    client: session.client || client,
+    status: 'active',
+    summary: session.summary ?? '',
+    messages: Array.isArray(session.messages) ? session.messages.slice(-AI_AGENT_CONTEXT_MESSAGE_LIMIT) : [],
+    context: session.context || { currentWorkflow: 'buff.fill' },
+    state: session.state || {},
+  };
+}
+
+export function readAgentSession(): AiAgentSession | null {
+  const singleSession = readJsonStorage<AiAgentSession | null>(AI_AGENT_SESSION_STORAGE_KEY, null);
+  if (singleSession) {
+    return normalizeAgentSession(singleSession, singleSession.client);
+  }
+
+  const legacySessions = readJsonStorage<AiAgentSession[]>(AI_AGENT_SESSIONS_STORAGE_KEY, []);
+  const activeSessionId = readActiveSessionId();
+  const legacySession = legacySessions.find((session) => session.id === activeSessionId && session.status === 'active')
+    || legacySessions.find((session) => session.status === 'active')
+    || legacySessions[0]
+    || null;
+  return legacySession ? normalizeAgentSession(legacySession, legacySession.client) : null;
+}
+
+export function writeAgentSession(session: AiAgentSession) {
+  writeJsonStorage(AI_AGENT_SESSION_STORAGE_KEY, normalizeAgentSession(session, session.client));
+}
+
+export function ensureAgentSession(client: AiAgentClient) {
+  const existing = readAgentSession();
+  if (existing) {
+    const normalized = normalizeAgentSession(existing, client);
+    if (normalized.client !== client && !normalized.client) {
+      writeAgentSession(normalized);
+    }
+    return normalized;
+  }
+
+  const nextSession = createAgentSession(client);
+  writeAgentSession(nextSession);
   writeJsonStorage(AI_AGENT_ACTIVE_SESSION_ID_STORAGE_KEY, nextSession.id);
   return nextSession;
 }
 
+export const ensureActiveSession = ensureAgentSession;
+
 export function appendSessionMessage(sessionId: string, message: Omit<AiAgentMessage, 'id' | 'createdAt'>) {
-  const sessions = readAgentSessions();
+  const session = ensureAgentSession('web-cli');
   const now = Date.now();
-  writeAgentSessions(sessions.map((session) => {
-    if (session.id !== sessionId) {
-      return session;
-    }
-    return {
-      ...session,
-      updatedAt: now,
-      messages: [
-        ...session.messages,
-        {
-          id: createId('message'),
-          createdAt: now,
-          ...message,
-        },
-      ],
-    };
-  }));
+  writeAgentSession({
+    ...session,
+    id: sessionId || session.id,
+    updatedAt: now,
+    messages: [
+      ...session.messages,
+      {
+        id: createId('message'),
+        createdAt: now,
+        ...message,
+      },
+    ].slice(-AI_AGENT_CONTEXT_MESSAGE_LIMIT),
+  });
 }
 
 export function updateSessionContext(sessionId: string, patch: AiAgentSession['context']) {
-  const sessions = readAgentSessions();
+  const session = ensureAgentSession('web-cli');
   const now = Date.now();
-  writeAgentSessions(sessions.map((session) => {
-    if (session.id !== sessionId) {
-      return session;
-    }
-    return {
-      ...session,
-      updatedAt: now,
-      context: {
-        ...session.context,
-        ...patch,
-      },
-    };
-  }));
+  writeAgentSession({
+    ...session,
+    id: sessionId || session.id,
+    updatedAt: now,
+    context: {
+      ...session.context,
+      ...patch,
+    },
+  });
+}
+
+export function overwriteSessionSummary(summary: string) {
+  const session = ensureAgentSession('web-cli');
+  writeAgentSession({
+    ...session,
+    updatedAt: Date.now(),
+    summary,
+  });
+}
+
+export function overwriteSessionState(state: Record<string, unknown>) {
+  const session = ensureAgentSession('web-cli');
+  writeAgentSession({
+    ...session,
+    updatedAt: Date.now(),
+    state,
+  });
 }
 
 export function readOperationLogs() {
-  return readJsonStorage<AiAgentOperationLog[]>(AI_AGENT_OPERATION_LOGS_STORAGE_KEY, []);
+  return [...readJsonStorage<AiAgentOperationLog[]>(AI_AGENT_OPERATION_LOGS_STORAGE_KEY, [])]
+    .sort((left, right) => (right.createdAt || 0) - (left.createdAt || 0));
 }
 
 export function readAgentRecordSnapshot() {
   return {
     sessions: readAgentSessions(),
     activeSessionId: readActiveSessionId(),
+    session: readAgentSession(),
     operationLogs: readOperationLogs(),
     permissionProfiles: readPermissionProfiles(),
   };
@@ -223,5 +281,6 @@ export function appendOperationLog(log: Omit<AiAgentOperationLog, 'id' | 'create
     createdAt: Date.now(),
     ...log,
   };
-  writeJsonStorage(AI_AGENT_OPERATION_LOGS_STORAGE_KEY, [nextLog, ...readOperationLogs()].slice(0, AI_AGENT_LOG_LIMIT));
+  const existingLogs = readJsonStorage<AiAgentOperationLog[]>(AI_AGENT_OPERATION_LOGS_STORAGE_KEY, []);
+  writeJsonStorage(AI_AGENT_OPERATION_LOGS_STORAGE_KEY, [...existingLogs, nextLog]);
 }

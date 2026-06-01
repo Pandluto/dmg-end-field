@@ -472,6 +472,32 @@
   font-style: italic;
 }
 
+.skill-button-resistance-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(48px, 1fr));
+  gap: 6px;
+}
+
+.skill-button-resistance-field {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  font-size: 10px;
+  color: #333;
+}
+
+.skill-button-resistance-field input {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  border: 1px solid #999;
+  padding: 3px 4px;
+  font-size: 11px;
+  color: #111;
+  background: #fff;
+}
+
 .skill-button-anomaly-summary-section {
   margin-top: 10px;
 }

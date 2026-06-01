@@ -36,6 +36,7 @@ export interface AiAgentSession {
   title: string;
   client: AiAgentClient;
   status: 'active' | 'archived';
+  summary?: string;
   messages: AiAgentMessage[];
   context: {
     currentWorkflow?: AiAgentWorkflow;
@@ -44,6 +45,7 @@ export interface AiAgentSession {
     lastCommand?: string;
     lastValidationOk?: boolean;
   };
+  state?: Record<string, unknown>;
 }
 
 export interface AiAgentMessage {
@@ -57,8 +59,11 @@ export interface AiAgentMessage {
 export interface AiAgentOperationLog {
   id: string;
   createdAt: number;
+  requestId?: string;
   sessionId?: string;
   client: AiAgentClient;
+  permissionProfileId?: string;
+  operationType?: 'command' | 'permission' | 'system' | 'write';
   command: string;
   ok: boolean;
   durationMs?: number;

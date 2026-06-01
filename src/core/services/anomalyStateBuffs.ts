@@ -93,6 +93,23 @@ export function buildAnomalyStateSnapshotBuffs(
       }];
     }
 
+    if (snapshot.key === 'corrosion') {
+      return [{
+        id: `anomaly-state-snapshot-${snapshot.id}`,
+        name: snapshot.key,
+        displayName: '腐蚀',
+        sourceName: snapshot.sourceCharacterName,
+        level: `${snapshot.level}层`,
+        type: 'allCorrosion',
+        value: snapshot.currentCorrosion ?? snapshot.effectValue,
+        description: '腐蚀提供全属性降抗',
+        source: 'anomaly_state_snapshot',
+        condition: '异常状态快照',
+        refCount: 1,
+        target: { mode: 'all' },
+      }];
+    }
+
     return [];
   });
 }

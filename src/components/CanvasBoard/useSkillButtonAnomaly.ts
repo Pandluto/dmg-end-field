@@ -395,14 +395,22 @@ export function useSkillButtonAnomaly({
     const baseStart = [3.6, 4.8, 6, 7.2][activeAnomalyStateLevel - 1] ?? 3.6;
     const baseTick = [0.84, 1.12, 1.4, 1.68][activeAnomalyStateLevel - 1] ?? 0.84;
     const baseCap = [12, 16, 20, 24][activeAnomalyStateLevel - 1] ?? 12;
+    const initialCorrosion = baseStart * (1 + effectEnhancement);
+    const tickCorrosionPerSecond = baseTick * (1 + effectEnhancement);
+    const maxCorrosion = baseCap * (1 + effectEnhancement);
     return {
-      effectValue: 0,
+      effectValue: maxCorrosion,
+      initialCorrosion,
+      tickCorrosionPerSecond,
+      maxCorrosion,
+      currentCorrosion: maxCorrosion,
       lines: [
         `来源角色: ${activeAnomalyStateSourceCharacter?.name ?? '未选择'}`,
         `源石技艺强度快照: ${activeAnomalyStateSourceSkillBoost.toFixed(1)}`,
         `源石技艺强度区: × ${(1 + effectEnhancement).toFixed(3)}`,
         `异常等级: ${activeAnomalyStateLevel} 层`,
-        `快照效果: 初始 ${(baseStart * (1 + effectEnhancement)).toFixed(2)} / 每秒 ${(baseTick * (1 + effectEnhancement)).toFixed(2)} / 上限 ${(baseCap * (1 + effectEnhancement)).toFixed(2)}`,
+        `快照效果: 初始 ${initialCorrosion.toFixed(2)} / 每秒 ${tickCorrosionPerSecond.toFixed(2)} / 上限 ${maxCorrosion.toFixed(2)}`,
+        `当前计算口径: 上限 ${maxCorrosion.toFixed(2)} 点全属性降抗`,
       ],
     };
   }, [activeAnomalyStateLevel, activeAnomalyStateOption, activeAnomalyStateSourceCharacter?.name, activeAnomalyStateSourceSkillBoost]);
@@ -466,6 +474,12 @@ export function useSkillButtonAnomaly({
     if (!activeAnomalyStateOption || !activeAnomalyStateSourceCharacter || !activeAnomalyStatePreview) {
       return;
     }
+    const corrosionPreview = activeAnomalyStatePreview as typeof activeAnomalyStatePreview & {
+      initialCorrosion?: number;
+      tickCorrosionPerSecond?: number;
+      maxCorrosion?: number;
+      currentCorrosion?: number;
+    };
     const snapshot = createAnomalyStateSnapshot({
       key: activeAnomalyStateOption.key,
       label: activeAnomalyStateOption.label,
@@ -475,9 +489,13 @@ export function useSkillButtonAnomaly({
       sourceCharacterName: activeAnomalyStateSourceCharacter.name,
       sourceSkillStrengthSnapshot: activeAnomalyStateSourceSkillBoost,
       effectValue: activeAnomalyStatePreview.effectValue,
+      initialCorrosion: corrosionPreview.initialCorrosion,
+      tickCorrosionPerSecond: corrosionPreview.tickCorrosionPerSecond,
+      maxCorrosion: corrosionPreview.maxCorrosion,
+      currentCorrosion: corrosionPreview.currentCorrosion,
       durationSeconds: activeAnomalyStateOption.supportsDuration ? activeAnomalyStateDurationSeconds : undefined,
       primaryText: `${activeAnomalyStateOption.label} Lv${activeAnomalyStateLevel} · 来源 ${activeAnomalyStateSourceCharacter.name}`,
-      secondaryText: activeAnomalyStatePreview.lines[4] ?? activeAnomalyStateOption.label,
+      secondaryText: activeAnomalyStatePreview.lines[5] ?? activeAnomalyStatePreview.lines[4] ?? activeAnomalyStateOption.label,
       tertiaryText: activeAnomalyStateOption.supportsDuration ? `持续 ${activeAnomalyStateDurationSeconds}s` : '快照生效',
     });
     const nextIds = [

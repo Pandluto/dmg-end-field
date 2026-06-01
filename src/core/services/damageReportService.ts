@@ -12,6 +12,7 @@ import {
   calculateBuffTotals,
   calculateElementDmgBonus,
   calculateFragileRate,
+  calculateResistanceZone,
   calculateSkillDmgBonus,
   calculateVulnerabilityRate,
 } from '../calculators/buffCalculator';
@@ -457,6 +458,7 @@ function calculateBreakdown(
   critFactor: number,
   damageBonusRate: number,
   defenseZone: number,
+  resistanceZone: number,
   amplifyRate: number,
   fragileRate: number,
   vulnerabilityRate: number,
@@ -467,7 +469,8 @@ function calculateBreakdown(
   const afterCrit = base * critFactor;
   const afterBonus = afterCrit * damageBonusRate;
   const afterDefense = afterBonus * defenseZone;
-  const afterAmplify = afterDefense * (1 + amplifyRate);
+  const afterResistance = afterDefense * resistanceZone;
+  const afterAmplify = afterResistance * (1 + amplifyRate);
   const afterFragile = afterAmplify * (1 + fragileRate);
   const afterVulnerability = afterFragile * (1 + vulnerabilityRate);
   const afterCombo = afterVulnerability * (1 + comboDamageBonus);
@@ -638,14 +641,15 @@ function buildAnomalyReportHits(
       + calculateElementDmgBonus(elementKey, parsedDamageBonusRecord, buffTotals)
       + calculateSkillDmgBonus('', parsedDamageBonusRecord, buffTotals)
       + allDamageBonus;
+    const resistance = calculateResistanceZone(elementKey, button.resistanceConfig?.targetResistance, buffTotals);
     const amplifyRate = calculateAmplifyRate(elementKey, buffTotals);
     const fragileRate = calculateFragileRate(elementKey, buffTotals);
     const vulnerabilityRate = calculateVulnerabilityRate(elementKey, buffTotals);
     const comboDamageBonus = buffTotals.comboDamageBonus;
     const imbalanceDamageBonus = buffTotals.imbalanceDamageBonus + (elementKey === 'physical' ? (characterDamageBonus.imbalanceDmgBonus || 0) : 0);
     const defenseZone = 0.5;
-    const expected = calculateBreakdown(segmentPanel.atk, finalMultiplier, 1 + segmentPanel.critRate * segmentPanel.critDmg, damageBonusRate, defenseZone, amplifyRate, fragileRate, vulnerabilityRate, comboDamageBonus, imbalanceDamageBonus);
-    const nonCrit = calculateBreakdown(segmentPanel.atk, finalMultiplier, 1, damageBonusRate, defenseZone, amplifyRate, fragileRate, vulnerabilityRate, comboDamageBonus, imbalanceDamageBonus);
+    const expected = calculateBreakdown(segmentPanel.atk, finalMultiplier, 1 + segmentPanel.critRate * segmentPanel.critDmg, damageBonusRate, defenseZone, resistance.resistanceZone, amplifyRate, fragileRate, vulnerabilityRate, comboDamageBonus, imbalanceDamageBonus);
+    const nonCrit = calculateBreakdown(segmentPanel.atk, finalMultiplier, 1, damageBonusRate, defenseZone, resistance.resistanceZone, amplifyRate, fragileRate, vulnerabilityRate, comboDamageBonus, imbalanceDamageBonus);
     const sequenceNumber = normalHitCount + anomalySequenceOffset + 1;
     const burnDamageMode = resolveBurnDamageMode(card);
 
@@ -673,8 +677,8 @@ function buildAnomalyReportHits(
 
     const burnDotBaseMultiplier = (burnDotMultiplierPercent / 100) * levelCoefficient * sourceSkillZone;
     const burnDotFinalMultiplier = (burnDotBaseMultiplier + buffTotals.multiplierBonus) * buffTotals.multiplierMultiplier;
-    const burnDotExpected = calculateBreakdown(segmentPanel.atk, burnDotFinalMultiplier, 1 + segmentPanel.critRate * segmentPanel.critDmg, damageBonusRate, defenseZone, amplifyRate, fragileRate, vulnerabilityRate, comboDamageBonus, imbalanceDamageBonus);
-    const burnDotNonCrit = calculateBreakdown(segmentPanel.atk, burnDotFinalMultiplier, 1, damageBonusRate, defenseZone, amplifyRate, fragileRate, vulnerabilityRate, comboDamageBonus, imbalanceDamageBonus);
+    const burnDotExpected = calculateBreakdown(segmentPanel.atk, burnDotFinalMultiplier, 1 + segmentPanel.critRate * segmentPanel.critDmg, damageBonusRate, defenseZone, resistance.resistanceZone, amplifyRate, fragileRate, vulnerabilityRate, comboDamageBonus, imbalanceDamageBonus);
+    const burnDotNonCrit = calculateBreakdown(segmentPanel.atk, burnDotFinalMultiplier, 1, damageBonusRate, defenseZone, resistance.resistanceZone, amplifyRate, fragileRate, vulnerabilityRate, comboDamageBonus, imbalanceDamageBonus);
 
     const buildDotRow = (sequence: number, keySuffix: string, titleSuffix = '持续'): DamageReportHitRow => ({
       ...initialRow,
@@ -717,6 +721,7 @@ function buildAnomalyReportHits(
       + calculateSkillDmgBonus('', parsedDamageBonusRecord, buffTotals)
       + (characterDamageBonus.allDmgBonus || 0)
       + (buffTotals.allDmgBonus || 0);
+    const resistance = calculateResistanceZone(elementKey, button.resistanceConfig?.targetResistance, buffTotals);
     const amplifyRate = calculateAmplifyRate(elementKey, buffTotals);
     const fragileRate = calculateFragileRate(elementKey, buffTotals);
     const vulnerabilityRate = calculateVulnerabilityRate(elementKey, buffTotals);
@@ -724,8 +729,8 @@ function buildAnomalyReportHits(
     const imbalanceDamageBonus = buffTotals.imbalanceDamageBonus + (elementKey === 'physical' ? (characterDamageBonus.imbalanceDmgBonus || 0) : 0);
     const defenseZone = 0.5;
     const finalMultiplier = (config.baseMultiplier + buffTotals.multiplierBonus) * buffTotals.multiplierMultiplier;
-    const expected = calculateBreakdown(segmentPanel.atk, finalMultiplier, 1 + segmentPanel.critRate * segmentPanel.critDmg, damageBonusRate, defenseZone, amplifyRate, fragileRate, vulnerabilityRate, comboDamageBonus, imbalanceDamageBonus);
-    const nonCrit = calculateBreakdown(segmentPanel.atk, finalMultiplier, 1, damageBonusRate, defenseZone, amplifyRate, fragileRate, vulnerabilityRate, comboDamageBonus, imbalanceDamageBonus);
+    const expected = calculateBreakdown(segmentPanel.atk, finalMultiplier, 1 + segmentPanel.critRate * segmentPanel.critDmg, damageBonusRate, defenseZone, resistance.resistanceZone, amplifyRate, fragileRate, vulnerabilityRate, comboDamageBonus, imbalanceDamageBonus);
+    const nonCrit = calculateBreakdown(segmentPanel.atk, finalMultiplier, 1, damageBonusRate, defenseZone, resistance.resistanceZone, amplifyRate, fragileRate, vulnerabilityRate, comboDamageBonus, imbalanceDamageBonus);
 
     return {
       id: `extra-hit-${button.id}-${buff.id}`,
@@ -788,6 +793,7 @@ function buildButtonReportRow(
         panel,
         panelBase: panelBase ?? undefined,
         disabledBuffIdsByHitKey,
+        targetResistance: button.resistanceConfig?.targetResistance,
         damageBonus,
       }).hits.map((hit, index) => ({
         id: `normal-${button.id}-${hit.hit.key}-${index}`,

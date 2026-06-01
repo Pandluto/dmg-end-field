@@ -4,7 +4,7 @@
  * 负责 Buff 汇总、元素加成、技能加成、脆弱/易伤计算
  */
 
-import { SkillButtonBuff } from '../../types/storage';
+import { HitResistanceInput, SkillButtonBuff } from '../../types/storage';
 
 /**
  * Buff 汇总计算结果
@@ -64,6 +64,22 @@ export interface BuffCalculationResult {
   electricAmplify: number;        // 总电磁增幅
   iceAmplify: number;             // 总寒冷增幅
   natureAmplify: number;          // 总自然增幅
+
+  // 抗性区（点数，进入公式时 /100）
+  allCorrosion: number;
+  physicalCorrosion: number;
+  magicCorrosion: number;
+  fireCorrosion: number;
+  electricCorrosion: number;
+  iceCorrosion: number;
+  natureCorrosion: number;
+  allResistanceIgnore: number;
+  physicalResistanceIgnore: number;
+  magicResistanceIgnore: number;
+  fireResistanceIgnore: number;
+  electricResistanceIgnore: number;
+  iceResistanceIgnore: number;
+  natureResistanceIgnore: number;
 
   // 连击区（独立区域）
   comboDamageBonus: number;        // 总连击增伤
@@ -143,6 +159,20 @@ export function calculateBuffTotals(buffs: SkillButtonBuff[]): BuffCalculationRe
     electricAmplify: 0,
     iceAmplify: 0,
     natureAmplify: 0,
+    allCorrosion: 0,
+    physicalCorrosion: 0,
+    magicCorrosion: 0,
+    fireCorrosion: 0,
+    electricCorrosion: 0,
+    iceCorrosion: 0,
+    natureCorrosion: 0,
+    allResistanceIgnore: 0,
+    physicalResistanceIgnore: 0,
+    magicResistanceIgnore: 0,
+    fireResistanceIgnore: 0,
+    electricResistanceIgnore: 0,
+    iceResistanceIgnore: 0,
+    natureResistanceIgnore: 0,
     // 连击区
     comboDamageBonus: 0,
     imbalanceDamageBonus: 0,
@@ -197,6 +227,20 @@ export function calculateBuffTotals(buffs: SkillButtonBuff[]): BuffCalculationRe
         case 'electricAmplify': result.electricAmplify += v; break;
         case 'iceAmplify': result.iceAmplify += v; break;
         case 'natureAmplify': result.natureAmplify += v; break;
+        case 'allCorrosion': result.allCorrosion += v; break;
+        case 'physicalCorrosion': result.physicalCorrosion += v; break;
+        case 'magicCorrosion': result.magicCorrosion += v; break;
+        case 'fireCorrosion': result.fireCorrosion += v; break;
+        case 'electricCorrosion': result.electricCorrosion += v; break;
+        case 'iceCorrosion': result.iceCorrosion += v; break;
+        case 'natureCorrosion': result.natureCorrosion += v; break;
+        case 'allResistanceIgnore': result.allResistanceIgnore += v; break;
+        case 'physicalResistanceIgnore': result.physicalResistanceIgnore += v; break;
+        case 'magicResistanceIgnore': result.magicResistanceIgnore += v; break;
+        case 'fireResistanceIgnore': result.fireResistanceIgnore += v; break;
+        case 'electricResistanceIgnore': result.electricResistanceIgnore += v; break;
+        case 'iceResistanceIgnore': result.iceResistanceIgnore += v; break;
+        case 'natureResistanceIgnore': result.natureResistanceIgnore += v; break;
         case 'comboDamageBonus': result.comboDamageBonus += v; break;
         case 'imbalanceDmgBonus': result.imbalanceDamageBonus += v; break;
         case 'multiplierBonus': result.multiplierBonus += v; break;
@@ -207,6 +251,74 @@ export function calculateBuffTotals(buffs: SkillButtonBuff[]): BuffCalculationRe
   });
 
   return result;
+}
+
+export interface ResistanceZoneResult {
+  baseResistance: number;
+  corrosion: number;
+  resistanceIgnore: number;
+  effectiveResistance: number;
+  resistanceZone: number;
+  formulaText: string;
+}
+
+function readResistanceValue(input: HitResistanceInput | undefined, key: keyof HitResistanceInput): number {
+  return input?.[key] ?? 0;
+}
+
+function readBuffTotal(buffTotals: BuffCalculationResult, key: keyof BuffCalculationResult): number {
+  return (buffTotals[key] || 0) as number;
+}
+
+/**
+ * 根据命中元素计算抗性区。
+ * 抗性、降抗、无视抗性内部单位均为“点”，每点对应 1%。
+ */
+export function calculateResistanceZone(
+  characterElement: string | undefined,
+  resistanceInput: HitResistanceInput | undefined,
+  buffTotals: BuffCalculationResult
+): ResistanceZoneResult {
+  const element = characterElement || 'physical';
+  let baseResistance = 0;
+  let corrosion = 0;
+  let resistanceIgnore = 0;
+
+  const addCorrosion = (prefix: 'physical' | 'magic' | 'fire' | 'electric' | 'ice' | 'nature') => {
+    corrosion += readBuffTotal(buffTotals, `${prefix}Corrosion` as keyof BuffCalculationResult);
+  };
+  const addIgnore = (prefix: 'physical' | 'magic' | 'fire' | 'electric' | 'ice' | 'nature') => {
+    resistanceIgnore += readBuffTotal(buffTotals, `${prefix}ResistanceIgnore` as keyof BuffCalculationResult);
+  };
+
+  corrosion += readBuffTotal(buffTotals, 'allCorrosion');
+  resistanceIgnore += readBuffTotal(buffTotals, 'allResistanceIgnore');
+  if (element === 'physical') {
+    baseResistance = readResistanceValue(resistanceInput, 'physicalResistance');
+    addCorrosion('physical');
+    addIgnore('physical');
+  } else if (element === 'fire' || element === 'electric' || element === 'ice' || element === 'nature') {
+    baseResistance = readResistanceValue(resistanceInput, `${element}Resistance` as keyof HitResistanceInput);
+    addCorrosion('magic');
+    addCorrosion(element);
+    addIgnore('magic');
+    addIgnore(element);
+  } else {
+    baseResistance = 0;
+  }
+
+  const effectiveResistance = baseResistance - corrosion;
+  const resistanceZone = 1 - effectiveResistance / 100 + resistanceIgnore / 100;
+  const formulaText = `1 - (${baseResistance.toFixed(1)} - ${corrosion.toFixed(1)}) / 100 + ${resistanceIgnore.toFixed(1)} / 100 = ${resistanceZone.toFixed(3)}`;
+
+  return {
+    baseResistance,
+    corrosion,
+    resistanceIgnore,
+    effectiveResistance,
+    resistanceZone,
+    formulaText,
+  };
 }
 
 /**

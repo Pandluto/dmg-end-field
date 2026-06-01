@@ -299,6 +299,20 @@ const BUFF_TYPE_OPTIONS = [
   'damageReduction',
   'fireNatureDmgBonus',
   'iceElectricDmgBonus',
+  'allCorrosion',
+  'physicalCorrosion',
+  'magicCorrosion',
+  'fireCorrosion',
+  'electricCorrosion',
+  'iceCorrosion',
+  'natureCorrosion',
+  'allResistanceIgnore',
+  'physicalResistanceIgnore',
+  'magicResistanceIgnore',
+  'fireResistanceIgnore',
+  'electricResistanceIgnore',
+  'iceResistanceIgnore',
+  'natureResistanceIgnore',
 ];
 
 const BUFF_TYPE_LABELS: Record<string, string> = {
@@ -333,6 +347,20 @@ const BUFF_TYPE_LABELS: Record<string, string> = {
   damageReduction: '全伤害减免',
   fireNatureDmgBonus: '灼热和自然伤害',
   iceElectricDmgBonus: '寒冷和电磁伤害',
+  allCorrosion: '全属性降抗',
+  physicalCorrosion: '物理降抗',
+  magicCorrosion: '法术降抗',
+  fireCorrosion: '灼热降抗',
+  electricCorrosion: '电磁降抗',
+  iceCorrosion: '寒冷降抗',
+  natureCorrosion: '自然降抗',
+  allResistanceIgnore: '无视全部抗性',
+  physicalResistanceIgnore: '无视物理抗性',
+  magicResistanceIgnore: '无视法术抗性',
+  fireResistanceIgnore: '无视灼热抗性',
+  electricResistanceIgnore: '无视电磁抗性',
+  iceResistanceIgnore: '无视寒冷抗性',
+  natureResistanceIgnore: '无视自然抗性',
 };
 
 const EMPTY_LIBRARY: EquipmentLibrary = {

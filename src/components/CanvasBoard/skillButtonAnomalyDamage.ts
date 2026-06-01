@@ -2,10 +2,11 @@ import {
   calculateAmplifyRate,
   calculateBuffTotals,
   calculateFragileRate,
+  calculateResistanceZone,
   calculateVulnerabilityRate,
 } from '../../core/calculators/buffCalculator';
 import type { AppliedBuffTagViewModel, SkillDamagePanel, SkillDamagePanelBase } from '../../core/calculators/skillDamage.types';
-import type { DamageBonusSnapshot, SkillButtonBuff } from '../../types/storage';
+import type { DamageBonusSnapshot, HitResistanceInput, SkillButtonBuff } from '../../types/storage';
 import {
   buildAppliedBuffTags,
   buildPanelFromBase,
@@ -27,6 +28,7 @@ interface BuildAnomalyDamageSegmentsParams {
   buttonCharacterId: string;
   element?: string;
   damageBonus: DamageBonusSnapshot;
+  targetResistance?: HitResistanceInput;
   fullCombinedModifierBuffList: SkillButtonBuff[];
   extraHitBuffList: Array<SkillButtonBuff & { effectKind: 'extraHit'; extraHitConfig: NonNullable<SkillButtonBuff['extraHitConfig']> }>;
   manuallyDisabledBuffIdsBySegmentKey: Record<string, string[]>;
@@ -137,6 +139,7 @@ function calculateBreakdown(
   critFactor: number,
   damageBonusRate: number,
   defenseZone: number,
+  resistanceZone: number,
   amplifyRate: number,
   fragileRate: number,
   vulnerabilityRate: number,
@@ -147,7 +150,8 @@ function calculateBreakdown(
   const afterCrit = base * critFactor;
   const afterBonus = afterCrit * damageBonusRate;
   const afterDefense = afterBonus * defenseZone;
-  const afterAmplify = afterDefense * (1 + amplifyRate);
+  const afterResistance = afterDefense * resistanceZone;
+  const afterAmplify = afterResistance * (1 + amplifyRate);
   const afterFragile = afterAmplify * (1 + fragileRate);
   const afterVulnerability = afterFragile * (1 + vulnerabilityRate);
   const afterCombo = afterVulnerability * (1 + comboDamageBonus);
@@ -162,6 +166,7 @@ export function buildAnomalyDamageSegments({
   buttonCharacterId,
   element,
   damageBonus,
+  targetResistance,
   fullCombinedModifierBuffList,
   extraHitBuffList,
   manuallyDisabledBuffIdsBySegmentKey,
@@ -212,6 +217,7 @@ export function buildAnomalyDamageSegments({
     const skillBonus = 0;
     const allDamageBonus = (damageBonus.allDmgBonus || 0) + (buffTotals.allDmgBonus || 0);
     const damageBonusRate = 1 + elementBonus + skillBonus + allDamageBonus;
+    const resistance = calculateResistanceZone(elementKey, targetResistance, buffTotals);
     const amplifyRate = calculateAmplifyRate(elementKey, buffTotals);
     const fragileRate = calculateFragileRate(elementKey, buffTotals);
     const vulnerabilityRate = calculateVulnerabilityRate(elementKey, buffTotals);
@@ -219,9 +225,9 @@ export function buildAnomalyDamageSegments({
     const imbalanceDamageBonus = buffTotals.imbalanceDamageBonus + (elementKey === 'physical' ? (damageBonus.imbalanceDmgBonus || 0) : 0);
     const defenseZone = 0.5;
     const baseNonCrit = anomalyAtk * finalMultiplier;
-    const nonCrit = calculateBreakdown(anomalyAtk, finalMultiplier, 1, damageBonusRate, defenseZone, amplifyRate, fragileRate, vulnerabilityRate, comboDamageBonus, imbalanceDamageBonus);
-    const crit = calculateBreakdown(anomalyAtk, finalMultiplier, anomalyCritMultiplier, damageBonusRate, defenseZone, amplifyRate, fragileRate, vulnerabilityRate, comboDamageBonus, imbalanceDamageBonus);
-    const expected = calculateBreakdown(anomalyAtk, finalMultiplier, anomalyExpectedMultiplier, damageBonusRate, defenseZone, amplifyRate, fragileRate, vulnerabilityRate, comboDamageBonus, imbalanceDamageBonus);
+    const nonCrit = calculateBreakdown(anomalyAtk, finalMultiplier, 1, damageBonusRate, defenseZone, resistance.resistanceZone, amplifyRate, fragileRate, vulnerabilityRate, comboDamageBonus, imbalanceDamageBonus);
+    const crit = calculateBreakdown(anomalyAtk, finalMultiplier, anomalyCritMultiplier, damageBonusRate, defenseZone, resistance.resistanceZone, amplifyRate, fragileRate, vulnerabilityRate, comboDamageBonus, imbalanceDamageBonus);
+    const expected = calculateBreakdown(anomalyAtk, finalMultiplier, anomalyExpectedMultiplier, damageBonusRate, defenseZone, resistance.resistanceZone, amplifyRate, fragileRate, vulnerabilityRate, comboDamageBonus, imbalanceDamageBonus);
     const sequenceNumber = hitCards.length + anomalySequenceOffset + 1;
     const burnDamageMode = resolveBurnDamageMode(card);
     const burnTickMultiplierPercent = 12 * (1 + card.level);
@@ -233,13 +239,13 @@ export function buildAnomalyDamageSegments({
     const burnDotFinalMultiplier = burnDotMultiplierAfterBonus * buffTotals.multiplierMultiplier;
     const burnDotBaseNonCrit = anomalyAtk * burnDotFinalMultiplier;
     const burnDotNonCrit = burnDotMultiplierPercent > 0
-      ? calculateBreakdown(anomalyAtk, burnDotFinalMultiplier, 1, damageBonusRate, defenseZone, amplifyRate, fragileRate, vulnerabilityRate, comboDamageBonus, imbalanceDamageBonus)
+      ? calculateBreakdown(anomalyAtk, burnDotFinalMultiplier, 1, damageBonusRate, defenseZone, resistance.resistanceZone, amplifyRate, fragileRate, vulnerabilityRate, comboDamageBonus, imbalanceDamageBonus)
       : 0;
     const burnDotCrit = burnDotMultiplierPercent > 0
-      ? calculateBreakdown(anomalyAtk, burnDotFinalMultiplier, anomalyCritMultiplier, damageBonusRate, defenseZone, amplifyRate, fragileRate, vulnerabilityRate, comboDamageBonus, imbalanceDamageBonus)
+      ? calculateBreakdown(anomalyAtk, burnDotFinalMultiplier, anomalyCritMultiplier, damageBonusRate, defenseZone, resistance.resistanceZone, amplifyRate, fragileRate, vulnerabilityRate, comboDamageBonus, imbalanceDamageBonus)
       : 0;
     const burnDotExpected = burnDotMultiplierPercent > 0
-      ? calculateBreakdown(anomalyAtk, burnDotFinalMultiplier, anomalyExpectedMultiplier, damageBonusRate, defenseZone, amplifyRate, fragileRate, vulnerabilityRate, comboDamageBonus, imbalanceDamageBonus)
+      ? calculateBreakdown(anomalyAtk, burnDotFinalMultiplier, anomalyExpectedMultiplier, damageBonusRate, defenseZone, resistance.resistanceZone, amplifyRate, fragileRate, vulnerabilityRate, comboDamageBonus, imbalanceDamageBonus)
       : 0;
 
     const initialSegment: AnomalyDamageSegmentView = {
@@ -273,6 +279,11 @@ export function buildAnomalyDamageSegments({
       skillBonusText: `${(skillBonus * 100).toFixed(1)}%`,
       allDamageBonusText: `${(allDamageBonus * 100).toFixed(1)}%`,
       damageBonusRateText: damageBonusRate.toFixed(3),
+      resistanceBaseText: resistance.baseResistance.toFixed(1),
+      corrosionText: resistance.corrosion.toFixed(1),
+      resistanceIgnoreText: resistance.resistanceIgnore.toFixed(1),
+      resistanceZoneText: resistance.resistanceZone.toFixed(3),
+      resistanceFormulaText: resistance.formulaText,
       amplifyFormulaText: `1 + ${(amplifyRate * 100).toFixed(1)}% = ${(1 + amplifyRate).toFixed(3)}`,
       amplifyRateText: amplifyRate.toFixed(3),
       fragileFormulaText: `1 + ${(fragileRate * 100).toFixed(1)}% = ${(1 + fragileRate).toFixed(3)}`,
@@ -284,7 +295,7 @@ export function buildAnomalyDamageSegments({
       imbalanceFormulaText: `1 + ${(imbalanceDamageBonus * 100).toFixed(1)}% = ${(1 + imbalanceDamageBonus).toFixed(3)}`,
       imbalanceDamageBonusText: imbalanceDamageBonus.toFixed(3),
       defenseZoneText: defenseZone.toFixed(3),
-      nonCritFormulaText: `${anomalyAtk.toFixed(0)} × ${(finalMultiplier * 100).toFixed(1)}% × ${damageBonusRate.toFixed(3)} × ${defenseZone.toFixed(3)} × ${(1 + amplifyRate).toFixed(3)} × ${(1 + fragileRate).toFixed(3)} × ${(1 + vulnerabilityRate).toFixed(3)} × ${(1 + comboDamageBonus).toFixed(3)} × ${(1 + imbalanceDamageBonus).toFixed(3)} = ${nonCrit.toFixed(0)} (基础伤害 ${baseNonCrit.toFixed(0)})`,
+      nonCritFormulaText: `${anomalyAtk.toFixed(0)} × ${(finalMultiplier * 100).toFixed(1)}% × ${damageBonusRate.toFixed(3)} × ${defenseZone.toFixed(3)} × ${resistance.resistanceZone.toFixed(3)} × ${(1 + amplifyRate).toFixed(3)} × ${(1 + fragileRate).toFixed(3)} × ${(1 + vulnerabilityRate).toFixed(3)} × ${(1 + comboDamageBonus).toFixed(3)} × ${(1 + imbalanceDamageBonus).toFixed(3)} = ${nonCrit.toFixed(0)} (基础伤害 ${baseNonCrit.toFixed(0)})`,
     };
 
     if (burnDotMultiplierPercent <= 0) {
@@ -311,7 +322,7 @@ export function buildAnomalyDamageSegments({
       critValue: burnDotCrit,
       nonCritValue: burnDotNonCrit,
       formulaText: `(${burnMultiplierFormulaPrefix} × ${levelCoefficient.toFixed(3)} × ${sourceSkillZone.toFixed(3)} + ${(buffTotals.multiplierBonus * 100).toFixed(1)}%) × ${buffTotals.multiplierMultiplier.toFixed(3)} = ${(burnDotFinalMultiplier * 100).toFixed(1)}%`,
-      nonCritFormulaText: `${anomalyAtk.toFixed(0)} × ${(burnDotFinalMultiplier * 100).toFixed(1)}% × ${damageBonusRate.toFixed(3)} × ${defenseZone.toFixed(3)} × ${(1 + amplifyRate).toFixed(3)} × ${(1 + fragileRate).toFixed(3)} × ${(1 + vulnerabilityRate).toFixed(3)} × ${(1 + comboDamageBonus).toFixed(3)} × ${(1 + imbalanceDamageBonus).toFixed(3)} = ${burnDotNonCrit.toFixed(0)} (基础伤害 ${burnDotBaseNonCrit.toFixed(0)})`,
+      nonCritFormulaText: `${anomalyAtk.toFixed(0)} × ${(burnDotFinalMultiplier * 100).toFixed(1)}% × ${damageBonusRate.toFixed(3)} × ${defenseZone.toFixed(3)} × ${resistance.resistanceZone.toFixed(3)} × ${(1 + amplifyRate).toFixed(3)} × ${(1 + fragileRate).toFixed(3)} × ${(1 + vulnerabilityRate).toFixed(3)} × ${(1 + comboDamageBonus).toFixed(3)} × ${(1 + imbalanceDamageBonus).toFixed(3)} = ${burnDotNonCrit.toFixed(0)} (基础伤害 ${burnDotBaseNonCrit.toFixed(0)})`,
     });
 
     if (burnDamageMode === 'splitDot') {
@@ -358,6 +369,7 @@ export function buildAnomalyDamageSegments({
     const skillBonus = 0;
     const allDamageBonus = (damageBonus.allDmgBonus || 0) + (buffTotals.allDmgBonus || 0);
     const damageBonusRate = 1 + elementBonus + skillBonus + allDamageBonus;
+    const resistance = calculateResistanceZone(elementKey, targetResistance, buffTotals);
     const amplifyRate = calculateAmplifyRate(elementKey, buffTotals);
     const fragileRate = calculateFragileRate(elementKey, buffTotals);
     const vulnerabilityRate = calculateVulnerabilityRate(elementKey, buffTotals);
@@ -371,9 +383,9 @@ export function buildAnomalyDamageSegments({
     const critMultiplier = 1 + extraHitCritDmg;
     const expectedMultiplier = 1 + extraHitCritRate * extraHitCritDmg;
     const baseNonCrit = extraHitAtk * finalMultiplier;
-    const nonCrit = calculateBreakdown(extraHitAtk, finalMultiplier, 1, damageBonusRate, defenseZone, amplifyRate, fragileRate, vulnerabilityRate, comboDamageBonus, imbalanceDamageBonus);
-    const crit = calculateBreakdown(extraHitAtk, finalMultiplier, critMultiplier, damageBonusRate, defenseZone, amplifyRate, fragileRate, vulnerabilityRate, comboDamageBonus, imbalanceDamageBonus);
-    const expected = calculateBreakdown(extraHitAtk, finalMultiplier, expectedMultiplier, damageBonusRate, defenseZone, amplifyRate, fragileRate, vulnerabilityRate, comboDamageBonus, imbalanceDamageBonus);
+    const nonCrit = calculateBreakdown(extraHitAtk, finalMultiplier, 1, damageBonusRate, defenseZone, resistance.resistanceZone, amplifyRate, fragileRate, vulnerabilityRate, comboDamageBonus, imbalanceDamageBonus);
+    const crit = calculateBreakdown(extraHitAtk, finalMultiplier, critMultiplier, damageBonusRate, defenseZone, resistance.resistanceZone, amplifyRate, fragileRate, vulnerabilityRate, comboDamageBonus, imbalanceDamageBonus);
+    const expected = calculateBreakdown(extraHitAtk, finalMultiplier, expectedMultiplier, damageBonusRate, defenseZone, resistance.resistanceZone, amplifyRate, fragileRate, vulnerabilityRate, comboDamageBonus, imbalanceDamageBonus);
 
     return [{
       key: `buff-extra-hit-${buff.id}`,
@@ -406,6 +418,11 @@ export function buildAnomalyDamageSegments({
       skillBonusText: `${(skillBonus * 100).toFixed(1)}%`,
       allDamageBonusText: `${(allDamageBonus * 100).toFixed(1)}%`,
       damageBonusRateText: damageBonusRate.toFixed(3),
+      resistanceBaseText: resistance.baseResistance.toFixed(1),
+      corrosionText: resistance.corrosion.toFixed(1),
+      resistanceIgnoreText: resistance.resistanceIgnore.toFixed(1),
+      resistanceZoneText: resistance.resistanceZone.toFixed(3),
+      resistanceFormulaText: resistance.formulaText,
       amplifyFormulaText: `1 + ${(amplifyRate * 100).toFixed(1)}% = ${(1 + amplifyRate).toFixed(3)}`,
       amplifyRateText: amplifyRate.toFixed(3),
       fragileFormulaText: `1 + ${(fragileRate * 100).toFixed(1)}% = ${(1 + fragileRate).toFixed(3)}`,
@@ -417,7 +434,7 @@ export function buildAnomalyDamageSegments({
       imbalanceFormulaText: `1 + ${(imbalanceDamageBonus * 100).toFixed(1)}% = ${(1 + imbalanceDamageBonus).toFixed(3)}`,
       imbalanceDamageBonusText: imbalanceDamageBonus.toFixed(3),
       defenseZoneText: defenseZone.toFixed(3),
-      nonCritFormulaText: `${extraHitAtk.toFixed(0)} × ${(finalMultiplier * 100).toFixed(1)}% × ${damageBonusRate.toFixed(3)} × ${defenseZone.toFixed(3)} × ${(1 + amplifyRate).toFixed(3)} × ${(1 + fragileRate).toFixed(3)} × ${(1 + vulnerabilityRate).toFixed(3)} × ${(1 + comboDamageBonus).toFixed(3)} × ${(1 + imbalanceDamageBonus).toFixed(3)} = ${nonCrit.toFixed(0)} (基础伤害 ${baseNonCrit.toFixed(0)})`,
+      nonCritFormulaText: `${extraHitAtk.toFixed(0)} × ${(finalMultiplier * 100).toFixed(1)}% × ${damageBonusRate.toFixed(3)} × ${defenseZone.toFixed(3)} × ${resistance.resistanceZone.toFixed(3)} × ${(1 + amplifyRate).toFixed(3)} × ${(1 + fragileRate).toFixed(3)} × ${(1 + vulnerabilityRate).toFixed(3)} × ${(1 + comboDamageBonus).toFixed(3)} × ${(1 + imbalanceDamageBonus).toFixed(3)} = ${nonCrit.toFixed(0)} (基础伤害 ${baseNonCrit.toFixed(0)})`,
       imbalanceText: String(extraHitConfig.imbalanceValue),
       cooldownText: `${extraHitConfig.cooldownSeconds}s`,
       sourceBuffName: buff.displayName,
