@@ -105,6 +105,19 @@ try {
   assert(Array.isArray(spec.payload.endpoints), 'spec should expose endpoints');
   assert(spec.payload.endpoints.includes('GET /api/buff/fill/template'), 'spec should expose fill template endpoint');
   assert(spec.payload.formats?.writeProposalFormat?.shape?.includes('items is an array'), 'spec should warn about fill array format');
+  assert(Array.isArray(spec.payload.commands), 'spec should expose commands array');
+  const expectedCommands = [
+    'agent.logs', 'agent.sessions', 'agent.guide',
+    'buff.open', 'draft.rename',
+    'item.add', 'item.set', 'item.delete',
+    'effect.add', 'effect.set', 'effect.delete',
+    'operator.add', 'operator.show', 'operator.delete',
+  ];
+  for (const cmd of expectedCommands) {
+    assert(spec.payload.commands.includes(cmd), `spec should include ${cmd}`);
+  }
+  assert(spec.payload.commandUsage?.['effect.add']?.includes('type='), 'spec should include effect.add usage with key=value format');
+  assert(spec.payload.commandUsage?.['item.set']?.includes('name='), 'spec should include item.set usage with key=value format');
 
   const firstEvent = await readFirstSseEvent('/api/agent/events');
   assert(firstEvent.includes('event: agent.records'), 'SSE should emit agent.records');
@@ -134,6 +147,20 @@ try {
   });
   assert(show.status === 200, `draft.show status=${show.status}`);
   assert(show.payload.ok === true, 'draft.show should be ok');
+  assert(show.payload.data?.draft?.id, 'draft.show should return structured data.draft with id');
+
+  const fillTask = await request('POST', '/api/ai-cli/run', {
+    protocolVersion: 1,
+    requestId: 'rest-smoke-fill-task',
+    command: 'fill.task',
+  });
+  assert(fillTask.status === 200, `fill.task status=${fillTask.status}`);
+  assert(fillTask.payload.ok === true, 'fill.task should be ok');
+  assert(fillTask.payload.lines?.[0]?.includes('fill.task ready'), 'fill.task should return a short summary line');
+  assert(!fillTask.payload.lines?.[0]?.trim().startsWith('{'), 'fill.task should not put JSON in lines[0]');
+  assert(fillTask.payload.data?.tool === 'buff.fill', 'fill.task should return structured data.tool');
+  assert(fillTask.payload.data?.outputSchema, 'fill.task should return structured outputSchema');
+  assert(fillTask.payload.data?.modifierCatalog, 'fill.task should return structured modifierCatalog');
 
   const list = await request('POST', '/api/ai-cli/run', {
     protocolVersion: 1,
@@ -192,6 +219,7 @@ try {
   });
   assert(validCheck.status === 200, `valid check status=${validCheck.status}`);
   assert(validCheck.payload.ok === true, 'valid check should pass');
+  assert(validCheck.payload.effects?.writes === false, 'fill.check should have effects.writes === false');
 
   const apply = await request('POST', '/api/buff/fill/apply?client=web-cli', {
     protocolVersion: 1,
@@ -206,6 +234,15 @@ try {
   assert(libraryEntry.status === 200, `library entry status=${libraryEntry.status}`);
   assert(libraryEntry.payload.ok === true, 'library entry should be readable after apply');
   assert(libraryEntry.payload.draft?.id === 'ai-result', 'apply should upsert model draft id into library');
+
+  const unknownCmd = await request('POST', '/api/ai-cli/run', {
+    protocolVersion: 1,
+    requestId: 'rest-smoke-unknown-cmd',
+    command: 'nonexistent.command',
+  });
+  assert(unknownCmd.status === 400, `unknown command status=${unknownCmd.status}`);
+  assert(unknownCmd.payload.ok === false, 'unknown command should fail');
+  assert(unknownCmd.payload.error?.code === 'unknown-command', 'unknown command should return error.code "unknown-command"');
 
   const search = await request('POST', '/api/ai-cli/run', {
     protocolVersion: 1,

@@ -480,7 +480,7 @@ function parseAiFillResult(rawText: string, options?: { skipSanitize?: boolean }
 
 function buildTaskPackage(currentDraft: BuffDraft, sourceText: string) {
   const library = readBuffLibrary();
-  return JSON.stringify({
+  return {
     tool: 'buff.fill',
     protocolVersion: AI_CLI_PROTOCOL_VERSION,
     instruction: [
@@ -497,7 +497,13 @@ function buildTaskPackage(currentDraft: BuffDraft, sourceText: string) {
     outputSchema: createBuffFillAiDraftSchema(),
     systemPrompt: buffSheetAiSystemPromptRaw.trim(),
     modifierCatalog: buildBuffTypeCatalogPromptSection(),
-  });
+  };
+}
+
+function summarizeTaskPackage(currentDraft: BuffDraft) {
+  const itemCount = Object.keys(currentDraft.items || {}).length;
+  const effectCount = Object.values(currentDraft.items || {}).reduce((sum, item) => sum + Object.keys(item.effects || {}).length, 0);
+  return `fill.task ready: items=${itemCount} effects=${effectCount}, catalog=${BUFF_MODIFIER_TYPE_IDS.length} types`;
 }
 
 function makeResponse(partial: Omit<AiCliCommandResult, 'ok' | 'protocolVersion' | 'effects'> & {
@@ -562,7 +568,7 @@ function executeCommand(rawCommand: string, draft: BuffDraft, sourceText: string
             ['item', 'item.list | item.add | item.set | item.delete', 'CRUD buff items / 增删改查 Buff 分组'],
             ['effect', 'effect.list | effect.add | effect.set | effect.delete', 'CRUD modifier effects / 增删改查 Buff 效果'],
             ['fill', 'fill.source <text>', 'set source text for task package / 设置填表原文'],
-            ['fill', 'fill.task', 'print external-agent task package / 输出给智能体的任务包'],
+            ['fill', 'fill.task', 'return structured task package / 返回结构化任务包'],
             ['fill', 'fill.task.copy', 'copy task package to clipboard / 复制任务包'],
             ['fill', 'fill.check <json>', 'validate BuffFillAiDraft without writing / 只校验不写入'],
             ['fill', 'fill.apply <json>', 'validate and apply BuffFillAiDraft / 校验并应用填表结果'],
@@ -1042,11 +1048,16 @@ function executeCommand(rawCommand: string, draft: BuffDraft, sourceText: string
   }
 
   if (command === 'fill.task') {
-    return makeResponse({ lines: [buildTaskPackage(draft, sourceText)] });
+    const taskPackage = buildTaskPackage(draft, sourceText);
+    return makeResponse({
+      lines: [info(summarizeTaskPackage(draft))],
+      data: taskPackage,
+      copyText: JSON.stringify(taskPackage),
+    });
   }
 
   if (command === 'fill.task.copy') {
-    const payload = buildTaskPackage(draft, sourceText);
+    const payload = JSON.stringify(buildTaskPackage(draft, sourceText));
     return makeResponse({
       copyText: payload,
       lines: [ok(`task package copied: ${payload.length} chars`)],

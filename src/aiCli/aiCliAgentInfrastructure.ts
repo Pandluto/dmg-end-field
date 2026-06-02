@@ -2,6 +2,7 @@ import {
   type AiAgentClient,
   type AiAgentMessage,
   type AiAgentOperationLog,
+  type AiAgentPermissionError,
   type AiAgentPermissionProfile,
   type AiAgentSession,
 } from './aiCliAgentTypes';
@@ -88,9 +89,39 @@ export function createDefaultPermissionProfiles(): AiAgentPermissionProfile[] {
   ];
 }
 
-export function readPermissionProfiles() {
-  const profiles = readJsonStorage<AiAgentPermissionProfile[]>(AI_AGENT_PERMISSION_PROFILES_STORAGE_KEY, []);
-  return profiles.length ? profiles : createDefaultPermissionProfiles();
+// 系统保证 readonly-agent 拥有的基础读命令
+// 这些命令是 readonly 核心能力，不是一次性迁移，后续新增 readonly 命令也应加入
+const GUARANTEED_READONLY_COMMANDS = ['agent.logs', 'agent.sessions', 'agent.guide'];
+
+export function readPermissionProfiles(): AiAgentPermissionProfile[] {
+  const storedProfiles = readJsonStorage<AiAgentPermissionProfile[]>(AI_AGENT_PERMISSION_PROFILES_STORAGE_KEY, []);
+  const defaultProfiles = createDefaultPermissionProfiles();
+
+  if (!storedProfiles.length) {
+    return defaultProfiles;
+  }
+
+  // 自动补齐缺失的命令（系统保证的基础读命令）
+  // 只针对 readonly-agent，补齐 GUARANTEED_READONLY_COMMANDS 中的命令
+  const migratedProfiles = storedProfiles.map((stored) => {
+    if (stored.id !== 'readonly-agent') {
+      return stored;
+    }
+
+    const storedCommands = new Set(stored.allowedCommands);
+    const missingCommands = GUARANTEED_READONLY_COMMANDS.filter((cmd) => !storedCommands.has(cmd));
+
+    if (missingCommands.length === 0) {
+      return stored;
+    }
+
+    return {
+      ...stored,
+      allowedCommands: [...stored.allowedCommands, ...missingCommands],
+    };
+  });
+
+  return migratedProfiles;
 }
 
 export function findPermissionProfile(client: AiAgentClient) {
@@ -125,7 +156,7 @@ export function canRunCommand(profile: AiAgentPermissionProfile, commandName: st
   return profile.allowedCommands.includes(commandName);
 }
 
-export function assertPermission(profile: AiAgentPermissionProfile, commandName: string): import('./aiCliAgentTypes').AiAgentPermissionError | null {
+export function assertPermission(profile: AiAgentPermissionProfile, commandName: string): AiAgentPermissionError | null {
   if (!KNOWN_COMMANDS.has(commandName)) {
     return { code: 'unknown-command', message: `unknown command: ${commandName}` };
   }
