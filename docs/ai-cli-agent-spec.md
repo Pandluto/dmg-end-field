@@ -62,6 +62,42 @@ Responsibility split:
 
 The browser page is only one client of this bridge. REST and MCP should call the same TypeScript service.
 
+## Business Truth And Approval Loop
+
+The web app remains the business source of truth. An external agent may keep its own full cache, but that cache is only an agent workspace. It must not be treated as approved app state.
+
+The framework must separate three states:
+
+```text
+Agent cache/proposal  ->  Web working state  ->  Saved app truth
+        Wait/No/Yes          visible/editable       localStorage save
+```
+
+Rules:
+
+- Agent-generated changes first become a proposal, not a saved write.
+- The user must approve or reject the proposal before it is applied to the web working state.
+- Applying a proposal to the web working state is not the same as saving it.
+- The user must still save or cancel the approved working state before it becomes persisted app truth.
+- The same approval/save state machine applies to Buff, Operator, Weapon, and Equipment workflows.
+- Approval and save transitions are user actions. External agents may create and query proposals, but they must not self-approve or self-save by default.
+- Any CLI command or REST endpoint that advances `approval` or `save` must be treated as a user-confirmation entry point and must be gated by permissions/client trust.
+- `now-storage.json` and `now-storage-state.json` are local-data bridge artifacts. They are not the Agent CLI write-approval mechanism.
+
+Approval status:
+
+```text
+approval: Wait | Yes | No
+```
+
+Save status:
+
+```text
+save: Wait | Yes | No
+```
+
+External-agent responses and agent logs must expose both statuses. A command returning `ok:true` only means the request was accepted or processed; it does not imply `approval=Yes` or `save=Yes`.
+
 ## Implementation Language
 
 All first-party implementation code for this agent framework should be TypeScript.
@@ -137,6 +173,12 @@ interface AiAgentSession {
     currentOperatorId?: string;
     lastCommand?: string;
     lastValidationOk?: boolean;
+    pendingProposalId?: string;
+  };
+  state?: {
+    proposalId?: string;
+    approval?: 'Wait' | 'Yes' | 'No';
+    save?: 'Wait' | 'Yes' | 'No';
   };
 }
 
@@ -181,6 +223,9 @@ interface AiAgentOperationLog {
   durationMs?: number;
   writes: boolean;
   storage: string[];
+  approval?: 'Wait' | 'Yes' | 'No';
+  save?: 'Wait' | 'Yes' | 'No';
+  proposalId?: string;
   errorCode?: string;
   errorMessage?: string;
 }
@@ -192,6 +237,8 @@ Log rules:
 - Log whether validation passed.
 - Log whether the command wrote data.
 - Log touched storage keys.
+- Log proposal id when a command creates or resolves a pending proposal.
+- Log approval and save statuses for write-like workflows.
 - Do not log huge pasted JSON in full by default.
 - Store a short hash or character count for large payloads.
 - Logs should be exportable for debugging.
@@ -302,6 +349,13 @@ interface AiCliCommandResponse {
   effects: {
     writes: boolean;
     storage: string[];
+  };
+  proposal?: {
+    id: string;
+    domain: 'buff' | 'operator' | 'weapon' | 'equipment';
+    approval: 'Wait' | 'Yes' | 'No';
+    save: 'Wait' | 'Yes' | 'No';
+    nextAction?: string;
   };
 }
 ```
@@ -453,23 +507,33 @@ Expected behavior:
 - Return `[ok]` or `[err]`.
 - Write nothing.
 
-Apply:
+Apply/propose:
 
 ```text
 fill.apply <BuffFillAiDraft JSON>
 ```
 
-Expected behavior:
+Target framework behavior:
 
 - Run the same validation as `fill.check`.
 - If invalid, write nothing.
-- If valid, upsert the AI result as one `def.buff-editor.library.v1` entry.
-- Use the AI result `id` as the library key.
-- Also set `def.buff-editor.draft.v1` to the same entry so the web editor opens the written Buff.
-- Create one undo snapshot.
-- Return the changed item/effect count.
+- If valid, create a pending Buff proposal with `approval=Wait` and `save=Wait`.
+- Return `proposal.id`, `approval`, `save`, and the next required action.
+- Do not treat proposal creation as a saved write.
+- `Y` approves the proposal and applies it to the web working state.
+- `N` rejects the proposal and leaves app state unchanged.
+- `Y` / `N` must represent a user confirmation path. Do not let a readonly external agent complete approval or save transitions on its own.
+- After approval, saving is still a separate decision:
+  - Save `Y`: persist to app truth.
+  - Save `N`: keep/cancel without persisting according to the domain adapter.
 
-Storage touched by `fill.apply`:
+Current implementation note:
+
+- Current `fill.apply` already validates and writes `def.buff-editor.library.v1`, mirrors `def.buff-editor.draft.v1`, and creates an undo snapshot.
+- That behavior is useful as a smoke path, but it is not the final external-agent business closure.
+- The next framework step is to move external-agent writes behind proposal approval and save confirmation.
+
+Storage touched by current direct-write `fill.apply`:
 
 ```text
 def.buff-editor.draft.v1
@@ -558,13 +622,15 @@ Important format distinction:
 }
 ```
 
-`POST /api/buff/fill/apply` should use the same request body, but it may write after validation. A valid apply upserts `draft.id` into `def.buff-editor.library.v1` and then mirrors that entry into `def.buff-editor.draft.v1`.
+`POST /api/buff/fill/apply` should use the same request body. In the target external-agent framework, a valid apply creates a pending proposal first. Direct persistence is only allowed after app-side approval and save confirmation.
 
 REST rule:
 
 - REST endpoints must call the same validation and writer code as `/ai-cli`.
 - REST must not become a second implementation of Buff writing.
 - Agents should read `GET /api/buff/library` first. `GET /api/buff/current` is only active editor state.
+- External agents must not infer that `ok:true` means business persistence is complete. They must inspect `proposal.approval` and `proposal.save` when a command enters the approval flow.
+- REST proposal endpoints, if added, must distinguish query endpoints from user-confirmation endpoints. Query endpoints may be readonly; approval/save endpoints must not be available to default readonly agents.
 
 Current local development entry:
 

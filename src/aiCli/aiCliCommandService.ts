@@ -18,8 +18,10 @@ import {
   findPermissionProfile,
   overwriteSessionState,
   overwriteSessionSummary,
+  readAgentSession,
   readAgentSessions,
   readOperationLogs,
+  readPendingAgentProposals,
   updateSessionContext,
 } from './aiCliAgentInfrastructure';
 
@@ -522,6 +524,7 @@ function makeResponse(partial: Omit<AiCliCommandResult, 'ok' | 'protocolVersion'
     error: partial.error,
     copyText: partial.copyText,
     nextDraft: partial.nextDraft,
+    proposal: partial.proposal,
   };
 }
 
@@ -635,12 +638,14 @@ function executeCommand(rawCommand: string, draft: BuffDraft, sourceText: string
       log.client,
       log.ok ? 'ok' : 'err',
       log.writes ? 'write' : 'read',
+      log.approval || '-',
+      log.save || '-',
       log.command,
       log.errorCode || '-',
     ]);
     return makeResponse({
       lines: rows.length
-        ? table(['time', 'client', 'ok', 'effect', 'command', 'error'], rows)
+        ? table(['time', 'client', 'ok', 'effect', 'approval', 'save', 'command', 'error'], rows)
         : [info('no agent logs')],
     });
   }
@@ -725,18 +730,23 @@ function executeCommand(rawCommand: string, draft: BuffDraft, sourceText: string
 
   if (command === 'agent.sessions') {
     const limit = Math.max(1, Math.min(50, Number(args[0] || 10) || 10));
-    const rows = readAgentSessions().slice(0, limit).map((session) => [
-      formatDateTime(session.updatedAt),
-      session.client,
-      session.status,
-      session.summary || '-',
-      String(session.messages.length),
-      session.context.lastCommand || '-',
-      session.id,
-    ]);
+    const rows = readAgentSessions().slice(0, limit).map((session) => {
+      const state = session.state as { approval?: string; save?: string } | undefined;
+      return [
+        formatDateTime(session.updatedAt),
+        session.client,
+        session.status,
+        state?.approval || '-',
+        state?.save || '-',
+        session.summary || '-',
+        String(session.messages.length),
+        session.context.lastCommand || '-',
+        session.id,
+      ];
+    });
     return makeResponse({
       lines: rows.length
-        ? table(['updated', 'client', 'status', 'summary', 'messages', 'last', 'sessionId'], rows)
+        ? table(['updated', 'client', 'status', 'approval', 'save', 'summary', 'messages', 'last', 'sessionId'], rows)
         : [info('no agent sessions')],
     });
   }
@@ -1100,6 +1110,27 @@ function executeCommand(rawCommand: string, draft: BuffDraft, sourceText: string
     });
   }
 
+  if (command === 'proposal.list') {
+    const proposals = readPendingAgentProposals();
+    return makeResponse({
+      lines: proposals.length
+        ? table(
+            ['id', 'domain', 'operation', 'approval', 'save', 'client', 'updatedAt'],
+            proposals.map((p) => [
+              p.id,
+              p.domain,
+              p.operation,
+              p.approvalStatus,
+              p.saveStatus,
+              p.client,
+              formatDateTime(p.updatedAt),
+            ]),
+          )
+        : [info('no pending proposals')],
+      data: { proposals },
+    });
+  }
+
   if (command === 'fill.source') {
     return makeResponse({ lines: [info('source text is set by fill.source <text>')] });
   }
@@ -1170,7 +1201,8 @@ export function runAiCliCommand(
     lastValidationOk: response.ok,
   });
   overwriteSessionSummary(`${response.ok ? 'ok' : 'err'} ${commandName || 'empty'} · ${summarizeAiCliCommand(request.command)}`);
-  overwriteSessionState({
+  const existingState = readAgentSession()?.state ?? {};
+  const nextState: Record<string, unknown> = {
     currentWorkflow: 'buff.fill',
     currentDraftId: response.nextDraft?.id ?? draft.id,
     lastCommand: commandName,
@@ -1181,8 +1213,19 @@ export function runAiCliCommand(
     lastStorage: response.effects.storage,
     lastErrorCode: response.error?.code,
     updatedAt: Date.now(),
-  });
-  appendOperationLog({
+  };
+  if (response.proposal) {
+    nextState.proposalId = response.proposal.id;
+    nextState.approval = response.proposal.approval;
+    nextState.save = response.proposal.save;
+  } else {
+    nextState.proposalId = existingState.proposalId;
+    nextState.approval = existingState.approval;
+    nextState.save = existingState.save;
+  }
+  overwriteSessionState(nextState);
+
+  const logEntry: Parameters<typeof appendOperationLog>[0] = {
     requestId: request.requestId,
     sessionId,
     client: request.client,
@@ -1195,7 +1238,15 @@ export function runAiCliCommand(
     storage: response.effects.storage,
     errorCode: response.error?.code,
     errorMessage: response.error?.message,
-  });
+  };
+
+  if (response.proposal) {
+    logEntry.proposalId = response.proposal.id;
+    logEntry.approval = response.proposal.approval;
+    logEntry.save = response.proposal.save;
+  }
+
+  appendOperationLog(logEntry);
 
   return response;
 }

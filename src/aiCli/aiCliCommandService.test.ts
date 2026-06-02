@@ -1,4 +1,5 @@
 import { runAiCliCommand, createFallbackDraft } from './aiCliCommandService';
+import { overwriteSessionState, readAgentSession } from './aiCliAgentInfrastructure';
 
 function assertEqual(actual: unknown, expected: unknown, message: string): void {
   if (actual !== expected) {
@@ -16,6 +17,18 @@ function assertFalse(value: unknown, message: string): void {
   if (value) {
     throw new Error(`${message}: expected falsy, got ${value}`);
   }
+}
+
+// Mock localStorage for Node SSR test environment
+const storage = new Map<string, string>();
+if (typeof globalThis.window === 'undefined') {
+  (globalThis as unknown as Record<string, unknown>).window = {
+    localStorage: {
+      getItem: (key: string) => storage.get(key) ?? null,
+      setItem: (key: string, value: string) => storage.set(key, value),
+      removeItem: (key: string) => storage.delete(key),
+    },
+  };
 }
 
 const baseDraft = createFallbackDraft();
@@ -111,6 +124,32 @@ const baseDraft = createFallbackDraft();
   assertTrue(typeof result.copyText === 'string', 'fill.task web-cli should have copyText string');
   const parsed = JSON.parse(result.copyText!);
   assertEqual(parsed.tool, 'buff.fill', 'copyText should be parseable task package');
+}
+
+// 6. proposal.list 命令在空数据时返回 no pending proposals
+{
+  const result = runAiCliCommand(
+    { protocolVersion: 1, requestId: 'test-proposal-list-empty', client: 'rest', command: 'proposal.list' },
+    baseDraft,
+    { sourceText: '' }
+  );
+  assertEqual(result.ok, true, 'proposal.list should be ok');
+  assertTrue(result.lines.some((l) => l.includes('no pending proposals')), 'proposal.list empty should show info');
+}
+
+// 7. 普通读命令不抹掉 session 里的 proposal 状态（回归测试）
+{
+  overwriteSessionState({ proposalId: 'p1', approval: 'Wait', save: 'Wait', extra: 'keep' });
+  runAiCliCommand(
+    { protocolVersion: 1, requestId: 'test-session-preserve', client: 'rest', command: 'buff.list' },
+    baseDraft,
+    { sourceText: '' }
+  );
+  const session = readAgentSession();
+  const state = session?.state as Record<string, unknown> | undefined;
+  assertEqual(state?.proposalId, 'p1', 'session state should preserve proposalId after read command');
+  assertEqual(state?.approval, 'Wait', 'session state should preserve approval after read command');
+  assertEqual(state?.save, 'Wait', 'session state should preserve save after read command');
 }
 
 console.log('[ai-cli-command-service-test] passed');

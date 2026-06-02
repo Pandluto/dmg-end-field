@@ -109,3 +109,47 @@
   - [x] REST smoke 覆盖 `spec / buff.list / library / draft.show / fill.check / fill.apply`。
   - [x] 验证 invalid payload 不写入。
   - [x] 验证 valid payload 写入并生成 undo snapshot。
+
+- [x] Task 11: 建立 Agent Proposal 审批/保存框架
+  - [x] 定义 `AiAgentProposal` 类型：`id / domain / operation / payload / approvalStatus / saveStatus / client / sessionId / createdAt / updatedAt`。
+  - [x] domain 支持 `buff / operator / weapon / equipment`，不要把框架写成 Buff 专用。
+  - [x] 新增 proposal 存储 key，例如 `def.ai-agent.proposals.v1`。
+  - [x] 新增 proposal 读写 service：create / read pending / approve / reject / mark saved / mark unsaved。
+  - [x] `AiCliCommandResponse` 增加可选 `proposal` 字段，向外部 agent 返回 `approval` 和 `save` 状态。
+  - [x] `AiAgentOperationLog` 增加 `proposalId / approval / save` 字段。
+  - [x] `agent.logs` 和 `agent.sessions` 输出审批/保存状态。
+  - [x] Task 11 收尾：`AiAgentSession.context` 增加 `pendingProposalId`，用于 UI/会话快速定位当前待处理 proposal。
+  - [x] Task 11 收尾：将 `AiAgentSession.state` 中的 `proposalId / approval / save` 类型化，避免继续使用裸 `Record<string, unknown>` 承载关键闭环状态。
+  - [x] Task 11 收尾：`AiAgentProposal` 增加 `summary?: string`，让 `proposal.list` 能展示人类可读摘要。
+  - [x] Task 11 收尾：REST smoke 增加 `POST /api/ai-cli/run` + `proposal.list` 断言。
+
+- [ ] Task 12: 改造 Buff fill.apply 为 proposal-first
+  - [ ] 边界：审批和保存是用户动作，不是外部 agent 自批自存；agent 只能创建/查询 proposal，不能默认绕过用户确认。
+  - [ ] 边界：如新增 `proposal.approve/reject/save/unsave` CLI 命令或 REST 端点，必须标记为用户确认入口，并受权限/客户端约束。
+  - [ ] 边界：REST 端点不能让 readonly 外部 agent 直接推进 `approval/save` 状态。
+  - [ ] 保留 `fill.check` 纯校验不写入。
+  - [ ] 外部 agent 路径的 `fill.apply` 校验通过后创建 Buff proposal，初始 `approval=Wait / save=Wait`。
+  - [ ] `fill.apply` 响应返回 `proposal.id`、`approval=Wait`、`save=Wait`、`nextAction='reply Y/N to approve'`。
+  - [ ] `fill.apply` 不再把 `ok:true` 表述为业务已保存。
+  - [ ] Web CLI 支持对当前 pending proposal 输入 `Y` / `N`。
+  - [ ] `Y`：把 proposal 应用到 Web 工作态，记录 `approval=Yes / save=Wait`。
+  - [ ] `N`：拒绝 proposal，记录 `approval=No / save=No`。
+  - [ ] 审批通过后支持保存确认 `Y` / `N`。
+  - [ ] 保存 `Y`：写入 app 主真相 localStorage，记录 `save=Yes`。
+  - [ ] 保存 `N`：不写入 app 主真相，记录 `save=No`。
+
+- [ ] Task 13: 抽象横向 Domain Adapter
+  - [ ] 定义 `AgentProposalDomainAdapter` 接口。
+  - [ ] 接口包含 `validateProposal / summarizeProposal / applyToWorkingState / saveToLocalTruth / discardProposal`。
+  - [ ] 实现 `buff` adapter，复用现有 Buff validator、normalizer、undo 逻辑。
+  - [ ] 为 `operator / weapon / equipment` 预留 adapter 注册位，但不急于实现完整业务。
+  - [ ] 命令层只通过 adapter 调用领域能力，不直接分叉写四套审批逻辑。
+
+- [ ] Task 14: 验证 proposal 闭环
+  - [ ] 单测覆盖 create proposal：`approval=Wait / save=Wait`。
+  - [ ] 单测覆盖 approve Y：`approval=Yes / save=Wait`。
+  - [ ] 单测覆盖 reject N：`approval=No / save=No`。
+  - [ ] 单测覆盖 save Y：写入目标 storage，`save=Yes`。
+  - [ ] 单测覆盖 save N：不写入目标 storage，`save=No`。
+  - [ ] REST smoke 覆盖外部 agent `fill.apply` 不直接宣称保存完成。
+  - [ ] agent logs/sessions smoke 覆盖审批和保存状态字段。

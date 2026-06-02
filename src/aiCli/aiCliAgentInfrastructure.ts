@@ -4,6 +4,7 @@ import {
   type AiAgentOperationLog,
   type AiAgentPermissionError,
   type AiAgentPermissionProfile,
+  type AiAgentProposal,
   type AiAgentSession,
 } from './aiCliAgentTypes';
 
@@ -12,6 +13,7 @@ const AI_AGENT_ACTIVE_SESSION_ID_STORAGE_KEY = 'def.ai-agent.active-session-id.v
 const AI_AGENT_SESSION_STORAGE_KEY = 'def.ai-agent.session.v1';
 const AI_AGENT_OPERATION_LOGS_STORAGE_KEY = 'def.ai-agent.operation-logs.v1';
 const AI_AGENT_PERMISSION_PROFILES_STORAGE_KEY = 'def.ai-agent.permission-profiles.v1';
+const AI_AGENT_PROPOSALS_STORAGE_KEY = 'def.ai-agent.proposals.v1';
 const AI_AGENT_CONTEXT_MESSAGE_LIMIT = 80;
 
 export const KNOWN_COMMANDS = new Set([
@@ -26,6 +28,7 @@ export const KNOWN_COMMANDS = new Set([
   'item.list', 'item.add', 'item.set', 'item.delete',
   'effect.list', 'effect.add', 'effect.set', 'effect.delete',
   'fill.task', 'fill.task.copy', 'fill.check', 'fill.apply', 'fill.source',
+  'proposal.list',
 ]);
 
 function createId(prefix: string) {
@@ -57,7 +60,7 @@ export function createDefaultPermissionProfiles(): AiAgentPermissionProfile[] {
       id: 'readonly-agent',
       name: 'Readonly Agent',
       client: 'rest',
-      allowedCommands: ['help', '/help', 'purpose', '/purpose', 'spec', '/spec', 'route', 'buff.list', 'buff.show', 'buff.search', 'draft.show', 'item.list', 'effect.list', 'operator.show', 'fill.task', 'fill.task.copy', 'fill.check', 'fill.source', 'agent.logs', 'agent.sessions', 'agent.guide'],
+      allowedCommands: ['help', '/help', 'purpose', '/purpose', 'spec', '/spec', 'route', 'buff.list', 'buff.show', 'buff.search', 'draft.show', 'item.list', 'effect.list', 'operator.show', 'fill.task', 'fill.task.copy', 'fill.check', 'fill.source', 'agent.logs', 'agent.sessions', 'agent.guide', 'proposal.list'],
       allowedWorkflows: ['buff.fill'],
       canRead: true,
       canDryRun: true,
@@ -91,7 +94,7 @@ export function createDefaultPermissionProfiles(): AiAgentPermissionProfile[] {
 
 // 系统保证 readonly-agent 拥有的基础读命令
 // 这些命令是 readonly 核心能力，不是一次性迁移，后续新增 readonly 命令也应加入
-const GUARANTEED_READONLY_COMMANDS = ['agent.logs', 'agent.sessions', 'agent.guide', 'route', 'operator.show', 'fill.source'];
+const GUARANTEED_READONLY_COMMANDS = ['agent.logs', 'agent.sessions', 'agent.guide', 'route', 'operator.show', 'fill.source', 'proposal.list'];
 
 export function readPermissionProfiles(): AiAgentPermissionProfile[] {
   const storedProfiles = readJsonStorage<AiAgentPermissionProfile[]>(AI_AGENT_PERMISSION_PROFILES_STORAGE_KEY, []);
@@ -331,4 +334,81 @@ export function appendOperationLog(log: Omit<AiAgentOperationLog, 'id' | 'create
   };
   const existingLogs = readJsonStorage<AiAgentOperationLog[]>(AI_AGENT_OPERATION_LOGS_STORAGE_KEY, []);
   writeJsonStorage(AI_AGENT_OPERATION_LOGS_STORAGE_KEY, [...existingLogs, nextLog]);
+}
+
+// Proposal service
+
+export function createAgentProposal(params: Omit<AiAgentProposal, 'id' | 'createdAt' | 'updatedAt'>): AiAgentProposal {
+  const now = Date.now();
+  const proposal: AiAgentProposal = {
+    id: createId('proposal'),
+    createdAt: now,
+    updatedAt: now,
+    ...params,
+  };
+  const existing = readJsonStorage<AiAgentProposal[]>(AI_AGENT_PROPOSALS_STORAGE_KEY, []);
+  writeJsonStorage(AI_AGENT_PROPOSALS_STORAGE_KEY, [...existing, proposal]);
+  return proposal;
+}
+
+export function readAgentProposals(): AiAgentProposal[] {
+  return readJsonStorage<AiAgentProposal[]>(AI_AGENT_PROPOSALS_STORAGE_KEY, []);
+}
+
+export function readPendingAgentProposals(): AiAgentProposal[] {
+  return readAgentProposals().filter((p) => p.approvalStatus === 'Wait' || (p.approvalStatus === 'Yes' && p.saveStatus === 'Wait'));
+}
+
+export function readPendingAgentProposal(): AiAgentProposal | null {
+  const pending = readPendingAgentProposals();
+  return pending[pending.length - 1] ?? null;
+}
+
+function updateAgentProposal(id: string, patch: Partial<Omit<AiAgentProposal, 'id' | 'createdAt'>>): AiAgentProposal | null {
+  const existing = readAgentProposals();
+  const index = existing.findIndex((p) => p.id === id);
+  if (index < 0) {
+    return null;
+  }
+  const updated: AiAgentProposal = {
+    ...existing[index],
+    ...patch,
+    updatedAt: Date.now(),
+  };
+  const next = [...existing];
+  next[index] = updated;
+  writeJsonStorage(AI_AGENT_PROPOSALS_STORAGE_KEY, next);
+  return updated;
+}
+
+export function approveAgentProposal(id: string): AiAgentProposal | null {
+  const proposal = readAgentProposals().find((p) => p.id === id);
+  if (!proposal || proposal.approvalStatus !== 'Wait') {
+    return null;
+  }
+  return updateAgentProposal(id, { approvalStatus: 'Yes' });
+}
+
+export function rejectAgentProposal(id: string): AiAgentProposal | null {
+  const proposal = readAgentProposals().find((p) => p.id === id);
+  if (!proposal || proposal.approvalStatus !== 'Wait') {
+    return null;
+  }
+  return updateAgentProposal(id, { approvalStatus: 'No', saveStatus: 'No' });
+}
+
+export function markAgentProposalSaved(id: string): AiAgentProposal | null {
+  const proposal = readAgentProposals().find((p) => p.id === id);
+  if (!proposal || proposal.approvalStatus !== 'Yes' || proposal.saveStatus !== 'Wait') {
+    return null;
+  }
+  return updateAgentProposal(id, { saveStatus: 'Yes' });
+}
+
+export function markAgentProposalUnsaved(id: string): AiAgentProposal | null {
+  const proposal = readAgentProposals().find((p) => p.id === id);
+  if (!proposal || proposal.approvalStatus !== 'Yes' || proposal.saveStatus !== 'Wait') {
+    return null;
+  }
+  return updateAgentProposal(id, { saveStatus: 'No' });
 }

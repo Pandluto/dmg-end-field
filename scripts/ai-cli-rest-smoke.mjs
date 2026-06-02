@@ -290,6 +290,17 @@ try {
   assert(Array.isArray(records.payload.operationLogs), 'agent records should include logs');
   assert(Array.isArray(records.payload.sessions), 'agent records should include sessions');
 
+  const proposalList = await request('POST', '/api/ai-cli/run', {
+    protocolVersion: 1,
+    requestId: 'rest-smoke-proposal-list',
+    command: 'proposal.list',
+  });
+  assert(proposalList.status === 200, `proposal.list status=${proposalList.status}`);
+  assert(proposalList.payload.ok === true, 'proposal.list should be ok');
+  assert(Array.isArray(proposalList.payload.lines), 'proposal.list should return lines');
+  assert(proposalList.payload.lines.length >= 1, 'proposal.list lines should not be empty');
+  assert(Array.isArray(proposalList.payload.data?.proposals), 'proposal.list data.proposals should be an array');
+
   console.log('[ai-cli-rest-smoke] passed');
 } finally {
   server.kill();

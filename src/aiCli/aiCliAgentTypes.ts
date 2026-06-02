@@ -11,6 +11,32 @@ export interface AiCliCommandRequest {
   command: string;
 }
 
+export type AiAgentProposalStatus = 'Wait' | 'Yes' | 'No';
+
+export type AiAgentProposalDomain = 'buff' | 'operator' | 'weapon' | 'equipment';
+
+export interface AiAgentProposal {
+  id: string;
+  domain: AiAgentProposalDomain;
+  operation: string;
+  payload: unknown;
+  approvalStatus: AiAgentProposalStatus;
+  saveStatus: AiAgentProposalStatus;
+  client: AiAgentClient;
+  sessionId?: string;
+  summary?: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface AiCliCommandResponseProposal {
+  id: string;
+  domain: AiAgentProposalDomain;
+  approval: AiAgentProposalStatus;
+  save: AiAgentProposalStatus;
+  nextAction?: string;
+}
+
 export interface AiCliCommandResponse {
   ok: boolean;
   protocolVersion: typeof AI_CLI_PROTOCOL_VERSION;
@@ -27,6 +53,7 @@ export interface AiCliCommandResponse {
     storage: string[];
   };
   copyText?: string;
+  proposal?: AiCliCommandResponseProposal;
 }
 
 export interface AiAgentSession {
@@ -44,8 +71,14 @@ export interface AiAgentSession {
     currentOperatorId?: string;
     lastCommand?: string;
     lastValidationOk?: boolean;
+    pendingProposalId?: string;
   };
-  state?: Record<string, unknown>;
+  state?: {
+    proposalId?: string;
+    approval?: AiAgentProposalStatus;
+    save?: AiAgentProposalStatus;
+    [key: string]: unknown;
+  };
 }
 
 export interface AiAgentMessage {
@@ -69,6 +102,9 @@ export interface AiAgentOperationLog {
   durationMs?: number;
   writes: boolean;
   storage: string[];
+  proposalId?: string;
+  approval?: AiAgentProposalStatus;
+  save?: AiAgentProposalStatus;
   errorCode?: string;
   errorMessage?: string;
 }

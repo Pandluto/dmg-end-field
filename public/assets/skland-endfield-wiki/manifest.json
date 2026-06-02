@@ -1,0 +1,79 @@
+{
+  "targetUrl": "https://wiki.skland.com/endfield/c?header=0",
+  "crawledAt": "2026-06-02T13:32:38.071Z",
+  "count": 9,
+  "assets": [
+    {
+      "file": "public/assets/skland-endfield-wiki/audit-bg.png",
+      "bytes": 346719,
+      "sourcePath": "Audit/assets/bg.png",
+      "url": "https://bbs.hycdn.cn/skland-fe-static/skland-wiki2/images/bg.452da5.png",
+      "chunkId": 3288,
+      "chunkUrl": "https://bbs.hycdn.cn/skland-fe-static/skland-wiki2/3288.c383668f.js"
+    },
+    {
+      "file": "public/assets/skland-endfield-wiki/bg.png",
+      "bytes": 75363,
+      "sourcePath": "endfield/detail/assets/bg.png",
+      "url": "https://bbs.hycdn.cn/skland-fe-static/skland-wiki2/images/bg.869358.png",
+      "chunkId": 2683,
+      "chunkUrl": "https://bbs.hycdn.cn/skland-fe-static/skland-wiki2/2683.1e427cba.js"
+    },
+    {
+      "file": "public/assets/skland-endfield-wiki/loading-logo-en.png",
+      "bytes": 151344,
+      "sourcePath": "Endfield/assets/loading-logo-en.png",
+      "url": "https://bbs.hycdn.cn/skland-fe-static/skland-wiki2/images/loading-logo-en.4b2303.png",
+      "chunkId": 7021,
+      "chunkUrl": "https://bbs.hycdn.cn/skland-fe-static/skland-wiki2/7021.f907db1b.js"
+    },
+    {
+      "file": "public/assets/skland-endfield-wiki/mobileBg.png",
+      "bytes": 46066,
+      "sourcePath": "endfield/home/assets/mobileBg.png",
+      "url": "https://bbs.hycdn.cn/skland-fe-static/skland-wiki2/images/mobileBg.efa1b6.png",
+      "chunkId": 8103,
+      "chunkUrl": "https://bbs.hycdn.cn/skland-fe-static/skland-wiki2/8103.58eca3c0.js"
+    },
+    {
+      "file": "public/assets/skland-endfield-wiki/runtime-bg.08c7f0.png",
+      "bytes": 697435,
+      "sourcePath": "runtime-detected",
+      "url": "https://bbs.hycdn.cn/skland-fe-static/skland-wiki2/images/bg.08c7f0.png",
+      "chunkId": null,
+      "chunkUrl": null
+    },
+    {
+      "file": "public/assets/skland-endfield-wiki/runtime-ef-name-white.png",
+      "bytes": 5192,
+      "sourcePath": "runtime-detected",
+      "url": "https://assets.skland.com/assets/logo/name/ef-name-white.png",
+      "chunkId": null,
+      "chunkUrl": null
+    },
+    {
+      "file": "public/assets/skland-endfield-wiki/runtime-header_bg_logo.3c0fb7a48927275e7f6c.png",
+      "bytes": 11587,
+      "sourcePath": "runtime-detected",
+      "url": "https://web.hycdn.cn/hg_web_sdk/lib/assets/header_bg_logo.3c0fb7a48927275e7f6c.png",
+      "chunkId": null,
+      "chunkUrl": null
+    },
+    {
+      "file": "public/assets/skland-endfield-wiki/runtime-loading-logo-cn.c87021.png",
+      "bytes": 141592,
+      "sourcePath": "runtime-detected",
+      "url": "https://bbs.hycdn.cn/skland-fe-static/skland-wiki2/images/loading-logo-cn.c87021.png",
+      "chunkId": null,
+      "chunkUrl": null
+    },
+    {
+      "file": "public/assets/skland-endfield-wiki/runtime-loadingBg.27323a.png",
+      "bytes": 1181235,
+      "sourcePath": "runtime-detected",
+      "url": "https://bbs.hycdn.cn/skland-fe-static/skland-wiki2/images/loadingBg.27323a.png",
+      "chunkId": null,
+      "chunkUrl": null
+    }
+  ]
+}
