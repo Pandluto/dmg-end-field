@@ -15,7 +15,7 @@ import {
   recomputeSkillButtonPanel,
   addSkillButtonBuff,
 } from '../../hooks/useSkillButtonBuffs';
-import { HitResistanceInput, SkillButtonBuff, SkillLevelMode } from '../../types/storage';
+import { AnomalyStateSnapshot, HitResistanceInput, SkillButtonBuff, SkillLevelMode } from '../../types/storage';
 import { getCharacterConfig } from '../../utils/storage';
 import { getCharacterComputedCache } from '../../core/repositories/operatorConfigRepository';
 import { getSkillButtonById, upsertSkillButton } from '../../core/repositories';
@@ -59,6 +59,33 @@ const EMPTY_TARGET_RESISTANCE: Required<HitResistanceInput> = {
   iceResistance: 0,
   natureResistance: 0,
 };
+
+function formatAnomalyStateSnapshotValue(snapshot: AnomalyStateSnapshot): string {
+  if (snapshot.key === 'corrosion') {
+    return `${(snapshot.currentCorrosion ?? snapshot.effectValue).toFixed(2)}点`;
+  }
+  return `${(snapshot.effectValue * 100).toFixed(1)}%`;
+}
+
+function formatAnomalyStateSnapshotField(snapshot: AnomalyStateSnapshot): string {
+  switch (snapshot.key) {
+    case 'conductive':
+      return '法术易伤';
+    case 'armor-break':
+      return '物伤易伤';
+    case 'corrosion':
+      return '全属性降抗';
+    default:
+      return '快照';
+  }
+}
+
+function formatAnomalyStateSnapshotName(snapshot: AnomalyStateSnapshot): string {
+  const secondsText = snapshot.key === 'corrosion' && typeof snapshot.durationSeconds === 'number'
+    ? `+${snapshot.durationSeconds.toFixed(0)}s`
+    : '';
+  return `${snapshot.label} Lv${snapshot.level}${secondsText} ${formatAnomalyStateSnapshotValue(snapshot)} (${formatAnomalyStateSnapshotField(snapshot)})`;
+}
 
 interface SkillButtonProps {
   button: SkillButtonType & { nodeNumber?: number };
@@ -458,6 +485,10 @@ export function SkillButtonComponent({
   );
   const extraHitBuffList = useMemo(
     () => buffList.filter(isExtraHitBuff),
+    [buffList]
+  );
+  const usedLocalBuffList = useMemo(
+    () => buffList.filter((buff) => buff.source !== 'anomaly_state'),
     [buffList]
   );
   const {
@@ -1009,11 +1040,11 @@ export function SkillButtonComponent({
           {isLocalBuffSearchOpen ? (
             <div className="skill-button-inline-buff-search-mask" onClick={closeLocalBuffSearch}>
               <div
-                className={`skill-button-inline-buff-search${buffSearchMode === 'anomaly' || buffSearchMode === 'anomaly-state' ? ' is-anomaly-mode' : ''}`}
+                className="skill-button-inline-buff-search is-workbench-mode"
                 onClick={(event) => event.stopPropagation()}
               >
                 <div className="skill-button-inline-buff-search-head">
-                <h5>{buffSearchMode === 'local' ? '本地 Buff' : buffSearchMode === 'anomaly' ? '异常伤害' : buffSearchMode === 'anomaly-state' ? '异常状态区' : '状态区'}</h5>
+                  <h5>{buffSearchMode === 'local' ? '本地 Buff' : buffSearchMode === 'anomaly' ? '异常伤害' : buffSearchMode === 'anomaly-state' ? '异常状态区' : '状态区'}</h5>
                   <span>Tab 切换入口 / Esc 关闭</span>
                 </div>
                 <div className="skill-button-inline-buff-search-modes">
@@ -1046,96 +1077,161 @@ export function SkillButtonComponent({
                     状态区
                   </button>
                 </div>
-                {buffSearchMode === 'anomaly' ? (
-                  <SkillButtonAnomalyPanel
-                    activeAnomaly={activeAnomaly}
-                    activeAnomalyGroup={activeAnomalyGroup}
-                    activeAnomalyLevel={activeAnomalyLevel}
-                    activeAnomalyPreview={activeAnomalyPreview}
-                    activeSourceCharacter={activeSourceCharacter}
-                    sourceCharacters={sourceCharacters}
-                    selectedAnomalyDamages={selectedAnomalyDamages}
-                    activeDurationSeconds={activeDurationSeconds}
-                    burnDamageMode={burnDamageMode}
-                    onSetActiveAnomalyGroup={setActiveAnomalyGroup}
-                    onResetActiveAnomalyKey={() => setActiveAnomalyKey(null)}
-                    onSelectAnomaly={handleSelectAnomaly}
-                    onApplyActiveAnomaly={handleApplyActiveAnomaly}
-                    onSetActiveAnomalyLevel={setActiveAnomalyLevel}
-                    onSetActiveAnomalySourceId={setActiveAnomalySourceId}
-                    onSetBurnDamageMode={setBurnDamageMode}
-                    onSetActiveDurationSeconds={setActiveDurationSeconds}
-                    onRemoveAnomalyCard={removeAnomalyCard}
-                  />
-                ) : buffSearchMode === 'anomaly-state' ? (
-                  <SkillButtonAnomalyStatePanel
-                    activeAnomalyStateOption={activeAnomalyStateOption}
-                    activeAnomalyStateLevel={activeAnomalyStateLevel}
-                    activeAnomalyStateDurationSeconds={activeAnomalyStateDurationSeconds}
-                    activeAnomalyStatePreview={activeAnomalyStatePreview}
-                    activeAnomalyStateSourceCharacter={activeAnomalyStateSourceCharacter}
-                    sourceCharacters={sourceCharacters}
-                    selectedAnomalyStateSnapshots={selectedAnomalyStateSnapshots}
-                    availableAnomalyStateSnapshots={availableAnomalyStateSnapshots}
-                    anomalyStateSnapshotUsageCounts={anomalyStateSnapshotUsageCounts}
-                    onSelectAnomalyState={handleSelectAnomalyState}
-                    onCreateSnapshot={handleCreateAnomalyStateSnapshot}
-                    onSetActiveAnomalyStateLevel={setActiveAnomalyStateLevel}
-                    onSetActiveAnomalyStateSourceId={setActiveAnomalyStateSourceId}
-                    onSetActiveAnomalyStateDurationSeconds={setActiveAnomalyStateDurationSeconds}
-                    onRemoveAnomalyStateSnapshotCard={removeAnomalyStateSnapshotCard}
-                    onAttachAnomalyStateSnapshotCard={attachAnomalyStateSnapshotCard}
-                    onDeleteAnomalyStateSnapshotCard={deleteAnomalyStateSnapshotCard}
-                  />
-                ) : buffSearchMode === 'state' ? (
-                  <SkillButtonStatePanel
-                    activeAnomaly={activeAnomaly}
-                    activeAnomalyLevel={activeAnomalyLevel}
-                    activeAnomalyPreview={activeAnomalyPreview}
-                    selectedStatusCards={selectedStatusCards}
-                    onSelectAnomaly={handleSelectAnomaly}
-                    onApplyActiveAnomaly={handleApplyActiveAnomaly}
-                    onSetActiveAnomalyLevel={setActiveAnomalyLevel}
-                    onRemoveAnomalyCard={removeAnomalyCard}
-                  />
-                ) : (
-                  <>
-                    <input
-                      ref={localBuffSearchInputRef}
-                      className="skill-button-inline-buff-search-input"
-                      value={localBuffSearchKeyword}
-                      onChange={(event) => setLocalBuffSearchKeyword(event.target.value)}
-                      placeholder="搜索组 / 项 / Buff / 类型 / 条件"
-                    />
-                    <div className="skill-button-inline-buff-search-results">
-                      {localBuffSearchKeyword.trim().length === 0 ? (
-                        <div className="skill-button-inline-buff-search-empty">
-                          输入关键词后再显示本地 Buff 结果
-                        </div>
-                      ) : localBuffSearchResults.length > 0 ? (
-                        localBuffSearchResults.map((entry) => (
-                          <button
-                            key={entry.key}
-                            type="button"
-                            className="skill-button-inline-buff-search-item"
-                            onClick={() => handleApplyLocalBuffSearchResult(entry)}
-                          >
-                            <div className="local-buff-search-item-head">
-                              <strong>{entry.displayName}</strong>
-                              <span>{entry.type || '暂无'}</span>
+                <div className="skill-button-buff-workbench">
+                  <div className="skill-button-buff-workbench-main">
+                    {buffSearchMode === 'anomaly' ? (
+                      <SkillButtonAnomalyPanel
+                        activeAnomaly={activeAnomaly}
+                        activeAnomalyGroup={activeAnomalyGroup}
+                        activeAnomalyLevel={activeAnomalyLevel}
+                        activeAnomalyPreview={activeAnomalyPreview}
+                        activeSourceCharacter={activeSourceCharacter}
+                        sourceCharacters={sourceCharacters}
+                        selectedAnomalyDamages={selectedAnomalyDamages}
+                        activeDurationSeconds={activeDurationSeconds}
+                        burnDamageMode={burnDamageMode}
+                        onSetActiveAnomalyGroup={setActiveAnomalyGroup}
+                        onResetActiveAnomalyKey={() => setActiveAnomalyKey(null)}
+                        onSelectAnomaly={handleSelectAnomaly}
+                        onApplyActiveAnomaly={handleApplyActiveAnomaly}
+                        onSetActiveAnomalyLevel={setActiveAnomalyLevel}
+                        onSetActiveAnomalySourceId={setActiveAnomalySourceId}
+                        onSetBurnDamageMode={setBurnDamageMode}
+                        onSetActiveDurationSeconds={setActiveDurationSeconds}
+                        onRemoveAnomalyCard={removeAnomalyCard}
+                      />
+                    ) : buffSearchMode === 'anomaly-state' ? (
+                      <SkillButtonAnomalyStatePanel
+                        activeAnomalyStateOption={activeAnomalyStateOption}
+                        activeAnomalyStateLevel={activeAnomalyStateLevel}
+                        activeAnomalyStateDurationSeconds={activeAnomalyStateDurationSeconds}
+                        activeAnomalyStatePreview={activeAnomalyStatePreview}
+                        activeAnomalyStateSourceCharacter={activeAnomalyStateSourceCharacter}
+                        sourceCharacters={sourceCharacters}
+                        selectedAnomalyStateSnapshots={selectedAnomalyStateSnapshots}
+                        onSelectAnomalyState={handleSelectAnomalyState}
+                        onCreateSnapshot={handleCreateAnomalyStateSnapshot}
+                        onSetActiveAnomalyStateLevel={setActiveAnomalyStateLevel}
+                        onSetActiveAnomalyStateSourceId={setActiveAnomalyStateSourceId}
+                        onSetActiveAnomalyStateDurationSeconds={setActiveAnomalyStateDurationSeconds}
+                        onRemoveAnomalyStateSnapshotCard={removeAnomalyStateSnapshotCard}
+                      />
+                    ) : buffSearchMode === 'state' ? (
+                      <SkillButtonStatePanel
+                        activeAnomaly={activeAnomaly}
+                        activeAnomalyLevel={activeAnomalyLevel}
+                        activeAnomalyPreview={activeAnomalyPreview}
+                        selectedStatusCards={selectedStatusCards}
+                        onSelectAnomaly={handleSelectAnomaly}
+                        onApplyActiveAnomaly={handleApplyActiveAnomaly}
+                        onSetActiveAnomalyLevel={setActiveAnomalyLevel}
+                        onRemoveAnomalyCard={removeAnomalyCard}
+                      />
+                    ) : (
+                      <div className="skill-button-local-buff-panel">
+                        <input
+                          ref={localBuffSearchInputRef}
+                          className="skill-button-inline-buff-search-input"
+                          value={localBuffSearchKeyword}
+                          onChange={(event) => setLocalBuffSearchKeyword(event.target.value)}
+                          placeholder="搜索组 / 项 / Buff / 类型 / 条件"
+                        />
+                        <div className="skill-button-inline-buff-search-results">
+                          {localBuffSearchKeyword.trim().length === 0 ? (
+                            <div className="skill-button-inline-buff-search-empty">
+                              输入关键词后再显示本地 Buff 结果
                             </div>
-                            <p>{entry.groupName}{entry.itemName ? ` / ${entry.itemName}` : ''}</p>
-                            <p>数值: {entry.value ?? '-'}{entry.condition ? ` / ${entry.condition}` : ''}</p>
-                          </button>
-                        ))
-                      ) : (
-                        <div className="skill-button-inline-buff-search-empty">
-                          没有匹配到本地 Buff
+                          ) : localBuffSearchResults.length > 0 ? (
+                            localBuffSearchResults.map((entry) => (
+                              <button
+                                key={entry.key}
+                                type="button"
+                                className="skill-button-inline-buff-search-item"
+                                onClick={() => handleApplyLocalBuffSearchResult(entry)}
+                              >
+                                <div className="local-buff-search-item-head">
+                                  <strong>{entry.displayName}</strong>
+                                  <span>{entry.type || '暂无'}</span>
+                                </div>
+                                <p>{entry.groupName}{entry.itemName ? ` / ${entry.itemName}` : ''}</p>
+                                <p>数值: {entry.value ?? '-'}{entry.condition ? ` / ${entry.condition}` : ''}</p>
+                              </button>
+                            ))
+                          ) : (
+                            <div className="skill-button-inline-buff-search-empty">
+                              没有匹配到本地 Buff
+                            </div>
+                          )}
                         </div>
-                      )}
+                      </div>
+                    )}
+                  </div>
+
+                  <aside className="skill-button-buff-resource-rail">
+                    <div className="skill-anomaly-board skill-anomaly-cache-board">
+                      <div className="skill-anomaly-board-section">
+                        <p className="skill-anomaly-board-title">
+                          {buffSearchMode === 'local' ? '曾用 Buff' : buffSearchMode === 'anomaly-state' ? '缓存快照' : '资源栏'}
+                        </p>
+                        <div className="skill-anomaly-board-list skill-anomaly-cache-list">
+                          {buffSearchMode === 'local' ? (
+                            usedLocalBuffList.length === 0 ? (
+                              <div className="skill-button-buff-empty">暂无曾用 Buff</div>
+                            ) : (
+                              usedLocalBuffList.map((buff) => (
+                                <div
+                                  key={`used-buff-${buff.id}`}
+                                  className="anomaly-board-card"
+                                  onClick={() => removeBuff(buff.id)}
+                                  title="单击从当前按钮移除"
+                                >
+                                  <span className="anomaly-board-card-title">{buff.displayName || buff.name}</span>
+                                  <span>{buff.sourceName || buff.source || '未知来源'}</span>
+                                  <span>{buff.type || '暂无'}{buff.value !== undefined ? ` · ${buff.value}` : ''}</span>
+                                </div>
+                              ))
+                            )
+                          ) : buffSearchMode === 'anomaly-state' ? (
+                            availableAnomalyStateSnapshots.length === 0 ? (
+                              <div className="skill-button-buff-empty">暂无缓存快照</div>
+                            ) : (
+                            availableAnomalyStateSnapshots.map((snapshot) => {
+                              const usageCount = anomalyStateSnapshotUsageCounts.get(snapshot.id) ?? 0;
+                              return (
+                                <div
+                                  key={`available-${snapshot.id}`}
+                                  className="anomaly-board-card is-state"
+                                  onClick={() => attachAnomalyStateSnapshotCard(snapshot.id)}
+                                  title="单击挂载到当前角色"
+                                >
+                                  <div className="anomaly-board-card-topline">
+                                    <span className="anomaly-board-card-title">{formatAnomalyStateSnapshotName(snapshot)}</span>
+                                    <button
+                                      type="button"
+                                      className="anomaly-board-card-delete-btn"
+                                      onClick={(event) => {
+                                        event.stopPropagation();
+                                        deleteAnomalyStateSnapshotCard(snapshot.id);
+                                      }}
+                                      disabled={usageCount > 0}
+                                      title={usageCount > 0 ? '该快照仍被界面中的项目引用，无法删除' : '删除缓存快照'}
+                                    >
+                                      删除
+                                    </button>
+                                  </div>
+                                  <span>{snapshot.sourceCharacterName}</span>
+                                </div>
+                              );
+                            })
+                            )
+                          ) : (
+                            <div className="skill-button-buff-empty">当前页不需要右侧资源</div>
+                          )}
+                        </div>
+                      </div>
                     </div>
-                  </>
-                )}
+                  </aside>
+                </div>
               </div>
             </div>
           ) : null}

@@ -2329,16 +2329,12 @@ export function DamageSheetPage() {
                   activeAnomalyStateSourceCharacter={anomalyState.activeAnomalyStateSourceCharacter}
                   sourceCharacters={anomalyState.sourceCharacters}
                   selectedAnomalyStateSnapshots={anomalyState.selectedAnomalyStateSnapshots}
-                  availableAnomalyStateSnapshots={anomalyState.availableAnomalyStateSnapshots}
-                  anomalyStateSnapshotUsageCounts={anomalyState.anomalyStateSnapshotUsageCounts}
                   onSelectAnomalyState={anomalyState.handleSelectAnomalyState}
                   onCreateSnapshot={() => withUndo(`创建异常快照 · ${selectedPersistedButton.skillDisplayName ?? selectedPersistedButton.skillType}`, anomalyState.handleCreateAnomalyStateSnapshot)}
                   onSetActiveAnomalyStateLevel={anomalyState.setActiveAnomalyStateLevel}
                   onSetActiveAnomalyStateSourceId={anomalyState.setActiveAnomalyStateSourceId}
                   onSetActiveAnomalyStateDurationSeconds={anomalyState.setActiveAnomalyStateDurationSeconds}
                   onRemoveAnomalyStateSnapshotCard={(snapshotId) => withUndo(`卸载异常快照 · ${selectedPersistedButton.skillDisplayName ?? selectedPersistedButton.skillType}`, () => anomalyState.removeAnomalyStateSnapshotCard(snapshotId))}
-                  onAttachAnomalyStateSnapshotCard={(snapshotId) => withUndo(`挂载异常快照 · ${selectedPersistedButton.skillDisplayName ?? selectedPersistedButton.skillType}`, () => anomalyState.attachAnomalyStateSnapshotCard(snapshotId))}
-                  onDeleteAnomalyStateSnapshotCard={(snapshotId) => withUndo(`删除异常快照 · ${selectedPersistedButton.skillDisplayName ?? selectedPersistedButton.skillType}`, () => anomalyState.deleteAnomalyStateSnapshotCard(snapshotId))}
                 />
               </div>
             ) : (

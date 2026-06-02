@@ -243,16 +243,12 @@ interface SkillButtonAnomalyStatePanelProps {
   activeAnomalyStateSourceCharacter: CharacterRef | null;
   sourceCharacters: CharacterRef[];
   selectedAnomalyStateSnapshots: AnomalyStateSnapshot[];
-  availableAnomalyStateSnapshots: AnomalyStateSnapshot[];
-  anomalyStateSnapshotUsageCounts: Map<number, number>;
   onSelectAnomalyState: (key: 'conductive' | 'corrosion' | 'armor-break') => void;
   onCreateSnapshot: () => void;
   onSetActiveAnomalyStateLevel: (level: number) => void;
   onSetActiveAnomalyStateSourceId: (id: string) => void;
   onSetActiveAnomalyStateDurationSeconds: (seconds: number) => void;
   onRemoveAnomalyStateSnapshotCard: (snapshotId: number) => void;
-  onAttachAnomalyStateSnapshotCard: (snapshotId: number) => void;
-  onDeleteAnomalyStateSnapshotCard: (snapshotId: number) => void;
 }
 
 export function SkillButtonAnomalyStatePanel({
@@ -263,165 +259,117 @@ export function SkillButtonAnomalyStatePanel({
   activeAnomalyStateSourceCharacter,
   sourceCharacters,
   selectedAnomalyStateSnapshots,
-  availableAnomalyStateSnapshots,
-  anomalyStateSnapshotUsageCounts,
   onSelectAnomalyState,
   onCreateSnapshot,
   onSetActiveAnomalyStateLevel,
   onSetActiveAnomalyStateSourceId,
   onSetActiveAnomalyStateDurationSeconds,
   onRemoveAnomalyStateSnapshotCard,
-  onAttachAnomalyStateSnapshotCard,
-  onDeleteAnomalyStateSnapshotCard,
 }: SkillButtonAnomalyStatePanelProps) {
   return (
-    <div className="modal-content skill-anomaly-layout skill-anomaly-state-layout">
-      <div className="skill-anomaly-state-main">
-        <div className="skill-anomaly-tree">
-          <div className="anomaly-status-section">
-            <p className="skill-anomaly-board-title">异常状态区</p>
-            <div className="anomaly-button-strip">
-              {ANOMALY_STATE_OPTIONS.map((option) => (
-                <button
-                  key={option.key}
-                  className={`anomaly-strip-button${activeAnomalyStateOption?.key === option.key ? ' is-active' : ''}`}
-                  onClick={() => onSelectAnomalyState(option.key)}
-                >
-                  <span>{option.label}</span>
-                </button>
-              ))}
-            </div>
+    <div className="modal-content skill-anomaly-layout">
+      <div className="skill-anomaly-tree">
+        <div className="anomaly-status-section">
+          <p className="skill-anomaly-board-title">异常状态区</p>
+          <div className="anomaly-button-strip">
+            {ANOMALY_STATE_OPTIONS.map((option) => (
+              <button
+                key={option.key}
+                className={`anomaly-strip-button${activeAnomalyStateOption?.key === option.key ? ' is-active' : ''}`}
+                onClick={() => onSelectAnomalyState(option.key)}
+              >
+                <span>{option.label}</span>
+              </button>
+            ))}
           </div>
+        </div>
 
-          {activeAnomalyStateOption ? (
-            <div className="anomaly-inline-panel">
-              <div className="anomaly-inline-panel-head">
-                <div>
-                  <p className="anomaly-config-title">{activeAnomalyStateOption.label}</p>
-                  <p className="anomaly-config-subtitle">异常状态快照 Buff</p>
-                </div>
-                <button className="anomaly-apply-btn" onClick={onCreateSnapshot}>创建快照</button>
+        {activeAnomalyStateOption ? (
+          <div className="anomaly-inline-panel">
+            <div className="anomaly-inline-panel-head">
+              <div>
+                <p className="anomaly-config-title">{activeAnomalyStateOption.label}</p>
+                <p className="anomaly-config-subtitle">异常状态快照 Buff</p>
               </div>
-
-              <div className="anomaly-inline-control-grid">
-                <AnomalyDropdownField
-                  dropdownKey={`${activeAnomalyStateOption.key}-snapshot-level`}
-                  label="异常等级"
-                  valueLabel={`${activeAnomalyStateLevel} 层`}
-                  options={activeAnomalyStateOption.levelOptions.map((level) => ({ value: level, label: `${level} 层` }))}
-                  onSelect={(value) => onSetActiveAnomalyStateLevel(Number(value))}
-                />
-                <AnomalyDropdownField
-                  dropdownKey={`${activeAnomalyStateOption.key}-snapshot-source`}
-                  label="来源角色"
-                  valueLabel={activeAnomalyStateSourceCharacter?.name ?? '未选择'}
-                  options={sourceCharacters.map((character) => ({ value: character.id, label: character.name }))}
-                  onSelect={(value) => onSetActiveAnomalyStateSourceId(String(value))}
-                />
-                {activeAnomalyStateOption.supportsDuration ? (
-                  <AnomalyDropdownField
-                    dropdownKey={`${activeAnomalyStateOption.key}-snapshot-duration`}
-                    label={activeAnomalyStateOption.key === 'corrosion' ? '当前秒数' : '持续时间'}
-                    valueLabel={`${activeAnomalyStateDurationSeconds || 0}s`}
-                    options={(activeAnomalyStateOption.key === 'corrosion'
-                      ? Array.from({ length: 16 }, (_, index) => index)
-                      : getAnomalyDurationOptions({ ...activeAnomalyStateOption, kind: 'state', supportsSource: true } as AnomalyOption)
-                    ).map((seconds) => ({
-                      value: seconds,
-                      label: `${seconds}s`,
-                    }))}
-                    onSelect={(value) => onSetActiveAnomalyStateDurationSeconds(Number(value))}
-                  />
-                ) : null}
-              </div>
-
-              <div className="anomaly-live-preview">
-                {activeAnomalyStatePreview ? (
-                  activeAnomalyStatePreview.lines.map((line) => (
-                    <p key={line} className="anomaly-live-line">{line}</p>
-                  ))
-                ) : (
-                  <p className="anomaly-live-line">请选择异常状态项</p>
-                )}
-              </div>
+              <button className="anomaly-apply-btn" onClick={onCreateSnapshot}>创建快照</button>
             </div>
-          ) : (
+
+            <div className="anomaly-inline-control-grid">
+              <AnomalyDropdownField
+                dropdownKey={`${activeAnomalyStateOption.key}-snapshot-level`}
+                label="异常等级"
+                valueLabel={`${activeAnomalyStateLevel} 层`}
+                options={activeAnomalyStateOption.levelOptions.map((level) => ({ value: level, label: `${level} 层` }))}
+                onSelect={(value) => onSetActiveAnomalyStateLevel(Number(value))}
+              />
+              <AnomalyDropdownField
+                dropdownKey={`${activeAnomalyStateOption.key}-snapshot-source`}
+                label="来源角色"
+                valueLabel={activeAnomalyStateSourceCharacter?.name ?? '未选择'}
+                options={sourceCharacters.map((character) => ({ value: character.id, label: character.name }))}
+                onSelect={(value) => onSetActiveAnomalyStateSourceId(String(value))}
+              />
+              {activeAnomalyStateOption.supportsDuration ? (
+                <AnomalyDropdownField
+                  dropdownKey={`${activeAnomalyStateOption.key}-snapshot-duration`}
+                  label={activeAnomalyStateOption.key === 'corrosion' ? '当前秒数' : '持续时间'}
+                  valueLabel={`${activeAnomalyStateDurationSeconds || 0}s`}
+                  options={(activeAnomalyStateOption.key === 'corrosion'
+                    ? Array.from({ length: 16 }, (_, index) => index)
+                    : getAnomalyDurationOptions({ ...activeAnomalyStateOption, kind: 'state', supportsSource: true } as AnomalyOption)
+                  ).map((seconds) => ({
+                    value: seconds,
+                    label: `${seconds}s`,
+                  }))}
+                  onSelect={(value) => onSetActiveAnomalyStateDurationSeconds(Number(value))}
+                />
+              ) : null}
+            </div>
+
             <div className="anomaly-live-preview">
-              <p className="anomaly-live-line">请选择异常状态项</p>
-            </div>
-          )}
-        </div>
-
-        <div className="skill-anomaly-config skill-anomaly-state-selected">
-          <div className="skill-anomaly-board">
-            <div className="skill-anomaly-board-section">
-              <p className="skill-anomaly-board-title">已选异常状态快照</p>
-              <div className="skill-anomaly-board-list">
-                {selectedAnomalyStateSnapshots.length === 0 ? (
-                  <div className="skill-button-buff-empty">导电 / 腐蚀 / 碎甲 快照会显示在这里</div>
-                ) : (
-                  selectedAnomalyStateSnapshots.map((snapshot) => (
-                    <div
-                      key={snapshot.id}
-                      className="anomaly-board-card is-state"
-                      onContextMenu={(event) => {
-                        event.preventDefault();
-                        onRemoveAnomalyStateSnapshotCard(snapshot.id);
-                      }}
-                      title="右键从当前角色卸载"
-                    >
-                      <span className="anomaly-board-card-title">{formatSnapshotName(snapshot)}</span>
-                      <span>{snapshot.sourceCharacterName}</span>
-                    </div>
-                  ))
-                )}
-              </div>
+              {activeAnomalyStatePreview ? (
+                activeAnomalyStatePreview.lines.map((line) => (
+                  <p key={line} className="anomaly-live-line">{line}</p>
+                ))
+              ) : (
+                <p className="anomaly-live-line">请选择异常状态项</p>
+              )}
             </div>
           </div>
-        </div>
+        ) : (
+          <div className="anomaly-live-preview">
+            <p className="anomaly-live-line">请选择异常状态项</p>
+          </div>
+        )}
       </div>
 
-      <aside className="skill-anomaly-cache-rail">
-        <div className="skill-anomaly-board skill-anomaly-cache-board">
+      <div className="skill-anomaly-config">
+        <div className="skill-anomaly-board skill-anomaly-board-fixed">
           <div className="skill-anomaly-board-section">
-            <p className="skill-anomaly-board-title">缓存快照</p>
-            <div className="skill-anomaly-board-list skill-anomaly-cache-list">
-              {availableAnomalyStateSnapshots.length === 0 ? (
-                <div className="skill-button-buff-empty">暂无可挂载快照</div>
+            <p className="skill-anomaly-board-title">已选异常状态快照</p>
+            <div className="skill-anomaly-board-list">
+              {selectedAnomalyStateSnapshots.length === 0 ? (
+                <div className="skill-button-buff-empty">导电 / 腐蚀 / 碎甲 快照会显示在这里</div>
               ) : (
-                availableAnomalyStateSnapshots.map((snapshot) => {
-                  const usageCount = anomalyStateSnapshotUsageCounts.get(snapshot.id) ?? 0;
-                  return (
-                    <div
-                      key={`available-${snapshot.id}`}
-                      className="anomaly-board-card is-state"
-                      onClick={() => onAttachAnomalyStateSnapshotCard(snapshot.id)}
-                      title="单击挂载到当前角色"
-                    >
-                      <div className="anomaly-board-card-topline">
-                        <span className="anomaly-board-card-title">{formatSnapshotName(snapshot)}</span>
-                        <button
-                          type="button"
-                          className="anomaly-board-card-delete-btn"
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            onDeleteAnomalyStateSnapshotCard(snapshot.id);
-                          }}
-                          disabled={usageCount > 0}
-                          title={usageCount > 0 ? '该快照仍被界面中的项目引用，无法删除' : '删除缓存快照'}
-                        >
-                          删除
-                        </button>
-                      </div>
-                      <span>{snapshot.sourceCharacterName}</span>
-                    </div>
-                  );
-                })
+                selectedAnomalyStateSnapshots.map((snapshot) => (
+                  <div
+                    key={snapshot.id}
+                    className="anomaly-board-card is-state"
+                    onContextMenu={(event) => {
+                      event.preventDefault();
+                      onRemoveAnomalyStateSnapshotCard(snapshot.id);
+                    }}
+                    title="右键从当前角色卸载"
+                  >
+                    <span className="anomaly-board-card-title">{formatSnapshotName(snapshot)}</span>
+                    <span>{snapshot.sourceCharacterName}</span>
+                  </div>
+                ))
               )}
             </div>
           </div>
         </div>
-      </aside>
+      </div>
     </div>
   );
 }
