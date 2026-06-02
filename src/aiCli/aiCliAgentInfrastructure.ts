@@ -91,7 +91,7 @@ export function createDefaultPermissionProfiles(): AiAgentPermissionProfile[] {
 
 // 系统保证 readonly-agent 拥有的基础读命令
 // 这些命令是 readonly 核心能力，不是一次性迁移，后续新增 readonly 命令也应加入
-const GUARANTEED_READONLY_COMMANDS = ['agent.logs', 'agent.sessions', 'agent.guide'];
+const GUARANTEED_READONLY_COMMANDS = ['agent.logs', 'agent.sessions', 'agent.guide', 'route', 'operator.show', 'fill.source'];
 
 export function readPermissionProfiles(): AiAgentPermissionProfile[] {
   const storedProfiles = readJsonStorage<AiAgentPermissionProfile[]>(AI_AGENT_PERMISSION_PROFILES_STORAGE_KEY, []);

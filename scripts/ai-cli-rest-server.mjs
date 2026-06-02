@@ -216,8 +216,13 @@ const { readAgentRecordSnapshot } = await vite.ssrLoadModule('/src/aiCli/aiCliAg
 const sseClients = new Set();
 
 function writeSse(response, eventName, payload) {
-  response.write(`event: ${eventName}\n`);
-  response.write(`data: ${JSON.stringify(payload)}\n\n`);
+  try {
+    response.write(`event: ${eventName}\n`);
+    response.write(`data: ${JSON.stringify(payload)}\n\n`);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function broadcastAgentRecords() {
@@ -227,13 +232,17 @@ function broadcastAgentRecords() {
     ...readAgentRecordSnapshot(),
   };
   for (const client of sseClients) {
-    writeSse(client, 'agent.records', payload);
+    if (!writeSse(client, 'agent.records', payload)) {
+      sseClients.delete(client);
+    }
   }
 }
 
 const heartbeatTimer = setInterval(() => {
   for (const client of sseClients) {
-    writeSse(client, 'heartbeat', { ok: true, now: Date.now() });
+    if (!writeSse(client, 'heartbeat', { ok: true, now: Date.now() })) {
+      sseClients.delete(client);
+    }
   }
 }, 15000);
 

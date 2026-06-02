@@ -26,6 +26,7 @@ import {
 export const BUFF_DRAFT_STORAGE_KEY = 'def.buff-editor.draft.v1';
 export const BUFF_LIBRARY_STORAGE_KEY = 'def.buff-editor.library.v1';
 export const BUFF_UNDO_STORAGE_KEY = 'def.buff-editor.undo.v1';
+export const ALL_BUFF_STORAGE_KEYS = [BUFF_DRAFT_STORAGE_KEY, BUFF_LIBRARY_STORAGE_KEY, BUFF_UNDO_STORAGE_KEY];
 export const SELECTED_CHARACTERS_STORAGE_KEY = 'def.selected-characters.v1';
 export const CHARACTER_INPUT_MAP_STORAGE_KEY = 'def.operator-config.character-input-map.v3';
 
@@ -264,11 +265,12 @@ export function info(message: string) {
 }
 
 export function summarizeAiCliCommand(command: string) {
-  if (command.startsWith('fill.apply ')) {
+  const lowerCommand = command.toLowerCase();
+  if (lowerCommand.startsWith('fill.apply ')) {
     const payloadLength = command.length - 'fill.apply '.length;
     return `fill.apply <json:${payloadLength} chars>`;
   }
-  if (command.startsWith('fill.check ')) {
+  if (lowerCommand.startsWith('fill.check ')) {
     const payloadLength = command.length - 'fill.check '.length;
     return `fill.check <json:${payloadLength} chars>`;
   }
@@ -542,10 +544,6 @@ function executeCommand(rawCommand: string, draft: BuffDraft, sourceText: string
   const command = tokens[0]?.toLowerCase() || '';
   const args = tokens.slice(1);
 
-  if (!command) {
-    return makeResponse({ lines: [] });
-  }
-
   if (command === 'help' || command === '/help') {
     return makeResponse({
       lines: [
@@ -627,7 +625,7 @@ function executeCommand(rawCommand: string, draft: BuffDraft, sourceText: string
         data: { navigateTo: args[0] },
       });
     }
-    return makeResponse({ lines: [fail('usage: route home|buff')] });
+    return makeResponse({ ok: false, lines: [fail('usage: route home|buff')] });
   }
 
   if (command === 'agent.logs') {
@@ -682,7 +680,7 @@ function executeCommand(rawCommand: string, draft: BuffDraft, sourceText: string
   if (command === 'buff.search') {
     const keyword = args.join(' ').trim();
     if (!keyword) {
-      return makeResponse({ lines: [fail('usage: buff.search <keyword>')] });
+      return makeResponse({ ok: false, lines: [fail('usage: buff.search <keyword>')] });
     }
     const rows = searchLibrary(readBuffLibrary(), keyword).slice(0, 50);
     return makeResponse({
@@ -701,7 +699,7 @@ function executeCommand(rawCommand: string, draft: BuffDraft, sourceText: string
     const library = readBuffLibrary();
     const entry = buffId ? library[buffId] : null;
     if (!buffId || !entry) {
-      return makeResponse({ lines: [fail('usage: buff.show <existingBuffId>')] });
+      return makeResponse({ ok: false, lines: [fail('usage: buff.show <existingBuffId>')] });
     }
     return makeResponse({
       lines: formatDraftSummary(entry),
@@ -714,7 +712,7 @@ function executeCommand(rawCommand: string, draft: BuffDraft, sourceText: string
     const library = readBuffLibrary();
     const entry = buffId ? library[buffId] : null;
     if (!buffId || !entry) {
-      return makeResponse({ lines: [fail('usage: buff.open <existingBuffId>')] });
+      return makeResponse({ ok: false, lines: [fail('usage: buff.open <existingBuffId>')] });
     }
     writeUndoSnapshot(`AI CLI buff.open · ${buffId}`, readCurrentBuffDraft());
     window.localStorage.setItem(BUFF_DRAFT_STORAGE_KEY, JSON.stringify(entry));
@@ -746,7 +744,7 @@ function executeCommand(rawCommand: string, draft: BuffDraft, sourceText: string
   if (command === 'operator.add') {
     const [operatorId, operatorName, ...optionTokens] = args;
     if (!operatorId || !operatorName) {
-      return makeResponse({ lines: [fail('usage: operator.add <operatorId> <name> [weapon=] [potential=满潜|0潜] [skillLevel=M3|L9]')] });
+      return makeResponse({ ok: false, lines: [fail('usage: operator.add <operatorId> <name> [weapon=] [potential=满潜|0潜] [skillLevel=M3|L9]')] });
     }
     const options = parseOptions(optionTokens);
     const inputMap = readOperatorInputMap();
@@ -766,6 +764,7 @@ function executeCommand(rawCommand: string, draft: BuffDraft, sourceText: string
     if (operatorId) {
       const operator = inputMap[operatorId];
       return makeResponse({
+        ok: !!operator,
         lines: operator
           ? [
               ...table(
@@ -801,11 +800,11 @@ function executeCommand(rawCommand: string, draft: BuffDraft, sourceText: string
   if (command === 'operator.delete') {
     const [operatorId] = args;
     if (!operatorId) {
-      return makeResponse({ lines: [fail('usage: operator.delete <operatorId>')] });
+      return makeResponse({ ok: false, lines: [fail('usage: operator.delete <operatorId>')] });
     }
     const inputMap = readOperatorInputMap();
     if (!inputMap[operatorId]) {
-      return makeResponse({ lines: [fail(`operator not found: ${operatorId}`)] });
+      return makeResponse({ ok: false, lines: [fail(`operator not found: ${operatorId}`)] });
     }
     delete inputMap[operatorId];
     writeOperatorInputMap(inputMap);
@@ -823,14 +822,14 @@ function executeCommand(rawCommand: string, draft: BuffDraft, sourceText: string
   if (command === 'draft.rename') {
     const name = args.join(' ').trim();
     if (!name) {
-      return makeResponse({ lines: [fail('usage: draft.rename <name>')] });
+      return makeResponse({ ok: false, lines: [fail('usage: draft.rename <name>')] });
     }
     const nextDraft = { ...draft, name };
     persistDraft(nextDraft, `AI CLI draft.rename · ${draft.id}`);
     return writeResponse({
       nextDraft,
       lines: [ok(`draft renamed: ${name}`)],
-      storage: [BUFF_DRAFT_STORAGE_KEY, BUFF_LIBRARY_STORAGE_KEY, BUFF_UNDO_STORAGE_KEY],
+      storage: ALL_BUFF_STORAGE_KEYS,
     });
   }
 
@@ -854,10 +853,10 @@ function executeCommand(rawCommand: string, draft: BuffDraft, sourceText: string
   if (command === 'item.add') {
     const [itemKey, itemName, ...optionTokens] = args;
     if (!itemKey || !itemName) {
-      return makeResponse({ lines: [fail('usage: item.add <itemKey> <name> [sourceName=] [desc=]')] });
+      return makeResponse({ ok: false, lines: [fail('usage: item.add <itemKey> <name> [sourceName=] [desc=]')] });
     }
     if (draft.items[itemKey]) {
-      return makeResponse({ lines: [fail(`item exists: ${itemKey}`)] });
+      return makeResponse({ ok: false, lines: [fail(`item exists: ${itemKey}`)] });
     }
     const nextDraft = {
       ...draft,
@@ -870,14 +869,14 @@ function executeCommand(rawCommand: string, draft: BuffDraft, sourceText: string
     return writeResponse({
       nextDraft,
       lines: [ok(`item added: ${itemKey}`)],
-      storage: [BUFF_DRAFT_STORAGE_KEY, BUFF_LIBRARY_STORAGE_KEY, BUFF_UNDO_STORAGE_KEY],
+      storage: ALL_BUFF_STORAGE_KEYS,
     });
   }
 
   if (command === 'item.set') {
     const [itemKey, ...optionTokens] = args;
     if (!itemKey || !draft.items[itemKey]) {
-      return makeResponse({ lines: [fail('usage: item.set <existingItemKey> [name=] [sourceName=] [desc=]')] });
+      return makeResponse({ ok: false, lines: [fail('usage: item.set <existingItemKey> [name=] [sourceName=] [desc=]')] });
     }
     const options = parseOptions(optionTokens);
     const currentItem = draft.items[itemKey];
@@ -898,14 +897,14 @@ function executeCommand(rawCommand: string, draft: BuffDraft, sourceText: string
     return writeResponse({
       nextDraft,
       lines: [ok(`item updated: ${itemKey}`)],
-      storage: [BUFF_DRAFT_STORAGE_KEY, BUFF_LIBRARY_STORAGE_KEY, BUFF_UNDO_STORAGE_KEY],
+      storage: ALL_BUFF_STORAGE_KEYS,
     });
   }
 
   if (command === 'item.delete') {
     const [itemKey] = args;
     if (!itemKey || !draft.items[itemKey]) {
-      return makeResponse({ lines: [fail('usage: item.delete <existingItemKey>')] });
+      return makeResponse({ ok: false, lines: [fail('usage: item.delete <existingItemKey>')] });
     }
     const nextItems = { ...draft.items };
     delete nextItems[itemKey];
@@ -914,7 +913,7 @@ function executeCommand(rawCommand: string, draft: BuffDraft, sourceText: string
     return writeResponse({
       nextDraft,
       lines: [ok(`item deleted: ${itemKey}`)],
-      storage: [BUFF_DRAFT_STORAGE_KEY, BUFF_LIBRARY_STORAGE_KEY, BUFF_UNDO_STORAGE_KEY],
+      storage: ALL_BUFF_STORAGE_KEYS,
     });
   }
 
@@ -922,7 +921,7 @@ function executeCommand(rawCommand: string, draft: BuffDraft, sourceText: string
     const [itemKey] = args;
     const item = itemKey ? draft.items[itemKey] : null;
     if (!item) {
-      return makeResponse({ lines: [fail('usage: effect.list <existingItemKey>')] });
+      return makeResponse({ ok: false, lines: [fail('usage: effect.list <existingItemKey>')] });
     }
     const effectEntries = Object.entries(item.effects || {});
     return makeResponse({
@@ -945,10 +944,10 @@ function executeCommand(rawCommand: string, draft: BuffDraft, sourceText: string
     const [itemKey, effectKey, ...optionTokens] = args;
     const item = itemKey ? draft.items[itemKey] : null;
     if (!item || !effectKey) {
-      return makeResponse({ lines: [fail('usage: effect.add <existingItemKey> <effectKey> type=<modifierType> value=<number>')] });
+      return makeResponse({ ok: false, lines: [fail('usage: effect.add <existingItemKey> <effectKey> type=<modifierType> value=<number>')] });
     }
     if (item.effects[effectKey]) {
-      return makeResponse({ lines: [fail(`effect exists: ${itemKey}/${effectKey}`)] });
+      return makeResponse({ ok: false, lines: [fail(`effect exists: ${itemKey}/${effectKey}`)] });
     }
     const nextEffect = createEffect(effectKey, parseOptions(optionTokens));
     const nextDraft = {
@@ -968,7 +967,7 @@ function executeCommand(rawCommand: string, draft: BuffDraft, sourceText: string
     return writeResponse({
       nextDraft,
       lines: [ok(`effect added: ${itemKey}/${effectKey}`)],
-      storage: [BUFF_DRAFT_STORAGE_KEY, BUFF_LIBRARY_STORAGE_KEY, BUFF_UNDO_STORAGE_KEY],
+      storage: ALL_BUFF_STORAGE_KEYS,
     });
   }
 
@@ -977,16 +976,16 @@ function executeCommand(rawCommand: string, draft: BuffDraft, sourceText: string
     const item = itemKey ? draft.items[itemKey] : null;
     const effect = item && effectKey ? item.effects[effectKey] : null;
     if (!item || !effect) {
-      return makeResponse({ lines: [fail('usage: effect.set <existingItemKey> <existingEffectKey> [type=] [value=]')] });
+      return makeResponse({ ok: false, lines: [fail('usage: effect.set <existingItemKey> <existingEffectKey> [type=] [value=]')] });
     }
     const options = parseOptions(optionTokens);
     const nextType = options.type ?? effect.type;
     if (nextType && !BUFF_MODIFIER_TYPE_IDS.includes(nextType as never)) {
-      return makeResponse({ lines: [fail(`unknown modifier type: ${nextType}`)] });
+      return makeResponse({ ok: false, lines: [fail(`unknown modifier type: ${nextType}`)] });
     }
     const nextValue = options.value === undefined ? effect.value : Number(options.value);
     if (options.value !== undefined && !Number.isFinite(nextValue)) {
-      return makeResponse({ lines: [fail(`value must be number: ${options.value}`)] });
+      return makeResponse({ ok: false, lines: [fail(`value must be number: ${options.value}`)] });
     }
     const nextEffect = {
       ...effect,
@@ -1017,7 +1016,7 @@ function executeCommand(rawCommand: string, draft: BuffDraft, sourceText: string
     return writeResponse({
       nextDraft,
       lines: [ok(`effect updated: ${itemKey}/${effectKey}`)],
-      storage: [BUFF_DRAFT_STORAGE_KEY, BUFF_LIBRARY_STORAGE_KEY, BUFF_UNDO_STORAGE_KEY],
+      storage: ALL_BUFF_STORAGE_KEYS,
     });
   }
 
@@ -1025,7 +1024,7 @@ function executeCommand(rawCommand: string, draft: BuffDraft, sourceText: string
     const [itemKey, effectKey] = args;
     const item = itemKey ? draft.items[itemKey] : null;
     if (!item || !effectKey || !item.effects[effectKey]) {
-      return makeResponse({ lines: [fail('usage: effect.delete <existingItemKey> <existingEffectKey>')] });
+      return makeResponse({ ok: false, lines: [fail('usage: effect.delete <existingItemKey> <existingEffectKey>')] });
     }
     const nextEffects = { ...item.effects };
     delete nextEffects[effectKey];
@@ -1043,7 +1042,7 @@ function executeCommand(rawCommand: string, draft: BuffDraft, sourceText: string
     return writeResponse({
       nextDraft,
       lines: [ok(`effect deleted: ${itemKey}/${effectKey}`)],
-      storage: [BUFF_DRAFT_STORAGE_KEY, BUFF_LIBRARY_STORAGE_KEY, BUFF_UNDO_STORAGE_KEY],
+      storage: ALL_BUFF_STORAGE_KEYS,
     });
   }
 
@@ -1067,6 +1066,7 @@ function executeCommand(rawCommand: string, draft: BuffDraft, sourceText: string
     const parsed = parseAiFillResult(jsonText, { skipSanitize: true });
     if (!parsed.draft) {
       return makeResponse({
+        ok: false,
         lines: [fail('fill result invalid'), ...parsed.errors.map((error) => `  ${error}`)],
         error: { code: 'fill-invalid', message: 'fill result invalid', details: parsed.errors },
       });
@@ -1084,6 +1084,7 @@ function executeCommand(rawCommand: string, draft: BuffDraft, sourceText: string
     const parsed = parseAiFillResult(jsonText);
     if (!parsed.draft) {
       return makeResponse({
+        ok: false,
         lines: [fail('fill result invalid'), ...parsed.errors.map((error) => `  ${error}`)],
         error: { code: 'fill-invalid', message: 'fill result invalid', details: parsed.errors },
       });
@@ -1095,7 +1096,7 @@ function executeCommand(rawCommand: string, draft: BuffDraft, sourceText: string
     return writeResponse({
       nextDraft,
       lines: [ok(`fill applied: items=${itemCount} effects=${effectCount}`)],
-      storage: [BUFF_DRAFT_STORAGE_KEY, BUFF_LIBRARY_STORAGE_KEY, BUFF_UNDO_STORAGE_KEY],
+      storage: ALL_BUFF_STORAGE_KEYS,
     });
   }
 
@@ -1104,6 +1105,7 @@ function executeCommand(rawCommand: string, draft: BuffDraft, sourceText: string
   }
 
   return makeResponse({
+    ok: false,
     lines: [fail(`unknown command: ${command}`), 'type help'],
     error: { code: 'unknown-command', message: `unknown command: ${command}` },
   });
@@ -1133,6 +1135,7 @@ export function runAiCliCommand(
     });
   } else if (permissionError) {
     response = makeResponse({
+      ok: false,
       lines: [fail(permissionError.message)],
       error: { code: permissionError.code, message: permissionError.message },
     });
@@ -1142,6 +1145,7 @@ export function runAiCliCommand(
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       response = makeResponse({
+        ok: false,
         lines: [fail(message)],
         error: { code: 'command-error', message },
       });
