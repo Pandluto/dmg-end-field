@@ -442,7 +442,7 @@ function extractBalancedJsonObject(rawText: string) {
   return null;
 }
 
-function parseAiFillResult(rawText: string): { draft: BuffDraft | null; errors: string[] } {
+function parseAiFillResult(rawText: string, options?: { skipSanitize?: boolean }): { draft: BuffDraft | null; errors: string[] } {
   const normalizedText = rawText.trim();
   if (!normalizedText) {
     return { draft: null, errors: ['AI response is empty'] };
@@ -459,12 +459,13 @@ function parseAiFillResult(rawText: string): { draft: BuffDraft | null; errors: 
     try {
       const parsed = JSON.parse(candidate) as Record<string, unknown>;
       const rawDraft = parsed && typeof parsed.draft === 'object' ? parsed.draft : parsed;
-      const sanitized = sanitizeBuffFillAiDraft(rawDraft);
-      const validation = validateBuffFillAiDraft(sanitized);
+      const toValidate = options?.skipSanitize ? rawDraft : sanitizeBuffFillAiDraft(rawDraft);
+      const validation = validateBuffFillAiDraft(toValidate);
       if (!validation.ok) {
         errors.push(...validation.errors);
         continue;
       }
+      const sanitized = options?.skipSanitize ? sanitizeBuffFillAiDraft(rawDraft) : toValidate;
       return {
         draft: convertBuffFillAiDraftToBuffDraft(sanitized as never),
         errors: [],
@@ -810,7 +811,7 @@ function executeCommand(rawCommand: string, draft: BuffDraft, sourceText: string
   }
 
   if (command === 'draft.show') {
-    return makeResponse({ lines: formatDraftSummary(draft) });
+    return makeResponse({ lines: formatDraftSummary(draft), data: { draft } });
   }
 
   if (command === 'draft.rename') {
@@ -1054,7 +1055,7 @@ function executeCommand(rawCommand: string, draft: BuffDraft, sourceText: string
 
   if (command === 'fill.check') {
     const jsonText = rawCommand.slice(rawCommand.indexOf('fill.check') + 'fill.check'.length).trim();
-    const parsed = parseAiFillResult(jsonText);
+    const parsed = parseAiFillResult(jsonText, { skipSanitize: true });
     if (!parsed.draft) {
       return makeResponse({
         lines: [fail('fill result invalid'), ...parsed.errors.map((error) => `  ${error}`)],
@@ -1063,7 +1064,10 @@ function executeCommand(rawCommand: string, draft: BuffDraft, sourceText: string
     }
     const itemCount = Object.keys(parsed.draft.items).length;
     const effectCount = Object.values(parsed.draft.items).reduce((sum, item) => sum + Object.keys(item.effects).length, 0);
-    return makeResponse({ lines: [ok(`fill result valid: items=${itemCount} effects=${effectCount}`)] });
+    return makeResponse({
+      lines: [ok(`fill result valid: items=${itemCount} effects=${effectCount}`)],
+      effects: { writes: false, storage: [] },
+    });
   }
 
   if (command === 'fill.apply') {
@@ -1116,8 +1120,8 @@ export function runAiCliCommand(
   let response: AiCliCommandResult;
   if (permissionError) {
     response = makeResponse({
-      lines: [fail(permissionError)],
-      error: { code: 'permission-denied', message: permissionError },
+      lines: [fail(permissionError.message)],
+      error: { code: permissionError.code, message: permissionError.message },
     });
   } else {
     try {

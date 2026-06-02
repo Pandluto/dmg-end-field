@@ -207,13 +207,21 @@ export function ReportTab({ autoGenerateToken = 0 }: ReportTabProps) {
                                         {hit.title} / {hit.damageSourceLabel} / {hit.elementLabel} / 技能类型: {hit.skillTypeLabel}
                                       </div>
                                       <div className="report-tree-line report-tree-line-values">
-                                        伤害 {formatInteger(hit.damage)}　期望 {formatInteger(hit.expected)}　非暴击 {formatInteger(hit.nonCrit)}
+                                        伤害 {formatInteger(hit.damage)}　期望 {formatInteger(hit.expected)}　非暴击 {formatInteger(hit.nonCrit)}　抗性区 {hit.resistanceZone.toFixed(3)}
                                       </div>
                                     </div>
                                   </div>
 
                                   {hitExpanded && (
                                     <div className="report-tree-children report-tree-children-buff">
+                                      <div className="report-tree-row report-tree-row-buff">
+                                        <div className="report-tree-main">
+                                          <div className="report-tree-line report-tree-line-buff">抗性区</div>
+                                          <div className="report-tree-line report-tree-line-buff-meta">
+                                            基础 {hit.resistance.baseResistance.toFixed(1)}　腐蚀 {hit.resistance.corrosion.toFixed(1)}　有效 {hit.resistance.effectiveResistance.toFixed(1)}　无视 {hit.resistance.resistanceIgnore.toFixed(1)}　公式: {hit.resistance.formulaText}
+                                          </div>
+                                        </div>
+                                      </div>
                                       {hit.buffs.length === 0 ? (
                                         <div className="report-tree-row report-tree-row-buff">
                                           <div className="report-tree-main">

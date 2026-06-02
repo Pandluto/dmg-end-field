@@ -16,6 +16,7 @@ import {
   calculateSkillDmgBonus,
   calculateVulnerabilityRate,
 } from '../calculators/buffCalculator';
+import type { ResistanceZoneResult } from '../calculators/buffCalculator';
 
 export interface DamageReportBuffRow {
   id: string;
@@ -34,6 +35,8 @@ export interface DamageReportHitRow {
   damage: number;
   expected: number;
   nonCrit: number;
+  resistanceZone: number;
+  resistance: ResistanceZoneResult;
   buffs: DamageReportBuffRow[];
 }
 
@@ -663,6 +666,8 @@ function buildAnomalyReportHits(
       damage: expected,
       expected,
       nonCrit,
+      resistanceZone: resistance.resistanceZone,
+      resistance,
       buffs: toBuffRows(appliedBuffs),
     };
 
@@ -742,6 +747,8 @@ function buildAnomalyReportHits(
       damage: expected,
       expected,
       nonCrit,
+      resistanceZone: resistance.resistanceZone,
+      resistance,
       buffs: toBuffRows(appliedBuffs),
     };
   });
@@ -805,6 +812,8 @@ function buildButtonReportRow(
         damage: hit.expected.final,
         expected: hit.expected.final,
         nonCrit: hit.nonCrit.final,
+        resistanceZone: hit.zones.resistanceZone,
+        resistance: hit.zones.resistance,
         buffs: toBuffRows(hit.appliedBuffs),
       }))
     : [];

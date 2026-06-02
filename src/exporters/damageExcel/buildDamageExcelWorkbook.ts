@@ -679,6 +679,42 @@ function getElementZoneTypes(element: string | undefined, suffix: 'Amplify' | 'F
   return types;
 }
 
+function getResistanceCorrosionTypes(element: string | undefined): string[] {
+  if (element === 'physical') {
+    return ['allCorrosion', 'physicalCorrosion'];
+  }
+  if (element === 'fire' || element === 'electric' || element === 'ice' || element === 'nature') {
+    return ['allCorrosion', 'magicCorrosion', `${element}Corrosion`];
+  }
+  return ['allCorrosion'];
+}
+
+function getResistanceIgnoreTypes(element: string | undefined): string[] {
+  if (element === 'physical') {
+    return ['allResistanceIgnore', 'physicalResistanceIgnore'];
+  }
+  if (element === 'fire' || element === 'electric' || element === 'ice' || element === 'nature') {
+    return ['allResistanceIgnore', 'magicResistanceIgnore', `${element}ResistanceIgnore`];
+  }
+  return ['allResistanceIgnore'];
+}
+
+function buildResistanceExcelFormula(
+  result: DamageExcelHitRow['detail']['hitResult'],
+  baseCorrosion: number,
+  corrosionRefs: string[],
+  baseResistanceIgnore: number,
+  resistanceIgnoreRefs: string[],
+): string {
+  const resistance = result.zones.resistance;
+  if (!resistance) {
+    return String(result.zones.resistanceZone ?? 1);
+  }
+  const corrosionFormula = additiveFormula(baseCorrosion, corrosionRefs);
+  const resistanceIgnoreFormula = additiveFormula(baseResistanceIgnore, resistanceIgnoreRefs);
+  return `1-((${resistance.baseResistance})-(${corrosionFormula}))/100+(${resistanceIgnoreFormula})/100`;
+}
+
 function addBuffSheet(
   workbook: ExcelJS.Workbook,
   allBuffList: SkillButtonBuff[],
@@ -749,6 +785,7 @@ function addHitSheet(workbook: ExcelJS.Workbook, input: BuildDamageExcelWorkbook
     '面板全伤加成',
     '加成区',
     '防御区',
+    '抗性区',
     '增幅区',
     '易伤区',
     '脆弱区',
@@ -787,6 +824,12 @@ function addHitSheet(workbook: ExcelJS.Workbook, input: BuildDamageExcelWorkbook
     const amplifyFormula = sumFormula(getBuffCellRefsForTypes(buffRefs, selectedBuffIds, getElementZoneTypes(element, 'Amplify')));
     const fragileFormula = sumFormula(getBuffCellRefsForTypes(buffRefs, selectedBuffIds, getElementZoneTypes(element, 'Fragile')));
     const vulnerabilityFormula = sumFormula(getBuffCellRefsForTypes(buffRefs, selectedBuffIds, getElementZoneTypes(element, 'Vulnerability')));
+    const corrosionTypes = getResistanceCorrosionTypes(element);
+    const resistanceIgnoreTypes = getResistanceIgnoreTypes(element);
+    const corrosionRefs = getBuffCellRefsForTypes(buffRefs, selectedBuffIds, corrosionTypes);
+    const resistanceIgnoreRefs = getBuffCellRefsForTypes(buffRefs, selectedBuffIds, resistanceIgnoreTypes);
+    const baseCorrosion = (result.zones.resistance?.corrosion ?? 0) - sumBuffValuesForTypes(buffRefs, selectedBuffIds, corrosionTypes);
+    const baseResistanceIgnore = (result.zones.resistance?.resistanceIgnore ?? 0) - sumBuffValuesForTypes(buffRefs, selectedBuffIds, resistanceIgnoreTypes);
     const comboFormula = sumFormula(getBuffCellRefs(buffRefs, selectedBuffIds, 'comboDamageBonus'));
     const imbalanceFormula = sumFormula(getBuffCellRefs(buffRefs, selectedBuffIds, 'imbalanceDmgBonus'));
     row.values = [
@@ -814,6 +857,10 @@ function addHitSheet(workbook: ExcelJS.Workbook, input: BuildDamageExcelWorkbook
       },
       result.zones.defenseZone,
       {
+        formula: buildResistanceExcelFormula(result, baseCorrosion, corrosionRefs, baseResistanceIgnore, resistanceIgnoreRefs),
+        result: result.zones.resistanceZone,
+      },
+      {
         formula: amplifyFormula === '0' ? '1' : `1+${amplifyFormula}`,
         result: 1 + result.zones.amplifyRate,
       },
@@ -831,7 +878,7 @@ function addHitSheet(workbook: ExcelJS.Workbook, input: BuildDamageExcelWorkbook
     styleBody(row);
   });
 
-  setColumnWidths(sheet, [24, 18, 18, 24, 18, 10, 10, 14, 14, 16, 18, 16, 14, 14, 14, 18, 18, 18, 16, 12, 12, 12, 14, 12, 12]);
+  setColumnWidths(sheet, [24, 18, 18, 24, 18, 10, 10, 14, 14, 16, 18, 16, 14, 14, 14, 18, 18, 18, 16, 12, 12, 12, 12, 14, 12, 12]);
   sheet.views = [{ state: 'frozen', ySplit: 1, xSplit: 3 }];
 }
 
@@ -866,7 +913,7 @@ function addDamageSheet(workbook: ExcelJS.Workbook, hitRows: DamageExcelHitRow[]
       { formula: `命中!G${hitRowNumber}`, result: hitRow.detail.hit.skillType || '' },
       { formula: `命中!L${hitRowNumber}`, result: result.multiplier.afterMultiply },
       { formula: `命中!M${hitRowNumber}*命中!L${hitRowNumber}`, result: result.nonCrit.base ?? 0 },
-      { formula: `命中!M${hitRowNumber}*命中!L${hitRowNumber}*命中!S${hitRowNumber}*命中!T${hitRowNumber}*命中!U${hitRowNumber}*命中!V${hitRowNumber}*命中!W${hitRowNumber}*命中!X${hitRowNumber}*命中!Y${hitRowNumber}`, result: result.nonCrit.final },
+      { formula: `命中!M${hitRowNumber}*命中!L${hitRowNumber}*命中!S${hitRowNumber}*命中!T${hitRowNumber}*命中!U${hitRowNumber}*命中!V${hitRowNumber}*命中!W${hitRowNumber}*命中!X${hitRowNumber}*命中!Y${hitRowNumber}*命中!Z${hitRowNumber}`, result: result.nonCrit.final },
       { formula: `I${rowNumber}*(1+命中!O${hitRowNumber})`, result: result.crit.final },
       { formula: `I${rowNumber}*(1-命中!N${hitRowNumber})+J${rowNumber}*命中!N${hitRowNumber}`, result: result.expected.final },
     ];

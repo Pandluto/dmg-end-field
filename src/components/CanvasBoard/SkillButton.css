@@ -472,10 +472,29 @@
   font-style: italic;
 }
 
+.skill-button-resistance-toggle {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border: 1px solid #bbb;
+  background: #f7f7f7;
+  color: #111;
+  padding: 5px 8px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.skill-button-resistance-toggle:hover {
+  background: #eeeeee;
+}
+
 .skill-button-resistance-grid {
   display: grid;
   grid-template-columns: repeat(5, minmax(48px, 1fr));
   gap: 6px;
+  margin-top: 8px;
 }
 
 .skill-button-resistance-field {
@@ -562,6 +581,59 @@
   flex-direction: column;
   gap: 8px;
   min-height: 0;
+}
+
+.skill-anomaly-state-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 7fr) minmax(210px, 3fr);
+  align-items: stretch;
+  gap: 10px;
+  min-height: 560px;
+}
+
+.skill-anomaly-state-main {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  gap: 8px;
+}
+
+.skill-anomaly-state-main .skill-anomaly-tree {
+  flex: 1 1 auto;
+  min-height: 330px;
+}
+
+.skill-anomaly-state-selected {
+  flex: 0 0 auto;
+}
+
+.skill-anomaly-cache-rail {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+}
+
+.skill-anomaly-cache-board {
+  flex: 1 1 auto;
+  min-height: 560px;
+}
+
+.skill-anomaly-cache-board,
+.skill-anomaly-cache-board .skill-anomaly-board-section {
+  display: flex;
+  flex-direction: column;
+}
+
+.skill-anomaly-cache-board .skill-anomaly-board-section,
+.skill-anomaly-cache-list {
+  min-height: 0;
+  flex: 1 1 auto;
+}
+
+.skill-anomaly-cache-list {
+  overflow-y: auto;
+  padding-right: 2px;
 }
 
 .skill-anomaly-tree {
@@ -906,6 +978,8 @@
   font-size: 10px;
   font-weight: 700;
   color: #111;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .anomaly-board-card-topline {
@@ -1238,14 +1312,15 @@
 }
 
 .skill-button-inline-buff-search.is-anomaly-mode {
-  width: min(560px, calc(100vw - 80px));
-  max-height: min(520px, calc(100vh - 120px));
+  width: min(1120px, calc(100vw - 80px));
+  min-height: min(680px, calc(100vh - 96px));
+  max-height: min(760px, calc(100vh - 96px));
   overflow: hidden;
 }
 
 .skill-button-inline-buff-search.is-anomaly-mode .skill-anomaly-layout {
   flex: 1 1 auto;
-  min-height: 0;
+  min-height: 560px;
   overflow: hidden;
 }
 
@@ -1253,6 +1328,10 @@
   flex: 1 1 auto;
   min-height: 0;
   padding-bottom: 6px;
+}
+
+.skill-button-inline-buff-search.is-anomaly-mode .skill-anomaly-state-main .skill-anomaly-tree {
+  min-height: 330px;
 }
 
 .skill-button-inline-buff-search.is-anomaly-mode .skill-anomaly-config {

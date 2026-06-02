@@ -151,6 +151,7 @@ export function SkillButtonComponent({
   const [infoSnap, setInfoSnap] = useState<Record<string, number>>({});
   const [selectedAnomalySegmentKey, setSelectedAnomalySegmentKey] = useState<string | null>(null);
   const [isAnomalyFormulaExpanded, setIsAnomalyFormulaExpanded] = useState(false);
+  const [isTargetResistanceExpanded, setIsTargetResistanceExpanded] = useState(false);
   const [isLocalBuffSearchOpen, setIsLocalBuffSearchOpen] = useState(false);
   const [localBuffSearchKeyword, setLocalBuffSearchKeyword] = useState('');
   const [buffSearchMode, setBuffSearchMode] = useState<'local' | 'anomaly' | 'anomaly-state' | 'state'>('local');
@@ -766,6 +767,7 @@ export function SkillButtonComponent({
       resetAnomalyDraftState();
       loadPersistedAnomalyCards();
       loadPersistedManualBuffTweaks();
+      setIsTargetResistanceExpanded(false);
       setSelectedAnomalySegmentKey(null);
       setIsAnomalyFormulaExpanded(false);
     } else if (!isModalOpen && wasModalOpenRef.current) {
@@ -1006,7 +1008,10 @@ export function SkillButtonComponent({
         <div className="skill-button-modal-overlay">
           {isLocalBuffSearchOpen ? (
             <div className="skill-button-inline-buff-search-mask" onClick={closeLocalBuffSearch}>
-              <div className={`skill-button-inline-buff-search${buffSearchMode === 'anomaly' ? ' is-anomaly-mode' : ''}`} onClick={(event) => event.stopPropagation()}>
+              <div
+                className={`skill-button-inline-buff-search${buffSearchMode === 'anomaly' || buffSearchMode === 'anomaly-state' ? ' is-anomaly-mode' : ''}`}
+                onClick={(event) => event.stopPropagation()}
+              >
                 <div className="skill-button-inline-buff-search-head">
                 <h5>{buffSearchMode === 'local' ? '本地 Buff' : buffSearchMode === 'anomaly' ? '异常伤害' : buffSearchMode === 'anomaly-state' ? '异常状态区' : '状态区'}</h5>
                   <span>Tab 切换入口 / Esc 关闭</span>
@@ -1169,26 +1174,35 @@ export function SkillButtonComponent({
               </div>
 
               <div className="skill-button-buff-section skill-button-resistance-section">
-                <h5>目标抗性</h5>
-                <div className="skill-button-resistance-grid">
-                  {[
-                    ['physicalResistance', '物理'],
-                    ['fireResistance', '灼热'],
-                    ['electricResistance', '电磁'],
-                    ['iceResistance', '寒冷'],
-                    ['natureResistance', '自然'],
-                  ].map(([key, label]) => (
-                    <label key={key} className="skill-button-resistance-field">
-                      <span>{label}</span>
-                      <input
-                        type="number"
-                        step="1"
-                        value={targetResistance[key as keyof HitResistanceInput] ?? 0}
-                        onChange={(event) => updateTargetResistance(key as keyof HitResistanceInput, Number(event.target.value))}
-                      />
-                    </label>
-                  ))}
-                </div>
+                <button
+                  type="button"
+                  className="skill-button-resistance-toggle"
+                  onClick={() => setIsTargetResistanceExpanded((prev) => !prev)}
+                >
+                  <span>目标抗性</span>
+                  <span>{isTargetResistanceExpanded ? '收起' : '展开'}</span>
+                </button>
+                {isTargetResistanceExpanded ? (
+                  <div className="skill-button-resistance-grid">
+                    {[
+                      ['physicalResistance', '物理'],
+                      ['fireResistance', '灼热'],
+                      ['electricResistance', '电磁'],
+                      ['iceResistance', '寒冷'],
+                      ['natureResistance', '自然'],
+                    ].map(([key, label]) => (
+                      <label key={key} className="skill-button-resistance-field">
+                        <span>{label}</span>
+                        <input
+                          type="number"
+                          step="1"
+                          value={targetResistance[key as keyof HitResistanceInput] ?? 0}
+                          onChange={(event) => updateTargetResistance(key as keyof HitResistanceInput, Number(event.target.value))}
+                        />
+                      </label>
+                    ))}
+                  </div>
+                ) : null}
               </div>
 
               {/* Buff 列表 */}
@@ -1466,6 +1480,7 @@ export function SkillButtonComponent({
                               <div className="formula-zone-section">
                                 <p className="formula-section-title">【抗性区】</p>
                                 <p>抗性 / 降抗 / 无视抗性</p>
+                                <p>有效抗性: {damageViewModel.activeHitFormula.resistanceEffectiveText}</p>
                                 <p className="formula-zone-total">抗性区 = {damageViewModel.activeHitFormula.resistanceFormulaText}</p>
                               </div>
 
@@ -1559,6 +1574,7 @@ export function SkillButtonComponent({
                               <div className="formula-zone-section">
                                 <p className="formula-section-title">【抗性区】</p>
                                 <p>抗性 / 降抗 / 无视抗性</p>
+                                <p>有效抗性: {(Number(activeAnomalySegment.resistanceBaseText) - Number(activeAnomalySegment.corrosionText)).toFixed(1)}</p>
                                 <p className="formula-zone-total">抗性区 = {activeAnomalySegment.resistanceFormulaText}</p>
                               </div>
 

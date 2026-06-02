@@ -141,6 +141,7 @@ export interface FormulaViewModel {
   skillBonusText: string;
   allDamageBonusText: string;
   damageBonusRateText: string;
+  resistanceEffectiveText: string;
   resistanceFormulaText: string;
   amplifyFormulaText: string;
   fragileFormulaText: string;

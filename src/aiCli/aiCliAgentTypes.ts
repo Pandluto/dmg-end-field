@@ -85,6 +85,11 @@ export interface AiAgentPermissionProfile {
   requiresUserConfirmForWrite: boolean;
 }
 
+export interface AiAgentPermissionError {
+  code: 'unknown-command' | 'permission-denied' | 'dry-run-denied' | 'write-denied' | 'read-denied';
+  message: string;
+}
+
 export interface AiCliExecutionContext {
   sourceText: string;
   sessionId?: string;

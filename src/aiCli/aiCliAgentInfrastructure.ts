@@ -13,6 +13,20 @@ const AI_AGENT_OPERATION_LOGS_STORAGE_KEY = 'def.ai-agent.operation-logs.v1';
 const AI_AGENT_PERMISSION_PROFILES_STORAGE_KEY = 'def.ai-agent.permission-profiles.v1';
 const AI_AGENT_CONTEXT_MESSAGE_LIMIT = 80;
 
+export const KNOWN_COMMANDS = new Set([
+  'help', '/help',
+  'purpose', '/purpose',
+  'spec', '/spec',
+  'route',
+  'agent.logs', 'agent.sessions', 'agent.guide',
+  'buff.list', 'buff.show', 'buff.search', 'buff.open',
+  'operator.add', 'operator.show', 'operator.delete',
+  'draft.show', 'draft.rename',
+  'item.list', 'item.add', 'item.set', 'item.delete',
+  'effect.list', 'effect.add', 'effect.set', 'effect.delete',
+  'fill.task', 'fill.task.copy', 'fill.check', 'fill.apply', 'fill.source',
+]);
+
 function createId(prefix: string) {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
@@ -42,7 +56,7 @@ export function createDefaultPermissionProfiles(): AiAgentPermissionProfile[] {
       id: 'readonly-agent',
       name: 'Readonly Agent',
       client: 'rest',
-      allowedCommands: ['help', '/help', 'purpose', '/purpose', 'spec', '/spec', 'buff.list', 'buff.show', 'buff.search', 'draft.show', 'item.list', 'effect.list', 'fill.task', 'fill.task.copy', 'fill.check'],
+      allowedCommands: ['help', '/help', 'purpose', '/purpose', 'spec', '/spec', 'route', 'buff.list', 'buff.show', 'buff.search', 'draft.show', 'item.list', 'effect.list', 'operator.show', 'fill.task', 'fill.task.copy', 'fill.check', 'fill.source', 'agent.logs', 'agent.sessions', 'agent.guide'],
       allowedWorkflows: ['buff.fill'],
       canRead: true,
       canDryRun: true,
@@ -111,18 +125,21 @@ export function canRunCommand(profile: AiAgentPermissionProfile, commandName: st
   return profile.allowedCommands.includes(commandName);
 }
 
-export function assertPermission(profile: AiAgentPermissionProfile, commandName: string) {
+export function assertPermission(profile: AiAgentPermissionProfile, commandName: string): import('./aiCliAgentTypes').AiAgentPermissionError | null {
+  if (!KNOWN_COMMANDS.has(commandName)) {
+    return { code: 'unknown-command', message: `unknown command: ${commandName}` };
+  }
   if (!canRunCommand(profile, commandName)) {
-    return `command not allowed for ${profile.id}: ${commandName}`;
+    return { code: 'permission-denied', message: `command not allowed for ${profile.id}: ${commandName}` };
   }
   if (commandNeedsDryRun(commandName) && !profile.canDryRun) {
-    return `dry-run not allowed for ${profile.id}`;
+    return { code: 'dry-run-denied', message: `dry-run not allowed for ${profile.id}` };
   }
   if (commandNeedsWrite(commandName) && !profile.canWrite) {
-    return `write not allowed for ${profile.id}`;
+    return { code: 'write-denied', message: `write not allowed for ${profile.id}` };
   }
   if (!profile.canRead && !commandNeedsWrite(commandName) && !commandNeedsDryRun(commandName)) {
-    return `read not allowed for ${profile.id}`;
+    return { code: 'read-denied', message: `read not allowed for ${profile.id}` };
   }
   return null;
 }

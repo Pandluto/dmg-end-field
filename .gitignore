@@ -21,3 +21,4 @@ data/localdata/**
 !data/localdata/.gitkeep
 DEF测试版.rar
 .codex-remote-attachments/
+scripts/

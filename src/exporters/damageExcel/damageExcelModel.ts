@@ -45,6 +45,15 @@ export interface DamageExcelHitResultSnapshot {
   zones: {
     damageBonusRate: number;
     defenseZone: number;
+    resistanceZone: number;
+    resistance?: {
+      baseResistance: number;
+      corrosion: number;
+      resistanceIgnore: number;
+      effectiveResistance: number;
+      resistanceZone: number;
+      formulaText: string;
+    };
     amplifyRate: number;
     fragileRate: number;
     vulnerabilityRate: number;

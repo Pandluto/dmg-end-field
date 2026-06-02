@@ -398,22 +398,24 @@ export function useSkillButtonAnomaly({
     const initialCorrosion = baseStart * (1 + effectEnhancement);
     const tickCorrosionPerSecond = baseTick * (1 + effectEnhancement);
     const maxCorrosion = baseCap * (1 + effectEnhancement);
+    const currentSeconds = Math.max(0, activeAnomalyStateDurationSeconds);
+    const currentCorrosion = Math.min(maxCorrosion, initialCorrosion + tickCorrosionPerSecond * currentSeconds);
     return {
-      effectValue: maxCorrosion,
+      effectValue: currentCorrosion,
       initialCorrosion,
       tickCorrosionPerSecond,
       maxCorrosion,
-      currentCorrosion: maxCorrosion,
+      currentCorrosion,
       lines: [
         `来源角色: ${activeAnomalyStateSourceCharacter?.name ?? '未选择'}`,
         `源石技艺强度快照: ${activeAnomalyStateSourceSkillBoost.toFixed(1)}`,
         `源石技艺强度区: × ${(1 + effectEnhancement).toFixed(3)}`,
         `异常等级: ${activeAnomalyStateLevel} 层`,
         `快照效果: 初始 ${initialCorrosion.toFixed(2)} / 每秒 ${tickCorrosionPerSecond.toFixed(2)} / 上限 ${maxCorrosion.toFixed(2)}`,
-        `当前计算口径: 上限 ${maxCorrosion.toFixed(2)} 点全属性降抗`,
+        `当前计算口径: ${currentSeconds.toFixed(0)}s = ${currentCorrosion.toFixed(2)} 点全属性降抗`,
       ],
     };
-  }, [activeAnomalyStateLevel, activeAnomalyStateOption, activeAnomalyStateSourceCharacter?.name, activeAnomalyStateSourceSkillBoost]);
+  }, [activeAnomalyStateDurationSeconds, activeAnomalyStateLevel, activeAnomalyStateOption, activeAnomalyStateSourceCharacter?.name, activeAnomalyStateSourceSkillBoost]);
 
   const availableAnomalyStateSnapshots = useMemo(() => {
     const selectedIdSet = new Set(selectedAnomalyStateSnapshotIds);
@@ -443,7 +445,9 @@ export function useSkillButtonAnomaly({
     const option = ANOMALY_STATE_OPTIONS.find((item) => item.key === key) ?? null;
     setActiveAnomalyStateKey((prev) => (prev === key ? null : key));
     setActiveAnomalyStateLevel(option?.levelOptions[0] ?? 1);
-    setActiveAnomalyStateDurationSeconds(option?.supportsDuration ? (getAnomalyDurationOptions({ ...option, kind: 'state', supportsSource: true } as AnomalyOption)[0] ?? 0) : 0);
+    setActiveAnomalyStateDurationSeconds(option?.supportsDuration ? (
+      option.key === 'corrosion' ? 0 : (getAnomalyDurationOptions({ ...option, kind: 'state', supportsSource: true } as AnomalyOption)[0] ?? 0)
+    ) : 0);
     setActiveAnomalyStateSourceId(sourceCharacters[0]?.id ?? buttonCharacterId);
   }, [buttonCharacterId, sourceCharacters]);
 
@@ -496,7 +500,11 @@ export function useSkillButtonAnomaly({
       durationSeconds: activeAnomalyStateOption.supportsDuration ? activeAnomalyStateDurationSeconds : undefined,
       primaryText: `${activeAnomalyStateOption.label} Lv${activeAnomalyStateLevel} · 来源 ${activeAnomalyStateSourceCharacter.name}`,
       secondaryText: activeAnomalyStatePreview.lines[5] ?? activeAnomalyStatePreview.lines[4] ?? activeAnomalyStateOption.label,
-      tertiaryText: activeAnomalyStateOption.supportsDuration ? `持续 ${activeAnomalyStateDurationSeconds}s` : '快照生效',
+      tertiaryText: activeAnomalyStateOption.key === 'corrosion'
+        ? `当前 ${activeAnomalyStateDurationSeconds}s`
+        : activeAnomalyStateOption.supportsDuration
+          ? `持续 ${activeAnomalyStateDurationSeconds}s`
+          : '快照生效',
     });
     const nextIds = [
       ...selectedAnomalyStateSnapshotIds.filter((id) => {

@@ -106,6 +106,7 @@ function buildFormula(
     skillBonusText: formatPercent(activeHit.zones.skillBonus),
     allDamageBonusText: formatPercent(activeHit.zones.allDamageBonus),
     damageBonusRateText: activeHit.zones.damageBonusRate.toFixed(3),
+    resistanceEffectiveText: activeHit.zones.resistance.effectiveResistance.toFixed(1),
     resistanceFormulaText: activeHit.zones.resistance.formulaText,
     amplifyFormulaText: `1 + ${formatPercent(activeHit.zones.amplifyRate)} = ${(1 + activeHit.zones.amplifyRate).toFixed(3)}`,
     fragileFormulaText: `1 + ${formatPercent(activeHit.zones.fragileRate)} = ${(1 + activeHit.zones.fragileRate).toFixed(3)}`,
