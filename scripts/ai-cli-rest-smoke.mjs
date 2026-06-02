@@ -161,6 +161,27 @@ try {
   assert(fillTask.payload.data?.tool === 'buff.fill', 'fill.task should return structured data.tool');
   assert(fillTask.payload.data?.outputSchema, 'fill.task should return structured outputSchema');
   assert(fillTask.payload.data?.modifierCatalog, 'fill.task should return structured modifierCatalog');
+  assert(fillTask.payload.copyText === undefined, 'fill.task should not return copyText for REST client');
+
+  const fillTaskWebCli = await request('POST', '/api/ai-cli/run?client=web-cli', {
+    protocolVersion: 1,
+    requestId: 'rest-smoke-fill-task-webcli',
+    command: 'fill.task',
+  });
+  assert(fillTaskWebCli.status === 200, `fill.task web-cli status=${fillTaskWebCli.status}`);
+  assert(fillTaskWebCli.payload.ok === true, 'fill.task web-cli should be ok');
+  assert(typeof fillTaskWebCli.payload.copyText === 'string', 'fill.task web-cli should return copyText');
+  assert(JSON.parse(fillTaskWebCli.payload.copyText).tool === 'buff.fill', 'fill.task web-cli copyText should be parseable task package');
+
+  const fillTaskCopy = await request('POST', '/api/ai-cli/run', {
+    protocolVersion: 1,
+    requestId: 'rest-smoke-fill-task-copy',
+    command: 'fill.task.copy',
+  });
+  assert(fillTaskCopy.status === 200, `fill.task.copy status=${fillTaskCopy.status}`);
+  assert(fillTaskCopy.payload.ok === true, 'fill.task.copy should be ok');
+  assert(typeof fillTaskCopy.payload.copyText === 'string', 'fill.task.copy should return copyText');
+  assert(JSON.parse(fillTaskCopy.payload.copyText).tool === 'buff.fill', 'fill.task.copy copyText should be parseable task package');
 
   const list = await request('POST', '/api/ai-cli/run', {
     protocolVersion: 1,

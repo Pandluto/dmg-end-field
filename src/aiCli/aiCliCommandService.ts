@@ -1048,11 +1048,9 @@ function executeCommand(rawCommand: string, draft: BuffDraft, sourceText: string
   }
 
   if (command === 'fill.task') {
-    const taskPackage = buildTaskPackage(draft, sourceText);
     return makeResponse({
       lines: [info(summarizeTaskPackage(draft))],
-      data: taskPackage,
-      copyText: JSON.stringify(taskPackage),
+      data: buildTaskPackage(draft, sourceText),
     });
   }
 
@@ -1129,7 +1127,11 @@ export function runAiCliCommand(
   });
 
   let response: AiCliCommandResult;
-  if (permissionError) {
+  if (!commandName) {
+    response = makeResponse({
+      lines: [info('type help')],
+    });
+  } else if (permissionError) {
     response = makeResponse({
       lines: [fail(permissionError.message)],
       error: { code: permissionError.code, message: permissionError.message },
@@ -1144,6 +1146,11 @@ export function runAiCliCommand(
         error: { code: 'command-error', message },
       });
     }
+  }
+
+  // fill.task 在 web-cli 时补 copyText，fill.task.copy 始终保留
+  if (commandName === 'fill.task' && request.client === 'web-cli' && response.data) {
+    response.copyText = JSON.stringify(response.data);
   }
 
   response.requestId = request.requestId;
