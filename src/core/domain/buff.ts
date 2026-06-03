@@ -33,8 +33,9 @@ export interface CandidateBuff {
   condition?: string;   // Buff 触发条件（可选）
   effectKind?: BuffEffectKind;
   extraHitConfig?: BuffExtraHitConfig;
-  origin?: 'local' | 'json' | 'operatorConfigSnapshot';
+  origin?: 'local' | 'json' | 'operatorConfigSnapshot' | 'operatorStudio';
   ownerCharacterId?: string;
+  ownerBuffGroup?: 'talent' | 'potential' | 'skill';
 }
 
 /**

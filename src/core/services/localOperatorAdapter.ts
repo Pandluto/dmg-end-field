@@ -3,6 +3,7 @@ import type { OperatorDraft, RuntimeOperatorTemplate } from '../templates/operat
 import {
   buildRuntimeOperatorTemplateFromDraft,
   buildRuntimeTemplatesFromDraftMap,
+  normalizeOperatorDraft,
 } from './operatorTemplateAdapter';
 import { normalizeAssetUrl } from '../../utils/assetResolver';
 
@@ -27,7 +28,10 @@ export function loadLocalOperatorDraftMap(): Record<string, OperatorDraft> {
   }
 
   try {
-    return JSON.parse(raw) as Record<string, OperatorDraft>;
+    const parsed = JSON.parse(raw) as Record<string, OperatorDraft>;
+    return Object.fromEntries(
+      Object.entries(parsed).map(([draftId, draft]) => [draftId, normalizeOperatorDraft(draft)])
+    );
   } catch (error) {
     console.warn('Failed to parse local operator library:', error);
     return {};
@@ -254,6 +258,7 @@ export function adaptRuntimeTemplateToLegacyCharacter(
     ) as Character['skillIconMap'],
     librarySource: 'local',
     sandboxSkills,
+    operatorBuffs: template.buffs,
   };
 }
 

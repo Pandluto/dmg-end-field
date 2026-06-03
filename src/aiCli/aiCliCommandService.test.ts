@@ -1,5 +1,6 @@
 import { runAiCliCommand, createFallbackDraft, resolveProposalReference, getProposalAlias, labelApproval, labelSave } from './aiCliCommandService';
 import { overwriteSessionState, readAgentSession, readAgentProposals, importExternalProposals, ensureActiveSession } from './aiCliAgentInfrastructure';
+import { handleAiCliRestRequest } from './aiCliRestAdapter';
 
 function assertEqual(actual: unknown, expected: unknown, message: string): void {
   if (actual !== expected) {
@@ -666,14 +667,14 @@ const baseDraft = createFallbackDraft();
     sourceName: 'test',
     source: 'ai',
     skills: {
-      skill1: {
-        name: 'Skill 1',
+      skill3: {
+        name: 'Skill 3',
         statType: 'atk',
         effects: {
           badEffect: {
             name: 'Bad',
             type: 'unknownEffectType',
-            category: 'value',
+            category: 'condition',
             levels: { L1: 10 },
           },
         },
@@ -690,6 +691,251 @@ const baseDraft = createFallbackDraft();
   assertEqual(result.error?.code, 'fill-invalid', 'invalid weapon effect type should return fill-invalid');
 }
 
+// 16a. weapon 官方源数据可通过 CLI 读取
+{
+  clearTestStorage();
+  const listResult = runAiCliCommand(
+    { protocolVersion: 1, requestId: 'test-weapon-data-list', client: 'rest', command: 'weapon.data.list' },
+    baseDraft,
+    { sourceText: '' }
+  );
+  assertEqual(listResult.ok, true, 'weapon.data.list should be ok');
+  const weapons = (listResult.data as { weapons?: Array<{ name: string; files: { base: boolean } }> }).weapons || [];
+  assertTrue(weapons.some((weapon) => weapon.name === '赫拉芬格' && weapon.files.base), 'weapon.data.list should include 赫拉芬格 with base file');
+  assertEqual(storage.get('def.weapon-sheet.draft.v1'), undefined, 'weapon.data.list should not write draft');
+  assertEqual(storage.get('def.weapon-sheet.library.v1'), undefined, 'weapon.data.list should not write library');
+
+  const showResult = runAiCliCommand(
+    { protocolVersion: 1, requestId: 'test-weapon-data-show', client: 'rest', command: 'weapon.data.show 赫拉芬格' },
+    baseDraft,
+    { sourceText: '' }
+  );
+  assertEqual(showResult.ok, true, 'weapon.data.show 赫拉芬格 should be ok');
+  const sourceData = showResult.data as { files?: { base?: { name?: string }; max?: unknown; buff?: unknown; markdown?: string }; missingFiles?: string[] };
+  assertEqual(sourceData.files?.base?.name, '赫拉芬格', 'weapon.data.show should return base source data');
+  assertTrue(sourceData.files?.max, 'weapon.data.show should return max source data when present');
+  assertTrue(sourceData.files?.buff, 'weapon.data.show should return buff source data when present');
+  assertTrue(typeof sourceData.files?.markdown === 'string', 'weapon.data.show should return markdown source data when present');
+  assertTrue(Array.isArray(sourceData.missingFiles), 'weapon.data.show should include missingFiles');
+  assertEqual(storage.get('def.weapon-sheet.draft.v1'), undefined, 'weapon.data.show should not write draft');
+  assertEqual(storage.get('def.weapon-sheet.library.v1'), undefined, 'weapon.data.show should not write library');
+}
+
+// 16b. weapon 本地库 CRUD/read surface
+{
+  clearTestStorage();
+  const emptyList = runAiCliCommand(
+    { protocolVersion: 1, requestId: 'test-weapon-list-empty', client: 'rest', command: 'weapon.list' },
+    baseDraft,
+    { sourceText: '' }
+  );
+  assertEqual(emptyList.ok, true, 'weapon.list empty should be ok');
+  assertTrue(emptyList.lines.some((line) => line.includes('本地武器库为空')), 'weapon.list empty should show empty info');
+
+  const localWeapon = {
+    id: 'local-weapon-1',
+    name: '本地测试武器',
+    rarity: 5,
+    type: 'sword',
+    description: 'local test',
+    imgUrl: '',
+    attackGrowth: { '1': 1 },
+    skills: {
+      skill1: { name: 'Skill 1', statType: 'atk', effects: {}, levels: {} },
+      skill2: { name: 'Skill 2', statType: 'atk', effects: {}, levels: {} },
+      skill3: {
+        name: 'Skill 3',
+        statType: 'special',
+        effects: {
+          effect1: { name: 'Effect 1', type: 'atkPercentBoost', category: 'condition', levels: { '1': 0.1 } },
+        },
+        levels: {},
+      },
+    },
+  };
+  storage.set('def.weapon-sheet.library.v1', JSON.stringify({ [localWeapon.id]: localWeapon }));
+
+  const listResult = runAiCliCommand(
+    { protocolVersion: 1, requestId: 'test-weapon-list-local', client: 'rest', command: 'weapon.list' },
+    baseDraft,
+    { sourceText: '' }
+  );
+  assertTrue(listResult.lines.some((line) => line.includes('本地测试武器')), 'weapon.list should show local weapon');
+
+  const showResult = runAiCliCommand(
+    { protocolVersion: 1, requestId: 'test-weapon-show-local', client: 'rest', command: 'weapon.show 本地测试武器' },
+    baseDraft,
+    { sourceText: '' }
+  );
+  assertEqual(showResult.ok, true, 'weapon.show should read local library weapon');
+  assertEqual((showResult.data as { draft?: { id?: string } }).draft?.id, localWeapon.id, 'weapon.show should return full local weapon draft');
+
+  const searchResult = runAiCliCommand(
+    { protocolVersion: 1, requestId: 'test-weapon-search', client: 'rest', command: 'weapon.search 赫拉芬格' },
+    baseDraft,
+    { sourceText: '' }
+  );
+  const searchRows = (searchResult.data as { results?: Array<{ source: string; name: string }> }).results || [];
+  assertTrue(searchRows.some((row) => row.source === 'official' && row.name === '赫拉芬格'), 'weapon.search should find official weapon source');
+
+  const draftShow = runAiCliCommand(
+    { protocolVersion: 1, requestId: 'test-weapon-draft-show', client: 'rest', command: 'weapon.draft.show' },
+    baseDraft,
+    { sourceText: '' }
+  );
+  assertEqual(draftShow.ok, true, 'weapon.draft.show should be ok');
+  assertTrue((draftShow.data as { draft?: { id?: string } }).draft?.id, 'weapon.draft.show should return a draft');
+
+  const readonlyOpen = runAiCliCommand(
+    { protocolVersion: 1, requestId: 'test-weapon-open-readonly', client: 'rest', command: 'weapon.open local-weapon-1' },
+    baseDraft,
+    { sourceText: '' }
+  );
+  assertFalse(readonlyOpen.ok, 'readonly weapon.open should fail');
+  assertEqual(readonlyOpen.error?.code, 'permission-denied', 'readonly weapon.open should be permission-denied');
+
+  const openResult = runAiCliCommand(
+    { protocolVersion: 1, requestId: 'test-weapon-open-web', client: 'web-cli', command: 'weapon.open local-weapon-1' },
+    baseDraft,
+    { sourceText: '' }
+  );
+  assertEqual(openResult.ok, true, 'web-cli weapon.open should be ok');
+  assertTrue(openResult.effects?.storage?.includes('def.weapon-sheet.draft.v1'), 'weapon.open should write draft storage');
+  assertFalse(openResult.effects?.storage?.includes('def.weapon-sheet.library.v1'), 'weapon.open should not write library storage');
+  const openedDraft = JSON.parse(storage.get('def.weapon-sheet.draft.v1') || '{}');
+  assertEqual(openedDraft.id, localWeapon.id, 'weapon.open should write selected weapon to draft');
+}
+
+// 16c. weapon.fill.task 暴露 source data 读取入口
+{
+  clearTestStorage();
+  const taskResult = runAiCliCommand(
+    { protocolVersion: 1, requestId: 'test-weapon-fill-task-source', client: 'rest', command: 'weapon.fill.task' },
+    baseDraft,
+    { sourceText: '' }
+  );
+  assertEqual(taskResult.ok, true, 'weapon.fill.task should be ok');
+  const data = taskResult.data as {
+    sourceDataIndex?: Array<{ name: string }>;
+    sourceReadCommands?: { show?: string };
+    sourceReadRestEndpoints?: { show?: string };
+    instruction?: string;
+  };
+  assertTrue(data.sourceDataIndex?.some((entry) => entry.name === '赫拉芬格'), 'weapon.fill.task should include sourceDataIndex');
+  assertEqual(data.sourceReadCommands?.show, 'weapon.data.show <name>', 'weapon.fill.task should include source read command');
+  assertEqual(data.sourceReadRestEndpoints?.show, 'GET /api/weapon/data/<name>', 'weapon.fill.task should include source read REST endpoint');
+  assertTrue(data.instruction?.includes('weapon.data.show <name>'), 'weapon.fill.task should instruct agents to read source first');
+}
+
+// 16d. weapon.fill.check 对齐 weapon-sheet schema 约束
+{
+  clearTestStorage();
+  const withUrl = {
+    id: 'test-url-reject',
+    name: 'URL Reject',
+    rarity: 5,
+    description: 'test',
+    url: 'https://example.test/source',
+    sourceName: 'test',
+    source: 'ai',
+    skills: {},
+  };
+  const urlResult = runAiCliCommand(
+    { protocolVersion: 1, requestId: 'test-weapon-url-reject', client: 'rest', command: `weapon.fill.check ${JSON.stringify(withUrl)}` },
+    baseDraft,
+    { sourceText: '' }
+  );
+  assertFalse(urlResult.ok, 'weapon.fill.check should reject ambiguous url');
+
+  const skill1Effects = {
+    id: 'test-skill1-effects',
+    name: 'Skill1 Effects',
+    rarity: 5,
+    description: 'test',
+    sourceName: 'test',
+    source: 'ai',
+    skills: {
+      skill1: {
+        name: 'Skill 1',
+        statType: 'atk',
+        effects: {
+          effect1: { name: 'Effect', type: 'atkPercentBoost', category: 'condition', levels: { '1': 0.1 } },
+        },
+        levels: {},
+      },
+    },
+  };
+  const skill1Result = runAiCliCommand(
+    { protocolVersion: 1, requestId: 'test-weapon-skill1-effects-reject', client: 'rest', command: `weapon.fill.check ${JSON.stringify(skill1Effects)}` },
+    baseDraft,
+    { sourceText: '' }
+  );
+  assertFalse(skill1Result.ok, 'weapon.fill.check should reject skill1.effects');
+
+  const badCategory = {
+    id: 'test-bad-category',
+    name: 'Bad Category',
+    rarity: 5,
+    description: 'test',
+    sourceName: 'test',
+    source: 'ai',
+    skills: {
+      skill3: {
+        name: 'Skill 3',
+        statType: 'special',
+        effects: {
+          effect1: { name: 'Effect', type: 'atkPercentBoost', category: 'value', levels: { '1': 0.1 } },
+        },
+        levels: {},
+      },
+    },
+  };
+  const categoryResult = runAiCliCommand(
+    { protocolVersion: 1, requestId: 'test-weapon-category-reject', client: 'rest', command: `weapon.fill.check ${JSON.stringify(badCategory)}` },
+    baseDraft,
+    { sourceText: '' }
+  );
+  assertFalse(categoryResult.ok, 'weapon.fill.check should reject value/effect categories');
+}
+
+// 16e. REST weapon read endpoints return structured data without writes
+{
+  clearTestStorage();
+  const current = handleAiCliRestRequest(
+    { method: 'GET', path: '/api/weapon/current', client: 'rest' },
+    baseDraft,
+    { sourceText: '', sessionId: 'rest-test-session' }
+  );
+  assertEqual(current.status, 200, 'GET /api/weapon/current should return 200');
+  assertEqual((current.body as { ok?: boolean }).ok, true, 'GET /api/weapon/current should be ok');
+
+  const library = handleAiCliRestRequest(
+    { method: 'GET', path: '/api/weapon/library', client: 'rest' },
+    baseDraft,
+    { sourceText: '', sessionId: 'rest-test-session' }
+  );
+  assertEqual(library.status, 200, 'GET /api/weapon/library should return 200');
+  assertEqual((library.body as { ok?: boolean }).ok, true, 'GET /api/weapon/library should be ok');
+
+  const dataList = handleAiCliRestRequest(
+    { method: 'GET', path: '/api/weapon/data', client: 'rest' },
+    baseDraft,
+    { sourceText: '', sessionId: 'rest-test-session' }
+  );
+  assertEqual(dataList.status, 200, 'GET /api/weapon/data should return 200');
+  assertTrue((dataList.body as { weapons?: Array<{ name: string }> }).weapons?.some((weapon) => weapon.name === '赫拉芬格'), 'GET /api/weapon/data should include 赫拉芬格');
+
+  const dataShow = handleAiCliRestRequest(
+    { method: 'GET', path: '/api/weapon/data/%E8%B5%AB%E6%8B%89%E8%8A%AC%E6%A0%BC', client: 'rest' },
+    baseDraft,
+    { sourceText: '', sessionId: 'rest-test-session' }
+  );
+  assertEqual(dataShow.status, 200, 'GET /api/weapon/data/赫拉芬格 should return 200');
+  assertEqual((dataShow.body as { name?: string }).name, '赫拉芬格', 'GET /api/weapon/data/赫拉芬格 should return source data');
+  assertEqual(storage.get('def.weapon-sheet.draft.v1'), undefined, 'REST weapon read endpoints should not write draft');
+  assertEqual(storage.get('def.weapon-sheet.library.v1'), undefined, 'REST weapon read endpoints should not write library');
+}
+
 // 17. weapon.fill.apply 创建 domain='weapon' proposal
 {
   clearTestStorage();
@@ -701,14 +947,14 @@ const baseDraft = createFallbackDraft();
     sourceName: 'test',
     source: 'ai',
     skills: {
-      skill1: {
-        name: 'Skill 1',
+      skill3: {
+        name: 'Skill 3',
         statType: 'atk',
         effects: {
           atkBoost: {
             name: 'Atk Boost',
             type: 'atkPercent',
-            category: 'value',
+            category: 'condition',
             levels: { L1: 0.1 },
           },
         },
@@ -740,18 +986,20 @@ const baseDraft = createFallbackDraft();
     id: 'test-weapon-approve',
     name: 'Test Weapon Approve',
     rarity: 5,
+    type: 'handgun',
     description: 'test',
+    attackGrowth: { '1': 10, '90': 100 },
     sourceName: 'test',
     source: 'ai',
     skills: {
-      skill1: {
-        name: 'Skill 1',
+      skill3: {
+        name: 'Skill 3',
         statType: 'atk',
         effects: {
           atkBoost: {
             name: 'Atk Boost',
             type: 'atkPercent',
-            category: 'value',
+            category: 'passive',
             levels: { L1: 0.1 },
           },
         },
@@ -776,6 +1024,13 @@ const baseDraft = createFallbackDraft();
   assertEqual(approveResult.effects?.writes, true, 'weapon proposal.approve should report writes=true');
   assertTrue(approveResult.effects?.storage?.includes('def.weapon-sheet.draft.v1'), 'weapon approve storage should include draft key');
   assertFalse(approveResult.effects?.storage?.includes('def.weapon-sheet.library.v1'), 'weapon approve storage should not include library key');
+  const weaponDraftRaw = storage.get('def.weapon-sheet.draft.v1');
+  assertTrue(weaponDraftRaw, 'weapon draft should be written after approve');
+  const weaponDraft = JSON.parse(weaponDraftRaw!);
+  assertEqual(weaponDraft.type, 'handgun', 'weapon approve should preserve weapon-sheet type');
+  assertEqual(weaponDraft.imgUrl, '', 'weapon approve should leave imgUrl empty when imgUrl is absent');
+  assertEqual(weaponDraft.attackGrowth['90'], 100, 'weapon approve should preserve attackGrowth');
+  assertEqual(weaponDraft.skills.skill3.effects.atkBoost.category, 'passive', 'weapon approve should preserve weapon-sheet effect category');
   const weaponLibraryRaw = storage.get('def.weapon-sheet.library.v1');
   assertEqual(weaponLibraryRaw, undefined, 'weapon library should not be written after approve');
 }
@@ -791,14 +1046,14 @@ const baseDraft = createFallbackDraft();
     sourceName: 'test',
     source: 'ai',
     skills: {
-      skill1: {
-        name: 'Skill 1',
+      skill3: {
+        name: 'Skill 3',
         statType: 'atk',
         effects: {
           atkBoost: {
             name: 'Atk Boost',
             type: 'atkPercent',
-            category: 'value',
+            category: 'condition',
             levels: { L1: 0.1 },
           },
         },

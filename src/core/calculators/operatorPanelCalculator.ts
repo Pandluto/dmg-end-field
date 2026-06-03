@@ -24,6 +24,7 @@ export interface OperatorPanelInput {
     subStatFlatBonus?: number;
     skillConfig?: Record<string, string>;
     attributes: Partial<Record<string, OperatorPanelAttributes>>;
+    buffs?: OperatorBuffInput;
   };
   weapon?: {
     id?: string;
@@ -51,6 +52,22 @@ export interface OperatorPanelInput {
     setBuffs?: EquipmentSetBuffInput[];
   };
 }
+
+export type OperatorBuffGroupKey = 'talent' | 'potential' | 'skill';
+export type OperatorBuffCategory = 'positive' | 'condition';
+
+export interface OperatorBuffEffectInput {
+  effectId: string;
+  name: string;
+  type: string;
+  category: OperatorBuffCategory;
+  value?: number;
+  unit?: 'flat' | 'percent' | string;
+  description?: string;
+  raw?: string;
+}
+
+export type OperatorBuffInput = Record<OperatorBuffGroupKey, { effects: Record<string, OperatorBuffEffectInput> }>;
 
 export interface WeaponSkillInput {
   name?: string;
@@ -107,6 +124,7 @@ export interface ConfigSnapshot {
     subStatFlatBonus: number;
     skillConfig: Record<string, string>;
     baseAttributes: OperatorPanelAttributes;
+    buffs: OperatorBuffInput;
   };
   weapon: WeaponSnapshot;
   equipment: EquipmentSnapshot;
@@ -358,6 +376,11 @@ const EQUIPMENT_TOTAL_FIELDS = new Set([
   'allDmgBonus',
 ]);
 
+const OPERATOR_TOTAL_FIELDS = new Set([
+  ...WEAPON_TOTAL_FIELDS,
+  ...EQUIPMENT_TOTAL_FIELDS,
+]);
+
 const PERCENT_FIELDS = new Set([
   'atkPercentBoost',
   'hpPercent',
@@ -598,6 +621,27 @@ function buildEquipmentSnapshot(input: OperatorPanelInput['equipment']): Equipme
     }
   });
   return { pieces, setBuffs, totals };
+}
+
+function createEmptyOperatorBuffs(): OperatorBuffInput {
+  return {
+    talent: { effects: {} },
+    potential: { effects: {} },
+    skill: { effects: {} },
+  };
+}
+
+function buildOperatorBuffTotals(buffs: OperatorBuffInput | undefined): Record<string, number> {
+  const totals: Record<string, number> = {};
+  Object.values(buffs ?? createEmptyOperatorBuffs()).forEach((group) => {
+    Object.values(group.effects || {}).forEach((effect) => {
+      const typeKey = normalizeTypeKey(effect.type || '');
+      if (effect.category !== 'positive' || !typeKey || !OPERATOR_TOTAL_FIELDS.has(typeKey)) return;
+      if (typeof effect.value !== 'number' || !Number.isFinite(effect.value)) return;
+      addTotal(totals, typeKey, effect.value, effect.unit);
+    });
+  });
+  return totals;
 }
 
 function buildDisplayDamageBonus(damageBonus: DamageBonusSnapshot): DamageBonusSnapshot {
@@ -851,6 +895,8 @@ export function buildConfigSnapshot(input: OperatorPanelInput): ConfigSnapshot {
   const attributes = resolveAttributes(input.operator);
   const weapon = buildWeaponSnapshot(input.weapon);
   const equipment = buildEquipmentSnapshot(input.equipment);
+  const operatorBuffs = input.operator.buffs ?? createEmptyOperatorBuffs();
+  const operatorBuffTotals = buildOperatorBuffTotals(operatorBuffs);
   const mainField = resolveAbilityField(input.operator.mainStat);
   const subField = resolveAbilityField(input.operator.subStat);
   const mainStatFlatBonus = toNumber(input.operator.mainStatFlatBonus ?? input.operator.favorValue, 60);
@@ -861,15 +907,19 @@ export function buildConfigSnapshot(input: OperatorPanelInput): ConfigSnapshot {
     intelligence: attributes.intelligence + (weapon.totals.intelligenceBoost ?? 0) + (equipment.totals.intelligenceBoost ?? 0),
     will: attributes.will + (weapon.totals.willBoost ?? 0) + (equipment.totals.willBoost ?? 0),
   };
+  abilityByField.strength += operatorBuffTotals.strengthBoost ?? 0;
+  abilityByField.agility += operatorBuffTotals.agilityBoost ?? 0;
+  abilityByField.intelligence += operatorBuffTotals.intelligenceBoost ?? 0;
+  abilityByField.will += operatorBuffTotals.willBoost ?? 0;
   if (mainField) abilityByField[mainField] += mainStatFlatBonus + (weapon.totals.mainStat ?? 0);
   if (subField) abilityByField[subField] += subStatFlatBonus + (weapon.totals.subStat ?? 0);
 
-  const mainStatScale = (weapon.totals.mainStatBoost ?? 0) + (equipment.totals.mainStatBoost ?? 0);
-  const subStatScale = (weapon.totals.subStatBoost ?? 0) + (equipment.totals.subStatBoost ?? 0);
-  const allStatScale = weapon.totals.allStatBoost ?? 0;
+  const mainStatScale = (weapon.totals.mainStatBoost ?? 0) + (equipment.totals.mainStatBoost ?? 0) + (operatorBuffTotals.mainStatBoost ?? 0);
+  const subStatScale = (weapon.totals.subStatBoost ?? 0) + (equipment.totals.subStatBoost ?? 0) + (operatorBuffTotals.subStatBoost ?? 0);
+  const allStatScale = (weapon.totals.allStatBoost ?? 0) + (operatorBuffTotals.allStatBoost ?? 0);
   const operatorAtk = attributes.atk;
   const weaponAtk = weapon.attack;
-  const calcDamageBonus = createDamageBonusFromTotals(equipment.totals, weapon.totals);
+  const calcDamageBonus = createDamageBonusFromTotals(equipment.totals, weapon.totals, operatorBuffTotals);
   const calc: PanelCalcSnapshot = {
     strength: round(abilityByField.strength),
     agility: round(abilityByField.agility),
@@ -883,18 +933,18 @@ export function buildConfigSnapshot(input: OperatorPanelInput): ConfigSnapshot {
     mainStatBoost: round(mainStatScale),
     subStatBoost: round(subStatScale),
     allStatBoost: round(allStatScale),
-    atkPercentBoost: round((weapon.totals.atkPercentBoost ?? 0) + (equipment.totals.atkPercentBoost ?? 0)),
-    flatAtk: round(weapon.totals.atk ?? 0),
-    hpPercent: round((weapon.totals.hpPercent ?? 0) + (equipment.totals.hpPercent ?? 0)),
-    critRateBoost: round((weapon.totals.critRateBoost ?? 0) + (equipment.totals.critRateBoost ?? 0)),
-    critDmgBonusBoost: round((weapon.totals.critDmgBonusBoost ?? 0) + (equipment.totals.critDmgBonusBoost ?? 0)),
-    sourceSkillBoost: round((weapon.totals.sourceSkillBoost ?? 0) + (equipment.totals.sourceSkillBoost ?? 0)),
-    healingBonus: round((weapon.totals.healingBonus ?? 0) + (equipment.totals.healingBonus ?? 0)),
-    receivedHealingBonus: 0,
-    chainCooldownReduction: 0,
-    ultimateChargeEfficiency: round((weapon.totals.ultimateChargeEfficiency ?? 0) + (equipment.totals.ultimateChargeEfficiency ?? 0)),
-    imbalanceEfficiency: 0,
-    damageReduction: round(equipment.totals.damageReduction ?? 0),
+    atkPercentBoost: round((weapon.totals.atkPercentBoost ?? 0) + (equipment.totals.atkPercentBoost ?? 0) + (operatorBuffTotals.atkPercentBoost ?? 0)),
+    flatAtk: round((weapon.totals.atk ?? 0) + (operatorBuffTotals.atk ?? 0)),
+    hpPercent: round((weapon.totals.hpPercent ?? 0) + (equipment.totals.hpPercent ?? 0) + (operatorBuffTotals.hpPercent ?? 0)),
+    critRateBoost: round((weapon.totals.critRateBoost ?? 0) + (equipment.totals.critRateBoost ?? 0) + (operatorBuffTotals.critRateBoost ?? 0)),
+    critDmgBonusBoost: round((weapon.totals.critDmgBonusBoost ?? 0) + (equipment.totals.critDmgBonusBoost ?? 0) + (operatorBuffTotals.critDmgBonusBoost ?? 0)),
+    sourceSkillBoost: round((weapon.totals.sourceSkillBoost ?? 0) + (equipment.totals.sourceSkillBoost ?? 0) + (operatorBuffTotals.sourceSkillBoost ?? 0)),
+    healingBonus: round((weapon.totals.healingBonus ?? 0) + (equipment.totals.healingBonus ?? 0) + (operatorBuffTotals.healingBonus ?? 0)),
+    receivedHealingBonus: round(operatorBuffTotals.receivedHealingBonus ?? 0),
+    chainCooldownReduction: round(operatorBuffTotals.chainCooldownReduction ?? 0),
+    ultimateChargeEfficiency: round((weapon.totals.ultimateChargeEfficiency ?? 0) + (equipment.totals.ultimateChargeEfficiency ?? 0) + (operatorBuffTotals.ultimateChargeEfficiency ?? 0)),
+    imbalanceEfficiency: round(operatorBuffTotals.imbalanceEfficiency ?? 0),
+    damageReduction: round((equipment.totals.damageReduction ?? 0) + (operatorBuffTotals.damageReduction ?? 0)),
     damageBonus: calcDamageBonus,
   };
   const display = buildDisplay(calc, input.operator.mainStat ?? '', input.operator.subStat ?? '');
@@ -912,11 +962,12 @@ export function buildConfigSnapshot(input: OperatorPanelInput): ConfigSnapshot {
       subStatFlatBonus,
       skillConfig: input.operator.skillConfig ?? {},
       baseAttributes: attributes,
+      buffs: operatorBuffs,
     },
     weapon,
     equipment,
     buff: {
-      operator: [],
+      operator: Object.values(operatorBuffs).flatMap((group) => Object.keys(group.effects || {})),
       weapon: [],
       equipment: [],
     },

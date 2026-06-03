@@ -9,6 +9,19 @@ type SkillLevelKey = (typeof SKILL_LEVEL_KEYS)[number];
 type AttributeLevelKey = (typeof ATTRIBUTE_LEVEL_KEYS)[number];
 type AttributeKey = (typeof ATTRIBUTE_KEYS)[number];
 type AttributeLevels = Record<AttributeKey, Record<AttributeLevelKey, number>>;
+type OperatorBuffGroupKey = 'talent' | 'potential' | 'skill';
+type OperatorBuffCategory = 'positive' | 'condition';
+interface OperatorBuffEffect {
+  effectId: string;
+  name: string;
+  type: string;
+  category: OperatorBuffCategory;
+  value?: number;
+  unit?: 'flat' | 'percent' | string;
+  description?: string;
+  raw?: string;
+}
+type OperatorBuffs = Record<OperatorBuffGroupKey, { effects: Record<string, OperatorBuffEffect> }>;
 
 interface HitMetaDraft {
   multiplier?: number;
@@ -39,6 +52,7 @@ export interface ImportedOperatorDraft {
   level: number;
   attributes: AttributeLevels;
   skills: Record<string, SkillDraft>;
+  buffs: OperatorBuffs;
 }
 
 interface ReferenceOperatorItem {
@@ -101,6 +115,14 @@ function createDefaultAttributeLevels(value = 0): AttributeLevels {
   ) as AttributeLevels;
 }
 
+function createDefaultBuffs(): OperatorBuffs {
+  return {
+    talent: { effects: {} },
+    potential: { effects: {} },
+    skill: { effects: {} },
+  };
+}
+
 function createDefaultSkill(buttonType: HitSkillType = 'A', skillKey = 'skill-1'): SkillDraft {
   const matched = skillKey.match(/(\d+)$/);
   const skillIndex = matched ? Number(matched[1]) : 1;
@@ -131,6 +153,7 @@ function createDefaultDraft(): ImportedOperatorDraft {
     skills: {
       'skill-1': createDefaultSkill('A', 'skill-1'),
     },
+    buffs: createDefaultBuffs(),
   };
 }
 
@@ -476,6 +499,7 @@ function buildImportedDraft(source: SourceCharacterData, options: ImportDraftOpt
     level: 90,
     attributes: buildImportedAttributeLevels(source.attributes),
     skills,
+    buffs: createDefaultBuffs(),
   };
 }
 

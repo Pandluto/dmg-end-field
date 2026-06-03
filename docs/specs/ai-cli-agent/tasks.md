@@ -124,6 +124,7 @@
   - [x] Task 11 收尾：REST smoke 增加 `POST /api/ai-cli/run` + `proposal.list` 断言。
 
 - [ ] Task 12: 完成横向 Fill Proposal 框架，并改造 Buff/Weapon 分支
+  - [ ] Task 12 Fix 3：补齐 Weapon 的 Buff-like CLI/REST CRUD/read surface，让外部 agent 能通过 app harness 读取官方武器源数据（如 `赫拉芬格`），再进入 `weapon.fill` proposal 流程。
   - [ ] 边界：审批和保存是用户动作，不是外部 agent 自批自存；agent 只能创建/查询 proposal，不能默认绕过用户确认。
   - [ ] 边界：如新增 `proposal.approve/reject/save/unsave` CLI 命令或 REST 端点，必须标记为用户确认入口，并受权限/客户端约束。
   - [ ] 边界：REST 端点不能让 readonly 外部 agent 直接推进 `approval/save` 状态。

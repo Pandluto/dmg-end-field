@@ -104,6 +104,22 @@ export interface SandboxSkill {
   customHits?: SandboxSkillHit[];
 }
 
+export type OperatorBuffGroupKey = 'talent' | 'potential' | 'skill';
+export type OperatorBuffCategory = 'positive' | 'condition';
+
+export interface OperatorBuffEffect {
+  effectId: string;
+  name: string;
+  type: string;
+  category: OperatorBuffCategory;
+  value?: number;
+  unit?: 'flat' | 'percent' | string;
+  description?: string;
+  raw?: string;
+}
+
+export type OperatorBuffs = Record<OperatorBuffGroupKey, { effects: Record<string, OperatorBuffEffect> }>;
+
 export interface SkillButtonSkillOption {
   nextSkillType: SkillType;
   nextRuntimeSkillId?: string;
@@ -165,6 +181,8 @@ export interface Character {
   librarySource?: 'official' | 'local';
   /** 运行时沙盒技能列表，官方角色为四键，本地角色可多技能 */
   sandboxSkills?: SandboxSkill[];
+  /** 本地 operator-studio 干员自带 Buff */
+  operatorBuffs?: OperatorBuffs;
 }
 
 /**

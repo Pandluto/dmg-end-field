@@ -18,6 +18,8 @@ import type {
   OperatorDraftSkill,
   OperatorDraftHit,
   OperatorDraftAttributeLevels,
+  OperatorDraftBuffs,
+  OperatorDraftBuffEffect,
   OperatorAttributeLevelKey,
   OperatorAttributeKey,
   RuntimeOperatorTemplate,
@@ -28,6 +30,7 @@ import type {
 const SKILL_LEVEL_KEYS = ['L1', 'L2', 'L3', 'L4', 'L5', 'L6', 'L7', 'L8', 'L9', 'M1', 'M2', 'M3'] as const;
 const ATTRIBUTE_LEVEL_KEYS = ['level1', 'level20', 'level40', 'level60', 'level80', 'level90'] as const satisfies readonly OperatorAttributeLevelKey[];
 const ATTRIBUTE_KEYS = ['strength', 'agility', 'intelligence', 'will', 'atk', 'hp'] as const satisfies readonly OperatorAttributeKey[];
+const OPERATOR_BUFF_GROUP_KEYS = ['talent', 'potential', 'skill'] as const;
 
 // ============================================================================
 // 工具函数
@@ -82,6 +85,15 @@ function createDefaultDraft(): OperatorDraft {
     skills: {
       'skill-1': createDefaultSkill('A', 'skill-1'),
     },
+    buffs: createDefaultBuffs(),
+  };
+}
+
+function createDefaultBuffs(): OperatorDraftBuffs {
+  return {
+    talent: { effects: {} },
+    potential: { effects: {} },
+    skill: { effects: {} },
   };
 }
 
@@ -114,6 +126,41 @@ function normalizeAttributeLevels(rawAttributes: unknown): OperatorDraftAttribut
   ) as OperatorDraftAttributeLevels;
 }
 
+function normalizeBuffEffect(effectKey: string, rawEffect: unknown): OperatorDraftBuffEffect {
+  const source = rawEffect && typeof rawEffect === 'object' ? rawEffect as Record<string, unknown> : {};
+  const rawCategory = typeof source.category === 'string' ? source.category : '';
+  const category = rawCategory === 'condition' ? 'condition' : 'positive';
+  const rawValue = source.value;
+  return {
+    effectId: String(source.effectId || effectKey),
+    name: String(source.name || effectKey),
+    type: String(source.type || ''),
+    category,
+    ...(typeof rawValue === 'number' && Number.isFinite(rawValue) ? { value: rawValue } : {}),
+    ...(typeof source.unit === 'string' && source.unit ? { unit: source.unit } : {}),
+    ...(typeof source.description === 'string' && source.description ? { description: source.description } : {}),
+    ...(typeof source.raw === 'string' && source.raw ? { raw: source.raw } : {}),
+  };
+}
+
+function normalizeOperatorDraftBuffs(rawBuffs: unknown): OperatorDraftBuffs {
+  const source = rawBuffs && typeof rawBuffs === 'object' ? rawBuffs as Record<string, unknown> : {};
+  return Object.fromEntries(
+    OPERATOR_BUFF_GROUP_KEYS.map((groupKey) => {
+      const rawGroup = source[groupKey] && typeof source[groupKey] === 'object' ? source[groupKey] as Record<string, unknown> : {};
+      const rawEffects = rawGroup.effects && typeof rawGroup.effects === 'object' ? rawGroup.effects as Record<string, unknown> : {};
+      return [
+        groupKey,
+        {
+          effects: Object.fromEntries(
+            Object.entries(rawEffects).map(([effectKey, rawEffect]) => [effectKey, normalizeBuffEffect(effectKey, rawEffect)])
+          ),
+        },
+      ];
+    })
+  ) as OperatorDraftBuffs;
+}
+
 function levelToAttributeLevelKey(level: number): OperatorAttributeLevelKey {
   if (level >= 90) return 'level90';
   if (level >= 80) return 'level80';
@@ -140,6 +187,7 @@ function resolveAttributeSnapshot(attributes: OperatorDraftAttributeLevels, leve
  */
 export function normalizeOperatorDraft(draft: OperatorDraft): OperatorDraft {
   draft.attributes = normalizeAttributeLevels(draft.attributes);
+  draft.buffs = normalizeOperatorDraftBuffs(draft.buffs);
   Object.entries(draft.skills).forEach(([skillKey, skill]) => {
     if (!skill.displayName?.trim()) {
       skill.displayName = createDefaultSkill(skill.buttonType, skillKey).displayName;
@@ -247,6 +295,7 @@ export function buildRuntimeOperatorTemplateFromDraft(
     level: normalizedDraft.level,
     attributes: resolveAttributeSnapshot(normalizedDraft.attributes, normalizedDraft.level),
     attributeLevels: normalizedDraft.attributes,
+    buffs: normalizedDraft.buffs,
     source: 'local',
     skills,
   };

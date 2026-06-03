@@ -421,6 +421,7 @@ function createCharacterData(character: Character): Record<string, unknown> {
     attributes: character.attributes,
     avatarUrl: character.avatarUrl ?? '',
     sandboxSkills: character.sandboxSkills ?? [],
+    operatorBuffs: character.operatorBuffs,
     skills: {
       A: {
         name: character.skills.normalAttack.name,
@@ -964,6 +965,7 @@ function buildOperatorPanelInput(
       subStatFlatBonus: getOperatorSubStatFlatBonus(config),
       skillConfig: config?.skills.config,
       attributes: operatorData.attributes ?? activeCharacter?.attributes ?? {},
+      buffs: operatorData.operatorBuffs ?? activeCharacter?.operatorBuffs,
     },
     weapon: {
       id: config?.weapon.id ?? '',

@@ -99,6 +99,44 @@ function buildSnapshotCandidateBase(snapshot: ConfigSnapshot): Pick<CandidateBuf
   };
 }
 
+function buildOperatorBuffCandidate(
+  snapshot: ConfigSnapshot,
+  groupKey: 'talent' | 'potential' | 'skill',
+  effectKey: string,
+  effect: ConfigSnapshot['operator']['buffs'][typeof groupKey]['effects'][string]
+): CandidateBuff | null {
+  const type = normalizeBuffTypeKey(effect.type || '');
+  if (!type) return null;
+  const sourceName = snapshot.operator.name || snapshot.operator.id;
+  return {
+    origin: 'operatorStudio',
+    ownerCharacterId: snapshot.operator.id,
+    ownerBuffGroup: groupKey,
+    displayName: effect.name || effectKey,
+    name: `operator-studio:${snapshot.operator.id}:${groupKey}:${effect.effectId || effectKey}`,
+    level: groupKey,
+    value: effect.value,
+    type,
+    source: sourceName,
+    sourceName,
+    description: effect.description || effect.raw || `${effect.name || effectKey} ${effect.value ?? ''}`.trim(),
+    condition: effect.category === 'condition' ? 'condition' : 'positive',
+  };
+}
+
+export function buildSnapshotOperatorCandidateBuffs(snapshot: ConfigSnapshot): CandidateBuff[] {
+  const buffs = snapshot.operator.buffs ?? {
+    talent: { effects: {} },
+    potential: { effects: {} },
+    skill: { effects: {} },
+  };
+  return (['talent', 'potential', 'skill'] as const).flatMap((groupKey) => (
+    Object.entries(buffs[groupKey]?.effects || {})
+      .map(([effectKey, effect]) => buildOperatorBuffCandidate(snapshot, groupKey, effectKey, effect))
+      .filter((buff): buff is CandidateBuff => Boolean(buff))
+  ));
+}
+
 function buildWeaponDetailCandidate(snapshot: ConfigSnapshot, detail: WeaponSkillDetail, index: number): CandidateBuff | null {
   if (detail.category === 'passive') return null;
   const type = normalizeBuffTypeKey(detail.typeKey);
@@ -173,6 +211,7 @@ export async function buildSnapshotCandidateBuffs(characters: SnapshotCandidateC
     const snapshot = snapshotCache[character.id];
     if (!snapshot) return [];
     return [
+      ...buildSnapshotOperatorCandidateBuffs(snapshot),
       ...buildSnapshotWeaponCandidateBuffs(snapshot),
       ...buildSnapshotEquipmentCandidateBuffs(snapshot, equipmentLibrary),
     ];
@@ -180,7 +219,7 @@ export async function buildSnapshotCandidateBuffs(characters: SnapshotCandidateC
 }
 
 function isSnapshotCandidateOwnedBy(buff: CandidateBuff, characterIds: Set<string>): boolean {
-  if (buff.origin === 'operatorConfigSnapshot' && buff.ownerCharacterId) {
+  if ((buff.origin === 'operatorConfigSnapshot' || buff.origin === 'operatorStudio') && buff.ownerCharacterId) {
     return characterIds.has(buff.ownerCharacterId);
   }
   if (buff.name.startsWith('operator-config-snapshot:')) {

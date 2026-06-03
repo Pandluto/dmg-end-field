@@ -43,8 +43,17 @@ import {
   persistDraft,
   writeUndoSnapshot,
 } from './buffFillAdapter';
-import { WEAPON_DRAFT_STORAGE_KEY, WEAPON_LIBRARY_STORAGE_KEY, weaponFillAdapter } from './weaponFillAdapter';
+import { WEAPON_DRAFT_STORAGE_KEY, WEAPON_LIBRARY_STORAGE_KEY, readWeaponLibrary, weaponFillAdapter } from './weaponFillAdapter';
 import { buffFillAdapter } from './buffFillAdapter';
+import {
+  findWeaponLibraryEntry,
+  formatWeaponLibrarySummary,
+  getCurrentWeaponDraft,
+  listWeaponSourceIndex,
+  openWeaponLibraryEntry,
+  readWeaponSourceData,
+  searchWeaponSurface,
+} from './weaponDataSurface';
 
 registerFillDomainAdapter(buffFillAdapter);
 registerFillDomainAdapter(weaponFillAdapter);
@@ -473,6 +482,13 @@ function executeCommand(
             ['buff', 'buff.show <id>', 'read one Buff library entry'],
             ['buff', 'buff.search <keyword>', 'search Buff library'],
             ['buff', 'buff.open <id>', 'set active draft from library'],
+            ['weapon', 'weapon.list [limit]', 'list Weapon library entries'],
+            ['weapon', 'weapon.show <id|name>', 'read one local Weapon library entry'],
+            ['weapon', 'weapon.search <keyword>', 'search local and official Weapon data'],
+            ['weapon', 'weapon.draft.show', 'read current Weapon working draft'],
+            ['weapon', 'weapon.open <id|name>', 'set active Weapon draft from library'],
+            ['weapon', 'weapon.data.list [limit]', 'list official Weapon source data'],
+            ['weapon', 'weapon.data.show <id|name>', 'read official Weapon source data'],
             ['draft', 'draft.show', 'read active draft only'],
             ['draft', 'draft.rename <name>', 'rename active draft and sync library'],
             ['item', 'item.list | item.add | item.set | item.delete', 'CRUD buff items'],
@@ -659,6 +675,155 @@ function executeCommand(
       nextDraft: entry,
       lines: [ok(`buff opened as active draft: ${buffId}`)],
       storage: [BUFF_DRAFT_STORAGE_KEY, BUFF_UNDO_STORAGE_KEY],
+    });
+  }
+
+  if (command === 'weapon.list') {
+    const limit = Math.max(1, Math.min(200, Number(args[0] || 50) || 50));
+    const rows = formatWeaponLibrarySummary().slice(0, limit);
+    return makeResponse({
+      lines: rows.length
+        ? table(
+            ['id', 'name', 'rarity', 'type', 'skills', 'effects'],
+            rows.map((entry) => [entry.id, entry.name, String(entry.rarity), entry.type || '-', String(entry.skills), String(entry.effects)]),
+          )
+        : [info('no weapon library entries (本地武器库为空)')],
+      data: { library: rows },
+      workflow: 'weapon.fill',
+    });
+  }
+
+  if (command === 'weapon.search') {
+    const keyword = args.join(' ').trim();
+    if (!keyword) {
+      return makeResponse({ ok: false, lines: [fail('usage: weapon.search <keyword>')] });
+    }
+    const rows = searchWeaponSurface(keyword).slice(0, 50);
+    return makeResponse({
+      lines: rows.length
+        ? table(
+            ['source', 'id', 'name', 'extra'],
+            rows.map((entry) => [
+              entry.source,
+              entry.id || '-',
+              entry.name,
+              entry.source === 'library'
+                ? `rarity=${entry.rarity} type=${entry.type || '-'}`
+                : `folder=${entry.folder}`,
+            ]),
+          )
+        : [info(`no weapon match: ${keyword} (未匹配到武器)`)],
+      data: { results: rows },
+      workflow: 'weapon.fill',
+    });
+  }
+
+  if (command === 'weapon.show') {
+    const ref = args.join(' ').trim();
+    const entry = ref ? findWeaponLibraryEntry(ref, readWeaponLibrary()) : null;
+    if (!ref || !entry) {
+      return makeResponse({
+        ok: false,
+        lines: [
+          fail('usage: weapon.show <existingWeaponId|name>'),
+          '[hint] For official source data, use weapon.data.show <name> (官方源数据请用 weapon.data.show <名称>)',
+        ],
+      });
+    }
+    const effectCount = Object.values(entry.draft.skills || {}).reduce((sum, skill) => sum + Object.keys(skill.effects || {}).length, 0);
+    return makeResponse({
+      lines: [
+        `id=${entry.id}`,
+        `name=${entry.draft.name}`,
+        `rarity=${entry.draft.rarity}`,
+        `type=${entry.draft.type || '-'}`,
+        `skills=${Object.keys(entry.draft.skills || {}).length}`,
+        `effects=${effectCount}`,
+      ],
+      data: { id: entry.id, draft: entry.draft },
+      workflow: 'weapon.fill',
+    });
+  }
+
+  if (command === 'weapon.draft.show') {
+    const weaponDraft = getCurrentWeaponDraft();
+    const effectCount = Object.values(weaponDraft.skills || {}).reduce((sum, skill) => sum + Object.keys(skill.effects || {}).length, 0);
+    return makeResponse({
+      lines: [
+        `id=${weaponDraft.id}`,
+        `name=${weaponDraft.name}`,
+        `rarity=${weaponDraft.rarity}`,
+        `type=${weaponDraft.type || '-'}`,
+        `skills=${Object.keys(weaponDraft.skills || {}).length}`,
+        `effects=${effectCount}`,
+      ],
+      data: { draft: weaponDraft },
+      workflow: 'weapon.fill',
+    });
+  }
+
+  if (command === 'weapon.open') {
+    const ref = args.join(' ').trim();
+    if (!ref) {
+      return makeResponse({ ok: false, lines: [fail('usage: weapon.open <existingWeaponId|name>')] });
+    }
+    const result = openWeaponLibraryEntry(ref);
+    if (!result.ok) {
+      return makeResponse({ ok: false, lines: [fail(result.error)] });
+    }
+    return makeResponse({
+      lines: [ok(`weapon opened as active draft: ${result.id} ${result.draft.name}`)],
+      data: { id: result.id, draft: result.draft },
+      effects: { writes: true, storage: [WEAPON_DRAFT_STORAGE_KEY] },
+      workflow: 'weapon.fill',
+    });
+  }
+
+  if (command === 'weapon.data.list') {
+    const limit = Math.max(1, Math.min(500, Number(args[0] || 100) || 100));
+    const rows = listWeaponSourceIndex().slice(0, limit);
+    return makeResponse({
+      lines: rows.length
+        ? table(
+            ['name', 'id', 'folder', 'files'],
+            rows.map((entry) => [
+              entry.name,
+              entry.id || '-',
+              entry.folder,
+              Object.entries(entry.files).filter(([, exists]) => exists).map(([kind]) => kind).join('/') || '-',
+            ]),
+          )
+        : [info('no official weapon source data (没有官方武器源数据)')],
+      data: { weapons: rows },
+      workflow: 'weapon.fill',
+    });
+  }
+
+  if (command === 'weapon.data.show') {
+    const ref = args.join(' ').trim();
+    const result = readWeaponSourceData(ref);
+    if (!result.ok) {
+      return makeResponse({
+        ok: false,
+        lines: [
+          fail(`${result.error} (武器源数据未找到或不唯一)`),
+          ...(result.candidates?.length
+            ? table(['name', 'id', 'folder'], result.candidates.map((entry) => [entry.name, entry.id || '-', entry.folder]))
+            : ['[hint] Use weapon.data.list or weapon.search <keyword> (可先用 weapon.data.list 或 weapon.search <关键词>)']),
+        ],
+        error: { code: result.candidates?.length ? 'ambiguous-weapon-source' : 'weapon-source-not-found', message: result.error, details: { candidates: result.candidates } },
+      });
+    }
+    const availableFiles = Object.entries(result.data.files).filter(([, value]) => value !== undefined).map(([kind]) => kind);
+    return makeResponse({
+      lines: [
+        ok(`weapon source loaded: ${result.data.name}`),
+        `folder=${result.data.folder}`,
+        `available=${availableFiles.join('/') || '-'}`,
+        `missing=${result.data.missingFiles.join('/') || '-'}`,
+      ],
+      data: result.data,
+      workflow: 'weapon.fill',
     });
   }
 

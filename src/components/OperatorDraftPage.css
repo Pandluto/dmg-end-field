@@ -20,6 +20,7 @@
 .operator-draft-skill-list,
 .operator-draft-skill-detail,
 .operator-draft-hit-detail,
+.operator-draft-buff-panel,
 .operator-draft-json-panel,
 .operator-draft-history-side,
 .operator-draft-markdown-panel {
@@ -69,6 +70,17 @@
 .operator-draft-command-box {
   display: grid;
   gap: 6px;
+}
+
+.operator-draft-latest-message {
+  min-width: 0;
+  max-width: 420px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #657083;
+  font-size: 11px;
+  line-height: 1.35;
 }
 
 .operator-draft-command-input {
@@ -169,7 +181,7 @@
 .operator-draft-workbench {
   flex: 1;
   display: grid;
-  grid-template-columns: 210px minmax(500px, 0.95fr) minmax(0, 1fr) 360px;
+  grid-template-columns: 210px minmax(500px, 0.95fr) minmax(0, 0.9fr) 390px;
   gap: 6px;
   min-height: 0;
   height: 100%;
@@ -318,7 +330,10 @@
 .operator-draft-skill-form input,
 .operator-draft-skill-form select,
 .operator-draft-hit-detail-card input,
-.operator-draft-hit-detail-card select {
+.operator-draft-hit-detail-card select,
+.operator-draft-buff-form input,
+.operator-draft-buff-form select,
+.operator-draft-buff-form textarea {
   min-width: 0;
   width: 100%;
   padding: 4px 6px;
@@ -403,7 +418,7 @@
 }
 
 .operator-draft-skill-detail {
-  flex: 1;
+  flex: 0 0 48%;
   min-height: 0;
   display: flex;
   flex-direction: column;
@@ -492,8 +507,10 @@
 
 .operator-draft-hit-detail {
   min-height: 0;
-  flex: 0 0 auto;
+  flex: 1;
   overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
 
 .operator-draft-hit-detail-card {
@@ -501,6 +518,7 @@
   gap: 6px;
   padding: 6px;
   overflow: auto;
+  min-height: 0;
 }
 
 .operator-draft-hit-levels {
@@ -594,6 +612,130 @@
   background: #315ea4;
   border-color: #315ea4;
   color: #ffffff;
+}
+
+.operator-draft-buff-panel {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.operator-draft-buff-tabs {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 4px;
+  padding: 6px;
+  border-bottom: 1px solid #e1e6ef;
+}
+
+.operator-draft-buff-tab {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
+  padding: 5px 6px;
+  border: 1px solid #cfd6e2;
+  background: #ffffff;
+  color: #24456c;
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.operator-draft-buff-tab.is-active {
+  border-color: #315ea4;
+  background: #e7f0ff;
+  color: #173d78;
+}
+
+.operator-draft-buff-tab strong {
+  min-width: 18px;
+  padding: 1px 4px;
+  background: #edf2fa;
+  color: #526783;
+  text-align: center;
+  font-size: 10px;
+}
+
+.operator-draft-buff-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 4px;
+  padding: 0 6px 6px;
+  border-bottom: 1px solid #e1e6ef;
+}
+
+.operator-draft-buff-body {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-rows: minmax(112px, 0.45fr) minmax(0, 1fr);
+  overflow: hidden;
+}
+
+.operator-draft-buff-list {
+  min-height: 0;
+  overflow: auto;
+  border-bottom: 1px solid #e1e6ef;
+}
+
+.operator-draft-buff-item {
+  width: 100%;
+  display: grid;
+  gap: 2px;
+  padding: 6px 8px;
+  border: 0;
+  border-bottom: 1px solid #edf1f6;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.operator-draft-buff-item.is-active {
+  background: #edf4ff;
+}
+
+.operator-draft-buff-item strong {
+  font-size: 12px;
+}
+
+.operator-draft-buff-item span {
+  font-size: 10px;
+  color: #68758b;
+}
+
+.operator-draft-buff-form {
+  min-height: 0;
+  overflow: auto;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+  padding: 6px;
+}
+
+.operator-draft-buff-form label {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  font-size: 11px;
+  color: #59657a;
+}
+
+.operator-draft-buff-form label span {
+  font-weight: 600;
+}
+
+.operator-draft-buff-form-wide {
+  grid-column: 1 / -1;
+}
+
+.operator-draft-buff-form textarea {
+  min-height: 54px;
+  resize: vertical;
 }
 
 .operator-draft-modal-overlay {
@@ -727,7 +869,7 @@
 
 @media (max-width: 1600px) {
   .operator-draft-workbench {
-    grid-template-columns: 220px 420px minmax(0, 1fr) 260px;
+    grid-template-columns: 220px 420px minmax(0, 1fr) 300px;
   }
 
   .operator-draft-basic-grid {

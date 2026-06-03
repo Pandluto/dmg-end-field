@@ -720,7 +720,19 @@ Weapon workflow requirements:
 - Weapon fill must target the Sheet-Weapon business model and storage keys:
   - `def.weapon-sheet.draft.v1`
   - `def.weapon-sheet.library.v1`
-- Weapon fill commands, if added, should mirror the Buff command shape:
+- Weapon read/CRUD commands must mirror the Buff command surface enough for external agents to inspect business state before proposing changes:
+
+```text
+weapon.list [limit]
+weapon.search <keyword>
+weapon.show <id|name>
+weapon.draft.show
+weapon.open <id|name>
+weapon.data.list [limit]
+weapon.data.show <id|name>
+```
+
+- Weapon fill commands should mirror the Buff proposal shape:
 
 ```text
 weapon.fill.task
@@ -745,7 +757,10 @@ interface WeaponFillAiDraft {
   id: string;
   name: string;
   rarity: number;
+  type?: string;
   description: string;
+  imgUrl?: string;
+  attackGrowth?: Record<string, number>;
   sourceName: string;
   source: string;
   skills: {
@@ -757,18 +772,19 @@ interface WeaponFillAiDraft {
 
 interface WeaponFillAiSkill {
   name: string;
-  description: string;
-  effects: WeaponFillAiEffect[];
+  statType: string;
+  effects: Record<string, WeaponFillAiEffect>;
+  levels: Record<string, {
+    value?: number;
+    description?: string;
+  }>;
 }
 
 interface WeaponFillAiEffect {
-  bucket: 'value' | 'effect';
+  name: string;
   type: string;
-  value: number;
-  levels?: Record<string, number>;
-  condition: string;
-  evidenceText: string;
-  confidence: number;
+  category: 'condition' | 'passive';
+  levels: Record<string, number>;
 }
 ```
 
@@ -777,9 +793,10 @@ Weapon validation rules:
 - `id` and `name` are required non-empty strings.
 - `rarity` must be a finite number.
 - skill keys are limited to `skill1 | skill2 | skill3`.
-- effect `bucket` is limited to `value | effect`.
-- effect `value` must be a number, not a string.
+- only `skill3.effects` is preserved by Sheet-Weapon; `skill1.effects` and `skill2.effects` must be rejected.
+- effect `category` is limited to `condition | passive`.
 - `levels`, when present, must be an object whose values are numbers.
+- `url` is not accepted as an `imgUrl` fallback. If source data has no image URL, leave `imgUrl` empty.
 - unsupported effect types must be rejected or explicitly dropped by the weapon adapter; they must not be guessed into Buff modifier types.
 - The weapon adapter must declare a `supportedEffectTypes: string[]` list. The first version may be small, but it must be explicit and used by validation.
 - Weapon save behavior must follow existing Sheet-Weapon semantics. If Sheet-Weapon has no undo stack, Task 12 must explicitly keep that behavior and not invent a hidden undo mechanism.
@@ -787,6 +804,7 @@ Weapon validation rules:
 Weapon task package requirements:
 
 - `weapon.fill.task` must include the current weapon draft, the minimal `WeaponFillAiDraft` schema, supported effect types, and the same approval/save warning used by Buff.
+- `weapon.fill.task` must include official/static source data index and tell agents to call `weapon.data.show <name>` or `GET /api/weapon/data/<name>` before filling a named official weapon.
 - `weapon.fill.task` must not expose Buff modifier catalog as the weapon effect catalog.
 - `weapon.fill.task` must return a short summary line and put the full package in `data`.
 

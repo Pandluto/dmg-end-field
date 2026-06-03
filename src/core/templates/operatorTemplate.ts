@@ -16,6 +16,22 @@ import type { ElementType, SkillType, AbilityType } from '../../types';
 export type OperatorAttributeLevelKey = 'level1' | 'level20' | 'level40' | 'level60' | 'level80' | 'level90';
 export type OperatorAttributeKey = 'strength' | 'agility' | 'intelligence' | 'will' | 'atk' | 'hp';
 export type OperatorDraftAttributeLevels = Record<OperatorAttributeKey, Record<OperatorAttributeLevelKey, number>>;
+export type OperatorDraftBuffGroupKey = 'talent' | 'potential' | 'skill';
+export type OperatorDraftBuffCategory = 'positive' | 'condition';
+export interface OperatorDraftBuffEffect {
+  effectId: string;
+  name: string;
+  type: string;
+  category: OperatorDraftBuffCategory;
+  value?: number;
+  unit?: 'flat' | 'percent' | string;
+  description?: string;
+  raw?: string;
+}
+export interface OperatorDraftBuffGroup {
+  effects: Record<string, OperatorDraftBuffEffect>;
+}
+export type OperatorDraftBuffs = Record<OperatorDraftBuffGroupKey, OperatorDraftBuffGroup>;
 
 /**
  * 运行时技能段（hit）模板
@@ -89,6 +105,8 @@ export interface RuntimeOperatorTemplate {
   };
   /** 完整等级维度属性 */
   attributeLevels?: OperatorDraftAttributeLevels;
+  /** 干员自带 Buff，来自本地 operator-studio 草稿 */
+  buffs?: OperatorDraftBuffs;
   /** 来源：official = 官方角色, local = 本地角色 */
   source: 'official' | 'local';
   /** 技能列表（支持多技能） */
@@ -142,5 +160,6 @@ export interface OperatorDraft {
   level: number;
   attributes: OperatorDraftAttributeLevels;
   skills: Record<string, OperatorDraftSkill>;
+  buffs: OperatorDraftBuffs;
 }
 

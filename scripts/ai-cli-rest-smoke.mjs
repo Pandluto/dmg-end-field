@@ -102,17 +102,22 @@ try {
   assert(guide.payload.formats?.readFormat?.name === 'BuffDraft', 'guide should describe read format');
   assert(guide.payload.formats?.writeProposalFormat?.name === 'BuffFillAiDraft', 'guide should describe write proposal format');
   assert(guide.payload.clientHints?.handoff?.includes('Do not re-run fill.apply'), 'guide clientHints.handoff should mention not re-running fill.apply');
+  assert(guide.payload.weaponTruth?.sourceData?.includes('/api/weapon/data'), 'guide should describe weapon source data endpoints');
   const safetyRules = guide.payload.safetyRules || [];
   assert(safetyRules.some((r) => r.includes('proposal creation only')), 'guide safetyRules should mention proposal creation only');
   assert(safetyRules.some((r) => r.includes('re-run fill.apply')), 'guide safetyRules should mention not re-running fill.apply');
+  assert(safetyRules.some((r) => r.includes('/api/weapon/data/<name>')), 'guide safetyRules should mention reading weapon source data');
 
   const skills = await request('GET', '/api/agent/skills');
   assert(skills.status === 200, `skills status=${skills.status}`);
   assert(skills.payload.ok === true, 'skills should be ok');
   assert(skills.payload.skills?.[0]?.id === 'buff.fill', 'skills should include buff.fill');
+  assert(skills.payload.skills?.some((skill) => skill.id === 'weapon.fill'), 'skills should include weapon.fill');
   const buffSkillProcedure = skills.payload.skills[0].procedure || [];
   assert(buffSkillProcedure.some((s) => s.includes('proposal')), 'buff.fill skill procedure should mention proposal');
   assert(buffSkillProcedure.some((s) => s.includes('re-run fill.apply')), 'buff.fill skill procedure should mention not re-running fill.apply');
+  const weaponSkill = skills.payload.skills.find((skill) => skill.id === 'weapon.fill');
+  assert(weaponSkill.readBeforeUse?.some((s) => s.includes('/api/weapon/data/<name>')), 'weapon.fill skill should tell agents to read weapon source data');
 
   const spec = await request('GET', '/api/ai-cli/spec');
   assert(spec.status === 200, `spec status=${spec.status}`);
@@ -141,6 +146,22 @@ try {
   assert(current.status === 200, `current status=${current.status}`);
   assert(current.payload.ok === true, 'current should be ok');
   assert(current.payload.warning?.includes('Do not submit'), 'current should warn read shape is not fill shape');
+
+  const weaponCurrent = await request('GET', '/api/weapon/current');
+  assert(weaponCurrent.status === 200, `weapon current status=${weaponCurrent.status}`);
+  assert(weaponCurrent.payload.ok === true, 'weapon current should be ok');
+  assert(weaponCurrent.payload.format === 'WeaponDraft', 'weapon current should return WeaponDraft format');
+
+  const weaponData = await request('GET', '/api/weapon/data');
+  assert(weaponData.status === 200, `weapon data status=${weaponData.status}`);
+  assert(weaponData.payload.ok === true, 'weapon data should be ok');
+  assert(weaponData.payload.weapons?.some((weapon) => weapon.name === '赫拉芬格'), 'weapon data should include 赫拉芬格');
+
+  const weaponSource = await request('GET', '/api/weapon/data/%E8%B5%AB%E6%8B%89%E8%8A%AC%E6%A0%BC');
+  assert(weaponSource.status === 200, `weapon source status=${weaponSource.status}`);
+  assert(weaponSource.payload.ok === true, 'weapon source should be ok');
+  assert(weaponSource.payload.name === '赫拉芬格', 'weapon source should return 赫拉芬格');
+  assert(weaponSource.payload.files?.base?.name === '赫拉芬格', 'weapon source should include base data');
 
   const libraryBefore = await request('GET', '/api/buff/library');
   assert(libraryBefore.status === 200, `library status=${libraryBefore.status}`);

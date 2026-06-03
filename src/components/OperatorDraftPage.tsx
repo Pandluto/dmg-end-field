@@ -4,7 +4,7 @@ import './OperatorDraftPage.css';
 import assetPathsRaw from '../../asset-paths.txt?raw';
 import { loadReferenceOperatorDraft, loadReferenceOperatorNames } from './operatorDraftReference';
 import { buildWeaponSearchIndex, searchWeapons } from '../utils/weaponFuzzySearch';
-import { APP_ROUTE_PATHS, navigateToAppPath } from '../utils/appRoute';
+import { APP_ROUTE_PATHS } from '../utils/appRoute';
 import {
   buildDraftLibraryShareFile,
   buildDraftLibraryShareFileName,
@@ -45,6 +45,13 @@ const ATTRIBUTE_LEVEL_LABELS: Record<AttributeLevelKey, string> = {
   level80: '80',
   level90: '90',
 };
+const OPERATOR_BUFF_GROUPS = [
+  { key: 'talent', label: '天赋' },
+  { key: 'potential', label: '潜能' },
+  { key: 'skill', label: '技能' },
+] as const;
+const OPERATOR_BUFF_CATEGORIES = ['positive', 'condition'] as const;
+const OPERATOR_BUFF_UNITS = ['', 'flat', 'percent'] as const;
 
 type HitSkillType = 'A' | 'B' | 'E' | 'Q';
 type HitElement = 'physical' | 'fire' | 'ice' | 'electric' | 'nature';
@@ -52,6 +59,20 @@ type SkillLevelKey = (typeof SKILL_LEVEL_KEYS)[number];
 type AttributeLevelKey = (typeof ATTRIBUTE_LEVEL_KEYS)[number];
 type AttributeKey = (typeof ATTRIBUTE_ROWS)[number][0];
 type AttributeLevels = Record<AttributeKey, Record<AttributeLevelKey, number>>;
+type OperatorBuffGroupKey = (typeof OPERATOR_BUFF_GROUPS)[number]['key'];
+type OperatorBuffCategory = (typeof OPERATOR_BUFF_CATEGORIES)[number];
+type OperatorBuffs = Record<OperatorBuffGroupKey, { effects: Record<string, OperatorBuffEffect> }>;
+
+interface OperatorBuffEffect {
+  effectId: string;
+  name: string;
+  type: string;
+  category: OperatorBuffCategory;
+  value?: number;
+  unit?: 'flat' | 'percent' | string;
+  description?: string;
+  raw?: string;
+}
 
 interface HitMetaDraft {
   multiplier?: number;
@@ -82,6 +103,7 @@ interface OperatorDraft {
   level: number;
   attributes: AttributeLevels;
   skills: Record<string, SkillDraft>;
+  buffs: OperatorBuffs;
 }
 
 function getSkillIndexFromKey(skillKey: string) {
@@ -113,6 +135,26 @@ function createDefaultAttributeLevels(value = 0): AttributeLevels {
   ) as AttributeLevels;
 }
 
+function createDefaultBuffs(): OperatorBuffs {
+  return {
+    talent: { effects: {} },
+    potential: { effects: {} },
+    skill: { effects: {} },
+  };
+}
+
+function createDefaultBuffEffect(effectKey = 'effect1'): OperatorBuffEffect {
+  return {
+    effectId: effectKey,
+    name: '新 Buff',
+    type: '',
+    category: 'positive',
+    unit: '',
+    description: '',
+    raw: '',
+  };
+}
+
 function createDefaultSkill(buttonType: HitSkillType = 'A', skillKey = 'skill-1'): SkillDraft {
   const skillIndex = getSkillIndexFromKey(skillKey);
   return {
@@ -142,6 +184,7 @@ function createDefaultDraft(): OperatorDraft {
     skills: {
       'skill-1': createDefaultSkill('A', 'skill-1'),
     },
+    buffs: createDefaultBuffs(),
   };
 }
 
@@ -201,8 +244,44 @@ function normalizeAttributeLevels(rawAttributes: unknown): AttributeLevels {
   ) as AttributeLevels;
 }
 
+function normalizeBuffEffect(effectKey: string, rawEffect: unknown): OperatorBuffEffect {
+  const source = rawEffect && typeof rawEffect === 'object' ? rawEffect as Record<string, unknown> : {};
+  const rawCategory = typeof source.category === 'string' ? source.category : '';
+  const category: OperatorBuffCategory = rawCategory === 'condition' ? 'condition' : 'positive';
+  const rawValue = source.value;
+  return {
+    effectId: String(source.effectId || effectKey),
+    name: String(source.name || effectKey),
+    type: String(source.type || ''),
+    category,
+    ...(typeof rawValue === 'number' && Number.isFinite(rawValue) ? { value: rawValue } : {}),
+    unit: typeof source.unit === 'string' ? source.unit : '',
+    description: typeof source.description === 'string' ? source.description : '',
+    raw: typeof source.raw === 'string' ? source.raw : '',
+  };
+}
+
+function normalizeBuffs(rawBuffs: unknown): OperatorBuffs {
+  const source = rawBuffs && typeof rawBuffs === 'object' ? rawBuffs as Record<string, unknown> : {};
+  return Object.fromEntries(
+    OPERATOR_BUFF_GROUPS.map(({ key }) => {
+      const rawGroup = source[key] && typeof source[key] === 'object' ? source[key] as Record<string, unknown> : {};
+      const rawEffects = rawGroup.effects && typeof rawGroup.effects === 'object' ? rawGroup.effects as Record<string, unknown> : {};
+      return [
+        key,
+        {
+          effects: Object.fromEntries(
+            Object.entries(rawEffects).map(([effectKey, rawEffect]) => [effectKey, normalizeBuffEffect(effectKey, rawEffect)])
+          ),
+        },
+      ];
+    })
+  ) as OperatorBuffs;
+}
+
 function normalizeDraft(value: OperatorDraft) {
   value.attributes = normalizeAttributeLevels(value.attributes);
+  value.buffs = normalizeBuffs(value.buffs);
   Object.entries(value.skills).forEach(([skillKey, skill]) => {
     if (!skill.displayName?.trim()) {
       skill.displayName = createDefaultSkill(skill.buttonType, skillKey).displayName;
@@ -255,6 +334,14 @@ function getNextHitKey(skill: SkillDraft) {
     index += 1;
   }
   return `hit${index}`;
+}
+
+function getNextBuffEffectKey(effects: Record<string, OperatorBuffEffect>) {
+  let index = 1;
+  while (effects[`effect${index}`]) {
+    index += 1;
+  }
+  return `effect${index}`;
 }
 
 function syncSkillOrderWithDraft(skillOrder: string[], draft: OperatorDraft) {
@@ -487,6 +574,8 @@ export function OperatorDraftPage() {
   ]);
   const [selectedSkillKey, setSelectedSkillKey] = useState<string | null>(null);
   const [selectedHitKey, setSelectedHitKey] = useState<string | null>(null);
+  const [activeBuffGroupKey, setActiveBuffGroupKey] = useState<OperatorBuffGroupKey>('talent');
+  const [selectedBuffEffectKey, setSelectedBuffEffectKey] = useState<string | null>(null);
   const [skillOrder, setSkillOrder] = useState<string[]>([]);
   const [draggingSkillKey, setDraggingSkillKey] = useState<string | null>(null);
   const [dragOverSkillKey, setDragOverSkillKey] = useState<string | null>(null);
@@ -575,6 +664,14 @@ export function OperatorDraftPage() {
   }, [draft, selectedSkillKey, selectedHitKey]);
 
   useEffect(() => {
+    const effects = draft.buffs[activeBuffGroupKey]?.effects ?? {};
+    const effectKeys = Object.keys(effects);
+    if (!selectedBuffEffectKey || !effects[selectedBuffEffectKey]) {
+      setSelectedBuffEffectKey(effectKeys[0] ?? null);
+    }
+  }, [activeBuffGroupKey, draft.buffs, selectedBuffEffectKey]);
+
+  useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 's') {
         event.preventDefault();
@@ -590,6 +687,10 @@ export function OperatorDraftPage() {
 
   const selectedSkill = selectedSkillKey ? draft.skills[selectedSkillKey] : null;
   const selectedHit = selectedSkill && selectedHitKey ? selectedSkill.hitMeta[selectedHitKey] : null;
+  const activeBuffGroup = draft.buffs[activeBuffGroupKey];
+  const buffEffectEntries = Object.entries(activeBuffGroup.effects);
+  const selectedBuffEffect = selectedBuffEffectKey ? activeBuffGroup.effects[selectedBuffEffectKey] ?? null : null;
+  const latestMessage = messages[0] ?? '';
 
   const orderedDraft = useMemo(() => buildOrderedDraft(draft, skillOrder), [draft, skillOrder]);
   const draftJson = useMemo(() => JSON.stringify(orderedDraft, null, 2), [orderedDraft]);
@@ -612,6 +713,8 @@ export function OperatorDraftPage() {
       ...ATTRIBUTE_ROWS.map(([attributeKey, label]) => `- ${label}：1/${draft.attributes[attributeKey].level1} 20/${draft.attributes[attributeKey].level20} 40/${draft.attributes[attributeKey].level40} 60/${draft.attributes[attributeKey].level60} 80/${draft.attributes[attributeKey].level80} 90/${draft.attributes[attributeKey].level90}`),
       '## 技能概览',
       ...(skillLines.length ? skillLines : ['- 暂无技能']),
+      '## 干员 Buff',
+      ...OPERATOR_BUFF_GROUPS.map(({ key, label }) => `- ${label}：${Object.keys(draft.buffs[key].effects).length} 个`),
     ].join('\n');
   }, [draft, orderedDraft]);
 
@@ -664,6 +767,22 @@ export function OperatorDraftPage() {
           hitMeta: {
             ...prev.skills[selectedSkillKey].hitMeta,
             [selectedHitKey]: updater(prev.skills[selectedSkillKey].hitMeta[selectedHitKey]),
+          },
+        },
+      },
+    }));
+  };
+
+  const updateSelectedBuffEffect = (updater: (effect: OperatorBuffEffect) => OperatorBuffEffect) => {
+    if (!selectedBuffEffectKey) return;
+    setDraft((prev) => ({
+      ...prev,
+      buffs: {
+        ...prev.buffs,
+        [activeBuffGroupKey]: {
+          effects: {
+            ...prev.buffs[activeBuffGroupKey].effects,
+            [selectedBuffEffectKey]: updater(prev.buffs[activeBuffGroupKey].effects[selectedBuffEffectKey]),
           },
         },
       },
@@ -1058,6 +1177,69 @@ export function OperatorDraftPage() {
     setMessages((prev) => [`[OK] 已删除 ${selectedSkillKey}.${selectedHitKey}`, ...prev].slice(0, 12));
   };
 
+  const handleAddBuffEffect = () => {
+    const nextEffectKey = getNextBuffEffectKey(activeBuffGroup.effects);
+    setDraft((prev) => ({
+      ...prev,
+      buffs: {
+        ...prev.buffs,
+        [activeBuffGroupKey]: {
+          effects: {
+            ...prev.buffs[activeBuffGroupKey].effects,
+            [nextEffectKey]: createDefaultBuffEffect(nextEffectKey),
+          },
+        },
+      },
+    }));
+    setSelectedBuffEffectKey(nextEffectKey);
+    setMessages((prev) => [`[OK] 已新增 ${activeBuffGroupKey}.${nextEffectKey}`, ...prev].slice(0, 12));
+  };
+
+  const handleDuplicateBuffEffect = () => {
+    if (!selectedBuffEffectKey || !selectedBuffEffect) {
+      setMessages((prev) => ['[ERR] 当前没有可复制的 Buff effect', ...prev].slice(0, 12));
+      return;
+    }
+    const nextEffectKey = getNextBuffEffectKey(activeBuffGroup.effects);
+    setDraft((prev) => ({
+      ...prev,
+      buffs: {
+        ...prev.buffs,
+        [activeBuffGroupKey]: {
+          effects: {
+            ...prev.buffs[activeBuffGroupKey].effects,
+            [nextEffectKey]: {
+              ...cloneDraft(selectedBuffEffect),
+              effectId: nextEffectKey,
+              name: `${selectedBuffEffect.name || selectedBuffEffectKey} 副本`,
+            },
+          },
+        },
+      },
+    }));
+    setSelectedBuffEffectKey(nextEffectKey);
+    setMessages((prev) => [`[OK] 已复制 Buff effect：${selectedBuffEffectKey} -> ${nextEffectKey}`, ...prev].slice(0, 12));
+  };
+
+  const handleRemoveBuffEffect = () => {
+    if (!selectedBuffEffectKey || !activeBuffGroup.effects[selectedBuffEffectKey]) {
+      setMessages((prev) => ['[ERR] 当前没有可删除的 Buff effect', ...prev].slice(0, 12));
+      return;
+    }
+    const nextEffects = { ...activeBuffGroup.effects };
+    delete nextEffects[selectedBuffEffectKey];
+    const nextSelectedEffectKey = Object.keys(nextEffects)[0] ?? null;
+    setDraft((prev) => ({
+      ...prev,
+      buffs: {
+        ...prev.buffs,
+        [activeBuffGroupKey]: { effects: nextEffects },
+      },
+    }));
+    setSelectedBuffEffectKey(nextSelectedEffectKey);
+    setMessages((prev) => [`[OK] 已删除 ${activeBuffGroupKey}.${selectedBuffEffectKey}`, ...prev].slice(0, 12));
+  };
+
   const handleSkillDragStart = (skillKey: string) => {
     setDraggingSkillKey(skillKey);
     setDragOverSkillKey(skillKey);
@@ -1075,20 +1257,6 @@ export function OperatorDraftPage() {
     setDraft((prev) => buildOrderedDraft(prev, nextSkillOrder));
     setDraggingSkillKey(null);
     setDragOverSkillKey(null);
-  };
-
-  const handleOpenBuffDraftPage = () => {
-    if (typeof window === 'undefined') {
-      return;
-    }
-    navigateToAppPath(APP_ROUTE_PATHS.buffSheet);
-  };
-
-  const handleOpenWorkbenchPage = () => {
-    if (typeof window === 'undefined') {
-      return;
-    }
-    navigateToAppPath(APP_ROUTE_PATHS.home);
   };
 
   const skillEntries = skillOrder
@@ -1168,6 +1336,7 @@ export function OperatorDraftPage() {
                       打开分享弹窗
                     </button>
                   </div>
+                  {latestMessage ? <div className="operator-draft-latest-message">{latestMessage}</div> : null}
                 </div>
               </section>
 
@@ -1473,9 +1642,6 @@ export function OperatorDraftPage() {
                 <p className="operator-draft-empty">当前没有可预览的 skill。</p>
               )}
               </section>
-            </div>
-
-            <div className="operator-draft-column operator-draft-column-right">
               <section className="operator-draft-hit-detail">
                 <div className="operator-draft-section-header">
                   <h3>Hit 细节</h3>
@@ -1556,27 +1722,134 @@ export function OperatorDraftPage() {
                   <p className="operator-draft-empty">当前没有选中的 hit。</p>
                 )}
               </section>
+            </div>
 
-              <section className="operator-draft-history operator-draft-history-side">
+            <div className="operator-draft-column operator-draft-column-right">
+              <section className="operator-draft-buff-panel">
                 <div className="operator-draft-section-header">
-                  <h3>命令输出</h3>
-                  <span>{messages.length} 条</span>
+                  <h3>干员 Buff</h3>
+                  <span>{buffEffectEntries.length} 个</span>
                 </div>
-                <ul>
-                  {messages.map((message, index) => (
-                    <li key={`${message}-${index}`}>{message}</li>
+                <div className="operator-draft-buff-tabs">
+                  {OPERATOR_BUFF_GROUPS.map(({ key, label }) => (
+                    <button
+                      key={key}
+                      type="button"
+                      className={`operator-draft-buff-tab${activeBuffGroupKey === key ? ' is-active' : ''}`}
+                      onClick={() => setActiveBuffGroupKey(key)}
+                    >
+                      <span>{label}</span>
+                      <strong>{Object.keys(draft.buffs[key].effects).length}</strong>
+                    </button>
                   ))}
-                </ul>
-                <div className="operator-draft-history-footer">
-                  <button type="button" className="operator-draft-ghost-button" onClick={handleOpenWorkbenchPage}>
-                    主界面
+                </div>
+                <div className="operator-draft-buff-actions">
+                  <button type="button" className="operator-draft-ghost-button" onClick={handleAddBuffEffect}>
+                    新增
                   </button>
-                  <button type="button" className="operator-draft-ghost-button is-active">
-                    编辑干员
+                  <button type="button" className="operator-draft-ghost-button" onClick={handleDuplicateBuffEffect}>
+                    复制
                   </button>
-                  <button type="button" className="operator-draft-ghost-button" onClick={handleOpenBuffDraftPage}>
-                    编辑BUFF
+                  <button type="button" className="operator-draft-ghost-button" onClick={handleRemoveBuffEffect}>
+                    删除
                   </button>
+                </div>
+                <div className="operator-draft-buff-body">
+                  <div className="operator-draft-buff-list">
+                    {buffEffectEntries.length ? (
+                      buffEffectEntries.map(([effectKey, effect]) => (
+                        <button
+                          key={effectKey}
+                          type="button"
+                          className={`operator-draft-buff-item${selectedBuffEffectKey === effectKey ? ' is-active' : ''}`}
+                          onClick={() => setSelectedBuffEffectKey(effectKey)}
+                        >
+                          <strong>{effect.name || effectKey}</strong>
+                          <span>{effect.type || '未设置 type'}</span>
+                          <span>{effect.category === 'condition' ? '条件' : '常驻'}{typeof effect.value === 'number' ? ` · ${effect.value}${effect.unit === 'percent' ? '%' : ''}` : ''}</span>
+                        </button>
+                      ))
+                    ) : (
+                      <p className="operator-draft-empty">当前分组没有 Buff effect。</p>
+                    )}
+                  </div>
+                  {selectedBuffEffect ? (
+                    <div className="operator-draft-buff-form">
+                      <label>
+                        <span>名称</span>
+                        <input
+                          value={selectedBuffEffect.name}
+                          onChange={(event) => updateSelectedBuffEffect((effect) => ({ ...effect, name: event.target.value }))}
+                        />
+                      </label>
+                      <label>
+                        <span>Effect ID</span>
+                        <input
+                          value={selectedBuffEffect.effectId}
+                          onChange={(event) => updateSelectedBuffEffect((effect) => ({ ...effect, effectId: event.target.value }))}
+                        />
+                      </label>
+                      <label>
+                        <span>Type Key</span>
+                        <input
+                          value={selectedBuffEffect.type}
+                          onChange={(event) => updateSelectedBuffEffect((effect) => ({ ...effect, type: event.target.value }))}
+                          placeholder="如 atkPercentBoost"
+                        />
+                      </label>
+                      <label>
+                        <span>分类</span>
+                        <select
+                          value={selectedBuffEffect.category}
+                          onChange={(event) => updateSelectedBuffEffect((effect) => ({ ...effect, category: event.target.value as OperatorBuffCategory }))}
+                        >
+                          <option value="positive">positive</option>
+                          <option value="condition">condition</option>
+                        </select>
+                      </label>
+                      <label>
+                        <span>数值</span>
+                        <input
+                          type="number"
+                          step="0.01"
+                          value={selectedBuffEffect.value ?? ''}
+                          onChange={(event) => {
+                            const rawValue = event.target.value;
+                            updateSelectedBuffEffect((effect) => {
+                              const { value: _value, ...rest } = effect;
+                              if (rawValue.trim() === '') return rest;
+                              return { ...effect, value: Number(rawValue) || 0 };
+                            });
+                          }}
+                        />
+                      </label>
+                      <label>
+                        <span>单位</span>
+                        <select
+                          value={selectedBuffEffect.unit ?? ''}
+                          onChange={(event) => updateSelectedBuffEffect((effect) => ({ ...effect, unit: event.target.value }))}
+                        >
+                          {OPERATOR_BUFF_UNITS.map((unit) => (
+                            <option key={unit || 'none'} value={unit}>{unit || '无'}</option>
+                          ))}
+                        </select>
+                      </label>
+                      <label className="operator-draft-buff-form-wide">
+                        <span>描述</span>
+                        <textarea
+                          value={selectedBuffEffect.description ?? ''}
+                          onChange={(event) => updateSelectedBuffEffect((effect) => ({ ...effect, description: event.target.value }))}
+                        />
+                      </label>
+                      <label className="operator-draft-buff-form-wide">
+                        <span>原文</span>
+                        <textarea
+                          value={selectedBuffEffect.raw ?? ''}
+                          onChange={(event) => updateSelectedBuffEffect((effect) => ({ ...effect, raw: event.target.value }))}
+                        />
+                      </label>
+                    </div>
+                  ) : null}
                 </div>
               </section>
             </div>
