@@ -1,0 +1,252 @@
+import buffSheetAiSystemPromptRaw from '../prompts/buff-sheet-ai-system-prompt.md?raw';
+import { buildBuffTypeCatalogPromptSection, BUFF_MODIFIER_TYPE_IDS } from '../ai/buffFillCatalog';
+import { createBuffFillAiDraftSchema } from '../ai/buffFillSchema';
+import { convertBuffFillAiDraftToBuffDraft, sanitizeBuffFillAiDraft, validateBuffFillAiDraft } from '../ai/buffFillValidator';
+import type { BuffDraft } from '../types/buffFill';
+import { AI_CLI_PROTOCOL_VERSION } from './aiCliAgentTypes';
+import type { AgentFillDomainAdapter, AgentFillProposalPayload, AgentFillValidationResult } from './aiCliFillDomains';
+
+export const BUFF_DRAFT_STORAGE_KEY = 'def.buff-editor.draft.v1';
+export const BUFF_LIBRARY_STORAGE_KEY = 'def.buff-editor.library.v1';
+export const BUFF_UNDO_STORAGE_KEY = 'def.buff-editor.undo.v1';
+export const ALL_BUFF_STORAGE_KEYS = [BUFF_DRAFT_STORAGE_KEY, BUFF_LIBRARY_STORAGE_KEY, BUFF_UNDO_STORAGE_KEY];
+
+const BUFF_UNDO_LIMIT = 8;
+
+interface BuffUndoSnapshot {
+  id: string;
+  createdAt: number;
+  label: string;
+  selectedDraftId?: string;
+  draftState?: BuffDraft;
+  localEntries: Array<[string, string | null]>;
+}
+
+function readJsonStorage<T>(key: string, fallback: T): T {
+  if (typeof window === 'undefined') {
+    return fallback;
+  }
+  try {
+    const raw = window.localStorage.getItem(key);
+    return raw ? JSON.parse(raw) as T : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function writeJsonStorage(key: string, value: unknown) {
+  if (typeof window === 'undefined') {
+    return;
+  }
+  window.localStorage.setItem(key, JSON.stringify(value));
+}
+
+export function readCurrentBuffDraft(): BuffDraft {
+  return readJsonStorage<BuffDraft>(BUFF_DRAFT_STORAGE_KEY, createFallbackDraft());
+}
+
+export function readBuffLibrary(): Record<string, BuffDraft> {
+  return readJsonStorage<Record<string, BuffDraft>>(BUFF_LIBRARY_STORAGE_KEY, {});
+}
+
+export function formatLibrarySummary(library: Record<string, BuffDraft>): Array<{ id: string; name: string; sourceName: string; source: string; items: number; effects: number }> {
+  return Object.entries(library)
+    .sort(([, a], [, b]) => (a.name || '').localeCompare(b.name || ''))
+    .map(([id, entry]) => ({
+      id,
+      name: entry.name || '',
+      sourceName: entry.sourceName || '',
+      source: entry.source || '',
+      items: entry.items ? Object.keys(entry.items).length : 0,
+      effects: entry.items ? Object.values(entry.items).reduce((sum, item) => sum + (item.effects ? Object.keys(item.effects).length : 0), 0) : 0,
+    }));
+}
+
+export function createFallbackDraft(): BuffDraft {
+  return {
+    id: 'custom-buff-001',
+    name: '本地 Buff 草稿',
+    sourceName: '',
+    source: 'custom',
+    description: '',
+    items: {},
+  };
+}
+
+export function persistDraft(draft: BuffDraft, label?: string) {
+  if (label) {
+    writeUndoSnapshot(label, readCurrentBuffDraft());
+  }
+  writeJsonStorage(BUFF_DRAFT_STORAGE_KEY, draft);
+}
+
+export function writeUndoSnapshot(label: string, previousDraft: BuffDraft) {
+  const snapshots = readJsonStorage<BuffUndoSnapshot[]>(BUFF_UNDO_STORAGE_KEY, []);
+  const localEntries: Array<[string, string | null]> = [
+    [BUFF_DRAFT_STORAGE_KEY, typeof window !== 'undefined' ? window.localStorage.getItem(BUFF_DRAFT_STORAGE_KEY) : null],
+    [BUFF_LIBRARY_STORAGE_KEY, typeof window !== 'undefined' ? window.localStorage.getItem(BUFF_LIBRARY_STORAGE_KEY) : null],
+  ];
+  const next: BuffUndoSnapshot = {
+    id: `undo-${Date.now()}`,
+    createdAt: Date.now(),
+    label,
+    draftState: previousDraft,
+    localEntries,
+  };
+  const trimmed = [next, ...snapshots].slice(0, BUFF_UNDO_LIMIT);
+  writeJsonStorage(BUFF_UNDO_STORAGE_KEY, trimmed);
+}
+
+function buildTaskPackage(draft: BuffDraft, sourceText: string) {
+  const library = readBuffLibrary();
+  const modifierCatalog = buildBuffTypeCatalogPromptSection();
+  return {
+    tool: 'buff.fill',
+    protocolVersion: AI_CLI_PROTOCOL_VERSION,
+    mainStorage: BUFF_LIBRARY_STORAGE_KEY,
+    currentDraft: draft,
+    sourceText,
+    librarySummary: formatLibrarySummary(library),
+    modifierCatalog,
+    systemPrompt: buffSheetAiSystemPromptRaw.trim(),
+    instruction: 'Return exactly one BuffFillAiDraft JSON object. No Markdown. No explanation.',
+    outputSchema: createBuffFillAiDraftSchema(),
+  };
+}
+
+function summarizeTaskPackage(draft: BuffDraft) {
+  const itemCount = Object.keys(draft.items).length;
+  const effectCount = Object.values(draft.items).reduce((sum, item) => sum + Object.keys(item.effects).length, 0);
+  return `fill.task ready: items=${itemCount} effects=${effectCount}, catalog=${BUFF_MODIFIER_TYPE_IDS.length} types`;
+}
+
+function extractBalancedJsonObject(rawText: string) {
+  const text = rawText.trim();
+  const start = text.indexOf('{');
+  if (start < 0) {
+    return null;
+  }
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let index = start; index < text.length; index += 1) {
+    const char = text[index];
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+      } else if (char === '\\') {
+        escaped = true;
+      } else if (char === '"') {
+        inString = false;
+      }
+      continue;
+    }
+    if (char === '"') {
+      inString = true;
+    } else if (char === '{') {
+      depth += 1;
+    } else if (char === '}') {
+      depth -= 1;
+      if (depth === 0) {
+        return text.slice(start, index + 1);
+      }
+    }
+  }
+  return null;
+}
+
+function parseAiFillResult(rawText: string, _options?: { skipSanitize?: boolean }) {
+  const normalizedText = rawText.trim();
+  if (!normalizedText) {
+    return { draft: null, errors: ['AI response is empty'] };
+  }
+  const candidates = [normalizedText];
+  const balancedJson = extractBalancedJsonObject(normalizedText);
+  if (balancedJson && balancedJson !== normalizedText) {
+    candidates.push(balancedJson);
+  }
+  const errors: string[] = [];
+  for (const candidate of candidates) {
+    try {
+      const parsed = JSON.parse(candidate) as Record<string, unknown>;
+      const rawDraft = parsed && typeof parsed.draft === 'object' ? parsed.draft : parsed;
+      const validation = validateBuffFillAiDraft(rawDraft);
+      if (!validation.ok) {
+        errors.push(...validation.errors);
+        continue;
+      }
+      const sanitized = sanitizeBuffFillAiDraft(rawDraft as Record<string, unknown>);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const draft = convertBuffFillAiDraftToBuffDraft(sanitized as unknown as any);
+      return { draft, errors: [] };
+    } catch (error) {
+      errors.push(`JSON parse failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+  return { draft: null, errors: Array.from(new Set(errors)) };
+}
+
+export const buffFillAdapter: AgentFillDomainAdapter<BuffDraft> = {
+  domain: 'buff',
+  workflow: 'buff.fill',
+  commandPrefix: 'fill',
+  draftStorageKey: BUFF_DRAFT_STORAGE_KEY,
+  libraryStorageKey: BUFF_LIBRARY_STORAGE_KEY,
+  supportedEffectTypes: BUFF_MODIFIER_TYPE_IDS as string[],
+
+  validateAiDraft(rawPayload: unknown): AgentFillValidationResult<BuffDraft> {
+    if (typeof rawPayload !== 'string') {
+      return { ok: false, errors: ['payload must be string'] };
+    }
+    const parsed = parseAiFillResult(rawPayload, { skipSanitize: true });
+    if (!parsed.draft) {
+      return { ok: false, errors: parsed.errors };
+    }
+    return { ok: true, errors: [], normalized: parsed.draft };
+  },
+
+  createProposalPayload(validation, rawCommand): AgentFillProposalPayload<BuffDraft> {
+    const draft = validation.normalized!;
+    return {
+      rawCommand,
+      normalized: draft,
+      summary: buffFillAdapter.summarizeProposal(draft),
+    };
+  },
+
+  summarizeProposal(payload: BuffDraft): string {
+    const itemCount = Object.keys(payload.items).length;
+    const effectCount = Object.values(payload.items).reduce((sum, item) => sum + Object.keys(item.effects).length, 0);
+    return `buff fill: items=${itemCount} effects=${effectCount}`;
+  },
+
+  buildTaskPackage() {
+    const draft = readCurrentBuffDraft();
+    return {
+      lines: [`[info] ${summarizeTaskPackage(draft)}`],
+      data: buildTaskPackage(draft, ''),
+    };
+  },
+
+  applyToWorkingState(payload: BuffDraft): { ok: boolean; error?: string } {
+    try {
+      writeJsonStorage(BUFF_DRAFT_STORAGE_KEY, payload);
+      return { ok: true };
+    } catch (error) {
+      return { ok: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  },
+
+  saveToLocalTruth(payload: BuffDraft): { ok: boolean; error?: string } {
+    try {
+      const previousDraft = readCurrentBuffDraft();
+      const nextLibrary = { ...readBuffLibrary(), [payload.id]: payload };
+      writeUndoSnapshot(`AI CLI fill.save · ${payload.id}`, previousDraft);
+      writeJsonStorage(BUFF_LIBRARY_STORAGE_KEY, nextLibrary);
+      writeJsonStorage(BUFF_DRAFT_STORAGE_KEY, payload);
+      return { ok: true };
+    } catch (error) {
+      return { ok: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  },
+};

@@ -28,7 +28,9 @@ export const KNOWN_COMMANDS = new Set([
   'item.list', 'item.add', 'item.set', 'item.delete',
   'effect.list', 'effect.add', 'effect.set', 'effect.delete',
   'fill.task', 'fill.task.copy', 'fill.check', 'fill.apply', 'fill.source',
-  'proposal.list',
+  'weapon.fill.task', 'weapon.fill.check', 'weapon.fill.apply',
+  'proposal.list', 'proposal.show', 'proposal.approve', 'proposal.reject', 'proposal.save', 'proposal.unsave',
+  'y', 'n',
 ]);
 
 function createId(prefix: string) {
@@ -60,7 +62,7 @@ export function createDefaultPermissionProfiles(): AiAgentPermissionProfile[] {
       id: 'readonly-agent',
       name: 'Readonly Agent',
       client: 'rest',
-      allowedCommands: ['help', '/help', 'purpose', '/purpose', 'spec', '/spec', 'route', 'buff.list', 'buff.show', 'buff.search', 'draft.show', 'item.list', 'effect.list', 'operator.show', 'fill.task', 'fill.task.copy', 'fill.check', 'fill.source', 'agent.logs', 'agent.sessions', 'agent.guide', 'proposal.list'],
+      allowedCommands: ['help', '/help', 'purpose', '/purpose', 'spec', '/spec', 'route', 'buff.list', 'buff.show', 'buff.search', 'draft.show', 'item.list', 'effect.list', 'operator.show', 'fill.task', 'fill.task.copy', 'fill.check', 'fill.source', 'agent.logs', 'agent.sessions', 'agent.guide', 'proposal.list', 'proposal.show', 'weapon.fill.task', 'weapon.fill.check'],
       allowedWorkflows: ['buff.fill'],
       canRead: true,
       canDryRun: true,
@@ -94,7 +96,7 @@ export function createDefaultPermissionProfiles(): AiAgentPermissionProfile[] {
 
 // 系统保证 readonly-agent 拥有的基础读命令
 // 这些命令是 readonly 核心能力，不是一次性迁移，后续新增 readonly 命令也应加入
-const GUARANTEED_READONLY_COMMANDS = ['agent.logs', 'agent.sessions', 'agent.guide', 'route', 'operator.show', 'fill.source', 'proposal.list'];
+const GUARANTEED_READONLY_COMMANDS = ['agent.logs', 'agent.sessions', 'agent.guide', 'route', 'operator.show', 'fill.source', 'proposal.list', 'proposal.show', 'weapon.fill.task', 'weapon.fill.check'];
 
 export function readPermissionProfiles(): AiAgentPermissionProfile[] {
   const storedProfiles = readJsonStorage<AiAgentPermissionProfile[]>(AI_AGENT_PERMISSION_PROFILES_STORAGE_KEY, []);
@@ -144,12 +146,12 @@ export function commandNeedsWrite(commandName: string) {
     'effect.add',
     'effect.set',
     'effect.delete',
-    'fill.apply',
+    'proposal.save',
   ].includes(commandName);
 }
 
 export function commandNeedsDryRun(commandName: string) {
-  return commandName === 'fill.check';
+  return commandName === 'fill.check' || commandName === 'weapon.fill.check';
 }
 
 export function canRunCommand(profile: AiAgentPermissionProfile, commandName: string) {
@@ -355,12 +357,16 @@ export function readAgentProposals(): AiAgentProposal[] {
   return readJsonStorage<AiAgentProposal[]>(AI_AGENT_PROPOSALS_STORAGE_KEY, []);
 }
 
-export function readPendingAgentProposals(): AiAgentProposal[] {
-  return readAgentProposals().filter((p) => p.approvalStatus === 'Wait' || (p.approvalStatus === 'Yes' && p.saveStatus === 'Wait'));
+export function readPendingAgentProposals(sessionId?: string): AiAgentProposal[] {
+  const all = readAgentProposals().filter((p) => p.approvalStatus === 'Wait' || (p.approvalStatus === 'Yes' && p.saveStatus === 'Wait'));
+  if (sessionId === undefined) {
+    return all;
+  }
+  return all.filter((p) => p.sessionId === sessionId);
 }
 
-export function readPendingAgentProposal(): AiAgentProposal | null {
-  const pending = readPendingAgentProposals();
+export function readPendingAgentProposal(sessionId?: string): AiAgentProposal | null {
+  const pending = readPendingAgentProposals(sessionId);
   return pending[pending.length - 1] ?? null;
 }
 

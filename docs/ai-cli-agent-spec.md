@@ -18,6 +18,7 @@ Included:
 - A future REST bridge that uses the same command logic.
 - A future MCP wrapper that calls the REST bridge instead of duplicating business logic.
 - One first workflow: `buff.fill`.
+- Horizontal fill framework skeleton with `buff.fill` and `weapon.fill`.
 - CRUD-style commands for Buff draft smoke testing.
 - Operator fixture commands for test setup.
 - Schema validation before any write.
@@ -98,6 +99,53 @@ save: Wait | Yes | No
 
 External-agent responses and agent logs must expose both statuses. A command returning `ok:true` only means the request was accepted or processed; it does not imply `approval=Yes` or `save=Yes`.
 
+### Review Operation Contract
+
+Task 12 owns the first concrete review operation loop. The loop is intentionally user-driven:
+
+```text
+agent creates proposal
+  -> app returns proposalId + approval=Wait + save=Wait
+  -> user reviews proposal
+  -> user enters Y/N for approval
+  -> if approved, app applies proposal to the web working state
+  -> user enters Y/N for save
+  -> if saved, app persists to the domain localStorage truth
+```
+
+Review commands, if implemented through AI CLI, must follow these semantics:
+
+```text
+proposal.list
+proposal.show <proposalId>
+proposal.approve <proposalId>   # user confirmation only
+proposal.reject <proposalId>    # user confirmation only
+proposal.save <proposalId>      # user confirmation only
+proposal.unsave <proposalId>    # user confirmation only
+Y                               # special short input, web-cli only
+N                               # special short input, web-cli only
+```
+
+Rules:
+
+- `proposal.approve/reject/save/unsave` must be denied to default readonly external agents.
+- Default `rest`, `powershell`, `codex`, `claude`, and `mcp` clients may query proposals but must not advance `approval` or `save`.
+- `web-cli` is the default user-confirmation client for `Y` / `N`.
+- A trusted local profile may advance `approval` or `save` only when the app explicitly treats that client as a user-confirmation surface.
+- Web CLI may use short `Y` / `N` input only when exactly one pending proposal is active in the current session.
+- `Y` and `N` are special short inputs, not normal `namespace.action` commands. They still need explicit handling in command parsing and permission checks.
+- The proposal lookup for `Y` / `N` must be session-scoped. Implement `readPendingAgentProposals(sessionId?)` or an equivalent `readPendingAgentProposalsForSession(sessionId)` helper.
+- `proposal.list` may show all pending proposals by default, but `Y` / `N` must only consider proposals whose `sessionId` matches the current session.
+- If there are zero pending proposals, `Y` / `N` must fail with an informational message.
+- If there are multiple pending proposals, `Y` / `N` must fail and ask for an explicit `proposal.show <proposalId>` or `proposal.approve/reject/save/unsave <proposalId>` command.
+- The implementation must not silently choose the latest proposal when `Y` / `N` is ambiguous.
+- `Y` first resolves approval. If approval is already `Yes` and save is `Wait`, then `Y` resolves save.
+- `N` first rejects approval. If approval is already `Yes` and save is `Wait`, then `N` marks unsaved/cancelled.
+- Every transition must update proposal storage, session state, operation log, and command response.
+- A rejected proposal must set `approval=No` and `save=No`.
+- A saved proposal must set `approval=Yes` and `save=Yes`.
+- An approved-but-unsaved proposal must set `approval=Yes` and `save=No`.
+
 ## Implementation Language
 
 All first-party implementation code for this agent framework should be TypeScript.
@@ -168,7 +216,7 @@ interface AiAgentSession {
   status: 'active' | 'archived';
   messages: AiAgentMessage[];
   context: {
-    currentWorkflow?: 'buff.fill';
+    currentWorkflow?: 'buff.fill' | 'weapon.fill';
     currentDraftId?: string;
     currentOperatorId?: string;
     lastCommand?: string;
@@ -314,6 +362,7 @@ The internal command request shape should be:
 interface AiCliCommandRequest {
   protocolVersion: 1;
   requestId?: string;
+  client: 'web-cli' | 'powershell' | 'codex' | 'claude' | 'rest' | 'mcp';
   command: string;
 }
 ```
@@ -324,7 +373,8 @@ Example:
 {
   "protocolVersion": 1,
   "requestId": "req-001",
-    "command": "buff.list"
+  "client": "rest",
+  "command": "buff.list"
 }
 ```
 
@@ -434,6 +484,27 @@ fill.check <BuffFillAiDraft JSON>
 fill.apply <BuffFillAiDraft JSON>
 ```
 
+Proposal review commands:
+
+```text
+proposal.list
+proposal.show <proposalId>
+proposal.approve <proposalId>
+proposal.reject <proposalId>
+proposal.save <proposalId>
+proposal.unsave <proposalId>
+Y
+N
+```
+
+Weapon fill branch commands:
+
+```text
+weapon.fill.task
+weapon.fill.check <WeaponFillAiDraft JSON>
+weapon.fill.apply <WeaponFillAiDraft JSON>
+```
+
 ## Buff Fill Contract
 
 The agent must output one JSON object only. No Markdown. No explanation text.
@@ -491,6 +562,222 @@ Rules:
 - Unsupported effects should be dropped, not guessed.
 - `evidenceText` should preserve the source text used for the decision.
 
+## Horizontal Fill Workflow Framework
+
+Task 12 completes the reusable horizontal fill skeleton. Buff remains the reference implementation, but the framework must no longer be Buff-shaped.
+
+Every fill domain must be registered through one domain adapter instead of branching command logic by hand:
+
+```ts
+type AgentFillCommandPrefix = 'fill' | 'weapon.fill' | 'operator.fill' | 'equipment.fill';
+
+interface AgentFillValidationResult<TNormalized> {
+  ok: boolean;
+  errors: string[];
+  normalized?: TNormalized;
+}
+
+interface AgentFillProposalPayload<TNormalized = unknown> {
+  schemaVersion: 1;
+  normalized: TNormalized;
+  sourceCommand: string;
+}
+
+interface AgentFillDomainAdapter {
+  domain: 'buff' | 'weapon' | 'operator' | 'equipment';
+  workflow: 'buff.fill' | 'weapon.fill' | 'operator.fill' | 'equipment.fill';
+  commandPrefix: AgentFillCommandPrefix;
+  draftStorageKey: string;
+  libraryStorageKey: string;
+  buildTaskPackage(currentDraft: unknown, sourceText: string): unknown;
+  validateAiDraft(payload: unknown): AgentFillValidationResult<unknown>;
+  summarizeProposal(payload: AgentFillProposalPayload): string;
+  createProposalPayload(normalized: unknown, sourceCommand: string): AgentFillProposalPayload;
+  applyToWorkingState(payload: AgentFillProposalPayload): { lines: string[]; nextDraft?: unknown };
+  saveToLocalTruth(payload: AgentFillProposalPayload): { lines: string[]; storage: string[] };
+  discardProposal(payload: AgentFillProposalPayload): { lines: string[] };
+}
+```
+
+Registry contract:
+
+- The registry should live in the AI CLI domain layer, for example `src/aiCli/aiCliFillDomains.ts`.
+- Use `commandPrefix` as the dispatch key:
+  - `fill` handles `fill.task/check/apply` and maps to domain `buff`.
+  - `weapon.fill` handles `weapon.fill.task/check/apply`.
+  - Future `operator.fill` and `equipment.fill` must register without changing the review state machine.
+- `executeCommand` should parse the command prefix, look up the adapter, and call shared fill handlers.
+- Unknown or unregistered fill prefixes return `unknown-command`.
+- Registered prefixes with invalid action names return usage errors, not direct storage writes.
+
+Proposal operation call chain:
+
+```text
+*.fill.apply
+  -> adapter.validateAiDraft(rawPayload)
+  -> adapter.createProposalPayload(validation.normalized, rawCommand)
+  -> createAgentProposal({ domain, operation, payload, approval=Wait, save=Wait, summary })
+  -> response.proposal
+
+proposal.approve / Y
+  -> read proposal
+  -> find adapter by proposal.domain
+  -> adapter.applyToWorkingState(proposal.payload)
+  -> approveAgentProposal(proposal.id)
+  -> update session/log/response
+
+proposal.save / Y after approval
+  -> read proposal
+  -> find adapter by proposal.domain
+  -> adapter.saveToLocalTruth(proposal.payload)
+  -> markAgentProposalSaved(proposal.id)
+  -> update session/log/response
+```
+
+Ordering and failure rules:
+
+- For approve, call `applyToWorkingState` before changing `approval` to `Yes`. If the adapter fails, keep `approval=Wait`.
+- For save, call `saveToLocalTruth` before changing `save` to `Yes`. If the adapter fails, keep `save=Wait`.
+- For reject, no adapter call is required; set `approval=No/save=No`.
+- For unsave after approval, call `discardProposal` before changing `save` to `No` if the adapter needs to clear transient working state. If it fails, keep `save=Wait`.
+- Adapter exceptions must become `ok:false` command responses and operation log entries.
+- Proposal state transitions must be session-scoped where the UX depends on the current session.
+
+Duplicate proposal policy:
+
+- A domain adapter must expose enough normalized identity to detect duplicate pending proposals for the same target.
+- For Task 12, if a pending proposal already exists for the same domain and target id, create should fail with a clear message instead of silently creating a second competing proposal.
+- A rejected or saved/unsaved closed proposal does not block a new proposal for the same target id.
+
+Domain command shape:
+
+```text
+<domain>.fill.task
+<domain>.fill.check <DomainFillAiDraft JSON>
+<domain>.fill.apply <DomainFillAiDraft JSON>
+```
+
+Framework rules:
+
+- `*.fill.task` returns a task package in `data`, with human-readable `lines` only as summary.
+- `*.fill.check` validates only and writes nothing.
+- `*.fill.apply` validates and creates an `AiAgentProposal`; it does not save directly.
+- Proposal approval applies the normalized payload to the web working state only.
+- Proposal approval must not write the domain library/local truth.
+- Proposal save persists through that domain's existing save path.
+- Domain adapters must own their schema, validator, normalizer, storage keys, and proposal summary.
+- Domain adapters must not reuse another domain's draft type, storage keys, validators, or prompt contract.
+- Buff, Weapon, Operator, and Equipment should differ by adapter configuration and validation logic, not by duplicating the review state machine.
+
+Working-state rules:
+
+- `applyToWorkingState` may update the active draft / visible editor state for that domain.
+- `applyToWorkingState` must not write the domain library storage.
+- `saveToLocalTruth` is the only adapter method that may write the domain library storage.
+- `discardProposal` must not write local truth. It may clear transient UI/proposal state only.
+
+Domain state targets:
+
+| Domain | Working state | Saved app truth |
+|--------|---------------|-----------------|
+| Buff | current Buff editor draft / visible draft state | `def.buff-editor.library.v1` |
+| Weapon | current Sheet-Weapon draft / visible sheet state | `def.weapon-sheet.library.v1` |
+| Operator | defined when `operator.fill` is implemented | defined when `operator.fill` is implemented |
+| Equipment | defined when `equipment.fill` is implemented | defined when `equipment.fill` is implemented |
+
+Buff migration rule:
+
+- Current direct-write `fill.apply` behavior must move behind the proposal flow.
+- `fill.apply` creates a proposal only. It must not call `persistLibraryDraft`, write undo, or write `def.buff-editor.library.v1`.
+- `proposal.approve` / `Y` applies the normalized Buff payload to the current working draft.
+- `proposal.save` / save `Y` writes `def.buff-editor.library.v1`, mirrors `def.buff-editor.draft.v1` if that is the existing save behavior, and creates the undo snapshot.
+- `proposal.unsave` / save `N` must not write the Buff library.
+
+## Weapon Fill Branch
+
+Task 12 also opens the first horizontal branch beyond Buff: `weapon.fill`.
+
+The goal of this branch is to prove the horizontal fill skeleton with a second domain. Weapon does not need every final extraction rule in one pass, but it must use the same adapter/review framework as Buff and must have a real command skeleton, schema boundary, validation path, proposal creation path, and storage boundary.
+
+Weapon workflow requirements:
+
+- `AiAgentProposal.domain` must use `weapon` for weapon fill proposals.
+- `AiAgentSession.context.currentWorkflow` may be `weapon.fill`.
+- Weapon fill proposals must enter the same `approval/save` state machine as Buff proposals.
+- Weapon fill must not reuse Buff draft types, Buff storage keys, or Buff validators.
+- Weapon fill must target the Sheet-Weapon business model and storage keys:
+  - `def.weapon-sheet.draft.v1`
+  - `def.weapon-sheet.library.v1`
+- Weapon fill commands, if added, should mirror the Buff command shape:
+
+```text
+weapon.fill.task
+weapon.fill.check <WeaponFillAiDraft JSON>
+weapon.fill.apply <WeaponFillAiDraft JSON>
+```
+
+Weapon branch boundary:
+
+- `weapon.fill.check` validates only and writes nothing.
+- `weapon.fill.apply` creates a `domain='weapon'` proposal first.
+- Approval applies the proposal to the web working state.
+- Save persists through the Sheet-Weapon save path.
+- External agents must not directly write `def.weapon-sheet.*` storage.
+- Task 12 should complete the reusable adapter registration and command path for `weapon.fill`.
+- The first Weapon JSON schema may be minimal, but it must be explicit and testable. Do not accept arbitrary `unknown` payloads as valid weapon proposals.
+
+Minimum `WeaponFillAiDraft` shape:
+
+```ts
+interface WeaponFillAiDraft {
+  id: string;
+  name: string;
+  rarity: number;
+  description: string;
+  sourceName: string;
+  source: string;
+  skills: {
+    skill1?: WeaponFillAiSkill;
+    skill2?: WeaponFillAiSkill;
+    skill3?: WeaponFillAiSkill;
+  };
+}
+
+interface WeaponFillAiSkill {
+  name: string;
+  description: string;
+  effects: WeaponFillAiEffect[];
+}
+
+interface WeaponFillAiEffect {
+  bucket: 'value' | 'effect';
+  type: string;
+  value: number;
+  levels?: Record<string, number>;
+  condition: string;
+  evidenceText: string;
+  confidence: number;
+}
+```
+
+Weapon validation rules:
+
+- `id` and `name` are required non-empty strings.
+- `rarity` must be a finite number.
+- skill keys are limited to `skill1 | skill2 | skill3`.
+- effect `bucket` is limited to `value | effect`.
+- effect `value` must be a number, not a string.
+- `levels`, when present, must be an object whose values are numbers.
+- unsupported effect types must be rejected or explicitly dropped by the weapon adapter; they must not be guessed into Buff modifier types.
+- The weapon adapter must declare a `supportedEffectTypes: string[]` list. The first version may be small, but it must be explicit and used by validation.
+- Weapon save behavior must follow existing Sheet-Weapon semantics. If Sheet-Weapon has no undo stack, Task 12 must explicitly keep that behavior and not invent a hidden undo mechanism.
+
+Weapon task package requirements:
+
+- `weapon.fill.task` must include the current weapon draft, the minimal `WeaponFillAiDraft` schema, supported effect types, and the same approval/save warning used by Buff.
+- `weapon.fill.task` must not expose Buff modifier catalog as the weapon effect catalog.
+- `weapon.fill.task` must return a short summary line and put the full package in `data`.
+
 ## Validation And Write Flow
 
 Dry run:
@@ -520,14 +807,9 @@ Target framework behavior:
 - If valid, create a pending Buff proposal with `approval=Wait` and `save=Wait`.
 - Return `proposal.id`, `approval`, `save`, and the next required action.
 - Do not treat proposal creation as a saved write.
-- `Y` approves the proposal and applies it to the web working state.
-- `N` rejects the proposal and leaves app state unchanged.
-- `Y` / `N` must represent a user confirmation path. Do not let a readonly external agent complete approval or save transitions on its own.
-- After approval, saving is still a separate decision:
-  - Save `Y`: persist to app truth.
-  - Save `N`: keep/cancel without persisting according to the domain adapter.
+- Approval, rejection, save, and unsave then follow the `Review Operation Contract` above.
 
-Current implementation note:
+Current pre-Task-12 behavior:
 
 - Current `fill.apply` already validates and writes `def.buff-editor.library.v1`, mirrors `def.buff-editor.draft.v1`, and creates an undo snapshot.
 - That behavior is useful as a smoke path, but it is not the final external-agent business closure.

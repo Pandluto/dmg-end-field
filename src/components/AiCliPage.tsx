@@ -4,10 +4,10 @@ import {
   fail,
   formatDraftSummary,
   info,
-  readCurrentBuffDraft,
   runAiCliCommand,
   summarizeAiCliCommand,
 } from '../aiCli/aiCliCommandService';
+import { readCurrentBuffDraft } from '../aiCli/buffFillAdapter';
 import { APP_ROUTE_PATHS, navigateToAppPath } from '../utils/appRoute';
 import './AiCliPage.css';
 

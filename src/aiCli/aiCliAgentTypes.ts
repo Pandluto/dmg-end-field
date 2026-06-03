@@ -2,7 +2,7 @@ export const AI_CLI_PROTOCOL_VERSION = 1 as const;
 
 export type AiAgentClient = 'web-cli' | 'powershell' | 'codex' | 'claude' | 'rest' | 'mcp';
 
-export type AiAgentWorkflow = 'buff.fill';
+export type AiAgentWorkflow = 'buff.fill' | 'weapon.fill';
 
 export interface AiCliCommandRequest {
   protocolVersion: typeof AI_CLI_PROTOCOL_VERSION;

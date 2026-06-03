@@ -1,11 +1,9 @@
-import buffSheetAiSystemPromptRaw from '../prompts/buff-sheet-ai-system-prompt.md?raw';
-import { buildBuffTypeCatalogPromptSection, BUFF_MODIFIER_TYPE_IDS } from '../ai/buffFillCatalog';
-import { createBuffFillAiDraftSchema } from '../ai/buffFillSchema';
-import { convertBuffFillAiDraftToBuffDraft, sanitizeBuffFillAiDraft, validateBuffFillAiDraft } from '../ai/buffFillValidator';
+import { BUFF_MODIFIER_TYPE_IDS } from '../ai/buffFillCatalog';
 import type { BuffDraft, BuffEffectDraft, BuffItemDraft } from '../types/buffFill';
 import {
   AI_CLI_PROTOCOL_VERSION,
   type AiAgentClient,
+  type AiAgentWorkflow,
   type AiCliCommandRequest,
   type AiCliCommandResponse,
   type AiCliExecutionContext,
@@ -14,6 +12,7 @@ import {
   appendOperationLog,
   appendSessionMessage,
   assertPermission,
+  createAgentProposal,
   ensureActiveSession,
   findPermissionProfile,
   overwriteSessionState,
@@ -22,26 +21,33 @@ import {
   readAgentSessions,
   readOperationLogs,
   readPendingAgentProposals,
+  readAgentProposals,
+  approveAgentProposal,
+  rejectAgentProposal,
+  markAgentProposalSaved,
+  markAgentProposalUnsaved,
   updateSessionContext,
 } from './aiCliAgentInfrastructure';
+import { resolveFillCommand, findFillDomainAdapter, findFillDomainAdapterByDomain, registerFillDomainAdapter } from './aiCliFillDomains';
+import {
+  readCurrentBuffDraft,
+  readBuffLibrary,
+  formatLibrarySummary,
+  BUFF_DRAFT_STORAGE_KEY,
+  BUFF_LIBRARY_STORAGE_KEY,
+  BUFF_UNDO_STORAGE_KEY,
+  ALL_BUFF_STORAGE_KEYS,
+  persistDraft,
+  writeUndoSnapshot,
+} from './buffFillAdapter';
+import { WEAPON_DRAFT_STORAGE_KEY, WEAPON_LIBRARY_STORAGE_KEY, weaponFillAdapter } from './weaponFillAdapter';
+import { buffFillAdapter } from './buffFillAdapter';
 
-export const BUFF_DRAFT_STORAGE_KEY = 'def.buff-editor.draft.v1';
-export const BUFF_LIBRARY_STORAGE_KEY = 'def.buff-editor.library.v1';
-export const BUFF_UNDO_STORAGE_KEY = 'def.buff-editor.undo.v1';
-export const ALL_BUFF_STORAGE_KEYS = [BUFF_DRAFT_STORAGE_KEY, BUFF_LIBRARY_STORAGE_KEY, BUFF_UNDO_STORAGE_KEY];
+registerFillDomainAdapter(buffFillAdapter);
+registerFillDomainAdapter(weaponFillAdapter);
+
 export const SELECTED_CHARACTERS_STORAGE_KEY = 'def.selected-characters.v1';
 export const CHARACTER_INPUT_MAP_STORAGE_KEY = 'def.operator-config.character-input-map.v3';
-
-const BUFF_UNDO_LIMIT = 8;
-
-interface BuffUndoSnapshot {
-  id: string;
-  createdAt: number;
-  label: string;
-  selectedDraftId?: string;
-  draftState?: BuffDraft;
-  localEntries: Array<[string, string | null]>;
-}
 
 interface CliOperatorInput {
   potential: '0潜' | '满潜';
@@ -61,6 +67,7 @@ interface CliOperatorInput {
 
 export interface AiCliCommandResult extends AiCliCommandResponse {
   nextDraft?: BuffDraft;
+  workflow?: AiAgentWorkflow;
 }
 
 export function createFallbackDraft(): BuffDraft {
@@ -72,30 +79,6 @@ export function createFallbackDraft(): BuffDraft {
     description: '',
     items: {},
   };
-}
-
-function readJsonStorage<T>(key: string, fallback: T): T {
-  if (typeof window === 'undefined') {
-    return fallback;
-  }
-  try {
-    const raw = window.localStorage.getItem(key);
-    return raw ? JSON.parse(raw) as T : fallback;
-  } catch {
-    return fallback;
-  }
-}
-
-export function readCurrentBuffDraft(): BuffDraft {
-  return readJsonStorage<BuffDraft>(BUFF_DRAFT_STORAGE_KEY, createFallbackDraft());
-}
-
-export function readBuffLibrary(): Record<string, BuffDraft> {
-  return readJsonStorage<Record<string, BuffDraft>>(BUFF_LIBRARY_STORAGE_KEY, {});
-}
-
-function readUndoSnapshots(): BuffUndoSnapshot[] {
-  return readJsonStorage<BuffUndoSnapshot[]>(BUFF_UNDO_STORAGE_KEY, []);
 }
 
 function readSessionJsonStorage<T>(key: string, fallback: T): T {
@@ -132,50 +115,6 @@ function readSelectedCharacterIds(): string[] {
 
 function writeSelectedCharacterIds(ids: string[]) {
   window.sessionStorage.setItem(SELECTED_CHARACTERS_STORAGE_KEY, JSON.stringify(ids));
-}
-
-function writeUndoSnapshot(label: string, draftState: BuffDraft) {
-  if (typeof window === 'undefined') {
-    return;
-  }
-
-  const snapshot: BuffUndoSnapshot = {
-    id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-    createdAt: Date.now(),
-    label,
-    selectedDraftId: draftState.id,
-    draftState,
-    localEntries: [
-      [BUFF_DRAFT_STORAGE_KEY, window.localStorage.getItem(BUFF_DRAFT_STORAGE_KEY)],
-      [BUFF_LIBRARY_STORAGE_KEY, window.localStorage.getItem(BUFF_LIBRARY_STORAGE_KEY)],
-    ],
-  };
-
-  window.localStorage.setItem(BUFF_UNDO_STORAGE_KEY, JSON.stringify([snapshot, ...readUndoSnapshots()].slice(0, BUFF_UNDO_LIMIT)));
-}
-
-function persistDraft(nextDraft: BuffDraft, label: string) {
-  const previousDraft = readCurrentBuffDraft();
-  const nextLibrary = {
-    ...readBuffLibrary(),
-    [nextDraft.id]: nextDraft,
-  };
-  writeUndoSnapshot(label, previousDraft);
-  window.localStorage.setItem(BUFF_DRAFT_STORAGE_KEY, JSON.stringify(nextDraft));
-  window.localStorage.setItem(BUFF_LIBRARY_STORAGE_KEY, JSON.stringify(nextLibrary));
-}
-
-function persistLibraryDraft(nextDraft: BuffDraft, label: string, setActiveDraft = true) {
-  const previousDraft = readCurrentBuffDraft();
-  const nextLibrary = {
-    ...readBuffLibrary(),
-    [nextDraft.id]: nextDraft,
-  };
-  writeUndoSnapshot(label, previousDraft);
-  window.localStorage.setItem(BUFF_LIBRARY_STORAGE_KEY, JSON.stringify(nextLibrary));
-  if (setActiveDraft) {
-    window.localStorage.setItem(BUFF_DRAFT_STORAGE_KEY, JSON.stringify(nextDraft));
-  }
 }
 
 export function splitAiCliCommand(input: string) {
@@ -297,19 +236,7 @@ export function formatDraftSummary(draft: BuffDraft) {
   ];
 }
 
-export function formatLibrarySummary(library: Record<string, BuffDraft>) {
-  return Object.entries(library).map(([id, entry]) => {
-    const itemCount = Object.keys(entry.items || {}).length;
-    const effectCount = Object.values(entry.items || {}).reduce((sum, item) => sum + Object.keys(item.effects || {}).length, 0);
-    return {
-      id,
-      name: entry.name || id,
-      sourceName: entry.sourceName || '-',
-      items: itemCount,
-      effects: effectCount,
-    };
-  }).sort((a, b) => a.name.localeCompare(b.name, 'zh-CN'));
-}
+
 
 function searchLibrary(library: Record<string, BuffDraft>, keyword: string) {
   const normalizedKeyword = keyword.trim().toLowerCase();
@@ -408,107 +335,7 @@ function createOperatorInput(options: Record<string, string>): CliOperatorInput 
   };
 }
 
-function extractBalancedJsonObject(rawText: string) {
-  const text = rawText.trim();
-  const start = text.indexOf('{');
-  if (start < 0) {
-    return null;
-  }
 
-  let depth = 0;
-  let inString = false;
-  let escaped = false;
-
-  for (let index = start; index < text.length; index += 1) {
-    const char = text[index];
-    if (inString) {
-      if (escaped) {
-        escaped = false;
-      } else if (char === '\\') {
-        escaped = true;
-      } else if (char === '"') {
-        inString = false;
-      }
-      continue;
-    }
-    if (char === '"') {
-      inString = true;
-    } else if (char === '{') {
-      depth += 1;
-    } else if (char === '}') {
-      depth -= 1;
-      if (depth === 0) {
-        return text.slice(start, index + 1);
-      }
-    }
-  }
-
-  return null;
-}
-
-function parseAiFillResult(rawText: string, options?: { skipSanitize?: boolean }): { draft: BuffDraft | null; errors: string[] } {
-  const normalizedText = rawText.trim();
-  if (!normalizedText) {
-    return { draft: null, errors: ['AI response is empty'] };
-  }
-
-  const candidates = [normalizedText];
-  const balancedJson = extractBalancedJsonObject(normalizedText);
-  if (balancedJson && balancedJson !== normalizedText) {
-    candidates.push(balancedJson);
-  }
-
-  const errors: string[] = [];
-  for (const candidate of candidates) {
-    try {
-      const parsed = JSON.parse(candidate) as Record<string, unknown>;
-      const rawDraft = parsed && typeof parsed.draft === 'object' ? parsed.draft : parsed;
-      const toValidate = options?.skipSanitize ? rawDraft : sanitizeBuffFillAiDraft(rawDraft);
-      const validation = validateBuffFillAiDraft(toValidate);
-      if (!validation.ok) {
-        errors.push(...validation.errors);
-        continue;
-      }
-      const sanitized = options?.skipSanitize ? sanitizeBuffFillAiDraft(rawDraft) : toValidate;
-      return {
-        draft: convertBuffFillAiDraftToBuffDraft(sanitized as never),
-        errors: [],
-      };
-    } catch (error) {
-      errors.push(`JSON parse failed: ${error instanceof Error ? error.message : String(error)}`);
-    }
-  }
-
-  return { draft: null, errors: Array.from(new Set(errors)) };
-}
-
-function buildTaskPackage(currentDraft: BuffDraft, sourceText: string) {
-  const library = readBuffLibrary();
-  return {
-    tool: 'buff.fill',
-    protocolVersion: AI_CLI_PROTOCOL_VERSION,
-    instruction: [
-      'Return exactly one BuffFillAiDraft JSON object for one library entry.',
-      'No Markdown. No explanation. No wrapper fields.',
-      'Only extract effects explicitly present in sourceText and supported by modifierCatalog.',
-      'Use decimal numbers for percentages, for example 20% => 0.2.',
-      'Use a stable id. Existing id means update that library entry; new id means create a new entry.',
-    ].join('\n'),
-    mainStorage: BUFF_LIBRARY_STORAGE_KEY,
-    currentDraft,
-    librarySummary: formatLibrarySummary(library),
-    sourceText,
-    outputSchema: createBuffFillAiDraftSchema(),
-    systemPrompt: buffSheetAiSystemPromptRaw.trim(),
-    modifierCatalog: buildBuffTypeCatalogPromptSection(),
-  };
-}
-
-function summarizeTaskPackage(currentDraft: BuffDraft) {
-  const itemCount = Object.keys(currentDraft.items || {}).length;
-  const effectCount = Object.values(currentDraft.items || {}).reduce((sum, item) => sum + Object.keys(item.effects || {}).length, 0);
-  return `fill.task ready: items=${itemCount} effects=${effectCount}, catalog=${BUFF_MODIFIER_TYPE_IDS.length} types`;
-}
 
 function makeResponse(partial: Omit<AiCliCommandResult, 'ok' | 'protocolVersion' | 'effects'> & {
   ok?: boolean;
@@ -525,6 +352,7 @@ function makeResponse(partial: Omit<AiCliCommandResult, 'ok' | 'protocolVersion'
     copyText: partial.copyText,
     nextDraft: partial.nextDraft,
     proposal: partial.proposal,
+    workflow: partial.workflow,
   };
 }
 
@@ -542,7 +370,13 @@ function writeResponse(partial: Omit<AiCliCommandResult, 'ok' | 'protocolVersion
   });
 }
 
-function executeCommand(rawCommand: string, draft: BuffDraft, sourceText: string): AiCliCommandResult {
+function executeCommand(
+  rawCommand: string,
+  draft: BuffDraft,
+  sourceText: string,
+  client: AiAgentClient,
+  sessionId: string,
+): AiCliCommandResult {
   const tokens = splitAiCliCommand(rawCommand);
   const command = tokens[0]?.toLowerCase() || '';
   const args = tokens.slice(1);
@@ -572,7 +406,18 @@ function executeCommand(rawCommand: string, draft: BuffDraft, sourceText: string
             ['fill', 'fill.task', 'return structured task package / 返回结构化任务包'],
             ['fill', 'fill.task.copy', 'copy task package to clipboard / 复制任务包'],
             ['fill', 'fill.check <json>', 'validate BuffFillAiDraft without writing / 只校验不写入'],
-            ['fill', 'fill.apply <json>', 'validate and apply BuffFillAiDraft / 校验并应用填表结果'],
+            ['fill', 'fill.apply <json>', 'create proposal from AI fill result / 创建填表提案'],
+            ['weapon', 'weapon.fill.task', 'return weapon task package / 返回武器填表任务包'],
+            ['weapon', 'weapon.fill.check <json>', 'validate WeaponFillAiDraft / 校验武器填表结果'],
+            ['weapon', 'weapon.fill.apply <json>', 'create weapon fill proposal / 创建武器填表提案'],
+            ['proposal', 'proposal.list', 'list pending proposals / 查看待处理提案'],
+            ['proposal', 'proposal.show <id>', 'show proposal details / 查看提案详情'],
+            ['proposal', 'proposal.approve <id>', 'approve and apply to working state / 批准并应用到工作状态'],
+            ['proposal', 'proposal.reject <id>', 'reject proposal / 拒绝提案'],
+            ['proposal', 'proposal.save <id>', 'save approved proposal to local truth / 保存已批准提案到本地主库'],
+            ['proposal', 'proposal.unsave <id>', 'mark saved proposal as unsaved / 标记提案为未保存'],
+            ['shortcut', 'Y', 'approve pending proposal or save approved / 快捷批准或保存'],
+            ['shortcut', 'N', 'reject pending proposal or unsave approved / 快捷拒绝或取消保存'],
             ['agent', 'agent.logs [limit]', 'show recent agent operation logs / 查看智能体访问记录'],
             ['agent', 'agent.sessions [limit]', 'show current single agent session / 查看当前单会话'],
             ['agent', 'agent.guide', 'show first-call guide for LLM agents / 查看智能体首次接入指南'],
@@ -608,13 +453,16 @@ function executeCommand(rawCommand: string, draft: BuffDraft, sourceText: string
         `  ${BUFF_DRAFT_STORAGE_KEY} is only the active editor draft.`,
         '  external agents may propose BuffFillAiDraft JSON only.',
         '  app validates modifier type, numeric value, required fields, and extraHit config.',
-        '  fill.check never writes; fill.apply writes the library, sets active draft, and creates undo snapshot.',
+        '  fill.check never writes; fill.apply creates a proposal (does not write library).',
+        '  use proposal.approve to apply to working state; proposal.save to write to local truth.',
         '  buff.open only switches active editor draft from an existing library entry.',
         '',
         'storage touched:',
         `  localStorage.${BUFF_DRAFT_STORAGE_KEY}`,
         `  localStorage.${BUFF_LIBRARY_STORAGE_KEY}`,
         `  localStorage.${BUFF_UNDO_STORAGE_KEY}`,
+        `  localStorage.${WEAPON_DRAFT_STORAGE_KEY}`,
+        `  localStorage.${WEAPON_LIBRARY_STORAGE_KEY}`,
         `  sessionStorage.${CHARACTER_INPUT_MAP_STORAGE_KEY}`,
         `  sessionStorage.${SELECTED_CHARACTERS_STORAGE_KEY}`,
       ],
@@ -1056,58 +904,96 @@ function executeCommand(rawCommand: string, draft: BuffDraft, sourceText: string
     });
   }
 
-  if (command === 'fill.task') {
-    return makeResponse({
-      lines: [info(summarizeTaskPackage(draft))],
-      data: buildTaskPackage(draft, sourceText),
-    });
-  }
-
-  if (command === 'fill.task.copy') {
-    const payload = JSON.stringify(buildTaskPackage(draft, sourceText));
-    return makeResponse({
-      copyText: payload,
-      lines: [ok(`task package copied: ${payload.length} chars`)],
-    });
-  }
-
-  if (command === 'fill.check') {
-    const jsonText = rawCommand.slice(rawCommand.indexOf('fill.check') + 'fill.check'.length).trim();
-    const parsed = parseAiFillResult(jsonText, { skipSanitize: true });
-    if (!parsed.draft) {
+  const fillCommand = resolveFillCommand(rawCommand);
+  if (fillCommand) {
+    if ('error' in fillCommand) {
       return makeResponse({
         ok: false,
-        lines: [fail('fill result invalid'), ...parsed.errors.map((error) => `  ${error}`)],
-        error: { code: 'fill-invalid', message: 'fill result invalid', details: parsed.errors },
+        lines: [fail(fillCommand.error)],
+        error: { code: 'usage-error', message: fillCommand.error },
       });
     }
-    const itemCount = Object.keys(parsed.draft.items).length;
-    const effectCount = Object.values(parsed.draft.items).reduce((sum, item) => sum + Object.keys(item.effects).length, 0);
-    return makeResponse({
-      lines: [ok(`fill result valid: items=${itemCount} effects=${effectCount}`)],
-      effects: { writes: false, storage: [] },
-    });
-  }
-
-  if (command === 'fill.apply') {
-    const jsonText = rawCommand.slice(rawCommand.indexOf('fill.apply') + 'fill.apply'.length).trim();
-    const parsed = parseAiFillResult(jsonText);
-    if (!parsed.draft) {
+    const adapter = findFillDomainAdapter(fillCommand.prefix);
+    if (!adapter) {
       return makeResponse({
         ok: false,
-        lines: [fail('fill result invalid'), ...parsed.errors.map((error) => `  ${error}`)],
-        error: { code: 'fill-invalid', message: 'fill result invalid', details: parsed.errors },
+        lines: [fail(`unknown fill domain: ${fillCommand.prefix}`)],
+        error: { code: 'unknown-domain', message: `unknown fill domain: ${fillCommand.prefix}` },
       });
     }
-    const nextDraft = parsed.draft;
-    persistLibraryDraft(nextDraft, `AI CLI fill.apply · ${nextDraft.id}`, true);
-    const itemCount = Object.keys(nextDraft.items).length;
-    const effectCount = Object.values(nextDraft.items).reduce((sum, item) => sum + Object.keys(item.effects).length, 0);
-    return writeResponse({
-      nextDraft,
-      lines: [ok(`fill applied: items=${itemCount} effects=${effectCount}`)],
-      storage: ALL_BUFF_STORAGE_KEYS,
-    });
+
+    if (fillCommand.action === 'task') {
+      const pkg = adapter.buildTaskPackage();
+      return makeResponse({
+        lines: pkg.lines,
+        data: pkg.data,
+        workflow: adapter.workflow,
+      });
+    }
+
+    if (fillCommand.action === 'check') {
+      const validation = adapter.validateAiDraft(fillCommand.args);
+      if (!validation.ok) {
+        return makeResponse({
+          ok: false,
+          lines: [fail('fill result invalid'), ...validation.errors.map((error) => `  ${error}`)],
+          error: { code: 'fill-invalid', message: 'fill result invalid', details: validation.errors },
+        });
+      }
+      return makeResponse({
+        lines: [ok(`fill result valid: ${adapter.domain}`)],
+        effects: { writes: false, storage: [] },
+      });
+    }
+
+    if (fillCommand.action === 'apply') {
+      const validation = adapter.validateAiDraft(fillCommand.args);
+      if (!validation.ok) {
+        return makeResponse({
+          ok: false,
+          lines: [fail('fill result invalid'), ...validation.errors.map((error) => `  ${error}`)],
+          error: { code: 'fill-invalid', message: 'fill result invalid', details: validation.errors },
+        });
+      }
+      const proposalPayload = adapter.createProposalPayload(validation, rawCommand);
+      const allProposals = readAgentProposals();
+      const targetId = (proposalPayload.normalized as { id?: string }).id;
+      const existingPending = allProposals.find(
+        (p) => p.domain === adapter.domain
+          && targetId
+          && (p.payload as { id?: string }).id === targetId
+          && (p.approvalStatus === 'Wait' || (p.approvalStatus === 'Yes' && p.saveStatus === 'Wait')),
+      );
+      if (existingPending) {
+        return makeResponse({
+          ok: false,
+          lines: [fail(`pending proposal already exists for ${adapter.domain} id=${targetId}: ${existingPending.id}`)],
+          error: { code: 'duplicate-proposal', message: 'pending proposal already exists', details: { proposalId: existingPending.id } },
+        });
+      }
+      const proposal = createAgentProposal({
+        domain: adapter.domain,
+        operation: `${adapter.commandPrefix}.apply`,
+        payload: proposalPayload.normalized,
+        approvalStatus: 'Wait',
+        saveStatus: 'Wait',
+        client,
+        sessionId,
+        summary: proposalPayload.summary,
+      });
+      return makeResponse({
+        lines: [ok(`proposal created: ${proposal.id}`)],
+        effects: { writes: false, storage: [] },
+        workflow: adapter.workflow,
+        proposal: {
+          id: proposal.id,
+          domain: proposal.domain,
+          approval: proposal.approvalStatus,
+          save: proposal.saveStatus,
+          nextAction: 'approve or reject',
+        },
+      });
+    }
   }
 
   if (command === 'proposal.list') {
@@ -1129,6 +1015,191 @@ function executeCommand(rawCommand: string, draft: BuffDraft, sourceText: string
         : [info('no pending proposals')],
       data: { proposals },
     });
+  }
+
+  if (command === 'proposal.show') {
+    const [proposalId] = args;
+    if (!proposalId) {
+      return makeResponse({ ok: false, lines: [fail('usage: proposal.show <proposalId>')] });
+    }
+    const allProposals = readAgentProposals();
+    const proposal = allProposals.find((p) => p.id === proposalId);
+    if (!proposal) {
+      return makeResponse({ ok: false, lines: [fail(`proposal not found: ${proposalId}`)] });
+    }
+    return makeResponse({
+      lines: [
+        `id=${proposal.id}`,
+        `domain=${proposal.domain}`,
+        `operation=${proposal.operation}`,
+        `approval=${proposal.approvalStatus}`,
+        `save=${proposal.saveStatus}`,
+        `summary=${proposal.summary || '-'}`,
+        `payload=${JSON.stringify(proposal.payload).slice(0, 200)}...`,
+      ],
+      data: { proposal },
+    });
+  }
+
+  if (command === 'proposal.approve') {
+    const [proposalId] = args;
+    if (!proposalId) {
+      return makeResponse({ ok: false, lines: [fail('usage: proposal.approve <proposalId>')] });
+    }
+    const allProposals = readAgentProposals();
+    const proposal = allProposals.find((p) => p.id === proposalId);
+    if (!proposal) {
+      return makeResponse({ ok: false, lines: [fail(`proposal not found: ${proposalId}`)] });
+    }
+    if (proposal.approvalStatus !== 'Wait') {
+      return makeResponse({ ok: false, lines: [fail(`proposal ${proposalId} is not waiting for approval`)] });
+    }
+    const adapter = findFillDomainAdapterByDomain(proposal.domain);
+    if (!adapter) {
+      return makeResponse({ ok: false, lines: [fail(`no adapter for domain: ${proposal.domain}`)] });
+    }
+    const applyResult = adapter.applyToWorkingState(proposal.payload);
+    if (!applyResult.ok) {
+      return makeResponse({ ok: false, lines: [fail(`apply failed: ${applyResult.error || 'unknown'}`)] });
+    }
+    const updated = approveAgentProposal(proposal.id);
+    return makeResponse({
+      lines: [ok(`proposal approved: ${proposalId}`)],
+      effects: { writes: true, storage: [adapter.draftStorageKey] },
+      data: { proposal: updated },
+      proposal: updated ? {
+        id: updated.id,
+        domain: updated.domain,
+        approval: updated.approvalStatus,
+        save: updated.saveStatus,
+        nextAction: 'save or unsave',
+      } : undefined,
+    });
+  }
+
+  if (command === 'proposal.reject') {
+    const [proposalId] = args;
+    if (!proposalId) {
+      return makeResponse({ ok: false, lines: [fail('usage: proposal.reject <proposalId>')] });
+    }
+    const updated = rejectAgentProposal(proposalId);
+    if (!updated) {
+      return makeResponse({ ok: false, lines: [fail(`proposal not found or not in Wait status: ${proposalId}`)] });
+    }
+    return makeResponse({
+      lines: [ok(`proposal rejected: ${proposalId}`)],
+      data: { proposal: updated },
+      proposal: {
+        id: updated.id,
+        domain: updated.domain,
+        approval: updated.approvalStatus,
+        save: updated.saveStatus,
+        nextAction: 'none',
+      },
+    });
+  }
+
+  if (command === 'proposal.save') {
+    const [proposalId] = args;
+    if (!proposalId) {
+      return makeResponse({ ok: false, lines: [fail('usage: proposal.save <proposalId>')] });
+    }
+    const allProposals = readAgentProposals();
+    const proposal = allProposals.find((p) => p.id === proposalId);
+    if (!proposal) {
+      return makeResponse({ ok: false, lines: [fail(`proposal not found: ${proposalId}`)] });
+    }
+    if (proposal.approvalStatus !== 'Yes' || proposal.saveStatus !== 'Wait') {
+      return makeResponse({ ok: false, lines: [fail(`proposal ${proposalId} is not ready to save`)] });
+    }
+    const adapter = findFillDomainAdapterByDomain(proposal.domain);
+    if (!adapter) {
+      return makeResponse({ ok: false, lines: [fail(`no adapter for domain: ${proposal.domain}`)] });
+    }
+    const saveResult = adapter.saveToLocalTruth(proposal.payload);
+    if (!saveResult.ok) {
+      return makeResponse({ ok: false, lines: [fail(`save failed: ${saveResult.error || 'unknown'}`)] });
+    }
+    const updated = markAgentProposalSaved(proposal.id);
+    const storageKeys = proposal.domain === 'buff'
+      ? [adapter.draftStorageKey, adapter.libraryStorageKey, BUFF_UNDO_STORAGE_KEY]
+      : [adapter.draftStorageKey, adapter.libraryStorageKey];
+    return makeResponse({
+      lines: [ok(`proposal saved: ${proposalId}`)],
+      data: { proposal: updated },
+      effects: { writes: true, storage: storageKeys },
+      proposal: updated ? {
+        id: updated.id,
+        domain: updated.domain,
+        approval: updated.approvalStatus,
+        save: updated.saveStatus,
+        nextAction: 'none',
+      } : undefined,
+    });
+  }
+
+  if (command === 'proposal.unsave') {
+    const [proposalId] = args;
+    if (!proposalId) {
+      return makeResponse({ ok: false, lines: [fail('usage: proposal.unsave <proposalId>')] });
+    }
+    const updated = markAgentProposalUnsaved(proposalId);
+    if (!updated) {
+      return makeResponse({ ok: false, lines: [fail(`proposal not found or not in saveable status: ${proposalId}`)] });
+    }
+    return makeResponse({
+      lines: [ok(`proposal unsaved: ${proposalId}`)],
+      data: { proposal: updated },
+      proposal: {
+        id: updated.id,
+        domain: updated.domain,
+        approval: updated.approvalStatus,
+        save: updated.saveStatus,
+        nextAction: 'save or unsave',
+      },
+    });
+  }
+
+  if (command === 'y') {
+    const targets = readPendingAgentProposals(sessionId);
+    if (targets.length === 0) {
+      return makeResponse({ ok: false, lines: [fail('no pending proposals in current session')] });
+    }
+    if (targets.length > 1) {
+      return makeResponse({
+        ok: false,
+        lines: [fail(`ambiguous: ${targets.length} pending proposals. use proposal.approve <id> or proposal.save <id>`)],
+      });
+    }
+    const target = targets[0];
+    if (target.approvalStatus === 'Wait') {
+      return executeCommand(`proposal.approve ${target.id}`, draft, sourceText, client, sessionId);
+    }
+    if (target.approvalStatus === 'Yes' && target.saveStatus === 'Wait') {
+      return executeCommand(`proposal.save ${target.id}`, draft, sourceText, client, sessionId);
+    }
+    return makeResponse({ lines: [info(`proposal ${target.id} is already resolved`)] });
+  }
+
+  if (command === 'n') {
+    const targets = readPendingAgentProposals(sessionId);
+    if (targets.length === 0) {
+      return makeResponse({ ok: false, lines: [fail('no pending proposals in current session')] });
+    }
+    if (targets.length > 1) {
+      return makeResponse({
+        ok: false,
+        lines: [fail(`ambiguous: ${targets.length} pending proposals. use proposal.reject <id> or proposal.unsave <id>`)],
+      });
+    }
+    const target = targets[0];
+    if (target.approvalStatus === 'Wait') {
+      return executeCommand(`proposal.reject ${target.id}`, draft, sourceText, client, sessionId);
+    }
+    if (target.approvalStatus === 'Yes' && target.saveStatus === 'Wait') {
+      return executeCommand(`proposal.unsave ${target.id}`, draft, sourceText, client, sessionId);
+    }
+    return makeResponse({ lines: [info(`proposal ${target.id} is already resolved`)] });
   }
 
   if (command === 'fill.source') {
@@ -1172,7 +1243,7 @@ export function runAiCliCommand(
     });
   } else {
     try {
-      response = executeCommand(request.command, draft, context.sourceText);
+      response = executeCommand(request.command, draft, context.sourceText, request.client, sessionId || '');
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       response = makeResponse({
@@ -1184,7 +1255,7 @@ export function runAiCliCommand(
   }
 
   // fill.task 在 web-cli 时补 copyText，fill.task.copy 始终保留
-  if (commandName === 'fill.task' && request.client === 'web-cli' && response.data) {
+  if ((commandName === 'fill.task' && request.client === 'web-cli' && response.data) || commandName === 'fill.task.copy') {
     response.copyText = JSON.stringify(response.data);
   }
 
@@ -1194,8 +1265,9 @@ export function runAiCliCommand(
     text: response.lines.join('\n'),
     data: response.error,
   });
+  const resolvedWorkflow = response.workflow ?? 'buff.fill';
   updateSessionContext(sessionId || '', {
-    currentWorkflow: 'buff.fill',
+    currentWorkflow: resolvedWorkflow,
     currentDraftId: response.nextDraft?.id ?? draft.id,
     lastCommand: commandName,
     lastValidationOk: response.ok,
@@ -1203,7 +1275,7 @@ export function runAiCliCommand(
   overwriteSessionSummary(`${response.ok ? 'ok' : 'err'} ${commandName || 'empty'} · ${summarizeAiCliCommand(request.command)}`);
   const existingState = readAgentSession()?.state ?? {};
   const nextState: Record<string, unknown> = {
-    currentWorkflow: 'buff.fill',
+    currentWorkflow: resolvedWorkflow,
     currentDraftId: response.nextDraft?.id ?? draft.id,
     lastCommand: commandName,
     lastOk: response.ok,

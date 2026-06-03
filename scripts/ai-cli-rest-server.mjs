@@ -210,7 +210,7 @@ const vite = await createViteServer({
 });
 
 const { handleAiCliRestRequest } = await vite.ssrLoadModule('/src/aiCli/aiCliRestAdapter.ts');
-const { readCurrentBuffDraft } = await vite.ssrLoadModule('/src/aiCli/aiCliCommandService.ts');
+const { readCurrentBuffDraft } = await vite.ssrLoadModule('/src/aiCli/buffFillAdapter.ts');
 const { readAgentRecordSnapshot } = await vite.ssrLoadModule('/src/aiCli/aiCliAgentInfrastructure.ts');
 
 const sseClients = new Set();

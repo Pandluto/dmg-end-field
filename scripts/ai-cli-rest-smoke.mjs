@@ -1,8 +1,16 @@
 import { spawn } from 'node:child_process';
+import fs from 'node:fs';
+import path from 'node:path';
 
 const HOST = '127.0.0.1';
 const PORT = Number(process.env.AI_CLI_REST_PORT || 17322);
 const BASE_URL = `http://${HOST}:${PORT}`;
+
+// Clean runtime storage before each smoke run to avoid duplicate-proposal errors
+const runtimeStoragePath = path.join(process.cwd(), '.runtime', 'ai-cli-rest', 'localStorage.json');
+if (fs.existsSync(runtimeStoragePath)) {
+  fs.unlinkSync(runtimeStoragePath);
+}
 
 function delay(ms) {
   return new Promise((resolve) => {
@@ -249,12 +257,13 @@ try {
   });
   assert(apply.status === 200, `apply status=${apply.status}`);
   assert(apply.payload.ok === true, 'apply should pass for web-cli');
-  assert(apply.payload.effects?.writes === true, 'apply should write');
+  assert(apply.payload.effects?.writes === false, 'apply should create proposal, not write library');
+  assert(apply.payload.proposal?.id, 'apply should return proposal.id');
+  assert(apply.payload.proposal?.approval === 'Wait', 'apply proposal should be Wait');
+  assert(apply.payload.proposal?.save === 'Wait', 'apply proposal should be save=Wait');
 
-  const libraryEntry = await request('GET', '/api/buff/library/ai-result');
-  assert(libraryEntry.status === 200, `library entry status=${libraryEntry.status}`);
-  assert(libraryEntry.payload.ok === true, 'library entry should be readable after apply');
-  assert(libraryEntry.payload.draft?.id === 'ai-result', 'apply should upsert model draft id into library');
+  const libraryAfterApply = await request('GET', '/api/buff/library/ai-result');
+  assert(libraryAfterApply.status === 404, `library entry should not exist after apply-only: status=${libraryAfterApply.status}`);
 
   const unknownCmd = await request('POST', '/api/ai-cli/run', {
     protocolVersion: 1,

@@ -9,10 +9,12 @@ import {
 import {
   createAiCliCommandRequest,
   formatDraftSummary,
-  formatLibrarySummary,
-  readBuffLibrary,
   runAiCliCommand,
 } from './aiCliCommandService';
+import {
+  formatLibrarySummary,
+  readBuffLibrary,
+} from './buffFillAdapter';
 import {
   KNOWN_COMMANDS,
   readAgentRecordSnapshot,
@@ -390,6 +392,21 @@ export function handleAiCliRestRequest(
         error: {
           code: 'bad-request',
           message: 'body.command is required',
+        },
+      });
+    }
+
+    const cmd = request.body.command.trim().toLowerCase();
+    const approvalCommands = ['proposal.approve', 'proposal.reject', 'proposal.save', 'proposal.unsave', 'y', 'n'];
+    if (approvalCommands.some((ac) => cmd === ac || cmd.startsWith(`${ac} `))) {
+      // Approval/save commands are user actions and must not be executed through REST.
+      // Web-cli should call runAiCliCommand directly, not via REST.
+      return jsonResponse(403, {
+        ok: false,
+        protocolVersion: AI_CLI_PROTOCOL_VERSION,
+        error: {
+          code: 'forbidden',
+          message: 'proposal approval/save commands are not allowed via REST. use web-cli directly.',
         },
       });
     }
