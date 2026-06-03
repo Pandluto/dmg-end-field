@@ -62,7 +62,7 @@ export function createDefaultPermissionProfiles(): AiAgentPermissionProfile[] {
       id: 'readonly-agent',
       name: 'Readonly Agent',
       client: 'rest',
-      allowedCommands: ['help', '/help', 'purpose', '/purpose', 'spec', '/spec', 'route', 'buff.list', 'buff.show', 'buff.search', 'draft.show', 'item.list', 'effect.list', 'operator.show', 'fill.task', 'fill.task.copy', 'fill.check', 'fill.source', 'agent.logs', 'agent.sessions', 'agent.guide', 'proposal.list', 'proposal.show', 'weapon.fill.task', 'weapon.fill.check'],
+      allowedCommands: ['help', '/help', 'purpose', '/purpose', 'spec', '/spec', 'route', 'buff.list', 'buff.show', 'buff.search', 'draft.show', 'item.list', 'effect.list', 'operator.show', 'fill.task', 'fill.task.copy', 'fill.check', 'fill.source', 'agent.logs', 'agent.sessions', 'agent.guide', 'proposal.list', 'proposal.show', 'proposal.clear', 'weapon.fill.task', 'weapon.fill.check'],
       allowedWorkflows: ['buff.fill'],
       canRead: true,
       canDryRun: true,
@@ -96,7 +96,7 @@ export function createDefaultPermissionProfiles(): AiAgentPermissionProfile[] {
 
 // 系统保证 readonly-agent 拥有的基础读命令
 // 这些命令是 readonly 核心能力，不是一次性迁移，后续新增 readonly 命令也应加入
-const GUARANTEED_READONLY_COMMANDS = ['agent.logs', 'agent.sessions', 'agent.guide', 'route', 'operator.show', 'fill.source', 'proposal.list', 'proposal.show', 'weapon.fill.task', 'weapon.fill.check'];
+const GUARANTEED_READONLY_COMMANDS = ['agent.logs', 'agent.sessions', 'agent.guide', 'route', 'operator.show', 'fill.source', 'proposal.list', 'proposal.show', 'proposal.clear', 'weapon.fill.task', 'weapon.fill.check'];
 
 export function readPermissionProfiles(): AiAgentPermissionProfile[] {
   const storedProfiles = readJsonStorage<AiAgentPermissionProfile[]>(AI_AGENT_PERMISSION_PROFILES_STORAGE_KEY, []);
@@ -420,7 +420,7 @@ export function importExternalProposals(
       lines.push('[next] Use proposal.list or press Y (使用 proposal.list 查看，或按 Y 审批)');
     } else if (pendingCount > 1) {
       lines.push(`[state] ${pendingCount} pending proposals in current session (当前会话 ${pendingCount} 个待处理提案)`);
-      lines.push('[next] Use proposal.list, explicit commands, or proposal.clear (先查看列表、显式处理，或清理旧提案)');
+      lines.push('[next] Y/N is blocked. Use proposal.list, explicit commands, or REST proposal.clear (Y/N 已阻塞；先查看列表、显式处理，或让外部模型调用 proposal.clear)');
     }
   }
   if (rejected > 0) {
@@ -521,7 +521,7 @@ export function markAgentProposalUnsaved(id: string): AiAgentProposal | null {
   return updateAgentProposal(id, { saveStatus: 'No' });
 }
 
-export function clearPendingAgentProposals(sessionId?: string): { cleared: AiAgentProposal[]; remaining: number } {
+export function clearPendingAgentProposals(sessionId?: string, reviewer: AiAgentClient = 'web-cli'): { cleared: AiAgentProposal[]; remaining: number } {
   const existing = readAgentProposals();
   const now = Date.now();
   const cleared: AiAgentProposal[] = [];
@@ -534,7 +534,7 @@ export function clearPendingAgentProposals(sessionId?: string): { cleared: AiAge
       ...proposal,
       approvalStatus: proposal.approvalStatus === 'Wait' ? 'No' : proposal.approvalStatus,
       saveStatus: 'No',
-      reviewedBy: 'web-cli',
+      reviewedBy: reviewer,
       updatedAt: now,
     };
     cleared.push(updated);

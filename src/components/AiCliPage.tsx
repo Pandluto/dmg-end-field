@@ -74,9 +74,9 @@ export function AiCliPage() {
     const first = pending[0];
     const alias = getProposalAlias(first.id, sid);
     if (first.approvalStatus === 'Wait') {
-      return `def:${currentDraft.id} pending=${alias} approve>`;
+      return `def:${currentDraft.id} pending=${alias} approve(Y=批准,N=拒绝)>`;
     }
-    return `def:${currentDraft.id} pending=${alias} save>`;
+    return `def:${currentDraft.id} pending=${alias} save(Y=保存,N=取消)>`;
   }, [currentDraft.id, lines, sessionId]);
 
   const appendLines = (nextLines: string[]) => {

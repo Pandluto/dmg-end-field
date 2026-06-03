@@ -529,7 +529,7 @@ function executeCommand(
         '  buff.open only switches active editor draft from an existing library entry.',
         '  REST apply creates proposal only; Web CLI imports pending proposals via SSE for user Y/Y approval.',
         '  do not ask users to re-run fill.apply in browser after REST apply.',
-        '  if multiple pending proposals block Y/N, use proposal.clear in Web CLI or handle proposals explicitly.',
+        '  if multiple pending proposals block Y/N, call proposal.clear through REST or handle proposals explicitly.',
         '',
         'storage touched:',
         `  localStorage.${BUFF_DRAFT_STORAGE_KEY}`,
@@ -594,8 +594,8 @@ function executeCommand(
         '  After REST apply, the proposal is automatically handed off to Web CLI via SSE.',
         '  Do NOT ask the user to re-run fill.apply in the browser.',
         '  Single pending: user opens /ai-cli and presses Y to approve, then Y to save.',
-        '  Multiple pending: user runs proposal.list, then proposal.approve #1 / proposal.save #1, or proposal.clear for stale backlog.',
-        '  If stale pending proposals block Y/N, tell the user to run proposal.clear in Web CLI before submitting another fill.apply.',
+        '  Multiple pending: run proposal.list, then proposal.approve #1 / proposal.save #1, or proposal.clear for stale backlog.',
+        '  If stale pending proposals block Y/N, external agents may call proposal.clear through REST before submitting another fill.apply.',
         '  REST approval/save commands return 403. This is expected; approval must happen in Web CLI.',
       ],
     });
@@ -1124,7 +1124,7 @@ function executeCommand(
   }
 
   if (command === 'proposal.clear') {
-    const result = clearPendingAgentProposals(sessionId);
+    const result = clearPendingAgentProposals(sessionId, client);
     if (result.cleared.length === 0) {
       return makeResponse({ lines: [info('no pending proposals to clear (没有可清理的待处理提案)')] });
     }
@@ -1355,7 +1355,7 @@ function executeCommand(
       return makeResponse({
         ok: false,
         lines: [
-          fail(`${targets.length} pending proposals in current session. Use proposal.list, explicit commands, or proposal.clear. (当前会话有 ${targets.length} 个待处理提案，请先查看列表、显式处理，或用 proposal.clear 清理)`),
+          fail(`Y/N is blocked by ${targets.length} pending proposals. Use proposal.list, explicit commands, or REST proposal.clear. (Y/N 已被 ${targets.length} 个待处理提案阻塞；请先查看列表、显式处理，或让外部模型调用 proposal.clear 清理)`),
         ],
       });
     }
@@ -1378,7 +1378,7 @@ function executeCommand(
       return makeResponse({
         ok: false,
         lines: [
-          fail(`${targets.length} pending proposals in current session. Use proposal.list, explicit commands, or proposal.clear. (当前会话有 ${targets.length} 个待处理提案，请先查看列表、显式处理，或用 proposal.clear 清理)`),
+          fail(`Y/N is blocked by ${targets.length} pending proposals. Use proposal.list, explicit commands, or REST proposal.clear. (Y/N 已被 ${targets.length} 个待处理提案阻塞；请先查看列表、显式处理，或让外部模型调用 proposal.clear 清理)`),
         ],
       });
     }

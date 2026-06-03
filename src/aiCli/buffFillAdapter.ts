@@ -144,9 +144,9 @@ function buildTaskPackage(draft: BuffDraft, sourceText: string) {
     librarySummary: formatLibrarySummary(library),
     modifierCatalog,
     systemPrompt: buffSheetAiSystemPromptRaw.trim(),
-    instruction: 'Return exactly one BuffFillAiDraft JSON object. No Markdown. No explanation. fill.apply creates a proposal only; it does NOT save to library. After apply, the user approves/saves in Web CLI with Y/Y. If multiple pending proposals block Y/Y, stop and tell the user to run proposal.clear or handle proposals explicitly before another fill.apply. Do not ask the user to re-run fill.apply.',
+    instruction: 'Return exactly one BuffFillAiDraft JSON object. No Markdown. No explanation. fill.apply creates a proposal only; it does NOT save to library. After apply, the user approves/saves in Web CLI with Y/Y. If multiple pending proposals block Y/Y, call proposal.clear through REST or handle proposals explicitly before another fill.apply. Do not ask the user to re-run fill.apply.',
     outputSchema: createBuffFillAiDraftSchema(),
-    approvalSaveWarning: 'IMPORTANT: After REST fill.apply, the proposal is handed off to Web CLI automatically. The user opens /ai-cli and presses Y to approve, then Y to save. If stale pending proposals block Y/Y, tell the user to run proposal.clear in Web CLI. Do NOT tell the user to re-run fill.apply in the browser.',
+    approvalSaveWarning: 'IMPORTANT: After REST fill.apply, the proposal is handed off to Web CLI automatically. The user opens /ai-cli and presses Y to approve, then Y to save. If stale pending proposals block Y/Y, call proposal.clear through REST. Do NOT tell the user to re-run fill.apply in the browser.',
   };
 }
 

@@ -1087,8 +1087,8 @@ const baseDraft = createFallbackDraft();
     { sourceText: '' }
   );
   assertEqual(yResult.ok, false, 'Y with multiple pending should fail');
-  assertTrue(yResult.lines.some((l) => l.includes('当前会话有 2 个待处理提案')), 'Y with multiple pending should show Chinese count');
-  assertTrue(yResult.lines.some((l) => l.includes('请先查看列表')), 'Y with multiple pending should suggest proposal.list');
+  assertTrue(yResult.lines.some((l) => l.includes('Y/N 已被 2 个待处理提案阻塞')), 'Y with multiple pending should show Chinese blocked count');
+  assertTrue(yResult.lines.some((l) => l.includes('外部模型调用 proposal.clear')), 'Y with multiple pending should suggest REST proposal.clear');
 }
 
 // 25. resolveProposalReference 和 getProposalAlias 纯函数测试
@@ -1364,7 +1364,7 @@ const baseDraft = createFallbackDraft();
     { sourceText: '' }
   );
   assertEqual(yResult.ok, false, 'Y with multiple imported pending should fail');
-  assertTrue(yResult.lines.some((l) => l.includes('当前会话有 2 个待处理提案')), 'Y should show Chinese ambiguous error for 2 pending');
+  assertTrue(yResult.lines.some((l) => l.includes('Y/N 已被 2 个待处理提案阻塞')), 'Y should show Chinese blocked error for 2 pending');
 }
 
 // 32. importExternalProposals 不写入 buff/weapon library/draft
@@ -1629,16 +1629,28 @@ const baseDraft = createFallbackDraft();
   assertTrue(pendingAfterClear.lines.some((l) => l.includes('no pending proposals')), 'proposal.clear should leave no pending proposals');
 }
 
-// 41. REST/readonly 不能执行 proposal.clear
+// 41. REST/readonly 可以执行 proposal.clear，解除外部 agent 堆积的 pending 阻塞
 {
   clearTestStorage();
+  const session = ensureActiveSession('web-cli');
+  importExternalProposals([
+    {
+      id: 'rest-clear-pending',
+      domain: 'buff',
+      operation: 'fill.apply',
+      payload: { id: 'rest-clear', name: 'Rest Clear', sourceName: 'test', source: 'ai', description: 'test', items: {} },
+      approvalStatus: 'Wait',
+      saveStatus: 'Wait',
+      client: 'rest',
+    },
+  ], session.id);
   const clearResult = runAiCliCommand(
     { protocolVersion: 1, requestId: 'test-rest-proposal-clear', client: 'rest', command: 'proposal.clear' },
     baseDraft,
-    { sourceText: '' }
+    { sourceText: '', sessionId: session.id }
   );
-  assertEqual(clearResult.ok, false, 'rest proposal.clear should fail');
-  assertEqual(clearResult.error?.code, 'permission-denied', 'rest proposal.clear should be permission-denied');
+  assertEqual(clearResult.ok, true, 'rest proposal.clear should be ok');
+  assertTrue(clearResult.lines.some((l) => l.includes('已清理 1 个待处理提案')), 'rest proposal.clear should clear pending proposal');
 }
 
 console.log('[ai-cli-command-service-test] passed');
