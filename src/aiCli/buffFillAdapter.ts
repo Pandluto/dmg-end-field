@@ -41,6 +41,41 @@ function writeJsonStorage(key: string, value: unknown) {
   window.localStorage.setItem(key, JSON.stringify(value));
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === 'object' && !Array.isArray(value);
+}
+
+function validateBuffProposalPayload(payload: unknown): AgentFillValidationResult<BuffDraft> {
+  if (!isRecord(payload)) {
+    return { ok: false, errors: ['proposal payload must be object'] };
+  }
+  const errors: string[] = [];
+  for (const key of ['id', 'name', 'sourceName', 'source', 'description']) {
+    if (typeof payload[key] !== 'string') {
+      errors.push(`${key} must be string`);
+    }
+  }
+  if (!isRecord(payload.items)) {
+    errors.push('items must be object');
+  } else {
+    for (const [itemId, item] of Object.entries(payload.items)) {
+      if (!isRecord(item)) {
+        errors.push(`items.${itemId} must be object`);
+        continue;
+      }
+      for (const key of ['id', 'name', 'sourceName', 'description']) {
+        if (typeof item[key] !== 'string') {
+          errors.push(`items.${itemId}.${key} must be string`);
+        }
+      }
+      if (!isRecord(item.effects)) {
+        errors.push(`items.${itemId}.effects must be object`);
+      }
+    }
+  }
+  return errors.length ? { ok: false, errors } : { ok: true, errors: [], normalized: payload as unknown as BuffDraft };
+}
+
 export function readCurrentBuffDraft(): BuffDraft {
   return readJsonStorage<BuffDraft>(BUFF_DRAFT_STORAGE_KEY, createFallbackDraft());
 }
@@ -205,6 +240,8 @@ export const buffFillAdapter: AgentFillDomainAdapter<BuffDraft> = {
     }
     return { ok: true, errors: [], normalized: parsed.draft };
   },
+
+  validateProposalPayload: validateBuffProposalPayload,
 
   createProposalPayload(validation, rawCommand): AgentFillProposalPayload<BuffDraft> {
     const draft = validation.normalized!;

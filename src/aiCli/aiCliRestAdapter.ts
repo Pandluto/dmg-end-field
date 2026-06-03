@@ -452,7 +452,7 @@ export function handleAiCliRestRequest(
     if (request.path.endsWith('/apply') && response.proposal) {
       response.proposal.nextAction = 'open Web CLI /ai-cli; the pending proposal will be imported automatically. press Y to approve, then Y to save. do not re-run fill.apply.';
       if (!response.lines.some((l) => l.includes('handoff') || l.includes('Web CLI'))) {
-        response.lines.push('[handoff] 此提案将自动同步到 Web CLI，无需重新 fill.apply / this proposal will auto-sync to Web CLI');
+        response.lines.push('[handoff] this proposal will auto-sync to Web CLI. Do not re-run fill.apply. (将自动同步到 Web CLI，无需重新 fill.apply)');
       }
     }
     return jsonResponse(response.ok ? 200 : 400, response);

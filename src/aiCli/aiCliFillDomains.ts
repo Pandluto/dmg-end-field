@@ -22,6 +22,7 @@ export interface AgentFillDomainAdapter<TPayload = unknown> {
   libraryStorageKey: string;
   supportedEffectTypes: string[];
   validateAiDraft(rawPayload: unknown): AgentFillValidationResult<TPayload>;
+  validateProposalPayload?(payload: unknown): AgentFillValidationResult<TPayload>;
   createProposalPayload(validation: AgentFillValidationResult<TPayload>, rawCommand: string): AgentFillProposalPayload<TPayload>;
   summarizeProposal(payload: TPayload): string;
   buildTaskPackage(): { lines: string[]; data: unknown };

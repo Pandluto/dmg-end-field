@@ -177,17 +177,29 @@ function pad(value: string, width: number) {
   return value.length >= width ? value : `${value}${' '.repeat(width - value.length)}`;
 }
 
-// Proposal status labels (Chinese-first, bilingual)
+// Proposal status labels: English for main output, Chinese in compact annotations.
 export const APPROVAL_LABELS: Record<string, string> = {
-  Wait: '待审批/Wait',
-  Yes: '已审批/Yes',
-  No: '已拒绝/No',
+  Wait: 'Pending',
+  Yes: 'Approved',
+  No: 'Rejected',
 };
 
 export const SAVE_LABELS: Record<string, string> = {
-  Wait: '待保存/Wait',
-  Yes: '已保存/Yes',
-  No: '未保存/No',
+  Wait: 'Pending',
+  Yes: 'Saved',
+  No: 'Unsaved',
+};
+
+const APPROVAL_LABELS_ZH: Record<string, string> = {
+  Wait: '待审批',
+  Yes: '已批准',
+  No: '已拒绝',
+};
+
+const SAVE_LABELS_ZH: Record<string, string> = {
+  Wait: '待保存',
+  Yes: '已保存',
+  No: '未保存',
 };
 
 export function labelApproval(status: string) {
@@ -196,6 +208,14 @@ export function labelApproval(status: string) {
 
 export function labelSave(status: string) {
   return SAVE_LABELS[status] ?? status;
+}
+
+function labelApprovalZh(status: string) {
+  return APPROVAL_LABELS_ZH[status] ?? status;
+}
+
+function labelSaveZh(status: string) {
+  return SAVE_LABELS_ZH[status] ?? status;
 }
 
 /**
@@ -440,44 +460,43 @@ function executeCommand(
         'DEF AI CLI command surface',
         '',
         ...table(
-          ['scope', 'command', 'purpose / 用途'],
+          ['scope', 'command', 'purpose'],
           [
-            ['system', 'help | clear | spec | /purpose', 'show help/spec/purpose / 查看帮助、规范、用途'],
-            ['route', 'route home|buff', 'navigate app route / 跳转页面'],
-            ['operator', 'operator.add <id> <name> [weapon=] [potential=] [skillLevel=]', 'create/select test operator / 创建并选中测试干员'],
-            ['operator', 'operator.show [id]', 'read operator config / 查看干员配置'],
-            ['operator', 'operator.delete <id>', 'delete test operator config / 删除测试干员配置'],
-            ['buff', 'buff.list [limit]', 'list Buff library entries / 查看 Buff 主库'],
-            ['buff', 'buff.show <id>', 'read one Buff library entry / 查看主库单个 Buff'],
-            ['buff', 'buff.search <keyword>', 'search Buff library / 搜索 Buff 主库'],
-            ['buff', 'buff.open <id>', 'set active draft from library / 从主库打开到当前编辑'],
-            ['draft', 'draft.show', 'read active draft only / 查看当前打开项'],
-            ['draft', 'draft.rename <name>', 'rename active draft and sync library / 重命名当前打开项并同步主库'],
-            ['item', 'item.list | item.add | item.set | item.delete', 'CRUD buff items / 增删改查 Buff 分组'],
-            ['effect', 'effect.list | effect.add | effect.set | effect.delete', 'CRUD modifier effects / 增删改查 Buff 效果'],
-            ['fill', 'fill.source <text>', 'set source text for task package / 设置填表原文'],
-            ['fill', 'fill.task', 'return structured task package / 返回结构化任务包'],
-            ['fill', 'fill.task.copy', 'copy task package to clipboard / 复制任务包'],
-            ['fill', 'fill.check <json>', 'validate BuffFillAiDraft without writing / 只校验不写入'],
-            ['fill', 'fill.apply <json>', 'create proposal from AI fill result / 创建填表提案'],
-            ['weapon', 'weapon.fill.task', 'return weapon task package / 返回武器填表任务包'],
-            ['weapon', 'weapon.fill.check <json>', 'validate WeaponFillAiDraft / 校验武器填表结果'],
-            ['weapon', 'weapon.fill.apply <json>', 'create weapon fill proposal / 创建武器填表提案'],
-            ['proposal', 'proposal.list', 'list pending proposals / 查看待处理提案'],
-            ['proposal', 'proposal.show <id|alias>', 'show proposal details / 查看提案详情'],
-            ['proposal', 'proposal.approve <id|alias>', 'approve and apply to working state / 批准并应用到工作状态'],
-            ['proposal', 'proposal.reject <id|alias>', 'reject proposal / 拒绝提案'],
-            ['proposal', 'proposal.save <id|alias>', 'save approved proposal to local truth / 保存已批准提案到本地主库'],
-            ['proposal', 'proposal.unsave <id|alias>', 'mark saved proposal as unsaved / 标记提案为未保存'],
-            ['shortcut', 'Y', 'approve pending proposal or save approved / 快捷批准或保存'],
-            ['shortcut', 'N', 'reject pending proposal or unsave approved / 快捷拒绝或取消保存'],
-            ['handoff', 'REST -> Web CLI', 'external proposals auto-imported via SSE / 外部提案通过 SSE 自动导入'],
-            ['agent', 'agent.logs [limit]', 'show recent agent operation logs / 查看智能体访问记录'],
-            ['agent', 'agent.sessions [limit]', 'show current single agent session / 查看当前单会话'],
-            ['agent', 'agent.guide', 'show first-call guide for LLM agents / 查看智能体首次接入指南'],
+            ['system', 'help | clear | spec | /purpose', 'show help/spec/purpose'],
+            ['route', 'route home|buff', 'navigate app route'],
+            ['operator', 'operator.add <id> <name> [weapon=] [potential=] [skillLevel=]', 'create/select test operator'],
+            ['operator', 'operator.show [id]', 'read operator config'],
+            ['operator', 'operator.delete <id>', 'delete test operator config'],
+            ['buff', 'buff.list [limit]', 'list Buff library entries'],
+            ['buff', 'buff.show <id>', 'read one Buff library entry'],
+            ['buff', 'buff.search <keyword>', 'search Buff library'],
+            ['buff', 'buff.open <id>', 'set active draft from library'],
+            ['draft', 'draft.show', 'read active draft only'],
+            ['draft', 'draft.rename <name>', 'rename active draft and sync library'],
+            ['item', 'item.list | item.add | item.set | item.delete', 'CRUD buff items'],
+            ['effect', 'effect.list | effect.add | effect.set | effect.delete', 'CRUD modifier effects'],
+            ['fill', 'fill.source <text>', 'set source text for task package'],
+            ['fill', 'fill.task', 'return structured task package'],
+            ['fill', 'fill.task.copy', 'copy task package to clipboard'],
+            ['fill', 'fill.check <json>', 'validate BuffFillAiDraft without writing'],
+            ['fill', 'fill.apply <json>', 'create proposal from AI fill result'],
+            ['weapon', 'weapon.fill.task', 'return weapon task package'],
+            ['weapon', 'weapon.fill.check <json>', 'validate WeaponFillAiDraft'],
+            ['weapon', 'weapon.fill.apply <json>', 'create weapon fill proposal'],
+            ['proposal', 'proposal.list', 'list pending proposals'],
+            ['proposal', 'proposal.show <id|#N>', 'show proposal details'],
+            ['proposal', 'proposal.approve <id|#N>', 'approve and apply to working state'],
+            ['proposal', 'proposal.reject <id|#N>', 'reject proposal'],
+            ['proposal', 'proposal.save <id|#N>', 'save approved proposal to local truth'],
+            ['proposal', 'proposal.unsave <id|#N>', 'mark saved proposal as unsaved'],
+            ['shortcut', 'Y', 'approve pending or save approved'],
+            ['shortcut', 'N', 'reject pending or unsave approved'],
+            ['handoff', 'REST -> Web CLI', 'external proposals auto-import via SSE'],
+            ['agent', 'agent.logs [limit]', 'show recent agent operation logs'],
+            ['agent', 'agent.sessions [limit]', 'show current single agent session'],
+            ['agent', 'agent.guide', 'show first-call guide for LLM agents'],
           ],
         ),
-        '',
         `main truth: localStorage.${BUFF_LIBRARY_STORAGE_KEY}`,
         `active editor state: localStorage.${BUFF_DRAFT_STORAGE_KEY}`,
         'quote values with spaces: item.add item-1 "测试天赋" desc="长描述"',
@@ -488,13 +507,8 @@ function executeCommand(
   if (command === '/purpose' || command === 'purpose') {
     return makeResponse({
       lines: [
-        'purpose / 用途:',
-        '  EN: Provide a terminal-style, app-controlled bridge for Codex/Claude to inspect the Buff library and propose edits.',
-        '  CN: 提供一个由软件本体控制的终端式桥接界面，让 Codex/Claude 查看 Buff 主库并提交修改。',
-        '',
-        'boundary / 边界:',
-        '  EN: Agents produce commands or BuffFillAiDraft JSON; the app validates and writes.',
-        '  CN: 智能体只产生命令或 BuffFillAiDraft JSON；校验和写入由软件本体完成。',
+        'Provide a terminal-style, app-controlled bridge for Codex/Claude to inspect the Buff library and propose edits. (软件本体控制的终端桥接界面)',
+        'Agents produce commands or BuffFillAiDraft JSON; the app validates and writes. (智能体只提交命令或 JSON，校验和写入由软件完成)',
       ],
     });
   }
@@ -537,20 +551,22 @@ function executeCommand(
 
   if (command === 'agent.logs') {
     const limit = Math.max(1, Math.min(50, Number(args[0] || 10) || 10));
-    const rows = readOperationLogs().slice(0, limit).map((log) => [
+    const allLogs = readOperationLogs().slice(0, limit);
+    if (!allLogs.length) {
+      return makeResponse({ lines: [info('no agent logs (暂无操作日志)')] });
+    }
+    const rows = allLogs.map((log) => [
       formatDateTime(log.createdAt),
       log.client,
       log.ok ? 'ok' : 'err',
       log.writes ? 'write' : 'read',
-      log.approval || '-',
-      log.save || '-',
+      log.approval ? `${labelApproval(log.approval)} (${labelApprovalZh(log.approval)})` : '-',
+      log.save ? `${labelSave(log.save)} (${labelSaveZh(log.save)})` : '-',
       log.command,
       log.errorCode || '-',
     ]);
     return makeResponse({
-      lines: rows.length
-        ? table(['time', 'client', 'ok', 'effect', 'approval', 'save', 'command', 'error'], rows)
-        : [info('no agent logs')],
+      lines: table(['time', 'client', 'ok', 'effect', 'approval', 'save', 'command', 'error'], rows),
     });
   }
 
@@ -569,7 +585,7 @@ function executeCommand(
         '',
         'rule: agent proposes commands/JSON; app validates, logs, and writes.',
         '',
-        'handoff rule / 交接规则:',
+        'handoff rule:',
         '  REST fill.apply creates a proposal only. It does NOT save to library.',
         '  After REST apply, the proposal is automatically handed off to Web CLI via SSE.',
         '  Do NOT ask the user to re-run fill.apply in the browser.',
@@ -606,7 +622,7 @@ function executeCommand(
             ['id', 'name', 'sourceName', 'items', 'effects'],
             rows.map((entry) => [entry.id, entry.name, entry.sourceName, String(entry.items), String(entry.effects)]),
           )
-        : [info(`no library match: ${keyword}`)],
+        : [info(`no library match: ${keyword} (主库未找到)`)],
       data: { library: rows },
     });
   }
@@ -642,14 +658,18 @@ function executeCommand(
 
   if (command === 'agent.sessions') {
     const limit = Math.max(1, Math.min(50, Number(args[0] || 10) || 10));
-    const rows = readAgentSessions().slice(0, limit).map((session) => {
+    const allSessions = readAgentSessions().slice(0, limit);
+    if (!allSessions.length) {
+      return makeResponse({ lines: [info('no agent sessions (暂无会话记录)')] });
+    }
+    const rows = allSessions.map((session) => {
       const state = session.state as { approval?: string; save?: string } | undefined;
       return [
         formatDateTime(session.updatedAt),
         session.client,
         session.status,
-        state?.approval || '-',
-        state?.save || '-',
+        state?.approval ? `${labelApproval(state.approval)} (${labelApprovalZh(state.approval)})` : '-',
+        state?.save ? `${labelSave(state.save)} (${labelSaveZh(state.save)})` : '-',
         session.summary || '-',
         String(session.messages.length),
         session.context.lastCommand || '-',
@@ -657,9 +677,7 @@ function executeCommand(
       ];
     });
     return makeResponse({
-      lines: rows.length
-        ? table(['updated', 'client', 'status', 'approval', 'save', 'summary', 'messages', 'last', 'sessionId'], rows)
-        : [info('no agent sessions')],
+      lines: table(['updated', 'client', 'status', 'approval', 'save', 'summary', 'msgs', 'last cmd', 'sessionId'], rows),
     });
   }
 
@@ -1048,14 +1066,17 @@ function executeCommand(
       const alias = getProposalAlias(proposal.id, sessionId);
       const aliasPart = alias ? `${alias} ` : '';
       const nextActionText = client === 'rest'
-        ? 'open Web CLI /ai-cli; the pending proposal will be imported automatically. press Y to approve, then Y to save. do not re-run fill.apply.'
-        : 'reply Y/N in web-cli to approve or reject';
+        ? 'Open Web CLI /ai-cli; proposal auto-imports via SSE. Press Y to approve, then Y to save.'
+        : 'Press Y to approve, N to reject';
+      const nextActionZh = client === 'rest'
+        ? '打开 /ai-cli，提案会自动同步；按 Y 批准，再按 Y 保存'
+        : '按 Y 批准，按 N 拒绝';
       return makeResponse({
         lines: [
-          ok(`提案已创建 / proposal created: ${aliasPart}${proposal.id}`),
-          `[state] 审批=${labelApproval(proposal.approvalStatus)} 保存=${labelSave(proposal.saveStatus)}`,
-          `[next] 输入 Y 批准并应用到草稿，输入 N 拒绝 / Press Y to approve, N to reject`,
-          client === 'rest' ? '[handoff] 此提案将自动同步到 Web CLI，无需重新 fill.apply / this proposal will auto-sync to Web CLI' : '',
+          ok(`proposal created: ${aliasPart}${proposal.id} (提案已创建)`),
+          `[state] approval=${labelApproval(proposal.approvalStatus)} save=${labelSave(proposal.saveStatus)} (审批=${labelApprovalZh(proposal.approvalStatus)} 保存=${labelSaveZh(proposal.saveStatus)})`,
+          `[next] ${nextActionText} (${nextActionZh})`,
+          client === 'rest' ? '[handoff] auto-syncing to Web CLI via SSE. Do not re-run fill.apply. (将自动同步到 Web CLI，无需重新执行 fill.apply)' : '',
         ].filter(Boolean),
         effects: { writes: false, storage: [] },
         workflow: adapter.workflow,
@@ -1072,22 +1093,25 @@ function executeCommand(
 
   if (command === 'proposal.list') {
     const proposals = readPendingAgentProposals(sessionId);
+    if (!proposals.length) {
+      return makeResponse({
+        lines: [info('no pending proposals (没有待处理提案)')],
+        data: { proposals },
+      });
+    }
+    const rows = proposals.map((p, idx) => [
+      `#${idx + 1}`,
+      p.domain,
+      `${labelApproval(p.approvalStatus)} (${labelApprovalZh(p.approvalStatus)})`,
+      `${labelSave(p.saveStatus)} (${labelSaveZh(p.saveStatus)})`,
+      p.summary || '-',
+      p.id,
+    ]);
     return makeResponse({
-      lines: proposals.length
-        ? [
-            ...table(
-              ['编号/alias', '领域/domain', '审批/approval', '保存/save', '摘要/summary', 'id'],
-              proposals.map((p, idx) => [
-                `#${idx + 1}`,
-                p.domain,
-                labelApproval(p.approvalStatus),
-                labelSave(p.saveStatus),
-                p.summary || '-',
-                p.id,
-              ]),
-            ),
-          ]
-        : [info('没有待处理提案 / no pending proposals')],
+      lines: table(
+        ['#', 'Domain', 'Approval', 'Save', 'Summary', 'id'],
+        rows,
+      ),
       data: { proposals },
     });
   }
@@ -1095,34 +1119,35 @@ function executeCommand(
   if (command === 'proposal.show') {
     const [proposalRef] = args;
     if (!proposalRef) {
-      return makeResponse({ ok: false, lines: [fail('usage: proposal.show <proposalId|alias>')] });
+      return makeResponse({ ok: false, lines: [fail('usage: proposal.show <id|#N> (用法: proposal.show <id|#N>)')] });
     }
     const proposal = resolveProposalReference(proposalRef, sessionId);
     if (!proposal) {
-      return makeResponse({ ok: false, lines: [fail(`提案未找到 / proposal not found: ${proposalRef}`)] });
+      return makeResponse({ ok: false, lines: [fail(`proposal not found: ${proposalRef} (提案未找到)`)] });
     }
     const alias = getProposalAlias(proposal.id, sessionId);
     const aliasPart = alias ? `${alias} ` : '';
-    const nextActionLine = (() => {
-      if (proposal.approvalStatus === 'Wait') {
-        return '[next] 输入 Y 批准并应用到草稿，输入 N 拒绝 / Press Y to approve, N to reject';
-      }
-      if (proposal.approvalStatus === 'Yes' && proposal.saveStatus === 'Wait') {
-        return '[next] 输入 Y 保存到本地主库，输入 N 取消保存 / Press Y to save, N to unsave';
-      }
-      return '[done] 审核闭环已完成 / review flow closed';
+    const nextActionEn = (() => {
+      if (proposal.approvalStatus === 'Wait') return '[next] Press Y to approve, N to reject';
+      if (proposal.approvalStatus === 'Yes' && proposal.saveStatus === 'Wait') return '[next] Press Y to save, N to unsave';
+      return '[done] review flow closed';
+    })();
+    const nextActionZh = (() => {
+      if (proposal.approvalStatus === 'Wait') return '输入 Y 批准 N 拒绝';
+      if (proposal.approvalStatus === 'Yes' && proposal.saveStatus === 'Wait') return '输入 Y 保存 N 取消保存';
+      return '审核闭环已完成';
     })();
     return makeResponse({
       lines: [
-        `提案 / Proposal: ${aliasPart}${proposal.id}`,
-        `领域 / Domain: ${proposal.domain}`,
-        `操作 / Operation: ${proposal.operation}`,
-        `来源 / Source: ${proposal.client || '-'}`,
-        `审核 / Reviewer: ${proposal.reviewedBy || '-'}`,
-        `审批 / Approval: ${labelApproval(proposal.approvalStatus)}`,
-        `保存 / Save: ${labelSave(proposal.saveStatus)}`,
-        `摘要 / Summary: ${proposal.summary || '-'}`,
-        nextActionLine,
+        `Proposal: ${aliasPart}${proposal.id}`,
+        `Domain: ${proposal.domain}`,
+        `Operation: ${proposal.operation}`,
+        `Source: ${proposal.client || '-'}`,
+        `Reviewer: ${proposal.reviewedBy || '-'}`,
+        `Approval: ${labelApproval(proposal.approvalStatus)} (${labelApprovalZh(proposal.approvalStatus)})`,
+        `Save: ${labelSave(proposal.saveStatus)} (${labelSaveZh(proposal.saveStatus)})`,
+        `Summary: ${proposal.summary || '-'}`,
+        `${nextActionEn} (${nextActionZh})`,
         `Payload: ${JSON.stringify(proposal.payload).slice(0, 200)}...`,
       ],
       data: { proposal },
@@ -1132,31 +1157,41 @@ function executeCommand(
   if (command === 'proposal.approve') {
     const [proposalRef] = args;
     if (!proposalRef) {
-      return makeResponse({ ok: false, lines: [fail('usage: proposal.approve <proposalId|alias>')] });
+      return makeResponse({ ok: false, lines: [fail('usage: proposal.approve <id|#N> (用法: proposal.approve <id|#N>)')] });
     }
     const proposal = resolveProposalReference(proposalRef, sessionId);
     if (!proposal) {
-      return makeResponse({ ok: false, lines: [fail(`提案未找到 / proposal not found: ${proposalRef}`)] });
+      return makeResponse({ ok: false, lines: [fail(`proposal not found: ${proposalRef} (提案未找到)`)] });
     }
     if (proposal.approvalStatus !== 'Wait') {
-      return makeResponse({ ok: false, lines: [fail(`提案 ${proposal.id} 不在待审批状态 / proposal is not waiting for approval`)] });
+      return makeResponse({ ok: false, lines: [fail(`proposal is not pending approval: ${proposal.id} (提案不在待审批状态)`)] });
     }
     const adapter = findFillDomainAdapterByDomain(proposal.domain);
     if (!adapter) {
-      return makeResponse({ ok: false, lines: [fail(`未找到领域适配器 / no adapter for domain: ${proposal.domain}`)] });
+      return makeResponse({ ok: false, lines: [fail(`no adapter for domain: ${proposal.domain} (未找到领域适配器)`)] });
     }
-    const applyResult = adapter.applyToWorkingState(proposal.payload);
+    const payloadValidation = adapter.validateProposalPayload?.(proposal.payload);
+    if (payloadValidation && !payloadValidation.ok) {
+      const message = payloadValidation.errors.slice(0, 3).join('; ') || 'invalid proposal payload';
+      return makeResponse({
+        ok: false,
+        lines: [fail(`invalid proposal payload: ${message} (提案内容校验失败)`)],
+        error: { code: 'invalid-proposal-payload', message, details: { proposalId: proposal.id, errors: payloadValidation.errors } },
+      });
+    }
+    const applyPayload = payloadValidation?.normalized ?? proposal.payload;
+    const applyResult = adapter.applyToWorkingState(applyPayload);
     if (!applyResult.ok) {
-      return makeResponse({ ok: false, lines: [fail(`应用失败 / apply failed: ${applyResult.error || 'unknown'}`)] });
+      return makeResponse({ ok: false, lines: [fail(`apply failed: ${applyResult.error || 'unknown'} (应用失败)`)] });
     }
     const updated = approveAgentProposal(proposal.id);
     const alias = getProposalAlias(updated?.id ?? proposal.id, sessionId);
     const aliasPart = alias ? `${alias} ` : '';
     return makeResponse({
       lines: [
-        ok(`已批准并应用到当前草稿 / approved and applied to working draft: ${aliasPart}${updated?.id ?? proposal.id}`),
-        `[state] 审批=${labelApproval(updated?.approvalStatus ?? proposal.approvalStatus)} 保存=${labelSave(updated?.saveStatus ?? proposal.saveStatus)}`,
-        `[next] 输入 Y 保存到本地主库，输入 N 取消保存 / Press Y to save, N to unsave`,
+        ok(`approved and applied to working draft: ${aliasPart}${updated?.id ?? proposal.id} (已批准并应用到当前草稿)`),
+        `[state] approval=${labelApproval(updated?.approvalStatus ?? proposal.approvalStatus)} save=${labelSave(updated?.saveStatus ?? proposal.saveStatus)} (审批=${labelApprovalZh(updated?.approvalStatus ?? proposal.approvalStatus)} 保存=${labelSaveZh(updated?.saveStatus ?? proposal.saveStatus)})`,
+        `[next] Press Y to save, N to unsave (Y 保存，N 取消保存)`,
       ],
       effects: { writes: true, storage: [adapter.draftStorageKey] },
       data: { proposal: updated },
@@ -1173,23 +1208,23 @@ function executeCommand(
   if (command === 'proposal.reject') {
     const [proposalRef] = args;
     if (!proposalRef) {
-      return makeResponse({ ok: false, lines: [fail('usage: proposal.reject <proposalId|alias>')] });
+      return makeResponse({ ok: false, lines: [fail('usage: proposal.reject <id|#N> (用法: proposal.reject <id|#N>)')] });
     }
     const proposal = resolveProposalReference(proposalRef, sessionId);
     if (!proposal) {
-      return makeResponse({ ok: false, lines: [fail(`提案未找到 / proposal not found: ${proposalRef}`)] });
+      return makeResponse({ ok: false, lines: [fail(`proposal not found: ${proposalRef} (提案未找到)`)] });
     }
     const updated = rejectAgentProposal(proposal.id);
     if (!updated) {
-      return makeResponse({ ok: false, lines: [fail(`提案未找到或不在待审批状态 / proposal not found or not in Wait status: ${proposal.id}`)] });
+      return makeResponse({ ok: false, lines: [fail(`proposal not found or not pending: ${proposal.id} (提案未找到或不在待审批状态)`)] });
     }
     const alias = getProposalAlias(updated.id, sessionId);
     const aliasPart = alias ? `${alias} ` : '';
     return makeResponse({
       lines: [
-        ok(`已拒绝提案，未修改草稿 / rejected, draft unchanged: ${aliasPart}${updated.id}`),
-        `[state] 审批=${labelApproval(updated.approvalStatus)} 保存=${labelSave(updated.saveStatus)}`,
-        `[done] 审核闭环结束 / review flow closed`,
+        ok(`rejected, draft unchanged: ${aliasPart}${updated.id} (已拒绝，草稿未修改)`),
+        `[state] approval=${labelApproval(updated.approvalStatus)} save=${labelSave(updated.saveStatus)} (审批=${labelApprovalZh(updated.approvalStatus)} 保存=${labelSaveZh(updated.saveStatus)})`,
+        `[done] review flow closed (审核闭环结束)`,
       ],
       data: { proposal: updated },
       proposal: {
@@ -1205,22 +1240,32 @@ function executeCommand(
   if (command === 'proposal.save') {
     const [proposalRef] = args;
     if (!proposalRef) {
-      return makeResponse({ ok: false, lines: [fail('usage: proposal.save <proposalId|alias>')] });
+      return makeResponse({ ok: false, lines: [fail('usage: proposal.save <id|#N> (用法: proposal.save <id|#N>)')] });
     }
     const proposal = resolveProposalReference(proposalRef, sessionId);
     if (!proposal) {
-      return makeResponse({ ok: false, lines: [fail(`提案未找到 / proposal not found: ${proposalRef}`)] });
+      return makeResponse({ ok: false, lines: [fail(`proposal not found: ${proposalRef} (提案未找到)`)] });
     }
     if (proposal.approvalStatus !== 'Yes' || proposal.saveStatus !== 'Wait') {
-      return makeResponse({ ok: false, lines: [fail(`提案 ${proposal.id} 不在可保存状态 / proposal is not ready to save`)] });
+      return makeResponse({ ok: false, lines: [fail(`proposal is not ready to save: ${proposal.id} (提案不在可保存状态)`)] });
     }
     const adapter = findFillDomainAdapterByDomain(proposal.domain);
     if (!adapter) {
-      return makeResponse({ ok: false, lines: [fail(`未找到领域适配器 / no adapter for domain: ${proposal.domain}`)] });
+      return makeResponse({ ok: false, lines: [fail(`no adapter for domain: ${proposal.domain} (未找到领域适配器)`)] });
     }
-    const saveResult = adapter.saveToLocalTruth(proposal.payload);
+    const payloadValidation = adapter.validateProposalPayload?.(proposal.payload);
+    if (payloadValidation && !payloadValidation.ok) {
+      const message = payloadValidation.errors.slice(0, 3).join('; ') || 'invalid proposal payload';
+      return makeResponse({
+        ok: false,
+        lines: [fail(`invalid proposal payload: ${message} (提案内容校验失败)`)],
+        error: { code: 'invalid-proposal-payload', message, details: { proposalId: proposal.id, errors: payloadValidation.errors } },
+      });
+    }
+    const savePayload = payloadValidation?.normalized ?? proposal.payload;
+    const saveResult = adapter.saveToLocalTruth(savePayload);
     if (!saveResult.ok) {
-      return makeResponse({ ok: false, lines: [fail(`保存失败 / save failed: ${saveResult.error || 'unknown'}`)] });
+      return makeResponse({ ok: false, lines: [fail(`save failed: ${saveResult.error || 'unknown'} (保存失败)`)] });
     }
     const updated = markAgentProposalSaved(proposal.id);
     const storageKeys = proposal.domain === 'buff'
@@ -1230,9 +1275,9 @@ function executeCommand(
     const aliasPart = alias ? `${alias} ` : '';
     return makeResponse({
       lines: [
-        ok(`已保存到本地主库 / saved to local truth: ${aliasPart}${updated?.id ?? proposal.id}`),
-        `[state] 审批=${labelApproval(updated?.approvalStatus ?? proposal.approvalStatus)} 保存=${labelSave(updated?.saveStatus ?? proposal.saveStatus)}`,
-        `[done] 审核闭环完成 / review flow complete`,
+        ok(`saved to local truth: ${aliasPart}${updated?.id ?? proposal.id} (已保存到本地主库)`),
+        `[state] approval=${labelApproval(updated?.approvalStatus ?? proposal.approvalStatus)} save=${labelSave(updated?.saveStatus ?? proposal.saveStatus)} (审批=${labelApprovalZh(updated?.approvalStatus ?? proposal.approvalStatus)} 保存=${labelSaveZh(updated?.saveStatus ?? proposal.saveStatus)})`,
+        `[done] review flow complete (审核闭环完成)`,
       ],
       data: { proposal: updated },
       effects: { writes: true, storage: storageKeys },
@@ -1249,23 +1294,23 @@ function executeCommand(
   if (command === 'proposal.unsave') {
     const [proposalRef] = args;
     if (!proposalRef) {
-      return makeResponse({ ok: false, lines: [fail('usage: proposal.unsave <proposalId|alias>')] });
+      return makeResponse({ ok: false, lines: [fail('usage: proposal.unsave <id|#N> (用法: proposal.unsave <id|#N>)')] });
     }
     const proposal = resolveProposalReference(proposalRef, sessionId);
     if (!proposal) {
-      return makeResponse({ ok: false, lines: [fail(`提案未找到 / proposal not found: ${proposalRef}`)] });
+      return makeResponse({ ok: false, lines: [fail(`proposal not found: ${proposalRef} (提案未找到)`)] });
     }
     const updated = markAgentProposalUnsaved(proposal.id);
     if (!updated) {
-      return makeResponse({ ok: false, lines: [fail(`提案未找到或不在可保存状态 / proposal not found or not in saveable status: ${proposal.id}`)] });
+      return makeResponse({ ok: false, lines: [fail(`proposal not found or not saveable: ${proposal.id} (提案未找到或不在可保存状态)`)] });
     }
     const alias = getProposalAlias(updated.id, sessionId);
     const aliasPart = alias ? `${alias} ` : '';
     return makeResponse({
       lines: [
-        ok(`已取消保存，主库未写入 / save cancelled, library unchanged: ${aliasPart}${updated.id}`),
-        `[state] 审批=${labelApproval(updated.approvalStatus)} 保存=${labelSave(updated.saveStatus)}`,
-        `[done] 审核闭环结束 / review flow closed`,
+        ok(`save cancelled, library unchanged: ${aliasPart}${updated.id} (已取消保存，主库未写入)`),
+        `[state] approval=${labelApproval(updated.approvalStatus)} save=${labelSave(updated.saveStatus)} (审批=${labelApprovalZh(updated.approvalStatus)} 保存=${labelSaveZh(updated.saveStatus)})`,
+        `[done] review flow closed (审核闭环结束)`,
       ],
       data: { proposal: updated },
       proposal: {
@@ -1281,12 +1326,14 @@ function executeCommand(
   if (command === 'y') {
     const targets = readPendingAgentProposals(sessionId);
     if (targets.length === 0) {
-      return makeResponse({ ok: false, lines: [fail('当前会话没有待处理提案 / no pending proposals in current session')] });
+      return makeResponse({ ok: false, lines: [fail('no pending proposals in current session (当前会话没有待处理提案)')] });
     }
     if (targets.length > 1) {
       return makeResponse({
         ok: false,
-        lines: [fail(`当前会话有 ${targets.length} 个待处理提案，请使用 proposal.list 查看，再用 proposal.approve #1 等显式命令处理 / multiple pending proposals; use proposal.list and explicit commands`)]
+        lines: [
+          fail(`${targets.length} pending proposals in current session. Use proposal.list and explicit commands. (当前会话有 ${targets.length} 个待处理提案，请先查看列表再处理指定提案)`),
+        ],
       });
     }
     const target = targets[0];
@@ -1296,18 +1343,20 @@ function executeCommand(
     if (target.approvalStatus === 'Yes' && target.saveStatus === 'Wait') {
       return executeCommand(`proposal.save ${target.id}`, draft, sourceText, client, sessionId);
     }
-    return makeResponse({ lines: [info(`提案 ${target.id} 已处理完毕 / proposal ${target.id} is already resolved`)] });
+    return makeResponse({ lines: [info(`proposal ${target.id} is already resolved (提案已处理完毕)`)] });
   }
 
   if (command === 'n') {
     const targets = readPendingAgentProposals(sessionId);
     if (targets.length === 0) {
-      return makeResponse({ ok: false, lines: [fail('当前会话没有待处理提案 / no pending proposals in current session')] });
+      return makeResponse({ ok: false, lines: [fail('no pending proposals in current session (当前会话没有待处理提案)')] });
     }
     if (targets.length > 1) {
       return makeResponse({
         ok: false,
-        lines: [fail(`当前会话有 ${targets.length} 个待处理提案，请使用 proposal.list 查看，再用 proposal.reject #1 等显式命令处理 / multiple pending proposals; use proposal.list and explicit commands`)]
+        lines: [
+          fail(`${targets.length} pending proposals in current session. Use proposal.list and explicit commands. (当前会话有 ${targets.length} 个待处理提案，请先查看列表再处理指定提案)`),
+        ],
       });
     }
     const target = targets[0];
@@ -1317,7 +1366,7 @@ function executeCommand(
     if (target.approvalStatus === 'Yes' && target.saveStatus === 'Wait') {
       return executeCommand(`proposal.unsave ${target.id}`, draft, sourceText, client, sessionId);
     }
-    return makeResponse({ lines: [info(`提案 ${target.id} 已处理完毕 / proposal ${target.id} is already resolved`)] });
+    return makeResponse({ lines: [info(`proposal ${target.id} is already resolved (提案已处理完毕)`)] });
   }
 
   if (command === 'fill.source') {
@@ -1326,7 +1375,7 @@ function executeCommand(
 
   return makeResponse({
     ok: false,
-    lines: [fail(`unknown command: ${command}`), 'type help'],
+    lines: [fail(`unknown command: ${command} (未知命令)`), 'type help (输入 help 查看可用命令)'],
     error: { code: 'unknown-command', message: `unknown command: ${command}` },
   });
 }
@@ -1351,7 +1400,7 @@ export function runAiCliCommand(
   let response: AiCliCommandResult;
   if (!commandName) {
     response = makeResponse({
-      lines: [info('type help')],
+      lines: [info('type help (输入 help 查看可用命令)')],
     });
   } else if (permissionError) {
     response = makeResponse({

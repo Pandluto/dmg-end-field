@@ -27,7 +27,7 @@ Make `/ai-cli` usable as a proposal review console:
 
 - Users can identify proposals by short readable aliases.
 - Users always know whether the next action is approve/reject or save/unsave.
-- Terminal output is Chinese-first with English fallback.
+- Terminal output uses compact English-primary lines with short Chinese parenthetical annotations only where useful.
 - Agent log lines expose proposal status clearly.
 - Keyboard interaction supports common CLI behavior.
 
@@ -63,16 +63,16 @@ Do not change:
 
 ## UX Principles
 
-### Chinese-first, English-fallback
+### English-primary, compact Chinese annotations
 
-Terminal lines should be Chinese-first and include enough English for external agents and debugging:
+Terminal lines should keep English as the primary text and add short Chinese parenthetical annotations for decision points:
 
 ```text
-[ok] 提案已创建 / proposal created: #1 proposal-...
-[next] 输入 Y 批准并应用到草稿，输入 N 拒绝 / Press Y to approve, N to reject
+[ok] proposal created: #1 proposal-... (提案已创建)
+[next] Press Y to approve, N to reject (Y 批准，N 拒绝)
 ```
 
-Avoid English-only lines at review decision points.
+Do not translate every token. Ordinary telemetry may stay English-only; errors, handoff, proposal state, and next actions should include concise Chinese annotations.
 
 ### Always show the next action
 
@@ -97,9 +97,9 @@ Add short aliases for pending proposals in the current view/session.
 Expected display:
 
 ```text
-编号  领域/domain  审批/approval  保存/save  摘要/summary
-#1    buff         待审批/Wait     待保存/Wait  buff fill: items=1 effects=4
-#2    weapon       已审批/Yes      待保存/Wait  weapon fill: name=...
+#   Domain  Approval  Save     Summary
+#1  buff    Pending (待审批)   Pending (待保存)  buff fill: items=1 effects=4
+#2  weapon  Approved (已批准)  Pending (待保存)  weapon fill: name=...
 ```
 
 Alias rules:
@@ -112,7 +112,7 @@ Alias rules:
   - `proposal.save #1`
   - `proposal.unsave #1`
 - Full proposal ids continue to work.
-- If an alias is out of range, return `ok:false` with a Chinese-first error.
+- If an alias is out of range, return `ok:false` with English primary error plus a short Chinese annotation.
 - Alias resolution should be scoped to the current session when the command depends on current session UX.
 
 Implementation suggestion:
@@ -126,13 +126,23 @@ resolveProposalReference(input: string, sessionId?: string): AiAgentProposal | n
 Map internal status values for display:
 
 ```text
-approval=Wait -> 待审批/Wait
-approval=Yes  -> 已审批/Yes
-approval=No   -> 已拒绝/No
+approval=Wait -> Pending
+approval=Yes  -> Approved
+approval=No   -> Rejected
 
-save=Wait -> 待保存/Wait
-save=Yes  -> 已保存/Yes
-save=No   -> 未保存/No
+save=Wait -> Pending
+save=Yes  -> Saved
+save=No   -> Unsaved
+
+Chinese annotation labels:
+
+approval=Wait -> 待审批
+approval=Yes  -> 已批准
+approval=No   -> 已拒绝
+
+save=Wait -> 待保存
+save=Yes  -> 已保存
+save=No   -> 未保存
 ```
 
 Use these labels in:
@@ -149,9 +159,9 @@ Use these labels in:
 Expected lines:
 
 ```text
-[ok] 提案已创建 / proposal created: #1 proposal-...
-[state] 审批=待审批/Wait 保存=待保存/Wait
-[next] 输入 Y 批准并应用到草稿，输入 N 拒绝 / Press Y to approve, N to reject
+[ok] proposal created: #1 proposal-... (提案已创建)
+[state] approval=Pending save=Pending (审批=待审批 保存=待保存)
+[next] Press Y to approve, N to reject (Y 批准，N 拒绝)
 ```
 
 `response.proposal.nextAction` should also be explicit:
@@ -165,9 +175,9 @@ nextAction: 'reply Y/N in web-cli to approve or reject'
 Expected lines:
 
 ```text
-[ok] 已批准并应用到当前草稿 / approved and applied to working draft: #1 proposal-...
-[state] 审批=已审批/Yes 保存=待保存/Wait
-[next] 输入 Y 保存到本地主库，输入 N 取消保存 / Press Y to save, N to unsave
+[ok] approved and applied to working draft: #1 proposal-... (已批准并应用到当前草稿)
+[state] approval=Approved save=Pending (审批=已批准 保存=待保存)
+[next] Press Y to save, N to unsave (Y 保存，N 取消保存)
 ```
 
 `response.proposal.nextAction`:
@@ -181,9 +191,9 @@ nextAction: 'reply Y/N in web-cli to save or unsave'
 Expected lines:
 
 ```text
-[ok] 已保存到本地主库 / saved to local truth: #1 proposal-...
-[state] 审批=已审批/Yes 保存=已保存/Yes
-[done] 审核闭环完成 / review flow complete
+[ok] saved to local truth: #1 proposal-... (已保存到本地主库)
+[state] approval=Approved save=Saved (审批=已批准 保存=已保存)
+[done] review flow complete (审核闭环完成)
 ```
 
 #### After `proposal.reject` or reject `N`
@@ -191,9 +201,9 @@ Expected lines:
 Expected lines:
 
 ```text
-[ok] 已拒绝提案，未修改草稿 / rejected, draft unchanged: #1 proposal-...
-[state] 审批=已拒绝/No 保存=未保存/No
-[done] 审核闭环结束 / review flow closed
+[ok] rejected, draft unchanged: #1 proposal-... (已拒绝，草稿未修改)
+[state] approval=Rejected save=Unsaved (审批=已拒绝 保存=未保存)
+[done] review flow closed (审核闭环结束)
 ```
 
 #### After `proposal.unsave` or unsave `N`
@@ -201,9 +211,9 @@ Expected lines:
 Expected lines:
 
 ```text
-[ok] 已取消保存，主库未写入 / save cancelled, library unchanged: #1 proposal-...
-[state] 审批=已审批/Yes 保存=未保存/No
-[done] 审核闭环结束 / review flow closed
+[ok] save cancelled, library unchanged: #1 proposal-... (已取消保存，主库未写入)
+[state] approval=Approved save=Unsaved (审批=已批准 保存=未保存)
+[done] review flow closed (审核闭环结束)
 ```
 
 ### 4. Bilingual `Y/N` error messages
@@ -211,13 +221,13 @@ Expected lines:
 No pending:
 
 ```text
-[err] 当前会话没有待处理提案 / no pending proposals in current session
+[err] no pending proposals in current session (当前会话没有待处理提案)
 ```
 
 Multiple pending:
 
 ```text
-[err] 当前会话有 2 个待处理提案，请使用 proposal.list 查看，再用 proposal.approve #1 等显式命令处理 / multiple pending proposals; use proposal.list and explicit commands
+[err] 2 pending proposals in current session. Use proposal.list and explicit commands. (当前会话有 2 个待处理提案，请先查看列表再处理指定提案)
 ```
 
 ### 5. Human-readable `proposal.list`
@@ -225,16 +235,16 @@ Multiple pending:
 `proposal.list` should:
 
 - show short aliases
-- use bilingual headers
-- show localized approval/save labels
+- show English headers and compact Chinese status annotations where useful
+- show English approval/save labels with concise Chinese labels in parentheses
 - show summary
 - show full id only if space allows or in a final column
 
 Example:
 
 ```text
-编号  领域/domain  审批/approval  保存/save  摘要/summary                  id
-#1    buff         待审批/Wait     待保存/Wait  buff fill: items=1 effects=4  proposal-...
+#   Domain  Approval  Save     Summary                   id
+#1  buff    Pending (待审批)  Pending (待保存)  buff fill: items=1 effects=4  proposal-...
 ```
 
 ### 6. Human-readable `proposal.show`
@@ -242,13 +252,13 @@ Example:
 `proposal.show #1` should display an audit card:
 
 ```text
-提案 / Proposal: #1 proposal-...
-领域 / Domain: buff
-操作 / Operation: fill.apply
-审批 / Approval: 待审批/Wait
-保存 / Save: 待保存/Wait
-摘要 / Summary: buff fill: items=1 effects=4
-下一步 / Next: 输入 Y 批准并应用到草稿，输入 N 拒绝
+Proposal: #1 proposal-...
+Domain: buff
+Operation: fill.apply
+Approval: Pending
+Save: Pending
+Summary: buff fill: items=1 effects=4
+[next] Press Y to approve, N to reject (Y 批准，N 拒绝)
 Payload: {...}
 ```
 
@@ -260,16 +270,16 @@ Current line is too terse:
 [agent] rest ok read fill.apply ...
 ```
 
-Update Web CLI SSE display to include bilingual status and proposal state:
+Update Web CLI SSE display to keep ordinary reads compact and add Chinese annotations only for important states:
 
 ```text
-[agent] rest 成功/ok 命令/command fill.apply <json:123 chars> 审批=待审批/Wait 保存=待保存/Wait 提案=#1
+[agent] rest ok read fill.apply <json:123 chars> proposal=#1 approval=Pending save=Pending (提案=#1 审批=待审批 保存=待保存)
 ```
 
 For writes:
 
 ```text
-[agent] web-cli 成功/ok 写入/write proposal.save #1 审批=已审批/Yes 保存=已保存/Yes 提案=#1
+[agent] web-cli ok write proposal.save #1 proposal=#1 approval=Approved save=Saved (写入 提案=#1 审批=已批准 保存=已保存)
 ```
 
 Requirements:
@@ -322,7 +332,7 @@ Minimum behavior:
 - if multiple candidates exist, append a line:
 
 ```text
-[info] 可补全 / completions: proposal.approve, proposal.reject
+[info] completions: proposal.approve, proposal.reject (可补全)
 ```
 
 Do not implement a dropdown in this fix.
@@ -357,14 +367,14 @@ def:custom-buff-001>
 
 Update or add tests for command service:
 
-- `fill.apply` lines include Chinese prompt and `Y/N`.
-- `proposal.approve` lines include Chinese save prompt and `Y/N`.
-- `proposal.save` lines include saved/done bilingual close message.
-- `proposal.reject` lines include rejected/done bilingual close message.
-- `proposal.list` includes `#1` alias and Chinese headers.
-- `proposal.show #1` resolves alias and includes Chinese labels.
-- `Y` with no pending returns Chinese-first error.
-- Multiple pending `Y` returns Chinese-first ambiguous error.
+- `fill.apply` lines include English prompt plus concise Chinese annotation and `Y/N`.
+- `proposal.approve` lines include English save prompt plus concise Chinese annotation and `Y/N`.
+- `proposal.save` lines include compact English/Chinese close message.
+- `proposal.reject` lines include compact English/Chinese close message.
+- `proposal.list` includes `#1` alias and compact bilingual status labels.
+- `proposal.show #1` resolves alias and includes compact bilingual status/next-action labels.
+- `Y` with no pending returns compact English/Chinese error.
+- Multiple pending `Y` returns compact English/Chinese ambiguous error.
 
 Update or add component-level tests if this repo already has a pattern for them:
 
@@ -390,14 +400,14 @@ npm run smoke:ai-cli-rest
 Manual Web CLI verification:
 
 1. Create a Buff proposal.
-2. Confirm terminal shows `#1` and Chinese `Y/N` prompt.
+2. Confirm terminal shows `#1` and compact English/Chinese `Y/N` prompt.
 3. Press `Y`; confirm draft apply message and save prompt.
 4. Press `N`; confirm unsave/cancel message.
 5. Create another proposal.
 6. Use `proposal.show #1`.
 7. Use Tab completion for `proposal.a`.
 8. Use ArrowUp/ArrowDown command history.
-9. Confirm agent SSE log is bilingual and includes proposal status.
+9. Confirm agent SSE log stays English-only for ordinary reads, and adds concise Chinese annotations for errors/writes/proposal state.
 
 ## Cross-store Proposal Handoff (Task 12 UX Fix 2)
 
@@ -418,15 +428,17 @@ REST agent creates proposals in `now-storage.json`. Web CLI reads from browser `
 After import, the terminal shows:
 
 ```text
-[handoff] 已接收外部待审批提案 / imported external pending proposals: 1
-[next] 输入 proposal.list 查看，或输入 Y 审批当前唯一提案 / Use proposal.list or press Y when only one proposal is pending
+[handoff] imported 1 external proposal (已导入 1 个外部提案)
+[state] 1 pending proposal in current session (当前会话 1 个待处理提案)
+[next] Use proposal.list or press Y (使用 proposal.list 查看，或按 Y 审批)
 ```
 
 For multiple pending proposals:
 
 ```text
-[handoff] 已接收外部待审批提案 / imported external pending proposals: 3
-[next] 当前有 3 个待处理提案，请使用 proposal.list 查看，再用 proposal.approve #1 等显式命令处理 / 3 pending proposals; use proposal.list and explicit commands
+[handoff] imported 3 external proposals (已导入 3 个外部提案)
+[state] 3 pending proposals in current session (当前会话 3 个待处理提案)
+[next] Use proposal.list and explicit commands like proposal.approve #N (先查看列表，再处理指定提案)
 ```
 
 ### Agent-facing Prompt Rules
@@ -447,15 +459,15 @@ All agent-facing prompts (guide, spec, help, fill.task instruction, REST adapter
 `proposal.show` displays:
 
 ```text
-来源 / Source: rest
-审核 / Reviewer: web-cli
+Source: rest
+Reviewer: web-cli
 ```
 
 ## Done Criteria
 
 - Review flow is understandable without reading docs.
 - User can operate common proposal review flow with `Y/N`, `#1`, Tab, and arrow keys.
-- Terminal lines are Chinese-first with English fallback at decision points.
+- Terminal lines use English-primary text with compact Chinese parenthetical annotations only where useful. Avoid noisy token-by-token bilingual output.
 - Agent logs expose proposal id/alias and approval/save state.
 - REST-created proposals are visible in Web CLI without re-running fill.apply.
 - External agent prompts correctly describe the handoff and do not instruct users to re-run fill.apply.

@@ -330,22 +330,45 @@ export function readAgentRecordSnapshot() {
 }
 
 /**
+ * Validate an external proposal before import.
+ * Rejects proposals with missing or invalid required fields.
+ */
+function isValidExternalProposal(proposal: unknown): proposal is AiAgentProposal {
+  if (!proposal || typeof proposal !== 'object') return false;
+  const p = proposal as Record<string, unknown>;
+  if (!p.id || typeof p.id !== 'string') return false;
+  if (!p.domain || (p.domain !== 'buff' && p.domain !== 'weapon')) return false;
+  if (!p.operation || typeof p.operation !== 'string') return false;
+  if (!p.payload || typeof p.payload !== 'object' || Array.isArray(p.payload)) return false;
+  if (!p.approvalStatus || (p.approvalStatus !== 'Wait' && p.approvalStatus !== 'Yes' && p.approvalStatus !== 'No')) return false;
+  if (!p.saveStatus || (p.saveStatus !== 'Wait' && p.saveStatus !== 'Yes' && p.saveStatus !== 'No')) return false;
+  if (!p.client || typeof p.client !== 'string') return false;
+  return true;
+}
+
+/**
  * Import external proposals (e.g. from REST/SSE) into browser localStorage.
  * - Deduplicates by proposal.id.
  * - Browser-side state wins: if local proposal is already saved/rejected/unsaved, do not overwrite.
  * - Reassigns sessionId to current web-cli session so Y/N shortcuts work.
  * - Preserves original client in `client`, marks reviewer in `reviewedBy`.
+ * - Rejects incomplete or invalid proposals (missing domain/payload/approvalStatus/saveStatus/client/id).
  * Returns the number of newly imported proposals and the total pending count after import.
  */
 export function importExternalProposals(
-  externalProposals: AiAgentProposal[],
+  externalProposals: unknown[],
   currentSessionId: string,
-): { imported: number; pendingCount: number; lines: string[] } {
+): { imported: number; pendingCount: number; lines: string[]; rejected: number } {
   const localProposals = readAgentProposals();
   const localMap = new Map(localProposals.map((p) => [p.id, p]));
   let imported = 0;
+  let rejected = 0;
 
   for (const ext of externalProposals) {
+    if (!isValidExternalProposal(ext)) {
+      rejected++;
+      continue;
+    }
     const local = localMap.get(ext.id);
     if (local) {
       // Browser-side state wins: if local is already resolved, skip
@@ -384,20 +407,27 @@ export function importExternalProposals(
   writeJsonStorage(AI_AGENT_PROPOSALS_STORAGE_KEY, localProposals);
 
   const pendingCount = localProposals.filter(
-    (p) => p.approvalStatus === 'Wait' || (p.approvalStatus === 'Yes' && p.saveStatus === 'Wait'),
+    (p) =>
+      p.sessionId === currentSessionId
+      && (p.approvalStatus === 'Wait' || (p.approvalStatus === 'Yes' && p.saveStatus === 'Wait')),
   ).length;
 
   const lines: string[] = [];
   if (imported > 0) {
-    lines.push(`[handoff] 已接收外部待审批提案 / imported external pending proposals: ${imported}`);
+    lines.push(`[handoff] imported ${imported} external proposal${imported === 1 ? '' : 's'} (已导入 ${imported} 个外部提案)`);
     if (pendingCount === 1) {
-      lines.push('[next] 输入 proposal.list 查看，或输入 Y 审批当前唯一提案 / Use proposal.list or press Y when only one proposal is pending');
+      lines.push('[state] 1 pending proposal in current session (当前会话 1 个待处理提案)');
+      lines.push('[next] Use proposal.list or press Y (使用 proposal.list 查看，或按 Y 审批)');
     } else if (pendingCount > 1) {
-      lines.push(`[next] 当前有 ${pendingCount} 个待处理提案，请使用 proposal.list 查看，再用 proposal.approve #1 等显式命令处理 / ${pendingCount} pending proposals; use proposal.list and explicit commands`);
+      lines.push(`[state] ${pendingCount} pending proposals in current session (当前会话 ${pendingCount} 个待处理提案)`);
+      lines.push('[next] Use proposal.list and explicit commands like proposal.approve #N (先查看列表，再处理指定提案)');
     }
   }
+  if (rejected > 0) {
+    lines.push(`[warn] rejected ${rejected} incomplete proposal${rejected === 1 ? '' : 's'} (拒绝 ${rejected} 个不完整提案)`);
+  }
 
-  return { imported, pendingCount, lines };
+  return { imported, pendingCount, lines, rejected };
 }
 
 export function appendOperationLog(log: Omit<AiAgentOperationLog, 'id' | 'createdAt'>) {

@@ -10,8 +10,8 @@ import {
   summarizeAiCliCommand,
   getProposalAlias,
 } from '../aiCli/aiCliCommandService';
-import { readPendingAgentProposals, importExternalProposals, ensureActiveSession } from '../aiCli/aiCliAgentInfrastructure';
-import type { AiAgentClient } from '../aiCli/aiCliAgentTypes';
+import { readPendingAgentProposals, importExternalProposals, ensureActiveSession, readAgentSession } from '../aiCli/aiCliAgentInfrastructure';
+
 import { readCurrentBuffDraft } from '../aiCli/buffFillAdapter';
 import { APP_ROUTE_PATHS, navigateToAppPath } from '../utils/appRoute';
 import './AiCliPage.css';
@@ -28,6 +28,14 @@ function resolveNavigationTarget(data: unknown) {
   }
   const value = (data as { navigateTo?: unknown }).navigateTo;
   return value === 'home' || value === 'buff' ? value : null;
+}
+
+function labelApprovalZh(status: string) {
+  return ({ Wait: '待审批', Yes: '已批准', No: '已拒绝' } as Record<string, string>)[status] ?? status;
+}
+
+function labelSaveZh(status: string) {
+  return ({ Wait: '待保存', Yes: '已保存', No: '未保存' } as Record<string, string>)[status] ?? status;
 }
 
 export function AiCliPage() {
@@ -49,18 +57,27 @@ export function AiCliPage() {
   const [historyIndex, setHistoryIndex] = useState<number>(-1);
   const [draftInput, setDraftInput] = useState<string>('');
 
+  const [sessionId, setSessionId] = useState(() => ensureActiveSession('web-cli').id);
+
+  const syncSessionId = () => {
+    const currentSessionId = readAgentSession()?.id ?? ensureActiveSession('web-cli').id;
+    setSessionId((previous) => (previous === currentSessionId ? previous : currentSessionId));
+    return currentSessionId;
+  };
+
   const prompt = useMemo(() => {
-    const pending = readPendingAgentProposals();
+    const sid = sessionId;
+    const pending = readPendingAgentProposals(sid);
     if (pending.length === 0) {
       return `def:${currentDraft.id}>`;
     }
     const first = pending[0];
-    const alias = getProposalAlias(first.id);
+    const alias = getProposalAlias(first.id, sid);
     if (first.approvalStatus === 'Wait') {
       return `def:${currentDraft.id} pending=${alias} approve>`;
     }
     return `def:${currentDraft.id} pending=${alias} save>`;
-  }, [currentDraft.id, lines]);
+  }, [currentDraft.id, lines, sessionId]);
 
   const appendLines = (nextLines: string[]) => {
     setLines((prev) => [...prev, ...nextLines]);
@@ -105,39 +122,33 @@ export function AiCliPage() {
         };
         // Handoff external proposals first
         if (payload.proposals && payload.proposals.length > 0) {
-          const session = ensureActiveSession('web-cli');
-          const normalizedProposals = payload.proposals
-            .filter((p): p is NonNullable<typeof p> => !!p && !!p.id)
-            .map((p) => ({
-              id: p.id!,
-              domain: (p.domain || 'buff') as 'buff' | 'weapon',
-              operation: p.operation || '',
-              payload: p.payload ?? {},
-              approvalStatus: (p.approvalStatus || 'Wait') as 'Wait' | 'Yes' | 'No',
-              saveStatus: (p.saveStatus || 'Wait') as 'Wait' | 'Yes' | 'No',
-              client: (p.client || 'rest') as AiAgentClient,
-              sessionId: p.sessionId || '',
-              summary: p.summary,
-              createdAt: p.createdAt || Date.now(),
-              updatedAt: p.updatedAt || Date.now(),
-            }));
-          const handoff = importExternalProposals(normalizedProposals, session.id);
+          const currentSessionId = syncSessionId();
+          const handoff = importExternalProposals(payload.proposals, currentSessionId);
           if (handoff.lines.length > 0) {
             appendLines(handoff.lines);
           }
         }
         const latestLog = payload.operationLogs?.[0];
-        if (!latestLog?.id || latestLog.id === lastAgentLogIdRef.current) {
+        if (!latestLog?.id || latestLog.id === lastAgentLogIdRef.current || !latestLog.command || latestLog.command === '-') {
           return;
         }
         lastAgentLogIdRef.current = latestLog.id;
-        const alias = latestLog.proposalId ? getProposalAlias(latestLog.proposalId) : null;
-        const aliasPart = alias ? ` 提案=${alias}` : '';
-        const approvalPart = latestLog.approval ? ` 审批=${labelApproval(latestLog.approval)}` : '';
-        const savePart = latestLog.save ? ` 保存=${labelSave(latestLog.save)}` : '';
-        const errorPart = latestLog.errorCode ? ` 错误/error=${latestLog.errorCode}` : '';
+        const currentSessionId = syncSessionId();
+        const alias = latestLog.proposalId ? getProposalAlias(latestLog.proposalId, currentSessionId) : null;
+        const aliasPart = alias ? ` proposal=${alias}` : '';
+        const approvalPart = latestLog.approval ? ` approval=${labelApproval(latestLog.approval)}` : '';
+        const savePart = latestLog.save ? ` save=${labelSave(latestLog.save)}` : '';
+        const errorPart = latestLog.errorCode ? ` error=${latestLog.errorCode}` : '';
+        const zhParts = [
+          latestLog.errorCode ? `错误=${latestLog.errorCode}` : '',
+          latestLog.writes ? '写入' : '',
+          alias ? `提案=${alias}` : '',
+          latestLog.approval ? `审批=${labelApprovalZh(latestLog.approval)}` : '',
+          latestLog.save ? `保存=${labelSaveZh(latestLog.save)}` : '',
+        ].filter(Boolean);
+        const zhPart = zhParts.length ? ` (${zhParts.join(' ')})` : '';
         appendLines([
-          `[agent] ${latestLog.client || '-'} ${latestLog.ok ? '成功/ok' : '失败/err'} ${latestLog.writes ? '写入/write' : '读取/read'} ${latestLog.command || '-'}${aliasPart}${approvalPart}${savePart}${errorPart}`,
+          `[agent] ${latestLog.client || '-'} ${latestLog.ok ? 'ok' : 'err'} ${latestLog.writes ? 'write' : 'read'} ${latestLog.command || '-'}${aliasPart}${approvalPart}${savePart}${errorPart}${zhPart}`,
         ]);
       } catch {
         appendLines([fail('agent SSE event parse failed')]);
@@ -248,7 +259,7 @@ export function AiCliPage() {
                 if (common && common !== commandText) {
                   setCommandText(common);
                 } else {
-                  appendLines([info(`可补全 / completions: ${completions.join(', ')}`)]);
+                  appendLines([info(`completions: ${completions.join(', ')} (可补全)`)]);
                 }
               }
               return;
@@ -308,8 +319,9 @@ function getCommandCompletions(input: string): string[] {
   if (tokens.length === 1) {
     return ALL_COMMANDS.filter((cmd) => cmd.startsWith(first));
   }
-  if (tokens.length === 2 && (first.startsWith('proposal.') || first === 'proposal.show' || first === 'proposal.approve' || first === 'proposal.reject' || first === 'proposal.save' || first === 'proposal.unsave')) {
-    const pending = readPendingAgentProposals();
+  if (tokens.length === 2 && first.startsWith('proposal.')) {
+    const session = readAgentSession();
+    const pending = readPendingAgentProposals(session?.id);
     return pending.map((_p: unknown, idx: number) => `#${idx + 1}`).filter((a: string) => a.startsWith(tokens[1] || ''));
   }
   return [];

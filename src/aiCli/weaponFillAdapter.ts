@@ -84,6 +84,44 @@ function writeJsonStorage(key: string, value: unknown) {
   window.localStorage.setItem(key, JSON.stringify(value));
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === 'object' && !Array.isArray(value);
+}
+
+function validateWeaponProposalPayload(payload: unknown): AgentFillValidationResult<WeaponDraft> {
+  if (!isRecord(payload)) {
+    return { ok: false, errors: ['proposal payload must be object'] };
+  }
+  const errors: string[] = [];
+  for (const key of ['id', 'name', 'type', 'description', 'imgUrl']) {
+    if (typeof payload[key] !== 'string') {
+      errors.push(`${key} must be string`);
+    }
+  }
+  if (typeof payload.rarity !== 'number' || !Number.isFinite(payload.rarity)) {
+    errors.push('rarity must be number');
+  }
+  if (!isRecord(payload.attackGrowth)) {
+    errors.push('attackGrowth must be object');
+  }
+  if (!isRecord(payload.skills)) {
+    errors.push('skills must be object');
+  } else {
+    for (const skillKey of VALID_SKILL_KEYS) {
+      const skill = payload.skills[skillKey];
+      if (!isRecord(skill)) {
+        errors.push(`skills.${skillKey} must be object`);
+        continue;
+      }
+      if (typeof skill.name !== 'string') errors.push(`skills.${skillKey}.name must be string`);
+      if (typeof skill.statType !== 'string') errors.push(`skills.${skillKey}.statType must be string`);
+      if (!isRecord(skill.effects)) errors.push(`skills.${skillKey}.effects must be object`);
+      if (!isRecord(skill.levels)) errors.push(`skills.${skillKey}.levels must be object`);
+    }
+  }
+  return errors.length ? { ok: false, errors } : { ok: true, errors: [], normalized: payload as unknown as WeaponDraft };
+}
+
 export function readCurrentWeaponDraft(): WeaponDraft {
   return readJsonStorage<WeaponDraft>(WEAPON_DRAFT_STORAGE_KEY, createFallbackWeaponDraft());
 }
@@ -326,6 +364,8 @@ export const weaponFillAdapter: AgentFillDomainAdapter<WeaponDraft> = {
     }
     return { ok: true, errors: [], normalized: parsed.draft };
   },
+
+  validateProposalPayload: validateWeaponProposalPayload,
 
   createProposalPayload(validation, rawCommand): AgentFillProposalPayload<WeaponDraft> {
     const draft = validation.normalized!;

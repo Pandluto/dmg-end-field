@@ -211,9 +211,8 @@ const baseDraft = createFallbackDraft();
   assertEqual(result.proposal?.approval, 'Wait', 'fill.apply proposal should be Wait');
   assertEqual(result.proposal?.save, 'Wait', 'fill.apply proposal should be save=Wait');
   // UX assertions
-  assertTrue(result.lines.some((l) => l.includes('提案已创建')), 'fill.apply should include Chinese created message');
-  assertTrue(result.lines.some((l) => l.includes('输入 Y 批准并应用到草稿')), 'fill.apply should include Chinese Y/N approval prompt');
-  assertTrue(result.lines.some((l) => l.includes('输入 N 拒绝')), 'fill.apply should include Chinese reject prompt');
+  assertTrue(result.lines.some((l) => l.includes('提案已创建')), 'fill.apply should include Chinese message');
+  assertTrue(result.lines.some((l) => l.includes('输入 Y 批准')), 'fill.apply should include Chinese Y/N prompt');
   // library should not exist
   const libraryRaw = storage.get('def.buff-editor.library.v1');
   assertEqual(libraryRaw, undefined, 'library should not be written after fill.apply');
@@ -271,8 +270,8 @@ const baseDraft = createFallbackDraft();
   assertFalse(approveResult.effects?.storage?.includes('def.buff-editor.library.v1'), 'approve storage should not include library key');
   // UX assertions
   assertTrue(approveResult.lines.some((l) => l.includes('已批准并应用到当前草稿')), 'approve should include Chinese approved message');
-  assertTrue(approveResult.lines.some((l) => l.includes('输入 Y 保存到本地主库')), 'approve should include Chinese save Y/N prompt');
-  assertTrue(approveResult.lines.some((l) => l.includes('输入 N 取消保存')), 'approve should include Chinese unsave prompt');
+  assertTrue(approveResult.lines.some((l) => l.includes('Y 保存')), 'approve should include Chinese save Y/N prompt');
+  assertTrue(approveResult.lines.some((l) => l.includes('N 取消保存')), 'approve should include Chinese unsave prompt');
   // library still not written
   const libraryRaw = storage.get('def.buff-editor.library.v1');
   assertEqual(libraryRaw, undefined, 'library should not be written after approve');
@@ -439,7 +438,7 @@ const baseDraft = createFallbackDraft();
     { sourceText: '' }
   );
   assertEqual(rejectResult.ok, true, 'reject should be ok');
-  assertTrue(rejectResult.lines.some((l) => l.includes('已拒绝提案')), 'reject should include Chinese rejected message');
+  assertTrue(rejectResult.lines.some((l) => l.includes('已拒绝')), 'reject should include Chinese rejected message');
   assertTrue(rejectResult.lines.some((l) => l.includes('审核闭环结束')), 'reject should include Chinese done message');
 }
 
@@ -547,7 +546,7 @@ const baseDraft = createFallbackDraft();
   assertEqual(p?.approvalStatus, 'No', 'proposal should be rejected after N');
 }
 
-// 13. 无 pending proposal 时 Y 返回中文优先失败
+// 13. 无 pending proposal 时 Y 返回英文主错误 + 中文批注
 {
   clearTestStorage();
   const yResult = runAiCliCommand(
@@ -556,7 +555,7 @@ const baseDraft = createFallbackDraft();
     { sourceText: '' }
   );
   assertEqual(yResult.ok, false, 'Y with no pending should fail');
-  assertTrue(yResult.lines.some((l) => l.includes('当前会话没有待处理提案')), 'Y empty should show Chinese-first error');
+  assertTrue(yResult.lines.some((l) => l.includes('当前会话没有待处理提案')), 'Y empty should show Chinese annotation');
   assertTrue(yResult.lines.some((l) => l.includes('no pending proposals')), 'Y empty should include English fallback');
 }
 
@@ -845,7 +844,7 @@ const baseDraft = createFallbackDraft();
   assertEqual(result.error?.code, 'unknown-command', 'fill.foo should return unknown-command');
 }
 
-// 21. proposal.list 显示 #1 alias 和中文表头
+// 21. proposal.list 显示 #1 alias 和紧凑中文状态标注
 {
   clearTestStorage();
   const validDraft = {
@@ -890,9 +889,8 @@ const baseDraft = createFallbackDraft();
   );
   assertEqual(listResult.ok, true, 'proposal.list should be ok');
   assertTrue(listResult.lines.some((l) => l.includes('#1')), 'proposal.list should include #1 alias');
-  assertTrue(listResult.lines.some((l) => l.includes('编号/alias')), 'proposal.list should include Chinese header');
-  assertTrue(listResult.lines.some((l) => l.includes('审批/approval')), 'proposal.list should include approval header');
-  assertTrue(listResult.lines.some((l) => l.includes('待审批/Wait')), 'proposal.list should show Chinese approval label');
+  assertTrue(listResult.lines.some((l) => l.includes('Approval')), 'proposal.list should include English approval header');
+  assertTrue(listResult.lines.some((l) => l.includes('待审批')), 'proposal.list should show Chinese approval label');
 }
 
 // 22. proposal.show #1 解析 alias 并显示中文标签
@@ -941,11 +939,11 @@ const baseDraft = createFallbackDraft();
     { sourceText: '' }
   );
   assertEqual(showResult.ok, true, 'proposal.show #1 should be ok');
-  assertTrue(showResult.lines.some((l) => l.includes('提案 / Proposal')), 'show should include Chinese proposal label');
-  assertTrue(showResult.lines.some((l) => l.includes('审批 / Approval')), 'show should include Chinese approval label');
-  assertTrue(showResult.lines.some((l) => l.includes('待审批/Wait')), 'show should display Chinese approval label');
-  assertTrue(showResult.lines.some((l) => l.includes('待保存/Wait')), 'show should display Chinese save label');
-  assertTrue(showResult.lines.some((l) => l.includes('输入 Y 批准并应用到草稿')), 'show should display Chinese next action');
+  assertTrue(showResult.lines.some((l) => l.includes('Proposal:')), 'show should include English proposal label');
+  assertTrue(showResult.lines.some((l) => l.includes('提案:')), 'show should include Chinese proposal label');
+  assertTrue(showResult.lines.some((l) => l.includes('待审批')), 'show should display Chinese approval label');
+  assertTrue(showResult.lines.some((l) => l.includes('待保存')), 'show should display Chinese save label');
+  assertTrue(showResult.lines.some((l) => l.includes('输入 Y 批准')), 'show should display Chinese next action');
   // Test full id still works
   const showFullResult = runAiCliCommand(
     { protocolVersion: 1, requestId: 'test-show-full-cmd', client: 'web-cli', command: `proposal.show ${fullId}` },
@@ -1011,7 +1009,7 @@ const baseDraft = createFallbackDraft();
   assertTrue(approveResult.lines.some((l) => l.includes('已批准并应用到当前草稿')), 'approve #1 should show Chinese message');
 }
 
-// 24. 多 pending 时 Y 返回中文优先歧义错误
+// 24. 多 pending 时 Y 返回英文主歧义错误 + 中文批注
 {
   clearTestStorage();
   const validDraft1 = {
@@ -1091,7 +1089,7 @@ const baseDraft = createFallbackDraft();
   );
   assertEqual(yResult.ok, false, 'Y with multiple pending should fail');
   assertTrue(yResult.lines.some((l) => l.includes('当前会话有 2 个待处理提案')), 'Y with multiple pending should show Chinese count');
-  assertTrue(yResult.lines.some((l) => l.includes('请使用 proposal.list 查看')), 'Y with multiple pending should suggest proposal.list');
+  assertTrue(yResult.lines.some((l) => l.includes('请先查看列表')), 'Y with multiple pending should suggest proposal.list');
 }
 
 // 25. resolveProposalReference 和 getProposalAlias 纯函数测试
@@ -1147,12 +1145,12 @@ const baseDraft = createFallbackDraft();
   const byInvalid = resolveProposalReference('#99');
   assertEqual(byInvalid, null, 'resolveProposalReference #99 should return null');
   // Test label functions
-  assertEqual(labelApproval('Wait'), '待审批/Wait', 'labelApproval Wait');
-  assertEqual(labelApproval('Yes'), '已审批/Yes', 'labelApproval Yes');
-  assertEqual(labelApproval('No'), '已拒绝/No', 'labelApproval No');
-  assertEqual(labelSave('Wait'), '待保存/Wait', 'labelSave Wait');
-  assertEqual(labelSave('Yes'), '已保存/Yes', 'labelSave Yes');
-  assertEqual(labelSave('No'), '未保存/No', 'labelSave No');
+  assertEqual(labelApproval('Wait'), 'Pending', 'labelApproval Wait');
+  assertEqual(labelApproval('Yes'), 'Approved', 'labelApproval Yes');
+  assertEqual(labelApproval('No'), 'Rejected', 'labelApproval No');
+  assertEqual(labelSave('Wait'), 'Pending', 'labelSave Wait');
+  assertEqual(labelSave('Yes'), 'Saved', 'labelSave Yes');
+  assertEqual(labelSave('No'), 'Unsaved', 'labelSave No');
 }
 
 // 26. N 快捷命令时无 pending 返回中文错误
@@ -1164,7 +1162,7 @@ const baseDraft = createFallbackDraft();
     { sourceText: '' }
   );
   assertEqual(nResult.ok, false, 'N with no pending should fail');
-  assertTrue(nResult.lines.some((l) => l.includes('当前会话没有待处理提案')), 'N empty should show Chinese-first error');
+  assertTrue(nResult.lines.some((l) => l.includes('当前会话没有待处理提案')), 'N empty should show Chinese annotation');
 }
 
 // 27. importExternalProposals 导入外部 proposal 到 localStorage
@@ -1187,7 +1185,7 @@ const baseDraft = createFallbackDraft();
   const handoff = importExternalProposals([extProposal], session.id);
   assertEqual(handoff.imported, 1, 'should import 1 external proposal');
   assertEqual(handoff.pendingCount, 1, 'should have 1 pending after import');
-  assertTrue(handoff.lines.some((l) => l.includes('已接收外部待审批提案')), 'handoff should show Chinese message');
+  assertTrue(handoff.lines.some((l) => l.includes('已导入 1 个外部提案')), 'handoff should show Chinese message');
   const proposals = readAgentProposals();
   assertEqual(proposals.length, 1, 'localStorage should have 1 proposal');
   assertEqual(proposals[0]!.id, 'ext-proposal-1', 'imported proposal id should match');
@@ -1302,7 +1300,7 @@ const baseDraft = createFallbackDraft();
     id: 'ext-proposal-yy',
     domain: 'buff' as const,
     operation: 'buff.fill.apply',
-    payload: { id: 'ext-yy-draft', name: 'Ext YY Draft', sourceName: 'test', source: 'ai', description: 'test', items: [] },
+    payload: { id: 'ext-yy-draft', name: 'Ext YY Draft', sourceName: 'test', source: 'ai', description: 'test', items: {} },
     approvalStatus: 'Wait' as const,
     saveStatus: 'Wait' as const,
     client: 'rest' as const,
@@ -1418,8 +1416,178 @@ const baseDraft = createFallbackDraft();
     { sourceText: '' }
   );
   assertEqual(showResult.ok, true, 'proposal.show should be ok');
-  assertTrue(showResult.lines.some((l) => l.includes('来源 / Source: rest')), 'show should display source client');
-  assertTrue(showResult.lines.some((l) => l.includes('审核 / Reviewer: web-cli')), 'show should display reviewer');
+  assertTrue(showResult.lines.some((l) => l.includes('Source: rest')), 'show should display source client');
+  assertTrue(showResult.lines.some((l) => l.includes('Reviewer: web-cli')), 'show should display reviewer');
+}
+
+// 34. importExternalProposals 拒绝不完整提案（缺少 domain/payload/approvalStatus/saveStatus/client/id）
+// 模拟真实 SSE 路径：原始 payload 直接传入，不填充默认值
+{
+  clearTestStorage();
+  const session = ensureActiveSession('web-cli');
+  const incompleteProposals = [
+    { id: 'missing-domain' },
+    { id: 'missing-payload', domain: 'buff' },
+    { id: 'missing-approval', domain: 'buff', payload: {} },
+    { id: 'missing-save', domain: 'buff', payload: {}, approvalStatus: 'Wait' },
+    { id: 'missing-client', domain: 'buff', payload: {}, approvalStatus: 'Wait', saveStatus: 'Wait' },
+    { id: 'invalid-domain', domain: 'invalid', payload: {}, approvalStatus: 'Wait', saveStatus: 'Wait', client: 'rest' },
+    { id: 'invalid-approval', domain: 'buff', payload: {}, approvalStatus: 'Invalid', saveStatus: 'Wait', client: 'rest' },
+    { id: 'invalid-save', domain: 'buff', payload: {}, approvalStatus: 'Wait', saveStatus: 'Invalid', client: 'rest' },
+  ];
+  const handoff = importExternalProposals(incompleteProposals, session.id);
+  assertEqual(handoff.imported, 0, 'should reject all incomplete proposals');
+  assertEqual(handoff.rejected, 8, 'should report 8 rejected proposals');
+  assertTrue(handoff.lines.some((l) => l.includes('拒绝 8 个不完整提案')), 'should show Chinese warning for rejected proposals');
+  const proposals = readAgentProposals();
+  assertEqual(proposals.length, 0, 'localStorage should have 0 proposals after rejecting all');
+}
+
+// 35. importExternalProposals 部分有效时只导入有效提案（模拟真实 SSE 原始 payload）
+{
+  clearTestStorage();
+  const session = ensureActiveSession('web-cli');
+  const mixed = [
+    { id: 'valid-mixed', domain: 'buff', operation: 'buff.fill.apply', payload: { id: 'v' }, approvalStatus: 'Wait', saveStatus: 'Wait', client: 'rest' },
+    { id: 'invalid-mixed', domain: 'invalid' },
+  ];
+  const handoff = importExternalProposals(mixed, session.id);
+  assertEqual(handoff.imported, 1, 'should import only valid proposal');
+  assertEqual(handoff.rejected, 1, 'should report 1 rejected proposal');
+  const proposals = readAgentProposals();
+  assertEqual(proposals.length, 1, 'localStorage should have 1 proposal');
+  assertEqual(proposals[0]!.id, 'valid-mixed', 'only valid proposal should be imported');
+}
+
+// 36. getProposalAlias 和 resolveProposalReference 使用 sessionId 过滤
+{
+  clearTestStorage();
+  const sessionA = ensureActiveSession('web-cli');
+  const validDraft = {
+    id: 'test-session-scope',
+    name: 'Test Session Scope',
+    sourceName: 'test',
+    source: 'ai',
+    description: 'test',
+    items: [
+      {
+        name: 'Item',
+        sourceName: 'test',
+        description: 'test',
+        effects: [
+          {
+            displayName: 'Atk +20%',
+            name: 'atk-boost',
+            level: '',
+            source: 'ai',
+            sourceName: 'test',
+            description: 'test',
+            condition: '',
+            effectKind: 'modifier',
+            type: 'atkPercentBoost',
+            value: 0.2,
+            evidenceText: 'test',
+            confidence: 0.9,
+          },
+        ],
+      },
+    ],
+  };
+  const applyResult = runAiCliCommand(
+    { protocolVersion: 1, requestId: 'test-session-apply', client: 'web-cli', command: `fill.apply ${JSON.stringify(validDraft)}` },
+    baseDraft,
+    { sourceText: '' }
+  );
+  const proposalId = applyResult.proposal!.id;
+  // With correct sessionId
+  assertEqual(getProposalAlias(proposalId, sessionA.id), '#1', 'alias should be #1 with correct session');
+  assertTrue(resolveProposalReference('#1', sessionA.id)?.id === proposalId, 'resolve #1 with correct session should work');
+  // With wrong sessionId
+  assertEqual(getProposalAlias(proposalId, 'wrong-session'), null, 'alias should be null with wrong session');
+  assertEqual(resolveProposalReference('#1', 'wrong-session'), null, 'resolve #1 with wrong session should return null');
+}
+
+// 37. importExternalProposals pendingCount 按 currentSessionId 过滤
+{
+  clearTestStorage();
+  const sessionAId = 'session-a';
+  const sessionBId = 'session-b';
+  const ext1 = {
+    id: 'ext-session-a',
+    domain: 'buff' as const,
+    operation: 'buff.fill.apply',
+    payload: { id: 'a' },
+    approvalStatus: 'Wait' as const,
+    saveStatus: 'Wait' as const,
+    client: 'rest' as const,
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+  };
+  importExternalProposals([ext1], sessionAId);
+  const ext2 = {
+    id: 'ext-session-b',
+    domain: 'buff' as const,
+    operation: 'buff.fill.apply',
+    payload: { id: 'b' },
+    approvalStatus: 'Wait' as const,
+    saveStatus: 'Wait' as const,
+    client: 'rest' as const,
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+  };
+  const handoffB = importExternalProposals([ext2], sessionBId);
+  assertEqual(handoffB.pendingCount, 1, 'pendingCount should only count pending proposals for currentSessionId');
+  assertEqual(handoffB.imported, 1, 'should import 1 new proposal for sessionB');
+}
+
+// 38. proposal.approve 前校验 proposal payload，避免非法对象写入草稿
+{
+  clearTestStorage();
+  const session = ensureActiveSession('web-cli');
+  importExternalProposals([
+    {
+      id: 'invalid-payload-proposal',
+      domain: 'buff',
+      operation: 'fill.apply',
+      payload: { id: 'only-id' },
+      approvalStatus: 'Wait',
+      saveStatus: 'Wait',
+      client: 'rest',
+    },
+  ], session.id);
+  const approveResult = runAiCliCommand(
+    { protocolVersion: 1, requestId: 'test-invalid-payload-approve', client: 'web-cli', command: 'proposal.approve #1' },
+    baseDraft,
+    { sourceText: '', sessionId: session.id }
+  );
+  assertEqual(approveResult.ok, false, 'approve should reject invalid proposal payload');
+  assertEqual(approveResult.error?.code, 'invalid-proposal-payload', 'approve should return invalid-proposal-payload error');
+  assertEqual(storage.get('def.buff-editor.draft.v1'), undefined, 'invalid proposal should not write draft storage');
+}
+
+// 39. proposal.save 前校验 proposal payload，避免已批准非法对象写入主库
+{
+  clearTestStorage();
+  const session = ensureActiveSession('web-cli');
+  importExternalProposals([
+    {
+      id: 'invalid-save-payload-proposal',
+      domain: 'buff',
+      operation: 'fill.apply',
+      payload: { id: 'only-id' },
+      approvalStatus: 'Yes',
+      saveStatus: 'Wait',
+      client: 'rest',
+    },
+  ], session.id);
+  const saveResult = runAiCliCommand(
+    { protocolVersion: 1, requestId: 'test-invalid-payload-save', client: 'web-cli', command: 'proposal.save #1' },
+    baseDraft,
+    { sourceText: '', sessionId: session.id }
+  );
+  assertEqual(saveResult.ok, false, 'save should reject invalid proposal payload');
+  assertEqual(saveResult.error?.code, 'invalid-proposal-payload', 'save should return invalid-proposal-payload error');
+  assertEqual(storage.get('def.buff-editor.library.v1'), undefined, 'invalid proposal should not write library storage');
 }
 
 console.log('[ai-cli-command-service-test] passed');
