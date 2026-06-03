@@ -73,6 +73,7 @@ function clearTestStorage() {
     approvalStatus: 'Wait',
     saveStatus: 'Wait',
     client: 'rest',
+    sessionId: '',
   });
   const p2 = createAgentProposal({
     domain: 'operator',
@@ -81,6 +82,7 @@ function clearTestStorage() {
     approvalStatus: 'Yes',
     saveStatus: 'Wait',
     client: 'rest',
+    sessionId: '',
   });
   createAgentProposal({
     domain: 'weapon',
@@ -89,6 +91,7 @@ function clearTestStorage() {
     approvalStatus: 'Yes',
     saveStatus: 'Yes',
     client: 'rest',
+    sessionId: '',
   });
   const pending = readPendingAgentProposals();
   assertTrue(pending.some((p) => p.id === p1.id), 'pending should include approval=Wait');
@@ -110,6 +113,7 @@ function clearTestStorage() {
     approvalStatus: 'Wait',
     saveStatus: 'Wait',
     client: 'rest',
+    sessionId: '',
   });
   const approved = approveAgentProposal(p.id);
   assertTrue(approved, 'approve should succeed for Wait proposal');
@@ -128,6 +132,7 @@ function clearTestStorage() {
     approvalStatus: 'Wait',
     saveStatus: 'Wait',
     client: 'rest',
+    sessionId: '',
   });
   const rejected = rejectAgentProposal(p.id);
   assertTrue(rejected, 'reject should succeed for Wait proposal');
@@ -147,6 +152,7 @@ function clearTestStorage() {
     approvalStatus: 'Yes',
     saveStatus: 'Wait',
     client: 'rest',
+    sessionId: '',
   });
   const saved = markAgentProposalSaved(p.id);
   assertTrue(saved, 'markSaved should succeed for Yes/Wait proposal');
@@ -165,6 +171,7 @@ function clearTestStorage() {
     approvalStatus: 'Yes',
     saveStatus: 'Wait',
     client: 'rest',
+    sessionId: '',
   });
   const unsaved = markAgentProposalUnsaved(p.id);
   assertTrue(unsaved, 'markUnsaved should succeed for Yes/Wait proposal');
@@ -183,6 +190,7 @@ function clearTestStorage() {
     approvalStatus: 'Wait',
     saveStatus: 'Wait',
     client: 'rest',
+    sessionId: '',
   });
   const saved = markAgentProposalSaved(p.id);
   assertNull(saved, 'markSaved should fail for approval=Wait proposal');

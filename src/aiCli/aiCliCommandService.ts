@@ -28,6 +28,7 @@ import {
   markAgentProposalUnsaved,
   updateSessionContext,
 } from './aiCliAgentInfrastructure';
+import type { AiAgentProposal } from './aiCliAgentTypes';
 import { resolveFillCommand, findFillDomainAdapter, findFillDomainAdapterByDomain, registerFillDomainAdapter } from './aiCliFillDomains';
 import {
   readCurrentBuffDraft,
@@ -174,6 +175,58 @@ function parseOptions(tokens: string[]) {
 
 function pad(value: string, width: number) {
   return value.length >= width ? value : `${value}${' '.repeat(width - value.length)}`;
+}
+
+// Proposal status labels (Chinese-first, bilingual)
+export const APPROVAL_LABELS: Record<string, string> = {
+  Wait: '待审批/Wait',
+  Yes: '已审批/Yes',
+  No: '已拒绝/No',
+};
+
+export const SAVE_LABELS: Record<string, string> = {
+  Wait: '待保存/Wait',
+  Yes: '已保存/Yes',
+  No: '未保存/No',
+};
+
+export function labelApproval(status: string) {
+  return APPROVAL_LABELS[status] ?? status;
+}
+
+export function labelSave(status: string) {
+  return SAVE_LABELS[status] ?? status;
+}
+
+/**
+ * Resolve a proposal reference from input.
+ * Accepts full proposal id or short alias like "#1".
+ * Returns the proposal object or null if not found.
+ */
+export function resolveProposalReference(input: string, sessionId?: string): AiAgentProposal | null {
+  if (!input) return null;
+  const trimmed = input.trim();
+  if (trimmed.startsWith('#')) {
+    const index = parseInt(trimmed.slice(1), 10) - 1;
+    if (!Number.isFinite(index) || index < 0) return null;
+    const pending = readPendingAgentProposals(sessionId);
+    if (index >= pending.length) return null;
+    return pending[index] ?? null;
+  }
+  // Try full id
+  const all = readAgentProposals();
+  return all.find((p) => p.id === trimmed) ?? null;
+}
+
+/**
+ * Get the alias for a proposal from the current pending list.
+ * Returns "#1", "#2", etc. or null if not in pending list.
+ */
+export function getProposalAlias(proposalId: string, sessionId?: string): string | null {
+  const pending = readPendingAgentProposals(sessionId);
+  const index = pending.findIndex((p) => p.id === proposalId);
+  if (index < 0) return null;
+  return `#${index + 1}`;
 }
 
 function table(headers: string[], rows: string[][]) {
@@ -411,13 +464,14 @@ function executeCommand(
             ['weapon', 'weapon.fill.check <json>', 'validate WeaponFillAiDraft / 校验武器填表结果'],
             ['weapon', 'weapon.fill.apply <json>', 'create weapon fill proposal / 创建武器填表提案'],
             ['proposal', 'proposal.list', 'list pending proposals / 查看待处理提案'],
-            ['proposal', 'proposal.show <id>', 'show proposal details / 查看提案详情'],
-            ['proposal', 'proposal.approve <id>', 'approve and apply to working state / 批准并应用到工作状态'],
-            ['proposal', 'proposal.reject <id>', 'reject proposal / 拒绝提案'],
-            ['proposal', 'proposal.save <id>', 'save approved proposal to local truth / 保存已批准提案到本地主库'],
-            ['proposal', 'proposal.unsave <id>', 'mark saved proposal as unsaved / 标记提案为未保存'],
+            ['proposal', 'proposal.show <id|alias>', 'show proposal details / 查看提案详情'],
+            ['proposal', 'proposal.approve <id|alias>', 'approve and apply to working state / 批准并应用到工作状态'],
+            ['proposal', 'proposal.reject <id|alias>', 'reject proposal / 拒绝提案'],
+            ['proposal', 'proposal.save <id|alias>', 'save approved proposal to local truth / 保存已批准提案到本地主库'],
+            ['proposal', 'proposal.unsave <id|alias>', 'mark saved proposal as unsaved / 标记提案为未保存'],
             ['shortcut', 'Y', 'approve pending proposal or save approved / 快捷批准或保存'],
             ['shortcut', 'N', 'reject pending proposal or unsave approved / 快捷拒绝或取消保存'],
+            ['handoff', 'REST -> Web CLI', 'external proposals auto-imported via SSE / 外部提案通过 SSE 自动导入'],
             ['agent', 'agent.logs [limit]', 'show recent agent operation logs / 查看智能体访问记录'],
             ['agent', 'agent.sessions [limit]', 'show current single agent session / 查看当前单会话'],
             ['agent', 'agent.guide', 'show first-call guide for LLM agents / 查看智能体首次接入指南'],
@@ -456,6 +510,8 @@ function executeCommand(
         '  fill.check never writes; fill.apply creates a proposal (does not write library).',
         '  use proposal.approve to apply to working state; proposal.save to write to local truth.',
         '  buff.open only switches active editor draft from an existing library entry.',
+        '  REST apply creates proposal only; Web CLI imports pending proposals via SSE for user Y/Y approval.',
+        '  do not ask users to re-run fill.apply in browser after REST apply.',
         '',
         'storage touched:',
         `  localStorage.${BUFF_DRAFT_STORAGE_KEY}`,
@@ -512,6 +568,14 @@ function executeCommand(
         '  events: GET /api/agent/events',
         '',
         'rule: agent proposes commands/JSON; app validates, logs, and writes.',
+        '',
+        'handoff rule / 交接规则:',
+        '  REST fill.apply creates a proposal only. It does NOT save to library.',
+        '  After REST apply, the proposal is automatically handed off to Web CLI via SSE.',
+        '  Do NOT ask the user to re-run fill.apply in the browser.',
+        '  Single pending: user opens /ai-cli and presses Y to approve, then Y to save.',
+        '  Multiple pending: user runs proposal.list, then proposal.approve #1 / proposal.save #1.',
+        '  REST approval/save commands return 403. This is expected; approval must happen in Web CLI.',
       ],
     });
   }
@@ -981,8 +1045,18 @@ function executeCommand(
         sessionId,
         summary: proposalPayload.summary,
       });
+      const alias = getProposalAlias(proposal.id, sessionId);
+      const aliasPart = alias ? `${alias} ` : '';
+      const nextActionText = client === 'rest'
+        ? 'open Web CLI /ai-cli; the pending proposal will be imported automatically. press Y to approve, then Y to save. do not re-run fill.apply.'
+        : 'reply Y/N in web-cli to approve or reject';
       return makeResponse({
-        lines: [ok(`proposal created: ${proposal.id}`)],
+        lines: [
+          ok(`提案已创建 / proposal created: ${aliasPart}${proposal.id}`),
+          `[state] 审批=${labelApproval(proposal.approvalStatus)} 保存=${labelSave(proposal.saveStatus)}`,
+          `[next] 输入 Y 批准并应用到草稿，输入 N 拒绝 / Press Y to approve, N to reject`,
+          client === 'rest' ? '[handoff] 此提案将自动同步到 Web CLI，无需重新 fill.apply / this proposal will auto-sync to Web CLI' : '',
+        ].filter(Boolean),
         effects: { writes: false, storage: [] },
         workflow: adapter.workflow,
         proposal: {
@@ -990,81 +1064,100 @@ function executeCommand(
           domain: proposal.domain,
           approval: proposal.approvalStatus,
           save: proposal.saveStatus,
-          nextAction: 'approve or reject',
+          nextAction: nextActionText,
         },
       });
     }
   }
 
   if (command === 'proposal.list') {
-    const proposals = readPendingAgentProposals();
+    const proposals = readPendingAgentProposals(sessionId);
     return makeResponse({
       lines: proposals.length
-        ? table(
-            ['id', 'domain', 'operation', 'approval', 'save', 'client', 'updatedAt'],
-            proposals.map((p) => [
-              p.id,
-              p.domain,
-              p.operation,
-              p.approvalStatus,
-              p.saveStatus,
-              p.client,
-              formatDateTime(p.updatedAt),
-            ]),
-          )
-        : [info('no pending proposals')],
+        ? [
+            ...table(
+              ['编号/alias', '领域/domain', '审批/approval', '保存/save', '摘要/summary', 'id'],
+              proposals.map((p, idx) => [
+                `#${idx + 1}`,
+                p.domain,
+                labelApproval(p.approvalStatus),
+                labelSave(p.saveStatus),
+                p.summary || '-',
+                p.id,
+              ]),
+            ),
+          ]
+        : [info('没有待处理提案 / no pending proposals')],
       data: { proposals },
     });
   }
 
   if (command === 'proposal.show') {
-    const [proposalId] = args;
-    if (!proposalId) {
-      return makeResponse({ ok: false, lines: [fail('usage: proposal.show <proposalId>')] });
+    const [proposalRef] = args;
+    if (!proposalRef) {
+      return makeResponse({ ok: false, lines: [fail('usage: proposal.show <proposalId|alias>')] });
     }
-    const allProposals = readAgentProposals();
-    const proposal = allProposals.find((p) => p.id === proposalId);
+    const proposal = resolveProposalReference(proposalRef, sessionId);
     if (!proposal) {
-      return makeResponse({ ok: false, lines: [fail(`proposal not found: ${proposalId}`)] });
+      return makeResponse({ ok: false, lines: [fail(`提案未找到 / proposal not found: ${proposalRef}`)] });
     }
+    const alias = getProposalAlias(proposal.id, sessionId);
+    const aliasPart = alias ? `${alias} ` : '';
+    const nextActionLine = (() => {
+      if (proposal.approvalStatus === 'Wait') {
+        return '[next] 输入 Y 批准并应用到草稿，输入 N 拒绝 / Press Y to approve, N to reject';
+      }
+      if (proposal.approvalStatus === 'Yes' && proposal.saveStatus === 'Wait') {
+        return '[next] 输入 Y 保存到本地主库，输入 N 取消保存 / Press Y to save, N to unsave';
+      }
+      return '[done] 审核闭环已完成 / review flow closed';
+    })();
     return makeResponse({
       lines: [
-        `id=${proposal.id}`,
-        `domain=${proposal.domain}`,
-        `operation=${proposal.operation}`,
-        `approval=${proposal.approvalStatus}`,
-        `save=${proposal.saveStatus}`,
-        `summary=${proposal.summary || '-'}`,
-        `payload=${JSON.stringify(proposal.payload).slice(0, 200)}...`,
+        `提案 / Proposal: ${aliasPart}${proposal.id}`,
+        `领域 / Domain: ${proposal.domain}`,
+        `操作 / Operation: ${proposal.operation}`,
+        `来源 / Source: ${proposal.client || '-'}`,
+        `审核 / Reviewer: ${proposal.reviewedBy || '-'}`,
+        `审批 / Approval: ${labelApproval(proposal.approvalStatus)}`,
+        `保存 / Save: ${labelSave(proposal.saveStatus)}`,
+        `摘要 / Summary: ${proposal.summary || '-'}`,
+        nextActionLine,
+        `Payload: ${JSON.stringify(proposal.payload).slice(0, 200)}...`,
       ],
       data: { proposal },
     });
   }
 
   if (command === 'proposal.approve') {
-    const [proposalId] = args;
-    if (!proposalId) {
-      return makeResponse({ ok: false, lines: [fail('usage: proposal.approve <proposalId>')] });
+    const [proposalRef] = args;
+    if (!proposalRef) {
+      return makeResponse({ ok: false, lines: [fail('usage: proposal.approve <proposalId|alias>')] });
     }
-    const allProposals = readAgentProposals();
-    const proposal = allProposals.find((p) => p.id === proposalId);
+    const proposal = resolveProposalReference(proposalRef, sessionId);
     if (!proposal) {
-      return makeResponse({ ok: false, lines: [fail(`proposal not found: ${proposalId}`)] });
+      return makeResponse({ ok: false, lines: [fail(`提案未找到 / proposal not found: ${proposalRef}`)] });
     }
     if (proposal.approvalStatus !== 'Wait') {
-      return makeResponse({ ok: false, lines: [fail(`proposal ${proposalId} is not waiting for approval`)] });
+      return makeResponse({ ok: false, lines: [fail(`提案 ${proposal.id} 不在待审批状态 / proposal is not waiting for approval`)] });
     }
     const adapter = findFillDomainAdapterByDomain(proposal.domain);
     if (!adapter) {
-      return makeResponse({ ok: false, lines: [fail(`no adapter for domain: ${proposal.domain}`)] });
+      return makeResponse({ ok: false, lines: [fail(`未找到领域适配器 / no adapter for domain: ${proposal.domain}`)] });
     }
     const applyResult = adapter.applyToWorkingState(proposal.payload);
     if (!applyResult.ok) {
-      return makeResponse({ ok: false, lines: [fail(`apply failed: ${applyResult.error || 'unknown'}`)] });
+      return makeResponse({ ok: false, lines: [fail(`应用失败 / apply failed: ${applyResult.error || 'unknown'}`)] });
     }
     const updated = approveAgentProposal(proposal.id);
+    const alias = getProposalAlias(updated?.id ?? proposal.id, sessionId);
+    const aliasPart = alias ? `${alias} ` : '';
     return makeResponse({
-      lines: [ok(`proposal approved: ${proposalId}`)],
+      lines: [
+        ok(`已批准并应用到当前草稿 / approved and applied to working draft: ${aliasPart}${updated?.id ?? proposal.id}`),
+        `[state] 审批=${labelApproval(updated?.approvalStatus ?? proposal.approvalStatus)} 保存=${labelSave(updated?.saveStatus ?? proposal.saveStatus)}`,
+        `[next] 输入 Y 保存到本地主库，输入 N 取消保存 / Press Y to save, N to unsave`,
+      ],
       effects: { writes: true, storage: [adapter.draftStorageKey] },
       data: { proposal: updated },
       proposal: updated ? {
@@ -1072,22 +1165,32 @@ function executeCommand(
         domain: updated.domain,
         approval: updated.approvalStatus,
         save: updated.saveStatus,
-        nextAction: 'save or unsave',
+        nextAction: 'reply Y/N in web-cli to save or unsave',
       } : undefined,
     });
   }
 
   if (command === 'proposal.reject') {
-    const [proposalId] = args;
-    if (!proposalId) {
-      return makeResponse({ ok: false, lines: [fail('usage: proposal.reject <proposalId>')] });
+    const [proposalRef] = args;
+    if (!proposalRef) {
+      return makeResponse({ ok: false, lines: [fail('usage: proposal.reject <proposalId|alias>')] });
     }
-    const updated = rejectAgentProposal(proposalId);
+    const proposal = resolveProposalReference(proposalRef, sessionId);
+    if (!proposal) {
+      return makeResponse({ ok: false, lines: [fail(`提案未找到 / proposal not found: ${proposalRef}`)] });
+    }
+    const updated = rejectAgentProposal(proposal.id);
     if (!updated) {
-      return makeResponse({ ok: false, lines: [fail(`proposal not found or not in Wait status: ${proposalId}`)] });
+      return makeResponse({ ok: false, lines: [fail(`提案未找到或不在待审批状态 / proposal not found or not in Wait status: ${proposal.id}`)] });
     }
+    const alias = getProposalAlias(updated.id, sessionId);
+    const aliasPart = alias ? `${alias} ` : '';
     return makeResponse({
-      lines: [ok(`proposal rejected: ${proposalId}`)],
+      lines: [
+        ok(`已拒绝提案，未修改草稿 / rejected, draft unchanged: ${aliasPart}${updated.id}`),
+        `[state] 审批=${labelApproval(updated.approvalStatus)} 保存=${labelSave(updated.saveStatus)}`,
+        `[done] 审核闭环结束 / review flow closed`,
+      ],
       data: { proposal: updated },
       proposal: {
         id: updated.id,
@@ -1100,32 +1203,37 @@ function executeCommand(
   }
 
   if (command === 'proposal.save') {
-    const [proposalId] = args;
-    if (!proposalId) {
-      return makeResponse({ ok: false, lines: [fail('usage: proposal.save <proposalId>')] });
+    const [proposalRef] = args;
+    if (!proposalRef) {
+      return makeResponse({ ok: false, lines: [fail('usage: proposal.save <proposalId|alias>')] });
     }
-    const allProposals = readAgentProposals();
-    const proposal = allProposals.find((p) => p.id === proposalId);
+    const proposal = resolveProposalReference(proposalRef, sessionId);
     if (!proposal) {
-      return makeResponse({ ok: false, lines: [fail(`proposal not found: ${proposalId}`)] });
+      return makeResponse({ ok: false, lines: [fail(`提案未找到 / proposal not found: ${proposalRef}`)] });
     }
     if (proposal.approvalStatus !== 'Yes' || proposal.saveStatus !== 'Wait') {
-      return makeResponse({ ok: false, lines: [fail(`proposal ${proposalId} is not ready to save`)] });
+      return makeResponse({ ok: false, lines: [fail(`提案 ${proposal.id} 不在可保存状态 / proposal is not ready to save`)] });
     }
     const adapter = findFillDomainAdapterByDomain(proposal.domain);
     if (!adapter) {
-      return makeResponse({ ok: false, lines: [fail(`no adapter for domain: ${proposal.domain}`)] });
+      return makeResponse({ ok: false, lines: [fail(`未找到领域适配器 / no adapter for domain: ${proposal.domain}`)] });
     }
     const saveResult = adapter.saveToLocalTruth(proposal.payload);
     if (!saveResult.ok) {
-      return makeResponse({ ok: false, lines: [fail(`save failed: ${saveResult.error || 'unknown'}`)] });
+      return makeResponse({ ok: false, lines: [fail(`保存失败 / save failed: ${saveResult.error || 'unknown'}`)] });
     }
     const updated = markAgentProposalSaved(proposal.id);
     const storageKeys = proposal.domain === 'buff'
       ? [adapter.draftStorageKey, adapter.libraryStorageKey, BUFF_UNDO_STORAGE_KEY]
       : [adapter.draftStorageKey, adapter.libraryStorageKey];
+    const alias = getProposalAlias(updated?.id ?? proposal.id, sessionId);
+    const aliasPart = alias ? `${alias} ` : '';
     return makeResponse({
-      lines: [ok(`proposal saved: ${proposalId}`)],
+      lines: [
+        ok(`已保存到本地主库 / saved to local truth: ${aliasPart}${updated?.id ?? proposal.id}`),
+        `[state] 审批=${labelApproval(updated?.approvalStatus ?? proposal.approvalStatus)} 保存=${labelSave(updated?.saveStatus ?? proposal.saveStatus)}`,
+        `[done] 审核闭环完成 / review flow complete`,
+      ],
       data: { proposal: updated },
       effects: { writes: true, storage: storageKeys },
       proposal: updated ? {
@@ -1139,23 +1247,33 @@ function executeCommand(
   }
 
   if (command === 'proposal.unsave') {
-    const [proposalId] = args;
-    if (!proposalId) {
-      return makeResponse({ ok: false, lines: [fail('usage: proposal.unsave <proposalId>')] });
+    const [proposalRef] = args;
+    if (!proposalRef) {
+      return makeResponse({ ok: false, lines: [fail('usage: proposal.unsave <proposalId|alias>')] });
     }
-    const updated = markAgentProposalUnsaved(proposalId);
+    const proposal = resolveProposalReference(proposalRef, sessionId);
+    if (!proposal) {
+      return makeResponse({ ok: false, lines: [fail(`提案未找到 / proposal not found: ${proposalRef}`)] });
+    }
+    const updated = markAgentProposalUnsaved(proposal.id);
     if (!updated) {
-      return makeResponse({ ok: false, lines: [fail(`proposal not found or not in saveable status: ${proposalId}`)] });
+      return makeResponse({ ok: false, lines: [fail(`提案未找到或不在可保存状态 / proposal not found or not in saveable status: ${proposal.id}`)] });
     }
+    const alias = getProposalAlias(updated.id, sessionId);
+    const aliasPart = alias ? `${alias} ` : '';
     return makeResponse({
-      lines: [ok(`proposal unsaved: ${proposalId}`)],
+      lines: [
+        ok(`已取消保存，主库未写入 / save cancelled, library unchanged: ${aliasPart}${updated.id}`),
+        `[state] 审批=${labelApproval(updated.approvalStatus)} 保存=${labelSave(updated.saveStatus)}`,
+        `[done] 审核闭环结束 / review flow closed`,
+      ],
       data: { proposal: updated },
       proposal: {
         id: updated.id,
         domain: updated.domain,
         approval: updated.approvalStatus,
         save: updated.saveStatus,
-        nextAction: 'save or unsave',
+        nextAction: 'none',
       },
     });
   }
@@ -1163,12 +1281,12 @@ function executeCommand(
   if (command === 'y') {
     const targets = readPendingAgentProposals(sessionId);
     if (targets.length === 0) {
-      return makeResponse({ ok: false, lines: [fail('no pending proposals in current session')] });
+      return makeResponse({ ok: false, lines: [fail('当前会话没有待处理提案 / no pending proposals in current session')] });
     }
     if (targets.length > 1) {
       return makeResponse({
         ok: false,
-        lines: [fail(`ambiguous: ${targets.length} pending proposals. use proposal.approve <id> or proposal.save <id>`)],
+        lines: [fail(`当前会话有 ${targets.length} 个待处理提案，请使用 proposal.list 查看，再用 proposal.approve #1 等显式命令处理 / multiple pending proposals; use proposal.list and explicit commands`)]
       });
     }
     const target = targets[0];
@@ -1178,18 +1296,18 @@ function executeCommand(
     if (target.approvalStatus === 'Yes' && target.saveStatus === 'Wait') {
       return executeCommand(`proposal.save ${target.id}`, draft, sourceText, client, sessionId);
     }
-    return makeResponse({ lines: [info(`proposal ${target.id} is already resolved`)] });
+    return makeResponse({ lines: [info(`提案 ${target.id} 已处理完毕 / proposal ${target.id} is already resolved`)] });
   }
 
   if (command === 'n') {
     const targets = readPendingAgentProposals(sessionId);
     if (targets.length === 0) {
-      return makeResponse({ ok: false, lines: [fail('no pending proposals in current session')] });
+      return makeResponse({ ok: false, lines: [fail('当前会话没有待处理提案 / no pending proposals in current session')] });
     }
     if (targets.length > 1) {
       return makeResponse({
         ok: false,
-        lines: [fail(`ambiguous: ${targets.length} pending proposals. use proposal.reject <id> or proposal.unsave <id>`)],
+        lines: [fail(`当前会话有 ${targets.length} 个待处理提案，请使用 proposal.list 查看，再用 proposal.reject #1 等显式命令处理 / multiple pending proposals; use proposal.list and explicit commands`)]
       });
     }
     const target = targets[0];
@@ -1199,7 +1317,7 @@ function executeCommand(
     if (target.approvalStatus === 'Yes' && target.saveStatus === 'Wait') {
       return executeCommand(`proposal.unsave ${target.id}`, draft, sourceText, client, sessionId);
     }
-    return makeResponse({ lines: [info(`proposal ${target.id} is already resolved`)] });
+    return makeResponse({ lines: [info(`提案 ${target.id} 已处理完毕 / proposal ${target.id} is already resolved`)] });
   }
 
   if (command === 'fill.source') {

@@ -353,7 +353,8 @@ export const weaponFillAdapter: AgentFillDomainAdapter<WeaponDraft> = {
         currentDraft: draft,
         librarySummary: Object.entries(library).map(([id, w]) => ({ id, name: w.name, rarity: w.rarity })),
         supportedEffectTypes: SUPPORTED_EFFECT_TYPES,
-        instruction: 'Return exactly one WeaponFillAiDraft JSON object. No Markdown. No explanation.',
+        instruction: 'Return exactly one WeaponFillAiDraft JSON object. No Markdown. No explanation. weapon.fill.apply creates a proposal only; it does NOT save to library. After apply, the user approves/saves in Web CLI with Y/Y. Do not ask the user to re-run weapon.fill.apply.',
+        approvalSaveWarning: 'IMPORTANT: After REST weapon.fill.apply, the proposal is handed off to Web CLI automatically. The user opens /ai-cli and presses Y to approve, then Y to save. Do NOT tell the user to re-run weapon.fill.apply in the browser.',
       },
     };
   },

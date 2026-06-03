@@ -25,6 +25,7 @@ export interface AiAgentProposal {
   client: AiAgentClient;
   sessionId?: string;
   summary?: string;
+  reviewedBy?: string;
   createdAt: number;
   updatedAt: number;
 }

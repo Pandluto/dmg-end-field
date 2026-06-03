@@ -104,24 +104,35 @@ External-agent responses and agent logs must expose both statuses. A command ret
 Task 12 owns the first concrete review operation loop. The loop is intentionally user-driven:
 
 ```text
-agent creates proposal
+agent creates proposal (via REST or Web CLI)
   -> app returns proposalId + approval=Wait + save=Wait
-  -> user reviews proposal
-  -> user enters Y/N for approval
+  -> REST proposals are automatically handed off to Web CLI via SSE
+  -> user opens /ai-cli and sees imported pending proposals
+  -> user enters Y/N for approval (or uses proposal.approve #1)
   -> if approved, app applies proposal to the web working state
-  -> user enters Y/N for save
+  -> user enters Y/N for save (or uses proposal.save #1)
   -> if saved, app persists to the domain localStorage truth
 ```
+
+Cross-store proposal handoff (Task 12 UX Fix 2):
+
+- REST `*.fill.apply` creates a proposal in `now-storage.json`.
+- The REST server broadcasts proposals through SSE `agent.records`.
+- Web CLI (`/ai-cli`) receives SSE and imports external pending proposals into browser `localStorage`.
+- Imported proposals keep their original `client` (rest/codex/claude) and get `reviewedBy='web-cli'`.
+- The user does **not** need to re-run `fill.apply` in the browser.
+- Single pending: user presses `Y` to approve, then `Y` to save.
+- Multiple pending: user runs `proposal.list`, then `proposal.approve #1` / `proposal.save #1`.
 
 Review commands, if implemented through AI CLI, must follow these semantics:
 
 ```text
 proposal.list
-proposal.show <proposalId>
-proposal.approve <proposalId>   # user confirmation only
-proposal.reject <proposalId>    # user confirmation only
-proposal.save <proposalId>      # user confirmation only
-proposal.unsave <proposalId>    # user confirmation only
+proposal.show <proposalId|alias>
+proposal.approve <proposalId|alias>   # user confirmation only
+proposal.reject <proposalId|alias>    # user confirmation only
+proposal.save <proposalId|alias>      # user confirmation only
+proposal.unsave <proposalId|alias>    # user confirmation only
 Y                               # special short input, web-cli only
 N                               # special short input, web-cli only
 ```
@@ -137,7 +148,7 @@ Rules:
 - The proposal lookup for `Y` / `N` must be session-scoped. Implement `readPendingAgentProposals(sessionId?)` or an equivalent `readPendingAgentProposalsForSession(sessionId)` helper.
 - `proposal.list` may show all pending proposals by default, but `Y` / `N` must only consider proposals whose `sessionId` matches the current session.
 - If there are zero pending proposals, `Y` / `N` must fail with an informational message.
-- If there are multiple pending proposals, `Y` / `N` must fail and ask for an explicit `proposal.show <proposalId>` or `proposal.approve/reject/save/unsave <proposalId>` command.
+- If there are multiple pending proposals, `Y` / `N` must fail and ask for an explicit `proposal.show <proposalId|alias>` or `proposal.approve/reject/save/unsave <proposalId|alias>` command.
 - The implementation must not silently choose the latest proposal when `Y` / `N` is ambiguous.
 - `Y` first resolves approval. If approval is already `Yes` and save is `Wait`, then `Y` resolves save.
 - `N` first rejects approval. If approval is already `Yes` and save is `Wait`, then `N` marks unsaved/cancelled.
@@ -145,6 +156,7 @@ Rules:
 - A rejected proposal must set `approval=No` and `save=No`.
 - A saved proposal must set `approval=Yes` and `save=Yes`.
 - An approved-but-unsaved proposal must set `approval=Yes` and `save=No`.
+- External agents must not tell users to re-run `fill.apply` in the browser after REST apply. The handoff mechanism imports the proposal automatically.
 
 ## Implementation Language
 
@@ -913,6 +925,8 @@ REST rule:
 - Agents should read `GET /api/buff/library` first. `GET /api/buff/current` is only active editor state.
 - External agents must not infer that `ok:true` means business persistence is complete. They must inspect `proposal.approval` and `proposal.save` when a command enters the approval flow.
 - REST proposal endpoints, if added, must distinguish query endpoints from user-confirmation endpoints. Query endpoints may be readonly; approval/save endpoints must not be available to default readonly agents.
+- REST `*.fill.apply` creates a proposal only. The actual approval and save must happen in Web CLI.
+- After REST apply, agents must guide users to open `/ai-cli` and use `Y/Y` or `proposal.approve #1` / `proposal.save #1`. Do not ask users to re-run `fill.apply` in the browser.
 
 Current local development entry:
 

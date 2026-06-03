@@ -232,12 +232,15 @@ export function handleAiCliRestRequest(
         'Use fill.check before fill.apply.',
         'Use decimal numbers for percentages, for example 20% => 0.2.',
         'Do not invent modifier types; use the app-provided modifier catalog in fill.task.',
-        'Treat REST apply as a write operation.',
+        'Treat REST apply as a proposal creation only; it does NOT save to library.',
+        'After REST apply, guide the user to open /ai-cli and use Y/Y or proposal.approve #1 / proposal.save #1.',
+        'Do NOT ask the user to re-run fill.apply in the browser.',
       ],
       clientHints: {
         readonly: 'Default rest client is read/dry-run oriented.',
         write: 'Use explicit write profile/client only when the user has confirmed.',
         events: 'Subscribe to GET /api/agent/events for SSE agent.records updates.',
+        handoff: 'REST fill.apply creates a proposal. Web CLI imports pending proposals via SSE. Users approve/save in Web CLI with Y/Y. Do not re-run fill.apply.',
       },
       examples: {
         readDraft: {
@@ -283,7 +286,11 @@ export function handleAiCliRestRequest(
             'Build exactly one BuffFillAiDraft JSON object.',
             'Call POST /api/buff/fill/check.',
             'If check fails, fix JSON and check again.',
-            'Call POST /api/buff/fill/apply only after validation passes and the user expects a write. The app writes library and active draft.',
+            'Call POST /api/buff/fill/apply only after validation passes. This creates a proposal, NOT a library write.',
+            'After apply, guide the user to open /ai-cli. The pending proposal is imported automatically.',
+            'Single pending: user presses Y to approve, then Y to save.',
+            'Multiple pending: user runs proposal.list, then proposal.approve #1 / proposal.save #1.',
+            'Do NOT ask the user to re-run fill.apply in the browser.',
             'Read GET /api/agent/logs or SSE records to confirm audit output.',
           ],
           outputContract: {
@@ -441,6 +448,13 @@ export function handleAiCliRestRequest(
       sessionId: context.sessionId,
     });
     response.requestId = request.body.requestId;
+    // Override nextAction and lines for REST apply to always guide users to Web CLI
+    if (request.path.endsWith('/apply') && response.proposal) {
+      response.proposal.nextAction = 'open Web CLI /ai-cli; the pending proposal will be imported automatically. press Y to approve, then Y to save. do not re-run fill.apply.';
+      if (!response.lines.some((l) => l.includes('handoff') || l.includes('Web CLI'))) {
+        response.lines.push('[handoff] 此提案将自动同步到 Web CLI，无需重新 fill.apply / this proposal will auto-sync to Web CLI');
+      }
+    }
     return jsonResponse(response.ok ? 200 : 400, response);
   }
 

@@ -325,7 +325,79 @@ export function readAgentRecordSnapshot() {
     session: readAgentSession(),
     operationLogs: readOperationLogs(),
     permissionProfiles: readPermissionProfiles(),
+    proposals: readAgentProposals(),
   };
+}
+
+/**
+ * Import external proposals (e.g. from REST/SSE) into browser localStorage.
+ * - Deduplicates by proposal.id.
+ * - Browser-side state wins: if local proposal is already saved/rejected/unsaved, do not overwrite.
+ * - Reassigns sessionId to current web-cli session so Y/N shortcuts work.
+ * - Preserves original client in `client`, marks reviewer in `reviewedBy`.
+ * Returns the number of newly imported proposals and the total pending count after import.
+ */
+export function importExternalProposals(
+  externalProposals: AiAgentProposal[],
+  currentSessionId: string,
+): { imported: number; pendingCount: number; lines: string[] } {
+  const localProposals = readAgentProposals();
+  const localMap = new Map(localProposals.map((p) => [p.id, p]));
+  let imported = 0;
+
+  for (const ext of externalProposals) {
+    const local = localMap.get(ext.id);
+    if (local) {
+      // Browser-side state wins: if local is already resolved, skip
+      if (local.approvalStatus !== 'Wait' && !(local.approvalStatus === 'Yes' && local.saveStatus === 'Wait')) {
+        continue;
+      }
+      // If local is pending but external is also pending, keep local (avoid overwriting)
+      if (ext.approvalStatus === 'Wait' || (ext.approvalStatus === 'Yes' && ext.saveStatus === 'Wait')) {
+        continue;
+      }
+    }
+    // Only import proposals that are pending (Wait or Yes/Wait)
+    if (ext.approvalStatus !== 'Wait' && !(ext.approvalStatus === 'Yes' && ext.saveStatus === 'Wait')) {
+      continue;
+    }
+    const merged: AiAgentProposal = {
+      ...ext,
+      sessionId: currentSessionId,
+      reviewedBy: 'web-cli',
+      updatedAt: Date.now(),
+    };
+    if (local) {
+      // Replace existing entry at same index to keep order
+      const index = localProposals.findIndex((p) => p.id === ext.id);
+      if (index >= 0) {
+        localProposals[index] = merged;
+      } else {
+        localProposals.push(merged);
+      }
+    } else {
+      localProposals.push(merged);
+      imported++;
+    }
+  }
+
+  writeJsonStorage(AI_AGENT_PROPOSALS_STORAGE_KEY, localProposals);
+
+  const pendingCount = localProposals.filter(
+    (p) => p.approvalStatus === 'Wait' || (p.approvalStatus === 'Yes' && p.saveStatus === 'Wait'),
+  ).length;
+
+  const lines: string[] = [];
+  if (imported > 0) {
+    lines.push(`[handoff] 已接收外部待审批提案 / imported external pending proposals: ${imported}`);
+    if (pendingCount === 1) {
+      lines.push('[next] 输入 proposal.list 查看，或输入 Y 审批当前唯一提案 / Use proposal.list or press Y when only one proposal is pending');
+    } else if (pendingCount > 1) {
+      lines.push(`[next] 当前有 ${pendingCount} 个待处理提案，请使用 proposal.list 查看，再用 proposal.approve #1 等显式命令处理 / ${pendingCount} pending proposals; use proposal.list and explicit commands`);
+    }
+  }
+
+  return { imported, pendingCount, lines };
 }
 
 export function appendOperationLog(log: Omit<AiAgentOperationLog, 'id' | 'createdAt'>) {

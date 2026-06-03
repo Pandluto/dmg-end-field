@@ -101,11 +101,18 @@ try {
   assert(guide.payload.mainTruth?.storage === 'localStorage.def.buff-editor.library.v1', 'guide should describe library as main truth');
   assert(guide.payload.formats?.readFormat?.name === 'BuffDraft', 'guide should describe read format');
   assert(guide.payload.formats?.writeProposalFormat?.name === 'BuffFillAiDraft', 'guide should describe write proposal format');
+  assert(guide.payload.clientHints?.handoff?.includes('Do not re-run fill.apply'), 'guide clientHints.handoff should mention not re-running fill.apply');
+  const safetyRules = guide.payload.safetyRules || [];
+  assert(safetyRules.some((r) => r.includes('proposal creation only')), 'guide safetyRules should mention proposal creation only');
+  assert(safetyRules.some((r) => r.includes('re-run fill.apply')), 'guide safetyRules should mention not re-running fill.apply');
 
   const skills = await request('GET', '/api/agent/skills');
   assert(skills.status === 200, `skills status=${skills.status}`);
   assert(skills.payload.ok === true, 'skills should be ok');
   assert(skills.payload.skills?.[0]?.id === 'buff.fill', 'skills should include buff.fill');
+  const buffSkillProcedure = skills.payload.skills[0].procedure || [];
+  assert(buffSkillProcedure.some((s) => s.includes('proposal')), 'buff.fill skill procedure should mention proposal');
+  assert(buffSkillProcedure.some((s) => s.includes('re-run fill.apply')), 'buff.fill skill procedure should mention not re-running fill.apply');
 
   const spec = await request('GET', '/api/ai-cli/spec');
   assert(spec.status === 200, `spec status=${spec.status}`);
@@ -169,6 +176,8 @@ try {
   assert(fillTask.payload.data?.tool === 'buff.fill', 'fill.task should return structured data.tool');
   assert(fillTask.payload.data?.outputSchema, 'fill.task should return structured outputSchema');
   assert(fillTask.payload.data?.modifierCatalog, 'fill.task should return structured modifierCatalog');
+  assert(fillTask.payload.data?.instruction?.includes('proposal only'), 'fill.task instruction should mention proposal only');
+  assert(fillTask.payload.data?.approvalSaveWarning?.includes('handed off'), 'fill.task should include approvalSaveWarning about handoff');
   assert(fillTask.payload.copyText === undefined, 'fill.task should not return copyText for REST client');
 
   const fillTaskWebCli = await request('POST', '/api/ai-cli/run?client=web-cli', {
@@ -261,6 +270,9 @@ try {
   assert(apply.payload.proposal?.id, 'apply should return proposal.id');
   assert(apply.payload.proposal?.approval === 'Wait', 'apply proposal should be Wait');
   assert(apply.payload.proposal?.save === 'Wait', 'apply proposal should be save=Wait');
+  assert(apply.payload.proposal?.nextAction?.includes('Web CLI') || apply.payload.proposal?.nextAction?.includes('Y to approve'), 'apply proposal.nextAction should guide user to Web CLI Y/Y');
+  const applyLines = apply.payload.lines || [];
+  assert(applyLines.some((l) => l.includes('handoff') || l.includes('Web CLI')), 'apply lines should mention handoff or Web CLI');
 
   const libraryAfterApply = await request('GET', '/api/buff/library/ai-result');
   assert(libraryAfterApply.status === 404, `library entry should not exist after apply-only: status=${libraryAfterApply.status}`);

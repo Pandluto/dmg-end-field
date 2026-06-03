@@ -109,8 +109,9 @@ function buildTaskPackage(draft: BuffDraft, sourceText: string) {
     librarySummary: formatLibrarySummary(library),
     modifierCatalog,
     systemPrompt: buffSheetAiSystemPromptRaw.trim(),
-    instruction: 'Return exactly one BuffFillAiDraft JSON object. No Markdown. No explanation.',
+    instruction: 'Return exactly one BuffFillAiDraft JSON object. No Markdown. No explanation. fill.apply creates a proposal only; it does NOT save to library. After apply, the user approves/saves in Web CLI with Y/Y. Do not ask the user to re-run fill.apply.',
     outputSchema: createBuffFillAiDraftSchema(),
+    approvalSaveWarning: 'IMPORTANT: After REST fill.apply, the proposal is handed off to Web CLI automatically. The user opens /ai-cli and presses Y to approve, then Y to save. Do NOT tell the user to re-run fill.apply in the browser.',
   };
 }
 
