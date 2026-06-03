@@ -594,8 +594,9 @@ function executeCommand(
         '  After REST apply, the proposal is automatically handed off to Web CLI via SSE.',
         '  Do NOT ask the user to re-run fill.apply in the browser.',
         '  Single pending: user opens /ai-cli and presses Y to approve, then Y to save.',
-        '  Multiple pending: run proposal.list, then proposal.approve #1 / proposal.save #1, or proposal.clear for stale backlog.',
-        '  If stale pending proposals block Y/N, external agents may call proposal.clear through REST before submitting another fill.apply.',
+        '  Before asking the user to approve, self-check pending proposal count from apply response or proposal.list.',
+        '  If multiple pending proposals block Y/Y, call REST proposal.clear immediately, then resubmit only the current proposal.',
+        '  If multiple edits are intended, submit and finish them one by one.',
         '  REST approval/save commands return 403. This is expected; approval must happen in Web CLI.',
       ],
     });
@@ -1072,6 +1073,13 @@ function executeCommand(
       });
       const alias = getProposalAlias(proposal.id, sessionId);
       const aliasPart = alias ? `${alias} ` : '';
+      const pendingAfterCreate = readPendingAgentProposals(sessionId);
+      const restBacklogLines = client === 'rest' && pendingAfterCreate.length > 1
+        ? [
+            `[check] pending proposals=${pendingAfterCreate.length}; Y/Y will be blocked before user approval (待处理提案=${pendingAfterCreate.length}，用户审批前 Y/Y 会被阻塞)`,
+            '[action] Call REST proposal.clear now, then resubmit only the current proposal. For multiple edits, submit and finish them one by one. (请外部 agent 立刻通过 REST 调用 proposal.clear 删除所有提案，再重新提交当前这一个；多个提案请逐个提交、逐个审批)',
+          ]
+        : [];
       const nextActionText = client === 'rest'
         ? 'Open Web CLI /ai-cli; proposal auto-imports via SSE. Press Y to approve, then Y to save.'
         : 'Press Y to approve, N to reject';
@@ -1084,6 +1092,7 @@ function executeCommand(
           `[state] approval=${labelApproval(proposal.approvalStatus)} save=${labelSave(proposal.saveStatus)} (审批=${labelApprovalZh(proposal.approvalStatus)} 保存=${labelSaveZh(proposal.saveStatus)})`,
           `[next] ${nextActionText} (${nextActionZh})`,
           client === 'rest' ? '[handoff] auto-syncing to Web CLI via SSE. Do not re-run fill.apply. (将自动同步到 Web CLI，无需重新执行 fill.apply)' : '',
+          ...restBacklogLines,
         ].filter(Boolean),
         effects: { writes: false, storage: [] },
         workflow: adapter.workflow,

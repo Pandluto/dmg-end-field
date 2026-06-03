@@ -358,17 +358,19 @@ function isValidExternalProposal(proposal: unknown): proposal is AiAgentProposal
 export function importExternalProposals(
   externalProposals: unknown[],
   currentSessionId: string,
-): { imported: number; pendingCount: number; lines: string[]; rejected: number } {
+): { imported: number; pendingCount: number; lines: string[]; rejected: number; resolvedSynced: number } {
   const localProposals = readAgentProposals();
   const localMap = new Map(localProposals.map((p) => [p.id, p]));
   let imported = 0;
   let rejected = 0;
+  let resolvedSynced = 0;
 
   for (const ext of externalProposals) {
     if (!isValidExternalProposal(ext)) {
       rejected++;
       continue;
     }
+    const extPending = ext.approvalStatus === 'Wait' || (ext.approvalStatus === 'Yes' && ext.saveStatus === 'Wait');
     const local = localMap.get(ext.id);
     if (local) {
       // Browser-side state wins: if local is already resolved, skip
@@ -376,12 +378,24 @@ export function importExternalProposals(
         continue;
       }
       // If local is pending but external is also pending, keep local (avoid overwriting)
-      if (ext.approvalStatus === 'Wait' || (ext.approvalStatus === 'Yes' && ext.saveStatus === 'Wait')) {
+      if (extPending) {
         continue;
       }
+      const index = localProposals.findIndex((p) => p.id === ext.id);
+      if (index >= 0) {
+        localProposals[index] = {
+          ...local,
+          approvalStatus: ext.approvalStatus,
+          saveStatus: ext.saveStatus,
+          reviewedBy: ext.reviewedBy || ext.client,
+          updatedAt: Date.now(),
+        };
+        resolvedSynced++;
+      }
+      continue;
     }
     // Only import proposals that are pending (Wait or Yes/Wait)
-    if (ext.approvalStatus !== 'Wait' && !(ext.approvalStatus === 'Yes' && ext.saveStatus === 'Wait')) {
+    if (!extPending) {
       continue;
     }
     const merged: AiAgentProposal = {
@@ -426,8 +440,12 @@ export function importExternalProposals(
   if (rejected > 0) {
     lines.push(`[warn] rejected ${rejected} incomplete proposal${rejected === 1 ? '' : 's'} (拒绝 ${rejected} 个不完整提案)`);
   }
+  if (resolvedSynced > 0) {
+    lines.push(`[handoff] synced ${resolvedSynced} resolved proposal${resolvedSynced === 1 ? '' : 's'} (已同步关闭 ${resolvedSynced} 个提案)`);
+    lines.push(`[state] ${pendingCount} pending proposals in current session (当前会话 ${pendingCount} 个待处理提案)`);
+  }
 
-  return { imported, pendingCount, lines, rejected };
+  return { imported, pendingCount, lines, rejected, resolvedSynced };
 }
 
 export function appendOperationLog(log: Omit<AiAgentOperationLog, 'id' | 'createdAt'>) {

@@ -454,10 +454,12 @@ All agent-facing prompts (guide, spec, help, fill.task instruction, REST adapter
 3. After REST apply, the proposal is handed off to Web CLI automatically.
 4. Do NOT ask users to re-run `fill.apply` in the browser.
 5. Single pending: user opens `/ai-cli` and presses `Y` to approve, then `Y` to save.
-6. Multiple pending: user runs `proposal.list`, then `proposal.approve #1` / `proposal.save #1`, or external agents call `proposal.clear` to close stale pending proposals before a fresh apply.
-7. External agents must not keep submitting `fill.apply` when multiple pending proposals block `Y/Y`; they should call `proposal.clear` or explicitly handle the backlog.
-7. `ok:true` from REST apply only means proposal creation succeeded, not persistence.
-8. REST approval/save commands returning 403 is expected behavior.
+6. Before `fill.apply`, external agents self-check pending proposal count with `proposal.list`.
+7. REST `fill.apply` is refused while any pending proposal exists.
+8. For stale backlog, external agents call REST `proposal.clear`, then resubmit only the current proposal.
+9. If multiple edits are intended, external agents submit and finish them one by one instead of stacking pending proposals.
+10. `ok:true` from REST apply only means proposal creation succeeded, not persistence.
+11. REST approval/save commands returning 403 is expected behavior.
 
 ### Source / Reviewer Display
 

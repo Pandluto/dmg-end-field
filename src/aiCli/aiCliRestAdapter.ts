@@ -20,6 +20,7 @@ import {
   readAgentRecordSnapshot,
   readAgentSessions,
   readOperationLogs,
+  readPendingAgentProposals,
 } from './aiCliAgentInfrastructure';
 
 export const AI_CLI_REST_ENDPOINTS = [
@@ -62,6 +63,23 @@ function isDraftBody(value: unknown): value is { draft: unknown; requestId?: str
 
 function jsonResponse(status: number, body: unknown): AiCliRestResponse {
   return { status, body };
+}
+
+function pendingApplyBlockedResponse(pendingCount: number): AiCliRestResponse {
+  return jsonResponse(409, {
+    ok: false,
+    protocolVersion: AI_CLI_PROTOCOL_VERSION,
+    lines: [
+      `[blocked] fill.apply refused because ${pendingCount} pending proposal${pendingCount === 1 ? '' : 's'} already exist (已有 ${pendingCount} 个待处理提案，拒绝继续创建新提案)`,
+      '[action] Do not submit another fill.apply now. Call REST proposal.clear, then resubmit only the current proposal. For multiple edits, submit and finish them one by one. (不要继续提交 fill.apply；请先通过 REST 调用 proposal.clear，再只重新提交当前这一个；多个提案请逐个提交、逐个审批)',
+    ],
+    error: {
+      code: 'pending-proposals-blocking',
+      message: 'pending proposals block another fill.apply',
+      details: { pendingCount },
+    },
+    effects: { writes: false, storage: [] },
+  });
 }
 
 const buffFillTemplate = {
@@ -234,14 +252,15 @@ export function handleAiCliRestRequest(
         'Do not invent modifier types; use the app-provided modifier catalog in fill.task.',
         'Treat REST apply as a proposal creation only; it does NOT save to library.',
         'After REST apply, guide the user to open /ai-cli and use Y/Y or proposal.approve #1 / proposal.save #1.',
-        'If multiple pending proposals block Y/Y, do not submit another fill.apply. Call proposal.clear through POST /api/ai-cli/run or handle proposals explicitly.',
+        'Before fill.apply, self-check the pending proposal count with proposal.list.',
+        'If any pending proposal exists, REST fill.apply is refused. Call proposal.clear through POST /api/ai-cli/run only for stale backlog, then resubmit only the current proposal. If multiple edits are intended, submit and finish them one by one.',
         'Do NOT ask the user to re-run fill.apply in the browser.',
       ],
       clientHints: {
         readonly: 'Default rest client is read/dry-run oriented.',
         write: 'Use explicit write profile/client only when the user has confirmed.',
         events: 'Subscribe to GET /api/agent/events for SSE agent.records updates.',
-        handoff: 'REST fill.apply creates a proposal. Web CLI imports pending proposals via SSE. Users approve/save in Web CLI with Y/Y. If multiple pending proposals block Y/Y, call proposal.clear through POST /api/ai-cli/run or use explicit proposal commands. Do not re-run fill.apply.',
+        handoff: 'REST fill.apply creates a proposal. Web CLI imports pending proposals via SSE. REST refuses another fill.apply while any pending proposal exists. Call proposal.clear through POST /api/ai-cli/run only for stale backlog, then resubmit only the current proposal, or submit multiple edits one by one. Do not re-run fill.apply in Web CLI.',
       },
       examples: {
         readDraft: {
@@ -290,7 +309,8 @@ export function handleAiCliRestRequest(
             'Call POST /api/buff/fill/apply only after validation passes. This creates a proposal, NOT a library write.',
             'After apply, guide the user to open /ai-cli. The pending proposal is imported automatically.',
             'Single pending: user presses Y to approve, then Y to save.',
-            'Multiple pending: run proposal.list, then proposal.approve #1 / proposal.save #1, or call proposal.clear to reject/unsave stale proposals before a fresh apply.',
+            'Before fill.apply, self-check pending count with proposal.list.',
+            'If any pending proposal exists, REST fill.apply is refused. For stale backlog, call proposal.clear through POST /api/ai-cli/run, then resubmit only the current proposal. If multiple edits are intended, submit and finish them one by one.',
             'Do NOT ask the user to re-run fill.apply in the browser.',
             'Read GET /api/agent/logs or SSE records to confirm audit output.',
           ],
@@ -418,6 +438,11 @@ export function handleAiCliRestRequest(
         },
       });
     }
+    const pendingBeforeApply = readPendingAgentProposals(context.sessionId).length;
+    if ((cmd === 'fill.apply' || cmd.startsWith('fill.apply ') || cmd === 'weapon.fill.apply' || cmd.startsWith('weapon.fill.apply '))
+      && pendingBeforeApply > 0) {
+      return pendingApplyBlockedResponse(pendingBeforeApply);
+    }
 
     const response = runAiCliCommand({
       protocolVersion: AI_CLI_PROTOCOL_VERSION,
@@ -441,6 +466,10 @@ export function handleAiCliRestRequest(
     }
 
     const commandName = request.path.endsWith('/apply') ? 'fill.apply' : 'fill.check';
+    const pendingBeforeApply = readPendingAgentProposals(context.sessionId).length;
+    if (commandName === 'fill.apply' && pendingBeforeApply > 0) {
+      return pendingApplyBlockedResponse(pendingBeforeApply);
+    }
     const response = runAiCliCommand(createAiCliCommandRequest(
       `${commandName} ${JSON.stringify(request.body.draft)}`,
       client,
@@ -451,7 +480,15 @@ export function handleAiCliRestRequest(
     response.requestId = request.body.requestId;
     // Override nextAction and lines for REST apply to always guide users to Web CLI
     if (request.path.endsWith('/apply') && response.proposal) {
-      response.proposal.nextAction = 'open Web CLI /ai-cli; the pending proposal will be imported automatically. press Y to approve, then Y to save. do not re-run fill.apply.';
+      const pendingCount = readPendingAgentProposals(context.sessionId).length;
+      const approvalBlocked = pendingCount > 1;
+      if (approvalBlocked && !response.lines.some((line) => line.includes('proposal.clear now'))) {
+        response.lines.push(`[check] pending proposals=${pendingCount}; Y/Y will be blocked before user approval (待处理提案=${pendingCount}，用户审批前 Y/Y 会被阻塞)`);
+        response.lines.push('[action] Call REST proposal.clear now, then resubmit only the current proposal. For multiple edits, submit and finish them one by one. (请外部 agent 立刻通过 REST 调用 proposal.clear 删除所有提案，再重新提交当前这一个；多个提案请逐个提交、逐个审批)');
+      }
+      response.proposal.nextAction = approvalBlocked
+        ? 'call REST proposal.clear now, then resubmit only the current proposal; for multiple edits, submit and finish them one by one.'
+        : 'open Web CLI /ai-cli; the pending proposal will be imported automatically. press Y to approve, then Y to save. do not re-run fill.apply.';
       if (!response.lines.some((l) => l.includes('handoff') || l.includes('Web CLI'))) {
         response.lines.push('[handoff] this proposal will auto-sync to Web CLI. Do not re-run fill.apply. (将自动同步到 Web CLI，无需重新 fill.apply)');
       }

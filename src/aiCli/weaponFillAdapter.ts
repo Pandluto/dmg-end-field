@@ -393,8 +393,8 @@ export const weaponFillAdapter: AgentFillDomainAdapter<WeaponDraft> = {
         currentDraft: draft,
         librarySummary: Object.entries(library).map(([id, w]) => ({ id, name: w.name, rarity: w.rarity })),
         supportedEffectTypes: SUPPORTED_EFFECT_TYPES,
-        instruction: 'Return exactly one WeaponFillAiDraft JSON object. No Markdown. No explanation. weapon.fill.apply creates a proposal only; it does NOT save to library. After apply, the user approves/saves in Web CLI with Y/Y. If multiple pending proposals block Y/Y, call proposal.clear through REST or handle proposals explicitly before another weapon.fill.apply. Do not ask the user to re-run weapon.fill.apply.',
-        approvalSaveWarning: 'IMPORTANT: After REST weapon.fill.apply, the proposal is handed off to Web CLI automatically. The user opens /ai-cli and presses Y to approve, then Y to save. If stale pending proposals block Y/Y, call proposal.clear through REST. Do NOT tell the user to re-run weapon.fill.apply in the browser.',
+        instruction: 'Return exactly one WeaponFillAiDraft JSON object. No Markdown. No explanation. weapon.fill.apply creates a proposal only; it does NOT save to library. Before weapon.fill.apply, self-check pending count with proposal.list. REST weapon.fill.apply is refused while any pending proposal exists. For stale backlog, call proposal.clear through REST, then resubmit only the current proposal. If multiple edits are intended, submit and finish them one by one. Do not ask the user to re-run weapon.fill.apply.',
+        approvalSaveWarning: 'IMPORTANT: After REST weapon.fill.apply, the proposal is handed off to Web CLI automatically. Do not submit another weapon.fill.apply while a pending proposal exists. For stale backlog, call proposal.clear through REST, then resubmit only the current proposal. Do NOT tell the user to re-run weapon.fill.apply in the browser.',
       },
     };
   },
