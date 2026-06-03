@@ -13,7 +13,7 @@ const AI_AGENT_ACTIVE_SESSION_ID_STORAGE_KEY = 'def.ai-agent.active-session-id.v
 const AI_AGENT_SESSION_STORAGE_KEY = 'def.ai-agent.session.v1';
 const AI_AGENT_OPERATION_LOGS_STORAGE_KEY = 'def.ai-agent.operation-logs.v1';
 const AI_AGENT_PERMISSION_PROFILES_STORAGE_KEY = 'def.ai-agent.permission-profiles.v1';
-const AI_AGENT_PROPOSALS_STORAGE_KEY = 'def.ai-agent.proposals.v1';
+export const AI_AGENT_PROPOSALS_STORAGE_KEY = 'def.ai-agent.proposals.v1';
 const AI_AGENT_CONTEXT_MESSAGE_LIMIT = 80;
 
 export const KNOWN_COMMANDS = new Set([
@@ -29,7 +29,7 @@ export const KNOWN_COMMANDS = new Set([
   'effect.list', 'effect.add', 'effect.set', 'effect.delete',
   'fill.task', 'fill.task.copy', 'fill.check', 'fill.apply', 'fill.source',
   'weapon.fill.task', 'weapon.fill.check', 'weapon.fill.apply',
-  'proposal.list', 'proposal.show', 'proposal.approve', 'proposal.reject', 'proposal.save', 'proposal.unsave',
+  'proposal.list', 'proposal.show', 'proposal.approve', 'proposal.reject', 'proposal.save', 'proposal.unsave', 'proposal.clear',
   'y', 'n',
 ]);
 
@@ -420,7 +420,7 @@ export function importExternalProposals(
       lines.push('[next] Use proposal.list or press Y (使用 proposal.list 查看，或按 Y 审批)');
     } else if (pendingCount > 1) {
       lines.push(`[state] ${pendingCount} pending proposals in current session (当前会话 ${pendingCount} 个待处理提案)`);
-      lines.push('[next] Use proposal.list and explicit commands like proposal.approve #N (先查看列表，再处理指定提案)');
+      lines.push('[next] Use proposal.list, explicit commands, or proposal.clear (先查看列表、显式处理，或清理旧提案)');
     }
   }
   if (rejected > 0) {
@@ -519,4 +519,32 @@ export function markAgentProposalUnsaved(id: string): AiAgentProposal | null {
     return null;
   }
   return updateAgentProposal(id, { saveStatus: 'No' });
+}
+
+export function clearPendingAgentProposals(sessionId?: string): { cleared: AiAgentProposal[]; remaining: number } {
+  const existing = readAgentProposals();
+  const now = Date.now();
+  const cleared: AiAgentProposal[] = [];
+  const next = existing.map((proposal) => {
+    const isPending = proposal.approvalStatus === 'Wait' || (proposal.approvalStatus === 'Yes' && proposal.saveStatus === 'Wait');
+    if (!isPending || (sessionId !== undefined && proposal.sessionId !== sessionId)) {
+      return proposal;
+    }
+    const updated: AiAgentProposal = {
+      ...proposal,
+      approvalStatus: proposal.approvalStatus === 'Wait' ? 'No' : proposal.approvalStatus,
+      saveStatus: 'No',
+      reviewedBy: 'web-cli',
+      updatedAt: now,
+    };
+    cleared.push(updated);
+    return updated;
+  });
+  writeJsonStorage(AI_AGENT_PROPOSALS_STORAGE_KEY, next);
+  const remaining = next.filter(
+    (p) =>
+      (sessionId === undefined || p.sessionId === sessionId)
+      && (p.approvalStatus === 'Wait' || (p.approvalStatus === 'Yes' && p.saveStatus === 'Wait')),
+  ).length;
+  return { cleared, remaining };
 }

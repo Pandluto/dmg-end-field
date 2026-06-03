@@ -111,6 +111,7 @@ Alias rules:
   - `proposal.reject #1`
   - `proposal.save #1`
   - `proposal.unsave #1`
+  - `proposal.clear`
 - Full proposal ids continue to work.
 - If an alias is out of range, return `ok:false` with English primary error plus a short Chinese annotation.
 - Alias resolution should be scoped to the current session when the command depends on current session UX.
@@ -227,8 +228,10 @@ No pending:
 Multiple pending:
 
 ```text
-[err] 2 pending proposals in current session. Use proposal.list and explicit commands. (当前会话有 2 个待处理提案，请先查看列表再处理指定提案)
+[err] 2 pending proposals in current session. Use proposal.list, explicit commands, or proposal.clear. (当前会话有 2 个待处理提案，请先查看列表、显式处理，或用 proposal.clear 清理)
 ```
+
+`proposal.clear` is a Web CLI user action that rejects unsent proposals and marks approved-but-unsaved proposals as unsaved in the current session. It does not write domain library storage.
 
 ### 5. Human-readable `proposal.list`
 
@@ -315,6 +318,7 @@ proposal.approve
 proposal.reject
 proposal.save
 proposal.unsave
+proposal.clear
 fill.task
 fill.task.copy
 fill.check
@@ -438,7 +442,7 @@ For multiple pending proposals:
 ```text
 [handoff] imported 3 external proposals (已导入 3 个外部提案)
 [state] 3 pending proposals in current session (当前会话 3 个待处理提案)
-[next] Use proposal.list and explicit commands like proposal.approve #N (先查看列表，再处理指定提案)
+[next] Use proposal.list, explicit commands, or proposal.clear (先查看列表、显式处理，或清理旧提案)
 ```
 
 ### Agent-facing Prompt Rules
@@ -450,7 +454,8 @@ All agent-facing prompts (guide, spec, help, fill.task instruction, REST adapter
 3. After REST apply, the proposal is handed off to Web CLI automatically.
 4. Do NOT ask users to re-run `fill.apply` in the browser.
 5. Single pending: user opens `/ai-cli` and presses `Y` to approve, then `Y` to save.
-6. Multiple pending: user runs `proposal.list`, then `proposal.approve #1` / `proposal.save #1`.
+6. Multiple pending: user runs `proposal.list`, then `proposal.approve #1` / `proposal.save #1`, or `proposal.clear` to close stale pending proposals before a fresh apply.
+7. External agents must not keep submitting `fill.apply` when multiple pending proposals block `Y/Y`; they should tell the user to clear or explicitly handle the backlog.
 7. `ok:true` from REST apply only means proposal creation succeeded, not persistence.
 8. REST approval/save commands returning 403 is expected behavior.
 

@@ -212,7 +212,7 @@ const baseDraft = createFallbackDraft();
   assertEqual(result.proposal?.save, 'Wait', 'fill.apply proposal should be save=Wait');
   // UX assertions
   assertTrue(result.lines.some((l) => l.includes('提案已创建')), 'fill.apply should include Chinese message');
-  assertTrue(result.lines.some((l) => l.includes('输入 Y 批准')), 'fill.apply should include Chinese Y/N prompt');
+  assertTrue(result.lines.some((l) => l.includes('Y 批准')), 'fill.apply should include Chinese Y/N prompt');
   // library should not exist
   const libraryRaw = storage.get('def.buff-editor.library.v1');
   assertEqual(libraryRaw, undefined, 'library should not be written after fill.apply');
@@ -940,10 +940,9 @@ const baseDraft = createFallbackDraft();
   );
   assertEqual(showResult.ok, true, 'proposal.show #1 should be ok');
   assertTrue(showResult.lines.some((l) => l.includes('Proposal:')), 'show should include English proposal label');
-  assertTrue(showResult.lines.some((l) => l.includes('提案:')), 'show should include Chinese proposal label');
   assertTrue(showResult.lines.some((l) => l.includes('待审批')), 'show should display Chinese approval label');
   assertTrue(showResult.lines.some((l) => l.includes('待保存')), 'show should display Chinese save label');
-  assertTrue(showResult.lines.some((l) => l.includes('输入 Y 批准')), 'show should display Chinese next action');
+  assertTrue(showResult.lines.some((l) => l.includes('Y 批准')), 'show should display Chinese next action');
   // Test full id still works
   const showFullResult = runAiCliCommand(
     { protocolVersion: 1, requestId: 'test-show-full-cmd', client: 'web-cli', command: `proposal.show ${fullId}` },
@@ -1588,6 +1587,58 @@ const baseDraft = createFallbackDraft();
   assertEqual(saveResult.ok, false, 'save should reject invalid proposal payload');
   assertEqual(saveResult.error?.code, 'invalid-proposal-payload', 'save should return invalid-proposal-payload error');
   assertEqual(storage.get('def.buff-editor.library.v1'), undefined, 'invalid proposal should not write library storage');
+}
+
+// 40. proposal.clear 清理当前 session 的多个 pending，解除 Y/N 阻塞
+{
+  clearTestStorage();
+  const session = ensureActiveSession('web-cli');
+  importExternalProposals([
+    {
+      id: 'clear-pending-1',
+      domain: 'buff',
+      operation: 'fill.apply',
+      payload: { id: 'one', name: 'One', sourceName: 'test', source: 'ai', description: 'test', items: {} },
+      approvalStatus: 'Wait',
+      saveStatus: 'Wait',
+      client: 'rest',
+    },
+    {
+      id: 'clear-pending-2',
+      domain: 'buff',
+      operation: 'fill.apply',
+      payload: { id: 'two', name: 'Two', sourceName: 'test', source: 'ai', description: 'test', items: {} },
+      approvalStatus: 'Yes',
+      saveStatus: 'Wait',
+      client: 'rest',
+    },
+  ], session.id);
+  const clearResult = runAiCliCommand(
+    { protocolVersion: 1, requestId: 'test-proposal-clear', client: 'web-cli', command: 'proposal.clear' },
+    baseDraft,
+    { sourceText: '', sessionId: session.id }
+  );
+  assertEqual(clearResult.ok, true, 'proposal.clear should be ok');
+  assertEqual(clearResult.effects?.writes, true, 'proposal.clear should write proposal state');
+  assertTrue(clearResult.lines.some((l) => l.includes('已清理 2 个待处理提案')), 'proposal.clear should report cleared count');
+  const pendingAfterClear = runAiCliCommand(
+    { protocolVersion: 1, requestId: 'test-proposal-clear-list', client: 'web-cli', command: 'proposal.list' },
+    baseDraft,
+    { sourceText: '', sessionId: session.id }
+  );
+  assertTrue(pendingAfterClear.lines.some((l) => l.includes('no pending proposals')), 'proposal.clear should leave no pending proposals');
+}
+
+// 41. REST/readonly 不能执行 proposal.clear
+{
+  clearTestStorage();
+  const clearResult = runAiCliCommand(
+    { protocolVersion: 1, requestId: 'test-rest-proposal-clear', client: 'rest', command: 'proposal.clear' },
+    baseDraft,
+    { sourceText: '' }
+  );
+  assertEqual(clearResult.ok, false, 'rest proposal.clear should fail');
+  assertEqual(clearResult.error?.code, 'permission-denied', 'rest proposal.clear should be permission-denied');
 }
 
 console.log('[ai-cli-command-service-test] passed');

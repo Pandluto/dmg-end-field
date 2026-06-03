@@ -234,13 +234,14 @@ export function handleAiCliRestRequest(
         'Do not invent modifier types; use the app-provided modifier catalog in fill.task.',
         'Treat REST apply as a proposal creation only; it does NOT save to library.',
         'After REST apply, guide the user to open /ai-cli and use Y/Y or proposal.approve #1 / proposal.save #1.',
+        'If multiple pending proposals block Y/Y, do not submit another fill.apply. Tell the user to run proposal.clear in Web CLI or handle proposals explicitly.',
         'Do NOT ask the user to re-run fill.apply in the browser.',
       ],
       clientHints: {
         readonly: 'Default rest client is read/dry-run oriented.',
         write: 'Use explicit write profile/client only when the user has confirmed.',
         events: 'Subscribe to GET /api/agent/events for SSE agent.records updates.',
-        handoff: 'REST fill.apply creates a proposal. Web CLI imports pending proposals via SSE. Users approve/save in Web CLI with Y/Y. Do not re-run fill.apply.',
+        handoff: 'REST fill.apply creates a proposal. Web CLI imports pending proposals via SSE. Users approve/save in Web CLI with Y/Y. If multiple pending proposals block Y/Y, tell the user to run proposal.clear or explicit proposal commands. Do not re-run fill.apply.',
       },
       examples: {
         readDraft: {
@@ -289,7 +290,7 @@ export function handleAiCliRestRequest(
             'Call POST /api/buff/fill/apply only after validation passes. This creates a proposal, NOT a library write.',
             'After apply, guide the user to open /ai-cli. The pending proposal is imported automatically.',
             'Single pending: user presses Y to approve, then Y to save.',
-            'Multiple pending: user runs proposal.list, then proposal.approve #1 / proposal.save #1.',
+            'Multiple pending: user runs proposal.list, then proposal.approve #1 / proposal.save #1, or proposal.clear to reject/unsave stale proposals before a fresh apply.',
             'Do NOT ask the user to re-run fill.apply in the browser.',
             'Read GET /api/agent/logs or SSE records to confirm audit output.',
           ],
@@ -404,7 +405,7 @@ export function handleAiCliRestRequest(
     }
 
     const cmd = request.body.command.trim().toLowerCase();
-    const approvalCommands = ['proposal.approve', 'proposal.reject', 'proposal.save', 'proposal.unsave', 'y', 'n'];
+    const approvalCommands = ['proposal.approve', 'proposal.reject', 'proposal.save', 'proposal.unsave', 'proposal.clear', 'y', 'n'];
     if (approvalCommands.some((ac) => cmd === ac || cmd.startsWith(`${ac} `))) {
       // Approval/save commands are user actions and must not be executed through REST.
       // Web-cli should call runAiCliCommand directly, not via REST.

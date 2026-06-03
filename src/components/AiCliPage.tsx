@@ -302,6 +302,7 @@ const ALL_COMMANDS = [
   'proposal.reject',
   'proposal.save',
   'proposal.unsave',
+  'proposal.clear',
   'fill.task',
   'fill.task.copy',
   'fill.check',
