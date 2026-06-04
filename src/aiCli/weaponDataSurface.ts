@@ -4,13 +4,14 @@ import {
   readWeaponLibrary,
   writeCurrentWeaponDraft,
 } from './weaponFillAdapter';
-import {
-  buildWeaponSearchText,
-  listWeaponSourceIndex,
-  readWeaponSourceData,
-} from './weaponSourceData';
 
-export { listWeaponSourceIndex, readWeaponSourceData };
+function buildWeaponSearchText(values: Array<string | number | undefined | null>) {
+  return values
+    .map((value) => (value == null ? '' : String(value).trim()))
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase();
+}
 
 export interface WeaponLibrarySummaryEntry {
   id: string;
@@ -51,16 +52,12 @@ export function searchWeaponSurface(keyword: string) {
   const lower = keyword.trim().toLowerCase();
   if (!lower) return [];
   const library = readWeaponLibrary();
-  const libraryRows = formatWeaponLibrarySummary(library)
+  return formatWeaponLibrarySummary(library)
     .filter((entry) => {
       const draft = library[entry.id];
       return buildWeaponSearchText([entry.id, entry.name, entry.type, draft?.description]).toLowerCase().includes(lower);
     })
     .map((entry) => ({ source: 'library' as const, ...entry }));
-  const officialRows = listWeaponSourceIndex()
-    .filter((entry) => buildWeaponSearchText([entry.id, entry.name, entry.folder]).toLowerCase().includes(lower))
-    .map((entry) => ({ source: 'official' as const, id: entry.id || '', name: entry.name, folder: entry.folder, files: entry.files }));
-  return [...libraryRows, ...officialRows];
 }
 
 export function getCurrentWeaponDraft() {

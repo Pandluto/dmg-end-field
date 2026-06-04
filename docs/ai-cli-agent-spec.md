@@ -510,21 +510,23 @@ Y
 N
 ```
 
-Operator source and fill branch commands:
+Operator fill branch commands:
 
 ```text
-operator.data.list [limit]
-operator.data.show <id|name>
+operator.current
+operator.library [limit]
+operator.library.show <id|name>
 operator.fill.task
 operator.fill.check <OperatorFillAiDraft JSON>
 operator.fill.apply <OperatorFillAiDraft JSON>
 ```
 
-Equipment source and fill branch commands:
+Equipment fill branch commands:
 
 ```text
-equipment.data.list [limit]
-equipment.data.show <id|name>
+equipment.current
+equipment.library [limit]
+equipment.library.show <id|name>
 equipment.fill.task
 equipment.fill.check <EquipmentFillAiDraft JSON>
 equipment.fill.apply <EquipmentFillAiDraft JSON>
@@ -749,8 +751,6 @@ weapon.search <keyword>
 weapon.show <id|name>
 weapon.draft.show
 weapon.open <id|name>
-weapon.data.list [limit]
-weapon.data.show <id|name>
 ```
 
 - Weapon fill commands should mirror the Buff proposal shape:
@@ -825,7 +825,7 @@ Weapon validation rules:
 Weapon task package requirements:
 
 - `weapon.fill.task` must include the current weapon draft, the minimal `WeaponFillAiDraft` schema, supported effect types, and the same approval/save warning used by Buff.
-- `weapon.fill.task` must include official/static source data index and tell agents to call `weapon.data.show <name>` or `GET /api/weapon/data/<name>` before filling a named official weapon.
+- `weapon.fill.task` must not include official/static source data index or source read commands/endpoints.
 - `weapon.fill.task` must not expose Buff modifier catalog as the weapon effect catalog.
 - `weapon.fill.task` must return a short summary line and put the full package in `data`.
 
@@ -844,15 +844,10 @@ Shared Task 13 rules:
 - Approval applies the proposal to working draft only.
 - Save persists through the domain's saved app truth boundary.
 - External agents may query proposals but must not advance approval/save by default.
-- Domain adapters must own their schema, validator, normalizer, storage keys, source-read surface, supported type lists, and proposal summary.
+- Domain adapters must own their schema, validator, normalizer, storage keys, supported type lists, and proposal summary.
+- Weapon/Operator/Equipment Agent CLI code must not read official/static `public/data` directly. Source data belongs to app data services outside Agent CLI; Agent CLI owns only current/library/fill/proposal boundaries.
 
 ### Operator Fill Branch
-
-Operator source data:
-
-- Official/static source data comes from `public/data/characters/<name>/<name>.json`.
-- `public/data/characters/operators-list.json` is the source index.
-- Agents should call `operator.data.show <id|name>` or `GET /api/operator/data/<id-or-name>` before filling an official Operator.
 
 Operator storage boundary:
 
@@ -861,11 +856,12 @@ working draft: def.operator-editor.draft.v1
 saved truth:   def.operator-editor.library.v1
 ```
 
-Operator read/source commands:
+Operator read/fill commands:
 
 ```text
-operator.data.list [limit]
-operator.data.show <id|name>
+operator.current
+operator.library [limit]
+operator.library.show <id|name>
 operator.fill.task
 operator.fill.check <OperatorFillAiDraft JSON>
 operator.fill.apply <OperatorFillAiDraft JSON>
@@ -930,17 +926,11 @@ Operator task package requirements:
 
 - Include the current Operator working draft.
 - Include the minimal schema and validation allowlists.
-- Include source data index and source read commands/endpoints.
+- Do not include source data index or source read commands/endpoints.
 - Include `supportedEffectTypes` if buffs are in scope, or a clear `buffsDeferred` warning if not.
 - Include the standard approval/save warning.
 
 ### Equipment Fill Branch
-
-Equipment source data:
-
-- Preferred source data is `public/data/equipments/equipments.json`.
-- If this file is absent, incomplete, or not stable enough for agent consumption, Task 13 must first establish the source-data file/shape before claiming `equipment.fill` is ready.
-- Agents should call `equipment.data.show <id|name>` or `GET /api/equipment/data/<id-or-name>` before filling official Equipment.
 
 Equipment storage boundary:
 
@@ -954,11 +944,12 @@ Current UI code uses `def.equipment-sheet.draft.v1` as the Equipment sheet persi
 - Preferred: introduce `def.equipment-sheet.library.v1` as saved app truth and migrate/compat existing readers.
 - Legacy-compatible: keep `def.equipment-sheet.draft.v1` as temporary saved truth and make every response/log call out this legacy boundary.
 
-Equipment read/source commands:
+Equipment read/fill commands:
 
 ```text
-equipment.data.list [limit]
-equipment.data.show <id|name>
+equipment.current
+equipment.library [limit]
+equipment.library.show <id|name>
 equipment.fill.task
 equipment.fill.check <EquipmentFillAiDraft JSON>
 equipment.fill.apply <EquipmentFillAiDraft JSON>
@@ -1033,7 +1024,7 @@ Equipment task package requirements:
 
 - Include the current Equipment working draft/library.
 - Include the minimal schema and stat/effect allowlists.
-- Include source data index and source read commands/endpoints.
+- Do not include source data index or source read commands/endpoints.
 - Include the chosen Equipment saved truth boundary.
 - Include the standard approval/save warning.
 
@@ -1055,8 +1046,6 @@ Task 13 REST endpoints:
 GET  /api/operator/current
 GET  /api/operator/library
 GET  /api/operator/library/<id-or-name>
-GET  /api/operator/data
-GET  /api/operator/data/<id-or-name>
 GET  /api/operator/fill/template
 POST /api/operator/fill/check
 POST /api/operator/fill/apply
@@ -1064,8 +1053,6 @@ POST /api/operator/fill/apply
 GET  /api/equipment/current
 GET  /api/equipment/library
 GET  /api/equipment/library/<id-or-name>
-GET  /api/equipment/data
-GET  /api/equipment/data/<id-or-name>
 GET  /api/equipment/fill/template
 POST /api/equipment/fill/check
 POST /api/equipment/fill/apply
@@ -1159,16 +1146,12 @@ GET  /api/weapon/data/<id-or-name>
 GET  /api/operator/current
 GET  /api/operator/library
 GET  /api/operator/library/<id-or-name>
-GET  /api/operator/data
-GET  /api/operator/data/<id-or-name>
 GET  /api/operator/fill/template
 POST /api/operator/fill/check
 POST /api/operator/fill/apply
 GET  /api/equipment/current
 GET  /api/equipment/library
 GET  /api/equipment/library/<id-or-name>
-GET  /api/equipment/data
-GET  /api/equipment/data/<id-or-name>
 GET  /api/equipment/fill/template
 POST /api/equipment/fill/check
 POST /api/equipment/fill/apply

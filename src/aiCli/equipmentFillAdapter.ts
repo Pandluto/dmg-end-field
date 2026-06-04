@@ -1,6 +1,5 @@
 import { AI_CLI_PROTOCOL_VERSION } from './aiCliAgentTypes';
 import type { AgentFillDomainAdapter, AgentFillProposalPayload, AgentFillValidationResult } from './aiCliFillDomains';
-import { listEquipmentSourceIndex, readEquipmentSourceLibrary } from './equipmentSourceData';
 
 export const EQUIPMENT_DRAFT_STORAGE_KEY = 'def.equipment-sheet.draft.v1';
 export const EQUIPMENT_LIBRARY_STORAGE_KEY = 'def.equipment-sheet.library.v1';
@@ -325,10 +324,6 @@ export const equipmentFillAdapter: AgentFillDomainAdapter<EquipmentLibrary> = {
         tool: 'equipment.fill',
         protocolVersion: AI_CLI_PROTOCOL_VERSION,
         currentDraft: draft,
-        sourceLibrary: readEquipmentSourceLibrary(),
-        sourceDataIndex: listEquipmentSourceIndex(),
-        sourceReadCommands: { list: 'equipment.data.list', show: 'equipment.data.show <name>' },
-        sourceReadRestEndpoints: { list: 'GET /api/equipment/data', show: 'GET /api/equipment/data/<name>' },
         equipmentFillAiDraftSchema: {
           gearSets: 'Record<string, { gearSetId, name, equipments }>',
           part: EQUIPMENT_PARTS,
@@ -343,7 +338,7 @@ export const equipmentFillAdapter: AgentFillDomainAdapter<EquipmentLibrary> = {
           workingDraft: EQUIPMENT_DRAFT_STORAGE_KEY,
           savedTruth: EQUIPMENT_LIBRARY_STORAGE_KEY,
         },
-        instruction: 'Return exactly one EquipmentFillAiDraft JSON object. No Markdown. No explanation. Read equipment.data.show <name> before filling official data. equipment.fill.apply creates a proposal only.',
+        instruction: 'Return exactly one EquipmentFillAiDraft JSON object. No Markdown. No explanation. Use app-provided source data outside Agent CLI when needed. equipment.fill.apply creates a proposal only.',
         approvalSaveWarning: 'Approval applies to def.equipment-sheet.draft.v1. Save writes def.equipment-sheet.library.v1.',
       },
     };

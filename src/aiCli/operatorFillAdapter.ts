@@ -1,6 +1,5 @@
 import { AI_CLI_PROTOCOL_VERSION } from './aiCliAgentTypes';
 import type { AgentFillDomainAdapter, AgentFillProposalPayload, AgentFillValidationResult } from './aiCliFillDomains';
-import { listOperatorSourceIndex } from './operatorSourceData';
 
 export const OPERATOR_DRAFT_STORAGE_KEY = 'def.operator-editor.draft.v1';
 export const OPERATOR_LIBRARY_STORAGE_KEY = 'def.operator-editor.library.v1';
@@ -347,10 +346,8 @@ export const operatorFillAdapter: AgentFillDomainAdapter<OperatorDraft> = {
         protocolVersion: AI_CLI_PROTOCOL_VERSION,
         currentDraft: draft,
         librarySummary: formatOperatorLibrarySummary(library),
-        sourceDataIndex: listOperatorSourceIndex(),
-        sourceReadCommands: { list: 'operator.data.list', show: 'operator.data.show <name>' },
-        sourceReadRestEndpoints: { list: 'GET /api/operator/data', show: 'GET /api/operator/data/<name>' },
         operatorFillAiDraftSchema: {
+          formatName: 'ImportedOperatorDraft-compatible object',
           id: 'string',
           name: 'string',
           rarity: 'number',
@@ -359,11 +356,12 @@ export const operatorFillAdapter: AgentFillDomainAdapter<OperatorDraft> = {
           element: ELEMENT_TYPES,
           mainStat: ABILITY_TYPES,
           subStat: ABILITY_TYPES,
-          skills: 'Record<string, { displayName, buttonType, iconUrl?, hitCount?, hitMeta? }>',
+          skills: 'Record<skillKey, { displayName, buttonType, iconUrl, hitCount, hitMeta }>',
+          hitMeta: 'Record<hitKey, { displayName, element, skillType, levels }>',
           buffs: 'optional; talent/potential/skill groups only',
         },
         supportedEffectTypes: SUPPORTED_OPERATOR_EFFECT_TYPES,
-        instruction: 'Return exactly one OperatorFillAiDraft JSON object. No Markdown. No explanation. Prefer GET /api/operator/data/<name> and POST /api/operator/fill/check|apply for Chinese payloads; CLI JSON args may be shell-encoding sensitive. operator.fill.apply creates a proposal only; it does NOT save to library.',
+        instruction: 'Return exactly one ImportedOperatorDraft-compatible JSON object. No Markdown. No explanation. Prefer POST /api/operator/fill/check|apply with a JSON body for Chinese payloads; CLI JSON args may be shell-encoding sensitive. operator.fill.apply creates a proposal only; it does NOT save to library.',
         approvalSaveWarning: 'Approval applies to def.operator-editor.draft.v1. Save writes def.operator-editor.library.v1.',
       },
     };

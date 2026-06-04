@@ -1,6 +1,5 @@
 import { AI_CLI_PROTOCOL_VERSION } from './aiCliAgentTypes';
 import type { AgentFillDomainAdapter, AgentFillProposalPayload, AgentFillValidationResult } from './aiCliFillDomains';
-import { listWeaponSourceIndex } from './weaponSourceData';
 
 export const WEAPON_DRAFT_STORAGE_KEY = 'def.weapon-sheet.draft.v1';
 export const WEAPON_LIBRARY_STORAGE_KEY = 'def.weapon-sheet.library.v1';
@@ -535,7 +534,6 @@ export const weaponFillAdapter: AgentFillDomainAdapter<WeaponDraft> = {
   buildTaskPackage() {
     const draft = readCurrentWeaponDraft();
     const library = readWeaponLibrary();
-    const sourceDataIndex = listWeaponSourceIndex();
     return {
       lines: [`[info] weapon.fill.task ready: name=${draft.name} skills=${Object.keys(draft.skills).length}`],
       data: {
@@ -543,18 +541,9 @@ export const weaponFillAdapter: AgentFillDomainAdapter<WeaponDraft> = {
         protocolVersion: AI_CLI_PROTOCOL_VERSION,
         currentDraft: draft,
         librarySummary: Object.entries(library).map(([id, w]) => ({ id, name: w.name, rarity: w.rarity })),
-        sourceDataIndex,
-        sourceReadCommands: {
-          list: 'weapon.data.list',
-          show: 'weapon.data.show <name>',
-        },
-        sourceReadRestEndpoints: {
-          list: 'GET /api/weapon/data',
-          show: 'GET /api/weapon/data/<name>',
-        },
         weaponFillAiDraftSchema: WEAPON_FILL_AI_DRAFT_SCHEMA,
         supportedEffectTypes: SUPPORTED_EFFECT_TYPES,
-        instruction: 'Return exactly one WeaponFillAiDraft JSON object. No Markdown. No explanation. Before filling a named official weapon, call weapon.data.show <name> or GET /api/weapon/data/<name>; do not invent weapon data when source data is available through the app. Keep fields aligned with weapon-sheet: id/name/rarity/type/description/imgUrl/attackGrowth/skills. If there is no image URL, leave imgUrl empty; do not use url as imgUrl. Only skill3.effects is preserved by weapon-sheet; use category condition/passive. weapon.fill.apply creates a proposal only; it does NOT save to library. Before weapon.fill.apply, self-check pending count with proposal.list. REST weapon.fill.apply is refused while any pending proposal exists. For stale backlog, call proposal.clear through REST, then resubmit only the current proposal. If multiple edits are intended, submit and finish them one by one. Do not ask the user to re-run weapon.fill.apply.',
+        instruction: 'Return exactly one WeaponFillAiDraft JSON object. No Markdown. No explanation. Use app-provided source data outside Agent CLI when needed. Keep fields aligned with weapon-sheet: id/name/rarity/type/description/imgUrl/attackGrowth/skills. If there is no image URL, leave imgUrl empty; do not use url as imgUrl. Only skill3.effects is preserved by weapon-sheet; use category condition/passive. weapon.fill.apply creates a proposal only; it does NOT save to library. Before weapon.fill.apply, self-check pending count with proposal.list. REST weapon.fill.apply is refused while any pending proposal exists. For stale backlog, call proposal.clear through REST, then resubmit only the current proposal. If multiple edits are intended, submit and finish them one by one. Do not ask the user to re-run weapon.fill.apply.',
         approvalSaveWarning: 'IMPORTANT: After REST weapon.fill.apply, the proposal is handed off to Web CLI automatically. Do not submit another weapon.fill.apply while a pending proposal exists. For stale backlog, call proposal.clear through REST, then resubmit only the current proposal. Do NOT tell the user to re-run weapon.fill.apply in the browser.',
       },
     };

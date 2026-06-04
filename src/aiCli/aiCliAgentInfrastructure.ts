@@ -23,9 +23,9 @@ export const KNOWN_COMMANDS = new Set([
   'route',
   'agent.logs', 'agent.sessions', 'agent.guide',
   'buff.list', 'buff.show', 'buff.search', 'buff.open',
-  'weapon.list', 'weapon.search', 'weapon.show', 'weapon.draft.show', 'weapon.open', 'weapon.data.list', 'weapon.data.show',
-  'operator.current', 'operator.library', 'operator.library.show', 'operator.data.list', 'operator.data.show', 'operator.fill.task', 'operator.fill.check', 'operator.fill.apply',
-  'equipment.current', 'equipment.library', 'equipment.library.show', 'equipment.data.list', 'equipment.data.show', 'equipment.fill.task', 'equipment.fill.check', 'equipment.fill.apply',
+  'weapon.list', 'weapon.search', 'weapon.show', 'weapon.draft.show', 'weapon.open',
+  'operator.current', 'operator.library', 'operator.library.show', 'operator.fill.task', 'operator.fill.check', 'operator.fill.apply',
+  'equipment.current', 'equipment.library', 'equipment.library.show', 'equipment.fill.task', 'equipment.fill.check', 'equipment.fill.apply',
   'operator.add', 'operator.show', 'operator.delete',
   'draft.show', 'draft.rename',
   'item.list', 'item.add', 'item.set', 'item.delete',
@@ -65,7 +65,7 @@ export function createDefaultPermissionProfiles(): AiAgentPermissionProfile[] {
       id: 'readonly-agent',
       name: 'Readonly Agent',
       client: 'rest',
-      allowedCommands: ['help', '/help', 'purpose', '/purpose', 'spec', '/spec', 'route', 'buff.list', 'buff.show', 'buff.search', 'draft.show', 'item.list', 'effect.list', 'operator.show', 'fill.task', 'fill.task.copy', 'fill.check', 'fill.source', 'agent.logs', 'agent.sessions', 'agent.guide', 'proposal.list', 'proposal.show', 'weapon.list', 'weapon.search', 'weapon.show', 'weapon.draft.show', 'weapon.data.list', 'weapon.data.show', 'weapon.fill.task', 'weapon.fill.check', 'operator.current', 'operator.library', 'operator.library.show', 'operator.data.list', 'operator.data.show', 'operator.fill.task', 'operator.fill.check', 'equipment.current', 'equipment.library', 'equipment.library.show', 'equipment.data.list', 'equipment.data.show', 'equipment.fill.task', 'equipment.fill.check'],
+      allowedCommands: ['help', '/help', 'purpose', '/purpose', 'spec', '/spec', 'route', 'buff.list', 'buff.show', 'buff.search', 'draft.show', 'item.list', 'effect.list', 'operator.show', 'fill.task', 'fill.task.copy', 'fill.check', 'fill.source', 'agent.logs', 'agent.sessions', 'agent.guide', 'proposal.list', 'proposal.show', 'weapon.list', 'weapon.search', 'weapon.show', 'weapon.draft.show', 'weapon.fill.task', 'weapon.fill.check', 'operator.current', 'operator.library', 'operator.library.show', 'operator.fill.task', 'operator.fill.check', 'equipment.current', 'equipment.library', 'equipment.library.show', 'equipment.fill.task', 'equipment.fill.check'],
       allowedWorkflows: ['buff.fill', 'weapon.fill', 'operator.fill', 'equipment.fill'],
       canRead: true,
       canDryRun: true,
@@ -99,7 +99,7 @@ export function createDefaultPermissionProfiles(): AiAgentPermissionProfile[] {
 
 // 系统保证 readonly-agent 拥有的基础读命令
 // 这些命令是 readonly 核心能力，不是一次性迁移，后续新增 readonly 命令也应加入
-const GUARANTEED_READONLY_COMMANDS = ['agent.logs', 'agent.sessions', 'agent.guide', 'route', 'operator.show', 'fill.source', 'proposal.list', 'proposal.show', 'weapon.list', 'weapon.search', 'weapon.show', 'weapon.draft.show', 'weapon.data.list', 'weapon.data.show', 'weapon.fill.task', 'weapon.fill.check', 'operator.current', 'operator.library', 'operator.library.show', 'operator.data.list', 'operator.data.show', 'operator.fill.task', 'operator.fill.check', 'equipment.current', 'equipment.library', 'equipment.library.show', 'equipment.data.list', 'equipment.data.show', 'equipment.fill.task', 'equipment.fill.check'];
+const GUARANTEED_READONLY_COMMANDS = ['agent.logs', 'agent.sessions', 'agent.guide', 'route', 'operator.show', 'fill.source', 'proposal.list', 'proposal.show', 'weapon.list', 'weapon.search', 'weapon.show', 'weapon.draft.show', 'weapon.fill.task', 'weapon.fill.check', 'operator.current', 'operator.library', 'operator.library.show', 'operator.fill.task', 'operator.fill.check', 'equipment.current', 'equipment.library', 'equipment.library.show', 'equipment.fill.task', 'equipment.fill.check'];
 
 export function readPermissionProfiles(): AiAgentPermissionProfile[] {
   const storedProfiles = readJsonStorage<AiAgentPermissionProfile[]>(AI_AGENT_PERMISSION_PROFILES_STORAGE_KEY, []);

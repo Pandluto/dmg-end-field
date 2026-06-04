@@ -691,7 +691,7 @@ const baseDraft = createFallbackDraft();
   assertEqual(result.error?.code, 'fill-invalid', 'invalid weapon effect type should return fill-invalid');
 }
 
-// 16a. weapon 官方源数据可通过 CLI 读取
+// 16a. weapon 官方源数据不归 AI CLI 读取
 {
   clearTestStorage();
   const listResult = runAiCliCommand(
@@ -699,9 +699,8 @@ const baseDraft = createFallbackDraft();
     baseDraft,
     { sourceText: '' }
   );
-  assertEqual(listResult.ok, true, 'weapon.data.list should be ok');
-  const weapons = (listResult.data as { weapons?: Array<{ name: string; files: { base: boolean } }> }).weapons || [];
-  assertTrue(weapons.some((weapon) => weapon.name === '赫拉芬格' && weapon.files.base), 'weapon.data.list should include 赫拉芬格 with base file');
+  assertFalse(listResult.ok, 'weapon.data.list should be rejected');
+  assertEqual(listResult.error?.code, 'unknown-command', 'weapon.data.list should be outside AI CLI boundary');
   assertEqual(storage.get('def.weapon-sheet.draft.v1'), undefined, 'weapon.data.list should not write draft');
   assertEqual(storage.get('def.weapon-sheet.library.v1'), undefined, 'weapon.data.list should not write library');
 
@@ -710,13 +709,8 @@ const baseDraft = createFallbackDraft();
     baseDraft,
     { sourceText: '' }
   );
-  assertEqual(showResult.ok, true, 'weapon.data.show 赫拉芬格 should be ok');
-  const sourceData = showResult.data as { files?: { base?: { name?: string }; max?: unknown; buff?: unknown; markdown?: string }; missingFiles?: string[] };
-  assertEqual(sourceData.files?.base?.name, '赫拉芬格', 'weapon.data.show should return base source data');
-  assertTrue(sourceData.files?.max, 'weapon.data.show should return max source data when present');
-  assertTrue(sourceData.files?.buff, 'weapon.data.show should return buff source data when present');
-  assertTrue(typeof sourceData.files?.markdown === 'string', 'weapon.data.show should return markdown source data when present');
-  assertTrue(Array.isArray(sourceData.missingFiles), 'weapon.data.show should include missingFiles');
+  assertFalse(showResult.ok, 'weapon.data.show should be rejected');
+  assertEqual(showResult.error?.code, 'unknown-command', 'weapon.data.show should be outside AI CLI boundary');
   assertEqual(storage.get('def.weapon-sheet.draft.v1'), undefined, 'weapon.data.show should not write draft');
   assertEqual(storage.get('def.weapon-sheet.library.v1'), undefined, 'weapon.data.show should not write library');
 }
@@ -771,12 +765,12 @@ const baseDraft = createFallbackDraft();
   assertEqual((showResult.data as { draft?: { id?: string } }).draft?.id, localWeapon.id, 'weapon.show should return full local weapon draft');
 
   const searchResult = runAiCliCommand(
-    { protocolVersion: 1, requestId: 'test-weapon-search', client: 'rest', command: 'weapon.search 赫拉芬格' },
+    { protocolVersion: 1, requestId: 'test-weapon-search', client: 'rest', command: 'weapon.search 本地测试武器' },
     baseDraft,
     { sourceText: '' }
   );
   const searchRows = (searchResult.data as { results?: Array<{ source: string; name: string }> }).results || [];
-  assertTrue(searchRows.some((row) => row.source === 'official' && row.name === '赫拉芬格'), 'weapon.search should find official weapon source');
+  assertTrue(searchRows.some((row) => row.source === 'library' && row.name === '本地测试武器'), 'weapon.search should find local weapon library');
 
   const draftShow = runAiCliCommand(
     { protocolVersion: 1, requestId: 'test-weapon-draft-show', client: 'rest', command: 'weapon.draft.show' },
@@ -806,7 +800,7 @@ const baseDraft = createFallbackDraft();
   assertEqual(openedDraft.id, localWeapon.id, 'weapon.open should write selected weapon to draft');
 }
 
-// 16c. weapon.fill.task 暴露 source data 读取入口
+// 16c. weapon.fill.task 不暴露 source data 读取入口
 {
   clearTestStorage();
   const taskResult = runAiCliCommand(
@@ -821,10 +815,10 @@ const baseDraft = createFallbackDraft();
     sourceReadRestEndpoints?: { show?: string };
     instruction?: string;
   };
-  assertTrue(data.sourceDataIndex?.some((entry) => entry.name === '赫拉芬格'), 'weapon.fill.task should include sourceDataIndex');
-  assertEqual(data.sourceReadCommands?.show, 'weapon.data.show <name>', 'weapon.fill.task should include source read command');
-  assertEqual(data.sourceReadRestEndpoints?.show, 'GET /api/weapon/data/<name>', 'weapon.fill.task should include source read REST endpoint');
-  assertTrue(data.instruction?.includes('weapon.data.show <name>'), 'weapon.fill.task should instruct agents to read source first');
+  assertEqual(data.sourceDataIndex, undefined, 'weapon.fill.task should not include sourceDataIndex');
+  assertEqual(data.sourceReadCommands, undefined, 'weapon.fill.task should not include source read command');
+  assertEqual(data.sourceReadRestEndpoints, undefined, 'weapon.fill.task should not include source read REST endpoint');
+  assertFalse(Boolean(data.instruction?.includes('weapon.data.show <name>')), 'weapon.fill.task should not instruct agents to read source through AI CLI');
 }
 
 // 16d. weapon.fill.check 对齐 weapon-sheet schema 约束
@@ -898,7 +892,7 @@ const baseDraft = createFallbackDraft();
   assertFalse(categoryResult.ok, 'weapon.fill.check should reject value/effect categories');
 }
 
-// 16e. REST weapon read endpoints return structured data without writes
+// 16e. REST weapon read endpoints return structured local data without source endpoints
 {
   clearTestStorage();
   const current = handleAiCliRestRequest(
@@ -922,16 +916,14 @@ const baseDraft = createFallbackDraft();
     baseDraft,
     { sourceText: '', sessionId: 'rest-test-session' }
   );
-  assertEqual(dataList.status, 200, 'GET /api/weapon/data should return 200');
-  assertTrue((dataList.body as { weapons?: Array<{ name: string }> }).weapons?.some((weapon) => weapon.name === '赫拉芬格'), 'GET /api/weapon/data should include 赫拉芬格');
+  assertEqual(dataList.status, 404, 'GET /api/weapon/data should not exist in AI CLI REST');
 
   const dataShow = handleAiCliRestRequest(
     { method: 'GET', path: '/api/weapon/data/%E8%B5%AB%E6%8B%89%E8%8A%AC%E6%A0%BC', client: 'rest' },
     baseDraft,
     { sourceText: '', sessionId: 'rest-test-session' }
   );
-  assertEqual(dataShow.status, 200, 'GET /api/weapon/data/赫拉芬格 should return 200');
-  assertEqual((dataShow.body as { name?: string }).name, '赫拉芬格', 'GET /api/weapon/data/赫拉芬格 should return source data');
+  assertEqual(dataShow.status, 404, 'GET /api/weapon/data/赫拉芬格 should not exist in AI CLI REST');
   assertEqual(storage.get('def.weapon-sheet.draft.v1'), undefined, 'REST weapon read endpoints should not write draft');
   assertEqual(storage.get('def.weapon-sheet.library.v1'), undefined, 'REST weapon read endpoints should not write library');
 }

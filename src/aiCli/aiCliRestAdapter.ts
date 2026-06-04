@@ -39,11 +39,7 @@ import {
 import {
   findWeaponLibraryEntry,
   formatWeaponLibrarySummary,
-  listWeaponSourceIndex,
-  readWeaponSourceData,
 } from './weaponDataSurface';
-import { listOperatorSourceIndex, readOperatorSourceData } from './operatorSourceData';
-import { listEquipmentSourceIndex, readEquipmentSourceData } from './equipmentSourceData';
 import {
   KNOWN_COMMANDS,
   readAgentRecordSnapshot,
@@ -63,21 +59,15 @@ export const AI_CLI_REST_ENDPOINTS = [
   'GET /api/weapon/current',
   'GET /api/weapon/library',
   'GET /api/weapon/library/<id-or-name>',
-  'GET /api/weapon/data',
-  'GET /api/weapon/data/<id-or-name>',
   'GET /api/operator/current',
   'GET /api/operator/library',
   'GET /api/operator/library/<id-or-name>',
-  'GET /api/operator/data',
-  'GET /api/operator/data/<id-or-name>',
   'GET /api/operator/fill/template',
   'POST /api/operator/fill/check',
   'POST /api/operator/fill/apply',
   'GET /api/equipment/current',
   'GET /api/equipment/library',
   'GET /api/equipment/library/<id-or-name>',
-  'GET /api/equipment/data',
-  'GET /api/equipment/data/<id-or-name>',
   'GET /api/equipment/fill/template',
   'POST /api/equipment/fill/check',
   'POST /api/equipment/fill/apply',
@@ -111,6 +101,33 @@ export function getAiCliRestDiagnostics() {
 
 function isCommandRequest(value: unknown): value is Partial<AiCliCommandRequest> {
   return Boolean(value && typeof value === 'object' && 'command' in value);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
+}
+
+function resolveRestClient(request: AiCliRestRequest): AiAgentClient {
+  const bodyClient = isRecord(request.body) && typeof request.body.client === 'string' ? request.body.client : '';
+  return (request.client || bodyClient || 'rest') as AiAgentClient;
+}
+
+function decodePathSegment(encoded: string): { ok: true; value: string } | { ok: false; response: AiCliRestResponse } {
+  try {
+    return { ok: true, value: decodeURIComponent(encoded) };
+  } catch {
+    return {
+      ok: false,
+      response: jsonResponse(400, {
+        ok: false,
+        protocolVersion: AI_CLI_PROTOCOL_VERSION,
+        error: {
+          code: 'bad-url-encoding',
+          message: 'URL path contains malformed percent-encoding. Use encodeURIComponent for path parameters.',
+        },
+      }),
+    };
+  }
 }
 
 function isDraftBody(value: unknown): value is { draft: unknown; requestId?: string } {
@@ -190,7 +207,7 @@ export function handleAiCliRestRequest(
   currentDraft: BuffDraft,
   context: AiCliExecutionContext,
 ): AiCliRestResponse {
-  const client = request.client || 'rest';
+  const client = resolveRestClient(request);
 
   if (request.method === 'GET' && request.path === '/api/ai-cli/spec') {
     return jsonResponse(200, {
@@ -238,15 +255,9 @@ export function handleAiCliRestRequest(
         'weapon.search': 'weapon.search <keyword>',
         'weapon.draft.show': 'weapon.draft.show',
         'weapon.open': 'weapon.open <id|name>',
-        'weapon.data.list': 'weapon.data.list [limit]',
-        'weapon.data.show': 'weapon.data.show <id|name>',
-        'operator.data.list': 'operator.data.list [limit]',
-        'operator.data.show': 'operator.data.show <id|name>',
         'operator.fill.task': 'operator.fill.task',
         'operator.fill.check': 'operator.fill.check <OperatorFillAiDraft JSON>',
         'operator.fill.apply': 'operator.fill.apply <OperatorFillAiDraft JSON>',
-        'equipment.data.list': 'equipment.data.list [limit]',
-        'equipment.data.show': 'equipment.data.show <id|name>',
         'equipment.fill.task': 'equipment.fill.task',
         'equipment.fill.check': 'equipment.fill.check <EquipmentFillAiDraft JSON>',
         'equipment.fill.apply': 'equipment.fill.apply <EquipmentFillAiDraft JSON>',
@@ -302,8 +313,8 @@ export function handleAiCliRestRequest(
       },
       weaponTruth: {
         storage: 'localStorage.def.weapon-sheet.library.v1',
-        sourceData: 'public/data/weapons exposed through GET /api/weapon/data and GET /api/weapon/data/<name>',
-        meaning: 'Complete local Weapon library plus official/static Weapon source data.',
+        sourceData: 'Official/static source data is outside Agent CLI. Use app data services before submitting weapon.fill drafts.',
+        meaning: 'Complete local Weapon library. Official/static source data is outside Agent CLI.',
       },
       activeDraft: {
         storage: 'localStorage.def.buff-editor.draft.v1',
@@ -319,16 +330,14 @@ export function handleAiCliRestRequest(
         'GET /api/buff/fill/template before creating a fill.check payload',
         'POST /api/buff/fill/check',
         'POST /api/buff/fill/apply only after check passes and write permission is intended',
-        'For weapon fill: GET /api/weapon/data, then GET /api/weapon/data/<name> such as /api/weapon/data/赫拉芬格 before creating WeaponFillAiDraft',
-        'For weapon fill: POST /api/ai-cli/run with command weapon.fill.task to get schema/source index, then weapon.fill.check/apply',
+        'For weapon fill: GET /api/weapon/library and GET /api/weapon/current, then POST /api/ai-cli/run with command weapon.fill.task to get schema',
         'GET /api/agent/logs or subscribe GET /api/agent/events for audit records',
       ],
       safetyRules: [
         'Do not write app storage directly.',
         'Treat /api/buff/library as the Buff source of truth.',
         'Treat /api/buff/current as editor state only.',
-        'Treat /api/weapon/library as local Weapon truth and /api/weapon/data/<name> as official/static Weapon source data.',
-        'Before filling a named official weapon, read /api/weapon/data/<name>; do not invent weapon data when source data is available through the app.',
+        'Treat /api/weapon/library as local Weapon truth. Official/static Weapon source data is outside Agent CLI.',
         'Do not submit BuffDraft read responses directly to fill.check/apply; convert to BuffFillAiDraft array format.',
         'Use fill.check before fill.apply.',
         'Use weapon.fill.check before weapon.fill.apply.',
@@ -374,10 +383,10 @@ export function handleAiCliRestRequest(
           path: '/api/buff/fill/apply?client=web-cli',
           body: { protocolVersion: 1, requestId: 'example-apply', draft: buffFillTemplate },
         },
-        readWeaponSource: {
+        readWeaponLocalTruth: {
           method: 'GET',
-          path: '/api/weapon/data/赫拉芬格',
-          note: 'Read official/static Weapon source data before weapon.fill.check/apply.',
+          path: '/api/weapon/library',
+          note: 'Read local Weapon truth through Agent CLI. Official/static source data is outside Agent CLI.',
         },
       },
     });
@@ -434,16 +443,14 @@ export function handleAiCliRestRequest(
         {
           id: 'weapon.fill',
           title: 'Fill or Update Weapon Sheet Entry',
-          intent: 'Read official/static Weapon source data and convert it into a validated WeaponFillAiDraft proposal.',
+          intent: 'Convert an app-provided Weapon draft into a validated WeaponFillAiDraft proposal.',
           readBeforeUse: [
             'GET /api/agent/guide',
-            'GET /api/weapon/data',
-            'GET /api/weapon/data/<name> for the target weapon, for example GET /api/weapon/data/赫拉芬格',
-            'POST /api/ai-cli/run with command weapon.fill.task to get schema, supported effect types, and source index',
+            'POST /api/ai-cli/run with command weapon.fill.task to get schema and supported effect types',
             'GET /api/weapon/library and GET /api/weapon/current when updating local Weapon state',
           ],
           procedure: [
-            'Read the official/static source data first. Do not fill a named official weapon blind.',
+            'Use app-provided source data outside Agent CLI when needed. Agent CLI only owns current/library/fill/proposal state.',
             'Build exactly one WeaponFillAiDraft JSON object aligned with Sheet-Weapon.',
             'Leave imgUrl empty if source data has no image URL. Do not use url as imgUrl.',
             'Only skill3.effects is preserved by Sheet-Weapon.',
@@ -472,15 +479,13 @@ export function handleAiCliRestRequest(
         {
           id: 'operator.fill',
           title: 'Fill or Update Operator Editor Entry',
-          intent: 'Read official/static Operator source data and convert it into a validated OperatorFillAiDraft proposal.',
+          intent: 'Convert an app-provided Operator draft into a validated OperatorFillAiDraft proposal.',
           readBeforeUse: [
-            'GET /api/operator/data',
-            'GET /api/operator/data/<name> for the target operator',
             'GET /api/operator/fill/template or operator.fill.task for schema and allowlists',
             'GET /api/operator/library and GET /api/operator/current when updating local Operator state',
           ],
           procedure: [
-            'Read source data first. Do not fill official operators blind.',
+            'Use app-provided source data outside Agent CLI when needed. Agent CLI only owns current/library/fill/proposal state.',
             'Build one OperatorFillAiDraft JSON object with id/name/rarity/profession/weapon/element/mainStat/subStat/skills.',
             'Call POST /api/operator/fill/check.',
             'If check fails, fix JSON and check again.',
@@ -501,15 +506,13 @@ export function handleAiCliRestRequest(
         {
           id: 'equipment.fill',
           title: 'Fill or Update Equipment Sheet Entry',
-          intent: 'Read Equipment source data and convert it into a validated EquipmentFillAiDraft proposal.',
+          intent: 'Convert an app-provided Equipment draft into a validated EquipmentFillAiDraft proposal.',
           readBeforeUse: [
-            'GET /api/equipment/data',
-            'GET /api/equipment/data/<name> for the target equipment or gear set',
             'GET /api/equipment/fill/template or equipment.fill.task for schema and allowlists',
             'GET /api/equipment/library and GET /api/equipment/current when updating local Equipment state',
           ],
           procedure: [
-            'Read source data first.',
+            'Use app-provided source data outside Agent CLI when needed. Agent CLI only owns current/library/fill/proposal state.',
             'Build one EquipmentFillAiDraft JSON object with gearSets and equipments.',
             'Call POST /api/equipment/fill/check.',
             'If check fails, fix JSON and check again.',
@@ -584,7 +587,9 @@ export function handleAiCliRestRequest(
   }
 
   if (request.method === 'GET' && request.path.startsWith('/api/weapon/library/')) {
-    const ref = decodeURIComponent(request.path.slice('/api/weapon/library/'.length));
+    const decoded = decodePathSegment(request.path.slice('/api/weapon/library/'.length));
+    if (!decoded.ok) return decoded.response;
+    const ref = decoded.value;
     const entry = findWeaponLibraryEntry(ref, readWeaponLibrary());
     if (!entry) {
       return jsonResponse(404, {
@@ -601,44 +606,6 @@ export function handleAiCliRestRequest(
       warning: 'Read format only. Use weapon.fill.check/apply for proposals.',
       id: entry.id,
       draft: entry.draft,
-    });
-  }
-
-  if (request.method === 'GET' && request.path === '/api/weapon/data') {
-    const keyword = request.query?.q || request.query?.query || '';
-    const weapons = listWeaponSourceIndex().filter((entry) => {
-      if (!keyword.trim()) return true;
-      const normalizedKeyword = keyword.trim().toLowerCase();
-      return [entry.id, entry.name, entry.folder].filter(Boolean).join(' ').toLowerCase().includes(normalizedKeyword);
-    });
-    return jsonResponse(200, {
-      ok: true,
-      protocolVersion: AI_CLI_PROTOCOL_VERSION,
-      format: 'WeaponSourceIndex',
-      count: weapons.length,
-      weapons,
-    });
-  }
-
-  if (request.method === 'GET' && request.path.startsWith('/api/weapon/data/')) {
-    const ref = decodeURIComponent(request.path.slice('/api/weapon/data/'.length));
-    const result = readWeaponSourceData(ref);
-    if (!result.ok) {
-      return jsonResponse(result.candidates?.length ? 409 : 404, {
-        ok: false,
-        protocolVersion: AI_CLI_PROTOCOL_VERSION,
-        error: {
-          code: result.candidates?.length ? 'ambiguous-weapon-source' : 'weapon-source-not-found',
-          message: result.error,
-          details: { candidates: result.candidates },
-        },
-      });
-    }
-    return jsonResponse(200, {
-      ok: true,
-      protocolVersion: AI_CLI_PROTOCOL_VERSION,
-      format: 'WeaponSourceData',
-      ...result.data,
     });
   }
 
@@ -682,7 +649,9 @@ export function handleAiCliRestRequest(
   }
 
   if (request.method === 'GET' && request.path.startsWith('/api/operator/library/')) {
-    const ref = decodeURIComponent(request.path.slice('/api/operator/library/'.length));
+    const decoded = decodePathSegment(request.path.slice('/api/operator/library/'.length));
+    if (!decoded.ok) return decoded.response;
+    const ref = decoded.value;
     const library = readOperatorLibrary();
     const lower = ref.toLowerCase();
     const entry = Object.entries(library).find(([id, draft]) => id === ref || id.toLowerCase() === lower || draft.name === ref);
@@ -701,44 +670,6 @@ export function handleAiCliRestRequest(
       warning: 'Read format only. Use operator.fill.check/apply for proposals.',
       id: entry[0],
       draft: entry[1],
-    });
-  }
-
-  if (request.method === 'GET' && request.path === '/api/operator/data') {
-    const keyword = request.query?.q || request.query?.query || '';
-    const operators = listOperatorSourceIndex().filter((entry) => {
-      if (!keyword.trim()) return true;
-      const normalizedKeyword = keyword.trim().toLowerCase();
-      return [entry.id, entry.name, entry.folder].filter(Boolean).join(' ').toLowerCase().includes(normalizedKeyword);
-    });
-    return jsonResponse(200, {
-      ok: true,
-      protocolVersion: AI_CLI_PROTOCOL_VERSION,
-      format: 'OperatorSourceIndex',
-      count: operators.length,
-      operators,
-    });
-  }
-
-  if (request.method === 'GET' && request.path.startsWith('/api/operator/data/')) {
-    const ref = decodeURIComponent(request.path.slice('/api/operator/data/'.length));
-    const result = readOperatorSourceData(ref);
-    if (!result.ok) {
-      return jsonResponse(result.candidates?.length ? 409 : 404, {
-        ok: false,
-        protocolVersion: AI_CLI_PROTOCOL_VERSION,
-        error: {
-          code: result.candidates?.length ? 'ambiguous-operator-source' : 'operator-source-not-found',
-          message: result.error,
-          details: { candidates: result.candidates },
-        },
-      });
-    }
-    return jsonResponse(200, {
-      ok: true,
-      protocolVersion: AI_CLI_PROTOCOL_VERSION,
-      format: 'OperatorSourceData',
-      ...result.data,
     });
   }
 
@@ -776,7 +707,9 @@ export function handleAiCliRestRequest(
   }
 
   if (request.method === 'GET' && request.path.startsWith('/api/equipment/library/')) {
-    const ref = decodeURIComponent(request.path.slice('/api/equipment/library/'.length));
+    const decoded = decodePathSegment(request.path.slice('/api/equipment/library/'.length));
+    if (!decoded.ok) return decoded.response;
+    const ref = decoded.value;
     const library = readEquipmentLibrary();
     const lower = ref.toLowerCase();
     const entry = Object.values(library.gearSets || {}).find((gearSet) => gearSet.gearSetId === ref || gearSet.gearSetId.toLowerCase() === lower || gearSet.name === ref);
@@ -794,45 +727,6 @@ export function handleAiCliRestRequest(
       format: 'EquipmentGearSet',
       warning: 'Read format only. Use equipment.fill.check/apply for proposals.',
       gearSet: entry,
-    });
-  }
-
-  if (request.method === 'GET' && request.path === '/api/equipment/data') {
-    const keyword = request.query?.q || request.query?.query || '';
-    const equipments = listEquipmentSourceIndex().filter((entry) => {
-      if (!keyword.trim()) return true;
-      const normalizedKeyword = keyword.trim().toLowerCase();
-      return [entry.id, entry.name, entry.gearSetId, entry.part].filter(Boolean).join(' ').toLowerCase().includes(normalizedKeyword);
-    });
-    return jsonResponse(200, {
-      ok: true,
-      protocolVersion: AI_CLI_PROTOCOL_VERSION,
-      format: 'EquipmentSourceIndex',
-      count: equipments.length,
-      equipments,
-    });
-  }
-
-  if (request.method === 'GET' && request.path.startsWith('/api/equipment/data/')) {
-    const ref = decodeURIComponent(request.path.slice('/api/equipment/data/'.length));
-    const result = readEquipmentSourceData(ref);
-    if (!result.ok) {
-      return jsonResponse(result.candidates?.length ? 409 : 404, {
-        ok: false,
-        protocolVersion: AI_CLI_PROTOCOL_VERSION,
-        error: {
-          code: result.candidates?.length ? 'ambiguous-equipment-source' : 'equipment-source-not-found',
-          message: result.error,
-          details: { candidates: result.candidates },
-        },
-      });
-    }
-    return jsonResponse(200, {
-      ok: true,
-      protocolVersion: AI_CLI_PROTOCOL_VERSION,
-      format: 'EquipmentSourceData',
-      entry: result.entry,
-      source: result.data,
     });
   }
 
@@ -891,7 +785,9 @@ export function handleAiCliRestRequest(
   }
 
   if (request.method === 'GET' && request.path.startsWith('/api/buff/library/')) {
-    const buffId = decodeURIComponent(request.path.slice('/api/buff/library/'.length));
+    const decoded = decodePathSegment(request.path.slice('/api/buff/library/'.length));
+    if (!decoded.ok) return decoded.response;
+    const buffId = decoded.value;
     const library = readBuffLibrary();
     const draft = library[buffId];
     if (!draft) {
@@ -1044,7 +940,10 @@ export function handleAiCliRestRequest(
     protocolVersion: AI_CLI_PROTOCOL_VERSION,
     error: {
       code: 'not-found',
-      message: `${request.method} ${request.path} is not defined`,
+      message: `${request.method} ${request.path} is not defined. See GET /api/ai-cli/spec for supported endpoints.`,
+      details: {
+        spec: 'GET /api/ai-cli/spec',
+      },
     },
   });
 }

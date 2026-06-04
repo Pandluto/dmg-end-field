@@ -65,13 +65,9 @@ import {
   findWeaponLibraryEntry,
   formatWeaponLibrarySummary,
   getCurrentWeaponDraft,
-  listWeaponSourceIndex,
   openWeaponLibraryEntry,
-  readWeaponSourceData,
   searchWeaponSurface,
 } from './weaponDataSurface';
-import { listOperatorSourceIndex, readOperatorSourceData } from './operatorSourceData';
-import { listEquipmentSourceIndex, readEquipmentSourceData } from './equipmentSourceData';
 
 registerFillDomainAdapter(buffFillAdapter);
 registerFillDomainAdapter(weaponFillAdapter);
@@ -513,24 +509,18 @@ function executeCommand(
             ['buff', 'buff.open <id>', 'set active draft from library'],
             ['weapon', 'weapon.list [limit]', 'list Weapon library entries'],
             ['weapon', 'weapon.show <id|name>', 'read one local Weapon library entry'],
-            ['weapon', 'weapon.search <keyword>', 'search local and official Weapon data'],
+            ['weapon', 'weapon.search <keyword>', 'search local Weapon library'],
             ['weapon', 'weapon.draft.show', 'read current Weapon working draft'],
             ['weapon', 'weapon.open <id|name>', 'set active Weapon draft from library'],
-            ['weapon', 'weapon.data.list [limit]', 'list official Weapon source data'],
-            ['weapon', 'weapon.data.show <id|name>', 'read official Weapon source data'],
             ['operator', 'operator.current', 'read current Operator working draft'],
             ['operator', 'operator.library [limit]', 'list local Operator library entries'],
             ['operator', 'operator.library.show <id|name>', 'read one local Operator library entry'],
-            ['operator', 'operator.data.list [limit]', 'list official Operator source data'],
-            ['operator', 'operator.data.show <id|name>', 'read official Operator source data'],
             ['operator', 'operator.fill.task', 'return operator task package'],
             ['operator', 'operator.fill.check <json>', 'validate OperatorFillAiDraft; prefer REST for Chinese JSON'],
             ['operator', 'operator.fill.apply <json>', 'create operator fill proposal; prefer REST for Chinese JSON'],
             ['equipment', 'equipment.current', 'read current Equipment working draft'],
             ['equipment', 'equipment.library [limit]', 'list local Equipment library entries'],
             ['equipment', 'equipment.library.show <id|name>', 'read one local Equipment gear set'],
-            ['equipment', 'equipment.data.list [limit]', 'list Equipment source data'],
-            ['equipment', 'equipment.data.show <id|name>', 'read Equipment source data'],
             ['equipment', 'equipment.fill.task', 'return equipment task package'],
             ['equipment', 'equipment.fill.check <json>', 'validate EquipmentFillAiDraft'],
             ['equipment', 'equipment.fill.apply <json>', 'create equipment fill proposal'],
@@ -753,14 +743,12 @@ function executeCommand(
     return makeResponse({
       lines: rows.length
         ? table(
-            ['source', 'id', 'name', 'extra'],
+            ['id', 'name', 'rarity', 'type'],
             rows.map((entry) => [
-              entry.source,
               entry.id || '-',
               entry.name,
-              entry.source === 'library'
-                ? `rarity=${entry.rarity} type=${entry.type || '-'}`
-                : `folder=${entry.folder}`,
+              String(entry.rarity),
+              entry.type || '-',
             ]),
           )
         : [info(`no weapon match: ${keyword} (未匹配到武器)`)],
@@ -777,7 +765,7 @@ function executeCommand(
         ok: false,
         lines: [
           fail('usage: weapon.show <existingWeaponId|name>'),
-          '[hint] For official source data, use weapon.data.show <name> (官方源数据请用 weapon.data.show <名称>)',
+          '[hint] For current local state, use weapon.list or weapon.search (本地状态请用 weapon.list 或 weapon.search)',
         ],
       });
     }
@@ -830,54 +818,6 @@ function executeCommand(
     });
   }
 
-  if (command === 'weapon.data.list') {
-    const limit = Math.max(1, Math.min(500, Number(args[0] || 100) || 100));
-    const rows = listWeaponSourceIndex().slice(0, limit);
-    return makeResponse({
-      lines: rows.length
-        ? table(
-            ['name', 'id', 'folder', 'files'],
-            rows.map((entry) => [
-              entry.name,
-              entry.id || '-',
-              entry.folder,
-              Object.entries(entry.files).filter(([, exists]) => exists).map(([kind]) => kind).join('/') || '-',
-            ]),
-          )
-        : [info('no official weapon source data (没有官方武器源数据)')],
-      data: { weapons: rows },
-      workflow: 'weapon.fill',
-    });
-  }
-
-  if (command === 'weapon.data.show') {
-    const ref = args.join(' ').trim();
-    const result = readWeaponSourceData(ref);
-    if (!result.ok) {
-      return makeResponse({
-        ok: false,
-        lines: [
-          fail(`${result.error} (武器源数据未找到或不唯一)`),
-          ...(result.candidates?.length
-            ? table(['name', 'id', 'folder'], result.candidates.map((entry) => [entry.name, entry.id || '-', entry.folder]))
-            : ['[hint] Use weapon.data.list or weapon.search <keyword> (可先用 weapon.data.list 或 weapon.search <关键词>)']),
-        ],
-        error: { code: result.candidates?.length ? 'ambiguous-weapon-source' : 'weapon-source-not-found', message: result.error, details: { candidates: result.candidates } },
-      });
-    }
-    const availableFiles = Object.entries(result.data.files).filter(([, value]) => value !== undefined).map(([kind]) => kind);
-    return makeResponse({
-      lines: [
-        ok(`weapon source loaded: ${result.data.name}`),
-        `folder=${result.data.folder}`,
-        `available=${availableFiles.join('/') || '-'}`,
-        `missing=${result.data.missingFiles.join('/') || '-'}`,
-      ],
-      data: result.data,
-      workflow: 'weapon.fill',
-    });
-  }
-
   if (command === 'operator.current') {
     const operatorDraft = readCurrentOperatorDraft();
     return makeResponse({
@@ -922,7 +862,7 @@ function executeCommand(
         ok: false,
         lines: [
           fail('usage: operator.library.show <existingOperatorId|name>'),
-          '[hint] For official source data, use operator.data.show <name> (官方源数据请用 operator.data.show <名称>)',
+          '[hint] For current local state, use operator.current or operator.library (本地状态请用 operator.current 或 operator.library)',
         ],
       });
     }
@@ -936,54 +876,6 @@ function executeCommand(
         `skills=${Object.keys(entry[1].skills || {}).length}`,
       ],
       data: { id: entry[0], draft: entry[1] },
-      workflow: 'operator.fill',
-    });
-  }
-
-  if (command === 'operator.data.list') {
-    const limit = Math.max(1, Math.min(500, Number(args[0] || 100) || 100));
-    const rows = listOperatorSourceIndex().slice(0, limit);
-    return makeResponse({
-      lines: rows.length
-        ? table(
-            ['name', 'id', 'folder', 'files'],
-            rows.map((entry) => [
-              entry.name,
-              entry.id || '-',
-              entry.folder,
-              Object.entries(entry.files).filter(([, exists]) => exists).map(([kind]) => kind).join('/') || '-',
-            ]),
-          )
-        : [info('no official operator source data (没有官方干员源数据)')],
-      data: { operators: rows },
-      workflow: 'operator.fill',
-    });
-  }
-
-  if (command === 'operator.data.show') {
-    const ref = args.join(' ').trim();
-    const result = readOperatorSourceData(ref);
-    if (!result.ok) {
-      return makeResponse({
-        ok: false,
-        lines: [
-          fail(`${result.error} (干员源数据未找到或不唯一)`),
-          ...(result.candidates?.length
-            ? table(['name', 'id', 'folder'], result.candidates.map((entry) => [entry.name, entry.id || '-', entry.folder]))
-            : ['[hint] Use operator.data.list first (可先用 operator.data.list)']),
-        ],
-        error: { code: result.candidates?.length ? 'ambiguous-operator-source' : 'operator-source-not-found', message: result.error, details: { candidates: result.candidates } },
-      });
-    }
-    const availableFiles = Object.entries(result.data.files).filter(([, value]) => value !== undefined).map(([kind]) => kind);
-    return makeResponse({
-      lines: [
-        ok(`operator source loaded: ${result.data.name}`),
-        `folder=${result.data.folder}`,
-        `available=${availableFiles.join('/') || '-'}`,
-        `missing=${result.data.missingFiles.join('/') || '-'}`,
-      ],
-      data: result.data,
       workflow: 'operator.fill',
     });
   }
@@ -1028,7 +920,7 @@ function executeCommand(
         ok: false,
         lines: [
           fail('usage: equipment.library.show <existingGearSetId|name>'),
-          '[hint] For source data, use equipment.data.show <name> (源数据请用 equipment.data.show <名称>)',
+          '[hint] For current local state, use equipment.current or equipment.library (本地状态请用 equipment.current 或 equipment.library)',
         ],
       });
     }
@@ -1039,48 +931,6 @@ function executeCommand(
         `equipments=${Object.keys(entry.equipments || {}).length}`,
       ],
       data: { gearSet: entry },
-      workflow: 'equipment.fill',
-    });
-  }
-
-  if (command === 'equipment.data.list') {
-    const limit = Math.max(1, Math.min(1000, Number(args[0] || 100) || 100));
-    const rows = listEquipmentSourceIndex().slice(0, limit);
-    return makeResponse({
-      lines: rows.length
-        ? table(
-            ['kind', 'id', 'name', 'set', 'part'],
-            rows.map((entry) => [entry.kind, entry.id, entry.name, entry.gearSetId, entry.part || '-']),
-          )
-        : [info('no equipment source data (没有装备源数据)')],
-      data: { equipments: rows },
-      workflow: 'equipment.fill',
-    });
-  }
-
-  if (command === 'equipment.data.show') {
-    const ref = args.join(' ').trim();
-    const result = readEquipmentSourceData(ref);
-    if (!result.ok) {
-      return makeResponse({
-        ok: false,
-        lines: [
-          fail(`${result.error} (装备源数据未找到或不唯一)`),
-          ...(result.candidates?.length
-            ? table(['kind', 'id', 'name', 'set'], result.candidates.map((entry) => [entry.kind, entry.id, entry.name, entry.gearSetId]))
-            : ['[hint] Use equipment.data.list first (可先用 equipment.data.list)']),
-        ],
-        error: { code: result.candidates?.length ? 'ambiguous-equipment-source' : 'equipment-source-not-found', message: result.error, details: { candidates: result.candidates } },
-      });
-    }
-    return makeResponse({
-      lines: [
-        ok(`equipment source loaded: ${result.entry.name}`),
-        `kind=${result.entry.kind}`,
-        `id=${result.entry.id}`,
-        `gearSet=${result.entry.gearSetId}`,
-      ],
-      data: { entry: result.entry, source: result.data },
       workflow: 'equipment.fill',
     });
   }

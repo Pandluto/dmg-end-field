@@ -214,9 +214,20 @@ const vite = await createViteServer({
 
 vite.moduleGraph?.invalidateAll?.();
 
-const { handleAiCliRestRequest, getAiCliRestDiagnostics } = await vite.ssrLoadModule('/src/aiCli/aiCliRestAdapter.ts');
-const { readCurrentBuffDraft } = await vite.ssrLoadModule('/src/aiCli/buffFillAdapter.ts');
-const { readAgentRecordSnapshot } = await vite.ssrLoadModule('/src/aiCli/aiCliAgentInfrastructure.ts');
+async function loadAiCliModules() {
+  vite.moduleGraph?.invalidateAll?.();
+  const restAdapter = await vite.ssrLoadModule('/src/aiCli/aiCliRestAdapter.ts');
+  const buffFillAdapter = await vite.ssrLoadModule('/src/aiCli/buffFillAdapter.ts');
+  const infrastructure = await vite.ssrLoadModule('/src/aiCli/aiCliAgentInfrastructure.ts');
+  return {
+    handleAiCliRestRequest: restAdapter.handleAiCliRestRequest,
+    getAiCliRestDiagnostics: restAdapter.getAiCliRestDiagnostics,
+    readCurrentBuffDraft: buffFillAdapter.readCurrentBuffDraft,
+    readAgentRecordSnapshot: infrastructure.readAgentRecordSnapshot,
+  };
+}
+
+const { getAiCliRestDiagnostics } = await loadAiCliModules();
 const startupDiagnostics = getAiCliRestDiagnostics();
 
 const sseClients = new Set();
@@ -232,6 +243,30 @@ function writeSse(response, eventName, payload) {
 }
 
 function broadcastAgentRecords() {
+  loadAiCliModules()
+    .then(({ readAgentRecordSnapshot }) => {
+      const payload = {
+        ok: true,
+        protocolVersion: 1,
+        ...readAgentRecordSnapshot(),
+      };
+      for (const client of Array.from(sseClients)) {
+        if (!writeSse(client, 'agent.records', payload)) {
+          sseClients.delete(client);
+        }
+      }
+    })
+    .catch(() => {});
+}
+
+function shouldBroadcastAfter(pathname) {
+  return pathname !== '/api/agent/events'
+    && pathname !== '/api/agent/records'
+    && pathname !== '/api/agent/logs'
+    && pathname !== '/api/agent/sessions';
+}
+
+function broadcastSnapshot(readAgentRecordSnapshot) {
   const payload = {
     ok: true,
     protocolVersion: 1,
@@ -289,11 +324,8 @@ const server = http.createServer(async (request, response) => {
     });
     response.write(': connected\n\n');
     sseClients.add(response);
-    writeSse(response, 'agent.records', {
-      ok: true,
-      protocolVersion: 1,
-      ...readAgentRecordSnapshot(),
-    });
+    const { readAgentRecordSnapshot } = await loadAiCliModules();
+    writeSse(response, 'agent.records', { ok: true, protocolVersion: 1, ...readAgentRecordSnapshot() });
     request.on('close', () => {
       sseClients.delete(response);
     });
@@ -302,18 +334,19 @@ const server = http.createServer(async (request, response) => {
 
   try {
     const body = method === 'POST' ? await readJsonBody(request) : undefined;
+    const { handleAiCliRestRequest, readCurrentBuffDraft, readAgentRecordSnapshot } = await loadAiCliModules();
     const restResponse = handleAiCliRestRequest({
       method,
       path: requestUrl.pathname,
       body,
-      client: requestUrl.searchParams.get('client') || 'rest',
+      client: requestUrl.searchParams.get('client') || (body && typeof body.client === 'string' ? body.client : 'rest'),
       query: Object.fromEntries(requestUrl.searchParams.entries()),
     }, readCurrentBuffDraft(), {
       sourceText: '',
     });
     writeJson(response, restResponse.status, restResponse.body);
-    if (requestUrl.pathname !== '/api/agent/records' && requestUrl.pathname !== '/api/agent/logs' && requestUrl.pathname !== '/api/agent/sessions') {
-      broadcastAgentRecords();
+    if (shouldBroadcastAfter(requestUrl.pathname)) {
+      broadcastSnapshot(readAgentRecordSnapshot);
     }
   } catch (error) {
     writeJson(response, 500, {
@@ -323,6 +356,9 @@ const server = http.createServer(async (request, response) => {
         message: error instanceof Error ? error.message : String(error),
       },
     });
+    if (shouldBroadcastAfter(requestUrl.pathname)) {
+      broadcastAgentRecords();
+    }
   }
 });
 
