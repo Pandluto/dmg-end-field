@@ -204,12 +204,56 @@
 - [ ] Task 13: 扩展横向 Domain Adapter 到干员/装备
   - [ ] 基于 Task 12 的 `AgentFillDomainAdapter` 和 registry，接入 `operator.fill`。
   - [ ] 基于 Task 12 的 `AgentFillDomainAdapter` 和 registry，接入 `equipment.fill`。
-  - [ ] 为 `operator.fill` 定义独立 schema、validator、storage boundary 和 proposal summary。
-  - [ ] 为 `equipment.fill` 定义独立 schema、validator、storage boundary 和 proposal summary。
+  - [ ] `AiAgentWorkflow` 扩展为支持 `operator.fill` 和 `equipment.fill`。
+  - [ ] `AiAgentProposal.domain` 已有 `operator / equipment` 时，复用同一 proposal 存储和状态字段，不新增平行状态表。
   - [ ] 复用 Task 12 的 proposal 审批/保存状态机，不复制新的审批逻辑。
+  - [ ] registry 能在不修改 `executeCommand` 主状态机的前提下分发 `operator.fill.task/check/apply` 和 `equipment.fill.task/check/apply`。
+  - [ ] registry 未注册或 action 非 `task/check/apply` 时沿用 Task 12 的 `unknown-command` / usage error 规则。
+  - [ ] 明确 Operator 官方源数据来源：`public/data/characters/<name>/<name>.json` 与 `public/data/characters/operators-list.json`。
+  - [ ] 增加 Operator 源数据读取 surface：`operator.data.list [limit]`、`operator.data.show <id|name>`。
+  - [ ] REST 增加 Operator 源数据读取端点：`GET /api/operator/data`、`GET /api/operator/data/<id-or-name>`。
+  - [ ] 明确 Equipment 源数据来源：优先 `public/data/equipments/equipments.json`；若缺失或格式不稳定，Task 13 必须先建立/规范该源数据文件。
+  - [ ] 增加 Equipment 源数据读取 surface：`equipment.data.list [limit]`、`equipment.data.show <id|name>`。
+  - [ ] REST 增加 Equipment 源数据读取端点：`GET /api/equipment/data`、`GET /api/equipment/data/<id-or-name>`。
+  - [ ] 明确 Operator storage boundary：working draft = `def.operator-editor.draft.v1`，saved truth = `def.operator-editor.library.v1`。
+  - [ ] 明确 Equipment storage boundary：现状 working draft = `def.equipment-sheet.draft.v1`；Task 13 必须决定 saved truth 是新增 `def.equipment-sheet.library.v1` 还是继续以 draft 作为临时真相，并在 spec 与代码中一致。
+  - [ ] 如果新增 `def.equipment-sheet.library.v1`，同步迁移/兼容 `OperatorConfigPage` 当前读取 `def.equipment-sheet.draft.v1` 的行为。
+  - [ ] 为 `operator.fill` 定义独立 `OperatorFillAiDraft` schema、validator、normalizer、storage boundary 和 proposal summary。
+  - [ ] `OperatorFillAiDraft` 第一版最小覆盖 `id / name / rarity / profession / weapon / element / mainStat / subStat / skills`。
+  - [ ] `OperatorFillAiDraft` 第一版只要求 skills 基本结构；attributes 六属性多等级、talents、potentials、operator buffs 可作为 v2 扩展，不阻塞 Task 13 最小闭环。
+  - [ ] `operator.fill` 必须声明并校验 skill key 白名单或 buttonType 白名单，至少覆盖 `A / B / E / Q`。
+  - [ ] `operator.fill` 如接受 buffs，必须声明 `supportedEffectTypes` 和 category 白名单，不能复用 Buff prompt contract 让 agent 猜类型。
+  - [ ] `operator.fill.task` 返回当前 operator draft、最小 schema、source data index、source read commands/endpoints、supportedEffectTypes 和审批/保存警告。
+  - [ ] `operator.fill.check` 只校验不写 `def.operator-editor.*`。
+  - [ ] `operator.fill.apply` 只创建 `domain='operator'` proposal，不写 `def.operator-editor.library.v1`。
+  - [ ] `proposal.approve` 对 operator proposal 只写 working draft `def.operator-editor.draft.v1`。
+  - [ ] `proposal.save` 对 operator proposal 才写 saved truth `def.operator-editor.library.v1`。
+  - [ ] 为 `equipment.fill` 定义独立 `EquipmentFillAiDraft` schema、validator、normalizer、storage boundary 和 proposal summary。
+  - [ ] `EquipmentFillAiDraft` 第一版基于现有 `EquipmentLibrary / EquipmentGearSet / EquipmentItem / EquipmentEffect` 结构，最小覆盖 `gearSetId / name / equipments / part / fixedStat / effects`。
+  - [ ] `equipment.fill` 必须声明装备部位白名单：`护甲 / 护手 / 配件`。
+  - [ ] `equipment.fill` 必须声明 fixed stat type 白名单：`defense / hp / flatAtk`。
+  - [ ] `equipment.fill` 必须声明 effect slot 白名单：`effect1 / effect2 / effect3`。
+  - [ ] `equipment.fill` 必须声明 effect category 白名单：`ability / buff`。
+  - [ ] `equipment.fill` 必须声明 unit 白名单：`flat / percent`。
+  - [ ] `equipment.fill` 的 level keys 只允许 `0 / 1 / 2 / 3`，且 level value 必须是 number，不接受字符串数字。
+  - [ ] `equipment.fill.task` 返回当前 equipment draft/library、最小 schema、source data index、stat/effect 白名单和审批/保存警告。
+  - [ ] `equipment.fill.check` 只校验不写 `def.equipment-sheet.*`。
+  - [ ] `equipment.fill.apply` 只创建 `domain='equipment'` proposal，不写 Equipment saved truth。
+  - [ ] `proposal.approve` 对 equipment proposal 只写 working draft。
+  - [ ] `proposal.save` 对 equipment proposal 才写 saved truth；若 Task 13 选择继续复用 draft 作为真相，必须在响应和日志里明确这是 legacy boundary。
+  - [ ] REST 端点补齐：`GET /api/operator/current`、`GET /api/operator/library`、`GET /api/operator/library/<id-or-name>`。
+  - [ ] REST 端点补齐：`GET /api/operator/fill/template`、`POST /api/operator/fill/check`、`POST /api/operator/fill/apply`。
+  - [ ] REST 端点补齐：`GET /api/equipment/current`、`GET /api/equipment/library`、`GET /api/equipment/library/<id-or-name>`。
+  - [ ] REST 端点补齐：`GET /api/equipment/fill/template`、`POST /api/equipment/fill/check`、`POST /api/equipment/fill/apply`。
+  - [ ] Task 13 新增的 Operator/Equipment 独立 REST `fill/check|apply` 统一使用 `{ protocolVersion, requestId?, draft }` body 格式。
+  - [ ] 独立 REST fill 端点内部仍调用 `runAiCliCommand` 和对应 adapter，不允许复制 validator 或写入逻辑。
+  - [ ] REST `*.fill.apply` 对 `rest / codex / claude / mcp / powershell` 仍只创建 proposal，不允许推进 approval/save。
+  - [ ] `GET /api/ai-cli/spec` 和 `GET /api/agent/skills` 暴露 operator/equipment 的独立端点、schema、source read flow 和安全规则。
+  - [ ] 权限表补齐 `operator.data.* / equipment.data.* / operator.fill.task/check / equipment.fill.task/check` 的 readonly/dry-run 权限。
+  - [ ] `operator.fill.apply` 和 `equipment.fill.apply` 不加入 readonly 默认权限。
 
-- [ ] Task 14: 验证横向 proposal 闭环集成
-  - [ ] 汇总 Task 12/13 的单测和 smoke 结果，避免重复维护同一批 case。
-  - [ ] REST smoke 覆盖 proposal 查询端点/命令、`buff.fill` proposal-first、`weapon.fill` proposal-first。
+- [ ] Task 14: 横向 proposal 闭环集成收尾
+  - [ ] 汇总 Task 12/13 的实现状态和剩余风险，避免重复维护同一批说明。
   - [ ] Shell Agent 页面或 `/ai-cli` 输出能看到 proposal approval/save 状态。
-  - [ ] 回归确认 readonly 外部 agent 不能推进审批/保存。
+  - [ ] 文档确认 readonly 外部 agent 不能推进审批/保存。
+  - [ ] 本轮不新增测评、单测或 REST smoke 要求。

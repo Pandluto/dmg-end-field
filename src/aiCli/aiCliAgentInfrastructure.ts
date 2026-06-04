@@ -24,6 +24,8 @@ export const KNOWN_COMMANDS = new Set([
   'agent.logs', 'agent.sessions', 'agent.guide',
   'buff.list', 'buff.show', 'buff.search', 'buff.open',
   'weapon.list', 'weapon.search', 'weapon.show', 'weapon.draft.show', 'weapon.open', 'weapon.data.list', 'weapon.data.show',
+  'operator.current', 'operator.library', 'operator.library.show', 'operator.data.list', 'operator.data.show', 'operator.fill.task', 'operator.fill.check', 'operator.fill.apply',
+  'equipment.current', 'equipment.library', 'equipment.library.show', 'equipment.data.list', 'equipment.data.show', 'equipment.fill.task', 'equipment.fill.check', 'equipment.fill.apply',
   'operator.add', 'operator.show', 'operator.delete',
   'draft.show', 'draft.rename',
   'item.list', 'item.add', 'item.set', 'item.delete',
@@ -63,8 +65,8 @@ export function createDefaultPermissionProfiles(): AiAgentPermissionProfile[] {
       id: 'readonly-agent',
       name: 'Readonly Agent',
       client: 'rest',
-      allowedCommands: ['help', '/help', 'purpose', '/purpose', 'spec', '/spec', 'route', 'buff.list', 'buff.show', 'buff.search', 'draft.show', 'item.list', 'effect.list', 'operator.show', 'fill.task', 'fill.task.copy', 'fill.check', 'fill.source', 'agent.logs', 'agent.sessions', 'agent.guide', 'proposal.list', 'proposal.show', 'proposal.clear', 'weapon.list', 'weapon.search', 'weapon.show', 'weapon.draft.show', 'weapon.data.list', 'weapon.data.show', 'weapon.fill.task', 'weapon.fill.check'],
-      allowedWorkflows: ['buff.fill'],
+      allowedCommands: ['help', '/help', 'purpose', '/purpose', 'spec', '/spec', 'route', 'buff.list', 'buff.show', 'buff.search', 'draft.show', 'item.list', 'effect.list', 'operator.show', 'fill.task', 'fill.task.copy', 'fill.check', 'fill.source', 'agent.logs', 'agent.sessions', 'agent.guide', 'proposal.list', 'proposal.show', 'weapon.list', 'weapon.search', 'weapon.show', 'weapon.draft.show', 'weapon.data.list', 'weapon.data.show', 'weapon.fill.task', 'weapon.fill.check', 'operator.current', 'operator.library', 'operator.library.show', 'operator.data.list', 'operator.data.show', 'operator.fill.task', 'operator.fill.check', 'equipment.current', 'equipment.library', 'equipment.library.show', 'equipment.data.list', 'equipment.data.show', 'equipment.fill.task', 'equipment.fill.check'],
+      allowedWorkflows: ['buff.fill', 'weapon.fill', 'operator.fill', 'equipment.fill'],
       canRead: true,
       canDryRun: true,
       canWrite: false,
@@ -75,7 +77,7 @@ export function createDefaultPermissionProfiles(): AiAgentPermissionProfile[] {
       name: 'Confirmed Writer',
       client: 'web-cli',
       allowedCommands: ['*'],
-      allowedWorkflows: ['buff.fill'],
+      allowedWorkflows: ['buff.fill', 'weapon.fill', 'operator.fill', 'equipment.fill'],
       canRead: true,
       canDryRun: true,
       canWrite: true,
@@ -86,7 +88,7 @@ export function createDefaultPermissionProfiles(): AiAgentPermissionProfile[] {
       name: 'Trusted Local Dev',
       client: 'web-cli',
       allowedCommands: ['*'],
-      allowedWorkflows: ['buff.fill'],
+      allowedWorkflows: ['buff.fill', 'weapon.fill', 'operator.fill', 'equipment.fill'],
       canRead: true,
       canDryRun: true,
       canWrite: true,
@@ -97,7 +99,7 @@ export function createDefaultPermissionProfiles(): AiAgentPermissionProfile[] {
 
 // 系统保证 readonly-agent 拥有的基础读命令
 // 这些命令是 readonly 核心能力，不是一次性迁移，后续新增 readonly 命令也应加入
-const GUARANTEED_READONLY_COMMANDS = ['agent.logs', 'agent.sessions', 'agent.guide', 'route', 'operator.show', 'fill.source', 'proposal.list', 'proposal.show', 'proposal.clear', 'weapon.list', 'weapon.search', 'weapon.show', 'weapon.draft.show', 'weapon.data.list', 'weapon.data.show', 'weapon.fill.task', 'weapon.fill.check'];
+const GUARANTEED_READONLY_COMMANDS = ['agent.logs', 'agent.sessions', 'agent.guide', 'route', 'operator.show', 'fill.source', 'proposal.list', 'proposal.show', 'weapon.list', 'weapon.search', 'weapon.show', 'weapon.draft.show', 'weapon.data.list', 'weapon.data.show', 'weapon.fill.task', 'weapon.fill.check', 'operator.current', 'operator.library', 'operator.library.show', 'operator.data.list', 'operator.data.show', 'operator.fill.task', 'operator.fill.check', 'equipment.current', 'equipment.library', 'equipment.library.show', 'equipment.data.list', 'equipment.data.show', 'equipment.fill.task', 'equipment.fill.check'];
 
 export function readPermissionProfiles(): AiAgentPermissionProfile[] {
   const storedProfiles = readJsonStorage<AiAgentPermissionProfile[]>(AI_AGENT_PERMISSION_PROFILES_STORAGE_KEY, []);
@@ -148,12 +150,22 @@ export function commandNeedsWrite(commandName: string) {
     'effect.add',
     'effect.set',
     'effect.delete',
+    'fill.apply',
+    'weapon.fill.apply',
+    'operator.fill.apply',
+    'equipment.fill.apply',
+    'proposal.approve',
+    'proposal.reject',
     'proposal.save',
+    'proposal.unsave',
+    'proposal.clear',
+    'y',
+    'n',
   ].includes(commandName);
 }
 
 export function commandNeedsDryRun(commandName: string) {
-  return commandName === 'fill.check' || commandName === 'weapon.fill.check';
+  return commandName === 'fill.check' || commandName === 'weapon.fill.check' || commandName === 'operator.fill.check' || commandName === 'equipment.fill.check';
 }
 
 export function canRunCommand(profile: AiAgentPermissionProfile, commandName: string) {
@@ -339,7 +351,7 @@ function isValidExternalProposal(proposal: unknown): proposal is AiAgentProposal
   if (!proposal || typeof proposal !== 'object') return false;
   const p = proposal as Record<string, unknown>;
   if (!p.id || typeof p.id !== 'string') return false;
-  if (!p.domain || (p.domain !== 'buff' && p.domain !== 'weapon')) return false;
+  if (!p.domain || (p.domain !== 'buff' && p.domain !== 'weapon' && p.domain !== 'operator' && p.domain !== 'equipment')) return false;
   if (!p.operation || typeof p.operation !== 'string') return false;
   if (!p.payload || typeof p.payload !== 'object' || Array.isArray(p.payload)) return false;
   if (!p.approvalStatus || (p.approvalStatus !== 'Wait' && p.approvalStatus !== 'Yes' && p.approvalStatus !== 'No')) return false;

@@ -24,6 +24,7 @@ export interface AgentFillDomainAdapter<TPayload = unknown> {
   validateAiDraft(rawPayload: unknown): AgentFillValidationResult<TPayload>;
   validateProposalPayload?(payload: unknown): AgentFillValidationResult<TPayload>;
   createProposalPayload(validation: AgentFillValidationResult<TPayload>, rawCommand: string): AgentFillProposalPayload<TPayload>;
+  getProposalTargetId?(payload: TPayload): string;
   summarizeProposal(payload: TPayload): string;
   buildTaskPackage(): { lines: string[]; data: unknown };
   applyToWorkingState(payload: TPayload): { ok: boolean; error?: string };

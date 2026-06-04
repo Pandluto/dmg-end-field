@@ -4,7 +4,7 @@ import './OperatorDraftPage.css';
 import assetPathsRaw from '../../asset-paths.txt?raw';
 import { loadReferenceOperatorDraft, loadReferenceOperatorNames } from './operatorDraftReference';
 import { buildWeaponSearchIndex, searchWeapons } from '../utils/weaponFuzzySearch';
-import { APP_ROUTE_PATHS } from '../utils/appRoute';
+import { APP_ROUTE_PATHS, navigateToAppPath } from '../utils/appRoute';
 import {
   buildDraftLibraryShareFile,
   buildDraftLibraryShareFileName,
@@ -17,6 +17,13 @@ const DRAFT_PAGE_PATH = APP_ROUTE_PATHS.draft;
 const DRAFT_STORAGE_KEY = 'def.operator-editor.draft.v1';
 const LIBRARY_STORAGE_KEY = 'def.operator-editor.library.v1';
 const OPERATOR_LIBRARY_SHARE_TYPE = 'operator-library-share.v1';
+const OPERATOR_DRAFT_NAV_LINKS = [
+  { label: '主界面', path: APP_ROUTE_PATHS.home },
+  { label: '配置页', path: APP_ROUTE_PATHS.operatorConfig },
+  { label: '武器', path: APP_ROUTE_PATHS.weaponSheet },
+  { label: '装备', path: APP_ROUTE_PATHS.equipmentSheet },
+  { label: 'Buff', path: APP_ROUTE_PATHS.buffSheet },
+] as const;
 const RARITY_OPTIONS = [4, 5, 6] as const;
 const PROFESSION_OPTIONS = ['突击', '重装', '近卫', '辅助', '先锋', '术师'] as const;
 const WEAPON_OPTIONS = ['手铳', '双手剑', '长柄武器', '法术单元', '单手剑'] as const;
@@ -51,7 +58,107 @@ const OPERATOR_BUFF_GROUPS = [
   { key: 'skill', label: '技能' },
 ] as const;
 const OPERATOR_BUFF_CATEGORIES = ['positive', 'condition'] as const;
-const OPERATOR_BUFF_UNITS = ['', 'flat', 'percent'] as const;
+const OPERATOR_BUFF_TYPE_OPTIONS = [
+  'atkPercentBoost',
+  'atk',
+  'mainStat',
+  'subStat',
+  'mainStatBoost',
+  'subStatBoost',
+  'allStatBoost',
+  'strengthBoost',
+  'agilityBoost',
+  'intelligenceBoost',
+  'willBoost',
+  'hpPercent',
+  'critRateBoost',
+  'critDmgBonusBoost',
+  'physicalDmgBonus',
+  'magicDmgBonus',
+  'fireDmgBonus',
+  'electricDmgBonus',
+  'iceDmgBonus',
+  'natureDmgBonus',
+  'allDmgBonus',
+  'skillDmgBonus',
+  'chainSkillDmgBonus',
+  'ultimateDmgBonus',
+  'normalAttackDmgBonus',
+  'allSkillDmgBonus',
+  'imbalanceDmgBonus',
+  'sourceSkillBoost',
+  'ultimateChargeEfficiency',
+  'healingBonus',
+  'receivedHealingBonus',
+  'chainCooldownReduction',
+  'imbalanceEfficiency',
+  'damageReduction',
+] as const;
+const OPERATOR_BUFF_TYPE_LABELS: Record<string, string> = {
+  atkPercentBoost: '攻击力百分比',
+  atk: '固定攻击力',
+  mainStat: '主能力固定值',
+  subStat: '副能力固定值',
+  mainStatBoost: '主能力提升',
+  subStatBoost: '副能力提升',
+  allStatBoost: '全属性提升',
+  strengthBoost: '力量提升',
+  agilityBoost: '敏捷提升',
+  intelligenceBoost: '智识提升',
+  willBoost: '意志提升',
+  hpPercent: '生命百分比',
+  critRateBoost: '暴击率',
+  critDmgBonusBoost: '暴击伤害',
+  physicalDmgBonus: '物理伤害加成',
+  magicDmgBonus: '法术伤害加成',
+  fireDmgBonus: '灼热伤害加成',
+  electricDmgBonus: '电磁伤害加成',
+  iceDmgBonus: '寒冷伤害加成',
+  natureDmgBonus: '自然伤害加成',
+  allDmgBonus: '全伤害加成',
+  skillDmgBonus: '战技伤害加成',
+  chainSkillDmgBonus: '连携技伤害加成',
+  ultimateDmgBonus: '终结技伤害加成',
+  normalAttackDmgBonus: '普攻伤害加成',
+  allSkillDmgBonus: '全技能伤害加成',
+  imbalanceDmgBonus: '失衡伤害加成',
+  sourceSkillBoost: '源石技艺强度',
+  ultimateChargeEfficiency: '终结技充能效率',
+  healingBonus: '治疗效率',
+  receivedHealingBonus: '受治疗效率',
+  chainCooldownReduction: '连携技冷却缩减',
+  imbalanceEfficiency: '失衡效率',
+  damageReduction: '伤害减免',
+};
+const OPERATOR_PERCENTLIKE_BUFF_TYPES = new Set([
+  'atkPercentBoost',
+  'mainStatBoost',
+  'subStatBoost',
+  'allStatBoost',
+  'hpPercent',
+  'critRateBoost',
+  'critDmgBonusBoost',
+  'physicalDmgBonus',
+  'magicDmgBonus',
+  'fireDmgBonus',
+  'electricDmgBonus',
+  'iceDmgBonus',
+  'natureDmgBonus',
+  'allDmgBonus',
+  'skillDmgBonus',
+  'chainSkillDmgBonus',
+  'ultimateDmgBonus',
+  'normalAttackDmgBonus',
+  'allSkillDmgBonus',
+  'imbalanceDmgBonus',
+  'sourceSkillBoost',
+  'ultimateChargeEfficiency',
+  'healingBonus',
+  'receivedHealingBonus',
+  'chainCooldownReduction',
+  'imbalanceEfficiency',
+  'damageReduction',
+]);
 
 type HitSkillType = 'A' | 'B' | 'E' | 'Q';
 type HitElement = 'physical' | 'fire' | 'ice' | 'electric' | 'nature';
@@ -210,6 +317,45 @@ function buildOperatorIdFromName(name: string) {
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '');
   return normalized;
+}
+
+function buildSearchIndex(values: Array<string | undefined | null>) {
+  const tokens = values
+    .map((value) => (typeof value === 'string' ? value.trim() : ''))
+    .filter(Boolean);
+  const joined = tokens.join(' ');
+  if (!joined) return '';
+  const fullPinyin = pinyin(joined, { toneType: 'none', type: 'array' })
+    .map((item) => String(item).toLowerCase().replace(/[^a-z0-9]/g, ''))
+    .filter(Boolean)
+    .join(' ');
+  const initials = pinyin(joined, { toneType: 'none', pattern: 'first', type: 'array' })
+    .map((item) => String(item).toLowerCase().replace(/[^a-z0-9]/g, ''))
+    .filter(Boolean)
+    .join('');
+  return [joined, joined.toLowerCase(), fullPinyin, initials].filter(Boolean).join(' | ');
+}
+
+function getOperatorBuffTypeLabel(buffType: string) {
+  const trimmed = buffType.trim();
+  if (!trimmed) return '-';
+  return OPERATOR_BUFF_TYPE_LABELS[trimmed] ?? trimmed;
+}
+
+function getOperatorBuffTypeDisplayLabel(buffType: string) {
+  const trimmed = buffType.trim();
+  if (!trimmed) return '-';
+  return `${getOperatorBuffTypeLabel(trimmed)} · ${trimmed}`;
+}
+
+function buildOperatorBuffTypeSearchText(buffType: string) {
+  const trimmed = buffType.trim();
+  if (!trimmed) return '';
+  return buildSearchIndex([trimmed, getOperatorBuffTypeLabel(trimmed), getOperatorBuffTypeDisplayLabel(trimmed)]);
+}
+
+function inferOperatorBuffUnit(buffType: string): 'flat' | 'percent' {
+  return OPERATOR_PERCENTLIKE_BUFF_TYPES.has(buffType.trim()) ? 'percent' : 'flat';
 }
 
 function isDraftPath(pathname: string) {
@@ -576,6 +722,7 @@ export function OperatorDraftPage() {
   const [selectedHitKey, setSelectedHitKey] = useState<string | null>(null);
   const [activeBuffGroupKey, setActiveBuffGroupKey] = useState<OperatorBuffGroupKey>('talent');
   const [selectedBuffEffectKey, setSelectedBuffEffectKey] = useState<string | null>(null);
+  const [operatorBuffTypeQuery, setOperatorBuffTypeQuery] = useState('');
   const [skillOrder, setSkillOrder] = useState<string[]>([]);
   const [draggingSkillKey, setDraggingSkillKey] = useState<string | null>(null);
   const [dragOverSkillKey, setDragOverSkillKey] = useState<string | null>(null);
@@ -691,6 +838,20 @@ export function OperatorDraftPage() {
   const buffEffectEntries = Object.entries(activeBuffGroup.effects);
   const selectedBuffEffect = selectedBuffEffectKey ? activeBuffGroup.effects[selectedBuffEffectKey] ?? null : null;
   const latestMessage = messages[0] ?? '';
+  const filteredOperatorBuffTypeOptions = useMemo(() => {
+    const keyword = operatorBuffTypeQuery.trim().toLowerCase();
+    if (!keyword) {
+      return OPERATOR_BUFF_TYPE_OPTIONS;
+    }
+    return OPERATOR_BUFF_TYPE_OPTIONS.filter((option) => buildOperatorBuffTypeSearchText(option).toLowerCase().includes(keyword));
+  }, [operatorBuffTypeQuery]);
+  const displayedOperatorBuffTypeOptions = useMemo(() => {
+    const selectedType = selectedBuffEffect?.type?.trim();
+    if (!selectedType || filteredOperatorBuffTypeOptions.includes(selectedType as typeof OPERATOR_BUFF_TYPE_OPTIONS[number])) {
+      return filteredOperatorBuffTypeOptions;
+    }
+    return [selectedType, ...filteredOperatorBuffTypeOptions];
+  }, [filteredOperatorBuffTypeOptions, selectedBuffEffect?.type]);
 
   const orderedDraft = useMemo(() => buildOrderedDraft(draft, skillOrder), [draft, skillOrder]);
   const draftJson = useMemo(() => JSON.stringify(orderedDraft, null, 2), [orderedDraft]);
@@ -1240,6 +1401,10 @@ export function OperatorDraftPage() {
     setMessages((prev) => [`[OK] 已删除 ${activeBuffGroupKey}.${selectedBuffEffectKey}`, ...prev].slice(0, 12));
   };
 
+  const handleNavigate = (path: string) => {
+    navigateToAppPath(path);
+  };
+
   const handleSkillDragStart = (skillKey: string) => {
     setDraggingSkillKey(skillKey);
     setDragOverSkillKey(skillKey);
@@ -1337,6 +1502,24 @@ export function OperatorDraftPage() {
                     </button>
                   </div>
                   {latestMessage ? <div className="operator-draft-latest-message">{latestMessage}</div> : null}
+                </div>
+              </section>
+
+              <section className="operator-draft-nav-panel">
+                <div className="operator-draft-section-header">
+                  <h3>页面跳转</h3>
+                </div>
+                <div className="operator-draft-nav-grid">
+                  {OPERATOR_DRAFT_NAV_LINKS.map((link) => (
+                    <button
+                      key={link.path}
+                      type="button"
+                      className="operator-draft-ghost-button"
+                      onClick={() => handleNavigate(link.path)}
+                    >
+                      {link.label}
+                    </button>
+                  ))}
                 </div>
               </section>
 
@@ -1765,8 +1948,8 @@ export function OperatorDraftPage() {
                           onClick={() => setSelectedBuffEffectKey(effectKey)}
                         >
                           <strong>{effect.name || effectKey}</strong>
-                          <span>{effect.type || '未设置 type'}</span>
-                          <span>{effect.category === 'condition' ? '条件' : '常驻'}{typeof effect.value === 'number' ? ` · ${effect.value}${effect.unit === 'percent' ? '%' : ''}` : ''}</span>
+                          <span>{effect.type ? getOperatorBuffTypeDisplayLabel(effect.type) : '未设置类型'}</span>
+                          <span>{effect.category === 'condition' ? '条件' : '常驻'}{typeof effect.value === 'number' ? ` · ${effect.value}${(effect.unit || inferOperatorBuffUnit(effect.type)) === 'percent' ? '%' : ''}` : ''}</span>
                         </button>
                       ))
                     ) : (
@@ -1789,13 +1972,33 @@ export function OperatorDraftPage() {
                           onChange={(event) => updateSelectedBuffEffect((effect) => ({ ...effect, effectId: event.target.value }))}
                         />
                       </label>
-                      <label>
-                        <span>Type Key</span>
-                        <input
-                          value={selectedBuffEffect.type}
-                          onChange={(event) => updateSelectedBuffEffect((effect) => ({ ...effect, type: event.target.value }))}
-                          placeholder="如 atkPercentBoost"
-                        />
+                      <label className="operator-draft-buff-form-wide">
+                        <span>类型</span>
+                        <div className="operator-draft-buff-type-editor">
+                          <input
+                            className="operator-draft-buff-type-search"
+                            value={operatorBuffTypeQuery}
+                            onChange={(event) => setOperatorBuffTypeQuery(event.target.value)}
+                            placeholder="搜索类型：攻击 / 主能力 / 法术 / 暴击"
+                          />
+                          <select
+                            className="operator-draft-buff-type-select"
+                            value={selectedBuffEffect.type}
+                            onChange={(event) => {
+                              const nextType = event.target.value;
+                              updateSelectedBuffEffect((effect) => ({
+                                ...effect,
+                                type: nextType,
+                                unit: nextType ? inferOperatorBuffUnit(nextType) : '',
+                              }));
+                            }}
+                          >
+                            <option value="">未设置类型</option>
+                            {displayedOperatorBuffTypeOptions.map((option) => (
+                              <option key={option} value={option}>{getOperatorBuffTypeDisplayLabel(option)}</option>
+                            ))}
+                          </select>
+                        </div>
                       </label>
                       <label>
                         <span>分类</span>
@@ -1825,14 +2028,9 @@ export function OperatorDraftPage() {
                       </label>
                       <label>
                         <span>单位</span>
-                        <select
-                          value={selectedBuffEffect.unit ?? ''}
-                          onChange={(event) => updateSelectedBuffEffect((effect) => ({ ...effect, unit: event.target.value }))}
-                        >
-                          {OPERATOR_BUFF_UNITS.map((unit) => (
-                            <option key={unit || 'none'} value={unit}>{unit || '无'}</option>
-                          ))}
-                        </select>
+                        <div className="operator-draft-buff-unit-lock">
+                          {selectedBuffEffect.type ? ((selectedBuffEffect.unit || inferOperatorBuffUnit(selectedBuffEffect.type)) === 'percent' ? '%' : '固定值') : '-'}
+                        </div>
                       </label>
                       <label className="operator-draft-buff-form-wide">
                         <span>描述</span>

@@ -489,6 +489,7 @@ function createCharacterConfigFromSnapshot(snapshot: ConfigSnapshot, sourceChara
       attributes: {
         [levelValueToAttributeKey(snapshot.operator.level)]: snapshot.operator.baseAttributes,
       },
+      operatorBuffs: snapshot.operator.buffs,
       skills: {},
     };
   const equipment = {

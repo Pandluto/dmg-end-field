@@ -19,6 +19,7 @@ Included:
 - A future MCP wrapper that calls the REST bridge instead of duplicating business logic.
 - One first workflow: `buff.fill`.
 - Horizontal fill framework skeleton with `buff.fill` and `weapon.fill`.
+- Planned Task 13 horizontal branches for `operator.fill` and `equipment.fill`.
 - CRUD-style commands for Buff draft smoke testing.
 - Operator fixture commands for test setup.
 - Schema validation before any write.
@@ -228,7 +229,7 @@ interface AiAgentSession {
   status: 'active' | 'archived';
   messages: AiAgentMessage[];
   context: {
-    currentWorkflow?: 'buff.fill' | 'weapon.fill';
+    currentWorkflow?: 'buff.fill' | 'weapon.fill' | 'operator.fill' | 'equipment.fill';
     currentDraftId?: string;
     currentOperatorId?: string;
     lastCommand?: string;
@@ -509,6 +510,26 @@ Y
 N
 ```
 
+Operator source and fill branch commands:
+
+```text
+operator.data.list [limit]
+operator.data.show <id|name>
+operator.fill.task
+operator.fill.check <OperatorFillAiDraft JSON>
+operator.fill.apply <OperatorFillAiDraft JSON>
+```
+
+Equipment source and fill branch commands:
+
+```text
+equipment.data.list [limit]
+equipment.data.show <id|name>
+equipment.fill.task
+equipment.fill.check <EquipmentFillAiDraft JSON>
+equipment.fill.apply <EquipmentFillAiDraft JSON>
+```
+
 Weapon fill branch commands:
 
 ```text
@@ -694,8 +715,8 @@ Domain state targets:
 |--------|---------------|-----------------|
 | Buff | current Buff editor draft / visible draft state | `def.buff-editor.library.v1` |
 | Weapon | current Sheet-Weapon draft / visible sheet state | `def.weapon-sheet.library.v1` |
-| Operator | defined when `operator.fill` is implemented | defined when `operator.fill` is implemented |
-| Equipment | defined when `equipment.fill` is implemented | defined when `equipment.fill` is implemented |
+| Operator | `def.operator-editor.draft.v1` | `def.operator-editor.library.v1` |
+| Equipment | `def.equipment-sheet.draft.v1` | Task 13 must either introduce `def.equipment-sheet.library.v1` or explicitly keep draft-as-truth as a legacy boundary |
 
 Buff migration rule:
 
@@ -808,6 +829,257 @@ Weapon task package requirements:
 - `weapon.fill.task` must not expose Buff modifier catalog as the weapon effect catalog.
 - `weapon.fill.task` must return a short summary line and put the full package in `data`.
 
+## Task 13 Operator And Equipment Fill Branches
+
+Task 13 extends the Task 12 horizontal adapter framework to `operator.fill` and `equipment.fill`. It must not create a second review system. Operator and Equipment proposals use the same `AiAgentProposal`, `approval/save`, `proposal.approve/reject/save/unsave`, and `Y/N` flow as Buff and Weapon.
+
+Shared Task 13 rules:
+
+- `AiAgentWorkflow` must include `operator.fill` and `equipment.fill`.
+- `operator.fill` and `equipment.fill` must register through `AgentFillDomainAdapter`.
+- `executeCommand` must not grow a duplicated approval/save state machine for either domain.
+- `*.fill.task` returns a structured task package in `data`; `lines` only summarize.
+- `*.fill.check` validates only and writes no draft/library storage.
+- `*.fill.apply` validates and creates a proposal only.
+- Approval applies the proposal to working draft only.
+- Save persists through the domain's saved app truth boundary.
+- External agents may query proposals but must not advance approval/save by default.
+- Domain adapters must own their schema, validator, normalizer, storage keys, source-read surface, supported type lists, and proposal summary.
+
+### Operator Fill Branch
+
+Operator source data:
+
+- Official/static source data comes from `public/data/characters/<name>/<name>.json`.
+- `public/data/characters/operators-list.json` is the source index.
+- Agents should call `operator.data.show <id|name>` or `GET /api/operator/data/<id-or-name>` before filling an official Operator.
+
+Operator storage boundary:
+
+```text
+working draft: def.operator-editor.draft.v1
+saved truth:   def.operator-editor.library.v1
+```
+
+Operator read/source commands:
+
+```text
+operator.data.list [limit]
+operator.data.show <id|name>
+operator.fill.task
+operator.fill.check <OperatorFillAiDraft JSON>
+operator.fill.apply <OperatorFillAiDraft JSON>
+```
+
+Minimum `OperatorFillAiDraft` shape:
+
+```ts
+interface OperatorFillAiDraft {
+  id: string;
+  name: string;
+  rarity: number;
+  profession: string;
+  weapon: string;
+  element: 'physical' | 'fire' | 'ice' | 'electric' | 'nature';
+  mainStat: '力量' | '敏捷' | '智识' | '意志';
+  subStat: '力量' | '敏捷' | '智识' | '意志';
+  avatarUrl?: string;
+  skills: Record<string, OperatorFillAiSkill>;
+  buffs?: OperatorFillAiBuffs;
+}
+
+interface OperatorFillAiSkill {
+  displayName: string;
+  buttonType: 'A' | 'B' | 'E' | 'Q';
+  iconUrl?: string;
+  hitCount?: number;
+  hitMeta?: Record<string, {
+    displayName: string;
+    element: 'physical' | 'fire' | 'ice' | 'electric' | 'nature';
+    skillType: 'A' | 'B' | 'E' | 'Q';
+    levels: Record<string, number>;
+  }>;
+}
+
+type OperatorFillAiBuffs = Record<'talent' | 'potential' | 'skill', {
+  effects: Record<string, {
+    effectId: string;
+    name: string;
+    type: string;
+    category: 'positive' | 'condition';
+    value?: number;
+    unit?: 'flat' | 'percent';
+    description?: string;
+    raw?: string;
+  }>;
+}>;
+```
+
+Operator validation rules:
+
+- `id` and `name` are required non-empty strings.
+- `rarity` must be a finite number.
+- `profession`, `weapon`, `element`, `mainStat`, and `subStat` must use explicit allowlists from Operator editor options.
+- Skill `buttonType` is limited to `A | B | E | Q`.
+- Skill hit level values must be numbers, not string numbers.
+- If buffs are accepted in v1, `supportedEffectTypes` and category allowlists must be declared and validated.
+- If buffs are deferred to v2, the adapter must reject or drop `buffs` explicitly; it must not silently accept unknown buff structures.
+- Attributes, talents, potentials, and full multi-hit extraction can be v2. Task 13 v1 should close the proposal loop with the minimal Operator identity and skill structure.
+
+Operator task package requirements:
+
+- Include the current Operator working draft.
+- Include the minimal schema and validation allowlists.
+- Include source data index and source read commands/endpoints.
+- Include `supportedEffectTypes` if buffs are in scope, or a clear `buffsDeferred` warning if not.
+- Include the standard approval/save warning.
+
+### Equipment Fill Branch
+
+Equipment source data:
+
+- Preferred source data is `public/data/equipments/equipments.json`.
+- If this file is absent, incomplete, or not stable enough for agent consumption, Task 13 must first establish the source-data file/shape before claiming `equipment.fill` is ready.
+- Agents should call `equipment.data.show <id|name>` or `GET /api/equipment/data/<id-or-name>` before filling official Equipment.
+
+Equipment storage boundary:
+
+```text
+working draft: def.equipment-sheet.draft.v1
+saved truth:   Task 13 decision required
+```
+
+Current UI code uses `def.equipment-sheet.draft.v1` as the Equipment sheet persisted working library. Task 13 must choose one of two paths and document it in code/spec:
+
+- Preferred: introduce `def.equipment-sheet.library.v1` as saved app truth and migrate/compat existing readers.
+- Legacy-compatible: keep `def.equipment-sheet.draft.v1` as temporary saved truth and make every response/log call out this legacy boundary.
+
+Equipment read/source commands:
+
+```text
+equipment.data.list [limit]
+equipment.data.show <id|name>
+equipment.fill.task
+equipment.fill.check <EquipmentFillAiDraft JSON>
+equipment.fill.apply <EquipmentFillAiDraft JSON>
+```
+
+Minimum `EquipmentFillAiDraft` shape:
+
+```ts
+interface EquipmentFillAiDraft {
+  updatedAt?: string;
+  gearSets: Record<string, EquipmentFillAiGearSet>;
+}
+
+interface EquipmentFillAiGearSet {
+  gearSetId: string;
+  name: string;
+  buffId?: string;
+  imgUrl?: string;
+  threePieceBuff?: EquipmentFillAiThreePieceBuff;
+  equipments: Record<string, EquipmentFillAiItem>;
+}
+
+interface EquipmentFillAiItem {
+  equipmentId: string;
+  name: string;
+  part: '护甲' | '护手' | '配件';
+  imgUrl?: string;
+  fixedStat?: {
+    label: string;
+    typeKey: 'defense' | 'hp' | 'flatAtk';
+    value: number;
+    unit: 'flat' | 'percent';
+    raw?: string;
+  };
+  effects: Partial<Record<'effect1' | 'effect2' | 'effect3', EquipmentFillAiEffect>>;
+}
+
+interface EquipmentFillAiEffect {
+  effectId: 'effect1' | 'effect2' | 'effect3';
+  label: string;
+  typeKey: string;
+  category: 'ability' | 'buff';
+  levels: Partial<Record<'0' | '1' | '2' | '3', number>>;
+  unit: 'flat' | 'percent';
+  raw?: string;
+}
+
+interface EquipmentFillAiThreePieceBuff {
+  effectId: string;
+  name: string;
+  category: 'positive' | 'condition' | '';
+  typeKey: string;
+  value: number;
+  unit: 'flat' | 'percent';
+  raw?: string;
+}
+```
+
+Equipment validation rules:
+
+- Each gear set requires non-empty `gearSetId` and `name`.
+- Equipment `part` is limited to `护甲 | 护手 | 配件`.
+- `fixedStat.typeKey` is limited to `defense | hp | flatAtk`.
+- Effect slots are limited to `effect1 | effect2 | effect3`.
+- Effect category is limited to `ability | buff`.
+- Unit is limited to `flat | percent`.
+- Level keys are limited to `0 | 1 | 2 | 3`.
+- All numeric values must be numbers, not string numbers.
+- Unsupported stat/effect types must be rejected or explicitly dropped by the Equipment adapter; they must not be guessed into Buff or Operator effect types.
+
+Equipment task package requirements:
+
+- Include the current Equipment working draft/library.
+- Include the minimal schema and stat/effect allowlists.
+- Include source data index and source read commands/endpoints.
+- Include the chosen Equipment saved truth boundary.
+- Include the standard approval/save warning.
+
+### Task 13 REST Surface
+
+All domain-specific fill REST endpoints should use the same body format:
+
+```json
+{
+  "protocolVersion": 1,
+  "requestId": "optional-id",
+  "draft": {}
+}
+```
+
+Task 13 REST endpoints:
+
+```text
+GET  /api/operator/current
+GET  /api/operator/library
+GET  /api/operator/library/<id-or-name>
+GET  /api/operator/data
+GET  /api/operator/data/<id-or-name>
+GET  /api/operator/fill/template
+POST /api/operator/fill/check
+POST /api/operator/fill/apply
+
+GET  /api/equipment/current
+GET  /api/equipment/library
+GET  /api/equipment/library/<id-or-name>
+GET  /api/equipment/data
+GET  /api/equipment/data/<id-or-name>
+GET  /api/equipment/fill/template
+POST /api/equipment/fill/check
+POST /api/equipment/fill/apply
+```
+
+REST rules:
+
+- Domain-specific REST fill endpoints must call `runAiCliCommand` and the registered adapter.
+- They must not duplicate schema validation or write logic.
+- `POST /api/*/fill/apply` creates a proposal only and must not save local truth.
+- Approval/save commands remain denied to default external REST clients.
+- `GET /api/ai-cli/spec` and `GET /api/agent/skills` must advertise the source-read flow, schema, endpoint list, and write safety rules for Operator and Equipment.
+- Task 13 does not require new evaluation, automated tests, or REST smoke coverage. Completion is scoped to implementation boundaries and documentation clarity.
+
 ## Validation And Write Flow
 
 Dry run:
@@ -879,6 +1151,27 @@ GET  /api/buff/current
 GET  /api/buff/fill/template
 POST /api/buff/fill/check
 POST /api/buff/fill/apply
+GET  /api/weapon/current
+GET  /api/weapon/library
+GET  /api/weapon/library/<id-or-name>
+GET  /api/weapon/data
+GET  /api/weapon/data/<id-or-name>
+GET  /api/operator/current
+GET  /api/operator/library
+GET  /api/operator/library/<id-or-name>
+GET  /api/operator/data
+GET  /api/operator/data/<id-or-name>
+GET  /api/operator/fill/template
+POST /api/operator/fill/check
+POST /api/operator/fill/apply
+GET  /api/equipment/current
+GET  /api/equipment/library
+GET  /api/equipment/library/<id-or-name>
+GET  /api/equipment/data
+GET  /api/equipment/data/<id-or-name>
+GET  /api/equipment/fill/template
+POST /api/equipment/fill/check
+POST /api/equipment/fill/apply
 GET  /api/agent/sessions
 GET  /api/agent/logs
 GET  /api/agent/records
@@ -935,6 +1228,18 @@ Important format distinction:
 ```
 
 `POST /api/buff/fill/apply` should use the same request body. In the target external-agent framework, a valid apply creates a pending proposal first. Direct persistence is only allowed after app-side approval and save confirmation.
+
+Task 13 domain-specific fill endpoints for Operator and Equipment use the same envelope:
+
+```json
+{
+  "protocolVersion": 1,
+  "requestId": "req-domain-check",
+  "draft": {}
+}
+```
+
+The `draft` object must match that domain's fill schema. Read-format responses from `current`, `library`, or `data` endpoints are source material; agents must convert them to the domain fill schema before `fill.check/apply`.
 
 REST rule:
 

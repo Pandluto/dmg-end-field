@@ -46,6 +46,22 @@ import {
 import { WEAPON_DRAFT_STORAGE_KEY, WEAPON_LIBRARY_STORAGE_KEY, readWeaponLibrary, weaponFillAdapter } from './weaponFillAdapter';
 import { buffFillAdapter } from './buffFillAdapter';
 import {
+  operatorFillAdapter,
+  OPERATOR_DRAFT_STORAGE_KEY,
+  OPERATOR_LIBRARY_STORAGE_KEY,
+  formatOperatorLibrarySummary,
+  readCurrentOperatorDraft,
+  readOperatorLibrary,
+} from './operatorFillAdapter';
+import {
+  equipmentFillAdapter,
+  EQUIPMENT_DRAFT_STORAGE_KEY,
+  EQUIPMENT_LIBRARY_STORAGE_KEY,
+  formatEquipmentLibrarySummary,
+  readCurrentEquipmentLibrary,
+  readEquipmentLibrary,
+} from './equipmentFillAdapter';
+import {
   findWeaponLibraryEntry,
   formatWeaponLibrarySummary,
   getCurrentWeaponDraft,
@@ -54,9 +70,13 @@ import {
   readWeaponSourceData,
   searchWeaponSurface,
 } from './weaponDataSurface';
+import { listOperatorSourceIndex, readOperatorSourceData } from './operatorSourceData';
+import { listEquipmentSourceIndex, readEquipmentSourceData } from './equipmentSourceData';
 
 registerFillDomainAdapter(buffFillAdapter);
 registerFillDomainAdapter(weaponFillAdapter);
+registerFillDomainAdapter(operatorFillAdapter);
+registerFillDomainAdapter(equipmentFillAdapter);
 
 export const SELECTED_CHARACTERS_STORAGE_KEY = 'def.selected-characters.v1';
 export const CHARACTER_INPUT_MAP_STORAGE_KEY = 'def.operator-config.character-input-map.v3';
@@ -299,6 +319,15 @@ export function summarizeAiCliCommand(command: string) {
     const payloadLength = command.length - 'fill.check '.length;
     return `fill.check <json:${payloadLength} chars>`;
   }
+  for (const prefix of ['weapon.fill', 'operator.fill', 'equipment.fill']) {
+    for (const action of ['check', 'apply']) {
+      const commandPrefix = `${prefix}.${action} `;
+      if (lowerCommand.startsWith(commandPrefix)) {
+        const payloadLength = command.length - commandPrefix.length;
+        return `${prefix}.${action} <json:${payloadLength} chars>`;
+      }
+    }
+  }
   const tokens = splitAiCliCommand(command);
   const name = tokens[0] || '';
   if (['operator.add', 'item.add', 'item.set', 'effect.add', 'effect.set'].includes(name) && command.length > 72) {
@@ -489,6 +518,22 @@ function executeCommand(
             ['weapon', 'weapon.open <id|name>', 'set active Weapon draft from library'],
             ['weapon', 'weapon.data.list [limit]', 'list official Weapon source data'],
             ['weapon', 'weapon.data.show <id|name>', 'read official Weapon source data'],
+            ['operator', 'operator.current', 'read current Operator working draft'],
+            ['operator', 'operator.library [limit]', 'list local Operator library entries'],
+            ['operator', 'operator.library.show <id|name>', 'read one local Operator library entry'],
+            ['operator', 'operator.data.list [limit]', 'list official Operator source data'],
+            ['operator', 'operator.data.show <id|name>', 'read official Operator source data'],
+            ['operator', 'operator.fill.task', 'return operator task package'],
+            ['operator', 'operator.fill.check <json>', 'validate OperatorFillAiDraft; prefer REST for Chinese JSON'],
+            ['operator', 'operator.fill.apply <json>', 'create operator fill proposal; prefer REST for Chinese JSON'],
+            ['equipment', 'equipment.current', 'read current Equipment working draft'],
+            ['equipment', 'equipment.library [limit]', 'list local Equipment library entries'],
+            ['equipment', 'equipment.library.show <id|name>', 'read one local Equipment gear set'],
+            ['equipment', 'equipment.data.list [limit]', 'list Equipment source data'],
+            ['equipment', 'equipment.data.show <id|name>', 'read Equipment source data'],
+            ['equipment', 'equipment.fill.task', 'return equipment task package'],
+            ['equipment', 'equipment.fill.check <json>', 'validate EquipmentFillAiDraft'],
+            ['equipment', 'equipment.fill.apply <json>', 'create equipment fill proposal'],
             ['draft', 'draft.show', 'read active draft only'],
             ['draft', 'draft.rename <name>', 'rename active draft and sync library'],
             ['item', 'item.list | item.add | item.set | item.delete', 'CRUD buff items'],
@@ -546,6 +591,7 @@ function executeCommand(
         '  REST apply creates proposal only; Web CLI imports pending proposals via SSE for user Y/Y approval.',
         '  do not ask users to re-run fill.apply in browser after REST apply.',
         '  if multiple pending proposals block Y/N, call proposal.clear through REST or handle proposals explicitly.',
+        '  for operator Chinese JSON payloads, prefer POST /api/operator/fill/check|apply over CLI args to avoid shell encoding loss.',
         '',
         'storage touched:',
         `  localStorage.${BUFF_DRAFT_STORAGE_KEY}`,
@@ -553,6 +599,10 @@ function executeCommand(
         `  localStorage.${BUFF_UNDO_STORAGE_KEY}`,
         `  localStorage.${WEAPON_DRAFT_STORAGE_KEY}`,
         `  localStorage.${WEAPON_LIBRARY_STORAGE_KEY}`,
+        `  localStorage.${OPERATOR_DRAFT_STORAGE_KEY}`,
+        `  localStorage.${OPERATOR_LIBRARY_STORAGE_KEY}`,
+        `  localStorage.${EQUIPMENT_DRAFT_STORAGE_KEY}`,
+        `  localStorage.${EQUIPMENT_LIBRARY_STORAGE_KEY}`,
         `  sessionStorage.${CHARACTER_INPUT_MAP_STORAGE_KEY}`,
         `  sessionStorage.${SELECTED_CHARACTERS_STORAGE_KEY}`,
       ],
@@ -601,6 +651,7 @@ function executeCommand(
         '  active editor only: GET /api/buff/current or command draft.show',
         '  dry-run: POST /api/buff/fill/check',
         '  write: POST /api/buff/fill/apply only after validation and user intent',
+        '  operator write path: POST /api/operator/fill/check then POST /api/operator/fill/apply; avoid CLI JSON args for Chinese payloads.',
         '  events: GET /api/agent/events',
         '',
         'rule: agent proposes commands/JSON; app validates, logs, and writes.',
@@ -824,6 +875,213 @@ function executeCommand(
       ],
       data: result.data,
       workflow: 'weapon.fill',
+    });
+  }
+
+  if (command === 'operator.current') {
+    const operatorDraft = readCurrentOperatorDraft();
+    return makeResponse({
+      lines: [
+        `id=${operatorDraft.id}`,
+        `name=${operatorDraft.name}`,
+        `rarity=${operatorDraft.rarity}`,
+        `profession=${operatorDraft.profession || '-'}`,
+        `element=${operatorDraft.element || '-'}`,
+        `skills=${Object.keys(operatorDraft.skills || {}).length}`,
+      ],
+      data: { draft: operatorDraft },
+      workflow: 'operator.fill',
+    });
+  }
+
+  if (command === 'operator.library') {
+    const limit = Math.max(1, Math.min(200, Number(args[0] || 50) || 50));
+    const library = readOperatorLibrary();
+    const rows = formatOperatorLibrarySummary(library).slice(0, limit);
+    return makeResponse({
+      lines: rows.length
+        ? table(
+            ['id', 'name', 'rarity', 'profession', 'element', 'skills'],
+            rows.map((entry) => [entry.id, entry.name, String(entry.rarity), entry.profession || '-', entry.element || '-', String(entry.skills)]),
+          )
+        : [info('no operator library entries (本地干员库为空)')],
+      data: { library: rows },
+      workflow: 'operator.fill',
+    });
+  }
+
+  if (command === 'operator.library.show') {
+    const ref = args.join(' ').trim();
+    const library = readOperatorLibrary();
+    const lower = ref.toLowerCase();
+    const entry = ref
+      ? Object.entries(library).find(([id, operator]) => id === ref || id.toLowerCase() === lower || operator.name === ref)
+      : null;
+    if (!ref || !entry) {
+      return makeResponse({
+        ok: false,
+        lines: [
+          fail('usage: operator.library.show <existingOperatorId|name>'),
+          '[hint] For official source data, use operator.data.show <name> (官方源数据请用 operator.data.show <名称>)',
+        ],
+      });
+    }
+    return makeResponse({
+      lines: [
+        `id=${entry[0]}`,
+        `name=${entry[1].name}`,
+        `rarity=${entry[1].rarity}`,
+        `profession=${entry[1].profession || '-'}`,
+        `element=${entry[1].element || '-'}`,
+        `skills=${Object.keys(entry[1].skills || {}).length}`,
+      ],
+      data: { id: entry[0], draft: entry[1] },
+      workflow: 'operator.fill',
+    });
+  }
+
+  if (command === 'operator.data.list') {
+    const limit = Math.max(1, Math.min(500, Number(args[0] || 100) || 100));
+    const rows = listOperatorSourceIndex().slice(0, limit);
+    return makeResponse({
+      lines: rows.length
+        ? table(
+            ['name', 'id', 'folder', 'files'],
+            rows.map((entry) => [
+              entry.name,
+              entry.id || '-',
+              entry.folder,
+              Object.entries(entry.files).filter(([, exists]) => exists).map(([kind]) => kind).join('/') || '-',
+            ]),
+          )
+        : [info('no official operator source data (没有官方干员源数据)')],
+      data: { operators: rows },
+      workflow: 'operator.fill',
+    });
+  }
+
+  if (command === 'operator.data.show') {
+    const ref = args.join(' ').trim();
+    const result = readOperatorSourceData(ref);
+    if (!result.ok) {
+      return makeResponse({
+        ok: false,
+        lines: [
+          fail(`${result.error} (干员源数据未找到或不唯一)`),
+          ...(result.candidates?.length
+            ? table(['name', 'id', 'folder'], result.candidates.map((entry) => [entry.name, entry.id || '-', entry.folder]))
+            : ['[hint] Use operator.data.list first (可先用 operator.data.list)']),
+        ],
+        error: { code: result.candidates?.length ? 'ambiguous-operator-source' : 'operator-source-not-found', message: result.error, details: { candidates: result.candidates } },
+      });
+    }
+    const availableFiles = Object.entries(result.data.files).filter(([, value]) => value !== undefined).map(([kind]) => kind);
+    return makeResponse({
+      lines: [
+        ok(`operator source loaded: ${result.data.name}`),
+        `folder=${result.data.folder}`,
+        `available=${availableFiles.join('/') || '-'}`,
+        `missing=${result.data.missingFiles.join('/') || '-'}`,
+      ],
+      data: result.data,
+      workflow: 'operator.fill',
+    });
+  }
+
+  if (command === 'equipment.current') {
+    const equipmentDraft = readCurrentEquipmentLibrary();
+    return makeResponse({
+      lines: [
+        `gearSets=${Object.keys(equipmentDraft.gearSets || {}).length}`,
+        `updatedAt=${equipmentDraft.updatedAt || '-'}`,
+      ],
+      data: { draft: equipmentDraft },
+      workflow: 'equipment.fill',
+    });
+  }
+
+  if (command === 'equipment.library') {
+    const limit = Math.max(1, Math.min(200, Number(args[0] || 50) || 50));
+    const library = readEquipmentLibrary();
+    const rows = formatEquipmentLibrarySummary(library).slice(0, limit);
+    return makeResponse({
+      lines: rows.length
+        ? table(
+            ['id', 'name', 'equipments', 'effects'],
+            rows.map((entry) => [entry.id, entry.name, String(entry.equipments), String(entry.effects)]),
+          )
+        : [info('no equipment library entries (本地装备库为空)')],
+      data: { library: rows },
+      workflow: 'equipment.fill',
+    });
+  }
+
+  if (command === 'equipment.library.show') {
+    const ref = args.join(' ').trim();
+    const library = readEquipmentLibrary();
+    const lower = ref.toLowerCase();
+    const entry = ref
+      ? Object.values(library.gearSets || {}).find((gearSet) => gearSet.gearSetId === ref || gearSet.gearSetId.toLowerCase() === lower || gearSet.name === ref)
+      : null;
+    if (!ref || !entry) {
+      return makeResponse({
+        ok: false,
+        lines: [
+          fail('usage: equipment.library.show <existingGearSetId|name>'),
+          '[hint] For source data, use equipment.data.show <name> (源数据请用 equipment.data.show <名称>)',
+        ],
+      });
+    }
+    return makeResponse({
+      lines: [
+        `id=${entry.gearSetId}`,
+        `name=${entry.name}`,
+        `equipments=${Object.keys(entry.equipments || {}).length}`,
+      ],
+      data: { gearSet: entry },
+      workflow: 'equipment.fill',
+    });
+  }
+
+  if (command === 'equipment.data.list') {
+    const limit = Math.max(1, Math.min(1000, Number(args[0] || 100) || 100));
+    const rows = listEquipmentSourceIndex().slice(0, limit);
+    return makeResponse({
+      lines: rows.length
+        ? table(
+            ['kind', 'id', 'name', 'set', 'part'],
+            rows.map((entry) => [entry.kind, entry.id, entry.name, entry.gearSetId, entry.part || '-']),
+          )
+        : [info('no equipment source data (没有装备源数据)')],
+      data: { equipments: rows },
+      workflow: 'equipment.fill',
+    });
+  }
+
+  if (command === 'equipment.data.show') {
+    const ref = args.join(' ').trim();
+    const result = readEquipmentSourceData(ref);
+    if (!result.ok) {
+      return makeResponse({
+        ok: false,
+        lines: [
+          fail(`${result.error} (装备源数据未找到或不唯一)`),
+          ...(result.candidates?.length
+            ? table(['kind', 'id', 'name', 'set'], result.candidates.map((entry) => [entry.kind, entry.id, entry.name, entry.gearSetId]))
+            : ['[hint] Use equipment.data.list first (可先用 equipment.data.list)']),
+        ],
+        error: { code: result.candidates?.length ? 'ambiguous-equipment-source' : 'equipment-source-not-found', message: result.error, details: { candidates: result.candidates } },
+      });
+    }
+    return makeResponse({
+      lines: [
+        ok(`equipment source loaded: ${result.entry.name}`),
+        `kind=${result.entry.kind}`,
+        `id=${result.entry.id}`,
+        `gearSet=${result.entry.gearSetId}`,
+      ],
+      data: { entry: result.entry, source: result.data },
+      workflow: 'equipment.fill',
     });
   }
 
@@ -1210,18 +1468,22 @@ function executeCommand(
       }
       const proposalPayload = adapter.createProposalPayload(validation, rawCommand);
       const allProposals = readAgentProposals();
-      const targetId = (proposalPayload.normalized as { id?: string }).id;
+      const resolveTargetId = (payload: unknown) => {
+        const typedPayload = payload as never;
+        return adapter.getProposalTargetId?.(typedPayload) || (payload as { id?: string } | undefined)?.id || '';
+      };
+      const targetId = resolveTargetId(proposalPayload.normalized);
       const existingPending = allProposals.find(
         (p) => p.domain === adapter.domain
           && targetId
-          && (p.payload as { id?: string }).id === targetId
+          && resolveTargetId(p.payload) === targetId
           && (p.approvalStatus === 'Wait' || (p.approvalStatus === 'Yes' && p.saveStatus === 'Wait')),
       );
       if (existingPending) {
         return makeResponse({
           ok: false,
           lines: [
-            fail(`pending proposal already exists for ${adapter.domain} id=${targetId}: ${existingPending.id} (已有待处理提案，请先处理或用 proposal.clear 清理)`),
+            fail(`pending proposal already exists for ${adapter.domain} target=${targetId}: ${existingPending.id} (已有待处理提案，请先处理或用 proposal.clear 清理)`),
           ],
           error: { code: 'duplicate-proposal', message: 'pending proposal already exists', details: { proposalId: existingPending.id } },
         });

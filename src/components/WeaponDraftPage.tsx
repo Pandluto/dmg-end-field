@@ -1850,6 +1850,20 @@ export function WeaponDraftSheetPage() {
     setCollapsedLevels((prev) => ({ ...prev, [collapseKey]: nextCollapsed }));
   }, []);
 
+  const isExplorerDraftCollapsed = useCallback((draftId: string) => collapsedDraftIds[draftId] ?? true, [collapsedDraftIds]);
+
+  const isExplorerSkillCollapsed = useCallback(
+    (draftId: string, skillKey: WeaponSkillKey) => collapsedSkills[`${draftId}:${skillKey}`] ?? true,
+    [collapsedSkills]
+  );
+
+  const isExplorerLevelCollapsed = useCallback(
+    (draftId: string, skillKey: WeaponSkillKey, bucket: WeaponEffectBucket, effectKey: string) => (
+      collapsedLevels[`${draftId}:${skillKey}:${bucket}:${effectKey}`] ?? true
+    ),
+    [collapsedLevels]
+  );
+
   const handleCollapseAllExplorer = useCallback(() => {
     const entries = { ...localLibrary };
     if (draft.id && !entries[draft.id]) {
@@ -1878,10 +1892,31 @@ export function WeaponDraftSheetPage() {
   }, [draft, localLibrary]);
 
   const handleExpandAllExplorer = useCallback(() => {
-    setCollapsedDraftIds({});
-    setCollapsedSkills({});
-    setCollapsedLevels({});
-  }, []);
+    const entries = { ...localLibrary };
+    if (draft.id && !entries[draft.id]) {
+      entries[draft.id] = cloneValue(draft);
+    }
+    const nextDraftCollapsed: Record<string, boolean> = {};
+    const nextSkillCollapsed: Record<string, boolean> = {};
+    const nextLevelCollapsed: Record<string, boolean> = {};
+
+    Object.values(entries).forEach((entry) => {
+      nextDraftCollapsed[entry.id] = false;
+      SKILL_KEYS.forEach((skillKey) => {
+        nextSkillCollapsed[`${entry.id}:${skillKey}`] = false;
+        const effectRows = buildWeaponSheetRows(entry)
+          .filter((row): row is Extract<WeaponSheetRow, { kind: 'effect' }> => row.kind === 'effect')
+          .filter((row) => row.skillKey === skillKey);
+        effectRows.forEach((row) => {
+          nextLevelCollapsed[`${entry.id}:${skillKey}:${row.bucket}:${row.sourceEffectKey}`] = false;
+        });
+      });
+    });
+
+    setCollapsedDraftIds(nextDraftCollapsed);
+    setCollapsedSkills(nextSkillCollapsed);
+    setCollapsedLevels(nextLevelCollapsed);
+  }, [draft, localLibrary]);
 
   const handleAttackGrowthChange = useCallback((levelKey: string, rawValue: string) => {
     setDraft((prev) => {
@@ -2271,7 +2306,7 @@ export function WeaponDraftSheetPage() {
       ];
     }
     if (contextMenu.target === 'draft' && contextMenu.draftId) {
-      const isCollapsed = Boolean(collapsedDraftIds[contextMenu.draftId]);
+      const isCollapsed = isExplorerDraftCollapsed(contextMenu.draftId);
       return [
         { key: 'open-draft', label: '打开武器', icon: 'open', onClick: () => handleLoadLocalDraft(contextMenu.draftId!) },
         { key: 'fill-attack-growth', label: '按 1/90 补全攻击成长', icon: 'new', onClick: () => handleAutoFillAttackGrowth(contextMenu.draftId!) },
@@ -2285,7 +2320,7 @@ export function WeaponDraftSheetPage() {
       ];
     }
     if (contextMenu.target === 'skill' && contextMenu.draftId && contextMenu.skillKey) {
-      const isCollapsed = Boolean(collapsedSkills[`${contextMenu.draftId}:${contextMenu.skillKey}`]);
+      const isCollapsed = isExplorerSkillCollapsed(contextMenu.draftId, contextMenu.skillKey);
       return [
         ...(contextMenu.skillKey === 'skill3'
           ? [{ key: 'create-effect', label: '新建效果', icon: 'new' as const, onClick: () => handleCreateDraftEffect(contextMenu.draftId!, contextMenu.skillKey!) }]
@@ -2299,7 +2334,7 @@ export function WeaponDraftSheetPage() {
       ];
     }
     if (contextMenu.target === 'effect' && contextMenu.draftId && contextMenu.skillKey && contextMenu.effectKey && contextMenu.bucket) {
-      const isCollapsed = Boolean(collapsedLevels[`${contextMenu.draftId}:${contextMenu.skillKey}:${contextMenu.bucket}:${contextMenu.effectKey}`]);
+      const isCollapsed = isExplorerLevelCollapsed(contextMenu.draftId, contextMenu.skillKey, contextMenu.bucket, contextMenu.effectKey);
       return [
         {
           key: 'fill-effect-levels',
@@ -2328,9 +2363,6 @@ export function WeaponDraftSheetPage() {
     }
     return [];
   }, [
-    collapsedDraftIds,
-    collapsedLevels,
-    collapsedSkills,
     contextMenu,
     handleCreateDraftEffect,
     handleCreateNewDraft,
@@ -2341,6 +2373,9 @@ export function WeaponDraftSheetPage() {
     handleDeleteDraftGroup,
     handleDuplicateDraftEffect,
     handleExpandAllExplorer,
+    isExplorerDraftCollapsed,
+    isExplorerLevelCollapsed,
+    isExplorerSkillCollapsed,
     handleLoadLocalDraft,
     setDraftCollapsed,
     setSkillCollapsed,
@@ -2926,7 +2961,7 @@ export function WeaponDraftSheetPage() {
               <div className="damage-sheet-detail-empty">当前还没有本地保存的武器。</div>
             ) : filteredExplorerEntries.map((entry) => {
               const explorerDraft = entry.id === selectedLocalDraftId ? draft : entry;
-              const isDraftCollapsed = Boolean(collapsedDraftIds[entry.id]);
+              const isDraftCollapsed = isExplorerDraftCollapsed(entry.id);
               const draftDragNode: WeaponExplorerDragNode = { kind: 'draft', draftId: entry.id };
               const draftDragKey = getExplorerDragNodeKey(draftDragNode);
               return (
@@ -2965,8 +3000,7 @@ export function WeaponDraftSheetPage() {
                   {!isDraftCollapsed ? (
                     <div className="buff-sheet-explorer-children">
                       {SKILL_KEYS.map((skillKey) => {
-                        const skillCollapsedKey = `${entry.id}:${skillKey}`;
-                        const isSkillCollapsed = Boolean(collapsedSkills[skillCollapsedKey]);
+                        const isSkillCollapsed = isExplorerSkillCollapsed(entry.id, skillKey);
                         const effectRows = buildWeaponSheetRows(explorerDraft)
                           .filter((row): row is Extract<WeaponSheetRow, { kind: 'effect' }> => row.kind === 'effect')
                           .filter((row) => row.skillKey === skillKey);
@@ -3011,8 +3045,7 @@ export function WeaponDraftSheetPage() {
                             {!isSkillCollapsed ? (
                               <div className="buff-sheet-explorer-children">
                                 {effectRows.map((row) => {
-                                  const effectCollapsedKey = `${entry.id}:${skillKey}:${row.bucket}:${row.sourceEffectKey}`;
-                                  const isEffectCollapsed = Boolean(collapsedLevels[effectCollapsedKey]);
+                                  const isEffectCollapsed = isExplorerLevelCollapsed(entry.id, skillKey, row.bucket, row.sourceEffectKey);
                                   const effectDragNode: WeaponExplorerDragNode = { kind: 'effect', draftId: entry.id, skillKey, bucket: row.bucket, effectKey: row.sourceEffectKey };
                                   const effectDragKey = getExplorerDragNodeKey(effectDragNode);
                                   return (

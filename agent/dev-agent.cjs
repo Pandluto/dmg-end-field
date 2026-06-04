@@ -32,7 +32,7 @@ function isShellRunning() {
 }
 
 function isAiCliRestRunning() {
-  return Boolean(aiCliRestProcess && !aiCliRestProcess.killed);
+  return Boolean(aiCliRestProcess && aiCliRestProcess.exitCode === null && !aiCliRestProcess.killed);
 }
 
 function getShellRuntimeInfo() {
@@ -57,6 +57,71 @@ function getWebRuntimeInfo() {
     url: DEFAULT_WEB_URL,
     openedAt: webOpenedAt,
   };
+}
+
+function delay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function fetchJsonUrl(url) {
+  return new Promise((resolve, reject) => {
+    const request = http.get(url, (response) => {
+      const chunks = [];
+      response.on('data', (chunk) => chunks.push(chunk));
+      response.on('end', () => {
+        try {
+          resolve({
+            status: response.statusCode,
+            body: JSON.parse(Buffer.concat(chunks).toString('utf-8') || '{}'),
+          });
+        } catch (error) {
+          reject(error);
+        }
+      });
+    });
+    request.on('error', reject);
+    request.setTimeout(1000, () => {
+      request.destroy(new Error('request timeout'));
+    });
+  });
+}
+
+async function waitForAiCliRestHealth(expectedPid, timeoutMs = 15000) {
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < timeoutMs) {
+    try {
+      const health = await fetchJsonUrl('http://127.0.0.1:17321/health');
+      if (health.status === 200 && health.body?.ok === true && health.body?.pid === expectedPid) {
+        return health.body;
+      }
+    } catch {
+      // Keep polling until the process has finished Vite SSR startup.
+    }
+    await delay(250);
+  }
+  throw new Error(`AI CLI REST health check timed out for pid ${expectedPid}`);
+}
+
+function waitForProcessExit(child, timeoutMs = 5000) {
+  return new Promise((resolve) => {
+    if (!child || child.exitCode !== null) {
+      resolve({ exited: true });
+      return;
+    }
+    const timer = setTimeout(() => {
+      cleanup();
+      resolve({ exited: false, reason: 'timeout' });
+    }, timeoutMs);
+    const cleanup = () => {
+      clearTimeout(timer);
+      child.off('exit', onExit);
+    };
+    const onExit = (code, signal) => {
+      cleanup();
+      resolve({ exited: true, code, signal });
+    };
+    child.once('exit', onExit);
+  });
 }
 
 function openWeb(url = DEFAULT_WEB_URL) {
@@ -126,7 +191,7 @@ function stopShell() {
   };
 }
 
-function startAiCliRest() {
+async function startAiCliRest() {
   if (isAiCliRestRunning()) {
     return {
       started: false,
@@ -153,14 +218,29 @@ function startAiCliRest() {
     aiCliRestStartedAt = null;
   });
 
+  let health = null;
+  try {
+    health = await waitForAiCliRestHealth(aiCliRestProcess.pid);
+  } catch (error) {
+    return {
+      started: true,
+      ready: false,
+      reason: 'launched-health-timeout',
+      error: error instanceof Error ? error.message : String(error),
+      ...getAiCliRestRuntimeInfo(),
+    };
+  }
+
   return {
     started: true,
+    ready: true,
     reason: 'launched',
+    health,
     ...getAiCliRestRuntimeInfo(),
   };
 }
 
-function stopAiCliRest() {
+async function stopAiCliRest() {
   if (!isAiCliRestRunning()) {
     return {
       stopped: false,
@@ -169,7 +249,19 @@ function stopAiCliRest() {
     };
   }
 
-  aiCliRestProcess.kill();
+  const stoppingProcess = aiCliRestProcess;
+  stoppingProcess.kill();
+  const exit = await waitForProcessExit(stoppingProcess);
+  if (!exit.exited) {
+    return {
+      stopped: false,
+      reason: 'exit-timeout',
+      running: Boolean(stoppingProcess.exitCode === null),
+      pid: stoppingProcess.pid ?? null,
+      startedAt: aiCliRestStartedAt,
+      url: 'http://127.0.0.1:17321',
+    };
+  }
   return {
     stopped: true,
     reason: 'terminated',
@@ -180,7 +272,7 @@ function stopAiCliRest() {
   };
 }
 
-const server = http.createServer((request, response) => {
+const server = http.createServer(async (request, response) => {
   const method = request.method || 'GET';
   const requestUrl = new URL(request.url || '/', `http://${HOST}:${PORT}`);
 
@@ -222,7 +314,7 @@ const server = http.createServer((request, response) => {
   if (method === 'POST' && requestUrl.pathname === '/open-ai-cli-rest') {
     writeJson(response, 200, {
       ok: true,
-      aiCliRest: startAiCliRest(),
+      aiCliRest: await startAiCliRest(),
     });
     return;
   }
@@ -230,7 +322,7 @@ const server = http.createServer((request, response) => {
   if (method === 'POST' && requestUrl.pathname === '/close-ai-cli-rest') {
     writeJson(response, 200, {
       ok: true,
-      aiCliRest: stopAiCliRest(),
+      aiCliRest: await stopAiCliRest(),
     });
     return;
   }

@@ -24,7 +24,7 @@ async function waitForHealth() {
     try {
       const response = await fetch(`${BASE_URL}/health`);
       if (response.ok) {
-        return;
+        return await response.json();
       }
     } catch {
       await delay(250);
@@ -92,7 +92,13 @@ server.stderr.on('data', (chunk) => {
 });
 
 try {
-  await waitForHealth();
+  const health = await waitForHealth();
+  assert(health.ok === true, 'health should be ok');
+  assert(health.pid === server.pid, 'health should report the spawned REST pid');
+  assert(health.diagnostics?.weaponFill?.contractVersion?.includes('condition-passive'), 'health should expose current weapon fill contract');
+  assert(health.diagnostics?.weaponFill?.validEffectCategories?.includes('condition'), 'health should expose condition category');
+  assert(health.diagnostics?.weaponFill?.validEffectCategories?.includes('passive'), 'health should expose passive category');
+  assert(health.diagnostics?.weaponFill?.supportedEffectTypeCount > 50, 'health should expose expanded weapon effect types');
 
   const guide = await request('GET', '/api/agent/guide');
   assert(guide.status === 200, `guide status=${guide.status}`);
@@ -126,6 +132,7 @@ try {
   assert(spec.payload.endpoints.includes('GET /api/buff/fill/template'), 'spec should expose fill template endpoint');
   assert(spec.payload.formats?.writeProposalFormat?.shape?.includes('items is an array'), 'spec should warn about fill array format');
   assert(Array.isArray(spec.payload.commands), 'spec should expose commands array');
+  assert(spec.payload.diagnostics?.weaponFill?.validEffectCategories?.join('/') === 'condition/passive', 'spec diagnostics should expose current weapon fill categories');
   const expectedCommands = [
     'agent.logs', 'agent.sessions', 'agent.guide',
     'buff.open', 'draft.rename',

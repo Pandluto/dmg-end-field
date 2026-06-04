@@ -16,6 +16,7 @@
 }
 
 .operator-draft-command-panel,
+.operator-draft-nav-panel,
 .operator-draft-basic-panel,
 .operator-draft-skill-list,
 .operator-draft-skill-detail,
@@ -35,6 +36,23 @@
   gap: 6px;
   padding: 6px;
   box-sizing: border-box;
+}
+
+.operator-draft-nav-panel {
+  margin-top: auto;
+  padding: 6px;
+  display: grid;
+  gap: 6px;
+}
+
+.operator-draft-nav-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px;
+}
+
+.operator-draft-nav-grid .operator-draft-ghost-button:first-child {
+  grid-column: 1 / -1;
 }
 
 .operator-draft-panel-header h1,
@@ -731,6 +749,23 @@
 
 .operator-draft-buff-form-wide {
   grid-column: 1 / -1;
+}
+
+.operator-draft-buff-type-editor {
+  display: grid;
+  grid-template-columns: minmax(0, 0.75fr) minmax(0, 1fr);
+  gap: 4px;
+}
+
+.operator-draft-buff-unit-lock {
+  min-height: 28px;
+  display: flex;
+  align-items: center;
+  padding: 4px 6px;
+  border: 1px solid #d8dde7;
+  background: #f5f7fb;
+  color: #526072;
+  font-size: 12px;
 }
 
 .operator-draft-buff-form textarea {

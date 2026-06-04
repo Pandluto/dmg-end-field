@@ -90,3 +90,50 @@ const damagePercentSnapshot = buildConfigSnapshot({
 });
 
 assertEqual(damagePercentSnapshot.panel.calc.damageBonus.physicalDmgBonus, 0.3, 'percent damage set buff should still normalize to ratio');
+
+const operatorMainSubStatSnapshot = buildConfigSnapshot({
+  ...baseInput,
+  operator: {
+    ...baseInput.operator,
+    mainStatFlatBonus: 60,
+    subStatFlatBonus: 0,
+    buffs: {
+      talent: {
+        effects: {
+          main: {
+            effectId: 'main',
+            name: 'Main stat positive',
+            type: 'mainStat',
+            category: 'positive',
+            value: 30,
+            unit: 'flat',
+          },
+          conditionMain: {
+            effectId: 'conditionMain',
+            name: 'Main stat condition',
+            type: 'mainStat',
+            category: 'condition',
+            value: 999,
+            unit: 'flat',
+          },
+        },
+      },
+      potential: {
+        effects: {
+          sub: {
+            effectId: 'sub',
+            name: 'Sub stat positive',
+            type: 'subStat',
+            category: 'positive',
+            value: 12,
+            unit: 'flat',
+          },
+        },
+      },
+      skill: { effects: {} },
+    },
+  },
+});
+
+assertEqual(operatorMainSubStatSnapshot.panel.calc.strength, 100, 'operator positive mainStat buff should add to resolved main ability');
+assertEqual(operatorMainSubStatSnapshot.panel.calc.agility, 32, 'operator positive subStat buff should add to resolved sub ability');

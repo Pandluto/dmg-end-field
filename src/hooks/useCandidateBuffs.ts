@@ -7,7 +7,11 @@
 import { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import { CandidateBuff, BuffData } from '../core/domain/buff';
 import { setCandidateBuffList, getCandidateBuffList } from '../core/repositories';
-import { buildSnapshotCandidateBuffs, mergeCandidateBuffs } from '../core/services/operatorConfigCandidateBuffService';
+import {
+  buildSnapshotCandidateBuffs,
+  mergeCandidateBuffs,
+  retainCandidateBuffsNotOwnedByCharacterIds,
+} from '../core/services/operatorConfigCandidateBuffService';
 import { getCharacterConfigMap } from '../utils/storage';
 import { buildWeaponSearchIndex, searchWeapons } from '../utils/weaponFuzzySearch';
 import { resolvePublicPath } from '../utils/assetResolver';
@@ -311,7 +315,11 @@ export function useCandidateBuffs(characters: CandidateCharacterRef[]): UseCandi
       }
     });
     const snapshotBuffs = await buildSnapshotCandidateBuffs(characters);
-    const allBuffs = mergeCandidateBuffs(getCandidateBuffList(), jsonBuffs, snapshotBuffs);
+    const retainedBuffs = retainCandidateBuffsNotOwnedByCharacterIds(
+      getCandidateBuffList(),
+      characters.map((character) => character.id)
+    );
+    const allBuffs = mergeCandidateBuffs(retainedBuffs, jsonBuffs, snapshotBuffs);
 
     console.log(`共加载 ${allBuffs.length} 个 buff`);
     return allBuffs;

@@ -1,6 +1,6 @@
 import { AI_CLI_PROTOCOL_VERSION } from './aiCliAgentTypes';
 import type { AgentFillDomainAdapter, AgentFillProposalPayload, AgentFillValidationResult } from './aiCliFillDomains';
-import { listWeaponSourceIndex } from './weaponDataSurface';
+import { listWeaponSourceIndex } from './weaponSourceData';
 
 export const WEAPON_DRAFT_STORAGE_KEY = 'def.weapon-sheet.draft.v1';
 export const WEAPON_LIBRARY_STORAGE_KEY = 'def.weapon-sheet.library.v1';
@@ -138,6 +138,8 @@ const EFFECT_TYPE_ALIASES: Record<string, string> = {
   elementalDmgBonus: 'allDmgBonus',
 };
 
+export const WEAPON_FILL_CONTRACT_VERSION = 'weapon-fill-20260604-condition-passive-v3';
+
 const WEAPON_FILL_AI_DRAFT_SCHEMA = {
   id: 'string',
   name: 'string',
@@ -154,6 +156,17 @@ const WEAPON_FILL_AI_DRAFT_SCHEMA = {
     skill3: 'WeaponFillSkill optional',
   },
 };
+
+export function getWeaponFillAdapterDiagnostics() {
+  return {
+    contractVersion: WEAPON_FILL_CONTRACT_VERSION,
+    validEffectCategories: [...VALID_EFFECT_CATEGORIES],
+    supportedEffectTypeCount: SUPPORTED_EFFECT_TYPES.length,
+    supportedEffectTypes: [...SUPPORTED_EFFECT_TYPES],
+    rejectsLegacyUrl: true,
+    preservedEffectSkill: 'skill3',
+  };
+}
 
 function readJsonStorage<T>(key: string, fallback: T): T {
   if (typeof window === 'undefined') {

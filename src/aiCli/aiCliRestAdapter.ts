@@ -15,13 +15,35 @@ import {
   formatLibrarySummary,
   readBuffLibrary,
 } from './buffFillAdapter';
-import { WEAPON_DRAFT_STORAGE_KEY, WEAPON_LIBRARY_STORAGE_KEY, readWeaponLibrary, readCurrentWeaponDraft } from './weaponFillAdapter';
+import {
+  WEAPON_DRAFT_STORAGE_KEY,
+  WEAPON_LIBRARY_STORAGE_KEY,
+  getWeaponFillAdapterDiagnostics,
+  readCurrentWeaponDraft,
+  readWeaponLibrary,
+} from './weaponFillAdapter';
+import {
+  OPERATOR_DRAFT_STORAGE_KEY,
+  OPERATOR_LIBRARY_STORAGE_KEY,
+  formatOperatorLibrarySummary,
+  readCurrentOperatorDraft,
+  readOperatorLibrary,
+} from './operatorFillAdapter';
+import {
+  EQUIPMENT_DRAFT_STORAGE_KEY,
+  EQUIPMENT_LIBRARY_STORAGE_KEY,
+  formatEquipmentLibrarySummary,
+  readCurrentEquipmentLibrary,
+  readEquipmentLibrary,
+} from './equipmentFillAdapter';
 import {
   findWeaponLibraryEntry,
   formatWeaponLibrarySummary,
   listWeaponSourceIndex,
   readWeaponSourceData,
 } from './weaponDataSurface';
+import { listOperatorSourceIndex, readOperatorSourceData } from './operatorSourceData';
+import { listEquipmentSourceIndex, readEquipmentSourceData } from './equipmentSourceData';
 import {
   KNOWN_COMMANDS,
   readAgentRecordSnapshot,
@@ -43,6 +65,22 @@ export const AI_CLI_REST_ENDPOINTS = [
   'GET /api/weapon/library/<id-or-name>',
   'GET /api/weapon/data',
   'GET /api/weapon/data/<id-or-name>',
+  'GET /api/operator/current',
+  'GET /api/operator/library',
+  'GET /api/operator/library/<id-or-name>',
+  'GET /api/operator/data',
+  'GET /api/operator/data/<id-or-name>',
+  'GET /api/operator/fill/template',
+  'POST /api/operator/fill/check',
+  'POST /api/operator/fill/apply',
+  'GET /api/equipment/current',
+  'GET /api/equipment/library',
+  'GET /api/equipment/library/<id-or-name>',
+  'GET /api/equipment/data',
+  'GET /api/equipment/data/<id-or-name>',
+  'GET /api/equipment/fill/template',
+  'POST /api/equipment/fill/check',
+  'POST /api/equipment/fill/apply',
   'GET /api/buff/fill/template',
   'POST /api/buff/fill/check',
   'POST /api/buff/fill/apply',
@@ -63,6 +101,12 @@ export interface AiCliRestRequest {
 export interface AiCliRestResponse {
   status: number;
   body: unknown;
+}
+
+export function getAiCliRestDiagnostics() {
+  return {
+    weaponFill: getWeaponFillAdapterDiagnostics(),
+  };
 }
 
 function isCommandRequest(value: unknown): value is Partial<AiCliCommandRequest> {
@@ -153,6 +197,7 @@ export function handleAiCliRestRequest(
       ok: true,
       protocolVersion: AI_CLI_PROTOCOL_VERSION,
       endpoints: AI_CLI_REST_ENDPOINTS,
+      diagnostics: getAiCliRestDiagnostics(),
       formats: formatGuide,
       schemas: {
         read: {
@@ -195,6 +240,16 @@ export function handleAiCliRestRequest(
         'weapon.open': 'weapon.open <id|name>',
         'weapon.data.list': 'weapon.data.list [limit]',
         'weapon.data.show': 'weapon.data.show <id|name>',
+        'operator.data.list': 'operator.data.list [limit]',
+        'operator.data.show': 'operator.data.show <id|name>',
+        'operator.fill.task': 'operator.fill.task',
+        'operator.fill.check': 'operator.fill.check <OperatorFillAiDraft JSON>',
+        'operator.fill.apply': 'operator.fill.apply <OperatorFillAiDraft JSON>',
+        'equipment.data.list': 'equipment.data.list [limit]',
+        'equipment.data.show': 'equipment.data.show <id|name>',
+        'equipment.fill.task': 'equipment.fill.task',
+        'equipment.fill.check': 'equipment.fill.check <EquipmentFillAiDraft JSON>',
+        'equipment.fill.apply': 'equipment.fill.apply <EquipmentFillAiDraft JSON>',
         'operator.add': 'operator.add <id> <name> [weapon=] [potential=] [skillLevel=]',
         'operator.show': 'operator.show [id]',
         'operator.delete': 'operator.delete <id>',
@@ -291,6 +346,17 @@ export function handleAiCliRestRequest(
         write: 'Use explicit write profile/client only when the user has confirmed.',
         events: 'Subscribe to GET /api/agent/events for SSE agent.records updates.',
         handoff: 'REST fill.apply creates a proposal. Web CLI imports pending proposals via SSE. REST refuses another fill.apply while any pending proposal exists. Call proposal.clear through POST /api/ai-cli/run only for stale backlog, then resubmit only the current proposal, or submit multiple edits one by one. Do not re-run fill.apply in Web CLI.',
+      },
+      emergencyFallback: {
+        name: 'now-storage proposal injection',
+        useOnlyWhen: 'REST fill.check/fill.apply is blocked by a verified REST runtime/cache mismatch and the draft data has already been independently validated.',
+        effect: 'Creates a Wait/Wait proposal only; it must still be approved and saved through Web CLI Y/Y before the library changes.',
+        bridgeSyncRequired: [
+          'POST http://127.0.0.1:31457/local-data/now-storage with the full archive object',
+          'POST http://127.0.0.1:31457/local-data/now-storage-state with {"forceApply":true}',
+          'Refresh Web CLI after bridge sync so browser localStorage imports the proposal',
+        ],
+        warning: 'Do not use direct now-storage writes as the normal agent path. Prefer REST validation/apply whenever /health diagnostics match the current contract.',
       },
       examples: {
         readDraft: {
@@ -401,6 +467,66 @@ export function handleAiCliRestRequest(
             'skill3.effects.*.category must be condition or passive.',
             'effect levels must be numbers, not string numbers.',
             'weapon.fill.apply creates a proposal only; it does not save the Weapon library.',
+          ],
+        },
+        {
+          id: 'operator.fill',
+          title: 'Fill or Update Operator Editor Entry',
+          intent: 'Read official/static Operator source data and convert it into a validated OperatorFillAiDraft proposal.',
+          readBeforeUse: [
+            'GET /api/operator/data',
+            'GET /api/operator/data/<name> for the target operator',
+            'GET /api/operator/fill/template or operator.fill.task for schema and allowlists',
+            'GET /api/operator/library and GET /api/operator/current when updating local Operator state',
+          ],
+          procedure: [
+            'Read source data first. Do not fill official operators blind.',
+            'Build one OperatorFillAiDraft JSON object with id/name/rarity/profession/weapon/element/mainStat/subStat/skills.',
+            'Call POST /api/operator/fill/check.',
+            'If check fails, fix JSON and check again.',
+            'Call POST /api/operator/fill/apply only after validation passes. This creates a proposal, NOT a library write.',
+            'Approval writes the Operator working draft; save writes the Operator local library.',
+          ],
+          outputContract: {
+            formatName: 'OperatorFillAiDraft',
+            root: ['id', 'name', 'rarity', 'profession', 'weapon', 'element', 'mainStat', 'subStat', 'skills', 'buffs?'],
+            skill: ['displayName', 'buttonType', 'iconUrl?', 'hitCount?', 'hitMeta?'],
+          },
+          hardRules: [
+            'buttonType must be A/B/E/Q.',
+            'skill hit level values must be numbers.',
+            'operator.fill.apply creates a proposal only; it does not save the Operator library.',
+          ],
+        },
+        {
+          id: 'equipment.fill',
+          title: 'Fill or Update Equipment Sheet Entry',
+          intent: 'Read Equipment source data and convert it into a validated EquipmentFillAiDraft proposal.',
+          readBeforeUse: [
+            'GET /api/equipment/data',
+            'GET /api/equipment/data/<name> for the target equipment or gear set',
+            'GET /api/equipment/fill/template or equipment.fill.task for schema and allowlists',
+            'GET /api/equipment/library and GET /api/equipment/current when updating local Equipment state',
+          ],
+          procedure: [
+            'Read source data first.',
+            'Build one EquipmentFillAiDraft JSON object with gearSets and equipments.',
+            'Call POST /api/equipment/fill/check.',
+            'If check fails, fix JSON and check again.',
+            'Call POST /api/equipment/fill/apply only after validation passes. This creates a proposal, NOT a direct save.',
+            'Approval writes def.equipment-sheet.draft.v1; save writes def.equipment-sheet.library.v1.',
+          ],
+          outputContract: {
+            formatName: 'EquipmentFillAiDraft',
+            root: ['gearSets'],
+            gearSet: ['gearSetId', 'name', 'equipments'],
+            equipment: ['equipmentId', 'name', 'part', 'fixedStat?', 'effects'],
+          },
+          hardRules: [
+            'part must be 护甲/护手/配件.',
+            'effect slots must be effect1/effect2/effect3.',
+            'level keys must be 0/1/2/3 and values must be numbers.',
+            'equipment.fill.apply creates a proposal only.',
           ],
         },
       ],
@@ -516,6 +642,200 @@ export function handleAiCliRestRequest(
     });
   }
 
+  if (request.method === 'GET' && request.path === '/api/operator/current') {
+    const draft = readCurrentOperatorDraft();
+    return jsonResponse(200, {
+      ok: true,
+      protocolVersion: AI_CLI_PROTOCOL_VERSION,
+      storage: OPERATOR_DRAFT_STORAGE_KEY,
+      format: 'OperatorDraft',
+      warning: 'Read format only. Use operator.fill.check/apply for proposals.',
+      draft,
+      summary: {
+        id: draft.id,
+        name: draft.name,
+        rarity: draft.rarity,
+        profession: draft.profession,
+        skills: Object.keys(draft.skills || {}).length,
+      },
+    });
+  }
+
+  if (request.method === 'GET' && request.path === '/api/operator/library') {
+    const library = readOperatorLibrary();
+    const keyword = request.query?.q || request.query?.query || '';
+    const summary = formatOperatorLibrarySummary(library).filter((entry) => {
+      if (!keyword.trim()) return true;
+      const normalizedKeyword = keyword.trim().toLowerCase();
+      return [entry.id, entry.name, entry.profession, entry.element].filter(Boolean).join(' ').toLowerCase().includes(normalizedKeyword);
+    });
+    return jsonResponse(200, {
+      ok: true,
+      protocolVersion: AI_CLI_PROTOCOL_VERSION,
+      storage: OPERATOR_LIBRARY_STORAGE_KEY,
+      format: 'OperatorDraftMap',
+      warning: 'Read format only. External agents must not write operator storage directly.',
+      count: summary.length,
+      summary,
+      library,
+    });
+  }
+
+  if (request.method === 'GET' && request.path.startsWith('/api/operator/library/')) {
+    const ref = decodeURIComponent(request.path.slice('/api/operator/library/'.length));
+    const library = readOperatorLibrary();
+    const lower = ref.toLowerCase();
+    const entry = Object.entries(library).find(([id, draft]) => id === ref || id.toLowerCase() === lower || draft.name === ref);
+    if (!entry) {
+      return jsonResponse(404, {
+        ok: false,
+        protocolVersion: AI_CLI_PROTOCOL_VERSION,
+        error: { code: 'not-found', message: `Operator library entry not found: ${ref}` },
+      });
+    }
+    return jsonResponse(200, {
+      ok: true,
+      protocolVersion: AI_CLI_PROTOCOL_VERSION,
+      storage: OPERATOR_LIBRARY_STORAGE_KEY,
+      format: 'OperatorDraft',
+      warning: 'Read format only. Use operator.fill.check/apply for proposals.',
+      id: entry[0],
+      draft: entry[1],
+    });
+  }
+
+  if (request.method === 'GET' && request.path === '/api/operator/data') {
+    const keyword = request.query?.q || request.query?.query || '';
+    const operators = listOperatorSourceIndex().filter((entry) => {
+      if (!keyword.trim()) return true;
+      const normalizedKeyword = keyword.trim().toLowerCase();
+      return [entry.id, entry.name, entry.folder].filter(Boolean).join(' ').toLowerCase().includes(normalizedKeyword);
+    });
+    return jsonResponse(200, {
+      ok: true,
+      protocolVersion: AI_CLI_PROTOCOL_VERSION,
+      format: 'OperatorSourceIndex',
+      count: operators.length,
+      operators,
+    });
+  }
+
+  if (request.method === 'GET' && request.path.startsWith('/api/operator/data/')) {
+    const ref = decodeURIComponent(request.path.slice('/api/operator/data/'.length));
+    const result = readOperatorSourceData(ref);
+    if (!result.ok) {
+      return jsonResponse(result.candidates?.length ? 409 : 404, {
+        ok: false,
+        protocolVersion: AI_CLI_PROTOCOL_VERSION,
+        error: {
+          code: result.candidates?.length ? 'ambiguous-operator-source' : 'operator-source-not-found',
+          message: result.error,
+          details: { candidates: result.candidates },
+        },
+      });
+    }
+    return jsonResponse(200, {
+      ok: true,
+      protocolVersion: AI_CLI_PROTOCOL_VERSION,
+      format: 'OperatorSourceData',
+      ...result.data,
+    });
+  }
+
+  if (request.method === 'GET' && request.path === '/api/equipment/current') {
+    const draft = readCurrentEquipmentLibrary();
+    return jsonResponse(200, {
+      ok: true,
+      protocolVersion: AI_CLI_PROTOCOL_VERSION,
+      storage: EQUIPMENT_DRAFT_STORAGE_KEY,
+      format: 'EquipmentLibrary',
+      warning: 'Read format only. Use equipment.fill.check/apply for proposals.',
+      draft,
+      summary: formatEquipmentLibrarySummary(draft),
+    });
+  }
+
+  if (request.method === 'GET' && request.path === '/api/equipment/library') {
+    const library = readEquipmentLibrary();
+    const keyword = request.query?.q || request.query?.query || '';
+    const summary = formatEquipmentLibrarySummary(library).filter((entry) => {
+      if (!keyword.trim()) return true;
+      const normalizedKeyword = keyword.trim().toLowerCase();
+      return [entry.id, entry.name].filter(Boolean).join(' ').toLowerCase().includes(normalizedKeyword);
+    });
+    return jsonResponse(200, {
+      ok: true,
+      protocolVersion: AI_CLI_PROTOCOL_VERSION,
+      storage: EQUIPMENT_LIBRARY_STORAGE_KEY,
+      format: 'EquipmentLibrary',
+      warning: 'Read format only. External agents must not write equipment storage directly.',
+      count: summary.length,
+      summary,
+      library,
+    });
+  }
+
+  if (request.method === 'GET' && request.path.startsWith('/api/equipment/library/')) {
+    const ref = decodeURIComponent(request.path.slice('/api/equipment/library/'.length));
+    const library = readEquipmentLibrary();
+    const lower = ref.toLowerCase();
+    const entry = Object.values(library.gearSets || {}).find((gearSet) => gearSet.gearSetId === ref || gearSet.gearSetId.toLowerCase() === lower || gearSet.name === ref);
+    if (!entry) {
+      return jsonResponse(404, {
+        ok: false,
+        protocolVersion: AI_CLI_PROTOCOL_VERSION,
+        error: { code: 'not-found', message: `Equipment gear set not found: ${ref}` },
+      });
+    }
+    return jsonResponse(200, {
+      ok: true,
+      protocolVersion: AI_CLI_PROTOCOL_VERSION,
+      storage: EQUIPMENT_LIBRARY_STORAGE_KEY,
+      format: 'EquipmentGearSet',
+      warning: 'Read format only. Use equipment.fill.check/apply for proposals.',
+      gearSet: entry,
+    });
+  }
+
+  if (request.method === 'GET' && request.path === '/api/equipment/data') {
+    const keyword = request.query?.q || request.query?.query || '';
+    const equipments = listEquipmentSourceIndex().filter((entry) => {
+      if (!keyword.trim()) return true;
+      const normalizedKeyword = keyword.trim().toLowerCase();
+      return [entry.id, entry.name, entry.gearSetId, entry.part].filter(Boolean).join(' ').toLowerCase().includes(normalizedKeyword);
+    });
+    return jsonResponse(200, {
+      ok: true,
+      protocolVersion: AI_CLI_PROTOCOL_VERSION,
+      format: 'EquipmentSourceIndex',
+      count: equipments.length,
+      equipments,
+    });
+  }
+
+  if (request.method === 'GET' && request.path.startsWith('/api/equipment/data/')) {
+    const ref = decodeURIComponent(request.path.slice('/api/equipment/data/'.length));
+    const result = readEquipmentSourceData(ref);
+    if (!result.ok) {
+      return jsonResponse(result.candidates?.length ? 409 : 404, {
+        ok: false,
+        protocolVersion: AI_CLI_PROTOCOL_VERSION,
+        error: {
+          code: result.candidates?.length ? 'ambiguous-equipment-source' : 'equipment-source-not-found',
+          message: result.error,
+          details: { candidates: result.candidates },
+        },
+      });
+    }
+    return jsonResponse(200, {
+      ok: true,
+      protocolVersion: AI_CLI_PROTOCOL_VERSION,
+      format: 'EquipmentSourceData',
+      entry: result.entry,
+      source: result.data,
+    });
+  }
+
   if (request.method === 'GET' && request.path === '/api/buff/fill/template') {
     return jsonResponse(200, {
       ok: true,
@@ -530,6 +850,15 @@ export function handleAiCliRestRequest(
         'effects must be an array.',
         'Each effect must include evidenceText and confidence.',
       ],
+    });
+  }
+
+  if (request.method === 'GET' && (request.path === '/api/operator/fill/template' || request.path === '/api/equipment/fill/template')) {
+    const commandName = request.path.startsWith('/api/operator/') ? 'operator.fill.task' : 'equipment.fill.task';
+    const response = runAiCliCommand(createAiCliCommandRequest(commandName, client), currentDraft, context);
+    return jsonResponse(response.ok ? 200 : 400, {
+      ...response,
+      template: response.data,
     });
   }
 
@@ -610,7 +939,10 @@ export function handleAiCliRestRequest(
       });
     }
     const pendingBeforeApply = readPendingAgentProposals(context.sessionId).length;
-    if ((cmd === 'fill.apply' || cmd.startsWith('fill.apply ') || cmd === 'weapon.fill.apply' || cmd.startsWith('weapon.fill.apply '))
+    if ((cmd === 'fill.apply' || cmd.startsWith('fill.apply ')
+      || cmd === 'weapon.fill.apply' || cmd.startsWith('weapon.fill.apply ')
+      || cmd === 'operator.fill.apply' || cmd.startsWith('operator.fill.apply ')
+      || cmd === 'equipment.fill.apply' || cmd.startsWith('equipment.fill.apply '))
       && pendingBeforeApply > 0) {
       return pendingApplyBlockedResponse(pendingBeforeApply);
     }
@@ -660,6 +992,46 @@ export function handleAiCliRestRequest(
       response.proposal.nextAction = approvalBlocked
         ? 'call REST proposal.clear now, then resubmit only the current proposal; for multiple edits, submit and finish them one by one.'
         : 'open Web CLI /ai-cli; the pending proposal will be imported automatically. press Y to approve, then Y to save. do not re-run fill.apply.';
+      if (!response.lines.some((l) => l.includes('handoff') || l.includes('Web CLI'))) {
+        response.lines.push('[handoff] this proposal will auto-sync to Web CLI. Do not re-run fill.apply. (将自动同步到 Web CLI，无需重新 fill.apply)');
+      }
+    }
+    return jsonResponse(response.ok ? 200 : 400, response);
+  }
+
+  if (request.method === 'POST' && (
+    request.path === '/api/operator/fill/check'
+    || request.path === '/api/operator/fill/apply'
+    || request.path === '/api/equipment/fill/check'
+    || request.path === '/api/equipment/fill/apply'
+  )) {
+    if (!isDraftBody(request.body)) {
+      return jsonResponse(400, {
+        ok: false,
+        protocolVersion: AI_CLI_PROTOCOL_VERSION,
+        error: {
+          code: 'bad-request',
+          message: 'body.draft is required',
+        },
+      });
+    }
+    const isOperator = request.path.startsWith('/api/operator/');
+    const commandPrefix = isOperator ? 'operator.fill' : 'equipment.fill';
+    const commandName = request.path.endsWith('/apply') ? `${commandPrefix}.apply` : `${commandPrefix}.check`;
+    const pendingBeforeApply = readPendingAgentProposals(context.sessionId).length;
+    if (commandName.endsWith('.apply') && pendingBeforeApply > 0) {
+      return pendingApplyBlockedResponse(pendingBeforeApply);
+    }
+    const response = runAiCliCommand(createAiCliCommandRequest(
+      `${commandName} ${JSON.stringify(request.body.draft)}`,
+      client,
+    ), currentDraft, {
+      ...context,
+      sessionId: context.sessionId,
+    });
+    response.requestId = request.body.requestId;
+    if (request.path.endsWith('/apply') && response.proposal) {
+      response.proposal.nextAction = 'open Web CLI /ai-cli; the pending proposal will be imported automatically. press Y to approve, then Y to save. do not re-run fill.apply.';
       if (!response.lines.some((l) => l.includes('handoff') || l.includes('Web CLI'))) {
         response.lines.push('[handoff] this proposal will auto-sync to Web CLI. Do not re-run fill.apply. (将自动同步到 Web CLI，无需重新 fill.apply)');
       }

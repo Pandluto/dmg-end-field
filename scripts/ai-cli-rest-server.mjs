@@ -9,8 +9,10 @@ const PORT = Number(process.env.AI_CLI_REST_PORT || 17321);
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(__dirname, '..');
 const storageDir = path.join(projectRoot, '.runtime', 'ai-cli-rest');
+const viteCacheDir = process.env.AI_CLI_REST_VITE_CACHE_DIR || path.join(projectRoot, '.runtime', 'vite-ai-cli-rest', String(process.pid));
 const nowStoragePath = path.join(projectRoot, 'data', 'localdata', 'now-storage.json');
 const storageMode = process.env.AI_CLI_REST_STORAGE_MODE || 'now-storage';
+const serverStartedAt = new Date().toISOString();
 
 class FileStorage {
   constructor(filePath) {
@@ -204,14 +206,18 @@ installNodeWindowStorage();
 
 const vite = await createViteServer({
   configFile: path.join(projectRoot, 'vite.config.ts'),
+  cacheDir: viteCacheDir,
   server: { middlewareMode: true },
   appType: 'custom',
   logLevel: 'error',
 });
 
-const { handleAiCliRestRequest } = await vite.ssrLoadModule('/src/aiCli/aiCliRestAdapter.ts');
+vite.moduleGraph?.invalidateAll?.();
+
+const { handleAiCliRestRequest, getAiCliRestDiagnostics } = await vite.ssrLoadModule('/src/aiCli/aiCliRestAdapter.ts');
 const { readCurrentBuffDraft } = await vite.ssrLoadModule('/src/aiCli/buffFillAdapter.ts');
 const { readAgentRecordSnapshot } = await vite.ssrLoadModule('/src/aiCli/aiCliAgentInfrastructure.ts');
+const startupDiagnostics = getAiCliRestDiagnostics();
 
 const sseClients = new Set();
 
@@ -265,6 +271,11 @@ const server = http.createServer(async (request, response) => {
       storageDir,
       storageMode: storageMode === 'runtime' ? 'runtime' : 'now-storage',
       nowStoragePath,
+      pid: process.pid,
+      startedAt: serverStartedAt,
+      projectRoot,
+      viteCacheDir,
+      diagnostics: startupDiagnostics,
     });
     return;
   }
@@ -316,7 +327,7 @@ const server = http.createServer(async (request, response) => {
 });
 
 server.listen(PORT, HOST, () => {
-  console.log(`[def-ai-cli-rest] listening on http://${HOST}:${PORT}`);
+  console.log(`[def-ai-cli-rest] listening on http://${HOST}:${PORT} pid=${process.pid} startedAt=${serverStartedAt} weaponFill=${startupDiagnostics.weaponFill.contractVersion}`);
 });
 
 const close = async () => {
@@ -325,8 +336,13 @@ const close = async () => {
     client.end();
   }
   sseClients.clear();
-  server.close();
+  await new Promise((resolve) => {
+    server.close(() => resolve());
+  });
   await vite.close();
+  if (!process.env.AI_CLI_REST_KEEP_VITE_CACHE) {
+    fs.rmSync(viteCacheDir, { recursive: true, force: true });
+  }
 };
 
 process.once('SIGINT', () => {

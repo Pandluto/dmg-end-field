@@ -229,9 +229,13 @@ function isSnapshotCandidateOwnedBy(buff: CandidateBuff, characterIds: Set<strin
   return false;
 }
 
+export function retainCandidateBuffsNotOwnedByCharacterIds(buffs: CandidateBuff[], characterIds: string[]): CandidateBuff[] {
+  const characterIdSet = new Set(characterIds.filter(Boolean));
+  return buffs.filter((buff) => !isSnapshotCandidateOwnedBy(buff, characterIdSet));
+}
+
 export async function refreshSnapshotCandidateBuffsForCharacterIds(characterIds: string[]): Promise<CandidateBuff[]> {
   const uniqueCharacterIds = Array.from(new Set(characterIds.filter(Boolean)));
-  const characterIdSet = new Set(uniqueCharacterIds);
   const snapshotCache = getOperatorConfigPageCache();
   const characters = uniqueCharacterIds
     .filter((characterId) => snapshotCache[characterId])
@@ -240,7 +244,7 @@ export async function refreshSnapshotCandidateBuffsForCharacterIds(characterIds:
       name: snapshotCache[characterId].operator.name || characterId,
     }));
   const snapshotBuffs = await buildSnapshotCandidateBuffs(characters);
-  const retainedBuffs = getCandidateBuffList().filter((buff) => !isSnapshotCandidateOwnedBy(buff, characterIdSet));
+  const retainedBuffs = retainCandidateBuffsNotOwnedByCharacterIds(getCandidateBuffList(), uniqueCharacterIds);
   const allBuffs = mergeCandidateBuffs(retainedBuffs, snapshotBuffs);
   setCandidateBuffList(allBuffs);
   return allBuffs;

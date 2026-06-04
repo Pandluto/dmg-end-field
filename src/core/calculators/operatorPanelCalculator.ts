@@ -428,6 +428,49 @@ const DAMAGE_BONUS_FIELDS = [
   'allDmgBonus',
 ] as const satisfies ReadonlyArray<keyof DamageBonusSnapshot>;
 
+const OPERATOR_BUFF_GROUP_LABELS: Record<OperatorBuffGroupKey, string> = {
+  talent: '天赋',
+  potential: '潜能',
+  skill: '技能',
+};
+
+const OPERATOR_BUFF_TYPE_LABELS: Record<string, string> = {
+  atkPercentBoost: '攻击力百分比',
+  atk: '固定攻击力',
+  mainStat: '主能力固定值',
+  subStat: '副能力固定值',
+  mainStatBoost: '主能力提升',
+  subStatBoost: '副能力提升',
+  allStatBoost: '全属性提升',
+  strengthBoost: '力量提升',
+  agilityBoost: '敏捷提升',
+  intelligenceBoost: '智识提升',
+  willBoost: '意志提升',
+  hpPercent: '生命百分比',
+  critRateBoost: '暴击率',
+  critDmgBonusBoost: '暴击伤害',
+  physicalDmgBonus: '物理伤害加成',
+  magicDmgBonus: '法术伤害加成',
+  fireDmgBonus: '灼热伤害加成',
+  electricDmgBonus: '电磁伤害加成',
+  iceDmgBonus: '寒冷伤害加成',
+  natureDmgBonus: '自然伤害加成',
+  allDmgBonus: '全伤害加成',
+  skillDmgBonus: '战技伤害加成',
+  chainSkillDmgBonus: '连携技伤害加成',
+  ultimateDmgBonus: '终结技伤害加成',
+  normalAttackDmgBonus: '普攻伤害加成',
+  allSkillDmgBonus: '全技能伤害加成',
+  imbalanceDmgBonus: '失衡伤害加成',
+  sourceSkillBoost: '源石技艺强度',
+  ultimateChargeEfficiency: '终结技充能效率',
+  healingBonus: '治疗效率',
+  receivedHealingBonus: '受治疗效率',
+  chainCooldownReduction: '连携技冷却缩减',
+  imbalanceEfficiency: '失衡效率',
+  damageReduction: '伤害减免',
+};
+
 function toNumber(value: unknown, fallback = 0): number {
   return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
 }
@@ -666,6 +709,29 @@ function formatPercent(value: number): string {
   return `${round(value * 100, 2)}%`;
 }
 
+function formatOperatorBuffValue(effect: OperatorBuffEffectInput): string {
+  if (typeof effect.value !== 'number' || !Number.isFinite(effect.value)) {
+    return '-';
+  }
+  const typeKey = normalizeTypeKey(effect.type || '');
+  if (typeKey === 'sourceSkillBoost') {
+    return formatNumber(effect.value);
+  }
+  if (effect.unit === 'percent' || PERCENT_FIELDS.has(typeKey)) {
+    return formatPercent(normalizeValue(typeKey, effect.value, effect.unit));
+  }
+  return formatNumber(effect.value);
+}
+
+function formatOperatorBuffLine(groupKey: OperatorBuffGroupKey, effectKey: string, effect: OperatorBuffEffectInput): string {
+  const typeKey = normalizeTypeKey(effect.type || '');
+  const typeLabel = OPERATOR_BUFF_TYPE_LABELS[typeKey] ?? (typeKey || '未设置类型');
+  const categoryLabel = effect.category === 'condition' ? '条件' : '已结算';
+  const description = effect.description || effect.raw;
+  const descriptionText = description ? ` · ${description}` : '';
+  return `- [${OPERATOR_BUFF_GROUP_LABELS[groupKey]}] ${effect.name || effectKey}: ${typeLabel} (${typeKey || '-'}) +${formatOperatorBuffValue(effect)}（${categoryLabel}）${descriptionText}`;
+}
+
 function buildDisplay(calc: PanelCalcSnapshot, mainStat: string, subStat: string): PanelDisplaySnapshot {
   const mainField = resolveAbilityField(mainStat);
   const subField = resolveAbilityField(subStat);
@@ -865,6 +931,26 @@ function buildMarkdown(snapshot: Omit<ConfigSnapshot, 'detailMarkdown'>): string
     });
   }
   lines.push('');
+  lines.push('## 干员自带 Buff');
+  const operatorBuffEntries = (['talent', 'potential', 'skill'] as const).flatMap((groupKey) => (
+    Object.entries(snapshot.operator.buffs[groupKey]?.effects || {})
+      .map(([effectKey, effect]) => ({ groupKey, effectKey, effect }))
+  ));
+  if (operatorBuffEntries.length === 0) {
+    lines.push('- 暂无');
+  } else {
+    operatorBuffEntries
+      .filter(({ effect }) => effect.category === 'positive')
+      .forEach(({ groupKey, effectKey, effect }) => {
+        lines.push(formatOperatorBuffLine(groupKey, effectKey, effect));
+      });
+    operatorBuffEntries
+      .filter(({ effect }) => effect.category === 'condition')
+      .forEach(({ groupKey, effectKey, effect }) => {
+        lines.push(formatOperatorBuffLine(groupKey, effectKey, effect));
+      });
+  }
+  lines.push('');
   lines.push('## 武器无条件触发');
   const passiveDetails = [
     snapshot.weapon.skills.skill1,
@@ -911,8 +997,8 @@ export function buildConfigSnapshot(input: OperatorPanelInput): ConfigSnapshot {
   abilityByField.agility += operatorBuffTotals.agilityBoost ?? 0;
   abilityByField.intelligence += operatorBuffTotals.intelligenceBoost ?? 0;
   abilityByField.will += operatorBuffTotals.willBoost ?? 0;
-  if (mainField) abilityByField[mainField] += mainStatFlatBonus + (weapon.totals.mainStat ?? 0);
-  if (subField) abilityByField[subField] += subStatFlatBonus + (weapon.totals.subStat ?? 0);
+  if (mainField) abilityByField[mainField] += mainStatFlatBonus + (weapon.totals.mainStat ?? 0) + (operatorBuffTotals.mainStat ?? 0);
+  if (subField) abilityByField[subField] += subStatFlatBonus + (weapon.totals.subStat ?? 0) + (operatorBuffTotals.subStat ?? 0);
 
   const mainStatScale = (weapon.totals.mainStatBoost ?? 0) + (equipment.totals.mainStatBoost ?? 0) + (operatorBuffTotals.mainStatBoost ?? 0);
   const subStatScale = (weapon.totals.subStatBoost ?? 0) + (equipment.totals.subStatBoost ?? 0) + (operatorBuffTotals.subStatBoost ?? 0);
