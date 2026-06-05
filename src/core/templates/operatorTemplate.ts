@@ -18,6 +18,12 @@ export type OperatorAttributeKey = 'strength' | 'agility' | 'intelligence' | 'wi
 export type OperatorDraftAttributeLevels = Record<OperatorAttributeKey, Record<OperatorAttributeLevelKey, number>>;
 export type OperatorDraftBuffGroupKey = 'talent' | 'potential' | 'skill';
 export type OperatorDraftBuffCategory = 'positive' | 'condition';
+export type OperatorBuffValueMode = 'fixed' | 'derived';
+export type OperatorBuffDerivedSource = 'hp' | 'atk' | 'strength' | 'agility' | 'intelligence' | 'will' | 'sourceSkill';
+export interface OperatorBuffDerivedValue {
+  source: OperatorBuffDerivedSource;
+  perPointValue: number;
+}
 export interface OperatorDraftBuffEffect {
   effectId: string;
   name: string;
@@ -27,6 +33,8 @@ export interface OperatorDraftBuffEffect {
   unit?: 'flat' | 'percent' | string;
   description?: string;
   raw?: string;
+  valueMode?: OperatorBuffValueMode;
+  derivedValue?: OperatorBuffDerivedValue;
 }
 export interface OperatorDraftBuffGroup {
   effects: Record<string, OperatorDraftBuffEffect>;

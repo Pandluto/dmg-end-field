@@ -140,6 +140,7 @@ export function calculateBuffTotals(buffs: SkillButtonBuff[]): BuffCalculationRe
       console.log("检索到buff",buff.type,":", v);
       switch (buff.type) {
         case 'atkPercentBoost': result.atkPercentBoost += v; break;
+        case 'flatAtk': result.flatAtk += v; break;
         case 'mainStatBoost': result.mainStatBoost += v; break;
         case 'subStatBoost': result.subStatBoost += v; break;
         case 'allStatBoost': result.allStatBoost += v; break;

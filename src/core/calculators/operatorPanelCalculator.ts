@@ -55,6 +55,13 @@ export interface OperatorPanelInput {
 
 export type OperatorBuffGroupKey = 'talent' | 'potential' | 'skill';
 export type OperatorBuffCategory = 'positive' | 'condition';
+export type OperatorBuffValueMode = 'fixed' | 'derived';
+export type OperatorBuffDerivedSource = 'hp' | 'atk' | 'strength' | 'agility' | 'intelligence' | 'will' | 'sourceSkill';
+
+export interface OperatorBuffDerivedValueInput {
+  source: OperatorBuffDerivedSource;
+  perPointValue: number;
+}
 
 export interface OperatorBuffEffectInput {
   effectId: string;
@@ -65,6 +72,8 @@ export interface OperatorBuffEffectInput {
   unit?: 'flat' | 'percent' | string;
   description?: string;
   raw?: string;
+  valueMode?: OperatorBuffValueMode;
+  derivedValue?: OperatorBuffDerivedValueInput;
 }
 
 export type OperatorBuffInput = Record<OperatorBuffGroupKey, { effects: Record<string, OperatorBuffEffectInput> }>;
@@ -346,6 +355,26 @@ const WEAPON_TOTAL_FIELDS = new Set([
   'allSkillDmgBonus',
   'imbalanceDmgBonus',
   'allDmgBonus',
+  'physicalFragile',
+  'fireFragile',
+  'electricFragile',
+  'iceFragile',
+  'natureFragile',
+  'magicFragile',
+  'physicalVulnerability',
+  'fireVulnerability',
+  'electricVulnerability',
+  'iceVulnerability',
+  'natureVulnerability',
+  'magicVulnerability',
+  'physicalAmplify',
+  'magicAmplify',
+  'fireAmplify',
+  'electricAmplify',
+  'iceAmplify',
+  'natureAmplify',
+  'comboDamageBonus',
+  'multiplierBonus',
 ]);
 
 const EQUIPMENT_TOTAL_FIELDS = new Set([
@@ -437,6 +466,7 @@ const OPERATOR_BUFF_GROUP_LABELS: Record<OperatorBuffGroupKey, string> = {
 const OPERATOR_BUFF_TYPE_LABELS: Record<string, string> = {
   atkPercentBoost: '攻击力百分比',
   atk: '固定攻击力',
+  flatAtk: '固定攻击力',
   mainStat: '主能力固定值',
   subStat: '副能力固定值',
   mainStatBoost: '主能力提升',
@@ -462,6 +492,41 @@ const OPERATOR_BUFF_TYPE_LABELS: Record<string, string> = {
   normalAttackDmgBonus: '普攻伤害加成',
   allSkillDmgBonus: '全技能伤害加成',
   imbalanceDmgBonus: '失衡伤害加成',
+  physicalFragile: '物理易伤',
+  fireFragile: '灼热易伤',
+  electricFragile: '电磁易伤',
+  iceFragile: '寒冷易伤',
+  natureFragile: '自然易伤',
+  magicFragile: '法术易伤',
+  physicalVulnerability: '物理脆弱',
+  fireVulnerability: '灼热脆弱',
+  electricVulnerability: '电磁脆弱',
+  iceVulnerability: '寒冷脆弱',
+  natureVulnerability: '自然脆弱',
+  magicVulnerability: '法术脆弱',
+  physicalAmplify: '物理增幅',
+  magicAmplify: '法术增幅',
+  fireAmplify: '灼热增幅',
+  electricAmplify: '电磁增幅',
+  iceAmplify: '寒冷增幅',
+  natureAmplify: '自然增幅',
+  allCorrosion: '全属性降抗',
+  physicalCorrosion: '物理降抗',
+  magicCorrosion: '法术降抗',
+  fireCorrosion: '灼热降抗',
+  electricCorrosion: '电磁降抗',
+  iceCorrosion: '寒冷降抗',
+  natureCorrosion: '自然降抗',
+  allResistanceIgnore: '无视全部抗性',
+  physicalResistanceIgnore: '无视物理抗性',
+  magicResistanceIgnore: '无视法术抗性',
+  fireResistanceIgnore: '无视灼热抗性',
+  electricResistanceIgnore: '无视电磁抗性',
+  iceResistanceIgnore: '无视寒冷抗性',
+  natureResistanceIgnore: '无视自然抗性',
+  comboDamageBonus: '连击伤害加成',
+  multiplierBonus: '倍率加算',
+  multiplierMultiplier: '倍率乘算',
   sourceSkillBoost: '源石技艺强度',
   ultimateChargeEfficiency: '终结技充能效率',
   healingBonus: '治疗效率',
@@ -469,6 +534,15 @@ const OPERATOR_BUFF_TYPE_LABELS: Record<string, string> = {
   chainCooldownReduction: '连携技冷却缩减',
   imbalanceEfficiency: '失衡效率',
   damageReduction: '伤害减免',
+};
+const OPERATOR_BUFF_DERIVED_SOURCE_LABELS: Record<OperatorBuffDerivedSource, string> = {
+  hp: '生命值',
+  atk: '攻击力',
+  strength: '力量',
+  agility: '敏捷',
+  intelligence: '智识',
+  will: '意志',
+  sourceSkill: '源石技艺强度',
 };
 
 function toNumber(value: unknown, fallback = 0): number {
@@ -480,6 +554,7 @@ function round(value: number, digits = 6): number {
 }
 
 function normalizeTypeKey(typeKey: string): string {
+  if (typeKey === 'flatAtk') return 'atk';
   if (typeKey === 'hp') return 'hpPercent';
   if (typeKey === 'critDmgBonus') return 'critDmgBonusBoost';
   if (typeKey === 'allElementDmgBonus') return 'magicDmgBonus';
@@ -674,17 +749,86 @@ function createEmptyOperatorBuffs(): OperatorBuffInput {
   };
 }
 
+function getOperatorBuffEntries(buffs: OperatorBuffInput | undefined): Array<{
+  groupKey: OperatorBuffGroupKey;
+  effectKey: string;
+  effect: OperatorBuffEffectInput;
+}> {
+  const source = buffs ?? createEmptyOperatorBuffs();
+  return (['talent', 'potential', 'skill'] as const).flatMap((groupKey) => (
+    Object.entries(source[groupKey]?.effects || {}).map(([effectKey, effect]) => ({ groupKey, effectKey, effect }))
+  ));
+}
+
 function buildOperatorBuffTotals(buffs: OperatorBuffInput | undefined): Record<string, number> {
   const totals: Record<string, number> = {};
-  Object.values(buffs ?? createEmptyOperatorBuffs()).forEach((group) => {
-    Object.values(group.effects || {}).forEach((effect) => {
-      const typeKey = normalizeTypeKey(effect.type || '');
-      if (effect.category !== 'positive' || !typeKey || !OPERATOR_TOTAL_FIELDS.has(typeKey)) return;
-      if (typeof effect.value !== 'number' || !Number.isFinite(effect.value)) return;
-      addTotal(totals, typeKey, effect.value, effect.unit);
-    });
+  getOperatorBuffEntries(buffs).forEach(({ effect }) => {
+    const typeKey = normalizeTypeKey(effect.type || '');
+    if (effect.category !== 'positive' || effect.valueMode === 'derived' || !typeKey || !OPERATOR_TOTAL_FIELDS.has(typeKey)) return;
+    if (typeof effect.value !== 'number' || !Number.isFinite(effect.value)) return;
+    addTotal(totals, typeKey, effect.value, effect.unit);
   });
   return totals;
+}
+
+function readDerivedSourceValue(source: OperatorBuffDerivedSource, display: PanelDisplaySnapshot): number | null {
+  if (source === 'hp') return display.hp;
+  if (source === 'atk') return display.atk;
+  if (source === 'sourceSkill') return display.sourceSkill;
+  return display.abilityValues[source] ?? null;
+}
+
+function calculateDerivedBuffValue(effect: OperatorBuffEffectInput, display: PanelDisplaySnapshot): number | null {
+  if (effect.valueMode !== 'derived' || !effect.derivedValue) return null;
+  const { source, perPointValue } = effect.derivedValue;
+  if (typeof perPointValue !== 'number' || !Number.isFinite(perPointValue)) return null;
+  const sourceValue = readDerivedSourceValue(source, display);
+  if (typeof sourceValue !== 'number' || !Number.isFinite(sourceValue)) return null;
+  return sourceValue * perPointValue;
+}
+
+function buildDerivedOperatorBuffTotals(buffs: OperatorBuffInput | undefined, display: PanelDisplaySnapshot): Record<string, number> {
+  const totals: Record<string, number> = {};
+  getOperatorBuffEntries(buffs).forEach(({ effect }) => {
+    const typeKey = normalizeTypeKey(effect.type || '');
+    if (effect.category !== 'positive' || effect.valueMode !== 'derived' || !typeKey || !OPERATOR_TOTAL_FIELDS.has(typeKey)) return;
+    const derivedValue = calculateDerivedBuffValue(effect, display);
+    if (derivedValue === null) return;
+    addTotal(totals, typeKey, derivedValue, effect.unit);
+  });
+  return totals;
+}
+
+function addTotals(left: Record<string, number>, right: Record<string, number>): Record<string, number> {
+  const merged = { ...left };
+  Object.entries(right).forEach(([key, value]) => {
+    merged[key] = (merged[key] ?? 0) + value;
+  });
+  return merged;
+}
+
+function attachDerivedOperatorBuffValues(buffs: OperatorBuffInput, display: PanelDisplaySnapshot): OperatorBuffInput {
+  return Object.fromEntries(
+    (['talent', 'potential', 'skill'] as const).map((groupKey) => [
+      groupKey,
+      {
+        effects: Object.fromEntries(
+          Object.entries(buffs[groupKey]?.effects || {}).map(([effectKey, effect]) => {
+            const derivedValue = calculateDerivedBuffValue(effect, display);
+            return [
+              effectKey,
+              derivedValue === null
+                ? effect
+                : {
+                  ...effect,
+                  value: derivedValue,
+                },
+            ];
+          })
+        ),
+      },
+    ])
+  ) as OperatorBuffInput;
 }
 
 function buildDisplayDamageBonus(damageBonus: DamageBonusSnapshot): DamageBonusSnapshot {
@@ -703,6 +847,10 @@ function buildDisplayDamageBonus(damageBonus: DamageBonusSnapshot): DamageBonusS
 
 function formatNumber(value: number): string {
   return Number.isInteger(value) ? String(value) : value.toFixed(2);
+}
+
+function formatPerPointValue(value: number): string {
+  return Number(value.toFixed(6)).toString();
 }
 
 function formatPercent(value: number): string {
@@ -729,7 +877,10 @@ function formatOperatorBuffLine(groupKey: OperatorBuffGroupKey, effectKey: strin
   const categoryLabel = effect.category === 'condition' ? '条件' : '已结算';
   const description = effect.description || effect.raw;
   const descriptionText = description ? ` · ${description}` : '';
-  return `- [${OPERATOR_BUFF_GROUP_LABELS[groupKey]}] ${effect.name || effectKey}: ${typeLabel} (${typeKey || '-'}) +${formatOperatorBuffValue(effect)}（${categoryLabel}）${descriptionText}`;
+  const derivedText = effect.valueMode === 'derived' && effect.derivedValue
+    ? ` · ${OPERATOR_BUFF_DERIVED_SOURCE_LABELS[effect.derivedValue.source]} 每点提升 ${formatPerPointValue(effect.derivedValue.perPointValue)}`
+    : '';
+  return `- [${OPERATOR_BUFF_GROUP_LABELS[groupKey]}] ${effect.name || effectKey}: ${typeLabel} (${typeKey || '-'}) +${formatOperatorBuffValue(effect)}（${categoryLabel}）${derivedText}${descriptionText}`;
 }
 
 function buildDisplay(calc: PanelCalcSnapshot, mainStat: string, subStat: string): PanelDisplaySnapshot {
@@ -982,58 +1133,70 @@ export function buildConfigSnapshot(input: OperatorPanelInput): ConfigSnapshot {
   const weapon = buildWeaponSnapshot(input.weapon);
   const equipment = buildEquipmentSnapshot(input.equipment);
   const operatorBuffs = input.operator.buffs ?? createEmptyOperatorBuffs();
-  const operatorBuffTotals = buildOperatorBuffTotals(operatorBuffs);
+  const fixedOperatorBuffTotals = buildOperatorBuffTotals(operatorBuffs);
   const mainField = resolveAbilityField(input.operator.mainStat);
   const subField = resolveAbilityField(input.operator.subStat);
   const mainStatFlatBonus = toNumber(input.operator.mainStatFlatBonus ?? input.operator.favorValue, 60);
   const subStatFlatBonus = toNumber(input.operator.subStatFlatBonus, 0);
-  const abilityByField: Record<AbilityField, number> = {
-    strength: attributes.strength + (weapon.totals.strengthBoost ?? 0) + (equipment.totals.strengthBoost ?? 0),
-    agility: attributes.agility + (weapon.totals.agilityBoost ?? 0) + (equipment.totals.agilityBoost ?? 0),
-    intelligence: attributes.intelligence + (weapon.totals.intelligenceBoost ?? 0) + (equipment.totals.intelligenceBoost ?? 0),
-    will: attributes.will + (weapon.totals.willBoost ?? 0) + (equipment.totals.willBoost ?? 0),
-  };
-  abilityByField.strength += operatorBuffTotals.strengthBoost ?? 0;
-  abilityByField.agility += operatorBuffTotals.agilityBoost ?? 0;
-  abilityByField.intelligence += operatorBuffTotals.intelligenceBoost ?? 0;
-  abilityByField.will += operatorBuffTotals.willBoost ?? 0;
-  if (mainField) abilityByField[mainField] += mainStatFlatBonus + (weapon.totals.mainStat ?? 0) + (operatorBuffTotals.mainStat ?? 0);
-  if (subField) abilityByField[subField] += subStatFlatBonus + (weapon.totals.subStat ?? 0) + (operatorBuffTotals.subStat ?? 0);
 
-  const mainStatScale = (weapon.totals.mainStatBoost ?? 0) + (equipment.totals.mainStatBoost ?? 0) + (operatorBuffTotals.mainStatBoost ?? 0);
-  const subStatScale = (weapon.totals.subStatBoost ?? 0) + (equipment.totals.subStatBoost ?? 0) + (operatorBuffTotals.subStatBoost ?? 0);
-  const allStatScale = (weapon.totals.allStatBoost ?? 0) + (operatorBuffTotals.allStatBoost ?? 0);
-  const operatorAtk = attributes.atk;
-  const weaponAtk = weapon.attack;
-  const calcDamageBonus = createDamageBonusFromTotals(equipment.totals, weapon.totals, operatorBuffTotals);
-  const calc: PanelCalcSnapshot = {
-    strength: round(abilityByField.strength),
-    agility: round(abilityByField.agility),
-    intelligence: round(abilityByField.intelligence),
-    will: round(abilityByField.will),
-    operatorAtk,
-    weaponAtk,
-    operatorHp: attributes.hp,
-    mainStatFlatBonus,
-    subStatFlatBonus,
-    mainStatBoost: round(mainStatScale),
-    subStatBoost: round(subStatScale),
-    allStatBoost: round(allStatScale),
-    atkPercentBoost: round((weapon.totals.atkPercentBoost ?? 0) + (equipment.totals.atkPercentBoost ?? 0) + (operatorBuffTotals.atkPercentBoost ?? 0)),
-    flatAtk: round((weapon.totals.atk ?? 0) + (operatorBuffTotals.atk ?? 0)),
-    hpPercent: round((weapon.totals.hpPercent ?? 0) + (equipment.totals.hpPercent ?? 0) + (operatorBuffTotals.hpPercent ?? 0)),
-    critRateBoost: round((weapon.totals.critRateBoost ?? 0) + (equipment.totals.critRateBoost ?? 0) + (operatorBuffTotals.critRateBoost ?? 0)),
-    critDmgBonusBoost: round((weapon.totals.critDmgBonusBoost ?? 0) + (equipment.totals.critDmgBonusBoost ?? 0) + (operatorBuffTotals.critDmgBonusBoost ?? 0)),
-    sourceSkillBoost: round((weapon.totals.sourceSkillBoost ?? 0) + (equipment.totals.sourceSkillBoost ?? 0) + (operatorBuffTotals.sourceSkillBoost ?? 0)),
-    healingBonus: round((weapon.totals.healingBonus ?? 0) + (equipment.totals.healingBonus ?? 0) + (operatorBuffTotals.healingBonus ?? 0)),
-    receivedHealingBonus: round(operatorBuffTotals.receivedHealingBonus ?? 0),
-    chainCooldownReduction: round(operatorBuffTotals.chainCooldownReduction ?? 0),
-    ultimateChargeEfficiency: round((weapon.totals.ultimateChargeEfficiency ?? 0) + (equipment.totals.ultimateChargeEfficiency ?? 0) + (operatorBuffTotals.ultimateChargeEfficiency ?? 0)),
-    imbalanceEfficiency: round(operatorBuffTotals.imbalanceEfficiency ?? 0),
-    damageReduction: round((equipment.totals.damageReduction ?? 0) + (operatorBuffTotals.damageReduction ?? 0)),
-    damageBonus: calcDamageBonus,
+  const buildPanelResult = (operatorBuffTotals: Record<string, number>) => {
+    const abilityByField: Record<AbilityField, number> = {
+      strength: attributes.strength + (weapon.totals.strengthBoost ?? 0) + (equipment.totals.strengthBoost ?? 0),
+      agility: attributes.agility + (weapon.totals.agilityBoost ?? 0) + (equipment.totals.agilityBoost ?? 0),
+      intelligence: attributes.intelligence + (weapon.totals.intelligenceBoost ?? 0) + (equipment.totals.intelligenceBoost ?? 0),
+      will: attributes.will + (weapon.totals.willBoost ?? 0) + (equipment.totals.willBoost ?? 0),
+    };
+    abilityByField.strength += operatorBuffTotals.strengthBoost ?? 0;
+    abilityByField.agility += operatorBuffTotals.agilityBoost ?? 0;
+    abilityByField.intelligence += operatorBuffTotals.intelligenceBoost ?? 0;
+    abilityByField.will += operatorBuffTotals.willBoost ?? 0;
+    if (mainField) abilityByField[mainField] += mainStatFlatBonus + (weapon.totals.mainStat ?? 0) + (operatorBuffTotals.mainStat ?? 0);
+    if (subField) abilityByField[subField] += subStatFlatBonus + (weapon.totals.subStat ?? 0) + (operatorBuffTotals.subStat ?? 0);
+
+    const mainStatScale = (weapon.totals.mainStatBoost ?? 0) + (equipment.totals.mainStatBoost ?? 0) + (operatorBuffTotals.mainStatBoost ?? 0);
+    const subStatScale = (weapon.totals.subStatBoost ?? 0) + (equipment.totals.subStatBoost ?? 0) + (operatorBuffTotals.subStatBoost ?? 0);
+    const allStatScale = (weapon.totals.allStatBoost ?? 0) + (operatorBuffTotals.allStatBoost ?? 0);
+    const operatorAtk = attributes.atk;
+    const weaponAtk = weapon.attack;
+    const calcDamageBonus = createDamageBonusFromTotals(equipment.totals, weapon.totals, operatorBuffTotals);
+    const calc: PanelCalcSnapshot = {
+      strength: round(abilityByField.strength),
+      agility: round(abilityByField.agility),
+      intelligence: round(abilityByField.intelligence),
+      will: round(abilityByField.will),
+      operatorAtk,
+      weaponAtk,
+      operatorHp: attributes.hp,
+      mainStatFlatBonus,
+      subStatFlatBonus,
+      mainStatBoost: round(mainStatScale),
+      subStatBoost: round(subStatScale),
+      allStatBoost: round(allStatScale),
+      atkPercentBoost: round((weapon.totals.atkPercentBoost ?? 0) + (equipment.totals.atkPercentBoost ?? 0) + (operatorBuffTotals.atkPercentBoost ?? 0)),
+      flatAtk: round((weapon.totals.atk ?? 0) + (operatorBuffTotals.atk ?? 0)),
+      hpPercent: round((weapon.totals.hpPercent ?? 0) + (equipment.totals.hpPercent ?? 0) + (operatorBuffTotals.hpPercent ?? 0)),
+      critRateBoost: round((weapon.totals.critRateBoost ?? 0) + (equipment.totals.critRateBoost ?? 0) + (operatorBuffTotals.critRateBoost ?? 0)),
+      critDmgBonusBoost: round((weapon.totals.critDmgBonusBoost ?? 0) + (equipment.totals.critDmgBonusBoost ?? 0) + (operatorBuffTotals.critDmgBonusBoost ?? 0)),
+      sourceSkillBoost: round((weapon.totals.sourceSkillBoost ?? 0) + (equipment.totals.sourceSkillBoost ?? 0) + (operatorBuffTotals.sourceSkillBoost ?? 0)),
+      healingBonus: round((weapon.totals.healingBonus ?? 0) + (equipment.totals.healingBonus ?? 0) + (operatorBuffTotals.healingBonus ?? 0)),
+      receivedHealingBonus: round(operatorBuffTotals.receivedHealingBonus ?? 0),
+      chainCooldownReduction: round(operatorBuffTotals.chainCooldownReduction ?? 0),
+      ultimateChargeEfficiency: round((weapon.totals.ultimateChargeEfficiency ?? 0) + (equipment.totals.ultimateChargeEfficiency ?? 0) + (operatorBuffTotals.ultimateChargeEfficiency ?? 0)),
+      imbalanceEfficiency: round(operatorBuffTotals.imbalanceEfficiency ?? 0),
+      damageReduction: round((equipment.totals.damageReduction ?? 0) + (operatorBuffTotals.damageReduction ?? 0)),
+      damageBonus: calcDamageBonus,
+    };
+    return {
+      calc,
+      display: buildDisplay(calc, input.operator.mainStat ?? '', input.operator.subStat ?? ''),
+    };
   };
-  const display = buildDisplay(calc, input.operator.mainStat ?? '', input.operator.subStat ?? '');
+
+  const preliminaryPanel = buildPanelResult(fixedOperatorBuffTotals);
+  const derivedOperatorBuffTotals = buildDerivedOperatorBuffTotals(operatorBuffs, preliminaryPanel.display);
+  const operatorBuffTotals = addTotals(fixedOperatorBuffTotals, derivedOperatorBuffTotals);
+  const { calc, display } = buildPanelResult(operatorBuffTotals);
+  const operatorBuffsWithRuntimeValues = attachDerivedOperatorBuffValues(operatorBuffs, preliminaryPanel.display);
   const snapshotWithoutMarkdown: Omit<ConfigSnapshot, 'detailMarkdown'> = {
     panel: { calc, display },
     operator: {
@@ -1048,12 +1211,12 @@ export function buildConfigSnapshot(input: OperatorPanelInput): ConfigSnapshot {
       subStatFlatBonus,
       skillConfig: input.operator.skillConfig ?? {},
       baseAttributes: attributes,
-      buffs: operatorBuffs,
+      buffs: operatorBuffsWithRuntimeValues,
     },
     weapon,
     equipment,
     buff: {
-      operator: Object.values(operatorBuffs).flatMap((group) => Object.keys(group.effects || {})),
+      operator: Object.values(operatorBuffsWithRuntimeValues).flatMap((group) => Object.keys(group.effects || {})),
       weapon: [],
       equipment: [],
     },

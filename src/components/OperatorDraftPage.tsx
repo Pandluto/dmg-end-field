@@ -61,6 +61,7 @@ const OPERATOR_BUFF_CATEGORIES = ['positive', 'condition'] as const;
 const OPERATOR_BUFF_TYPE_OPTIONS = [
   'atkPercentBoost',
   'atk',
+  'flatAtk',
   'mainStat',
   'subStat',
   'mainStatBoost',
@@ -86,6 +87,41 @@ const OPERATOR_BUFF_TYPE_OPTIONS = [
   'normalAttackDmgBonus',
   'allSkillDmgBonus',
   'imbalanceDmgBonus',
+  'physicalFragile',
+  'fireFragile',
+  'electricFragile',
+  'iceFragile',
+  'natureFragile',
+  'magicFragile',
+  'physicalVulnerability',
+  'fireVulnerability',
+  'electricVulnerability',
+  'iceVulnerability',
+  'natureVulnerability',
+  'magicVulnerability',
+  'physicalAmplify',
+  'magicAmplify',
+  'fireAmplify',
+  'electricAmplify',
+  'iceAmplify',
+  'natureAmplify',
+  'allCorrosion',
+  'physicalCorrosion',
+  'magicCorrosion',
+  'fireCorrosion',
+  'electricCorrosion',
+  'iceCorrosion',
+  'natureCorrosion',
+  'allResistanceIgnore',
+  'physicalResistanceIgnore',
+  'magicResistanceIgnore',
+  'fireResistanceIgnore',
+  'electricResistanceIgnore',
+  'iceResistanceIgnore',
+  'natureResistanceIgnore',
+  'comboDamageBonus',
+  'multiplierBonus',
+  'multiplierMultiplier',
   'sourceSkillBoost',
   'ultimateChargeEfficiency',
   'healingBonus',
@@ -97,6 +133,7 @@ const OPERATOR_BUFF_TYPE_OPTIONS = [
 const OPERATOR_BUFF_TYPE_LABELS: Record<string, string> = {
   atkPercentBoost: '攻击力百分比',
   atk: '固定攻击力',
+  flatAtk: '固定攻击力',
   mainStat: '主能力固定值',
   subStat: '副能力固定值',
   mainStatBoost: '主能力提升',
@@ -122,6 +159,41 @@ const OPERATOR_BUFF_TYPE_LABELS: Record<string, string> = {
   normalAttackDmgBonus: '普攻伤害加成',
   allSkillDmgBonus: '全技能伤害加成',
   imbalanceDmgBonus: '失衡伤害加成',
+  physicalFragile: '物理易伤',
+  fireFragile: '灼热易伤',
+  electricFragile: '电磁易伤',
+  iceFragile: '寒冷易伤',
+  natureFragile: '自然易伤',
+  magicFragile: '法术易伤',
+  physicalVulnerability: '物理脆弱',
+  fireVulnerability: '灼热脆弱',
+  electricVulnerability: '电磁脆弱',
+  iceVulnerability: '寒冷脆弱',
+  natureVulnerability: '自然脆弱',
+  magicVulnerability: '法术脆弱',
+  physicalAmplify: '物理增幅',
+  magicAmplify: '法术增幅',
+  fireAmplify: '灼热增幅',
+  electricAmplify: '电磁增幅',
+  iceAmplify: '寒冷增幅',
+  natureAmplify: '自然增幅',
+  allCorrosion: '全属性降抗',
+  physicalCorrosion: '物理降抗',
+  magicCorrosion: '法术降抗',
+  fireCorrosion: '灼热降抗',
+  electricCorrosion: '电磁降抗',
+  iceCorrosion: '寒冷降抗',
+  natureCorrosion: '自然降抗',
+  allResistanceIgnore: '无视全部抗性',
+  physicalResistanceIgnore: '无视物理抗性',
+  magicResistanceIgnore: '无视法术抗性',
+  fireResistanceIgnore: '无视灼热抗性',
+  electricResistanceIgnore: '无视电磁抗性',
+  iceResistanceIgnore: '无视寒冷抗性',
+  natureResistanceIgnore: '无视自然抗性',
+  comboDamageBonus: '连击伤害加成',
+  multiplierBonus: '倍率加算',
+  multiplierMultiplier: '倍率乘算',
   sourceSkillBoost: '源石技艺强度',
   ultimateChargeEfficiency: '终结技充能效率',
   healingBonus: '治疗效率',
@@ -151,7 +223,26 @@ const OPERATOR_PERCENTLIKE_BUFF_TYPES = new Set([
   'normalAttackDmgBonus',
   'allSkillDmgBonus',
   'imbalanceDmgBonus',
-  'sourceSkillBoost',
+  'physicalFragile',
+  'fireFragile',
+  'electricFragile',
+  'iceFragile',
+  'natureFragile',
+  'magicFragile',
+  'physicalVulnerability',
+  'fireVulnerability',
+  'electricVulnerability',
+  'iceVulnerability',
+  'natureVulnerability',
+  'magicVulnerability',
+  'physicalAmplify',
+  'magicAmplify',
+  'fireAmplify',
+  'electricAmplify',
+  'iceAmplify',
+  'natureAmplify',
+  'comboDamageBonus',
+  'multiplierBonus',
   'ultimateChargeEfficiency',
   'healingBonus',
   'receivedHealingBonus',
@@ -159,6 +250,18 @@ const OPERATOR_PERCENTLIKE_BUFF_TYPES = new Set([
   'imbalanceEfficiency',
   'damageReduction',
 ]);
+const OPERATOR_BUFF_DERIVED_SOURCE_OPTIONS = [
+  { value: 'hp', label: '生命值' },
+  { value: 'atk', label: '攻击力' },
+  { value: 'strength', label: '力量' },
+  { value: 'agility', label: '敏捷' },
+  { value: 'intelligence', label: '智识' },
+  { value: 'will', label: '意志' },
+  { value: 'sourceSkill', label: '源石技艺强度' },
+] as const;
+const OPERATOR_BUFF_DERIVED_SOURCE_LABELS = Object.fromEntries(
+  OPERATOR_BUFF_DERIVED_SOURCE_OPTIONS.map((option) => [option.value, option.label])
+) as Record<OperatorBuffDerivedSource, string>;
 
 type HitSkillType = 'A' | 'B' | 'E' | 'Q';
 type HitElement = 'physical' | 'fire' | 'ice' | 'electric' | 'nature';
@@ -168,7 +271,14 @@ type AttributeKey = (typeof ATTRIBUTE_ROWS)[number][0];
 type AttributeLevels = Record<AttributeKey, Record<AttributeLevelKey, number>>;
 type OperatorBuffGroupKey = (typeof OPERATOR_BUFF_GROUPS)[number]['key'];
 type OperatorBuffCategory = (typeof OPERATOR_BUFF_CATEGORIES)[number];
+type OperatorBuffValueMode = 'fixed' | 'derived';
+type OperatorBuffDerivedSource = 'hp' | 'atk' | 'strength' | 'agility' | 'intelligence' | 'will' | 'sourceSkill';
 type OperatorBuffs = Record<OperatorBuffGroupKey, { effects: Record<string, OperatorBuffEffect> }>;
+
+interface OperatorBuffDerivedValue {
+  source: OperatorBuffDerivedSource;
+  perPointValue: number;
+}
 
 interface OperatorBuffEffect {
   effectId: string;
@@ -179,6 +289,8 @@ interface OperatorBuffEffect {
   unit?: 'flat' | 'percent' | string;
   description?: string;
   raw?: string;
+  valueMode?: OperatorBuffValueMode;
+  derivedValue?: OperatorBuffDerivedValue;
 }
 
 interface HitMetaDraft {
@@ -257,6 +369,7 @@ function createDefaultBuffEffect(effectKey = 'effect1'): OperatorBuffEffect {
     type: '',
     category: 'positive',
     unit: '',
+    valueMode: 'fixed',
     description: '',
     raw: '',
   };
@@ -358,6 +471,10 @@ function inferOperatorBuffUnit(buffType: string): 'flat' | 'percent' {
   return OPERATOR_PERCENTLIKE_BUFF_TYPES.has(buffType.trim()) ? 'percent' : 'flat';
 }
 
+function formatOperatorBuffPerPointValue(value: number) {
+  return Number(value.toFixed(6)).toString();
+}
+
 function isDraftPath(pathname: string) {
   return pathname === DRAFT_PAGE_PATH;
 }
@@ -395,6 +512,15 @@ function normalizeBuffEffect(effectKey: string, rawEffect: unknown): OperatorBuf
   const rawCategory = typeof source.category === 'string' ? source.category : '';
   const category: OperatorBuffCategory = rawCategory === 'condition' ? 'condition' : 'positive';
   const rawValue = source.value;
+  const valueMode: OperatorBuffValueMode = source.valueMode === 'derived' ? 'derived' : 'fixed';
+  const rawDerivedValue = source.derivedValue && typeof source.derivedValue === 'object'
+    ? source.derivedValue as Record<string, unknown>
+    : {};
+  const rawDerivedSource = typeof rawDerivedValue.source === 'string' ? rawDerivedValue.source : '';
+  const derivedSource = OPERATOR_BUFF_DERIVED_SOURCE_OPTIONS.some((option) => option.value === rawDerivedSource)
+    ? rawDerivedSource as OperatorBuffDerivedSource
+    : null;
+  const rawPerPointValue = rawDerivedValue.perPointValue ?? rawDerivedValue.scale;
   return {
     effectId: String(source.effectId || effectKey),
     name: String(source.name || effectKey),
@@ -402,6 +528,10 @@ function normalizeBuffEffect(effectKey: string, rawEffect: unknown): OperatorBuf
     category,
     ...(typeof rawValue === 'number' && Number.isFinite(rawValue) ? { value: rawValue } : {}),
     unit: typeof source.unit === 'string' ? source.unit : '',
+    valueMode,
+    ...(valueMode === 'derived' && derivedSource && typeof rawPerPointValue === 'number' && Number.isFinite(rawPerPointValue)
+      ? { derivedValue: { source: derivedSource, perPointValue: rawPerPointValue } }
+      : {}),
     description: typeof source.description === 'string' ? source.description : '',
     raw: typeof source.raw === 'string' ? source.raw : '',
   };
@@ -1949,7 +2079,14 @@ export function OperatorDraftPage() {
                         >
                           <strong>{effect.name || effectKey}</strong>
                           <span>{effect.type ? getOperatorBuffTypeDisplayLabel(effect.type) : '未设置类型'}</span>
-                          <span>{effect.category === 'condition' ? '条件' : '常驻'}{typeof effect.value === 'number' ? ` · ${effect.value}${(effect.unit || inferOperatorBuffUnit(effect.type)) === 'percent' ? '%' : ''}` : ''}</span>
+                          <span>
+                            {effect.category === 'condition' ? '条件' : '常驻'}
+                            {effect.valueMode === 'derived' && effect.derivedValue
+                              ? ` · ${OPERATOR_BUFF_DERIVED_SOURCE_LABELS[effect.derivedValue.source]} 每点提升 ${formatOperatorBuffPerPointValue(effect.derivedValue.perPointValue)}`
+                              : typeof effect.value === 'number'
+                                ? ` · ${effect.value}${(effect.unit || inferOperatorBuffUnit(effect.type)) === 'percent' ? '%' : ''}`
+                                : ''}
+                          </span>
                         </button>
                       ))
                     ) : (
@@ -2011,6 +2148,26 @@ export function OperatorDraftPage() {
                         </select>
                       </label>
                       <label>
+                        <span>数值模式</span>
+                        <select
+                          value={selectedBuffEffect.valueMode ?? 'fixed'}
+                          onChange={(event) => {
+                            const nextMode = event.target.value as OperatorBuffValueMode;
+                            updateSelectedBuffEffect((effect) => ({
+                              ...effect,
+                              valueMode: nextMode,
+                              ...(nextMode === 'derived' && !effect.derivedValue
+                                ? { derivedValue: { source: 'intelligence', perPointValue: 0.001 } }
+                                : {}),
+                            }));
+                          }}
+                        >
+                          <option value="fixed">固定数值</option>
+                          <option value="derived">来源值派生</option>
+                        </select>
+                      </label>
+                      {(selectedBuffEffect.valueMode ?? 'fixed') === 'fixed' ? (
+                      <label>
                         <span>数值</span>
                         <input
                           type="number"
@@ -2026,6 +2183,47 @@ export function OperatorDraftPage() {
                           }}
                         />
                       </label>
+                      ) : (
+                        <>
+                          <label>
+                            <span>来源值</span>
+                            <select
+                              value={selectedBuffEffect.derivedValue?.source ?? 'intelligence'}
+                              onChange={(event) => updateSelectedBuffEffect((effect) => ({
+                                ...effect,
+                                valueMode: 'derived',
+                                derivedValue: {
+                                  source: event.target.value as OperatorBuffDerivedSource,
+                                  perPointValue: effect.derivedValue?.perPointValue ?? 0.001,
+                                },
+                              }))}
+                            >
+                              {OPERATOR_BUFF_DERIVED_SOURCE_OPTIONS.map((option) => (
+                                <option key={option.value} value={option.value}>{option.label}</option>
+                              ))}
+                            </select>
+                          </label>
+                          <label>
+                            <span>每点提升</span>
+                            <input
+                              type="number"
+                              step="0.0001"
+                              value={selectedBuffEffect.derivedValue?.perPointValue ?? ''}
+                              onChange={(event) => {
+                                const rawValue = event.target.value;
+                                updateSelectedBuffEffect((effect) => ({
+                                  ...effect,
+                                  valueMode: 'derived',
+                                  derivedValue: {
+                                    source: effect.derivedValue?.source ?? 'intelligence',
+                                    perPointValue: rawValue.trim() === '' ? 0 : Number(rawValue) || 0,
+                                  },
+                                }));
+                              }}
+                            />
+                          </label>
+                        </>
+                      )}
                       <label>
                         <span>单位</span>
                         <div className="operator-draft-buff-unit-lock">

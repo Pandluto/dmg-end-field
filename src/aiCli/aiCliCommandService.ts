@@ -1712,10 +1712,13 @@ export function runAiCliCommand(
       lines: [info('type help (输入 help 查看可用命令)')],
     });
   } else if (permissionError) {
+    const permissionHint = request.client === 'rest'
+      ? 'hint: this command requires a writer/user-confirmation client. Use ?client=web-cli or body.client="web-cli" only from the trusted Web CLI/user path. (提示：该命令需要写权限/用户确认客户端；可信 Web CLI 用户路径可使用 ?client=web-cli 或 body.client="web-cli")'
+      : '';
     response = makeResponse({
       ok: false,
-      lines: [fail(permissionError.message)],
-      error: { code: permissionError.code, message: permissionError.message },
+      lines: [fail(permissionError.message), permissionHint].filter(Boolean),
+      error: { code: permissionError.code, message: permissionError.message, details: permissionHint ? { hint: permissionHint } : undefined },
     });
   } else {
     try {

@@ -137,3 +137,80 @@ const operatorMainSubStatSnapshot = buildConfigSnapshot({
 
 assertEqual(operatorMainSubStatSnapshot.panel.calc.strength, 100, 'operator positive mainStat buff should add to resolved main ability');
 assertEqual(operatorMainSubStatSnapshot.panel.calc.agility, 32, 'operator positive subStat buff should add to resolved sub ability');
+
+const derivedOperatorBuffSnapshot = buildConfigSnapshot({
+  ...baseInput,
+  operator: {
+    ...baseInput.operator,
+    mainStatFlatBonus: 60,
+    subStatFlatBonus: 0,
+    buffs: {
+      talent: {
+        effects: {
+          fixedIntelligence: {
+            effectId: 'fixedIntelligence',
+            name: 'Fixed intelligence',
+            type: 'intelligenceBoost',
+            category: 'positive',
+            value: 20,
+            unit: 'flat',
+          },
+          derivedFromIntelligence: {
+            effectId: 'derivedFromIntelligence',
+            name: 'Derived atk percent',
+            type: 'atkPercentBoost',
+            category: 'positive',
+            valueMode: 'derived',
+            unit: 'percent',
+            derivedValue: {
+              source: 'intelligence',
+              perPointValue: 0.001,
+            },
+          },
+          conditionDerived: {
+            effectId: 'conditionDerived',
+            name: 'Condition derived atk percent',
+            type: 'atkPercentBoost',
+            category: 'condition',
+            valueMode: 'derived',
+            unit: 'percent',
+            derivedValue: {
+              source: 'will',
+              perPointValue: 10,
+            },
+          },
+        },
+      },
+      potential: { effects: {} },
+      skill: { effects: {} },
+    },
+  },
+});
+
+assertEqual(derivedOperatorBuffSnapshot.panel.calc.intelligence, 50, 'fixed operator buff should boost intelligence before derived values read it');
+assertEqual(derivedOperatorBuffSnapshot.panel.calc.atkPercentBoost, 0.05, 'derived positive buff should read boosted intelligence and normalize by type/unit');
+
+const operatorFlatAtkAliasSnapshot = buildConfigSnapshot({
+  ...baseInput,
+  operator: {
+    ...baseInput.operator,
+    buffs: {
+      talent: {
+        effects: {
+          flatAtkAlias: {
+            effectId: 'flatAtkAlias',
+            name: 'Flat attack alias',
+            type: 'flatAtk',
+            category: 'positive',
+            value: 25,
+            unit: 'flat',
+          },
+        },
+      },
+      potential: { effects: {} },
+      skill: { effects: {} },
+    },
+  },
+});
+
+assertEqual(operatorFlatAtkAliasSnapshot.panel.calc.flatAtk, 25, 'operator flatAtk alias should contribute to panel fixed attack');

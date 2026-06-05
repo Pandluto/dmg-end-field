@@ -59,6 +59,9 @@ export const AI_CLI_REST_ENDPOINTS = [
   'GET /api/weapon/current',
   'GET /api/weapon/library',
   'GET /api/weapon/library/<id-or-name>',
+  'GET /api/weapon/fill/template',
+  'POST /api/weapon/fill/check',
+  'POST /api/weapon/fill/apply',
   'GET /api/operator/current',
   'GET /api/operator/library',
   'GET /api/operator/library/<id-or-name>',
@@ -255,6 +258,9 @@ export function handleAiCliRestRequest(
         'weapon.search': 'weapon.search <keyword>',
         'weapon.draft.show': 'weapon.draft.show',
         'weapon.open': 'weapon.open <id|name>',
+        'weapon.fill.task': 'weapon.fill.task',
+        'weapon.fill.check': 'weapon.fill.check <WeaponFillAiDraft JSON>',
+        'weapon.fill.apply': 'weapon.fill.apply <WeaponFillAiDraft JSON>',
         'operator.fill.task': 'operator.fill.task',
         'operator.fill.check': 'operator.fill.check <OperatorFillAiDraft JSON>',
         'operator.fill.apply': 'operator.fill.apply <OperatorFillAiDraft JSON>',
@@ -446,7 +452,7 @@ export function handleAiCliRestRequest(
           intent: 'Convert an app-provided Weapon draft into a validated WeaponFillAiDraft proposal.',
           readBeforeUse: [
             'GET /api/agent/guide',
-            'POST /api/ai-cli/run with command weapon.fill.task to get schema and supported effect types',
+            'GET /api/weapon/fill/template or weapon.fill.task to get schema and supported effect types',
             'GET /api/weapon/library and GET /api/weapon/current when updating local Weapon state',
           ],
           procedure: [
@@ -455,9 +461,9 @@ export function handleAiCliRestRequest(
             'Leave imgUrl empty if source data has no image URL. Do not use url as imgUrl.',
             'Only skill3.effects is preserved by Sheet-Weapon.',
             'Use category condition/passive for skill3 effects.',
-            'Call POST /api/ai-cli/run with command weapon.fill.check <json>.',
+            'Call POST /api/weapon/fill/check.',
             'If check fails, fix JSON and check again.',
-            'Call POST /api/ai-cli/run with command weapon.fill.apply <json> only after validation passes. This creates a proposal, NOT a library write.',
+            'Call POST /api/weapon/fill/apply only after validation passes. This creates a proposal, NOT a library write.',
             'After apply, guide the user to open /ai-cli. The pending proposal is imported automatically.',
             'Single pending: user presses Y to approve, then Y to save.',
           ],
@@ -496,10 +502,19 @@ export function handleAiCliRestRequest(
             formatName: 'OperatorFillAiDraft',
             root: ['id', 'name', 'rarity', 'profession', 'weapon', 'element', 'mainStat', 'subStat', 'skills', 'buffs?'],
             skill: ['displayName', 'buttonType', 'iconUrl?', 'hitCount?', 'hitMeta?'],
+            buffs: 'optional talent/potential/skill groups; each group is { effects: Record<effectKey, effect> }',
+            buffEffect: ['effectId?', 'name', 'type', 'category', 'value?', 'unit?', 'valueMode?', 'derivedValue?', 'description?', 'raw?'],
+            derivedValue: {
+              source: ['hp', 'atk', 'strength', 'agility', 'intelligence', 'will', 'sourceSkill'],
+              perPointValue: 'number; 每点提升多少. Percent-like buff types use decimal numbers, e.g. 每点 +0.10% => 0.001',
+            },
           },
           hardRules: [
             'buttonType must be A/B/E/Q.',
             'skill hit level values must be numbers.',
+            'operator buff category must be positive or condition.',
+            'fixed operator buff effects use numeric value; derived effects use valueMode=derived and derivedValue.source/perPointValue.',
+            'Do not use arbitrary formulas in operator buffs. For 智识+意志, create two derived effects.',
             'operator.fill.apply creates a proposal only; it does not save the Operator library.',
           ],
         },
@@ -747,8 +762,16 @@ export function handleAiCliRestRequest(
     });
   }
 
-  if (request.method === 'GET' && (request.path === '/api/operator/fill/template' || request.path === '/api/equipment/fill/template')) {
-    const commandName = request.path.startsWith('/api/operator/') ? 'operator.fill.task' : 'equipment.fill.task';
+  if (request.method === 'GET' && (
+    request.path === '/api/weapon/fill/template'
+    || request.path === '/api/operator/fill/template'
+    || request.path === '/api/equipment/fill/template'
+  )) {
+    const commandName = request.path.startsWith('/api/weapon/')
+      ? 'weapon.fill.task'
+      : request.path.startsWith('/api/operator/')
+        ? 'operator.fill.task'
+        : 'equipment.fill.task';
     const response = runAiCliCommand(createAiCliCommandRequest(commandName, client), currentDraft, context);
     return jsonResponse(response.ok ? 200 : 400, {
       ...response,
@@ -896,7 +919,9 @@ export function handleAiCliRestRequest(
   }
 
   if (request.method === 'POST' && (
-    request.path === '/api/operator/fill/check'
+    request.path === '/api/weapon/fill/check'
+    || request.path === '/api/weapon/fill/apply'
+    || request.path === '/api/operator/fill/check'
     || request.path === '/api/operator/fill/apply'
     || request.path === '/api/equipment/fill/check'
     || request.path === '/api/equipment/fill/apply'
@@ -911,8 +936,11 @@ export function handleAiCliRestRequest(
         },
       });
     }
-    const isOperator = request.path.startsWith('/api/operator/');
-    const commandPrefix = isOperator ? 'operator.fill' : 'equipment.fill';
+    const commandPrefix = request.path.startsWith('/api/weapon/')
+      ? 'weapon.fill'
+      : request.path.startsWith('/api/operator/')
+        ? 'operator.fill'
+        : 'equipment.fill';
     const commandName = request.path.endsWith('/apply') ? `${commandPrefix}.apply` : `${commandPrefix}.check`;
     const pendingBeforeApply = readPendingAgentProposals(context.sessionId).length;
     if (commandName.endsWith('.apply') && pendingBeforeApply > 0) {

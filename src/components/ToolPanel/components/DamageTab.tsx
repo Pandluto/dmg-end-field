@@ -29,6 +29,8 @@ function toSkillButtonBuff(candidate: CandidateBuff): Omit<SkillButtonBuff, 'id'
     description: candidate.description,
     source: candidate.source,
     condition: candidate.condition,
+    valueMode: candidate.valueMode,
+    derivedValue: candidate.derivedValue,
     refCount: 1,
   };
 }

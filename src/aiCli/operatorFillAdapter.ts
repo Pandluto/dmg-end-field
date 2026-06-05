@@ -14,9 +14,12 @@ const PROFESSION_TYPES = ['突击', '重装', '近卫', '辅助', '先锋', '术
 const WEAPON_TYPES = ['手铳', '双手剑', '长柄武器', '法术单元', '单手剑'] as const;
 const BUFF_GROUPS = ['talent', 'potential', 'skill'] as const;
 const BUFF_CATEGORIES = ['positive', 'condition'] as const;
+const BUFF_VALUE_MODES = ['fixed', 'derived'] as const;
+const BUFF_DERIVED_SOURCES = ['hp', 'atk', 'strength', 'agility', 'intelligence', 'will', 'sourceSkill'] as const;
 const SUPPORTED_OPERATOR_EFFECT_TYPES = [
   'atkPercentBoost',
   'atk',
+  'flatAtk',
   'mainStat',
   'subStat',
   'mainStatBoost',
@@ -42,7 +45,43 @@ const SUPPORTED_OPERATOR_EFFECT_TYPES = [
   'normalAttackDmgBonus',
   'allSkillDmgBonus',
   'imbalanceDmgBonus',
+  'physicalFragile',
+  'fireFragile',
+  'electricFragile',
+  'iceFragile',
+  'natureFragile',
+  'magicFragile',
+  'physicalVulnerability',
+  'fireVulnerability',
+  'electricVulnerability',
+  'iceVulnerability',
+  'natureVulnerability',
+  'magicVulnerability',
+  'physicalAmplify',
+  'magicAmplify',
+  'fireAmplify',
+  'electricAmplify',
+  'iceAmplify',
+  'natureAmplify',
+  'allCorrosion',
+  'physicalCorrosion',
+  'magicCorrosion',
+  'fireCorrosion',
+  'electricCorrosion',
+  'iceCorrosion',
+  'natureCorrosion',
+  'allResistanceIgnore',
+  'physicalResistanceIgnore',
+  'magicResistanceIgnore',
+  'fireResistanceIgnore',
+  'electricResistanceIgnore',
+  'iceResistanceIgnore',
+  'natureResistanceIgnore',
+  'comboDamageBonus',
+  'multiplierBonus',
+  'multiplierMultiplier',
   'sourceSkillBoost',
+  'hp',
   'ultimateChargeEfficiency',
   'healingBonus',
   'receivedHealingBonus',
@@ -51,6 +90,22 @@ const SUPPORTED_OPERATOR_EFFECT_TYPES = [
   'damageReduction',
 ];
 
+function normalizeEnumText(value: unknown) {
+  return typeof value === 'string'
+    ? value.normalize('NFKC').replace(/[\u200B-\u200D\uFEFF]/g, '').trim()
+    : '';
+}
+
+function findAllowedValue<T extends readonly string[]>(rawValue: unknown, allowed: T) {
+  const normalizedValue = normalizeEnumText(rawValue);
+  return allowed.find((value) => normalizeEnumText(value) === normalizedValue) as T[number] | undefined;
+}
+
+function formatInvalidEnum(field: string, rawValue: unknown, allowed: readonly string[]) {
+  const value = typeof rawValue === 'string' ? JSON.stringify(rawValue) : String(rawValue);
+  return `${field} unsupported: ${value}; must be one of ${allowed.join('/')}`;
+}
+
 type ButtonType = (typeof BUTTON_TYPES)[number];
 type ElementType = (typeof ELEMENT_TYPES)[number];
 type SkillLevelKey = (typeof SKILL_LEVEL_KEYS)[number];
@@ -58,6 +113,13 @@ type AttributeLevelKey = (typeof ATTRIBUTE_LEVEL_KEYS)[number];
 type AttributeKey = (typeof ATTRIBUTE_KEYS)[number];
 type OperatorBuffGroupKey = (typeof BUFF_GROUPS)[number];
 type OperatorBuffCategory = (typeof BUFF_CATEGORIES)[number];
+type OperatorBuffValueMode = (typeof BUFF_VALUE_MODES)[number];
+type OperatorBuffDerivedSource = (typeof BUFF_DERIVED_SOURCES)[number];
+
+interface OperatorBuffDerivedValue {
+  source: OperatorBuffDerivedSource;
+  perPointValue: number;
+}
 
 interface OperatorBuffEffect {
   effectId: string;
@@ -66,6 +128,8 @@ interface OperatorBuffEffect {
   category: OperatorBuffCategory;
   value?: number;
   unit?: 'flat' | 'percent' | string;
+  valueMode?: OperatorBuffValueMode;
+  derivedValue?: OperatorBuffDerivedValue;
   description?: string;
   raw?: string;
 }
@@ -137,6 +201,47 @@ function defaultBuffs(): OperatorBuffs {
   };
 }
 
+function normalizeOperatorBuffEffect(effectKey: string, rawEffect: Record<string, unknown>): OperatorBuffEffect {
+  const valueMode: OperatorBuffValueMode = rawEffect.valueMode === 'derived' ? 'derived' : 'fixed';
+  const rawDerivedValue = isRecord(rawEffect.derivedValue) ? rawEffect.derivedValue : {};
+  const rawDerivedSource = findAllowedValue(rawDerivedValue.source, BUFF_DERIVED_SOURCES);
+  const rawPerPointValue = rawDerivedValue.perPointValue ?? rawDerivedValue.scale;
+  return {
+    effectId: typeof rawEffect.effectId === 'string' && rawEffect.effectId ? rawEffect.effectId : effectKey,
+    name: typeof rawEffect.name === 'string' && rawEffect.name ? rawEffect.name : effectKey,
+    type: String(rawEffect.type || ''),
+    category: findAllowedValue(rawEffect.category, BUFF_CATEGORIES) || 'positive',
+    ...(typeof rawEffect.value === 'number' && Number.isFinite(rawEffect.value) ? { value: rawEffect.value } : {}),
+    ...(typeof rawEffect.unit === 'string' && rawEffect.unit ? { unit: rawEffect.unit } : {}),
+    valueMode,
+    ...(valueMode === 'derived' && rawDerivedSource && typeof rawPerPointValue === 'number' && Number.isFinite(rawPerPointValue)
+      ? { derivedValue: { source: rawDerivedSource, perPointValue: rawPerPointValue } }
+      : {}),
+    ...(typeof rawEffect.description === 'string' && rawEffect.description ? { description: rawEffect.description } : {}),
+    ...(typeof rawEffect.raw === 'string' && rawEffect.raw ? { raw: rawEffect.raw } : {}),
+  };
+}
+
+function normalizeOperatorBuffs(rawBuffs: unknown): OperatorBuffs {
+  if (!isRecord(rawBuffs)) return defaultBuffs();
+  return Object.fromEntries(
+    BUFF_GROUPS.map((groupKey) => {
+      const rawGroup = isRecord(rawBuffs[groupKey]) ? rawBuffs[groupKey] : {};
+      const rawEffects = isRecord(rawGroup.effects) ? rawGroup.effects : {};
+      return [
+        groupKey,
+        {
+          effects: Object.fromEntries(
+            Object.entries(rawEffects)
+              .filter(([, rawEffect]) => isRecord(rawEffect))
+              .map(([effectKey, rawEffect]) => [effectKey, normalizeOperatorBuffEffect(effectKey, rawEffect as Record<string, unknown>)]),
+          ),
+        },
+      ];
+    }),
+  ) as OperatorBuffs;
+}
+
 function createFallbackOperatorDraft(): OperatorDraft {
   return {
     id: 'custom-operator-001',
@@ -195,11 +300,11 @@ function validateOperatorDraftShape(raw: unknown): AgentFillValidationResult<Ope
   if (typeof obj.id !== 'string' || !obj.id.trim()) errors.push('id must be non-empty string');
   if (typeof obj.name !== 'string' || !obj.name.trim()) errors.push('name must be non-empty string');
   if (typeof obj.rarity !== 'number' || !Number.isFinite(obj.rarity)) errors.push('rarity must be number');
-  if (typeof obj.profession !== 'string' || !PROFESSION_TYPES.includes(obj.profession as never)) errors.push(`profession must be one of ${PROFESSION_TYPES.join('/')}`);
-  if (typeof obj.weapon !== 'string' || !WEAPON_TYPES.includes(obj.weapon as never)) errors.push(`weapon must be one of ${WEAPON_TYPES.join('/')}`);
-  if (typeof obj.element !== 'string' || !ELEMENT_TYPES.includes(obj.element as never)) errors.push(`element must be one of ${ELEMENT_TYPES.join('/')}`);
-  if (typeof obj.mainStat !== 'string' || !ABILITY_TYPES.includes(obj.mainStat as never)) errors.push(`mainStat must be one of ${ABILITY_TYPES.join('/')}`);
-  if (typeof obj.subStat !== 'string' || !ABILITY_TYPES.includes(obj.subStat as never)) errors.push(`subStat must be one of ${ABILITY_TYPES.join('/')}`);
+  if (!findAllowedValue(obj.profession, PROFESSION_TYPES)) errors.push(formatInvalidEnum('profession', obj.profession, PROFESSION_TYPES));
+  if (!findAllowedValue(obj.weapon, WEAPON_TYPES)) errors.push(formatInvalidEnum('weapon', obj.weapon, WEAPON_TYPES));
+  if (!findAllowedValue(obj.element, ELEMENT_TYPES)) errors.push(formatInvalidEnum('element', obj.element, ELEMENT_TYPES));
+  if (!findAllowedValue(obj.mainStat, ABILITY_TYPES)) errors.push(formatInvalidEnum('mainStat', obj.mainStat, ABILITY_TYPES));
+  if (!findAllowedValue(obj.subStat, ABILITY_TYPES)) errors.push(formatInvalidEnum('subStat', obj.subStat, ABILITY_TYPES));
   if (!isRecord(obj.skills) || Object.keys(obj.skills).length === 0) {
     errors.push('skills must be non-empty object');
   } else {
@@ -209,7 +314,7 @@ function validateOperatorDraftShape(raw: unknown): AgentFillValidationResult<Ope
         continue;
       }
       if (typeof rawSkill.displayName !== 'string') errors.push(`skills.${skillKey}.displayName must be string`);
-      if (typeof rawSkill.buttonType !== 'string' || !BUTTON_TYPES.includes(rawSkill.buttonType as never)) errors.push(`skills.${skillKey}.buttonType must be A/B/E/Q`);
+      if (!findAllowedValue(rawSkill.buttonType, BUTTON_TYPES)) errors.push(formatInvalidEnum(`skills.${skillKey}.buttonType`, rawSkill.buttonType, BUTTON_TYPES));
       if (rawSkill.hitMeta !== undefined && !isRecord(rawSkill.hitMeta)) errors.push(`skills.${skillKey}.hitMeta must be object`);
       if (isRecord(rawSkill.hitMeta)) {
         for (const [hitKey, rawHit] of Object.entries(rawSkill.hitMeta)) {
@@ -218,8 +323,8 @@ function validateOperatorDraftShape(raw: unknown): AgentFillValidationResult<Ope
             continue;
           }
           if (typeof rawHit.displayName !== 'string') errors.push(`skills.${skillKey}.hitMeta.${hitKey}.displayName must be string`);
-          if (typeof rawHit.element !== 'string' || !ELEMENT_TYPES.includes(rawHit.element as never)) errors.push(`skills.${skillKey}.hitMeta.${hitKey}.element must be valid element`);
-          if (typeof rawHit.skillType !== 'string' || !BUTTON_TYPES.includes(rawHit.skillType as never)) errors.push(`skills.${skillKey}.hitMeta.${hitKey}.skillType must be A/B/E/Q`);
+          if (!findAllowedValue(rawHit.element, ELEMENT_TYPES)) errors.push(formatInvalidEnum(`skills.${skillKey}.hitMeta.${hitKey}.element`, rawHit.element, ELEMENT_TYPES));
+          if (!findAllowedValue(rawHit.skillType, BUTTON_TYPES)) errors.push(formatInvalidEnum(`skills.${skillKey}.hitMeta.${hitKey}.skillType`, rawHit.skillType, BUTTON_TYPES));
           if (!isRecord(rawHit.levels)) errors.push(`skills.${skillKey}.hitMeta.${hitKey}.levels must be object`);
           if (isRecord(rawHit.levels)) {
             for (const [levelKey, value] of Object.entries(rawHit.levels)) {
@@ -236,7 +341,7 @@ function validateOperatorDraftShape(raw: unknown): AgentFillValidationResult<Ope
       errors.push('buffs must be object');
     } else {
       for (const [groupKey, rawGroup] of Object.entries(obj.buffs)) {
-        if (!BUFF_GROUPS.includes(groupKey as never)) errors.push(`invalid buff group: ${groupKey}`);
+        if (!findAllowedValue(groupKey, BUFF_GROUPS)) errors.push(formatInvalidEnum('buff group', groupKey, BUFF_GROUPS));
         if (!isRecord(rawGroup) || !isRecord(rawGroup.effects)) {
           errors.push(`buffs.${groupKey}.effects must be object`);
           continue;
@@ -247,8 +352,23 @@ function validateOperatorDraftShape(raw: unknown): AgentFillValidationResult<Ope
             continue;
           }
           if (typeof rawEffect.type !== 'string' || !SUPPORTED_OPERATOR_EFFECT_TYPES.includes(rawEffect.type)) errors.push(`unsupported operator buff type: ${String(rawEffect.type)}`);
-          if (typeof rawEffect.category !== 'string' || !BUFF_CATEGORIES.includes(rawEffect.category as never)) errors.push(`buffs.${groupKey}.effects.${effectKey}.category must be positive/condition`);
+          if (!findAllowedValue(rawEffect.category, BUFF_CATEGORIES)) errors.push(formatInvalidEnum(`buffs.${groupKey}.effects.${effectKey}.category`, rawEffect.category, BUFF_CATEGORIES));
           if (rawEffect.value !== undefined && (typeof rawEffect.value !== 'number' || !Number.isFinite(rawEffect.value))) errors.push(`buffs.${groupKey}.effects.${effectKey}.value must be number`);
+          const valueMode = rawEffect.valueMode === undefined ? 'fixed' : findAllowedValue(rawEffect.valueMode, BUFF_VALUE_MODES);
+          if (!valueMode) errors.push(formatInvalidEnum(`buffs.${groupKey}.effects.${effectKey}.valueMode`, rawEffect.valueMode, BUFF_VALUE_MODES));
+          if (valueMode === 'derived') {
+            if (!isRecord(rawEffect.derivedValue)) {
+              errors.push(`buffs.${groupKey}.effects.${effectKey}.derivedValue must be object when valueMode is derived`);
+            } else {
+              if (!findAllowedValue(rawEffect.derivedValue.source, BUFF_DERIVED_SOURCES)) {
+                errors.push(formatInvalidEnum(`buffs.${groupKey}.effects.${effectKey}.derivedValue.source`, rawEffect.derivedValue.source, BUFF_DERIVED_SOURCES));
+              }
+              const rawPerPointValue = rawEffect.derivedValue.perPointValue ?? rawEffect.derivedValue.scale;
+              if (typeof rawPerPointValue !== 'number' || !Number.isFinite(rawPerPointValue)) {
+                errors.push(`buffs.${groupKey}.effects.${effectKey}.derivedValue.perPointValue must be number`);
+              }
+            }
+          }
         }
       }
     }
@@ -266,22 +386,22 @@ function normalizeOperatorDraft(obj: Record<string, unknown>): OperatorDraft {
         if (!isRecord(rawHit)) continue;
         hitMeta[hitKey] = {
           displayName: String(rawHit.displayName || hitKey),
-          element: rawHit.element as ElementType,
-          skillType: rawHit.skillType as ButtonType,
+          element: findAllowedValue(rawHit.element, ELEMENT_TYPES) as ElementType,
+          skillType: findAllowedValue(rawHit.skillType, BUTTON_TYPES) as ButtonType,
           levels: Object.fromEntries(SKILL_LEVEL_KEYS.map((levelKey) => [levelKey, Number((rawHit.levels as Record<string, number> | undefined)?.[levelKey] ?? 0)])) as Record<SkillLevelKey, number>,
         };
       }
     }
     skills[skillKey] = {
       displayName: String(rawSkill.displayName || skillKey),
-      buttonType: rawSkill.buttonType as ButtonType,
+      buttonType: findAllowedValue(rawSkill.buttonType, BUTTON_TYPES) as ButtonType,
       iconUrl: typeof rawSkill.iconUrl === 'string' ? rawSkill.iconUrl : '',
       hitCount: Object.keys(hitMeta).length || Number(rawSkill.hitCount || 0) || 1,
       hitMeta: Object.keys(hitMeta).length ? hitMeta : {
         hit1: {
           displayName: '第1击',
-          element: obj.element as ElementType,
-          skillType: rawSkill.buttonType as ButtonType,
+          element: findAllowedValue(obj.element, ELEMENT_TYPES) as ElementType,
+          skillType: findAllowedValue(rawSkill.buttonType, BUTTON_TYPES) as ButtonType,
           levels: Object.fromEntries(SKILL_LEVEL_KEYS.map((levelKey) => [levelKey, 0])) as Record<SkillLevelKey, number>,
         },
       },
@@ -293,13 +413,13 @@ function normalizeOperatorDraft(obj: Record<string, unknown>): OperatorDraft {
     name: String(obj.name),
     avatarUrl: typeof obj.avatarUrl === 'string' ? obj.avatarUrl : '',
     rarity: Number(obj.rarity),
-    profession: String(obj.profession),
-    weapon: String(obj.weapon),
-    element: String(obj.element),
-    mainStat: String(obj.mainStat),
-    subStat: String(obj.subStat),
+    profession: findAllowedValue(obj.profession, PROFESSION_TYPES) || String(obj.profession),
+    weapon: findAllowedValue(obj.weapon, WEAPON_TYPES) || String(obj.weapon),
+    element: findAllowedValue(obj.element, ELEMENT_TYPES) || String(obj.element),
+    mainStat: findAllowedValue(obj.mainStat, ABILITY_TYPES) || String(obj.mainStat),
+    subStat: findAllowedValue(obj.subStat, ABILITY_TYPES) || String(obj.subStat),
     skills,
-    buffs: isRecord(obj.buffs) ? obj.buffs as unknown as OperatorBuffs : defaultBuffs(),
+    buffs: normalizeOperatorBuffs(obj.buffs),
   };
 }
 
@@ -358,10 +478,21 @@ export const operatorFillAdapter: AgentFillDomainAdapter<OperatorDraft> = {
           subStat: ABILITY_TYPES,
           skills: 'Record<skillKey, { displayName, buttonType, iconUrl, hitCount, hitMeta }>',
           hitMeta: 'Record<hitKey, { displayName, element, skillType, levels }>',
-          buffs: 'optional; talent/potential/skill groups only',
+          buffs: 'optional; talent/potential/skill groups only; each group is { effects: Record<effectKey, OperatorBuffEffect> }',
+          buffEffect: {
+            fields: ['effectId', 'name', 'type', 'category', 'value?', 'unit?', 'valueMode?', 'derivedValue?', 'description?', 'raw?'],
+            category: BUFF_CATEGORIES,
+            valueMode: BUFF_VALUE_MODES,
+            derivedValue: {
+              meaning: 'source value derived Buff; runtime value = selected source value * perPointValue',
+              source: BUFF_DERIVED_SOURCES,
+              perPointValue: 'number; 每点提升多少。Percent-like types still use decimal numbers, e.g. 每点 +0.10% => 0.001',
+              legacyAcceptedInput: 'derivedValue.scale is accepted during check/apply and normalized to perPointValue',
+            },
+          },
         },
         supportedEffectTypes: SUPPORTED_OPERATOR_EFFECT_TYPES,
-        instruction: 'Return exactly one ImportedOperatorDraft-compatible JSON object. No Markdown. No explanation. Prefer POST /api/operator/fill/check|apply with a JSON body for Chinese payloads; CLI JSON args may be shell-encoding sensitive. operator.fill.apply creates a proposal only; it does NOT save to library.',
+        instruction: 'Return exactly one ImportedOperatorDraft-compatible JSON object. No Markdown. No explanation. Prefer POST /api/operator/fill/check|apply with a JSON body for Chinese payloads; CLI JSON args may be shell-encoding sensitive. Operator buffs use talent/potential/skill groups. Fixed effects use valueMode fixed with numeric value. Derived effects use valueMode derived and derivedValue.source/perPointValue, where perPointValue means 每点提升多少, not an arbitrary formula. Percent-like buff types still use decimal numbers, e.g. 每点 +0.10% => 0.001. operator.fill.apply creates a proposal only; it does NOT save to library.',
         approvalSaveWarning: 'Approval applies to def.operator-editor.draft.v1. Save writes def.operator-editor.library.v1.',
       },
     };

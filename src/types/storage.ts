@@ -243,6 +243,11 @@ export interface SkillButtonBuff {
   target?: SkillButtonBuffTarget;  // 作用目标（可选，默认 'all'）
   effectKind?: BuffEffectKind;     // Buff 效果类型（普通 modifier / 额外 hit）
   extraHitConfig?: BuffExtraHitConfig; // 额外 hit 配置
+  valueMode?: 'fixed' | 'derived';
+  derivedValue?: {
+    source: 'hp' | 'atk' | 'strength' | 'agility' | 'intelligence' | 'will' | 'sourceSkill';
+    perPointValue: number;
+  };
 }
 
 export type SkillButtonBuffMap = Record<string, SkillButtonBuff[]>;

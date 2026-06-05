@@ -106,6 +106,13 @@ export interface SandboxSkill {
 
 export type OperatorBuffGroupKey = 'talent' | 'potential' | 'skill';
 export type OperatorBuffCategory = 'positive' | 'condition';
+export type OperatorBuffValueMode = 'fixed' | 'derived';
+export type OperatorBuffDerivedSource = 'hp' | 'atk' | 'strength' | 'agility' | 'intelligence' | 'will' | 'sourceSkill';
+
+export interface OperatorBuffDerivedValue {
+  source: OperatorBuffDerivedSource;
+  perPointValue: number;
+}
 
 export interface OperatorBuffEffect {
   effectId: string;
@@ -116,6 +123,8 @@ export interface OperatorBuffEffect {
   unit?: 'flat' | 'percent' | string;
   description?: string;
   raw?: string;
+  valueMode?: OperatorBuffValueMode;
+  derivedValue?: OperatorBuffDerivedValue;
 }
 
 export type OperatorBuffs = Record<OperatorBuffGroupKey, { effects: Record<string, OperatorBuffEffect> }>;

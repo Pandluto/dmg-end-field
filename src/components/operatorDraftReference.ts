@@ -11,6 +11,12 @@ type AttributeKey = (typeof ATTRIBUTE_KEYS)[number];
 type AttributeLevels = Record<AttributeKey, Record<AttributeLevelKey, number>>;
 type OperatorBuffGroupKey = 'talent' | 'potential' | 'skill';
 type OperatorBuffCategory = 'positive' | 'condition';
+type OperatorBuffValueMode = 'fixed' | 'derived';
+type OperatorBuffDerivedSource = 'hp' | 'atk' | 'strength' | 'agility' | 'intelligence' | 'will' | 'sourceSkill';
+interface OperatorBuffDerivedValue {
+  source: OperatorBuffDerivedSource;
+  perPointValue: number;
+}
 interface OperatorBuffEffect {
   effectId: string;
   name: string;
@@ -20,6 +26,8 @@ interface OperatorBuffEffect {
   unit?: 'flat' | 'percent' | string;
   description?: string;
   raw?: string;
+  valueMode?: OperatorBuffValueMode;
+  derivedValue?: OperatorBuffDerivedValue;
 }
 type OperatorBuffs = Record<OperatorBuffGroupKey, { effects: Record<string, OperatorBuffEffect> }>;
 

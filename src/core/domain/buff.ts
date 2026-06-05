@@ -36,6 +36,11 @@ export interface CandidateBuff {
   origin?: 'local' | 'json' | 'operatorConfigSnapshot' | 'operatorStudio';
   ownerCharacterId?: string;
   ownerBuffGroup?: 'talent' | 'potential' | 'skill';
+  valueMode?: 'fixed' | 'derived';
+  derivedValue?: {
+    source: 'hp' | 'atk' | 'strength' | 'agility' | 'intelligence' | 'will' | 'sourceSkill';
+    perPointValue: number;
+  };
 }
 
 /**

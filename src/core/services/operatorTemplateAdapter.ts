@@ -20,6 +20,7 @@ import type {
   OperatorDraftAttributeLevels,
   OperatorDraftBuffs,
   OperatorDraftBuffEffect,
+  OperatorBuffDerivedSource,
   OperatorAttributeLevelKey,
   OperatorAttributeKey,
   RuntimeOperatorTemplate,
@@ -31,6 +32,7 @@ const SKILL_LEVEL_KEYS = ['L1', 'L2', 'L3', 'L4', 'L5', 'L6', 'L7', 'L8', 'L9', 
 const ATTRIBUTE_LEVEL_KEYS = ['level1', 'level20', 'level40', 'level60', 'level80', 'level90'] as const satisfies readonly OperatorAttributeLevelKey[];
 const ATTRIBUTE_KEYS = ['strength', 'agility', 'intelligence', 'will', 'atk', 'hp'] as const satisfies readonly OperatorAttributeKey[];
 const OPERATOR_BUFF_GROUP_KEYS = ['talent', 'potential', 'skill'] as const;
+const OPERATOR_BUFF_DERIVED_SOURCE_KEYS = ['hp', 'atk', 'strength', 'agility', 'intelligence', 'will', 'sourceSkill'] as const;
 
 // ============================================================================
 // 工具函数
@@ -131,6 +133,15 @@ function normalizeBuffEffect(effectKey: string, rawEffect: unknown): OperatorDra
   const rawCategory = typeof source.category === 'string' ? source.category : '';
   const category = rawCategory === 'condition' ? 'condition' : 'positive';
   const rawValue = source.value;
+  const valueMode = source.valueMode === 'derived' ? 'derived' : 'fixed';
+  const rawDerivedValue = source.derivedValue && typeof source.derivedValue === 'object'
+    ? source.derivedValue as Record<string, unknown>
+    : {};
+  const rawDerivedSource = typeof rawDerivedValue.source === 'string' ? rawDerivedValue.source : '';
+  const derivedSource: OperatorBuffDerivedSource | null = OPERATOR_BUFF_DERIVED_SOURCE_KEYS.some((sourceKey) => sourceKey === rawDerivedSource)
+    ? rawDerivedSource as OperatorBuffDerivedSource
+    : null;
+  const rawPerPointValue = rawDerivedValue.perPointValue ?? rawDerivedValue.scale;
   return {
     effectId: String(source.effectId || effectKey),
     name: String(source.name || effectKey),
@@ -138,6 +149,10 @@ function normalizeBuffEffect(effectKey: string, rawEffect: unknown): OperatorDra
     category,
     ...(typeof rawValue === 'number' && Number.isFinite(rawValue) ? { value: rawValue } : {}),
     ...(typeof source.unit === 'string' && source.unit ? { unit: source.unit } : {}),
+    valueMode,
+    ...(valueMode === 'derived' && derivedSource && typeof rawPerPointValue === 'number' && Number.isFinite(rawPerPointValue)
+      ? { derivedValue: { source: derivedSource, perPointValue: rawPerPointValue } }
+      : {}),
     ...(typeof source.description === 'string' && source.description ? { description: source.description } : {}),
     ...(typeof source.raw === 'string' && source.raw ? { raw: source.raw } : {}),
   };

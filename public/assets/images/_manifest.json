@@ -640,6 +640,46 @@
     "source": "builtin"
   },
   {
+    "fileName": "幻想苦痛.webp",
+    "baseName": "幻想苦痛",
+    "ext": ".webp",
+    "relativePath": "assets/avatars/弭弗/幻想苦痛.webp",
+    "sizeBytes": 15912,
+    "updatedAt": 1780615133000.0776,
+    "writable": false,
+    "source": "builtin"
+  },
+  {
+    "fileName": "弭弗.png",
+    "baseName": "弭弗",
+    "ext": ".png",
+    "relativePath": "assets/avatars/弭弗/弭弗.png",
+    "sizeBytes": 101497,
+    "updatedAt": 1780619761533.9023,
+    "writable": false,
+    "source": "builtin"
+  },
+  {
+    "fileName": "弭弗.webp",
+    "baseName": "弭弗",
+    "ext": ".webp",
+    "relativePath": "assets/avatars/弭弗/弭弗.webp",
+    "sizeBytes": 16540,
+    "updatedAt": 1780614848526.2148,
+    "writable": false,
+    "source": "builtin"
+  },
+  {
+    "fileName": "灯火使命.webp",
+    "baseName": "灯火使命",
+    "ext": ".webp",
+    "relativePath": "assets/avatars/弭弗/灯火使命.webp",
+    "sizeBytes": 14234,
+    "updatedAt": 1780615072927.0417,
+    "writable": false,
+    "source": "builtin"
+  },
+  {
     "fileName": "icon_talent_aurora_01.png",
     "baseName": "icon_talent_aurora_01",
     "ext": ".png",

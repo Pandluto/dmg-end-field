@@ -38,6 +38,7 @@ const EQUIPMENT_LIBRARY_PATH = 'data/equipments/equipments.json';
 const EQUIPMENT_DRAFT_STORAGE_KEY = 'def.equipment-sheet.draft.v1';
 
 function normalizeBuffTypeKey(typeKey: string): string {
+  if (typeKey === 'atk') return 'flatAtk';
   if (typeKey === 'allElementDmgBonus') return 'magicDmgBonus';
   return typeKey;
 }
@@ -121,6 +122,8 @@ function buildOperatorBuffCandidate(
     sourceName,
     description: effect.description || effect.raw || `${effect.name || effectKey} ${effect.value ?? ''}`.trim(),
     condition: effect.category === 'condition' ? 'condition' : 'positive',
+    valueMode: effect.valueMode,
+    derivedValue: effect.derivedValue,
   };
 }
 
