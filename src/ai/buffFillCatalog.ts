@@ -23,6 +23,7 @@ export type BuffModifierType =
   | 'chainSkillDmgBonus'
   | 'ultimateDmgBonus'
   | 'normalAttackDmgBonus'
+  | 'dotDmgBonus'
   | 'allSkillDmgBonus'
   | 'physicalFragile'
   | 'fireFragile'
@@ -328,6 +329,17 @@ export const BUFF_TYPE_CATALOG: readonly BuffTypeCatalogEntry[] = [
     negativePatterns: ['战技伤害提高', '全技能伤害提高'],
     examplePhrases: ['普攻伤害提高15%'],
     notes: '只用于普通攻击。',
+    canInferFromImplicitText: true,
+  }),
+  createEntry({
+    id: 'dotDmgBonus',
+    label: '持续伤害加成',
+    valueStyle: 'ratio',
+    aliases: ['持续伤害', '持续伤害增伤', 'Dot', 'DOT', 'dot'],
+    positivePatterns: ['持续伤害提高', '持续伤害加成', 'Dot伤害提高', 'DOT伤害提高'],
+    negativePatterns: ['普攻伤害提高', '战技伤害提高', '全技能伤害提高'],
+    examplePhrases: ['持续伤害提高15%', 'Dot伤害提高20%'],
+    notes: '只用于 Dot/持续伤害 hit 类型。',
     canInferFromImplicitText: true,
   }),
   createEntry({

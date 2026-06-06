@@ -119,3 +119,39 @@
   - [ ] 手测 derived positive 在 `operator-config` 面板中结算。
   - [ ] 手测 derived condition 不默认结算。
   - [ ] 手测面板数据详情展示 derived 来源、每点提升和当前计算值。
+
+## 新一轮：Dot hit 类型与 dotDmgBonus
+
+- [x] 类型拆分，避免 Dot 变成技能按钮
+  - [x] `src/types/index.ts` 新增 `SkillButtonType = 'A' | 'B' | 'E' | 'Q'`，`HitSkillType = SkillButtonType | 'Dot'`。
+  - [x] `SandboxSkillHit.skillType` 用 `HitSkillType`，按钮相关继续用 `SkillButtonType`。
+  - [x] `src/core/calculators/skillDamage.types.ts` hit 用 `HitSkillType`，button 用 `SkillButtonType`。
+  - [x] `src/core/templates/operatorTemplate.ts` 模板 hit/button 类型同步拆分。
+
+- [x] operator-studio 编辑 UI
+  - [x] `src/components/OperatorDraftPage.tsx` 本地 `HitSkillType` 加 `Dot`，但 `SkillDraft.buttonType` 改成只允许 A/B/E/Q。
+  - [x] “技能乘区”下拉新增 `<option value="Dot">Dot</option>`。
+  - [x] `src/components/operatorDraftReference.ts` 参考导入逻辑同样拆分 hit/button 类型。
+
+- [x] 计算链路新增 `dotDmgBonus`
+  - [x] `src/core/calculators/buffCalculator.ts` 的 `BuffCalculationResult` 加 `dotDmgBonus`，初始化 0，`calculateBuffTotals` switch 处理。
+  - [x] `calculateSkillDmgBonus('Dot')` 返回 `parsedDamageBonus.dotDmgBonus + buffTotals.dotDmgBonus`，不叠 `allSkillDmgBonus`。
+  - [x] `src/core/calculators/operatorPanelCalculator.ts` 面板 damageBonus 类型、默认值、展示 label、display 汇总都加 `dotDmgBonus`。
+  - [x] `src/types/storage.ts` 存储快照里的 damageBonus 结构加字段。
+  - [x] `src/utils/storage.ts` 默认 storage 值补 0。
+  - [x] `src/components/DamageSheetPage.tsx` 伤害表里按类型筛选/展示补 `dotDmgBonus`。
+
+- [x] 导入、白名单、报表、导出
+  - [x] `src/ai/buffFillCatalog.ts` 的 `BuffModifierType` 加 `dotDmgBonus`，catalog 加“持续伤害加成 / Dot / DOT”。
+  - [x] `src/aiCli/operatorFillAdapter.ts` 拆 `BUTTON_TYPES` 和 `HIT_SKILL_TYPES`，hit 校验允许 Dot，button 仍只允许 A/B/E/Q；effect 白名单加 `dotDmgBonus`。
+  - [x] `src/aiCli/equipmentFillAdapter.ts`、`src/aiCli/weaponFillAdapter.ts` CLI 装备/武器 effect 白名单加 `dotDmgBonus`。
+  - [x] `src/components/BuffDraftPage.tsx`、`src/components/EquipmentSheetPage.tsx`、`src/components/WeaponDraftPage.tsx` 三个编辑页的 buff 类型选项和 label 加 `dotDmgBonus`。
+  - [x] `src/core/services/damageReportService.ts` 中 `Dot` 显示为“持续伤害”。
+  - [x] `src/exporters/damageExcel/buildDamageExcelWorkbook.ts` Excel 导出 label、面板行、`getSkillDamageBonusTypes('Dot')` 加 `dotDmgBonus`。
+
+- [x] 边缘项
+  - [x] `src/components/CanvasBoard/SkillButtonBuffCalculator.ts` 看起来没有被 import，可同步补字段，也可后续清理。
+  - [x] `src/utils/equipmentParser.ts` 如装备文本解析要支持“持续伤害加成”，这里也要加。
+
+- [x] Verification
+  - [x] 运行 `npm run build`。

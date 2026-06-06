@@ -218,6 +218,7 @@ export interface DamageBonusSnapshot {
   natureDmgBonus: number;
   magicDmgBonus: number;
   normalAttackDmgBonus: number;
+  dotDmgBonus: number;
   skillDmgBonus: number;
   chainSkillDmgBonus: number;
   ultimateDmgBonus: number;
@@ -349,6 +350,7 @@ const WEAPON_TOTAL_FIELDS = new Set([
   'iceElectricDmgBonus',
   'fireNatureDmgBonus',
   'normalAttackDmgBonus',
+  'dotDmgBonus',
   'skillDmgBonus',
   'chainSkillDmgBonus',
   'ultimateDmgBonus',
@@ -391,6 +393,7 @@ const EQUIPMENT_TOTAL_FIELDS = new Set([
   'hpPercent',
   'healingBonus',
   'normalAttackDmgBonus',
+  'dotDmgBonus',
   'ultimateDmgBonus',
   'magicDmgBonus',
   'subStatBoost',
@@ -433,6 +436,7 @@ const PERCENT_FIELDS = new Set([
   'iceElectricDmgBonus',
   'fireNatureDmgBonus',
   'normalAttackDmgBonus',
+  'dotDmgBonus',
   'skillDmgBonus',
   'chainSkillDmgBonus',
   'ultimateDmgBonus',
@@ -449,6 +453,7 @@ const DAMAGE_BONUS_FIELDS = [
   'natureDmgBonus',
   'magicDmgBonus',
   'normalAttackDmgBonus',
+  'dotDmgBonus',
   'skillDmgBonus',
   'chainSkillDmgBonus',
   'ultimateDmgBonus',
@@ -490,6 +495,7 @@ const OPERATOR_BUFF_TYPE_LABELS: Record<string, string> = {
   chainSkillDmgBonus: '连携技伤害加成',
   ultimateDmgBonus: '终结技伤害加成',
   normalAttackDmgBonus: '普攻伤害加成',
+  dotDmgBonus: '持续伤害加成',
   allSkillDmgBonus: '全技能伤害加成',
   imbalanceDmgBonus: '失衡伤害加成',
   physicalFragile: '物理易伤',
@@ -606,6 +612,7 @@ function createEmptyDamageBonus(): DamageBonusSnapshot {
     natureDmgBonus: 0,
     magicDmgBonus: 0,
     normalAttackDmgBonus: 0,
+    dotDmgBonus: 0,
     skillDmgBonus: 0,
     chainSkillDmgBonus: 0,
     ultimateDmgBonus: 0,
@@ -966,6 +973,7 @@ function buildDisplay(calc: PanelCalcSnapshot, mainStat: string, subStat: string
       title: '技能伤害',
       items: [
         { label: '普通攻击伤害加成', value: formatPercent(damageBonus.normalAttackDmgBonus) },
+        { label: '持续伤害加成', value: formatPercent(damageBonus.dotDmgBonus) },
         { label: '战技伤害加成', value: formatPercent(damageBonus.skillDmgBonus) },
         { label: '连携技伤害加成', value: formatPercent(damageBonus.chainSkillDmgBonus) },
         { label: '终结技伤害加成', value: formatPercent(damageBonus.ultimateDmgBonus) },

@@ -1,4 +1,4 @@
-import type { SkillType, ElementType } from '../../types';
+import type { SkillType, HitSkillType, ElementType } from '../../types';
 import type { ResistanceZoneResult } from './buffCalculator';
 import type { DamageBonusSnapshot, HitResistanceInput, SkillButtonBuff } from '../../types/storage';
 
@@ -7,7 +7,7 @@ export interface ResolvedHitTemplate {
   displayName: string;
   multiplier: number;
   element: ElementType;
-  skillType: SkillType;
+  skillType: HitSkillType;
 }
 
 export interface ResolvedSkillDamageTemplate {

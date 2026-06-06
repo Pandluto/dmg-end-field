@@ -22,6 +22,7 @@ export interface EquipmentConfig {
   chainSkillDmgBonus: number;
   ultimateDmgBonus: number;
   normalAttackDmgBonus: number;
+  dotDmgBonus: number;
   imbalanceDmgBonus: number;
   sourceSkillBoost: number;
   allSkillDmgBonus: number;
@@ -49,6 +50,7 @@ const EQUIPMENT_LABEL_TO_KEY: Record<string, keyof EquipmentConfig> = {
   '连携技伤害加成': 'chainSkillDmgBonus',
   '终结技伤害加成': 'ultimateDmgBonus',
   '普通攻击伤害加成': 'normalAttackDmgBonus',
+  '持续伤害加成': 'dotDmgBonus',
   '对失衡目标伤害加成': 'imbalanceDmgBonus',
   '源石技艺强度': 'sourceSkillBoost',
 };
@@ -57,7 +59,7 @@ const EQUIPMENT_PERCENT_FIELDS = new Set<keyof EquipmentConfig>([
   'mainStatBoost', 'subStatBoost', 'critRateBoost', 'critDmgBonusBoost',
   'physicalDmgBonus', 'fireDmgBonus', 'electricDmgBonus', 'iceDmgBonus',
   'natureDmgBonus', 'magicDmgBonus', 'skillDmgBonus', 'chainSkillDmgBonus',
-  'ultimateDmgBonus', 'normalAttackDmgBonus', 'imbalanceDmgBonus',
+  'ultimateDmgBonus', 'normalAttackDmgBonus', 'dotDmgBonus', 'imbalanceDmgBonus',
 ]);
 
 export function isPercentField(key: keyof EquipmentConfig): boolean {

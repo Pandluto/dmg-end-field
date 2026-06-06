@@ -827,6 +827,57 @@
   color: #425066;
 }
 
+.operator-draft-local-library-list {
+  max-height: 300px;
+  overflow-y: auto;
+  display: grid;
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid #d8dde7;
+  background: #f8fafc;
+}
+
+.operator-draft-local-library-item {
+  width: 100%;
+  min-height: 42px;
+  display: grid;
+  gap: 2px;
+  padding: 6px 8px;
+  border: 1px solid transparent;
+  background: #ffffff;
+  color: #243044;
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+}
+
+.operator-draft-local-library-item:hover {
+  border-color: #315ea4;
+  background: #eef4ff;
+}
+
+.operator-draft-local-library-item.is-active {
+  border-color: #315ea4;
+  background: #dfeafb;
+}
+
+.operator-draft-local-library-item strong,
+.operator-draft-local-library-item span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.operator-draft-local-library-item strong {
+  font-size: 12px;
+}
+
+.operator-draft-local-library-item span {
+  color: #657083;
+  font-size: 11px;
+}
+
 .operator-draft-share-label {
   display: grid;
   gap: 6px;
@@ -840,6 +891,14 @@
 
 .operator-draft-share-label input {
   width: 100%;
+}
+
+.operator-draft-share-label select {
+  width: 100%;
+}
+
+.operator-draft-modal-field {
+  padding: 0;
 }
 
 .operator-draft-file-input {

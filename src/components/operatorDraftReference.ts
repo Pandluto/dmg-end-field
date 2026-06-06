@@ -1,6 +1,7 @@
 import { resolvePublicPath } from '../utils/assetResolver';
 
-type HitSkillType = 'A' | 'B' | 'E' | 'Q';
+type SkillButtonType = 'A' | 'B' | 'E' | 'Q';
+type HitSkillType = SkillButtonType | 'Dot';
 type HitElement = 'physical' | 'fire' | 'ice' | 'electric' | 'nature';
 const SKILL_LEVEL_KEYS = ['L1', 'L2', 'L3', 'L4', 'L5', 'L6', 'L7', 'L8', 'L9', 'M1', 'M2', 'M3'] as const;
 const ATTRIBUTE_LEVEL_KEYS = ['level1', 'level20', 'level40', 'level60', 'level80', 'level90'] as const;
@@ -41,7 +42,7 @@ interface HitMetaDraft {
 
 interface SkillDraft {
   displayName: string;
-  buttonType: HitSkillType;
+  buttonType: SkillButtonType;
   iconUrl: string;
   hitCount: number;
   hitMeta: Record<string, HitMetaDraft>;
@@ -131,7 +132,7 @@ function createDefaultBuffs(): OperatorBuffs {
   };
 }
 
-function createDefaultSkill(buttonType: HitSkillType = 'A', skillKey = 'skill-1'): SkillDraft {
+function createDefaultSkill(buttonType: SkillButtonType = 'A', skillKey = 'skill-1'): SkillDraft {
   const matched = skillKey.match(/(\d+)$/);
   const skillIndex = matched ? Number(matched[1]) : 1;
   return {
@@ -407,8 +408,8 @@ function resolveImportedAvatarUrl(characterName: string, avatarAssetOptions: str
   );
 }
 
-function resolveImportedSkillIconUrl(characterName: string, buttonType: HitSkillType, assetPathOptions: string[]) {
-  const suffixMap: Record<HitSkillType, string[]> = {
+function resolveImportedSkillIconUrl(characterName: string, buttonType: SkillButtonType, assetPathOptions: string[]) {
+  const suffixMap: Record<SkillButtonType, string[]> = {
     A: ['普通攻击'],
     B: ['战技'],
     E: ['连携技'],
@@ -430,7 +431,7 @@ function resolveImportedSkillIconUrl(characterName: string, buttonType: HitSkill
 function buildImportedSkill(
   sourceSkill: SourceCharacterSkill | undefined,
   skillKey: string,
-  buttonType: HitSkillType,
+  buttonType: SkillButtonType,
   operatorName: string,
   operatorElement: string,
   assetPathOptions: string[]

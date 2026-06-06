@@ -6,7 +6,7 @@ import { STORAGE_KEYS } from '../constants/storage-keys';
 import { adaptRuntimeTemplateToLegacyCharacter, loadLocalOperatorCharacters } from '../core/services/localOperatorAdapter';
 import { buildConfigSnapshot } from '../core/calculators/operatorPanelCalculator';
 import type { ConfigSnapshot, EquipmentPieceInput, EquipmentSetBuffInput, OperatorPanelInput } from '../core/calculators/operatorPanelCalculator';
-import type { Character, SkillType } from '../types';
+import type { Character, SkillType, HitSkillType } from '../types';
 import type {
   OperatorConfigPageCache,
   OperatorConfigPageCharacterConfig,
@@ -106,7 +106,7 @@ type SkillHitDetail = {
   displayName: string;
   value: number | string;
   element: string;
-  skillType: OperatorSkillKey;
+  skillType: HitSkillType;
 };
 type SkillDetailGroup = {
   id: string;

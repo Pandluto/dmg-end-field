@@ -89,6 +89,7 @@ const SUPPORTED_EFFECT_TYPES: string[] = [
   'chainSkillDmgBonus',
   'ultimateDmgBonus',
   'normalAttackDmgBonus',
+  'dotDmgBonus',
   'allSkillDmgBonus',
   'physicalFragile',
   'fireFragile',

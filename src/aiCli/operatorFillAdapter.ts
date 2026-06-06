@@ -8,6 +8,7 @@ const SKILL_LEVEL_KEYS = ['L1', 'L2', 'L3', 'L4', 'L5', 'L6', 'L7', 'L8', 'L9', 
 const ATTRIBUTE_LEVEL_KEYS = ['level1', 'level20', 'level40', 'level60', 'level80', 'level90'] as const;
 const ATTRIBUTE_KEYS = ['strength', 'agility', 'intelligence', 'will', 'atk', 'hp'] as const;
 const BUTTON_TYPES = ['A', 'B', 'E', 'Q'] as const;
+const HIT_SKILL_TYPES = ['A', 'B', 'E', 'Q', 'Dot'] as const;
 const ELEMENT_TYPES = ['physical', 'fire', 'ice', 'electric', 'nature'] as const;
 const ABILITY_TYPES = ['力量', '敏捷', '智识', '意志'] as const;
 const PROFESSION_TYPES = ['突击', '重装', '近卫', '辅助', '先锋', '术师'] as const;
@@ -43,6 +44,7 @@ const SUPPORTED_OPERATOR_EFFECT_TYPES = [
   'chainSkillDmgBonus',
   'ultimateDmgBonus',
   'normalAttackDmgBonus',
+  'dotDmgBonus',
   'allSkillDmgBonus',
   'imbalanceDmgBonus',
   'physicalFragile',
@@ -107,6 +109,7 @@ function formatInvalidEnum(field: string, rawValue: unknown, allowed: readonly s
 }
 
 type ButtonType = (typeof BUTTON_TYPES)[number];
+type HitSkillType = (typeof HIT_SKILL_TYPES)[number];
 type ElementType = (typeof ELEMENT_TYPES)[number];
 type SkillLevelKey = (typeof SKILL_LEVEL_KEYS)[number];
 type AttributeLevelKey = (typeof ATTRIBUTE_LEVEL_KEYS)[number];
@@ -140,7 +143,7 @@ type AttributeLevels = Record<AttributeKey, Record<AttributeLevelKey, number>>;
 interface HitMetaDraft {
   displayName: string;
   element: ElementType;
-  skillType: ButtonType;
+  skillType: HitSkillType;
   levels: Record<SkillLevelKey, number>;
 }
 
@@ -191,6 +194,48 @@ function defaultAttributes(): AttributeLevels {
   return Object.fromEntries(
     ATTRIBUTE_KEYS.map((key) => [key, Object.fromEntries(ATTRIBUTE_LEVEL_KEYS.map((levelKey) => [levelKey, 0]))]),
   ) as AttributeLevels;
+}
+
+function normalizeOperatorAttributes(rawAttributes: unknown): AttributeLevels {
+  if (!isRecord(rawAttributes)) return defaultAttributes();
+  return Object.fromEntries(
+    ATTRIBUTE_KEYS.map((attributeKey) => {
+      const rawLevels = isRecord(rawAttributes[attributeKey]) ? rawAttributes[attributeKey] : {};
+      return [
+        attributeKey,
+        Object.fromEntries(
+          ATTRIBUTE_LEVEL_KEYS.map((levelKey) => [levelKey, Number(rawLevels[levelKey] ?? 0)]),
+        ),
+      ];
+    }),
+  ) as AttributeLevels;
+}
+
+function validateOperatorAttributes(rawAttributes: unknown, errors: string[]) {
+  if (!isRecord(rawAttributes)) {
+    errors.push('attributes must be object');
+    return;
+  }
+
+  for (const [attributeKey, rawLevels] of Object.entries(rawAttributes)) {
+    if (!findAllowedValue(attributeKey, ATTRIBUTE_KEYS)) {
+      errors.push(formatInvalidEnum('attribute key', attributeKey, ATTRIBUTE_KEYS));
+      continue;
+    }
+    if (!isRecord(rawLevels)) {
+      errors.push(`attributes.${attributeKey} must be object`);
+      continue;
+    }
+    for (const [levelKey, value] of Object.entries(rawLevels)) {
+      if (!ATTRIBUTE_LEVEL_KEYS.includes(levelKey as never)) {
+        errors.push(`invalid attribute level key: attributes.${attributeKey}.${levelKey}; must be one of ${ATTRIBUTE_LEVEL_KEYS.join('/')}`);
+        continue;
+      }
+      if (typeof value !== 'number' || !Number.isFinite(value)) {
+        errors.push(`attributes.${attributeKey}.${levelKey} must be number`);
+      }
+    }
+  }
 }
 
 function defaultBuffs(): OperatorBuffs {
@@ -305,6 +350,7 @@ function validateOperatorDraftShape(raw: unknown): AgentFillValidationResult<Ope
   if (!findAllowedValue(obj.element, ELEMENT_TYPES)) errors.push(formatInvalidEnum('element', obj.element, ELEMENT_TYPES));
   if (!findAllowedValue(obj.mainStat, ABILITY_TYPES)) errors.push(formatInvalidEnum('mainStat', obj.mainStat, ABILITY_TYPES));
   if (!findAllowedValue(obj.subStat, ABILITY_TYPES)) errors.push(formatInvalidEnum('subStat', obj.subStat, ABILITY_TYPES));
+  validateOperatorAttributes(obj.attributes, errors);
   if (!isRecord(obj.skills) || Object.keys(obj.skills).length === 0) {
     errors.push('skills must be non-empty object');
   } else {
@@ -324,7 +370,7 @@ function validateOperatorDraftShape(raw: unknown): AgentFillValidationResult<Ope
           }
           if (typeof rawHit.displayName !== 'string') errors.push(`skills.${skillKey}.hitMeta.${hitKey}.displayName must be string`);
           if (!findAllowedValue(rawHit.element, ELEMENT_TYPES)) errors.push(formatInvalidEnum(`skills.${skillKey}.hitMeta.${hitKey}.element`, rawHit.element, ELEMENT_TYPES));
-          if (!findAllowedValue(rawHit.skillType, BUTTON_TYPES)) errors.push(formatInvalidEnum(`skills.${skillKey}.hitMeta.${hitKey}.skillType`, rawHit.skillType, BUTTON_TYPES));
+          if (!findAllowedValue(rawHit.skillType, HIT_SKILL_TYPES)) errors.push(formatInvalidEnum(`skills.${skillKey}.hitMeta.${hitKey}.skillType`, rawHit.skillType, HIT_SKILL_TYPES));
           if (!isRecord(rawHit.levels)) errors.push(`skills.${skillKey}.hitMeta.${hitKey}.levels must be object`);
           if (isRecord(rawHit.levels)) {
             for (const [levelKey, value] of Object.entries(rawHit.levels)) {
@@ -387,7 +433,7 @@ function normalizeOperatorDraft(obj: Record<string, unknown>): OperatorDraft {
         hitMeta[hitKey] = {
           displayName: String(rawHit.displayName || hitKey),
           element: findAllowedValue(rawHit.element, ELEMENT_TYPES) as ElementType,
-          skillType: findAllowedValue(rawHit.skillType, BUTTON_TYPES) as ButtonType,
+          skillType: findAllowedValue(rawHit.skillType, HIT_SKILL_TYPES) as HitSkillType,
           levels: Object.fromEntries(SKILL_LEVEL_KEYS.map((levelKey) => [levelKey, Number((rawHit.levels as Record<string, number> | undefined)?.[levelKey] ?? 0)])) as Record<SkillLevelKey, number>,
         };
       }
@@ -418,6 +464,7 @@ function normalizeOperatorDraft(obj: Record<string, unknown>): OperatorDraft {
     element: findAllowedValue(obj.element, ELEMENT_TYPES) || String(obj.element),
     mainStat: findAllowedValue(obj.mainStat, ABILITY_TYPES) || String(obj.mainStat),
     subStat: findAllowedValue(obj.subStat, ABILITY_TYPES) || String(obj.subStat),
+    attributes: normalizeOperatorAttributes(obj.attributes),
     skills,
     buffs: normalizeOperatorBuffs(obj.buffs),
   };
@@ -496,8 +543,11 @@ export const operatorFillAdapter: AgentFillDomainAdapter<OperatorDraft> = {
           element: ELEMENT_TYPES,
           mainStat: ABILITY_TYPES,
           subStat: ABILITY_TYPES,
+          attributes: `Record<${ATTRIBUTE_KEYS.join('|')}, Record<${ATTRIBUTE_LEVEL_KEYS.join('|')}, number>>; only these six key levels are accepted`,
           skills: 'Record<skillKey, { displayName, buttonType, iconUrl, hitCount, hitMeta }>',
-          hitMeta: 'Record<hitKey, { displayName, element, skillType, levels }>',
+          buttonType: BUTTON_TYPES,
+          hitSkillType: HIT_SKILL_TYPES,
+          hitMeta: 'Record<hitKey, { displayName, element, skillType, levels }>; hit skillType accepts A/B/E/Q/Dot',
           buffs: 'optional; talent/potential/skill groups only; each group is { effects: Record<effectKey, OperatorBuffEffect> }',
           buffEffect: {
             fields: ['effectId', 'name', 'type', 'category', 'value?', 'unit?', 'valueMode?', 'derivedValue?', 'description?', 'raw?'],

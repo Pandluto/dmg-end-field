@@ -87,6 +87,7 @@ const OPERATOR_BUFF_TYPE_OPTIONS = [
   'chainSkillDmgBonus',
   'ultimateDmgBonus',
   'normalAttackDmgBonus',
+  'dotDmgBonus',
   'allSkillDmgBonus',
   'imbalanceDmgBonus',
   'physicalFragile',
@@ -159,6 +160,7 @@ const OPERATOR_BUFF_TYPE_LABELS: Record<string, string> = {
   chainSkillDmgBonus: '连携技伤害加成',
   ultimateDmgBonus: '终结技伤害加成',
   normalAttackDmgBonus: '普攻伤害加成',
+  dotDmgBonus: '持续伤害加成',
   allSkillDmgBonus: '全技能伤害加成',
   imbalanceDmgBonus: '失衡伤害加成',
   physicalFragile: '物理易伤',
@@ -223,6 +225,7 @@ const OPERATOR_PERCENTLIKE_BUFF_TYPES = new Set([
   'chainSkillDmgBonus',
   'ultimateDmgBonus',
   'normalAttackDmgBonus',
+  'dotDmgBonus',
   'allSkillDmgBonus',
   'imbalanceDmgBonus',
   'physicalFragile',
@@ -265,7 +268,8 @@ const OPERATOR_BUFF_DERIVED_SOURCE_LABELS = Object.fromEntries(
   OPERATOR_BUFF_DERIVED_SOURCE_OPTIONS.map((option) => [option.value, option.label])
 ) as Record<OperatorBuffDerivedSource, string>;
 
-type HitSkillType = 'A' | 'B' | 'E' | 'Q';
+type SkillButtonType = 'A' | 'B' | 'E' | 'Q';
+type HitSkillType = SkillButtonType | 'Dot';
 type HitElement = 'physical' | 'fire' | 'ice' | 'electric' | 'nature';
 type SkillLevelKey = (typeof SKILL_LEVEL_KEYS)[number];
 type AttributeLevelKey = (typeof ATTRIBUTE_LEVEL_KEYS)[number];
@@ -305,7 +309,7 @@ interface HitMetaDraft {
 
 interface SkillDraft {
   displayName: string;
-  buttonType: HitSkillType;
+  buttonType: SkillButtonType;
   iconUrl: string;
   hitCount: number;
   hitMeta: Record<string, HitMetaDraft>;
@@ -377,7 +381,7 @@ function createDefaultBuffEffect(effectKey = 'effect1'): OperatorBuffEffect {
   };
 }
 
-function createDefaultSkill(buttonType: HitSkillType = 'A', skillKey = 'skill-1'): SkillDraft {
+function createDefaultSkill(buttonType: SkillButtonType = 'A', skillKey = 'skill-1'): SkillDraft {
   const skillIndex = getSkillIndexFromKey(skillKey);
   return {
     displayName: `新技能${skillIndex}`,
@@ -844,7 +848,9 @@ export function OperatorDraftPage() {
   const [referenceNames, setReferenceNames] = useState<string[]>([]);
   const [selectedReferenceName, setSelectedReferenceName] = useState('');
   const [localDraftIds, setLocalDraftIds] = useState<string[]>([]);
+  const [localDraftNames, setLocalDraftNames] = useState<Record<string, string>>({});
   const [selectedLocalDraftId, setSelectedLocalDraftId] = useState('');
+  const [selectedDeleteLocalDraftId, setSelectedDeleteLocalDraftId] = useState('');
   const [messages, setMessages] = useState<string[]>([
     '已进入干员模板编辑器',
   ]);
@@ -945,16 +951,22 @@ export function OperatorDraftPage() {
     }
     const raw = window.localStorage.getItem(LIBRARY_STORAGE_KEY);
     const localDraftIdsFromStorage: string[] = [];
+    const localDraftNamesFromStorage: Record<string, string> = {};
     if (raw) {
       try {
         const parsed = JSON.parse(raw) as Record<string, OperatorDraft>;
         localDraftIdsFromStorage.push(...Object.keys(parsed));
+        Object.entries(parsed).forEach(([draftId, localDraft]) => {
+          localDraftNamesFromStorage[draftId] = typeof localDraft?.name === 'string' ? localDraft.name : '';
+        });
       } catch {
         // ignore malformed local library
       }
     }
     setLocalDraftIds(localDraftIdsFromStorage);
-    setSelectedLocalDraftId((prev) => prev || localDraftIdsFromStorage[0] || '');
+    setLocalDraftNames(localDraftNamesFromStorage);
+    setSelectedLocalDraftId((prev) => (prev && localDraftIdsFromStorage.includes(prev) ? prev : ''));
+    setSelectedDeleteLocalDraftId((prev) => (prev && localDraftIdsFromStorage.includes(prev) ? prev : ''));
   }, [draft.id]);
 
   useEffect(() => {
@@ -1011,6 +1023,11 @@ export function OperatorDraftPage() {
     }
     return [selectedType, ...filteredOperatorBuffTypeOptions];
   }, [filteredOperatorBuffTypeOptions, selectedBuffEffect?.type]);
+
+  const getLocalDraftLabel = (draftId: string) => {
+    const draftName = localDraftNames[draftId]?.trim();
+    return draftName && draftName !== draftId ? `${draftId} · ${draftName}` : draftId;
+  };
 
   const assetPathOptions = useMemo(
     () => Array.from(new Set([...userAssetPathOptions, ...ASSET_PATH_OPTIONS])),
@@ -1188,7 +1205,8 @@ export function OperatorDraftPage() {
     library[orderedDraft.id] = orderedDraft;
     window.localStorage.setItem(LIBRARY_STORAGE_KEY, JSON.stringify(library));
     setLocalDraftIds((prev) => (prev.includes(orderedDraft.id) ? prev : [...prev, orderedDraft.id]));
-    setSelectedLocalDraftId(orderedDraft.id);
+    setLocalDraftNames((prev) => ({ ...prev, [orderedDraft.id]: orderedDraft.name }));
+    setSelectedLocalDraftId('');
     setLoadedLocalDraftId(null);
     setMessages((prev) => [`[OK] 已保存到本地：${orderedDraft.id}`, ...prev].slice(0, 12));
     return true;
@@ -1209,7 +1227,7 @@ export function OperatorDraftPage() {
   const handleCreateNewDraft = () => {
     const nextId = getNextDraftId(localDraftIds);
     loadDraftIntoEditor(createEmptyDraft(nextId), `[OK] 已新建空草稿：${nextId}`);
-    setSelectedLocalDraftId(nextId);
+    setSelectedLocalDraftId('');
     setLoadedLocalDraftId(null);
   };
 
@@ -1220,7 +1238,7 @@ export function OperatorDraftPage() {
       id: nextId,
     };
     loadDraftIntoEditor(nextDraft, `[OK] 已另存为新草稿：${nextId}`);
-    setSelectedLocalDraftId(nextId);
+    setSelectedLocalDraftId('');
     setLoadedLocalDraftId(null);
   };
 
@@ -1371,7 +1389,9 @@ export function OperatorDraftPage() {
     const nextIds = Object.keys(nextLibrary);
     window.localStorage.setItem(LIBRARY_STORAGE_KEY, JSON.stringify(nextLibrary));
     setLocalDraftIds(nextIds);
-    setSelectedLocalDraftId((prev) => prev && nextLibrary[prev] ? prev : (Object.keys(pendingImportShare.payload)[0] ?? nextIds[0] ?? ''));
+    setLocalDraftNames(Object.fromEntries(nextIds.map((draftId) => [draftId, nextLibrary[draftId]?.name || ''])));
+    setSelectedLocalDraftId('');
+    setSelectedDeleteLocalDraftId((prev) => (prev && nextLibrary[prev] ? prev : ''));
     setIsShareModalOpen(false);
     setShareDraftName('');
     setPendingImportShare(null);
@@ -1400,14 +1420,20 @@ export function OperatorDraftPage() {
       }
       loadDraftIntoEditor(localDraft, `[OK] 已从本地导入：${localDraft.id}`);
       setLoadedLocalDraftId(localDraft.id);
+      setSelectedLocalDraftId('');
     } catch {
       setMessages((prev) => ['[ERR] 本地数据损坏，无法导入', ...prev].slice(0, 12));
     }
   };
 
+  const handleOpenLocalLibraryManager = () => {
+    setSelectedDeleteLocalDraftId((prev) => (prev && localDraftIds.includes(prev) ? prev : (localDraftIds[0] ?? '')));
+    setIsDeleteLocalDraftModalOpen(true);
+  };
+
   const handleDeleteLocalDraft = () => {
-    if (typeof window === 'undefined' || !loadedLocalDraftId) {
-      setMessages((prev) => ['[ERR] 请先导入本地数据，再删除对应本地干员', ...prev].slice(0, 12));
+    if (typeof window === 'undefined' || !selectedDeleteLocalDraftId) {
+      setMessages((prev) => ['[ERR] 请选择要删除的本地干员', ...prev].slice(0, 12));
       return;
     }
 
@@ -1420,18 +1446,23 @@ export function OperatorDraftPage() {
 
     try {
       const parsed = JSON.parse(raw) as Record<string, OperatorDraft>;
-      if (!parsed[loadedLocalDraftId]) {
+      const deleteId = selectedDeleteLocalDraftId;
+      if (!parsed[deleteId]) {
       setMessages((prev) => ['[ERR] 未找到所选本地干员', ...prev].slice(0, 12));
         setIsDeleteLocalDraftModalOpen(false);
         return;
       }
-      delete parsed[loadedLocalDraftId];
+      delete parsed[deleteId];
       window.localStorage.setItem(LIBRARY_STORAGE_KEY, JSON.stringify(parsed));
       const nextIds = Object.keys(parsed);
       setLocalDraftIds(nextIds);
-      setSelectedLocalDraftId(nextIds[0] ?? '');
-      setLoadedLocalDraftId(null);
-      setMessages((prev) => [`[OK] 已删除本地干员：${loadedLocalDraftId}`, ...prev].slice(0, 12));
+      setLocalDraftNames(Object.fromEntries(nextIds.map((draftId) => [draftId, parsed[draftId]?.name || ''])));
+      setSelectedLocalDraftId((prev) => (prev === deleteId ? '' : prev));
+      setSelectedDeleteLocalDraftId(nextIds[0] ?? '');
+      if (loadedLocalDraftId === deleteId) {
+        setLoadedLocalDraftId(null);
+      }
+      setMessages((prev) => [`[OK] 已删除本地干员：${deleteId}`, ...prev].slice(0, 12));
     } catch {
       setMessages((prev) => ['[ERR] 本地数据损坏，无法删除', ...prev].slice(0, 12));
     } finally {
@@ -1636,27 +1667,27 @@ export function OperatorDraftPage() {
                   </div>
                   <div className="operator-draft-reference-box">
                     <label>
-                      <span>从本地导入</span>
+                      <span>载入本地草稿</span>
                       <select value={selectedLocalDraftId} onChange={(event) => setSelectedLocalDraftId(event.target.value)}>
-                        <option value="">选择本地干员</option>
+                        <option value="">选择要载入的草稿</option>
                         {localDraftIds.map((draftId) => (
                           <option key={draftId} value={draftId}>
-                            {draftId}
+                            {getLocalDraftLabel(draftId)}
                           </option>
                         ))}
                       </select>
                     </label>
                     <div className="operator-draft-command-actions">
                       <button type="button" className="operator-draft-ghost-button" onClick={handleImportLocalDraft}>
-                        导入本地数据
+                        载入为当前草稿
                       </button>
                       <button
                         type="button"
                         className="operator-draft-ghost-button"
-                        onClick={() => setIsDeleteLocalDraftModalOpen(true)}
-                        disabled={!loadedLocalDraftId}
+                        onClick={handleOpenLocalLibraryManager}
+                        disabled={localDraftIds.length === 0}
                       >
-                        删除本地数据
+                        管理本地库
                       </button>
                     </div>
                   </div>
@@ -1943,7 +1974,7 @@ export function OperatorDraftPage() {
                           onChange={(event) =>
                             updateSelectedSkill((skill) => ({
                               ...skill,
-                              buttonType: event.target.value as HitSkillType,
+                              buttonType: event.target.value as SkillButtonType,
                             }))
                           }
                         >
@@ -2066,6 +2097,7 @@ export function OperatorDraftPage() {
                         <option value="B">B</option>
                         <option value="E">E</option>
                         <option value="Q">Q</option>
+                        <option value="Dot">Dot</option>
                       </select>
                     </label>
                   </div>
@@ -2355,19 +2387,46 @@ export function OperatorDraftPage() {
         <div className="operator-draft-modal-overlay" onClick={() => setIsDeleteLocalDraftModalOpen(false)}>
           <div className="operator-draft-modal operator-draft-confirm-modal" onClick={(event) => event.stopPropagation()}>
             <div className="operator-draft-section-header">
-              <h3>删除本地数据</h3>
-              <span>请确认</span>
+              <h3>本地库管理</h3>
+              <span>{localDraftIds.length} 个条目</span>
             </div>
             <div className="operator-draft-confirm-body">
-              <p>{loadedLocalDraftId ? `确认删除当前已导入的本地干员草稿「${loadedLocalDraftId}」吗？` : '请先导入本地数据，再删除对应的本地干员草稿。'}</p>
-              <p>该操作只删除本地库记录，不会自动清空当前编辑器内容。</p>
+              <div className="operator-draft-local-library-list" role="listbox" aria-label="本地草稿目录">
+                {localDraftIds.length ? (
+                  localDraftIds.map((draftId) => {
+                    const draftName = localDraftNames[draftId]?.trim();
+                    const isActive = selectedDeleteLocalDraftId === draftId;
+                    return (
+                      <button
+                        key={draftId}
+                        type="button"
+                        className={`operator-draft-local-library-item${isActive ? ' is-active' : ''}`}
+                        onClick={() => setSelectedDeleteLocalDraftId(draftId)}
+                        role="option"
+                        aria-selected={isActive}
+                      >
+                        <strong>{draftName || draftId}</strong>
+                        <span>{draftId}</span>
+                      </button>
+                    );
+                  })
+                ) : (
+                  <div className="operator-draft-searchable-empty">本地库为空</div>
+                )}
+              </div>
+              <p>删除只影响本地库记录，不会自动清空当前编辑器里的草稿内容。</p>
             </div>
             <div className="operator-draft-modal-actions">
               <button type="button" className="operator-draft-ghost-button" onClick={() => setIsDeleteLocalDraftModalOpen(false)}>
                 取消
               </button>
-              <button type="button" className="operator-draft-copy-button operator-draft-danger-button" onClick={handleDeleteLocalDraft}>
-                确认删除
+              <button
+                type="button"
+                className="operator-draft-copy-button operator-draft-danger-button"
+                onClick={handleDeleteLocalDraft}
+                disabled={!selectedDeleteLocalDraftId}
+              >
+                删除所选草稿
               </button>
             </div>
           </div>

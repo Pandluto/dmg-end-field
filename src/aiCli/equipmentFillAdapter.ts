@@ -35,6 +35,7 @@ const SUPPORTED_EQUIPMENT_EFFECT_TYPES = [
   'chainSkillDmgBonus',
   'ultimateDmgBonus',
   'normalAttackDmgBonus',
+  'dotDmgBonus',
   'allSkillDmgBonus',
   'imbalanceDmgBonus',
   'sourceSkillBoost',

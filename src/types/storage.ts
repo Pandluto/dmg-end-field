@@ -1,7 +1,7 @@
 import { EquipmentConfig } from '../utils/equipmentParser';
 import type { BuffEffectKind, BuffExtraHitConfig } from '../core/domain/buff';
 import type { ConfigSnapshot } from '../core/calculators/operatorPanelCalculator';
-import { SandboxSkillHit, SkillType, ElementType } from './index';
+import { SandboxSkillHit, HitSkillType, ElementType } from './index';
 
 export type SkillPanelKey = 'A' | 'B' | 'E' | 'Q';
 export type SkillLevelMode = 'L9' | 'M3';
@@ -128,6 +128,7 @@ export interface CharacterComputedCache {
     natureDmgBonus: number;
     magicDmgBonus: number;
     normalAttackDmgBonus: number;
+    dotDmgBonus: number;
     skillDmgBonus: number;
     chainSkillDmgBonus: number;
     ultimateDmgBonus: number;
@@ -187,6 +188,7 @@ export interface DamageBonusSnapshot {
   natureDmgBonus: number;
   magicDmgBonus: number;
   normalAttackDmgBonus: number;
+  dotDmgBonus: number;
   skillDmgBonus: number;
   chainSkillDmgBonus: number;
   ultimateDmgBonus: number;
@@ -221,7 +223,7 @@ export interface CharacterConfigJson {
 export type SkillButtonBuffTarget =
   | { mode: 'all' }                                    // 作用于所有 hit
   | { mode: 'damageKey'; key: string }                 // 作用于特定 hit，如 'hit2'
-  | { mode: 'skillType'; skillType: SkillType }        // 作用于特定技能类型
+  | { mode: 'skillType'; skillType: HitSkillType }     // 作用于特定 hit 伤害类型
   | { mode: 'element'; element: ElementType };         // 作用于特定元素
 
 /**

@@ -342,6 +342,8 @@ function isDamageBonusBuffForHit(buff: SkillButtonBuff, hit: HitCalcResult['hit'
       return hit.element !== 'physical';
     case 'normalAttackDmgBonus':
       return hit.skillType === 'A';
+    case 'dotDmgBonus':
+      return hit.skillType === 'Dot';
     case 'skillDmgBonus':
       return hit.skillType === 'B';
     case 'chainSkillDmgBonus':
@@ -349,7 +351,7 @@ function isDamageBonusBuffForHit(buff: SkillButtonBuff, hit: HitCalcResult['hit'
     case 'ultimateDmgBonus':
       return hit.skillType === 'Q';
     case 'allSkillDmgBonus':
-      return hit.skillType !== 'A';
+      return hit.skillType !== 'A' && hit.skillType !== 'Dot';
     default:
       return false;
   }
@@ -516,6 +518,7 @@ function buildHitRowsForButton(
       natureDmgBonus: 0,
       magicDmgBonus: 0,
       normalAttackDmgBonus: 0,
+      dotDmgBonus: 0,
       skillDmgBonus: 0,
       chainSkillDmgBonus: 0,
       ultimateDmgBonus: 0,
@@ -573,6 +576,7 @@ function buildHitRowsForButton(
     natureDmgBonus: 0,
     magicDmgBonus: 0,
     normalAttackDmgBonus: 0,
+    dotDmgBonus: 0,
     skillDmgBonus: 0,
     chainSkillDmgBonus: 0,
     ultimateDmgBonus: 0,
@@ -1123,6 +1127,7 @@ function getHighlightColumnKeyForBuff(buff: SkillButtonBuff | null): string | nu
     case 'natureDmgBonus':
     case 'allElementDmgBonus':
     case 'normalAttackDmgBonus':
+    case 'dotDmgBonus':
     case 'skillDmgBonus':
     case 'chainSkillDmgBonus':
     case 'ultimateDmgBonus':

@@ -136,9 +136,7 @@ function buildCharacterComputedFromConfigSnapshot(snapshot: ConfigSnapshot): Cha
       ultimateChargeEfficiency: toStorageNumber(calc.ultimateChargeEfficiency),
       weaponAllSkillDmgBonus: toStorageNumber(snapshot.weapon.totals.allSkillDmgBonus),
     },
-    damageBonus: {
-      ...calc.damageBonus,
-    },
+    damageBonus: normalizeDamageBonusSnapshot(calc.damageBonus),
   };
 }
 
@@ -209,6 +207,7 @@ const DEFAULT_EQUIPMENT_VALUES: EquipmentConfig = {
   chainSkillDmgBonus: 0,
   ultimateDmgBonus: 0,
   normalAttackDmgBonus: 0,
+  dotDmgBonus: 0,
   imbalanceDmgBonus: 0,
   sourceSkillBoost: 0,
   allSkillDmgBonus: 0,
@@ -410,6 +409,7 @@ const DEFAULT_DAMAGE_BONUS_SNAPSHOT: DamageBonusSnapshot = {
   natureDmgBonus: 0,
   magicDmgBonus: 0,
   normalAttackDmgBonus: 0,
+  dotDmgBonus: 0,
   skillDmgBonus: 0,
   chainSkillDmgBonus: 0,
   ultimateDmgBonus: 0,
@@ -417,6 +417,13 @@ const DEFAULT_DAMAGE_BONUS_SNAPSHOT: DamageBonusSnapshot = {
   imbalanceDmgBonus: 0,
   allDmgBonus: 0,
 };
+
+function normalizeDamageBonusSnapshot(damageBonus: Partial<DamageBonusSnapshot> | null | undefined): DamageBonusSnapshot {
+  return {
+    ...DEFAULT_DAMAGE_BONUS_SNAPSHOT,
+    ...(damageBonus ?? {}),
+  };
+}
 
 /**
  * 将 v3 数据合并为 v2 兼容格式（供现有组件读取）
@@ -464,7 +471,7 @@ function mergeV3ToV2(
     equipment: inflateEquipmentDefaults(input.equipment || {}),
     panelSnapshot,
     infoSnapshot: display?.infoLines || [],
-    infoSnap: computed?.damageBonus || { ...DEFAULT_DAMAGE_BONUS_SNAPSHOT },
+    infoSnap: normalizeDamageBonusSnapshot(computed?.damageBonus),
     weaponBuffSnapshot: display?.weaponBuffLines || [],
   };
 }
@@ -562,7 +569,7 @@ export function setCharacterConfig(characterId: string, config: CharacterConfigJ
         ultimateChargeEfficiency: config.panelSnapshot.ultimateChargeEfficiency ?? 0,
         weaponAllSkillDmgBonus: config.panelSnapshot.weaponAllSkillDmgBonus,
       },
-      damageBonus: config.infoSnap,
+      damageBonus: normalizeDamageBonusSnapshot(config.infoSnap),
     };
     setCharacterComputed(characterId, computed);
   }

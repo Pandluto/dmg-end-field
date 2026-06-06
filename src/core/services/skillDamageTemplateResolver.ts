@@ -1,4 +1,4 @@
-import type { SkillButton as SkillButtonType } from '../../types';
+import type { HitSkillType, SkillButton as SkillButtonType } from '../../types';
 import type { ResolvedHitTemplate, ResolvedSkillDamageTemplate } from '../calculators/skillDamage.types';
 import { getCharacterInput, getRuntimeOperatorTemplateById } from '../../utils/storage';
 
@@ -25,7 +25,7 @@ function normalizeHits(
     multiplier: number;
     levels?: Record<string, number>;
     element: SkillButtonType['element'];
-    skillType: SkillButtonType['skillType'];
+    skillType: HitSkillType;
   }>,
   levelKey = resolveSkillLevelMode(button)
 ): ResolvedSkillDamageTemplate {

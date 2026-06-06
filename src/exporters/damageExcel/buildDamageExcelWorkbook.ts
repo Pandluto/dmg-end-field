@@ -53,6 +53,7 @@ const DAMAGE_BONUS_LABELS: Record<string, string> = {
   natureDmgBonus: '自然伤害加成',
   magicDmgBonus: '法术伤害加成',
   normalAttackDmgBonus: '普通攻击伤害加成',
+  dotDmgBonus: '持续伤害加成',
   skillDmgBonus: '战技伤害加成',
   chainSkillDmgBonus: '连携技伤害加成',
   ultimateDmgBonus: '终结技伤害加成',
@@ -530,6 +531,7 @@ function addPanelDamageBonusSheet(workbook: ExcelJS.Workbook, snapshots: Array<[
       ['iceDmgBonus', '寒冷伤害加成', `${calc('iceDmgBonus')}+${calc('magicDmgBonus')}+${calc('allDmgBonus')}`, displayDamageBonus.iceDmgBonus, 'iceDmgBonus,magicDmgBonus,allDmgBonus'],
       ['natureDmgBonus', '自然伤害加成', `${calc('natureDmgBonus')}+${calc('magicDmgBonus')}+${calc('allDmgBonus')}`, displayDamageBonus.natureDmgBonus, 'natureDmgBonus,magicDmgBonus,allDmgBonus'],
       ['normalAttackDmgBonus', '普通攻击伤害加成', calc('normalAttackDmgBonus'), displayDamageBonus.normalAttackDmgBonus, 'normalAttackDmgBonus'],
+      ['dotDmgBonus', '持续伤害加成', calc('dotDmgBonus'), displayDamageBonus.dotDmgBonus, 'dotDmgBonus'],
       ['skillDmgBonus', '战技伤害加成', `${calc('skillDmgBonus')}+${calc('allSkillDmgBonus')}`, displayDamageBonus.skillDmgBonus, 'skillDmgBonus,allSkillDmgBonus'],
       ['chainSkillDmgBonus', '连携技伤害加成', `${calc('chainSkillDmgBonus')}+${calc('allSkillDmgBonus')}`, displayDamageBonus.chainSkillDmgBonus, 'chainSkillDmgBonus,allSkillDmgBonus'],
       ['ultimateDmgBonus', '终结技伤害加成', `${calc('ultimateDmgBonus')}+${calc('allSkillDmgBonus')}`, displayDamageBonus.ultimateDmgBonus, 'ultimateDmgBonus,allSkillDmgBonus'],
@@ -657,6 +659,8 @@ function getSkillDamageBonusTypes(skillType: string | undefined): string[] {
   switch (skillType) {
     case 'A':
       return ['normalAttackDmgBonus'];
+    case 'Dot':
+      return ['dotDmgBonus'];
     case 'B':
       return ['skillDmgBonus', 'allSkillDmgBonus'];
     case 'E':

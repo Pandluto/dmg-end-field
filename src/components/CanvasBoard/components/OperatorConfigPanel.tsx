@@ -134,6 +134,7 @@ const DEFAULT_EQUIPMENT: EquipmentConfig = {
   chainSkillDmgBonus: 0,
   ultimateDmgBonus: 0,
   normalAttackDmgBonus: 0,
+  dotDmgBonus: 0,
   imbalanceDmgBonus: 0,
   sourceSkillBoost: 0,
   allSkillDmgBonus: 0,
@@ -201,6 +202,7 @@ const LEGACY_SKILL3_PASSIVE_PERCENTLIKE_STAT_TYPES = new Set<string>([
   'chainSkillDmgBonus',
   'ultimateDmgBonus',
   'normalAttackDmgBonus',
+  'dotDmgBonus',
 ]);
 // 默认潜在
 const getDefaultCharacterPotential = (rarity?: number) => (rarity === 6 ? '0潜' : '满潜');
@@ -247,6 +249,7 @@ const EQUIPMENT_FORM_ROWS: Array<Array<{ key: keyof EquipmentConfig; label: stri
   ],
   [
     { key: 'normalAttackDmgBonus', label: '普通攻击伤害加成', isPercent: true },
+    { key: 'dotDmgBonus', label: '持续伤害加成', isPercent: true },
     { key: 'imbalanceDmgBonus', label: '对失衡目标伤害加成', isPercent: true },
     { key: 'sourceSkillBoost', label: '源石技艺强度', isPercent: false },
   ],
@@ -264,6 +267,7 @@ const DEFAULT_DAMAGE_BONUS_SNAPSHOT: DamageBonusSnapshot = {
   natureDmgBonus: 0,
   magicDmgBonus: 0,
   normalAttackDmgBonus: 0,
+  dotDmgBonus: 0,
   skillDmgBonus: 0,
   chainSkillDmgBonus: 0,
   ultimateDmgBonus: 0,
@@ -615,6 +619,7 @@ export function OperatorConfigPanel({
   let weaponChainSkillDmgBonus = 0;
   let weaponUltimateDmgBonus = 0;
   let weaponNormalAttackDmgBonus = 0;
+  let weaponDotDmgBonus = 0;
 
 
   //let weaponAllDmgBonus = 0;
@@ -710,6 +715,9 @@ export function OperatorConfigPanel({
         return;
       case 'normalAttackDmgBonus':
         weaponNormalAttackDmgBonus += value;
+        return;
+      case 'dotDmgBonus':
+        weaponDotDmgBonus += value;
         return;
       case 'magicDmgBoost':
         weaponMagicDmgBonus += value;
@@ -1240,6 +1248,7 @@ export function OperatorConfigPanel({
       `自然伤害加成:   ${toPercentText(equipment.natureDmgBonus + weaponNatureDmgBonus)}`,
       `法术伤害加成:   ${toPercentText(equipment.magicDmgBonus + weaponMagicDmgBonus)}`,
       `普通攻击伤害加成: ${toPercentText(equipment.normalAttackDmgBonus + weaponNormalAttackDmgBonus)}`,
+      `持续伤害加成: ${toPercentText(equipment.dotDmgBonus + weaponDotDmgBonus)}`,
       `战技伤害加成:   ${toPercentText(equipment.skillDmgBonus + weaponSkillDmgBonus)}`,
       `连携技伤害加成:  ${toPercentText(equipment.chainSkillDmgBonus + weaponChainSkillDmgBonus)}`,
       `终结技伤害加成:  ${toPercentText(equipment.ultimateDmgBonus + weaponUltimateDmgBonus)}`,
@@ -1263,6 +1272,7 @@ export function OperatorConfigPanel({
       natureDmgBonus: equipment.natureDmgBonus + weaponNatureDmgBonus,
       magicDmgBonus: equipment.magicDmgBonus + weaponMagicDmgBonus,
       normalAttackDmgBonus: equipment.normalAttackDmgBonus + weaponNormalAttackDmgBonus,
+      dotDmgBonus: equipment.dotDmgBonus + weaponDotDmgBonus,
       skillDmgBonus: equipment.skillDmgBonus + weaponSkillDmgBonus,
       chainSkillDmgBonus: equipment.chainSkillDmgBonus + weaponChainSkillDmgBonus,
       ultimateDmgBonus: equipment.ultimateDmgBonus + weaponUltimateDmgBonus,

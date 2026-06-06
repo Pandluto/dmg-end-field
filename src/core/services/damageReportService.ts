@@ -90,6 +90,7 @@ const EMPTY_DAMAGE_BONUS: DamageBonusSnapshot = {
   natureDmgBonus: 0,
   magicDmgBonus: 0,
   normalAttackDmgBonus: 0,
+  dotDmgBonus: 0,
   skillDmgBonus: 0,
   chainSkillDmgBonus: 0,
   ultimateDmgBonus: 0,
@@ -290,6 +291,8 @@ function formatSkillTypeLabel(skillType: string | undefined): string {
       return 'E';
     case 'Q':
       return 'Q';
+    case 'Dot':
+      return '持续伤害';
     default:
       return skillType || '-';
   }
@@ -339,6 +342,8 @@ function formatEquipmentFieldLabel(key: string): string {
       return '终结技伤害加成';
     case 'normalAttackDmgBonus':
       return '普攻伤害加成';
+    case 'dotDmgBonus':
+      return '持续伤害加成';
     case 'imbalanceDmgBonus':
       return '失衡伤害加成';
     case 'sourceSkillBoost':
@@ -371,6 +376,7 @@ function formatEquipmentValue(key: string, value: number): string {
     case 'chainSkillDmgBonus':
     case 'ultimateDmgBonus':
     case 'normalAttackDmgBonus':
+    case 'dotDmgBonus':
     case 'imbalanceDmgBonus':
     case 'allSkillDmgBonus':
     case 'allDmgBonus':

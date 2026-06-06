@@ -35,6 +35,7 @@ export interface BuffCalculationResult {
   chainSkillDmgBonus: number; // 总连携技伤害加成
   ultimateDmgBonus: number;   // 总终结技伤害加成
   normalAttackDmgBonus: number; // 总普攻伤害加成
+  dotDmgBonus: number; // 总持续伤害加成
   allSkillDmgBonus: number; // 总所有技能伤害加成
   
   // 暴击区
@@ -135,6 +136,7 @@ export function calculateBuffTotals(buffs: SkillButtonBuff[]): BuffCalculationRe
     chainSkillDmgBonus: 0,
     ultimateDmgBonus: 0,
     normalAttackDmgBonus: 0,
+    dotDmgBonus: 0,
     allSkillDmgBonus: 0,
     critRateBoost: 0,
     critDmgBonusBoost: 0,
@@ -207,6 +209,7 @@ export function calculateBuffTotals(buffs: SkillButtonBuff[]): BuffCalculationRe
         case 'chainSkillDmgBonus': result.chainSkillDmgBonus += v; break;
         case 'ultimateDmgBonus': result.ultimateDmgBonus += v; break;
         case 'normalAttackDmgBonus': result.normalAttackDmgBonus += v; break;
+        case 'dotDmgBonus': result.dotDmgBonus += v; break;
         case 'allSkillDmgBonus': result.allSkillDmgBonus += v; break;
         case 'critRateBoost': result.critRateBoost += v; break;
         case 'critDmgBonusBoost': result.critDmgBonusBoost += v; break;
@@ -371,6 +374,8 @@ export function calculateSkillDmgBonus(
   switch (skillType) {
     case 'A':
       return parsedDamageBonus.normalAttackDmgBonus + buffTotals.normalAttackDmgBonus;
+    case 'Dot':
+      return (parsedDamageBonus.dotDmgBonus || 0) + buffTotals.dotDmgBonus;
     case 'B':
       return parsedDamageBonus.skillDmgBonus + parsedDamageBonus.allSkillDmgBonus
              + buffTotals.skillDmgBonus + buffTotals.allSkillDmgBonus;

@@ -11,7 +11,7 @@
  * 运行时模板表：sessionStorage['def.operator-runtime.template-map.v1']
  */
 
-import type { ElementType, SkillType, AbilityType } from '../../types';
+import type { ElementType, SkillType, HitSkillType, AbilityType } from '../../types';
 
 export type OperatorAttributeLevelKey = 'level1' | 'level20' | 'level40' | 'level60' | 'level80' | 'level90';
 export type OperatorAttributeKey = 'strength' | 'agility' | 'intelligence' | 'will' | 'atk' | 'hp';
@@ -55,8 +55,8 @@ export interface RuntimeOperatorTemplateHit {
   levels?: Record<string, number>;
   /** 元素类型 */
   element: ElementType;
-  /** 技能类型（A/B/E/Q） */
-  skillType: SkillType;
+  /** Hit 伤害类型（A/B/E/Q/Dot） */
+  skillType: HitSkillType;
 }
 
 /**
@@ -136,7 +136,7 @@ export interface OperatorDraftHit {
   multiplier?: number;
   displayName: string;
   element: ElementType;
-  skillType: SkillType;
+  skillType: HitSkillType;
   levels: Record<string, number>;
 }
 
