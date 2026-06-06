@@ -1,8 +1,25 @@
 import type { SkillType } from '../types';
 import { SKILL_NAMES } from '../types';
 
+const USER_IMAGE_ORIGIN = 'http://127.0.0.1:31457';
+
 function isExternalUrl(path: string): boolean {
   return /^(?:[a-z]+:)?\/\//i.test(path) || /^(?:data|blob|file):/i.test(path);
+}
+
+function resolveUserImagePath(path: string): string | null {
+  const normalized = path.replace(/\\/g, '/').replace(/^\/+/, '');
+  const userImagePrefixes = ['user-images/', 'data/images/'];
+  const matchedPrefix = userImagePrefixes.find((prefix) => normalized.startsWith(prefix));
+  if (!matchedPrefix) {
+    return null;
+  }
+
+  const relPath = normalized.slice(matchedPrefix.length);
+  if (!relPath || /(^|\/)\.\.(\/|$)/.test(relPath)) {
+    return null;
+  }
+  return `${USER_IMAGE_ORIGIN}/user-images/${encodeURI(relPath).replace(/%2F/g, '/')}`;
 }
 
 export function resolvePublicPath(path: string): string {
@@ -24,7 +41,8 @@ export function resolvePublicPath(path: string): string {
 }
 
 export function normalizeAssetUrl(path?: string | null): string {
-  return path ? resolvePublicPath(path) : '';
+  if (!path) return '';
+  return resolveUserImagePath(path) ?? resolvePublicPath(path);
 }
 
 /**

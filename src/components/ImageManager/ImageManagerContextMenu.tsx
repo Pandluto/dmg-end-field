@@ -120,10 +120,10 @@ export function ImageManagerContextMenu(props: ImageManagerContextMenuProps) {
           <button
             type="button"
             disabled={!fileActions?.canCopyPath}
-            title="复制相对路径到剪贴板"
+            title="复制可用于头像/技能输入的路径"
             onClick={() => onCopyPath(target)}
           >
-            复制相对路径
+            复制可用路径
           </button>
         </div>
       )}

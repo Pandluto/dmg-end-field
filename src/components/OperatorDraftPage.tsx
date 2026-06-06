@@ -12,6 +12,8 @@ import {
   type DraftLibraryShareFile,
 } from '../utils/draftShare';
 import { normalizeAssetUrl } from '../utils/assetResolver';
+import { imageBridge } from '../utils/imageBridge';
+import { toUserImageRelPath } from '../utils/imageFileService';
 
 const DRAFT_PAGE_PATH = APP_ROUTE_PATHS.draft;
 const DRAFT_STORAGE_KEY = 'def.operator-editor.draft.v1';
@@ -797,9 +799,7 @@ function SearchablePathSelect({ value, options, placeholder, onChange }: Searcha
           const nextKeyword = event.target.value;
           setKeyword(nextKeyword);
           setIsOpen(true);
-          if (!nextKeyword.trim()) {
-            onChange('');
-          }
+          onChange(nextKeyword);
         }}
         onFocus={() => setIsOpen(true)}
         onBlur={() => {
@@ -863,6 +863,7 @@ export function OperatorDraftPage() {
   const [isOverwriteProtectionEnabled, setIsOverwriteProtectionEnabled] = useState(true);
   const [loadedLocalDraftId, setLoadedLocalDraftId] = useState<string | null>(null);
   const [shareDraftName, setShareDraftName] = useState('');
+  const [userAssetPathOptions, setUserAssetPathOptions] = useState<string[]>([]);
   const [pendingImportShare, setPendingImportShare] = useState<DraftLibraryShareFile<OperatorDraft> | null>(null);
   const shareImportInputRef = useRef<HTMLInputElement>(null);
 
@@ -904,6 +905,34 @@ export function OperatorDraftPage() {
     };
 
     loadReferenceOperators();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const loadUserAssetOptions = async () => {
+      try {
+        const assets = await imageBridge.listAssets();
+        if (!isMounted) return;
+        const paths = assets
+          .map((asset) => {
+            const relPath = toUserImageRelPath(asset);
+            return relPath ? `user-images/${relPath}` : '';
+          })
+          .filter((path): path is string => Boolean(path));
+        setUserAssetPathOptions(Array.from(new Set(paths)).sort((a, b) => a.localeCompare(b, 'zh-CN', { numeric: true })));
+      } catch {
+        if (isMounted) {
+          setUserAssetPathOptions([]);
+        }
+      }
+    };
+
+    void loadUserAssetOptions();
 
     return () => {
       isMounted = false;
@@ -982,6 +1011,15 @@ export function OperatorDraftPage() {
     }
     return [selectedType, ...filteredOperatorBuffTypeOptions];
   }, [filteredOperatorBuffTypeOptions, selectedBuffEffect?.type]);
+
+  const assetPathOptions = useMemo(
+    () => Array.from(new Set([...userAssetPathOptions, ...ASSET_PATH_OPTIONS])),
+    [userAssetPathOptions],
+  );
+  const avatarAssetOptions = useMemo(
+    () => Array.from(new Set([...userAssetPathOptions, ...AVATAR_ASSET_OPTIONS])),
+    [userAssetPathOptions],
+  );
 
   const orderedDraft = useMemo(() => buildOrderedDraft(draft, skillOrder), [draft, skillOrder]);
   const draftJson = useMemo(() => JSON.stringify(orderedDraft, null, 2), [orderedDraft]);
@@ -1712,7 +1750,7 @@ export function OperatorDraftPage() {
                       <span>头像 URL</span>
                       <SearchablePathSelect
                         value={draft.avatarUrl}
-                        options={AVATAR_ASSET_OPTIONS}
+                        options={avatarAssetOptions}
                         placeholder="搜索头像 URL"
                         onChange={(nextValue) => updateOperatorField('avatarUrl', nextValue)}
                       />
@@ -1919,7 +1957,7 @@ export function OperatorDraftPage() {
                         <span>技能图标</span>
                         <SearchablePathSelect
                           value={selectedSkill.iconUrl}
-                          options={ASSET_PATH_OPTIONS}
+                          options={assetPathOptions}
                           placeholder="搜索技能图标 URL"
                           onChange={(nextValue) =>
                             updateSelectedSkill((skill) => ({

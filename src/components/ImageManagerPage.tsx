@@ -15,7 +15,6 @@ import {
   toManagedRelative,
   fromManagedRelative,
   managedDirLabel,
-  formatAssetDisplayPath,
   formatManagedDirDisplayPath,
   isPathUnderDir,
   replaceDirPrefix,
@@ -657,11 +656,13 @@ export function ImageManagerPage() {
 
   const handleCopyPath = useCallback((target: CtxTarget) => {
     setCtxMenu(null);
-    const path = target.kind === 'file'
-      ? formatAssetDisplayPath(target.relativePath)
+    const path = target.kind === 'file' && assetByPath.has(target.relativePath)
+      ? buildAssetUrl(assetByPath.get(target.relativePath)!)
+      : target.kind === 'file'
+      ? target.relativePath
       : formatManagedDirDisplayPath(target.dir);
-    navigator.clipboard.writeText(path).then(() => flash('路径已复制'));
-  }, [flash]);
+    navigator.clipboard.writeText(path).then(() => flash('可用路径已复制'));
+  }, [assetByPath, flash]);
 
   // ═══════════════════════════════════════════════════════
   // UI event handlers

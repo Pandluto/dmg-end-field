@@ -423,6 +423,26 @@ function normalizeOperatorDraft(obj: Record<string, unknown>): OperatorDraft {
   };
 }
 
+function hasText(value: unknown): value is string {
+  return typeof value === 'string' && value.trim() !== '';
+}
+
+function preserveExistingAssetUrls(nextPayload: OperatorDraft, currentDraft = readCurrentOperatorDraft()): OperatorDraft {
+  const next = JSON.parse(JSON.stringify(nextPayload)) as OperatorDraft;
+  if (!hasText(next.avatarUrl) && hasText(currentDraft.avatarUrl)) {
+    next.avatarUrl = currentDraft.avatarUrl;
+  }
+
+  for (const [skillKey, nextSkill] of Object.entries(next.skills || {})) {
+    const currentSkill = currentDraft.skills?.[skillKey];
+    if (!hasText(nextSkill.iconUrl) && hasText(currentSkill?.iconUrl)) {
+      nextSkill.iconUrl = currentSkill.iconUrl;
+    }
+  }
+
+  return next;
+}
+
 export const operatorFillAdapter: AgentFillDomainAdapter<OperatorDraft> = {
   domain: 'operator',
   workflow: 'operator.fill',
@@ -500,7 +520,7 @@ export const operatorFillAdapter: AgentFillDomainAdapter<OperatorDraft> = {
 
   applyToWorkingState(payload): { ok: boolean; error?: string } {
     try {
-      writeJsonStorage(OPERATOR_DRAFT_STORAGE_KEY, payload);
+      writeJsonStorage(OPERATOR_DRAFT_STORAGE_KEY, preserveExistingAssetUrls(payload));
       return { ok: true };
     } catch (error) {
       return { ok: false, error: error instanceof Error ? error.message : String(error) };
@@ -509,8 +529,9 @@ export const operatorFillAdapter: AgentFillDomainAdapter<OperatorDraft> = {
 
   saveToLocalTruth(payload): { ok: boolean; error?: string } {
     try {
-      writeJsonStorage(OPERATOR_LIBRARY_STORAGE_KEY, { ...readOperatorLibrary(), [payload.id]: payload });
-      writeJsonStorage(OPERATOR_DRAFT_STORAGE_KEY, payload);
+      const mergedPayload = preserveExistingAssetUrls(payload);
+      writeJsonStorage(OPERATOR_LIBRARY_STORAGE_KEY, { ...readOperatorLibrary(), [mergedPayload.id]: mergedPayload });
+      writeJsonStorage(OPERATOR_DRAFT_STORAGE_KEY, mergedPayload);
       return { ok: true };
     } catch (error) {
       return { ok: false, error: error instanceof Error ? error.message : String(error) };
