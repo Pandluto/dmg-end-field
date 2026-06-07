@@ -2897,95 +2897,109 @@ async function applyLocalDataArchiveInMainWindow(archive, options = {}) {
   };
   const script = `
 (() => {
-  const payload = ${JSON.stringify(payload)};
-  const knownSections = ['operators', 'weapons', 'equipments', 'buffs', 'timeline', 'runtime'];
-  const uniqueSections = (sections) => {
-    const source = Array.isArray(sections) && sections.length > 0 ? sections : ['all'];
-    return Array.from(new Set(source));
-  };
-  const sections = uniqueSections(payload.options?.sections || payload.archive?.sections);
-  const shouldIncludeLocalKey = (key) => {
-    if (sections.includes('all')) return key.startsWith('def.');
-    return sections.some((section) => {
-      const prefixes = payload.localPrefixes[section] || [];
-      return prefixes.some((prefix) => key === prefix || key.startsWith(prefix));
-    });
-  };
-  const shouldIncludeSessionKey = (key) => {
-    if (sections.includes('all')) return key.startsWith('def.');
-    return sections.some((section) => (payload.sessionKeys[section] || []).includes(key));
-  };
-  const listKeys = (storage) => {
-    const keys = [];
-    for (let index = 0; index < storage.length; index += 1) {
-      const key = storage.key(index);
-      if (key) keys.push(key);
-    }
-    return keys.sort();
-  };
-  const stringifyValue = (value) => typeof value === 'string' ? value : JSON.stringify(value ?? null);
-  const filterValues = (values, shouldInclude) => Object.fromEntries(
-    Object.entries(values || {}).filter(([key]) => shouldInclude(key))
-  );
-  const localValues = filterValues(payload.archive?.storage?.local, shouldIncludeLocalKey);
-  const sessionValues = filterValues(payload.archive?.storage?.session, shouldIncludeSessionKey);
-  const targetSections = sections.includes('all') ? knownSections : sections.filter((section) => section !== 'all');
-  const missingSections = targetSections.filter((section) => {
-    const requiredKeys = payload.requiredSessionKeys[section];
-    return Array.isArray(requiredKeys) && requiredKeys.length > 0 && !requiredKeys.some((key) => key in sessionValues);
-  });
-  if (missingSections.length > 0) {
-    const archiveSessionKeys = Object.keys(payload.archive?.storage?.session || {});
-    throw new Error(
-      '存档缺少当前态 sessionStorage，不能完成桌面端同步替换：' +
-      missingSections.join(' / ') +
-      '。当前存档 session key：' +
-      (archiveSessionKeys.join(', ') || '无')
-    );
-  }
-  const removeManaged = (storage, shouldInclude) => {
-    const keys = listKeys(storage).filter(shouldInclude);
-    keys.forEach((key) => storage.removeItem(key));
-    return keys.length;
-  };
-  const applyValues = (storage, values) => {
-    const failedKeys = [];
-    Object.entries(values).forEach(([key, value]) => {
-      const serialized = stringifyValue(value);
-      storage.setItem(key, serialized);
-      if (storage.getItem(key) !== serialized) {
-        failedKeys.push(key);
+  try {
+    const payload = ${JSON.stringify(payload)};
+    const knownSections = ['operators', 'weapons', 'equipments', 'buffs', 'timeline', 'runtime'];
+    const uniqueSections = (sections) => {
+      const source = Array.isArray(sections) && sections.length > 0 ? sections : ['all'];
+      return Array.from(new Set(source));
+    };
+    const sections = uniqueSections(payload.options?.sections || payload.archive?.sections);
+    const shouldIncludeLocalKey = (key) => {
+      if (sections.includes('all')) return key.startsWith('def.');
+      return sections.some((section) => {
+        const prefixes = payload.localPrefixes[section] || [];
+        return prefixes.some((prefix) => key === prefix || key.startsWith(prefix));
+      });
+    };
+    const shouldIncludeSessionKey = (key) => {
+      if (sections.includes('all')) return key.startsWith('def.');
+      return sections.some((section) => (payload.sessionKeys[section] || []).includes(key));
+    };
+    const listKeys = (storage) => {
+      const keys = [];
+      for (let index = 0; index < storage.length; index += 1) {
+        const key = storage.key(index);
+        if (key) keys.push(key);
       }
+      return keys.sort();
+    };
+    const stringifyValue = (value) => typeof value === 'string' ? value : JSON.stringify(value ?? null);
+    const filterValues = (values, shouldInclude) => Object.fromEntries(
+      Object.entries(values || {}).filter(([key]) => shouldInclude(key))
+    );
+    const localValues = filterValues(payload.archive?.storage?.local, shouldIncludeLocalKey);
+    const sessionValues = filterValues(payload.archive?.storage?.session, shouldIncludeSessionKey);
+    const targetSections = sections.includes('all') ? knownSections : sections.filter((section) => section !== 'all');
+    const missingSections = targetSections.filter((section) => {
+      const requiredKeys = payload.requiredSessionKeys[section];
+      return Array.isArray(requiredKeys) && requiredKeys.length > 0 && !requiredKeys.some((key) => key in sessionValues);
     });
-    return { writtenKeys: Object.keys(values).length, failedKeys };
-  };
-  const removedLocalKeys = removeManaged(window.localStorage, shouldIncludeLocalKey);
-  const removedSessionKeys = removeManaged(window.sessionStorage, shouldIncludeSessionKey);
-  const localResult = applyValues(window.localStorage, localValues);
-  const sessionResult = applyValues(window.sessionStorage, sessionValues);
-  const failedKeys = [...localResult.failedKeys, ...sessionResult.failedKeys];
-  if (failedKeys.length > 0) {
-    throw new Error('桌面端 Web storage 写入校验失败：' + failedKeys.join(', '));
+    if (missingSections.length > 0) {
+      const archiveSessionKeys = Object.keys(payload.archive?.storage?.session || {});
+      throw new Error(
+        '存档缺少当前态 sessionStorage，不能完成桌面端同步替换：' +
+        missingSections.join(' / ') +
+        '。当前存档 session key：' +
+        (archiveSessionKeys.join(', ') || '无')
+      );
+    }
+    const removeManaged = (storage, shouldInclude) => {
+      const keys = listKeys(storage).filter(shouldInclude);
+      keys.forEach((key) => storage.removeItem(key));
+      return keys.length;
+    };
+    const applyValues = (storage, values) => {
+      const failedKeys = [];
+      Object.entries(values).forEach(([key, value]) => {
+        const serialized = stringifyValue(value);
+        storage.setItem(key, serialized);
+        if (storage.getItem(key) !== serialized) {
+          failedKeys.push(key);
+        }
+      });
+      return { writtenKeys: Object.keys(values).length, failedKeys };
+    };
+    const removedLocalKeys = removeManaged(window.localStorage, shouldIncludeLocalKey);
+    const removedSessionKeys = removeManaged(window.sessionStorage, shouldIncludeSessionKey);
+    const localResult = applyValues(window.localStorage, localValues);
+    const sessionResult = applyValues(window.sessionStorage, sessionValues);
+    const failedKeys = [...localResult.failedKeys, ...sessionResult.failedKeys];
+    if (failedKeys.length > 0) {
+      throw new Error('桌面端 Web storage 写入校验失败：' + failedKeys.join(', '));
+    }
+    const touchedKeys = removedLocalKeys + removedSessionKeys + localResult.writtenKeys + sessionResult.writtenKeys;
+    if (touchedKeys === 0) {
+      throw new Error('存档和所选分组没有可替换的桌面端 Web storage key');
+    }
+    return {
+      ok: true,
+      sections,
+      localKeys: localResult.writtenKeys,
+      sessionKeys: sessionResult.writtenKeys,
+      removedLocalKeys,
+      removedSessionKeys,
+      origin: window.location.origin,
+      href: window.location.href,
+      localKeyNames: Object.keys(localValues),
+      sessionKeyNames: Object.keys(sessionValues),
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      error: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined,
+      origin: window.location.origin,
+      href: window.location.href,
+    };
   }
-  const touchedKeys = removedLocalKeys + removedSessionKeys + localResult.writtenKeys + sessionResult.writtenKeys;
-  if (touchedKeys === 0) {
-    throw new Error('存档和所选分组没有可替换的桌面端 Web storage key');
-  }
-  return {
-    ok: true,
-    sections,
-    localKeys: localResult.writtenKeys,
-    sessionKeys: sessionResult.writtenKeys,
-    removedLocalKeys,
-    removedSessionKeys,
-    origin: window.location.origin,
-    href: window.location.href,
-    localKeyNames: Object.keys(localValues),
-    sessionKeyNames: Object.keys(sessionValues),
-  };
 })()
 `;
   return webContents.executeJavaScript(script, true).then((result) => {
+    if (!result?.ok) {
+      appendRuntimeLog('localdata', `desktop import failed ${result?.error || 'unknown'}`);
+      return result || { ok: false, error: '桌面端 Web storage 导入失败' };
+    }
     const equipmentLibraryPath = syncEquipmentLibraryFileFromArchive(archive, requestedSections);
     return equipmentLibraryPath ? { ...result, equipmentLibraryPath } : result;
   });

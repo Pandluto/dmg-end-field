@@ -25,6 +25,15 @@
   const SHELL_STORAGE_KEYS = {
     arkPrompt: 'def.shell.ark.prompt.v1',
   };
+  const IMPORT_SECTIONS = ['operators', 'weapons', 'equipments', 'buffs', 'timeline', 'runtime'];
+  const REQUIRED_IMPORT_SESSION_KEYS = {
+    timeline: [
+      'def.selected-characters.v1',
+      'def.timeline.data.v1',
+      'def.skill-button.v1',
+      'def.all-buff-list.v1',
+    ],
+  };
   const LOCAL_BRIDGE_ORIGIN = 'http://127.0.0.1:31457';
   const AI_CLI_REST_ORIGIN = 'http://127.0.0.1:17321';
 
@@ -100,6 +109,32 @@
       description: description || archive.description,
       createdAt: exportedAt,
       exportedAt,
+    };
+  };
+
+  const getImportCoveragePlan = (archive, sections) => {
+    const requestedSections = sections.includes('all')
+      ? IMPORT_SECTIONS
+      : sections;
+    const sessionValues = archive?.storage?.session || {};
+    const missingSections = requestedSections.filter((section) => {
+      const requiredKeys = REQUIRED_IMPORT_SESSION_KEYS[section];
+      return Array.isArray(requiredKeys) && requiredKeys.length > 0 && !requiredKeys.some((key) => key in sessionValues);
+    });
+    const effectiveSections = requestedSections.filter((section) => !missingSections.includes(section));
+    if (missingSections.length === 0) {
+      return { ok: true, sections, missingSections: [], warning: '' };
+    }
+    const archiveSessionKeys = Object.keys(sessionValues);
+    const warning = (
+      `存档缺少当前态 sessionStorage，已跳过：${missingSections.join(' / ')}。` +
+      `当前存档 session key：${archiveSessionKeys.join(', ') || '无'}`
+    );
+    return {
+      ok: effectiveSections.length > 0,
+      sections: effectiveSections,
+      missingSections,
+      warning,
     };
   };
 
@@ -394,12 +429,25 @@
       appendLog(`本地存档 | 读取失败 | ${loaded.error || '-'}`);
       return;
     }
+    const coveragePlan = getImportCoveragePlan(loaded.archive, sections);
+    if (!coveragePlan.ok) {
+      setStatus('localdata-status', coveragePlan.warning || '存档没有可导入的分组');
+      appendLog(`本地存档 | 导入预检失败 | ${getArchiveKey(selectedArchive)} | ${sections.join(' / ')} | ${coveragePlan.warning || '-'}`);
+      return;
+    }
+    const importArchive = {
+      ...loaded.archive,
+      sections: coveragePlan.sections,
+    };
+    if (coveragePlan.warning) {
+      appendLog(`本地存档 | 导入预检提示 | ${getArchiveKey(selectedArchive)} | ${coveragePlan.warning} | 实际导入 ${coveragePlan.sections.join(' / ')}`);
+    }
     isApplyingArchive = true;
     try {
       await fetchLocalBridgeJson('/local-data/now-storage', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(loaded.archive),
+        body: JSON.stringify(importArchive),
       });
       await fetchLocalBridgeJson('/local-data/now-storage-state', {
         method: 'POST',
@@ -418,10 +466,10 @@
     if (runtime.requestLocalDataImport) {
       try {
         desktopImport = await runtime.requestLocalDataImport({
-          archive: loaded.archive,
+          archive: importArchive,
           fileName: selectedArchive.fileName,
           storageScope: selectedArchive.storageScope,
-          options: { sections, reload: true },
+          options: { sections: coveragePlan.sections, reload: true },
         });
       } catch (error) {
         desktopImport = {
@@ -435,12 +483,16 @@
       : getArchiveKey(selectedArchive);
     const writtenKeys = (desktopImport?.localKeys || 0) + (desktopImport?.sessionKeys || 0);
     const removedKeys = (desktopImport?.removedLocalKeys || 0) + (desktopImport?.removedSessionKeys || 0);
+    const desktopImportError = desktopImport?.ok === false ? (desktopImport.error || '桌面导入失败') : '';
+    const importNotice = coveragePlan.warning ? `；${coveragePlan.warning}` : '';
     setStatus(
       'localdata-status',
-      `now-storage 已替换并等待浏览器下次打开/F5应用；桌面写入 ${writtenKeys}，清理 ${removedKeys}；当前引用：${activeArchiveKey}`,
+      desktopImportError
+        ? `now-storage 已替换，但桌面即时同步失败：${desktopImportError}；当前引用：${activeArchiveKey}`
+        : `now-storage 已替换并等待浏览器下次打开/F5应用；桌面写入 ${writtenKeys}，清理 ${removedKeys}；当前引用：${activeArchiveKey}${importNotice}`,
     );
     appendLog(
-      `本地存档 | 已写入 now-storage | ${getArchiveKey(selectedArchive)} | ${sections.join(' / ')} | 桌面写入 ${writtenKeys} 清理 ${removedKeys}${desktopImport?.ok === false ? ` | 桌面导入失败：${desktopImport.error || '-'}` : ''}`,
+      `本地存档 | 已写入 now-storage | ${getArchiveKey(selectedArchive)} | ${coveragePlan.sections.join(' / ')} | 桌面写入 ${writtenKeys} 清理 ${removedKeys}${coveragePlan.warning ? ` | ${coveragePlan.warning}` : ''}${desktopImportError ? ` | 桌面导入失败：${desktopImportError}` : ''}`,
     );
     window.setTimeout(() => {
       isApplyingArchive = false;

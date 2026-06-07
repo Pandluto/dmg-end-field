@@ -1,11 +1,5 @@
 {
-  "updatedAt": "2026-06-04T15:40:44.196Z",
-  "migration": {
-    "source": "docs/装备.txt",
-    "migratedAt": "2026-05-22T03:39:39.934Z",
-    "warnings": [],
-    "reviewRequired": true
-  },
+  "updatedAt": "2026-06-07T03:12:27.786Z",
   "gearSets": {
     "gear-set-tian-zai-fang-hu": {
       "gearSetId": "gear-set-tian-zai-fang-hu",
@@ -865,17 +859,6 @@
             }
           }
         }
-      },
-      "threePieceBuffs": {
-        "effect1": {
-          "effectId": "effect1",
-          "name": "失衡效率加成",
-          "category": "positive",
-          "typeKey": "",
-          "value": 0,
-          "unit": "percent",
-          "raw": ""
-        }
       }
     },
     "gear-set-sheng-wu-fu-zhu": {
@@ -1368,17 +1351,6 @@
               }
             }
           }
-        }
-      },
-      "threePieceBuffs": {
-        "effect1": {
-          "effectId": "effect1",
-          "name": "治疗效率加成",
-          "category": "positive",
-          "typeKey": "healingBonus",
-          "value": 0.2,
-          "unit": "percent",
-          "raw": ""
         }
       }
     },
@@ -2858,26 +2830,6 @@
             }
           }
         }
-      },
-      "threePieceBuffs": {
-        "effect1": {
-          "effectId": "effect1",
-          "name": "脉冲·源石技艺强度+30",
-          "category": "positive",
-          "typeKey": "sourceSkillBoost",
-          "value": 30,
-          "unit": "percent",
-          "raw": ""
-        },
-        "effect2": {
-          "effectId": "effect2",
-          "name": "脉冲·导电·拐电伤50%",
-          "category": "condition",
-          "typeKey": "electricDmgBonus",
-          "value": 0.5,
-          "unit": "percent",
-          "raw": "当装备者施加导电后，电磁 伤害+50%，持续10秒，该效果 无法叠加；当装备者施加冻 结后，寒冷伤害+50%，持续 10秒，该效果无法叠加。"
-        }
       }
     },
     "gear-set-tuo-huang": {
@@ -3656,26 +3608,6 @@
             }
           }
         }
-      },
-      "threePieceBuffs": {
-        "effect1": {
-          "effectId": "effect1",
-          "name": "拓荒·连携技冷却缩减15%",
-          "category": "positive",
-          "typeKey": "",
-          "value": 0,
-          "unit": "percent",
-          "raw": ""
-        },
-        "effect2": {
-          "effectId": "effect2",
-          "name": "拓荒·回技力全队加伤16%",
-          "category": "condition",
-          "typeKey": "allDmgBonus",
-          "value": 0.16,
-          "unit": "percent",
-          "raw": ""
-        }
       }
     },
     "gear-set-dong-huo-yong": {
@@ -4125,35 +4057,6 @@
               }
             }
           }
-        }
-      },
-      "threePieceBuffs": {
-        "effect1": {
-          "effectId": "effect1",
-          "name": "动火·源石技艺强度",
-          "category": "positive",
-          "typeKey": "sourceSkillBoost",
-          "value": 30,
-          "unit": "percent",
-          "raw": ""
-        },
-        "effect2": {
-          "effectId": "effect2",
-          "name": "动火·燃烧·加火伤",
-          "category": "condition",
-          "typeKey": "fireDmgBonus",
-          "value": 0.5,
-          "unit": "percent",
-          "raw": ""
-        },
-        "effect3": {
-          "effectId": "effect3",
-          "name": "动火·腐蚀·加自然",
-          "category": "condition",
-          "typeKey": "natureDmgBonus",
-          "value": 0.5,
-          "unit": "percent",
-          "raw": ""
         }
       }
     },
@@ -5889,26 +5792,6 @@
             }
           }
         }
-      },
-      "threePieceBuffs": {
-        "effect1": {
-          "effectId": "effect1",
-          "name": "潮涌·所有技能伤害+20%",
-          "category": "positive",
-          "typeKey": "allSkillDmgBonus",
-          "value": 0.2,
-          "unit": "percent",
-          "raw": ""
-        },
-        "effect2": {
-          "effectId": "effect2",
-          "name": "潮涌·两层附着·法伤+35%",
-          "category": "condition",
-          "typeKey": "magicDmgBonus",
-          "value": 0.35,
-          "unit": "percent",
-          "raw": ""
-        }
       }
     },
     "gear-set-chang-xi": {
@@ -7196,6 +7079,376 @@
               }
             }
           }
+        }
+      }
+    },
+    "gear-set-jiu-feng": {
+      "gearSetId": "gear-set-jiu-feng",
+      "name": "旧锋",
+      "buffId": "buff-jiu-feng-3pc",
+      "imgUrl": "",
+      "equipments": {
+        "equipment-jf-1": {
+          "equipmentId": "equipment-jf-1",
+          "name": "旧锋手甲",
+          "part": "护手",
+          "imgUrl": "",
+          "fixedStat": {
+            "label": "防御力",
+            "typeKey": "defense",
+            "value": 42,
+            "unit": "flat",
+            "raw": "防御力：+42"
+          },
+          "effects": {
+            "effect1": {
+              "effectId": "effect1",
+              "label": "力量",
+              "typeKey": "strengthBoost",
+              "category": "ability",
+              "unit": "flat",
+              "raw": "力量：+65/+71/+78/+84",
+              "levels": {
+                "0": 65,
+                "1": 71,
+                "2": 78,
+                "3": 84
+              }
+            },
+            "effect2": {
+              "effectId": "effect2",
+              "label": "意志",
+              "typeKey": "willBoost",
+              "category": "ability",
+              "unit": "flat",
+              "raw": "意志：+43/+47/+51/+55",
+              "levels": {
+                "0": 43,
+                "1": 47,
+                "2": 51,
+                "3": 55
+              }
+            },
+            "effect3": {
+              "effectId": "effect3",
+              "label": "源石技艺强度",
+              "typeKey": "sourceSkillBoost",
+              "category": "ability",
+              "unit": "flat",
+              "raw": "源石技艺强度：+34/+37/+41/+44",
+              "levels": {
+                "0": 34,
+                "1": 37,
+                "2": 41,
+                "3": 44
+              }
+            }
+          }
+        },
+        "equipment-jf-2": {
+          "equipmentId": "equipment-jf-2",
+          "name": "旧锋手甲·壹型",
+          "part": "护手",
+          "imgUrl": "",
+          "fixedStat": {
+            "label": "防御力",
+            "typeKey": "defense",
+            "value": 42,
+            "unit": "flat",
+            "raw": "防御力：+42"
+          },
+          "effects": {
+            "effect1": {
+              "effectId": "effect1",
+              "label": "敏捷",
+              "typeKey": "agilityBoost",
+              "category": "ability",
+              "unit": "flat",
+              "raw": "敏捷：+65/+71/+78/+84",
+              "levels": {
+                "0": 65,
+                "1": 71,
+                "2": 78,
+                "3": 84
+              }
+            },
+            "effect2": {
+              "effectId": "effect2",
+              "label": "力量",
+              "typeKey": "strengthBoost",
+              "category": "ability",
+              "unit": "flat",
+              "raw": "力量：+43/+47/+51/+55",
+              "levels": {
+                "0": 43,
+                "1": 47,
+                "2": 51,
+                "3": 55
+              }
+            },
+            "effect3": {
+              "effectId": "effect3",
+              "label": "源石技艺强度",
+              "typeKey": "sourceSkillBoost",
+              "category": "ability",
+              "unit": "flat",
+              "raw": "源石技艺强度：+34/+37/+41/+44",
+              "levels": {
+                "0": 34,
+                "1": 37,
+                "2": 41,
+                "3": 44
+              }
+            }
+          }
+        },
+        "equipment-jf-3": {
+          "equipmentId": "equipment-jf-3",
+          "name": "旧锋刺刃",
+          "part": "配件",
+          "imgUrl": "",
+          "fixedStat": {
+            "label": "防御力",
+            "typeKey": "defense",
+            "value": 21,
+            "unit": "flat",
+            "raw": "防御力：+21"
+          },
+          "effects": {
+            "effect1": {
+              "effectId": "effect1",
+              "label": "力量",
+              "typeKey": "strengthBoost",
+              "category": "ability",
+              "unit": "flat",
+              "raw": "力量：+32/+35/+38/+41",
+              "levels": {
+                "0": 32,
+                "1": 35,
+                "2": 38,
+                "3": 41
+              }
+            },
+            "effect2": {
+              "effectId": "effect2",
+              "label": "意志",
+              "typeKey": "willBoost",
+              "category": "ability",
+              "unit": "flat",
+              "raw": "意志：+21/+23/+25/+27",
+              "levels": {
+                "0": 21,
+                "1": 23,
+                "2": 25,
+                "3": 27
+              }
+            },
+            "effect3": {
+              "effectId": "effect3",
+              "label": "物理伤害加成",
+              "typeKey": "physicalDmgBonus",
+              "category": "buff",
+              "unit": "percent",
+              "raw": "物理伤害加成：+23.0%/+25.3%/+27.6%/+29.9%",
+              "levels": {
+                "0": 23,
+                "1": 25.3,
+                "2": 27.6,
+                "3": 29.9
+              }
+            }
+          }
+        },
+        "equipment-jf-4": {
+          "equipmentId": "equipment-jf-4",
+          "name": "旧锋刺刃·壹型",
+          "part": "配件",
+          "imgUrl": "",
+          "fixedStat": {
+            "label": "防御力",
+            "typeKey": "defense",
+            "value": 21,
+            "unit": "flat",
+            "raw": "防御力：+21"
+          },
+          "effects": {
+            "effect1": {
+              "effectId": "effect1",
+              "label": "敏捷",
+              "typeKey": "agilityBoost",
+              "category": "ability",
+              "unit": "flat",
+              "raw": "敏捷：+32/+35/+38/+41",
+              "levels": {
+                "0": 32,
+                "1": 35,
+                "2": 38,
+                "3": 41
+              }
+            },
+            "effect2": {
+              "effectId": "effect2",
+              "label": "力量",
+              "typeKey": "strengthBoost",
+              "category": "ability",
+              "unit": "flat",
+              "raw": "力量：+21/+23/+25/+27",
+              "levels": {
+                "0": 21,
+                "1": 23,
+                "2": 25,
+                "3": 27
+              }
+            },
+            "effect3": {
+              "effectId": "effect3",
+              "label": "物理伤害加成",
+              "typeKey": "physicalDmgBonus",
+              "category": "buff",
+              "unit": "percent",
+              "raw": "物理伤害加成：+23.0%/+25.3%/+27.6%/+29.9%",
+              "levels": {
+                "0": 23,
+                "1": 25.3,
+                "2": 27.6,
+                "3": 29.9
+              }
+            }
+          }
+        },
+        "equipment-jf-5": {
+          "equipmentId": "equipment-jf-5",
+          "name": "旧锋装甲",
+          "part": "护甲",
+          "imgUrl": "",
+          "fixedStat": {
+            "label": "防御力",
+            "typeKey": "defense",
+            "value": 56,
+            "unit": "flat",
+            "raw": "防御力：+56"
+          },
+          "effects": {
+            "effect1": {
+              "effectId": "effect1",
+              "label": "力量",
+              "typeKey": "strengthBoost",
+              "category": "ability",
+              "unit": "flat",
+              "raw": "力量：+87/+95/+104/+113",
+              "levels": {
+                "0": 87,
+                "1": 95,
+                "2": 104,
+                "3": 113
+              }
+            },
+            "effect2": {
+              "effectId": "effect2",
+              "label": "意志",
+              "typeKey": "willBoost",
+              "category": "ability",
+              "unit": "flat",
+              "raw": "意志：+58/+63/+69/+75",
+              "levels": {
+                "0": 58,
+                "1": 63,
+                "2": 69,
+                "3": 75
+              }
+            },
+            "effect3": {
+              "effectId": "effect3",
+              "label": "物理伤害加成",
+              "typeKey": "physicalDmgBonus",
+              "category": "buff",
+              "unit": "percent",
+              "raw": "物理伤害加成：+11.5%/+12.7%/+13.8%/+14.9%",
+              "levels": {
+                "0": 11.5,
+                "1": 12.7,
+                "2": 13.8,
+                "3": 14.9
+              }
+            }
+          }
+        },
+        "equipment-jf-6": {
+          "equipmentId": "equipment-jf-6",
+          "name": "旧锋装甲·壹型",
+          "part": "护甲",
+          "imgUrl": "",
+          "fixedStat": {
+            "label": "防御力",
+            "typeKey": "defense",
+            "value": 56,
+            "unit": "flat",
+            "raw": "防御力：+56"
+          },
+          "effects": {
+            "effect1": {
+              "effectId": "effect1",
+              "label": "敏捷",
+              "typeKey": "agilityBoost",
+              "category": "ability",
+              "unit": "flat",
+              "raw": "敏捷：+87/+95/+104/+113",
+              "levels": {
+                "0": 87,
+                "1": 95,
+                "2": 104,
+                "3": 113
+              }
+            },
+            "effect2": {
+              "effectId": "effect2",
+              "label": "力量",
+              "typeKey": "strengthBoost",
+              "category": "ability",
+              "unit": "flat",
+              "raw": "力量：+58/+63/+69/+75",
+              "levels": {
+                "0": 58,
+                "1": 63,
+                "2": 69,
+                "3": 75
+              }
+            },
+            "effect3": {
+              "effectId": "effect3",
+              "label": "源石技艺强度",
+              "typeKey": "sourceSkillBoost",
+              "category": "ability",
+              "unit": "flat",
+              "raw": "源石技艺强度：+20/+22/+24/+26",
+              "levels": {
+                "0": 20,
+                "1": 22,
+                "2": 24,
+                "3": 26
+              }
+            }
+          }
+        }
+      },
+      "threePieceBuffs": {
+        "effect1": {
+          "effectId": "effect1",
+          "name": "旧锋·攻击力+8%",
+          "category": "positive",
+          "typeKey": "atkPercentBoost",
+          "value": 0.08,
+          "unit": "percent",
+          "raw": ""
+        },
+        "effect2": {
+          "effectId": "effect2",
+          "name": "旧锋·4层1.5倍·物理伤害+36%",
+          "category": "condition",
+          "typeKey": "physicalDmgBonus",
+          "value": 0.36,
+          "unit": "percent",
+          "raw": ""
         }
       }
     }
