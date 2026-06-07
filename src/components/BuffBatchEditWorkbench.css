@@ -1,9 +1,155 @@
 .buff-edit-layout {
   background: var(--excel-gray-1);
+  /*
+   * Fake right column:
+   * keep the original 1200 + 240 workbench reference width so the left canvas
+   * preserves the same centering math as the main board.
+   */
+  grid-template-columns: minmax(1200px, 1fr) 240px;
 }
 
 .buff-edit-canvas {
   position: relative;
+}
+
+.buff-edit-left-zone {
+  position: relative;
+  grid-column: 1;
+  min-width: 1200px;
+}
+
+.buff-edit-tool-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 8;
+  pointer-events: none;
+}
+
+/* 左区右侧按钮区 */
+.buff-edit-secondary-button-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 8;
+  pointer-events: none;
+}
+
+.buff-edit-secondary-button {
+  position: absolute;
+  left: 1365px;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  background: rgba(255, 255, 255, 0.78);
+  border: 1px dashed var(--office-border);
+  border-radius: 0;
+  box-shadow: 0 2px 8px rgba(26, 26, 26, 0.08);
+  opacity: 0.62;
+  cursor: pointer;
+  pointer-events: auto;
+  overflow: hidden;
+  color: var(--excel-green-deep);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.buff-edit-secondary-button.is-active {
+  opacity: 1;
+  background: #ffffff;
+  border-style: solid;
+  border-color: #8b5cf6;
+  box-shadow:
+    0 0 0 2px rgba(139, 92, 246, 0.28),
+    0 2px 8px rgba(26, 26, 26, 0.14);
+}
+
+.buff-edit-secondary-avatar-button {
+  border-radius: 50%;
+}
+
+.buff-edit-secondary-button img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.buff-edit-secondary-button span {
+  position: relative;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  line-height: 1;
+}
+
+.buff-edit-box-select-button,
+.buff-edit-clear-selection-button,
+.buff-edit-filter-button,
+.buff-edit-mode-button {
+  position: absolute;
+  left: 16px;
+  width: 32px;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  color: var(--excel-green-deep);
+  background: rgba(255, 255, 255, 0.92);
+  border: 1px solid var(--office-border);
+  border-radius: 0;
+  box-shadow: 0 2px 8px rgba(26, 26, 26, 0.12);
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+.buff-edit-box-select-button:disabled,
+.buff-edit-clear-selection-button:disabled,
+.buff-edit-filter-button:disabled,
+.buff-edit-mode-button:disabled {
+  opacity: 0.38;
+  cursor: not-allowed;
+}
+
+.buff-edit-box-select-button {
+  top: 48px;
+}
+
+.buff-edit-clear-selection-button {
+  top: 88px;
+}
+
+.buff-edit-filter-button {
+  top: 128px;
+}
+
+.buff-edit-mode-button {
+  top: 168px;
+}
+
+.buff-edit-box-select-button:hover,
+.buff-edit-box-select-button.is-active,
+.buff-edit-clear-selection-button:hover,
+.buff-edit-filter-button:hover,
+.buff-edit-filter-button.is-active,
+.buff-edit-mode-button:hover,
+.buff-edit-mode-button.is-active {
+  color: var(--excel-white);
+  background: var(--excel-green-main);
+  border-color: var(--excel-green-main);
+}
+
+.buff-edit-box-select-button svg,
+.buff-edit-clear-selection-button svg,
+.buff-edit-filter-button svg,
+.buff-edit-mode-button svg {
+  width: 18px;
+  height: 18px;
+  fill: currentColor;
+  pointer-events: none;
 }
 
 .buff-edit-mask {
@@ -23,6 +169,26 @@
   position: absolute;
   inset: 0;
   z-index: 4;
+}
+
+.buff-edit-box-select-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 7;
+  cursor: crosshair;
+}
+
+.buff-edit-box-select-layer.is-dragging {
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.buff-edit-box-select-rect {
+  position: absolute;
+  box-sizing: border-box;
+  background: rgba(16, 124, 65, 0.16);
+  border: 1px dashed var(--excel-green-deep);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.36);
+  pointer-events: none;
 }
 
 .buff-batch-edit-workbench .canvas-skill-button {
@@ -184,17 +350,17 @@
 }
 
 .buff-batch-edit-workbench .canvas-skill-button.selected .skill-button-base {
-  border: 2px solid #fff59d;
+  border: 2px solid #8b5cf6;
   box-shadow:
-    0 0 0 1px rgba(24, 92, 55, 0.55),
-    0 3px 12px rgba(24, 92, 55, 0.28);
+    0 0 0 1px rgba(109, 40, 217, 0.48),
+    0 3px 12px rgba(109, 40, 217, 0.34);
 }
 
 .buff-batch-edit-workbench .canvas-skill-button.selected .skill-button-orb {
-  border-color: #fff59d;
+  border-color: #8b5cf6;
   box-shadow:
-    0 0 0 2px rgba(24, 92, 55, 0.36),
-    0 3px 12px rgba(24, 92, 55, 0.28);
+    0 0 0 2px rgba(109, 40, 217, 0.38),
+    0 3px 12px rgba(109, 40, 217, 0.34);
 }
 
 .buff-edit-empty {
@@ -209,20 +375,180 @@
 }
 
 .buff-edit-right-zone {
+  /*
+   * Real right panel:
+   * float above the fake 240px grid column and visually cover 300px from the
+   * right edge. Do not let this panel participate in grid width calculation.
+   */
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 60px;
+  z-index: 12;
+  width: 300px;
+  min-width: 300px;
+  overflow: hidden;
   background: #f7f8f9;
   border-left: var(--border-width) solid var(--border-color);
+  box-shadow: -8px 0 18px rgba(26, 26, 26, 0.08);
 }
 
 .buff-edit-right-placeholder {
   height: 100%;
+  overflow: auto;
   background: #f7f8f9;
 }
 
-.buff-edit-selection-counter {
-  color: rgba(255, 255, 255, 0.78);
-  background: rgba(0, 0, 0, 0.22);
-  border: 1px solid rgba(255, 255, 255, 0.18);
-  padding: 4px 10px;
-  font-size: 12px;
+.buff-edit-right-panel {
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px;
+  box-sizing: border-box;
+  overflow: auto;
+  background: #f7f8f9;
+}
+
+.buff-edit-right-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  border-bottom: 1px solid var(--office-border);
+  padding-bottom: 8px;
+}
+
+.buff-edit-right-head h3,
+.buff-edit-right-section h4 {
+  margin: 0;
+  color: var(--excel-green-deep);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.buff-edit-right-head span {
+  color: var(--ide-text-muted);
+  font-size: 11px;
   font-weight: 700;
+}
+
+.buff-edit-right-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.buff-edit-tag-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-content: flex-start;
+}
+
+.buff-edit-buff-card {
+  width: calc(50% - 3px);
+  min-width: 96px;
+  max-width: 100%;
+  height: 52px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 5px 7px;
+  box-sizing: border-box;
+  color: #444444;
+  background: #ffffff;
+  border: 1px solid var(--office-border);
+  border-left: 1px solid var(--office-border);
+  border-radius: 0;
+  font-size: 9px;
+  line-height: 1.15;
+  text-align: left;
+  cursor: pointer;
+  overflow: hidden;
+}
+
+.buff-edit-buff-card:disabled {
+  cursor: default;
+}
+
+.buff-edit-buff-card.is-selected {
+  color: #444444;
+  background: #ffffff;
+  border-color: var(--office-border);
+  border-left: 3px solid var(--excel-green-main);
+  box-shadow: 0 2px 8px rgba(16, 124, 65, 0.18);
+}
+
+.buff-edit-buff-card.is-white {
+  color: #444444;
+  background: #ffffff;
+  border-color: var(--office-border);
+  border-left-color: var(--office-border);
+}
+
+.buff-edit-buff-card-title {
+  max-width: 100%;
+  color: #111111;
+  font-size: 10px;
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.buff-edit-buff-card span {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.buff-edit-buff-card.is-selected .buff-edit-buff-card-title {
+  color: #111111;
+}
+
+.buff-edit-selected-button-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.buff-edit-selected-button-card {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 7px 8px;
+  background: #ffffff;
+  border: 1px solid var(--office-border);
+}
+
+.buff-edit-selected-button-card strong {
+  color: var(--office-body);
+  font-size: 12px;
+  line-height: 1.2;
+}
+
+.buff-edit-selected-button-card span,
+.buff-edit-right-empty {
+  color: var(--ide-text-muted);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.buff-edit-selection-counter {
+  min-width: 66px;
+  box-sizing: border-box;
+  color: #ffffff;
+  background: rgba(109, 40, 217, 0.88);
+  border: 1px solid rgba(255, 255, 255, 0.52);
+  padding: 4px 8px;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 14px;
+  text-align: center;
+  box-shadow: 0 2px 8px rgba(26, 26, 26, 0.18);
+  pointer-events: none;
 }

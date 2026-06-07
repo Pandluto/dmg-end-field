@@ -8,6 +8,11 @@
 
 .canvas-layout {
   display: grid;
+  /*
+   * Fake right column:
+   * keep the historical 1200 + 240 workbench reference width for left-canvas
+   * centering and snap math. The visible right panel is floated separately.
+   */
   grid-template-columns: minmax(1200px, 1fr) 240px;
   flex: 1;
   position: relative;
@@ -36,11 +41,19 @@
 }
 
 .canvas-right-zone {
-  position: relative;
-  z-index: 1;
-  grid-column: 2;
-  min-width: 240px;
-  height: 100%;
+  /*
+   * Real right panel:
+   * render above the fake 240px grid column and cover 300px from the right
+   * edge without changing the left canvas reference width.
+   */
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 60px;
+  z-index: 12;
+  width: 300px;
+  min-width: 300px;
+  height: auto;
   min-height: 0;
   overflow: hidden;
   background: transparent;
@@ -2012,7 +2025,11 @@
   border-radius: 0 !important;
 }
 
-/* Workspace coordinate contract: right panel is fixed; left snap area consumes remaining space. */
+/*
+ * Workspace coordinate contract:
+ * - fake right grid column stays 240px for legacy left-canvas reference width
+ * - real right panel floats above it at 300px and must not affect grid sizing
+ */
 .canvas-layout {
   grid-template-columns: minmax(1200px, 1fr) 240px;
   width: auto;
@@ -2033,9 +2050,15 @@
 }
 
 .canvas-right-zone {
-  width: 240px;
-  min-width: 240px;
-  max-width: 240px;
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 60px;
+  z-index: 12;
+  width: 300px;
+  min-width: 300px;
+  max-width: 300px;
+  height: auto;
 }
 
 .canvas-grid-shell {
