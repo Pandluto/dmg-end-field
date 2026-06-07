@@ -334,12 +334,13 @@
     </style>
   </head>
   <body>
+    <!-- Legacy shell reference. The Electron app currently loads /shell/index.html from public/shell via Vite/dist. -->
     <main class="shell">
       <section class="hero">
         <p class="eyebrow">独立 Electron 外壳</p>
         <h1>桌面控制控制台</h1>
         <p>
-          此外壳旨在成为本地控制平面，用于捕获、识别、指针自动化以及未来的 MaaEnd 集成。现在主界面完全由 Electron 托管，固定为 1440x900 的 1x 内容区，并忽略 Windows 缩放。右上角关闭只会收起到托盘，只有“完全关闭”才会结束整个进程。
+          此外壳旨在成为本地控制平面，用于捕获、识别、指针自动化以及未来的 MaaEnd 集成。现在主界面完全由 Electron 托管，基础内容区为 1700x900，并提供桌面倍率适配。右上角关闭只会收起到托盘，只有“完全关闭”才会结束整个进程。
         </p>
         <div class="hero-actions">
           <button id="open-web" type="button" class="secondary-button">打开主界面</button>
@@ -348,6 +349,7 @@
         <div class="hero-settings">
           <div class="hero-settings-row">
             <span class="hero-settings-label">桌面倍率</span>
+            <button type="button" class="secondary-button scale-button" data-scale="0.8x">0.8x</button>
             <button type="button" class="secondary-button scale-button" data-scale="1x">1x</button>
             <button type="button" class="secondary-button scale-button" data-scale="1.25x">1.25x</button>
             <button type="button" class="secondary-button scale-button" data-scale="1.5x">1.5x</button>
@@ -758,7 +760,7 @@
             appendLog(
               settings.restartRequired
                 ? `桌面倍率已保存 | 当前 ${settings.currentScale} | 关闭后下次启动应用 ${settings.savedScale}`
-                : `桌面倍率未变化 | 当前 ${settings.currentScale}`
+                : `桌面倍率已生效 | 当前 ${settings.currentScale}`
             );
           } catch (error) {
             const message = error instanceof Error ? error.message : String(error);

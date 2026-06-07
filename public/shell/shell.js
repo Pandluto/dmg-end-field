@@ -874,7 +874,7 @@
         appendLog(
           settings.restartRequired
             ? `桌面倍率已保存 | 当前 ${settings.currentScale} | 关闭后下次启动应用 ${settings.savedScale}`
-            : `桌面倍率未变化 | 当前 ${settings.currentScale}`
+            : `桌面倍率已生效 | 当前 ${settings.currentScale}`
         );
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);

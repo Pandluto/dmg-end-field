@@ -408,6 +408,7 @@
     </style>
   </head>
   <body>
+    <!-- Active Electron shell. Dev loads this file at /shell/index.html through Vite; build copies it to dist/shell. -->
     <main class="app-shell">
       <aside class="sidebar">
         <div class="close-mark">×</div>
@@ -552,8 +553,9 @@
               </div>
             </div>
             <div class="setting-row">
-              <div><div class="setting-title">桌面倍率</div><div class="setting-help">保存后下次启动生效。</div></div>
+              <div><div class="setting-title">桌面倍率</div><div class="setting-help">调整 Electron 主界面内容缩放。</div></div>
               <div class="setting-control">
+                <button type="button" class="scale-button" data-scale="0.8x">0.8x</button>
                 <button type="button" class="scale-button" data-scale="1x">1x</button>
                 <button type="button" class="scale-button" data-scale="1.25x">1.25x</button>
                 <button type="button" class="scale-button" data-scale="1.5x">1.5x</button>

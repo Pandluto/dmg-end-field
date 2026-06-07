@@ -48,28 +48,53 @@
 
 ## 快速启动
 
+### macOS 环境清单
+
+建议在个人文档目录下开发，例如:
+
+```bash
+~/Documents/coding/dmg-end-field
+```
+
+本项目当前使用的本地开发环境:
+
+- macOS Apple Silicon / arm64
+- Node.js `v24.16.0`
+- pnpm `11.5.2`
+- npm `11.16.0`
+- Electron `35.x`
+- Python/pip 不是前端启动必需项，仅在后续脚本或工具链需要时再使用
+
+确认环境:
+
+```bash
+node --version
+pnpm --version
+npm --version
+```
+
 先装依赖:
 
 ```bash
-npm install
+pnpm install
 ```
 
 启动 Web 开发环境:
 
 ```bash
-npm run dev
+pnpm run dev
 ```
 
 启动 Electron 开发环境:
 
 ```bash
-npm run electron:dev
+pnpm run electron:dev
 ```
 
 只开壳层模式:
 
 ```bash
-npm run electron:shell
+pnpm run electron:shell
 ```
 
 ## 构建
@@ -77,13 +102,13 @@ npm run electron:shell
 构建前端资源:
 
 ```bash
-npm run build
+pnpm run build
 ```
 
 构建 Electron 便携版:
 
 ```bash
-npm run electron:build
+pnpm run electron:build
 ```
 
 默认打包输出目录是 `release/`。  

@@ -17,6 +17,7 @@ const {
 } = require('electron');
 
 const DEV_WEB_URL = 'http://127.0.0.1:3030/';
+// /shell/index.html is served from public/shell in dev and dist/shell after build.
 const DEV_SHELL_URL = 'http://127.0.0.1:3030/shell/index.html';
 const BRIDGE_HOST = '127.0.0.1';
 const BRIDGE_PORT = 31457;
@@ -31,6 +32,7 @@ const isDev = process.argv.includes('--dev');
 const shellOnly = process.argv.includes('--shell-only');
 const gotSingleInstanceLock = app.requestSingleInstanceLock();
 const DESKTOP_SCALE_PRESETS = {
+  '0.8x': '0.8',
   '1x': '1',
   '1.25x': '1.25',
   '1.5x': '1.5',
@@ -183,7 +185,8 @@ function getDesktopSettingsPayload() {
     currentScale: activeDesktopScaleKey,
     savedScale: savedDesktopScaleKey,
     availableScales: Object.keys(DESKTOP_SCALE_PRESETS),
-    restartRequired: activeDesktopScaleKey !== savedDesktopScaleKey,
+    scaleMode: 'webContents',
+    restartRequired: false,
   };
 }
 
@@ -198,10 +201,6 @@ function getLlmSettingsPayload() {
 loadDesktopSettings();
 loadLlmSettings();
 activeDesktopScaleKey = savedDesktopScaleKey;
-app.commandLine.appendSwitch(
-  'force-device-scale-factor',
-  DESKTOP_SCALE_PRESETS[activeDesktopScaleKey] ?? DESKTOP_SCALE_PRESETS['1x']
-);
 
 function buildWindowOptions(role, extra = {}) {
   return {
@@ -310,15 +309,62 @@ function createTray() {
   updateTrayMenu();
 }
 
-function lockWindowZoom(windowInstance) {
+function getScaleFactor(scaleKey) {
+  const rawScale = DESKTOP_SCALE_PRESETS[scaleKey] ?? DESKTOP_SCALE_PRESETS['1x'];
+  const parsed = Number.parseFloat(rawScale);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 1;
+}
+
+function getScaledContentSize(baseWidth, baseHeight, scaleKey) {
+  const scale = getScaleFactor(scaleKey);
+  return {
+    width: Math.round(baseWidth * scale),
+    height: Math.round(baseHeight * scale),
+  };
+}
+
+function getScaledMainContentSize(scaleKey) {
+  return getScaledContentSize(MAIN_CONTENT_WIDTH, MAIN_CONTENT_HEIGHT, scaleKey);
+}
+
+function getScaledShellContentSize(scaleKey) {
+  return getScaledContentSize(SHELL_WIDTH, SHELL_HEIGHT, scaleKey);
+}
+
+function applyWindowContentSize(windowInstance, baseWidth, baseHeight, scaleKey) {
+  if (!windowInstance || windowInstance.isDestroyed()) {
+    return;
+  }
+
+  const { width, height } = getScaledContentSize(baseWidth, baseHeight, scaleKey);
+  windowInstance.setMinimumSize(width, height);
+  windowInstance.setMaximumSize(width, height);
+  windowInstance.setContentSize(width, height);
+}
+
+function applyMainWindowContentSize(windowInstance, scaleKey) {
+  applyWindowContentSize(windowInstance, MAIN_CONTENT_WIDTH, MAIN_CONTENT_HEIGHT, scaleKey);
+}
+
+function applyShellWindowContentSize(windowInstance, scaleKey) {
+  applyWindowContentSize(windowInstance, SHELL_WIDTH, SHELL_HEIGHT, scaleKey);
+}
+
+function applyWebContentsScale(windowInstance, scaleKey) {
   if (!windowInstance || windowInstance.isDestroyed()) {
     return;
   }
 
   const { webContents } = windowInstance;
-  webContents.setZoomFactor(1);
-  webContents.setZoomLevel(0);
+  webContents.setZoomFactor(getScaleFactor(scaleKey));
   webContents.setVisualZoomLevelLimits(1, 1).catch(() => {});
+}
+
+function applyDesktopScaleToOpenWindows() {
+  applyMainWindowContentSize(mainWindow, activeDesktopScaleKey);
+  applyWebContentsScale(mainWindow, activeDesktopScaleKey);
+  applyShellWindowContentSize(shellWindow, activeDesktopScaleKey);
+  applyWebContentsScale(shellWindow, activeDesktopScaleKey);
 }
 
 function applyWindowLifecycle(windowInstance, hideHandler, shouldAllowClose) {
@@ -343,14 +389,15 @@ function createMainWindow() {
     return mainWindow;
   }
 
+  const mainContentSize = getScaledMainContentSize(activeDesktopScaleKey);
   mainWindow = new BrowserWindow(
     buildWindowOptions('main', {
-      width: MAIN_CONTENT_WIDTH,
-      height: MAIN_CONTENT_HEIGHT,
-      minWidth: MAIN_CONTENT_WIDTH,
-      minHeight: MAIN_CONTENT_HEIGHT,
-      maxWidth: MAIN_CONTENT_WIDTH,
-      maxHeight: MAIN_CONTENT_HEIGHT,
+      width: mainContentSize.width,
+      height: mainContentSize.height,
+      minWidth: mainContentSize.width,
+      minHeight: mainContentSize.height,
+      maxWidth: mainContentSize.width,
+      maxHeight: mainContentSize.height,
       resizable: false,
       minimizable: true,
       maximizable: false,
@@ -368,7 +415,8 @@ function createMainWindow() {
   }
 
   mainWindow.webContents.on('did-finish-load', () => {
-    lockWindowZoom(mainWindow);
+    applyMainWindowContentSize(mainWindow, activeDesktopScaleKey);
+    applyWebContentsScale(mainWindow, activeDesktopScaleKey);
   });
 
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
@@ -430,12 +478,15 @@ function createShellWindow(options = {}) {
     return shellWindow;
   }
 
+  const shellContentSize = getScaledShellContentSize(activeDesktopScaleKey);
   shellWindow = new BrowserWindow(
     buildWindowOptions('shell', {
-      width: SHELL_WIDTH,
-      height: SHELL_HEIGHT,
-      minWidth: 640,
-      minHeight: 520,
+      width: shellContentSize.width,
+      height: shellContentSize.height,
+      minWidth: shellContentSize.width,
+      minHeight: shellContentSize.height,
+      maxWidth: shellContentSize.width,
+      maxHeight: shellContentSize.height,
       title: 'DEF Desktop Shell',
       show: !startHidden,
       backgroundColor: '#edf5ee',
@@ -453,7 +504,8 @@ function createShellWindow(options = {}) {
 
   shellWindow.webContents.on('did-finish-load', () => {
     appendRuntimeLog('shell', `did-finish-load ${shellWindow.webContents.getURL()}`);
-    lockWindowZoom(shellWindow);
+    applyShellWindowContentSize(shellWindow, activeDesktopScaleKey);
+    applyWebContentsScale(shellWindow, activeDesktopScaleKey);
   });
 
   shellWindow.webContents.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL) => {
@@ -627,12 +679,17 @@ function readJsonRequest(request) {
 }
 
 function getShellRuntimeInfo() {
+  const shellContentSize = getScaledShellContentSize(activeDesktopScaleKey);
   return {
     running: Boolean(shellWindow && !shellWindow.isDestroyed()),
     pid: process.pid,
     startedAt: shellWindow && !shellWindow.isDestroyed() ? shellStartedAt : null,
     minimized: Boolean(shellWindow && !shellWindow.isDestroyed() && shellWindow.isMinimized()),
     visible: Boolean(shellWindow && !shellWindow.isDestroyed() && shellWindow.isVisible()),
+    width: shellContentSize.width,
+    height: shellContentSize.height,
+    baseWidth: SHELL_WIDTH,
+    baseHeight: SHELL_HEIGHT,
     state: getShellVisibilityState(),
   };
 }
@@ -651,6 +708,7 @@ function getAiCliRestRuntimeInfo() {
 }
 
 function getBridgeHealth() {
+  const mainContentSize = getScaledMainContentSize(activeDesktopScaleKey);
   return {
     ok: true,
     service: 'def-local-bridge',
@@ -662,8 +720,10 @@ function getBridgeHealth() {
       running: Boolean(mainWindow && !mainWindow.isDestroyed()),
       visible: Boolean(mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible()),
       state: getMainWindowState(),
-      width: MAIN_CONTENT_WIDTH,
-      height: MAIN_CONTENT_HEIGHT,
+      width: mainContentSize.width,
+      height: mainContentSize.height,
+      baseWidth: MAIN_CONTENT_WIDTH,
+      baseHeight: MAIN_CONTENT_HEIGHT,
       ...getDesktopSettingsPayload(),
     },
   };
@@ -736,12 +796,15 @@ function waitForProcessExit(child, timeoutMs = 5000) {
 
 function openWeb() {
   restoreMainWindow();
+  const mainContentSize = getScaledMainContentSize(activeDesktopScaleKey);
   return {
     opened: true,
     mode: isDev ? 'vite' : 'localhost',
     url: isDev ? DEV_WEB_URL : PROD_WEB_URL,
-    width: MAIN_CONTENT_WIDTH,
-    height: MAIN_CONTENT_HEIGHT,
+    width: mainContentSize.width,
+    height: mainContentSize.height,
+    baseWidth: MAIN_CONTENT_WIDTH,
+    baseHeight: MAIN_CONTENT_HEIGHT,
     ...getDesktopSettingsPayload(),
   };
 }
@@ -1459,7 +1522,9 @@ ipcMain.handle('desktop:set-scale', (_event, scaleKey) => {
   }
 
   savedDesktopScaleKey = scaleKey;
+  activeDesktopScaleKey = scaleKey;
   saveDesktopSettings();
+  applyDesktopScaleToOpenWindows();
   return getDesktopSettingsPayload();
 });
 ipcMain.handle('desktop:open-web', () => openWeb());
