@@ -2933,7 +2933,11 @@ async function applyLocalDataArchiveInMainWindow(archive, options = {}) {
     const targetSections = sections.includes('all') ? knownSections : sections.filter((section) => section !== 'all');
     const missingSections = targetSections.filter((section) => {
       const requiredKeys = payload.requiredSessionKeys[section];
-      return Array.isArray(requiredKeys) && requiredKeys.length > 0 && !requiredKeys.some((key) => key in sessionValues);
+      const hasCurrentSession = Array.isArray(requiredKeys) && requiredKeys.some((key) => key in sessionValues);
+      const hasTimelineSnapshotArchive =
+        section === 'timeline' &&
+        Object.prototype.hasOwnProperty.call(payload.archive?.storage?.local || {}, 'def.timeline.snapshot-archive.v1');
+      return Array.isArray(requiredKeys) && requiredKeys.length > 0 && !hasCurrentSession && !hasTimelineSnapshotArchive;
     });
     if (missingSections.length > 0) {
       const archiveSessionKeys = Object.keys(payload.archive?.storage?.session || {});

@@ -34,6 +34,7 @@
       'def.all-buff-list.v1',
     ],
   };
+  const TIMELINE_SNAPSHOT_ARCHIVE_KEY = 'def.timeline.snapshot-archive.v1';
   const LOCAL_BRIDGE_ORIGIN = 'http://127.0.0.1:31457';
   const AI_CLI_REST_ORIGIN = 'http://127.0.0.1:17321';
 
@@ -117,23 +118,33 @@
       ? IMPORT_SECTIONS
       : sections;
     const sessionValues = archive?.storage?.session || {};
-    const missingSections = requestedSections.filter((section) => {
+    const localValues = archive?.storage?.local || {};
+    const missingCurrentSections = requestedSections.filter((section) => {
       const requiredKeys = REQUIRED_IMPORT_SESSION_KEYS[section];
       return Array.isArray(requiredKeys) && requiredKeys.length > 0 && !requiredKeys.some((key) => key in sessionValues);
     });
-    const effectiveSections = requestedSections.filter((section) => !missingSections.includes(section));
-    if (missingSections.length === 0) {
-      return { ok: true, sections, missingSections: [], warning: '' };
+    const snapshotOnlySections = missingCurrentSections.filter((section) => (
+      section === 'timeline' && TIMELINE_SNAPSHOT_ARCHIVE_KEY in localValues
+    ));
+    const blockedSections = missingCurrentSections.filter((section) => !snapshotOnlySections.includes(section));
+    const effectiveSections = requestedSections.filter((section) => !blockedSections.includes(section));
+    if (missingCurrentSections.length === 0) {
+      return { ok: true, sections, missingSections: [], snapshotOnlySections: [], warning: '' };
     }
     const archiveSessionKeys = Object.keys(sessionValues);
-    const warning = (
-      `存档缺少当前态 sessionStorage，已跳过：${missingSections.join(' / ')}。` +
-      `当前存档 session key：${archiveSessionKeys.join(', ') || '无'}`
-    );
+    const notices = [];
+    if (snapshotOnlySections.length > 0) {
+      notices.push(`存档缺少当前态 sessionStorage，${snapshotOnlySections.join(' / ')} 仅恢复快照库`);
+    }
+    if (blockedSections.length > 0) {
+      notices.push(`已跳过：${blockedSections.join(' / ')}`);
+    }
+    const warning = `${notices.join('；')}。当前存档 session key：${archiveSessionKeys.join(', ') || '无'}`;
     return {
       ok: effectiveSections.length > 0,
       sections: effectiveSections,
-      missingSections,
+      missingSections: missingCurrentSections,
+      snapshotOnlySections,
       warning,
     };
   };

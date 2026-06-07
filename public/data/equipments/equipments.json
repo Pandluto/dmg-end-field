@@ -1,5 +1,5 @@
 {
-  "updatedAt": "2026-06-07T03:12:27.786Z",
+  "updatedAt": "2026-06-07T06:32:13.658Z",
   "gearSets": {
     "gear-set-tian-zai-fang-hu": {
       "gearSetId": "gear-set-tian-zai-fang-hu",
@@ -5556,6 +5556,44 @@
             }
           }
         }
+      },
+      "threePieceBuffs": {
+        "effect1": {
+          "effectId": "effect1",
+          "name": "应龙·攻击力+15%",
+          "category": "positive",
+          "typeKey": "atkPercentBoost",
+          "value": 0.15,
+          "unit": "percent",
+          "raw": ""
+        },
+        "effect2": {
+          "effectId": "effect2",
+          "name": "应龙·连携技伤害+20%*1",
+          "category": "condition",
+          "typeKey": "chainSkillDmgBonus",
+          "value": 0.2,
+          "unit": "percent",
+          "raw": ""
+        },
+        "effect3": {
+          "effectId": "effect3",
+          "name": "应龙·连携技伤害+20%*2",
+          "category": "condition",
+          "typeKey": "chainSkillDmgBonus",
+          "value": 0.4,
+          "unit": "percent",
+          "raw": ""
+        },
+        "effect4": {
+          "effectId": "effect4",
+          "name": "应龙·连携技伤害+20%*3",
+          "category": "condition",
+          "typeKey": "chainSkillDmgBonus",
+          "value": 0.6,
+          "unit": "percent",
+          "raw": ""
+        }
       }
     },
     "gear-set-chao-yong": {
@@ -6141,6 +6179,17 @@
               }
             }
           }
+        }
+      },
+      "threePieceBuffs": {
+        "effect1": {
+          "effectId": "effect1",
+          "name": "长息·队友伤害增加",
+          "category": "condition",
+          "typeKey": "allDmgBonus",
+          "value": 0.16,
+          "unit": "percent",
+          "raw": ""
         }
       }
     },

@@ -209,7 +209,11 @@ function validateCurrentStorageCoverage(
     : sections.filter((section): section is Exclude<LocalDataSection, 'all'> => section !== 'all');
   const missingSections = targetSections.filter((section) => {
     const requiredKeys = REQUIRED_CURRENT_SESSION_KEYS_BY_SECTION[section];
-    return requiredKeys?.length && !requiredKeys.some((key) => key in sessionValues);
+    const hasCurrentSession = requiredKeys?.length && requiredKeys.some((key) => key in sessionValues);
+    const hasTimelineSnapshotArchive =
+      section === 'timeline' &&
+      STORAGE_KEYS.TIMELINE_SNAPSHOT_ARCHIVE in (archive.storage?.local || {});
+    return requiredKeys?.length && !hasCurrentSession && !hasTimelineSnapshotArchive;
   });
   if (missingSections.length === 0) {
     return;
