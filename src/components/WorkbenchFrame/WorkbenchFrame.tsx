@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { useAppContext } from '../../context/AppContext';
 import { SelectionPanel } from '../SelectionPanel';
 import { CanvasBoard } from '../CanvasBoard';
+import { BuffBatchEditWorkbench } from '../BuffBatchEditWorkbench';
 import { setSelectedSkillButton } from '../../hooks/useSkillButtonBuffs';
 import { APP_ROUTE_PATHS, navigateToAppPath } from '../../utils/appRoute';
 import { STORAGE_KEYS } from '../../constants/storage-keys';
@@ -13,7 +14,7 @@ import {
 } from '../../utils/localAgent';
 import './WorkbenchFrame.css';
 
-export type WorkbenchMode = 'selection' | 'timeline' | 'toolPanel';
+export type WorkbenchMode = 'selection' | 'timeline' | 'toolPanel' | 'buffBatchEdit';
 
 export function WorkbenchFrame() {
   const { state, dispatch } = useAppContext();
@@ -92,6 +93,8 @@ export function WorkbenchFrame() {
         return '排轴';
       case 'toolPanel':
         return '侧边栏';
+      case 'buffBatchEdit':
+        return '批量Buff';
       default:
         return '选人';
     }
@@ -259,7 +262,7 @@ export function WorkbenchFrame() {
           <button
             className={`workbench-drawer-tab ${workbenchMode === 'toolPanel' ? 'is-active' : ''}`}
             type="button"
-            onClick={() => handleModeClick('toolPanel')}
+            onClick={() => handleModeClick('buffBatchEdit')}
             disabled={!canAccessCanvas}
             title={!canAccessCanvas ? '请先选择干员' : ''}
           >
@@ -289,7 +292,15 @@ export function WorkbenchFrame() {
             </div>
           </div>
         )}
-        {currentView === 'canvas' && (
+        {currentView === 'canvas' && workbenchMode === 'buffBatchEdit' && (
+          <BuffBatchEditWorkbench
+            selectedCharacters={selectedCharacters}
+            workbenchControl={workbenchControl}
+            bottomRightControl={bottomNavControls}
+            isWorkbenchTopZoneOpen={isDrawerOpen}
+          />
+        )}
+        {currentView === 'canvas' && workbenchMode !== 'buffBatchEdit' && (
           <CanvasBoard
             workbenchMode={workbenchMode}
             isToolPanelVisible={shouldShowToolPanel}

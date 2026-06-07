@@ -1,0 +1,228 @@
+.buff-edit-layout {
+  background: var(--excel-gray-1);
+}
+
+.buff-edit-canvas {
+  position: relative;
+}
+
+.buff-edit-mask {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  background: rgba(128, 128, 128, 0.58);
+  pointer-events: none;
+}
+
+.buff-edit-canvas .canvas-grid-shell,
+.buff-edit-canvas .canvas-grid-stack {
+  pointer-events: none;
+}
+
+.buff-edit-button-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+}
+
+.buff-batch-edit-workbench .canvas-skill-button {
+  position: absolute;
+  cursor: pointer;
+  z-index: 10;
+  overflow: visible;
+  border: 0;
+  background: transparent;
+  user-select: none;
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+  touch-action: none;
+}
+
+.buff-batch-edit-workbench .canvas-skill-button:hover {
+  z-index: 20;
+}
+
+.buff-batch-edit-workbench .canvas-skill-button.selected {
+  z-index: 30;
+}
+
+.buff-batch-edit-workbench .skill-button-anchor {
+  position: absolute;
+  left: var(--skill-button-radius);
+  top: var(--skill-button-radius);
+  width: 0;
+  height: 0;
+  pointer-events: none;
+}
+
+.buff-batch-edit-workbench .skill-button-base {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 80px;
+  height: 30px;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 1px;
+  padding: 2px 10px 2px calc(var(--skill-button-radius) + 4px);
+  overflow: hidden;
+  background: var(--skill-button-element-color);
+  border: 1px solid rgba(24, 92, 55, 0.32);
+  border-radius: 0;
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.78) inset,
+    0 2px 8px rgba(26, 26, 26, 0.12);
+  transition:
+    border-color 0.14s ease,
+    box-shadow 0.14s ease,
+    filter 0.14s ease,
+    background-color 0.14s ease;
+}
+
+.buff-batch-edit-workbench .skill-button-type {
+  color: #111111;
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: 0.02em;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.5);
+  flex-shrink: 0;
+}
+
+.buff-batch-edit-workbench .skill-button-name {
+  font-size: 10px;
+  font-weight: 600;
+  color: #111111;
+  line-height: 1.1;
+  white-space: normal;
+  word-break: break-all;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.5);
+  width: 100%;
+}
+
+.buff-batch-edit-workbench .skill-button-lock {
+  color: #185c37;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.buff-batch-edit-workbench .skill-button-orb {
+  position: absolute;
+  left: calc(-1 * var(--skill-button-radius));
+  top: calc(-1 * var(--skill-button-radius));
+  width: var(--skill-button-size);
+  height: var(--skill-button-size);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  box-sizing: border-box;
+  border: 2px solid rgba(255, 255, 255, 0.92);
+  border-radius: 50%;
+  background: var(--skill-button-element-color);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.72) inset,
+    0 2px 8px rgba(26, 26, 26, 0.16);
+  z-index: 2;
+  transition:
+    border-color 0.14s ease,
+    box-shadow 0.14s ease,
+    filter 0.14s ease;
+}
+
+.buff-batch-edit-workbench .skill-button-orb .skill-icon {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 50%;
+  pointer-events: none;
+  z-index: 2;
+}
+
+.buff-batch-edit-workbench .skill-button-orb .skill-label {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1;
+  color: #111111;
+  font-size: var(--font-size-xl);
+  font-weight: 800;
+  pointer-events: none;
+}
+
+.buff-batch-edit-workbench .skill-button-orb .skill-label.hidden {
+  display: none;
+}
+
+.buff-batch-edit-workbench .canvas-skill-button:hover .skill-button-base {
+  border-color: rgba(24, 92, 55, 0.68);
+  filter: brightness(1.05);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.82) inset,
+    0 3px 10px rgba(24, 92, 55, 0.22);
+}
+
+.buff-batch-edit-workbench .canvas-skill-button:hover .skill-button-orb {
+  border-color: #fff59d;
+  filter: brightness(1.04);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.82) inset,
+    0 3px 10px rgba(24, 92, 55, 0.24);
+}
+
+.buff-batch-edit-workbench .canvas-skill-button.selected .skill-button-base {
+  border: 2px solid #fff59d;
+  box-shadow:
+    0 0 0 1px rgba(24, 92, 55, 0.55),
+    0 3px 12px rgba(24, 92, 55, 0.28);
+}
+
+.buff-batch-edit-workbench .canvas-skill-button.selected .skill-button-orb {
+  border-color: #fff59d;
+  box-shadow:
+    0 0 0 2px rgba(24, 92, 55, 0.36),
+    0 3px 12px rgba(24, 92, 55, 0.28);
+}
+
+.buff-edit-empty {
+  position: absolute;
+  left: 50%;
+  top: 45%;
+  z-index: 3;
+  transform: translate(-50%, -50%);
+  color: rgba(255, 255, 255, 0.72);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.buff-edit-right-zone {
+  background: #f7f8f9;
+  border-left: var(--border-width) solid var(--border-color);
+}
+
+.buff-edit-right-placeholder {
+  height: 100%;
+  background: #f7f8f9;
+}
+
+.buff-edit-selection-counter {
+  color: rgba(255, 255, 255, 0.78);
+  background: rgba(0, 0, 0, 0.22);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  padding: 4px 10px;
+  font-size: 12px;
+  font-weight: 700;
+}
