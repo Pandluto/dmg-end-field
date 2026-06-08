@@ -33,6 +33,7 @@ const shellOnly = process.argv.includes('--shell-only');
 const gotSingleInstanceLock = app.requestSingleInstanceLock();
 const DESKTOP_SCALE_PRESETS = {
   '0.8x': '0.8',
+  '0.85x': '0.85',
   '1x': '1',
   '1.25x': '1.25',
   '1.5x': '1.5',
