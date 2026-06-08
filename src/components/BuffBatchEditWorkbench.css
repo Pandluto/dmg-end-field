@@ -191,6 +191,12 @@
   border-color: #c62828;
 }
 
+.buff-edit-mode-button.is-confirm-edit {
+  color: #ffffff;
+  background: var(--excel-green-main);
+  border-color: var(--excel-green-main);
+}
+
 .buff-edit-box-select-button svg,
 .buff-edit-clear-selection-button svg,
 .buff-edit-filter-button svg,
@@ -414,6 +420,20 @@
     0 3px 12px rgba(109, 40, 217, 0.34);
 }
 
+.buff-batch-edit-workbench.is-edit-mode .canvas-skill-button.selected .skill-button-base {
+  border: 2px solid #2563eb;
+  box-shadow:
+    0 0 0 1px rgba(37, 99, 235, 0.42),
+    0 3px 12px rgba(37, 99, 235, 0.28);
+}
+
+.buff-batch-edit-workbench.is-edit-mode .canvas-skill-button.selected .skill-button-orb {
+  border-color: #2563eb;
+  box-shadow:
+    0 0 0 2px rgba(37, 99, 235, 0.32),
+    0 3px 12px rgba(37, 99, 235, 0.28);
+}
+
 .buff-batch-edit-workbench.is-add-mode .canvas-skill-button {
   cursor: copy;
 }
@@ -464,6 +484,26 @@
     0 3px 12px rgba(220, 38, 38, 0.28);
 }
 
+.buff-batch-edit-workbench .canvas-skill-button.is-edit-add-target .skill-button-base::after,
+.buff-batch-edit-workbench .canvas-skill-button.is-edit-remove-target .skill-button-base::after {
+  content: "";
+  position: absolute;
+  left: 6px;
+  right: 6px;
+  bottom: 2px;
+  height: 3px;
+  background: #16a34a;
+  pointer-events: none;
+}
+
+.buff-batch-edit-workbench .canvas-skill-button.is-edit-remove-target .skill-button-base::after {
+  background: #dc2626;
+}
+
+.buff-batch-edit-workbench .canvas-skill-button.is-edit-mixed-target .skill-button-base::after {
+  background: #eab308;
+}
+
 .buff-edit-pending-add-count {
   position: absolute;
   left: 52px;
@@ -504,6 +544,10 @@
   font-weight: 800;
   line-height: 1;
   pointer-events: none;
+}
+
+.buff-edit-pending-add-count + .buff-edit-pending-remove-count {
+  left: 82px;
 }
 
 .buff-edit-empty {
@@ -548,7 +592,7 @@
   display: flex;
   flex-direction: column;
   gap: 12px;
-  padding: 12px;
+  padding: 12px 12px 160px;
   box-sizing: border-box;
   overflow: auto;
   background: #f7f8f9;
@@ -583,6 +627,353 @@
   gap: 8px;
 }
 
+.buff-edit-candidate-section {
+  border-top: 1px solid var(--office-border);
+  padding-top: 10px;
+}
+
+.buff-edit-candidate-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.buff-edit-candidate-head h4 {
+  margin: 0;
+}
+
+.buff-edit-candidate-head span,
+.buff-edit-candidate-empty {
+  color: var(--ide-text-muted);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.buff-edit-candidate-adder {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px;
+  background: #ffffff;
+  border: 1px solid var(--office-border);
+}
+
+.buff-edit-candidate-adder-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.buff-edit-candidate-adder-head strong {
+  color: var(--office-body);
+  font-size: 12px;
+}
+
+.buff-edit-candidate-adder-head button {
+  height: 22px;
+  padding: 0 8px;
+  color: var(--office-body);
+  background: #ffffff;
+  border: 1px solid var(--office-border);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.buff-edit-candidate-search-input {
+  width: 100%;
+  height: 26px;
+  box-sizing: border-box;
+  padding: 4px 7px;
+  color: var(--office-body);
+  background: #ffffff;
+  border: 1px solid var(--office-border);
+  font-size: 12px;
+  outline: none;
+}
+
+.buff-edit-candidate-results {
+  max-height: 260px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  overflow: auto;
+}
+
+.buff-edit-candidate-result {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 6px 7px;
+  color: #444444;
+  background: #ffffff;
+  border: 1px solid var(--office-border);
+  border-left: 3px solid var(--excel-green-main);
+  text-align: left;
+  cursor: pointer;
+}
+
+.buff-edit-candidate-result strong {
+  max-width: 100%;
+  color: #111111;
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.buff-edit-candidate-result span {
+  max-width: 100%;
+  font-size: 10px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.buff-batch-edit-workbench .skill-button-inline-buff-search-mask {
+  position: absolute;
+  inset: 0;
+  z-index: 5000;
+  display: grid;
+  place-items: start center;
+  padding-top: 36px;
+  background: rgba(238, 247, 241, 0.18);
+}
+
+.buff-batch-edit-workbench .skill-button-inline-buff-search {
+  width: min(980px, 86vw);
+  min-height: min(680px, calc(100vh - 96px));
+  max-height: min(720px, 84vh);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--ide-border-subtle);
+  border-radius: var(--ide-radius-lg);
+  background: var(--ide-acrylic-bg-strong);
+  box-shadow: var(--ide-shadow);
+  backdrop-filter: blur(18px) saturate(1.2);
+  overflow: hidden;
+}
+
+.buff-batch-edit-workbench .skill-button-buff-workbench {
+  display: grid;
+  grid-template-columns: minmax(0, 7fr) minmax(240px, 3fr);
+  gap: 10px;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.buff-batch-edit-workbench .skill-button-buff-workbench-main,
+.buff-batch-edit-workbench .skill-button-buff-resource-rail,
+.buff-batch-edit-workbench .skill-button-local-buff-panel {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.buff-batch-edit-workbench .skill-button-buff-workbench-main {
+  overflow: hidden;
+}
+
+.buff-batch-edit-workbench .skill-button-local-buff-panel {
+  gap: 8px;
+  flex: 1 1 auto;
+}
+
+.buff-batch-edit-workbench .skill-button-inline-buff-search-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.buff-batch-edit-workbench .skill-button-inline-buff-search-head h5 {
+  margin: 0;
+  color: var(--excel-green-deep);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.buff-batch-edit-workbench .skill-button-inline-buff-search-head span {
+  color: var(--ide-text-muted);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.buff-batch-edit-workbench .skill-button-inline-buff-search-modes {
+  display: flex;
+  gap: 6px;
+}
+
+.buff-batch-edit-workbench .skill-button-inline-buff-search-mode {
+  min-height: 24px;
+  padding: 0 8px;
+  color: var(--office-body);
+  background: #ffffff;
+  border: 1px solid var(--office-border);
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.buff-batch-edit-workbench .skill-button-inline-buff-search-mode.is-active {
+  color: #ffffff;
+  background: var(--excel-green-main);
+  border-color: var(--excel-green-main);
+}
+
+.buff-batch-edit-workbench .skill-button-inline-buff-search-input {
+  width: 100%;
+  height: 30px;
+  box-sizing: border-box;
+  padding: 4px 8px;
+  color: var(--office-body);
+  background: #ffffff;
+  border: 1px solid var(--office-border);
+  font-size: 12px;
+  outline: none;
+}
+
+.buff-batch-edit-workbench .skill-button-inline-buff-search-results {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  overflow: auto;
+}
+
+.buff-batch-edit-workbench .skill-button-inline-buff-search-item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+  padding: 7px 8px;
+  color: #444444;
+  background: #ffffff;
+  border: 1px solid var(--office-border);
+  border-left: 3px solid var(--excel-green-main);
+  text-align: left;
+  cursor: pointer;
+}
+
+.buff-batch-edit-workbench .local-buff-search-item-head {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.buff-batch-edit-workbench .local-buff-search-item-head strong {
+  color: #111111;
+  font-size: 12px;
+}
+
+.buff-batch-edit-workbench .local-buff-search-item-head span,
+.buff-batch-edit-workbench .skill-button-inline-buff-search-item p,
+.buff-batch-edit-workbench .skill-button-inline-buff-search-empty,
+.buff-batch-edit-workbench .skill-button-buff-empty {
+  margin: 0;
+  color: var(--ide-text-muted);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.buff-batch-edit-workbench .skill-anomaly-config,
+.buff-batch-edit-workbench .skill-anomaly-board {
+  border: 1px solid var(--office-border);
+  background: #ffffff;
+  padding: 8px;
+}
+
+.buff-batch-edit-workbench .skill-anomaly-config {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 0;
+  overflow: auto;
+}
+
+.buff-batch-edit-workbench .skill-anomaly-board-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.buff-batch-edit-workbench .skill-anomaly-board-title,
+.buff-batch-edit-workbench .anomaly-config-title {
+  margin: 0 0 6px 0;
+  color: var(--excel-green-deep);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.buff-batch-edit-workbench .anomaly-config-subtitle,
+.buff-batch-edit-workbench .anomaly-live-line {
+  margin: 2px 0;
+  color: #555555;
+  font-size: 11px;
+}
+
+.buff-batch-edit-workbench .anomaly-board-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid var(--office-border);
+  background: #ffffff;
+  cursor: pointer;
+  text-align: left;
+  font-size: 9px;
+  color: #444444;
+}
+
+.buff-batch-edit-workbench .anomaly-board-card.is-state {
+  border-left: 3px solid var(--excel-green-main);
+}
+
+.buff-batch-edit-workbench .anomaly-board-card-title {
+  color: #111111;
+  font-size: 10px;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.buff-batch-edit-workbench .anomaly-board-card-delete-text {
+  align-self: flex-end;
+  color: #c62828;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.buff-batch-edit-workbench .anomaly-strip-button,
+.buff-batch-edit-workbench .anomaly-chip,
+.buff-batch-edit-workbench .anomaly-apply-btn,
+.buff-batch-edit-workbench .anomaly-select-trigger {
+  min-height: 24px;
+  padding: 0 8px;
+  color: var(--office-body);
+  background: #ffffff;
+  border: 1px solid var(--office-border);
+  font-size: 10px;
+  cursor: pointer;
+}
+
+.buff-batch-edit-workbench .anomaly-strip-button.is-active,
+.buff-batch-edit-workbench .anomaly-chip.is-active {
+  color: var(--excel-green-deep);
+  background: var(--ide-bg-hover);
+  border-color: var(--excel-green-main);
+  font-weight: 700;
+}
+
 .buff-edit-tag-list {
   display: flex;
   flex-wrap: wrap;
@@ -611,6 +1002,7 @@
   text-align: left;
   cursor: pointer;
   overflow: hidden;
+  transition: none;
 }
 
 .buff-edit-buff-card:disabled {
@@ -625,11 +1017,30 @@
   box-shadow: 0 2px 8px rgba(16, 124, 65, 0.18);
 }
 
+.buff-edit-buff-card.is-selected.is-add-intent {
+  border-color: #16a34a;
+  border-left-color: #16a34a;
+  box-shadow: 0 2px 8px rgba(22, 163, 74, 0.22);
+}
+
+.buff-edit-buff-card.is-selected.is-remove-intent {
+  border-color: #dc2626;
+  border-left-color: #dc2626;
+  box-shadow: 0 2px 8px rgba(220, 38, 38, 0.22);
+}
+
 .buff-edit-buff-card.is-white {
   color: #444444;
   background: #ffffff;
   border-color: var(--office-border);
   border-left-color: var(--office-border);
+}
+
+.buff-edit-buff-card.is-gray {
+  color: #555555;
+  background: #eceff1;
+  border-color: #d0d7de;
+  border-left-color: #d0d7de;
 }
 
 .buff-edit-buff-card-title {

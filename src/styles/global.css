@@ -23,7 +23,7 @@ body {
   color: var(--text-primary);
   background: var(--office-window-bg);
   min-width: 1440px;
-  min-height: 900px;
+  min-height: clamp(840px, 100vh, 900px);
   overflow: hidden;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;

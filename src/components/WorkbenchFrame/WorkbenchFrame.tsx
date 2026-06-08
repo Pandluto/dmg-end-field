@@ -266,7 +266,7 @@ export function WorkbenchFrame() {
             disabled={!canAccessCanvas}
             title={!canAccessCanvas ? '请先选择干员' : ''}
           >
-            陈列区
+            BUFF批量操作
           </button>
           <button
             className="workbench-drawer-tab"

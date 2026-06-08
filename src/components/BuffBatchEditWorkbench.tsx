@@ -4,6 +4,15 @@ import { getAllBuffList, getSkillButtonTable } from '../core/repositories';
 import { getCharacterInputMap } from '../core/repositories/operatorConfigRepository';
 import { addBuffToButton, loadBuffsToCache, removeBuffFromButton } from '../core/services/buffService';
 import {
+  readCandidateBuffSearchEntries,
+  readLocalBuffSearchEntries,
+  type LocalBuffSearchResult,
+} from './CanvasBoard/skillButton.shared';
+import { useSkillButtonAnomaly } from './CanvasBoard/useSkillButtonAnomaly';
+import { SkillButtonAnomalyStatePanel } from './CanvasBoard/SkillButtonAnomalyPanels';
+import { buildBuffSearchIndex, searchBuffs } from '../utils/buffFuzzySearch';
+import { buildAnomalyStateSnapshotBuffs } from '../core/services/anomalyStateBuffs';
+import {
   getGridLineCenterY,
   getGridNodeCenterX,
   getGridContentOffsetX,
@@ -20,7 +29,7 @@ import { STORAGE_KEYS } from '../constants/storage-keys';
 import { getElementBackgroundColor, normalizeAssetUrl, resolveSkillIconUrl } from '../utils/assetResolver';
 import { safeSessionStorage } from '../utils/storage';
 import type { Character, SkillButtonData, SkillType, TimelineData } from '../types';
-import type { PersistedSkillButton, SkillButtonBuff } from '../types/storage';
+import type { AnomalyStateSnapshot, PersistedSkillButton, SkillButtonBuff } from '../types/storage';
 import './CanvasBoard/CanvasBoard.css';
 import './BuffBatchEditWorkbench.css';
 
@@ -39,6 +48,8 @@ interface BuffEditSkillButtonProps {
   isAddTarget: boolean;
   isRemoveOwned: boolean;
   isRemoveTarget: boolean;
+  isEditAddTarget: boolean;
+  isEditRemoveTarget: boolean;
   pendingAddCount: number;
   pendingRemoveCount: number;
   onToggle: (buttonId: string) => void;
@@ -68,6 +79,7 @@ type SourceFilter =
   | { kind: 'character'; id: string; name: string }
   | { kind: 'weapon'; id: string; name: string }
   | { kind: 'equipment'; id: 'equipment'; name: string };
+type CandidateAdderMode = 'local' | 'candidate' | 'anomaly-state';
 
 function getButtonLineIndex(button: PersistedSkillButton): number {
   const legacyLineIndex = (button as PersistedSkillButton & { lineIndex?: number }).lineIndex;
@@ -289,6 +301,43 @@ function buffMatchesSourceFilter(buff: SkillButtonBuff, filter: SourceFilter | n
   return sourceText.includes(filter.id) || sourceText.includes(filter.name);
 }
 
+function buffFromSearchResult(entry: LocalBuffSearchResult): SkillButtonBuff {
+  return {
+    id: `candidate-add-${entry.key}`,
+    name: entry.name,
+    displayName: entry.displayName,
+    sourceName: entry.sourceName,
+    level: entry.level || '',
+    type: entry.type,
+    value: entry.value,
+    description: entry.description,
+    source: entry.source,
+    condition: entry.condition,
+    effectKind: entry.effectKind,
+    extraHitConfig: entry.extraHitConfig,
+    refCount: 1,
+  };
+}
+
+function addDraftBuffToButton(buttonId: string, buff: SkillButtonBuff) {
+  const { id: _id, ...buffWithoutId } = buff;
+  return addBuffToButton(buttonId, buffWithoutId);
+}
+
+function candidateBuffFromAnomalyStateSnapshot(snapshot: AnomalyStateSnapshot): SkillButtonBuff | null {
+  const [snapshotBuff] = buildAnomalyStateSnapshotBuffs([snapshot]);
+  if (!snapshotBuff) {
+    return null;
+  }
+
+  return {
+    ...snapshotBuff,
+    id: `candidate-add-${snapshotBuff.id}`,
+    sourceName: snapshot.sourceCharacterName,
+    condition: snapshot.secondaryText || snapshotBuff.condition,
+  };
+}
+
 function dedupeBuffIds(buffIds: string[]): string[] {
   return Array.from(new Set(buffIds.filter(Boolean)));
 }
@@ -301,6 +350,8 @@ function BuffEditSkillButton({
   isAddTarget,
   isRemoveOwned,
   isRemoveTarget,
+  isEditAddTarget,
+  isEditRemoveTarget,
   pendingAddCount,
   pendingRemoveCount,
   onToggle,
@@ -321,7 +372,7 @@ function BuffEditSkillButton({
 
   return (
     <div
-      className={`canvas-skill-button buff-edit-skill-button${isSelected ? ' selected' : ''}${isAddOwned || isRemoveOwned ? ' is-add-owned' : ''}${isAddTarget ? ' is-add-target' : ''}${isRemoveTarget ? ' is-remove-target' : ''}`}
+      className={`canvas-skill-button buff-edit-skill-button${isSelected ? ' selected' : ''}${isAddOwned || isRemoveOwned ? ' is-add-owned' : ''}${isAddTarget ? ' is-add-target' : ''}${isRemoveTarget ? ' is-remove-target' : ''}${isEditAddTarget ? ' is-edit-add-target' : ''}${isEditRemoveTarget ? ' is-edit-remove-target' : ''}${isEditAddTarget && isEditRemoveTarget ? ' is-edit-mixed-target' : ''}`}
       style={{
         left: position.x - SKILL_BUTTON_RADIUS - SKILL_BUTTON_VISUAL_OFFSET_X,
         top: position.y - SKILL_BUTTON_RADIUS - SKILL_BUTTON_VISUAL_OFFSET_Y,
@@ -375,13 +426,22 @@ export function BuffBatchEditWorkbench({
   const [activeSourceFilter, setActiveSourceFilter] = useState<SourceFilter | null>(null);
   const [activeAddBuffId, setActiveAddBuffId] = useState<string | null>(null);
   const [pendingAddByBuff, setPendingAddByBuff] = useState<Record<string, string[]>>({});
+  const [candidateAddBuffs, setCandidateAddBuffs] = useState<SkillButtonBuff[]>([]);
+  const [batchAnomalyStateSnapshots, setBatchAnomalyStateSnapshots] = useState<AnomalyStateSnapshot[]>([]);
+  const nextBatchAnomalyStateSnapshotIdRef = useRef(1);
+  const [isCandidateAdderOpen, setIsCandidateAdderOpen] = useState(false);
+  const [candidateSearchKeyword, setCandidateSearchKeyword] = useState('');
+  const [candidateAdderMode, setCandidateAdderMode] = useState<CandidateAdderMode>('local');
   const [activeRemoveBuffId, setActiveRemoveBuffId] = useState<string | null>(null);
   const [pendingRemoveByBuff, setPendingRemoveByBuff] = useState<Record<string, string[]>>({});
+  const [editAddByBuff, setEditAddByBuff] = useState<Record<string, string[]>>({});
+  const [editRemoveByBuff, setEditRemoveByBuff] = useState<Record<string, string[]>>({});
   const [isBoxSelectArmed, setIsBoxSelectArmed] = useState(false);
   const [boxSelectRect, setBoxSelectRect] = useState<BoxSelectRect | null>(null);
   const canvasRef = useRef<HTMLDivElement>(null);
   const [gridContentOffsetX, setGridContentOffsetX] = useState<number | null>(null);
   const [visualButtons, setVisualButtons] = useState<PersistedSkillButton[]>(() => getInitialSkillButtons(selectedCharacters));
+  const candidateSearchInputRef = useRef<HTMLInputElement | null>(null);
   const characterById = useMemo(() => {
     return new Map(selectedCharacters.flatMap((character) => [
       [character.id, character],
@@ -392,12 +452,33 @@ export function BuffBatchEditWorkbench({
     return visualButtons.length > 0 ? visualButtons : getFallbackSkillButtons();
   }, [visualButtons]);
   const allBuffs = useMemo(() => getAllBuffList(), []);
+  const addModeBuffs = useMemo(() => [...allBuffs, ...candidateAddBuffs], [allBuffs, candidateAddBuffs]);
   const sortedBuffs = useMemo(() => [...allBuffs].sort(compareBuffBySource), [allBuffs]);
   const visibleFilterBuffs = useMemo(
     () => sortedBuffs.filter((buff) => buffMatchesSourceFilter(buff, activeSourceFilter)),
     [activeSourceFilter, sortedBuffs]
   );
-  const buffById = useMemo(() => new Map(allBuffs.map((buff) => [buff.id, buff])), [allBuffs]);
+  const buffById = useMemo(() => new Map(addModeBuffs.map((buff) => [buff.id, buff])), [addModeBuffs]);
+  const localCandidateSearchEntries = useMemo(() => readLocalBuffSearchEntries(), [isCandidateAdderOpen, candidateAddBuffs]);
+  const boardCandidateSearchEntries = useMemo(() => readCandidateBuffSearchEntries(), [isCandidateAdderOpen, candidateAddBuffs]);
+  const candidateSearchEntries = candidateAdderMode === 'local' ? localCandidateSearchEntries : boardCandidateSearchEntries;
+  const candidateSearchIndex = useMemo(() => buildBuffSearchIndex(
+    candidateSearchEntries,
+    (entry) => [
+      entry.displayName,
+      entry.name,
+      entry.groupName,
+      entry.itemName,
+      entry.type,
+      entry.description,
+      entry.condition,
+      entry.sourceName,
+    ]
+  ), [candidateSearchEntries]);
+  const candidateSearchResults = useMemo(() => {
+    if (!candidateSearchKeyword.trim()) return [];
+    return searchBuffs(candidateSearchKeyword, candidateSearchIndex).slice(0, 50);
+  }, [candidateSearchIndex, candidateSearchKeyword]);
   const characterInputMap = useMemo(() => getCharacterInputMap(), []);
   const weaponButtonItems = useMemo(() => selectedCharacters
     .map((character) => ({
@@ -410,6 +491,7 @@ export function BuffBatchEditWorkbench({
     const selectedSet = new Set(selectedButtonIds);
     return skillButtons.filter((button) => selectedSet.has(button.id));
   }, [selectedButtonIds, skillButtons]);
+  const anomalyContextButton = selectedButtons[0] ?? skillButtons[0] ?? null;
   const selectedButtonBuffIdLists = useMemo(
     () => selectedButtons.map((button) => dedupeBuffIds(button.selectedBuff ?? [])),
     [selectedButtons]
@@ -424,6 +506,14 @@ export function BuffBatchEditWorkbench({
   const involvedBuffIds = useMemo(
     () => dedupeBuffIds(selectedButtonBuffIdLists.flat()),
     [selectedButtonBuffIdLists]
+  );
+  const usedNonCommonBuffIds = useMemo(
+    () => involvedBuffIds.filter((buffId) => !commonBuffIds.includes(buffId)),
+    [commonBuffIds, involvedBuffIds]
+  );
+  const unusedBuffIds = useMemo(
+    () => sortedBuffs.map((buff) => buff.id).filter((buffId) => !involvedBuffIds.includes(buffId)),
+    [involvedBuffIds, sortedBuffs]
   );
   const pendingAddCountByButton = useMemo(() => {
     const counts = new Map<string, number>();
@@ -443,8 +533,36 @@ export function BuffBatchEditWorkbench({
     });
     return counts;
   }, [pendingRemoveByBuff]);
+  const editAddCountByButton = useMemo(() => {
+    const counts = new Map<string, number>();
+    Object.values(editAddByBuff).forEach((buttonIds) => {
+      buttonIds.forEach((buttonId) => counts.set(buttonId, (counts.get(buttonId) ?? 0) + 1));
+    });
+    return counts;
+  }, [editAddByBuff]);
+  const editRemoveCountByButton = useMemo(() => {
+    const counts = new Map<string, number>();
+    Object.values(editRemoveByBuff).forEach((buttonIds) => {
+      buttonIds.forEach((buttonId) => counts.set(buttonId, (counts.get(buttonId) ?? 0) + 1));
+    });
+    return counts;
+  }, [editRemoveByBuff]);
   const staffGroupCount = getStaffGroupCount(skillButtons);
   const canvasHeight = GRID_STACK_PADDING_TOP + staffGroupCount * GRID_GROUP_HEIGHT + Math.max(0, staffGroupCount - 1) * GRID_GROUP_GAP + GRID_STACK_PADDING_BOTTOM;
+  const anomalyContextBuffList = useMemo(() => {
+    if (!anomalyContextButton) return [];
+    return (anomalyContextButton.selectedBuff ?? [])
+      .map((buffId) => buffById.get(buffId))
+      .filter((buff): buff is SkillButtonBuff => Boolean(buff));
+  }, [anomalyContextButton, buffById]);
+  const anomalyStateWorkbench = useSkillButtonAnomaly({
+    buttonId: anomalyContextButton?.id ?? '__buff-batch-edit-placeholder__',
+    buttonCharacterId: anomalyContextButton?.characterId || anomalyContextButton?.characterName || '',
+    buttonSkillType: anomalyContextButton?.skillType ?? 'A',
+    characterName: anomalyContextButton?.characterName ?? '',
+    selectedCharacters: selectedCharacters.map((character) => ({ id: character.id, name: character.name })),
+    modifierBuffList: anomalyContextBuffList,
+  });
 
   useEffect(() => {
     const measure = () => {
@@ -570,14 +688,103 @@ export function BuffBatchEditWorkbench({
     ));
   };
 
+  const handleAddCandidateSearchResult = (entry: LocalBuffSearchResult) => {
+    const nextBuff = buffFromSearchResult(entry);
+    addCandidateBuff(nextBuff);
+    setIsCandidateAdderOpen(false);
+    setCandidateSearchKeyword('');
+  };
+
+  const addCandidateBuff = (nextBuff: SkillButtonBuff) => {
+    setCandidateAddBuffs((current) => {
+      if (current.some((buff) => buff.id === nextBuff.id)) {
+        return current;
+      }
+      return [...current, nextBuff];
+    });
+    setActiveAddBuffId(nextBuff.id);
+  };
+
+  const handleAddAnomalyStateSnapshotCandidate = (snapshot: AnomalyStateSnapshot) => {
+    const nextBuff = candidateBuffFromAnomalyStateSnapshot(snapshot);
+    if (!nextBuff) {
+      return;
+    }
+    addCandidateBuff(nextBuff);
+    setIsCandidateAdderOpen(false);
+    setCandidateSearchKeyword('');
+  };
+
+  const handleCreateAnomalyStateCandidate = () => {
+    const activeOption = anomalyStateWorkbench.activeAnomalyStateOption;
+    const sourceCharacter = anomalyStateWorkbench.activeAnomalyStateSourceCharacter;
+    const preview = anomalyStateWorkbench.activeAnomalyStatePreview;
+    if (!activeOption || !sourceCharacter || !preview) {
+      return;
+    }
+
+    const corrosionPreview = preview as typeof preview & {
+      initialCorrosion?: number;
+      tickCorrosionPerSecond?: number;
+      maxCorrosion?: number;
+      currentCorrosion?: number;
+    };
+    const snapshot: AnomalyStateSnapshot = {
+      id: nextBatchAnomalyStateSnapshotIdRef.current++,
+      key: activeOption.key,
+      label: activeOption.label,
+      level: anomalyStateWorkbench.activeAnomalyStateLevel,
+      sourceButtonId: anomalyContextButton?.id ?? '__buff-batch-edit__',
+      sourceCharacterId: sourceCharacter.id,
+      sourceCharacterName: sourceCharacter.name,
+      sourceSkillStrengthSnapshot: anomalyStateWorkbench.activeAnomalyStateSourceSkillBoost,
+      effectValue: preview.effectValue,
+      initialCorrosion: corrosionPreview.initialCorrosion,
+      tickCorrosionPerSecond: corrosionPreview.tickCorrosionPerSecond,
+      maxCorrosion: corrosionPreview.maxCorrosion,
+      currentCorrosion: corrosionPreview.currentCorrosion,
+      durationSeconds: activeOption.supportsDuration ? anomalyStateWorkbench.activeAnomalyStateDurationSeconds : undefined,
+      primaryText: `${activeOption.label} Lv${anomalyStateWorkbench.activeAnomalyStateLevel} · 来源 ${sourceCharacter.name}`,
+      secondaryText: preview.lines[5] ?? preview.lines[4] ?? activeOption.label,
+      tertiaryText: activeOption.key === 'corrosion'
+        ? `当前 ${anomalyStateWorkbench.activeAnomalyStateDurationSeconds}s`
+        : activeOption.supportsDuration
+          ? `持续 ${anomalyStateWorkbench.activeAnomalyStateDurationSeconds}s`
+        : '快照生效',
+      createdAt: Date.now(),
+    };
+
+    setBatchAnomalyStateSnapshots((current) => [...current, snapshot]);
+    handleAddAnomalyStateSnapshotCandidate(snapshot);
+  };
+
+  const handleDeleteBatchAnomalyStateSnapshot = (snapshotId: number) => {
+    setBatchAnomalyStateSnapshots((current) => current.filter((snapshot) => snapshot.id !== snapshotId));
+    const candidateBuffId = `candidate-add-anomaly-state-snapshot-${snapshotId}`;
+    setCandidateAddBuffs((current) => current.filter((buff) => buff.id !== candidateBuffId));
+    setPendingAddByBuff((current) => {
+      const { [candidateBuffId]: _removed, ...rest } = current;
+      return rest;
+    });
+    setActiveAddBuffId((current) => current === candidateBuffId ? null : current);
+  };
+
   const resetAddMode = () => {
     setActiveAddBuffId(null);
     setPendingAddByBuff({});
+    setIsCandidateAdderOpen(false);
+    setCandidateSearchKeyword('');
+    setCandidateAdderMode('local');
   };
 
   const resetRemoveMode = () => {
     setActiveRemoveBuffId(null);
     setPendingRemoveByBuff({});
+  };
+
+  const resetEditMode = () => {
+    setEditAddByBuff({});
+    setEditRemoveByBuff({});
   };
 
   const handleCancelAddMode = () => {
@@ -604,7 +811,7 @@ export function BuffBatchEditWorkbench({
         if (!button || button.selectedBuff?.includes(buffId)) {
           return;
         }
-        addBuffToButton(buttonId, { ...buff, id: buff.id });
+        addDraftBuffToButton(buttonId, buff);
       });
     });
 
@@ -626,8 +833,13 @@ export function BuffBatchEditWorkbench({
     setActiveSourceFilter(null);
     setSelectedFilterBuffIds([]);
     setSelectedButtonIds([]);
+    setCandidateAddBuffs([]);
+    setIsCandidateAdderOpen(false);
+    setCandidateSearchKeyword('');
+    setCandidateAdderMode('local');
     resetAddMode();
     resetRemoveMode();
+    resetEditMode();
     setToolMode('add');
   };
 
@@ -651,6 +863,71 @@ export function BuffBatchEditWorkbench({
     setToolMode('normal');
   };
 
+  const handleCancelEditMode = () => {
+    resetEditMode();
+    setIsBoxSelectArmed(false);
+    setBoxSelectRect(null);
+    setToolMode('normal');
+  };
+
+  const handleConfirmEditMode = () => {
+    loadBuffsToCache();
+    Object.entries(editRemoveByBuff).forEach(([buffId, buttonIds]) => {
+      buttonIds.forEach((buttonId) => {
+        const button = skillButtons.find((item) => item.id === buttonId);
+        if (button?.selectedBuff?.includes(buffId)) {
+          removeBuffFromButton(buttonId, buffId);
+        }
+      });
+    });
+
+    Object.entries(editAddByBuff).forEach(([buffId, buttonIds]) => {
+      const buff = buffById.get(buffId);
+      if (!buff) return;
+      buttonIds.forEach((buttonId) => {
+        const button = skillButtons.find((item) => item.id === buttonId);
+        if (button && !button.selectedBuff?.includes(buffId)) {
+          addDraftBuffToButton(buttonId, buff);
+        }
+      });
+    });
+
+    resetEditMode();
+    setIsBoxSelectArmed(false);
+    setBoxSelectRect(null);
+    setSelectedButtonIds([]);
+    setVisualButtons(readVisualSkillButtons(selectedCharacters, gridContentOffsetX));
+    setToolMode('normal');
+  };
+
+  const toggleEditRemoveBuff = (buffId: string) => {
+    const targetIds = selectedButtons
+      .filter((button) => button.selectedBuff?.includes(buffId))
+      .map((button) => button.id);
+    setEditRemoveByBuff((current) => {
+      const currentTargets = current[buffId] ?? [];
+      const isActive = targetIds.length > 0 && targetIds.every((id) => currentTargets.includes(id));
+      return {
+        ...current,
+        [buffId]: isActive ? [] : targetIds,
+      };
+    });
+  };
+
+  const toggleEditAddBuff = (buffId: string) => {
+    const targetIds = selectedButtons
+      .filter((button) => !button.selectedBuff?.includes(buffId))
+      .map((button) => button.id);
+    setEditAddByBuff((current) => {
+      const currentTargets = current[buffId] ?? [];
+      const isActive = targetIds.length > 0 && targetIds.every((id) => currentTargets.includes(id));
+      return {
+        ...current,
+        [buffId]: isActive ? [] : targetIds,
+      };
+    });
+  };
+
   const handleToggleRemoveMode = () => {
     if (toolMode === 'remove') {
       handleConfirmRemoveMode();
@@ -663,6 +940,7 @@ export function BuffBatchEditWorkbench({
     setSelectedButtonIds([]);
     resetAddMode();
     resetRemoveMode();
+    resetEditMode();
     setToolMode('remove');
   };
 
@@ -672,6 +950,7 @@ export function BuffBatchEditWorkbench({
     setActiveSourceFilter(null);
     resetAddMode();
     resetRemoveMode();
+    resetEditMode();
     setToolMode((current) => {
       const nextMode = current === 'filter' ? 'normal' : 'filter';
       if (nextMode === 'filter') {
@@ -682,13 +961,70 @@ export function BuffBatchEditWorkbench({
   };
 
   const handleToggleEditMode = () => {
+    if (toolMode === 'edit') {
+      handleConfirmEditMode();
+      return;
+    }
     setBoxSelectRect(null);
     setIsBoxSelectArmed(false);
     setActiveSourceFilter(null);
     resetAddMode();
     resetRemoveMode();
-    setToolMode((current) => current === 'edit' ? 'normal' : 'edit');
+    resetEditMode();
+    setToolMode('edit');
   };
+
+  useEffect(() => {
+    if (toolMode !== 'add') {
+      return undefined;
+    }
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && isCandidateAdderOpen) {
+        event.preventDefault();
+        setIsCandidateAdderOpen(false);
+        setCandidateSearchKeyword('');
+        return;
+      }
+
+      if (event.key === 'Tab' && !event.shiftKey && isCandidateAdderOpen) {
+        event.preventDefault();
+        setCandidateAdderMode((current) => {
+          if (current === 'local') return 'candidate';
+          if (current === 'candidate') return 'anomaly-state';
+          return 'local';
+        });
+        setCandidateSearchKeyword('');
+        return;
+      }
+
+      const target = event.target as HTMLElement | null;
+      const isEditable =
+        target instanceof HTMLInputElement ||
+        target instanceof HTMLTextAreaElement ||
+        target instanceof HTMLSelectElement ||
+        !!target?.closest('[contenteditable="true"]');
+
+      if (event.key === 'Tab' && !event.shiftKey && !isEditable) {
+        event.preventDefault();
+        setIsCandidateAdderOpen(true);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isCandidateAdderOpen, toolMode]);
+
+  useEffect(() => {
+    if (!isCandidateAdderOpen) {
+      return undefined;
+    }
+    const timer = window.setTimeout(() => {
+      candidateSearchInputRef.current?.focus();
+      candidateSearchInputRef.current?.select();
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [isCandidateAdderOpen, candidateAdderMode]);
 
   const getCanvasPoint = (event: React.MouseEvent | MouseEvent) => {
     const canvasElement = canvasRef.current;
@@ -913,8 +1249,10 @@ export function BuffBatchEditWorkbench({
     const isAddTarget = toolMode === 'add' && Boolean(activeAddBuffId && pendingAddByBuff[activeAddBuffId]?.includes(button.id));
     const isRemoveOwned = toolMode === 'remove' && Boolean(activeRemoveBuffId && button.selectedBuff?.includes(activeRemoveBuffId));
     const isRemoveTarget = toolMode === 'remove' && Boolean(activeRemoveBuffId && pendingRemoveByBuff[activeRemoveBuffId]?.includes(button.id));
-    const pendingAddCount = pendingAddCountByButton.get(button.id) ?? 0;
-    const pendingRemoveCount = pendingRemoveCountByButton.get(button.id) ?? 0;
+    const isEditAddTarget = toolMode === 'edit' && (editAddCountByButton.get(button.id) ?? 0) > 0;
+    const isEditRemoveTarget = toolMode === 'edit' && (editRemoveCountByButton.get(button.id) ?? 0) > 0;
+    const pendingAddCount = toolMode === 'edit' ? (editAddCountByButton.get(button.id) ?? 0) : (pendingAddCountByButton.get(button.id) ?? 0);
+    const pendingRemoveCount = toolMode === 'edit' ? (editRemoveCountByButton.get(button.id) ?? 0) : (pendingRemoveCountByButton.get(button.id) ?? 0);
     const element = character?.element ?? '';
 
     return (
@@ -927,6 +1265,8 @@ export function BuffBatchEditWorkbench({
         isAddTarget={isAddTarget}
         isRemoveOwned={isRemoveOwned}
         isRemoveTarget={isRemoveTarget}
+        isEditAddTarget={isEditAddTarget}
+        isEditRemoveTarget={isEditRemoveTarget}
         pendingAddCount={pendingAddCount}
         pendingRemoveCount={pendingRemoveCount}
         onToggle={toggleButton}
@@ -936,7 +1276,7 @@ export function BuffBatchEditWorkbench({
 
   const renderBuffTag = (
     buffId: string,
-    options: { selected?: boolean; white?: boolean; onClick?: () => void } = {}
+    options: { selected?: boolean; white?: boolean; gray?: boolean; intent?: 'add' | 'remove'; onClick?: () => void } = {}
   ) => {
     const buff = buffById.get(buffId);
     const label = buff ? getBuffLabel(buff) : buffId;
@@ -944,7 +1284,7 @@ export function BuffBatchEditWorkbench({
       <button
         key={buffId}
         type="button"
-        className={`buff-edit-buff-card${options.selected ? ' is-selected' : ''}${options.white ? ' is-white' : ''}`}
+        className={`buff-edit-buff-card${options.selected ? ' is-selected' : ''}${options.white ? ' is-white' : ''}${options.gray ? ' is-gray' : ''}${options.intent === 'add' ? ' is-add-intent' : ''}${options.intent === 'remove' ? ' is-remove-intent' : ''}`}
         onClick={options.onClick}
         disabled={!options.onClick}
         title={buff ? `${label} / ${getBuffSourceLabel(buff)} / ${getBuffValueLine(buff)}` : buffId}
@@ -1080,6 +1420,25 @@ export function BuffBatchEditWorkbench({
               <div className="buff-edit-right-empty">暂无 Buff</div>
             )}
           </div>
+          <section className="buff-edit-right-section buff-edit-candidate-section">
+            <div className="buff-edit-candidate-head">
+              <h4>候选 Buff</h4>
+              <span>Tab 打开面板添加候选 Buff</span>
+            </div>
+            {candidateAddBuffs.length > 0 ? (
+              <div className="buff-edit-tag-list">
+                {candidateAddBuffs.map((buff) => renderBuffTag(buff.id, {
+                  selected: activeAddBuffId === buff.id,
+                  onClick: () => setActiveAddBuffId((current) => current === buff.id ? null : buff.id),
+                }))}
+              </div>
+            ) : (
+              <div className="buff-edit-candidate-empty">候选 Buff 为空</div>
+            )}
+            {isCandidateAdderOpen ? (
+              <div className="buff-edit-candidate-empty">候选 Buff 面板已打开，Tab 切换入口，Esc 关闭</div>
+            ) : null}
+          </section>
         </div>
       );
     }
@@ -1116,16 +1475,37 @@ export function BuffBatchEditWorkbench({
             <h4>共同 Buff</h4>
             <div className="buff-edit-tag-list">
               {commonBuffIds.length > 0
-                ? commonBuffIds.map((buffId) => renderBuffTag(buffId))
+                ? commonBuffIds.map((buffId) => renderBuffTag(buffId, {
+                  selected: (editRemoveByBuff[buffId] ?? []).length > 0,
+                  intent: 'remove',
+                  onClick: () => toggleEditRemoveBuff(buffId),
+                }))
                 : <div className="buff-edit-right-empty">暂无共同 Buff</div>}
             </div>
           </section>
           <section className="buff-edit-right-section">
-            <h4>全部 Buff</h4>
+            <h4>已用剩余 Buff</h4>
             <div className="buff-edit-tag-list">
-              {involvedBuffIds.length > 0
-                ? involvedBuffIds.map((buffId) => renderBuffTag(buffId, { white: true }))
-                : <div className="buff-edit-right-empty">暂无 Buff</div>}
+              {usedNonCommonBuffIds.length > 0
+                ? usedNonCommonBuffIds.map((buffId) => renderBuffTag(buffId, {
+                  selected: (editAddByBuff[buffId] ?? []).length > 0,
+                  intent: 'add',
+                  onClick: () => toggleEditAddBuff(buffId),
+                }))
+                : <div className="buff-edit-right-empty">暂无剩余 Buff</div>}
+            </div>
+          </section>
+          <section className="buff-edit-right-section">
+            <h4>未用 Buff</h4>
+            <div className="buff-edit-tag-list">
+              {unusedBuffIds.length > 0
+                ? unusedBuffIds.map((buffId) => renderBuffTag(buffId, {
+                  selected: (editAddByBuff[buffId] ?? []).length > 0,
+                  gray: true,
+                  intent: 'add',
+                  onClick: () => toggleEditAddBuff(buffId),
+                }))
+                : <div className="buff-edit-right-empty">暂无未用 Buff</div>}
             </div>
           </section>
         </div>
@@ -1135,8 +1515,174 @@ export function BuffBatchEditWorkbench({
     return <div className="buff-edit-right-placeholder" />;
   };
 
+  const renderCandidateAdderModal = () => {
+    if (toolMode !== 'add' || !isCandidateAdderOpen) {
+      return null;
+    }
+
+    return (
+      <div className="skill-button-inline-buff-search-mask" onClick={() => {
+        setIsCandidateAdderOpen(false);
+        setCandidateSearchKeyword('');
+      }}>
+        <div
+          className="skill-button-inline-buff-search is-workbench-mode buff-edit-candidate-modal"
+          onClick={(event) => event.stopPropagation()}
+        >
+          <div className="skill-button-inline-buff-search-head">
+            <h5>{candidateAdderMode === 'local' ? '本地 Buff' : candidateAdderMode === 'candidate' ? '候选 Buff' : '异常状态区'}</h5>
+            <span>Tab 切换入口 / Esc 关闭</span>
+          </div>
+          <div className="skill-button-inline-buff-search-modes">
+            <button
+              type="button"
+              className={`skill-button-inline-buff-search-mode${candidateAdderMode === 'local' ? ' is-active' : ''}`}
+              onClick={() => {
+                setCandidateAdderMode('local');
+                setCandidateSearchKeyword('');
+              }}
+            >
+              本地 Buff
+            </button>
+            <button
+              type="button"
+              className={`skill-button-inline-buff-search-mode${candidateAdderMode === 'candidate' ? ' is-active' : ''}`}
+              onClick={() => {
+                setCandidateAdderMode('candidate');
+                setCandidateSearchKeyword('');
+              }}
+            >
+              候选 Buff
+            </button>
+            <button
+              type="button"
+              className={`skill-button-inline-buff-search-mode${candidateAdderMode === 'anomaly-state' ? ' is-active' : ''}`}
+              onClick={() => {
+                setCandidateAdderMode('anomaly-state');
+                setCandidateSearchKeyword('');
+              }}
+            >
+              异常状态区
+            </button>
+          </div>
+          <div className="skill-button-buff-workbench">
+            <div className="skill-button-buff-workbench-main">
+              {candidateAdderMode === 'anomaly-state' ? (
+                <SkillButtonAnomalyStatePanel
+                  activeAnomalyStateOption={anomalyStateWorkbench.activeAnomalyStateOption}
+                  activeAnomalyStateLevel={anomalyStateWorkbench.activeAnomalyStateLevel}
+                  activeAnomalyStateDurationSeconds={anomalyStateWorkbench.activeAnomalyStateDurationSeconds}
+                  activeAnomalyStatePreview={anomalyStateWorkbench.activeAnomalyStatePreview}
+                  activeAnomalyStateSourceCharacter={anomalyStateWorkbench.activeAnomalyStateSourceCharacter}
+                  sourceCharacters={anomalyStateWorkbench.sourceCharacters}
+                  selectedAnomalyStateSnapshots={batchAnomalyStateSnapshots}
+                  onSelectAnomalyState={anomalyStateWorkbench.handleSelectAnomalyState}
+                  onCreateSnapshot={handleCreateAnomalyStateCandidate}
+                  onSetActiveAnomalyStateLevel={anomalyStateWorkbench.setActiveAnomalyStateLevel}
+                  onSetActiveAnomalyStateSourceId={anomalyStateWorkbench.setActiveAnomalyStateSourceId}
+                  onSetActiveAnomalyStateDurationSeconds={anomalyStateWorkbench.setActiveAnomalyStateDurationSeconds}
+                  onRemoveAnomalyStateSnapshotCard={handleDeleteBatchAnomalyStateSnapshot}
+                />
+              ) : (
+                <div className="skill-button-local-buff-panel">
+                <input
+                  ref={candidateSearchInputRef}
+                  className="skill-button-inline-buff-search-input"
+                  value={candidateSearchKeyword}
+                  onChange={(event) => setCandidateSearchKeyword(event.target.value)}
+                  placeholder="搜索组 / 项 / Buff / 类型 / 条件"
+                />
+                <div className="skill-button-inline-buff-search-results">
+                  {candidateSearchKeyword.trim().length === 0 ? (
+                    <div className="skill-button-inline-buff-search-empty">
+                      输入关键词后再显示{candidateAdderMode === 'local' ? '本地 Buff' : '候选 Buff'}结果
+                    </div>
+                  ) : candidateSearchResults.length > 0 ? (
+                    candidateSearchResults.map((entry) => (
+                      <button
+                        key={entry.key}
+                        type="button"
+                        className="skill-button-inline-buff-search-item"
+                        onClick={() => handleAddCandidateSearchResult(entry)}
+                      >
+                        <div className="local-buff-search-item-head">
+                          <strong>{entry.displayName}</strong>
+                          <span>{entry.type || '暂无'}</span>
+                        </div>
+                        <p>{entry.groupName}{entry.itemName ? ` / ${entry.itemName}` : ''}</p>
+                        <p>数值: {entry.value ?? '-'}{entry.condition ? ` / ${entry.condition}` : ''}</p>
+                      </button>
+                    ))
+                  ) : (
+                    <div className="skill-button-inline-buff-search-empty">
+                      没有匹配到{candidateAdderMode === 'local' ? '本地 Buff' : '候选 Buff'}
+                    </div>
+                  )}
+                </div>
+              </div>
+              )}
+            </div>
+            <aside className="skill-button-buff-resource-rail">
+              <div className="skill-anomaly-board skill-anomaly-cache-board">
+                <div className="skill-anomaly-board-section">
+                  <p className="skill-anomaly-board-title">{candidateAdderMode === 'anomaly-state' ? '缓存快照' : '本轮候选 Buff'}</p>
+                  <div className="skill-anomaly-board-list skill-anomaly-cache-list">
+                    {candidateAdderMode === 'anomaly-state' ? (
+                      batchAnomalyStateSnapshots.length === 0 ? (
+                        <div className="skill-button-buff-empty">暂无缓存快照</div>
+                      ) : (
+                        batchAnomalyStateSnapshots.map((snapshot) => (
+                          <button
+                            key={`available-state-${snapshot.id}`}
+                            type="button"
+                            className="anomaly-board-card is-state"
+                            onClick={() => handleAddAnomalyStateSnapshotCandidate(snapshot)}
+                            title="单击加入本轮候选 Buff"
+                          >
+                            <span className="anomaly-board-card-title">{snapshot.primaryText}</span>
+                            <span>{snapshot.sourceCharacterName}</span>
+                            <span>{snapshot.secondaryText}</span>
+                            <span
+                              className="anomaly-board-card-delete-text"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                handleDeleteBatchAnomalyStateSnapshot(snapshot.id);
+                              }}
+                            >
+                              删除
+                            </span>
+                          </button>
+                        ))
+                      )
+                    ) : candidateAddBuffs.length === 0 ? (
+                      <div className="skill-button-buff-empty">暂无候选 Buff</div>
+                    ) : (
+                      candidateAddBuffs.map((buff) => (
+                        <button
+                          key={`candidate-add-modal-${buff.id}`}
+                          type="button"
+                          className={`anomaly-board-card${activeAddBuffId === buff.id ? ' is-state' : ''}`}
+                          onClick={() => setActiveAddBuffId(buff.id)}
+                          title="单击设为当前待添加 Buff"
+                        >
+                          <span className="anomaly-board-card-title">{buff.displayName || buff.name}</span>
+                          <span>{buff.sourceName || buff.source || '未知来源'}</span>
+                          <span>{buff.type || '暂无'}{buff.value !== undefined ? ` · ${buff.value}` : ''}</span>
+                        </button>
+                      ))
+                    )}
+                  </div>
+                </div>
+              </div>
+            </aside>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   return (
-    <div className={`canvas-board buff-batch-edit-workbench ${isWorkbenchTopZoneOpen ? 'has-top-zone' : ''}${toolMode === 'add' ? ' is-add-mode' : ''}${toolMode === 'remove' ? ' is-remove-mode' : ''}`}>
+    <div className={`canvas-board buff-batch-edit-workbench ${isWorkbenchTopZoneOpen ? 'has-top-zone' : ''}${toolMode === 'add' ? ' is-add-mode' : ''}${toolMode === 'remove' ? ' is-remove-mode' : ''}${toolMode === 'edit' ? ' is-edit-mode' : ''}`}>
       <div className="canvas-layout buff-edit-layout">
         <section className="canvas-left-zone buff-edit-left-zone">
           <div className="canvas-area buff-edit-canvas-area">
@@ -1154,7 +1700,7 @@ export function BuffBatchEditWorkbench({
                   </svg>
                 </button>
                 <button
-                  className={`buff-edit-clear-selection-button${toolMode === 'add' ? ' is-cancel-add' : ''}${toolMode === 'remove' ? ' is-cancel-remove' : ''}`}
+                  className={`buff-edit-clear-selection-button${toolMode === 'add' || toolMode === 'edit' ? ' is-cancel-add' : ''}${toolMode === 'remove' ? ' is-cancel-remove' : ''}`}
                   type="button"
                   onClick={() => {
                     if (toolMode === 'add') {
@@ -1165,12 +1711,16 @@ export function BuffBatchEditWorkbench({
                       handleCancelRemoveMode();
                       return;
                     }
+                    if (toolMode === 'edit') {
+                      handleCancelEditMode();
+                      return;
+                    }
                     setSelectedButtonIds([]);
                     setIsBoxSelectArmed(false);
                     setBoxSelectRect(null);
                   }}
-                  disabled={toolMode !== 'normal' && toolMode !== 'add' && toolMode !== 'remove'}
-                  title={toolMode === 'add' ? '取消增加' : toolMode === 'remove' ? '取消删减' : '取消全部选中'}
+                  disabled={toolMode !== 'normal' && toolMode !== 'add' && toolMode !== 'remove' && toolMode !== 'edit'}
+                  title={toolMode === 'add' ? '取消增加' : toolMode === 'remove' ? '取消删减' : toolMode === 'edit' ? '取消编辑' : '取消全部选中'}
                 >
                   <svg viewBox="0 0 24 24" aria-hidden="true">
                     <path d="M6.4 5 5 6.4 10.6 12 5 17.6 6.4 19 12 13.4 17.6 19 19 17.6 13.4 12 19 6.4 17.6 5 12 10.6 6.4 5Z" />
@@ -1188,15 +1738,21 @@ export function BuffBatchEditWorkbench({
                   </svg>
                 </button>
                 <button
-                  className={`buff-edit-mode-button${toolMode === 'edit' ? ' is-active' : ''}`}
+                  className={`buff-edit-mode-button${toolMode === 'edit' ? ' is-confirm-edit' : ''}`}
                   type="button"
                   onClick={handleToggleEditMode}
                   disabled={toolMode === 'filter' || toolMode === 'add' || toolMode === 'remove'}
-                  title="编辑目录"
+                  title={toolMode === 'edit' ? '确认编辑' : '编辑目录'}
                 >
-                  <svg viewBox="0 0 24 24" aria-hidden="true">
-                    <path d="M5 4h9v2H7v12h10v-7h2v9H5V4Zm11.8.6 2.6 2.6-7.8 7.8H9v-2.6l7.8-7.8Zm1.2 2.6-1.2-1.2L11 11.8V13h1.2L18 7.2Z" />
-                  </svg>
+                  {toolMode === 'edit' ? (
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                      <path d="M9.5 16.6 4.9 12l-1.4 1.4 6 6L21 7.9 19.6 6.5 9.5 16.6Z" />
+                    </svg>
+                  ) : (
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                      <path d="M5 4h9v2H7v12h10v-7h2v9H5V4Zm11.8.6 2.6 2.6-7.8 7.8H9v-2.6l7.8-7.8Zm1.2 2.6-1.2-1.2L11 11.8V13h1.2L18 7.2Z" />
+                    </svg>
+                  )}
                 </button>
                 <button
                   className={`buff-edit-add-button${toolMode === 'add' ? ' is-confirm-add' : ''}`}
@@ -1285,6 +1841,7 @@ export function BuffBatchEditWorkbench({
           </div>
         </div>
       </div>
+      {renderCandidateAdderModal()}
     </div>
   );
 }
