@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { CSSProperties, ReactNode } from 'react';
 import { getAllBuffList, getSkillButtonTable } from '../core/repositories';
 import { getCharacterInputMap } from '../core/repositories/operatorConfigRepository';
+import { addBuffToButton, loadBuffsToCache, removeBuffFromButton } from '../core/services/buffService';
 import {
   getGridLineCenterY,
   getGridNodeCenterX,
@@ -34,6 +35,12 @@ interface BuffEditSkillButtonProps {
   button: PersistedSkillButton;
   element: string;
   isSelected: boolean;
+  isAddOwned: boolean;
+  isAddTarget: boolean;
+  isRemoveOwned: boolean;
+  isRemoveTarget: boolean;
+  pendingAddCount: number;
+  pendingRemoveCount: number;
   onToggle: (buttonId: string) => void;
 }
 
@@ -56,7 +63,7 @@ interface BoxSelectRect {
   currentY: number;
 }
 
-type EditToolMode = 'normal' | 'filter' | 'edit';
+type EditToolMode = 'normal' | 'filter' | 'edit' | 'add' | 'remove';
 type SourceFilter =
   | { kind: 'character'; id: string; name: string }
   | { kind: 'weapon'; id: string; name: string }
@@ -290,6 +297,12 @@ function BuffEditSkillButton({
   button,
   element,
   isSelected,
+  isAddOwned,
+  isAddTarget,
+  isRemoveOwned,
+  isRemoveTarget,
+  pendingAddCount,
+  pendingRemoveCount,
   onToggle,
 }: BuffEditSkillButtonProps) {
   const [iconLoadFailed, setIconLoadFailed] = useState(false);
@@ -308,7 +321,7 @@ function BuffEditSkillButton({
 
   return (
     <div
-      className={`canvas-skill-button buff-edit-skill-button${isSelected ? ' selected' : ''}`}
+      className={`canvas-skill-button buff-edit-skill-button${isSelected ? ' selected' : ''}${isAddOwned || isRemoveOwned ? ' is-add-owned' : ''}${isAddTarget ? ' is-add-target' : ''}${isRemoveTarget ? ' is-remove-target' : ''}`}
       style={{
         left: position.x - SKILL_BUTTON_RADIUS - SKILL_BUTTON_VISUAL_OFFSET_X,
         top: position.y - SKILL_BUTTON_RADIUS - SKILL_BUTTON_VISUAL_OFFSET_Y,
@@ -339,6 +352,12 @@ function BuffEditSkillButton({
           <span className={`skill-label ${!iconLoadFailed && skillIconUrl ? 'hidden' : ''}`}>{skillType}</span>
         </div>
       </div>
+      {pendingAddCount > 0 ? (
+        <div className="buff-edit-pending-add-count">+{pendingAddCount}</div>
+      ) : null}
+      {pendingRemoveCount > 0 ? (
+        <div className="buff-edit-pending-remove-count">-{pendingRemoveCount}</div>
+      ) : null}
     </div>
   );
 }
@@ -354,6 +373,10 @@ export function BuffBatchEditWorkbench({
   const [selectedFilterBuffIds, setSelectedFilterBuffIds] = useState<string[]>([]);
   const [pressedCharacterIds, setPressedCharacterIds] = useState<string[]>([]);
   const [activeSourceFilter, setActiveSourceFilter] = useState<SourceFilter | null>(null);
+  const [activeAddBuffId, setActiveAddBuffId] = useState<string | null>(null);
+  const [pendingAddByBuff, setPendingAddByBuff] = useState<Record<string, string[]>>({});
+  const [activeRemoveBuffId, setActiveRemoveBuffId] = useState<string | null>(null);
+  const [pendingRemoveByBuff, setPendingRemoveByBuff] = useState<Record<string, string[]>>({});
   const [isBoxSelectArmed, setIsBoxSelectArmed] = useState(false);
   const [boxSelectRect, setBoxSelectRect] = useState<BoxSelectRect | null>(null);
   const canvasRef = useRef<HTMLDivElement>(null);
@@ -402,6 +425,24 @@ export function BuffBatchEditWorkbench({
     () => dedupeBuffIds(selectedButtonBuffIdLists.flat()),
     [selectedButtonBuffIdLists]
   );
+  const pendingAddCountByButton = useMemo(() => {
+    const counts = new Map<string, number>();
+    Object.values(pendingAddByBuff).forEach((buttonIds) => {
+      buttonIds.forEach((buttonId) => {
+        counts.set(buttonId, (counts.get(buttonId) ?? 0) + 1);
+      });
+    });
+    return counts;
+  }, [pendingAddByBuff]);
+  const pendingRemoveCountByButton = useMemo(() => {
+    const counts = new Map<string, number>();
+    Object.values(pendingRemoveByBuff).forEach((buttonIds) => {
+      buttonIds.forEach((buttonId) => {
+        counts.set(buttonId, (counts.get(buttonId) ?? 0) + 1);
+      });
+    });
+    return counts;
+  }, [pendingRemoveByBuff]);
   const staffGroupCount = getStaffGroupCount(skillButtons);
   const canvasHeight = GRID_STACK_PADDING_TOP + staffGroupCount * GRID_GROUP_HEIGHT + Math.max(0, staffGroupCount - 1) * GRID_GROUP_GAP + GRID_STACK_PADDING_BOTTOM;
 
@@ -425,6 +466,48 @@ export function BuffBatchEditWorkbench({
   }, [gridContentOffsetX, selectedCharacters]);
 
   const toggleButton = (buttonId: string) => {
+    if (toolMode === 'remove') {
+      if (!activeRemoveBuffId) {
+        return;
+      }
+      const button = skillButtons.find((item) => item.id === buttonId);
+      if (!button || !button.selectedBuff?.includes(activeRemoveBuffId)) {
+        return;
+      }
+      setPendingRemoveByBuff((current) => {
+        const currentTargets = current[activeRemoveBuffId] ?? [];
+        const nextTargets = currentTargets.includes(buttonId)
+          ? currentTargets.filter((id) => id !== buttonId)
+          : [...currentTargets, buttonId];
+        return {
+          ...current,
+          [activeRemoveBuffId]: nextTargets,
+        };
+      });
+      return;
+    }
+
+    if (toolMode === 'add') {
+      if (!activeAddBuffId) {
+        return;
+      }
+      const button = skillButtons.find((item) => item.id === buttonId);
+      if (!button || button.selectedBuff?.includes(activeAddBuffId)) {
+        return;
+      }
+      setPendingAddByBuff((current) => {
+        const currentTargets = current[activeAddBuffId] ?? [];
+        const nextTargets = currentTargets.includes(buttonId)
+          ? currentTargets.filter((id) => id !== buttonId)
+          : [...currentTargets, buttonId];
+        return {
+          ...current,
+          [activeAddBuffId]: nextTargets,
+        };
+      });
+      return;
+    }
+
     if (toolMode !== 'normal') {
       return;
     }
@@ -487,10 +570,108 @@ export function BuffBatchEditWorkbench({
     ));
   };
 
+  const resetAddMode = () => {
+    setActiveAddBuffId(null);
+    setPendingAddByBuff({});
+  };
+
+  const resetRemoveMode = () => {
+    setActiveRemoveBuffId(null);
+    setPendingRemoveByBuff({});
+  };
+
+  const handleCancelAddMode = () => {
+    resetAddMode();
+    setIsBoxSelectArmed(false);
+    setBoxSelectRect(null);
+    setToolMode('normal');
+  };
+
+  const handleCancelRemoveMode = () => {
+    resetRemoveMode();
+    setIsBoxSelectArmed(false);
+    setBoxSelectRect(null);
+    setToolMode('normal');
+  };
+
+  const handleConfirmAddMode = () => {
+    loadBuffsToCache();
+    Object.entries(pendingAddByBuff).forEach(([buffId, buttonIds]) => {
+      const buff = buffById.get(buffId);
+      if (!buff) return;
+      buttonIds.forEach((buttonId) => {
+        const button = skillButtons.find((item) => item.id === buttonId);
+        if (!button || button.selectedBuff?.includes(buffId)) {
+          return;
+        }
+        addBuffToButton(buttonId, { ...buff, id: buff.id });
+      });
+    });
+
+    resetAddMode();
+    setIsBoxSelectArmed(false);
+    setBoxSelectRect(null);
+    setSelectedButtonIds([]);
+    setVisualButtons(readVisualSkillButtons(selectedCharacters, gridContentOffsetX));
+    setToolMode('normal');
+  };
+
+  const handleToggleAddMode = () => {
+    if (toolMode === 'add') {
+      handleConfirmAddMode();
+      return;
+    }
+    setBoxSelectRect(null);
+    setIsBoxSelectArmed(false);
+    setActiveSourceFilter(null);
+    setSelectedFilterBuffIds([]);
+    setSelectedButtonIds([]);
+    resetAddMode();
+    resetRemoveMode();
+    setToolMode('add');
+  };
+
+  const handleConfirmRemoveMode = () => {
+    loadBuffsToCache();
+    Object.entries(pendingRemoveByBuff).forEach(([buffId, buttonIds]) => {
+      buttonIds.forEach((buttonId) => {
+        const button = skillButtons.find((item) => item.id === buttonId);
+        if (!button || !button.selectedBuff?.includes(buffId)) {
+          return;
+        }
+        removeBuffFromButton(buttonId, buffId);
+      });
+    });
+
+    resetRemoveMode();
+    setIsBoxSelectArmed(false);
+    setBoxSelectRect(null);
+    setSelectedButtonIds([]);
+    setVisualButtons(readVisualSkillButtons(selectedCharacters, gridContentOffsetX));
+    setToolMode('normal');
+  };
+
+  const handleToggleRemoveMode = () => {
+    if (toolMode === 'remove') {
+      handleConfirmRemoveMode();
+      return;
+    }
+    setBoxSelectRect(null);
+    setIsBoxSelectArmed(false);
+    setActiveSourceFilter(null);
+    setSelectedFilterBuffIds([]);
+    setSelectedButtonIds([]);
+    resetAddMode();
+    resetRemoveMode();
+    setToolMode('remove');
+  };
+
   const handleToggleFilterMode = () => {
     setBoxSelectRect(null);
     setIsBoxSelectArmed(false);
     setActiveSourceFilter(null);
+    resetAddMode();
+    resetRemoveMode();
     setToolMode((current) => {
       const nextMode = current === 'filter' ? 'normal' : 'filter';
       if (nextMode === 'filter') {
@@ -504,6 +685,8 @@ export function BuffBatchEditWorkbench({
     setBoxSelectRect(null);
     setIsBoxSelectArmed(false);
     setActiveSourceFilter(null);
+    resetAddMode();
+    resetRemoveMode();
     setToolMode((current) => current === 'edit' ? 'normal' : 'edit');
   };
 
@@ -519,9 +702,71 @@ export function BuffBatchEditWorkbench({
     };
   };
 
-  const selectButtonsInRect = (rect: BoxSelectRect) => {
+  const toggleAddTargetsInRect = (rect: BoxSelectRect) => {
     const normalizedRect = normalizeRect(rect);
-    const nextSelectedIds = skillButtons
+    if (toolMode === 'add' && activeAddBuffId) {
+      const hitIds = skillButtons
+        .filter((button) => {
+          if (button.selectedBuff?.includes(activeAddBuffId)) {
+            return false;
+          }
+          const position = buildButtonPosition(button);
+          const buttonRect = {
+            left: position.x - SKILL_BUTTON_RADIUS - SKILL_BUTTON_VISUAL_OFFSET_X,
+            top: position.y - SKILL_BUTTON_RADIUS - SKILL_BUTTON_VISUAL_OFFSET_Y,
+            right: position.x - SKILL_BUTTON_RADIUS - SKILL_BUTTON_VISUAL_OFFSET_X + SKILL_BUTTON_HIT_WIDTH,
+            bottom: position.y - SKILL_BUTTON_RADIUS - SKILL_BUTTON_VISUAL_OFFSET_Y + SKILL_BUTTON_HIT_HEIGHT,
+          };
+          return intersects(normalizedRect, buttonRect);
+        })
+        .map((button) => button.id);
+
+      setPendingAddByBuff((current) => {
+        const currentTargets = current[activeAddBuffId] ?? [];
+        const hitSet = new Set(hitIds);
+        const shouldRemove = hitIds.some((id) => currentTargets.includes(id));
+        return {
+          ...current,
+          [activeAddBuffId]: shouldRemove
+            ? currentTargets.filter((id) => !hitSet.has(id))
+            : Array.from(new Set([...currentTargets, ...hitIds])),
+        };
+      });
+      return;
+    }
+
+    if (toolMode === 'remove' && activeRemoveBuffId) {
+      const hitIds = skillButtons
+        .filter((button) => {
+          if (!button.selectedBuff?.includes(activeRemoveBuffId)) {
+            return false;
+          }
+          const position = buildButtonPosition(button);
+          const buttonRect = {
+            left: position.x - SKILL_BUTTON_RADIUS - SKILL_BUTTON_VISUAL_OFFSET_X,
+            top: position.y - SKILL_BUTTON_RADIUS - SKILL_BUTTON_VISUAL_OFFSET_Y,
+            right: position.x - SKILL_BUTTON_RADIUS - SKILL_BUTTON_VISUAL_OFFSET_X + SKILL_BUTTON_HIT_WIDTH,
+            bottom: position.y - SKILL_BUTTON_RADIUS - SKILL_BUTTON_VISUAL_OFFSET_Y + SKILL_BUTTON_HIT_HEIGHT,
+          };
+          return intersects(normalizedRect, buttonRect);
+        })
+        .map((button) => button.id);
+
+      setPendingRemoveByBuff((current) => {
+        const currentTargets = current[activeRemoveBuffId] ?? [];
+        const hitSet = new Set(hitIds);
+        const shouldRemove = hitIds.some((id) => currentTargets.includes(id));
+        return {
+          ...current,
+          [activeRemoveBuffId]: shouldRemove
+            ? currentTargets.filter((id) => !hitSet.has(id))
+            : Array.from(new Set([...currentTargets, ...hitIds])),
+        };
+      });
+      return;
+    }
+
+    const hitIds = skillButtons
       .filter((button) => {
         const position = buildButtonPosition(button);
         const buttonRect = {
@@ -533,11 +778,17 @@ export function BuffBatchEditWorkbench({
         return intersects(normalizedRect, buttonRect);
       })
       .map((button) => button.id);
-    setSelectedButtonIds(nextSelectedIds);
+    setSelectedButtonIds((current) => {
+      const hitSet = new Set(hitIds);
+      const shouldRemove = hitIds.some((id) => current.includes(id));
+      return shouldRemove
+        ? current.filter((id) => !hitSet.has(id))
+        : Array.from(new Set([...current, ...hitIds]));
+    });
   };
 
   const handleBoxSelectMouseDown = (event: React.MouseEvent<HTMLDivElement>) => {
-    if (toolMode !== 'normal' || !isBoxSelectArmed || event.button !== 0) {
+    if (!['normal', 'add', 'remove'].includes(toolMode) || !isBoxSelectArmed || event.button !== 0) {
       return;
     }
     event.preventDefault();
@@ -571,9 +822,8 @@ export function BuffBatchEditWorkbench({
     };
 
     const handleMouseUp = () => {
-      selectButtonsInRect(boxSelectRect);
+      toggleAddTargetsInRect(boxSelectRect);
       setBoxSelectRect(null);
-      setIsBoxSelectArmed(false);
     };
 
     window.addEventListener('mousemove', handleMouseMove);
@@ -659,6 +909,12 @@ export function BuffBatchEditWorkbench({
   const renderSkillButton = (button: PersistedSkillButton) => {
     const character = characterById.get(button.characterId || button.characterName) ?? characterById.get(button.characterName);
     const isSelected = selectedButtonIds.includes(button.id);
+    const isAddOwned = toolMode === 'add' && Boolean(activeAddBuffId && button.selectedBuff?.includes(activeAddBuffId));
+    const isAddTarget = toolMode === 'add' && Boolean(activeAddBuffId && pendingAddByBuff[activeAddBuffId]?.includes(button.id));
+    const isRemoveOwned = toolMode === 'remove' && Boolean(activeRemoveBuffId && button.selectedBuff?.includes(activeRemoveBuffId));
+    const isRemoveTarget = toolMode === 'remove' && Boolean(activeRemoveBuffId && pendingRemoveByBuff[activeRemoveBuffId]?.includes(button.id));
+    const pendingAddCount = pendingAddCountByButton.get(button.id) ?? 0;
+    const pendingRemoveCount = pendingRemoveCountByButton.get(button.id) ?? 0;
     const element = character?.element ?? '';
 
     return (
@@ -667,6 +923,12 @@ export function BuffBatchEditWorkbench({
         button={button}
         element={element}
         isSelected={isSelected}
+        isAddOwned={isAddOwned}
+        isAddTarget={isAddTarget}
+        isRemoveOwned={isRemoveOwned}
+        isRemoveTarget={isRemoveTarget}
+        pendingAddCount={pendingAddCount}
+        pendingRemoveCount={pendingRemoveCount}
         onToggle={toggleButton}
       />
     );
@@ -699,7 +961,7 @@ export function BuffBatchEditWorkbench({
   );
 
   const renderRightSideButtons = () => {
-    if (toolMode === 'filter') {
+    if (toolMode === 'filter' || toolMode === 'add' || toolMode === 'remove') {
       const characterButtons = selectedCharacters.slice(0, 4).map((character, index) => {
         const filter: SourceFilter = { kind: 'character', id: character.id, name: character.name };
         return (
@@ -726,7 +988,7 @@ export function BuffBatchEditWorkbench({
             type="button"
             title={weaponName}
             aria-label={`筛选武器来源 ${weaponName}`}
-            style={{ top: 208 + index * 40 }}
+            style={{ top: 248 + index * 40 }}
             onClick={() => toggleSourceFilter(filter)}
           >
             <img
@@ -751,10 +1013,12 @@ export function BuffBatchEditWorkbench({
             type="button"
             title="装备"
             aria-label="筛选装备来源"
-            style={{ top: 208 + Math.max(weaponButtonItems.length, 4) * 40 }}
+            style={{ top: 208 }}
             onClick={() => toggleSourceFilter(equipmentFilter)}
           >
-            装
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M15 4l6 2v5h-3v8a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1v-8H3V6l6-2a3 3 0 0 0 6 0" />
+            </svg>
           </button>
         </>
       );
@@ -776,6 +1040,50 @@ export function BuffBatchEditWorkbench({
   };
 
   const renderRightPanel = () => {
+    if (toolMode === 'remove') {
+      const draftBuffCount = Object.keys(pendingRemoveByBuff).filter((buffId) => (pendingRemoveByBuff[buffId] ?? []).length > 0).length;
+      return (
+        <div className="buff-edit-right-panel">
+          <div className="buff-edit-right-head">
+            <h3>删减 Buff</h3>
+            <span>{draftBuffCount} Buff 草稿</span>
+          </div>
+          <div className="buff-edit-tag-list">
+            {visibleFilterBuffs.length > 0 ? (
+              visibleFilterBuffs.map((buff) => renderBuffTag(buff.id, {
+                selected: activeRemoveBuffId === buff.id,
+                onClick: () => setActiveRemoveBuffId((current) => current === buff.id ? null : buff.id),
+              }))
+            ) : (
+              <div className="buff-edit-right-empty">暂无 Buff</div>
+            )}
+          </div>
+        </div>
+      );
+    }
+
+    if (toolMode === 'add') {
+      const draftBuffCount = Object.keys(pendingAddByBuff).filter((buffId) => (pendingAddByBuff[buffId] ?? []).length > 0).length;
+      return (
+        <div className="buff-edit-right-panel">
+          <div className="buff-edit-right-head">
+            <h3>增加 Buff</h3>
+            <span>{draftBuffCount} Buff 草稿</span>
+          </div>
+          <div className="buff-edit-tag-list">
+            {visibleFilterBuffs.length > 0 ? (
+              visibleFilterBuffs.map((buff) => renderBuffTag(buff.id, {
+                selected: activeAddBuffId === buff.id,
+                onClick: () => setActiveAddBuffId((current) => current === buff.id ? null : buff.id),
+              }))
+            ) : (
+              <div className="buff-edit-right-empty">暂无 Buff</div>
+            )}
+          </div>
+        </div>
+      );
+    }
+
     if (toolMode === 'filter') {
       return (
         <div className="buff-edit-right-panel">
@@ -828,7 +1136,7 @@ export function BuffBatchEditWorkbench({
   };
 
   return (
-    <div className={`canvas-board buff-batch-edit-workbench ${isWorkbenchTopZoneOpen ? 'has-top-zone' : ''}`}>
+    <div className={`canvas-board buff-batch-edit-workbench ${isWorkbenchTopZoneOpen ? 'has-top-zone' : ''}${toolMode === 'add' ? ' is-add-mode' : ''}${toolMode === 'remove' ? ' is-remove-mode' : ''}`}>
       <div className="canvas-layout buff-edit-layout">
         <section className="canvas-left-zone buff-edit-left-zone">
           <div className="canvas-area buff-edit-canvas-area">
@@ -838,7 +1146,7 @@ export function BuffBatchEditWorkbench({
                   className={`buff-edit-box-select-button${isBoxSelectArmed ? ' is-active' : ''}`}
                   type="button"
                   onClick={() => setIsBoxSelectArmed((value) => !value)}
-                  disabled={toolMode !== 'normal'}
+                  disabled={!['normal', 'add', 'remove'].includes(toolMode)}
                   title="框选技能按钮"
                 >
                   <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -846,15 +1154,23 @@ export function BuffBatchEditWorkbench({
                   </svg>
                 </button>
                 <button
-                  className="buff-edit-clear-selection-button"
+                  className={`buff-edit-clear-selection-button${toolMode === 'add' ? ' is-cancel-add' : ''}${toolMode === 'remove' ? ' is-cancel-remove' : ''}`}
                   type="button"
                   onClick={() => {
+                    if (toolMode === 'add') {
+                      handleCancelAddMode();
+                      return;
+                    }
+                    if (toolMode === 'remove') {
+                      handleCancelRemoveMode();
+                      return;
+                    }
                     setSelectedButtonIds([]);
                     setIsBoxSelectArmed(false);
                     setBoxSelectRect(null);
                   }}
-                  disabled={toolMode !== 'normal'}
-                  title="取消全部选中"
+                  disabled={toolMode !== 'normal' && toolMode !== 'add' && toolMode !== 'remove'}
+                  title={toolMode === 'add' ? '取消增加' : toolMode === 'remove' ? '取消删减' : '取消全部选中'}
                 >
                   <svg viewBox="0 0 24 24" aria-hidden="true">
                     <path d="M6.4 5 5 6.4 10.6 12 5 17.6 6.4 19 12 13.4 17.6 19 19 17.6 13.4 12 19 6.4 17.6 5 12 10.6 6.4 5Z" />
@@ -864,7 +1180,7 @@ export function BuffBatchEditWorkbench({
                   className={`buff-edit-filter-button${toolMode === 'filter' ? ' is-active' : ''}`}
                   type="button"
                   onClick={handleToggleFilterMode}
-                  disabled={toolMode === 'edit'}
+                  disabled={toolMode === 'edit' || toolMode === 'add' || toolMode === 'remove'}
                   title="筛选 Buff"
                 >
                   <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -875,12 +1191,46 @@ export function BuffBatchEditWorkbench({
                   className={`buff-edit-mode-button${toolMode === 'edit' ? ' is-active' : ''}`}
                   type="button"
                   onClick={handleToggleEditMode}
-                  disabled={toolMode === 'filter'}
+                  disabled={toolMode === 'filter' || toolMode === 'add' || toolMode === 'remove'}
                   title="编辑目录"
                 >
                   <svg viewBox="0 0 24 24" aria-hidden="true">
                     <path d="M5 4h9v2H7v12h10v-7h2v9H5V4Zm11.8.6 2.6 2.6-7.8 7.8H9v-2.6l7.8-7.8Zm1.2 2.6-1.2-1.2L11 11.8V13h1.2L18 7.2Z" />
                   </svg>
+                </button>
+                <button
+                  className={`buff-edit-add-button${toolMode === 'add' ? ' is-confirm-add' : ''}`}
+                  type="button"
+                  onClick={handleToggleAddMode}
+                  disabled={toolMode === 'filter' || toolMode === 'edit' || toolMode === 'remove'}
+                  title={toolMode === 'add' ? '确认增加' : '增加 Buff'}
+                >
+                  {toolMode === 'add' ? (
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                      <path d="M9.5 16.6 4.9 12l-1.4 1.4 6 6L21 7.9 19.6 6.5 9.5 16.6Z" />
+                    </svg>
+                  ) : (
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                      <path d="M11 5h2v6h6v2h-6v6h-2v-6H5v-2h6V5Z" />
+                    </svg>
+                  )}
+                </button>
+                <button
+                  className={`buff-edit-remove-button${toolMode === 'remove' ? ' is-confirm-remove' : ''}`}
+                  type="button"
+                  onClick={handleToggleRemoveMode}
+                  disabled={toolMode === 'filter' || toolMode === 'edit' || toolMode === 'add'}
+                  title={toolMode === 'remove' ? '确认删减' : '删减 Buff'}
+                >
+                  {toolMode === 'remove' ? (
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                      <path d="M9.5 16.6 4.9 12l-1.4 1.4 6 6L21 7.9 19.6 6.5 9.5 16.6Z" />
+                    </svg>
+                  ) : (
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                      <path d="M5 11h14v2H5v-2Z" />
+                    </svg>
+                  )}
                 </button>
               </div>
               <div className="buff-edit-secondary-button-layer" aria-label="左区右侧按钮区">

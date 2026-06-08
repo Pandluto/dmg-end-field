@@ -38,6 +38,9 @@
   left: 1365px;
   width: 32px;
   height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   padding: 0;
   background: rgba(255, 255, 255, 0.78);
   border: 1px dashed var(--office-border);
@@ -62,10 +65,6 @@
     0 2px 8px rgba(26, 26, 26, 0.14);
 }
 
-.buff-edit-secondary-avatar-button {
-  border-radius: 50%;
-}
-
 .buff-edit-secondary-button img {
   position: absolute;
   inset: 0;
@@ -85,10 +84,24 @@
   line-height: 1;
 }
 
+.buff-edit-secondary-button svg {
+  width: 19px;
+  height: 19px;
+  display: block;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  pointer-events: none;
+}
+
 .buff-edit-box-select-button,
 .buff-edit-clear-selection-button,
 .buff-edit-filter-button,
-.buff-edit-mode-button {
+.buff-edit-mode-button,
+.buff-edit-add-button,
+.buff-edit-remove-button {
   position: absolute;
   left: 16px;
   width: 32px;
@@ -109,7 +122,9 @@
 .buff-edit-box-select-button:disabled,
 .buff-edit-clear-selection-button:disabled,
 .buff-edit-filter-button:disabled,
-.buff-edit-mode-button:disabled {
+.buff-edit-mode-button:disabled,
+.buff-edit-add-button:disabled,
+.buff-edit-remove-button:disabled {
   opacity: 0.38;
   cursor: not-allowed;
 }
@@ -130,22 +145,58 @@
   top: 168px;
 }
 
+.buff-edit-add-button {
+  top: 208px;
+}
+
+.buff-edit-remove-button {
+  top: 248px;
+}
+
 .buff-edit-box-select-button:hover,
 .buff-edit-box-select-button.is-active,
 .buff-edit-clear-selection-button:hover,
 .buff-edit-filter-button:hover,
 .buff-edit-filter-button.is-active,
 .buff-edit-mode-button:hover,
-.buff-edit-mode-button.is-active {
+.buff-edit-mode-button.is-active,
+.buff-edit-add-button:hover,
+.buff-edit-remove-button:hover {
   color: var(--excel-white);
   background: var(--excel-green-main);
   border-color: var(--excel-green-main);
 }
 
+.buff-edit-clear-selection-button.is-cancel-add {
+  color: #ffffff;
+  background: #c62828;
+  border-color: #c62828;
+}
+
+.buff-edit-clear-selection-button.is-cancel-remove {
+  color: #ffffff;
+  background: var(--excel-green-main);
+  border-color: var(--excel-green-main);
+}
+
+.buff-edit-add-button.is-confirm-add {
+  color: #ffffff;
+  background: var(--excel-green-main);
+  border-color: var(--excel-green-main);
+}
+
+.buff-edit-remove-button.is-confirm-remove {
+  color: #ffffff;
+  background: #c62828;
+  border-color: #c62828;
+}
+
 .buff-edit-box-select-button svg,
 .buff-edit-clear-selection-button svg,
 .buff-edit-filter-button svg,
-.buff-edit-mode-button svg {
+.buff-edit-mode-button svg,
+.buff-edit-add-button svg,
+.buff-edit-remove-button svg {
   width: 18px;
   height: 18px;
   fill: currentColor;
@@ -361,6 +412,98 @@
   box-shadow:
     0 0 0 2px rgba(109, 40, 217, 0.38),
     0 3px 12px rgba(109, 40, 217, 0.34);
+}
+
+.buff-batch-edit-workbench.is-add-mode .canvas-skill-button {
+  cursor: copy;
+}
+
+.buff-batch-edit-workbench.is-remove-mode .canvas-skill-button {
+  cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24'%3E%3Cpath fill='%23dc2626' d='M5 11h14v3H5z'/%3E%3C/svg%3E") 12 12, pointer;
+}
+
+.buff-batch-edit-workbench .canvas-skill-button.is-add-owned .skill-button-base {
+  border: 2px solid #2563eb;
+  box-shadow:
+    0 0 0 1px rgba(37, 99, 235, 0.42),
+    0 3px 12px rgba(37, 99, 235, 0.28);
+}
+
+.buff-batch-edit-workbench .canvas-skill-button.is-add-owned .skill-button-orb {
+  border-color: #2563eb;
+  box-shadow:
+    0 0 0 2px rgba(37, 99, 235, 0.32),
+    0 3px 12px rgba(37, 99, 235, 0.28);
+}
+
+.buff-batch-edit-workbench .canvas-skill-button.is-add-target .skill-button-base {
+  border: 2px solid #16a34a;
+  box-shadow:
+    0 0 0 1px rgba(22, 163, 74, 0.42),
+    0 3px 12px rgba(22, 163, 74, 0.28);
+}
+
+.buff-batch-edit-workbench .canvas-skill-button.is-add-target .skill-button-orb {
+  border-color: #16a34a;
+  box-shadow:
+    0 0 0 2px rgba(22, 163, 74, 0.32),
+    0 3px 12px rgba(22, 163, 74, 0.28);
+}
+
+.buff-batch-edit-workbench .canvas-skill-button.is-remove-target .skill-button-base {
+  border: 2px solid #dc2626;
+  box-shadow:
+    0 0 0 1px rgba(220, 38, 38, 0.42),
+    0 3px 12px rgba(220, 38, 38, 0.28);
+}
+
+.buff-batch-edit-workbench .canvas-skill-button.is-remove-target .skill-button-orb {
+  border-color: #dc2626;
+  box-shadow:
+    0 0 0 2px rgba(220, 38, 38, 0.32),
+    0 3px 12px rgba(220, 38, 38, 0.28);
+}
+
+.buff-edit-pending-add-count {
+  position: absolute;
+  left: 52px;
+  top: 50px;
+  z-index: 40;
+  min-width: 24px;
+  height: 16px;
+  padding: 0 5px;
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #ffffff;
+  background: #16a34a;
+  border: 1px solid rgba(255, 255, 255, 0.78);
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 1;
+  pointer-events: none;
+}
+
+.buff-edit-pending-remove-count {
+  position: absolute;
+  left: 52px;
+  top: 50px;
+  z-index: 41;
+  min-width: 24px;
+  height: 16px;
+  padding: 0 5px;
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #ffffff;
+  background: #dc2626;
+  border: 1px solid rgba(255, 255, 255, 0.78);
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 1;
+  pointer-events: none;
 }
 
 .buff-edit-empty {
