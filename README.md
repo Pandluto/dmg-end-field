@@ -85,7 +85,7 @@ pnpm install
 pnpm run dev
 ```
 
-启动 Electron 开发环境:
+启动 Electron 开发环境（推荐，直接用这个）:
 
 ```bash
 pnpm run electron:dev
