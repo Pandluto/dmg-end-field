@@ -476,13 +476,13 @@ function hasText(value: unknown): value is string {
 
 function preserveExistingAssetUrls(nextPayload: OperatorDraft, currentDraft = readCurrentOperatorDraft()): OperatorDraft {
   const next = JSON.parse(JSON.stringify(nextPayload)) as OperatorDraft;
-  if (!hasText(next.avatarUrl) && hasText(currentDraft.avatarUrl)) {
+  if (next.id === currentDraft.id && hasText(currentDraft.avatarUrl)) {
     next.avatarUrl = currentDraft.avatarUrl;
   }
 
   for (const [skillKey, nextSkill] of Object.entries(next.skills || {})) {
     const currentSkill = currentDraft.skills?.[skillKey];
-    if (!hasText(nextSkill.iconUrl) && hasText(currentSkill?.iconUrl)) {
+    if (next.id === currentDraft.id && hasText(currentSkill?.iconUrl)) {
       nextSkill.iconUrl = currentSkill.iconUrl;
     }
   }

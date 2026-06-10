@@ -154,6 +154,31 @@ export function formatEquipmentLibrarySummary(library = readEquipmentLibrary()) 
     }));
 }
 
+function hasText(value: unknown): value is string {
+  return typeof value === 'string' && value.trim() !== '';
+}
+
+function preserveExistingImageUrls(nextPayload: EquipmentLibrary, currentLibrary?: EquipmentLibrary): EquipmentLibrary {
+  const next = JSON.parse(JSON.stringify(nextPayload)) as EquipmentLibrary;
+  const currentGearSets = currentLibrary?.gearSets || {};
+
+  for (const [gearSetKey, nextSet] of Object.entries(next.gearSets || {})) {
+    const currentSet = currentGearSets[gearSetKey] || currentGearSets[nextSet.gearSetId];
+    if (currentSet && nextSet.gearSetId === currentSet.gearSetId && hasText(currentSet.imgUrl)) {
+      nextSet.imgUrl = currentSet.imgUrl;
+    }
+
+    for (const [equipmentKey, nextEquipment] of Object.entries(nextSet.equipments || {})) {
+      const currentEquipment = currentSet?.equipments?.[equipmentKey] || currentSet?.equipments?.[nextEquipment.equipmentId];
+      if (currentEquipment && nextEquipment.equipmentId === currentEquipment.equipmentId && hasText(currentEquipment.imgUrl)) {
+        nextEquipment.imgUrl = currentEquipment.imgUrl;
+      }
+    }
+  }
+
+  return next;
+}
+
 function parseJsonPayload(rawPayload: unknown) {
   if (typeof rawPayload !== 'string') {
     return { value: null, errors: ['payload must be string'] };
@@ -352,7 +377,7 @@ export const equipmentFillAdapter: AgentFillDomainAdapter<EquipmentLibrary> = {
 
   applyToWorkingState(payload): { ok: boolean; error?: string } {
     try {
-      writeJsonStorage(EQUIPMENT_DRAFT_STORAGE_KEY, payload);
+      writeJsonStorage(EQUIPMENT_DRAFT_STORAGE_KEY, preserveExistingImageUrls(payload, readCurrentEquipmentLibrary()));
       return { ok: true };
     } catch (error) {
       return { ok: false, error: error instanceof Error ? error.message : String(error) };
@@ -361,7 +386,7 @@ export const equipmentFillAdapter: AgentFillDomainAdapter<EquipmentLibrary> = {
 
   saveToLocalTruth(payload): { ok: boolean; error?: string } {
     try {
-      writeJsonStorage(EQUIPMENT_LIBRARY_STORAGE_KEY, payload);
+      writeJsonStorage(EQUIPMENT_LIBRARY_STORAGE_KEY, preserveExistingImageUrls(payload, readEquipmentLibrary()));
       return { ok: true };
     } catch (error) {
       return { ok: false, error: error instanceof Error ? error.message : String(error) };

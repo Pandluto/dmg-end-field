@@ -254,6 +254,18 @@ export function writeCurrentWeaponDraft(draft: WeaponDraft) {
   writeJsonStorage(WEAPON_DRAFT_STORAGE_KEY, draft);
 }
 
+function hasText(value: unknown): value is string {
+  return typeof value === 'string' && value.trim() !== '';
+}
+
+function preserveExistingImageUrl(nextPayload: WeaponDraft, currentDraft?: WeaponDraft): WeaponDraft {
+  const next = JSON.parse(JSON.stringify(nextPayload)) as WeaponDraft;
+  if (currentDraft && next.id === currentDraft.id && hasText(currentDraft.imgUrl)) {
+    next.imgUrl = currentDraft.imgUrl;
+  }
+  return next;
+}
+
 export function createFallbackWeaponDraft(): WeaponDraft {
   return {
     id: 'custom-weapon-001',
@@ -552,7 +564,7 @@ export const weaponFillAdapter: AgentFillDomainAdapter<WeaponDraft> = {
 
   applyToWorkingState(payload: WeaponDraft): { ok: boolean; error?: string } {
     try {
-      writeJsonStorage(WEAPON_DRAFT_STORAGE_KEY, payload);
+      writeJsonStorage(WEAPON_DRAFT_STORAGE_KEY, preserveExistingImageUrl(payload, readCurrentWeaponDraft()));
       return { ok: true };
     } catch (error) {
       return { ok: false, error: error instanceof Error ? error.message : String(error) };
@@ -561,9 +573,11 @@ export const weaponFillAdapter: AgentFillDomainAdapter<WeaponDraft> = {
 
   saveToLocalTruth(payload: WeaponDraft): { ok: boolean; error?: string } {
     try {
-      const nextLibrary = { ...readWeaponLibrary(), [payload.id]: payload };
+      const library = readWeaponLibrary();
+      const mergedPayload = preserveExistingImageUrl(payload, library[payload.id] ?? readCurrentWeaponDraft());
+      const nextLibrary = { ...library, [mergedPayload.id]: mergedPayload };
       writeJsonStorage(WEAPON_LIBRARY_STORAGE_KEY, nextLibrary);
-      writeJsonStorage(WEAPON_DRAFT_STORAGE_KEY, payload);
+      writeJsonStorage(WEAPON_DRAFT_STORAGE_KEY, mergedPayload);
       return { ok: true };
     } catch (error) {
       return { ok: false, error: error instanceof Error ? error.message : String(error) };

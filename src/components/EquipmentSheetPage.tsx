@@ -1919,6 +1919,9 @@ export function EquipmentSheetPage() {
     };
   }, [library.gearSets, selectedCell?.address, selectedWorkbookCell, selectedWorkbookRow, updateCellValue, updateEffectLevel]);
 
+  const hasUnsavedChanges = isDirty
+    || Boolean(formulaBinding && !formulaBinding.readOnly && formulaInput !== formulaBinding.value);
+
   const handleSelectEquipmentImage = useCallback((displayUrl: string) => {
     if (!formulaBinding || formulaBinding.control !== 'image-search-select') return;
     formulaBinding.commit(displayUrl);
@@ -2567,7 +2570,7 @@ export function EquipmentSheetPage() {
           </div>
         </div>
         <div className="damage-sheet-topbar-right">
-          <span className={`equipment-sheet-save-status${isDirty ? ' is-dirty' : ''}`}>{isDirty ? '未保存' : '已保存'}</span>
+          <span className={`equipment-sheet-save-status${hasUnsavedChanges ? ' is-dirty' : ''}`}>{hasUnsavedChanges ? '未保存' : '已保存'}</span>
           <button type="button" className="damage-sheet-action-button" onClick={() => navigateToAppPath(APP_ROUTE_PATHS.weaponSheet)}>
             打开 Sheet-Weapon
           </button>
