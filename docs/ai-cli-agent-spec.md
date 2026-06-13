@@ -120,7 +120,9 @@ Cross-store proposal handoff (Task 12 UX Fix 2):
 - REST `*.fill.apply` creates a proposal in `now-storage.json`.
 - The REST server broadcasts proposals through SSE `agent.records`.
 - Web CLI (`/ai-cli`) receives SSE and imports external pending proposals into browser `localStorage`.
+- Web CLI must also fetch `GET /api/agent/records` as a snapshot fallback on startup, SSE parse failure, SSE import failure, and SSE reconnect/error.
 - Imported proposals keep their original `client` (rest/codex/claude) and get `reviewedBy='web-cli'`.
+- Proposal storage must compact resolved proposal history before writing `def.ai-agent.proposals.v1`; pending proposals must never be dropped by compaction.
 - The user does **not** need to re-run `fill.apply` in the browser.
 - Single pending: user presses `Y` to approve, then `Y` to save.
 - Multiple pending: user runs `proposal.list`, then `proposal.approve #1` / `proposal.save #1`.

@@ -256,7 +256,7 @@ export function resolveProposalReference(input: string, sessionId?: string): AiA
   if (trimmed.startsWith('#')) {
     const index = parseInt(trimmed.slice(1), 10) - 1;
     if (!Number.isFinite(index) || index < 0) return null;
-    const pending = readPendingAgentProposals(sessionId);
+    const { proposals: pending } = readPendingAgentProposalsForReview(sessionId);
     if (index >= pending.length) return null;
     return pending[index] ?? null;
   }
@@ -270,10 +270,19 @@ export function resolveProposalReference(input: string, sessionId?: string): AiA
  * Returns "#1", "#2", etc. or null if not in pending list.
  */
 export function getProposalAlias(proposalId: string, sessionId?: string): string | null {
-  const pending = readPendingAgentProposals(sessionId);
+  const { proposals: pending } = readPendingAgentProposalsForReview(sessionId);
   const index = pending.findIndex((p) => p.id === proposalId);
   if (index < 0) return null;
   return `#${index + 1}`;
+}
+
+function readPendingAgentProposalsForReview(sessionId?: string): { proposals: AiAgentProposal[]; crossSession: boolean } {
+  const scoped = readPendingAgentProposals(sessionId);
+  if (scoped.length > 0 || sessionId === undefined) {
+    return { proposals: scoped, crossSession: false };
+  }
+  const all = readPendingAgentProposals();
+  return { proposals: all, crossSession: all.length > 0 };
 }
 
 function table(headers: string[], rows: string[][]) {
@@ -1597,7 +1606,7 @@ function executeCommand(
   }
 
   if (command === 'proposal.list') {
-    const proposals = readPendingAgentProposals(sessionId);
+    const { proposals, crossSession } = readPendingAgentProposalsForReview(sessionId);
     if (!proposals.length) {
       return makeResponse({
         lines: [info('no pending proposals (没有待处理提案)')],
@@ -1613,23 +1622,29 @@ function executeCommand(
       p.id,
     ]);
     return makeResponse({
-      lines: table(
-        ['#', 'Domain', 'Approval', 'Save', 'Summary', 'id'],
-        rows,
-      ),
+      lines: [
+        ...(crossSession ? [info('showing cross-session pending proposals because current session is empty (当前会话为空，正在显示跨会话待处理提案)')] : []),
+        ...table(
+          ['#', 'Domain', 'Approval', 'Save', 'Summary', 'id'],
+          rows,
+        ),
+      ],
       data: { proposals },
     });
   }
 
   if (command === 'proposal.clear') {
-    const result = clearPendingAgentProposals(sessionId, client);
+    const { crossSession } = readPendingAgentProposalsForReview(sessionId);
+    const result = clearPendingAgentProposals(crossSession ? undefined : sessionId, client);
     if (result.cleared.length === 0) {
       return makeResponse({ lines: [info('no pending proposals to clear (没有可清理的待处理提案)')] });
     }
     return makeResponse({
       lines: [
         ok(`cleared ${result.cleared.length} pending proposal${result.cleared.length === 1 ? '' : 's'} (已清理 ${result.cleared.length} 个待处理提案)`),
-        `[state] ${result.remaining} pending proposals in current session (当前会话 ${result.remaining} 个待处理提案)`,
+        crossSession
+          ? `[state] ${result.remaining} pending proposals across sessions (跨会话 ${result.remaining} 个待处理提案)`
+          : `[state] ${result.remaining} pending proposals in current session (当前会话 ${result.remaining} 个待处理提案)`,
         '[next] Submit a fresh fill.apply or inspect with proposal.list (可以重新提交 fill.apply，或用 proposal.list 查看)',
       ],
       effects: { writes: true, storage: [AI_AGENT_PROPOSALS_STORAGE_KEY] },
@@ -1845,7 +1860,7 @@ function executeCommand(
   }
 
   if (command === 'y') {
-    const targets = readPendingAgentProposals(sessionId);
+    const { proposals: targets } = readPendingAgentProposalsForReview(sessionId);
     if (targets.length === 0) {
       return makeResponse({ ok: false, lines: [fail('no pending proposals in current session (当前会话没有待处理提案)')] });
     }
@@ -1868,7 +1883,7 @@ function executeCommand(
   }
 
   if (command === 'n') {
-    const targets = readPendingAgentProposals(sessionId);
+    const { proposals: targets } = readPendingAgentProposalsForReview(sessionId);
     if (targets.length === 0) {
       return makeResponse({ ok: false, lines: [fail('no pending proposals in current session (当前会话没有待处理提案)')] });
     }

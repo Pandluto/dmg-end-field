@@ -253,6 +253,9 @@
   - [ ] 汇总 Task 12/13 的实现状态和剩余风险，避免重复维护同一批说明。
   - [ ] Shell Agent 页面或 `/ai-cli` 输出能看到 proposal approval/save 状态。
   - [ ] 文档确认 readonly 外部 agent 不能推进审批/保存。
+  - [x] REST -> Web CLI proposal handoff 增加 snapshot 兜底，不再完全依赖 SSE 成功解析。
+  - [x] `def.ai-agent.proposals.v1` 写入前 compact，保留 pending，截断 resolved 历史，避免 localStorage quota 阻断导入。
+  - [x] `/ai-cli` 区分 SSE JSON parse failure 和 proposal import/storage failure，输出 raw 前缀辅助定位。
   - [ ] 防越界：AI CLI command service、fill adapter、AI CLI REST adapter 不得直接 import/glob/fetch `public/data/characters`、`public/data/equipments` 或 `public/data/weapons`。
   - [ ] 防越界：Weapon/Operator/Equipment 在 Agent CLI 内只暴露 `current / library / fill.task / fill.check / fill.apply / proposal.*`，不暴露 `*.data.*` source 命令。
   - [ ] 防越界：如未来需要官方源数据读取，必须放在独立 app data service，不得塞回 Agent CLI adapter 或 fill task package。

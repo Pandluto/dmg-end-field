@@ -38,6 +38,33 @@ function labelSaveZh(status: string) {
   return ({ Wait: '待保存', Yes: '已保存', No: '未保存' } as Record<string, string>)[status] ?? status;
 }
 
+type AgentRecordsPayload = {
+  operationLogs?: Array<{
+    id?: string;
+    client?: string;
+    command?: string;
+    ok?: boolean;
+    writes?: boolean;
+    errorCode?: string;
+    proposalId?: string;
+    approval?: string;
+    save?: string;
+  }>;
+  proposals?: Array<{
+    id?: string;
+    domain?: string;
+    operation?: string;
+    payload?: unknown;
+    approvalStatus?: string;
+    saveStatus?: string;
+    client?: string;
+    sessionId?: string;
+    summary?: string;
+    createdAt?: number;
+    updatedAt?: number;
+  }>;
+};
+
 export function AiCliPage() {
   const [currentDraft, setCurrentDraft] = useState(() => readCurrentBuffDraft());
   const [sourceText, setSourceText] = useState('');
@@ -102,8 +129,56 @@ export function AiCliPage() {
     appendLines([info('default pending proposal preview (默认待处理提案预览)'), ...result.lines]);
   };
 
+  const handleAgentRecordsPayload = (payload: AgentRecordsPayload) => {
+    if (payload.proposals && payload.proposals.length > 0) {
+      const currentSessionId = syncSessionId();
+      const handoff = importExternalProposals(payload.proposals, currentSessionId);
+      if (handoff.lines.length > 0) {
+        appendLines(handoff.lines);
+      }
+      appendDefaultProposalPreview(currentSessionId);
+    }
+    const latestLog = payload.operationLogs?.[0];
+    if (!latestLog?.id || latestLog.id === lastAgentLogIdRef.current || !latestLog.command || latestLog.command === '-') {
+      return;
+    }
+    lastAgentLogIdRef.current = latestLog.id;
+    const currentSessionId = syncSessionId();
+    const alias = latestLog.proposalId ? getProposalAlias(latestLog.proposalId, currentSessionId) : null;
+    const aliasPart = alias ? ` proposal=${alias}` : '';
+    const approvalPart = latestLog.approval ? ` approval=${labelApproval(latestLog.approval)}` : '';
+    const savePart = latestLog.save ? ` save=${labelSave(latestLog.save)}` : '';
+    const errorPart = latestLog.errorCode ? ` error=${latestLog.errorCode}` : '';
+    const zhParts = [
+      latestLog.errorCode ? `错误=${latestLog.errorCode}` : '',
+      latestLog.writes ? '写入' : '',
+      alias ? `提案=${alias}` : '',
+      latestLog.approval ? `审批=${labelApprovalZh(latestLog.approval)}` : '',
+      latestLog.save ? `保存=${labelSaveZh(latestLog.save)}` : '',
+    ].filter(Boolean);
+    const zhPart = zhParts.length ? ` (${zhParts.join(' ')})` : '';
+    appendLines([
+      `[agent] ${latestLog.client || '-'} ${latestLog.ok ? 'ok' : 'err'} ${latestLog.writes ? 'write' : 'read'} ${latestLog.command || '-'}${aliasPart}${approvalPart}${savePart}${errorPart}${zhPart}`,
+    ]);
+  };
+
+  const fetchAgentRecordsSnapshot = async (reason: string) => {
+    try {
+      const response = await fetch('http://127.0.0.1:17321/api/agent/records', { cache: 'no-store' });
+      if (!response.ok) {
+        appendLines([fail(`agent records snapshot failed: HTTP ${response.status} (${reason})`)]);
+        return;
+      }
+      const payload = await response.json() as AgentRecordsPayload;
+      handleAgentRecordsPayload(payload);
+    } catch (error) {
+      appendLines([fail(`agent records snapshot failed: ${error instanceof Error ? error.message : String(error)} (${reason})`)]);
+    }
+  };
+
   useEffect(() => {
     appendDefaultProposalPreview(syncSessionId());
+    void fetchAgentRecordsSnapshot('startup');
   }, []);
 
   useEffect(() => {
@@ -113,71 +188,31 @@ export function AiCliPage() {
 
     const events = new EventSource('http://127.0.0.1:17321/api/agent/events');
     events.addEventListener('agent.records', (event) => {
+      let payload: AgentRecordsPayload;
       try {
-        const payload = JSON.parse(event.data) as {
-          operationLogs?: Array<{
-            id?: string;
-            client?: string;
-            command?: string;
-            ok?: boolean;
-            writes?: boolean;
-            errorCode?: string;
-            proposalId?: string;
-            approval?: string;
-            save?: string;
-          }>;
-          proposals?: Array<{
-            id?: string;
-            domain?: string;
-            operation?: string;
-            payload?: unknown;
-            approvalStatus?: string;
-            saveStatus?: string;
-            client?: string;
-            sessionId?: string;
-            summary?: string;
-            createdAt?: number;
-            updatedAt?: number;
-          }>;
-        };
-        // Handoff external proposals first
-        if (payload.proposals && payload.proposals.length > 0) {
-          const currentSessionId = syncSessionId();
-          const handoff = importExternalProposals(payload.proposals, currentSessionId);
-          if (handoff.lines.length > 0) {
-            appendLines(handoff.lines);
-          }
-          appendDefaultProposalPreview(currentSessionId);
-        }
-        const latestLog = payload.operationLogs?.[0];
-        if (!latestLog?.id || latestLog.id === lastAgentLogIdRef.current || !latestLog.command || latestLog.command === '-') {
-          return;
-        }
-        lastAgentLogIdRef.current = latestLog.id;
-        const currentSessionId = syncSessionId();
-        const alias = latestLog.proposalId ? getProposalAlias(latestLog.proposalId, currentSessionId) : null;
-        const aliasPart = alias ? ` proposal=${alias}` : '';
-        const approvalPart = latestLog.approval ? ` approval=${labelApproval(latestLog.approval)}` : '';
-        const savePart = latestLog.save ? ` save=${labelSave(latestLog.save)}` : '';
-        const errorPart = latestLog.errorCode ? ` error=${latestLog.errorCode}` : '';
-        const zhParts = [
-          latestLog.errorCode ? `错误=${latestLog.errorCode}` : '',
-          latestLog.writes ? '写入' : '',
-          alias ? `提案=${alias}` : '',
-          latestLog.approval ? `审批=${labelApprovalZh(latestLog.approval)}` : '',
-          latestLog.save ? `保存=${labelSaveZh(latestLog.save)}` : '',
-        ].filter(Boolean);
-        const zhPart = zhParts.length ? ` (${zhParts.join(' ')})` : '';
+        payload = JSON.parse(event.data) as AgentRecordsPayload;
+      } catch (error) {
         appendLines([
-          `[agent] ${latestLog.client || '-'} ${latestLog.ok ? 'ok' : 'err'} ${latestLog.writes ? 'write' : 'read'} ${latestLog.command || '-'}${aliasPart}${approvalPart}${savePart}${errorPart}${zhPart}`,
+          fail(`agent SSE event parse failed: ${error instanceof Error ? error.message : String(error)}`),
+          `[raw] ${String(event.data).slice(0, 200)}`,
         ]);
-      } catch {
-        appendLines([fail('agent SSE event parse failed')]);
+        void fetchAgentRecordsSnapshot('sse-parse-failed');
+        return;
+      }
+      try {
+        handleAgentRecordsPayload(payload);
+      } catch (error) {
+        appendLines([
+          fail(`agent SSE event import failed: ${error instanceof Error ? error.message : String(error)}`),
+          `[raw] ${String(event.data).slice(0, 200)}`,
+        ]);
+        void fetchAgentRecordsSnapshot('sse-import-failed');
       }
     });
 
     events.onerror = () => {
       appendLines([info('agent SSE reconnecting or AI REST is offline')]);
+      void fetchAgentRecordsSnapshot('sse-error');
     };
 
     return () => {

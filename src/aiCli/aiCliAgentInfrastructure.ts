@@ -59,6 +59,35 @@ function writeJsonStorage(key: string, value: unknown) {
   window.localStorage.setItem(key, JSON.stringify(value));
 }
 
+function isPendingProposal(proposal: AiAgentProposal) {
+  return proposal.approvalStatus === 'Wait' || (proposal.approvalStatus === 'Yes' && proposal.saveStatus === 'Wait');
+}
+
+function compactAgentProposalsForStorage(proposals: AiAgentProposal[]) {
+  const pending = proposals.filter(isPendingProposal);
+  const resolved = proposals
+    .filter((proposal) => !isPendingProposal(proposal))
+    .sort((a, b) => (b.updatedAt || b.createdAt || 0) - (a.updatedAt || a.createdAt || 0))
+    .slice(0, 12);
+  const keepIds = new Set([...resolved, ...pending].map((proposal) => proposal.id));
+  return proposals.filter((proposal) => keepIds.has(proposal.id));
+}
+
+function writeAgentProposalsStorage(proposals: AiAgentProposal[]) {
+  const compacted = compactAgentProposalsForStorage(proposals);
+  try {
+    writeJsonStorage(AI_AGENT_PROPOSALS_STORAGE_KEY, compacted);
+    return compacted;
+  } catch (error) {
+    const pendingOnly = compacted.filter(isPendingProposal);
+    if (pendingOnly.length === compacted.length) {
+      throw error;
+    }
+    writeJsonStorage(AI_AGENT_PROPOSALS_STORAGE_KEY, pendingOnly);
+    return pendingOnly;
+  }
+}
+
 export function createDefaultPermissionProfiles(): AiAgentPermissionProfile[] {
   return [
     {
@@ -433,12 +462,12 @@ export function importExternalProposals(
     }
   }
 
-  writeJsonStorage(AI_AGENT_PROPOSALS_STORAGE_KEY, localProposals);
+  const storedProposals = writeAgentProposalsStorage(localProposals);
 
-  const pendingCount = localProposals.filter(
+  const pendingCount = storedProposals.filter(
     (p) =>
       p.sessionId === currentSessionId
-      && (p.approvalStatus === 'Wait' || (p.approvalStatus === 'Yes' && p.saveStatus === 'Wait')),
+      && isPendingProposal(p),
   ).length;
 
   const lines: string[] = [];
@@ -484,7 +513,7 @@ export function createAgentProposal(params: Omit<AiAgentProposal, 'id' | 'create
     ...params,
   };
   const existing = readJsonStorage<AiAgentProposal[]>(AI_AGENT_PROPOSALS_STORAGE_KEY, []);
-  writeJsonStorage(AI_AGENT_PROPOSALS_STORAGE_KEY, [...existing, proposal]);
+  writeAgentProposalsStorage([...existing, proposal]);
   return proposal;
 }
 
@@ -493,7 +522,7 @@ export function readAgentProposals(): AiAgentProposal[] {
 }
 
 export function readPendingAgentProposals(sessionId?: string): AiAgentProposal[] {
-  const all = readAgentProposals().filter((p) => p.approvalStatus === 'Wait' || (p.approvalStatus === 'Yes' && p.saveStatus === 'Wait'));
+  const all = readAgentProposals().filter(isPendingProposal);
   if (sessionId === undefined) {
     return all;
   }
@@ -518,7 +547,7 @@ function updateAgentProposal(id: string, patch: Partial<Omit<AiAgentProposal, 'i
   };
   const next = [...existing];
   next[index] = updated;
-  writeJsonStorage(AI_AGENT_PROPOSALS_STORAGE_KEY, next);
+  writeAgentProposalsStorage(next);
   return updated;
 }
 
@@ -559,8 +588,7 @@ export function clearPendingAgentProposals(sessionId?: string, reviewer: AiAgent
   const now = Date.now();
   const cleared: AiAgentProposal[] = [];
   const next = existing.map((proposal) => {
-    const isPending = proposal.approvalStatus === 'Wait' || (proposal.approvalStatus === 'Yes' && proposal.saveStatus === 'Wait');
-    if (!isPending || (sessionId !== undefined && proposal.sessionId !== sessionId)) {
+    if (!isPendingProposal(proposal) || (sessionId !== undefined && proposal.sessionId !== sessionId)) {
       return proposal;
     }
     const updated: AiAgentProposal = {
@@ -573,11 +601,11 @@ export function clearPendingAgentProposals(sessionId?: string, reviewer: AiAgent
     cleared.push(updated);
     return updated;
   });
-  writeJsonStorage(AI_AGENT_PROPOSALS_STORAGE_KEY, next);
+  writeAgentProposalsStorage(next);
   const remaining = next.filter(
     (p) =>
       (sessionId === undefined || p.sessionId === sessionId)
-      && (p.approvalStatus === 'Wait' || (p.approvalStatus === 'Yes' && p.saveStatus === 'Wait')),
+      && isPendingProposal(p),
   ).length;
   return { cleared, remaining };
 }
