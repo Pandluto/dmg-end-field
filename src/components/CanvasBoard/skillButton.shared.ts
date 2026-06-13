@@ -108,6 +108,8 @@ export interface LocalBuffSearchResult {
   value?: number;
   description?: string;
   condition?: string;
+  category?: 'condition' | 'countable' | 'passive';
+  maxStacks?: number;
   sourceName: string;
   source?: string;
   level?: string;
@@ -260,6 +262,8 @@ export function readLocalBuffSearchEntries(): LocalBuffSearchResult[] {
           name?: string;
           type?: string;
           value?: number;
+          category?: 'condition' | 'countable' | 'passive';
+          maxStacks?: number;
           description?: string;
           condition?: string;
           sourceName?: string;
@@ -285,6 +289,8 @@ export function readLocalBuffSearchEntries(): LocalBuffSearchResult[] {
           name: effect.name || effectId,
           type: effect.type,
           value: effect.value,
+          category: effect.category,
+          maxStacks: effect.maxStacks,
           description: effect.description,
           condition: effect.condition,
           sourceName: effect.sourceName || item.sourceName || group.sourceName || group.name || groupId,
@@ -313,6 +319,8 @@ export function readCandidateBuffSearchEntries(): LocalBuffSearchResult[] {
     name: buff.name,
     type: buff.type,
     value: buff.value,
+    category: buff.category,
+    maxStacks: buff.maxStacks,
     description: buff.description,
     condition: buff.condition,
     sourceName: buff.sourceName,
@@ -333,6 +341,8 @@ export function dedupeLocalBuffSearchResults(entries: LocalBuffSearchResult[]): 
       entry.type ?? '',
       entry.value ?? '',
       entry.condition ?? '',
+      entry.category ?? '',
+      entry.maxStacks ?? '',
       entry.effectKind ?? '',
       entry.extraHitConfig ? JSON.stringify(entry.extraHitConfig) : '',
     ].join('|');

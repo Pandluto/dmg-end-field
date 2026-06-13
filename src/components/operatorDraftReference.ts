@@ -11,7 +11,7 @@ type AttributeLevelKey = (typeof ATTRIBUTE_LEVEL_KEYS)[number];
 type AttributeKey = (typeof ATTRIBUTE_KEYS)[number];
 type AttributeLevels = Record<AttributeKey, Record<AttributeLevelKey, number>>;
 type OperatorBuffGroupKey = 'talent' | 'potential' | 'skill';
-type OperatorBuffCategory = 'positive' | 'condition';
+type OperatorBuffCategory = 'condition' | 'countable' | 'passive';
 type OperatorBuffValueMode = 'fixed' | 'derived';
 type OperatorBuffDerivedSource = 'hp' | 'atk' | 'strength' | 'agility' | 'intelligence' | 'will' | 'sourceSkill';
 interface OperatorBuffDerivedValue {
@@ -24,6 +24,7 @@ interface OperatorBuffEffect {
   type: string;
   category: OperatorBuffCategory;
   value?: number;
+  maxStacks?: number;
   unit?: 'flat' | 'percent' | string;
   description?: string;
   raw?: string;

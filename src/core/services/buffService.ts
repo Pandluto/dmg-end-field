@@ -24,15 +24,52 @@ function isModifierBuff(buff: SkillButtonBuff): boolean {
   return buff.effectKind !== 'extraHit';
 }
 
+function normalizeBuffCategory(category: unknown): 'condition' | 'countable' | 'passive' {
+  if (category === 'countable' || category === 'passive' || category === 'condition') {
+    return category;
+  }
+  if (category === 'positive') {
+    return 'passive';
+  }
+  return 'condition';
+}
+
+function normalizeMaxStacks(value: unknown): number {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0 ? Math.floor(value) : 1;
+}
+
+function readButtonBuffStackCount(button: { buffStackCounts?: Record<string, number> }, buffId: string, buff: SkillButtonBuff): number {
+  if (normalizeBuffCategory(buff.category) !== 'countable') return 1;
+  const maxStacks = normalizeMaxStacks(buff.maxStacks);
+  const rawCount = button.buffStackCounts?.[buffId];
+  const count = typeof rawCount === 'number' && Number.isFinite(rawCount) ? Math.floor(rawCount) : 1;
+  return Math.min(Math.max(count, 0), maxStacks);
+}
+
+function withBuffStackCount(
+  button: NonNullable<ReturnType<typeof getSkillButtonById>>,
+  buffId: string,
+  buff: SkillButtonBuff,
+  nextCount: number | null,
+) {
+  const nextStackCounts = { ...(button.buffStackCounts ?? {}) };
+  if (nextCount === null || normalizeBuffCategory(buff.category) !== 'countable') {
+    delete nextStackCounts[buffId];
+  } else {
+    nextStackCounts[buffId] = Math.min(Math.max(Math.floor(nextCount), 0), normalizeMaxStacks(buff.maxStacks));
+  }
+  return nextStackCounts;
+}
+
 /**
  * 生成 Buff 内容的唯一签名
  * 用于全局去重：相同签名的 Buff 复用同一 buffId
  * 包含 target 字段，确保不同作用域的 Buff 不会错误合并
  */
-export function getBuffIdentityKey(buff: Pick<SkillButtonBuff, 'name' | 'displayName' | 'sourceName' | 'level' | 'type' | 'value' | 'condition' | 'source' | 'target' | 'effectKind' | 'extraHitConfig'>): string {
+export function getBuffIdentityKey(buff: Pick<SkillButtonBuff, 'name' | 'displayName' | 'sourceName' | 'level' | 'type' | 'value' | 'condition' | 'source' | 'target' | 'effectKind' | 'extraHitConfig' | 'category' | 'maxStacks'>): string {
   const targetStr = buff.target ? JSON.stringify(buff.target) : 'all';
   const extraHitStr = buff.extraHitConfig ? JSON.stringify(buff.extraHitConfig) : '';
-  return `${buff.name}||${buff.displayName}||${buff.sourceName}||${buff.level}||${buff.type}||${buff.value}||${buff.condition}||${buff.source}||${targetStr}||${buff.effectKind || 'modifier'}||${extraHitStr}`;
+  return `${buff.name}||${buff.displayName}||${buff.sourceName}||${buff.level}||${buff.type}||${buff.value}||${buff.condition}||${buff.source}||${targetStr}||${buff.effectKind || 'modifier'}||${extraHitStr}||${normalizeBuffCategory(buff.category)}||${normalizeBuffCategory(buff.category) === 'countable' ? normalizeMaxStacks(buff.maxStacks) : ''}`;
 }
 
 /**
@@ -58,7 +95,7 @@ function buildSkillButtonRuntimeSnapshot(buttonId: string) {
   }
 
   const buffList = getBuffsByButtonId(buttonId).filter(isModifierBuff);
-  const buffTotals = calculateBuffTotals(buffList);
+  const buffTotals = calculateBuffTotals(buffList, button.buffStackCounts);
 
   const currentAtkPercent = nowTimePanel.weaponAtkPercent * 0.01;
   const rawAtk = nowTimePanel.characterAtk + nowTimePanel.weaponAtk;
@@ -129,19 +166,44 @@ export function addBuffToButton(
   const currentSelectedBuff = button.selectedBuff || [];
 
   // 2. 检查是否已存在相同内容的 Buff（当前按钮内），用 getBuffIdentityKey 统一判重
-  const targetKey = getBuffIdentityKey(buff);
+  const normalizedBuff = {
+    ...buff,
+    category: normalizeBuffCategory(buff.category),
+    ...(normalizeBuffCategory(buff.category) === 'countable' ? { maxStacks: normalizeMaxStacks(buff.maxStacks) } : {}),
+  };
+  const targetKey = getBuffIdentityKey(normalizedBuff);
   const existsInButton = currentSelectedBuff.some(id => {
     const existingBuff = buffCache[id] || getBuffById(id);
     return existingBuff ? getBuffIdentityKey(existingBuff) === targetKey : false;
   });
 
   if (existsInButton) {
-    console.log('[buffService] 按钮内已存在相同内容 Buff:', buff.displayName);
+    const existingBuffId = currentSelectedBuff.find(id => {
+      const existingBuff = buffCache[id] || getBuffById(id);
+      return existingBuff ? getBuffIdentityKey(existingBuff) === targetKey : false;
+    });
+    const existingBuff = existingBuffId ? buffCache[existingBuffId] || getBuffById(existingBuffId) : null;
+    if (existingBuffId && existingBuff && normalizeBuffCategory(existingBuff.category) === 'countable') {
+      const currentCount = readButtonBuffStackCount(button, existingBuffId, existingBuff);
+      const nextStackCounts = withBuffStackCount(button, existingBuffId, existingBuff, currentCount + 1);
+      upsertSkillButton({
+        ...button,
+        buffStackCounts: nextStackCounts,
+        panelConfig: {
+          ...(button.panelConfig ?? { selectedBuff: [] }),
+          selectedBuff: currentSelectedBuff,
+        },
+        updatedAt: Date.now(),
+      });
+      recomputeSkillButtonPanel(buttonId);
+      return { success: true, buffId: existingBuffId, isDuplicate: false };
+    }
+    console.log('[buffService] 按钮内已存在相同内容 Buff:', normalizedBuff.displayName);
     return { success: true, buffId: undefined, isDuplicate: true };
   }
 
   // 3. 先查全局 def.all-buff-list.v1 是否有同内容 Buff，有则复用
-  const existingBuffId = findExistingBuffId(buff);
+  const existingBuffId = findExistingBuffId(normalizedBuff);
   let buffId: string;
 
   if (existingBuffId) {
@@ -158,6 +220,7 @@ export function addBuffToButton(
     buffId = buff.id || `buff-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
     const newBuff: SkillButtonBuff = {
       ...buff,
+      ...normalizedBuff,
       id: buffId,
       refCount: 1,
     };
@@ -166,13 +229,20 @@ export function addBuffToButton(
     console.log('[buffService] 新建 Buff 实体:', buffId, buff.displayName, 'refCount=1');
   }
 
+  const nextSelectedBuff = [...currentSelectedBuff, buffId];
+  const savedBuff = buffCache[buffId] || getBuffById(buffId);
+  const nextStackCounts = savedBuff && normalizeBuffCategory(savedBuff.category) === 'countable'
+    ? withBuffStackCount(button, buffId, savedBuff, 1)
+    : { ...(button.buffStackCounts ?? {}) };
+
   // 4. 更新 skill-button 总表中的 selectedBuff
   upsertSkillButton({
     ...button,
-    selectedBuff: [...currentSelectedBuff, buffId],
+    selectedBuff: nextSelectedBuff,
+    buffStackCounts: nextStackCounts,
     panelConfig: {
       ...(button.panelConfig ?? { selectedBuff: [] }),
-      selectedBuff: [...currentSelectedBuff, buffId],
+      selectedBuff: nextSelectedBuff,
     },
     updatedAt: Date.now(),
   });
@@ -206,9 +276,11 @@ export function removeBuffFromButton(buttonId: string, buffId: string): void {
   const button = getSkillButtonById(buttonId);
   if (button && button.selectedBuff) {
     const newSelectedBuff = button.selectedBuff.filter(id => id !== buffId);
+    const buff = getBuffById(buffId);
     upsertSkillButton({
       ...button,
       selectedBuff: newSelectedBuff,
+      buffStackCounts: buff ? withBuffStackCount(button, buffId, buff, null) : button.buffStackCounts,
       panelConfig: {
         ...(button.panelConfig ?? { selectedBuff: [] }),
         selectedBuff: newSelectedBuff,
@@ -236,6 +308,26 @@ export function removeBuffFromButton(buttonId: string, buffId: string): void {
   console.log('[buffService] 已从按钮移除 Buff:', buttonId, buffId);
 }
 
+export function decrementBuffStackOnButton(buttonId: string, buffId: string): void {
+  const button = getSkillButtonById(buttonId);
+  const buff = getBuffById(buffId);
+  if (!button || !buff || normalizeBuffCategory(buff.category) !== 'countable') {
+    removeBuffFromButton(buttonId, buffId);
+    return;
+  }
+  const currentCount = readButtonBuffStackCount(button, buffId, buff);
+  if (currentCount <= 1) {
+    removeBuffFromButton(buttonId, buffId);
+    return;
+  }
+  upsertSkillButton({
+    ...button,
+    buffStackCounts: withBuffStackCount(button, buffId, buff, currentCount - 1),
+    updatedAt: Date.now(),
+  });
+  recomputeSkillButtonPanel(buttonId);
+}
+
 /**
  * 清空技能按钮的所有 Buff
  * 规则：对旧 selectedBuff 逐个 refCount - 1 → 0 时删除实体
@@ -253,6 +345,7 @@ export function clearButtonBuffs(buttonId: string): void {
   upsertSkillButton({
     ...button,
     selectedBuff: [],
+    buffStackCounts: {},
     panelConfig: {
       ...(button.panelConfig ?? { selectedBuff: [] }),
       selectedBuff: [],
@@ -411,11 +504,19 @@ export function deduplicateBuffEntities(): {
 
       // 去重（如果同一个按钮的 selectedBuff 原来就有重复引用的话）
       const uniqueSelectedBuff = [...new Set(newSelectedBuff)];
+      const nextStackCounts = { ...(button.buffStackCounts ?? {}) };
+      duplicateIds.forEach((duplicateId) => {
+        if (nextStackCounts[duplicateId] !== undefined && nextStackCounts[canonicalId] === undefined) {
+          nextStackCounts[canonicalId] = nextStackCounts[duplicateId];
+        }
+        delete nextStackCounts[duplicateId];
+      });
 
       if (changed) {
         upsertSkillButton({
           ...button,
           selectedBuff: uniqueSelectedBuff,
+          buffStackCounts: nextStackCounts,
           panelConfig: {
             ...(button.panelConfig ?? { selectedBuff: [] }),
             selectedBuff: uniqueSelectedBuff,
@@ -468,9 +569,17 @@ export function attachExistingBuffsToButton(buttonId: string, buffIds: string[])
   });
 
   const newSelectedBuff = [...currentSelectedBuff, ...buffIds];
+  const nextStackCounts = { ...(button.buffStackCounts ?? {}) };
+  buffIds.forEach((buffId) => {
+    const buff = getBuffById(buffId);
+    if (buff && normalizeBuffCategory(buff.category) === 'countable' && nextStackCounts[buffId] === undefined) {
+      nextStackCounts[buffId] = 1;
+    }
+  });
   upsertSkillButton({
     ...button,
     selectedBuff: newSelectedBuff,
+    buffStackCounts: nextStackCounts,
     panelConfig: {
       ...(button.panelConfig ?? { selectedBuff: [] }),
       selectedBuff: newSelectedBuff,

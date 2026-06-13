@@ -54,7 +54,7 @@ export interface OperatorPanelInput {
 }
 
 export type OperatorBuffGroupKey = 'talent' | 'potential' | 'skill';
-export type OperatorBuffCategory = 'positive' | 'condition';
+export type OperatorBuffCategory = 'condition' | 'countable' | 'passive' | 'positive';
 export type OperatorBuffValueMode = 'fixed' | 'derived';
 export type OperatorBuffDerivedSource = 'hp' | 'atk' | 'strength' | 'agility' | 'intelligence' | 'will' | 'sourceSkill';
 
@@ -69,6 +69,7 @@ export interface OperatorBuffEffectInput {
   type: string;
   category: OperatorBuffCategory;
   value?: number;
+  maxStacks?: number;
   unit?: 'flat' | 'percent' | string;
   description?: string;
   raw?: string;
@@ -771,7 +772,7 @@ function buildOperatorBuffTotals(buffs: OperatorBuffInput | undefined): Record<s
   const totals: Record<string, number> = {};
   getOperatorBuffEntries(buffs).forEach(({ effect }) => {
     const typeKey = normalizeTypeKey(effect.type || '');
-    if (effect.category !== 'positive' || effect.valueMode === 'derived' || !typeKey || !OPERATOR_TOTAL_FIELDS.has(typeKey)) return;
+    if (!['positive', 'passive'].includes(effect.category) || effect.valueMode === 'derived' || !typeKey || !OPERATOR_TOTAL_FIELDS.has(typeKey)) return;
     if (typeof effect.value !== 'number' || !Number.isFinite(effect.value)) return;
     addTotal(totals, typeKey, effect.value, effect.unit);
   });
@@ -798,7 +799,7 @@ function buildDerivedOperatorBuffTotals(buffs: OperatorBuffInput | undefined, di
   const totals: Record<string, number> = {};
   getOperatorBuffEntries(buffs).forEach(({ effect }) => {
     const typeKey = normalizeTypeKey(effect.type || '');
-    if (effect.category !== 'positive' || effect.valueMode !== 'derived' || !typeKey || !OPERATOR_TOTAL_FIELDS.has(typeKey)) return;
+    if (!['positive', 'passive'].includes(effect.category) || effect.valueMode !== 'derived' || !typeKey || !OPERATOR_TOTAL_FIELDS.has(typeKey)) return;
     const derivedValue = calculateDerivedBuffValue(effect, display);
     if (derivedValue === null) return;
     addTotal(totals, typeKey, derivedValue, effect.unit);
@@ -1099,7 +1100,7 @@ function buildMarkdown(snapshot: Omit<ConfigSnapshot, 'detailMarkdown'>): string
     lines.push('- 暂无');
   } else {
     operatorBuffEntries
-      .filter(({ effect }) => effect.category === 'positive')
+      .filter(({ effect }) => effect.category === 'positive' || effect.category === 'passive')
       .forEach(({ groupKey, effectKey, effect }) => {
         lines.push(formatOperatorBuffLine(groupKey, effectKey, effect));
       });

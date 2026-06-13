@@ -17,7 +17,7 @@ export type OperatorAttributeLevelKey = 'level1' | 'level20' | 'level40' | 'leve
 export type OperatorAttributeKey = 'strength' | 'agility' | 'intelligence' | 'will' | 'atk' | 'hp';
 export type OperatorDraftAttributeLevels = Record<OperatorAttributeKey, Record<OperatorAttributeLevelKey, number>>;
 export type OperatorDraftBuffGroupKey = 'talent' | 'potential' | 'skill';
-export type OperatorDraftBuffCategory = 'positive' | 'condition';
+export type OperatorDraftBuffCategory = 'condition' | 'countable' | 'passive';
 export type OperatorBuffValueMode = 'fixed' | 'derived';
 export type OperatorBuffDerivedSource = 'hp' | 'atk' | 'strength' | 'agility' | 'intelligence' | 'will' | 'sourceSkill';
 export interface OperatorBuffDerivedValue {
@@ -30,6 +30,7 @@ export interface OperatorDraftBuffEffect {
   type: string;
   category: OperatorDraftBuffCategory;
   value?: number;
+  maxStacks?: number;
   unit?: 'flat' | 'percent' | string;
   description?: string;
   raw?: string;

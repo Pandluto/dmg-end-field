@@ -131,9 +131,9 @@ function normalizeAttributeLevels(rawAttributes: unknown): OperatorDraftAttribut
 function normalizeBuffEffect(effectKey: string, rawEffect: unknown): OperatorDraftBuffEffect {
   const source = rawEffect && typeof rawEffect === 'object' ? rawEffect as Record<string, unknown> : {};
   const rawCategory = typeof source.category === 'string' ? source.category : '';
-  const category = rawCategory === 'condition' ? 'condition' : 'positive';
+  const category = rawCategory === 'condition' ? 'condition' : rawCategory === 'countable' ? 'countable' : 'passive';
   const rawValue = source.value;
-  const valueMode = source.valueMode === 'derived' ? 'derived' : 'fixed';
+  const valueMode = category === 'countable' ? 'fixed' : source.valueMode === 'derived' ? 'derived' : 'fixed';
   const rawDerivedValue = source.derivedValue && typeof source.derivedValue === 'object'
     ? source.derivedValue as Record<string, unknown>
     : {};
@@ -148,6 +148,7 @@ function normalizeBuffEffect(effectKey: string, rawEffect: unknown): OperatorDra
     type: String(source.type || ''),
     category,
     ...(typeof rawValue === 'number' && Number.isFinite(rawValue) ? { value: rawValue } : {}),
+    ...(category === 'countable' && typeof source.maxStacks === 'number' && Number.isFinite(source.maxStacks) ? { maxStacks: Math.max(1, Math.floor(source.maxStacks)) } : {}),
     ...(typeof source.unit === 'string' && source.unit ? { unit: source.unit } : {}),
     valueMode,
     ...(valueMode === 'derived' && derivedSource && typeof rawPerPointValue === 'number' && Number.isFinite(rawPerPointValue)

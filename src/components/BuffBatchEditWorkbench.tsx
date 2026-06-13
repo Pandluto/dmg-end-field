@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { CSSProperties, ReactNode } from 'react';
 import { getAllBuffList, getSkillButtonTable } from '../core/repositories';
 import { getCharacterInputMap } from '../core/repositories/operatorConfigRepository';
-import { addBuffToButton, loadBuffsToCache, removeBuffFromButton } from '../core/services/buffService';
+import { addBuffToButton, decrementBuffStackOnButton, loadBuffsToCache, removeBuffFromButton } from '../core/services/buffService';
 import {
   dedupeLocalBuffSearchResults,
   readCandidateBuffSearchEntries,
@@ -315,6 +315,8 @@ function buffFromSearchResult(entry: LocalBuffSearchResult): SkillButtonBuff {
     description: entry.description,
     source: entry.source,
     condition: entry.condition,
+    category: entry.category,
+    maxStacks: entry.maxStacks,
     effectKind: entry.effectKind,
     extraHitConfig: entry.extraHitConfig,
     refCount: 1,
@@ -814,7 +816,7 @@ export function BuffBatchEditWorkbench({
       if (!buff) return;
       buttonIds.forEach((buttonId) => {
         const button = skillButtons.find((item) => item.id === buttonId);
-        if (!button || button.selectedBuff?.includes(buffId)) {
+        if (!button) {
           return;
         }
         addDraftBuffToButton(buttonId, buff);
@@ -857,7 +859,7 @@ export function BuffBatchEditWorkbench({
         if (!button || !button.selectedBuff?.includes(buffId)) {
           return;
         }
-        removeBuffFromButton(buttonId, buffId);
+        decrementBuffStackOnButton(buttonId, buffId);
       });
     });
 
@@ -892,7 +894,7 @@ export function BuffBatchEditWorkbench({
       if (!buff) return;
       buttonIds.forEach((buttonId) => {
         const button = skillButtons.find((item) => item.id === buttonId);
-        if (button && !button.selectedBuff?.includes(buffId)) {
+        if (button) {
           addDraftBuffToButton(buttonId, buff);
         }
       });

@@ -36,6 +36,11 @@ function normalizeSkillButton(button: PersistedSkillButton): PersistedSkillButto
     selectedStateSnapshotIds?: unknown[];
   };
   const selectedBuff = Array.isArray(button.selectedBuff) ? button.selectedBuff : [];
+  const buffStackCounts = Object.fromEntries(
+    Object.entries(button.buffStackCounts ?? {}).filter((entry): entry is [string, number] => (
+      typeof entry[0] === 'string' && typeof entry[1] === 'number' && Number.isFinite(entry[1])
+    )),
+  );
   const manualDisabledBuffIdsBySegmentKey = Object.fromEntries(
     Object.entries(button.panelConfig?.manualDisabledBuffIdsBySegmentKey ?? {}).map(([segmentKey, buffIds]) => [
       segmentKey,
@@ -50,6 +55,7 @@ function normalizeSkillButton(button: PersistedSkillButton): PersistedSkillButto
     ...buttonWithoutLegacySnapshot,
     characterId: button.characterId || button.characterName,
     selectedBuff,
+    buffStackCounts,
     anomalyConfig: {
       selectedStatuses: Array.isArray(anomalyConfig.selectedStatuses)
         ? anomalyConfig.selectedStatuses

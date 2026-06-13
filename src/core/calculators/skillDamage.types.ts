@@ -41,6 +41,7 @@ export interface SkillDamageCalcInputV2 {
   runtimeSkillId: string;
   template: ResolvedSkillDamageTemplate;
   buffs: SkillButtonBuff[];
+  buffStackCounts?: Record<string, number>;
   panel: SkillDamagePanel;
   panelBase?: SkillDamagePanelBase;
   disabledBuffIdsByHitKey?: Record<string, string[]>;

@@ -112,7 +112,30 @@ export const ELEMENT_LABELS: Record<string, string> = {
  * @param buffs - 已选 Buff 列表
  * @returns Buff 汇总计算结果
  */
-export function calculateBuffTotals(buffs: SkillButtonBuff[]): BuffCalculationResult {
+function normalizeBuffCategory(category: unknown): 'condition' | 'countable' | 'passive' {
+  if (category === 'countable' || category === 'passive' || category === 'condition') return category;
+  if (category === 'positive') return 'passive';
+  return 'condition';
+}
+
+function normalizeMaxStacks(value: unknown): number {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0 ? Math.floor(value) : 1;
+}
+
+export function getBuffEffectiveValue(buff: SkillButtonBuff, stackCounts: Record<string, number> = {}): number {
+  const baseValue = typeof buff.value === 'number' && Number.isFinite(buff.value) ? buff.value : 0;
+  if (normalizeBuffCategory(buff.category) !== 'countable') {
+    return baseValue;
+  }
+  const maxStacks = normalizeMaxStacks(buff.maxStacks);
+  const rawStackCount = stackCounts[buff.id];
+  const stackCount = typeof rawStackCount === 'number' && Number.isFinite(rawStackCount)
+    ? Math.min(Math.max(Math.floor(rawStackCount), 0), maxStacks)
+    : 1;
+  return baseValue * stackCount;
+}
+
+export function calculateBuffTotals(buffs: SkillButtonBuff[], stackCounts: Record<string, number> = {}): BuffCalculationResult {
   // 初始化结果，所有值默认为 0（乘法类初始为 1）
   const result: BuffCalculationResult = {
     atkPercentBoost: 0,
@@ -186,7 +209,7 @@ export function calculateBuffTotals(buffs: SkillButtonBuff[]): BuffCalculationRe
 
   buffs.forEach(buff => {
     if (buff.type && buff.value !== undefined) {
-      const v = buff.value;
+      const v = getBuffEffectiveValue(buff, stackCounts);
       switch (buff.type) {
         case 'atkPercentBoost': result.atkPercentBoost += v; break;
         case 'flatAtk': result.flatAtk += v; break;
@@ -248,7 +271,7 @@ export function calculateBuffTotals(buffs: SkillButtonBuff[]): BuffCalculationRe
         case 'comboDamageBonus': result.comboDamageBonus += v; break;
         case 'imbalanceDmgBonus': result.imbalanceDamageBonus += v; break;
         case 'multiplierBonus': result.multiplierBonus += v; break;
-        case 'multiplierMultiplier': result.multiplierMultiplier *= buff.value ?? 1; break;
+        case 'multiplierMultiplier': result.multiplierMultiplier *= v || 1; break;
         case 'sourceSkillBoost': result.sourceSkillBoost += v; break;
       }
     }

@@ -49,7 +49,7 @@ function buildPanelForHit(
     return input.panel;
   }
 
-  const buffTotals = calculateBuffTotals(appliedBuffs);
+  const buffTotals = calculateBuffTotals(appliedBuffs, input.buffStackCounts);
   const currentAtkPercent = input.panelBase.weaponAtkPercent * 0.01;
   const rawAtk = input.panelBase.characterAtk + input.panelBase.weaponAtk;
   const fixedAtk = input.panelBase.baseAtk - rawAtk * (1 + currentAtkPercent);
@@ -163,7 +163,7 @@ function calculateSingleHit(
   const appliedBuffs = filterBuffsForHit(hit, buffs).filter((buff) => !disabledBuffIds.has(buff.id));
   const effectiveBuffs = isDisabled ? [] : appliedBuffs;
   const panel = buildPanelForHit(effectiveBuffs, input);
-  const buffTotals = calculateBuffTotals(effectiveBuffs);
+  const buffTotals = calculateBuffTotals(effectiveBuffs, input.buffStackCounts);
   const zones = calculateHitZones(hit, input.damageBonus, buffTotals, input.targetResistance);
   const multiplier = applyMultiplierAdjustments(hit.multiplier, buffTotals);
 

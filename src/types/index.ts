@@ -109,7 +109,7 @@ export interface SandboxSkill {
 }
 
 export type OperatorBuffGroupKey = 'talent' | 'potential' | 'skill';
-export type OperatorBuffCategory = 'positive' | 'condition';
+export type OperatorBuffCategory = 'condition' | 'countable' | 'passive';
 export type OperatorBuffValueMode = 'fixed' | 'derived';
 export type OperatorBuffDerivedSource = 'hp' | 'atk' | 'strength' | 'agility' | 'intelligence' | 'will' | 'sourceSkill';
 
@@ -124,6 +124,7 @@ export interface OperatorBuffEffect {
   type: string;
   category: OperatorBuffCategory;
   value?: number;
+  maxStacks?: number;
   unit?: 'flat' | 'percent' | string;
   description?: string;
   raw?: string;

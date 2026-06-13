@@ -31,6 +31,8 @@ export interface CandidateBuff {
   sourceName: string;   // Buff 来源名称，用于在 UI 中显示
   description: string;  // Buff 描述，用于在 UI 中显示
   condition?: string;   // Buff 触发条件（可选）
+  category?: 'condition' | 'countable' | 'passive';
+  maxStacks?: number;
   effectKind?: BuffEffectKind;
   extraHitConfig?: BuffExtraHitConfig;
   origin?: 'local' | 'json' | 'operatorConfigSnapshot' | 'operatorStudio';

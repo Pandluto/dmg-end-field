@@ -59,7 +59,7 @@ const OPERATOR_BUFF_GROUPS = [
   { key: 'potential', label: '潜能' },
   { key: 'skill', label: '技能' },
 ] as const;
-const OPERATOR_BUFF_CATEGORIES = ['positive', 'condition'] as const;
+const OPERATOR_BUFF_CATEGORIES = ['passive', 'condition', 'countable'] as const;
 const OPERATOR_BUFF_TYPE_OPTIONS = [
   'atkPercentBoost',
   'atk',
@@ -292,6 +292,7 @@ interface OperatorBuffEffect {
   type: string;
   category: OperatorBuffCategory;
   value?: number;
+  maxStacks?: number;
   unit?: 'flat' | 'percent' | string;
   description?: string;
   raw?: string;
@@ -373,7 +374,7 @@ function createDefaultBuffEffect(effectKey = 'effect1'): OperatorBuffEffect {
     effectId: effectKey,
     name: '新 Buff',
     type: '',
-    category: 'positive',
+    category: 'passive',
     unit: '',
     valueMode: 'fixed',
     description: '',
@@ -516,7 +517,11 @@ function normalizeAttributeLevels(rawAttributes: unknown): AttributeLevels {
 function normalizeBuffEffect(effectKey: string, rawEffect: unknown): OperatorBuffEffect {
   const source = rawEffect && typeof rawEffect === 'object' ? rawEffect as Record<string, unknown> : {};
   const rawCategory = typeof source.category === 'string' ? source.category : '';
-  const category: OperatorBuffCategory = rawCategory === 'condition' ? 'condition' : 'positive';
+  const category: OperatorBuffCategory = rawCategory === 'condition'
+    ? 'condition'
+    : rawCategory === 'countable'
+      ? 'countable'
+      : 'passive';
   const rawValue = source.value;
   const valueMode: OperatorBuffValueMode = source.valueMode === 'derived' ? 'derived' : 'fixed';
   const rawDerivedValue = source.derivedValue && typeof source.derivedValue === 'object'
@@ -533,6 +538,7 @@ function normalizeBuffEffect(effectKey: string, rawEffect: unknown): OperatorBuf
     type: String(source.type || ''),
     category,
     ...(typeof rawValue === 'number' && Number.isFinite(rawValue) ? { value: rawValue } : {}),
+    ...(category === 'countable' && typeof source.maxStacks === 'number' && Number.isFinite(source.maxStacks) ? { maxStacks: Math.max(1, Math.floor(source.maxStacks)) } : {}),
     unit: typeof source.unit === 'string' ? source.unit : '',
     valueMode,
     ...(valueMode === 'derived' && derivedSource && typeof rawPerPointValue === 'number' && Number.isFinite(rawPerPointValue)
@@ -2150,7 +2156,7 @@ export function OperatorDraftPage() {
                           <strong>{effect.name || effectKey}</strong>
                           <span>{effect.type ? getOperatorBuffTypeDisplayLabel(effect.type) : '未设置类型'}</span>
                           <span>
-                            {effect.category === 'condition' ? '条件' : '常驻'}
+                            {effect.category === 'condition' ? '条件' : effect.category === 'countable' ? `计层/${effect.maxStacks ?? 1}` : '常驻'}
                             {effect.valueMode === 'derived' && effect.derivedValue
                               ? ` · ${OPERATOR_BUFF_DERIVED_SOURCE_LABELS[effect.derivedValue.source]} 每点提升 ${formatOperatorBuffPerPointValue(effect.derivedValue.perPointValue)}`
                               : typeof effect.value === 'number'
@@ -2211,10 +2217,20 @@ export function OperatorDraftPage() {
                         <span>分类</span>
                         <select
                           value={selectedBuffEffect.category}
-                          onChange={(event) => updateSelectedBuffEffect((effect) => ({ ...effect, category: event.target.value as OperatorBuffCategory }))}
+                          onChange={(event) => {
+                            const nextCategory = event.target.value as OperatorBuffCategory;
+                            updateSelectedBuffEffect((effect) => ({
+                              ...effect,
+                              category: nextCategory,
+                              ...(nextCategory === 'countable'
+                                ? { valueMode: 'fixed' as const, derivedValue: undefined, maxStacks: effect.maxStacks ?? 1 }
+                                : {}),
+                            }));
+                          }}
                         >
-                          <option value="positive">positive</option>
+                          <option value="passive">passive</option>
                           <option value="condition">condition</option>
+                          <option value="countable">countable</option>
                         </select>
                       </label>
                       <label>
@@ -2222,7 +2238,7 @@ export function OperatorDraftPage() {
                         <select
                           value={selectedBuffEffect.valueMode ?? 'fixed'}
                           onChange={(event) => {
-                            const nextMode = event.target.value as OperatorBuffValueMode;
+                            const nextMode = selectedBuffEffect.category === 'countable' ? 'fixed' : event.target.value as OperatorBuffValueMode;
                             updateSelectedBuffEffect((effect) => ({
                               ...effect,
                               valueMode: nextMode,
@@ -2233,7 +2249,7 @@ export function OperatorDraftPage() {
                           }}
                         >
                           <option value="fixed">固定数值</option>
-                          <option value="derived">来源值派生</option>
+                          <option value="derived" disabled={selectedBuffEffect.category === 'countable'}>来源值派生</option>
                         </select>
                       </label>
                       {(selectedBuffEffect.valueMode ?? 'fixed') === 'fixed' ? (
@@ -2293,6 +2309,22 @@ export function OperatorDraftPage() {
                             />
                           </label>
                         </>
+                      )}
+                      {selectedBuffEffect.category === 'countable' && (
+                        <label>
+                          最大层数
+                          <input
+                            type="number"
+                            min={1}
+                            value={selectedBuffEffect.maxStacks ?? 1}
+                            onChange={(event) => updateSelectedBuffEffect((effect) => ({
+                              ...effect,
+                              maxStacks: Math.max(1, Math.floor(Number(event.target.value) || 1)),
+                              valueMode: 'fixed',
+                              derivedValue: undefined,
+                            }))}
+                          />
+                        </label>
                       )}
                       <label>
                         <span>单位</span>

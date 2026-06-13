@@ -10,6 +10,7 @@ import {
 import { getElementBackgroundColor, normalizeAssetUrl } from '../../utils/assetResolver';
 import {
   removeSkillButtonBuff,
+  decrementSkillButtonBuffStack,
   setSelectedSkillButton,
   getButtonBuffs,
   recomputeSkillButtonPanel,
@@ -471,6 +472,8 @@ export function SkillButtonComponent({
       description: entry.description,
       source: entry.source,
       condition: entry.condition,
+      category: entry.category,
+      maxStacks: entry.maxStacks,
       effectKind: entry.effectKind,
       extraHitConfig: entry.extraHitConfig,
       refCount: 1,
@@ -503,9 +506,26 @@ export function SkillButtonComponent({
     emitSkillButtonBuffRemoved(button.id, buffId);
   }, [button.id, loadBuffList, loadPanelData]);
 
+  const decrementBuffStack = useCallback((buffId: string) => {
+    decrementSkillButtonBuffStack(button.id, buffId);
+    loadBuffList();
+    loadPanelData();
+  }, [button.id, loadBuffList, loadPanelData]);
+
+  const incrementBuffStack = useCallback((buff: SkillButtonBuff) => {
+    const { id: _id, refCount: _refCount, ...buffWithoutRuntimeFields } = buff;
+    addSkillButtonBuff(button.id, { ...buffWithoutRuntimeFields, refCount: 1 });
+    loadBuffList();
+    loadPanelData();
+  }, [button.id, loadBuffList, loadPanelData]);
+
   const modifierBuffList = useMemo(
     () => buffList.filter(isModifierBuff),
     [buffList]
+  );
+  const buttonStackCounts = useMemo(
+    () => getSkillButtonById(button.id)?.buffStackCounts ?? {},
+    [button.id, buffList]
   );
   const extraHitBuffList = useMemo(
     () => buffList.filter(isExtraHitBuff),
@@ -614,6 +634,7 @@ export function SkillButtonComponent({
         runtimeSkillId: resolvedTemplate.runtimeSkillId,
         template: resolvedTemplate,
         buffs: fullCombinedModifierBuffList,
+        buffStackCounts: buttonStackCounts,
         panel: {
           atk: panelData.atk,
           critRate: panelData.critRate,
@@ -623,7 +644,7 @@ export function SkillButtonComponent({
       damageBonus: infoSnap as unknown as import('../../types/storage').DamageBonusSnapshot,
       targetResistance,
     });
-  }, [resolvedTemplate, panelData, button.id, button.characterId, targetResistance, fullCombinedModifierBuffList, panelBase, infoSnap]);
+  }, [resolvedTemplate, panelData, button.id, button.characterId, targetResistance, fullCombinedModifierBuffList, panelBase, infoSnap, buttonStackCounts]);
 
   const damageResult = useMemo(() => {
     if (!resolvedTemplate || resolvedTemplate.hits.length === 0 || !panelData) {
@@ -636,6 +657,7 @@ export function SkillButtonComponent({
         runtimeSkillId: resolvedTemplate.runtimeSkillId,
         template: resolvedTemplate,
         buffs: fullCombinedModifierBuffList,
+        buffStackCounts: buttonStackCounts,
         panel: {
           atk: panelData.atk,
           critRate: panelData.critRate,
@@ -647,7 +669,7 @@ export function SkillButtonComponent({
       damageBonus: infoSnap as unknown as import('../../types/storage').DamageBonusSnapshot,
       targetResistance,
     });
-  }, [resolvedTemplate, panelData, button.id, button.characterId, targetResistance, fullCombinedModifierBuffList, panelBase, disabledBuffIdsByHitKey, manuallyDisabledHitKeys, infoSnap]);
+  }, [resolvedTemplate, panelData, button.id, button.characterId, targetResistance, fullCombinedModifierBuffList, panelBase, disabledBuffIdsByHitKey, manuallyDisabledHitKeys, infoSnap, buttonStackCounts]);
 
   const damageViewModel = useMemo(() => {
     if (!resolvedTemplate || !damageResult || !panelData) {
@@ -1368,19 +1390,31 @@ export function SkillButtonComponent({
                   {buffList.length === 0 ? (
                     <div className="skill-button-buff-empty">单击陈列区或搜索抽屉的 Buff 添加</div>
                   ) : (
-                    buffList.map((buff) => (
-                      <div
-                        key={buff.id}
-                        className="skill-button-buff-item"
-                        title={`${buff.displayName} (${buff.sourceName})`}
-                        onContextMenu={(e) => {
-                          e.preventDefault();
-                          removeBuff(buff.id);
-                        }}
-                      >
-                        {buff.displayName}
-                      </div>
-                    ))
+                    buffList.map((buff) => {
+                      const isCountable = buff.category === 'countable';
+                      const maxStacks = typeof buff.maxStacks === 'number' && Number.isFinite(buff.maxStacks) ? Math.max(1, Math.floor(buff.maxStacks)) : 1;
+                      const stackCount = Math.min(Math.max(Math.floor(buttonStackCounts[buff.id] ?? 1), 0), maxStacks);
+                      return (
+                        <div
+                          key={buff.id}
+                          className="skill-button-buff-item"
+                          title={`${buff.displayName} (${buff.sourceName})${isCountable ? ` ${stackCount}/${maxStacks}` : ''}`}
+                          onContextMenu={(e) => {
+                            e.preventDefault();
+                            removeBuff(buff.id);
+                          }}
+                        >
+                          <span>{buff.displayName}</span>
+                          {isCountable && (
+                            <span className="skill-button-buff-stack-controls">
+                              <button type="button" onClick={(event) => { event.stopPropagation(); decrementBuffStack(buff.id); }}>-</button>
+                              <span>{stackCount}/{maxStacks}</span>
+                              <button type="button" onClick={(event) => { event.stopPropagation(); incrementBuffStack(buff); }} disabled={stackCount >= maxStacks}>+</button>
+                            </span>
+                          )}
+                        </div>
+                      );
+                    })
                   )}
                 </div>
               </div>

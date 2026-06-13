@@ -241,6 +241,8 @@ export interface SkillButtonBuff {
   description?: string;    // 描述
   source?: string;         // 来源
   condition?: string;      // 触发条件
+  category?: 'condition' | 'countable' | 'passive'; // Buff 业务类别，缺省按 condition
+  maxStacks?: number;      // countable 最大层数
   refCount: number;        // 被引用次数，selectedBuff 解绑时 -1，0 时删除实体
   target?: SkillButtonBuffTarget;  // 作用目标（可选，默认 'all'）
   effectKind?: BuffEffectKind;     // Buff 效果类型（普通 modifier / 额外 hit）
@@ -259,6 +261,8 @@ export interface SkillButtonPanelConfig {
   manualDisabledBuffIdsBySegmentKey?: Record<string, string[]>;
   manualDisabledHitKeys?: string[];
 }
+
+export type SkillButtonBuffStackCounts = Record<string, number>;
 
 export interface SkillButtonRuntimeSnapshot {
   atk: number;
@@ -343,6 +347,7 @@ export interface PersistedSkillButton {
   skillIconUrl?: string;                // 技能图标
   customHits?: SandboxSkillHit[];       // 自定义技能 hit 明细
   selectedBuff: string[];               // 选中的 Buff ID 列表（只存引用）
+  buffStackCounts?: SkillButtonBuffStackCounts; // 按钮实例上的 Buff 层数，key 为 buffId
   anomalyConfig?: SkillButtonAnomalyConfig; // 按钮专属异常选择配置
   resistanceConfig?: SkillButtonResistanceConfig; // 按钮专属目标抗性配置
   panelConfig?: SkillButtonPanelConfig; // 按钮专属面板配置

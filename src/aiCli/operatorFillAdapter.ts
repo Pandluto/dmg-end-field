@@ -14,7 +14,7 @@ const ABILITY_TYPES = ['力量', '敏捷', '智识', '意志'] as const;
 const PROFESSION_TYPES = ['突击', '重装', '近卫', '辅助', '先锋', '术师'] as const;
 const WEAPON_TYPES = ['手铳', '双手剑', '长柄武器', '法术单元', '单手剑'] as const;
 const BUFF_GROUPS = ['talent', 'potential', 'skill'] as const;
-const BUFF_CATEGORIES = ['positive', 'condition'] as const;
+const BUFF_CATEGORIES = ['passive', 'condition', 'countable'] as const;
 const BUFF_VALUE_MODES = ['fixed', 'derived'] as const;
 const BUFF_DERIVED_SOURCES = ['hp', 'atk', 'strength', 'agility', 'intelligence', 'will', 'sourceSkill'] as const;
 const SUPPORTED_OPERATOR_EFFECT_TYPES = [
@@ -130,6 +130,7 @@ interface OperatorBuffEffect {
   type: string;
   category: OperatorBuffCategory;
   value?: number;
+  maxStacks?: number;
   unit?: 'flat' | 'percent' | string;
   valueMode?: OperatorBuffValueMode;
   derivedValue?: OperatorBuffDerivedValue;
@@ -247,7 +248,11 @@ function defaultBuffs(): OperatorBuffs {
 }
 
 function normalizeOperatorBuffEffect(effectKey: string, rawEffect: Record<string, unknown>): OperatorBuffEffect {
-  const valueMode: OperatorBuffValueMode = rawEffect.valueMode === 'derived' ? 'derived' : 'fixed';
+  const category = findAllowedValue(rawEffect.category, BUFF_CATEGORIES)
+    || (normalizeEnumText(rawEffect.category) === 'positive' ? 'passive' : 'passive');
+  const valueMode: OperatorBuffValueMode = category === 'countable'
+    ? 'fixed'
+    : rawEffect.valueMode === 'derived' ? 'derived' : 'fixed';
   const rawDerivedValue = isRecord(rawEffect.derivedValue) ? rawEffect.derivedValue : {};
   const rawDerivedSource = findAllowedValue(rawDerivedValue.source, BUFF_DERIVED_SOURCES);
   const rawPerPointValue = rawDerivedValue.perPointValue ?? rawDerivedValue.scale;
@@ -255,8 +260,11 @@ function normalizeOperatorBuffEffect(effectKey: string, rawEffect: Record<string
     effectId: typeof rawEffect.effectId === 'string' && rawEffect.effectId ? rawEffect.effectId : effectKey,
     name: typeof rawEffect.name === 'string' && rawEffect.name ? rawEffect.name : effectKey,
     type: String(rawEffect.type || ''),
-    category: findAllowedValue(rawEffect.category, BUFF_CATEGORIES) || 'positive',
+    category,
     ...(typeof rawEffect.value === 'number' && Number.isFinite(rawEffect.value) ? { value: rawEffect.value } : {}),
+    ...(category === 'countable' && typeof rawEffect.maxStacks === 'number' && Number.isFinite(rawEffect.maxStacks)
+      ? { maxStacks: Math.max(1, Math.floor(rawEffect.maxStacks)) }
+      : {}),
     ...(typeof rawEffect.unit === 'string' && rawEffect.unit ? { unit: rawEffect.unit } : {}),
     valueMode,
     ...(valueMode === 'derived' && rawDerivedSource && typeof rawPerPointValue === 'number' && Number.isFinite(rawPerPointValue)
@@ -398,7 +406,17 @@ function validateOperatorDraftShape(raw: unknown): AgentFillValidationResult<Ope
             continue;
           }
           if (typeof rawEffect.type !== 'string' || !SUPPORTED_OPERATOR_EFFECT_TYPES.includes(rawEffect.type)) errors.push(`unsupported operator buff type: ${String(rawEffect.type)}`);
-          if (!findAllowedValue(rawEffect.category, BUFF_CATEGORIES)) errors.push(formatInvalidEnum(`buffs.${groupKey}.effects.${effectKey}.category`, rawEffect.category, BUFF_CATEGORIES));
+          const buffCategory = findAllowedValue(rawEffect.category, BUFF_CATEGORIES)
+            || (normalizeEnumText(rawEffect.category) === 'positive' ? 'passive' : undefined);
+          if (!buffCategory) errors.push(formatInvalidEnum(`buffs.${groupKey}.effects.${effectKey}.category`, rawEffect.category, BUFF_CATEGORIES));
+          if (buffCategory === 'countable') {
+            if (typeof rawEffect.maxStacks !== 'number' || !Number.isFinite(rawEffect.maxStacks) || rawEffect.maxStacks <= 0) {
+              errors.push(`buffs.${groupKey}.effects.${effectKey}.maxStacks must be positive number when category is countable`);
+            }
+            if (rawEffect.valueMode === 'derived' || rawEffect.derivedValue !== undefined) {
+              errors.push(`buffs.${groupKey}.effects.${effectKey} countable does not support derivedValue`);
+            }
+          }
           if (rawEffect.value !== undefined && (typeof rawEffect.value !== 'number' || !Number.isFinite(rawEffect.value))) errors.push(`buffs.${groupKey}.effects.${effectKey}.value must be number`);
           const valueMode = rawEffect.valueMode === undefined ? 'fixed' : findAllowedValue(rawEffect.valueMode, BUFF_VALUE_MODES);
           if (!valueMode) errors.push(formatInvalidEnum(`buffs.${groupKey}.effects.${effectKey}.valueMode`, rawEffect.valueMode, BUFF_VALUE_MODES));
@@ -550,8 +568,9 @@ export const operatorFillAdapter: AgentFillDomainAdapter<OperatorDraft> = {
           hitMeta: 'Record<hitKey, { displayName, element, skillType, levels }>; hit skillType accepts A/B/E/Q/Dot',
           buffs: 'optional; talent/potential/skill groups only; each group is { effects: Record<effectKey, OperatorBuffEffect> }',
           buffEffect: {
-            fields: ['effectId', 'name', 'type', 'category', 'value?', 'unit?', 'valueMode?', 'derivedValue?', 'description?', 'raw?'],
+            fields: ['effectId', 'name', 'type', 'category', 'value?', 'maxStacks?', 'unit?', 'valueMode?', 'derivedValue?', 'description?', 'raw?'],
             category: BUFF_CATEGORIES,
+            countable: 'category=countable requires maxStacks; countable only supports fixed value and no derivedValue',
             valueMode: BUFF_VALUE_MODES,
             derivedValue: {
               meaning: 'source value derived Buff; runtime value = selected source value * perPointValue',
@@ -562,7 +581,7 @@ export const operatorFillAdapter: AgentFillDomainAdapter<OperatorDraft> = {
           },
         },
         supportedEffectTypes: SUPPORTED_OPERATOR_EFFECT_TYPES,
-        instruction: 'Return exactly one ImportedOperatorDraft-compatible JSON object. No Markdown. No explanation. Prefer POST /api/operator/fill/check|apply with a JSON body for Chinese payloads; CLI JSON args may be shell-encoding sensitive. Operator buffs use talent/potential/skill groups. Fixed effects use valueMode fixed with numeric value. Derived effects use valueMode derived and derivedValue.source/perPointValue, where perPointValue means 每点提升多少, not an arbitrary formula. Percent-like buff types still use decimal numbers, e.g. 每点 +0.10% => 0.001. operator.fill.apply creates a proposal only; it does NOT save to library.',
+        instruction: 'Return exactly one ImportedOperatorDraft-compatible JSON object. No Markdown. No explanation. Prefer POST /api/operator/fill/check|apply with a JSON body for Chinese payloads; CLI JSON args may be shell-encoding sensitive. Operator buffs use talent/potential/skill groups. Buff category must be passive/condition/countable; legacy positive is accepted only for migration and normalizes to passive. Countable buffs require maxStacks and only support fixed numeric value, no derivedValue. Fixed effects use valueMode fixed with numeric value. Derived effects use valueMode derived and derivedValue.source/perPointValue, where perPointValue means 每点提升多少, not an arbitrary formula. Percent-like buff types still use decimal numbers, e.g. 每点 +0.10% => 0.001. operator.fill.apply creates a proposal only; it does NOT save to library.',
         approvalSaveWarning: 'Approval applies to def.operator-editor.draft.v1. Save writes def.operator-editor.library.v1.',
       },
     };

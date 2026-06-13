@@ -109,6 +109,11 @@ function buildOperatorBuffCandidate(
   const type = normalizeBuffTypeKey(effect.type || '');
   if (!type) return null;
   const sourceName = snapshot.operator.name || snapshot.operator.id;
+  const category = effect.category === 'countable'
+    ? 'countable'
+    : effect.category === 'condition'
+      ? 'condition'
+      : 'passive';
   return {
     origin: 'operatorStudio',
     ownerCharacterId: snapshot.operator.id,
@@ -121,7 +126,11 @@ function buildOperatorBuffCandidate(
     source: sourceName,
     sourceName,
     description: effect.description || effect.raw || `${effect.name || effectKey} ${effect.value ?? ''}`.trim(),
-    condition: effect.category === 'condition' ? 'condition' : 'positive',
+    condition: category === 'condition' ? 'condition' : category === 'countable' ? 'countable' : 'passive',
+    category,
+    ...(category === 'countable' && typeof effect.maxStacks === 'number' && Number.isFinite(effect.maxStacks)
+      ? { maxStacks: Math.max(1, Math.floor(effect.maxStacks)) }
+      : {}),
     valueMode: effect.valueMode,
     derivedValue: effect.derivedValue,
   };

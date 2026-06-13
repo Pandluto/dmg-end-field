@@ -16,6 +16,7 @@ import {
   addBuffToButton,
   getBuffsByButtonId,
   removeBuffFromButton,
+  decrementBuffStackOnButton,
   clearButtonBuffs,
   setSelectedSkillButton,
   getSelectedSkillButton,
@@ -163,6 +164,7 @@ export { addBuffToButton as addSkillButtonBuff };
  * @param buffId - Buff ID
  */
 export { removeBuffFromButton as removeSkillButtonBuff };
+export { decrementBuffStackOnButton as decrementSkillButtonBuffStack };
 
 /**
  * 重算指定按钮的专属面板快照
