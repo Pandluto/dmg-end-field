@@ -1,8 +1,9 @@
 import type { ConfigSnapshot, WeaponSkillDetail } from '../calculators/operatorPanelCalculator';
-import type { CandidateBuff } from '../domain/buff';
+import type { BuffEffectKind, BuffExtraHitConfig, CandidateBuff } from '../domain/buff';
 import { getCandidateBuffList, setCandidateBuffList } from '../repositories';
 import { resolvePublicPath } from '../../utils/assetResolver';
 import { getOperatorConfigPageCache } from '../../utils/storage';
+import { normalizeExtraHitConfig } from './buffExtraHit';
 
 interface EquipmentThreePieceBuffLike {
   effectId?: string;
@@ -11,6 +12,8 @@ interface EquipmentThreePieceBuffLike {
   typeKey?: string;
   value?: number;
   raw?: string;
+  effectKind?: BuffEffectKind;
+  extraHitConfig?: BuffExtraHitConfig;
 }
 
 interface EquipmentItemLike {
@@ -82,6 +85,8 @@ function candidateKey(buff: CandidateBuff): string {
     buff.ownerBuffDomain ?? '',
     buff.ownerCharacterId ?? '',
     buff.ownerBuffGroup ?? '',
+    buff.effectKind ?? 'modifier',
+    buff.extraHitConfig ? JSON.stringify(buff.extraHitConfig) : '',
   ].join('|');
 }
 
@@ -108,8 +113,9 @@ function buildOperatorBuffCandidate(
   effectKey: string,
   effect: ConfigSnapshot['operator']['buffs'][typeof groupKey]['effects'][string]
 ): CandidateBuff | null {
+  const effectKind = effect.effectKind === 'extraHit' ? 'extraHit' : 'modifier';
   const type = normalizeBuffTypeKey(effect.type || '');
-  if (!type) return null;
+  if (effectKind === 'modifier' && !type) return null;
   const sourceName = snapshot.operator.name || snapshot.operator.id;
   const category = effect.category === 'countable'
     ? 'countable'
@@ -124,8 +130,8 @@ function buildOperatorBuffCandidate(
     displayName: effect.name || effectKey,
     name: `operator-studio:${snapshot.operator.id}:${groupKey}:${effect.effectId || effectKey}`,
     level: groupKey,
-    value: effect.value,
-    type,
+    value: effectKind === 'extraHit' ? undefined : effect.value,
+    type: effectKind === 'extraHit' ? undefined : type,
     source: sourceName,
     sourceName,
     description: effect.description || effect.raw || `${effect.name || effectKey} ${effect.value ?? ''}`.trim(),
@@ -136,6 +142,10 @@ function buildOperatorBuffCandidate(
       : {}),
     valueMode: effect.valueMode,
     derivedValue: effect.derivedValue,
+    effectKind,
+    ...(effectKind === 'extraHit'
+      ? { extraHitConfig: normalizeExtraHitConfig(effect.extraHitConfig, `${effect.effectId || effectKey}-extra-hit`) }
+      : {}),
   };
 }
 
@@ -153,9 +163,10 @@ export function buildSnapshotOperatorCandidateBuffs(snapshot: ConfigSnapshot): C
 }
 
 function buildWeaponDetailCandidate(snapshot: ConfigSnapshot, detail: WeaponSkillDetail, index: number): CandidateBuff | null {
-  if (detail.category === 'passive') return null;
+  const effectKind = detail.effectKind === 'extraHit' ? 'extraHit' : 'modifier';
+  if (effectKind === 'modifier' && detail.category === 'passive') return null;
   const type = normalizeBuffTypeKey(detail.typeKey);
-  if (!type) return null;
+  if (effectKind === 'modifier' && !type) return null;
   const sourceName = snapshot.weapon.name || snapshot.weapon.id || snapshot.operator.name;
   return {
     ...buildSnapshotCandidateBase(snapshot),
@@ -164,12 +175,17 @@ function buildWeaponDetailCandidate(snapshot: ConfigSnapshot, detail: WeaponSkil
     displayName: detail.label || `${sourceName} skill3 effect ${index + 1}`,
     name: `operator-config-snapshot:${snapshot.operator.id}:weapon:${snapshot.weapon.id || sourceName}:skill3:${detail.effectKey || index + 1}`,
     level: `Lv${detail.level}`,
-    value: detail.value,
-    type,
+    value: effectKind === 'extraHit' ? undefined : detail.value,
+    type: effectKind === 'extraHit' ? undefined : type,
     source: sourceName,
     sourceName,
     description: `${detail.label || detail.typeKey} ${detail.value}`,
-    condition: detail.category || 'condition',
+    condition: effectKind === 'extraHit' ? 'passive' : detail.category || 'condition',
+    category: effectKind === 'extraHit' ? 'passive' : 'condition',
+    effectKind,
+    ...(effectKind === 'extraHit'
+      ? { extraHitConfig: normalizeExtraHitConfig({ ...detail.extraHitConfig, baseMultiplier: detail.value }, `${detail.effectKey || index + 1}-extra-hit`) }
+      : {}),
   };
 }
 
@@ -201,9 +217,10 @@ export function buildSnapshotEquipmentCandidateBuffs(snapshot: ConfigSnapshot, e
     const sourceName = gearSet.name || gearSet.gearSetId || fallbackSetId;
     return getThreePieceBuffEntries(gearSet)
       .map((buff, index): CandidateBuff | null => {
-        if (buff.category !== 'condition') return null;
+        const effectKind = buff.effectKind === 'extraHit' ? 'extraHit' : 'modifier';
+        if (effectKind === 'modifier' && buff.category !== 'condition') return null;
         const type = normalizeBuffTypeKey(buff.typeKey || '');
-        if (!type || typeof buff.value !== 'number' || !Number.isFinite(buff.value)) return null;
+        if (effectKind === 'modifier' && (!type || typeof buff.value !== 'number' || !Number.isFinite(buff.value))) return null;
         return {
           ...buildSnapshotCandidateBase(snapshot),
           ownerBuffDomain: 'equipment',
@@ -211,12 +228,17 @@ export function buildSnapshotEquipmentCandidateBuffs(snapshot: ConfigSnapshot, e
           displayName: buff.name || `${sourceName} 三件套效果 ${index + 1}`,
           name: `operator-config-snapshot:${snapshot.operator.id}:equipment:${gearSet.gearSetId || fallbackSetId}:${buff.effectId || index + 1}`,
           level: '三件套',
-          value: buff.value,
-          type,
+          value: effectKind === 'extraHit' ? undefined : buff.value,
+          type: effectKind === 'extraHit' ? undefined : type,
           source: sourceName,
           sourceName,
           description: buff.raw || `${buff.name || type} ${buff.value}`,
-          condition: buff.category === 'condition' ? '三件套条件效果' : undefined,
+          condition: effectKind === 'extraHit' ? 'passive' : buff.category === 'condition' ? '三件套条件效果' : undefined,
+          category: effectKind === 'extraHit' ? 'passive' : 'condition',
+          effectKind,
+          ...(effectKind === 'extraHit'
+            ? { extraHitConfig: normalizeExtraHitConfig(buff.extraHitConfig, `${buff.effectId || index + 1}-extra-hit`) }
+            : {}),
         };
       })
       .filter((buff): buff is CandidateBuff => Boolean(buff));

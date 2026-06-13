@@ -14,6 +14,8 @@ import {
 import { normalizeAssetUrl } from '../utils/assetResolver';
 import { imageBridge } from '../utils/imageBridge';
 import { toUserImageRelPath } from '../utils/imageFileService';
+import type { BuffEffectKind, BuffExtraHitConfig } from '../core/domain/buff';
+import { EXTRA_HIT_DAMAGE_TYPES, normalizeExtraHitConfig } from '../core/services/buffExtraHit';
 
 const DRAFT_PAGE_PATH = APP_ROUTE_PATHS.draft;
 const DRAFT_STORAGE_KEY = 'def.operator-editor.draft.v1';
@@ -298,6 +300,8 @@ interface OperatorBuffEffect {
   raw?: string;
   valueMode?: OperatorBuffValueMode;
   derivedValue?: OperatorBuffDerivedValue;
+  effectKind?: BuffEffectKind;
+  extraHitConfig?: BuffExtraHitConfig;
 }
 
 interface HitMetaDraft {
@@ -379,6 +383,7 @@ function createDefaultBuffEffect(effectKey = 'effect1'): OperatorBuffEffect {
     valueMode: 'fixed',
     description: '',
     raw: '',
+    effectKind: 'modifier',
   };
 }
 
@@ -532,11 +537,12 @@ function normalizeBuffEffect(effectKey: string, rawEffect: unknown): OperatorBuf
     ? rawDerivedSource as OperatorBuffDerivedSource
     : null;
   const rawPerPointValue = rawDerivedValue.perPointValue ?? rawDerivedValue.scale;
+  const effectKind: BuffEffectKind = source.effectKind === 'extraHit' ? 'extraHit' : 'modifier';
   return {
     effectId: String(source.effectId || effectKey),
     name: String(source.name || effectKey),
-    type: String(source.type || ''),
-    category,
+    type: effectKind === 'extraHit' ? '' : String(source.type || ''),
+    category: effectKind === 'extraHit' ? 'passive' : category,
     ...(typeof rawValue === 'number' && Number.isFinite(rawValue) ? { value: rawValue } : {}),
     ...(category === 'countable' && typeof source.maxStacks === 'number' && Number.isFinite(source.maxStacks) ? { maxStacks: Math.max(1, Math.floor(source.maxStacks)) } : {}),
     unit: typeof source.unit === 'string' ? source.unit : '',
@@ -546,6 +552,10 @@ function normalizeBuffEffect(effectKey: string, rawEffect: unknown): OperatorBuf
       : {}),
     description: typeof source.description === 'string' ? source.description : '',
     raw: typeof source.raw === 'string' ? source.raw : '',
+    effectKind,
+    ...(effectKind === 'extraHit'
+      ? { extraHitConfig: normalizeExtraHitConfig(source.extraHitConfig, `${effectKey}-extra-hit`) }
+      : {}),
   };
 }
 
@@ -2154,9 +2164,11 @@ export function OperatorDraftPage() {
                           onClick={() => setSelectedBuffEffectKey(effectKey)}
                         >
                           <strong>{effect.name || effectKey}</strong>
-                          <span>{effect.type ? getOperatorBuffTypeDisplayLabel(effect.type) : '未设置类型'}</span>
+                          <span>{effect.effectKind === 'extraHit' ? '额外伤害段' : effect.type ? getOperatorBuffTypeDisplayLabel(effect.type) : '未设置类型'}</span>
                           <span>
-                            {effect.category === 'condition' ? '条件' : effect.category === 'countable' ? `计层/${effect.maxStacks ?? 1}` : '常驻'}
+                            {effect.effectKind === 'extraHit'
+                              ? `${((effect.extraHitConfig?.baseMultiplier ?? 1) * 100).toFixed(0)}% ${effect.extraHitConfig?.damageType ?? 'physical'} / ${effect.extraHitConfig?.skillType || '空'}`
+                              : effect.category === 'condition' ? '条件' : effect.category === 'countable' ? `计层/${effect.maxStacks ?? 1}` : '常驻'}
                             {effect.valueMode === 'derived' && effect.derivedValue
                               ? ` · ${OPERATOR_BUFF_DERIVED_SOURCE_LABELS[effect.derivedValue.source]} 每点提升 ${formatOperatorBuffPerPointValue(effect.derivedValue.perPointValue)}`
                               : typeof effect.value === 'number'
@@ -2185,6 +2197,32 @@ export function OperatorDraftPage() {
                           onChange={(event) => updateSelectedBuffEffect((effect) => ({ ...effect, effectId: event.target.value }))}
                         />
                       </label>
+                      <label>
+                        <span>效果形式</span>
+                        <select
+                          value={selectedBuffEffect.effectKind ?? 'modifier'}
+                          onChange={(event) => {
+                            const effectKind = event.target.value as BuffEffectKind;
+                            updateSelectedBuffEffect((effect) => ({
+                              ...effect,
+                              effectKind,
+                              ...(effectKind === 'extraHit'
+                                ? {
+                                  type: '',
+                                  value: undefined,
+                                  valueMode: 'fixed' as const,
+                                  derivedValue: undefined,
+                                  category: 'passive' as const,
+                                  extraHitConfig: normalizeExtraHitConfig(effect.extraHitConfig, `${effect.effectId || selectedBuffEffectKey}-extra-hit`),
+                                }
+                                : { extraHitConfig: undefined }),
+                            }));
+                          }}
+                        >
+                          <option value="modifier">普通加成</option>
+                          <option value="extraHit">额外伤害段</option>
+                        </select>
+                      </label>
                       <label className="operator-draft-buff-form-wide">
                         <span>类型</span>
                         <div className="operator-draft-buff-type-editor">
@@ -2193,10 +2231,12 @@ export function OperatorDraftPage() {
                             value={operatorBuffTypeQuery}
                             onChange={(event) => setOperatorBuffTypeQuery(event.target.value)}
                             placeholder="搜索类型：攻击 / 主能力 / 法术 / 暴击"
+                            disabled={selectedBuffEffect.effectKind === 'extraHit'}
                           />
                           <select
                             className="operator-draft-buff-type-select"
                             value={selectedBuffEffect.type}
+                            disabled={selectedBuffEffect.effectKind === 'extraHit'}
                             onChange={(event) => {
                               const nextType = event.target.value;
                               updateSelectedBuffEffect((effect) => ({
@@ -2217,6 +2257,7 @@ export function OperatorDraftPage() {
                         <span>分类</span>
                         <select
                           value={selectedBuffEffect.category}
+                          disabled={selectedBuffEffect.effectKind === 'extraHit'}
                           onChange={(event) => {
                             const nextCategory = event.target.value as OperatorBuffCategory;
                             updateSelectedBuffEffect((effect) => ({
@@ -2237,6 +2278,7 @@ export function OperatorDraftPage() {
                         <span>数值模式</span>
                         <select
                           value={selectedBuffEffect.valueMode ?? 'fixed'}
+                          disabled={selectedBuffEffect.effectKind === 'extraHit'}
                           onChange={(event) => {
                             const nextMode = selectedBuffEffect.category === 'countable' ? 'fixed' : event.target.value as OperatorBuffValueMode;
                             updateSelectedBuffEffect((effect) => ({
@@ -2252,7 +2294,7 @@ export function OperatorDraftPage() {
                           <option value="derived" disabled={selectedBuffEffect.category === 'countable'}>来源值派生</option>
                         </select>
                       </label>
-                      {(selectedBuffEffect.valueMode ?? 'fixed') === 'fixed' ? (
+                      {selectedBuffEffect.effectKind !== 'extraHit' && (selectedBuffEffect.valueMode ?? 'fixed') === 'fixed' ? (
                       <label>
                         <span>数值</span>
                         <input
@@ -2269,7 +2311,7 @@ export function OperatorDraftPage() {
                           }}
                         />
                       </label>
-                      ) : (
+                      ) : selectedBuffEffect.effectKind !== 'extraHit' ? (
                         <>
                           <label>
                             <span>来源值</span>
@@ -2309,7 +2351,7 @@ export function OperatorDraftPage() {
                             />
                           </label>
                         </>
-                      )}
+                      ) : null}
                       {selectedBuffEffect.category === 'countable' && (
                         <label>
                           最大层数
@@ -2332,6 +2374,21 @@ export function OperatorDraftPage() {
                           {selectedBuffEffect.type ? ((selectedBuffEffect.unit || inferOperatorBuffUnit(selectedBuffEffect.type)) === 'percent' ? '%' : '固定值') : '-'}
                         </div>
                       </label>
+                      {selectedBuffEffect.effectKind === 'extraHit' && (() => {
+                        const config = normalizeExtraHitConfig(selectedBuffEffect.extraHitConfig, `${selectedBuffEffect.effectId || selectedBuffEffectKey}-extra-hit`);
+                        const updateConfig = (patch: Partial<BuffExtraHitConfig>) => updateSelectedBuffEffect((effect) => ({
+                          ...effect,
+                          extraHitConfig: normalizeExtraHitConfig({ ...config, ...patch }, config.key),
+                        }));
+                        return (
+                          <>
+                            <label><span>伤害段 Key</span><input value={config.key} onChange={(event) => updateConfig({ key: event.target.value })} /></label>
+                            <label><span>伤害属性</span><select value={config.damageType} onChange={(event) => updateConfig({ damageType: event.target.value as BuffExtraHitConfig['damageType'] })}>{EXTRA_HIT_DAMAGE_TYPES.map((type) => <option key={type} value={type}>{type}</option>)}</select></label>
+                            <label><span>伤害类型</span><select value={config.skillType} onChange={(event) => updateConfig({ skillType: event.target.value as BuffExtraHitConfig['skillType'] })}><option value="">空</option>{['A', 'B', 'E', 'Q', 'Dot'].map((type) => <option key={type} value={type}>{type}</option>)}</select></label>
+                            <label><span>攻击力倍率</span><input type="number" min={0} step="0.01" value={config.baseMultiplier} onChange={(event) => updateConfig({ baseMultiplier: Number(event.target.value) || 0 })} /></label>
+                          </>
+                        );
+                      })()}
                       <label className="operator-draft-buff-form-wide">
                         <span>描述</span>
                         <textarea

@@ -1249,10 +1249,12 @@ export function SkillButtonComponent({
                               >
                                 <div className="local-buff-search-item-head">
                                   <strong>{entry.displayName}</strong>
-                                  <span>{entry.type || '暂无'}</span>
+                                  <span>{entry.effectKind === 'extraHit' ? '额外伤害段' : entry.type || '暂无'}</span>
                                 </div>
                                 <p>{entry.groupName}{entry.itemName ? ` / ${entry.itemName}` : ''}</p>
-                                <p>数值: {entry.value ?? '-'}{entry.condition ? ` / ${entry.condition}` : ''}</p>
+                                <p>{entry.effectKind === 'extraHit'
+                                  ? `倍率: ${((entry.extraHitConfig?.baseMultiplier ?? 0) * 100).toFixed(1)}% / ${entry.extraHitConfig?.damageType || 'physical'} / ${entry.extraHitConfig?.skillType || '空'} / CD ${entry.extraHitConfig?.cooldownSeconds ?? 0}s`
+                                  : `数值: ${entry.value ?? '-'}${entry.condition ? ` / ${entry.condition}` : ''}`}</p>
                               </button>
                             ))
                           ) : (
@@ -1285,7 +1287,9 @@ export function SkillButtonComponent({
                                 >
                                   <span className="anomaly-board-card-title">{buff.displayName || buff.name}</span>
                                   <span>{buff.sourceName || buff.source || '未知来源'}</span>
-                                  <span>{buff.type || '暂无'}{buff.value !== undefined ? ` · ${buff.value}` : ''}</span>
+                                  <span>{buff.effectKind === 'extraHit'
+                                    ? `额外伤害 · ${((buff.extraHitConfig?.baseMultiplier ?? 0) * 100).toFixed(1)}% · ${buff.extraHitConfig?.skillType || '空'} · ${buff.extraHitConfig?.cooldownSeconds ?? 0}s CD`
+                                    : `${buff.type || '暂无'}${buff.value !== undefined ? ` · ${buff.value}` : ''}`}</span>
                                 </div>
                               ))
                             )

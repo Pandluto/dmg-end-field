@@ -1,4 +1,4 @@
-import type { BuffExtraHitDamageType, BuffExtraHitTrigger } from '../core/domain/buff';
+import type { BuffExtraHitDamageType, BuffExtraHitSkillType, BuffExtraHitTrigger } from '../core/domain/buff';
 import { BUFF_EXTRA_HIT_RULE, BUFF_MODIFIER_TYPE_IDS } from './buffFillCatalog';
 
 export interface JsonSchemaObject {
@@ -21,6 +21,7 @@ export interface BuffFillAiEffect {
   extraHitConfig?: {
     key: string;
     damageType: BuffExtraHitDamageType;
+    skillType: BuffExtraHitSkillType;
     baseMultiplier: number;
     imbalanceValue: number;
     cooldownSeconds: number;
@@ -131,10 +132,11 @@ export function createBuffFillAiDraftSchema(): JsonSchemaObject {
                       extraHitConfig: {
                         type: 'object',
                         additionalProperties: false,
-                        required: ['key', 'damageType', 'baseMultiplier', 'imbalanceValue', 'cooldownSeconds', 'trigger'],
+                        required: ['key', 'damageType', 'skillType', 'baseMultiplier', 'imbalanceValue', 'cooldownSeconds', 'trigger'],
                         properties: {
                           key: { type: 'string' },
                           damageType: { type: 'string', enum: BUFF_EXTRA_HIT_RULE.allowedDamageTypes },
+                          skillType: { type: 'string', enum: ['', 'A', 'B', 'E', 'Q', 'Dot'] },
                           baseMultiplier: { type: 'number' },
                           imbalanceValue: { type: 'number' },
                           cooldownSeconds: { type: 'number' },

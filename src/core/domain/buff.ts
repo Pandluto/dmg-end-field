@@ -11,10 +11,12 @@
 export type BuffEffectKind = 'modifier' | 'extraHit';
 export type BuffExtraHitTrigger = 'physicalAbnormal';
 export type BuffExtraHitDamageType = 'physical' | 'magic' | 'fire' | 'electric' | 'ice' | 'nature';
+export type BuffExtraHitSkillType = '' | 'A' | 'B' | 'E' | 'Q' | 'Dot';
 
 export interface BuffExtraHitConfig {
   key: string;
   damageType: BuffExtraHitDamageType;
+  skillType: BuffExtraHitSkillType;
   baseMultiplier: number;
   imbalanceValue: number;
   cooldownSeconds: number;

@@ -1,6 +1,7 @@
 import type { BuffDraft } from '../types/buffFill';
 import { BUFF_EXTRA_HIT_RULE, BUFF_MODIFIER_TYPE_IDS, type BuffModifierType } from './buffFillCatalog';
 import type { BuffFillAiDraft } from './buffFillSchema';
+import { normalizeExtraHitConfig } from '../core/services/buffExtraHit';
 
 export interface BuffFillValidationResult {
   ok: boolean;
@@ -199,6 +200,9 @@ export function validateBuffFillAiDraft(candidate: unknown): BuffFillValidationR
         if (!BUFF_EXTRA_HIT_RULE.allowedDamageTypes.includes(String(effect.extraHitConfig.damageType) as never)) {
           errors.push(`${effectPath}.extraHitConfig.damageType 不合法`);
         }
+        if (!['', 'A', 'B', 'E', 'Q', 'Dot'].includes(String(effect.extraHitConfig.skillType ?? ''))) {
+          errors.push(`${effectPath}.extraHitConfig.skillType 不合法`);
+        }
         for (const field of ['key']) {
           if (typeof effect.extraHitConfig[field] !== 'string') {
             errors.push(`${effectPath}.extraHitConfig.${field} 必须是字符串`);
@@ -242,7 +246,7 @@ export function convertBuffFillAiDraftToBuffDraft(candidate: BuffFillAiDraft): B
         effectKind: effect.effectKind,
         type: effect.effectKind === 'extraHit' ? '' : effect.type as BuffModifierType,
         value: effect.effectKind === 'extraHit' ? 0 : effect.value,
-        extraHitConfig: effect.effectKind === 'extraHit' ? effect.extraHitConfig : undefined,
+        extraHitConfig: effect.effectKind === 'extraHit' ? normalizeExtraHitConfig(effect.extraHitConfig) : undefined,
       };
       return effectAcc;
     }, {});

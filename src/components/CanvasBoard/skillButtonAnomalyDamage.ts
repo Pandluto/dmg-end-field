@@ -3,6 +3,7 @@ import {
   calculateBuffTotals,
   calculateFragileRate,
   calculateResistanceZone,
+  calculateSkillDmgBonus,
   calculateVulnerabilityRate,
 } from '../../core/calculators/buffCalculator';
 import type { AppliedBuffTagViewModel, SkillDamagePanel, SkillDamagePanelBase } from '../../core/calculators/skillDamage.types';
@@ -368,7 +369,9 @@ export function buildAnomalyDamageSegments({
         + ((parsedDamageBonusRecord.magicDmgBonus || 0) as number)
         + (buffTotals.magicDmgBonus || 0)
         + ((parsedDamageBonusRecord.allElementDmgBonus || 0) as number));
-    const skillBonus = 0;
+    const skillBonus = extraHitConfig.skillType
+      ? calculateSkillDmgBonus(extraHitConfig.skillType, parsedDamageBonusRecord, buffTotals)
+      : 0;
     const allDamageBonus = (damageBonus.allDmgBonus || 0) + (buffTotals.allDmgBonus || 0);
     const damageBonusRate = 1 + elementBonus + skillBonus + allDamageBonus;
     const resistance = calculateResistanceZone(elementKey, targetResistance, buffTotals);
@@ -399,7 +402,7 @@ export function buildAnomalyDamageSegments({
       appliedBuffTags,
       elementText: extraHitConfig.damageType === 'physical' ? '物理' : extraHitConfig.damageType,
       elementKey,
-      skillTypeText: '',
+      skillTypeText: extraHitConfig.skillType,
       panelAtkText: extraHitAtk.toFixed(0),
       critRateText: `${(extraHitCritRate * 100).toFixed(1)}%`,
       critDmgText: `${(extraHitCritDmg * 100).toFixed(1)}%`,

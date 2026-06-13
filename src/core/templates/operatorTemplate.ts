@@ -12,6 +12,7 @@
  */
 
 import type { ElementType, SkillType, HitSkillType, AbilityType } from '../../types';
+import type { BuffEffectKind, BuffExtraHitConfig } from '../domain/buff';
 
 export type OperatorAttributeLevelKey = 'level1' | 'level20' | 'level40' | 'level60' | 'level80' | 'level90';
 export type OperatorAttributeKey = 'strength' | 'agility' | 'intelligence' | 'will' | 'atk' | 'hp';
@@ -36,6 +37,8 @@ export interface OperatorDraftBuffEffect {
   raw?: string;
   valueMode?: OperatorBuffValueMode;
   derivedValue?: OperatorBuffDerivedValue;
+  effectKind?: BuffEffectKind;
+  extraHitConfig?: BuffExtraHitConfig;
 }
 export interface OperatorDraftBuffGroup {
   effects: Record<string, OperatorDraftBuffEffect>;

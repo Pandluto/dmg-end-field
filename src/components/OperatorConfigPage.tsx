@@ -15,6 +15,8 @@ import type {
 } from '../types/storage';
 import { getOperatorConfigPageCache, getRuntimeOperatorTemplateMap, safeSessionStorage, setOperatorConfigPageCache } from '../utils/storage';
 import { APP_ROUTE_PATHS, navigateToAppPath } from '../utils/appRoute';
+import type { BuffEffectKind, BuffExtraHitConfig } from '../core/domain/buff';
+import { normalizeExtraHitConfig } from '../core/services/buffExtraHit';
 
 type AttributeItem = {
   label: string;
@@ -52,6 +54,8 @@ interface EquipmentThreePieceBuff {
   value: number;
   unit: 'flat' | 'percent';
   raw?: string;
+  effectKind?: BuffEffectKind;
+  extraHitConfig?: BuffExtraHitConfig;
 }
 
 interface EquipmentGearSet {
@@ -81,6 +85,8 @@ interface WeaponSkillData {
     type?: string;
     category?: string;
     levels?: Record<string, number>;
+    effectKind?: BuffEffectKind;
+    extraHitConfig?: BuffExtraHitConfig;
   }>;
 }
 
@@ -308,11 +314,15 @@ function normalizeEquipmentLibrary(raw: unknown): EquipmentLibrary {
     const normalizeThreePieceBuff = (effectId: string, rawBuff: Partial<EquipmentThreePieceBuff>): EquipmentThreePieceBuff => ({
       effectId: String(rawBuff.effectId || effectId),
       name: String(rawBuff.name || effectId),
-      category: normalizeThreePieceBuffCategory(rawBuff.category),
-      typeKey: String(rawBuff.typeKey || ''),
-      value: typeof rawBuff.value === 'number' && Number.isFinite(rawBuff.value) ? rawBuff.value : 0,
+      category: rawBuff.effectKind === 'extraHit' ? 'passive' : normalizeThreePieceBuffCategory(rawBuff.category),
+      typeKey: rawBuff.effectKind === 'extraHit' ? '' : String(rawBuff.typeKey || ''),
+      value: rawBuff.effectKind === 'extraHit' ? 0 : typeof rawBuff.value === 'number' && Number.isFinite(rawBuff.value) ? rawBuff.value : 0,
       unit: rawBuff.unit === 'flat' ? 'flat' : 'percent',
       raw: rawBuff.raw,
+      effectKind: rawBuff.effectKind === 'extraHit' ? 'extraHit' : 'modifier',
+      ...(rawBuff.effectKind === 'extraHit'
+        ? { extraHitConfig: normalizeExtraHitConfig(rawBuff.extraHitConfig, `${effectId}-extra-hit`) }
+        : {}),
     });
     Object.entries(rawThreePieceBuffs).forEach(([effectId, rawBuff]) => {
       threePieceBuffs[effectId] = normalizeThreePieceBuff(effectId, rawBuff as Partial<EquipmentThreePieceBuff>);
@@ -912,7 +922,7 @@ function buildEquipmentSetBuffsForSnapshot(
     if (selectedCount < 3) return [];
 
     return Object.values(gearSet.threePieceBuffs ?? {})
-      .filter((buff) => buff.typeKey.trim().length > 0)
+      .filter((buff) => buff.effectKind === 'extraHit' || buff.typeKey.trim().length > 0)
       .map((buff) => ({
         effectId: buff.effectId,
         label: buff.name || buff.effectId,
@@ -924,6 +934,8 @@ function buildEquipmentSetBuffsForSnapshot(
         gearSetId: gearSet.gearSetId,
         gearSetName: gearSet.name,
         category: buff.category,
+        effectKind: buff.effectKind,
+        extraHitConfig: buff.extraHitConfig,
       }));
   });
 }

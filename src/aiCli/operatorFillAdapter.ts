@@ -1,5 +1,7 @@
 import { AI_CLI_PROTOCOL_VERSION } from './aiCliAgentTypes';
 import type { AgentFillDomainAdapter, AgentFillProposalPayload, AgentFillValidationResult } from './aiCliFillDomains';
+import type { BuffEffectKind, BuffExtraHitConfig } from '../core/domain/buff';
+import { normalizeExtraHitConfig, validateExtraHitConfig } from '../core/services/buffExtraHit';
 
 export const OPERATOR_DRAFT_STORAGE_KEY = 'def.operator-editor.draft.v1';
 export const OPERATOR_LIBRARY_STORAGE_KEY = 'def.operator-editor.library.v1';
@@ -136,6 +138,8 @@ interface OperatorBuffEffect {
   derivedValue?: OperatorBuffDerivedValue;
   description?: string;
   raw?: string;
+  effectKind?: BuffEffectKind;
+  extraHitConfig?: BuffExtraHitConfig;
 }
 
 type OperatorBuffs = Record<OperatorBuffGroupKey, { effects: Record<string, OperatorBuffEffect> }>;
@@ -248,7 +252,8 @@ function defaultBuffs(): OperatorBuffs {
 }
 
 function normalizeOperatorBuffEffect(effectKey: string, rawEffect: Record<string, unknown>): OperatorBuffEffect {
-  const category = findAllowedValue(rawEffect.category, BUFF_CATEGORIES)
+  const effectKind: BuffEffectKind = rawEffect.effectKind === 'extraHit' ? 'extraHit' : 'modifier';
+  const category = effectKind === 'extraHit' ? 'passive' : findAllowedValue(rawEffect.category, BUFF_CATEGORIES)
     || (normalizeEnumText(rawEffect.category) === 'positive' ? 'passive' : 'passive');
   const valueMode: OperatorBuffValueMode = category === 'countable'
     ? 'fixed'
@@ -259,7 +264,7 @@ function normalizeOperatorBuffEffect(effectKey: string, rawEffect: Record<string
   return {
     effectId: typeof rawEffect.effectId === 'string' && rawEffect.effectId ? rawEffect.effectId : effectKey,
     name: typeof rawEffect.name === 'string' && rawEffect.name ? rawEffect.name : effectKey,
-    type: String(rawEffect.type || ''),
+    type: effectKind === 'extraHit' ? '' : String(rawEffect.type || ''),
     category,
     ...(typeof rawEffect.value === 'number' && Number.isFinite(rawEffect.value) ? { value: rawEffect.value } : {}),
     ...(category === 'countable' && typeof rawEffect.maxStacks === 'number' && Number.isFinite(rawEffect.maxStacks)
@@ -272,6 +277,10 @@ function normalizeOperatorBuffEffect(effectKey: string, rawEffect: Record<string
       : {}),
     ...(typeof rawEffect.description === 'string' && rawEffect.description ? { description: rawEffect.description } : {}),
     ...(typeof rawEffect.raw === 'string' && rawEffect.raw ? { raw: rawEffect.raw } : {}),
+    effectKind,
+    ...(effectKind === 'extraHit'
+      ? { extraHitConfig: normalizeExtraHitConfig(rawEffect.extraHitConfig, `${effectKey}-extra-hit`) }
+      : {}),
   };
 }
 
@@ -405,7 +414,18 @@ function validateOperatorDraftShape(raw: unknown): AgentFillValidationResult<Ope
             errors.push(`buffs.${groupKey}.effects.${effectKey} must be object`);
             continue;
           }
-          if (typeof rawEffect.type !== 'string' || !SUPPORTED_OPERATOR_EFFECT_TYPES.includes(rawEffect.type)) errors.push(`unsupported operator buff type: ${String(rawEffect.type)}`);
+          const effectKind = rawEffect.effectKind === undefined ? 'modifier' : rawEffect.effectKind;
+          if (effectKind !== 'modifier' && effectKind !== 'extraHit') {
+            errors.push(`buffs.${groupKey}.effects.${effectKey}.effectKind must be modifier or extraHit`);
+          }
+          if (effectKind === 'extraHit') {
+            validateExtraHitConfig(rawEffect.extraHitConfig, `buffs.${groupKey}.effects.${effectKey}.extraHitConfig`, errors);
+            if (rawEffect.category !== undefined && rawEffect.category !== 'passive') {
+              errors.push(`buffs.${groupKey}.effects.${effectKey}.category must be passive for extraHit`);
+            }
+          } else if (typeof rawEffect.type !== 'string' || !SUPPORTED_OPERATOR_EFFECT_TYPES.includes(rawEffect.type)) {
+            errors.push(`unsupported operator buff type: ${String(rawEffect.type)}`);
+          }
           const buffCategory = findAllowedValue(rawEffect.category, BUFF_CATEGORIES)
             || (normalizeEnumText(rawEffect.category) === 'positive' ? 'passive' : undefined);
           if (!buffCategory) errors.push(formatInvalidEnum(`buffs.${groupKey}.effects.${effectKey}.category`, rawEffect.category, BUFF_CATEGORIES));
@@ -417,7 +437,7 @@ function validateOperatorDraftShape(raw: unknown): AgentFillValidationResult<Ope
               errors.push(`buffs.${groupKey}.effects.${effectKey} countable does not support derivedValue`);
             }
           }
-          if (rawEffect.value !== undefined && (typeof rawEffect.value !== 'number' || !Number.isFinite(rawEffect.value))) errors.push(`buffs.${groupKey}.effects.${effectKey}.value must be number`);
+          if (effectKind !== 'extraHit' && rawEffect.value !== undefined && (typeof rawEffect.value !== 'number' || !Number.isFinite(rawEffect.value))) errors.push(`buffs.${groupKey}.effects.${effectKey}.value must be number`);
           const valueMode = rawEffect.valueMode === undefined ? 'fixed' : findAllowedValue(rawEffect.valueMode, BUFF_VALUE_MODES);
           if (!valueMode) errors.push(formatInvalidEnum(`buffs.${groupKey}.effects.${effectKey}.valueMode`, rawEffect.valueMode, BUFF_VALUE_MODES));
           if (valueMode === 'derived') {
@@ -582,9 +602,10 @@ export const operatorFillAdapter: AgentFillDomainAdapter<OperatorDraft> = {
           hitMeta: 'Record<hitKey, { displayName, element, skillType, levels }>; hit skillType accepts A/B/E/Q/Dot',
           buffs: 'optional; talent/potential/skill groups only; each group is { effects: Record<effectKey, OperatorBuffEffect> }',
           buffEffect: {
-            fields: ['effectId', 'name', 'type', 'category', 'value?', 'maxStacks?', 'unit?', 'valueMode?', 'derivedValue?', 'description?', 'raw?'],
+            fields: ['effectId', 'name', 'effectKind?', 'type', 'category', 'value?', 'maxStacks?', 'unit?', 'valueMode?', 'derivedValue?', 'extraHitConfig?', 'description?', 'raw?'],
             category: BUFF_CATEGORIES,
             countable: 'category=countable requires maxStacks; countable only supports fixed value and no derivedValue',
+            extraHit: 'effectKind=extraHit uses category=passive and requires extraHitConfig { key, damageType, skillType, baseMultiplier, imbalanceValue, cooldownSeconds, trigger }; skillType is empty/A/B/E/Q/Dot; 250% is baseMultiplier=2.5',
             valueMode: BUFF_VALUE_MODES,
             derivedValue: {
               meaning: 'source value derived Buff; runtime value = selected source value * perPointValue',

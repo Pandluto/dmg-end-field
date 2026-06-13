@@ -245,6 +245,7 @@ const BUFF_EFFECT_KIND_OPTIONS: BuffEffectKind[] = ['modifier', 'extraHit'];
 const DEFAULT_EXTRA_HIT_CONFIG: BuffExtraHitConfig = {
   key: 'dianjian',
   damageType: 'physical',
+  skillType: '',
   baseMultiplier: 2.5,
   imbalanceValue: 10,
   cooldownSeconds: 15,
@@ -255,6 +256,7 @@ function normalizeExtraHitConfig(value?: Partial<BuffExtraHitConfig>): BuffExtra
   return {
     key: value?.key?.trim() || DEFAULT_EXTRA_HIT_CONFIG.key,
     damageType: value?.damageType || DEFAULT_EXTRA_HIT_CONFIG.damageType,
+    skillType: value?.skillType ?? DEFAULT_EXTRA_HIT_CONFIG.skillType,
     baseMultiplier: Number(value?.baseMultiplier ?? DEFAULT_EXTRA_HIT_CONFIG.baseMultiplier) || DEFAULT_EXTRA_HIT_CONFIG.baseMultiplier,
     imbalanceValue: Number(value?.imbalanceValue ?? DEFAULT_EXTRA_HIT_CONFIG.imbalanceValue) || DEFAULT_EXTRA_HIT_CONFIG.imbalanceValue,
     cooldownSeconds: Number(value?.cooldownSeconds ?? DEFAULT_EXTRA_HIT_CONFIG.cooldownSeconds) || DEFAULT_EXTRA_HIT_CONFIG.cooldownSeconds,
@@ -2704,7 +2706,7 @@ export function BuffDraftPage() {
                             />
                           </label>
                           <label>
-                            <span>伤害类型</span>
+                            <span>伤害属性</span>
                             <select
                               value={selectedEffect.extraHitConfig?.damageType || DEFAULT_EXTRA_HIT_CONFIG.damageType}
                               onChange={(event) => updateSelectedEffect((prev) => ({
@@ -2721,6 +2723,22 @@ export function BuffDraftPage() {
                               <option value="electric">电磁</option>
                               <option value="ice">寒冷</option>
                               <option value="nature">自然</option>
+                            </select>
+                          </label>
+                          <label>
+                            <span>伤害类型</span>
+                            <select
+                              value={selectedEffect.extraHitConfig?.skillType ?? DEFAULT_EXTRA_HIT_CONFIG.skillType}
+                              onChange={(event) => updateSelectedEffect((prev) => ({
+                                ...prev,
+                                extraHitConfig: normalizeExtraHitConfig({
+                                  ...prev.extraHitConfig,
+                                  skillType: event.target.value as BuffExtraHitConfig['skillType'],
+                                }),
+                              }))}
+                            >
+                              <option value="">空</option>
+                              {['A', 'B', 'E', 'Q', 'Dot'].map((type) => <option key={type} value={type}>{type}</option>)}
                             </select>
                           </label>
                           <label>

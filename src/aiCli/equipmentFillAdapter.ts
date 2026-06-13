@@ -1,5 +1,7 @@
 import { AI_CLI_PROTOCOL_VERSION } from './aiCliAgentTypes';
 import type { AgentFillDomainAdapter, AgentFillProposalPayload, AgentFillValidationResult } from './aiCliFillDomains';
+import type { BuffEffectKind, BuffExtraHitConfig } from '../core/domain/buff';
+import { normalizeExtraHitConfig, validateExtraHitConfig } from '../core/services/buffExtraHit';
 
 export const EQUIPMENT_DRAFT_STORAGE_KEY = 'def.equipment-sheet.draft.v1';
 export const EQUIPMENT_LIBRARY_STORAGE_KEY = 'def.equipment-sheet.library.v1';
@@ -10,7 +12,7 @@ const LEVEL_KEYS = ['0', '1', '2', '3'] as const;
 const FIXED_STAT_TYPES = ['defense', 'hp', 'flatAtk'] as const;
 const UNITS = ['flat', 'percent'] as const;
 const EFFECT_CATEGORIES = ['ability', 'buff'] as const;
-const THREE_PIECE_CATEGORIES = ['positive', 'condition', ''] as const;
+const THREE_PIECE_CATEGORIES = ['positive', 'passive', 'condition', ''] as const;
 const SUPPORTED_EQUIPMENT_EFFECT_TYPES = [
   'strengthBoost',
   'agilityBoost',
@@ -87,11 +89,13 @@ interface EquipmentEffect {
 interface EquipmentThreePieceBuff {
   effectId: string;
   name: string;
-  category: 'positive' | 'condition' | '';
+  category: 'positive' | 'passive' | 'condition' | '';
   typeKey: string;
   value: number;
   unit: EquipmentUnit;
   raw?: string;
+  effectKind?: BuffEffectKind;
+  extraHitConfig?: BuffExtraHitConfig;
 }
 
 interface EquipmentItem {
@@ -267,13 +271,35 @@ function validateEquipmentLibraryShape(raw: unknown): AgentFillValidationResult<
 }
 
 function validateThreePieceBuff(raw: Record<string, unknown>, path: string, errors: string[]) {
+  const effectKind = raw.effectKind === 'extraHit' ? 'extraHit' : 'modifier';
   if (typeof raw.effectId !== 'string') errors.push(`${path}.effectId must be string`);
   if (typeof raw.name !== 'string') errors.push(`${path}.name must be string`);
   if (typeof raw.category !== 'string' || !THREE_PIECE_CATEGORIES.includes(raw.category as never)) errors.push(`${path}.category must be positive/condition/empty`);
-  if (typeof raw.typeKey !== 'string') errors.push(`${path}.typeKey must be string`);
-  if (raw.typeKey && !SUPPORTED_EQUIPMENT_EFFECT_TYPES.includes(String(raw.typeKey))) errors.push(`${path}.typeKey unsupported: ${String(raw.typeKey)}`);
-  if (typeof raw.value !== 'number' || !Number.isFinite(raw.value)) errors.push(`${path}.value must be number`);
+  if (effectKind === 'modifier' && typeof raw.typeKey !== 'string') errors.push(`${path}.typeKey must be string`);
+  if (effectKind === 'modifier' && raw.typeKey && !SUPPORTED_EQUIPMENT_EFFECT_TYPES.includes(String(raw.typeKey))) errors.push(`${path}.typeKey unsupported: ${String(raw.typeKey)}`);
+  if (effectKind === 'modifier' && (typeof raw.value !== 'number' || !Number.isFinite(raw.value))) errors.push(`${path}.value must be number`);
   if (typeof raw.unit !== 'string' || !UNITS.includes(raw.unit as never)) errors.push(`${path}.unit must be flat/percent`);
+  if (effectKind === 'extraHit') {
+    if (raw.category !== 'passive') errors.push(`${path}.category must be passive for extraHit`);
+    validateExtraHitConfig(raw.extraHitConfig, `${path}.extraHitConfig`, errors);
+  }
+}
+
+function normalizeThreePieceBuff(raw: Record<string, unknown>, fallbackKey: string): EquipmentThreePieceBuff {
+  const effectKind: BuffEffectKind = raw.effectKind === 'extraHit' ? 'extraHit' : 'modifier';
+  return {
+    effectId: String(raw.effectId || fallbackKey),
+    name: String(raw.name || fallbackKey),
+    category: effectKind === 'extraHit' ? 'passive' : raw.category as EquipmentThreePieceBuff['category'],
+    typeKey: effectKind === 'extraHit' ? '' : String(raw.typeKey || ''),
+    value: effectKind === 'extraHit' ? 0 : Number(raw.value || 0),
+    unit: raw.unit as EquipmentUnit,
+    raw: typeof raw.raw === 'string' ? raw.raw : '',
+    effectKind,
+    ...(effectKind === 'extraHit'
+      ? { extraHitConfig: normalizeExtraHitConfig(raw.extraHitConfig, `${fallbackKey}-extra-hit`) }
+      : {}),
+  };
 }
 
 function validateEquipmentItem(raw: unknown, path: string, errors: string[]) {
@@ -352,8 +378,10 @@ function normalizeEquipmentLibrary(raw: Record<string, unknown>): EquipmentLibra
       name: String(rawSet.name || gearSetId),
       buffId: typeof rawSet.buffId === 'string' ? rawSet.buffId : '',
       imgUrl: typeof rawSet.imgUrl === 'string' ? rawSet.imgUrl : '',
-      threePieceBuff: isRecord(rawSet.threePieceBuff) ? rawSet.threePieceBuff as unknown as EquipmentThreePieceBuff : undefined,
-      threePieceBuffs: isRecord(rawSet.threePieceBuffs) ? rawSet.threePieceBuffs as unknown as Record<string, EquipmentThreePieceBuff> : undefined,
+      threePieceBuff: isRecord(rawSet.threePieceBuff) ? normalizeThreePieceBuff(rawSet.threePieceBuff, `${gearSetId}-three-piece`) : undefined,
+      threePieceBuffs: isRecord(rawSet.threePieceBuffs)
+        ? Object.fromEntries(Object.entries(rawSet.threePieceBuffs).filter((entry): entry is [string, Record<string, unknown>] => isRecord(entry[1])).map(([key, buff]) => [key, normalizeThreePieceBuff(buff, key)]))
+        : undefined,
       equipments,
     };
   }
@@ -416,13 +444,15 @@ export const equipmentFillAdapter: AgentFillDomainAdapter<EquipmentLibrary> = {
           levelKeys: LEVEL_KEYS,
           category: EFFECT_CATEGORIES,
           unit: UNITS,
+          threePieceEffectKind: ['modifier', 'extraHit'],
+          extraHitConfig: '{ key, damageType, skillType, baseMultiplier, imbalanceValue, cooldownSeconds, trigger }; skillType empty/A/B/E/Q/Dot (250%=2.5)',
         },
         supportedEffectTypes: SUPPORTED_EQUIPMENT_EFFECT_TYPES,
         storageBoundary: {
           workingDraft: EQUIPMENT_DRAFT_STORAGE_KEY,
           savedTruth: EQUIPMENT_LIBRARY_STORAGE_KEY,
         },
-        instruction: 'Return exactly one EquipmentFillAiDraft JSON object for equipment.fill.apply. No Markdown. No explanation. gearSets may contain only the gear sets being changed; omitted gear sets are preserved by incremental merge. Each submitted gear set must include its complete gearSetId/name/equipments structure. Use equipment.setBuff for three-piece Buff-only updates. Use app-provided source data outside Agent CLI when needed. equipment.fill.apply creates a proposal only.',
+        instruction: 'Return exactly one EquipmentFillAiDraft JSON object for equipment.fill.apply. No Markdown. No explanation. gearSets may contain only the gear sets being changed; omitted gear sets are preserved by incremental merge. Each submitted gear set must include its complete gearSetId/name/equipments structure. For an independent triggered damage instance in threePieceBuff/threePieceBuffs, set effectKind="extraHit", category="passive", typeKey="", value=0, and provide extraHitConfig including skillType empty/A/B/E/Q/Dot. Use equipment.setBuff for three-piece Buff-only updates. Use app-provided source data outside Agent CLI when needed. equipment.fill.apply creates a proposal only.',
         approvalSaveWarning: 'Approval applies to def.equipment-sheet.draft.v1. Save writes def.equipment-sheet.library.v1.',
       },
     };

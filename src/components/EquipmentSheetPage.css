@@ -81,3 +81,32 @@
   font-size: 12px;
   font-weight: 400;
 }
+
+.equipment-extra-hit-popover {
+  position: fixed;
+  z-index: 70;
+  display: grid;
+  gap: 8px;
+  width: 230px;
+  padding: 10px;
+  box-sizing: border-box;
+  border: 1px solid var(--office-border, #d2d8e3);
+  background: var(--office-card-bg, #fff);
+  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.18);
+}
+
+.equipment-extra-hit-popover label {
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.equipment-extra-hit-popover select {
+  width: 100%;
+  min-width: 0;
+  height: 28px;
+  border: 1px solid #b9c0c9;
+  background: #fff;
+}

@@ -1,3 +1,5 @@
+import type { BuffEffectKind, BuffExtraHitConfig } from '../domain/buff';
+
 type AbilityName = '力量' | '敏捷' | '智识' | '意志';
 type AbilityField = 'strength' | 'agility' | 'intelligence' | 'will';
 
@@ -75,6 +77,8 @@ export interface OperatorBuffEffectInput {
   raw?: string;
   valueMode?: OperatorBuffValueMode;
   derivedValue?: OperatorBuffDerivedValueInput;
+  effectKind?: BuffEffectKind;
+  extraHitConfig?: BuffExtraHitConfig;
 }
 
 export type OperatorBuffInput = Record<OperatorBuffGroupKey, { effects: Record<string, OperatorBuffEffectInput> }>;
@@ -88,6 +92,8 @@ export interface WeaponSkillInput {
     type?: string;
     category?: string;
     levels?: Record<string, number>;
+    effectKind?: BuffEffectKind;
+    extraHitConfig?: BuffExtraHitConfig;
   }>;
 }
 
@@ -109,6 +115,8 @@ export interface EquipmentEffectInput {
   value: number;
   unit?: 'flat' | 'percent' | string;
   raw?: string;
+  effectKind?: BuffEffectKind;
+  extraHitConfig?: BuffExtraHitConfig;
 }
 
 export interface EquipmentSetBuffInput extends EquipmentEffectInput {
@@ -260,6 +268,8 @@ export interface WeaponSkillDetail {
   level: number;
   value: number;
   raw?: unknown;
+  effectKind?: BuffEffectKind;
+  extraHitConfig?: BuffExtraHitConfig;
 }
 
 export interface EquipmentSnapshot {
@@ -677,9 +687,13 @@ function buildWeaponSnapshot(input: OperatorPanelInput['weapon']): WeaponSnapsho
       level: config.skillLevels.skill3,
       value: normalizeValue(typeKey, value),
       raw: effect,
+      effectKind: effect.effectKind === 'extraHit' ? 'extraHit' : 'modifier',
+      ...(effect.effectKind === 'extraHit' && effect.extraHitConfig
+        ? { extraHitConfig: { ...effect.extraHitConfig, baseMultiplier: value } }
+        : {}),
     };
     acc.push(detail);
-    if (effect.category === 'passive' && WEAPON_TOTAL_FIELDS.has(typeKey)) {
+    if (effect.effectKind !== 'extraHit' && effect.category === 'passive' && WEAPON_TOTAL_FIELDS.has(typeKey)) {
       addTotal(totals, typeKey, value);
     }
     return acc;
@@ -742,7 +756,7 @@ function buildEquipmentSnapshot(input: OperatorPanelInput['equipment']): Equipme
   });
   const setBuffs = input?.setBuffs ?? [];
   setBuffs.forEach((buff) => {
-    if ((buff.category === 'positive' || buff.category === 'passive') && EQUIPMENT_TOTAL_FIELDS.has(normalizeTypeKey(buff.typeKey))) {
+    if (buff.effectKind !== 'extraHit' && (buff.category === 'positive' || buff.category === 'passive') && EQUIPMENT_TOTAL_FIELDS.has(normalizeTypeKey(buff.typeKey))) {
       addTotal(totals, buff.typeKey, buff.value, buff.unit);
     }
   });
@@ -772,7 +786,7 @@ function buildOperatorBuffTotals(buffs: OperatorBuffInput | undefined): Record<s
   const totals: Record<string, number> = {};
   getOperatorBuffEntries(buffs).forEach(({ effect }) => {
     const typeKey = normalizeTypeKey(effect.type || '');
-    if (!['positive', 'passive'].includes(effect.category) || effect.valueMode === 'derived' || !typeKey || !OPERATOR_TOTAL_FIELDS.has(typeKey)) return;
+    if (effect.effectKind === 'extraHit' || !['positive', 'passive'].includes(effect.category) || effect.valueMode === 'derived' || !typeKey || !OPERATOR_TOTAL_FIELDS.has(typeKey)) return;
     if (typeof effect.value !== 'number' || !Number.isFinite(effect.value)) return;
     addTotal(totals, typeKey, effect.value, effect.unit);
   });
@@ -799,7 +813,7 @@ function buildDerivedOperatorBuffTotals(buffs: OperatorBuffInput | undefined, di
   const totals: Record<string, number> = {};
   getOperatorBuffEntries(buffs).forEach(({ effect }) => {
     const typeKey = normalizeTypeKey(effect.type || '');
-    if (!['positive', 'passive'].includes(effect.category) || effect.valueMode !== 'derived' || !typeKey || !OPERATOR_TOTAL_FIELDS.has(typeKey)) return;
+    if (effect.effectKind === 'extraHit' || !['positive', 'passive'].includes(effect.category) || effect.valueMode !== 'derived' || !typeKey || !OPERATOR_TOTAL_FIELDS.has(typeKey)) return;
     const derivedValue = calculateDerivedBuffValue(effect, display);
     if (derivedValue === null) return;
     addTotal(totals, typeKey, derivedValue, effect.unit);

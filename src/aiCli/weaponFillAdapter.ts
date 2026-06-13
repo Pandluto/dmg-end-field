@@ -1,5 +1,7 @@
 import { AI_CLI_PROTOCOL_VERSION } from './aiCliAgentTypes';
 import type { AgentFillDomainAdapter, AgentFillProposalPayload, AgentFillValidationResult } from './aiCliFillDomains';
+import type { BuffEffectKind, BuffExtraHitConfig } from '../core/domain/buff';
+import { normalizeExtraHitConfig, validateExtraHitConfig } from '../core/services/buffExtraHit';
 
 export const WEAPON_DRAFT_STORAGE_KEY = 'def.weapon-sheet.draft.v1';
 export const WEAPON_LIBRARY_STORAGE_KEY = 'def.weapon-sheet.library.v1';
@@ -13,6 +15,8 @@ export interface WeaponEffectData {
   type: string;
   category: string;
   levels: Record<string, number>;
+  effectKind?: BuffEffectKind;
+  extraHitConfig?: BuffExtraHitConfig;
 }
 
 export interface WeaponLevelData {
@@ -56,6 +60,8 @@ export interface WeaponFillAiDraft {
       type: string;
       category: string;
       levels: Record<string, number>;
+      effectKind?: BuffEffectKind;
+      extraHitConfig?: BuffExtraHitConfig;
     }>;
     levels: Record<string, {
       value?: number;
@@ -138,7 +144,7 @@ const EFFECT_TYPE_ALIASES: Record<string, string> = {
   elementalDmgBonus: 'allDmgBonus',
 };
 
-export const WEAPON_FILL_CONTRACT_VERSION = 'weapon-fill-20260604-condition-passive-v3';
+export const WEAPON_FILL_CONTRACT_VERSION = 'weapon-fill-20260614-extra-hit-v4';
 
 const WEAPON_FILL_AI_DRAFT_SCHEMA = {
   id: 'string',
@@ -357,16 +363,23 @@ export function validateWeaponFillAiDraft(candidate: unknown): AgentFillValidati
           continue;
         }
         const effect = effectValue as Record<string, unknown>;
+        const effectKind = effect.effectKind === 'extraHit' ? 'extraHit' : 'modifier';
         if (typeof effect.name !== 'string') {
           errors.push(`skills.${skillKey}.effects.${effectKey}.name 必须是字符串`);
         }
-        if (typeof effect.type !== 'string') {
+        if (effectKind === 'modifier' && typeof effect.type !== 'string') {
           errors.push(`skills.${skillKey}.effects.${effectKey}.type 必须是字符串`);
-        } else if (!SUPPORTED_EFFECT_TYPES.includes(normalizeEffectType(effect.type))) {
+        } else if (effectKind === 'modifier' && !SUPPORTED_EFFECT_TYPES.includes(normalizeEffectType(effect.type as string))) {
           errors.push(`skills.${skillKey}.effects.${effectKey}.type "${effect.type}" 不在支持的类型列表中: ${SUPPORTED_EFFECT_TYPES.join('/')}`);
         }
         if (typeof effect.category !== 'string' || !VALID_EFFECT_CATEGORIES.includes(effect.category)) {
           errors.push(`skills.${skillKey}.effects.${effectKey}.category 必须是 condition 或 passive`);
+        }
+        if (effectKind === 'extraHit') {
+          if (effect.category !== 'passive') {
+            errors.push(`skills.${skillKey}.effects.${effectKey}.category 在 extraHit 时必须是 passive`);
+          }
+          validateExtraHitConfig(effect.extraHitConfig, `skills.${skillKey}.effects.${effectKey}.extraHitConfig`, errors);
         }
         const levels = effect.levels;
         if (levels && typeof levels === 'object') {
@@ -420,9 +433,13 @@ function convertWeaponFillAiDraftToWeaponDraft(candidate: WeaponFillAiDraft): We
       }
       skillData.effects[effectKey] = {
         name: effect.name || effectKey,
-        type: normalizeEffectType(effect.type || ''),
-        category: normalizeEffectCategory(effect.category || ''),
+        type: effect.effectKind === 'extraHit' ? '' : normalizeEffectType(effect.type || ''),
+        category: effect.effectKind === 'extraHit' ? 'passive' : normalizeEffectCategory(effect.category || ''),
         levels: normalizeNumericRecord(effect.levels),
+        effectKind: effect.effectKind === 'extraHit' ? 'extraHit' : 'modifier',
+        ...(effect.effectKind === 'extraHit'
+          ? { extraHitConfig: normalizeExtraHitConfig(effect.extraHitConfig, `${effectKey}-extra-hit`) }
+          : {}),
       };
     }
     for (const [levelKey, level] of Object.entries(skill.levels || {})) {
@@ -556,7 +573,8 @@ export const weaponFillAdapter: AgentFillDomainAdapter<WeaponDraft> = {
         librarySummary: Object.entries(library).map(([id, w]) => ({ id, name: w.name, rarity: w.rarity })),
         weaponFillAiDraftSchema: WEAPON_FILL_AI_DRAFT_SCHEMA,
         supportedEffectTypes: SUPPORTED_EFFECT_TYPES,
-        instruction: 'Return exactly one WeaponFillAiDraft JSON object. No Markdown. No explanation. Use app-provided source data outside Agent CLI when needed. Keep fields aligned with weapon-sheet: id/name/rarity/type/description/imgUrl/attackGrowth/skills. If there is no image URL, leave imgUrl empty; do not use url as imgUrl. Only skill3.effects is preserved by weapon-sheet; use category condition/passive. weapon.fill.apply creates a proposal only; it does NOT save to library. Before weapon.fill.apply, self-check pending count with proposal.list. REST weapon.fill.apply is refused while any pending proposal exists. For stale backlog, call proposal.clear through REST, then resubmit only the current proposal. If multiple edits are intended, submit and finish them one by one. Do not ask the user to re-run weapon.fill.apply.',
+        extraHitContract: 'For an independent triggered damage instance, set effectKind="extraHit", category="passive", type="", levels[level]=that level base multiplier (250%=2.5), and provide extraHitConfig { key, damageType, skillType, baseMultiplier, imbalanceValue, cooldownSeconds, trigger }. skillType is empty/A/B/E/Q/Dot.',
+        instruction: 'Return exactly one WeaponFillAiDraft JSON object. No Markdown. No explanation. Use app-provided source data outside Agent CLI when needed. Keep fields aligned with weapon-sheet: id/name/rarity/type/description/imgUrl/attackGrowth/skills. If there is no image URL, leave imgUrl empty; do not use url as imgUrl. Only skill3.effects is preserved by weapon-sheet; use category condition/passive. For extraHit, use category passive and store level-specific multiplier in levels. weapon.fill.apply creates a proposal only; it does NOT save to library. Before weapon.fill.apply, self-check pending count with proposal.list. REST weapon.fill.apply is refused while any pending proposal exists. For stale backlog, call proposal.clear through REST, then resubmit only the current proposal. If multiple edits are intended, submit and finish them one by one. Do not ask the user to re-run weapon.fill.apply.',
         approvalSaveWarning: 'IMPORTANT: After REST weapon.fill.apply, the proposal is handed off to Web CLI automatically. Do not submit another weapon.fill.apply while a pending proposal exists. For stale backlog, call proposal.clear through REST, then resubmit only the current proposal. Do NOT tell the user to re-run weapon.fill.apply in the browser.',
       },
     };

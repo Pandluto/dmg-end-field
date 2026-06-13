@@ -13,6 +13,7 @@ import type {
   SandboxSkillHit,
 } from '../../types';
 import { normalizeAssetUrl } from '../../utils/assetResolver';
+import { normalizeExtraHitConfig } from './buffExtraHit';
 import type {
   OperatorDraft,
   OperatorDraftSkill,
@@ -130,8 +131,9 @@ function normalizeAttributeLevels(rawAttributes: unknown): OperatorDraftAttribut
 
 function normalizeBuffEffect(effectKey: string, rawEffect: unknown): OperatorDraftBuffEffect {
   const source = rawEffect && typeof rawEffect === 'object' ? rawEffect as Record<string, unknown> : {};
+  const effectKind = source.effectKind === 'extraHit' ? 'extraHit' : 'modifier';
   const rawCategory = typeof source.category === 'string' ? source.category : '';
-  const category = rawCategory === 'condition' ? 'condition' : rawCategory === 'countable' ? 'countable' : 'passive';
+  const category = effectKind === 'extraHit' ? 'passive' : rawCategory === 'condition' ? 'condition' : rawCategory === 'countable' ? 'countable' : 'passive';
   const rawValue = source.value;
   const valueMode = category === 'countable' ? 'fixed' : source.valueMode === 'derived' ? 'derived' : 'fixed';
   const rawDerivedValue = source.derivedValue && typeof source.derivedValue === 'object'
@@ -145,7 +147,7 @@ function normalizeBuffEffect(effectKey: string, rawEffect: unknown): OperatorDra
   return {
     effectId: String(source.effectId || effectKey),
     name: String(source.name || effectKey),
-    type: String(source.type || ''),
+    type: effectKind === 'extraHit' ? '' : String(source.type || ''),
     category,
     ...(typeof rawValue === 'number' && Number.isFinite(rawValue) ? { value: rawValue } : {}),
     ...(category === 'countable' && typeof source.maxStacks === 'number' && Number.isFinite(source.maxStacks) ? { maxStacks: Math.max(1, Math.floor(source.maxStacks)) } : {}),
@@ -156,6 +158,10 @@ function normalizeBuffEffect(effectKey: string, rawEffect: unknown): OperatorDra
       : {}),
     ...(typeof source.description === 'string' && source.description ? { description: source.description } : {}),
     ...(typeof source.raw === 'string' && source.raw ? { raw: source.raw } : {}),
+    effectKind,
+    ...(effectKind === 'extraHit'
+      ? { extraHitConfig: normalizeExtraHitConfig(source.extraHitConfig, `${effectKey}-extra-hit`) }
+      : {}),
   };
 }
 

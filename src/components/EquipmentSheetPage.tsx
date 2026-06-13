@@ -10,6 +10,8 @@ import {
 } from '../utils/draftShare';
 import { imageBridge, getUserImageUrl } from '../utils/imageBridge';
 import type { ImageAssetEntry } from './ImageManager/types';
+import type { BuffEffectKind, BuffExtraHitConfig } from '../core/domain/buff';
+import { normalizeExtraHitConfig } from '../core/services/buffExtraHit';
 import './BuffDraftPage.css';
 import './OperatorDraftPage.css';
 import './DamageSheetPage.css';
@@ -48,11 +50,13 @@ interface EquipmentEffect {
 interface EquipmentThreePieceBuff {
   effectId: string;
   name: string;
-  category: 'positive' | 'condition' | '';
+  category: 'positive' | 'passive' | 'condition' | '';
   typeKey: string;
   value: number;
   unit: EquipmentUnit;
   raw?: string;
+  effectKind?: BuffEffectKind;
+  extraHitConfig?: BuffExtraHitConfig;
 }
 
 interface EquipmentItem {
@@ -252,6 +256,13 @@ type EquipmentContextMenuAction = {
   label: string;
   icon: 'new' | 'delete' | 'collapse' | 'expand' | 'open';
   onClick: () => void;
+};
+
+type ExtraHitTypePopoverState = {
+  x: number;
+  y: number;
+  gearSetId: string;
+  effectId: string;
 };
 
 const EQUIPMENT_PARTS: EquipmentPart[] = ['护甲', '护手', '配件'];
@@ -497,16 +508,21 @@ function stopEditingKeyPropagation(event: React.KeyboardEvent<HTMLElement>) {
 }
 
 function normalizeThreePieceBuff(effectId: string, raw: Partial<EquipmentThreePieceBuff> | null | undefined): EquipmentThreePieceBuff {
+  const effectKind: BuffEffectKind = raw?.effectKind === 'extraHit' ? 'extraHit' : 'modifier';
   return {
     effectId: String(raw?.effectId || effectId),
     name: String(raw?.name || '新建效果'),
-    category: ['positive', 'condition'].includes(raw?.category || '')
-      ? raw?.category as 'positive' | 'condition'
+    category: effectKind === 'extraHit' ? 'passive' : ['positive', 'passive', 'condition'].includes(raw?.category || '')
+      ? raw?.category as 'positive' | 'passive' | 'condition'
       : '',
-    typeKey: String(raw?.typeKey || ''),
-    value: normalizeNumber(raw?.value),
+    typeKey: effectKind === 'extraHit' ? '' : String(raw?.typeKey || ''),
+    value: effectKind === 'extraHit' ? 0 : normalizeNumber(raw?.value),
     unit: normalizeUnit(raw?.unit),
     raw: String(raw?.raw || ''),
+    effectKind,
+    ...(effectKind === 'extraHit'
+      ? { extraHitConfig: normalizeExtraHitConfig(raw?.extraHitConfig, `${effectId}-extra-hit`) }
+      : {}),
   };
 }
 
@@ -690,12 +706,13 @@ function applyCellValueToLibrary(
       const current = gearSet.threePieceBuffs?.[row.effectId] || {
         effectId: row.effectId,
         name: '新建效果',
-        category: '' as 'positive' | 'condition' | '',
+        category: '' as 'positive' | 'passive' | 'condition' | '',
         typeKey: '',
         value: 0,
         unit: 'percent' as EquipmentUnit,
         raw: '',
       };
+      const nextEffectKind: BuffEffectKind = current.effectKind === 'extraHit' ? 'extraHit' : 'modifier';
       return {
         ...gearSet,
         threePieceBuffs: {
@@ -703,12 +720,22 @@ function applyCellValueToLibrary(
           [row.effectId]: {
             ...current,
             name: columnKey === 'name' ? rawValue : current.name,
-            category: columnKey === 'field' && ['positive', 'condition'].includes(rawValue)
-              ? rawValue as 'positive' | 'condition'
+            category: nextEffectKind === 'extraHit' ? 'passive' : columnKey === 'field' && ['positive', 'passive', 'condition'].includes(rawValue)
+              ? rawValue as 'positive' | 'passive' | 'condition'
               : current.category,
-            typeKey: columnKey === 'effectKey' ? rawValue : current.typeKey,
-            value: columnKey === 'valueText' ? normalizeNumber(rawValue, current.value) : current.value,
+            typeKey: nextEffectKind === 'extraHit' ? '' : columnKey === 'effectKey' ? rawValue : current.typeKey,
+            value: nextEffectKind === 'extraHit' ? 0 : columnKey === 'valueText' ? normalizeNumber(rawValue, current.value) : current.value,
             raw: columnKey === 'description' ? rawValue : current.raw,
+            effectKind: nextEffectKind,
+            ...(nextEffectKind === 'extraHit'
+              ? {
+                  extraHitConfig: normalizeExtraHitConfig({
+                    ...current.extraHitConfig,
+                    ...(columnKey === 'effectKey' ? { damageType: rawValue } : {}),
+                    ...(columnKey === 'valueText' ? { baseMultiplier: normalizeNumber(rawValue, current.extraHitConfig?.baseMultiplier) } : {}),
+                  }, `${row.effectId}-extra-hit`),
+                }
+              : { extraHitConfig: undefined }),
           },
         },
       };
@@ -811,8 +838,10 @@ function buildRows(library: EquipmentLibrary): EquipmentRow[] {
         idText: threePieceBuff.effectId || effectId,
         field: threePieceBuff.category || '',
         level: '3件',
-        effectKey: threePieceBuff.typeKey,
-        valueText: String(threePieceBuff.value),
+        effectKey: threePieceBuff.effectKind === 'extraHit'
+          ? `${threePieceBuff.extraHitConfig?.damageType || 'physical'} / ${threePieceBuff.extraHitConfig?.skillType || '空'}`
+          : threePieceBuff.typeKey,
+        valueText: String(threePieceBuff.effectKind === 'extraHit' ? threePieceBuff.extraHitConfig?.baseMultiplier ?? 1 : threePieceBuff.value),
         description: threePieceBuff.raw || '',
       });
     });
@@ -1067,6 +1096,7 @@ export function EquipmentSheetPage() {
   const [collapsedThreePieceBuffIds, setCollapsedThreePieceBuffIds] = useState<Record<string, boolean>>({});
   const [isOverwriteProtectionEnabled, setIsOverwriteProtectionEnabled] = useState(true);
   const [contextMenu, setContextMenu] = useState<EquipmentContextMenuState | null>(null);
+  const [extraHitTypePopover, setExtraHitTypePopover] = useState<ExtraHitTypePopoverState | null>(null);
   const [message, setMessage] = useState('正在读取装备库...');
   const [formulaInput, setFormulaInput] = useState('');
   const [buffTypeQuery, setBuffTypeQuery] = useState('');
@@ -1817,6 +1847,24 @@ export function EquipmentSheetPage() {
     () => selectedWorkbookRow?.cells.find((cell) => cell.columnKey === selectedCell?.columnKey) ?? null,
     [selectedCell?.columnKey, selectedWorkbookRow],
   );
+  const updateExtraHitType = useCallback((gearSetId: string, effectId: string, patch: Partial<BuffExtraHitConfig>) => {
+    mutateLibrary((prev) => updateLibrarySet(prev, gearSetId, (gearSet) => {
+      const current = gearSet.threePieceBuffs?.[effectId];
+      if (!current) return gearSet;
+      return {
+        ...gearSet,
+        threePieceBuffs: {
+          ...(gearSet.threePieceBuffs || {}),
+          [effectId]: normalizeThreePieceBuff(effectId, {
+            ...current,
+            effectKind: 'extraHit',
+            category: 'passive',
+            extraHitConfig: normalizeExtraHitConfig({ ...current.extraHitConfig, ...patch }, `${effectId}-extra-hit`),
+          }),
+        },
+      };
+    }));
+  }, [mutateLibrary]);
 
   const filteredBuffTypeOptions = useMemo(() => {
     const keyword = buffTypeQuery.trim().toLowerCase();
@@ -1886,6 +1934,16 @@ export function EquipmentSheetPage() {
       };
     }
     if (row.kind === 'threePieceBuff' && columnKey === 'field') {
+      const selectedBuff = library.gearSets[row.gearSetId]?.threePieceBuffs?.[row.effectId];
+      if (selectedBuff?.effectKind === 'extraHit') {
+        return {
+          key: `${row.key}:${columnKey}:extra-hit-passive`,
+          value: 'passive',
+          inputMode: 'text',
+          readOnly: true,
+          commit: () => undefined,
+        };
+      }
       return {
         key: `${row.key}:${columnKey}`,
         value: selectedWorkbookCell.value,
@@ -1895,6 +1953,7 @@ export function EquipmentSheetPage() {
           { value: '', label: '未选择' },
           { value: 'positive', label: 'positive' },
           { value: 'condition', label: 'condition' },
+          { value: 'passive', label: 'passive' },
         ],
         commit: (value) => updateCellValue(row, columnKey, value),
       };
@@ -1927,6 +1986,15 @@ export function EquipmentSheetPage() {
       };
     }
     if ((row.kind === 'effect' || row.kind === 'threePieceBuff') && columnKey === 'effectKey') {
+      if (row.kind === 'threePieceBuff' && library.gearSets[row.gearSetId]?.threePieceBuffs?.[row.effectId]?.effectKind === 'extraHit') {
+        return {
+          key: `${row.key}:${columnKey}:extra-hit-types`,
+          value: selectedWorkbookCell.value,
+          inputMode: 'text',
+          readOnly: true,
+          commit: () => undefined,
+        };
+      }
       return {
         key: `${row.key}:${columnKey}`,
         value: selectedWorkbookCell.value,
@@ -2397,6 +2465,8 @@ export function EquipmentSheetPage() {
       );
     }
     if (sourceRow.kind === 'threePieceBuff' && cell.columnKey === 'field') {
+      const isExtraHit = library.gearSets[sourceRow.gearSetId]?.threePieceBuffs?.[sourceRow.effectId]?.effectKind === 'extraHit';
+      if (isExtraHit) return 'passive';
       return (
         <select
           className="weapon-sheet-inline-input"
@@ -2407,6 +2477,7 @@ export function EquipmentSheetPage() {
           <option value="">未选择</option>
           <option value="positive">positive</option>
           <option value="condition">condition</option>
+          <option value="passive">passive</option>
         </select>
       );
     }
@@ -2424,6 +2495,9 @@ export function EquipmentSheetPage() {
       );
     }
     if ((sourceRow.kind === 'effect' || sourceRow.kind === 'threePieceBuff') && cell.columnKey === 'effectKey') {
+      const isExtraHit = sourceRow.kind === 'threePieceBuff'
+        && library.gearSets[sourceRow.gearSetId]?.threePieceBuffs?.[sourceRow.effectId]?.effectKind === 'extraHit';
+      if (isExtraHit) return cell.value;
       return (
         <select
           className="weapon-sheet-inline-input"
@@ -2655,7 +2729,7 @@ export function EquipmentSheetPage() {
         </div>
       </section>
 
-      <main className="damage-sheet-workspace weapon-sheet-workspace" onClick={closeContextMenu}>
+      <main className="damage-sheet-workspace weapon-sheet-workspace" onClick={() => { closeContextMenu(); setExtraHitTypePopover(null); }}>
         <aside
           className="damage-sheet-sidebar buff-sheet-explorer"
           onContextMenu={(event) => openContextMenu(event, { x: event.clientX, y: event.clientY, target: 'blank' })}
@@ -2750,6 +2824,21 @@ export function EquipmentSheetPage() {
                           focusRow(row.sourceRow.key);
                         }
                         setSelectedCell({ address: cell.address, sourceRowKey: cell.sourceRowKey, columnKey: cell.columnKey });
+                        const sourceRow = row.sourceRow;
+                        const extraHitBuff = sourceRow.kind === 'threePieceBuff'
+                          ? library.gearSets[sourceRow.gearSetId]?.threePieceBuffs?.[sourceRow.effectId]
+                          : null;
+                        if (sourceRow.kind === 'threePieceBuff' && cell.columnKey === 'effectKey' && extraHitBuff?.effectKind === 'extraHit') {
+                          const rect = event.currentTarget.getBoundingClientRect();
+                          setExtraHitTypePopover({
+                            x: Math.min(rect.left, window.innerWidth - 246),
+                            y: Math.min(rect.bottom + 4, window.innerHeight - 150),
+                            gearSetId: sourceRow.gearSetId,
+                            effectId: sourceRow.effectId,
+                          });
+                        } else {
+                          setExtraHitTypePopover(null);
+                        }
                       }}
                     >
                       {renderEditableCell(row, cell)}
@@ -2772,6 +2861,18 @@ export function EquipmentSheetPage() {
           ))}
         </div>
       ) : null}
+
+      {extraHitTypePopover ? (() => {
+        const buff = library.gearSets[extraHitTypePopover.gearSetId]?.threePieceBuffs?.[extraHitTypePopover.effectId];
+        if (!buff || buff.effectKind !== 'extraHit') return null;
+        const config = normalizeExtraHitConfig(buff.extraHitConfig, `${extraHitTypePopover.effectId}-extra-hit`);
+        return (
+          <div className="equipment-extra-hit-popover" style={{ left: extraHitTypePopover.x, top: extraHitTypePopover.y }} onClick={(event) => event.stopPropagation()}>
+            <label><span>伤害属性</span><select value={config.damageType} onChange={(event) => updateExtraHitType(extraHitTypePopover.gearSetId, extraHitTypePopover.effectId, { damageType: event.target.value as BuffExtraHitConfig['damageType'] })}>{['physical', 'magic', 'fire', 'electric', 'ice', 'nature'].map((value) => <option key={value} value={value}>{value}</option>)}</select></label>
+            <label><span>种类属性</span><select value={config.skillType} onChange={(event) => updateExtraHitType(extraHitTypePopover.gearSetId, extraHitTypePopover.effectId, { skillType: event.target.value as BuffExtraHitConfig['skillType'] })}><option value="">空</option>{['A', 'B', 'E', 'Q', 'Dot'].map((value) => <option key={value} value={value}>{value}</option>)}</select></label>
+          </div>
+        );
+      })() : null}
 
       {isSaveConfirmModalOpen ? (
         <div className="operator-draft-modal-overlay" onClick={() => setIsSaveConfirmModalOpen(false)}>
