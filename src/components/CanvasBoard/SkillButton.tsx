@@ -35,6 +35,7 @@ import { buildBuffSearchIndex, searchBuffs } from '../../utils/buffFuzzySearch';
 import { refreshSnapshotCandidateBuffsForCharacterIds } from '../../core/services/operatorConfigCandidateBuffService';
 import {
   type AnomalyDamageSegmentView,
+  dedupeLocalBuffSearchResults,
   getNormalHitSegmentKey,
   isExtraHitBuff,
   isModifierBuff,
@@ -184,6 +185,7 @@ export function SkillButtonComponent({
   const [buffSearchMode, setBuffSearchMode] = useState<'local' | 'anomaly' | 'anomaly-state' | 'state'>('local');
   const [candidateBuffRefreshToken, setCandidateBuffRefreshToken] = useState(0);
   const [manuallyDisabledBuffIdsBySegmentKey, setManuallyDisabledBuffIdsBySegmentKey] = useState<Record<string, string[]>>({});
+  const [manuallyDisabledHitKeys, setManuallyDisabledHitKeys] = useState<string[]>([]);
 
   // 图标加载失败状态，用于 CSS 类切换
   const [iconLoadFailed, setIconLoadFailed] = useState(false);
@@ -246,7 +248,7 @@ export function SkillButtonComponent({
     if (!localBuffSearchKeyword.trim()) {
       return [];
     }
-    return searchBuffs(localBuffSearchKeyword, activeBuffSearchIndex).slice(0, 50);
+    return dedupeLocalBuffSearchResults(searchBuffs(localBuffSearchKeyword, activeBuffSearchIndex)).slice(0, 50);
   }, [activeBuffSearchIndex, buffSearchMode, localBuffSearchKeyword]);
 
   const loadPersistedManualBuffTweaks = useCallback(() => {
@@ -259,6 +261,11 @@ export function SkillButtonComponent({
       ])
     );
     setManuallyDisabledBuffIdsBySegmentKey(normalizedMap);
+    setManuallyDisabledHitKeys(
+      Array.isArray(persistedButton?.panelConfig?.manualDisabledHitKeys)
+        ? persistedButton.panelConfig.manualDisabledHitKeys.filter((hitKey): hitKey is string => typeof hitKey === 'string')
+        : []
+    );
     setTargetResistance({
       ...EMPTY_TARGET_RESISTANCE,
       ...(persistedButton?.resistanceConfig?.targetResistance ?? {}),
@@ -375,6 +382,23 @@ export function SkillButtonComponent({
         });
       }
       return next;
+    });
+  }, [button.id]);
+
+  const persistManualDisabledHitKeys = useCallback((nextHitKeys: string[]) => {
+    const persistedButton = getSkillButtonById(button.id);
+    if (!persistedButton) {
+      return;
+    }
+
+    upsertSkillButton({
+      ...persistedButton,
+      panelConfig: {
+        ...(persistedButton.panelConfig ?? { selectedBuff: [...(persistedButton.selectedBuff ?? [])] }),
+        selectedBuff: [...(persistedButton.selectedBuff ?? [])],
+        manualDisabledHitKeys: nextHitKeys,
+      },
+      updatedAt: Date.now(),
     });
   }, [button.id]);
 
@@ -562,6 +586,11 @@ export function SkillButtonComponent({
     () => (selectedHitIndex !== null && resolvedTemplate?.hits[selectedHitIndex] ? getNormalHitSegmentKey(resolvedTemplate.hits[selectedHitIndex].key) : null),
     [resolvedTemplate, selectedHitIndex]
   );
+  const activeNormalHitKey = useMemo(
+    () => (selectedHitIndex !== null && resolvedTemplate?.hits[selectedHitIndex] ? resolvedTemplate.hits[selectedHitIndex].key : null),
+    [resolvedTemplate, selectedHitIndex]
+  );
+  const isActiveNormalHitDisabled = activeNormalHitKey ? manuallyDisabledHitKeys.includes(activeNormalHitKey) : false;
   const disabledBuffIdsByHitKey = useMemo(() => {
     if (!resolvedTemplate) {
       return {};
@@ -614,10 +643,11 @@ export function SkillButtonComponent({
         },
         panelBase: panelBase ?? undefined,
         disabledBuffIdsByHitKey,
+        disabledHitKeys: manuallyDisabledHitKeys,
       damageBonus: infoSnap as unknown as import('../../types/storage').DamageBonusSnapshot,
       targetResistance,
     });
-  }, [resolvedTemplate, panelData, button.id, button.characterId, targetResistance, fullCombinedModifierBuffList, panelBase, disabledBuffIdsByHitKey, infoSnap]);
+  }, [resolvedTemplate, panelData, button.id, button.characterId, targetResistance, fullCombinedModifierBuffList, panelBase, disabledBuffIdsByHitKey, manuallyDisabledHitKeys, infoSnap]);
 
   const damageViewModel = useMemo(() => {
     if (!resolvedTemplate || !damageResult || !panelData) {
@@ -680,6 +710,22 @@ export function SkillButtonComponent({
     });
   }, [manualBuffOptionIdsBySegmentKey]);
 
+  useEffect(() => {
+    if (!resolvedTemplate) {
+      return;
+    }
+
+    const availableHitKeys = new Set(resolvedTemplate.hits.map((hit) => hit.key));
+    setManuallyDisabledHitKeys((prev) => {
+      const next = prev.filter((hitKey) => availableHitKeys.has(hitKey));
+      if (next.length === prev.length) {
+        return prev;
+      }
+      persistManualDisabledHitKeys(next);
+      return next;
+    });
+  }, [persistManualDisabledHitKeys, resolvedTemplate]);
+
   const isBuffManuallyActive = useCallback((segmentKey: string, buffId: string) => {
     const disabledIds = manuallyDisabledBuffIdsBySegmentKey[segmentKey] ?? [];
     return !disabledIds.includes(buffId);
@@ -713,6 +759,20 @@ export function SkillButtonComponent({
       return rest;
     });
   }, [persistManualBuffTweaks]);
+
+  const toggleActiveNormalHitDisabled = useCallback(() => {
+    if (!activeNormalHitKey) {
+      return;
+    }
+
+    setManuallyDisabledHitKeys((prev) => {
+      const next = prev.includes(activeNormalHitKey)
+        ? prev.filter((hitKey) => hitKey !== activeNormalHitKey)
+        : [...prev, activeNormalHitKey];
+      persistManualDisabledHitKeys(next);
+      return next;
+    });
+  }, [activeNormalHitKey, persistManualDisabledHitKeys]);
 
   const anomalyDamageSegments = useMemo<AnomalyDamageSegmentView[]>(() => {
     if (!panelData || !damageViewModel) {
@@ -1395,7 +1455,7 @@ export function SkillButtonComponent({
                           {damageViewModel.hitCards.map((hitCard, index) => (
                             <div
                               key={hitCard.key}
-                              className={`skill-damage-hit-card ${hitCard.isSelected ? 'selected' : ''}`}
+                              className={`skill-damage-hit-card${hitCard.isSelected ? ' selected' : ''}${hitCard.isDisabled ? ' is-disabled' : ''}`}
                               onClick={() => {
                                 setSelectedHitIndex(index);
                                 setSelectedAnomalySegmentKey(null);
@@ -1447,7 +1507,19 @@ export function SkillButtonComponent({
                         {/* Hit 详情区 */}
                         {!isShowingAnomalyDetail && damageViewModel.activeHitDetail && (
                           <div className="skill-damage-hit-detail">
-                            <p className="hit-detail-title">{damageViewModel.activeHitDetail.title}</p>
+                            <div className="hit-detail-head">
+                              <p className="hit-detail-title">{damageViewModel.activeHitDetail.title}</p>
+                              {activeNormalHitKey ? (
+                                <button
+                                  type="button"
+                                  className={`hit-toggle-btn${isActiveNormalHitDisabled ? ' is-restore' : ''}`}
+                                  onClick={toggleActiveNormalHitDisabled}
+                                  title={isActiveNormalHitDisabled ? '启用当前 hit 并重新计入总伤' : '禁用当前 hit 并从总伤中扣除'}
+                                >
+                                  {isActiveNormalHitDisabled ? '启用本段' : '禁用本段'}
+                                </button>
+                              ) : null}
+                            </div>
                             <div className="hit-detail-stats">
                               <p>倍率: {damageViewModel.activeHitDetail.multiplierText}</p>
                               <p>元素: {damageViewModel.activeHitDetail.elementText}</p>

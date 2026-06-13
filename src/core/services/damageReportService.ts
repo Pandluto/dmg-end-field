@@ -495,6 +495,12 @@ function buildPersistedDisabledBuffMap(button: PersistedSkillButton): Record<str
   );
 }
 
+function buildPersistedDisabledHitKeys(button: PersistedSkillButton): string[] {
+  return Array.isArray(button.panelConfig?.manualDisabledHitKeys)
+    ? button.panelConfig.manualDisabledHitKeys.filter((hitKey): hitKey is string => typeof hitKey === 'string')
+    : [];
+}
+
 function buildDamageReportPanelBase(button: PersistedSkillButton): {
   baseAtk: number;
   characterAtk: number;
@@ -779,6 +785,7 @@ function buildButtonReportRow(
   };
   const panelBase = buildDamageReportPanelBase(button);
   const disabledBuffIdsBySegmentKey = buildPersistedDisabledBuffMap(button);
+  const disabledHitKeys = buildPersistedDisabledHitKeys(button);
   const disabledBuffIdsByHitKey = resolvedTemplate
     ? Object.fromEntries(
         resolvedTemplate.hits.map((hit) => [
@@ -806,6 +813,7 @@ function buildButtonReportRow(
         panel,
         panelBase: panelBase ?? undefined,
         disabledBuffIdsByHitKey,
+        disabledHitKeys,
         targetResistance: button.resistanceConfig?.targetResistance,
         damageBonus,
       }).hits.map((hit, index) => ({

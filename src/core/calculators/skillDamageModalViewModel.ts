@@ -49,8 +49,11 @@ function buildHitCards(
     expectedText: formatInteger(hitResult.expected.final),
     critText: formatInteger(hitResult.crit.final),
     nonCritText: formatInteger(hitResult.nonCrit.final),
-    buffCountText: hitResult.appliedBuffs.length > 0 ? `+${hitResult.appliedBuffs.length} Buff` : '无 Buff',
+    buffCountText: hitResult.isDisabled
+      ? '已禁用'
+      : hitResult.appliedBuffs.length > 0 ? `+${hitResult.appliedBuffs.length} Buff` : '无 Buff',
     isSelected: selectedHitIndex === index,
+    isDisabled: hitResult.isDisabled,
   }));
 }
 
@@ -75,6 +78,7 @@ function buildHitDetail(
     nonCritText: activeHit.nonCrit.final.toFixed(2),
     appliedBuffTags: buildAppliedBuffTags(activeHit.appliedBuffs),
     showNoBuff: activeHit.appliedBuffs.length === 0,
+    isDisabled: activeHit.isDisabled,
   };
 }
 

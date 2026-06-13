@@ -4,6 +4,7 @@ import { getAllBuffList, getSkillButtonTable } from '../core/repositories';
 import { getCharacterInputMap } from '../core/repositories/operatorConfigRepository';
 import { addBuffToButton, loadBuffsToCache, removeBuffFromButton } from '../core/services/buffService';
 import {
+  dedupeLocalBuffSearchResults,
   readCandidateBuffSearchEntries,
   readLocalBuffSearchEntries,
   type LocalBuffSearchResult,
@@ -12,6 +13,7 @@ import { useSkillButtonAnomaly } from './CanvasBoard/useSkillButtonAnomaly';
 import { SkillButtonAnomalyStatePanel } from './CanvasBoard/SkillButtonAnomalyPanels';
 import { buildBuffSearchIndex, searchBuffs } from '../utils/buffFuzzySearch';
 import { buildAnomalyStateSnapshotBuffs } from '../core/services/anomalyStateBuffs';
+import { refreshSnapshotCandidateBuffsForCharacterIds } from '../core/services/operatorConfigCandidateBuffService';
 import {
   getGridLineCenterY,
   getGridNodeCenterX,
@@ -431,6 +433,7 @@ export function BuffBatchEditWorkbench({
   const nextBatchAnomalyStateSnapshotIdRef = useRef(1);
   const [isCandidateAdderOpen, setIsCandidateAdderOpen] = useState(false);
   const [candidateSearchKeyword, setCandidateSearchKeyword] = useState('');
+  const [candidateBuffRefreshToken, setCandidateBuffRefreshToken] = useState(0);
   const [candidateAdderMode, setCandidateAdderMode] = useState<CandidateAdderMode>('local');
   const [activeRemoveBuffId, setActiveRemoveBuffId] = useState<string | null>(null);
   const [pendingRemoveByBuff, setPendingRemoveByBuff] = useState<Record<string, string[]>>({});
@@ -459,8 +462,11 @@ export function BuffBatchEditWorkbench({
     [activeSourceFilter, sortedBuffs]
   );
   const buffById = useMemo(() => new Map(addModeBuffs.map((buff) => [buff.id, buff])), [addModeBuffs]);
-  const localCandidateSearchEntries = useMemo(() => readLocalBuffSearchEntries(), [isCandidateAdderOpen, candidateAddBuffs]);
-  const boardCandidateSearchEntries = useMemo(() => readCandidateBuffSearchEntries(), [isCandidateAdderOpen, candidateAddBuffs]);
+  const localCandidateSearchEntries = useMemo(() => [
+    ...readLocalBuffSearchEntries(),
+    ...readCandidateBuffSearchEntries(),
+  ], [candidateBuffRefreshToken, isCandidateAdderOpen, candidateAddBuffs]);
+  const boardCandidateSearchEntries = useMemo(() => readCandidateBuffSearchEntries(), [candidateBuffRefreshToken, isCandidateAdderOpen, candidateAddBuffs]);
   const candidateSearchEntries = candidateAdderMode === 'local' ? localCandidateSearchEntries : boardCandidateSearchEntries;
   const candidateSearchIndex = useMemo(() => buildBuffSearchIndex(
     candidateSearchEntries,
@@ -477,7 +483,7 @@ export function BuffBatchEditWorkbench({
   ), [candidateSearchEntries]);
   const candidateSearchResults = useMemo(() => {
     if (!candidateSearchKeyword.trim()) return [];
-    return searchBuffs(candidateSearchKeyword, candidateSearchIndex).slice(0, 50);
+    return dedupeLocalBuffSearchResults(searchBuffs(candidateSearchKeyword, candidateSearchIndex)).slice(0, 50);
   }, [candidateSearchIndex, candidateSearchKeyword]);
   const characterInputMap = useMemo(() => getCharacterInputMap(), []);
   const weaponButtonItems = useMemo(() => selectedCharacters
@@ -1019,12 +1025,18 @@ export function BuffBatchEditWorkbench({
     if (!isCandidateAdderOpen) {
       return undefined;
     }
+    const selectedCharacterIds = selectedCharacters
+      .map((character) => character.id)
+      .filter((id): id is string => Boolean(id));
+    refreshSnapshotCandidateBuffsForCharacterIds(selectedCharacterIds)
+      .then(() => setCandidateBuffRefreshToken((token) => token + 1))
+      .catch((error) => console.error('刷新批量 Buff 候选列表失败:', error));
     const timer = window.setTimeout(() => {
       candidateSearchInputRef.current?.focus();
       candidateSearchInputRef.current?.select();
     }, 0);
     return () => window.clearTimeout(timer);
-  }, [isCandidateAdderOpen, candidateAdderMode]);
+  }, [isCandidateAdderOpen, candidateAdderMode, selectedCharacters]);
 
   const getCanvasPoint = (event: React.MouseEvent | MouseEvent) => {
     const canvasElement = canvasRef.current;

@@ -158,10 +158,12 @@ function calculateSingleHit(
   buffs: SkillButtonBuff[],
   input: SkillDamageCalcInputV2
 ): HitCalcResult {
+  const isDisabled = input.disabledHitKeys?.includes(hit.key) ?? false;
   const disabledBuffIds = new Set(input.disabledBuffIdsByHitKey?.[hit.key] ?? []);
   const appliedBuffs = filterBuffsForHit(hit, buffs).filter((buff) => !disabledBuffIds.has(buff.id));
-  const panel = buildPanelForHit(appliedBuffs, input);
-  const buffTotals = calculateBuffTotals(appliedBuffs);
+  const effectiveBuffs = isDisabled ? [] : appliedBuffs;
+  const panel = buildPanelForHit(effectiveBuffs, input);
+  const buffTotals = calculateBuffTotals(effectiveBuffs);
   const zones = calculateHitZones(hit, input.damageBonus, buffTotals, input.targetResistance);
   const multiplier = applyMultiplierAdjustments(hit.multiplier, buffTotals);
 
@@ -171,49 +173,70 @@ function calculateSingleHit(
 
   return {
     hit,
-    appliedBuffs,
+    isDisabled,
+    appliedBuffs: effectiveBuffs,
     panel,
     zones,
     multiplier,
-    nonCrit: calculateHitDamage(
-      panel.atk,
-      multiplier.afterMultiply,
-      1,
-      zones.damageBonusRate,
-      zones.defenseZone,
-      zones.resistanceZone,
-      zones.amplifyRate,
-      zones.fragileRate,
-      zones.vulnerabilityRate,
-      zones.comboDamageBonus,
-      zones.imbalanceDamageBonus
-    ),
-    crit: calculateHitDamage(
-      panel.atk,
-      multiplier.afterMultiply,
-      1 + critDmg,
-      zones.damageBonusRate,
-      zones.defenseZone,
-      zones.resistanceZone,
-      zones.amplifyRate,
-      zones.fragileRate,
-      zones.vulnerabilityRate,
-      zones.comboDamageBonus,
-      zones.imbalanceDamageBonus
-    ),
-    expected: calculateHitDamage(
-      panel.atk,
-      multiplier.afterMultiply,
-      critExpected,
-      zones.damageBonusRate,
-      zones.defenseZone,
-      zones.resistanceZone,
-      zones.amplifyRate,
-      zones.fragileRate,
-      zones.vulnerabilityRate,
-      zones.comboDamageBonus,
-      zones.imbalanceDamageBonus
-    ),
+    nonCrit: isDisabled
+      ? createZeroDamageBreakdown()
+      : calculateHitDamage(
+        panel.atk,
+        multiplier.afterMultiply,
+        1,
+        zones.damageBonusRate,
+        zones.defenseZone,
+        zones.resistanceZone,
+        zones.amplifyRate,
+        zones.fragileRate,
+        zones.vulnerabilityRate,
+        zones.comboDamageBonus,
+        zones.imbalanceDamageBonus
+      ),
+    crit: isDisabled
+      ? createZeroDamageBreakdown()
+      : calculateHitDamage(
+        panel.atk,
+        multiplier.afterMultiply,
+        1 + critDmg,
+        zones.damageBonusRate,
+        zones.defenseZone,
+        zones.resistanceZone,
+        zones.amplifyRate,
+        zones.fragileRate,
+        zones.vulnerabilityRate,
+        zones.comboDamageBonus,
+        zones.imbalanceDamageBonus
+      ),
+    expected: isDisabled
+      ? createZeroDamageBreakdown()
+      : calculateHitDamage(
+        panel.atk,
+        multiplier.afterMultiply,
+        critExpected,
+        zones.damageBonusRate,
+        zones.defenseZone,
+        zones.resistanceZone,
+        zones.amplifyRate,
+        zones.fragileRate,
+        zones.vulnerabilityRate,
+        zones.comboDamageBonus,
+        zones.imbalanceDamageBonus
+      ),
+  };
+}
+
+function createZeroDamageBreakdown(): DamageBreakdown {
+  return {
+    base: 0,
+    afterCrit: 0,
+    afterBonus: 0,
+    afterDefense: 0,
+    afterResistance: 0,
+    afterAmplify: 0,
+    afterFragile: 0,
+    afterVulnerability: 0,
+    final: 0,
   };
 }
 

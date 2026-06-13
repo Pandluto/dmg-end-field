@@ -646,7 +646,7 @@
 /* 装备可视化区域底部 */
 .operator-config-page-equip-visual-bottom {
   flex: 0 0 48px;
-  min-height: 48px;
+  min-height: 90px;
   border-top: 1px solid #D1D1D1;
   background: #F3F3F3;
   padding: 4px 8px;
@@ -654,6 +654,13 @@
   overflow: auto;
   font-size: 9px;
   line-height: 1.15;
+  /*隐藏滚轮*/
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.operator-config-page-equip-visual-bottom::-webkit-scrollbar {
+  display: none;
 }
 
 .operator-config-page-equip-set-title {

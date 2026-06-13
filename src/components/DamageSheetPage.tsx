@@ -632,6 +632,7 @@ function buildHitRowsForButton(
         element: segment.elementKey as HitCalcResult['hit']['element'],
         skillType: persistedButton.skillType as HitCalcResult['hit']['skillType'],
       },
+      isDisabled: false,
       appliedBuffs: combinedBuffs,
       panel: {
         atk: panelAtk,

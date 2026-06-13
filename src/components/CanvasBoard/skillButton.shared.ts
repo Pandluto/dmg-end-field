@@ -322,3 +322,24 @@ export function readCandidateBuffSearchEntries(): LocalBuffSearchResult[] {
     extraHitConfig: buff.extraHitConfig,
   }));
 }
+
+export function dedupeLocalBuffSearchResults(entries: LocalBuffSearchResult[]): LocalBuffSearchResult[] {
+  const seen = new Set<string>();
+  return entries.filter((entry) => {
+    const key = [
+      entry.displayName,
+      entry.name,
+      entry.sourceName,
+      entry.type ?? '',
+      entry.value ?? '',
+      entry.condition ?? '',
+      entry.effectKind ?? '',
+      entry.extraHitConfig ? JSON.stringify(entry.extraHitConfig) : '',
+    ].join('|');
+    if (seen.has(key)) {
+      return false;
+    }
+    seen.add(key);
+    return true;
+  });
+}

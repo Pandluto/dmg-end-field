@@ -42,6 +42,9 @@ function normalizeSkillButton(button: PersistedSkillButton): PersistedSkillButto
       Array.isArray(buffIds) ? buffIds : [],
     ])
   );
+  const manualDisabledHitKeys = Array.isArray(button.panelConfig?.manualDisabledHitKeys)
+    ? button.panelConfig.manualDisabledHitKeys.filter((hitKey): hitKey is string => typeof hitKey === 'string')
+    : [];
 
   return {
     ...buttonWithoutLegacySnapshot,
@@ -67,10 +70,12 @@ function normalizeSkillButton(button: PersistedSkillButton): PersistedSkillButto
           ...button.panelConfig,
           selectedBuff: Array.isArray(button.panelConfig.selectedBuff) ? button.panelConfig.selectedBuff : [...selectedBuff],
           manualDisabledBuffIdsBySegmentKey,
+          manualDisabledHitKeys,
         }
       : {
           selectedBuff: [...selectedBuff],
           manualDisabledBuffIdsBySegmentKey: {},
+          manualDisabledHitKeys: [],
         },
     runtimeSnapshot: button.runtimeSnapshot ?? legacyButton.panelSnapshot ?? null,
   };

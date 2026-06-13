@@ -51,6 +51,7 @@ export function AiCliPage() {
   const outputRef = useRef<HTMLPreElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const lastAgentLogIdRef = useRef<string | null>(null);
+  const lastPreviewProposalIdRef = useRef<string | null>(null);
 
   // Command history state
   const [history, setHistory] = useState<string[]>([]);
@@ -85,6 +86,25 @@ export function AiCliPage() {
       outputRef.current?.scrollTo({ top: outputRef.current.scrollHeight });
     }, 0);
   };
+
+  const appendDefaultProposalPreview = (sid: string) => {
+    const pending = readPendingAgentProposals(sid);
+    const first = pending[0];
+    if (!first || first.id === lastPreviewProposalIdRef.current) {
+      return;
+    }
+    lastPreviewProposalIdRef.current = first.id;
+    const result = runAiCliCommand(
+      createAiCliCommandRequest('proposal.show #1', 'web-cli'),
+      currentDraft,
+      { sourceText, sessionId: sid },
+    );
+    appendLines([info('default pending proposal preview (默认待处理提案预览)'), ...result.lines]);
+  };
+
+  useEffect(() => {
+    appendDefaultProposalPreview(syncSessionId());
+  }, []);
 
   useEffect(() => {
     if (typeof EventSource === 'undefined') {
@@ -127,6 +147,7 @@ export function AiCliPage() {
           if (handoff.lines.length > 0) {
             appendLines(handoff.lines);
           }
+          appendDefaultProposalPreview(currentSessionId);
         }
         const latestLog = payload.operationLogs?.[0];
         if (!latestLog?.id || latestLog.id === lastAgentLogIdRef.current || !latestLog.command || latestLog.command === '-') {

@@ -267,6 +267,7 @@ export function handleAiCliRestRequest(
         'equipment.fill.task': 'equipment.fill.task',
         'equipment.fill.check': 'equipment.fill.check <EquipmentFillAiDraft JSON>',
         'equipment.fill.apply': 'equipment.fill.apply <EquipmentFillAiDraft JSON>',
+        'equipment.setbuff': 'equipment.setBuff { gearSetId, buffKey?, buff } or { gearSetId, threePieceBuffs, mode?: merge|replace }',
         'operator.add': 'operator.add <id> <name> [weapon=] [potential=] [skillLevel=]',
         'operator.show': 'operator.show [id]',
         'operator.delete': 'operator.delete <id>',

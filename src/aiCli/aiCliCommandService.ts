@@ -324,6 +324,10 @@ export function summarizeAiCliCommand(command: string) {
       }
     }
   }
+  if (lowerCommand.startsWith('equipment.setbuff ')) {
+    const payloadLength = command.length - 'equipment.setbuff '.length;
+    return `equipment.setBuff <json:${payloadLength} chars>`;
+  }
   const tokens = splitAiCliCommand(command);
   const name = tokens[0] || '';
   if (['operator.add', 'item.add', 'item.set', 'effect.add', 'effect.set'].includes(name) && command.length > 72) {
@@ -342,6 +346,143 @@ export function formatDraftSummary(draft: BuffDraft) {
     `sourceName=${draft.sourceName || '-'}`,
     `items=${itemCount}`,
     `effects=${effectCount}`,
+  ];
+}
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === 'object' && !Array.isArray(value);
+}
+
+function compactJsonPreview(value: unknown, maxLength = 240) {
+  const text = JSON.stringify(value);
+  return text.length > maxLength ? `${text.slice(0, maxLength)}...` : text;
+}
+
+function stableStringify(value: unknown): string {
+  if (Array.isArray(value)) {
+    return `[${value.map((item) => stableStringify(item)).join(',')}]`;
+  }
+  if (isPlainRecord(value)) {
+    return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${stableStringify(value[key])}`).join(',')}}`;
+  }
+  return JSON.stringify(value);
+}
+
+function findEquipmentGearSet(library: unknown, gearSetId: string): Record<string, unknown> | null {
+  if (!isPlainRecord(library) || !isPlainRecord(library.gearSets)) return null;
+  const direct = library.gearSets[gearSetId];
+  if (isPlainRecord(direct)) return direct;
+  for (const gearSet of Object.values(library.gearSets)) {
+    if (isPlainRecord(gearSet) && gearSet.gearSetId === gearSetId) {
+      return gearSet;
+    }
+  }
+  return null;
+}
+
+function resolveEquipmentPreviewBaseline(payload: unknown): { label: string; library: unknown } {
+  const current = readCurrentEquipmentLibrary();
+  if (Object.keys(current.gearSets || {}).length > 0 && stableStringify(current) !== stableStringify(payload)) {
+    return { label: 'current draft', library: current };
+  }
+  return { label: 'saved library', library: readEquipmentLibrary() };
+}
+
+function formatEquipmentProposalPreview(payload: unknown): string[] {
+  if (!isPlainRecord(payload) || !isPlainRecord(payload.gearSets)) {
+    return [`Payload: ${compactJsonPreview(payload)}`];
+  }
+  const gearSets = Object.entries(payload.gearSets)
+    .filter(([, gearSet]) => isPlainRecord(gearSet))
+    .map(([fallbackId, gearSet]) => {
+      const record = gearSet as Record<string, unknown>;
+      return {
+        id: typeof record.gearSetId === 'string' && record.gearSetId.trim() ? record.gearSetId : fallbackId,
+        name: typeof record.name === 'string' && record.name.trim() ? record.name : fallbackId,
+        buffs: isPlainRecord(record.threePieceBuffs) ? record.threePieceBuffs : null,
+      };
+    });
+  const buffRows = gearSets.flatMap((gearSet) => {
+    if (!gearSet.buffs) return [];
+    return Object.entries(gearSet.buffs)
+      .filter(([, buff]) => isPlainRecord(buff))
+      .map(([buffKey, buff]) => {
+        const record = buff as Record<string, unknown>;
+        return [
+          `${gearSet.name}(${gearSet.id})`,
+          typeof record.name === 'string' && record.name.trim() ? record.name : buffKey,
+          typeof record.category === 'string' && record.category.trim() ? record.category : '-',
+          typeof record.typeKey === 'string' && record.typeKey.trim() ? record.typeKey : '-',
+          typeof record.value === 'number' ? String(record.value) : '-',
+          typeof record.unit === 'string' && record.unit.trim() ? record.unit : '-',
+        ];
+      });
+  });
+  const baseline = resolveEquipmentPreviewBaseline(payload);
+  const changeRows = gearSets.flatMap((gearSet) => {
+    if (!gearSet.buffs) return [];
+    const previousSet = findEquipmentGearSet(baseline.library, gearSet.id);
+    const previousBuffs = previousSet && isPlainRecord(previousSet.threePieceBuffs) ? previousSet.threePieceBuffs : {};
+    return Object.entries(gearSet.buffs)
+      .filter(([, buff]) => isPlainRecord(buff))
+      .filter(([buffKey, buff]) => stableStringify(previousBuffs[buffKey]) !== stableStringify(buff))
+      .map(([buffKey, buff]) => {
+        const record = buff as Record<string, unknown>;
+        const previous = previousBuffs[buffKey];
+        const previousRecord = isPlainRecord(previous) ? previous : null;
+        const previousValue = typeof previousRecord?.value === 'number'
+          ? String(previousRecord.value)
+          : '-';
+        const nextValue = typeof record.value === 'number' ? String(record.value) : '-';
+        const action = previousRecord ? 'update' : 'add';
+        return [
+          action,
+          `${gearSet.name}(${gearSet.id})`,
+          buffKey,
+          typeof record.name === 'string' && record.name.trim() ? record.name : buffKey,
+          typeof record.category === 'string' && record.category.trim() ? record.category : '-',
+          typeof record.typeKey === 'string' && record.typeKey.trim() ? record.typeKey : '-',
+          previousValue,
+          nextValue,
+          typeof record.unit === 'string' && record.unit.trim() ? record.unit : '-',
+        ];
+      });
+  });
+  const lines = [
+    'Preview:',
+    `  equipment gearSets=${gearSets.length} threePieceBuffs=${buffRows.length}`,
+  ];
+  if (changeRows.length) {
+    lines.push(
+      `  showing changed threePieceBuffs only vs ${baseline.label}; other gearSets/buffs are preserved in the full proposal payload`,
+      ...table(['action', 'gearSet', 'buffKey', 'buff', 'category', 'typeKey', 'before', 'after', 'unit'], changeRows.slice(0, 20)),
+    );
+    if (changeRows.length > 20) {
+      lines.push(`  ... ${changeRows.length - 20} more changed threePieceBuffs`);
+    }
+    return lines;
+  }
+  if (buffRows.length) {
+    lines.push('  no changed threePieceBuffs detected; listing full payload preview');
+    lines.push(...table(['gearSet', 'buff', 'category', 'typeKey', 'value', 'unit'], buffRows.slice(0, 20)));
+    if (buffRows.length > 20) {
+      lines.push(`  ... ${buffRows.length - 20} more threePieceBuffs`);
+    }
+  } else {
+    lines.push(
+      ...gearSets.slice(0, 10).map((gearSet) => `  ${gearSet.name}(${gearSet.id}) threePieceBuffs=0`),
+    );
+  }
+  return lines;
+}
+
+function formatProposalPayloadPreview(proposal: Pick<AiAgentProposal, 'domain' | 'payload'>): string[] {
+  if (proposal.domain === 'equipment') {
+    return formatEquipmentProposalPreview(proposal.payload);
+  }
+  return [
+    'Preview:',
+    `  Payload: ${compactJsonPreview(proposal.payload)}`,
   ];
 }
 
@@ -521,6 +662,7 @@ function executeCommand(
             ['equipment', 'equipment.current', 'read current Equipment working draft'],
             ['equipment', 'equipment.library [limit]', 'list local Equipment library entries'],
             ['equipment', 'equipment.library.show <id|name>', 'read one local Equipment gear set'],
+            ['equipment', 'equipment.setBuff <json>', 'incrementally merge one gear set threePieceBuffs; mode=replace to replace that set'],
             ['equipment', 'equipment.fill.task', 'return equipment task package'],
             ['equipment', 'equipment.fill.check <json>', 'validate EquipmentFillAiDraft'],
             ['equipment', 'equipment.fill.apply <json>', 'create equipment fill proposal'],
@@ -933,6 +1075,75 @@ function executeCommand(
       data: { gearSet: entry },
       workflow: 'equipment.fill',
     });
+  }
+
+  if (command === 'equipment.setbuff') {
+    const payloadText = rawCommand.slice(rawCommand.indexOf(' ') + 1).trim();
+    let patch: unknown;
+    try {
+      patch = JSON.parse(payloadText);
+    } catch (error) {
+      return makeResponse({
+        ok: false,
+        lines: [fail(`equipment.setBuff JSON parse failed: ${error instanceof Error ? error.message : String(error)}`)],
+        error: { code: 'usage-error', message: 'equipment.setBuff requires valid JSON' },
+      });
+    }
+    const usage = 'usage: equipment.setBuff {"gearSetId":"...","buffKey":"buff1","buff":{...}} or {"gearSetId":"...","threePieceBuffs":{...},"mode":"merge|replace"}';
+    if (!patch || typeof patch !== 'object' || Array.isArray(patch)) {
+      return makeResponse({ ok: false, lines: [fail(usage)] });
+    }
+    const typedPatch = patch as { gearSetId?: unknown; buffKey?: unknown; buff?: unknown; threePieceBuffs?: unknown; mode?: unknown };
+    const gearSetId = typeof typedPatch.gearSetId === 'string' ? typedPatch.gearSetId.trim() : '';
+    const mode = typedPatch.mode === 'replace' ? 'replace' : 'merge';
+    const incomingBuffs: Record<string, unknown> = {};
+    if (typedPatch.threePieceBuffs && typeof typedPatch.threePieceBuffs === 'object' && !Array.isArray(typedPatch.threePieceBuffs)) {
+      Object.assign(incomingBuffs, typedPatch.threePieceBuffs as Record<string, unknown>);
+    } else if (typedPatch.buff && typeof typedPatch.buff === 'object' && !Array.isArray(typedPatch.buff)) {
+      const buffRecord = typedPatch.buff as Record<string, unknown>;
+      const buffKey = typeof typedPatch.buffKey === 'string' && typedPatch.buffKey.trim()
+        ? typedPatch.buffKey.trim()
+        : typeof buffRecord.effectId === 'string' && buffRecord.effectId.trim()
+          ? buffRecord.effectId.trim()
+          : '';
+      if (buffKey) {
+        incomingBuffs[buffKey] = typedPatch.buff;
+      }
+    }
+    if (!gearSetId || Object.keys(incomingBuffs).length === 0) {
+      return makeResponse({ ok: false, lines: [fail(usage)] });
+    }
+
+    const currentDraft = readCurrentEquipmentLibrary();
+    const savedLibrary = readEquipmentLibrary();
+    const baseLibrary = Object.keys(currentDraft.gearSets || {}).length ? currentDraft : savedLibrary;
+    const gearSetEntry = Object.entries(baseLibrary.gearSets || {}).find(
+      ([key, gearSet]) => key === gearSetId || gearSet.gearSetId === gearSetId,
+    );
+    if (!gearSetEntry) {
+      return makeResponse({
+        ok: false,
+        lines: [fail(`equipment gear set not found: ${gearSetId}`)],
+        error: { code: 'not-found', message: `equipment gear set not found: ${gearSetId}` },
+      });
+    }
+
+    const mergedLibrary = JSON.parse(JSON.stringify(baseLibrary)) as ReturnType<typeof readCurrentEquipmentLibrary>;
+    mergedLibrary.updatedAt = new Date().toISOString();
+    const targetSet = mergedLibrary.gearSets[gearSetEntry[0]];
+    const currentBuffs = targetSet.threePieceBuffs && typeof targetSet.threePieceBuffs === 'object'
+      ? targetSet.threePieceBuffs
+      : {};
+    targetSet.threePieceBuffs = (mode === 'replace'
+      ? incomingBuffs
+      : { ...currentBuffs, ...incomingBuffs }) as never;
+    return executeCommand(
+      `equipment.fill.apply ${JSON.stringify(mergedLibrary)}`,
+      draft,
+      sourceText,
+      client,
+      sessionId,
+    );
   }
 
   if (command === 'agent.sessions') {
@@ -1367,6 +1578,7 @@ function executeCommand(
         lines: [
           ok(`proposal created: ${aliasPart}${proposal.id} (提案已创建)`),
           `[state] approval=${labelApproval(proposal.approvalStatus)} save=${labelSave(proposal.saveStatus)} (审批=${labelApprovalZh(proposal.approvalStatus)} 保存=${labelSaveZh(proposal.saveStatus)})`,
+          ...formatProposalPayloadPreview(proposal),
           `[next] ${nextActionText} (${nextActionZh})`,
           client === 'rest' ? '[handoff] auto-syncing to Web CLI via SSE. Do not re-run fill.apply. (将自动同步到 Web CLI，无需重新执行 fill.apply)' : '',
           ...restBacklogLines,
@@ -1457,7 +1669,7 @@ function executeCommand(
         `Save: ${labelSave(proposal.saveStatus)} (${labelSaveZh(proposal.saveStatus)})`,
         `Summary: ${proposal.summary || '-'}`,
         `${nextActionEn} (${nextActionZh})`,
-        `Payload: ${JSON.stringify(proposal.payload).slice(0, 200)}...`,
+        ...formatProposalPayloadPreview(proposal),
       ],
       data: { proposal },
     });

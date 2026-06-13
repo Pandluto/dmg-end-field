@@ -1069,6 +1069,20 @@
   box-shadow: inset 0 0 0 1px rgba(24, 92, 55, 0.12);
 }
 
+.skill-damage-hit-card.is-disabled {
+  background: #eeeeee;
+  border-style: dashed;
+  opacity: 0.72;
+}
+
+.skill-damage-hit-card.is-disabled .hit-name,
+.skill-damage-hit-card.is-disabled .hit-multiplier,
+.skill-damage-hit-card.is-disabled .damage-expected,
+.skill-damage-hit-card.is-disabled .damage-crit,
+.skill-damage-hit-card.is-disabled .damage-non-crit {
+  color: #777;
+}
+
 .skill-damage-anomaly-section {
   margin-bottom: 8px;
 }
@@ -1543,6 +1557,43 @@
   font-weight: 700;
   color: #000;
   margin: 0 0 4px 0;
+}
+
+.hit-detail-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.hit-detail-head .hit-detail-title {
+  margin-bottom: 0;
+}
+
+.hit-toggle-btn {
+  flex: 0 0 auto;
+  border: 1px solid #b94a48;
+  background: #fff;
+  color: #8a2c2a;
+  border-radius: 0;
+  padding: 2px 8px;
+  font-size: 10px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.hit-toggle-btn.is-restore {
+  border-color: rgba(24, 92, 55, 0.38);
+  color: #185c37;
+}
+
+.hit-toggle-btn:hover {
+  background: rgba(185, 74, 72, 0.08);
+}
+
+.hit-toggle-btn.is-restore:hover {
+  background: rgba(24, 92, 55, 0.1);
 }
 
 .skill-damage-hit-detail p {

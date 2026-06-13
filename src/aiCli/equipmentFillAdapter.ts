@@ -37,6 +37,18 @@ const SUPPORTED_EQUIPMENT_EFFECT_TYPES = [
   'normalAttackDmgBonus',
   'dotDmgBonus',
   'allSkillDmgBonus',
+  'physicalFragile',
+  'fireFragile',
+  'electricFragile',
+  'iceFragile',
+  'natureFragile',
+  'magicFragile',
+  'physicalVulnerability',
+  'fireVulnerability',
+  'electricVulnerability',
+  'iceVulnerability',
+  'natureVulnerability',
+  'magicVulnerability',
   'imbalanceDmgBonus',
   'sourceSkillBoost',
   'ultimateChargeEfficiency',
@@ -205,6 +217,17 @@ function validateEquipmentLibraryShape(raw: unknown): AgentFillValidationResult<
       if (typeof rawSet.name !== 'string' || !rawSet.name.trim()) errors.push(`gearSets.${gearSetKey}.name must be non-empty string`);
       if (!isRecord(rawSet.equipments)) errors.push(`gearSets.${gearSetKey}.equipments must be object`);
       if (isRecord(rawSet.threePieceBuff)) validateThreePieceBuff(rawSet.threePieceBuff, `gearSets.${gearSetKey}.threePieceBuff`, errors);
+      if (rawSet.threePieceBuffs !== undefined && !isRecord(rawSet.threePieceBuffs)) {
+        errors.push(`gearSets.${gearSetKey}.threePieceBuffs must be object`);
+      } else if (isRecord(rawSet.threePieceBuffs)) {
+        for (const [buffKey, rawBuff] of Object.entries(rawSet.threePieceBuffs)) {
+          if (!isRecord(rawBuff)) {
+            errors.push(`gearSets.${gearSetKey}.threePieceBuffs.${buffKey} must be object`);
+          } else {
+            validateThreePieceBuff(rawBuff, `gearSets.${gearSetKey}.threePieceBuffs.${buffKey}`, errors);
+          }
+        }
+      }
       if (isRecord(rawSet.equipments)) {
         for (const [equipmentKey, rawEquipment] of Object.entries(rawSet.equipments)) {
           validateEquipmentItem(rawEquipment, `gearSets.${gearSetKey}.equipments.${equipmentKey}`, errors);
@@ -214,6 +237,18 @@ function validateEquipmentLibraryShape(raw: unknown): AgentFillValidationResult<
   }
   if (errors.length) return { ok: false, errors };
   return { ok: true, errors: [], normalized: normalizeEquipmentLibrary(raw) };
+}
+
+function validateNoGearSetShrink(payload: EquipmentLibrary, errors: string[]) {
+  const nextCount = Object.keys(payload.gearSets || {}).length;
+  const currentCount = Object.keys(readCurrentEquipmentLibrary().gearSets || {}).length;
+  const savedCount = Object.keys(readEquipmentLibrary().gearSets || {}).length;
+  const baselineCount = Math.max(currentCount, savedCount);
+  if (baselineCount > 0 && nextCount < baselineCount) {
+    errors.push(
+      `equipment.fill.apply rejected partial gearSets: payload=${nextCount}, current=${currentCount}, saved=${savedCount}. Use equipment.setBuff for single gear set buff updates.`,
+    );
+  }
 }
 
 function validateThreePieceBuff(raw: Record<string, unknown>, path: string, errors: string[]) {
@@ -303,6 +338,7 @@ function normalizeEquipmentLibrary(raw: Record<string, unknown>): EquipmentLibra
       buffId: typeof rawSet.buffId === 'string' ? rawSet.buffId : '',
       imgUrl: typeof rawSet.imgUrl === 'string' ? rawSet.imgUrl : '',
       threePieceBuff: isRecord(rawSet.threePieceBuff) ? rawSet.threePieceBuff as unknown as EquipmentThreePieceBuff : undefined,
+      threePieceBuffs: isRecord(rawSet.threePieceBuffs) ? rawSet.threePieceBuffs as unknown as Record<string, EquipmentThreePieceBuff> : undefined,
       equipments,
     };
   }
@@ -323,10 +359,20 @@ export const equipmentFillAdapter: AgentFillDomainAdapter<EquipmentLibrary> = {
   validateAiDraft(rawPayload): AgentFillValidationResult<EquipmentLibrary> {
     const parsed = parseJsonPayload(rawPayload);
     if (!parsed.value) return { ok: false, errors: parsed.errors };
-    return validateEquipmentLibraryShape(parsed.value);
+    const validation = validateEquipmentLibraryShape(parsed.value);
+    if (!validation.ok || !validation.normalized) return validation;
+    const errors: string[] = [];
+    validateNoGearSetShrink(validation.normalized, errors);
+    return errors.length ? { ok: false, errors } : validation;
   },
 
-  validateProposalPayload: validateEquipmentLibraryShape,
+  validateProposalPayload(payload): AgentFillValidationResult<EquipmentLibrary> {
+    const validation = validateEquipmentLibraryShape(payload);
+    if (!validation.ok || !validation.normalized) return validation;
+    const errors: string[] = [];
+    validateNoGearSetShrink(validation.normalized, errors);
+    return errors.length ? { ok: false, errors } : validation;
+  },
 
   createProposalPayload(validation, rawCommand): AgentFillProposalPayload<EquipmentLibrary> {
     const draft = validation.normalized!;
@@ -369,7 +415,7 @@ export const equipmentFillAdapter: AgentFillDomainAdapter<EquipmentLibrary> = {
           workingDraft: EQUIPMENT_DRAFT_STORAGE_KEY,
           savedTruth: EQUIPMENT_LIBRARY_STORAGE_KEY,
         },
-        instruction: 'Return exactly one EquipmentFillAiDraft JSON object. No Markdown. No explanation. Use app-provided source data outside Agent CLI when needed. equipment.fill.apply creates a proposal only.',
+        instruction: 'Return exactly one full EquipmentFillAiDraft JSON object for equipment.fill.apply. No Markdown. No explanation. Do not submit only one gearSet through equipment.fill.apply; use equipment.setBuff for single gear set threePieceBuff updates. Use app-provided source data outside Agent CLI when needed. equipment.fill.apply creates a proposal only.',
         approvalSaveWarning: 'Approval applies to def.equipment-sheet.draft.v1. Save writes def.equipment-sheet.library.v1.',
       },
     };

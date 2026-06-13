@@ -44,6 +44,7 @@ export interface SkillDamageCalcInputV2 {
   panel: SkillDamagePanel;
   panelBase?: SkillDamagePanelBase;
   disabledBuffIdsByHitKey?: Record<string, string[]>;
+  disabledHitKeys?: string[];
   damageBonus: DamageBonusSnapshot;
   targetResistance?: HitResistanceInput;
 }
@@ -83,6 +84,7 @@ export interface DamageZones {
 
 export interface HitCalcResult {
   hit: ResolvedHitTemplate;
+  isDisabled: boolean;
   appliedBuffs: SkillButtonBuff[];
   panel: SkillDamagePanel;
   zones: DamageZones;
@@ -110,6 +112,7 @@ export interface HitCardViewModel {
   nonCritText: string;
   buffCountText: string;
   isSelected: boolean;
+  isDisabled: boolean;
 }
 
 export interface HitDetailViewModel {
@@ -121,6 +124,7 @@ export interface HitDetailViewModel {
   nonCritText: string;
   appliedBuffTags: AppliedBuffTagViewModel[];
   showNoBuff: boolean;
+  isDisabled: boolean;
 }
 
 export interface AppliedBuffTagViewModel {
