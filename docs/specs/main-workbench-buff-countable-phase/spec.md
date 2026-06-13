@@ -89,8 +89,8 @@ buffStackCounts?: Record<string, number>;
 - key 是 `buffId`。
 - value 是该技能按钮上该 Buff 的当前层数。
 - 只有 `category=countable` 的 Buff 读取该字段。
-- `countable` 首次挂载到按钮时，`buffStackCounts[buffId] = 1`。
-- `stackCount` 缺失时兼容读取为 `1`。
+- `countable` 首次挂载到按钮时，`buffStackCounts[buffId] = maxStacks`。
+- `stackCount` 缺失时兼容读取为 `maxStacks`。
 - `stackCount` 始终 clamp 到 `0..maxStacks`。
 - `buffStackCounts` 属于 `def.skill-button.v1` 中的技能按钮数据，不写入 `def.all-buff-list.v1`。
 
@@ -171,7 +171,7 @@ buffStackCounts?: Record<string, number>;
 - AND 该按钮当前没有相同内容的 Buff
 - THEN 系统创建或复用一个 Buff 实体
 - AND 该按钮的 `selectedBuff` 增加该 buffId
-- AND 该按钮的 `buffStackCounts[buffId]` 为 `1`
+- AND 该按钮的 `buffStackCounts[buffId]` 为该 Buff 定义的 `maxStacks`
 - AND `refCount` 只增加一次
 
 #### Scenario: Countable 重复添加
@@ -267,7 +267,7 @@ buffStackCounts?: Record<string, number>;
 
 - WHEN 用户在 Buff 批量编辑增加模式中选择一个 `countable` Buff
 - AND 点击一个目标技能按钮
-- THEN 若目标按钮没有该 Buff，系统将其添加为 `1/maxStacks`
+- THEN 若目标按钮没有该 Buff，系统将其添加为 `maxStacks/maxStacks`
 - AND 若目标按钮已有该 Buff，系统将其 `stackCount + 1`
 - AND 该操作一次只增加一层
 - AND 达到 `maxStacks` 的按钮不再增加

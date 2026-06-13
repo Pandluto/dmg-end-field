@@ -42,7 +42,7 @@ function readButtonBuffStackCount(button: { buffStackCounts?: Record<string, num
   if (normalizeBuffCategory(buff.category) !== 'countable') return 1;
   const maxStacks = normalizeMaxStacks(buff.maxStacks);
   const rawCount = button.buffStackCounts?.[buffId];
-  const count = typeof rawCount === 'number' && Number.isFinite(rawCount) ? Math.floor(rawCount) : 1;
+  const count = typeof rawCount === 'number' && Number.isFinite(rawCount) ? Math.floor(rawCount) : maxStacks;
   return Math.min(Math.max(count, 0), maxStacks);
 }
 
@@ -232,7 +232,7 @@ export function addBuffToButton(
   const nextSelectedBuff = [...currentSelectedBuff, buffId];
   const savedBuff = buffCache[buffId] || getBuffById(buffId);
   const nextStackCounts = savedBuff && normalizeBuffCategory(savedBuff.category) === 'countable'
-    ? withBuffStackCount(button, buffId, savedBuff, 1)
+    ? withBuffStackCount(button, buffId, savedBuff, normalizeMaxStacks(savedBuff.maxStacks))
     : { ...(button.buffStackCounts ?? {}) };
 
   // 4. 更新 skill-button 总表中的 selectedBuff
@@ -317,7 +317,12 @@ export function decrementBuffStackOnButton(buttonId: string, buffId: string): vo
   }
   const currentCount = readButtonBuffStackCount(button, buffId, buff);
   if (currentCount <= 1) {
-    removeBuffFromButton(buttonId, buffId);
+    upsertSkillButton({
+      ...button,
+      buffStackCounts: withBuffStackCount(button, buffId, buff, 1),
+      updatedAt: Date.now(),
+    });
+    recomputeSkillButtonPanel(buttonId);
     return;
   }
   upsertSkillButton({
@@ -573,7 +578,7 @@ export function attachExistingBuffsToButton(buttonId: string, buffIds: string[])
   buffIds.forEach((buffId) => {
     const buff = getBuffById(buffId);
     if (buff && normalizeBuffCategory(buff.category) === 'countable' && nextStackCounts[buffId] === undefined) {
-      nextStackCounts[buffId] = 1;
+      nextStackCounts[buffId] = normalizeMaxStacks(buff.maxStacks);
     }
   });
   upsertSkillButton({

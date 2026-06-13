@@ -191,6 +191,33 @@ function preserveExistingImageUrls(nextPayload: EquipmentLibrary, currentLibrary
   return next;
 }
 
+function readEquipmentMergeBaseline(): EquipmentLibrary {
+  return mergeEquipmentLibraryPatch(readEquipmentLibrary(), readCurrentEquipmentLibrary());
+}
+
+function mergeEquipmentLibraryPatch(baseLibrary: EquipmentLibrary, patch: EquipmentLibrary): EquipmentLibrary {
+  const base = JSON.parse(JSON.stringify(baseLibrary)) as EquipmentLibrary;
+  const nextGearSets = { ...(base.gearSets || {}) };
+
+  for (const [patchKey, patchSet] of Object.entries(patch.gearSets || {})) {
+    const existingEntry = Object.entries(nextGearSets).find(([key, gearSet]) => (
+      key === patchKey || key === patchSet.gearSetId || gearSet.gearSetId === patchSet.gearSetId
+    ));
+    if (existingEntry && existingEntry[0] !== patchSet.gearSetId) {
+      delete nextGearSets[existingEntry[0]];
+    }
+    nextGearSets[patchSet.gearSetId || patchKey] = patchSet;
+  }
+
+  return preserveExistingImageUrls({
+    ...base,
+    ...patch,
+    updatedAt: patch.updatedAt || new Date().toISOString(),
+    migration: patch.migration ?? base.migration,
+    gearSets: nextGearSets,
+  }, baseLibrary);
+}
+
 function parseJsonPayload(rawPayload: unknown) {
   if (typeof rawPayload !== 'string') {
     return { value: null, errors: ['payload must be string'] };
@@ -237,18 +264,6 @@ function validateEquipmentLibraryShape(raw: unknown): AgentFillValidationResult<
   }
   if (errors.length) return { ok: false, errors };
   return { ok: true, errors: [], normalized: normalizeEquipmentLibrary(raw) };
-}
-
-function validateNoGearSetShrink(payload: EquipmentLibrary, errors: string[]) {
-  const nextCount = Object.keys(payload.gearSets || {}).length;
-  const currentCount = Object.keys(readCurrentEquipmentLibrary().gearSets || {}).length;
-  const savedCount = Object.keys(readEquipmentLibrary().gearSets || {}).length;
-  const baselineCount = Math.max(currentCount, savedCount);
-  if (baselineCount > 0 && nextCount < baselineCount) {
-    errors.push(
-      `equipment.fill.apply rejected partial gearSets: payload=${nextCount}, current=${currentCount}, saved=${savedCount}. Use equipment.setBuff for single gear set buff updates.`,
-    );
-  }
 }
 
 function validateThreePieceBuff(raw: Record<string, unknown>, path: string, errors: string[]) {
@@ -359,23 +374,15 @@ export const equipmentFillAdapter: AgentFillDomainAdapter<EquipmentLibrary> = {
   validateAiDraft(rawPayload): AgentFillValidationResult<EquipmentLibrary> {
     const parsed = parseJsonPayload(rawPayload);
     if (!parsed.value) return { ok: false, errors: parsed.errors };
-    const validation = validateEquipmentLibraryShape(parsed.value);
-    if (!validation.ok || !validation.normalized) return validation;
-    const errors: string[] = [];
-    validateNoGearSetShrink(validation.normalized, errors);
-    return errors.length ? { ok: false, errors } : validation;
+    return validateEquipmentLibraryShape(parsed.value);
   },
 
   validateProposalPayload(payload): AgentFillValidationResult<EquipmentLibrary> {
-    const validation = validateEquipmentLibraryShape(payload);
-    if (!validation.ok || !validation.normalized) return validation;
-    const errors: string[] = [];
-    validateNoGearSetShrink(validation.normalized, errors);
-    return errors.length ? { ok: false, errors } : validation;
+    return validateEquipmentLibraryShape(payload);
   },
 
   createProposalPayload(validation, rawCommand): AgentFillProposalPayload<EquipmentLibrary> {
-    const draft = validation.normalized!;
+    const draft = mergeEquipmentLibraryPatch(readEquipmentMergeBaseline(), validation.normalized!);
     return {
       rawCommand,
       normalized: draft,
@@ -415,7 +422,7 @@ export const equipmentFillAdapter: AgentFillDomainAdapter<EquipmentLibrary> = {
           workingDraft: EQUIPMENT_DRAFT_STORAGE_KEY,
           savedTruth: EQUIPMENT_LIBRARY_STORAGE_KEY,
         },
-        instruction: 'Return exactly one full EquipmentFillAiDraft JSON object for equipment.fill.apply. No Markdown. No explanation. Do not submit only one gearSet through equipment.fill.apply; use equipment.setBuff for single gear set threePieceBuff updates. Use app-provided source data outside Agent CLI when needed. equipment.fill.apply creates a proposal only.',
+        instruction: 'Return exactly one EquipmentFillAiDraft JSON object for equipment.fill.apply. No Markdown. No explanation. gearSets may contain only the gear sets being changed; omitted gear sets are preserved by incremental merge. Each submitted gear set must include its complete gearSetId/name/equipments structure. Use equipment.setBuff for three-piece Buff-only updates. Use app-provided source data outside Agent CLI when needed. equipment.fill.apply creates a proposal only.',
         approvalSaveWarning: 'Approval applies to def.equipment-sheet.draft.v1. Save writes def.equipment-sheet.library.v1.',
       },
     };
@@ -423,7 +430,7 @@ export const equipmentFillAdapter: AgentFillDomainAdapter<EquipmentLibrary> = {
 
   applyToWorkingState(payload): { ok: boolean; error?: string } {
     try {
-      writeJsonStorage(EQUIPMENT_DRAFT_STORAGE_KEY, preserveExistingImageUrls(payload, readCurrentEquipmentLibrary()));
+      writeJsonStorage(EQUIPMENT_DRAFT_STORAGE_KEY, mergeEquipmentLibraryPatch(readEquipmentMergeBaseline(), payload));
       return { ok: true };
     } catch (error) {
       return { ok: false, error: error instanceof Error ? error.message : String(error) };
@@ -432,7 +439,7 @@ export const equipmentFillAdapter: AgentFillDomainAdapter<EquipmentLibrary> = {
 
   saveToLocalTruth(payload): { ok: boolean; error?: string } {
     try {
-      writeJsonStorage(EQUIPMENT_LIBRARY_STORAGE_KEY, preserveExistingImageUrls(payload, readEquipmentLibrary()));
+      writeJsonStorage(EQUIPMENT_LIBRARY_STORAGE_KEY, mergeEquipmentLibraryPatch(readEquipmentLibrary(), payload));
       return { ok: true };
     } catch (error) {
       return { ok: false, error: error instanceof Error ? error.message : String(error) };

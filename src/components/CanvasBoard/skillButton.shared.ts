@@ -1,5 +1,5 @@
-import type { BuffExtraHitConfig } from '../../core/domain/buff';
-import { calculateBuffTotals } from '../../core/calculators/buffCalculator';
+import type { BuffExtraHitConfig, CandidateBuff } from '../../core/domain/buff';
+import { calculateBuffTotals, getBuffEffectiveValue } from '../../core/calculators/buffCalculator';
 import type {
   AppliedBuffTagViewModel,
   SkillDamagePanel,
@@ -97,6 +97,8 @@ export interface AnomalyDamageSegmentView {
 export interface LocalBuffSearchResult {
   key: string;
   sourceKind: 'local' | 'candidate';
+  ownerBuffDomain?: CandidateBuff['ownerBuffDomain'];
+  ownerBuffGroup?: CandidateBuff['ownerBuffGroup'];
   groupId: string;
   groupName: string;
   itemId: string;
@@ -120,6 +122,29 @@ export interface LocalBuffSearchResult {
 export interface DropdownOption<T extends string | number> {
   value: T;
   label: string;
+}
+
+export type BuffSourceSearchMode = 'buff-group' | 'operator' | 'weapon' | 'equipment';
+
+export const BUFF_SOURCE_SEARCH_MODE_OPTIONS: Array<{ key: BuffSourceSearchMode; label: string }> = [
+  { key: 'buff-group', label: 'Buff组' },
+  { key: 'operator', label: '干员' },
+  { key: 'weapon', label: '武器' },
+  { key: 'equipment', label: '装备' },
+];
+
+export function getBuffSourceSearchModeLabel(mode: BuffSourceSearchMode): string {
+  return BUFF_SOURCE_SEARCH_MODE_OPTIONS.find((option) => option.key === mode)?.label || 'Buff组';
+}
+
+export function filterBuffSearchEntriesBySourceMode(
+  entries: LocalBuffSearchResult[],
+  mode: BuffSourceSearchMode
+): LocalBuffSearchResult[] {
+  if (mode === 'buff-group') {
+    return entries.filter((entry) => entry.sourceKind === 'local');
+  }
+  return entries.filter((entry) => entry.sourceKind === 'candidate' && entry.ownerBuffDomain === mode);
 }
 
 const LOCAL_BUFF_LIBRARY_KEY = 'def.buff-editor.library.v1';
@@ -180,12 +205,52 @@ export function isExtraHitBuff(buff: SkillButtonBuff): buff is SkillButtonBuff &
   return buff.effectKind === 'extraHit' && !!buff.extraHitConfig;
 }
 
-export function buildAppliedBuffTags(buffs: SkillButtonBuff[]): AppliedBuffTagViewModel[] {
-  return buffs.map((buff) => ({
-    id: buff.id,
-    label: buff.displayName,
-    sourceName: buff.sourceName,
-  }));
+function normalizeAppliedBuffMaxStacks(buff: SkillButtonBuff): number {
+  return typeof buff.maxStacks === 'number' && Number.isFinite(buff.maxStacks) && buff.maxStacks > 0
+    ? Math.floor(buff.maxStacks)
+    : 1;
+}
+
+function normalizeAppliedBuffStackCount(buff: SkillButtonBuff, stackCounts: Record<string, number>): number {
+  const maxStacks = normalizeAppliedBuffMaxStacks(buff);
+  const rawCount = stackCounts[buff.id];
+  return typeof rawCount === 'number' && Number.isFinite(rawCount)
+    ? Math.min(Math.max(Math.floor(rawCount), 0), maxStacks)
+    : maxStacks;
+}
+
+function formatAppliedBuffValue(value: number): string {
+  const rounded = Number(value.toFixed(4));
+  return String(rounded);
+}
+
+export function buildAppliedBuffTags(
+  buffs: SkillButtonBuff[],
+  stackCounts: Record<string, number> = {}
+): AppliedBuffTagViewModel[] {
+  return buffs.map((buff) => {
+    const isCountable = buff.category === 'countable';
+    const maxStacks = normalizeAppliedBuffMaxStacks(buff);
+    const stackCount = isCountable ? normalizeAppliedBuffStackCount(buff, stackCounts) : undefined;
+    const effectiveValue = getBuffEffectiveValue(buff, stackCounts);
+    const valueText = isCountable && typeof buff.value === 'number' && Number.isFinite(buff.value)
+      ? `合计 ${formatAppliedBuffValue(effectiveValue)}`
+      : '';
+    const stackText = isCountable ? `${stackCount}/${maxStacks}层` : '';
+    const extraText = [stackText, valueText].filter(Boolean).join(' · ');
+    const displayLabel = extraText ? `${buff.displayName} · ${extraText}` : buff.displayName;
+    return {
+      id: buff.id,
+      label: buff.displayName,
+      displayLabel,
+      sourceName: buff.sourceName,
+      value: buff.value,
+      effectiveValue,
+      stackCount,
+      maxStacks: isCountable ? maxStacks : undefined,
+      isCountable,
+    };
+  });
 }
 
 export function getNormalHitSegmentKey(hitKey: string): string {
@@ -195,13 +260,14 @@ export function getNormalHitSegmentKey(hitKey: string): string {
 export function buildPanelFromBase(
   panelBase: SkillDamagePanelBase | null,
   fallbackPanel: SkillDamagePanel | null,
-  appliedBuffs: SkillButtonBuff[]
+  appliedBuffs: SkillButtonBuff[],
+  stackCounts: Record<string, number> = {}
 ): SkillDamagePanel | null {
   if (!panelBase) {
     return fallbackPanel;
   }
 
-  const buffTotals = calculateBuffTotals(appliedBuffs.filter(isModifierBuff));
+  const buffTotals = calculateBuffTotals(appliedBuffs.filter(isModifierBuff), stackCounts);
   const currentAtkPercent = panelBase.weaponAtkPercent * 0.01;
   const rawAtk = panelBase.characterAtk + panelBase.weaponAtk;
   const fixedAtk = panelBase.baseAtk - rawAtk * (1 + currentAtkPercent);
@@ -306,29 +372,74 @@ export function readLocalBuffSearchEntries(): LocalBuffSearchResult[] {
   }
 }
 
+const BUFF_SOURCE_DOMAIN_LABELS: Record<NonNullable<CandidateBuff['ownerBuffDomain']>, string> = {
+  operator: '干员',
+  weapon: '武器',
+  equipment: '装备',
+};
+
+const BUFF_SOURCE_GROUP_LABELS: Record<NonNullable<CandidateBuff['ownerBuffGroup']>, string> = {
+  talent: '天赋',
+  potential: '潜能',
+  skill: '技能',
+  weaponSkill: '技能',
+  threePiece: '三件套',
+};
+
+function inferCandidateBuffDomain(buff: CandidateBuff): CandidateBuff['ownerBuffDomain'] {
+  if (buff.ownerBuffDomain) return buff.ownerBuffDomain;
+  if (buff.ownerBuffGroup === 'weaponSkill') return 'weapon';
+  if (buff.ownerBuffGroup === 'threePiece') return 'equipment';
+  if (buff.ownerBuffGroup) return 'operator';
+  return undefined;
+}
+
+function buildCandidateBuffSourcePath(buff: CandidateBuff): Pick<LocalBuffSearchResult, 'groupName' | 'itemName'> {
+  const sourceName = buff.sourceName || buff.source || '候选 Buff';
+  const sourceDomain = inferCandidateBuffDomain(buff);
+  if (!sourceDomain) {
+    return {
+      groupName: '候选 Buff',
+      itemName: sourceName,
+    };
+  }
+
+  const groupLabel = buff.ownerBuffGroup ? BUFF_SOURCE_GROUP_LABELS[buff.ownerBuffGroup] : '';
+  return {
+    groupName: BUFF_SOURCE_DOMAIN_LABELS[sourceDomain],
+    itemName: groupLabel ? `${sourceName} / ${groupLabel}` : sourceName,
+  };
+}
+
 export function readCandidateBuffSearchEntries(): LocalBuffSearchResult[] {
-  return getCandidateBuffList().map((buff, index) => ({
-    key: `candidate-${index}-${buff.name}-${buff.displayName}`,
-    sourceKind: 'candidate',
-    groupId: '',
-    groupName: '陈列区 Buff',
-    itemId: '',
-    itemName: buff.sourceName || buff.source || '候选 Buff',
-    effectId: '',
-    displayName: buff.displayName,
-    name: buff.name,
-    type: buff.type,
-    value: buff.value,
-    category: buff.category,
-    maxStacks: buff.maxStacks,
-    description: buff.description,
-    condition: buff.condition,
-    sourceName: buff.sourceName,
-    source: buff.source,
-    level: buff.level || '',
-    effectKind: buff.effectKind,
-    extraHitConfig: buff.extraHitConfig,
-  }));
+  return getCandidateBuffList().map((buff, index): LocalBuffSearchResult => {
+    const sourcePath = buildCandidateBuffSourcePath(buff);
+    const ownerBuffDomain = inferCandidateBuffDomain(buff);
+    return {
+      key: `candidate-${index}-${buff.name}-${buff.displayName}`,
+      sourceKind: 'candidate',
+      ownerBuffDomain,
+      ownerBuffGroup: buff.ownerBuffGroup,
+      groupId: '',
+      groupName: sourcePath.groupName,
+      itemId: '',
+      itemName: sourcePath.itemName,
+      effectId: '',
+      displayName: buff.displayName,
+      name: buff.name,
+      type: buff.type,
+      value: buff.value,
+      category: buff.category,
+      maxStacks: buff.maxStacks,
+      description: buff.description,
+      condition: buff.condition,
+      sourceName: buff.sourceName,
+      source: buff.source,
+      level: buff.level || '',
+      effectKind: buff.effectKind,
+      extraHitConfig: buff.extraHitConfig,
+    };
+  });
 }
 
 export function dedupeLocalBuffSearchResults(entries: LocalBuffSearchResult[]): LocalBuffSearchResult[] {

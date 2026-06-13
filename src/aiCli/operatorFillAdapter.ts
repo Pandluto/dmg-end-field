@@ -508,6 +508,20 @@ function preserveExistingAssetUrls(nextPayload: OperatorDraft, currentDraft = re
   return next;
 }
 
+function readExistingOperatorDraftForPayload(payload: OperatorDraft): OperatorDraft | undefined {
+  const libraryDraft = readOperatorLibrary()[payload.id];
+  if (libraryDraft) {
+    return libraryDraft;
+  }
+  const currentDraft = readCurrentOperatorDraft();
+  return currentDraft.id === payload.id ? currentDraft : undefined;
+}
+
+function preserveExistingOperatorAssets(payload: OperatorDraft): OperatorDraft {
+  const existingDraft = readExistingOperatorDraftForPayload(payload);
+  return existingDraft ? preserveExistingAssetUrls(payload, existingDraft) : payload;
+}
+
 export const operatorFillAdapter: AgentFillDomainAdapter<OperatorDraft> = {
   domain: 'operator',
   workflow: 'operator.fill',
@@ -525,7 +539,7 @@ export const operatorFillAdapter: AgentFillDomainAdapter<OperatorDraft> = {
   validateProposalPayload: validateOperatorDraftShape,
 
   createProposalPayload(validation, rawCommand): AgentFillProposalPayload<OperatorDraft> {
-    const draft = validation.normalized!;
+    const draft = preserveExistingOperatorAssets(validation.normalized!);
     return {
       rawCommand,
       normalized: draft,
@@ -589,7 +603,7 @@ export const operatorFillAdapter: AgentFillDomainAdapter<OperatorDraft> = {
 
   applyToWorkingState(payload): { ok: boolean; error?: string } {
     try {
-      writeJsonStorage(OPERATOR_DRAFT_STORAGE_KEY, preserveExistingAssetUrls(payload));
+      writeJsonStorage(OPERATOR_DRAFT_STORAGE_KEY, preserveExistingOperatorAssets(payload));
       return { ok: true };
     } catch (error) {
       return { ok: false, error: error instanceof Error ? error.message : String(error) };
@@ -598,7 +612,7 @@ export const operatorFillAdapter: AgentFillDomainAdapter<OperatorDraft> = {
 
   saveToLocalTruth(payload): { ok: boolean; error?: string } {
     try {
-      const mergedPayload = preserveExistingAssetUrls(payload);
+      const mergedPayload = preserveExistingOperatorAssets(payload);
       writeJsonStorage(OPERATOR_LIBRARY_STORAGE_KEY, { ...readOperatorLibrary(), [mergedPayload.id]: mergedPayload });
       writeJsonStorage(OPERATOR_DRAFT_STORAGE_KEY, mergedPayload);
       return { ok: true };

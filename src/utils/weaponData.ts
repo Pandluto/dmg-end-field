@@ -117,6 +117,8 @@ export function buildWeaponCandidateBuffs(weaponName: string): CandidateBuff[] {
     type: buff.type,
     source: weaponName,
     sourceName: weaponName,
+    ownerBuffDomain: 'weapon',
+    ownerBuffGroup: 'weaponSkill',
     description: buff.description ?? '',
     condition: buff.condition,
   }));

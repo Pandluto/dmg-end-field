@@ -529,7 +529,7 @@ export function handleAiCliRestRequest(
           ],
           procedure: [
             'Use app-provided source data outside Agent CLI when needed. Agent CLI only owns current/library/fill/proposal state.',
-            'Build one EquipmentFillAiDraft JSON object with gearSets and equipments.',
+            'Build one EquipmentFillAiDraft JSON object. gearSets may contain only the complete gear sets being changed; omitted gear sets are preserved.',
             'Call POST /api/equipment/fill/check.',
             'If check fails, fix JSON and check again.',
             'Call POST /api/equipment/fill/apply only after validation passes. This creates a proposal, NOT a direct save.',
@@ -545,6 +545,7 @@ export function handleAiCliRestRequest(
             'part must be 护甲/护手/配件.',
             'effect slots must be effect1/effect2/effect3.',
             'level keys must be 0/1/2/3 and values must be numbers.',
+            'Partial gearSets submissions are incrementally merged by gearSetId and do not delete omitted gear sets.',
             'equipment.fill.apply creates a proposal only.',
           ],
         },

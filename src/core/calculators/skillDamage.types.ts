@@ -131,13 +131,19 @@ export interface HitDetailViewModel {
 export interface AppliedBuffTagViewModel {
   id: string;
   label: string;
+  displayLabel?: string;
   sourceName: string;
+  value?: number;
+  effectiveValue?: number;
+  stackCount?: number;
+  maxStacks?: number;
+  isCountable?: boolean;
 }
 
 export interface FormulaViewModel {
   title: string;
   panelLines: string[];
-  buffTags: string[];
+  buffTags: AppliedBuffTagViewModel[];
   showNoBuff: boolean;
   baseMultiplierText: string;
   multiplierFormulaText: string;

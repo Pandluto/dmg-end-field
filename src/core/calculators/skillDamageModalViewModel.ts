@@ -1,4 +1,4 @@
-import { ELEMENT_LABELS } from './buffCalculator';
+import { ELEMENT_LABELS, getBuffEffectiveValue } from './buffCalculator';
 import type {
   AppliedBuffTagViewModel,
   FormulaViewModel,
@@ -30,12 +30,48 @@ function formatHitCardLabel(displayName: string): string {
   return displayName;
 }
 
-function buildAppliedBuffTags(result: SkillDamageCalcResultV2['hits'][number]['appliedBuffs']): AppliedBuffTagViewModel[] {
-  return result.map((buff) => ({
-    id: buff.id,
-    label: buff.displayName,
-    sourceName: buff.sourceName,
-  }));
+function normalizeMaxStacks(value: unknown): number {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0 ? Math.floor(value) : 1;
+}
+
+function normalizeStackCount(buff: SkillDamageCalcResultV2['hits'][number]['appliedBuffs'][number], stackCounts: Record<string, number>): number {
+  const maxStacks = normalizeMaxStacks(buff.maxStacks);
+  const rawCount = stackCounts[buff.id];
+  return typeof rawCount === 'number' && Number.isFinite(rawCount)
+    ? Math.min(Math.max(Math.floor(rawCount), 0), maxStacks)
+    : maxStacks;
+}
+
+function formatBuffValue(value: number): string {
+  return String(Number(value.toFixed(4)));
+}
+
+function buildAppliedBuffTags(
+  result: SkillDamageCalcResultV2['hits'][number]['appliedBuffs'],
+  stackCounts: Record<string, number> = {}
+): AppliedBuffTagViewModel[] {
+  return result.map((buff) => {
+    const isCountable = buff.category === 'countable';
+    const maxStacks = normalizeMaxStacks(buff.maxStacks);
+    const stackCount = isCountable ? normalizeStackCount(buff, stackCounts) : undefined;
+    const effectiveValue = getBuffEffectiveValue(buff, stackCounts);
+    const valueText = isCountable && typeof buff.value === 'number' && Number.isFinite(buff.value)
+      ? `合计 ${formatBuffValue(effectiveValue)}`
+      : '';
+    const stackText = isCountable ? `${stackCount}/${maxStacks}层` : '';
+    const extraText = [stackText, valueText].filter(Boolean).join(' · ');
+    return {
+      id: buff.id,
+      label: buff.displayName,
+      displayLabel: extraText ? `${buff.displayName} · ${extraText}` : buff.displayName,
+      sourceName: buff.sourceName,
+      value: buff.value,
+      effectiveValue,
+      stackCount,
+      maxStacks: isCountable ? maxStacks : undefined,
+      isCountable,
+    };
+  });
 }
 
 function buildHitCards(
@@ -59,7 +95,8 @@ function buildHitCards(
 
 function buildHitDetail(
   result: SkillDamageCalcResultV2,
-  selectedHitIndex: number | null
+  selectedHitIndex: number | null,
+  stackCounts: Record<string, number>
 ): HitDetailViewModel | null {
   if (selectedHitIndex === null) {
     return null;
@@ -76,7 +113,7 @@ function buildHitDetail(
     expectedText: activeHit.expected.final.toFixed(2),
     critText: activeHit.crit.final.toFixed(2),
     nonCritText: activeHit.nonCrit.final.toFixed(2),
-    appliedBuffTags: buildAppliedBuffTags(activeHit.appliedBuffs),
+    appliedBuffTags: buildAppliedBuffTags(activeHit.appliedBuffs, stackCounts),
     showNoBuff: activeHit.appliedBuffs.length === 0,
     isDisabled: activeHit.isDisabled,
   };
@@ -84,7 +121,8 @@ function buildHitDetail(
 
 function buildFormula(
   result: SkillDamageCalcResultV2,
-  selectedHitIndex: number | null
+  selectedHitIndex: number | null,
+  stackCounts: Record<string, number>
 ): FormulaViewModel | null {
   if (selectedHitIndex === null) {
     return null;
@@ -101,7 +139,7 @@ function buildFormula(
       `暴击率: ${formatPercent(activeHit.panel.critRate)}`,
       `暴击伤害: ${formatPercent(activeHit.panel.critDmg)}`,
     ],
-    buffTags: activeHit.appliedBuffs.map((buff) => buff.displayName),
+    buffTags: buildAppliedBuffTags(activeHit.appliedBuffs, stackCounts),
     showNoBuff: activeHit.appliedBuffs.length === 0,
     baseMultiplierText: formatPercent(activeHit.multiplier.base),
     multiplierFormulaText: `(${formatPercent(activeHit.multiplier.base)} + ${formatPercent(activeHit.multiplier.afterBonus - activeHit.multiplier.base)}) × ${(activeHit.multiplier.afterMultiply / activeHit.multiplier.afterBonus).toFixed(3)}`,
@@ -129,7 +167,8 @@ export function buildSkillDamageModalViewModel(
   template: ResolvedSkillDamageTemplate,
   result: SkillDamageCalcResultV2,
   selectedHitIndex: number | null,
-  _panel: SkillDamagePanel
+  _panel: SkillDamagePanel,
+  stackCounts: Record<string, number> = {}
 ): SkillDamageModalViewModel {
   return {
     header: {
@@ -144,7 +183,7 @@ export function buildSkillDamageModalViewModel(
       totalNonCritText: formatInteger(result.summary.totalNonCrit),
     },
     hitCards: buildHitCards(result, selectedHitIndex),
-    activeHitDetail: buildHitDetail(result, selectedHitIndex),
-    activeHitFormula: buildFormula(result, selectedHitIndex),
+    activeHitDetail: buildHitDetail(result, selectedHitIndex, stackCounts),
+    activeHitFormula: buildFormula(result, selectedHitIndex, stackCounts),
   };
 }

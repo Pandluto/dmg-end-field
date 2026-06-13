@@ -27,7 +27,7 @@
 - [ ] 确认 `getBuffIdentityKey` 不包含按钮实例层数。
 - [ ] 修改 `addBuffToButton`，非 `countable` 重复添加保持现有 duplicate 行为。
 - [ ] 修改 `addBuffToButton`，`countable` 重复添加时对当前按钮的 `buffStackCounts[buffId]` 加一层。
-- [ ] 修改 `addBuffToButton`，`countable` 首次添加时写入 `buffStackCounts[buffId]=1`。
+- [ ] 修改 `addBuffToButton`，`countable` 首次添加时写入 `buffStackCounts[buffId]=maxStacks`。
 - [ ] 修改 `addBuffToButton`，`countable` 加层不改变 `refCount`。
 - [ ] 新增 `decrementBuffStackOnButton(buttonId, buffId)`，支持 `countable` 减一层。
 - [ ] 保留 `removeBuffFromButton(buttonId, buffId)` 作为整条移除 API。
@@ -42,7 +42,7 @@
 - [ ] 在技能按钮 Buff 列表中为 `countable` 提供 `-1` 操作。
 - [ ] `countable` 在单按钮 UI 减到 0 时移除该 Buff。
 - [ ] 批量增加模式中，`countable` 点击目标按钮解释为加一层。
-- [ ] 批量增加模式中，目标按钮没有该 `countable` 时添加为 1 层。
+- [ ] 批量增加模式中，目标按钮没有该 `countable` 时添加为满层。
 - [ ] 批量增加模式中，目标按钮已满层时不继续增加。
 - [ ] 批量增加模式中，按钮下方的 `+n` 草稿标记能表达本轮将增加的层数。
 - [ ] 批量删减模式中，`countable` 点击目标按钮解释为减一层。

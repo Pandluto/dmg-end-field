@@ -36,8 +36,9 @@ export interface CandidateBuff {
   effectKind?: BuffEffectKind;
   extraHitConfig?: BuffExtraHitConfig;
   origin?: 'local' | 'json' | 'operatorConfigSnapshot' | 'operatorStudio';
+  ownerBuffDomain?: 'operator' | 'weapon' | 'equipment';
   ownerCharacterId?: string;
-  ownerBuffGroup?: 'talent' | 'potential' | 'skill';
+  ownerBuffGroup?: 'talent' | 'potential' | 'skill' | 'weaponSkill' | 'threePiece';
   valueMode?: 'fixed' | 'derived';
   derivedValue?: {
     source: 'hp' | 'atk' | 'strength' | 'agility' | 'intelligence' | 'will' | 'sourceSkill';

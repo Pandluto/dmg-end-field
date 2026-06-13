@@ -110,6 +110,8 @@ function mapCharacterBuffJsonToCandidates(sourceName: string, data: BuffData): C
   return (data.buffs || []).map((buff) => ({
     ...buff,
     source: sourceName,
+    sourceName: buff.sourceName || sourceName,
+    ownerBuffDomain: buff.ownerBuffDomain || 'operator',
   }));
 }
 
@@ -117,6 +119,9 @@ function mapWeaponBuffJsonToCandidates(sourceName: string, data: BuffData): Cand
   return (data.buffs || []).map((buff) => ({
     ...buff,
     source: sourceName,
+    sourceName: buff.sourceName || sourceName,
+    ownerBuffDomain: buff.ownerBuffDomain || 'weapon',
+    ownerBuffGroup: buff.ownerBuffGroup || 'weaponSkill',
   }));
 }
 

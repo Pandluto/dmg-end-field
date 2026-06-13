@@ -41,6 +41,10 @@ import {
   isExtraHitBuff,
   isModifierBuff,
   type LocalBuffSearchResult,
+  type BuffSourceSearchMode,
+  BUFF_SOURCE_SEARCH_MODE_OPTIONS,
+  filterBuffSearchEntriesBySourceMode,
+  getBuffSourceSearchModeLabel,
   readCandidateBuffSearchEntries,
   readLocalBuffSearchEntries,
   buildAppliedBuffTags,
@@ -61,6 +65,33 @@ const EMPTY_TARGET_RESISTANCE: Required<HitResistanceInput> = {
   iceResistance: 0,
   natureResistance: 0,
 };
+
+type BuffSearchMode = BuffSourceSearchMode | 'anomaly' | 'anomaly-state' | 'state';
+
+const BUFF_SEARCH_MODE_OPTIONS: Array<{ key: BuffSearchMode; label: string }> = [
+  ...BUFF_SOURCE_SEARCH_MODE_OPTIONS,
+  { key: 'anomaly', label: '异常伤害' },
+  { key: 'anomaly-state', label: '异常状态区' },
+  { key: 'state', label: '状态区' },
+];
+
+const SOURCE_BUFF_SEARCH_MODES = new Set<BuffSearchMode>(BUFF_SOURCE_SEARCH_MODE_OPTIONS.map((option) => option.key));
+
+function isSourceBuffSearchMode(mode: BuffSearchMode): mode is BuffSourceSearchMode {
+  return SOURCE_BUFF_SEARCH_MODES.has(mode);
+}
+
+function getBuffSearchModeLabel(mode: BuffSearchMode): string {
+  if (isSourceBuffSearchMode(mode)) {
+    return getBuffSourceSearchModeLabel(mode);
+  }
+  return BUFF_SEARCH_MODE_OPTIONS.find((option) => option.key === mode)?.label || 'Buff组';
+}
+
+function getNextBuffSearchMode(mode: BuffSearchMode): BuffSearchMode {
+  const index = BUFF_SEARCH_MODE_OPTIONS.findIndex((option) => option.key === mode);
+  return BUFF_SEARCH_MODE_OPTIONS[(index + 1) % BUFF_SEARCH_MODE_OPTIONS.length].key;
+}
 
 function formatAnomalyStateSnapshotValue(snapshot: AnomalyStateSnapshot): string {
   if (snapshot.key === 'corrosion') {
@@ -183,7 +214,7 @@ export function SkillButtonComponent({
   const [isTargetResistanceExpanded, setIsTargetResistanceExpanded] = useState(false);
   const [isLocalBuffSearchOpen, setIsLocalBuffSearchOpen] = useState(false);
   const [localBuffSearchKeyword, setLocalBuffSearchKeyword] = useState('');
-  const [buffSearchMode, setBuffSearchMode] = useState<'local' | 'anomaly' | 'anomaly-state' | 'state'>('local');
+  const [buffSearchMode, setBuffSearchMode] = useState<BuffSearchMode>('buff-group');
   const [candidateBuffRefreshToken, setCandidateBuffRefreshToken] = useState(0);
   const [manuallyDisabledBuffIdsBySegmentKey, setManuallyDisabledBuffIdsBySegmentKey] = useState<Record<string, string[]>>({});
   const [manuallyDisabledHitKeys, setManuallyDisabledHitKeys] = useState<string[]>([]);
@@ -228,7 +259,12 @@ export function SkillButtonComponent({
       ...readCandidateBuffSearchEntries(),
     ];
   }, [candidateBuffRefreshToken, isModalOpen, isLocalBuffSearchOpen]);
-  const activeBuffSearchEntries = localBuffSearchEntries;
+  const activeBuffSearchEntries = useMemo(() => {
+    if (!isSourceBuffSearchMode(buffSearchMode)) {
+      return [];
+    }
+    return filterBuffSearchEntriesBySourceMode(localBuffSearchEntries, buffSearchMode);
+  }, [buffSearchMode, localBuffSearchEntries]);
   const activeBuffSearchIndex = useMemo(() => buildBuffSearchIndex(
     activeBuffSearchEntries,
     (entry) => [
@@ -243,7 +279,7 @@ export function SkillButtonComponent({
     ]
   ), [activeBuffSearchEntries]);
   const localBuffSearchResults = useMemo(() => {
-    if (buffSearchMode === 'anomaly' || buffSearchMode === 'state' || buffSearchMode === 'anomaly-state') {
+    if (!isSourceBuffSearchMode(buffSearchMode)) {
       return [];
     }
     if (!localBuffSearchKeyword.trim()) {
@@ -280,7 +316,7 @@ export function SkillButtonComponent({
 
   const openLocalBuffSearch = useCallback(() => {
     setIsLocalBuffSearchOpen(true);
-    setBuffSearchMode('local');
+    setBuffSearchMode('buff-group');
   }, []);
 
   const handleCloseModal = useCallback(() => {
@@ -321,12 +357,7 @@ export function SkillButtonComponent({
       if (isLocalBuffSearchOpen) {
         if (event.key === 'Tab' && !event.shiftKey) {
           event.preventDefault();
-          setBuffSearchMode((prev) => {
-            if (prev === 'local') return 'anomaly';
-            if (prev === 'anomaly') return 'anomaly-state';
-            if (prev === 'anomaly-state') return 'state';
-            return 'local';
-          });
+          setBuffSearchMode((prev) => getNextBuffSearchMode(prev));
           return;
         }
         if (event.key === 'Escape') {
@@ -685,16 +716,17 @@ export function SkillButtonComponent({
         atk: activeHitPanel.atk,
         critRate: activeHitPanel.critRate,
         critDmg: activeHitPanel.critDmg,
-      }
+      },
+      buttonStackCounts
     );
-  }, [resolvedTemplate, damageResult, selectedHitIndex, panelData]);
+  }, [resolvedTemplate, damageResult, selectedHitIndex, panelData, buttonStackCounts]);
   const activeHitBuffOptions = useMemo(() => {
     if (selectedHitIndex === null || !fullDamageResult) {
       return [];
     }
     const hitResult = fullDamageResult.hits[selectedHitIndex];
-    return hitResult ? buildAppliedBuffTags(hitResult.appliedBuffs) : [];
-  }, [fullDamageResult, selectedHitIndex]);
+    return hitResult ? buildAppliedBuffTags(hitResult.appliedBuffs, buttonStackCounts) : [];
+  }, [buttonStackCounts, fullDamageResult, selectedHitIndex]);
   const manualBuffOptionIdsBySegmentKey = useMemo<Record<string, Set<string>>>(() => {
     const nextMap: Record<string, Set<string>> = {};
 
@@ -811,10 +843,11 @@ export function SkillButtonComponent({
       targetResistance,
       fullCombinedModifierBuffList,
       extraHitBuffList,
+      buffStackCounts: buttonStackCounts,
       manuallyDisabledBuffIdsBySegmentKey,
       getEffectiveCharacterSourceSkillBoost,
     });
-  }, [panelBase, panelData, damageViewModel, selectedAnomalyDamages, button.characterId, button.skillType, targetResistance, element, infoSnap, fullCombinedModifierBuffList, extraHitBuffList, manuallyDisabledBuffIdsBySegmentKey, getEffectiveCharacterSourceSkillBoost]);
+  }, [panelBase, panelData, damageViewModel, selectedAnomalyDamages, button.characterId, button.skillType, targetResistance, element, infoSnap, fullCombinedModifierBuffList, extraHitBuffList, buttonStackCounts, manuallyDisabledBuffIdsBySegmentKey, getEffectiveCharacterSourceSkillBoost]);
 
   const activeAnomalySegment = useMemo(
     () => (selectedAnomalySegmentKey ? anomalyDamageSegments.find((segment) => segment.key === selectedAnomalySegmentKey) ?? null : null),
@@ -824,9 +857,10 @@ export function SkillButtonComponent({
     return buildAnomalyBuffOptionsBySegmentKey(
       selectedAnomalyDamages,
       fullCombinedModifierBuffList,
-      extraHitBuffList
+      extraHitBuffList,
+      buttonStackCounts
     );
-  }, [extraHitBuffList, fullCombinedModifierBuffList, selectedAnomalyDamages]);
+  }, [buttonStackCounts, extraHitBuffList, fullCombinedModifierBuffList, selectedAnomalyDamages]);
   const activeAnomalyBuffOptions = useMemo(
     () => (activeAnomalySegment ? (anomalyBuffOptionsBySegmentKey[activeAnomalySegment.key] ?? activeAnomalySegment.appliedBuffTags) : []),
     [activeAnomalySegment, anomalyBuffOptionsBySegmentKey]
@@ -908,9 +942,9 @@ export function SkillButtonComponent({
             }
             toggleManualBuff(segmentKey, buff.id);
           }}
-          title={`${isSelected ? '点击停用' : '点击恢复'}：${buff.label} / ${buff.sourceName}`}
+          title={`${isSelected ? '点击停用' : '点击恢复'}：${buff.displayLabel || buff.label} / ${buff.sourceName}`}
         >
-          {buff.label}
+          {buff.displayLabel || buff.label}
         </button>
       );
     });
@@ -1126,38 +1160,20 @@ export function SkillButtonComponent({
                 onClick={(event) => event.stopPropagation()}
               >
                 <div className="skill-button-inline-buff-search-head">
-                  <h5>{buffSearchMode === 'local' ? '本地 Buff' : buffSearchMode === 'anomaly' ? '异常伤害' : buffSearchMode === 'anomaly-state' ? '异常状态区' : '状态区'}</h5>
+                  <h5>{getBuffSearchModeLabel(buffSearchMode)}</h5>
                   <span>Tab 切换入口 / Esc 关闭</span>
                 </div>
                 <div className="skill-button-inline-buff-search-modes">
-                  <button
-                    type="button"
-                    className={`skill-button-inline-buff-search-mode${buffSearchMode === 'local' ? ' is-active' : ''}`}
-                    onClick={() => setBuffSearchMode('local')}
-                  >
-                    本地 Buff
-                  </button>
-                  <button
-                    type="button"
-                    className={`skill-button-inline-buff-search-mode${buffSearchMode === 'anomaly' ? ' is-active' : ''}`}
-                    onClick={() => setBuffSearchMode('anomaly')}
-                  >
-                    异常伤害
-                  </button>
-                  <button
-                    type="button"
-                    className={`skill-button-inline-buff-search-mode${buffSearchMode === 'anomaly-state' ? ' is-active' : ''}`}
-                    onClick={() => setBuffSearchMode('anomaly-state')}
-                  >
-                    异常状态区
-                  </button>
-                  <button
-                    type="button"
-                    className={`skill-button-inline-buff-search-mode${buffSearchMode === 'state' ? ' is-active' : ''}`}
-                    onClick={() => setBuffSearchMode('state')}
-                  >
-                    状态区
-                  </button>
+                  {BUFF_SEARCH_MODE_OPTIONS.map((option) => (
+                    <button
+                      key={option.key}
+                      type="button"
+                      className={`skill-button-inline-buff-search-mode${buffSearchMode === option.key ? ' is-active' : ''}`}
+                      onClick={() => setBuffSearchMode(option.key)}
+                    >
+                      {option.label}
+                    </button>
+                  ))}
                 </div>
                 <div className="skill-button-buff-workbench">
                   <div className="skill-button-buff-workbench-main">
@@ -1221,7 +1237,7 @@ export function SkillButtonComponent({
                         <div className="skill-button-inline-buff-search-results">
                           {localBuffSearchKeyword.trim().length === 0 ? (
                             <div className="skill-button-inline-buff-search-empty">
-                              输入关键词后再显示本地 Buff 结果
+                              输入关键词后再显示{getBuffSearchModeLabel(buffSearchMode)}结果
                             </div>
                           ) : localBuffSearchResults.length > 0 ? (
                             localBuffSearchResults.map((entry) => (
@@ -1241,7 +1257,7 @@ export function SkillButtonComponent({
                             ))
                           ) : (
                             <div className="skill-button-inline-buff-search-empty">
-                              没有匹配到本地 Buff
+                              没有匹配到{getBuffSearchModeLabel(buffSearchMode)}
                             </div>
                           )}
                         </div>
@@ -1253,10 +1269,10 @@ export function SkillButtonComponent({
                     <div className="skill-anomaly-board skill-anomaly-cache-board">
                       <div className="skill-anomaly-board-section">
                         <p className="skill-anomaly-board-title">
-                          {buffSearchMode === 'local' ? '曾用 Buff' : buffSearchMode === 'anomaly-state' ? '缓存快照' : '资源栏'}
+                          {isSourceBuffSearchMode(buffSearchMode) ? '曾用 Buff' : buffSearchMode === 'anomaly-state' ? '缓存快照' : '资源栏'}
                         </p>
                         <div className="skill-anomaly-board-list skill-anomaly-cache-list">
-                          {buffSearchMode === 'local' ? (
+                          {isSourceBuffSearchMode(buffSearchMode) ? (
                             usedLocalBuffList.length === 0 ? (
                               <div className="skill-button-buff-empty">暂无曾用 Buff</div>
                             ) : (
@@ -1388,12 +1404,12 @@ export function SkillButtonComponent({
                 <h5>已选 Buff</h5>
                 <div className="skill-button-buff-list">
                   {buffList.length === 0 ? (
-                    <div className="skill-button-buff-empty">单击陈列区或搜索抽屉的 Buff 添加</div>
+                    <div className="skill-button-buff-empty">按 Tab 从 Buff组、干员、武器或装备入口添加</div>
                   ) : (
                     buffList.map((buff) => {
                       const isCountable = buff.category === 'countable';
                       const maxStacks = typeof buff.maxStacks === 'number' && Number.isFinite(buff.maxStacks) ? Math.max(1, Math.floor(buff.maxStacks)) : 1;
-                      const stackCount = Math.min(Math.max(Math.floor(buttonStackCounts[buff.id] ?? 1), 0), maxStacks);
+                      const stackCount = Math.min(Math.max(Math.floor(buttonStackCounts[buff.id] ?? maxStacks), 0), maxStacks);
                       return (
                         <div
                           key={buff.id}
@@ -1407,9 +1423,23 @@ export function SkillButtonComponent({
                           <span>{buff.displayName}</span>
                           {isCountable && (
                             <span className="skill-button-buff-stack-controls">
-                              <button type="button" onClick={(event) => { event.stopPropagation(); decrementBuffStack(buff.id); }}>-</button>
+                              <button
+                                type="button"
+                                onClick={(event) => { event.stopPropagation(); decrementBuffStack(buff.id); }}
+                                disabled={stackCount <= 1}
+                                title={stackCount <= 1 ? '已是最低 1 层，右键删除 Buff' : '减少 1 层'}
+                              >
+                                -
+                              </button>
                               <span>{stackCount}/{maxStacks}</span>
-                              <button type="button" onClick={(event) => { event.stopPropagation(); incrementBuffStack(buff); }} disabled={stackCount >= maxStacks}>+</button>
+                              <button
+                                type="button"
+                                onClick={(event) => { event.stopPropagation(); incrementBuffStack(buff); }}
+                                disabled={stackCount >= maxStacks}
+                                title={stackCount >= maxStacks ? '已达到最大层数' : '增加 1 层'}
+                              >
+                                +
+                              </button>
                             </span>
                           )}
                         </div>
@@ -1620,8 +1650,8 @@ export function SkillButtonComponent({
                               <p className="formula-section-title">【生效 Buff】</p>
                               {damageViewModel.activeHitFormula.buffTags.length > 0 ? (
                                 <div className="formula-buff-tags">
-                                  {damageViewModel.activeHitFormula.buffTags.map((buffName) => (
-                                    <span key={buffName} className="buff-tag">{buffName}</span>
+                                  {damageViewModel.activeHitFormula.buffTags.map((buff) => (
+                                    <span key={buff.id} className="buff-tag">{buff.displayLabel || buff.label}</span>
                                   ))}
                                 </div>
                               ) : (
@@ -1708,7 +1738,7 @@ export function SkillButtonComponent({
                               {activeAnomalySegment.appliedBuffTags.length > 0 ? (
                                 <div className="formula-buff-tags">
                                   {activeAnomalySegment.appliedBuffTags.map((buff) => (
-                                    <span key={buff.id} className="buff-tag">{buff.label}</span>
+                                    <span key={buff.id} className="buff-tag">{buff.displayLabel || buff.label}</span>
                                   ))}
                                 </div>
                               ) : (

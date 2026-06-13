@@ -79,7 +79,9 @@ function candidateKey(buff: CandidateBuff): string {
     buff.value ?? '',
     buff.condition ?? '',
     buff.origin ?? '',
+    buff.ownerBuffDomain ?? '',
     buff.ownerCharacterId ?? '',
+    buff.ownerBuffGroup ?? '',
   ].join('|');
 }
 
@@ -116,6 +118,7 @@ function buildOperatorBuffCandidate(
       : 'passive';
   return {
     origin: 'operatorStudio',
+    ownerBuffDomain: 'operator',
     ownerCharacterId: snapshot.operator.id,
     ownerBuffGroup: groupKey,
     displayName: effect.name || effectKey,
@@ -156,6 +159,8 @@ function buildWeaponDetailCandidate(snapshot: ConfigSnapshot, detail: WeaponSkil
   const sourceName = snapshot.weapon.name || snapshot.weapon.id || snapshot.operator.name;
   return {
     ...buildSnapshotCandidateBase(snapshot),
+    ownerBuffDomain: 'weapon',
+    ownerBuffGroup: 'weaponSkill',
     displayName: detail.label || `${sourceName} skill3 effect ${index + 1}`,
     name: `operator-config-snapshot:${snapshot.operator.id}:weapon:${snapshot.weapon.id || sourceName}:skill3:${detail.effectKey || index + 1}`,
     level: `Lv${detail.level}`,
@@ -201,6 +206,8 @@ export function buildSnapshotEquipmentCandidateBuffs(snapshot: ConfigSnapshot, e
         if (!type || typeof buff.value !== 'number' || !Number.isFinite(buff.value)) return null;
         return {
           ...buildSnapshotCandidateBase(snapshot),
+          ownerBuffDomain: 'equipment',
+          ownerBuffGroup: 'threePiece',
           displayName: buff.name || `${sourceName} 三件套效果 ${index + 1}`,
           name: `operator-config-snapshot:${snapshot.operator.id}:equipment:${gearSet.gearSetId || fallbackSetId}:${buff.effectId || index + 1}`,
           level: '三件套',

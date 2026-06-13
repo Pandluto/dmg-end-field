@@ -131,7 +131,7 @@ export function getBuffEffectiveValue(buff: SkillButtonBuff, stackCounts: Record
   const rawStackCount = stackCounts[buff.id];
   const stackCount = typeof rawStackCount === 'number' && Number.isFinite(rawStackCount)
     ? Math.min(Math.max(Math.floor(rawStackCount), 0), maxStacks)
-    : 1;
+    : maxStacks;
   return baseValue * stackCount;
 }
 

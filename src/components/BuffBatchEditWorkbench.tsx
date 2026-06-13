@@ -2,9 +2,13 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { CSSProperties, ReactNode } from 'react';
 import { getAllBuffList, getSkillButtonTable } from '../core/repositories';
 import { getCharacterInputMap } from '../core/repositories/operatorConfigRepository';
-import { addBuffToButton, decrementBuffStackOnButton, loadBuffsToCache, removeBuffFromButton } from '../core/services/buffService';
+import { addBuffToButton, decrementBuffStackOnButton, getBuffsByButtonId, loadBuffsToCache, removeBuffFromButton } from '../core/services/buffService';
 import {
   dedupeLocalBuffSearchResults,
+  type BuffSourceSearchMode,
+  BUFF_SOURCE_SEARCH_MODE_OPTIONS,
+  filterBuffSearchEntriesBySourceMode,
+  getBuffSourceSearchModeLabel,
   readCandidateBuffSearchEntries,
   readLocalBuffSearchEntries,
   type LocalBuffSearchResult,
@@ -81,7 +85,27 @@ type SourceFilter =
   | { kind: 'character'; id: string; name: string }
   | { kind: 'weapon'; id: string; name: string }
   | { kind: 'equipment'; id: 'equipment'; name: string };
-type CandidateAdderMode = 'local' | 'candidate' | 'anomaly-state';
+type CandidateAdderMode = BuffSourceSearchMode | 'anomaly-state';
+
+const CANDIDATE_ADDER_MODE_OPTIONS: Array<{ key: CandidateAdderMode; label: string }> = [
+  ...BUFF_SOURCE_SEARCH_MODE_OPTIONS,
+  { key: 'anomaly-state', label: '异常状态区' },
+];
+
+const CANDIDATE_SOURCE_MODES = new Set<CandidateAdderMode>(BUFF_SOURCE_SEARCH_MODE_OPTIONS.map((option) => option.key));
+
+function isCandidateSourceMode(mode: CandidateAdderMode): mode is BuffSourceSearchMode {
+  return CANDIDATE_SOURCE_MODES.has(mode);
+}
+
+function getCandidateAdderModeLabel(mode: CandidateAdderMode): string {
+  return isCandidateSourceMode(mode) ? getBuffSourceSearchModeLabel(mode) : '异常状态区';
+}
+
+function getNextCandidateAdderMode(mode: CandidateAdderMode): CandidateAdderMode {
+  const index = CANDIDATE_ADDER_MODE_OPTIONS.findIndex((option) => option.key === mode);
+  return CANDIDATE_ADDER_MODE_OPTIONS[(index + 1) % CANDIDATE_ADDER_MODE_OPTIONS.length].key;
+}
 
 function getButtonLineIndex(button: PersistedSkillButton): number {
   const legacyLineIndex = (button as PersistedSkillButton & { lineIndex?: number }).lineIndex;
@@ -260,6 +284,10 @@ function getBuffValueLine(buff: SkillButtonBuff): string {
   return typeof buff.value === 'number' ? `${type} · ${buff.value}` : type;
 }
 
+function getMissingBuffShortId(buffId: string): string {
+  return buffId.length > 18 ? `${buffId.slice(0, 18)}...` : buffId;
+}
+
 function compareBuffBySource(a: SkillButtonBuff, b: SkillButtonBuff): number {
   const aSourceType = (a.source || a.sourceName || '').trim();
   const bSourceType = (b.source || b.sourceName || '').trim();
@@ -436,11 +464,12 @@ export function BuffBatchEditWorkbench({
   const [isCandidateAdderOpen, setIsCandidateAdderOpen] = useState(false);
   const [candidateSearchKeyword, setCandidateSearchKeyword] = useState('');
   const [candidateBuffRefreshToken, setCandidateBuffRefreshToken] = useState(0);
-  const [candidateAdderMode, setCandidateAdderMode] = useState<CandidateAdderMode>('local');
+  const [candidateAdderMode, setCandidateAdderMode] = useState<CandidateAdderMode>('buff-group');
   const [activeRemoveBuffId, setActiveRemoveBuffId] = useState<string | null>(null);
   const [pendingRemoveByBuff, setPendingRemoveByBuff] = useState<Record<string, string[]>>({});
   const [editAddByBuff, setEditAddByBuff] = useState<Record<string, string[]>>({});
   const [editRemoveByBuff, setEditRemoveByBuff] = useState<Record<string, string[]>>({});
+  const [buffListVersion, setBuffListVersion] = useState(0);
   const [isBoxSelectArmed, setIsBoxSelectArmed] = useState(false);
   const [boxSelectRect, setBoxSelectRect] = useState<BoxSelectRect | null>(null);
   const canvasRef = useRef<HTMLDivElement>(null);
@@ -456,20 +485,23 @@ export function BuffBatchEditWorkbench({
   const skillButtons = useMemo(() => {
     return visualButtons.length > 0 ? visualButtons : getFallbackSkillButtons();
   }, [visualButtons]);
-  const allBuffs = useMemo(() => getAllBuffList(), []);
+  const allBuffs = useMemo(() => getAllBuffList(), [buffListVersion]);
   const addModeBuffs = useMemo(() => [...allBuffs, ...candidateAddBuffs], [allBuffs, candidateAddBuffs]);
   const sortedBuffs = useMemo(() => [...allBuffs].sort(compareBuffBySource), [allBuffs]);
   const visibleFilterBuffs = useMemo(
     () => sortedBuffs.filter((buff) => buffMatchesSourceFilter(buff, activeSourceFilter)),
     [activeSourceFilter, sortedBuffs]
   );
-  const buffById = useMemo(() => new Map(addModeBuffs.map((buff) => [buff.id, buff])), [addModeBuffs]);
-  const localCandidateSearchEntries = useMemo(() => [
+  const allCandidateSearchEntries = useMemo(() => [
     ...readLocalBuffSearchEntries(),
     ...readCandidateBuffSearchEntries(),
   ], [candidateBuffRefreshToken, isCandidateAdderOpen, candidateAddBuffs]);
-  const boardCandidateSearchEntries = useMemo(() => readCandidateBuffSearchEntries(), [candidateBuffRefreshToken, isCandidateAdderOpen, candidateAddBuffs]);
-  const candidateSearchEntries = candidateAdderMode === 'local' ? localCandidateSearchEntries : boardCandidateSearchEntries;
+  const candidateSearchEntries = useMemo(() => {
+    if (!isCandidateSourceMode(candidateAdderMode)) {
+      return [];
+    }
+    return filterBuffSearchEntriesBySourceMode(allCandidateSearchEntries, candidateAdderMode);
+  }, [allCandidateSearchEntries, candidateAdderMode]);
   const candidateSearchIndex = useMemo(() => buildBuffSearchIndex(
     candidateSearchEntries,
     (entry) => [
@@ -499,6 +531,12 @@ export function BuffBatchEditWorkbench({
     const selectedSet = new Set(selectedButtonIds);
     return skillButtons.filter((button) => selectedSet.has(button.id));
   }, [selectedButtonIds, skillButtons]);
+  const selectedButtonBuffs = useMemo(() => (
+    selectedButtons.flatMap((button) => getBuffsByButtonId(button.id))
+  ), [selectedButtons, buffListVersion]);
+  const buffById = useMemo(() => new Map(
+    [...addModeBuffs, ...selectedButtonBuffs].map((buff) => [buff.id, buff])
+  ), [addModeBuffs, selectedButtonBuffs]);
   const anomalyContextButton = selectedButtons[0] ?? skillButtons[0] ?? null;
   const selectedButtonBuffIdLists = useMemo(
     () => selectedButtons.map((button) => dedupeBuffIds(button.selectedBuff ?? [])),
@@ -782,7 +820,7 @@ export function BuffBatchEditWorkbench({
     setPendingAddByBuff({});
     setIsCandidateAdderOpen(false);
     setCandidateSearchKeyword('');
-    setCandidateAdderMode('local');
+    setCandidateAdderMode('buff-group');
   };
 
   const resetRemoveMode = () => {
@@ -828,6 +866,7 @@ export function BuffBatchEditWorkbench({
     setBoxSelectRect(null);
     setSelectedButtonIds([]);
     setVisualButtons(readVisualSkillButtons(selectedCharacters, gridContentOffsetX));
+    setBuffListVersion((version) => version + 1);
     setToolMode('normal');
   };
 
@@ -844,7 +883,7 @@ export function BuffBatchEditWorkbench({
     setCandidateAddBuffs([]);
     setIsCandidateAdderOpen(false);
     setCandidateSearchKeyword('');
-    setCandidateAdderMode('local');
+    setCandidateAdderMode('buff-group');
     resetAddMode();
     resetRemoveMode();
     resetEditMode();
@@ -868,6 +907,7 @@ export function BuffBatchEditWorkbench({
     setBoxSelectRect(null);
     setSelectedButtonIds([]);
     setVisualButtons(readVisualSkillButtons(selectedCharacters, gridContentOffsetX));
+    setBuffListVersion((version) => version + 1);
     setToolMode('normal');
   };
 
@@ -905,6 +945,7 @@ export function BuffBatchEditWorkbench({
     setBoxSelectRect(null);
     setSelectedButtonIds([]);
     setVisualButtons(readVisualSkillButtons(selectedCharacters, gridContentOffsetX));
+    setBuffListVersion((version) => version + 1);
     setToolMode('normal');
   };
 
@@ -997,11 +1038,7 @@ export function BuffBatchEditWorkbench({
 
       if (event.key === 'Tab' && !event.shiftKey && isCandidateAdderOpen) {
         event.preventDefault();
-        setCandidateAdderMode((current) => {
-          if (current === 'local') return 'candidate';
-          if (current === 'candidate') return 'anomaly-state';
-          return 'local';
-        });
+        setCandidateAdderMode((current) => getNextCandidateAdderMode(current));
         setCandidateSearchKeyword('');
         return;
       }
@@ -1293,7 +1330,8 @@ export function BuffBatchEditWorkbench({
     options: { selected?: boolean; white?: boolean; gray?: boolean; intent?: 'add' | 'remove'; onClick?: () => void } = {}
   ) => {
     const buff = buffById.get(buffId);
-    const label = buff ? getBuffLabel(buff) : buffId;
+    const label = buff ? getBuffLabel(buff) : '缺失 Buff';
+    const missingLine = getMissingBuffShortId(buffId);
     return (
       <button
         key={buffId}
@@ -1301,11 +1339,11 @@ export function BuffBatchEditWorkbench({
         className={`buff-edit-buff-card${options.selected ? ' is-selected' : ''}${options.white ? ' is-white' : ''}${options.gray ? ' is-gray' : ''}${options.intent === 'add' ? ' is-add-intent' : ''}${options.intent === 'remove' ? ' is-remove-intent' : ''}`}
         onClick={options.onClick}
         disabled={!options.onClick}
-        title={buff ? `${label} / ${getBuffSourceLabel(buff)} / ${getBuffValueLine(buff)}` : buffId}
+        title={buff ? `${label} / ${getBuffSourceLabel(buff)} / ${getBuffValueLine(buff)}` : `实体缺失：${buffId}`}
       >
         <span className="buff-edit-buff-card-title">{label}</span>
-        <span>{buff ? getBuffSourceLabel(buff) : '未知来源'}</span>
-        <span>{buff ? getBuffValueLine(buff) : buffId}</span>
+        <span>{buff ? getBuffSourceLabel(buff) : '可点击清理引用'}</span>
+        <span>{buff ? getBuffValueLine(buff) : missingLine}</span>
       </button>
     );
   };
@@ -1544,40 +1582,23 @@ export function BuffBatchEditWorkbench({
           onClick={(event) => event.stopPropagation()}
         >
           <div className="skill-button-inline-buff-search-head">
-            <h5>{candidateAdderMode === 'local' ? '本地 Buff' : candidateAdderMode === 'candidate' ? '候选 Buff' : '异常状态区'}</h5>
+            <h5>{getCandidateAdderModeLabel(candidateAdderMode)}</h5>
             <span>Tab 切换入口 / Esc 关闭</span>
           </div>
           <div className="skill-button-inline-buff-search-modes">
-            <button
-              type="button"
-              className={`skill-button-inline-buff-search-mode${candidateAdderMode === 'local' ? ' is-active' : ''}`}
-              onClick={() => {
-                setCandidateAdderMode('local');
-                setCandidateSearchKeyword('');
-              }}
-            >
-              本地 Buff
-            </button>
-            <button
-              type="button"
-              className={`skill-button-inline-buff-search-mode${candidateAdderMode === 'candidate' ? ' is-active' : ''}`}
-              onClick={() => {
-                setCandidateAdderMode('candidate');
-                setCandidateSearchKeyword('');
-              }}
-            >
-              候选 Buff
-            </button>
-            <button
-              type="button"
-              className={`skill-button-inline-buff-search-mode${candidateAdderMode === 'anomaly-state' ? ' is-active' : ''}`}
-              onClick={() => {
-                setCandidateAdderMode('anomaly-state');
-                setCandidateSearchKeyword('');
-              }}
-            >
-              异常状态区
-            </button>
+            {CANDIDATE_ADDER_MODE_OPTIONS.map((option) => (
+              <button
+                key={option.key}
+                type="button"
+                className={`skill-button-inline-buff-search-mode${candidateAdderMode === option.key ? ' is-active' : ''}`}
+                onClick={() => {
+                  setCandidateAdderMode(option.key);
+                  setCandidateSearchKeyword('');
+                }}
+              >
+                {option.label}
+              </button>
+            ))}
           </div>
           <div className="skill-button-buff-workbench">
             <div className="skill-button-buff-workbench-main">
@@ -1609,7 +1630,7 @@ export function BuffBatchEditWorkbench({
                 <div className="skill-button-inline-buff-search-results">
                   {candidateSearchKeyword.trim().length === 0 ? (
                     <div className="skill-button-inline-buff-search-empty">
-                      输入关键词后再显示{candidateAdderMode === 'local' ? '本地 Buff' : '候选 Buff'}结果
+                      输入关键词后再显示{getCandidateAdderModeLabel(candidateAdderMode)}结果
                     </div>
                   ) : candidateSearchResults.length > 0 ? (
                     candidateSearchResults.map((entry) => (
@@ -1629,7 +1650,7 @@ export function BuffBatchEditWorkbench({
                     ))
                   ) : (
                     <div className="skill-button-inline-buff-search-empty">
-                      没有匹配到{candidateAdderMode === 'local' ? '本地 Buff' : '候选 Buff'}
+                      没有匹配到{getCandidateAdderModeLabel(candidateAdderMode)}
                     </div>
                   )}
                 </div>

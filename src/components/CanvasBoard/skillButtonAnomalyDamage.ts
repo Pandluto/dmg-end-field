@@ -31,6 +31,7 @@ interface BuildAnomalyDamageSegmentsParams {
   targetResistance?: HitResistanceInput;
   fullCombinedModifierBuffList: SkillButtonBuff[];
   extraHitBuffList: Array<SkillButtonBuff & { effectKind: 'extraHit'; extraHitConfig: NonNullable<SkillButtonBuff['extraHitConfig']> }>;
+  buffStackCounts?: Record<string, number>;
   manuallyDisabledBuffIdsBySegmentKey: Record<string, string[]>;
   getEffectiveCharacterSourceSkillBoost: (characterId: string | null, buffs?: SkillButtonBuff[]) => number;
 }
@@ -169,6 +170,7 @@ export function buildAnomalyDamageSegments({
   targetResistance,
   fullCombinedModifierBuffList,
   extraHitBuffList,
+  buffStackCounts = {},
   manuallyDisabledBuffIdsBySegmentKey,
   getEffectiveCharacterSourceSkillBoost,
 }: BuildAnomalyDamageSegmentsParams): AnomalyDamageSegmentView[] {
@@ -189,13 +191,13 @@ export function buildAnomalyDamageSegments({
       ? [...fullCombinedModifierBuffList]
       : [...fullCombinedModifierBuffList.filter((buff) => card.selectedBuffIds.includes(buff.id) || buff.source === 'anomaly_state')];
     const appliedBuffs = baseAppliedBuffs.filter((buff) => !disabledBuffIds.has(buff.id));
-    const appliedBuffTags = buildAppliedBuffTags(appliedBuffs);
-    const segmentPanel = buildPanelFromBase(panelBase, panelData, appliedBuffs);
+    const appliedBuffTags = buildAppliedBuffTags(appliedBuffs, buffStackCounts);
+    const segmentPanel = buildPanelFromBase(panelBase, panelData, appliedBuffs, buffStackCounts);
     if (!segmentPanel) {
       return [];
     }
 
-    const buffTotals = calculateBuffTotals(appliedBuffs);
+    const buffTotals = calculateBuffTotals(appliedBuffs, buffStackCounts);
     const currentCharacterSourceSkillBoost = getEffectiveCharacterSourceSkillBoost(buttonCharacterId, appliedBuffs);
     const sourceSkillZone = 1 + currentCharacterSourceSkillBoost / 100;
     const anomalyAtk = segmentPanel.atk;
@@ -351,13 +353,13 @@ export function buildAnomalyDamageSegments({
     const segmentKey = `buff-extra-hit-${buff.id}`;
     const disabledBuffIds = new Set(manuallyDisabledBuffIdsBySegmentKey[segmentKey] ?? []);
     const combinedAppliedBuffs = fullCombinedModifierBuffList.filter((item) => !disabledBuffIds.has(item.id));
-    const appliedBuffTags = buildAppliedBuffTags(combinedAppliedBuffs);
-    const segmentPanel = buildPanelFromBase(panelBase, panelData, combinedAppliedBuffs);
+    const appliedBuffTags = buildAppliedBuffTags(combinedAppliedBuffs, buffStackCounts);
+    const segmentPanel = buildPanelFromBase(panelBase, panelData, combinedAppliedBuffs, buffStackCounts);
     if (!segmentPanel) {
       return [];
     }
 
-    const buffTotals = calculateBuffTotals(combinedAppliedBuffs);
+    const buffTotals = calculateBuffTotals(combinedAppliedBuffs, buffStackCounts);
     const isPhysical = elementKey === 'physical';
     const elementBonus = isPhysical
       ? (damageBonus.physicalDmgBonus || 0) + (buffTotals.physicalDmgBonus || 0)
@@ -447,7 +449,8 @@ export function buildAnomalyDamageSegments({
 export function buildAnomalyBuffOptionsBySegmentKey(
   selectedAnomalyDamages: SelectedAnomalyCard[],
   fullCombinedModifierBuffList: SkillButtonBuff[],
-  extraHitBuffList: Array<SkillButtonBuff & { effectKind: 'extraHit'; extraHitConfig: NonNullable<SkillButtonBuff['extraHitConfig']> }>
+  extraHitBuffList: Array<SkillButtonBuff & { effectKind: 'extraHit'; extraHitConfig: NonNullable<SkillButtonBuff['extraHitConfig']> }>,
+  buffStackCounts: Record<string, number> = {}
 ): Record<string, AppliedBuffTagViewModel[]> {
   const nextMap: Record<string, AppliedBuffTagViewModel[]> = {};
 
@@ -455,11 +458,11 @@ export function buildAnomalyBuffOptionsBySegmentKey(
     const appliedBuffs = card.selectedBuffIds.length === 0
       ? [...fullCombinedModifierBuffList]
       : [...fullCombinedModifierBuffList.filter((buff) => card.selectedBuffIds.includes(buff.id) || buff.source === 'anomaly_state')];
-    nextMap[card.id] = buildAppliedBuffTags(appliedBuffs);
+    nextMap[card.id] = buildAppliedBuffTags(appliedBuffs, buffStackCounts);
   });
 
   extraHitBuffList.forEach((buff) => {
-    nextMap[`buff-extra-hit-${buff.id}`] = buildAppliedBuffTags(fullCombinedModifierBuffList);
+    nextMap[`buff-extra-hit-${buff.id}`] = buildAppliedBuffTags(fullCombinedModifierBuffList, buffStackCounts);
   });
 
   return nextMap;

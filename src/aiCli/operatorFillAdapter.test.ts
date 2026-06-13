@@ -1,4 +1,4 @@
-import { operatorFillAdapter } from './operatorFillAdapter';
+import { OPERATOR_LIBRARY_STORAGE_KEY, operatorFillAdapter } from './operatorFillAdapter';
 
 function assertEqual(actual: unknown, expected: unknown, message: string): void {
   if (actual !== expected) {
@@ -10,6 +10,36 @@ function assertTrue(value: unknown, message: string): void {
   if (!value) {
     throw new Error(`${message}: expected truthy, got ${value}`);
   }
+}
+
+function installLocalStorageMock() {
+  const data = new Map<string, string>();
+  (globalThis as unknown as {
+    window: {
+      localStorage: {
+        getItem(key: string): string | null;
+        setItem(key: string, value: string): void;
+        removeItem(key: string): void;
+        clear(): void;
+      };
+    };
+  }).window = {
+    localStorage: {
+      getItem(key: string) {
+        return data.get(key) ?? null;
+      },
+      setItem(key: string, value: string) {
+        data.set(key, value);
+      },
+      removeItem(key: string) {
+        data.delete(key);
+      },
+      clear() {
+        data.clear();
+      },
+    },
+  };
+  return data;
 }
 
 const keyLevels = {
@@ -71,6 +101,37 @@ const validDraft = {
   assertEqual(result.ok, true, 'six key-level attributes should validate');
   assertEqual(result.normalized?.attributes.intelligence.level90, 909, 'normalize should preserve level90');
   assertEqual(result.normalized?.attributes.hp.level1, 101, 'normalize should preserve level1');
+}
+
+{
+  const storage = installLocalStorageMock();
+  storage.set(OPERATOR_LIBRARY_STORAGE_KEY, JSON.stringify({
+    [validDraft.id]: {
+      ...validDraft,
+      avatarUrl: '/assets/operators/jieerpeita.png',
+      skills: {
+        'skill-1': {
+          ...validDraft.skills['skill-1'],
+          iconUrl: '/assets/skills/jieerpeita-skill.png',
+        },
+      },
+    },
+  }));
+  const incomingDraft = {
+    ...validDraft,
+    avatarUrl: '',
+    skills: {
+      'skill-1': {
+        ...validDraft.skills['skill-1'],
+        iconUrl: '',
+      },
+    },
+  };
+  const validation = operatorFillAdapter.validateAiDraft(JSON.stringify(incomingDraft));
+  assertEqual(validation.ok, true, 'incoming operator draft with empty urls should validate');
+  const proposal = operatorFillAdapter.createProposalPayload(validation, 'operator.fill.apply test');
+  assertEqual(proposal.normalized.avatarUrl, '/assets/operators/jieerpeita.png', 'proposal should preserve existing avatarUrl');
+  assertEqual(proposal.normalized.skills['skill-1'].iconUrl, '/assets/skills/jieerpeita-skill.png', 'proposal should preserve existing skill iconUrl');
 }
 
 {
