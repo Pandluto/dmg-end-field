@@ -184,17 +184,15 @@ export function toUserImageRelPath(entry: {
   relativePath: string;
   fileName?: string;
   canonicalPath?: string;
-  source?: 'builtin' | 'user' | 'legacy';
+  source?: 'builtin' | 'release' | 'user' | 'legacy';
+  mappingWinner?: boolean;
 }): string | null {
   if (entry.source !== 'user' && entry.source !== 'legacy') return null;
   if (entry.canonicalPath?.startsWith('user-images/')) {
     return entry.canonicalPath.slice('user-images/'.length);
   }
-  if (entry.fileName) {
-    return entry.fileName;
-  }
   const prefix = `${MANAGED_REL}/`;
   if (!entry.relativePath.startsWith(prefix)) return null;
   const rel = entry.relativePath.slice(prefix.length);
-  return rel.split('/').filter(Boolean).pop() || null;
+  return rel.split('/').filter(Boolean).join('/') || null;
 }

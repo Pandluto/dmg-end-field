@@ -23,6 +23,9 @@
     imageItems: [],
     archiveFilter: 'all',
     pendingApplyResolve: null,
+    desktopSettings: null,
+    imageUpdate: null,
+    imageReleaseBuilder: null,
   };
 
   const $ = (id) => document.getElementById(id);
@@ -69,6 +72,93 @@
       button.disabled = false;
       delete button.dataset.originalText;
     }
+  };
+
+  const renderImageUpdateState = (payload) => {
+    state.imageUpdate = payload || null;
+    const manifestUrl = payload?.configuredManifestUrl || '';
+    const status = payload?.status || 'idle';
+    const currentVersion = payload?.currentVersion || '-';
+    const latestVersion = payload?.latestVersion || '-';
+    const latestSummary = payload?.latestSummary || null;
+    const currentSummary = payload?.currentManifestSummary || null;
+    const statusTextMap = {
+      idle: manifestUrl ? '已配置' : '未配置',
+      checking: '检查中',
+      downloading: '下载中',
+      activating: '切换中',
+      failed: '失败',
+    };
+    const toneMap = {
+      idle: manifestUrl ? 'ok' : 'info',
+      checking: 'warn',
+      downloading: 'warn',
+      activating: 'warn',
+      failed: 'err',
+    };
+    const formatBytes = (bytes) => {
+      const value = Number(bytes || 0);
+      if (!value) return '';
+      if (value < 1024) return `${value} B`;
+      if (value < 1048576) return `${(value / 1024).toFixed(1)} KB`;
+      return `${(value / 1048576).toFixed(2)} MB`;
+    };
+    const currentDelivery = currentSummary?.delivery === 'delta-archive'
+      ? '增量/全量'
+      : currentSummary?.delivery === 'archive' ? '全量整包' : '逐文件';
+    const latestDelivery = latestSummary?.delivery === 'delta-archive'
+      ? '增量/全量'
+      : latestSummary?.delivery === 'archive' ? '全量整包' : '逐文件';
+    const currentPackageText = currentSummary?.packageSizeBytes ? `；包 ${formatBytes(currentSummary.packageSizeBytes)}` : '';
+    const latestPackageText = latestSummary?.packageSizeBytes ? `；包 ${formatBytes(latestSummary.packageSizeBytes)}` : '';
+    const currentDetail = currentSummary
+      ? `${currentSummary.fileCount || 0} 个文件；${currentDelivery}${currentPackageText}；激活于 ${formatTime(payload?.currentActivatedAt)}`
+      : '尚未启用图片 release 更新。';
+    const latestDetail = latestSummary
+      ? `${latestSummary.totalFileCount || 0} 个文件；${latestDelivery}${latestPackageText}；变更 ${latestSummary.changedFileCount || 0}；删除 ${latestSummary.deletedFileCount || 0}`
+      : (manifestUrl ? '尚未检查远端版本。' : '先保存 manifest 地址，再检查更新。');
+    const latestStatusLine = latestSummary
+      ? `${latestSummary.compatible === false ? '当前 Shell 版本不兼容；' : ''}${latestSummary.hasUpdate ? '发现可更新版本。' : '已是最新版本。'}`
+      : (payload?.lastError || '等待检查更新。');
+
+    const input = $('image-update-manifest-url');
+    if (input && document.activeElement !== input) {
+      input.value = manifestUrl;
+    }
+
+    setBadge('image-update-badge', statusTextMap[status] || status, toneMap[status] || 'info');
+    setBadge('image-update-current-version', currentVersion, currentVersion === '-' ? 'info' : 'ok');
+    setBadge('image-update-latest-version', latestVersion, latestSummary?.hasUpdate ? 'warn' : 'info');
+    setText('image-update-current-detail', currentDetail);
+    setText('image-update-latest-detail', latestDetail);
+    setText('image-update-storage-detail', payload?.storageRoot || '版本资源保存在 userData 下。');
+    setText(
+      'image-update-status',
+      `${latestStatusLine}${payload?.lastCheckedAt ? ` 最近检查：${formatTime(payload.lastCheckedAt)}` : ''}${payload?.lastUpdatedAt ? `；最近切换：${formatTime(payload.lastUpdatedAt)}` : ''}${payload?.lastError ? `；错误：${payload.lastError}` : ''}`
+    );
+
+    const applyButton = $('apply-image-update');
+    if (applyButton) {
+      applyButton.disabled = !manifestUrl || status === 'checking' || status === 'downloading' || status === 'activating'
+        || latestSummary?.compatible === false;
+    }
+  };
+
+  const renderDesktopSettings = (settings) => {
+    state.desktopSettings = settings || null;
+    const currentScale = settings?.currentScale || '-';
+    const defaultScale = settings?.defaultScale || '1x';
+    const statusText = settings
+      ? `当前 ${currentScale} | 默认 ${defaultScale} | 切换后立即生效并保存`
+      : '当前运行时未提供桌面倍率设置。';
+    setText('desktop-scale-status', statusText);
+    document.querySelectorAll('[data-desktop-scale]').forEach((button) => {
+      const scaleKey = button.getAttribute('data-desktop-scale');
+      const isActive = Boolean(settings && scaleKey === settings.currentScale);
+      button.classList.toggle('primary-button', isActive);
+      button.classList.toggle('subtle-button', !isActive);
+      button.disabled = !settings;
+    });
   };
 
   const formatTime = (timestamp) => {
@@ -730,6 +820,169 @@
     }
   };
 
+  const refreshImageUpdateState = async () => {
+    if (!runtime?.getImageUpdateState) {
+      renderImageUpdateState(null);
+      return null;
+    }
+    const payload = await runtime.getImageUpdateState();
+    renderImageUpdateState(payload);
+    return payload;
+  };
+
+  const saveImageUpdateConfig = async () => {
+    const input = $('image-update-manifest-url');
+    const manifestUrl = input?.value.trim() || '';
+    const result = await runtime?.setImageUpdateConfig?.({ manifestUrl });
+    renderImageUpdateState(result?.state || null);
+    appendLog(`图片更新 | 已保存 manifest 地址 | ${manifestUrl || '(清空)'}`);
+  };
+
+  const checkImageUpdate = async (button) => {
+    if (!runtime?.checkImageUpdate) {
+      return;
+    }
+    setButtonBusy(button, true, '检查中');
+    try {
+      const result = await runtime.checkImageUpdate();
+      renderImageUpdateState(result?.state || null);
+      const latestVersion = result?.state?.latestVersion || '-';
+      appendLog(`图片更新 | 检查完成 | 远端版本 ${latestVersion}`);
+      await refreshImages();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      appendLog(`图片更新 | 检查失败 | ${message}`);
+      await refreshImageUpdateState();
+    } finally {
+      setButtonBusy(button, false);
+    }
+  };
+
+  const applyImageUpdate = async (button) => {
+    if (!runtime?.applyImageUpdate) {
+      return;
+    }
+    setButtonBusy(button, true, '下载中');
+    try {
+      const result = await runtime.applyImageUpdate();
+      renderImageUpdateState(result?.state || null);
+      appendLog(`图片更新 | 已切换到 ${result?.state?.currentVersion || '-'}`);
+      await Promise.allSettled([refreshImages(), refreshShellState()]);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      appendLog(`图片更新 | 切换失败 | ${message}`);
+      await refreshImageUpdateState();
+    } finally {
+      setButtonBusy(button, false);
+    }
+  };
+
+  const setInputValue = (id, value) => {
+    const input = $(id);
+    if (input) input.value = value || '';
+  };
+
+  const getInputValue = (id) => {
+    const input = $(id);
+    return input?.value.trim() || '';
+  };
+
+  const setImageReleaseBuilderStatus = (text, tone = 'info') => {
+    setText('image-release-builder-status', text);
+    const badgeText = tone === 'ok' ? '已生成' : tone === 'err' ? '失败' : tone === 'warn' ? '处理中' : '待生成';
+    setBadge('image-release-builder-badge', badgeText, tone);
+  };
+
+  const pickImageReleaseSource = async () => {
+    const result = await runtime?.pickImageReleaseSourceDir?.();
+    if (result?.ok) {
+      setInputValue('image-release-source', result.path);
+      setImageReleaseBuilderStatus(`源目录：${result.path}`);
+    }
+  };
+
+  const pickImageReleaseOutput = async () => {
+    const result = await runtime?.pickImageReleaseOutputDir?.();
+    if (result?.ok) {
+      setInputValue('image-release-output', result.path);
+      setImageReleaseBuilderStatus(`输出目录：${result.path}`);
+    }
+  };
+
+  const pickImageReleaseBase = async () => {
+    const result = await runtime?.pickImageReleaseBaseManifest?.();
+    if (result?.ok) {
+      setInputValue('image-release-base', result.path);
+      const mode = $('image-release-mode');
+      if (mode && mode.value === 'full') mode.value = 'both';
+      setImageReleaseBuilderStatus(`基线清单：${result.path}`);
+    }
+  };
+
+  const buildImageReleasePackage = async (button) => {
+    if (!runtime?.buildImageReleasePackage) {
+      setImageReleaseBuilderStatus('当前运行时不支持图片发布包助手。', 'err');
+      return;
+    }
+    const selectedMode = getInputValue('image-release-mode') || 'both';
+    const baseManifest = getInputValue('image-release-base');
+    const effectiveMode = selectedMode === 'both' && !baseManifest ? 'full' : selectedMode;
+    if (selectedMode === 'delta' && !baseManifest) {
+      setImageReleaseBuilderStatus('只生成增量包需要先选择上一版 assets-release-manifest.json。', 'err');
+      setButtonBusy(button, false);
+      return;
+    }
+    const payload = {
+      source: getInputValue('image-release-source'),
+      output: getInputValue('image-release-output'),
+      assetVersion: getInputValue('image-release-version'),
+      releaseTag: getInputValue('image-release-tag'),
+      minShellVersion: getInputValue('image-release-min-shell'),
+      baseManifest,
+      mode: effectiveMode,
+      includeDeltaFiles: Boolean($('image-release-include-delta-files')?.checked),
+    };
+    setButtonBusy(button, true, '生成中');
+    setImageReleaseBuilderStatus('正在生成图片发布包…', 'warn');
+    try {
+      const response = await runtime.buildImageReleasePackage(payload);
+      if (!response?.ok) {
+        throw new Error(response?.error || '生成失败');
+      }
+      state.imageReleaseBuilder = response.result;
+      const result = response.result;
+      const packageList = (result.packagePaths || []).map((p) => `\n${p}`).join('');
+      const modeNote = selectedMode === 'both' && effectiveMode === 'full'
+        ? '；未选择基线，已自动生成全量包'
+        : '';
+      setImageReleaseBuilderStatus(
+        `生成完成：${result.mode} / ${result.assetVersion}${modeNote}；文件 ${result.totalFiles}；变更 ${result.changedFiles}；删除 ${result.deletedFiles}\nmanifest: ${result.manifestPath}${packageList}`,
+        'ok',
+      );
+      appendLog(`图片发布包 | 生成完成 | ${result.outputDir}`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setImageReleaseBuilderStatus(message, 'err');
+      appendLog(`图片发布包 | 生成失败 | ${message}`);
+    } finally {
+      setButtonBusy(button, false);
+    }
+  };
+
+  const revealImageReleaseOutput = async () => {
+    const output = getInputValue('image-release-output') || state.imageReleaseBuilder?.outputDir;
+    if (!output) {
+      setImageReleaseBuilderStatus('请先选择输出目录。', 'err');
+      return;
+    }
+    const result = await runtime?.revealPath?.({ path: output });
+    if (result?.ok) {
+      appendLog(`图片发布包 | 已打开输出目录 | ${result.path || output}`);
+    } else {
+      setImageReleaseBuilderStatus(result?.error || `无法打开输出目录：${output}`, 'err');
+    }
+  };
+
   const revealImageDirectory = async () => {
     try {
       const result = await fetchLocalBridgeJson('/image-assets/reveal-directory', {
@@ -743,6 +996,24 @@
     }
   };
 
+  const applyDesktopScale = async (scaleKey, button) => {
+    if (!runtime?.setDesktopScale) {
+      setText('desktop-scale-status', '当前运行时不支持桌面倍率设置。');
+      return;
+    }
+    setButtonBusy(button, true, '切换中');
+    try {
+      const settings = await runtime.setDesktopScale(scaleKey);
+      renderDesktopSettings(settings);
+      appendLog(`桌面倍率 | 已切换到 ${settings.currentScale}`);
+      await refreshShellState();
+    } catch (error) {
+      appendLog(`桌面倍率 | 切换失败 | ${error instanceof Error ? error.message : String(error)}`);
+    } finally {
+      setButtonBusy(button, false);
+    }
+  };
+
   const refreshShellState = async () => {
     if (!runtime) {
       setBadge('shell-status-badge', '不可用', 'err');
@@ -750,13 +1021,17 @@
       setBadge('nav-health-badge', '异常', 'err');
       setText('shell-status-detail', 'desktopRuntime 不存在，请用 Electron Shell 启动。');
       setText('host-summary', '非 Electron Shell 环境');
+      renderDesktopSettings(null);
       return;
     }
     const shellState = await runtime.getShellState();
+    renderDesktopSettings(shellState.desktopSettings || null);
+    renderImageUpdateState(shellState.imageUpdate || null);
     setBadge('shell-status-badge', '正常', 'ok');
     setBadge('shell-mini-status', '正常', 'ok');
     setBadge('nav-health-badge', '正常', 'ok');
-    setText('shell-status-detail', `平台 ${shellState.platform || runtime.platform || '-'}；主机 ${shellState.hostname || '-'}`);
+    const currentScale = shellState.desktopSettings?.currentScale || '1x';
+    setText('shell-status-detail', `平台 ${shellState.platform || runtime.platform || '-'}；主机 ${shellState.hostname || '-'}；倍率 ${currentScale}`);
     setText('host-summary', `${shellState.hostname || 'local'} · ${shellState.platform || runtime.platform || '-'}`);
   };
 
@@ -767,6 +1042,7 @@
       refreshArchives(),
       refreshNowStorage(),
       refreshImages(),
+      refreshImageUpdateState(),
       refreshAgentRecords(),
     ]);
   };
@@ -848,6 +1124,39 @@
     });
     $('refresh-images')?.addEventListener('click', () => {
       refreshImages().catch((error) => appendLog(`图片资产 | 刷新失败 | ${error instanceof Error ? error.message : String(error)}`));
+    });
+    $('save-image-update-config')?.addEventListener('click', () => {
+      saveImageUpdateConfig().catch((error) => appendLog(`图片更新 | 保存配置失败 | ${error instanceof Error ? error.message : String(error)}`));
+    });
+    $('check-image-update')?.addEventListener('click', (event) => {
+      checkImageUpdate(event.currentTarget).catch((error) => appendLog(`图片更新 | 检查失败 | ${error instanceof Error ? error.message : String(error)}`));
+    });
+    $('apply-image-update')?.addEventListener('click', (event) => {
+      applyImageUpdate(event.currentTarget).catch((error) => appendLog(`图片更新 | 切换失败 | ${error instanceof Error ? error.message : String(error)}`));
+    });
+    $('pick-image-release-source')?.addEventListener('click', () => {
+      pickImageReleaseSource().catch((error) => appendLog(`图片发布包 | 选择源目录失败 | ${error instanceof Error ? error.message : String(error)}`));
+    });
+    $('pick-image-release-output')?.addEventListener('click', () => {
+      pickImageReleaseOutput().catch((error) => appendLog(`图片发布包 | 选择输出目录失败 | ${error instanceof Error ? error.message : String(error)}`));
+    });
+    $('pick-image-release-base')?.addEventListener('click', () => {
+      pickImageReleaseBase().catch((error) => appendLog(`图片发布包 | 选择基线失败 | ${error instanceof Error ? error.message : String(error)}`));
+    });
+    $('build-image-release-package')?.addEventListener('click', (event) => {
+      buildImageReleasePackage(event.currentTarget).catch((error) => appendLog(`图片发布包 | 生成失败 | ${error instanceof Error ? error.message : String(error)}`));
+    });
+    $('reveal-image-release-output')?.addEventListener('click', () => {
+      revealImageReleaseOutput().catch((error) => appendLog(`图片发布包 | 打开输出目录失败 | ${error instanceof Error ? error.message : String(error)}`));
+    });
+    document.querySelectorAll('[data-desktop-scale]').forEach((button) => {
+      button.addEventListener('click', (event) => {
+        const scaleKey = button.getAttribute('data-desktop-scale');
+        if (!scaleKey) return;
+        applyDesktopScale(scaleKey, event.currentTarget).catch((error) => {
+          appendLog(`桌面倍率 | 切换失败 | ${error instanceof Error ? error.message : String(error)}`);
+        });
+      });
     });
     $('add-image-root')?.addEventListener('click', async () => {
       try {

@@ -10,6 +10,7 @@
     "ai-cli:rest": "node scripts/ai-cli-rest-server.mjs",
     "smoke:ai-cli-rest": "node scripts/ai-cli-rest-smoke.mjs",
     "dev": "vite --host 127.0.0.1 --port 3030",
+    "assets:release": "node scripts/build-image-release-manifest.mjs",
     "test:operator-panel": "node scripts/run-ts-test.mjs /src/core/calculators/operatorPanelCalculator.test.ts",
     "smoke:operator-config": "node scripts/run-electron-smoke.mjs",
     "build": "tsc && vite build",
@@ -51,6 +52,7 @@
     "files": [
       "dist/**",
       "electron/**",
+      "scripts/**",
       "agent/**",
       "package.json"
     ],

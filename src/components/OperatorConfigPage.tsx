@@ -17,6 +17,7 @@ import { getOperatorConfigPageCache, getRuntimeOperatorTemplateMap, safeSessionS
 import { APP_ROUTE_PATHS, navigateToAppPath } from '../utils/appRoute';
 import type { BuffEffectKind, BuffExtraHitConfig } from '../core/domain/buff';
 import { normalizeExtraHitConfig } from '../core/services/buffExtraHit';
+import DeferredNumberInput from './DeferredNumberInput';
 
 type AttributeItem = {
   label: string;
@@ -2040,19 +2041,17 @@ export function OperatorConfigPage() {
                           <div className="operator-config-page-favor-input-layer">
                             <label className="operator-config-page-favor-row">
                               <span className="operator-config-page-favor-label">主能力</span>
-                              <input
+                              <DeferredNumberInput
                                 className="operator-config-page-favor-input"
-                                type="number"
                                 value={getOperatorMainStatFlatBonus(currentConfig)}
-                                onChange={(event) => {
-                                  const nextValue = Number(event.target.value);
+                                onCommit={(nextValue) => {
                                   updateCurrentConfig((prev) => ({
                                     ...prev,
                                     character: {
                                       ...prev.character,
                                       config: {
                                         ...prev.character.config,
-                                        mainStatFlatBonus: Number.isFinite(nextValue) ? nextValue : 60,
+                                        mainStatFlatBonus: nextValue ?? 60,
                                       },
                                     },
                                   }));
@@ -2061,19 +2060,17 @@ export function OperatorConfigPage() {
                             </label>
                             <label className="operator-config-page-favor-row">
                               <span className="operator-config-page-favor-label">副能力</span>
-                              <input
+                              <DeferredNumberInput
                                 className="operator-config-page-favor-input"
-                                type="number"
                                 value={getOperatorSubStatFlatBonus(currentConfig)}
-                                onChange={(event) => {
-                                  const nextValue = Number(event.target.value);
+                                onCommit={(nextValue) => {
                                   updateCurrentConfig((prev) => ({
                                     ...prev,
                                     character: {
                                       ...prev.character,
                                       config: {
                                         ...prev.character.config,
-                                        subStatFlatBonus: Number.isFinite(nextValue) ? nextValue : 0,
+                                        subStatFlatBonus: nextValue ?? 0,
                                       },
                                     },
                                   }));

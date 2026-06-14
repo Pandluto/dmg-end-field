@@ -12,6 +12,7 @@ import { imageBridge, getUserImageUrl } from '../utils/imageBridge';
 import type { ImageAssetEntry } from './ImageManager/types';
 import type { BuffEffectKind, BuffExtraHitConfig } from '../core/domain/buff';
 import { normalizeExtraHitConfig } from '../core/services/buffExtraHit';
+import DeferredNumberInput from './DeferredNumberInput';
 import './BuffDraftPage.css';
 import './OperatorDraftPage.css';
 import './DamageSheetPage.css';
@@ -2795,15 +2796,13 @@ export function EquipmentSheetPage() {
                           {LEVEL_KEYS.map((levelKey) => (
                             <div key={levelKey} className="weapon-sheet-growth-inline-item">
                               <span className="weapon-sheet-growth-inline-label">{`Lv${levelKey}`}</span>
-                              <input
+                              <DeferredNumberInput
                                 className="weapon-sheet-inline-input"
-                                type="number"
                                 step="any"
-                                inputMode="decimal"
-                                value={effect?.levels[levelKey] == null ? '' : String(effect.levels[levelKey])}
+                                value={effect?.levels[levelKey]}
                                 onFocus={() => setSelectedCell({ address: `Lv${levelKey}`, sourceRowKey: levelRow.key, columnKey: 'valueText' })}
                                 onKeyDown={stopEditingKeyPropagation}
-                                onChange={(event) => updateEffectLevel(levelRow, levelKey, event.target.value)}
+                                onCommit={(nextValue) => updateEffectLevel(levelRow, levelKey, nextValue == null ? '' : String(nextValue))}
                               />
                             </div>
                           ))}

@@ -295,9 +295,9 @@ export async function refreshCapabilities(): Promise<ImageManagerCapabilities> {
 export function getUserImageUrl(entry: ImageAssetEntry): string | null {
   const rel = toUserImageRelPath(entry);
   if (!rel) return null;
-  const fileName = rel.split('/').filter(Boolean).pop();
-  if (!fileName) return null;
-  return `${BRIDGE_ORIGIN}/user-images/${encodeURIComponent(fileName)}`;
+  const encodedRel = rel.split('/').filter(Boolean).map(encodeURIComponent).join('/');
+  if (!encodedRel) return null;
+  return `${BRIDGE_ORIGIN}/user-images/${encodedRel}`;
 }
 
 export const imageBridge = {

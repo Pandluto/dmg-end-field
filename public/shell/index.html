@@ -793,7 +793,7 @@
             <div>
               <div class="eyebrow">Console Overview</div>
               <h1 class="page-title">本地能力总览</h1>
-              <p class="page-desc">Shell 只负责本地桥接、数据存档、图片目录和 AI REST。Web 主界面在浏览器中运行，数据由 Shell 统一同步和归档。</p>
+              <p class="page-desc">Shell 负责本地桥接、数据存档、图片目录、AI REST 和桌面倍率适配。Web 主界面在浏览器中运行，数据由 Shell 统一同步和归档。</p>
             </div>
             <div class="toolbar">
               <button id="open-browser-web" type="button" class="primary-button">打开浏览器 Web</button>
@@ -838,6 +838,23 @@
               <div class="status-top"><span class="status-label">图片桥接</span><span class="badge warn" id="image-bridge-badge">检测</span></div>
               <div class="status-detail" id="image-bridge-detail">正在读取图片目录能力</div>
             </article>
+          </section>
+
+          <section class="panel">
+            <div class="panel-header">
+              <div>
+                <div class="panel-title">桌面倍率</div>
+                <div class="panel-help">mac 默认使用较小倍率，避免 Shell 初始窗口过大；切换后立即生效并保存到本机。</div>
+              </div>
+            </div>
+            <div class="toolbar" id="desktop-scale-buttons">
+              <button type="button" class="subtle-button" data-desktop-scale="0.8x">0.8x</button>
+              <button type="button" class="subtle-button" data-desktop-scale="0.85x">0.85x</button>
+              <button type="button" class="subtle-button" data-desktop-scale="1x">1x</button>
+              <button type="button" class="subtle-button" data-desktop-scale="1.25x">1.25x</button>
+              <button type="button" class="subtle-button" data-desktop-scale="1.5x">1.5x</button>
+            </div>
+            <div class="empty-state" id="desktop-scale-status">正在读取桌面倍率设置。</div>
           </section>
 
           <section class="panel">
@@ -1034,6 +1051,89 @@
               </div>
             </div>
             <div class="asset-list" id="image-root-list"></div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-header">
+              <div>
+                <div class="panel-title">图片 Release 更新</div>
+                <div class="panel-help">配置发布清单地址后，Shell 会下载整包图片资源到本机版本目录，并把下载资源提升为最高优先级。</div>
+              </div>
+              <span class="badge info" id="image-update-badge">未配置</span>
+            </div>
+            <input id="image-update-manifest-url" type="text" placeholder="https://example.com/assets-release-manifest.json" />
+            <div class="toolbar">
+              <button id="save-image-update-config" type="button" class="subtle-button">保存地址</button>
+              <button id="check-image-update" type="button" class="subtle-button">检查更新</button>
+              <button id="apply-image-update" type="button" class="primary-button">下载并切换</button>
+            </div>
+            <section class="grid-3">
+              <article class="status-card">
+                <div class="status-top"><span class="status-label">当前版本</span><span class="badge info" id="image-update-current-version">-</span></div>
+                <div class="status-detail" id="image-update-current-detail">尚未启用图片 release 更新。</div>
+              </article>
+              <article class="status-card">
+                <div class="status-top"><span class="status-label">远端版本</span><span class="badge info" id="image-update-latest-version">-</span></div>
+                <div class="status-detail" id="image-update-latest-detail">先保存 manifest 地址，再检查更新。</div>
+              </article>
+              <article class="status-card">
+                <div class="status-top"><span class="status-label">下载目录</span><span class="badge info" id="image-update-storage-badge">本机</span></div>
+                <div class="status-detail" id="image-update-storage-detail">版本资源保存在 userData 下。</div>
+              </article>
+            </section>
+            <div class="empty-state" id="image-update-status">等待配置图片发布清单地址。</div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-header">
+              <div>
+                <div class="panel-title">图片发布包助手</div>
+                <div class="panel-help">选择图片源目录和输出目录，一键生成 GitHub Release 可上传的 manifest、全量包和增量包。</div>
+              </div>
+              <span class="badge info" id="image-release-builder-badge">待生成</span>
+            </div>
+            <div class="grid-3">
+              <article class="status-card">
+                <div class="status-top"><span class="status-label">源目录</span><span class="badge info">assets</span></div>
+                <input id="image-release-source" type="text" placeholder="选择图片源目录，例如 public/assets" />
+                <div class="toolbar"><button id="pick-image-release-source" type="button" class="subtle-button">选择源目录</button></div>
+              </article>
+              <article class="status-card">
+                <div class="status-top"><span class="status-label">输出目录</span><span class="badge info">release</span></div>
+                <input id="image-release-output" type="text" placeholder="选择发布包输出目录" />
+                <div class="toolbar"><button id="pick-image-release-output" type="button" class="subtle-button">选择输出目录</button></div>
+              </article>
+              <article class="status-card">
+                <div class="status-top"><span class="status-label">版本</span><span class="badge info">version</span></div>
+                <input id="image-release-version" type="text" placeholder="例如 2026.06.15 或 v2" />
+                <input id="image-release-tag" type="text" placeholder="Release Tag，可留空" />
+              </article>
+            </div>
+            <div class="grid-3">
+              <article class="status-card">
+                <div class="status-top"><span class="status-label">模式</span><span class="badge info">mode</span></div>
+                <select id="image-release-mode">
+                  <option value="both">增量 + 全量兜底（需要基线）</option>
+                  <option value="full">只生成全量包</option>
+                  <option value="delta">只生成增量包（需要基线）</option>
+                </select>
+              </article>
+              <article class="status-card">
+                <div class="status-top"><span class="status-label">基线清单</span><span class="badge info">base</span></div>
+                <input id="image-release-base" type="text" placeholder="上一版 assets-release-manifest.json" />
+                <div class="toolbar"><button id="pick-image-release-base" type="button" class="subtle-button">选择基线</button></div>
+              </article>
+              <article class="status-card">
+                <div class="status-top"><span class="status-label">兼容</span><span class="badge info">shell</span></div>
+                <input id="image-release-min-shell" type="text" placeholder="最低 Shell 版本，可留空" />
+                <label class="check-row"><input id="image-release-include-delta-files" type="checkbox" />同时输出旧式逐文件增量</label>
+              </article>
+            </div>
+            <div class="toolbar">
+              <button id="build-image-release-package" type="button" class="primary-button">生成发布包</button>
+              <button id="reveal-image-release-output" type="button" class="subtle-button">打开输出目录</button>
+            </div>
+            <div class="empty-state" id="image-release-builder-status">等待选择目录并填写版本。</div>
           </section>
         </div>
 

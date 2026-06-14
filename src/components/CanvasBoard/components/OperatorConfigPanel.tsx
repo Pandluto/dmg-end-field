@@ -17,6 +17,10 @@ import {
 } from '../../../utils/storage';
 import type { RuntimeOperatorTemplateSkill } from '../../../core/templates/operatorTemplate';
 import { resolvePublicPath } from '../../../utils/assetResolver';
+import DeferredNumberInput, {
+  formatPercentDisplayValue,
+  parsePercentDisplayValue,
+} from '../../DeferredNumberInput';
 
 interface CharacterMaxData {
   name: string;
@@ -855,14 +859,7 @@ export function OperatorConfigPanel({
       };
     });
   };
-  const getEquipmentInputValue = (key: keyof EquipmentConfig, isPercent: boolean) => {
-    const rawValue = currentEquipment[key];
-    const displayValue = isPercent ? rawValue * 100 : rawValue;
-    return `${Number(displayValue.toFixed(2))}`;
-  };
-  const handleEquipmentInputChange = (key: keyof EquipmentConfig, isPercent: boolean, rawValue: string) => {
-    const parsedValue = Number.parseFloat(rawValue);
-    const nextValue = Number.isFinite(parsedValue) ? (isPercent ? parsedValue / 100 : parsedValue) : 0;
+  const handleEquipmentInputCommit = (key: keyof EquipmentConfig, nextValue: number) => {
     setCharacterConfigMap((prev) => {
       const currentConfig =
         prev[weaponStateKey] ??
@@ -1574,12 +1571,13 @@ export function OperatorConfigPanel({
                                 <span className="config-equip-item-label">{field.label}</span>
                                 <span className="config-equip-item-input-wrap">
                                   <span className="config-equip-item-prefix">+</span>
-                                  <input
-                                    type="number"
+                                  <DeferredNumberInput
                                     className="config-equip-item-input"
-                                    value={getEquipmentInputValue(field.key, field.isPercent)}
-                                    onChange={(event) => {
-                                      handleEquipmentInputChange(field.key, field.isPercent, event.target.value);
+                                    value={currentEquipment[field.key]}
+                                    format={field.isPercent ? formatPercentDisplayValue : undefined}
+                                    parse={field.isPercent ? parsePercentDisplayValue : undefined}
+                                    onCommit={(nextValue) => {
+                                      handleEquipmentInputCommit(field.key, nextValue ?? 0);
                                     }}
                                   />
                                   {field.isPercent ? <span className="config-equip-item-suffix">%</span> : null}
@@ -1637,7 +1635,10 @@ export function OperatorConfigPanel({
                               if (e.key === 'Enter') {
                                 e.preventDefault();
                                 parseEquipmentTextAndFill(equipCopyText, (key, value) => {
-                                  handleEquipmentInputChange(key, isPercentField(key), String(value));
+                                  handleEquipmentInputCommit(
+                                    key,
+                                    isPercentField(key) ? value / 100 : value
+                                  );
                                 });
                                 setIsEquipCopyDrawerOpen(false);
                               }

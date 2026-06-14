@@ -6,8 +6,8 @@ interface ImageAssetEntry {
   baseName: string;
   ext: string;
   relativePath: string;
-  /** 'builtin' = 项目自带只读素材, 'user' = 图片根目录素材, 'legacy' = 旧 AppData 素材 */
-  source?: 'builtin' | 'user' | 'legacy';
+  /** 'builtin' = 项目自带只读素材, 'release' = 发布更新素材, 'user' = 图片根目录素材, 'legacy' = 旧 AppData 素材 */
+  source?: 'builtin' | 'release' | 'user' | 'legacy';
   canonicalPath?: string;
   publicUrl?: string;
   rootId?: string;
