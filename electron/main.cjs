@@ -1307,7 +1307,7 @@ async function fetchJsonUrl(url) {
 async function fetchBufferUrl(url) {
   const response = await fetchUrlRaw(url, { timeoutMs: 30000 });
   if (response.statusCode < 200 || response.statusCode >= 300) {
-    throw new Error(`资源下载失败: HTTP ${response.statusCode}`);
+    throw new Error(`资源下载失败: HTTP ${response.statusCode} ${url}`);
   }
   return response.body;
 }
