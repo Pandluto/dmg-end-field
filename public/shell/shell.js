@@ -21,6 +21,8 @@
     agentPollTimer: 0,
     applyingArchive: false,
     imageItems: [],
+    archiveFilter: 'all',
+    pendingApplyResolve: null,
   };
 
   const $ = (id) => document.getElementById(id);
@@ -96,24 +98,43 @@
   const fetchLocalBridgeJson = (path, options = {}) => fetchJson(LOCAL_BRIDGE_ORIGIN, path, options);
   const fetchAiRestJson = (path, options = {}) => fetchJson(AI_CLI_REST_ORIGIN, path, options);
 
-  const formatArchiveId = () => {
+  const getScopeLabel = (storageScope) => (storageScope === 'share' ? '共享存档' : '本机存档');
+
+  const getScopeShortLabel = (storageScope) => (storageScope === 'share' ? '共享' : '本机');
+
+  const normalizeArchiveName = (value) => String(value || '')
+    .trim()
+    .replace(/[\\/:*?"<>|]+/g, '-')
+    .replace(/\s+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 32);
+
+  const formatArchiveId = (storageScope = 'local', name = '', kind = 'archive') => {
     const date = new Date();
     const pad = (value) => String(value).padStart(2, '0');
-    return `localdata-${date.getFullYear()}${pad(date.getMonth() + 1)}${pad(date.getDate())}${pad(date.getHours())}${pad(date.getMinutes())}${pad(date.getSeconds())}`;
+    const timestamp = `${date.getFullYear()}${pad(date.getMonth() + 1)}${pad(date.getDate())}-${pad(date.getHours())}${pad(date.getMinutes())}${pad(date.getSeconds())}`;
+    const prefix = kind === 'backup' ? 'backup' : (storageScope === 'share' ? 'share' : 'local');
+    const suffix = normalizeArchiveName(name);
+    return [prefix, timestamp, suffix].filter(Boolean).join('-');
   };
 
-  const cloneArchiveForSave = (archive, name, description) => {
+  const cloneArchiveForSave = (archive, name, description, storageScope = 'local', kind = 'archive') => {
     const exportedAt = new Date().toISOString();
-    const archiveId = formatArchiveId();
+    const archiveId = formatArchiveId(storageScope, name, kind);
     return {
       ...archive,
       id: archiveId,
       name: name || archiveId,
       description: description || archive.description,
+      storageScope,
       createdAt: exportedAt,
       exportedAt,
     };
   };
+
+  const createArchiveFromNowStorage = (archive, name, description, storageScope = 'local', kind = 'archive') => (
+    cloneArchiveForSave(archive, name, description, storageScope, kind)
+  );
 
   const getArchiveKey = (item) => item?.archiveKey || `${item?.storageScope || 'local'}:${item?.fileName || ''}`;
 
@@ -128,10 +149,10 @@
       if (button) button.disabled = !hasSelection;
     });
     if (!hasSelection) {
-      setText('selected-archive-summary', '从下方列表选择一个存档后，可以定位、删除或写回 Web 快照。');
+      setText('selected-archive-summary', '从下方列表选择一个存档后，可以打开位置、删除或应用到当前数据。');
       return;
     }
-    const scopeLabel = selectedArchive.storageScope === 'share' ? 'sharedata' : 'localdata';
+    const scopeLabel = getScopeLabel(selectedArchive.storageScope);
     setText(
       'selected-archive-summary',
       `${selectedArchive.name || selectedArchive.id || selectedArchive.fileName} | ${scopeLabel} | ${formatBytes(selectedArchive.size)} | ${formatTime(selectedArchive.updatedAt)}`,
@@ -307,36 +328,65 @@
   };
 
   const renderArchiveList = () => {
-    const listElement = $('archive-list');
-    if (!listElement) return;
+    const localListElement = $('archive-list-local');
+    const shareListElement = $('archive-list-share');
+    if (!localListElement || !shareListElement) return;
+
+    document.querySelectorAll('[data-archive-filter]').forEach((button) => {
+      button.classList.toggle('is-active', button.getAttribute('data-archive-filter') === state.archiveFilter);
+    });
+    document.querySelectorAll('[data-archive-scope]').forEach((column) => {
+      const scope = column.getAttribute('data-archive-scope');
+      column.style.display = state.archiveFilter === 'all' || state.archiveFilter === scope ? 'grid' : 'none';
+    });
+
     if (state.archives.length === 0) {
-      listElement.innerHTML = '<div class="empty-state">还没有本地存档。先打开浏览器 Web 主界面生成 now-storage，再从这里保存。</div>';
+      localListElement.innerHTML = '<div class="empty-state">暂无本机存档。</div>';
+      shareListElement.innerHTML = '<div class="empty-state">暂无共享存档。</div>';
+      setText('local-archive-count', '0');
+      setText('share-archive-count', '0');
       state.selectedArchiveKey = null;
       renderSelectedArchiveSummary();
       return;
     }
 
-    listElement.innerHTML = state.archives.map((item) => {
+    const renderItems = (items, emptyText) => {
+      if (items.length === 0) {
+        return `<div class="empty-state">${escapeHtml(emptyText)}</div>`;
+      }
+      return items.map((item) => {
       const archiveKey = getArchiveKey(item);
-      const scopeLabel = item.storageScope === 'share' ? 'sharedata' : 'localdata';
+      const scopeLabel = getScopeShortLabel(item.storageScope);
       const isActive = archiveKey === state.activeArchiveKey;
       const updatedAt = formatTime(item.updatedAt);
+      const sectionCount = Array.isArray(item.sections) ? item.sections.length : 0;
       return `
         <button type="button" class="archive-item${archiveKey === state.selectedArchiveKey ? ' is-active' : ''}" data-archive="${escapeHtml(archiveKey)}" title="${escapeHtml(item.path || item.fileName)}">
           <div class="item-line">
             <span class="item-title">${escapeHtml(item.name || item.id || item.fileName)}</span>
-            <span class="pill ${isActive ? 'ok' : 'info'}">${isActive ? '当前引用' : escapeHtml(scopeLabel)}</span>
+            <span class="pill ${isActive ? 'ok' : 'info'}">${isActive ? '当前应用' : escapeHtml(scopeLabel)}</span>
           </div>
           <div class="item-line">
-            <span class="item-meta">${escapeHtml(item.fileName)}</span>
-            <span class="item-meta">${escapeHtml(formatBytes(item.size))}</span>
+            <span class="item-meta is-file">${escapeHtml(item.fileName)}</span>
+            <span class="item-meta is-strong">${escapeHtml(formatBytes(item.size))}</span>
           </div>
-          <div class="item-meta">${escapeHtml(updatedAt)}</div>
+          <div class="item-line">
+            <span class="item-meta">${escapeHtml(updatedAt)}</span>
+            <span class="item-meta is-strong">${sectionCount} 组 / ${item.localKeys || 0}+${item.sessionKeys || 0} 项</span>
+          </div>
         </button>
       `;
-    }).join('');
+      }).join('');
+    };
 
-    listElement.querySelectorAll('[data-archive]').forEach((button) => {
+    const localItems = state.archives.filter((item) => item.storageScope !== 'share');
+    const shareItems = state.archives.filter((item) => item.storageScope === 'share');
+    localListElement.innerHTML = renderItems(localItems, '暂无本机存档。');
+    shareListElement.innerHTML = renderItems(shareItems, '暂无共享存档。');
+    setText('local-archive-count', String(localItems.length));
+    setText('share-archive-count', String(shareItems.length));
+
+    document.querySelectorAll('[data-archive]').forEach((button) => {
       button.addEventListener('click', () => {
         state.selectedArchiveKey = button.getAttribute('data-archive');
         renderArchiveList();
@@ -349,7 +399,7 @@
     try {
       const payload = await fetchLocalBridgeJson('/local-data/now-storage');
       const hasArchive = Boolean(payload.archive);
-      setBadge('now-storage-badge', hasArchive ? '已同步' : '无快照', hasArchive ? 'ok' : 'warn');
+      setBadge('now-storage-badge', hasArchive ? '已同步' : '未同步', hasArchive ? 'ok' : 'warn');
       setText('metric-now-storage', hasArchive ? '可用' : '无');
       setText('metric-now-storage-foot', hasArchive ? `更新：${formatTime(payload.meta?.updatedAt || payload.state?.updatedAt)}` : '打开或刷新 Web 主界面后生成');
       return payload;
@@ -388,9 +438,9 @@
     renderArchiveList();
     const localCount = state.archives.filter((item) => item.storageScope !== 'share').length;
     const shareCount = state.archives.filter((item) => item.storageScope === 'share').length;
-    setText('archive-summary', `共 ${state.archives.length} 个存档；localdata ${localCount}；sharedata ${shareCount}`);
+    setText('archive-summary', `共 ${state.archives.length} 个；本机 ${localCount}；共享 ${shareCount}`);
     setBadge('archive-count-badge', String(state.archives.length), state.archives.length > 0 ? 'ok' : 'info');
-    setText('localdata-status', `当前引用：${state.activeArchiveKey || '未设置'}`);
+    setText('localdata-status', `当前应用：${state.activeArchiveKey || '未设置'}`);
     setText('metric-archives', String(state.archives.length));
     setText('metric-archives-foot', `local ${localCount} / share ${shareCount}`);
   };
@@ -401,40 +451,85 @@
       return;
     }
     const scope = storageScope === 'share' ? 'share' : 'local';
-    const scopeLabel = scope === 'share' ? 'sharedata' : 'localdata';
-    setText('localdata-status', `正在读取 now-storage 并保存到 ${scopeLabel}...`);
+    const scopeLabel = getScopeLabel(scope);
+    setText('localdata-status', `正在保存当前数据到${scopeLabel}...`);
 
     const nowStorage = await refreshNowStorage();
     if (!nowStorage.archive) {
-      setText('localdata-status', 'now-storage 还没有 Web 快照。请先打开或刷新浏览器 Web 主界面。');
-      appendLog(`数据存档 | 导出失败 | now-storage 无快照`);
-      return;
+      setText('localdata-status', '当前数据还没有同步。请先打开或刷新浏览器 Web 主界面。');
+      appendLog(`数据存档 | 保存失败 | 当前数据未同步`);
+      return null;
     }
 
-    const archive = cloneArchiveForSave(
+    const archive = createArchiveFromNowStorage(
       nowStorage.archive,
       $('archive-name')?.value.trim(),
       $('archive-desc')?.value.trim(),
+      scope,
     );
     const saved = await runtime.saveLocalDataArchive({ ...archive, storageScope: scope });
     if (!saved.ok) {
       setText('localdata-status', saved.error || '保存存档失败');
       appendLog(`数据存档 | 保存失败 | ${saved.error || '-'}`);
-      return;
+      return null;
     }
 
     state.selectedArchiveKey = saved.meta ? getArchiveKey(saved.meta) : null;
     state.activeArchiveKey = saved.state?.activeFileName
       ? `${saved.state?.activeStorageScope || scope}:${saved.state.activeFileName}`
       : state.selectedArchiveKey;
-    setText('localdata-status', `已保存到 ${scopeLabel}：${saved.meta?.fileName || saved.path || ''}`);
-    appendLog(`数据存档 | 已保存到 ${scopeLabel} | ${saved.path}`);
+    setText('localdata-status', `已保存到${scopeLabel}：${saved.meta?.fileName || saved.path || ''}`);
+    appendLog(`数据存档 | 已保存到${scopeLabel} | ${saved.path}`);
     await refreshArchives();
+    return saved;
   };
+
+  const saveCurrentNowStorageBeforeApply = async (storageScope, name, description) => {
+    if (!runtime?.saveLocalDataArchive) {
+      throw new Error('当前运行时不支持保存存档。');
+    }
+    const scope = storageScope === 'share' ? 'share' : 'local';
+    const scopeLabel = getScopeLabel(scope);
+    const nowStorage = await refreshNowStorage();
+    if (!nowStorage.archive) {
+      throw new Error('当前数据还没有同步，无法保存本次数据。');
+    }
+    const archive = createArchiveFromNowStorage(nowStorage.archive, name, description, scope, 'backup');
+    const saved = await runtime.saveLocalDataArchive({ ...archive, storageScope: scope });
+    if (!saved.ok) {
+      throw new Error(saved.error || '保存存档失败');
+    }
+    appendLog(`数据存档 | 应用前已保存当前数据到${scopeLabel} | ${saved.path || saved.meta?.fileName || ''}`);
+    await refreshArchives();
+    return saved;
+  };
+
+  const closeApplySaveModal = (result) => {
+    const modal = $('apply-save-modal');
+    modal?.classList.remove('is-open');
+    modal?.setAttribute('aria-hidden', 'true');
+    const resolve = state.pendingApplyResolve;
+    state.pendingApplyResolve = null;
+    if (resolve) {
+      resolve(result);
+    }
+  };
+
+  const askSaveBeforeApply = () => new Promise((resolve) => {
+    state.pendingApplyResolve = resolve;
+    const modal = $('apply-save-modal');
+    const nameInput = $('apply-save-name');
+    const descInput = $('apply-save-desc');
+    if (nameInput) nameInput.value = `应用前备份-${formatArchiveId('local', '', 'backup').replace(/^backup-/, '')}`;
+    if (descInput) descInput.value = '应用存档前自动保存的当前数据';
+    modal?.classList.add('is-open');
+    modal?.setAttribute('aria-hidden', 'false');
+    nameInput?.focus();
+  });
 
   const applyArchive = async () => {
     if (state.applyingArchive) {
-      setText('localdata-status', '正在写入 now-storage，请稍候。');
+      setText('localdata-status', '正在应用存档，请稍候。');
       return;
     }
     const selectedArchive = findSelectedArchive();
@@ -448,7 +543,7 @@
     }
 
     const sections = getCheckedSections();
-    setText('localdata-status', '正在读取存档并写入 now-storage...');
+    setText('localdata-status', '正在读取并应用存档...');
     const loaded = await runtime.readLocalDataArchive({
       fileName: selectedArchive.fileName,
       storageScope: selectedArchive.storageScope,
@@ -462,8 +557,20 @@
     const coveragePlan = getImportCoveragePlan(loaded.archive, sections);
     if (!coveragePlan.ok) {
       setText('localdata-status', coveragePlan.warning || '存档没有可导入分组。');
-      appendLog(`数据存档 | 导入预检失败 | ${getArchiveKey(selectedArchive)} | ${coveragePlan.warning || '-'}`);
+      appendLog(`数据存档 | 应用预检失败 | ${getArchiveKey(selectedArchive)} | ${coveragePlan.warning || '-'}`);
       return;
+    }
+
+    const saveDecision = await askSaveBeforeApply();
+    if (!saveDecision || saveDecision.action === 'cancel') {
+      setText('localdata-status', '已取消应用存档。');
+      return;
+    }
+    if (saveDecision.action === 'save') {
+      setText('localdata-status', '正在保存当前数据...');
+      await saveCurrentNowStorageBeforeApply(saveDecision.storageScope, saveDecision.name, saveDecision.description);
+    } else {
+      appendLog('数据存档 | 已跳过应用前保存当前数据');
     }
 
     state.applyingArchive = true;
@@ -482,10 +589,18 @@
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ forceApply: true }),
       });
+      await fetchLocalBridgeJson('/local-data/active', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          fileName: selectedArchive.fileName,
+          storageScope: selectedArchive.storageScope,
+        }),
+      });
       state.activeArchiveKey = getArchiveKey(selectedArchive);
       const notice = coveragePlan.warning ? `；${coveragePlan.warning}` : '';
-      setText('localdata-status', `已写入 now-storage；刷新浏览器 Web 主界面后生效；当前引用：${state.activeArchiveKey}${notice}`);
-      appendLog(`数据存档 | 已写入 now-storage | ${state.activeArchiveKey} | ${coveragePlan.sections.join(' / ')}${notice}`);
+      setText('localdata-status', `已应用到当前数据；刷新浏览器 Web 主界面后生效；当前应用：${state.activeArchiveKey}${notice}`);
+      appendLog(`数据存档 | 已应用存档 | ${state.activeArchiveKey} | ${coveragePlan.sections.join(' / ')}${notice}`);
       await refreshNowStorage();
       renderArchiveList();
     } finally {
@@ -643,6 +758,14 @@
     $('refresh-overview')?.addEventListener('click', () => {
       refreshOverview().catch((error) => appendLog(`刷新总览失败 | ${error instanceof Error ? error.message : String(error)}`));
     });
+    $('open-browser-web')?.addEventListener('click', async () => {
+      try {
+        const result = await fetchLocalBridgeJson('/open-browser-web', { method: 'POST' });
+        appendLog(`浏览器 Web | 已打开 | ${result.url || ''}`);
+      } catch (error) {
+        appendLog(`浏览器 Web | 打开失败 | ${error instanceof Error ? error.message : String(error)}`);
+      }
+    });
     $('refresh-ai-rest')?.addEventListener('click', () => {
       refreshAiRestStatus().catch((error) => appendLog(`AI REST 刷新失败 | ${error instanceof Error ? error.message : String(error)}`));
     });
@@ -658,22 +781,28 @@
     $('refresh-archives')?.addEventListener('click', () => {
       Promise.allSettled([refreshArchives(), refreshNowStorage()]).catch(() => {});
     });
+    document.querySelectorAll('[data-archive-filter]').forEach((button) => {
+      button.addEventListener('click', () => {
+        state.archiveFilter = button.getAttribute('data-archive-filter') || 'all';
+        renderArchiveList();
+      });
+    });
     $('export-archive-local')?.addEventListener('click', () => {
       exportArchive('local').catch((error) => {
         setText('localdata-status', error instanceof Error ? error.message : String(error));
-        appendLog(`数据存档 | 导出 localdata 失败 | ${error instanceof Error ? error.message : String(error)}`);
+        appendLog(`数据存档 | 保存到本机失败 | ${error instanceof Error ? error.message : String(error)}`);
       });
     });
     $('export-archive-share')?.addEventListener('click', () => {
       exportArchive('share').catch((error) => {
         setText('localdata-status', error instanceof Error ? error.message : String(error));
-        appendLog(`数据存档 | 导出 sharedata 失败 | ${error instanceof Error ? error.message : String(error)}`);
+        appendLog(`数据存档 | 保存到共享失败 | ${error instanceof Error ? error.message : String(error)}`);
       });
     });
     $('apply-archive')?.addEventListener('click', () => {
       applyArchive().catch((error) => {
         setText('localdata-status', error instanceof Error ? error.message : String(error));
-        appendLog(`数据存档 | 写入 now-storage 失败 | ${error instanceof Error ? error.message : String(error)}`);
+        appendLog(`数据存档 | 应用存档失败 | ${error instanceof Error ? error.message : String(error)}`);
       });
     });
     $('delete-archive')?.addEventListener('click', () => {
@@ -687,11 +816,11 @@
     });
     $('open-localdata')?.addEventListener('click', async () => {
       const result = await runtime?.revealLocalDataArchive?.({ storageScope: 'local' });
-      appendLog(result?.ok ? `数据存档 | 已打开 localdata | ${result.path || ''}` : `数据存档 | 打开 localdata 失败 | ${result?.error || '-'}`);
+      appendLog(result?.ok ? `数据存档 | 已打开本机目录 | ${result.path || ''}` : `数据存档 | 打开本机目录失败 | ${result?.error || '-'}`);
     });
     $('open-sharedata')?.addEventListener('click', async () => {
       const result = await runtime?.revealLocalDataArchive?.({ storageScope: 'share' });
-      appendLog(result?.ok ? `数据存档 | 已打开 sharedata | ${result.path || ''}` : `数据存档 | 打开 sharedata 失败 | ${result?.error || '-'}`);
+      appendLog(result?.ok ? `数据存档 | 已打开共享目录 | ${result.path || ''}` : `数据存档 | 打开共享目录失败 | ${result?.error || '-'}`);
     });
     $('refresh-images')?.addEventListener('click', () => {
       refreshImages().catch((error) => appendLog(`图片资产 | 刷新失败 | ${error instanceof Error ? error.message : String(error)}`));
@@ -716,6 +845,33 @@
         appendLog('Shell 窗口已隐藏，可从托盘重新打开。');
       } catch (error) {
         appendLog(`隐藏 Shell 失败 | ${error instanceof Error ? error.message : String(error)}`);
+      }
+    });
+    $('apply-save-cancel')?.addEventListener('click', () => {
+      closeApplySaveModal({ action: 'cancel' });
+    });
+    $('apply-save-skip')?.addEventListener('click', () => {
+      closeApplySaveModal({ action: 'skip' });
+    });
+    $('apply-save-local')?.addEventListener('click', () => {
+      closeApplySaveModal({
+        action: 'save',
+        storageScope: 'local',
+        name: $('apply-save-name')?.value.trim(),
+        description: $('apply-save-desc')?.value.trim(),
+      });
+    });
+    $('apply-save-share')?.addEventListener('click', () => {
+      closeApplySaveModal({
+        action: 'save',
+        storageScope: 'share',
+        name: $('apply-save-name')?.value.trim(),
+        description: $('apply-save-desc')?.value.trim(),
+      });
+    });
+    $('apply-save-modal')?.addEventListener('click', (event) => {
+      if (event.target === event.currentTarget) {
+        closeApplySaveModal({ action: 'cancel' });
       }
     });
   };

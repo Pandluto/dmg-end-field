@@ -533,6 +533,25 @@ function startBridgeServer() {
         return;
       }
 
+      if (method === 'POST' && requestUrl.pathname === '/local-data/active') {
+        const payload = await readJsonRequest(request);
+        const filePath = resolveLocalDataPath({
+          fileName: payload?.fileName,
+          id: payload?.id,
+          storageScope: payload?.storageScope,
+        });
+        const archive = readLocalDataArchiveFile(filePath);
+        const state = writeLocalDataState(path.basename(filePath), payload?.storageScope === 'share' ? 'share' : 'local');
+        writeJson(response, 200, {
+          ok: true,
+          path: filePath,
+          state,
+          archive,
+          meta: buildLocalDataMeta(filePath, archive),
+        });
+        return;
+      }
+
       if (method === 'GET' && requestUrl.pathname === '/local-data/read') {
         const fileName = requestUrl.searchParams.get('fileName') || undefined;
         const id = requestUrl.searchParams.get('id') || undefined;
@@ -595,14 +614,15 @@ function startBridgeServer() {
           return;
         }
         const { storageScope: requestedStorageScope, source, scope, ...archivePayload } = payload;
+        const storageScope = requestedStorageScope === 'local' || source === 'local' || scope === 'local' ? 'local' : 'share';
         const archive = {
           ...archivePayload,
           id: sanitizeArchiveId(payload.id || payload.name),
           name: typeof payload.name === 'string' && payload.name.trim()
             ? payload.name.trim()
             : sanitizeArchiveId(payload.id),
+          storageScope,
         };
-        const storageScope = requestedStorageScope === 'local' || source === 'local' || scope === 'local' ? 'local' : 'share';
         const filePath = resolveLocalDataPath({ id: archive.id, storageScope });
         fs.writeFileSync(filePath, `${JSON.stringify(archive, null, 2)}\n`, 'utf-8');
         const state = writeLocalDataState(path.basename(filePath), storageScope);
@@ -638,6 +658,13 @@ function startBridgeServer() {
             ...getShellRuntimeInfo(),
           },
         });
+        return;
+      }
+
+      if (method === 'POST' && requestUrl.pathname === '/open-browser-web') {
+        const url = isDev ? 'http://127.0.0.1:3030/' : `http://${BRIDGE_HOST}:${BRIDGE_PORT}/`;
+        await shell.openExternal(url);
+        writeJson(response, 200, { ok: true, url });
         return;
       }
 
@@ -1844,8 +1871,12 @@ function getNowStorageStatePath() {
 }
 
 function sanitizeArchiveId(value) {
-  const raw = typeof value === 'string' && value.trim() ? value.trim() : `localdata-${Date.now()}`;
-  return raw.replace(/[^a-zA-Z0-9._-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 80) || `localdata-${Date.now()}`;
+  const raw = typeof value === 'string' && value.trim() ? value.trim() : `archive-${Date.now()}`;
+  return raw
+    .replace(/[<>:"/\\|?*\x00-\x1F]+/g, '-')
+    .replace(/\s+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 120) || `archive-${Date.now()}`;
 }
 
 function ensureLocalDataDirectory() {
@@ -2158,12 +2189,13 @@ ipcMain.handle('desktop:save-local-data-archive', (_event, payload) => {
       return { ok: false, error: '存档 payload 无效' };
     }
     const { storageScope: requestedStorageScope, source, scope, ...archivePayload } = payload;
+    const storageScope = requestedStorageScope === 'local' || source === 'local' || scope === 'local' ? 'local' : 'share';
     const archive = {
       ...archivePayload,
       id: sanitizeArchiveId(payload.id || payload.name),
       name: typeof payload.name === 'string' && payload.name.trim() ? payload.name.trim() : sanitizeArchiveId(payload.id),
+      storageScope,
     };
-    const storageScope = requestedStorageScope === 'local' || source === 'local' || scope === 'local' ? 'local' : 'share';
     const filePath = resolveLocalDataPath({ id: archive.id, storageScope });
     fs.writeFileSync(filePath, `${JSON.stringify(archive, null, 2)}\n`, 'utf-8');
     const state = writeLocalDataState(path.basename(filePath), storageScope);

@@ -21,11 +21,16 @@
 - Electron 主进程已删除 `mainWindow` 相关创建、恢复、隐藏、Web preload bridge 和桌面主窗口 localdata 即时同步链路。
 - Web 主界面中的“桌面端未启动”文案已改为 Shell 语义。
 - 历史路由别名 `APP_ROUTE_ALIASES` 已删除。
-- Shell 控制台已全面升级为“总览 / 服务 / 数据 / 图片 / 模型 / 日志”结构。
+- Shell 控制台已全面升级为“总览 / 服务 / 数据 / 图片 / 日志”结构。
+- Shell 总览已新增“打开浏览器 Web”按钮，由本地 bridge 打开浏览器 Web 主界面。
 - Shell 默认窗口已从窄面板调整为 1120x760，最小尺寸调整为 900x640。
 - Shell 控制台已移除 MAA/捕获/探针相关入口、事件绑定、preload 暴露和主进程 IPC。
-- Shell 数据页已重排为“状态栏 / 存档列表 / 操作面板”，避免导出、导入、列表混在同一布局中。
-- 数据管理短期保留并重做为 now-storage 快照工作流：浏览器 Web 生成快照，Shell 存档/写回，刷新 Web 后应用。
+- Shell 数据页已重排为“状态栏 / 存档列表 / 操作面板”，避免保存、应用、列表混在同一布局中。
+- Shell 数据页用户口径已收敛为“当前数据 / 本机存档 / 共享存档”，不再在界面暴露 `localdata`、`sharedata`、`now-storage` 等实现名。
+- Shell 数据页已将本机存档 / 共享存档分栏展示，并支持全部 / 本机 / 共享筛选。
+- 应用存档前已新增确认弹窗，可选择先保存当前数据到本机/共享、跳过保存或取消应用。
+- 新存档文件名改为 `local-时间-名称.json`、`share-时间-名称.json`、`backup-时间-名称.json`；旧 `localdata-*.json` 继续兼容读取。
+- 数据管理短期保留并重做为“当前数据 + 存档管理器”工作流：浏览器 Web 同步当前数据，Shell 保存/应用存档，刷新 Web 后生效。
 - 图片管理短期保留为 Web 页面 + Shell 本地图片 bridge；Shell 控制台新增图片桥接状态和图片目录入口。
 - `@maaxyz/maa-node` 已从依赖移除，`native/win-capture-helper` 和旧 `electron/shell/index.html` 已删除。
 - Shell 模型接口页、Electron Ark/LLM IPC、Web GUI AI 填表入口和弹窗已删除；AI 填表后续收敛到 Agent CLI / AI REST。
@@ -144,7 +149,7 @@
 
 ### 5. Storage / localdata 同步机制
 
-状态：已从“Electron 主窗口即时同步”改为“浏览器 Web 快照 + Shell 存档/写回”的异步工作流，后续继续评估是否收敛成 Web API。
+状态：已从“Electron 主窗口即时同步”改为“当前数据 + Shell 存档管理器”的异步工作流。底层仍使用 now-storage 文件中转，但界面只表达当前数据、本机存档、共享存档。
 
 涉及位置：
 
@@ -153,24 +158,24 @@
 - `src/App.tsx`
 - `public/shell/index.html`
 - `public/shell/shell.js`
-- `electron/shell/index.html`
 - `data/localdata/`
 - `data/sharedata/`
 
 确认到的问题：
 
 - 当前没有活跃 `/storage` React 路由
-- 旧 storage 功能实际沉淀为 shell 的“数据管理”页
+- 旧 storage 功能实际沉淀为 Shell 的“数据存档”页
 - `src/main.tsx` 启动时仍执行 `bootstrapLocalDataBridge()`
-- `src/App.tsx` 仍安装 `installLocalDataBridge()`
 - localdata 机制依赖 `http://127.0.0.1:31457/local-data/...`
 - 存在 `now-storage.json`、`now-storage-state.json`、`active-localdata.json`
+- 用户可见命名已收敛，底层文件名和目录名保留用于兼容旧存档。
 
 建议动作：
 
 - 保留 `localDataBridge.ts` 的 now-storage 生成与应用能力
 - 删除或重命名旧“desktop import/export”语义
-- 保留 Shell 数据页，但只表达 now-storage 快照、localdata/sharedata 存档、刷新 Web 生效
+- 保留 Shell 数据页，但只表达当前数据、本机存档、共享存档、刷新 Web 生效
+- 新保存文件名使用 `local-...`、`share-...`、`backup-...` 前缀，避免资源管理器中全是 `localdata-*.json`
 - 清理 `data/localdata`、`data/sharedata` 中确认无用的运行态文件，不能直接删除用户存档
 
 保留项：

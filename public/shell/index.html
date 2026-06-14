@@ -7,7 +7,7 @@
     <style>
       :root {
         color-scheme: light;
-        font-family: "Segoe UI", "Microsoft YaHei", Arial, sans-serif;
+        font-family: "Microsoft YaHei UI", "Microsoft YaHei", "Segoe UI", Arial, sans-serif;
         background: #f5f3ee;
         color: #171717;
         --surface: #fffdf8;
@@ -38,7 +38,9 @@
         background:
           linear-gradient(180deg, rgba(255, 253, 248, 0.72), rgba(245, 243, 238, 0.92)),
           #f5f3ee;
-        font-size: 13px;
+        font-size: 14px;
+        -webkit-font-smoothing: antialiased;
+        text-rendering: optimizeLegibility;
         overflow: hidden;
       }
 
@@ -56,7 +58,7 @@
         background: transparent;
         color: var(--text);
         padding: 0 11px;
-        font-weight: 650;
+        font-weight: 700;
         cursor: default;
       }
 
@@ -260,16 +262,17 @@
 
       .page-title {
         margin: 4px 0 0;
-        font-size: 24px;
-        line-height: 1.15;
+        font-size: 25px;
+        line-height: 1.18;
+        font-weight: 850;
         letter-spacing: 0;
       }
 
       .page-desc {
         margin: 8px 0 0;
-        max-width: 680px;
+        max-width: 760px;
         color: var(--muted);
-        line-height: 1.55;
+        line-height: 1.65;
       }
 
       .toolbar {
@@ -360,7 +363,7 @@
       }
 
       .panel-title {
-        font-size: 15px;
+        font-size: 16px;
         font-weight: 800;
       }
 
@@ -396,8 +399,8 @@
       .metric-foot,
       .status-detail {
         color: var(--muted);
-        font-size: 12px;
-        line-height: 1.35;
+        font-size: 13px;
+        line-height: 1.45;
       }
 
       .status-top {
@@ -416,7 +419,7 @@
         border-radius: 999px;
         padding: 2px 8px;
         font-size: 11px;
-        font-weight: 800;
+        font-weight: 760;
         white-space: nowrap;
       }
 
@@ -494,13 +497,48 @@
         padding-right: 2px;
       }
 
+      .archive-filter-tabs {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        flex-wrap: wrap;
+      }
+
+      .filter-button.is-active {
+        background: #2b2924;
+        color: #fff;
+      }
+
+      .archive-columns {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 12px;
+      }
+
+      .archive-column {
+        min-width: 0;
+        display: grid;
+        gap: 8px;
+        align-content: start;
+      }
+
+      .archive-column-title {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        color: var(--muted);
+        font-size: 12px;
+        font-weight: 800;
+      }
+
       .archive-item,
       .asset-item {
         width: 100%;
-        min-height: 66px;
+        min-height: 92px;
         display: grid;
-        gap: 6px;
-        padding: 10px;
+        gap: 7px;
+        padding: 12px;
         text-align: left;
         box-shadow: none;
       }
@@ -516,7 +554,7 @@
         display: flex;
         align-items: center;
         justify-content: space-between;
-        gap: 10px;
+        gap: 12px;
         min-width: 0;
       }
 
@@ -525,17 +563,30 @@
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
-        font-weight: 800;
+        font-size: 15px;
+        line-height: 1.25;
+        font-weight: 780;
       }
 
       .item-meta {
         color: var(--muted);
         font-size: 12px;
-        line-height: 1.35;
+        line-height: 1.45;
         min-width: 0;
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
+      }
+
+      .item-meta.is-file {
+        color: #5f5a51;
+        font-family: Consolas, "Cascadia Mono", "Microsoft YaHei UI", monospace;
+        font-size: 11px;
+      }
+
+      .item-meta.is-strong {
+        color: #4c473f;
+        font-weight: 720;
       }
 
       .log,
@@ -576,6 +627,41 @@
         color: var(--muted);
         font-family: Consolas, "Cascadia Mono", monospace;
         font-size: 12px;
+      }
+
+      .modal-mask {
+        position: fixed;
+        inset: 0;
+        z-index: 80;
+        display: none;
+        place-items: center;
+        padding: 24px;
+        background: rgba(23, 23, 23, 0.34);
+      }
+
+      .modal-mask.is-open {
+        display: grid;
+      }
+
+      .modal {
+        width: min(560px, 100%);
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--surface);
+        box-shadow: 0 24px 64px rgba(23, 23, 23, 0.24);
+        padding: 16px;
+        display: grid;
+        gap: 14px;
+      }
+
+      .modal-title {
+        font-size: 16px;
+        font-weight: 850;
+      }
+
+      .modal-desc {
+        color: var(--muted);
+        line-height: 1.55;
       }
 
       @media (max-width: 920px) {
@@ -642,6 +728,7 @@
         .grid-3,
         .grid-4,
         .check-grid,
+        .archive-columns,
         .data-status-grid,
         .data-workbench {
           grid-template-columns: 1fr;
@@ -695,9 +782,10 @@
             <div>
               <div class="eyebrow">Console Overview</div>
               <h1 class="page-title">本地能力总览</h1>
-              <p class="page-desc">Shell 只负责本地桥接、数据存档、图片目录和 AI REST。Web 主界面在浏览器中运行，数据通过 now-storage 快照衔接。</p>
+              <p class="page-desc">Shell 只负责本地桥接、数据存档、图片目录和 AI REST。Web 主界面在浏览器中运行，数据由 Shell 统一同步和归档。</p>
             </div>
             <div class="toolbar">
+              <button id="open-browser-web" type="button" class="primary-button">打开浏览器 Web</button>
               <button id="refresh-overview" type="button" class="subtle-button">刷新总览</button>
               <button id="toggle-ai-rest-overview" type="button" class="primary-button">启动 AI REST</button>
             </div>
@@ -705,7 +793,7 @@
 
           <section class="grid-4">
             <article class="metric-card">
-              <div class="metric-label">本地存档</div>
+              <div class="metric-label">数据存档</div>
               <div class="metric-value" id="metric-archives">-</div>
               <div class="metric-foot" id="metric-archives-foot">读取中</div>
             </article>
@@ -720,7 +808,7 @@
               <div class="metric-foot" id="metric-agent-foot">等待 AI REST</div>
             </article>
             <article class="metric-card">
-              <div class="metric-label">Web 快照</div>
+              <div class="metric-label">当前数据</div>
               <div class="metric-value" id="metric-now-storage">-</div>
               <div class="metric-foot" id="metric-now-storage-foot">读取中</div>
             </article>
@@ -745,13 +833,13 @@
             <div class="panel-header">
               <div>
                 <div class="panel-title">当前工作流</div>
-                <div class="panel-help">Web 负责业务编辑，Shell 负责本地资源。导入数据后刷新 Web 主界面即可应用。</div>
+                <div class="panel-help">Web 负责业务编辑，Shell 负责本地资源。应用存档后刷新 Web 主界面即可生效。</div>
               </div>
             </div>
             <div class="grid-3">
-              <div class="empty-state">1. 在浏览器 Web 主界面编辑数据，Web 会写入 now-storage 快照。</div>
-              <div class="empty-state">2. 在 Shell 数据页导出快照，保存为 localdata 或 sharedata 存档。</div>
-              <div class="empty-state">3. 在 Shell 选择存档写回 now-storage，刷新 Web 后生效。</div>
+              <div class="empty-state">1. 在浏览器 Web 主界面编辑数据，Shell 会同步为当前数据。</div>
+              <div class="empty-state">2. 在 Shell 数据页把当前数据保存为本机存档或共享存档。</div>
+              <div class="empty-state">3. 在 Shell 选择存档并应用，刷新 Web 后生效。</div>
             </div>
           </section>
         </div>
@@ -809,29 +897,29 @@
         <div id="page-localdata" class="page">
           <header class="page-header">
             <div>
-              <div class="eyebrow">Local Data</div>
+              <div class="eyebrow">Archive Manager</div>
               <h1 class="page-title">数据存档</h1>
-              <p class="page-desc">当前 Electron 不再托管 Web 主界面，因此这里操作的是 Web 同步到本地桥的 now-storage 快照。导入后刷新浏览器 Web 即可应用。</p>
+              <p class="page-desc">这里管理浏览器 Web 的当前数据、个人备份和共享交接文件。日常只需要保存当前数据，或选择一个存档应用到 Web。</p>
             </div>
             <div class="toolbar">
-              <button id="open-localdata" type="button" class="subtle-button">打开 localdata</button>
-              <button id="open-sharedata" type="button" class="subtle-button">打开 sharedata</button>
+              <button id="open-localdata" type="button" class="subtle-button">打开本机目录</button>
+              <button id="open-sharedata" type="button" class="subtle-button">打开共享目录</button>
               <button id="refresh-archives" type="button">刷新</button>
             </div>
           </header>
 
           <section class="data-status-grid">
             <article class="status-card">
-              <div class="status-top"><span class="status-label">Web 快照</span><span class="badge warn" id="now-storage-badge">检测</span></div>
+              <div class="status-top"><span class="status-label">当前数据</span><span class="badge warn" id="now-storage-badge">检测</span></div>
               <div class="status-detail" id="localdata-status">等待操作</div>
             </article>
             <article class="status-card">
-              <div class="status-top"><span class="status-label">本地存档</span><span class="badge info" id="archive-count-badge">-</span></div>
+              <div class="status-top"><span class="status-label">存档数量</span><span class="badge info" id="archive-count-badge">-</span></div>
               <div class="status-detail" id="archive-summary">读取中</div>
             </article>
             <article class="status-card">
               <div class="status-top"><span class="status-label">当前选择</span><span class="badge info" id="selected-archive-badge">未选择</span></div>
-              <div class="status-detail selected-summary" id="selected-archive-summary">从下方列表选择一个存档后，可以定位、删除或写回 Web 快照。</div>
+              <div class="status-detail selected-summary" id="selected-archive-summary">从下方列表选择一个存档后，可以打开位置、删除或应用到当前数据。</div>
             </article>
           </section>
 
@@ -840,31 +928,45 @@
               <div class="panel-header">
                 <div>
                   <div class="panel-title">存档列表</div>
-                  <div class="panel-help">列表只负责选择存档；右侧负责对选中项执行操作。</div>
+                  <div class="panel-help">本机存档用于个人回退；共享存档用于复制、交接和版本沉淀。</div>
+                </div>
+                <div class="archive-filter-tabs">
+                  <button class="filter-button is-active" type="button" data-archive-filter="all">全部</button>
+                  <button class="filter-button" type="button" data-archive-filter="local">本机</button>
+                  <button class="filter-button" type="button" data-archive-filter="share">共享</button>
                 </div>
               </div>
-              <div class="archive-list" id="archive-list"></div>
+              <div class="archive-columns" id="archive-columns">
+                <div class="archive-column" data-archive-scope="local">
+                  <div class="archive-column-title"><span>本机存档</span><span class="pill info" id="local-archive-count">0</span></div>
+                  <div class="archive-list" id="archive-list-local"></div>
+                </div>
+                <div class="archive-column" data-archive-scope="share">
+                  <div class="archive-column-title"><span>共享存档</span><span class="pill info" id="share-archive-count">0</span></div>
+                  <div class="archive-list" id="archive-list-share"></div>
+                </div>
+              </div>
             </article>
 
             <article class="panel">
               <div class="panel-header">
                 <div>
                   <div class="panel-title">存档操作</div>
-                  <div class="panel-help">导出读取当前 Web 快照；导入会写入 now-storage，刷新浏览器 Web 后应用。</div>
+                  <div class="panel-help">保存会读取当前数据；应用会把选中存档设为 Web 下次刷新的数据。</div>
                 </div>
               </div>
               <div class="action-stack">
                 <div class="action-block">
-                  <div class="action-title">从 Web 快照保存</div>
+                  <div class="action-title">保存当前数据</div>
                   <input id="archive-name" type="text" placeholder="存档名称，留空自动生成" />
                   <textarea id="archive-desc" placeholder="备注，可选"></textarea>
                   <div class="toolbar">
-                    <button id="export-archive-local" type="button" class="primary-button">保存到 localdata</button>
-                    <button id="export-archive-share" type="button">保存到 sharedata</button>
+                    <button id="export-archive-local" type="button" class="primary-button">保存到本机</button>
+                    <button id="export-archive-share" type="button">保存到共享</button>
                   </div>
                 </div>
                 <div class="action-block">
-                  <div class="action-title">写回 Web 快照</div>
+                  <div class="action-title">应用选中存档</div>
                   <div class="check-grid" id="import-sections">
                     <label class="check-row"><input type="checkbox" value="operators" checked />干员</label>
                     <label class="check-row"><input type="checkbox" value="weapons" checked />武器</label>
@@ -874,8 +976,8 @@
                     <label class="check-row"><input type="checkbox" value="runtime" />运行缓存</label>
                   </div>
                   <div class="toolbar">
-                    <button id="apply-archive" type="button" class="primary-button">写入 now-storage</button>
-                    <button id="reveal-archive" type="button">定位选中</button>
+                    <button id="apply-archive" type="button" class="primary-button">应用这个存档</button>
+                    <button id="reveal-archive" type="button">打开所在位置</button>
                     <button id="delete-archive" type="button" class="danger-button">删除选中</button>
                   </div>
                 </div>
@@ -928,7 +1030,7 @@
             <div>
               <div class="eyebrow">Diagnostics</div>
               <h1 class="page-title">活动日志</h1>
-              <p class="page-desc">记录 Shell 初始化、桥接请求、数据导入导出与服务状态变化。</p>
+              <p class="page-desc">记录 Shell 初始化、桥接请求、数据保存应用与服务状态变化。</p>
             </div>
             <div class="toolbar">
               <button id="clear-log" type="button">清空日志</button>
@@ -940,6 +1042,23 @@
         </div>
       </section>
     </main>
+
+    <div class="modal-mask" id="apply-save-modal" aria-hidden="true">
+      <div class="modal" role="dialog" aria-modal="true" aria-labelledby="apply-save-title">
+        <div>
+          <div class="modal-title" id="apply-save-title">应用前是否保存当前数据？</div>
+          <div class="modal-desc">应用存档会替换 Web 下次刷新的数据。建议先保存当前数据，方便回退；也可以跳过保存直接应用。</div>
+        </div>
+        <input id="apply-save-name" type="text" placeholder="保存名称，留空自动生成" />
+        <textarea id="apply-save-desc" placeholder="备注，可选"></textarea>
+        <div class="toolbar">
+          <button id="apply-save-cancel" type="button">取消</button>
+          <button id="apply-save-skip" type="button">不保存，直接应用</button>
+          <button id="apply-save-local" type="button" class="primary-button">先保存到本机</button>
+          <button id="apply-save-share" type="button">先保存到共享</button>
+        </div>
+      </div>
+    </div>
 
     <script src="./shell.js?v=20260614-console-upgrade"></script>
   </body>
