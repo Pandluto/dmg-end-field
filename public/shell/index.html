@@ -3,13 +3,28 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>def shell</title>
+    <title>DEF Shell Console</title>
     <style>
       :root {
         color-scheme: light;
-        font-family: "Segoe UI", "Microsoft YaHei", sans-serif;
-        background: #fff;
-        color: #0f0f0f;
+        font-family: "Segoe UI", "Microsoft YaHei", Arial, sans-serif;
+        background: #f5f3ee;
+        color: #171717;
+        --surface: #fffdf8;
+        --surface-2: #f3f0e8;
+        --line: #dfdbd2;
+        --muted: #6d685f;
+        --text: #171717;
+        --ink: #22201c;
+        --green: #197447;
+        --green-bg: #e7f4ec;
+        --amber: #976100;
+        --amber-bg: #fff3d7;
+        --red: #ad2e24;
+        --red-bg: #fde8e5;
+        --blue: #2b5f8d;
+        --blue-bg: #e7f0f7;
+        --shadow: 0 18px 42px rgba(29, 24, 16, 0.08);
       }
 
       * {
@@ -19,348 +34,242 @@
       body {
         margin: 0;
         height: 100vh;
-        background: #fff;
-        font-size: 12px;
-        overflow: hidden;
-      }
-
-      .app-shell {
-        display: grid;
-        grid-template-columns: 176px minmax(0, 1fr);
-        height: 100vh;
-        overflow: hidden;
-      }
-
-      .sidebar {
-        padding: 14px 4px;
-        overflow-y: auto;
-      }
-
-      .close-mark {
-        width: 42px;
-        height: 32px;
-        display: grid;
-        place-items: center;
-        margin-bottom: 10px;
-        font-size: 20px;
-        line-height: 1;
-        border-radius: 8px;
-        cursor: default;
-      }
-
-      .close-mark:hover {
-        background: #f2f2f2;
-      }
-
-      .nav {
-        display: grid;
-        gap: 2px;
-      }
-
-      .nav-button {
-        width: 168px;
-        height: 36px;
-        border: 0;
-        border-radius: 8px;
-        background: transparent;
-        color: #222;
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        padding: 0 10px;
-        font: inherit;
+        min-width: 360px;
+        background:
+          linear-gradient(180deg, rgba(255, 253, 248, 0.72), rgba(245, 243, 238, 0.92)),
+          #f5f3ee;
         font-size: 13px;
-        font-weight: 400;
-        text-align: left;
-        white-space: nowrap;
+        overflow: hidden;
       }
 
-      .nav-button:hover,
-      .nav-button.is-active {
-        background: #f2f2f2;
-      }
-
-      .nav-icon {
-        width: 18px;
-        text-align: center;
-        font-size: 15px;
-        color: #111;
-      }
-
-      .main {
-        min-width: 0;
-        height: 100vh;
-        overflow-y: auto;
-        padding: 12px 18px 18px 18px;
-      }
-
-      .page {
-        display: none;
-        max-width: 480px;
-        min-height: calc(100vh - 30px);
-      }
-
-      .page.is-active {
-        display: block;
-      }
-
-      .page-title {
-        margin: 0;
-        height: 48px;
-        display: flex;
-        align-items: flex-start;
-        font-size: 20px;
-        font-weight: 600;
-      }
-
-      .section-block {
-        border-top: 1px solid #ececec;
-      }
-
-      .setting-row {
-        display: grid;
-        grid-template-columns: minmax(112px, 0.78fr) minmax(190px, 1.22fr);
-        gap: 12px;
-        align-items: center;
-        min-height: 50px;
-        padding: 8px 0;
-        border-bottom: 1px solid #f0f0f0;
-      }
-
-      .setting-row.is-tall {
-        align-items: start;
-      }
-
-      .setting-title {
-        font-size: 14px;
-        font-weight: 500;
-      }
-
-      .setting-help {
-        margin-top: 4px;
-        color: #777;
-        font-size: 11px;
-        line-height: 1.35;
-      }
-
-      .setting-control {
-        display: flex;
-        justify-content: flex-end;
-        align-items: center;
-        gap: 6px;
-        flex-wrap: wrap;
-        min-width: 0;
-        font-size: 12px;
-      }
-
-      .setting-control.stack {
-        display: grid;
-        justify-content: stretch;
-        justify-items: stretch;
-        gap: 8px;
+      button,
+      input,
+      textarea,
+      select {
+        font: inherit;
       }
 
       button {
-        min-height: 26px;
-        border: 0;
-        border-radius: 6px;
+        min-height: 32px;
+        border: 1px solid transparent;
+        border-radius: 8px;
         background: transparent;
-        color: #111;
-        padding: 0 8px;
-        font: inherit;
-        font-weight: 500;
+        color: var(--text);
+        padding: 0 11px;
+        font-weight: 650;
+        cursor: default;
       }
 
       button:hover {
-        background: #f2f2f2;
+        background: var(--surface-2);
+      }
+
+      button:disabled {
+        opacity: 0.45;
       }
 
       .primary-button {
-        background: #111;
+        background: var(--ink);
         color: #fff;
       }
 
       .primary-button:hover {
-        background: #222;
+        background: #37332c;
       }
 
       .danger-button {
-        color: #9b1c1c;
+        color: var(--red);
       }
 
-      .scale-button.is-active {
-        background: #111;
-        color: #fff;
+      .subtle-button {
+        border-color: var(--line);
+        background: rgba(255, 255, 255, 0.48);
       }
 
       input,
       textarea,
       select {
         width: 100%;
-        min-height: 28px;
-        border: 0;
-        border-radius: 6px;
-        background: #f7f7f7;
-        color: #111;
-        padding: 5px 7px;
-        font: inherit;
+        min-height: 34px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: #fff;
+        color: var(--text);
+        padding: 7px 9px;
+        outline: none;
       }
 
       textarea {
-        min-height: 46px;
+        min-height: 72px;
         resize: vertical;
       }
 
-      .inline-input {
-        max-width: 220px;
+      input:focus,
+      textarea:focus,
+      select:focus {
+        border-color: #9b9589;
+        box-shadow: 0 0 0 3px rgba(151, 97, 0, 0.12);
       }
 
-      .check-grid {
+      .app-shell {
         display: grid;
-        grid-template-columns: repeat(3, minmax(0, 1fr));
-        gap: 6px;
+        grid-template-columns: 236px minmax(0, 1fr);
+        height: 100vh;
+        overflow: hidden;
       }
 
-      .check-row {
-        display: flex;
-        align-items: center;
-        gap: 6px;
-        min-height: 28px;
-        padding: 4px 6px;
-        border-radius: 6px;
-        background: #f7f7f7;
-        font-size: 11px;
-      }
-
-      .check-row input {
-        width: auto;
-        min-height: auto;
-      }
-
-      .status {
-        color: #777;
-        font-size: 11px;
-        line-height: 1.4;
-        text-align: right;
-      }
-
-      .archive-list {
-        display: grid;
-        gap: 4px;
-        max-height: 280px;
-        overflow-x: hidden;
-        overflow-y: auto;
-        padding-right: 2px;
-      }
-
-      .archive-item {
-        width: 100%;
+      .sidebar {
         min-width: 0;
+        border-right: 1px solid var(--line);
+        background: rgba(255, 253, 248, 0.84);
+        padding: 14px 12px;
+        display: grid;
+        grid-template-rows: auto 1fr auto;
+        gap: 16px;
+        overflow: hidden;
+      }
+
+      .brand {
+        display: grid;
+        grid-template-columns: 38px minmax(0, 1fr);
+        gap: 10px;
+        align-items: center;
+        min-height: 44px;
+      }
+
+      .close-mark {
+        width: 38px;
+        height: 34px;
         min-height: 34px;
-        height: auto;
-        padding: 5px 8px;
-        border-radius: 6px;
-        text-align: left;
+        border: 0;
+        padding: 0;
         background: transparent;
+        border-radius: 8px;
+        display: grid;
+        place-items: center;
+        color: var(--muted);
+        font-size: 20px;
       }
 
-      .archive-item.is-active,
-      .archive-item:hover {
-        background: #f2f2f2;
+      .close-mark:hover {
+        background: var(--surface-2);
       }
 
-      .archive-title {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        gap: 8px;
-        font-size: 12px;
-        font-weight: 600;
+      .brand-title {
         min-width: 0;
+        font-size: 14px;
+        font-weight: 800;
+        letter-spacing: 0;
       }
 
-      .archive-name {
-        display: flex;
-        align-items: center;
-        gap: 5px;
-        min-width: 0;
+      .brand-subtitle {
+        margin-top: 2px;
+        color: var(--muted);
+        font-size: 11px;
+        white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
-        white-space: nowrap;
       }
 
-      .archive-scope,
-      .archive-current {
-        flex: 0 0 auto;
-        min-height: 15px;
-        padding: 0 5px;
-        border-radius: 4px;
-        background: #e8f0e8;
-        color: #28602a;
-        font-size: 10px;
-        font-weight: 600;
+      .nav {
+        display: grid;
+        align-content: start;
+        gap: 4px;
+        overflow-y: auto;
       }
 
-      .archive-current {
-        background: #111;
+      .nav-button {
+        width: 100%;
+        height: 38px;
+        display: grid;
+        grid-template-columns: 22px minmax(0, 1fr) auto;
+        align-items: center;
+        gap: 8px;
+        padding: 0 10px;
+        border-radius: 8px;
+        text-align: left;
+        font-weight: 650;
+      }
+
+      .nav-button.is-active {
+        background: var(--ink);
         color: #fff;
       }
 
-      .archive-size {
-        flex: 0 0 auto;
-        color: #222;
-        font-variant-numeric: tabular-nums;
+      .nav-icon {
+        width: 22px;
+        height: 22px;
+        display: grid;
+        place-items: center;
+        border-radius: 6px;
+        background: rgba(34, 32, 28, 0.08);
+        color: inherit;
+        font-size: 12px;
       }
 
-      .archive-meta {
-        display: flex;
-        justify-content: space-between;
+      .nav-button.is-active .nav-icon {
+        background: rgba(255, 255, 255, 0.16);
+      }
+
+      .sidebar-footer {
+        display: grid;
         gap: 8px;
-        margin-top: 2px;
-        color: #777;
-        font-size: 10px;
-        line-height: 1.25;
-        min-width: 0;
+        padding-top: 12px;
+        border-top: 1px solid var(--line);
       }
 
-      .archive-file,
-      .archive-time {
-        min-width: 0;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-      }
-
-      .archive-time {
-        flex: 0 0 auto;
-      }
-
-      .capture-preview {
-        width: 100%;
-        min-height: 130px;
-        max-height: 220px;
-        object-fit: contain;
-        background: #f7f7f7;
-        border-radius: 6px;
-      }
-
-      .capture-meta,
-      .log,
-      .llm-output {
-        min-height: 48px;
-        max-height: 160px;
-        overflow: auto;
-        padding: 6px;
-        border-radius: 6px;
-        background: #f7f7f7;
-        color: #555;
-        white-space: pre-wrap;
+      .mini-status {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        color: var(--muted);
         font-size: 11px;
-        line-height: 1.4;
       }
 
-      .log-card.is-collapsed .log {
+      .main {
+        min-width: 0;
+        height: 100vh;
+        overflow-y: auto;
+        padding: 22px;
+      }
+
+      .page {
         display: none;
+        width: min(1280px, 100%);
+        margin: 0 auto;
+      }
+
+      .page.is-active {
+        display: grid;
+        gap: 18px;
+      }
+
+      .page-header {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        align-items: end;
+        gap: 16px;
+      }
+
+      .eyebrow {
+        color: var(--muted);
+        font-size: 12px;
+        font-weight: 750;
+      }
+
+      .page-title {
+        margin: 4px 0 0;
+        font-size: 24px;
+        line-height: 1.15;
+        letter-spacing: 0;
+      }
+
+      .page-desc {
+        margin: 8px 0 0;
+        max-width: 680px;
+        color: var(--muted);
+        line-height: 1.55;
       }
 
       .toolbar {
@@ -371,37 +280,374 @@
         flex-wrap: wrap;
       }
 
-      @media (max-width: 560px) {
+      .grid-2,
+      .grid-3,
+      .grid-4 {
+        display: grid;
+        gap: 12px;
+      }
+
+      .grid-2 {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .grid-3 {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+      }
+
+      .grid-4 {
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+      }
+
+      .data-status-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr 1.35fr;
+        gap: 12px;
+      }
+
+      .data-workbench {
+        display: grid;
+        grid-template-columns: minmax(360px, 1fr) minmax(360px, 0.9fr);
+        gap: 14px;
+        align-items: start;
+      }
+
+      .action-stack {
+        display: grid;
+        gap: 12px;
+      }
+
+      .action-block {
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: rgba(255, 255, 255, 0.5);
+        padding: 12px;
+        display: grid;
+        gap: 10px;
+      }
+
+      .action-title {
+        font-weight: 820;
+      }
+
+      .selected-summary {
+        display: grid;
+        gap: 6px;
+      }
+
+      .panel,
+      .metric-card,
+      .status-card,
+      .archive-item,
+      .asset-item {
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--surface);
+        box-shadow: var(--shadow);
+      }
+
+      .panel {
+        padding: 16px;
+        display: grid;
+        gap: 14px;
+      }
+
+      .panel-header {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: 12px;
+        align-items: start;
+      }
+
+      .panel-title {
+        font-size: 15px;
+        font-weight: 800;
+      }
+
+      .panel-help {
+        margin-top: 4px;
+        color: var(--muted);
+        line-height: 1.45;
+      }
+
+      .metric-card,
+      .status-card {
+        padding: 13px;
+        min-height: 104px;
+        display: grid;
+        align-content: space-between;
+        gap: 10px;
+      }
+
+      .metric-label,
+      .status-label {
+        color: var(--muted);
+        font-size: 12px;
+        font-weight: 700;
+      }
+
+      .metric-value {
+        font-size: 24px;
+        font-weight: 850;
+        line-height: 1.1;
+        word-break: break-word;
+      }
+
+      .metric-foot,
+      .status-detail {
+        color: var(--muted);
+        font-size: 12px;
+        line-height: 1.35;
+      }
+
+      .status-top {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+      }
+
+      .badge,
+      .pill {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 22px;
+        border-radius: 999px;
+        padding: 2px 8px;
+        font-size: 11px;
+        font-weight: 800;
+        white-space: nowrap;
+      }
+
+      .badge.ok,
+      .pill.ok {
+        background: var(--green-bg);
+        color: var(--green);
+      }
+
+      .badge.warn,
+      .pill.warn {
+        background: var(--amber-bg);
+        color: var(--amber);
+      }
+
+      .badge.err,
+      .pill.err {
+        background: var(--red-bg);
+        color: var(--red);
+      }
+
+      .badge.info,
+      .pill.info {
+        background: var(--blue-bg);
+        color: var(--blue);
+      }
+
+      .form-grid {
+        display: grid;
+        grid-template-columns: minmax(160px, 0.55fr) minmax(240px, 1fr);
+        gap: 12px 16px;
+        align-items: start;
+      }
+
+      .field-label {
+        font-weight: 760;
+      }
+
+      .field-help {
+        margin-top: 4px;
+        color: var(--muted);
+        font-size: 12px;
+        line-height: 1.4;
+      }
+
+      .check-grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 8px;
+      }
+
+      .check-row {
+        min-height: 34px;
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        padding: 6px 8px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: #fff;
+        font-weight: 650;
+      }
+
+      .check-row input {
+        width: auto;
+        min-height: auto;
+      }
+
+      .archive-list,
+      .asset-list {
+        display: grid;
+        gap: 8px;
+        max-height: 380px;
+        overflow: auto;
+        padding-right: 2px;
+      }
+
+      .archive-item,
+      .asset-item {
+        width: 100%;
+        min-height: 66px;
+        display: grid;
+        gap: 6px;
+        padding: 10px;
+        text-align: left;
+        box-shadow: none;
+      }
+
+      .archive-item.is-active,
+      .archive-item:hover,
+      .asset-item:hover {
+        border-color: #bdb6aa;
+        background: #fffaf0;
+      }
+
+      .item-line {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        min-width: 0;
+      }
+
+      .item-title {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        font-weight: 800;
+      }
+
+      .item-meta {
+        color: var(--muted);
+        font-size: 12px;
+        line-height: 1.35;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .log,
+      .code-output {
+        min-height: 160px;
+        max-height: 360px;
+        overflow: auto;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: #171717;
+        color: #f6f1e8;
+        padding: 10px;
+        white-space: pre-wrap;
+        font-family: Consolas, "Cascadia Mono", monospace;
+        font-size: 12px;
+        line-height: 1.45;
+      }
+
+      .code-output {
+        background: #fff;
+        color: var(--text);
+      }
+
+      .empty-state {
+        border: 1px dashed #c9c2b6;
+        border-radius: 8px;
+        padding: 14px;
+        color: var(--muted);
+        background: rgba(255, 253, 248, 0.52);
+        line-height: 1.5;
+      }
+
+      .copy-line {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        color: var(--muted);
+        font-family: Consolas, "Cascadia Mono", monospace;
+        font-size: 12px;
+      }
+
+      @media (max-width: 920px) {
         .app-shell {
           grid-template-columns: 1fr;
+          grid-template-rows: auto minmax(0, 1fr);
         }
 
         .sidebar {
+          display: grid;
+          grid-template-columns: minmax(170px, auto) 1fr;
+          grid-template-rows: auto;
+          gap: 10px;
           border-right: 0;
-          border-bottom: 1px solid #eee;
+          border-bottom: 1px solid var(--line);
           padding: 10px;
-          overflow: visible;
         }
 
         .nav {
-          grid-template-columns: repeat(2, minmax(0, 1fr));
+          grid-template-columns: repeat(3, minmax(0, 1fr));
+          overflow: visible;
         }
 
-        .nav-button {
-          width: 100%;
-          font-size: 16px;
+        .sidebar-footer {
+          display: none;
         }
 
         .main {
-          padding: 12px;
+          height: auto;
+          padding: 16px;
         }
 
-        .setting-row {
+        .grid-3,
+        .grid-4,
+        .data-status-grid {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+
+        .data-workbench {
           grid-template-columns: 1fr;
-          gap: 8px;
+        }
+      }
+
+      @media (max-width: 640px) {
+        body {
+          overflow: auto;
         }
 
-        .setting-control {
+        .app-shell {
+          min-height: 100vh;
+          height: auto;
+          overflow: visible;
+        }
+
+        .sidebar,
+        .page-header,
+        .panel-header,
+        .form-grid {
+          grid-template-columns: 1fr;
+        }
+
+        .nav,
+        .grid-2,
+        .grid-3,
+        .grid-4,
+        .check-grid,
+        .data-status-grid,
+        .data-workbench {
+          grid-template-columns: 1fr;
+        }
+
+        .toolbar {
           justify-content: flex-start;
         }
       }
@@ -410,250 +656,291 @@
   <body>
     <main class="app-shell">
       <aside class="sidebar">
-        <div class="close-mark">×</div>
-        <nav class="nav">
-          <button class="nav-button is-active" type="button" data-page="localdata"><span class="nav-icon">▦</span>数据管理</button>
-          <button class="nav-button" type="button" data-page="capture"><span class="nav-icon">□</span>捕获</button>
-          <button class="nav-button" type="button" data-page="runtime"><span class="nav-icon">⚙</span>运行时</button>
-          <button class="nav-button" type="button" data-page="agent"><span class="nav-icon">⌁</span>Agent</button>
-          <button class="nav-button" type="button" data-page="model"><span class="nav-icon">✦</span>模型接口</button>
-          <button class="nav-button" type="button" data-page="log"><span class="nav-icon">≡</span>活动日志</button>
+        <div class="brand">
+          <button class="close-mark" id="hide-shell" type="button" title="隐藏 Shell">×</button>
+          <div>
+            <div class="brand-title">DEF Shell</div>
+            <div class="brand-subtitle" id="host-summary">本地控制台</div>
+          </div>
+        </div>
+
+        <nav class="nav" aria-label="Shell console navigation">
+          <button class="nav-button is-active" type="button" data-page="overview">
+            <span class="nav-icon">01</span><span>总览</span><span class="badge info" id="nav-health-badge">检测</span>
+          </button>
+          <button class="nav-button" type="button" data-page="services">
+            <span class="nav-icon">02</span><span>服务</span>
+          </button>
+          <button class="nav-button" type="button" data-page="localdata">
+            <span class="nav-icon">03</span><span>数据</span>
+          </button>
+          <button class="nav-button" type="button" data-page="images">
+            <span class="nav-icon">04</span><span>图片</span>
+          </button>
+          <button class="nav-button" type="button" data-page="log">
+            <span class="nav-icon">05</span><span>日志</span>
+          </button>
         </nav>
+
+        <div class="sidebar-footer">
+          <div class="mini-status"><span>Shell</span><span class="pill warn" id="shell-mini-status">启动中</span></div>
+          <div class="mini-status"><span>AI REST</span><span class="pill warn" id="ai-mini-status">检测中</span></div>
+          <button id="quit-app" type="button" class="danger-button subtle-button">完全关闭 Shell</button>
+        </div>
       </aside>
 
       <section class="main">
-        <div id="page-localdata" class="page is-active">
-          <h1 class="page-title">数据管理</h1>
-          <div class="section-block">
-            <div class="setting-row">
+        <div id="page-overview" class="page is-active">
+          <header class="page-header">
+            <div>
+              <div class="eyebrow">Console Overview</div>
+              <h1 class="page-title">本地能力总览</h1>
+              <p class="page-desc">Shell 只负责本地桥接、数据存档、图片目录和 AI REST。Web 主界面在浏览器中运行，数据通过 now-storage 快照衔接。</p>
+            </div>
+            <div class="toolbar">
+              <button id="refresh-overview" type="button" class="subtle-button">刷新总览</button>
+              <button id="toggle-ai-rest-overview" type="button" class="primary-button">启动 AI REST</button>
+            </div>
+          </header>
+
+          <section class="grid-4">
+            <article class="metric-card">
+              <div class="metric-label">本地存档</div>
+              <div class="metric-value" id="metric-archives">-</div>
+              <div class="metric-foot" id="metric-archives-foot">读取中</div>
+            </article>
+            <article class="metric-card">
+              <div class="metric-label">图片资产</div>
+              <div class="metric-value" id="metric-images">-</div>
+              <div class="metric-foot" id="metric-images-foot">读取中</div>
+            </article>
+            <article class="metric-card">
+              <div class="metric-label">Agent 记录</div>
+              <div class="metric-value" id="metric-agent">-</div>
+              <div class="metric-foot" id="metric-agent-foot">等待 AI REST</div>
+            </article>
+            <article class="metric-card">
+              <div class="metric-label">Web 快照</div>
+              <div class="metric-value" id="metric-now-storage">-</div>
+              <div class="metric-foot" id="metric-now-storage-foot">读取中</div>
+            </article>
+          </section>
+
+          <section class="grid-3">
+            <article class="status-card">
+              <div class="status-top"><span class="status-label">Shell Bridge</span><span class="badge warn" id="shell-status-badge">检测</span></div>
+              <div class="status-detail" id="shell-status-detail">正在读取本机桥接状态</div>
+            </article>
+            <article class="status-card">
+              <div class="status-top"><span class="status-label">AI REST</span><span class="badge warn" id="ai-rest-badge">检测</span></div>
+              <div class="status-detail" id="ai-rest-status">检测中</div>
+            </article>
+            <article class="status-card">
+              <div class="status-top"><span class="status-label">图片桥接</span><span class="badge warn" id="image-bridge-badge">检测</span></div>
+              <div class="status-detail" id="image-bridge-detail">正在读取图片目录能力</div>
+            </article>
+          </section>
+
+          <section class="panel">
+            <div class="panel-header">
               <div>
-                <div class="setting-title">存档名称</div>
-                <div class="setting-help">导出 Web storage 并保存为桌面端当前数据组。</div>
-              </div>
-              <div class="setting-control">
-                <input id="archive-name" class="inline-input" type="text" placeholder="例如：狼卫-Q轴-导电测试" />
+                <div class="panel-title">当前工作流</div>
+                <div class="panel-help">Web 负责业务编辑，Shell 负责本地资源。导入数据后刷新 Web 主界面即可应用。</div>
               </div>
             </div>
-            <div class="setting-row is-tall">
-              <div>
-                <div class="setting-title">备注</div>
-                <div class="setting-help">记录版本、用途、改动范围。</div>
-              </div>
-              <div class="setting-control stack">
-                <textarea id="archive-desc" placeholder="可选"></textarea>
-              </div>
+            <div class="grid-3">
+              <div class="empty-state">1. 在浏览器 Web 主界面编辑数据，Web 会写入 now-storage 快照。</div>
+              <div class="empty-state">2. 在 Shell 数据页导出快照，保存为 localdata 或 sharedata 存档。</div>
+              <div class="empty-state">3. 在 Shell 选择存档写回 now-storage，刷新 Web 后生效。</div>
             </div>
-            <div class="setting-row is-tall">
-              <div>
-                <div class="setting-title">导出分组</div>
-                <div class="setting-help">导出 Electron 托管 Web 的 localStorage/sessionStorage。</div>
-              </div>
-              <div class="setting-control stack">
-                <div class="check-grid" id="export-sections">
-                  <label class="check-row"><input type="checkbox" value="operators" checked />干员</label>
-                  <label class="check-row"><input type="checkbox" value="weapons" checked />武器</label>
-                  <label class="check-row"><input type="checkbox" value="equipments" checked />装备</label>
-                  <label class="check-row"><input type="checkbox" value="buffs" checked />Buff</label>
-                  <label class="check-row"><input type="checkbox" value="timeline" checked />排轴</label>
-                  <label class="check-row"><input type="checkbox" value="runtime" />运行缓存</label>
-                </div>
-              </div>
-            </div>
-            <div class="setting-row">
-              <div>
-                <div class="setting-title">Web 当前数据</div>
-                <div class="setting-help">导出后同时更新桌面端当前数据组引用。</div>
-              </div>
-              <div class="setting-control">
-                <button id="open-localdata" type="button">打开目录</button>
-                <button id="refresh-archives" type="button">刷新</button>
-                <button id="export-archive-local" type="button" class="primary-button">导出到 local</button>
-                <button id="export-archive-share" type="button">导出到 share</button>
-              </div>
-            </div>
-            <div class="setting-row is-tall">
-              <div>
-                <div class="setting-title">存档列表</div>
-                <div class="setting-help" id="localdata-status">等待操作</div>
-              </div>
-              <div class="setting-control stack">
-                <div class="archive-list" id="archive-list"></div>
-              </div>
-            </div>
-            <div class="setting-row is-tall">
-              <div>
-                <div class="setting-title">导入分组</div>
-                <div class="setting-help">只替换 Web 中勾选的数据分组。</div>
-              </div>
-              <div class="setting-control stack">
-                <div class="check-grid" id="import-sections">
-                  <label class="check-row"><input type="checkbox" value="operators" checked />干员</label>
-                  <label class="check-row"><input type="checkbox" value="weapons" checked />武器</label>
-                  <label class="check-row"><input type="checkbox" value="equipments" checked />装备</label>
-                  <label class="check-row"><input type="checkbox" value="buffs" checked />Buff</label>
-                  <label class="check-row"><input type="checkbox" value="timeline" checked />排轴</label>
-                  <label class="check-row"><input type="checkbox" value="runtime" />运行缓存</label>
-                </div>
-              </div>
-            </div>
-            <div class="setting-row">
-              <div>
-                <div class="setting-title">同步替换</div>
-                <div class="setting-help">读取选中 JSON，替换 Web 数据并更新桌面端当前引用。</div>
-              </div>
-              <div class="setting-control">
-                <button id="delete-archive" type="button" class="danger-button">删除存档</button>
-                <button id="apply-archive" type="button" class="primary-button">同步替换</button>
-              </div>
-            </div>
-          </div>
+          </section>
         </div>
 
-        <div id="page-capture" class="page">
-          <h1 class="page-title">捕获</h1>
-          <div class="section-block">
-            <div class="setting-row is-tall">
-              <div>
-                <div class="setting-title">窗口源</div>
-                <div class="setting-help">只列出标题命中 EndField 的窗口。</div>
-              </div>
-              <div class="setting-control stack">
-                <select id="capture-source-select">
-                  <option value="">请选择窗口或屏幕源</option>
-                </select>
-                <div class="toolbar">
-                  <button type="button" id="refresh-capture-sources">刷新</button>
-                  <button type="button" id="start-capture-session" class="primary-button">开始捕获</button>
-                  <button type="button" id="stop-capture-session">停止捕获</button>
+        <div id="page-services" class="page">
+          <header class="page-header">
+            <div>
+              <div class="eyebrow">Services</div>
+              <h1 class="page-title">服务与 Agent</h1>
+              <p class="page-desc">管理本地 AI REST 服务，查看 Agent 会话和操作记录。</p>
+            </div>
+            <div class="toolbar">
+              <button id="refresh-ai-rest" type="button" class="subtle-button">刷新服务</button>
+              <button id="toggle-ai-rest" type="button" class="primary-button">启动</button>
+            </div>
+          </header>
+
+          <section class="grid-2">
+            <article class="panel">
+              <div class="panel-header">
+                <div>
+                  <div class="panel-title">AI REST</div>
+                  <div class="panel-help">为 Web 主界面和 Agent 提供本地 API。</div>
                 </div>
-                <div class="capture-meta" id="capture-meta">
-                  <div>会话状态：未绑定窗口</div>
+                <span class="badge warn" id="ai-rest-service-badge">检测</span>
+              </div>
+              <div class="copy-line" id="ai-rest-url">http://127.0.0.1:17321</div>
+              <div class="empty-state">AI REST 是 Shell 对 Web 和 Agent 暴露的本地服务入口。这里仅保留服务启停、地址状态和访问记录。</div>
+            </article>
+
+            <article class="panel">
+              <div class="panel-header">
+                <div>
+                  <div class="panel-title">Agent 记录</div>
+                  <div class="panel-help">读取 AI REST 的操作日志和最近会话。</div>
                 </div>
-                <img id="capture-preview" class="capture-preview" alt="捕获预览" />
-                <div class="status" id="capture-status">空闲</div>
+                <button id="refresh-agent-records" type="button" class="subtle-button">刷新</button>
               </div>
-            </div>
-          </div>
+              <div class="empty-state" id="agent-records-status">等待刷新</div>
+            </article>
+          </section>
+
+          <section class="grid-2">
+            <article class="panel">
+              <div class="panel-header"><div><div class="panel-title">操作日志</div><div class="panel-help">client、command、成功状态和写入范围。</div></div></div>
+              <div class="code-output" id="agent-operation-logs">暂无记录</div>
+            </article>
+            <article class="panel">
+              <div class="panel-header"><div><div class="panel-title">会话</div><div class="panel-help">最近 session、状态和消息数。</div></div></div>
+              <div class="code-output" id="agent-sessions">暂无会话</div>
+            </article>
+          </section>
         </div>
 
-        <div id="page-runtime" class="page">
-          <h1 class="page-title">运行时</h1>
-          <div class="section-block">
-            <div class="setting-row">
-              <div><div class="setting-title">打开主界面</div><div class="setting-help">恢复 Electron 托管的 web 窗口。</div></div>
-              <div class="setting-control"><button id="open-web" type="button">打开主界面</button></div>
+        <div id="page-localdata" class="page">
+          <header class="page-header">
+            <div>
+              <div class="eyebrow">Local Data</div>
+              <h1 class="page-title">数据存档</h1>
+              <p class="page-desc">当前 Electron 不再托管 Web 主界面，因此这里操作的是 Web 同步到本地桥的 now-storage 快照。导入后刷新浏览器 Web 即可应用。</p>
             </div>
-            <div class="setting-row">
-              <div><div class="setting-title">AI REST</div><div class="setting-help">管理本地 AI CLI REST 服务。</div></div>
-              <div class="setting-control">
-                <button id="refresh-ai-rest" type="button">刷新</button>
-                <button id="toggle-ai-rest" type="button" class="primary-button">启动</button>
-                <div class="status" id="ai-rest-status">检测中</div>
+            <div class="toolbar">
+              <button id="open-localdata" type="button" class="subtle-button">打开 localdata</button>
+              <button id="open-sharedata" type="button" class="subtle-button">打开 sharedata</button>
+              <button id="refresh-archives" type="button">刷新</button>
+            </div>
+          </header>
+
+          <section class="data-status-grid">
+            <article class="status-card">
+              <div class="status-top"><span class="status-label">Web 快照</span><span class="badge warn" id="now-storage-badge">检测</span></div>
+              <div class="status-detail" id="localdata-status">等待操作</div>
+            </article>
+            <article class="status-card">
+              <div class="status-top"><span class="status-label">本地存档</span><span class="badge info" id="archive-count-badge">-</span></div>
+              <div class="status-detail" id="archive-summary">读取中</div>
+            </article>
+            <article class="status-card">
+              <div class="status-top"><span class="status-label">当前选择</span><span class="badge info" id="selected-archive-badge">未选择</span></div>
+              <div class="status-detail selected-summary" id="selected-archive-summary">从下方列表选择一个存档后，可以定位、删除或写回 Web 快照。</div>
+            </article>
+          </section>
+
+          <section class="data-workbench">
+            <article class="panel">
+              <div class="panel-header">
+                <div>
+                  <div class="panel-title">存档列表</div>
+                  <div class="panel-help">列表只负责选择存档；右侧负责对选中项执行操作。</div>
+                </div>
               </div>
-            </div>
-            <div class="setting-row">
-              <div><div class="setting-title">桌面倍率</div><div class="setting-help">保存后下次启动生效。</div></div>
-              <div class="setting-control">
-                <button type="button" class="scale-button" data-scale="1x">1x</button>
-                <button type="button" class="scale-button" data-scale="1.25x">1.25x</button>
-                <button type="button" class="scale-button" data-scale="1.5x">1.5x</button>
+              <div class="archive-list" id="archive-list"></div>
+            </article>
+
+            <article class="panel">
+              <div class="panel-header">
+                <div>
+                  <div class="panel-title">存档操作</div>
+                  <div class="panel-help">导出读取当前 Web 快照；导入会写入 now-storage，刷新浏览器 Web 后应用。</div>
+                </div>
               </div>
-            </div>
-            <div class="setting-row">
-              <div><div class="setting-title">视觉</div><div class="setting-help">探测视觉管线。</div></div>
-              <div class="setting-control"><button type="button" data-action="vision-probe">运行</button><div class="status" id="vision-status">空闲</div></div>
-            </div>
-            <div class="setting-row">
-              <div><div class="setting-title">指针</div><div class="setting-help">探测指针后端。</div></div>
-              <div class="setting-control"><button type="button" data-action="pointer-probe">运行</button><div class="status" id="pointer-status">空闲</div></div>
-            </div>
-            <div class="setting-row">
-              <div><div class="setting-title">运行时</div><div class="setting-help">探测桌面宿主。</div></div>
-              <div class="setting-control"><button type="button" data-action="runtime-probe">运行</button><div class="status" id="runtime-status">空闲</div></div>
-            </div>
-            <div class="setting-row">
-              <div><div class="setting-title">完全关闭</div><div class="setting-help">结束整个 Electron 进程。</div></div>
-              <div class="setting-control"><button id="quit-app" type="button" class="danger-button">完全关闭</button></div>
-            </div>
-          </div>
+              <div class="action-stack">
+                <div class="action-block">
+                  <div class="action-title">从 Web 快照保存</div>
+                  <input id="archive-name" type="text" placeholder="存档名称，留空自动生成" />
+                  <textarea id="archive-desc" placeholder="备注，可选"></textarea>
+                  <div class="toolbar">
+                    <button id="export-archive-local" type="button" class="primary-button">保存到 localdata</button>
+                    <button id="export-archive-share" type="button">保存到 sharedata</button>
+                  </div>
+                </div>
+                <div class="action-block">
+                  <div class="action-title">写回 Web 快照</div>
+                  <div class="check-grid" id="import-sections">
+                    <label class="check-row"><input type="checkbox" value="operators" checked />干员</label>
+                    <label class="check-row"><input type="checkbox" value="weapons" checked />武器</label>
+                    <label class="check-row"><input type="checkbox" value="equipments" checked />装备</label>
+                    <label class="check-row"><input type="checkbox" value="buffs" checked />Buff</label>
+                    <label class="check-row"><input type="checkbox" value="timeline" checked />排轴</label>
+                    <label class="check-row"><input type="checkbox" value="runtime" />运行缓存</label>
+                  </div>
+                  <div class="toolbar">
+                    <button id="apply-archive" type="button" class="primary-button">写入 now-storage</button>
+                    <button id="reveal-archive" type="button">定位选中</button>
+                    <button id="delete-archive" type="button" class="danger-button">删除选中</button>
+                  </div>
+                </div>
+              </div>
+            </article>
+          </section>
         </div>
 
-        <div id="page-model" class="page">
-          <h1 class="page-title">模型接口</h1>
-          <div class="section-block">
-            <div class="setting-row">
-              <div><div class="setting-title">API Key</div></div>
-              <div class="setting-control"><input id="ark-api-key" class="inline-input" type="password" placeholder="Bearer Token" /></div>
+        <div id="page-images" class="page">
+          <header class="page-header">
+            <div>
+              <div class="eyebrow">Image Assets</div>
+              <h1 class="page-title">图片资产</h1>
+              <p class="page-desc">Web 图片管理页仍然保留；Shell 提供本地图片目录桥接。只开浏览器开发服务时会降级为内置 manifest 预览。</p>
             </div>
-            <div class="setting-row">
-              <div><div class="setting-title">Model</div></div>
-              <div class="setting-control"><input id="ark-model" class="inline-input" type="text" value="doubao-seed-2-0-mini-260428" /></div>
+            <div class="toolbar">
+              <button id="refresh-images" type="button" class="subtle-button">刷新图片</button>
+              <button id="open-image-dir" type="button" class="primary-button">打开图片目录</button>
             </div>
-            <div class="setting-row is-tall">
-              <div><div class="setting-title">Prompt</div></div>
-              <div class="setting-control stack"><textarea id="ark-prompt">给我一句简短回复。</textarea></div>
-            </div>
-            <div class="setting-row">
-              <div><div class="setting-title">请求</div><div class="setting-help" id="ark-status">空闲</div></div>
-              <div class="setting-control"><button id="ark-clear-output" type="button">清空结果</button><button id="ark-submit" type="button" class="primary-button">发送请求</button></div>
-            </div>
-            <div class="setting-row is-tall">
-              <div><div class="setting-title">Response</div></div>
-              <div class="setting-control stack"><pre id="ark-output" class="llm-output"></pre></div>
-            </div>
-          </div>
-        </div>
+          </header>
 
-        <div id="page-agent" class="page">
-          <h1 class="page-title">Agent</h1>
-          <div class="section-block">
-            <div class="setting-row">
+          <section class="grid-3">
+            <article class="status-card">
+              <div class="status-top"><span class="status-label">桥接模式</span><span class="badge warn" id="image-mode-badge">检测</span></div>
+              <div class="status-detail" id="image-mode-detail">正在读取 capabilities</div>
+            </article>
+            <article class="status-card">
+              <div class="status-top"><span class="status-label">目录数量</span><span class="badge info" id="image-dir-count">-</span></div>
+              <div class="status-detail">按图片管理器目录结构统计。</div>
+            </article>
+            <article class="status-card">
+              <div class="status-top"><span class="status-label">文件数量</span><span class="badge info" id="image-file-count">-</span></div>
+              <div class="status-detail">本地 bridge 能访问的图片文件。</div>
+            </article>
+          </section>
+
+          <section class="panel">
+            <div class="panel-header">
               <div>
-                <div class="setting-title">访问记录</div>
-                <div class="setting-help">读取 AI REST 的会话与操作日志。</div>
-              </div>
-              <div class="setting-control">
-                <button id="refresh-agent-records" type="button">刷新</button>
-                <div class="status" id="agent-records-status">等待刷新</div>
+                <div class="panel-title">最近资产</div>
+                <div class="panel-help" id="image-status">等待刷新</div>
               </div>
             </div>
-            <div class="setting-row is-tall">
-              <div>
-                <div class="setting-title">操作日志</div>
-                <div class="setting-help">client、command、成功状态、写入范围。</div>
-              </div>
-              <div class="setting-control stack">
-                <div class="log" id="agent-operation-logs">暂无记录</div>
-              </div>
-            </div>
-            <div class="setting-row is-tall">
-              <div>
-                <div class="setting-title">会话</div>
-                <div class="setting-help">最近 agent session 与消息数。</div>
-              </div>
-              <div class="setting-control stack">
-                <div class="log" id="agent-sessions">暂无会话</div>
-              </div>
-            </div>
-          </div>
+            <div class="asset-list" id="image-list"></div>
+          </section>
         </div>
 
         <div id="page-log" class="page">
-          <h1 class="page-title">活动日志</h1>
-          <div class="section-block log-card" id="log-card">
-            <div class="setting-row">
-              <div><div class="setting-title">日志</div></div>
-              <div class="setting-control"><button id="toggle-log" type="button">收起日志</button><button id="clear-log" type="button">清空日志</button></div>
+          <header class="page-header">
+            <div>
+              <div class="eyebrow">Diagnostics</div>
+              <h1 class="page-title">活动日志</h1>
+              <p class="page-desc">记录 Shell 初始化、桥接请求、数据导入导出与服务状态变化。</p>
             </div>
-            <div class="setting-row is-tall">
-              <div><div class="setting-title">内容</div></div>
-              <div class="setting-control stack"><div class="log" id="log"></div></div>
+            <div class="toolbar">
+              <button id="clear-log" type="button">清空日志</button>
             </div>
-          </div>
+          </header>
+          <section class="panel">
+            <div class="log" id="log"></div>
+          </section>
         </div>
       </section>
     </main>
 
-    <script src="./shell.js?v=20260526-shell-log"></script>
+    <script src="./shell.js?v=20260614-console-upgrade"></script>
   </body>
 </html>

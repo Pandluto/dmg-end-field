@@ -3,7 +3,6 @@ const http = require('http');
 const os = require('os');
 const path = require('path');
 const { spawn } = require('child_process');
-const maa = require('@maaxyz/maa-node');
 const { tryServeDesktopApp } = require('./web-host.cjs');
 const {
   app,
@@ -16,192 +15,32 @@ const {
   shell,
 } = require('electron');
 
-const DEV_WEB_URL = 'http://127.0.0.1:3030/';
 const DEV_SHELL_URL = 'http://127.0.0.1:3030/shell/index.html';
 const BRIDGE_HOST = '127.0.0.1';
 const BRIDGE_PORT = 31457;
-const PROD_WEB_URL = `http://${BRIDGE_HOST}:${BRIDGE_PORT}/`;
 const PROD_SHELL_URL = `http://${BRIDGE_HOST}:${BRIDGE_PORT}/shell/index.html`;
-const ARK_RESPONSE_TIMEOUT_MS = 120000;
-const MAIN_CONTENT_WIDTH = 1700;
-const MAIN_CONTENT_HEIGHT = 900;
-const SHELL_WIDTH = 700;
-const SHELL_HEIGHT = 600;
+const SHELL_WIDTH = 1120;
+const SHELL_HEIGHT = 760;
+const SHELL_MIN_WIDTH = 900;
+const SHELL_MIN_HEIGHT = 640;
 const isDev = process.argv.includes('--dev');
-const shellOnly = process.argv.includes('--shell-only');
 const gotSingleInstanceLock = app.requestSingleInstanceLock();
-const DESKTOP_SCALE_PRESETS = {
-  '1x': '1',
-  '1.25x': '1.25',
-  '1.5x': '1.5',
-};
-const WIN32_CONTROLLER_PRESETS = {
-  'Win32-Window': {
-    name: 'Win32-Window',
-    label: '电脑端-默认',
-    description: 'Background + SendMessageWithCursorPos + PostMessage',
-    screencapMethod: maa.Win32ScreencapMethod.Background,
-    mouseMethod: maa.Win32InputMethod.SendMessageWithCursorPos,
-    keyboardMethod: maa.Win32InputMethod.PostMessage,
-  },
-  'Win32-Window-Background': {
-    name: 'Win32-Window-Background',
-    label: '电脑端-后台',
-    description: 'Background + SendMessageWithWindowPos + PostMessage',
-    screencapMethod: maa.Win32ScreencapMethod.Background,
-    mouseMethod: maa.Win32InputMethod.SendMessageWithWindowPos,
-    keyboardMethod: maa.Win32InputMethod.PostMessage,
-  },
-  'Win32-Front': {
-    name: 'Win32-Front',
-    label: '电脑端-前台',
-    description: 'ScreenDC + Seize + Seize',
-    screencapMethod: maa.Win32ScreencapMethod.ScreenDC,
-    mouseMethod: maa.Win32InputMethod.Seize,
-    keyboardMethod: maa.Win32InputMethod.Seize,
-  },
-};
 app.commandLine.appendSwitch('high-dpi-support', '1');
 const APP_ICON_PNG_PATH = path.join(__dirname, 'assets', 'icon.png');
 const APP_ICON_ICO_PATH = path.join(__dirname, 'assets', 'icon.ico');
 
-let mainWindow = null;
 let shellWindow = null;
 let bridgeServer = null;
 let shellStartedAt = null;
 let aiCliRestProcess = null;
 let aiCliRestStartedAt = null;
 let isAppQuitting = false;
-let isForceClosingMain = false;
 let appTray = null;
-let savedDesktopScaleKey = '1x';
-let activeDesktopScaleKey = '1x';
-let sharedLlmApiKey = '';
-let sharedLlmModel = 'doubao-seed-2-0-mini-260428';
-let localDataRequestSeq = 1;
-const pendingLocalDataExports = new Map();
-const pendingLocalDataImports = new Map();
-let captureSessionTimer = null;
-let captureSession = {
-  boundSourceId: null,
-  presetName: 'Win32-Window',
-  running: false,
-  intervalMs: 200,
-  latestFrame: null,
-  lastCapturedAt: null,
-  lastError: null,
-  lastSourceMeta: null,
-  controller: null,
-};
 
 if (!gotSingleInstanceLock) {
   app.quit();
   process.exit(0);
 }
-
-function getDesktopSettingsPath() {
-  return path.join(app.getPath('userData'), 'desktop-settings.json');
-}
-
-function getLlmSettingsPath() {
-  return path.join(app.getPath('userData'), 'llm-settings.json');
-}
-
-function loadDesktopSettings() {
-  try {
-    const filePath = getDesktopSettingsPath();
-    if (!fs.existsSync(filePath)) {
-      savedDesktopScaleKey = '1x';
-      return;
-    }
-
-    const parsed = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
-    savedDesktopScaleKey =
-      typeof parsed.desktopScale === 'string' && DESKTOP_SCALE_PRESETS[parsed.desktopScale]
-        ? parsed.desktopScale
-        : '1x';
-  } catch {
-    savedDesktopScaleKey = '1x';
-  }
-}
-
-function loadLlmSettings() {
-  try {
-    const filePath = getLlmSettingsPath();
-    if (!fs.existsSync(filePath)) {
-      sharedLlmApiKey = '';
-      sharedLlmModel = 'doubao-seed-2-0-mini-260428';
-      return;
-    }
-
-    const parsed = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
-    sharedLlmApiKey = typeof parsed.apiKey === 'string' ? parsed.apiKey : '';
-    sharedLlmModel = typeof parsed.model === 'string' && parsed.model.trim()
-      ? parsed.model.trim()
-      : 'doubao-seed-2-0-mini-260428';
-  } catch {
-    sharedLlmApiKey = '';
-    sharedLlmModel = 'doubao-seed-2-0-mini-260428';
-  }
-}
-
-function saveDesktopSettings() {
-  try {
-    const filePath = getDesktopSettingsPath();
-    fs.mkdirSync(path.dirname(filePath), { recursive: true });
-    fs.writeFileSync(
-      filePath,
-      JSON.stringify({ desktopScale: savedDesktopScaleKey }, null, 2),
-      'utf-8'
-    );
-  } catch (error) {
-    const detail = error instanceof Error ? error.message : String(error);
-    console.error(`Failed to save desktop settings: ${detail}`);
-  }
-}
-
-function saveLlmSettings() {
-  try {
-    const filePath = getLlmSettingsPath();
-    fs.mkdirSync(path.dirname(filePath), { recursive: true });
-    fs.writeFileSync(
-      filePath,
-      JSON.stringify({
-        apiKey: sharedLlmApiKey,
-        model: sharedLlmModel,
-      }, null, 2),
-      'utf-8'
-    );
-  } catch (error) {
-    const detail = error instanceof Error ? error.message : String(error);
-    console.error(`Failed to save llm settings: ${detail}`);
-  }
-}
-
-function getDesktopSettingsPayload() {
-  return {
-    currentScale: activeDesktopScaleKey,
-    savedScale: savedDesktopScaleKey,
-    availableScales: Object.keys(DESKTOP_SCALE_PRESETS),
-    restartRequired: activeDesktopScaleKey !== savedDesktopScaleKey,
-  };
-}
-
-function getLlmSettingsPayload() {
-  return {
-    apiKey: sharedLlmApiKey,
-    model: sharedLlmModel,
-    hasApiKey: Boolean(sharedLlmApiKey),
-  };
-}
-
-loadDesktopSettings();
-loadLlmSettings();
-activeDesktopScaleKey = savedDesktopScaleKey;
-app.commandLine.appendSwitch(
-  'force-device-scale-factor',
-  DESKTOP_SCALE_PRESETS[activeDesktopScaleKey] ?? DESKTOP_SCALE_PRESETS['1x']
-);
 
 function buildWindowOptions(role, extra = {}) {
   return {
@@ -230,18 +69,6 @@ function createTrayIconImage() {
   );
 }
 
-function getMainWindowState() {
-  if (!mainWindow || mainWindow.isDestroyed()) {
-    return 'missing';
-  }
-
-  if (mainWindow.isVisible() && !mainWindow.isMinimized()) {
-    return 'visible';
-  }
-
-  return 'hidden';
-}
-
 function getShellVisibilityState() {
   if (!shellWindow || shellWindow.isDestroyed()) {
     return 'missing';
@@ -259,21 +86,10 @@ function updateTrayMenu() {
     return;
   }
 
-  const mainVisible = getMainWindowState() === 'visible';
   const shellVisible = getShellVisibilityState() === 'visible';
-  appTray.setToolTip(mainVisible ? 'DEF 主界面已打开' : 'DEF 桌面端后台运行中');
+  appTray.setToolTip(shellVisible ? 'DEF Shell 已打开' : 'DEF Shell 后台运行中');
   appTray.setContextMenu(
     Menu.buildFromTemplate([
-      {
-        label: mainVisible ? '收起主界面' : '打开主界面',
-        click: () => {
-          if (mainVisible) {
-            hideMainWindow();
-          } else {
-            restoreMainWindow();
-          }
-        },
-      },
       {
         label: shellVisible ? '收起 Shell' : '打开 Shell',
         click: () => {
@@ -305,7 +121,7 @@ function createTray() {
     : createTrayIconImage();
   appTray = new Tray(trayIcon);
   appTray.on('double-click', () => {
-    restoreMainWindow();
+    restoreShellWindow();
   });
   updateTrayMenu();
 }
@@ -337,87 +153,6 @@ function applyWindowLifecycle(windowInstance, hideHandler, shouldAllowClose) {
   windowInstance.on('minimize', updateTrayMenu);
 }
 
-function createMainWindow() {
-  if (mainWindow && !mainWindow.isDestroyed()) {
-    restoreMainWindow();
-    return mainWindow;
-  }
-
-  mainWindow = new BrowserWindow(
-    buildWindowOptions('main', {
-      width: MAIN_CONTENT_WIDTH,
-      height: MAIN_CONTENT_HEIGHT,
-      minWidth: MAIN_CONTENT_WIDTH,
-      minHeight: MAIN_CONTENT_HEIGHT,
-      maxWidth: MAIN_CONTENT_WIDTH,
-      maxHeight: MAIN_CONTENT_HEIGHT,
-      resizable: false,
-      minimizable: true,
-      maximizable: false,
-      fullscreenable: false,
-      title: 'DEF战斗模拟器',
-      show: !shellOnly,
-      backgroundColor: '#f3f5f7',
-    })
-  );
-
-  if (isDev) {
-    mainWindow.loadURL(DEV_WEB_URL);
-  } else {
-    mainWindow.loadURL(PROD_WEB_URL);
-  }
-
-  mainWindow.webContents.on('did-finish-load', () => {
-    lockWindowZoom(mainWindow);
-  });
-
-  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    shell.openExternal(url);
-    return { action: 'deny' };
-  });
-
-  applyWindowLifecycle(mainWindow, hideMainWindow, () => isAppQuitting || isForceClosingMain);
-
-  mainWindow.on('closed', () => {
-    mainWindow = null;
-    isForceClosingMain = false;
-    updateTrayMenu();
-  });
-
-  updateTrayMenu();
-  return mainWindow;
-}
-
-function restoreMainWindow() {
-  if (!mainWindow || mainWindow.isDestroyed()) {
-    return createMainWindow();
-  }
-
-  if (mainWindow.isMinimized()) {
-    mainWindow.restore();
-  }
-
-  if (!mainWindow.isVisible()) {
-    mainWindow.show();
-  }
-
-  mainWindow.focus();
-  updateTrayMenu();
-  return mainWindow;
-}
-
-function hideMainWindow() {
-  if (!mainWindow || mainWindow.isDestroyed()) {
-    mainWindow = null;
-    updateTrayMenu();
-    return false;
-  }
-
-  mainWindow.hide();
-  updateTrayMenu();
-  return true;
-}
-
 function createShellWindow(options = {}) {
   const { startHidden = false } = options;
 
@@ -434,8 +169,8 @@ function createShellWindow(options = {}) {
     buildWindowOptions('shell', {
       width: SHELL_WIDTH,
       height: SHELL_HEIGHT,
-      minWidth: 640,
-      minHeight: 520,
+      minWidth: SHELL_MIN_WIDTH,
+      minHeight: SHELL_MIN_HEIGHT,
       title: 'DEF Desktop Shell',
       show: !startHidden,
       backgroundColor: '#edf5ee',
@@ -524,9 +259,6 @@ function getSenderRole(event) {
   const senderWindow = BrowserWindow.fromWebContents(event.sender);
   if (!senderWindow) {
     return 'unknown';
-  }
-  if (senderWindow === mainWindow) {
-    return 'main';
   }
   if (senderWindow === shellWindow) {
     return 'shell';
@@ -658,14 +390,6 @@ function getBridgeHealth() {
     port: BRIDGE_PORT,
     shell: getShellRuntimeInfo(),
     aiCliRest: getAiCliRestRuntimeInfo(),
-    main: {
-      running: Boolean(mainWindow && !mainWindow.isDestroyed()),
-      visible: Boolean(mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible()),
-      state: getMainWindowState(),
-      width: MAIN_CONTENT_WIDTH,
-      height: MAIN_CONTENT_HEIGHT,
-      ...getDesktopSettingsPayload(),
-    },
   };
 }
 
@@ -732,272 +456,6 @@ function waitForProcessExit(child, timeoutMs = 5000) {
     };
     child.once('exit', onExit);
   });
-}
-
-function openWeb() {
-  restoreMainWindow();
-  return {
-    opened: true,
-    mode: isDev ? 'vite' : 'localhost',
-    url: isDev ? DEV_WEB_URL : PROD_WEB_URL,
-    width: MAIN_CONTENT_WIDTH,
-    height: MAIN_CONTENT_HEIGHT,
-    ...getDesktopSettingsPayload(),
-  };
-}
-
-function normalizeCaptureSource(source) {
-  const handle = source.handle ?? source.Handle ?? source[0];
-  const className = source.className ?? source.class_name ?? source.ClassName ?? source[1];
-  const title = source.title ?? source.Title ?? source.windowName ?? source.window_name ?? source[2];
-  return {
-    id: String(handle),
-    handle: Number(handle),
-    name: title,
-    className: className || '',
-    displayId: '',
-    kind: 'window',
-    appIconDataUrl: null,
-    thumbnailDataUrl: null,
-    width: 0,
-    height: 0,
-    backend: 'maa-win32-controller',
-  };
-}
-
-function isEndFieldCaptureSource(source) {
-  if (!source || typeof source.name !== 'string' || typeof source.className !== 'string') {
-    return false;
-  }
-
-  return /endfield/i.test(source.name) && /UnityWndClass/i.test(source.className);
-}
-
-function getCapturePreset(presetName = 'Win32-Window') {
-  const preset = WIN32_CONTROLLER_PRESETS[presetName];
-  if (!preset) {
-    throw new Error(`Unsupported Win32 controller preset: ${presetName}`);
-  }
-
-  return preset;
-}
-
-function listCapturePresets() {
-  return Object.values(WIN32_CONTROLLER_PRESETS).map((preset) => ({
-    name: preset.name,
-    label: preset.label,
-    description: preset.description,
-  }));
-}
-
-async function listWin32CaptureSources() {
-  const windows = await maa.Win32Controller.find();
-  return Array.isArray(windows) ? windows : [];
-}
-
-async function getCaptureSources() {
-  const sources = await listWin32CaptureSources();
-  return sources.map(normalizeCaptureSource).filter((source) => isEndFieldCaptureSource(source));
-}
-
-function destroyCaptureController() {
-  if (!captureSession.controller) {
-    return;
-  }
-
-  try {
-    captureSession.controller.destroy();
-  } catch {}
-  captureSession.controller = null;
-}
-
-async function ensureCaptureController() {
-  if (!captureSession.boundSourceId) {
-    throw new Error('No capture source is bound.');
-  }
-
-  if (captureSession.controller) {
-    return captureSession.controller;
-  }
-
-  const preset = getCapturePreset(captureSession.presetName);
-  const controller = new maa.Win32Controller(
-    captureSession.boundSourceId,
-    preset.screencapMethod,
-    preset.mouseMethod,
-    preset.keyboardMethod
-  );
-  controller.screenshot_use_raw_size = true;
-
-  try {
-    await controller.post_connection().wait();
-  } catch (error) {
-    try {
-      controller.destroy();
-    } catch {}
-    throw error;
-  }
-
-  if (!controller.connected) {
-    try {
-      controller.destroy();
-    } catch {}
-    throw new Error('Maa Win32 controller failed to connect.');
-  }
-
-  captureSession.controller = controller;
-  return controller;
-}
-
-async function captureSourceFrame(sourceId) {
-  const sourceHandle = String(sourceId || '');
-  if (!sourceHandle) {
-    throw new Error('captureSourceFrame requires a valid window handle');
-  }
-
-  if (captureSession.boundSourceId !== sourceHandle) {
-    throw new Error(`Capture source is not bound: ${sourceHandle}`);
-  }
-
-  const controller = await ensureCaptureController();
-  await controller.post_screencap().wait();
-  const imageBuffer = controller.cached_image;
-  const resolution = controller.resolution;
-  if (!imageBuffer || !resolution) {
-    throw new Error('Target window is not capturable right now.');
-  }
-
-  const buffer = Buffer.from(imageBuffer);
-  if (!buffer.length) {
-    throw new Error('Maa screencap returned empty image.');
-  }
-
-  const [width, height] = resolution;
-  const dataUrl = `data:image/png;base64,${buffer.toString('base64')}`;
-  const sources = await getCaptureSources();
-  const matchedSource =
-    sources.find((source) => source.id === sourceHandle) ||
-    captureSession.lastSourceMeta || {
-      id: sourceHandle,
-      handle: Number(sourceHandle),
-      name: `Window ${sourceHandle}`,
-      className: '',
-      kind: 'window',
-      displayId: '',
-      appIconDataUrl: null,
-      thumbnailDataUrl: null,
-      width,
-      height,
-      backend: 'maa-win32-controller',
-    };
-
-  return {
-    source: matchedSource,
-    capturedAt: Date.now(),
-    width,
-    height,
-    imageDataUrl: dataUrl,
-  };
-}
-
-function getCaptureSessionState() {
-  const preset = getCapturePreset(captureSession.presetName);
-  return {
-    boundSourceId: captureSession.boundSourceId,
-    presetName: captureSession.presetName,
-    presetLabel: preset.label,
-    running: captureSession.running,
-    intervalMs: captureSession.intervalMs,
-    lastCapturedAt: captureSession.lastCapturedAt,
-    lastError: captureSession.lastError,
-    latestFrame: captureSession.latestFrame
-      ? {
-          capturedAt: captureSession.latestFrame.capturedAt,
-          width: captureSession.latestFrame.width,
-          height: captureSession.latestFrame.height,
-          sourceId: captureSession.latestFrame.source?.id ?? null,
-        }
-      : null,
-    source: captureSession.lastSourceMeta,
-  };
-}
-
-function resetCaptureSessionFrame() {
-  captureSession.latestFrame = null;
-  captureSession.lastCapturedAt = null;
-  captureSession.lastError = null;
-}
-
-async function bindCaptureSource(sourceId, presetName = 'Win32-Window') {
-  const sourceHandle = String(sourceId || '');
-  if (!sourceHandle) {
-    throw new Error('bindCaptureSource requires a valid window handle');
-  }
-
-  const sources = await getCaptureSources();
-  const matchedSource = sources.find((source) => source.id === sourceHandle);
-  if (!matchedSource) {
-    throw new Error(`Target window not found: ${sourceId}`);
-  }
-
-  getCapturePreset(presetName);
-  stopCaptureSession();
-  destroyCaptureController();
-  captureSession.boundSourceId = sourceHandle;
-  captureSession.presetName = presetName;
-  captureSession.lastSourceMeta = matchedSource;
-  resetCaptureSessionFrame();
-  return getCaptureSessionState();
-}
-
-async function runCaptureSessionTick() {
-  if (!captureSession.boundSourceId) {
-    captureSession.lastError = 'No capture source is bound.';
-    return;
-  }
-
-  try {
-    const frame = await captureSourceFrame(captureSession.boundSourceId);
-    captureSession.latestFrame = frame;
-    captureSession.lastCapturedAt = frame.capturedAt;
-    captureSession.lastSourceMeta = frame.source;
-    captureSession.lastError = null;
-  } catch (error) {
-    captureSession.lastError = error instanceof Error ? error.message : String(error);
-  }
-}
-
-function stopCaptureSession() {
-  if (captureSessionTimer) {
-    clearInterval(captureSessionTimer);
-    captureSessionTimer = null;
-  }
-
-  captureSession.running = false;
-  destroyCaptureController();
-  return getCaptureSessionState();
-}
-
-async function startCaptureSession(intervalMs = 200) {
-  const normalizedInterval = Number.isFinite(intervalMs)
-    ? Math.max(80, Math.min(2000, Math.round(intervalMs)))
-    : 200;
-
-  if (!captureSession.boundSourceId) {
-    throw new Error('No capture source is bound.');
-  }
-
-  stopCaptureSession();
-  captureSession.intervalMs = normalizedInterval;
-  captureSession.running = true;
-  await runCaptureSessionTick();
-  captureSessionTimer = setInterval(() => {
-    runCaptureSessionTick().catch((error) => {
-      captureSession.lastError = error instanceof Error ? error.message : String(error);
-    });
-  }, normalizedInterval);
-
-  return getCaptureSessionState();
 }
 
 function startBridgeServer() {
@@ -1199,14 +657,6 @@ function startBridgeServer() {
         return;
       }
 
-      if (method === 'POST' && requestUrl.pathname === '/open-web') {
-        writeJson(response, 200, {
-          ok: true,
-          web: openWeb(),
-        });
-        return;
-      }
-
       if (method === 'POST' && requestUrl.pathname === '/image-assets/create-directory') {
         writeJson(response, 200, handleCreateImageDirectory(await readJsonRequest(request)));
         return;
@@ -1347,86 +797,10 @@ function startBridgeServer() {
 }
 
 function stopServers() {
-  stopCaptureSession();
   stopAiCliRest();
   if (bridgeServer) {
     bridgeServer.close();
     bridgeServer = null;
-  }
-}
-
-async function invokeArkResponses(payload) {
-  const apiKey = typeof payload?.apiKey === 'string' && payload.apiKey.trim()
-    ? payload.apiKey.trim()
-    : sharedLlmApiKey;
-  const model = typeof payload?.model === 'string' && payload.model.trim()
-    ? payload.model.trim()
-    : sharedLlmModel;
-  const prompt = typeof payload?.prompt === 'string' ? payload.prompt.trim() : '';
-
-  if (!apiKey) {
-    throw new Error('API Key 不能为空');
-  }
-  if (!model) {
-    throw new Error('模型名不能为空');
-  }
-  if (!prompt) {
-    throw new Error('提示词不能为空');
-  }
-
-  const controller = new AbortController();
-  const startedAt = Date.now();
-  const timeoutId = setTimeout(() => controller.abort(), ARK_RESPONSE_TIMEOUT_MS);
-
-  try {
-    const response = await fetch('https://ark.cn-beijing.volces.com/api/v3/chat/completions', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model,
-        messages: [
-          {
-            role: 'user',
-            content: prompt,
-          },
-        ],
-        thinking: {
-          type: 'disabled',
-        },
-      }),
-      signal: controller.signal,
-    });
-
-    const rawText = await response.text();
-    let data = null;
-    try {
-      data = rawText ? JSON.parse(rawText) : null;
-    } catch {
-      data = null;
-    }
-
-    if (!response.ok) {
-      const detail = data?.error?.message || data?.message || rawText || `HTTP ${response.status}`;
-      throw new Error(detail);
-    }
-
-    return {
-      ok: true,
-      status: response.status,
-      durationMs: Date.now() - startedAt,
-      timeoutMs: ARK_RESPONSE_TIMEOUT_MS,
-      data: data ?? rawText,
-    };
-  } catch (error) {
-    if (error instanceof Error && error.name === 'AbortError') {
-      throw new Error(`模型请求超时（${Math.round(ARK_RESPONSE_TIMEOUT_MS / 1000)} 秒）`);
-    }
-    throw error;
-  } finally {
-    clearTimeout(timeoutId);
   }
 }
 
@@ -1439,67 +813,11 @@ ipcMain.handle('desktop:get-shell-state', () => ({
   hostname: os.hostname(),
   shellWindowLoaded: Boolean(shellWindow && !shellWindow.isDestroyed()),
   shellVisible: Boolean(shellWindow && !shellWindow.isDestroyed() && shellWindow.isVisible()),
-  webWindowManaged: Boolean(mainWindow && !mainWindow.isDestroyed()),
-  webWindowVisible: Boolean(mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible()),
-  desktopSettings: getDesktopSettingsPayload(),
 }));
-ipcMain.handle('desktop:get-llm-settings', () => getLlmSettingsPayload());
-ipcMain.handle('desktop:set-llm-settings', (_event, payload) => {
-  sharedLlmApiKey = typeof payload?.apiKey === 'string' ? payload.apiKey.trim() : '';
-  sharedLlmModel = typeof payload?.model === 'string' && payload.model.trim()
-    ? payload.model.trim()
-    : 'doubao-seed-2-0-mini-260428';
-  saveLlmSettings();
-  return getLlmSettingsPayload();
-});
-ipcMain.handle('desktop:get-settings', () => getDesktopSettingsPayload());
-ipcMain.handle('desktop:set-scale', (_event, scaleKey) => {
-  if (typeof scaleKey !== 'string' || !DESKTOP_SCALE_PRESETS[scaleKey]) {
-    throw new Error(`Unsupported desktop scale: ${scaleKey}`);
-  }
-
-  savedDesktopScaleKey = scaleKey;
-  saveDesktopSettings();
-  return getDesktopSettingsPayload();
-});
-ipcMain.handle('desktop:open-web', () => openWeb());
 ipcMain.handle('desktop:quit-app', () => {
   app.quit();
   return { ok: true };
 });
-ipcMain.handle('desktop:list-capture-presets', () => ({
-  ok: true,
-  presets: listCapturePresets(),
-}));
-ipcMain.handle('desktop:bind-capture-source', async (_event, sourceId, presetName) => ({
-  ok: true,
-  session: await bindCaptureSource(sourceId, presetName),
-}));
-ipcMain.handle('desktop:start-capture-session', async (_event, intervalMs) => ({
-  ok: true,
-  session: await startCaptureSession(intervalMs),
-}));
-ipcMain.handle('desktop:stop-capture-session', () => ({
-  ok: true,
-  session: stopCaptureSession(),
-}));
-ipcMain.handle('desktop:get-capture-session', () => ({
-  ok: true,
-  session: getCaptureSessionState(),
-}));
-ipcMain.handle('desktop:get-latest-capture-frame', () => ({
-  ok: true,
-  frame: captureSession.latestFrame,
-}));
-ipcMain.handle('desktop:list-capture-sources', async () => ({
-  ok: true,
-  sources: await getCaptureSources(),
-}));
-ipcMain.handle('desktop:capture-source-frame', async (_event, sourceId) => ({
-  ok: true,
-  frame: await captureSourceFrame(sourceId),
-}));
-ipcMain.handle('desktop:invoke-ark-responses', async (_event, payload) => invokeArkResponses(payload));
 
 // ── Image asset management ──
 
@@ -2726,67 +2044,6 @@ async function openDirectoryInExplorer(directory) {
     : { ok: true, path: resolved };
 }
 
-function getMainWebContents() {
-  const win = restoreMainWindow();
-  if (!win || win.isDestroyed()) {
-    throw new Error('主界面不可用');
-  }
-  return win.webContents;
-}
-
-function waitForWebContentsReady(webContents, timeoutMs = 10000) {
-  if (!webContents.isLoading()) {
-    return Promise.resolve();
-  }
-
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => {
-      cleanup();
-      reject(new Error('主界面加载超时'));
-    }, timeoutMs);
-    const cleanup = () => {
-      clearTimeout(timer);
-      webContents.off('did-finish-load', handleReady);
-      webContents.off('did-fail-load', handleFail);
-    };
-    const handleReady = () => {
-      cleanup();
-      resolve();
-    };
-    const handleFail = (_event, _errorCode, errorDescription) => {
-      cleanup();
-      reject(new Error(`主界面加载失败：${errorDescription || 'unknown'}`));
-    };
-    webContents.once('did-finish-load', handleReady);
-    webContents.once('did-fail-load', handleFail);
-  });
-}
-
-async function requestMainRenderer(channel, pendingMap, payload, timeoutMs = 30000) {
-  const requestId = `localdata-${localDataRequestSeq++}`;
-  const webContents = getMainWebContents();
-  await waitForWebContentsReady(webContents);
-  return new Promise((resolve) => {
-    const timer = setTimeout(() => {
-      pendingMap.delete(requestId);
-      resolve({ ok: false, error: '主界面响应超时' });
-    }, timeoutMs);
-    pendingMap.set(requestId, { resolve, timer });
-    webContents.send(channel, { requestId, ...payload });
-  });
-}
-
-function reloadMainWindowAfterLocalDataImport() {
-  if (!mainWindow || mainWindow.isDestroyed()) {
-    return;
-  }
-  setTimeout(() => {
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.reloadIgnoringCache();
-    }
-  }, 180);
-}
-
 const LOCAL_DATA_LOCAL_PREFIXES = {
   operators: ['def.operator-editor.'],
   weapons: ['def.weapon-sheet.'],
@@ -2881,146 +2138,6 @@ function syncEquipmentLibraryFileFromArchive(archive, sections) {
   return filePath;
 }
 
-async function applyLocalDataArchiveInMainWindow(archive, options = {}) {
-  const webContents = getMainWebContents();
-  await waitForWebContentsReady(webContents);
-  const requestedSections = uniqueLocalDataSections(options.sections || archive?.sections);
-  const payload = {
-    archive,
-    options: {
-      ...options,
-      sections: requestedSections,
-    },
-    localPrefixes: LOCAL_DATA_LOCAL_PREFIXES,
-    sessionKeys: LOCAL_DATA_SESSION_KEYS,
-    requiredSessionKeys: LOCAL_DATA_REQUIRED_CURRENT_SESSION_KEYS,
-  };
-  const script = `
-(() => {
-  try {
-    const payload = ${JSON.stringify(payload)};
-    const knownSections = ['operators', 'weapons', 'equipments', 'buffs', 'timeline', 'runtime'];
-    const uniqueSections = (sections) => {
-      const source = Array.isArray(sections) && sections.length > 0 ? sections : ['all'];
-      return Array.from(new Set(source));
-    };
-    const sections = uniqueSections(payload.options?.sections || payload.archive?.sections);
-    const shouldIncludeLocalKey = (key) => {
-      if (sections.includes('all')) return key.startsWith('def.');
-      return sections.some((section) => {
-        const prefixes = payload.localPrefixes[section] || [];
-        return prefixes.some((prefix) => key === prefix || key.startsWith(prefix));
-      });
-    };
-    const shouldIncludeSessionKey = (key) => {
-      if (sections.includes('all')) return key.startsWith('def.');
-      return sections.some((section) => (payload.sessionKeys[section] || []).includes(key));
-    };
-    const listKeys = (storage) => {
-      const keys = [];
-      for (let index = 0; index < storage.length; index += 1) {
-        const key = storage.key(index);
-        if (key) keys.push(key);
-      }
-      return keys.sort();
-    };
-    const stringifyValue = (value) => typeof value === 'string' ? value : JSON.stringify(value ?? null);
-    const filterValues = (values, shouldInclude) => Object.fromEntries(
-      Object.entries(values || {}).filter(([key]) => shouldInclude(key))
-    );
-    const localValues = filterValues(payload.archive?.storage?.local, shouldIncludeLocalKey);
-    const sessionValues = filterValues(payload.archive?.storage?.session, shouldIncludeSessionKey);
-    const targetSections = sections.includes('all') ? knownSections : sections.filter((section) => section !== 'all');
-    const missingSections = targetSections.filter((section) => {
-      const requiredKeys = payload.requiredSessionKeys[section];
-      const hasCurrentSession = Array.isArray(requiredKeys) && requiredKeys.some((key) => key in sessionValues);
-      const hasTimelineSnapshotArchive =
-        section === 'timeline' &&
-        Object.prototype.hasOwnProperty.call(payload.archive?.storage?.local || {}, 'def.timeline.snapshot-archive.v1');
-      return Array.isArray(requiredKeys) && requiredKeys.length > 0 && !hasCurrentSession && !hasTimelineSnapshotArchive;
-    });
-    if (missingSections.length > 0) {
-      const archiveSessionKeys = Object.keys(payload.archive?.storage?.session || {});
-      throw new Error(
-        '存档缺少当前态 sessionStorage，不能完成桌面端同步替换：' +
-        missingSections.join(' / ') +
-        '。当前存档 session key：' +
-        (archiveSessionKeys.join(', ') || '无')
-      );
-    }
-    const removeManaged = (storage, shouldInclude) => {
-      const keys = listKeys(storage).filter(shouldInclude);
-      keys.forEach((key) => storage.removeItem(key));
-      return keys.length;
-    };
-    const applyValues = (storage, values) => {
-      const failedKeys = [];
-      Object.entries(values).forEach(([key, value]) => {
-        const serialized = stringifyValue(value);
-        storage.setItem(key, serialized);
-        if (storage.getItem(key) !== serialized) {
-          failedKeys.push(key);
-        }
-      });
-      return { writtenKeys: Object.keys(values).length, failedKeys };
-    };
-    const removedLocalKeys = removeManaged(window.localStorage, shouldIncludeLocalKey);
-    const removedSessionKeys = removeManaged(window.sessionStorage, shouldIncludeSessionKey);
-    const localResult = applyValues(window.localStorage, localValues);
-    const sessionResult = applyValues(window.sessionStorage, sessionValues);
-    const failedKeys = [...localResult.failedKeys, ...sessionResult.failedKeys];
-    if (failedKeys.length > 0) {
-      throw new Error('桌面端 Web storage 写入校验失败：' + failedKeys.join(', '));
-    }
-    const touchedKeys = removedLocalKeys + removedSessionKeys + localResult.writtenKeys + sessionResult.writtenKeys;
-    if (touchedKeys === 0) {
-      throw new Error('存档和所选分组没有可替换的桌面端 Web storage key');
-    }
-    return {
-      ok: true,
-      sections,
-      localKeys: localResult.writtenKeys,
-      sessionKeys: sessionResult.writtenKeys,
-      removedLocalKeys,
-      removedSessionKeys,
-      origin: window.location.origin,
-      href: window.location.href,
-      localKeyNames: Object.keys(localValues),
-      sessionKeyNames: Object.keys(sessionValues),
-    };
-  } catch (error) {
-    return {
-      ok: false,
-      error: error instanceof Error ? error.message : String(error),
-      stack: error instanceof Error ? error.stack : undefined,
-      origin: window.location.origin,
-      href: window.location.href,
-    };
-  }
-})()
-`;
-  return webContents.executeJavaScript(script, true).then((result) => {
-    if (!result?.ok) {
-      appendRuntimeLog('localdata', `desktop import failed ${result?.error || 'unknown'}`);
-      return result || { ok: false, error: '桌面端 Web storage 导入失败' };
-    }
-    const equipmentLibraryPath = syncEquipmentLibraryFileFromArchive(archive, requestedSections);
-    return equipmentLibraryPath ? { ...result, equipmentLibraryPath } : result;
-  });
-}
-
-function completeLocalDataRequest(pendingMap, payload) {
-  const requestId = payload?.requestId;
-  if (!requestId || !pendingMap.has(requestId)) {
-    return { ok: false, error: `未知请求：${requestId || '-'}` };
-  }
-  const pending = pendingMap.get(requestId);
-  pendingMap.delete(requestId);
-  clearTimeout(pending.timer);
-  pending.resolve(payload);
-  return { ok: true };
-}
-
 ipcMain.handle('desktop:list-local-data-archives', () => {
   try {
     return {
@@ -3098,78 +2215,6 @@ ipcMain.handle('desktop:reveal-local-data-archive', async (_event, payload) => {
   }
 });
 
-ipcMain.handle('desktop:request-local-data-export', async (_event, options) => {
-  try {
-    return await requestMainRenderer('desktop:local-data-export-request', pendingLocalDataExports, { options });
-  } catch (error) {
-    return { ok: false, error: error instanceof Error ? error.message : String(error) };
-  }
-});
-
-ipcMain.handle('desktop:request-local-data-import', async (_event, payload) => {
-  try {
-    if (!payload?.archive) {
-      return { ok: false, error: '缺少导入存档' };
-    }
-    const result = await applyLocalDataArchiveInMainWindow(payload.archive, payload.options || {});
-    if (result?.ok) {
-      const archiveId = payload.archive.id || payload.fileName;
-      const fileName = payload.fileName || (archiveId ? `${sanitizeArchiveId(archiveId)}.json` : null);
-      if (fileName) {
-        const storageScope = payload.storageScope === 'share' || payload.source === 'share' || payload.scope === 'share' ? 'share' : 'local';
-        result.state = writeLocalDataState(fileName, storageScope);
-      }
-      reloadMainWindowAfterLocalDataImport();
-    }
-    return result;
-  } catch (error) {
-    return { ok: false, error: error instanceof Error ? error.message : String(error) };
-  }
-});
-
-ipcMain.handle('desktop:complete-local-data-export', (_event, payload) => (
-  completeLocalDataRequest(pendingLocalDataExports, payload)
-));
-
-ipcMain.handle('desktop:complete-local-data-import', (_event, payload) => (
-  completeLocalDataRequest(pendingLocalDataImports, payload)
-));
-
-ipcMain.handle('desktop:run-action', (_event, action) => {
-  switch (action) {
-    case 'capture-probe':
-      return {
-        ok: true,
-        title: 'Capture',
-        detail: 'Maa Win32 controller capture pipeline is ready. Use the shell capture panel to select a MaaEnd preset and grab frames.',
-      };
-    case 'vision-probe':
-      return {
-        ok: true,
-        title: 'Vision',
-        detail: 'Vision pipeline placeholder is wired. MaaEnd recognition can be mounted here next.',
-      };
-    case 'pointer-probe':
-      return {
-        ok: true,
-        title: 'Pointer',
-        detail: 'Pointer control placeholder is wired. Native mouse backend is not attached yet.',
-      };
-    case 'runtime-probe':
-      return {
-        ok: true,
-        title: 'Runtime',
-        detail: `Electron desktop host is alive on ${process.platform}/${process.arch}.`,
-      };
-    default:
-      return {
-        ok: false,
-        title: 'Unknown',
-        detail: `Unknown shell action: ${action}`,
-      };
-  }
-});
-
 app.whenReady().then(() => {
   if (process.platform === 'win32' && fs.existsSync(APP_ICON_ICO_PATH)) {
     app.setAppUserModelId('com.dmg.def');
@@ -3179,26 +2224,15 @@ app.whenReady().then(() => {
   createTray();
   startBridgeServer();
 
-  if (shellOnly) {
-    createMainWindow();
-    hideMainWindow();
-    createShellWindow();
-  } else {
-    createMainWindow();
-    createShellWindow({ startHidden: true });
-  }
+  createShellWindow();
 
   app.on('activate', () => {
-    if (shellOnly) {
-      restoreShellWindow();
-      return;
-    }
-    restoreMainWindow();
+    restoreShellWindow();
   });
 });
 
 app.on('second-instance', () => {
-  restoreMainWindow();
+  restoreShellWindow();
 });
 
 app.on('before-quit', () => {

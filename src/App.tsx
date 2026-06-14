@@ -14,7 +14,6 @@ import { ImageManagerPage, isImageManagerPath } from './components/ImageManagerP
 import { AiCliPage, isAiCliPath } from './components/AiCliPage';
 import { OperatorConfigPage } from './components/OperatorConfigPage';
 import { APP_ROUTE_PATHS, getCurrentAppPath } from './utils/appRoute';
-import { installLocalDataBridge } from './utils/localDataBridge';
 import './styles/global.css';
 
 function App() {
@@ -29,9 +28,6 @@ function App() {
     if (typeof window === 'undefined') {
       return undefined;
     }
-
-    installLocalDataBridge();
-
     const syncCurrentPath = () => {
       setCurrentPath(getCurrentAppPath(window.location));
     };

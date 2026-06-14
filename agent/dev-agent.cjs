@@ -124,7 +124,7 @@ function waitForProcessExit(child, timeoutMs = 5000) {
   });
 }
 
-function openWeb(url = DEFAULT_WEB_URL) {
+function openBrowserWeb(url = DEFAULT_WEB_URL) {
   spawn('cmd', ['/c', 'start', '', url], {
     cwd: path.resolve(__dirname, '..'),
     detached: true,
@@ -152,7 +152,7 @@ function startShell() {
   const electronBinary = require('electron');
   const projectRoot = path.resolve(__dirname, '..');
 
-  shellProcess = spawn(electronBinary, ['.', '--dev'], {
+  shellProcess = spawn(electronBinary, ['.', '--dev', '--shell-only'], {
     cwd: projectRoot,
     stdio: 'ignore',
     detached: false,
@@ -330,7 +330,7 @@ const server = http.createServer(async (request, response) => {
   if (method === 'POST' && requestUrl.pathname === '/open-web') {
     writeJson(response, 200, {
       ok: true,
-      web: openWeb(requestUrl.searchParams.get('url') || DEFAULT_WEB_URL),
+      web: openBrowserWeb(requestUrl.searchParams.get('url') || DEFAULT_WEB_URL),
     });
     return;
   }
@@ -345,7 +345,7 @@ const server = http.createServer(async (request, response) => {
 server.listen(PORT, HOST, () => {
   console.log(`[def-local-agent] listening on http://${HOST}:${PORT}`);
   if (shouldOpenWebOnBoot) {
-    const web = openWeb(DEFAULT_WEB_URL);
+    const web = openBrowserWeb(DEFAULT_WEB_URL);
     console.log(`[def-local-agent] web opened at ${web.url}`);
   }
 });

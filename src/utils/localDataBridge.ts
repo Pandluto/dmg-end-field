@@ -89,7 +89,6 @@ const NOW_STORAGE_RELOAD_COUNT_KEY = '__def.localdata.now-storage-reload-count.v
 const NOW_STORAGE_LAST_RELOAD_AT_KEY = '__def.localdata.now-storage-last-reload-at.v1';
 const NOW_STORAGE_RELOAD_DEBOUNCE_MS = 5000;
 
-let isIpcBridgeInstalled = false;
 let isNowStorageBridgeStarted = false;
 let scheduledNowStorageReloadTimer: number | null = null;
 
@@ -604,53 +603,3 @@ export async function bootstrapLocalDataBridge(): Promise<{ shouldRender: boolea
   }
 }
 
-export function installLocalDataBridge(): void {
-  if (isIpcBridgeInstalled) {
-    return;
-  }
-
-  const runtime = window.desktopRuntime;
-  if (!runtime?.onLocalDataExportRequest || !runtime?.onLocalDataImportRequest) {
-    return;
-  }
-
-  isIpcBridgeInstalled = true;
-
-  runtime.onLocalDataExportRequest(async ({ requestId, options }) => {
-    try {
-      runtime.completeLocalDataExport?.({
-        requestId,
-        ok: true,
-        archive: buildArchive(options),
-      });
-    } catch (error) {
-      runtime.completeLocalDataExport?.({
-        requestId,
-        ok: false,
-        error: error instanceof Error ? error.message : String(error),
-      });
-    }
-  });
-
-  runtime.onLocalDataImportRequest(async ({ requestId, archive, options }) => {
-    try {
-      if (!archive) {
-        throw new Error('缺少导入存档');
-      }
-      const result = applyArchive(archive, options);
-      runtime.completeLocalDataImport?.({
-        requestId,
-        ...result,
-      });
-      if (options?.reload !== false) {
-        scheduleNowStorageReload('ipc-import');
-      }
-    } catch (error) {
-      runtime.completeLocalDataImport?.({
-        requestId,
-        ok: false,
-        error: error instanceof Error ? error.message : String(error),
-      });
-    }
-  });
-}

@@ -1,25 +1,5 @@
 /// <reference types="vite/client" />
 
-interface DesktopArkResponsePayload {
-  apiKey: string;
-  model: string;
-  prompt: string;
-}
-
-interface DesktopArkResponseResult {
-  ok: boolean;
-  status: number;
-  durationMs: number;
-  timeoutMs: number;
-  data: unknown;
-}
-
-interface DesktopLlmSettingsPayload {
-  apiKey: string;
-  model: string;
-  hasApiKey: boolean;
-}
-
 interface ImageAssetEntry {
   kind?: 'file' | 'dir';
   fileName: string;
@@ -142,17 +122,6 @@ interface LocalDataArchiveMeta {
   updatedAt: string;
 }
 
-interface LocalDataRequestPayload {
-  requestId: string;
-  options?: {
-    name?: string;
-    description?: string;
-    sections?: LocalDataSection[];
-    reload?: boolean;
-  };
-  archive?: LocalDataArchivePayload;
-}
-
 interface LocalDataOpResult {
   ok: boolean;
   error?: string;
@@ -188,9 +157,6 @@ interface ImageAssetImportToDirResult {
 
 interface DesktopRuntimeBridge {
   role?: 'main' | 'shell' | string;
-  getLlmSettings: () => Promise<DesktopLlmSettingsPayload>;
-  setLlmSettings: (payload: { apiKey: string; model: string }) => Promise<DesktopLlmSettingsPayload>;
-  invokeArkResponses: (payload: DesktopArkResponsePayload) => Promise<DesktopArkResponseResult>;
   listImageAssets?: () => Promise<ImageAssetEntry[]>;
   importImageAssets?: () => Promise<ImageAssetEntry[]>;
   importImageAssetsToDir?: (payload: ImageAssetImportToDirPayload) => Promise<ImageAssetImportToDirResult>;
@@ -208,12 +174,6 @@ interface DesktopRuntimeBridge {
   readLocalDataArchive?: (payload: { id?: string; fileName?: string; storageScope?: LocalDataStorageScope }) => Promise<LocalDataOpResult>;
   deleteLocalDataArchive?: (payload: { id?: string; fileName?: string; storageScope?: LocalDataStorageScope }) => Promise<LocalDataOpResult>;
   revealLocalDataArchive?: (payload?: { id?: string; fileName?: string; storageScope?: LocalDataStorageScope }) => Promise<LocalDataOpResult>;
-  requestLocalDataExport?: (options?: LocalDataRequestPayload['options']) => Promise<LocalDataOpResult>;
-  requestLocalDataImport?: (payload: { archive: LocalDataArchivePayload; fileName?: string; storageScope?: LocalDataStorageScope; options?: LocalDataRequestPayload['options'] }) => Promise<LocalDataOpResult>;
-  completeLocalDataExport?: (payload: LocalDataOpResult & { requestId: string }) => Promise<LocalDataOpResult>;
-  completeLocalDataImport?: (payload: LocalDataOpResult & { requestId: string }) => Promise<LocalDataOpResult>;
-  onLocalDataExportRequest?: (handler: (payload: LocalDataRequestPayload) => void | Promise<void>) => () => void;
-  onLocalDataImportRequest?: (handler: (payload: LocalDataRequestPayload) => void | Promise<void>) => () => void;
 }
 
 interface Window {

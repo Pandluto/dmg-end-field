@@ -10,17 +10,6 @@ export const APP_ROUTE_PATHS = {
   aiCli: '/ai-cli',
 } as const;
 
-const APP_ROUTE_ALIASES: Record<string, string> = {
-  '/draft': APP_ROUTE_PATHS.draft,
-  '/character-studio': APP_ROUTE_PATHS.draft,
-  '/buff-studio': APP_ROUTE_PATHS.buffSheet,
-  '/buff-draft': APP_ROUTE_PATHS.buffSheet,
-  '/sheet-buff': APP_ROUTE_PATHS.buffSheet,
-  '/sheet-weapon': APP_ROUTE_PATHS.weaponSheet,
-  '/equipment-sheet': APP_ROUTE_PATHS.equipmentSheet,
-  '/sheet': APP_ROUTE_PATHS.damageSheet,
-};
-
 function normalizeRoutePath(rawPath: string): string {
   const trimmed = rawPath.trim();
   if (!trimmed) {
@@ -36,10 +25,10 @@ function normalizeRoutePath(rawPath: string): string {
   }
 
   if (normalized.length > 1 && normalized.endsWith('/')) {
-    return APP_ROUTE_ALIASES[normalized.slice(0, -1)] ?? normalized.slice(0, -1);
+    return normalized.slice(0, -1);
   }
 
-  return APP_ROUTE_ALIASES[normalized] ?? normalized;
+  return normalized;
 }
 
 export function getCurrentAppPath(locationLike: Pick<Location, 'hash' | 'pathname'>): string {

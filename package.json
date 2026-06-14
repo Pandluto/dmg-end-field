@@ -14,13 +14,12 @@
     "smoke:operator-config": "node scripts/run-electron-smoke.mjs",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "app:dev": "npm run electron:dev",
+    "app:dev": "npm run electron:shell",
     "electron:shell": "concurrently -k \"npm:dev\" \"wait-on tcp:127.0.0.1:3030 && electron . --dev --shell-only\"",
-    "electron:dev": "concurrently -k \"npm:dev\" \"wait-on tcp:127.0.0.1:3030 && electron . --dev\"",
+    "electron:dev": "npm run electron:shell",
     "electron:build": "npm run build && electron-builder --win portable"
   },
   "dependencies": {
-    "@maaxyz/maa-node": "^5.10.4",
     "exceljs": "^4.4.0",
     "fuse.js": "^7.3.0",
     "pinyin-pro": "^3.28.1",
@@ -52,7 +51,6 @@
     "files": [
       "dist/**",
       "electron/**",
-      "native/**",
       "agent/**",
       "package.json"
     ],

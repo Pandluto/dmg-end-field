@@ -204,7 +204,7 @@ export function WorkbenchFrame() {
         type="button"
         onClick={handleOpenAiCli}
         disabled={Boolean(window.desktopRuntime)}
-        title={window.desktopRuntime ? 'AI CLI 暂不开放桌面端入口' : ''}
+        title={window.desktopRuntime ? 'AI CLI 请在 Web 主界面中打开' : ''}
       >
         <span className="workbench-trigger-text">AI CLI</span>
       </button>
@@ -213,7 +213,7 @@ export function WorkbenchFrame() {
         <span className="workbench-trigger-divider">|</span>
         <span className="workbench-trigger-status">
           {shellStatus === 'checking' && '检测中'}
-          {shellStatus === 'offline' && '桌面端未启动'}
+          {shellStatus === 'offline' && 'Shell 未启动'}
           {shellStatus === 'hidden' && '后台待命'}
           {shellStatus === 'visible' && '已打开'}
           {shellStatus === 'opening' && '打开中'}
