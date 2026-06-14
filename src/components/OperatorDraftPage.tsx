@@ -1535,6 +1535,25 @@ export function OperatorDraftPage() {
     setMessages((prev) => [`[OK] 已新增 ${selectedSkillKey}.${nextHitKey}`, ...prev].slice(0, 12));
   };
 
+  const handleDuplicateHit = () => {
+    if (!selectedSkillKey || !selectedHitKey || !draft.skills[selectedSkillKey]?.hitMeta[selectedHitKey]) {
+      setMessages((prev) => ['[ERR] 当前没有可复制的 hit', ...prev].slice(0, 12));
+      return;
+    }
+    const nextDraft = cloneDraft(draft);
+    const nextSkill = nextDraft.skills[selectedSkillKey];
+    const nextHitKey = getNextHitKey(nextSkill);
+    const duplicatedHit = cloneDraft(nextSkill.hitMeta[selectedHitKey]);
+    nextSkill.hitMeta[nextHitKey] = {
+      ...duplicatedHit,
+      displayName: `${duplicatedHit.displayName || selectedHitKey} 副本`,
+    };
+    syncHitCount(nextSkill);
+    setDraft(nextDraft);
+    setSelectedHitKey(nextHitKey);
+    setMessages((prev) => [`[OK] 已复制 ${selectedSkillKey}.${selectedHitKey} -> ${nextHitKey}`, ...prev].slice(0, 12));
+  };
+
   const handleRemoveHit = () => {
     if (!selectedSkillKey || !selectedHitKey || !draft.skills[selectedSkillKey]?.hitMeta[selectedHitKey]) {
       setMessages((prev) => ['[ERR] 当前没有可删除的 hit', ...prev].slice(0, 12));
@@ -1956,6 +1975,9 @@ export function OperatorDraftPage() {
                   <span>{selectedSkillKey ?? '-'}</span>
                   <button type="button" className="operator-draft-ghost-button" onClick={handleAddHit}>
                     新增 Hit
+                  </button>
+                  <button type="button" className="operator-draft-ghost-button" onClick={handleDuplicateHit}>
+                    复制 Hit
                   </button>
                   <button type="button" className="operator-draft-ghost-button" onClick={handleRemoveHit}>
                     删除 Hit
