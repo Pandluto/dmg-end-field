@@ -32,6 +32,10 @@
 - 新存档文件名改为 `local-时间-名称.json`、`share-时间-名称.json`、`backup-时间-名称.json`；旧 `localdata-*.json` 继续兼容读取。
 - 数据管理短期保留并重做为“当前数据 + 存档管理器”工作流：浏览器 Web 同步当前数据，Shell 保存/应用存档，刷新 Web 后生效。
 - 图片管理短期保留为 Web 页面 + Shell 本地图片 bridge；Shell 控制台新增图片桥接状态和图片目录入口。
+- 图片资产路径策略已收敛：开发态和打包态的主图片目录统一为 `data/images`，可通过 Shell 添加额外图片根目录。
+- 图片 bridge 现在按文件名映射 `/user-images/<文件名>`；旧路径 `/user-images/任意中间目录/<文件名>` 会自动忽略中间目录后兼容访问。
+- 图片根目录按优先级解析同名文件：主目录优先，其次配置根目录，最后兼容旧 AppData 图片目录；Shell 图片页会提示重名映射数量。
+- Shell 图片页已从“最近资产列表”改为“图片根目录维护”，只展示主目录、配置目录和兼容目录，不再滚动展示大量图片文件。
 - `@maaxyz/maa-node` 已从依赖移除，`native/win-capture-helper` 和旧 `electron/shell/index.html` 已删除。
 - Shell 模型接口页、Electron Ark/LLM IPC、Web GUI AI 填表入口和弹窗已删除；AI 填表后续收敛到 Agent CLI / AI REST。
 

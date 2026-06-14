@@ -244,7 +244,7 @@ function resolveStoredImageUrl(path?: string): string {
 
 function resolveWeaponImageUrl(weaponName?: string): string {
   if (!weaponName) return '';
-  return `http://127.0.0.1:31457/user-images/img-weapon/${encodeURIComponent(weaponName)}.png`;
+  return `http://127.0.0.1:31457/user-images/${encodeURIComponent(`${weaponName}.png`)}`;
 }
 
 function readLocalStorageJson<T>(key: string, fallback: T): T {

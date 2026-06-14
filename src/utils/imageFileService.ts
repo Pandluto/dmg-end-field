@@ -24,11 +24,11 @@ export function isManagedDir(dir: string): boolean {
 
 // ── Asset source checks ──
 
-export function isUserAsset(entry: { source?: 'builtin' | 'user' }): boolean {
-  return entry.source === 'user';
+export function isUserAsset(entry: { source?: 'builtin' | 'user' | 'legacy' }): boolean {
+  return entry.source === 'user' || entry.source === 'legacy';
 }
 
-export function isBuiltinAsset(entry: { source?: 'builtin' | 'user' }): boolean {
+export function isBuiltinAsset(entry: { source?: 'builtin' | 'user' | 'legacy' }): boolean {
   return entry.source === 'builtin';
 }
 
@@ -180,9 +180,21 @@ export function validateManagedFilePath(filePath: string): PathResult {
  * relative path for the bridge HTTP server (foo/bar.png).
  * Returns null for builtin assets.
  */
-export function toUserImageRelPath(entry: { relativePath: string; source?: 'builtin' | 'user' }): string | null {
-  if (entry.source !== 'user') return null;
+export function toUserImageRelPath(entry: {
+  relativePath: string;
+  fileName?: string;
+  canonicalPath?: string;
+  source?: 'builtin' | 'user' | 'legacy';
+}): string | null {
+  if (entry.source !== 'user' && entry.source !== 'legacy') return null;
+  if (entry.canonicalPath?.startsWith('user-images/')) {
+    return entry.canonicalPath.slice('user-images/'.length);
+  }
+  if (entry.fileName) {
+    return entry.fileName;
+  }
   const prefix = `${MANAGED_REL}/`;
   if (!entry.relativePath.startsWith(prefix)) return null;
-  return entry.relativePath.slice(prefix.length);
+  const rel = entry.relativePath.slice(prefix.length);
+  return rel.split('/').filter(Boolean).pop() || null;
 }

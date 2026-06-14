@@ -19,7 +19,11 @@ function resolveUserImagePath(path: string): string | null {
   if (!relPath || /(^|\/)\.\.(\/|$)/.test(relPath)) {
     return null;
   }
-  return `${USER_IMAGE_ORIGIN}/user-images/${encodeURI(relPath).replace(/%2F/g, '/')}`;
+  const fileName = relPath.split('/').filter(Boolean).pop();
+  if (!fileName) {
+    return null;
+  }
+  return `${USER_IMAGE_ORIGIN}/user-images/${encodeURIComponent(fileName)}`;
 }
 
 export function resolvePublicPath(path: string): string {

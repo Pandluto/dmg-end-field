@@ -25,6 +25,9 @@ interface BridgeCapabilityPayload {
   canCreateDir: boolean;
   canDeleteDir: boolean;
   canReveal: boolean;
+  canManageRoots?: boolean;
+  primaryRoot?: string;
+  rootsConfigPath?: string;
   backendLabel?: string;
   transportKind?: ImageManagerCapabilities['transportKind'];
 }
@@ -38,6 +41,9 @@ export interface ImageManagerCapabilities {
   canCreateDir: boolean;
   canDeleteDir: boolean;
   canReveal: boolean;
+  canManageRoots?: boolean;
+  primaryRoot?: string;
+  rootsConfigPath?: string;
   isElectron: boolean;
   isWritable: boolean;
   backendLabel: string;
@@ -118,6 +124,9 @@ function getWebBridgeCapabilities(payload: BridgeCapabilityPayload): ImageManage
     canCreateDir: Boolean(payload.canCreateDir),
     canDeleteDir: Boolean(payload.canDeleteDir),
     canReveal: Boolean(payload.canReveal),
+    canManageRoots: Boolean(payload.canManageRoots),
+    primaryRoot: payload.primaryRoot,
+    rootsConfigPath: payload.rootsConfigPath,
     isElectron: false,
     backendLabel: payload.backendLabel || '网页端 · 远程管理',
     transportKind: payload.transportKind || 'web-bridge',
@@ -286,7 +295,9 @@ export async function refreshCapabilities(): Promise<ImageManagerCapabilities> {
 export function getUserImageUrl(entry: ImageAssetEntry): string | null {
   const rel = toUserImageRelPath(entry);
   if (!rel) return null;
-  return `${BRIDGE_ORIGIN}/user-images/${encodeURI(rel).replace(/%2F/g, '/')}`;
+  const fileName = rel.split('/').filter(Boolean).pop();
+  if (!fileName) return null;
+  return `${BRIDGE_ORIGIN}/user-images/${encodeURIComponent(fileName)}`;
 }
 
 export const imageBridge = {

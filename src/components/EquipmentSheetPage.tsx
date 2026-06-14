@@ -458,7 +458,7 @@ function buildEquipmentImageAssetUrl(entry: ImageAssetEntry) {
 function buildEquipmentImageOption(entry: ImageAssetEntry): EquipmentImageOption | null {
   if (entry.kind === 'dir') return null;
   const displayUrl = buildEquipmentImageAssetUrl(entry);
-  const source = entry.source === 'user' ? 'user' : 'builtin';
+  const source = entry.source === 'user' || entry.source === 'legacy' ? 'user' : 'builtin';
   return {
     key: entry.relativePath,
     fileName: entry.fileName,

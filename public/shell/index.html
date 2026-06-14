@@ -24,7 +24,7 @@
         --red-bg: #fde8e5;
         --blue: #2b5f8d;
         --blue-bg: #e7f0f7;
-        --shadow: 0 18px 42px rgba(29, 24, 16, 0.08);
+        --shadow: none;
       }
 
       * {
@@ -38,7 +38,7 @@
         background:
           linear-gradient(180deg, rgba(255, 253, 248, 0.72), rgba(245, 243, 238, 0.92)),
           #f5f3ee;
-        font-size: 14px;
+        font-size: 13px;
         -webkit-font-smoothing: antialiased;
         text-rendering: optimizeLegibility;
         overflow: hidden;
@@ -52,13 +52,13 @@
       }
 
       button {
-        min-height: 32px;
+        min-height: 28px;
         border: 1px solid transparent;
-        border-radius: 8px;
+        border-radius: 6px;
         background: transparent;
         color: var(--text);
-        padding: 0 11px;
-        font-weight: 700;
+        padding: 0 9px;
+        font-weight: 650;
         cursor: default;
       }
 
@@ -92,17 +92,17 @@
       textarea,
       select {
         width: 100%;
-        min-height: 34px;
+        min-height: 30px;
         border: 1px solid var(--line);
-        border-radius: 8px;
+        border-radius: 6px;
         background: #fff;
         color: var(--text);
-        padding: 7px 9px;
+        padding: 5px 8px;
         outline: none;
       }
 
       textarea {
-        min-height: 72px;
+        min-height: 58px;
         resize: vertical;
       }
 
@@ -115,7 +115,7 @@
 
       .app-shell {
         display: grid;
-        grid-template-columns: 236px minmax(0, 1fr);
+        grid-template-columns: 220px minmax(0, 1fr);
         height: 100vh;
         overflow: hidden;
       }
@@ -124,33 +124,33 @@
         min-width: 0;
         border-right: 1px solid var(--line);
         background: rgba(255, 253, 248, 0.84);
-        padding: 14px 12px;
+        padding: 12px 10px;
         display: grid;
         grid-template-rows: auto 1fr auto;
-        gap: 16px;
+        gap: 12px;
         overflow: hidden;
       }
 
       .brand {
         display: grid;
-        grid-template-columns: 38px minmax(0, 1fr);
-        gap: 10px;
+        grid-template-columns: 32px minmax(0, 1fr);
+        gap: 8px;
         align-items: center;
-        min-height: 44px;
+        min-height: 38px;
       }
 
       .close-mark {
-        width: 38px;
-        height: 34px;
-        min-height: 34px;
+        width: 32px;
+        height: 30px;
+        min-height: 30px;
         border: 0;
         padding: 0;
         background: transparent;
-        border-radius: 8px;
+        border-radius: 6px;
         display: grid;
         place-items: center;
         color: var(--muted);
-        font-size: 20px;
+        font-size: 18px;
       }
 
       .close-mark:hover {
@@ -182,13 +182,13 @@
 
       .nav-button {
         width: 100%;
-        height: 38px;
+        height: 34px;
         display: grid;
         grid-template-columns: 22px minmax(0, 1fr) auto;
         align-items: center;
-        gap: 8px;
-        padding: 0 10px;
-        border-radius: 8px;
+        gap: 7px;
+        padding: 0 8px;
+        border-radius: 6px;
         text-align: left;
         font-weight: 650;
       }
@@ -203,7 +203,7 @@
         height: 22px;
         display: grid;
         place-items: center;
-        border-radius: 6px;
+        border-radius: 5px;
         background: rgba(34, 32, 28, 0.08);
         color: inherit;
         font-size: 12px;
@@ -233,7 +233,7 @@
         min-width: 0;
         height: 100vh;
         overflow-y: auto;
-        padding: 22px;
+        padding: 16px 18px;
       }
 
       .page {
@@ -244,35 +244,35 @@
 
       .page.is-active {
         display: grid;
-        gap: 18px;
+        gap: 12px;
       }
 
       .page-header {
         display: grid;
         grid-template-columns: minmax(0, 1fr) auto;
         align-items: end;
-        gap: 16px;
+        gap: 12px;
       }
 
       .eyebrow {
         color: var(--muted);
-        font-size: 12px;
-        font-weight: 750;
+        font-size: 11px;
+        font-weight: 700;
       }
 
       .page-title {
         margin: 4px 0 0;
-        font-size: 25px;
+        font-size: 22px;
         line-height: 1.18;
-        font-weight: 850;
+        font-weight: 800;
         letter-spacing: 0;
       }
 
       .page-desc {
-        margin: 8px 0 0;
+        margin: 6px 0 0;
         max-width: 760px;
         color: var(--muted);
-        line-height: 1.65;
+        line-height: 1.5;
       }
 
       .toolbar {
@@ -317,25 +317,25 @@
 
       .action-stack {
         display: grid;
-        gap: 12px;
+        gap: 8px;
       }
 
       .action-block {
         border: 1px solid var(--line);
-        border-radius: 8px;
+        border-radius: 6px;
         background: rgba(255, 255, 255, 0.5);
-        padding: 12px;
+        padding: 10px;
         display: grid;
-        gap: 10px;
+        gap: 8px;
       }
 
       .action-title {
-        font-weight: 820;
+        font-weight: 740;
       }
 
       .selected-summary {
         display: grid;
-        gap: 6px;
+        gap: 5px;
       }
 
       .panel,
@@ -344,54 +344,54 @@
       .archive-item,
       .asset-item {
         border: 1px solid var(--line);
-        border-radius: 8px;
+        border-radius: 6px;
         background: var(--surface);
         box-shadow: var(--shadow);
       }
 
       .panel {
-        padding: 16px;
+        padding: 12px;
         display: grid;
-        gap: 14px;
+        gap: 10px;
       }
 
       .panel-header {
         display: grid;
         grid-template-columns: minmax(0, 1fr) auto;
-        gap: 12px;
+        gap: 10px;
         align-items: start;
       }
 
       .panel-title {
-        font-size: 16px;
-        font-weight: 800;
+        font-size: 14px;
+        font-weight: 760;
       }
 
       .panel-help {
-        margin-top: 4px;
+        margin-top: 3px;
         color: var(--muted);
-        line-height: 1.45;
+        line-height: 1.35;
       }
 
       .metric-card,
       .status-card {
-        padding: 13px;
-        min-height: 104px;
+        padding: 10px;
+        min-height: 76px;
         display: grid;
         align-content: space-between;
-        gap: 10px;
+        gap: 7px;
       }
 
       .metric-label,
       .status-label {
         color: var(--muted);
-        font-size: 12px;
-        font-weight: 700;
+        font-size: 11px;
+        font-weight: 680;
       }
 
       .metric-value {
-        font-size: 24px;
-        font-weight: 850;
+        font-size: 20px;
+        font-weight: 780;
         line-height: 1.1;
         word-break: break-word;
       }
@@ -399,15 +399,15 @@
       .metric-foot,
       .status-detail {
         color: var(--muted);
-        font-size: 13px;
-        line-height: 1.45;
+        font-size: 12px;
+        line-height: 1.35;
       }
 
       .status-top {
         display: flex;
         align-items: center;
         justify-content: space-between;
-        gap: 10px;
+        gap: 8px;
       }
 
       .badge,
@@ -415,11 +415,11 @@
         display: inline-flex;
         align-items: center;
         justify-content: center;
-        min-height: 22px;
+        min-height: 20px;
         border-radius: 999px;
-        padding: 2px 8px;
+        padding: 1px 7px;
         font-size: 11px;
-        font-weight: 760;
+        font-weight: 700;
         white-space: nowrap;
       }
 
@@ -450,7 +450,7 @@
       .form-grid {
         display: grid;
         grid-template-columns: minmax(160px, 0.55fr) minmax(240px, 1fr);
-        gap: 12px 16px;
+        gap: 10px 12px;
         align-items: start;
       }
 
@@ -468,17 +468,17 @@
       .check-grid {
         display: grid;
         grid-template-columns: repeat(3, minmax(0, 1fr));
-        gap: 8px;
+        gap: 6px;
       }
 
       .check-row {
-        min-height: 34px;
+        min-height: 30px;
         display: flex;
         align-items: center;
-        gap: 7px;
-        padding: 6px 8px;
+        gap: 6px;
+        padding: 5px 7px;
         border: 1px solid var(--line);
-        border-radius: 8px;
+        border-radius: 6px;
         background: #fff;
         font-weight: 650;
       }
@@ -491,7 +491,7 @@
       .archive-list,
       .asset-list {
         display: grid;
-        gap: 8px;
+        gap: 6px;
         max-height: 380px;
         overflow: auto;
         padding-right: 2px;
@@ -512,13 +512,13 @@
       .archive-columns {
         display: grid;
         grid-template-columns: repeat(2, minmax(0, 1fr));
-        gap: 12px;
+        gap: 10px;
       }
 
       .archive-column {
         min-width: 0;
         display: grid;
-        gap: 8px;
+        gap: 6px;
         align-content: start;
       }
 
@@ -526,21 +526,32 @@
         display: flex;
         align-items: center;
         justify-content: space-between;
-        gap: 8px;
+        gap: 6px;
         color: var(--muted);
         font-size: 12px;
-        font-weight: 800;
+        font-weight: 720;
       }
 
       .archive-item,
       .asset-item {
         width: 100%;
-        min-height: 92px;
+        min-height: 62px;
         display: grid;
-        gap: 7px;
-        padding: 12px;
+        gap: 5px;
+        padding: 9px 10px;
         text-align: left;
         box-shadow: none;
+      }
+
+      .asset-item .danger-button {
+        min-height: 24px;
+        padding: 0 8px;
+        flex: 0 0 auto;
+      }
+
+      #image-root-list .asset-item {
+        min-height: 54px;
+        background: #fff;
       }
 
       .archive-item.is-active,
@@ -554,7 +565,7 @@
         display: flex;
         align-items: center;
         justify-content: space-between;
-        gap: 12px;
+        gap: 8px;
         min-width: 0;
       }
 
@@ -563,15 +574,15 @@
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
-        font-size: 15px;
+        font-size: 13px;
         line-height: 1.25;
-        font-weight: 780;
+        font-weight: 720;
       }
 
       .item-meta {
         color: var(--muted);
-        font-size: 12px;
-        line-height: 1.45;
+        font-size: 11px;
+        line-height: 1.35;
         min-width: 0;
         overflow: hidden;
         text-overflow: ellipsis;
@@ -595,14 +606,14 @@
         max-height: 360px;
         overflow: auto;
         border: 1px solid var(--line);
-        border-radius: 8px;
+        border-radius: 6px;
         background: #171717;
         color: #f6f1e8;
-        padding: 10px;
+        padding: 8px;
         white-space: pre-wrap;
         font-family: Consolas, "Cascadia Mono", monospace;
         font-size: 12px;
-        line-height: 1.45;
+        line-height: 1.4;
       }
 
       .code-output {
@@ -612,11 +623,11 @@
 
       .empty-state {
         border: 1px dashed #c9c2b6;
-        border-radius: 8px;
-        padding: 14px;
+        border-radius: 6px;
+        padding: 10px;
         color: var(--muted);
         background: rgba(255, 253, 248, 0.52);
-        line-height: 1.5;
+        line-height: 1.4;
       }
 
       .copy-line {
@@ -635,7 +646,7 @@
         z-index: 80;
         display: none;
         place-items: center;
-        padding: 24px;
+        padding: 18px;
         background: rgba(23, 23, 23, 0.34);
       }
 
@@ -646,22 +657,22 @@
       .modal {
         width: min(560px, 100%);
         border: 1px solid var(--line);
-        border-radius: 8px;
+        border-radius: 6px;
         background: var(--surface);
-        box-shadow: 0 24px 64px rgba(23, 23, 23, 0.24);
-        padding: 16px;
+        box-shadow: 0 16px 42px rgba(23, 23, 23, 0.18);
+        padding: 12px;
         display: grid;
-        gap: 14px;
+        gap: 10px;
       }
 
       .modal-title {
-        font-size: 16px;
-        font-weight: 850;
+        font-size: 14px;
+        font-weight: 780;
       }
 
       .modal-desc {
         color: var(--muted);
-        line-height: 1.55;
+        line-height: 1.4;
       }
 
       @media (max-width: 920px) {
@@ -991,9 +1002,10 @@
             <div>
               <div class="eyebrow">Image Assets</div>
               <h1 class="page-title">图片资产</h1>
-              <p class="page-desc">Web 图片管理页仍然保留；Shell 提供本地图片目录桥接。只开浏览器开发服务时会降级为内置 manifest 预览。</p>
+              <p class="page-desc">维护图片根目录和 bridge 映射。Web 端统一通过文件名访问图片，旧路径会自动兼容。</p>
             </div>
             <div class="toolbar">
+              <button id="add-image-root" type="button" class="subtle-button">添加根目录</button>
               <button id="refresh-images" type="button" class="subtle-button">刷新图片</button>
               <button id="open-image-dir" type="button" class="primary-button">打开图片目录</button>
             </div>
@@ -1005,23 +1017,23 @@
               <div class="status-detail" id="image-mode-detail">正在读取 capabilities</div>
             </article>
             <article class="status-card">
-              <div class="status-top"><span class="status-label">目录数量</span><span class="badge info" id="image-dir-count">-</span></div>
-              <div class="status-detail">按图片管理器目录结构统计。</div>
+              <div class="status-top"><span class="status-label">图片根目录</span><span class="badge info" id="image-root-count">-</span></div>
+              <div class="status-detail" id="image-root-detail">读取中</div>
             </article>
             <article class="status-card">
               <div class="status-top"><span class="status-label">文件数量</span><span class="badge info" id="image-file-count">-</span></div>
-              <div class="status-detail">本地 bridge 能访问的图片文件。</div>
+              <div class="status-detail" id="image-file-detail">本地 bridge 能访问的图片文件。</div>
             </article>
           </section>
 
           <section class="panel">
             <div class="panel-header">
               <div>
-                <div class="panel-title">最近资产</div>
-                <div class="panel-help" id="image-status">等待刷新</div>
+                <div class="panel-title">图片根目录</div>
+                <div class="panel-help" id="image-root-status">维护可被 bridge 映射的图片目录；Web 统一通过 /user-images/&lt;文件名&gt; 访问。</div>
               </div>
             </div>
-            <div class="asset-list" id="image-list"></div>
+            <div class="asset-list" id="image-root-list"></div>
           </section>
         </div>
 

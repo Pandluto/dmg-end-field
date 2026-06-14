@@ -648,55 +648,79 @@
   };
 
   const refreshImages = async () => {
-    const listElement = $('image-list');
+    const listElement = $('image-root-list');
     try {
-      const [capabilityPayload, listPayload] = await Promise.all([
+      const [capabilityPayload, listPayload, rootsPayload] = await Promise.all([
         fetchLocalBridgeJson('/image-assets/capabilities'),
         fetchLocalBridgeJson('/image-assets/list'),
+        fetchLocalBridgeJson('/image-assets/roots'),
       ]);
       const capabilities = capabilityPayload.capabilities || {};
       state.imageItems = listPayload.items || [];
-      const dirs = state.imageItems.filter((item) => item.kind === 'directory' || item.type === 'directory');
-      const files = state.imageItems.filter((item) => item.kind !== 'directory' && item.type !== 'directory');
+      const dirs = state.imageItems.filter((item) => item.kind === 'dir' || item.kind === 'directory' || item.type === 'directory');
+      const files = state.imageItems.filter((item) => item.kind !== 'dir' && item.kind !== 'directory' && item.type !== 'directory');
+      const roots = rootsPayload.roots || [];
+      const conflicts = files.filter((item) => Number(item.conflictCount || 0) > 1 && item.mappingWinner).length;
 
       setBadge('image-bridge-badge', capabilities.writable === false ? '只读' : '可管理', capabilities.writable === false ? 'warn' : 'ok');
       setBadge('image-mode-badge', capabilities.writable === false ? '只读' : '可管理', capabilities.writable === false ? 'warn' : 'ok');
-      setText('image-bridge-detail', capabilities.rootDir || capabilities.path || 'Shell 本地图片 bridge 已连接');
-      setText('image-mode-detail', capabilities.writable === false ? '当前桥接为只读模式。' : '当前桥接支持目录和文件管理。');
-      setText('image-dir-count', String(dirs.length));
+      setText('image-bridge-detail', capabilities.primaryRoot || rootsPayload.primaryRoot || 'Shell 本地图片 bridge 已连接');
+      setText('image-mode-detail', capabilities.writable === false ? '当前桥接为只读模式。' : '按文件名映射到 /user-images/<文件名>。');
+      setText('image-root-count', String(roots.length));
+      setText('image-root-detail', roots.length ? roots.map((root) => root.label || root.directory).slice(0, 2).join(' / ') : '未配置额外根目录');
       setText('image-file-count', String(files.length));
+      setText('image-file-detail', conflicts ? `${conflicts} 个文件名存在重名映射。` : '无重名映射冲突。');
       setText('metric-images', String(files.length));
-      setText('metric-images-foot', `${dirs.length} 个目录`);
-      setText('image-status', `共 ${state.imageItems.length} 个条目；文件 ${files.length}；目录 ${dirs.length}`);
+      setText('metric-images-foot', `${roots.length} 个根目录 / ${dirs.length} 个目录`);
+      setText('image-root-status', `当前维护 ${roots.length} 个根目录；文件 ${files.length}；目录 ${dirs.length}；冲突 ${conflicts}`);
 
       if (!listElement) return;
-      const visibleItems = state.imageItems.slice(0, 60);
-      listElement.innerHTML = visibleItems.length
-        ? visibleItems.map((item) => {
-            const isDir = item.kind === 'directory' || item.type === 'directory';
-            const name = item.name || item.fileName || item.relativePath || item.dirPath || '-';
-            const rel = item.relativePath || item.dirPath || item.path || '';
+      listElement.innerHTML = roots.length
+        ? roots.map((root) => {
+            const label = root.label || root.directory || '-';
+            const tags = [
+              root.id === 'primary' ? '主目录' : '',
+              root.configured ? '配置' : '',
+              root.legacy ? '兼容' : '',
+              root.exists ? '' : '不存在',
+            ].filter(Boolean).join(' · ');
             return `
-              <div class="asset-item" title="${escapeHtml(rel)}">
+              <div class="asset-item" title="${escapeHtml(root.directory || '')}">
                 <div class="item-line">
-                  <span class="item-title">${escapeHtml(name)}</span>
-                  <span class="pill ${isDir ? 'info' : 'ok'}">${isDir ? '目录' : '文件'}</span>
+                  <span class="item-title">${escapeHtml(label)}</span>
+                  <span class="pill ${root.exists ? 'ok' : 'warn'}">${escapeHtml(tags || '目录')}</span>
                 </div>
                 <div class="item-line">
-                  <span class="item-meta">${escapeHtml(rel || '-')}</span>
-                  <span class="item-meta">${escapeHtml(formatBytes(item.size))}</span>
+                  <span class="item-meta">${escapeHtml(root.directory || '-')}</span>
+                  ${root.configured ? `<button type="button" class="danger-button" data-remove-image-root="${escapeHtml(root.directory)}">移除</button>` : '<span class="item-meta">保留</span>'}
                 </div>
               </div>
             `;
           }).join('')
-        : '<div class="empty-state">图片目录暂无可展示条目。</div>';
+        : '<div class="empty-state">暂无图片根目录。</div>';
+      document.querySelectorAll('[data-remove-image-root]').forEach((button) => {
+        button.addEventListener('click', async () => {
+          const directory = button.getAttribute('data-remove-image-root');
+          try {
+            await fetchLocalBridgeJson('/image-assets/remove-root', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ directory }),
+            });
+            appendLog(`图片资产 | 已移除根目录 | ${directory || ''}`);
+            await refreshImages();
+          } catch (error) {
+            appendLog(`图片资产 | 移除根目录失败 | ${error instanceof Error ? error.message : String(error)}`);
+          }
+        });
+      });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       setBadge('image-bridge-badge', '异常', 'err');
       setBadge('image-mode-badge', '异常', 'err');
       setText('image-bridge-detail', message);
       setText('image-mode-detail', message);
-      setText('image-status', message);
+      setText('image-root-status', message);
       setText('metric-images', '异常');
       setText('metric-images-foot', message);
       if (listElement) {
@@ -824,6 +848,15 @@
     });
     $('refresh-images')?.addEventListener('click', () => {
       refreshImages().catch((error) => appendLog(`图片资产 | 刷新失败 | ${error instanceof Error ? error.message : String(error)}`));
+    });
+    $('add-image-root')?.addEventListener('click', async () => {
+      try {
+        const result = await fetchLocalBridgeJson('/image-assets/add-root', { method: 'POST' });
+        appendLog(result?.ok ? `图片资产 | 已添加根目录 | ${result.roots?.at(-1)?.directory || ''}` : `图片资产 | 添加根目录失败 | ${result?.error || '-'}`);
+        await refreshImages();
+      } catch (error) {
+        appendLog(`图片资产 | 添加根目录失败 | ${error instanceof Error ? error.message : String(error)}`);
+      }
     });
     $('open-image-dir')?.addEventListener('click', () => {
       revealImageDirectory().catch((error) => appendLog(`图片资产 | 打开目录异常 | ${error instanceof Error ? error.message : String(error)}`));

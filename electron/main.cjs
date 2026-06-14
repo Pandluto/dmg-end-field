@@ -495,6 +495,11 @@ function startBridgeServer() {
         return;
       }
 
+      if (method === 'GET' && requestUrl.pathname === '/image-assets/roots') {
+        writeJson(response, 200, listImageRoots());
+        return;
+      }
+
       if (method === 'GET' && requestUrl.pathname === '/local-data/list') {
         writeJson(response, 200, {
           ok: true,
@@ -714,6 +719,16 @@ function startBridgeServer() {
         return;
       }
 
+      if (method === 'POST' && requestUrl.pathname === '/image-assets/add-root') {
+        writeJson(response, 200, await handleAddImageRoot());
+        return;
+      }
+
+      if (method === 'POST' && requestUrl.pathname === '/image-assets/remove-root') {
+        writeJson(response, 200, handleRemoveImageRoot(await readJsonRequest(request)));
+        return;
+      }
+
       if (method === 'POST' && requestUrl.pathname === '/image-assets/reveal-file') {
         writeJson(response, 200, await handleRevealInExplorer({
           kind: 'file',
@@ -732,20 +747,14 @@ function startBridgeServer() {
 
       // ── User-image serving (read-only, no path rules in bridge) ──
       if (method === 'GET' && requestUrl.pathname.startsWith('/user-images/')) {
-        const userDir = getUserImagesDir();
         const relPath = decodeURIComponent(requestUrl.pathname.replace(/^\/user-images\//, ''));
         if (/(^|\/)\.\.(\/|$)/.test(relPath) || relPath.includes('\\')) {
           response.writeHead(403);
           response.end('Forbidden');
           return;
         }
-        const absPath = path.resolve(userDir, relPath);
-        if (!absPath.startsWith(path.resolve(userDir) + path.sep)) {
-          response.writeHead(403);
-          response.end('Forbidden');
-          return;
-        }
-        if (!fs.existsSync(absPath) || !fs.statSync(absPath).isFile()) {
+        const absPath = resolveUserImageFileByRequestPath(relPath);
+        if (!absPath || !fs.existsSync(absPath) || !fs.statSync(absPath).isFile()) {
           response.writeHead(404);
           response.end('Not Found');
           return;
@@ -946,6 +955,25 @@ function getProductionAssetsRoot() {
   return path.join(getRuntimeDataRoot(), 'images');
 }
 
+function getDevImageRoot() {
+  return path.join(__dirname, '..', 'data', 'images');
+}
+
+function getPrimaryImageRoot() {
+  return isDev ? getDevImageRoot() : ensureProductionAssetsRoot();
+}
+
+function getImageRootsConfigPath() {
+  if (isDev) {
+    return path.join(__dirname, '..', 'data', 'image-roots.json');
+  }
+  return path.join(getRuntimeDataRoot(), 'image-roots.json');
+}
+
+function getLegacyUserImagesDir() {
+  return path.join(app.getPath('userData'), 'user-images');
+}
+
 function ensureProductionAssetsRoot() {
   const targetRoot = getProductionAssetsRoot();
   if (isDev) {
@@ -986,11 +1014,9 @@ function getBuiltinManifestDir() {
   return path.join(root, 'images');
 }
 
-/** User (writable) images root: userData/user-images/. Independent from Vite watch scope. */
+/** Primary writable image root. Extra roots are configured separately. */
 function getUserImagesDir() {
-  const dir = isDev
-    ? path.join(app.getPath('userData'), 'user-images')
-    : getProductionAssetsRoot();
+  const dir = getPrimaryImageRoot();
   if (!fs.existsSync(dir)) {
     fs.mkdirSync(dir, { recursive: true });
   }
@@ -1002,6 +1028,150 @@ function getManagedDir() {
   return getUserImagesDir();
 }
 
+function normalizeImageRootPath(value) {
+  if (!value || typeof value !== 'string') {
+    return null;
+  }
+  return path.resolve(value.trim());
+}
+
+function readImageRootsConfig() {
+  try {
+    const filePath = getImageRootsConfigPath();
+    if (!fs.existsSync(filePath)) {
+      return { version: 1, roots: [] };
+    }
+    const parsed = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+    const roots = Array.isArray(parsed?.roots)
+      ? parsed.roots
+        .map((item) => {
+          const directory = normalizeImageRootPath(typeof item === 'string' ? item : item?.directory);
+          if (!directory) return null;
+          return {
+            directory,
+            label: typeof item?.label === 'string' && item.label.trim()
+              ? item.label.trim()
+              : path.basename(directory),
+          };
+        })
+        .filter(Boolean)
+      : [];
+    return { version: 1, roots };
+  } catch {
+    return { version: 1, roots: [] };
+  }
+}
+
+function writeImageRootsConfig(roots) {
+  const filePath = getImageRootsConfigPath();
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  const normalizedRoots = [];
+  const seen = new Set();
+  roots.forEach((item) => {
+    const directory = normalizeImageRootPath(typeof item === 'string' ? item : item?.directory);
+    if (!directory) return;
+    const key = directory.toLowerCase();
+    if (seen.has(key)) return;
+    seen.add(key);
+    normalizedRoots.push({
+      directory,
+      label: typeof item?.label === 'string' && item.label.trim()
+        ? item.label.trim()
+        : path.basename(directory),
+    });
+  });
+  fs.writeFileSync(filePath, `${JSON.stringify({ version: 1, roots: normalizedRoots }, null, 2)}\n`, 'utf-8');
+  return { version: 1, roots: normalizedRoots };
+}
+
+function getImageRootEntries() {
+  const primaryDir = getUserImagesDir();
+  const entries = [{
+    id: 'primary',
+    label: '主图片目录',
+    directory: primaryDir,
+    writable: true,
+    priority: 0,
+    configured: false,
+    exists: fs.existsSync(primaryDir),
+  }];
+  const seen = new Set([path.resolve(primaryDir).toLowerCase()]);
+  const configured = readImageRootsConfig().roots;
+  configured.forEach((root, index) => {
+    const directory = normalizeImageRootPath(root.directory);
+    if (!directory) return;
+    const key = directory.toLowerCase();
+    if (seen.has(key)) return;
+    seen.add(key);
+    entries.push({
+      id: `root-${index + 1}`,
+      label: root.label || path.basename(directory),
+      directory,
+      writable: false,
+      priority: entries.length,
+      configured: true,
+      exists: fs.existsSync(directory),
+    });
+  });
+
+  const legacyDir = getLegacyUserImagesDir();
+  const legacyKey = path.resolve(legacyDir).toLowerCase();
+  if (fs.existsSync(legacyDir) && !seen.has(legacyKey)) {
+    entries.push({
+      id: 'legacy-appdata',
+      label: '旧 AppData 图片',
+      directory: legacyDir,
+      writable: false,
+      priority: entries.length,
+      configured: false,
+      legacy: true,
+      exists: true,
+    });
+  }
+  return entries;
+}
+
+function listImageRoots() {
+  return {
+    ok: true,
+    configPath: getImageRootsConfigPath(),
+    primaryRoot: getUserImagesDir(),
+    roots: getImageRootEntries(),
+  };
+}
+
+async function handleAddImageRoot() {
+  const win = BrowserWindow.getFocusedWindow() || shellWindow;
+  if (!win) {
+    return { ok: false, error: '无活动窗口' };
+  }
+  const result = await dialog.showOpenDialog(win, {
+    title: '选择图片根目录',
+    properties: ['openDirectory'],
+  });
+  if (result.canceled || !result.filePaths?.[0]) {
+    return { ok: false, canceled: true, error: '已取消' };
+  }
+  const directory = normalizeImageRootPath(result.filePaths[0]);
+  const config = readImageRootsConfig();
+  writeImageRootsConfig([...config.roots, { directory, label: path.basename(directory) || directory }]);
+  syncImageManifest();
+  return listImageRoots();
+}
+
+function handleRemoveImageRoot(payload) {
+  const directory = normalizeImageRootPath(payload?.directory);
+  if (!directory) {
+    return { ok: false, error: '缺少目录' };
+  }
+  const config = readImageRootsConfig();
+  const targetKey = directory.toLowerCase();
+  const nextRoots = config.roots.filter((root) => normalizeImageRootPath(root.directory)?.toLowerCase() !== targetKey);
+  writeImageRootsConfig(nextRoots);
+  syncImageManifest();
+  return listImageRoots();
+}
+
 function syncImageManifest() {
   const list = scanAllImageAssets();
   const manifestDir = getBuiltinManifestDir();
@@ -1009,7 +1179,7 @@ function syncImageManifest() {
   // Despite the legacy path, its contents represent the full builtin asset image set.
   const manifestPath = path.join(manifestDir, '_manifest.json');
   const slim = list
-    .filter((entry) => entry.source !== 'user')
+    .filter((entry) => entry.source === 'builtin')
     .map((entry) => ({
       fileName: entry.fileName,
       baseName: entry.baseName,
@@ -1030,7 +1200,7 @@ function syncImageManifest() {
   }
 }
 
-function addFileEntry(results, dirsWithFiles, fullPath, relPath, source, writable) {
+function addFileEntry(results, dirsWithFiles, fullPath, relPath, source, writable, rootInfo = null) {
   let stats;
   try {
     stats = fs.statSync(fullPath);
@@ -1040,13 +1210,20 @@ function addFileEntry(results, dirsWithFiles, fullPath, relPath, source, writabl
   const ext = path.extname(fullPath).toLowerCase();
   const baseName = path.basename(fullPath, ext);
   const normalizedRel = `assets/${relPath.replace(/\\/g, '/')}`;
+  const fileName = path.basename(fullPath);
   results.push({
-    fileName: path.basename(fullPath),
+    fileName,
     baseName,
     ext,
     relativePath: normalizedRel,
+    canonicalPath: `user-images/${fileName}`,
+    publicUrl: `http://127.0.0.1:${BRIDGE_PORT}/user-images/${encodeURIComponent(fileName)}`,
     source,
     writable,
+    rootId: rootInfo?.id,
+    rootLabel: rootInfo?.label,
+    rootDirectory: rootInfo?.directory,
+    rootPriority: rootInfo?.priority ?? 999,
     sizeBytes: stats.size,
     updatedAt: stats.mtimeMs,
   });
@@ -1059,13 +1236,14 @@ function addFileEntry(results, dirsWithFiles, fullPath, relPath, source, writabl
 
 function scanAllImageAssets() {
   const builtinAssetsRoot = getBuiltinAssetsRoot();
+  const imageRoots = getImageRootEntries();
   const userDir = getUserImagesDir();
   const builtinAndUserShareRoot = path.resolve(builtinAssetsRoot) === path.resolve(userDir);
   const results = [];
   const dirsWithFiles = new Set();
 
   // ── Walk helper ──
-  function walk(dirPath, relDir, source, writable) {
+  function walk(dirPath, relDir, source, writable, rootInfo = null) {
     let entries;
     try {
       entries = fs.readdirSync(dirPath, { withFileTypes: true });
@@ -1076,11 +1254,11 @@ function scanAllImageAssets() {
       const fullPath = path.join(dirPath, entry.name);
       const relPath = relDir ? `${relDir}/${entry.name}` : entry.name;
       if (entry.isDirectory()) {
-        walk(fullPath, relPath, source, writable);
+        walk(fullPath, relPath, source, writable, rootInfo);
       } else if (entry.name === '_manifest.json') {
         continue;
       } else if (/\.(png|jpg|jpeg|webp|gif|svg)$/i.test(entry.name)) {
-        addFileEntry(results, dirsWithFiles, fullPath, relPath, source, writable);
+        addFileEntry(results, dirsWithFiles, fullPath, relPath, source, writable, rootInfo);
       }
     }
   }
@@ -1090,9 +1268,11 @@ function scanAllImageAssets() {
     walk(builtinAssetsRoot, '', 'builtin', false);
   }
 
-  // ── Scan user (writable) ──
-  if (fs.existsSync(userDir)) {
-    walk(userDir, 'images', 'user', true);
+  // ── Scan configured image roots. Root priority controls /user-images/<fileName> mapping. ──
+  for (const rootInfo of imageRoots) {
+    if (fs.existsSync(rootInfo.directory)) {
+      walk(rootInfo.directory, 'images', rootInfo.legacy ? 'legacy' : 'user', rootInfo.writable, rootInfo);
+    }
   }
 
   // ── Empty user directories (for tree visibility) ──
@@ -1140,7 +1320,47 @@ function scanAllImageAssets() {
     }
   }
 
-  return Array.from(seen.values());
+  const list = Array.from(seen.values());
+  const byFileName = new Map();
+  for (const item of list) {
+    if (item.kind === 'dir') continue;
+    const key = String(item.fileName || '').toLowerCase();
+    if (!key) continue;
+    const bucket = byFileName.get(key) || [];
+    bucket.push(item);
+    byFileName.set(key, bucket);
+  }
+  for (const bucket of byFileName.values()) {
+    bucket.sort((left, right) => (left.rootPriority ?? 999) - (right.rootPriority ?? 999));
+    bucket.forEach((item, index) => {
+      item.conflictCount = bucket.length;
+      item.mappingWinner = index === 0;
+      item.mappingKey = item.fileName;
+    });
+  }
+  return list;
+}
+
+function resolveUserImageFileByRequestPath(requestPath) {
+  const decoded = decodeURIComponent(requestPath || '').replace(/\\/g, '/').replace(/^\/+/, '');
+  if (!decoded || /(^|\/)\.\.(\/|$)/.test(decoded)) {
+    return null;
+  }
+  const requestedFileName = path.basename(decoded);
+  if (!requestedFileName || !/\.(png|jpg|jpeg|webp|gif|svg)$/i.test(requestedFileName)) {
+    return null;
+  }
+  const candidates = scanAllImageAssets()
+    .filter((entry) => entry.kind !== 'dir' && String(entry.fileName || '').toLowerCase() === requestedFileName.toLowerCase())
+    .sort((left, right) => (left.rootPriority ?? 999) - (right.rootPriority ?? 999));
+  for (const item of candidates) {
+    if (!item.rootDirectory) continue;
+    const fullPath = path.resolve(item.rootDirectory, item.relativePath.replace(/^assets\/images\/?/, ''));
+    if (fs.existsSync(fullPath) && fs.statSync(fullPath).isFile()) {
+      return fullPath;
+    }
+  }
+  return null;
 }
 
 function findUniqueFileName(dirPath, baseName, ext) {
@@ -1211,6 +1431,9 @@ function getWebImageAssetCapabilities() {
     canCreateDir: true,
     canDeleteDir: true,
     canReveal: true,
+    canManageRoots: true,
+    primaryRoot: getUserImagesDir(),
+    rootsConfigPath: getImageRootsConfigPath(),
     backendLabel: '网页端 · 可管理',
     transportKind: 'web-bridge',
   };
