@@ -984,6 +984,10 @@ ipcMain.handle('desktop:apply-image-update', async () => {
   const state = await applyImageReleaseUpdate();
   return { ok: true, state };
 });
+ipcMain.handle('desktop:force-clear-image-update', async () => {
+  const state = await forceClearImageUpdate();
+  return { ok: true, state };
+});
 ipcMain.handle('desktop:pick-image-release-source-dir', async () => {
   const win = BrowserWindow.getFocusedWindow() || shellWindow;
   if (!win) return { ok: false, error: '无活动窗口' };
@@ -1008,19 +1012,6 @@ ipcMain.handle('desktop:pick-image-release-output-dir', async () => {
   }
   return { ok: true, path: result.filePaths[0] };
 });
-ipcMain.handle('desktop:pick-image-release-base-manifest', async () => {
-  const win = BrowserWindow.getFocusedWindow() || shellWindow;
-  if (!win) return { ok: false, error: '无活动窗口' };
-  const result = await dialog.showOpenDialog(win, {
-    title: '选择上一版 assets-release-manifest.json',
-    filters: [{ name: 'Release Manifest', extensions: ['json'] }],
-    properties: ['openFile'],
-  });
-  if (result.canceled || !result.filePaths?.[0]) {
-    return { ok: false, canceled: true, error: '已取消' };
-  }
-  return { ok: true, path: result.filePaths[0] };
-});
 ipcMain.handle('desktop:build-image-release-package', async (_event, payload) => {
   try {
     const scriptPath = path.join(__dirname, '..', 'scripts', 'build-image-release-manifest.mjs');
@@ -1031,9 +1022,6 @@ ipcMain.handle('desktop:build-image-release-package', async (_event, payload) =>
       assetVersion: payload?.assetVersion,
       releaseTag: payload?.releaseTag,
       minShellVersion: payload?.minShellVersion,
-      baseManifest: payload?.baseManifest,
-      includeDeltaFiles: Boolean(payload?.includeDeltaFiles),
-      mode: payload?.mode,
     });
     appendRuntimeLog('assets-release-builder', `built ${result.mode} ${result.assetVersion} -> ${result.outputDir}`);
     return { ok: true, result };
@@ -1289,21 +1277,7 @@ async function fetchUrlRawWithChromium(targetUrl, options = {}) {
     if (response.body && typeof response.body.getReader === 'function') {
       const reader = response.body.getReader();
       while (true) {
-        const { value, done } = await new Promise((resolve, reject) => {
-          const idleTimer = setTimeout(() => {
-            reader.cancel().catch(() => {});
-            reject(new Error(`request idle timeout after ${IMAGE_RELEASE_DOWNLOAD_IDLE_TIMEOUT_MS}ms: ${targetUrl}`));
-          }, IMAGE_RELEASE_DOWNLOAD_IDLE_TIMEOUT_MS);
-          reader.read()
-            .then((result) => {
-              clearTimeout(idleTimer);
-              resolve(result);
-            })
-            .catch((error) => {
-              clearTimeout(idleTimer);
-              reject(error);
-            });
-        });
+        const { value, done } = await reader.read();
         if (done) {
           break;
         }
@@ -1592,9 +1566,6 @@ function validateImageReleaseManifest(manifest, manifestSourceUrl = '') {
   if (manifest.package !== undefined) {
     validateReleasePackageDescriptor(manifest.package, manifestSourceUrl, 'package');
   }
-  if (manifest.fullPackage !== undefined) {
-    validateReleasePackageDescriptor(manifest.fullPackage, manifestSourceUrl, 'fullPackage');
-  }
   manifest.files.forEach((entry) => {
     const normalized = normalizeReleaseRelativePath(entry?.relativePath);
     if (!normalized) {
@@ -1733,14 +1704,6 @@ function removeReleaseDeletedFiles(manifest, releaseDir) {
   }
 }
 
-function shouldUseDeltaArchive(remoteManifest, previousVersion, previousVersionDir) {
-  return remoteManifest.delivery === 'delta-archive'
-    && remoteManifest.baseVersion
-    && previousVersion === remoteManifest.baseVersion
-    && previousVersionDir
-    && fs.existsSync(previousVersionDir);
-}
-
 function listReleaseImageFiles(releaseDir) {
   const files = [];
   function walk(dirPath, relDir = '') {
@@ -1764,8 +1727,8 @@ function listReleaseImageFiles(releaseDir) {
   return files;
 }
 
-function isDeltaReleaseMaterialized(manifest, releaseDir) {
-  if (!manifest || manifest.delivery !== 'delta-archive') {
+function isReleaseMaterialized(manifest, releaseDir) {
+  if (!manifest) {
     return true;
   }
   if (!releaseDir || !fs.existsSync(releaseDir)) {
@@ -1783,30 +1746,6 @@ function isDeltaReleaseMaterialized(manifest, releaseDir) {
     }
   }
   return true;
-}
-
-function getDeltaArchiveReadiness(remoteManifest, previousVersion) {
-  if (remoteManifest.delivery !== 'delta-archive') {
-    return { action: 'update', updateUnavailable: false, message: '' };
-  }
-  if (remoteManifest.baseVersion && previousVersion === remoteManifest.baseVersion) {
-    return { action: 'update', updateUnavailable: false, message: '' };
-  }
-  if (remoteManifest.fullPackage) {
-    return { action: 'update', updateUnavailable: false, message: '将下载全量图片包完成更新。' };
-  }
-  if (remoteManifest.baseVersion) {
-    return {
-      action: 'download-baseline',
-      updateUnavailable: false,
-      message: `将按 ${remoteManifest.baseVersion} 拼接上一版全量包，下载基线后继续应用增量。`,
-    };
-  }
-  return {
-    action: 'update',
-    updateUnavailable: true,
-    message: '当前只有增量图片包，但发布清单缺少 baseVersion，无法反推上一版全量包。',
-  };
 }
 
 async function stageImageReleasePackage({ manifestUrl, releasePackage, stagingDir, label, skipPackageIntegrityCheck = false }) {
@@ -1906,125 +1845,6 @@ function resolveDefaultReleaseManifestAssetBaseUrl(manifest, fallbackManifestUrl
   return `${DEFAULT_IMAGE_RELEASE_DOWNLOAD_ROOT}/${encodeURIComponent(tag)}/${IMAGE_RELEASE_MANIFEST_NAME}`;
 }
 
-function getGithubReleaseManifestUrlForTag(tag) {
-  const releaseTag = typeof tag === 'string' ? tag.trim() : '';
-  if (!releaseTag) {
-    return '';
-  }
-  return `${DEFAULT_IMAGE_RELEASE_DOWNLOAD_ROOT}/${encodeURIComponent(releaseTag)}/${IMAGE_RELEASE_MANIFEST_NAME}`;
-}
-
-function getGithubReleasePackageBaseUrlForTag(tag) {
-  const releaseTag = typeof tag === 'string' ? tag.trim() : '';
-  if (!releaseTag) {
-    return '';
-  }
-  return `${DEFAULT_IMAGE_RELEASE_DOWNLOAD_ROOT}/${encodeURIComponent(releaseTag)}/${IMAGE_RELEASE_MANIFEST_NAME}`;
-}
-
-function getReleaseDownloadUrl(tag, fileName) {
-  const releaseTag = typeof tag === 'string' ? tag.trim() : '';
-  const releaseFile = typeof fileName === 'string' ? fileName.trim() : '';
-  if (!releaseTag || !releaseFile) {
-    return '';
-  }
-  return `${DEFAULT_IMAGE_RELEASE_DOWNLOAD_ROOT}/${encodeURIComponent(releaseTag)}/${encodeUrlPathPreservingSegments(releaseFile)}`;
-}
-
-function getVersionAliases(value) {
-  const raw = typeof value === 'string' ? value.trim() : '';
-  if (!raw) {
-    return [];
-  }
-  const aliases = [raw];
-  const asciiTail = raw.match(/[A-Za-z0-9][A-Za-z0-9._-]*$/)?.[0] || '';
-  if (asciiTail && !aliases.includes(asciiTail)) {
-    aliases.push(asciiTail);
-  }
-  const withoutTestPrefix = raw.replace(/^测试/i, '').trim();
-  if (withoutTestPrefix && !aliases.includes(withoutTestPrefix)) {
-    aliases.push(withoutTestPrefix);
-  }
-  return aliases;
-}
-
-function getInferredFullPackageDescriptor(baseTag, baseVersion) {
-  const tagAliases = getVersionAliases(baseTag);
-  const versionAliases = getVersionAliases(baseVersion);
-  if (String(baseVersion || '').includes('测试') && !tagAliases.includes('test')) {
-    tagAliases.push('test');
-  }
-  const fileAliases = [...new Set([...versionAliases, ...tagAliases])];
-  const downloadUrls = [];
-  for (const tag of tagAliases) {
-    for (const fileAlias of fileAliases) {
-      const url = getReleaseDownloadUrl(tag, `assets-${fileAlias}-full.zip`);
-      if (url && !downloadUrls.includes(url)) {
-        downloadUrls.push(url);
-      }
-    }
-  }
-  if (downloadUrls.length === 0) {
-    return null;
-  }
-  return {
-    format: 'zip',
-    downloadUrl: downloadUrls[0],
-    downloadUrls,
-    inferred: true,
-  };
-}
-
-function getFullReleasePackageDescriptor(manifest) {
-  if (!manifest || typeof manifest !== 'object') {
-    return null;
-  }
-  if (manifest.delivery === 'delta-archive') {
-    return manifest.fullPackage || null;
-  }
-  return manifest.package || manifest.fullPackage || null;
-}
-
-async function loadInferredBaselineRelease(remoteManifest) {
-  const baseVersion = typeof remoteManifest?.baseVersion === 'string' ? remoteManifest.baseVersion.trim() : '';
-  const baseTag = typeof remoteManifest?.baseReleaseTag === 'string' && remoteManifest.baseReleaseTag.trim()
-    ? remoteManifest.baseReleaseTag.trim()
-    : (typeof remoteManifest?.baseTag === 'string' && remoteManifest.baseTag.trim() ? remoteManifest.baseTag.trim() : baseVersion);
-  if (!baseVersion || !baseTag) {
-    return null;
-  }
-  const baselineManifestUrl = getGithubReleaseManifestUrlForTag(baseTag);
-  if (!baselineManifestUrl) {
-    return null;
-  }
-  try {
-    const baselineRelease = await loadRemoteImageReleaseManifest(baselineManifestUrl);
-    if (baselineRelease.manifest.assetVersion !== baseVersion) {
-      throw new Error(`基线版本不匹配: 期望 ${baseVersion}，实际 ${baselineRelease.manifest.assetVersion}`);
-    }
-    return {
-      assetVersion: baselineRelease.manifest.assetVersion,
-      manifest: baselineRelease.manifest,
-      assetBaseUrl: baselineRelease.assetBaseUrl,
-      package: getFullReleasePackageDescriptor(baselineRelease.manifest),
-      skipPackageIntegrityCheck: false,
-    };
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    if (!message.includes('HTTP 404')) {
-      throw error;
-    }
-    appendRuntimeLog('assets-update', `baseline manifest missing for ${baseTag}, infer full package`);
-    return {
-      assetVersion: baseVersion,
-      manifest: null,
-      assetBaseUrl: getGithubReleasePackageBaseUrlForTag(baseTag),
-      package: getInferredFullPackageDescriptor(baseTag, baseVersion),
-      skipPackageIntegrityCheck: true,
-    };
-  }
-}
-
 function getActiveImageReleaseRoot() {
   const current = readImageReleaseCurrent();
   if (!current.assetVersion) {
@@ -2090,13 +1910,19 @@ async function checkForImageReleaseUpdates() {
       manifestUrl: effectiveManifestUrl,
       requestedManifestUrl,
     } = await loadRemoteImageReleaseManifest(sourceUrl);
+    if (remoteManifest.delivery && remoteManifest.delivery !== 'archive') {
+      throw new Error('当前 Shell 仅支持全量图片包，请重新生成 archive 发布包。');
+    }
+    if (!remoteManifest.package) {
+      throw new Error('发布清单缺少全量 package，无法执行一键更新。');
+    }
     const currentManifest = readImageReleaseManifest(current.assetVersion);
     const delta = computeManifestDelta(remoteManifest, currentManifest);
-    const deltaReadiness = getDeltaArchiveReadiness(remoteManifest, current.assetVersion || null);
     const currentVersionDir = current.assetVersion ? getImageReleaseVersionDir(current.assetVersion) : null;
     const currentTargetIncomplete = current.assetVersion === remoteManifest.assetVersion
-      && !isDeltaReleaseMaterialized(remoteManifest, currentVersionDir);
-    const action = currentTargetIncomplete ? 'repair-current' : deltaReadiness.action;
+      && !isReleaseMaterialized(remoteManifest, currentVersionDir);
+    const hasUpdate = remoteManifest.assetVersion !== current.assetVersion || currentTargetIncomplete;
+    const action = currentTargetIncomplete ? 'repair-current' : 'update';
     imageUpdateState.status = 'idle';
     imageUpdateState.latestVersion = remoteManifest.assetVersion;
     imageUpdateState.lastCheckedAt = Date.now();
@@ -2110,13 +1936,15 @@ async function checkForImageReleaseUpdates() {
       changedFileCount: delta.changedFiles.length,
       deletedFileCount: delta.deletedFiles.length,
       totalFileCount: remoteManifest.files.length,
-      hasUpdate: remoteManifest.assetVersion !== current.assetVersion || currentTargetIncomplete,
+      hasUpdate,
       manifestUrl: effectiveManifestUrl,
       requestedManifestUrl,
       action,
-      baselineVersion: (action === 'download-baseline' || action === 'repair-current') ? remoteManifest.baseVersion || '' : '',
-      updateUnavailable: deltaReadiness.updateUnavailable,
-      updateMessage: currentTargetIncomplete ? '当前素材目录不完整，将自动重建当前版本。' : deltaReadiness.message,
+      baselineVersion: '',
+      updateUnavailable: false,
+      updateMessage: currentTargetIncomplete
+        ? '当前素材目录不完整，将自动重建当前版本。'
+        : (hasUpdate ? '发现新版本，可一键下载并切换。' : ''),
     };
     return getImageUpdateStatePayload();
   } catch (error) {
@@ -2136,13 +1964,18 @@ async function applyImageReleaseUpdate() {
   clearImageUpdateProgress();
   const current = readImageReleaseCurrent();
   const previousManifest = readImageReleaseManifest(current.assetVersion);
-  const previousVersion = current.assetVersion || null;
   try {
     const {
       manifest: remoteManifest,
       manifestUrl: effectiveManifestUrl,
       assetBaseUrl,
     } = await loadRemoteImageReleaseManifest(sourceUrl);
+    if (remoteManifest.delivery && remoteManifest.delivery !== 'archive') {
+      throw new Error('当前 Shell 仅支持全量图片包，请重新生成 archive 发布包。');
+    }
+    if (!remoteManifest.package) {
+      throw new Error('发布清单缺少全量 package，无法执行一键更新。');
+    }
     if (!isShellVersionCompatible(remoteManifest.minShellVersion)) {
       throw new Error(`当前 Shell 版本 ${app.getVersion()} 不满足最低要求 ${remoteManifest.minShellVersion}`);
     }
@@ -2152,7 +1985,7 @@ async function applyImageReleaseUpdate() {
     const stagingDir = path.join(getImageReleaseStagingDir(), sanitizeImageReleaseVersion(targetVersion));
     const delta = computeManifestDelta(remoteManifest, previousManifest);
     const currentTargetIncomplete = current.assetVersion === targetVersion
-      && !isDeltaReleaseMaterialized(remoteManifest, targetDir);
+      && !isReleaseMaterialized(remoteManifest, targetDir);
 
     fs.rmSync(stagingDir, { recursive: true, force: true });
     fs.mkdirSync(stagingDir, { recursive: true });
@@ -2164,96 +1997,13 @@ async function applyImageReleaseUpdate() {
       receivedBytes: 0,
       totalBytes: 0,
     });
-    const previousVersionDir = previousVersion ? getImageReleaseVersionDir(previousVersion) : null;
-    const canUseDeltaArchive = shouldUseDeltaArchive(remoteManifest, previousVersion, previousVersionDir);
-    if (remoteManifest.delivery === 'delta-archive' && canUseDeltaArchive) {
-      fs.cpSync(previousVersionDir, stagingDir, {
-        recursive: true,
-        force: true,
-        errorOnExist: false,
-      });
-      await stageImageReleasePackage({
-        manifestUrl: packageBaseUrl,
-        releasePackage: remoteManifest.package,
-        stagingDir,
-        label: '增量图片包',
-      });
-      removeReleaseDeletedFiles(remoteManifest, stagingDir);
-      verifyExtractedReleaseFiles(remoteManifest, stagingDir);
-    } else if (remoteManifest.delivery === 'delta-archive' && remoteManifest.fullPackage) {
-      await stageImageReleasePackage({
-        manifestUrl: packageBaseUrl,
-        releasePackage: remoteManifest.fullPackage,
-        stagingDir,
-        label: '全量图片包',
-      });
-      verifyExtractedReleaseFiles(remoteManifest, stagingDir);
-    } else if (remoteManifest.delivery === 'delta-archive') {
-      const baselineRelease = await loadInferredBaselineRelease(remoteManifest);
-      const baselinePackage = baselineRelease?.package || null;
-      if (!baselineRelease || !baselinePackage) {
-        throw new Error('当前只有增量图片包，但无法按 baseVersion 找到上一版全量包。');
-      }
-      appendRuntimeLog(
-        'assets-update',
-        `download inferred baseline ${baselineRelease.assetVersion} before applying ${targetVersion}`
-      );
-      await stageImageReleasePackage({
-        manifestUrl: baselineRelease.manifest
-          ? resolveDefaultReleaseManifestAssetBaseUrl(baselineRelease.manifest, baselineRelease.assetBaseUrl)
-          : baselineRelease.assetBaseUrl,
-        releasePackage: baselinePackage,
-        stagingDir,
-        label: `基线全量包 ${baselineRelease.assetVersion}`,
-        skipPackageIntegrityCheck: baselineRelease.skipPackageIntegrityCheck,
-      });
-      await stageImageReleasePackage({
-        manifestUrl: packageBaseUrl,
-        releasePackage: remoteManifest.package,
-        stagingDir,
-        label: '增量图片包',
-      });
-      removeReleaseDeletedFiles(remoteManifest, stagingDir);
-      verifyExtractedReleaseFiles(remoteManifest, stagingDir);
-    } else if (remoteManifest.package) {
-      await stageImageReleasePackage({
-        manifestUrl: packageBaseUrl,
-        releasePackage: remoteManifest.package,
-        stagingDir,
-        label: '图片整包',
-      });
-      verifyExtractedReleaseFiles(remoteManifest, stagingDir);
-    } else {
-      if (previousVersionDir && fs.existsSync(previousVersionDir)) {
-        fs.cpSync(previousVersionDir, stagingDir, {
-          recursive: true,
-          force: true,
-          errorOnExist: false,
-        });
-      }
-
-      for (const entry of delta.changedFiles) {
-        const downloadUrl = resolveReleaseFileDownloadUrl(packageBaseUrl, entry);
-        const data = await fetchBufferUrl(downloadUrl, {
-          onProgress: ({ receivedBytes, totalBytes }) => setImageUpdateProgress({
-            phase: 'downloading',
-            label: entry.relativePath,
-            receivedBytes,
-            totalBytes,
-          }),
-        });
-        const actualHash = hashBufferSha256(data);
-        if (actualHash !== entry.sha256) {
-          throw new Error(`图片校验失败: ${entry.relativePath}`);
-        }
-        const targetFile = path.join(stagingDir, relativePathToReleaseFilePath(entry.relativePath));
-        fs.mkdirSync(path.dirname(targetFile), { recursive: true });
-        fs.writeFileSync(targetFile, data);
-      }
-
-      removeReleaseDeletedFiles(remoteManifest, stagingDir);
-      verifyExtractedReleaseFiles(remoteManifest, stagingDir);
-    }
+    await stageImageReleasePackage({
+      manifestUrl: packageBaseUrl,
+      releasePackage: remoteManifest.package,
+      stagingDir,
+      label: '图片整包',
+    });
+    verifyExtractedReleaseFiles(remoteManifest, stagingDir);
 
     imageUpdateState.status = 'activating';
     setImageUpdateProgress({
@@ -2320,6 +2070,35 @@ async function applyImageReleaseUpdate() {
     appendRuntimeLog('assets-update', `update failed ${imageUpdateState.lastError}`);
     throw error;
   }
+}
+
+async function forceClearImageUpdate() {
+  const userImagesDir = getUserImagesDir();
+  const versionsDir = getImageReleaseVersionsDir();
+  const stagingDir = getImageReleaseStagingDir();
+  const currentPath = getImageReleaseCurrentPath();
+
+  fs.rmSync(userImagesDir, { recursive: true, force: true });
+  fs.rmSync(versionsDir, { recursive: true, force: true });
+  fs.rmSync(stagingDir, { recursive: true, force: true });
+  fs.rmSync(currentPath, { force: true });
+
+  fs.mkdirSync(path.join(getUserImagesDir(), 'images'), { recursive: true });
+  ensureImageReleaseDirectories();
+
+  imageUpdateState.status = 'idle';
+  imageUpdateState.currentVersion = null;
+  imageUpdateState.latestVersion = null;
+  imageUpdateState.latestSummary = null;
+  imageUpdateState.lastCheckedAt = null;
+  imageUpdateState.lastUpdatedAt = null;
+  imageUpdateState.lastError = '';
+  clearImageUpdateProgress();
+
+  syncImageManifest();
+  await clearAssetRuntimeCache();
+  appendRuntimeLog('assets-update', 'force cleared local image update state');
+  return getImageUpdateStatePayload();
 }
 
 function getAssetsRoot() {
@@ -2423,7 +2202,7 @@ function getDevImageRoot() {
 }
 
 function getPrimaryImageRoot() {
-  return isDev ? getDevImageRoot() : ensureProductionAssetsRoot();
+  return isDev ? getDevImageRoot() : getImageReleaseVersionsDir();
 }
 
 function getImageRootsConfigPath() {
@@ -2639,19 +2418,25 @@ function syncImageManifest() {
   const list = scanAllImageAssets();
   const manifestDir = getBuiltinManifestDir();
   // Browser fallback still reads assets/images/_manifest.json.
-  // Despite the legacy path, its contents represent the full builtin asset image set.
+  // Despite the legacy path, its contents represent the latest scanned asset table.
   const manifestPath = path.join(manifestDir, '_manifest.json');
   const slim = list
-    .filter((entry) => entry.source === 'builtin')
+    .filter((entry) => entry.kind !== 'dir')
     .map((entry) => ({
       fileName: entry.fileName,
       baseName: entry.baseName,
       ext: entry.ext,
       relativePath: entry.relativePath,
+      canonicalPath: entry.canonicalPath,
+      publicUrl: entry.publicUrl,
       sizeBytes: entry.sizeBytes,
       updatedAt: entry.updatedAt,
-      writable: false,
-      source: 'builtin',
+      writable: entry.writable,
+      source: entry.source,
+      rootId: entry.rootId,
+      rootLabel: entry.rootLabel,
+      rootDirectory: entry.rootDirectory,
+      rootPriority: entry.rootPriority,
     }));
   try {
     if (!fs.existsSync(manifestDir)) {
@@ -2837,11 +2622,15 @@ function resolveUserImageFileByRequestPath(requestPath) {
     return null;
   }
   const requestedKey = decoded.toLowerCase();
-  const getRootRelativePath = (entry) => {
+  const getRequestRelativePath = (entry) => {
     const relativePath = String(entry.relativePath || '').replace(/\\/g, '/');
-    if (entry.source === 'user' || entry.source === 'legacy') {
+    if (entry.source === 'release' || entry.source === 'user' || entry.source === 'legacy') {
       return relativePath.replace(/^assets\/images\/?/, '');
     }
+    return relativePath.replace(/^assets\/?/, '');
+  };
+  const getFileRelativePath = (entry) => {
+    const relativePath = String(entry.relativePath || '').replace(/\\/g, '/');
     return relativePath.replace(/^assets\/?/, '');
   };
   const allCandidates = scanAllImageAssets()
@@ -2849,7 +2638,7 @@ function resolveUserImageFileByRequestPath(requestPath) {
   const candidates = allCandidates
     .filter((entry) => {
       if (decoded.includes('/')) {
-        const rootRel = getRootRelativePath(entry).toLowerCase();
+        const rootRel = getRequestRelativePath(entry).toLowerCase();
         return rootRel === requestedKey;
       }
       return String(entry.fileName || '').toLowerCase() === requestedFileName.toLowerCase();
@@ -2857,7 +2646,7 @@ function resolveUserImageFileByRequestPath(requestPath) {
     .sort((left, right) => (left.rootPriority ?? 999) - (right.rootPriority ?? 999));
   for (const item of candidates) {
     if (!item.rootDirectory) continue;
-    const fullPath = path.resolve(item.rootDirectory, getRootRelativePath(item));
+    const fullPath = path.resolve(item.rootDirectory, getFileRelativePath(item));
     if (fs.existsSync(fullPath) && fs.statSync(fullPath).isFile()) {
       return fullPath;
     }

@@ -6,7 +6,7 @@
 
 const MANAGED_REL = 'assets/images';
 export const MANAGED_ROOT = 'images';
-const DISPLAY_ROOT = 'data/images';
+const DISPLAY_ROOT = 'asset-releases/versions';
 
 // ── Path normalisation ──
 
@@ -24,11 +24,11 @@ export function isManagedDir(dir: string): boolean {
 
 // ── Asset source checks ──
 
-export function isUserAsset(entry: { source?: 'builtin' | 'user' | 'legacy' }): boolean {
-  return entry.source === 'user' || entry.source === 'legacy';
+export function isUserAsset(entry: { source?: 'builtin' | 'release' | 'user' | 'legacy' }): boolean {
+  return entry.source === 'release' || entry.source === 'user' || entry.source === 'legacy';
 }
 
-export function isBuiltinAsset(entry: { source?: 'builtin' | 'user' | 'legacy' }): boolean {
+export function isBuiltinAsset(entry: { source?: 'builtin' | 'release' | 'user' | 'legacy' }): boolean {
   return entry.source === 'builtin';
 }
 
@@ -187,9 +187,10 @@ export function toUserImageRelPath(entry: {
   source?: 'builtin' | 'release' | 'user' | 'legacy';
   mappingWinner?: boolean;
 }): string | null {
-  if (entry.source !== 'user' && entry.source !== 'legacy') return null;
+  if (entry.source !== 'release' && entry.source !== 'user' && entry.source !== 'legacy') return null;
   if (entry.canonicalPath?.startsWith('user-images/')) {
-    return entry.canonicalPath.slice('user-images/'.length);
+    const rel = entry.canonicalPath.slice('user-images/'.length);
+    return rel.startsWith('images/') ? rel.slice('images/'.length) : rel;
   }
   const prefix = `${MANAGED_REL}/`;
   if (!entry.relativePath.startsWith(prefix)) return null;

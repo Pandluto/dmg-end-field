@@ -16,7 +16,10 @@ function resolveUserImagePath(path: string): string | null {
     return null;
   }
 
-  const relPath = normalized.slice(matchedPrefix.length);
+  let relPath = normalized.slice(matchedPrefix.length);
+  if (relPath.startsWith('images/')) {
+    relPath = relPath.slice('images/'.length);
+  }
   if (!relPath || /(^|\/)\.\.(\/|$)/.test(relPath)) {
     return null;
   }

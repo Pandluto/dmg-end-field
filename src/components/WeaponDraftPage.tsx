@@ -710,7 +710,7 @@ function buildWeaponImageAssetUrl(entry: ImageAssetEntry) {
 function buildWeaponImageOption(entry: ImageAssetEntry): WeaponImageOption | null {
   if (entry.kind === 'dir') return null;
   const displayUrl = buildWeaponImageAssetUrl(entry);
-  const source = entry.source === 'user' || entry.source === 'legacy' ? 'user' : 'builtin';
+  const source = entry.source === 'release' || entry.source === 'user' || entry.source === 'legacy' ? 'user' : 'builtin';
   return {
     key: entry.relativePath,
     fileName: entry.fileName,

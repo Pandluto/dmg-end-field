@@ -103,12 +103,8 @@
       if (value < 1048576) return `${(value / 1024).toFixed(1)} KB`;
       return `${(value / 1048576).toFixed(2)} MB`;
     };
-    const currentDelivery = currentSummary?.delivery === 'delta-archive'
-      ? '增量/全量'
-      : currentSummary?.delivery === 'archive' ? '全量整包' : '逐文件';
-    const latestDelivery = latestSummary?.delivery === 'delta-archive'
-      ? '增量/全量'
-      : latestSummary?.delivery === 'archive' ? '全量整包' : '逐文件';
+    const currentDelivery = currentSummary?.delivery === 'archive' ? '全量整包' : '逐文件';
+    const latestDelivery = latestSummary?.delivery === 'archive' ? '全量整包' : '逐文件';
     const currentPackageText = currentSummary?.packageSizeBytes ? `；包 ${formatBytes(currentSummary.packageSizeBytes)}` : '';
     const latestPackageText = latestSummary?.packageSizeBytes ? `；包 ${formatBytes(latestSummary.packageSizeBytes)}` : '';
     const currentDetail = currentSummary
@@ -162,14 +158,11 @@
     const applyButton = $('apply-image-update');
     if (applyButton) {
       if (!applyButton.dataset.originalText) {
-        applyButton.textContent = latestSummary?.action === 'download-baseline'
-          ? '补基线并切换'
-          : latestSummary?.action === 'repair-current' ? '修复素材'
-          : latestSummary?.action === 'check-again' ? '先检查更新' : '下载并切换';
+        applyButton.textContent = latestSummary?.action === 'repair-current' ? '修复素材' : '一键更新';
       }
       applyButton.disabled = !manifestUrl || status === 'checking' || status === 'downloading' || status === 'activating'
-        || latestSummary?.compatible === false || latestSummary?.updateUnavailable === true || latestSummary?.action === 'check-again'
-        || (latestSummary && !latestSummary.hasUpdate && latestSummary.action !== 'download-baseline' && latestSummary.action !== 'repair-current');
+        || latestSummary?.compatible === false || latestSummary?.updateUnavailable === true
+        || (latestSummary && !latestSummary.hasUpdate && latestSummary.action !== 'repair-current');
     }
   };
 
@@ -915,9 +908,7 @@
       const result = await runtime.applyImageUpdate();
       renderImageUpdateState(result?.state || null);
       const action = result?.state?.latestSummary?.action;
-      const message = action === 'check-again'
-        ? `基线已下载：${result?.state?.currentVersion || '-'}，请重新检查更新`
-        : action === 'repair-current'
+      const message = action === 'repair-current'
         ? `素材已修复：${result?.state?.currentVersion || '-'}`
         : `已切换到 ${result?.state?.currentVersion || '-'}`;
       appendLog(`图片更新 | ${message}`);
@@ -928,6 +919,29 @@
       await refreshImageUpdateState();
     } finally {
       stopPolling();
+      setButtonBusy(button, false);
+    }
+  };
+
+  const forceClearImageUpdate = async (button) => {
+    if (!runtime?.forceClearImageUpdate) {
+      return;
+    }
+    const confirmed = window.confirm('强制清除会删除本地 user-images 和已下载的图片版本缓存。确定继续吗？');
+    if (!confirmed) {
+      return;
+    }
+    setButtonBusy(button, true, '清除中');
+    try {
+      const result = await runtime.forceClearImageUpdate();
+      renderImageUpdateState(result?.state || null);
+      appendLog('图片更新 | 已强制清除本地图片资源与版本缓存');
+      await Promise.allSettled([refreshImages(), refreshShellState()]);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      appendLog(`图片更新 | 强制清除失败 | ${message}`);
+      await refreshImageUpdateState();
+    } finally {
       setButtonBusy(button, false);
     }
   };
@@ -964,31 +978,10 @@
     }
   };
 
-  const pickImageReleaseBase = async () => {
-    const result = await runtime?.pickImageReleaseBaseManifest?.();
-    if (result?.ok) {
-      setInputValue('image-release-base', result.path);
-      const mode = $('image-release-mode');
-      if (mode && mode.value === 'full') mode.value = 'both';
-      setImageReleaseBuilderStatus(`基线清单：${result.path}`);
-    }
-  };
-
   const buildImageReleasePackage = async (button) => {
     if (!runtime?.buildImageReleasePackage) {
       setImageReleaseBuilderStatus('当前运行时不支持图片发布包助手。', 'err');
       return;
-    }
-    const selectedMode = getInputValue('image-release-mode') || 'both';
-    const baseManifest = getInputValue('image-release-base');
-    const effectiveMode = selectedMode === 'both' && !baseManifest ? 'full' : selectedMode;
-    if (selectedMode === 'delta' && !baseManifest) {
-      setImageReleaseBuilderStatus('只生成增量包需要先选择上一版 assets-release-manifest.json。', 'err');
-      setButtonBusy(button, false);
-      return;
-    }
-    if (selectedMode === 'delta') {
-      setImageReleaseBuilderStatus('只生成增量包不会提供全量兜底，没有历史图片版本的设备将无法更新。', 'warn');
     }
     const payload = {
       source: getInputValue('image-release-source'),
@@ -996,9 +989,6 @@
       assetVersion: getInputValue('image-release-version'),
       releaseTag: getInputValue('image-release-tag'),
       minShellVersion: getInputValue('image-release-min-shell'),
-      baseManifest,
-      mode: effectiveMode,
-      includeDeltaFiles: Boolean($('image-release-include-delta-files')?.checked),
     };
     setButtonBusy(button, true, '生成中');
     setImageReleaseBuilderStatus('正在生成图片发布包…', 'warn');
@@ -1010,11 +1000,8 @@
       state.imageReleaseBuilder = response.result;
       const result = response.result;
       const packageList = (result.packagePaths || []).map((p) => `\n${p}`).join('');
-      const modeNote = selectedMode === 'both' && effectiveMode === 'full'
-        ? '；未选择基线，已自动生成全量包'
-        : '';
       setImageReleaseBuilderStatus(
-        `生成完成：${result.mode} / ${result.assetVersion}${modeNote}；文件 ${result.totalFiles}；变更 ${result.changedFiles}；删除 ${result.deletedFiles}\nmanifest: ${result.manifestPath}${packageList}`,
+        `生成完成：全量包 / ${result.assetVersion}；文件 ${result.totalFiles}\nmanifest: ${result.manifestPath}${packageList}`,
         'ok',
       );
       appendLog(`图片发布包 | 生成完成 | ${result.outputDir}`);
@@ -1192,14 +1179,14 @@
     $('apply-image-update')?.addEventListener('click', (event) => {
       applyImageUpdate(event.currentTarget).catch((error) => appendLog(`图片更新 | 切换失败 | ${error instanceof Error ? error.message : String(error)}`));
     });
+    $('force-clear-image-update')?.addEventListener('click', (event) => {
+      forceClearImageUpdate(event.currentTarget).catch((error) => appendLog(`图片更新 | 强制清除失败 | ${error instanceof Error ? error.message : String(error)}`));
+    });
     $('pick-image-release-source')?.addEventListener('click', () => {
       pickImageReleaseSource().catch((error) => appendLog(`图片发布包 | 选择源目录失败 | ${error instanceof Error ? error.message : String(error)}`));
     });
     $('pick-image-release-output')?.addEventListener('click', () => {
       pickImageReleaseOutput().catch((error) => appendLog(`图片发布包 | 选择输出目录失败 | ${error instanceof Error ? error.message : String(error)}`));
-    });
-    $('pick-image-release-base')?.addEventListener('click', () => {
-      pickImageReleaseBase().catch((error) => appendLog(`图片发布包 | 选择基线失败 | ${error instanceof Error ? error.message : String(error)}`));
     });
     $('build-image-release-package')?.addEventListener('click', (event) => {
       buildImageReleasePackage(event.currentTarget).catch((error) => appendLog(`图片发布包 | 生成失败 | ${error instanceof Error ? error.message : String(error)}`));

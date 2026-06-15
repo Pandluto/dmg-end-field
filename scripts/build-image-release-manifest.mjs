@@ -103,11 +103,6 @@ function copyFileForPackage(sourceFile, packageRoot, relativePath) {
   fs.copyFileSync(sourceFile, target);
 }
 
-function readJsonIfExists(filePath) {
-  if (!filePath) return null;
-  return JSON.parse(fs.readFileSync(filePath, 'utf-8'));
-}
-
 function buildFileEntries(sourceDir) {
   return walkFiles(sourceDir)
     .filter((filePath) => {
@@ -127,19 +122,6 @@ function buildFileEntries(sourceDir) {
       };
     })
     .sort((left, right) => left.relativePath.localeCompare(right.relativePath));
-}
-
-function computeDelta(nextFiles, baseManifest) {
-  const baseFiles = new Map((baseManifest?.files || []).map((entry) => [entry.relativePath, entry]));
-  const nextPaths = new Set(nextFiles.map((entry) => entry.relativePath));
-  const changedFiles = nextFiles.filter((entry) => {
-    const previous = baseFiles.get(entry.relativePath);
-    return !previous || previous.sha256 !== entry.sha256;
-  });
-  const deletedFiles = [...baseFiles.keys()]
-    .filter((relativePath) => !nextPaths.has(relativePath))
-    .sort((left, right) => left.localeCompare(right));
-  return { changedFiles, deletedFiles };
 }
 
 function runChecked(command, args, options = {}) {
@@ -216,14 +198,7 @@ export function buildImageReleasePackage(options = {}) {
   if (!assetVersion) {
     throw new Error('图片资源版本无效');
   }
-  const mode = ['full', 'delta', 'both'].includes(options.mode) ? options.mode : 'both';
-  if (mode === 'delta' && !options.baseManifest) {
-    throw new Error('增量模式需要提供 baseManifest');
-  }
-
-  const baseManifest = readJsonIfExists(options.baseManifest);
   const filesWithSource = buildFileEntries(source);
-  const { changedFiles, deletedFiles } = computeDelta(filesWithSource, baseManifest);
   const outputDir = path.join(outputRoot, assetVersion);
   removeIfExists(outputDir);
   ensureDirectory(outputDir);
@@ -235,52 +210,31 @@ export function buildImageReleasePackage(options = {}) {
     generatedAt: new Date().toISOString(),
     minShellVersion: String(options.minShellVersion || ''),
     assetVersion,
-    baseVersion: baseManifest?.assetVersion || '',
-    delivery: baseManifest && mode !== 'full' ? 'delta-archive' : 'archive',
+    delivery: 'archive',
     files: manifestFiles,
-    deletedFiles,
+    deletedFiles: [],
   };
 
-  const packagePaths = [];
-  if (manifest.delivery === 'delta-archive') {
-    const deltaPackage = makePackage({
-      label: `assets-${assetVersion}-delta`,
-      outputDir,
-      files: changedFiles,
-    });
-    manifest.package = deltaPackage.descriptor;
-    packagePaths.push(deltaPackage.path);
-    if (mode === 'both') {
-      const fullPackage = makePackage({
-        label: `assets-${assetVersion}-full`,
-        outputDir,
-        files: filesWithSource,
-      });
-      manifest.fullPackage = fullPackage.descriptor;
-      packagePaths.push(fullPackage.path);
-    }
-  } else {
-    const fullPackage = makePackage({
-      label: `assets-${assetVersion}-full`,
-      outputDir,
-      files: filesWithSource,
-    });
-    manifest.package = fullPackage.descriptor;
-    packagePaths.push(fullPackage.path);
-  }
+  const fullPackage = makePackage({
+    label: `assets-${assetVersion}-full`,
+    outputDir,
+    files: filesWithSource,
+  });
+  manifest.package = fullPackage.descriptor;
+  const packagePaths = [fullPackage.path];
 
   const manifestPath = path.join(outputDir, MANIFEST_NAME);
   fs.writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, 'utf-8');
 
   return {
-    mode: manifest.delivery,
+    mode: 'full',
     assetVersion,
     outputDir,
     manifestPath,
     packagePaths,
     totalFiles: filesWithSource.length,
-    changedFiles: changedFiles.length,
-    deletedFiles: deletedFiles.length,
+    changedFiles: filesWithSource.length,
+    deletedFiles: 0,
   };
 }
 
@@ -292,8 +246,6 @@ function printUsage() {
     'Options:',
     '  --release-tag <tag>',
     '  --min-shell-version <version>',
-    '  --base-manifest <path>',
-    '  --mode full|delta|both',
   ].join('\n'));
 }
 
@@ -310,8 +262,6 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
       assetVersion: args['asset-version'] || args.assetVersion,
       releaseTag: args['release-tag'] || args.releaseTag,
       minShellVersion: args['min-shell-version'] || args.minShellVersion,
-      baseManifest: args['base-manifest'] || args.baseManifest,
-      mode: args.mode,
     });
     console.log(JSON.stringify(result, null, 2));
   } catch (error) {

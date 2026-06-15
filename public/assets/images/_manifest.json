@@ -1,13 +1,3038 @@
 [
   {
+    "fileName": "50式应龙护手.png",
+    "baseName": "50式应龙护手",
+    "ext": ".png",
+    "relativePath": "assets/images/img-equipment/50式应龙护手.png",
+    "sizeBytes": 24353,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "50式应龙护手·壹型.png",
+    "baseName": "50式应龙护手·壹型",
+    "ext": ".png",
+    "relativePath": "assets/images/img-equipment/50式应龙护手·壹型.png",
+    "sizeBytes": 24353,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "50式应龙短刃.png",
+    "baseName": "50式应龙短刃",
+    "ext": ".png",
+    "relativePath": "assets/images/img-equipment/50式应龙短刃.png",
+    "sizeBytes": 19571,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "50式应龙短刃·壹型.png",
+    "baseName": "50式应龙短刃·壹型",
+    "ext": ".png",
+    "relativePath": "assets/images/img-equipment/50式应龙短刃·壹型.png",
+    "sizeBytes": 19571,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "50式应龙轻甲.png",
+    "baseName": "50式应龙轻甲",
+    "ext": ".png",
+    "relativePath": "assets/images/img-equipment/50式应龙轻甲.png",
+    "sizeBytes": 24573,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "50式应龙重甲.png",
+    "baseName": "50式应龙重甲",
+    "ext": ".png",
+    "relativePath": "assets/images/img-equipment/50式应龙重甲.png",
+    "sizeBytes": 26671,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "50式应龙重甲·壹型.png",
+    "baseName": "50式应龙重甲·壹型",
+    "ext": ".png",
+    "relativePath": "assets/images/img-equipment/50式应龙重甲·壹型.png",
+    "sizeBytes": 88396,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "50式应龙重甲·贰型.png",
+    "baseName": "50式应龙重甲·贰型",
+    "ext": ".png",
+    "relativePath": "assets/images/img-equipment/50式应龙重甲·贰型.png",
+    "sizeBytes": 95427,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "50式应龙雷达.png",
+    "baseName": "50式应龙雷达",
+    "ext": ".png",
+    "relativePath": "assets/images/img-equipment/50式应龙雷达.png",
+    "sizeBytes": 25480,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "50式应龙雷达·壹型.png",
+    "baseName": "50式应龙雷达·壹型",
+    "ext": ".png",
+    "relativePath": "assets/images/img-equipment/50式应龙雷达·壹型.png",
+    "sizeBytes": 79133,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "50式应龙雷达·贰型.png",
+    "baseName": "50式应龙雷达·贰型",
+    "ext": ".png",
+    "relativePath": "assets/images/img-equipment/50式应龙雷达·贰型.png",
+    "sizeBytes": 87276,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "M.I.警用刺刃.png",
+    "baseName": "M.I.警用刺刃",
+    "ext": ".png",
+    "relativePath": "assets/images/img-equipment/M.I.警用刺刃.png",
+    "sizeBytes": 23123,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "M.I.警用刺刃·壹型.png",
+    "baseName": "M.I.警用刺刃·壹型",
+    "ext": ".png",
+    "relativePath": "assets/images/img-equipment/M.I.警用刺刃·壹型.png",
+    "sizeBytes": 23123,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "M.I.警用工具组.png",
+    "baseName": "M.I.警用工具组",
+    "ext": ".png",
+    "relativePath": "assets/images/img-equipment/M.I.警用工具组.png",
+    "sizeBytes": 23199,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "M.I.警用手套.png",
+    "baseName": "M.I.警用手套",
+    "ext": ".png",
+    "relativePath": "assets/images/img-equipment/M.I.警用手套.png",
+    "sizeBytes": 29247,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "M.I.警用手套·壹型.png",
+    "baseName": "M.I.警用手套·壹型",
+    "ext": ".png",
+    "relativePath": "assets/images/img-equipment/M.I.警用手套·壹型.png",
+    "sizeBytes": 94581,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "M.I.警用手环.png",
+    "baseName": "M.I.警用手环",
+    "ext": ".png",
+    "relativePath": "assets/images/img-equipment/M.I.警用手环.png",
+    "sizeBytes": 28641,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "M.I.警用手环·壹型.png",
+    "baseName": "M.I.警用手环·壹型",
+    "ext": ".png",
+    "relativePath": "assets/images/img-equipment/M.I.警用手环·壹型.png",
+    "sizeBytes": 28641,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "M.I.警用护甲.png",
+    "baseName": "M.I.警用护甲",
+    "ext": ".png",
+    "relativePath": "assets/images/img-equipment/M.I.警用护甲.png",
+    "sizeBytes": 29726,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "M.I.警用护甲·壹型.png",
+    "baseName": "M.I.警用护甲·壹型",
+    "ext": ".png",
+    "relativePath": "assets/images/img-equipment/M.I.警用护甲·壹型.png",
+    "sizeBytes": 101759,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "M.I.警用瞄具.png",
+    "baseName": "M.I.警用瞄具",
+    "ext": ".png",
+    "relativePath": "assets/images/img-equipment/M.I.警用瞄具.png",
+    "sizeBytes": 27497,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "M.I.警用瞄具·壹型.png",
+    "baseName": "M.I.警用瞄具·壹型",
+    "ext": ".png",
+    "relativePath": "assets/images/img-equipment/M.I.警用瞄具·壹型.png",
+    "sizeBytes": 86356,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "M.I.警用罩衣.png",
+    "baseName": "M.I.警用罩衣",
+    "ext": ".png",
+    "relativePath": "assets/images/img-equipment/M.I.警用罩衣.png",
+    "sizeBytes": 26718,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "M.I.警用罩衣·壹型.png",
+    "baseName": "M.I.警用罩衣·壹型",
+    "ext": ".png",
+    "relativePath": "assets/images/img-equipment/M.I.警用罩衣·壹型.png",
+    "sizeBytes": 26718,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "M.I.警用罩衣·贰型.png",
+    "baseName": "M.I.警用罩衣·贰型",
+    "ext": ".png",
+    "relativePath": "assets/images/img-equipment/M.I.警用罩衣·贰型.png",
+    "sizeBytes": 26718,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "M.I.警用臂环.png",
+    "baseName": "M.I.警用臂环",
+    "ext": ".png",
+    "relativePath": "assets/images/img-equipment/M.I.警用臂环.png",
+    "sizeBytes": 20139,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "动火用储能匣.png",
+    "baseName": "动火用储能匣",
+    "ext": ".png",
+    "relativePath": "assets/images/img-equipment/动火用储能匣.png",
+    "sizeBytes": 30975,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "动火用外骨骼.png",
+    "baseName": "动火用外骨骼",
+    "ext": ".png",
+    "relativePath": "assets/images/img-equipment/动火用外骨骼.png",
+    "sizeBytes": 29027,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "动火用手套.png",
+    "baseName": "动火用手套",
+    "ext": ".png",
+    "relativePath": "assets/images/img-equipment/动火用手套.png",
+    "sizeBytes": 113063,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "动火用手甲.png",
+    "baseName": "动火用手甲",
+    "ext": ".png",
+    "relativePath": "assets/images/img-equipment/动火用手甲.png",
+    "sizeBytes": 30502,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "动火用手甲·壹型.png",
+    "baseName": "动火用手甲·壹型",
+    "ext": ".png",
+    "relativePath": "assets/images/img-equipment/动火用手甲·壹型.png",
+    "sizeBytes": 30502,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "动火用测温镜.png",
+    "baseName": "动火用测温镜",
+    "ext": ".png",
+    "relativePath": "assets/images/img-equipment/动火用测温镜.png",
+    "sizeBytes": 20674,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "动火用电力匣.png",
+    "baseName": "动火用电力匣",
+    "ext": ".png",
+    "relativePath": "assets/images/img-equipment/动火用电力匣.png",
+    "sizeBytes": 29998,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "动火用辅助骨骼.png",
+    "baseName": "动火用辅助骨骼",
+    "ext": ".png",
+    "relativePath": "assets/images/img-equipment/动火用辅助骨骼.png",
+    "sizeBytes": 94827,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "壤流护手.png",
+    "baseName": "壤流护手",
+    "ext": ".png",
+    "relativePath": "assets/images/img-equipment/壤流护手.png",
+    "sizeBytes": 84310,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "壤流短棍.png",
+    "baseName": "壤流短棍",
+    "ext": ".png",
+    "relativePath": "assets/images/img-equipment/壤流短棍.png",
+    "sizeBytes": 66754,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "壤流轻甲.png",
+    "baseName": "壤流轻甲",
+    "ext": ".png",
+    "relativePath": "assets/images/img-equipment/壤流轻甲.png",
+    "sizeBytes": 83993,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "天灾防护净芯.png",
+    "baseName": "天灾防护净芯",
+    "ext": ".png",
+    "relativePath": "assets/images/img-equipment/天灾防护净芯.png",
+    "sizeBytes": 26646,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "天灾防护净芯·壹型.png",
+    "baseName": "天灾防护净芯·壹型",
+    "ext": ".png",
+    "relativePath": "assets/images/img-equipment/天灾防护净芯·壹型.png",
+    "sizeBytes": 26646,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "天灾防护手套.png",
+    "baseName": "天灾防护手套",
+    "ext": ".png",
+    "relativePath": "assets/images/img-equipment/天灾防护手套.png",
+    "sizeBytes": 29658,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "天灾防护滤芯.png",
+    "baseName": "天灾防护滤芯",
+    "ext": ".png",
+    "relativePath": "assets/images/img-equipment/天灾防护滤芯.png",
+    "sizeBytes": 28071,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "天灾防护重甲.png",
+    "baseName": "天灾防护重甲",
+    "ext": ".png",
+    "relativePath": "assets/images/img-equipment/天灾防护重甲.png",
+    "sizeBytes": 27762,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "天灾防护重甲·壹型.png",
+    "baseName": "天灾防护重甲·壹型",
+    "ext": ".png",
+    "relativePath": "assets/images/img-equipment/天灾防护重甲·壹型.png",
+    "sizeBytes": 27762,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "悬河供氧栓.png",
+    "baseName": "悬河供氧栓",
+    "ext": ".png",
+    "relativePath": "assets/images/img-equipment/悬河供氧栓.png",
+    "sizeBytes": 33100,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "拓荒供氧栓.png",
+    "baseName": "拓荒供氧栓",
+    "ext": ".png",
+    "relativePath": "assets/images/img-equipment/拓荒供氧栓.png",
+    "sizeBytes": 82299,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "拓荒分析仪.png",
+    "baseName": "拓荒分析仪",
+    "ext": ".png",
+    "relativePath": "assets/images/img-equipment/拓荒分析仪.png",
+    "sizeBytes": 95786,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "拓荒增量供氧栓.png",
+    "baseName": "拓荒增量供氧栓",
+    "ext": ".png",
+    "relativePath": "assets/images/img-equipment/拓荒增量供氧栓.png",
+    "sizeBytes": 27361,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "拓荒增量供氧栓·壹型.png",
+    "baseName": "拓荒增量供氧栓·壹型",
+    "ext": ".png",
+    "relativePath": "assets/images/img-equipment/拓荒增量供氧栓·壹型.png",
+    "sizeBytes": 92722,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "拓荒护服.png",
+    "baseName": "拓荒护服",
+    "ext": ".png",
+    "relativePath": "assets/images/img-equipment/拓荒护服.png",
+    "sizeBytes": 86696,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "拓荒护甲.png",
+    "baseName": "拓荒护甲",
+    "ext": ".png",
+    "relativePath": "assets/images/img-equipment/拓荒护甲.png",
+    "sizeBytes": 32725,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "拓荒护甲·叁型.png",
+    "baseName": "拓荒护甲·叁型",
+    "ext": ".png",
+    "relativePath": "assets/images/img-equipment/拓荒护甲·叁型.png",
+    "sizeBytes": 32725,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "拓荒护甲·壹型.png",
+    "baseName": "拓荒护甲·壹型",
+    "ext": ".png",
+    "relativePath": "assets/images/img-equipment/拓荒护甲·壹型.png",
+    "sizeBytes": 32725,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "拓荒护甲·贰型.png",
+    "baseName": "拓荒护甲·贰型",
+    "ext": ".png",
+    "relativePath": "assets/images/img-equipment/拓荒护甲·贰型.png",
+    "sizeBytes": 32725,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "拓荒纤维手套.png",
+    "baseName": "拓荒纤维手套",
+    "ext": ".png",
+    "relativePath": "assets/images/img-equipment/拓荒纤维手套.png",
+    "sizeBytes": 99130,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "拓荒纤维手套·壹型.png",
+    "baseName": "拓荒纤维手套·壹型",
+    "ext": ".png",
+    "relativePath": "assets/images/img-equipment/拓荒纤维手套·壹型.png",
+    "sizeBytes": 85955,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "拓荒耐蚀手套.png",
+    "baseName": "拓荒耐蚀手套",
+    "ext": ".png",
+    "relativePath": "assets/images/img-equipment/拓荒耐蚀手套.png",
+    "sizeBytes": 32893,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "拓荒通信器.png",
+    "baseName": "拓荒通信器",
+    "ext": ".png",
+    "relativePath": "assets/images/img-equipment/拓荒通信器.png",
+    "sizeBytes": 28387,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "拓荒通信器·壹型.png",
+    "baseName": "拓荒通信器·壹型",
+    "ext": ".png",
+    "relativePath": "assets/images/img-equipment/拓荒通信器·壹型.png",
+    "sizeBytes": 28387,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "旧锋刺刃.webp",
+    "baseName": "旧锋刺刃",
+    "ext": ".webp",
+    "relativePath": "assets/images/img-equipment/旧锋/旧锋刺刃.webp",
+    "sizeBytes": 7700,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "旧锋刺刃·壹型.webp",
+    "baseName": "旧锋刺刃·壹型",
+    "ext": ".webp",
+    "relativePath": "assets/images/img-equipment/旧锋/旧锋刺刃·壹型.webp",
+    "sizeBytes": 7472,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "旧锋手甲.webp",
+    "baseName": "旧锋手甲",
+    "ext": ".webp",
+    "relativePath": "assets/images/img-equipment/旧锋/旧锋手甲.webp",
+    "sizeBytes": 10164,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "旧锋手甲·壹型.webp",
+    "baseName": "旧锋手甲·壹型",
+    "ext": ".webp",
+    "relativePath": "assets/images/img-equipment/旧锋/旧锋手甲·壹型.webp",
+    "sizeBytes": 10220,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "旧锋装甲.webp",
+    "baseName": "旧锋装甲",
+    "ext": ".webp",
+    "relativePath": "assets/images/img-equipment/旧锋/旧锋装甲.webp",
+    "sizeBytes": 12398,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "旧锋装甲·壹型.webp",
+    "baseName": "旧锋装甲·壹型",
+    "ext": ".webp",
+    "relativePath": "assets/images/img-equipment/旧锋/旧锋装甲·壹型.webp",
+    "sizeBytes": 12086,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "浊流切割炬.png",
+    "baseName": "浊流切割炬",
+    "ext": ".png",
+    "relativePath": "assets/images/img-equipment/浊流切割炬.png",
+    "sizeBytes": 22307,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "清波定位仪.png",
+    "baseName": "清波定位仪",
+    "ext": ".png",
+    "relativePath": "assets/images/img-equipment/清波定位仪.png",
+    "sizeBytes": 86504,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "清波手甲.png",
+    "baseName": "清波手甲",
+    "ext": ".png",
+    "relativePath": "assets/images/img-equipment/清波手甲.png",
+    "sizeBytes": 96576,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "清波护手.png",
+    "baseName": "清波护手",
+    "ext": ".png",
+    "relativePath": "assets/images/img-equipment/清波护手.png",
+    "sizeBytes": 97522,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "清波水罐.png",
+    "baseName": "清波水罐",
+    "ext": ".png",
+    "relativePath": "assets/images/img-equipment/清波水罐.png",
+    "sizeBytes": 84680,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "清波竹刃.png",
+    "baseName": "清波竹刃",
+    "ext": ".png",
+    "relativePath": "assets/images/img-equipment/清波竹刃.png",
+    "sizeBytes": 70273,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "清波轻甲.png",
+    "baseName": "清波轻甲",
+    "ext": ".png",
+    "relativePath": "assets/images/img-equipment/清波轻甲.png",
+    "sizeBytes": 86658,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "清波重甲.png",
+    "baseName": "清波重甲",
+    "ext": ".png",
+    "relativePath": "assets/images/img-equipment/清波重甲.png",
+    "sizeBytes": 88469,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "潮涌手甲.png",
+    "baseName": "潮涌手甲",
+    "ext": ".png",
+    "relativePath": "assets/images/img-equipment/潮涌手甲.png",
+    "sizeBytes": 30937,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "点剑定位信标.png",
+    "baseName": "点剑定位信标",
+    "ext": ".png",
+    "relativePath": "assets/images/img-equipment/点剑定位信标.png",
+    "sizeBytes": 87787,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "点剑微型滤芯.png",
+    "baseName": "点剑微型滤芯",
+    "ext": ".png",
+    "relativePath": "assets/images/img-equipment/点剑微型滤芯.png",
+    "sizeBytes": 96274,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "点剑战术手套.png",
+    "baseName": "点剑战术手套",
+    "ext": ".png",
+    "relativePath": "assets/images/img-equipment/点剑战术手套.png",
+    "sizeBytes": 26677,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "点剑战术手甲.png",
+    "baseName": "点剑战术手甲",
+    "ext": ".png",
+    "relativePath": "assets/images/img-equipment/点剑战术手甲.png",
+    "sizeBytes": 29246,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "点剑战术手甲·壹型.png",
+    "baseName": "点剑战术手甲·壹型",
+    "ext": ".png",
+    "relativePath": "assets/images/img-equipment/点剑战术手甲·壹型.png",
+    "sizeBytes": 82908,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "点剑火石.png",
+    "baseName": "点剑火石",
+    "ext": ".png",
+    "relativePath": "assets/images/img-equipment/点剑火石.png",
+    "sizeBytes": 21812,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "点剑短刃.png",
+    "baseName": "点剑短刃",
+    "ext": ".png",
+    "relativePath": "assets/images/img-equipment/点剑短刃.png",
+    "sizeBytes": 51442,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "点剑轻装甲.png",
+    "baseName": "点剑轻装甲",
+    "ext": ".png",
+    "relativePath": "assets/images/img-equipment/点剑轻装甲.png",
+    "sizeBytes": 108958,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "点剑重装甲.png",
+    "baseName": "点剑重装甲",
+    "ext": ".png",
+    "relativePath": "assets/images/img-equipment/点剑重装甲.png",
+    "sizeBytes": 35200,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "点剑重装甲·壹型.png",
+    "baseName": "点剑重装甲·壹型",
+    "ext": ".png",
+    "relativePath": "assets/images/img-equipment/点剑重装甲·壹型.png",
+    "sizeBytes": 91158,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "生物辅助手甲.png",
+    "baseName": "生物辅助手甲",
+    "ext": ".png",
+    "relativePath": "assets/images/img-equipment/生物辅助手甲.png",
+    "sizeBytes": 27868,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "生物辅助护板.png",
+    "baseName": "生物辅助护板",
+    "ext": ".png",
+    "relativePath": "assets/images/img-equipment/生物辅助护板.png",
+    "sizeBytes": 27290,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "生物辅助护盾针.png",
+    "baseName": "生物辅助护盾针",
+    "ext": ".png",
+    "relativePath": "assets/images/img-equipment/生物辅助护盾针.png",
+    "sizeBytes": 22220,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "生物辅助接驳器.png",
+    "baseName": "生物辅助接驳器",
+    "ext": ".png",
+    "relativePath": "assets/images/img-equipment/生物辅助接驳器.png",
+    "sizeBytes": 24583,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "生物辅助接驳器·壹型.png",
+    "baseName": "生物辅助接驳器·壹型",
+    "ext": ".png",
+    "relativePath": "assets/images/img-equipment/生物辅助接驳器·壹型.png",
+    "sizeBytes": 24583,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "生物辅助接驳器·贰型.png",
+    "baseName": "生物辅助接驳器·贰型",
+    "ext": ".png",
+    "relativePath": "assets/images/img-equipment/生物辅助接驳器·贰型.png",
+    "sizeBytes": 84761,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "生物辅助胸甲.png",
+    "baseName": "生物辅助胸甲",
+    "ext": ".png",
+    "relativePath": "assets/images/img-equipment/生物辅助胸甲.png",
+    "sizeBytes": 29014,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "生物辅助臂甲.png",
+    "baseName": "生物辅助臂甲",
+    "ext": ".png",
+    "relativePath": "assets/images/img-equipment/生物辅助臂甲.png",
+    "sizeBytes": 24564,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "生物辅助重甲.png",
+    "baseName": "生物辅助重甲",
+    "ext": ".png",
+    "relativePath": "assets/images/img-equipment/生物辅助重甲.png",
+    "sizeBytes": 23683,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "碾骨小雕像.png",
+    "baseName": "碾骨小雕像",
+    "ext": ".png",
+    "relativePath": "assets/images/img-equipment/碾骨小雕像.png",
+    "sizeBytes": 26466,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "碾骨小雕像·壹型.png",
+    "baseName": "碾骨小雕像·壹型",
+    "ext": ".png",
+    "relativePath": "assets/images/img-equipment/碾骨小雕像·壹型.png",
+    "sizeBytes": 26466,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "碾骨小雕像·贰型.png",
+    "baseName": "碾骨小雕像·贰型",
+    "ext": ".png",
+    "relativePath": "assets/images/img-equipment/碾骨小雕像·贰型.png",
+    "sizeBytes": 76855,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "碾骨手套.png",
+    "baseName": "碾骨手套",
+    "ext": ".png",
+    "relativePath": "assets/images/img-equipment/碾骨手套.png",
+    "sizeBytes": 76756,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "碾骨披巾.png",
+    "baseName": "碾骨披巾",
+    "ext": ".png",
+    "relativePath": "assets/images/img-equipment/碾骨披巾.png",
+    "sizeBytes": 29321,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "碾骨披巾·壹型.png",
+    "baseName": "碾骨披巾·壹型",
+    "ext": ".png",
+    "relativePath": "assets/images/img-equipment/碾骨披巾·壹型.png",
+    "sizeBytes": 29321,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "碾骨腕带.png",
+    "baseName": "碾骨腕带",
+    "ext": ".png",
+    "relativePath": "assets/images/img-equipment/碾骨腕带.png",
+    "sizeBytes": 75249,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "碾骨腕带·壹型.png",
+    "baseName": "碾骨腕带·壹型",
+    "ext": ".png",
+    "relativePath": "assets/images/img-equipment/碾骨腕带·壹型.png",
+    "sizeBytes": 75249,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "碾骨重护甲.png",
+    "baseName": "碾骨重护甲",
+    "ext": ".png",
+    "relativePath": "assets/images/img-equipment/碾骨重护甲.png",
+    "sizeBytes": 26409,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "碾骨重护甲·壹型.png",
+    "baseName": "碾骨重护甲·壹型",
+    "ext": ".png",
+    "relativePath": "assets/images/img-equipment/碾骨重护甲·壹型.png",
+    "sizeBytes": 26409,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "碾骨重护甲·贰型.png",
+    "baseName": "碾骨重护甲·贰型",
+    "ext": ".png",
+    "relativePath": "assets/images/img-equipment/碾骨重护甲·贰型.png",
+    "sizeBytes": 94879,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "碾骨面具.png",
+    "baseName": "碾骨面具",
+    "ext": ".png",
+    "relativePath": "assets/images/img-equipment/碾骨面具.png",
+    "sizeBytes": 19405,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "碾骨面具·壹型.png",
+    "baseName": "碾骨面具·壹型",
+    "ext": ".png",
+    "relativePath": "assets/images/img-equipment/碾骨面具·壹型.png",
+    "sizeBytes": 19405,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "碾骨面具·贰型.png",
+    "baseName": "碾骨面具·贰型",
+    "ext": ".png",
+    "relativePath": "assets/images/img-equipment/碾骨面具·贰型.png",
+    "sizeBytes": 67890,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "纾难印章.png",
+    "baseName": "纾难印章",
+    "ext": ".png",
+    "relativePath": "assets/images/img-equipment/纾难印章.png",
+    "sizeBytes": 27604,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "纾难印章·壹型.png",
+    "baseName": "纾难印章·壹型",
+    "ext": ".png",
+    "relativePath": "assets/images/img-equipment/纾难印章·壹型.png",
+    "sizeBytes": 27604,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "纾难手套.png",
+    "baseName": "纾难手套",
+    "ext": ".png",
+    "relativePath": "assets/images/img-equipment/纾难手套.png",
+    "sizeBytes": 78571,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "纾难护手.png",
+    "baseName": "纾难护手",
+    "ext": ".png",
+    "relativePath": "assets/images/img-equipment/纾难护手.png",
+    "sizeBytes": 90782,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "纾难护甲.png",
+    "baseName": "纾难护甲",
+    "ext": ".png",
+    "relativePath": "assets/images/img-equipment/纾难护甲.png",
+    "sizeBytes": 98257,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "纾难识别牌.png",
+    "baseName": "纾难识别牌",
+    "ext": ".png",
+    "relativePath": "assets/images/img-equipment/纾难识别牌.png",
+    "sizeBytes": 22910,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "纾难识别牌·壹型.png",
+    "baseName": "纾难识别牌·壹型",
+    "ext": ".png",
+    "relativePath": "assets/images/img-equipment/纾难识别牌·壹型.png",
+    "sizeBytes": 22910,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "纾难重甲.png",
+    "baseName": "纾难重甲",
+    "ext": ".png",
+    "relativePath": "assets/images/img-equipment/纾难重甲.png",
+    "sizeBytes": 99702,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "脉冲式侵入核.png",
+    "baseName": "脉冲式侵入核",
+    "ext": ".png",
+    "relativePath": "assets/images/img-equipment/脉冲式侵入核.png",
+    "sizeBytes": 85150,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "脉冲式干扰服.png",
+    "baseName": "脉冲式干扰服",
+    "ext": ".png",
+    "relativePath": "assets/images/img-equipment/脉冲式干扰服.png",
+    "sizeBytes": 33489,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "脉冲式手套.png",
+    "baseName": "脉冲式手套",
+    "ext": ".png",
+    "relativePath": "assets/images/img-equipment/脉冲式手套.png",
+    "sizeBytes": 32550,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "脉冲式探针.png",
+    "baseName": "脉冲式探针",
+    "ext": ".png",
+    "relativePath": "assets/images/img-equipment/脉冲式探针.png",
+    "sizeBytes": 63001,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "脉冲式校准器.png",
+    "baseName": "脉冲式校准器",
+    "ext": ".png",
+    "relativePath": "assets/images/img-equipment/脉冲式校准器.png",
+    "sizeBytes": 29771,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "落潮轻甲.png",
+    "baseName": "落潮轻甲",
+    "ext": ".png",
+    "relativePath": "assets/images/img-equipment/落潮轻甲.png",
+    "sizeBytes": 34148,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "轻超域分析环.png",
+    "baseName": "轻超域分析环",
+    "ext": ".png",
+    "relativePath": "assets/images/img-equipment/轻超域分析环.png",
+    "sizeBytes": 23172,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "轻超域护手.png",
+    "baseName": "轻超域护手",
+    "ext": ".png",
+    "relativePath": "assets/images/img-equipment/轻超域护手.png",
+    "sizeBytes": 32016,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "轻超域护板.png",
+    "baseName": "轻超域护板",
+    "ext": ".png",
+    "relativePath": "assets/images/img-equipment/轻超域护板.png",
+    "sizeBytes": 29792,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "轻超域稳定盘.png",
+    "baseName": "轻超域稳定盘",
+    "ext": ".png",
+    "relativePath": "assets/images/img-equipment/轻超域稳定盘.png",
+    "sizeBytes": 28424,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "轻超域稳定盘·壹型.png",
+    "baseName": "轻超域稳定盘·壹型",
+    "ext": ".png",
+    "relativePath": "assets/images/img-equipment/轻超域稳定盘·壹型.png",
+    "sizeBytes": 102336,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "轻超域腕表.png",
+    "baseName": "轻超域腕表",
+    "ext": ".png",
+    "relativePath": "assets/images/img-equipment/轻超域腕表.png",
+    "sizeBytes": 87686,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "轻超域轻护手.png",
+    "baseName": "轻超域轻护手",
+    "ext": ".png",
+    "relativePath": "assets/images/img-equipment/轻超域轻护手.png",
+    "sizeBytes": 74902,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "长息护手.png",
+    "baseName": "长息护手",
+    "ext": ".png",
+    "relativePath": "assets/images/img-equipment/长息护手.png",
+    "sizeBytes": 26898,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "长息护手·壹型.png",
+    "baseName": "长息护手·壹型",
+    "ext": ".png",
+    "relativePath": "assets/images/img-equipment/长息护手·壹型.png",
+    "sizeBytes": 26898,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "长息蓄电核.png",
+    "baseName": "长息蓄电核",
+    "ext": ".png",
+    "relativePath": "assets/images/img-equipment/长息蓄电核.png",
+    "sizeBytes": 32487,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "长息蓄电核·壹型.png",
+    "baseName": "长息蓄电核·壹型",
+    "ext": ".png",
+    "relativePath": "assets/images/img-equipment/长息蓄电核·壹型.png",
+    "sizeBytes": 32487,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "长息装甲.png",
+    "baseName": "长息装甲",
+    "ext": ".png",
+    "relativePath": "assets/images/img-equipment/长息装甲.png",
+    "sizeBytes": 29173,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "长息辅助臂.png",
+    "baseName": "长息辅助臂",
+    "ext": ".png",
+    "relativePath": "assets/images/img-equipment/长息辅助臂.png",
+    "sizeBytes": 27903,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "单手剑普攻.png",
+    "baseName": "单手剑普攻",
+    "ext": ".png",
+    "relativePath": "assets/images/img-extra/单手剑普攻.png",
+    "sizeBytes": 2750,
+    "updatedAt": 1781508186000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "双手剑普攻.webp",
+    "baseName": "双手剑普攻",
+    "ext": ".webp",
+    "relativePath": "assets/images/img-extra/双手剑普攻.webp",
+    "sizeBytes": 2344,
+    "updatedAt": 1781508208000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "手铳普攻.webp",
+    "baseName": "手铳普攻",
+    "ext": ".webp",
+    "relativePath": "assets/images/img-extra/手铳普攻.webp",
+    "sizeBytes": 3122,
+    "updatedAt": 1781508236000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "施术单元普攻.webp",
+    "baseName": "施术单元普攻",
+    "ext": ".webp",
+    "relativePath": "assets/images/img-extra/施术单元普攻.webp",
+    "sizeBytes": 3740,
+    "updatedAt": 1781508278000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "长枪普攻.png",
+    "baseName": "长枪普攻",
+    "ext": ".png",
+    "relativePath": "assets/images/img-extra/长枪普攻.png",
+    "sizeBytes": 5304,
+    "updatedAt": 1781508248000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "弭弗.webp",
+    "baseName": "弭弗",
+    "ext": ".webp",
+    "relativePath": "assets/images/img-operator/弭弗/弭弗.webp",
+    "sizeBytes": 16540,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "弭弗战技.webp",
+    "baseName": "弭弗战技",
+    "ext": ".webp",
+    "relativePath": "assets/images/img-operator/弭弗/弭弗战技.webp",
+    "sizeBytes": 2572,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "弭弗普攻.webp",
+    "baseName": "弭弗普攻",
+    "ext": ".webp",
+    "relativePath": "assets/images/img-operator/弭弗/弭弗普攻.webp",
+    "sizeBytes": 1956,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "弭弗终结技.webp",
+    "baseName": "弭弗终结技",
+    "ext": ".webp",
+    "relativePath": "assets/images/img-operator/弭弗/弭弗终结技.webp",
+    "sizeBytes": 3970,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "弭弗连携.webp",
+    "baseName": "弭弗连携",
+    "ext": ".webp",
+    "relativePath": "assets/images/img-operator/弭弗/弭弗连携.webp",
+    "sizeBytes": 3392,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "弭弗.webp",
+    "baseName": "弭弗",
+    "ext": ".webp",
+    "relativePath": "assets/images/img-operator/弭弗.webp",
+    "sizeBytes": 16540,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "JET.png",
+    "baseName": "JET",
+    "ext": ".png",
+    "relativePath": "assets/images/img-weapon/JET.png",
+    "sizeBytes": 31022,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "O.B.J.尖峰.png",
+    "baseName": "O.B.J.尖峰",
+    "ext": ".png",
+    "relativePath": "assets/images/img-weapon/O.B.J.尖峰.png",
+    "sizeBytes": 24399,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "O.B.J.术识.png",
+    "baseName": "O.B.J.术识",
+    "ext": ".png",
+    "relativePath": "assets/images/img-weapon/O.B.J.术识.png",
+    "sizeBytes": 24469,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "O.B.J.轻芒.png",
+    "baseName": "O.B.J.轻芒",
+    "ext": ".png",
+    "relativePath": "assets/images/img-weapon/O.B.J.轻芒.png",
+    "sizeBytes": 24174,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "O.B.J.迅极.png",
+    "baseName": "O.B.J.迅极",
+    "ext": ".png",
+    "relativePath": "assets/images/img-weapon/O.B.J.迅极.png",
+    "sizeBytes": 25893,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "O.B.J.重荷.png",
+    "baseName": "O.B.J.重荷",
+    "ext": ".png",
+    "relativePath": "assets/images/img-weapon/O.B.J.重荷.png",
+    "sizeBytes": 28039,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "不知归.png",
+    "baseName": "不知归",
+    "ext": ".png",
+    "relativePath": "assets/images/img-weapon/不知归.png",
+    "sizeBytes": 29762,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "仰止.png",
+    "baseName": "仰止",
+    "ext": ".png",
+    "relativePath": "assets/images/img-weapon/仰止.png",
+    "sizeBytes": 22093,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "作品：众生.png",
+    "baseName": "作品：众生",
+    "ext": ".png",
+    "relativePath": "assets/images/img-weapon/作品：众生.png",
+    "sizeBytes": 24001,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "作品：蚀像.png",
+    "baseName": "作品：蚀像",
+    "ext": ".png",
+    "relativePath": "assets/images/img-weapon/作品：蚀像.png",
+    "sizeBytes": 34953,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "作品：蚀迹.png",
+    "baseName": "作品：蚀迹",
+    "ext": ".png",
+    "relativePath": "assets/images/img-weapon/作品：蚀迹.png",
+    "sizeBytes": 33304,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "佩科5.png",
+    "baseName": "佩科5",
+    "ext": ".png",
+    "relativePath": "assets/images/img-weapon/佩科5.png",
+    "sizeBytes": 22715,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "使命必达.png",
+    "baseName": "使命必达",
+    "ext": ".png",
+    "relativePath": "assets/images/img-weapon/使命必达.png",
+    "sizeBytes": 33285,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "光荣记忆.png",
+    "baseName": "光荣记忆",
+    "ext": ".png",
+    "relativePath": "assets/images/img-weapon/光荣记忆.png",
+    "sizeBytes": 108457,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "全自动骇新星.png",
+    "baseName": "全自动骇新星",
+    "ext": ".png",
+    "relativePath": "assets/images/img-weapon/全自动骇新星.png",
+    "sizeBytes": 28883,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "典范.png",
+    "baseName": "典范",
+    "ext": ".png",
+    "relativePath": "assets/images/img-weapon/典范.png",
+    "sizeBytes": 33742,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "十二问.png",
+    "baseName": "十二问",
+    "ext": ".png",
+    "relativePath": "assets/images/img-weapon/十二问.png",
+    "sizeBytes": 23089,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "古渠.png",
+    "baseName": "古渠",
+    "ext": ".png",
+    "relativePath": "assets/images/img-weapon/古渠.png",
+    "sizeBytes": 26333,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "吉米尼12.png",
+    "baseName": "吉米尼12",
+    "ext": ".png",
+    "relativePath": "assets/images/img-weapon/吉米尼12.png",
+    "sizeBytes": 25078,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "同类相食.png",
+    "baseName": "同类相食",
+    "ext": ".png",
+    "relativePath": "assets/images/img-weapon/同类相食.png",
+    "sizeBytes": 32126,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "向心之引.png",
+    "baseName": "向心之引",
+    "ext": ".png",
+    "relativePath": "assets/images/img-weapon/向心之引.png",
+    "sizeBytes": 25269,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "呼啸守卫.png",
+    "baseName": "呼啸守卫",
+    "ext": ".png",
+    "relativePath": "assets/images/img-weapon/呼啸守卫.png",
+    "sizeBytes": 23700,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "坚城铸造者.png",
+    "baseName": "坚城铸造者",
+    "ext": ".png",
+    "relativePath": "assets/images/img-weapon/坚城铸造者.png",
+    "sizeBytes": 25931,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "塔尔11.png",
+    "baseName": "塔尔11",
+    "ext": ".png",
+    "relativePath": "assets/images/img-weapon/塔尔11.png",
+    "sizeBytes": 21485,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "大雷斑.png",
+    "baseName": "大雷斑",
+    "ext": ".png",
+    "relativePath": "assets/images/img-weapon/大雷斑.png",
+    "sizeBytes": 36781,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "天使杀手.png",
+    "baseName": "天使杀手",
+    "ext": ".png",
+    "relativePath": "assets/images/img-weapon/天使杀手.png",
+    "sizeBytes": 23349,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "奥佩罗77.png",
+    "baseName": "奥佩罗77",
+    "ext": ".png",
+    "relativePath": "assets/images/img-weapon/奥佩罗77.png",
+    "sizeBytes": 21488,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "孤舟.png",
+    "baseName": "孤舟",
+    "ext": ".png",
+    "relativePath": "assets/images/img-weapon/孤舟.png",
+    "sizeBytes": 114097,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "宏愿.png",
+    "baseName": "宏愿",
+    "ext": ".png",
+    "relativePath": "assets/images/img-weapon/宏愿.png",
+    "sizeBytes": 32161,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "寻路者道标.png",
+    "baseName": "寻路者道标",
+    "ext": ".png",
+    "relativePath": "assets/images/img-weapon/寻路者道标.png",
+    "sizeBytes": 23157,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "嵌合正义.png",
+    "baseName": "嵌合正义",
+    "ext": ".png",
+    "relativePath": "assets/images/img-weapon/嵌合正义.png",
+    "sizeBytes": 24724,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "工业零点一.png",
+    "baseName": "工业零点一",
+    "ext": ".png",
+    "relativePath": "assets/images/img-weapon/工业零点一.png",
+    "sizeBytes": 26100,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "布道自由.png",
+    "baseName": "布道自由",
+    "ext": ".png",
+    "relativePath": "assets/images/img-weapon/布道自由.png",
+    "sizeBytes": 25186,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "幻想苦痛.webp",
+    "baseName": "幻想苦痛",
+    "ext": ".webp",
+    "relativePath": "assets/images/img-weapon/幻想苦痛.webp",
+    "sizeBytes": 15912,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "应急手段.png",
+    "baseName": "应急手段",
+    "ext": ".png",
+    "relativePath": "assets/images/img-weapon/应急手段.png",
+    "sizeBytes": 23791,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "悼亡诗.png",
+    "baseName": "悼亡诗",
+    "ext": ".png",
+    "relativePath": "assets/images/img-weapon/悼亡诗.png",
+    "sizeBytes": 24247,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "扶摇.png",
+    "baseName": "扶摇",
+    "ext": ".png",
+    "relativePath": "assets/images/img-weapon/扶摇.png",
+    "sizeBytes": 32744,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "探骊.png",
+    "baseName": "探骊",
+    "ext": ".png",
+    "relativePath": "assets/images/img-weapon/探骊.png",
+    "sizeBytes": 28333,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "昔日精品.png",
+    "baseName": "昔日精品",
+    "ext": ".png",
+    "relativePath": "assets/images/img-weapon/昔日精品.png",
+    "sizeBytes": 37656,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "显赫声名.png",
+    "baseName": "显赫声名",
+    "ext": ".png",
+    "relativePath": "assets/images/img-weapon/显赫声名.png",
+    "sizeBytes": 33749,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "望乡.png",
+    "baseName": "望乡",
+    "ext": ".png",
+    "relativePath": "assets/images/img-weapon/望乡.png",
+    "sizeBytes": 100334,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "楔子.png",
+    "baseName": "楔子",
+    "ext": ".png",
+    "relativePath": "assets/images/img-weapon/楔子.png",
+    "sizeBytes": 34829,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "沧溟星梦.png",
+    "baseName": "沧溟星梦",
+    "ext": ".png",
+    "relativePath": "assets/images/img-weapon/沧溟星梦.png",
+    "sizeBytes": 36518,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "浪潮.png",
+    "baseName": "浪潮",
+    "ext": ".png",
+    "relativePath": "assets/images/img-weapon/浪潮.png",
+    "sizeBytes": 22253,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "淬火者.png",
+    "baseName": "淬火者",
+    "ext": ".png",
+    "relativePath": "assets/images/img-weapon/淬火者.png",
+    "sizeBytes": 28183,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "灯火使命.webp",
+    "baseName": "灯火使命",
+    "ext": ".webp",
+    "relativePath": "assets/images/img-weapon/灯火使命.webp",
+    "sizeBytes": 14234,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "热熔切割器.png",
+    "baseName": "热熔切割器",
+    "ext": ".png",
+    "relativePath": "assets/images/img-weapon/热熔切割器.png",
+    "sizeBytes": 34991,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "熔铸火焰.png",
+    "baseName": "熔铸火焰",
+    "ext": ".png",
+    "relativePath": "assets/images/img-weapon/熔铸火焰.png",
+    "sizeBytes": 33134,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "爆破单元.png",
+    "baseName": "爆破单元",
+    "ext": ".png",
+    "relativePath": "assets/images/img-weapon/爆破单元.png",
+    "sizeBytes": 35928,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "狼之绯.png",
+    "baseName": "狼之绯",
+    "ext": ".png",
+    "relativePath": "assets/images/img-weapon/狼之绯.png",
+    "sizeBytes": 95764,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "理性告别.png",
+    "baseName": "理性告别",
+    "ext": ".png",
+    "relativePath": "assets/images/img-weapon/理性告别.png",
+    "sizeBytes": 23772,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "白夜新星.png",
+    "baseName": "白夜新星",
+    "ext": ".png",
+    "relativePath": "assets/images/img-weapon/白夜新星.png",
+    "sizeBytes": 37776,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "破碎君王.png",
+    "baseName": "破碎君王",
+    "ext": ".png",
+    "relativePath": "assets/images/img-weapon/破碎君王.png",
+    "sizeBytes": 35563,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "终点之声.png",
+    "baseName": "终点之声",
+    "ext": ".png",
+    "relativePath": "assets/images/img-weapon/终点之声.png",
+    "sizeBytes": 31655,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "艺术暴君.png",
+    "baseName": "艺术暴君",
+    "ext": ".png",
+    "relativePath": "assets/images/img-weapon/艺术暴君.png",
+    "sizeBytes": 33694,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "荧光雷羽.png",
+    "baseName": "荧光雷羽",
+    "ext": ".png",
+    "relativePath": "assets/images/img-weapon/荧光雷羽.png",
+    "sizeBytes": 26613,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "莫奈何.png",
+    "baseName": "莫奈何",
+    "ext": ".png",
+    "relativePath": "assets/images/img-weapon/莫奈何.png",
+    "sizeBytes": 26831,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "落草.png",
+    "baseName": "落草",
+    "ext": ".png",
+    "relativePath": "assets/images/img-weapon/落草.png",
+    "sizeBytes": 82166,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "负山.png",
+    "baseName": "负山",
+    "ext": ".png",
+    "relativePath": "assets/images/img-weapon/负山.png",
+    "sizeBytes": 32923,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "赤缨.webp",
+    "baseName": "赤缨",
+    "ext": ".webp",
+    "relativePath": "assets/images/img-weapon/赤缨.webp",
+    "sizeBytes": 17112,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "赫拉芬格.png",
+    "baseName": "赫拉芬格",
+    "ext": ".png",
+    "relativePath": "assets/images/img-weapon/赫拉芬格.png",
+    "sizeBytes": 36327,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "达尔霍夫7.png",
+    "baseName": "达尔霍夫7",
+    "ext": ".png",
+    "relativePath": "assets/images/img-weapon/达尔霍夫7.png",
+    "sizeBytes": 25850,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "迷失荒野.png",
+    "baseName": "迷失荒野",
+    "ext": ".png",
+    "relativePath": "assets/images/img-weapon/迷失荒野.png",
+    "sizeBytes": 26772,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "逐鳞3.0.png",
+    "baseName": "逐鳞3.0",
+    "ext": ".png",
+    "relativePath": "assets/images/img-weapon/逐鳞3.0.png",
+    "sizeBytes": 24555,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "遗忘.png",
+    "baseName": "遗忘",
+    "ext": ".png",
+    "relativePath": "assets/images/img-weapon/遗忘.png",
+    "sizeBytes": 33567,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "钢铁余音.png",
+    "baseName": "钢铁余音",
+    "ext": ".png",
+    "relativePath": "assets/images/img-weapon/钢铁余音.png",
+    "sizeBytes": 25831,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "长路.png",
+    "baseName": "长路",
+    "ext": ".png",
+    "relativePath": "assets/images/img-weapon/长路.png",
+    "sizeBytes": 23928,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "雾中微光.png",
+    "baseName": "雾中微光",
+    "ext": ".png",
+    "relativePath": "assets/images/img-weapon/雾中微光.png",
+    "sizeBytes": 120036,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "领航者.png",
+    "baseName": "领航者",
+    "ext": ".png",
+    "relativePath": "assets/images/img-weapon/领航者.png",
+    "sizeBytes": 33354,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "骁勇.png",
+    "baseName": "骁勇",
+    "ext": ".png",
+    "relativePath": "assets/images/img-weapon/骁勇.png",
+    "sizeBytes": 31475,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "骑士精神.png",
+    "baseName": "骑士精神",
+    "ext": ".png",
+    "relativePath": "assets/images/img-weapon/骑士精神.png",
+    "sizeBytes": 33838,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
+    "fileName": "黯色火炬.png",
+    "baseName": "黯色火炬",
+    "ext": ".png",
+    "relativePath": "assets/images/img-weapon/黯色火炬.png",
+    "sizeBytes": 31933,
+    "updatedAt": 1781459712000,
+    "writable": false,
+    "source": "release",
+    "rootId": "release",
+    "rootLabel": "发布更新资源",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\asset-releases\\versions\\v1.6.0",
+    "rootPriority": -1
+  },
+  {
     "fileName": "icon_battle_yvonne_buff.png",
     "baseName": "icon_battle_yvonne_buff",
     "ext": ".png",
     "relativePath": "assets/avatars/伊冯/icon_battle_yvonne_buff.png",
     "sizeBytes": 5744,
-    "updatedAt": 1780842888263.2874,
+    "updatedAt": 1768927429000,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "icon_talent_yvonne_01.png",
@@ -15,9 +3040,10 @@
     "ext": ".png",
     "relativePath": "assets/avatars/伊冯/icon_talent_yvonne_01.png",
     "sizeBytes": 1175,
-    "updatedAt": 1780842888263.3447,
+    "updatedAt": 1768927429000,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "icon_talent_yvonne_02.png",
@@ -25,9 +3051,10 @@
     "ext": ".png",
     "relativePath": "assets/avatars/伊冯/icon_talent_yvonne_02.png",
     "sizeBytes": 1119,
-    "updatedAt": 1780842888263.4026,
+    "updatedAt": 1768927429000,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "伊冯.png",
@@ -35,9 +3062,10 @@
     "ext": ".png",
     "relativePath": "assets/avatars/伊冯/伊冯.png",
     "sizeBytes": 13321,
-    "updatedAt": 1780842888263.4685,
+    "updatedAt": 1768927429000,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "伊冯战技.png",
@@ -45,9 +3073,10 @@
     "ext": ".png",
     "relativePath": "assets/avatars/伊冯/伊冯战技.png",
     "sizeBytes": 7097,
-    "updatedAt": 1780842888263.5745,
+    "updatedAt": 1768927429000,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "伊冯终结技.png",
@@ -55,9 +3084,10 @@
     "ext": ".png",
     "relativePath": "assets/avatars/伊冯/伊冯终结技.png",
     "sizeBytes": 7960,
-    "updatedAt": 1780842888263.659,
+    "updatedAt": 1768927429000,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "伊冯连携技.png",
@@ -65,9 +3095,10 @@
     "ext": ".png",
     "relativePath": "assets/avatars/伊冯/伊冯连携技.png",
     "sizeBytes": 5618,
-    "updatedAt": 1780842888263.7275,
+    "updatedAt": 1768927429000,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "icon_talent_azrila_01.png",
@@ -75,9 +3106,10 @@
     "ext": ".png",
     "relativePath": "assets/avatars/余烬/icon_talent_azrila_01.png",
     "sizeBytes": 1103,
-    "updatedAt": 1780842888263.8164,
+    "updatedAt": 1768927429000,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "icon_talent_azrila_02.png",
@@ -85,9 +3117,10 @@
     "ext": ".png",
     "relativePath": "assets/avatars/余烬/icon_talent_azrila_02.png",
     "sizeBytes": 1075,
-    "updatedAt": 1780842888263.8782,
+    "updatedAt": 1768927429000,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "余烬.png",
@@ -95,9 +3128,10 @@
     "ext": ".png",
     "relativePath": "assets/avatars/余烬/余烬.png",
     "sizeBytes": 13217,
-    "updatedAt": 1780842888263.9343,
+    "updatedAt": 1768927429000,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "余烬战技.png",
@@ -105,9 +3139,10 @@
     "ext": ".png",
     "relativePath": "assets/avatars/余烬/余烬战技.png",
     "sizeBytes": 4656,
-    "updatedAt": 1780842888264.002,
+    "updatedAt": 1768927429000,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "余烬终结技.png",
@@ -115,9 +3150,10 @@
     "ext": ".png",
     "relativePath": "assets/avatars/余烬/余烬终结技.png",
     "sizeBytes": 7085,
-    "updatedAt": 1780842888264.0522,
+    "updatedAt": 1768927429000,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "余烬连携技.png",
@@ -125,9 +3161,10 @@
     "ext": ".png",
     "relativePath": "assets/avatars/余烬/余烬连携技.png",
     "sizeBytes": 4512,
-    "updatedAt": 1780842888264.1094,
+    "updatedAt": 1768927429000,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "icon_talent_pelica_01.png",
@@ -135,9 +3172,10 @@
     "ext": ".png",
     "relativePath": "assets/avatars/佩丽卡/icon_talent_pelica_01.png",
     "sizeBytes": 986,
-    "updatedAt": 1780842888264.218,
+    "updatedAt": 1768927429000,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "icon_talent_pelica_02.png",
@@ -145,9 +3183,10 @@
     "ext": ".png",
     "relativePath": "assets/avatars/佩丽卡/icon_talent_pelica_02.png",
     "sizeBytes": 1092,
-    "updatedAt": 1780842888264.2727,
+    "updatedAt": 1768927429000,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "佩丽卡.png",
@@ -155,9 +3194,10 @@
     "ext": ".png",
     "relativePath": "assets/avatars/佩丽卡/佩丽卡.png",
     "sizeBytes": 13097,
-    "updatedAt": 1780842888264.3342,
+    "updatedAt": 1768927429000,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "佩丽卡战技.png",
@@ -165,9 +3205,10 @@
     "ext": ".png",
     "relativePath": "assets/avatars/佩丽卡/佩丽卡战技.png",
     "sizeBytes": 3176,
-    "updatedAt": 1780842888264.404,
+    "updatedAt": 1768927429000,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "佩丽卡终结技.png",
@@ -175,9 +3216,10 @@
     "ext": ".png",
     "relativePath": "assets/avatars/佩丽卡/佩丽卡终结技.png",
     "sizeBytes": 4695,
-    "updatedAt": 1780842888264.4636,
+    "updatedAt": 1768927429000,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "佩丽卡连携技.png",
@@ -185,9 +3227,10 @@
     "ext": ".png",
     "relativePath": "assets/avatars/佩丽卡/佩丽卡连携技.png",
     "sizeBytes": 2617,
-    "updatedAt": 1780842888264.5266,
+    "updatedAt": 1768927429000,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "icon_skill_lastrite_01.png",
@@ -195,9 +3238,10 @@
     "ext": ".png",
     "relativePath": "assets/avatars/别礼/icon_skill_lastrite_01.png",
     "sizeBytes": 5721,
-    "updatedAt": 1780842888264.6267,
+    "updatedAt": 1768927429000,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "icon_talent_lastrite_01.png",
@@ -205,9 +3249,10 @@
     "ext": ".png",
     "relativePath": "assets/avatars/别礼/icon_talent_lastrite_01.png",
     "sizeBytes": 684,
-    "updatedAt": 1780842888264.6897,
+    "updatedAt": 1768927429000,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "icon_talent_lastrite_02.png",
@@ -215,9 +3260,10 @@
     "ext": ".png",
     "relativePath": "assets/avatars/别礼/icon_talent_lastrite_02.png",
     "sizeBytes": 866,
-    "updatedAt": 1780842888264.7495,
+    "updatedAt": 1768927429000,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "别礼.png",
@@ -225,9 +3271,10 @@
     "ext": ".png",
     "relativePath": "assets/avatars/别礼/别礼.png",
     "sizeBytes": 12835,
-    "updatedAt": 1780842888264.804,
+    "updatedAt": 1768927429000,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "别礼战技.png",
@@ -235,9 +3282,10 @@
     "ext": ".png",
     "relativePath": "assets/avatars/别礼/别礼战技.png",
     "sizeBytes": 4306,
-    "updatedAt": 1780842888264.863,
+    "updatedAt": 1768927429000,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "别礼终结技.png",
@@ -245,9 +3293,10 @@
     "ext": ".png",
     "relativePath": "assets/avatars/别礼/别礼终结技.png",
     "sizeBytes": 7869,
-    "updatedAt": 1780842888264.918,
+    "updatedAt": 1768927429000,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "别礼连携技.png",
@@ -255,9 +3304,10 @@
     "ext": ".png",
     "relativePath": "assets/avatars/别礼/别礼连携技.png",
     "sizeBytes": 5931,
-    "updatedAt": 1780842888264.9746,
+    "updatedAt": 1768927429000,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "icon_talent_meurs_01.png",
@@ -265,9 +3315,10 @@
     "ext": ".png",
     "relativePath": "assets/avatars/卡契尔/icon_talent_meurs_01.png",
     "sizeBytes": 1108,
-    "updatedAt": 1780842888265.0615,
+    "updatedAt": 1768927429000,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "icon_talent_meurs_02.png",
@@ -275,9 +3326,10 @@
     "ext": ".png",
     "relativePath": "assets/avatars/卡契尔/icon_talent_meurs_02.png",
     "sizeBytes": 997,
-    "updatedAt": 1780842888265.1357,
+    "updatedAt": 1768927429000,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "卡契尔.png",
@@ -285,9 +3337,10 @@
     "ext": ".png",
     "relativePath": "assets/avatars/卡契尔/卡契尔.png",
     "sizeBytes": 10585,
-    "updatedAt": 1780842888265.4094,
+    "updatedAt": 1768927429000,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "卡契尔战技.png",
@@ -295,9 +3348,10 @@
     "ext": ".png",
     "relativePath": "assets/avatars/卡契尔/卡契尔战技.png",
     "sizeBytes": 6793,
-    "updatedAt": 1780842888265.5835,
+    "updatedAt": 1768927429000,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "卡契尔终结技.png",
@@ -305,9 +3359,10 @@
     "ext": ".png",
     "relativePath": "assets/avatars/卡契尔/卡契尔终结技.png",
     "sizeBytes": 4705,
-    "updatedAt": 1780842888265.7332,
+    "updatedAt": 1768927429000,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "卡契尔连携技.png",
@@ -315,9 +3370,10 @@
     "ext": ".png",
     "relativePath": "assets/avatars/卡契尔/卡契尔连携技.png",
     "sizeBytes": 5830,
-    "updatedAt": 1780842888265.91,
+    "updatedAt": 1768927429000,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "icon_talent_whiten_01.png",
@@ -325,9 +3381,10 @@
     "ext": ".png",
     "relativePath": "assets/avatars/埃特拉/icon_talent_whiten_01.png",
     "sizeBytes": 1484,
-    "updatedAt": 1780842888266.438,
+    "updatedAt": 1768927429000,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "icon_talent_whiten_02.png",
@@ -335,9 +3392,10 @@
     "ext": ".png",
     "relativePath": "assets/avatars/埃特拉/icon_talent_whiten_02.png",
     "sizeBytes": 1696,
-    "updatedAt": 1780842888266.515,
+    "updatedAt": 1768927429000,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "埃特拉.png",
@@ -345,9 +3403,10 @@
     "ext": ".png",
     "relativePath": "assets/avatars/埃特拉/埃特拉.png",
     "sizeBytes": 10339,
-    "updatedAt": 1780842888266.601,
+    "updatedAt": 1768927429000,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "埃特拉战技.png",
@@ -355,9 +3414,10 @@
     "ext": ".png",
     "relativePath": "assets/avatars/埃特拉/埃特拉战技.png",
     "sizeBytes": 4199,
-    "updatedAt": 1780842888266.6792,
+    "updatedAt": 1768927429000,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "埃特拉终结技.png",
@@ -365,9 +3425,10 @@
     "ext": ".png",
     "relativePath": "assets/avatars/埃特拉/埃特拉终结技.png",
     "sizeBytes": 5791,
-    "updatedAt": 1780842888266.7427,
+    "updatedAt": 1768927429000,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "埃特拉连携技.png",
@@ -375,9 +3436,10 @@
     "ext": ".png",
     "relativePath": "assets/avatars/埃特拉/埃特拉连携技.png",
     "sizeBytes": 4608,
-    "updatedAt": 1780842888266.8232,
+    "updatedAt": 1768927429000,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "icon_battle_dapan_buff.png",
@@ -385,9 +3447,10 @@
     "ext": ".png",
     "relativePath": "assets/avatars/大潘/icon_battle_dapan_buff.png",
     "sizeBytes": 2809,
-    "updatedAt": 1780842888266.9302,
+    "updatedAt": 1768927429000,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "icon_talent_dapan_01.png",
@@ -395,9 +3458,10 @@
     "ext": ".png",
     "relativePath": "assets/avatars/大潘/icon_talent_dapan_01.png",
     "sizeBytes": 642,
-    "updatedAt": 1780842888266.983,
+    "updatedAt": 1768927429000,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "icon_talent_dapan_02.png",
@@ -405,9 +3469,10 @@
     "ext": ".png",
     "relativePath": "assets/avatars/大潘/icon_talent_dapan_02.png",
     "sizeBytes": 1033,
-    "updatedAt": 1780842888267.034,
+    "updatedAt": 1768927429000,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "大潘.png",
@@ -415,9 +3480,10 @@
     "ext": ".png",
     "relativePath": "assets/avatars/大潘/大潘.png",
     "sizeBytes": 10517,
-    "updatedAt": 1780842888267.089,
+    "updatedAt": 1768927429000,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "大潘战技.png",
@@ -425,9 +3491,10 @@
     "ext": ".png",
     "relativePath": "assets/avatars/大潘/大潘战技.png",
     "sizeBytes": 3598,
-    "updatedAt": 1780842888267.155,
+    "updatedAt": 1768927429000,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "大潘终结技.png",
@@ -435,9 +3502,10 @@
     "ext": ".png",
     "relativePath": "assets/avatars/大潘/大潘终结技.png",
     "sizeBytes": 4401,
-    "updatedAt": 1780842888267.2327,
+    "updatedAt": 1768927429000,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "大潘连携技.png",
@@ -445,9 +3513,10 @@
     "ext": ".png",
     "relativePath": "assets/avatars/大潘/大潘连携技.png",
     "sizeBytes": 4465,
-    "updatedAt": 1780842888267.2993,
+    "updatedAt": 1768927429000,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "icon_battle_antal_buff.png",
@@ -455,9 +3524,10 @@
     "ext": ".png",
     "relativePath": "assets/avatars/安塔尔/icon_battle_antal_buff.png",
     "sizeBytes": 3886,
-    "updatedAt": 1780842888267.397,
+    "updatedAt": 1768927429000,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "icon_talent_antal_01.png",
@@ -465,9 +3535,10 @@
     "ext": ".png",
     "relativePath": "assets/avatars/安塔尔/icon_talent_antal_01.png",
     "sizeBytes": 1496,
-    "updatedAt": 1780842888267.4543,
+    "updatedAt": 1768927429000,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "icon_talent_antal_02.png",
@@ -475,9 +3546,10 @@
     "ext": ".png",
     "relativePath": "assets/avatars/安塔尔/icon_talent_antal_02.png",
     "sizeBytes": 667,
-    "updatedAt": 1780842888267.5063,
+    "updatedAt": 1768927429000,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "安塔尔.png",
@@ -485,9 +3557,10 @@
     "ext": ".png",
     "relativePath": "assets/avatars/安塔尔/安塔尔.png",
     "sizeBytes": 11354,
-    "updatedAt": 1780842888267.569,
+    "updatedAt": 1768927429000,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "安塔尔战技.png",
@@ -495,9 +3568,10 @@
     "ext": ".png",
     "relativePath": "assets/avatars/安塔尔/安塔尔战技.png",
     "sizeBytes": 5033,
-    "updatedAt": 1780842888267.6333,
+    "updatedAt": 1768927429000,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "安塔尔终结技.png",
@@ -505,9 +3579,10 @@
     "ext": ".png",
     "relativePath": "assets/avatars/安塔尔/安塔尔终结技.png",
     "sizeBytes": 5642,
-    "updatedAt": 1780842888267.6997,
+    "updatedAt": 1768927429000,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "安塔尔连携技.png",
@@ -515,9 +3590,10 @@
     "ext": ".png",
     "relativePath": "assets/avatars/安塔尔/安塔尔连携技.png",
     "sizeBytes": 4814,
-    "updatedAt": 1780842888267.7512,
+    "updatedAt": 1768927429000,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "庄方宜.png",
@@ -525,9 +3601,10 @@
     "ext": ".png",
     "relativePath": "assets/avatars/庄方宜/庄方宜.png",
     "sizeBytes": 95145,
-    "updatedAt": 1780842888268.0195,
+    "updatedAt": 1777379402192.9736,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "庄方宜战技.png",
@@ -535,9 +3612,10 @@
     "ext": ".png",
     "relativePath": "assets/avatars/庄方宜/庄方宜战技.png",
     "sizeBytes": 6048,
-    "updatedAt": 1780842888268.1272,
+    "updatedAt": 1777379402194.5012,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "庄方宜终结技.png",
@@ -545,9 +3623,10 @@
     "ext": ".png",
     "relativePath": "assets/avatars/庄方宜/庄方宜终结技.png",
     "sizeBytes": 8450,
-    "updatedAt": 1780842888268.213,
+    "updatedAt": 1777379402196.1006,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "庄方宜连携技.png",
@@ -555,9 +3634,10 @@
     "ext": ".png",
     "relativePath": "assets/avatars/庄方宜/庄方宜连携技.png",
     "sizeBytes": 4573,
-    "updatedAt": 1780842888268.2886,
+    "updatedAt": 1777379402197.1133,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "icon_battle_ikut_talent_1.png",
@@ -565,9 +3645,10 @@
     "ext": ".png",
     "relativePath": "assets/avatars/弧光/icon_battle_ikut_talent_1.png",
     "sizeBytes": 3919,
-    "updatedAt": 1780842888268.3818,
+    "updatedAt": 1768927429000,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "icon_skill_ikut_01_line.png",
@@ -575,9 +3656,10 @@
     "ext": ".png",
     "relativePath": "assets/avatars/弧光/icon_skill_ikut_01_line.png",
     "sizeBytes": 3948,
-    "updatedAt": 1780842888268.4412,
+    "updatedAt": 1768927429000,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "icon_talent_ikut_01.png",
@@ -585,9 +3667,10 @@
     "ext": ".png",
     "relativePath": "assets/avatars/弧光/icon_talent_ikut_01.png",
     "sizeBytes": 1296,
-    "updatedAt": 1780842888268.498,
+    "updatedAt": 1768927429000,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "icon_talent_ikut_02.png",
@@ -595,9 +3678,10 @@
     "ext": ".png",
     "relativePath": "assets/avatars/弧光/icon_talent_ikut_02.png",
     "sizeBytes": 1179,
-    "updatedAt": 1780842888268.5547,
+    "updatedAt": 1768927429000,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "弧光.png",
@@ -605,9 +3689,10 @@
     "ext": ".png",
     "relativePath": "assets/avatars/弧光/弧光.png",
     "sizeBytes": 11581,
-    "updatedAt": 1780842888268.642,
+    "updatedAt": 1768927429000,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "弧光战技.png",
@@ -615,9 +3700,10 @@
     "ext": ".png",
     "relativePath": "assets/avatars/弧光/弧光战技.png",
     "sizeBytes": 6478,
-    "updatedAt": 1780842888268.716,
+    "updatedAt": 1768927429000,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "弧光终结技.png",
@@ -625,9 +3711,10 @@
     "ext": ".png",
     "relativePath": "assets/avatars/弧光/弧光终结技.png",
     "sizeBytes": 4288,
-    "updatedAt": 1780842888268.7988,
+    "updatedAt": 1768927429000,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "弧光连携技.png",
@@ -635,9 +3722,10 @@
     "ext": ".png",
     "relativePath": "assets/avatars/弧光/弧光连携技.png",
     "sizeBytes": 4086,
-    "updatedAt": 1780842888268.8508,
+    "updatedAt": 1768927429000,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "幻想苦痛.webp",
@@ -645,9 +3733,10 @@
     "ext": ".webp",
     "relativePath": "assets/avatars/弭弗/幻想苦痛.webp",
     "sizeBytes": 15912,
-    "updatedAt": 1780842888268.9607,
+    "updatedAt": 1780615133000.0776,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "弭弗.png",
@@ -655,9 +3744,10 @@
     "ext": ".png",
     "relativePath": "assets/avatars/弭弗/弭弗.png",
     "sizeBytes": 101497,
-    "updatedAt": 1780842888269.1472,
+    "updatedAt": 1780619761533.9023,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "弭弗.webp",
@@ -665,9 +3755,10 @@
     "ext": ".webp",
     "relativePath": "assets/avatars/弭弗/弭弗.webp",
     "sizeBytes": 16540,
-    "updatedAt": 1780842888269.2227,
+    "updatedAt": 1780614848526.2148,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "灯火使命.webp",
@@ -675,9 +3766,10 @@
     "ext": ".webp",
     "relativePath": "assets/avatars/弭弗/灯火使命.webp",
     "sizeBytes": 14234,
-    "updatedAt": 1780842888269.2925,
+    "updatedAt": 1780615072927.0417,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "icon_talent_aurora_01.png",
@@ -685,9 +3777,10 @@
     "ext": ".png",
     "relativePath": "assets/avatars/昼雪/icon_talent_aurora_01.png",
     "sizeBytes": 1140,
-    "updatedAt": 1780842888269.386,
+    "updatedAt": 1768927429000,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "icon_talent_aurora_02.png",
@@ -695,9 +3788,10 @@
     "ext": ".png",
     "relativePath": "assets/avatars/昼雪/icon_talent_aurora_02.png",
     "sizeBytes": 932,
-    "updatedAt": 1780842888269.4465,
+    "updatedAt": 1768927429000,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "昼雪.png",
@@ -705,9 +3799,10 @@
     "ext": ".png",
     "relativePath": "assets/avatars/昼雪/昼雪.png",
     "sizeBytes": 12939,
-    "updatedAt": 1780842888269.509,
+    "updatedAt": 1768927429000,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "昼雪战技.png",
@@ -715,9 +3810,10 @@
     "ext": ".png",
     "relativePath": "assets/avatars/昼雪/昼雪战技.png",
     "sizeBytes": 4859,
-    "updatedAt": 1780842888269.5657,
+    "updatedAt": 1768927429000,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "昼雪终结技.png",
@@ -725,9 +3821,10 @@
     "ext": ".png",
     "relativePath": "assets/avatars/昼雪/昼雪终结技.png",
     "sizeBytes": 5545,
-    "updatedAt": 1780842888269.6218,
+    "updatedAt": 1768927429000,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "昼雪连携技.png",
@@ -735,9 +3832,10 @@
     "ext": ".png",
     "relativePath": "assets/avatars/昼雪/昼雪连携技.png",
     "sizeBytes": 4812,
-    "updatedAt": 1780842888269.6719,
+    "updatedAt": 1768927429000,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "汤汤.png",
@@ -745,9 +3843,10 @@
     "ext": ".png",
     "relativePath": "assets/avatars/汤汤/汤汤.png",
     "sizeBytes": 19204,
-    "updatedAt": 1780842888269.7737,
+    "updatedAt": 1775534936014.2976,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "汤汤战技.png",
@@ -755,9 +3854,10 @@
     "ext": ".png",
     "relativePath": "assets/avatars/汤汤/汤汤战技.png",
     "sizeBytes": 5983,
-    "updatedAt": 1780842888269.8582,
+    "updatedAt": 1777379402199.1975,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "汤汤终结技.png",
@@ -765,9 +3865,10 @@
     "ext": ".png",
     "relativePath": "assets/avatars/汤汤/汤汤终结技.png",
     "sizeBytes": 7378,
-    "updatedAt": 1780842888269.9373,
+    "updatedAt": 1777379402200.202,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "汤汤连携技.png",
@@ -775,9 +3876,10 @@
     "ext": ".png",
     "relativePath": "assets/avatars/汤汤/汤汤连携技.png",
     "sizeBytes": 7563,
-    "updatedAt": 1780842888270.01,
+    "updatedAt": 1777379402201.202,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "icon_talent_aglina_01.png",
@@ -785,9 +3887,10 @@
     "ext": ".png",
     "relativePath": "assets/avatars/洁尔佩塔/icon_talent_aglina_01.png",
     "sizeBytes": 1113,
-    "updatedAt": 1780842888270.1646,
+    "updatedAt": 1768927429000,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "icon_talent_aglina_02.png",
@@ -795,9 +3898,10 @@
     "ext": ".png",
     "relativePath": "assets/avatars/洁尔佩塔/icon_talent_aglina_02.png",
     "sizeBytes": 951,
-    "updatedAt": 1780842888270.2454,
+    "updatedAt": 1768927429000,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "洁尔佩塔.png",
@@ -805,9 +3909,10 @@
     "ext": ".png",
     "relativePath": "assets/avatars/洁尔佩塔/洁尔佩塔.png",
     "sizeBytes": 13166,
-    "updatedAt": 1780842888270.3171,
+    "updatedAt": 1768927429000,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "洁尔佩塔战技.png",
@@ -815,9 +3920,10 @@
     "ext": ".png",
     "relativePath": "assets/avatars/洁尔佩塔/洁尔佩塔战技.png",
     "sizeBytes": 6022,
-    "updatedAt": 1780842888270.3845,
+    "updatedAt": 1768927429000,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "洁尔佩塔终结技.png",
@@ -825,9 +3931,10 @@
     "ext": ".png",
     "relativePath": "assets/avatars/洁尔佩塔/洁尔佩塔终结技.png",
     "sizeBytes": 4138,
-    "updatedAt": 1780842888270.4626,
+    "updatedAt": 1768927429000,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "洁尔佩塔连携技.png",
@@ -835,9 +3942,10 @@
     "ext": ".png",
     "relativePath": "assets/avatars/洁尔佩塔/洁尔佩塔连携技.png",
     "sizeBytes": 3762,
-    "updatedAt": 1780842888270.5305,
+    "updatedAt": 1768927429000,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "洛茜.png",
@@ -845,9 +3953,10 @@
     "ext": ".png",
     "relativePath": "assets/avatars/洛茜/洛茜.png",
     "sizeBytes": 16836,
-    "updatedAt": 1780842888270.6526,
+    "updatedAt": 1775534936757.9001,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "洛茜战技.png",
@@ -855,9 +3964,10 @@
     "ext": ".png",
     "relativePath": "assets/avatars/洛茜/洛茜战技.png",
     "sizeBytes": 8430,
-    "updatedAt": 1780842888270.7505,
+    "updatedAt": 1777379402203.25,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "洛茜终结技.png",
@@ -865,9 +3975,10 @@
     "ext": ".png",
     "relativePath": "assets/avatars/洛茜/洛茜终结技.png",
     "sizeBytes": 6992,
-    "updatedAt": 1780842888270.835,
+    "updatedAt": 1777379402203.25,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "洛茜连携技.png",
@@ -875,9 +3986,10 @@
     "ext": ".png",
     "relativePath": "assets/avatars/洛茜/洛茜连携技.png",
     "sizeBytes": 6035,
-    "updatedAt": 1780842888270.9058,
+    "updatedAt": 1777379402205.4043,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "icon_battle_wolfgd_talent_1.png",
@@ -885,9 +3997,10 @@
     "ext": ".png",
     "relativePath": "assets/avatars/狼卫/icon_battle_wolfgd_talent_1.png",
     "sizeBytes": 2301,
-    "updatedAt": 1780842888271.0217,
+    "updatedAt": 1768927429000,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "icon_skill_wolfgd_01_line.png",
@@ -895,9 +4008,10 @@
     "ext": ".png",
     "relativePath": "assets/avatars/狼卫/icon_skill_wolfgd_01_line.png",
     "sizeBytes": 3587,
-    "updatedAt": 1780842888271.0942,
+    "updatedAt": 1768927429000,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "icon_skill_wolfgd_02.png",
@@ -905,9 +4019,10 @@
     "ext": ".png",
     "relativePath": "assets/avatars/狼卫/icon_skill_wolfgd_02.png",
     "sizeBytes": 4067,
-    "updatedAt": 1780842888271.1572,
+    "updatedAt": 1768927429000,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "icon_talent_wolfgd_01.png",
@@ -915,9 +4030,10 @@
     "ext": ".png",
     "relativePath": "assets/avatars/狼卫/icon_talent_wolfgd_01.png",
     "sizeBytes": 882,
-    "updatedAt": 1780842888271.2183,
+    "updatedAt": 1768927429000,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "icon_talent_wolfgd_02.png",
@@ -925,9 +4041,10 @@
     "ext": ".png",
     "relativePath": "assets/avatars/狼卫/icon_talent_wolfgd_02.png",
     "sizeBytes": 1274,
-    "updatedAt": 1780842888271.2847,
+    "updatedAt": 1768927429000,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "狼卫.png",
@@ -935,9 +4052,10 @@
     "ext": ".png",
     "relativePath": "assets/avatars/狼卫/狼卫.png",
     "sizeBytes": 12697,
-    "updatedAt": 1780842888271.3445,
+    "updatedAt": 1768927429000,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "狼卫战技.png",
@@ -945,9 +4063,10 @@
     "ext": ".png",
     "relativePath": "assets/avatars/狼卫/狼卫战技.png",
     "sizeBytes": 5318,
-    "updatedAt": 1780842888271.4185,
+    "updatedAt": 1768927429000,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "狼卫终结技.png",
@@ -955,9 +4074,10 @@
     "ext": ".png",
     "relativePath": "assets/avatars/狼卫/狼卫终结技.png",
     "sizeBytes": 5366,
-    "updatedAt": 1780842888271.4756,
+    "updatedAt": 1768927429000,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "狼卫连携技.png",
@@ -965,9 +4085,10 @@
     "ext": ".png",
     "relativePath": "assets/avatars/狼卫/狼卫连携技.png",
     "sizeBytes": 4943,
-    "updatedAt": 1780842888271.5608,
+    "updatedAt": 1768927429000,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "icon_talent_karin_01.png",
@@ -975,9 +4096,10 @@
     "ext": ".png",
     "relativePath": "assets/avatars/秋栗/icon_talent_karin_01.png",
     "sizeBytes": 1085,
-    "updatedAt": 1780842888271.6733,
+    "updatedAt": 1768927429000,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "icon_talent_karin_02.png",
@@ -985,9 +4107,10 @@
     "ext": ".png",
     "relativePath": "assets/avatars/秋栗/icon_talent_karin_02.png",
     "sizeBytes": 1134,
-    "updatedAt": 1780842888271.7432,
+    "updatedAt": 1768927429000,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "秋栗.png",
@@ -995,9 +4118,10 @@
     "ext": ".png",
     "relativePath": "assets/avatars/秋栗/秋栗.png",
     "sizeBytes": 12577,
-    "updatedAt": 1780842888271.8083,
+    "updatedAt": 1768927429000,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "秋栗战技.png",
@@ -1005,9 +4129,10 @@
     "ext": ".png",
     "relativePath": "assets/avatars/秋栗/秋栗战技.png",
     "sizeBytes": 4137,
-    "updatedAt": 1780842888271.874,
+    "updatedAt": 1768927429000,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "秋栗终结技.png",
@@ -1015,9 +4140,10 @@
     "ext": ".png",
     "relativePath": "assets/avatars/秋栗/秋栗终结技.png",
     "sizeBytes": 6043,
-    "updatedAt": 1780842888271.9385,
+    "updatedAt": 1768927429000,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "秋栗连携技.png",
@@ -1025,9 +4151,10 @@
     "ext": ".png",
     "relativePath": "assets/avatars/秋栗/秋栗连携技.png",
     "sizeBytes": 3756,
-    "updatedAt": 1780842888272.0017,
+    "updatedAt": 1768927429000,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "icon_skill_endmin_debuff.png",
@@ -1035,9 +4162,10 @@
     "ext": ".png",
     "relativePath": "assets/avatars/管理员/icon_skill_endmin_debuff.png",
     "sizeBytes": 3600,
-    "updatedAt": 1780842888272.0945,
+    "updatedAt": 1768927429000,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "icon_talent_endminm_01.png",
@@ -1045,9 +4173,10 @@
     "ext": ".png",
     "relativePath": "assets/avatars/管理员/icon_talent_endminm_01.png",
     "sizeBytes": 1026,
-    "updatedAt": 1780842888272.1584,
+    "updatedAt": 1768927429000,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "icon_talent_endminm_02.png",
@@ -1055,9 +4184,10 @@
     "ext": ".png",
     "relativePath": "assets/avatars/管理员/icon_talent_endminm_02.png",
     "sizeBytes": 1628,
-    "updatedAt": 1780842888272.2214,
+    "updatedAt": 1768927429000,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "管理员.png",
@@ -1065,9 +4195,10 @@
     "ext": ".png",
     "relativePath": "assets/avatars/管理员/管理员.png",
     "sizeBytes": 13011,
-    "updatedAt": 1780842888272.2805,
+    "updatedAt": 1768927429000,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "管理员战技.png",
@@ -1075,9 +4206,10 @@
     "ext": ".png",
     "relativePath": "assets/avatars/管理员/管理员战技.png",
     "sizeBytes": 4704,
-    "updatedAt": 1780842888272.3376,
+    "updatedAt": 1768927429000,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "管理员终结技.png",
@@ -1085,9 +4217,10 @@
     "ext": ".png",
     "relativePath": "assets/avatars/管理员/管理员终结技.png",
     "sizeBytes": 4354,
-    "updatedAt": 1780842888272.3958,
+    "updatedAt": 1768927429000,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "管理员连携技.png",
@@ -1095,9 +4228,10 @@
     "ext": ".png",
     "relativePath": "assets/avatars/管理员/管理员连携技.png",
     "sizeBytes": 3994,
-    "updatedAt": 1780842888272.463,
+    "updatedAt": 1768927429000,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "icon_talent_ardelia_01.png",
@@ -1105,9 +4239,10 @@
     "ext": ".png",
     "relativePath": "assets/avatars/艾尔黛拉/icon_talent_ardelia_01.png",
     "sizeBytes": 976,
-    "updatedAt": 1780842888272.6082,
+    "updatedAt": 1768927429000,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "icon_talent_ardelia_02.png",
@@ -1115,9 +4250,10 @@
     "ext": ".png",
     "relativePath": "assets/avatars/艾尔黛拉/icon_talent_ardelia_02.png",
     "sizeBytes": 1060,
-    "updatedAt": 1780842888272.6782,
+    "updatedAt": 1768927429000,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "艾尔黛拉.png",
@@ -1125,9 +4261,10 @@
     "ext": ".png",
     "relativePath": "assets/avatars/艾尔黛拉/艾尔黛拉.png",
     "sizeBytes": 11881,
-    "updatedAt": 1780842888272.7769,
+    "updatedAt": 1768927429000,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "艾尔黛拉战技.png",
@@ -1135,9 +4272,10 @@
     "ext": ".png",
     "relativePath": "assets/avatars/艾尔黛拉/艾尔黛拉战技.png",
     "sizeBytes": 4452,
-    "updatedAt": 1780842888272.8809,
+    "updatedAt": 1768927429000,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "艾尔黛拉终结技.png",
@@ -1145,9 +4283,10 @@
     "ext": ".png",
     "relativePath": "assets/avatars/艾尔黛拉/艾尔黛拉终结技.png",
     "sizeBytes": 6978,
-    "updatedAt": 1780842888272.9705,
+    "updatedAt": 1768927429000,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "艾尔黛拉连携技.png",
@@ -1155,9 +4294,10 @@
     "ext": ".png",
     "relativePath": "assets/avatars/艾尔黛拉/艾尔黛拉连携技.png",
     "sizeBytes": 5356,
-    "updatedAt": 1780842888273.0378,
+    "updatedAt": 1768927429000,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "icon_skill_avywen_01_line.png",
@@ -1165,9 +4305,10 @@
     "ext": ".png",
     "relativePath": "assets/avatars/艾维文娜/icon_skill_avywen_01_line.png",
     "sizeBytes": 3626,
-    "updatedAt": 1780842888273.1582,
+    "updatedAt": 1768927429000,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "icon_talent_avywen_01.png",
@@ -1175,9 +4316,10 @@
     "ext": ".png",
     "relativePath": "assets/avatars/艾维文娜/icon_talent_avywen_01.png",
     "sizeBytes": 1024,
-    "updatedAt": 1780842888273.2224,
+    "updatedAt": 1768927429000,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "icon_talent_avywen_02.png",
@@ -1185,9 +4327,10 @@
     "ext": ".png",
     "relativePath": "assets/avatars/艾维文娜/icon_talent_avywen_02.png",
     "sizeBytes": 1080,
-    "updatedAt": 1780842888273.2866,
+    "updatedAt": 1768927429000,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "艾维文娜.png",
@@ -1195,9 +4338,10 @@
     "ext": ".png",
     "relativePath": "assets/avatars/艾维文娜/艾维文娜.png",
     "sizeBytes": 12732,
-    "updatedAt": 1780842888273.3506,
+    "updatedAt": 1768927429000,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "艾维文娜战技.png",
@@ -1205,9 +4349,10 @@
     "ext": ".png",
     "relativePath": "assets/avatars/艾维文娜/艾维文娜战技.png",
     "sizeBytes": 5519,
-    "updatedAt": 1780842888273.4167,
+    "updatedAt": 1768927429000,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "艾维文娜终结技.png",
@@ -1215,9 +4360,10 @@
     "ext": ".png",
     "relativePath": "assets/avatars/艾维文娜/艾维文娜终结技.png",
     "sizeBytes": 5238,
-    "updatedAt": 1780842888273.4792,
+    "updatedAt": 1768927429000,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "艾维文娜连携技.png",
@@ -1225,9 +4371,10 @@
     "ext": ".png",
     "relativePath": "assets/avatars/艾维文娜/艾维文娜连携技.png",
     "sizeBytes": 4460,
-    "updatedAt": 1780842888273.5479,
+    "updatedAt": 1768927429000,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "icon_skill_laevat_01_line.png",
@@ -1235,9 +4382,10 @@
     "ext": ".png",
     "relativePath": "assets/avatars/莱万汀/icon_skill_laevat_01_line.png",
     "sizeBytes": 3746,
-    "updatedAt": 1780842888273.661,
+    "updatedAt": 1768927429000,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "icon_skill_laevat_02.png",
@@ -1245,9 +4393,10 @@
     "ext": ".png",
     "relativePath": "assets/avatars/莱万汀/icon_skill_laevat_02.png",
     "sizeBytes": 5734,
-    "updatedAt": 1780842888273.7314,
+    "updatedAt": 1768927429000,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "icon_skill_laevat_02_line.png",
@@ -1255,9 +4404,10 @@
     "ext": ".png",
     "relativePath": "assets/avatars/莱万汀/icon_skill_laevat_02_line.png",
     "sizeBytes": 3620,
-    "updatedAt": 1780842888273.8105,
+    "updatedAt": 1768927429000,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "icon_talent_laevat_01.png",
@@ -1265,9 +4415,10 @@
     "ext": ".png",
     "relativePath": "assets/avatars/莱万汀/icon_talent_laevat_01.png",
     "sizeBytes": 941,
-    "updatedAt": 1780842888273.8745,
+    "updatedAt": 1768927429000,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "icon_talent_laevat_02.png",
@@ -1275,9 +4426,10 @@
     "ext": ".png",
     "relativePath": "assets/avatars/莱万汀/icon_talent_laevat_02.png",
     "sizeBytes": 1204,
-    "updatedAt": 1780842888273.9453,
+    "updatedAt": 1768927429000,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "magma_0.png",
@@ -1285,9 +4437,10 @@
     "ext": ".png",
     "relativePath": "assets/avatars/莱万汀/magma_0.png",
     "sizeBytes": 2208,
-    "updatedAt": 1780842888274.0237,
+    "updatedAt": 1768927429000,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "magma_1.png",
@@ -1295,9 +4448,10 @@
     "ext": ".png",
     "relativePath": "assets/avatars/莱万汀/magma_1.png",
     "sizeBytes": 1374,
-    "updatedAt": 1780842888274.0942,
+    "updatedAt": 1768927429000,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "magma_2.png",
@@ -1305,9 +4459,10 @@
     "ext": ".png",
     "relativePath": "assets/avatars/莱万汀/magma_2.png",
     "sizeBytes": 1398,
-    "updatedAt": 1780842888274.164,
+    "updatedAt": 1768927429000,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "magma_3.png",
@@ -1315,9 +4470,10 @@
     "ext": ".png",
     "relativePath": "assets/avatars/莱万汀/magma_3.png",
     "sizeBytes": 1446,
-    "updatedAt": 1780842888274.2327,
+    "updatedAt": 1768927429000,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "magma_4.png",
@@ -1325,9 +4481,10 @@
     "ext": ".png",
     "relativePath": "assets/avatars/莱万汀/magma_4.png",
     "sizeBytes": 1393,
-    "updatedAt": 1780842888274.3037,
+    "updatedAt": 1768927429000,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "莱万汀.png",
@@ -1335,9 +4492,10 @@
     "ext": ".png",
     "relativePath": "assets/avatars/莱万汀/莱万汀.png",
     "sizeBytes": 12429,
-    "updatedAt": 1780842888274.3765,
+    "updatedAt": 1768927429000,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "莱万汀战技.png",
@@ -1345,9 +4503,10 @@
     "ext": ".png",
     "relativePath": "assets/avatars/莱万汀/莱万汀战技.png",
     "sizeBytes": 5956,
-    "updatedAt": 1780842888274.448,
+    "updatedAt": 1768927429000,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "莱万汀终结技.png",
@@ -1355,9 +4514,10 @@
     "ext": ".png",
     "relativePath": "assets/avatars/莱万汀/莱万汀终结技.png",
     "sizeBytes": 7470,
-    "updatedAt": 1780842888274.5178,
+    "updatedAt": 1768927429000,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "莱万汀连携技.png",
@@ -1365,9 +4525,10 @@
     "ext": ".png",
     "relativePath": "assets/avatars/莱万汀/莱万汀连携技.png",
     "sizeBytes": 5121,
-    "updatedAt": 1780842888274.5925,
+    "updatedAt": 1768927429000,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "icon_talent_bounda_01.png",
@@ -1375,9 +4536,10 @@
     "ext": ".png",
     "relativePath": "assets/avatars/萤石/icon_talent_bounda_01.png",
     "sizeBytes": 1194,
-    "updatedAt": 1780842888274.7007,
+    "updatedAt": 1768927429000,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "icon_talent_bounda_02.png",
@@ -1385,9 +4547,10 @@
     "ext": ".png",
     "relativePath": "assets/avatars/萤石/icon_talent_bounda_02.png",
     "sizeBytes": 1436,
-    "updatedAt": 1780842888274.7642,
+    "updatedAt": 1768927429000,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "萤石.png",
@@ -1395,9 +4558,10 @@
     "ext": ".png",
     "relativePath": "assets/avatars/萤石/萤石.png",
     "sizeBytes": 12333,
-    "updatedAt": 1780842888274.8286,
+    "updatedAt": 1768927429000,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "萤石战技.png",
@@ -1405,9 +4569,10 @@
     "ext": ".png",
     "relativePath": "assets/avatars/萤石/萤石战技.png",
     "sizeBytes": 4818,
-    "updatedAt": 1780842888274.9019,
+    "updatedAt": 1768927429000,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "萤石终结技.png",
@@ -1415,9 +4580,10 @@
     "ext": ".png",
     "relativePath": "assets/avatars/萤石/萤石终结技.png",
     "sizeBytes": 4726,
-    "updatedAt": 1780842888274.9773,
+    "updatedAt": 1768927429000,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "萤石连携技.png",
@@ -1425,9 +4591,10 @@
     "ext": ".png",
     "relativePath": "assets/avatars/萤石/萤石连携技.png",
     "sizeBytes": 5839,
-    "updatedAt": 1780842888275.0503,
+    "updatedAt": 1768927429000,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "赛希.png",
@@ -1435,9 +4602,10 @@
     "ext": ".png",
     "relativePath": "assets/avatars/赛希/赛希.png",
     "sizeBytes": 100092,
-    "updatedAt": 1780842888275.2356,
+    "updatedAt": 1777379402207.4795,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "赛希战技.png",
@@ -1445,9 +4613,10 @@
     "ext": ".png",
     "relativePath": "assets/avatars/赛希/赛希战技.png",
     "sizeBytes": 3930,
-    "updatedAt": 1780842888275.322,
+    "updatedAt": 1777379402208.9822,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "赛希终结技.png",
@@ -1455,9 +4624,10 @@
     "ext": ".png",
     "relativePath": "assets/avatars/赛希/赛希终结技.png",
     "sizeBytes": 4570,
-    "updatedAt": 1780842888275.398,
+    "updatedAt": 1777379402209.9927,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "赛希连携技.png",
@@ -1465,9 +4635,10 @@
     "ext": ".png",
     "relativePath": "assets/avatars/赛希/赛希连携技.png",
     "sizeBytes": 3720,
-    "updatedAt": 1780842888275.4714,
+    "updatedAt": 1777379402211.4944,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "icon_skill_deepfin_01_line.png",
@@ -1475,9 +4646,10 @@
     "ext": ".png",
     "relativePath": "assets/avatars/阿列什/icon_skill_deepfin_01_line.png",
     "sizeBytes": 3193,
-    "updatedAt": 1780842888275.584,
+    "updatedAt": 1768927429000,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "icon_talent_deepfin_01.png",
@@ -1485,9 +4657,10 @@
     "ext": ".png",
     "relativePath": "assets/avatars/阿列什/icon_talent_deepfin_01.png",
     "sizeBytes": 452,
-    "updatedAt": 1780842888275.6482,
+    "updatedAt": 1768927429000,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "icon_talent_deepfin_02.png",
@@ -1495,9 +4668,10 @@
     "ext": ".png",
     "relativePath": "assets/avatars/阿列什/icon_talent_deepfin_02.png",
     "sizeBytes": 347,
-    "updatedAt": 1780842888275.7078,
+    "updatedAt": 1768927429000,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "阿列什.png",
@@ -1505,9 +4679,10 @@
     "ext": ".png",
     "relativePath": "assets/avatars/阿列什/阿列什.png",
     "sizeBytes": 12109,
-    "updatedAt": 1780842888275.7654,
+    "updatedAt": 1768927429000,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "阿列什战技.png",
@@ -1515,9 +4690,10 @@
     "ext": ".png",
     "relativePath": "assets/avatars/阿列什/阿列什战技.png",
     "sizeBytes": 5033,
-    "updatedAt": 1780842888275.8347,
+    "updatedAt": 1768927429000,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "阿列什终结技.png",
@@ -1525,9 +4701,10 @@
     "ext": ".png",
     "relativePath": "assets/avatars/阿列什/阿列什终结技.png",
     "sizeBytes": 7229,
-    "updatedAt": 1780842888275.894,
+    "updatedAt": 1768927429000,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "阿列什连携技.png",
@@ -1535,9 +4712,10 @@
     "ext": ".png",
     "relativePath": "assets/avatars/阿列什/阿列什连携技.png",
     "sizeBytes": 7664,
-    "updatedAt": 1780842888275.9746,
+    "updatedAt": 1768927429000,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "icon_talent_chen_01.png",
@@ -1545,9 +4723,10 @@
     "ext": ".png",
     "relativePath": "assets/avatars/陈千语/icon_talent_chen_01.png",
     "sizeBytes": 1335,
-    "updatedAt": 1780842888276.0835,
+    "updatedAt": 1768927429000,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "icon_talent_chen_02.png",
@@ -1555,9 +4734,10 @@
     "ext": ".png",
     "relativePath": "assets/avatars/陈千语/icon_talent_chen_02.png",
     "sizeBytes": 991,
-    "updatedAt": 1780842888276.1514,
+    "updatedAt": 1768927429000,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "陈千语.png",
@@ -1565,9 +4745,10 @@
     "ext": ".png",
     "relativePath": "assets/avatars/陈千语/陈千语.png",
     "sizeBytes": 11686,
-    "updatedAt": 1780842888276.2144,
+    "updatedAt": 1768927429000,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "陈千语战技.png",
@@ -1575,9 +4756,10 @@
     "ext": ".png",
     "relativePath": "assets/avatars/陈千语/陈千语战技.png",
     "sizeBytes": 5299,
-    "updatedAt": 1780842888276.2744,
+    "updatedAt": 1768927429000,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "陈千语普攻.webp",
@@ -1585,9 +4767,10 @@
     "ext": ".webp",
     "relativePath": "assets/avatars/陈千语/陈千语普攻.webp",
     "sizeBytes": 1688,
-    "updatedAt": 1781445995029.7388,
+    "updatedAt": 1781362477963.1792,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "陈千语终结技.png",
@@ -1595,9 +4778,10 @@
     "ext": ".png",
     "relativePath": "assets/avatars/陈千语/陈千语终结技.png",
     "sizeBytes": 7932,
-    "updatedAt": 1780842888276.3464,
+    "updatedAt": 1768927429000,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "陈千语连携技.png",
@@ -1605,9 +4789,10 @@
     "ext": ".png",
     "relativePath": "assets/avatars/陈千语/陈千语连携技.png",
     "sizeBytes": 6424,
-    "updatedAt": 1780842888276.4136,
+    "updatedAt": 1768927429000,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "icon_battle_pograni_buff.png",
@@ -1615,9 +4800,10 @@
     "ext": ".png",
     "relativePath": "assets/avatars/骏卫/icon_battle_pograni_buff.png",
     "sizeBytes": 3025,
-    "updatedAt": 1780842888276.495,
+    "updatedAt": 1768927429000,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "icon_battle_pograni_talent_1.png",
@@ -1625,9 +4811,10 @@
     "ext": ".png",
     "relativePath": "assets/avatars/骏卫/icon_battle_pograni_talent_1.png",
     "sizeBytes": 3612,
-    "updatedAt": 1780842888276.5435,
+    "updatedAt": 1768927429000,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "icon_talent_pograni_01.png",
@@ -1635,9 +4822,10 @@
     "ext": ".png",
     "relativePath": "assets/avatars/骏卫/icon_talent_pograni_01.png",
     "sizeBytes": 971,
-    "updatedAt": 1780842888276.5916,
+    "updatedAt": 1768927429000,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "icon_talent_pograni_02.png",
@@ -1645,9 +4833,10 @@
     "ext": ".png",
     "relativePath": "assets/avatars/骏卫/icon_talent_pograni_02.png",
     "sizeBytes": 962,
-    "updatedAt": 1780842888276.647,
+    "updatedAt": 1768927429000,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "骏卫.png",
@@ -1655,9 +4844,10 @@
     "ext": ".png",
     "relativePath": "assets/avatars/骏卫/骏卫.png",
     "sizeBytes": 12354,
-    "updatedAt": 1780842888276.7073,
+    "updatedAt": 1768927429000,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "骏卫战技.png",
@@ -1665,9 +4855,10 @@
     "ext": ".png",
     "relativePath": "assets/avatars/骏卫/骏卫战技.png",
     "sizeBytes": 6369,
-    "updatedAt": 1780842888276.7678,
+    "updatedAt": 1768927429000,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "骏卫终结技.png",
@@ -1675,9 +4866,10 @@
     "ext": ".png",
     "relativePath": "assets/avatars/骏卫/骏卫终结技.png",
     "sizeBytes": 6390,
-    "updatedAt": 1780842888276.8374,
+    "updatedAt": 1768927429000,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "骏卫连携技.png",
@@ -1685,9 +4877,10 @@
     "ext": ".png",
     "relativePath": "assets/avatars/骏卫/骏卫连携技.png",
     "sizeBytes": 8627,
-    "updatedAt": 1780842888276.8953,
+    "updatedAt": 1768927429000,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "icon_talent_lifeng_01.png",
@@ -1695,9 +4888,10 @@
     "ext": ".png",
     "relativePath": "assets/avatars/黎风/icon_talent_lifeng_01.png",
     "sizeBytes": 1334,
-    "updatedAt": 1780842888276.9797,
+    "updatedAt": 1768927429000,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "icon_talent_lifeng_02.png",
@@ -1705,9 +4899,10 @@
     "ext": ".png",
     "relativePath": "assets/avatars/黎风/icon_talent_lifeng_02.png",
     "sizeBytes": 1274,
-    "updatedAt": 1780842888277.0305,
+    "updatedAt": 1768927429000,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "黎风.png",
@@ -1715,9 +4910,10 @@
     "ext": ".png",
     "relativePath": "assets/avatars/黎风/黎风.png",
     "sizeBytes": 11947,
-    "updatedAt": 1780842888277.092,
+    "updatedAt": 1768927429000,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "黎风战技.png",
@@ -1725,9 +4921,10 @@
     "ext": ".png",
     "relativePath": "assets/avatars/黎风/黎风战技.png",
     "sizeBytes": 4578,
-    "updatedAt": 1780842888277.15,
+    "updatedAt": 1768927429000,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "黎风终结技.png",
@@ -1735,9 +4932,10 @@
     "ext": ".png",
     "relativePath": "assets/avatars/黎风/黎风终结技.png",
     "sizeBytes": 5249,
-    "updatedAt": 1780842888277.2021,
+    "updatedAt": 1768927429000,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "黎风连携技.png",
@@ -1745,9 +4943,10 @@
     "ext": ".png",
     "relativePath": "assets/avatars/黎风/黎风连携技.png",
     "sizeBytes": 6006,
-    "updatedAt": 1780842888277.253,
+    "updatedAt": 1768927429000,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "operator-config-equip-stage-bg.png",
@@ -1755,9 +4954,10 @@
     "ext": ".png",
     "relativePath": "assets/images/operator-config-equip-stage-bg.png",
     "sizeBytes": 404531,
-    "updatedAt": 1780842888278.256,
+    "updatedAt": 1779450966495.665,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "audit-bg.png",
@@ -1765,9 +4965,10 @@
     "ext": ".png",
     "relativePath": "assets/skland-endfield-wiki/audit-bg.png",
     "sizeBytes": 346719,
-    "updatedAt": 1780842888279.397,
+    "updatedAt": 1780407157761.6624,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "bg.png",
@@ -1775,9 +4976,10 @@
     "ext": ".png",
     "relativePath": "assets/skland-endfield-wiki/bg.png",
     "sizeBytes": 75363,
-    "updatedAt": 1780842888279.5076,
+    "updatedAt": 1780407157938.0913,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "loading-logo-en.png",
@@ -1785,9 +4987,10 @@
     "ext": ".png",
     "relativePath": "assets/skland-endfield-wiki/loading-logo-en.png",
     "sizeBytes": 151344,
-    "updatedAt": 1780842888279.7063,
+    "updatedAt": 1780407157860.1575,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "mobileBg.png",
@@ -1795,9 +4998,10 @@
     "ext": ".png",
     "relativePath": "assets/skland-endfield-wiki/mobileBg.png",
     "sizeBytes": 46066,
-    "updatedAt": 1780842888279.8723,
+    "updatedAt": 1780407157954.3281,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "伊冯-gnNVTp.png",
@@ -1805,9 +5009,10 @@
     "ext": ".png",
     "relativePath": "assets/skland-endfield-wiki/operators/伊冯-gnNVTp.png",
     "sizeBytes": 631840,
-    "updatedAt": 1780842888280.931,
+    "updatedAt": 1780408741368.6384,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "余烬-fCrNyC.png",
@@ -1815,9 +5020,10 @@
     "ext": ".png",
     "relativePath": "assets/skland-endfield-wiki/operators/余烬-fCrNyC.png",
     "sizeBytes": 576676,
-    "updatedAt": 1780842888282.273,
+    "updatedAt": 1780408741767.4966,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "佩丽卡-korSHG.png",
@@ -1825,9 +5031,10 @@
     "ext": ".png",
     "relativePath": "assets/skland-endfield-wiki/operators/佩丽卡-korSHG.png",
     "sizeBytes": 603445,
-    "updatedAt": 1780842888283.6865,
+    "updatedAt": 1780408741994.3096,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "别礼-iEQvsS.png",
@@ -1835,9 +5042,10 @@
     "ext": ".png",
     "relativePath": "assets/skland-endfield-wiki/operators/别礼-iEQvsS.png",
     "sizeBytes": 585763,
-    "updatedAt": 1780842888284.874,
+    "updatedAt": 1780408741826.8975,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "卡契尔-irASlc.png",
@@ -1845,9 +5053,10 @@
     "ext": ".png",
     "relativePath": "assets/skland-endfield-wiki/operators/卡契尔-irASlc.png",
     "sizeBytes": 437960,
-    "updatedAt": 1780842888285.7957,
+    "updatedAt": 1780408742788.9724,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "卡缪-eLIdoU.png",
@@ -1855,9 +5064,10 @@
     "ext": ".png",
     "relativePath": "assets/skland-endfield-wiki/operators/卡缪-eLIdoU.png",
     "sizeBytes": 441178,
-    "updatedAt": 1780842888286.0874,
+    "updatedAt": 1780408741044.3508,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "埃特拉-llRSAV.png",
@@ -1865,9 +5075,10 @@
     "ext": ".png",
     "relativePath": "assets/skland-endfield-wiki/operators/埃特拉-llRSAV.png",
     "sizeBytes": 388167,
-    "updatedAt": 1780842888286.9812,
+    "updatedAt": 1780408742718.367,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "大潘-judGqN.png",
@@ -1875,9 +5086,10 @@
     "ext": ".png",
     "relativePath": "assets/skland-endfield-wiki/operators/大潘-judGqN.png",
     "sizeBytes": 519129,
-    "updatedAt": 1780842888288.3247,
+    "updatedAt": 1780408742389.9983,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "安塔尔-ftfRiq.png",
@@ -1885,9 +5097,10 @@
     "ext": ".png",
     "relativePath": "assets/skland-endfield-wiki/operators/安塔尔-ftfRiq.png",
     "sizeBytes": 438739,
-    "updatedAt": 1780842888289.35,
+    "updatedAt": 1780408742964.1658,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "庄方宜-dvrHPa.png",
@@ -1895,9 +5108,10 @@
     "ext": ".png",
     "relativePath": "assets/skland-endfield-wiki/operators/庄方宜-dvrHPa.png",
     "sizeBytes": 531430,
-    "updatedAt": 1780842888289.7373,
+    "updatedAt": 1780408741177.3354,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "弧光-hnogBq.png",
@@ -1905,9 +5119,10 @@
     "ext": ".png",
     "relativePath": "assets/skland-endfield-wiki/operators/弧光-hnogBq.png",
     "sizeBytes": 490095,
-    "updatedAt": 1780842888290.757,
+    "updatedAt": 1780408742170.8806,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "弭弗-esTMGM.png",
@@ -1915,9 +5130,10 @@
     "ext": ".png",
     "relativePath": "assets/skland-endfield-wiki/operators/弭弗-esTMGM.png",
     "sizeBytes": 560319,
-    "updatedAt": 1780842888291.0635,
+    "updatedAt": 1780408741116.907,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "昼雪-hMztij.png",
@@ -1925,9 +5141,10 @@
     "ext": ".png",
     "relativePath": "assets/skland-endfield-wiki/operators/昼雪-hMztij.png",
     "sizeBytes": 530998,
-    "updatedAt": 1780842888292.157,
+    "updatedAt": 1780408742535.144,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "汤汤-fvzHAF.png",
@@ -1935,9 +5152,10 @@
     "ext": ".png",
     "relativePath": "assets/skland-endfield-wiki/operators/汤汤-fvzHAF.png",
     "sizeBytes": 530354,
-    "updatedAt": 1780842888292.504,
+    "updatedAt": 1780408741303.202,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "洁尔佩塔-NAQhS.png",
@@ -1945,9 +5163,10 @@
     "ext": ".png",
     "relativePath": "assets/skland-endfield-wiki/operators/洁尔佩塔-NAQhS.png",
     "sizeBytes": 632831,
-    "updatedAt": 1780842888293.9426,
+    "updatedAt": 1780408741428.748,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "洛茜-bNtaFd.png",
@@ -1955,9 +5174,10 @@
     "ext": ".png",
     "relativePath": "assets/skland-endfield-wiki/operators/洛茜-bNtaFd.png",
     "sizeBytes": 570302,
-    "updatedAt": 1780842888294.269,
+    "updatedAt": 1780408741245.434,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "狼卫-FVpbm.png",
@@ -1965,9 +5185,10 @@
     "ext": ".png",
     "relativePath": "assets/skland-endfield-wiki/operators/狼卫-FVpbm.png",
     "sizeBytes": 520378,
-    "updatedAt": 1780842888295.512,
+    "updatedAt": 1780408742107.057,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "秋栗-cXbKgM.png",
@@ -1975,9 +5196,10 @@
     "ext": ".png",
     "relativePath": "assets/skland-endfield-wiki/operators/秋栗-cXbKgM.png",
     "sizeBytes": 524908,
-    "updatedAt": 1780842888296.6116,
+    "updatedAt": 1780408742642.767,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "管理员 (女)-gIURIP.png",
@@ -1985,9 +5207,10 @@
     "ext": ".png",
     "relativePath": "assets/skland-endfield-wiki/operators/管理员 (女)-gIURIP.png",
     "sizeBytes": 500704,
-    "updatedAt": 1780842888297.9524,
+    "updatedAt": 1780408741618.2102,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "管理员 (男)-hFfToP.png",
@@ -1995,9 +5218,10 @@
     "ext": ".png",
     "relativePath": "assets/skland-endfield-wiki/operators/管理员 (男)-hFfToP.png",
     "sizeBytes": 471838,
-    "updatedAt": 1780842888299.2717,
+    "updatedAt": 1780408741556.3145,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "艾尔黛拉-icRXmI.png",
@@ -2005,9 +5229,10 @@
     "ext": ".png",
     "relativePath": "assets/skland-endfield-wiki/operators/艾尔黛拉-icRXmI.png",
     "sizeBytes": 568432,
-    "updatedAt": 1780842888300.3613,
+    "updatedAt": 1780408741936.3267,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "艾维文娜-jJzQfx.png",
@@ -2015,9 +5240,10 @@
     "ext": ".png",
     "relativePath": "assets/skland-endfield-wiki/operators/艾维文娜-jJzQfx.png",
     "sizeBytes": 501778,
-    "updatedAt": 1780842888301.4854,
+    "updatedAt": 1780408742451.4822,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "莱万汀-bJHbmd.png",
@@ -2025,9 +5251,10 @@
     "ext": ".png",
     "relativePath": "assets/skland-endfield-wiki/operators/莱万汀-bJHbmd.png",
     "sizeBytes": 561863,
-    "updatedAt": 1780842888302.5483,
+    "updatedAt": 1780408741489.2095,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "萤石-cpzNwh.png",
@@ -2035,9 +5262,10 @@
     "ext": ".png",
     "relativePath": "assets/skland-endfield-wiki/operators/萤石-cpzNwh.png",
     "sizeBytes": 520738,
-    "updatedAt": 1780842888303.9363,
+    "updatedAt": 1780408742874.3977,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "赛希-kIYkmV.png",
@@ -2045,9 +5273,10 @@
     "ext": ".png",
     "relativePath": "assets/skland-endfield-wiki/operators/赛希-kIYkmV.png",
     "sizeBytes": 621700,
-    "updatedAt": 1780842888305.148,
+    "updatedAt": 1780408742250.4937,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "阿列什-cdqyyj.png",
@@ -2055,9 +5284,10 @@
     "ext": ".png",
     "relativePath": "assets/skland-endfield-wiki/operators/阿列什-cdqyyj.png",
     "sizeBytes": 562992,
-    "updatedAt": 1780842888306.749,
+    "updatedAt": 1780408742326.1868,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "陈千语-bcsXah.png",
@@ -2065,9 +5295,10 @@
     "ext": ".png",
     "relativePath": "assets/skland-endfield-wiki/operators/陈千语-bcsXah.png",
     "sizeBytes": 524648,
-    "updatedAt": 1780842888307.9973,
+    "updatedAt": 1780408742044.6228,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "骏卫-FYjhl.png",
@@ -2075,9 +5306,10 @@
     "ext": ".png",
     "relativePath": "assets/skland-endfield-wiki/operators/骏卫-FYjhl.png",
     "sizeBytes": 568542,
-    "updatedAt": 1780842888309.6255,
+    "updatedAt": 1780408741681.2585,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "黎风-fQjxRv.png",
@@ -2085,9 +5317,10 @@
     "ext": ".png",
     "relativePath": "assets/skland-endfield-wiki/operators/黎风-fQjxRv.png",
     "sizeBytes": 462599,
-    "updatedAt": 1780842888310.588,
+    "updatedAt": 1780408741880.0122,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "runtime-bg.08c7f0.png",
@@ -2095,9 +5328,10 @@
     "ext": ".png",
     "relativePath": "assets/skland-endfield-wiki/runtime-bg.08c7f0.png",
     "sizeBytes": 697435,
-    "updatedAt": 1780842888312.2654,
+    "updatedAt": 1780407157821.733,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "runtime-ef-name-white.png",
@@ -2105,9 +5339,10 @@
     "ext": ".png",
     "relativePath": "assets/skland-endfield-wiki/runtime-ef-name-white.png",
     "sizeBytes": 5192,
-    "updatedAt": 1780842888312.6067,
+    "updatedAt": 1780407158024.6697,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "runtime-header_bg_logo.3c0fb7a48927275e7f6c.png",
@@ -2115,9 +5350,10 @@
     "ext": ".png",
     "relativePath": "assets/skland-endfield-wiki/runtime-header_bg_logo.3c0fb7a48927275e7f6c.png",
     "sizeBytes": 11587,
-    "updatedAt": 1780842888312.7046,
+    "updatedAt": 1780407158070.925,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "runtime-loading-logo-cn.c87021.png",
@@ -2125,9 +5361,10 @@
     "ext": ".png",
     "relativePath": "assets/skland-endfield-wiki/runtime-loading-logo-cn.c87021.png",
     "sizeBytes": 141592,
-    "updatedAt": 1780842888312.8894,
+    "updatedAt": 1780407157841.2605,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
   },
   {
     "fileName": "runtime-loadingBg.27323a.png",
@@ -2135,8 +5372,89 @@
     "ext": ".png",
     "relativePath": "assets/skland-endfield-wiki/runtime-loadingBg.27323a.png",
     "sizeBytes": 1181235,
-    "updatedAt": 1780842888313.484,
+    "updatedAt": 1780407157916.8423,
     "writable": false,
-    "source": "builtin"
+    "source": "builtin",
+    "rootPriority": 999
+  },
+  {
+    "fileName": "单手剑普攻.png",
+    "baseName": "单手剑普攻",
+    "ext": ".png",
+    "relativePath": "assets/images/images/单手剑普攻.png",
+    "canonicalPath": "user-images/images/单手剑普攻.png",
+    "publicUrl": "http://127.0.0.1:31457/user-images/images/%E5%8D%95%E6%89%8B%E5%89%91%E6%99%AE%E6%94%BB.png",
+    "sizeBytes": 2750,
+    "updatedAt": 1781508186000,
+    "writable": false,
+    "source": "legacy",
+    "rootId": "legacy-appdata",
+    "rootLabel": "旧 AppData 图片",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\user-images",
+    "rootPriority": 1
+  },
+  {
+    "fileName": "双手剑普攻.webp",
+    "baseName": "双手剑普攻",
+    "ext": ".webp",
+    "relativePath": "assets/images/images/双手剑普攻.webp",
+    "canonicalPath": "user-images/images/双手剑普攻.webp",
+    "publicUrl": "http://127.0.0.1:31457/user-images/images/%E5%8F%8C%E6%89%8B%E5%89%91%E6%99%AE%E6%94%BB.webp",
+    "sizeBytes": 2344,
+    "updatedAt": 1781508208000,
+    "writable": false,
+    "source": "legacy",
+    "rootId": "legacy-appdata",
+    "rootLabel": "旧 AppData 图片",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\user-images",
+    "rootPriority": 1
+  },
+  {
+    "fileName": "手铳普攻.webp",
+    "baseName": "手铳普攻",
+    "ext": ".webp",
+    "relativePath": "assets/images/images/手铳普攻.webp",
+    "canonicalPath": "user-images/images/手铳普攻.webp",
+    "publicUrl": "http://127.0.0.1:31457/user-images/images/%E6%89%8B%E9%93%B3%E6%99%AE%E6%94%BB.webp",
+    "sizeBytes": 3122,
+    "updatedAt": 1781508236000,
+    "writable": false,
+    "source": "legacy",
+    "rootId": "legacy-appdata",
+    "rootLabel": "旧 AppData 图片",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\user-images",
+    "rootPriority": 1
+  },
+  {
+    "fileName": "施术单元普攻.webp",
+    "baseName": "施术单元普攻",
+    "ext": ".webp",
+    "relativePath": "assets/images/images/施术单元普攻.webp",
+    "canonicalPath": "user-images/images/施术单元普攻.webp",
+    "publicUrl": "http://127.0.0.1:31457/user-images/images/%E6%96%BD%E6%9C%AF%E5%8D%95%E5%85%83%E6%99%AE%E6%94%BB.webp",
+    "sizeBytes": 3740,
+    "updatedAt": 1781508278000,
+    "writable": false,
+    "source": "legacy",
+    "rootId": "legacy-appdata",
+    "rootLabel": "旧 AppData 图片",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\user-images",
+    "rootPriority": 1
+  },
+  {
+    "fileName": "长枪普攻.png",
+    "baseName": "长枪普攻",
+    "ext": ".png",
+    "relativePath": "assets/images/images/长枪普攻.png",
+    "canonicalPath": "user-images/images/长枪普攻.png",
+    "publicUrl": "http://127.0.0.1:31457/user-images/images/%E9%95%BF%E6%9E%AA%E6%99%AE%E6%94%BB.png",
+    "sizeBytes": 5304,
+    "updatedAt": 1781508248000,
+    "writable": false,
+    "source": "legacy",
+    "rootId": "legacy-appdata",
+    "rootLabel": "旧 AppData 图片",
+    "rootDirectory": "C:\\Users\\zsk86\\AppData\\Roaming\\dmg-end-field\\user-images",
+    "rootPriority": 1
   }
 ]

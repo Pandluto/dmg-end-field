@@ -1100,6 +1100,7 @@
               <button id="save-image-update-config" type="button" class="subtle-button">保存地址</button>
               <button id="check-image-update" type="button" class="subtle-button">检查更新</button>
               <button id="apply-image-update" type="button" class="primary-button">下载并切换</button>
+              <button id="force-clear-image-update" type="button" class="subtle-button">强制清除</button>
             </div>
             <div class="image-update-progress" id="image-update-progress" hidden>
               <div class="progress-track"><div class="progress-fill" id="image-update-progress-fill"></div></div>
@@ -1126,7 +1127,7 @@
             <div class="panel-header">
               <div>
                 <div class="panel-title">图片发布包助手</div>
-                <div class="panel-help">选择图片源目录和输出目录，一键生成 GitHub Release 可上传的 manifest、全量包和增量包。</div>
+                <div class="panel-help">选择图片源目录和输出目录，一键生成 GitHub Release 可上传的 manifest 和全量包。</div>
               </div>
               <span class="badge info" id="image-release-builder-badge">待生成</span>
             </div>
@@ -1149,22 +1150,9 @@
             </div>
             <div class="grid-3">
               <article class="status-card">
-                <div class="status-top"><span class="status-label">模式</span><span class="badge info">mode</span></div>
-                <select id="image-release-mode">
-                  <option value="both">增量 + 全量兜底（需要基线）</option>
-                  <option value="full">只生成全量包</option>
-                  <option value="delta">高级：只生成增量包（不推荐）</option>
-                </select>
-              </article>
-              <article class="status-card">
-                <div class="status-top"><span class="status-label">基线清单</span><span class="badge info">base</span></div>
-                <input id="image-release-base" type="text" placeholder="上一版 assets-release-manifest.json" />
-                <div class="toolbar"><button id="pick-image-release-base" type="button" class="subtle-button">选择基线</button></div>
-              </article>
-              <article class="status-card">
                 <div class="status-top"><span class="status-label">兼容</span><span class="badge info">shell</span></div>
                 <input id="image-release-min-shell" type="text" placeholder="最低 Shell 版本，可留空" />
-                <label class="check-row"><input id="image-release-include-delta-files" type="checkbox" />同时输出旧式逐文件增量</label>
+                <div class="panel-help">当前只生成全量图片包，客户端统一执行一键更新。</div>
               </article>
             </div>
             <div class="toolbar">
