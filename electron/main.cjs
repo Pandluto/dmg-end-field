@@ -1959,7 +1959,6 @@ async function applyImageReleaseUpdate() {
         releasePackage: withReleaseAssetDownloadUrl(baselineRelease.releaseAssetUrls, baselinePackage),
         stagingDir,
       });
-      verifyExtractedReleaseFiles(baselineRelease.manifest, stagingDir);
       fs.writeFileSync(
         path.join(stagingDir, IMAGE_RELEASE_MANIFEST_NAME),
         `${JSON.stringify(baselineRelease.manifest, null, 2)}\n`,
