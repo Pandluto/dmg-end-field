@@ -1068,6 +1068,8 @@ const IMAGE_RELEASE_CURRENT_NAME = 'current.json';
 const IMAGE_RELEASE_ROOT_DIRNAME = 'asset-releases';
 const IMAGE_RELEASE_FILES_DIRNAME = 'versions';
 const IMAGE_RELEASE_STAGING_DIRNAME = 'staging';
+const IMAGE_RELEASE_MANIFEST_TIMEOUT_MS = 45000;
+const IMAGE_RELEASE_PACKAGE_TIMEOUT_MS = 180000;
 
 function getImageReleaseRoot() {
   return path.join(app.getPath('userData'), IMAGE_RELEASE_ROOT_DIRNAME);
@@ -1286,8 +1288,9 @@ function fetchUrlRaw(targetUrl, options = {}, redirectCount = 0) {
       });
     });
     request.on('error', reject);
-    request.setTimeout(options.timeoutMs || 10000, () => {
-      request.destroy(new Error('request timeout'));
+    const timeoutMs = options.timeoutMs || 10000;
+    request.setTimeout(timeoutMs, () => {
+      request.destroy(new Error(`request timeout after ${timeoutMs}ms: ${targetUrl}`));
     });
     if (options.body) {
       request.write(options.body);
@@ -1305,7 +1308,7 @@ async function fetchJsonUrl(url) {
 }
 
 async function fetchBufferUrl(url) {
-  const response = await fetchUrlRaw(url, { timeoutMs: 30000 });
+  const response = await fetchUrlRaw(url, { timeoutMs: IMAGE_RELEASE_PACKAGE_TIMEOUT_MS });
   if (response.statusCode < 200 || response.statusCode >= 300) {
     throw new Error(`资源下载失败: HTTP ${response.statusCode} ${url}`);
   }
@@ -1520,7 +1523,7 @@ async function stageImageReleasePackage({ manifestUrl, releasePackage, stagingDi
 }
 
 async function loadRemoteImageReleaseManifest(manifestUrl) {
-  const response = await fetchUrlRaw(manifestUrl, { timeoutMs: 10000 });
+  const response = await fetchUrlRaw(manifestUrl, { timeoutMs: IMAGE_RELEASE_MANIFEST_TIMEOUT_MS });
   if (response.statusCode < 200 || response.statusCode >= 300) {
     throw new Error(`Manifest 请求失败: HTTP ${response.statusCode}`);
   }
