@@ -1689,7 +1689,7 @@ function getDeltaArchiveReadiness(remoteManifest, previousVersion) {
   };
 }
 
-async function stageImageReleasePackage({ manifestUrl, releasePackage, stagingDir, label }) {
+async function stageImageReleasePackage({ manifestUrl, releasePackage, stagingDir, label, skipPackageIntegrityCheck = false }) {
   const packageUrl = resolveReleasePackageDownloadUrl(manifestUrl, releasePackage);
   if (!packageUrl) {
     throw new Error('发布清单 package 缺少下载地址');
@@ -1709,15 +1709,17 @@ async function stageImageReleasePackage({ manifestUrl, releasePackage, stagingDi
     receivedBytes: archiveBuffer.length,
     totalBytes: archiveBuffer.length,
   });
-  const actualHash = hashBufferSha256(archiveBuffer);
-  if (actualHash !== releasePackage.sha256) {
-    const head = archiveBuffer.slice(0, 32).toString('utf-8').replace(/\s+/g, ' ').slice(0, 80);
-    throw new Error(
-      `图片整包校验失败: expected ${releasePackage.sha256}, got ${actualHash}, bytes ${archiveBuffer.length}, head ${head || '-'}`
-    );
-  }
-  if (Number(releasePackage.sizeBytes) !== archiveBuffer.length) {
-    throw new Error('图片整包大小校验失败');
+  if (!skipPackageIntegrityCheck) {
+    const actualHash = hashBufferSha256(archiveBuffer);
+    if (actualHash !== releasePackage.sha256) {
+      const head = archiveBuffer.slice(0, 32).toString('utf-8').replace(/\s+/g, ' ').slice(0, 80);
+      throw new Error(
+        `图片整包校验失败: expected ${releasePackage.sha256}, got ${actualHash}, bytes ${archiveBuffer.length}, head ${head || '-'}`
+      );
+    }
+    if (Number(releasePackage.sizeBytes) !== archiveBuffer.length) {
+      throw new Error('图片整包大小校验失败');
+    }
   }
   const archivePath = `${stagingDir}.zip`;
   fs.writeFileSync(archivePath, archiveBuffer);
@@ -1776,6 +1778,26 @@ function getGithubReleaseManifestUrlForTag(tag) {
   return `${DEFAULT_IMAGE_RELEASE_DOWNLOAD_ROOT}/${encodeURIComponent(releaseTag)}/${IMAGE_RELEASE_MANIFEST_NAME}`;
 }
 
+function getGithubReleasePackageBaseUrlForTag(tag) {
+  const releaseTag = typeof tag === 'string' ? tag.trim() : '';
+  if (!releaseTag) {
+    return '';
+  }
+  return `${DEFAULT_IMAGE_RELEASE_DOWNLOAD_ROOT}/${encodeURIComponent(releaseTag)}/${IMAGE_RELEASE_MANIFEST_NAME}`;
+}
+
+function getInferredFullPackageDescriptor(tag) {
+  const releaseTag = typeof tag === 'string' ? tag.trim() : '';
+  if (!releaseTag) {
+    return null;
+  }
+  return {
+    format: 'zip',
+    fileName: `assets-${releaseTag}-full.zip`,
+    inferred: true,
+  };
+}
+
 function getFullReleasePackageDescriptor(manifest) {
   if (!manifest || typeof manifest !== 'object') {
     return null;
@@ -1798,11 +1820,32 @@ async function loadInferredBaselineRelease(remoteManifest) {
   if (!baselineManifestUrl) {
     return null;
   }
-  const baselineRelease = await loadRemoteImageReleaseManifest(baselineManifestUrl);
-  if (baselineRelease.manifest.assetVersion !== baseVersion) {
-    throw new Error(`基线版本不匹配: 期望 ${baseVersion}，实际 ${baselineRelease.manifest.assetVersion}`);
+  try {
+    const baselineRelease = await loadRemoteImageReleaseManifest(baselineManifestUrl);
+    if (baselineRelease.manifest.assetVersion !== baseVersion) {
+      throw new Error(`基线版本不匹配: 期望 ${baseVersion}，实际 ${baselineRelease.manifest.assetVersion}`);
+    }
+    return {
+      assetVersion: baselineRelease.manifest.assetVersion,
+      manifest: baselineRelease.manifest,
+      assetBaseUrl: baselineRelease.assetBaseUrl,
+      package: getFullReleasePackageDescriptor(baselineRelease.manifest),
+      skipPackageIntegrityCheck: false,
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (!message.includes('HTTP 404')) {
+      throw error;
+    }
+    appendRuntimeLog('assets-update', `baseline manifest missing for ${baseTag}, infer full package`);
+    return {
+      assetVersion: baseVersion,
+      manifest: null,
+      assetBaseUrl: getGithubReleasePackageBaseUrlForTag(baseTag),
+      package: getInferredFullPackageDescriptor(baseTag),
+      skipPackageIntegrityCheck: true,
+    };
   }
-  return baselineRelease;
 }
 
 function getActiveImageReleaseRoot() {
@@ -1970,19 +2013,22 @@ async function applyImageReleaseUpdate() {
       verifyExtractedReleaseFiles(remoteManifest, stagingDir);
     } else if (remoteManifest.delivery === 'delta-archive') {
       const baselineRelease = await loadInferredBaselineRelease(remoteManifest);
-      const baselinePackage = getFullReleasePackageDescriptor(baselineRelease?.manifest);
+      const baselinePackage = baselineRelease?.package || null;
       if (!baselineRelease || !baselinePackage) {
         throw new Error('当前只有增量图片包，但无法按 baseVersion 找到上一版全量包。');
       }
       appendRuntimeLog(
         'assets-update',
-        `download inferred baseline ${baselineRelease.manifest.assetVersion} before applying ${targetVersion}`
+        `download inferred baseline ${baselineRelease.assetVersion} before applying ${targetVersion}`
       );
       await stageImageReleasePackage({
-        manifestUrl: resolveDefaultReleaseManifestAssetBaseUrl(baselineRelease.manifest, baselineRelease.assetBaseUrl),
+        manifestUrl: baselineRelease.manifest
+          ? resolveDefaultReleaseManifestAssetBaseUrl(baselineRelease.manifest, baselineRelease.assetBaseUrl)
+          : baselineRelease.assetBaseUrl,
         releasePackage: baselinePackage,
         stagingDir,
-        label: `基线全量包 ${baselineRelease.manifest.assetVersion}`,
+        label: `基线全量包 ${baselineRelease.assetVersion}`,
+        skipPackageIntegrityCheck: baselineRelease.skipPackageIntegrityCheck,
       });
       await stageImageReleasePackage({
         manifestUrl: packageBaseUrl,
