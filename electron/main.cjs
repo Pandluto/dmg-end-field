@@ -1876,9 +1876,9 @@ async function loadRemoteImageReleaseManifest(configuredUrl) {
 }
 
 function resolveDefaultReleaseManifestAssetBaseUrl(manifest, fallbackManifestUrl) {
-  const tag = typeof manifest?.releaseTag === 'string' && manifest.releaseTag.trim()
-    ? manifest.releaseTag.trim()
-    : (typeof manifest?.assetVersion === 'string' ? manifest.assetVersion.trim() : '');
+  const tag = typeof manifest?.assetVersion === 'string' && manifest.assetVersion.trim()
+    ? manifest.assetVersion.trim()
+    : (typeof manifest?.releaseTag === 'string' ? manifest.releaseTag.trim() : '');
   if (!tag || fallbackManifestUrl !== DEFAULT_IMAGE_RELEASE_MANIFEST_URL) {
     return fallbackManifestUrl;
   }
