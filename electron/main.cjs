@@ -1070,6 +1070,8 @@ const IMAGE_RELEASE_FILES_DIRNAME = 'versions';
 const IMAGE_RELEASE_STAGING_DIRNAME = 'staging';
 const IMAGE_RELEASE_MANIFEST_TIMEOUT_MS = 45000;
 const IMAGE_RELEASE_PACKAGE_TIMEOUT_MS = 180000;
+const DEFAULT_IMAGE_RELEASE_MANIFEST_URL =
+  `https://github.com/Pandluto/dmg-end-field/releases/latest/download/${IMAGE_RELEASE_MANIFEST_NAME}`;
 
 function getImageReleaseRoot() {
   return path.join(app.getPath('userData'), IMAGE_RELEASE_ROOT_DIRNAME);
@@ -1332,15 +1334,14 @@ function resolveImageReleaseManifestUrl(configuredUrl) {
     return rawUrl;
   }
 
-  const releaseAssetMatch = parsedUrl.pathname.match(
-    /^\/([^/]+)\/([^/]+)\/releases\/(?:download\/[^/]+|latest\/download)\/[^/]+$/
-  );
-  if (!releaseAssetMatch) {
-    return rawUrl;
+  if (
+    parsedUrl.pathname.startsWith('/Pandluto/dmg-end-field/releases/download/')
+    || parsedUrl.pathname.startsWith('/Pandluto/dmg-end-field/releases/latest/download/')
+  ) {
+    return DEFAULT_IMAGE_RELEASE_MANIFEST_URL;
   }
 
-  const [, owner, repo] = releaseAssetMatch;
-  return `${parsedUrl.origin}/${owner}/${repo}/releases/latest/download/${IMAGE_RELEASE_MANIFEST_NAME}`;
+  return rawUrl;
 }
 
 function resolveReleasePackageDownloadUrl(manifestSourceUrl, releasePackage) {
