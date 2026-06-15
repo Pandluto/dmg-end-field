@@ -11,6 +11,7 @@ import {
   parseDraftLibraryShareFile,
   type DraftLibraryShareFile,
 } from '../utils/draftShare';
+import DeferredNumberInput from './DeferredNumberInput';
 
 const BUFF_SHEET_PAGE_PATH = APP_ROUTE_PATHS.buffSheet;
 const BUFF_DRAFT_STORAGE_KEY = 'def.buff-editor.draft.v1';
@@ -2427,7 +2428,8 @@ export function BuffDraftPage() {
                         <span>数值</span>
                         <div className="buff-draft-value-editor">
                           <input
-                            type="number"
+                            type="text"
+                            inputMode="decimal"
                             value={selectedEffect.effectKind === 'extraHit' ? 0 : effectValueInput}
                             onChange={(event) => handleEffectValueInputChange(event.target.value)}
                             onBlur={finalizeEffectValueInput}
@@ -2493,43 +2495,40 @@ export function BuffDraftPage() {
                           </label>
                           <label>
                             <span>基础倍率</span>
-                            <input
-                              type="number"
+                            <DeferredNumberInput
                               step="0.1"
                               value={selectedEffect.extraHitConfig?.baseMultiplier ?? DEFAULT_EXTRA_HIT_CONFIG.baseMultiplier}
-                              onChange={(event) => updateSelectedEffect((prev) => ({
+                              onCommit={(value) => updateSelectedEffect((prev) => ({
                                 ...prev,
                                 extraHitConfig: normalizeExtraHitConfig({
                                   ...prev.extraHitConfig,
-                                  baseMultiplier: Number(event.target.value) || DEFAULT_EXTRA_HIT_CONFIG.baseMultiplier,
+                                  baseMultiplier: value ?? DEFAULT_EXTRA_HIT_CONFIG.baseMultiplier,
                                 }),
                               }))}
                             />
                           </label>
                           <label>
                             <span>失衡值</span>
-                            <input
-                              type="number"
+                            <DeferredNumberInput
                               value={selectedEffect.extraHitConfig?.imbalanceValue ?? DEFAULT_EXTRA_HIT_CONFIG.imbalanceValue}
-                              onChange={(event) => updateSelectedEffect((prev) => ({
+                              onCommit={(value) => updateSelectedEffect((prev) => ({
                                 ...prev,
                                 extraHitConfig: normalizeExtraHitConfig({
                                   ...prev.extraHitConfig,
-                                  imbalanceValue: Number(event.target.value) || DEFAULT_EXTRA_HIT_CONFIG.imbalanceValue,
+                                  imbalanceValue: value ?? DEFAULT_EXTRA_HIT_CONFIG.imbalanceValue,
                                 }),
                               }))}
                             />
                           </label>
                           <label>
                             <span>冷却秒数</span>
-                            <input
-                              type="number"
+                            <DeferredNumberInput
                               value={selectedEffect.extraHitConfig?.cooldownSeconds ?? DEFAULT_EXTRA_HIT_CONFIG.cooldownSeconds}
-                              onChange={(event) => updateSelectedEffect((prev) => ({
+                              onCommit={(value) => updateSelectedEffect((prev) => ({
                                 ...prev,
                                 extraHitConfig: normalizeExtraHitConfig({
                                   ...prev.extraHitConfig,
-                                  cooldownSeconds: Number(event.target.value) || DEFAULT_EXTRA_HIT_CONFIG.cooldownSeconds,
+                                  cooldownSeconds: value ?? DEFAULT_EXTRA_HIT_CONFIG.cooldownSeconds,
                                 }),
                               }))}
                             />
@@ -4117,7 +4116,8 @@ export function BuffDraftSheetPage() {
             <input
               data-formula-focus-id="effect-value"
               className="buff-sheet-formula-input"
-              type="number"
+              type="text"
+              inputMode="decimal"
               value={selectedEffect.effectKind === 'extraHit' ? 0 : effectValueInput}
               onChange={(event) => handleEffectValueInputChange(event.target.value)}
               onBlur={finalizeEffectValueInput}

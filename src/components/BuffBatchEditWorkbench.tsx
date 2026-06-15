@@ -69,6 +69,10 @@ const SKILL_BUTTON_BASE_WIDTH = 80;
 const SKILL_BUTTON_BASE_HEIGHT = 30;
 const SKILL_BUTTON_HIT_WIDTH = SKILL_BUTTON_RADIUS + SKILL_BUTTON_BASE_WIDTH;
 const SKILL_BUTTON_HIT_HEIGHT = Math.max(SKILL_BUTTON_SIZE, SKILL_BUTTON_RADIUS + SKILL_BUTTON_BASE_HEIGHT);
+const BUFF_EDIT_RIGHT_ZONE_WIDTH = 300;
+const BUFF_EDIT_SECONDARY_BUTTON_WIDTH = 32;
+const BUFF_EDIT_SECONDARY_BUTTON_GAP = 3;
+const BUFF_EDIT_SECONDARY_BUTTON_LEFT_FALLBACK = 1365;
 
 const columnLabels = Array.from({ length: GRID_NODE_COUNT }, (_, index) => String.fromCharCode(65 + index));
 const rowLabels = Array.from({ length: 8 }, (_, index) => String(index + 1));
@@ -475,8 +479,10 @@ export function BuffBatchEditWorkbench({
   const [buffListVersion, setBuffListVersion] = useState(0);
   const [isBoxSelectArmed, setIsBoxSelectArmed] = useState(false);
   const [boxSelectRect, setBoxSelectRect] = useState<BoxSelectRect | null>(null);
+  const layoutRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLDivElement>(null);
   const [gridContentOffsetX, setGridContentOffsetX] = useState<number | null>(null);
+  const [layoutWidth, setLayoutWidth] = useState<number | null>(null);
   const [visualButtons, setVisualButtons] = useState<PersistedSkillButton[]>(() => getInitialSkillButtons(selectedCharacters));
   const candidateSearchInputRef = useRef<HTMLInputElement | null>(null);
   const characterById = useMemo(() => {
@@ -598,6 +604,15 @@ export function BuffBatchEditWorkbench({
   }, [editRemoveByBuff]);
   const staffGroupCount = getStaffGroupCount(skillButtons);
   const canvasHeight = GRID_STACK_PADDING_TOP + staffGroupCount * GRID_GROUP_HEIGHT + Math.max(0, staffGroupCount - 1) * GRID_GROUP_GAP + GRID_STACK_PADDING_BOTTOM;
+  const secondaryButtonLeft = useMemo(() => {
+    if (layoutWidth === null || !Number.isFinite(layoutWidth)) {
+      return BUFF_EDIT_SECONDARY_BUTTON_LEFT_FALLBACK;
+    }
+    return Math.max(
+      0,
+      layoutWidth - BUFF_EDIT_RIGHT_ZONE_WIDTH - BUFF_EDIT_SECONDARY_BUTTON_WIDTH - BUFF_EDIT_SECONDARY_BUTTON_GAP
+    );
+  }, [layoutWidth]);
   const anomalyContextBuffList = useMemo(() => {
     if (!anomalyContextButton) return [];
     return (anomalyContextButton.selectedBuff ?? [])
@@ -626,6 +641,33 @@ export function BuffBatchEditWorkbench({
     measure();
     window.addEventListener('resize', measure);
     return () => window.removeEventListener('resize', measure);
+  }, []);
+
+  useEffect(() => {
+    const layoutElement = layoutRef.current;
+    if (!layoutElement) {
+      return undefined;
+    }
+
+    const measure = () => {
+      setLayoutWidth(layoutElement.getBoundingClientRect().width);
+    };
+
+    measure();
+
+    const resizeObserver = typeof ResizeObserver === 'function'
+      ? new ResizeObserver(() => {
+        measure();
+      })
+      : null;
+
+    resizeObserver?.observe(layoutElement);
+    window.addEventListener('resize', measure);
+
+    return () => {
+      resizeObserver?.disconnect();
+      window.removeEventListener('resize', measure);
+    };
   }, []);
 
   useEffect(() => {
@@ -1366,7 +1408,7 @@ export function BuffBatchEditWorkbench({
             type="button"
             title={character.name}
             aria-label={`筛选干员来源 ${character.name}`}
-            style={{ top: 48 + index * 40 }}
+            style={{ left: secondaryButtonLeft, top: 48 + index * 40 }}
             onClick={() => toggleSourceFilter(filter)}
           >
             {character.avatarUrl ? <img src={character.avatarUrl} alt="" /> : <span>{character.name.slice(0, 1)}</span>}
@@ -1383,7 +1425,7 @@ export function BuffBatchEditWorkbench({
             type="button"
             title={weaponName}
             aria-label={`筛选武器来源 ${weaponName}`}
-            style={{ top: 248 + index * 40 }}
+            style={{ left: secondaryButtonLeft, top: 248 + index * 40 }}
             onClick={() => toggleSourceFilter(filter)}
           >
             <img
@@ -1408,7 +1450,7 @@ export function BuffBatchEditWorkbench({
             type="button"
             title="装备"
             aria-label="筛选装备来源"
-            style={{ top: 208 }}
+            style={{ left: secondaryButtonLeft, top: 208 }}
             onClick={() => toggleSourceFilter(equipmentFilter)}
           >
             <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -1426,7 +1468,7 @@ export function BuffBatchEditWorkbench({
         type="button"
         title={character.name}
         aria-label={`选择干员按钮 ${character.name}`}
-        style={{ top: 48 + index * 40 }}
+        style={{ left: secondaryButtonLeft, top: 48 + index * 40 }}
         onClick={() => toggleCharacterQuickSelect(character)}
       >
         {character.avatarUrl ? <img src={character.avatarUrl} alt="" /> : <span>{character.name.slice(0, 1)}</span>}
@@ -1723,7 +1765,7 @@ export function BuffBatchEditWorkbench({
 
   return (
     <div className={`canvas-board buff-batch-edit-workbench ${isWorkbenchTopZoneOpen ? 'has-top-zone' : ''}${toolMode === 'add' ? ' is-add-mode' : ''}${toolMode === 'remove' ? ' is-remove-mode' : ''}${toolMode === 'edit' ? ' is-edit-mode' : ''}`}>
-      <div className="canvas-layout buff-edit-layout">
+      <div ref={layoutRef} className="canvas-layout buff-edit-layout">
         <section className="canvas-left-zone buff-edit-left-zone">
           <div className="canvas-area buff-edit-canvas-area">
             <div ref={canvasRef} className="canvas-container buff-edit-canvas" style={{ height: canvasHeight }}>

@@ -1,8 +1,11 @@
+const crypto = require('crypto');
 const fs = require('fs');
 const http = require('http');
+const https = require('https');
 const os = require('os');
 const path = require('path');
-const { spawn } = require('child_process');
+const { spawn, spawnSync } = require('child_process');
+const { pathToFileURL } = require('url');
 const { tryServeDesktopApp } = require('./web-host.cjs');
 const {
   app,
@@ -25,6 +28,14 @@ const SHELL_MIN_WIDTH = 900;
 const SHELL_MIN_HEIGHT = 640;
 const isDev = process.argv.includes('--dev');
 const gotSingleInstanceLock = app.requestSingleInstanceLock();
+const DEFAULT_DESKTOP_SCALE_KEY = process.platform === 'darwin' ? '0.85x' : '1x';
+const DESKTOP_SCALE_PRESETS = {
+  '0.8x': '0.8',
+  '0.85x': '0.85',
+  '1x': '1',
+  '1.25x': '1.25',
+  '1.5x': '1.5',
+};
 app.commandLine.appendSwitch('high-dpi-support', '1');
 const APP_ICON_PNG_PATH = path.join(__dirname, 'assets', 'icon.png');
 const APP_ICON_ICO_PATH = path.join(__dirname, 'assets', 'icon.ico');
@@ -36,6 +47,18 @@ let aiCliRestProcess = null;
 let aiCliRestStartedAt = null;
 let isAppQuitting = false;
 let appTray = null;
+let savedDesktopScaleKey = DEFAULT_DESKTOP_SCALE_KEY;
+let activeDesktopScaleKey = DEFAULT_DESKTOP_SCALE_KEY;
+const imageUpdateState = {
+  status: 'idle',
+  currentVersion: null,
+  latestVersion: null,
+  latestSummary: null,
+  lastCheckedAt: null,
+  lastUpdatedAt: null,
+  lastError: '',
+  configuredManifestUrl: '',
+};
 
 if (!gotSingleInstanceLock) {
   app.quit();
@@ -68,6 +91,57 @@ function createTrayIconImage() {
     `data:image/svg+xml;base64,${Buffer.from(svg).toString('base64')}`
   );
 }
+
+function getDesktopSettingsPath() {
+  return path.join(app.getPath('userData'), 'desktop-settings.json');
+}
+
+function loadDesktopSettings() {
+  try {
+    const filePath = getDesktopSettingsPath();
+    if (!fs.existsSync(filePath)) {
+      savedDesktopScaleKey = DEFAULT_DESKTOP_SCALE_KEY;
+      return;
+    }
+
+    const parsed = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+    savedDesktopScaleKey =
+      typeof parsed.desktopScale === 'string' && DESKTOP_SCALE_PRESETS[parsed.desktopScale]
+        ? parsed.desktopScale
+        : DEFAULT_DESKTOP_SCALE_KEY;
+  } catch {
+    savedDesktopScaleKey = DEFAULT_DESKTOP_SCALE_KEY;
+  }
+}
+
+function saveDesktopSettings() {
+  try {
+    const filePath = getDesktopSettingsPath();
+    fs.mkdirSync(path.dirname(filePath), { recursive: true });
+    fs.writeFileSync(
+      filePath,
+      JSON.stringify({ desktopScale: savedDesktopScaleKey }, null, 2),
+      'utf-8'
+    );
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    console.error(`Failed to save desktop settings: ${detail}`);
+  }
+}
+
+function getDesktopSettingsPayload() {
+  return {
+    currentScale: activeDesktopScaleKey,
+    savedScale: savedDesktopScaleKey,
+    availableScales: Object.keys(DESKTOP_SCALE_PRESETS),
+    scaleMode: 'webContents',
+    restartRequired: false,
+    defaultScale: DEFAULT_DESKTOP_SCALE_KEY,
+  };
+}
+
+loadDesktopSettings();
+activeDesktopScaleKey = savedDesktopScaleKey;
 
 function getShellVisibilityState() {
   if (!shellWindow || shellWindow.isDestroyed()) {
@@ -126,15 +200,43 @@ function createTray() {
   updateTrayMenu();
 }
 
-function lockWindowZoom(windowInstance) {
+function getScaleFactor(scaleKey) {
+  const rawScale = DESKTOP_SCALE_PRESETS[scaleKey] ?? DESKTOP_SCALE_PRESETS[DEFAULT_DESKTOP_SCALE_KEY];
+  const parsed = Number.parseFloat(rawScale);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 1;
+}
+
+function getScaledShellContentSize(scaleKey) {
+  const scale = getScaleFactor(scaleKey);
+  return {
+    width: Math.round(SHELL_WIDTH * scale),
+    height: Math.round(SHELL_HEIGHT * scale),
+  };
+}
+
+function applyShellWindowContentSize(windowInstance, scaleKey) {
+  if (!windowInstance || windowInstance.isDestroyed()) {
+    return;
+  }
+
+  const { width, height } = getScaledShellContentSize(scaleKey);
+  windowInstance.setMinimumSize(width, height);
+  windowInstance.setContentSize(width, height);
+}
+
+function applyWebContentsScale(windowInstance, scaleKey) {
   if (!windowInstance || windowInstance.isDestroyed()) {
     return;
   }
 
   const { webContents } = windowInstance;
-  webContents.setZoomFactor(1);
-  webContents.setZoomLevel(0);
+  webContents.setZoomFactor(getScaleFactor(scaleKey));
   webContents.setVisualZoomLevelLimits(1, 1).catch(() => {});
+}
+
+function applyDesktopScaleToOpenWindows() {
+  applyShellWindowContentSize(shellWindow, activeDesktopScaleKey);
+  applyWebContentsScale(shellWindow, activeDesktopScaleKey);
 }
 
 function applyWindowLifecycle(windowInstance, hideHandler, shouldAllowClose) {
@@ -165,12 +267,13 @@ function createShellWindow(options = {}) {
     return shellWindow;
   }
 
+  const shellContentSize = getScaledShellContentSize(activeDesktopScaleKey);
   shellWindow = new BrowserWindow(
     buildWindowOptions('shell', {
-      width: SHELL_WIDTH,
-      height: SHELL_HEIGHT,
-      minWidth: SHELL_MIN_WIDTH,
-      minHeight: SHELL_MIN_HEIGHT,
+      width: shellContentSize.width,
+      height: shellContentSize.height,
+      minWidth: Math.min(shellContentSize.width, SHELL_MIN_WIDTH),
+      minHeight: Math.min(shellContentSize.height, SHELL_MIN_HEIGHT),
       title: 'DEF Desktop Shell',
       show: !startHidden,
       backgroundColor: '#edf5ee',
@@ -188,7 +291,8 @@ function createShellWindow(options = {}) {
 
   shellWindow.webContents.on('did-finish-load', () => {
     appendRuntimeLog('shell', `did-finish-load ${shellWindow.webContents.getURL()}`);
-    lockWindowZoom(shellWindow);
+    applyShellWindowContentSize(shellWindow, activeDesktopScaleKey);
+    applyWebContentsScale(shellWindow, activeDesktopScaleKey);
   });
 
   shellWindow.webContents.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL) => {
@@ -359,12 +463,17 @@ function readJsonRequest(request) {
 }
 
 function getShellRuntimeInfo() {
+  const shellContentSize = getScaledShellContentSize(activeDesktopScaleKey);
   return {
     running: Boolean(shellWindow && !shellWindow.isDestroyed()),
     pid: process.pid,
     startedAt: shellWindow && !shellWindow.isDestroyed() ? shellStartedAt : null,
     minimized: Boolean(shellWindow && !shellWindow.isDestroyed() && shellWindow.isMinimized()),
     visible: Boolean(shellWindow && !shellWindow.isDestroyed() && shellWindow.isVisible()),
+    width: shellContentSize.width,
+    height: shellContentSize.height,
+    baseWidth: SHELL_WIDTH,
+    baseHeight: SHELL_HEIGHT,
     state: getShellVisibilityState(),
   };
 }
@@ -390,34 +499,12 @@ function getBridgeHealth() {
     port: BRIDGE_PORT,
     shell: getShellRuntimeInfo(),
     aiCliRest: getAiCliRestRuntimeInfo(),
+    desktopSettings: getDesktopSettingsPayload(),
   };
 }
 
 function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-function fetchJsonUrl(url) {
-  return new Promise((resolve, reject) => {
-    const request = http.get(url, (response) => {
-      const chunks = [];
-      response.on('data', (chunk) => chunks.push(chunk));
-      response.on('end', () => {
-        try {
-          resolve({
-            status: response.statusCode,
-            body: JSON.parse(Buffer.concat(chunks).toString('utf-8') || '{}'),
-          });
-        } catch (error) {
-          reject(error);
-        }
-      });
-    });
-    request.on('error', reject);
-    request.setTimeout(1000, () => {
-      request.destroy(new Error('request timeout'));
-    });
-  });
 }
 
 async function waitForAiCliRestHealth(expectedPid, timeoutMs = 15000) {
@@ -788,6 +875,17 @@ function startBridgeServer() {
       if (!isDev &&
         requestUrl.pathname.startsWith('/assets/') &&
         /\.(png|jpg|jpeg|webp|gif|svg|ico)$/i.test(requestUrl.pathname)) {
+        const activeReleaseRoot = getActiveImageReleaseRoot();
+        if (activeReleaseRoot && tryServeStaticFromRoot({
+          method,
+          requestUrl,
+          response,
+          rootDir: activeReleaseRoot,
+          urlPrefix: '/assets/',
+          cacheControl: 'no-cache',
+        })) {
+          return;
+        }
         if (tryServeStaticFromRoot({
           method,
           requestUrl,
@@ -849,15 +947,795 @@ ipcMain.handle('desktop:get-shell-state', () => ({
   hostname: os.hostname(),
   shellWindowLoaded: Boolean(shellWindow && !shellWindow.isDestroyed()),
   shellVisible: Boolean(shellWindow && !shellWindow.isDestroyed() && shellWindow.isVisible()),
+  desktopSettings: getDesktopSettingsPayload(),
+  imageUpdate: getImageUpdateStatePayload(),
 }));
+ipcMain.handle('desktop:get-settings', () => getDesktopSettingsPayload());
+ipcMain.handle('desktop:set-scale', (_event, scaleKey) => {
+  if (typeof scaleKey !== 'string' || !DESKTOP_SCALE_PRESETS[scaleKey]) {
+    throw new Error(`Unsupported desktop scale: ${scaleKey}`);
+  }
+
+  savedDesktopScaleKey = scaleKey;
+  activeDesktopScaleKey = scaleKey;
+  saveDesktopSettings();
+  applyDesktopScaleToOpenWindows();
+  return getDesktopSettingsPayload();
+});
 ipcMain.handle('desktop:quit-app', () => {
   app.quit();
   return { ok: true };
+});
+ipcMain.handle('desktop:get-image-update-state', () => getImageUpdateStatePayload());
+ipcMain.handle('desktop:set-image-update-config', (_event, payload) => {
+  const config = writeImageReleaseConfig(payload);
+  return {
+    ok: true,
+    config,
+    state: getImageUpdateStatePayload(),
+  };
+});
+ipcMain.handle('desktop:check-image-update', async () => {
+  const state = await checkForImageReleaseUpdates();
+  return { ok: true, state };
+});
+ipcMain.handle('desktop:apply-image-update', async () => {
+  const state = await applyImageReleaseUpdate();
+  return { ok: true, state };
+});
+ipcMain.handle('desktop:pick-image-release-source-dir', async () => {
+  const win = BrowserWindow.getFocusedWindow() || shellWindow;
+  if (!win) return { ok: false, error: '无活动窗口' };
+  const result = await dialog.showOpenDialog(win, {
+    title: '选择图片资源源目录',
+    properties: ['openDirectory'],
+  });
+  if (result.canceled || !result.filePaths?.[0]) {
+    return { ok: false, canceled: true, error: '已取消' };
+  }
+  return { ok: true, path: result.filePaths[0] };
+});
+ipcMain.handle('desktop:pick-image-release-output-dir', async () => {
+  const win = BrowserWindow.getFocusedWindow() || shellWindow;
+  if (!win) return { ok: false, error: '无活动窗口' };
+  const result = await dialog.showOpenDialog(win, {
+    title: '选择发布包输出目录',
+    properties: ['openDirectory', 'createDirectory'],
+  });
+  if (result.canceled || !result.filePaths?.[0]) {
+    return { ok: false, canceled: true, error: '已取消' };
+  }
+  return { ok: true, path: result.filePaths[0] };
+});
+ipcMain.handle('desktop:pick-image-release-base-manifest', async () => {
+  const win = BrowserWindow.getFocusedWindow() || shellWindow;
+  if (!win) return { ok: false, error: '无活动窗口' };
+  const result = await dialog.showOpenDialog(win, {
+    title: '选择上一版 assets-release-manifest.json',
+    filters: [{ name: 'Release Manifest', extensions: ['json'] }],
+    properties: ['openFile'],
+  });
+  if (result.canceled || !result.filePaths?.[0]) {
+    return { ok: false, canceled: true, error: '已取消' };
+  }
+  return { ok: true, path: result.filePaths[0] };
+});
+ipcMain.handle('desktop:build-image-release-package', async (_event, payload) => {
+  try {
+    const scriptPath = path.join(__dirname, '..', 'scripts', 'build-image-release-manifest.mjs');
+    const mod = await import(pathToFileURL(scriptPath).href);
+    const result = mod.buildImageReleasePackage({
+      source: payload?.source,
+      output: payload?.output,
+      assetVersion: payload?.assetVersion,
+      releaseTag: payload?.releaseTag,
+      minShellVersion: payload?.minShellVersion,
+      baseManifest: payload?.baseManifest,
+      includeDeltaFiles: Boolean(payload?.includeDeltaFiles),
+      mode: payload?.mode,
+    });
+    appendRuntimeLog('assets-release-builder', `built ${result.mode} ${result.assetVersion} -> ${result.outputDir}`);
+    return { ok: true, result };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    appendRuntimeLog('assets-release-builder', `failed ${message}`);
+    return { ok: false, error: message };
+  }
+});
+ipcMain.handle('desktop:reveal-path', async (_event, payload) => {
+  const targetPath = typeof payload?.path === 'string' ? payload.path.trim() : '';
+  if (!targetPath) {
+    return { ok: false, error: '缺少路径' };
+  }
+  const resolvedPath = path.resolve(targetPath);
+  if (!fs.existsSync(resolvedPath)) {
+    return { ok: false, error: '路径不存在' };
+  }
+  const openPath = fs.statSync(resolvedPath).isDirectory() ? resolvedPath : path.dirname(resolvedPath);
+  const err = await shell.openPath(openPath);
+  if (err) {
+    return { ok: false, error: err };
+  }
+  return { ok: true, path: openPath };
 });
 
 // ── Image asset management ──
 
 const MANAGED_SUBDIR = 'assets/images';
+const IMAGE_RELEASE_MANIFEST_NAME = 'assets-release-manifest.json';
+const IMAGE_RELEASE_CONFIG_NAME = 'image-release-config.json';
+const IMAGE_RELEASE_CURRENT_NAME = 'current.json';
+const IMAGE_RELEASE_ROOT_DIRNAME = 'asset-releases';
+const IMAGE_RELEASE_FILES_DIRNAME = 'versions';
+const IMAGE_RELEASE_STAGING_DIRNAME = 'staging';
+const IMAGE_RELEASE_MANIFEST_TIMEOUT_MS = 45000;
+const IMAGE_RELEASE_PACKAGE_TIMEOUT_MS = 180000;
+
+function getImageReleaseRoot() {
+  return path.join(app.getPath('userData'), IMAGE_RELEASE_ROOT_DIRNAME);
+}
+
+function getImageReleaseVersionsDir() {
+  return path.join(getImageReleaseRoot(), IMAGE_RELEASE_FILES_DIRNAME);
+}
+
+function getImageReleaseStagingDir() {
+  return path.join(getImageReleaseRoot(), IMAGE_RELEASE_STAGING_DIRNAME);
+}
+
+function getImageReleaseCurrentPath() {
+  return path.join(getImageReleaseRoot(), IMAGE_RELEASE_CURRENT_NAME);
+}
+
+function getImageReleaseConfigPath() {
+  return path.join(app.getPath('userData'), IMAGE_RELEASE_CONFIG_NAME);
+}
+
+function ensureImageReleaseDirectories() {
+  fs.mkdirSync(getImageReleaseVersionsDir(), { recursive: true });
+  fs.mkdirSync(getImageReleaseStagingDir(), { recursive: true });
+}
+
+function sanitizeImageReleaseVersion(value) {
+  const raw = typeof value === 'string' ? value.trim() : '';
+  return raw.replace(/[<>:"/\\|?*\x00-\x1F]+/g, '-').slice(0, 120);
+}
+
+function getImageReleaseVersionDir(assetVersion) {
+  const safeVersion = sanitizeImageReleaseVersion(assetVersion);
+  if (!safeVersion) {
+    throw new Error('图片资源版本无效');
+  }
+  return path.join(getImageReleaseVersionsDir(), safeVersion);
+}
+
+function getImageReleaseManifestPath(assetVersion) {
+  return path.join(getImageReleaseVersionDir(assetVersion), IMAGE_RELEASE_MANIFEST_NAME);
+}
+
+function readJsonFileIfExists(filePath) {
+  if (!fs.existsSync(filePath)) {
+    return null;
+  }
+  return JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+}
+
+function readImageReleaseConfig() {
+  try {
+    return readJsonFileIfExists(getImageReleaseConfigPath()) || { manifestUrl: '' };
+  } catch {
+    return { manifestUrl: '' };
+  }
+}
+
+function writeImageReleaseConfig(config) {
+  const manifestUrl = typeof config?.manifestUrl === 'string' ? config.manifestUrl.trim() : '';
+  fs.mkdirSync(path.dirname(getImageReleaseConfigPath()), { recursive: true });
+  fs.writeFileSync(
+    getImageReleaseConfigPath(),
+    `${JSON.stringify({ manifestUrl }, null, 2)}\n`,
+    'utf-8'
+  );
+  imageUpdateState.configuredManifestUrl = manifestUrl;
+  imageUpdateState.status = 'idle';
+  imageUpdateState.lastError = '';
+  imageUpdateState.latestVersion = null;
+  imageUpdateState.latestSummary = null;
+  imageUpdateState.lastCheckedAt = null;
+  return { manifestUrl };
+}
+
+function readImageReleaseCurrent() {
+  try {
+    return readJsonFileIfExists(getImageReleaseCurrentPath()) || {
+      assetVersion: null,
+      activatedAt: null,
+      manifestUrl: '',
+    };
+  } catch {
+    return {
+      assetVersion: null,
+      activatedAt: null,
+      manifestUrl: '',
+    };
+  }
+}
+
+function writeImageReleaseCurrent(record) {
+  ensureImageReleaseDirectories();
+  fs.writeFileSync(getImageReleaseCurrentPath(), `${JSON.stringify(record, null, 2)}\n`, 'utf-8');
+  return record;
+}
+
+function readImageReleaseManifest(assetVersion) {
+  if (!assetVersion) {
+    return null;
+  }
+  try {
+    return readJsonFileIfExists(getImageReleaseManifestPath(assetVersion));
+  } catch {
+    return null;
+  }
+}
+
+function normalizeReleaseRelativePath(relativePath) {
+  if (typeof relativePath !== 'string' || !relativePath.trim()) {
+    return null;
+  }
+  const normalized = relativePath.replace(/\\/g, '/').replace(/^\/+/, '');
+  if (normalized.includes('\0') || normalized.startsWith('../') || normalized.includes('/../')) {
+    return null;
+  }
+  if (!normalized.startsWith('assets/')) {
+    return null;
+  }
+  const parts = normalized.split('/');
+  if (parts.some((part) => !part || part === '.' || part === '..')) {
+    return null;
+  }
+  return parts.join('/');
+}
+
+function relativePathToReleaseFilePath(relativePath) {
+  const normalized = normalizeReleaseRelativePath(relativePath);
+  if (!normalized) {
+    throw new Error(`非法图片路径: ${relativePath || '-'}`);
+  }
+  return normalized.replace(/^assets\/?/, '');
+}
+
+function compareVersionNumberish(left, right) {
+  const parse = (value) => String(value || '')
+    .split(/[^0-9]+/)
+    .filter(Boolean)
+    .map((part) => Number.parseInt(part, 10));
+  const leftParts = parse(left);
+  const rightParts = parse(right);
+  const maxLength = Math.max(leftParts.length, rightParts.length);
+  for (let index = 0; index < maxLength; index += 1) {
+    const leftValue = leftParts[index] || 0;
+    const rightValue = rightParts[index] || 0;
+    if (leftValue > rightValue) return 1;
+    if (leftValue < rightValue) return -1;
+  }
+  return 0;
+}
+
+function isShellVersionCompatible(minShellVersion) {
+  if (!minShellVersion) {
+    return true;
+  }
+  return compareVersionNumberish(app.getVersion(), minShellVersion) >= 0;
+}
+
+function hashFileSha256(filePath) {
+  const hash = crypto.createHash('sha256');
+  hash.update(fs.readFileSync(filePath));
+  return hash.digest('hex');
+}
+
+function hashBufferSha256(buffer) {
+  const hash = crypto.createHash('sha256');
+  hash.update(buffer);
+  return hash.digest('hex');
+}
+
+function encodeUrlPathPreservingSegments(value) {
+  return String(value || '')
+    .split('/')
+    .map((segment) => encodeURIComponent(segment))
+    .join('/');
+}
+
+function getHttpModuleForUrl(targetUrl) {
+  const parsed = new URL(targetUrl);
+  return parsed.protocol === 'https:' ? https : http;
+}
+
+function fetchUrlRaw(targetUrl, options = {}, redirectCount = 0) {
+  return new Promise((resolve, reject) => {
+    if (redirectCount > 5) {
+      reject(new Error('请求重定向次数过多'));
+      return;
+    }
+    const parsedUrl = new URL(targetUrl);
+    const transport = getHttpModuleForUrl(parsedUrl.toString());
+    const request = transport.request(parsedUrl, {
+      method: options.method || 'GET',
+      headers: options.headers || {},
+    }, (response) => {
+      const chunks = [];
+      response.on('data', (chunk) => chunks.push(chunk));
+      response.on('end', async () => {
+        const body = Buffer.concat(chunks);
+        const statusCode = response.statusCode || 0;
+        if ([301, 302, 303, 307, 308].includes(statusCode) && response.headers.location) {
+          try {
+            const redirectedUrl = new URL(response.headers.location, parsedUrl).toString();
+            const redirected = await fetchUrlRaw(redirectedUrl, options, redirectCount + 1);
+            resolve(redirected);
+          } catch (error) {
+            reject(error);
+          }
+          return;
+        }
+        resolve({
+          statusCode,
+          headers: response.headers,
+          body,
+          url: parsedUrl.toString(),
+        });
+      });
+    });
+    request.on('error', reject);
+    const timeoutMs = options.timeoutMs || 10000;
+    request.setTimeout(timeoutMs, () => {
+      request.destroy(new Error(`request timeout after ${timeoutMs}ms: ${targetUrl}`));
+    });
+    if (options.body) {
+      request.write(options.body);
+    }
+    request.end();
+  });
+}
+
+async function fetchJsonUrl(url) {
+  const response = await fetchUrlRaw(url, { timeoutMs: 1000 });
+  return {
+    status: response.statusCode,
+    body: JSON.parse(response.body.toString('utf-8') || '{}'),
+  };
+}
+
+async function fetchBufferUrl(url) {
+  const response = await fetchUrlRaw(url, { timeoutMs: IMAGE_RELEASE_PACKAGE_TIMEOUT_MS });
+  if (response.statusCode < 200 || response.statusCode >= 300) {
+    throw new Error(`资源下载失败: HTTP ${response.statusCode} ${url}`);
+  }
+  return response.body;
+}
+
+function resolveReleasePackageDownloadUrl(manifestSourceUrl, releasePackage) {
+  if (!releasePackage || typeof releasePackage !== 'object') {
+    return null;
+  }
+  if (releasePackage.downloadUrl) {
+    return new URL(releasePackage.downloadUrl, manifestSourceUrl).toString();
+  }
+  if (releasePackage.packagePath) {
+    return new URL(encodeUrlPathPreservingSegments(releasePackage.packagePath), manifestSourceUrl).toString();
+  }
+  if (releasePackage.fileName) {
+    return new URL(encodeUrlPathPreservingSegments(releasePackage.fileName), manifestSourceUrl).toString();
+  }
+  return null;
+}
+
+function validateReleasePackageDescriptor(releasePackage, manifestSourceUrl, label) {
+  if (!releasePackage || typeof releasePackage !== 'object') {
+    throw new Error(`发布清单 ${label} 字段无效`);
+  }
+  if ((releasePackage.format || 'zip') !== 'zip') {
+    throw new Error(`不支持的图片整包格式: ${releasePackage.format}`);
+  }
+  if (typeof releasePackage.sha256 !== 'string' || releasePackage.sha256.length < 32) {
+    throw new Error(`发布清单 ${label} 缺少 sha256`);
+  }
+  if (!Number.isFinite(Number(releasePackage.sizeBytes)) || Number(releasePackage.sizeBytes) < 0) {
+    throw new Error(`发布清单 ${label} sizeBytes 无效`);
+  }
+  if (!resolveReleasePackageDownloadUrl(manifestSourceUrl, releasePackage)) {
+    throw new Error(`发布清单 ${label} 缺少下载路径`);
+  }
+}
+
+function resolveReleaseFileDownloadUrl(manifestSourceUrl, fileEntry) {
+  if (fileEntry?.downloadUrl) {
+    return new URL(fileEntry.downloadUrl, manifestSourceUrl).toString();
+  }
+  if (fileEntry?.packagePath) {
+    return new URL(encodeUrlPathPreservingSegments(fileEntry.packagePath), manifestSourceUrl).toString();
+  }
+  const normalized = normalizeReleaseRelativePath(fileEntry?.relativePath);
+  if (!normalized) {
+    throw new Error('发布清单缺少可下载文件路径');
+  }
+  return new URL(`files/${encodeUrlPathPreservingSegments(normalized)}`, manifestSourceUrl).toString();
+}
+
+function validateImageReleaseManifest(manifest, manifestSourceUrl = '') {
+  if (!manifest || typeof manifest !== 'object') {
+    throw new Error('发布清单为空');
+  }
+  if (!Array.isArray(manifest.files)) {
+    throw new Error('发布清单 files 字段无效');
+  }
+  if (!Array.isArray(manifest.deletedFiles)) {
+    throw new Error('发布清单 deletedFiles 字段无效');
+  }
+  if (!manifest.assetVersion || typeof manifest.assetVersion !== 'string') {
+    throw new Error('发布清单缺少 assetVersion');
+  }
+  if (manifest.package !== undefined) {
+    validateReleasePackageDescriptor(manifest.package, manifestSourceUrl, 'package');
+  }
+  if (manifest.fullPackage !== undefined) {
+    validateReleasePackageDescriptor(manifest.fullPackage, manifestSourceUrl, 'fullPackage');
+  }
+  manifest.files.forEach((entry) => {
+    const normalized = normalizeReleaseRelativePath(entry?.relativePath);
+    if (!normalized) {
+      throw new Error(`发布清单存在非法路径: ${entry?.relativePath || '-'}`);
+    }
+    if (typeof entry.sha256 !== 'string' || entry.sha256.length < 32) {
+      throw new Error(`发布清单缺少 sha256: ${normalized}`);
+    }
+    if (!Number.isFinite(Number(entry.sizeBytes)) || Number(entry.sizeBytes) < 0) {
+      throw new Error(`发布清单 sizeBytes 无效: ${normalized}`);
+    }
+    if (entry.downloadUrl) {
+      // eslint-disable-next-line no-new
+      new URL(entry.downloadUrl, manifestSourceUrl || undefined);
+    }
+    if (entry.packagePath && typeof entry.packagePath !== 'string') {
+      throw new Error(`发布清单 packagePath 无效: ${normalized}`);
+    }
+  });
+  manifest.deletedFiles.forEach((relativePath) => {
+    if (!normalizeReleaseRelativePath(relativePath)) {
+      throw new Error(`发布清单 deletedFiles 存在非法路径: ${relativePath || '-'}`);
+    }
+  });
+  return {
+    ...manifest,
+    files: manifest.files.map((entry) => ({
+      ...entry,
+      relativePath: normalizeReleaseRelativePath(entry.relativePath),
+    })),
+    deletedFiles: manifest.deletedFiles.map((entry) => normalizeReleaseRelativePath(entry)),
+  };
+}
+
+function computeManifestDelta(nextManifest, currentManifest) {
+  const currentFiles = new Map((currentManifest?.files || []).map((entry) => [entry.relativePath, entry]));
+  const changedFiles = [];
+  nextManifest.files.forEach((entry) => {
+    const previous = currentFiles.get(entry.relativePath);
+    if (!previous || previous.sha256 !== entry.sha256) {
+      changedFiles.push(entry);
+    }
+  });
+  return {
+    changedFiles,
+    deletedFiles: nextManifest.deletedFiles || [],
+  };
+}
+
+function runSyncChecked(command, args, options = {}) {
+  const result = spawnSync(command, args, {
+    stdio: 'pipe',
+    encoding: 'utf-8',
+    ...options,
+  });
+  if (result.error) {
+    throw result.error;
+  }
+  if (result.status !== 0) {
+    const detail = [result.stderr, result.stdout].filter(Boolean).join('\n').trim();
+    throw new Error(`${command} ${args.join(' ')} 失败${detail ? `: ${detail}` : ''}`);
+  }
+}
+
+function extractZipArchive(zipPath, destDir) {
+  fs.mkdirSync(destDir, { recursive: true });
+  if (process.platform === 'win32') {
+    const escapedZip = zipPath.replace(/'/g, "''");
+    const escapedDest = destDir.replace(/'/g, "''");
+    runSyncChecked('powershell.exe', [
+      '-NoProfile',
+      '-NonInteractive',
+      '-Command',
+      `Expand-Archive -LiteralPath '${escapedZip}' -DestinationPath '${escapedDest}' -Force`,
+    ]);
+    return;
+  }
+  runSyncChecked('unzip', ['-q', zipPath, '-d', destDir]);
+}
+
+function verifyExtractedReleaseFiles(manifest, releaseDir) {
+  for (const entry of manifest.files) {
+    const targetFile = path.join(releaseDir, relativePathToReleaseFilePath(entry.relativePath));
+    const resolvedTarget = path.resolve(targetFile);
+    const resolvedReleaseDir = path.resolve(releaseDir);
+    if (!resolvedTarget.startsWith(resolvedReleaseDir + path.sep)) {
+      throw new Error(`图片整包包含越权路径: ${entry.relativePath}`);
+    }
+    if (!fs.existsSync(targetFile) || !fs.statSync(targetFile).isFile()) {
+      throw new Error(`图片整包缺少文件: ${entry.relativePath}`);
+    }
+    const actualHash = hashFileSha256(targetFile);
+    if (actualHash !== entry.sha256) {
+      throw new Error(`图片整包文件校验失败: ${entry.relativePath}`);
+    }
+  }
+}
+
+function removeReleaseDeletedFiles(manifest, releaseDir) {
+  for (const relativePath of manifest.deletedFiles || []) {
+    const targetFile = path.join(releaseDir, relativePathToReleaseFilePath(relativePath));
+    const resolvedTarget = path.resolve(targetFile);
+    const resolvedReleaseDir = path.resolve(releaseDir);
+    if (!resolvedTarget.startsWith(resolvedReleaseDir + path.sep)) {
+      throw new Error(`删除清单包含越权路径: ${relativePath}`);
+    }
+    fs.rmSync(targetFile, { recursive: true, force: true });
+  }
+}
+
+function shouldUseDeltaArchive(remoteManifest, previousVersion, previousVersionDir) {
+  return remoteManifest.delivery === 'delta-archive'
+    && remoteManifest.baseVersion
+    && previousVersion === remoteManifest.baseVersion
+    && previousVersionDir
+    && fs.existsSync(previousVersionDir);
+}
+
+async function stageImageReleasePackage({ manifestUrl, releasePackage, stagingDir }) {
+  const packageUrl = resolveReleasePackageDownloadUrl(manifestUrl, releasePackage);
+  if (!packageUrl) {
+    throw new Error('发布清单 package 缺少下载地址');
+  }
+  const archiveBuffer = await fetchBufferUrl(packageUrl);
+  const actualHash = hashBufferSha256(archiveBuffer);
+  if (actualHash !== releasePackage.sha256) {
+    throw new Error('图片整包校验失败');
+  }
+  if (Number(releasePackage.sizeBytes) !== archiveBuffer.length) {
+    throw new Error('图片整包大小校验失败');
+  }
+  const archivePath = `${stagingDir}.zip`;
+  fs.writeFileSync(archivePath, archiveBuffer);
+  try {
+    extractZipArchive(archivePath, stagingDir);
+  } finally {
+    fs.rmSync(archivePath, { force: true });
+  }
+}
+
+async function loadRemoteImageReleaseManifest(manifestUrl) {
+  const response = await fetchUrlRaw(manifestUrl, { timeoutMs: IMAGE_RELEASE_MANIFEST_TIMEOUT_MS });
+  if (response.statusCode < 200 || response.statusCode >= 300) {
+    throw new Error(`Manifest 请求失败: HTTP ${response.statusCode}`);
+  }
+  const parsed = JSON.parse(response.body.toString('utf-8') || '{}');
+  return validateImageReleaseManifest(parsed, response.url);
+}
+
+function getActiveImageReleaseRoot() {
+  const current = readImageReleaseCurrent();
+  if (!current.assetVersion) {
+    return null;
+  }
+  const versionDir = getImageReleaseVersionDir(current.assetVersion);
+  return fs.existsSync(versionDir) ? versionDir : null;
+}
+
+function getImageUpdateStatePayload() {
+  const config = readImageReleaseConfig();
+  const current = readImageReleaseCurrent();
+  const activeManifest = readImageReleaseManifest(current.assetVersion);
+  imageUpdateState.configuredManifestUrl = config.manifestUrl || '';
+  imageUpdateState.currentVersion = current.assetVersion || null;
+  return {
+    configuredManifestUrl: config.manifestUrl || '',
+    currentVersion: current.assetVersion || null,
+    currentActivatedAt: current.activatedAt || null,
+    currentManifestSummary: activeManifest
+      ? {
+      assetVersion: activeManifest.assetVersion,
+      delivery: activeManifest.package ? 'archive' : 'files',
+      packageSizeBytes: activeManifest.package ? Number(activeManifest.package.sizeBytes) || 0 : 0,
+      fileCount: Array.isArray(activeManifest.files) ? activeManifest.files.length : 0,
+          deletedFileCount: Array.isArray(activeManifest.deletedFiles) ? activeManifest.deletedFiles.length : 0,
+        }
+      : null,
+    latestVersion: imageUpdateState.latestVersion || null,
+    latestSummary: imageUpdateState.latestSummary || null,
+    lastCheckedAt: imageUpdateState.lastCheckedAt || null,
+    lastUpdatedAt: imageUpdateState.lastUpdatedAt || null,
+    lastError: imageUpdateState.lastError || '',
+    status: imageUpdateState.status || 'idle',
+    storageRoot: getImageReleaseRoot(),
+    releaseManifestPath: current.assetVersion ? getImageReleaseManifestPath(current.assetVersion) : null,
+  };
+}
+
+async function checkForImageReleaseUpdates() {
+  const config = readImageReleaseConfig();
+  if (!config.manifestUrl) {
+    imageUpdateState.status = 'idle';
+    imageUpdateState.lastError = '';
+    imageUpdateState.lastCheckedAt = Date.now();
+    imageUpdateState.latestVersion = null;
+    imageUpdateState.latestSummary = null;
+    return getImageUpdateStatePayload();
+  }
+  imageUpdateState.status = 'checking';
+  imageUpdateState.lastError = '';
+  const current = readImageReleaseCurrent();
+  try {
+    const remoteManifest = await loadRemoteImageReleaseManifest(config.manifestUrl);
+    const currentManifest = readImageReleaseManifest(current.assetVersion);
+    const delta = computeManifestDelta(remoteManifest, currentManifest);
+    imageUpdateState.status = 'idle';
+    imageUpdateState.latestVersion = remoteManifest.assetVersion;
+    imageUpdateState.lastCheckedAt = Date.now();
+    imageUpdateState.latestSummary = {
+      releaseTag: remoteManifest.releaseTag || '',
+      assetVersion: remoteManifest.assetVersion,
+      minShellVersion: remoteManifest.minShellVersion || '',
+      compatible: isShellVersionCompatible(remoteManifest.minShellVersion),
+      delivery: remoteManifest.package ? 'archive' : 'files',
+      packageSizeBytes: remoteManifest.package ? Number(remoteManifest.package.sizeBytes) || 0 : 0,
+      changedFileCount: delta.changedFiles.length,
+      deletedFileCount: delta.deletedFiles.length,
+      totalFileCount: remoteManifest.files.length,
+      hasUpdate: remoteManifest.assetVersion !== current.assetVersion,
+    };
+    return getImageUpdateStatePayload();
+  } catch (error) {
+    imageUpdateState.status = 'failed';
+    imageUpdateState.lastCheckedAt = Date.now();
+    imageUpdateState.lastError = error instanceof Error ? error.message : String(error);
+    throw error;
+  }
+}
+
+async function applyImageReleaseUpdate() {
+  const config = readImageReleaseConfig();
+  if (!config.manifestUrl) {
+    throw new Error('请先配置图片发布清单地址');
+  }
+  ensureImageReleaseDirectories();
+  imageUpdateState.status = 'checking';
+  imageUpdateState.lastError = '';
+  const current = readImageReleaseCurrent();
+  const previousManifest = readImageReleaseManifest(current.assetVersion);
+  const previousVersion = current.assetVersion || null;
+  try {
+    const remoteManifest = await loadRemoteImageReleaseManifest(config.manifestUrl);
+    if (!isShellVersionCompatible(remoteManifest.minShellVersion)) {
+      throw new Error(`当前 Shell 版本 ${app.getVersion()} 不满足最低要求 ${remoteManifest.minShellVersion}`);
+    }
+    const targetVersion = remoteManifest.assetVersion;
+    const targetDir = getImageReleaseVersionDir(targetVersion);
+    const stagingDir = path.join(getImageReleaseStagingDir(), sanitizeImageReleaseVersion(targetVersion));
+    const delta = computeManifestDelta(remoteManifest, previousManifest);
+
+    fs.rmSync(stagingDir, { recursive: true, force: true });
+    fs.mkdirSync(stagingDir, { recursive: true });
+
+    imageUpdateState.status = 'downloading';
+    const previousVersionDir = previousVersion ? getImageReleaseVersionDir(previousVersion) : null;
+    const canUseDeltaArchive = shouldUseDeltaArchive(remoteManifest, previousVersion, previousVersionDir);
+    if (remoteManifest.delivery === 'delta-archive' && canUseDeltaArchive) {
+      fs.cpSync(previousVersionDir, stagingDir, {
+        recursive: true,
+        force: true,
+        errorOnExist: false,
+      });
+      await stageImageReleasePackage({
+        manifestUrl: config.manifestUrl,
+        releasePackage: remoteManifest.package,
+        stagingDir,
+      });
+      removeReleaseDeletedFiles(remoteManifest, stagingDir);
+      verifyExtractedReleaseFiles(remoteManifest, stagingDir);
+    } else if (remoteManifest.delivery === 'delta-archive' && remoteManifest.fullPackage) {
+      await stageImageReleasePackage({
+        manifestUrl: config.manifestUrl,
+        releasePackage: remoteManifest.fullPackage,
+        stagingDir,
+      });
+      verifyExtractedReleaseFiles(remoteManifest, stagingDir);
+    } else if (remoteManifest.package) {
+      await stageImageReleasePackage({
+        manifestUrl: config.manifestUrl,
+        releasePackage: remoteManifest.package,
+        stagingDir,
+      });
+      verifyExtractedReleaseFiles(remoteManifest, stagingDir);
+    } else if (remoteManifest.delivery === 'delta-archive') {
+      throw new Error(`当前图片版本不是增量包基线 ${remoteManifest.baseVersion || '-'}，且清单未提供全量包`);
+    } else {
+      if (previousVersionDir && fs.existsSync(previousVersionDir)) {
+        fs.cpSync(previousVersionDir, stagingDir, {
+          recursive: true,
+          force: true,
+          errorOnExist: false,
+        });
+      }
+
+      for (const entry of delta.changedFiles) {
+        const downloadUrl = resolveReleaseFileDownloadUrl(config.manifestUrl, entry);
+        const data = await fetchBufferUrl(downloadUrl);
+        const actualHash = hashBufferSha256(data);
+        if (actualHash !== entry.sha256) {
+          throw new Error(`图片校验失败: ${entry.relativePath}`);
+        }
+        const targetFile = path.join(stagingDir, relativePathToReleaseFilePath(entry.relativePath));
+        fs.mkdirSync(path.dirname(targetFile), { recursive: true });
+        fs.writeFileSync(targetFile, data);
+      }
+
+      removeReleaseDeletedFiles(remoteManifest, stagingDir);
+      verifyExtractedReleaseFiles(remoteManifest, stagingDir);
+    }
+
+    imageUpdateState.status = 'activating';
+
+    fs.writeFileSync(
+      path.join(stagingDir, IMAGE_RELEASE_MANIFEST_NAME),
+      `${JSON.stringify(remoteManifest, null, 2)}\n`,
+      'utf-8'
+    );
+
+    fs.rmSync(targetDir, { recursive: true, force: true });
+    fs.mkdirSync(path.dirname(targetDir), { recursive: true });
+    fs.renameSync(stagingDir, targetDir);
+    writeImageReleaseCurrent({
+      assetVersion: targetVersion,
+      activatedAt: new Date().toISOString(),
+      manifestUrl: config.manifestUrl,
+    });
+
+    imageUpdateState.status = 'idle';
+    imageUpdateState.lastCheckedAt = Date.now();
+    imageUpdateState.lastUpdatedAt = imageUpdateState.lastCheckedAt;
+    imageUpdateState.currentVersion = targetVersion;
+    imageUpdateState.latestVersion = targetVersion;
+    imageUpdateState.latestSummary = {
+      releaseTag: remoteManifest.releaseTag || '',
+      assetVersion: targetVersion,
+      minShellVersion: remoteManifest.minShellVersion || '',
+      compatible: true,
+      delivery: remoteManifest.package ? 'archive' : 'files',
+      packageSizeBytes: remoteManifest.package ? Number(remoteManifest.package.sizeBytes) || 0 : 0,
+      changedFileCount: delta.changedFiles.length,
+      deletedFileCount: delta.deletedFiles.length,
+      totalFileCount: remoteManifest.files.length,
+      hasUpdate: false,
+    };
+    syncImageManifest();
+    appendRuntimeLog('assets-update', `activated image release ${targetVersion} from ${config.manifestUrl}`);
+    return getImageUpdateStatePayload();
+  } catch (error) {
+    imageUpdateState.status = 'failed';
+    imageUpdateState.lastError = error instanceof Error ? error.message : String(error);
+    appendRuntimeLog('assets-update', `update failed ${imageUpdateState.lastError}`);
+    throw error;
+  }
+}
 
 function getAssetsRoot() {
   if (isDev) {
@@ -1211,13 +2089,20 @@ function addFileEntry(results, dirsWithFiles, fullPath, relPath, source, writabl
   const baseName = path.basename(fullPath, ext);
   const normalizedRel = `assets/${relPath.replace(/\\/g, '/')}`;
   const fileName = path.basename(fullPath);
+  const canonicalRel = normalizedRel.replace(/^assets\/images\/?/, '').replace(/^assets\/?/, '');
+  const canonicalPath = source === 'user' || source === 'legacy'
+    ? `user-images/${canonicalRel}`
+    : undefined;
+  const publicUrl = canonicalPath
+    ? `http://127.0.0.1:${BRIDGE_PORT}/user-images/${canonicalRel.split('/').map(encodeURIComponent).join('/')}`
+    : undefined;
   results.push({
     fileName,
     baseName,
     ext,
     relativePath: normalizedRel,
-    canonicalPath: `user-images/${fileName}`,
-    publicUrl: `http://127.0.0.1:${BRIDGE_PORT}/user-images/${encodeURIComponent(fileName)}`,
+    canonicalPath,
+    publicUrl,
     source,
     writable,
     rootId: rootInfo?.id,
@@ -1236,6 +2121,7 @@ function addFileEntry(results, dirsWithFiles, fullPath, relPath, source, writabl
 
 function scanAllImageAssets() {
   const builtinAssetsRoot = getBuiltinAssetsRoot();
+  const activeReleaseRoot = getActiveImageReleaseRoot();
   const imageRoots = getImageRootEntries();
   const userDir = getUserImagesDir();
   const builtinAndUserShareRoot = path.resolve(builtinAssetsRoot) === path.resolve(userDir);
@@ -1261,6 +2147,15 @@ function scanAllImageAssets() {
         addFileEntry(results, dirsWithFiles, fullPath, relPath, source, writable, rootInfo);
       }
     }
+  }
+
+  if (activeReleaseRoot && fs.existsSync(activeReleaseRoot)) {
+    walk(activeReleaseRoot, '', 'release', false, {
+      id: 'release',
+      label: '发布更新资源',
+      directory: activeReleaseRoot,
+      priority: -1,
+    });
   }
 
   // ── Scan builtin (read-only) ──
@@ -1311,11 +2206,17 @@ function scanAllImageAssets() {
   }
   walkEmptyManagedDirs(userDir, 'images');
 
-  // Deduplicate by relativePath (user wins over builtin)
+  // Deduplicate by relativePath (release > user > builtin)
+  const sourcePriority = {
+    release: 0,
+    user: 1,
+    legacy: 2,
+    builtin: 3,
+  };
   const seen = new Map();
   for (const r of results) {
     const existing = seen.get(r.relativePath);
-    if (!existing || (r.source === 'user' && existing.source === 'builtin')) {
+    if (!existing || (sourcePriority[r.source] ?? 99) < (sourcePriority[existing.source] ?? 99)) {
       seen.set(r.relativePath, r);
     }
   }
@@ -1350,17 +2251,44 @@ function resolveUserImageFileByRequestPath(requestPath) {
   if (!requestedFileName || !/\.(png|jpg|jpeg|webp|gif|svg)$/i.test(requestedFileName)) {
     return null;
   }
-  const candidates = scanAllImageAssets()
-    .filter((entry) => entry.kind !== 'dir' && String(entry.fileName || '').toLowerCase() === requestedFileName.toLowerCase())
+  const requestedKey = decoded.toLowerCase();
+  const getRootRelativePath = (entry) => {
+    const relativePath = String(entry.relativePath || '').replace(/\\/g, '/');
+    if (entry.source === 'user' || entry.source === 'legacy') {
+      return relativePath.replace(/^assets\/images\/?/, '');
+    }
+    return relativePath.replace(/^assets\/?/, '');
+  };
+  const allCandidates = scanAllImageAssets()
+    .filter((entry) => entry.kind !== 'dir' && (entry.source === 'release' || entry.source === 'user' || entry.source === 'legacy'));
+  const candidates = allCandidates
+    .filter((entry) => {
+      if (decoded.includes('/')) {
+        const rootRel = getRootRelativePath(entry).toLowerCase();
+        return rootRel === requestedKey;
+      }
+      return String(entry.fileName || '').toLowerCase() === requestedFileName.toLowerCase();
+    })
     .sort((left, right) => (left.rootPriority ?? 999) - (right.rootPriority ?? 999));
   for (const item of candidates) {
     if (!item.rootDirectory) continue;
-    const fullPath = path.resolve(item.rootDirectory, item.relativePath.replace(/^assets\/images\/?/, ''));
+    const fullPath = path.resolve(item.rootDirectory, getRootRelativePath(item));
     if (fs.existsSync(fullPath) && fs.statSync(fullPath).isFile()) {
       return fullPath;
     }
   }
   return null;
+}
+
+function sanitizeImageFileBaseName(value) {
+  const cleanName = typeof value === 'string' ? value.trim() : '';
+  if (!cleanName || cleanName === '.' || cleanName === '..') {
+    return null;
+  }
+  if (/[<>:"|?*\\/]/.test(cleanName) || /(^|\/)\.\.(\/|$)/.test(cleanName)) {
+    return null;
+  }
+  return cleanName;
 }
 
 function findUniqueFileName(dirPath, baseName, ext) {
@@ -1605,9 +2533,17 @@ function handleRenameImageAsset(payload) {
 
   const originalExt = path.extname(oldPath).toLowerCase();
   const userExt = path.extname(newName.trim()).toLowerCase();
-  const cleanName = userExt ? path.basename(newName.trim(), userExt) : newName.trim();
+  const cleanName = sanitizeImageFileBaseName(userExt ? path.basename(newName.trim(), userExt) : newName.trim());
+  if (!cleanName) {
+    return { ok: false, error: '非法文件名' };
+  }
   const finalName = `${cleanName}${originalExt}`;
   const newPath = path.join(path.dirname(oldPath), finalName);
+  const resolvedNewPath = path.resolve(newPath);
+  const resolvedCurrentDir = path.resolve(path.dirname(oldPath));
+  if (!resolvedNewPath.startsWith(resolvedCurrentDir + path.sep) || path.dirname(resolvedNewPath) !== resolvedCurrentDir) {
+    return { ok: false, error: '越权文件访问' };
+  }
 
   if (oldPath === newPath) {
     return { ok: true };

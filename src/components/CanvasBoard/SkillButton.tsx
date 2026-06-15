@@ -56,6 +56,7 @@ import {
 } from './SkillButtonAnomalyPanels';
 import { useSkillButtonAnomaly } from './useSkillButtonAnomaly';
 import { buildAnomalyBuffOptionsBySegmentKey, buildAnomalyDamageSegments } from './skillButtonAnomalyDamage';
+import DeferredNumberInput from '../DeferredNumberInput';
 import './SkillButton.css';
 
 const EMPTY_TARGET_RESISTANCE: Required<HitResistanceInput> = {
@@ -1391,11 +1392,10 @@ export function SkillButtonComponent({
                     ].map(([key, label]) => (
                       <label key={key} className="skill-button-resistance-field">
                         <span>{label}</span>
-                        <input
-                          type="number"
+                        <DeferredNumberInput
                           step="1"
                           value={targetResistance[key as keyof HitResistanceInput] ?? 0}
-                          onChange={(event) => updateTargetResistance(key as keyof HitResistanceInput, Number(event.target.value))}
+                          onCommit={(value) => updateTargetResistance(key as keyof HitResistanceInput, value ?? 0)}
                         />
                       </label>
                     ))}
@@ -1872,4 +1872,3 @@ export function SkillButtonComponent({
     </>
   );
 }
-

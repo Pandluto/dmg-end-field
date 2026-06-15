@@ -14,6 +14,7 @@ import { imageBridge, getUserImageUrl } from '../utils/imageBridge';
 import type { ImageAssetEntry } from './ImageManager/types';
 import type { BuffEffectKind, BuffExtraHitConfig } from '../core/domain/buff';
 import { normalizeExtraHitConfig } from '../core/services/buffExtraHit';
+import DeferredNumberInput from './DeferredNumberInput';
 
 const WEAPON_SHEET_PAGE_PATH = APP_ROUTE_PATHS.weaponSheet;
 const WEAPON_DRAFT_STORAGE_KEY = 'def.weapon-sheet.draft.v1';
@@ -2037,18 +2038,68 @@ export function WeaponDraftSheetPage() {
     setCollapsedLevels(nextLevelCollapsed);
   }, [draft, localLibrary]);
 
-  const handleAttackGrowthChange = useCallback((levelKey: string, rawValue: string) => {
+  const handleAttackGrowthChange = useCallback((levelKey: string, nextValue: number | undefined) => {
     setDraft((prev) => {
       const nextAttackGrowth = { ...prev.attackGrowth };
-      const parsed = Number(rawValue);
-      if (rawValue.trim() && Number.isFinite(parsed)) {
-        nextAttackGrowth[levelKey] = parsed;
+      if (typeof nextValue === 'number' && Number.isFinite(nextValue)) {
+        nextAttackGrowth[levelKey] = nextValue;
       } else {
         delete nextAttackGrowth[levelKey];
       }
       return {
         ...prev,
         attackGrowth: nextAttackGrowth,
+      };
+    });
+  }, []);
+
+  const handleEffectLevelCommit = useCallback((
+    sourceRow: Extract<WeaponSheetRow, { kind: 'effectLevels' }>,
+    levelKey: string,
+    nextValue: number | undefined,
+  ) => {
+    setDraft((prev) => {
+      if (sourceRow.bucket === 'value') {
+        const nextLevels = { ...prev.skills[sourceRow.skillKey].levels };
+        nextLevels[levelKey] = {
+          ...nextLevels[levelKey],
+          value: nextValue,
+        };
+        return {
+          ...prev,
+          skills: {
+            ...prev.skills,
+            [sourceRow.skillKey]: {
+              ...prev.skills[sourceRow.skillKey],
+              levels: nextLevels,
+            },
+          },
+        };
+      }
+
+      const nextEffects = { ...prev.skills[sourceRow.skillKey].effects };
+      if (nextEffects[sourceRow.sourceEffectKey]) {
+        const nextLevels = { ...nextEffects[sourceRow.sourceEffectKey].levels };
+        if (typeof nextValue === 'number' && Number.isFinite(nextValue)) {
+          nextLevels[levelKey] = nextValue;
+        } else {
+          delete nextLevels[levelKey];
+        }
+        nextEffects[sourceRow.sourceEffectKey] = {
+          ...nextEffects[sourceRow.sourceEffectKey],
+          levels: nextLevels,
+        };
+      }
+
+      return {
+        ...prev,
+        skills: {
+          ...prev.skills,
+          [sourceRow.skillKey]: {
+            ...prev.skills[sourceRow.skillKey],
+            effects: nextEffects,
+          },
+        },
       };
     });
   }, []);
@@ -3273,15 +3324,13 @@ export function WeaponDraftSheetPage() {
                         {ATTACK_GROWTH_MILESTONE_KEYS.map((levelKey) => (
                           <div key={levelKey} className="weapon-sheet-growth-inline-item">
                             <span className="weapon-sheet-growth-inline-label">{`Lv${levelKey}`}</span>
-                            <input
+                            <DeferredNumberInput
                               className="weapon-sheet-inline-input"
-                              type="number"
                               step="any"
-                              inputMode="decimal"
-                              value={draft.attackGrowth[levelKey] == null ? '' : String(draft.attackGrowth[levelKey])}
+                              value={draft.attackGrowth[levelKey]}
                               placeholder="ATK"
                               onClick={(event) => event.stopPropagation()}
-                              onChange={(event) => handleAttackGrowthChange(levelKey, event.target.value)}
+                              onCommit={(value) => handleAttackGrowthChange(levelKey, value)}
                               onKeyDown={(event) => stopEditingKeyPropagation(event, { isNumberInput: true })}
                             />
                           </div>
@@ -3304,12 +3353,10 @@ export function WeaponDraftSheetPage() {
                           return (
                             <div key={levelKey} className={`weapon-sheet-growth-inline-item${isInlineActive ? ' is-active' : ''}`}>
                               <span className="weapon-sheet-growth-inline-label">{`Lv${levelKey}`}</span>
-                              <input
+                              <DeferredNumberInput
                                 className="weapon-sheet-inline-input"
-                                type="number"
                                 step="any"
-                                inputMode="decimal"
-                                value={value == null ? '' : String(value)}
+                                value={value}
                                 placeholder=""
                                 onFocus={() => {
                                   setSelectedWorkbookCell({
@@ -3318,52 +3365,7 @@ export function WeaponDraftSheetPage() {
                                     columnKey: 'valueText',
                                   });
                                 }}
-                                onChange={(event) => {
-                                  const rawValue = event.target.value;
-                                  setDraft((prev) => {
-                                    const parsed = Number(rawValue);
-                                    if (sourceRow.bucket === 'value') {
-                                      const nextLevels = { ...prev.skills[sourceRow.skillKey].levels };
-                                      nextLevels[levelKey] = {
-                                        ...nextLevels[levelKey],
-                                        value: rawValue.trim() && Number.isFinite(parsed) ? parsed : undefined,
-                                      };
-                                      return {
-                                        ...prev,
-                                        skills: {
-                                          ...prev.skills,
-                                          [sourceRow.skillKey]: {
-                                            ...prev.skills[sourceRow.skillKey],
-                                            levels: nextLevels,
-                                          },
-                                        },
-                                      };
-                                    }
-                                    const nextEffects = { ...prev.skills[sourceRow.skillKey].effects };
-                                    if (nextEffects[sourceRow.sourceEffectKey]) {
-                                      const nextLevels = { ...nextEffects[sourceRow.sourceEffectKey].levels };
-                                      if (rawValue.trim() && Number.isFinite(parsed)) {
-                                        nextLevels[levelKey] = parsed;
-                                      } else {
-                                        delete nextLevels[levelKey];
-                                      }
-                                      nextEffects[sourceRow.sourceEffectKey] = {
-                                        ...nextEffects[sourceRow.sourceEffectKey],
-                                        levels: nextLevels,
-                                      };
-                                    }
-                                    return {
-                                      ...prev,
-                                      skills: {
-                                        ...prev.skills,
-                                        [sourceRow.skillKey]: {
-                                          ...prev.skills[sourceRow.skillKey],
-                                          effects: nextEffects,
-                                        },
-                                      },
-                                    };
-                                  });
-                                }}
+                                onCommit={(nextValue) => handleEffectLevelCommit(sourceRow, levelKey, nextValue)}
                                 onKeyDown={(event) => stopEditingKeyPropagation(event, { isNumberInput: true })}
                               />
                             </div>

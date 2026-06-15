@@ -16,6 +16,7 @@ import { imageBridge } from '../utils/imageBridge';
 import { toUserImageRelPath } from '../utils/imageFileService';
 import type { BuffEffectKind, BuffExtraHitConfig } from '../core/domain/buff';
 import { EXTRA_HIT_DAMAGE_TYPES, normalizeExtraHitConfig } from '../core/services/buffExtraHit';
+import DeferredNumberInput, { parseIntegerInput } from './DeferredNumberInput';
 
 const DRAFT_PAGE_PATH = APP_ROUTE_PATHS.draft;
 const DRAFT_STORAGE_KEY = 'def.operator-editor.draft.v1';
@@ -1877,7 +1878,11 @@ export function OperatorDraftPage() {
                   </label>
                   <label>
                     <span>等级</span>
-                    <input type="number" value={draft.level} onChange={(event) => updateOperatorField('level', Number(event.target.value) || 0)} />
+                    <DeferredNumberInput
+                      value={draft.level}
+                      parse={parseIntegerInput}
+                      onCommit={(value) => updateOperatorField('level', value ?? 0)}
+                    />
                   </label>
                   <label>
                     <span>稀有度</span>
@@ -1902,10 +1907,9 @@ export function OperatorDraftPage() {
                         {ATTRIBUTE_LEVEL_KEYS.map((levelKey) => (
                           <label key={`${attributeKey}-${levelKey}`} className="operator-draft-attribute-input">
                             <span>{`${label} ${ATTRIBUTE_LEVEL_LABELS[levelKey]}`}</span>
-                            <input
-                              type="number"
+                            <DeferredNumberInput
                               value={draft.attributes[attributeKey]?.[levelKey] ?? 0}
-                              onChange={(event) => updateAttributeField(attributeKey, levelKey, Number(event.target.value) || 0)}
+                              onCommit={(value) => updateAttributeField(attributeKey, levelKey, value ?? 0)}
                             />
                           </label>
                         ))}
@@ -2085,16 +2089,15 @@ export function OperatorDraftPage() {
                       {SKILL_LEVEL_KEYS.map((levelKey) => (
                         <label key={levelKey}>
                           <span>{levelKey}</span>
-                          <input
-                            type="number"
+                          <DeferredNumberInput
                             step="0.01"
                             value={selectedHit.levels?.[levelKey] ?? 0}
-                            onChange={(event) =>
+                            onCommit={(value) =>
                               updateSelectedHit((hit) => ({
                                 ...hit,
                                 levels: {
                                   ...hit.levels,
-                                  [levelKey]: Number(event.target.value) || 0,
+                                  [levelKey]: value ?? 0,
                                 },
                               }))
                             }
@@ -2319,16 +2322,13 @@ export function OperatorDraftPage() {
                       {selectedBuffEffect.effectKind !== 'extraHit' && (selectedBuffEffect.valueMode ?? 'fixed') === 'fixed' ? (
                       <label>
                         <span>数值</span>
-                        <input
-                          type="number"
+                        <DeferredNumberInput
                           step="0.01"
-                          value={selectedBuffEffect.value ?? ''}
-                          onChange={(event) => {
-                            const rawValue = event.target.value;
+                          value={selectedBuffEffect.value}
+                          onCommit={(value) => {
                             updateSelectedBuffEffect((effect) => {
                               const { value: _value, ...rest } = effect;
-                              if (rawValue.trim() === '') return rest;
-                              return { ...effect, value: Number(rawValue) || 0 };
+                              return value == null ? rest : { ...effect, value };
                             });
                           }}
                         />
@@ -2355,18 +2355,16 @@ export function OperatorDraftPage() {
                           </label>
                           <label>
                             <span>每点提升</span>
-                            <input
-                              type="number"
+                            <DeferredNumberInput
                               step="0.0001"
-                              value={selectedBuffEffect.derivedValue?.perPointValue ?? ''}
-                              onChange={(event) => {
-                                const rawValue = event.target.value;
+                              value={selectedBuffEffect.derivedValue?.perPointValue}
+                              onCommit={(value) => {
                                 updateSelectedBuffEffect((effect) => ({
                                   ...effect,
                                   valueMode: 'derived',
                                   derivedValue: {
                                     source: effect.derivedValue?.source ?? 'intelligence',
-                                    perPointValue: rawValue.trim() === '' ? 0 : Number(rawValue) || 0,
+                                    perPointValue: value ?? 0,
                                   },
                                 }));
                               }}
@@ -2377,13 +2375,13 @@ export function OperatorDraftPage() {
                       {selectedBuffEffect.category === 'countable' && (
                         <label>
                           最大层数
-                          <input
-                            type="number"
+                          <DeferredNumberInput
                             min={1}
                             value={selectedBuffEffect.maxStacks ?? 1}
-                            onChange={(event) => updateSelectedBuffEffect((effect) => ({
+                            parse={parseIntegerInput}
+                            onCommit={(value) => updateSelectedBuffEffect((effect) => ({
                               ...effect,
-                              maxStacks: Math.max(1, Math.floor(Number(event.target.value) || 1)),
+                              maxStacks: Math.max(1, value ?? 1),
                               valueMode: 'fixed',
                               derivedValue: undefined,
                             }))}
@@ -2407,7 +2405,7 @@ export function OperatorDraftPage() {
                             <label><span>伤害段 Key</span><input value={config.key} onChange={(event) => updateConfig({ key: event.target.value })} /></label>
                             <label><span>伤害属性</span><select value={config.damageType} onChange={(event) => updateConfig({ damageType: event.target.value as BuffExtraHitConfig['damageType'] })}>{EXTRA_HIT_DAMAGE_TYPES.map((type) => <option key={type} value={type}>{type}</option>)}</select></label>
                             <label><span>伤害类型</span><select value={config.skillType} onChange={(event) => updateConfig({ skillType: event.target.value as BuffExtraHitConfig['skillType'] })}><option value="">空</option>{['A', 'B', 'E', 'Q', 'Dot'].map((type) => <option key={type} value={type}>{type}</option>)}</select></label>
-                            <label><span>攻击力倍率</span><input type="number" min={0} step="0.01" value={config.baseMultiplier} onChange={(event) => updateConfig({ baseMultiplier: Number(event.target.value) || 0 })} /></label>
+                            <label><span>攻击力倍率</span><DeferredNumberInput min={0} step="0.01" value={config.baseMultiplier} onCommit={(value) => updateConfig({ baseMultiplier: Math.max(0, value ?? 0) })} /></label>
                           </>
                         );
                       })()}
@@ -2590,4 +2588,3 @@ export function OperatorDraftPage() {
     </main>
   );
 }
-
