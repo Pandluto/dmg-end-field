@@ -1315,6 +1315,34 @@ async function fetchBufferUrl(url) {
   return response.body;
 }
 
+function resolveImageReleaseManifestUrl(configuredUrl) {
+  const rawUrl = typeof configuredUrl === 'string' ? configuredUrl.trim() : '';
+  if (!rawUrl) {
+    return '';
+  }
+
+  let parsedUrl;
+  try {
+    parsedUrl = new URL(rawUrl);
+  } catch {
+    return rawUrl;
+  }
+
+  if (parsedUrl.hostname !== 'github.com') {
+    return rawUrl;
+  }
+
+  const releaseAssetMatch = parsedUrl.pathname.match(
+    /^\/([^/]+)\/([^/]+)\/releases\/(?:download\/[^/]+|latest\/download)\/[^/]+$/
+  );
+  if (!releaseAssetMatch) {
+    return rawUrl;
+  }
+
+  const [, owner, repo] = releaseAssetMatch;
+  return `${parsedUrl.origin}/${owner}/${repo}/releases/latest/download/${IMAGE_RELEASE_MANIFEST_NAME}`;
+}
+
 function resolveReleasePackageDownloadUrl(manifestSourceUrl, releasePackage) {
   if (!releasePackage || typeof releasePackage !== 'object') {
     return null;
@@ -1522,13 +1550,18 @@ async function stageImageReleasePackage({ manifestUrl, releasePackage, stagingDi
   }
 }
 
-async function loadRemoteImageReleaseManifest(manifestUrl) {
-  const response = await fetchUrlRaw(manifestUrl, { timeoutMs: IMAGE_RELEASE_MANIFEST_TIMEOUT_MS });
+async function loadRemoteImageReleaseManifest(configuredUrl) {
+  const requestedManifestUrl = resolveImageReleaseManifestUrl(configuredUrl);
+  const response = await fetchUrlRaw(requestedManifestUrl, { timeoutMs: IMAGE_RELEASE_MANIFEST_TIMEOUT_MS });
   if (response.statusCode < 200 || response.statusCode >= 300) {
     throw new Error(`Manifest 请求失败: HTTP ${response.statusCode}`);
   }
   const parsed = JSON.parse(response.body.toString('utf-8') || '{}');
-  return validateImageReleaseManifest(parsed, response.url);
+  return {
+    manifest: validateImageReleaseManifest(parsed, response.url),
+    manifestUrl: response.url,
+    requestedManifestUrl,
+  };
 }
 
 function getActiveImageReleaseRoot() {
@@ -1584,7 +1617,11 @@ async function checkForImageReleaseUpdates() {
   imageUpdateState.lastError = '';
   const current = readImageReleaseCurrent();
   try {
-    const remoteManifest = await loadRemoteImageReleaseManifest(config.manifestUrl);
+    const {
+      manifest: remoteManifest,
+      manifestUrl: effectiveManifestUrl,
+      requestedManifestUrl,
+    } = await loadRemoteImageReleaseManifest(config.manifestUrl);
     const currentManifest = readImageReleaseManifest(current.assetVersion);
     const delta = computeManifestDelta(remoteManifest, currentManifest);
     imageUpdateState.status = 'idle';
@@ -1601,6 +1638,8 @@ async function checkForImageReleaseUpdates() {
       deletedFileCount: delta.deletedFiles.length,
       totalFileCount: remoteManifest.files.length,
       hasUpdate: remoteManifest.assetVersion !== current.assetVersion,
+      manifestUrl: effectiveManifestUrl,
+      requestedManifestUrl,
     };
     return getImageUpdateStatePayload();
   } catch (error) {
@@ -1623,7 +1662,10 @@ async function applyImageReleaseUpdate() {
   const previousManifest = readImageReleaseManifest(current.assetVersion);
   const previousVersion = current.assetVersion || null;
   try {
-    const remoteManifest = await loadRemoteImageReleaseManifest(config.manifestUrl);
+    const {
+      manifest: remoteManifest,
+      manifestUrl: effectiveManifestUrl,
+    } = await loadRemoteImageReleaseManifest(config.manifestUrl);
     if (!isShellVersionCompatible(remoteManifest.minShellVersion)) {
       throw new Error(`当前 Shell 版本 ${app.getVersion()} 不满足最低要求 ${remoteManifest.minShellVersion}`);
     }
@@ -1645,7 +1687,7 @@ async function applyImageReleaseUpdate() {
         errorOnExist: false,
       });
       await stageImageReleasePackage({
-        manifestUrl: config.manifestUrl,
+        manifestUrl: effectiveManifestUrl,
         releasePackage: remoteManifest.package,
         stagingDir,
       });
@@ -1653,14 +1695,14 @@ async function applyImageReleaseUpdate() {
       verifyExtractedReleaseFiles(remoteManifest, stagingDir);
     } else if (remoteManifest.delivery === 'delta-archive' && remoteManifest.fullPackage) {
       await stageImageReleasePackage({
-        manifestUrl: config.manifestUrl,
+        manifestUrl: effectiveManifestUrl,
         releasePackage: remoteManifest.fullPackage,
         stagingDir,
       });
       verifyExtractedReleaseFiles(remoteManifest, stagingDir);
     } else if (remoteManifest.package) {
       await stageImageReleasePackage({
-        manifestUrl: config.manifestUrl,
+        manifestUrl: effectiveManifestUrl,
         releasePackage: remoteManifest.package,
         stagingDir,
       });
@@ -1677,7 +1719,7 @@ async function applyImageReleaseUpdate() {
       }
 
       for (const entry of delta.changedFiles) {
-        const downloadUrl = resolveReleaseFileDownloadUrl(config.manifestUrl, entry);
+        const downloadUrl = resolveReleaseFileDownloadUrl(effectiveManifestUrl, entry);
         const data = await fetchBufferUrl(downloadUrl);
         const actualHash = hashBufferSha256(data);
         if (actualHash !== entry.sha256) {
@@ -1706,7 +1748,7 @@ async function applyImageReleaseUpdate() {
     writeImageReleaseCurrent({
       assetVersion: targetVersion,
       activatedAt: new Date().toISOString(),
-      manifestUrl: config.manifestUrl,
+      manifestUrl: effectiveManifestUrl,
     });
 
     imageUpdateState.status = 'idle';
@@ -1725,9 +1767,10 @@ async function applyImageReleaseUpdate() {
       deletedFileCount: delta.deletedFiles.length,
       totalFileCount: remoteManifest.files.length,
       hasUpdate: false,
+      manifestUrl: effectiveManifestUrl,
     };
     syncImageManifest();
-    appendRuntimeLog('assets-update', `activated image release ${targetVersion} from ${config.manifestUrl}`);
+    appendRuntimeLog('assets-update', `activated image release ${targetVersion} from ${effectiveManifestUrl}`);
     return getImageUpdateStatePayload();
   } catch (error) {
     imageUpdateState.status = 'failed';
