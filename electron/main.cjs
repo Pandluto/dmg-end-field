@@ -1071,6 +1071,7 @@ const IMAGE_RELEASE_FILES_DIRNAME = 'versions';
 const IMAGE_RELEASE_STAGING_DIRNAME = 'staging';
 const IMAGE_RELEASE_MANIFEST_TIMEOUT_MS = 45000;
 const IMAGE_RELEASE_PACKAGE_TIMEOUT_MS = 180000;
+const IMAGE_RELEASE_DOWNLOAD_IDLE_TIMEOUT_MS = 30000;
 const DEFAULT_IMAGE_RELEASE_MANIFEST_URL =
   `https://github.com/Pandluto/dmg-end-field/releases/latest/download/${IMAGE_RELEASE_MANIFEST_NAME}`;
 const DEFAULT_IMAGE_RELEASE_DOWNLOAD_ROOT = 'https://github.com/Pandluto/dmg-end-field/releases/download';
@@ -1288,7 +1289,21 @@ async function fetchUrlRawWithChromium(targetUrl, options = {}) {
     if (response.body && typeof response.body.getReader === 'function') {
       const reader = response.body.getReader();
       while (true) {
-        const { value, done } = await reader.read();
+        const { value, done } = await new Promise((resolve, reject) => {
+          const idleTimer = setTimeout(() => {
+            reader.cancel().catch(() => {});
+            reject(new Error(`request idle timeout after ${IMAGE_RELEASE_DOWNLOAD_IDLE_TIMEOUT_MS}ms: ${targetUrl}`));
+          }, IMAGE_RELEASE_DOWNLOAD_IDLE_TIMEOUT_MS);
+          reader.read()
+            .then((result) => {
+              clearTimeout(idleTimer);
+              resolve(result);
+            })
+            .catch((error) => {
+              clearTimeout(idleTimer);
+              reject(error);
+            });
+        });
         if (done) {
           break;
         }
