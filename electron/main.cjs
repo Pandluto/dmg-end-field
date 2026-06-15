@@ -1074,6 +1074,7 @@ const DEFAULT_IMAGE_RELEASE_MANIFEST_URL =
   `https://github.com/Pandluto/dmg-end-field/releases/latest/download/${IMAGE_RELEASE_MANIFEST_NAME}`;
 const DEFAULT_IMAGE_RELEASE_DOWNLOAD_ROOT = 'https://github.com/Pandluto/dmg-end-field/releases/download';
 const DEFAULT_IMAGE_RELEASE_LATEST_API_URL = 'https://api.github.com/repos/Pandluto/dmg-end-field/releases/latest';
+const DEFAULT_IMAGE_RELEASES_API_URL = 'https://api.github.com/repos/Pandluto/dmg-end-field/releases?per_page=30';
 
 function getImageReleaseRoot() {
   return path.join(app.getPath('userData'), IMAGE_RELEASE_ROOT_DIRNAME);
@@ -1604,8 +1605,8 @@ function getDeltaArchiveReadiness(remoteManifest, previousVersion) {
     return { updateUnavailable: false, message: '将自动下载全量图片包完成更新。' };
   }
   return {
-    updateUnavailable: true,
-    message: '这次图片更新包不完整，当前设备暂时不能更新。请等待维护者补发包含全量图片包的版本。',
+    updateUnavailable: false,
+    message: '将自动补齐历史图片包后完成更新。',
   };
 }
 
@@ -1634,25 +1635,20 @@ async function stageImageReleasePackage({ manifestUrl, releasePackage, stagingDi
   }
 }
 
-async function loadDefaultGithubImageReleaseManifest() {
-  const releaseResponse = await fetchUrlRawWithRetry(DEFAULT_IMAGE_RELEASE_LATEST_API_URL, {
-    timeoutMs: IMAGE_RELEASE_MANIFEST_TIMEOUT_MS,
-    headers: { Accept: 'application/vnd.github+json' },
-    retries: 2,
-  });
-  if (releaseResponse.statusCode < 200 || releaseResponse.statusCode >= 300) {
-    throw new Error(`GitHub Release 请求失败: HTTP ${releaseResponse.statusCode}`);
-  }
-  const release = JSON.parse(releaseResponse.body.toString('utf-8') || '{}');
+function getReleaseAssetUrls(release) {
   const assets = Array.isArray(release.assets) ? release.assets : [];
-  const releaseAssetUrls = Object.fromEntries(
+  return Object.fromEntries(
     assets
       .filter((asset) => asset?.name && asset?.url)
       .map((asset) => [asset.name, asset.url])
   );
+}
+
+async function loadGithubReleaseManifestFromRelease(release, requestedManifestUrl) {
+  const releaseAssetUrls = getReleaseAssetUrls(release);
   const manifestUrl = releaseAssetUrls[IMAGE_RELEASE_MANIFEST_NAME];
   if (!manifestUrl) {
-    throw new Error(`最新 GitHub Release 缺少 ${IMAGE_RELEASE_MANIFEST_NAME}`);
+    throw new Error(`GitHub Release ${release.tag_name || '-'} 缺少 ${IMAGE_RELEASE_MANIFEST_NAME}`);
   }
   const response = await fetchUrlRawWithRetry(manifestUrl, {
     timeoutMs: IMAGE_RELEASE_MANIFEST_TIMEOUT_MS,
@@ -1670,9 +1666,71 @@ async function loadDefaultGithubImageReleaseManifest() {
     assetBaseUrl: tagName
       ? `${DEFAULT_IMAGE_RELEASE_DOWNLOAD_ROOT}/${encodeURIComponent(tagName)}/${IMAGE_RELEASE_MANIFEST_NAME}`
       : DEFAULT_IMAGE_RELEASE_MANIFEST_URL,
-    requestedManifestUrl: DEFAULT_IMAGE_RELEASE_LATEST_API_URL,
+    requestedManifestUrl,
     releaseAssetUrls,
+    releaseTagName: release.tag_name || '',
+    releaseName: release.name || '',
+    isDefaultGithubSource: true,
   };
+}
+
+async function loadDefaultGithubImageReleaseManifest() {
+  const releaseResponse = await fetchUrlRawWithRetry(DEFAULT_IMAGE_RELEASE_LATEST_API_URL, {
+    timeoutMs: IMAGE_RELEASE_MANIFEST_TIMEOUT_MS,
+    headers: { Accept: 'application/vnd.github+json' },
+    retries: 2,
+  });
+  if (releaseResponse.statusCode < 200 || releaseResponse.statusCode >= 300) {
+    throw new Error(`GitHub Release 请求失败: HTTP ${releaseResponse.statusCode}`);
+  }
+  const release = JSON.parse(releaseResponse.body.toString('utf-8') || '{}');
+  return loadGithubReleaseManifestFromRelease(release, DEFAULT_IMAGE_RELEASE_LATEST_API_URL);
+}
+
+async function loadDefaultGithubImageReleaseManifestByVersion(assetVersion) {
+  const targetVersion = typeof assetVersion === 'string' ? assetVersion.trim() : '';
+  if (!targetVersion) {
+    return null;
+  }
+  const releasesResponse = await fetchUrlRawWithRetry(DEFAULT_IMAGE_RELEASES_API_URL, {
+    timeoutMs: IMAGE_RELEASE_MANIFEST_TIMEOUT_MS,
+    headers: { Accept: 'application/vnd.github+json' },
+    retries: 2,
+  });
+  if (releasesResponse.statusCode < 200 || releasesResponse.statusCode >= 300) {
+    throw new Error(`GitHub Releases 请求失败: HTTP ${releasesResponse.statusCode}`);
+  }
+  const releases = JSON.parse(releasesResponse.body.toString('utf-8') || '[]');
+  if (!Array.isArray(releases)) {
+    return null;
+  }
+
+  for (const release of releases) {
+    const directMatch = release?.tag_name === targetVersion || release?.name === targetVersion;
+    if (!directMatch && !getReleaseAssetUrls(release)[IMAGE_RELEASE_MANIFEST_NAME]) {
+      continue;
+    }
+    try {
+      const candidate = await loadGithubReleaseManifestFromRelease(
+        release,
+        `${DEFAULT_IMAGE_RELEASES_API_URL}#${encodeURIComponent(targetVersion)}`
+      );
+      const manifest = candidate.manifest;
+      if (
+        directMatch
+        || manifest.assetVersion === targetVersion
+        || manifest.releaseTag === targetVersion
+      ) {
+        return candidate;
+      }
+    } catch (error) {
+      appendRuntimeLog(
+        'assets-update',
+        `skip release ${release?.tag_name || '-'} while finding ${targetVersion}: ${error instanceof Error ? error.message : String(error)}`
+      );
+    }
+  }
+  return null;
 }
 
 async function loadRemoteImageReleaseManifest(configuredUrl) {
@@ -1733,6 +1791,16 @@ function withReleaseAssetDownloadUrl(releaseAssetUrls, descriptor) {
   }
   const downloadUrl = getReleaseAssetDownloadUrl(releaseAssetUrls, descriptor);
   return downloadUrl ? { ...descriptor, downloadUrl } : descriptor;
+}
+
+function getFullReleasePackageDescriptor(manifest) {
+  if (!manifest || typeof manifest !== 'object') {
+    return null;
+  }
+  if (manifest.delivery === 'delta-archive') {
+    return manifest.fullPackage || null;
+  }
+  return manifest.package || manifest.fullPackage || null;
 }
 
 function getActiveImageReleaseRoot() {
@@ -1833,6 +1901,7 @@ async function applyImageReleaseUpdate() {
       manifestUrl: effectiveManifestUrl,
       assetBaseUrl,
       releaseAssetUrls,
+      isDefaultGithubSource,
     } = await loadRemoteImageReleaseManifest(sourceUrl);
     if (!isShellVersionCompatible(remoteManifest.minShellVersion)) {
       throw new Error(`当前 Shell 版本 ${app.getVersion()} 不满足最低要求 ${remoteManifest.minShellVersion}`);
@@ -1870,7 +1939,31 @@ async function applyImageReleaseUpdate() {
       });
       verifyExtractedReleaseFiles(remoteManifest, stagingDir);
     } else if (remoteManifest.delivery === 'delta-archive') {
-      throw new Error('这次图片更新包不完整，当前设备暂时不能更新。请等待维护者补发包含全量图片包的版本。');
+      if (!isDefaultGithubSource) {
+        throw new Error('这次图片更新需要历史图片包，但当前发布源不支持自动查找历史版本。');
+      }
+      const baselineRelease = await loadDefaultGithubImageReleaseManifestByVersion(remoteManifest.baseVersion);
+      const baselinePackage = getFullReleasePackageDescriptor(baselineRelease?.manifest);
+      if (!baselineRelease || !baselinePackage) {
+        throw new Error('未找到可自动下载的历史完整图片包，请稍后重试或等待维护者补发完整更新。');
+      }
+      appendRuntimeLog(
+        'assets-update',
+        `bootstrap baseline ${baselineRelease.manifest.assetVersion} before applying ${targetVersion}`
+      );
+      await stageImageReleasePackage({
+        manifestUrl: baselineRelease.assetBaseUrl,
+        releasePackage: withReleaseAssetDownloadUrl(baselineRelease.releaseAssetUrls, baselinePackage),
+        stagingDir,
+      });
+      verifyExtractedReleaseFiles(baselineRelease.manifest, stagingDir);
+      await stageImageReleasePackage({
+        manifestUrl: packageBaseUrl,
+        releasePackage: withReleaseAssetDownloadUrl(releaseAssetUrls, remoteManifest.package),
+        stagingDir,
+      });
+      removeReleaseDeletedFiles(remoteManifest, stagingDir);
+      verifyExtractedReleaseFiles(remoteManifest, stagingDir);
     } else if (remoteManifest.package) {
       await stageImageReleasePackage({
         manifestUrl: packageBaseUrl,
