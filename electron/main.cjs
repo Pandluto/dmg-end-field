@@ -1588,6 +1588,22 @@ function shouldUseDeltaArchive(remoteManifest, previousVersion, previousVersionD
     && fs.existsSync(previousVersionDir);
 }
 
+function getDeltaArchiveReadiness(remoteManifest, previousVersion) {
+  if (remoteManifest.delivery !== 'delta-archive') {
+    return { needsFullPackage: false, message: '' };
+  }
+  if (remoteManifest.baseVersion && previousVersion === remoteManifest.baseVersion) {
+    return { needsFullPackage: false, message: '' };
+  }
+  if (remoteManifest.fullPackage) {
+    return { needsFullPackage: false, message: '本机缺少增量基线，将下载全量图片包。' };
+  }
+  return {
+    needsFullPackage: true,
+    message: `本机缺少增量基线 ${remoteManifest.baseVersion || '-'}，请下载或发布包含全量图片包的版本。`,
+  };
+}
+
 async function stageImageReleasePackage({ manifestUrl, releasePackage, stagingDir }) {
   const packageUrl = resolveReleasePackageDownloadUrl(manifestUrl, releasePackage);
   if (!packageUrl) {
@@ -1774,6 +1790,7 @@ async function checkForImageReleaseUpdates() {
     } = await loadRemoteImageReleaseManifest(config.manifestUrl);
     const currentManifest = readImageReleaseManifest(current.assetVersion);
     const delta = computeManifestDelta(remoteManifest, currentManifest);
+    const deltaReadiness = getDeltaArchiveReadiness(remoteManifest, current.assetVersion || null);
     imageUpdateState.status = 'idle';
     imageUpdateState.latestVersion = remoteManifest.assetVersion;
     imageUpdateState.lastCheckedAt = Date.now();
@@ -1790,6 +1807,8 @@ async function checkForImageReleaseUpdates() {
       hasUpdate: remoteManifest.assetVersion !== current.assetVersion,
       manifestUrl: effectiveManifestUrl,
       requestedManifestUrl,
+      needsFullPackage: deltaReadiness.needsFullPackage,
+      updateMessage: deltaReadiness.message,
     };
     return getImageUpdateStatePayload();
   } catch (error) {
@@ -1854,7 +1873,7 @@ async function applyImageReleaseUpdate() {
       });
       verifyExtractedReleaseFiles(remoteManifest, stagingDir);
     } else if (remoteManifest.delivery === 'delta-archive') {
-      throw new Error(`当前图片版本不是增量包基线 ${remoteManifest.baseVersion || '-'}，且清单未提供全量包`);
+      throw new Error(`本机缺少增量基线 ${remoteManifest.baseVersion || '-'}，请下载或发布包含全量图片包的版本。`);
     } else if (remoteManifest.package) {
       await stageImageReleasePackage({
         manifestUrl: packageBaseUrl,
