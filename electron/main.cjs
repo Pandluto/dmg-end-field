@@ -2252,12 +2252,19 @@ function resolveUserImageFileByRequestPath(requestPath) {
     return null;
   }
   const requestedKey = decoded.toLowerCase();
+  const getRootRelativePath = (entry) => {
+    const relativePath = String(entry.relativePath || '').replace(/\\/g, '/');
+    if (entry.source === 'user' || entry.source === 'legacy') {
+      return relativePath.replace(/^assets\/images\/?/, '');
+    }
+    return relativePath.replace(/^assets\/?/, '');
+  };
   const allCandidates = scanAllImageAssets()
-    .filter((entry) => entry.kind !== 'dir' && (entry.source === 'user' || entry.source === 'legacy'));
+    .filter((entry) => entry.kind !== 'dir' && (entry.source === 'release' || entry.source === 'user' || entry.source === 'legacy'));
   const candidates = allCandidates
     .filter((entry) => {
       if (decoded.includes('/')) {
-        const rootRel = String(entry.relativePath || '').replace(/^assets\/images\/?/, '').toLowerCase();
+        const rootRel = getRootRelativePath(entry).toLowerCase();
         return rootRel === requestedKey;
       }
       return String(entry.fileName || '').toLowerCase() === requestedFileName.toLowerCase();
@@ -2265,7 +2272,7 @@ function resolveUserImageFileByRequestPath(requestPath) {
     .sort((left, right) => (left.rootPriority ?? 999) - (right.rootPriority ?? 999));
   for (const item of candidates) {
     if (!item.rootDirectory) continue;
-    const fullPath = path.resolve(item.rootDirectory, item.relativePath.replace(/^assets\/images\/?/, ''));
+    const fullPath = path.resolve(item.rootDirectory, getRootRelativePath(item));
     if (fs.existsSync(fullPath) && fs.statSync(fullPath).isFile()) {
       return fullPath;
     }
