@@ -1621,6 +1621,44 @@ function shouldUseDeltaArchive(remoteManifest, previousVersion, previousVersionD
     && fs.existsSync(previousVersionDir);
 }
 
+function listReleaseImageFiles(releaseDir) {
+  const files = [];
+  function walk(dirPath, relDir = '') {
+    let entries;
+    try {
+      entries = fs.readdirSync(dirPath, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      const fullPath = path.join(dirPath, entry.name);
+      const relPath = relDir ? `${relDir}/${entry.name}` : entry.name;
+      if (entry.isDirectory()) {
+        walk(fullPath, relPath);
+      } else if (entry.name !== IMAGE_RELEASE_MANIFEST_NAME && /\.(png|jpg|jpeg|webp|gif|svg|ico)$/i.test(entry.name)) {
+        files.push(relPath.replace(/\\/g, '/'));
+      }
+    }
+  }
+  walk(releaseDir);
+  return files;
+}
+
+function isDeltaReleaseMaterialized(manifest, releaseDir) {
+  if (!manifest || manifest.delivery !== 'delta-archive') {
+    return true;
+  }
+  if (!releaseDir || !fs.existsSync(releaseDir)) {
+    return false;
+  }
+  const patchFiles = new Set((manifest.files || []).map((entry) => relativePathToReleaseFilePath(entry.relativePath)));
+  const actualFiles = listReleaseImageFiles(releaseDir);
+  if (actualFiles.length === 0) {
+    return false;
+  }
+  return actualFiles.some((filePath) => !patchFiles.has(filePath));
+}
+
 function getDeltaArchiveReadiness(remoteManifest, previousVersion) {
   if (remoteManifest.delivery !== 'delta-archive') {
     return { action: 'update', updateUnavailable: false, message: '' };
@@ -1898,6 +1936,10 @@ async function checkForImageReleaseUpdates() {
     const currentManifest = readImageReleaseManifest(current.assetVersion);
     const delta = computeManifestDelta(remoteManifest, currentManifest);
     const deltaReadiness = getDeltaArchiveReadiness(remoteManifest, current.assetVersion || null);
+    const currentVersionDir = current.assetVersion ? getImageReleaseVersionDir(current.assetVersion) : null;
+    const currentTargetIncomplete = current.assetVersion === remoteManifest.assetVersion
+      && !isDeltaReleaseMaterialized(remoteManifest, currentVersionDir);
+    const action = currentTargetIncomplete ? 'repair-current' : deltaReadiness.action;
     imageUpdateState.status = 'idle';
     imageUpdateState.latestVersion = remoteManifest.assetVersion;
     imageUpdateState.lastCheckedAt = Date.now();
@@ -1911,13 +1953,13 @@ async function checkForImageReleaseUpdates() {
       changedFileCount: delta.changedFiles.length,
       deletedFileCount: delta.deletedFiles.length,
       totalFileCount: remoteManifest.files.length,
-      hasUpdate: remoteManifest.assetVersion !== current.assetVersion,
+      hasUpdate: remoteManifest.assetVersion !== current.assetVersion || currentTargetIncomplete,
       manifestUrl: effectiveManifestUrl,
       requestedManifestUrl,
-      action: deltaReadiness.action,
-      baselineVersion: deltaReadiness.action === 'download-baseline' ? remoteManifest.baseVersion || '' : '',
+      action,
+      baselineVersion: (action === 'download-baseline' || action === 'repair-current') ? remoteManifest.baseVersion || '' : '',
       updateUnavailable: deltaReadiness.updateUnavailable,
-      updateMessage: deltaReadiness.message,
+      updateMessage: currentTargetIncomplete ? '当前素材目录不完整，将自动重建当前版本。' : deltaReadiness.message,
     };
     return getImageUpdateStatePayload();
   } catch (error) {
@@ -1953,6 +1995,8 @@ async function applyImageReleaseUpdate() {
     const targetDir = getImageReleaseVersionDir(targetVersion);
     const stagingDir = path.join(getImageReleaseStagingDir(), sanitizeImageReleaseVersion(targetVersion));
     const delta = computeManifestDelta(remoteManifest, previousManifest);
+    const currentTargetIncomplete = current.assetVersion === targetVersion
+      && !isDeltaReleaseMaterialized(remoteManifest, targetDir);
 
     fs.rmSync(stagingDir, { recursive: true, force: true });
     fs.mkdirSync(stagingDir, { recursive: true });
@@ -1998,6 +2042,15 @@ async function applyImageReleaseUpdate() {
         releasePackage: withReleaseAssetDownloadUrl(baselineRelease.releaseAssetUrls, baselinePackage),
         stagingDir,
       });
+      if (currentTargetIncomplete) {
+        await stageImageReleasePackage({
+          manifestUrl: packageBaseUrl,
+          releasePackage: withReleaseAssetDownloadUrl(releaseAssetUrls, remoteManifest.package),
+          stagingDir,
+        });
+        removeReleaseDeletedFiles(remoteManifest, stagingDir);
+        verifyExtractedReleaseFiles(remoteManifest, stagingDir);
+      } else {
       fs.writeFileSync(
         path.join(stagingDir, IMAGE_RELEASE_MANIFEST_NAME),
         `${JSON.stringify(baselineRelease.manifest, null, 2)}\n`,
@@ -2037,6 +2090,7 @@ async function applyImageReleaseUpdate() {
       await clearAssetRuntimeCache();
       appendRuntimeLog('assets-update', `activated image baseline ${baselineVersion}`);
       return getImageUpdateStatePayload();
+      }
     } else if (remoteManifest.package) {
       await stageImageReleasePackage({
         manifestUrl: packageBaseUrl,
@@ -2103,6 +2157,8 @@ async function applyImageReleaseUpdate() {
       totalFileCount: remoteManifest.files.length,
       hasUpdate: false,
       manifestUrl: effectiveManifestUrl,
+      action: currentTargetIncomplete ? 'repair-current' : 'update',
+      updateMessage: currentTargetIncomplete ? '当前素材目录已重建完成。' : '',
     };
     syncImageManifest();
     await clearAssetRuntimeCache();

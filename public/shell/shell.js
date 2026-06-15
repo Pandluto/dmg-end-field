@@ -142,10 +142,12 @@
       if (!applyButton.dataset.originalText) {
         applyButton.textContent = latestSummary?.action === 'download-baseline'
           ? '下载基线'
+          : latestSummary?.action === 'repair-current' ? '修复素材'
           : latestSummary?.action === 'check-again' ? '先检查更新' : '下载并切换';
       }
       applyButton.disabled = !manifestUrl || status === 'checking' || status === 'downloading' || status === 'activating'
-        || latestSummary?.compatible === false || latestSummary?.updateUnavailable === true || latestSummary?.action === 'check-again';
+        || latestSummary?.compatible === false || latestSummary?.updateUnavailable === true || latestSummary?.action === 'check-again'
+        || (latestSummary && !latestSummary.hasUpdate && latestSummary.action !== 'download-baseline' && latestSummary.action !== 'repair-current');
     }
   };
 
@@ -874,6 +876,8 @@
       const action = result?.state?.latestSummary?.action;
       const message = action === 'check-again'
         ? `基线已下载：${result?.state?.currentVersion || '-'}，请重新检查更新`
+        : action === 'repair-current'
+        ? `素材已修复：${result?.state?.currentVersion || '-'}`
         : `已切换到 ${result?.state?.currentVersion || '-'}`;
       appendLog(`图片更新 | ${message}`);
       await Promise.allSettled([refreshImages(), refreshShellState()]);
