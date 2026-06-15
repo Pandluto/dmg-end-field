@@ -1132,6 +1132,11 @@ function readImageReleaseConfig() {
   }
 }
 
+function getImageReleaseSourceUrl(config) {
+  return (typeof config?.manifestUrl === 'string' && config.manifestUrl.trim())
+    || DEFAULT_IMAGE_RELEASE_MANIFEST_URL;
+}
+
 function writeImageReleaseConfig(config) {
   const manifestUrl = typeof config?.manifestUrl === 'string' ? config.manifestUrl.trim() : '';
   fs.mkdirSync(path.dirname(getImageReleaseConfigPath()), { recursive: true });
@@ -1590,17 +1595,17 @@ function shouldUseDeltaArchive(remoteManifest, previousVersion, previousVersionD
 
 function getDeltaArchiveReadiness(remoteManifest, previousVersion) {
   if (remoteManifest.delivery !== 'delta-archive') {
-    return { needsFullPackage: false, message: '' };
+    return { updateUnavailable: false, message: '' };
   }
   if (remoteManifest.baseVersion && previousVersion === remoteManifest.baseVersion) {
-    return { needsFullPackage: false, message: '' };
+    return { updateUnavailable: false, message: '' };
   }
   if (remoteManifest.fullPackage) {
-    return { needsFullPackage: false, message: '本机缺少增量基线，将下载全量图片包。' };
+    return { updateUnavailable: false, message: '将自动下载全量图片包完成更新。' };
   }
   return {
-    needsFullPackage: true,
-    message: `本机缺少增量基线 ${remoteManifest.baseVersion || '-'}，请下载或发布包含全量图片包的版本。`,
+    updateUnavailable: true,
+    message: '这次图片更新包不完整，当前设备暂时不能更新。请等待维护者补发包含全量图片包的版本。',
   };
 }
 
@@ -1741,12 +1746,13 @@ function getActiveImageReleaseRoot() {
 
 function getImageUpdateStatePayload() {
   const config = readImageReleaseConfig();
+  const sourceUrl = getImageReleaseSourceUrl(config);
   const current = readImageReleaseCurrent();
   const activeManifest = readImageReleaseManifest(current.assetVersion);
-  imageUpdateState.configuredManifestUrl = config.manifestUrl || '';
+  imageUpdateState.configuredManifestUrl = sourceUrl;
   imageUpdateState.currentVersion = current.assetVersion || null;
   return {
-    configuredManifestUrl: config.manifestUrl || '',
+    configuredManifestUrl: sourceUrl,
     currentVersion: current.assetVersion || null,
     currentActivatedAt: current.activatedAt || null,
     currentManifestSummary: activeManifest
@@ -1771,14 +1777,7 @@ function getImageUpdateStatePayload() {
 
 async function checkForImageReleaseUpdates() {
   const config = readImageReleaseConfig();
-  if (!config.manifestUrl) {
-    imageUpdateState.status = 'idle';
-    imageUpdateState.lastError = '';
-    imageUpdateState.lastCheckedAt = Date.now();
-    imageUpdateState.latestVersion = null;
-    imageUpdateState.latestSummary = null;
-    return getImageUpdateStatePayload();
-  }
+  const sourceUrl = getImageReleaseSourceUrl(config);
   imageUpdateState.status = 'checking';
   imageUpdateState.lastError = '';
   const current = readImageReleaseCurrent();
@@ -1787,7 +1786,7 @@ async function checkForImageReleaseUpdates() {
       manifest: remoteManifest,
       manifestUrl: effectiveManifestUrl,
       requestedManifestUrl,
-    } = await loadRemoteImageReleaseManifest(config.manifestUrl);
+    } = await loadRemoteImageReleaseManifest(sourceUrl);
     const currentManifest = readImageReleaseManifest(current.assetVersion);
     const delta = computeManifestDelta(remoteManifest, currentManifest);
     const deltaReadiness = getDeltaArchiveReadiness(remoteManifest, current.assetVersion || null);
@@ -1799,7 +1798,7 @@ async function checkForImageReleaseUpdates() {
       assetVersion: remoteManifest.assetVersion,
       minShellVersion: remoteManifest.minShellVersion || '',
       compatible: isShellVersionCompatible(remoteManifest.minShellVersion),
-      delivery: remoteManifest.package ? 'archive' : 'files',
+      delivery: remoteManifest.delivery || (remoteManifest.package ? 'archive' : 'files'),
       packageSizeBytes: remoteManifest.package ? Number(remoteManifest.package.sizeBytes) || 0 : 0,
       changedFileCount: delta.changedFiles.length,
       deletedFileCount: delta.deletedFiles.length,
@@ -1807,7 +1806,7 @@ async function checkForImageReleaseUpdates() {
       hasUpdate: remoteManifest.assetVersion !== current.assetVersion,
       manifestUrl: effectiveManifestUrl,
       requestedManifestUrl,
-      needsFullPackage: deltaReadiness.needsFullPackage,
+      updateUnavailable: deltaReadiness.updateUnavailable,
       updateMessage: deltaReadiness.message,
     };
     return getImageUpdateStatePayload();
@@ -1821,9 +1820,7 @@ async function checkForImageReleaseUpdates() {
 
 async function applyImageReleaseUpdate() {
   const config = readImageReleaseConfig();
-  if (!config.manifestUrl) {
-    throw new Error('请先配置图片发布清单地址');
-  }
+  const sourceUrl = getImageReleaseSourceUrl(config);
   ensureImageReleaseDirectories();
   imageUpdateState.status = 'checking';
   imageUpdateState.lastError = '';
@@ -1836,7 +1833,7 @@ async function applyImageReleaseUpdate() {
       manifestUrl: effectiveManifestUrl,
       assetBaseUrl,
       releaseAssetUrls,
-    } = await loadRemoteImageReleaseManifest(config.manifestUrl);
+    } = await loadRemoteImageReleaseManifest(sourceUrl);
     if (!isShellVersionCompatible(remoteManifest.minShellVersion)) {
       throw new Error(`当前 Shell 版本 ${app.getVersion()} 不满足最低要求 ${remoteManifest.minShellVersion}`);
     }
@@ -1873,7 +1870,7 @@ async function applyImageReleaseUpdate() {
       });
       verifyExtractedReleaseFiles(remoteManifest, stagingDir);
     } else if (remoteManifest.delivery === 'delta-archive') {
-      throw new Error(`本机缺少增量基线 ${remoteManifest.baseVersion || '-'}，请下载或发布包含全量图片包的版本。`);
+      throw new Error('这次图片更新包不完整，当前设备暂时不能更新。请等待维护者补发包含全量图片包的版本。');
     } else if (remoteManifest.package) {
       await stageImageReleasePackage({
         manifestUrl: packageBaseUrl,

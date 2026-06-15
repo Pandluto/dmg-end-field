@@ -118,7 +118,7 @@
       ? `${latestSummary.totalFileCount || 0} 个文件；${latestDelivery}${latestPackageText}；变更 ${latestSummary.changedFileCount || 0}；删除 ${latestSummary.deletedFileCount || 0}${latestSummary.updateMessage ? `；${latestSummary.updateMessage}` : ''}`
       : (manifestUrl ? '尚未检查远端版本。' : '先保存 manifest 地址，再检查更新。');
     const latestStatusLine = latestSummary
-      ? `${latestSummary.compatible === false ? '当前 Shell 版本不兼容；' : ''}${latestSummary.updateMessage ? `${latestSummary.updateMessage}；` : ''}${latestSummary.hasUpdate ? '发现可更新版本。' : '已是最新版本。'}`
+      ? `${latestSummary.compatible === false ? '当前 Shell 版本不兼容；' : ''}${latestSummary.updateMessage ? `${latestSummary.updateMessage}；` : ''}${latestSummary.updateUnavailable ? '更新暂不可用。' : (latestSummary.hasUpdate ? '发现可更新版本。' : '已是最新版本。')}`
       : (payload?.lastError || '等待检查更新。');
 
     const input = $('image-update-manifest-url');
@@ -140,7 +140,7 @@
     const applyButton = $('apply-image-update');
     if (applyButton) {
       applyButton.disabled = !manifestUrl || status === 'checking' || status === 'downloading' || status === 'activating'
-        || latestSummary?.compatible === false || latestSummary?.needsFullPackage === true;
+        || latestSummary?.compatible === false || latestSummary?.updateUnavailable === true;
     }
   };
 
@@ -931,6 +931,9 @@
       setImageReleaseBuilderStatus('只生成增量包需要先选择上一版 assets-release-manifest.json。', 'err');
       setButtonBusy(button, false);
       return;
+    }
+    if (selectedMode === 'delta') {
+      setImageReleaseBuilderStatus('只生成增量包不会提供全量兜底，没有历史图片版本的设备将无法更新。', 'warn');
     }
     const payload = {
       source: getInputValue('image-release-source'),
