@@ -1430,6 +1430,25 @@ function resolveReleasePackageDownloadUrl(manifestSourceUrl, releasePackage) {
   return null;
 }
 
+function resolveReleasePackageDownloadUrls(manifestSourceUrl, releasePackage) {
+  const urls = [];
+  const primaryUrl = resolveReleasePackageDownloadUrl(manifestSourceUrl, releasePackage);
+  if (primaryUrl) {
+    urls.push(primaryUrl);
+  }
+  const alternatives = Array.isArray(releasePackage?.downloadUrls) ? releasePackage.downloadUrls : [];
+  for (const alternative of alternatives) {
+    if (typeof alternative !== 'string' || !alternative.trim()) {
+      continue;
+    }
+    const resolved = new URL(alternative.trim(), manifestSourceUrl).toString();
+    if (!urls.includes(resolved)) {
+      urls.push(resolved);
+    }
+  }
+  return urls;
+}
+
 function validateReleasePackageDescriptor(releasePackage, manifestSourceUrl, label) {
   if (!releasePackage || typeof releasePackage !== 'object') {
     throw new Error(`发布清单 ${label} 字段无效`);
@@ -1690,19 +1709,35 @@ function getDeltaArchiveReadiness(remoteManifest, previousVersion) {
 }
 
 async function stageImageReleasePackage({ manifestUrl, releasePackage, stagingDir, label, skipPackageIntegrityCheck = false }) {
-  const packageUrl = resolveReleasePackageDownloadUrl(manifestUrl, releasePackage);
-  if (!packageUrl) {
+  const packageUrls = resolveReleasePackageDownloadUrls(manifestUrl, releasePackage);
+  if (packageUrls.length === 0) {
     throw new Error('发布清单 package 缺少下载地址');
   }
   const progressLabel = label || releasePackage.fileName || releasePackage.packagePath || '图片资源包';
-  const archiveBuffer = await fetchBufferUrl(packageUrl, {
-    onProgress: ({ receivedBytes, totalBytes }) => setImageUpdateProgress({
-      phase: 'downloading',
-      label: progressLabel,
-      receivedBytes,
-      totalBytes,
-    }),
-  });
+  let archiveBuffer = null;
+  let lastDownloadError = null;
+  for (const packageUrl of packageUrls) {
+    try {
+      archiveBuffer = await fetchBufferUrl(packageUrl, {
+        onProgress: ({ receivedBytes, totalBytes }) => setImageUpdateProgress({
+          phase: 'downloading',
+          label: progressLabel,
+          receivedBytes,
+          totalBytes,
+        }),
+      });
+      break;
+    } catch (error) {
+      lastDownloadError = error;
+      appendRuntimeLog('assets-update', `package candidate failed ${packageUrl}: ${error instanceof Error ? error.message : String(error)}`);
+      if (!String(error instanceof Error ? error.message : error).includes('HTTP 404')) {
+        throw error;
+      }
+    }
+  }
+  if (!archiveBuffer) {
+    throw lastDownloadError || new Error('图片资源包下载失败');
+  }
   setImageUpdateProgress({
     phase: 'verifying',
     label: progressLabel,
@@ -1786,14 +1821,55 @@ function getGithubReleasePackageBaseUrlForTag(tag) {
   return `${DEFAULT_IMAGE_RELEASE_DOWNLOAD_ROOT}/${encodeURIComponent(releaseTag)}/${IMAGE_RELEASE_MANIFEST_NAME}`;
 }
 
-function getInferredFullPackageDescriptor(tag) {
+function getReleaseDownloadUrl(tag, fileName) {
   const releaseTag = typeof tag === 'string' ? tag.trim() : '';
-  if (!releaseTag) {
+  const releaseFile = typeof fileName === 'string' ? fileName.trim() : '';
+  if (!releaseTag || !releaseFile) {
+    return '';
+  }
+  return `${DEFAULT_IMAGE_RELEASE_DOWNLOAD_ROOT}/${encodeURIComponent(releaseTag)}/${encodeUrlPathPreservingSegments(releaseFile)}`;
+}
+
+function getVersionAliases(value) {
+  const raw = typeof value === 'string' ? value.trim() : '';
+  if (!raw) {
+    return [];
+  }
+  const aliases = [raw];
+  const asciiTail = raw.match(/[A-Za-z0-9][A-Za-z0-9._-]*$/)?.[0] || '';
+  if (asciiTail && !aliases.includes(asciiTail)) {
+    aliases.push(asciiTail);
+  }
+  const withoutTestPrefix = raw.replace(/^测试/i, '').trim();
+  if (withoutTestPrefix && !aliases.includes(withoutTestPrefix)) {
+    aliases.push(withoutTestPrefix);
+  }
+  return aliases;
+}
+
+function getInferredFullPackageDescriptor(baseTag, baseVersion) {
+  const tagAliases = getVersionAliases(baseTag);
+  const versionAliases = getVersionAliases(baseVersion);
+  if (String(baseVersion || '').includes('测试') && !tagAliases.includes('test')) {
+    tagAliases.push('test');
+  }
+  const fileAliases = [...new Set([...versionAliases, ...tagAliases])];
+  const downloadUrls = [];
+  for (const tag of tagAliases) {
+    for (const fileAlias of fileAliases) {
+      const url = getReleaseDownloadUrl(tag, `assets-${fileAlias}-full.zip`);
+      if (url && !downloadUrls.includes(url)) {
+        downloadUrls.push(url);
+      }
+    }
+  }
+  if (downloadUrls.length === 0) {
     return null;
   }
   return {
     format: 'zip',
-    fileName: `assets-${releaseTag}-full.zip`,
+    downloadUrl: downloadUrls[0],
+    downloadUrls,
     inferred: true,
   };
 }
@@ -1842,7 +1918,7 @@ async function loadInferredBaselineRelease(remoteManifest) {
       assetVersion: baseVersion,
       manifest: null,
       assetBaseUrl: getGithubReleasePackageBaseUrlForTag(baseTag),
-      package: getInferredFullPackageDescriptor(baseTag),
+      package: getInferredFullPackageDescriptor(baseTag, baseVersion),
       skipPackageIntegrityCheck: true,
     };
   }
