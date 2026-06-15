@@ -1122,8 +1122,7 @@ function readImageReleaseConfig() {
 }
 
 function getImageReleaseSourceUrl(config) {
-  return (typeof config?.manifestUrl === 'string' && config.manifestUrl.trim())
-    || DEFAULT_IMAGE_RELEASE_MANIFEST_URL;
+  return typeof config?.manifestUrl === 'string' ? config.manifestUrl.trim() : '';
 }
 
 function writeImageReleaseConfig(config) {
@@ -1471,13 +1470,29 @@ function resolveImageReleaseManifestUrl(configuredUrl) {
     return rawUrl;
   }
 
-  if (parsedUrl.pathname.startsWith('/Pandluto/dmg-end-field/releases/latest/download/')) {
+  if (
+    parsedUrl.pathname === '/Pandluto/dmg-end-field/releases/latest'
+    || parsedUrl.pathname === '/Pandluto/dmg-end-field/releases/latest/'
+  ) {
     return DEFAULT_IMAGE_RELEASE_MANIFEST_URL;
   }
 
-  const releaseDownloadMatch = parsedUrl.pathname.match(/^\/Pandluto\/dmg-end-field\/releases\/download\/([^/]+)\//);
+  if (parsedUrl.pathname === `/Pandluto/dmg-end-field/releases/latest/download/${IMAGE_RELEASE_MANIFEST_NAME}`) {
+    return rawUrl;
+  }
+
+  const releaseTagMatch = parsedUrl.pathname.match(/^\/Pandluto\/dmg-end-field\/releases\/tag\/([^/]+)\/?$/);
+  if (releaseTagMatch) {
+    return `${DEFAULT_IMAGE_RELEASE_DOWNLOAD_ROOT}/${releaseTagMatch[1]}/${IMAGE_RELEASE_MANIFEST_NAME}`;
+  }
+
+  const releaseDownloadMatch = parsedUrl.pathname.match(/^\/Pandluto\/dmg-end-field\/releases\/download\/([^/]+)\/([^/]+)$/);
   if (releaseDownloadMatch) {
-    return `${DEFAULT_IMAGE_RELEASE_DOWNLOAD_ROOT}/${releaseDownloadMatch[1]}/${IMAGE_RELEASE_MANIFEST_NAME}`;
+    const [, releaseTag, fileName] = releaseDownloadMatch;
+    if (fileName === IMAGE_RELEASE_MANIFEST_NAME) {
+      return rawUrl;
+    }
+    return `${DEFAULT_IMAGE_RELEASE_DOWNLOAD_ROOT}/${releaseTag}/${IMAGE_RELEASE_MANIFEST_NAME}`;
   }
 
   return rawUrl;
@@ -1642,6 +1657,29 @@ function extractZipArchive(zipPath, destDir) {
       `Expand-Archive -LiteralPath '${escapedZip}' -DestinationPath '${escapedDest}' -Force`,
     ]);
     return;
+  }
+  if (process.platform === 'darwin') {
+    const candidates = [
+      { command: 'ditto', args: ['-x', '-k', zipPath, destDir] },
+      { command: 'bsdtar', args: ['-xf', zipPath, '-C', destDir] },
+      { command: 'unzip', args: ['-q', zipPath, '-d', destDir] },
+    ];
+    let lastError = null;
+    for (const candidate of candidates) {
+      try {
+        fs.rmSync(destDir, { recursive: true, force: true });
+        fs.mkdirSync(destDir, { recursive: true });
+        runSyncChecked(candidate.command, candidate.args);
+        return;
+      } catch (error) {
+        lastError = error;
+        appendRuntimeLog(
+          'assets-update',
+          `extract fallback failed ${candidate.command}: ${error instanceof Error ? error.message : String(error)}`
+        );
+      }
+    }
+    throw lastError || new Error('图片资源包解压失败');
   }
   runSyncChecked('unzip', ['-q', zipPath, '-d', destDir]);
 }
@@ -1814,6 +1852,9 @@ async function stageImageReleasePackage({ manifestUrl, releasePackage, stagingDi
 
 async function loadRemoteImageReleaseManifest(configuredUrl) {
   const requestedManifestUrl = resolveImageReleaseManifestUrl(configuredUrl);
+  if (!requestedManifestUrl) {
+    throw new Error('请先保存图片 Release Manifest 地址');
+  }
   const response = await fetchUrlRawWithRetry(requestedManifestUrl, {
     timeoutMs: IMAGE_RELEASE_MANIFEST_TIMEOUT_MS,
     retries: 2,
