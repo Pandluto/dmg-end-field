@@ -1132,7 +1132,8 @@ function readImageReleaseConfig() {
 }
 
 function getImageReleaseSourceUrl(config) {
-  return typeof config?.manifestUrl === 'string' ? config.manifestUrl.trim() : '';
+  return (typeof config?.manifestUrl === 'string' && config.manifestUrl.trim())
+    || DEFAULT_IMAGE_RELEASE_MANIFEST_URL;
 }
 
 function writeImageReleaseConfig(config) {
@@ -1402,7 +1403,7 @@ function resolveImageReleaseManifestUrl(configuredUrl) {
   }
 
   if (parsedUrl.pathname.startsWith('/Pandluto/dmg-end-field/releases/latest/download/')) {
-    throw new Error('请使用具体 tag 的 Release 地址，不要使用 releases/latest/download。');
+    return DEFAULT_IMAGE_RELEASE_MANIFEST_URL;
   }
 
   const releaseDownloadMatch = parsedUrl.pathname.match(/^\/Pandluto\/dmg-end-field\/releases\/download\/([^/]+)\//);
@@ -1983,9 +1984,6 @@ async function checkForImageReleaseUpdates() {
   clearImageUpdateProgress();
   const current = readImageReleaseCurrent();
   try {
-    if (!sourceUrl) {
-      throw new Error('请先保存图片发布清单地址或 Release 包地址。');
-    }
     const {
       manifest: remoteManifest,
       manifestUrl: effectiveManifestUrl,
@@ -2039,9 +2037,6 @@ async function applyImageReleaseUpdate() {
   const previousManifest = readImageReleaseManifest(current.assetVersion);
   const previousVersion = current.assetVersion || null;
   try {
-    if (!sourceUrl) {
-      throw new Error('请先保存图片发布清单地址或 Release 包地址。');
-    }
     const {
       manifest: remoteManifest,
       manifestUrl: effectiveManifestUrl,
