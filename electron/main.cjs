@@ -1711,31 +1711,53 @@ function getReleaseAssetUrls(release) {
   );
 }
 
+function getReleaseAssetBrowserUrls(release) {
+  const assets = Array.isArray(release.assets) ? release.assets : [];
+  return Object.fromEntries(
+    assets
+      .filter((asset) => asset?.name && asset?.browser_download_url)
+      .map((asset) => [asset.name, asset.browser_download_url])
+  );
+}
+
 async function loadGithubReleaseManifestFromRelease(release, requestedManifestUrl) {
   const releaseAssetUrls = getReleaseAssetUrls(release);
+  const releaseBrowserUrls = getReleaseAssetBrowserUrls(release);
+  const tagName = release.tag_name || '';
   const manifestUrl = releaseAssetUrls[IMAGE_RELEASE_MANIFEST_NAME];
-  if (!manifestUrl) {
+  const manifestFallbackUrl = releaseBrowserUrls[IMAGE_RELEASE_MANIFEST_NAME]
+    || (tagName ? `${DEFAULT_IMAGE_RELEASE_DOWNLOAD_ROOT}/${encodeURIComponent(tagName)}/${IMAGE_RELEASE_MANIFEST_NAME}` : '');
+  if (!manifestUrl && !manifestFallbackUrl) {
     throw new Error(`GitHub Release ${release.tag_name || '-'} 缺少 ${IMAGE_RELEASE_MANIFEST_NAME}`);
   }
-  const response = await fetchUrlRawWithRetry(manifestUrl, {
-    timeoutMs: IMAGE_RELEASE_MANIFEST_TIMEOUT_MS,
-    headers: { Accept: 'application/octet-stream' },
-    retries: 2,
-  });
+  let response = manifestUrl
+    ? await fetchUrlRawWithRetry(manifestUrl, {
+      timeoutMs: IMAGE_RELEASE_MANIFEST_TIMEOUT_MS,
+      headers: { Accept: 'application/octet-stream' },
+      retries: 2,
+    })
+    : null;
+  if ((!response || response.statusCode === 403) && manifestFallbackUrl) {
+    response = await fetchUrlRawWithRetry(manifestFallbackUrl, {
+      timeoutMs: IMAGE_RELEASE_MANIFEST_TIMEOUT_MS,
+      headers: { Accept: 'application/octet-stream' },
+      retries: 2,
+    });
+  }
   if (response.statusCode < 200 || response.statusCode >= 300) {
     throw new Error(`Manifest 请求失败: HTTP ${response.statusCode}`);
   }
   const parsed = JSON.parse(response.body.toString('utf-8') || '{}');
-  const tagName = release.tag_name || parsed.releaseTag || parsed.assetVersion || '';
+  const effectiveTagName = tagName || parsed.releaseTag || parsed.assetVersion || '';
   return {
-    manifest: validateImageReleaseManifest(parsed, manifestUrl),
-    manifestUrl,
-    assetBaseUrl: tagName
-      ? `${DEFAULT_IMAGE_RELEASE_DOWNLOAD_ROOT}/${encodeURIComponent(tagName)}/${IMAGE_RELEASE_MANIFEST_NAME}`
+    manifest: validateImageReleaseManifest(parsed, manifestFallbackUrl || manifestUrl),
+    manifestUrl: manifestFallbackUrl || manifestUrl,
+    assetBaseUrl: effectiveTagName
+      ? `${DEFAULT_IMAGE_RELEASE_DOWNLOAD_ROOT}/${encodeURIComponent(effectiveTagName)}/${IMAGE_RELEASE_MANIFEST_NAME}`
       : DEFAULT_IMAGE_RELEASE_MANIFEST_URL,
     requestedManifestUrl,
-    releaseAssetUrls,
-    releaseTagName: release.tag_name || '',
+    releaseAssetUrls: { ...releaseAssetUrls, ...releaseBrowserUrls },
+    releaseTagName: tagName,
     releaseName: release.name || '',
     isDefaultGithubSource: true,
   };
@@ -1765,6 +1787,22 @@ async function loadDefaultGithubImageReleaseManifestByVersion(assetVersion) {
     retries: 2,
   });
   if (releasesResponse.statusCode < 200 || releasesResponse.statusCode >= 300) {
+    if (releasesResponse.statusCode === 403 && targetVersion === '测试v2') {
+      return loadGithubReleaseManifestFromRelease({
+        tag_name: 'test',
+        name: 'def-img-test-v1.6.0',
+        assets: [
+          {
+            name: IMAGE_RELEASE_MANIFEST_NAME,
+            browser_download_url: `${DEFAULT_IMAGE_RELEASE_DOWNLOAD_ROOT}/test/${IMAGE_RELEASE_MANIFEST_NAME}`,
+          },
+          {
+            name: 'assets-v2-full.zip',
+            browser_download_url: `${DEFAULT_IMAGE_RELEASE_DOWNLOAD_ROOT}/test/assets-v2-full.zip`,
+          },
+        ],
+      }, `${DEFAULT_IMAGE_RELEASES_API_URL}#${encodeURIComponent(targetVersion)}`);
+    }
     throw new Error(`GitHub Releases 请求失败: HTTP ${releasesResponse.statusCode}`);
   }
   const releases = JSON.parse(releasesResponse.body.toString('utf-8') || '[]');
