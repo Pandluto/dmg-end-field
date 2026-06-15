@@ -1853,6 +1853,8 @@ async function applyImageReleaseUpdate() {
         stagingDir,
       });
       verifyExtractedReleaseFiles(remoteManifest, stagingDir);
+    } else if (remoteManifest.delivery === 'delta-archive') {
+      throw new Error(`当前图片版本不是增量包基线 ${remoteManifest.baseVersion || '-'}，且清单未提供全量包`);
     } else if (remoteManifest.package) {
       await stageImageReleasePackage({
         manifestUrl: packageBaseUrl,
@@ -1860,8 +1862,6 @@ async function applyImageReleaseUpdate() {
         stagingDir,
       });
       verifyExtractedReleaseFiles(remoteManifest, stagingDir);
-    } else if (remoteManifest.delivery === 'delta-archive') {
-      throw new Error(`当前图片版本不是增量包基线 ${remoteManifest.baseVersion || '-'}，且清单未提供全量包`);
     } else {
       if (previousVersionDir && fs.existsSync(previousVersionDir)) {
         fs.cpSync(previousVersionDir, stagingDir, {
