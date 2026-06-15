@@ -14,6 +14,7 @@ const {
   ipcMain,
   Menu,
   Tray,
+  net,
   nativeImage,
   shell,
 } = require('electron');
@@ -1261,7 +1262,77 @@ function getHttpModuleForUrl(targetUrl) {
   return parsed.protocol === 'https:' ? https : http;
 }
 
-function fetchUrlRaw(targetUrl, options = {}, redirectCount = 0) {
+async function fetchUrlRawWithChromium(targetUrl, options = {}) {
+  if (!net || typeof net.fetch !== 'function' || !app.isReady()) {
+    throw new Error('Electron net.fetch unavailable');
+  }
+  const controller = new AbortController();
+  const timeoutMs = options.timeoutMs || 10000;
+  const timer = setTimeout(() => {
+    controller.abort(new Error(`request timeout after ${timeoutMs}ms: ${targetUrl}`));
+  }, timeoutMs);
+  try {
+    const response = await net.fetch(targetUrl, {
+      method: options.method || 'GET',
+      headers: {
+        Accept: 'application/octet-stream, application/json;q=0.9, */*;q=0.8',
+        ...(options.headers || {}),
+      },
+      body: options.body,
+      redirect: 'follow',
+      signal: controller.signal,
+    });
+    const chunks = [];
+    const totalBytes = Number(response.headers.get('content-length') || 0);
+    let receivedBytes = 0;
+    if (response.body && typeof response.body.getReader === 'function') {
+      const reader = response.body.getReader();
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) {
+          break;
+        }
+        const chunk = Buffer.from(value);
+        chunks.push(chunk);
+        receivedBytes += chunk.length;
+        if (typeof options.onProgress === 'function') {
+          options.onProgress({
+            receivedBytes,
+            totalBytes: Number.isFinite(totalBytes) && totalBytes > 0 ? totalBytes : 0,
+            url: response.url || targetUrl,
+          });
+        }
+      }
+    } else {
+      const arrayBuffer = await response.arrayBuffer();
+      const chunk = Buffer.from(arrayBuffer);
+      chunks.push(chunk);
+      receivedBytes = chunk.length;
+      if (typeof options.onProgress === 'function') {
+        options.onProgress({
+          receivedBytes,
+          totalBytes: Number.isFinite(totalBytes) && totalBytes > 0 ? totalBytes : receivedBytes,
+          url: response.url || targetUrl,
+        });
+      }
+    }
+    return {
+      statusCode: response.status,
+      headers: Object.fromEntries(response.headers.entries()),
+      body: Buffer.concat(chunks),
+      url: response.url || targetUrl,
+    };
+  } catch (error) {
+    if (error?.name === 'AbortError') {
+      throw new Error(`request timeout after ${timeoutMs}ms: ${targetUrl}`);
+    }
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function fetchUrlRawWithNode(targetUrl, options = {}, redirectCount = 0) {
   return new Promise((resolve, reject) => {
     if (redirectCount > 5) {
       reject(new Error('请求重定向次数过多'));
@@ -1297,7 +1368,7 @@ function fetchUrlRaw(targetUrl, options = {}, redirectCount = 0) {
         if ([301, 302, 303, 307, 308].includes(statusCode) && response.headers.location) {
           try {
             const redirectedUrl = new URL(response.headers.location, parsedUrl).toString();
-            const redirected = await fetchUrlRaw(redirectedUrl, options, redirectCount + 1);
+            const redirected = await fetchUrlRawWithNode(redirectedUrl, options, redirectCount + 1);
             resolve(redirected);
           } catch (error) {
             reject(error);
@@ -1322,6 +1393,15 @@ function fetchUrlRaw(targetUrl, options = {}, redirectCount = 0) {
     }
     request.end();
   });
+}
+
+async function fetchUrlRaw(targetUrl, options = {}) {
+  try {
+    return await fetchUrlRawWithChromium(targetUrl, options);
+  } catch (error) {
+    appendRuntimeLog('network', `chromium fetch fallback ${targetUrl}: ${error instanceof Error ? error.message : String(error)}`);
+    return fetchUrlRawWithNode(targetUrl, options);
+  }
 }
 
 async function fetchUrlRawWithRetry(targetUrl, options = {}) {
