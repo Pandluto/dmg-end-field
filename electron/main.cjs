@@ -1596,17 +1596,18 @@ function shouldUseDeltaArchive(remoteManifest, previousVersion, previousVersionD
 
 function getDeltaArchiveReadiness(remoteManifest, previousVersion) {
   if (remoteManifest.delivery !== 'delta-archive') {
-    return { updateUnavailable: false, message: '' };
+    return { action: 'update', updateUnavailable: false, message: '' };
   }
   if (remoteManifest.baseVersion && previousVersion === remoteManifest.baseVersion) {
-    return { updateUnavailable: false, message: '' };
+    return { action: 'update', updateUnavailable: false, message: '' };
   }
   if (remoteManifest.fullPackage) {
-    return { updateUnavailable: false, message: '将自动下载全量图片包完成更新。' };
+    return { action: 'update', updateUnavailable: false, message: '将下载全量图片包完成更新。' };
   }
   return {
+    action: 'download-baseline',
     updateUnavailable: false,
-    message: '将自动补齐历史图片包后完成更新。',
+    message: '需要先下载历史图片包，然后再检查并下载最新更新。',
   };
 }
 
@@ -1874,6 +1875,8 @@ async function checkForImageReleaseUpdates() {
       hasUpdate: remoteManifest.assetVersion !== current.assetVersion,
       manifestUrl: effectiveManifestUrl,
       requestedManifestUrl,
+      action: deltaReadiness.action,
+      baselineVersion: deltaReadiness.action === 'download-baseline' ? remoteManifest.baseVersion || '' : '',
       updateUnavailable: deltaReadiness.updateUnavailable,
       updateMessage: deltaReadiness.message,
     };
@@ -1949,7 +1952,7 @@ async function applyImageReleaseUpdate() {
       }
       appendRuntimeLog(
         'assets-update',
-        `bootstrap baseline ${baselineRelease.manifest.assetVersion} before applying ${targetVersion}`
+        `download baseline ${baselineRelease.manifest.assetVersion} before applying ${targetVersion}`
       );
       await stageImageReleasePackage({
         manifestUrl: baselineRelease.assetBaseUrl,
@@ -1957,13 +1960,44 @@ async function applyImageReleaseUpdate() {
         stagingDir,
       });
       verifyExtractedReleaseFiles(baselineRelease.manifest, stagingDir);
-      await stageImageReleasePackage({
-        manifestUrl: packageBaseUrl,
-        releasePackage: withReleaseAssetDownloadUrl(releaseAssetUrls, remoteManifest.package),
-        stagingDir,
+      fs.writeFileSync(
+        path.join(stagingDir, IMAGE_RELEASE_MANIFEST_NAME),
+        `${JSON.stringify(baselineRelease.manifest, null, 2)}\n`,
+        'utf-8'
+      );
+      const baselineVersion = baselineRelease.manifest.assetVersion;
+      const baselineDir = getImageReleaseVersionDir(baselineVersion);
+      fs.rmSync(baselineDir, { recursive: true, force: true });
+      fs.mkdirSync(path.dirname(baselineDir), { recursive: true });
+      fs.renameSync(stagingDir, baselineDir);
+      writeImageReleaseCurrent({
+        assetVersion: baselineVersion,
+        activatedAt: new Date().toISOString(),
+        manifestUrl: baselineRelease.manifestUrl,
       });
-      removeReleaseDeletedFiles(remoteManifest, stagingDir);
-      verifyExtractedReleaseFiles(remoteManifest, stagingDir);
+
+      imageUpdateState.status = 'idle';
+      imageUpdateState.lastCheckedAt = Date.now();
+      imageUpdateState.lastUpdatedAt = imageUpdateState.lastCheckedAt;
+      imageUpdateState.currentVersion = baselineVersion;
+      imageUpdateState.latestVersion = targetVersion;
+      imageUpdateState.latestSummary = {
+        releaseTag: remoteManifest.releaseTag || '',
+        assetVersion: targetVersion,
+        minShellVersion: remoteManifest.minShellVersion || '',
+        compatible: true,
+        delivery: remoteManifest.delivery || 'delta-archive',
+        packageSizeBytes: remoteManifest.package ? Number(remoteManifest.package.sizeBytes) || 0 : 0,
+        changedFileCount: delta.changedFiles.length,
+        deletedFileCount: delta.deletedFiles.length,
+        totalFileCount: remoteManifest.files.length,
+        hasUpdate: true,
+        action: 'check-again',
+        updateMessage: '历史图片包已下载，请重新检查更新后下载最新更新。',
+      };
+      syncImageManifest();
+      appendRuntimeLog('assets-update', `activated image baseline ${baselineVersion}`);
+      return getImageUpdateStatePayload();
     } else if (remoteManifest.package) {
       await stageImageReleasePackage({
         manifestUrl: packageBaseUrl,

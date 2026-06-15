@@ -139,8 +139,13 @@
 
     const applyButton = $('apply-image-update');
     if (applyButton) {
+      if (!applyButton.dataset.originalText) {
+        applyButton.textContent = latestSummary?.action === 'download-baseline'
+          ? '下载基线'
+          : latestSummary?.action === 'check-again' ? '先检查更新' : '下载并切换';
+      }
       applyButton.disabled = !manifestUrl || status === 'checking' || status === 'downloading' || status === 'activating'
-        || latestSummary?.compatible === false || latestSummary?.updateUnavailable === true;
+        || latestSummary?.compatible === false || latestSummary?.updateUnavailable === true || latestSummary?.action === 'check-again';
     }
   };
 
@@ -866,7 +871,11 @@
     try {
       const result = await runtime.applyImageUpdate();
       renderImageUpdateState(result?.state || null);
-      appendLog(`图片更新 | 已切换到 ${result?.state?.currentVersion || '-'}`);
+      const action = result?.state?.latestSummary?.action;
+      const message = action === 'check-again'
+        ? `基线已下载：${result?.state?.currentVersion || '-'}，请重新检查更新`
+        : `已切换到 ${result?.state?.currentVersion || '-'}`;
+      appendLog(`图片更新 | ${message}`);
       await Promise.allSettled([refreshImages(), refreshShellState()]);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
