@@ -137,11 +137,33 @@
       `${latestStatusLine}${payload?.lastCheckedAt ? ` 最近检查：${formatTime(payload.lastCheckedAt)}` : ''}${payload?.lastUpdatedAt ? `；最近切换：${formatTime(payload.lastUpdatedAt)}` : ''}${payload?.lastError ? `；错误：${payload.lastError}` : ''}`
     );
 
+    const progress = payload?.progress || null;
+    const progressBox = $('image-update-progress');
+    const progressFill = $('image-update-progress-fill');
+    const progressDetail = $('image-update-progress-detail');
+    if (progressBox && progressFill && progressDetail) {
+      const shouldShowProgress = Boolean(progress)
+        && ['downloading', 'verifying', 'extracting', 'activating', 'done', 'failed'].includes(progress.phase);
+      progressBox.hidden = !shouldShowProgress;
+      if (shouldShowProgress) {
+        const percent = Number.isFinite(Number(progress.percent)) ? Number(progress.percent) : null;
+        const fallbackPercent = progress.phase === 'failed' ? 100 : progress.phase === 'done' ? 100 : 35;
+        progressFill.style.width = `${percent ?? fallbackPercent}%`;
+        const byteText = progress.totalBytes
+          ? `${formatBytes(progress.receivedBytes)} / ${formatBytes(progress.totalBytes)}`
+          : (progress.receivedBytes ? `${formatBytes(progress.receivedBytes)} 已下载` : '');
+        const percentText = percent !== null ? `${percent}%` : '下载中';
+        progressDetail.textContent = [progress.label || '图片资源', byteText, percentText]
+          .filter(Boolean)
+          .join(' | ');
+      }
+    }
+
     const applyButton = $('apply-image-update');
     if (applyButton) {
       if (!applyButton.dataset.originalText) {
         applyButton.textContent = latestSummary?.action === 'download-baseline'
-          ? '下载基线'
+          ? '补基线并切换'
           : latestSummary?.action === 'repair-current' ? '修复素材'
           : latestSummary?.action === 'check-again' ? '先检查更新' : '下载并切换';
       }
@@ -837,6 +859,24 @@
     return payload;
   };
 
+  const startImageUpdateProgressPolling = () => {
+    let stopped = false;
+    const tick = async () => {
+      if (stopped) return;
+      try {
+        await refreshImageUpdateState();
+      } catch {
+        // The action call reports the real failure; polling should not add noise.
+      }
+    };
+    tick();
+    const timer = window.setInterval(tick, 500);
+    return () => {
+      stopped = true;
+      window.clearInterval(timer);
+    };
+  };
+
   const saveImageUpdateConfig = async () => {
     const input = $('image-update-manifest-url');
     const manifestUrl = input?.value.trim() || '';
@@ -870,6 +910,7 @@
       return;
     }
     setButtonBusy(button, true, '下载中');
+    const stopPolling = startImageUpdateProgressPolling();
     try {
       const result = await runtime.applyImageUpdate();
       renderImageUpdateState(result?.state || null);
@@ -886,6 +927,7 @@
       appendLog(`图片更新 | 切换失败 | ${message}`);
       await refreshImageUpdateState();
     } finally {
+      stopPolling();
       setButtonBusy(button, false);
     }
   };

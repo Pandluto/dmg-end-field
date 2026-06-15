@@ -630,6 +630,40 @@
         line-height: 1.4;
       }
 
+      .image-update-progress {
+        display: grid;
+        gap: 6px;
+        padding: 8px 10px;
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        background: rgba(255, 255, 255, 0.62);
+      }
+
+      .image-update-progress[hidden] {
+        display: none;
+      }
+
+      .progress-track {
+        height: 8px;
+        overflow: hidden;
+        border-radius: 999px;
+        background: #ded8cc;
+      }
+
+      .progress-fill {
+        width: 0%;
+        height: 100%;
+        border-radius: inherit;
+        background: #107c41;
+        transition: width 180ms ease;
+      }
+
+      .progress-detail {
+        color: var(--muted);
+        font-size: 12px;
+        line-height: 1.35;
+      }
+
       .copy-line {
         min-width: 0;
         overflow: hidden;
@@ -1066,6 +1100,10 @@
               <button id="save-image-update-config" type="button" class="subtle-button">保存地址</button>
               <button id="check-image-update" type="button" class="subtle-button">检查更新</button>
               <button id="apply-image-update" type="button" class="primary-button">下载并切换</button>
+            </div>
+            <div class="image-update-progress" id="image-update-progress" hidden>
+              <div class="progress-track"><div class="progress-fill" id="image-update-progress-fill"></div></div>
+              <div class="progress-detail" id="image-update-progress-detail">等待下载。</div>
             </div>
             <section class="grid-3">
               <article class="status-card">
