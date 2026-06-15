@@ -1336,8 +1336,22 @@ async function fetchJsonUrl(url) {
   };
 }
 
+function isGithubReleaseAssetApiUrl(url) {
+  try {
+    const parsedUrl = new URL(url);
+    return parsedUrl.hostname === 'api.github.com'
+      && /^\/repos\/[^/]+\/[^/]+\/releases\/assets\/\d+/.test(parsedUrl.pathname);
+  } catch {
+    return false;
+  }
+}
+
 async function fetchBufferUrl(url) {
-  const response = await fetchUrlRawWithRetry(url, { timeoutMs: IMAGE_RELEASE_PACKAGE_TIMEOUT_MS, retries: 2 });
+  const response = await fetchUrlRawWithRetry(url, {
+    timeoutMs: IMAGE_RELEASE_PACKAGE_TIMEOUT_MS,
+    retries: 2,
+    headers: isGithubReleaseAssetApiUrl(url) ? { Accept: 'application/octet-stream' } : {},
+  });
   if (response.statusCode < 200 || response.statusCode >= 300) {
     throw new Error(`资源下载失败: HTTP ${response.statusCode} ${url}`);
   }
@@ -1582,7 +1596,10 @@ async function stageImageReleasePackage({ manifestUrl, releasePackage, stagingDi
   const archiveBuffer = await fetchBufferUrl(packageUrl);
   const actualHash = hashBufferSha256(archiveBuffer);
   if (actualHash !== releasePackage.sha256) {
-    throw new Error('图片整包校验失败');
+    const head = archiveBuffer.slice(0, 32).toString('utf-8').replace(/\s+/g, ' ').slice(0, 80);
+    throw new Error(
+      `图片整包校验失败: expected ${releasePackage.sha256}, got ${actualHash}, bytes ${archiveBuffer.length}, head ${head || '-'}`
+    );
   }
   if (Number(releasePackage.sizeBytes) !== archiveBuffer.length) {
     throw new Error('图片整包大小校验失败');
