@@ -33,7 +33,17 @@ function isDesktopRuntimeAvailable(): boolean {
 }
 
 function encodePathSegments(path: string): string {
-  return path.split('/').filter(Boolean).map(encodeURIComponent).join('/');
+  return path
+    .split('/')
+    .filter(Boolean)
+    .map((segment) => {
+      try {
+        return encodeURIComponent(decodeURIComponent(segment));
+      } catch {
+        return encodeURIComponent(segment);
+      }
+    })
+    .join('/');
 }
 
 function resolveDesktopAssetPath(path: string): string | null {

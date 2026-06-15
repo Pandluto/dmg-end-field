@@ -1555,6 +1555,34 @@ function extractZipArchive(zipPath, destDir) {
   runSyncChecked('unzip', ['-q', zipPath, '-d', destDir]);
 }
 
+function normalizeExtractedReleaseLayout(releaseDir) {
+  const nestedAssetsDir = path.join(releaseDir, 'assets');
+  if (!fs.existsSync(nestedAssetsDir) || !fs.statSync(nestedAssetsDir).isDirectory()) {
+    return;
+  }
+
+  for (const entry of fs.readdirSync(nestedAssetsDir, { withFileTypes: true })) {
+    const source = path.join(nestedAssetsDir, entry.name);
+    const target = path.join(releaseDir, entry.name);
+    if (fs.existsSync(target)) {
+      if (entry.isDirectory()) {
+        fs.cpSync(source, target, {
+          recursive: true,
+          force: true,
+          errorOnExist: false,
+        });
+        fs.rmSync(source, { recursive: true, force: true });
+      } else {
+        fs.copyFileSync(source, target);
+        fs.rmSync(source, { force: true });
+      }
+    } else {
+      fs.renameSync(source, target);
+    }
+  }
+  fs.rmSync(nestedAssetsDir, { recursive: true, force: true });
+}
+
 function verifyExtractedReleaseFiles(manifest, releaseDir) {
   for (const entry of manifest.files) {
     const targetFile = path.join(releaseDir, relativePathToReleaseFilePath(entry.relativePath));
@@ -1630,6 +1658,7 @@ async function stageImageReleasePackage({ manifestUrl, releasePackage, stagingDi
   fs.writeFileSync(archivePath, archiveBuffer);
   try {
     extractZipArchive(archivePath, stagingDir);
+    normalizeExtractedReleaseLayout(stagingDir);
   } finally {
     fs.rmSync(archivePath, { force: true });
   }
