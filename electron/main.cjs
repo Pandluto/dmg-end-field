@@ -872,8 +872,7 @@ function startBridgeServer() {
         return;
       }
 
-      if (!isDev &&
-        requestUrl.pathname.startsWith('/assets/') &&
+      if (requestUrl.pathname.startsWith('/assets/') &&
         /\.(png|jpg|jpeg|webp|gif|svg|ico)$/i.test(requestUrl.pathname)) {
         const activeReleaseRoot = getActiveImageReleaseRoot();
         if (activeReleaseRoot && tryServeStaticFromRoot({
@@ -882,7 +881,7 @@ function startBridgeServer() {
           response,
           rootDir: activeReleaseRoot,
           urlPrefix: '/assets/',
-          cacheControl: 'no-cache',
+          cacheControl: 'no-store, max-age=0',
         })) {
           return;
         }
@@ -1813,6 +1812,17 @@ function getActiveImageReleaseRoot() {
   return fs.existsSync(versionDir) ? versionDir : null;
 }
 
+async function clearAssetRuntimeCache() {
+  try {
+    const win = shellWindow && !shellWindow.isDestroyed() ? shellWindow : null;
+    if (win?.webContents?.session) {
+      await win.webContents.session.clearCache();
+    }
+  } catch (error) {
+    appendRuntimeLog('assets-update', `clear cache failed ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+
 function getImageUpdateStatePayload() {
   const config = readImageReleaseConfig();
   const sourceUrl = getImageReleaseSourceUrl(config);
@@ -1995,6 +2005,7 @@ async function applyImageReleaseUpdate() {
         updateMessage: '历史图片包已下载，请重新检查更新后下载最新更新。',
       };
       syncImageManifest();
+      await clearAssetRuntimeCache();
       appendRuntimeLog('assets-update', `activated image baseline ${baselineVersion}`);
       return getImageUpdateStatePayload();
     } else if (remoteManifest.package) {
@@ -2065,6 +2076,7 @@ async function applyImageReleaseUpdate() {
       manifestUrl: effectiveManifestUrl,
     };
     syncImageManifest();
+    await clearAssetRuntimeCache();
     appendRuntimeLog('assets-update', `activated image release ${targetVersion} from ${effectiveManifestUrl}`);
     return getImageUpdateStatePayload();
   } catch (error) {

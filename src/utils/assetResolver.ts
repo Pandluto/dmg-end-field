@@ -2,6 +2,7 @@ import type { SkillType } from '../types';
 import { SKILL_NAMES } from '../types';
 
 const USER_IMAGE_ORIGIN = 'http://127.0.0.1:31457';
+const DESKTOP_ASSET_ORIGIN = 'http://127.0.0.1:31457';
 
 function isExternalUrl(path: string): boolean {
   return /^(?:[a-z]+:)?\/\//i.test(path) || /^(?:data|blob|file):/i.test(path);
@@ -26,6 +27,29 @@ function resolveUserImagePath(path: string): string | null {
   return `${USER_IMAGE_ORIGIN}/user-images/${encodedRel}`;
 }
 
+function isDesktopRuntimeAvailable(): boolean {
+  return typeof window !== 'undefined'
+    && typeof (window as unknown as { desktopRuntime?: unknown }).desktopRuntime === 'object';
+}
+
+function encodePathSegments(path: string): string {
+  return path.split('/').filter(Boolean).map(encodeURIComponent).join('/');
+}
+
+function resolveDesktopAssetPath(path: string): string | null {
+  if (!isDesktopRuntimeAvailable()) {
+    return null;
+  }
+  const normalized = path.replace(/\\/g, '/').replace(/^\/+/, '');
+  if (!normalized.startsWith('assets/')) {
+    return null;
+  }
+  if (/(^|\/)\.\.(\/|$)/.test(normalized)) {
+    return null;
+  }
+  return `${DESKTOP_ASSET_ORIGIN}/${encodePathSegments(normalized)}`;
+}
+
 export function resolvePublicPath(path: string): string {
   if (!path) {
     return path;
@@ -33,6 +57,11 @@ export function resolvePublicPath(path: string): string {
 
   if (isExternalUrl(path)) {
     return path;
+  }
+
+  const desktopAssetPath = resolveDesktopAssetPath(path);
+  if (desktopAssetPath) {
+    return desktopAssetPath;
   }
 
   const normalizedPath = path
@@ -46,7 +75,7 @@ export function resolvePublicPath(path: string): string {
 
 export function normalizeAssetUrl(path?: string | null): string {
   if (!path) return '';
-  return resolveUserImagePath(path) ?? resolvePublicPath(path);
+  return resolveUserImagePath(path) ?? resolveDesktopAssetPath(path) ?? resolvePublicPath(path);
 }
 
 /**
