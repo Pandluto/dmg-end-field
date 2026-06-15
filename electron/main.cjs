@@ -1072,6 +1072,8 @@ const IMAGE_RELEASE_MANIFEST_TIMEOUT_MS = 45000;
 const IMAGE_RELEASE_PACKAGE_TIMEOUT_MS = 180000;
 const DEFAULT_IMAGE_RELEASE_MANIFEST_URL =
   `https://github.com/Pandluto/dmg-end-field/releases/latest/download/${IMAGE_RELEASE_MANIFEST_NAME}`;
+const DEFAULT_IMAGE_RELEASE_DOWNLOAD_ROOT = 'https://github.com/Pandluto/dmg-end-field/releases/download';
+const DEFAULT_IMAGE_RELEASE_LATEST_API_URL = 'https://api.github.com/repos/Pandluto/dmg-end-field/releases/latest';
 
 function getImageReleaseRoot() {
   return path.join(app.getPath('userData'), IMAGE_RELEASE_ROOT_DIRNAME);
@@ -1264,7 +1266,11 @@ function fetchUrlRaw(targetUrl, options = {}, redirectCount = 0) {
     const transport = getHttpModuleForUrl(parsedUrl.toString());
     const request = transport.request(parsedUrl, {
       method: options.method || 'GET',
-      headers: options.headers || {},
+      headers: {
+        'User-Agent': 'dmg-end-field-shell',
+        Accept: 'application/octet-stream, application/json;q=0.9, */*;q=0.8',
+        ...(options.headers || {}),
+      },
     }, (response) => {
       const chunks = [];
       response.on('data', (chunk) => chunks.push(chunk));
@@ -1301,8 +1307,29 @@ function fetchUrlRaw(targetUrl, options = {}, redirectCount = 0) {
   });
 }
 
+async function fetchUrlRawWithRetry(targetUrl, options = {}) {
+  const retries = Number.isFinite(Number(options.retries)) ? Number(options.retries) : 2;
+  let lastError = null;
+  for (let attempt = 0; attempt <= retries; attempt += 1) {
+    try {
+      const response = await fetchUrlRaw(targetUrl, options);
+      if (response.statusCode < 500 || attempt === retries) {
+        return response;
+      }
+      lastError = new Error(`HTTP ${response.statusCode}`);
+    } catch (error) {
+      lastError = error;
+      if (attempt === retries) {
+        throw error;
+      }
+    }
+    await delay(500 * (attempt + 1));
+  }
+  throw lastError || new Error(`请求失败: ${targetUrl}`);
+}
+
 async function fetchJsonUrl(url) {
-  const response = await fetchUrlRaw(url, { timeoutMs: 1000 });
+  const response = await fetchUrlRawWithRetry(url, { timeoutMs: 1000, retries: 1 });
   return {
     status: response.statusCode,
     body: JSON.parse(response.body.toString('utf-8') || '{}'),
@@ -1310,7 +1337,7 @@ async function fetchJsonUrl(url) {
 }
 
 async function fetchBufferUrl(url) {
-  const response = await fetchUrlRaw(url, { timeoutMs: IMAGE_RELEASE_PACKAGE_TIMEOUT_MS });
+  const response = await fetchUrlRawWithRetry(url, { timeoutMs: IMAGE_RELEASE_PACKAGE_TIMEOUT_MS, retries: 2 });
   if (response.statusCode < 200 || response.statusCode >= 300) {
     throw new Error(`资源下载失败: HTTP ${response.statusCode} ${url}`);
   }
@@ -1342,6 +1369,24 @@ function resolveImageReleaseManifestUrl(configuredUrl) {
   }
 
   return rawUrl;
+}
+
+function isDefaultGithubImageReleaseSource(configuredUrl) {
+  const rawUrl = typeof configuredUrl === 'string' ? configuredUrl.trim() : '';
+  if (!rawUrl) {
+    return false;
+  }
+  let parsedUrl;
+  try {
+    parsedUrl = new URL(rawUrl);
+  } catch {
+    return false;
+  }
+  if (parsedUrl.hostname !== 'github.com') {
+    return false;
+  }
+  return parsedUrl.pathname.startsWith('/Pandluto/dmg-end-field/releases/download/')
+    || parsedUrl.pathname.startsWith('/Pandluto/dmg-end-field/releases/latest/download/');
 }
 
 function resolveReleasePackageDownloadUrl(manifestSourceUrl, releasePackage) {
@@ -1551,9 +1596,57 @@ async function stageImageReleasePackage({ manifestUrl, releasePackage, stagingDi
   }
 }
 
+async function loadDefaultGithubImageReleaseManifest() {
+  const releaseResponse = await fetchUrlRawWithRetry(DEFAULT_IMAGE_RELEASE_LATEST_API_URL, {
+    timeoutMs: IMAGE_RELEASE_MANIFEST_TIMEOUT_MS,
+    headers: { Accept: 'application/vnd.github+json' },
+    retries: 2,
+  });
+  if (releaseResponse.statusCode < 200 || releaseResponse.statusCode >= 300) {
+    throw new Error(`GitHub Release 请求失败: HTTP ${releaseResponse.statusCode}`);
+  }
+  const release = JSON.parse(releaseResponse.body.toString('utf-8') || '{}');
+  const assets = Array.isArray(release.assets) ? release.assets : [];
+  const releaseAssetUrls = Object.fromEntries(
+    assets
+      .filter((asset) => asset?.name && asset?.url)
+      .map((asset) => [asset.name, asset.url])
+  );
+  const manifestUrl = releaseAssetUrls[IMAGE_RELEASE_MANIFEST_NAME];
+  if (!manifestUrl) {
+    throw new Error(`最新 GitHub Release 缺少 ${IMAGE_RELEASE_MANIFEST_NAME}`);
+  }
+  const response = await fetchUrlRawWithRetry(manifestUrl, {
+    timeoutMs: IMAGE_RELEASE_MANIFEST_TIMEOUT_MS,
+    headers: { Accept: 'application/octet-stream' },
+    retries: 2,
+  });
+  if (response.statusCode < 200 || response.statusCode >= 300) {
+    throw new Error(`Manifest 请求失败: HTTP ${response.statusCode}`);
+  }
+  const parsed = JSON.parse(response.body.toString('utf-8') || '{}');
+  const tagName = release.tag_name || parsed.releaseTag || parsed.assetVersion || '';
+  return {
+    manifest: validateImageReleaseManifest(parsed, manifestUrl),
+    manifestUrl,
+    assetBaseUrl: tagName
+      ? `${DEFAULT_IMAGE_RELEASE_DOWNLOAD_ROOT}/${encodeURIComponent(tagName)}/${IMAGE_RELEASE_MANIFEST_NAME}`
+      : DEFAULT_IMAGE_RELEASE_MANIFEST_URL,
+    requestedManifestUrl: DEFAULT_IMAGE_RELEASE_LATEST_API_URL,
+    releaseAssetUrls,
+  };
+}
+
 async function loadRemoteImageReleaseManifest(configuredUrl) {
+  if (isDefaultGithubImageReleaseSource(configuredUrl)) {
+    return loadDefaultGithubImageReleaseManifest();
+  }
+
   const requestedManifestUrl = resolveImageReleaseManifestUrl(configuredUrl);
-  const response = await fetchUrlRaw(requestedManifestUrl, { timeoutMs: IMAGE_RELEASE_MANIFEST_TIMEOUT_MS });
+  const response = await fetchUrlRawWithRetry(requestedManifestUrl, {
+    timeoutMs: IMAGE_RELEASE_MANIFEST_TIMEOUT_MS,
+    retries: 2,
+  });
   if (response.statusCode < 200 || response.statusCode >= 300) {
     throw new Error(`Manifest 请求失败: HTTP ${response.statusCode}`);
   }
@@ -1563,7 +1656,45 @@ async function loadRemoteImageReleaseManifest(configuredUrl) {
     manifestUrl: response.url,
     assetBaseUrl: requestedManifestUrl,
     requestedManifestUrl,
+    releaseAssetUrls: {},
   };
+}
+
+function resolveDefaultReleaseManifestAssetBaseUrl(manifest, fallbackManifestUrl) {
+  const tag = typeof manifest?.releaseTag === 'string' && manifest.releaseTag.trim()
+    ? manifest.releaseTag.trim()
+    : (typeof manifest?.assetVersion === 'string' ? manifest.assetVersion.trim() : '');
+  if (!tag || fallbackManifestUrl !== DEFAULT_IMAGE_RELEASE_MANIFEST_URL) {
+    return fallbackManifestUrl;
+  }
+  return `${DEFAULT_IMAGE_RELEASE_DOWNLOAD_ROOT}/${encodeURIComponent(tag)}/${IMAGE_RELEASE_MANIFEST_NAME}`;
+}
+
+function getReleaseAssetDownloadUrl(releaseAssetUrls, descriptor) {
+  if (!descriptor || typeof descriptor !== 'object') {
+    return '';
+  }
+  const candidates = [descriptor.packagePath, descriptor.fileName]
+    .filter((value) => typeof value === 'string' && value.trim())
+    .map((value) => value.trim());
+  for (const candidate of candidates) {
+    if (releaseAssetUrls?.[candidate]) {
+      return releaseAssetUrls[candidate];
+    }
+    const fileName = candidate.split('/').filter(Boolean).pop();
+    if (fileName && releaseAssetUrls?.[fileName]) {
+      return releaseAssetUrls[fileName];
+    }
+  }
+  return '';
+}
+
+function withReleaseAssetDownloadUrl(releaseAssetUrls, descriptor) {
+  if (!descriptor || descriptor.downloadUrl) {
+    return descriptor;
+  }
+  const downloadUrl = getReleaseAssetDownloadUrl(releaseAssetUrls, descriptor);
+  return downloadUrl ? { ...descriptor, downloadUrl } : descriptor;
 }
 
 function getActiveImageReleaseRoot() {
@@ -1668,11 +1799,13 @@ async function applyImageReleaseUpdate() {
       manifest: remoteManifest,
       manifestUrl: effectiveManifestUrl,
       assetBaseUrl,
+      releaseAssetUrls,
     } = await loadRemoteImageReleaseManifest(config.manifestUrl);
     if (!isShellVersionCompatible(remoteManifest.minShellVersion)) {
       throw new Error(`当前 Shell 版本 ${app.getVersion()} 不满足最低要求 ${remoteManifest.minShellVersion}`);
     }
     const targetVersion = remoteManifest.assetVersion;
+    const packageBaseUrl = resolveDefaultReleaseManifestAssetBaseUrl(remoteManifest, assetBaseUrl);
     const targetDir = getImageReleaseVersionDir(targetVersion);
     const stagingDir = path.join(getImageReleaseStagingDir(), sanitizeImageReleaseVersion(targetVersion));
     const delta = computeManifestDelta(remoteManifest, previousManifest);
@@ -1690,23 +1823,23 @@ async function applyImageReleaseUpdate() {
         errorOnExist: false,
       });
       await stageImageReleasePackage({
-        manifestUrl: assetBaseUrl,
-        releasePackage: remoteManifest.package,
+        manifestUrl: packageBaseUrl,
+        releasePackage: withReleaseAssetDownloadUrl(releaseAssetUrls, remoteManifest.package),
         stagingDir,
       });
       removeReleaseDeletedFiles(remoteManifest, stagingDir);
       verifyExtractedReleaseFiles(remoteManifest, stagingDir);
     } else if (remoteManifest.delivery === 'delta-archive' && remoteManifest.fullPackage) {
       await stageImageReleasePackage({
-        manifestUrl: assetBaseUrl,
-        releasePackage: remoteManifest.fullPackage,
+        manifestUrl: packageBaseUrl,
+        releasePackage: withReleaseAssetDownloadUrl(releaseAssetUrls, remoteManifest.fullPackage),
         stagingDir,
       });
       verifyExtractedReleaseFiles(remoteManifest, stagingDir);
     } else if (remoteManifest.package) {
       await stageImageReleasePackage({
-        manifestUrl: assetBaseUrl,
-        releasePackage: remoteManifest.package,
+        manifestUrl: packageBaseUrl,
+        releasePackage: withReleaseAssetDownloadUrl(releaseAssetUrls, remoteManifest.package),
         stagingDir,
       });
       verifyExtractedReleaseFiles(remoteManifest, stagingDir);
@@ -1722,7 +1855,7 @@ async function applyImageReleaseUpdate() {
       }
 
       for (const entry of delta.changedFiles) {
-        const downloadUrl = resolveReleaseFileDownloadUrl(assetBaseUrl, entry);
+        const downloadUrl = resolveReleaseFileDownloadUrl(packageBaseUrl, entry);
         const data = await fetchBufferUrl(downloadUrl);
         const actualHash = hashBufferSha256(data);
         if (actualHash !== entry.sha256) {
