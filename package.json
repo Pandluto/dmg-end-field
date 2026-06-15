@@ -2,6 +2,8 @@
   "name": "dmg-end-field",
   "private": true,
   "version": "1.6.0",
+  "author": "SailStellar <190052366@qq.com>",
+  "description": "Desktop shell for dmg-end-field",
   "type": "module",
   "main": "electron/main.cjs",
   "scripts": {
@@ -18,7 +20,9 @@
     "app:dev": "npm run electron:shell",
     "electron:shell": "concurrently -k \"npm:dev\" \"wait-on tcp:127.0.0.1:3030 && electron . --dev --shell-only\"",
     "electron:dev": "npm run electron:shell",
-    "electron:build": "npm run build && electron-builder --win portable"
+    "electron:build": "npm run build && electron-builder --win portable",
+    "electron:build:mac": "npm run build && electron-builder --mac dmg --publish never",
+    "electron:build:mac:dir": "npm run build && electron-builder --mac dir --publish never"
   },
   "dependencies": {
     "exceljs": "^4.4.0",
@@ -45,6 +49,7 @@
     "appId": "com.dmg.def",
     "productName": "dmg-end-field",
     "compression": "store",
+    "afterSign": "scripts/notarize.cjs",
     "directories": {
       "output": "release"
     },
@@ -62,6 +67,25 @@
       "target": [
         "portable"
       ]
+    },
+    "mac": {
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64"
+          ]
+        }
+      ],
+      "category": "public.app-category.developer-tools",
+      "artifactName": "${productName}-${version}-${arch}.${ext}",
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "entitlements": "electron/entitlements.mac.plist",
+      "entitlementsInherit": "electron/entitlements.mac.plist"
+    },
+    "dmg": {
+      "artifactName": "${productName}-${version}-${arch}.${ext}"
     }
   }
 }
