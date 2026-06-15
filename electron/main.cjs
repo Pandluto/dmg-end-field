@@ -1771,12 +1771,18 @@ function isDeltaReleaseMaterialized(manifest, releaseDir) {
   if (!releaseDir || !fs.existsSync(releaseDir)) {
     return false;
   }
-  const patchFiles = new Set((manifest.files || []).map((entry) => relativePathToReleaseFilePath(entry.relativePath)));
-  const actualFiles = listReleaseImageFiles(releaseDir);
-  if (actualFiles.length === 0) {
+  try {
+    verifyExtractedReleaseFiles(manifest, releaseDir);
+  } catch {
     return false;
   }
-  return actualFiles.some((filePath) => !patchFiles.has(filePath));
+  for (const relativePath of manifest.deletedFiles || []) {
+    const deletedFile = path.join(releaseDir, relativePathToReleaseFilePath(relativePath));
+    if (fs.existsSync(deletedFile)) {
+      return false;
+    }
+  }
+  return true;
 }
 
 function getDeltaArchiveReadiness(remoteManifest, previousVersion) {
