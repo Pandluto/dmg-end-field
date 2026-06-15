@@ -1561,6 +1561,7 @@ async function loadRemoteImageReleaseManifest(configuredUrl) {
   return {
     manifest: validateImageReleaseManifest(parsed, response.url),
     manifestUrl: response.url,
+    assetBaseUrl: requestedManifestUrl,
     requestedManifestUrl,
   };
 }
@@ -1666,6 +1667,7 @@ async function applyImageReleaseUpdate() {
     const {
       manifest: remoteManifest,
       manifestUrl: effectiveManifestUrl,
+      assetBaseUrl,
     } = await loadRemoteImageReleaseManifest(config.manifestUrl);
     if (!isShellVersionCompatible(remoteManifest.minShellVersion)) {
       throw new Error(`当前 Shell 版本 ${app.getVersion()} 不满足最低要求 ${remoteManifest.minShellVersion}`);
@@ -1688,7 +1690,7 @@ async function applyImageReleaseUpdate() {
         errorOnExist: false,
       });
       await stageImageReleasePackage({
-        manifestUrl: effectiveManifestUrl,
+        manifestUrl: assetBaseUrl,
         releasePackage: remoteManifest.package,
         stagingDir,
       });
@@ -1696,14 +1698,14 @@ async function applyImageReleaseUpdate() {
       verifyExtractedReleaseFiles(remoteManifest, stagingDir);
     } else if (remoteManifest.delivery === 'delta-archive' && remoteManifest.fullPackage) {
       await stageImageReleasePackage({
-        manifestUrl: effectiveManifestUrl,
+        manifestUrl: assetBaseUrl,
         releasePackage: remoteManifest.fullPackage,
         stagingDir,
       });
       verifyExtractedReleaseFiles(remoteManifest, stagingDir);
     } else if (remoteManifest.package) {
       await stageImageReleasePackage({
-        manifestUrl: effectiveManifestUrl,
+        manifestUrl: assetBaseUrl,
         releasePackage: remoteManifest.package,
         stagingDir,
       });
@@ -1720,7 +1722,7 @@ async function applyImageReleaseUpdate() {
       }
 
       for (const entry of delta.changedFiles) {
-        const downloadUrl = resolveReleaseFileDownloadUrl(effectiveManifestUrl, entry);
+        const downloadUrl = resolveReleaseFileDownloadUrl(assetBaseUrl, entry);
         const data = await fetchBufferUrl(downloadUrl);
         const actualHash = hashBufferSha256(data);
         if (actualHash !== entry.sha256) {
