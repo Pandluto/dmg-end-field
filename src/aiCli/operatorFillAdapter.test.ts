@@ -101,6 +101,8 @@ const validDraft = {
   assertEqual(result.ok, true, 'six key-level attributes should validate');
   assertEqual(result.normalized?.attributes.intelligence.level90, 909, 'normalize should preserve level90');
   assertEqual(result.normalized?.attributes.hp.level1, 101, 'normalize should preserve level1');
+  assertTrue(result.normalized?.skills['skill-B-1'], 'operator fill should normalize skill keys to skill-{buttonType}-{index}');
+  assertEqual(result.normalized?.skills['skill-B-1'].buttonType, 'B', 'normalized skill key should follow buttonType');
 }
 
 {
@@ -131,7 +133,7 @@ const validDraft = {
   assertEqual(validation.ok, true, 'incoming operator draft with empty urls should validate');
   const proposal = operatorFillAdapter.createProposalPayload(validation, 'operator.fill.apply test');
   assertEqual(proposal.normalized.avatarUrl, '/assets/operators/jieerpeita.png', 'proposal should preserve existing avatarUrl');
-  assertEqual(proposal.normalized.skills['skill-1'].iconUrl, '/assets/skills/jieerpeita-skill.png', 'proposal should preserve existing skill iconUrl');
+  assertEqual(proposal.normalized.skills['skill-B-1'].iconUrl, '/assets/skills/jieerpeita-skill.png', 'proposal should preserve existing skill iconUrl after key normalization');
 }
 
 {
