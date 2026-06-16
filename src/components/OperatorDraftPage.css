@@ -173,6 +173,12 @@
   color: #ffffff;
 }
 
+.operator-draft-ghost-button:disabled,
+.operator-draft-skill-filter:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
 .operator-draft-context,
 .operator-draft-history-side {
   padding: 6px;
@@ -598,6 +604,52 @@
   padding: 14px;
   font-size: 12px;
   color: #6a768c;
+}
+
+.operator-draft-skill-filters {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 4px;
+  padding: 0 6px 6px;
+  border-bottom: 1px solid #e1e6ef;
+}
+
+.operator-draft-skill-filter {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 4px 5px;
+  border: 1px solid #cfd6e2;
+  background: #ffffff;
+  color: #24456c;
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.operator-draft-skill-filter.is-active {
+  border-color: #315ea4;
+  background: #e7f0ff;
+  color: #173d78;
+}
+
+.operator-draft-skill-filter strong {
+  min-width: 16px;
+  padding: 1px 4px;
+  background: #edf2fa;
+  color: #526783;
+  text-align: center;
+  font-size: 10px;
+}
+
+.operator-draft-skill-filter-note {
+  margin: 0;
+  padding: 0 8px 6px;
+  color: #7b8495;
+  font-size: 11px;
+  line-height: 1.35;
 }
 
 .operator-draft-history-side {

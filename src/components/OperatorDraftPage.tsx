@@ -62,6 +62,15 @@ const OPERATOR_BUFF_GROUPS = [
   { key: 'potential', label: '潜能' },
   { key: 'skill', label: '技能' },
 ] as const;
+const SKILL_BUTTON_TYPES = ['A', 'B', 'E', 'Q'] as const;
+const SKILL_TYPE_FILTERS = [
+  { key: 'all', label: '全部' },
+  { key: 'A', label: 'A' },
+  { key: 'B', label: 'B' },
+  { key: 'E', label: 'E' },
+  { key: 'Q', label: 'Q' },
+  { key: 'other', label: '其他' },
+] as const;
 const OPERATOR_BUFF_CATEGORIES = ['passive', 'condition', 'countable'] as const;
 const OPERATOR_BUFF_TYPE_OPTIONS = [
   'atkPercentBoost',
@@ -273,6 +282,7 @@ const OPERATOR_BUFF_DERIVED_SOURCE_LABELS = Object.fromEntries(
 
 type SkillButtonType = 'A' | 'B' | 'E' | 'Q';
 type HitSkillType = SkillButtonType | 'Dot';
+type SkillTypeFilter = (typeof SKILL_TYPE_FILTERS)[number]['key'];
 type HitElement = 'physical' | 'fire' | 'ice' | 'electric' | 'nature';
 type SkillLevelKey = (typeof SKILL_LEVEL_KEYS)[number];
 type AttributeLevelKey = (typeof ATTRIBUTE_LEVEL_KEYS)[number];
@@ -342,6 +352,18 @@ function getSkillIndexFromKey(skillKey: string) {
   return matched ? Number(matched[1]) : 1;
 }
 
+function isSkillButtonType(value: unknown): value is SkillButtonType {
+  return typeof value === 'string' && SKILL_BUTTON_TYPES.includes(value as SkillButtonType);
+}
+
+function buildTypedSkillKey(buttonType: SkillButtonType, index: number) {
+  return `skill-${buttonType}-${index}`;
+}
+
+function getSkillFilterKey(skill: SkillDraft): SkillTypeFilter {
+  return isSkillButtonType(skill.buttonType) ? skill.buttonType : 'other';
+}
+
 function getHitIndexFromKey(hitKey: string) {
   const matched = hitKey.match(/(\d+)$/);
   return matched ? Number(matched[1]) : 1;
@@ -388,7 +410,7 @@ function createDefaultBuffEffect(effectKey = 'effect1'): OperatorBuffEffect {
   };
 }
 
-function createDefaultSkill(buttonType: SkillButtonType = 'A', skillKey = 'skill-1'): SkillDraft {
+function createDefaultSkill(buttonType: SkillButtonType = 'A', skillKey = 'skill-A-1'): SkillDraft {
   const skillIndex = getSkillIndexFromKey(skillKey);
   return {
     displayName: `新技能${skillIndex}`,
@@ -415,7 +437,7 @@ function createDefaultDraft(): OperatorDraft {
     level: 90,
     attributes: createDefaultAttributeLevels(),
     skills: {
-      'skill-1': createDefaultSkill('A', 'skill-1'),
+      'skill-A-1': createDefaultSkill('A', 'skill-A-1'),
     },
     buffs: createDefaultBuffs(),
   };
@@ -611,12 +633,12 @@ function parseImportedDraft(rawText: string) {
   return normalizeDraft(parsed as OperatorDraft);
 }
 
-function getNextSkillKey(draft: OperatorDraft) {
+function getNextSkillKeyByType(draft: OperatorDraft, buttonType: SkillButtonType) {
   let index = 1;
-  while (draft.skills[`skill-${index}`]) {
+  while (draft.skills[buildTypedSkillKey(buttonType, index)]) {
     index += 1;
   }
-  return `skill-${index}`;
+  return buildTypedSkillKey(buttonType, index);
 }
 
 function getNextDraftId(existingIds: string[]) {
@@ -679,12 +701,21 @@ function buildOrderedDraft(draft: OperatorDraft, skillOrder: string[]) {
   };
 }
 
-function reorderDraftStructure(draft: OperatorDraft): OperatorDraft {
+function reorderDraftStructure(draft: OperatorDraft) {
   const nextSkills: Record<string, SkillDraft> = {};
+  const skillKeyMap: Record<string, string> = {};
+  const nextTypeIndexes: Record<SkillButtonType, number> = {
+    A: 0,
+    B: 0,
+    E: 0,
+    Q: 0,
+  };
   const orderedSkillKeys = Object.keys(draft.skills);
   orderedSkillKeys.forEach((skillKey, skillIndex) => {
-    const nextSkillKey = `skill-${skillIndex + 1}`;
     const skill = cloneDraft(draft.skills[skillKey]);
+    const nextSkillKey = isSkillButtonType(skill.buttonType)
+      ? buildTypedSkillKey(skill.buttonType, nextTypeIndexes[skill.buttonType] += 1)
+      : `skill-other-${skillIndex + 1}`;
     const nextHitMeta: Record<string, HitMetaDraft> = {};
     Object.entries(skill.hitMeta).forEach(([, hit], hitIndex) => {
       const nextHitKey = `hit${hitIndex + 1}`;
@@ -695,11 +726,15 @@ function reorderDraftStructure(draft: OperatorDraft): OperatorDraft {
     });
     skill.hitMeta = nextHitMeta;
     syncHitCount(skill);
+    skillKeyMap[skillKey] = nextSkillKey;
     nextSkills[nextSkillKey] = skill;
   });
   return {
-    ...draft,
-    skills: nextSkills,
+    draft: {
+      ...draft,
+      skills: nextSkills,
+    },
+    skillKeyMap,
   };
 }
 
@@ -877,6 +912,7 @@ export function OperatorDraftPage() {
   const [selectedBuffEffectKey, setSelectedBuffEffectKey] = useState<string | null>(null);
   const [operatorBuffTypeQuery, setOperatorBuffTypeQuery] = useState('');
   const [skillOrder, setSkillOrder] = useState<string[]>([]);
+  const [activeSkillTypeFilter, setActiveSkillTypeFilter] = useState<SkillTypeFilter>('all');
   const [draggingSkillKey, setDraggingSkillKey] = useState<string | null>(null);
   const [dragOverSkillKey, setDragOverSkillKey] = useState<string | null>(null);
   const [isExportJsonModalOpen, setIsExportJsonModalOpen] = useState(false);
@@ -896,6 +932,22 @@ export function OperatorDraftPage() {
       setSelectedSkillKey(skillKeys[0] ?? null);
     }
   }, [draft, selectedSkillKey]);
+
+  useEffect(() => {
+    if (activeSkillTypeFilter === 'all') {
+      return;
+    }
+    if (selectedSkillKey && draft.skills[selectedSkillKey] && getSkillFilterKey(draft.skills[selectedSkillKey]) === activeSkillTypeFilter) {
+      return;
+    }
+
+    const nextSelectedSkillKey = skillOrder.find((skillKey) => {
+      const skill = draft.skills[skillKey];
+      return skill && getSkillFilterKey(skill) === activeSkillTypeFilter;
+    }) ?? null;
+    setSelectedSkillKey(nextSelectedSkillKey);
+    setSelectedHitKey(nextSelectedSkillKey ? Object.keys(draft.skills[nextSelectedSkillKey].hitMeta)[0] ?? null : null);
+  }, [activeSkillTypeFilter, draft, selectedSkillKey, skillOrder]);
 
   useEffect(() => {
     setSkillOrder((prev) => {
@@ -1170,7 +1222,7 @@ export function OperatorDraftPage() {
       return;
     }
 
-    const nextSkillKey = getNextSkillKey(draft);
+    const nextSkillKey = getNextSkillKeyByType(draft, selectedSkill.buttonType);
     const duplicatedSkill = cloneDraft(selectedSkill);
     const firstHitKey = Object.keys(duplicatedSkill.hitMeta)[0] ?? null;
     const nextDraft = {
@@ -1260,15 +1312,21 @@ export function OperatorDraftPage() {
   };
 
   const handleReorderDraft = () => {
-    const nextDraft = reorderDraftStructure(orderedDraft);
+    const { draft: nextDraft, skillKeyMap } = reorderDraftStructure(orderedDraft);
     const nextSkillOrder = Object.keys(nextDraft.skills);
-    const nextSelectedSkillKey = nextSkillOrder[0] ?? null;
-    const nextSelectedHitKey = nextSelectedSkillKey ? Object.keys(nextDraft.skills[nextSelectedSkillKey].hitMeta)[0] ?? null : null;
+    const nextSelectedSkillKey = selectedSkillKey
+      ? skillKeyMap[selectedSkillKey] ?? nextSkillOrder[0] ?? null
+      : nextSkillOrder[0] ?? null;
+    const nextSelectedHitKey = nextSelectedSkillKey
+      ? (selectedHitKey && nextDraft.skills[nextSelectedSkillKey].hitMeta[selectedHitKey]
+        ? selectedHitKey
+        : Object.keys(nextDraft.skills[nextSelectedSkillKey].hitMeta)[0] ?? null)
+      : null;
     setDraft(buildOrderedDraft(nextDraft, nextSkillOrder));
     setSkillOrder(nextSkillOrder);
     setSelectedSkillKey(nextSelectedSkillKey);
     setSelectedHitKey(nextSelectedHitKey);
-    setMessages((prev) => ['[OK] 已整理技能与 hit 编号', ...prev].slice(0, 12));
+    setMessages((prev) => ['[OK] 已整理技能命名与 hit 编号', ...prev].slice(0, 12));
   };
 
   const readLocalDraftLibrary = () => {
@@ -1488,7 +1546,7 @@ export function OperatorDraftPage() {
   };
 
   const handleAddSkill = () => {
-    const nextSkillKey = getNextSkillKey(draft);
+    const nextSkillKey = getNextSkillKeyByType(draft, 'A');
     const nextDraft = {
       ...draft,
       skills: {
@@ -1641,11 +1699,19 @@ export function OperatorDraftPage() {
   };
 
   const handleSkillDragStart = (skillKey: string) => {
+    if (activeSkillTypeFilter !== 'all') {
+      return;
+    }
     setDraggingSkillKey(skillKey);
     setDragOverSkillKey(skillKey);
   };
 
   const handleSkillDrop = (targetSkillKey: string) => {
+    if (activeSkillTypeFilter !== 'all') {
+      setDraggingSkillKey(null);
+      setDragOverSkillKey(null);
+      return;
+    }
     if (!draggingSkillKey || draggingSkillKey === targetSkillKey) {
       setDraggingSkillKey(null);
       setDragOverSkillKey(null);
@@ -1662,6 +1728,22 @@ export function OperatorDraftPage() {
   const skillEntries = skillOrder
     .filter((skillKey) => draft.skills[skillKey])
     .map((skillKey) => [skillKey, draft.skills[skillKey]] as const);
+  const skillFilterCounts = skillEntries.reduce<Record<SkillTypeFilter, number>>((counts, [, skill]) => {
+    counts.all += 1;
+    counts[getSkillFilterKey(skill)] += 1;
+    return counts;
+  }, {
+    all: 0,
+    A: 0,
+    B: 0,
+    E: 0,
+    Q: 0,
+    other: 0,
+  });
+  const displayedSkillEntries = activeSkillTypeFilter === 'all'
+    ? skillEntries
+    : skillEntries.filter(([, skill]) => getSkillFilterKey(skill) === activeSkillTypeFilter);
+  const isSkillDragEnabled = activeSkillTypeFilter === 'all';
 
   return (
     <main className="operator-draft-page">
@@ -1780,7 +1862,7 @@ export function OperatorDraftPage() {
                         {isOverwriteProtectionEnabled ? '保护开' : '保护关'}
                       </button>
                       <button type="button" className="operator-draft-ghost-button" onClick={handleReorderDraft}>
-                        整理
+                        整理命名
                       </button>
                     <button type="button" className="operator-draft-ghost-button" onClick={handleCreateNewDraft}>
                       新建
@@ -1923,7 +2005,7 @@ export function OperatorDraftPage() {
                 <div className="operator-draft-section-header">
                   <h3>技能列表</h3>
                   <div className="operator-draft-section-actions">
-                    <span>{skillEntries.length} 个</span>
+                    <span>{activeSkillTypeFilter === 'all' ? `${skillEntries.length} 个` : `${displayedSkillEntries.length}/${skillEntries.length} 个`}</span>
                     <button type="button" className="operator-draft-ghost-button" onClick={handleAddSkill}>
                       新增技能
                     </button>
@@ -1935,16 +2017,40 @@ export function OperatorDraftPage() {
                     </button>
                   </div>
                 </div>
-                {skillEntries.map(([skillKey, skill]) => (
+                <div className="operator-draft-skill-filters">
+                  {SKILL_TYPE_FILTERS.map((filter) => (
+                    <button
+                      key={filter.key}
+                      type="button"
+                      className={`operator-draft-skill-filter${activeSkillTypeFilter === filter.key ? ' is-active' : ''}`}
+                      onClick={() => setActiveSkillTypeFilter(filter.key)}
+                    >
+                      <span>{filter.label}</span>
+                      <strong>{skillFilterCounts[filter.key]}</strong>
+                    </button>
+                  ))}
+                </div>
+                {activeSkillTypeFilter !== 'all' ? (
+                  <p className="operator-draft-skill-filter-note">筛选状态下暂不支持拖拽排序。</p>
+                ) : null}
+                {displayedSkillEntries.length ? displayedSkillEntries.map(([skillKey, skill]) => (
                   <button
                     type="button"
                     key={skillKey}
-                    draggable
+                    draggable={isSkillDragEnabled}
                     className={`operator-draft-skill-item${selectedSkillKey === skillKey ? ' is-active' : ''}${draggingSkillKey === skillKey ? ' is-dragging' : ''}${dragOverSkillKey === skillKey && draggingSkillKey !== skillKey ? ' is-drag-over' : ''}`}
                     onClick={() => setSelectedSkillKey(skillKey)}
                     onDragStart={() => handleSkillDragStart(skillKey)}
-                    onDragEnter={() => setDragOverSkillKey(skillKey)}
-                    onDragOver={(event) => event.preventDefault()}
+                    onDragEnter={() => {
+                      if (isSkillDragEnabled) {
+                        setDragOverSkillKey(skillKey);
+                      }
+                    }}
+                    onDragOver={(event) => {
+                      if (isSkillDragEnabled) {
+                        event.preventDefault();
+                      }
+                    }}
                     onDrop={(event) => {
                       event.preventDefault();
                       handleSkillDrop(skillKey);
@@ -1967,7 +2073,9 @@ export function OperatorDraftPage() {
                       <span>{`${skill.hitCount} hit`}</span>
                     </div>
                   </button>
-                ))}
+                )) : (
+                  <p className="operator-draft-empty">当前筛选下没有技能。</p>
+                )}
               </section>
             </div>
 

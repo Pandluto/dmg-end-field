@@ -322,6 +322,27 @@ function createFallbackOperatorDraft(): OperatorDraft {
   };
 }
 
+function buildTypedSkillKey(buttonType: ButtonType, index: number): string {
+  return `skill-${buttonType}-${index}`;
+}
+
+function normalizeOperatorSkillKeys(skills: Record<string, SkillDraft>): Record<string, SkillDraft> {
+  const nextSkills: Record<string, SkillDraft> = {};
+  const nextTypeIndexes: Record<ButtonType, number> = {
+    A: 0,
+    B: 0,
+    E: 0,
+    Q: 0,
+  };
+
+  Object.values(skills).forEach((skill) => {
+    const nextSkillKey = buildTypedSkillKey(skill.buttonType, nextTypeIndexes[skill.buttonType] += 1);
+    nextSkills[nextSkillKey] = skill;
+  });
+
+  return nextSkills;
+}
+
 export function readCurrentOperatorDraft(): OperatorDraft {
   return readJsonStorage<OperatorDraft>(OPERATOR_DRAFT_STORAGE_KEY, createFallbackOperatorDraft());
 }
@@ -503,7 +524,7 @@ function normalizeOperatorDraft(obj: Record<string, unknown>): OperatorDraft {
     mainStat: findAllowedValue(obj.mainStat, ABILITY_TYPES) || String(obj.mainStat),
     subStat: findAllowedValue(obj.subStat, ABILITY_TYPES) || String(obj.subStat),
     attributes: normalizeOperatorAttributes(obj.attributes),
-    skills,
+    skills: normalizeOperatorSkillKeys(skills),
     buffs: normalizeOperatorBuffs(obj.buffs),
   };
 }
@@ -519,7 +540,12 @@ function preserveExistingAssetUrls(nextPayload: OperatorDraft, currentDraft = re
   }
 
   for (const [skillKey, nextSkill] of Object.entries(next.skills || {})) {
-    const currentSkill = currentDraft.skills?.[skillKey];
+    const currentSkill = currentDraft.skills?.[skillKey]
+      ?? Object.values(currentDraft.skills || {}).find((skill) => (
+        skill.buttonType === nextSkill.buttonType
+        && skill.displayName === nextSkill.displayName
+      ))
+      ?? Object.values(currentDraft.skills || {}).find((skill) => skill.buttonType === nextSkill.buttonType);
     if (next.id === currentDraft.id && hasText(currentSkill?.iconUrl)) {
       nextSkill.iconUrl = currentSkill.iconUrl;
     }
@@ -596,7 +622,8 @@ export const operatorFillAdapter: AgentFillDomainAdapter<OperatorDraft> = {
           mainStat: ABILITY_TYPES,
           subStat: ABILITY_TYPES,
           attributes: `Record<${ATTRIBUTE_KEYS.join('|')}, Record<${ATTRIBUTE_LEVEL_KEYS.join('|')}, number>>; only these six key levels are accepted`,
-          skills: 'Record<skillKey, { displayName, buttonType, iconUrl, hitCount, hitMeta }>',
+          skills: 'Record<skillKey, { displayName, buttonType, iconUrl, hitCount, hitMeta }>; skillKey is system-maintained and normalized to skill-{buttonType}-{per-type index}, e.g. skill-A-1 / skill-B-1 / skill-E-1 / skill-Q-1. Each buttonType counts from 1. Legacy skill-1 input is accepted but normalized.',
+          skillKeyNaming: 'Use skill-{buttonType}-{index}. The type comes from buttonType, not the old key text. Do not use plain A/B/E/Q as skill keys.',
           buttonType: BUTTON_TYPES,
           hitSkillType: HIT_SKILL_TYPES,
           hitMeta: 'Record<hitKey, { displayName, element, skillType, levels }>; hit skillType accepts A/B/E/Q/Dot',
@@ -616,7 +643,7 @@ export const operatorFillAdapter: AgentFillDomainAdapter<OperatorDraft> = {
           },
         },
         supportedEffectTypes: SUPPORTED_OPERATOR_EFFECT_TYPES,
-        instruction: 'Return exactly one ImportedOperatorDraft-compatible JSON object. No Markdown. No explanation. Prefer POST /api/operator/fill/check|apply with a JSON body for Chinese payloads; CLI JSON args may be shell-encoding sensitive. Operator buffs use talent/potential/skill groups. Buff category must be passive/condition/countable; legacy positive is accepted only for migration and normalizes to passive. Countable buffs require maxStacks and only support fixed numeric value, no derivedValue. Fixed effects use valueMode fixed with numeric value. Derived effects use valueMode derived and derivedValue.source/perPointValue, where perPointValue means 每点提升多少, not an arbitrary formula. Percent-like buff types still use decimal numbers, e.g. 每点 +0.10% => 0.001. operator.fill.apply creates a proposal only; it does NOT save to library.',
+        instruction: 'Return exactly one ImportedOperatorDraft-compatible JSON object. No Markdown. No explanation. Prefer POST /api/operator/fill/check|apply with a JSON body for Chinese payloads; CLI JSON args may be shell-encoding sensitive. Use system skill keys in the latest format skill-{buttonType}-{index}, for example skill-A-1 / skill-B-1 / skill-E-1 / skill-Q-1; every buttonType counts from 1. Legacy skill-1 keys are accepted only for compatibility and will be normalized. Operator buffs use talent/potential/skill groups. Buff category must be passive/condition/countable; legacy positive is accepted only for migration and normalizes to passive. Countable buffs require maxStacks and only support fixed numeric value, no derivedValue. Fixed effects use valueMode fixed with numeric value. Derived effects use valueMode derived and derivedValue.source/perPointValue, where perPointValue means 每点提升多少, not an arbitrary formula. Percent-like buff types still use decimal numbers, e.g. 每点 +0.10% => 0.001. operator.fill.apply creates a proposal only; it does NOT save to library.',
         approvalSaveWarning: 'Approval applies to def.operator-editor.draft.v1. Save writes def.operator-editor.library.v1.',
       },
     };

@@ -34,7 +34,11 @@ import {
   setSelectedCharacterIds,
 } from '../utils/storage';
 import { STORAGE_KEYS } from '../constants/storage-keys';
-import { loadLocalOperatorCharacters, loadLocalOperatorDraftMap } from '../core/services/localOperatorAdapter';
+import {
+  adaptRuntimeTemplateToLegacyCharacter,
+  loadLocalOperatorCharacters,
+  loadLocalOperatorDraftMap,
+} from '../core/services/localOperatorAdapter';
 import {
   buildRuntimeOperatorTemplateFromOfficialCharacter,
   buildRuntimeOperatorTemplateFromDraft,
@@ -253,6 +257,30 @@ const AppContext = createContext<AppContextType | null>(null);
 export function AppProvider({ children }: { children: ReactNode }) {
   const [state, dispatch] = useReducer(appReducer, initialState);
   const selectedCharactersHydratedRef = useRef(false);
+  const canvasLocalRefreshSignatureRef = useRef<string | null>(null);
+
+  const refreshSelectedLocalCharacters = (selectedCharacters: Character[]) => {
+    const localDraftMap = loadLocalOperatorDraftMap();
+    let changed = false;
+    const refreshedCharacters = selectedCharacters.map((character) => {
+      const draft = localDraftMap[character.id];
+      if (!draft) {
+        return character;
+      }
+      const refreshedCharacter = adaptRuntimeTemplateToLegacyCharacter(buildRuntimeOperatorTemplateFromDraft(draft));
+      if (
+        character.name !== refreshedCharacter.name
+        || character.avatarUrl !== refreshedCharacter.avatarUrl
+        || JSON.stringify(character.skillIconMap ?? {}) !== JSON.stringify(refreshedCharacter.skillIconMap ?? {})
+        || JSON.stringify((character.sandboxSkills ?? []).map((skill) => [skill.id, skill.displayName, skill.iconUrl, skill.hitCount])) !== JSON.stringify((refreshedCharacter.sandboxSkills ?? []).map((skill) => [skill.id, skill.displayName, skill.iconUrl, skill.hitCount]))
+      ) {
+        changed = true;
+      }
+      return refreshedCharacter;
+    });
+
+    return changed ? refreshedCharacters : selectedCharacters;
+  };
 
   /**
    * 从 public/data/characters/operators-list.json 动态加载所有干员名称列表，
@@ -320,24 +348,25 @@ export function AppProvider({ children }: { children: ReactNode }) {
           .map((characterId) => restorableCharacterMap.get(characterId))
           .filter((character): character is Character => Boolean(character))
           .slice(0, 4);
+        const refreshedRestoredCharacters = refreshSelectedLocalCharacters(restoredCharacters);
 
         const expectedCount = Math.min(selectedCharacterIds.length, 4);
-        const restoredIds = restoredCharacters.map((c) => c.id);
+        const restoredIds = refreshedRestoredCharacters.map((c) => c.id);
         const missingIds = selectedCharacterIds.filter((id) => !restoredIds.includes(id));
 
-        if (restoredCharacters.length > 0 && restoredCharacters.length === expectedCount) {
-          dispatch({ type: 'SET_SELECTED_CHARACTERS', characters: restoredCharacters });
+        if (refreshedRestoredCharacters.length > 0 && refreshedRestoredCharacters.length === expectedCount) {
+          dispatch({ type: 'SET_SELECTED_CHARACTERS', characters: refreshedRestoredCharacters });
           dispatch({ type: 'SET_VIEW', view: 'canvas' });
           // 恢复成功后：定向重建模板表（只包含已恢复角色）
           // 注：这里手动重建是为了首轮 hydration，后续变更统一由 selectedCharacters effect 接管
-          rebuildSelectedRuntimeTemplateMap(restoredCharacters);
+          rebuildSelectedRuntimeTemplateMap(refreshedRestoredCharacters);
         } else {
           console.warn('[AppContext] 角色恢复失败:', {
             selectedCharacterIds,
             restoredIds,
             missingIds,
             expectedCount,
-            actualCount: restoredCharacters.length,
+            actualCount: refreshedRestoredCharacters.length,
           });
           // 恢复失败：显式清空模板表，避免残留旧数据
           setRuntimeOperatorTemplateMap({});
@@ -417,6 +446,35 @@ export function AppProvider({ children }: { children: ReactNode }) {
     // 同步重建运行时模板表（职责收紧：只包含当前已选角色）
     rebuildSelectedRuntimeTemplateMap(state.selectedCharacters);
   }, [state.selectedCharacters]);
+
+  useEffect(() => {
+    if (!selectedCharactersHydratedRef.current || state.currentView !== 'canvas' || state.selectedCharacters.length === 0) {
+      return;
+    }
+
+    const localDraftMap = loadLocalOperatorDraftMap();
+    const signature = state.selectedCharacters
+      .map((character) => {
+        const draft = localDraftMap[character.id];
+        return draft
+          ? `${character.id}:${draft.name}:${draft.avatarUrl}:${JSON.stringify(Object.keys(draft.skills || {}))}:${JSON.stringify(Object.values(draft.skills || {}).map((skill) => [skill.displayName, skill.buttonType, skill.iconUrl, skill.hitCount]))}`
+          : `${character.id}:official`;
+      })
+      .join('|');
+
+    if (canvasLocalRefreshSignatureRef.current === signature) {
+      return;
+    }
+    canvasLocalRefreshSignatureRef.current = signature;
+
+    const refreshedCharacters = refreshSelectedLocalCharacters(state.selectedCharacters);
+    if (refreshedCharacters !== state.selectedCharacters) {
+      dispatch({ type: 'SET_SELECTED_CHARACTERS', characters: refreshedCharacters });
+      return;
+    }
+
+    rebuildSelectedRuntimeTemplateMap(refreshedCharacters);
+  }, [state.currentView, state.selectedCharacters]);
 
   return (
     <AppContext.Provider value={{ state, dispatch, loadCharacters }}>

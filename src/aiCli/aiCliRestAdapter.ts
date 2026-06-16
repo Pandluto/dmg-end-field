@@ -494,6 +494,7 @@ export function handleAiCliRestRequest(
           procedure: [
             'Use app-provided source data outside Agent CLI when needed. Agent CLI only owns current/library/fill/proposal state.',
             'Build one OperatorFillAiDraft JSON object with id/name/rarity/profession/weapon/element/mainStat/subStat/skills.',
+            'Use latest system skill keys: skill-{buttonType}-{index}, e.g. skill-A-1 / skill-B-1 / skill-E-1 / skill-Q-1. Each buttonType counts from 1.',
             'Call POST /api/operator/fill/check.',
             'If check fails, fix JSON and check again.',
             'Call POST /api/operator/fill/apply only after validation passes. This creates a proposal, NOT a library write.',
@@ -502,6 +503,7 @@ export function handleAiCliRestRequest(
           outputContract: {
             formatName: 'OperatorFillAiDraft',
             root: ['id', 'name', 'rarity', 'profession', 'weapon', 'element', 'mainStat', 'subStat', 'skills', 'buffs?'],
+            skillKeys: 'Record keys should use skill-{buttonType}-{index}; legacy skill-1 input is accepted but normalized by check/apply.',
             skill: ['displayName', 'buttonType', 'iconUrl?', 'hitCount?', 'hitMeta?'],
             buffs: 'optional talent/potential/skill groups; each group is { effects: Record<effectKey, effect> }',
             buffEffect: ['effectId?', 'name', 'type', 'category', 'value?', 'unit?', 'valueMode?', 'derivedValue?', 'description?', 'raw?'],
@@ -512,6 +514,7 @@ export function handleAiCliRestRequest(
           },
           hardRules: [
             'buttonType must be A/B/E/Q.',
+            'Skill keys are system-maintained; prefer skill-A-1 / skill-B-1 / skill-E-1 / skill-Q-1, not plain A/B/E/Q or old global skill-1 numbering.',
             'skill hit level values must be numbers.',
             'operator buff category must be positive or condition.',
             'fixed operator buff effects use numeric value; derived effects use valueMode=derived and derivedValue.source/perPointValue.',

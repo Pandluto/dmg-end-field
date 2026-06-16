@@ -882,6 +882,9 @@ interface OperatorFillAiDraft {
   mainStat: '力量' | '敏捷' | '智识' | '意志';
   subStat: '力量' | '敏捷' | '智识' | '意志';
   avatarUrl?: string;
+  // skill keys are system-maintained: skill-{buttonType}-{index}
+  // examples: skill-A-1, skill-B-1, skill-E-1, skill-Q-1
+  // each buttonType counts from 1; legacy skill-1 input is accepted but normalized
   skills: Record<string, OperatorFillAiSkill>;
   buffs?: OperatorFillAiBuffs;
 }

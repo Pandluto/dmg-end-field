@@ -1,5 +1,6 @@
 import type { HitSkillType, SkillButton as SkillButtonType } from '../../types';
 import type { ResolvedHitTemplate, ResolvedSkillDamageTemplate } from '../calculators/skillDamage.types';
+import type { RuntimeOperatorTemplateSkill } from '../templates/operatorTemplate';
 import { getCharacterInput, getRuntimeOperatorTemplateById } from '../../utils/storage';
 
 type LeveledHit = {
@@ -45,6 +46,36 @@ function normalizeHits(
   };
 }
 
+function isTypedRuntimeSkillId(runtimeSkillId: string | undefined): boolean {
+  return /^skill-[ABEQ]-\d+$/.test(runtimeSkillId ?? '') || /^official-[ABEQ]$/.test(runtimeSkillId ?? '');
+}
+
+function resolveLegacyRuntimeSkill(
+  button: SkillButtonType,
+  skills: RuntimeOperatorTemplateSkill[]
+): RuntimeOperatorTemplateSkill | null {
+  const runtimeSkillId = button.runtimeSkillId;
+  if (!runtimeSkillId || isTypedRuntimeSkillId(runtimeSkillId)) {
+    return null;
+  }
+
+  const legacyIndexMatch = runtimeSkillId.match(/^skill-(\d+)$/);
+  if (legacyIndexMatch) {
+    const legacyIndex = Number(legacyIndexMatch[1]);
+    const candidate = Number.isInteger(legacyIndex) && legacyIndex > 0 ? skills[legacyIndex - 1] : undefined;
+    if (candidate) {
+      return candidate;
+    }
+  }
+
+  const sameTypeSkills = skills.filter((skill) => skill.buttonType === button.skillType);
+  if (sameTypeSkills.length === 1) {
+    return sameTypeSkills[0];
+  }
+
+  return null;
+}
+
 export function resolveSkillDamageTemplate(
   button: SkillButtonType
 ): ResolvedSkillDamageTemplate | null {
@@ -56,7 +87,10 @@ export function resolveSkillDamageTemplate(
     let runtimeSkill = template.skills.find((skill) => skill.id === button.runtimeSkillId);
 
     if (!runtimeSkill) {
-      if (button.runtimeSkillId) {
+      const legacyRuntimeSkill = resolveLegacyRuntimeSkill(button, template.skills);
+      if (legacyRuntimeSkill) {
+        runtimeSkill = legacyRuntimeSkill;
+      } else if (button.runtimeSkillId) {
         console.warn(
           `[resolveSkillDamageTemplate] runtimeSkillId 未命中，fallback 到 buttonType:\n` +
           `  button.id=${button.id}\n` +
@@ -66,7 +100,9 @@ export function resolveSkillDamageTemplate(
           `  template.skills=[${template.skills.map(skill => skill.id).join(', ')}]`
         );
       }
-      runtimeSkill = template.skills.find((skill) => skill.buttonType === button.skillType);
+      if (!runtimeSkill) {
+        runtimeSkill = template.skills.find((skill) => skill.buttonType === button.skillType);
+      }
     }
 
     if (runtimeSkill) {
