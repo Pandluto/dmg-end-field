@@ -34,7 +34,12 @@ import {
   GRID_NODE_COUNT,
   resolveSnappedGridNode,
 } from '../../core/calculators/gridSnapLayout';
-import { getSkillButtonById } from '../../core/repositories';
+import {
+  getSkillButtonById,
+  getSkillButtonTable,
+  saveTimelineData as saveTimelineRepo,
+  setSkillButtonTable,
+} from '../../core/repositories';
 import { attachExistingBuffsToButton } from '../../core/services/buffService';
 import { APP_ROUTE_PATHS, navigateToAppPath } from '../../utils/appRoute';
 import { STORAGE_KEYS } from '../../constants/storage-keys';
@@ -53,6 +58,7 @@ import {
   type TimelineShareFile,
 } from '../../utils/timelineSnapshotStorage';
 import './CanvasBoard.css';
+import { resolveRuntimeTemplateSkill } from '../../core/services/skillDamageTemplateResolver';
 
 function formatPreciseTimestamp(timestamp: number): string {
   const date = new Date(timestamp);
@@ -200,9 +206,20 @@ export function CanvasBoard({
         : null;
 
     const restoredButtons: SkillButton[] = [];
-    dataToRestore.staffLines.forEach((staffLine) => {
+    const nextTimelineData = {
+      ...dataToRestore,
+      staffLines: dataToRestore.staffLines.map((staffLine) => ({
+        ...staffLine,
+        buttons: Array.isArray(staffLine.buttons) ? [...staffLine.buttons] : [],
+      })),
+    };
+    const currentSkillButtonTable = getSkillButtonTable();
+    const nextSkillButtonTable = { ...currentSkillButtonTable };
+    let hasMetadataSync = false;
+
+    dataToRestore.staffLines.forEach((staffLine, staffLineIndex) => {
       const buttons = Array.isArray(staffLine.buttons) ? staffLine.buttons : [];
-      buttons.forEach((btn) => {
+      buttons.forEach((btn, buttonIndex) => {
         const character = selectedCharacters.find((item) => item.name === btn.characterName);
         const lineIndex = selectedCharacters.findIndex(
           character => character.name === btn.characterName
@@ -225,9 +242,57 @@ export function CanvasBoard({
             ? restoredGridContentOffsetX + getGridNodeCenterX(restoredNodeIndex)
             : btn.position.x;
         const position = { x: normalizedPositionX, y: normalizedPositionY };
+        const restoredButtonCharacterId = character?.id ?? btn.characterId ?? btn.characterName;
+        const resolvedRuntimeSkill = resolveRuntimeTemplateSkill({
+          id: btn.id,
+          characterId: restoredButtonCharacterId,
+          characterName: btn.characterName,
+          skillType: btn.skillType,
+          position,
+          staffIndex: restoredGroupIndex,
+          lineIndex: lineIndex >= 0 ? lineIndex : 0,
+          isDragging: false,
+          isSelected: false,
+          isFromSandbox: true,
+          runtimeSkillId: btn.runtimeSkillId,
+          skillDisplayName: btn.skillDisplayName,
+          skillIconUrl: btn.skillIconUrl,
+          customHits: btn.customHits,
+          element: character?.element,
+        });
+        const nextRuntimeSkillId = resolvedRuntimeSkill?.id ?? btn.runtimeSkillId;
+        const nextSkillDisplayName = resolvedRuntimeSkill?.displayName || btn.skillDisplayName;
+        const nextSkillIconUrl = resolvedRuntimeSkill?.iconUrl
+          ?? btn.skillIconUrl
+          ?? resolveSkillIconUrl(btn.characterName, btn.skillType);
+
+        if (
+          btn.runtimeSkillId !== nextRuntimeSkillId
+          || btn.skillDisplayName !== nextSkillDisplayName
+          || btn.skillIconUrl !== nextSkillIconUrl
+        ) {
+          hasMetadataSync = true;
+          nextTimelineData.staffLines[staffLineIndex].buttons[buttonIndex] = {
+            ...btn,
+            runtimeSkillId: nextRuntimeSkillId,
+            skillDisplayName: nextSkillDisplayName,
+            skillIconUrl: nextSkillIconUrl,
+          };
+          const persistedButton = nextSkillButtonTable[btn.id];
+          if (persistedButton) {
+            nextSkillButtonTable[btn.id] = {
+              ...persistedButton,
+              runtimeSkillId: nextRuntimeSkillId,
+              skillDisplayName: nextSkillDisplayName,
+              skillIconUrl: nextSkillIconUrl,
+              updatedAt: Date.now(),
+            };
+          }
+        }
+
         restoredButtons.push({
           id: btn.id,
-          characterId: character?.id ?? btn.characterName,
+          characterId: restoredButtonCharacterId,
           characterName: btn.characterName,
           skillType: btn.skillType,
           position,
@@ -238,14 +303,22 @@ export function CanvasBoard({
           isDragging: false,
           isSelected: false,
           isFromSandbox: true,
-          runtimeSkillId: btn.runtimeSkillId,
-          skillDisplayName: btn.skillDisplayName,
-          skillIconUrl: btn.skillIconUrl ?? resolveSkillIconUrl(btn.characterName, btn.skillType),
+          runtimeSkillId: nextRuntimeSkillId,
+          skillDisplayName: nextSkillDisplayName,
+          skillIconUrl: nextSkillIconUrl,
           customHits: btn.customHits,
           element: character?.element,
         });
       });
     });
+
+    if (hasMetadataSync) {
+      saveTimelineRepo(nextTimelineData);
+      setSkillButtonTable(nextSkillButtonTable);
+      console.log('[CanvasBoard] 恢复排轴时已按当前模板同步技能元数据', {
+        buttonCount: restoredButtons.length,
+      });
+    }
 
     dispatch({ type: 'CLEAR_SKILL_BUTTONS' });
     restoredButtons.forEach((button) => {
