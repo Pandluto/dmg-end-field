@@ -133,9 +133,16 @@ function normalizeBuffEffect(effectKey: string, rawEffect: unknown): OperatorDra
   const source = rawEffect && typeof rawEffect === 'object' ? rawEffect as Record<string, unknown> : {};
   const effectKind = source.effectKind === 'extraHit' ? 'extraHit' : 'modifier';
   const rawCategory = typeof source.category === 'string' ? source.category : '';
-  const category = effectKind === 'extraHit' ? 'passive' : rawCategory === 'condition' ? 'condition' : rawCategory === 'countable' ? 'countable' : 'passive';
+  const normalizedCategory = rawCategory === 'condition'
+    ? 'condition'
+    : rawCategory === 'countable'
+      ? 'countable'
+      : 'passive';
+  const category = effectKind === 'extraHit' && normalizedCategory !== 'countable'
+    ? 'passive'
+    : normalizedCategory;
   const rawValue = source.value;
-  const valueMode = category === 'countable' ? 'fixed' : source.valueMode === 'derived' ? 'derived' : 'fixed';
+  const valueMode = effectKind === 'extraHit' || category === 'countable' ? 'fixed' : source.valueMode === 'derived' ? 'derived' : 'fixed';
   const rawDerivedValue = source.derivedValue && typeof source.derivedValue === 'object'
     ? source.derivedValue as Record<string, unknown>
     : {};

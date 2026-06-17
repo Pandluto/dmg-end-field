@@ -37,6 +37,23 @@ interface BuildAnomalyDamageSegmentsParams {
   getEffectiveCharacterSourceSkillBoost: (characterId: string | null, buffs?: SkillButtonBuff[]) => number;
 }
 
+function normalizeExtraHitStackCount(
+  buff: SkillButtonBuff,
+  stackCounts: Record<string, number>
+): number {
+  if (buff.category !== 'countable') {
+    return 1;
+  }
+  const maxStacks = typeof buff.maxStacks === 'number' && Number.isFinite(buff.maxStacks) && buff.maxStacks > 0
+    ? Math.floor(buff.maxStacks)
+    : 1;
+  const rawCount = stackCounts[buff.id];
+  const stackCount = typeof rawCount === 'number' && Number.isFinite(rawCount)
+    ? Math.floor(rawCount)
+    : maxStacks;
+  return Math.min(Math.max(stackCount, 0), maxStacks);
+}
+
 function resolveBaseMultiplierPercent(card: SelectedAnomalyCard): number {
   switch (card.key) {
     case 'magic-burst':
@@ -350,6 +367,8 @@ export function buildAnomalyDamageSegments({
   const extraHitSegments = extraHitBuffList.flatMap<AnomalyDamageSegmentView>((buff, index) => {
     const extraHitConfig = buff.extraHitConfig;
     const elementKey = extraHitConfig.damageType;
+    const stackCount = normalizeExtraHitStackCount(buff, buffStackCounts);
+    const stackedBaseMultiplier = extraHitConfig.baseMultiplier * stackCount;
     const sequenceNumber = hitCards.length + anomalySegments.length + index + 1;
     const segmentKey = `buff-extra-hit-${buff.id}`;
     const disabledBuffIds = new Set(manuallyDisabledBuffIdsBySegmentKey[segmentKey] ?? []);
@@ -381,7 +400,7 @@ export function buildAnomalyDamageSegments({
     const comboDamageBonus = buffTotals.comboDamageBonus;
     const imbalanceDamageBonus = buffTotals.imbalanceDamageBonus + (elementKey === 'physical' ? (damageBonus.imbalanceDmgBonus || 0) : 0);
     const defenseZone = 0.5;
-    const finalMultiplier = (extraHitConfig.baseMultiplier + buffTotals.multiplierBonus) * buffTotals.multiplierMultiplier;
+    const finalMultiplier = (stackedBaseMultiplier + buffTotals.multiplierBonus) * buffTotals.multiplierMultiplier;
     const extraHitAtk = segmentPanel.atk;
     const extraHitCritRate = segmentPanel.critRate;
     const extraHitCritDmg = segmentPanel.critDmg;
@@ -409,16 +428,16 @@ export function buildAnomalyDamageSegments({
       sourceSkillBoostText: '-',
       levelCoefficientText: '-',
       sourceSkillZoneText: '-',
-      baseMultiplierText: `${(extraHitConfig.baseMultiplier * 100).toFixed(1)}%`,
+      baseMultiplierText: `${(stackedBaseMultiplier * 100).toFixed(1)}%`,
       multiplierText: `${(finalMultiplier * 100).toFixed(1)}%`,
-      multiplierFormulaText: `(${(extraHitConfig.baseMultiplier * 100).toFixed(1)}% + ${(buffTotals.multiplierBonus * 100).toFixed(1)}%) × ${buffTotals.multiplierMultiplier.toFixed(3)}`,
+      multiplierFormulaText: `(${(extraHitConfig.baseMultiplier * 100).toFixed(1)}%${buff.category === 'countable' ? ` × ${stackCount}` : ''} + ${(buffTotals.multiplierBonus * 100).toFixed(1)}%) × ${buffTotals.multiplierMultiplier.toFixed(3)}`,
       expectedText: expected.toFixed(0),
       critText: crit.toFixed(0),
       nonCritText: nonCrit.toFixed(0),
       expectedValue: expected,
       critValue: crit,
       nonCritValue: nonCrit,
-      formulaText: `${extraHitAtk.toFixed(0)} × ${(extraHitConfig.baseMultiplier * 100).toFixed(1)}% 经 Buff 修正后 = ${(finalMultiplier * 100).toFixed(1)}%`,
+      formulaText: `${extraHitAtk.toFixed(0)} × ${(extraHitConfig.baseMultiplier * 100).toFixed(1)}%${buff.category === 'countable' ? ` × ${stackCount}层` : ''} 经 Buff 修正后 = ${(finalMultiplier * 100).toFixed(1)}%`,
       elementBonusText: `${(elementBonus * 100).toFixed(1)}%`,
       skillBonusText: `${(skillBonus * 100).toFixed(1)}%`,
       allDamageBonusText: `${(allDamageBonus * 100).toFixed(1)}%`,

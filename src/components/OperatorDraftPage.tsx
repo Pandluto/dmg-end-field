@@ -545,13 +545,19 @@ function normalizeAttributeLevels(rawAttributes: unknown): AttributeLevels {
 function normalizeBuffEffect(effectKey: string, rawEffect: unknown): OperatorBuffEffect {
   const source = rawEffect && typeof rawEffect === 'object' ? rawEffect as Record<string, unknown> : {};
   const rawCategory = typeof source.category === 'string' ? source.category : '';
-  const category: OperatorBuffCategory = rawCategory === 'condition'
+  const normalizedCategory: OperatorBuffCategory = rawCategory === 'condition'
     ? 'condition'
     : rawCategory === 'countable'
       ? 'countable'
       : 'passive';
+  const effectKind: BuffEffectKind = source.effectKind === 'extraHit' ? 'extraHit' : 'modifier';
+  const category: OperatorBuffCategory = effectKind === 'extraHit' && normalizedCategory !== 'countable'
+    ? 'passive'
+    : normalizedCategory;
   const rawValue = source.value;
-  const valueMode: OperatorBuffValueMode = source.valueMode === 'derived' ? 'derived' : 'fixed';
+  const valueMode: OperatorBuffValueMode = effectKind === 'extraHit' || category === 'countable'
+    ? 'fixed'
+    : source.valueMode === 'derived' ? 'derived' : 'fixed';
   const rawDerivedValue = source.derivedValue && typeof source.derivedValue === 'object'
     ? source.derivedValue as Record<string, unknown>
     : {};
@@ -560,12 +566,11 @@ function normalizeBuffEffect(effectKey: string, rawEffect: unknown): OperatorBuf
     ? rawDerivedSource as OperatorBuffDerivedSource
     : null;
   const rawPerPointValue = rawDerivedValue.perPointValue ?? rawDerivedValue.scale;
-  const effectKind: BuffEffectKind = source.effectKind === 'extraHit' ? 'extraHit' : 'modifier';
   return {
     effectId: String(source.effectId || effectKey),
     name: String(source.name || effectKey),
     type: effectKind === 'extraHit' ? '' : String(source.type || ''),
-    category: effectKind === 'extraHit' ? 'passive' : category,
+    category,
     ...(typeof rawValue === 'number' && Number.isFinite(rawValue) ? { value: rawValue } : {}),
     ...(category === 'countable' && typeof source.maxStacks === 'number' && Number.isFinite(source.maxStacks) ? { maxStacks: Math.max(1, Math.floor(source.maxStacks)) } : {}),
     unit: typeof source.unit === 'string' ? source.unit : '',
@@ -2346,7 +2351,7 @@ export function OperatorDraftPage() {
                           <span>{effect.effectKind === 'extraHit' ? '额外伤害段' : effect.type ? getOperatorBuffTypeDisplayLabel(effect.type) : '未设置类型'}</span>
                           <span>
                             {effect.effectKind === 'extraHit'
-                              ? `${((effect.extraHitConfig?.baseMultiplier ?? 1) * 100).toFixed(0)}% ${effect.extraHitConfig?.damageType ?? 'physical'} / ${effect.extraHitConfig?.skillType || '空'}`
+                              ? `${((effect.extraHitConfig?.baseMultiplier ?? 1) * 100).toFixed(0)}% ${effect.extraHitConfig?.damageType ?? 'physical'} / ${effect.extraHitConfig?.skillType || '空'} / ${effect.category === 'countable' ? `计层/${effect.maxStacks ?? 1}` : '常驻'}`
                               : effect.category === 'condition' ? '条件' : effect.category === 'countable' ? `计层/${effect.maxStacks ?? 1}` : '常驻'}
                             {effect.valueMode === 'derived' && effect.derivedValue
                               ? ` · ${OPERATOR_BUFF_DERIVED_SOURCE_LABELS[effect.derivedValue.source]} 每点提升 ${formatOperatorBuffPerPointValue(effect.derivedValue.perPointValue)}`
@@ -2391,7 +2396,7 @@ export function OperatorDraftPage() {
                                   value: undefined,
                                   valueMode: 'fixed' as const,
                                   derivedValue: undefined,
-                                  category: 'passive' as const,
+                                  category: effect.category === 'countable' ? 'countable' as const : 'passive' as const,
                                   extraHitConfig: normalizeExtraHitConfig(effect.extraHitConfig, `${effect.effectId || selectedBuffEffectKey}-extra-hit`),
                                 }
                                 : { extraHitConfig: undefined }),
@@ -2436,7 +2441,6 @@ export function OperatorDraftPage() {
                         <span>分类</span>
                         <select
                           value={selectedBuffEffect.category}
-                          disabled={selectedBuffEffect.effectKind === 'extraHit'}
                           onChange={(event) => {
                             const nextCategory = event.target.value as OperatorBuffCategory;
                             updateSelectedBuffEffect((effect) => ({
@@ -2449,7 +2453,7 @@ export function OperatorDraftPage() {
                           }}
                         >
                           <option value="passive">passive</option>
-                          <option value="condition">condition</option>
+                          {selectedBuffEffect.effectKind !== 'extraHit' && <option value="condition">condition</option>}
                           <option value="countable">countable</option>
                         </select>
                       </label>
