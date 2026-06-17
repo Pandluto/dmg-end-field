@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useAppContext } from '../../context/AppContext';
 import { reconcileSelectionChange } from '../../core/services/timelineService';
 import { loadLocalOperatorCharacters } from '../../core/services/localOperatorAdapter';
+import { LOCAL_LIBRARY_CHANGED_EVENT } from '../../aiCli/aiCliCommandService';
 import { Character } from '../../types';
 import { normalizeAssetUrl } from '../../utils/assetResolver';
 import { APP_ROUTE_PATHS, navigateToAppPath } from '../../utils/appRoute';
@@ -36,6 +37,20 @@ export function SelectionPanel() {
 
   useEffect(() => {
     refreshLocalCharacters();
+    // web-cli 保存到本地主库后派发的同页事件
+    const handleLocalChanged = () => refreshLocalCharacters();
+    window.addEventListener(LOCAL_LIBRARY_CHANGED_EVENT, handleLocalChanged);
+    // 跨页签：其他标签页写 localStorage 时触发的原生 storage 事件
+    const handleStorage = (event: StorageEvent) => {
+      if (event.key && event.key.startsWith('def.')) {
+        refreshLocalCharacters();
+      }
+    };
+    window.addEventListener('storage', handleStorage);
+    return () => {
+      window.removeEventListener(LOCAL_LIBRARY_CHANGED_EVENT, handleLocalChanged);
+      window.removeEventListener('storage', handleStorage);
+    };
   }, []);
 
   useEffect(() => {

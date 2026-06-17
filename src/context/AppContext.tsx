@@ -17,6 +17,7 @@
  */
 
 import React, { createContext, useContext, useReducer, ReactNode, useEffect, useRef } from 'react';
+import { LOCAL_LIBRARY_CHANGED_EVENT } from '../aiCli/aiCliCommandService';
 import {
   AppState,
   Character,
@@ -435,6 +436,20 @@ export function AppProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     cleanupStorage();
     loadCharacters();
+    // web-cli proposal.save 后派发的同页事件：立即重读本地主库
+    const handleLocalChanged = () => { void loadCharacters(); };
+    window.addEventListener(LOCAL_LIBRARY_CHANGED_EVENT, handleLocalChanged);
+    // 跨页签：其他标签页写 localStorage 时触发的原生 storage 事件
+    const handleStorage = (event: StorageEvent) => {
+      if (event.key && event.key.startsWith('def.')) {
+        void loadCharacters();
+      }
+    };
+    window.addEventListener('storage', handleStorage);
+    return () => {
+      window.removeEventListener(LOCAL_LIBRARY_CHANGED_EVENT, handleLocalChanged);
+      window.removeEventListener('storage', handleStorage);
+    };
   }, []);
 
   useEffect(() => {

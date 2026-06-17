@@ -922,6 +922,7 @@ export function OperatorDraftPage() {
   const [isOverwriteProtectionEnabled, setIsOverwriteProtectionEnabled] = useState(true);
   const [loadedLocalDraftId, setLoadedLocalDraftId] = useState<string | null>(null);
   const [shareDraftName, setShareDraftName] = useState('');
+  const [exportScope, setExportScope] = useState<'current' | 'all'>('current');
   const [userAssetPathOptions, setUserAssetPathOptions] = useState<string[]>([]);
   const [pendingImportShare, setPendingImportShare] = useState<DraftLibraryShareFile<OperatorDraft> | null>(null);
   const shareImportInputRef = useRef<HTMLInputElement>(null);
@@ -1356,6 +1357,28 @@ export function OperatorDraftPage() {
     }
   };
 
+  const currentShareText = useMemo(() => {
+    const library = readLocalDraftLibrary();
+    let payload: Record<string, OperatorDraft>;
+    if (exportScope === 'current') {
+      payload = draft.id ? { [draft.id]: draft } : {};
+    } else {
+      payload = { ...library };
+      if (draft.id) {
+        payload[draft.id] = draft;
+      }
+    }
+    return JSON.stringify(
+      buildDraftLibraryShareFile(
+        OPERATOR_LIBRARY_SHARE_TYPE,
+        payload,
+        exportScope === 'current' ? draft.name || 'operator' : shareDraftName || draft.name || 'operator-library',
+      ),
+      null,
+      2,
+    );
+  }, [draft, exportScope, shareDraftName]);
+
   const downloadShareFile = (shareFile: DraftLibraryShareFile<OperatorDraft>) => {
     const blob = new Blob([JSON.stringify(shareFile, null, 2)], {
       type: 'application/json;charset=utf-8',
@@ -1394,15 +1417,38 @@ export function OperatorDraftPage() {
 
   const handleExportLocalLibraryShare = () => {
     const library = readLocalDraftLibrary();
-    const draftCount = Object.keys(library).length;
+    let payload: Record<string, OperatorDraft>;
+    let label: string;
+
+    if (exportScope === 'current') {
+      payload = draft.id ? { [draft.id]: draft } : {};
+      label = draft.name || 'operator';
+    } else {
+      payload = { ...library };
+      if (draft.id) {
+        payload[draft.id] = draft;
+      }
+      label = shareDraftName || draft.name || 'operator-library';
+    }
+
+    const draftCount = Object.keys(payload).length;
     if (draftCount === 0) {
-      setMessages((prev) => ['[ERR] 本地没有可分享的干员库数据', ...prev].slice(0, 12));
+      setMessages((prev) => ['[ERR] 当前无可导出内容', ...prev].slice(0, 12));
       return;
     }
 
-    const shareFile = buildDraftLibraryShareFile(OPERATOR_LIBRARY_SHARE_TYPE, library, shareDraftName);
+    const shareFile = buildDraftLibraryShareFile(OPERATOR_LIBRARY_SHARE_TYPE, payload, label);
     downloadShareFile(shareFile);
-    setMessages((prev) => [`[OK] 已导出干员分享：${shareFile.label}（${draftCount} 个）`, ...prev].slice(0, 12));
+    setMessages((prev) => [`[OK] 已导出${exportScope === 'current' ? '当前干员' : '干员库'}分享：${shareFile.label}（${draftCount} 个）`, ...prev].slice(0, 12));
+  };
+
+  const handleCopyShareJson = async () => {
+    try {
+      await navigator.clipboard.writeText(currentShareText);
+      setMessages((prev) => ['[OK] 已复制导出 JSON', ...prev].slice(0, 12));
+    } catch {
+      setMessages((prev) => ['[ERR] 复制失败', ...prev].slice(0, 12));
+    }
   };
 
   const handleOpenShareImportPicker = () => {
@@ -2566,8 +2612,23 @@ export function OperatorDraftPage() {
               <span>导出 / 导入本地库</span>
             </div>
             <div className="operator-draft-confirm-body">
-              <p>{`当前本地干员库共有 ${localDraftIds.length} 个条目。`}</p>
-              <p>导出会打包整个本地干员库；导入会把分享文件中的干员合并回本地库，并覆盖同 ID 条目。</p>
+              <p>{exportScope === 'current' ? '导出仅包含当前编辑的干员。' : `当前本地干员库共有 ${localDraftIds.length} 个条目，导出会打包整个本地干员库。`}</p>
+            </div>
+            <div className="operator-draft-share-tabs">
+              <button
+                type="button"
+                className={`operator-draft-share-tab${exportScope === 'current' ? ' is-active' : ''}`}
+                onClick={() => setExportScope('current')}
+              >
+                导出当前
+              </button>
+              <button
+                type="button"
+                className={`operator-draft-share-tab${exportScope === 'all' ? ' is-active' : ''}`}
+                onClick={() => setExportScope('all')}
+              >
+                导出全部
+              </button>
             </div>
             <label className="operator-draft-share-label">
               <span>分享文件名</span>
@@ -2577,6 +2638,25 @@ export function OperatorDraftPage() {
                 placeholder="留空则默认使用未命名"
               />
             </label>
+            <div className="operator-draft-modal-actions">
+              <button type="button" className="operator-draft-ghost-button" onClick={handleCopyShareJson}>
+                复制 JSON
+              </button>
+              <button type="button" className="operator-draft-copy-button" onClick={handleExportLocalLibraryShare}>
+                导出文件
+              </button>
+            </div>
+            <textarea
+              className="operator-draft-share-textarea"
+              value={currentShareText}
+              readOnly
+              spellCheck={false}
+            />
+            <div className="operator-draft-modal-actions">
+              <button type="button" className="operator-draft-ghost-button" onClick={handleOpenShareImportPicker}>
+                导入分享
+              </button>
+            </div>
             <input
               ref={shareImportInputRef}
               type="file"
@@ -2584,14 +2664,6 @@ export function OperatorDraftPage() {
               className="operator-draft-file-input"
               onChange={handleShareFileSelected}
             />
-            <div className="operator-draft-modal-actions">
-              <button type="button" className="operator-draft-ghost-button" onClick={handleOpenShareImportPicker}>
-                导入分享
-              </button>
-              <button type="button" className="operator-draft-copy-button" onClick={handleExportLocalLibraryShare}>
-                一键导出 JSON
-              </button>
-            </div>
             <div className="operator-draft-modal-actions">
               <button type="button" className="operator-draft-ghost-button" onClick={handleCloseShareModal}>
                 关闭

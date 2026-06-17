@@ -302,6 +302,18 @@ function formatDateTime(timestamp: number | null | undefined) {
   return timestamp ? new Date(timestamp).toLocaleString('zh-CN', { hour12: false }) : '-';
 }
 
+// 通知 web 前端：本地主库（localStorage）发生写入。
+// web-cli 保存后，operator-studio 等组件监听此事件重读 localStorage，
+// 避免依赖"挂载时读一次"导致的 React state 不更新。
+export const LOCAL_LIBRARY_CHANGED_EVENT = 'def:local-library-changed';
+
+export function notifyLocalLibraryChanged(): void {
+  if (typeof window === 'undefined') {
+    return;
+  }
+  window.dispatchEvent(new Event(LOCAL_LIBRARY_CHANGED_EVENT));
+}
+
 export function ok(message: string) {
   return `[ok] ${message}`;
 }
@@ -1807,6 +1819,8 @@ function executeCommand(
     const storageKeys = proposal.domain === 'buff'
       ? [adapter.draftStorageKey, adapter.libraryStorageKey, BUFF_UNDO_STORAGE_KEY]
       : [adapter.draftStorageKey, adapter.libraryStorageKey];
+    // 通知 web 前端：本地主库已写入，让 operator-studio 等组件立即重读，无需手动刷新页面
+    notifyLocalLibraryChanged();
     const alias = getProposalAlias(updated?.id ?? proposal.id, sessionId);
     const aliasPart = alias ? `${alias} ` : '';
     return makeResponse({
