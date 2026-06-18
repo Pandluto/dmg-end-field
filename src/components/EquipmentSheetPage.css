@@ -82,6 +82,15 @@
   font-weight: 400;
 }
 
+.equipment-sheet-preset-value {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #f4f6f9;
+  color: #4b596d;
+  cursor: default;
+}
+
 .equipment-extra-hit-popover {
   position: fixed;
   z-index: 70;

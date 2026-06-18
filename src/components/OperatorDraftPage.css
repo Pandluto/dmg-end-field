@@ -742,7 +742,7 @@
   flex: 1;
   min-height: 0;
   display: grid;
-  grid-template-rows: minmax(112px, 0.45fr) minmax(0, 1fr);
+  grid-template-rows: minmax(112px, 1fr) auto;
   overflow: hidden;
 }
 
@@ -838,6 +838,30 @@
 .operator-draft-buff-form textarea {
   min-height: 54px;
   resize: vertical;
+}
+
+.operator-draft-buff-summary {
+  display: grid;
+  gap: 5px;
+  padding: 10px;
+  border-top: 1px solid #e1e6ef;
+  background: #f7f9fc;
+}
+
+.operator-draft-buff-summary strong {
+  color: #243b5a;
+  font-size: 13px;
+}
+
+.operator-draft-buff-summary span,
+.operator-draft-buff-summary p {
+  margin: 0;
+  color: #68758b;
+  font-size: 11px;
+}
+
+.operator-draft-buff-summary button {
+  justify-self: start;
 }
 
 .operator-draft-modal-overlay {

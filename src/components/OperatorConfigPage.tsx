@@ -15,7 +15,7 @@ import type {
 } from '../types/storage';
 import { getOperatorConfigPageCache, getRuntimeOperatorTemplateMap, safeSessionStorage, setOperatorConfigPageCache } from '../utils/storage';
 import { APP_ROUTE_PATHS, navigateToAppPath } from '../utils/appRoute';
-import type { BuffEffectKind, BuffExtraHitConfig } from '../core/domain/buff';
+import type { BuffEffectKind, BuffExtraHitConfig, BuffMultiplier } from '../core/domain/buff';
 import { normalizeExtraHitConfig } from '../core/services/buffExtraHit';
 import DeferredNumberInput from './DeferredNumberInput';
 
@@ -50,11 +50,19 @@ interface EquipmentItem {
 interface EquipmentThreePieceBuff {
   effectId: string;
   name: string;
-  category: 'positive' | 'passive' | 'condition' | '';
+  category: 'positive' | 'passive' | 'condition' | 'countable' | '';
   typeKey: string;
   value: number;
   unit: 'flat' | 'percent';
+  description?: string;
   raw?: string;
+  valueMode?: 'fixed' | 'derived';
+  derivedValue?: {
+    source: 'hp' | 'atk' | 'strength' | 'agility' | 'intelligence' | 'will' | 'sourceSkill';
+    perPointValue: number;
+  };
+  maxStacks?: number;
+  multiplier?: BuffMultiplier;
   effectKind?: BuffEffectKind;
   extraHitConfig?: BuffExtraHitConfig;
 }
@@ -86,6 +94,10 @@ interface WeaponSkillData {
     type?: string;
     category?: string;
     levels?: Record<string, number>;
+    valueMode?: 'fixed' | 'derived';
+    derivedValue?: EquipmentThreePieceBuff['derivedValue'];
+    maxStacks?: number;
+    multiplier?: BuffMultiplier;
     effectKind?: BuffEffectKind;
     extraHitConfig?: BuffExtraHitConfig;
   }>;
@@ -310,7 +322,7 @@ function normalizeEquipmentLibrary(raw: unknown): EquipmentLibrary {
       ? setValue.threePieceBuffs
       : {};
     const normalizeThreePieceBuffCategory = (category: unknown): EquipmentThreePieceBuff['category'] => (
-      category === 'positive' || category === 'passive' || category === 'condition' ? category : ''
+      category === 'positive' || category === 'passive' || category === 'condition' || category === 'countable' ? category : ''
     );
     const normalizeThreePieceBuff = (effectId: string, rawBuff: Partial<EquipmentThreePieceBuff>): EquipmentThreePieceBuff => ({
       effectId: String(rawBuff.effectId || effectId),
@@ -320,6 +332,11 @@ function normalizeEquipmentLibrary(raw: unknown): EquipmentLibrary {
       value: rawBuff.effectKind === 'extraHit' ? 0 : typeof rawBuff.value === 'number' && Number.isFinite(rawBuff.value) ? rawBuff.value : 0,
       unit: rawBuff.unit === 'flat' ? 'flat' : 'percent',
       raw: rawBuff.raw,
+      description: rawBuff.description,
+      valueMode: rawBuff.valueMode,
+      derivedValue: rawBuff.derivedValue,
+      maxStacks: rawBuff.maxStacks,
+      multiplier: rawBuff.multiplier,
       effectKind: rawBuff.effectKind === 'extraHit' ? 'extraHit' : 'modifier',
       ...(rawBuff.effectKind === 'extraHit'
         ? { extraHitConfig: normalizeExtraHitConfig(rawBuff.extraHitConfig, `${effectId}-extra-hit`) }
@@ -935,6 +952,10 @@ function buildEquipmentSetBuffsForSnapshot(
         gearSetId: gearSet.gearSetId,
         gearSetName: gearSet.name,
         category: buff.category,
+        valueMode: buff.valueMode,
+        derivedValue: buff.derivedValue,
+        maxStacks: buff.maxStacks,
+        multiplier: buff.multiplier,
         effectKind: buff.effectKind,
         extraHitConfig: buff.extraHitConfig,
       }));

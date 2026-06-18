@@ -90,10 +90,16 @@ export interface WeaponSkillInput {
   statType?: string;
   levels?: Record<string, { value?: number; description?: string; passive?: Record<string, unknown> }>;
   effects?: Record<string, {
+    schemaVersion?: 2;
+    effectId?: string;
     name?: string;
     type?: string;
     category?: string;
     levels?: Record<string, number>;
+    valueMode?: OperatorBuffValueMode;
+    derivedValue?: OperatorBuffDerivedValueInput;
+    maxStacks?: number;
+    multiplier?: BuffMultiplier;
     effectKind?: BuffEffectKind;
     extraHitConfig?: BuffExtraHitConfig;
   }>;
@@ -117,6 +123,10 @@ export interface EquipmentEffectInput {
   value: number;
   unit?: 'flat' | 'percent' | string;
   raw?: string;
+  valueMode?: OperatorBuffValueMode;
+  derivedValue?: OperatorBuffDerivedValueInput;
+  maxStacks?: number;
+  multiplier?: BuffMultiplier;
   effectKind?: BuffEffectKind;
   extraHitConfig?: BuffExtraHitConfig;
 }
@@ -270,6 +280,10 @@ export interface WeaponSkillDetail {
   level: number;
   value: number;
   raw?: unknown;
+  valueMode?: OperatorBuffValueMode;
+  derivedValue?: OperatorBuffDerivedValueInput;
+  maxStacks?: number;
+  multiplier?: BuffMultiplier;
   effectKind?: BuffEffectKind;
   extraHitConfig?: BuffExtraHitConfig;
 }
@@ -689,6 +703,16 @@ function buildWeaponSnapshot(input: OperatorPanelInput['weapon']): WeaponSnapsho
       level: config.skillLevels.skill3,
       value: normalizeValue(typeKey, value),
       raw: effect,
+      valueMode: effect.valueMode,
+      ...(effect.valueMode === 'derived'
+        ? { derivedValue: { source: effect.derivedValue?.source ?? 'intelligence', perPointValue: value } }
+        : {}),
+      ...(effect.category === 'countable' && typeof effect.maxStacks === 'number'
+        ? { maxStacks: Math.max(1, Math.floor(effect.maxStacks)) }
+        : {}),
+      ...(effect.multiplier
+        ? { multiplier: { coefficient: value } }
+        : {}),
       effectKind: effect.effectKind === 'extraHit' ? 'extraHit' : 'modifier',
       ...(effect.effectKind === 'extraHit' && effect.extraHitConfig
         ? { extraHitConfig: { ...effect.extraHitConfig, baseMultiplier: value } }

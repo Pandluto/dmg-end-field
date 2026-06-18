@@ -15,6 +15,8 @@ import type { ImageAssetEntry } from './ImageManager/types';
 import type { BuffEffectKind, BuffExtraHitConfig } from '../core/domain/buff';
 import { normalizeExtraHitConfig } from '../core/services/buffExtraHit';
 import DeferredNumberInput from './DeferredNumberInput';
+import BuffEffectEditorDrawer from './BuffEffectEditorDrawer';
+import * as buffModel from './operatorDraftBuffModel';
 
 const WEAPON_SHEET_PAGE_PATH = APP_ROUTE_PATHS.weaponSheet;
 const WEAPON_DRAFT_STORAGE_KEY = 'def.weapon-sheet.draft.v1';
@@ -25,10 +27,19 @@ type WeaponSkillKey = 'skill1' | 'skill2' | 'skill3';
 type WeaponEffectBucket = 'value' | 'effect';
 
 interface WeaponEffectData {
+  schemaVersion?: 2;
+  effectId?: string;
   name: string;
   type: string;
   category: string;
   levels: Record<string, number>;
+  valueMode?: buffModel.OperatorBuffValueMode;
+  derivedValue?: buffModel.OperatorBuffDerivedValue;
+  maxStacks?: number;
+  unit?: string;
+  description?: string;
+  raw?: string;
+  multiplier?: import('../core/domain/buff').BuffMultiplier;
   effectKind?: BuffEffectKind;
   extraHitConfig?: BuffExtraHitConfig;
 }
@@ -43,7 +54,7 @@ interface RawWeaponLevelData {
 interface RawWeaponSkillData {
   name?: string;
   statType?: string;
-  effects?: Record<string, { name?: string; type?: string; category?: string; levels?: Record<string, number>; effectKind?: BuffEffectKind; extraHitConfig?: BuffExtraHitConfig }>;
+  effects?: Record<string, Partial<WeaponEffectData>>;
   /** @deprecated 旧格式，迁移到 effects */
   effectTypes?: Record<string, string>;
   /** @deprecated 旧格式，迁移到 effects */
@@ -248,13 +259,6 @@ type WeaponSheetContextMenuAction = {
   label: string;
   icon: 'new' | 'delete' | 'collapse' | 'expand' | 'open';
   onClick: () => void;
-};
-
-type WeaponExtraHitTypePopoverState = {
-  x: number;
-  y: number;
-  skillKey: WeaponSkillKey;
-  effectKey: string;
 };
 
 const SKILL_KEYS: WeaponSkillKey[] = ['skill1', 'skill2', 'skill3'];
@@ -514,15 +518,12 @@ function normalizeWeaponDraft(raw: RawWeaponDraft | WeaponDraft | null | undefin
           if (typeof v === 'number') levels[levelKey] = v;
         });
         if (Object.keys(levels).length > 0) {
+          const normalized = buffModel.normalizeBuffEffect(key, effect);
           nextSkill.effects[key] = {
+            ...normalized,
+            effectId: normalized.effectId,
             name: effect?.name?.trim() || key,
-            type: effect?.effectKind === 'extraHit' ? '' : effect?.type?.trim() || '',
-            category: effect?.effectKind === 'extraHit' ? 'passive' : effect?.category?.trim() || 'condition',
             levels,
-            effectKind: effect?.effectKind === 'extraHit' ? 'extraHit' : 'modifier',
-            ...(effect?.effectKind === 'extraHit'
-              ? { extraHitConfig: normalizeExtraHitConfig(effect.extraHitConfig, `${key}-extra-hit`) }
-              : {}),
           };
         }
       });
@@ -556,7 +557,16 @@ function normalizeWeaponDraft(raw: RawWeaponDraft | WeaponDraft | null | undefin
           if (typeof v === 'number') levels[levelKey] = v;
         });
         if (Object.keys(levels).length > 0) {
-          nextSkill.effects[effectKey] = { name: effectKey, type, category, levels };
+          nextSkill.effects[effectKey] = {
+            schemaVersion: 2,
+            effectId: effectKey,
+            name: effectKey,
+            type,
+            category,
+            levels,
+            valueMode: 'fixed',
+            effectKind: 'modifier',
+          };
         }
       });
     }
@@ -575,6 +585,58 @@ function normalizeWeaponDraft(raw: RawWeaponDraft | WeaponDraft | null | undefin
   });
 
   return nextDraft;
+}
+
+function projectWeaponEffectForLevel(effectKey: string, effect: WeaponEffectData, levelKey: string): buffModel.OperatorBuffEffect {
+  const normalized = buffModel.normalizeBuffEffect(effectKey, effect);
+  const levelValue = effect.levels[levelKey];
+  const businessType = buffModel.deriveOperatorBuffBusinessType(normalized);
+  if (businessType === 'extraHit') {
+    const config = normalizeExtraHitConfig(normalized.extraHitConfig, `${effectKey}-extra-hit`);
+    return {
+      ...normalized,
+      extraHitConfig: normalizeExtraHitConfig({
+        ...config,
+        baseMultiplier: typeof levelValue === 'number' ? levelValue : config.baseMultiplier,
+      }, config.key),
+    };
+  }
+  if (businessType === 'multiplier') {
+    return {
+      ...normalized,
+      multiplier: { coefficient: typeof levelValue === 'number' ? levelValue : normalized.multiplier?.coefficient ?? 1 },
+    };
+  }
+  if (normalized.valueMode === 'derived') {
+    return {
+      ...normalized,
+      derivedValue: {
+        source: normalized.derivedValue?.source ?? 'intelligence',
+        perPointValue: typeof levelValue === 'number' ? levelValue : normalized.derivedValue?.perPointValue ?? 0,
+      },
+    };
+  }
+  return { ...normalized, value: levelValue };
+}
+
+function applyWeaponDrawerEffect(effect: WeaponEffectData, levelKey: string, next: buffModel.OperatorBuffEffect): WeaponEffectData {
+  const businessType = buffModel.deriveOperatorBuffBusinessType(next);
+  const nextLevelValue = businessType === 'extraHit'
+    ? next.extraHitConfig?.baseMultiplier
+    : businessType === 'multiplier'
+      ? next.multiplier?.coefficient
+      : next.valueMode === 'derived'
+        ? next.derivedValue?.perPointValue
+        : next.value;
+  return {
+    ...effect,
+    ...next,
+    category: next.category,
+    levels: {
+      ...effect.levels,
+      ...(typeof nextLevelValue === 'number' && Number.isFinite(nextLevelValue) ? { [levelKey]: nextLevelValue } : {}),
+    },
+  };
 }
 
 function buildNextCustomWeaponId(existingIds: string[]) {
@@ -759,9 +821,11 @@ function getEffectBuffType(skillKey: WeaponSkillKey, skill: WeaponSkillData, eff
 }
 
 const EFFECT_CATEGORY_OPTIONS = [
-  { value: 'condition', label: '条件触发' },
-  { value: 'passive', label: '固定被动' },
-  { value: 'extraHit', label: '额外伤害段' },
+  { value: 'passive', label: '常驻 · passive' },
+  { value: 'condition', label: '条件 · condition' },
+  { value: 'countable', label: '计层 · countable' },
+  { value: 'multiplier', label: '乘算 · multiplier' },
+  { value: 'extraHit', label: '额外伤害段 · extraHit' },
 ];
 
 function getEffectCategoryLabel(category: string) {
@@ -772,7 +836,8 @@ function getEffectCategory(skillKey: WeaponSkillKey, skill: WeaponSkillData, eff
   if (skillKey === 'skill1' || skillKey === 'skill2') {
     return 'condition';
   }
-  return skill.effects[effectKey]?.category || 'condition';
+  const effect = skill.effects[effectKey];
+  return effect ? buffModel.deriveOperatorBuffBusinessType(buffModel.normalizeBuffEffect(effectKey, effect)) : 'condition';
 }
 
 function autoFillAttackGrowthMilestones(attackGrowth: Record<string, number>) {
@@ -1071,7 +1136,7 @@ function buildWeaponSheetRows(draft: WeaponDraft): WeaponSheetRow[] {
         sourceEffectKey: effectKey,
         title: effectData.name,
         idText: buildWeaponEffectIdText(skillKey, skill3EffectIndex),
-        slot: effectData.effectKind === 'extraHit' ? '额外伤害段' : getEffectCategoryLabel(effectData.category),
+        slot: getEffectCategoryLabel(getEffectCategory(skillKey, skill, effectKey)),
         level: 'Lv1~Lv9',
         effectKey: effectData.effectKind === 'extraHit'
           ? `${effectData.extraHitConfig?.damageType || 'physical'} / ${effectData.extraHitConfig?.skillType || '空'}`
@@ -1249,7 +1314,7 @@ export function WeaponDraftSheetPage() {
   const [exportScope, setExportScope] = useState<'current' | 'all'>('current');
   const [contextMenu, setContextMenu] = useState<WeaponSheetContextMenuState | null>(null);
   const [dragState, setDragState] = useState<WeaponExplorerDragState | null>(null);
-  const [extraHitTypePopover, setExtraHitTypePopover] = useState<WeaponExtraHitTypePopoverState | null>(null);
+  const [buffDrawerTarget, setBuffDrawerTarget] = useState<{ skillKey: WeaponSkillKey; effectKey: string; levelKey: string } | null>(null);
   const shareImportInputRef = useRef<HTMLInputElement>(null);
   const weaponImageFormulaRef = useRef<HTMLDivElement>(null);
   const pendingDragSourceRef = useRef<{ source: WeaponExplorerDragNode; x: number; y: number } | null>(null);
@@ -1301,29 +1366,15 @@ export function WeaponDraftSheetPage() {
     ? visibleRows.find((row) => row.key === selectedWorkbookCell.sourceRowKey) ?? null
     : null;
   const selectedSummaryKey = selectedWorkbookSummary?.key ?? '';
-  const updateWeaponExtraHitType = useCallback((skillKey: WeaponSkillKey, effectKey: string, patch: Partial<BuffExtraHitConfig>) => {
-    setDraft((prev) => normalizeWeaponDraft({
-      ...prev,
-      skills: {
-        ...prev.skills,
-        [skillKey]: {
-          ...prev.skills[skillKey],
-          effects: {
-            ...prev.skills[skillKey].effects,
-            [effectKey]: {
-              ...prev.skills[skillKey].effects[effectKey],
-              effectKind: 'extraHit',
-              category: 'passive',
-              type: '',
-              extraHitConfig: normalizeExtraHitConfig({
-                ...prev.skills[skillKey].effects[effectKey]?.extraHitConfig,
-                ...patch,
-              }, `${effectKey}-extra-hit`),
-            },
-          },
-        },
-      },
-    }));
+  const drawerWeaponEffect = buffDrawerTarget
+    ? draft.skills[buffDrawerTarget.skillKey].effects[buffDrawerTarget.effectKey] ?? null
+    : null;
+  const projectedDrawerEffect = buffDrawerTarget && drawerWeaponEffect
+    ? projectWeaponEffectForLevel(buffDrawerTarget.effectKey, drawerWeaponEffect, buffDrawerTarget.levelKey)
+    : null;
+  const openWeaponBuffDrawer = useCallback((skillKey: WeaponSkillKey, effectKey: string, levelKey = '9') => {
+    if (skillKey !== 'skill3') return;
+    setBuffDrawerTarget({ skillKey, effectKey, levelKey });
   }, []);
 
   const formulaBinding = useMemo<FormulaBinding | null>(() => {
@@ -1522,40 +1573,6 @@ export function WeaponDraftSheetPage() {
           };
         }
         if (selectedWorkbookCell?.columnKey === 'slot' && skillKey === 'skill3' && bucket !== 'value') {
-          const selectedEffect = draft.skills[skillKey].effects[sourceEffectKey];
-          if (selectedEffect?.effectKind === 'extraHit') {
-            return {
-              key: `${skillKey}:effect:${sourceEffectKey}:extra-hit-kind`,
-              focusId: 'effect-category',
-              inputMode: 'text',
-              control: 'select',
-              value: 'extraHit',
-              placeholder: '',
-              options: EFFECT_CATEGORY_OPTIONS,
-              apply: (baseDraft, rawInput) => {
-                if (rawInput !== 'extraHit') {
-                  const nextEffects = { ...baseDraft.skills[skillKey].effects };
-                  nextEffects[sourceEffectKey] = {
-                    ...nextEffects[sourceEffectKey],
-                    category: rawInput === 'passive' ? 'passive' : 'condition',
-                    effectKind: 'modifier',
-                    extraHitConfig: undefined,
-                  };
-                  return {
-                    ...baseDraft,
-                    skills: {
-                      ...baseDraft.skills,
-                      [skillKey]: {
-                        ...baseDraft.skills[skillKey],
-                        effects: nextEffects,
-                      },
-                    },
-                  };
-                }
-                return baseDraft;
-              },
-            };
-          }
           return {
             key: `${skillKey}:effect:${sourceEffectKey}:effect-category`,
             focusId: 'effect-category',
@@ -1565,26 +1582,15 @@ export function WeaponDraftSheetPage() {
             placeholder: '',
             options: EFFECT_CATEGORY_OPTIONS,
             apply: (baseDraft, rawInput) => {
-              const trimmed = rawInput.trim();
+              const businessType = buffModel.OPERATOR_BUFF_BUSINESS_TYPES.includes(rawInput as buffModel.OperatorBuffBusinessType)
+                ? rawInput as buffModel.OperatorBuffBusinessType
+                : 'condition';
               const nextEffects = { ...baseDraft.skills[skillKey].effects };
-              if (nextEffects[sourceEffectKey]) {
-                if (trimmed === 'extraHit') {
-                  nextEffects[sourceEffectKey] = {
-                    ...nextEffects[sourceEffectKey],
-                    type: '',
-                    category: 'passive',
-                    effectKind: 'extraHit',
-                    extraHitConfig: normalizeExtraHitConfig(nextEffects[sourceEffectKey].extraHitConfig, `${sourceEffectKey}-extra-hit`),
-                  };
-                } else {
-                  nextEffects[sourceEffectKey] = {
-                    ...nextEffects[sourceEffectKey],
-                    category: trimmed && EFFECT_CATEGORY_OPTIONS.some((option) => option.value === trimmed) ? trimmed : 'condition',
-                    effectKind: 'modifier',
-                    extraHitConfig: undefined,
-                  };
-                }
-              }
+              const current = nextEffects[sourceEffectKey];
+              if (!current) return baseDraft;
+              const projected = projectWeaponEffectForLevel(sourceEffectKey, current, '9');
+              const nextEffect = buffModel.applyBuffBusinessType(projected, businessType, sourceEffectKey);
+              nextEffects[sourceEffectKey] = applyWeaponDrawerEffect(current, '9', nextEffect);
               return {
                 ...baseDraft,
                 skills: {
@@ -2144,16 +2150,27 @@ export function WeaponDraftSheetPage() {
   }, [updateLibraryDraft]);
 
   const handleCreateDraftEffect = useCallback((draftId: string, skillKey: WeaponSkillKey) => {
+    let createdEffectKey = 'effect1';
     updateLibraryDraft(draftId, (baseDraft) => {
       let effectIndex = 1;
       while (baseDraft.skills[skillKey].effects[`effect${effectIndex}`]) {
         effectIndex += 1;
       }
       const effectKey = `effect${effectIndex}`;
+      createdEffectKey = effectKey;
       const nextEffects = { ...baseDraft.skills[skillKey].effects };
       const levels: Record<string, number> = {};
       LEVEL_KEYS.forEach((levelKey) => { levels[levelKey] = 0; });
-      nextEffects[effectKey] = { name: effectKey, type: '', category: 'condition', levels };
+      nextEffects[effectKey] = {
+        schemaVersion: 2,
+        effectId: effectKey,
+        name: effectKey,
+        type: '',
+        category: 'condition',
+        levels,
+        valueMode: 'fixed',
+        effectKind: 'modifier',
+      };
       return {
         ...baseDraft,
         skills: {
@@ -2168,6 +2185,7 @@ export function WeaponDraftSheetPage() {
       selectAfter: true,
       focusRowKey: buildWeaponEffectRowKey(skillKey, 'effect', `effect${Object.keys((localLibrary[draftId] ?? draft).skills[skillKey].effects).length + 1}`),
     });
+    if (skillKey === 'skill3') setBuffDrawerTarget({ skillKey, effectKey: createdEffectKey, levelKey: '9' });
   }, [draft, localLibrary, updateLibraryDraft]);
 
   const handleDeleteDraftGroup = useCallback((draftId: string) => {
@@ -2246,6 +2264,7 @@ export function WeaponDraftSheetPage() {
       selectAfter: true,
       focusRowKey: buildWeaponEffectRowKey(skillKey, 'effect', newEffectKey),
     });
+    if (skillKey === 'skill3') setBuffDrawerTarget({ skillKey, effectKey: newEffectKey, levelKey: '9' });
   }, [draft, updateLibraryDraft]);
 
   const handleSelectWeaponImage = useCallback((displayUrl: string) => {
@@ -2525,6 +2544,7 @@ export function WeaponDraftSheetPage() {
         },
         ...(contextMenu.skillKey === 'skill3'
           ? [
+              { key: 'edit-effect', label: '编辑 Buff', icon: 'open' as const, onClick: () => openWeaponBuffDrawer(contextMenu.skillKey!, contextMenu.effectKey!) },
               { key: 'copy-effect', label: '复制效果', icon: 'new' as const, onClick: () => handleDuplicateDraftEffect(contextMenu.draftId!, contextMenu.skillKey!, contextMenu.bucket!, contextMenu.effectKey!) },
               { key: 'delete-effect', label: '删除效果', icon: 'delete' as const, onClick: () => handleDeleteDraftEffect(contextMenu.draftId!, contextMenu.skillKey!, contextMenu.bucket!, contextMenu.effectKey!) },
             ]
@@ -2547,6 +2567,7 @@ export function WeaponDraftSheetPage() {
     isExplorerLevelCollapsed,
     isExplorerSkillCollapsed,
     handleLoadLocalDraft,
+    openWeaponBuffDrawer,
     setDraftCollapsed,
     setSkillCollapsed,
     setLevelCollapsed,
@@ -3103,7 +3124,7 @@ export function WeaponDraftSheetPage() {
         </div>
       </section>
 
-      <main className="damage-sheet-workspace weapon-sheet-workspace" onClick={() => setExtraHitTypePopover(null)}>
+      <main className="damage-sheet-workspace weapon-sheet-workspace">
         <aside
           className="damage-sheet-sidebar buff-sheet-explorer"
           onContextMenu={(event) => openContextMenu(event, {
@@ -3302,6 +3323,15 @@ export function WeaponDraftSheetPage() {
                 key={row.key}
                 className={getWeaponWorkbookRowClassName(row)}
                 onContextMenu={(event) => openWorkbookContextMenu(event, row.sourceRow)}
+                onDoubleClick={() => {
+                  const sourceRow = row.sourceRow;
+                  if (sourceRow.kind === 'effect' && sourceRow.skillKey === 'skill3' && sourceRow.bucket === 'effect') {
+                    openWeaponBuffDrawer(sourceRow.skillKey, sourceRow.sourceEffectKey);
+                  }
+                  if (sourceRow.kind === 'effectLevels' && sourceRow.skillKey === 'skill3' && sourceRow.bucket === 'effect') {
+                    openWeaponBuffDrawer(sourceRow.skillKey, sourceRow.sourceEffectKey);
+                  }
+                }}
               >
                 <div
                   className="damage-sheet-excel-row-number"
@@ -3440,28 +3470,12 @@ export function WeaponDraftSheetPage() {
                         key={cell.key}
                         className={`damage-sheet-excel-cell is-${row.kind} is-${cell.align}${selectedWorkbookCell?.address === cell.address ? ' is-active' : ''}`}
                         style={{ width: `${cell.width}px` }}
-                        onClick={(event) => {
+                        onClick={() => {
                           setSelectedWorkbookCell({
                             address: cell.address,
                             sourceRowKey: cell.sourceRowKey,
                             columnKey: cell.columnKey,
                           });
-                          const sourceRow = row.sourceRow;
-                          const extraHitEffect = sourceRow.kind === 'effect' && sourceRow.bucket === 'effect'
-                            ? draft.skills[sourceRow.skillKey].effects[sourceRow.sourceEffectKey]
-                            : null;
-                          if (sourceRow.kind === 'effect' && sourceRow.bucket === 'effect' && cell.columnKey === 'effectKey' && extraHitEffect?.effectKind === 'extraHit') {
-                            event.stopPropagation();
-                            const rect = event.currentTarget.getBoundingClientRect();
-                            setExtraHitTypePopover({
-                              x: Math.min(rect.left, window.innerWidth - 246),
-                              y: Math.min(rect.bottom + 4, window.innerHeight - 150),
-                              skillKey: sourceRow.skillKey,
-                              effectKey: sourceRow.sourceEffectKey,
-                            });
-                          } else {
-                            setExtraHitTypePopover(null);
-                          }
                         }}
                         onContextMenu={(event) => openWorkbookContextMenu(event, row.sourceRow, {
                           address: cell.address,
@@ -3480,17 +3494,35 @@ export function WeaponDraftSheetPage() {
         </section>
       </main>
 
-      {extraHitTypePopover ? (() => {
-        const effect = draft.skills[extraHitTypePopover.skillKey].effects[extraHitTypePopover.effectKey];
-        if (!effect || effect.effectKind !== 'extraHit') return null;
-        const config = normalizeExtraHitConfig(effect.extraHitConfig, `${extraHitTypePopover.effectKey}-extra-hit`);
-        return (
-          <div className="equipment-extra-hit-popover" style={{ left: extraHitTypePopover.x, top: extraHitTypePopover.y }} onClick={(event) => event.stopPropagation()}>
-            <label><span>伤害属性</span><select value={config.damageType} onChange={(event) => updateWeaponExtraHitType(extraHitTypePopover.skillKey, extraHitTypePopover.effectKey, { damageType: event.target.value as BuffExtraHitConfig['damageType'] })}>{['physical', 'magic', 'fire', 'electric', 'ice', 'nature'].map((value) => <option key={value} value={value}>{value}</option>)}</select></label>
-            <label><span>种类属性</span><select value={config.skillType} onChange={(event) => updateWeaponExtraHitType(extraHitTypePopover.skillKey, extraHitTypePopover.effectKey, { skillType: event.target.value as BuffExtraHitConfig['skillType'] })}><option value="">空</option>{['A', 'B', 'E', 'Q', 'Dot'].map((value) => <option key={value} value={value}>{value}</option>)}</select></label>
-          </div>
-        );
-      })() : null}
+      <BuffEffectEditorDrawer
+        open={Boolean(buffDrawerTarget && projectedDrawerEffect)}
+        sourceLabel={`武器 Skill3 · ${draft.name}`}
+        effect={projectedDrawerEffect}
+        levelOptions={LEVEL_KEYS.map((levelKey) => ({ key: levelKey, label: `Lv${levelKey}` }))}
+        activeLevelKey={buffDrawerTarget?.levelKey}
+        onActiveLevelChange={(levelKey) => setBuffDrawerTarget((current) => current ? { ...current, levelKey } : current)}
+        onChange={(nextEffect) => {
+          if (!buffDrawerTarget) return;
+          setDraft((prev) => normalizeWeaponDraft({
+            ...prev,
+            skills: {
+              ...prev.skills,
+              [buffDrawerTarget.skillKey]: {
+                ...prev.skills[buffDrawerTarget.skillKey],
+                effects: {
+                  ...prev.skills[buffDrawerTarget.skillKey].effects,
+                  [buffDrawerTarget.effectKey]: applyWeaponDrawerEffect(
+                    prev.skills[buffDrawerTarget.skillKey].effects[buffDrawerTarget.effectKey],
+                    buffDrawerTarget.levelKey,
+                    nextEffect,
+                  ),
+                },
+              },
+            },
+          }));
+        }}
+        onClose={() => setBuffDrawerTarget(null)}
+      />
 
       {isOverwriteDraftModalOpen ? (
         <div className="operator-draft-modal-overlay" onClick={() => setIsOverwriteDraftModalOpen(false)}>

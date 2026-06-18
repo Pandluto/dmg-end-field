@@ -12,6 +12,12 @@ interface EquipmentThreePieceBuffLike {
   typeKey?: string;
   value?: number;
   raw?: string;
+  valueMode?: 'fixed' | 'derived';
+  derivedValue?: {
+    source: 'hp' | 'atk' | 'strength' | 'agility' | 'intelligence' | 'will' | 'sourceSkill';
+    perPointValue: number;
+  };
+  maxStacks?: number;
   effectKind?: BuffEffectKind;
   extraHitConfig?: BuffExtraHitConfig;
   multiplier?: BuffMultiplier;
@@ -199,6 +205,11 @@ function buildWeaponDetailCandidate(snapshot: ConfigSnapshot, detail: WeaponSkil
     ...(effectKind === 'modifier' && normalizedDetail.multiplier
       ? { multiplier: normalizedDetail.multiplier }
       : {}),
+    ...(normalizedDetail.category === 'countable' && normalizedDetail.maxStacks
+      ? { maxStacks: normalizedDetail.maxStacks }
+      : {}),
+    valueMode: normalizedDetail.valueMode,
+    derivedValue: normalizedDetail.derivedValue,
     effectKind,
     ...(effectKind === 'extraHit'
       ? { extraHitConfig: normalizeExtraHitConfig({ ...normalizedDetail.extraHitConfig, baseMultiplier: normalizedDetail.value }, `${normalizedDetail.effectKey || index + 1}-extra-hit`) }
@@ -239,7 +250,8 @@ export function buildSnapshotEquipmentCandidateBuffs(snapshot: ConfigSnapshot, e
           type: buff.typeKey,
         }) as EquipmentThreePieceBuffLike & { type: string };
         const effectKind = normalizedBuff.effectKind === 'extraHit' ? 'extraHit' : 'modifier';
-        if (effectKind === 'modifier' && normalizedBuff.category !== 'condition') return null;
+        const category = normalizedBuff.category === 'countable' ? 'countable' : normalizedBuff.category === 'condition' ? 'condition' : 'passive';
+        if (effectKind === 'modifier' && category === 'passive') return null;
         const type = normalizeBuffTypeKey(normalizedBuff.type || '');
         const hasValue = typeof normalizedBuff.value === 'number' && Number.isFinite(normalizedBuff.value);
         if (effectKind === 'modifier' && (!type || (!hasValue && !normalizedBuff.multiplier))) return null;
@@ -255,11 +267,16 @@ export function buildSnapshotEquipmentCandidateBuffs(snapshot: ConfigSnapshot, e
           source: sourceName,
           sourceName,
           description: normalizedBuff.raw || `${normalizedBuff.name || type} ${normalizedBuff.value ?? ''}`.trim(),
-          condition: effectKind === 'extraHit' ? 'passive' : normalizedBuff.category === 'condition' ? '三件套条件效果' : undefined,
-          category: effectKind === 'extraHit' ? 'passive' : 'condition',
+          condition: effectKind === 'extraHit' ? 'passive' : category === 'condition' ? '三件套条件效果' : category,
+          category: effectKind === 'extraHit' ? 'passive' : category,
+          ...(category === 'countable' && normalizedBuff.maxStacks
+            ? { maxStacks: normalizedBuff.maxStacks }
+            : {}),
           ...(effectKind === 'modifier' && normalizedBuff.multiplier
             ? { multiplier: normalizedBuff.multiplier }
             : {}),
+          valueMode: normalizedBuff.valueMode,
+          derivedValue: normalizedBuff.derivedValue,
           effectKind,
           ...(effectKind === 'extraHit'
             ? { extraHitConfig: normalizeExtraHitConfig(normalizedBuff.extraHitConfig, `${normalizedBuff.effectId || index + 1}-extra-hit`) }

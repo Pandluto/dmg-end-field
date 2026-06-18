@@ -12,7 +12,9 @@ import { imageBridge, getUserImageUrl } from '../utils/imageBridge';
 import type { ImageAssetEntry } from './ImageManager/types';
 import type { BuffEffectKind, BuffExtraHitConfig } from '../core/domain/buff';
 import { normalizeExtraHitConfig } from '../core/services/buffExtraHit';
-import DeferredNumberInput from './DeferredNumberInput';
+import BuffEffectEditorDrawer from './BuffEffectEditorDrawer';
+import * as buffModel from './operatorDraftBuffModel';
+import equipmentValuePresetsRaw from '../data/equipmentValuePresets.json';
 import './BuffDraftPage.css';
 import './OperatorDraftPage.css';
 import './DamageSheetPage.css';
@@ -49,13 +51,19 @@ interface EquipmentEffect {
 }
 
 interface EquipmentThreePieceBuff {
+  schemaVersion?: 2;
   effectId: string;
   name: string;
-  category: 'positive' | 'passive' | 'condition' | '';
+  category: 'positive' | 'passive' | 'condition' | 'countable' | '';
   typeKey: string;
   value: number;
   unit: EquipmentUnit;
+  description?: string;
   raw?: string;
+  valueMode?: buffModel.OperatorBuffValueMode;
+  derivedValue?: buffModel.OperatorBuffDerivedValue;
+  maxStacks?: number;
+  multiplier?: import('../core/domain/buff').BuffMultiplier;
   effectKind?: BuffEffectKind;
   extraHitConfig?: BuffExtraHitConfig;
 }
@@ -88,6 +96,37 @@ interface EquipmentLibrary {
     reviewRequired?: boolean;
   };
   gearSets: Record<string, EquipmentGearSet>;
+}
+
+interface EquipmentValuePresetEffect {
+  effectId?: string;
+  label?: string;
+  typeKey?: string;
+  category?: EquipmentEffectCategory | string;
+  unit?: EquipmentUnit | string;
+  raw?: string;
+  levels?: Partial<Record<EquipmentLevelKey, number>>;
+}
+
+interface EquipmentValuePresetItem {
+  fixedStat?: Partial<EquipmentFixedStat>;
+  effects?: Record<string, EquipmentValuePresetEffect>;
+}
+
+interface EquipmentValuePresetFile {
+  gearSets?: Record<string, {
+    equipments?: Record<string, EquipmentValuePresetItem>;
+  }>;
+}
+
+interface EquipmentValueCatalogEntry {
+  label: string;
+  typeKey: string;
+  category: EquipmentEffectCategory;
+  unit: EquipmentUnit;
+  raw: string;
+  levels: Partial<Record<EquipmentLevelKey, number>>;
+  count: number;
 }
 
 type EquipmentRow =
@@ -257,13 +296,6 @@ type EquipmentContextMenuAction = {
   label: string;
   icon: 'new' | 'delete' | 'collapse' | 'expand' | 'open';
   onClick: () => void;
-};
-
-type ExtraHitTypePopoverState = {
-  x: number;
-  y: number;
-  gearSetId: string;
-  effectId: string;
 };
 
 const EQUIPMENT_PARTS: EquipmentPart[] = ['护甲', '护手', '配件'];
@@ -509,22 +541,230 @@ function stopEditingKeyPropagation(event: React.KeyboardEvent<HTMLElement>) {
 }
 
 function normalizeThreePieceBuff(effectId: string, raw: Partial<EquipmentThreePieceBuff> | null | undefined): EquipmentThreePieceBuff {
-  const effectKind: BuffEffectKind = raw?.effectKind === 'extraHit' ? 'extraHit' : 'modifier';
+  const normalized = buffModel.normalizeBuffEffect(effectId, {
+    ...raw,
+    type: raw?.typeKey,
+    category: raw?.category === 'positive' || raw?.category === '' ? 'passive' : raw?.category,
+  });
   return {
-    effectId: String(raw?.effectId || effectId),
-    name: String(raw?.name || '新建效果'),
-    category: effectKind === 'extraHit' ? 'passive' : ['positive', 'passive', 'condition'].includes(raw?.category || '')
-      ? raw?.category as 'positive' | 'passive' | 'condition'
-      : '',
-    typeKey: effectKind === 'extraHit' ? '' : String(raw?.typeKey || ''),
-    value: effectKind === 'extraHit' ? 0 : normalizeNumber(raw?.value),
-    unit: normalizeUnit(raw?.unit),
-    raw: String(raw?.raw || ''),
-    effectKind,
-    ...(effectKind === 'extraHit'
-      ? { extraHitConfig: normalizeExtraHitConfig(raw?.extraHitConfig, `${effectId}-extra-hit`) }
-      : {}),
+    ...normalized,
+    effectId: normalized.effectId,
+    name: normalized.name || '新建效果',
+    category: normalized.category,
+    typeKey: normalized.type,
+    value: normalized.effectKind === 'extraHit' ? 0 : normalizeNumber(normalized.value),
+    unit: normalizeUnit(normalized.unit),
+    description: normalized.description,
+    raw: normalized.raw,
   };
+}
+
+function equipmentBuffToDrawer(buff: EquipmentThreePieceBuff): buffModel.OperatorBuffEffect {
+  return buffModel.normalizeBuffEffect(buff.effectId, { ...buff, type: buff.typeKey });
+}
+
+function drawerEffectToEquipmentBuff(effect: buffModel.OperatorBuffEffect): EquipmentThreePieceBuff {
+  const normalized = buffModel.normalizeBuffEffect(effect.effectId, effect);
+  return {
+    ...normalized,
+    effectId: normalized.effectId,
+    name: normalized.name,
+    category: normalized.category,
+    typeKey: normalized.type,
+    value: normalized.effectKind === 'extraHit' ? 0 : normalizeNumber(normalized.value),
+    unit: normalizeUnit(normalized.unit),
+  };
+}
+
+const EQUIPMENT_BUFF_BUSINESS_TYPE_OPTIONS = buffModel.OPERATOR_BUFF_BUSINESS_TYPES.map((value) => ({
+  value,
+  label: value === 'passive'
+    ? '常驻 · passive'
+    : value === 'condition'
+      ? '条件 · condition'
+      : value === 'countable'
+        ? '计层 · countable'
+        : value === 'multiplier'
+          ? '乘算 · multiplier'
+          : '额外伤害段 · extraHit',
+}));
+
+function getEquipmentBuffBusinessType(buff: EquipmentThreePieceBuff | undefined) {
+  return buff ? buffModel.deriveOperatorBuffBusinessType(equipmentBuffToDrawer(buff)) : 'passive';
+}
+
+const EQUIPMENT_VALUE_PRESETS = equipmentValuePresetsRaw as EquipmentValuePresetFile;
+
+const DEFAULT_FIXED_STAT_BY_PART: Record<EquipmentPart, EquipmentFixedStat> = {
+  '护甲': { label: '防御力', typeKey: 'defense', value: 56, unit: 'flat', raw: '防御力：+56' },
+  '护手': { label: '防御力', typeKey: 'defense', value: 42, unit: 'flat', raw: '防御力：+42' },
+  '配件': { label: '防御力', typeKey: 'defense', value: 21, unit: 'flat', raw: '防御力：+21' },
+};
+
+const ABILITY_TYPE_KEYS = new Set(['strengthBoost', 'agilityBoost', 'intelligenceBoost', 'willBoost']);
+
+function inferPresetPart(preset: EquipmentValuePresetItem): EquipmentPart | null {
+  const value = normalizeNumber(preset.fixedStat?.value, NaN);
+  if ([56, 40].includes(value)) return '护甲';
+  if ([42, 30].includes(value)) return '护手';
+  if ([21, 15].includes(value)) return '配件';
+  return null;
+}
+
+function parseLevelValuesFromRaw(raw: unknown): Partial<Record<EquipmentLevelKey, number>> {
+  const text = String(raw || '');
+  const valueText = text.includes('：') ? text.split('：').slice(1).join('：') : text;
+  const matches = valueText.match(/[+-]?\d+(?:\.\d+)?/g) || [];
+  return LEVEL_KEYS.reduce<Partial<Record<EquipmentLevelKey, number>>>((acc, levelKey, index) => {
+    const parsed = Number(matches[index]);
+    if (Number.isFinite(parsed)) {
+      acc[levelKey] = parsed;
+    }
+    return acc;
+  }, {});
+}
+
+function normalizePresetLevels(effect: EquipmentValuePresetEffect): Partial<Record<EquipmentLevelKey, number>> {
+  const levels = LEVEL_KEYS.reduce<Partial<Record<EquipmentLevelKey, number>>>((acc, levelKey) => {
+    const value = effect.levels?.[levelKey];
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      acc[levelKey] = value;
+    }
+    return acc;
+  }, {});
+  const values = LEVEL_KEYS.map((levelKey) => levels[levelKey]).filter((value): value is number => typeof value === 'number');
+  const rawLevels = parseLevelValuesFromRaw(effect.raw);
+  const rawValues = LEVEL_KEYS.map((levelKey) => rawLevels[levelKey]).filter((value): value is number => typeof value === 'number');
+  const hasSuspiciousFlatLevels = values.length === LEVEL_KEYS.length && new Set(values).size === 1 && rawValues.length === LEVEL_KEYS.length && new Set(rawValues).size > 1;
+  return hasSuspiciousFlatLevels ? rawLevels : levels;
+}
+
+function makeValueCatalogKey(part: EquipmentPart, effectId: EquipmentEffectId, typeKey: string) {
+  return `${part}:${effectId}:${typeKey}`;
+}
+
+function buildEquipmentValueCatalog() {
+  const catalog: Record<string, EquipmentValueCatalogEntry> = {};
+  Object.values(EQUIPMENT_VALUE_PRESETS.gearSets || {}).forEach((gearSet) => {
+    Object.values(gearSet.equipments || {}).forEach((preset) => {
+      const part = inferPresetPart(preset);
+      if (!part) return;
+      Object.entries(preset.effects || {}).forEach(([effectId, effect]) => {
+        if (!EFFECT_IDS.includes(effectId as EquipmentEffectId)) return;
+        const typeKey = String(effect.typeKey || '');
+        if (!typeKey) return;
+        const typedEffectId = effectId as EquipmentEffectId;
+        const key = makeValueCatalogKey(part, typedEffectId, typeKey);
+        const entry: EquipmentValueCatalogEntry = {
+          label: String(effect.label || BUFF_TYPE_LABELS[typeKey] || typeKey),
+          typeKey,
+          category: normalizeCategory(effect.category || (ABILITY_TYPE_KEYS.has(typeKey) ? 'ability' : 'buff')),
+          unit: normalizeUnit(effect.unit),
+          raw: String(effect.raw || ''),
+          levels: normalizePresetLevels(effect),
+          count: 1,
+        };
+        const existing = catalog[key];
+        if (!existing || Object.keys(entry.levels).length > Object.keys(existing.levels).length) {
+          catalog[key] = entry;
+        } else if (existing) {
+          existing.count += 1;
+        }
+      });
+    });
+  });
+  return catalog;
+}
+
+const EQUIPMENT_VALUE_CATALOG = buildEquipmentValueCatalog();
+
+function getEquipmentEffectValuePreset(part: EquipmentPart, effectId: EquipmentEffectId, typeKey: string): EquipmentValueCatalogEntry | null {
+  if (!typeKey) return null;
+  return EQUIPMENT_VALUE_CATALOG[makeValueCatalogKey(part, effectId, typeKey)] ?? null;
+}
+
+function getEquipmentEffectTypeOptions(part: EquipmentPart, effectId: EquipmentEffectId, category: EquipmentEffectCategory) {
+  const keyPrefix = `${part}:${effectId}:`;
+  const options = Object.entries(EQUIPMENT_VALUE_CATALOG)
+    .filter(([key, entry]) => key.startsWith(keyPrefix) && entry.category === category)
+    .map(([, entry]) => entry.typeKey)
+    .sort((a, b) => (BUFF_TYPE_LABELS[a] || a).localeCompare(BUFF_TYPE_LABELS[b] || b, 'zh-CN'));
+  return options.length > 0 ? options : BUFF_TYPE_OPTIONS;
+}
+
+function applyFixedStatPresetForPart(fixedStat: EquipmentFixedStat | undefined, part: EquipmentPart): EquipmentFixedStat {
+  const preset = DEFAULT_FIXED_STAT_BY_PART[part];
+  return {
+    label: fixedStat?.label || preset.label,
+    typeKey: fixedStat?.typeKey || preset.typeKey,
+    value: fixedStat?.typeKey && fixedStat.typeKey !== 'defense' ? fixedStat.value : preset.value,
+    unit: fixedStat?.unit || preset.unit,
+    raw: fixedStat?.typeKey && fixedStat.typeKey !== 'defense' ? fixedStat.raw : preset.raw,
+  };
+}
+
+function applyEffectValueCatalogForPart(effect: EquipmentEffect, part: EquipmentPart): EquipmentEffect {
+  const preset = getEquipmentEffectValuePreset(part, effect.effectId, effect.typeKey);
+  if (!preset) return effect;
+  return {
+    ...effect,
+    label: effect.label && effect.label !== effect.effectId && effect.label !== '新建增益'
+      ? effect.label
+      : preset.label,
+    category: preset.category,
+    unit: preset.unit,
+    raw: effect.raw || preset.raw,
+    levels: { ...preset.levels },
+  };
+}
+
+function applyEquipmentPartValueCatalog(equipment: EquipmentItem, part = equipment.part): EquipmentItem {
+  return {
+    ...equipment,
+    part,
+    fixedStat: equipment.fixedStat ? applyFixedStatPresetForPart(equipment.fixedStat, part) : equipment.fixedStat,
+    effects: Object.fromEntries(
+      Object.entries(equipment.effects).map(([effectId, effect]) => [
+        effectId,
+        effect ? applyEffectValueCatalogForPart(effect, part) : effect,
+      ]),
+    ) as Partial<Record<EquipmentEffectId, EquipmentEffect>>,
+  };
+}
+
+function getEquipmentValuePreset(gearSetId: string, equipmentId: string): EquipmentValuePresetItem | null {
+  return EQUIPMENT_VALUE_PRESETS.gearSets?.[gearSetId]?.equipments?.[equipmentId] ?? null;
+}
+
+function applyEquipmentValuePreset(item: EquipmentItem, preset: EquipmentValuePresetItem | null): EquipmentItem {
+  if (!preset) return item;
+  const next: EquipmentItem = { ...item, effects: { ...item.effects } };
+  if (preset.fixedStat) {
+    next.fixedStat = {
+      label: String(next.fixedStat?.label || preset.fixedStat.label || '防御力'),
+      typeKey: (['defense', 'hp', 'flatAtk'].includes(String(next.fixedStat?.typeKey || preset.fixedStat.typeKey || 'defense'))
+        ? String(next.fixedStat?.typeKey || preset.fixedStat.typeKey || 'defense')
+        : 'defense') as EquipmentFixedTypeKey,
+      value: normalizeNumber(preset.fixedStat.value),
+      unit: normalizeUnit(next.fixedStat?.unit || preset.fixedStat.unit),
+      raw: String(next.fixedStat?.raw || preset.fixedStat.raw || ''),
+    };
+  }
+  Object.entries(preset.effects || {}).forEach(([effectId, presetEffect]) => {
+    if (!EFFECT_IDS.includes(effectId as EquipmentEffectId)) return;
+    const typedEffectId = effectId as EquipmentEffectId;
+    const existing = next.effects[typedEffectId];
+    next.effects[typedEffectId] = {
+      effectId: typedEffectId,
+      label: String(existing?.label || presetEffect.label || typedEffectId),
+      typeKey: String(existing?.typeKey || presetEffect.typeKey || ''),
+      category: normalizeCategory(existing?.category || presetEffect.category),
+      unit: normalizeUnit(existing?.unit || presetEffect.unit),
+      raw: String(existing?.raw || presetEffect.raw || ''),
+      levels: normalizePresetLevels(presetEffect),
+    };
+  });
+  return applyEquipmentPartValueCatalog(next);
 }
 
 function normalizeEquipmentLibrary(raw: unknown): EquipmentLibrary {
@@ -609,7 +849,7 @@ function normalizeEquipmentLibrary(raw: unknown): EquipmentLibrary {
           }, {}),
         };
       });
-      gearSet.equipments[equipmentId] = item;
+      gearSet.equipments[equipmentId] = applyEquipmentValuePreset(item, getEquipmentValuePreset(gearSetId, equipmentId));
     });
     next.gearSets[gearSetId] = gearSet;
   });
@@ -695,12 +935,15 @@ function applyCellValueToLibrary(
     }));
   }
   if (row.kind === 'equipment') {
-    return updateLibraryEquipment(library, row.gearSetId, row.equipmentId, (equipment) => ({
-      ...equipment,
-      name: columnKey === 'name' ? rawValue : equipment.name,
-      part: columnKey === 'field' ? normalizePart(rawValue) : equipment.part,
-      imgUrl: columnKey === 'description' ? rawValue : equipment.imgUrl,
-    }));
+    return updateLibraryEquipment(library, row.gearSetId, row.equipmentId, (equipment) => {
+      const nextPart = columnKey === 'field' ? normalizePart(rawValue) : equipment.part;
+      return applyEquipmentPartValueCatalog({
+        ...equipment,
+        name: columnKey === 'name' ? rawValue : equipment.name,
+        part: nextPart,
+        imgUrl: columnKey === 'description' ? rawValue : equipment.imgUrl,
+      }, nextPart);
+    });
   }
   if (row.kind === 'threePieceBuff') {
     return updateLibrarySet(library, row.gearSetId, (gearSet) => {
@@ -713,6 +956,22 @@ function applyCellValueToLibrary(
         unit: 'percent' as EquipmentUnit,
         raw: '',
       };
+      if (columnKey === 'field') {
+        const nextEffect = buffModel.applyBuffBusinessType(
+          equipmentBuffToDrawer(current),
+          buffModel.OPERATOR_BUFF_BUSINESS_TYPES.includes(rawValue as buffModel.OperatorBuffBusinessType)
+            ? rawValue as buffModel.OperatorBuffBusinessType
+            : 'passive',
+          row.effectId,
+        );
+        return {
+          ...gearSet,
+          threePieceBuffs: {
+            ...(gearSet.threePieceBuffs || {}),
+            [row.effectId]: drawerEffectToEquipmentBuff(nextEffect),
+          },
+        };
+      }
       const nextEffectKind: BuffEffectKind = current.effectKind === 'extraHit' ? 'extraHit' : 'modifier';
       return {
         ...gearSet,
@@ -721,9 +980,7 @@ function applyCellValueToLibrary(
           [row.effectId]: {
             ...current,
             name: columnKey === 'name' ? rawValue : current.name,
-            category: nextEffectKind === 'extraHit' ? 'passive' : columnKey === 'field' && ['positive', 'passive', 'condition'].includes(rawValue)
-              ? rawValue as 'positive' | 'passive' | 'condition'
-              : current.category,
+            category: nextEffectKind === 'extraHit' ? 'passive' : current.category,
             typeKey: nextEffectKind === 'extraHit' ? '' : columnKey === 'effectKey' ? rawValue : current.typeKey,
             value: nextEffectKind === 'extraHit' ? 0 : columnKey === 'valueText' ? normalizeNumber(rawValue, current.value) : current.value,
             raw: columnKey === 'description' ? rawValue : current.raw,
@@ -743,64 +1000,54 @@ function applyCellValueToLibrary(
     });
   }
   if (row.kind === 'fixedStat') {
-    return updateLibraryEquipment(library, row.gearSetId, row.equipmentId, (equipment) => ({
-      ...equipment,
-      fixedStat: {
+    return updateLibraryEquipment(library, row.gearSetId, row.equipmentId, (equipment) => {
+      const nextTypeKey = columnKey === 'effectKey' && ['defense', 'hp', 'flatAtk'].includes(rawValue)
+        ? rawValue as EquipmentFixedTypeKey
+        : equipment.fixedStat?.typeKey || 'defense';
+      const nextFixedStat: EquipmentFixedStat = {
         label: columnKey === 'name' ? rawValue : equipment.fixedStat?.label || '防御力',
-        typeKey: columnKey === 'effectKey' && ['defense', 'hp', 'flatAtk'].includes(rawValue) ? rawValue as EquipmentFixedTypeKey : equipment.fixedStat?.typeKey || 'defense',
-        value: columnKey === 'valueText' ? normalizeNumber(rawValue, equipment.fixedStat?.value) : equipment.fixedStat?.value || 0,
+        typeKey: nextTypeKey,
+        value: equipment.fixedStat?.value || 0,
         unit: equipment.fixedStat?.unit || 'flat',
         raw: columnKey === 'description' ? rawValue : equipment.fixedStat?.raw,
-      },
-    }));
+      };
+      return {
+        ...equipment,
+        fixedStat: nextTypeKey === 'defense'
+          ? applyFixedStatPresetForPart(nextFixedStat, equipment.part)
+          : nextFixedStat,
+      };
+    });
   }
   if (row.kind === 'effect') {
     return updateLibraryEquipment(library, row.gearSetId, row.equipmentId, (equipment) => {
       const effect = equipment.effects[row.effectId];
       if (!effect) return equipment;
+      const nextCategory = columnKey === 'field' ? normalizeCategory(rawValue === '能力值' ? 'ability' : rawValue) : effect.category;
+      const nextTypeKey = columnKey === 'effectKey' ? rawValue : effect.typeKey;
+      const availableTypeKeys = getEquipmentEffectTypeOptions(equipment.part, row.effectId, nextCategory);
+      const normalizedTypeKey = nextTypeKey && availableTypeKeys.includes(nextTypeKey) ? nextTypeKey : '';
+      const nextEffect: EquipmentEffect = {
+        ...effect,
+        label: columnKey === 'name' ? rawValue : effect.label,
+        category: nextCategory,
+        typeKey: normalizedTypeKey,
+        unit: effect.unit,
+        raw: columnKey === 'description' ? rawValue : effect.raw,
+        levels: normalizedTypeKey ? effect.levels : {},
+      };
       return {
         ...equipment,
         effects: {
           ...equipment.effects,
-          [row.effectId]: {
-            ...effect,
-            label: columnKey === 'name' ? rawValue : effect.label,
-            category: columnKey === 'field' ? normalizeCategory(rawValue === '能力值' ? 'ability' : rawValue) : effect.category,
-            typeKey: columnKey === 'effectKey' ? rawValue : effect.typeKey,
-            unit: columnKey === 'valueText' ? normalizeUnit(rawValue === '%' ? 'percent' : rawValue) : effect.unit,
-            raw: columnKey === 'description' ? rawValue : effect.raw,
-          },
+          [row.effectId]: columnKey === 'effectKey' || columnKey === 'field'
+            ? applyEffectValueCatalogForPart(nextEffect, equipment.part)
+            : nextEffect,
         },
       };
     });
   }
   return library;
-}
-
-function applyEffectLevelToLibrary(
-  library: EquipmentLibrary,
-  row: Extract<EquipmentRow, { kind: 'effectLevels' }>,
-  levelKey: EquipmentLevelKey,
-  rawValue: string,
-) {
-  return updateLibraryEquipment(library, row.gearSetId, row.equipmentId, (equipment) => {
-    const effect = equipment.effects[row.effectId];
-    if (!effect) return equipment;
-    const nextLevels = { ...effect.levels };
-    const parsed = Number(rawValue);
-    if (rawValue.trim() && Number.isFinite(parsed)) {
-      nextLevels[levelKey] = parsed;
-    } else {
-      delete nextLevels[levelKey];
-    }
-    return {
-      ...equipment,
-      effects: {
-        ...equipment.effects,
-        [row.effectId]: { ...effect, levels: nextLevels },
-      },
-    };
-  });
 }
 
 function buildRows(library: EquipmentLibrary): EquipmentRow[] {
@@ -837,7 +1084,7 @@ function buildRows(library: EquipmentLibrary): EquipmentRow[] {
         effectId,
         title: threePieceBuff.name || '新建效果',
         idText: threePieceBuff.effectId || effectId,
-        field: threePieceBuff.category || '',
+        field: getEquipmentBuffBusinessType(threePieceBuff),
         level: '3件',
         effectKey: threePieceBuff.effectKind === 'extraHit'
           ? `${threePieceBuff.extraHitConfig?.damageType || 'physical'} / ${threePieceBuff.extraHitConfig?.skillType || '空'}`
@@ -1097,7 +1344,7 @@ export function EquipmentSheetPage() {
   const [collapsedThreePieceBuffIds, setCollapsedThreePieceBuffIds] = useState<Record<string, boolean>>({});
   const [isOverwriteProtectionEnabled, setIsOverwriteProtectionEnabled] = useState(true);
   const [contextMenu, setContextMenu] = useState<EquipmentContextMenuState | null>(null);
-  const [extraHitTypePopover, setExtraHitTypePopover] = useState<ExtraHitTypePopoverState | null>(null);
+  const [buffDrawerTarget, setBuffDrawerTarget] = useState<{ gearSetId: string; effectId: string } | null>(null);
   const [message, setMessage] = useState('正在读取装备库...');
   const [formulaInput, setFormulaInput] = useState('');
   const [buffTypeQuery, setBuffTypeQuery] = useState('');
@@ -1284,6 +1531,10 @@ export function EquipmentSheetPage() {
     });
   }, []);
 
+  const openEquipmentBuffDrawer = useCallback((gearSetId: string, effectId: string) => {
+    setBuffDrawerTarget({ gearSetId, effectId });
+  }, []);
+
   const createThreePieceEffectInSet = useCallback((gearSetId: string) => {
     let nextEffectId = 'effect1';
     mutateLibrary((prev) => updateLibrarySet(prev, gearSetId, (gearSet) => {
@@ -1314,6 +1565,7 @@ export function EquipmentSheetPage() {
     setCollapsedGearSetIds((prev) => ({ ...prev, [gearSetId]: false }));
     setCollapsedThreePieceBuffIds((prev) => ({ ...prev, [gearSetId]: false }));
     setSelectedRowKey(`three-piece-buff-${gearSetId}-${nextEffectId}`);
+    setBuffDrawerTarget({ gearSetId, effectId: nextEffectId });
   }, [mutateLibrary]);
 
   const duplicateThreePieceEffect = useCallback((gearSetId: string, effectId: string) => {
@@ -1344,6 +1596,7 @@ export function EquipmentSheetPage() {
     setCollapsedGearSetIds((prev) => ({ ...prev, [gearSetId]: false }));
     setCollapsedThreePieceBuffIds((prev) => ({ ...prev, [gearSetId]: false }));
     setSelectedRowKey(`three-piece-buff-${gearSetId}-${nextEffectId}`);
+    setBuffDrawerTarget({ gearSetId, effectId: nextEffectId });
   }, [mutateLibrary]);
 
   const handleCreateNew = useCallback(() => {
@@ -1364,6 +1617,7 @@ export function EquipmentSheetPage() {
             name: '新建装备',
             part: '护甲',
             imgUrl: '',
+            fixedStat: DEFAULT_FIXED_STAT_BY_PART['护甲'],
             effects: {},
           },
         },
@@ -1455,6 +1709,7 @@ export function EquipmentSheetPage() {
           name: '新建装备',
           part: '护甲',
           imgUrl: '',
+          fixedStat: DEFAULT_FIXED_STAT_BY_PART['护甲'],
           effects: {},
         },
       },
@@ -1629,12 +1884,7 @@ export function EquipmentSheetPage() {
   const addFixedStat = useCallback((gearSetId: string, equipmentId: string) => {
     mutateLibrary((prev) => updateLibraryEquipment(prev, gearSetId, equipmentId, (equipment) => equipment.fixedStat ? equipment : {
       ...equipment,
-      fixedStat: {
-        label: '防御力',
-        typeKey: 'defense',
-        value: 0,
-        unit: 'flat',
-      },
+      fixedStat: DEFAULT_FIXED_STAT_BY_PART[equipment.part],
     }));
   }, [mutateLibrary]);
 
@@ -1679,34 +1929,6 @@ export function EquipmentSheetPage() {
     closeContextMenu();
   }, [closeContextMenu, mutateLibrary]);
 
-  const clearEffectLevels = useCallback((gearSetId: string, equipmentId: string, effectId: EquipmentEffectId) => {
-    mutateLibrary((prev) => updateLibraryEquipment(prev, gearSetId, equipmentId, (equipment) => {
-      const effect = equipment.effects[effectId];
-      return effect ? { ...equipment, effects: { ...equipment.effects, [effectId]: { ...effect, levels: {} } } } : equipment;
-    }));
-  }, [mutateLibrary]);
-
-  const parseLevelsFromRaw = useCallback((gearSetId: string, equipmentId: string, effectId: EquipmentEffectId) => {
-    mutateLibrary((prev) => updateLibraryEquipment(prev, gearSetId, equipmentId, (equipment) => {
-      const effect = equipment.effects[effectId];
-      if (!effect?.raw) return equipment;
-      const values = effect.raw
-        .split(/：|:/)[1]
-        ?.split('/')
-        .map((part) => Number(part.match(/[+-]?\d+(?:\.\d+)?/)?.[0]))
-        .filter((value) => Number.isFinite(value))
-        .slice(0, 4) ?? [];
-      if (values.length === 0) return equipment;
-      return {
-        ...equipment,
-        effects: {
-          ...equipment.effects,
-          [effectId]: { ...effect, levels: Object.fromEntries(values.map((value, index) => [String(index), value])) },
-        },
-      };
-    }));
-  }, [mutateLibrary]);
-
   const duplicateEquipment = useCallback((gearSetId: string, equipmentId: string) => {
     mutateLibrary((prev) => updateLibrarySet(prev, gearSetId, (gearSet) => {
       const source = gearSet.equipments[equipmentId];
@@ -1742,12 +1964,6 @@ export function EquipmentSheetPage() {
     await navigator.clipboard?.writeText(text);
     setMessage('已复制 JSON 到剪贴板。');
   }, []);
-
-  const clearFixedValue = useCallback((gearSetId: string, equipmentId: string) => {
-    mutateLibrary((prev) => updateLibraryEquipment(prev, gearSetId, equipmentId, (equipment) => equipment.fixedStat
-      ? { ...equipment, fixedStat: { ...equipment.fixedStat, value: 0 } }
-      : equipment));
-  }, [mutateLibrary]);
 
   const buildContextMenuActions = useCallback((state: EquipmentContextMenuState): EquipmentContextMenuAction[] => {
     const actions: EquipmentContextMenuAction[] = [];
@@ -1785,6 +2001,7 @@ export function EquipmentSheetPage() {
     }
     if (state.target === 'threePieceBuff' && state.gearSetId && state.effectId) {
       actions.push(
+        { key: 'edit-three-piece-effect', label: '编辑 Buff', icon: 'open', onClick: () => openEquipmentBuffDrawer(state.gearSetId!, state.effectId!) },
         { key: 'copy-three-piece-effect', label: '复制 effect', icon: 'new', onClick: () => duplicateThreePieceEffect(state.gearSetId!, state.effectId!) },
         { key: 'delete-three-piece-effect', label: '删除 effect', icon: 'delete', onClick: () => deleteNode(state) },
       );
@@ -1809,7 +2026,6 @@ export function EquipmentSheetPage() {
       const fixedStat = library.gearSets[state.gearSetId]?.equipments[state.equipmentId]?.fixedStat;
       actions.push(
         { key: 'expand-current-equipment', label: '全部展开当前装备', icon: 'expand', onClick: () => expandCurrentEquipment(state.gearSetId!, state.equipmentId!) },
-        { key: 'clear-fixed', label: '清空固定数值', icon: 'collapse', onClick: () => clearFixedValue(state.gearSetId!, state.equipmentId!) },
         { key: 'copy-fixed-json', label: '复制 fixedStat JSON', icon: 'open', onClick: () => copyJsonToClipboard(fixedStat ?? {}) },
         { key: 'delete-fixed', label: '删除 fixedStat', icon: 'delete', onClick: () => deleteNode(state) },
       );
@@ -1823,21 +2039,15 @@ export function EquipmentSheetPage() {
         { key: 'expand-current-equipment', label: '全部展开当前装备', icon: 'expand', onClick: () => expandCurrentEquipment(state.gearSetId!, state.equipmentId!) },
         { key: 'toggle-effect', label: isCollapsed ? '展开等级' : '折叠等级', icon: isCollapsed ? 'expand' : 'collapse', onClick: () => setCollapsedEffectIds((prev) => ({ ...prev, [effectCollapseKey]: !isCollapsed })) },
         { key: 'copy-effect', label: '复制 effect', icon: 'new', onClick: () => duplicateEffect(state.gearSetId!, state.equipmentId!, effectId) },
-        { key: 'clear-levels', label: '清空 Lv0-Lv3', icon: 'collapse', onClick: () => clearEffectLevels(state.gearSetId!, state.equipmentId!, effectId) },
-        { key: 'parse-raw', label: '从 raw 重新解析', icon: 'new', onClick: () => parseLevelsFromRaw(state.gearSetId!, state.equipmentId!, effectId) },
         { key: 'copy-level-json', label: '复制等级 JSON', icon: 'open', onClick: () => copyJsonToClipboard(effect?.levels ?? {}) },
         { key: 'delete-effect', label: '删除 effect', icon: 'delete', onClick: () => deleteNode({ ...state, target: 'effect' }) },
       );
     }
     return actions;
-  }, [addFixedStat, clearEffectLevels, clearFixedValue, collapsedEffectIds, collapsedEquipmentIds, collapsedGearSetIds, collapsedThreePieceBuffIds, collapseAll, copyJsonToClipboard, createEffectInEquipment, createEquipmentInSet, createGearSet, createThreePieceEffectInSet, deleteNode, duplicateEffect, duplicateEquipment, duplicateThreePieceEffect, expandAll, expandCurrentEquipment, handleCreateNew, library.gearSets, parseLevelsFromRaw]);
+  }, [addFixedStat, collapsedEffectIds, collapsedEquipmentIds, collapsedGearSetIds, collapsedThreePieceBuffIds, collapseAll, copyJsonToClipboard, createEffectInEquipment, createEquipmentInSet, createGearSet, createThreePieceEffectInSet, deleteNode, duplicateEffect, duplicateEquipment, duplicateThreePieceEffect, expandAll, expandCurrentEquipment, handleCreateNew, library.gearSets, openEquipmentBuffDrawer]);
 
   const updateCellValue = useCallback((row: EquipmentRow, columnKey: EquipmentSheetColumn['key'], rawValue: string) => {
     mutateLibrary((prev) => applyCellValueToLibrary(prev, row, columnKey, rawValue));
-  }, [mutateLibrary]);
-
-  const updateEffectLevel = useCallback((row: Extract<EquipmentRow, { kind: 'effectLevels' }>, levelKey: EquipmentLevelKey, rawValue: string) => {
-    mutateLibrary((prev) => applyEffectLevelToLibrary(prev, row, levelKey, rawValue));
   }, [mutateLibrary]);
 
   const selectedWorkbookRow = useMemo(
@@ -1848,33 +2058,6 @@ export function EquipmentSheetPage() {
     () => selectedWorkbookRow?.cells.find((cell) => cell.columnKey === selectedCell?.columnKey) ?? null,
     [selectedCell?.columnKey, selectedWorkbookRow],
   );
-  const updateExtraHitType = useCallback((gearSetId: string, effectId: string, patch: Partial<BuffExtraHitConfig>) => {
-    mutateLibrary((prev) => updateLibrarySet(prev, gearSetId, (gearSet) => {
-      const current = gearSet.threePieceBuffs?.[effectId];
-      if (!current) return gearSet;
-      return {
-        ...gearSet,
-        threePieceBuffs: {
-          ...(gearSet.threePieceBuffs || {}),
-          [effectId]: normalizeThreePieceBuff(effectId, {
-            ...current,
-            effectKind: 'extraHit',
-            category: 'passive',
-            extraHitConfig: normalizeExtraHitConfig({ ...current.extraHitConfig, ...patch }, `${effectId}-extra-hit`),
-          }),
-        },
-      };
-    }));
-  }, [mutateLibrary]);
-
-  const filteredBuffTypeOptions = useMemo(() => {
-    const keyword = buffTypeQuery.trim().toLowerCase();
-    if (!keyword) {
-      return BUFF_TYPE_OPTIONS;
-    }
-    return BUFF_TYPE_OPTIONS.filter((typeKey) => `${BUFF_TYPE_LABELS[typeKey] || ''} ${typeKey}`.toLowerCase().includes(keyword));
-  }, [buffTypeQuery]);
-
   const formulaBinding = useMemo<EquipmentFormulaBinding | null>(() => {
     if (!selectedWorkbookRow || !selectedWorkbookCell) {
       return null;
@@ -1892,7 +2075,8 @@ export function EquipmentSheetPage() {
         value: effect?.levels[levelKey] == null ? '' : String(effect.levels[levelKey]),
         inputMode: 'number',
         placeholder: `Lv${levelKey}`,
-        commit: (value) => updateEffectLevel(row, levelKey, value),
+        readOnly: true,
+        commit: () => undefined,
       };
     }
     const editable =
@@ -1900,8 +2084,8 @@ export function EquipmentSheetPage() {
       || (row.kind === 'threePieceBuffHeader' && false)
       || (row.kind === 'threePieceBuff' && ['name', 'field', 'effectKey', 'valueText', 'description'].includes(columnKey))
       || (row.kind === 'equipment' && ['name', 'field', 'description'].includes(columnKey))
-      || (row.kind === 'fixedStat' && ['name', 'effectKey', 'valueText', 'description'].includes(columnKey))
-      || (row.kind === 'effect' && ['name', 'field', 'effectKey', 'valueText', 'description'].includes(columnKey));
+      || (row.kind === 'fixedStat' && ['name', 'effectKey', 'description'].includes(columnKey))
+      || (row.kind === 'effect' && ['name', 'field', 'effectKey', 'description'].includes(columnKey));
     if (!editable) {
       return {
         key: `${row.key}:${columnKey}:readonly`,
@@ -1936,26 +2120,12 @@ export function EquipmentSheetPage() {
     }
     if (row.kind === 'threePieceBuff' && columnKey === 'field') {
       const selectedBuff = library.gearSets[row.gearSetId]?.threePieceBuffs?.[row.effectId];
-      if (selectedBuff?.effectKind === 'extraHit') {
-        return {
-          key: `${row.key}:${columnKey}:extra-hit-passive`,
-          value: 'passive',
-          inputMode: 'text',
-          readOnly: true,
-          commit: () => undefined,
-        };
-      }
       return {
         key: `${row.key}:${columnKey}`,
-        value: selectedWorkbookCell.value,
+        value: getEquipmentBuffBusinessType(selectedBuff),
         inputMode: 'text',
         control: 'select',
-        options: [
-          { value: '', label: '未选择' },
-          { value: 'positive', label: 'positive' },
-          { value: 'condition', label: 'condition' },
-          { value: 'passive', label: 'passive' },
-        ],
+        options: EQUIPMENT_BUFF_BUSINESS_TYPE_OPTIONS,
         commit: (value) => updateCellValue(row, columnKey, value),
       };
     }
@@ -1996,11 +2166,24 @@ export function EquipmentSheetPage() {
           commit: () => undefined,
         };
       }
+      const effectOptions = row.kind === 'effect'
+        ? (() => {
+            const equipment = library.gearSets[row.gearSetId]?.equipments[row.equipmentId];
+            const effect = equipment?.effects[row.effectId];
+            return equipment && effect
+              ? getEquipmentEffectTypeOptions(equipment.part, row.effectId, effect.category).map((typeKey) => ({
+                  value: typeKey,
+                  label: `${BUFF_TYPE_LABELS[typeKey] || typeKey} · ${typeKey}`,
+                }))
+              : BUFF_TYPE_OPTIONS.map((typeKey) => ({ value: typeKey, label: `${BUFF_TYPE_LABELS[typeKey] || typeKey} · ${typeKey}` }));
+          })()
+        : BUFF_TYPE_OPTIONS.map((typeKey) => ({ value: typeKey, label: `${BUFF_TYPE_LABELS[typeKey] || typeKey} · ${typeKey}` }));
       return {
         key: `${row.key}:${columnKey}`,
         value: selectedWorkbookCell.value,
         inputMode: 'text',
         control: 'search-select',
+        options: effectOptions,
         commit: (value) => updateCellValue(row, columnKey, value),
       };
     }
@@ -2010,7 +2193,7 @@ export function EquipmentSheetPage() {
       inputMode: columnKey === 'valueText' ? 'number' : 'text',
       commit: (value) => updateCellValue(row, columnKey, value),
     };
-  }, [library.gearSets, selectedCell?.address, selectedWorkbookCell, selectedWorkbookRow, updateCellValue, updateEffectLevel]);
+  }, [library.gearSets, selectedCell?.address, selectedWorkbookCell, selectedWorkbookRow, updateCellValue]);
 
   const hasUnsavedChanges = isDirty
     || Boolean(formulaBinding && !formulaBinding.readOnly && formulaInput !== formulaBinding.value);
@@ -2072,13 +2255,7 @@ export function EquipmentSheetPage() {
       return baseLibrary;
     }
     const row = selectedWorkbookRow.sourceRow;
-    if (row.kind === 'effectLevels') {
-      const levelKey = selectedCell.address.replace(/^Lv/, '') as EquipmentLevelKey;
-      if (!LEVEL_KEYS.includes(levelKey)) {
-        return baseLibrary;
-      }
-      return applyEffectLevelToLibrary(baseLibrary, row, levelKey, formulaInput);
-    }
+    if (row.kind === 'effectLevels') return baseLibrary;
     return applyCellValueToLibrary(baseLibrary, row, selectedCell.columnKey, formulaInput);
   }, [formulaBinding, formulaInput, selectedCell, selectedWorkbookRow]);
 
@@ -2138,10 +2315,6 @@ export function EquipmentSheetPage() {
       return;
     }
     if (row.kind === 'effectLevels') {
-      const levelKey = selectedCell.address.replace(/^Lv/, '') as EquipmentLevelKey;
-      if (LEVEL_KEYS.includes(levelKey)) {
-        updateEffectLevel(row, levelKey, '');
-      }
       return;
     }
     const editable =
@@ -2149,12 +2322,12 @@ export function EquipmentSheetPage() {
       || (row.kind === 'threePieceBuffHeader' && false)
       || (row.kind === 'threePieceBuff' && ['name', 'field', 'effectKey', 'valueText', 'description'].includes(columnKey))
       || (row.kind === 'equipment' && ['name', 'description'].includes(columnKey))
-      || (row.kind === 'fixedStat' && ['name', 'effectKey', 'valueText', 'description'].includes(columnKey))
-      || (row.kind === 'effect' && ['name', 'effectKey', 'valueText', 'description'].includes(columnKey));
+      || (row.kind === 'fixedStat' && ['name', 'effectKey', 'description'].includes(columnKey))
+      || (row.kind === 'effect' && ['name', 'effectKey', 'description'].includes(columnKey));
     if (editable) {
       updateCellValue(row, columnKey, '');
     }
-  }, [selectedCell, selectedWorkbookRow, updateCellValue, updateEffectLevel]);
+  }, [selectedCell, selectedWorkbookRow, updateCellValue]);
 
   useEffect(() => {
     const handleSaveShortcut = (event: KeyboardEvent) => {
@@ -2337,6 +2510,11 @@ export function EquipmentSheetPage() {
       );
     }
     if (formulaBinding.control === 'search-select') {
+      const keyword = buffTypeQuery.trim().toLowerCase();
+      const searchOptions = (formulaBinding.options ?? BUFF_TYPE_OPTIONS.map((typeKey) => ({
+        value: typeKey,
+        label: `${BUFF_TYPE_LABELS[typeKey] || typeKey} · ${typeKey}`,
+      }))).filter((option) => !keyword || `${option.label} ${option.value}`.toLowerCase().includes(keyword));
       return (
         <div className="buff-sheet-formula-type-editor">
           <input
@@ -2351,8 +2529,8 @@ export function EquipmentSheetPage() {
             onChange={(event) => formulaBinding.commit(event.target.value)}
           >
             <option value="">未映射</option>
-            {filteredBuffTypeOptions.map((typeKey) => (
-              <option key={typeKey} value={typeKey}>{`${BUFF_TYPE_LABELS[typeKey] || typeKey} · ${typeKey}`}</option>
+            {searchOptions.map((option) => (
+              <option key={option.value} value={option.value}>{option.label}</option>
             ))}
           </select>
         </div>
@@ -2448,8 +2626,8 @@ export function EquipmentSheetPage() {
       || (sourceRow.kind === 'threePieceBuffHeader' && false)
       || (sourceRow.kind === 'threePieceBuff' && ['name', 'field', 'effectKey', 'valueText', 'description'].includes(cell.columnKey))
       || (sourceRow.kind === 'equipment' && ['name', 'field', 'description'].includes(cell.columnKey))
-      || (sourceRow.kind === 'fixedStat' && ['name', 'effectKey', 'valueText', 'description'].includes(cell.columnKey))
-      || (sourceRow.kind === 'effect' && ['name', 'field', 'effectKey', 'valueText', 'description'].includes(cell.columnKey));
+      || (sourceRow.kind === 'fixedStat' && ['name', 'effectKey', 'description'].includes(cell.columnKey))
+      || (sourceRow.kind === 'effect' && ['name', 'field', 'effectKey', 'description'].includes(cell.columnKey));
     if (!editable) {
       return cell.value;
     }
@@ -2466,19 +2644,15 @@ export function EquipmentSheetPage() {
       );
     }
     if (sourceRow.kind === 'threePieceBuff' && cell.columnKey === 'field') {
-      const isExtraHit = library.gearSets[sourceRow.gearSetId]?.threePieceBuffs?.[sourceRow.effectId]?.effectKind === 'extraHit';
-      if (isExtraHit) return 'passive';
+      const buff = library.gearSets[sourceRow.gearSetId]?.threePieceBuffs?.[sourceRow.effectId];
       return (
         <select
           className="weapon-sheet-inline-input"
-          value={cell.value}
+          value={getEquipmentBuffBusinessType(buff)}
           onKeyDown={stopEditingKeyPropagation}
           onChange={(event) => updateCellValue(sourceRow, cell.columnKey, event.target.value)}
         >
-          <option value="">未选择</option>
-          <option value="positive">positive</option>
-          <option value="condition">condition</option>
-          <option value="passive">passive</option>
+          {EQUIPMENT_BUFF_BUSINESS_TYPE_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
         </select>
       );
     }
@@ -2499,6 +2673,15 @@ export function EquipmentSheetPage() {
       const isExtraHit = sourceRow.kind === 'threePieceBuff'
         && library.gearSets[sourceRow.gearSetId]?.threePieceBuffs?.[sourceRow.effectId]?.effectKind === 'extraHit';
       if (isExtraHit) return cell.value;
+      const typeOptions = sourceRow.kind === 'effect'
+        ? (() => {
+            const equipment = library.gearSets[sourceRow.gearSetId]?.equipments[sourceRow.equipmentId];
+            const effect = equipment?.effects[sourceRow.effectId];
+            return equipment && effect
+              ? getEquipmentEffectTypeOptions(equipment.part, sourceRow.effectId, effect.category)
+              : BUFF_TYPE_OPTIONS;
+          })()
+        : BUFF_TYPE_OPTIONS;
       return (
         <select
           className="weapon-sheet-inline-input"
@@ -2507,7 +2690,7 @@ export function EquipmentSheetPage() {
           onChange={(event) => updateCellValue(sourceRow, cell.columnKey, event.target.value)}
         >
           <option value="">未映射</option>
-          {BUFF_TYPE_OPTIONS.map((typeKey) => <option key={typeKey} value={typeKey}>{`${BUFF_TYPE_LABELS[typeKey] || typeKey} · ${typeKey}`}</option>)}
+          {typeOptions.map((typeKey) => <option key={typeKey} value={typeKey}>{`${BUFF_TYPE_LABELS[typeKey] || typeKey} · ${typeKey}`}</option>)}
         </select>
       );
     }
@@ -2730,7 +2913,7 @@ export function EquipmentSheetPage() {
         </div>
       </section>
 
-      <main className="damage-sheet-workspace weapon-sheet-workspace" onClick={() => { closeContextMenu(); setExtraHitTypePopover(null); }}>
+      <main className="damage-sheet-workspace weapon-sheet-workspace" onClick={closeContextMenu}>
         <aside
           className="damage-sheet-sidebar buff-sheet-explorer"
           onContextMenu={(event) => openContextMenu(event, { x: event.clientX, y: event.clientY, target: 'blank' })}
@@ -2757,6 +2940,11 @@ export function EquipmentSheetPage() {
                 data-equipment-row-key={row.sourceRow.key}
                 className={`${getWorkbookRowClassName(row)}${selectedRowKey === row.sourceRow.key ? ' is-active' : ''}`}
                 onClick={() => focusRow(row.sourceRow.key)}
+                onDoubleClick={() => {
+                  if (row.sourceRow.kind === 'threePieceBuff') {
+                    openEquipmentBuffDrawer(row.sourceRow.gearSetId, row.sourceRow.effectId);
+                  }
+                }}
                 onContextMenu={(event) => {
                   const sourceRow = row.sourceRow;
                   if (sourceRow.kind === 'set') {
@@ -2796,14 +2984,13 @@ export function EquipmentSheetPage() {
                           {LEVEL_KEYS.map((levelKey) => (
                             <div key={levelKey} className="weapon-sheet-growth-inline-item">
                               <span className="weapon-sheet-growth-inline-label">{`Lv${levelKey}`}</span>
-                              <DeferredNumberInput
-                                className="weapon-sheet-inline-input"
-                                step="any"
-                                value={effect?.levels[levelKey]}
+                              <span
+                                className="weapon-sheet-inline-input equipment-sheet-preset-value"
+                                tabIndex={0}
                                 onFocus={() => setSelectedCell({ address: `Lv${levelKey}`, sourceRowKey: levelRow.key, columnKey: 'valueText' })}
-                                onKeyDown={stopEditingKeyPropagation}
-                                onCommit={(nextValue) => updateEffectLevel(levelRow, levelKey, nextValue == null ? '' : String(nextValue))}
-                              />
+                              >
+                                {effect?.levels[levelKey] ?? '-'}
+                              </span>
                             </div>
                           ))}
                         </div>
@@ -2823,21 +3010,6 @@ export function EquipmentSheetPage() {
                           focusRow(row.sourceRow.key);
                         }
                         setSelectedCell({ address: cell.address, sourceRowKey: cell.sourceRowKey, columnKey: cell.columnKey });
-                        const sourceRow = row.sourceRow;
-                        const extraHitBuff = sourceRow.kind === 'threePieceBuff'
-                          ? library.gearSets[sourceRow.gearSetId]?.threePieceBuffs?.[sourceRow.effectId]
-                          : null;
-                        if (sourceRow.kind === 'threePieceBuff' && cell.columnKey === 'effectKey' && extraHitBuff?.effectKind === 'extraHit') {
-                          const rect = event.currentTarget.getBoundingClientRect();
-                          setExtraHitTypePopover({
-                            x: Math.min(rect.left, window.innerWidth - 246),
-                            y: Math.min(rect.bottom + 4, window.innerHeight - 150),
-                            gearSetId: sourceRow.gearSetId,
-                            effectId: sourceRow.effectId,
-                          });
-                        } else {
-                          setExtraHitTypePopover(null);
-                        }
                       }}
                     >
                       {renderEditableCell(row, cell)}
@@ -2850,6 +3022,28 @@ export function EquipmentSheetPage() {
         </section>
       </main>
 
+      <BuffEffectEditorDrawer
+        open={Boolean(buffDrawerTarget)}
+        sourceLabel={`装备三件套 · ${buffDrawerTarget ? library.gearSets[buffDrawerTarget.gearSetId]?.name ?? buffDrawerTarget.gearSetId : ''}`}
+        effect={buffDrawerTarget
+          ? (() => {
+              const buff = library.gearSets[buffDrawerTarget.gearSetId]?.threePieceBuffs?.[buffDrawerTarget.effectId];
+              return buff ? equipmentBuffToDrawer(buff) : null;
+            })()
+          : null}
+        onChange={(nextEffect) => {
+          if (!buffDrawerTarget) return;
+          mutateLibrary((prev) => updateLibrarySet(prev, buffDrawerTarget.gearSetId, (gearSet) => ({
+            ...gearSet,
+            threePieceBuffs: {
+              ...(gearSet.threePieceBuffs || {}),
+              [buffDrawerTarget.effectId]: drawerEffectToEquipmentBuff(nextEffect),
+            },
+          })));
+        }}
+        onClose={() => setBuffDrawerTarget(null)}
+      />
+
       {contextMenu ? (
         <div className="buff-sheet-context-menu" style={{ left: contextMenu.x, top: contextMenu.y }} onClick={(event) => event.stopPropagation()}>
           {buildContextMenuActions(contextMenu).map((action) => (
@@ -2860,18 +3054,6 @@ export function EquipmentSheetPage() {
           ))}
         </div>
       ) : null}
-
-      {extraHitTypePopover ? (() => {
-        const buff = library.gearSets[extraHitTypePopover.gearSetId]?.threePieceBuffs?.[extraHitTypePopover.effectId];
-        if (!buff || buff.effectKind !== 'extraHit') return null;
-        const config = normalizeExtraHitConfig(buff.extraHitConfig, `${extraHitTypePopover.effectId}-extra-hit`);
-        return (
-          <div className="equipment-extra-hit-popover" style={{ left: extraHitTypePopover.x, top: extraHitTypePopover.y }} onClick={(event) => event.stopPropagation()}>
-            <label><span>伤害属性</span><select value={config.damageType} onChange={(event) => updateExtraHitType(extraHitTypePopover.gearSetId, extraHitTypePopover.effectId, { damageType: event.target.value as BuffExtraHitConfig['damageType'] })}>{['physical', 'magic', 'fire', 'electric', 'ice', 'nature'].map((value) => <option key={value} value={value}>{value}</option>)}</select></label>
-            <label><span>种类属性</span><select value={config.skillType} onChange={(event) => updateExtraHitType(extraHitTypePopover.gearSetId, extraHitTypePopover.effectId, { skillType: event.target.value as BuffExtraHitConfig['skillType'] })}><option value="">空</option>{['A', 'B', 'E', 'Q', 'Dot'].map((value) => <option key={value} value={value}>{value}</option>)}</select></label>
-          </div>
-        );
-      })() : null}
 
       {isSaveConfirmModalOpen ? (
         <div className="operator-draft-modal-overlay" onClick={() => setIsSaveConfirmModalOpen(false)}>

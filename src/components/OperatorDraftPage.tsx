@@ -15,9 +15,9 @@ import { normalizeAssetUrl } from '../utils/assetResolver';
 import { imageBridge } from '../utils/imageBridge';
 import { toUserImageRelPath } from '../utils/imageFileService';
 import type { BuffEffectKind, BuffExtraHitConfig, BuffMultiplier } from '../core/domain/buff';
-import { EXTRA_HIT_DAMAGE_TYPES, normalizeExtraHitConfig } from '../core/services/buffExtraHit';
 import DeferredNumberInput, { parseIntegerInput } from './DeferredNumberInput';
 import * as draftBuffModel from './operatorDraftBuffModel';
+import BuffEffectEditorDrawer from './BuffEffectEditorDrawer';
 
 const DRAFT_PAGE_PATH = APP_ROUTE_PATHS.draft;
 const DRAFT_STORAGE_KEY = 'def.operator-editor.draft.v1';
@@ -145,64 +145,6 @@ const OPERATOR_BUFF_TYPE_LABELS: Record<string, string> = {
   imbalanceEfficiency: '失衡效率',
   damageReduction: '伤害减免',
 };
-const OPERATOR_PERCENTLIKE_BUFF_TYPES = new Set([
-  'atkPercentBoost',
-  'mainStatBoost',
-  'subStatBoost',
-  'allStatBoost',
-  'hpPercent',
-  'critRateBoost',
-  'critDmgBonusBoost',
-  'physicalDmgBonus',
-  'magicDmgBonus',
-  'fireDmgBonus',
-  'electricDmgBonus',
-  'iceDmgBonus',
-  'natureDmgBonus',
-  'allDmgBonus',
-  'skillDmgBonus',
-  'chainSkillDmgBonus',
-  'ultimateDmgBonus',
-  'normalAttackDmgBonus',
-  'dotDmgBonus',
-  'allSkillDmgBonus',
-  'imbalanceDmgBonus',
-  'physicalFragile',
-  'fireFragile',
-  'electricFragile',
-  'iceFragile',
-  'natureFragile',
-  'magicFragile',
-  'physicalVulnerability',
-  'fireVulnerability',
-  'electricVulnerability',
-  'iceVulnerability',
-  'natureVulnerability',
-  'magicVulnerability',
-  'physicalAmplify',
-  'magicAmplify',
-  'fireAmplify',
-  'electricAmplify',
-  'iceAmplify',
-  'natureAmplify',
-  'comboDamageBonus',
-  'multiplierBonus',
-  'ultimateChargeEfficiency',
-  'healingBonus',
-  'receivedHealingBonus',
-  'chainCooldownReduction',
-  'imbalanceEfficiency',
-  'damageReduction',
-]);
-const OPERATOR_BUFF_DERIVED_SOURCE_OPTIONS = [
-  { value: 'hp', label: '生命值' },
-  { value: 'atk', label: '攻击力' },
-  { value: 'strength', label: '力量' },
-  { value: 'agility', label: '敏捷' },
-  { value: 'intelligence', label: '智识' },
-  { value: 'will', label: '意志' },
-  { value: 'sourceSkill', label: '源石技艺强度' },
-] as const;
 const OPERATOR_BUFF_BUSINESS_TYPE_LABELS: Record<draftBuffModel.OperatorBuffBusinessType, string> = {
   passive: 'passive 常驻',
   condition: 'condition 条件',
@@ -386,23 +328,6 @@ function buildOperatorIdFromName(name: string) {
   return normalized;
 }
 
-function buildSearchIndex(values: Array<string | undefined | null>) {
-  const tokens = values
-    .map((value) => (typeof value === 'string' ? value.trim() : ''))
-    .filter(Boolean);
-  const joined = tokens.join(' ');
-  if (!joined) return '';
-  const fullPinyin = pinyin(joined, { toneType: 'none', type: 'array' })
-    .map((item) => String(item).toLowerCase().replace(/[^a-z0-9]/g, ''))
-    .filter(Boolean)
-    .join(' ');
-  const initials = pinyin(joined, { toneType: 'none', pattern: 'first', type: 'array' })
-    .map((item) => String(item).toLowerCase().replace(/[^a-z0-9]/g, ''))
-    .filter(Boolean)
-    .join('');
-  return [joined, joined.toLowerCase(), fullPinyin, initials].filter(Boolean).join(' | ');
-}
-
 function getOperatorBuffTypeLabel(buffType: string) {
   const trimmed = buffType.trim();
   if (!trimmed) return '-';
@@ -413,10 +338,6 @@ function getOperatorBuffTypeDisplayLabel(buffType: string) {
   const trimmed = buffType.trim();
   if (!trimmed) return '-';
   return `${getOperatorBuffTypeLabel(trimmed)} · ${trimmed}`;
-}
-
-function inferOperatorBuffUnit(buffType: string): 'flat' | 'percent' {
-  return OPERATOR_PERCENTLIKE_BUFF_TYPES.has(buffType.trim()) ? 'percent' : 'flat';
 }
 
 function isDraftPath(pathname: string) {
@@ -774,7 +695,7 @@ export function OperatorDraftPage() {
   const [selectedHitKey, setSelectedHitKey] = useState<string | null>(null);
   const [activeBuffGroupKey, setActiveBuffGroupKey] = useState<OperatorBuffGroupKey>('talent');
   const [selectedBuffEffectKey, setSelectedBuffEffectKey] = useState<string | null>(null);
-  const [operatorBuffTypeQuery, setOperatorBuffTypeQuery] = useState('');
+  const [isBuffDrawerOpen, setIsBuffDrawerOpen] = useState(false);
   const [skillOrder, setSkillOrder] = useState<string[]>([]);
   const [activeSkillTypeFilter, setActiveSkillTypeFilter] = useState<SkillTypeFilter>('all');
   const [draggingSkillKey, setDraggingSkillKey] = useState<string | null>(null);
@@ -943,16 +864,6 @@ export function OperatorDraftPage() {
   const buffEffectEntries = Object.entries(activeBuffGroup.effects);
   const selectedBuffEffect = selectedBuffEffectKey ? activeBuffGroup.effects[selectedBuffEffectKey] ?? null : null;
   const latestMessage = messages[0] ?? '';
-  const filteredOperatorBuffTypeOptions = useMemo(() => {
-    return draftBuffModel.getFilteredOperatorBuffTypeOptions({
-      query: operatorBuffTypeQuery,
-      selectedEffect: selectedBuffEffect,
-      buildSearchIndex,
-    });
-  }, [operatorBuffTypeQuery, selectedBuffEffect]);
-  const displayedOperatorBuffTypeOptions = useMemo(() => {
-    return filteredOperatorBuffTypeOptions;
-  }, [filteredOperatorBuffTypeOptions, selectedBuffEffect?.type]);
 
   const getLocalDraftLabel = (draftId: string) => {
     const draftName = localDraftNames[draftId]?.trim();
@@ -1557,6 +1468,7 @@ export function OperatorDraftPage() {
       },
     }));
     setSelectedBuffEffectKey(nextEffectKey);
+    setIsBuffDrawerOpen(true);
     setMessages((prev) => [`[OK] 已新增 ${activeBuffGroupKey}.${nextEffectKey}`, ...prev].slice(0, 12));
   };
 
@@ -1583,6 +1495,7 @@ export function OperatorDraftPage() {
       },
     }));
     setSelectedBuffEffectKey(nextEffectKey);
+    setIsBuffDrawerOpen(true);
     setMessages((prev) => [`[OK] 已复制 Buff effect：${selectedBuffEffectKey} -> ${nextEffectKey}`, ...prev].slice(0, 12));
   };
 
@@ -1602,6 +1515,7 @@ export function OperatorDraftPage() {
       },
     }));
     setSelectedBuffEffectKey(nextSelectedEffectKey);
+    setIsBuffDrawerOpen(false);
     setMessages((prev) => [`[OK] 已删除 ${activeBuffGroupKey}.${selectedBuffEffectKey}`, ...prev].slice(0, 12));
   };
 
@@ -2196,6 +2110,9 @@ export function OperatorDraftPage() {
                   <button type="button" className="operator-draft-ghost-button" onClick={handleRemoveBuffEffect}>
                     删除
                   </button>
+                  <button type="button" className="operator-draft-copy-button" disabled={!selectedBuffEffect} onClick={() => setIsBuffDrawerOpen(true)}>
+                    编辑 Buff
+                  </button>
                 </div>
                 <div className="operator-draft-buff-body">
                   <div className="operator-draft-buff-list">
@@ -2206,6 +2123,10 @@ export function OperatorDraftPage() {
                           type="button"
                           className={`operator-draft-buff-item${selectedBuffEffectKey === effectKey ? ' is-active' : ''}`}
                           onClick={() => setSelectedBuffEffectKey(effectKey)}
+                          onDoubleClick={() => {
+                            setSelectedBuffEffectKey(effectKey);
+                            setIsBuffDrawerOpen(true);
+                          }}
                         >
                           <strong>{effect.name || effectKey}</strong>
                           <span>{effect.effectKind === 'extraHit' ? '额外伤害段' : effect.type ? getOperatorBuffTypeDisplayLabel(effect.type) : '未设置类型'}</span>
@@ -2217,171 +2138,12 @@ export function OperatorDraftPage() {
                     )}
                   </div>
                   {selectedBuffEffect ? (
-                    <div className="operator-draft-buff-form">
-                      <label>
-                        <span>名称</span>
-                        <input
-                          value={selectedBuffEffect.name}
-                          onChange={(event) => updateSelectedBuffEffect((effect) => ({ ...effect, name: event.target.value }))}
-                        />
-                      </label>
-                      <label>
-                        <span>Effect ID</span>
-                        <input
-                          value={selectedBuffEffect.effectId}
-                          onChange={(event) => updateSelectedBuffEffect((effect) => ({ ...effect, effectId: event.target.value }))}
-                        />
-                      </label>
-                      <label>
-                        <span>业务类型</span>
-                        <select
-                          value={draftBuffModel.deriveOperatorBuffBusinessType(selectedBuffEffect)}
-                          onChange={(event) => {
-                            updateSelectedBuffEffect((effect) => draftBuffModel.applyBuffBusinessType(
-                              effect,
-                              event.target.value as draftBuffModel.OperatorBuffBusinessType,
-                              selectedBuffEffectKey ?? effect.effectId,
-                            ));
-                          }}
-                        >
-                          {draftBuffModel.OPERATOR_BUFF_BUSINESS_TYPES.map((businessType) => (
-                            <option key={businessType} value={businessType}>
-                              {OPERATOR_BUFF_BUSINESS_TYPE_LABELS[businessType]}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-                      <label className="operator-draft-buff-form-wide">
-                        <span>类型</span>
-                        <div className="operator-draft-buff-type-editor">
-                          <input
-                            className="operator-draft-buff-type-search"
-                            value={operatorBuffTypeQuery}
-                            onChange={(event) => setOperatorBuffTypeQuery(event.target.value)}
-                            placeholder="搜索类型：攻击 / 主能力 / 法术 / 暴击"
-                            disabled={selectedBuffEffect.effectKind === 'extraHit'}
-                          />
-                          <select
-                            className="operator-draft-buff-type-select"
-                            value={selectedBuffEffect.type}
-                            disabled={selectedBuffEffect.effectKind === 'extraHit'}
-                            onChange={(event) => {
-                              updateSelectedBuffEffect((effect) => draftBuffModel.applyBuffType(effect, event.target.value));
-                            }}
-                          >
-                            <option value="">未设置类型</option>
-                            {displayedOperatorBuffTypeOptions.map((option) => (
-                              <option key={option} value={option}>{getOperatorBuffTypeDisplayLabel(option)}</option>
-                            ))}
-                          </select>
-                        </div>
-                      </label>
-                      {selectedBuffEffect.multiplier && (
-                        <label>
-                          <span>乘算系数</span>
-                          <DeferredNumberInput
-                            min={0.000001}
-                            step="0.01"
-                            value={selectedBuffEffect.multiplier.coefficient}
-                            onCommit={(value) => updateSelectedBuffEffect((effect) => draftBuffModel.setBuffMultiplierCoefficient(effect, value))}
-                          />
-                        </label>
-                      )}
-                      <label>
-                        <span>数值模式</span>
-                        <select
-                          value={selectedBuffEffect.valueMode ?? 'fixed'}
-                          disabled={selectedBuffEffect.effectKind === 'extraHit' || Boolean(selectedBuffEffect.multiplier)}
-                          onChange={(event) => {
-                            updateSelectedBuffEffect((effect) => draftBuffModel.applyBuffValueMode(effect, event.target.value as OperatorBuffValueMode));
-                          }}
-                        >
-                          <option value="fixed">固定数值</option>
-                          <option value="derived" disabled={selectedBuffEffect.category === 'countable'}>来源值派生</option>
-                        </select>
-                      </label>
-                      {selectedBuffEffect.effectKind !== 'extraHit' && !selectedBuffEffect.multiplier && (selectedBuffEffect.valueMode ?? 'fixed') === 'fixed' ? (
-                      <label>
-                        <span>数值</span>
-                        <DeferredNumberInput
-                          step="0.01"
-                          value={selectedBuffEffect.value}
-                          onCommit={(value) => {
-                            updateSelectedBuffEffect((effect) => draftBuffModel.applyFixedBuffValue(effect, value));
-                          }}
-                        />
-                      </label>
-                      ) : selectedBuffEffect.effectKind !== 'extraHit' && !selectedBuffEffect.multiplier ? (
-                        <>
-                          <label>
-                            <span>来源值</span>
-                            <select
-                              value={selectedBuffEffect.derivedValue?.source ?? 'intelligence'}
-                              onChange={(event) => updateSelectedBuffEffect((effect) => draftBuffModel.applyDerivedBuffSource(effect, event.target.value as OperatorBuffDerivedSource))}
-                            >
-                              {OPERATOR_BUFF_DERIVED_SOURCE_OPTIONS.map((option) => (
-                                <option key={option.value} value={option.value}>{option.label}</option>
-                              ))}
-                            </select>
-                          </label>
-                          <label>
-                            <span>每点提升</span>
-                            <DeferredNumberInput
-                              step="0.0001"
-                              value={selectedBuffEffect.derivedValue?.perPointValue}
-                              onCommit={(value) => {
-                                updateSelectedBuffEffect((effect) => draftBuffModel.applyDerivedBuffPerPointValue(effect, value));
-                              }}
-                            />
-                          </label>
-                        </>
-                      ) : null}
-                      {selectedBuffEffect.category === 'countable' && (
-                        <label>
-                          最大层数
-                          <DeferredNumberInput
-                            min={1}
-                            value={selectedBuffEffect.maxStacks ?? 1}
-                            parse={parseIntegerInput}
-                            onCommit={(value) => updateSelectedBuffEffect((effect) => draftBuffModel.applyBuffMaxStacks(effect, value))}
-                          />
-                        </label>
-                      )}
-                      <label>
-                        <span>单位</span>
-                        <div className="operator-draft-buff-unit-lock">
-                          {selectedBuffEffect.type ? ((selectedBuffEffect.unit || inferOperatorBuffUnit(selectedBuffEffect.type)) === 'percent' ? '%' : '固定值') : '-'}
-                        </div>
-                      </label>
-                      {selectedBuffEffect.effectKind === 'extraHit' && (() => {
-                        const config = normalizeExtraHitConfig(selectedBuffEffect.extraHitConfig, `${selectedBuffEffect.effectId || selectedBuffEffectKey}-extra-hit`);
-                        const updateConfig = (patch: Partial<BuffExtraHitConfig>) => updateSelectedBuffEffect((effect) => ({
-                          ...effect,
-                          extraHitConfig: normalizeExtraHitConfig({ ...config, ...patch }, config.key),
-                        }));
-                        return (
-                          <>
-                            <label><span>伤害段 Key</span><input value={config.key} onChange={(event) => updateConfig({ key: event.target.value })} /></label>
-                            <label><span>伤害属性</span><select value={config.damageType} onChange={(event) => updateConfig({ damageType: event.target.value as BuffExtraHitConfig['damageType'] })}>{EXTRA_HIT_DAMAGE_TYPES.map((type) => <option key={type} value={type}>{type}</option>)}</select></label>
-                            <label><span>伤害类型</span><select value={config.skillType} onChange={(event) => updateConfig({ skillType: event.target.value as BuffExtraHitConfig['skillType'] })}><option value="">空</option>{['A', 'B', 'E', 'Q', 'Dot'].map((type) => <option key={type} value={type}>{type}</option>)}</select></label>
-                            <label><span>攻击力倍率</span><DeferredNumberInput min={0} step="0.01" value={config.baseMultiplier} onCommit={(value) => updateConfig({ baseMultiplier: Math.max(0, value ?? 0) })} /></label>
-                          </>
-                        );
-                      })()}
-                      <label className="operator-draft-buff-form-wide">
-                        <span>描述</span>
-                        <textarea
-                          value={selectedBuffEffect.description ?? ''}
-                          onChange={(event) => updateSelectedBuffEffect((effect) => ({ ...effect, description: event.target.value }))}
-                        />
-                      </label>
-                      <label className="operator-draft-buff-form-wide">
-                        <span>原文</span>
-                        <textarea
-                          value={selectedBuffEffect.raw ?? ''}
-                          onChange={(event) => updateSelectedBuffEffect((effect) => ({ ...effect, raw: event.target.value }))}
-                        />
-                      </label>
+                    <div className="operator-draft-buff-summary">
+                      <strong>{selectedBuffEffect.name || selectedBuffEffect.effectId}</strong>
+                      <span>{OPERATOR_BUFF_BUSINESS_TYPE_LABELS[draftBuffModel.deriveOperatorBuffBusinessType(selectedBuffEffect)]}</span>
+                      <span>{selectedBuffEffect.effectKind === 'extraHit' ? '额外伤害段' : selectedBuffEffect.type ? getOperatorBuffTypeDisplayLabel(selectedBuffEffect.type) : '未设置 typeKey'}</span>
+                      <p>{draftBuffModel.getBuffEffectSummary(selectedBuffEffect)}</p>
+                      <button type="button" className="operator-draft-copy-button" onClick={() => setIsBuffDrawerOpen(true)}>打开编辑抽屉</button>
                     </div>
                   ) : null}
                 </div>
@@ -2390,6 +2152,13 @@ export function OperatorDraftPage() {
           </div>
         </section>
       </section>
+      <BuffEffectEditorDrawer
+        open={isBuffDrawerOpen}
+        sourceLabel={`干员 Buff · ${OPERATOR_BUFF_GROUPS.find((group) => group.key === activeBuffGroupKey)?.label ?? activeBuffGroupKey}`}
+        effect={selectedBuffEffect}
+        onChange={(nextEffect) => updateSelectedBuffEffect(() => nextEffect)}
+        onClose={() => setIsBuffDrawerOpen(false)}
+      />
       {isExportJsonModalOpen ? (
         <div className="operator-draft-modal-overlay" onClick={() => setIsExportJsonModalOpen(false)}>
           <div className="operator-draft-modal" onClick={(event) => event.stopPropagation()}>

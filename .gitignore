@@ -19,6 +19,14 @@ release-latest/
 data/localdata/**
 !data/localdata/
 !data/localdata/.gitkeep
-DEF测试版.rar
 .codex-remote-attachments/
-scripts/
+!scripts/extract-akedb-raw-index.mjs
+!scripts/research-filter-akedb.mjs
+!scripts/build-operator-workbench.mjs
+!scripts/validate-operator-outputs.mjs
+!scripts/normalize-operator-outputs.mjs
+!scripts/build-operator-imports.mjs
+!scripts/build-weapon-library.mjs
+data/operator/*
+data/research/*
+nul

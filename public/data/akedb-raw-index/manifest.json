@@ -1,0 +1,47 @@
+{
+  "generatedAt": "2026-06-18T05:47:33.896Z",
+  "sourceRoot": "C:\\Users\\zsk86\\Desktop\\AKEDatabase-main\\public\\Json",
+  "sourceHandover": "C:\\Users\\zsk86\\Desktop\\AKEDatabase-main\\public\\Json\\DATA_HANDOVER.md",
+  "outputs": {
+    "skills": "skills.json",
+    "buffs": "buffs.json",
+    "buffSkillLinks": "buff-skill-links.json"
+  },
+  "counts": {
+    "skills": 2149,
+    "uniqueSkillIds": 2149,
+    "buffs": 2350,
+    "uniqueBuffIds": 2350,
+    "linkedBuffIds": 0,
+    "missingLinkedBuffIds": 0,
+    "duplicateSkillIds": 0,
+    "duplicateBuffIds": 0
+  },
+  "extractionContract": {
+    "skillFields": [
+      "skillId",
+      "level",
+      "skillSpecification",
+      "attackRangeType",
+      "passiveSkillType",
+      "durationFrame",
+      "buffs",
+      "blackboard"
+    ],
+    "buffFields": [
+      "id",
+      "blackboard",
+      "attributeModifiers",
+      "damageModifiers",
+      "maxStackCnt",
+      "duration",
+      "triggerInterval"
+    ],
+    "preservedPrecisionNotes": [
+      "blackboard.isDynamic is preserved from the raw SkillData/BuffData files.",
+      "durationFrame is stored as raw frames; convert to seconds with durationFrame / 60 only at call sites.",
+      "SkillData.buffs is preserved and buff-skill-links.json provides the reverse lookup."
+    ]
+  },
+  "missingLinkedBuffIds": []
+}
