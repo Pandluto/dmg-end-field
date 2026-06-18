@@ -14,6 +14,7 @@ import { getAnomalyStateSnapshotsByIds } from '../core/services/anomalyStateSnap
 import { resolveSkillDamageTemplate } from '../core/services/skillDamageTemplateResolver';
 import { calculateSkillButtonDamageV2 } from '../core/calculators/skillButtonDamageCalculatorV2';
 import type { HitCalcResult } from '../core/calculators/skillDamage.types';
+import type { SupportedBuffZone } from '../core/domain/buffTypeRegistry';
 import { addSkillButtonBuff, recomputeSkillButtonPanel } from '../hooks/useSkillButtonBuffs';
 import { buildDamageExcelWorkbook } from '../exporters/damageExcel/buildDamageExcelWorkbook';
 import {
@@ -209,6 +210,17 @@ function formatBuffEffectValue(type: string | undefined, value: number | undefin
   return ` ${sign}${(value * 100).toFixed(1)}%`;
 }
 
+function formatHitBuffContribution(hitResult: HitCalcResult, buff: SkillButtonBuff): string {
+  const contribution = hitResult.buffContributions?.find((item) => item.buffId === buff.id);
+  if (!contribution) {
+    return `${buff.type || 'Buff'}${formatBuffEffectValue(buff.type, buff.value)}`;
+  }
+  if (contribution.multiplier) {
+    return `${contribution.type} × ${(contribution.multiplierCoefficient ?? contribution.effectiveValue).toFixed(3)}`;
+  }
+  return `${contribution.type} · n ${contribution.rawValue.toFixed(3)} × k ${contribution.runtimeCoefficient.toFixed(3)} = kn ${contribution.effectiveValue.toFixed(3)}`;
+}
+
 function formatSkillLevels(input: CharacterInputConfig | null): string {
   if (!input) {
     return 'A - / B - / E - / Q -';
@@ -310,6 +322,59 @@ function buildDamagePanelBase(characterId: string) {
     critRate: computedPanel.critRate ?? 0.05,
     critDmg: computedPanel.critDmg ?? 0.5,
   };
+}
+
+function getStructuredZoneForColumn(
+  hitResult: HitCalcResult,
+  columnKey: string
+) {
+  switch (columnKey) {
+    case 'damageBonusRate':
+      return hitResult.zones.damageBonus;
+    case 'amplifyRate':
+      return hitResult.zones.amplify;
+    case 'fragileRate':
+      return hitResult.zones.fragile;
+    case 'vulnerabilityRate':
+      return hitResult.zones.vulnerability;
+    case 'baseMultiplier':
+    case 'bonusMultiplier':
+    case 'finalMultiplier':
+      return hitResult.zones.skillMultiplier;
+    default:
+      return undefined;
+  }
+}
+
+function getZoneFinalValue(hitResult: HitCalcResult, zone: SupportedBuffZone): number {
+  switch (zone) {
+    case 'damageBonus':
+      return hitResult.zones.damageBonus?.finalValue ?? hitResult.zones.damageBonusRate;
+    case 'amplify':
+      return hitResult.zones.amplify?.finalValue ?? 1 + hitResult.zones.amplifyRate;
+    case 'fragile':
+      return hitResult.zones.fragile?.finalValue ?? 1 + hitResult.zones.fragileRate;
+    case 'vulnerability':
+      return hitResult.zones.vulnerability?.finalValue ?? 1 + hitResult.zones.vulnerabilityRate;
+    case 'skillMultiplier':
+      return hitResult.zones.skillMultiplier?.finalValue ?? hitResult.multiplier.afterMultiply;
+  }
+}
+
+function formatStructuredZoneFormula(hitResult: HitCalcResult, columnKey: string): string | null {
+  const zone = getStructuredZoneForColumn(hitResult, columnKey);
+  if (!zone) {
+    return null;
+  }
+  const isSkillMultiplier = columnKey === 'baseMultiplier'
+    || columnKey === 'bonusMultiplier'
+    || columnKey === 'finalMultiplier';
+  const baseValue = isSkillMultiplier
+    ? hitResult.multiplier.base
+    : zone.multiplierProduct !== 0
+      ? zone.finalValue / zone.multiplierProduct - zone.additiveTotal
+      : 1;
+  return `${zone.multiplierProduct.toFixed(3)} × (${baseValue.toFixed(3)} + ${zone.additiveTotal.toFixed(3)}) = ${zone.finalValue.toFixed(3)}`;
 }
 
 function parsePercentText(value: string): number {
@@ -546,12 +611,12 @@ function buildHitRowsForButton(
       critRate: formatPercent(hit.panel.critRate),
       critDmg: formatPercent(hit.panel.critDmg),
       sourceSkill: formatRatio(computed?.panel.sourceSkill ?? 0),
-      damageBonusRate: formatRatio(hit.zones.damageBonusRate),
+      damageBonusRate: formatRatio(getZoneFinalValue(hit, 'damageBonus')),
       defenseZone: formatRatio(hit.zones.defenseZone),
       resistanceZone: formatRatio(hit.zones.resistanceZone),
-      amplifyRate: formatRatio(1 + hit.zones.amplifyRate),
-      fragileRate: formatRatio(1 + hit.zones.fragileRate),
-      vulnerabilityRate: formatRatio(1 + hit.zones.vulnerabilityRate),
+      amplifyRate: formatRatio(getZoneFinalValue(hit, 'amplify')),
+      fragileRate: formatRatio(getZoneFinalValue(hit, 'fragile')),
+      vulnerabilityRate: formatRatio(getZoneFinalValue(hit, 'vulnerability')),
       comboDamageBonus: formatRatio(1 + hit.zones.comboDamageBonus),
       imbalanceDamageBonus: formatRatio(1 + hit.zones.imbalanceDamageBonus),
       baseDamage: formatInteger(hit.nonCrit.base),
@@ -1097,10 +1162,60 @@ function filterRelevantBuffsForColumn(
 
 function getRelevantBuffsForColumn(hitRow: HitValueRow, columnKey: string): SkillButtonBuff[] {
   const { detail } = hitRow;
+  const structuredZone = getStructuredZoneForColumn(detail.hitResult, columnKey);
+  if (structuredZone) {
+    const contributionIds = new Set([
+      ...structuredZone.additiveContributions,
+      ...structuredZone.multiplierContributions,
+    ].map((contribution) => contribution.buffId));
+    return detail.hitResult.appliedBuffs.filter((buff) => contributionIds.has(buff.id));
+  }
   return filterRelevantBuffsForColumn(detail.hitResult.appliedBuffs, detail.hit, columnKey);
 }
 
 function getHighlightColumnKeyForBuff(buff: SkillButtonBuff | null): string | null {
+  if (buff?.multiplier) {
+    switch (buff.type) {
+      case 'multiplierBonus':
+        return 'finalMultiplier';
+      case 'physicalDmgBonus':
+      case 'magicDmgBonus':
+      case 'fireDmgBonus':
+      case 'electricDmgBonus':
+      case 'iceDmgBonus':
+      case 'natureDmgBonus':
+      case 'allElementDmgBonus':
+      case 'normalAttackDmgBonus':
+      case 'dotDmgBonus':
+      case 'skillDmgBonus':
+      case 'chainSkillDmgBonus':
+      case 'ultimateDmgBonus':
+      case 'allSkillDmgBonus':
+      case 'allDmgBonus':
+        return 'damageBonusRate';
+      case 'physicalAmplify':
+      case 'magicAmplify':
+      case 'fireAmplify':
+      case 'electricAmplify':
+      case 'iceAmplify':
+      case 'natureAmplify':
+        return 'amplifyRate';
+      case 'physicalFragile':
+      case 'magicFragile':
+      case 'fireFragile':
+      case 'electricFragile':
+      case 'iceFragile':
+      case 'natureFragile':
+        return 'fragileRate';
+      case 'physicalVulnerability':
+      case 'magicVulnerability':
+      case 'fireVulnerability':
+      case 'electricVulnerability':
+      case 'iceVulnerability':
+      case 'natureVulnerability':
+        return 'vulnerabilityRate';
+    }
+  }
   switch (buff?.type) {
     case 'atkPercentBoost':
     case 'flatAtk':
@@ -1195,6 +1310,10 @@ function buildFormulaText(hitRow: HitValueRow | null, columnKey: string | undefi
   }
 
   const { hitResult } = hitRow.detail;
+  const structuredFormula = formatStructuredZoneFormula(hitResult, columnKey);
+  if (structuredFormula) {
+    return structuredFormula;
+  }
 
   switch (columnKey) {
     case 'fragileRate': {
@@ -2235,7 +2354,7 @@ export function DamageSheetPage() {
                         }}
                       >
                         <span className="damage-sheet-buff-name">{buff.displayName}</span>
-                        <span className="damage-sheet-buff-effect">{buff.type || 'Buff'}{formatBuffEffectValue(buff.type, buff.value)}</span>
+                        <span className="damage-sheet-buff-effect">{formatHitBuffContribution(selectedHitRow.detail.hitResult, buff)}</span>
                       </button>
                     </div>
                   );

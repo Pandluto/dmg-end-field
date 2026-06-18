@@ -9,6 +9,15 @@
  * 不要求稳定 id，不等同于 SkillButtonBuff
  */
 export type BuffEffectKind = 'modifier' | 'extraHit';
+export type BuffCategory = 'condition' | 'countable' | 'passive';
+
+export interface BuffMultiplier {
+  coefficient: number;
+}
+
+export interface BuffCalculationMeta {
+  multiplier?: BuffMultiplier;
+}
 export type BuffExtraHitTrigger = 'physicalAbnormal';
 export type BuffExtraHitDamageType = 'physical' | 'magic' | 'fire' | 'electric' | 'ice' | 'nature';
 export type BuffExtraHitSkillType = '' | 'A' | 'B' | 'E' | 'Q' | 'Dot';
@@ -24,6 +33,7 @@ export interface BuffExtraHitConfig {
 }
 
 export interface CandidateBuff {
+  schemaVersion?: 2;
   displayName: string;  // Buff 显示名称，用于在 UI 中显示
   name: string;         // Buff 名称
   level: string;        // Buff 等级，用于在 UI 中显示
@@ -33,8 +43,9 @@ export interface CandidateBuff {
   sourceName: string;   // Buff 来源名称，用于在 UI 中显示
   description: string;  // Buff 描述，用于在 UI 中显示
   condition?: string;   // Buff 触发条件（可选）
-  category?: 'condition' | 'countable' | 'passive';
+  category?: BuffCategory;
   maxStacks?: number;
+  multiplier?: BuffMultiplier;
   effectKind?: BuffEffectKind;
   extraHitConfig?: BuffExtraHitConfig;
   origin?: 'local' | 'json' | 'operatorConfigSnapshot' | 'operatorStudio';

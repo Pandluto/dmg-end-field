@@ -7,6 +7,7 @@
 import { STORAGE_KEYS } from '../../constants/storage-keys';
 import { CandidateBuff } from '../../core/domain/buff';
 import { safeSessionStorage } from '../../utils/storage';
+import { normalizeStoredCandidateBuffList } from '../services/buffStorageNormalization';
 
 /**
  * 获取候选 Buff 列表
@@ -15,7 +16,7 @@ export function getCandidateBuffList(): CandidateBuff[] {
   const raw = safeSessionStorage.getItem(STORAGE_KEYS.CANDIDATE_BUFF_LIST);
   if (!raw) return [];
   try {
-    return JSON.parse(raw) as CandidateBuff[];
+    return normalizeStoredCandidateBuffList(JSON.parse(raw));
   } catch {
     return [];
   }
@@ -25,7 +26,10 @@ export function getCandidateBuffList(): CandidateBuff[] {
  * 设置候选 Buff 列表
  */
 export function setCandidateBuffList(list: CandidateBuff[]): void {
-  safeSessionStorage.setItem(STORAGE_KEYS.CANDIDATE_BUFF_LIST, JSON.stringify(list));
+  safeSessionStorage.setItem(
+    STORAGE_KEYS.CANDIDATE_BUFF_LIST,
+    JSON.stringify(normalizeStoredCandidateBuffList(list))
+  );
 }
 
 /**

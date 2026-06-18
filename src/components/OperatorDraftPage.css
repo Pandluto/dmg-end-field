@@ -799,6 +799,21 @@
   font-weight: 600;
 }
 
+.operator-draft-buff-form .operator-draft-buff-multiplier-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 28px;
+  padding: 4px 6px;
+  border: 1px solid #d8dde7;
+  background: #f5f7fb;
+}
+
+.operator-draft-buff-multiplier-toggle input {
+  width: auto;
+  margin: 0;
+}
+
 .operator-draft-buff-form-wide {
   grid-column: 1 / -1;
 }

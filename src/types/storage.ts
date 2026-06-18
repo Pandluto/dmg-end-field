@@ -1,5 +1,5 @@
 import { EquipmentConfig } from '../utils/equipmentParser';
-import type { BuffEffectKind, BuffExtraHitConfig } from '../core/domain/buff';
+import type { BuffCategory, BuffEffectKind, BuffExtraHitConfig, BuffMultiplier } from '../core/domain/buff';
 import type { ConfigSnapshot } from '../core/calculators/operatorPanelCalculator';
 import { SandboxSkillHit, HitSkillType, ElementType } from './index';
 
@@ -231,6 +231,7 @@ export type SkillButtonBuffTarget =
  * 所有字段必须包含，确保 Buff 内容完整
  */
 export interface SkillButtonBuff {
+  schemaVersion?: 2;     // Buff 计算定义 schema
   id: string;              // 稳定独立 ID
   name: string;            // 内部名称
   displayName: string;     // 展示名称
@@ -241,8 +242,9 @@ export interface SkillButtonBuff {
   description?: string;    // 描述
   source?: string;         // 来源
   condition?: string;      // 触发条件
-  category?: 'condition' | 'countable' | 'passive'; // Buff 业务类别，缺省按 condition
+  category?: BuffCategory; // Buff 业务类别，缺省按 condition
   maxStacks?: number;      // countable 最大层数
+  multiplier?: BuffMultiplier; // 五类乘区的独立直接倍率
   refCount: number;        // 被引用次数，selectedBuff 解绑时 -1，0 时删除实体
   target?: SkillButtonBuffTarget;  // 作用目标（可选，默认 'all'）
   effectKind?: BuffEffectKind;     // Buff 效果类型（普通 modifier / 额外 hit）

@@ -17,12 +17,27 @@ import {
   calculateVulnerabilityRate,
 } from '../calculators/buffCalculator';
 import type { ResistanceZoneResult } from '../calculators/buffCalculator';
+import type { BuffContribution, ZoneCalculationResult } from '../calculators/buffZoneCalculator';
 
 export interface DamageReportBuffRow {
   id: string;
   traceId: string;
   name: string;
   effect: string;
+  type?: string;
+  zone?: BuffContribution['zone'];
+  rawValue?: number;
+  runtimeCoefficient?: number;
+  effectiveValue?: number;
+  multiplierCoefficient?: number;
+  multiplier?: boolean;
+}
+
+export interface DamageReportZoneRow {
+  key: BuffContribution['zone'];
+  additiveTotal: number;
+  multiplierProduct: number;
+  finalValue: number;
 }
 
 export interface DamageReportHitRow {
@@ -38,6 +53,7 @@ export interface DamageReportHitRow {
   resistanceZone: number;
   resistance: ResistanceZoneResult;
   buffs: DamageReportBuffRow[];
+  zones?: DamageReportZoneRow[];
 }
 
 export interface DamageReportButtonRow {
@@ -230,13 +246,37 @@ function buildBuffTraceId(buff: SkillButtonBuff): string {
   return parts.join(' / ');
 }
 
-function toBuffRows(buffs: SkillButtonBuff[]): DamageReportBuffRow[] {
+function toBuffRows(
+  buffs: SkillButtonBuff[],
+  contributions: BuffContribution[] = []
+): DamageReportBuffRow[] {
   return buffs.map((buff) => ({
+    ...(() => {
+      const contribution = contributions.find((item) => item.buffId === buff.id);
+      return contribution ? {
+        type: contribution.type,
+        zone: contribution.zone,
+        rawValue: contribution.rawValue,
+        runtimeCoefficient: contribution.runtimeCoefficient,
+        effectiveValue: contribution.effectiveValue,
+        multiplierCoefficient: contribution.multiplierCoefficient,
+        multiplier: contribution.multiplier,
+      } : {};
+    })(),
     id: buff.id,
     traceId: buildBuffTraceId(buff),
     name: buff.displayName || buff.name,
     effect: formatBuffEffect(buff),
   }));
+}
+
+function toZoneRows(zones: Array<[BuffContribution['zone'], ZoneCalculationResult | undefined]>): DamageReportZoneRow[] {
+  return zones.flatMap(([key, zone]) => zone ? [{
+    key,
+    additiveTotal: zone.additiveTotal,
+    multiplierProduct: zone.multiplierProduct,
+    finalValue: zone.finalValue,
+  }] : []);
 }
 
 function buildRuntimeButton(button: PersistedSkillButton): RuntimeSkillButton {
@@ -850,7 +890,14 @@ function buildButtonReportRow(
         nonCrit: hit.nonCrit.final,
         resistanceZone: hit.zones.resistanceZone,
         resistance: hit.zones.resistance,
-        buffs: toBuffRows(hit.appliedBuffs),
+        buffs: toBuffRows(hit.appliedBuffs, hit.buffContributions),
+        zones: toZoneRows([
+          ['skillMultiplier', hit.zones.skillMultiplier],
+          ['damageBonus', hit.zones.damageBonus],
+          ['amplify', hit.zones.amplify],
+          ['fragile', hit.zones.fragile],
+          ['vulnerability', hit.zones.vulnerability],
+        ]),
       }))
     : [];
 

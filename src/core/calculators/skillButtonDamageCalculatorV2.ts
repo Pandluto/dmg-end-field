@@ -1,18 +1,15 @@
 import type { DamageBonusSnapshot, SkillButtonBuff } from '../../types/storage';
 import {
-  calculateAmplifyRate,
   calculateBuffTotals,
   calculateElementDmgBonus,
-  calculateFragileRate,
   calculateResistanceZone,
   calculateSkillDmgBonus,
-  calculateVulnerabilityRate,
 } from './buffCalculator';
+import { calculateHitBuffZones } from './buffZoneCalculator';
 import type {
   DamageBreakdown,
   DamageZones,
   HitCalcResult,
-  MultiplierAdjustment,
   ResolvedHitTemplate,
   SkillDamageCalcInputV2,
   SkillDamageCalcResultV2,
@@ -100,19 +97,6 @@ function calculateHitDamage(
   };
 }
 
-function applyMultiplierAdjustments(
-  baseMultiplier: number,
-  buffs: ReturnType<typeof calculateBuffTotals>
-): MultiplierAdjustment {
-  const afterBonus = baseMultiplier + buffs.multiplierBonus;
-  const afterMultiply = afterBonus * buffs.multiplierMultiplier;
-  return {
-    base: baseMultiplier,
-    afterBonus,
-    afterMultiply,
-  };
-}
-
 function toDamageBonusRecord(damageBonus: DamageBonusSnapshot): Record<string, number> {
   return { ...damageBonus };
 }
@@ -128,25 +112,31 @@ function calculateHitZones(
   hit: ResolvedHitTemplate,
   damageBonus: DamageBonusSnapshot,
   buffs: ReturnType<typeof calculateBuffTotals>,
-  targetResistance: SkillDamageCalcInputV2['targetResistance']
+  targetResistance: SkillDamageCalcInputV2['targetResistance'],
+  zoneResults: ReturnType<typeof calculateHitBuffZones>
 ): DamageZones {
   const parsedDamageBonus = toDamageBonusRecord(damageBonus);
   const elementBonus = calculateElementDmgBonus(hit.element, parsedDamageBonus, buffs);
   const skillBonus = calculateSkillDmgBonus(hit.skillType, parsedDamageBonus, buffs);
   const allDamageBonus = calculateAllDamageBonus(damageBonus, buffs);
-  const damageBonusRate = 1 + elementBonus + skillBonus + allDamageBonus;
+  const damageBonusRate = zoneResults.damageBonus.finalValue;
   const resistance = calculateResistanceZone(hit.element, targetResistance, buffs);
 
   return {
+    damageBonus: zoneResults.damageBonus,
+    amplify: zoneResults.amplify,
+    fragile: zoneResults.fragile,
+    vulnerability: zoneResults.vulnerability,
+    skillMultiplier: zoneResults.skillMultiplier,
     elementBonus,
     skillBonus,
     allDamageBonus,
     damageBonusRate,
     resistanceZone: resistance.resistanceZone,
     resistance,
-    amplifyRate: calculateAmplifyRate(hit.element, buffs),
-    fragileRate: calculateFragileRate(hit.element, buffs),
-    vulnerabilityRate: calculateVulnerabilityRate(hit.element, buffs),
+    amplifyRate: zoneResults.amplify.finalValue - 1,
+    fragileRate: zoneResults.fragile.finalValue - 1,
+    vulnerabilityRate: zoneResults.vulnerability.finalValue - 1,
     comboDamageBonus: buffs.comboDamageBonus,
     imbalanceDamageBonus: buffs.imbalanceDamageBonus + (hit.element === 'physical' ? (damageBonus.imbalanceDmgBonus || 0) : 0),
     defenseZone: 0.5,
@@ -164,8 +154,19 @@ function calculateSingleHit(
   const effectiveBuffs = isDisabled ? [] : appliedBuffs;
   const panel = buildPanelForHit(effectiveBuffs, input);
   const buffTotals = calculateBuffTotals(effectiveBuffs, input.buffStackCounts);
-  const zones = calculateHitZones(hit, input.damageBonus, buffTotals, input.targetResistance);
-  const multiplier = applyMultiplierAdjustments(hit.multiplier, buffTotals);
+  const zoneResults = calculateHitBuffZones({
+    context: { element: hit.element, skillType: hit.skillType },
+    buffs: effectiveBuffs,
+    stackCounts: input.buffStackCounts,
+    damageBonus: input.damageBonus,
+    baseSkillMultiplier: hit.multiplier,
+  });
+  const zones = calculateHitZones(hit, input.damageBonus, buffTotals, input.targetResistance, zoneResults);
+  const multiplier = {
+    base: hit.multiplier,
+    afterBonus: hit.multiplier + zoneResults.skillMultiplier.additiveTotal,
+    afterMultiply: zoneResults.skillMultiplier.finalValue,
+  };
 
   const critRate = panel.critRate;
   const critDmg = panel.critDmg;
@@ -177,6 +178,7 @@ function calculateSingleHit(
     appliedBuffs: effectiveBuffs,
     panel,
     zones,
+    buffContributions: zoneResults.contributions,
     multiplier,
     nonCrit: isDisabled
       ? createZeroDamageBreakdown()

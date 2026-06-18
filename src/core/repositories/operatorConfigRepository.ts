@@ -16,8 +16,22 @@ import {
   getCharacterDisplayCacheMap as readCharacterDisplayCacheMap,
   getCharacterInput as readCharacterInput,
   getCharacterInputMap as readCharacterInputMap,
+  getOperatorConfigPageCache as readOperatorConfigPageCache,
   inflateEquipmentDefaults,
+  setOperatorConfigPageCache as writeOperatorConfigPageCache,
 } from '../../utils/storage';
+import type { OperatorConfigPageCache } from '../../types/storage';
+import {
+  normalizeStoredOperatorConfigPageCache,
+} from '../services/buffStorageNormalization';
+
+export function getOperatorConfigPageCache(): OperatorConfigPageCache {
+  return normalizeStoredOperatorConfigPageCache(readOperatorConfigPageCache());
+}
+
+export function setOperatorConfigPageCache(cache: OperatorConfigPageCache): void {
+  writeOperatorConfigPageCache(normalizeStoredOperatorConfigPageCache(cache));
+}
 
 // ===== Character Input Config =====
 

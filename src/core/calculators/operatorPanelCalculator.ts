@@ -1,4 +1,4 @@
-import type { BuffEffectKind, BuffExtraHitConfig } from '../domain/buff';
+import type { BuffEffectKind, BuffExtraHitConfig, BuffMultiplier } from '../domain/buff';
 
 type AbilityName = '力量' | '敏捷' | '智识' | '意志';
 type AbilityField = 'strength' | 'agility' | 'intelligence' | 'will';
@@ -66,6 +66,7 @@ export interface OperatorBuffDerivedValueInput {
 }
 
 export interface OperatorBuffEffectInput {
+  schemaVersion?: 2;
   effectId: string;
   name: string;
   type: string;
@@ -79,6 +80,7 @@ export interface OperatorBuffEffectInput {
   derivedValue?: OperatorBuffDerivedValueInput;
   effectKind?: BuffEffectKind;
   extraHitConfig?: BuffExtraHitConfig;
+  multiplier?: BuffMultiplier;
 }
 
 export type OperatorBuffInput = Record<OperatorBuffGroupKey, { effects: Record<string, OperatorBuffEffectInput> }>;
@@ -786,7 +788,7 @@ function buildOperatorBuffTotals(buffs: OperatorBuffInput | undefined): Record<s
   const totals: Record<string, number> = {};
   getOperatorBuffEntries(buffs).forEach(({ effect }) => {
     const typeKey = normalizeTypeKey(effect.type || '');
-    if (effect.effectKind === 'extraHit' || !['positive', 'passive'].includes(effect.category) || effect.valueMode === 'derived' || !typeKey || !OPERATOR_TOTAL_FIELDS.has(typeKey)) return;
+    if (effect.effectKind === 'extraHit' || effect.multiplier || !['positive', 'passive'].includes(effect.category) || effect.valueMode === 'derived' || !typeKey || !OPERATOR_TOTAL_FIELDS.has(typeKey)) return;
     if (typeof effect.value !== 'number' || !Number.isFinite(effect.value)) return;
     addTotal(totals, typeKey, effect.value, effect.unit);
   });
@@ -801,7 +803,7 @@ function readDerivedSourceValue(source: OperatorBuffDerivedSource, display: Pane
 }
 
 function calculateDerivedBuffValue(effect: OperatorBuffEffectInput, display: PanelDisplaySnapshot): number | null {
-  if (effect.valueMode !== 'derived' || !effect.derivedValue) return null;
+  if (effect.multiplier || effect.valueMode !== 'derived' || !effect.derivedValue) return null;
   const { source, perPointValue } = effect.derivedValue;
   if (typeof perPointValue !== 'number' || !Number.isFinite(perPointValue)) return null;
   const sourceValue = readDerivedSourceValue(source, display);
@@ -813,7 +815,7 @@ function buildDerivedOperatorBuffTotals(buffs: OperatorBuffInput | undefined, di
   const totals: Record<string, number> = {};
   getOperatorBuffEntries(buffs).forEach(({ effect }) => {
     const typeKey = normalizeTypeKey(effect.type || '');
-    if (effect.effectKind === 'extraHit' || !['positive', 'passive'].includes(effect.category) || effect.valueMode !== 'derived' || !typeKey || !OPERATOR_TOTAL_FIELDS.has(typeKey)) return;
+    if (effect.effectKind === 'extraHit' || effect.multiplier || !['positive', 'passive'].includes(effect.category) || effect.valueMode !== 'derived' || !typeKey || !OPERATOR_TOTAL_FIELDS.has(typeKey)) return;
     const derivedValue = calculateDerivedBuffValue(effect, display);
     if (derivedValue === null) return;
     addTotal(totals, typeKey, derivedValue, effect.unit);

@@ -1,4 +1,10 @@
 import { STORAGE_KEYS } from '../constants/storage-keys';
+import {
+  normalizeStoredBuffList,
+  normalizeStoredCandidateBuffList,
+  normalizeStoredOperatorConfigPageCache,
+  normalizeStoredRuntimeOperatorTemplateMap,
+} from '../core/services/buffStorageNormalization';
 
 type StorageAreaName = 'local' | 'session';
 type LocalDataSection = 'operators' | 'weapons' | 'equipments' | 'buffs' | 'timeline' | 'runtime' | 'all';
@@ -146,6 +152,21 @@ function stringifyStoredValue(value: unknown): string {
   return typeof value === 'string' ? value : JSON.stringify(value ?? null);
 }
 
+function normalizeImportedSessionValue(key: string, value: unknown): unknown {
+  switch (key) {
+    case STORAGE_KEYS.ALL_BUFF_LIST:
+      return normalizeStoredBuffList(value);
+    case STORAGE_KEYS.CANDIDATE_BUFF_LIST:
+      return normalizeStoredCandidateBuffList(value);
+    case STORAGE_KEYS.OPERATOR_CONFIG_PAGE_CACHE:
+      return normalizeStoredOperatorConfigPageCache(value);
+    case STORAGE_KEYS.RUNTIME_OPERATOR_TEMPLATE_MAP:
+      return normalizeStoredRuntimeOperatorTemplateMap(value);
+    default:
+      return value;
+  }
+}
+
 function collectStorage(area: StorageAreaName, sections: LocalDataSection[]): Record<string, unknown> {
   const storage = getStorage(area);
   if (!storage) return {};
@@ -174,7 +195,10 @@ function applyStorage(area: StorageAreaName, values: Record<string, unknown> | u
   if (!storage || !values) return { writtenKeys: 0, failedKeys: [] };
   const failedKeys: string[] = [];
   Object.entries(values).forEach(([key, value]) => {
-    const serialized = stringifyStoredValue(value);
+    const normalizedValue = area === 'session'
+      ? normalizeImportedSessionValue(key, value)
+      : value;
+    const serialized = stringifyStoredValue(normalizedValue);
     storage.setItem(key, serialized);
     if (storage.getItem(key) !== serialized) {
       failedKeys.push(key);

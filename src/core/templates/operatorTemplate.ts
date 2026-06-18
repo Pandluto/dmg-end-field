@@ -12,7 +12,7 @@
  */
 
 import type { ElementType, SkillType, HitSkillType, AbilityType } from '../../types';
-import type { BuffEffectKind, BuffExtraHitConfig } from '../domain/buff';
+import type { BuffEffectKind, BuffExtraHitConfig, BuffMultiplier } from '../domain/buff';
 
 export type OperatorAttributeLevelKey = 'level1' | 'level20' | 'level40' | 'level60' | 'level80' | 'level90';
 export type OperatorAttributeKey = 'strength' | 'agility' | 'intelligence' | 'will' | 'atk' | 'hp';
@@ -26,12 +26,14 @@ export interface OperatorBuffDerivedValue {
   perPointValue: number;
 }
 export interface OperatorDraftBuffEffect {
+  schemaVersion?: 2;
   effectId: string;
   name: string;
   type: string;
   category: OperatorDraftBuffCategory;
   value?: number;
   maxStacks?: number;
+  multiplier?: BuffMultiplier;
   unit?: 'flat' | 'percent' | string;
   description?: string;
   raw?: string;

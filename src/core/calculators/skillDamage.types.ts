@@ -1,5 +1,6 @@
 import type { SkillType, HitSkillType, ElementType } from '../../types';
 import type { ResistanceZoneResult } from './buffCalculator';
+import type { HitBuffZoneResults, ZoneCalculationResult } from './buffZoneCalculator';
 import type { DamageBonusSnapshot, HitResistanceInput, SkillButtonBuff } from '../../types/storage';
 
 export interface ResolvedHitTemplate {
@@ -69,6 +70,11 @@ export interface MultiplierAdjustment {
 }
 
 export interface DamageZones {
+  damageBonus?: ZoneCalculationResult;
+  amplify?: ZoneCalculationResult;
+  fragile?: ZoneCalculationResult;
+  vulnerability?: ZoneCalculationResult;
+  skillMultiplier?: ZoneCalculationResult;
   elementBonus: number;
   skillBonus: number;
   allDamageBonus: number;
@@ -89,6 +95,7 @@ export interface HitCalcResult {
   appliedBuffs: SkillButtonBuff[];
   panel: SkillDamagePanel;
   zones: DamageZones;
+  buffContributions?: HitBuffZoneResults['contributions'];
   multiplier: MultiplierAdjustment;
   nonCrit: DamageBreakdown;
   crit: DamageBreakdown;
@@ -133,8 +140,12 @@ export interface AppliedBuffTagViewModel {
   label: string;
   displayLabel?: string;
   sourceName: string;
+  type?: string;
   value?: number;
   effectiveValue?: number;
+  runtimeCoefficient?: number;
+  multiplierCoefficient?: number;
+  isMultiplier?: boolean;
   stackCount?: number;
   maxStacks?: number;
   isCountable?: boolean;
@@ -152,6 +163,7 @@ export interface FormulaViewModel {
   skillBonusText: string;
   allDamageBonusText: string;
   damageBonusRateText: string;
+  damageBonusFormulaText: string;
   resistanceEffectiveText: string;
   resistanceFormulaText: string;
   amplifyFormulaText: string;

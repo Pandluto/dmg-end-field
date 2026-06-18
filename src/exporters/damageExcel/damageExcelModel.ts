@@ -31,6 +31,24 @@ export interface DamageExcelButtonRow {
   meta: string;
 }
 
+export interface DamageExcelBuffContributionSnapshot {
+  buffId: string;
+  type: string;
+  multiplier: boolean;
+  rawValue: number;
+  runtimeCoefficient: number;
+  effectiveValue: number;
+  multiplierCoefficient?: number;
+}
+
+export interface DamageExcelZoneCalculationSnapshot {
+  additiveContributions: DamageExcelBuffContributionSnapshot[];
+  multiplierContributions: DamageExcelBuffContributionSnapshot[];
+  additiveTotal: number;
+  multiplierProduct: number;
+  finalValue: number;
+}
+
 export interface DamageExcelHitResultSnapshot {
   panel: {
     atk: number;
@@ -43,6 +61,11 @@ export interface DamageExcelHitResultSnapshot {
     afterMultiply: number;
   };
   zones: {
+    damageBonus?: DamageExcelZoneCalculationSnapshot;
+    amplify?: DamageExcelZoneCalculationSnapshot;
+    fragile?: DamageExcelZoneCalculationSnapshot;
+    vulnerability?: DamageExcelZoneCalculationSnapshot;
+    skillMultiplier?: DamageExcelZoneCalculationSnapshot;
     damageBonusRate: number;
     defenseZone: number;
     resistanceZone: number;
@@ -63,6 +86,7 @@ export interface DamageExcelHitResultSnapshot {
     skillBonus?: number;
     allDamageBonus?: number;
   };
+  buffContributions?: DamageExcelBuffContributionSnapshot[];
   nonCrit: {
     base?: number;
     final: number;

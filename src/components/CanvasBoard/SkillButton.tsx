@@ -1674,7 +1674,7 @@ export function SkillButtonComponent({
                                 <p>元素伤害加成 {damageViewModel.activeHitFormula.elementBonusText}</p>
                                 <p>技能伤害加成 {damageViewModel.activeHitFormula.skillBonusText}</p>
                                 <p>全伤害加成 {damageViewModel.activeHitFormula.allDamageBonusText}</p>
-                                <p className="formula-zone-total">加成区系数 = 1 + {damageViewModel.activeHitFormula.elementBonusText} + {damageViewModel.activeHitFormula.skillBonusText} + {damageViewModel.activeHitFormula.allDamageBonusText} = {damageViewModel.activeHitFormula.damageBonusRateText}</p>
+                                <p className="formula-zone-total">加成区系数 = {damageViewModel.activeHitFormula.damageBonusFormulaText}</p>
                               </div>
 
                               <div className="formula-zone-section">

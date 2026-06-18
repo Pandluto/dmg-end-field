@@ -1,6 +1,8 @@
 import { AI_CLI_PROTOCOL_VERSION } from './aiCliAgentTypes';
 import type { AgentFillDomainAdapter, AgentFillProposalPayload, AgentFillValidationResult } from './aiCliFillDomains';
-import type { BuffEffectKind, BuffExtraHitConfig } from '../core/domain/buff';
+import type { BuffEffectKind, BuffExtraHitConfig, BuffMultiplier } from '../core/domain/buff';
+import { normalizeBuffMultiplier, validateBuffMultiplierDefinition } from '../core/domain/buffMultiplier';
+import { getMultiplierSupportedBuffTypes } from '../core/domain/buffTypeRegistry';
 import { normalizeExtraHitConfig, validateExtraHitConfig } from '../core/services/buffExtraHit';
 
 export const OPERATOR_DRAFT_STORAGE_KEY = 'def.operator-editor.draft.v1';
@@ -19,6 +21,7 @@ const BUFF_GROUPS = ['talent', 'potential', 'skill'] as const;
 const BUFF_CATEGORIES = ['passive', 'condition', 'countable'] as const;
 const BUFF_VALUE_MODES = ['fixed', 'derived'] as const;
 const BUFF_DERIVED_SOURCES = ['hp', 'atk', 'strength', 'agility', 'intelligence', 'will', 'sourceSkill'] as const;
+const MULTIPLIER_SUPPORTED_BUFF_TYPES = getMultiplierSupportedBuffTypes();
 const SUPPORTED_OPERATOR_EFFECT_TYPES = [
   'atkPercentBoost',
   'atk',
@@ -83,7 +86,6 @@ const SUPPORTED_OPERATOR_EFFECT_TYPES = [
   'natureResistanceIgnore',
   'comboDamageBonus',
   'multiplierBonus',
-  'multiplierMultiplier',
   'sourceSkillBoost',
   'hp',
   'ultimateChargeEfficiency',
@@ -127,6 +129,7 @@ interface OperatorBuffDerivedValue {
 }
 
 interface OperatorBuffEffect {
+  schemaVersion?: 2;
   effectId: string;
   name: string;
   type: string;
@@ -140,6 +143,7 @@ interface OperatorBuffEffect {
   raw?: string;
   effectKind?: BuffEffectKind;
   extraHitConfig?: BuffExtraHitConfig;
+  multiplier?: BuffMultiplier;
 }
 
 type OperatorBuffs = Record<OperatorBuffGroupKey, { effects: Record<string, OperatorBuffEffect> }>;
@@ -253,11 +257,20 @@ function defaultBuffs(): OperatorBuffs {
 
 function normalizeOperatorBuffEffect(effectKey: string, rawEffect: Record<string, unknown>): OperatorBuffEffect {
   const effectKind: BuffEffectKind = rawEffect.effectKind === 'extraHit' ? 'extraHit' : 'modifier';
+  const isLegacySkillMultiplier = rawEffect.type === 'multiplierMultiplier';
   const normalizedCategory = findAllowedValue(rawEffect.category, BUFF_CATEGORIES)
     || (normalizeEnumText(rawEffect.category) === 'positive' ? 'passive' : undefined);
+  const normalizedMultiplier = effectKind === 'extraHit'
+    ? undefined
+    : normalizeBuffMultiplier(rawEffect.multiplier)
+      ?? (isLegacySkillMultiplier && typeof rawEffect.value === 'number' && Number.isFinite(rawEffect.value) && rawEffect.value > 0
+        ? { coefficient: rawEffect.value }
+        : undefined);
   const category = effectKind === 'extraHit'
     ? (normalizedCategory === 'countable' ? 'countable' : 'passive')
-    : (normalizedCategory ?? 'passive');
+    : normalizedMultiplier && normalizedCategory === 'countable'
+      ? 'condition'
+      : (normalizedCategory ?? 'passive');
   const valueMode: OperatorBuffValueMode = effectKind === 'extraHit' || category === 'countable'
     ? 'fixed'
     : rawEffect.valueMode === 'derived' ? 'derived' : 'fixed';
@@ -265,11 +278,12 @@ function normalizeOperatorBuffEffect(effectKey: string, rawEffect: Record<string
   const rawDerivedSource = findAllowedValue(rawDerivedValue.source, BUFF_DERIVED_SOURCES);
   const rawPerPointValue = rawDerivedValue.perPointValue ?? rawDerivedValue.scale;
   return {
+    schemaVersion: 2,
     effectId: typeof rawEffect.effectId === 'string' && rawEffect.effectId ? rawEffect.effectId : effectKey,
     name: typeof rawEffect.name === 'string' && rawEffect.name ? rawEffect.name : effectKey,
-    type: effectKind === 'extraHit' ? '' : String(rawEffect.type || ''),
+    type: effectKind === 'extraHit' ? '' : isLegacySkillMultiplier ? 'multiplierBonus' : String(rawEffect.type || ''),
     category,
-    ...(typeof rawEffect.value === 'number' && Number.isFinite(rawEffect.value) ? { value: rawEffect.value } : {}),
+    ...(!isLegacySkillMultiplier && typeof rawEffect.value === 'number' && Number.isFinite(rawEffect.value) ? { value: rawEffect.value } : {}),
     ...(category === 'countable' && typeof rawEffect.maxStacks === 'number' && Number.isFinite(rawEffect.maxStacks)
       ? { maxStacks: Math.max(1, Math.floor(rawEffect.maxStacks)) }
       : {}),
@@ -281,6 +295,7 @@ function normalizeOperatorBuffEffect(effectKey: string, rawEffect: Record<string
     ...(typeof rawEffect.description === 'string' && rawEffect.description ? { description: rawEffect.description } : {}),
     ...(typeof rawEffect.raw === 'string' && rawEffect.raw ? { raw: rawEffect.raw } : {}),
     effectKind,
+    ...(normalizedMultiplier ? { multiplier: normalizedMultiplier } : {}),
     ...(effectKind === 'extraHit'
       ? { extraHitConfig: normalizeExtraHitConfig(rawEffect.extraHitConfig, `${effectKey}-extra-hit`) }
       : {}),
@@ -347,11 +362,18 @@ function normalizeOperatorSkillKeys(skills: Record<string, SkillDraft>): Record<
 }
 
 export function readCurrentOperatorDraft(): OperatorDraft {
-  return readJsonStorage<OperatorDraft>(OPERATOR_DRAFT_STORAGE_KEY, createFallbackOperatorDraft());
+  const stored = readJsonStorage<OperatorDraft>(OPERATOR_DRAFT_STORAGE_KEY, createFallbackOperatorDraft());
+  return normalizeOperatorDraft(stored as unknown as Record<string, unknown>);
 }
 
 export function readOperatorLibrary(): Record<string, OperatorDraft> {
-  return readJsonStorage<Record<string, OperatorDraft>>(OPERATOR_LIBRARY_STORAGE_KEY, {});
+  const stored = readJsonStorage<Record<string, OperatorDraft>>(OPERATOR_LIBRARY_STORAGE_KEY, {});
+  return Object.fromEntries(
+    Object.entries(stored).map(([operatorId, operator]) => [
+      operatorId,
+      normalizeOperatorDraft(operator as unknown as Record<string, unknown>),
+    ]),
+  );
 }
 
 export function formatOperatorLibrarySummary(library = readOperatorLibrary()) {
@@ -447,7 +469,10 @@ function validateOperatorDraftShape(raw: unknown): AgentFillValidationResult<Ope
             if (rawEffect.valueMode === 'derived' || rawEffect.derivedValue !== undefined) {
               errors.push(`buffs.${groupKey}.effects.${effectKey} extraHit does not support derivedValue`);
             }
-          } else if (typeof rawEffect.type !== 'string' || !SUPPORTED_OPERATOR_EFFECT_TYPES.includes(rawEffect.type)) {
+          } else if (
+            typeof rawEffect.type !== 'string'
+            || (!SUPPORTED_OPERATOR_EFFECT_TYPES.includes(rawEffect.type) && rawEffect.type !== 'multiplierMultiplier')
+          ) {
             errors.push(`unsupported operator buff type: ${String(rawEffect.type)}`);
           }
           const buffCategory = findAllowedValue(rawEffect.category, BUFF_CATEGORIES)
@@ -462,6 +487,24 @@ function validateOperatorDraftShape(raw: unknown): AgentFillValidationResult<Ope
             }
             if (rawEffect.valueMode === 'derived' || rawEffect.derivedValue !== undefined) {
               errors.push(`buffs.${groupKey}.effects.${effectKey} countable does not support derivedValue`);
+            }
+          }
+          if (rawEffect.multiplier !== undefined) {
+            const multiplierErrors = validateBuffMultiplierDefinition({
+              type: rawEffect.type === 'multiplierMultiplier' ? 'multiplierBonus' : String(rawEffect.type || ''),
+              category: buffCategory,
+              effectKind: effectKind === 'extraHit' ? 'extraHit' : 'modifier',
+              multiplier: rawEffect.multiplier as BuffMultiplier,
+            });
+            multiplierErrors.forEach((message) => errors.push(`buffs.${groupKey}.effects.${effectKey}: ${message}`));
+          }
+          if (rawEffect.type === 'multiplierMultiplier') {
+            if (rawEffect.multiplier === undefined && (
+              typeof rawEffect.value !== 'number'
+              || !Number.isFinite(rawEffect.value)
+              || rawEffect.value <= 0
+            )) {
+              errors.push(`buffs.${groupKey}.effects.${effectKey}.value must be positive number for legacy multiplierMultiplier`);
             }
           }
           if (effectKind !== 'extraHit' && rawEffect.value !== undefined && (typeof rawEffect.value !== 'number' || !Number.isFinite(rawEffect.value))) errors.push(`buffs.${groupKey}.effects.${effectKey}.value must be number`);
@@ -635,8 +678,15 @@ export const operatorFillAdapter: AgentFillDomainAdapter<OperatorDraft> = {
           hitMeta: 'Record<hitKey, { displayName, element, skillType, levels }>; hit skillType accepts A/B/E/Q/Dot',
           buffs: 'optional; talent/potential/skill groups only; each group is { effects: Record<effectKey, OperatorBuffEffect> }',
           buffEffect: {
-            fields: ['effectId', 'name', 'effectKind?', 'type', 'category', 'value?', 'maxStacks?', 'unit?', 'valueMode?', 'derivedValue?', 'extraHitConfig?', 'description?', 'raw?'],
+            fields: ['effectId', 'name', 'effectKind?', 'type', 'category', 'value?', 'multiplier?', 'maxStacks?', 'unit?', 'valueMode?', 'derivedValue?', 'extraHitConfig?', 'description?', 'raw?'],
             category: BUFF_CATEGORIES,
+            multiplier: {
+              shape: '{ coefficient: number }',
+              supportedTypes: MULTIPLIER_SUPPORTED_BUFF_TYPES,
+              rules: 'modifier only; coefficient must be positive; incompatible with category=countable; coefficient is a direct multiplier and must not be written to value',
+              canonicalSkillMultiplierType: 'multiplierBonus',
+              legacyAcceptedInput: 'type=multiplierMultiplier with positive value is accepted only for compatibility and normalized to type=multiplierBonus with multiplier.coefficient=value',
+            },
             countable: 'category=countable requires maxStacks; countable only supports fixed value and no derivedValue; countable extraHit keeps a single segment and total damage scales with current stack count',
             extraHit: 'effectKind=extraHit requires extraHitConfig { key, damageType, skillType, baseMultiplier, imbalanceValue, cooldownSeconds, trigger }; category may be passive/countable; skillType is empty/A/B/E/Q/Dot; 250% is baseMultiplier=2.5; extraHit does not support derivedValue',
             valueMode: BUFF_VALUE_MODES,
@@ -649,7 +699,7 @@ export const operatorFillAdapter: AgentFillDomainAdapter<OperatorDraft> = {
           },
         },
         supportedEffectTypes: SUPPORTED_OPERATOR_EFFECT_TYPES,
-        instruction: 'Return exactly one ImportedOperatorDraft-compatible JSON object. No Markdown. No explanation. Prefer POST /api/operator/fill/check|apply with a JSON body for Chinese payloads; CLI JSON args may be shell-encoding sensitive. Use system skill keys in the latest format skill-{buttonType}-{index}, for example skill-A-1 / skill-B-1 / skill-E-1 / skill-Q-1; every buttonType counts from 1. Legacy skill-1 keys are accepted only for compatibility and will be normalized. Operator buffs use talent/potential/skill groups. Buff category must be passive/condition/countable; legacy positive is accepted only for migration and normalizes to passive. Countable buffs require maxStacks and only support fixed numeric value, no derivedValue. ExtraHit requires extraHitConfig and supports passive/countable only; countable extraHit keeps one segment and total damage scales with current stack count. Fixed effects use valueMode fixed with numeric value. Derived effects use valueMode derived and derivedValue.source/perPointValue, where perPointValue means 每点提升多少, not an arbitrary formula. Percent-like buff types still use decimal numbers, e.g. 每点 +0.10% => 0.001. operator.fill.apply creates a proposal only; it does NOT save to library.',
+        instruction: 'Return exactly one ImportedOperatorDraft-compatible JSON object. No Markdown. No explanation. Prefer POST /api/operator/fill/check|apply with a JSON body for Chinese payloads; CLI JSON args may be shell-encoding sensitive. Use system skill keys in the latest format skill-{buttonType}-{index}, for example skill-A-1 / skill-B-1 / skill-E-1 / skill-Q-1; every buttonType counts from 1. Legacy skill-1 keys are accepted only for compatibility and will be normalized. Operator buffs use talent/potential/skill groups. Buff category must be passive/condition/countable; legacy positive is accepted only for migration and normalizes to passive. Multiplier buffs remain effectKind=modifier, use multiplier={ coefficient: positiveNumber }, only reference supportedEffectTypes listed in buffEffect.multiplier.supportedTypes, and never copy coefficient into value. Use multiplierBonus as the canonical skill-multiplier type; multiplierMultiplier is legacy input only. Multiplier is incompatible with countable and extraHit. Countable buffs require maxStacks and only support fixed numeric value, no derivedValue. ExtraHit requires extraHitConfig and supports passive/countable only; countable extraHit keeps one segment and total damage scales with current stack count. Fixed effects use valueMode fixed with numeric value. Derived effects use valueMode derived and derivedValue.source/perPointValue, where perPointValue means 每点提升多少, not an arbitrary formula. Percent-like buff types still use decimal numbers, e.g. 每点 +0.10% => 0.001. operator.fill.apply creates a proposal only; it does NOT save to library.',
         approvalSaveWarning: 'Approval applies to def.operator-editor.draft.v1. Save writes def.operator-editor.library.v1.',
       },
     };

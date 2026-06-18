@@ -14,6 +14,8 @@ import type {
 } from '../../types';
 import { normalizeAssetUrl } from '../../utils/assetResolver';
 import { normalizeExtraHitConfig } from './buffExtraHit';
+import { normalizeStoredBuffDefinition } from './buffStorageNormalization';
+import { normalizeBuffMultiplier } from '../domain/buffMultiplier';
 import type {
   OperatorDraft,
   OperatorDraftSkill,
@@ -130,7 +132,8 @@ function normalizeAttributeLevels(rawAttributes: unknown): OperatorDraftAttribut
 }
 
 function normalizeBuffEffect(effectKey: string, rawEffect: unknown): OperatorDraftBuffEffect {
-  const source = rawEffect && typeof rawEffect === 'object' ? rawEffect as Record<string, unknown> : {};
+  const rawSource = rawEffect && typeof rawEffect === 'object' ? rawEffect as Record<string, unknown> : {};
+  const source = normalizeStoredBuffDefinition(rawSource);
   const effectKind = source.effectKind === 'extraHit' ? 'extraHit' : 'modifier';
   const rawCategory = typeof source.category === 'string' ? source.category : '';
   const normalizedCategory = rawCategory === 'condition'
@@ -151,13 +154,18 @@ function normalizeBuffEffect(effectKey: string, rawEffect: unknown): OperatorDra
     ? rawDerivedSource as OperatorBuffDerivedSource
     : null;
   const rawPerPointValue = rawDerivedValue.perPointValue ?? rawDerivedValue.scale;
+  const multiplier = effectKind === 'modifier'
+    ? normalizeBuffMultiplier(source.multiplier)
+    : undefined;
   return {
+    schemaVersion: 2,
     effectId: String(source.effectId || effectKey),
     name: String(source.name || effectKey),
     type: effectKind === 'extraHit' ? '' : String(source.type || ''),
     category,
     ...(typeof rawValue === 'number' && Number.isFinite(rawValue) ? { value: rawValue } : {}),
     ...(category === 'countable' && typeof source.maxStacks === 'number' && Number.isFinite(source.maxStacks) ? { maxStacks: Math.max(1, Math.floor(source.maxStacks)) } : {}),
+    ...(multiplier ? { multiplier } : {}),
     ...(typeof source.unit === 'string' && source.unit ? { unit: source.unit } : {}),
     valueMode,
     ...(valueMode === 'derived' && derivedSource && typeof rawPerPointValue === 'number' && Number.isFinite(rawPerPointValue)

@@ -208,6 +208,7 @@ export function calculateBuffTotals(buffs: SkillButtonBuff[], stackCounts: Recor
   };
 
   buffs.forEach(buff => {
+    if (buff.multiplier) return;
     if (buff.type && buff.value !== undefined) {
       const v = getBuffEffectiveValue(buff, stackCounts);
       switch (buff.type) {

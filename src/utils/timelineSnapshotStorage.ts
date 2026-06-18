@@ -24,6 +24,10 @@ import {
   getAnomalyStateSnapshotArchive,
   setAnomalyStateSnapshotArchive,
 } from '../core/services/anomalyStateSnapshotStorage';
+import {
+  normalizeStoredBuffList,
+  normalizeStoredOperatorConfigPageCache,
+} from '../core/services/buffStorageNormalization';
 
 export const TIMELINE_SNAPSHOT_LIMIT = 20;
 
@@ -184,12 +188,12 @@ function normalizeSnapshotPayload(payload: TimelineSnapshotPayload): TimelineSna
     selectedCharacters: payload.selectedCharacters,
     timelineData: payload.timelineData,
     skillButtonTable: payload.skillButtonTable,
-    allBuffList: payload.allBuffList,
+    allBuffList: normalizeStoredBuffList(payload.allBuffList),
     anomalyStateSnapshots: payload.anomalyStateSnapshots ?? [],
     characterInputMap: payload.characterInputMap ?? {},
     characterComputedMap: payload.characterComputedMap ?? {},
     characterDisplayCacheMap: payload.characterDisplayCacheMap ?? {},
-    operatorConfigPageCache: payload.operatorConfigPageCache ?? {},
+    operatorConfigPageCache: normalizeStoredOperatorConfigPageCache(payload.operatorConfigPageCache),
   };
 }
 
@@ -197,7 +201,9 @@ function readCurrentPayload(): TimelineSnapshotPayload | null {
   const selectedCharacters = readSessionJson<string[]>(STORAGE_KEYS.SELECTED_CHARACTERS, []);
   const timelineData = readSessionJson<TimelineData | null>(STORAGE_KEYS.TIMELINE_DATA, null);
   const skillButtonTable = readSessionJson<SkillButtonTable>(STORAGE_KEYS.SKILL_BUTTON_TABLE, {});
-  const allBuffList = readSessionJson<BuffList>(STORAGE_KEYS.ALL_BUFF_LIST, []);
+  const allBuffList = normalizeStoredBuffList(
+    readSessionJson<BuffList>(STORAGE_KEYS.ALL_BUFF_LIST, [])
+  );
   const anomalyStateSnapshots = getAnomalyStateSnapshotArchive().snapshots;
   const characterInputMap = getCharacterInputMap();
   const characterComputedMap = getCharacterComputedMap();

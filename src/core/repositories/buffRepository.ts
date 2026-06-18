@@ -7,6 +7,7 @@
 import { STORAGE_KEYS } from '../../constants/storage-keys';
 import { SkillButtonBuff, BuffList } from '../../types/storage';
 import { safeSessionStorage } from '../../utils/storage';
+import { normalizeStoredBuffList } from '../services/buffStorageNormalization';
 
 /**
  * 获取 buff-list 总表
@@ -15,7 +16,7 @@ export function getAllBuffList(): BuffList {
   const raw = safeSessionStorage.getItem(STORAGE_KEYS.ALL_BUFF_LIST);
   if (!raw) return [];
   try {
-    return JSON.parse(raw) as BuffList;
+    return normalizeStoredBuffList(JSON.parse(raw));
   } catch {
     return [];
   }
@@ -25,7 +26,10 @@ export function getAllBuffList(): BuffList {
  * 设置 buff-list 总表
  */
 export function setAllBuffList(list: BuffList): void {
-  safeSessionStorage.setItem(STORAGE_KEYS.ALL_BUFF_LIST, JSON.stringify(list));
+  safeSessionStorage.setItem(
+    STORAGE_KEYS.ALL_BUFF_LIST,
+    JSON.stringify(normalizeStoredBuffList(list))
+  );
 }
 
 /**

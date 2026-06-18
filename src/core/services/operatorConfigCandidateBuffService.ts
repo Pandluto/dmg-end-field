@@ -1,9 +1,9 @@
 import type { ConfigSnapshot, WeaponSkillDetail } from '../calculators/operatorPanelCalculator';
-import type { BuffEffectKind, BuffExtraHitConfig, CandidateBuff } from '../domain/buff';
-import { getCandidateBuffList, setCandidateBuffList } from '../repositories';
+import type { BuffEffectKind, BuffExtraHitConfig, BuffMultiplier, CandidateBuff } from '../domain/buff';
+import { getCandidateBuffList, getOperatorConfigPageCache, setCandidateBuffList } from '../repositories';
 import { resolvePublicPath } from '../../utils/assetResolver';
-import { getOperatorConfigPageCache } from '../../utils/storage';
 import { normalizeExtraHitConfig } from './buffExtraHit';
+import { normalizeStoredBuffDefinition } from './buffStorageNormalization';
 
 interface EquipmentThreePieceBuffLike {
   effectId?: string;
@@ -14,6 +14,7 @@ interface EquipmentThreePieceBuffLike {
   raw?: string;
   effectKind?: BuffEffectKind;
   extraHitConfig?: BuffExtraHitConfig;
+  multiplier?: BuffMultiplier;
 }
 
 interface EquipmentItemLike {
@@ -43,6 +44,7 @@ const EQUIPMENT_DRAFT_STORAGE_KEY = 'def.equipment-sheet.draft.v1';
 function normalizeBuffTypeKey(typeKey: string): string {
   if (typeKey === 'atk') return 'flatAtk';
   if (typeKey === 'allElementDmgBonus') return 'magicDmgBonus';
+  if (typeKey === 'multiplierMultiplier') return 'multiplierBonus';
   return typeKey;
 }
 
@@ -87,6 +89,7 @@ function candidateKey(buff: CandidateBuff): string {
     buff.ownerBuffGroup ?? '',
     buff.effectKind ?? 'modifier',
     buff.extraHitConfig ? JSON.stringify(buff.extraHitConfig) : '',
+    buff.multiplier?.coefficient ?? '',
   ].join('|');
 }
 
@@ -113,38 +116,45 @@ function buildOperatorBuffCandidate(
   effectKey: string,
   effect: ConfigSnapshot['operator']['buffs'][typeof groupKey]['effects'][string]
 ): CandidateBuff | null {
-  const effectKind = effect.effectKind === 'extraHit' ? 'extraHit' : 'modifier';
-  const type = normalizeBuffTypeKey(effect.type || '');
-  if (effectKind === 'modifier' && !type) return null;
-  const sourceName = snapshot.operator.name || snapshot.operator.id;
-  const category = effect.category === 'countable'
+  const normalizedEffect = normalizeStoredBuffDefinition(effect) as typeof effect & {
+    multiplier?: BuffMultiplier;
+  };
+  const effectKind = normalizedEffect.effectKind === 'extraHit' ? 'extraHit' : 'modifier';
+  const category = normalizedEffect.category === 'countable'
     ? 'countable'
-    : effect.category === 'condition'
+    : normalizedEffect.category === 'condition'
       ? 'condition'
       : 'passive';
+  if (effectKind === 'modifier' && category === 'passive') return null;
+  const type = normalizeBuffTypeKey(normalizedEffect.type || '');
+  if (effectKind === 'modifier' && !type) return null;
+  const sourceName = snapshot.operator.name || snapshot.operator.id;
   return {
     origin: 'operatorStudio',
     ownerBuffDomain: 'operator',
     ownerCharacterId: snapshot.operator.id,
     ownerBuffGroup: groupKey,
-    displayName: effect.name || effectKey,
-    name: `operator-studio:${snapshot.operator.id}:${groupKey}:${effect.effectId || effectKey}`,
+    displayName: normalizedEffect.name || effectKey,
+    name: `operator-studio:${snapshot.operator.id}:${groupKey}:${normalizedEffect.effectId || effectKey}`,
     level: groupKey,
-    value: effectKind === 'extraHit' ? undefined : effect.value,
+    value: effectKind === 'extraHit' ? undefined : normalizedEffect.value,
     type: effectKind === 'extraHit' ? undefined : type,
     source: sourceName,
     sourceName,
-    description: effect.description || effect.raw || `${effect.name || effectKey} ${effect.value ?? ''}`.trim(),
+    description: normalizedEffect.description || normalizedEffect.raw || `${normalizedEffect.name || effectKey} ${normalizedEffect.value ?? ''}`.trim(),
     condition: category === 'condition' ? 'condition' : category === 'countable' ? 'countable' : 'passive',
     category,
-    ...(category === 'countable' && typeof effect.maxStacks === 'number' && Number.isFinite(effect.maxStacks)
-      ? { maxStacks: Math.max(1, Math.floor(effect.maxStacks)) }
+    ...(category === 'countable' && typeof normalizedEffect.maxStacks === 'number' && Number.isFinite(normalizedEffect.maxStacks)
+      ? { maxStacks: Math.max(1, Math.floor(normalizedEffect.maxStacks)) }
       : {}),
-    valueMode: effect.valueMode,
-    derivedValue: effect.derivedValue,
+    ...(effectKind === 'modifier' && normalizedEffect.multiplier
+      ? { multiplier: normalizedEffect.multiplier }
+      : {}),
+    valueMode: normalizedEffect.valueMode,
+    derivedValue: normalizedEffect.derivedValue,
     effectKind,
     ...(effectKind === 'extraHit'
-      ? { extraHitConfig: normalizeExtraHitConfig(effect.extraHitConfig, `${effect.effectId || effectKey}-extra-hit`) }
+      ? { extraHitConfig: normalizeExtraHitConfig(normalizedEffect.extraHitConfig, `${normalizedEffect.effectId || effectKey}-extra-hit`) }
       : {}),
   };
 }
@@ -163,28 +173,35 @@ export function buildSnapshotOperatorCandidateBuffs(snapshot: ConfigSnapshot): C
 }
 
 function buildWeaponDetailCandidate(snapshot: ConfigSnapshot, detail: WeaponSkillDetail, index: number): CandidateBuff | null {
-  const effectKind = detail.effectKind === 'extraHit' ? 'extraHit' : 'modifier';
-  if (effectKind === 'modifier' && detail.category === 'passive') return null;
-  const type = normalizeBuffTypeKey(detail.typeKey);
+  const normalizedDetail = normalizeStoredBuffDefinition({
+    ...detail,
+    type: detail.typeKey,
+  }) as WeaponSkillDetail & { type: string; multiplier?: BuffMultiplier };
+  const effectKind = normalizedDetail.effectKind === 'extraHit' ? 'extraHit' : 'modifier';
+  if (effectKind === 'modifier' && normalizedDetail.category === 'passive') return null;
+  const type = normalizeBuffTypeKey(normalizedDetail.type);
   if (effectKind === 'modifier' && !type) return null;
   const sourceName = snapshot.weapon.name || snapshot.weapon.id || snapshot.operator.name;
   return {
     ...buildSnapshotCandidateBase(snapshot),
     ownerBuffDomain: 'weapon',
     ownerBuffGroup: 'weaponSkill',
-    displayName: detail.label || `${sourceName} skill3 effect ${index + 1}`,
-    name: `operator-config-snapshot:${snapshot.operator.id}:weapon:${snapshot.weapon.id || sourceName}:skill3:${detail.effectKey || index + 1}`,
-    level: `Lv${detail.level}`,
-    value: effectKind === 'extraHit' ? undefined : detail.value,
+    displayName: normalizedDetail.label || `${sourceName} skill3 effect ${index + 1}`,
+    name: `operator-config-snapshot:${snapshot.operator.id}:weapon:${snapshot.weapon.id || sourceName}:skill3:${normalizedDetail.effectKey || index + 1}`,
+    level: `Lv${normalizedDetail.level}`,
+    value: effectKind === 'extraHit' ? undefined : normalizedDetail.value,
     type: effectKind === 'extraHit' ? undefined : type,
     source: sourceName,
     sourceName,
-    description: `${detail.label || detail.typeKey} ${detail.value}`,
-    condition: effectKind === 'extraHit' ? 'passive' : detail.category || 'condition',
+    description: `${normalizedDetail.label || normalizedDetail.type} ${normalizedDetail.value ?? ''}`.trim(),
+    condition: effectKind === 'extraHit' ? 'passive' : normalizedDetail.category || 'condition',
     category: effectKind === 'extraHit' ? 'passive' : 'condition',
+    ...(effectKind === 'modifier' && normalizedDetail.multiplier
+      ? { multiplier: normalizedDetail.multiplier }
+      : {}),
     effectKind,
     ...(effectKind === 'extraHit'
-      ? { extraHitConfig: normalizeExtraHitConfig({ ...detail.extraHitConfig, baseMultiplier: detail.value }, `${detail.effectKey || index + 1}-extra-hit`) }
+      ? { extraHitConfig: normalizeExtraHitConfig({ ...normalizedDetail.extraHitConfig, baseMultiplier: normalizedDetail.value }, `${normalizedDetail.effectKey || index + 1}-extra-hit`) }
       : {}),
   };
 }
@@ -217,27 +234,35 @@ export function buildSnapshotEquipmentCandidateBuffs(snapshot: ConfigSnapshot, e
     const sourceName = gearSet.name || gearSet.gearSetId || fallbackSetId;
     return getThreePieceBuffEntries(gearSet)
       .map((buff, index): CandidateBuff | null => {
-        const effectKind = buff.effectKind === 'extraHit' ? 'extraHit' : 'modifier';
-        if (effectKind === 'modifier' && buff.category !== 'condition') return null;
-        const type = normalizeBuffTypeKey(buff.typeKey || '');
-        if (effectKind === 'modifier' && (!type || typeof buff.value !== 'number' || !Number.isFinite(buff.value))) return null;
+        const normalizedBuff = normalizeStoredBuffDefinition({
+          ...buff,
+          type: buff.typeKey,
+        }) as EquipmentThreePieceBuffLike & { type: string };
+        const effectKind = normalizedBuff.effectKind === 'extraHit' ? 'extraHit' : 'modifier';
+        if (effectKind === 'modifier' && normalizedBuff.category !== 'condition') return null;
+        const type = normalizeBuffTypeKey(normalizedBuff.type || '');
+        const hasValue = typeof normalizedBuff.value === 'number' && Number.isFinite(normalizedBuff.value);
+        if (effectKind === 'modifier' && (!type || (!hasValue && !normalizedBuff.multiplier))) return null;
         return {
           ...buildSnapshotCandidateBase(snapshot),
           ownerBuffDomain: 'equipment',
           ownerBuffGroup: 'threePiece',
-          displayName: buff.name || `${sourceName} 三件套效果 ${index + 1}`,
-          name: `operator-config-snapshot:${snapshot.operator.id}:equipment:${gearSet.gearSetId || fallbackSetId}:${buff.effectId || index + 1}`,
+          displayName: normalizedBuff.name || `${sourceName} 三件套效果 ${index + 1}`,
+          name: `operator-config-snapshot:${snapshot.operator.id}:equipment:${gearSet.gearSetId || fallbackSetId}:${normalizedBuff.effectId || index + 1}`,
           level: '三件套',
-          value: effectKind === 'extraHit' ? undefined : buff.value,
+          value: effectKind === 'extraHit' ? undefined : normalizedBuff.value,
           type: effectKind === 'extraHit' ? undefined : type,
           source: sourceName,
           sourceName,
-          description: buff.raw || `${buff.name || type} ${buff.value}`,
-          condition: effectKind === 'extraHit' ? 'passive' : buff.category === 'condition' ? '三件套条件效果' : undefined,
+          description: normalizedBuff.raw || `${normalizedBuff.name || type} ${normalizedBuff.value ?? ''}`.trim(),
+          condition: effectKind === 'extraHit' ? 'passive' : normalizedBuff.category === 'condition' ? '三件套条件效果' : undefined,
           category: effectKind === 'extraHit' ? 'passive' : 'condition',
+          ...(effectKind === 'modifier' && normalizedBuff.multiplier
+            ? { multiplier: normalizedBuff.multiplier }
+            : {}),
           effectKind,
           ...(effectKind === 'extraHit'
-            ? { extraHitConfig: normalizeExtraHitConfig(buff.extraHitConfig, `${buff.effectId || index + 1}-extra-hit`) }
+            ? { extraHitConfig: normalizeExtraHitConfig(normalizedBuff.extraHitConfig, `${normalizedBuff.effectId || index + 1}-extra-hit`) }
             : {}),
         };
       })

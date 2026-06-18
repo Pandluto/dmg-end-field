@@ -222,6 +222,16 @@ export function ReportTab({ autoGenerateToken = 0 }: ReportTabProps) {
                                           </div>
                                         </div>
                                       </div>
+                                      {hit.zones?.map((zone) => (
+                                        <div key={zone.key} className="report-tree-row report-tree-row-buff">
+                                          <div className="report-tree-main">
+                                            <div className="report-tree-line report-tree-line-buff">{zone.key}</div>
+                                            <div className="report-tree-line report-tree-line-buff-meta">
+                                              additiveTotal {zone.additiveTotal.toFixed(3)}　multiplierProduct {zone.multiplierProduct.toFixed(3)}　finalValue {zone.finalValue.toFixed(3)}
+                                            </div>
+                                          </div>
+                                        </div>
+                                      ))}
                                       {hit.buffs.length === 0 ? (
                                         <div className="report-tree-row report-tree-row-buff">
                                           <div className="report-tree-main">
@@ -237,6 +247,11 @@ export function ReportTab({ autoGenerateToken = 0 }: ReportTabProps) {
                                               </div>
                                               <div className="report-tree-line report-tree-line-buff-meta">
                                                 id: {buff.traceId || buff.id}　效果: {buff.effect}
+                                                {buff.multiplier
+                                                  ? `　${buff.type || '-'} × coefficient ${(buff.multiplierCoefficient ?? buff.effectiveValue ?? 1).toFixed(3)}`
+                                                  : typeof buff.rawValue === 'number'
+                                                    ? `　n ${buff.rawValue.toFixed(3)} × k ${(buff.runtimeCoefficient ?? 1).toFixed(3)} = kn ${(buff.effectiveValue ?? 0).toFixed(3)}`
+                                                    : ''}
                                               </div>
                                             </div>
                                           </div>

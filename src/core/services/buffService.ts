@@ -16,6 +16,7 @@ import {
 } from '../repositories';
 import { calculateBuffTotals } from '../calculators/buffCalculator';
 import { getCharacterComputed } from '../../utils/storage';
+import { normalizeBuffMultiplier } from '../domain/buffMultiplier';
 
 // 运行时缓存（用于快速访问）
 let buffCache: Record<string, SkillButtonBuff> = {};
@@ -66,10 +67,12 @@ function withBuffStackCount(
  * 用于全局去重：相同签名的 Buff 复用同一 buffId
  * 包含 target 字段，确保不同作用域的 Buff 不会错误合并
  */
-export function getBuffIdentityKey(buff: Pick<SkillButtonBuff, 'name' | 'displayName' | 'sourceName' | 'level' | 'type' | 'value' | 'condition' | 'source' | 'target' | 'effectKind' | 'extraHitConfig' | 'category' | 'maxStacks'>): string {
+export function getBuffIdentityKey(buff: Pick<SkillButtonBuff, 'name' | 'displayName' | 'sourceName' | 'level' | 'type' | 'value' | 'condition' | 'source' | 'target' | 'effectKind' | 'extraHitConfig' | 'category' | 'maxStacks' | 'multiplier'>): string {
   const targetStr = buff.target ? JSON.stringify(buff.target) : 'all';
   const extraHitStr = buff.extraHitConfig ? JSON.stringify(buff.extraHitConfig) : '';
-  return `${buff.name}||${buff.displayName}||${buff.sourceName}||${buff.level}||${buff.type}||${buff.value}||${buff.condition}||${buff.source}||${targetStr}||${buff.effectKind || 'modifier'}||${extraHitStr}||${normalizeBuffCategory(buff.category)}||${normalizeBuffCategory(buff.category) === 'countable' ? normalizeMaxStacks(buff.maxStacks) : ''}`;
+  const multiplier = normalizeBuffMultiplier(buff.multiplier);
+  const multiplierStr = multiplier ? String(multiplier.coefficient) : '';
+  return `${buff.name}||${buff.displayName}||${buff.sourceName}||${buff.level}||${buff.type}||${buff.value}||${buff.condition}||${buff.source}||${targetStr}||${buff.effectKind || 'modifier'}||${extraHitStr}||${normalizeBuffCategory(buff.category)}||${normalizeBuffCategory(buff.category) === 'countable' ? normalizeMaxStacks(buff.maxStacks) : ''}||${multiplierStr}`;
 }
 
 /**
@@ -170,6 +173,7 @@ export function addBuffToButton(
     ...buff,
     category: normalizeBuffCategory(buff.category),
     ...(normalizeBuffCategory(buff.category) === 'countable' ? { maxStacks: normalizeMaxStacks(buff.maxStacks) } : {}),
+    multiplier: normalizeBuffMultiplier(buff.multiplier),
   };
   const targetKey = getBuffIdentityKey(normalizedBuff);
   const existsInButton = currentSelectedBuff.some(id => {

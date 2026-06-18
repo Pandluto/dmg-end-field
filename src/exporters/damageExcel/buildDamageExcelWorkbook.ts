@@ -1,7 +1,9 @@
 import ExcelJS from 'exceljs';
 import type {
+  DamageExcelBuffContributionSnapshot,
   BuildDamageExcelWorkbookInput,
   DamageExcelHitRow,
+  DamageExcelZoneCalculationSnapshot,
 } from './damageExcelModel.ts';
 import { STORAGE_KEYS } from '../../constants/storage-keys.ts';
 import type { ConfigSnapshot, PanelCalcSnapshot } from '../../core/calculators/operatorPanelCalculator.ts';
@@ -9,8 +11,19 @@ import { buildAnomalyStateDerivedBuffs, buildAnomalyStateSnapshotBuffs } from '.
 import { getAnomalyStateSnapshotsByIds } from '../../core/services/anomalyStateSnapshotStorage.ts';
 import type { PersistedSkillButton, SkillButtonBuff } from '../../types/storage.ts';
 
-type BuffCellRefMap = Map<string, { type: string; cellRef: string; value: number }>;
+type BuffCellRefMap = Map<string, {
+  type: string;
+  valueCellRef: string;
+  coefficientCellRef: string;
+  value: number;
+  coefficient: number;
+}>;
 type BuffCellRef = NonNullable<ReturnType<BuffCellRefMap['get']>>;
+type StructuredZoneKey = 'damageBonus' | 'fragile' | 'vulnerability' | 'amplify' | 'skillMultiplier';
+type HitContributionCellRefMap = Map<string, Record<StructuredZoneKey, {
+  additiveRefs: string[];
+  multiplierRefs: string[];
+}>>;
 type RuntimeBuff = SkillButtonBuff & Record<string, unknown>;
 type RuntimeHitResult = DamageExcelHitRow['detail']['hitResult'] & {
   appliedBuffs?: SkillButtonBuff[];
@@ -554,8 +567,16 @@ function addPanelDamageBonusSheet(workbook: ExcelJS.Workbook, snapshots: Array<[
   sheet.views = [{ state: 'frozen', ySplit: 1 }];
 }
 
-function addBuffCellRef(refs: BuffCellRefMap, buffId: string, type: string, cellRef: string, value: number): void {
-  refs.set(buffId, { type, cellRef, value });
+function addBuffCellRef(
+  refs: BuffCellRefMap,
+  buffId: string,
+  type: string,
+  valueCellRef: string,
+  coefficientCellRef: string,
+  value: number,
+  coefficient: number,
+): void {
+  refs.set(buffId, { type, valueCellRef, coefficientCellRef, value, coefficient });
 }
 
 function buildAnomalyStateBuffsForButton(button: PersistedSkillButton | undefined): SkillButtonBuff[] {
@@ -611,7 +632,7 @@ function getBuffCellRefsForTypes(refs: BuffCellRefMap, buffIds: string[], types:
   return buffIds
     .map((buffId) => refs.get(buffId))
     .filter((ref): ref is BuffCellRef => ref !== undefined && typeSet.has(ref.type))
-    .map((ref) => ref.cellRef);
+    .map((ref) => ref.valueCellRef);
 }
 
 function sumBuffValuesForTypes(refs: BuffCellRefMap, buffIds: string[], types: string[]): number {
@@ -620,6 +641,17 @@ function sumBuffValuesForTypes(refs: BuffCellRefMap, buffIds: string[], types: s
     const ref = refs.get(buffId);
     return ref && typeSet.has(ref.type) ? total + ref.value : total;
   }, 0);
+}
+
+function sumContributionValuesForTypes(
+  contributions: DamageExcelBuffContributionSnapshot[],
+  types: string[],
+): number {
+  const typeSet = new Set(types);
+  return contributions.reduce(
+    (total, contribution) => typeSet.has(contribution.type) ? total + contribution.effectiveValue : total,
+    0,
+  );
 }
 
 function sumFormula(refs: string[]): string {
@@ -642,6 +674,18 @@ function multiplicativeFormula(baseValue: number, refs: string[]): string {
   }
   pieces.push(...refs);
   return pieces.join('*');
+}
+
+function productFormula(refs: string[]): string {
+  return refs.length > 0 ? `PRODUCT(${refs.join(',')})` : '1';
+}
+
+function structuredZoneFormula(
+  baseValue: number,
+  additiveRefs: string[],
+  multiplierRefs: string[],
+): string {
+  return `${productFormula(multiplierRefs)}*(${additiveFormula(baseValue, additiveRefs)})`;
 }
 
 function getElementDamageBonusTypes(element: string | undefined): string[] {
@@ -733,7 +777,8 @@ function addBuffSheet(
     '目标键',
     '类型',
     '启用',
-    '数值',
+    '普通值 n',
+    '乘算系数 coefficient',
     '说明',
     'Tab',
   ];
@@ -741,6 +786,9 @@ function addBuffSheet(
 
   let rowNumber = 2;
   allBuffList.forEach((buff) => {
+    const coefficient = buff.multiplier?.coefficient
+      ?? (buff.type === 'multiplierMultiplier' ? buff.value : undefined)
+      ?? 1;
     const row = sheet.getRow(rowNumber);
     row.values = [
       buff.id,
@@ -751,22 +799,169 @@ function addBuffSheet(
       buff.type || '',
       true,
       buff.value ?? 0,
+      coefficient,
       buff.condition || buff.description || '',
       readBuffTextField(buff, 'tab'),
     ];
     styleBody(row);
     if (buff.type) {
-      addBuffCellRef(refs, buff.id, buff.type, `Buff!H${rowNumber}`, buff.value ?? 0);
+      addBuffCellRef(
+        refs,
+        buff.id,
+        buff.type,
+        `Buff!H${rowNumber}`,
+        `Buff!I${rowNumber}`,
+        buff.value ?? 0,
+        coefficient,
+      );
     }
     rowNumber += 1;
   });
 
-  setColumnWidths(sheet, [24, 22, 24, 14, 18, 24, 10, 12, 42, 16]);
+  setColumnWidths(sheet, [24, 22, 24, 14, 18, 24, 10, 12, 18, 42, 16]);
   sheet.views = [{ state: 'frozen', ySplit: 1 }];
   return refs;
 }
 
-function addHitSheet(workbook: ExcelJS.Workbook, input: BuildDamageExcelWorkbookInput, hitRows: DamageExcelHitRow[], buffRefs: BuffCellRefMap): void {
+const STRUCTURED_ZONE_KEYS: StructuredZoneKey[] = [
+  'damageBonus',
+  'fragile',
+  'vulnerability',
+  'amplify',
+  'skillMultiplier',
+];
+
+const STRUCTURED_ZONE_LABELS: Record<StructuredZoneKey, string> = {
+  damageBonus: '伤害加成',
+  fragile: '脆弱',
+  vulnerability: '易伤',
+  amplify: '增幅',
+  skillMultiplier: '技能倍率',
+};
+
+function getStructuredZone(
+  hitRow: DamageExcelHitRow,
+  zoneKey: StructuredZoneKey,
+): DamageExcelZoneCalculationSnapshot | undefined {
+  const zone = hitRow.detail.hitResult.zones[zoneKey];
+  return zone
+    && Array.isArray(zone.additiveContributions)
+    && Array.isArray(zone.multiplierContributions)
+    && typeof zone.additiveTotal === 'number'
+    && typeof zone.multiplierProduct === 'number'
+    && typeof zone.finalValue === 'number'
+    ? zone
+    : undefined;
+}
+
+function getContributionDefinitionFormula(
+  contribution: DamageExcelBuffContributionSnapshot,
+  buffRefs: BuffCellRefMap,
+  kind: 'additive' | 'multiplier',
+): number | ExcelJS.CellFormulaValue {
+  const buffRef = buffRefs.get(contribution.buffId);
+  if (!buffRef) {
+    return kind === 'additive'
+      ? contribution.rawValue
+      : contribution.multiplierCoefficient ?? contribution.effectiveValue;
+  }
+  return {
+    formula: kind === 'additive' ? buffRef.valueCellRef : buffRef.coefficientCellRef,
+    result: kind === 'additive'
+      ? contribution.rawValue
+      : contribution.multiplierCoefficient ?? contribution.effectiveValue,
+  } as ExcelJS.CellFormulaValue;
+}
+
+function addBuffContributionSheet(
+  workbook: ExcelJS.Workbook,
+  hitRows: DamageExcelHitRow[],
+  buffRefs: BuffCellRefMap,
+): HitContributionCellRefMap {
+  const sheet = workbook.addWorksheet('Buff贡献');
+  const refs: HitContributionCellRefMap = new Map();
+  sheet.getRow(1).values = [
+    '命中ID',
+    '乘区',
+    'Buff ID',
+    '类型',
+    '贡献类型',
+    '原始值 n',
+    '运行时系数 k',
+    '实际值 kn',
+    '乘算系数 coefficient',
+  ];
+  styleHeader(sheet.getRow(1));
+
+  let rowNumber = 2;
+  hitRows.forEach((hitRow) => {
+    const hitRefs = {} as Record<StructuredZoneKey, { additiveRefs: string[]; multiplierRefs: string[] }>;
+    STRUCTURED_ZONE_KEYS.forEach((zoneKey) => {
+      const zoneRefs = { additiveRefs: [] as string[], multiplierRefs: [] as string[] };
+      hitRefs[zoneKey] = zoneRefs;
+      const zone = getStructuredZone(hitRow, zoneKey);
+      if (!zone) return;
+
+      zone.additiveContributions.forEach((contribution) => {
+        const row = sheet.getRow(rowNumber);
+        row.values = [
+          hitRow.id,
+          STRUCTURED_ZONE_LABELS[zoneKey],
+          contribution.buffId,
+          contribution.type,
+          '普通加算',
+          getContributionDefinitionFormula(contribution, buffRefs, 'additive'),
+          contribution.runtimeCoefficient,
+          {
+            formula: `F${rowNumber}*G${rowNumber}`,
+            result: contribution.effectiveValue,
+          },
+          '',
+        ];
+        styleBody(row);
+        zoneRefs.additiveRefs.push(q('Buff贡献', `H${rowNumber}`));
+        rowNumber += 1;
+      });
+
+      zone.multiplierContributions.forEach((contribution) => {
+        const row = sheet.getRow(rowNumber);
+        row.values = [
+          hitRow.id,
+          STRUCTURED_ZONE_LABELS[zoneKey],
+          contribution.buffId,
+          contribution.type,
+          '独立乘算',
+          '',
+          '',
+          '',
+          getContributionDefinitionFormula(contribution, buffRefs, 'multiplier'),
+        ];
+        styleBody(row);
+        zoneRefs.multiplierRefs.push(q('Buff贡献', `I${rowNumber}`));
+        rowNumber += 1;
+      });
+    });
+    refs.set(hitRow.id, hitRefs);
+  });
+
+  if (rowNumber === 2) {
+    const row = sheet.getRow(2);
+    row.values = ['', '', '', '', '旧快照无结构化贡献', 0, 1, 0, 1];
+    styleBody(row);
+  }
+
+  setColumnWidths(sheet, [24, 16, 24, 24, 14, 14, 14, 14, 20]);
+  sheet.views = [{ state: 'frozen', ySplit: 1 }];
+  return refs;
+}
+
+function addHitSheet(
+  workbook: ExcelJS.Workbook,
+  input: BuildDamageExcelWorkbookInput,
+  hitRows: DamageExcelHitRow[],
+  buffRefs: BuffCellRefMap,
+  contributionRefs: HitContributionCellRefMap,
+): void {
   const sheet = workbook.addWorksheet('命中');
   sheet.getRow(1).values = [
     '命中ID',
@@ -791,8 +986,8 @@ function addHitSheet(workbook: ExcelJS.Workbook, input: BuildDamageExcelWorkbook
     '防御区',
     '抗性区',
     '增幅区',
-    '易伤区',
     '脆弱区',
+    '易伤区',
     '连击区',
     '失衡区',
   ];
@@ -805,29 +1000,44 @@ function addHitSheet(workbook: ExcelJS.Workbook, input: BuildDamageExcelWorkbook
     const skillType = hitRow.detail.hit.skillType;
     const row = sheet.getRow(rowNumber);
     const selectedBuffIds = getSelectedBuffIdsForHit(input, hitRow);
-    const multiplierBonusRefs = getBuffCellRefs(buffRefs, selectedBuffIds, 'multiplierBonus');
-    const multiplierMultiplierRefs = getBuffCellRefs(buffRefs, selectedBuffIds, 'multiplierMultiplier');
-    const baseMultiplierBonus = result.multiplier.afterBonus - result.multiplier.base - sumBuffValuesForTypes(buffRefs, selectedBuffIds, ['multiplierBonus']);
-    const selectedMultiplierProduct = selectedBuffIds.reduce((total, buffId) => {
-      const ref = buffRefs.get(buffId);
-      return ref?.type === 'multiplierMultiplier' ? total * ref.value : total;
-    }, 1);
-    const totalMultiplierProduct = result.multiplier.afterMultiply / Math.max(result.multiplier.afterBonus, 0.000001);
-    const baseMultiplierProduct = totalMultiplierProduct / selectedMultiplierProduct;
+    const structuredSkillMultiplier = getStructuredZone(hitRow, 'skillMultiplier');
+    const structuredDamageBonus = getStructuredZone(hitRow, 'damageBonus');
+    const structuredAmplify = getStructuredZone(hitRow, 'amplify');
+    const structuredFragile = getStructuredZone(hitRow, 'fragile');
+    const structuredVulnerability = getStructuredZone(hitRow, 'vulnerability');
+    const hitContributionRefs = contributionRefs.get(hitRow.id);
+    const skillMultiplierRefs = hitContributionRefs?.skillMultiplier;
+    const damageBonusContributionRefs = hitContributionRefs?.damageBonus;
+    const amplifyContributionRefs = hitContributionRefs?.amplify;
+    const fragileContributionRefs = hitContributionRefs?.fragile;
+    const vulnerabilityContributionRefs = hitContributionRefs?.vulnerability;
     const elementDamageBonusTypes = getElementDamageBonusTypes(element);
     const skillDamageBonusTypes = getSkillDamageBonusTypes(skillType);
     const allDamageBonusTypes = ['allDmgBonus'];
-    const damageBonusRefs = getBuffCellRefsForTypes(
+    const legacyDamageBonusRefs = getBuffCellRefsForTypes(
       buffRefs,
       selectedBuffIds,
       [...elementDamageBonusTypes, ...skillDamageBonusTypes, ...allDamageBonusTypes],
     );
-    const baseElementBonus = (result.zones.elementBonus ?? 0) - sumBuffValuesForTypes(buffRefs, selectedBuffIds, elementDamageBonusTypes);
-    const baseSkillBonus = (result.zones.skillBonus ?? 0) - sumBuffValuesForTypes(buffRefs, selectedBuffIds, skillDamageBonusTypes);
-    const baseAllDamageBonus = (result.zones.allDamageBonus ?? 0) - sumBuffValuesForTypes(buffRefs, selectedBuffIds, allDamageBonusTypes);
-    const amplifyFormula = sumFormula(getBuffCellRefsForTypes(buffRefs, selectedBuffIds, getElementZoneTypes(element, 'Amplify')));
-    const fragileFormula = sumFormula(getBuffCellRefsForTypes(buffRefs, selectedBuffIds, getElementZoneTypes(element, 'Fragile')));
-    const vulnerabilityFormula = sumFormula(getBuffCellRefsForTypes(buffRefs, selectedBuffIds, getElementZoneTypes(element, 'Vulnerability')));
+    const damageBonusAdditives = structuredDamageBonus?.additiveContributions;
+    const baseElementBonus = (result.zones.elementBonus ?? 0) - (
+      damageBonusAdditives
+        ? sumContributionValuesForTypes(damageBonusAdditives, elementDamageBonusTypes)
+        : sumBuffValuesForTypes(buffRefs, selectedBuffIds, elementDamageBonusTypes)
+    );
+    const baseSkillBonus = (result.zones.skillBonus ?? 0) - (
+      damageBonusAdditives
+        ? sumContributionValuesForTypes(damageBonusAdditives, skillDamageBonusTypes)
+        : sumBuffValuesForTypes(buffRefs, selectedBuffIds, skillDamageBonusTypes)
+    );
+    const baseAllDamageBonus = (result.zones.allDamageBonus ?? 0) - (
+      damageBonusAdditives
+        ? sumContributionValuesForTypes(damageBonusAdditives, allDamageBonusTypes)
+        : sumBuffValuesForTypes(buffRefs, selectedBuffIds, allDamageBonusTypes)
+    );
+    const legacyAmplifyFormula = sumFormula(getBuffCellRefsForTypes(buffRefs, selectedBuffIds, getElementZoneTypes(element, 'Amplify')));
+    const legacyFragileFormula = sumFormula(getBuffCellRefsForTypes(buffRefs, selectedBuffIds, getElementZoneTypes(element, 'Fragile')));
+    const legacyVulnerabilityFormula = sumFormula(getBuffCellRefsForTypes(buffRefs, selectedBuffIds, getElementZoneTypes(element, 'Vulnerability')));
     const corrosionTypes = getResistanceCorrosionTypes(element);
     const resistanceIgnoreTypes = getResistanceIgnoreTypes(element);
     const corrosionRefs = getBuffCellRefsForTypes(buffRefs, selectedBuffIds, corrosionTypes);
@@ -836,6 +1046,27 @@ function addHitSheet(workbook: ExcelJS.Workbook, input: BuildDamageExcelWorkbook
     const baseResistanceIgnore = (result.zones.resistance?.resistanceIgnore ?? 0) - sumBuffValuesForTypes(buffRefs, selectedBuffIds, resistanceIgnoreTypes);
     const comboFormula = sumFormula(getBuffCellRefs(buffRefs, selectedBuffIds, 'comboDamageBonus'));
     const imbalanceFormula = sumFormula(getBuffCellRefs(buffRefs, selectedBuffIds, 'imbalanceDmgBonus'));
+    const legacyMultiplierBonusRefs = structuredSkillMultiplier
+      ? []
+      : getBuffCellRefs(buffRefs, selectedBuffIds, 'multiplierBonus');
+    const legacyMultiplierMultiplierRefs = structuredSkillMultiplier
+      ? []
+      : getBuffCellRefs(buffRefs, selectedBuffIds, 'multiplierMultiplier');
+    const legacyBaseMultiplierBonus = structuredSkillMultiplier
+      ? 0
+      : result.multiplier.afterBonus
+        - result.multiplier.base
+        - sumBuffValuesForTypes(buffRefs, selectedBuffIds, ['multiplierBonus']);
+    const legacySelectedMultiplierProduct = structuredSkillMultiplier
+      ? 1
+      : selectedBuffIds.reduce((total, buffId) => {
+        const ref = buffRefs.get(buffId);
+        return ref?.type === 'multiplierMultiplier' ? total * ref.value : total;
+      }, 1);
+    const legacyTotalMultiplierProduct = structuredSkillMultiplier
+      ? 1
+      : result.multiplier.afterMultiply / Math.max(result.multiplier.afterBonus, 0.000001);
+    const legacyBaseMultiplierProduct = legacyTotalMultiplierProduct / legacySelectedMultiplierProduct;
     row.values = [
       hitRow.id,
       hitRow.characterId,
@@ -845,8 +1076,24 @@ function addHitSheet(workbook: ExcelJS.Workbook, input: BuildDamageExcelWorkbook
       parseElementLabel(hitRow.detail.hit.element),
       hitRow.detail.hit.skillType || '',
       result.multiplier.base,
-      { formula: additiveFormula(baseMultiplierBonus, multiplierBonusRefs), result: result.multiplier.afterBonus - result.multiplier.base },
-      { formula: multiplicativeFormula(baseMultiplierProduct, multiplierMultiplierRefs), result: totalMultiplierProduct },
+      structuredSkillMultiplier
+        ? {
+          formula: sumFormula(skillMultiplierRefs?.additiveRefs ?? []),
+          result: structuredSkillMultiplier.additiveTotal,
+        }
+        : {
+          formula: additiveFormula(legacyBaseMultiplierBonus, legacyMultiplierBonusRefs),
+          result: result.multiplier.afterBonus - result.multiplier.base,
+        },
+      structuredSkillMultiplier
+        ? {
+          formula: productFormula(skillMultiplierRefs?.multiplierRefs ?? []),
+          result: structuredSkillMultiplier.multiplierProduct,
+        }
+        : {
+          formula: multiplicativeFormula(legacyBaseMultiplierProduct, legacyMultiplierMultiplierRefs),
+          result: legacyTotalMultiplierProduct,
+        },
       { formula: `H${rowNumber}+I${rowNumber}`, result: result.multiplier.afterBonus },
       { formula: `K${rowNumber}*J${rowNumber}`, result: result.multiplier.afterMultiply },
       result.panel.atk,
@@ -856,8 +1103,14 @@ function addHitSheet(workbook: ExcelJS.Workbook, input: BuildDamageExcelWorkbook
       baseSkillBonus,
       baseAllDamageBonus,
       {
-        formula: `1+P${rowNumber}+Q${rowNumber}+R${rowNumber}${damageBonusRefs.length === 0 ? '' : `+${damageBonusRefs.join('+')}`}`,
-        result: result.zones.damageBonusRate,
+        formula: structuredDamageBonus
+          ? structuredZoneFormula(
+            1 + baseElementBonus + baseSkillBonus + baseAllDamageBonus,
+            damageBonusContributionRefs?.additiveRefs ?? [],
+            damageBonusContributionRefs?.multiplierRefs ?? [],
+          )
+          : `1+P${rowNumber}+Q${rowNumber}+R${rowNumber}${legacyDamageBonusRefs.length === 0 ? '' : `+${legacyDamageBonusRefs.join('+')}`}`,
+        result: structuredDamageBonus?.finalValue ?? result.zones.damageBonusRate,
       },
       result.zones.defenseZone,
       {
@@ -865,16 +1118,22 @@ function addHitSheet(workbook: ExcelJS.Workbook, input: BuildDamageExcelWorkbook
         result: result.zones.resistanceZone,
       },
       {
-        formula: amplifyFormula === '0' ? '1' : `1+${amplifyFormula}`,
-        result: 1 + result.zones.amplifyRate,
+        formula: structuredAmplify
+          ? structuredZoneFormula(1, amplifyContributionRefs?.additiveRefs ?? [], amplifyContributionRefs?.multiplierRefs ?? [])
+          : legacyAmplifyFormula === '0' ? '1' : `1+${legacyAmplifyFormula}`,
+        result: structuredAmplify?.finalValue ?? 1 + result.zones.amplifyRate,
       },
       {
-        formula: fragileFormula === '0' ? '1' : `1+${fragileFormula}`,
-        result: 1 + result.zones.fragileRate,
+        formula: structuredFragile
+          ? structuredZoneFormula(1, fragileContributionRefs?.additiveRefs ?? [], fragileContributionRefs?.multiplierRefs ?? [])
+          : legacyFragileFormula === '0' ? '1' : `1+${legacyFragileFormula}`,
+        result: structuredFragile?.finalValue ?? 1 + result.zones.fragileRate,
       },
       {
-        formula: vulnerabilityFormula === '0' ? '1' : `1+${vulnerabilityFormula}`,
-        result: 1 + result.zones.vulnerabilityRate,
+        formula: structuredVulnerability
+          ? structuredZoneFormula(1, vulnerabilityContributionRefs?.additiveRefs ?? [], vulnerabilityContributionRefs?.multiplierRefs ?? [])
+          : legacyVulnerabilityFormula === '0' ? '1' : `1+${legacyVulnerabilityFormula}`,
+        result: structuredVulnerability?.finalValue ?? 1 + result.zones.vulnerabilityRate,
       },
       { formula: comboFormula === '0' ? '1' : `1+${comboFormula}`, result: 1 + result.zones.comboDamageBonus },
       { formula: imbalanceFormula === '0' ? '1' : `1+${imbalanceFormula}`, result: 1 + result.zones.imbalanceDamageBonus },
@@ -945,7 +1204,8 @@ export function buildDamageExcelWorkbook(input: BuildDamageExcelWorkbookInput): 
   addPanelDisplaySheet(workbook, operatorConfigSnapshots, calcRefs);
   addPanelDamageBonusSheet(workbook, operatorConfigSnapshots, calcRefs);
   const buffRefs = addBuffSheet(workbook, buildExportBuffList(input));
-  addHitSheet(workbook, input, hitRows, buffRefs);
+  const contributionRefs = addBuffContributionSheet(workbook, hitRows, buffRefs);
+  addHitSheet(workbook, input, hitRows, buffRefs, contributionRefs);
   addDamageSheet(workbook, hitRows);
 
   return workbook;

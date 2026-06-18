@@ -9,6 +9,7 @@ import type {
   ResolvedSkillDamageTemplate,
   SkillDamagePanel,
 } from './skillDamage.types';
+import type { BuffContribution, ZoneCalculationResult } from './buffZoneCalculator';
 
 function formatInteger(value: number): string {
   return value.toFixed(0);
@@ -46,32 +47,85 @@ function formatBuffValue(value: number): string {
   return String(Number(value.toFixed(4)));
 }
 
+function findBuffContribution(
+  buffId: string,
+  contributions: BuffContribution[] = []
+): BuffContribution | undefined {
+  return contributions.find((contribution) => contribution.buffId === buffId);
+}
+
 function buildAppliedBuffTags(
   result: SkillDamageCalcResultV2['hits'][number]['appliedBuffs'],
-  stackCounts: Record<string, number> = {}
+  stackCounts: Record<string, number> = {},
+  contributions: BuffContribution[] = []
 ): AppliedBuffTagViewModel[] {
   return result.map((buff) => {
+    const contribution = findBuffContribution(buff.id, contributions);
+    if (contribution?.multiplier) {
+      const coefficient = contribution.multiplierCoefficient ?? contribution.effectiveValue;
+      return {
+        id: buff.id,
+        label: buff.displayName,
+        displayLabel: `${buff.displayName} · ${contribution.type} × ${coefficient.toFixed(3)}`,
+        sourceName: buff.sourceName,
+        type: contribution.type,
+        effectiveValue: coefficient,
+        runtimeCoefficient: 1,
+        multiplierCoefficient: coefficient,
+        isMultiplier: true,
+        isCountable: false,
+      };
+    }
+
     const isCountable = buff.category === 'countable';
     const maxStacks = normalizeMaxStacks(buff.maxStacks);
-    const stackCount = isCountable ? normalizeStackCount(buff, stackCounts) : undefined;
-    const effectiveValue = getBuffEffectiveValue(buff, stackCounts);
-    const valueText = isCountable && typeof buff.value === 'number' && Number.isFinite(buff.value)
+    const stackCount = contribution?.runtimeCoefficient
+      ?? (isCountable ? normalizeStackCount(buff, stackCounts) : undefined);
+    const rawValue = contribution?.rawValue ?? buff.value;
+    const effectiveValue = contribution?.effectiveValue ?? getBuffEffectiveValue(buff, stackCounts);
+    const contributionText = contribution && typeof rawValue === 'number'
+      ? `n ${formatBuffValue(rawValue)} × k ${formatBuffValue(contribution.runtimeCoefficient)} = kn ${formatBuffValue(effectiveValue)}`
+      : '';
+    const legacyValueText = !contribution && isCountable && typeof buff.value === 'number' && Number.isFinite(buff.value)
       ? `合计 ${formatBuffValue(effectiveValue)}`
       : '';
-    const stackText = isCountable ? `${stackCount}/${maxStacks}层` : '';
-    const extraText = [stackText, valueText].filter(Boolean).join(' · ');
+    const stackText = !contribution && isCountable ? `${stackCount}/${maxStacks}层` : '';
+    const extraText = [contributionText, stackText, legacyValueText].filter(Boolean).join(' · ');
     return {
       id: buff.id,
       label: buff.displayName,
       displayLabel: extraText ? `${buff.displayName} · ${extraText}` : buff.displayName,
       sourceName: buff.sourceName,
-      value: buff.value,
+      type: contribution?.type ?? buff.type,
+      value: rawValue,
       effectiveValue,
+      runtimeCoefficient: contribution?.runtimeCoefficient,
       stackCount,
       maxStacks: isCountable ? maxStacks : undefined,
       isCountable,
+      isMultiplier: false,
     };
   });
+}
+
+function formatZoneFormula(
+  zone: ZoneCalculationResult | undefined,
+  legacyAdditiveTotal: number,
+  legacyBaseValue = 1
+): string {
+  if (!zone) {
+    return `${legacyBaseValue.toFixed(3)} + ${formatPercent(legacyAdditiveTotal)} = ${(legacyBaseValue + legacyAdditiveTotal).toFixed(3)}`;
+  }
+
+  const baseValue = zone.multiplierProduct !== 0
+    ? zone.finalValue / zone.multiplierProduct - zone.additiveTotal
+    : legacyBaseValue;
+  const multiplierText = zone.multiplierContributions.length > 0
+    ? zone.multiplierContributions
+        .map((contribution) => (contribution.multiplierCoefficient ?? contribution.effectiveValue).toFixed(3))
+        .join(' × ')
+    : zone.multiplierProduct.toFixed(3);
+  return `${multiplierText} × (${baseValue.toFixed(3)} + ${formatPercent(zone.additiveTotal)}) = ${zone.finalValue.toFixed(3)}`;
 }
 
 function buildHitCards(
@@ -113,7 +167,7 @@ function buildHitDetail(
     expectedText: activeHit.expected.final.toFixed(2),
     critText: activeHit.crit.final.toFixed(2),
     nonCritText: activeHit.nonCrit.final.toFixed(2),
-    appliedBuffTags: buildAppliedBuffTags(activeHit.appliedBuffs, stackCounts),
+    appliedBuffTags: buildAppliedBuffTags(activeHit.appliedBuffs, stackCounts, activeHit.buffContributions),
     showNoBuff: activeHit.appliedBuffs.length === 0,
     isDisabled: activeHit.isDisabled,
   };
@@ -139,24 +193,36 @@ function buildFormula(
       `暴击率: ${formatPercent(activeHit.panel.critRate)}`,
       `暴击伤害: ${formatPercent(activeHit.panel.critDmg)}`,
     ],
-    buffTags: buildAppliedBuffTags(activeHit.appliedBuffs, stackCounts),
+    buffTags: buildAppliedBuffTags(activeHit.appliedBuffs, stackCounts, activeHit.buffContributions),
     showNoBuff: activeHit.appliedBuffs.length === 0,
     baseMultiplierText: formatPercent(activeHit.multiplier.base),
-    multiplierFormulaText: `(${formatPercent(activeHit.multiplier.base)} + ${formatPercent(activeHit.multiplier.afterBonus - activeHit.multiplier.base)}) × ${(activeHit.multiplier.afterMultiply / activeHit.multiplier.afterBonus).toFixed(3)}`,
-    formulaText: `(${formatPercent(activeHit.multiplier.base)} + ${formatPercent(activeHit.multiplier.afterBonus - activeHit.multiplier.base)}) × ${(activeHit.multiplier.afterMultiply / activeHit.multiplier.afterBonus).toFixed(3)} = ${formatPercent(activeHit.multiplier.afterMultiply)}`,
+    multiplierFormulaText: formatZoneFormula(
+      activeHit.zones.skillMultiplier,
+      activeHit.multiplier.afterBonus - activeHit.multiplier.base,
+      activeHit.multiplier.base
+    ),
+    formulaText: formatZoneFormula(
+      activeHit.zones.skillMultiplier,
+      activeHit.multiplier.afterBonus - activeHit.multiplier.base,
+      activeHit.multiplier.base
+    ),
     elementBonusText: formatPercent(activeHit.zones.elementBonus),
     skillBonusText: formatPercent(activeHit.zones.skillBonus),
     allDamageBonusText: formatPercent(activeHit.zones.allDamageBonus),
-    damageBonusRateText: activeHit.zones.damageBonusRate.toFixed(3),
+    damageBonusRateText: (activeHit.zones.damageBonus?.finalValue ?? activeHit.zones.damageBonusRate).toFixed(3),
+    damageBonusFormulaText: formatZoneFormula(
+      activeHit.zones.damageBonus,
+      activeHit.zones.damageBonusRate - 1
+    ),
     resistanceEffectiveText: activeHit.zones.resistance.effectiveResistance.toFixed(1),
     resistanceFormulaText: activeHit.zones.resistance.formulaText,
-    amplifyFormulaText: `1 + ${formatPercent(activeHit.zones.amplifyRate)} = ${(1 + activeHit.zones.amplifyRate).toFixed(3)}`,
-    fragileFormulaText: `1 + ${formatPercent(activeHit.zones.fragileRate)} = ${(1 + activeHit.zones.fragileRate).toFixed(3)}`,
-    vulnerabilityFormulaText: `1 + ${formatPercent(activeHit.zones.vulnerabilityRate)} = ${(1 + activeHit.zones.vulnerabilityRate).toFixed(3)}`,
+    amplifyFormulaText: formatZoneFormula(activeHit.zones.amplify, activeHit.zones.amplifyRate),
+    fragileFormulaText: formatZoneFormula(activeHit.zones.fragile, activeHit.zones.fragileRate),
+    vulnerabilityFormulaText: formatZoneFormula(activeHit.zones.vulnerability, activeHit.zones.vulnerabilityRate),
     comboFormulaText: `1 + ${formatPercent(activeHit.zones.comboDamageBonus)} = ${(1 + activeHit.zones.comboDamageBonus).toFixed(3)}`,
     imbalanceFormulaText: `1 + ${formatPercent(activeHit.zones.imbalanceDamageBonus)} = ${(1 + activeHit.zones.imbalanceDamageBonus).toFixed(3)}`,
     defenseZoneText: activeHit.zones.defenseZone.toFixed(3),
-    nonCritFormulaText: `${formatInteger(activeHit.panel.atk)} × ${formatPercent(activeHit.multiplier.afterMultiply)} × ${activeHit.zones.damageBonusRate.toFixed(3)} × ${activeHit.zones.defenseZone.toFixed(3)} × ${activeHit.zones.resistanceZone.toFixed(3)} × ${(1 + activeHit.zones.amplifyRate).toFixed(3)} × ${(1 + activeHit.zones.fragileRate).toFixed(3)} × ${(1 + activeHit.zones.vulnerabilityRate).toFixed(3)} × ${(1 + activeHit.zones.comboDamageBonus).toFixed(3)} × ${(1 + activeHit.zones.imbalanceDamageBonus).toFixed(3)} = ${formatInteger(activeHit.nonCrit.final)} (基础伤害 ${formatInteger(activeHit.nonCrit.base)})`,
+    nonCritFormulaText: `${formatInteger(activeHit.panel.atk)} × ${formatPercent(activeHit.zones.skillMultiplier?.finalValue ?? activeHit.multiplier.afterMultiply)} × ${(activeHit.zones.damageBonus?.finalValue ?? activeHit.zones.damageBonusRate).toFixed(3)} × ${activeHit.zones.defenseZone.toFixed(3)} × ${activeHit.zones.resistanceZone.toFixed(3)} × ${(activeHit.zones.amplify?.finalValue ?? 1 + activeHit.zones.amplifyRate).toFixed(3)} × ${(activeHit.zones.fragile?.finalValue ?? 1 + activeHit.zones.fragileRate).toFixed(3)} × ${(activeHit.zones.vulnerability?.finalValue ?? 1 + activeHit.zones.vulnerabilityRate).toFixed(3)} × ${(1 + activeHit.zones.comboDamageBonus).toFixed(3)} × ${(1 + activeHit.zones.imbalanceDamageBonus).toFixed(3)} = ${formatInteger(activeHit.nonCrit.final)} (基础伤害 ${formatInteger(activeHit.nonCrit.base)})`,
     expectedText: activeHit.expected.final.toFixed(0),
     critText: activeHit.crit.final.toFixed(0),
     nonCritText: activeHit.nonCrit.final.toFixed(0),
