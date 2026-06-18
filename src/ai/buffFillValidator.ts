@@ -2,6 +2,8 @@ import type { BuffDraft } from '../types/buffFill';
 import { BUFF_EXTRA_HIT_RULE, BUFF_MODIFIER_TYPE_IDS, type BuffModifierType } from './buffFillCatalog';
 import type { BuffFillAiDraft } from './buffFillSchema';
 import { normalizeExtraHitConfig } from '../core/services/buffExtraHit';
+import { normalizeBuffMultiplier } from '../core/domain/buffMultiplier';
+import { isMultiplierSupportedBuffType } from '../core/domain/buffTypeRegistry';
 
 export interface BuffFillValidationResult {
   ok: boolean;
@@ -49,25 +51,7 @@ function shouldDropZeroValueModifier(effect: Record<string, unknown>) {
   return hasTemplatePlaceholder(effect);
 }
 
-function shouldUseMultiplierMultiplier(effect: Record<string, unknown>) {
-  if (effect.effectKind !== 'modifier' || effect.type !== 'multiplierBonus') {
-    return false;
-  }
-  const numericValue = typeof effect.value === 'number' ? effect.value : Number(effect.value);
-  if (!Number.isFinite(numericValue) || numericValue <= 1) {
-    return false;
-  }
-  const text = collectEffectText(effect);
-  return /原本的\s*\d+(\.\d+)?倍/.test(text) || /提升至原本的\s*\d+(\.\d+)?倍/.test(text);
-}
-
 function normalizeSanitizedModifierEffect(effect: Record<string, unknown>) {
-  if (shouldUseMultiplierMultiplier(effect)) {
-    return {
-      ...effect,
-      type: 'multiplierMultiplier',
-    };
-  }
   return effect;
 }
 
@@ -177,6 +161,25 @@ export function validateBuffFillAiDraft(candidate: unknown): BuffFillValidationR
         if (typeof effect.type !== 'string' || !BUFF_MODIFIER_TYPE_SET.has(effect.type)) {
           errors.push(`${effectPath}.type 不在允许的 modifier.type 白名单内`);
         }
+        const category = effect.category === 'countable'
+          ? 'countable'
+          : effect.category === 'passive' ? 'passive' : 'condition';
+        const multiplier = normalizeBuffMultiplier(effect.multiplier);
+        if (effect.multiplier !== undefined && !multiplier) {
+          errors.push(`${effectPath}.multiplier.coefficient 必须是有效正数`);
+        }
+        if (multiplier && !isMultiplierSupportedBuffType(String(effect.type || ''))) {
+          errors.push(`${effectPath}.multiplier 只能引用五类支持乘算的 modifier.type`);
+        }
+        if (multiplier && category === 'countable') {
+          errors.push(`${effectPath}.multiplier 与 category=countable 不能同时使用`);
+        }
+        if (category === 'countable') {
+          const maxStacks = Number(effect.maxStacks ?? 1);
+          if (!Number.isFinite(maxStacks) || maxStacks < 1) {
+            errors.push(`${effectPath}.maxStacks 在 countable 下必须是 >= 1 的数字`);
+          }
+        }
         if (effect.extraHitConfig !== undefined) {
           errors.push(`${effectPath}.extraHitConfig 在 modifier 下不应存在`);
         }
@@ -246,6 +249,15 @@ export function convertBuffFillAiDraftToBuffDraft(candidate: BuffFillAiDraft): B
         effectKind: effect.effectKind,
         type: effect.effectKind === 'extraHit' ? '' : effect.type as BuffModifierType,
         value: effect.effectKind === 'extraHit' ? 0 : effect.value,
+        category: effect.effectKind === 'extraHit'
+          ? 'passive'
+          : effect.category === 'countable'
+            ? 'countable'
+            : effect.category === 'passive' ? 'passive' : 'condition',
+        maxStacks: effect.effectKind === 'extraHit' || effect.category !== 'countable'
+          ? undefined
+          : Math.max(1, Math.floor(Number(effect.maxStacks ?? 1))),
+        multiplier: effect.effectKind === 'modifier' ? normalizeBuffMultiplier(effect.multiplier) : undefined,
         extraHitConfig: effect.effectKind === 'extraHit' ? normalizeExtraHitConfig(effect.extraHitConfig) : undefined,
       };
       return effectAcc;

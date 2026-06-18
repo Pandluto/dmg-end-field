@@ -15,10 +15,9 @@ import { normalizeAssetUrl } from '../utils/assetResolver';
 import { imageBridge } from '../utils/imageBridge';
 import { toUserImageRelPath } from '../utils/imageFileService';
 import type { BuffEffectKind, BuffExtraHitConfig, BuffMultiplier } from '../core/domain/buff';
-import { normalizeBuffMultiplier, validateBuffMultiplierDefinition } from '../core/domain/buffMultiplier';
-import { getMultiplierSupportedBuffTypes, isMultiplierSupportedBuffType } from '../core/domain/buffTypeRegistry';
 import { EXTRA_HIT_DAMAGE_TYPES, normalizeExtraHitConfig } from '../core/services/buffExtraHit';
 import DeferredNumberInput, { parseIntegerInput } from './DeferredNumberInput';
+import * as draftBuffModel from './operatorDraftBuffModel';
 
 const DRAFT_PAGE_PATH = APP_ROUTE_PATHS.draft;
 const DRAFT_STORAGE_KEY = 'def.operator-editor.draft.v1';
@@ -74,79 +73,6 @@ const SKILL_TYPE_FILTERS = [
   { key: 'other', label: '其他' },
 ] as const;
 const OPERATOR_BUFF_CATEGORIES = ['passive', 'condition', 'countable'] as const;
-const MULTIPLIER_SUPPORTED_BUFF_TYPES = getMultiplierSupportedBuffTypes();
-const OPERATOR_BUFF_TYPE_OPTIONS = [
-  'atkPercentBoost',
-  'atk',
-  'flatAtk',
-  'mainStat',
-  'subStat',
-  'mainStatBoost',
-  'subStatBoost',
-  'allStatBoost',
-  'strengthBoost',
-  'agilityBoost',
-  'intelligenceBoost',
-  'willBoost',
-  'hpPercent',
-  'critRateBoost',
-  'critDmgBonusBoost',
-  'physicalDmgBonus',
-  'magicDmgBonus',
-  'fireDmgBonus',
-  'electricDmgBonus',
-  'iceDmgBonus',
-  'natureDmgBonus',
-  'allDmgBonus',
-  'skillDmgBonus',
-  'chainSkillDmgBonus',
-  'ultimateDmgBonus',
-  'normalAttackDmgBonus',
-  'dotDmgBonus',
-  'allSkillDmgBonus',
-  'imbalanceDmgBonus',
-  'physicalFragile',
-  'fireFragile',
-  'electricFragile',
-  'iceFragile',
-  'natureFragile',
-  'magicFragile',
-  'physicalVulnerability',
-  'fireVulnerability',
-  'electricVulnerability',
-  'iceVulnerability',
-  'natureVulnerability',
-  'magicVulnerability',
-  'physicalAmplify',
-  'magicAmplify',
-  'fireAmplify',
-  'electricAmplify',
-  'iceAmplify',
-  'natureAmplify',
-  'allCorrosion',
-  'physicalCorrosion',
-  'magicCorrosion',
-  'fireCorrosion',
-  'electricCorrosion',
-  'iceCorrosion',
-  'natureCorrosion',
-  'allResistanceIgnore',
-  'physicalResistanceIgnore',
-  'magicResistanceIgnore',
-  'fireResistanceIgnore',
-  'electricResistanceIgnore',
-  'iceResistanceIgnore',
-  'natureResistanceIgnore',
-  'comboDamageBonus',
-  'multiplierBonus',
-  'sourceSkillBoost',
-  'ultimateChargeEfficiency',
-  'healingBonus',
-  'receivedHealingBonus',
-  'chainCooldownReduction',
-  'imbalanceEfficiency',
-  'damageReduction',
-] as const;
 const OPERATOR_BUFF_TYPE_LABELS: Record<string, string> = {
   atkPercentBoost: '攻击力百分比',
   atk: '固定攻击力',
@@ -277,9 +203,13 @@ const OPERATOR_BUFF_DERIVED_SOURCE_OPTIONS = [
   { value: 'will', label: '意志' },
   { value: 'sourceSkill', label: '源石技艺强度' },
 ] as const;
-const OPERATOR_BUFF_DERIVED_SOURCE_LABELS = Object.fromEntries(
-  OPERATOR_BUFF_DERIVED_SOURCE_OPTIONS.map((option) => [option.value, option.label])
-) as Record<OperatorBuffDerivedSource, string>;
+const OPERATOR_BUFF_BUSINESS_TYPE_LABELS: Record<draftBuffModel.OperatorBuffBusinessType, string> = {
+  passive: 'passive 常驻',
+  condition: 'condition 条件',
+  countable: 'countable 计层',
+  multiplier: 'multiplier 乘区乘算',
+  extraHit: 'extraHit 额外伤害段',
+};
 
 type SkillButtonType = 'A' | 'B' | 'E' | 'Q';
 type HitSkillType = SkillButtonType | 'Dot';
@@ -392,25 +322,11 @@ function createDefaultAttributeLevels(value = 0): AttributeLevels {
 }
 
 function createDefaultBuffs(): OperatorBuffs {
-  return {
-    talent: { effects: {} },
-    potential: { effects: {} },
-    skill: { effects: {} },
-  };
+  return draftBuffModel.createDefaultBuffs();
 }
 
 function createDefaultBuffEffect(effectKey = 'effect1'): OperatorBuffEffect {
-  return {
-    effectId: effectKey,
-    name: '新 Buff',
-    type: '',
-    category: 'passive',
-    unit: '',
-    valueMode: 'fixed',
-    description: '',
-    raw: '',
-    effectKind: 'modifier',
-  };
+  return draftBuffModel.createDefaultBuffEffect(effectKey);
 }
 
 function createDefaultSkill(buttonType: SkillButtonType = 'A', skillKey = 'skill-A-1'): SkillDraft {
@@ -499,18 +415,8 @@ function getOperatorBuffTypeDisplayLabel(buffType: string) {
   return `${getOperatorBuffTypeLabel(trimmed)} · ${trimmed}`;
 }
 
-function buildOperatorBuffTypeSearchText(buffType: string) {
-  const trimmed = buffType.trim();
-  if (!trimmed) return '';
-  return buildSearchIndex([trimmed, getOperatorBuffTypeLabel(trimmed), getOperatorBuffTypeDisplayLabel(trimmed)]);
-}
-
 function inferOperatorBuffUnit(buffType: string): 'flat' | 'percent' {
   return OPERATOR_PERCENTLIKE_BUFF_TYPES.has(buffType.trim()) ? 'percent' : 'flat';
-}
-
-function formatOperatorBuffPerPointValue(value: number) {
-  return Number(value.toFixed(6)).toString();
 }
 
 function isDraftPath(pathname: string) {
@@ -545,120 +451,16 @@ function normalizeAttributeLevels(rawAttributes: unknown): AttributeLevels {
   ) as AttributeLevels;
 }
 
-function normalizeBuffEffect(effectKey: string, rawEffect: unknown): OperatorBuffEffect {
-  const source = rawEffect && typeof rawEffect === 'object' ? rawEffect as Record<string, unknown> : {};
-  const isLegacySkillMultiplier = source.type === 'multiplierMultiplier';
-  const rawCategory = typeof source.category === 'string' ? source.category : '';
-  const normalizedCategory: OperatorBuffCategory = rawCategory === 'condition'
-    ? 'condition'
-    : rawCategory === 'countable'
-      ? 'countable'
-      : 'passive';
-  const effectKind: BuffEffectKind = source.effectKind === 'extraHit' ? 'extraHit' : 'modifier';
-  const normalizedMultiplier = effectKind === 'extraHit'
-    ? undefined
-    : normalizeBuffMultiplier(source.multiplier)
-      ?? (isLegacySkillMultiplier && typeof source.value === 'number' && Number.isFinite(source.value) && source.value > 0
-        ? { coefficient: source.value }
-        : undefined);
-  const category: OperatorBuffCategory = effectKind === 'extraHit' && normalizedCategory !== 'countable'
-    ? 'passive'
-    : normalizedMultiplier && normalizedCategory === 'countable'
-      ? 'condition'
-      : normalizedCategory;
-  const rawValue = source.value;
-  const valueMode: OperatorBuffValueMode = effectKind === 'extraHit' || category === 'countable'
-    ? 'fixed'
-    : source.valueMode === 'derived' ? 'derived' : 'fixed';
-  const rawDerivedValue = source.derivedValue && typeof source.derivedValue === 'object'
-    ? source.derivedValue as Record<string, unknown>
-    : {};
-  const rawDerivedSource = typeof rawDerivedValue.source === 'string' ? rawDerivedValue.source : '';
-  const derivedSource = OPERATOR_BUFF_DERIVED_SOURCE_OPTIONS.some((option) => option.value === rawDerivedSource)
-    ? rawDerivedSource as OperatorBuffDerivedSource
-    : null;
-  const rawPerPointValue = rawDerivedValue.perPointValue ?? rawDerivedValue.scale;
-  return {
-    schemaVersion: 2,
-    effectId: String(source.effectId || effectKey),
-    name: String(source.name || effectKey),
-    type: effectKind === 'extraHit' ? '' : isLegacySkillMultiplier ? 'multiplierBonus' : String(source.type || ''),
-    category,
-    ...(!isLegacySkillMultiplier && typeof rawValue === 'number' && Number.isFinite(rawValue) ? { value: rawValue } : {}),
-    ...(category === 'countable' && typeof source.maxStacks === 'number' && Number.isFinite(source.maxStacks) ? { maxStacks: Math.max(1, Math.floor(source.maxStacks)) } : {}),
-    unit: typeof source.unit === 'string' ? source.unit : '',
-    valueMode,
-    ...(valueMode === 'derived' && derivedSource && typeof rawPerPointValue === 'number' && Number.isFinite(rawPerPointValue)
-      ? { derivedValue: { source: derivedSource, perPointValue: rawPerPointValue } }
-      : {}),
-    description: typeof source.description === 'string' ? source.description : '',
-    raw: typeof source.raw === 'string' ? source.raw : '',
-    effectKind,
-    ...(normalizedMultiplier ? { multiplier: normalizedMultiplier } : {}),
-    ...(effectKind === 'extraHit'
-      ? { extraHitConfig: normalizeExtraHitConfig(source.extraHitConfig, `${effectKey}-extra-hit`) }
-      : {}),
-  };
-}
-
 function validateRawDraftBuffMultipliers(rawDraft: Partial<OperatorDraft>) {
-  const rawBuffs = rawDraft.buffs && typeof rawDraft.buffs === 'object'
-    ? rawDraft.buffs as unknown as Record<string, unknown>
-    : {};
-  for (const { key: groupKey } of OPERATOR_BUFF_GROUPS) {
-    const rawGroup = rawBuffs[groupKey] && typeof rawBuffs[groupKey] === 'object'
-      ? rawBuffs[groupKey] as Record<string, unknown>
-      : {};
-    const rawEffects = rawGroup.effects && typeof rawGroup.effects === 'object'
-      ? rawGroup.effects as Record<string, unknown>
-      : {};
-    for (const [effectKey, rawEffect] of Object.entries(rawEffects)) {
-      if (!rawEffect || typeof rawEffect !== 'object') continue;
-      const source = rawEffect as Record<string, unknown>;
-      const isLegacySkillMultiplier = source.type === 'multiplierMultiplier';
-      if (source.multiplier === undefined && !isLegacySkillMultiplier) continue;
-      const multiplier = source.multiplier ?? (
-        typeof source.value === 'number' ? { coefficient: source.value } : undefined
-      );
-      const errors = validateBuffMultiplierDefinition({
-        type: isLegacySkillMultiplier ? 'multiplierBonus' : String(source.type || ''),
-        category: source.category === 'countable'
-          ? 'countable'
-          : source.category === 'condition' ? 'condition' : 'passive',
-        effectKind: source.effectKind === 'extraHit' ? 'extraHit' : 'modifier',
-        multiplier: multiplier as BuffMultiplier | undefined,
-      });
-      if (errors.length > 0) {
-        throw new Error(`${groupKey}.${effectKey}: ${errors[0]}`);
-      }
-    }
-  }
+  draftBuffModel.validateRawDraftBuffMultipliers(rawDraft);
 }
 
 function validateDraftBuffEffects(draft: OperatorDraft) {
-  return OPERATOR_BUFF_GROUPS.flatMap(({ key: groupKey }) => (
-    Object.entries(draft.buffs[groupKey].effects).flatMap(([effectKey, effect]) => (
-      validateBuffMultiplierDefinition(effect).map((message) => `${groupKey}.${effectKey}: ${message}`)
-    ))
-  ));
+  return draftBuffModel.validateDraftBuffEffects(draft);
 }
 
 function normalizeBuffs(rawBuffs: unknown): OperatorBuffs {
-  const source = rawBuffs && typeof rawBuffs === 'object' ? rawBuffs as Record<string, unknown> : {};
-  return Object.fromEntries(
-    OPERATOR_BUFF_GROUPS.map(({ key }) => {
-      const rawGroup = source[key] && typeof source[key] === 'object' ? source[key] as Record<string, unknown> : {};
-      const rawEffects = rawGroup.effects && typeof rawGroup.effects === 'object' ? rawGroup.effects as Record<string, unknown> : {};
-      return [
-        key,
-        {
-          effects: Object.fromEntries(
-            Object.entries(rawEffects).map(([effectKey, rawEffect]) => [effectKey, normalizeBuffEffect(effectKey, rawEffect)])
-          ),
-        },
-      ];
-    })
-  ) as OperatorBuffs;
+  return draftBuffModel.normalizeBuffs(rawBuffs);
 }
 
 function normalizeDraft(value: OperatorDraft) {
@@ -1142,21 +944,14 @@ export function OperatorDraftPage() {
   const selectedBuffEffect = selectedBuffEffectKey ? activeBuffGroup.effects[selectedBuffEffectKey] ?? null : null;
   const latestMessage = messages[0] ?? '';
   const filteredOperatorBuffTypeOptions = useMemo(() => {
-    const keyword = operatorBuffTypeQuery.trim().toLowerCase();
-    const availableOptions = selectedBuffEffect?.multiplier
-      ? OPERATOR_BUFF_TYPE_OPTIONS.filter((option) => MULTIPLIER_SUPPORTED_BUFF_TYPES.includes(option))
-      : OPERATOR_BUFF_TYPE_OPTIONS;
-    if (!keyword) {
-      return availableOptions;
-    }
-    return availableOptions.filter((option) => buildOperatorBuffTypeSearchText(option).toLowerCase().includes(keyword));
-  }, [operatorBuffTypeQuery, selectedBuffEffect?.multiplier]);
+    return draftBuffModel.getFilteredOperatorBuffTypeOptions({
+      query: operatorBuffTypeQuery,
+      selectedEffect: selectedBuffEffect,
+      buildSearchIndex,
+    });
+  }, [operatorBuffTypeQuery, selectedBuffEffect]);
   const displayedOperatorBuffTypeOptions = useMemo(() => {
-    const selectedType = selectedBuffEffect?.type?.trim();
-    if (!selectedType || filteredOperatorBuffTypeOptions.includes(selectedType as typeof OPERATOR_BUFF_TYPE_OPTIONS[number])) {
-      return filteredOperatorBuffTypeOptions;
-    }
-    return [selectedType, ...filteredOperatorBuffTypeOptions];
+    return filteredOperatorBuffTypeOptions;
   }, [filteredOperatorBuffTypeOptions, selectedBuffEffect?.type]);
 
   const getLocalDraftLabel = (draftId: string) => {
@@ -2414,18 +2209,7 @@ export function OperatorDraftPage() {
                         >
                           <strong>{effect.name || effectKey}</strong>
                           <span>{effect.effectKind === 'extraHit' ? '额外伤害段' : effect.type ? getOperatorBuffTypeDisplayLabel(effect.type) : '未设置类型'}</span>
-                          <span>
-                            {effect.effectKind === 'extraHit'
-                              ? `${((effect.extraHitConfig?.baseMultiplier ?? 1) * 100).toFixed(0)}% ${effect.extraHitConfig?.damageType ?? 'physical'} / ${effect.extraHitConfig?.skillType || '空'} / ${effect.category === 'countable' ? `计层/${effect.maxStacks ?? 1}` : '常驻'}`
-                              : effect.category === 'condition' ? '条件' : effect.category === 'countable' ? `计层/${effect.maxStacks ?? 1}` : '常驻'}
-                            {effect.multiplier
-                              ? ` · 乘算 ×${effect.multiplier.coefficient}`
-                              : effect.valueMode === 'derived' && effect.derivedValue
-                              ? ` · ${OPERATOR_BUFF_DERIVED_SOURCE_LABELS[effect.derivedValue.source]} 每点提升 ${formatOperatorBuffPerPointValue(effect.derivedValue.perPointValue)}`
-                              : typeof effect.value === 'number'
-                                ? ` · ${effect.value}${(effect.unit || inferOperatorBuffUnit(effect.type)) === 'percent' ? '%' : ''}`
-                                : ''}
-                          </span>
+                          <span>{draftBuffModel.getBuffEffectSummary(effect)}</span>
                         </button>
                       ))
                     ) : (
@@ -2449,30 +2233,22 @@ export function OperatorDraftPage() {
                         />
                       </label>
                       <label>
-                        <span>效果形式</span>
+                        <span>业务类型</span>
                         <select
-                          value={selectedBuffEffect.effectKind ?? 'modifier'}
+                          value={draftBuffModel.deriveOperatorBuffBusinessType(selectedBuffEffect)}
                           onChange={(event) => {
-                            const effectKind = event.target.value as BuffEffectKind;
-                            updateSelectedBuffEffect((effect) => ({
-                              ...effect,
-                              effectKind,
-                              ...(effectKind === 'extraHit'
-                                ? {
-                                  type: '',
-                                  value: undefined,
-                                  valueMode: 'fixed' as const,
-                                  derivedValue: undefined,
-                                  multiplier: undefined,
-                                  category: effect.category === 'countable' ? 'countable' as const : 'passive' as const,
-                                  extraHitConfig: normalizeExtraHitConfig(effect.extraHitConfig, `${effect.effectId || selectedBuffEffectKey}-extra-hit`),
-                                }
-                                : { extraHitConfig: undefined }),
-                            }));
+                            updateSelectedBuffEffect((effect) => draftBuffModel.applyBuffBusinessType(
+                              effect,
+                              event.target.value as draftBuffModel.OperatorBuffBusinessType,
+                              selectedBuffEffectKey ?? effect.effectId,
+                            ));
                           }}
                         >
-                          <option value="modifier">普通加成</option>
-                          <option value="extraHit">额外伤害段</option>
+                          {draftBuffModel.OPERATOR_BUFF_BUSINESS_TYPES.map((businessType) => (
+                            <option key={businessType} value={businessType}>
+                              {OPERATOR_BUFF_BUSINESS_TYPE_LABELS[businessType]}
+                            </option>
+                          ))}
                         </select>
                       </label>
                       <label className="operator-draft-buff-form-wide">
@@ -2490,13 +2266,7 @@ export function OperatorDraftPage() {
                             value={selectedBuffEffect.type}
                             disabled={selectedBuffEffect.effectKind === 'extraHit'}
                             onChange={(event) => {
-                              const nextType = event.target.value;
-                              updateSelectedBuffEffect((effect) => ({
-                                ...effect,
-                                type: nextType,
-                                unit: nextType ? inferOperatorBuffUnit(nextType) : '',
-                                ...(!isMultiplierSupportedBuffType(nextType) ? { multiplier: undefined } : {}),
-                              }));
+                              updateSelectedBuffEffect((effect) => draftBuffModel.applyBuffType(effect, event.target.value));
                             }}
                           >
                             <option value="">未设置类型</option>
@@ -2506,58 +2276,6 @@ export function OperatorDraftPage() {
                           </select>
                         </div>
                       </label>
-                      <label>
-                        <span>分类</span>
-                        <select
-                          value={selectedBuffEffect.category}
-                          onChange={(event) => {
-                            const nextCategory = event.target.value as OperatorBuffCategory;
-                            updateSelectedBuffEffect((effect) => ({
-                              ...effect,
-                              category: nextCategory,
-                              ...(nextCategory === 'countable'
-                                ? { valueMode: 'fixed' as const, derivedValue: undefined, maxStacks: effect.maxStacks ?? 1, multiplier: undefined }
-                                : {}),
-                            }));
-                          }}
-                        >
-                          <option value="passive">passive</option>
-                          {selectedBuffEffect.effectKind !== 'extraHit' && <option value="condition">condition</option>}
-                          <option value="countable">countable</option>
-                        </select>
-                      </label>
-                      {selectedBuffEffect.effectKind !== 'extraHit' && (
-                        <label className="operator-draft-buff-multiplier-toggle">
-                          <span>乘区独立乘算</span>
-                          <input
-                            type="checkbox"
-                            checked={Boolean(selectedBuffEffect.multiplier)}
-                            disabled={selectedBuffEffect.category === 'countable'}
-                            onChange={(event) => {
-                              const enabled = event.target.checked;
-                              updateSelectedBuffEffect((effect) => {
-                                if (!enabled) {
-                                  const { multiplier: _multiplier, ...rest } = effect;
-                                  return rest;
-                                }
-                                const nextType = isMultiplierSupportedBuffType(effect.type)
-                                  ? effect.type
-                                  : 'multiplierBonus';
-                                return {
-                                  ...effect,
-                                  type: nextType,
-                                  unit: inferOperatorBuffUnit(nextType),
-                                  category: effect.category === 'countable' ? 'condition' : effect.category,
-                                  value: undefined,
-                                  valueMode: 'fixed',
-                                  derivedValue: undefined,
-                                  multiplier: { coefficient: 1 },
-                                };
-                              });
-                            }}
-                          />
-                        </label>
-                      )}
                       {selectedBuffEffect.multiplier && (
                         <label>
                           <span>乘算系数</span>
@@ -2565,10 +2283,7 @@ export function OperatorDraftPage() {
                             min={0.000001}
                             step="0.01"
                             value={selectedBuffEffect.multiplier.coefficient}
-                            onCommit={(value) => updateSelectedBuffEffect((effect) => ({
-                              ...effect,
-                              multiplier: { coefficient: value ?? 1 },
-                            }))}
+                            onCommit={(value) => updateSelectedBuffEffect((effect) => draftBuffModel.setBuffMultiplierCoefficient(effect, value))}
                           />
                         </label>
                       )}
@@ -2578,14 +2293,7 @@ export function OperatorDraftPage() {
                           value={selectedBuffEffect.valueMode ?? 'fixed'}
                           disabled={selectedBuffEffect.effectKind === 'extraHit' || Boolean(selectedBuffEffect.multiplier)}
                           onChange={(event) => {
-                            const nextMode = selectedBuffEffect.category === 'countable' ? 'fixed' : event.target.value as OperatorBuffValueMode;
-                            updateSelectedBuffEffect((effect) => ({
-                              ...effect,
-                              valueMode: nextMode,
-                              ...(nextMode === 'derived' && !effect.derivedValue
-                                ? { derivedValue: { source: 'intelligence', perPointValue: 0.001 } }
-                                : {}),
-                            }));
+                            updateSelectedBuffEffect((effect) => draftBuffModel.applyBuffValueMode(effect, event.target.value as OperatorBuffValueMode));
                           }}
                         >
                           <option value="fixed">固定数值</option>
@@ -2599,10 +2307,7 @@ export function OperatorDraftPage() {
                           step="0.01"
                           value={selectedBuffEffect.value}
                           onCommit={(value) => {
-                            updateSelectedBuffEffect((effect) => {
-                              const { value: _value, ...rest } = effect;
-                              return value == null ? rest : { ...effect, value };
-                            });
+                            updateSelectedBuffEffect((effect) => draftBuffModel.applyFixedBuffValue(effect, value));
                           }}
                         />
                       </label>
@@ -2612,14 +2317,7 @@ export function OperatorDraftPage() {
                             <span>来源值</span>
                             <select
                               value={selectedBuffEffect.derivedValue?.source ?? 'intelligence'}
-                              onChange={(event) => updateSelectedBuffEffect((effect) => ({
-                                ...effect,
-                                valueMode: 'derived',
-                                derivedValue: {
-                                  source: event.target.value as OperatorBuffDerivedSource,
-                                  perPointValue: effect.derivedValue?.perPointValue ?? 0.001,
-                                },
-                              }))}
+                              onChange={(event) => updateSelectedBuffEffect((effect) => draftBuffModel.applyDerivedBuffSource(effect, event.target.value as OperatorBuffDerivedSource))}
                             >
                               {OPERATOR_BUFF_DERIVED_SOURCE_OPTIONS.map((option) => (
                                 <option key={option.value} value={option.value}>{option.label}</option>
@@ -2632,14 +2330,7 @@ export function OperatorDraftPage() {
                               step="0.0001"
                               value={selectedBuffEffect.derivedValue?.perPointValue}
                               onCommit={(value) => {
-                                updateSelectedBuffEffect((effect) => ({
-                                  ...effect,
-                                  valueMode: 'derived',
-                                  derivedValue: {
-                                    source: effect.derivedValue?.source ?? 'intelligence',
-                                    perPointValue: value ?? 0,
-                                  },
-                                }));
+                                updateSelectedBuffEffect((effect) => draftBuffModel.applyDerivedBuffPerPointValue(effect, value));
                               }}
                             />
                           </label>
@@ -2652,12 +2343,7 @@ export function OperatorDraftPage() {
                             min={1}
                             value={selectedBuffEffect.maxStacks ?? 1}
                             parse={parseIntegerInput}
-                            onCommit={(value) => updateSelectedBuffEffect((effect) => ({
-                              ...effect,
-                              maxStacks: Math.max(1, value ?? 1),
-                              valueMode: 'fixed',
-                              derivedValue: undefined,
-                            }))}
+                            onCommit={(value) => updateSelectedBuffEffect((effect) => draftBuffModel.applyBuffMaxStacks(effect, value))}
                           />
                         </label>
                       )}

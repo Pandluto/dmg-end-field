@@ -489,110 +489,121 @@ export function buildAnomalyDamageSegments({
     return [initialSegment];
   });
 
-  const extraHitSegments = extraHitBuffList.flatMap<AnomalyDamageSegmentView>((buff, index) => {
+  let extraHitSequenceOffset = 0;
+  const extraHitSegments = extraHitBuffList.flatMap<AnomalyDamageSegmentView>((buff) => {
     const extraHitConfig = buff.extraHitConfig;
     const elementKey = extraHitConfig.damageType;
     const stackCount = normalizeExtraHitStackCount(buff, buffStackCounts);
-    const stackedBaseMultiplier = extraHitConfig.baseMultiplier * stackCount;
-    const sequenceNumber = hitCards.length + anomalySegments.length + index + 1;
-    const segmentKey = `buff-extra-hit-${buff.id}`;
-    const disabledBuffIds = new Set(manuallyDisabledBuffIdsBySegmentKey[segmentKey] ?? []);
-    const combinedAppliedBuffs = fullCombinedModifierBuffList.filter((item) => !disabledBuffIds.has(item.id));
-    const appliedBuffTags = buildAppliedBuffTags(combinedAppliedBuffs, buffStackCounts);
-    const segmentPanel = buildPanelFromBase(panelBase, panelData, combinedAppliedBuffs, buffStackCounts);
-    if (!segmentPanel) {
-      return [];
-    }
+    const hitCount = buff.category === 'countable' ? stackCount : 1;
+    const baseSegmentKey = `buff-extra-hit-${buff.id}`;
+    const segments = Array.from({ length: hitCount }).flatMap<AnomalyDamageSegmentView>((_, hitIndex) => {
+      const sequenceNumber = hitCards.length + anomalySegments.length + extraHitSequenceOffset + hitIndex + 1;
+      const layerSuffix = hitCount > 1 ? ` ${hitIndex + 1}/${hitCount}` : '';
+      const segmentKey = hitCount > 1 ? `${baseSegmentKey}-${hitIndex + 1}` : baseSegmentKey;
+      const disabledBuffIds = new Set([
+        ...(manuallyDisabledBuffIdsBySegmentKey[baseSegmentKey] ?? []),
+        ...(manuallyDisabledBuffIdsBySegmentKey[segmentKey] ?? []),
+      ]);
+      const combinedAppliedBuffs = fullCombinedModifierBuffList.filter((item) => !disabledBuffIds.has(item.id));
+      const appliedBuffTags = buildAppliedBuffTags(combinedAppliedBuffs, buffStackCounts);
+      const segmentPanel = buildPanelFromBase(panelBase, panelData, combinedAppliedBuffs, buffStackCounts);
+      if (!segmentPanel) {
+        return [];
+      }
 
-    const buffTotals = calculateBuffTotals(combinedAppliedBuffs, buffStackCounts);
-    const zoneResults = calculateSpecialHitBuffZones({
-      element: elementKey,
-      skillType: extraHitConfig.skillType,
-      buffs: combinedAppliedBuffs,
-      stackCounts: buffStackCounts,
-      damageBonus,
-      baseSkillMultiplier: stackedBaseMultiplier,
+      const buffTotals = calculateBuffTotals(combinedAppliedBuffs, buffStackCounts);
+      const zoneResults = calculateSpecialHitBuffZones({
+        element: elementKey,
+        skillType: extraHitConfig.skillType,
+        buffs: combinedAppliedBuffs,
+        stackCounts: buffStackCounts,
+        damageBonus,
+        baseSkillMultiplier: extraHitConfig.baseMultiplier,
+      });
+      const elementBonus = readPanelElementBonus(damageBonus, elementKey)
+        + sumAdditiveContributions(zoneResults, ELEMENT_DAMAGE_BONUS_TYPES);
+      const skillBonus = readPanelSkillBonus(damageBonus, extraHitConfig.skillType)
+        + sumAdditiveContributions(zoneResults, SKILL_DAMAGE_BONUS_TYPES);
+      const allDamageBonus = (damageBonus.allDmgBonus || 0)
+        + sumAdditiveContributions(zoneResults, ALL_DAMAGE_BONUS_TYPES);
+      const damageBonusRate = zoneResults.damageBonus.finalValue;
+      const resistance = calculateResistanceZone(elementKey, targetResistance, buffTotals);
+      const amplifyZone = zoneResults.amplify.finalValue;
+      const fragileZone = zoneResults.fragile.finalValue;
+      const vulnerabilityZone = zoneResults.vulnerability.finalValue;
+      const amplifyRate = amplifyZone - 1;
+      const fragileRate = fragileZone - 1;
+      const vulnerabilityRate = vulnerabilityZone - 1;
+      const comboDamageBonus = buffTotals.comboDamageBonus;
+      const imbalanceDamageBonus = buffTotals.imbalanceDamageBonus + (elementKey === 'physical' ? (damageBonus.imbalanceDmgBonus || 0) : 0);
+      const defenseZone = 0.5;
+      const finalMultiplier = zoneResults.skillMultiplier.finalValue;
+      const extraHitAtk = segmentPanel.atk;
+      const extraHitCritRate = segmentPanel.critRate;
+      const extraHitCritDmg = segmentPanel.critDmg;
+      const critMultiplier = 1 + extraHitCritDmg;
+      const expectedMultiplier = 1 + extraHitCritRate * extraHitCritDmg;
+      const baseNonCrit = extraHitAtk * finalMultiplier;
+      const nonCrit = calculateBreakdown(extraHitAtk, finalMultiplier, 1, damageBonusRate, defenseZone, resistance.resistanceZone, amplifyZone, fragileZone, vulnerabilityZone, comboDamageBonus, imbalanceDamageBonus);
+      const crit = calculateBreakdown(extraHitAtk, finalMultiplier, critMultiplier, damageBonusRate, defenseZone, resistance.resistanceZone, amplifyZone, fragileZone, vulnerabilityZone, comboDamageBonus, imbalanceDamageBonus);
+      const expected = calculateBreakdown(extraHitAtk, finalMultiplier, expectedMultiplier, damageBonusRate, defenseZone, resistance.resistanceZone, amplifyZone, fragileZone, vulnerabilityZone, comboDamageBonus, imbalanceDamageBonus);
+
+      const segment: AnomalyDamageSegmentView = {
+        key: segmentKey,
+        sourceKind: 'buff-extra-hit',
+        title: `${sequenceNumber}段 · ${buff.displayName}${layerSuffix}`,
+        sequenceTitle: `${sequenceNumber}段`,
+        compactTitle: `${buff.displayName}${layerSuffix}`,
+        buffText: appliedBuffTags.length > 0 ? `+${appliedBuffTags.length} Buff` : '无 Buff',
+        appliedBuffTags,
+        elementText: extraHitConfig.damageType === 'physical' ? '物理' : extraHitConfig.damageType,
+        elementKey,
+        skillTypeText: extraHitConfig.skillType,
+        panelAtkText: extraHitAtk.toFixed(0),
+        critRateText: `${(extraHitCritRate * 100).toFixed(1)}%`,
+        critDmgText: `${(extraHitCritDmg * 100).toFixed(1)}%`,
+        sourceSkillBoostText: '-',
+        levelCoefficientText: '-',
+        sourceSkillZoneText: '-',
+        baseMultiplierText: `${(extraHitConfig.baseMultiplier * 100).toFixed(1)}%`,
+        multiplierText: `${(finalMultiplier * 100).toFixed(1)}%`,
+        multiplierFormulaText: `(${(extraHitConfig.baseMultiplier * 100).toFixed(1)}% + ${(zoneResults.skillMultiplier.additiveTotal * 100).toFixed(1)}%) × ${zoneResults.skillMultiplier.multiplierProduct.toFixed(3)}`,
+        expectedText: expected.toFixed(0),
+        critText: crit.toFixed(0),
+        nonCritText: nonCrit.toFixed(0),
+        expectedValue: expected,
+        critValue: crit,
+        nonCritValue: nonCrit,
+        formulaText: `${extraHitAtk.toFixed(0)} × ${(extraHitConfig.baseMultiplier * 100).toFixed(1)}% 经 Buff 修正后 = ${(finalMultiplier * 100).toFixed(1)}%`,
+        elementBonusText: `${(elementBonus * 100).toFixed(1)}%`,
+        skillBonusText: `${(skillBonus * 100).toFixed(1)}%`,
+        allDamageBonusText: `${(allDamageBonus * 100).toFixed(1)}%`,
+        damageBonusRateText: damageBonusRate.toFixed(3),
+        resistanceBaseText: resistance.baseResistance.toFixed(1),
+        corrosionText: resistance.corrosion.toFixed(1),
+        resistanceIgnoreText: resistance.resistanceIgnore.toFixed(1),
+        resistanceZoneText: resistance.resistanceZone.toFixed(3),
+        resistanceFormulaText: resistance.formulaText,
+        amplifyFormulaText: amplifyZone.toFixed(3),
+        amplifyRateText: amplifyRate.toFixed(3),
+        fragileFormulaText: fragileZone.toFixed(3),
+        fragileRateText: fragileRate.toFixed(3),
+        vulnerabilityFormulaText: vulnerabilityZone.toFixed(3),
+        vulnerabilityRateText: vulnerabilityRate.toFixed(3),
+        comboFormulaText: `1 + ${(comboDamageBonus * 100).toFixed(1)}% = ${(1 + comboDamageBonus).toFixed(3)}`,
+        comboDamageBonusText: comboDamageBonus.toFixed(3),
+        imbalanceFormulaText: `1 + ${(imbalanceDamageBonus * 100).toFixed(1)}% = ${(1 + imbalanceDamageBonus).toFixed(3)}`,
+        imbalanceDamageBonusText: imbalanceDamageBonus.toFixed(3),
+        defenseZoneText: defenseZone.toFixed(3),
+        nonCritFormulaText: `${extraHitAtk.toFixed(0)} × ${(finalMultiplier * 100).toFixed(1)}% × ${damageBonusRate.toFixed(3)} × ${defenseZone.toFixed(3)} × ${resistance.resistanceZone.toFixed(3)} × ${amplifyZone.toFixed(3)} × ${fragileZone.toFixed(3)} × ${vulnerabilityZone.toFixed(3)} × ${(1 + comboDamageBonus).toFixed(3)} × ${(1 + imbalanceDamageBonus).toFixed(3)} = ${nonCrit.toFixed(0)} (基础伤害 ${baseNonCrit.toFixed(0)})`,
+        imbalanceText: String(extraHitConfig.imbalanceValue),
+        cooldownText: `${extraHitConfig.cooldownSeconds}s`,
+        sourceBuffName: buff.displayName,
+      };
+      return [segment];
     });
-    const elementBonus = readPanelElementBonus(damageBonus, elementKey)
-      + sumAdditiveContributions(zoneResults, ELEMENT_DAMAGE_BONUS_TYPES);
-    const skillBonus = readPanelSkillBonus(damageBonus, extraHitConfig.skillType)
-      + sumAdditiveContributions(zoneResults, SKILL_DAMAGE_BONUS_TYPES);
-    const allDamageBonus = (damageBonus.allDmgBonus || 0)
-      + sumAdditiveContributions(zoneResults, ALL_DAMAGE_BONUS_TYPES);
-    const damageBonusRate = zoneResults.damageBonus.finalValue;
-    const resistance = calculateResistanceZone(elementKey, targetResistance, buffTotals);
-    const amplifyZone = zoneResults.amplify.finalValue;
-    const fragileZone = zoneResults.fragile.finalValue;
-    const vulnerabilityZone = zoneResults.vulnerability.finalValue;
-    const amplifyRate = amplifyZone - 1;
-    const fragileRate = fragileZone - 1;
-    const vulnerabilityRate = vulnerabilityZone - 1;
-    const comboDamageBonus = buffTotals.comboDamageBonus;
-    const imbalanceDamageBonus = buffTotals.imbalanceDamageBonus + (elementKey === 'physical' ? (damageBonus.imbalanceDmgBonus || 0) : 0);
-    const defenseZone = 0.5;
-    const finalMultiplier = zoneResults.skillMultiplier.finalValue;
-    const extraHitAtk = segmentPanel.atk;
-    const extraHitCritRate = segmentPanel.critRate;
-    const extraHitCritDmg = segmentPanel.critDmg;
-    const critMultiplier = 1 + extraHitCritDmg;
-    const expectedMultiplier = 1 + extraHitCritRate * extraHitCritDmg;
-    const baseNonCrit = extraHitAtk * finalMultiplier;
-    const nonCrit = calculateBreakdown(extraHitAtk, finalMultiplier, 1, damageBonusRate, defenseZone, resistance.resistanceZone, amplifyZone, fragileZone, vulnerabilityZone, comboDamageBonus, imbalanceDamageBonus);
-    const crit = calculateBreakdown(extraHitAtk, finalMultiplier, critMultiplier, damageBonusRate, defenseZone, resistance.resistanceZone, amplifyZone, fragileZone, vulnerabilityZone, comboDamageBonus, imbalanceDamageBonus);
-    const expected = calculateBreakdown(extraHitAtk, finalMultiplier, expectedMultiplier, damageBonusRate, defenseZone, resistance.resistanceZone, amplifyZone, fragileZone, vulnerabilityZone, comboDamageBonus, imbalanceDamageBonus);
-
-    return [{
-      key: `buff-extra-hit-${buff.id}`,
-      sourceKind: 'buff-extra-hit',
-      title: `${sequenceNumber}段 · ${buff.displayName}`,
-      sequenceTitle: `${sequenceNumber}段`,
-      compactTitle: buff.displayName,
-      buffText: appliedBuffTags.length > 0 ? `+${appliedBuffTags.length} Buff` : '无 Buff',
-      appliedBuffTags,
-      elementText: extraHitConfig.damageType === 'physical' ? '物理' : extraHitConfig.damageType,
-      elementKey,
-      skillTypeText: extraHitConfig.skillType,
-      panelAtkText: extraHitAtk.toFixed(0),
-      critRateText: `${(extraHitCritRate * 100).toFixed(1)}%`,
-      critDmgText: `${(extraHitCritDmg * 100).toFixed(1)}%`,
-      sourceSkillBoostText: '-',
-      levelCoefficientText: '-',
-      sourceSkillZoneText: '-',
-      baseMultiplierText: `${(stackedBaseMultiplier * 100).toFixed(1)}%`,
-      multiplierText: `${(finalMultiplier * 100).toFixed(1)}%`,
-      multiplierFormulaText: `(${(extraHitConfig.baseMultiplier * 100).toFixed(1)}%${buff.category === 'countable' ? ` × ${stackCount}` : ''} + ${(zoneResults.skillMultiplier.additiveTotal * 100).toFixed(1)}%) × ${zoneResults.skillMultiplier.multiplierProduct.toFixed(3)}`,
-      expectedText: expected.toFixed(0),
-      critText: crit.toFixed(0),
-      nonCritText: nonCrit.toFixed(0),
-      expectedValue: expected,
-      critValue: crit,
-      nonCritValue: nonCrit,
-      formulaText: `${extraHitAtk.toFixed(0)} × ${(extraHitConfig.baseMultiplier * 100).toFixed(1)}%${buff.category === 'countable' ? ` × ${stackCount}层` : ''} 经 Buff 修正后 = ${(finalMultiplier * 100).toFixed(1)}%`,
-      elementBonusText: `${(elementBonus * 100).toFixed(1)}%`,
-      skillBonusText: `${(skillBonus * 100).toFixed(1)}%`,
-      allDamageBonusText: `${(allDamageBonus * 100).toFixed(1)}%`,
-      damageBonusRateText: damageBonusRate.toFixed(3),
-      resistanceBaseText: resistance.baseResistance.toFixed(1),
-      corrosionText: resistance.corrosion.toFixed(1),
-      resistanceIgnoreText: resistance.resistanceIgnore.toFixed(1),
-      resistanceZoneText: resistance.resistanceZone.toFixed(3),
-      resistanceFormulaText: resistance.formulaText,
-      amplifyFormulaText: amplifyZone.toFixed(3),
-      amplifyRateText: amplifyRate.toFixed(3),
-      fragileFormulaText: fragileZone.toFixed(3),
-      fragileRateText: fragileRate.toFixed(3),
-      vulnerabilityFormulaText: vulnerabilityZone.toFixed(3),
-      vulnerabilityRateText: vulnerabilityRate.toFixed(3),
-      comboFormulaText: `1 + ${(comboDamageBonus * 100).toFixed(1)}% = ${(1 + comboDamageBonus).toFixed(3)}`,
-      comboDamageBonusText: comboDamageBonus.toFixed(3),
-      imbalanceFormulaText: `1 + ${(imbalanceDamageBonus * 100).toFixed(1)}% = ${(1 + imbalanceDamageBonus).toFixed(3)}`,
-      imbalanceDamageBonusText: imbalanceDamageBonus.toFixed(3),
-      defenseZoneText: defenseZone.toFixed(3),
-      nonCritFormulaText: `${extraHitAtk.toFixed(0)} × ${(finalMultiplier * 100).toFixed(1)}% × ${damageBonusRate.toFixed(3)} × ${defenseZone.toFixed(3)} × ${resistance.resistanceZone.toFixed(3)} × ${amplifyZone.toFixed(3)} × ${fragileZone.toFixed(3)} × ${vulnerabilityZone.toFixed(3)} × ${(1 + comboDamageBonus).toFixed(3)} × ${(1 + imbalanceDamageBonus).toFixed(3)} = ${nonCrit.toFixed(0)} (基础伤害 ${baseNonCrit.toFixed(0)})`,
-      imbalanceText: String(extraHitConfig.imbalanceValue),
-      cooldownText: `${extraHitConfig.cooldownSeconds}s`,
-      sourceBuffName: buff.displayName,
-    }];
+    extraHitSequenceOffset += hitCount;
+    return segments;
   });
 
   return [...anomalySegments, ...extraHitSegments];
@@ -614,7 +625,15 @@ export function buildAnomalyBuffOptionsBySegmentKey(
   });
 
   extraHitBuffList.forEach((buff) => {
-    nextMap[`buff-extra-hit-${buff.id}`] = buildAppliedBuffTags(fullCombinedModifierBuffList, buffStackCounts);
+    const baseSegmentKey = `buff-extra-hit-${buff.id}`;
+    const appliedBuffTags = buildAppliedBuffTags(fullCombinedModifierBuffList, buffStackCounts);
+    nextMap[baseSegmentKey] = appliedBuffTags;
+    const stackCount = normalizeExtraHitStackCount(buff, buffStackCounts);
+    if (buff.category === 'countable') {
+      Array.from({ length: stackCount }, (_, index) => {
+        nextMap[`${baseSegmentKey}-${index + 1}`] = appliedBuffTags;
+      });
+    }
   });
 
   return nextMap;

@@ -528,6 +528,15 @@
   width: 100%;
 }
 
+.buff-sheet-formula-inline-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+  font-size: 12px;
+  color: var(--office-muted, #5f6368);
+}
+
 .buff-sheet-share-modal-mask {
   position: fixed;
   inset: 0;

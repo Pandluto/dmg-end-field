@@ -18,6 +18,11 @@ export interface BuffFillAiEffect {
   value: number;
   evidenceText: string;
   confidence: number;
+  category?: 'condition' | 'countable' | 'passive';
+  maxStacks?: number;
+  multiplier?: {
+    coefficient: number;
+  };
   extraHitConfig?: {
     key: string;
     damageType: BuffExtraHitDamageType;
@@ -104,6 +109,16 @@ export function createBuffFillAiDraftSchema(): JsonSchemaObject {
                       effectKind: { type: 'string', enum: ['modifier'] },
                       type: { type: 'string', enum: BUFF_MODIFIER_TYPE_IDS },
                       value: { type: 'number' },
+                      category: { type: 'string', enum: ['condition', 'countable', 'passive'] },
+                      maxStacks: { type: 'number' },
+                      multiplier: {
+                        type: 'object',
+                        additionalProperties: false,
+                        required: ['coefficient'],
+                        properties: {
+                          coefficient: { type: 'number', exclusiveMinimum: 0 },
+                        },
+                      },
                     },
                   },
                   {

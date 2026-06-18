@@ -3,7 +3,10 @@ import ExcelJS from 'exceljs';
 import { pinyin } from 'pinyin-pro';
 import './OperatorDraftPage.css';
 import './BuffDraftPage.css';
-import type { BuffEffectKind, BuffExtraHitConfig, CandidateBuff } from '../core/domain/buff';
+import type { BuffCategory, BuffEffectKind, BuffExtraHitConfig, CandidateBuff } from '../core/domain/buff';
+import { normalizeBuffMultiplier } from '../core/domain/buffMultiplier';
+import { getMultiplierSupportedBuffTypes, isMultiplierSupportedBuffType } from '../core/domain/buffTypeRegistry';
+import { normalizeStoredBuffDefinition } from '../core/services/buffStorageNormalization';
 import { APP_ROUTE_PATHS, navigateToAppPath } from '../utils/appRoute';
 import {
   buildDraftLibraryShareFile,
@@ -50,6 +53,7 @@ const BUFF_TYPE_OPTIONS = [
   'iceDmgBonus',
   'natureDmgBonus',
   'allElementDmgBonus',
+  'allDmgBonus',
   'skillDmgBonus',
   'chainSkillDmgBonus',
   'ultimateDmgBonus',
@@ -67,7 +71,7 @@ const BUFF_TYPE_OPTIONS = [
   'electricVulnerability',
   'iceVulnerability',
   'natureVulnerability',
-  'magicTakenDmgBonus',
+  'magicVulnerability',
   'physicalAmplify',
   'magicAmplify',
   'fireAmplify',
@@ -90,7 +94,6 @@ const BUFF_TYPE_OPTIONS = [
   'natureResistanceIgnore',
   'comboDamageBonus',
   'multiplierBonus',
-  'multiplierMultiplier',
   'sourceSkillBoost',
 ] as const;
 
@@ -113,6 +116,7 @@ const BUFF_TYPE_LABELS: Record<(typeof BUFF_TYPE_OPTIONS)[number], { label: stri
   iceDmgBonus: { label: '寒冷伤害加成', keywords: ['寒冷', '冰', '冰伤'] },
   natureDmgBonus: { label: '自然伤害加成', keywords: ['自然', '自然伤害'] },
   allElementDmgBonus: { label: '全元素伤害加成', keywords: ['元素', '全元素', '法术'] },
+  allDmgBonus: { label: '全伤害加成', keywords: ['全伤害', '全增伤', '全部伤害'] },
   skillDmgBonus: { label: '战技伤害加成', keywords: ['战技', '技能', 'skill'] },
   chainSkillDmgBonus: { label: '连携技伤害加成', keywords: ['连携', '连携技'] },
   ultimateDmgBonus: { label: '终结技伤害加成', keywords: ['终结', '大招', 'ultimate'] },
@@ -130,7 +134,7 @@ const BUFF_TYPE_LABELS: Record<(typeof BUFF_TYPE_OPTIONS)[number], { label: stri
   electricVulnerability: { label: '电磁易伤', keywords: ['电磁', '易伤'] },
   iceVulnerability: { label: '寒冷易伤', keywords: ['寒冷', '易伤'] },
   natureVulnerability: { label: '自然易伤', keywords: ['自然', '易伤'] },
-  magicTakenDmgBonus: { label: '法术易伤', keywords: ['法术', '异伤', '易伤', '魔法'] },
+  magicVulnerability: { label: '法术脆弱', keywords: ['法术', '异伤', '易伤', '脆弱', '魔法'] },
   physicalAmplify: { label: '物理增幅', keywords: ['物理', '增幅'] },
   magicAmplify: { label: '法术增幅', keywords: ['法术', '增幅'] },
   fireAmplify: { label: '灼热增幅', keywords: ['灼热', '增幅'] },
@@ -153,7 +157,6 @@ const BUFF_TYPE_LABELS: Record<(typeof BUFF_TYPE_OPTIONS)[number], { label: stri
   natureResistanceIgnore: { label: '无视自然抗性', keywords: ['无视自然抗性', '自然穿透', '自然抗性忽略'] },
   comboDamageBonus: { label: '连击伤害加成', keywords: ['连击', 'combo'] },
   multiplierBonus: { label: '倍率加算', keywords: ['倍率', '加算', '乘区'] },
-  multiplierMultiplier: { label: '倍率乘算', keywords: ['倍率', '乘算', '乘区'] },
   sourceSkillBoost: { label: '源石技艺强度', keywords: ['源石技艺', '强度', '记忆强度'] },
 };
 
@@ -198,7 +201,7 @@ const DISPLAY_PERCENT_TYPES = new Set<string>([
   'electricVulnerability',
   'iceVulnerability',
   'natureVulnerability',
-  'magicTakenDmgBonus',
+  'magicVulnerability',
   'physicalAmplify',
   'magicAmplify',
   'fireAmplify',
@@ -208,6 +211,14 @@ const DISPLAY_PERCENT_TYPES = new Set<string>([
   'comboDamageBonus',
   'sourceSkillBoost',
 ]);
+
+const BUFF_CATEGORY_OPTIONS: BuffCategory[] = ['condition', 'countable', 'passive'];
+const BUFF_CATEGORY_LABELS: Record<BuffCategory, string> = {
+  condition: '条件',
+  countable: '计层',
+  passive: '常驻',
+};
+const MULTIPLIER_SUPPORTED_BUFF_TYPES = getMultiplierSupportedBuffTypes();
 
 const DISPLAY_FLAT_TYPES = new Set<string>([
   'flatAtk',
@@ -400,6 +411,36 @@ function getBuffTypePlainLabel(type?: string) {
   return meta?.label || type;
 }
 
+function normalizeLegacyBuffType(type: unknown) {
+  if (type === 'magicTakenDmgBonus') return 'magicVulnerability';
+  return typeof type === 'string' ? type : '';
+}
+
+function normalizeBuffCategory(category: unknown): BuffCategory {
+  if (category === 'countable' || category === 'passive' || category === 'condition') {
+    return category;
+  }
+  if (category === 'positive') {
+    return 'passive';
+  }
+  return 'condition';
+}
+
+function normalizeBuffSheetEffectDefinition(effect: Partial<BuffEffectDraft>) {
+  return normalizeStoredBuffDefinition({
+    ...effect,
+    type: normalizeLegacyBuffType(effect.type),
+  }) as Partial<BuffEffectDraft>;
+}
+
+function getBuffEffectMultiplier(effect: Partial<BuffEffectDraft>) {
+  return normalizeBuffMultiplier(effect.multiplier);
+}
+
+function canUseBuffMultiplier(type: string | undefined) {
+  return isMultiplierSupportedBuffType(type);
+}
+
 function formatEffectValueForDisplay(effect: Partial<BuffEffectDraft>) {
   const numericValue = Number(effect.value);
   if (!Number.isFinite(numericValue) || numericValue === 0) {
@@ -411,7 +452,7 @@ function formatEffectValueForDisplay(effect: Partial<BuffEffectDraft>) {
     return `${numericValue}%`;
   }
 
-  if (type === 'multiplierBonus' || type === 'multiplierMultiplier') {
+  if (type === 'multiplierBonus') {
     return numericValue >= 0 && numericValue <= 2 ? `${numericValue}x` : String(numericValue);
   }
 
@@ -484,12 +525,101 @@ function formatBuffNumericValue(type: string | undefined, value: number | undefi
   return String(numericValue);
 }
 
+function formatBuffEffectValueText(effect: Partial<BuffEffectDraft>) {
+  if (effect.effectKind === 'extraHit') {
+    return `${effect.extraHitConfig?.baseMultiplier ?? DEFAULT_EXTRA_HIT_CONFIG.baseMultiplier}x`;
+  }
+  const multiplier = getBuffEffectMultiplier(effect);
+  if (multiplier) {
+    return `×${multiplier.coefficient}`;
+  }
+  return formatBuffNumericValue(effect.type, effect.value);
+}
+
 function getBuffValueHint(type: string | undefined, value: number | undefined) {
   const numericValue = Number(value ?? 0);
   if (PERCENT_STYLE_TYPES.has(type || '')) {
     return `展示为 ${formatBuffNumericValue(type, numericValue)}，底层存储 ${numericValue}`;
   }
   return `当前按小数记录：${numericValue}`;
+}
+
+function getBuffMultiplierHint(effect: Partial<BuffEffectDraft>) {
+  const multiplier = getBuffEffectMultiplier(effect);
+  if (!multiplier) return '';
+  return `${getBuffTypeDisplayLabel(effect.type)} 的命中范围，命中后乘区直接乘以 ${multiplier.coefficient}`;
+}
+
+function applyBuffEffectKind(effect: BuffEffectDraft, nextKind: BuffEffectKind): BuffEffectDraft {
+  if (nextKind === 'extraHit') {
+    return {
+      ...effect,
+      effectKind: 'extraHit',
+      type: '',
+      value: 0,
+      category: 'passive',
+      maxStacks: undefined,
+      multiplier: undefined,
+      extraHitConfig: normalizeExtraHitConfig(effect.extraHitConfig),
+    };
+  }
+  return {
+    ...effect,
+    effectKind: 'modifier',
+    extraHitConfig: undefined,
+  };
+}
+
+function applyBuffType(effect: BuffEffectDraft, nextType: string): BuffEffectDraft {
+  const normalizedType = normalizeLegacyBuffType(nextType);
+  return {
+    ...effect,
+    type: normalizedType,
+    ...(canUseBuffMultiplier(normalizedType) ? {} : { multiplier: undefined }),
+  };
+}
+
+function applyBuffCategory(effect: BuffEffectDraft, nextCategory: BuffCategory): BuffEffectDraft {
+  return {
+    ...effect,
+    category: nextCategory,
+    ...(nextCategory === 'countable'
+      ? { maxStacks: effect.maxStacks ?? 1, multiplier: undefined }
+      : { maxStacks: undefined }),
+  };
+}
+
+function setBuffMultiplierEnabled(effect: BuffEffectDraft, enabled: boolean): BuffEffectDraft {
+  if (!enabled) {
+    const { multiplier: _multiplier, ...rest } = effect;
+    return rest;
+  }
+  const nextType = canUseBuffMultiplier(effect.type)
+    ? effect.type || 'multiplierBonus'
+    : 'multiplierBonus';
+  return {
+    ...effect,
+    effectKind: 'modifier',
+    type: nextType,
+    category: effect.category === 'countable' ? 'condition' : normalizeBuffCategory(effect.category),
+    value: undefined,
+    multiplier: { coefficient: 1 },
+    extraHitConfig: undefined,
+  };
+}
+
+function setBuffMultiplierCoefficient(effect: BuffEffectDraft, coefficient: number): BuffEffectDraft {
+  return {
+    ...effect,
+    multiplier: { coefficient: Number.isFinite(coefficient) && coefficient > 0 ? coefficient : 1 },
+  };
+}
+
+function setBuffMaxStacks(effect: BuffEffectDraft, maxStacks: number): BuffEffectDraft {
+  return {
+    ...effect,
+    maxStacks: Math.max(1, Math.floor(Number.isFinite(maxStacks) ? maxStacks : 1)),
+  };
 }
 
 function isBuffSheetPath(pathname: string) {
@@ -518,23 +648,34 @@ function getNextEffectKey(item: BuffItemDraft) {
 
 function normalizeEffect(effectKey: string, effect: Partial<BuffEffectDraft>, item: BuffItemDraft): BuffEffectDraft {
   const fallback = createDefaultBuffEffect(effectKey, item.sourceName);
-  const effectKind = effect.effectKind === 'extraHit' ? 'extraHit' : 'modifier';
+  const normalizedEffect = normalizeBuffSheetEffectDefinition(effect);
+  const effectKind = normalizedEffect.effectKind === 'extraHit' ? 'extraHit' : 'modifier';
+  const category = effectKind === 'extraHit' ? 'passive' : normalizeBuffCategory(normalizedEffect.category);
+  const type = effectKind === 'extraHit' ? '' : normalizeLegacyBuffType(normalizedEffect.type ?? fallback.type);
+  const multiplier = effectKind === 'modifier' && category !== 'countable' && canUseBuffMultiplier(type)
+    ? getBuffEffectMultiplier(normalizedEffect)
+    : undefined;
+  const rawMaxStacks = Number(normalizedEffect.maxStacks);
   return {
     ...fallback,
-    ...effect,
-    id: effect.id?.trim() || effectKey,
-    displayName: buildFallbackEffectDisplayName(effectKey, effect, fallback.displayName),
-    name: effect.name?.trim() || fallback.name,
-    level: effect.level || '',
-    source: effect.source?.trim() || 'local_custom',
-    sourceName: effect.sourceName?.trim() || item.sourceName,
-    description: effect.description || '',
-    condition: effect.condition || '',
-    value: Number(effect.value ?? fallback.value) || 0,
-    type: effectKind === 'extraHit' ? '' : (effect.type ?? fallback.type),
+    ...normalizedEffect,
+    schemaVersion: 2,
+    id: normalizedEffect.id?.trim() || effectKey,
+    displayName: buildFallbackEffectDisplayName(effectKey, normalizedEffect, fallback.displayName),
+    name: normalizedEffect.name?.trim() || fallback.name,
+    level: normalizedEffect.level || '',
+    source: normalizedEffect.source?.trim() || 'local_custom',
+    sourceName: normalizedEffect.sourceName?.trim() || item.sourceName,
+    description: normalizedEffect.description || '',
+    condition: normalizedEffect.condition || '',
+    value: Number(normalizedEffect.value ?? fallback.value) || 0,
+    type,
+    category,
+    maxStacks: category === 'countable' && Number.isFinite(rawMaxStacks) ? Math.max(1, Math.floor(rawMaxStacks)) : undefined,
+    multiplier,
     effectKind,
     extraHitConfig: effectKind === 'extraHit'
-      ? normalizeExtraHitConfig(effect.extraHitConfig)
+      ? normalizeExtraHitConfig(normalizedEffect.extraHitConfig)
       : undefined,
   };
 }
@@ -607,6 +748,12 @@ function normalizeBuffDraft(value: Partial<BuffDraft> & { buffs?: Record<string,
   }
 
   return normalizedDraft;
+}
+
+function normalizeBuffDraftLibrary(library: Record<string, BuffDraft>): Record<string, BuffDraft> {
+  return Object.fromEntries(
+    Object.entries(library).map(([draftId, draftValue]) => [draftId, normalizeBuffDraft(draftValue)])
+  );
 }
 
 function reorderDraftStructure(draft: BuffDraft) {
@@ -794,6 +941,7 @@ type BuffSheetRow =
       effectKind: string;
       typeLabel: string;
       valueText: string;
+      categoryText: string;
       sourceName: string;
       condition: string;
       description: string;
@@ -1008,10 +1156,11 @@ function buildBuffSheetRows(draft: BuffDraft): BuffSheetRow[] {
         effectKind: getEffectKindLabel(effect.effectKind),
         typeLabel: effect.effectKind === 'extraHit'
           ? '额外伤害段'
-          : (effect.type ? getBuffTypeDisplayLabel(effect.type) : '暂无'),
-        valueText: effect.effectKind === 'extraHit'
-          ? `${effect.extraHitConfig?.baseMultiplier ?? DEFAULT_EXTRA_HIT_CONFIG.baseMultiplier}x`
-          : formatBuffNumericValue(effect.type, effect.value),
+          : `${getBuffEffectMultiplier(effect) ? '乘算 · ' : ''}${effect.type ? getBuffTypeDisplayLabel(effect.type) : '暂无'}`,
+        valueText: formatBuffEffectValueText(effect),
+        categoryText: effect.effectKind === 'extraHit'
+          ? '-'
+          : `${BUFF_CATEGORY_LABELS[normalizeBuffCategory(effect.category)]}${normalizeBuffCategory(effect.category) === 'countable' ? `/${effect.maxStacks ?? 1}` : ''}`,
         sourceName: effect.sourceName || item.sourceName || draft.sourceName,
         condition: effect.condition || '-',
         description: effect.description || '-',
@@ -1160,6 +1309,7 @@ function buildBuffSheetColumns(): BuffSheetColumn[] {
     { key: 'effectKind', title: '效果种类', width: 90, group: '效果区', align: 'center' },
     { key: 'typeLabel', title: '类型', width: 170, group: '效果区' },
     { key: 'valueText', title: '数值', width: 84, group: '效果区', align: 'right' },
+    { key: 'categoryText', title: '分类', width: 92, group: '效果区', align: 'center' },
     { key: 'sourceName', title: '来源', width: 110, group: '文本区' },
     { key: 'condition', title: '条件', width: 180, group: '文本区' },
     { key: 'description', title: '描述', width: 240, group: '文本区' },
@@ -1331,6 +1481,7 @@ function buildBuffWorkbookView(rows: BuffSheetRow[], columns: BuffSheetColumn[])
       effectKind: row.effectKind,
       typeLabel: row.typeLabel,
       valueText: row.valueText,
+      categoryText: row.categoryText,
       sourceName: row.sourceName,
       condition: row.condition,
       description: row.description,
@@ -1466,20 +1617,28 @@ export function BuffDraftPage() {
       setEffectValueInput('');
       return;
     }
+    const multiplier = getBuffEffectMultiplier(selectedEffect);
+    if (multiplier) {
+      setEffectValueInput(String(multiplier.coefficient));
+      return;
+    }
     setEffectValueInput(String(selectedEffect.value ?? 0));
-  }, [selectedEffect?.effectKind, selectedEffect?.id, selectedEffect?.value]);
+  }, [selectedEffect?.effectKind, selectedEffect?.id, selectedEffect?.multiplier, selectedEffect?.value]);
 
   const filteredBuffTypeOptions = useMemo(() => {
     const keyword = buffTypeQuery.trim().toLowerCase();
+    const options = getBuffEffectMultiplier(selectedEffect ?? {})
+      ? BUFF_TYPE_OPTIONS.filter((option) => MULTIPLIER_SUPPORTED_BUFF_TYPES.includes(option))
+      : BUFF_TYPE_OPTIONS;
     if (!keyword) {
-      return BUFF_TYPE_OPTIONS;
+      return options;
     }
-    return BUFF_TYPE_OPTIONS.filter((option) => {
+    return options.filter((option) => {
       const meta = BUFF_TYPE_LABELS[option];
       const haystack = [option, meta.label, ...meta.keywords].join('|').toLowerCase();
       return haystack.includes(keyword);
     });
-  }, [buffTypeQuery]);
+  }, [buffTypeQuery, selectedEffect]);
 
   const markdown = useMemo(() => {
     const itemLines = Object.entries(draft.items).flatMap(([itemKey, item]) => {
@@ -1542,19 +1701,14 @@ export function BuffDraftPage() {
   };
 
   const updateSelectedEffectKind = (nextKind: BuffEffectKind) => {
-    updateSelectedEffect((prev) => ({
-      ...prev,
-      effectKind: nextKind,
-      type: nextKind === 'extraHit' ? '' : prev.type,
-      value: nextKind === 'extraHit' ? 0 : prev.value,
-      extraHitConfig: nextKind === 'extraHit'
-        ? normalizeExtraHitConfig(prev.extraHitConfig)
-        : undefined,
-    }));
+    updateSelectedEffect((prev) => applyBuffEffectKind(prev, nextKind));
   };
 
   const handleEffectValueInputChange = (nextValue: string) => {
     setEffectValueInput(nextValue);
+    if (!selectedEffect || getBuffEffectMultiplier(selectedEffect)) {
+      return;
+    }
     if (nextValue.trim() === '') {
       return;
     }
@@ -1565,7 +1719,7 @@ export function BuffDraftPage() {
   };
 
   const finalizeEffectValueInput = () => {
-    if (!selectedEffect || selectedEffect.effectKind === 'extraHit') {
+    if (!selectedEffect || selectedEffect.effectKind === 'extraHit' || getBuffEffectMultiplier(selectedEffect)) {
       setEffectValueInput('');
       return;
     }
@@ -1663,12 +1817,12 @@ export function BuffDraftPage() {
       setIsOverwriteDraftModalOpen(true);
       return false;
     }
-    const nextDraft = {
+    const nextDraft = normalizeBuffDraft({
       ...orderedDraft,
       id: nextDraftId,
-    };
+    });
     library[nextDraft.id] = nextDraft;
-    window.localStorage.setItem(BUFF_LIBRARY_STORAGE_KEY, JSON.stringify(library));
+    window.localStorage.setItem(BUFF_LIBRARY_STORAGE_KEY, JSON.stringify(normalizeBuffDraftLibrary(library)));
     window.localStorage.setItem(BUFF_DRAFT_STORAGE_KEY, JSON.stringify(nextDraft));
     if (nextDraft.id !== orderedDraft.id) {
       setDraft(nextDraft);
@@ -1820,10 +1974,10 @@ export function BuffDraftPage() {
     }
 
     const currentLibrary = readLocalBuffLibrary();
-    const nextLibrary = {
+    const nextLibrary = normalizeBuffDraftLibrary({
       ...currentLibrary,
       ...pendingImportShare.payload,
-    };
+    });
     const nextIds = Object.keys(nextLibrary);
     window.localStorage.setItem(BUFF_LIBRARY_STORAGE_KEY, JSON.stringify(nextLibrary));
     setLocalDraftIds(nextIds);
@@ -1863,12 +2017,12 @@ export function BuffDraftPage() {
     const raw = window.localStorage.getItem(BUFF_LIBRARY_STORAGE_KEY);
     const library = raw ? (JSON.parse(raw) as Record<string, BuffDraft>) : {};
     const nextDraftId = getNextDraftId(Object.keys(library));
-    const nextDraft = {
+    const nextDraft = normalizeBuffDraft({
       ...cloneValue(orderedDraft),
       id: nextDraftId,
-    };
+    });
     library[nextDraftId] = nextDraft;
-    window.localStorage.setItem(BUFF_LIBRARY_STORAGE_KEY, JSON.stringify(library));
+    window.localStorage.setItem(BUFF_LIBRARY_STORAGE_KEY, JSON.stringify(normalizeBuffDraftLibrary(library)));
     window.localStorage.setItem(BUFF_DRAFT_STORAGE_KEY, JSON.stringify(nextDraft));
     setDraft(nextDraft);
     setLocalDraftIds(Object.keys(library));
@@ -1889,7 +2043,7 @@ export function BuffDraftPage() {
     }
     withUndo(`删除本地组 · ${selectedLocalDraftId}`, () => {
       delete library[selectedLocalDraftId];
-      window.localStorage.setItem(BUFF_LIBRARY_STORAGE_KEY, JSON.stringify(library));
+      window.localStorage.setItem(BUFF_LIBRARY_STORAGE_KEY, JSON.stringify(normalizeBuffDraftLibrary(library)));
       const remainingIds = Object.keys(library);
       const nextSelectedId = remainingIds[0] || '';
       setLocalDraftIds(remainingIds);
@@ -2414,7 +2568,7 @@ export function BuffDraftPage() {
                           />
                           <select
                             value={selectedEffect.type || ''}
-                            onChange={(event) => updateSelectedEffect((prev) => ({ ...prev, type: event.target.value }))}
+                            onChange={(event) => updateSelectedEffect((prev) => applyBuffType(prev, event.target.value))}
                             disabled={selectedEffect.effectKind === 'extraHit'}
                           >
                             <option value="">暂无</option>
@@ -2424,24 +2578,73 @@ export function BuffDraftPage() {
                           </select>
                         </div>
                       </label>
+                      {selectedEffect.effectKind !== 'extraHit' && (
+                        <label>
+                          <span>分类</span>
+                          <select
+                            value={normalizeBuffCategory(selectedEffect.category)}
+                            onChange={(event) => updateSelectedEffect((prev) => applyBuffCategory(prev, event.target.value as BuffCategory))}
+                          >
+                            {BUFF_CATEGORY_OPTIONS.map((option) => (
+                              <option key={option} value={option}>{BUFF_CATEGORY_LABELS[option]}</option>
+                            ))}
+                          </select>
+                        </label>
+                      )}
+                      {selectedEffect.effectKind !== 'extraHit' && (
+                        <label className="operator-draft-buff-multiplier-toggle">
+                          <span>乘区独立乘算</span>
+                          <input
+                            type="checkbox"
+                            checked={Boolean(getBuffEffectMultiplier(selectedEffect))}
+                            disabled={normalizeBuffCategory(selectedEffect.category) === 'countable'}
+                            onChange={(event) => updateSelectedEffect((prev) => setBuffMultiplierEnabled(prev, event.target.checked))}
+                          />
+                        </label>
+                      )}
+                      {selectedEffect.effectKind !== 'extraHit' && getBuffEffectMultiplier(selectedEffect) && (
+                        <label>
+                          <span>乘算系数</span>
+                          <DeferredNumberInput
+                            min={0.000001}
+                            step="0.01"
+                            value={getBuffEffectMultiplier(selectedEffect)?.coefficient ?? 1}
+                            onCommit={(value) => updateSelectedEffect((prev) => setBuffMultiplierCoefficient(prev, value ?? 1))}
+                          />
+                          <small>{getBuffMultiplierHint(selectedEffect)}</small>
+                        </label>
+                      )}
                       <label>
                         <span>数值</span>
                         <div className="buff-draft-value-editor">
                           <input
                             type="text"
                             inputMode="decimal"
-                            value={selectedEffect.effectKind === 'extraHit' ? 0 : effectValueInput}
+                            value={selectedEffect.effectKind === 'extraHit' ? 0 : getBuffEffectMultiplier(selectedEffect) ? '' : effectValueInput}
                             onChange={(event) => handleEffectValueInputChange(event.target.value)}
                             onBlur={finalizeEffectValueInput}
-                            disabled={selectedEffect.effectKind === 'extraHit'}
+                            disabled={selectedEffect.effectKind === 'extraHit' || Boolean(getBuffEffectMultiplier(selectedEffect))}
                           />
                           <small>
                             {selectedEffect.effectKind === 'extraHit'
                               ? '额外伤害段不走普通 modifier 数值，这里保持 0。'
-                              : getBuffValueHint(selectedEffect.type, selectedEffect.value)}
+                              : getBuffEffectMultiplier(selectedEffect)
+                                ? 'multiplier 使用独立 coefficient，不写入普通 value。'
+                                : getBuffValueHint(selectedEffect.type, selectedEffect.value)}
                           </small>
                         </div>
                       </label>
+                      {selectedEffect.effectKind !== 'extraHit' && normalizeBuffCategory(selectedEffect.category) === 'countable' && (
+                        <label>
+                          <span>最大层数</span>
+                          <DeferredNumberInput
+                            min={1}
+                            step="1"
+                            value={selectedEffect.maxStacks ?? 1}
+                            onCommit={(value) => updateSelectedEffect((prev) => setBuffMaxStacks(prev, value ?? 1))}
+                          />
+                        </label>
+                      )}
                       {selectedEffect.effectKind === 'extraHit' && (
                         <div className="buff-draft-extra-hit-grid is-wide">
                           <label>
@@ -2991,10 +3194,10 @@ export function BuffDraftSheetPage() {
     if (!pendingImportShare) {
       return;
     }
-    const nextLibrary = {
+    const nextLibrary = normalizeBuffDraftLibrary({
       ...loadLocalBuffLibrary(),
       ...pendingImportShare.payload,
-    };
+    });
     window.localStorage.setItem(BUFF_LIBRARY_STORAGE_KEY, JSON.stringify(nextLibrary));
     setLocalLibrary(nextLibrary);
     applyExplorerDefaultCollapse(nextLibrary);
@@ -3049,17 +3252,6 @@ export function BuffDraftSheetPage() {
     });
   }, [collapsedItems, draft.id, filterKeyword, getItemCollapseKey, rows]);
   const workbookRows = useMemo(() => buildBuffWorkbookView(visibleRows, columns), [columns, visibleRows]);
-  const filteredBuffTypeOptions = useMemo(() => {
-    const keyword = buffTypeQuery.trim().toLowerCase();
-    if (!keyword) {
-      return BUFF_TYPE_OPTIONS;
-    }
-    return BUFF_TYPE_OPTIONS.filter((option) => {
-      const meta = BUFF_TYPE_LABELS[option];
-      const haystack = [option, meta.label, ...meta.keywords].join('|').toLowerCase();
-      return haystack.includes(keyword);
-    });
-  }, [buffTypeQuery]);
 
   useLayoutEffect(() => {
     const snapshot = pendingFormulaFocusRef.current;
@@ -3209,14 +3401,33 @@ export function BuffDraftSheetPage() {
   const selectedEffect = selectedItemKey && selectedEffectKey
     ? draft.items[selectedItemKey]?.effects[selectedEffectKey] ?? null
     : null;
+  const filteredBuffTypeOptions = useMemo(() => {
+    const keyword = buffTypeQuery.trim().toLowerCase();
+    const options = getBuffEffectMultiplier(selectedEffect ?? {})
+      ? BUFF_TYPE_OPTIONS.filter((option) => MULTIPLIER_SUPPORTED_BUFF_TYPES.includes(option))
+      : BUFF_TYPE_OPTIONS;
+    if (!keyword) {
+      return options;
+    }
+    return options.filter((option) => {
+      const meta = BUFF_TYPE_LABELS[option];
+      const haystack = [option, meta.label, ...meta.keywords].join('|').toLowerCase();
+      return haystack.includes(keyword);
+    });
+  }, [buffTypeQuery, selectedEffect]);
 
   useEffect(() => {
     if (!selectedEffect || selectedEffect.effectKind === 'extraHit') {
       setEffectValueInput('');
       return;
     }
+    const multiplier = getBuffEffectMultiplier(selectedEffect);
+    if (multiplier) {
+      setEffectValueInput(String(multiplier.coefficient));
+      return;
+    }
     setEffectValueInput(String(selectedEffect.value ?? 0));
-  }, [selectedEffect?.effectKind, selectedEffect?.id, selectedEffect?.value]);
+  }, [selectedEffect?.effectKind, selectedEffect?.id, selectedEffect?.multiplier, selectedEffect?.value]);
 
   const updateDraftField = useCallback(<K extends keyof BuffDraft>(field: K, value: BuffDraft[K]) => {
     setDraft((prev) => {
@@ -3373,19 +3584,14 @@ export function BuffDraftSheetPage() {
   }, [formulaTextBinding?.key, formulaTextBinding?.value]);
 
   const updateSelectedEffectKind = useCallback((nextKind: BuffEffectKind) => {
-    updateSelectedEffect((prev) => ({
-      ...prev,
-      effectKind: nextKind,
-      type: nextKind === 'extraHit' ? '' : prev.type,
-      value: nextKind === 'extraHit' ? 0 : prev.value,
-      extraHitConfig: nextKind === 'extraHit'
-        ? normalizeExtraHitConfig(prev.extraHitConfig)
-        : undefined,
-    }));
+    updateSelectedEffect((prev) => applyBuffEffectKind(prev, nextKind));
   }, [updateSelectedEffect]);
 
   const handleEffectValueInputChange = useCallback((nextValue: string) => {
     setEffectValueInput(nextValue);
+    if (!selectedEffect || getBuffEffectMultiplier(selectedEffect)) {
+      return;
+    }
     if (nextValue.trim() === '') {
       return;
     }
@@ -3393,10 +3599,10 @@ export function BuffDraftSheetPage() {
     if (Number.isFinite(parsed)) {
       updateSelectedEffect((prev) => ({ ...prev, value: parsed }));
     }
-  }, [updateSelectedEffect]);
+  }, [selectedEffect, updateSelectedEffect]);
 
   const finalizeEffectValueInput = useCallback(() => {
-    if (!selectedEffect || selectedEffect.effectKind === 'extraHit') {
+    if (!selectedEffect || selectedEffect.effectKind === 'extraHit' || getBuffEffectMultiplier(selectedEffect)) {
       setEffectValueInput('');
       return;
     }
@@ -3504,18 +3710,19 @@ export function BuffDraftSheetPage() {
       return false;
     }
 
-    const nextDraft = {
+    const nextDraft = normalizeBuffDraft({
       ...workingDraft,
       id: nextDraftId,
-    };
+    });
 
-    const nextLibrary = { ...library };
+    const nextLibrary = normalizeBuffDraftLibrary({ ...library });
     nextLibrary[nextDraftId] = nextDraft;
 
-    window.localStorage.setItem(BUFF_LIBRARY_STORAGE_KEY, JSON.stringify(nextLibrary));
+    const normalizedLibrary = normalizeBuffDraftLibrary(nextLibrary);
+    window.localStorage.setItem(BUFF_LIBRARY_STORAGE_KEY, JSON.stringify(normalizedLibrary));
     window.localStorage.setItem(BUFF_DRAFT_STORAGE_KEY, JSON.stringify(nextDraft));
     setDraft(nextDraft);
-    setLocalLibrary(nextLibrary);
+    setLocalLibrary(normalizedLibrary);
     setSelectedLocalDraftId(nextDraftId);
     setIsOverwriteDraftModalOpen(false);
     setPendingFocusRowKey(focusRowKey ?? `group-${nextDraftId}`);
@@ -3575,13 +3782,14 @@ export function BuffDraftSheetPage() {
   }, [draft]);
 
   const persistLibraryState = useCallback((nextLibrary: Record<string, BuffDraft>, nextSelectedId?: string) => {
-    window.localStorage.setItem(BUFF_LIBRARY_STORAGE_KEY, JSON.stringify(nextLibrary));
-    setLocalLibrary(nextLibrary);
+    const normalizedLibrary = normalizeBuffDraftLibrary(nextLibrary);
+    window.localStorage.setItem(BUFF_LIBRARY_STORAGE_KEY, JSON.stringify(normalizedLibrary));
+    setLocalLibrary(normalizedLibrary);
     if (nextSelectedId) {
       setSelectedLocalDraftId(nextSelectedId);
-      if (nextLibrary[nextSelectedId]) {
-        setDraft(nextLibrary[nextSelectedId]);
-        window.localStorage.setItem(BUFF_DRAFT_STORAGE_KEY, JSON.stringify(nextLibrary[nextSelectedId]));
+      if (normalizedLibrary[nextSelectedId]) {
+        setDraft(normalizedLibrary[nextSelectedId]);
+        window.localStorage.setItem(BUFF_DRAFT_STORAGE_KEY, JSON.stringify(normalizedLibrary[nextSelectedId]));
       }
     }
   }, []);
@@ -3702,11 +3910,12 @@ export function BuffDraftSheetPage() {
       const nextLibrary = cloneValue(localLibrary);
       delete nextLibrary[draftId];
       const nextSelectedId = Object.keys(nextLibrary)[0] ?? '';
-      window.localStorage.setItem(BUFF_LIBRARY_STORAGE_KEY, JSON.stringify(nextLibrary));
-      setLocalLibrary(nextLibrary);
+      const normalizedLibrary = normalizeBuffDraftLibrary(nextLibrary);
+      window.localStorage.setItem(BUFF_LIBRARY_STORAGE_KEY, JSON.stringify(normalizedLibrary));
+      setLocalLibrary(normalizedLibrary);
       setSelectedLocalDraftId(nextSelectedId);
-      if (nextSelectedId && nextLibrary[nextSelectedId]) {
-        setDraft(nextLibrary[nextSelectedId]);
+      if (nextSelectedId && normalizedLibrary[nextSelectedId]) {
+        setDraft(normalizedLibrary[nextSelectedId]);
         setPendingFocusRowKey(`group-${nextSelectedId}`);
       } else {
         const nextDraftId = getNextDraftId([]);
@@ -4101,7 +4310,7 @@ export function BuffDraftSheetPage() {
                 data-formula-focus-id="effect-type-select"
                 className="buff-sheet-formula-input is-select buff-sheet-formula-type-select"
                 value={selectedEffect.type || ''}
-                onChange={(event) => updateSelectedEffect((prev) => ({ ...prev, type: event.target.value }))}
+                onChange={(event) => updateSelectedEffect((prev) => applyBuffType(prev, event.target.value))}
                 disabled={selectedEffect.effectKind === 'extraHit'}
               >
                 <option value="">暂无类型</option>
@@ -4109,6 +4318,17 @@ export function BuffDraftSheetPage() {
                   <option key={option} value={option}>{getBuffTypeDisplayLabel(option)}</option>
                 ))}
               </select>
+              {selectedEffect.effectKind !== 'extraHit' && (
+                <label className="buff-sheet-formula-inline-toggle">
+                  <input
+                    type="checkbox"
+                    checked={Boolean(getBuffEffectMultiplier(selectedEffect))}
+                    disabled={normalizeBuffCategory(selectedEffect.category) === 'countable'}
+                    onChange={(event) => updateSelectedEffect((prev) => setBuffMultiplierEnabled(prev, event.target.checked))}
+                  />
+                  乘算
+                </label>
+              )}
             </div>
           );
         case 'valueText':
@@ -4120,10 +4340,40 @@ export function BuffDraftSheetPage() {
               inputMode="decimal"
               value={selectedEffect.effectKind === 'extraHit' ? 0 : effectValueInput}
               onChange={(event) => handleEffectValueInputChange(event.target.value)}
-              onBlur={finalizeEffectValueInput}
+              onBlur={getBuffEffectMultiplier(selectedEffect)
+                ? (event) => updateSelectedEffect((prev) => setBuffMultiplierCoefficient(prev, Number(event.target.value)))
+                : finalizeEffectValueInput}
               disabled={selectedEffect.effectKind === 'extraHit'}
-              placeholder="数值"
+              placeholder={getBuffEffectMultiplier(selectedEffect) ? '乘算系数' : '数值'}
             />
+          );
+        case 'categoryText':
+          return (
+            <div className="buff-sheet-formula-type-editor">
+              <select
+                data-formula-focus-id="effect-category"
+                className="buff-sheet-formula-input is-select"
+                value={normalizeBuffCategory(selectedEffect.category)}
+                onChange={(event) => updateSelectedEffect((prev) => applyBuffCategory(prev, event.target.value as BuffCategory))}
+                disabled={selectedEffect.effectKind === 'extraHit'}
+              >
+                {BUFF_CATEGORY_OPTIONS.map((option) => (
+                  <option key={option} value={option}>{BUFF_CATEGORY_LABELS[option]}</option>
+                ))}
+              </select>
+              {normalizeBuffCategory(selectedEffect.category) === 'countable' && selectedEffect.effectKind !== 'extraHit' && (
+                <input
+                  data-formula-focus-id="effect-max-stacks"
+                  className="buff-sheet-formula-input"
+                  type="number"
+                  min={1}
+                  step={1}
+                  value={selectedEffect.maxStacks ?? 1}
+                  onChange={(event) => updateSelectedEffect((prev) => setBuffMaxStacks(prev, Number(event.target.value)))}
+                  placeholder="最大层数"
+                />
+              )}
+            </div>
           );
         case 'condition':
           return <input data-formula-focus-id="effect-condition" className="buff-sheet-formula-input" value={formulaTextInput} onChange={(event) => setFormulaTextInput(event.target.value)} onBlur={commitFormulaTextInput} onKeyDown={handleFormulaTextInputKeyDown} placeholder="条件" />;

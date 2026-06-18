@@ -126,3 +126,25 @@ assert(damageSegments.length === 1, 'selected extraHit should create an independ
 assert(damageSegments[0].multiplierText === '250.0%', 'extraHit segment should use configured multiplier');
 assert(damageSegments[0].skillTypeText === 'B', 'extraHit segment should preserve its skill damage type');
 assert(damageSegments[0].nonCritText === '1625', 'extraHit segment should apply the selected skill damage bonus');
+
+const countableDamageSegments = buildAnomalyDamageSegments({
+  panelBase: null,
+  panelData: { atk: 1000, critRate: 0, critDmg: 0.5 },
+  hitCards: [],
+  selectedAnomalyDamages: [],
+  buttonCharacterId: 'operator',
+  damageBonus: { skillDmgBonus: 0.2, allSkillDmgBonus: 0.1 } as never,
+  fullCombinedModifierBuffList: [],
+  extraHitBuffList: [{
+    id: 'extra-hit-countable', name: 'extra-hit-countable', displayName: 'Stacked hit', level: '', source: 'test', sourceName: 'test', refCount: 1,
+    category: 'countable', maxStacks: 3,
+    effectKind: 'extraHit', extraHitConfig,
+  }],
+  buffStackCounts: { 'extra-hit-countable': 3 },
+  manuallyDisabledBuffIdsBySegmentKey: {},
+  getEffectiveCharacterSourceSkillBoost: () => 0,
+});
+assert(countableDamageSegments.length === 3, 'countable extraHit should create one independent damage segment per stack');
+assert(countableDamageSegments.every((segment) => segment.multiplierText === '250.0%'), 'countable extraHit layers should not multiply base multiplier by stack count');
+assert(countableDamageSegments.map((segment) => segment.key).join(',') === 'buff-extra-hit-extra-hit-countable-1,buff-extra-hit-extra-hit-countable-2,buff-extra-hit-extra-hit-countable-3', 'countable extraHit layers should use stable layer segment keys');
+assert(countableDamageSegments.every((segment) => segment.nonCritText === '1625'), 'each countable extraHit layer should keep single-hit damage');

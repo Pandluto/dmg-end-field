@@ -3,6 +3,7 @@ import { buildBuffTypeCatalogPromptSection, BUFF_MODIFIER_TYPE_IDS } from '../ai
 import { createBuffFillAiDraftSchema } from '../ai/buffFillSchema';
 import { convertBuffFillAiDraftToBuffDraft, sanitizeBuffFillAiDraft, validateBuffFillAiDraft } from '../ai/buffFillValidator';
 import type { BuffDraft } from '../types/buffFill';
+import { normalizeStoredBuffDefinition } from '../core/services/buffStorageNormalization';
 import { AI_CLI_PROTOCOL_VERSION } from './aiCliAgentTypes';
 import type { AgentFillDomainAdapter, AgentFillProposalPayload, AgentFillValidationResult } from './aiCliFillDomains';
 
@@ -45,6 +46,35 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value);
 }
 
+function normalizeBuffDraftForStorage(draft: BuffDraft): BuffDraft {
+  return {
+    ...draft,
+    items: Object.fromEntries(
+      Object.entries(draft.items || {}).map(([itemKey, item]) => [
+        itemKey,
+        {
+          ...item,
+          effects: Object.fromEntries(
+            Object.entries(item.effects || {}).map(([effectKey, effect]) => [
+              effectKey,
+              normalizeStoredBuffDefinition({
+                ...effect,
+                type: effect.type === 'magicTakenDmgBonus' ? 'magicVulnerability' : effect.type,
+              }),
+            ])
+          ) as BuffDraft['items'][string]['effects'],
+        },
+      ])
+    ),
+  };
+}
+
+function normalizeBuffLibraryForStorage(library: Record<string, BuffDraft>): Record<string, BuffDraft> {
+  return Object.fromEntries(
+    Object.entries(library).map(([draftId, draft]) => [draftId, normalizeBuffDraftForStorage(draft)])
+  );
+}
+
 function validateBuffProposalPayload(payload: unknown): AgentFillValidationResult<BuffDraft> {
   if (!isRecord(payload)) {
     return { ok: false, errors: ['proposal payload must be object'] };
@@ -77,11 +107,11 @@ function validateBuffProposalPayload(payload: unknown): AgentFillValidationResul
 }
 
 export function readCurrentBuffDraft(): BuffDraft {
-  return readJsonStorage<BuffDraft>(BUFF_DRAFT_STORAGE_KEY, createFallbackDraft());
+  return normalizeBuffDraftForStorage(readJsonStorage<BuffDraft>(BUFF_DRAFT_STORAGE_KEY, createFallbackDraft()));
 }
 
 export function readBuffLibrary(): Record<string, BuffDraft> {
-  return readJsonStorage<Record<string, BuffDraft>>(BUFF_LIBRARY_STORAGE_KEY, {});
+  return normalizeBuffLibraryForStorage(readJsonStorage<Record<string, BuffDraft>>(BUFF_LIBRARY_STORAGE_KEY, {}));
 }
 
 export function formatLibrarySummary(library: Record<string, BuffDraft>): Array<{ id: string; name: string; sourceName: string; source: string; items: number; effects: number }> {
@@ -112,7 +142,7 @@ export function persistDraft(draft: BuffDraft, label?: string) {
   if (label) {
     writeUndoSnapshot(label, readCurrentBuffDraft());
   }
-  writeJsonStorage(BUFF_DRAFT_STORAGE_KEY, draft);
+  writeJsonStorage(BUFF_DRAFT_STORAGE_KEY, normalizeBuffDraftForStorage(draft));
 }
 
 export function writeUndoSnapshot(label: string, previousDraft: BuffDraft) {
@@ -144,7 +174,7 @@ function buildTaskPackage(draft: BuffDraft, sourceText: string) {
     librarySummary: formatLibrarySummary(library),
     modifierCatalog,
     systemPrompt: buffSheetAiSystemPromptRaw.trim(),
-    instruction: 'Return exactly one BuffFillAiDraft JSON object. No Markdown. No explanation. fill.apply creates a proposal only; it does NOT save to library. Before fill.apply, self-check pending count with proposal.list. REST fill.apply is refused while any pending proposal exists. For stale backlog, call proposal.clear through REST, then resubmit only the current proposal. If multiple edits are intended, submit and finish them one by one. Do not ask the user to re-run fill.apply.',
+    instruction: 'Return exactly one BuffFillAiDraft JSON object. No Markdown. No explanation. Modifier effects may include category=condition/countable/passive. Multiplier buffs remain effectKind=modifier, keep the original supported type, and write multiplier={coefficient: positiveNumber}; do not create multiplierMultiplier and do not copy coefficient into value. multiplier is incompatible with countable and extraHit. fill.apply creates a proposal only; it does NOT save to library. Before fill.apply, self-check pending count with proposal.list. REST fill.apply is refused while any pending proposal exists. For stale backlog, call proposal.clear through REST, then resubmit only the current proposal. If multiple edits are intended, submit and finish them one by one. Do not ask the user to re-run fill.apply.',
     outputSchema: createBuffFillAiDraftSchema(),
     approvalSaveWarning: 'IMPORTANT: After REST fill.apply, the proposal is handed off to Web CLI automatically. Do not submit another fill.apply while a pending proposal exists. For stale backlog, call proposal.clear through REST, then resubmit only the current proposal. Do NOT tell the user to re-run fill.apply in the browser.',
   };
@@ -268,7 +298,7 @@ export const buffFillAdapter: AgentFillDomainAdapter<BuffDraft> = {
 
   applyToWorkingState(payload: BuffDraft): { ok: boolean; error?: string } {
     try {
-      writeJsonStorage(BUFF_DRAFT_STORAGE_KEY, payload);
+      writeJsonStorage(BUFF_DRAFT_STORAGE_KEY, normalizeBuffDraftForStorage(payload));
       return { ok: true };
     } catch (error) {
       return { ok: false, error: error instanceof Error ? error.message : String(error) };
@@ -278,10 +308,11 @@ export const buffFillAdapter: AgentFillDomainAdapter<BuffDraft> = {
   saveToLocalTruth(payload: BuffDraft): { ok: boolean; error?: string } {
     try {
       const previousDraft = readCurrentBuffDraft();
-      const nextLibrary = { ...readBuffLibrary(), [payload.id]: payload };
+      const normalizedPayload = normalizeBuffDraftForStorage(payload);
+      const nextLibrary = normalizeBuffLibraryForStorage({ ...readBuffLibrary(), [payload.id]: normalizedPayload });
       writeUndoSnapshot(`AI CLI fill.save · ${payload.id}`, previousDraft);
       writeJsonStorage(BUFF_LIBRARY_STORAGE_KEY, nextLibrary);
-      writeJsonStorage(BUFF_DRAFT_STORAGE_KEY, payload);
+      writeJsonStorage(BUFF_DRAFT_STORAGE_KEY, normalizedPayload);
       return { ok: true };
     } catch (error) {
       return { ok: false, error: error instanceof Error ? error.message : String(error) };

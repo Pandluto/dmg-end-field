@@ -22,6 +22,41 @@
 - 核心用例已覆盖 `1.32`、`1.452`、`1.694` 三个 spec 场景。
 - 旧 `multiplierMultiplier` → `multiplierBonus + multiplier.coefficient` 迁移用例已覆盖。
 
+## Spec-Fix: Buff Sheet Producer Alignment
+
+发现 Buff Sheet / Buff AI 仍按旧 `type + value` 业务模型维护乘算倍率，导致它可以继续生产 `type=multiplierMultiplier`，不符合本 spec 的 multiplier 附加标识模型。
+
+修复范围：
+
+- [x] Buff Sheet 手工编辑不再提供 `multiplierMultiplier` 作为可选 type。
+- [x] Buff Sheet 读入旧 `multiplierMultiplier` 时迁移为 `type=multiplierBonus + multiplier.coefficient`。
+- [x] Buff Sheet 支持编辑 `multiplier.coefficient`，且 coefficient 不写入普通 `value`。
+- [x] Buff Sheet multiplier 只能引用注册表允许的五类乘区字段。
+- [x] Buff Sheet multiplier 与 `category=countable` 互斥，extraHit 清除 multiplier。
+- [x] Buff Sheet 保存、导入、分享、AI 写入均归一化本地真相源 `def.buff-editor.library.v1`。
+- [x] Buff AI schema/validator 支持 `multiplier` 字段，不再主动生成 `multiplierMultiplier`。
+- [x] 旧 `magicTakenDmgBonus` 读入时迁移为 `magicVulnerability`。
+- [x] 构建通过。
+
+## Spec-Fix: Operator Studio Buff Business Interaction
+
+Operator Studio 的 Buff 数据层级没有问题，但交互不应直接暴露 `effectKind/category/multiplier/value/maxStacks` 让用户自行拼装。交互入口改为业务类型：
+
+```text
+passive / condition / countable / multiplier
+```
+
+约束：
+
+- [x] passive 不允许系数，不允许 multiplier，不允许 countable。
+- [x] condition 覆盖普通条件 Buff，业务范围最广。
+- [x] countable 是 condition 的计层变体，层数 k 与 multiplier.coefficient 不是同一类系数。
+- [x] multiplier 是 condition 的乘区乘算变体，保存为 `category=condition + multiplier.coefficient`。
+- [x] countable / multiplier 暂时只允许伤害加成、脆弱、易伤、增幅四类字段，不包含技能倍率。
+- [x] extraHit 本轮保持兼容编辑，不纳入这四类业务类型重构。
+- [x] Operator Studio UI 使用业务类型驱动字段显示和清理非法字段。
+- [x] 构建通过。
+
 仍需人工验收：
 
 - Operator Studio 保存、重开、导出、导入的实际 UI 流程。
@@ -381,6 +416,14 @@ Phase 5 的 `HitCalculationResult` 与五区结果契约稳定后可以并行：
 - [ ] 普通 passive 面板计算行为不变。
 - [ ] 没有 multiplier 时历史伤害结果不变。
 - [ ] `npm run build` 通过。
+
+## Spec-Fix: Countable ExtraHit Independent Hits
+
+- [x] 将 countable extraHit 从“单段基础倍率 × 层数”改为“每层一个独立 hit”。
+- [x] 异常伤害明细为每层生成独立 segment key 和段标题。
+- [x] Report 的 extraHit 行与异常伤害明细保持同样展开语义。
+- [x] 保留旧 `buff-extra-hit-{buffId}` 禁用 Buff 配置对展开层的兼容。
+- [x] 补充最小 extraHit 集成覆盖，确认每层不再放大基础倍率。
 
 ## Explicit Non-Tasks
 

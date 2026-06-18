@@ -59,7 +59,6 @@ export type BuffModifierType =
   | 'natureAmplify'
   | 'comboDamageBonus'
   | 'multiplierBonus'
-  | 'multiplierMultiplier'
   | 'sourceSkillBoost';
 
 export type BuffValueStyle = 'ratio' | 'flat' | 'multiplier';
@@ -720,22 +719,11 @@ export const BUFF_TYPE_CATALOG: readonly BuffTypeCatalogEntry[] = [
     id: 'multiplierBonus',
     label: '倍率加算',
     valueStyle: 'multiplier',
-    aliases: ['倍率加算', '倍率增加', '倍率加成'],
-    positivePatterns: ['倍率提高', '倍率增加', '技能倍率增加'],
-    negativePatterns: ['倍率乘算', '最终倍率乘算'],
-    examplePhrases: ['技能倍率增加0.3', '倍率提高30%'],
-    notes: '只在文本明确提倍率、系数时使用。',
-    canInferFromImplicitText: false,
-  }),
-  createEntry({
-    id: 'multiplierMultiplier',
-    label: '倍率乘算',
-    valueStyle: 'multiplier',
-    aliases: ['倍率乘算', '最终倍率提高'],
-    positivePatterns: ['倍率乘算', '最终倍率提高'],
-    negativePatterns: ['倍率加算', '倍率增加'],
-    examplePhrases: ['最终倍率乘算提高20%'],
-    notes: '只在文本明确写乘算时使用。',
+    aliases: ['倍率加算', '倍率增加', '倍率加成', '倍率乘算'],
+    positivePatterns: ['倍率提高', '倍率增加', '技能倍率增加', '倍率乘算', '最终倍率提高'],
+    negativePatterns: [],
+    examplePhrases: ['技能倍率增加0.3', '倍率提高30%', '最终倍率乘以1.2'],
+    notes: '技能倍率统一使用 multiplierBonus；乘算语义必须写 multiplier.coefficient，不再使用 multiplierMultiplier。',
     canInferFromImplicitText: false,
   }),
   createEntry({
