@@ -56,6 +56,7 @@ import {
 } from './SkillButtonAnomalyPanels';
 import { useSkillButtonAnomaly } from './useSkillButtonAnomaly';
 import { buildAnomalyBuffOptionsBySegmentKey, buildAnomalyDamageSegments } from './skillButtonAnomalyDamage';
+import { TimelineSkillDetailWorkbench } from './TimelineSkillDetailWorkbench';
 import DeferredNumberInput from '../DeferredNumberInput';
 import './SkillButton.css';
 
@@ -1153,8 +1154,8 @@ export function SkillButtonComponent({
 
       {/* 技能信息弹窗 + 技能伤害弹窗 */}
       {isModalOpen && (
-        <div className="skill-button-modal-overlay">
-          {isLocalBuffSearchOpen ? (
+        <TimelineSkillDetailWorkbench
+          searchLayer={isLocalBuffSearchOpen ? (
             <div className="skill-button-inline-buff-search-mask" onClick={closeLocalBuffSearch}>
               <div
                 className="skill-button-inline-buff-search is-workbench-mode"
@@ -1338,6 +1339,132 @@ export function SkillButtonComponent({
               </div>
             </div>
           ) : null}
+          characterName={characterName}
+          skillLabel={`${skillType} / ${displayName} ${skillLevelModeMap[skillType]}`}
+          positionLabel={(() => {
+            const staffLine = timelineData?.staffLines?.find((item) => item.staffIndex === (button as SkillButtonType).lineIndex);
+            const buttonData = staffLine?.buttons?.find((item) => item.id === button.id);
+            return `干员 ${String((button as SkillButtonType).lineIndex ?? '-')} · 节点 ${String(buttonData?.nodeNumber ?? buttonData?.nodeIndex ?? '-')}`;
+          })()}
+          isLocked={Boolean(isLocked)}
+          onToggleLock={() => dispatch({ type: 'TOGGLE_SKILL_BUTTON_LOCK', buttonId: button.id })}
+          onClose={handleCloseModal}
+          onOpenSearch={openLocalBuffSearch}
+          targetResistance={targetResistance}
+          onResistanceChange={updateTargetResistance}
+          buffs={buffList}
+          buffStackCounts={buttonStackCounts}
+          onRemoveBuff={removeBuff}
+          onDecrementBuff={decrementBuffStack}
+          onIncrementBuff={incrementBuffStack}
+          statuses={[
+            ...selectedStatusCards.map((card) => ({
+              key: card.id,
+              title: card.primaryText,
+              detail: [card.secondaryText, card.tertiaryText].filter(Boolean).join(' · '),
+              kind: '状态',
+              onRemove: () => removeAnomalyCard('state', card.id),
+            })),
+            ...selectedAnomalyStateSnapshots.map((snapshot) => ({
+              key: `snapshot-${snapshot.id}`,
+              title: formatAnomalyStateSnapshotName(snapshot),
+              detail: snapshot.sourceCharacterName,
+              kind: '异常状态',
+              onRemove: () => removeAnomalyStateSnapshotCard(snapshot.id),
+            })),
+            ...selectedAnomalyDamages.map((card) => ({
+              key: card.id,
+              title: card.primaryText,
+              detail: [card.secondaryText, card.tertiaryText].filter(Boolean).join(' · '),
+              kind: '异常伤害',
+              onRemove: () => removeAnomalyCard('damage', card.id),
+            })),
+          ]}
+          hits={[
+            ...(damageViewModel?.hitCards.map((hitCard, index) => ({
+              key: hitCard.key,
+              title: hitCard.displayName,
+              meta: `${hitCard.buffCountText} · ${hitCard.multiplierText}`,
+              expected: hitCard.expectedText,
+              crit: hitCard.critText,
+              nonCrit: hitCard.nonCritText,
+              selected: hitCard.isSelected,
+              disabled: hitCard.isDisabled,
+              onSelect: () => {
+                const isCurrentHit = selectedHitIndex === index && selectedAnomalySegmentKey === null;
+                setSelectedHitIndex(isCurrentHit ? null : index);
+                setSelectedAnomalySegmentKey(null);
+                setIsAnomalyFormulaExpanded(false);
+              },
+            })) ?? []),
+            ...anomalyDamageSegments.map((segment) => ({
+              key: segment.key,
+              title: segment.sequenceTitle,
+              meta: `${segment.buffText} · ${segment.multiplierText}`,
+              expected: segment.expectedText,
+              crit: segment.critText,
+              nonCrit: segment.nonCritText,
+              selected: activeAnomalySegment?.key === segment.key,
+              onSelect: () => {
+                const isCurrentSegment = selectedHitIndex === null && selectedAnomalySegmentKey === segment.key;
+                setSelectedHitIndex(null);
+                setSelectedAnomalySegmentKey(isCurrentSegment ? null : segment.key);
+                setIsAnomalyFormulaExpanded(false);
+              },
+            })),
+          ]}
+          summary={damageViewModel ? {
+            title: damageViewModel.header.fullText,
+            expected: (Number(damageViewModel.summary.totalExpectedText) + anomalyDamageSummary.expected).toFixed(0),
+            crit: (Number(damageViewModel.summary.totalCritText) + anomalyDamageSummary.crit).toFixed(0),
+            nonCrit: (Number(damageViewModel.summary.totalNonCritText) + anomalyDamageSummary.nonCrit).toFixed(0),
+            formula: totalNonCritSummaryFormula,
+          } : null}
+          activeHit={isShowingAnomalyDetail && activeAnomalySegment ? {
+            title: activeAnomalySegment.title,
+            stats: [
+              `ATK ${activeAnomalySegment.panelAtkText}`,
+              `倍率 ${activeAnomalySegment.multiplierText}`,
+              `元素 ${activeAnomalySegment.elementText}`,
+              `期望 ${activeAnomalySegment.expectedText}`,
+              `暴击 ${activeAnomalySegment.critText}`,
+              `非暴 ${activeAnomalySegment.nonCritText}`,
+            ],
+            buffs: activeAnomalyBuffOptions,
+            segmentKey: activeAnomalySegment.key,
+            onToggleBuff: (buffId) => toggleManualBuff(activeAnomalySegment.key, buffId),
+            isBuffActive: (buffId) => isBuffManuallyActive(activeAnomalySegment.key, buffId),
+            onResetBuffs: () => resetManualBuffTweaks(activeAnomalySegment.key),
+          } : damageViewModel?.activeHitDetail ? {
+            title: damageViewModel.activeHitDetail.title,
+            stats: [
+              `倍率 ${damageViewModel.activeHitDetail.multiplierText}`,
+              `元素 ${damageViewModel.activeHitDetail.elementText}`,
+              `期望 ${damageViewModel.activeHitDetail.expectedText}`,
+              `暴击 ${damageViewModel.activeHitDetail.critText}`,
+              `非暴 ${damageViewModel.activeHitDetail.nonCritText}`,
+            ],
+            buffs: activeHitBuffOptions,
+            segmentKey: activeNormalHitSegmentKey,
+            disabled: isActiveNormalHitDisabled,
+            onToggleDisabled: activeNormalHitKey ? toggleActiveNormalHitDisabled : undefined,
+            onToggleBuff: (buffId) => {
+              if (activeNormalHitSegmentKey) toggleManualBuff(activeNormalHitSegmentKey, buffId);
+            },
+            isBuffActive: (buffId) => activeNormalHitSegmentKey
+              ? isBuffManuallyActive(activeNormalHitSegmentKey, buffId)
+              : true,
+            onResetBuffs: activeNormalHitSegmentKey
+              ? () => resetManualBuffTweaks(activeNormalHitSegmentKey)
+              : undefined,
+          } : null}
+          formula={!isShowingAnomalyDetail ? damageViewModel?.activeHitFormula ?? null : null}
+          isFormulaExpanded={!isShowingAnomalyDetail && isExpanded}
+          onToggleFormula={() => {
+            if (!isShowingAnomalyDetail) setIsExpanded((value) => !value);
+          }}
+          infoLines={infoSnapshotLines}
+        >
           <div className={`skill-button-modal-pair${isLocalBuffSearchOpen ? ' is-buff-search-open' : ''}`}>
             {/* 弹窗1：技能信息 */}
             <div className="skill-button-modal skill-button-modal-info">
@@ -1867,7 +1994,7 @@ export function SkillButtonComponent({
               </div>
             </div>
           </div>
-        </div>
+        </TimelineSkillDetailWorkbench>
       )}
     </>
   );

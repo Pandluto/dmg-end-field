@@ -36,6 +36,7 @@ import { getElementBackgroundColor, normalizeAssetUrl, resolveSkillIconUrl } fro
 import { safeSessionStorage } from '../utils/storage';
 import type { Character, SkillButtonData, SkillType, TimelineData } from '../types';
 import type { AnomalyStateSnapshot, PersistedSkillButton, SkillButtonBuff } from '../types/storage';
+import { WorkbenchSplitSurface } from './WorkbenchSplitSurface';
 import './CanvasBoard/CanvasBoard.css';
 import './BuffBatchEditWorkbench.css';
 
@@ -1764,8 +1765,12 @@ export function BuffBatchEditWorkbench({
   };
 
   return (
-    <div className={`canvas-board buff-batch-edit-workbench ${isWorkbenchTopZoneOpen ? 'has-top-zone' : ''}${toolMode === 'add' ? ' is-add-mode' : ''}${toolMode === 'remove' ? ' is-remove-mode' : ''}${toolMode === 'edit' ? ' is-edit-mode' : ''}`}>
-      <div ref={layoutRef} className="canvas-layout buff-edit-layout">
+    <WorkbenchSplitSurface
+      rootClassName={`buff-batch-edit-workbench ${isWorkbenchTopZoneOpen ? 'has-top-zone' : ''}${toolMode === 'add' ? ' is-add-mode' : ''}${toolMode === 'remove' ? ' is-remove-mode' : ''}${toolMode === 'edit' ? ' is-edit-mode' : ''}`}
+      layoutClassName="buff-edit-layout"
+      layoutRef={layoutRef}
+      overlay={renderCandidateAdderModal()}
+    >
         <section className="canvas-left-zone buff-edit-left-zone">
           <div className="canvas-area buff-edit-canvas-area">
             <div ref={canvasRef} className="canvas-container buff-edit-canvas" style={{ height: canvasHeight }}>
@@ -1922,8 +1927,6 @@ export function BuffBatchEditWorkbench({
             {bottomRightControl}
           </div>
         </div>
-      </div>
-      {renderCandidateAdderModal()}
-    </div>
+    </WorkbenchSplitSurface>
   );
 }
