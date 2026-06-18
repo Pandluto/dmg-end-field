@@ -3,7 +3,7 @@ import { pinyin } from 'pinyin-pro';
 import './BuffDraftPage.css';
 import './OperatorDraftPage.css';
 import { APP_ROUTE_PATHS, navigateToAppPath } from '../utils/appRoute';
-import { resolvePublicPath } from '../utils/assetResolver';
+import { normalizeAssetUrl, resolvePublicPath } from '../utils/assetResolver';
 import {
   buildDraftLibraryShareFile,
   buildDraftLibraryShareFileName,
@@ -3103,7 +3103,7 @@ export function WeaponDraftSheetPage() {
             {draft.imgUrl && !weaponImageLoadFailed ? (
               <img
                 className="weapon-sheet-image-preview"
-                src={draft.imgUrl}
+                src={normalizeAssetUrl(draft.imgUrl)}
                 alt={draft.name || '武器主图'}
                 onError={() => setWeaponImageLoadFailed(true)}
               />

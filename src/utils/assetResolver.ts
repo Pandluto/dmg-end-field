@@ -30,6 +30,28 @@ function resolveUserImagePath(path: string): string | null {
   return `${USER_IMAGE_ORIGIN}/user-images/${encodedRel}`;
 }
 
+function isImagePath(path: string): boolean {
+  return /\.(?:png|jpe?g|webp|gif|svg|ico)(?:[?#].*)?$/i.test(path);
+}
+
+function resolveGenericBridgeImagePath(path: string): string | null {
+  const normalized = path
+    .replace(/\\/g, '/')
+    .replace(/^\/+/, '')
+    .split(/[?#]/, 1)[0];
+  if (!normalized || !isImagePath(normalized) || /(^|\/)\.\.(\/|$)/.test(normalized)) {
+    return null;
+  }
+  if (normalized.startsWith('assets/')) {
+    return null;
+  }
+  const relPath = normalized.startsWith('public/')
+    ? normalized.slice('public/'.length)
+    : normalized;
+  const encodedRel = relPath.split('/').filter(Boolean).map(encodeURIComponent).join('/');
+  return encodedRel ? `${USER_IMAGE_ORIGIN}/user-images/${encodedRel}` : null;
+}
+
 function isDesktopRuntimeAvailable(): boolean {
   return typeof window !== 'undefined'
     && typeof (window as unknown as { desktopRuntime?: unknown }).desktopRuntime === 'object';
@@ -88,7 +110,8 @@ export function resolvePublicPath(path: string): string {
 
 export function normalizeAssetUrl(path?: string | null): string {
   if (!path) return '';
-  return resolveUserImagePath(path) ?? resolveDesktopAssetPath(path) ?? resolvePublicPath(path);
+  if (isExternalUrl(path)) return path;
+  return resolveUserImagePath(path) ?? resolveDesktopAssetPath(path) ?? resolveGenericBridgeImagePath(path) ?? resolvePublicPath(path);
 }
 
 /**

@@ -10,6 +10,7 @@ import {
   GRID_ROW_HEIGHT,
   GRID_NODE_COUNT,
 } from '../../../core/calculators/gridSnapLayout';
+import { normalizeAssetUrl } from '../../../utils/assetResolver';
 
 interface CanvasAreaProps {
   config: CanvasConfig;
@@ -122,7 +123,7 @@ export const CanvasArea = forwardRef<HTMLDivElement, CanvasAreaProps>(({
                 {character?.avatarUrl && (
                   <img
                     className="canvas-staff-avatar"
-                    src={character.avatarUrl}
+                    src={normalizeAssetUrl(character.avatarUrl)}
                     alt={`${character?.name} avatar`}
                     onError={(event) => {
                       (event.target as HTMLImageElement).style.display = 'none';

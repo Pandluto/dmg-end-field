@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react';
 import { pinyin } from 'pinyin-pro';
 import { APP_ROUTE_PATHS, navigateToAppPath } from '../utils/appRoute';
-import { resolvePublicPath } from '../utils/assetResolver';
+import { normalizeAssetUrl, resolvePublicPath } from '../utils/assetResolver';
 import {
   buildDraftLibraryShareFile,
   buildDraftLibraryShareFileName,
@@ -2892,7 +2892,7 @@ export function EquipmentSheetPage() {
             {previewImageMeta.imgUrl && !equipmentImageLoadFailed ? (
               <img
                 className="weapon-sheet-image-preview"
-                src={previewImageMeta.imgUrl}
+                src={normalizeAssetUrl(previewImageMeta.imgUrl)}
                 alt={previewImageMeta.alt}
                 onError={() => setEquipmentImageLoadFailed(true)}
               />

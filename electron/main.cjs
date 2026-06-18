@@ -61,6 +61,7 @@ const imageUpdateState = {
   configuredManifestUrl: '',
   progress: null,
 };
+let imageAssetCache = null;
 
 if (!gotSingleInstanceLock) {
   app.quit();
@@ -441,6 +442,101 @@ function tryServeStaticFromRoot({ method, requestUrl, response, rootDir, urlPref
 function writeJson(response, statusCode, payload) {
   response.writeHead(statusCode, buildJsonHeaders());
   response.end(JSON.stringify(payload));
+}
+
+function tryServeUserImageByRequestPath({ method, requestPath, response }) {
+  if (method !== 'GET' && method !== 'HEAD') {
+    return false;
+  }
+  let relPath = '';
+  try {
+    relPath = decodeURIComponent(requestPath || '').replace(/^\/+/, '');
+  } catch {
+    response.writeHead(400);
+    response.end(method === 'HEAD' ? '' : 'Bad Request');
+    return true;
+  }
+  if (/(^|\/)\.\.(\/|$)/.test(relPath) || relPath.includes('\\')) {
+    response.writeHead(403);
+    response.end(method === 'HEAD' ? '' : 'Forbidden');
+    return true;
+  }
+  const absPath = resolveUserImageFileByRequestPath(relPath);
+  if (!absPath || !fs.existsSync(absPath) || !fs.statSync(absPath).isFile()) {
+    return false;
+  }
+  const ext = path.extname(relPath).toLowerCase();
+  const mimeMap = {
+    '.png': 'image/png',
+    '.jpg': 'image/jpeg',
+    '.jpeg': 'image/jpeg',
+    '.webp': 'image/webp',
+    '.gif': 'image/gif',
+    '.svg': 'image/svg+xml',
+  };
+  const contentType = mimeMap[ext] || 'application/octet-stream';
+  try {
+    const data = fs.readFileSync(absPath);
+    response.writeHead(200, {
+      'Content-Type': contentType,
+      'Content-Length': data.length,
+      'Cache-Control': 'no-cache',
+      'Access-Control-Allow-Origin': '*',
+    });
+    response.end(method === 'HEAD' ? '' : data);
+  } catch {
+    response.writeHead(500);
+    response.end(method === 'HEAD' ? '' : 'Internal Server Error');
+  }
+  return true;
+}
+
+function tryServeAssetUserImageFallback({ method, requestUrl, response }) {
+  const assetPath = String(requestUrl.pathname || '').replace(/^\/assets\/?/, '');
+  if (!assetPath || /(^|\/)\.\.(\/|$)/.test(assetPath) || assetPath.includes('\\')) {
+    return false;
+  }
+  const fallbackPaths = [];
+  if (assetPath.startsWith('images/')) {
+    fallbackPaths.push(assetPath.slice('images/'.length));
+  }
+  fallbackPaths.push(assetPath);
+  fallbackPaths.push(path.posix.basename(assetPath));
+
+  for (const fallbackPath of Array.from(new Set(fallbackPaths.filter(Boolean)))) {
+    if (tryServeUserImageByRequestPath({ method, requestPath: fallbackPath, response })) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function tryServeGenericUserImageFallback({ method, requestUrl, response }) {
+  if (!/\.(png|jpg|jpeg|webp|gif|svg|ico)$/i.test(requestUrl.pathname || '')) {
+    return false;
+  }
+  const imagePath = String(requestUrl.pathname || '').replace(/^\/+/, '');
+  if (!imagePath || /(^|\/)\.\.(\/|$)/.test(imagePath) || imagePath.includes('\\')) {
+    return false;
+  }
+  const fallbackPaths = [imagePath];
+  if (imagePath.startsWith('public/')) {
+    fallbackPaths.push(imagePath.slice('public/'.length));
+  }
+  if (imagePath.startsWith('assets/images/')) {
+    fallbackPaths.push(imagePath.slice('assets/images/'.length));
+  }
+  if (imagePath.startsWith('images/')) {
+    fallbackPaths.push(imagePath.slice('images/'.length));
+  }
+  fallbackPaths.push(path.posix.basename(imagePath));
+
+  for (const fallbackPath of Array.from(new Set(fallbackPaths.filter(Boolean)))) {
+    if (tryServeUserImageByRequestPath({ method, requestPath: fallbackPath, response })) {
+      return true;
+    }
+  }
+  return false;
 }
 
 function readJsonRequest(request) {
@@ -836,40 +932,10 @@ function startBridgeServer() {
 
       // ── User-image serving (read-only, no path rules in bridge) ──
       if (method === 'GET' && requestUrl.pathname.startsWith('/user-images/')) {
-        const relPath = decodeURIComponent(requestUrl.pathname.replace(/^\/user-images\//, ''));
-        if (/(^|\/)\.\.(\/|$)/.test(relPath) || relPath.includes('\\')) {
-          response.writeHead(403);
-          response.end('Forbidden');
-          return;
-        }
-        const absPath = resolveUserImageFileByRequestPath(relPath);
-        if (!absPath || !fs.existsSync(absPath) || !fs.statSync(absPath).isFile()) {
+        const relPath = requestUrl.pathname.replace(/^\/user-images\//, '');
+        if (!tryServeUserImageByRequestPath({ method, requestPath: relPath, response })) {
           response.writeHead(404);
           response.end('Not Found');
-          return;
-        }
-        const ext = path.extname(relPath).toLowerCase();
-        const mimeMap = {
-          '.png': 'image/png',
-          '.jpg': 'image/jpeg',
-          '.jpeg': 'image/jpeg',
-          '.webp': 'image/webp',
-          '.gif': 'image/gif',
-          '.svg': 'image/svg+xml',
-        };
-        const contentType = mimeMap[ext] || 'application/octet-stream';
-        try {
-          const data = fs.readFileSync(absPath);
-          response.writeHead(200, {
-            'Content-Type': contentType,
-            'Content-Length': data.length,
-            'Cache-Control': 'no-cache',
-            'Access-Control-Allow-Origin': '*',
-          });
-          response.end(data);
-        } catch {
-          response.writeHead(500);
-          response.end('Internal Server Error');
         }
         return;
       }
@@ -897,6 +963,13 @@ function startBridgeServer() {
         })) {
           return;
         }
+        if (tryServeAssetUserImageFallback({ method, requestUrl, response })) {
+          return;
+        }
+      }
+
+      if (tryServeGenericUserImageFallback({ method, requestUrl, response })) {
+        return;
       }
 
       if (!isDev && tryServeDesktopApp({
@@ -2456,7 +2529,7 @@ function handleRemoveImageRoot(payload) {
 }
 
 function syncImageManifest() {
-  const list = scanAllImageAssets();
+  const list = refreshImageAssetCache().list;
   const manifestDir = getBuiltinManifestDir();
   // Browser fallback still reads assets/images/_manifest.json.
   // Despite the legacy path, its contents represent the latest scanned asset table.
@@ -2489,6 +2562,64 @@ function syncImageManifest() {
   }
 }
 
+function getImageEntryRequestRelativePath(entry) {
+  const relativePath = String(entry.relativePath || '').replace(/\\/g, '/');
+  if (entry.source === 'release' || entry.source === 'user' || entry.source === 'legacy') {
+    return relativePath.replace(/^assets\/images\/?/, '');
+  }
+  return relativePath.replace(/^assets\/?/, '');
+}
+
+function addImageAssetCacheBucket(map, key, entry) {
+  const normalizedKey = String(key || '').toLowerCase();
+  if (!normalizedKey) return;
+  const bucket = map.get(normalizedKey) || [];
+  bucket.push(entry);
+  map.set(normalizedKey, bucket);
+}
+
+function sortImageAssetCacheBuckets(map) {
+  for (const bucket of map.values()) {
+    bucket.sort((left, right) => (left.rootPriority ?? 999) - (right.rootPriority ?? 999));
+  }
+}
+
+function buildImageAssetCache() {
+  const list = scanAllImageAssets();
+  const byRequestPath = new Map();
+  const byFileName = new Map();
+
+  for (const entry of list) {
+    if (entry.kind === 'dir') continue;
+    if (entry.source !== 'release' && entry.source !== 'user' && entry.source !== 'legacy') continue;
+
+    addImageAssetCacheBucket(byRequestPath, getImageEntryRequestRelativePath(entry), entry);
+    addImageAssetCacheBucket(byFileName, entry.fileName, entry);
+  }
+
+  sortImageAssetCacheBuckets(byRequestPath);
+  sortImageAssetCacheBuckets(byFileName);
+
+  return {
+    list,
+    byRequestPath,
+    byFileName,
+    refreshedAt: Date.now(),
+  };
+}
+
+function refreshImageAssetCache() {
+  imageAssetCache = buildImageAssetCache();
+  return imageAssetCache;
+}
+
+function getImageAssetCache() {
+  if (!imageAssetCache) {
+    imageAssetCache = buildImageAssetCache();
+  }
+  return imageAssetCache;
+}
+
 function addFileEntry(results, dirsWithFiles, fullPath, relPath, source, writable, rootInfo = null) {
   let stats;
   try {
@@ -2507,7 +2638,7 @@ function addFileEntry(results, dirsWithFiles, fullPath, relPath, source, writabl
   const publicUrl = canonicalPath
     ? `http://127.0.0.1:${BRIDGE_PORT}/user-images/${canonicalRel.split('/').map(encodeURIComponent).join('/')}`
     : undefined;
-  results.push({
+  const entry = {
     fileName,
     baseName,
     ext,
@@ -2522,7 +2653,12 @@ function addFileEntry(results, dirsWithFiles, fullPath, relPath, source, writabl
     rootPriority: rootInfo?.priority ?? 999,
     sizeBytes: stats.size,
     updatedAt: stats.mtimeMs,
+  };
+  Object.defineProperty(entry, 'absolutePath', {
+    value: fullPath,
+    enumerable: false,
   });
+  results.push(entry);
   // Mark ancestor dirs
   const parts = relPath.split('/');
   for (let i = 0; i < parts.length; i++) {
@@ -2662,32 +2798,15 @@ function resolveUserImageFileByRequestPath(requestPath) {
   if (!requestedFileName || !/\.(png|jpg|jpeg|webp|gif|svg)$/i.test(requestedFileName)) {
     return null;
   }
-  const requestedKey = decoded.toLowerCase();
-  const getRequestRelativePath = (entry) => {
-    const relativePath = String(entry.relativePath || '').replace(/\\/g, '/');
-    if (entry.source === 'release' || entry.source === 'user' || entry.source === 'legacy') {
-      return relativePath.replace(/^assets\/images\/?/, '');
-    }
-    return relativePath.replace(/^assets\/?/, '');
-  };
-  const getFileRelativePath = (entry) => {
-    const relativePath = String(entry.relativePath || '').replace(/\\/g, '/');
-    return relativePath.replace(/^assets\/?/, '');
-  };
-  const allCandidates = scanAllImageAssets()
-    .filter((entry) => entry.kind !== 'dir' && (entry.source === 'release' || entry.source === 'user' || entry.source === 'legacy'));
-  const candidates = allCandidates
-    .filter((entry) => {
-      if (decoded.includes('/')) {
-        const rootRel = getRequestRelativePath(entry).toLowerCase();
-        return rootRel === requestedKey;
-      }
-      return String(entry.fileName || '').toLowerCase() === requestedFileName.toLowerCase();
-    })
-    .sort((left, right) => (left.rootPriority ?? 999) - (right.rootPriority ?? 999));
+  const cache = getImageAssetCache();
+  const exactCandidates = decoded.includes('/')
+    ? cache.byRequestPath.get(decoded.toLowerCase()) || []
+    : [];
+  const fileNameCandidates = cache.byFileName.get(requestedFileName.toLowerCase()) || [];
+  const candidates = exactCandidates.length > 0 ? exactCandidates : fileNameCandidates;
   for (const item of candidates) {
-    if (!item.rootDirectory) continue;
-    const fullPath = path.resolve(item.rootDirectory, getFileRelativePath(item));
+    const fullPath = item.absolutePath;
+    if (!fullPath) continue;
     if (fs.existsSync(fullPath) && fs.statSync(fullPath).isFile()) {
       return fullPath;
     }
@@ -2783,7 +2902,7 @@ function getWebImageAssetCapabilities() {
 }
 
 function handleListImageAssets() {
-  return scanAllImageAssets();
+  return getImageAssetCache().list;
 }
 
 function handleRenameImageDirectory(payload) {
@@ -3229,7 +3348,7 @@ ipcMain.handle('desktop:list-image-assets', () => {
 ipcMain.handle('desktop:import-image-assets', async () => {
   const win = BrowserWindow.getFocusedWindow();
   if (!win) {
-    return scanAllImageAssets();
+    return handleListImageAssets();
   }
 
   const result = await dialog.showOpenDialog(win, {
@@ -3241,7 +3360,7 @@ ipcMain.handle('desktop:import-image-assets', async () => {
   });
 
   if (result.canceled || !result.filePaths || result.filePaths.length === 0) {
-    return scanAllImageAssets();
+    return handleListImageAssets();
   }
 
   const targetDir = getManagedDir();
@@ -3259,7 +3378,7 @@ ipcMain.handle('desktop:import-image-assets', async () => {
   }
 
   syncImageManifest();
-  return scanAllImageAssets();
+  return handleListImageAssets();
 });
 
 ipcMain.handle('desktop:import-image-assets-to-dir', async (_event, payload) => {

@@ -15,6 +15,7 @@ import type {
 } from '../types/storage';
 import { getOperatorConfigPageCache, getRuntimeOperatorTemplateMap, safeSessionStorage, setOperatorConfigPageCache } from '../utils/storage';
 import { APP_ROUTE_PATHS, navigateToAppPath } from '../utils/appRoute';
+import { normalizeAssetUrl } from '../utils/assetResolver';
 import type { BuffEffectKind, BuffExtraHitConfig, BuffMultiplier } from '../core/domain/buff';
 import { normalizeExtraHitConfig } from '../core/services/buffExtraHit';
 import DeferredNumberInput from './DeferredNumberInput';
@@ -249,10 +250,10 @@ const EQUIPMENT_SLOT_METAS = [
 function resolveStoredImageUrl(path?: string): string {
   if (!path) return '';
   if (/^(?:https?:)?\/\//i.test(path)) return path;
-  if (/^[A-Za-z]:[\\/]/.test(path) || path.startsWith('user-images/')) {
+  if (/^[A-Za-z]:[\\/]/.test(path)) {
     return path;
   }
-  return path.startsWith('/') ? path : `/${path}`;
+  return normalizeAssetUrl(path);
 }
 
 function resolveWeaponImageUrl(weaponName?: string): string {
@@ -1309,7 +1310,7 @@ function SkillDetailModal({
               <section key={group.id} className="operator-config-page-skill-card-group">
                 <div className="operator-config-page-skill-card-header">
                   {group.iconUrl ? (
-                    <img className="operator-config-page-skill-card-icon" src={group.iconUrl} alt={group.displayName} />
+                    <img className="operator-config-page-skill-card-icon" src={normalizeAssetUrl(group.iconUrl)} alt={group.displayName} />
                   ) : (
                     <span className="operator-config-page-skill-card-icon-fallback">{group.buttonType}</span>
                   )}
@@ -2376,7 +2377,7 @@ export function OperatorConfigPage() {
                     {character.avatarUrl ? (
                       <img
                         className="config-avatar-image"
-                        src={character.avatarUrl}
+                        src={normalizeAssetUrl(character.avatarUrl)}
                         alt={`${character.name} 头像`}
                         onError={(event) => {
                           (event.target as HTMLImageElement).style.display = 'none';

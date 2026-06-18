@@ -1286,7 +1286,7 @@ export function BuffBatchEditWorkbench({
               {character?.avatarUrl && (
                 <img
                   className="canvas-staff-avatar"
-                  src={character.avatarUrl}
+                  src={normalizeAssetUrl(character.avatarUrl)}
                   alt={`${character.name} avatar`}
                   onError={(event) => {
                     (event.target as HTMLImageElement).style.display = 'none';
@@ -1411,7 +1411,7 @@ export function BuffBatchEditWorkbench({
             style={{ left: secondaryButtonLeft, top: 48 + index * 40 }}
             onClick={() => toggleSourceFilter(filter)}
           >
-            {character.avatarUrl ? <img src={character.avatarUrl} alt="" /> : <span>{character.name.slice(0, 1)}</span>}
+            {character.avatarUrl ? <img src={normalizeAssetUrl(character.avatarUrl)} alt="" /> : <span>{character.name.slice(0, 1)}</span>}
           </button>
         );
       });
@@ -1471,7 +1471,7 @@ export function BuffBatchEditWorkbench({
         style={{ left: secondaryButtonLeft, top: 48 + index * 40 }}
         onClick={() => toggleCharacterQuickSelect(character)}
       >
-        {character.avatarUrl ? <img src={character.avatarUrl} alt="" /> : <span>{character.name.slice(0, 1)}</span>}
+        {character.avatarUrl ? <img src={normalizeAssetUrl(character.avatarUrl)} alt="" /> : <span>{character.name.slice(0, 1)}</span>}
       </button>
     ));
   };

@@ -16,7 +16,7 @@ import {
   getRuntimeOperatorTemplateById,
 } from '../../../utils/storage';
 import type { RuntimeOperatorTemplateSkill } from '../../../core/templates/operatorTemplate';
-import { resolvePublicPath } from '../../../utils/assetResolver';
+import { normalizeAssetUrl, resolvePublicPath } from '../../../utils/assetResolver';
 import DeferredNumberInput, {
   formatPercentDisplayValue,
   parsePercentDisplayValue,
@@ -1717,7 +1717,7 @@ export function OperatorConfigPanel({
                   {character.avatarUrl ? (
                     <img
                       className="config-avatar-image"
-                      src={character.avatarUrl}
+                      src={normalizeAssetUrl(character.avatarUrl)}
                       alt={`${character.name} 头像`}
                       onError={(e) => {
                         (e.target as HTMLImageElement).style.display = 'none';
