@@ -39,8 +39,9 @@ import {
   getSkillButtonTable,
   saveTimelineData as saveTimelineRepo,
   setSkillButtonTable,
+  upsertSkillButton,
 } from '../../core/repositories';
-import { attachExistingBuffsToButton } from '../../core/services/buffService';
+import { attachExistingBuffsToButton, recomputeSkillButtonPanel } from '../../core/services/buffService';
 import { APP_ROUTE_PATHS, navigateToAppPath } from '../../utils/appRoute';
 import { STORAGE_KEYS } from '../../constants/storage-keys';
 import { getRuntimeOperatorTemplateById, safeSessionStorage, setSelectedCharacterIds } from '../../utils/storage';
@@ -59,6 +60,67 @@ import {
 } from '../../utils/timelineSnapshotStorage';
 import './CanvasBoard.css';
 import { resolveRuntimeTemplateSkill } from '../../core/services/skillDamageTemplateResolver';
+import type { PersistedSkillButton } from '../../types/storage';
+
+function clonePersistedSkillButtonConfig(button: PersistedSkillButton): Pick<
+  PersistedSkillButton,
+  'selectedBuff' | 'buffStackCounts' | 'anomalyConfig' | 'resistanceConfig' | 'panelConfig' | 'runtimeSnapshot'
+> {
+  return {
+    selectedBuff: [...(button.selectedBuff ?? [])],
+    buffStackCounts: { ...(button.buffStackCounts ?? {}) },
+    anomalyConfig: button.anomalyConfig
+      ? {
+          selectedStatuses: button.anomalyConfig.selectedStatuses.map((card) => ({
+            ...card,
+            selectedBuffIds: [...card.selectedBuffIds],
+          })),
+          selectedDamages: button.anomalyConfig.selectedDamages.map((card) => ({
+            ...card,
+            selectedBuffIds: [...card.selectedBuffIds],
+          })),
+          selectedStateSnapshotIds: [...button.anomalyConfig.selectedStateSnapshotIds],
+        }
+      : undefined,
+    resistanceConfig: button.resistanceConfig
+      ? {
+          targetResistance: { ...button.resistanceConfig.targetResistance },
+        }
+      : undefined,
+    panelConfig: button.panelConfig
+      ? {
+          ...button.panelConfig,
+          selectedBuff: [...button.panelConfig.selectedBuff],
+          globallyDisabledBuffIds: [...(button.panelConfig.globallyDisabledBuffIds ?? [])],
+          manualDisabledBuffIdsBySegmentKey: Object.fromEntries(
+            Object.entries(button.panelConfig.manualDisabledBuffIdsBySegmentKey ?? {}).map(([segmentKey, buffIds]) => [
+              segmentKey,
+              [...buffIds],
+            ])
+          ),
+          manualBuffStackCountsBySegmentKey: Object.fromEntries(
+            Object.entries(button.panelConfig.manualBuffStackCountsBySegmentKey ?? {}).map(([segmentKey, stackCounts]) => [
+              segmentKey,
+              { ...stackCounts },
+            ])
+          ),
+          manualDisabledHitKeys: [...(button.panelConfig.manualDisabledHitKeys ?? [])],
+        }
+      : undefined,
+    runtimeSnapshot: button.runtimeSnapshot
+      ? {
+          ...button.runtimeSnapshot,
+          characterComputed: button.runtimeSnapshot.characterComputed
+            ? {
+                ...button.runtimeSnapshot.characterComputed,
+                panel: { ...button.runtimeSnapshot.characterComputed.panel },
+                damageBonus: { ...button.runtimeSnapshot.characterComputed.damageBonus },
+              }
+            : button.runtimeSnapshot.characterComputed,
+        }
+      : null,
+  };
+}
 
 function formatPreciseTimestamp(timestamp: number): string {
   const date = new Date(timestamp);
@@ -361,7 +423,7 @@ export function CanvasBoard({
   const [pendingCopy, setPendingCopy] = useState<{
     sourceButtonId: string;
     sourceButtonRuntime: SkillButton;
-    sourceSelectedBuff: string[];
+    sourceButtonConfig: ReturnType<typeof clonePersistedSkillButtonConfig>;
   } | null>(null);
 
   const [copyHintMousePosition, setCopyHintMousePosition] = useState({ x: 0, y: 0 });
@@ -461,12 +523,12 @@ export function CanvasBoard({
     if (!buttonRuntime) return;
 
     const buttonStorage = getSkillButtonById(buttonId);
-    const sourceSelectedBuff = buttonStorage?.selectedBuff ?? [];
+    if (!buttonStorage) return;
 
     setPendingCopy({
       sourceButtonId: buttonId,
       sourceButtonRuntime: buttonRuntime,
-      sourceSelectedBuff,
+      sourceButtonConfig: clonePersistedSkillButtonConfig(buttonStorage),
     });
     setContextMenuState(null);
   };
@@ -608,7 +670,7 @@ export function CanvasBoard({
   ) => {
     if (!pendingCopy) return;
 
-    const { sourceButtonRuntime, sourceSelectedBuff } = pendingCopy;
+    const { sourceButtonRuntime, sourceButtonConfig } = pendingCopy;
     const newButtonId = generateId();
 
     const newButtonRuntime: SkillButton = {
@@ -640,8 +702,30 @@ export function CanvasBoard({
       customHits: sourceButtonRuntime.customHits,
     }, newButtonId);
 
-    if (sourceSelectedBuff.length > 0) {
-      attachExistingBuffsToButton(newButtonId, sourceSelectedBuff);
+    if (sourceButtonConfig.selectedBuff.length > 0) {
+      attachExistingBuffsToButton(newButtonId, sourceButtonConfig.selectedBuff);
+    }
+
+    const createdButton = getSkillButtonById(newButtonId);
+    if (createdButton) {
+      upsertSkillButton({
+        ...createdButton,
+        selectedBuff: [...sourceButtonConfig.selectedBuff],
+        buffStackCounts: { ...(sourceButtonConfig.buffStackCounts ?? {}) },
+        anomalyConfig: sourceButtonConfig.anomalyConfig,
+        resistanceConfig: sourceButtonConfig.resistanceConfig,
+        panelConfig: sourceButtonConfig.panelConfig
+          ? {
+              ...sourceButtonConfig.panelConfig,
+              selectedBuff: [...sourceButtonConfig.selectedBuff],
+            }
+          : {
+              selectedBuff: [...sourceButtonConfig.selectedBuff],
+            },
+        runtimeSnapshot: sourceButtonConfig.runtimeSnapshot,
+        updatedAt: Date.now(),
+      });
+      recomputeSkillButtonPanel(newButtonId);
     }
 
     setPendingCopy(null);

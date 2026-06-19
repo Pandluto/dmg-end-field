@@ -238,6 +238,7 @@ export interface OperatorBuffEffect {
   value?: number;
   maxStacks?: number;
   unit?: 'flat' | 'percent' | string;
+  condition?: string;
   description?: string;
   raw?: string;
   valueMode?: OperatorBuffValueMode;
@@ -282,10 +283,20 @@ export function getOperatorBuffTypeDisplayLabel(buffType: string) {
 }
 
 const OPERATOR_RUNTIME_COEFFICIENT_ZONES = new Set(['damageBonus', 'fragile', 'vulnerability', 'amplify']);
+const OPERATOR_COUNTABLE_EXTRA_BUFF_TYPES = new Set([
+  'atkPercentBoost',
+  'critRateBoost',
+  'critDmgBonusBoost',
+]);
 
 export function isOperatorRuntimeCoefficientBuffType(buffType: string | undefined): boolean {
   const entry = getBuffTypeRegistryEntry(buffType);
   return Boolean(entry && OPERATOR_RUNTIME_COEFFICIENT_ZONES.has(entry.zone));
+}
+
+function isOperatorCountableBuffType(buffType: string | undefined): boolean {
+  return isOperatorRuntimeCoefficientBuffType(buffType)
+    || Boolean(buffType && OPERATOR_COUNTABLE_EXTRA_BUFF_TYPES.has(buffType));
 }
 
 export function deriveOperatorBuffBusinessType(effect: OperatorBuffEffect | null | undefined): OperatorBuffBusinessType {
@@ -299,7 +310,10 @@ export function deriveOperatorBuffBusinessType(effect: OperatorBuffEffect | null
 
 function normalizeTypeForBusinessType(type: string, businessType: OperatorBuffBusinessType): string {
   if (!type) return '';
-  if (businessType === 'countable' || businessType === 'multiplier') {
+  if (businessType === 'countable') {
+    return isOperatorCountableBuffType(type) ? type : '';
+  }
+  if (businessType === 'multiplier') {
     return isOperatorRuntimeCoefficientBuffType(type) ? type : '';
   }
   return type;
@@ -326,9 +340,11 @@ export function getFilteredOperatorBuffTypeOptions(params: {
 }) {
   const keyword = params.query.trim().toLowerCase();
   const businessType = deriveOperatorBuffBusinessType(params.selectedEffect);
-  const availableOptions = businessType === 'countable' || businessType === 'multiplier'
-    ? OPERATOR_BUFF_TYPE_OPTIONS.filter((option) => isOperatorRuntimeCoefficientBuffType(option))
-    : OPERATOR_BUFF_TYPE_OPTIONS;
+  const availableOptions = businessType === 'countable'
+    ? OPERATOR_BUFF_TYPE_OPTIONS.filter((option) => isOperatorCountableBuffType(option))
+    : businessType === 'multiplier'
+      ? OPERATOR_BUFF_TYPE_OPTIONS.filter((option) => isOperatorRuntimeCoefficientBuffType(option))
+      : OPERATOR_BUFF_TYPE_OPTIONS;
   const filtered = keyword
     ? availableOptions.filter((option) => buildOperatorBuffTypeSearchText(option, params.buildSearchIndex).toLowerCase().includes(keyword))
     : availableOptions;
@@ -381,6 +397,7 @@ export function normalizeBuffEffect(effectKey: string, rawEffect: unknown): Oper
     ...(!isLegacySkillMultiplier && typeof rawValue === 'number' && Number.isFinite(rawValue) ? { value: rawValue } : {}),
     ...(category === 'countable' && typeof source.maxStacks === 'number' && Number.isFinite(source.maxStacks) ? { maxStacks: Math.max(1, Math.floor(source.maxStacks)) } : {}),
     unit: typeof source.unit === 'string' ? source.unit : '',
+    condition: typeof source.condition === 'string' ? source.condition : '',
     valueMode,
     ...(valueMode === 'derived' && derivedSource && typeof rawPerPointValue === 'number' && Number.isFinite(rawPerPointValue)
       ? { derivedValue: { source: derivedSource, perPointValue: rawPerPointValue } }

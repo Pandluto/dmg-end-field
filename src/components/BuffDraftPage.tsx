@@ -15,6 +15,8 @@ import {
   type DraftLibraryShareFile,
 } from '../utils/draftShare';
 import DeferredNumberInput from './DeferredNumberInput';
+import BuffEffectEditorDrawer from './BuffEffectEditorDrawer';
+import type { OperatorBuffEffect } from './operatorDraftBuffModel';
 
 const BUFF_SHEET_PAGE_PATH = APP_ROUTE_PATHS.buffSheet;
 const BUFF_DRAFT_STORAGE_KEY = 'def.buff-editor.draft.v1';
@@ -272,6 +274,46 @@ function getEffectKindLabel(kind: BuffEffectKind | undefined) {
 
 interface BuffEffectDraft extends CandidateBuff {
   id: string;
+}
+
+function buffSheetEffectToDrawer(effect: BuffEffectDraft): OperatorBuffEffect {
+  return {
+    schemaVersion: 2,
+    effectId: effect.id,
+    name: effect.displayName || effect.name || effect.id,
+    type: effect.type || '',
+    category: normalizeBuffCategory(effect.category),
+    value: effect.value,
+    maxStacks: effect.maxStacks,
+    condition: effect.condition || '',
+    description: effect.description || '',
+    raw: '',
+    valueMode: effect.valueMode ?? 'fixed',
+    derivedValue: effect.derivedValue,
+    effectKind: effect.effectKind ?? 'modifier',
+    extraHitConfig: effect.extraHitConfig,
+    multiplier: effect.multiplier,
+  };
+}
+
+function applyDrawerEffectToBuffSheet(effect: BuffEffectDraft, nextEffect: OperatorBuffEffect): BuffEffectDraft {
+  return {
+    ...effect,
+    schemaVersion: 2,
+    id: nextEffect.effectId,
+    displayName: nextEffect.name,
+    type: nextEffect.type,
+    category: nextEffect.category,
+    value: nextEffect.value,
+    maxStacks: nextEffect.maxStacks,
+    condition: nextEffect.condition || '',
+    description: nextEffect.description || '',
+    valueMode: nextEffect.valueMode,
+    derivedValue: nextEffect.derivedValue,
+    effectKind: nextEffect.effectKind,
+    extraHitConfig: nextEffect.extraHitConfig,
+    multiplier: nextEffect.multiplier,
+  };
 }
 
 interface BuffItemDraft {
@@ -2988,6 +3030,7 @@ export function BuffDraftSheetPage() {
   const [pendingImportShare, setPendingImportShare] = useState<DraftLibraryShareFile<BuffDraft> | null>(null);
   const [contextMenu, setContextMenu] = useState<BuffSheetContextMenuState | null>(null);
   const [dragState, setDragState] = useState<BuffExplorerDragState | null>(null);
+  const [buffDrawerTarget, setBuffDrawerTarget] = useState<{ itemKey: string; effectKey: string } | null>(null);
   const columns = useMemo(() => buildBuffSheetColumns(), []);
   const getItemCollapseKey = useCallback((draftId: string, itemKey: string) => `${draftId}:${itemKey}`, []);
   const dragHoldTimerRef = useRef<number | null>(null);
@@ -3361,6 +3404,20 @@ export function BuffDraftSheetPage() {
     setPendingFocusRowKey(`group-${nextDraft.id}`);
   }, [getItemCollapseKey, localLibrary]);
 
+  const openBuffDrawer = useCallback((draftId: string, itemKey: string, effectKey: string) => {
+    const targetDraft = draftId === draft.id ? draft : localLibrary[draftId];
+    if (!targetDraft?.items[itemKey]?.effects[effectKey]) {
+      return;
+    }
+    if (draftId !== draft.id) {
+      setDraft(targetDraft);
+      setSelectedLocalDraftId(draftId);
+      setSelectedWorkbookCell(null);
+      setPendingFocusRowKey(`effect-${itemKey}-${effectKey}`);
+    }
+    setBuffDrawerTarget({ itemKey, effectKey });
+  }, [draft, localLibrary]);
+
   const handleOpenWorkbenchPage = () => {
     navigateToAppPath(APP_ROUTE_PATHS.home);
   };
@@ -3400,6 +3457,9 @@ export function BuffDraftSheetPage() {
   const selectedItem = selectedItemKey ? draft.items[selectedItemKey] ?? null : null;
   const selectedEffect = selectedItemKey && selectedEffectKey
     ? draft.items[selectedItemKey]?.effects[selectedEffectKey] ?? null
+    : null;
+  const drawerEffect = buffDrawerTarget
+    ? draft.items[buffDrawerTarget.itemKey]?.effects[buffDrawerTarget.effectKey] ?? null
     : null;
   const filteredBuffTypeOptions = useMemo(() => {
     const keyword = buffTypeQuery.trim().toLowerCase();
@@ -3865,6 +3925,7 @@ export function BuffDraftSheetPage() {
     persistLibraryState(nextLibrary, draftId);
     setCollapsedItems((prev) => ({ ...prev, [getItemCollapseKey(draftId, itemKey)]: false }));
     setPendingFocusRowKey(`effect-${itemKey}-${nextEffectKey}`);
+    setBuffDrawerTarget({ itemKey, effectKey: nextEffectKey });
   }, [getItemCollapseKey, localLibrary, persistLibraryState]);
 
   const handleDuplicateDraftEffect = useCallback((draftId: string, itemKey: string, effectKey: string) => {
@@ -3884,6 +3945,7 @@ export function BuffDraftSheetPage() {
     const nextLibrary = { ...localLibrary, [draftId]: nextDraft };
     persistLibraryState(nextLibrary, draftId);
     setPendingFocusRowKey(`effect-${itemKey}-${nextEffectKey}`);
+    setBuffDrawerTarget({ itemKey, effectKey: nextEffectKey });
   }, [localLibrary, persistLibraryState]);
 
   const handleDeleteDraftEffect = useCallback((draftId: string, itemKey: string, effectKey: string) => {
@@ -4436,6 +4498,7 @@ export function BuffDraftSheetPage() {
     }
     if (contextMenu.target === 'effect' && contextMenu.draftId && contextMenu.itemKey && contextMenu.effectKey) {
       return [
+        { key: 'edit-effect', label: '编辑 Buff', icon: 'open', onClick: () => openBuffDrawer(contextMenu.draftId!, contextMenu.itemKey!, contextMenu.effectKey!) },
         { key: 'duplicate-effect', label: '复制效果', icon: 'copy', onClick: () => handleDuplicateDraftEffect(contextMenu.draftId!, contextMenu.itemKey!, contextMenu.effectKey!) },
         { key: 'delete-effect', label: '删除效果', icon: 'delete', onClick: () => handleDeleteDraftEffect(contextMenu.draftId!, contextMenu.itemKey!, contextMenu.effectKey!) },
       ];
@@ -4459,6 +4522,7 @@ export function BuffDraftSheetPage() {
     handleExpandAllDrafts,
     handleExpandAllItemsInDraft,
     handleLoadDraftById,
+    openBuffDrawer,
     setDraftCollapsed,
     setItemCollapsed,
   ]);
@@ -4773,6 +4837,11 @@ export function BuffDraftSheetPage() {
                   key={row.key}
                   className={`damage-sheet-excel-row is-${row.kind}`}
                   onContextMenu={(event) => openWorkbookContextMenu(event, row.sourceRow)}
+                  onDoubleClick={() => {
+                    if (row.sourceRow?.kind === 'effect') {
+                      openBuffDrawer(draft.id, row.sourceRow.itemKey, row.sourceRow.effectKey);
+                    }
+                  }}
                 >
                   <div
                     className="damage-sheet-excel-row-number"
@@ -4817,6 +4886,36 @@ export function BuffDraftSheetPage() {
           </div>
         </section>
       </main>
+      <BuffEffectEditorDrawer
+        open={Boolean(buffDrawerTarget && drawerEffect)}
+        sourceLabel={`Buff Sheet · ${buffDrawerTarget ? draft.items[buffDrawerTarget.itemKey]?.name ?? draft.name : draft.name}`}
+        effect={drawerEffect ? buffSheetEffectToDrawer(drawerEffect) : null}
+        onChange={(nextEffect) => {
+          if (!buffDrawerTarget) {
+            return;
+          }
+          setDraft((prev) => {
+            const currentEffect = prev.items[buffDrawerTarget.itemKey]?.effects[buffDrawerTarget.effectKey];
+            if (!currentEffect) {
+              return prev;
+            }
+            return {
+              ...prev,
+              items: {
+                ...prev.items,
+                [buffDrawerTarget.itemKey]: {
+                  ...prev.items[buffDrawerTarget.itemKey],
+                  effects: {
+                    ...prev.items[buffDrawerTarget.itemKey].effects,
+                    [buffDrawerTarget.effectKey]: applyDrawerEffectToBuffSheet(currentEffect, nextEffect),
+                  },
+                },
+              },
+            };
+          });
+        }}
+        onClose={() => setBuffDrawerTarget(null)}
+      />
       {dragState ? (
         <div
           className="buff-sheet-drag-preview"

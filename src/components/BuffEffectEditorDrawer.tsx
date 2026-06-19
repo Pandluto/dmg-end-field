@@ -186,6 +186,7 @@ export default function BuffEffectEditorDrawer({
           <section>
             <h4>文本</h4>
             <div className="buff-editor-drawer-grid">
+              <label className="is-wide"><span>触发条件</span><textarea value={effect.condition ?? ''} onChange={(event) => update({ ...effect, condition: event.target.value })} /></label>
               <label className="is-wide"><span>描述</span><textarea value={effect.description ?? ''} onChange={(event) => update({ ...effect, description: event.target.value })} /></label>
               <label className="is-wide"><span>原文</span><textarea value={effect.raw ?? ''} onChange={(event) => update({ ...effect, raw: event.target.value })} /></label>
             </div>
