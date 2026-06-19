@@ -281,6 +281,73 @@ export function calculateBuffTotals(buffs: SkillButtonBuff[], stackCounts: Recor
   return result;
 }
 
+type AbilityField = 'strength' | 'agility' | 'intelligence' | 'will';
+
+export interface BuffPanelBase {
+  baseAtk: number;
+  characterAtk: number;
+  weaponAtk: number;
+  weaponAtkPercent: number;
+  abilityBonus: number;
+  critRate: number;
+  critDmg: number;
+  strength?: number;
+  agility?: number;
+  intelligence?: number;
+  will?: number;
+  mainStatFinal?: number;
+  subStatFinal?: number;
+  mainStatField?: AbilityField;
+  subStatField?: AbilityField;
+  mainStatScale?: number;
+  subStatScale?: number;
+  allStatScale?: number;
+}
+
+export function calculateBuffedPanel(
+  panelBase: BuffPanelBase,
+  buffs: SkillButtonBuff[],
+  stackCounts: Record<string, number> = {},
+): { atk: number; critRate: number; critDmg: number } {
+  const totals = calculateBuffTotals(buffs, stackCounts);
+  const currentAtkPercent = panelBase.weaponAtkPercent * 0.01;
+  const rawAtk = panelBase.characterAtk + panelBase.weaponAtk;
+  const fixedAtk = panelBase.baseAtk - rawAtk * (1 + currentAtkPercent);
+  const nextBaseAtk = rawAtk * (1 + currentAtkPercent + totals.atkPercentBoost) + fixedAtk;
+
+  let abilityBonus = panelBase.abilityBonus * 0.01;
+  const mainField = panelBase.mainStatField;
+  const subField = panelBase.subStatField;
+  if (mainField && subField && typeof panelBase.mainStatFinal === 'number' && typeof panelBase.subStatFinal === 'number') {
+    const flatBoosts: Record<AbilityField, number> = {
+      strength: totals.strengthBoost,
+      agility: totals.agilityBoost,
+      intelligence: totals.intelligenceBoost,
+      will: totals.willBoost,
+    };
+    const mainScale = panelBase.mainStatScale ?? 0;
+    const subScale = panelBase.subStatScale ?? 0;
+    const allScale = panelBase.allStatScale ?? 0;
+    const mainBaseScale = (1 + mainScale) * (1 + allScale);
+    const subBaseScale = (1 + subScale) * (1 + allScale);
+    const rawMain = mainBaseScale !== 0 ? panelBase.mainStatFinal / mainBaseScale : panelBase.mainStatFinal;
+    const rawSub = subBaseScale !== 0 ? panelBase.subStatFinal / subBaseScale : panelBase.subStatFinal;
+    const nextMain = (rawMain + flatBoosts[mainField])
+      * (1 + mainScale + totals.mainStatBoost)
+      * (1 + allScale + totals.allStatBoost);
+    const nextSub = (rawSub + flatBoosts[subField])
+      * (1 + subScale + totals.subStatBoost)
+      * (1 + allScale + totals.allStatBoost);
+    abilityBonus = nextMain * 0.005 + nextSub * 0.002;
+  }
+
+  return {
+    atk: nextBaseAtk * (1 + abilityBonus),
+    critRate: (panelBase.critRate ?? 0.05) + totals.critRateBoost,
+    critDmg: (panelBase.critDmg ?? 0.5) + totals.critDmgBonusBoost,
+  };
+}
+
 export interface ResistanceZoneResult {
   baseResistance: number;
   corrosion: number;

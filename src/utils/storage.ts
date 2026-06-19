@@ -93,6 +93,12 @@ function toStorageNumber(value: unknown, fallback = 0): number {
 function buildCharacterComputedFromConfigSnapshot(snapshot: ConfigSnapshot): CharacterComputedCache {
   const display = snapshot.panel.display;
   const calc = snapshot.panel.calc;
+  const abilityFieldMap = {
+    力量: 'strength',
+    敏捷: 'agility',
+    智识: 'intelligence',
+    意志: 'will',
+  } as const;
   return {
     fingerprint: JSON.stringify({
       source: STORAGE_KEYS.OPERATOR_CONFIG_PAGE_CACHE,
@@ -135,6 +141,11 @@ function buildCharacterComputedFromConfigSnapshot(snapshot: ConfigSnapshot): Cha
       healingBonus: toStorageNumber(calc.healingBonus),
       ultimateChargeEfficiency: toStorageNumber(calc.ultimateChargeEfficiency),
       weaponAllSkillDmgBonus: toStorageNumber(snapshot.weapon.totals.allSkillDmgBonus),
+      mainStatField: abilityFieldMap[snapshot.operator.mainStat as keyof typeof abilityFieldMap],
+      subStatField: abilityFieldMap[snapshot.operator.subStat as keyof typeof abilityFieldMap],
+      mainStatScale: toStorageNumber(calc.mainStatBoost),
+      subStatScale: toStorageNumber(calc.subStatBoost),
+      allStatScale: toStorageNumber(calc.allStatBoost),
     },
     damageBonus: normalizeDamageBonusSnapshot(calc.damageBonus),
   };

@@ -14,7 +14,7 @@ import {
   removeBuffById,
   getAllBuffList,
 } from '../repositories';
-import { calculateBuffTotals } from '../calculators/buffCalculator';
+import { calculateBuffedPanel } from '../calculators/buffCalculator';
 import { getCharacterComputed } from '../../utils/storage';
 import { normalizeBuffMultiplier } from '../domain/buffMultiplier';
 
@@ -98,20 +98,7 @@ function buildSkillButtonRuntimeSnapshot(buttonId: string) {
   }
 
   const buffList = getBuffsByButtonId(buttonId).filter(isModifierBuff);
-  const buffTotals = calculateBuffTotals(buffList, button.buffStackCounts);
-
-  const currentAtkPercent = nowTimePanel.weaponAtkPercent * 0.01;
-  const rawAtk = nowTimePanel.characterAtk + nowTimePanel.weaponAtk;
-  const fixedAtk = nowTimePanel.baseAtk - rawAtk * (1 + currentAtkPercent);
-  const nextBaseAtk = rawAtk * (1 + currentAtkPercent + buffTotals.atkPercentBoost) + fixedAtk;
-  const abilityAtkPercentBonus = nowTimePanel.abilityBonus * 0.01;
-  const nextAtk = nextBaseAtk * (1 + abilityAtkPercentBonus);
-
-  return {
-    atk: nextAtk,
-    critRate: (nowTimePanel.critRate ?? 0.05) + buffTotals.critRateBoost,
-    critDmg: (nowTimePanel.critDmg ?? 0.5) + buffTotals.critDmgBonusBoost,
-  };
+  return calculateBuffedPanel(nowTimePanel, buffList, button.buffStackCounts);
 }
 
 export function recomputeSkillButtonPanel(buttonId: string): void {

@@ -34,6 +34,17 @@ export interface SkillDamagePanelBase {
   abilityBonus: number;
   critRate: number;
   critDmg: number;
+  strength?: number;
+  agility?: number;
+  intelligence?: number;
+  will?: number;
+  mainStatFinal?: number;
+  subStatFinal?: number;
+  mainStatField?: 'strength' | 'agility' | 'intelligence' | 'will';
+  subStatField?: 'strength' | 'agility' | 'intelligence' | 'will';
+  mainStatScale?: number;
+  subStatScale?: number;
+  allStatScale?: number;
 }
 
 export interface SkillDamageCalcInputV2 {

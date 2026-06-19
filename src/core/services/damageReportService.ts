@@ -9,6 +9,7 @@ import { buildAnomalyStateDerivedBuffs, buildAnomalyStateSnapshotBuffs } from '.
 import { getAnomalyStateSnapshotsByIds } from './anomalyStateSnapshotStorage';
 import {
   calculateAmplifyRate,
+  calculateBuffedPanel,
   calculateBuffTotals,
   calculateElementDmgBonus,
   calculateFragileRate,
@@ -549,6 +550,17 @@ function buildDamageReportPanelBase(button: PersistedSkillButton): {
   abilityBonus: number;
   critRate: number;
   critDmg: number;
+  strength?: number;
+  agility?: number;
+  intelligence?: number;
+  will?: number;
+  mainStatFinal?: number;
+  subStatFinal?: number;
+  mainStatField?: 'strength' | 'agility' | 'intelligence' | 'will';
+  subStatField?: 'strength' | 'agility' | 'intelligence' | 'will';
+  mainStatScale?: number;
+  subStatScale?: number;
+  allStatScale?: number;
 } | null {
   const computedPanel = getCharacterComputed(button.characterId || button.characterName)?.panel;
   if (!computedPanel) {
@@ -563,6 +575,17 @@ function buildDamageReportPanelBase(button: PersistedSkillButton): {
     abilityBonus: computedPanel.abilityBonus,
     critRate: computedPanel.critRate ?? 0.05,
     critDmg: computedPanel.critDmg ?? 0.5,
+    strength: computedPanel.strength,
+    agility: computedPanel.agility,
+    intelligence: computedPanel.intelligence,
+    will: computedPanel.will,
+    mainStatFinal: computedPanel.mainStatFinal,
+    subStatFinal: computedPanel.subStatFinal,
+    mainStatField: computedPanel.mainStatField,
+    subStatField: computedPanel.subStatField,
+    mainStatScale: computedPanel.mainStatScale,
+    subStatScale: computedPanel.subStatScale,
+    allStatScale: computedPanel.allStatScale,
   };
 }
 
@@ -576,18 +599,7 @@ function buildDamageReportPanel(
     return fallbackPanel;
   }
 
-  const buffTotals = calculateBuffTotals(appliedBuffs.filter(isModifierBuff), stackCounts);
-  const currentAtkPercent = panelBase.weaponAtkPercent * 0.01;
-  const rawAtk = panelBase.characterAtk + panelBase.weaponAtk;
-  const fixedAtk = panelBase.baseAtk - rawAtk * (1 + currentAtkPercent);
-  const nextBaseAtk = rawAtk * (1 + currentAtkPercent + buffTotals.atkPercentBoost) + fixedAtk;
-  const abilityAtkPercentBonus = panelBase.abilityBonus * 0.01;
-
-  return {
-    atk: nextBaseAtk * (1 + abilityAtkPercentBonus),
-    critRate: (panelBase.critRate ?? 0.05) + buffTotals.critRateBoost,
-    critDmg: (panelBase.critDmg ?? 0.5) + buffTotals.critDmgBonusBoost,
-  };
+  return calculateBuffedPanel(panelBase, appliedBuffs.filter(isModifierBuff), stackCounts);
 }
 
 function readExtraHitStackCount(

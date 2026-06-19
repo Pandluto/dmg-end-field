@@ -119,6 +119,11 @@ export interface CharacterComputedCache {
     healingBonus: number;
     ultimateChargeEfficiency: number;
     weaponAllSkillDmgBonus: number;
+    mainStatField?: 'strength' | 'agility' | 'intelligence' | 'will';
+    subStatField?: 'strength' | 'agility' | 'intelligence' | 'will';
+    mainStatScale?: number;
+    subStatScale?: number;
+    allStatScale?: number;
   };
   damageBonus: {
     physicalDmgBonus: number;

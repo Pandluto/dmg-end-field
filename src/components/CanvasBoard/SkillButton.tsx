@@ -717,6 +717,17 @@ export function SkillButtonComponent({
       abilityBonus: computedPanel.abilityBonus,
       critRate: computedPanel.critRate ?? 0.05,
       critDmg: computedPanel.critDmg ?? 0.5,
+      strength: computedPanel.strength,
+      agility: computedPanel.agility,
+      intelligence: computedPanel.intelligence,
+      will: computedPanel.will,
+      mainStatFinal: computedPanel.mainStatFinal,
+      subStatFinal: computedPanel.subStatFinal,
+      mainStatField: computedPanel.mainStatField,
+      subStatField: computedPanel.subStatField,
+      mainStatScale: computedPanel.mainStatScale,
+      subStatScale: computedPanel.subStatScale,
+      allStatScale: computedPanel.allStatScale,
     };
   }, [button.characterId]);
   const activeNormalHitSegmentKey = useMemo(

@@ -1,6 +1,7 @@
 import type { DamageBonusSnapshot, SkillButtonBuff } from '../../types/storage';
 import {
   calculateBuffTotals,
+  calculateBuffedPanel,
   calculateElementDmgBonus,
   calculateResistanceZone,
   calculateSkillDmgBonus,
@@ -46,18 +47,7 @@ function buildPanelForHit(
     return input.panel;
   }
 
-  const buffTotals = calculateBuffTotals(appliedBuffs, input.buffStackCounts);
-  const currentAtkPercent = input.panelBase.weaponAtkPercent * 0.01;
-  const rawAtk = input.panelBase.characterAtk + input.panelBase.weaponAtk;
-  const fixedAtk = input.panelBase.baseAtk - rawAtk * (1 + currentAtkPercent);
-  const nextBaseAtk = rawAtk * (1 + currentAtkPercent + buffTotals.atkPercentBoost) + fixedAtk;
-  const abilityAtkPercentBonus = input.panelBase.abilityBonus * 0.01;
-
-  return {
-    atk: nextBaseAtk * (1 + abilityAtkPercentBonus),
-    critRate: (input.panelBase.critRate ?? 0.05) + buffTotals.critRateBoost,
-    critDmg: (input.panelBase.critDmg ?? 0.5) + buffTotals.critDmgBonusBoost,
-  };
+  return calculateBuffedPanel(input.panelBase, appliedBuffs, input.buffStackCounts);
 }
 
 function calculateHitDamage(
