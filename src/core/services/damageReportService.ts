@@ -856,6 +856,14 @@ function buildButtonReportRow(
   const panelBase = buildDamageReportPanelBase(button);
   const disabledBuffIdsBySegmentKey = buildPersistedDisabledBuffMap(button);
   const disabledHitKeys = buildPersistedDisabledHitKeys(button);
+  const buffStackCountsByHitKey = resolvedTemplate
+    ? Object.fromEntries(
+        resolvedTemplate.hits.map((hit) => [
+          hit.key,
+          button.panelConfig?.manualBuffStackCountsBySegmentKey?.[`normal-hit-${hit.key}`] ?? {},
+        ])
+      )
+    : {};
   const disabledBuffIdsByHitKey = resolvedTemplate
     ? Object.fromEntries(
         resolvedTemplate.hits.map((hit) => [
@@ -865,13 +873,14 @@ function buildButtonReportRow(
       )
     : {};
   const allBuffs = getButtonBuffs(button);
-  const modifierBuffList = allBuffs.filter(isModifierBuff);
+  const globallyDisabledBuffIds = new Set(button.panelConfig?.globallyDisabledBuffIds ?? []);
+  const modifierBuffList = allBuffs.filter((buff) => isModifierBuff(buff) && !globallyDisabledBuffIds.has(buff.id));
   const anomalyStatuses = button.anomalyConfig?.selectedStatuses ?? [];
   const anomalyStateSnapshots = getAnomalyStateSnapshotsByIds(button.anomalyConfig?.selectedStateSnapshotIds ?? []);
   const stateDerivedBuffList = buildAnomalyStateDerivedBuffs(anomalyStatuses, button.skillType);
   const stateSnapshotBuffList = buildAnomalyStateSnapshotBuffs(anomalyStateSnapshots);
   const combinedModifierBuffList = [...modifierBuffList, ...stateDerivedBuffList, ...stateSnapshotBuffList];
-  const extraHitBuffList = allBuffs.filter(isExtraHitBuff);
+  const extraHitBuffList = allBuffs.filter(isExtraHitBuff).filter((buff) => !globallyDisabledBuffIds.has(buff.id));
 
   const normalHits = resolvedTemplate
     ? calculateSkillButtonDamageV2({
@@ -881,6 +890,7 @@ function buildButtonReportRow(
         template: resolvedTemplate,
         buffs: combinedModifierBuffList,
         buffStackCounts: button.buffStackCounts ?? {},
+        buffStackCountsByHitKey,
         panel,
         panelBase: panelBase ?? undefined,
         disabledBuffIdsByHitKey,

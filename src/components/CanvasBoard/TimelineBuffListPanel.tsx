@@ -4,6 +4,8 @@ interface TimelineBuffListPanelProps {
   buffs: SkillButtonBuff[];
   stackCounts: Record<string, number>;
   onRemove: (buffId: string) => void;
+  onToggleDisabled: (buffId: string) => void;
+  isDisabled: (buffId: string) => boolean;
   onDecrement: (buffId: string) => void;
   onIncrement: (buff: SkillButtonBuff) => void;
 }
@@ -18,6 +20,8 @@ export function TimelineBuffListPanel({
   buffs,
   stackCounts,
   onRemove,
+  onToggleDisabled,
+  isDisabled,
   onDecrement,
   onIncrement,
 }: TimelineBuffListPanelProps) {
@@ -29,13 +33,13 @@ export function TimelineBuffListPanel({
           const maxStacks = getMaxStacks(buff);
           const stackCount = Math.min(Math.max(stackCounts[buff.id] ?? maxStacks, 0), maxStacks);
           return (
-            <article className="timeline-buff-row" key={buff.id}>
+            <article className={`timeline-buff-row${isDisabled(buff.id) ? ' is-disabled' : ''}`} key={buff.id}>
               <button
                 type="button"
                 className="timeline-buff-main"
                 onContextMenu={(event) => {
                   event.preventDefault();
-                  onRemove(buff.id);
+                  onToggleDisabled(buff.id);
                 }}
               >
                 <strong>{buff.displayName || buff.name}</strong>
@@ -48,6 +52,17 @@ export function TimelineBuffListPanel({
                   <button type="button" onClick={() => onIncrement(buff)} disabled={stackCount >= maxStacks}>＋</button>
                 </div>
               ) : null}
+              <button
+                type="button"
+                className="timeline-buff-delete"
+                onClick={() => onRemove(buff.id)}
+                title="删除 Buff"
+                aria-label={`删除 ${buff.displayName || buff.name}`}
+              >
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M8 4h8l1 2h4v2H3V6h4l1-2Zm1 6h2v7H9v-7Zm4 0h2v7h-2v-7Zm4-1h2l-1 11H6L5 9h2l.8 9h8.4L17 9Z" />
+                </svg>
+              </button>
             </article>
           );
         })}

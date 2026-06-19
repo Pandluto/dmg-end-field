@@ -50,6 +50,19 @@ function normalizeSkillButton(button: PersistedSkillButton): PersistedSkillButto
   const manualDisabledHitKeys = Array.isArray(button.panelConfig?.manualDisabledHitKeys)
     ? button.panelConfig.manualDisabledHitKeys.filter((hitKey): hitKey is string => typeof hitKey === 'string')
     : [];
+  const globallyDisabledBuffIds = Array.isArray(button.panelConfig?.globallyDisabledBuffIds)
+    ? button.panelConfig.globallyDisabledBuffIds.filter((buffId): buffId is string => typeof buffId === 'string')
+    : [];
+  const manualBuffStackCountsBySegmentKey = Object.fromEntries(
+    Object.entries(button.panelConfig?.manualBuffStackCountsBySegmentKey ?? {}).map(([segmentKey, stackCounts]) => [
+      segmentKey,
+      Object.fromEntries(
+        Object.entries(stackCounts ?? {}).filter((entry): entry is [string, number] => (
+          typeof entry[0] === 'string' && typeof entry[1] === 'number' && Number.isFinite(entry[1])
+        ))
+      ),
+    ])
+  );
 
   return {
     ...buttonWithoutLegacySnapshot,
@@ -75,12 +88,16 @@ function normalizeSkillButton(button: PersistedSkillButton): PersistedSkillButto
       ? {
           ...button.panelConfig,
           selectedBuff: Array.isArray(button.panelConfig.selectedBuff) ? button.panelConfig.selectedBuff : [...selectedBuff],
+          globallyDisabledBuffIds,
           manualDisabledBuffIdsBySegmentKey,
+          manualBuffStackCountsBySegmentKey,
           manualDisabledHitKeys,
         }
       : {
           selectedBuff: [...selectedBuff],
+          globallyDisabledBuffIds: [],
           manualDisabledBuffIdsBySegmentKey: {},
+          manualBuffStackCountsBySegmentKey: {},
           manualDisabledHitKeys: [],
         },
     runtimeSnapshot: button.runtimeSnapshot ?? legacyButton.panelSnapshot ?? null,

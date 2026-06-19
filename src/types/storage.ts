@@ -260,7 +260,9 @@ export type SkillButtonBuffMap = Record<string, SkillButtonBuff[]>;
 
 export interface SkillButtonPanelConfig {
   selectedBuff: string[];
+  globallyDisabledBuffIds?: string[];
   manualDisabledBuffIdsBySegmentKey?: Record<string, string[]>;
+  manualBuffStackCountsBySegmentKey?: Record<string, Record<string, number>>;
   manualDisabledHitKeys?: string[];
 }
 

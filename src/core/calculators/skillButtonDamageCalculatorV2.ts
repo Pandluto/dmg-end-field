@@ -152,12 +152,17 @@ function calculateSingleHit(
   const disabledBuffIds = new Set(input.disabledBuffIdsByHitKey?.[hit.key] ?? []);
   const appliedBuffs = filterBuffsForHit(hit, buffs).filter((buff) => !disabledBuffIds.has(buff.id));
   const effectiveBuffs = isDisabled ? [] : appliedBuffs;
-  const panel = buildPanelForHit(effectiveBuffs, input);
-  const buffTotals = calculateBuffTotals(effectiveBuffs, input.buffStackCounts);
+  const hitStackCounts = {
+    ...(input.buffStackCounts ?? {}),
+    ...(input.buffStackCountsByHitKey?.[hit.key] ?? {}),
+  };
+  const hitInput = { ...input, buffStackCounts: hitStackCounts };
+  const panel = buildPanelForHit(effectiveBuffs, hitInput);
+  const buffTotals = calculateBuffTotals(effectiveBuffs, hitStackCounts);
   const zoneResults = calculateHitBuffZones({
     context: { element: hit.element, skillType: hit.skillType },
     buffs: effectiveBuffs,
-    stackCounts: input.buffStackCounts,
+    stackCounts: hitStackCounts,
     damageBonus: input.damageBonus,
     baseSkillMultiplier: hit.multiplier,
   });

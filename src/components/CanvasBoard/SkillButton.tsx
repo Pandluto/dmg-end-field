@@ -219,6 +219,8 @@ export function SkillButtonComponent({
   const [buffSearchMode, setBuffSearchMode] = useState<BuffSearchMode>('buff-group');
   const [candidateBuffRefreshToken, setCandidateBuffRefreshToken] = useState(0);
   const [manuallyDisabledBuffIdsBySegmentKey, setManuallyDisabledBuffIdsBySegmentKey] = useState<Record<string, string[]>>({});
+  const [globallyDisabledBuffIds, setGloballyDisabledBuffIds] = useState<string[]>([]);
+  const [manualBuffStackCountsBySegmentKey, setManualBuffStackCountsBySegmentKey] = useState<Record<string, Record<string, number>>>({});
   const [manuallyDisabledHitKeys, setManuallyDisabledHitKeys] = useState<string[]>([]);
 
   // 图标加载失败状态，用于 CSS 类切换
@@ -300,6 +302,19 @@ export function SkillButtonComponent({
       ])
     );
     setManuallyDisabledBuffIdsBySegmentKey(normalizedMap);
+    setGloballyDisabledBuffIds(
+      Array.isArray(persistedButton?.panelConfig?.globallyDisabledBuffIds)
+        ? persistedButton.panelConfig.globallyDisabledBuffIds
+        : []
+    );
+    setManualBuffStackCountsBySegmentKey(
+      Object.fromEntries(
+        Object.entries(persistedButton?.panelConfig?.manualBuffStackCountsBySegmentKey ?? {}).map(([segmentKey, stackCounts]) => [
+          segmentKey,
+          { ...stackCounts },
+        ])
+      )
+    );
     setManuallyDisabledHitKeys(
       Array.isArray(persistedButton?.panelConfig?.manualDisabledHitKeys)
         ? persistedButton.panelConfig.manualDisabledHitKeys.filter((hitKey): hitKey is string => typeof hitKey === 'string')
@@ -436,6 +451,61 @@ export function SkillButtonComponent({
     });
   }, [button.id]);
 
+  const toggleGlobalBuffDisabled = useCallback((buffId: string) => {
+    setGloballyDisabledBuffIds((prev) => {
+      const next = prev.includes(buffId)
+        ? prev.filter((id) => id !== buffId)
+        : [...prev, buffId];
+      const persistedButton = getSkillButtonById(button.id);
+      if (persistedButton) {
+        upsertSkillButton({
+          ...persistedButton,
+          panelConfig: {
+            ...(persistedButton.panelConfig ?? { selectedBuff: [...(persistedButton.selectedBuff ?? [])] }),
+            selectedBuff: [...(persistedButton.selectedBuff ?? [])],
+            globallyDisabledBuffIds: next,
+          },
+          updatedAt: Date.now(),
+        });
+      }
+      return next;
+    });
+  }, [button.id]);
+
+  const persistManualBuffStackCounts = useCallback((nextMap: Record<string, Record<string, number>>) => {
+    const persistedButton = getSkillButtonById(button.id);
+    if (!persistedButton) {
+      return;
+    }
+    upsertSkillButton({
+      ...persistedButton,
+      panelConfig: {
+        ...(persistedButton.panelConfig ?? { selectedBuff: [...(persistedButton.selectedBuff ?? [])] }),
+        selectedBuff: [...(persistedButton.selectedBuff ?? [])],
+        manualBuffStackCountsBySegmentKey: nextMap,
+      },
+      updatedAt: Date.now(),
+    });
+  }, [button.id]);
+
+  const clearManualBuffStackCountForBuff = useCallback((buffId: string) => {
+    setManualBuffStackCountsBySegmentKey((prev) => {
+      const nextMap = Object.fromEntries(
+        Object.entries(prev).flatMap(([segmentKey, stackCounts]) => {
+          if (!(buffId in stackCounts)) {
+            return [[segmentKey, stackCounts] as const];
+          }
+          const { [buffId]: _removed, ...remainingCounts } = stackCounts;
+          return Object.keys(remainingCounts).length > 0
+            ? [[segmentKey, remainingCounts] as const]
+            : [];
+        })
+      );
+      persistManualBuffStackCounts(nextMap);
+      return nextMap;
+    });
+  }, [persistManualBuffStackCounts]);
+
   /**
    * 从 sessionStorage 加载 skillLevelModeMap（角色技能等级配置）
    */
@@ -531,6 +601,7 @@ export function SkillButtonComponent({
    * @param buffId - Buff ID
    */
   const removeBuff = useCallback((buffId: string) => {
+    setGloballyDisabledBuffIds((prev) => prev.filter((id) => id !== buffId));
     removeSkillButtonBuff(button.id, buffId);
     loadBuffList(); // 重新加载列表
     loadPanelData();
@@ -540,29 +611,42 @@ export function SkillButtonComponent({
   }, [button.id, loadBuffList, loadPanelData]);
 
   const decrementBuffStack = useCallback((buffId: string) => {
+    clearManualBuffStackCountForBuff(buffId);
     decrementSkillButtonBuffStack(button.id, buffId);
     loadBuffList();
     loadPanelData();
-  }, [button.id, loadBuffList, loadPanelData]);
+  }, [button.id, clearManualBuffStackCountForBuff, loadBuffList, loadPanelData]);
 
   const incrementBuffStack = useCallback((buff: SkillButtonBuff) => {
+    clearManualBuffStackCountForBuff(buff.id);
     const { id: _id, refCount: _refCount, ...buffWithoutRuntimeFields } = buff;
     addSkillButtonBuff(button.id, { ...buffWithoutRuntimeFields, refCount: 1 });
     loadBuffList();
     loadPanelData();
-  }, [button.id, loadBuffList, loadPanelData]);
+  }, [button.id, clearManualBuffStackCountForBuff, loadBuffList, loadPanelData]);
 
   const modifierBuffList = useMemo(
-    () => buffList.filter(isModifierBuff),
-    [buffList]
+    () => buffList.filter((buff) => isModifierBuff(buff) && !globallyDisabledBuffIds.includes(buff.id)),
+    [buffList, globallyDisabledBuffIds]
   );
   const buttonStackCounts = useMemo(
     () => getSkillButtonById(button.id)?.buffStackCounts ?? {},
     [button.id, buffList]
   );
+  const buffStackCountsByHitKey = useMemo(() => {
+    if (!resolvedTemplate) {
+      return {};
+    }
+    return Object.fromEntries(
+      resolvedTemplate.hits.map((hit) => [
+        hit.key,
+        manualBuffStackCountsBySegmentKey[getNormalHitSegmentKey(hit.key)] ?? {},
+      ])
+    );
+  }, [manualBuffStackCountsBySegmentKey, resolvedTemplate]);
   const extraHitBuffList = useMemo(
-    () => buffList.filter(isExtraHitBuff),
-    [buffList]
+    () => buffList.filter(isExtraHitBuff).filter((buff) => !globallyDisabledBuffIds.includes(buff.id)),
+    [buffList, globallyDisabledBuffIds]
   );
   const usedLocalBuffList = useMemo(
     () => buffList.filter((buff) => buff.source !== 'anomaly_state'),
@@ -668,6 +752,7 @@ export function SkillButtonComponent({
         template: resolvedTemplate,
         buffs: fullCombinedModifierBuffList,
         buffStackCounts: buttonStackCounts,
+        buffStackCountsByHitKey,
         panel: {
           atk: panelData.atk,
           critRate: panelData.critRate,
@@ -677,7 +762,7 @@ export function SkillButtonComponent({
       damageBonus: infoSnap as unknown as import('../../types/storage').DamageBonusSnapshot,
       targetResistance,
     });
-  }, [resolvedTemplate, panelData, button.id, button.characterId, targetResistance, fullCombinedModifierBuffList, panelBase, infoSnap, buttonStackCounts]);
+  }, [resolvedTemplate, panelData, button.id, button.characterId, targetResistance, fullCombinedModifierBuffList, panelBase, infoSnap, buttonStackCounts, buffStackCountsByHitKey]);
 
   const damageResult = useMemo(() => {
     if (!resolvedTemplate || resolvedTemplate.hits.length === 0 || !panelData) {
@@ -691,6 +776,7 @@ export function SkillButtonComponent({
         template: resolvedTemplate,
         buffs: fullCombinedModifierBuffList,
         buffStackCounts: buttonStackCounts,
+        buffStackCountsByHitKey,
         panel: {
           atk: panelData.atk,
           critRate: panelData.critRate,
@@ -702,7 +788,7 @@ export function SkillButtonComponent({
       damageBonus: infoSnap as unknown as import('../../types/storage').DamageBonusSnapshot,
       targetResistance,
     });
-  }, [resolvedTemplate, panelData, button.id, button.characterId, targetResistance, fullCombinedModifierBuffList, panelBase, disabledBuffIdsByHitKey, manuallyDisabledHitKeys, infoSnap, buttonStackCounts]);
+  }, [resolvedTemplate, panelData, button.id, button.characterId, targetResistance, fullCombinedModifierBuffList, panelBase, disabledBuffIdsByHitKey, manuallyDisabledHitKeys, infoSnap, buttonStackCounts, buffStackCountsByHitKey]);
 
   const damageViewModel = useMemo(() => {
     if (!resolvedTemplate || !damageResult || !panelData) {
@@ -710,6 +796,12 @@ export function SkillButtonComponent({
     }
 
     const activeHitPanel = selectedHitIndex !== null ? damageResult.hits[selectedHitIndex]?.panel ?? panelData : panelData;
+    const activeHitStackCounts = selectedHitIndex !== null && resolvedTemplate.hits[selectedHitIndex]
+      ? {
+          ...buttonStackCounts,
+          ...(manualBuffStackCountsBySegmentKey[getNormalHitSegmentKey(resolvedTemplate.hits[selectedHitIndex].key)] ?? {}),
+        }
+      : buttonStackCounts;
     return buildSkillDamageModalViewModel(
       resolvedTemplate,
       damageResult,
@@ -719,9 +811,9 @@ export function SkillButtonComponent({
         critRate: activeHitPanel.critRate,
         critDmg: activeHitPanel.critDmg,
       },
-      buttonStackCounts
+      activeHitStackCounts
     );
-  }, [resolvedTemplate, damageResult, selectedHitIndex, panelData, buttonStackCounts]);
+  }, [resolvedTemplate, damageResult, selectedHitIndex, panelData, buttonStackCounts, manualBuffStackCountsBySegmentKey]);
   const activeHitBuffOptions = useMemo(() => {
     if (selectedHitIndex === null || !fullDamageResult) {
       return [];
@@ -816,6 +908,35 @@ export function SkillButtonComponent({
     });
   }, [persistManualBuffTweaks]);
 
+  const getEffectiveSegmentStackCounts = useCallback((segmentKey: string) => ({
+    ...buttonStackCounts,
+    ...(manualBuffStackCountsBySegmentKey[segmentKey] ?? {}),
+  }), [buttonStackCounts, manualBuffStackCountsBySegmentKey]);
+
+  const adjustSegmentBuffStack = useCallback((segmentKey: string, buffId: string, delta: number) => {
+    const buff = buffList.find((item) => item.id === buffId);
+    if (!buff || buff.category !== 'countable') {
+      return;
+    }
+    const maxStacks = typeof buff.maxStacks === 'number' && Number.isFinite(buff.maxStacks)
+      ? Math.max(1, Math.floor(buff.maxStacks))
+      : 1;
+    setManualBuffStackCountsBySegmentKey((prev) => {
+      const segmentCounts = prev[segmentKey] ?? {};
+      const baseCount = segmentCounts[buffId] ?? buttonStackCounts[buffId] ?? maxStacks;
+      const nextCount = Math.min(Math.max(Math.floor(baseCount) + delta, 1), maxStacks);
+      const nextMap = {
+        ...prev,
+        [segmentKey]: {
+          ...segmentCounts,
+          [buffId]: nextCount,
+        },
+      };
+      persistManualBuffStackCounts(nextMap);
+      return nextMap;
+    });
+  }, [buffList, buttonStackCounts, persistManualBuffStackCounts]);
+
   const toggleActiveNormalHitDisabled = useCallback(() => {
     if (!activeNormalHitKey) {
       return;
@@ -846,10 +967,11 @@ export function SkillButtonComponent({
       fullCombinedModifierBuffList,
       extraHitBuffList,
       buffStackCounts: buttonStackCounts,
+      buffStackCountsBySegmentKey: manualBuffStackCountsBySegmentKey,
       manuallyDisabledBuffIdsBySegmentKey,
       getEffectiveCharacterSourceSkillBoost,
     });
-  }, [panelBase, panelData, damageViewModel, selectedAnomalyDamages, button.characterId, button.skillType, targetResistance, element, infoSnap, fullCombinedModifierBuffList, extraHitBuffList, buttonStackCounts, manuallyDisabledBuffIdsBySegmentKey, getEffectiveCharacterSourceSkillBoost]);
+  }, [panelBase, panelData, damageViewModel, selectedAnomalyDamages, button.characterId, button.skillType, targetResistance, element, infoSnap, fullCombinedModifierBuffList, extraHitBuffList, buttonStackCounts, manualBuffStackCountsBySegmentKey, manuallyDisabledBuffIdsBySegmentKey, getEffectiveCharacterSourceSkillBoost]);
 
   const activeAnomalySegment = useMemo(
     () => (selectedAnomalySegmentKey ? anomalyDamageSegments.find((segment) => segment.key === selectedAnomalySegmentKey) ?? null : null),
@@ -1355,6 +1477,8 @@ export function SkillButtonComponent({
           buffs={buffList}
           buffStackCounts={buttonStackCounts}
           onRemoveBuff={removeBuff}
+          onToggleBuffDisabled={toggleGlobalBuffDisabled}
+          isBuffDisabled={(buffId) => globallyDisabledBuffIds.includes(buffId)}
           onDecrementBuff={decrementBuffStack}
           onIncrementBuff={incrementBuffStack}
           statuses={[
@@ -1382,6 +1506,40 @@ export function SkillButtonComponent({
           ]}
           hits={[
             ...(damageViewModel?.hitCards.map((hitCard, index) => ({
+              ...(() => {
+                const hit = resolvedTemplate?.hits[index];
+                const segmentKey = hit ? getNormalHitSegmentKey(hit.key) : null;
+                const fullHitResult = fullDamageResult?.hits[index];
+                const effectiveStackCounts = segmentKey
+                  ? getEffectiveSegmentStackCounts(segmentKey)
+                  : buttonStackCounts;
+                const tuningBuffs = fullHitResult
+                  ? buildAppliedBuffTags(fullHitResult.appliedBuffs, effectiveStackCounts)
+                  : [];
+                return {
+                  tuning: segmentKey ? {
+                    title: `${hitCard.displayName} 详情`,
+                    stats: [],
+                    buffs: tuningBuffs,
+                    segmentKey,
+                    disabled: hitCard.isDisabled,
+                    onToggleDisabled: hit ? () => {
+                      setManuallyDisabledHitKeys((prev) => {
+                        const next = prev.includes(hit.key)
+                          ? prev.filter((hitKey) => hitKey !== hit.key)
+                          : [...prev, hit.key];
+                        persistManualDisabledHitKeys(next);
+                        return next;
+                      });
+                    } : undefined,
+                    onToggleBuff: (buffId: string) => toggleManualBuff(segmentKey, buffId),
+                    isBuffActive: (buffId: string) => isBuffManuallyActive(segmentKey, buffId),
+                    onDecrementBuff: (buffId: string) => adjustSegmentBuffStack(segmentKey, buffId, -1),
+                    onIncrementBuff: (buffId: string) => adjustSegmentBuffStack(segmentKey, buffId, 1),
+                    onResetBuffs: () => resetManualBuffTweaks(segmentKey),
+                  } : undefined,
+                };
+              })(),
               key: hitCard.key,
               title: hitCard.displayName,
               meta: `${hitCard.buffCountText} · ${hitCard.multiplierText}`,
@@ -1405,6 +1563,20 @@ export function SkillButtonComponent({
               crit: segment.critText,
               nonCrit: segment.nonCritText,
               selected: activeAnomalySegment?.key === segment.key,
+              tuning: {
+                title: segment.title,
+                stats: [],
+                buffs: buildAppliedBuffTags(
+                  fullCombinedModifierBuffList,
+                  getEffectiveSegmentStackCounts(segment.key)
+                ),
+                segmentKey: segment.key,
+                onToggleBuff: (buffId: string) => toggleManualBuff(segment.key, buffId),
+                isBuffActive: (buffId: string) => isBuffManuallyActive(segment.key, buffId),
+                onDecrementBuff: (buffId: string) => adjustSegmentBuffStack(segment.key, buffId, -1),
+                onIncrementBuff: (buffId: string) => adjustSegmentBuffStack(segment.key, buffId, 1),
+                onResetBuffs: () => resetManualBuffTweaks(segment.key),
+              },
               onSelect: () => {
                 const isCurrentSegment = selectedHitIndex === null && selectedAnomalySegmentKey === segment.key;
                 setSelectedHitIndex(null);
@@ -1419,44 +1591,6 @@ export function SkillButtonComponent({
             crit: (Number(damageViewModel.summary.totalCritText) + anomalyDamageSummary.crit).toFixed(0),
             nonCrit: (Number(damageViewModel.summary.totalNonCritText) + anomalyDamageSummary.nonCrit).toFixed(0),
             formula: totalNonCritSummaryFormula,
-          } : null}
-          activeHit={isShowingAnomalyDetail && activeAnomalySegment ? {
-            title: activeAnomalySegment.title,
-            stats: [
-              `ATK ${activeAnomalySegment.panelAtkText}`,
-              `倍率 ${activeAnomalySegment.multiplierText}`,
-              `元素 ${activeAnomalySegment.elementText}`,
-              `期望 ${activeAnomalySegment.expectedText}`,
-              `暴击 ${activeAnomalySegment.critText}`,
-              `非暴 ${activeAnomalySegment.nonCritText}`,
-            ],
-            buffs: activeAnomalyBuffOptions,
-            segmentKey: activeAnomalySegment.key,
-            onToggleBuff: (buffId) => toggleManualBuff(activeAnomalySegment.key, buffId),
-            isBuffActive: (buffId) => isBuffManuallyActive(activeAnomalySegment.key, buffId),
-            onResetBuffs: () => resetManualBuffTweaks(activeAnomalySegment.key),
-          } : damageViewModel?.activeHitDetail ? {
-            title: damageViewModel.activeHitDetail.title,
-            stats: [
-              `倍率 ${damageViewModel.activeHitDetail.multiplierText}`,
-              `元素 ${damageViewModel.activeHitDetail.elementText}`,
-              `期望 ${damageViewModel.activeHitDetail.expectedText}`,
-              `暴击 ${damageViewModel.activeHitDetail.critText}`,
-              `非暴 ${damageViewModel.activeHitDetail.nonCritText}`,
-            ],
-            buffs: activeHitBuffOptions,
-            segmentKey: activeNormalHitSegmentKey,
-            disabled: isActiveNormalHitDisabled,
-            onToggleDisabled: activeNormalHitKey ? toggleActiveNormalHitDisabled : undefined,
-            onToggleBuff: (buffId) => {
-              if (activeNormalHitSegmentKey) toggleManualBuff(activeNormalHitSegmentKey, buffId);
-            },
-            isBuffActive: (buffId) => activeNormalHitSegmentKey
-              ? isBuffManuallyActive(activeNormalHitSegmentKey, buffId)
-              : true,
-            onResetBuffs: activeNormalHitSegmentKey
-              ? () => resetManualBuffTweaks(activeNormalHitSegmentKey)
-              : undefined,
           } : null}
           formula={!isShowingAnomalyDetail ? damageViewModel?.activeHitFormula ?? null : null}
           isFormulaExpanded={!isShowingAnomalyDetail && isExpanded}

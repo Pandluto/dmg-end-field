@@ -35,6 +35,7 @@ interface BuildAnomalyDamageSegmentsParams {
   fullCombinedModifierBuffList: SkillButtonBuff[];
   extraHitBuffList: Array<SkillButtonBuff & { effectKind: 'extraHit'; extraHitConfig: NonNullable<SkillButtonBuff['extraHitConfig']> }>;
   buffStackCounts?: Record<string, number>;
+  buffStackCountsBySegmentKey?: Record<string, Record<string, number>>;
   manuallyDisabledBuffIdsBySegmentKey: Record<string, string[]>;
   getEffectiveCharacterSourceSkillBoost: (characterId: string | null, buffs?: SkillButtonBuff[]) => number;
 }
@@ -284,6 +285,7 @@ export function buildAnomalyDamageSegments({
   fullCombinedModifierBuffList,
   extraHitBuffList,
   buffStackCounts = {},
+  buffStackCountsBySegmentKey = {},
   manuallyDisabledBuffIdsBySegmentKey,
   getEffectiveCharacterSourceSkillBoost,
 }: BuildAnomalyDamageSegmentsParams): AnomalyDamageSegmentView[] {
@@ -294,6 +296,10 @@ export function buildAnomalyDamageSegments({
   const currentOperatorLevel = 90;
   let anomalySequenceOffset = 0;
   const anomalySegments = selectedAnomalyDamages.flatMap<AnomalyDamageSegmentView>((card) => {
+    const segmentStackCounts = {
+      ...buffStackCounts,
+      ...(buffStackCountsBySegmentKey[card.id] ?? {}),
+    };
     const baseMultiplierPercent = resolveBaseMultiplierPercent(card);
     const levelCoefficient = resolveLevelCoefficient(card, currentOperatorLevel);
     const elementKey = resolveElementKey(card, element);
@@ -302,13 +308,13 @@ export function buildAnomalyDamageSegments({
       ? [...fullCombinedModifierBuffList]
       : [...fullCombinedModifierBuffList.filter((buff) => card.selectedBuffIds.includes(buff.id) || buff.source === 'anomaly_state')];
     const appliedBuffs = baseAppliedBuffs.filter((buff) => !disabledBuffIds.has(buff.id));
-    const appliedBuffTags = buildAppliedBuffTags(appliedBuffs, buffStackCounts);
-    const segmentPanel = buildPanelFromBase(panelBase, panelData, appliedBuffs, buffStackCounts);
+    const appliedBuffTags = buildAppliedBuffTags(appliedBuffs, segmentStackCounts);
+    const segmentPanel = buildPanelFromBase(panelBase, panelData, appliedBuffs, segmentStackCounts);
     if (!segmentPanel) {
       return [];
     }
 
-    const buffTotals = calculateBuffTotals(appliedBuffs, buffStackCounts);
+    const buffTotals = calculateBuffTotals(appliedBuffs, segmentStackCounts);
     const currentCharacterSourceSkillBoost = getEffectiveCharacterSourceSkillBoost(buttonCharacterId, appliedBuffs);
     const sourceSkillZone = 1 + currentCharacterSourceSkillBoost / 100;
     const anomalyAtk = segmentPanel.atk;
@@ -321,7 +327,7 @@ export function buildAnomalyDamageSegments({
       element: elementKey as SpecialHitElement,
       skillType: '',
       buffs: appliedBuffs,
-      stackCounts: buffStackCounts,
+      stackCounts: segmentStackCounts,
       damageBonus,
       baseSkillMultiplier: anomalyBaseMultiplier,
     });
@@ -357,7 +363,7 @@ export function buildAnomalyDamageSegments({
       element: elementKey as SpecialHitElement,
       skillType: 'Dot',
       buffs: appliedBuffs,
-      stackCounts: buffStackCounts,
+      stackCounts: segmentStackCounts,
       damageBonus,
       baseSkillMultiplier: burnDotBaseMultiplier,
     });
@@ -500,23 +506,28 @@ export function buildAnomalyDamageSegments({
       const sequenceNumber = hitCards.length + anomalySegments.length + extraHitSequenceOffset + hitIndex + 1;
       const layerSuffix = hitCount > 1 ? ` ${hitIndex + 1}/${hitCount}` : '';
       const segmentKey = hitCount > 1 ? `${baseSegmentKey}-${hitIndex + 1}` : baseSegmentKey;
+      const segmentStackCounts = {
+        ...buffStackCounts,
+        ...(buffStackCountsBySegmentKey[baseSegmentKey] ?? {}),
+        ...(buffStackCountsBySegmentKey[segmentKey] ?? {}),
+      };
       const disabledBuffIds = new Set([
         ...(manuallyDisabledBuffIdsBySegmentKey[baseSegmentKey] ?? []),
         ...(manuallyDisabledBuffIdsBySegmentKey[segmentKey] ?? []),
       ]);
       const combinedAppliedBuffs = fullCombinedModifierBuffList.filter((item) => !disabledBuffIds.has(item.id));
-      const appliedBuffTags = buildAppliedBuffTags(combinedAppliedBuffs, buffStackCounts);
-      const segmentPanel = buildPanelFromBase(panelBase, panelData, combinedAppliedBuffs, buffStackCounts);
+      const appliedBuffTags = buildAppliedBuffTags(combinedAppliedBuffs, segmentStackCounts);
+      const segmentPanel = buildPanelFromBase(panelBase, panelData, combinedAppliedBuffs, segmentStackCounts);
       if (!segmentPanel) {
         return [];
       }
 
-      const buffTotals = calculateBuffTotals(combinedAppliedBuffs, buffStackCounts);
+      const buffTotals = calculateBuffTotals(combinedAppliedBuffs, segmentStackCounts);
       const zoneResults = calculateSpecialHitBuffZones({
         element: elementKey,
         skillType: extraHitConfig.skillType,
         buffs: combinedAppliedBuffs,
-        stackCounts: buffStackCounts,
+        stackCounts: segmentStackCounts,
         damageBonus,
         baseSkillMultiplier: extraHitConfig.baseMultiplier,
       });
