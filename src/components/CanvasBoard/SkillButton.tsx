@@ -467,6 +467,7 @@ export function SkillButtonComponent({
           },
           updatedAt: Date.now(),
         });
+        recomputeSkillButtonPanel(button.id);
       }
       return next;
     });

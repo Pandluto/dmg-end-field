@@ -25,6 +25,14 @@ function isModifierBuff(buff: SkillButtonBuff): boolean {
   return buff.effectKind !== 'extraHit';
 }
 
+function getEffectiveModifierBuffs(
+  buffs: SkillButtonBuff[],
+  globallyDisabledBuffIds: string[] | undefined,
+): SkillButtonBuff[] {
+  const disabledBuffIds = new Set(globallyDisabledBuffIds ?? []);
+  return buffs.filter((buff) => isModifierBuff(buff) && !disabledBuffIds.has(buff.id));
+}
+
 function normalizeBuffCategory(category: unknown): 'condition' | 'countable' | 'passive' {
   if (category === 'countable' || category === 'passive' || category === 'condition') {
     return category;
@@ -97,7 +105,10 @@ function buildSkillButtonRuntimeSnapshot(buttonId: string) {
     return null;
   }
 
-  const buffList = getBuffsByButtonId(buttonId).filter(isModifierBuff);
+  const buffList = getEffectiveModifierBuffs(
+    getBuffsByButtonId(buttonId),
+    button.panelConfig?.globallyDisabledBuffIds,
+  );
   return calculateBuffedPanel(nowTimePanel, buffList, button.buffStackCounts);
 }
 

@@ -107,3 +107,16 @@ assertClose(
   2065.768,
   'ability multipliers should run after flat, main/sub, and all-stat additive calculations',
 );
+
+const legacyPanelBase = {
+  ...panelBase,
+  mainStatScale: undefined,
+  subStatScale: undefined,
+  allStatScale: undefined,
+};
+
+assertClose(
+  calculateBuffedPanel(legacyPanelBase, [createBuff('legacy-main', 'mainStatBoost', 0.1)]).atk,
+  1847,
+  'legacy panel without scale metadata should still apply ability buffs from its final-value baseline',
+);

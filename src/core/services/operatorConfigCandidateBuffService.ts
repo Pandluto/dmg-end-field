@@ -131,7 +131,7 @@ function buildOperatorBuffCandidate(
     : normalizedEffect.category === 'condition'
       ? 'condition'
       : 'passive';
-  if (effectKind === 'modifier' && category === 'passive') return null;
+  if (effectKind === 'modifier' && category === 'passive' && !normalizedEffect.multiplier) return null;
   const type = normalizeBuffTypeKey(normalizedEffect.type || '');
   if (effectKind === 'modifier' && !type) return null;
   const sourceName = snapshot.operator.name || snapshot.operator.id;
@@ -184,7 +184,7 @@ function buildWeaponDetailCandidate(snapshot: ConfigSnapshot, detail: WeaponSkil
     type: detail.typeKey,
   }) as WeaponSkillDetail & { type: string; multiplier?: BuffMultiplier };
   const effectKind = normalizedDetail.effectKind === 'extraHit' ? 'extraHit' : 'modifier';
-  if (effectKind === 'modifier' && normalizedDetail.category === 'passive') return null;
+  if (effectKind === 'modifier' && normalizedDetail.category === 'passive' && !normalizedDetail.multiplier) return null;
   const type = normalizeBuffTypeKey(normalizedDetail.type);
   if (effectKind === 'modifier' && !type) return null;
   const sourceName = snapshot.weapon.name || snapshot.weapon.id || snapshot.operator.name;
@@ -251,7 +251,7 @@ export function buildSnapshotEquipmentCandidateBuffs(snapshot: ConfigSnapshot, e
         }) as EquipmentThreePieceBuffLike & { type: string };
         const effectKind = normalizedBuff.effectKind === 'extraHit' ? 'extraHit' : 'modifier';
         const category = normalizedBuff.category === 'countable' ? 'countable' : normalizedBuff.category === 'condition' ? 'condition' : 'passive';
-        if (effectKind === 'modifier' && category === 'passive') return null;
+        if (effectKind === 'modifier' && category === 'passive' && !normalizedBuff.multiplier) return null;
         const type = normalizeBuffTypeKey(normalizedBuff.type || '');
         const hasValue = typeof normalizedBuff.value === 'number' && Number.isFinite(normalizedBuff.value);
         if (effectKind === 'modifier' && (!type || (!hasValue && !normalizedBuff.multiplier))) return null;

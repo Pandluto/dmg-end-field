@@ -325,13 +325,20 @@ export function calculateBuffedPanel(
       intelligence: totals.intelligenceBoost,
       will: totals.willBoost,
     };
+    const hasExactScaleMetadata = typeof panelBase.mainStatScale === 'number'
+      && typeof panelBase.subStatScale === 'number'
+      && typeof panelBase.allStatScale === 'number';
     const mainScale = panelBase.mainStatScale ?? 0;
     const subScale = panelBase.subStatScale ?? 0;
     const allScale = panelBase.allStatScale ?? 0;
     const mainBaseScale = (1 + mainScale) * (1 + allScale);
     const subBaseScale = (1 + subScale) * (1 + allScale);
-    const rawMain = mainBaseScale !== 0 ? panelBase.mainStatFinal / mainBaseScale : panelBase.mainStatFinal;
-    const rawSub = subBaseScale !== 0 ? panelBase.subStatFinal / subBaseScale : panelBase.subStatFinal;
+    const rawMain = hasExactScaleMetadata && mainBaseScale !== 0
+      ? panelBase.mainStatFinal / mainBaseScale
+      : panelBase.mainStatFinal;
+    const rawSub = hasExactScaleMetadata && subBaseScale !== 0
+      ? panelBase.subStatFinal / subBaseScale
+      : panelBase.subStatFinal;
     const abilityMultiplierProducts: Record<AbilityField, number> = {
       strength: 1,
       agility: 1,
@@ -355,14 +362,14 @@ export function calculateBuffedPanel(
       if (buff.type === 'willBoost') abilityMultiplierProducts.will *= coefficient;
     });
     const nextMain = (rawMain + flatBoosts[mainField])
-      * (1 + mainScale + totals.mainStatBoost)
-      * (1 + allScale + totals.allStatBoost)
+      * (hasExactScaleMetadata ? 1 + mainScale + totals.mainStatBoost : 1 + totals.mainStatBoost)
+      * (hasExactScaleMetadata ? 1 + allScale + totals.allStatBoost : 1 + totals.allStatBoost)
       * abilityMultiplierProducts[mainField]
       * mainStatMultiplierProduct
       * allStatMultiplierProduct;
     const nextSub = (rawSub + flatBoosts[subField])
-      * (1 + subScale + totals.subStatBoost)
-      * (1 + allScale + totals.allStatBoost)
+      * (hasExactScaleMetadata ? 1 + subScale + totals.subStatBoost : 1 + totals.subStatBoost)
+      * (hasExactScaleMetadata ? 1 + allScale + totals.allStatBoost : 1 + totals.allStatBoost)
       * abilityMultiplierProducts[subField]
       * subStatMultiplierProduct
       * allStatMultiplierProduct;

@@ -554,7 +554,9 @@ function buildHitRowsForButton(
     return [];
   }
 
-  const baseBuffs = getButtonBuffs(persistedButton);
+  const globallyDisabledBuffIds = new Set(persistedButton.panelConfig?.globallyDisabledBuffIds ?? []);
+  const baseBuffs = getButtonBuffs(persistedButton)
+    .filter((buff) => !globallyDisabledBuffIds.has(buff.id));
   const anomalyStatuses = persistedButton.anomalyConfig?.selectedStatuses ?? [];
   const anomalyStateSnapshots = getAnomalyStateSnapshotsByIds(persistedButton.anomalyConfig?.selectedStateSnapshotIds ?? []);
   const combinedBuffs = [

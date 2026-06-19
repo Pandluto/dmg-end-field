@@ -90,15 +90,46 @@ function toStorageNumber(value: unknown, fallback = 0): number {
   return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
 }
 
+type AbilityField = 'strength' | 'agility' | 'intelligence' | 'will';
+
+const ABILITY_FIELD_MAP: Record<string, AbilityField> = {
+  力量: 'strength',
+  敏捷: 'agility',
+  智识: 'intelligence',
+  意志: 'will',
+};
+
+function resolveLegacyAbilityFields(
+  characterId: string,
+  panelSnapshot: PanelSummary,
+): Pick<CharacterComputedCache['panel'], 'mainStatField' | 'subStatField'> {
+  const runtimeTemplate = getRuntimeOperatorTemplateById(characterId);
+  return {
+    mainStatField: panelSnapshot.mainStatField ?? ABILITY_FIELD_MAP[runtimeTemplate?.mainStat ?? ''],
+    subStatField: panelSnapshot.subStatField ?? ABILITY_FIELD_MAP[runtimeTemplate?.subStat ?? ''],
+  };
+}
+
+function normalizeLegacyCharacterComputed(
+  characterId: string,
+  computed: CharacterComputedCache,
+): CharacterComputedCache {
+  if (computed.panel.mainStatField && computed.panel.subStatField) {
+    return computed;
+  }
+  const abilityFields = resolveLegacyAbilityFields(characterId, computed.panel);
+  return {
+    ...computed,
+    panel: {
+      ...computed.panel,
+      ...abilityFields,
+    },
+  };
+}
+
 function buildCharacterComputedFromConfigSnapshot(snapshot: ConfigSnapshot): CharacterComputedCache {
   const display = snapshot.panel.display;
   const calc = snapshot.panel.calc;
-  const abilityFieldMap = {
-    力量: 'strength',
-    敏捷: 'agility',
-    智识: 'intelligence',
-    意志: 'will',
-  } as const;
   return {
     fingerprint: JSON.stringify({
       source: STORAGE_KEYS.OPERATOR_CONFIG_PAGE_CACHE,
@@ -141,8 +172,8 @@ function buildCharacterComputedFromConfigSnapshot(snapshot: ConfigSnapshot): Cha
       healingBonus: toStorageNumber(calc.healingBonus),
       ultimateChargeEfficiency: toStorageNumber(calc.ultimateChargeEfficiency),
       weaponAllSkillDmgBonus: toStorageNumber(snapshot.weapon.totals.allSkillDmgBonus),
-      mainStatField: abilityFieldMap[snapshot.operator.mainStat as keyof typeof abilityFieldMap],
-      subStatField: abilityFieldMap[snapshot.operator.subStat as keyof typeof abilityFieldMap],
+      mainStatField: ABILITY_FIELD_MAP[snapshot.operator.mainStat],
+      subStatField: ABILITY_FIELD_MAP[snapshot.operator.subStat],
       mainStatScale: toStorageNumber(calc.mainStatBoost),
       subStatScale: toStorageNumber(calc.subStatBoost),
       allStatScale: toStorageNumber(calc.allStatBoost),
@@ -172,6 +203,11 @@ function buildPanelSummaryFromComputed(computed: CharacterComputedCache): PanelS
     healingBonus: computed.panel.healingBonus ?? 0,
     ultimateChargeEfficiency: computed.panel.ultimateChargeEfficiency ?? 0,
     weaponAllSkillDmgBonus: computed.panel.weaponAllSkillDmgBonus,
+    mainStatField: computed.panel.mainStatField,
+    subStatField: computed.panel.subStatField,
+    mainStatScale: computed.panel.mainStatScale,
+    subStatScale: computed.panel.subStatScale,
+    allStatScale: computed.panel.allStatScale,
   };
 }
 
@@ -315,9 +351,12 @@ export function setCharacterInput(characterId: string, config: CharacterInputCon
 export function getCharacterComputedMap(): Record<string, CharacterComputedCache> {
   const raw = safeSessionStorage.getItem(STORAGE_KEYS.CHARACTER_COMPUTED_MAP);
   const wrapper = raw ? parseV3Wrapper<CharacterComputedCache>(raw) : null;
-  const result: Record<string, CharacterComputedCache> = {
-    ...(wrapper?.data ?? {}),
-  };
+  const result: Record<string, CharacterComputedCache> = Object.fromEntries(
+    Object.entries(wrapper?.data ?? {}).map(([characterId, computed]) => [
+      characterId,
+      normalizeLegacyCharacterComputed(characterId, computed),
+    ]),
+  );
   const snapshotCache = getOperatorConfigPageCache();
   Object.entries(snapshotCache).forEach(([characterId, snapshot]) => {
     result[characterId] = buildCharacterComputedFromConfigSnapshot(snapshot);
@@ -551,6 +590,7 @@ export function setCharacterConfig(characterId: string, config: CharacterConfigJ
 
   // 写入 computed（如果有 panelSnapshot）
   if (config.panelSnapshot) {
+    const abilityFields = resolveLegacyAbilityFields(characterId, config.panelSnapshot);
     const fingerprint = JSON.stringify({
       potential: config.characterPotential,
       skillLevels: config.skillLevelModeMap,
@@ -579,6 +619,10 @@ export function setCharacterConfig(characterId: string, config: CharacterConfigJ
         healingBonus: config.panelSnapshot.healingBonus ?? 0,
         ultimateChargeEfficiency: config.panelSnapshot.ultimateChargeEfficiency ?? 0,
         weaponAllSkillDmgBonus: config.panelSnapshot.weaponAllSkillDmgBonus,
+        ...abilityFields,
+        mainStatScale: config.panelSnapshot.mainStatScale,
+        subStatScale: config.panelSnapshot.subStatScale,
+        allStatScale: config.panelSnapshot.allStatScale,
       },
       damageBonus: normalizeDamageBonusSnapshot(config.infoSnap),
     };
