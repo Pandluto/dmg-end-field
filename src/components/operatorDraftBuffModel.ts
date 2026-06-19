@@ -288,6 +288,16 @@ const OPERATOR_COUNTABLE_EXTRA_BUFF_TYPES = new Set([
   'critRateBoost',
   'critDmgBonusBoost',
 ]);
+const OPERATOR_MULTIPLIER_BUFF_TYPES = new Set([
+  'multiplierBonus',
+  'mainStatBoost',
+  'subStatBoost',
+  'allStatBoost',
+  'strengthBoost',
+  'agilityBoost',
+  'intelligenceBoost',
+  'willBoost',
+]);
 
 export function isOperatorRuntimeCoefficientBuffType(buffType: string | undefined): boolean {
   const entry = getBuffTypeRegistryEntry(buffType);
@@ -314,7 +324,7 @@ function normalizeTypeForBusinessType(type: string, businessType: OperatorBuffBu
     return isOperatorCountableBuffType(type) ? type : '';
   }
   if (businessType === 'multiplier') {
-    return isOperatorRuntimeCoefficientBuffType(type) ? type : '';
+    return OPERATOR_MULTIPLIER_BUFF_TYPES.has(type) ? type : '';
   }
   return type;
 }
@@ -343,7 +353,7 @@ export function getFilteredOperatorBuffTypeOptions(params: {
   const availableOptions = businessType === 'countable'
     ? OPERATOR_BUFF_TYPE_OPTIONS.filter((option) => isOperatorCountableBuffType(option))
     : businessType === 'multiplier'
-      ? OPERATOR_BUFF_TYPE_OPTIONS.filter((option) => isOperatorRuntimeCoefficientBuffType(option))
+      ? OPERATOR_BUFF_TYPE_OPTIONS.filter((option) => OPERATOR_MULTIPLIER_BUFF_TYPES.has(option))
       : OPERATOR_BUFF_TYPE_OPTIONS;
   const filtered = keyword
     ? availableOptions.filter((option) => buildOperatorBuffTypeSearchText(option, params.buildSearchIndex).toLowerCase().includes(keyword))
@@ -568,7 +578,7 @@ export function applyBuffType(effect: OperatorBuffEffect, nextType: string): Ope
     ...effect,
     type: normalizedType,
     unit: normalizedType ? inferOperatorBuffUnit(normalizedType) : '',
-    ...((businessType === 'multiplier' && !isOperatorRuntimeCoefficientBuffType(normalizedType)) || (!isMultiplierSupportedBuffType(normalizedType) && effect.multiplier)
+    ...((businessType === 'multiplier' && !OPERATOR_MULTIPLIER_BUFF_TYPES.has(normalizedType)) || (!isMultiplierSupportedBuffType(normalizedType) && effect.multiplier)
       ? { multiplier: undefined }
       : {}),
   };

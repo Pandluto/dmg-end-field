@@ -63,6 +63,16 @@ const entries: BuffTypeRegistryEntry[] = [
   { type: 'multiplierBonus', zone: 'skillMultiplier', match: { kind: 'all' }, allowMultiplier: true, valueStyle: 'ratio' },
 ];
 
+const abilityMultiplierTypes = new Set([
+  'mainStatBoost',
+  'subStatBoost',
+  'allStatBoost',
+  'strengthBoost',
+  'agilityBoost',
+  'intelligenceBoost',
+  'willBoost',
+]);
+
 export const BUFF_TYPE_REGISTRY: ReadonlyMap<string, BuffTypeRegistryEntry> = new Map(
   entries.map((entry) => [entry.type, Object.freeze(entry)])
 );
@@ -72,11 +82,15 @@ export function getBuffTypeRegistryEntry(type: string | undefined): BuffTypeRegi
 }
 
 export function isMultiplierSupportedBuffType(type: string | undefined): boolean {
-  return getBuffTypeRegistryEntry(type)?.allowMultiplier === true;
+  return Boolean(type && abilityMultiplierTypes.has(type))
+    || getBuffTypeRegistryEntry(type)?.allowMultiplier === true;
 }
 
 export function getMultiplierSupportedBuffTypes(): string[] {
-  return [...BUFF_TYPE_REGISTRY.values()]
-    .filter((entry) => entry.allowMultiplier)
-    .map((entry) => entry.type);
+  return [
+    ...[...BUFF_TYPE_REGISTRY.values()]
+      .filter((entry) => entry.allowMultiplier)
+      .map((entry) => entry.type),
+    ...abilityMultiplierTypes,
+  ];
 }

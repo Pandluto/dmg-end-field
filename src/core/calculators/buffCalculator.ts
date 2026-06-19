@@ -332,12 +332,40 @@ export function calculateBuffedPanel(
     const subBaseScale = (1 + subScale) * (1 + allScale);
     const rawMain = mainBaseScale !== 0 ? panelBase.mainStatFinal / mainBaseScale : panelBase.mainStatFinal;
     const rawSub = subBaseScale !== 0 ? panelBase.subStatFinal / subBaseScale : panelBase.subStatFinal;
+    const abilityMultiplierProducts: Record<AbilityField, number> = {
+      strength: 1,
+      agility: 1,
+      intelligence: 1,
+      will: 1,
+    };
+    let mainStatMultiplierProduct = 1;
+    let subStatMultiplierProduct = 1;
+    let allStatMultiplierProduct = 1;
+    buffs.forEach((buff) => {
+      const coefficient = buff.multiplier?.coefficient;
+      if (!buff.type || typeof coefficient !== 'number' || !Number.isFinite(coefficient) || coefficient <= 0) {
+        return;
+      }
+      if (buff.type === 'mainStatBoost') mainStatMultiplierProduct *= coefficient;
+      if (buff.type === 'subStatBoost') subStatMultiplierProduct *= coefficient;
+      if (buff.type === 'allStatBoost') allStatMultiplierProduct *= coefficient;
+      if (buff.type === 'strengthBoost') abilityMultiplierProducts.strength *= coefficient;
+      if (buff.type === 'agilityBoost') abilityMultiplierProducts.agility *= coefficient;
+      if (buff.type === 'intelligenceBoost') abilityMultiplierProducts.intelligence *= coefficient;
+      if (buff.type === 'willBoost') abilityMultiplierProducts.will *= coefficient;
+    });
     const nextMain = (rawMain + flatBoosts[mainField])
       * (1 + mainScale + totals.mainStatBoost)
-      * (1 + allScale + totals.allStatBoost);
+      * (1 + allScale + totals.allStatBoost)
+      * abilityMultiplierProducts[mainField]
+      * mainStatMultiplierProduct
+      * allStatMultiplierProduct;
     const nextSub = (rawSub + flatBoosts[subField])
       * (1 + subScale + totals.subStatBoost)
-      * (1 + allScale + totals.allStatBoost);
+      * (1 + allScale + totals.allStatBoost)
+      * abilityMultiplierProducts[subField]
+      * subStatMultiplierProduct
+      * allStatMultiplierProduct;
     abilityBonus = nextMain * 0.005 + nextSub * 0.002;
   }
 

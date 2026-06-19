@@ -579,6 +579,7 @@ export function SkillButtonComponent({
       maxStacks: entry.maxStacks,
       effectKind: entry.effectKind,
       extraHitConfig: entry.extraHitConfig,
+      multiplier: entry.multiplier,
       refCount: 1,
     });
 

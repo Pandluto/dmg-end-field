@@ -2098,8 +2098,11 @@ export function DamageSheetPage() {
       description: entry.description,
       source: entry.source,
       condition: entry.condition,
+      category: entry.category,
+      maxStacks: entry.maxStacks,
       effectKind: entry.effectKind,
       extraHitConfig: entry.extraHitConfig,
+      multiplier: entry.multiplier,
       refCount: 1,
     });
 

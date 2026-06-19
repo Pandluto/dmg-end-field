@@ -23,6 +23,14 @@ function createBuff(id: string, type: string, value: number): SkillButtonBuff {
   };
 }
 
+function createMultiplierBuff(id: string, type: string, coefficient: number): SkillButtonBuff {
+  return {
+    ...createBuff(id, type, 0),
+    value: undefined,
+    multiplier: { coefficient },
+  };
+}
+
 const panelBase = {
   baseAtk: 1000,
   characterAtk: 600,
@@ -80,4 +88,22 @@ assertClose(
   ]).atk,
   2045.2,
   'four abilities and three ability multipliers should use flat-before-multiplier order',
+);
+
+assertClose(
+  calculateBuffedPanel(panelBase, [createMultiplierBuff('agility-multiplier', 'agilityBoost', 1.5)]).atk,
+  1841.5,
+  'ability multiplier should multiply the final ability value after other calculations',
+);
+
+assertClose(
+  calculateBuffedPanel(panelBase, [
+    createBuff('agility-flat', 'agilityBoost', 15),
+    createBuff('sub-additive', 'subStatBoost', 0.1),
+    createMultiplierBuff('agility-multiplier', 'agilityBoost', 1.5),
+    createMultiplierBuff('sub-multiplier', 'subStatBoost', 1.2),
+    createMultiplierBuff('all-multiplier', 'allStatBoost', 1.1),
+  ]).atk,
+  2065.768,
+  'ability multipliers should run after flat, main/sub, and all-stat additive calculations',
 );

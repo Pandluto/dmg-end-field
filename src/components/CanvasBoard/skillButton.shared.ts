@@ -1,5 +1,5 @@
-import type { BuffExtraHitConfig, CandidateBuff } from '../../core/domain/buff';
-import { calculateBuffTotals, getBuffEffectiveValue } from '../../core/calculators/buffCalculator';
+import type { BuffExtraHitConfig, BuffMultiplier, CandidateBuff } from '../../core/domain/buff';
+import { calculateBuffedPanel, getBuffEffectiveValue } from '../../core/calculators/buffCalculator';
 import type {
   AppliedBuffTagViewModel,
   SkillDamagePanel,
@@ -117,6 +117,7 @@ export interface LocalBuffSearchResult {
   level?: string;
   effectKind?: 'modifier' | 'extraHit';
   extraHitConfig?: BuffExtraHitConfig;
+  multiplier?: BuffMultiplier;
 }
 
 export interface DropdownOption<T extends string | number> {
@@ -267,18 +268,7 @@ export function buildPanelFromBase(
     return fallbackPanel;
   }
 
-  const buffTotals = calculateBuffTotals(appliedBuffs.filter(isModifierBuff), stackCounts);
-  const currentAtkPercent = panelBase.weaponAtkPercent * 0.01;
-  const rawAtk = panelBase.characterAtk + panelBase.weaponAtk;
-  const fixedAtk = panelBase.baseAtk - rawAtk * (1 + currentAtkPercent);
-  const nextBaseAtk = rawAtk * (1 + currentAtkPercent + buffTotals.atkPercentBoost) + fixedAtk;
-  const abilityAtkPercentBonus = panelBase.abilityBonus * 0.01;
-
-  return {
-    atk: nextBaseAtk * (1 + abilityAtkPercentBonus),
-    critRate: (panelBase.critRate ?? 0.05) + buffTotals.critRateBoost,
-    critDmg: (panelBase.critDmg ?? 0.5) + buffTotals.critDmgBonusBoost,
-  };
+  return calculateBuffedPanel(panelBase, appliedBuffs.filter(isModifierBuff), stackCounts);
 }
 
 export function isFixedStateKey(key: string): boolean {
@@ -337,6 +327,7 @@ export function readLocalBuffSearchEntries(): LocalBuffSearchResult[] {
           level?: string;
           effectKind?: 'modifier' | 'extraHit';
           extraHitConfig?: BuffExtraHitConfig;
+          multiplier?: BuffMultiplier;
         }>;
       }>;
     }>;
@@ -364,6 +355,7 @@ export function readLocalBuffSearchEntries(): LocalBuffSearchResult[] {
           level: effect.level || '',
           effectKind: effect.effectKind,
           extraHitConfig: effect.extraHitConfig,
+          multiplier: effect.multiplier,
         }))
       )
     );
@@ -438,6 +430,7 @@ export function readCandidateBuffSearchEntries(): LocalBuffSearchResult[] {
       level: buff.level || '',
       effectKind: buff.effectKind,
       extraHitConfig: buff.extraHitConfig,
+      multiplier: buff.multiplier,
     };
   });
 }
