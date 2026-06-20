@@ -179,16 +179,16 @@
 }
 
 .workbench-bottom-nav-button:hover {
-  background: linear-gradient(145deg, rgba(235, 249, 240, 0.98), rgba(212, 241, 221, 0.92));
-  color: #2c7a4b;
-  border-color: #8fd0a8;
+  background: rgba(0, 122, 255, 0.08);
+  color: var(--theme-accent-strong);
+  border-color: rgba(0, 122, 255, 0.32);
 }
 
 .workbench-bottom-nav-button.is-active {
-  background: linear-gradient(145deg, rgba(224, 246, 231, 0.98), rgba(193, 232, 205, 0.94));
-  color: #23663f;
-  border-color: #7fc59a;
-  box-shadow: inset 0 -2px 0 rgba(79, 145, 104, 0.32);
+  background: rgba(0, 122, 255, 0.12);
+  color: var(--theme-accent-strong);
+  border-color: rgba(0, 122, 255, 0.38);
+  box-shadow: inset 0 -2px 0 rgba(0, 122, 255, 0.32);
 }
 
 .workbench-bottom-nav-button:hover .workbench-trigger-text,
@@ -197,11 +197,11 @@
 }
 
 .workbench-shell-button:not(.is-active) {
-  border-color: #7fb995;
+  border-color: rgba(0, 122, 255, 0.28);
 }
 
 .workbench-shell-button:not(.is-active) .workbench-trigger-status {
-  color: #3b7754;
+  color: var(--theme-accent-strong);
 }
 
 /* 选人界面布局 */
@@ -270,8 +270,8 @@
 /* Excel Acrylic theme final overrides */
 .workbench-frame {
   background:
-    radial-gradient(circle at 18% 0%, rgba(33, 163, 102, 0.18), transparent 34%),
-    linear-gradient(135deg, rgba(255, 255, 255, 0.46), rgba(222, 241, 229, 0.34)),
+    radial-gradient(circle at 18% 0%, rgba(0, 122, 255, 0.14), transparent 34%),
+    linear-gradient(135deg, rgba(255, 255, 255, 0.5), rgba(232, 240, 255, 0.32)),
     var(--ide-bg-app);
   color: var(--ide-text-main);
 }
@@ -279,7 +279,7 @@
 .workbench-top-zone {
   background: rgba(255, 255, 255, 0.68);
   border-bottom: 1px solid var(--ide-border-subtle);
-  box-shadow: 0 10px 30px rgba(16, 124, 65, 0.08);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.08);
   backdrop-filter: blur(22px) saturate(1.35);
 }
 
@@ -289,22 +289,22 @@
   color: var(--ide-text-muted);
   border-color: var(--ide-border-subtle);
   border-radius: var(--ide-radius-sm);
-  box-shadow: inset 0 1px 0 var(--ide-acrylic-highlight), 0 1px 4px rgba(21, 68, 45, 0.06);
+  box-shadow: inset 0 1px 0 var(--ide-acrylic-highlight), 0 1px 4px rgba(0, 0, 0, 0.06);
 }
 
 .workbench-drawer-tab:hover:not(:disabled),
 .workbench-top-trigger:hover {
-  background: linear-gradient(145deg, rgba(232, 248, 238, 0.96), rgba(202, 235, 213, 0.86));
+  background: rgba(0, 122, 255, 0.08);
   color: var(--ide-accent-strong);
   border-color: var(--ide-border-medium);
   box-shadow: var(--ide-shadow-hover);
 }
 
 .workbench-drawer-tab.is-active {
-  background: linear-gradient(145deg, #21a366, #107c41);
+  background: rgba(0, 122, 255, 0.94);
   color: #ffffff;
   border-color: rgba(255, 255, 255, 0.62);
-  box-shadow: 0 12px 28px rgba(16, 124, 65, 0.24), inset 0 1px 0 rgba(255, 255, 255, 0.42);
+  box-shadow: 0 12px 28px rgba(0, 122, 255, 0.22), inset 0 1px 0 rgba(255, 255, 255, 0.42);
 }
 
 .workbench-trigger-text {
@@ -408,7 +408,7 @@
 }
 
 .workbench-drawer-tab:hover:not(:disabled) {
-  background: #f4f6f8;
+  background: rgba(0, 122, 255, 0.08);
   color: var(--excel-green-main);
   border-color: var(--office-border);
 }
@@ -494,4 +494,24 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
+}
+
+.workbench-bottom-actions .workbench-bottom-nav-button:hover:not(:disabled) {
+  background: rgba(0, 122, 255, 0.08) !important;
+  background-color: rgba(0, 122, 255, 0.08) !important;
+  color: var(--theme-accent-strong) !important;
+  border-color: rgba(0, 122, 255, 0.32) !important;
+}
+
+.workbench-bottom-actions .workbench-bottom-nav-button.is-active {
+  background: rgba(0, 122, 255, 0.12) !important;
+  background-color: rgba(0, 122, 255, 0.12) !important;
+  color: var(--theme-accent-strong) !important;
+  border-color: rgba(0, 122, 255, 0.38) !important;
+  box-shadow: inset 0 -2px 0 rgba(0, 122, 255, 0.32) !important;
+}
+
+.workbench-bottom-actions .workbench-bottom-nav-button:hover .workbench-trigger-text,
+.workbench-bottom-actions .workbench-bottom-nav-button.is-active .workbench-trigger-text {
+  color: inherit !important;
 }

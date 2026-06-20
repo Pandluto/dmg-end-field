@@ -49,12 +49,10 @@
   gap: 1px;
   padding: 2px 10px 2px calc(var(--skill-button-radius) + 4px);
   overflow: hidden;
-  background: var(--skill-button-element-color);
-  border: 1px solid rgba(24, 92, 55, 0.32);
+  background: #ffffff;
+  border: 1px solid rgba(0, 0, 0, 0.72);
   border-radius: 0;
-  box-shadow:
-    0 1px 0 rgba(255, 255, 255, 0.78) inset,
-    0 2px 8px rgba(26, 26, 26, 0.12);
+  box-shadow: none;
   transition:
     border-color 0.14s ease,
     box-shadow 0.14s ease,
@@ -88,7 +86,7 @@
 }
 
 .skill-button-lock {
-  color: #185c37;
+  color: var(--theme-accent-strong);
   font-size: 10px;
   font-weight: 700;
   line-height: 1;
@@ -105,12 +103,10 @@
   justify-content: center;
   overflow: hidden;
   box-sizing: border-box;
-  border: 2px solid rgba(255, 255, 255, 0.92);
+  border: 1px solid rgba(0, 0, 0, 0.72);
   border-radius: 50%;
   background: var(--skill-button-element-color);
-  box-shadow:
-    0 1px 0 rgba(255, 255, 255, 0.72) inset,
-    0 2px 8px rgba(26, 26, 26, 0.16);
+  box-shadow: none;
   z-index: 2;
   transition:
     border-color 0.14s ease,
@@ -147,45 +143,35 @@
 }
 
 .canvas-skill-button:hover .skill-button-base {
-  border-color: rgba(24, 92, 55, 0.68);
-  filter: brightness(1.05);
-  box-shadow:
-    0 1px 0 rgba(255, 255, 255, 0.82) inset,
-    0 3px 10px rgba(24, 92, 55, 0.22);
+  border-color: rgba(0, 0, 0, 0.9);
+  filter: none;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.08);
 }
 
 .canvas-skill-button:hover .skill-button-orb {
-  border-color: #fff59d;
-  filter: brightness(1.04);
-  box-shadow:
-    0 1px 0 rgba(255, 255, 255, 0.82) inset,
-    0 3px 10px rgba(24, 92, 55, 0.24);
+  border-color: rgba(0, 0, 0, 0.9);
+  filter: none;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.08);
 }
 
 .canvas-skill-button.selected .skill-button-base {
-  border: 2px solid #fff59d;
-  box-shadow:
-    0 0 0 1px rgba(24, 92, 55, 0.55),
-    0 3px 12px rgba(24, 92, 55, 0.28);
+  border: 1px solid rgba(0, 0, 0, 0.95);
+  box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.1);
 }
 
 .canvas-skill-button.selected .skill-button-orb {
-  border-color: #fff59d;
-  box-shadow:
-    0 0 0 2px rgba(24, 92, 55, 0.36),
-    0 3px 12px rgba(24, 92, 55, 0.28);
+  border-color: rgba(0, 0, 0, 0.95);
+  box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.1);
 }
 
 .canvas-skill-button.dragging .skill-button-base,
 .canvas-skill-button.dragging .skill-button-orb {
-  filter: saturate(1.08) brightness(1.06);
-  box-shadow:
-    0 0 0 2px rgba(255, 245, 157, 0.68),
-    0 6px 18px rgba(24, 92, 55, 0.28);
+  filter: none;
+  box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.12);
 }
 
 .canvas-skill-button.locked .skill-button-base {
-  border-color: rgba(24, 92, 55, 0.72);
+  border-color: rgba(0, 0, 0, 0.72);
 }
 
 /* ==================== 居中弹窗样式（模仿控制台紧凑布局） ==================== */
@@ -411,8 +397,8 @@
 
 /* 关闭按钮悬停效果 */
 .skill-button-modal .modal-close-btn:hover {
-  background: rgba(255, 255, 0, 0.3);
-  color: #555555;
+  background: rgba(0, 122, 255, 0.08);
+  color: var(--theme-accent-strong);
 }
 
 /* ==================== Buff 列表样式 ==================== */
@@ -460,7 +446,7 @@
 
 /* Buff 项悬停效果 */
 .skill-button-buff-item:hover {
-  background: rgba(255, 255, 0, 0.3);
+  background: rgba(0, 122, 255, 0.08);
 }
 
 /* Buff 列表空状态 */
@@ -534,7 +520,7 @@
 }
 
 .skill-button-anomaly-summary-card.is-state {
-  border-left: 3px solid var(--excel-green-main, #185c37);
+  border-left: 3px solid var(--excel-green-main, #005ecb);
 }
 
 .skill-button-anomaly-summary-card.is-damage {
@@ -555,9 +541,9 @@
   min-width: 28px;
   height: 16px;
   padding: 0 6px;
-  background: rgba(24, 92, 55, 0.12);
+  background: rgba(0, 122, 255, 0.12);
   color: #fff;
-  color: var(--excel-green-deep, #185c37);
+  color: var(--excel-green-deep, #005ecb);
   font-size: 9px;
   font-weight: 700;
 }
@@ -663,9 +649,9 @@
 
 .anomaly-category-tab.is-active {
   background: rgba(255, 255, 255, 0.96);
-  border-color: var(--excel-green-main, #185c37);
-  color: var(--excel-green-deep, #185c37);
-  box-shadow: inset 0 0 0 1px rgba(24, 92, 55, 0.08);
+  border-color: var(--excel-green-main, #005ecb);
+  color: var(--excel-green-deep, #005ecb);
+  box-shadow: inset 0 0 0 1px rgba(0, 122, 255, 0.08);
 }
 
 .anomaly-button-strip {
@@ -695,7 +681,7 @@
 }
 
 .anomaly-strip-button.is-active {
-  border-color: var(--excel-green-main, #185c37);
+  border-color: var(--excel-green-main, #005ecb);
   background: rgba(233, 241, 236, 0.92);
 }
 
@@ -716,7 +702,7 @@
 }
 
 .anomaly-item-button.is-active {
-  border-color: var(--excel-green-main, #185c37);
+  border-color: var(--excel-green-main, #005ecb);
   background: var(--ide-bg-hover, #eef3ef);
 }
 
@@ -811,7 +797,7 @@
 
 .anomaly-select-option:hover {
   background: rgba(233, 241, 236, 0.92);
-  color: var(--excel-green-deep, #185c37);
+  color: var(--excel-green-deep, #005ecb);
 }
 
 .anomaly-select-arrow {
@@ -861,7 +847,7 @@
   height: 26px;
   border: 1px solid var(--office-border, #d7d7d7);
   background: var(--office-card-bg, #fff);
-  color: var(--excel-green-deep, #185c37);
+  color: var(--excel-green-deep, #005ecb);
   font-size: 10px;
   font-weight: 700;
   cursor: pointer;
@@ -897,9 +883,9 @@
 }
 
 .anomaly-chip.is-active {
-  border-color: var(--excel-green-main, #185c37);
+  border-color: var(--excel-green-main, #005ecb);
   background: var(--ide-bg-hover, #eef3ef);
-  color: var(--excel-green-deep, #185c37);
+  color: var(--excel-green-deep, #005ecb);
   font-weight: 700;
 }
 
@@ -942,7 +928,7 @@
   margin: 0 0 6px 0;
   font-size: 10px;
   font-weight: 700;
-  color: var(--excel-green-deep, #185c37);
+  color: var(--excel-green-deep, #005ecb);
 }
 
 .skill-anomaly-board-list {
@@ -967,7 +953,7 @@
 }
 
 .anomaly-board-card.is-state {
-  border-left: 3px solid var(--excel-green-main, #185c37);
+  border-left: 3px solid var(--excel-green-main, #005ecb);
 }
 
 .anomaly-board-card.is-damage {
@@ -1060,13 +1046,13 @@
 
 .skill-damage-hit-card:hover {
   background: var(--ide-bg-hover, #eef3ef);
-  border-color: var(--excel-green-main, #217346);
+  border-color: var(--excel-green-main, #007aff);
 }
 
 .skill-damage-hit-card.selected {
-  border-color: #185c37;
-  background: rgba(24, 92, 55, 0.08);
-  box-shadow: inset 0 0 0 1px rgba(24, 92, 55, 0.12);
+  border-color: var(--theme-accent-strong);
+  background: rgba(0, 122, 255, 0.08);
+  box-shadow: inset 0 0 0 1px rgba(0, 122, 255, 0.12);
 }
 
 .skill-damage-hit-card.is-disabled {
@@ -1091,7 +1077,7 @@
   margin: 0 0 6px 0;
   font-size: 11px;
   font-weight: 700;
-  color: var(--excel-green-deep, #185c37);
+  color: var(--excel-green-deep, #005ecb);
 }
 
 .skill-damage-hit-card-anomaly {
@@ -1204,9 +1190,9 @@
   align-items: center;
   padding: 2px 6px;
   font-size: 10px;
-  color: #185c37;
-  background: rgba(24, 92, 55, 0.08);
-  border: 1px solid rgba(24, 92, 55, 0.24);
+  color: var(--theme-accent-strong);
+  background: rgba(0, 122, 255, 0.08);
+  border: 1px solid rgba(0, 122, 255, 0.24);
 }
 
 .buff-tag-selectable {
@@ -1217,16 +1203,16 @@
 }
 
 .buff-tag-selectable.is-selected {
-  background: rgba(24, 92, 55, 0.18);
+  background: rgba(0, 122, 255, 0.18);
   border-width: 2px;
-  border-color: rgba(24, 92, 55, 0.5);
-  color: #0f3e26;
+  border-color: rgba(0, 122, 255, 0.5);
+  color: var(--theme-accent-strong);
 }
 
 .buff-reset-btn {
-  border: 1px solid rgba(24, 92, 55, 0.24);
+  border: 1px solid rgba(0, 122, 255, 0.24);
   background: #fff;
-  color: #185c37;
+  color: var(--theme-accent-strong);
   border-radius: 0;
   padding: 2px 8px;
   font-size: 10px;
@@ -1257,7 +1243,7 @@
 }
 
 .skill-damage-hit-row:hover {
-  background: rgba(255, 255, 0, 0.3);
+  background: rgba(0, 122, 255, 0.08);
 }
 
 .hit-label {
@@ -1584,8 +1570,8 @@
 }
 
 .hit-toggle-btn.is-restore {
-  border-color: rgba(24, 92, 55, 0.38);
-  color: #185c37;
+  border-color: rgba(0, 122, 255, 0.38);
+  color: var(--theme-accent-strong);
 }
 
 .hit-toggle-btn:hover {
@@ -1593,7 +1579,7 @@
 }
 
 .hit-toggle-btn.is-restore:hover {
-  background: rgba(24, 92, 55, 0.1);
+  background: rgba(0, 122, 255, 0.1);
 }
 
 .skill-damage-hit-detail p {
@@ -1617,7 +1603,7 @@
 }
 
 .skill-damage-expand-btn:hover {
-  background: rgba(255, 255, 0, 0.3);
+  background: rgba(0, 122, 255, 0.08);
 }
 
 /* Excel Acrylic theme final overrides */
@@ -1836,11 +1822,9 @@
   z-index: 1000;
   width: 80px;
   /* 复用 skill-button-base 的边框、阴影语言 */
-  background: var(--skill-button-element-color, #fff);
-  border: 1px solid rgba(24, 92, 55, 0.32);
-  box-shadow:
-    0 1px 0 rgba(255, 255, 255, 0.78) inset,
-    0 2px 8px rgba(26, 26, 26, 0.12);
+  background: #ffffff;
+  border: 1px solid rgba(0, 0, 0, 0.72);
+  box-shadow: none;
 }
 
 .context-menu-item {
@@ -1906,11 +1890,9 @@
   left: 100%;
   top: -1px;
   width: 80px;
-  background: var(--skill-button-element-color, #fff);
-  border: 1px solid rgba(24, 92, 55, 0.32);
-  box-shadow:
-    0 1px 0 rgba(255, 255, 255, 0.78) inset,
-    0 2px 8px rgba(26, 26, 26, 0.12);
+  background: #ffffff;
+  border: 1px solid rgba(0, 0, 0, 0.72);
+  box-shadow: none;
   z-index: 1001;
 }
 

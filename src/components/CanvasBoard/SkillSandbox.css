@@ -55,7 +55,7 @@
   --sandbox-active-z-index: 30;
   --sandbox-base-z-index: 1;
   --sandbox-corner-width: 6px;
-  --sandbox-corner-color: #ffff00;
+  --sandbox-corner-color: rgba(0, 122, 255, 0.18);
   --sandbox-card-long-edge: 168px;
   --corner-len: 57px;
 
@@ -306,7 +306,7 @@
   color: var(--ide-text-main);
   border-color: var(--ide-border-subtle);
   border-radius: var(--ide-radius-md);
-  box-shadow: inset 0 1px 0 var(--ide-acrylic-highlight), 0 8px 24px rgba(16, 124, 65, 0.08);
+  box-shadow: inset 0 1px 0 var(--ide-acrylic-highlight), 0 8px 24px rgba(0, 122, 255, 0.08);
   backdrop-filter: blur(16px) saturate(1.16);
 }
 
@@ -326,42 +326,42 @@
 }
 
 .sandbox-avatar {
-  box-shadow: 0 0 0 1px var(--ide-border-light), 0 8px 18px rgba(16, 124, 65, 0.1);
+  box-shadow: 0 0 0 1px var(--ide-border-light), 0 8px 18px rgba(0, 122, 255, 0.1);
 }
 
 .sandbox-avatar:hover {
   filter: brightness(1.08) contrast(1.04);
-  box-shadow: 0 0 0 3px rgba(33, 163, 102, 0.28), 0 10px 24px rgba(16, 124, 65, 0.18);
+  box-shadow: 0 0 0 3px rgba(0, 122, 255, 0.28), 0 10px 24px rgba(0, 122, 255, 0.18);
 }
 
 .sandbox-skill-button {
   border-color: rgba(255, 255, 255, 0.86);
-  box-shadow: 0 0 0 1px var(--ide-border-light), 0 10px 22px rgba(16, 124, 65, 0.14);
+  box-shadow: 0 0 0 1px var(--ide-border-light), 0 10px 22px rgba(0, 122, 255, 0.14);
 }
 
 .sandbox-skill-button:hover {
-  box-shadow: 0 0 0 3px rgba(33, 163, 102, 0.22), 0 14px 30px rgba(16, 124, 65, 0.18);
+  box-shadow: 0 0 0 3px rgba(0, 122, 255, 0.22), 0 14px 30px rgba(0, 122, 255, 0.18);
 }
 
 /* Office 365 Excel theme final overrides */
 .skill-sandbox,
 .sandbox-character {
-  background: var(--excel-white);
+  background: transparent;
   color: var(--ide-text-main);
-  border-color: var(--ide-border-light);
+  border-color: rgba(0, 0, 0, 0.18);
   border-radius: var(--ide-radius-md);
-  box-shadow: var(--ide-shadow);
+  box-shadow: none;
   backdrop-filter: none;
 }
 
 .sandbox-character--hoverable:hover,
 .sandbox-character--hoverable:focus-within {
-  background: var(--ide-bg-hover);
-  box-shadow: var(--ide-shadow-hover);
+  background: rgba(255, 255, 255, 0.54);
+  box-shadow: none;
 }
 
 .sandbox-character-header {
-  border-bottom-color: var(--ide-border-light);
+  border-bottom-color: rgba(0, 0, 0, 0.12);
 }
 
 .sandbox-avatar,
@@ -370,21 +370,41 @@
 }
 
 .sandbox-avatar:hover {
-  box-shadow: 0 0 0 2px var(--excel-green-bright);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.72);
 }
 
 .sandbox-skill-button:hover {
-  box-shadow: 0 0 0 2px var(--excel-green-bright);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.72);
+}
+
+.sandbox-character {
+  border: 1px solid rgba(0, 0, 0, 0.16);
+}
+
+.sandbox-skill-button {
+  border-color: rgba(0, 0, 0, 0.72);
+  box-shadow: none;
+}
+
+.sandbox-pager-button {
+  border-color: rgba(0, 0, 0, 0.42);
+  background: #ffffff;
+  color: #111111;
+}
+
+.sandbox-pager-button:hover:not(:disabled) {
+  background: rgba(0, 0, 0, 0.04);
+  border-color: rgba(0, 0, 0, 0.72);
 }
 
 /* Office 365 Excel template-card mapping */
 .skill-sandbox {
-  background: var(--office-card-bg);
+  background: transparent;
 }
 
 .sandbox-character {
-  background: var(--office-card-bg);
-  border: 1px solid var(--office-border);
+  background: rgba(255, 255, 255, 0.54);
+  border: 1px solid rgba(0, 0, 0, 0.16);
   border-radius: 0;
   box-shadow: none;
 }
@@ -399,8 +419,8 @@
 
 .sandbox-character--hoverable:hover,
 .sandbox-character--hoverable:focus-within {
-  background: var(--ide-bg-hover);
-  box-shadow: inset 0 0 0 1px var(--excel-green-main);
+  background: rgba(255, 255, 255, 0.72);
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.3);
 }
 
 .sandbox-character-name {
@@ -417,11 +437,11 @@
 }
 
 .sandbox-skill-button {
-  border-color: var(--office-border);
+  border-color: rgba(0, 0, 0, 0.72);
 }
 
 .sandbox-skill-button:hover {
-  box-shadow: 0 0 0 2px var(--excel-green-main);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.72);
 }
 
 /* Remove legacy sandbox selection frame */
@@ -436,7 +456,7 @@
 
 .sandbox-character--hoverable:hover,
 .sandbox-character--hoverable:focus-within {
-  background: var(--ide-bg-hover);
+  background: rgba(255, 255, 255, 0.72);
   box-shadow: none;
 }
 

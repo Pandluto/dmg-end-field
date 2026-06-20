@@ -2,7 +2,7 @@
   height: 90%;
   min-height: 0;
   padding: 28px;
-  background: var(--office-content-bg);
+  background: transparent;
   color: var(--office-title);
   overflow: hidden;
 }
@@ -23,7 +23,7 @@
   justify-content: space-between;
   gap: 16px;
   padding-bottom: 14px;
-  border-bottom: 1px solid var(--office-border);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.16);
 }
 
 .selection-title {
@@ -63,8 +63,8 @@
 .selection-roster,
 .selection-library {
   min-height: 0;
-  background: var(--office-card-bg);
-  border: 1px solid var(--office-border);
+  background: rgba(255, 255, 255, 0.56);
+  border: 1px solid rgba(0, 0, 0, 0.18);
 }
 
 .selection-roster {
@@ -91,7 +91,7 @@
 .selection-slot-remove {
   min-height: 28px;
   padding: 0 10px;
-  border: 1px solid var(--office-border);
+  border: 1px solid rgba(0, 0, 0, 0.42);
   background: #fff;
   color: var(--office-body);
   font: inherit;
@@ -102,9 +102,9 @@
 .selection-section-header button:hover:not(:disabled),
 .selection-ghost-button:hover,
 .selection-slot-remove:hover {
-  border-color: var(--excel-green-main);
-  color: var(--excel-green-deep);
-  background: var(--ide-bg-hover);
+  border-color: rgba(0, 0, 0, 0.72);
+  color: #111111;
+  background: rgba(0, 0, 0, 0.04);
 }
 
 .selection-section-header button:disabled,
@@ -129,13 +129,13 @@
   align-items: center;
   gap: 10px;
   padding: 8px;
-  border: 1px dashed var(--office-border);
-  background: #fafafa;
+  border: 1px dashed rgba(0, 0, 0, 0.18);
+  background: transparent;
 }
 
 .selection-slot.is-filled {
   border-style: solid;
-  background: #f7fbf8;
+  background: rgba(255, 255, 255, 0.62);
 }
 
 .selection-slot-empty {
@@ -172,17 +172,17 @@
 .selection-confirm-button {
   min-height: 34px;
   margin-top: 14px;
-  border: 1px solid var(--excel-green-main);
-  background: var(--excel-green-main);
-  color: #fff;
+  border: 1px solid rgba(0, 0, 0, 0.72);
+  background: #ffffff;
+  color: #111111;
   font: inherit;
   font-size: 13px;
   font-weight: 700;
 }
 
 .selection-confirm-button:hover:not(:disabled) {
-  border-color: var(--excel-green-deep);
-  background: var(--excel-green-deep);
+  border-color: rgba(0, 0, 0, 0.9);
+  background: rgba(0, 0, 0, 0.04);
 }
 
 .selection-toolbar {
@@ -196,7 +196,7 @@
   flex: 1 1 auto;
   height: 32px;
   padding: 0 10px;
-  border: 1px solid var(--office-border);
+  border: 1px solid rgba(0, 0, 0, 0.24);
   background: #fff;
   color: var(--office-title);
   font: inherit;
@@ -228,7 +228,7 @@
   align-items: center;
   gap: 10px;
   padding: 9px 10px;
-  border: 1px solid var(--office-border);
+  border: 1px solid rgba(0, 0, 0, 0.18);
   background: #fff;
   color: var(--office-title);
   text-align: left;
@@ -237,14 +237,14 @@
 }
 
 .selection-character-card:hover:not(:disabled) {
-  border-color: var(--excel-green-main);
-  background: #f7fbf8;
+  border-color: rgba(0, 0, 0, 0.72);
+  background: rgba(0, 0, 0, 0.035);
 }
 
 .selection-character-card.is-selected {
-  border-color: var(--excel-green-main);
-  background: #f1faf4;
-  box-shadow: inset 4px 0 0 var(--excel-green-main);
+  border-color: rgba(0, 0, 0, 0.86);
+  background: rgba(0, 0, 0, 0.05);
+  box-shadow: inset 4px 0 0 rgba(0, 0, 0, 0.72);
 }
 
 .selection-character-card:disabled {
@@ -258,9 +258,9 @@
   display: grid;
   place-items: center;
   overflow: hidden;
-  border: 1px solid var(--office-border);
-  background: #f4fbf6;
-  color: var(--excel-green-deep);
+  border: 1px solid rgba(0, 0, 0, 0.24);
+  background: #ffffff;
+  color: #111111;
   font-size: 18px;
   font-weight: 700;
 }
@@ -277,7 +277,7 @@
   padding: 2px 7px;
   border: 1px solid;
   color: var(--office-body);
-  background: #fff;
+  background: rgba(255, 255, 255, 0.7);
   text-align: center;
   font-size: 11px;
   font-weight: 700;
@@ -289,7 +289,7 @@
   place-items: center;
   align-content: center;
   gap: 12px;
-  border: 1px dashed var(--office-border);
+  border: 1px dashed rgba(0, 0, 0, 0.2);
   color: var(--office-body);
 }
 

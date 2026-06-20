@@ -926,6 +926,7 @@ export function CanvasBoard({
             onCopy={handleCopySkillButton}
             onChangeSkillType={handleChangeSkillType}
             getSkillChangeOptions={getSkillChangeOptions}
+            isDraggingActive={Boolean(draggingState)}
           />
         </div>
 

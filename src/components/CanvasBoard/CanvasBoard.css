@@ -223,8 +223,8 @@
 }
 
 .config-equip-sync-btn:hover {
-  background: rgba(255, 255, 0, 0.3);
-  color: #555555;
+  background: rgba(0, 122, 255, 0.08);
+  color: var(--theme-accent-strong);
 }
 
 .config-equip-copy-btn {
@@ -241,8 +241,8 @@
 
 .config-equip-copy-btn:hover,
 .config-equip-copy-btn.is-open {
-  background: rgba(255, 255, 0, 0.3);
-  color: #555555;
+  background: rgba(0, 122, 255, 0.08);
+  color: var(--theme-accent-strong);
 }
 
 .config-equip-copy-drawer {
@@ -502,8 +502,8 @@
 
 .config-weapon-trigger:hover,
 .config-weapon-trigger.is-open {
-  background: rgba(255, 255, 0, 0.3);
-  color: #555555;
+  background: rgba(0, 122, 255, 0.08);
+  color: var(--theme-accent-strong);
 }
 
 .config-weapon-trigger-value {
@@ -537,8 +537,8 @@
 
 .config-weapon-data-trigger:hover,
 .config-weapon-data-trigger.is-open {
-  background: rgba(255, 255, 0, 0.3);
-  color: #555555;
+  background: rgba(0, 122, 255, 0.08);
+  color: var(--theme-accent-strong);
 }
 
 .config-weapon-data-trigger::-webkit-scrollbar {
@@ -626,7 +626,7 @@
 
 .config-weapon-option:hover,
 .config-weapon-option.is-selected {
-  background: rgba(255, 255, 0, 0.3);
+  background: rgba(0, 122, 255, 0.08);
 }
 
 .config-weapon-message {
@@ -915,7 +915,7 @@
 .config-side-rail {
   --config-avatar-size: 50px;
   --config-avatar-gap: 20px;
-  --config-indicator-color: #ffff00;
+  --config-indicator-color: rgba(0, 122, 255, 0.18);
   --config-indicator-width: 80px;
 
   width: calc(var(--config-indicator-width) + var(--config-avatar-size));
@@ -1011,7 +1011,7 @@
   left: 1000px;
   width: 180px;
   height: 300px;
-  background: rgba(255, 255, 0, 0.5);
+  background: rgba(0, 122, 255, 0.12);
   transform: skewX(-20deg);
   border-radius: 10px;
   z-index: 0;
@@ -1025,7 +1025,7 @@
   left: 1000px;
   width: 180px;
   height: 300px;
-  background: rgba(255, 255, 0, 0.5);
+  background: rgba(0, 122, 255, 0.12);
   transform: skewX(20deg);
   border-radius: 10px;
   z-index: 0;
@@ -1456,9 +1456,9 @@
 .canvas-board,
 .canvas-layout {
   background:
-    radial-gradient(circle at 7% 10%, rgba(33, 163, 102, 0.14), transparent 28%),
-    radial-gradient(circle at 96% 2%, rgba(167, 224, 185, 0.2), transparent 36%),
-    linear-gradient(135deg, #f8fcf9 0%, #edf7f1 50%, #e0efe5 100%);
+    radial-gradient(circle at 7% 10%, rgba(0, 122, 255, 0.12), transparent 28%),
+    radial-gradient(circle at 96% 2%, rgba(90, 200, 250, 0.16), transparent 36%),
+    linear-gradient(135deg, #fbfcff 0%, #f4f7fb 50%, #e9eef7 100%);
   color: var(--ide-text-main);
 }
 
@@ -1469,7 +1469,7 @@
 .canvas-right-zone {
   background: var(--ide-acrylic-bg);
   border-left: 1px solid var(--ide-border-subtle);
-  box-shadow: -18px 0 46px rgba(16, 124, 65, 0.08);
+  box-shadow: -18px 0 46px rgba(0, 0, 0, 0.08);
   backdrop-filter: blur(20px) saturate(1.25);
 }
 
@@ -1481,18 +1481,18 @@
 }
 
 .canvas-grid-group {
-  border-color: rgba(16, 124, 65, 0.42);
+  border-color: rgba(0, 122, 255, 0.28);
   background: rgba(255, 255, 255, 0.46);
   border-radius: var(--ide-radius-md);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.78), 0 8px 20px rgba(16, 124, 65, 0.08);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.78), 0 8px 20px rgba(0, 0, 0, 0.08);
 }
 
 .canvas-grid-background {
-  --grid-line-color: rgba(16, 124, 65, 0.24);
+  --grid-line-color: rgba(0, 122, 255, 0.18);
 }
 
 .canvas-bottom-zone {
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0), rgba(238, 247, 241, 0.82));
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0), rgba(244, 247, 251, 0.82));
 }
 
 .btn-back,
@@ -1507,7 +1507,7 @@
   background: var(--ide-acrylic-bg);
   color: var(--ide-text-muted);
   border-color: var(--ide-border-subtle);
-  box-shadow: inset 0 1px 0 var(--ide-acrylic-highlight), 0 1px 3px rgba(21, 68, 45, 0.08);
+  box-shadow: inset 0 1px 0 var(--ide-acrylic-highlight), 0 1px 3px rgba(0, 0, 0, 0.08);
 }
 
 .btn-back:hover,
@@ -1525,14 +1525,14 @@
 .config-weapon-data-trigger.is-open,
 .config-weapon-option:hover,
 .config-weapon-option.is-selected {
-  background: linear-gradient(145deg, rgba(232, 248, 238, 0.96), rgba(202, 235, 213, 0.84));
+  background: rgba(0, 122, 255, 0.08);
   color: var(--ide-accent-strong);
   border-color: var(--ide-border-medium);
   box-shadow: var(--ide-shadow-hover);
 }
 
 .config-panel-overlay {
-  background: rgba(238, 247, 241, 0.48);
+  background: rgba(245, 246, 248, 0.54);
   backdrop-filter: blur(10px) saturate(1.18);
 }
 
@@ -1552,7 +1552,7 @@
   background: var(--ide-acrylic-bg-strong);
   border-color: var(--ide-border-subtle);
   border-radius: var(--ide-radius-md);
-  box-shadow: inset 0 1px 0 var(--ide-acrylic-highlight), 0 8px 28px rgba(16, 124, 65, 0.08);
+  box-shadow: inset 0 1px 0 var(--ide-acrylic-highlight), 0 8px 28px rgba(0, 0, 0, 0.08);
 }
 
 .config-panel {
@@ -1561,7 +1561,7 @@
 
 .config-data-item.is-main,
 .config-data-item.is-sub {
-  background: rgba(229, 245, 235, 0.72);
+  background: rgba(0, 122, 255, 0.08);
   border-radius: var(--ide-radius-sm);
 }
 
@@ -1598,7 +1598,7 @@
 }
 
 .canvas-grid-background {
-  --grid-line-color: #cfdcd3;
+  --grid-line-color: rgba(60, 60, 67, 0.14);
 }
 
 .canvas-bottom-zone {
@@ -1678,11 +1678,11 @@
 /* Office 365 Excel workspace mapping */
 .canvas-board,
 .canvas-layout {
-  background: var(--office-window-bg);
+  background: transparent;
 }
 
 .canvas-left-zone {
-  background: var(--office-workspace-panel-bg);
+  background: transparent;
 }
 
 .canvas-right-zone {
@@ -1691,11 +1691,11 @@
 }
 
 .canvas-grid-group {
-  border-color: var(--office-grid-line);
+  border-color: rgba(60, 60, 67, 0.18);
 }
 
 .canvas-grid-background {
-  --grid-line-color: var(--office-grid-line);
+  --grid-line-color: transparent;
 }
 
 .canvas-bottom-zone {
@@ -1800,9 +1800,9 @@
   min-height: 30px;
   height: 30px;
   padding: 0 14px;
-  background: var(--office-card-bg);
-  color: var(--office-body);
-  border: 1px solid var(--office-border);
+  background: #ffffff;
+  color: #111111;
+  border: 1px solid rgba(0, 0, 0, 0.72);
   border-radius: 0;
   box-shadow: none;
   font-size: 12px;
@@ -1825,9 +1825,9 @@
 .btn-calculate:hover,
 .btn-add-group:hover,
 .btn-remove-group:hover {
-  background: var(--ide-bg-hover);
-  color: var(--excel-green-main);
-  border-color: var(--excel-green-main);
+  background: rgba(0, 0, 0, 0.04);
+  color: #111111;
+  border-color: rgba(0, 0, 0, 0.9);
   box-shadow: none;
 }
 
@@ -2098,17 +2098,17 @@
   flex-basis: 270px;
   height: 270px;
   border: 0;
-  outline: 1px solid var(--office-grid-line);
+  outline: 1px solid rgba(0, 0, 0, 0.72);
   border-radius: 0;
   box-shadow: none;
-  background: var(--office-grid-area-bg);
+  background: transparent;
 }
 
 .canvas-grid-background {
   --grid-column-width: 80px;
   --grid-first-column-width: 40px;
   --grid-row-height: 30px;
-  --grid-line-color: var(--office-grid-line);
+  --grid-line-color: transparent;
   background-position:
     0 var(--grid-row-height),
     var(--grid-first-column-width) 0;
@@ -2125,12 +2125,12 @@
   pointer-events: none;
   background:
     linear-gradient(
-      var(--office-grid-header-bg),
-      var(--office-grid-header-bg)
+      transparent,
+      transparent
     ) 0 0 / 100% 30px no-repeat,
     linear-gradient(
-      var(--office-grid-header-bg),
-      var(--office-grid-header-bg)
+      transparent,
+      transparent
     ) 0 0 / 40px 100% no-repeat;
 }
 
@@ -2148,7 +2148,7 @@
   inset: 0;
   z-index: 2;
   pointer-events: none;
-  color: var(--office-body);
+  color: transparent;
   font-size: 12px;
   font-weight: 600;
 }
@@ -2193,6 +2193,7 @@
   align-items: center;
   justify-content: center;
   line-height: 1;
+  color: transparent;
 }
 
 /* ============================================
@@ -2227,7 +2228,7 @@
   right: 0;
   top: 50%;
   height: 1px;
-  background: #b6b6b6;
+  background: rgba(0, 0, 0, 0.08);
   transform: translateY(-50%);
 }
 
@@ -2286,9 +2287,17 @@
   position: absolute;
   width: 2px;
   height: 6px;
-  background: rgb(0, 0, 255,0.5);
+  background: transparent;
   transform: rotate(135deg);
   border-radius: 0;
+}
+
+.canvas-container.is-dragging-active .canvas-grid-background {
+  --grid-line-color: #000000;
+}
+
+.canvas-container.is-dragging-active .canvas-damage-node {
+  background: #000000;
 }
 
 /* ==================== 技能按钮拖动预览 ==================== */
@@ -2318,11 +2327,9 @@
   align-items: center;
   justify-content: flex-end;
   padding: 0 10px 0 calc(var(--drag-preview-radius) + 8px);
-  background: rgba(232, 235, 240, 0.92);
-  border: 2px solid #fff59d;
-  box-shadow:
-    0 0 0 1px rgba(24, 92, 55, 0.45),
-    0 6px 18px rgba(24, 92, 55, 0.24);
+  background: #ffffff;
+  border: 1px solid rgba(0, 0, 0, 0.72);
+  box-shadow: none;
 }
 
 .dragging-skill-button-base span {
@@ -2343,12 +2350,10 @@
   align-items: center;
   justify-content: center;
   overflow: hidden;
-  border: 2px solid #fff59d;
+  border: 1px solid rgba(0, 0, 0, 0.72);
   border-radius: 50%;
-  background: rgba(232, 235, 240, 0.96);
-  box-shadow:
-    0 1px 0 rgba(255, 255, 255, 0.82) inset,
-    0 6px 18px rgba(24, 92, 55, 0.26);
+  background: #ffffff;
+  box-shadow: none;
   z-index: 2;
 }
 
@@ -2367,16 +2372,16 @@
   align-items: center;
   justify-content: center;
   padding: 24px;
-  background: rgba(17, 18, 22, 0.42);
+  background: rgba(17, 18, 22, 0.18);
 }
 
 .damage-report-modal {
   width: min(1200px, calc(100vw - 48px));
   height: 90vh;
   overflow: auto;
-  background: #f6efe2;
-  border: 1px solid #d2cab9;
-  box-shadow: 0 24px 60px rgba(20, 18, 14, 0.24);
+  background: #ffffff;
+  border: 1px solid rgba(0, 0, 0, 0.72);
+  box-shadow: none;
   padding: 20px;
 }
 
@@ -2394,13 +2399,13 @@
 
 .damage-report-modal-head h3 {
   margin: 0;
-  color: #2f2416;
+  color: #111111;
   font-size: 22px;
 }
 
 .damage-report-modal-head p {
   margin: 6px 0 0;
-  color: #6e6252;
+  color: rgba(0, 0, 0, 0.58);
   font-size: 12px;
 }
 
@@ -2428,7 +2433,7 @@
 }
 
 .report-sheet-summary {
-  color: #6e6252;
+  color: rgba(0, 0, 0, 0.58);
   font-size: 12px;
 }
 
@@ -2451,28 +2456,28 @@
 }
 
 .report-sheet-sidebar-card {
-  border: 1px solid #d2cab9;
-  background: rgba(255, 255, 255, 0.56);
+  border: 1px solid rgba(0, 0, 0, 0.18);
+  background: #ffffff;
   padding: 12px;
 }
 
 .report-sheet-sidebar-card h4 {
   margin: 0 0 8px;
-  color: #2f2416;
+  color: #111111;
   font-size: 14px;
 }
 
 .report-sheet-sidebar-card p {
   margin: 4px 0;
-  color: #6e6252;
+  color: rgba(0, 0, 0, 0.58);
   font-size: 12px;
   line-height: 1.5;
 }
 
 .report-sheet-table-shell {
   min-width: 0;
-  border: 1px solid #d2cab9;
-  background: rgba(255, 255, 255, 0.64);
+  border: 1px solid rgba(0, 0, 0, 0.18);
+  background: #ffffff;
   overflow: hidden;
 }
 
@@ -2488,13 +2493,13 @@
 
 .report-sheet-empty h3 {
   margin: 0;
-  color: #2f2416;
+  color: #111111;
   font-size: 22px;
 }
 
 .report-sheet-empty p {
   margin: 0;
-  color: #6e6252;
+  color: rgba(0, 0, 0, 0.58);
   font-size: 13px;
 }
 
@@ -2513,19 +2518,19 @@
   position: sticky;
   top: 0;
   z-index: 1;
-  background: #efe4cf;
-  color: #2f2416;
+  background: #ffffff;
+  color: #111111;
   font-size: 12px;
   font-weight: 700;
   text-align: left;
-  border-bottom: 1px solid #d2cab9;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.18);
 }
 
 .report-sheet-table th,
 .report-sheet-table td {
   padding: 10px 12px;
-  border-right: 1px solid rgba(210, 202, 185, 0.6);
-  border-bottom: 1px solid rgba(210, 202, 185, 0.6);
+  border-right: 1px solid rgba(0, 0, 0, 0.08);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.08);
   white-space: nowrap;
 }
 
@@ -2535,7 +2540,7 @@
 }
 
 .report-sheet-table td {
-  color: #3b3022;
+  color: #111111;
   font-size: 12px;
   cursor: pointer;
 }
@@ -2545,11 +2550,11 @@
 }
 
 .report-sheet-table tbody tr:hover {
-  background: rgba(203, 181, 140, 0.14);
+  background: rgba(0, 0, 0, 0.035);
 }
 
 .report-sheet-table tbody tr.is-selected {
-  background: rgba(184, 140, 69, 0.18);
+  background: rgba(0, 0, 0, 0.055);
 }
 
 .timeline-snapshot-modal-overlay {
@@ -2560,16 +2565,16 @@
   align-items: center;
   justify-content: center;
   padding: 24px;
-  background: rgba(17, 18, 22, 0.42);
+  background: rgba(17, 18, 22, 0.18);
 }
 
 .timeline-snapshot-modal {
   width: min(720px, calc(100vw - 48px));
   max-height: 80vh;
   overflow: auto;
-  background: #f6efe2;
-  border: 1px solid #d2cab9;
-  box-shadow: 0 24px 60px rgba(20, 18, 14, 0.24);
+  background: #ffffff;
+  border: 1px solid rgba(0, 0, 0, 0.72);
+  box-shadow: none;
   padding: 20px;
 }
 
@@ -2582,9 +2587,9 @@
 .timeline-snapshot-share-modal {
   max-height: 80vh;
   overflow: auto;
-  background: #f6efe2;
-  border: 1px solid #d2cab9;
-  box-shadow: 0 24px 60px rgba(20, 18, 14, 0.24);
+  background: #ffffff;
+  border: 1px solid rgba(0, 0, 0, 0.72);
+  box-shadow: none;
   padding: 20px;
 }
 
@@ -2602,26 +2607,26 @@
 
 .timeline-snapshot-modal-head h3 {
   margin: 0;
-  color: #2f2416;
+  color: #111111;
   font-size: 22px;
 }
 
 .timeline-snapshot-modal-head p {
   margin: 6px 0 0;
-  color: #6e6252;
+  color: rgba(0, 0, 0, 0.58);
   font-size: 12px;
 }
 
 .timeline-snapshot-empty {
   padding: 16px 0;
-  color: #6e6252;
+  color: rgba(0, 0, 0, 0.58);
   font-size: 14px;
 }
 
 .timeline-snapshot-form-label {
   display: block;
   margin-bottom: 8px;
-  color: #2f2416;
+  color: #111111;
   font-size: 13px;
   font-weight: 700;
 }
@@ -2630,15 +2635,15 @@
   width: 100%;
   height: 36px;
   padding: 0 10px;
-  border: 1px solid #d2cab9;
-  background: #fffdf8;
-  color: #2f2416;
+  border: 1px solid rgba(0, 0, 0, 0.28);
+  background: #ffffff;
+  color: #111111;
   font-size: 14px;
   box-sizing: border-box;
 }
 
 .timeline-snapshot-name-input:focus {
-  outline: 1px solid #8e7d66;
+  outline: 1px solid rgba(0, 0, 0, 0.72);
 }
 
 .timeline-share-file-input {
@@ -2657,8 +2662,8 @@
   justify-content: space-between;
   gap: 16px;
   padding: 14px 16px;
-  border: 1px solid #d2cab9;
-  background: rgba(255, 255, 255, 0.48);
+  border: 1px solid rgba(0, 0, 0, 0.18);
+  background: #ffffff;
   position: relative;
 }
 
@@ -2670,12 +2675,12 @@
 }
 
 .timeline-snapshot-item-main strong {
-  color: #2f2416;
+  color: #111111;
   font-size: 15px;
 }
 
 .timeline-snapshot-item-main span {
-  color: #6e6252;
+  color: rgba(0, 0, 0, 0.58);
   font-size: 12px;
 }
 
@@ -2692,10 +2697,10 @@
   top: calc(100% + 8px);
   width: min(420px, calc(100vw - 96px));
   padding: 12px 14px;
-  border: 1px solid #d2cab9;
-  background: #fffdf8;
-  box-shadow: 0 12px 32px rgba(20, 18, 14, 0.18);
-  color: #2f2416;
+  border: 1px solid rgba(0, 0, 0, 0.28);
+  background: #ffffff;
+  box-shadow: none;
+  color: #111111;
   opacity: 0;
   transform: translateY(-4px);
   pointer-events: none;
@@ -2722,7 +2727,7 @@
 
 .timeline-snapshot-hover-section {
   margin-top: 8px;
-  color: #6e6252;
+  color: rgba(0, 0, 0, 0.58);
   font-weight: 700;
 }
 
@@ -2738,9 +2743,9 @@
   align-items: center;
   min-height: 22px;
   padding: 0 8px;
-  border: 1px solid rgba(210, 202, 185, 0.9);
-  background: rgba(255, 255, 255, 0.92);
-  color: #5b4c39;
+  border: 1px solid rgba(0, 0, 0, 0.18);
+  background: #ffffff;
+  color: rgba(0, 0, 0, 0.72);
   font-size: 12px;
 }
 
@@ -2756,26 +2761,26 @@
   flex-direction: column;
   gap: 6px;
   padding: 14px 16px;
-  border: 1px solid #d2cab9;
-  background: #fffdf8;
+  border: 1px solid rgba(0, 0, 0, 0.18);
+  background: #ffffff;
 }
 
 .timeline-snapshot-confirm-body strong {
-  color: #2f2416;
+  color: #111111;
   font-size: 15px;
 }
 
 .timeline-snapshot-confirm-body span {
-  color: #6e6252;
+  color: rgba(0, 0, 0, 0.58);
   font-size: 12px;
 }
 
 .timeline-snapshot-delete-btn {
-  border-color: #a85f57;
-  color: #a85f57;
+  border-color: rgba(120, 0, 0, 0.48);
+  color: #7a1616;
 }
 
 .timeline-snapshot-delete-btn:hover {
-  background: #a85f57;
-  color: #ffffff;
+  background: rgba(120, 0, 0, 0.08);
+  color: #7a1616;
 }

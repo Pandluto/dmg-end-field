@@ -30,6 +30,7 @@ interface CanvasAreaProps {
   onCopy?: () => void;
   onChangeSkillType?: (payload: SkillButtonSkillChangePayload) => void;
   getSkillChangeOptions?: (button: SkillButton) => SkillButtonSkillOption[];
+  isDraggingActive?: boolean;
 }
 
 // 表格行列标注：0行显示字母(A-O)，0列显示数字(1-8)
@@ -53,6 +54,7 @@ export const CanvasArea = forwardRef<HTMLDivElement, CanvasAreaProps>(({
   onCopy,
   onChangeSkillType,
   getSkillChangeOptions,
+  isDraggingActive = false,
 }, canvasRef) => {
   const renderSkillButtons = () => {
     return skillButtons
@@ -158,7 +160,7 @@ export const CanvasArea = forwardRef<HTMLDivElement, CanvasAreaProps>(({
     <div className="canvas-area">
       <div
         ref={canvasRef}
-        className="canvas-container"
+        className={`canvas-container${isDraggingActive ? ' is-dragging-active' : ''}`}
         onClick={onCanvasPlaceCopy}
       >
         <div className="canvas-grid-shell">

@@ -9,7 +9,7 @@
   /*gap: 8px;*/
   /*padding: 8px 12px;*/
   border-bottom: none;
-  background: #F0F0F0;
+  background: var(--office-nav-bg);
 }
 
 /* 鍗曚釜鏍囩鎸夐挳 - 鏃犳榛戝瓧鏍峰紡 */
@@ -21,7 +21,7 @@
   font-size: 12px;
   font-weight: 700;
   background: transparent;
-  color: #000;
+  color: var(--office-body);
   border: none;
   border-radius: 0;
   cursor: pointer;
@@ -37,7 +37,7 @@
 /* 鏍囩鎸夐挳鎮仠鏁堟灉 - 涓嬪眰娓叉煋榛勮壊骞宠鍥涜竟褰綔涓鸿儗鏅?*/
 .tool-panel-tab:hover {
   background: transparent;
-  color: #555555;
+  color: var(--theme-accent-strong);
 }
 .tool-panel-tab:hover::after {
   content: '';
@@ -46,7 +46,7 @@
   top: 50%;
   width: 80%;
   height: 100%;
-  background: rgba(255, 255, 0, 0.5);
+  background: rgba(0, 122, 255, 0.12);
   transform: translate(-50%, -50%) skewX(-20deg);
   z-index: -1;
 }
@@ -59,7 +59,7 @@
   top: 50%;
   width: 80%;
   height: 100%;
-  background: rgba(255, 255, 0, 0.8);
+  background: rgba(0, 122, 255, 0.18);
   transform: translate(-50%, -50%) skewX(-20deg);
   z-index: -1;
 }
@@ -72,7 +72,7 @@
   flex-direction: column;
   height: 100%;
   font-size: 14px;
-  color: #333;
+  color: var(--office-body);
 }
 
 /* 鏂囨湰杈撳叆鍖?- 鏈?padding */
@@ -85,24 +85,24 @@
 .damage-input {
   width: 100%;
   height: 30px;
-  border: 2px solid #000;
+  border: 2px solid var(--office-border);
   background: transparent;
   text-align: center;
   font-size: 14px;
-  color: #000;
+  color: var(--office-title);
   outline: none;
 }
 
 /* 鏂囨湰杈撳叆妗嗗崰浣嶇鏍峰紡 */
 .damage-input::placeholder {
-  color: #999;
+  color: var(--theme-text-placeholder);
   /*鍚戝乏瀵归綈*/
   text-align: left;
 }
 
 /* 鏂囨湰杈撳叆妗嗚仛鐒︽牱寮?*/
 .damage-input:focus {
-  border-color: #000;
+  border-color: var(--theme-accent-main);
 }
 
 /* 闄堝垪鍖?- 鍥哄畾楂樺害锛岀珫鐩存帓甯冿紝鏈?padding锛屾棤婊氬姩 */
@@ -127,11 +127,11 @@
 .refresh-button {
   width: 60px;
   height: 30px;
-  border: 2px solid #000;
+  border: 2px solid var(--office-border);
   background: transparent;
   font-size: 12px;
   font-weight: 700;
-  color: #000;
+  color: var(--office-body);
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -142,8 +142,8 @@
 
 /* 鍒锋柊鎸夐挳鎮仠鏁堟灉 - 鏂囧瓧 F0F0F0锛岃儗鏅粍鑹插崐閫忔槑 */
 .refresh-button:hover {
-  background: rgba(255, 255, 0, 0.3);
-  color: #555555;
+  background: rgba(0, 122, 255, 0.08);
+  color: var(--theme-accent-strong);
 }
 
 /* 鍒锋柊鎸夐挳绂佺敤鐘舵€?*/
@@ -169,7 +169,7 @@
   height: 20px;
   line-height: 20px;
   font-size: 12px;
-  color: #000;
+  color: var(--office-title);
   border: none;
   background: transparent;
   white-space: nowrap;
@@ -183,8 +183,8 @@
 
 /* Buff 鍒楄〃椤规偓鍋滄晥鏋?- 鏂囧瓧 F0F0F0锛岃儗鏅粍鑹插崐閫忔槑 */
 .buff-item:hover {
-  color: #555555;
-  background: rgba(255, 255, 0, 0.3);
+  color: var(--theme-accent-strong);
+  background: rgba(0, 122, 255, 0.08);
 }
 
 /* Buff 绌虹姸鎬佹彁绀?*/
@@ -192,7 +192,7 @@
   height: 20px;
   line-height: 20px;
   font-size: 12px;
-  color: #999;
+  color: var(--theme-text-placeholder);
   text-align: center;
   font-style: italic;
 }
@@ -212,8 +212,8 @@
   left: 0;
   right: 0;
   top: calc(100%);  /* 涓嬫粦锛氬湪杈撳叆妗嗕笅鏂?*/
-  border: 2px solid #000000; /* 涓嬫粦杈规 */
-  background: #F0F0F0;
+  border: 2px solid var(--office-border); /* 涓嬫粦杈规 */
+  background: var(--office-card-bg);
   overflow-y: auto;
   max-height: 0;
   opacity: 0;
@@ -244,18 +244,18 @@
   line-height: 15px;
   text-align: left;
   font-size: 12px;
-  color: #000;
+  color: var(--office-title);
   background: transparent;
   border: none;
-  border-bottom: 1px solid #000000;
+  border-bottom: 1px solid var(--office-border);
   cursor: pointer;
   transition: background-color 0.2s ease;
 }
 
 /* 閫夐」鎮仠鏁堟灉 */
 .damage-search-option:hover {
-  background: rgba(255, 255, 0, 0.3);
-  color: #555555;
+  background: rgba(0, 122, 255, 0.08);
+  color: var(--theme-accent-strong);
 }
 
 /* 鏈€鍚庝竴涓€夐」鏃犺竟妗?*/
@@ -268,7 +268,7 @@
   padding: 12px;
   text-align: center;
   font-size: 12px;
-  color: #999;
+  color: var(--theme-text-placeholder);
   font-style: italic; 
 }
 
@@ -276,7 +276,7 @@
 .tab-content-function1,
 .tab-content-function2 {
   font-size: 14px;
-  color: #333;
+  color: var(--office-body);
 }
 
 /* ==================== Buff 璇︽儏寮圭獥鏍峰紡锛堟ā浠挎帶鍒跺彴绱у噾甯冨眬锛?==================== */
@@ -297,8 +297,8 @@
   position: fixed;
   top: 40px;
   left: 256px;
-  background: #fff;
-  border: 2px solid #000;
+  background: var(--office-card-bg);
+  border: 2px solid var(--office-border);
   padding: 12px 16px;
   min-width: 260px;
   max-width: 320px;
@@ -311,15 +311,15 @@
   margin: 0 0 8px 0;
   font-size: 14px;
   font-weight: 700;
-  color: #000;
-  border-bottom: 1px solid #000;
+  color: var(--office-title);
+  border-bottom: 1px solid var(--office-border);
   padding-bottom: 4px;
 }
 
 /* 寮圭獥鍐呭鍖哄煙 - 绱у噾 */
 .buff-detail-content {
   font-size: 11px;
-  color: #333;
+  color: var(--office-body);
   line-height: 1.4;
 }
 
@@ -334,19 +334,19 @@
   margin-top: 8px;
   width: 100%;
   height: 28px;
-  border: 2px solid #000;
+  border: 2px solid var(--office-border);
   background: transparent;
   font-size: 11px;
   font-weight: 700;
-  color: #000;
+  color: var(--office-body);
   cursor: pointer;
   transition: background-color 0.2s ease, color 0.2s ease;
 }
 
 /* 鍏抽棴鎸夐挳鎮仠鏁堟灉 */
 .buff-detail-close-btn:hover {
-  background: rgba(255, 255, 0, 0.3);
-  color: #555555;
+  background: rgba(0, 122, 255, 0.08);
+  color: var(--theme-accent-strong);
 }
 
 /* ==================== 鎷栨嫿鐩稿叧鏍峰紡 ==================== */
@@ -354,7 +354,7 @@
 /* Buff 椤规嫋鎷芥€?*/
 .buff-item.is-dragging {
   opacity: 0.5;
-  background: rgba(255, 255, 0, 0.5);
+  background: rgba(0, 122, 255, 0.14);
 }
 
 /* 鎷栨嫿涓殑 Buff 璺熼殢榧犳爣 */
@@ -363,11 +363,11 @@
   pointer-events: none;
   z-index: 9999;
   padding: 4px 8px;
-  background: rgba(255, 255, 0, 0.9);
-  border: 2px solid #000;
+  background: rgba(0, 122, 255, 0.92);
+  border: 2px solid rgba(255, 255, 255, 0.78);
   font-size: 12px;
   font-weight: 700;
-  color: #000;
+  color: #ffffff;
   white-space: nowrap;
   box-shadow: 2px 2px 4px rgba(0, 0, 0, 0.3);
 }
@@ -517,7 +517,7 @@
   background: linear-gradient(145deg, rgba(232, 248, 238, 0.96), rgba(202, 235, 213, 0.84));
   color: var(--ide-accent-strong);
   border-color: var(--ide-border-medium);
-  box-shadow: inset 0 1px 0 var(--ide-acrylic-highlight), 0 8px 18px rgba(16, 124, 65, 0.1);
+  box-shadow: inset 0 1px 0 var(--ide-acrylic-highlight), 0 8px 18px rgba(0, 122, 255, 0.1);
 }
 
 .tool-panel-tab.is-active {

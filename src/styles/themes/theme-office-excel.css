@@ -1,35 +1,35 @@
 :root,
 :root[data-theme="office-excel"] {
-  --theme-bg-window: #eceff4;
-  --theme-bg-content: #f3f3f3;
-  --theme-bg-nav: #e8ebf0;
-  --theme-bg-card: #ffffff;
-  --theme-bg-grid-area: #ffffff;
-  --theme-bg-grid-header: rgba(255, 245, 157, 0.3);
-  --theme-bg-workspace-panel: #F3F3F3;
-  --theme-bg-hover: #edf5f0;
-  --theme-bg-active: #e1f0e7;
+  --theme-bg-window: #f5f6f8;
+  --theme-bg-content: #f9fafb;
+  --theme-bg-nav: rgba(255, 255, 255, 0.82);
+  --theme-bg-card: rgba(255, 255, 255, 0.9);
+  --theme-bg-grid-area: rgba(255, 255, 255, 0.78);
+  --theme-bg-grid-header: rgba(0, 122, 255, 0.09);
+  --theme-bg-workspace-panel: rgba(246, 248, 251, 0.86);
+  --theme-bg-hover: rgba(0, 122, 255, 0.08);
+  --theme-bg-active: rgba(0, 122, 255, 0.14);
 
-  --theme-text-title: #1a1a1a;
-  --theme-text-body: #333333;
-  --theme-text-muted: #5f6f65;
-  --theme-text-placeholder: #8a8a8a;
+  --theme-text-title: #1d1d1f;
+  --theme-text-body: #3a3a3c;
+  --theme-text-muted: #6e6e73;
+  --theme-text-placeholder: #8e8e93;
 
-  --theme-border-subtle: #e5e5e5;
-  --theme-border-grid: #e0e0e0;
-  --theme-border-default: #d1d1d1;
-  --theme-border-medium: #b8c7bd;
-  --theme-border-strong: #217346;
+  --theme-border-subtle: rgba(60, 60, 67, 0.12);
+  --theme-border-grid: rgba(60, 60, 67, 0.13);
+  --theme-border-default: rgba(60, 60, 67, 0.18);
+  --theme-border-medium: rgba(0, 122, 255, 0.36);
+  --theme-border-strong: #007aff;
 
-  --theme-accent-main: #217346;
-  --theme-accent-strong: #185c37;
-  --theme-accent-bright: #50c878;
-  --theme-accent-lime: #b4e67e;
-  --theme-accent-soft: rgba(33, 115, 70, 0.1);
+  --theme-accent-main: #007aff;
+  --theme-accent-strong: #005ecb;
+  --theme-accent-bright: #5ac8fa;
+  --theme-accent-lime: #64d2ff;
+  --theme-accent-soft: rgba(0, 122, 255, 0.12);
 
-  --theme-shadow-panel: 0 1px 2px rgba(24, 92, 55, 0.08);
-  --theme-shadow-hover: 0 2px 6px rgba(24, 92, 55, 0.12);
-  --theme-focus-ring: 0 0 0 2px rgba(80, 200, 120, 0.28);
+  --theme-shadow-panel: 0 1px 2px rgba(0, 0, 0, 0.08);
+  --theme-shadow-hover: 0 2px 8px rgba(0, 122, 255, 0.18);
+  --theme-focus-ring: 0 0 0 2px rgba(0, 122, 255, 0.28);
   --theme-transition: 150ms ease;
 
   --theme-radius-control: 0;
@@ -37,6 +37,6 @@
   --theme-radius-avatar: 50%;
   --theme-radius-switch: 2px;
 
-  --theme-main-stat-bg: #fff59d;
-  --theme-sub-stat-bg: #d9d9d9;
+  --theme-main-stat-bg: rgba(0, 122, 255, 0.14);
+  --theme-sub-stat-bg: rgba(60, 60, 67, 0.1);
 }

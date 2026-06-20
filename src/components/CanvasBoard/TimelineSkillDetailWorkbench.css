@@ -146,7 +146,7 @@
 .timeline-detail-heading button.is-active,
 .timeline-tuning-card button:hover,
 .timeline-calculation-card button:hover {
-  color: #185c37;
+  color: #005ecb;
   border-color: #4f9168;
   background: #eef7f1;
 }
@@ -191,7 +191,7 @@
 .timeline-detail-hit:hover,
 .timeline-detail-hit.is-selected {
   border-color: #4f9168;
-  box-shadow: inset 3px 0 0 #217346;
+  box-shadow: inset 3px 0 0 #007aff;
 }
 
 .timeline-detail-hit.is-selected {
@@ -366,7 +366,7 @@
 .timeline-buff-stack button {
   align-self: stretch;
   width: 23px;
-  color: #185c37;
+  color: #005ecb;
   background: #fff;
   border: 0;
   cursor: pointer;
@@ -412,13 +412,13 @@
 
 .timeline-status-list button:hover,
 .timeline-tuning-list button:hover {
-  color: #185c37;
+  color: #005ecb;
   background: #f1f8f3;
   border-color: #79a98a;
 }
 
 .timeline-status-list small {
-  color: #217346;
+  color: #007aff;
 }
 
 .timeline-tuning-card {
@@ -462,7 +462,7 @@
 }
 
 .timeline-tuning-list button.is-active {
-  color: #185c37;
+  color: #005ecb;
   background: #e9f4ed;
   border-color: #6fa683;
 }
@@ -636,7 +636,7 @@
 }
 
 .timeline-tuning-inline-actions button.is-active {
-  color: #185c37;
+  color: #005ecb;
   background: #e9f4ed;
   border-color: #6fa683;
 }
@@ -687,7 +687,7 @@
 }
 
 .timeline-calculation-summary > span {
-  color: #185c37;
+  color: #005ecb;
   font-size: 10px;
   font-weight: 800;
 }
@@ -728,7 +728,7 @@
 }
 
 .timeline-calculation-detail > header strong {
-  color: #185c37;
+  color: #005ecb;
   font-size: 13px;
 }
 
@@ -762,7 +762,7 @@
   align-items: center;
   justify-content: center;
   padding: 0 !important;
-  color: #185c37 !important;
+  color: #005ecb !important;
   background: transparent !important;
   border: 1px solid #79a98a !important;
   font-size: 13px !important;
@@ -837,7 +837,7 @@
 }
 
 .timeline-calculation-buff-row em {
-  color: #185c37;
+  color: #005ecb;
   font-size: 10px;
   font-style: normal;
   font-weight: 800;
@@ -889,8 +889,8 @@
 }
 
 .timeline-calculation-zone-node.is-selected rect {
-  fill: #217346;
-  stroke: #185c37;
+  fill: #007aff;
+  stroke: #005ecb;
 }
 
 .zone-node-label,
