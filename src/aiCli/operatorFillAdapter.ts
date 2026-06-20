@@ -268,7 +268,7 @@ function normalizeOperatorBuffEffect(effectKey: string, rawEffect: Record<string
         : undefined);
   const category = effectKind === 'extraHit'
     ? (normalizedCategory === 'countable' ? 'countable' : 'passive')
-    : normalizedMultiplier && normalizedCategory === 'countable'
+    : normalizedMultiplier
       ? 'condition'
       : (normalizedCategory ?? 'passive');
   const valueMode: OperatorBuffValueMode = effectKind === 'extraHit' || category === 'countable'
@@ -683,11 +683,11 @@ export const operatorFillAdapter: AgentFillDomainAdapter<OperatorDraft> = {
             multiplier: {
               shape: '{ coefficient: number }',
               supportedTypes: MULTIPLIER_SUPPORTED_BUFF_TYPES,
-              rules: 'modifier only; coefficient must be positive; incompatible with category=countable; coefficient is a direct multiplier and must not be written to value',
+              rules: 'modifier only; category is always condition; coefficient must be positive; incompatible with category=countable; coefficient is a direct multiplier and must not be written to value',
               canonicalSkillMultiplierType: 'multiplierBonus',
               legacyAcceptedInput: 'type=multiplierMultiplier with positive value is accepted only for compatibility and normalized to type=multiplierBonus with multiplier.coefficient=value',
             },
-            countable: 'category=countable requires maxStacks; countable only supports fixed value and no derivedValue; countable extraHit keeps a single segment and total damage scales with current stack count',
+            countable: 'category=countable requires maxStacks; countable only supports fixed value and no derivedValue; countable extraHit creates one independent damage segment per active stack',
             extraHit: 'effectKind=extraHit requires extraHitConfig { key, damageType, skillType, baseMultiplier, imbalanceValue, cooldownSeconds, trigger }; category may be passive/countable; skillType is empty/A/B/E/Q/Dot; 250% is baseMultiplier=2.5; extraHit does not support derivedValue',
             valueMode: BUFF_VALUE_MODES,
             derivedValue: {
@@ -699,7 +699,7 @@ export const operatorFillAdapter: AgentFillDomainAdapter<OperatorDraft> = {
           },
         },
         supportedEffectTypes: SUPPORTED_OPERATOR_EFFECT_TYPES,
-        instruction: 'Return exactly one ImportedOperatorDraft-compatible JSON object. No Markdown. No explanation. Prefer POST /api/operator/fill/check|apply with a JSON body for Chinese payloads; CLI JSON args may be shell-encoding sensitive. Use system skill keys in the latest format skill-{buttonType}-{index}, for example skill-A-1 / skill-B-1 / skill-E-1 / skill-Q-1; every buttonType counts from 1. Legacy skill-1 keys are accepted only for compatibility and will be normalized. Operator buffs use talent/potential/skill groups. Buff category must be passive/condition/countable; legacy positive is accepted only for migration and normalizes to passive. Multiplier buffs remain effectKind=modifier, use multiplier={ coefficient: positiveNumber }, only reference supportedEffectTypes listed in buffEffect.multiplier.supportedTypes, and never copy coefficient into value. Use multiplierBonus as the canonical skill-multiplier type; multiplierMultiplier is legacy input only. Multiplier is incompatible with countable and extraHit. Countable buffs require maxStacks and only support fixed numeric value, no derivedValue. ExtraHit requires extraHitConfig and supports passive/countable only; countable extraHit keeps one segment and total damage scales with current stack count. Fixed effects use valueMode fixed with numeric value. Derived effects use valueMode derived and derivedValue.source/perPointValue, where perPointValue means 每点提升多少, not an arbitrary formula. Percent-like buff types still use decimal numbers, e.g. 每点 +0.10% => 0.001. operator.fill.apply creates a proposal only; it does NOT save to library.',
+        instruction: 'Return exactly one ImportedOperatorDraft-compatible JSON object. No Markdown. No explanation. Prefer POST /api/operator/fill/check|apply with a JSON body for Chinese payloads; CLI JSON args may be shell-encoding sensitive. Use system skill keys in the latest format skill-{buttonType}-{index}, for example skill-A-1 / skill-B-1 / skill-E-1 / skill-Q-1; every buttonType counts from 1. Legacy skill-1 keys are accepted only for compatibility and will be normalized. Operator buffs use talent/potential/skill groups. Buff category must be passive/condition/countable; legacy positive is accepted only for migration and normalizes to passive. Multiplier buffs remain effectKind=modifier, always use category=condition, use multiplier={ coefficient: positiveNumber }, only reference supportedEffectTypes listed in buffEffect.multiplier.supportedTypes, and never copy coefficient into value. Use multiplierBonus as the canonical skill-multiplier type; multiplierMultiplier is legacy input only. Multiplier is incompatible with countable and extraHit. Countable buffs require maxStacks and only support fixed numeric value, no derivedValue. ExtraHit requires extraHitConfig and supports passive/countable only; countable extraHit creates one independent damage segment per active stack. Fixed effects use valueMode fixed with numeric value. Derived effects use valueMode derived and derivedValue.source/perPointValue, where perPointValue means 每点提升多少, not an arbitrary formula. Percent-like buff types still use decimal numbers, e.g. 每点 +0.10% => 0.001. operator.fill.apply creates a proposal only; it does NOT save to library.',
         approvalSaveWarning: 'Approval applies to def.operator-editor.draft.v1. Save writes def.operator-editor.library.v1.',
       },
     };

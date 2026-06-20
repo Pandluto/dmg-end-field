@@ -586,7 +586,7 @@ const EQUIPMENT_BUFF_BUSINESS_TYPE_OPTIONS = buffModel.OPERATOR_BUFF_BUSINESS_TY
         ? '计层 · countable'
         : value === 'multiplier'
           ? '乘算 · multiplier'
-          : '额外伤害段 · extraHit',
+          : '计层额外伤害段 · countable extraHit',
 }));
 
 function getEquipmentBuffBusinessType(buff: EquipmentThreePieceBuff | undefined) {
@@ -980,7 +980,7 @@ function applyCellValueToLibrary(
           [row.effectId]: {
             ...current,
             name: columnKey === 'name' ? rawValue : current.name,
-            category: nextEffectKind === 'extraHit' ? 'passive' : current.category,
+            category: current.category,
             typeKey: nextEffectKind === 'extraHit' ? '' : columnKey === 'effectKey' ? rawValue : current.typeKey,
             value: nextEffectKind === 'extraHit' ? 0 : columnKey === 'valueText' ? normalizeNumber(rawValue, current.value) : current.value,
             raw: columnKey === 'description' ? rawValue : current.raw,

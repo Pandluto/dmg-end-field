@@ -52,11 +52,6 @@ function resolveGenericBridgeImagePath(path: string): string | null {
   return encodedRel ? `${USER_IMAGE_ORIGIN}/user-images/${encodedRel}` : null;
 }
 
-function isDesktopRuntimeAvailable(): boolean {
-  return typeof window !== 'undefined'
-    && typeof (window as unknown as { desktopRuntime?: unknown }).desktopRuntime === 'object';
-}
-
 function encodePathSegments(path: string): string {
   return path
     .split('/')
@@ -72,9 +67,6 @@ function encodePathSegments(path: string): string {
 }
 
 function resolveDesktopAssetPath(path: string): string | null {
-  if (!isDesktopRuntimeAvailable()) {
-    return null;
-  }
   const normalized = path.replace(/\\/g, '/').replace(/^\/+/, '');
   if (!normalized.startsWith('assets/')) {
     return null;

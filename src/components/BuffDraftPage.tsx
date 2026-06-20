@@ -594,13 +594,14 @@ function getBuffMultiplierHint(effect: Partial<BuffEffectDraft>) {
 
 function applyBuffEffectKind(effect: BuffEffectDraft, nextKind: BuffEffectKind): BuffEffectDraft {
   if (nextKind === 'extraHit') {
+    const category = normalizeBuffCategory(effect.category) === 'countable' ? 'countable' : 'passive';
     return {
       ...effect,
       effectKind: 'extraHit',
       type: '',
       value: 0,
-      category: 'passive',
-      maxStacks: undefined,
+      category,
+      maxStacks: category === 'countable' ? effect.maxStacks ?? 1 : undefined,
       multiplier: undefined,
       extraHitConfig: normalizeExtraHitConfig(effect.extraHitConfig),
     };
@@ -622,10 +623,15 @@ function applyBuffType(effect: BuffEffectDraft, nextType: string): BuffEffectDra
 }
 
 function applyBuffCategory(effect: BuffEffectDraft, nextCategory: BuffCategory): BuffEffectDraft {
+  const category = getBuffEffectMultiplier(effect)
+    ? 'condition'
+    : effect.effectKind === 'extraHit' && nextCategory === 'condition'
+      ? 'passive'
+      : nextCategory;
   return {
     ...effect,
-    category: nextCategory,
-    ...(nextCategory === 'countable'
+    category,
+    ...(category === 'countable'
       ? { maxStacks: effect.maxStacks ?? 1, multiplier: undefined }
       : { maxStacks: undefined }),
   };
@@ -643,7 +649,7 @@ function setBuffMultiplierEnabled(effect: BuffEffectDraft, enabled: boolean): Bu
     ...effect,
     effectKind: 'modifier',
     type: nextType,
-    category: effect.category === 'countable' ? 'condition' : normalizeBuffCategory(effect.category),
+    category: 'condition',
     value: undefined,
     multiplier: { coefficient: 1 },
     extraHitConfig: undefined,
@@ -692,11 +698,15 @@ function normalizeEffect(effectKey: string, effect: Partial<BuffEffectDraft>, it
   const fallback = createDefaultBuffEffect(effectKey, item.sourceName);
   const normalizedEffect = normalizeBuffSheetEffectDefinition(effect);
   const effectKind = normalizedEffect.effectKind === 'extraHit' ? 'extraHit' : 'modifier';
-  const category = effectKind === 'extraHit' ? 'passive' : normalizeBuffCategory(normalizedEffect.category);
+  const normalizedCategory = normalizeBuffCategory(normalizedEffect.category);
+  const rawCategory = effectKind === 'extraHit' && normalizedCategory !== 'countable'
+    ? 'passive'
+    : normalizedCategory;
   const type = effectKind === 'extraHit' ? '' : normalizeLegacyBuffType(normalizedEffect.type ?? fallback.type);
-  const multiplier = effectKind === 'modifier' && category !== 'countable' && canUseBuffMultiplier(type)
+  const multiplier = effectKind === 'modifier' && rawCategory !== 'countable' && canUseBuffMultiplier(type)
     ? getBuffEffectMultiplier(normalizedEffect)
     : undefined;
+  const category = multiplier ? 'condition' : rawCategory;
   const rawMaxStacks = Number(normalizedEffect.maxStacks);
   return {
     ...fallback,
@@ -1200,9 +1210,7 @@ function buildBuffSheetRows(draft: BuffDraft): BuffSheetRow[] {
           ? '额外伤害段'
           : `${getBuffEffectMultiplier(effect) ? '乘算 · ' : ''}${effect.type ? getBuffTypeDisplayLabel(effect.type) : '暂无'}`,
         valueText: formatBuffEffectValueText(effect),
-        categoryText: effect.effectKind === 'extraHit'
-          ? '-'
-          : `${BUFF_CATEGORY_LABELS[normalizeBuffCategory(effect.category)]}${normalizeBuffCategory(effect.category) === 'countable' ? `/${effect.maxStacks ?? 1}` : ''}`,
+        categoryText: `${BUFF_CATEGORY_LABELS[normalizeBuffCategory(effect.category)]}${normalizeBuffCategory(effect.category) === 'countable' ? `/${effect.maxStacks ?? 1}` : ''}`,
         sourceName: effect.sourceName || item.sourceName || draft.sourceName,
         condition: effect.condition || '-',
         description: effect.description || '-',
@@ -2620,19 +2628,20 @@ export function BuffDraftPage() {
                           </select>
                         </div>
                       </label>
-                      {selectedEffect.effectKind !== 'extraHit' && (
-                        <label>
-                          <span>分类</span>
-                          <select
-                            value={normalizeBuffCategory(selectedEffect.category)}
-                            onChange={(event) => updateSelectedEffect((prev) => applyBuffCategory(prev, event.target.value as BuffCategory))}
-                          >
-                            {BUFF_CATEGORY_OPTIONS.map((option) => (
+                      <label>
+                        <span>分类</span>
+                        <select
+                          value={normalizeBuffCategory(selectedEffect.category)}
+                          onChange={(event) => updateSelectedEffect((prev) => applyBuffCategory(prev, event.target.value as BuffCategory))}
+                          disabled={Boolean(getBuffEffectMultiplier(selectedEffect))}
+                        >
+                          {BUFF_CATEGORY_OPTIONS
+                            .filter((option) => selectedEffect.effectKind !== 'extraHit' || option !== 'condition')
+                            .map((option) => (
                               <option key={option} value={option}>{BUFF_CATEGORY_LABELS[option]}</option>
                             ))}
-                          </select>
-                        </label>
-                      )}
+                        </select>
+                      </label>
                       {selectedEffect.effectKind !== 'extraHit' && (
                         <label className="operator-draft-buff-multiplier-toggle">
                           <span>乘区独立乘算</span>
@@ -2676,7 +2685,7 @@ export function BuffDraftPage() {
                           </small>
                         </div>
                       </label>
-                      {selectedEffect.effectKind !== 'extraHit' && normalizeBuffCategory(selectedEffect.category) === 'countable' && (
+                      {normalizeBuffCategory(selectedEffect.category) === 'countable' && (
                         <label>
                           <span>最大层数</span>
                           <DeferredNumberInput
@@ -4417,13 +4426,15 @@ export function BuffDraftSheetPage() {
                 className="buff-sheet-formula-input is-select"
                 value={normalizeBuffCategory(selectedEffect.category)}
                 onChange={(event) => updateSelectedEffect((prev) => applyBuffCategory(prev, event.target.value as BuffCategory))}
-                disabled={selectedEffect.effectKind === 'extraHit'}
+                disabled={Boolean(getBuffEffectMultiplier(selectedEffect))}
               >
-                {BUFF_CATEGORY_OPTIONS.map((option) => (
-                  <option key={option} value={option}>{BUFF_CATEGORY_LABELS[option]}</option>
-                ))}
+                {BUFF_CATEGORY_OPTIONS
+                  .filter((option) => selectedEffect.effectKind !== 'extraHit' || option !== 'condition')
+                  .map((option) => (
+                    <option key={option} value={option}>{BUFF_CATEGORY_LABELS[option]}</option>
+                  ))}
               </select>
-              {normalizeBuffCategory(selectedEffect.category) === 'countable' && selectedEffect.effectKind !== 'extraHit' && (
+              {normalizeBuffCategory(selectedEffect.category) === 'countable' && (
                 <input
                   data-formula-focus-id="effect-max-stacks"
                   className="buff-sheet-formula-input"

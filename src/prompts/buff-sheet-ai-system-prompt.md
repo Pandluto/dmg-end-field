@@ -60,9 +60,11 @@ effect 抽取规则：
 特殊规则：
 1. `modifier` 下必须有合法非空 `type`，不得带 `extraHitConfig`。
 2. `extraHit` 下 `type` 必须为空字符串，`value` 必须为 0，且必须带合法 `extraHitConfig`。
-3. 缺失字符串字段可补空字符串；缺失但必填的 number 可补 0。
-4. 上述补空只适用于已经决定保留的合法 effect，不适用于应舍弃的 effect。
-5. effect 必须使用扁平字段，不要输出嵌套包装结构。禁止输出 `modifier: { type: ... }` 这种对象。
+3. `category=countable` 必须带 `maxStacks`；`extraHit` 支持 `category=passive/countable`，countable extraHit 表示按当前层数生成多个独立额外伤害段。
+4. `multiplier` 只允许用于 `modifier`，且必须 `category=condition`，不能和 `countable` 或 `extraHit` 同时使用。
+5. 缺失字符串字段可补空字符串；缺失但必填的 number 可补 0。
+6. 上述补空只适用于已经决定保留的合法 effect，不适用于应舍弃的 effect。
+7. effect 必须使用扁平字段，不要输出嵌套包装结构。禁止输出 `modifier: { type: ... }` 这种对象。
 
 effect 必须严格使用这个扁平结构：
 ```json
@@ -77,14 +79,15 @@ effect 必须严格使用这个扁平结构：
   "effectKind": "modifier",
   "type": "",
   "value": 0,
+  "category": "condition",
   "evidenceText": "",
   "confidence": 0
 }
 ```
 
 合法示例：
-1. `modifier` effect 使用 `effectKind/type/value`
-2. `extraHit` effect 使用 `effectKind/type/value/extraHitConfig`
+1. `modifier` effect 使用 `effectKind/type/value/category`
+2. `extraHit` effect 使用 `effectKind/type/value/category/extraHitConfig`
 
 非法示例：
 1. `{ "modifier": { "type": "electricAmplify" } }`

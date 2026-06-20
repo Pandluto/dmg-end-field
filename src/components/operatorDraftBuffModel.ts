@@ -311,7 +311,9 @@ function isOperatorCountableBuffType(buffType: string | undefined): boolean {
 
 export function deriveOperatorBuffBusinessType(effect: OperatorBuffEffect | null | undefined): OperatorBuffBusinessType {
   if (!effect) return 'passive';
-  if (effect.effectKind === 'extraHit') return 'extraHit';
+  if (effect.effectKind === 'extraHit') {
+    return effect.category === 'countable' ? 'extraHit' : 'passive';
+  }
   if (normalizeBuffMultiplier(effect.multiplier)) return 'multiplier';
   if (effect.category === 'countable') return 'countable';
   if (effect.category === 'condition') return 'condition';
@@ -383,7 +385,7 @@ export function normalizeBuffEffect(effectKey: string, rawEffect: unknown): Oper
         : undefined);
   const category: OperatorBuffCategory = effectKind === 'extraHit' && normalizedCategory !== 'countable'
     ? 'passive'
-    : normalizedMultiplier && normalizedCategory === 'countable'
+    : normalizedMultiplier
       ? 'condition'
       : normalizedCategory;
   const rawValue = source.value;
@@ -521,7 +523,24 @@ export function applyBuffEffectKind(effect: OperatorBuffEffect, effectKind: Buff
 
 export function applyBuffBusinessType(effect: OperatorBuffEffect, businessType: OperatorBuffBusinessType, fallbackKey: string): OperatorBuffEffect {
   if (businessType === 'extraHit') {
-    return applyBuffEffectKind(effect, 'extraHit', fallbackKey);
+    return {
+      ...applyBuffEffectKind(effect, 'extraHit', fallbackKey),
+      category: 'countable',
+      maxStacks: effect.maxStacks ?? 1,
+    };
+  }
+
+  if (businessType === 'passive' && effect.effectKind === 'extraHit') {
+    const { maxStacks: _maxStacks, ...rest } = effect;
+    return {
+      ...rest,
+      schemaVersion: 2,
+      category: 'passive',
+      valueMode: 'fixed',
+      multiplier: undefined,
+      derivedValue: undefined,
+      extraHitConfig: normalizeExtraHitConfig(effect.extraHitConfig, `${effect.effectId || fallbackKey}-extra-hit`),
+    };
   }
 
   const nextType = normalizeTypeForBusinessType(effect.type, businessType);
@@ -606,7 +625,7 @@ export function setBuffMultiplierEnabled(effect: OperatorBuffEffect, enabled: bo
     ...effect,
     type: nextType,
     unit: inferOperatorBuffUnit(nextType),
-    category: effect.category === 'countable' ? 'condition' : effect.category,
+    category: 'condition',
     value: undefined,
     valueMode: 'fixed',
     derivedValue: undefined,

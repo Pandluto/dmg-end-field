@@ -77,6 +77,12 @@ assertClose(
 );
 
 assertClose(
+  calculateBuffedPanel(panelBase, [createBuff('main-flat', 'mainStat', 60)]).atk,
+  2177,
+  'mainStat flat buff should add to the resolved main ability field',
+);
+
+assertClose(
   calculateBuffedPanel(panelBase, [
     createBuff('strength', 'strengthBoost', 10),
     createBuff('agility', 'agilityBoost', 15),

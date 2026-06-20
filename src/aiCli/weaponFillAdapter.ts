@@ -15,6 +15,7 @@ export interface WeaponEffectData {
   type: string;
   category: string;
   levels: Record<string, number>;
+  maxStacks?: number;
   effectKind?: BuffEffectKind;
   extraHitConfig?: BuffExtraHitConfig;
 }
@@ -60,6 +61,7 @@ export interface WeaponFillAiDraft {
       type: string;
       category: string;
       levels: Record<string, number>;
+      maxStacks?: number;
       effectKind?: BuffEffectKind;
       extraHitConfig?: BuffExtraHitConfig;
     }>;
@@ -71,7 +73,7 @@ export interface WeaponFillAiDraft {
 }
 
 const VALID_SKILL_KEYS: WeaponSkillKey[] = ['skill1', 'skill2', 'skill3'];
-const VALID_EFFECT_CATEGORIES: string[] = ['condition', 'passive'];
+const VALID_EFFECT_CATEGORIES: string[] = ['condition', 'passive', 'countable'];
 const SUPPORTED_EFFECT_TYPES: string[] = [
   'atkPercentBoost',
   'flatAtk',
@@ -373,13 +375,16 @@ export function validateWeaponFillAiDraft(candidate: unknown): AgentFillValidati
           errors.push(`skills.${skillKey}.effects.${effectKey}.type "${effect.type}" 不在支持的类型列表中: ${SUPPORTED_EFFECT_TYPES.join('/')}`);
         }
         if (typeof effect.category !== 'string' || !VALID_EFFECT_CATEGORIES.includes(effect.category)) {
-          errors.push(`skills.${skillKey}.effects.${effectKey}.category 必须是 condition 或 passive`);
+          errors.push(`skills.${skillKey}.effects.${effectKey}.category 必须是 condition、passive 或 countable`);
         }
         if (effectKind === 'extraHit') {
-          if (effect.category !== 'passive') {
-            errors.push(`skills.${skillKey}.effects.${effectKey}.category 在 extraHit 时必须是 passive`);
+          if (effect.category !== 'passive' && effect.category !== 'countable') {
+            errors.push(`skills.${skillKey}.effects.${effectKey}.category 在 extraHit 时必须是 passive 或 countable`);
           }
           validateExtraHitConfig(effect.extraHitConfig, `skills.${skillKey}.effects.${effectKey}.extraHitConfig`, errors);
+        }
+        if (effect.category === 'countable' && (typeof effect.maxStacks !== 'number' || !Number.isFinite(effect.maxStacks) || effect.maxStacks <= 0)) {
+          errors.push(`skills.${skillKey}.effects.${effectKey}.maxStacks 在 countable 时必须是正数`);
         }
         const levels = effect.levels;
         if (levels && typeof levels === 'object') {
@@ -434,8 +439,11 @@ function convertWeaponFillAiDraftToWeaponDraft(candidate: WeaponFillAiDraft): We
       skillData.effects[effectKey] = {
         name: effect.name || effectKey,
         type: effect.effectKind === 'extraHit' ? '' : normalizeEffectType(effect.type || ''),
-        category: effect.effectKind === 'extraHit' ? 'passive' : normalizeEffectCategory(effect.category || ''),
+        category: normalizeEffectCategory(effect.category || ''),
         levels: normalizeNumericRecord(effect.levels),
+        ...(effect.category === 'countable' && typeof effect.maxStacks === 'number'
+          ? { maxStacks: Math.max(1, Math.floor(effect.maxStacks)) }
+          : {}),
         effectKind: effect.effectKind === 'extraHit' ? 'extraHit' : 'modifier',
         ...(effect.effectKind === 'extraHit'
           ? { extraHitConfig: normalizeExtraHitConfig(effect.extraHitConfig, `${effectKey}-extra-hit`) }
@@ -573,8 +581,8 @@ export const weaponFillAdapter: AgentFillDomainAdapter<WeaponDraft> = {
         librarySummary: Object.entries(library).map(([id, w]) => ({ id, name: w.name, rarity: w.rarity })),
         weaponFillAiDraftSchema: WEAPON_FILL_AI_DRAFT_SCHEMA,
         supportedEffectTypes: SUPPORTED_EFFECT_TYPES,
-        extraHitContract: 'For an independent triggered damage instance, set effectKind="extraHit", category="passive", type="", levels[level]=that level base multiplier (250%=2.5), and provide extraHitConfig { key, damageType, skillType, baseMultiplier, imbalanceValue, cooldownSeconds, trigger }. skillType is empty/A/B/E/Q/Dot.',
-        instruction: 'Return exactly one WeaponFillAiDraft JSON object. No Markdown. No explanation. Use app-provided source data outside Agent CLI when needed. Keep fields aligned with weapon-sheet: id/name/rarity/type/description/imgUrl/attackGrowth/skills. If there is no image URL, leave imgUrl empty; do not use url as imgUrl. Only skill3.effects is preserved by weapon-sheet; use category condition/passive. For extraHit, use category passive and store level-specific multiplier in levels. weapon.fill.apply creates a proposal only; it does NOT save to library. Before weapon.fill.apply, self-check pending count with proposal.list. REST weapon.fill.apply is refused while any pending proposal exists. For stale backlog, call proposal.clear through REST, then resubmit only the current proposal. If multiple edits are intended, submit and finish them one by one. Do not ask the user to re-run weapon.fill.apply.',
+        extraHitContract: 'For an independent triggered damage instance, set effectKind="extraHit", category="passive" or "countable", type="", levels[level]=that level base multiplier (250%=2.5), and provide extraHitConfig { key, damageType, skillType, baseMultiplier, imbalanceValue, cooldownSeconds, trigger }. skillType is empty/A/B/E/Q/Dot. If category=countable, provide maxStacks; runtime creates one independent segment per active stack.',
+        instruction: 'Return exactly one WeaponFillAiDraft JSON object. No Markdown. No explanation. Use app-provided source data outside Agent CLI when needed. Keep fields aligned with weapon-sheet: id/name/rarity/type/description/imgUrl/attackGrowth/skills. If there is no image URL, leave imgUrl empty; do not use url as imgUrl. Only skill3.effects is preserved by weapon-sheet; use category condition/passive/countable. For extraHit, use category passive or countable and store level-specific multiplier in levels. weapon.fill.apply creates a proposal only; it does NOT save to library. Before weapon.fill.apply, self-check pending count with proposal.list. REST weapon.fill.apply is refused while any pending proposal exists. For stale backlog, call proposal.clear through REST, then resubmit only the current proposal. If multiple edits are intended, submit and finish them one by one. Do not ask the user to re-run weapon.fill.apply.',
         approvalSaveWarning: 'IMPORTANT: After REST weapon.fill.apply, the proposal is handed off to Web CLI automatically. Do not submit another weapon.fill.apply while a pending proposal exists. For stale backlog, call proposal.clear through REST, then resubmit only the current proposal. Do NOT tell the user to re-run weapon.fill.apply in the browser.',
       },
     };

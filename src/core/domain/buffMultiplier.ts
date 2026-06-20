@@ -29,6 +29,9 @@ export function validateBuffMultiplierDefinition(buff: BuffMultiplierDefinitionL
   if (buff.category === 'countable') {
     errors.push('multiplier 与 countable 不允许同时设置');
   }
+  if (buff.category !== 'condition') {
+    errors.push('multiplier 必须使用 category=condition');
+  }
   if (!isMultiplierSupportedBuffType(buff.type)) {
     errors.push(`Buff type ${buff.type || '(empty)'} 不支持 multiplier`);
   }

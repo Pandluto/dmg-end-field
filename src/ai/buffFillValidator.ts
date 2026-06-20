@@ -174,6 +174,9 @@ export function validateBuffFillAiDraft(candidate: unknown): BuffFillValidationR
         if (multiplier && category === 'countable') {
           errors.push(`${effectPath}.multiplier 与 category=countable 不能同时使用`);
         }
+        if (multiplier && category !== 'condition') {
+          errors.push(`${effectPath}.multiplier 必须使用 category=condition`);
+        }
         if (category === 'countable') {
           const maxStacks = Number(effect.maxStacks ?? 1);
           if (!Number.isFinite(maxStacks) || maxStacks < 1) {
@@ -186,6 +189,7 @@ export function validateBuffFillAiDraft(candidate: unknown): BuffFillValidationR
       }
 
       if (effect.effectKind === 'extraHit') {
+        const category = effect.category === 'countable' ? 'countable' : 'passive';
         if (effect.type !== '') {
           errors.push(`${effectPath}.type 在 extraHit 下必须为空字符串`);
         }
@@ -195,6 +199,15 @@ export function validateBuffFillAiDraft(candidate: unknown): BuffFillValidationR
         if (!isRecord(effect.extraHitConfig)) {
           errors.push(`${effectPath}.extraHitConfig 在 extraHit 下必须存在`);
           return;
+        }
+        if (effect.category !== undefined && effect.category !== 'passive' && effect.category !== 'countable') {
+          errors.push(`${effectPath}.category 在 extraHit 下必须是 passive 或 countable`);
+        }
+        if (category === 'countable') {
+          const maxStacks = Number(effect.maxStacks ?? 1);
+          if (!Number.isFinite(maxStacks) || maxStacks < 1) {
+            errors.push(`${effectPath}.maxStacks 在 countable extraHit 下必须是 >= 1 的数字`);
+          }
         }
 
         if (effect.extraHitConfig.trigger !== BUFF_EXTRA_HIT_RULE.trigger) {
@@ -237,6 +250,7 @@ export function convertBuffFillAiDraftToBuffDraft(candidate: BuffFillAiDraft): B
     const itemKey = `item-${itemIndex + 1}`;
     const effects = item.effects.reduce<BuffDraft['items'][string]['effects']>((effectAcc, effect, effectIndex) => {
       const effectKey = `buff-${effectIndex + 1}`;
+      const multiplier = effect.effectKind === 'modifier' ? normalizeBuffMultiplier(effect.multiplier) : undefined;
       effectAcc[effectKey] = {
         id: effectKey,
         displayName: effect.displayName,
@@ -250,14 +264,16 @@ export function convertBuffFillAiDraftToBuffDraft(candidate: BuffFillAiDraft): B
         type: effect.effectKind === 'extraHit' ? '' : effect.type as BuffModifierType,
         value: effect.effectKind === 'extraHit' ? 0 : effect.value,
         category: effect.effectKind === 'extraHit'
-          ? 'passive'
+          ? effect.category === 'countable' ? 'countable' : 'passive'
+          : multiplier
+            ? 'condition'
           : effect.category === 'countable'
             ? 'countable'
             : effect.category === 'passive' ? 'passive' : 'condition',
-        maxStacks: effect.effectKind === 'extraHit' || effect.category !== 'countable'
+        maxStacks: effect.category !== 'countable'
           ? undefined
           : Math.max(1, Math.floor(Number(effect.maxStacks ?? 1))),
-        multiplier: effect.effectKind === 'modifier' ? normalizeBuffMultiplier(effect.multiplier) : undefined,
+        multiplier,
         extraHitConfig: effect.effectKind === 'extraHit' ? normalizeExtraHitConfig(effect.extraHitConfig) : undefined,
       };
       return effectAcc;

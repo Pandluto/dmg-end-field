@@ -9,7 +9,7 @@ const BUSINESS_TYPE_LABELS: Record<buffModel.OperatorBuffBusinessType, string> =
   condition: 'condition 条件',
   countable: 'countable 计层',
   multiplier: 'multiplier 乘区乘算',
-  extraHit: 'extraHit 额外伤害段',
+  extraHit: 'countable extraHit 计层额外伤害段',
 };
 
 export interface BuffDrawerLevelOption {
@@ -66,6 +66,7 @@ export default function BuffEffectEditorDrawer({
   if (!open || !effect) return null;
 
   const businessType = buffModel.deriveOperatorBuffBusinessType(effect);
+  const isExtraHit = effect.effectKind === 'extraHit';
   const update = (next: buffModel.OperatorBuffEffect) => onChange(next);
   const config = normalizeExtraHitConfig(effect.extraHitConfig, `${effect.effectId}-extra-hit`);
 
@@ -111,7 +112,7 @@ export default function BuffEffectEditorDrawer({
             </div>
           </section>
 
-          {businessType !== 'extraHit' ? (
+          {!isExtraHit ? (
             <section>
               <h4>类型</h4>
               <div className="buff-editor-drawer-grid">
@@ -131,7 +132,7 @@ export default function BuffEffectEditorDrawer({
             </section>
           ) : null}
 
-          {businessType !== 'extraHit' && businessType !== 'multiplier' ? (
+          {!isExtraHit && businessType !== 'multiplier' ? (
             <section>
               <h4>数值</h4>
               <div className="buff-editor-drawer-grid">
@@ -171,7 +172,7 @@ export default function BuffEffectEditorDrawer({
             </section>
           ) : null}
 
-          {businessType === 'extraHit' ? (
+          {isExtraHit ? (
             <section>
               <h4>额外伤害段</h4>
               <div className="buff-editor-drawer-grid">
@@ -179,6 +180,9 @@ export default function BuffEffectEditorDrawer({
                 <label><span>伤害属性</span><select value={config.damageType} onChange={(event) => update({ ...effect, extraHitConfig: normalizeExtraHitConfig({ ...config, damageType: event.target.value as typeof config.damageType }, config.key) })}>{EXTRA_HIT_DAMAGE_TYPES.map((type) => <option key={type} value={type}>{type}</option>)}</select></label>
                 <label><span>技能类型</span><select value={config.skillType} onChange={(event) => update({ ...effect, extraHitConfig: normalizeExtraHitConfig({ ...config, skillType: event.target.value as typeof config.skillType }, config.key) })}><option value="">空</option>{['A', 'B', 'E', 'Q', 'Dot'].map((type) => <option key={type} value={type}>{type}</option>)}</select></label>
                 <label><span>{levelOptions.length ? '当前等级攻击力倍率' : '攻击力倍率'}</span><DeferredNumberInput min={0} step="0.01" value={config.baseMultiplier} onCommit={(value) => update({ ...effect, extraHitConfig: normalizeExtraHitConfig({ ...config, baseMultiplier: Math.max(0, value ?? 0) }, config.key) })} /></label>
+                {businessType === 'extraHit' ? (
+                  <label><span>最大层数</span><DeferredNumberInput min={1} value={effect.maxStacks ?? 1} parse={parseIntegerInput} onCommit={(value) => update(buffModel.applyBuffMaxStacks(effect, value))} /></label>
+                ) : null}
               </div>
             </section>
           ) : null}

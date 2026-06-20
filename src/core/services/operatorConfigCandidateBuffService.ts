@@ -94,6 +94,8 @@ function candidateKey(buff: CandidateBuff): string {
     buff.ownerCharacterId ?? '',
     buff.ownerBuffGroup ?? '',
     buff.effectKind ?? 'modifier',
+    buff.category ?? '',
+    buff.maxStacks ?? '',
     buff.extraHitConfig ? JSON.stringify(buff.extraHitConfig) : '',
     buff.multiplier?.coefficient ?? '',
   ].join('|');
@@ -184,7 +186,12 @@ function buildWeaponDetailCandidate(snapshot: ConfigSnapshot, detail: WeaponSkil
     type: detail.typeKey,
   }) as WeaponSkillDetail & { type: string; multiplier?: BuffMultiplier };
   const effectKind = normalizedDetail.effectKind === 'extraHit' ? 'extraHit' : 'modifier';
-  if (effectKind === 'modifier' && normalizedDetail.category === 'passive' && !normalizedDetail.multiplier) return null;
+  const category = normalizedDetail.category === 'countable'
+    ? 'countable'
+    : normalizedDetail.category === 'passive'
+      ? 'passive'
+      : 'condition';
+  if (effectKind === 'modifier' && category === 'passive' && !normalizedDetail.multiplier) return null;
   const type = normalizeBuffTypeKey(normalizedDetail.type);
   if (effectKind === 'modifier' && !type) return null;
   const sourceName = snapshot.weapon.name || snapshot.weapon.id || snapshot.operator.name;
@@ -200,12 +207,12 @@ function buildWeaponDetailCandidate(snapshot: ConfigSnapshot, detail: WeaponSkil
     source: sourceName,
     sourceName,
     description: `${normalizedDetail.label || normalizedDetail.type} ${normalizedDetail.value ?? ''}`.trim(),
-    condition: effectKind === 'extraHit' ? 'passive' : normalizedDetail.category || 'condition',
-    category: effectKind === 'extraHit' ? 'passive' : 'condition',
+    condition: category === 'condition' ? 'condition' : category === 'countable' ? 'countable' : 'passive',
+    category,
     ...(effectKind === 'modifier' && normalizedDetail.multiplier
       ? { multiplier: normalizedDetail.multiplier }
       : {}),
-    ...(normalizedDetail.category === 'countable' && normalizedDetail.maxStacks
+    ...(category === 'countable' && normalizedDetail.maxStacks
       ? { maxStacks: normalizedDetail.maxStacks }
       : {}),
     valueMode: normalizedDetail.valueMode,
@@ -236,8 +243,8 @@ export function buildSnapshotEquipmentCandidateBuffs(snapshot: ConfigSnapshot, e
   if (selectedEquipmentIds.length < 3) return [];
 
   return Object.entries(equipmentLibrary.gearSets || {}).flatMap(([fallbackSetId, gearSet]) => {
-    const setEquipmentIds = Object.values(gearSet.equipments || {})
-      .map((equipment) => equipment.equipmentId)
+    const setEquipmentIds = Object.entries(gearSet.equipments || {})
+      .flatMap(([equipmentKey, equipment]) => [equipmentKey, equipment.equipmentId])
       .filter((equipmentId): equipmentId is string => Boolean(equipmentId));
     const selectedCount = selectedEquipmentIds.filter((equipmentId) => setEquipmentIds.includes(equipmentId)).length;
     if (selectedCount < 3) return [];
@@ -267,8 +274,8 @@ export function buildSnapshotEquipmentCandidateBuffs(snapshot: ConfigSnapshot, e
           source: sourceName,
           sourceName,
           description: normalizedBuff.raw || `${normalizedBuff.name || type} ${normalizedBuff.value ?? ''}`.trim(),
-          condition: effectKind === 'extraHit' ? 'passive' : category === 'condition' ? '三件套条件效果' : category,
-          category: effectKind === 'extraHit' ? 'passive' : category,
+          condition: category === 'condition' ? '三件套条件效果' : category,
+          category,
           ...(category === 'countable' && normalizedBuff.maxStacks
             ? { maxStacks: normalizedBuff.maxStacks }
             : {}),

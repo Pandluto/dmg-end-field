@@ -328,7 +328,9 @@ function normalizeEquipmentLibrary(raw: unknown): EquipmentLibrary {
     const normalizeThreePieceBuff = (effectId: string, rawBuff: Partial<EquipmentThreePieceBuff>): EquipmentThreePieceBuff => ({
       effectId: String(rawBuff.effectId || effectId),
       name: String(rawBuff.name || effectId),
-      category: rawBuff.effectKind === 'extraHit' ? 'passive' : normalizeThreePieceBuffCategory(rawBuff.category),
+      category: rawBuff.effectKind === 'extraHit'
+        ? normalizeThreePieceBuffCategory(rawBuff.category) === 'countable' ? 'countable' : 'passive'
+        : normalizeThreePieceBuffCategory(rawBuff.category),
       typeKey: rawBuff.effectKind === 'extraHit' ? '' : String(rawBuff.typeKey || ''),
       value: rawBuff.effectKind === 'extraHit' ? 0 : typeof rawBuff.value === 'number' && Number.isFinite(rawBuff.value) ? rawBuff.value : 0,
       unit: rawBuff.unit === 'flat' ? 'flat' : 'percent',

@@ -591,7 +591,7 @@ function projectWeaponEffectForLevel(effectKey: string, effect: WeaponEffectData
   const normalized = buffModel.normalizeBuffEffect(effectKey, effect);
   const levelValue = effect.levels[levelKey];
   const businessType = buffModel.deriveOperatorBuffBusinessType(normalized);
-  if (businessType === 'extraHit') {
+  if (normalized.effectKind === 'extraHit') {
     const config = normalizeExtraHitConfig(normalized.extraHitConfig, `${effectKey}-extra-hit`);
     return {
       ...normalized,
@@ -621,7 +621,7 @@ function projectWeaponEffectForLevel(effectKey: string, effect: WeaponEffectData
 
 function applyWeaponDrawerEffect(effect: WeaponEffectData, levelKey: string, next: buffModel.OperatorBuffEffect): WeaponEffectData {
   const businessType = buffModel.deriveOperatorBuffBusinessType(next);
-  const nextLevelValue = businessType === 'extraHit'
+  const nextLevelValue = next.effectKind === 'extraHit'
     ? next.extraHitConfig?.baseMultiplier
     : businessType === 'multiplier'
       ? next.multiplier?.coefficient
@@ -825,7 +825,7 @@ const EFFECT_CATEGORY_OPTIONS = [
   { value: 'condition', label: '条件 · condition' },
   { value: 'countable', label: '计层 · countable' },
   { value: 'multiplier', label: '乘算 · multiplier' },
-  { value: 'extraHit', label: '额外伤害段 · extraHit' },
+  { value: 'extraHit', label: '计层额外伤害段 · countable extraHit' },
 ];
 
 function getEffectCategoryLabel(category: string) {

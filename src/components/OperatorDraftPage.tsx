@@ -150,7 +150,7 @@ const OPERATOR_BUFF_BUSINESS_TYPE_LABELS: Record<draftBuffModel.OperatorBuffBusi
   condition: 'condition 条件',
   countable: 'countable 计层',
   multiplier: 'multiplier 乘区乘算',
-  extraHit: 'extraHit 额外伤害段',
+  extraHit: 'countable extraHit 计层额外伤害段',
 };
 
 type SkillButtonType = 'A' | 'B' | 'E' | 'Q';

@@ -13,6 +13,7 @@ type BuffDefinitionRecord = Record<string, unknown> & {
   type?: unknown;
   value?: unknown;
   multiplier?: unknown;
+  category?: unknown;
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -45,6 +46,7 @@ export function normalizeStoredBuffDefinition<T>(value: T): T {
 
   if (multiplier) {
     normalized.multiplier = multiplier;
+    normalized.category = 'condition';
   } else {
     delete normalized.multiplier;
   }

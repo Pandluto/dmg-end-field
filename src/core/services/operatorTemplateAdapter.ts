@@ -141,9 +141,14 @@ function normalizeBuffEffect(effectKey: string, rawEffect: unknown): OperatorDra
     : rawCategory === 'countable'
       ? 'countable'
       : 'passive';
+  const multiplier = effectKind === 'modifier'
+    ? normalizeBuffMultiplier(source.multiplier)
+    : undefined;
   const category = effectKind === 'extraHit' && normalizedCategory !== 'countable'
     ? 'passive'
-    : normalizedCategory;
+    : multiplier
+      ? 'condition'
+      : normalizedCategory;
   const rawValue = source.value;
   const valueMode = effectKind === 'extraHit' || category === 'countable' ? 'fixed' : source.valueMode === 'derived' ? 'derived' : 'fixed';
   const rawDerivedValue = source.derivedValue && typeof source.derivedValue === 'object'
@@ -154,9 +159,6 @@ function normalizeBuffEffect(effectKey: string, rawEffect: unknown): OperatorDra
     ? rawDerivedSource as OperatorBuffDerivedSource
     : null;
   const rawPerPointValue = rawDerivedValue.perPointValue ?? rawDerivedValue.scale;
-  const multiplier = effectKind === 'modifier'
-    ? normalizeBuffMultiplier(source.multiplier)
-    : undefined;
   return {
     schemaVersion: 2,
     effectId: String(source.effectId || effectKey),

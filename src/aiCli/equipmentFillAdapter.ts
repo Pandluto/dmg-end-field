@@ -12,7 +12,7 @@ const LEVEL_KEYS = ['0', '1', '2', '3'] as const;
 const FIXED_STAT_TYPES = ['defense', 'hp', 'flatAtk'] as const;
 const UNITS = ['flat', 'percent'] as const;
 const EFFECT_CATEGORIES = ['ability', 'buff'] as const;
-const THREE_PIECE_CATEGORIES = ['positive', 'passive', 'condition', ''] as const;
+const THREE_PIECE_CATEGORIES = ['positive', 'passive', 'condition', 'countable', ''] as const;
 const SUPPORTED_EQUIPMENT_EFFECT_TYPES = [
   'strengthBoost',
   'agilityBoost',
@@ -89,11 +89,12 @@ interface EquipmentEffect {
 interface EquipmentThreePieceBuff {
   effectId: string;
   name: string;
-  category: 'positive' | 'passive' | 'condition' | '';
+  category: 'positive' | 'passive' | 'condition' | 'countable' | '';
   typeKey: string;
   value: number;
   unit: EquipmentUnit;
   raw?: string;
+  maxStacks?: number;
   effectKind?: BuffEffectKind;
   extraHitConfig?: BuffExtraHitConfig;
 }
@@ -274,14 +275,17 @@ function validateThreePieceBuff(raw: Record<string, unknown>, path: string, erro
   const effectKind = raw.effectKind === 'extraHit' ? 'extraHit' : 'modifier';
   if (typeof raw.effectId !== 'string') errors.push(`${path}.effectId must be string`);
   if (typeof raw.name !== 'string') errors.push(`${path}.name must be string`);
-  if (typeof raw.category !== 'string' || !THREE_PIECE_CATEGORIES.includes(raw.category as never)) errors.push(`${path}.category must be positive/condition/empty`);
+  if (typeof raw.category !== 'string' || !THREE_PIECE_CATEGORIES.includes(raw.category as never)) errors.push(`${path}.category must be positive/passive/condition/countable/empty`);
   if (effectKind === 'modifier' && typeof raw.typeKey !== 'string') errors.push(`${path}.typeKey must be string`);
   if (effectKind === 'modifier' && raw.typeKey && !SUPPORTED_EQUIPMENT_EFFECT_TYPES.includes(String(raw.typeKey))) errors.push(`${path}.typeKey unsupported: ${String(raw.typeKey)}`);
   if (effectKind === 'modifier' && (typeof raw.value !== 'number' || !Number.isFinite(raw.value))) errors.push(`${path}.value must be number`);
   if (typeof raw.unit !== 'string' || !UNITS.includes(raw.unit as never)) errors.push(`${path}.unit must be flat/percent`);
   if (effectKind === 'extraHit') {
-    if (raw.category !== 'passive') errors.push(`${path}.category must be passive for extraHit`);
+    if (raw.category !== 'passive' && raw.category !== 'countable') errors.push(`${path}.category must be passive or countable for extraHit`);
     validateExtraHitConfig(raw.extraHitConfig, `${path}.extraHitConfig`, errors);
+  }
+  if (raw.category === 'countable' && (typeof raw.maxStacks !== 'number' || !Number.isFinite(raw.maxStacks) || raw.maxStacks <= 0)) {
+    errors.push(`${path}.maxStacks must be positive number for countable`);
   }
 }
 
@@ -290,11 +294,14 @@ function normalizeThreePieceBuff(raw: Record<string, unknown>, fallbackKey: stri
   return {
     effectId: String(raw.effectId || fallbackKey),
     name: String(raw.name || fallbackKey),
-    category: effectKind === 'extraHit' ? 'passive' : raw.category as EquipmentThreePieceBuff['category'],
+    category: raw.category as EquipmentThreePieceBuff['category'],
     typeKey: effectKind === 'extraHit' ? '' : String(raw.typeKey || ''),
     value: effectKind === 'extraHit' ? 0 : Number(raw.value || 0),
     unit: raw.unit as EquipmentUnit,
     raw: typeof raw.raw === 'string' ? raw.raw : '',
+    ...(raw.category === 'countable' && typeof raw.maxStacks === 'number'
+      ? { maxStacks: Math.max(1, Math.floor(raw.maxStacks)) }
+      : {}),
     effectKind,
     ...(effectKind === 'extraHit'
       ? { extraHitConfig: normalizeExtraHitConfig(raw.extraHitConfig, `${fallbackKey}-extra-hit`) }
@@ -445,6 +452,7 @@ export const equipmentFillAdapter: AgentFillDomainAdapter<EquipmentLibrary> = {
           category: EFFECT_CATEGORIES,
           unit: UNITS,
           threePieceEffectKind: ['modifier', 'extraHit'],
+          threePieceCategory: THREE_PIECE_CATEGORIES,
           extraHitConfig: '{ key, damageType, skillType, baseMultiplier, imbalanceValue, cooldownSeconds, trigger }; skillType empty/A/B/E/Q/Dot (250%=2.5)',
         },
         supportedEffectTypes: SUPPORTED_EQUIPMENT_EFFECT_TYPES,
@@ -452,7 +460,7 @@ export const equipmentFillAdapter: AgentFillDomainAdapter<EquipmentLibrary> = {
           workingDraft: EQUIPMENT_DRAFT_STORAGE_KEY,
           savedTruth: EQUIPMENT_LIBRARY_STORAGE_KEY,
         },
-        instruction: 'Return exactly one EquipmentFillAiDraft JSON object for equipment.fill.apply. No Markdown. No explanation. gearSets may contain only the gear sets being changed; omitted gear sets are preserved by incremental merge. Each submitted gear set must include its complete gearSetId/name/equipments structure. For an independent triggered damage instance in threePieceBuff/threePieceBuffs, set effectKind="extraHit", category="passive", typeKey="", value=0, and provide extraHitConfig including skillType empty/A/B/E/Q/Dot. Use equipment.setBuff for three-piece Buff-only updates. Use app-provided source data outside Agent CLI when needed. equipment.fill.apply creates a proposal only.',
+        instruction: 'Return exactly one EquipmentFillAiDraft JSON object for equipment.fill.apply. No Markdown. No explanation. gearSets may contain only the gear sets being changed; omitted gear sets are preserved by incremental merge. Each submitted gear set must include its complete gearSetId/name/equipments structure. For an independent triggered damage instance in threePieceBuff/threePieceBuffs, set effectKind="extraHit", category="passive" or "countable", typeKey="", value=0, and provide extraHitConfig including skillType empty/A/B/E/Q/Dot. If category=countable, provide maxStacks; runtime creates one independent segment per active stack. Use equipment.setBuff for three-piece Buff-only updates. Use app-provided source data outside Agent CLI when needed. equipment.fill.apply creates a proposal only.',
         approvalSaveWarning: 'Approval applies to def.equipment-sheet.draft.v1. Save writes def.equipment-sheet.library.v1.',
       },
     };
@@ -469,7 +477,9 @@ export const equipmentFillAdapter: AgentFillDomainAdapter<EquipmentLibrary> = {
 
   saveToLocalTruth(payload): { ok: boolean; error?: string } {
     try {
-      writeJsonStorage(EQUIPMENT_LIBRARY_STORAGE_KEY, mergeEquipmentLibraryPatch(readEquipmentLibrary(), payload));
+      const nextLibrary = mergeEquipmentLibraryPatch(readEquipmentLibrary(), payload);
+      writeJsonStorage(EQUIPMENT_LIBRARY_STORAGE_KEY, nextLibrary);
+      writeJsonStorage(EQUIPMENT_DRAFT_STORAGE_KEY, nextLibrary);
       return { ok: true };
     } catch (error) {
       return { ok: false, error: error instanceof Error ? error.message : String(error) };

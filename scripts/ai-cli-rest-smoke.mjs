@@ -132,7 +132,7 @@ try {
   assert(spec.payload.endpoints.includes('GET /api/buff/fill/template'), 'spec should expose fill template endpoint');
   assert(spec.payload.formats?.writeProposalFormat?.shape?.includes('items is an array'), 'spec should warn about fill array format');
   assert(Array.isArray(spec.payload.commands), 'spec should expose commands array');
-  assert(spec.payload.diagnostics?.weaponFill?.validEffectCategories?.join('/') === 'condition/passive', 'spec diagnostics should expose current weapon fill categories');
+  assert(spec.payload.diagnostics?.weaponFill?.validEffectCategories?.join('/') === 'condition/passive/countable', 'spec diagnostics should expose current weapon fill categories');
   const expectedCommands = [
     'agent.logs', 'agent.sessions', 'agent.guide',
     'buff.open', 'draft.rename',

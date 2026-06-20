@@ -465,7 +465,7 @@ function tryServeUserImageByRequestPath({ method, requestPath, response }) {
   if (!absPath || !fs.existsSync(absPath) || !fs.statSync(absPath).isFile()) {
     return false;
   }
-  const ext = path.extname(relPath).toLowerCase();
+  const ext = path.extname(absPath).toLowerCase();
   const mimeMap = {
     '.png': 'image/png',
     '.jpg': 'image/jpeg',
@@ -953,16 +953,6 @@ function startBridgeServer() {
         })) {
           return;
         }
-        if (tryServeStaticFromRoot({
-          method,
-          requestUrl,
-          response,
-          rootDir: getAssetsRoot(),
-          urlPrefix: '/assets/',
-          cacheControl: 'no-cache',
-        })) {
-          return;
-        }
         if (tryServeAssetUserImageFallback({ method, requestUrl, response })) {
           return;
         }
@@ -1173,6 +1163,48 @@ function getImageReleaseVersionDir(assetVersion) {
     throw new Error('图片资源版本无效');
   }
   return path.join(getImageReleaseVersionsDir(), safeVersion);
+}
+
+function parseStrictImageReleaseVersion(value) {
+  const match = /^v(\d+)\.(\d+)\.(\d+)$/.exec(String(value || '').trim());
+  if (!match) {
+    return null;
+  }
+  return {
+    name: match[0],
+    parts: match.slice(1).map((part) => Number(part)),
+  };
+}
+
+function getLatestInstalledImageRelease() {
+  const versionsDir = getImageReleaseVersionsDir();
+  let entries = [];
+  try {
+    entries = fs.readdirSync(versionsDir, { withFileTypes: true });
+  } catch {
+    return null;
+  }
+
+  const versions = entries
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => parseStrictImageReleaseVersion(entry.name))
+    .filter(Boolean)
+    .sort((left, right) => {
+      for (let index = 0; index < 3; index += 1) {
+        if (left.parts[index] !== right.parts[index]) {
+          return right.parts[index] - left.parts[index];
+        }
+      }
+      return 0;
+    });
+
+  if (versions.length === 0) {
+    return null;
+  }
+  return {
+    assetVersion: versions[0].name,
+    directory: path.join(versionsDir, versions[0].name),
+  };
 }
 
 function getImageReleaseManifestPath(assetVersion) {
@@ -1960,12 +1992,7 @@ function resolveDefaultReleaseManifestAssetBaseUrl(manifest, fallbackManifestUrl
 }
 
 function getActiveImageReleaseRoot() {
-  const current = readImageReleaseCurrent();
-  if (!current.assetVersion) {
-    return null;
-  }
-  const versionDir = getImageReleaseVersionDir(current.assetVersion);
-  return fs.existsSync(versionDir) ? versionDir : null;
+  return getLatestInstalledImageRelease()?.directory || null;
 }
 
 async function clearAssetRuntimeCache() {
@@ -1982,14 +2009,18 @@ async function clearAssetRuntimeCache() {
 function getImageUpdateStatePayload() {
   const config = readImageReleaseConfig();
   const sourceUrl = getImageReleaseSourceUrl(config);
-  const current = readImageReleaseCurrent();
-  const activeManifest = readImageReleaseManifest(current.assetVersion);
+  const currentRecord = readImageReleaseCurrent();
+  const installed = getLatestInstalledImageRelease();
+  const currentVersion = installed?.assetVersion || null;
+  const activeManifest = readImageReleaseManifest(currentVersion);
   imageUpdateState.configuredManifestUrl = sourceUrl;
-  imageUpdateState.currentVersion = current.assetVersion || null;
+  imageUpdateState.currentVersion = currentVersion;
   return {
     configuredManifestUrl: sourceUrl,
-    currentVersion: current.assetVersion || null,
-    currentActivatedAt: current.activatedAt || null,
+    currentVersion,
+    currentActivatedAt: currentRecord.assetVersion === currentVersion
+      ? currentRecord.activatedAt || null
+      : null,
     currentManifestSummary: activeManifest
       ? {
       assetVersion: activeManifest.assetVersion,
@@ -2007,7 +2038,7 @@ function getImageUpdateStatePayload() {
     status: imageUpdateState.status || 'idle',
     progress: imageUpdateState.progress || null,
     storageRoot: getImageReleaseRoot(),
-    releaseManifestPath: current.assetVersion ? getImageReleaseManifestPath(current.assetVersion) : null,
+    releaseManifestPath: currentVersion ? getImageReleaseManifestPath(currentVersion) : null,
   };
 }
 
@@ -2017,7 +2048,7 @@ async function checkForImageReleaseUpdates() {
   imageUpdateState.status = 'checking';
   imageUpdateState.lastError = '';
   clearImageUpdateProgress();
-  const current = readImageReleaseCurrent();
+  const current = getLatestInstalledImageRelease() || { assetVersion: null };
   try {
     const {
       manifest: remoteManifest,
@@ -2076,7 +2107,7 @@ async function applyImageReleaseUpdate() {
   imageUpdateState.status = 'checking';
   imageUpdateState.lastError = '';
   clearImageUpdateProgress();
-  const current = readImageReleaseCurrent();
+  const current = getLatestInstalledImageRelease() || { assetVersion: null };
   const previousManifest = readImageReleaseManifest(current.assetVersion);
   try {
     const {
@@ -2187,17 +2218,14 @@ async function applyImageReleaseUpdate() {
 }
 
 async function forceClearImageUpdate() {
-  const userImagesDir = getUserImagesDir();
   const versionsDir = getImageReleaseVersionsDir();
   const stagingDir = getImageReleaseStagingDir();
   const currentPath = getImageReleaseCurrentPath();
 
-  fs.rmSync(userImagesDir, { recursive: true, force: true });
   fs.rmSync(versionsDir, { recursive: true, force: true });
   fs.rmSync(stagingDir, { recursive: true, force: true });
   fs.rmSync(currentPath, { force: true });
 
-  fs.mkdirSync(path.join(getUserImagesDir(), 'images'), { recursive: true });
   ensureImageReleaseDirectories();
 
   imageUpdateState.status = 'idle';
@@ -2316,7 +2344,10 @@ function getDevImageRoot() {
 }
 
 function getPrimaryImageRoot() {
-  return isDev ? getDevImageRoot() : getImageReleaseVersionsDir();
+  const activeReleaseRoot = getActiveImageReleaseRoot();
+  return activeReleaseRoot
+    ? path.join(activeReleaseRoot, 'images')
+    : getImageReleaseVersionsDir();
 }
 
 function getImageRootsConfigPath() {
@@ -2529,37 +2560,7 @@ function handleRemoveImageRoot(payload) {
 }
 
 function syncImageManifest() {
-  const list = refreshImageAssetCache().list;
-  const manifestDir = getBuiltinManifestDir();
-  // Browser fallback still reads assets/images/_manifest.json.
-  // Despite the legacy path, its contents represent the latest scanned asset table.
-  const manifestPath = path.join(manifestDir, '_manifest.json');
-  const slim = list
-    .filter((entry) => entry.kind !== 'dir')
-    .map((entry) => ({
-      fileName: entry.fileName,
-      baseName: entry.baseName,
-      ext: entry.ext,
-      relativePath: entry.relativePath,
-      canonicalPath: entry.canonicalPath,
-      publicUrl: entry.publicUrl,
-      sizeBytes: entry.sizeBytes,
-      updatedAt: entry.updatedAt,
-      writable: entry.writable,
-      source: entry.source,
-      rootId: entry.rootId,
-      rootLabel: entry.rootLabel,
-      rootDirectory: entry.rootDirectory,
-      rootPriority: entry.rootPriority,
-    }));
-  try {
-    if (!fs.existsSync(manifestDir)) {
-      fs.mkdirSync(manifestDir, { recursive: true });
-    }
-    fs.writeFileSync(manifestPath, JSON.stringify(slim, null, 2), 'utf-8');
-  } catch {
-    // best-effort
-  }
+  refreshImageAssetCache();
 }
 
 function getImageEntryRequestRelativePath(entry) {
@@ -2585,6 +2586,7 @@ function sortImageAssetCacheBuckets(map) {
 }
 
 function buildImageAssetCache() {
+  const activeReleaseRoot = getActiveImageReleaseRoot();
   const list = scanAllImageAssets();
   const byRequestPath = new Map();
   const byFileName = new Map();
@@ -2604,6 +2606,7 @@ function buildImageAssetCache() {
     list,
     byRequestPath,
     byFileName,
+    activeReleaseRoot,
     refreshedAt: Date.now(),
   };
 }
@@ -2614,7 +2617,8 @@ function refreshImageAssetCache() {
 }
 
 function getImageAssetCache() {
-  if (!imageAssetCache) {
+  const activeReleaseRoot = getActiveImageReleaseRoot();
+  if (!imageAssetCache || imageAssetCache.activeReleaseRoot !== activeReleaseRoot) {
     imageAssetCache = buildImageAssetCache();
   }
   return imageAssetCache;
@@ -2667,11 +2671,7 @@ function addFileEntry(results, dirsWithFiles, fullPath, relPath, source, writabl
 }
 
 function scanAllImageAssets() {
-  const builtinAssetsRoot = getBuiltinAssetsRoot();
   const activeReleaseRoot = getActiveImageReleaseRoot();
-  const imageRoots = getImageRootEntries();
-  const userDir = getUserImagesDir();
-  const builtinAndUserShareRoot = path.resolve(builtinAssetsRoot) === path.resolve(userDir);
   const results = [];
   const dirsWithFiles = new Set();
 
@@ -2699,76 +2699,12 @@ function scanAllImageAssets() {
   if (activeReleaseRoot && fs.existsSync(activeReleaseRoot)) {
     walk(activeReleaseRoot, '', 'release', false, {
       id: 'release',
-      label: '发布更新资源',
+      label: `发布更新资源 · ${path.basename(activeReleaseRoot)}`,
       directory: activeReleaseRoot,
-      priority: -1,
+      priority: 0,
     });
   }
-
-  // ── Scan builtin (read-only) ──
-  if (!builtinAndUserShareRoot && fs.existsSync(builtinAssetsRoot)) {
-    walk(builtinAssetsRoot, '', 'builtin', false);
-  }
-
-  // ── Scan configured image roots. Root priority controls /user-images/<fileName> mapping. ──
-  for (const rootInfo of imageRoots) {
-    if (fs.existsSync(rootInfo.directory)) {
-      walk(rootInfo.directory, 'images', rootInfo.legacy ? 'legacy' : 'user', rootInfo.writable, rootInfo);
-    }
-  }
-
-  // ── Empty user directories (for tree visibility) ──
-  function walkEmptyManagedDirs(dirPath, relDir) {
-    let entries;
-    try {
-      entries = fs.readdirSync(dirPath, { withFileTypes: true });
-    } catch {
-      return;
-    }
-    // A managed dir is "empty" when it has no direct image files
-    const hasDirectImageFiles = entries.some(
-      (e) => e.isFile() && /\.(png|jpg|jpeg|webp|gif|svg)$/i.test(e.name),
-    );
-    if (relDir && !dirsWithFiles.has(relDir) && !hasDirectImageFiles) {
-      const managedRel = `assets/${relDir.replace(/\\/g, '/')}`;
-      results.push({
-        kind: 'dir',
-        fileName: path.basename(dirPath),
-        baseName: '',
-        ext: '',
-        relativePath: managedRel,
-        source: 'user',
-        writable: true,
-        sizeBytes: 0,
-        updatedAt: 0,
-      });
-    }
-    for (const entry of entries) {
-      if (entry.isDirectory()) {
-        const fullPath = path.join(dirPath, entry.name);
-        const relPath = relDir ? `${relDir}/${entry.name}` : entry.name;
-        walkEmptyManagedDirs(fullPath, relPath);
-      }
-    }
-  }
-  walkEmptyManagedDirs(userDir, 'images');
-
-  // Deduplicate by relativePath (release > user > builtin)
-  const sourcePriority = {
-    release: 0,
-    user: 1,
-    legacy: 2,
-    builtin: 3,
-  };
-  const seen = new Map();
-  for (const r of results) {
-    const existing = seen.get(r.relativePath);
-    if (!existing || (sourcePriority[r.source] ?? 99) < (sourcePriority[existing.source] ?? 99)) {
-      seen.set(r.relativePath, r);
-    }
-  }
-
-  const list = Array.from(seen.values());
+  const list = results;
   const byFileName = new Map();
   for (const item of list) {
     if (item.kind === 'dir') continue;
@@ -2799,16 +2735,32 @@ function resolveUserImageFileByRequestPath(requestPath) {
     return null;
   }
   const cache = getImageAssetCache();
-  const exactCandidates = decoded.includes('/')
-    ? cache.byRequestPath.get(decoded.toLowerCase()) || []
-    : [];
-  const fileNameCandidates = cache.byFileName.get(requestedFileName.toLowerCase()) || [];
-  const candidates = exactCandidates.length > 0 ? exactCandidates : fileNameCandidates;
-  for (const item of candidates) {
-    const fullPath = item.absolutePath;
-    if (!fullPath) continue;
-    if (fs.existsSync(fullPath) && fs.statSync(fullPath).isFile()) {
-      return fullPath;
+  const requestedExt = path.extname(requestedFileName).toLowerCase();
+  const extensionOrder = [
+    requestedExt,
+    '.png',
+    '.webp',
+    '.jpg',
+    '.jpeg',
+    '.gif',
+    '.svg',
+  ].filter((ext, index, list) => list.indexOf(ext) === index);
+  const requestedPathBase = decoded.slice(0, decoded.length - requestedExt.length);
+  const requestedFileBase = requestedFileName.slice(0, requestedFileName.length - requestedExt.length);
+
+  for (const ext of extensionOrder) {
+    const exactPath = `${requestedPathBase}${ext}`.toLowerCase();
+    const exactCandidates = decoded.includes('/')
+      ? cache.byRequestPath.get(exactPath) || []
+      : [];
+    const fileNameCandidates = cache.byFileName.get(`${requestedFileBase}${ext}`.toLowerCase()) || [];
+    const candidates = exactCandidates.length > 0 ? exactCandidates : fileNameCandidates;
+    for (const item of candidates) {
+      const fullPath = item.absolutePath;
+      if (!fullPath) continue;
+      if (fs.existsSync(fullPath) && fs.statSync(fullPath).isFile()) {
+        return fullPath;
+      }
     }
   }
   return null;

@@ -144,6 +144,8 @@ export function createBuffFillAiDraftSchema(): JsonSchemaObject {
                       effectKind: { type: 'string', enum: ['extraHit'] },
                       type: { type: 'string', enum: [''] },
                       value: { type: 'number', enum: [0] },
+                      category: { type: 'string', enum: ['passive', 'countable'] },
+                      maxStacks: { type: 'number' },
                       extraHitConfig: {
                         type: 'object',
                         additionalProperties: false,
