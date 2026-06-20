@@ -190,7 +190,13 @@ export function WorkbenchFrame() {
       <button className="workbench-top-trigger workbench-bottom-nav-button" type="button" onClick={handleOpenWeaponSheet}>
         <span className="workbench-trigger-text">编辑武器</span>
       </button>
-      <button className="workbench-top-trigger workbench-bottom-nav-button" type="button" onClick={handleOpenEquipmentSheet}>
+      <button
+        className="workbench-top-trigger workbench-bottom-nav-button"
+        type="button"
+        onClick={handleOpenEquipmentSheet}
+        disabled
+        title="编辑装备暂未开放"
+      >
         <span className="workbench-trigger-text">编辑装备</span>
       </button>
       <button className="workbench-top-trigger workbench-bottom-nav-button" type="button" onClick={handleOpenOperatorConfig}>
