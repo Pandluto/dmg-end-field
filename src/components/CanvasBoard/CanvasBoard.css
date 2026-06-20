@@ -2080,8 +2080,18 @@
   margin: 0 auto;
   align-items: center;
   gap: 0;
-  padding-top: 30px;
+  padding-top: 0;
   padding-bottom: 90px;
+  box-sizing: border-box;
+}
+
+.canvas-left-top-spacer {
+  flex: 0 0 30px;
+  width: 1240px;
+  height: 30px;
+  margin-bottom: 30px;
+  border: 1px solid rgba(0, 0, 0, 0.72);
+  background: transparent;
   box-sizing: border-box;
 }
 
@@ -2285,7 +2295,7 @@
 /* 单个伤害节点 - 归档小斜线样式 */
 .canvas-damage-node {
   position: absolute;
-  width: 2px;
+  width: 1px;
   height: 6px;
   background: transparent;
   transform: rotate(135deg);
@@ -2293,11 +2303,11 @@
 }
 
 .canvas-container.is-dragging-active .canvas-grid-background {
-  --grid-line-color: #000000;
+  --grid-line-color: rgba(0, 0, 0, 0.2);
 }
 
 .canvas-container.is-dragging-active .canvas-damage-node {
-  background: #000000;
+  background: rgba(0, 0, 0, 0.5);
 }
 
 /* ==================== 技能按钮拖动预览 ==================== */

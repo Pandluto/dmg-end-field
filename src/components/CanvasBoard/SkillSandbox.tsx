@@ -57,6 +57,7 @@ function getCharacterSandboxSkills(character: Character): SandboxSkill[] {
 export function SkillSandbox({ selectedCharacters, onDragStart, onAvatarDoubleClick }: SkillSandboxProps) {
   const cardRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const [pageByCharacterId, setPageByCharacterId] = useState<Record<string, number>>({});
+  const [expandedByCharacterId, setExpandedByCharacterId] = useState<Record<string, boolean>>({});
 
   // 使用卡片长边实时计算角标长度，满足“角标长度=长边0.34倍”的视觉约束
   useEffect(() => {
@@ -114,27 +115,38 @@ export function SkillSandbox({ selectedCharacters, onDragStart, onAvatarDoubleCl
         {selectedCharacters.map((character, index) => {
           const sandboxSkills = getCharacterSandboxSkills(character);
           const isLocalCharacter = character.librarySource === 'local';
-          const totalPages = Math.max(1, Math.ceil(sandboxSkills.length / 4));
+          const pageSize = 8;
+          const isExpanded = Boolean(expandedByCharacterId[character.id]);
+          const totalPages = Math.max(1, Math.ceil(sandboxSkills.length / pageSize));
           const currentPage = Math.min(pageByCharacterId[character.id] ?? 0, totalPages - 1);
-          const visibleSkills = sandboxSkills.slice(currentPage * 4, currentPage * 4 + 4);
-          const visibleSlots = Array.from({ length: 4 }, (_, slotIndex) => visibleSkills[slotIndex] ?? null);
+          const visibleSkills = sandboxSkills.slice(currentPage * pageSize, currentPage * pageSize + pageSize);
           const updateCharacterPage = (nextPage: number) => {
             setPageByCharacterId((prev) => ({
               ...prev,
               [character.id]: nextPage,
             }));
           };
+          const toggleCharacterExpanded = () => {
+            setExpandedByCharacterId((prev) => (
+              prev[character.id] ? {} : { [character.id]: true }
+            ));
+          };
 
           return (
           <div
             key={character.id}
-            className={`sandbox-character sandbox-character--hoverable ${isLocalCharacter ? 'sandbox-character--local' : 'sandbox-character--official'}`}
+            className={`sandbox-character sandbox-character--hoverable ${isExpanded ? 'sandbox-character--expanded' : 'sandbox-character--collapsed'} ${isLocalCharacter ? 'sandbox-character--local' : 'sandbox-character--official'}`}
             ref={(node) => {
               cardRefs.current[character.id] = node;
             }}
           >
             {/* 角色头部：名称 + 头像 */}
-            <div className="sandbox-character-header">
+            <button
+              type="button"
+              className="sandbox-character-header"
+              onClick={toggleCharacterExpanded}
+              aria-expanded={isExpanded}
+            >
               {/* 头像 img：资源缺失时由 onError 隐藏，不显示断裂图 */}
               {character.avatarUrl && (
                 <img
@@ -145,13 +157,20 @@ export function SkillSandbox({ selectedCharacters, onDragStart, onAvatarDoubleCl
                   onDoubleClick={() => {
                     onAvatarDoubleClick(character.id);
                   }}
+                  draggable={false}
                   onError={(e) => {
                     (e.target as HTMLImageElement).style.display = 'none';
                   }}
                 />
               )}
               <span className="sandbox-character-name">{character.name}</span>
-              {totalPages > 1 ? (
+              <span className="sandbox-character-count">{sandboxSkills.length} 技能</span>
+              <span className="sandbox-expand-indicator" aria-hidden="true">{isExpanded ? '−' : '+'}</span>
+            </button>
+
+            {isExpanded ? (
+              <div className="sandbox-character-body">
+                {totalPages > 1 ? (
                 <div className="sandbox-skill-pager">
                   <button
                     type="button"
@@ -174,16 +193,13 @@ export function SkillSandbox({ selectedCharacters, onDragStart, onAvatarDoubleCl
                   </button>
                 </div>
               ) : null}
-            </div>
 
             <div className="sandbox-skills">
-              {visibleSlots.map((sandboxSkill, slotIndex) => (
+              {visibleSkills.map((sandboxSkill) => (
                 <div
-                  key={sandboxSkill?.id ?? `empty-slot-${slotIndex}`}
-                  className={`sandbox-skill-item ${isLocalCharacter ? 'sandbox-skill-item--local' : ''} ${sandboxSkill ? '' : 'sandbox-skill-item--empty'}`}
+                  key={sandboxSkill.id}
+                  className={`sandbox-skill-item ${isLocalCharacter ? 'sandbox-skill-item--local' : ''}`}
                 >
-                  {sandboxSkill ? (
-                    <>
                   <div
                     className={`sandbox-skill-button skill-${sandboxSkill.buttonType.toLowerCase()}`}
                     style={{ backgroundColor: getElementBackgroundColor(character.element) }}
@@ -208,18 +224,14 @@ export function SkillSandbox({ selectedCharacters, onDragStart, onAvatarDoubleCl
                   </div>
                   <div className="sandbox-skill-meta">
                     <span className="sandbox-skill-tag">{SKILL_DISPLAY_LABELS[sandboxSkill.buttonType]}</span>
-                    {isLocalCharacter ? (
-                      <>
-                        <span className="sandbox-skill-name">{sandboxSkill.displayName}</span>
-                        <span className="sandbox-skill-hit-count">{sandboxSkill.hitCount} hit</span>
-                      </>
-                    ) : null}
+                    <span className="sandbox-skill-name">{sandboxSkill.displayName}</span>
+                    <span className="sandbox-skill-hit-count">{sandboxSkill.hitCount} hit</span>
                   </div>
-                    </>
-                  ) : null}
                 </div>
               ))}
             </div>
+              </div>
+            ) : null}
           </div>
           );
         })}

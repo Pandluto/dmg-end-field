@@ -1105,3 +1105,23 @@
   box-shadow: 0 2px 8px rgba(26, 26, 26, 0.18);
   pointer-events: none;
 }
+
+/* Sync batch-workbench skill buttons with the main canvas button language. */
+.buff-batch-edit-workbench .skill-button-base {
+  background: #ffffff;
+  border: 1px solid rgba(0, 0, 0, 0.72);
+  box-shadow: none;
+}
+
+.buff-batch-edit-workbench .skill-button-orb {
+  border: 1px solid rgba(0, 0, 0, 0.72);
+  background: var(--skill-button-element-color);
+  box-shadow: none;
+}
+
+.buff-batch-edit-workbench .canvas-skill-button:hover .skill-button-base,
+.buff-batch-edit-workbench .canvas-skill-button:hover .skill-button-orb {
+  border-color: rgba(0, 0, 0, 0.9);
+  filter: none;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.08);
+}

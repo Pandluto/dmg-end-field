@@ -563,7 +563,7 @@ export function CanvasBoard({
     dispatch({ type: 'SELECT_SKILL_BUTTON', buttonId });
     setContextMenuState({
       buttonId,
-      position: { x: button?.position.x ?? 0, y: button?.position.y ?? 0 },
+      position: { x: event.clientX, y: event.clientY },
     });
   };
 

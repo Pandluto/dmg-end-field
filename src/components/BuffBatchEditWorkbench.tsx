@@ -98,6 +98,7 @@ const CANDIDATE_ADDER_MODE_OPTIONS: Array<{ key: CandidateAdderMode; label: stri
 ];
 
 const CANDIDATE_SOURCE_MODES = new Set<CandidateAdderMode>(BUFF_SOURCE_SEARCH_MODE_OPTIONS.map((option) => option.key));
+const BUFF_EDIT_TOP_SPACER_HEIGHT = 30;
 
 function isCandidateSourceMode(mode: CandidateAdderMode): mode is BuffSourceSearchMode {
   return CANDIDATE_SOURCE_MODES.has(mode);
@@ -604,7 +605,7 @@ export function BuffBatchEditWorkbench({
     return counts;
   }, [editRemoveByBuff]);
   const staffGroupCount = getStaffGroupCount(skillButtons);
-  const canvasHeight = GRID_STACK_PADDING_TOP + staffGroupCount * GRID_GROUP_HEIGHT + Math.max(0, staffGroupCount - 1) * GRID_GROUP_GAP + GRID_STACK_PADDING_BOTTOM;
+  const canvasHeight = BUFF_EDIT_TOP_SPACER_HEIGHT + GRID_STACK_PADDING_TOP + staffGroupCount * GRID_GROUP_HEIGHT + Math.max(0, staffGroupCount - 1) * GRID_GROUP_GAP + GRID_STACK_PADDING_BOTTOM;
   const secondaryButtonLeft = useMemo(() => {
     if (layoutWidth === null || !Number.isFinite(layoutWidth)) {
       return BUFF_EDIT_SECONDARY_BUTTON_LEFT_FALLBACK;
@@ -1881,6 +1882,7 @@ export function BuffBatchEditWorkbench({
               </div>
               <div className="canvas-grid-shell">
                 <div className="canvas-grid-stack">
+                  <div className="canvas-left-top-spacer" aria-hidden="true" />
                   {Array.from({ length: staffGroupCount }, (_, staffIndex) => renderGridGroup(staffIndex))}
                 </div>
               </div>

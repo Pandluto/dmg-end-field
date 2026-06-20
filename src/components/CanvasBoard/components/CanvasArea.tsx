@@ -165,6 +165,7 @@ export const CanvasArea = forwardRef<HTMLDivElement, CanvasAreaProps>(({
       >
         <div className="canvas-grid-shell">
           <div className="canvas-grid-stack">
+            <div className="canvas-left-top-spacer" aria-hidden="true" />
             {renderGridGroups()}
           </div>
         </div>

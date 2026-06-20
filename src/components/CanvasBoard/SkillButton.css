@@ -1818,8 +1818,8 @@
 /* ==================== 右键上下文菜单样式 ==================== */
 /* 继承技能按钮主题，像按钮延展层 */
 .skill-button-context-menu {
-  position: absolute;
-  z-index: 1000;
+  position: fixed;
+  z-index: 5000;
   width: 80px;
   /* 复用 skill-button-base 的边框、阴影语言 */
   background: #ffffff;

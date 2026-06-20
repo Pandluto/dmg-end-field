@@ -1,5 +1,6 @@
 import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import type { CSSProperties } from 'react';
+import { createPortal } from 'react-dom';
 import {
   SkillButton as SkillButtonType,
   SkillButtonSkillChangePayload,
@@ -177,6 +178,7 @@ export function SkillButtonComponent({
   const visualOffsetY = 15;
   const hitWidth = radius + baseWidth;
   const hitHeight = Math.max(size, radius + baseHeight);
+  const shouldRenderContextMenu = contextMenuState?.buttonId === button.id && typeof document !== 'undefined';
 
   // 弹窗显示状态
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -1281,13 +1283,13 @@ export function SkillButtonComponent({
         </div>
       </div>
 
-      {/* 右键上下文菜单 - 贴着按钮右侧，垂直中段对齐 */}
-      {contextMenuState?.buttonId === button.id && (
+      {/* 右键上下文菜单 - portal 到 body，避免被右侧面板 stacking context 遮挡 */}
+      {shouldRenderContextMenu ? createPortal(
         <div
           className="skill-button-context-menu"
           style={{
-            left: position.x + visualOffsetX,
-            top: position.y + radius - visualOffsetY,
+            left: contextMenuState.position.x,
+            top: contextMenuState.position.y,
           }}
         >
           <button
@@ -1345,8 +1347,9 @@ export function SkillButtonComponent({
           >
             删除
           </button>
-        </div>
-      )}
+        </div>,
+        document.body
+      ) : null}
 
       {/* 技能信息弹窗 + 技能伤害弹窗 */}
       {isModalOpen && (
