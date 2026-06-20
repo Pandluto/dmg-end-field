@@ -187,25 +187,20 @@ function buildReportOperators(
   }));
 }
 
-function getWeaponLevelItems(snapshot: ConfigSnapshot | null): Array<{ key: string; value: number }> {
+function getWeaponLevelItems(snapshot: ConfigSnapshot | null): number[] {
   const levels = snapshot?.weapon.config.skillLevels;
-  return [
-    { key: '1', value: levels?.skill1 ?? 9 },
-    { key: '2', value: levels?.skill2 ?? 9 },
-    { key: '3', value: levels?.skill3 ?? 4 },
-  ];
-}
-
-function getEquipmentLevelBadge(snapshot: ConfigSnapshot | null): string {
-  const levels = (snapshot?.equipment.pieces ?? [])
-    .flatMap((piece) => piece.effects.map((effect) => Number(effect.level) || 0))
-    .filter((level) => level > 0);
-  if (levels.length === 0) return '3/3/3';
-  return levels.slice(0, 3).map(String).join('/');
+  return [levels?.skill1 ?? 9, levels?.skill2 ?? 9, levels?.skill3 ?? 4];
 }
 
 function getEquipmentPieces(snapshot: ConfigSnapshot | null) {
   return (snapshot?.equipment.pieces ?? []).slice(0, 4);
+}
+
+function getEquipmentSetName(snapshot: ConfigSnapshot | null): string {
+  const names = Array.from(new Set((snapshot?.equipment.setBuffs ?? [])
+    .map((buff) => buff.gearSetName)
+    .filter(Boolean)));
+  return names.join(' / ');
 }
 
 function getWeaponName(snapshot: ConfigSnapshot | null, reportCharacter: DamageReportCharacterRow | null): string {
@@ -247,15 +242,15 @@ function getSkillLevelItems(
   }));
 }
 
-function ReportWeaponLevelRows({ levels }: { levels: Array<{ key: string; value: number }> }) {
+function ReportLevelRows({ levels, className }: { levels: number[]; className: string }) {
   return (
-    <div className="report-ppt-weapon-level-rows" aria-label="武器等级">
-      {levels.map((level) => (
-        <div key={level.key} className="report-ppt-weapon-level-row">
-          <div className="report-ppt-weapon-level-bars">
-            <i className={level.value > 0 ? 'is-active' : ''} />
+    <div className={className}>
+      {levels.slice(0, 3).map((level, index) => (
+        <div key={index} className="report-ppt-level-row">
+          <div className="report-ppt-level-capsule">
+            <i className={level > 0 ? 'is-active' : ''} />
           </div>
-          <strong>{level.value}</strong>
+          <strong>{level || '-'}</strong>
         </div>
       ))}
     </div>
@@ -405,15 +400,15 @@ function TeamSlide({
           <h1>队伍配置</h1>
         </header>
         <div className="report-ppt-team-list">
-          {displayCharacters.map((character, index) => {
+          {displayCharacters.map((character) => {
             const reportCharacter = getCharacterReport(character, reportCharacters);
             const snapshot = getCharacterSnapshot(character);
             const equipmentPieces = getEquipmentPieces(snapshot);
             const weaponName = getWeaponName(snapshot, reportCharacter);
+            const equipmentSetName = getEquipmentSetName(snapshot);
             const avatarUrl = getAvatarImageUrl(character);
             const weaponImageUrl = weaponName ? getWeaponImageUrl(weaponName, snapshot, weaponLibrary) : '';
             const skillLevelItems = getSkillLevelItems(snapshot, reportCharacter);
-            const weaponLevelItems = getWeaponLevelItems(snapshot);
             return (
               <article key={character.id} className="report-ppt-operator-row">
                 <div className="report-ppt-avatar-frame">
@@ -426,11 +421,11 @@ function TeamSlide({
                       onError={handleReportImageError(character.name.slice(0, 2))}
                     />
                   ) : null}
-                  <div className="report-ppt-operator-index">{index + 1}</div>
                   <div className="report-ppt-operator-main">
                     <h2>{character.name}</h2>
                     <p>{character.profession || '干员'} / {character.element || '-'}</p>
                   </div>
+                  <div className="report-ppt-operator-level">Lv.{snapshot?.operator.level ?? '-'}</div>
                 </div>
                 <div className="report-ppt-weapon-block">
                   <div className="report-ppt-weapon-image-frame">
@@ -444,31 +439,40 @@ function TeamSlide({
                         />
                       ) : null}
                     </div>
+                    <div className="report-ppt-weapon-name">{weaponName || '无'}</div>
                   </div>
-                  <ReportWeaponLevelRows levels={weaponLevelItems} />
+                  <ReportLevelRows levels={getWeaponLevelItems(snapshot)} className="report-ppt-weapon-level-rows" />
                 </div>
                 <div className="report-ppt-equipment-block">
-                  <span>装备</span>
+                  {equipmentSetName ? <div className="report-ppt-equipment-set-name">{equipmentSetName}</div> : null}
                   <div className="report-ppt-equipment-icons">
                     {equipmentPieces.length === 0 ? (
                       <strong>未配置</strong>
                     ) : (
-                      equipmentPieces.map((piece) => (
-                        <div key={`${character.id}-${piece.slotKey}`} className="report-ppt-equipment-icon" title={piece.name}>
-                          {piece.imgUrl ? (
-                            <img
-                              src={resolveStoredImageUrl(piece.imgUrl)}
-                              alt={piece.name}
-                              onError={handleReportImageError(piece.part || piece.name.slice(0, 2))}
-                            />
-                          ) : (
-                            <span>{piece.part || piece.name.slice(0, 2)}</span>
-                          )}
+                      equipmentPieces.map((piece) => {
+                        const levels = piece.effects.map((effect) => Number(effect.level) || 0);
+                        return (
+                        <div key={`${character.id}-${piece.slotKey}`} className="report-ppt-weapon-equipment-item" title={piece.name}>
+                          <div className="report-ppt-equipment-image-frame">
+                            <div className="report-ppt-equipment-icon">
+                              {piece.imgUrl ? (
+                                <img
+                                  src={resolveStoredImageUrl(piece.imgUrl)}
+                                  alt={piece.name}
+                                  onError={handleReportImageError(piece.part || piece.name.slice(0, 2))}
+                                />
+                              ) : (
+                                <span>{piece.part || piece.name.slice(0, 2)}</span>
+                              )}
+                            </div>
+                            <div className="report-ppt-equipment-name">{piece.name}</div>
+                          </div>
+                          <ReportLevelRows levels={levels} className="report-ppt-equipment-level-rows" />
                         </div>
-                      ))
+                        );
+                      })
                     )}
                   </div>
-                  <b>{getEquipmentLevelBadge(snapshot)}</b>
                 </div>
                 <div className="report-ppt-skill-levels" aria-label="技能等级">
                   {skillLevelItems.map((item) => (
