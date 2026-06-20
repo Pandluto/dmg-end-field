@@ -35,6 +35,62 @@ type RawWeaponLibrary = Record<string, {
   imgUrl?: string;
 }>;
 
+const REPORT_POTENTIAL_STAR_SEGMENTS = [
+  { id: 4, transform: undefined },
+  { id: 3, transform: 'rotate(72 40 30)' },
+  { id: 2, transform: 'rotate(144 40 30)' },
+  { id: 1, transform: 'rotate(216 40 30)' },
+  { id: 5, transform: 'rotate(288 40 30)' },
+] as const;
+
+function parsePotentialToCount(potential: string): number {
+  if (potential.trim() === '满潜') {
+    return 6;
+  }
+  const numeric = Number.parseInt(potential, 10);
+  if (Number.isNaN(numeric)) {
+    return 1;
+  }
+  return Math.min(6, Math.max(1, numeric + 1));
+}
+
+function getPotentialStarSegmentFill(segmentId: number, count: number): string {
+  if (count === 6) {
+    return '#FFFFFF';
+  }
+  if (segmentId === count) {
+    return '#FFF000';
+  }
+  if (segmentId < count) {
+    return '#FFFFFF';
+  }
+  return '#C7C7C7';
+}
+
+function ReportPotentialStar({ count, potential }: { count?: number; potential?: string }) {
+  const resolvedCount = typeof count === 'number'
+    ? Math.min(6, Math.max(1, count))
+    : parsePotentialToCount(potential ?? '0潜');
+  return (
+    <span className={`report-ppt-potential-star-wrap${resolvedCount === 6 ? ' is-max' : ''}`} aria-hidden="true">
+      <svg
+        className="report-ppt-potential-star"
+        viewBox="-24 -26 126 122"
+        focusable="false"
+      >
+        {REPORT_POTENTIAL_STAR_SEGMENTS.map((segment) => (
+          <polygon
+            key={segment.id}
+            points="5,42 82,42 102,53 25,53"
+            fill={getPotentialStarSegmentFill(segment.id, resolvedCount)}
+            transform={segment.transform}
+          />
+        ))}
+      </svg>
+    </span>
+  );
+}
+
 function formatInteger(value: number): string {
   return Math.round(value || 0).toLocaleString('zh-CN');
 }
@@ -421,9 +477,12 @@ function TeamSlide({
                       onError={handleReportImageError(character.name.slice(0, 2))}
                     />
                   ) : null}
+                  <ReportPotentialStar
+                    count={snapshot?.operator.potentialCount}
+                    potential={snapshot?.operator.potential}
+                  />
                   <div className="report-ppt-operator-main">
                     <h2>{character.name}</h2>
-                    <p>{character.profession || '干员'} / {character.element || '-'}</p>
                   </div>
                   <div className="report-ppt-operator-level">Lv.{snapshot?.operator.level ?? '-'}</div>
                 </div>
@@ -439,7 +498,12 @@ function TeamSlide({
                         />
                       ) : null}
                     </div>
+                    <ReportPotentialStar
+                      count={snapshot?.weapon.config.potentialCount}
+                      potential={snapshot?.weapon.config.potential}
+                    />
                     <div className="report-ppt-weapon-name">{weaponName || '无'}</div>
+                    <div className="report-ppt-weapon-level">Lv.{snapshot?.weapon.config.level ?? '-'}</div>
                   </div>
                   <ReportLevelRows levels={getWeaponLevelItems(snapshot)} className="report-ppt-weapon-level-rows" />
                 </div>

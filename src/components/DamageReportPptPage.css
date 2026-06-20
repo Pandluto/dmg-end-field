@@ -127,7 +127,8 @@
   overflow: hidden;
 }
 
-.report-ppt-operator-level {
+.report-ppt-operator-level,
+.report-ppt-weapon-level {
   position: absolute;
   right: 5px;
   bottom: 5px;
@@ -142,8 +143,44 @@
   border: 1px solid rgba(0, 0, 0, 0.28);
   font-size: 11px;
   font-weight: 800;
-  z-index: 2;
+  z-index: 6;
   box-sizing: border-box;
+}
+
+.report-ppt-potential-star-wrap {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 64px;
+  height: 64px;
+  display: block;
+  pointer-events: none;
+  z-index: 5;
+}
+
+.report-ppt-potential-star-wrap::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: rgba(92, 96, 103, 0.52);
+  clip-path: polygon(0 0, 100% 0, 0 100%);
+  z-index: 0;
+}
+
+.report-ppt-potential-star {
+  position: absolute;
+  left: 5px;
+  top: 5px;
+  width: 38px;
+  height: 38px;
+  display: block;
+  z-index: 1;
+}
+
+.report-ppt-potential-star-wrap.is-max polygon {
+  filter:
+    drop-shadow(0 0 3px rgba(255, 240, 0, 0.95))
+    drop-shadow(0 0 7px rgba(255, 245, 157, 0.85));
 }
 
 .report-ppt-avatar-frame,
@@ -197,6 +234,8 @@
   height: 100%;
   display: block;
   object-fit: cover;
+  position: relative;
+  z-index: 0;
 }
 
 .report-ppt-operator-main,
@@ -213,29 +252,22 @@
   display: flex;
   flex-direction: column;
   justify-content: flex-end;
-  padding: 26px 48px 7px 8px;
-  background: linear-gradient(to top, rgba(255, 255, 255, 0.92), rgba(255, 255, 255, 0));
+  padding: 2px 48px 2px 4px;
+  background: rgba(255, 255, 255, 0.78);
   box-sizing: border-box;
   pointer-events: none;
+  z-index: 2;
 }
 
 .report-ppt-operator-main h2 {
-  margin: 0 0 3px;
-  color: #111111;
-  font-size: 13px;
-  line-height: 1;
-  font-weight: 900;
-}
-
-.report-ppt-operator-main p {
   margin: 0;
-  color: rgba(0, 0, 0, 0.52);
+  color: #111111;
   font-size: 11px;
-  font-weight: 700;
-}
-
-.report-ppt-operator-main p {
-  color: rgba(0, 0, 0, 0.52);
+  line-height: 1.1;
+  font-weight: 800;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .report-ppt-weapon-block,
@@ -290,6 +322,7 @@
   background: rgba(242, 243, 245, 0.9);
   box-sizing: border-box;
   overflow: hidden;
+  z-index: 0;
 }
 
 .report-ppt-weapon-image img {
@@ -316,6 +349,11 @@
   white-space: nowrap;
   box-sizing: border-box;
   pointer-events: none;
+  z-index: 2;
+}
+
+.report-ppt-weapon-name {
+  padding-right: 48px;
 }
 
 .report-ppt-skill-levels {

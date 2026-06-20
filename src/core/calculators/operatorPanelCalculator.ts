@@ -147,6 +147,7 @@ export interface ConfigSnapshot {
     name: string;
     level: number | string;
     potential: string;
+    potentialCount: number;
     element: string;
     mainStat: string;
     subStat: string;
@@ -254,6 +255,7 @@ export interface WeaponSnapshot {
   config: {
     level: number | string;
     potential: string;
+    potentialCount: number;
     skillLevels: {
       skill1: number;
       skill2: number;
@@ -649,6 +651,17 @@ function createEmptyDamageBonus(): DamageBonusSnapshot {
   };
 }
 
+function parsePotentialToCount(potential: string): number {
+  if (potential.trim() === '满潜') {
+    return 6;
+  }
+  const numeric = Number.parseInt(potential, 10);
+  if (Number.isNaN(numeric)) {
+    return 1;
+  }
+  return Math.min(6, Math.max(1, numeric + 1));
+}
+
 function createDamageBonusFromTotals(...totalsList: Array<Record<string, number>>): DamageBonusSnapshot {
   const damageBonus = createEmptyDamageBonus();
   totalsList.forEach((totals) => {
@@ -670,9 +683,11 @@ function createDamageBonusFromTotals(...totalsList: Array<Record<string, number>
 }
 
 function buildWeaponSnapshot(input: OperatorPanelInput['weapon']): WeaponSnapshot {
+  const potential = input?.config?.potential ?? '0潜';
   const config = {
     level: input?.config?.level ?? 90,
-    potential: input?.config?.potential ?? '0潜',
+    potential,
+    potentialCount: parsePotentialToCount(potential),
     skillLevels: {
       skill1: input?.config?.skillLevels?.skill1 ?? 9,
       skill2: input?.config?.skillLevels?.skill2 ?? 9,
@@ -1253,6 +1268,7 @@ export function buildConfigSnapshot(input: OperatorPanelInput): ConfigSnapshot {
       name: input.operator.name,
       level: input.operator.level,
       potential: input.operator.potential,
+      potentialCount: parsePotentialToCount(input.operator.potential),
       element: input.operator.element ?? '',
       mainStat: input.operator.mainStat ?? '',
       subStat: input.operator.subStat ?? '',

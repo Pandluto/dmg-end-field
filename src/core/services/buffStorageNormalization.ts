@@ -93,15 +93,35 @@ function normalizeOperatorBuffGroups(value: unknown): unknown {
   );
 }
 
+function parsePotentialToCount(potential: unknown): number {
+  if (typeof potential !== 'string') return 1;
+  if (potential.trim() === '满潜') return 6;
+  const numeric = Number.parseInt(potential, 10);
+  if (Number.isNaN(numeric)) return 1;
+  return Math.min(6, Math.max(1, numeric + 1));
+}
+
 export function normalizeStoredConfigSnapshot<T extends ConfigSnapshot>(snapshot: T): T {
   if (!isRecord(snapshot) || !isRecord(snapshot.operator)) return snapshot;
 
+  const weapon = isRecord(snapshot.weapon) ? snapshot.weapon : undefined;
+  const weaponConfig = weapon && isRecord(weapon.config) ? weapon.config : undefined;
   return {
     ...snapshot,
     operator: {
       ...snapshot.operator,
+      potentialCount: parsePotentialToCount(snapshot.operator.potential),
       buffs: normalizeOperatorBuffGroups(snapshot.operator.buffs) as T['operator']['buffs'],
     },
+    ...(weapon && weaponConfig ? {
+      weapon: {
+        ...weapon,
+        config: {
+          ...weaponConfig,
+          potentialCount: parsePotentialToCount(weaponConfig.potential),
+        },
+      },
+    } : {}),
   };
 }
 
