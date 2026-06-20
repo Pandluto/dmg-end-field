@@ -21,11 +21,13 @@ import { getCharacterConfig } from '../../utils/storage';
 import { getCharacterComputedCache } from '../../core/repositories/operatorConfigRepository';
 import { getSkillButtonById, upsertSkillButton } from '../../core/repositories';
 import {
+  buildAttackFormulaLines,
   buildSkillDamageModalViewModel,
 } from '../../core/calculators/skillDamageModalViewModel';
 import { calculateSkillButtonDamageV2 } from '../../core/calculators/skillButtonDamageCalculatorV2';
 import type {
   AppliedBuffTagViewModel,
+  FormulaViewModel,
   ResolvedSkillDamageTemplate,
   SkillDamagePanelBase,
 } from '../../core/calculators/skillDamage.types';
@@ -824,9 +826,10 @@ export function SkillButtonComponent({
         critRate: activeHitPanel.critRate,
         critDmg: activeHitPanel.critDmg,
       },
-      activeHitStackCounts
+      activeHitStackCounts,
+      panelBase
     );
-  }, [resolvedTemplate, damageResult, selectedHitIndex, panelData, buttonStackCounts, manualBuffStackCountsBySegmentKey]);
+  }, [resolvedTemplate, damageResult, selectedHitIndex, panelData, buttonStackCounts, manualBuffStackCountsBySegmentKey, panelBase]);
   const activeHitBuffOptions = useMemo(() => {
     if (selectedHitIndex === null || !fullDamageResult) {
       return [];
@@ -1003,6 +1006,64 @@ export function SkillButtonComponent({
     [activeAnomalySegment, anomalyBuffOptionsBySegmentKey]
   );
   const isShowingAnomalyDetail = Boolean(activeAnomalySegment) && selectedHitIndex === null;
+  const activeAnomalyFormula = useMemo<FormulaViewModel | null>(() => {
+    if (!activeAnomalySegment) {
+      return null;
+    }
+
+    const appliedBuffIds = new Set(activeAnomalySegment.appliedBuffTags.map((buff) => buff.id));
+    const appliedBuffs = fullCombinedModifierBuffList.filter((buff) => appliedBuffIds.has(buff.id));
+    const segmentStackCounts = getEffectiveSegmentStackCounts(activeAnomalySegment.key);
+    const panelLines = [
+      `ATK: ${activeAnomalySegment.panelAtkText}`,
+      `暴击率: ${activeAnomalySegment.critRateText}`,
+      `暴击伤害: ${activeAnomalySegment.critDmgText}`,
+    ];
+    if (activeAnomalySegment.sourceKind === 'anomaly') {
+      panelLines.push(
+        `源石技艺强度: ${activeAnomalySegment.sourceSkillBoostText}`,
+        `等级系数区: ${activeAnomalySegment.levelCoefficientText}`,
+        `源石技艺强度区: ${activeAnomalySegment.sourceSkillZoneText}`
+      );
+    }
+
+    return {
+      title: `${activeAnomalySegment.title} 计算过程`,
+      panelLines,
+      attackLines: buildAttackFormulaLines(
+        panelBase,
+        {
+          atk: Number(activeAnomalySegment.panelAtkText),
+          critRate: Number.parseFloat(activeAnomalySegment.critRateText) / 100,
+          critDmg: Number.parseFloat(activeAnomalySegment.critDmgText) / 100,
+        },
+        appliedBuffs,
+        segmentStackCounts
+      ),
+      buffTags: activeAnomalySegment.appliedBuffTags,
+      showNoBuff: activeAnomalySegment.appliedBuffTags.length === 0,
+      baseMultiplierText: activeAnomalySegment.baseMultiplierText,
+      multiplierFormulaText: activeAnomalySegment.multiplierFormulaText,
+      formulaText: activeAnomalySegment.formulaText,
+      elementBonusText: activeAnomalySegment.elementBonusText,
+      skillBonusText: activeAnomalySegment.skillBonusText,
+      allDamageBonusText: activeAnomalySegment.allDamageBonusText,
+      damageBonusRateText: activeAnomalySegment.damageBonusRateText,
+      damageBonusFormulaText: `1 + ${activeAnomalySegment.elementBonusText} + ${activeAnomalySegment.skillBonusText} + ${activeAnomalySegment.allDamageBonusText} = ${activeAnomalySegment.damageBonusRateText}`,
+      resistanceEffectiveText: (Number(activeAnomalySegment.resistanceBaseText) - Number(activeAnomalySegment.corrosionText)).toFixed(1),
+      resistanceFormulaText: activeAnomalySegment.resistanceFormulaText,
+      amplifyFormulaText: activeAnomalySegment.amplifyFormulaText,
+      fragileFormulaText: activeAnomalySegment.fragileFormulaText,
+      vulnerabilityFormulaText: activeAnomalySegment.vulnerabilityFormulaText,
+      comboFormulaText: activeAnomalySegment.comboFormulaText,
+      imbalanceFormulaText: activeAnomalySegment.imbalanceFormulaText,
+      defenseZoneText: activeAnomalySegment.defenseZoneText,
+      nonCritFormulaText: activeAnomalySegment.nonCritFormulaText,
+      expectedText: activeAnomalySegment.expectedText,
+      critText: activeAnomalySegment.critText,
+      nonCritText: activeAnomalySegment.nonCritText,
+    };
+  }, [activeAnomalySegment, fullCombinedModifierBuffList, getEffectiveSegmentStackCounts, panelBase]);
   const anomalyDamageSummary = useMemo(() => {
     return anomalyDamageSegments.reduce(
       (sum, segment) => {
@@ -1605,11 +1666,7 @@ export function SkillButtonComponent({
             nonCrit: (Number(damageViewModel.summary.totalNonCritText) + anomalyDamageSummary.nonCrit).toFixed(0),
             formula: totalNonCritSummaryFormula,
           } : null}
-          formula={!isShowingAnomalyDetail ? damageViewModel?.activeHitFormula ?? null : null}
-          isFormulaExpanded={!isShowingAnomalyDetail && isExpanded}
-          onToggleFormula={() => {
-            if (!isShowingAnomalyDetail) setIsExpanded((value) => !value);
-          }}
+          formula={isShowingAnomalyDetail ? activeAnomalyFormula : damageViewModel?.activeHitFormula ?? null}
           infoLines={infoSnapshotLines}
         >
           <div className={`skill-button-modal-pair${isLocalBuffSearchOpen ? ' is-buff-search-open' : ''}`}>

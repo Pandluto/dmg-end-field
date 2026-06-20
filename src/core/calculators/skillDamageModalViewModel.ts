@@ -1,4 +1,4 @@
-import { ELEMENT_LABELS, getBuffEffectiveValue } from './buffCalculator';
+import { calculateBuffedPanelTrace, ELEMENT_LABELS, getBuffEffectiveValue } from './buffCalculator';
 import type {
   AppliedBuffTagViewModel,
   FormulaViewModel,
@@ -8,7 +8,9 @@ import type {
   SkillDamageModalViewModel,
   ResolvedSkillDamageTemplate,
   SkillDamagePanel,
+  SkillDamagePanelBase,
 } from './skillDamage.types';
+import type { SkillButtonBuff } from '../../types/storage';
 import type { BuffContribution, ZoneCalculationResult } from './buffZoneCalculator';
 
 function formatInteger(value: number): string {
@@ -21,6 +23,73 @@ function formatPercent(value: number): string {
 
 function formatMultiplier(multiplier: number): string {
   return `${(multiplier * 100).toFixed(0)}%`;
+}
+
+const ABILITY_LABELS = {
+  strength: '力量',
+  agility: '敏捷',
+  intelligence: '智识',
+  will: '意志',
+} as const;
+
+export function buildAttackFormulaLines(
+  panelBase: SkillDamagePanelBase | null | undefined,
+  panel: SkillDamagePanel,
+  buffs: SkillButtonBuff[],
+  stackCounts: Record<string, number> = {}
+): string[] {
+  if (!panelBase) {
+    return [`最终攻击力: ${formatInteger(panel.atk)}`];
+  }
+
+  const trace = calculateBuffedPanelTrace(panelBase, buffs, stackCounts);
+  const lines = [
+    `角色攻击: ${trace.characterAtk.toFixed(1)}`,
+    `武器攻击: ${trace.weaponAtk.toFixed(1)}`,
+    `武器攻击加成: ${(trace.weaponAtkRate * 100).toFixed(1)}%`,
+    `攻击力 Buff: ${(trace.atkPercentBoost * 100).toFixed(1)}%`,
+    `原面板固定项: ${trace.fixedAtk.toFixed(1)}`,
+    `攻击基础值: (${trace.characterAtk.toFixed(1)} + ${trace.weaponAtk.toFixed(1)}) × (1 + ${(trace.weaponAtkRate * 100).toFixed(1)}% + ${(trace.atkPercentBoost * 100).toFixed(1)}%) + ${trace.fixedAtk.toFixed(1)} = ${trace.attackBaseAfterBuff.toFixed(1)}`,
+  ];
+
+  (Object.keys(ABILITY_LABELS) as Array<keyof typeof ABILITY_LABELS>).forEach((field) => {
+    const baseValue = panelBase[field];
+    if (typeof baseValue !== 'number') return;
+    lines.push(`${ABILITY_LABELS[field]}面板值: ${baseValue.toFixed(1)}`);
+  });
+
+  if (trace.mainAbility) {
+    const main = trace.mainAbility;
+    const mainAdditiveProduct = (1 + main.statAdditiveRate) * (1 + main.allStatAdditiveRate);
+    const mainMultiplierProduct = main.directionalMultiplier * main.statMultiplier * main.allStatMultiplier;
+    lines.push(
+      `主能力（${ABILITY_LABELS[main.field]}）: ${main.rawValue.toFixed(1)} + 定向 ${main.directionalFlatBoost.toFixed(1)}`,
+      `主能力加算: 主 ${(main.baseStatScale * 100).toFixed(1)}% + Buff ${(main.statBuffRate * 100).toFixed(1)}% ｜ 全 ${(main.baseAllStatScale * 100).toFixed(1)}% + Buff ${(main.allStatBuffRate * 100).toFixed(1)}% = ×${mainAdditiveProduct.toFixed(3)}`,
+      `主能力乘算: 定向 ${main.directionalMultiplier.toFixed(3)} × 主 ${main.statMultiplier.toFixed(3)} × 全 ${main.allStatMultiplier.toFixed(3)} = ×${mainMultiplierProduct.toFixed(3)}`,
+      `Buff 后主能力: (${main.rawValue.toFixed(1)} + ${main.directionalFlatBoost.toFixed(1)}) × ${mainAdditiveProduct.toFixed(3)} × ${mainMultiplierProduct.toFixed(3)} = ${main.finalValue.toFixed(1)}`,
+      `主能力攻击转换: ${main.finalValue.toFixed(1)} × ${main.attackCoefficient.toFixed(3)} = ${main.attackBonus.toFixed(4)}`
+    );
+  }
+  if (trace.subAbility) {
+    const sub = trace.subAbility;
+    const subAdditiveProduct = (1 + sub.statAdditiveRate) * (1 + sub.allStatAdditiveRate);
+    const subMultiplierProduct = sub.directionalMultiplier * sub.statMultiplier * sub.allStatMultiplier;
+    lines.push(
+      `副能力（${ABILITY_LABELS[sub.field]}）: ${sub.rawValue.toFixed(1)} + 定向 ${sub.directionalFlatBoost.toFixed(1)}`,
+      `副能力加算: 副 ${(sub.baseStatScale * 100).toFixed(1)}% + Buff ${(sub.statBuffRate * 100).toFixed(1)}% ｜ 全 ${(sub.baseAllStatScale * 100).toFixed(1)}% + Buff ${(sub.allStatBuffRate * 100).toFixed(1)}% = ×${subAdditiveProduct.toFixed(3)}`,
+      `副能力乘算: 定向 ${sub.directionalMultiplier.toFixed(3)} × 副 ${sub.statMultiplier.toFixed(3)} × 全 ${sub.allStatMultiplier.toFixed(3)} = ×${subMultiplierProduct.toFixed(3)}`,
+      `Buff 后副能力: (${sub.rawValue.toFixed(1)} + ${sub.directionalFlatBoost.toFixed(1)}) × ${subAdditiveProduct.toFixed(3)} × ${subMultiplierProduct.toFixed(3)} = ${sub.finalValue.toFixed(1)}`,
+      `副能力攻击转换: ${sub.finalValue.toFixed(1)} × ${sub.attackCoefficient.toFixed(3)} = ${sub.attackBonus.toFixed(4)}`
+    );
+  }
+  lines.push(
+    `能力值总攻击加成: ${trace.mainAbility?.attackBonus.toFixed(4) ?? '0.0000'} + ${trace.subAbility?.attackBonus.toFixed(4) ?? '0.0000'} = ${trace.abilityBonus.toFixed(4)}`,
+    `最终攻击力: ${trace.attackBaseAfterBuff.toFixed(1)} × (1 + ${trace.abilityBonus.toFixed(4)}) = ${trace.finalAtk.toFixed(1)}`
+  );
+  if (trace.flatAtk !== 0) {
+    lines.push(`固定攻击 Buff（当前公式未使用）: ${trace.flatAtk.toFixed(1)}`);
+  }
+  return lines;
 }
 
 function formatHitCardLabel(displayName: string): string {
@@ -176,7 +245,8 @@ function buildHitDetail(
 function buildFormula(
   result: SkillDamageCalcResultV2,
   selectedHitIndex: number | null,
-  stackCounts: Record<string, number>
+  stackCounts: Record<string, number>,
+  panelBase?: SkillDamagePanelBase | null
 ): FormulaViewModel | null {
   if (selectedHitIndex === null) {
     return null;
@@ -193,6 +263,7 @@ function buildFormula(
       `暴击率: ${formatPercent(activeHit.panel.critRate)}`,
       `暴击伤害: ${formatPercent(activeHit.panel.critDmg)}`,
     ],
+    attackLines: buildAttackFormulaLines(panelBase, activeHit.panel, activeHit.appliedBuffs, stackCounts),
     buffTags: buildAppliedBuffTags(activeHit.appliedBuffs, stackCounts, activeHit.buffContributions),
     showNoBuff: activeHit.appliedBuffs.length === 0,
     baseMultiplierText: formatPercent(activeHit.multiplier.base),
@@ -234,7 +305,8 @@ export function buildSkillDamageModalViewModel(
   result: SkillDamageCalcResultV2,
   selectedHitIndex: number | null,
   _panel: SkillDamagePanel,
-  stackCounts: Record<string, number> = {}
+  stackCounts: Record<string, number> = {},
+  panelBase?: SkillDamagePanelBase | null
 ): SkillDamageModalViewModel {
   return {
     header: {
@@ -250,6 +322,6 @@ export function buildSkillDamageModalViewModel(
     },
     hitCards: buildHitCards(result, selectedHitIndex),
     activeHitDetail: buildHitDetail(result, selectedHitIndex, stackCounts),
-    activeHitFormula: buildFormula(result, selectedHitIndex, stackCounts),
+    activeHitFormula: buildFormula(result, selectedHitIndex, stackCounts, panelBase),
   };
 }

@@ -3,6 +3,7 @@ import type { ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import type { HitResistanceInput, SkillButtonBuff } from '../../types/storage';
 import type { AppliedBuffTagViewModel, FormulaViewModel } from '../../core/calculators/skillDamage.types';
+import { getBuffTypeRegistryEntry } from '../../core/domain/buffTypeRegistry';
 import { TimelineBuffListPanel } from './TimelineBuffListPanel';
 import { TimelineHitTuningPanel } from './TimelineHitTuningPanel';
 import { TimelineInfoPanel } from './TimelineInfoPanel';
@@ -75,9 +76,242 @@ interface TimelineSkillDetailWorkbenchProps {
     formula: string;
   } | null;
   formula: FormulaViewModel | null;
-  isFormulaExpanded: boolean;
-  onToggleFormula: () => void;
   infoLines: string[];
+}
+
+type CalculationSectionKey =
+  | 'attack'
+  | 'multiplier'
+  | 'crit'
+  | 'damageBonus'
+  | 'defense'
+  | 'resistance'
+  | 'amplify'
+  | 'fragile'
+  | 'vulnerability'
+  | 'combo'
+  | 'imbalance'
+  | 'result';
+
+interface CalculationSection {
+  key: CalculationSectionKey;
+  label: string;
+  value: string;
+  lines: Array<{ label: string; value: string }>;
+  buffs: AppliedBuffTagViewModel[];
+}
+
+function readFormulaResult(formulaText: string): string {
+  const match = formulaText.match(/=\s*(-?\d+(?:\.\d+)?%?)(?:\s|$|\()/);
+  return match?.[1] ?? '—';
+}
+
+function readPanelValue(panelLines: string[], label: string): string {
+  const line = panelLines.find((item) => item.startsWith(`${label}:`));
+  return line?.slice(label.length + 1).trim() || '—';
+}
+
+function toDetailLines(lines: string[]): Array<{ label: string; value: string }> {
+  return lines.map((line) => {
+    const separatorIndex = line.indexOf(':');
+    return separatorIndex > 0
+      ? { label: line.slice(0, separatorIndex), value: line.slice(separatorIndex + 1).trim() }
+      : { label: '计算项', value: line };
+  });
+}
+
+function isAbilityDetailLine(label: string): boolean {
+  return label.endsWith('面板值')
+    || label.startsWith('主能力')
+    || label.startsWith('副能力')
+    || label.startsWith('Buff 后主能力')
+    || label.startsWith('Buff 后副能力');
+}
+
+const ATTACK_BUFF_TYPES = new Set([
+  'atkPercentBoost',
+  'mainStatBoost',
+  'subStatBoost',
+  'allStatBoost',
+  'strengthBoost',
+  'agilityBoost',
+  'intelligenceBoost',
+  'willBoost',
+]);
+
+const CRIT_BUFF_TYPES = new Set(['critRateBoost', 'critDmgBonusBoost']);
+const RESISTANCE_BUFF_TYPES = new Set([
+  'allCorrosion',
+  'physicalCorrosion',
+  'magicCorrosion',
+  'fireCorrosion',
+  'electricCorrosion',
+  'iceCorrosion',
+  'natureCorrosion',
+  'allResistanceIgnore',
+  'physicalResistanceIgnore',
+  'magicResistanceIgnore',
+  'fireResistanceIgnore',
+  'electricResistanceIgnore',
+  'iceResistanceIgnore',
+  'natureResistanceIgnore',
+]);
+
+function resolveBuffSection(buff: AppliedBuffTagViewModel): CalculationSectionKey | null {
+  if (!buff.type) return null;
+  if (ATTACK_BUFF_TYPES.has(buff.type)) return 'attack';
+  if (CRIT_BUFF_TYPES.has(buff.type)) return 'crit';
+  if (RESISTANCE_BUFF_TYPES.has(buff.type)) return 'resistance';
+  if (buff.type === 'comboDamageBonus') return 'combo';
+  if (buff.type === 'imbalanceDmgBonus') return 'imbalance';
+  if (buff.type === 'sourceSkillBoost') return 'multiplier';
+  const registeredZone = getBuffTypeRegistryEntry(buff.type)?.zone;
+  return registeredZone === 'skillMultiplier' ? 'multiplier' : registeredZone ?? null;
+}
+
+function getSectionBuffs(
+  formula: FormulaViewModel,
+  sectionKey: CalculationSectionKey
+): AppliedBuffTagViewModel[] {
+  return formula.buffTags.filter((buff) => resolveBuffSection(buff) === sectionKey);
+}
+
+function formatBuffEffect(buff: AppliedBuffTagViewModel): string {
+  if (buff.isMultiplier) {
+    return `× ${(buff.multiplierCoefficient ?? buff.effectiveValue ?? 1).toFixed(3)}`;
+  }
+  const value = buff.effectiveValue ?? buff.value;
+  if (typeof value !== 'number') {
+    return buff.type || '已生效';
+  }
+  const flatValueTypes = new Set([
+    'flatAtk',
+    'mainStatBoost',
+    'subStatBoost',
+    'allStatBoost',
+    'strengthBoost',
+    'agilityBoost',
+    'intelligenceBoost',
+    'willBoost',
+    'sourceSkillBoost',
+    ...RESISTANCE_BUFF_TYPES,
+  ]);
+  const formattedValue = flatValueTypes.has(buff.type || '')
+    ? Number(value.toFixed(3)).toString()
+    : `${(value * 100).toFixed(1)}%`;
+  const stackText = buff.isCountable && buff.stackCount !== undefined ? ` · ${buff.stackCount}层` : '';
+  return `+ ${formattedValue}${stackText}`;
+}
+
+function buildCalculationSections(formula: FormulaViewModel): CalculationSection[] {
+  return [
+    {
+      key: 'attack',
+      label: '攻击',
+      value: readPanelValue(formula.panelLines, 'ATK'),
+      lines: toDetailLines(formula.attackLines ?? [`最终攻击力: ${readPanelValue(formula.panelLines, 'ATK')}`]),
+      buffs: getSectionBuffs(formula, 'attack'),
+    },
+    {
+      key: 'multiplier',
+      label: '倍率',
+      value: readFormulaResult(formula.formulaText),
+      lines: [
+        { label: '基础倍率', value: formula.baseMultiplierText },
+        { label: '倍率计算', value: formula.formulaText },
+      ],
+      buffs: getSectionBuffs(formula, 'multiplier'),
+    },
+    {
+      key: 'crit',
+      label: '暴击',
+      value: formula.critText,
+      lines: [
+        { label: '暴击率', value: readPanelValue(formula.panelLines, '暴击率') },
+        { label: '暴击伤害', value: readPanelValue(formula.panelLines, '暴击伤害') },
+        { label: '非暴击伤害', value: formula.nonCritText },
+        { label: '暴击伤害', value: formula.critText },
+        { label: '期望伤害', value: formula.expectedText },
+      ],
+      buffs: getSectionBuffs(formula, 'crit'),
+    },
+    {
+      key: 'damageBonus',
+      label: '加成',
+      value: formula.damageBonusRateText,
+      lines: [
+        { label: '元素伤害加成', value: formula.elementBonusText },
+        { label: '技能伤害加成', value: formula.skillBonusText },
+        { label: '全伤害加成', value: formula.allDamageBonusText },
+        { label: '加成区计算', value: formula.damageBonusFormulaText },
+      ],
+      buffs: getSectionBuffs(formula, 'damageBonus'),
+    },
+    {
+      key: 'defense',
+      label: '防御',
+      value: formula.defenseZoneText,
+      lines: [{ label: '防御区系数', value: formula.defenseZoneText }],
+      buffs: getSectionBuffs(formula, 'defense'),
+    },
+    {
+      key: 'resistance',
+      label: '抗性',
+      value: readFormulaResult(formula.resistanceFormulaText),
+      lines: [
+        { label: '有效抗性', value: formula.resistanceEffectiveText },
+        { label: '抗性区计算', value: formula.resistanceFormulaText },
+      ],
+      buffs: getSectionBuffs(formula, 'resistance'),
+    },
+    {
+      key: 'amplify',
+      label: '增幅',
+      value: readFormulaResult(formula.amplifyFormulaText),
+      lines: [{ label: '增幅区计算', value: formula.amplifyFormulaText }],
+      buffs: getSectionBuffs(formula, 'amplify'),
+    },
+    {
+      key: 'fragile',
+      label: '易伤',
+      value: readFormulaResult(formula.fragileFormulaText),
+      lines: [{ label: '易伤区计算', value: formula.fragileFormulaText }],
+      buffs: getSectionBuffs(formula, 'fragile'),
+    },
+    {
+      key: 'vulnerability',
+      label: '脆弱',
+      value: readFormulaResult(formula.vulnerabilityFormulaText),
+      lines: [{ label: '脆弱区计算', value: formula.vulnerabilityFormulaText }],
+      buffs: getSectionBuffs(formula, 'vulnerability'),
+    },
+    {
+      key: 'combo',
+      label: '连击',
+      value: readFormulaResult(formula.comboFormulaText),
+      lines: [{ label: '连击区计算', value: formula.comboFormulaText }],
+      buffs: getSectionBuffs(formula, 'combo'),
+    },
+    {
+      key: 'imbalance',
+      label: '失衡',
+      value: readFormulaResult(formula.imbalanceFormulaText),
+      lines: [{ label: '失衡区计算', value: formula.imbalanceFormulaText }],
+      buffs: getSectionBuffs(formula, 'imbalance'),
+    },
+    {
+      key: 'result',
+      label: '结果',
+      value: formula.nonCritText,
+      lines: [
+        { label: '非暴击全链路', value: formula.nonCritFormulaText },
+        { label: '期望伤害', value: formula.expectedText },
+        { label: '暴击伤害', value: formula.critText },
+        { label: '非暴击伤害', value: formula.nonCritText },
+      ],
+      buffs: [],
+    },
+  ];
 }
 
 export function TimelineSkillDetailWorkbench({
@@ -102,12 +336,40 @@ export function TimelineSkillDetailWorkbench({
   hits,
   summary,
   formula,
-  isFormulaExpanded,
-  onToggleFormula,
   infoLines,
 }: TimelineSkillDetailWorkbenchProps) {
   const [utilityPanel, setUtilityPanel] = useState<'resistance' | 'info' | null>(null);
   const [isAllTuningExpanded, setIsAllTuningExpanded] = useState(false);
+  const [activeCalculationSection, setActiveCalculationSection] = useState<CalculationSectionKey>('attack');
+  const [isAbilityDetailExpanded, setIsAbilityDetailExpanded] = useState(false);
+  const calculationSections = formula ? buildCalculationSections(formula) : [];
+  const selectedCalculationSection = calculationSections.find((section) => section.key === activeCalculationSection)
+    ?? calculationSections[0]
+    ?? null;
+  const visibleCalculationLines = (() => {
+    if (selectedCalculationSection?.key !== 'attack') {
+      return selectedCalculationSection?.lines ?? [];
+    }
+    const summaryIndex = selectedCalculationSection.lines.findIndex((line) => line.label === '能力值总攻击加成');
+    if (summaryIndex < 0) {
+      return selectedCalculationSection.lines;
+    }
+    const summaryLine = selectedCalculationSection.lines[summaryIndex];
+    const detailLines = selectedCalculationSection.lines.filter((line) => isAbilityDetailLine(line.label));
+    const beforeSummary = selectedCalculationSection.lines
+      .slice(0, summaryIndex)
+      .filter((line) => !isAbilityDetailLine(line.label));
+    const afterSummary = selectedCalculationSection.lines
+      .slice(summaryIndex + 1)
+      .filter((line) => !isAbilityDetailLine(line.label));
+    return [
+      ...beforeSummary,
+      summaryLine,
+      ...(isAbilityDetailExpanded ? detailLines : []),
+      ...afterSummary,
+    ];
+  })();
+  const calculationSvgHeight = Math.max(calculationSections.length * 50, 50);
 
   return createPortal(
     <div className="timeline-detail-layer" role="dialog" aria-modal="true" aria-label="技能排轴详情">
@@ -238,28 +500,106 @@ export function TimelineSkillDetailWorkbench({
           </section>
 
           <section className="timeline-detail-card timeline-calculation-card">
-            <header>
-              <h3>计算过程</h3>
-              <button type="button" onClick={onToggleFormula} disabled={!formula}>
-                {isFormulaExpanded ? '收起' : '展开'}
-              </button>
-            </header>
-            {isFormulaExpanded && formula ? (
-              <article>
-                <h4>{formula.title}</h4>
-                {formula.panelLines.map((line) => <p key={line}>{line}</p>)}
-                <h4>倍率区</h4><p>{formula.formulaText}</p>
-                <h4>加成区</h4><p>{formula.damageBonusFormulaText}</p>
-                <h4>增幅 / 易伤 / 脆弱</h4>
-                <p>{formula.amplifyFormulaText}</p>
-                <p>{formula.fragileFormulaText}</p>
-                <p>{formula.vulnerabilityFormulaText}</p>
-                <h4>防御 / 抗性</h4>
-                <p>防御区 {formula.defenseZoneText}</p>
-                <p>{formula.resistanceFormulaText}</p>
-                <h4>结果</h4><p>{formula.nonCritFormulaText}</p>
-              </article>
-            ) : <p className="timeline-detail-empty">选择 Hit 后展开计算过程</p>}
+            <h3>计算过程</h3>
+            {formula ? (
+              <>
+                <div className="timeline-calculation-summary">
+                  <strong>{formula.title}</strong>
+                  <span>期望 {formula.expectedText}</span>
+                  <span>暴击 {formula.critText}</span>
+                  <span>非暴 {formula.nonCritText}</span>
+                </div>
+                <div className="timeline-calculation-layout">
+                  <article className="timeline-calculation-detail">
+                    {selectedCalculationSection ? (
+                      <>
+                        <header>
+                          <span>{selectedCalculationSection.label}区详情</span>
+                          <strong>{selectedCalculationSection.value}</strong>
+                        </header>
+                        <div className="timeline-calculation-detail-rows">
+                          {visibleCalculationLines.map((line, index) => (
+                            <div key={`${selectedCalculationSection.key}-${index}`}>
+                              <span>
+                                {line.label}
+                                {line.label === '能力值总攻击加成' ? (
+                                  <button
+                                    type="button"
+                                    className="timeline-calculation-inline-toggle"
+                                    onClick={() => setIsAbilityDetailExpanded((value) => !value)}
+                                    aria-label={isAbilityDetailExpanded ? '收起能力明细' : '展开能力明细'}
+                                  >
+                                    {isAbilityDetailExpanded ? '−' : '+'}
+                                  </button>
+                                ) : null}
+                              </span>
+                              <strong>{line.value}</strong>
+                            </div>
+                          ))}
+                        </div>
+                        <div className="timeline-calculation-buffs">
+                          <span>作用于本区的 Buff</span>
+                          {selectedCalculationSection.buffs.length > 0 ? (
+                            <div>
+                              {selectedCalculationSection.buffs.map((buff) => (
+                                <div key={buff.id} className="timeline-calculation-buff-row">
+                                  <span>
+                                    <strong>{buff.label}</strong>
+                                    <small>{buff.type || '未分类'}</small>
+                                  </span>
+                                  <em>{formatBuffEffect(buff)}</em>
+                                </div>
+                              ))}
+                            </div>
+                          ) : (
+                            <p>本区没有 Buff 作用</p>
+                          )}
+                        </div>
+                      </>
+                    ) : null}
+                  </article>
+                  <div className="timeline-calculation-zone-scroll">
+                    <svg
+                      className="timeline-calculation-zone-map"
+                      viewBox={`0 0 116 ${calculationSvgHeight}`}
+                      style={{ height: calculationSvgHeight }}
+                      role="list"
+                      aria-label="计算乘区导航"
+                    >
+                      {calculationSections.map((section, index) => {
+                        const y = index * 50;
+                        const selected = section.key === selectedCalculationSection?.key;
+                        return (
+                          <g
+                            key={section.key}
+                            className={`timeline-calculation-zone-node${selected ? ' is-selected' : ''}`}
+                            role="button"
+                            tabIndex={0}
+                            aria-label={`${section.label} ${section.value}`}
+                            onClick={() => setActiveCalculationSection(section.key)}
+                            onKeyDown={(event) => {
+                              if (event.key === 'Enter' || event.key === ' ') {
+                                event.preventDefault();
+                                setActiveCalculationSection(section.key);
+                              }
+                            }}
+                          >
+                            {index > 0 ? <path className="zone-node-link" d={`M58 ${y - 8} V${y + 3}`} /> : null}
+                            {index > 0 ? <path className="zone-node-arrow" d={`M54 ${y - 1} L58 ${y + 4} L62 ${y - 1}`} /> : null}
+                            <rect x="8" y={y + 5} width="100" height="38" rx="4" />
+                            <text className="zone-node-label" x="18" y={y + 21}>{section.label}</text>
+                            <text className="zone-node-value" x="98" y={y + 21} textAnchor="end">{section.value}</text>
+                            <text className="zone-node-order" x="18" y={y + 35}>
+                              {String(index + 1).padStart(2, '0')} · {section.buffs.length} Buff
+                            </text>
+                          </g>
+                        );
+                      })}
+                    </svg>
+                  </div>
+                </div>
+              </>
+            ) : <p className="timeline-detail-empty">选择 Hit 后查看计算过程</p>}
           </section>
         </section>
       </main>

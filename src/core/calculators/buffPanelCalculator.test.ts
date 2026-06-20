@@ -1,5 +1,5 @@
 import type { SkillButtonBuff } from '../../types/storage';
-import { calculateBuffedPanel } from './buffCalculator';
+import { calculateBuffedPanel, calculateBuffedPanelTrace } from './buffCalculator';
 
 function assertClose(actual: number, expected: number, message: string): void {
   if (Math.abs(actual - expected) > 1e-9) {
@@ -107,6 +107,25 @@ assertClose(
   2065.768,
   'ability multipliers should run after flat, main/sub, and all-stat additive calculations',
 );
+
+const trace = calculateBuffedPanelTrace(panelBase, [
+  createBuff('agility-flat', 'agilityBoost', 15),
+  createBuff('sub-additive', 'subStatBoost', 0.1),
+  createMultiplierBuff('agility-multiplier', 'agilityBoost', 1.5),
+  createMultiplierBuff('sub-multiplier', 'subStatBoost', 1.2),
+  createMultiplierBuff('all-multiplier', 'allStatBoost', 1.1),
+]);
+assertClose(trace.mainAbility?.rawValue ?? 0, 100, 'trace should expose raw main ability');
+assertClose(trace.mainAbility?.finalValue ?? 0, 145.2, 'trace should expose forward main ability result');
+assertClose(trace.mainAbility?.attackCoefficient ?? 0, 0.005, 'trace should expose main ability attack coefficient');
+assertClose(trace.subAbility?.rawValue ?? 0, 50, 'trace should expose raw sub ability');
+assertClose(trace.subAbility?.directionalFlatBoost ?? 0, 15, 'trace should expose directional flat boost');
+assertClose(trace.subAbility?.directionalMultiplier ?? 0, 1.5, 'trace should expose directional multiplier');
+assertClose(trace.subAbility?.statMultiplier ?? 0, 1.2, 'trace should expose sub ability multiplier');
+assertClose(trace.subAbility?.allStatMultiplier ?? 0, 1.1, 'trace should expose all ability multiplier');
+assertClose(trace.subAbility?.finalValue ?? 0, 169.884, 'trace should expose forward sub ability result');
+assertClose(trace.subAbility?.attackCoefficient ?? 0, 0.002, 'trace should expose sub ability attack coefficient');
+assertClose(trace.finalAtk, 2065.768, 'trace final attack should match panel calculation');
 
 const legacyPanelBase = {
   ...panelBase,

@@ -304,18 +304,58 @@ export interface BuffPanelBase {
   allStatScale?: number;
 }
 
-export function calculateBuffedPanel(
+export interface AbilityStatCalculationTrace {
+  field: AbilityField;
+  panelValue: number;
+  rawValue: number;
+  directionalFlatBoost: number;
+  baseStatScale: number;
+  statBuffRate: number;
+  statAdditiveRate: number;
+  baseAllStatScale: number;
+  allStatBuffRate: number;
+  allStatAdditiveRate: number;
+  directionalMultiplier: number;
+  statMultiplier: number;
+  allStatMultiplier: number;
+  finalValue: number;
+  attackCoefficient: number;
+  attackBonus: number;
+}
+
+export interface BuffedPanelCalculationTrace {
+  rawAtk: number;
+  characterAtk: number;
+  weaponAtk: number;
+  weaponAtkRate: number;
+  atkPercentBoost: number;
+  flatAtk: number;
+  fixedAtk: number;
+  attackBaseAfterBuff: number;
+  mainAbility?: AbilityStatCalculationTrace;
+  subAbility?: AbilityStatCalculationTrace;
+  fallbackAbilityBonus: number;
+  abilityBonus: number;
+  finalAtk: number;
+  critRate: number;
+  critDmg: number;
+}
+
+export function calculateBuffedPanelTrace(
   panelBase: BuffPanelBase,
   buffs: SkillButtonBuff[],
   stackCounts: Record<string, number> = {},
-): { atk: number; critRate: number; critDmg: number } {
+): BuffedPanelCalculationTrace {
   const totals = calculateBuffTotals(buffs, stackCounts);
   const currentAtkPercent = panelBase.weaponAtkPercent * 0.01;
   const rawAtk = panelBase.characterAtk + panelBase.weaponAtk;
   const fixedAtk = panelBase.baseAtk - rawAtk * (1 + currentAtkPercent);
   const nextBaseAtk = rawAtk * (1 + currentAtkPercent + totals.atkPercentBoost) + fixedAtk;
 
-  let abilityBonus = panelBase.abilityBonus * 0.01;
+  const fallbackAbilityBonus = panelBase.abilityBonus * 0.01;
+  let abilityBonus = fallbackAbilityBonus;
+  let mainAbility: AbilityStatCalculationTrace | undefined;
+  let subAbility: AbilityStatCalculationTrace | undefined;
   const mainField = panelBase.mainStatField;
   const subField = panelBase.subStatField;
   if (mainField && subField && typeof panelBase.mainStatFinal === 'number' && typeof panelBase.subStatFinal === 'number') {
@@ -373,13 +413,76 @@ export function calculateBuffedPanel(
       * abilityMultiplierProducts[subField]
       * subStatMultiplierProduct
       * allStatMultiplierProduct;
-    abilityBonus = nextMain * 0.005 + nextSub * 0.002;
+    const mainAttackCoefficient = 0.005;
+    const subAttackCoefficient = 0.002;
+    mainAbility = {
+      field: mainField,
+      panelValue: panelBase.mainStatFinal,
+      rawValue: rawMain,
+      directionalFlatBoost: flatBoosts[mainField],
+      baseStatScale: hasExactScaleMetadata ? mainScale : 0,
+      statBuffRate: totals.mainStatBoost,
+      statAdditiveRate: hasExactScaleMetadata ? mainScale + totals.mainStatBoost : totals.mainStatBoost,
+      baseAllStatScale: hasExactScaleMetadata ? allScale : 0,
+      allStatBuffRate: totals.allStatBoost,
+      allStatAdditiveRate: hasExactScaleMetadata ? allScale + totals.allStatBoost : totals.allStatBoost,
+      directionalMultiplier: abilityMultiplierProducts[mainField],
+      statMultiplier: mainStatMultiplierProduct,
+      allStatMultiplier: allStatMultiplierProduct,
+      finalValue: nextMain,
+      attackCoefficient: mainAttackCoefficient,
+      attackBonus: nextMain * mainAttackCoefficient,
+    };
+    subAbility = {
+      field: subField,
+      panelValue: panelBase.subStatFinal,
+      rawValue: rawSub,
+      directionalFlatBoost: flatBoosts[subField],
+      baseStatScale: hasExactScaleMetadata ? subScale : 0,
+      statBuffRate: totals.subStatBoost,
+      statAdditiveRate: hasExactScaleMetadata ? subScale + totals.subStatBoost : totals.subStatBoost,
+      baseAllStatScale: hasExactScaleMetadata ? allScale : 0,
+      allStatBuffRate: totals.allStatBoost,
+      allStatAdditiveRate: hasExactScaleMetadata ? allScale + totals.allStatBoost : totals.allStatBoost,
+      directionalMultiplier: abilityMultiplierProducts[subField],
+      statMultiplier: subStatMultiplierProduct,
+      allStatMultiplier: allStatMultiplierProduct,
+      finalValue: nextSub,
+      attackCoefficient: subAttackCoefficient,
+      attackBonus: nextSub * subAttackCoefficient,
+    };
+    abilityBonus = mainAbility.attackBonus + subAbility.attackBonus;
   }
 
   return {
-    atk: nextBaseAtk * (1 + abilityBonus),
+    rawAtk,
+    characterAtk: panelBase.characterAtk,
+    weaponAtk: panelBase.weaponAtk,
+    weaponAtkRate: currentAtkPercent,
+    atkPercentBoost: totals.atkPercentBoost,
+    flatAtk: totals.flatAtk,
+    fixedAtk,
+    attackBaseAfterBuff: nextBaseAtk,
+    mainAbility,
+    subAbility,
+    fallbackAbilityBonus,
+    abilityBonus,
+    finalAtk: nextBaseAtk * (1 + abilityBonus),
     critRate: (panelBase.critRate ?? 0.05) + totals.critRateBoost,
     critDmg: (panelBase.critDmg ?? 0.5) + totals.critDmgBonusBoost,
+  };
+}
+
+export function calculateBuffedPanel(
+  panelBase: BuffPanelBase,
+  buffs: SkillButtonBuff[],
+  stackCounts: Record<string, number> = {},
+): { atk: number; critRate: number; critDmg: number } {
+  const trace = calculateBuffedPanelTrace(panelBase, buffs, stackCounts);
+  return {
+    atk: trace.finalAtk,
+    critRate: trace.critRate,
+    critDmg: trace.critDmg,
   };
 }
 

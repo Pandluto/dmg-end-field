@@ -166,6 +166,7 @@ export interface AppliedBuffTagViewModel {
 export interface FormulaViewModel {
   title: string;
   panelLines: string[];
+  attackLines?: string[];
   buffTags: AppliedBuffTagViewModel[];
   showNoBuff: boolean;
   baseMultiplierText: string;
