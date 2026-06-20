@@ -1,0 +1,668 @@
+.report-ppt-page {
+  height: 100vh;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: #f2f3f5;
+  color: #111111;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
+  overflow: hidden;
+}
+
+.report-ppt-toolbar {
+  height: 44px;
+  flex: 0 0 44px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 16px;
+  background: rgba(255, 255, 255, 0.88);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.16);
+  box-sizing: border-box;
+}
+
+.report-ppt-toolbar button {
+  height: 28px;
+  padding: 0 12px;
+  border: 1px solid rgba(0, 0, 0, 0.72);
+  background: #ffffff;
+  color: #111111;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.report-ppt-toolbar button:hover {
+  background: rgba(0, 0, 0, 0.04);
+}
+
+.report-ppt-toolbar div {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.report-ppt-toolbar strong {
+  font-size: 13px;
+  line-height: 1.1;
+}
+
+.report-ppt-toolbar span {
+  color: rgba(0, 0, 0, 0.56);
+  font-size: 11px;
+  line-height: 1.1;
+}
+
+.report-ppt-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  scroll-snap-type: y mandatory;
+  padding: 28px;
+  box-sizing: border-box;
+}
+
+.report-ppt-slide {
+  min-height: calc(100vh - 44px - 56px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  scroll-snap-align: start;
+  padding: 18px 0;
+  box-sizing: border-box;
+}
+
+.report-ppt-slide-inner {
+  width: min(calc(100vw - 56px), calc((100vh - 112px) * 16 / 9));
+  aspect-ratio: 16 / 9;
+  padding: 24px;
+  box-sizing: border-box;
+  background: #ffffff;
+  border: 1px solid rgba(0, 0, 0, 0.72);
+  box-shadow: none;
+  overflow: hidden;
+}
+
+.report-ppt-slide-head {
+  height: 36px;
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  margin-bottom: 14px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.18);
+}
+
+.report-ppt-slide-head span {
+  color: rgba(0, 0, 0, 0.46);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.report-ppt-slide-head h1 {
+  margin: 0;
+  color: #111111;
+  font-size: 23px;
+  line-height: 1;
+  font-weight: 800;
+}
+
+.report-ppt-team-list {
+  display: grid;
+  grid-template-rows: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  height: calc(100% - 50px);
+}
+
+.report-ppt-operator-row {
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 132px minmax(250px, 0.95fr) minmax(260px, 1fr) minmax(180px, 1fr);
+  align-items: stretch;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px solid rgba(0, 0, 0, 0.34);
+  background: #ffffff;
+  box-sizing: border-box;
+  overflow: hidden;
+}
+
+.report-ppt-operator-index {
+  position: absolute;
+  left: 8px;
+  top: 8px;
+  width: 22px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: rgba(0, 0, 0, 0.72);
+  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid rgba(0, 0, 0, 0.28);
+  font-size: 12px;
+  font-weight: 800;
+  z-index: 2;
+}
+
+.report-ppt-avatar-frame,
+.report-ppt-weapon-image-frame,
+.report-ppt-weapon-image,
+.report-ppt-equipment-icon,
+.report-ppt-axis-label,
+.report-ppt-axis-button-orb {
+  position: relative;
+}
+
+.report-ppt-avatar-frame::after,
+.report-ppt-weapon-image-frame::after,
+.report-ppt-weapon-image::after,
+.report-ppt-equipment-icon::after,
+.report-ppt-axis-label::after,
+.report-ppt-axis-button-orb::after {
+  content: attr(data-fallback);
+  position: absolute;
+  inset: 0;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  color: rgba(0, 0, 0, 0.58);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.report-ppt-avatar-frame[data-fallback]::after,
+.report-ppt-weapon-image-frame[data-fallback]::after,
+.report-ppt-weapon-image[data-fallback]::after,
+.report-ppt-equipment-icon[data-fallback]::after,
+.report-ppt-axis-label[data-fallback]::after,
+.report-ppt-axis-button-orb[data-fallback]::after {
+  display: flex;
+}
+
+.report-ppt-avatar-frame {
+  width: 100%;
+  height: 100%;
+  border: 1px solid rgba(0, 0, 0, 0.24);
+  background:
+    linear-gradient(135deg, transparent calc(50% - 1px), rgba(0, 0, 0, 0.18) 50%, transparent calc(50% + 1px)),
+    rgba(242, 243, 245, 0.9);
+  box-sizing: border-box;
+  overflow: hidden;
+}
+
+.report-ppt-avatar {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: cover;
+}
+
+.report-ppt-operator-main,
+.report-ppt-weapon-block,
+.report-ppt-equipment-block {
+  min-width: 0;
+}
+
+.report-ppt-operator-main {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 8px 0;
+  box-sizing: border-box;
+}
+
+.report-ppt-operator-main h2 {
+  margin: 0 0 8px;
+  font-size: 24px;
+  line-height: 1;
+}
+
+.report-ppt-operator-main p,
+.report-ppt-weapon-block span,
+.report-ppt-equipment-block > span {
+  margin: 0;
+  color: rgba(0, 0, 0, 0.52);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.report-ppt-operator-main p {
+  color: rgba(0, 0, 0, 0.52);
+}
+
+.report-ppt-weapon-block,
+.report-ppt-equipment-block {
+  position: relative;
+  padding: 8px;
+  border: 1px solid rgba(0, 0, 0, 0.24);
+  background: #ffffff;
+  box-sizing: border-box;
+}
+
+.report-ppt-weapon-block {
+  display: flex;
+  align-items: stretch;
+  min-height: 0;
+  height: 100%;
+  max-height: none;
+  padding: 0;
+  overflow: hidden;
+}
+
+.report-ppt-weapon-block > span {
+  grid-column: 1 / -1;
+}
+
+.report-ppt-weapon-block strong {
+  display: block;
+  grid-column: 2;
+  color: #111111;
+  font-size: 20px;
+  line-height: 1.1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.report-ppt-weapon-image-frame {
+  flex: 0 0 auto;
+  width: auto;
+  height: 100%;
+  aspect-ratio: 1 / 1;
+  min-width: 0;
+}
+
+.report-ppt-weapon-image {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  background: rgba(242, 243, 245, 0.9);
+  box-sizing: border-box;
+  overflow: hidden;
+}
+
+.report-ppt-weapon-image img {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: contain;
+}
+
+.report-ppt-skill-levels {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: stretch;
+  gap: 6px;
+  padding: 8px;
+  border: 1px solid rgba(0, 0, 0, 0.24);
+  background: #ffffff;
+  box-sizing: border-box;
+}
+
+.report-ppt-skill-levels span {
+  min-width: 0;
+  flex: 1 1 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 8px;
+  background: rgba(0, 0, 0, 0.035);
+  border: 1px solid rgba(0, 0, 0, 0.16);
+  color: rgba(0, 0, 0, 0.86);
+  font-size: 11px;
+  line-height: 1;
+  box-sizing: border-box;
+}
+
+.report-ppt-skill-levels b,
+.report-ppt-skill-levels strong {
+  font-size: 11px;
+  line-height: 1;
+}
+
+.report-ppt-weapon-level-rows {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 9px;
+  min-width: 0;
+  padding: 0 10px;
+  box-sizing: border-box;
+}
+
+.report-ppt-weapon-level-row {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 36px 22px;
+  align-items: center;
+  gap: 8px;
+}
+
+.report-ppt-weapon-level-bars {
+  width: 36px;
+  height: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.report-ppt-weapon-level-bars i {
+  width: 28px;
+  height: 8px;
+  border: 1px solid #000000;
+  border-radius: 999px;
+  transform: rotate(-45deg);
+  background: #ffffff;
+  box-sizing: border-box;
+}
+
+.report-ppt-weapon-level-bars i.is-active {
+  background: #fff000;
+}
+
+.report-ppt-weapon-level-row strong {
+  color: #111111;
+  font-size: 16px;
+  font-weight: 800;
+  line-height: 1;
+  text-align: right;
+}
+
+.report-ppt-weapon-block em,
+.report-ppt-equipment-block em {
+  grid-column: 2;
+  color: rgba(0, 0, 0, 0.58);
+  font-size: 11px;
+  font-style: normal;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.report-ppt-equipment-icons {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-rows: 1fr;
+  gap: 6px;
+  height: calc(100% - 20px);
+  min-height: 0;
+}
+
+.report-ppt-equipment-icon {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(0, 0, 0, 0.24);
+  background: rgba(242, 243, 245, 0.9);
+  overflow: hidden;
+}
+
+.report-ppt-equipment-icon img {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: cover;
+}
+
+.report-ppt-equipment-icon span {
+  color: rgba(0, 0, 0, 0.56);
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.report-ppt-equipment-block b {
+  position: absolute;
+  right: 8px;
+  bottom: 6px;
+  padding: 2px 5px;
+  color: #111111;
+  background: #ffffff;
+  border: 1px solid rgba(0, 0, 0, 0.72);
+  font-size: 10px;
+  line-height: 1;
+}
+
+.report-ppt-timeline-page {
+  height: calc(100% - 50px);
+  display: grid;
+  grid-template-rows: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+}
+
+.report-ppt-axis-group {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 10px;
+  border: 1px solid rgba(0, 0, 0, 0.34);
+  background: #ffffff;
+  box-sizing: border-box;
+}
+
+.report-ppt-axis-group h2 {
+  margin: 0;
+  font-size: 15px;
+  line-height: 1;
+}
+
+.report-ppt-axis-lines {
+  min-height: 0;
+  display: grid;
+  grid-template-rows: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+  flex: 1;
+}
+
+.report-ppt-axis-line {
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+}
+
+.report-ppt-axis-label {
+  width: 38px;
+  height: 38px;
+}
+
+.report-ppt-axis-label img {
+  width: 38px;
+  height: 38px;
+  display: block;
+  object-fit: cover;
+  border: 1px solid rgba(0, 0, 0, 0.24);
+  box-sizing: border-box;
+}
+
+.report-ppt-axis-track {
+  position: relative;
+  height: 38px;
+  border: 1px solid rgba(0, 0, 0, 0.16);
+  background:
+    repeating-linear-gradient(
+      to right,
+      transparent 0,
+      transparent calc(100% / 15 - 1px),
+      rgba(0, 0, 0, 0.08) calc(100% / 15 - 1px),
+      rgba(0, 0, 0, 0.08) calc(100% / 15)
+    );
+}
+
+.report-ppt-axis-button {
+  position: absolute;
+  top: 50%;
+  transform: translate(-18px, -50%);
+  width: 92px;
+  height: 28px;
+}
+
+.report-ppt-axis-button-orb {
+  position: absolute;
+  left: 0;
+  top: -4px;
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(0, 0, 0, 0.72);
+  border-radius: 50%;
+  background: #e0d6c8;
+  overflow: hidden;
+  z-index: 2;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.report-ppt-axis-button-orb img {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: cover;
+}
+
+.report-ppt-axis-button-body {
+  position: absolute;
+  left: 18px;
+  top: 0;
+  width: 74px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  padding-left: 20px;
+  padding-right: 5px;
+  box-sizing: border-box;
+  border: 1px solid rgba(0, 0, 0, 0.72);
+  background: #ffffff;
+  color: #111111;
+  font-size: 9px;
+  font-weight: 700;
+  overflow: hidden;
+}
+
+.report-ppt-chart-grid {
+  height: calc(100% - 50px);
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-rows: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.report-ppt-chart-card {
+  min-height: 0;
+  padding: 10px;
+  border: 1px solid rgba(0, 0, 0, 0.34);
+  background: #ffffff;
+  box-sizing: border-box;
+}
+
+.report-ppt-chart-card h2 {
+  margin: 0 0 10px;
+  font-size: 14px;
+  line-height: 1;
+}
+
+.report-ppt-pie-layout {
+  height: calc(100% - 24px);
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 210px;
+  align-items: center;
+  gap: 12px;
+}
+
+.report-ppt-pie {
+  width: 100%;
+  max-height: 100%;
+  transform: rotate(-90deg);
+}
+
+.report-ppt-chart-legend {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.report-ppt-legend-row {
+  display: grid;
+  grid-template-columns: 10px minmax(0, 1fr);
+  gap: 7px;
+  align-items: center;
+  font-size: 11px;
+}
+
+.report-ppt-legend-row span {
+  width: 10px;
+  height: 10px;
+}
+
+.report-ppt-legend-row strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.report-ppt-legend-row em {
+  grid-column: 2;
+  color: rgba(0, 0, 0, 0.56);
+  font-style: normal;
+}
+
+.report-ppt-chart-total {
+  margin-top: 2px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(0, 0, 0, 0.18);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.report-ppt-line {
+  width: 100%;
+  height: calc(100% - 24px);
+}
+
+.report-ppt-line-label {
+  fill: rgba(0, 0, 0, 0.62);
+  font-size: 4px;
+  font-weight: 800;
+}
+
+.report-ppt-empty-chart {
+  height: calc(100% - 24px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: rgba(0, 0, 0, 0.42);
+  border: 1px dashed rgba(0, 0, 0, 0.2);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.report-ppt-chart-card.is-placeholder {
+  display: flex;
+  align-items: flex-start;
+}
+
+@media (max-width: 1180px) {
+  .report-ppt-slide-inner {
+    width: calc(100vw - 56px);
+  }
+
+  .report-ppt-team-list {
+    gap: 8px;
+  }
+
+  .report-ppt-operator-row {
+    grid-template-columns: 112px minmax(210px, 0.95fr) minmax(190px, 1fr) minmax(160px, 1fr);
+  }
+}

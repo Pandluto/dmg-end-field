@@ -5,6 +5,7 @@
 
 import { useEffect, useState } from 'react';
 import { DamageSheetPage, isDamageSheetPath } from './components/DamageSheetPage';
+import { DamageReportPptPage, isDamageReportPptPath } from './components/DamageReportPptPage';
 import { WorkbenchFrame } from './components/WorkbenchFrame';
 import { OperatorDraftPage, isDraftPath } from './components/OperatorDraftPage';
 import { BuffDraftSheetPage, isBuffSheetPath } from './components/BuffDraftPage';
@@ -60,6 +61,10 @@ function App() {
 
   if (isDamageSheetPath(currentPath)) {
     return <DamageSheetPage />;
+  }
+
+  if (isDamageReportPptPath(currentPath)) {
+    return <DamageReportPptPage />;
   }
 
   if (isImageManagerPath(currentPath)) {

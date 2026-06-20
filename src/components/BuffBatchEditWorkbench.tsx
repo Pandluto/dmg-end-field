@@ -15,6 +15,7 @@ import {
 } from './CanvasBoard/skillButton.shared';
 import { useSkillButtonAnomaly } from './CanvasBoard/useSkillButtonAnomaly';
 import { SkillButtonAnomalyStatePanel } from './CanvasBoard/SkillButtonAnomalyPanels';
+import { resolveRuntimeTemplateSkill } from '../core/services/skillDamageTemplateResolver';
 import { buildBuffSearchIndex, searchBuffs } from '../utils/buffFuzzySearch';
 import { buildAnomalyStateSnapshotBuffs } from '../core/services/anomalyStateBuffs';
 import { refreshSnapshotCandidateBuffsForCharacterIds } from '../core/services/operatorConfigCandidateBuffService';
@@ -196,21 +197,42 @@ function readVisualSkillButtons(
           : timelineButton.position.x,
         y: GRID_STACK_PADDING_TOP + groupIndex * (GRID_GROUP_HEIGHT + GRID_GROUP_GAP) + getGridLineCenterY(restoredLineIndex) + SKILL_BUTTON_BASELINE_OFFSET_Y,
       };
+      const restoredButtonCharacterId = character?.id ?? timelineButton.characterId ?? timelineButton.characterName;
+      const resolvedRuntimeSkill = resolveRuntimeTemplateSkill({
+        id: timelineButton.id,
+        characterId: restoredButtonCharacterId,
+        characterName: timelineButton.characterName,
+        skillType: timelineButton.skillType,
+        position: normalizedPosition,
+        staffIndex: groupIndex,
+        lineIndex: restoredLineIndex,
+        isDragging: false,
+        isSelected: false,
+        isFromSandbox: true,
+        runtimeSkillId: timelineButton.runtimeSkillId,
+        skillDisplayName: timelineButton.skillDisplayName,
+        skillIconUrl: timelineButton.skillIconUrl,
+        customHits: timelineButton.customHits,
+        element: character?.element,
+      });
+      const resolvedSkillIconUrl = resolvedRuntimeSkill?.iconUrl
+        ?? timelineButton.skillIconUrl
+        ?? resolveSkillIconUrl(timelineButton.characterName, timelineButton.skillType);
 
       buttons.push({
         ...persistedButton,
         ...({ lineIndex: restoredLineIndex } as { lineIndex: number }),
         id: timelineButton.id,
-        characterId: character?.id ?? timelineButton.characterId ?? timelineButton.characterName,
+        characterId: restoredButtonCharacterId,
         characterName: timelineButton.characterName,
         skillType: timelineButton.skillType,
         staffIndex: groupIndex,
         nodeIndex: localNodeIndex,
         nodeNumber: timelineButton.nodeNumber,
         position: normalizedPosition,
-        runtimeSkillId: timelineButton.runtimeSkillId,
-        skillDisplayName: timelineButton.skillDisplayName,
-        skillIconUrl: timelineButton.skillIconUrl,
+        runtimeSkillId: resolvedRuntimeSkill?.id ?? timelineButton.runtimeSkillId,
+        skillDisplayName: resolvedRuntimeSkill?.displayName || timelineButton.skillDisplayName,
+        skillIconUrl: resolvedSkillIconUrl,
         customHits: timelineButton.customHits,
         selectedBuff: persistedButton?.selectedBuff ?? timelineButton.buffIds ?? [],
         panelConfig: persistedButton?.panelConfig,

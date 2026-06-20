@@ -201,7 +201,6 @@ export function CanvasBoard({
   const canvasRef = useRef<HTMLDivElement>(null);
   const [staffCount, setStaffCount] = React.useState(canvasConfig.staffCount);
   const [isReportModalOpen, setIsReportModalOpen] = useState(false);
-  const [reportAutoGenerateToken, setReportAutoGenerateToken] = useState(0);
   const [isSnapshotModalOpen, setIsSnapshotModalOpen] = useState(false);
   const [isSaveSnapshotModalOpen, setIsSaveSnapshotModalOpen] = useState(false);
   const [isShareModalOpen, setIsShareModalOpen] = useState(false);
@@ -878,8 +877,7 @@ export function CanvasBoard({
   };
 
   const handleOpenDamageReport = () => {
-    setIsReportModalOpen(true);
-    setReportAutoGenerateToken((prev) => prev + 1);
+    navigateToAppPath(APP_ROUTE_PATHS.damageReportPpt);
   };
 
   const handleCloseDamageReport = () => {
@@ -980,7 +978,7 @@ export function CanvasBoard({
                 关闭
               </button>
             </div>
-            <ReportTab autoGenerateToken={reportAutoGenerateToken} />
+            <ReportTab />
           </div>
         </div>
       )}

@@ -6,6 +6,7 @@ export const APP_ROUTE_PATHS = {
   equipmentSheet: '/sheet-equipment',
   operatorConfig: '/operator-config',
   damageSheet: '/damage-sheet',
+  damageReportPpt: '/damage-report-ppt',
   imageManager: '/image-manager',
   aiCli: '/ai-cli',
 } as const;
