@@ -151,6 +151,11 @@
   background: #757575;
 }
 
+.config-weapon-config-button.is-potential-derived {
+  cursor: default;
+  opacity: 1;
+}
+
 .config-weapon-choose-content-area {
   flex: 1;
   min-width: 0;

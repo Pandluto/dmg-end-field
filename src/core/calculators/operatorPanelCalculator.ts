@@ -664,6 +664,42 @@ function parsePotentialToCount(potential: string): number {
   return Math.min(6, Math.max(1, numeric + 1));
 }
 
+const CHINESE_POTENTIAL_NUMBERS: Record<string, number> = {
+  一: 1,
+  二: 2,
+  三: 3,
+  四: 4,
+  五: 5,
+  六: 6,
+};
+
+function getRequiredPotentialCount(buffName: string): number | null {
+  const normalizedName = buffName.replace(/\s+/g, '');
+  const suffixMatch = normalizedName.match(/潜能([1-6一二三四五六])/);
+  const prefixMatch = normalizedName.match(/([1-6一二三四五六])潜/);
+  const token = suffixMatch?.[1] ?? prefixMatch?.[1];
+  if (!token) return null;
+  return CHINESE_POTENTIAL_NUMBERS[token] ?? Number(token);
+}
+
+function filterOperatorBuffsByPotential(
+  buffs: OperatorBuffInput,
+  potentialCount: number
+): OperatorBuffInput {
+  return {
+    ...buffs,
+    potential: {
+      effects: Object.fromEntries(
+        Object.entries(buffs.potential?.effects || {}).filter(([, effect]) => {
+          if (effect.category !== 'passive') return true;
+          const requiredPotentialCount = getRequiredPotentialCount(effect.name || effect.effectId);
+          return requiredPotentialCount === null || potentialCount > requiredPotentialCount;
+        })
+      ),
+    },
+  };
+}
+
 function createDamageBonusFromTotals(...totalsList: Array<Record<string, number>>): DamageBonusSnapshot {
   const damageBonus = createEmptyDamageBonus();
   totalsList.forEach((totals) => {
@@ -1204,7 +1240,11 @@ export function buildConfigSnapshot(input: OperatorPanelInput): ConfigSnapshot {
   const attributes = resolveAttributes(input.operator);
   const weapon = buildWeaponSnapshot(input.weapon);
   const equipment = buildEquipmentSnapshot(input.equipment);
-  const operatorBuffs = input.operator.buffs ?? createEmptyOperatorBuffs();
+  const operatorPotentialCount = parsePotentialToCount(input.operator.potential);
+  const operatorBuffs = filterOperatorBuffsByPotential(
+    input.operator.buffs ?? createEmptyOperatorBuffs(),
+    operatorPotentialCount
+  );
   const fixedOperatorBuffTotals = buildOperatorBuffTotals(operatorBuffs);
   const mainField = resolveAbilityField(input.operator.mainStat);
   const subField = resolveAbilityField(input.operator.subStat);
@@ -1276,7 +1316,7 @@ export function buildConfigSnapshot(input: OperatorPanelInput): ConfigSnapshot {
       name: input.operator.name,
       level: input.operator.level,
       potential: input.operator.potential,
-      potentialCount: parsePotentialToCount(input.operator.potential),
+      potentialCount: operatorPotentialCount,
       element: input.operator.element ?? '',
       mainStat: input.operator.mainStat ?? '',
       subStat: input.operator.subStat ?? '',

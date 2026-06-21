@@ -13,6 +13,7 @@ import {
 import { normalizeAssetUrl } from '../../../utils/assetResolver';
 
 interface CanvasAreaProps {
+  activeSkillButtonId?: string | null;
   config: CanvasConfig;
   staffCount: number;
   selectedCharacters: Character[];
@@ -40,6 +41,7 @@ const columnLabels = Array.from({ length: 15 }, (_, index) => String.fromCharCod
 const rowLabels = Array.from({ length: 8 }, (_, index) => String(index + 1));
 
 export const CanvasArea = forwardRef<HTMLDivElement, CanvasAreaProps>(({
+  activeSkillButtonId = null,
   config,
   staffCount,
   selectedCharacters,
@@ -65,6 +67,7 @@ export const CanvasArea = forwardRef<HTMLDivElement, CanvasAreaProps>(({
       .map((button) => (
         <SkillButtonComponent
           key={button.id}
+          isDetailRouteActive={activeSkillButtonId === button.id}
           button={button}
           size={config.skillButtonSize}
           onMouseDown={(event) => onButtonMouseDown(event, button.id)}

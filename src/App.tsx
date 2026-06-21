@@ -14,7 +14,11 @@ import { EquipmentSheetPage, isEquipmentSheetPath } from './components/Equipment
 import { ImageManagerPage, isImageManagerPath } from './components/ImageManagerPage';
 import { AiCliPage, isAiCliPath } from './components/AiCliPage';
 import { OperatorConfigPage } from './components/OperatorConfigPage';
-import { APP_ROUTE_PATHS, getCurrentAppPath } from './utils/appRoute';
+import {
+  APP_ROUTE_PATHS,
+  getCurrentAppPath,
+  getTimelineSkillDetailButtonId,
+} from './utils/appRoute';
 import './styles/global.css';
 
 function App() {
@@ -79,9 +83,11 @@ function App() {
     return <OperatorConfigPage />;
   }
 
+  const activeSkillButtonId = getTimelineSkillDetailButtonId(currentPath);
+
   return (
     <div className="app">
-      <WorkbenchFrame />
+      <WorkbenchFrame activeSkillButtonId={activeSkillButtonId} />
     </div>
   );
 }

@@ -98,6 +98,7 @@ export interface LocalBuffSearchResult {
   key: string;
   sourceKind: 'local' | 'candidate';
   ownerBuffDomain?: CandidateBuff['ownerBuffDomain'];
+  ownerCharacterId?: CandidateBuff['ownerCharacterId'];
   ownerBuffGroup?: CandidateBuff['ownerBuffGroup'];
   groupId: string;
   groupName: string;
@@ -145,7 +146,11 @@ export function filterBuffSearchEntriesBySourceMode(
   if (mode === 'buff-group') {
     return entries.filter((entry) => entry.sourceKind === 'local');
   }
-  return entries.filter((entry) => entry.sourceKind === 'candidate' && entry.ownerBuffDomain === mode);
+  return entries.filter((entry) => (
+    entry.sourceKind === 'candidate'
+    && entry.ownerBuffDomain === mode
+    && entry.category !== 'passive'
+  ));
 }
 
 const LOCAL_BUFF_LIBRARY_KEY = 'def.buff-editor.library.v1';
@@ -414,6 +419,7 @@ export function readCandidateBuffSearchEntries(): LocalBuffSearchResult[] {
       key: `candidate-${index}-${buff.name}-${buff.displayName}`,
       sourceKind: 'candidate',
       ownerBuffDomain,
+      ownerCharacterId: buff.ownerCharacterId,
       ownerBuffGroup: buff.ownerBuffGroup,
       groupId: '',
       groupName: sourcePath.groupName,

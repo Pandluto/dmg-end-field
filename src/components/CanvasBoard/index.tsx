@@ -175,6 +175,7 @@ function buildSandboxSkillsFromRuntimeTemplate(characterId: string): SandboxSkil
 }
 
 interface CanvasBoardProps {
+  activeSkillButtonId?: string | null;
   workbenchMode?: 'selection' | 'timeline' | 'toolPanel';
   isToolPanelVisible?: boolean;
   isWorkbenchTopZoneOpen?: boolean;
@@ -186,6 +187,7 @@ interface CanvasBoardProps {
 }
 
 export function CanvasBoard({
+  activeSkillButtonId = null,
   workbenchMode: _workbenchMode = 'timeline',
   isToolPanelVisible = true,
   isWorkbenchTopZoneOpen = false,
@@ -909,6 +911,7 @@ export function CanvasBoard({
         <div className="canvas-left-zone">
           <CanvasArea
             ref={canvasRef}
+            activeSkillButtonId={activeSkillButtonId}
             config={canvasConfig}
             staffCount={staffCount}
             selectedCharacters={selectedCharacters}

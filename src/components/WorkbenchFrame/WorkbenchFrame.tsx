@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useAppContext } from '../../context/AppContext';
 import { SelectionPanel } from '../SelectionPanel';
 import { CanvasBoard } from '../CanvasBoard';
@@ -16,16 +16,38 @@ import './WorkbenchFrame.css';
 
 export type WorkbenchMode = 'selection' | 'timeline' | 'toolPanel' | 'buffBatchEdit';
 
-export function WorkbenchFrame() {
+interface WorkbenchFrameProps {
+  activeSkillButtonId?: string | null;
+}
+
+export function WorkbenchFrame({ activeSkillButtonId = null }: WorkbenchFrameProps) {
   const { state, dispatch } = useAppContext();
   const { currentView, selectedCharacters } = state;
   const [isDrawerOpen, setIsDrawerOpen] = useState(true);
   const [workbenchMode, setWorkbenchMode] = useState<WorkbenchMode>('selection');
   const [forceShowToolPanel, setForceShowToolPanel] = useState(false);
   const [shellStatus, setShellStatus] = useState<'checking' | 'offline' | 'hidden' | 'visible' | 'opening' | 'closing'>('checking');
+  const previousActiveSkillButtonIdRef = useRef<string | null>(activeSkillButtonId);
 
   const canAccessCanvas = selectedCharacters.length > 0;
   const isSelectionActive = currentView === 'selection';
+
+  useEffect(() => {
+    const previousActiveSkillButtonId = previousActiveSkillButtonIdRef.current;
+    previousActiveSkillButtonIdRef.current = activeSkillButtonId;
+
+    if (activeSkillButtonId) {
+      dispatch({ type: 'SET_VIEW', view: 'canvas' });
+      setWorkbenchMode('timeline');
+      setForceShowToolPanel(true);
+      return;
+    }
+
+    if (previousActiveSkillButtonId) {
+      setForceShowToolPanel(false);
+      setWorkbenchMode('timeline');
+    }
+  }, [activeSkillButtonId, dispatch]);
 
   const closeDrawer = useCallback(() => {
     setIsDrawerOpen(false);
@@ -308,6 +330,7 @@ export function WorkbenchFrame() {
         )}
         {currentView === 'canvas' && workbenchMode !== 'buffBatchEdit' && (
           <CanvasBoard
+            activeSkillButtonId={activeSkillButtonId}
             workbenchMode={workbenchMode}
             isToolPanelVisible={shouldShowToolPanel}
             onSkillButtonModalOpen={handleSkillButtonModalOpen}

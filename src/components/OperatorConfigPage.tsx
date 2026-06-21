@@ -863,6 +863,19 @@ function countToPotential(count: number): string {
   return `${Math.max(0, count - 1)}潜`;
 }
 
+function getWeaponSkill3PotentialBonus(weaponPotentialCount: number): number {
+  return Math.max(0, Math.min(5, weaponPotentialCount - 1));
+}
+
+function getWeaponSkill3ManualLevel(effectiveLevel: number, weaponPotentialCount: number): number {
+  const manualLevel = effectiveLevel - getWeaponSkill3PotentialBonus(weaponPotentialCount);
+  return Math.max(1, Math.min(4, manualLevel));
+}
+
+function getWeaponSkill3EffectiveLevel(manualLevel: number, weaponPotentialCount: number): number {
+  return Math.max(1, Math.min(9, manualLevel + getWeaponSkill3PotentialBonus(weaponPotentialCount)));
+}
+
 function levelValueToCount(level: number | string): number {
   const numeric = typeof level === 'number' ? level : Number(level);
   const index = CHARACTER_LEVEL_VALUES.findIndex((value) => value === numeric);
@@ -1525,6 +1538,7 @@ export function OperatorConfigPage() {
   const weaponSkillLevel1 = currentConfig?.weapon.config.skillLevels.skill1 ?? DEFAULT_WEAPON_SKILL_LEVELS.skill1;
   const weaponSkillLevel2 = currentConfig?.weapon.config.skillLevels.skill2 ?? DEFAULT_WEAPON_SKILL_LEVELS.skill2;
   const weaponSkillLevel3 = currentConfig?.weapon.config.skillLevels.skill3 ?? DEFAULT_WEAPON_SKILL_LEVELS.skill3;
+  const weaponSkill3ManualLevel = getWeaponSkill3ManualLevel(weaponSkillLevel3, weaponPotentialCount);
   const currentCharacterData = (currentConfig?.character.data ?? EMPTY_RECORD) as Partial<Character>;
   const currentWeaponData = (currentConfig?.weapon.data ?? EMPTY_RECORD) as Partial<WeaponData>;
   const attributeKey = levelValueToAttributeKey(currentConfig?.character.config.level ?? 90);
@@ -2200,13 +2214,18 @@ export function OperatorConfigPage() {
                         aria-label={`武器星形计数器，当前 ${weaponPotentialCount}`}
                         aria-pressed={weaponPotentialCount > 0}
                         onClick={(event) => {
+                          const nextWeaponPotentialCount = weaponPotentialCount >= 6 ? 1 : weaponPotentialCount + 1;
                           updateCurrentConfig((prev) => ({
                             ...prev,
                             weapon: {
                               ...prev.weapon,
                               config: {
                                 ...prev.weapon.config,
-                                potential: countToPotential(weaponPotentialCount >= 6 ? 1 : weaponPotentialCount + 1),
+                                potential: countToPotential(nextWeaponPotentialCount),
+                                skillLevels: {
+                                  ...prev.weapon.config.skillLevels,
+                                  skill3: getWeaponSkill3EffectiveLevel(weaponSkill3ManualLevel, nextWeaponPotentialCount),
+                                },
                               },
                             },
                           }));
@@ -2298,30 +2317,38 @@ export function OperatorConfigPage() {
                       </div>
                       <div className="config-weapon-config-container-3">
                         <div className="config-weapon-config-button-row" aria-label="武器配置按钮组 3">
-                          {weaponConfigIndices.map((buttonNumber) => (
-                            <button
-                              key={buttonNumber}
-                              type="button"
-                              className={`config-weapon-config-button ${getWeaponConfigButtonState(buttonNumber, weaponSkillLevel3)}`}
-                              aria-label={`武器配置按钮 3-${buttonNumber}`}
-                              aria-pressed={buttonNumber <= weaponSkillLevel3}
-                              onClick={() => {
-                                updateCurrentConfig((prev) => ({
-                                  ...prev,
-                                  weapon: {
-                                    ...prev.weapon,
-                                    config: {
-                                      ...prev.weapon.config,
-                                      skillLevels: {
-                                        ...prev.weapon.config.skillLevels,
-                                        skill3: getNextWeaponConfigCount(weaponSkillLevel3, buttonNumber),
+                          {weaponConfigIndices.map((buttonNumber) => {
+                            const isManualButton = buttonNumber <= 4;
+                            return (
+                              <button
+                                key={buttonNumber}
+                                type="button"
+                                className={`config-weapon-config-button ${getWeaponConfigButtonState(buttonNumber, weaponSkillLevel3)}${!isManualButton ? ' is-potential-derived' : ''}`}
+                                aria-label={`武器配置按钮 3-${buttonNumber}${isManualButton ? '' : '，由武器潜能决定'}`}
+                                aria-pressed={buttonNumber <= weaponSkillLevel3}
+                                disabled={!isManualButton}
+                                onClick={() => {
+                                  if (!isManualButton) return;
+                                  updateCurrentConfig((prev) => ({
+                                    ...prev,
+                                    weapon: {
+                                      ...prev.weapon,
+                                      config: {
+                                        ...prev.weapon.config,
+                                        skillLevels: {
+                                          ...prev.weapon.config.skillLevels,
+                                          skill3: getWeaponSkill3EffectiveLevel(
+                                            getNextWeaponConfigCount(weaponSkill3ManualLevel, buttonNumber),
+                                            weaponPotentialCount
+                                          ),
+                                        },
                                       },
                                     },
-                                  },
-                                }));
-                              }}
-                            />
-                          ))}
+                                  }));
+                                }}
+                              />
+                            );
+                          })}
                         </div>
                         <div className="config-weapon-config-text-3">
                           <span className="config-weapon-config-value">{weaponSkillLevel3}</span>

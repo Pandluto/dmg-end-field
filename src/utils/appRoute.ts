@@ -5,11 +5,34 @@ export const APP_ROUTE_PATHS = {
   weaponSheet: '/weapon-sheet',
   equipmentSheet: '/sheet-equipment',
   operatorConfig: '/operator-config',
+  timelineSkillDetail: '/timeline-skill-detail',
   damageSheet: '/damage-sheet',
   damageReportPpt: '/damage-report-ppt',
   imageManager: '/image-manager',
   aiCli: '/ai-cli',
 } as const;
+
+export function getTimelineSkillDetailPath(buttonId: string): string {
+  return `${APP_ROUTE_PATHS.timelineSkillDetail}/${encodeURIComponent(buttonId)}`;
+}
+
+export function getTimelineSkillDetailButtonId(path: string): string | null {
+  const prefix = `${APP_ROUTE_PATHS.timelineSkillDetail}/`;
+  if (!path.startsWith(prefix)) {
+    return null;
+  }
+
+  const encodedButtonId = path.slice(prefix.length);
+  if (!encodedButtonId) {
+    return null;
+  }
+
+  try {
+    return decodeURIComponent(encodedButtonId);
+  } catch {
+    return null;
+  }
+}
 
 function normalizeRoutePath(rawPath: string): string {
   const trimmed = rawPath.trim();
