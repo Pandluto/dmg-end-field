@@ -256,7 +256,7 @@ export function resolveProposalReference(input: string, sessionId?: string): AiA
   if (trimmed.startsWith('#')) {
     const index = parseInt(trimmed.slice(1), 10) - 1;
     if (!Number.isFinite(index) || index < 0) return null;
-    const { proposals: pending } = readPendingAgentProposalsForReview(sessionId);
+    const pending = readPendingAgentProposals(sessionId);
     if (index >= pending.length) return null;
     return pending[index] ?? null;
   }
@@ -270,7 +270,7 @@ export function resolveProposalReference(input: string, sessionId?: string): AiA
  * Returns "#1", "#2", etc. or null if not in pending list.
  */
 export function getProposalAlias(proposalId: string, sessionId?: string): string | null {
-  const { proposals: pending } = readPendingAgentProposalsForReview(sessionId);
+  const pending = readPendingAgentProposals(sessionId);
   const index = pending.findIndex((p) => p.id === proposalId);
   if (index < 0) return null;
   return `#${index + 1}`;
@@ -308,7 +308,7 @@ function formatDateTime(timestamp: number | null | undefined) {
 export const LOCAL_LIBRARY_CHANGED_EVENT = 'def:local-library-changed';
 
 export function notifyLocalLibraryChanged(): void {
-  if (typeof window === 'undefined') {
+  if (typeof window === 'undefined' || typeof window.dispatchEvent !== 'function') {
     return;
   }
   window.dispatchEvent(new Event(LOCAL_LIBRARY_CHANGED_EVENT));

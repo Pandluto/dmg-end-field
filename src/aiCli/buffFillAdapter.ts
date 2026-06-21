@@ -46,6 +46,51 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value);
 }
 
+function toRecordEntries(value: unknown, fallbackPrefix: string): Array<[string, Record<string, unknown>]> {
+  if (Array.isArray(value)) {
+    return value
+      .filter(isRecord)
+      .map((entry, index) => {
+        const id = typeof entry.id === 'string' && entry.id.trim()
+          ? entry.id
+          : typeof entry.name === 'string' && entry.name.trim()
+            ? entry.name
+            : `${fallbackPrefix}-${index + 1}`;
+        return [id, entry];
+      });
+  }
+  if (isRecord(value)) {
+    return Object.entries(value).filter((entry): entry is [string, Record<string, unknown>] => isRecord(entry[1]));
+  }
+  return [];
+}
+
+function normalizeBuffProposalPayload(payload: Record<string, unknown>): BuffDraft {
+  const items = Object.fromEntries(
+    toRecordEntries(payload.items, 'item').map(([itemId, item]) => [
+      itemId,
+      {
+        ...item,
+        id: typeof item.id === 'string' ? item.id : itemId,
+        effects: Object.fromEntries(
+          toRecordEntries(item.effects, 'effect').map(([effectId, effect]) => [
+            effectId,
+            {
+              ...effect,
+              id: typeof effect.id === 'string' ? effect.id : effectId,
+            },
+          ]),
+        ),
+      },
+    ]),
+  ) as BuffDraft['items'];
+
+  return {
+    ...(payload as unknown as BuffDraft),
+    items,
+  };
+}
+
 function normalizeBuffDraftForStorage(draft: BuffDraft): BuffDraft {
   return {
     ...draft,
@@ -79,16 +124,17 @@ function validateBuffProposalPayload(payload: unknown): AgentFillValidationResul
   if (!isRecord(payload)) {
     return { ok: false, errors: ['proposal payload must be object'] };
   }
+  const normalizedPayload = normalizeBuffProposalPayload(payload);
   const errors: string[] = [];
   for (const key of ['id', 'name', 'sourceName', 'source', 'description']) {
-    if (typeof payload[key] !== 'string') {
+    if (typeof normalizedPayload[key as keyof BuffDraft] !== 'string') {
       errors.push(`${key} must be string`);
     }
   }
-  if (!isRecord(payload.items)) {
+  if (!isRecord(normalizedPayload.items)) {
     errors.push('items must be object');
   } else {
-    for (const [itemId, item] of Object.entries(payload.items)) {
+    for (const [itemId, item] of Object.entries(normalizedPayload.items)) {
       if (!isRecord(item)) {
         errors.push(`items.${itemId} must be object`);
         continue;
@@ -103,7 +149,7 @@ function validateBuffProposalPayload(payload: unknown): AgentFillValidationResul
       }
     }
   }
-  return errors.length ? { ok: false, errors } : { ok: true, errors: [], normalized: payload as unknown as BuffDraft };
+  return errors.length ? { ok: false, errors } : { ok: true, errors: [], normalized: normalizedPayload };
 }
 
 export function readCurrentBuffDraft(): BuffDraft {

@@ -14,6 +14,8 @@ export interface BuffCalculationResult {
   // 攻击力乘区
   atkPercentBoost: number;   // 总攻击力百分比提升
   flatAtk: number;           // 总固定攻击力
+  mainStat: number;           // 总主属性固定提升
+  subStat: number;            // 总副属性固定提升
   mainStatBoost: number;      // 总主属性提升
   subStatBoost: number;       // 总副属性提升
   allStatBoost: number;       // 总全属性提升
@@ -140,6 +142,8 @@ export function calculateBuffTotals(buffs: SkillButtonBuff[], stackCounts: Recor
   const result: BuffCalculationResult = {
     atkPercentBoost: 0,
     flatAtk: 0,
+    mainStat: 0,
+    subStat: 0,
     mainStatBoost: 0,
     subStatBoost: 0,
     allStatBoost: 0,
@@ -214,6 +218,8 @@ export function calculateBuffTotals(buffs: SkillButtonBuff[], stackCounts: Recor
       switch (buff.type) {
         case 'atkPercentBoost': result.atkPercentBoost += v; break;
         case 'flatAtk': result.flatAtk += v; break;
+        case 'mainStat': result.mainStat += v; break;
+        case 'subStat': result.subStat += v; break;
         case 'mainStatBoost': result.mainStatBoost += v; break;
         case 'subStatBoost': result.subStatBoost += v; break;
         case 'allStatBoost': result.allStatBoost += v; break;
@@ -365,6 +371,8 @@ export function calculateBuffedPanelTrace(
       intelligence: totals.intelligenceBoost,
       will: totals.willBoost,
     };
+    flatBoosts[mainField] += totals.mainStat;
+    flatBoosts[subField] += totals.subStat;
     const hasExactScaleMetadata = typeof panelBase.mainStatScale === 'number'
       && typeof panelBase.subStatScale === 'number'
       && typeof panelBase.allStatScale === 'number';
