@@ -209,6 +209,8 @@ export function CanvasBoard({
   const [pendingRestoreSnapshot, setPendingRestoreSnapshot] = useState<TimelineSnapshotEntry | null>(null);
   const [pendingImportShare, setPendingImportShare] = useState<TimelineShareFile | null>(null);
   const [timelineSnapshots, setTimelineSnapshots] = useState<TimelineSnapshotEntry[]>([]);
+  const [isBrowseMode, setIsBrowseMode] = useState(false);
+  const [isInspectMode, setIsInspectMode] = useState(false);
   const shareImportInputRef = useRef<HTMLInputElement>(null);
 
   const canvasWidth = useCanvasWidth(canvasConfig.canvasWidthPercent);
@@ -925,6 +927,8 @@ export function CanvasBoard({
             onChangeSkillType={handleChangeSkillType}
             getSkillChangeOptions={getSkillChangeOptions}
             isDraggingActive={Boolean(draggingState)}
+            isBrowseMode={isBrowseMode}
+            isInspectMode={isInspectMode}
           />
         </div>
 
@@ -936,6 +940,12 @@ export function CanvasBoard({
               selectedCharacters={selectedCharacters}
               onDragStart={handleSandboxDragStart}
               onAvatarDoubleClick={handleAvatarDoubleClick}
+              onSave={handleOpenSaveSnapshotModal}
+              isBrowseMode={isBrowseMode}
+              onToggleBrowseMode={() => setIsBrowseMode((prev) => !prev)}
+              isInspectMode={isInspectMode}
+              onInspectStart={() => setIsInspectMode(true)}
+              onInspectEnd={() => setIsInspectMode(false)}
             />
           )}
         </aside>

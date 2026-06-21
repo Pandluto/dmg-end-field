@@ -9,6 +9,9 @@ type LeveledHit = {
 };
 
 function resolveSkillLevelMode(button: SkillButtonType): string {
+  if (button.skillType === 'Dot') {
+    return 'M3';
+  }
   return getCharacterInput(button.characterId)?.skillLevels?.[button.skillType] ?? 'M3';
 }
 

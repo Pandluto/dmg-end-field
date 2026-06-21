@@ -240,6 +240,12 @@
   transform: scale(1.2);
 }
 
+.skill-sandbox.is-browse-mode .sandbox-skill-button,
+.skill-sandbox.is-browse-mode .sandbox-skill-button:active {
+  cursor: default;
+  transform: none;
+}
+
 .sandbox-skill-button .skill-icon {
   position: absolute;
   inset: 0;
@@ -480,6 +486,77 @@
   height: 30px;
   border: 1px solid rgba(0, 0, 0, 0.72);
   background: transparent;
+}
+
+.sandbox-characters-extra-spacer {
+  flex: 0 0 40px;
+  height: 40px;
+  border: 1px solid rgba(0, 0, 0, 0.72);
+  background: transparent;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 8px;
+  box-sizing: border-box;
+}
+
+.sandbox-reserved-action {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid rgba(0, 0, 0, 0.72);
+  background: #ffffff;
+  color: #111111;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.sandbox-reserved-action:hover {
+  background: rgba(0, 0, 0, 0.04);
+}
+
+.sandbox-reserved-action--placeholder {
+  cursor: default;
+}
+
+.sandbox-reserved-action--placeholder:hover {
+  background: #ffffff;
+}
+
+.sandbox-reserved-action--inspect.is-active {
+  background: #0078d4;
+  color: #ffffff;
+  border-color: #0078d4;
+}
+
+.sandbox-reserved-action--inspect.is-active:hover {
+  background: #0078d4;
+}
+
+.sandbox-reserved-action--browse.is-active {
+  background: #0078d4;
+  color: #ffffff;
+  border-color: #0078d4;
+}
+
+.sandbox-reserved-action--browse.is-active:hover {
+  background: #0078d4;
+}
+
+.sandbox-reserved-action-icon {
+  width: 16px;
+  height: 16px;
+  fill: currentColor;
+}
+
+.sandbox-reserved-action-icon--book {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
 .sandbox-characters > .sandbox-character:first-child {

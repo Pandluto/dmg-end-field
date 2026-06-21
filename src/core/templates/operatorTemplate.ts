@@ -73,7 +73,7 @@ export interface RuntimeOperatorTemplateSkill {
   id: string;
   /** 显示名称 */
   displayName: string;
-  /** 按钮类型（A/B/E/Q） */
+  /** 按钮类型（A/B/E/Q/Dot） */
   buttonType: SkillType;
   /** 图标 URL */
   iconUrl?: string;

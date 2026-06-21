@@ -31,6 +31,8 @@ interface CanvasAreaProps {
   onChangeSkillType?: (payload: SkillButtonSkillChangePayload) => void;
   getSkillChangeOptions?: (button: SkillButton) => SkillButtonSkillOption[];
   isDraggingActive?: boolean;
+  isBrowseMode?: boolean;
+  isInspectMode?: boolean;
 }
 
 // 表格行列标注：0行显示字母(A-O)，0列显示数字(1-8)
@@ -55,6 +57,8 @@ export const CanvasArea = forwardRef<HTMLDivElement, CanvasAreaProps>(({
   onChangeSkillType,
   getSkillChangeOptions,
   isDraggingActive = false,
+  isBrowseMode = false,
+  isInspectMode = false,
 }, canvasRef) => {
   const renderSkillButtons = () => {
     return skillButtons
@@ -65,6 +69,8 @@ export const CanvasArea = forwardRef<HTMLDivElement, CanvasAreaProps>(({
           size={config.skillButtonSize}
           onMouseDown={(event) => onButtonMouseDown(event, button.id)}
           onContextMenu={(event) => onButtonContextMenu(event, button.id)}
+          isBrowseMode={isBrowseMode}
+          isInspectMode={isInspectMode}
           timelineData={timelineData}
           onModalOpen={onSkillButtonModalOpen}
           onModalClose={onSkillButtonModalClose}
@@ -132,9 +138,6 @@ export const CanvasArea = forwardRef<HTMLDivElement, CanvasAreaProps>(({
                     }}
                   />
                 )}
-                <span className="canvas-staff-name">
-                  {character?.name || `干员 ${lineIndex + 1}`}
-                </span>
               </div>
               
               <div className="canvas-damage-nodes">

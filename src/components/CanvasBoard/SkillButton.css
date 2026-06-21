@@ -26,6 +26,10 @@
   opacity: 0.86;
 }
 
+.canvas-skill-button.is-browse-mode {
+  cursor: default;
+}
+
 .skill-button-anchor {
   position: absolute;
   left: var(--skill-button-radius);
@@ -136,6 +140,66 @@
   font-size: var(--font-size-xl);
   font-weight: 800;
   pointer-events: none;
+}
+
+.canvas-skill-button.is-browse-mode .skill-button-name {
+  font-family: "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1;
+  -webkit-line-clamp: 1;
+  transform: translateY(-1px);
+}
+
+.canvas-skill-button.is-browse-dot .skill-button-orb {
+  opacity: 0;
+}
+
+.canvas-skill-button.is-inspect-mode .skill-button-orb {
+  opacity: 0;
+}
+
+.canvas-skill-button.is-inspect-mode .skill-button-base {
+  height: 60px;
+  padding: 0;
+  justify-content: flex-start;
+  gap: 0;
+}
+
+.canvas-skill-button.is-inspect-mode .skill-button-name {
+  flex: 0 0 30px;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  box-sizing: border-box;
+  padding: 2px 10px 2px calc(var(--skill-button-radius) + 4px);
+}
+
+.skill-button-inspect-damage {
+  flex: 0 0 30px;
+  width: 100%;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 1px;
+  box-sizing: border-box;
+  padding: 2px 4px;
+  border-top: 1px solid rgba(0, 0, 0, 0.18);
+  color: #111111;
+  font-family: "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  font-size: 9px;
+  font-weight: 400;
+  line-height: 1;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.skill-button-inspect-damage span {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .skill-button-orb .skill-label.hidden {

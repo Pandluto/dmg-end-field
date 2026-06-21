@@ -6,12 +6,12 @@
 // 视图类型：selection = 干员选择界面，canvas = 谱线编辑界面
 export type ViewType = 'selection' | 'canvas';
 
-// 技能按钮类型：A = 普通攻击，B = 战技，E = 连携技，Q = 终结技
-export type SkillButtonType = 'A' | 'B' | 'E' | 'Q';
+// 技能按钮类型：A = 普通攻击，B = 战技，E = 连携技，Q = 终结技，Dot = 持续伤害
+export type SkillButtonType = 'A' | 'B' | 'E' | 'Q' | 'Dot';
 // 兼容旧命名：项目中按钮/拖拽/图标相关仍使用 SkillType
 export type SkillType = SkillButtonType;
-// Hit 伤害类型：Dot 只用于 hit 伤害乘区，不作为技能按钮
-export type HitSkillType = SkillButtonType | 'Dot';
+// Hit 伤害类型：与技能按钮类型共享 A/B/E/Q/Dot
+export type HitSkillType = SkillButtonType;
 
 // 二维坐标（画布内所有位置的统一表示）
 export interface Position {
@@ -294,6 +294,7 @@ export const SKILL_LABELS: Record<SkillType, string> = {
   B: 'B',
   E: 'E',
   Q: 'Q',
+  Dot: 'Dot',
 };
 
 /**
@@ -305,6 +306,7 @@ export const SKILL_NAMES: Record<SkillType, string> = {
   B: '战技',
   E: '连携技',
   Q: '终结技',
+  Dot: '持续伤害',
 };
 
 /** 默认画布配置（DEFAULT_CANVAS_CONFIG）*/

@@ -29,6 +29,18 @@ interface SkillSandboxProps {
   ) => void;
   /** 头像双击回调：用于打开干员配置界面 */
   onAvatarDoubleClick: (characterId: string) => void;
+  /** 保存排轴快照回调 */
+  onSave?: () => void;
+  /** 浏览模式是否开启 */
+  isBrowseMode?: boolean;
+  /** 切换浏览模式回调 */
+  onToggleBrowseMode?: () => void;
+  /** 透视模式是否按住 */
+  isInspectMode?: boolean;
+  /** 开始透视模式 */
+  onInspectStart?: () => void;
+  /** 结束透视模式 */
+  onInspectEnd?: () => void;
 }
 
 /** 技能显示标签（用于按钮右侧标注） */
@@ -37,6 +49,7 @@ const SKILL_DISPLAY_LABELS: Record<SkillType, string> = {
   B: '战技',
   E: '连携',
   Q: '终结',
+  Dot: '持续',
 };
 
 function getCharacterSandboxSkills(character: Character): SandboxSkill[] {
@@ -54,7 +67,17 @@ function getCharacterSandboxSkills(character: Character): SandboxSkill[] {
   }));
 }
 
-export function SkillSandbox({ selectedCharacters, onDragStart, onAvatarDoubleClick }: SkillSandboxProps) {
+export function SkillSandbox({
+  selectedCharacters,
+  onDragStart,
+  onAvatarDoubleClick,
+  onSave,
+  isBrowseMode = false,
+  onToggleBrowseMode,
+  isInspectMode = false,
+  onInspectStart,
+  onInspectEnd,
+}: SkillSandboxProps) {
   const cardRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const [pageByCharacterId, setPageByCharacterId] = useState<Record<string, number>>({});
   const [expandedByCharacterId, setExpandedByCharacterId] = useState<Record<string, boolean>>({});
@@ -109,9 +132,63 @@ export function SkillSandbox({ selectedCharacters, onDragStart, onAvatarDoubleCl
   }
 
   return (
-    <div className="skill-sandbox">
+    <div className={`skill-sandbox${isBrowseMode ? ' is-browse-mode' : ''}`}>
       {/* 遍历每个已选干员，渲染一个角色卡片 */}
       <div className="sandbox-characters">
+        <div className="sandbox-characters-extra-spacer">
+          <button
+            type="button"
+            className="sandbox-reserved-action"
+            onClick={onSave}
+            aria-label="保存"
+            title="保存"
+          >
+            <svg className="sandbox-reserved-action-icon" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M5 3h12l2 2v16H5V3zm2 2v6h9V5H7zm0 14h10v-6H7v6zm2-12h5V5H9v2z" />
+            </svg>
+          </button>
+          <button
+            type="button"
+            className={`sandbox-reserved-action sandbox-reserved-action--inspect${isInspectMode ? ' is-active' : ''}`}
+            aria-label="查看"
+            title="查看"
+            aria-pressed={isInspectMode}
+            onPointerDown={(event) => {
+              event.currentTarget.setPointerCapture(event.pointerId);
+              onInspectStart?.();
+            }}
+            onPointerUp={(event) => {
+              event.currentTarget.releasePointerCapture(event.pointerId);
+              onInspectEnd?.();
+            }}
+            onPointerCancel={onInspectEnd}
+            onPointerLeave={(event) => {
+              if (event.buttons === 0) {
+                onInspectEnd?.();
+              }
+            }}
+          >
+            <svg className="sandbox-reserved-action-icon" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M12 5c5.2 0 8.8 4.2 10 7-1.2 2.8-4.8 7-10 7S3.2 14.8 2 12c1.2-2.8 4.8-7 10-7zm0 2c-3.6 0-6.4 2.5-7.7 5 1.3 2.5 4.1 5 7.7 5s6.4-2.5 7.7-5C18.4 9.5 15.6 7 12 7zm0 2.2a2.8 2.8 0 1 1 0 5.6 2.8 2.8 0 0 1 0-5.6z" />
+            </svg>
+          </button>
+          <button
+            type="button"
+            className={`sandbox-reserved-action sandbox-reserved-action--browse${isBrowseMode ? ' is-active' : ''}`}
+            aria-label="浏览模式"
+            title="浏览模式"
+            aria-pressed={isBrowseMode}
+            onClick={onToggleBrowseMode}
+          >
+            <svg className="sandbox-reserved-action-icon sandbox-reserved-action-icon--book" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M4 5.5h1.2c2.7 0 4.9.7 6.8 2.1v12c-1.9-1.3-4.1-1.9-6.8-1.9H4V5.5z" />
+              <path d="M20 5.5h-1.2c-2.7 0-4.9.7-6.8 2.1v12c1.9-1.3 4.1-1.9 6.8-1.9H20V5.5z" />
+              <path d="M12 7.6v12" />
+              <path d="M6.4 8.5c1.4.1 2.5.4 3.4 1" />
+              <path d="M17.6 8.5c-1.4.1-2.5.4-3.4 1" />
+            </svg>
+          </button>
+        </div>
         {selectedCharacters.map((character, index) => {
           const sandboxSkills = getCharacterSandboxSkills(character);
           const isLocalCharacter = character.librarySource === 'local';
@@ -204,6 +281,10 @@ export function SkillSandbox({ selectedCharacters, onDragStart, onAvatarDoubleCl
                     className={`sandbox-skill-button skill-${sandboxSkill.buttonType.toLowerCase()}`}
                     style={{ backgroundColor: getElementBackgroundColor(character.element) }}
                     onMouseDown={(e) => {
+                      if (isBrowseMode) {
+                        e.preventDefault();
+                        return;
+                      }
                       onDragStart(character.id, character.name, sandboxSkill, index, e);
                     }}
                     title={`${character.name} - ${sandboxSkill.displayName}`}

@@ -63,13 +63,14 @@ const OPERATOR_BUFF_GROUPS = [
   { key: 'potential', label: '潜能' },
   { key: 'skill', label: '技能' },
 ] as const;
-const SKILL_BUTTON_TYPES = ['A', 'B', 'E', 'Q'] as const;
+const SKILL_BUTTON_TYPES = ['A', 'B', 'E', 'Q', 'Dot'] as const;
 const SKILL_TYPE_FILTERS = [
   { key: 'all', label: '全部' },
   { key: 'A', label: 'A' },
   { key: 'B', label: 'B' },
   { key: 'E', label: 'E' },
   { key: 'Q', label: 'Q' },
+  { key: 'Dot', label: 'Dot' },
   { key: 'other', label: '其他' },
 ] as const;
 const OPERATOR_BUFF_CATEGORIES = ['passive', 'condition', 'countable'] as const;
@@ -153,8 +154,8 @@ const OPERATOR_BUFF_BUSINESS_TYPE_LABELS: Record<draftBuffModel.OperatorBuffBusi
   extraHit: 'countable extraHit 计层额外伤害段',
 };
 
-type SkillButtonType = 'A' | 'B' | 'E' | 'Q';
-type HitSkillType = SkillButtonType | 'Dot';
+type SkillButtonType = 'A' | 'B' | 'E' | 'Q' | 'Dot';
+type HitSkillType = SkillButtonType;
 type SkillTypeFilter = (typeof SKILL_TYPE_FILTERS)[number]['key'];
 type HitElement = 'physical' | 'fire' | 'ice' | 'electric' | 'nature';
 type SkillLevelKey = (typeof SKILL_LEVEL_KEYS)[number];
@@ -494,6 +495,7 @@ function reorderDraftStructure(draft: OperatorDraft) {
     B: 0,
     E: 0,
     Q: 0,
+    Dot: 0,
   };
   const orderedSkillKeys = Object.keys(draft.skills);
   orderedSkillKeys.forEach((skillKey, skillIndex) => {
@@ -1563,6 +1565,7 @@ export function OperatorDraftPage() {
     B: 0,
     E: 0,
     Q: 0,
+    Dot: 0,
     other: 0,
   });
   const displayedSkillEntries = activeSkillTypeFilter === 'all'
@@ -1957,6 +1960,7 @@ export function OperatorDraftPage() {
                           <option value="B">B</option>
                           <option value="E">E</option>
                           <option value="Q">Q</option>
+                          <option value="Dot">Dot</option>
                         </select>
                       </label>
                       <label className="is-wide">

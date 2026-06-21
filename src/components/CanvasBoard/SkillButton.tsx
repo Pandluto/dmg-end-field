@@ -139,7 +139,17 @@ interface SkillButtonProps {
   onCopy?: () => void;
   onChangeSkillType?: (payload: SkillButtonSkillChangePayload) => void;
   skillChangeOptions?: SkillButtonSkillOption[];
+  isBrowseMode?: boolean;
+  isInspectMode?: boolean;
 }
+
+const BROWSE_MODE_SKILL_LABELS: Record<string, string> = {
+  A: '重击',
+  B: '战技',
+  E: '连携技',
+  Q: '终结技',
+  Dot: '持续',
+};
 
 export function SkillButtonComponent({
   button,
@@ -155,6 +165,8 @@ export function SkillButtonComponent({
   onCopy,
   onChangeSkillType,
   skillChangeOptions = [],
+  isBrowseMode = false,
+  isInspectMode = false,
 }: SkillButtonProps) {
   /**
    * position.y 语义约定（v1.1.0+）：
@@ -170,6 +182,8 @@ export function SkillButtonComponent({
    */
   const { position, skillType, isSelected, isDragging, characterName, skillIconUrl, element, isLocked, skillDisplayName } = button;
   const displayName = skillDisplayName || SKILL_LABELS[skillType];
+  const browseModeDisplayName = BROWSE_MODE_SKILL_LABELS[skillType] ?? displayName;
+  const isDotButton = button.skillType === 'Dot';
   const { state, dispatch } = useAppContext();
   const radius = size / 2;
   const baseWidth = 80;
@@ -178,7 +192,7 @@ export function SkillButtonComponent({
   const visualOffsetY = 15;
   const hitWidth = radius + baseWidth;
   const hitHeight = Math.max(size, radius + baseHeight);
-  const shouldRenderContextMenu = contextMenuState?.buttonId === button.id && typeof document !== 'undefined';
+  const shouldRenderContextMenu = !isBrowseMode && contextMenuState?.buttonId === button.id && typeof document !== 'undefined';
 
   // 弹窗显示状态
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -186,6 +200,7 @@ export function SkillButtonComponent({
   const [buffList, setBuffList] = useState<SkillButtonBuff[]>([]);
   // 当前角色的技能等级模式 (L9/M3)
   const [skillLevelModeMap, setSkillLevelModeMap] = useState<Record<string, SkillLevelMode>>({ A: 'L9', B: 'L9', E: 'L9', Q: 'L9' });
+  const currentSkillLevelMode = skillType === 'Dot' ? 'M3' : skillLevelModeMap[skillType] ?? 'M3';
   // 已解析的技能伤害模板（skill 是容器，hit 是计算单元）
   const [resolvedTemplate, setResolvedTemplate] = useState<ResolvedSkillDamageTemplate | null>(null);
   const [targetResistance, setTargetResistance] = useState<Required<HitResistanceInput>>(EMPTY_TARGET_RESISTANCE);
@@ -1079,6 +1094,30 @@ export function SkillButtonComponent({
       { expected: 0, crit: 0, nonCrit: 0 }
     );
   }, [anomalyDamageSegments]);
+  const loadRuntimeDamageData = useCallback(() => {
+    loadBuffList();
+    setSkillLevelModeMap(loadSkillLevelModeMap());
+    loadResolvedTemplate();
+    loadPanelData();
+    loadPersistedAnomalyCards();
+    loadPersistedManualBuffTweaks();
+  }, [
+    loadBuffList,
+    loadSkillLevelModeMap,
+    loadResolvedTemplate,
+    loadPanelData,
+    loadPersistedAnomalyCards,
+    loadPersistedManualBuffTweaks,
+  ]);
+  const inspectDamageSummary = useMemo(() => {
+    if (!damageViewModel) {
+      return { expected: '-', nonCrit: '-' };
+    }
+    return {
+      expected: (Number(damageViewModel.summary.totalExpectedText) + anomalyDamageSummary.expected).toFixed(0),
+      nonCrit: (Number(damageViewModel.summary.totalNonCritText) + anomalyDamageSummary.nonCrit).toFixed(0),
+    };
+  }, [anomalyDamageSummary.expected, anomalyDamageSummary.nonCrit, damageViewModel]);
   const totalNonCritSummaryFormula = useMemo(() => {
     if (!damageViewModel) {
       return '无';
@@ -1122,16 +1161,11 @@ export function SkillButtonComponent({
   // 弹窗打开时加载数据，并设置当前选中的技能按钮
   useEffect(() => {
     if (isModalOpen && !wasModalOpenRef.current) {
-      loadBuffList();
-      setSkillLevelModeMap(loadSkillLevelModeMap());
-      loadResolvedTemplate();
-      loadPanelData();
+      loadRuntimeDamageData();
       setIsExpanded(false);
       setSelectedHitIndex(0);
       setSelectedSkillButton(button.id);
       resetAnomalyDraftState();
-      loadPersistedAnomalyCards();
-      loadPersistedManualBuffTweaks();
       setIsTargetResistanceExpanded(false);
       setSelectedAnomalySegmentKey(null);
       setIsAnomalyFormulaExpanded(false);
@@ -1140,7 +1174,14 @@ export function SkillButtonComponent({
     }
 
     wasModalOpenRef.current = isModalOpen;
-  }, [isModalOpen, button.id, button.characterId, characterName, loadBuffList, loadSkillLevelModeMap, loadResolvedTemplate, loadPanelData, loadPersistedAnomalyCards, loadPersistedManualBuffTweaks, resetAnomalyDraftState]);
+  }, [isModalOpen, button.id, button.characterId, characterName, loadRuntimeDamageData, resetAnomalyDraftState]);
+
+  useEffect(() => {
+    if (!isInspectMode) {
+      return;
+    }
+    loadRuntimeDamageData();
+  }, [isInspectMode, loadRuntimeDamageData]);
 
   const renderAppliedBuffButtons = useCallback((segmentKey: string | null, buffTags: AppliedBuffTagViewModel[]) => {
     if (buffTags.length === 0) {
@@ -1188,6 +1229,9 @@ export function SkillButtonComponent({
    */
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
+    if (isBrowseMode) {
+      return;
+    }
 
     // 重置长按标志
     isLongPressRef.current = false;
@@ -1209,12 +1253,13 @@ export function SkillButtonComponent({
     };
 
     document.addEventListener('mouseup', handleMouseUp);
-  }, [onMouseDown]);
+  }, [isBrowseMode, onMouseDown]);
 
   /**
    * 处理点击事件（区分单击和双击）
    */
   const handleClick = useCallback(() => {
+    if (isBrowseMode) return;
     // 如果是长按，不处理点击
     if (isLongPressRef.current) return;
 
@@ -1245,7 +1290,7 @@ export function SkillButtonComponent({
         console.log('【排轴数据】当前总数据结构:', timelineData);
       }
     }
-  }, [button.id, timelineData]);
+  }, [button.id, isBrowseMode, timelineData]);
 
   /**
    * 图标加载成功时：隐藏圆形图标内的兜底技能字母，底座文字继续显示。
@@ -1264,7 +1309,7 @@ export function SkillButtonComponent({
   return (
     <>
       <div
-        className={`canvas-skill-button ${isSelected ? 'selected' : ''} ${isDragging ? 'dragging' : ''} ${isLocked ? 'locked' : ''}`}
+        className={`canvas-skill-button ${isSelected ? 'selected' : ''} ${isDragging ? 'dragging' : ''} ${isLocked ? 'locked' : ''} ${isBrowseMode ? 'is-browse-mode' : ''} ${isBrowseMode && isDotButton ? 'is-browse-dot' : ''} ${isInspectMode ? 'is-inspect-mode' : ''}`}
         style={{
           left: position.x - radius - visualOffsetX,
           top: position.y - radius - visualOffsetY,
@@ -1276,16 +1321,22 @@ export function SkillButtonComponent({
         } as CSSProperties}
         onMouseDown={handleMouseDown}
         onClick={handleClick}
-        onContextMenu={onContextMenu}
+        onContextMenu={isBrowseMode ? (event) => event.preventDefault() : onContextMenu}
       >
         <div className="skill-button-anchor">
           <div className="skill-button-base">
-            <span className="skill-button-name">{skillType} {displayName}</span>
+            <span className="skill-button-name">{isBrowseMode ? browseModeDisplayName : `${skillType} ${displayName}`}</span>
             {isLocked ? <span className="skill-button-lock">锁</span> : null}
+            {isInspectMode ? (
+              <span className="skill-button-inspect-damage">
+                <span>{`期望=${inspectDamageSummary.expected}`}</span>
+                <span>{`非暴=${inspectDamageSummary.nonCrit}`}</span>
+              </span>
+            ) : null}
           </div>
           <div className="skill-button-orb" title={`${characterName} - ${displayName}`}>
             {/* skillIconUrl 有值且未失败时渲染图标 */}
-            {skillIconUrl && !iconLoadFailed ? (
+            {skillIconUrl && !iconLoadFailed && !(isBrowseMode && isDotButton) ? (
               <img
                 className="skill-icon"
                 key={normalizeAssetUrl(skillIconUrl)}
@@ -1296,7 +1347,7 @@ export function SkillButtonComponent({
               />
             ) : null}
             {/* 兜底文字：图标加载失败或无图标时显示 */}
-            <span className={`skill-label ${!iconLoadFailed && skillIconUrl ? 'hidden' : ''}`}>{skillType}</span>
+            <span className={`skill-label ${!iconLoadFailed && skillIconUrl && !(isBrowseMode && isDotButton) ? 'hidden' : ''}`}>{isBrowseMode && isDotButton ? '~' : skillType}</span>
           </div>
         </div>
       </div>
@@ -1557,7 +1608,7 @@ export function SkillButtonComponent({
             </div>
           ) : null}
           characterName={characterName}
-          skillLabel={`${skillType} / ${displayName} ${skillLevelModeMap[skillType]}`}
+          skillLabel={`${skillType} / ${displayName} ${currentSkillLevelMode}`}
           positionLabel={(() => {
             const staffLine = timelineData?.staffLines?.find((item) => item.staffIndex === (button as SkillButtonType).lineIndex);
             const buttonData = staffLine?.buttons?.find((item) => item.id === button.id);
@@ -1708,7 +1759,7 @@ export function SkillButtonComponent({
               </div>
               <div className="modal-content">
                 <p><strong>角色:</strong> {characterName}</p>
-                <p><strong>技能:</strong> {skillType} / {displayName} <strong>L{skillLevelModeMap[skillType].replace('L', '')}</strong></p>
+                <p><strong>技能:</strong> {skillType} / {displayName} <strong>{currentSkillLevelMode}</strong></p>
                 <p><strong>干员索引:</strong> {(button as SkillButtonType).lineIndex}</p>
                 {(() => {
                   const staffLine = timelineData?.staffLines?.find(s => s.staffIndex === (button as SkillButtonType).lineIndex);

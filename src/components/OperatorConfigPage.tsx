@@ -6,7 +6,7 @@ import { STORAGE_KEYS } from '../constants/storage-keys';
 import { adaptRuntimeTemplateToLegacyCharacter, loadLocalOperatorCharacters } from '../core/services/localOperatorAdapter';
 import { buildConfigSnapshot } from '../core/calculators/operatorPanelCalculator';
 import type { ConfigSnapshot, EquipmentPieceInput, EquipmentSetBuffInput, OperatorPanelInput } from '../core/calculators/operatorPanelCalculator';
-import type { Character, SkillType, HitSkillType } from '../types';
+import type { Character, HitSkillType } from '../types';
 import type {
   OperatorConfigPageCache,
   OperatorConfigPageCharacterConfig,
@@ -1088,7 +1088,7 @@ function buildSkillDetailGroups(character: Partial<Character>, skillKey: Operato
     .map((skill) => ({
       id: skill.id,
       displayName: skill.displayName || skill.id,
-      buttonType: skill.buttonType,
+      buttonType: skillKey,
       iconUrl: skill.iconUrl,
       hits: (skill.customHits ?? []).map((hit) => {
         const hitWithLevels = hit as typeof hit & { levels?: Record<string, number> };
@@ -2019,7 +2019,7 @@ export function OperatorConfigPage() {
                           key={skill.key}
                           skillKey={skill.key}
                           label={skillData[skill.key]?.name ?? skill.name}
-                          stage={skillModeToStage(currentConfig?.skills.config[skill.key as SkillType] ?? DEFAULT_SKILL_MODE)}
+                          stage={skillModeToStage(currentConfig?.skills.config[skill.key] ?? DEFAULT_SKILL_MODE)}
                           onOpenDetails={() => setActiveSkillDetailKey(skill.key)}
                           onChange={(nextStage) => {
                             updateCurrentConfig((prev) => ({

@@ -18,6 +18,13 @@ import './DamageReportPptPage.css';
 const REPORT_PPT_PATH = APP_ROUTE_PATHS.damageReportPpt;
 const SLIDE_GROUPS_PER_PAGE = 2;
 const WEAPON_LIBRARY_STORAGE_KEY = 'def.weapon-sheet.library.v1';
+const BROWSE_MODE_SKILL_LABELS: Record<string, string> = {
+  A: '重击',
+  B: '战技',
+  E: '连携技',
+  Q: '终结技',
+  Dot: '持续',
+};
 
 interface ReportOperator {
   id: string;
@@ -604,11 +611,13 @@ function TimelineGroupSlide({
                         {buttons.map((button) => {
                           const buttonCharacter = characterByName.get(button.characterName);
                           const skillIconUrl = resolveTimelineSkillIcon(button, buttonCharacter);
+                          const isDotButton = button.skillType === 'Dot';
+                          const browseModeLabel = BROWSE_MODE_SKILL_LABELS[button.skillType] ?? button.skillType;
                           return (
                             <div
                               key={button.id}
-                              className="report-ppt-axis-button"
-                              style={{ left: `${((getButtonLocalNodeIndex(button) + 0.5) / GRID_NODE_COUNT) * 100}%` }}
+                              className={`report-ppt-axis-button${isDotButton ? ' is-dot' : ''}`}
+                              style={{ left: `${(getButtonLocalNodeIndex(button) / GRID_NODE_COUNT) * 100}%` }}
                               title={`${button.characterName} ${button.skillDisplayName ?? button.skillType}`}
                             >
                               <span className="report-ppt-axis-button-orb">
@@ -619,7 +628,7 @@ function TimelineGroupSlide({
                                   onError={handleReportImageError(button.skillType)}
                                 />
                               </span>
-                              <span className="report-ppt-axis-button-body">{button.skillType} {button.skillDisplayName ?? ''}</span>
+                              <span className="report-ppt-axis-button-body">{browseModeLabel}</span>
                             </div>
                           );
                         })}

@@ -2087,8 +2087,9 @@
 
 .canvas-left-top-spacer {
   flex: 0 0 30px;
-  width: 1240px;
+  width: 1244px;
   height: 30px;
+  margin-left: -2px;
   margin-bottom: 30px;
   border: 1px solid rgba(0, 0, 0, 0.72);
   background: transparent;
@@ -2245,8 +2246,8 @@
 /* 干员身份区：头像+名字 - 移到第0列左侧 */
 .canvas-staff-line-label {
   position: absolute;
-  left: -80px;
-  top: 50%;
+  left: -64px;
+  top: calc(50% - 18px);
   transform: translateY(-50%);
   display: flex;
   align-items: center;
@@ -2258,6 +2259,8 @@
 .canvas-staff-avatar {
   width: 44px;
   height: 44px;
+  box-sizing: border-box;
+  border: 1px solid #000000;
   border-radius: 50%;
   object-fit: cover;
   flex-shrink: 0;
@@ -2267,6 +2270,8 @@
 .canvas-staff-avatar-placeholder {
   width: 44px;
   height: 44px;
+  box-sizing: border-box;
+  border: 1px solid #000000;
   border-radius: 50%;
   background: #e0e0e0;
   flex-shrink: 0;
