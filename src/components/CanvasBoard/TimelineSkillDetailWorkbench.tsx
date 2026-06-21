@@ -74,6 +74,7 @@ interface TimelineSkillDetailWorkbenchProps {
     crit: string;
     nonCrit: string;
     formula: string;
+    parts: Array<{ label: string; value: string }>;
   } | null;
   formula: FormulaViewModel | null;
   infoLines: string[];
@@ -342,6 +343,7 @@ export function TimelineSkillDetailWorkbench({
   const [isAllTuningExpanded, setIsAllTuningExpanded] = useState(false);
   const [activeCalculationSection, setActiveCalculationSection] = useState<CalculationSectionKey>('attack');
   const [isAbilityDetailExpanded, setIsAbilityDetailExpanded] = useState(false);
+  const [isSummaryFormulaExpanded, setIsSummaryFormulaExpanded] = useState(false);
   const calculationSections = formula ? buildCalculationSections(formula) : [];
   const selectedCalculationSection = calculationSections.find((section) => section.key === activeCalculationSection)
     ?? calculationSections[0]
@@ -493,8 +495,31 @@ export function TimelineSkillDetailWorkbench({
             <h3>{summary?.title || '伤害汇总'}</h3>
             {summary ? (
               <>
-                <p><strong>期望 {summary.expected}</strong><span>暴击 {summary.crit}</span><span>非暴 {summary.nonCrit}</span></p>
-                <small>{summary.formula}</small>
+                <p>
+                  <strong>期望 {summary.expected}</strong>
+                  <span>暴击 {summary.crit}</span>
+                  <span>非暴 {summary.nonCrit}</span>
+                  {summary.parts.length > 1 ? (
+                    <button
+                      type="button"
+                      className="timeline-calculation-inline-toggle"
+                      onClick={() => setIsSummaryFormulaExpanded((value) => !value)}
+                      aria-label={isSummaryFormulaExpanded ? '收起伤害组成' : '展开伤害组成'}
+                    >
+                      {isSummaryFormulaExpanded ? '−' : '+'}
+                    </button>
+                  ) : null}
+                </p>
+                {isSummaryFormulaExpanded && summary.parts.length > 1 ? (
+                  <div className="timeline-summary-formula-parts">
+                    {summary.parts.map((part, index) => (
+                      <div key={`${part.label}-${index}`}>
+                        <span>{part.label}</span>
+                        <strong>{part.value}</strong>
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
               </>
             ) : <p className="timeline-detail-empty">伤害数据加载中</p>}
           </section>

@@ -649,6 +649,7 @@
 .timeline-summary-card p {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   gap: 16px;
   margin: 0 0 7px;
 }
@@ -656,6 +657,41 @@
 .timeline-summary-card small {
   color: #30373d;
   font-weight: 700;
+}
+
+.timeline-summary-card p .timeline-calculation-inline-toggle {
+  flex: 0 0 auto;
+}
+
+.timeline-summary-formula-parts {
+  display: grid;
+  gap: 0;
+  margin-top: 8px;
+  border-top: 1px solid rgba(212, 216, 219, 0.76);
+}
+
+.timeline-summary-formula-parts > div {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  padding: 6px 0;
+  border-bottom: 1px solid rgba(212, 216, 219, 0.76);
+}
+
+.timeline-summary-formula-parts span {
+  min-width: 0;
+  overflow: hidden;
+  color: #5b6268;
+  font-size: 10px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.timeline-summary-formula-parts strong {
+  color: #202529;
+  font-size: 10px;
+  font-weight: 800;
 }
 
 .timeline-calculation-card {

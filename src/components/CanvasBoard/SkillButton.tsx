@@ -1083,14 +1083,30 @@ export function SkillButtonComponent({
     if (!damageViewModel) {
       return '无';
     }
-    const normalParts = damageViewModel.hitCards.map((hitCard) => `${hitCard.displayName} ${hitCard.nonCritText}`);
-    const anomalyParts = anomalyDamageSegments.map((segment) => `${segment.sequenceTitle} ${segment.nonCritText}`);
-    const allParts = [...normalParts, ...anomalyParts];
+    const allParts = [
+      ...damageViewModel.hitCards.map((hitCard) => `${hitCard.displayName} ${hitCard.nonCritText}`),
+      ...anomalyDamageSegments.map((segment) => `${segment.sequenceTitle} ${segment.nonCritText}`),
+    ];
     if (allParts.length === 0) {
       return '无';
     }
     return `${allParts.join(' + ')} = ${(Number(damageViewModel.summary.totalNonCritText) + anomalyDamageSummary.nonCrit).toFixed(0)}`;
   }, [anomalyDamageSegments, anomalyDamageSummary.nonCrit, damageViewModel]);
+  const totalNonCritSummaryParts = useMemo(() => {
+    if (!damageViewModel) {
+      return [];
+    }
+    return [
+      ...damageViewModel.hitCards.map((hitCard) => ({
+        label: hitCard.displayName,
+        value: hitCard.nonCritText,
+      })),
+      ...anomalyDamageSegments.map((segment) => ({
+        label: segment.sequenceTitle,
+        value: segment.nonCritText,
+      })),
+    ];
+  }, [anomalyDamageSegments, damageViewModel]);
 
   useEffect(() => {
     if (!selectedAnomalySegmentKey) {
@@ -1670,6 +1686,7 @@ export function SkillButtonComponent({
             crit: (Number(damageViewModel.summary.totalCritText) + anomalyDamageSummary.crit).toFixed(0),
             nonCrit: (Number(damageViewModel.summary.totalNonCritText) + anomalyDamageSummary.nonCrit).toFixed(0),
             formula: totalNonCritSummaryFormula,
+            parts: totalNonCritSummaryParts,
           } : null}
           formula={isShowingAnomalyDetail ? activeAnomalyFormula : damageViewModel?.activeHitFormula ?? null}
           infoLines={infoSnapshotLines}

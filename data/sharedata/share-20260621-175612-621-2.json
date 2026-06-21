@@ -1,10 +1,10 @@
 {
   "type": "def.localdata.archive.v1",
   "schemaVersion": 1,
-  "id": "share-20260621-174651-621",
-  "name": "621",
-  "createdAt": "2026-06-21T09:46:51.015Z",
-  "exportedAt": "2026-06-21T09:46:51.015Z",
+  "id": "share-20260621-175612-621-2",
+  "name": "621-2",
+  "createdAt": "2026-06-21T09:56:12.965Z",
+  "exportedAt": "2026-06-21T09:56:12.965Z",
   "sections": [
     "all"
   ],
@@ -18675,6 +18675,7 @@
                   "category": "condition",
                   "value": 0.2,
                   "unit": "percent",
+                  "condition": "",
                   "valueMode": "fixed",
                   "description": "战技奔腾的多利：消耗腐蚀后施加物理脆弱(M3=20%)。",
                   "raw": "脆弱效果20%(M3)。",
@@ -18688,6 +18689,7 @@
                   "category": "condition",
                   "value": 0.2,
                   "unit": "percent",
+                  "condition": "",
                   "valueMode": "fixed",
                   "description": "战技奔腾的多利：消耗腐蚀后施加法术脆弱(M3=20%)。",
                   "raw": "脆弱效果20%(M3)。",
@@ -18701,6 +18703,7 @@
                   "category": "condition",
                   "value": 0.28,
                   "unit": "percent",
+                  "condition": "",
                   "valueMode": "fixed",
                   "description": "潜能1羊的乐园：物理脆弱+8%，最终=28%。",
                   "raw": "羊的乐园：物理脆弱+8%。",
@@ -18714,6 +18717,7 @@
                   "category": "condition",
                   "value": 0.28,
                   "unit": "percent",
+                  "condition": "",
                   "valueMode": "fixed",
                   "description": "潜能1羊的乐园：法术脆弱+8%，最终=28%。",
                   "raw": "羊的乐园：法术脆弱+8%。",
@@ -18726,6 +18730,7 @@
                   "type": "multiplierBonus",
                   "category": "condition",
                   "unit": "percent",
+                  "condition": "",
                   "valueMode": "fixed",
                   "description": "潜能5火山蒸汽：连携技火山蘑菇云伤害倍率×1.2。",
                   "raw": "火山蒸汽：连携技火山蘑菇云伤害倍率提升至1.2倍。",
@@ -19050,6 +19055,7 @@
                   "category": "condition",
                   "value": 0.07,
                   "unit": "percent",
+                  "condition": "",
                   "valueMode": "fixed",
                   "description": "连携技压力测试命中敌人时，如果目标已经处于寒冷附着或冻结状态，还会使目标受到的寒冷伤害+7%，持续5秒，该效果无法叠加。",
                   "raw": "连携技压力测试命中敌人时，如果目标已经处于寒冷附着或冻结状态，还会使目标受到的寒冷伤害+7%，持续5秒，该效果无法叠加。",
@@ -19063,6 +19069,7 @@
                   "category": "condition",
                   "value": 0.1,
                   "unit": "percent",
+                  "condition": "",
                   "valueMode": "fixed",
                   "description": "连携技压力测试命中敌人时，如果目标已经处于寒冷附着或冻结状态，还会使目标受到的寒冷伤害+10%，持续5秒，该效果无法叠加。",
                   "raw": "连携技压力测试命中敌人时，如果目标已经处于寒冷附着或冻结状态，还会使目标受到的寒冷伤害+10%，持续5秒，该效果无法叠加。",
@@ -19080,6 +19087,7 @@
                   "category": "condition",
                   "value": 15,
                   "unit": "flat",
+                  "condition": "",
                   "valueMode": "fixed",
                   "description": "智识+15。",
                   "raw": "灰度发布：智识+15，治疗效率+10%。",
@@ -19093,6 +19101,7 @@
                   "category": "condition",
                   "value": 0.1,
                   "unit": "percent",
+                  "condition": "",
                   "valueMode": "fixed",
                   "description": "治疗效率+10%。",
                   "raw": "灰度发布：智识+15，治疗效率+10%。",
@@ -19110,6 +19119,7 @@
                   "category": "condition",
                   "value": 0.24,
                   "unit": "percent",
+                  "condition": "",
                   "valueMode": "fixed",
                   "description": "终结技栈溢出：对全队施加寒冷增幅，基础寒冷增幅效果+24%。",
                   "raw": "基础寒冷增幅效果 24%（M3）",
@@ -19121,6 +19131,8 @@
                   "name": "终结技·栈溢出·每点智识寒冷增幅",
                   "type": "iceDmgBonus",
                   "category": "condition",
+                  "unit": "",
+                  "condition": "",
                   "valueMode": "derived",
                   "derivedValue": {
                     "source": "intelligence",
@@ -19138,6 +19150,7 @@
                   "category": "condition",
                   "value": 0.24,
                   "unit": "percent",
+                  "condition": "",
                   "valueMode": "fixed",
                   "description": "终结技栈溢出：对全队施加自然增幅，基础自然增幅效果+24%。",
                   "raw": "基础自然增幅效果 24%（M3）",
@@ -19149,6 +19162,8 @@
                   "name": "终结技·栈溢出·每点智识自然增幅",
                   "type": "natureDmgBonus",
                   "category": "condition",
+                  "unit": "",
+                  "condition": "",
                   "valueMode": "derived",
                   "derivedValue": {
                     "source": "intelligence",
@@ -19166,6 +19181,7 @@
                   "category": "condition",
                   "value": 0.15,
                   "unit": "percent",
+                  "condition": "",
                   "valueMode": "fixed",
                   "description": "战技分布式拒绝服务：触发回复时若主控生命值已满，对其施加法术增幅+15%。",
                   "raw": "法术增幅效果 15%（M3）",
@@ -19179,6 +19195,7 @@
                   "category": "condition",
                   "value": 0.264,
                   "unit": "percent",
+                  "condition": "",
                   "valueMode": "fixed",
                   "description": "潜能5可控递归：终结技栈溢出基础寒冷增幅提高至1.1倍（24%×1.1=26.4%）。",
                   "raw": "五潜可控递归：终结技栈溢出基础寒冷增幅效果提高至原本的1.1倍。",
@@ -19190,6 +19207,8 @@
                   "name": "五潜·终结技·栈溢出·每点智识寒冷增幅",
                   "type": "iceDmgBonus",
                   "category": "condition",
+                  "unit": "",
+                  "condition": "",
                   "valueMode": "derived",
                   "derivedValue": {
                     "source": "intelligence",
@@ -19207,6 +19226,7 @@
                   "category": "condition",
                   "value": 0.264,
                   "unit": "percent",
+                  "condition": "",
                   "valueMode": "fixed",
                   "description": "潜能5可控递归：终结技栈溢出基础自然增幅提高至1.1倍（24%×1.1=26.4%）。",
                   "raw": "五潜可控递归：终结技栈溢出基础自然增幅效果提高至原本的1.1倍。",
@@ -19218,6 +19238,8 @@
                   "name": "五潜·终结技·栈溢出·每点智识自然增幅",
                   "type": "natureDmgBonus",
                   "category": "condition",
+                  "unit": "",
+                  "condition": "",
                   "valueMode": "derived",
                   "derivedValue": {
                     "source": "intelligence",
@@ -19235,6 +19257,7 @@
                   "category": "condition",
                   "value": 0.2,
                   "unit": "percent",
+                  "condition": "",
                   "valueMode": "fixed",
                   "description": "潜能1敏捷实践：支援晶体提供的法术增幅额外提高5%（15%→20%）。",
                   "raw": "敏捷实践：支援晶体提供的法术增幅额外提高5%。",
@@ -20770,6 +20793,7 @@
                   "type": "multiplierBonus",
                   "category": "condition",
                   "unit": "flat",
+                  "condition": "",
                   "valueMode": "fixed",
                   "description": "天赋-冷面无情·突破2",
                   "raw": "开天命中时若目标处于物理脆弱或失衡，伤害倍率1.2倍",
@@ -20790,6 +20814,7 @@
                   "category": "condition",
                   "value": 0.05,
                   "unit": "percent",
+                  "condition": "",
                   "valueMode": "fixed",
                   "description": "潜能1-不息巡行",
                   "raw": "连携技施加物理脆弱额外+5%，持续+4秒",
@@ -20803,6 +20828,7 @@
                   "category": "condition",
                   "value": 20,
                   "unit": "flat",
+                  "condition": "",
                   "valueMode": "fixed",
                   "description": "潜能2-心手合一：力量+20",
                   "raw": "力量+20，源石技艺强度+",
@@ -20816,6 +20842,7 @@
                   "category": "condition",
                   "value": 0.06,
                   "unit": "percent",
+                  "condition": "",
                   "valueMode": "fixed",
                   "description": "潜能3-热身完毕：怒意留心触发时额外获得攻击力+6%，持续20秒",
                   "raw": "天赋怒意留心效果加强：护盾持续时间+5秒，护盾触发间隔-15秒，每次触发时额外获得攻击力+6%，持续20秒",
@@ -20829,6 +20856,7 @@
                   "category": "condition",
                   "value": 0.1,
                   "unit": "percent",
+                  "condition": "",
                   "valueMode": "fixed",
                   "description": "潜能5-拳出山林",
                   "raw": "战技断云追形开天伤害倍率1.1倍，终结技失衡+5",
@@ -20842,6 +20870,7 @@
                   "category": "condition",
                   "value": 16,
                   "unit": "flat",
+                  "condition": "",
                   "valueMode": "fixed",
                   "description": "潜能2-心手合一：力量+20",
                   "raw": "力量+20，源石技艺强度+16",
@@ -20859,6 +20888,7 @@
                   "category": "condition",
                   "value": 0.05,
                   "unit": "percent",
+                  "condition": "",
                   "valueMode": "fixed",
                   "description": "连携技拳出无悔：对目标施加物理脆弱5%，持续16秒",
                   "raw": "对前方敌人造成物理伤害，同时施加物理脆弱5%，持续16秒",
@@ -21942,43 +21972,46 @@
             "talent": {
               "effects": {
                 "effect1": {
+                  "schemaVersion": 2,
                   "effectId": "effect1",
                   "name": " 本质瓦解-30%自己加攻",
                   "type": "atkPercentBoost",
                   "category": "condition",
+                  "value": 0.3,
                   "unit": "percent",
+                  "condition": " 本质瓦解-30%自己加攻",
                   "valueMode": "fixed",
                   "description": "",
                   "raw": "",
-                  "effectKind": "modifier",
-                  "schemaVersion": 2,
-                  "value": 0.3,
-                  "condition": " 本质瓦解-30%自己加攻"
+                  "effectKind": "modifier"
                 },
                 "effect2": {
+                  "schemaVersion": 2,
                   "effectId": "effect2",
                   "name": " 本质瓦解-15%队友加攻",
                   "type": "atkPercentBoost",
                   "category": "condition",
+                  "value": 0.15,
                   "unit": "percent",
+                  "condition": "",
                   "valueMode": "fixed",
                   "description": "",
                   "raw": "",
-                  "effectKind": "modifier",
-                  "schemaVersion": 2,
-                  "value": 0.15
+                  "effectKind": "modifier"
                 },
                 "effect3": {
+                  "schemaVersion": 2,
                   "effectId": "effect3",
                   "name": "现实静滞-20%物理易伤",
                   "type": "physicalFragile",
                   "category": "passive",
+                  "value": 0.2,
                   "unit": "percent",
+                  "condition": "",
                   "valueMode": "fixed",
                   "description": "",
                   "raw": "",
-                  "effectKind": "modifier",
-                  "value": 0.2
+                  "effectKind": "modifier"
                 }
               }
             },
@@ -22976,7 +23009,7 @@
             "skill-A-1": {
               "displayName": "沸腾狼血",
               "buttonType": "A",
-              "iconUrl": "user-images/img-extra/单手剑普攻.png",
+              "iconUrl": "",
               "hitCount": 5,
               "hitMeta": {
                 "hit1": {
@@ -23079,7 +23112,7 @@
             "skill-A-2": {
               "displayName": "处决",
               "buttonType": "A",
-              "iconUrl": "user-images/img-extra/单手剑普攻.png",
+              "iconUrl": "",
               "hitCount": 1,
               "hitMeta": {
                 "hit1": {
@@ -23106,7 +23139,7 @@
             "skill-A-3": {
               "displayName": "下落攻击",
               "buttonType": "A",
-              "iconUrl": "user-images/img-extra/单手剑普攻.png",
+              "iconUrl": "",
               "hitCount": 1,
               "hitMeta": {
                 "hit1": {
@@ -23133,7 +23166,7 @@
             "skill-A-4": {
               "displayName": "斫痕·撕裂",
               "buttonType": "A",
-              "iconUrl": "user-images/img-operator/洛茜.png",
+              "iconUrl": "",
               "hitCount": 1,
               "hitMeta": {
                 "hit1": {
@@ -23160,7 +23193,7 @@
             "skill-B-1": {
               "displayName": "血红之影",
               "buttonType": "B",
-              "iconUrl": "user-images/img-operator/skiil-icon/洛茜/洛茜战技.png",
+              "iconUrl": "",
               "hitCount": 2,
               "hitMeta": {
                 "hit1": {
@@ -23206,7 +23239,7 @@
             "skill-E-1": {
               "displayName": "燎影时刻·一段",
               "buttonType": "E",
-              "iconUrl": "user-images/img-operator/skiil-icon/洛茜/洛茜连携技.png",
+              "iconUrl": "",
               "hitCount": 1,
               "hitMeta": {
                 "hit1": {
@@ -23233,7 +23266,7 @@
             "skill-E-2": {
               "displayName": "燎影时刻·二段",
               "buttonType": "E",
-              "iconUrl": "user-images/img-operator/skiil-icon/洛茜/洛茜连携技.png",
+              "iconUrl": "",
               "hitCount": 1,
               "hitMeta": {
                 "hit1": {
@@ -23260,7 +23293,7 @@
             "skill-Q-1": {
               "displayName": "利爪奇袭",
               "buttonType": "Q",
-              "iconUrl": "user-images/img-operator/skiil-icon/洛茜/洛茜终结技.png",
+              "iconUrl": "",
               "hitCount": 3,
               "hitMeta": {
                 "hit1": {
@@ -23376,7 +23409,7 @@
                   "type": "",
                   "category": "countable",
                   "value": 0,
-                  "maxStacks": 15,
+                  "maxStacks": 25,
                   "unit": "",
                   "condition": "",
                   "valueMode": "fixed",
@@ -23400,7 +23433,7 @@
                   "type": "",
                   "category": "countable",
                   "value": 0,
-                  "maxStacks": 15,
+                  "maxStacks": 25,
                   "unit": "",
                   "condition": "",
                   "valueMode": "fixed",
@@ -23424,7 +23457,7 @@
                   "type": "",
                   "category": "countable",
                   "value": 0,
-                  "maxStacks": 15,
+                  "maxStacks": 25,
                   "unit": "",
                   "condition": "",
                   "valueMode": "fixed",
@@ -23448,7 +23481,7 @@
                   "type": "",
                   "category": "countable",
                   "value": 0,
-                  "maxStacks": 15,
+                  "maxStacks": 25,
                   "unit": "",
                   "condition": "",
                   "valueMode": "fixed",
@@ -23510,7 +23543,7 @@
                   "raw": "",
                   "effectKind": "modifier",
                   "multiplier": {
-                    "coefficient": 0.1
+                    "coefficient": 1.1
                   }
                 },
                 "effect4": {
@@ -23534,10 +23567,10 @@
                 "effect1": {
                   "schemaVersion": 2,
                   "effectId": "effect1",
-                  "name": "连携·燎影时刻·暴击率+21%",
+                  "name": "连携·燎影时刻·暴击率+25%",
                   "type": "critRateBoost",
                   "category": "condition",
-                  "value": 0.21,
+                  "value": 0.25,
                   "unit": "percent",
                   "condition": "",
                   "valueMode": "fixed",
@@ -23548,14 +23581,14 @@
                 "effect2": {
                   "schemaVersion": 2,
                   "effectId": "effect2",
-                  "name": "连携·燎影时刻·爆伤+42%",
+                  "name": "连携·燎影时刻·爆伤+50%",
                   "type": "critDmgBonusBoost",
                   "category": "condition",
-                  "value": 0.42,
+                  "value": 0.5,
                   "unit": "percent",
                   "condition": "",
                   "valueMode": "fixed",
-                  "description": "连携技二段后暴击伤害+42%(L9)",
+                  "description": "连携技二段后暴击伤害+50%(L9)",
                   "raw": "",
                   "effectKind": "modifier"
                 },
@@ -24049,6 +24082,7 @@
                   "category": "condition",
                   "value": 10,
                   "unit": "flat",
+                  "condition": "",
                   "valueMode": "fixed",
                   "description": "天赋灼心：4层熔火后无视敌人10点灼热抗性，持续20秒。",
                   "raw": "灼心默认：4层熔火后造成的伤害无视敌人10点灼热抗性，持续20秒。",
@@ -24062,6 +24096,7 @@
                   "category": "condition",
                   "value": 15,
                   "unit": "flat",
+                  "condition": "",
                   "valueMode": "fixed",
                   "description": "天赋灼心突破1：4层熔火后无视敌人15点灼热抗性，持续20秒。",
                   "raw": "灼心突破1：4层熔火后造成的伤害无视敌人15点灼热抗性，持续20秒。",
@@ -24075,6 +24110,7 @@
                   "category": "condition",
                   "value": 20,
                   "unit": "flat",
+                  "condition": "",
                   "valueMode": "fixed",
                   "description": "天赋灼心突破3：4层熔火后无视敌人20点灼热抗性，持续20秒。",
                   "raw": "灼心突破3：4层熔火后造成的伤害无视敌人20点灼热抗性，持续20秒。",
@@ -24088,6 +24124,7 @@
                   "category": "condition",
                   "value": 0.9,
                   "unit": "percent",
+                  "condition": "",
                   "valueMode": "fixed",
                   "description": "天赋复燃突破2：生命值低于40%时获得90%庇护，持续4秒，120秒CD。",
                   "raw": "复燃突破2：生命值<40%时获得90%庇护，每秒回复5%最大生命值，持续4秒，120秒CD。",
@@ -24101,6 +24138,7 @@
                   "category": "condition",
                   "value": 0.9,
                   "unit": "percent",
+                  "condition": "",
                   "valueMode": "fixed",
                   "description": "天赋复燃突破3：生命值低于40%时获得90%庇护，持续8秒，120秒CD。",
                   "raw": "复燃突破3：生命值<40%时获得90%庇护，每秒回复5%最大生命值，持续8秒，120秒CD。",
@@ -24117,8 +24155,10 @@
                   "type": "multiplierBonus",
                   "category": "condition",
                   "unit": "multiplier",
+                  "condition": "",
                   "valueMode": "fixed",
                   "description": "潜能1-熔火之心",
+                  "raw": "",
                   "effectKind": "modifier",
                   "multiplier": {
                     "coefficient": 1.2
@@ -24132,8 +24172,10 @@
                   "category": "condition",
                   "value": 20,
                   "unit": "flat",
+                  "condition": "",
                   "valueMode": "fixed",
                   "description": "潜能2-追忆之旅：智识+20",
+                  "raw": "",
                   "effectKind": "modifier"
                 },
                 "effect3": {
@@ -24144,8 +24186,10 @@
                   "category": "condition",
                   "value": 0.15,
                   "unit": "percent",
+                  "condition": "",
                   "valueMode": "fixed",
                   "description": "潜能2-追忆之旅：普通攻击伤害+15%",
+                  "raw": "",
                   "effectKind": "modifier"
                 },
                 "effect4": {
@@ -24156,8 +24200,10 @@
                   "category": "condition",
                   "value": 0.5,
                   "unit": "percent",
+                  "condition": "",
                   "valueMode": "fixed",
                   "description": "潜能3-往事碎片",
+                  "raw": "",
                   "effectKind": "modifier"
                 },
                 "effect5": {
@@ -24167,8 +24213,10 @@
                   "type": "multiplierBonus",
                   "category": "condition",
                   "unit": "multiplier",
+                  "condition": "",
                   "valueMode": "fixed",
                   "description": "潜能5-存在的证明",
+                  "raw": "",
                   "effectKind": "modifier",
                   "multiplier": {
                     "coefficient": 1.2
@@ -25229,6 +25277,7 @@
                   "category": "condition",
                   "value": 0.1,
                   "unit": "percent",
+                  "condition": "",
                   "valueMode": "fixed",
                   "description": "天赋冰点突破2：对处于寒冷附着状态的敌人暴击伤害+10%，冻结状态效果加倍(+20%)。",
                   "raw": "冰点突破2：对处于寒冷附着状态的敌人造成的暴击伤害+10%；对处于冻结状态的敌人效果加倍。",
@@ -25242,6 +25291,7 @@
                   "category": "condition",
                   "value": 0.2,
                   "unit": "percent",
+                  "condition": "",
                   "valueMode": "fixed",
                   "description": "天赋冰点突破3：对处于寒冷附着状态的敌人暴击伤害+20%，冻结状态效果加倍(+40%)。",
                   "raw": "冰点突破3：对处于寒冷附着状态的敌人造成的暴击伤害+20%；对处于冻结状态的敌人效果加倍。",
@@ -25255,6 +25305,7 @@
                   "category": "condition",
                   "value": 0.5,
                   "unit": "percent",
+                  "condition": "",
                   "valueMode": "fixed",
                   "description": "天赋科技连击突破2：战技成功施加冻结后，下一次普通攻击的重击伤害+50%。",
                   "raw": "科技连击突破2：战技冰冰弹·β型成功施加冻结后，下一次普通攻击直接施放重击，且此次重击造成的伤害+50%。",
@@ -25268,6 +25319,7 @@
                   "category": "condition",
                   "value": 0.1,
                   "unit": "percent",
+                  "condition": "",
                   "valueMode": "fixed",
                   "description": "潜能3嘀嗒充能：天赋冰点效果加强，额外+10%暴击伤害，冻结加倍(+20%)。",
                   "raw": "嘀嗒充能：天赋冰点效果加强：对处于寒冷附着状态的敌人造成的暴击伤害额外+10%；对处于冻结状态的敌人效果同样加倍。",
@@ -25281,6 +25333,7 @@
                   "category": "condition",
                   "value": 0.2,
                   "unit": "percent",
+                  "condition": "",
                   "valueMode": "fixed",
                   "description": "天赋冰点突破2：对冻结状态的敌人暴击伤害+20%。",
                   "raw": "冰点突破2：冻结状态效果加倍(寒冷10%→冻结20%)。",
@@ -25294,6 +25347,7 @@
                   "category": "condition",
                   "value": 0.4,
                   "unit": "percent",
+                  "condition": "",
                   "valueMode": "fixed",
                   "description": "天赋冰点突破3：对冻结状态的敌人暴击伤害+40%。",
                   "raw": "冰点突破3：冻结状态效果加倍(寒冷20%→冻结40%)。",
@@ -25307,6 +25361,7 @@
                   "category": "condition",
                   "value": 0.2,
                   "unit": "percent",
+                  "condition": "",
                   "valueMode": "fixed",
                   "description": "潜能3嘀嗒充能：对冻结状态的敌人额外暴击伤害+20%。",
                   "raw": "嘀嗒充能：冻结状态效果加倍(额外寒冷10%→冻结+20%)。",
@@ -25324,6 +25379,7 @@
                   "category": "condition",
                   "value": 20,
                   "unit": "flat",
+                  "condition": "",
                   "valueMode": "fixed",
                   "description": "潜能2完美造物：智识+20。",
                   "raw": "完美造物：智识+20，暴击率+7%。",
@@ -25337,6 +25393,7 @@
                   "category": "condition",
                   "value": 0.07,
                   "unit": "percent",
+                  "condition": "",
                   "valueMode": "fixed",
                   "description": "潜能2完美造物：暴击率+7%。",
                   "raw": "完美造物：智识+20，暴击率+7%。",
@@ -25355,6 +25412,7 @@
                   "value": 0.03,
                   "maxStacks": 10,
                   "unit": "percent",
+                  "condition": "",
                   "valueMode": "fixed",
                   "description": "终结技冷冻射手：每次普攻暴击率+3%，最多叠加10层。",
                   "raw": "每层暴击率增加3%，最大叠加层数10。",
@@ -25368,6 +25426,7 @@
                   "category": "condition",
                   "value": 0.6,
                   "unit": "percent",
+                  "condition": "",
                   "valueMode": "fixed",
                   "description": "终结技冷冻射手：叠加至最大层数后，暴击伤害+60%。",
                   "raw": "满层暴击伤害增加60%。",
@@ -25381,6 +25440,7 @@
                   "category": "condition",
                   "value": 0.1,
                   "unit": "percent",
+                  "condition": "",
                   "valueMode": "fixed",
                   "description": "潜能5机巧专家：终结技冷冻射手持续期间，攻击力+10%。",
                   "raw": "机巧专家：终结技冷冻射手持续期间，攻击力+10%，暴击伤害+30%。",
@@ -25394,6 +25454,7 @@
                   "category": "condition",
                   "value": 0.3,
                   "unit": "percent",
+                  "condition": "",
                   "valueMode": "fixed",
                   "description": "潜能5机巧专家：终结技冷冻射手持续期间，暴击伤害+30%。",
                   "raw": "机巧专家：终结技冷冻射手持续期间，攻击力+10%，暴击伤害+30%。",
@@ -26059,6 +26120,7 @@
                   "category": "condition",
                   "value": 0.06,
                   "unit": "percent",
+                  "condition": "",
                   "valueMode": "fixed",
                   "description": "天赋委婉手段突破2：终结技命中施加6%电磁脆弱，持续10秒。",
                   "raw": "委婉手段突破2：终结技命中施加6%电磁脆弱。",
@@ -26072,6 +26134,7 @@
                   "category": "condition",
                   "value": 0.1,
                   "unit": "percent",
+                  "condition": "",
                   "valueMode": "fixed",
                   "description": "天赋委婉手段突破3：终结技命中施加10%电磁脆弱，持续10秒。",
                   "raw": "委婉手段突破3：终结技命中施加10%电磁脆弱。",
@@ -26089,6 +26152,7 @@
                   "category": "passive",
                   "value": 15,
                   "unit": "flat",
+                  "condition": "",
                   "valueMode": "fixed",
                   "description": "潜能3绝不让步：意志+15。",
                   "raw": "绝不让步：意志+15，电磁伤害+8%。",
@@ -26102,6 +26166,7 @@
                   "category": "condition",
                   "value": 0.08,
                   "unit": "percent",
+                  "condition": "",
                   "valueMode": "fixed",
                   "description": "潜能3绝不让步：电磁伤害+8%。",
                   "raw": "绝不让步：意志+15，电磁伤害+8%。",
@@ -26114,8 +26179,10 @@
                   "type": "multiplierBonus",
                   "category": "condition",
                   "unit": "flat",
+                  "condition": "",
                   "valueMode": "fixed",
                   "description": "潜能5恩威并施：召回雷枪/强雷枪命中电磁脆弱敌人，伤害倍率×1.15。",
+                  "raw": "",
                   "effectKind": "modifier",
                   "multiplier": {
                     "coefficient": 1.15
@@ -26133,6 +26200,8 @@
                   "category": "countable",
                   "value": 0,
                   "maxStacks": 39,
+                  "unit": "",
+                  "condition": "",
                   "valueMode": "fixed",
                   "description": "召回雷枪额外伤害(M3=168%)。",
                   "raw": "雷枪伤害倍率168%。",
@@ -26155,6 +26224,8 @@
                   "category": "countable",
                   "value": 0,
                   "maxStacks": 10,
+                  "unit": "",
+                  "condition": "",
                   "valueMode": "fixed",
                   "description": "召回强雷枪额外伤害(M3=432%)。",
                   "raw": "强雷枪伤害倍率432%。",
@@ -26619,8 +26690,10 @@
                   "value": 0.06,
                   "maxStacks": 4,
                   "unit": "percent",
+                  "condition": "",
                   "valueMode": "fixed",
                   "description": "每消耗1层破防后，物理伤害+6%，最多叠加4层。",
+                  "raw": "",
                   "effectKind": "modifier"
                 }
               }
@@ -26635,8 +26708,10 @@
                   "category": "condition",
                   "value": 15,
                   "unit": "flat",
+                  "condition": "",
                   "valueMode": "fixed",
                   "description": "力量<@ba.vup>+{Str:0}</>，造成的物理伤害<@ba.vup>+{PhysicalDamageIncrease:0%}</>。",
+                  "raw": "",
                   "effectKind": "modifier"
                 },
                 "effect3": {
@@ -26647,8 +26722,10 @@
                   "category": "condition",
                   "value": 0.3,
                   "unit": "percent",
+                  "condition": "",
                   "valueMode": "fixed",
                   "description": "终结技至少击败一个敌人后，物理伤害+30%。",
+                  "raw": "",
                   "effectKind": "modifier"
                 }
               }
@@ -27480,12 +27557,14 @@
                   "category": "condition",
                   "value": 0.0008,
                   "unit": "percent",
+                  "condition": "",
                   "valueMode": "derived",
                   "derivedValue": {
                     "source": "intelligence",
                     "perPointValue": 0.008
                   },
                   "description": "使用战技<@ba.key>疾风迅雷</>成功触发<@ba.key>{count:0}</>次额外效果后，根据自身的智识，提升全队造成的<@ba.pulse>电磁伤害</>，每点智识<@ba.vup>+{pulse_up:0.00%}</>，持续<@ba.vup>{duration:0}</>秒，该效果无法叠加。",
+                  "raw": "",
                   "effectKind": "modifier"
                 },
                 "effect2": {
@@ -27496,12 +27575,14 @@
                   "category": "condition",
                   "value": 0.0008,
                   "unit": "percent",
+                  "condition": "",
                   "valueMode": "derived",
                   "derivedValue": {
                     "source": "intelligence",
                     "perPointValue": 0.0104
                   },
                   "description": "使用战技<@ba.key>疾风迅雷</>成功触发<@ba.key>{count:0}</>次额外效果后，根据自身的智识，提升全队造成的<@ba.pulse>电磁伤害</>，每点智识<@ba.vup>+{pulse_up:0.00%}</>，持续<@ba.vup>{duration:0}</>秒，该效果无法叠加。",
+                  "raw": "",
                   "effectKind": "modifier"
                 }
               }
@@ -27516,8 +27597,10 @@
                   "category": "passive",
                   "value": 15,
                   "unit": "flat",
+                  "condition": "",
                   "valueMode": "fixed",
                   "description": "敏捷<@ba.vup>+{Agi:0}</>，智识<@ba.vup>+{Wisd:0}</>。",
+                  "raw": "",
                   "effectKind": "modifier"
                 },
                 "effect3": {
@@ -27528,8 +27611,10 @@
                   "category": "passive",
                   "value": 15,
                   "unit": "flat",
+                  "condition": "",
                   "valueMode": "fixed",
                   "description": "敏捷<@ba.vup>+{Agi:0}</>，智识<@ba.vup>+{Wisd:0}</>。",
+                  "raw": "",
                   "effectKind": "modifier"
                 }
               }
@@ -28175,8 +28260,10 @@
                   "value": 0.1,
                   "maxStacks": 5,
                   "unit": "percent",
+                  "condition": "",
                   "valueMode": "fixed",
                   "description": "通过技能恢复技力后，攻击力+10%，最多叠加5层。",
+                  "raw": "",
                   "effectKind": "modifier"
                 },
                 "effect2": {
@@ -28187,8 +28274,10 @@
                   "category": "condition",
                   "value": 10,
                   "unit": "flat",
+                  "condition": "",
                   "valueMode": "fixed",
                   "description": "敏捷+<@ba.vup>{Agi:0}</>，智识+<@ba.vup>{Wisd:0}</>。",
+                  "raw": "",
                   "effectKind": "modifier"
                 },
                 "effect3": {
@@ -28199,8 +28288,10 @@
                   "category": "condition",
                   "value": 10,
                   "unit": "flat",
+                  "condition": "",
                   "valueMode": "fixed",
                   "description": "敏捷+<@ba.vup>{Agi:0}</>，智识+<@ba.vup>{Wisd:0}</>。",
+                  "raw": "",
                   "effectKind": "modifier"
                 },
                 "effect4": {
@@ -28211,8 +28302,10 @@
                   "category": "condition",
                   "value": 0.1,
                   "unit": "percent",
+                  "condition": "",
                   "valueMode": "fixed",
                   "description": "施放终结技<@ba.key>小队，集结！</>期间，全队攻击力<@ba.vup>+{atk:0%}</>。",
+                  "raw": "",
                   "effectKind": "modifier"
                 }
               }
@@ -30151,8 +30244,10 @@
                   "category": "passive",
                   "value": 15,
                   "unit": "flat",
+                  "condition": "",
                   "valueMode": "fixed",
                   "description": "力量<@ba.vup>+{Str:0}</>，智识<@ba.vup>+{Wisd:0}</>。",
+                  "raw": "",
                   "effectKind": "modifier"
                 },
                 "effect2": {
@@ -30163,8 +30258,10 @@
                   "category": "passive",
                   "value": 15,
                   "unit": "flat",
+                  "condition": "",
                   "valueMode": "fixed",
                   "description": "力量<@ba.vup>+{Str:0}</>，智识<@ba.vup>+{Wisd:0}</>。",
+                  "raw": "",
                   "effectKind": "modifier"
                 },
                 "effect3": {
@@ -30175,8 +30272,10 @@
                   "category": "condition",
                   "value": 0.15,
                   "unit": "percent",
+                  "condition": "",
                   "valueMode": "fixed",
                   "description": "连携技<@ba.key>凿孔底钓术</>成功钓起<@ba.key>珍鳞</>后，全队攻击力<@ba.vup>+{atk_up:0%}</>，持续<@ba.vup>{Duration:0}</>秒，该效果无法叠加。",
+                  "raw": "",
                   "effectKind": "modifier"
                 },
                 "effect4": {
@@ -30186,8 +30285,10 @@
                   "type": "multiplierBonus",
                   "category": "condition",
                   "unit": "percent",
+                  "condition": "",
                   "valueMode": "fixed",
                   "description": "终结技命中HP<50%目标时，伤害倍率提升至1.5倍。",
+                  "raw": "",
                   "effectKind": "modifier",
                   "multiplier": {
                     "coefficient": 1.5
@@ -79138,7 +79239,7 @@
       "def.timeline.data.v1": {
         "version": "1.1.0",
         "createdAt": 1782034584706,
-        "updatedAt": 1782034985882,
+        "updatedAt": 1782035231402,
         "staffLines": [
           {
             "staffIndex": 0,
