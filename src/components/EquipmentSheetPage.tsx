@@ -129,6 +129,8 @@ interface EquipmentValueCatalogEntry {
   count: number;
 }
 
+type EquipmentEffectShape = 'two-effects' | 'three-effects';
+
 type EquipmentRow =
   | {
       kind: 'set';
@@ -594,6 +596,7 @@ function getEquipmentBuffBusinessType(buff: EquipmentThreePieceBuff | undefined)
 }
 
 const EQUIPMENT_VALUE_PRESETS = equipmentValuePresetsRaw as EquipmentValuePresetFile;
+const EQUIPMENT_VALUE_CATALOG_EXCLUDED_GEAR_SET_IDS = new Set(['gear-set-tian-zai-fang-hu', 'gear-set-shu-nan']);
 
 const DEFAULT_FIXED_STAT_BY_PART: Record<EquipmentPart, EquipmentFixedStat> = {
   '护甲': { label: '防御力', typeKey: 'defense', value: 56, unit: 'flat', raw: '防御力：+56' },
@@ -639,22 +642,55 @@ function normalizePresetLevels(effect: EquipmentValuePresetEffect): Partial<Reco
   return hasSuspiciousFlatLevels ? rawLevels : levels;
 }
 
-function makeValueCatalogKey(part: EquipmentPart, effectId: EquipmentEffectId, typeKey: string) {
-  return `${part}:${effectId}:${typeKey}`;
+function getEquipmentEffectShapeFromCount(effectCount: number): EquipmentEffectShape {
+  return effectCount <= 2 ? 'two-effects' : 'three-effects';
+}
+
+function getEquipmentEffectShape(equipment: Pick<EquipmentItem, 'effects'>): EquipmentEffectShape {
+  return getEquipmentEffectShapeFromCount(Object.keys(equipment.effects).length);
+}
+
+function makeValueCatalogKey(part: EquipmentPart, effectId: EquipmentEffectId, typeKey: string, shape: EquipmentEffectShape) {
+  return `${part}:${effectId}:${typeKey}:${shape}`;
+}
+
+function makeCatalogLevelsSignature(levels: Partial<Record<EquipmentLevelKey, number>>) {
+  return LEVEL_KEYS.map((levelKey) => {
+    const value = levels[levelKey];
+    return typeof value === 'number' && Number.isFinite(value) ? String(Math.round(value * 100) / 100) : '';
+  }).join('/');
+}
+
+function getNumberPrecision(value: number) {
+  if (!Number.isFinite(value)) return 0;
+  const text = String(value);
+  if (!text.includes('.')) return 0;
+  return text.split('.')[1]?.length ?? 0;
+}
+
+function getCatalogLevelsPrecisionScore(levels: Partial<Record<EquipmentLevelKey, number>>) {
+  return LEVEL_KEYS.reduce((score, levelKey) => {
+    const value = levels[levelKey];
+    return score + (typeof value === 'number' ? getNumberPrecision(value) : 0);
+  }, 0);
 }
 
 function buildEquipmentValueCatalog() {
-  const catalog: Record<string, EquipmentValueCatalogEntry> = {};
-  Object.values(EQUIPMENT_VALUE_PRESETS.gearSets || {}).forEach((gearSet) => {
+  const catalogCandidates: Record<string, EquipmentValueCatalogEntry[]> = {};
+  Object.entries(EQUIPMENT_VALUE_PRESETS.gearSets || {}).forEach(([gearSetId, gearSet]) => {
+    if (EQUIPMENT_VALUE_CATALOG_EXCLUDED_GEAR_SET_IDS.has(gearSetId)) {
+      return;
+    }
     Object.values(gearSet.equipments || {}).forEach((preset) => {
       const part = inferPresetPart(preset);
       if (!part) return;
+      const shape = getEquipmentEffectShapeFromCount(Object.keys(preset.effects || {}).length);
       Object.entries(preset.effects || {}).forEach(([effectId, effect]) => {
         if (!EFFECT_IDS.includes(effectId as EquipmentEffectId)) return;
         const typeKey = String(effect.typeKey || '');
         if (!typeKey) return;
         const typedEffectId = effectId as EquipmentEffectId;
-        const key = makeValueCatalogKey(part, typedEffectId, typeKey);
+        const key = makeValueCatalogKey(part, typedEffectId, typeKey, shape);
         const entry: EquipmentValueCatalogEntry = {
           label: String(effect.label || BUFF_TYPE_LABELS[typeKey] || typeKey),
           typeKey,
@@ -664,29 +700,51 @@ function buildEquipmentValueCatalog() {
           levels: normalizePresetLevels(effect),
           count: 1,
         };
-        const existing = catalog[key];
-        if (!existing || Object.keys(entry.levels).length > Object.keys(existing.levels).length) {
-          catalog[key] = entry;
-        } else if (existing) {
-          existing.count += 1;
+        const candidates = catalogCandidates[key] || [];
+        const existing = candidates.find((candidate) => (
+          candidate.category === entry.category
+          && candidate.unit === entry.unit
+          && makeCatalogLevelsSignature(candidate.levels) === makeCatalogLevelsSignature(entry.levels)
+        ));
+        if (existing) {
+          const nextCount = existing.count + 1;
+          if (getCatalogLevelsPrecisionScore(entry.levels) > getCatalogLevelsPrecisionScore(existing.levels)) {
+            Object.assign(existing, entry);
+          }
+          existing.count = nextCount;
+        } else {
+          candidates.push(entry);
+          catalogCandidates[key] = candidates;
         }
       });
     });
   });
-  return catalog;
+  return Object.fromEntries(Object.entries(catalogCandidates).map(([key, candidates]) => {
+    const [best] = candidates.sort((a, b) => {
+      const countDiff = b.count - a.count;
+      if (countDiff !== 0) return countDiff;
+      const precisionDiff = getCatalogLevelsPrecisionScore(b.levels) - getCatalogLevelsPrecisionScore(a.levels);
+      if (precisionDiff !== 0) return precisionDiff;
+      const levelDiff = normalizeNumber(b.levels['3'], 0) - normalizeNumber(a.levels['3'], 0);
+      if (levelDiff !== 0) return levelDiff;
+      return Object.keys(b.levels).length - Object.keys(a.levels).length;
+    });
+    return [key, best];
+  }));
 }
 
 const EQUIPMENT_VALUE_CATALOG = buildEquipmentValueCatalog();
 
-function getEquipmentEffectValuePreset(part: EquipmentPart, effectId: EquipmentEffectId, typeKey: string): EquipmentValueCatalogEntry | null {
+function getEquipmentEffectValuePreset(part: EquipmentPart, effectId: EquipmentEffectId, typeKey: string, shape: EquipmentEffectShape): EquipmentValueCatalogEntry | null {
   if (!typeKey) return null;
-  return EQUIPMENT_VALUE_CATALOG[makeValueCatalogKey(part, effectId, typeKey)] ?? null;
+  return EQUIPMENT_VALUE_CATALOG[makeValueCatalogKey(part, effectId, typeKey, shape)] ?? null;
 }
 
-function getEquipmentEffectTypeOptions(part: EquipmentPart, effectId: EquipmentEffectId, category: EquipmentEffectCategory) {
+function getEquipmentEffectTypeOptions(part: EquipmentPart, effectId: EquipmentEffectId, category: EquipmentEffectCategory, shape: EquipmentEffectShape) {
   const keyPrefix = `${part}:${effectId}:`;
+  const keySuffix = `:${shape}`;
   const options = Object.entries(EQUIPMENT_VALUE_CATALOG)
-    .filter(([key, entry]) => key.startsWith(keyPrefix) && entry.category === category)
+    .filter(([key, entry]) => key.startsWith(keyPrefix) && key.endsWith(keySuffix) && entry.category === category)
     .map(([, entry]) => entry.typeKey)
     .sort((a, b) => (BUFF_TYPE_LABELS[a] || a).localeCompare(BUFF_TYPE_LABELS[b] || b, 'zh-CN'));
   return options.length > 0 ? options : BUFF_TYPE_OPTIONS;
@@ -703,8 +761,8 @@ function applyFixedStatPresetForPart(fixedStat: EquipmentFixedStat | undefined, 
   };
 }
 
-function applyEffectValueCatalogForPart(effect: EquipmentEffect, part: EquipmentPart): EquipmentEffect {
-  const preset = getEquipmentEffectValuePreset(part, effect.effectId, effect.typeKey);
+function applyEffectValueCatalogForPart(effect: EquipmentEffect, part: EquipmentPart, shape: EquipmentEffectShape): EquipmentEffect {
+  const preset = getEquipmentEffectValuePreset(part, effect.effectId, effect.typeKey, shape);
   if (!preset) return effect;
   return {
     ...effect,
@@ -719,6 +777,7 @@ function applyEffectValueCatalogForPart(effect: EquipmentEffect, part: Equipment
 }
 
 function applyEquipmentPartValueCatalog(equipment: EquipmentItem, part = equipment.part): EquipmentItem {
+  const shape = getEquipmentEffectShape(equipment);
   return {
     ...equipment,
     part,
@@ -726,7 +785,7 @@ function applyEquipmentPartValueCatalog(equipment: EquipmentItem, part = equipme
     effects: Object.fromEntries(
       Object.entries(equipment.effects).map(([effectId, effect]) => [
         effectId,
-        effect ? applyEffectValueCatalogForPart(effect, part) : effect,
+        effect ? applyEffectValueCatalogForPart(effect, part, shape) : effect,
       ]),
     ) as Partial<Record<EquipmentEffectId, EquipmentEffect>>,
   };
@@ -764,7 +823,7 @@ function applyEquipmentValuePreset(item: EquipmentItem, preset: EquipmentValuePr
       levels: normalizePresetLevels(presetEffect),
     };
   });
-  return applyEquipmentPartValueCatalog(next);
+  return next;
 }
 
 function normalizeEquipmentLibrary(raw: unknown): EquipmentLibrary {
@@ -1025,7 +1084,8 @@ function applyCellValueToLibrary(
       if (!effect) return equipment;
       const nextCategory = columnKey === 'field' ? normalizeCategory(rawValue === '能力值' ? 'ability' : rawValue) : effect.category;
       const nextTypeKey = columnKey === 'effectKey' ? rawValue : effect.typeKey;
-      const availableTypeKeys = getEquipmentEffectTypeOptions(equipment.part, row.effectId, nextCategory);
+      const shape = getEquipmentEffectShape(equipment);
+      const availableTypeKeys = getEquipmentEffectTypeOptions(equipment.part, row.effectId, nextCategory, shape);
       const normalizedTypeKey = nextTypeKey && availableTypeKeys.includes(nextTypeKey) ? nextTypeKey : '';
       const nextEffect: EquipmentEffect = {
         ...effect,
@@ -1041,8 +1101,39 @@ function applyCellValueToLibrary(
         effects: {
           ...equipment.effects,
           [row.effectId]: columnKey === 'effectKey' || columnKey === 'field'
-            ? applyEffectValueCatalogForPart(nextEffect, equipment.part)
+            ? applyEffectValueCatalogForPart(nextEffect, equipment.part, shape)
             : nextEffect,
+        },
+      };
+    });
+  }
+  if (row.kind === 'effectLevels') {
+    const levelMatch = rawValue.match(/^([0-3]):(.*)$/s);
+    const levelKey = levelMatch?.[1] as EquipmentLevelKey;
+    if (!LEVEL_KEYS.includes(levelKey)) return library;
+    const levelValue = levelMatch?.[2] ?? '';
+    return updateLibraryEquipment(library, row.gearSetId, row.equipmentId, (equipment) => {
+      const effect = equipment.effects[row.effectId];
+      if (!effect) return equipment;
+      const nextLevels = { ...effect.levels };
+      const trimmedLevelValue = levelValue.trim();
+      if (!trimmedLevelValue || columnKey !== 'valueText') {
+        delete nextLevels[levelKey];
+      } else {
+        const parsedValue = normalizeNumber(trimmedLevelValue, NaN);
+        if (!Number.isFinite(parsedValue)) {
+          return equipment;
+        }
+        nextLevels[levelKey] = parsedValue;
+      }
+      return {
+        ...equipment,
+        effects: {
+          ...equipment.effects,
+          [row.effectId]: {
+            ...effect,
+            levels: nextLevels,
+          },
         },
       };
     });
@@ -2075,8 +2166,7 @@ export function EquipmentSheetPage() {
         value: effect?.levels[levelKey] == null ? '' : String(effect.levels[levelKey]),
         inputMode: 'number',
         placeholder: `Lv${levelKey}`,
-        readOnly: true,
-        commit: () => undefined,
+        commit: (value) => updateCellValue(row, columnKey, `${levelKey}:${value}`),
       };
     }
     const editable =
@@ -2171,7 +2261,7 @@ export function EquipmentSheetPage() {
             const equipment = library.gearSets[row.gearSetId]?.equipments[row.equipmentId];
             const effect = equipment?.effects[row.effectId];
             return equipment && effect
-              ? getEquipmentEffectTypeOptions(equipment.part, row.effectId, effect.category).map((typeKey) => ({
+              ? getEquipmentEffectTypeOptions(equipment.part, row.effectId, effect.category, getEquipmentEffectShape(equipment)).map((typeKey) => ({
                   value: typeKey,
                   label: `${BUFF_TYPE_LABELS[typeKey] || typeKey} · ${typeKey}`,
                 }))
@@ -2255,7 +2345,12 @@ export function EquipmentSheetPage() {
       return baseLibrary;
     }
     const row = selectedWorkbookRow.sourceRow;
-    if (row.kind === 'effectLevels') return baseLibrary;
+    if (row.kind === 'effectLevels') {
+      const levelKey = selectedCell.address.replace(/^Lv/, '') as EquipmentLevelKey;
+      return LEVEL_KEYS.includes(levelKey)
+        ? applyCellValueToLibrary(baseLibrary, row, selectedCell.columnKey, `${levelKey}:${formulaInput}`)
+        : baseLibrary;
+    }
     return applyCellValueToLibrary(baseLibrary, row, selectedCell.columnKey, formulaInput);
   }, [formulaBinding, formulaInput, selectedCell, selectedWorkbookRow]);
 
@@ -2315,6 +2410,10 @@ export function EquipmentSheetPage() {
       return;
     }
     if (row.kind === 'effectLevels') {
+      const levelKey = selectedCell.address.replace(/^Lv/, '') as EquipmentLevelKey;
+      if (LEVEL_KEYS.includes(levelKey)) {
+        updateCellValue(row, columnKey, `${levelKey}:`);
+      }
       return;
     }
     const editable =
@@ -2678,7 +2777,7 @@ export function EquipmentSheetPage() {
             const equipment = library.gearSets[sourceRow.gearSetId]?.equipments[sourceRow.equipmentId];
             const effect = equipment?.effects[sourceRow.effectId];
             return equipment && effect
-              ? getEquipmentEffectTypeOptions(equipment.part, sourceRow.effectId, effect.category)
+              ? getEquipmentEffectTypeOptions(equipment.part, sourceRow.effectId, effect.category, getEquipmentEffectShape(equipment))
               : BUFF_TYPE_OPTIONS;
           })()
         : BUFF_TYPE_OPTIONS;
@@ -2984,13 +3083,17 @@ export function EquipmentSheetPage() {
                           {LEVEL_KEYS.map((levelKey) => (
                             <div key={levelKey} className="weapon-sheet-growth-inline-item">
                               <span className="weapon-sheet-growth-inline-label">{`Lv${levelKey}`}</span>
-                              <span
+                              <input
                                 className="weapon-sheet-inline-input equipment-sheet-preset-value"
-                                tabIndex={0}
+                                type="number"
+                                step="any"
+                                value={effect?.levels[levelKey] == null ? '' : String(effect.levels[levelKey])}
                                 onFocus={() => setSelectedCell({ address: `Lv${levelKey}`, sourceRowKey: levelRow.key, columnKey: 'valueText' })}
-                              >
-                                {effect?.levels[levelKey] ?? '-'}
-                              </span>
+                                onChange={(event) => {
+                                  setSelectedCell({ address: `Lv${levelKey}`, sourceRowKey: levelRow.key, columnKey: 'valueText' });
+                                  updateCellValue(levelRow, 'valueText', `${levelKey}:${event.target.value}`);
+                                }}
+                              />
                             </div>
                           ))}
                         </div>
