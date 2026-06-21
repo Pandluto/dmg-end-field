@@ -1,7 +1,7 @@
 .ai-cli-page,
 body:has(.ai-cli-page),
 #root:has(.ai-cli-page) {
-  background: #050607;
+  background: #eaf3fb;
 }
 
 .ai-cli-page {
@@ -11,27 +11,34 @@ body:has(.ai-cli-page),
   min-height: 0;
   display: grid;
   grid-template-rows: minmax(0, 1fr) 36px;
-  color: #d7f8d7;
-  font-family: Consolas, 'Courier New', monospace;
+  padding: 12px;
+  color: #172f45;
+  background: #eaf3fb;
+  font-family: "Cascadia Mono", Consolas, "Microsoft YaHei UI", monospace;
+  font-weight: 400;
+  box-sizing: border-box;
 }
 
 .ai-cli-page ::selection {
-  background: #b8f24d;
-  color: #071007;
+  background: #b9ddf7;
+  color: #10283d;
 }
 
 .ai-cli-terminal-output {
   margin: 0;
   min-height: 0;
-  padding: 12px;
+  padding: 14px;
   overflow: auto;
   white-space: pre-wrap;
   word-break: break-word;
-  color: #d7f8d7;
-  background: #050607;
+  color: #172f45;
+  background: #fbfdff;
+  border: 1px solid #29465f;
+  box-shadow: 3px 3px 0 rgba(47, 114, 173, 0.12);
   font: inherit;
   font-size: 13px;
-  line-height: 1.45;
+  font-weight: 400;
+  line-height: 1.55;
 }
 
 .ai-cli-terminal-input-row {
@@ -41,13 +48,16 @@ body:has(.ai-cli-page),
   align-items: center;
   gap: 8px;
   padding: 0 12px;
-  border-top: 1px solid #1f3b1f;
-  background: #081008;
+  border: 1px solid #29465f;
+  border-top: 0;
+  background: #eef6fd;
+  box-shadow: 3px 3px 0 rgba(47, 114, 173, 0.12);
 }
 
 .ai-cli-terminal-prompt {
-  color: #7cff7c;
+  color: #245f91;
   font-size: 13px;
+  font-weight: 400;
   white-space: nowrap;
 }
 
@@ -57,7 +67,8 @@ body:has(.ai-cli-page),
   border: 0;
   outline: 0;
   background: transparent;
-  color: #f1fff1;
+  color: #10283d;
   font: inherit;
   font-size: 13px;
+  font-weight: 400;
 }

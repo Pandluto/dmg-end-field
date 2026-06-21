@@ -783,6 +783,258 @@
           justify-content: flex-start;
         }
       }
+
+      /* Blue-white fine-line shell theme */
+      :root {
+        --surface: #fbfdff;
+        --surface-2: #eaf3fb;
+        --line: #7f9db8;
+        --muted: #617c95;
+        --text: #172f45;
+        --ink: #20384d;
+        --green: #236f57;
+        --green-bg: #e4f3ee;
+        --amber: #83651d;
+        --amber-bg: #f7f0dc;
+        --red: #9d3f45;
+        --red-bg: #fae9eb;
+        --blue: #2f72ad;
+        --blue-bg: #dceeff;
+        background: #eaf3fb;
+        color: var(--text);
+      }
+
+      body {
+        background: #eaf3fb;
+        color: var(--text);
+        font-weight: 400;
+      }
+
+      button {
+        min-height: 28px;
+        border: 1px solid var(--line);
+        border-radius: 2px;
+        background: #fff;
+        color: var(--text);
+        font-weight: 400;
+        box-shadow: 1px 1px 0 rgba(47, 114, 173, 0.1);
+      }
+
+      button:hover {
+        border-color: #315f86;
+        background: var(--blue-bg);
+      }
+
+      .primary-button,
+      .nav-button.is-active,
+      .filter-button.is-active {
+        border-color: #29465f;
+        background: #2f72ad;
+        color: #fff;
+      }
+
+      .primary-button:hover {
+        background: #245f91;
+      }
+
+      input,
+      textarea,
+      select {
+        border: 1px solid var(--line);
+        border-radius: 2px;
+        background: #fff;
+        color: var(--text);
+        font-weight: 400;
+      }
+
+      input:focus,
+      textarea:focus,
+      select:focus {
+        border-color: #2f72ad;
+        box-shadow: 0 0 0 1px rgba(47, 114, 173, 0.2);
+      }
+
+      .sidebar {
+        border-right: 1px solid #29465f;
+        background: #f6fbff;
+      }
+
+      .close-mark {
+        border: 1px solid transparent;
+        border-radius: 2px;
+        box-shadow: none;
+      }
+
+      .brand-title,
+      .page-title,
+      .panel-title,
+      .action-title,
+      .field-label,
+      .item-title,
+      .modal-title {
+        color: #152b3d;
+        font-weight: 400;
+      }
+
+      .eyebrow,
+      .metric-label,
+      .status-label,
+      .archive-column-title {
+        font-weight: 400;
+      }
+
+      .metric-value {
+        color: #173b5f;
+        font-weight: 500;
+      }
+
+      .nav-button {
+        border-color: transparent;
+        border-radius: 2px;
+        background: transparent;
+        box-shadow: none;
+        font-weight: 400;
+      }
+
+      .nav-icon {
+        border: 1px solid #aac2d7;
+        border-radius: 2px;
+        background: #eef6fd;
+      }
+
+      .nav-button.is-active .nav-icon {
+        border-color: rgba(255, 255, 255, 0.72);
+        background: rgba(255, 255, 255, 0.14);
+      }
+
+      .action-block,
+      .panel,
+      .metric-card,
+      .status-card,
+      .archive-item,
+      .asset-item,
+      .image-update-progress,
+      .modal {
+        border: 1px solid var(--line);
+        border-radius: 2px;
+        background: var(--surface);
+        box-shadow: 2px 2px 0 rgba(47, 114, 173, 0.08);
+      }
+
+      .badge,
+      .pill {
+        border: 1px solid currentColor;
+        border-radius: 2px;
+        font-weight: 400;
+      }
+
+      .check-row {
+        border: 1px solid var(--line);
+        border-radius: 2px;
+        background: #fff;
+        font-weight: 400;
+      }
+
+      .archive-item.is-active,
+      .archive-item:hover,
+      .asset-item:hover {
+        border-color: #2f72ad;
+        background: #eef6fd;
+      }
+
+      .item-meta.is-strong {
+        color: #29465f;
+        font-weight: 400;
+      }
+
+      .log,
+      .code-output {
+        border: 1px solid #29465f;
+        border-radius: 2px;
+        background: #f8fbfe;
+        color: #173b5f;
+        box-shadow: inset 2px 0 0 #b9ddf7;
+      }
+
+      .empty-state {
+        border: 1px dashed #7899b8;
+        border-radius: 2px;
+        background: #f7fbff;
+      }
+
+      .progress-track {
+        border: 1px solid #8aa9c4;
+        border-radius: 2px;
+        background: #dce8f2;
+      }
+
+      .progress-fill {
+        border-radius: 0;
+        background: #4e91c8;
+      }
+
+      .modal-mask {
+        background: rgba(30, 65, 98, 0.28);
+      }
+
+      .modal {
+        box-shadow: 4px 4px 0 rgba(30, 83, 128, 0.18);
+      }
+
+      /* Higher-contrast ink pass */
+      :root {
+        --line: #4c5b68;
+        --muted: #526474;
+        --text: #161d24;
+        --ink: #111820;
+      }
+
+      body,
+      button,
+      input,
+      textarea,
+      select {
+        color: #161d24;
+      }
+
+      .sidebar,
+      .action-block,
+      .panel,
+      .metric-card,
+      .status-card,
+      .archive-item,
+      .asset-item,
+      .image-update-progress,
+      .modal,
+      input,
+      textarea,
+      select,
+      .check-row {
+        border-color: #4c5b68;
+      }
+
+      .brand-title,
+      .page-title,
+      .panel-title,
+      .action-title,
+      .field-label,
+      .item-title,
+      .modal-title,
+      .metric-value {
+        color: #0f1820;
+      }
+
+      .log,
+      .code-output {
+        color: #101a23;
+        border-color: #263746;
+      }
+
+      .nav-button:not(.is-active):hover,
+      .archive-item:hover,
+      .asset-item:hover {
+        color: #111820;
+      }
     </style>
   </head>
   <body>
