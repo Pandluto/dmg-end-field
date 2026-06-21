@@ -643,10 +643,7 @@
   width: 100%;
   aspect-ratio: 914 / 984;
   background-color: #F3F3F3;
-  background-image: url('http://127.0.0.1:31457/assets/images/operator-config-equip-stage-bg.png');
-  background-repeat: no-repeat;
-  background-position: center top;
-  background-size: 100% auto;
+  background-image: none;
 }
 /* 装备可视化区域底部 */
 .operator-config-page-equip-visual-bottom {
@@ -1360,10 +1357,7 @@
   overflow: hidden;
   background: transparent;
   background-color: transparent;
-  background-image: url('http://127.0.0.1:31457/assets/images/operator-config-equip-stage-bg.png');
-  background-repeat: no-repeat;
-  background-position: top center;
-  background-size: contain;
+  background-image: none;
   aspect-ratio: 914 / 984;
 }
 
@@ -1574,4 +1568,346 @@
     min-height: calc(100vh - 32px);
     height: calc(100vh - 32px);
   }
+}
+
+/* Blue-white sketch theme */
+.operator-config-page-root {
+  --operator-config-ink: #173b5f;
+  --operator-config-muted: #62809d;
+  --operator-config-line: #7899b8;
+  --operator-config-line-soft: #bfd1e2;
+  --operator-config-blue: #2f72ad;
+  --operator-config-blue-soft: #dceeff;
+  --operator-config-paper: #fbfdff;
+  --operator-config-paper-blue: #eef6fd;
+  --operator-config-page-panel-bg: #eaf3fb;
+  color: var(--operator-config-ink);
+  font-family: "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  font-weight: 400;
+}
+
+.operator-config-page-root button,
+.operator-config-page-root input,
+.operator-config-page-root textarea {
+  font-family: inherit;
+  letter-spacing: 0;
+}
+
+.operator-config-page-panel {
+  border: 1px solid var(--operator-config-line);
+  background: var(--operator-config-paper);
+  box-shadow: 3px 3px 0 rgba(47, 114, 173, 0.14);
+}
+
+.operator-config-page-panel .config-panel-header {
+  border-bottom: 1px solid var(--operator-config-line-soft);
+  background: var(--operator-config-paper-blue);
+}
+
+.operator-config-page-panel .config-panel-back-btn,
+.operator-config-page-panel .config-equip-sync-btn,
+.operator-config-page-panel .config-equip-copy-btn,
+.operator-config-page-panel .config-weapon-trigger,
+.operator-config-page-panel .config-weapon-data-trigger,
+.operator-config-page-panel .config-cti-input,
+.operator-config-page-panel .config-weapon-option {
+  color: var(--operator-config-ink);
+  border: 1px solid var(--operator-config-line);
+  background: #fff;
+  border-radius: 2px;
+  font-weight: 400;
+  box-shadow: 1px 1px 0 rgba(47, 114, 173, 0.12);
+}
+
+.operator-config-page-panel .config-panel-back-btn:hover,
+.operator-config-page-panel .config-equip-sync-btn:hover,
+.operator-config-page-panel .config-equip-copy-btn:hover,
+.operator-config-page-panel .config-equip-copy-btn.is-open,
+.operator-config-page-panel .config-weapon-trigger:hover,
+.operator-config-page-panel .config-weapon-trigger.is-open,
+.operator-config-page-panel .config-weapon-data-trigger:hover,
+.operator-config-page-panel .config-weapon-data-trigger.is-open,
+.operator-config-page-panel .config-weapon-option:hover,
+.operator-config-page-panel .config-weapon-option.is-selected {
+  color: #fff;
+  border-color: var(--operator-config-blue);
+  background: var(--operator-config-blue);
+}
+
+.operator-config-page-section,
+.operator-config-page-panel .config-data-section,
+.operator-config-page-panel .config-skill-card,
+.operator-config-page-panel .config-equip-values-box,
+.operator-config-page-panel .config-equip-set-box,
+.operator-config-page-panel .config-equip-set-sub-box,
+.operator-config-page-panel .config-cti-strip,
+.operator-config-page-panel .config-weapon-potential-box,
+.operator-config-page-panel .config-weapon-drawer,
+.operator-config-page-panel .config-weapon-data-drawer,
+.operator-config-page-panel .config-cti-drawer,
+.config-weapon-config {
+  color: var(--operator-config-ink);
+  border: 1px solid var(--operator-config-line-soft);
+  background: rgba(251, 253, 255, 0.96);
+  border-radius: 2px;
+  box-shadow: 2px 2px 0 rgba(47, 114, 173, 0.08);
+}
+
+.operator-config-page-section-title,
+.operator-config-page-panel .config-data-title,
+.operator-config-page-panel .config-equip-box-title,
+.operator-config-page-panel .config-skill-key,
+.operator-config-page-panel .config-skill-name,
+.operator-config-page-track-key,
+.operator-config-page-track-label,
+.operator-config-page-track-sublabel,
+.operator-config-page-equip-set-title,
+.config-weapon-choose-name,
+.config-weapon-config-value,
+.operator-config-page-picker-title,
+.operator-config-page-panel-detail-title {
+  color: var(--operator-config-ink);
+  font-weight: 400;
+}
+
+.operator-config-page-panel .config-data-label,
+.operator-config-page-panel .config-equip-item-label,
+.operator-config-page-panel .config-talent-desc,
+.config-weapon-choose-detail,
+.config-weapon-config-summary,
+.config-weapon-config-summary-line {
+  color: var(--operator-config-muted);
+  font-weight: 400;
+}
+
+.operator-config-page-panel .config-data-value,
+.operator-config-page-panel .config-talent-name,
+.operator-config-page-stat-value {
+  color: var(--operator-config-ink);
+  font-weight: 500;
+}
+
+.config-weapon-choose-showcase,
+.operator-config-page-weapon-star-showcase {
+  border: 1px solid var(--operator-config-line);
+  background: var(--operator-config-blue-soft);
+  box-shadow: 2px 2px 0 rgba(47, 114, 173, 0.12);
+}
+
+.config-weapon-choose-detail-textarea,
+.config-weapon-choose-img-area,
+.config-weapon-choose-img-square {
+  border-color: var(--operator-config-line);
+  background: rgba(255, 255, 255, 0.68);
+}
+
+.config-weapon-config-text,
+.config-weapon-config-text-3,
+.operator-config-page-role-meta-box,
+.operator-config-page-favor-input-layer,
+.operator-config-page-stat-item {
+  color: var(--operator-config-ink);
+  border: 1px solid var(--operator-config-line);
+  background: rgba(255, 255, 255, 0.74);
+  font-weight: 400;
+}
+
+.operator-config-page-favor-label {
+  font-weight: 400;
+}
+
+.operator-config-page-favor-input,
+.operator-config-page-track-detail-button {
+  color: var(--operator-config-ink);
+  border: 1px solid var(--operator-config-line);
+  background: #fff;
+  font-weight: 400;
+}
+
+.operator-config-page-level-slot,
+.operator-config-page-track-slot {
+  border: 1px solid var(--operator-config-line);
+  background: #fff;
+  box-shadow: 1px 1px 0 rgba(47, 114, 173, 0.1);
+}
+
+.operator-config-page-level-slot.is-active,
+.operator-config-page-track-slot.is-active {
+  border-color: var(--operator-config-blue);
+  background: var(--operator-config-blue-soft);
+}
+
+.config-weapon-config-button-row,
+.operator-config-page-equip-button-row {
+  border: 1px solid var(--operator-config-line);
+  background: rgba(255, 255, 255, 0.42);
+}
+
+.config-weapon-config-button,
+.operator-config-page-equip-button {
+  border: 1px solid #8eb8d8;
+  background: #edf7ff;
+}
+
+.config-weapon-config-button.is-current,
+.operator-config-page-equip-button.is-current {
+  border-color: #367fb8;
+  background: #76bce9;
+}
+
+.config-weapon-config-button.is-lit,
+.operator-config-page-equip-button.is-lit {
+  border-color: #6ba2ca;
+  background: #c9e7fa;
+}
+
+.config-weapon-config-button.is-dim,
+.operator-config-page-equip-button.is-dim {
+  border-color: #aac6dc;
+  background: #dcebf6;
+}
+
+.operator-config-page-equip-button-group {
+  background: rgba(238, 246, 253, 0.72);
+}
+
+.operator-config-page-equip-button-textdiv,
+.operator-config-page-equip-circle,
+.operator-config-page-equip-tooltip {
+  color: var(--operator-config-ink);
+  border: 1px solid var(--operator-config-line);
+  background: rgba(255, 255, 255, 0.9);
+}
+
+.operator-config-page-equip-visual-bottom,
+.operator-config-page-equip-visual-top {
+  border-color: var(--operator-config-line-soft);
+  background-color: var(--operator-config-paper-blue);
+}
+
+.operator-config-page-level-badge-box,
+.operator-config-page-weapon-star-square-box {
+  border: 1px solid var(--operator-config-line);
+  background: #d7e8f6;
+}
+
+.operator-config-page-track-badge-btn:focus-visible .operator-config-page-track-hex-svg polygon {
+  stroke: #367fb8;
+  stroke-width: 1;
+}
+
+.operator-config-page-level-badge-box:hover,
+.operator-config-page-level-badge-box:active,
+.operator-config-page-level-badge-box:focus,
+.operator-config-page-level-badge-box:focus-visible,
+.operator-config-page-weapon-star-square-box:hover,
+.operator-config-page-weapon-star-square-box:active,
+.operator-config-page-weapon-star-square-box:focus,
+.operator-config-page-weapon-star-square-box:focus-visible {
+  background: #c5e1f5 !important;
+}
+
+.operator-config-page-picker-backdrop,
+.operator-config-page-panel-detail-backdrop,
+.operator-config-page-skill-modal-backdrop {
+  background: rgba(27, 65, 101, 0.3);
+}
+
+.operator-config-page-picker-modal,
+.operator-config-page-panel-detail-modal,
+.operator-config-page-skill-modal {
+  color: var(--operator-config-ink);
+  border: 1px solid var(--operator-config-line);
+  background: var(--operator-config-paper);
+  box-shadow: 4px 4px 0 rgba(30, 83, 128, 0.2);
+}
+
+.operator-config-page-picker-header,
+.operator-config-page-panel-detail-header,
+.operator-config-page-skill-modal-header {
+  border-bottom: 1px solid var(--operator-config-line);
+  background: var(--operator-config-paper-blue);
+}
+
+.operator-config-page-picker-close,
+.operator-config-page-panel-detail-close,
+.operator-config-page-skill-modal-close,
+.operator-config-page-picker-option {
+  color: var(--operator-config-ink);
+  border: 1px solid var(--operator-config-line);
+  background: #fff;
+  font-weight: 400;
+}
+
+.operator-config-page-picker-option:hover {
+  background: var(--operator-config-blue-soft);
+}
+
+.operator-config-page-picker-option-image {
+  border: 1px dashed var(--operator-config-line);
+  background: var(--operator-config-paper-blue);
+}
+
+.operator-config-page-panel-detail-content {
+  color: var(--operator-config-ink);
+  background: var(--operator-config-paper);
+}
+
+.operator-config-page-equip-visual-top::after {
+  content: '';
+  position: absolute;
+  inset: 35px 14px 14px;
+  z-index: 0;
+  border: 1px solid #29465f;
+  box-shadow: 2px 2px 0 rgba(41, 70, 95, 0.12);
+  pointer-events: none;
+}
+
+.operator-config-page-root {
+  color: #20384d;
+}
+
+.operator-config-page-section-title,
+.operator-config-page-panel .config-data-title,
+.operator-config-page-panel .config-equip-box-title,
+.operator-config-page-panel .config-data-value,
+.operator-config-page-panel .config-skill-key,
+.operator-config-page-panel .config-skill-name,
+.operator-config-page-panel .config-talent-name,
+.operator-config-page-track-key,
+.operator-config-page-track-label,
+.operator-config-page-track-sublabel,
+.operator-config-page-stat-label,
+.operator-config-page-stat-value,
+.operator-config-page-role-meta-box,
+.operator-config-page-favor-label,
+.config-weapon-choose-name,
+.config-weapon-config-value,
+.operator-config-page-equip-set-title {
+  color: #152b3d;
+}
+
+.operator-config-page-panel button,
+.operator-config-page-panel input {
+  color: #20384d;
+}
+
+.operator-config-page-root .config-weapon-config-button-row,
+.operator-config-page-root .operator-config-page-equip-button-row {
+  border-color: #26323d;
+}
+
+.operator-config-page-root .config-weapon-config-button,
+.operator-config-page-root .operator-config-page-equip-button {
+  border-color: #26323d;
+}
+
+.operator-config-page-root .config-avatar-image {
+  border: 1px solid #26323d;
+  box-sizing: border-box;
+}
+
+.operator-config-page-root .config-avatar-item.is-active::after {
+  border: 1px solid #26323d;
+  box-sizing: border-box;
 }

@@ -1149,13 +1149,13 @@ function formatSkillStage(stage: number) {
 }
 
 function SkillTrackHex({ active }: { active: boolean }) {
-  const fill = active ? '#FFF59D' : '#FFFFFF';
-  const accent = active ? 'rgba(0, 0, 0, 0.18)' : 'rgba(0, 0, 0, 0.12)';
+  const fill = active ? '#b9ddf7' : '#edf7ff';
+  const accent = active ? 'rgba(47, 114, 173, 0.22)' : 'rgba(47, 114, 173, 0.12)';
 
   return (
     <svg className="operator-config-page-track-hex-svg" viewBox="0 0 32 28" aria-hidden="true">
       <g filter="url(#operator-config-hex-shadow)">
-        <polygon points="8,1 24,1 31,14 24,27 8,27 1,14" fill={fill} stroke="#666666" strokeWidth="1" />
+        <polygon points="8,1 24,1 31,14 24,27 8,27 1,14" fill={fill} stroke="#76a7ce" strokeWidth="1" />
       </g>
       <defs>
         <filter id="operator-config-hex-shadow" x="0" y="0" width="32" height="28" filterUnits="userSpaceOnUse">
