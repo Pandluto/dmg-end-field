@@ -110,6 +110,8 @@ export interface CharacterComputedCache {
     abilityBonus: number;
     mainStatFinal: number;
     subStatFinal: number;
+    mainStatRaw?: number;
+    subStatRaw?: number;
     characterAtk: number;
     weaponAtk: number;
     weaponAtkPercent: number;
@@ -174,6 +176,8 @@ export interface PanelSummary {
   abilityBonus: number;
   mainStatFinal: number;
   subStatFinal: number;
+  mainStatRaw?: number;
+  subStatRaw?: number;
   characterAtk: number;
   weaponAtk: number;
   weaponAtkPercent: number;

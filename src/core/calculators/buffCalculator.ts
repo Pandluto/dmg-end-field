@@ -303,6 +303,8 @@ export interface BuffPanelBase {
   will?: number;
   mainStatFinal?: number;
   subStatFinal?: number;
+  mainStatRaw?: number;
+  subStatRaw?: number;
   mainStatField?: AbilityField;
   subStatField?: AbilityField;
   mainStatScale?: number;
@@ -324,6 +326,7 @@ export interface AbilityStatCalculationTrace {
   directionalMultiplier: number;
   statMultiplier: number;
   allStatMultiplier: number;
+  valueBeforeRounding: number;
   finalValue: number;
   attackCoefficient: number;
   attackBonus: number;
@@ -381,10 +384,14 @@ export function calculateBuffedPanelTrace(
     const allScale = panelBase.allStatScale ?? 0;
     const mainBaseScale = (1 + mainScale) * (1 + allScale);
     const subBaseScale = (1 + subScale) * (1 + allScale);
-    const rawMain = hasExactScaleMetadata && mainBaseScale !== 0
+    const rawMain = typeof panelBase.mainStatRaw === 'number'
+      ? panelBase.mainStatRaw
+      : hasExactScaleMetadata && mainBaseScale !== 0
       ? panelBase.mainStatFinal / mainBaseScale
       : panelBase.mainStatFinal;
-    const rawSub = hasExactScaleMetadata && subBaseScale !== 0
+    const rawSub = typeof panelBase.subStatRaw === 'number'
+      ? panelBase.subStatRaw
+      : hasExactScaleMetadata && subBaseScale !== 0
       ? panelBase.subStatFinal / subBaseScale
       : panelBase.subStatFinal;
     const abilityMultiplierProducts: Record<AbilityField, number> = {
@@ -409,18 +416,20 @@ export function calculateBuffedPanelTrace(
       if (buff.type === 'intelligenceBoost') abilityMultiplierProducts.intelligence *= coefficient;
       if (buff.type === 'willBoost') abilityMultiplierProducts.will *= coefficient;
     });
-    const nextMain = (rawMain + flatBoosts[mainField])
+    const nextMainBeforeRounding = (rawMain + flatBoosts[mainField])
       * (hasExactScaleMetadata ? 1 + mainScale + totals.mainStatBoost : 1 + totals.mainStatBoost)
       * (hasExactScaleMetadata ? 1 + allScale + totals.allStatBoost : 1 + totals.allStatBoost)
       * abilityMultiplierProducts[mainField]
       * mainStatMultiplierProduct
       * allStatMultiplierProduct;
-    const nextSub = (rawSub + flatBoosts[subField])
+    const nextSubBeforeRounding = (rawSub + flatBoosts[subField])
       * (hasExactScaleMetadata ? 1 + subScale + totals.subStatBoost : 1 + totals.subStatBoost)
       * (hasExactScaleMetadata ? 1 + allScale + totals.allStatBoost : 1 + totals.allStatBoost)
       * abilityMultiplierProducts[subField]
       * subStatMultiplierProduct
       * allStatMultiplierProduct;
+    const nextMain = Math.round(nextMainBeforeRounding);
+    const nextSub = Math.round(nextSubBeforeRounding);
     const mainAttackCoefficient = 0.005;
     const subAttackCoefficient = 0.002;
     mainAbility = {
@@ -437,6 +446,7 @@ export function calculateBuffedPanelTrace(
       directionalMultiplier: abilityMultiplierProducts[mainField],
       statMultiplier: mainStatMultiplierProduct,
       allStatMultiplier: allStatMultiplierProduct,
+      valueBeforeRounding: nextMainBeforeRounding,
       finalValue: nextMain,
       attackCoefficient: mainAttackCoefficient,
       attackBonus: nextMain * mainAttackCoefficient,
@@ -455,6 +465,7 @@ export function calculateBuffedPanelTrace(
       directionalMultiplier: abilityMultiplierProducts[subField],
       statMultiplier: subStatMultiplierProduct,
       allStatMultiplier: allStatMultiplierProduct,
+      valueBeforeRounding: nextSubBeforeRounding,
       finalValue: nextSub,
       attackCoefficient: subAttackCoefficient,
       attackBonus: nextSub * subAttackCoefficient,

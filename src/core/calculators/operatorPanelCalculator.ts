@@ -220,6 +220,8 @@ export interface PanelDisplaySnapshot {
     mainStatScale: number;
     subStatScale: number;
     allStatScale: number;
+    mainStatBeforeRounding: number;
+    subStatBeforeRounding: number;
     mainAtkBonus: number;
     subAtkBonus: number;
   };
@@ -951,8 +953,10 @@ function buildDisplay(calc: PanelCalcSnapshot, mainStat: string, subStat: string
   const subField = resolveAbilityField(subStat);
   const rawMainStat = mainField ? calc[mainField] : 0;
   const rawSubStat = subField ? calc[subField] : 0;
-  const mainStatFinal = rawMainStat * (1 + calc.mainStatBoost) * (1 + calc.allStatBoost);
-  const subStatFinal = rawSubStat * (1 + calc.subStatBoost) * (1 + calc.allStatBoost);
+  const mainStatBeforeRounding = rawMainStat * (1 + calc.mainStatBoost) * (1 + calc.allStatBoost);
+  const subStatBeforeRounding = rawSubStat * (1 + calc.subStatBoost) * (1 + calc.allStatBoost);
+  const mainStatFinal = Math.round(mainStatBeforeRounding);
+  const subStatFinal = Math.round(subStatBeforeRounding);
   const abilityValues: Record<AbilityField, number> = {
     strength: calc.strength,
     agility: calc.agility,
@@ -1072,6 +1076,8 @@ function buildDisplay(calc: PanelCalcSnapshot, mainStat: string, subStat: string
       mainStatScale: round(calc.mainStatBoost),
       subStatScale: round(calc.subStatBoost),
       allStatScale: round(calc.allStatBoost),
+      mainStatBeforeRounding: round(mainStatBeforeRounding),
+      subStatBeforeRounding: round(subStatBeforeRounding),
       mainAtkBonus: round(mainAtkBonus),
       subAtkBonus: round(subAtkBonus),
     },
@@ -1114,8 +1120,10 @@ function buildMarkdown(snapshot: Omit<ConfigSnapshot, 'detailMarkdown'>): string
   lines.push(`- 意志: ${formatNumber(snapshot.panel.calc.will)}`);
   lines.push('');
   lines.push('## 主副能力换算');
-  lines.push(`- 主能力: ${snapshot.operator.mainStat || '-'} ${formatNumber(snapshot.panel.display.mainStatFinal)}`);
-  lines.push(`- 副能力: ${snapshot.operator.subStat || '-'} ${formatNumber(snapshot.panel.display.subStatFinal)}`);
+  lines.push(`- 主能力: ${snapshot.operator.mainStat || '-'} ${formatNumber(snapshot.panel.display.abilityDetail.rawMainStat)} × (1 + ${formatPercent(snapshot.panel.display.abilityDetail.mainStatScale)}) × (1 + ${formatPercent(snapshot.panel.display.abilityDetail.allStatScale)}) = ${formatNumber(snapshot.panel.display.abilityDetail.mainStatBeforeRounding)}`);
+  lines.push(`- 主能力取整: ${formatNumber(snapshot.panel.display.abilityDetail.mainStatBeforeRounding)} → ${formatNumber(snapshot.panel.display.mainStatFinal)}`);
+  lines.push(`- 副能力: ${snapshot.operator.subStat || '-'} ${formatNumber(snapshot.panel.display.abilityDetail.rawSubStat)} × (1 + ${formatPercent(snapshot.panel.display.abilityDetail.subStatScale)}) × (1 + ${formatPercent(snapshot.panel.display.abilityDetail.allStatScale)}) = ${formatNumber(snapshot.panel.display.abilityDetail.subStatBeforeRounding)}`);
+  lines.push(`- 副能力取整: ${formatNumber(snapshot.panel.display.abilityDetail.subStatBeforeRounding)} → ${formatNumber(snapshot.panel.display.subStatFinal)}`);
   lines.push(`- 主能力固定加值: ${formatNumber(snapshot.operator.mainStatFlatBonus)}`);
   lines.push(`- 副能力固定加值: ${formatNumber(snapshot.operator.subStatFlatBonus)}`);
   lines.push('');

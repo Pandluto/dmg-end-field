@@ -286,6 +286,8 @@ function isReusableConfigSnapshot(snapshot: ConfigSnapshot | undefined): boolean
     typeof snapshot?.panel?.display?.atk === 'number'
     && typeof snapshot.panel.display.hp === 'number'
     && typeof snapshot.panel.calc?.atkPercentBoost === 'number'
+    && typeof snapshot.panel.display.abilityDetail?.mainStatBeforeRounding === 'number'
+    && typeof snapshot.panel.display.abilityDetail?.subStatBeforeRounding === 'number'
   );
 }
 
@@ -1574,17 +1576,24 @@ export function OperatorConfigPage() {
   const attributeItems = React.useMemo<ReadonlyArray<AttributeItem>>(() => {
     const calc = configSnapshot?.panel.calc;
     const display = configSnapshot?.panel.display;
+    const mainStatName = configSnapshot?.operator.mainStat || currentCharacterData.mainStat || activeCharacter?.mainStat || '';
+    const subStatName = configSnapshot?.operator.subStat || currentCharacterData.subStat || activeCharacter?.subStat || '';
+    const getAbilityTone = (label: string): AttributeItem['tone'] => {
+      if (label === mainStatName) return 'main';
+      if (label === subStatName) return 'sub';
+      return undefined;
+    };
     return [
       { label: '名称', value: configSnapshot?.operator.name || currentCharacterData.name || activeCharacter?.name || '角色占位' },
       { label: '属性', value: configSnapshot?.operator.element || currentCharacterData.element || activeCharacter?.element || '属性占位' },
       { label: '等级', value: String(configSnapshot?.operator.level ?? currentConfig?.character.config.level ?? 90) },
       { label: '攻击力', value: String(display?.atk ?? currentAttributes?.atk ?? '0000') },
-      { label: '力量', value: String(display?.abilityValues?.strength ?? calc?.strength ?? currentAttributes?.strength ?? '000'), tone: 'main' },
-      { label: '敏捷', value: String(display?.abilityValues?.agility ?? calc?.agility ?? currentAttributes?.agility ?? '000') },
-      { label: '智识', value: String(display?.abilityValues?.intelligence ?? calc?.intelligence ?? currentAttributes?.intelligence ?? '000'), tone: 'sub' },
-      { label: '意志', value: String(display?.abilityValues?.will ?? calc?.will ?? currentAttributes?.will ?? '000') },
+      { label: '力量', value: String(display?.abilityValues?.strength ?? calc?.strength ?? currentAttributes?.strength ?? '000'), tone: getAbilityTone('力量') },
+      { label: '敏捷', value: String(display?.abilityValues?.agility ?? calc?.agility ?? currentAttributes?.agility ?? '000'), tone: getAbilityTone('敏捷') },
+      { label: '智识', value: String(display?.abilityValues?.intelligence ?? calc?.intelligence ?? currentAttributes?.intelligence ?? '000'), tone: getAbilityTone('智识') },
+      { label: '意志', value: String(display?.abilityValues?.will ?? calc?.will ?? currentAttributes?.will ?? '000'), tone: getAbilityTone('意志') },
     ];
-  }, [activeCharacter?.element, activeCharacter?.name, configSnapshot, currentAttributes, currentCharacterData.element, currentCharacterData.name, currentConfig?.character.config.level]);
+  }, [activeCharacter?.element, activeCharacter?.mainStat, activeCharacter?.name, activeCharacter?.subStat, configSnapshot, currentAttributes, currentCharacterData.element, currentCharacterData.mainStat, currentCharacterData.name, currentCharacterData.subStat, currentConfig?.character.config.level]);
 
   const updateCurrentConfig = React.useCallback((updater: (current: OperatorConfigPageCharacterConfig) => OperatorConfigPageCharacterConfig) => {
     if (!activeCharacterId) return;

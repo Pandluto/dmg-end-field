@@ -66,7 +66,8 @@ export function buildAttackFormulaLines(
       `主能力（${ABILITY_LABELS[main.field]}）: ${main.rawValue.toFixed(1)} + 定向 ${main.directionalFlatBoost.toFixed(1)}`,
       `主能力加算: 主 ${(main.baseStatScale * 100).toFixed(1)}% + Buff ${(main.statBuffRate * 100).toFixed(1)}% ｜ 全 ${(main.baseAllStatScale * 100).toFixed(1)}% + Buff ${(main.allStatBuffRate * 100).toFixed(1)}% = ×${mainAdditiveProduct.toFixed(3)}`,
       `主能力乘算: 定向 ${main.directionalMultiplier.toFixed(3)} × 主 ${main.statMultiplier.toFixed(3)} × 全 ${main.allStatMultiplier.toFixed(3)} = ×${mainMultiplierProduct.toFixed(3)}`,
-      `Buff 后主能力: (${main.rawValue.toFixed(1)} + ${main.directionalFlatBoost.toFixed(1)}) × ${mainAdditiveProduct.toFixed(3)} × ${mainMultiplierProduct.toFixed(3)} = ${main.finalValue.toFixed(1)}`,
+      `Buff 后主能力: (${main.rawValue.toFixed(1)} + ${main.directionalFlatBoost.toFixed(1)}) × ${mainAdditiveProduct.toFixed(3)} × ${mainMultiplierProduct.toFixed(3)} = ${main.valueBeforeRounding.toFixed(1)}`,
+      `主能力取整: ${main.valueBeforeRounding.toFixed(1)} → ${main.finalValue.toFixed(0)}`,
       `主能力攻击转换: ${main.finalValue.toFixed(1)} × ${main.attackCoefficient.toFixed(3)} = ${main.attackBonus.toFixed(4)}`
     );
   }
@@ -78,7 +79,8 @@ export function buildAttackFormulaLines(
       `副能力（${ABILITY_LABELS[sub.field]}）: ${sub.rawValue.toFixed(1)} + 定向 ${sub.directionalFlatBoost.toFixed(1)}`,
       `副能力加算: 副 ${(sub.baseStatScale * 100).toFixed(1)}% + Buff ${(sub.statBuffRate * 100).toFixed(1)}% ｜ 全 ${(sub.baseAllStatScale * 100).toFixed(1)}% + Buff ${(sub.allStatBuffRate * 100).toFixed(1)}% = ×${subAdditiveProduct.toFixed(3)}`,
       `副能力乘算: 定向 ${sub.directionalMultiplier.toFixed(3)} × 副 ${sub.statMultiplier.toFixed(3)} × 全 ${sub.allStatMultiplier.toFixed(3)} = ×${subMultiplierProduct.toFixed(3)}`,
-      `Buff 后副能力: (${sub.rawValue.toFixed(1)} + ${sub.directionalFlatBoost.toFixed(1)}) × ${subAdditiveProduct.toFixed(3)} × ${subMultiplierProduct.toFixed(3)} = ${sub.finalValue.toFixed(1)}`,
+      `Buff 后副能力: (${sub.rawValue.toFixed(1)} + ${sub.directionalFlatBoost.toFixed(1)}) × ${subAdditiveProduct.toFixed(3)} × ${subMultiplierProduct.toFixed(3)} = ${sub.valueBeforeRounding.toFixed(1)}`,
+      `副能力取整: ${sub.valueBeforeRounding.toFixed(1)} → ${sub.finalValue.toFixed(0)}`,
       `副能力攻击转换: ${sub.finalValue.toFixed(1)} × ${sub.attackCoefficient.toFixed(3)} = ${sub.attackBonus.toFixed(4)}`
     );
   }

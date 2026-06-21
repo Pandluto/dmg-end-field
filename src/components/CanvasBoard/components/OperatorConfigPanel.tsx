@@ -1138,8 +1138,10 @@ export function OperatorConfigPanel({
     const allStatScale = equipment.allStatBoost + weaponAllStatBoostBonus;
     const rawMainStat = panelAbilityByField[mainField];
     const rawSubStat = panelAbilityByField[subField];
-    const mainStatFinal = rawMainStat * (1 + mainStatScale) * (1 + allStatScale);
-    const subStatFinal = rawSubStat * (1 + subStatScale) * (1 + allStatScale);
+    const mainStatBeforeRounding = rawMainStat * (1 + mainStatScale) * (1 + allStatScale);
+    const subStatBeforeRounding = rawSubStat * (1 + subStatScale) * (1 + allStatScale);
+    const mainStatFinal = Math.round(mainStatBeforeRounding);
+    const subStatFinal = Math.round(subStatBeforeRounding);
     const mainAtkBonus = mainStatFinal * 0.005;
     const subAtkBonus = subStatFinal * 0.002;
     const abilityBonus = mainAtkBonus + subAtkBonus;
@@ -1161,6 +1163,8 @@ export function OperatorConfigPanel({
       abilityBonus: toFixedNumber(abilityBonus * 100),
       mainStatFinal: toFixedNumber(mainStatFinal),
       subStatFinal: toFixedNumber(subStatFinal),
+      mainStatRaw: toFixedNumber(rawMainStat),
+      subStatRaw: toFixedNumber(rawSubStat),
       characterAtk: toFixedNumber(characterBaseAtk),
       weaponAtk: toFixedNumber(weaponBaseAtk),
       weaponAtkPercent: toFixedNumber(weaponAtkPercent * 100),
@@ -1203,9 +1207,11 @@ export function OperatorConfigPanel({
       separator,
       '主副能力换算',
       separator,
-      `${mainStatName}(主): ${toFixedNumber(rawMainStat)} × (1 + ${toPercentText(mainStatScale)}) × (1 + ${toPercentText(allStatScale)}) = ${panelSnapshot.mainStatFinal}`,
+      `${mainStatName}(主): ${toFixedNumber(rawMainStat)} × (1 + ${toPercentText(mainStatScale)}) × (1 + ${toPercentText(allStatScale)}) = ${toFixedNumber(mainStatBeforeRounding)}`,
+      ` 取整: ${toFixedNumber(mainStatBeforeRounding)} → ${panelSnapshot.mainStatFinal}`,
       ` = ${toFixedNumber(mainStatCharacterValue)} (干员+武器+装备) + 60 (好感)`,
-      `${subStatName}(副): ${toFixedNumber(rawSubStat)} × (1 + ${toPercentText(subStatScale)}) × (1 + ${toPercentText(allStatScale)}) = ${panelSnapshot.subStatFinal}`,
+      `${subStatName}(副): ${toFixedNumber(rawSubStat)} × (1 + ${toPercentText(subStatScale)}) × (1 + ${toPercentText(allStatScale)}) = ${toFixedNumber(subStatBeforeRounding)}`,
+      ` 取整: ${toFixedNumber(subStatBeforeRounding)} → ${panelSnapshot.subStatFinal}`,
       ` = ${toFixedNumber(subStatCharacterValue)} (干员+武器+装备)`,
       separator,
       '能力值加成：',

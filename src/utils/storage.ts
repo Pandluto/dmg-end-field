@@ -90,6 +90,10 @@ function toStorageNumber(value: unknown, fallback = 0): number {
   return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
 }
 
+function toOptionalStorageNumber(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+}
+
 type AbilityField = 'strength' | 'agility' | 'intelligence' | 'will';
 
 const ABILITY_FIELD_MAP: Record<string, AbilityField> = {
@@ -163,6 +167,8 @@ function buildCharacterComputedFromConfigSnapshot(snapshot: ConfigSnapshot): Cha
       abilityBonus: toStorageNumber(display.abilityBonus) * 100,
       mainStatFinal: toStorageNumber(display.mainStatFinal),
       subStatFinal: toStorageNumber(display.subStatFinal),
+      mainStatRaw: toOptionalStorageNumber(display.abilityDetail?.rawMainStat),
+      subStatRaw: toOptionalStorageNumber(display.abilityDetail?.rawSubStat),
       characterAtk: toStorageNumber(calc.operatorAtk),
       weaponAtk: toStorageNumber(calc.weaponAtk),
       weaponAtkPercent: toStorageNumber(display.weaponAtkPercent),
@@ -194,6 +200,8 @@ function buildPanelSummaryFromComputed(computed: CharacterComputedCache): PanelS
     abilityBonus: computed.panel.abilityBonus,
     mainStatFinal: computed.panel.mainStatFinal,
     subStatFinal: computed.panel.subStatFinal,
+    mainStatRaw: computed.panel.mainStatRaw,
+    subStatRaw: computed.panel.subStatRaw,
     characterAtk: computed.panel.characterAtk,
     weaponAtk: computed.panel.weaponAtk,
     weaponAtkPercent: computed.panel.weaponAtkPercent,
@@ -499,6 +507,8 @@ function mergeV3ToV2(
         abilityBonus: computed.panel.abilityBonus,
         mainStatFinal: computed.panel.mainStatFinal,
         subStatFinal: computed.panel.subStatFinal,
+        mainStatRaw: computed.panel.mainStatRaw,
+        subStatRaw: computed.panel.subStatRaw,
         characterAtk: computed.panel.characterAtk,
         weaponAtk: computed.panel.weaponAtk,
         weaponAtkPercent: computed.panel.weaponAtkPercent,
@@ -610,6 +620,8 @@ export function setCharacterConfig(characterId: string, config: CharacterConfigJ
         abilityBonus: config.panelSnapshot.abilityBonus,
         mainStatFinal: config.panelSnapshot.mainStatFinal,
         subStatFinal: config.panelSnapshot.subStatFinal,
+        mainStatRaw: config.panelSnapshot.mainStatRaw,
+        subStatRaw: config.panelSnapshot.subStatRaw,
         characterAtk: config.panelSnapshot.characterAtk,
         weaponAtk: config.panelSnapshot.weaponAtk,
         weaponAtkPercent: config.panelSnapshot.weaponAtkPercent,

@@ -40,6 +40,8 @@ export interface SkillDamagePanelBase {
   will?: number;
   mainStatFinal?: number;
   subStatFinal?: number;
+  mainStatRaw?: number;
+  subStatRaw?: number;
   mainStatField?: 'strength' | 'agility' | 'intelligence' | 'will';
   subStatField?: 'strength' | 'agility' | 'intelligence' | 'will';
   mainStatScale?: number;

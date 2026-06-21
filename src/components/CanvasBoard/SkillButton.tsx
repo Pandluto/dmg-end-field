@@ -729,6 +729,8 @@ export function SkillButtonComponent({
       will: computedPanel.will,
       mainStatFinal: computedPanel.mainStatFinal,
       subStatFinal: computedPanel.subStatFinal,
+      mainStatRaw: computedPanel.mainStatRaw,
+      subStatRaw: computedPanel.subStatRaw,
       mainStatField: computedPanel.mainStatField,
       subStatField: computedPanel.subStatField,
       mainStatScale: computedPanel.mainStatScale,
