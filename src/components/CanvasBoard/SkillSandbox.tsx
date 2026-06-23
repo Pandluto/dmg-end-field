@@ -31,6 +31,8 @@ interface SkillSandboxProps {
   onAvatarDoubleClick: (characterId: string) => void;
   /** 保存排轴快照回调 */
   onSave?: () => void;
+  /** 打开全局敌方抗性设置 */
+  onOpenResistance?: () => void;
   /** 浏览模式是否开启 */
   isBrowseMode?: boolean;
   /** 切换浏览模式回调 */
@@ -72,6 +74,7 @@ export function SkillSandbox({
   onDragStart,
   onAvatarDoubleClick,
   onSave,
+  onOpenResistance,
   isBrowseMode = false,
   onToggleBrowseMode,
   isInspectMode = false,
@@ -145,6 +148,17 @@ export function SkillSandbox({
           >
             <svg className="sandbox-reserved-action-icon" viewBox="0 0 24 24" aria-hidden="true">
               <path d="M5 3h12l2 2v16H5V3zm2 2v6h9V5H7zm0 14h10v-6H7v6zm2-12h5V5H9v2z" />
+            </svg>
+          </button>
+          <button
+            type="button"
+            className="sandbox-reserved-action"
+            onClick={onOpenResistance}
+            aria-label="批量设置敌方抗性"
+            title="批量设置敌方抗性"
+          >
+            <svg className="sandbox-reserved-action-icon" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M12 2 4 5v6c0 5.1 3.4 9.7 8 11 4.6-1.3 8-5.9 8-11V5l-8-3zm0 2.2L18 6.4V11c0 3.9-2.4 7.6-6 8.8-3.6-1.2-6-4.9-6-8.8V6.4l6-2.2zm-1 3.3h2v5h-2v-5zm0 6.5h2v2h-2v-2z" />
             </svg>
           </button>
           <button

@@ -1219,19 +1219,15 @@ function readJsonFileIfExists(filePath) {
 }
 
 function readImageReleaseConfig() {
-  try {
-    return readJsonFileIfExists(getImageReleaseConfigPath()) || { manifestUrl: '' };
-  } catch {
-    return { manifestUrl: '' };
-  }
+  return { manifestUrl: DEFAULT_IMAGE_RELEASE_MANIFEST_URL };
 }
 
-function getImageReleaseSourceUrl(config) {
-  return typeof config?.manifestUrl === 'string' ? config.manifestUrl.trim() : '';
+function getImageReleaseSourceUrl() {
+  return DEFAULT_IMAGE_RELEASE_MANIFEST_URL;
 }
 
-function writeImageReleaseConfig(config) {
-  const manifestUrl = typeof config?.manifestUrl === 'string' ? config.manifestUrl.trim() : '';
+function writeImageReleaseConfig() {
+  const manifestUrl = DEFAULT_IMAGE_RELEASE_MANIFEST_URL;
   fs.mkdirSync(path.dirname(getImageReleaseConfigPath()), { recursive: true });
   fs.writeFileSync(
     getImageReleaseConfigPath(),
@@ -1957,9 +1953,6 @@ async function stageImageReleasePackage({ manifestUrl, releasePackage, stagingDi
 
 async function loadRemoteImageReleaseManifest(configuredUrl) {
   const requestedManifestUrl = resolveImageReleaseManifestUrl(configuredUrl);
-  if (!requestedManifestUrl) {
-    throw new Error('请先保存图片 Release Manifest 地址');
-  }
   const response = await fetchUrlRawWithRetry(requestedManifestUrl, {
     timeoutMs: IMAGE_RELEASE_MANIFEST_TIMEOUT_MS,
     retries: 2,

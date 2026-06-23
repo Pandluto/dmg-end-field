@@ -2612,6 +2612,36 @@
   width: min(560px, calc(100vw - 48px));
 }
 
+.batch-resistance-modal {
+  width: min(520px, calc(100vw - 48px));
+}
+
+.batch-resistance-fields {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 10px;
+  margin: 20px 0;
+}
+
+.batch-resistance-fields label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  color: #111111;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.batch-resistance-fields input {
+  width: 100%;
+  height: 36px;
+  padding: 0 8px;
+  border: 1px solid rgba(0, 0, 0, 0.28);
+  background: #ffffff;
+  color: #111111;
+  box-sizing: border-box;
+}
+
 .timeline-snapshot-modal-head {
   display: flex;
   align-items: flex-start;

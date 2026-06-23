@@ -61,6 +61,24 @@ import {
 import './CanvasBoard.css';
 import { resolveRuntimeTemplateSkill } from '../../core/services/skillDamageTemplateResolver';
 import type { PersistedSkillButton } from '../../types/storage';
+import type { HitResistanceInput } from '../../types/storage';
+import DeferredNumberInput from '../DeferredNumberInput';
+
+const EMPTY_BATCH_TARGET_RESISTANCE: Required<HitResistanceInput> = {
+  physicalResistance: 0,
+  fireResistance: 0,
+  electricResistance: 0,
+  iceResistance: 0,
+  natureResistance: 0,
+};
+
+const BATCH_RESISTANCE_FIELDS: Array<[keyof HitResistanceInput, string]> = [
+  ['physicalResistance', '物理'],
+  ['fireResistance', '灼热'],
+  ['electricResistance', '电磁'],
+  ['iceResistance', '寒冷'],
+  ['natureResistance', '自然'],
+];
 
 function clonePersistedSkillButtonConfig(button: PersistedSkillButton): Pick<
   PersistedSkillButton,
@@ -213,6 +231,11 @@ export function CanvasBoard({
   const [timelineSnapshots, setTimelineSnapshots] = useState<TimelineSnapshotEntry[]>([]);
   const [isBrowseMode, setIsBrowseMode] = useState(false);
   const [isInspectMode, setIsInspectMode] = useState(false);
+  const [isBatchResistanceModalOpen, setIsBatchResistanceModalOpen] = useState(false);
+  const [batchTargetResistance, setBatchTargetResistance] = useState<Required<HitResistanceInput>>(
+    EMPTY_BATCH_TARGET_RESISTANCE
+  );
+  const [resistanceRevision, setResistanceRevision] = useState(0);
   const shareImportInputRef = useRef<HTMLInputElement>(null);
 
   const canvasWidth = useCanvasWidth(canvasConfig.canvasWidthPercent);
@@ -743,6 +766,45 @@ export function CanvasBoard({
     navigateToAppPath(APP_ROUTE_PATHS.operatorConfig);
   };
 
+  const handleOpenBatchResistanceModal = () => {
+    const firstButton = skillButtons[0] ? getSkillButtonById(skillButtons[0].id) : null;
+    setBatchTargetResistance({
+      ...EMPTY_BATCH_TARGET_RESISTANCE,
+      ...(firstButton?.resistanceConfig?.targetResistance ?? {}),
+    });
+    setIsBatchResistanceModalOpen(true);
+  };
+
+  const handleCloseBatchResistanceModal = () => {
+    setIsBatchResistanceModalOpen(false);
+  };
+
+  const handleApplyBatchResistance = () => {
+    const currentTable = getSkillButtonTable();
+    const updatedAt = Date.now();
+    const targetResistance = { ...batchTargetResistance };
+    let updatedCount = 0;
+
+    skillButtons.forEach((button) => {
+      const persistedButton = currentTable[button.id];
+      if (!persistedButton) {
+        return;
+      }
+      currentTable[button.id] = {
+        ...persistedButton,
+        resistanceConfig: { targetResistance: { ...targetResistance } },
+        updatedAt,
+      };
+      updatedCount += 1;
+    });
+
+    if (updatedCount > 0) {
+      setSkillButtonTable(currentTable);
+      setResistanceRevision((revision) => revision + 1);
+    }
+    setIsBatchResistanceModalOpen(false);
+  };
+
   const refreshTimelineSnapshotList = () => {
     setTimelineSnapshots(listTimelineSnapshots());
   };
@@ -932,6 +994,7 @@ export function CanvasBoard({
             isDraggingActive={Boolean(draggingState)}
             isBrowseMode={isBrowseMode}
             isInspectMode={isInspectMode}
+            resistanceRevision={resistanceRevision}
           />
         </div>
 
@@ -944,6 +1007,7 @@ export function CanvasBoard({
               onDragStart={handleSandboxDragStart}
               onAvatarDoubleClick={handleAvatarDoubleClick}
               onSave={handleOpenSaveSnapshotModal}
+              onOpenResistance={handleOpenBatchResistanceModal}
               isBrowseMode={isBrowseMode}
               onToggleBrowseMode={() => setIsBrowseMode((prev) => !prev)}
               isInspectMode={isInspectMode}
@@ -978,6 +1042,57 @@ export function CanvasBoard({
         mousePosition={mousePosition}
         buttonSize={canvasConfig.skillButtonSize}
       />
+
+      {isBatchResistanceModalOpen && (
+        <div className="timeline-snapshot-modal-overlay" onClick={handleCloseBatchResistanceModal}>
+          <div
+            className="timeline-snapshot-confirm-modal batch-resistance-modal"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="timeline-snapshot-modal-head">
+              <div>
+                <h3>批量设置敌方抗性</h3>
+                <p>确认后将覆盖当前排轴中全部 {skillButtons.length} 个技能按钮的目标抗性。</p>
+              </div>
+              <button type="button" className="modal-close-btn" onClick={handleCloseBatchResistanceModal}>
+                关闭
+              </button>
+            </div>
+
+            <div className="batch-resistance-fields">
+              {BATCH_RESISTANCE_FIELDS.map(([key, label]) => (
+                <label key={key}>
+                  <span>{label}</span>
+                  <DeferredNumberInput
+                    step="1"
+                    value={batchTargetResistance[key]}
+                    onCommit={(value) => {
+                      setBatchTargetResistance((current) => ({
+                        ...current,
+                        [key]: value ?? 0,
+                      }));
+                    }}
+                  />
+                </label>
+              ))}
+            </div>
+
+            <div className="timeline-snapshot-form-actions">
+              <button type="button" className="btn-calculate" onClick={handleCloseBatchResistanceModal}>
+                取消
+              </button>
+              <button
+                type="button"
+                className="btn-save"
+                onClick={handleApplyBatchResistance}
+                disabled={skillButtons.length === 0}
+              >
+                应用到全部按钮
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {isReportModalOpen && (
         <div className="damage-report-modal-overlay" onClick={handleCloseDamageReport}>

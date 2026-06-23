@@ -182,6 +182,7 @@ interface SkillButtonProps {
   skillChangeOptions?: SkillButtonSkillOption[];
   isBrowseMode?: boolean;
   isInspectMode?: boolean;
+  resistanceRevision?: number;
 }
 
 const BROWSE_MODE_SKILL_LABELS: Record<string, string> = {
@@ -209,6 +210,7 @@ export function SkillButtonComponent({
   skillChangeOptions = [],
   isBrowseMode = false,
   isInspectMode = false,
+  resistanceRevision = 0,
 }: SkillButtonProps) {
   /**
    * position.y 语义约定（v1.1.0+）：
@@ -1241,6 +1243,9 @@ export function SkillButtonComponent({
     loadPersistedAnomalyCards,
     loadPersistedManualBuffTweaks,
   ]);
+  useEffect(() => {
+    loadPersistedManualBuffTweaks();
+  }, [loadPersistedManualBuffTweaks, resistanceRevision]);
   const inspectDamageSummary = useMemo(() => {
     if (!damageViewModel) {
       return { expected: '-', nonCrit: '-' };

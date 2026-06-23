@@ -1343,13 +1343,18 @@
             <div class="panel-header">
               <div>
                 <div class="panel-title">图片 Release 更新</div>
-                <div class="panel-help">配置发布清单地址后，Shell 会下载整包图片资源到本机版本目录，并把下载资源提升为最高优先级。</div>
+                <div class="panel-help">Shell 使用固定发布清单地址下载整包图片资源到本机版本目录，并把下载资源提升为最高优先级。</div>
               </div>
-              <span class="badge info" id="image-update-badge">未配置</span>
+              <span class="badge info" id="image-update-badge">已配置</span>
             </div>
-            <input id="image-update-manifest-url" type="text" placeholder="https://example.com/assets-release-manifest.json" />
+            <input
+              id="image-update-manifest-url"
+              type="text"
+              value="https://github.com/Pandluto/dmg-end-field/releases/latest/download/assets-release-manifest.json"
+              readonly
+              aria-label="固定图片发布清单地址"
+            />
             <div class="toolbar">
-              <button id="save-image-update-config" type="button" class="subtle-button">保存地址</button>
               <button id="check-image-update" type="button" class="subtle-button">检查更新</button>
               <button id="apply-image-update" type="button" class="primary-button">下载并切换</button>
               <button id="force-clear-image-update" type="button" class="subtle-button">强制清除</button>
@@ -1365,14 +1370,14 @@
               </article>
               <article class="status-card">
                 <div class="status-top"><span class="status-label">远端版本</span><span class="badge info" id="image-update-latest-version">-</span></div>
-                <div class="status-detail" id="image-update-latest-detail">先保存 manifest 地址，再检查更新。</div>
+                <div class="status-detail" id="image-update-latest-detail">尚未检查远端版本。</div>
               </article>
               <article class="status-card">
                 <div class="status-top"><span class="status-label">下载目录</span><span class="badge info" id="image-update-storage-badge">本机</span></div>
                 <div class="status-detail" id="image-update-storage-detail">版本资源保存在 userData 下。</div>
               </article>
             </section>
-            <div class="empty-state" id="image-update-status">等待配置图片发布清单地址。</div>
+            <div class="empty-state" id="image-update-status">等待检查图片资源更新。</div>
           </section>
 
           <section class="panel">

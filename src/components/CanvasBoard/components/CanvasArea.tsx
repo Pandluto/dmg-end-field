@@ -34,6 +34,7 @@ interface CanvasAreaProps {
   isDraggingActive?: boolean;
   isBrowseMode?: boolean;
   isInspectMode?: boolean;
+  resistanceRevision?: number;
 }
 
 // 表格行列标注：0行显示字母(A-O)，0列显示数字(1-8)
@@ -61,6 +62,7 @@ export const CanvasArea = forwardRef<HTMLDivElement, CanvasAreaProps>(({
   isDraggingActive = false,
   isBrowseMode = false,
   isInspectMode = false,
+  resistanceRevision = 0,
 }, canvasRef) => {
   const renderSkillButtons = () => {
     return skillButtons
@@ -74,6 +76,7 @@ export const CanvasArea = forwardRef<HTMLDivElement, CanvasAreaProps>(({
           onContextMenu={(event) => onButtonContextMenu(event, button.id)}
           isBrowseMode={isBrowseMode}
           isInspectMode={isInspectMode}
+          resistanceRevision={resistanceRevision}
           timelineData={timelineData}
           onModalOpen={onSkillButtonModalOpen}
           onModalClose={onSkillButtonModalClose}

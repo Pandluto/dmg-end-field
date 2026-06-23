@@ -2,6 +2,7 @@
   const runtime = window.desktopRuntime;
   const LOCAL_BRIDGE_ORIGIN = 'http://127.0.0.1:31457';
   const AI_CLI_REST_ORIGIN = 'http://127.0.0.1:17321';
+  const IMAGE_RELEASE_MANIFEST_URL = 'https://github.com/Pandluto/dmg-end-field/releases/latest/download/assets-release-manifest.json';
   const IMPORT_SECTIONS = ['operators', 'weapons', 'equipments', 'buffs', 'timeline', 'runtime'];
   const REQUIRED_IMPORT_SESSION_KEYS = {
     timeline: [
@@ -76,21 +77,21 @@
 
   const renderImageUpdateState = (payload) => {
     state.imageUpdate = payload || null;
-    const manifestUrl = payload?.configuredManifestUrl || '';
+    const manifestUrl = IMAGE_RELEASE_MANIFEST_URL;
     const status = payload?.status || 'idle';
     const currentVersion = payload?.currentVersion || '-';
     const latestVersion = payload?.latestVersion || '-';
     const latestSummary = payload?.latestSummary || null;
     const currentSummary = payload?.currentManifestSummary || null;
     const statusTextMap = {
-      idle: manifestUrl ? '已配置' : '未配置',
+      idle: '已配置',
       checking: '检查中',
       downloading: '下载中',
       activating: '切换中',
       failed: '失败',
     };
     const toneMap = {
-      idle: manifestUrl ? 'ok' : 'info',
+      idle: 'ok',
       checking: 'warn',
       downloading: 'warn',
       activating: 'warn',
@@ -112,13 +113,13 @@
       : '尚未启用图片 release 更新。';
     const latestDetail = latestSummary
       ? `${latestSummary.totalFileCount || 0} 个文件；${latestDelivery}${latestPackageText}；变更 ${latestSummary.changedFileCount || 0}；删除 ${latestSummary.deletedFileCount || 0}${latestSummary.updateMessage ? `；${latestSummary.updateMessage}` : ''}`
-      : (manifestUrl ? '尚未检查远端版本。' : '先保存 manifest 地址，再检查更新。');
+      : '尚未检查远端版本。';
     const latestStatusLine = latestSummary
       ? `${latestSummary.compatible === false ? '当前 Shell 版本不兼容；' : ''}${latestSummary.updateMessage ? `${latestSummary.updateMessage}；` : ''}${latestSummary.updateUnavailable ? '更新暂不可用。' : (latestSummary.hasUpdate ? '发现可更新版本。' : '已是最新版本。')}`
       : (payload?.lastError || '等待检查更新。');
 
     const input = $('image-update-manifest-url');
-    if (input && document.activeElement !== input) {
+    if (input) {
       input.value = manifestUrl;
     }
 
@@ -160,7 +161,7 @@
       if (!applyButton.dataset.originalText) {
         applyButton.textContent = latestSummary?.action === 'repair-current' ? '修复素材' : '一键更新';
       }
-      applyButton.disabled = !manifestUrl || status === 'checking' || status === 'downloading' || status === 'activating'
+      applyButton.disabled = status === 'checking' || status === 'downloading' || status === 'activating'
         || latestSummary?.compatible === false || latestSummary?.updateUnavailable === true
         || (latestSummary && !latestSummary.hasUpdate && latestSummary.action !== 'repair-current');
     }
@@ -870,14 +871,6 @@
     };
   };
 
-  const saveImageUpdateConfig = async () => {
-    const input = $('image-update-manifest-url');
-    const manifestUrl = input?.value.trim() || '';
-    const result = await runtime?.setImageUpdateConfig?.({ manifestUrl });
-    renderImageUpdateState(result?.state || null);
-    appendLog(`图片更新 | 已保存 manifest 地址 | ${manifestUrl || '(清空)'}`);
-  };
-
   const checkImageUpdate = async (button) => {
     if (!runtime?.checkImageUpdate) {
       return;
@@ -1169,9 +1162,6 @@
     });
     $('refresh-images')?.addEventListener('click', () => {
       refreshImages().catch((error) => appendLog(`图片资产 | 刷新失败 | ${error instanceof Error ? error.message : String(error)}`));
-    });
-    $('save-image-update-config')?.addEventListener('click', () => {
-      saveImageUpdateConfig().catch((error) => appendLog(`图片更新 | 保存配置失败 | ${error instanceof Error ? error.message : String(error)}`));
     });
     $('check-image-update')?.addEventListener('click', (event) => {
       checkImageUpdate(event.currentTarget).catch((error) => appendLog(`图片更新 | 检查失败 | ${error instanceof Error ? error.message : String(error)}`));
