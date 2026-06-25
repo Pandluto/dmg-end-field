@@ -600,12 +600,9 @@ function normalizeTypeKey(typeKey: string): string {
   return typeKey;
 }
 
-function normalizeValue(typeKey: string, value: number, unit?: string): number {
+function normalizeValue(typeKey: string, value: number, _unit?: string): number {
   if (typeKey === 'sourceSkillBoost') {
     return value;
-  }
-  if (unit === 'percent' || PERCENT_FIELDS.has(typeKey)) {
-    return Math.abs(value) > 1 ? value / 100 : value;
   }
   return value;
 }
@@ -819,8 +816,9 @@ function buildEquipmentSnapshot(input: OperatorPanelInput['equipment']): Equipme
   const totals: Record<string, number> = {};
   const pieces = (input?.pieces ?? []).map((piece) => {
     piece.effects.forEach((effect) => {
-      if (EQUIPMENT_TOTAL_FIELDS.has(normalizeTypeKey(effect.typeKey))) {
-        addTotal(totals, effect.typeKey, effect.value, effect.unit);
+      const typeKey = normalizeTypeKey(effect.typeKey);
+      if (EQUIPMENT_TOTAL_FIELDS.has(typeKey)) {
+        addTotal(totals, typeKey, effect.value, effect.unit);
       }
     });
     return {
@@ -835,8 +833,9 @@ function buildEquipmentSnapshot(input: OperatorPanelInput['equipment']): Equipme
   });
   const setBuffs = input?.setBuffs ?? [];
   setBuffs.forEach((buff) => {
-    if (buff.effectKind !== 'extraHit' && (buff.category === 'positive' || buff.category === 'passive') && EQUIPMENT_TOTAL_FIELDS.has(normalizeTypeKey(buff.typeKey))) {
-      addTotal(totals, buff.typeKey, buff.value, buff.unit);
+    const typeKey = normalizeTypeKey(buff.typeKey);
+    if (buff.effectKind !== 'extraHit' && (buff.category === 'positive' || buff.category === 'passive') && EQUIPMENT_TOTAL_FIELDS.has(typeKey)) {
+      addTotal(totals, typeKey, buff.value, buff.unit);
     }
   });
   return { pieces, setBuffs, totals };
@@ -970,6 +969,13 @@ function formatOperatorBuffValue(effect: OperatorBuffEffectInput): string {
     return formatPercent(normalizeValue(typeKey, effect.value, effect.unit));
   }
   return formatNumber(effect.value);
+}
+
+function formatEquipmentEffectValue(effect: EquipmentPieceInput['effects'][number]): string {
+  if (effect.unit === 'percent' && effect.typeKey !== 'sourceSkillBoost') {
+    return formatPercent(normalizeValue(effect.typeKey, effect.value, effect.unit));
+  }
+  return `${formatNumber(effect.value)}${effect.unit === 'percent' ? '%' : ''}`;
 }
 
 function formatOperatorBuffLine(groupKey: OperatorBuffGroupKey, effectKey: string, effect: OperatorBuffEffectInput): string {
@@ -1174,7 +1180,7 @@ function buildMarkdown(snapshot: Omit<ConfigSnapshot, 'detailMarkdown'>): string
     lines.push('- 暂无');
   } else {
     snapshot.equipment.pieces.forEach((piece) => {
-      lines.push(`- ${piece.name || piece.equipmentId}: ${piece.effects.map((effect) => `${effect.label} ${effect.value}${effect.unit === 'percent' ? '%' : ''}`).join(' / ') || '暂无词条'}`);
+      lines.push(`- ${piece.name || piece.equipmentId}: ${piece.effects.map((effect) => `${effect.label} ${formatEquipmentEffectValue(effect)}`).join(' / ') || '暂无词条'}`);
     });
   }
   lines.push('');

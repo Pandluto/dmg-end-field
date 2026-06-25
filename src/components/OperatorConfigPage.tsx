@@ -80,6 +80,30 @@ interface EquipmentLibrary {
   gearSets: Record<string, EquipmentGearSet>;
 }
 
+const NON_DECIMAL_EQUIPMENT_EFFECT_TYPE_KEYS = new Set([
+  'strengthBoost',
+  'agilityBoost',
+  'intelligenceBoost',
+  'willBoost',
+  'flatAtk',
+  'mainStat',
+  'subStat',
+  'sourceSkillBoost',
+]);
+
+function normalizeLegacyEquipmentPercentValue(typeKey: string, unit: 'flat' | 'percent' | string | undefined, value: number, raw?: unknown): number {
+  if (unit !== 'percent' || NON_DECIMAL_EQUIPMENT_EFFECT_TYPE_KEYS.has(typeKey)) return value;
+  const rawText = String(raw || '');
+  if (!rawText.includes('%')) return value;
+  const rawNumbers = (rawText.match(/[+-]?\d+(?:\.\d+)?/g) || []).map(Number).filter(Number.isFinite);
+  const matchesStoredDecimal = rawNumbers.some((rawNumber) => Math.abs(value - rawNumber / 100) < 1e-4);
+  if (matchesStoredDecimal) return value;
+  const matchesLegacyPercent = rawNumbers.some((rawNumber) => Math.abs(value - rawNumber) < 1e-6);
+  if (matchesLegacyPercent) return value / 100;
+  if (Math.abs(value) > 1) return value / 100;
+  return value;
+}
+
 interface WeaponSkillLevelData {
   value?: number;
   description?: string;
@@ -327,26 +351,32 @@ function normalizeEquipmentLibrary(raw: unknown): EquipmentLibrary {
     const normalizeThreePieceBuffCategory = (category: unknown): EquipmentThreePieceBuff['category'] => (
       category === 'positive' || category === 'passive' || category === 'condition' || category === 'countable' ? category : ''
     );
-    const normalizeThreePieceBuff = (effectId: string, rawBuff: Partial<EquipmentThreePieceBuff>): EquipmentThreePieceBuff => ({
-      effectId: String(rawBuff.effectId || effectId),
-      name: String(rawBuff.name || effectId),
-      category: rawBuff.effectKind === 'extraHit'
-        ? normalizeThreePieceBuffCategory(rawBuff.category) === 'countable' ? 'countable' : 'passive'
-        : normalizeThreePieceBuffCategory(rawBuff.category),
-      typeKey: rawBuff.effectKind === 'extraHit' ? '' : String(rawBuff.typeKey || ''),
-      value: rawBuff.effectKind === 'extraHit' ? 0 : typeof rawBuff.value === 'number' && Number.isFinite(rawBuff.value) ? rawBuff.value : 0,
-      unit: rawBuff.unit === 'flat' ? 'flat' : 'percent',
-      raw: rawBuff.raw,
-      description: rawBuff.description,
-      valueMode: rawBuff.valueMode,
-      derivedValue: rawBuff.derivedValue,
-      maxStacks: rawBuff.maxStacks,
-      multiplier: rawBuff.multiplier,
-      effectKind: rawBuff.effectKind === 'extraHit' ? 'extraHit' : 'modifier',
-      ...(rawBuff.effectKind === 'extraHit'
-        ? { extraHitConfig: normalizeExtraHitConfig(rawBuff.extraHitConfig, `${effectId}-extra-hit`) }
-        : {}),
-    });
+    const normalizeThreePieceBuff = (effectId: string, rawBuff: Partial<EquipmentThreePieceBuff>): EquipmentThreePieceBuff => {
+      const effectKind = rawBuff.effectKind === 'extraHit' ? 'extraHit' : 'modifier';
+      const typeKey = effectKind === 'extraHit' ? '' : String(rawBuff.typeKey || '');
+      const unit = rawBuff.unit === 'flat' ? 'flat' : 'percent';
+      const rawValue = typeof rawBuff.value === 'number' && Number.isFinite(rawBuff.value) ? rawBuff.value : 0;
+      return {
+        effectId: String(rawBuff.effectId || effectId),
+        name: String(rawBuff.name || effectId),
+        category: effectKind === 'extraHit'
+          ? normalizeThreePieceBuffCategory(rawBuff.category) === 'countable' ? 'countable' : 'passive'
+          : normalizeThreePieceBuffCategory(rawBuff.category),
+        typeKey,
+        value: effectKind === 'extraHit' ? 0 : normalizeLegacyEquipmentPercentValue(typeKey, unit, rawValue, rawBuff.raw),
+        unit,
+        raw: rawBuff.raw,
+        description: rawBuff.description,
+        valueMode: rawBuff.valueMode,
+        derivedValue: rawBuff.derivedValue,
+        maxStacks: rawBuff.maxStacks,
+        multiplier: rawBuff.multiplier,
+        effectKind,
+        ...(effectKind === 'extraHit'
+          ? { extraHitConfig: normalizeExtraHitConfig(rawBuff.extraHitConfig, `${effectId}-extra-hit`) }
+          : {}),
+      };
+    };
     Object.entries(rawThreePieceBuffs).forEach(([effectId, rawBuff]) => {
       threePieceBuffs[effectId] = normalizeThreePieceBuff(effectId, rawBuff as Partial<EquipmentThreePieceBuff>);
     });
@@ -359,13 +389,20 @@ function normalizeEquipmentLibrary(raw: unknown): EquipmentLibrary {
       const effects = (['effect1', 'effect2', 'effect3'] as const).reduce<Partial<Record<EquipmentEffectId, EquipmentEffect>>>((acc, effectId) => {
         const rawEffect = itemValue.effects?.[effectId];
         if (!rawEffect) return acc;
+        const typeKey = String(rawEffect.typeKey || '');
+        const unit = rawEffect.unit === 'percent' ? 'percent' : 'flat';
         acc[effectId] = {
           effectId,
           label: String(rawEffect.label || effectId),
-          typeKey: String(rawEffect.typeKey || ''),
+          typeKey,
           category: rawEffect.category === 'ability' ? 'ability' : 'buff',
-          levels: rawEffect.levels ?? {},
-          unit: rawEffect.unit === 'percent' ? 'percent' : 'flat',
+          levels: Object.fromEntries(Object.entries(rawEffect.levels ?? {}).flatMap(([levelKey, levelValue]) => {
+            const parsed = typeof levelValue === 'number' && Number.isFinite(levelValue) ? levelValue : Number(levelValue);
+            return Number.isFinite(parsed)
+              ? [[levelKey, normalizeLegacyEquipmentPercentValue(typeKey, unit, parsed, rawEffect.raw)]]
+              : [];
+          })) as Partial<Record<EquipmentLevelKey, number>>,
+          unit,
           raw: rawEffect.raw,
         };
         return acc;
@@ -728,8 +765,10 @@ function createEquipmentPieceFromItem(item: EquipmentItem): OperatorConfigPageEq
 function formatEquipmentEffectValue(effect: EquipmentEffect | undefined, level: number | string): string {
   if (!effect) return '0';
   const numericValue = getEquipmentEffectLevelValue(effect, level);
-  const suffix = effect.unit === 'percent' ? '%' : '';
-  return `${numericValue}${suffix}`;
+  if (effect.unit === 'percent' && effect.typeKey !== 'sourceSkillBoost') {
+    return `${Number((numericValue * 100).toFixed(2))}%`;
+  }
+  return `${numericValue}${effect.unit === 'percent' ? '%' : ''}`;
 }
 
 function truncateMiddleText(text: string, startCount: number, endCount: number): string {
@@ -981,7 +1020,7 @@ function buildEquipmentSetBuffsForSnapshot(
 }
 
 function formatEquipmentSetBuffLine(buff: EquipmentSetBuffInput): { label: string; typeKey: string; tail: string; full: string } {
-  const displayValue = buff.unit === 'percent' && Math.abs(buff.value) <= 1
+  const displayValue = buff.unit === 'percent' && buff.typeKey !== 'sourceSkillBoost'
     ? Number((buff.value * 100).toFixed(2))
     : buff.value;
   const suffix = buff.unit === 'percent' ? '%' : '';

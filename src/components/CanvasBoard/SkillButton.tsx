@@ -1027,22 +1027,6 @@ export function SkillButtonComponent({
     });
   }, [manualBuffOptionIdsBySegmentKey]);
 
-  useEffect(() => {
-    if (!resolvedTemplate) {
-      return;
-    }
-
-    const availableHitKeys = new Set(resolvedTemplate.hits.map((hit) => hit.key));
-    setManuallyDisabledHitKeys((prev) => {
-      const next = prev.filter((hitKey) => availableHitKeys.has(hitKey));
-      if (next.length === prev.length) {
-        return prev;
-      }
-      persistManualDisabledHitKeys(next);
-      return next;
-    });
-  }, [persistManualDisabledHitKeys, resolvedTemplate]);
-
   const isBuffManuallyActive = useCallback((segmentKey: string, buffId: string) => {
     const disabledIds = manuallyDisabledBuffIdsBySegmentKey[segmentKey] ?? [];
     return !disabledIds.includes(buffId);
@@ -1120,6 +1104,20 @@ export function SkillButtonComponent({
     });
   }, [activeNormalHitKey, persistManualDisabledHitKeys]);
 
+  const toggleManualHitDisabled = useCallback((hitKey: string) => {
+    if (!hitKey) {
+      return;
+    }
+
+    setManuallyDisabledHitKeys((prev) => {
+      const next = prev.includes(hitKey)
+        ? prev.filter((item) => item !== hitKey)
+        : [...prev, hitKey];
+      persistManualDisabledHitKeys(next);
+      return next;
+    });
+  }, [persistManualDisabledHitKeys]);
+
   const anomalyDamageSegments = useMemo<AnomalyDamageSegmentView[]>(() => {
     if (!panelData || !damageViewModel) {
       return [];
@@ -1138,9 +1136,29 @@ export function SkillButtonComponent({
       buffStackCounts: buttonStackCounts,
       buffStackCountsBySegmentKey: manualBuffStackCountsBySegmentKey,
       manuallyDisabledBuffIdsBySegmentKey,
+      disabledHitKeys: manuallyDisabledHitKeys,
       getEffectiveCharacterSourceSkillBoost,
     });
-  }, [panelBase, panelData, damageViewModel, selectedAnomalyDamages, button.characterId, button.skillType, targetResistance, element, infoSnap, fullCombinedModifierBuffList, extraHitBuffList, buttonStackCounts, manualBuffStackCountsBySegmentKey, manuallyDisabledBuffIdsBySegmentKey, getEffectiveCharacterSourceSkillBoost]);
+  }, [panelBase, panelData, damageViewModel, selectedAnomalyDamages, button.characterId, button.skillType, targetResistance, element, infoSnap, fullCombinedModifierBuffList, extraHitBuffList, buttonStackCounts, manualBuffStackCountsBySegmentKey, manuallyDisabledBuffIdsBySegmentKey, manuallyDisabledHitKeys, getEffectiveCharacterSourceSkillBoost]);
+
+  useEffect(() => {
+    if (!resolvedTemplate) {
+      return;
+    }
+
+    const availableHitKeys = new Set([
+      ...resolvedTemplate.hits.map((hit) => hit.key),
+      ...anomalyDamageSegments.map((segment) => segment.key),
+    ]);
+    setManuallyDisabledHitKeys((prev) => {
+      const next = prev.filter((hitKey) => availableHitKeys.has(hitKey));
+      if (next.length === prev.length) {
+        return prev;
+      }
+      persistManualDisabledHitKeys(next);
+      return next;
+    });
+  }, [anomalyDamageSegments, persistManualDisabledHitKeys, resolvedTemplate]);
 
   const activeAnomalySegment = useMemo(
     () => (selectedAnomalySegmentKey ? anomalyDamageSegments.find((segment) => segment.key === selectedAnomalySegmentKey) ?? null : null),
@@ -1951,6 +1969,7 @@ export function SkillButtonComponent({
               crit: segment.critText,
               nonCrit: segment.nonCritText,
               selected: activeAnomalySegment?.key === segment.key,
+              disabled: segment.isDisabled,
               tuning: {
                 title: segment.title,
                 stats: [],
@@ -1959,6 +1978,8 @@ export function SkillButtonComponent({
                   getEffectiveSegmentStackCounts(segment.key)
                 ),
                 segmentKey: segment.key,
+                disabled: segment.isDisabled,
+                onToggleDisabled: () => toggleManualHitDisabled(segment.key),
                 onToggleBuff: (buffId: string) => toggleManualBuff(segment.key, buffId),
                 isBuffActive: (buffId: string) => isBuffManuallyActive(segment.key, buffId),
                 onDecrementBuff: (buffId: string) => adjustSegmentBuffStack(segment.key, buffId, -1),
@@ -2193,7 +2214,7 @@ export function SkillButtonComponent({
                           {anomalyDamageSegments.map((segment) => (
                             <div
                               key={segment.key}
-                              className={`skill-damage-hit-card${activeAnomalySegment?.key === segment.key ? ' selected' : ''}`}
+                              className={`skill-damage-hit-card${activeAnomalySegment?.key === segment.key ? ' selected' : ''}${segment.isDisabled ? ' is-disabled' : ''}`}
                               onClick={() => {
                                 setSelectedHitIndex(null);
                                 setSelectedAnomalySegmentKey(segment.key);

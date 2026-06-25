@@ -548,14 +548,16 @@ function normalizeThreePieceBuff(effectId: string, raw: Partial<EquipmentThreePi
     type: raw?.typeKey,
     category: raw?.category === 'positive' || raw?.category === '' ? 'passive' : raw?.category,
   });
+  const unit = normalizeUnit(normalized.unit);
+  const typeKey = normalized.type;
   return {
     ...normalized,
     effectId: normalized.effectId,
     name: normalized.name || '新建效果',
     category: normalized.category,
-    typeKey: normalized.type,
-    value: normalized.effectKind === 'extraHit' ? 0 : normalizeNumber(normalized.value),
-    unit: normalizeUnit(normalized.unit),
+    typeKey,
+    value: normalized.effectKind === 'extraHit' ? 0 : normalizeLegacyPercentValue(typeKey, unit, normalizeNumber(normalized.value), normalized.raw),
+    unit,
     description: normalized.description,
     raw: normalized.raw,
   };
@@ -605,6 +607,33 @@ const DEFAULT_FIXED_STAT_BY_PART: Record<EquipmentPart, EquipmentFixedStat> = {
 };
 
 const ABILITY_TYPE_KEYS = new Set(['strengthBoost', 'agilityBoost', 'intelligenceBoost', 'willBoost']);
+const NON_DECIMAL_EQUIPMENT_EFFECT_TYPE_KEYS = new Set([
+  'strengthBoost',
+  'agilityBoost',
+  'intelligenceBoost',
+  'willBoost',
+  'flatAtk',
+  'mainStat',
+  'subStat',
+  'sourceSkillBoost',
+]);
+
+function shouldStoreEquipmentEffectAsDecimal(typeKey: string, unit: EquipmentUnit | string | undefined): boolean {
+  return unit === 'percent' && !NON_DECIMAL_EQUIPMENT_EFFECT_TYPE_KEYS.has(typeKey);
+}
+
+function normalizeLegacyPercentValue(typeKey: string, unit: EquipmentUnit | string | undefined, value: number, raw?: unknown): number {
+  if (!shouldStoreEquipmentEffectAsDecimal(typeKey, unit)) return value;
+  const rawText = String(raw || '');
+  if (!rawText.includes('%')) return value;
+  const rawNumbers = (rawText.match(/[+-]?\d+(?:\.\d+)?/g) || []).map(Number).filter(Number.isFinite);
+  const matchesStoredDecimal = rawNumbers.some((rawNumber) => Math.abs(value - rawNumber / 100) < 1e-4);
+  if (matchesStoredDecimal) return value;
+  const matchesLegacyPercent = rawNumbers.some((rawNumber) => Math.abs(value - rawNumber) < 1e-6);
+  if (matchesLegacyPercent) return value / 100;
+  if (Math.abs(value) > 1) return value / 100;
+  return value;
+}
 
 function inferPresetPart(preset: EquipmentValuePresetItem): EquipmentPart | null {
   const value = normalizeNumber(preset.fixedStat?.value, NaN);
@@ -614,29 +643,31 @@ function inferPresetPart(preset: EquipmentValuePresetItem): EquipmentPart | null
   return null;
 }
 
-function parseLevelValuesFromRaw(raw: unknown): Partial<Record<EquipmentLevelKey, number>> {
+function parseLevelValuesFromRaw(raw: unknown, typeKey = '', unit: EquipmentUnit | string | undefined = 'flat'): Partial<Record<EquipmentLevelKey, number>> {
   const text = String(raw || '');
   const valueText = text.includes('：') ? text.split('：').slice(1).join('：') : text;
   const matches = valueText.match(/[+-]?\d+(?:\.\d+)?/g) || [];
   return LEVEL_KEYS.reduce<Partial<Record<EquipmentLevelKey, number>>>((acc, levelKey, index) => {
     const parsed = Number(matches[index]);
     if (Number.isFinite(parsed)) {
-      acc[levelKey] = parsed;
+      acc[levelKey] = normalizeLegacyPercentValue(typeKey, unit, parsed, raw);
     }
     return acc;
   }, {});
 }
 
 function normalizePresetLevels(effect: EquipmentValuePresetEffect): Partial<Record<EquipmentLevelKey, number>> {
+  const typeKey = String(effect.typeKey || '');
+  const unit = normalizeUnit(effect.unit);
   const levels = LEVEL_KEYS.reduce<Partial<Record<EquipmentLevelKey, number>>>((acc, levelKey) => {
     const value = effect.levels?.[levelKey];
     if (typeof value === 'number' && Number.isFinite(value)) {
-      acc[levelKey] = value;
+      acc[levelKey] = normalizeLegacyPercentValue(typeKey, unit, value, effect.raw);
     }
     return acc;
   }, {});
   const values = LEVEL_KEYS.map((levelKey) => levels[levelKey]).filter((value): value is number => typeof value === 'number');
-  const rawLevels = parseLevelValuesFromRaw(effect.raw);
+  const rawLevels = parseLevelValuesFromRaw(effect.raw, typeKey, unit);
   const rawValues = LEVEL_KEYS.map((levelKey) => rawLevels[levelKey]).filter((value): value is number => typeof value === 'number');
   const hasSuspiciousFlatLevels = values.length === LEVEL_KEYS.length && new Set(values).size === 1 && rawValues.length === LEVEL_KEYS.length && new Set(rawValues).size > 1;
   return hasSuspiciousFlatLevels ? rawLevels : levels;
@@ -889,19 +920,21 @@ function normalizeEquipmentLibrary(raw: unknown): EquipmentLibrary {
           return;
         }
         const effect = rawEffect as Partial<EquipmentEffect>;
+        const typeKey = String(effect.typeKey || '');
+        const unit = normalizeUnit(effect.unit);
         item.effects[effectId] = {
           effectId,
           label: String(effect.label || effectId),
-          typeKey: String(effect.typeKey || ''),
+          typeKey,
           category: normalizeCategory(effect.category),
-          unit: normalizeUnit(effect.unit),
+          unit,
           raw: String(effect.raw || ''),
           levels: LEVEL_KEYS.reduce<Partial<Record<EquipmentLevelKey, number>>>((acc, levelKey) => {
             const rawLevel = effect.levels?.[levelKey];
             if (rawLevel !== undefined && rawLevel !== null) {
               const parsed = Number(rawLevel);
               if (Number.isFinite(parsed)) {
-                acc[levelKey] = parsed;
+                acc[levelKey] = normalizeLegacyPercentValue(typeKey, unit, parsed, effect.raw);
               }
             }
             return acc;

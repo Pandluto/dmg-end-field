@@ -13,6 +13,16 @@ const FIXED_STAT_TYPES = ['defense', 'hp', 'flatAtk'] as const;
 const UNITS = ['flat', 'percent'] as const;
 const EFFECT_CATEGORIES = ['ability', 'buff'] as const;
 const THREE_PIECE_CATEGORIES = ['positive', 'passive', 'condition', 'countable', ''] as const;
+const NON_DECIMAL_EQUIPMENT_EFFECT_TYPE_KEYS = new Set([
+  'strengthBoost',
+  'agilityBoost',
+  'intelligenceBoost',
+  'willBoost',
+  'flatAtk',
+  'mainStat',
+  'subStat',
+  'sourceSkillBoost',
+]);
 const SUPPORTED_EQUIPMENT_EFFECT_TYPES = [
   'strengthBoost',
   'agilityBoost',
@@ -67,6 +77,19 @@ type EquipmentLevelKey = (typeof LEVEL_KEYS)[number];
 type EquipmentFixedTypeKey = (typeof FIXED_STAT_TYPES)[number];
 type EquipmentUnit = (typeof UNITS)[number];
 type EquipmentEffectCategory = (typeof EFFECT_CATEGORIES)[number];
+
+function normalizeLegacyEquipmentPercentValue(typeKey: string, unit: EquipmentUnit | string | undefined, value: number, raw?: unknown): number {
+  if (unit !== 'percent' || NON_DECIMAL_EQUIPMENT_EFFECT_TYPE_KEYS.has(typeKey)) return value;
+  const rawText = String(raw || '');
+  if (!rawText.includes('%')) return value;
+  const rawNumbers = (rawText.match(/[+-]?\d+(?:\.\d+)?/g) || []).map(Number).filter(Number.isFinite);
+  const matchesStoredDecimal = rawNumbers.some((rawNumber) => Math.abs(value - rawNumber / 100) < 1e-4);
+  if (matchesStoredDecimal) return value;
+  const matchesLegacyPercent = rawNumbers.some((rawNumber) => Math.abs(value - rawNumber) < 1e-6);
+  if (matchesLegacyPercent) return value / 100;
+  if (Math.abs(value) > 1) return value / 100;
+  return value;
+}
 
 interface EquipmentFixedStat {
   label: string;
@@ -291,13 +314,16 @@ function validateThreePieceBuff(raw: Record<string, unknown>, path: string, erro
 
 function normalizeThreePieceBuff(raw: Record<string, unknown>, fallbackKey: string): EquipmentThreePieceBuff {
   const effectKind: BuffEffectKind = raw.effectKind === 'extraHit' ? 'extraHit' : 'modifier';
+  const typeKey = effectKind === 'extraHit' ? '' : String(raw.typeKey || '');
+  const unit = raw.unit as EquipmentUnit;
+  const rawValue = Number(raw.value || 0);
   return {
     effectId: String(raw.effectId || fallbackKey),
     name: String(raw.name || fallbackKey),
     category: raw.category as EquipmentThreePieceBuff['category'],
-    typeKey: effectKind === 'extraHit' ? '' : String(raw.typeKey || ''),
-    value: effectKind === 'extraHit' ? 0 : Number(raw.value || 0),
-    unit: raw.unit as EquipmentUnit,
+    typeKey,
+    value: effectKind === 'extraHit' ? 0 : normalizeLegacyEquipmentPercentValue(typeKey, unit, rawValue, raw.raw),
+    unit,
     raw: typeof raw.raw === 'string' ? raw.raw : '',
     ...(raw.category === 'countable' && typeof raw.maxStacks === 'number'
       ? { maxStacks: Math.max(1, Math.floor(raw.maxStacks)) }
@@ -361,13 +387,21 @@ function normalizeEquipmentLibrary(raw: Record<string, unknown>): EquipmentLibra
       const effects: Partial<Record<EquipmentEffectId, EquipmentEffect>> = {};
       for (const [effectId, rawEffect] of Object.entries((rawEquipment.effects || {}) as Record<string, Record<string, unknown>>)) {
         if (!EFFECT_IDS.includes(effectId as never)) continue;
+        const typeKey = String(rawEffect.typeKey || '');
+        const unit = rawEffect.unit as EquipmentUnit;
+        const levels = Object.fromEntries(Object.entries((rawEffect.levels || {}) as Record<string, unknown>).flatMap(([levelKey, levelValue]) => {
+          const parsed = typeof levelValue === 'number' && Number.isFinite(levelValue) ? levelValue : Number(levelValue);
+          return Number.isFinite(parsed)
+            ? [[levelKey, normalizeLegacyEquipmentPercentValue(typeKey, unit, parsed, rawEffect.raw)]]
+            : [];
+        })) as Partial<Record<EquipmentLevelKey, number>>;
         effects[effectId as EquipmentEffectId] = {
           effectId: rawEffect.effectId as EquipmentEffectId,
           label: String(rawEffect.label || effectId),
-          typeKey: String(rawEffect.typeKey || ''),
+          typeKey,
           category: rawEffect.category as EquipmentEffectCategory,
-          levels: rawEffect.levels as Partial<Record<EquipmentLevelKey, number>>,
-          unit: rawEffect.unit as EquipmentUnit,
+          levels,
+          unit,
           raw: typeof rawEffect.raw === 'string' ? rawEffect.raw : '',
         };
       }

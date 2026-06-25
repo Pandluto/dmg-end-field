@@ -44,6 +44,7 @@ export interface SelectedAnomalyCard {
 export interface AnomalyDamageSegmentView {
   key: string;
   sourceKind: 'anomaly' | 'buff-extra-hit';
+  isDisabled?: boolean;
   title: string;
   sequenceTitle: string;
   compactTitle: string;

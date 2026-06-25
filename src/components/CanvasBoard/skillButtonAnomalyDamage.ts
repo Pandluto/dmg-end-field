@@ -37,6 +37,7 @@ interface BuildAnomalyDamageSegmentsParams {
   buffStackCounts?: Record<string, number>;
   buffStackCountsBySegmentKey?: Record<string, Record<string, number>>;
   manuallyDisabledBuffIdsBySegmentKey: Record<string, string[]>;
+  disabledHitKeys?: string[];
   getEffectiveCharacterSourceSkillBoost: (characterId: string | null, buffs?: SkillButtonBuff[]) => number;
 }
 
@@ -273,6 +274,22 @@ function calculateBreakdown(
   return afterCombo * (1 + imbalanceDamageBonus);
 }
 
+function applyDisabledSegment(segment: AnomalyDamageSegmentView): AnomalyDamageSegmentView {
+  return {
+    ...segment,
+    isDisabled: true,
+    buffText: '已禁用',
+    appliedBuffTags: [],
+    expectedText: '0',
+    critText: '0',
+    nonCritText: '0',
+    expectedValue: 0,
+    critValue: 0,
+    nonCritValue: 0,
+    nonCritFormulaText: '本段已禁用 = 0',
+  };
+}
+
 export function buildAnomalyDamageSegments({
   panelBase,
   panelData,
@@ -287,6 +304,7 @@ export function buildAnomalyDamageSegments({
   buffStackCounts = {},
   buffStackCountsBySegmentKey = {},
   manuallyDisabledBuffIdsBySegmentKey,
+  disabledHitKeys = [],
   getEffectiveCharacterSourceSkillBoost,
 }: BuildAnomalyDamageSegmentsParams): AnomalyDamageSegmentView[] {
   if (!panelData) {
@@ -304,6 +322,7 @@ export function buildAnomalyDamageSegments({
     const levelCoefficient = resolveLevelCoefficient(card, currentOperatorLevel);
     const elementKey = resolveElementKey(card, element);
     const disabledBuffIds = new Set(manuallyDisabledBuffIdsBySegmentKey[card.id] ?? []);
+    const disabledHitKeySet = new Set(disabledHitKeys);
     const baseAppliedBuffs = card.selectedBuffIds.length === 0
       ? [...fullCombinedModifierBuffList]
       : [...fullCombinedModifierBuffList.filter((buff) => card.selectedBuffIds.includes(buff.id) || buff.source === 'anomaly_state')];
@@ -438,43 +457,49 @@ export function buildAnomalyDamageSegments({
       defenseZoneText: defenseZone.toFixed(3),
       nonCritFormulaText: `${anomalyAtk.toFixed(0)} × ${(finalMultiplier * 100).toFixed(1)}% × ${damageBonusRate.toFixed(3)} × ${defenseZone.toFixed(3)} × ${resistance.resistanceZone.toFixed(3)} × ${amplifyZone.toFixed(3)} × ${fragileZone.toFixed(3)} × ${vulnerabilityZone.toFixed(3)} × ${(1 + comboDamageBonus).toFixed(3)} × ${(1 + imbalanceDamageBonus).toFixed(3)} = ${nonCrit.toFixed(0)} (基础伤害 ${baseNonCrit.toFixed(0)})`,
     };
+    const finalInitialSegment = disabledHitKeySet.has(initialSegment.key)
+      ? applyDisabledSegment(initialSegment)
+      : initialSegment;
 
     if (burnDotMultiplierPercent <= 0) {
       anomalySequenceOffset += 1;
-      return [initialSegment];
+      return [finalInitialSegment];
     }
 
     const burnMultiplierFormulaPrefix = burnDamageMode === 'splitDot'
       ? `${burnTickMultiplierPercent.toFixed(1)}%`
       : `${burnTickMultiplierPercent.toFixed(1)}% × ${(card.durationSeconds ?? 0).toFixed(0)}s`;
-    const buildDotSegment = (sequence: number, keySuffix: string, titleSuffix = '持续'): AnomalyDamageSegmentView => ({
-      ...initialSegment,
-      key: `${card.id}-${keySuffix}`,
-      title: `${sequence}段 · ${card.label}${titleSuffix}`,
-      sequenceTitle: `异常持续伤害 · ${card.label}${titleSuffix}`,
-      compactTitle: `${card.label}${titleSuffix}`,
-      baseMultiplierText: `${burnDotMultiplierPercent.toFixed(1)}%`,
-      multiplierText: `${(burnDotFinalMultiplier * 100).toFixed(1)}%`,
-      multiplierFormulaText: `(${(burnDotBaseMultiplier * 100).toFixed(1)}% + ${(burnDotZoneResults.skillMultiplier.additiveTotal * 100).toFixed(1)}%) × ${burnDotZoneResults.skillMultiplier.multiplierProduct.toFixed(3)}`,
-      expectedText: burnDotExpected.toFixed(0),
-      critText: burnDotCrit.toFixed(0),
-      nonCritText: burnDotNonCrit.toFixed(0),
-      expectedValue: burnDotExpected,
-      critValue: burnDotCrit,
-      nonCritValue: burnDotNonCrit,
-      formulaText: `(${burnMultiplierFormulaPrefix} × ${levelCoefficient.toFixed(3)} × ${sourceSkillZone.toFixed(3)} + ${(burnDotZoneResults.skillMultiplier.additiveTotal * 100).toFixed(1)}%) × ${burnDotZoneResults.skillMultiplier.multiplierProduct.toFixed(3)} = ${(burnDotFinalMultiplier * 100).toFixed(1)}%`,
-      elementBonusText: `${(burnDotElementBonus * 100).toFixed(1)}%`,
-      skillBonusText: `${(burnDotSkillBonus * 100).toFixed(1)}%`,
-      allDamageBonusText: `${(burnDotAllDamageBonus * 100).toFixed(1)}%`,
-      damageBonusRateText: burnDotDamageBonusRate.toFixed(3),
-      amplifyFormulaText: burnDotAmplifyZone.toFixed(3),
-      amplifyRateText: (burnDotAmplifyZone - 1).toFixed(3),
-      fragileFormulaText: burnDotFragileZone.toFixed(3),
-      fragileRateText: (burnDotFragileZone - 1).toFixed(3),
-      vulnerabilityFormulaText: burnDotVulnerabilityZone.toFixed(3),
-      vulnerabilityRateText: (burnDotVulnerabilityZone - 1).toFixed(3),
-      nonCritFormulaText: `${anomalyAtk.toFixed(0)} × ${(burnDotFinalMultiplier * 100).toFixed(1)}% × ${burnDotDamageBonusRate.toFixed(3)} × ${defenseZone.toFixed(3)} × ${resistance.resistanceZone.toFixed(3)} × ${burnDotAmplifyZone.toFixed(3)} × ${burnDotFragileZone.toFixed(3)} × ${burnDotVulnerabilityZone.toFixed(3)} × ${(1 + comboDamageBonus).toFixed(3)} × ${(1 + imbalanceDamageBonus).toFixed(3)} = ${burnDotNonCrit.toFixed(0)} (基础伤害 ${burnDotBaseNonCrit.toFixed(0)})`,
-    });
+    const buildDotSegment = (sequence: number, keySuffix: string, titleSuffix = '持续'): AnomalyDamageSegmentView => {
+      const segment: AnomalyDamageSegmentView = {
+        ...initialSegment,
+        key: `${card.id}-${keySuffix}`,
+        title: `${sequence}段 · ${card.label}${titleSuffix}`,
+        sequenceTitle: `异常持续伤害 · ${card.label}${titleSuffix}`,
+        compactTitle: `${card.label}${titleSuffix}`,
+        baseMultiplierText: `${burnDotMultiplierPercent.toFixed(1)}%`,
+        multiplierText: `${(burnDotFinalMultiplier * 100).toFixed(1)}%`,
+        multiplierFormulaText: `(${(burnDotBaseMultiplier * 100).toFixed(1)}% + ${(burnDotZoneResults.skillMultiplier.additiveTotal * 100).toFixed(1)}%) × ${burnDotZoneResults.skillMultiplier.multiplierProduct.toFixed(3)}`,
+        expectedText: burnDotExpected.toFixed(0),
+        critText: burnDotCrit.toFixed(0),
+        nonCritText: burnDotNonCrit.toFixed(0),
+        expectedValue: burnDotExpected,
+        critValue: burnDotCrit,
+        nonCritValue: burnDotNonCrit,
+        formulaText: `(${burnMultiplierFormulaPrefix} × ${levelCoefficient.toFixed(3)} × ${sourceSkillZone.toFixed(3)} + ${(burnDotZoneResults.skillMultiplier.additiveTotal * 100).toFixed(1)}%) × ${burnDotZoneResults.skillMultiplier.multiplierProduct.toFixed(3)} = ${(burnDotFinalMultiplier * 100).toFixed(1)}%`,
+        elementBonusText: `${(burnDotElementBonus * 100).toFixed(1)}%`,
+        skillBonusText: `${(burnDotSkillBonus * 100).toFixed(1)}%`,
+        allDamageBonusText: `${(burnDotAllDamageBonus * 100).toFixed(1)}%`,
+        damageBonusRateText: burnDotDamageBonusRate.toFixed(3),
+        amplifyFormulaText: burnDotAmplifyZone.toFixed(3),
+        amplifyRateText: (burnDotAmplifyZone - 1).toFixed(3),
+        fragileFormulaText: burnDotFragileZone.toFixed(3),
+        fragileRateText: (burnDotFragileZone - 1).toFixed(3),
+        vulnerabilityFormulaText: burnDotVulnerabilityZone.toFixed(3),
+        vulnerabilityRateText: (burnDotVulnerabilityZone - 1).toFixed(3),
+        nonCritFormulaText: `${anomalyAtk.toFixed(0)} × ${(burnDotFinalMultiplier * 100).toFixed(1)}% × ${burnDotDamageBonusRate.toFixed(3)} × ${defenseZone.toFixed(3)} × ${resistance.resistanceZone.toFixed(3)} × ${burnDotAmplifyZone.toFixed(3)} × ${burnDotFragileZone.toFixed(3)} × ${burnDotVulnerabilityZone.toFixed(3)} × ${(1 + comboDamageBonus).toFixed(3)} × ${(1 + imbalanceDamageBonus).toFixed(3)} = ${burnDotNonCrit.toFixed(0)} (基础伤害 ${burnDotBaseNonCrit.toFixed(0)})`,
+      };
+      return disabledHitKeySet.has(segment.key) ? applyDisabledSegment(segment) : segment;
+    };
 
     if (burnDamageMode === 'splitDot') {
       const hitCount = Math.max(1, Math.trunc(card.durationSeconds ?? 0));
@@ -492,7 +517,7 @@ export function buildAnomalyDamageSegments({
       return [buildDotSegment(sequenceNumber, 'dot')];
     }
     anomalySequenceOffset += 1;
-    return [initialSegment];
+    return [finalInitialSegment];
   });
 
   let extraHitSequenceOffset = 0;
@@ -506,6 +531,7 @@ export function buildAnomalyDamageSegments({
       const sequenceNumber = hitCards.length + anomalySegments.length + extraHitSequenceOffset + hitIndex + 1;
       const layerSuffix = hitCount > 1 ? ` ${hitIndex + 1}/${hitCount}` : '';
       const segmentKey = hitCount > 1 ? `${baseSegmentKey}-${hitIndex + 1}` : baseSegmentKey;
+      const isDisabled = disabledHitKeys.includes(segmentKey);
       const segmentStackCounts = {
         ...buffStackCounts,
         ...(buffStackCountsBySegmentKey[baseSegmentKey] ?? {}),
@@ -562,6 +588,7 @@ export function buildAnomalyDamageSegments({
       const segment: AnomalyDamageSegmentView = {
         key: segmentKey,
         sourceKind: 'buff-extra-hit',
+        isDisabled,
         title: `${sequenceNumber}段 · ${buff.displayName}${layerSuffix}`,
         sequenceTitle: `额外伤害 · ${buff.displayName}${layerSuffix}`,
         compactTitle: `${buff.displayName}${layerSuffix}`,
@@ -611,7 +638,7 @@ export function buildAnomalyDamageSegments({
         cooldownText: `${extraHitConfig.cooldownSeconds}s`,
         sourceBuffName: buff.displayName,
       };
-      return [segment];
+      return [isDisabled ? applyDisabledSegment(segment) : segment];
     });
     extraHitSequenceOffset += hitCount;
     return segments;

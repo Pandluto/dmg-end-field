@@ -78,7 +78,7 @@ const damagePercentSnapshot = buildConfigSnapshot({
         label: '物理伤害加成',
         typeKey: 'physicalDmgBonus',
         level: '三件套',
-        value: 30,
+        value: 0.3,
         unit: 'percent',
         raw: '物理伤害加成 +30%',
         gearSetId: 'physical',
@@ -89,7 +89,33 @@ const damagePercentSnapshot = buildConfigSnapshot({
   },
 });
 
-assertEqual(damagePercentSnapshot.panel.calc.damageBonus.physicalDmgBonus, 0.3, 'percent damage set buff should still normalize to ratio');
+assertEqual(damagePercentSnapshot.panel.calc.damageBonus.physicalDmgBonus, 0.3, 'percent damage set buff should use decimal value directly');
+
+const equipmentMainStatDecimalPercentSnapshot = buildConfigSnapshot({
+  ...baseInput,
+  equipment: {
+    pieces: [
+      {
+        slotKey: 'accessory1',
+        equipmentId: 'main-stat-equipment',
+        name: 'Main stat equipment',
+        effects: [
+          {
+            effectId: 'main-stat',
+            label: '主能力',
+            typeKey: 'mainStatBoost',
+            level: 3,
+            value: 0.2691,
+            unit: 'percent',
+          },
+        ],
+      },
+    ],
+    setBuffs: [],
+  },
+});
+
+assertEqual(equipmentMainStatDecimalPercentSnapshot.panel.calc.mainStatBoost, 0.2691, 'equipment mainStatBoost should use decimal value directly');
 
 const operatorMainSubStatSnapshot = buildConfigSnapshot({
   ...baseInput,

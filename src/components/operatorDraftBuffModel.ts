@@ -495,7 +495,9 @@ export function getBuffEffectSummary(effect: OperatorBuffEffect) {
     return `${mode} · ${OPERATOR_BUFF_DERIVED_SOURCE_LABELS[effect.derivedValue.source]} 每点提升 ${formatOperatorBuffPerPointValue(effect.derivedValue.perPointValue)}`;
   }
   if (typeof effect.value === 'number') {
-    return `${mode} · ${effect.value}${(effect.unit || inferOperatorBuffUnit(effect.type)) === 'percent' ? '%' : ''}`;
+    const isPercent = (effect.unit || inferOperatorBuffUnit(effect.type)) === 'percent';
+    const displayValue = isPercent ? Number((effect.value * 100).toFixed(2)) : effect.value;
+    return `${mode} · ${displayValue}${isPercent ? '%' : ''}`;
   }
   return mode;
 }
