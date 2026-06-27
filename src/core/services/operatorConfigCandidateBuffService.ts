@@ -1,5 +1,5 @@
 import type { ConfigSnapshot, WeaponSkillDetail } from '../calculators/operatorPanelCalculator';
-import type { BuffEffectKind, BuffExtraHitConfig, BuffMultiplier, CandidateBuff } from '../domain/buff';
+import type { BuffData, BuffEffectKind, BuffExtraHitConfig, BuffMultiplier, CandidateBuff } from '../domain/buff';
 import { getCandidateBuffList, getOperatorConfigPageCache, setCandidateBuffList } from '../repositories';
 import { resolvePublicPath } from '../../utils/assetResolver';
 import { normalizeExtraHitConfig } from './buffExtraHit';
@@ -43,6 +43,8 @@ interface SnapshotCandidateCharacterRef {
   id: string;
   name: string;
 }
+
+type CandidateContentDomain = 'operator' | 'weapon';
 
 const EQUIPMENT_LIBRARY_PATH = 'data/equipments/equipments.json';
 const EQUIPMENT_DRAFT_STORAGE_KEY = 'def.equipment-sheet.draft.v1';
@@ -109,6 +111,166 @@ export function mergeCandidateBuffs(...groups: CandidateBuff[][]): CandidateBuff
     seen.add(key);
     return true;
   });
+}
+
+function uniqueCharacterRefs(characters: SnapshotCandidateCharacterRef[]): SnapshotCandidateCharacterRef[] {
+  const seen = new Set<string>();
+  return characters.filter((character) => {
+    const id = character.id?.trim();
+    if (!id || seen.has(id)) {
+      return false;
+    }
+    seen.add(id);
+    return true;
+  });
+}
+
+async function loadPublicBuffData(path: string): Promise<BuffData | null> {
+  try {
+    const response = await fetch(resolvePublicPath(path));
+    if (!response.ok) {
+      return null;
+    }
+    return (await response.json()) as BuffData;
+  } catch (error) {
+    console.warn('加载可用 Buff 数据失败:', path, error);
+    return null;
+  }
+}
+
+function normalizeJsonCandidateCategory(category: CandidateBuff['category']): CandidateBuff['category'] {
+  if (category === 'passive' || category === 'countable' || category === 'condition') {
+    return category;
+  }
+  return 'condition';
+}
+
+function inferOperatorJsonBuffGroup(buff: CandidateBuff): CandidateBuff['ownerBuffGroup'] {
+  if (buff.ownerBuffGroup) {
+    return buff.ownerBuffGroup;
+  }
+  const text = [
+    buff.name,
+    buff.displayName,
+    buff.level,
+    buff.source,
+    buff.sourceName,
+    buff.condition,
+    buff.description,
+  ]
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase();
+  if (text.includes('potential') || text.includes('potentials') || text.includes('潜能')) {
+    return 'potential';
+  }
+  if (text.includes('talent') || text.includes('天赋')) {
+    return 'talent';
+  }
+  if (text.includes('skill') || text.includes('技能')) {
+    return 'skill';
+  }
+  return 'talent';
+}
+
+function normalizeJsonCandidateBuff(
+  rawBuff: CandidateBuff,
+  options: {
+    character: SnapshotCandidateCharacterRef;
+    domain: CandidateContentDomain;
+    ownerName: string;
+    index: number;
+  },
+): CandidateBuff | null {
+  const normalized = normalizeStoredBuffDefinition(rawBuff) as CandidateBuff & {
+    multiplier?: BuffMultiplier;
+    extraHitConfig?: BuffExtraHitConfig;
+  };
+  const effectKind: BuffEffectKind = normalized.effectKind === 'extraHit' ? 'extraHit' : 'modifier';
+  const type = effectKind === 'extraHit' ? undefined : normalizeBuffTypeKey(normalized.type || '');
+  if (effectKind === 'modifier' && !type) {
+    return null;
+  }
+  const category = normalizeJsonCandidateCategory(normalized.category);
+  const fallbackName = `${options.domain}-json:${options.character.id}:${options.index + 1}`;
+  const sourceName = normalized.sourceName || normalized.source || options.ownerName;
+  return {
+    ...normalized,
+    origin: normalized.origin ?? 'json',
+    ownerBuffDomain: options.domain,
+    ownerCharacterId: options.character.id,
+    ownerBuffGroup:
+      normalized.ownerBuffGroup ??
+      (options.domain === 'operator' ? inferOperatorJsonBuffGroup(normalized) : 'weaponSkill'),
+    displayName: normalized.displayName || normalized.name || `${options.ownerName} Buff ${options.index + 1}`,
+    name: normalized.name || fallbackName,
+    level: normalized.level || '',
+    value: effectKind === 'extraHit' ? undefined : normalized.value,
+    type,
+    source: options.ownerName,
+    sourceName,
+    description: normalized.description || '',
+    condition: normalized.condition || (category === 'condition' ? 'condition' : category),
+    category,
+    effectKind,
+    multiplier: effectKind === 'modifier' ? normalized.multiplier : undefined,
+    extraHitConfig:
+      effectKind === 'extraHit'
+        ? normalizeExtraHitConfig(
+          normalized.extraHitConfig,
+          `${options.domain}-json:${options.character.id}:${normalized.name || options.index}`,
+        )
+        : undefined,
+  };
+}
+
+async function buildCharacterJsonCandidateBuffs(characters: SnapshotCandidateCharacterRef[]): Promise<CandidateBuff[]> {
+  const lists = await Promise.all(
+    uniqueCharacterRefs(characters).map(async (character) => {
+      const data = await loadPublicBuffData(`data/characters/${character.name}/${character.name}buff.json`);
+      const buffs = Array.isArray(data?.buffs) ? data.buffs : [];
+      return buffs
+        .map((buff, index) =>
+          normalizeJsonCandidateBuff(buff, {
+            character,
+            domain: 'operator',
+            ownerName: character.name,
+            index,
+          }),
+        )
+        .filter((buff): buff is CandidateBuff => Boolean(buff));
+    }),
+  );
+  return lists.flat();
+}
+
+async function buildWeaponJsonCandidateBuffs(characters: SnapshotCandidateCharacterRef[]): Promise<CandidateBuff[]> {
+  const snapshotCache = getOperatorConfigPageCache();
+  const lists = await Promise.all(
+    uniqueCharacterRefs(characters).map(async (character) => {
+      const snapshot = snapshotCache[character.id];
+      const weaponName = snapshot?.weapon?.name?.trim() || snapshot?.weapon?.id?.trim();
+      if (!weaponName) {
+        return [];
+      }
+      let data = await loadPublicBuffData(`data/weapons/${weaponName}/${weaponName}buff.json`);
+      if (!data && weaponName.includes('.')) {
+        data = await loadPublicBuffData(`data/weapons/${weaponName}/${weaponName}.buff.json`);
+      }
+      const buffs = Array.isArray(data?.buffs) ? data.buffs : [];
+      return buffs
+        .map((buff, index) =>
+          normalizeJsonCandidateBuff(buff, {
+            character,
+            domain: 'weapon',
+            ownerName: weaponName,
+            index,
+          }),
+        )
+        .filter((buff): buff is CandidateBuff => Boolean(buff));
+    }),
+  );
+  return lists.flat();
 }
 
 function buildSnapshotCandidateBase(snapshot: ConfigSnapshot): Pick<CandidateBuff, 'origin' | 'ownerCharacterId'> {
@@ -322,6 +484,45 @@ function isSnapshotCandidateOwnedBy(buff: CandidateBuff, characterIds: Set<strin
 export function retainCandidateBuffsNotOwnedByCharacterIds(buffs: CandidateBuff[], characterIds: string[]): CandidateBuff[] {
   const characterIdSet = new Set(characterIds.filter(Boolean));
   return buffs.filter((buff) => !isSnapshotCandidateOwnedBy(buff, characterIdSet));
+}
+
+function isAvailableCandidateOwnedBy(buff: CandidateBuff, characterIds: Set<string>): boolean {
+  if (!buff.ownerCharacterId || !characterIds.has(buff.ownerCharacterId)) {
+    return false;
+  }
+  return (
+    buff.origin === 'operatorConfigSnapshot' ||
+    buff.origin === 'operatorStudio' ||
+    buff.origin === 'json' ||
+    buff.name.startsWith('operator-config-snapshot:') ||
+    buff.name.startsWith('operator-studio:') ||
+    buff.name.startsWith('operator-json:') ||
+    buff.name.startsWith('weapon-json:')
+  );
+}
+
+function retainAvailableCandidateBuffsNotOwnedByCharacterIds(
+  buffs: CandidateBuff[],
+  characterIds: string[],
+): CandidateBuff[] {
+  const characterIdSet = new Set(characterIds.filter(Boolean));
+  return buffs.filter((buff) => !isAvailableCandidateOwnedBy(buff, characterIdSet));
+}
+
+export async function refreshAvailableCandidateBuffsForCharacters(
+  characters: SnapshotCandidateCharacterRef[],
+): Promise<CandidateBuff[]> {
+  const uniqueCharacters = uniqueCharacterRefs(characters);
+  const uniqueCharacterIds = uniqueCharacters.map((character) => character.id);
+  const [snapshotBuffs, characterJsonBuffs, weaponJsonBuffs] = await Promise.all([
+    buildSnapshotCandidateBuffs(uniqueCharacters),
+    buildCharacterJsonCandidateBuffs(uniqueCharacters),
+    buildWeaponJsonCandidateBuffs(uniqueCharacters),
+  ]);
+  const retainedBuffs = retainAvailableCandidateBuffsNotOwnedByCharacterIds(getCandidateBuffList(), uniqueCharacterIds);
+  const allBuffs = mergeCandidateBuffs(retainedBuffs, characterJsonBuffs, snapshotBuffs, weaponJsonBuffs);
+  setCandidateBuffList(allBuffs);
+  return allBuffs;
 }
 
 export async function refreshSnapshotCandidateBuffsForCharacterIds(characterIds: string[]): Promise<CandidateBuff[]> {

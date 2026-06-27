@@ -33,6 +33,10 @@ interface SkillSandboxProps {
   onSave?: () => void;
   /** 打开全局敌方抗性设置 */
   onOpenResistance?: () => void;
+  /** 刷新当前干员/武器/装备可用候选内容 */
+  onRefreshAvailableCandidates?: () => void;
+  /** 可用候选内容刷新中 */
+  isRefreshingAvailableCandidates?: boolean;
   /** 浏览模式是否开启 */
   isBrowseMode?: boolean;
   /** 切换浏览模式回调 */
@@ -75,6 +79,8 @@ export function SkillSandbox({
   onAvatarDoubleClick,
   onSave,
   onOpenResistance,
+  onRefreshAvailableCandidates,
+  isRefreshingAvailableCandidates = false,
   isBrowseMode = false,
   onToggleBrowseMode,
   isInspectMode = false,
@@ -159,6 +165,18 @@ export function SkillSandbox({
           >
             <svg className="sandbox-reserved-action-icon" viewBox="0 0 24 24" aria-hidden="true">
               <path d="M12 2 4 5v6c0 5.1 3.4 9.7 8 11 4.6-1.3 8-5.9 8-11V5l-8-3zm0 2.2L18 6.4V11c0 3.9-2.4 7.6-6 8.8-3.6-1.2-6-4.9-6-8.8V6.4l6-2.2zm-1 3.3h2v5h-2v-5zm0 6.5h2v2h-2v-2z" />
+            </svg>
+          </button>
+          <button
+            type="button"
+            className={`sandbox-reserved-action sandbox-reserved-action--refresh${isRefreshingAvailableCandidates ? ' is-loading' : ''}`}
+            onClick={onRefreshAvailableCandidates}
+            disabled={isRefreshingAvailableCandidates}
+            aria-label="刷新可用候选内容"
+            title="刷新干员、武器、装备可用候选内容"
+          >
+            <svg className="sandbox-reserved-action-icon sandbox-reserved-action-icon--refresh" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M20 6v5h-5l1.9-1.9A6.1 6.1 0 0 0 6 12H4A8.1 8.1 0 0 1 18.3 7.7L20 6zm-2 6a6.1 6.1 0 0 1-10.9 3.8L9 14H4v5l1.7-1.7A8.1 8.1 0 0 0 20 12h-2z" />
             </svg>
           </button>
           <button

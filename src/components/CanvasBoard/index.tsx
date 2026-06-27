@@ -42,6 +42,7 @@ import {
   upsertSkillButton,
 } from '../../core/repositories';
 import { attachExistingBuffsToButton, recomputeSkillButtonPanel } from '../../core/services/buffService';
+import { refreshAvailableCandidateBuffsForCharacters } from '../../core/services/operatorConfigCandidateBuffService';
 import { APP_ROUTE_PATHS, navigateToAppPath } from '../../utils/appRoute';
 import { STORAGE_KEYS } from '../../constants/storage-keys';
 import { getRuntimeOperatorTemplateById, safeSessionStorage, setSelectedCharacterIds } from '../../utils/storage';
@@ -231,6 +232,7 @@ export function CanvasBoard({
   const [timelineSnapshots, setTimelineSnapshots] = useState<TimelineSnapshotEntry[]>([]);
   const [isBrowseMode, setIsBrowseMode] = useState(false);
   const [isInspectMode, setIsInspectMode] = useState(false);
+  const [isRefreshingAvailableCandidates, setIsRefreshingAvailableCandidates] = useState(false);
   const [isBatchResistanceModalOpen, setIsBatchResistanceModalOpen] = useState(false);
   const [batchTargetResistance, setBatchTargetResistance] = useState<Required<HitResistanceInput>>(
     EMPTY_BATCH_TARGET_RESISTANCE
@@ -962,6 +964,25 @@ export function CanvasBoard({
     onSkillButtonModalClose?.();
   };
 
+  const handleRefreshAvailableCandidates = async () => {
+    if (isRefreshingAvailableCandidates) {
+      return;
+    }
+    setIsRefreshingAvailableCandidates(true);
+    try {
+      await refreshAvailableCandidateBuffsForCharacters(
+        selectedCharacters.map((character) => ({
+          id: character.id,
+          name: character.name,
+        })),
+      );
+    } catch (error) {
+      console.error('刷新干员/武器/装备可用候选内容失败:', error);
+    } finally {
+      setIsRefreshingAvailableCandidates(false);
+    }
+  };
+
   return (
     <div className={`canvas-board ${isWorkbenchTopZoneOpen ? 'has-top-zone' : ''}`}>
       <div className="canvas-layout">
@@ -1008,6 +1029,8 @@ export function CanvasBoard({
               onAvatarDoubleClick={handleAvatarDoubleClick}
               onSave={handleOpenSaveSnapshotModal}
               onOpenResistance={handleOpenBatchResistanceModal}
+              onRefreshAvailableCandidates={handleRefreshAvailableCandidates}
+              isRefreshingAvailableCandidates={isRefreshingAvailableCandidates}
               isBrowseMode={isBrowseMode}
               onToggleBrowseMode={() => setIsBrowseMode((prev) => !prev)}
               isInspectMode={isInspectMode}

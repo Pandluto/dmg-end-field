@@ -517,6 +517,15 @@
   background: rgba(0, 0, 0, 0.04);
 }
 
+.sandbox-reserved-action:disabled {
+  cursor: default;
+  opacity: 0.58;
+}
+
+.sandbox-reserved-action:disabled:hover {
+  background: #ffffff;
+}
+
 .sandbox-reserved-action--placeholder {
   cursor: default;
 }
@@ -549,6 +558,16 @@
   width: 16px;
   height: 16px;
   fill: currentColor;
+}
+
+.sandbox-reserved-action--refresh.is-loading .sandbox-reserved-action-icon--refresh {
+  animation: sandbox-refresh-spin 0.8s linear infinite;
+}
+
+@keyframes sandbox-refresh-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .sandbox-reserved-action-icon--book {
