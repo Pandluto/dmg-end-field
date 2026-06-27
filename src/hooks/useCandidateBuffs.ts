@@ -8,11 +8,8 @@ import { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import { CandidateBuff, BuffData } from '../core/domain/buff';
 import { setCandidateBuffList, getCandidateBuffList } from '../core/repositories';
 import {
-  buildSnapshotCandidateBuffs,
-  mergeCandidateBuffs,
-  retainCandidateBuffsNotOwnedByCharacterIds,
+  refreshAvailableCandidateBuffsForCharacters,
 } from '../core/services/operatorConfigCandidateBuffService';
-import { getCharacterConfigMap } from '../utils/storage';
 import { buildWeaponSearchIndex, searchWeapons } from '../utils/weaponFuzzySearch';
 import { resolvePublicPath } from '../utils/assetResolver';
 
@@ -22,46 +19,12 @@ interface CandidateCharacterRef {
 }
 
 /**
- * 从 sessionStorage 读取角色武器配置映射
- * @param characters - 已选角色引用
- * @returns 角色显示名到武器名的映射对象
- */
-const getCharacterWeapons = (characters: CandidateCharacterRef[]): Record<string, string> => {
-  try {
-    const configMap = getCharacterConfigMap();
-    if (Object.keys(configMap).length === 0) {
-      console.log('未找到角色配置数据');
-      return {};
-    }
-
-    const selectedNameSet = new Set(characters.map((character) => character.name));
-    const selectedIdToNameMap = new Map(characters.map((character) => [character.id, character.name]));
-    const weaponMap: Record<string, string> = {};
-    Object.entries(configMap).forEach(([characterId, config]) => {
-      const selectedCharacterName =
-        selectedIdToNameMap.get(characterId) ||
-        (selectedNameSet.has(config.characterName) ? config.characterName : null);
-      if (selectedCharacterName && config.weaponName && config.weaponName !== '无') {
-        // 后续角色 buff 仍按显示名 charName 加载，这里统一把武器映射落到显示名。
-        weaponMap[selectedCharacterName] = config.weaponName;
-      }
-    });
-
-    console.log('从 characterConfigMap 提取的武器配置:', weaponMap);
-    return weaponMap;
-  } catch (error) {
-    console.warn('读取角色武器配置失败:', error);
-    return {};
-  }
-};
-
-/**
  * 加载单个 buff.json 文件
  * @param path - JSON 文件路径
  * @returns Promise<BuffData> Buff 数据对象
  */
 const loadBuffFile = async (path: string): Promise<BuffData> => {
-  const response = await fetch(resolvePublicPath(path));
+  const response = await fetch(resolvePublicPath(path), { cache: 'no-store' });
   if (!response.ok) {
     throw new Error(`加载失败: ${path}`);
   }
@@ -73,7 +36,7 @@ interface NameListItem {
 }
 
 async function loadNameList(path: string): Promise<string[]> {
-  const response = await fetch(resolvePublicPath(path));
+  const response = await fetch(resolvePublicPath(path), { cache: 'no-store' });
   if (!response.ok) {
     throw new Error(`加载失败: ${path}`);
   }
@@ -260,83 +223,12 @@ export function useCandidateBuffs(characters: CandidateCharacterRef[]): UseCandi
   }, []);
 
   /**
-   * 加载所有 Buff 数据并合并
-   */
-  const loadAllBuffs = useCallback(async (): Promise<CandidateBuff[]> => {
-    const characterNames = characters.map((character) => character.name);
-    const weapons = getCharacterWeapons(characters);
-
-    console.log('【刷新 Buff 数据】');
-    console.log('搜索的角色:', characterNames.length > 0 ? characterNames.join(', ') : '无');
-    console.log('角色武器配置:', weapons);
-
-    const loadTasks: Array<{ path: string; source: string; type: 'character' | 'weapon' }> = [];
-
-    // 暂时停用“刷新时按已选角色自动加载角色 Buff”。
-    // 保留下面的武器 Buff 刷新链路，以及 DamageTab 里的手动搜索入口。
-    // characterNames.forEach((charName) => {
-    //   if (charName) {
-    //     loadTasks.push({
-    //       path: `/data/characters/${charName}/${charName}buff.json`,
-    //       source: charName,
-    //       type: 'character',
-    //     });
-    //   }
-    // });
-
-    characterNames.forEach((charName) => {
-      const weaponName = weapons[charName];
-      if (weaponName) {
-        loadTasks.push({
-          path: `data/weapons/${weaponName}/${weaponName}buff.json`,
-          source: weaponName,
-          type: 'weapon',
-        });
-      }
-    });
-
-    console.log('需要加载的文件:', loadTasks.map(t => `${t.source} (${t.type})`));
-
-    const results = await Promise.allSettled(
-      loadTasks.map(async ({ path, source, type }) => {
-        try {
-          const data = await loadBuffFile(path);
-          console.log(`✓ 找到 ${type === 'character' ? '角色' : '武器'} buff: ${source}`);
-          return (data.buffs || []).map((buff) => ({
-            ...buff,
-            source,
-          }));
-        } catch (error) {
-          console.warn(`✗ 未找到 ${type === 'character' ? '角色' : '武器'} buff: ${source} (${path})`);
-          return [];
-        }
-      })
-    );
-
-    const jsonBuffs: CandidateBuff[] = [];
-    results.forEach((result) => {
-      if (result.status === 'fulfilled') {
-        jsonBuffs.push(...result.value);
-      }
-    });
-    const snapshotBuffs = await buildSnapshotCandidateBuffs(characters);
-    const retainedBuffs = retainCandidateBuffsNotOwnedByCharacterIds(
-      getCandidateBuffList(),
-      characters.map((character) => character.id)
-    );
-    const allBuffs = mergeCandidateBuffs(retainedBuffs, jsonBuffs, snapshotBuffs);
-
-    console.log(`共加载 ${allBuffs.length} 个 buff`);
-    return allBuffs;
-  }, [characters]);
-
-  /**
    * 刷新按钮点击处理函数
    */
   const handleRefresh = useCallback(async () => {
     setIsLoading(true);
     try {
-      const buffs = await loadAllBuffs();
+      const buffs = await refreshAvailableCandidateBuffsForCharacters(characters);
       setBuffList(buffs);
       // 只写入候选 Buff 列表，不触碰已选 Buff 实体表
       setCandidateBuffList(buffs);
@@ -345,7 +237,7 @@ export function useCandidateBuffs(characters: CandidateCharacterRef[]): UseCandi
     } finally {
       setIsLoading(false);
     }
-  }, [loadAllBuffs]);
+  }, [characters]);
 
   return {
     buffList,

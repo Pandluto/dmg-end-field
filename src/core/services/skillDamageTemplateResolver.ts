@@ -9,9 +9,6 @@ type LeveledHit = {
 };
 
 function resolveSkillLevelMode(button: SkillButtonType): string {
-  if (button.skillType === 'Dot') {
-    return 'M3';
-  }
   return getCharacterInput(button.characterId)?.skillLevels?.[button.skillType] ?? 'M3';
 }
 
@@ -50,7 +47,7 @@ function normalizeHits(
 }
 
 function isTypedRuntimeSkillId(runtimeSkillId: string | undefined): boolean {
-  return /^skill-[ABEQ]-\d+$/.test(runtimeSkillId ?? '') || /^official-[ABEQ]$/.test(runtimeSkillId ?? '');
+  return /^skill-(A|B|E|Q|Dot)-\d+$/.test(runtimeSkillId ?? '') || /^official-(A|B|E|Q|Dot)$/.test(runtimeSkillId ?? '');
 }
 
 function logLegacyRuntimeSkillAdaptation(

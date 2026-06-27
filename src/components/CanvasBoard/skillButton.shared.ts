@@ -117,6 +117,8 @@ export interface LocalBuffSearchResult {
   sourceName: string;
   source?: string;
   level?: string;
+  valueMode?: CandidateBuff['valueMode'];
+  derivedValue?: CandidateBuff['derivedValue'];
   effectKind?: 'modifier' | 'extraHit';
   extraHitConfig?: BuffExtraHitConfig;
   multiplier?: BuffMultiplier;
@@ -438,6 +440,8 @@ export function readCandidateBuffSearchEntries(): LocalBuffSearchResult[] {
       sourceName: buff.sourceName,
       source: buff.source,
       level: buff.level || '',
+      valueMode: buff.valueMode,
+      derivedValue: buff.derivedValue,
       effectKind: buff.effectKind,
       extraHitConfig: buff.extraHitConfig,
       multiplier: buff.multiplier,
@@ -457,8 +461,14 @@ export function dedupeLocalBuffSearchResults(entries: LocalBuffSearchResult[]): 
       entry.condition ?? '',
       entry.category ?? '',
       entry.maxStacks ?? '',
+      entry.ownerBuffDomain ?? '',
+      entry.ownerCharacterId ?? '',
+      entry.ownerBuffGroup ?? '',
+      entry.valueMode ?? '',
+      entry.derivedValue ? JSON.stringify(entry.derivedValue) : '',
       entry.effectKind ?? '',
       entry.extraHitConfig ? JSON.stringify(entry.extraHitConfig) : '',
+      entry.multiplier?.coefficient ?? '',
     ].join('|');
     if (seen.has(key)) {
       return false;

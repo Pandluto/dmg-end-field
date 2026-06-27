@@ -48,6 +48,7 @@ type CandidateContentDomain = 'operator' | 'weapon';
 
 const EQUIPMENT_LIBRARY_PATH = 'data/equipments/equipments.json';
 const EQUIPMENT_DRAFT_STORAGE_KEY = 'def.equipment-sheet.draft.v1';
+const EQUIPMENT_LIBRARY_STORAGE_KEY = 'def.equipment-sheet.library.v1';
 
 function normalizeBuffTypeKey(typeKey: string): string {
   if (typeKey === 'atk') return 'flatAtk';
@@ -68,13 +69,18 @@ function readLocalStorageJson<T>(key: string, fallback: T): T {
 }
 
 async function loadEquipmentLibraryForBuffs(): Promise<EquipmentLibraryLike> {
+  const localLibrary = readLocalStorageJson<EquipmentLibraryLike | null>(EQUIPMENT_LIBRARY_STORAGE_KEY, null);
+  if (localLibrary?.gearSets && Object.keys(localLibrary.gearSets).length > 0) {
+    return localLibrary;
+  }
+
   const localDraft = readLocalStorageJson<EquipmentLibraryLike | null>(EQUIPMENT_DRAFT_STORAGE_KEY, null);
-  if (localDraft?.gearSets) {
+  if (localDraft?.gearSets && Object.keys(localDraft.gearSets).length > 0) {
     return localDraft;
   }
 
   try {
-    const response = await fetch(resolvePublicPath(EQUIPMENT_LIBRARY_PATH));
+    const response = await fetch(resolvePublicPath(EQUIPMENT_LIBRARY_PATH), { cache: 'no-store' });
     if (!response.ok) return { gearSets: {} };
     return await response.json() as EquipmentLibraryLike;
   } catch {
@@ -98,6 +104,8 @@ function candidateKey(buff: CandidateBuff): string {
     buff.effectKind ?? 'modifier',
     buff.category ?? '',
     buff.maxStacks ?? '',
+    buff.valueMode ?? '',
+    buff.derivedValue ? JSON.stringify(buff.derivedValue) : '',
     buff.extraHitConfig ? JSON.stringify(buff.extraHitConfig) : '',
     buff.multiplier?.coefficient ?? '',
   ].join('|');
@@ -127,7 +135,7 @@ function uniqueCharacterRefs(characters: SnapshotCandidateCharacterRef[]): Snaps
 
 async function loadPublicBuffData(path: string): Promise<BuffData | null> {
   try {
-    const response = await fetch(resolvePublicPath(path));
+    const response = await fetch(resolvePublicPath(path), { cache: 'no-store' });
     if (!response.ok) {
       return null;
     }

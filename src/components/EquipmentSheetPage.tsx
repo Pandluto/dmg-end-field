@@ -22,6 +22,7 @@ import './EquipmentSheetPage.css';
 
 const EQUIPMENT_SHEET_PAGE_PATH = APP_ROUTE_PATHS.equipmentSheet;
 const EQUIPMENT_DRAFT_STORAGE_KEY = 'def.equipment-sheet.draft.v1';
+const EQUIPMENT_LIBRARY_STORAGE_KEY = 'def.equipment-sheet.library.v1';
 const EQUIPMENT_LIBRARY_SHARE_TYPE = 'equipment-library-share.v1';
 const EQUIPMENT_LIBRARY_PATH = 'data/equipments/equipments.json';
 
@@ -948,6 +949,14 @@ function normalizeEquipmentLibrary(raw: unknown): EquipmentLibrary {
   return next;
 }
 
+function readCachedEquipmentLibrary(): EquipmentLibrary {
+  const libraryCache = normalizeEquipmentLibrary(readLocalStorageJson(EQUIPMENT_LIBRARY_STORAGE_KEY, EMPTY_LIBRARY));
+  if (Object.keys(libraryCache.gearSets).length > 0) {
+    return libraryCache;
+  }
+  return normalizeEquipmentLibrary(readLocalStorageJson(EQUIPMENT_DRAFT_STORAGE_KEY, EMPTY_LIBRARY));
+}
+
 async function readEquipmentLibraryFromFile(): Promise<EquipmentLibrary> {
   const bridge = window.desktopRuntime?.readEquipmentLibrary;
   if (bridge) {
@@ -1495,21 +1504,21 @@ export function EquipmentSheetPage() {
     readEquipmentLibraryFromFile()
       .then((fileLibrary) => {
         if (cancelled) return;
-        const cached = normalizeEquipmentLibrary(readLocalStorageJson(EQUIPMENT_DRAFT_STORAGE_KEY, EMPTY_LIBRARY));
+        const cached = readCachedEquipmentLibrary();
         const hasCachedData = Object.keys(cached.gearSets).length > 0;
         const shouldUseCached = !window.desktopRuntime?.readEquipmentLibrary && hasCachedData;
         const nextLibrary = shouldUseCached ? cached : fileLibrary;
         setLibrary(nextLibrary);
         setIsDirty(false);
         if (shouldUseCached) {
-          setMessage('已从 localStorage 加载浏览器保存的装备库草稿。');
+          setMessage('已从 localStorage 加载浏览器保存的装备库。');
           return;
         }
         setMessage(fileLibrary.migration?.reviewRequired ? '装备库已加载。迁移数据需要人工复核 typeKey 映射。' : '装备库已加载。');
       })
       .catch((error) => {
         if (cancelled) return;
-        const cached = normalizeEquipmentLibrary(readLocalStorageJson(EQUIPMENT_DRAFT_STORAGE_KEY, EMPTY_LIBRARY));
+        const cached = readCachedEquipmentLibrary();
         if (Object.keys(cached.gearSets).length > 0) {
           setLibrary(cached);
           setIsDirty(false);
@@ -2403,15 +2412,17 @@ export function EquipmentSheetPage() {
       setLibrary(committedLibrary);
     }
     if (!window.desktopRuntime?.writeEquipmentLibrary) {
+      writeLocalStorageJson(EQUIPMENT_LIBRARY_STORAGE_KEY, nextLibrary);
       writeLocalStorageJson(EQUIPMENT_DRAFT_STORAGE_KEY, nextLibrary);
       setLibrary(nextLibrary);
       setIsDirty(false);
       setIsSaveConfirmModalOpen(false);
-      setMessage(`浏览器环境已保存到 localStorage。${warning}`);
+      setMessage(`浏览器环境已保存到 localStorage 装备库。${warning}`);
       return;
     }
     const result = await writeEquipmentLibraryToFile(nextLibrary);
     if (result.ok) {
+      writeLocalStorageJson(EQUIPMENT_LIBRARY_STORAGE_KEY, nextLibrary);
       writeLocalStorageJson(EQUIPMENT_DRAFT_STORAGE_KEY, nextLibrary);
       setLibrary(nextLibrary);
       setIsDirty(false);

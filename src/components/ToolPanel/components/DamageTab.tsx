@@ -12,6 +12,7 @@ import { searchManualCandidateBuffsByName, useCandidateBuffs } from '../../../ho
 import { useBuffInteraction } from '../../../hooks/useBuffInteraction';
 import { CandidateBuff } from '../../../core/domain/buff';
 import { emitSkillButtonBuffAdded } from '../../../core/events/buffEvents';
+import { refreshOperatorConfigSnapshotsForCharacters } from '../../../core/services/operatorConfigSnapshotRefreshService';
 
 /**
  * 将 CandidateBuff 转换为 SkillButtonBuff
@@ -30,7 +31,13 @@ function toSkillButtonBuff(candidate: CandidateBuff): Omit<SkillButtonBuff, 'id'
     source: candidate.source,
     condition: candidate.condition,
     category: candidate.category,
+    ownerBuffDomain: candidate.ownerBuffDomain,
+    ownerCharacterId: candidate.ownerCharacterId,
+    ownerBuffGroup: candidate.ownerBuffGroup,
     maxStacks: candidate.maxStacks,
+    multiplier: candidate.multiplier,
+    effectKind: candidate.effectKind,
+    extraHitConfig: candidate.extraHitConfig,
     valueMode: candidate.valueMode,
     derivedValue: candidate.derivedValue,
     refCount: 1,
@@ -56,7 +63,7 @@ function isPointInSkillButtonModal(x: number, y: number): boolean {
  */
 export function DamageTab() {
   // 从 AppContext 获取已选角色列表
-  const { state } = useAppContext();
+  const { state, refreshSelectedCharacters } = useAppContext();
   const { selectedCharacters } = state;
   const selectedCharacterRefs = selectedCharacters.map((char) => ({ id: char.id, name: char.name }));
 
@@ -65,6 +72,7 @@ export function DamageTab() {
   const [manualSourceKeyword, setManualSourceKeyword] = useState('');
   const [manualSourceResults, setManualSourceResults] = useState<CandidateBuff[]>([]);
   const [isManualSourceLoading, setIsManualSourceLoading] = useState(false);
+  const [isSilentRefreshLoading, setIsSilentRefreshLoading] = useState(false);
   const [manualSourceError, setManualSourceError] = useState('');
 
   // 使用候选 Buff Hook
@@ -159,6 +167,20 @@ export function DamageTab() {
       setIsManualSourceLoading(false);
     }
   }, [manualSourceKeyword]);
+
+  const handleFullRefresh = useCallback(async () => {
+    setIsSilentRefreshLoading(true);
+    try {
+      const refreshedCharacters = await refreshSelectedCharacters();
+      const charactersForRefresh = refreshedCharacters.length > 0 ? refreshedCharacters : selectedCharacters;
+      await refreshOperatorConfigSnapshotsForCharacters(charactersForRefresh);
+      await handleRefresh();
+    } catch (error) {
+      console.error('静默刷新 Buff 数据链路失败:', error);
+    } finally {
+      setIsSilentRefreshLoading(false);
+    }
+  }, [handleRefresh, refreshSelectedCharacters, selectedCharacters]);
 
   return (
     <div className="tab-content-damage">
@@ -257,10 +279,10 @@ export function DamageTab() {
         <div className="refresh-row">
           <button
             className="refresh-button"
-            onClick={handleRefresh}
-            disabled={isLoading}
+            onClick={handleFullRefresh}
+            disabled={isLoading || isSilentRefreshLoading}
           >
-            {isLoading ? '...' : '刷新'}
+            {isLoading || isSilentRefreshLoading ? '...' : '刷新'}
           </button>
         </div>
       </div>

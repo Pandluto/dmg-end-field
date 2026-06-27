@@ -1,4 +1,4 @@
-import { Fragment, useState } from 'react';
+import { Fragment, useEffect, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import type { HitResistanceInput, SkillButtonBuff } from '../../types/storage';
@@ -66,6 +66,10 @@ interface TimelineSkillDetailWorkbenchProps {
   isBuffDisabled: (buffId: string) => boolean;
   onDecrementBuff: (buffId: string) => void;
   onIncrementBuff: (buff: SkillButtonBuff) => void;
+  onClearBuffs: () => void;
+  onEnableAllBuffs: () => void;
+  onDisableAllBuffs: () => void;
+  onResetBuffStacks: () => void;
   statuses: TimelineDetailStatus[];
   hits: TimelineDetailHit[];
   summary: {
@@ -333,6 +337,10 @@ export function TimelineSkillDetailWorkbench({
   isBuffDisabled,
   onDecrementBuff,
   onIncrementBuff,
+  onClearBuffs,
+  onEnableAllBuffs,
+  onDisableAllBuffs,
+  onResetBuffStacks,
   statuses,
   hits,
   summary,
@@ -344,7 +352,23 @@ export function TimelineSkillDetailWorkbench({
   const [activeCalculationSection, setActiveCalculationSection] = useState<CalculationSectionKey>('attack');
   const [isAbilityDetailExpanded, setIsAbilityDetailExpanded] = useState(false);
   const [isSummaryFormulaExpanded, setIsSummaryFormulaExpanded] = useState(false);
+  const [buffSourceFilter, setBuffSourceFilter] = useState('all');
   const calculationSections = formula ? buildCalculationSections(formula) : [];
+  const buffSourceOptions = useMemo(() => {
+    const sources = Array.from(new Set(
+      buffs.map((buff) => buff.sourceName || buff.source || '未知来源')
+    ));
+    return [
+      { key: 'all', label: '全部来源' },
+      ...sources.map((source) => ({ key: source, label: source })),
+    ];
+  }, [buffs]);
+  const visibleBuffs = useMemo(() => {
+    if (buffSourceFilter === 'all') {
+      return buffs;
+    }
+    return buffs.filter((buff) => (buff.sourceName || buff.source || '未知来源') === buffSourceFilter);
+  }, [buffSourceFilter, buffs]);
   const selectedCalculationSection = calculationSections.find((section) => section.key === activeCalculationSection)
     ?? calculationSections[0]
     ?? null;
@@ -372,6 +396,38 @@ export function TimelineSkillDetailWorkbench({
     ];
   })();
   const calculationSvgHeight = Math.max(calculationSections.length * 50, 50);
+
+  useEffect(() => {
+    if (buffSourceFilter === 'all') {
+      return;
+    }
+    const hasSource = buffs.some((buff) => (buff.sourceName || buff.source || '未知来源') === buffSourceFilter);
+    if (!hasSource) {
+      setBuffSourceFilter('all');
+    }
+  }, [buffSourceFilter, buffs]);
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') {
+        return;
+      }
+      const target = event.target as HTMLElement | null;
+      const isEditable =
+        target instanceof HTMLInputElement ||
+        target instanceof HTMLTextAreaElement ||
+        target instanceof HTMLSelectElement ||
+        !!target?.closest('[contenteditable="true"]');
+      if (isEditable) {
+        return;
+      }
+      event.preventDefault();
+      onClose();
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [onClose]);
 
   return createPortal(
     <div className="timeline-detail-layer" role="dialog" aria-modal="true" aria-label="技能排轴详情">
@@ -479,13 +535,21 @@ export function TimelineSkillDetailWorkbench({
 
         <section className="timeline-detail-middle">
           <TimelineBuffListPanel
-            buffs={buffs}
+            buffs={visibleBuffs}
+            totalBuffCount={buffs.length}
             stackCounts={buffStackCounts}
             onRemove={onRemoveBuff}
             onToggleDisabled={onToggleBuffDisabled}
             isDisabled={isBuffDisabled}
             onDecrement={onDecrementBuff}
             onIncrement={onIncrementBuff}
+            sourceFilter={buffSourceFilter}
+            sourceOptions={buffSourceOptions}
+            onSourceFilterChange={setBuffSourceFilter}
+            onClearAll={onClearBuffs}
+            onEnableAll={onEnableAllBuffs}
+            onDisableAll={onDisableAllBuffs}
+            onResetStacks={onResetBuffStacks}
           />
           <TimelineStatusPanel statuses={statuses} />
         </section>

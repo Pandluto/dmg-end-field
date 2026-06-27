@@ -2,12 +2,20 @@ import type { SkillButtonBuff } from '../../types/storage';
 
 interface TimelineBuffListPanelProps {
   buffs: SkillButtonBuff[];
+  totalBuffCount: number;
   stackCounts: Record<string, number>;
   onRemove: (buffId: string) => void;
   onToggleDisabled: (buffId: string) => void;
   isDisabled: (buffId: string) => boolean;
   onDecrement: (buffId: string) => void;
   onIncrement: (buff: SkillButtonBuff) => void;
+  sourceFilter: string;
+  sourceOptions: Array<{ key: string; label: string }>;
+  onSourceFilterChange: (source: string) => void;
+  onClearAll: () => void;
+  onEnableAll: () => void;
+  onDisableAll: () => void;
+  onResetStacks: () => void;
 }
 
 function getMaxStacks(buff: SkillButtonBuff): number {
@@ -18,16 +26,44 @@ function getMaxStacks(buff: SkillButtonBuff): number {
 
 export function TimelineBuffListPanel({
   buffs,
+  totalBuffCount,
   stackCounts,
   onRemove,
   onToggleDisabled,
   isDisabled,
   onDecrement,
   onIncrement,
+  sourceFilter,
+  sourceOptions,
+  onSourceFilterChange,
+  onClearAll,
+  onEnableAll,
+  onDisableAll,
+  onResetStacks,
 }: TimelineBuffListPanelProps) {
+  const hasBuffs = totalBuffCount > 0;
+  const hasCountableBuffs = buffs.some((buff) => buff.category === 'countable');
   return (
     <section className="timeline-detail-card timeline-buff-list-card">
-      <h3>已选 Buff</h3>
+      <header className="timeline-buff-list-head">
+        <h3>已选 Buff</h3>
+        <select
+          value={sourceFilter}
+          onChange={(event) => onSourceFilterChange(event.target.value)}
+          disabled={!hasBuffs || sourceOptions.length <= 1}
+          aria-label="按 Buff 来源筛选"
+        >
+          {sourceOptions.map((option) => (
+            <option key={option.key} value={option.key}>{option.label}</option>
+          ))}
+        </select>
+      </header>
+      <div className="timeline-buff-bulk-actions" aria-label="Buff 批量操作">
+        <button type="button" onClick={onEnableAll} disabled={!hasBuffs}>全启</button>
+        <button type="button" onClick={onDisableAll} disabled={!hasBuffs}>全停</button>
+        <button type="button" onClick={onResetStacks} disabled={!hasCountableBuffs}>重置层数</button>
+        <button type="button" onClick={onClearAll} disabled={!hasBuffs}>清空</button>
+      </div>
       <div className="timeline-buff-rows">
         {buffs.length === 0 ? <p className="timeline-detail-empty">暂无 Buff</p> : buffs.map((buff) => {
           const maxStacks = getMaxStacks(buff);

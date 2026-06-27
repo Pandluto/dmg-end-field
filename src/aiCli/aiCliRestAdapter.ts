@@ -513,8 +513,8 @@ export function handleAiCliRestRequest(
             },
           },
           hardRules: [
-            'buttonType must be A/B/E/Q.',
-            'Skill keys are system-maintained; prefer skill-A-1 / skill-B-1 / skill-E-1 / skill-Q-1, not plain A/B/E/Q or old global skill-1 numbering.',
+            'buttonType must be A/B/E/Q/Dot.',
+            'Skill keys are system-maintained; prefer skill-A-1 / skill-B-1 / skill-E-1 / skill-Q-1 / skill-Dot-1, not plain A/B/E/Q/Dot or old global skill-1 numbering.',
             'skill hit level values must be numbers.',
             'operator buff category must be passive, condition, or countable; legacy positive is migration-only.',
             'fixed operator buff effects use numeric value; derived effects use valueMode=derived and derivedValue.source/perPointValue.',

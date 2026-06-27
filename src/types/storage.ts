@@ -3,7 +3,7 @@ import type { BuffCategory, BuffEffectKind, BuffExtraHitConfig, BuffMultiplier }
 import type { ConfigSnapshot } from '../core/calculators/operatorPanelCalculator';
 import { SandboxSkillHit, HitSkillType, ElementType } from './index';
 
-export type SkillPanelKey = 'A' | 'B' | 'E' | 'Q';
+export type SkillPanelKey = 'A' | 'B' | 'E' | 'Q' | 'Dot';
 export type SkillLevelMode = 'L9' | 'M3';
 export type WeaponPotentialMode = 'P0' | 'PMAX';
 
@@ -85,6 +85,7 @@ export interface CharacterInputConfig {
     B: SkillLevelMode;
     E: SkillLevelMode;
     Q: SkillLevelMode;
+    Dot: SkillLevelMode;
   };
   weapon: {
     name: string;
@@ -257,6 +258,9 @@ export interface SkillButtonBuff {
   source?: string;         // 来源
   condition?: string;      // 触发条件
   category?: BuffCategory; // Buff 业务类别，缺省按 condition
+  ownerBuffDomain?: 'operator' | 'weapon' | 'equipment'; // 原始配置域
+  ownerCharacterId?: string; // 原始干员 ID
+  ownerBuffGroup?: 'talent' | 'potential' | 'skill' | 'weaponSkill' | 'threePiece'; // 原始 Buff 分组
   maxStacks?: number;      // countable 最大层数
   multiplier?: BuffMultiplier; // 五类乘区的独立直接倍率
   refCount: number;        // 被引用次数，selectedBuff 解绑时 -1，0 时删除实体

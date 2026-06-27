@@ -43,6 +43,7 @@ import {
 } from '../../core/repositories';
 import { attachExistingBuffsToButton, recomputeSkillButtonPanel } from '../../core/services/buffService';
 import { refreshAvailableCandidateBuffsForCharacters } from '../../core/services/operatorConfigCandidateBuffService';
+import { refreshOperatorConfigSnapshotsForCharacters } from '../../core/services/operatorConfigSnapshotRefreshService';
 import { APP_ROUTE_PATHS, navigateToAppPath } from '../../utils/appRoute';
 import { STORAGE_KEYS } from '../../constants/storage-keys';
 import { getRuntimeOperatorTemplateById, safeSessionStorage, setSelectedCharacterIds } from '../../utils/storage';
@@ -72,6 +73,8 @@ const EMPTY_BATCH_TARGET_RESISTANCE: Required<HitResistanceInput> = {
   iceResistance: 0,
   natureResistance: 0,
 };
+
+const REFRESH_AVAILABLE_CANDIDATES_MIN_SPIN_MS = 920;
 
 const BATCH_RESISTANCE_FIELDS: Array<[keyof HitResistanceInput, string]> = [
   ['physicalResistance', '物理'],
@@ -217,7 +220,7 @@ export function CanvasBoard({
   bottomRightControl,
 }: CanvasBoardProps) {
   const isCandidatePanelEnabled = false;
-  const { state, dispatch } = useAppContext();
+  const { state, dispatch, refreshSelectedCharacters } = useAppContext();
   const { currentView, selectedCharacters, canvasConfig, skillButtons } = state;
   const canvasRef = useRef<HTMLDivElement>(null);
   const [staffCount, setStaffCount] = React.useState(canvasConfig.staffCount);
@@ -968,10 +971,14 @@ export function CanvasBoard({
     if (isRefreshingAvailableCandidates) {
       return;
     }
+    const spinStartTime = Date.now();
     setIsRefreshingAvailableCandidates(true);
     try {
+      const refreshedCharacters = await refreshSelectedCharacters();
+      const charactersForRefresh = refreshedCharacters.length > 0 ? refreshedCharacters : selectedCharacters;
+      await refreshOperatorConfigSnapshotsForCharacters(charactersForRefresh);
       await refreshAvailableCandidateBuffsForCharacters(
-        selectedCharacters.map((character) => ({
+        charactersForRefresh.map((character) => ({
           id: character.id,
           name: character.name,
         })),
@@ -979,6 +986,10 @@ export function CanvasBoard({
     } catch (error) {
       console.error('刷新干员/武器/装备可用候选内容失败:', error);
     } finally {
+      const remainingSpinTime = REFRESH_AVAILABLE_CANDIDATES_MIN_SPIN_MS - (Date.now() - spinStartTime);
+      if (remainingSpinTime > 0) {
+        await new Promise((resolve) => window.setTimeout(resolve, remainingSpinTime));
+      }
       setIsRefreshingAvailableCandidates(false);
     }
   };

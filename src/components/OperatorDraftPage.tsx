@@ -2,7 +2,6 @@ import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from '
 import { pinyin } from 'pinyin-pro';
 import './OperatorDraftPage.css';
 import assetPathsRaw from '../../asset-paths.txt?raw';
-import { loadReferenceOperatorDraft, loadReferenceOperatorNames } from './operatorDraftReference';
 import { buildWeaponSearchIndex, searchWeapons } from '../utils/weaponFuzzySearch';
 import { APP_ROUTE_PATHS, navigateToAppPath } from '../utils/appRoute';
 import {
@@ -684,8 +683,6 @@ export { isDraftPath };
 
 export function OperatorDraftPage() {
   const [draft, setDraft] = useState<OperatorDraft>(() => loadDraftFromStorage());
-  const [referenceNames, setReferenceNames] = useState<string[]>([]);
-  const [selectedReferenceName, setSelectedReferenceName] = useState('');
   const [localDraftIds, setLocalDraftIds] = useState<string[]>([]);
   const [localDraftNames, setLocalDraftNames] = useState<Record<string, string>>({});
   const [selectedLocalDraftId, setSelectedLocalDraftId] = useState('');
@@ -743,36 +740,6 @@ export function OperatorDraftPage() {
       return next.length === prev.length && next.every((skillKey, index) => skillKey === prev[index]) ? prev : next;
     });
   }, [draft]);
-
-  useEffect(() => {
-    let isMounted = true;
-
-    const loadReferenceOperators = async () => {
-      try {
-        if (!isMounted) {
-          return;
-        }
-        const names = await loadReferenceOperatorNames();
-        if (!isMounted) {
-          return;
-        }
-        setReferenceNames(names);
-        setSelectedReferenceName((prev) => prev || names[0] || '');
-      } catch (error) {
-        if (!isMounted) {
-          return;
-        }
-        const message = error instanceof Error ? error.message : 'operators-list 加载失败';
-        setMessages((prev) => [`[ERR] ${message}`, ...prev].slice(0, 12));
-      }
-    };
-
-    loadReferenceOperators();
-
-    return () => {
-      isMounted = false;
-    };
-  }, []);
 
   useEffect(() => {
     let isMounted = true;
@@ -1012,25 +979,6 @@ export function OperatorDraftPage() {
     setSelectedSkillKey(nextSkillKey);
     setSelectedHitKey(firstHitKey);
     setMessages((prev) => [`[OK] 已复制 skill：${selectedSkillKey} -> ${nextSkillKey}`, ...prev].slice(0, 12));
-  };
-
-  const importReferenceOperator = async () => {
-    if (!selectedReferenceName) {
-      setMessages((prev) => ['[ERR] 未选择参考干员', ...prev].slice(0, 12));
-      return;
-    }
-
-    try {
-      const nextDraft = await loadReferenceOperatorDraft(selectedReferenceName, {
-        assetPathOptions: ASSET_PATH_OPTIONS,
-        avatarAssetOptions: AVATAR_ASSET_OPTIONS,
-      });
-      loadDraftIntoEditor(nextDraft, `[OK] 已导入参考干员：${selectedReferenceName}`);
-      setLoadedLocalDraftId(null);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : '参考干员导入失败';
-      setMessages((prev) => [`[ERR] ${message}`, ...prev].slice(0, 12));
-    }
   };
 
   const persistDraftToLibrary = (allowOverwrite: boolean) => {
@@ -1583,7 +1531,7 @@ export function OperatorDraftPage() {
                 <div className="operator-draft-panel-header">
                   <p className="operator-draft-eyebrow">Draft</p>
                   <h1>干员模板编辑器</h1>
-                  <p className="operator-draft-subtitle">参考导入、工作台编辑，底部导出 JSON。</p>
+                  <p className="operator-draft-subtitle">本地草稿、工作台编辑，底部导出 JSON。</p>
                 </div>
 
                 <div className="operator-draft-command-box">
@@ -1593,22 +1541,6 @@ export function OperatorDraftPage() {
                     </button>
                     <button type="button" className="operator-draft-ghost-button" onClick={handleOpenShareModal}>
                       分享库
-                    </button>
-                  </div>
-                  <div className="operator-draft-reference-box">
-                    <label>
-                      <span>参考数据导入</span>
-                      <select value={selectedReferenceName} onChange={(event) => setSelectedReferenceName(event.target.value)}>
-                        <option value="">选择已有干员</option>
-                        {referenceNames.map((name) => (
-                          <option key={name} value={name}>
-                            {name}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                    <button type="button" className="operator-draft-ghost-button" onClick={importReferenceOperator}>
-                      导入参考数据
                     </button>
                   </div>
                   <div className="operator-draft-reference-box">

@@ -293,13 +293,13 @@ function getSkillLevelItems(
 ): Array<{ key: string; value: string }> {
   const reportedItems = reportCharacter?.skillLevels
     .map((item) => {
-      const match = item.match(/^([ABEQ])\s*[-:：]?\s*(.*)$/i);
-      return match ? { key: match[1].toUpperCase(), value: match[2]?.trim() || '-' } : null;
+      const match = item.match(/^(Dot|[ABEQ])\s*[-:：]?\s*(.*)$/i);
+      return match ? { key: match[1].toLowerCase() === 'dot' ? 'Dot' : match[1].toUpperCase(), value: match[2]?.trim() || '-' } : null;
     })
     .filter((item): item is { key: string; value: string } => Boolean(item));
   const reportedByKey = new Map((reportedItems ?? []).map((item) => [item.key, item.value]));
-  const config = snapshot?.operator.skillConfig as Partial<Record<'A' | 'B' | 'E' | 'Q', string>> | undefined;
-  return (['A', 'B', 'E', 'Q'] as const).map((key) => ({
+  const config = snapshot?.operator.skillConfig as Partial<Record<'A' | 'B' | 'E' | 'Q' | 'Dot', string>> | undefined;
+  return (['A', 'B', 'E', 'Q', 'Dot'] as const).map((key) => ({
     key,
     value: reportedByKey.get(key) ?? config?.[key] ?? '-',
   }));

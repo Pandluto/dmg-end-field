@@ -8,6 +8,8 @@ import {
   OperatorConfigPageCache,
   PanelSummary,
   SkillButtonBuff,
+  SkillLevelMode,
+  SkillPanelKey,
 } from '../types/storage';
 import type { ConfigSnapshot } from '../core/calculators/operatorPanelCalculator';
 import type {
@@ -25,6 +27,13 @@ import type {
 export type { PersistedSkillButton, SkillButtonTable, BuffList };
 
 const isClient = typeof window !== 'undefined';
+const DEFAULT_SKILL_LEVEL_MODE_MAP: Record<SkillPanelKey, SkillLevelMode> = {
+  A: 'L9',
+  B: 'L9',
+  E: 'L9',
+  Q: 'L9',
+  Dot: 'M3',
+};
 
 // ==================== 基础存储工具 ====================
 
@@ -331,11 +340,26 @@ function parseV3Wrapper<T>(raw: string): V3Wrapper<T> | null {
 
 // ----- Character Input Map (v3) -----
 
+function normalizeCharacterInputConfig(input: CharacterInputConfig): CharacterInputConfig {
+  return {
+    ...input,
+    skillLevels: {
+      ...DEFAULT_SKILL_LEVEL_MODE_MAP,
+      ...(input.skillLevels ?? {}),
+    },
+  };
+}
+
 export function getCharacterInputMap(): Record<string, CharacterInputConfig> {
   const raw = safeSessionStorage.getItem(STORAGE_KEYS.CHARACTER_INPUT_MAP);
   if (!raw) return {};
   const wrapper = parseV3Wrapper<CharacterInputConfig>(raw);
-  return wrapper?.data ?? {};
+  return Object.fromEntries(
+    Object.entries(wrapper?.data ?? {}).map(([characterId, input]) => [
+      characterId,
+      normalizeCharacterInputConfig(input),
+    ]),
+  );
 }
 
 export function setCharacterInputMap(map: Record<string, CharacterInputConfig>): void {
@@ -350,7 +374,7 @@ export function getCharacterInput(characterId: string): CharacterInputConfig | n
 
 export function setCharacterInput(characterId: string, config: CharacterInputConfig): void {
   const map = getCharacterInputMap();
-  map[characterId] = config;
+  map[characterId] = normalizeCharacterInputConfig(config);
   setCharacterInputMap(map);
 }
 
@@ -525,7 +549,7 @@ function mergeV3ToV2(
     characterId,
     characterName: characterId, // 使用 characterId 作为兼容值，保证不为空
     characterPotential: input.potential || '满潜',
-    skillLevelModeMap: input.skillLevels || { A: 'L9', B: 'L9', E: 'L9', Q: 'L9' },
+    skillLevelModeMap: input.skillLevels || DEFAULT_SKILL_LEVEL_MODE_MAP,
     weaponName: input.weapon?.name || '无',
     weaponPotentialMode: input.weapon?.potentialMode || 'P0',
     equipment: inflateEquipmentDefaults(input.equipment || {}),
@@ -589,7 +613,10 @@ export function setCharacterConfig(characterId: string, config: CharacterConfigJ
   // 写入 input
   const input: CharacterInputConfig = {
     potential: config.characterPotential as '0潜' | '满潜',
-    skillLevels: config.skillLevelModeMap,
+    skillLevels: {
+      ...DEFAULT_SKILL_LEVEL_MODE_MAP,
+      ...config.skillLevelModeMap,
+    },
     weapon: {
       name: config.weaponName,
       potentialMode: config.weaponPotentialMode,
@@ -603,7 +630,10 @@ export function setCharacterConfig(characterId: string, config: CharacterConfigJ
     const abilityFields = resolveLegacyAbilityFields(characterId, config.panelSnapshot);
     const fingerprint = JSON.stringify({
       potential: config.characterPotential,
-      skillLevels: config.skillLevelModeMap,
+      skillLevels: {
+        ...DEFAULT_SKILL_LEVEL_MODE_MAP,
+        ...config.skillLevelModeMap,
+      },
       weapon: { name: config.weaponName, potentialMode: config.weaponPotentialMode },
       equipment: config.equipment,
     });

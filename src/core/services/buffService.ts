@@ -75,12 +75,13 @@ function withBuffStackCount(
  * 用于全局去重：相同签名的 Buff 复用同一 buffId
  * 包含 target 字段，确保不同作用域的 Buff 不会错误合并
  */
-export function getBuffIdentityKey(buff: Pick<SkillButtonBuff, 'name' | 'displayName' | 'sourceName' | 'level' | 'type' | 'value' | 'condition' | 'source' | 'target' | 'effectKind' | 'extraHitConfig' | 'category' | 'maxStacks' | 'multiplier'>): string {
+export function getBuffIdentityKey(buff: Pick<SkillButtonBuff, 'name' | 'displayName' | 'sourceName' | 'level' | 'type' | 'value' | 'condition' | 'source' | 'target' | 'effectKind' | 'extraHitConfig' | 'category' | 'maxStacks' | 'multiplier' | 'ownerBuffDomain' | 'ownerCharacterId' | 'ownerBuffGroup' | 'valueMode' | 'derivedValue'>): string {
   const targetStr = buff.target ? JSON.stringify(buff.target) : 'all';
   const extraHitStr = buff.extraHitConfig ? JSON.stringify(buff.extraHitConfig) : '';
   const multiplier = normalizeBuffMultiplier(buff.multiplier);
   const multiplierStr = multiplier ? String(multiplier.coefficient) : '';
-  return `${buff.name}||${buff.displayName}||${buff.sourceName}||${buff.level}||${buff.type}||${buff.value}||${buff.condition}||${buff.source}||${targetStr}||${buff.effectKind || 'modifier'}||${extraHitStr}||${normalizeBuffCategory(buff.category)}||${normalizeBuffCategory(buff.category) === 'countable' ? normalizeMaxStacks(buff.maxStacks) : ''}||${multiplierStr}`;
+  const derivedValueStr = buff.derivedValue ? JSON.stringify(buff.derivedValue) : '';
+  return `${buff.name}||${buff.displayName}||${buff.sourceName}||${buff.level}||${buff.type}||${buff.value}||${buff.condition}||${buff.source}||${targetStr}||${buff.effectKind || 'modifier'}||${extraHitStr}||${normalizeBuffCategory(buff.category)}||${normalizeBuffCategory(buff.category) === 'countable' ? normalizeMaxStacks(buff.maxStacks) : ''}||${multiplierStr}||${buff.ownerBuffDomain ?? ''}||${buff.ownerCharacterId ?? ''}||${buff.ownerBuffGroup ?? ''}||${buff.valueMode ?? 'fixed'}||${derivedValueStr}`;
 }
 
 /**

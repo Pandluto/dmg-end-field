@@ -554,17 +554,40 @@
   background: #0078d4;
 }
 
+.sandbox-reserved-action--refresh.is-loading,
+.sandbox-reserved-action--refresh.is-loading:disabled {
+  background: #0078d4;
+  color: #ffffff;
+  border-color: #0078d4;
+  opacity: 1;
+}
+
+.sandbox-reserved-action--refresh.is-loading:hover,
+.sandbox-reserved-action--refresh.is-loading:disabled:hover {
+  background: #0078d4;
+}
+
 .sandbox-reserved-action-icon {
   width: 16px;
   height: 16px;
   fill: currentColor;
 }
 
+.sandbox-reserved-action-icon--refresh {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
 .sandbox-reserved-action--refresh.is-loading .sandbox-reserved-action-icon--refresh {
-  animation: sandbox-refresh-spin 0.8s linear infinite;
+  animation: sandbox-refresh-spin 0.9s linear infinite;
+  will-change: transform;
 }
 
 @keyframes sandbox-refresh-spin {
+  from {
+    transform: rotate(0deg);
+  }
+
   to {
     transform: rotate(360deg);
   }

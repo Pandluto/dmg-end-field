@@ -288,7 +288,7 @@ export function WorkbenchFrame({ activeSkillButtonId = null }: WorkbenchFramePro
             排轴
           </button>
           <button
-            className={`workbench-drawer-tab ${workbenchMode === 'toolPanel' ? 'is-active' : ''}`}
+            className={`workbench-drawer-tab ${workbenchMode === 'buffBatchEdit' ? 'is-active' : ''}`}
             type="button"
             onClick={() => handleModeClick('buffBatchEdit')}
             disabled={!canAccessCanvas}

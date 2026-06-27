@@ -449,7 +449,7 @@ function buildSkillRows(
 ): DamageReportCharacterRow['skills'] {
   return Object.entries(skills)
     .sort((left, right) => {
-      const order = ['A', 'B', 'E', 'Q'];
+      const order = ['A', 'B', 'E', 'Q', 'Dot'];
       return order.indexOf(left[1].buttonType) - order.indexOf(right[1].buttonType);
     })
     .map(([skillId, skill]) => {
@@ -989,7 +989,7 @@ function buildCharacterReportRow(characterId: string, fallbackName: string): Dam
     weaponPotentialMode: input?.weapon?.potentialMode || '-',
     level: draft?.level ?? null,
     skillLevels: input
-      ? ['A', 'B', 'E', 'Q'].map((skillType) => `${skillType} ${input.skillLevels?.[skillType as keyof typeof input.skillLevels] || '-'}`)
+      ? ['A', 'B', 'E', 'Q', 'Dot'].map((skillType) => `${skillType} ${input.skillLevels?.[skillType as keyof typeof input.skillLevels] || '-'}`)
       : [],
     attributeLines,
     equipmentLines: buildEquipmentLines(input?.equipment),

@@ -16,7 +16,7 @@
  * - CLEAR_SKILL_BUTTONS：清空画布
  */
 
-import React, { createContext, useContext, useReducer, ReactNode, useEffect, useRef } from 'react';
+import React, { createContext, useCallback, useContext, useMemo, useReducer, ReactNode, useEffect, useRef } from 'react';
 import { LOCAL_LIBRARY_CHANGED_EVENT } from '../aiCli/aiCliCommandService';
 import {
   AppState,
@@ -86,6 +86,25 @@ const initialState: AppState = {
   skillButtons: [],
   loadedCharacters: [],
 };
+
+const serializeCharactersForRefresh = (characters: Character[]) => JSON.stringify(
+  characters.map((character) => ({
+    id: character.id,
+    name: character.name,
+    rarity: character.rarity,
+    profession: character.profession,
+    element: character.element,
+    mainStat: character.mainStat,
+    subStat: character.subStat,
+    attributes: character.attributes,
+    skills: character.skills,
+    avatarUrl: character.avatarUrl,
+    skillIconMap: character.skillIconMap,
+    librarySource: character.librarySource,
+    sandboxSkills: character.sandboxSkills,
+    operatorBuffs: character.operatorBuffs,
+  })),
+);
 
 function buildOfficialSandboxSkills(character: Character): SandboxSkill[] {
   const officialSkillMap = {
@@ -247,6 +266,7 @@ interface AppContextType {
   state: AppState;
   dispatch: React.Dispatch<AppAction>;
   loadCharacters: () => Promise<void>;
+  refreshSelectedCharacters: () => Promise<Character[]>;
 }
 
 const AppContext = createContext<AppContextType | null>(null);
@@ -259,8 +279,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [state, dispatch] = useReducer(appReducer, initialState);
   const selectedCharactersHydratedRef = useRef(false);
   const canvasLocalRefreshSignatureRef = useRef<string | null>(null);
+  const loadedCharactersSignatureRef = useRef<string | null>(null);
 
-  const refreshSelectedLocalCharacters = (selectedCharacters: Character[]) => {
+  const refreshSelectedLocalCharacters = useCallback((selectedCharacters: Character[]) => {
     const localDraftMap = loadLocalOperatorDraftMap();
     let changed = false;
     const refreshedCharacters = selectedCharacters.map((character) => {
@@ -281,7 +302,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     });
 
     return changed ? refreshedCharacters : selectedCharacters;
-  };
+  }, []);
 
   /**
    * 从 public/data/characters/operators-list.json 动态加载所有干员名称列表，
@@ -290,50 +311,93 @@ export function AppProvider({ children }: { children: ReactNode }) {
    * - avatarUrl：头像图片路径
    * - skillIconMap：四个技能的图标路径映射
    */
-  const loadCharacters = async () => {
-    try {
-      const listResponse = await fetch(resolvePublicPath('data/characters/operators-list.json'));
-      if (!listResponse.ok) {
-        console.warn('Failed to load operators-list.json');
-        return;
+  const loadOfficialCharacters = useCallback(async (): Promise<Character[]> => {
+    const listResponse = await fetch(resolvePublicPath('data/characters/operators-list.json'), { cache: 'no-store' });
+    if (!listResponse.ok) {
+      console.warn('Failed to load operators-list.json');
+      return [];
+    }
+    const operatorList: { name: string }[] = await listResponse.json();
+    const characters: Character[] = [];
+
+    for (const operator of operatorList) {
+      const fileName = `${operator.name}/${operator.name}.json`;
+      try {
+        const response = await fetch(resolvePublicPath(`data/characters/${fileName}`), { cache: 'no-store' });
+        if (response.ok) {
+          const data = await response.json();
+          const character = data as Character;
+          character.id = character.name;
+          character.avatarUrl = resolveAvatarUrl(character.name);
+          character.skillIconMap = {
+            A: resolveSkillIconUrl(character.name, 'A'),
+            B: resolveSkillIconUrl(character.name, 'B'),
+            E: resolveSkillIconUrl(character.name, 'E'),
+            Q: resolveSkillIconUrl(character.name, 'Q'),
+          };
+          character.librarySource = 'official';
+          character.sandboxSkills = buildOfficialSandboxSkills(character);
+          characters.push(character);
+        }
+      } catch (error) {
+        console.warn(`Failed to load ${fileName}:`, error);
       }
-      const operatorList: { name: string }[] = await listResponse.json();
+    }
 
-      const characters: Character[] = [];
+    return characters;
+  }, []);
 
-      for (const operator of operatorList) {
-        const fileName = `${operator.name}/${operator.name}.json`;
-        try {
-          const response = await fetch(resolvePublicPath(`data/characters/${fileName}`));
-          if (response.ok) {
-            const data = await response.json();
-            const character = data as Character;
-            character.id = character.name;
-            character.avatarUrl = resolveAvatarUrl(character.name);
-            character.skillIconMap = {
-              A: resolveSkillIconUrl(character.name, 'A'),
-              B: resolveSkillIconUrl(character.name, 'B'),
-              E: resolveSkillIconUrl(character.name, 'E'),
-              Q: resolveSkillIconUrl(character.name, 'Q'),
-            };
-            character.librarySource = 'official';
-            character.sandboxSkills = buildOfficialSandboxSkills(character);
-            characters.push(character);
-          }
-        } catch (error) {
-          console.warn(`Failed to load ${fileName}:`, error);
+  const buildRestorableCharacterMap = useCallback((officialCharacters: Character[]) => {
+    const localCharacters = loadLocalOperatorCharacters();
+    const restorableCharacterMap = new Map<string, Character>();
+    officialCharacters.forEach((char) => restorableCharacterMap.set(char.id, char));
+    localCharacters.forEach((char) => restorableCharacterMap.set(char.id, char));
+    return restorableCharacterMap;
+  }, []);
+
+  const rebuildSelectedRuntimeTemplateMap = useCallback((selectedCharacters: Character[]) => {
+    // 空选中态：清空模板表
+    if (selectedCharacters.length === 0) {
+      setRuntimeOperatorTemplateMap({});
+      console.log('[AppContext] 模板表已清空（无已选角色）');
+      return;
+    }
+
+    // 加载本地 draft map 用于本地角色定向查找
+    const localDraftMap = loadLocalOperatorDraftMap();
+
+    // 为每个已选角色构建模板
+    const nextMap: Record<string, ReturnType<typeof buildRuntimeOperatorTemplateFromOfficialCharacter>> = {};
+
+    selectedCharacters.forEach((character) => {
+      if (character.librarySource === 'official') {
+        // 官方角色：直接从 character 构建
+        nextMap[character.id] = buildRuntimeOperatorTemplateFromOfficialCharacter(character);
+      } else if (character.librarySource === 'local') {
+        // 本地角色：按 id 定向取 draft 后构建
+        const draft = localDraftMap[character.id];
+        if (draft) {
+          nextMap[character.id] = buildRuntimeOperatorTemplateFromDraft(draft);
+        } else {
+          console.warn(`[AppContext] 本地角色 ${character.id} 的 draft 不存在，跳过模板构建`);
         }
       }
+    });
 
+    setRuntimeOperatorTemplateMap(nextMap);
+    console.log('[AppContext] 模板表已重建:', {
+      selectedCount: selectedCharacters.length,
+      templateCount: Object.keys(nextMap).length,
+      ids: Object.keys(nextMap),
+    });
+  }, []);
+
+  const loadCharacters = useCallback(async () => {
+    try {
+      const characters = await loadOfficialCharacters();
+      loadedCharactersSignatureRef.current = serializeCharactersForRefresh(characters);
       dispatch({ type: 'SET_LOADED_CHARACTERS', characters });
-
-      // 加载本地角色（用于刷新恢复 - 兼容过渡）
-      const localCharacters = loadLocalOperatorCharacters();
-
-      // 构建可恢复角色 Map（官方 + 本地）
-      const restorableCharacterMap = new Map<string, Character>();
-      characters.forEach((char) => restorableCharacterMap.set(char.id, char));
-      localCharacters.forEach((char) => restorableCharacterMap.set(char.id, char));
+      const restorableCharacterMap = buildRestorableCharacterMap(characters);
 
         const selectedCharacterIds = getSelectedCharacterIds();
         const hasTimelineData = Boolean(safeSessionStorage.getItem(STORAGE_KEYS.TIMELINE_DATA));
@@ -388,49 +452,49 @@ export function AppProvider({ children }: { children: ReactNode }) {
     } finally {
       selectedCharactersHydratedRef.current = true;
     }
-  };
+  }, [buildRestorableCharacterMap, loadOfficialCharacters, rebuildSelectedRuntimeTemplateMap, refreshSelectedLocalCharacters]);
 
-  /**
-   * 按当前已选角色重建运行时模板表
-   * 这是唯一写入 def.operator-runtime.template-map.v1 的入口
-   * @param selectedCharacters - 当前已选角色列表
-   */
-  const rebuildSelectedRuntimeTemplateMap = (selectedCharacters: Character[]) => {
-    // 空选中态：清空模板表
-    if (selectedCharacters.length === 0) {
+  const refreshSelectedCharacters = useCallback(async (): Promise<Character[]> => {
+    const selectedIds = (
+      state.selectedCharacters.length > 0
+        ? state.selectedCharacters.map((character) => character.id)
+        : getSelectedCharacterIds()
+    ).filter((id) => id.trim().length > 0).slice(0, 4);
+
+    if (selectedIds.length === 0) {
       setRuntimeOperatorTemplateMap({});
-      console.log('[AppContext] 模板表已清空（无已选角色）');
-      return;
+      return [];
     }
 
-    // 加载本地 draft map 用于本地角色定向查找
-    const localDraftMap = loadLocalOperatorDraftMap();
+    const officialCharacters = await loadOfficialCharacters();
+    const officialCharactersSignature = serializeCharactersForRefresh(officialCharacters);
+    if (loadedCharactersSignatureRef.current !== officialCharactersSignature) {
+      loadedCharactersSignatureRef.current = officialCharactersSignature;
+      dispatch({ type: 'SET_LOADED_CHARACTERS', characters: officialCharacters });
+    }
+    const restorableCharacterMap = buildRestorableCharacterMap(officialCharacters);
+    const refreshedCharacters = selectedIds
+      .map((characterId) => restorableCharacterMap.get(characterId))
+      .filter((character): character is Character => Boolean(character))
+      .slice(0, 4);
 
-    // 为每个已选角色构建模板
-    const nextMap: Record<string, ReturnType<typeof buildRuntimeOperatorTemplateFromOfficialCharacter>> = {};
+    if (refreshedCharacters.length === 0) {
+      console.warn('[AppContext] 静默刷新已选干员失败：未能解析当前已选 ID', selectedIds);
+      return state.selectedCharacters;
+    }
 
-    selectedCharacters.forEach((character) => {
-      if (character.librarySource === 'official') {
-        // 官方角色：直接从 character 构建
-        nextMap[character.id] = buildRuntimeOperatorTemplateFromOfficialCharacter(character);
-      } else if (character.librarySource === 'local') {
-        // 本地角色：按 id 定向取 draft 后构建
-        const draft = localDraftMap[character.id];
-        if (draft) {
-          nextMap[character.id] = buildRuntimeOperatorTemplateFromDraft(draft);
-        } else {
-          console.warn(`[AppContext] 本地角色 ${character.id} 的 draft 不存在，跳过模板构建`);
-        }
-      }
-    });
+    setSelectedCharacterIds(refreshedCharacters.map((character) => character.id));
+    rebuildSelectedRuntimeTemplateMap(refreshedCharacters);
 
-    setRuntimeOperatorTemplateMap(nextMap);
-    console.log('[AppContext] 模板表已重建:', {
-      selectedCount: selectedCharacters.length,
-      templateCount: Object.keys(nextMap).length,
-      ids: Object.keys(nextMap),
-    });
-  };
+    if (
+      serializeCharactersForRefresh(refreshedCharacters) !==
+      serializeCharactersForRefresh(state.selectedCharacters)
+    ) {
+      dispatch({ type: 'SET_SELECTED_CHARACTERS', characters: refreshedCharacters });
+    }
+
+    return refreshedCharacters;
+  }, [buildRestorableCharacterMap, loadOfficialCharacters, rebuildSelectedRuntimeTemplateMap, state.selectedCharacters]);
 
   // 组件首次挂载时自动加载干员数据
   useEffect(() => {
@@ -460,7 +524,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setSelectedCharacterIds(state.selectedCharacters.map((character) => character.id));
     // 同步重建运行时模板表（职责收紧：只包含当前已选角色）
     rebuildSelectedRuntimeTemplateMap(state.selectedCharacters);
-  }, [state.selectedCharacters]);
+  }, [rebuildSelectedRuntimeTemplateMap, state.selectedCharacters]);
 
   useEffect(() => {
     if (!selectedCharactersHydratedRef.current || state.currentView !== 'canvas' || state.selectedCharacters.length === 0) {
@@ -489,10 +553,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
 
     rebuildSelectedRuntimeTemplateMap(refreshedCharacters);
-  }, [state.currentView, state.selectedCharacters]);
+  }, [rebuildSelectedRuntimeTemplateMap, refreshSelectedLocalCharacters, state.currentView, state.selectedCharacters]);
+
+  const contextValue = useMemo(() => ({
+    state,
+    dispatch,
+    loadCharacters,
+    refreshSelectedCharacters,
+  }), [loadCharacters, refreshSelectedCharacters, state]);
 
   return (
-    <AppContext.Provider value={{ state, dispatch, loadCharacters }}>
+    <AppContext.Provider value={contextValue}>
       {children}
     </AppContext.Provider>
   );

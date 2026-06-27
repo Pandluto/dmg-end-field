@@ -19,6 +19,8 @@ import { resolveRuntimeTemplateSkill } from '../core/services/skillDamageTemplat
 import { buildBuffSearchIndex, searchBuffs } from '../utils/buffFuzzySearch';
 import { buildAnomalyStateSnapshotBuffs } from '../core/services/anomalyStateBuffs';
 import { refreshSnapshotCandidateBuffsForCharacterIds } from '../core/services/operatorConfigCandidateBuffService';
+import { refreshOperatorConfigSnapshotsForCharacters } from '../core/services/operatorConfigSnapshotRefreshService';
+import { useAppContext } from '../context/AppContext';
 import {
   getGridLineCenterY,
   getGridNodeCenterX,
@@ -131,7 +133,7 @@ function getButtonStaffGroupIndex(button: PersistedSkillButton): number {
 }
 
 function getButtonSkillType(button: PersistedSkillButton): SkillType {
-  return ['A', 'B', 'E', 'Q'].includes(button.skillType)
+  return ['A', 'B', 'E', 'Q', 'Dot'].includes(button.skillType)
     ? button.skillType as SkillType
     : 'A';
 }
@@ -376,8 +378,14 @@ function buffFromSearchResult(entry: LocalBuffSearchResult): SkillButtonBuff {
     condition: entry.condition,
     category: entry.category,
     maxStacks: entry.maxStacks,
+    ownerBuffDomain: entry.ownerBuffDomain,
+    ownerCharacterId: entry.ownerCharacterId,
+    ownerBuffGroup: entry.ownerBuffGroup,
+    valueMode: entry.valueMode,
+    derivedValue: entry.derivedValue,
     effectKind: entry.effectKind,
     extraHitConfig: entry.extraHitConfig,
+    multiplier: entry.multiplier,
     refCount: 1,
   };
 }
@@ -482,6 +490,7 @@ export function BuffBatchEditWorkbench({
   bottomRightControl,
   isWorkbenchTopZoneOpen,
 }: BuffBatchEditWorkbenchProps) {
+  const { state, refreshSelectedCharacters } = useAppContext();
   const [selectedButtonIds, setSelectedButtonIds] = useState<string[]>([]);
   const [toolMode, setToolMode] = useState<EditToolMode>('normal');
   const [selectedFilterBuffIds, setSelectedFilterBuffIds] = useState<string[]>([]);
@@ -1093,7 +1102,7 @@ export function BuffBatchEditWorkbench({
   };
 
   useEffect(() => {
-    if (toolMode !== 'add') {
+    if (toolMode === 'normal') {
       return undefined;
     }
 
@@ -1102,6 +1111,32 @@ export function BuffBatchEditWorkbench({
         event.preventDefault();
         setIsCandidateAdderOpen(false);
         setCandidateSearchKeyword('');
+        return;
+      }
+
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        if (toolMode === 'add') {
+          handleCancelAddMode();
+          return;
+        }
+        if (toolMode === 'remove') {
+          handleCancelRemoveMode();
+          return;
+        }
+        if (toolMode === 'edit') {
+          handleCancelEditMode();
+          return;
+        }
+        if (toolMode === 'filter') {
+          setBoxSelectRect(null);
+          setIsBoxSelectArmed(false);
+          setToolMode('normal');
+        }
+        return;
+      }
+
+      if (toolMode !== 'add') {
         return;
       }
 
@@ -1133,10 +1168,16 @@ export function BuffBatchEditWorkbench({
     if (!isCandidateAdderOpen) {
       return undefined;
     }
-    const selectedCharacterIds = selectedCharacters
-      .map((character) => character.id)
-      .filter((id): id is string => Boolean(id));
-    refreshSnapshotCandidateBuffsForCharacterIds(selectedCharacterIds)
+    refreshSelectedCharacters()
+      .then(async (refreshedCharacters) => {
+        const charactersForRefresh = refreshedCharacters.length > 0 ? refreshedCharacters : state.selectedCharacters;
+        const characterIdsForRefresh = Array.from(new Set([
+          ...selectedCharacters.map((character) => character.id).filter((id): id is string => Boolean(id)),
+          ...charactersForRefresh.map((character) => character.id).filter((id): id is string => Boolean(id)),
+        ]));
+        await refreshOperatorConfigSnapshotsForCharacters(charactersForRefresh);
+        return refreshSnapshotCandidateBuffsForCharacterIds(characterIdsForRefresh);
+      })
       .then(() => setCandidateBuffRefreshToken((token) => token + 1))
       .catch((error) => console.error('刷新批量 Buff 候选列表失败:', error));
     const timer = window.setTimeout(() => {
@@ -1144,7 +1185,7 @@ export function BuffBatchEditWorkbench({
       candidateSearchInputRef.current?.select();
     }, 0);
     return () => window.clearTimeout(timer);
-  }, [isCandidateAdderOpen, candidateAdderMode, selectedCharacters]);
+  }, [candidateAdderMode, isCandidateAdderOpen, refreshSelectedCharacters, selectedCharacters, state.selectedCharacters]);
 
   const getCanvasPoint = (event: React.MouseEvent | MouseEvent) => {
     const canvasElement = canvasRef.current;

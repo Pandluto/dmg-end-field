@@ -142,7 +142,7 @@ interface WeaponData {
   };
 }
 
-type OperatorSkillKey = 'A' | 'B' | 'E' | 'Q';
+type OperatorSkillKey = 'A' | 'B' | 'E' | 'Q' | 'Dot';
 type CharacterAttributeKey = keyof Character['attributes'];
 type RawWeaponLibrary = Record<string, Partial<WeaponData> & { id?: string; imgUrl?: string }>;
 type SkillHitDetail = {
@@ -166,6 +166,7 @@ const SKILL_ITEMS = [
   { key: 'B', name: '战技占位' },
   { key: 'E', name: '连携技占位' },
   { key: 'Q', name: '终结技占位' },
+  { key: 'Dot', name: '持续伤害占位' },
 ] as const satisfies ReadonlyArray<{ key: OperatorSkillKey; name: string }>;
 
 const SLOT_COUNT = 8;
@@ -263,7 +264,8 @@ const WEAPON_SKILL2_TYPE_MAP: Record<string, string> = {
   治疗效率提升: 'healingBonus',
 };
 const WEAPON_LIBRARY_STORAGE_KEY = 'def.weapon-sheet.library.v1';
-const EQUIPMENT_LIBRARY_STORAGE_KEY = 'def.equipment-sheet.draft.v1';
+const EQUIPMENT_DRAFT_STORAGE_KEY = 'def.equipment-sheet.draft.v1';
+const EQUIPMENT_LIBRARY_STORAGE_KEY = 'def.equipment-sheet.library.v1';
 const EQUIPMENT_SLOT_METAS = [
   { slotKey: 'armor', groupClass: 'operator-config-page-equip-button-group--1', rowClass: 'operator-config-page-equip-button-row--1', part: '护甲', circleClass: 'operator-config-page-equip-circle--1' },
   { slotKey: 'accessory2', groupClass: 'operator-config-page-equip-button-group--2', rowClass: 'operator-config-page-equip-button-row--2', part: '配件', circleClass: 'operator-config-page-equip-circle--2' },
@@ -425,6 +427,14 @@ function normalizeEquipmentLibrary(raw: unknown): EquipmentLibrary {
   return next;
 }
 
+function readEquipmentLibraryFromStorage(): EquipmentLibrary {
+  const library = normalizeEquipmentLibrary(readLocalStorageJson(EQUIPMENT_LIBRARY_STORAGE_KEY, { gearSets: {} }));
+  if (Object.keys(library.gearSets).length > 0) {
+    return library;
+  }
+  return normalizeEquipmentLibrary(readLocalStorageJson(EQUIPMENT_DRAFT_STORAGE_KEY, { gearSets: {} }));
+}
+
 function normalizeWeaponLibrary(raw: unknown): Record<string, WeaponData & { id: string; imgUrl: string }> {
   const source = raw && typeof raw === 'object' ? (raw as RawWeaponLibrary) : {};
   const next: Record<string, WeaponData & { id: string; imgUrl: string }> = {};
@@ -541,6 +551,7 @@ function createDefaultCharacterConfig(character: Character): OperatorConfigPageC
         B: DEFAULT_SKILL_MODE,
         E: DEFAULT_SKILL_MODE,
         Q: DEFAULT_SKILL_MODE,
+        Dot: DEFAULT_SKILL_MODE,
       },
       data: createCharacterData(character).skills as Record<string, unknown>,
     },
@@ -632,6 +643,7 @@ function createCharacterConfigFromSnapshot(snapshot: ConfigSnapshot, sourceChara
         B: snapshot.operator.skillConfig.B ?? DEFAULT_SKILL_MODE,
         E: snapshot.operator.skillConfig.E ?? DEFAULT_SKILL_MODE,
         Q: snapshot.operator.skillConfig.Q ?? DEFAULT_SKILL_MODE,
+        Dot: snapshot.operator.skillConfig.Dot ?? DEFAULT_SKILL_MODE,
       },
       data: (baseCharacterData as Partial<Character>).skills as Record<string, unknown> ?? {},
     },
@@ -1163,6 +1175,7 @@ function buildSkillDetailGroups(character: Partial<Character>, skillKey: Operato
     B: character.skills?.skill,
     E: character.skills?.chainSkill,
     Q: character.skills?.ultimate,
+    Dot: undefined,
   };
   return buildFallbackSkillDetails(skillKey, fallbackByKey[skillKey], levelKey);
 }
@@ -1539,7 +1552,7 @@ export function OperatorConfigPage() {
         setWeaponLibraryError(null);
         setEquipmentLibraryError(null);
         const nextWeaponLibrary = normalizeWeaponLibrary(readLocalStorageJson(WEAPON_LIBRARY_STORAGE_KEY, {}));
-        const nextEquipmentLibrary = normalizeEquipmentLibrary(readLocalStorageJson(EQUIPMENT_LIBRARY_STORAGE_KEY, { gearSets: {} }));
+        const nextEquipmentLibrary = readEquipmentLibraryFromStorage();
         setWeaponLibrary(nextWeaponLibrary);
         setEquipmentLibrary(nextEquipmentLibrary);
       } catch (error) {

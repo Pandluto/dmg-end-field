@@ -5,6 +5,7 @@
   background: rgba(232, 227, 215, 0.9);
   isolation: isolate;
   font-size: 13px;
+  overflow: hidden;
 }
 
 .timeline-detail-canvas {
@@ -27,21 +28,8 @@
   row-gap: 28px;
   padding: 18px 42px 34px;
   box-sizing: border-box;
-  overflow: hidden;
+  overflow: auto;
   color: #141719;
-}
-
-.timeline-detail-layer *,
-.timeline-detail-layer {
-  scrollbar-width: none !important;
-  -ms-overflow-style: none;
-}
-
-.timeline-detail-layer *::-webkit-scrollbar,
-.timeline-detail-layer::-webkit-scrollbar {
-  display: none !important;
-  width: 0;
-  height: 0;
 }
 
 .timeline-detail-expand-all-button {
@@ -225,7 +213,7 @@
   align-content: start;
   gap: 16px;
   padding: 14px 0;
-  overflow: hidden;
+  overflow: auto;
   transform: translateX(48px);
 }
 
@@ -236,9 +224,10 @@
   flex-direction: column;
   gap: 22px;
   padding: 14px 0;
-  overflow: hidden;
-  scrollbar-width: none !important;
-  -ms-overflow-style: none;
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-width: thin;
+  scrollbar-color: #bfc5c1 transparent;
 }
 
 .timeline-detail-card {
@@ -283,11 +272,64 @@
   border: 1px solid #d4d8db;
 }
 
+.timeline-buff-list-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.timeline-buff-list-head h3 {
+  margin: 0;
+}
+
+.timeline-buff-list-head select {
+  min-width: 96px;
+  max-width: 170px;
+  height: 26px;
+  color: #252a2e;
+  background: #fff;
+  border: 1px solid #c8cdd1;
+  font-size: 11px;
+}
+
+.timeline-buff-bulk-actions {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.timeline-buff-bulk-actions button {
+  min-width: 0;
+  min-height: 24px;
+  padding: 2px 4px;
+  color: #30363b;
+  background: #fff;
+  border: 1px solid #cfd5d1;
+  font-size: 10px;
+  cursor: pointer;
+}
+
+.timeline-buff-bulk-actions button:hover:not(:disabled) {
+  color: #005ecb;
+  background: #f1f8f3;
+  border-color: #79a98a;
+}
+
+.timeline-buff-bulk-actions button:disabled,
+.timeline-buff-list-head select:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
 .timeline-buff-rows {
+  min-height: 0;
   display: flex;
   flex-direction: column;
   gap: 6px;
-  max-height: 100%;
+  flex: 1;
   overflow-y: auto;
   scrollbar-width: thin;
   scrollbar-color: #bfc5c1 transparent;
@@ -306,7 +348,7 @@
 
 .timeline-buff-rows::-webkit-scrollbar-thumb,
 .timeline-tuning-card::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.76);
+  background: rgba(96, 107, 100, 0.44);
   border-radius: 999px;
 }
 
@@ -748,8 +790,8 @@
   background: transparent;
   border: 0;
   font-weight: 700;
-  scrollbar-width: none !important;
-  -ms-overflow-style: none;
+  scrollbar-width: thin;
+  scrollbar-color: #bfc5c1 transparent;
 }
 
 .timeline-calculation-detail > header {
@@ -887,8 +929,8 @@
   padding-right: 5px;
   overflow-y: auto;
   overflow-x: hidden;
-  scrollbar-width: none !important;
-  -ms-overflow-style: none;
+  scrollbar-width: thin;
+  scrollbar-color: #bfc5c1 transparent;
 }
 
 .timeline-calculation-zone-map {
@@ -900,10 +942,31 @@
 
 .timeline-calculation-detail::-webkit-scrollbar,
 .timeline-calculation-zone-scroll::-webkit-scrollbar,
+.timeline-detail-canvas::-webkit-scrollbar,
+.timeline-detail-hit-list::-webkit-scrollbar,
+.timeline-detail-middle::-webkit-scrollbar,
 .timeline-detail-right-column::-webkit-scrollbar {
-  display: none !important;
-  width: 0 !important;
-  height: 0 !important;
+  width: 6px;
+  height: 6px;
+}
+
+.timeline-calculation-detail::-webkit-scrollbar-track,
+.timeline-calculation-zone-scroll::-webkit-scrollbar-track,
+.timeline-detail-canvas::-webkit-scrollbar-track,
+.timeline-detail-hit-list::-webkit-scrollbar-track,
+.timeline-detail-middle::-webkit-scrollbar-track,
+.timeline-detail-right-column::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.timeline-calculation-detail::-webkit-scrollbar-thumb,
+.timeline-calculation-zone-scroll::-webkit-scrollbar-thumb,
+.timeline-detail-canvas::-webkit-scrollbar-thumb,
+.timeline-detail-hit-list::-webkit-scrollbar-thumb,
+.timeline-detail-middle::-webkit-scrollbar-thumb,
+.timeline-detail-right-column::-webkit-scrollbar-thumb {
+  background: rgba(96, 107, 100, 0.44);
+  border-radius: 999px;
 }
 
 .timeline-calculation-zone-node {

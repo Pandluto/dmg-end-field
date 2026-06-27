@@ -45,6 +45,7 @@ import { useAppContext } from '../../context/AppContext';
 import { emitSkillButtonBuffAdded, emitSkillButtonBuffRemoved, onSkillButtonBuffAdded } from '../../core/events/buffEvents';
 import { buildBuffSearchIndex, searchBuffs } from '../../utils/buffFuzzySearch';
 import { refreshSnapshotCandidateBuffsForCharacterIds } from '../../core/services/operatorConfigCandidateBuffService';
+import { refreshOperatorConfigSnapshotsForCharacters } from '../../core/services/operatorConfigSnapshotRefreshService';
 import {
   type AnomalyDamageSegmentView,
   dedupeLocalBuffSearchResults,
@@ -228,7 +229,7 @@ export function SkillButtonComponent({
   const displayName = skillDisplayName || SKILL_LABELS[skillType];
   const browseModeDisplayName = BROWSE_MODE_SKILL_LABELS[skillType] ?? displayName;
   const isDotButton = button.skillType === 'Dot';
-  const { state, dispatch } = useAppContext();
+  const { state, dispatch, refreshSelectedCharacters } = useAppContext();
   const radius = size / 2;
   const baseWidth = 80;
   const baseHeight = 30;
@@ -242,8 +243,8 @@ export function SkillButtonComponent({
   // 当前技能按钮的 Buff 列表
   const [buffList, setBuffList] = useState<SkillButtonBuff[]>([]);
   // 当前角色的技能等级模式 (L9/M3)
-  const [skillLevelModeMap, setSkillLevelModeMap] = useState<Record<string, SkillLevelMode>>({ A: 'L9', B: 'L9', E: 'L9', Q: 'L9' });
-  const currentSkillLevelMode = skillType === 'Dot' ? 'M3' : skillLevelModeMap[skillType] ?? 'M3';
+  const [skillLevelModeMap, setSkillLevelModeMap] = useState<Record<string, SkillLevelMode>>({ A: 'L9', B: 'L9', E: 'L9', Q: 'L9', Dot: 'M3' });
+  const currentSkillLevelMode = skillLevelModeMap[skillType] ?? 'M3';
   // 已解析的技能伤害模板（skill 是容器，hit 是计算单元）
   const [resolvedTemplate, setResolvedTemplate] = useState<ResolvedSkillDamageTemplate | null>(null);
   const [targetResistance, setTargetResistance] = useState<Required<HitResistanceInput>>(EMPTY_TARGET_RESISTANCE);
@@ -449,7 +450,16 @@ export function SkillButtonComponent({
     if (!isLocalBuffSearchOpen) {
       return;
     }
-    refreshSnapshotCandidateBuffsForCharacterIds(selectedTeamCharacterIds)
+    refreshSelectedCharacters()
+      .then(async (refreshedCharacters) => {
+        const charactersForRefresh = refreshedCharacters.length > 0 ? refreshedCharacters : state.selectedCharacters;
+        const characterIdsForRefresh = Array.from(new Set([
+          ...selectedTeamCharacterIds,
+          ...charactersForRefresh.map((character) => character.id),
+        ]));
+        await refreshOperatorConfigSnapshotsForCharacters(charactersForRefresh);
+        return refreshSnapshotCandidateBuffsForCharacterIds(characterIdsForRefresh);
+      })
       .then(() => setCandidateBuffRefreshToken((token) => token + 1))
       .catch((error) => console.error('刷新技能按钮候选 Buff 失败:', error));
     const timer = window.setTimeout(() => {
@@ -457,7 +467,7 @@ export function SkillButtonComponent({
       localBuffSearchInputRef.current?.select();
     }, 0);
     return () => window.clearTimeout(timer);
-  }, [isLocalBuffSearchOpen, selectedTeamCharacterIds]);
+  }, [isLocalBuffSearchOpen, refreshSelectedCharacters, selectedTeamCharacterIds, state.selectedCharacters]);
 
   useEffect(() => {
     if (!isModalOpen) {
@@ -617,9 +627,9 @@ export function SkillButtonComponent({
   const loadSkillLevelModeMap = useCallback((): Record<string, SkillLevelMode> => {
     const characterConfig = getCharacterConfig(button.characterId);
     if (characterConfig) {
-      return characterConfig.skillLevelModeMap ?? { A: 'L9', B: 'L9', E: 'L9', Q: 'L9' };
+      return characterConfig.skillLevelModeMap ?? { A: 'L9', B: 'L9', E: 'L9', Q: 'L9', Dot: 'M3' };
     }
-    return { A: 'L9', B: 'L9', E: 'L9', Q: 'L9' };
+    return { A: 'L9', B: 'L9', E: 'L9', Q: 'L9', Dot: 'M3' };
   }, [button.characterId]);
 
   const loadResolvedTemplate = useCallback(() => {
@@ -682,6 +692,11 @@ export function SkillButtonComponent({
       condition: entry.condition,
       category: entry.category,
       maxStacks: entry.maxStacks,
+      ownerBuffDomain: entry.ownerBuffDomain,
+      ownerCharacterId: entry.ownerCharacterId,
+      ownerBuffGroup: entry.ownerBuffGroup,
+      valueMode: entry.valueMode,
+      derivedValue: entry.derivedValue,
       effectKind: entry.effectKind,
       extraHitConfig: entry.extraHitConfig,
       multiplier: entry.multiplier,
@@ -732,6 +747,83 @@ export function SkillButtonComponent({
     // 触发事件通知 CanvasBoard 从 timelineData 中移除 buffId
     emitSkillButtonBuffRemoved(button.id, buffId);
   }, [button.id, loadBuffList, loadPanelData]);
+
+  const clearAllBuffs = useCallback(() => {
+    const currentBuffs = getButtonBuffs(button.id);
+    if (currentBuffs.length === 0) {
+      return;
+    }
+    currentBuffs.forEach((buff) => {
+      removeSkillButtonBuff(button.id, buff.id);
+      emitSkillButtonBuffRemoved(button.id, buff.id);
+    });
+    setGloballyDisabledBuffIds([]);
+    setManuallyDisabledBuffIdsBySegmentKey({});
+    setManualBuffStackCountsBySegmentKey({});
+    persistManualBuffTweaks({});
+    persistManualBuffStackCounts({});
+    const persistedButton = getSkillButtonById(button.id);
+    if (persistedButton) {
+      upsertSkillButton({
+        ...persistedButton,
+        panelConfig: {
+          ...(persistedButton.panelConfig ?? { selectedBuff: [...(persistedButton.selectedBuff ?? [])] }),
+          selectedBuff: [...(persistedButton.selectedBuff ?? [])],
+          globallyDisabledBuffIds: [],
+          manualDisabledBuffIdsBySegmentKey: {},
+          manualBuffStackCountsBySegmentKey: {},
+        },
+        updatedAt: Date.now(),
+      });
+      recomputeSkillButtonPanel(button.id);
+    }
+    loadBuffList();
+    loadPanelData();
+  }, [button.id, loadBuffList, loadPanelData, persistManualBuffStackCounts, persistManualBuffTweaks]);
+
+  const enableAllBuffs = useCallback(() => {
+    const persistedButton = getSkillButtonById(button.id);
+    if (persistedButton) {
+      upsertSkillButton({
+        ...persistedButton,
+        panelConfig: {
+          ...(persistedButton.panelConfig ?? { selectedBuff: [...(persistedButton.selectedBuff ?? [])] }),
+          selectedBuff: [...(persistedButton.selectedBuff ?? [])],
+          globallyDisabledBuffIds: [],
+        },
+        updatedAt: Date.now(),
+      });
+      recomputeSkillButtonPanel(button.id);
+    }
+    setGloballyDisabledBuffIds([]);
+    loadPanelData();
+  }, [button.id, loadPanelData]);
+
+  const disableAllBuffs = useCallback(() => {
+    const currentBuffs = getButtonBuffs(button.id);
+    const nextDisabledIds = currentBuffs.map((buff) => buff.id);
+    const persistedButton = getSkillButtonById(button.id);
+    if (persistedButton) {
+      upsertSkillButton({
+        ...persistedButton,
+        panelConfig: {
+          ...(persistedButton.panelConfig ?? { selectedBuff: [...(persistedButton.selectedBuff ?? [])] }),
+          selectedBuff: [...(persistedButton.selectedBuff ?? [])],
+          globallyDisabledBuffIds: nextDisabledIds,
+        },
+        updatedAt: Date.now(),
+      });
+      recomputeSkillButtonPanel(button.id);
+    }
+    setGloballyDisabledBuffIds(nextDisabledIds);
+    loadPanelData();
+  }, [button.id, loadPanelData]);
+
+  const resetAllBuffStacks = useCallback(() => {
+    setManualBuffStackCountsBySegmentKey({});
+    persistManualBuffStackCounts({});
+    loadPanelData();
+  }, [loadPanelData, persistManualBuffStackCounts]);
 
   const decrementBuffStack = useCallback((buffId: string) => {
     clearManualBuffStackCountForBuff(buffId);
@@ -1887,6 +1979,10 @@ export function SkillButtonComponent({
           isBuffDisabled={(buffId) => globallyDisabledBuffIds.includes(buffId)}
           onDecrementBuff={decrementBuffStack}
           onIncrementBuff={incrementBuffStack}
+          onClearBuffs={clearAllBuffs}
+          onEnableAllBuffs={enableAllBuffs}
+          onDisableAllBuffs={disableAllBuffs}
+          onResetBuffStacks={resetAllBuffStacks}
           statuses={[
             ...selectedStatusCards.map((card) => ({
               key: card.id,

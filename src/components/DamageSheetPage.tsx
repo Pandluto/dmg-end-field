@@ -223,9 +223,9 @@ function formatHitBuffContribution(hitResult: HitCalcResult, buff: SkillButtonBu
 
 function formatSkillLevels(input: CharacterInputConfig | null): string {
   if (!input) {
-    return 'A - / B - / E - / Q -';
+    return 'A - / B - / E - / Q - / Dot -';
   }
-  return `A ${input.skillLevels.A} / B ${input.skillLevels.B} / E ${input.skillLevels.E} / Q ${input.skillLevels.Q}`;
+  return `A ${input.skillLevels.A} / B ${input.skillLevels.B} / E ${input.skillLevels.E} / Q ${input.skillLevels.Q} / Dot ${input.skillLevels.Dot ?? '-'}`;
 }
 
 function formatCharacterMeta(characterId: string): string {
@@ -2104,6 +2104,11 @@ export function DamageSheetPage() {
       condition: entry.condition,
       category: entry.category,
       maxStacks: entry.maxStacks,
+      ownerBuffDomain: entry.ownerBuffDomain,
+      ownerCharacterId: entry.ownerCharacterId,
+      ownerBuffGroup: entry.ownerBuffGroup,
+      valueMode: entry.valueMode,
+      derivedValue: entry.derivedValue,
       effectKind: entry.effectKind,
       extraHitConfig: entry.extraHitConfig,
       multiplier: entry.multiplier,
