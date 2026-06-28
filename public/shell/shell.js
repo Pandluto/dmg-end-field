@@ -18,6 +18,7 @@
     selectedArchiveKey: null,
     activeArchiveKey: null,
     aiRestRunning: false,
+    defAgentRunning: false,
     agentEventSource: null,
     agentPollTimer: 0,
     applyingArchive: false,
@@ -345,10 +346,53 @@
     }
   };
 
+  const renderDefAgentStatus = (defAgent) => {
+    state.defAgentRunning = Boolean(defAgent?.running);
+    const label = state.defAgentRunning ? '运行中' : '未运行';
+    const tone = state.defAgentRunning ? 'ok' : 'warn';
+    const url = defAgent?.url || 'http://127.0.0.1:17322';
+
+    setBadge('def-agent-service-badge', label, tone);
+    setText('def-agent-url', url);
+    setText('def-agent-status', state.defAgentRunning
+      ? `运行中 | pid=${defAgent?.pid || '-'} | ${url}`
+      : 'DEF Agent 后台未运行。/ai-cli 对话会按需启动，Shell 也可以在这里手动管理。');
+
+    const button = $('toggle-def-agent');
+    if (button) {
+      button.textContent = state.defAgentRunning ? '停止后台' : '启动后台';
+      button.classList.toggle('danger-button', state.defAgentRunning);
+      button.classList.toggle('primary-button', !state.defAgentRunning);
+    }
+  };
+
+  const renderDeepSeekConfig = (summary) => {
+    const configured = Boolean(summary?.apiKeyConfigured);
+    setBadge('deepseek-config-badge', configured ? '已配置' : '未配置', configured ? 'ok' : 'warn');
+    setText('deepseek-config-status', summary
+      ? `${summary.model || 'deepseek-v4-pro'} | ${summary.baseUrl || 'https://api.deepseek.com'} | ${configured ? 'API Key 已保存' : 'API Key 为空'}`
+      : '等待配置。');
+    if (summary?.baseUrl) {
+      const input = $('deepseek-base-url');
+      if (input) input.value = summary.baseUrl;
+    }
+    if (summary?.model) {
+      const input = $('deepseek-model');
+      if (input) input.value = summary.model;
+    }
+  };
+
   const refreshAiRestStatus = async () => {
     const payload = await fetchLocalBridgeJson('/health');
     renderAiRestStatus(payload.aiCliRest);
+    renderDefAgentStatus(payload.defAgent);
     return payload.aiCliRest;
+  };
+
+  const refreshDefAgentStatus = async () => {
+    const payload = await fetchLocalBridgeJson('/health');
+    renderDefAgentStatus(payload.defAgent);
+    return payload.defAgent;
   };
 
   const toggleAiRest = async (button) => {
@@ -359,6 +403,60 @@
       });
       renderAiRestStatus(payload.aiCliRest);
       appendLog(`AI REST | ${payload.aiCliRest?.running ? '已启动' : '已停止'} | ${payload.aiCliRest?.url || AI_CLI_REST_ORIGIN}`);
+    } finally {
+      setButtonBusy(button, false);
+    }
+  };
+
+  const toggleDefAgent = async (button) => {
+    setButtonBusy(button, true, state.defAgentRunning ? '正在停止' : '正在启动');
+    try {
+      const payload = await fetchLocalBridgeJson(state.defAgentRunning ? '/close-def-agent' : '/open-def-agent', {
+        method: 'POST',
+      });
+      renderDefAgentStatus(payload.defAgent);
+      if (payload.deepseek) {
+        renderDeepSeekConfig(payload.deepseek);
+      }
+      appendLog(`DEF Agent | ${payload.defAgent?.running ? '已启动' : '已停止'} | ${payload.defAgent?.url || 'http://127.0.0.1:17322'}`);
+    } finally {
+      setButtonBusy(button, false);
+    }
+  };
+
+  const saveDeepSeekConfig = async (button) => {
+    setButtonBusy(button, true, '保存中');
+    try {
+      const payload = await fetchLocalBridgeJson('/def-agent/deepseek-config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          apiKey: $('deepseek-api-key')?.value || '',
+          baseUrl: $('deepseek-base-url')?.value || 'https://api.deepseek.com',
+          model: $('deepseek-model')?.value || 'deepseek-v4-pro',
+        }),
+      });
+      renderDefAgentStatus(payload.defAgent);
+      renderDeepSeekConfig(payload.deepseek);
+      const keyInput = $('deepseek-api-key');
+      if (keyInput) keyInput.value = '';
+      appendLog(`DeepSeek | 配置已保存 | ${payload.deepseek?.model || '-'}`);
+    } finally {
+      setButtonBusy(button, false);
+    }
+  };
+
+  const testDefAgentHi = async (button) => {
+    setButtonBusy(button, true, '测试中');
+    try {
+      const payload = await fetchLocalBridgeJson('/def-agent/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: 'hi' }),
+      });
+      renderDefAgentStatus(payload.defAgent);
+      setText('deepseek-config-status', payload.result?.content || payload.result?.error || '后台没有返回内容');
+      appendLog(`DEF Agent | hi | ${payload.result?.provider || '-'} | ${payload.result?.usedRemoteModel ? 'remote' : 'local'}`);
     } finally {
       setButtonBusy(button, false);
     }
@@ -1077,6 +1175,7 @@
     await Promise.allSettled([
       refreshShellState(),
       refreshAiRestStatus(),
+      refreshDefAgentStatus(),
       refreshArchives(),
       refreshNowStorage(),
       refreshImages(),
@@ -1115,6 +1214,18 @@
     });
     $('refresh-agent-records')?.addEventListener('click', () => {
       refreshAgentRecords().catch((error) => appendLog(`Agent 记录刷新失败 | ${error instanceof Error ? error.message : String(error)}`));
+    });
+    $('refresh-def-agent')?.addEventListener('click', () => {
+      refreshDefAgentStatus().catch((error) => appendLog(`DEF Agent 刷新失败 | ${error instanceof Error ? error.message : String(error)}`));
+    });
+    $('toggle-def-agent')?.addEventListener('click', (event) => {
+      toggleDefAgent(event.currentTarget).catch((error) => appendLog(`DEF Agent 切换失败 | ${error instanceof Error ? error.message : String(error)}`));
+    });
+    $('save-deepseek-config')?.addEventListener('click', (event) => {
+      saveDeepSeekConfig(event.currentTarget).catch((error) => appendLog(`DeepSeek 配置失败 | ${error instanceof Error ? error.message : String(error)}`));
+    });
+    $('test-def-agent-hi')?.addEventListener('click', (event) => {
+      testDefAgentHi(event.currentTarget).catch((error) => appendLog(`DEF Agent hi 测试失败 | ${error instanceof Error ? error.message : String(error)}`));
     });
     $('refresh-archives')?.addEventListener('click', () => {
       Promise.allSettled([refreshArchives(), refreshNowStorage()]).catch(() => {});

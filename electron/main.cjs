@@ -46,6 +46,8 @@ let bridgeServer = null;
 let shellStartedAt = null;
 let aiCliRestProcess = null;
 let aiCliRestStartedAt = null;
+let defAgentProcess = null;
+let defAgentStartedAt = null;
 let isAppQuitting = false;
 let appTray = null;
 let savedDesktopScaleKey = DEFAULT_DESKTOP_SCALE_KEY;
@@ -580,12 +582,25 @@ function isAiCliRestRunning() {
   return Boolean(aiCliRestProcess && aiCliRestProcess.exitCode === null && !aiCliRestProcess.killed);
 }
 
+function isDefAgentRunning() {
+  return Boolean(defAgentProcess && defAgentProcess.exitCode === null && !defAgentProcess.killed);
+}
+
 function getAiCliRestRuntimeInfo() {
   return {
     running: isAiCliRestRunning(),
     pid: aiCliRestProcess?.pid ?? null,
     startedAt: aiCliRestStartedAt,
     url: 'http://127.0.0.1:17321',
+  };
+}
+
+function getDefAgentRuntimeInfo() {
+  return {
+    running: isDefAgentRunning(),
+    pid: defAgentProcess?.pid ?? null,
+    startedAt: defAgentStartedAt,
+    url: 'http://127.0.0.1:17322',
   };
 }
 
@@ -597,6 +612,7 @@ function getBridgeHealth() {
     port: BRIDGE_PORT,
     shell: getShellRuntimeInfo(),
     aiCliRest: getAiCliRestRuntimeInfo(),
+    defAgent: getDefAgentRuntimeInfo(),
     desktopSettings: getDesktopSettingsPayload(),
   };
 }
@@ -874,6 +890,57 @@ function startBridgeServer() {
         return;
       }
 
+      if (method === 'POST' && requestUrl.pathname === '/open-def-agent') {
+        writeJson(response, 200, {
+          ok: true,
+          defAgent: await startDefAgent(),
+        });
+        return;
+      }
+
+      if (method === 'POST' && requestUrl.pathname === '/close-def-agent') {
+        writeJson(response, 200, {
+          ok: true,
+          defAgent: await stopDefAgent(),
+        });
+        return;
+      }
+
+      if (method === 'POST' && requestUrl.pathname === '/def-agent/deepseek-config') {
+        const defAgent = await startDefAgent();
+        const body = await readJsonRequest(request);
+        const upstream = await postJsonUrl('http://127.0.0.1:17322/api/config/deepseek', body);
+        writeJson(response, upstream.status || 500, {
+          ok: upstream.status >= 200 && upstream.status < 300,
+          defAgent,
+          ...upstream.body,
+        });
+        return;
+      }
+
+      if (method === 'POST' && requestUrl.pathname === '/def-agent/chat') {
+        const defAgent = await startDefAgent();
+        const body = await readJsonRequest(request);
+        const upstream = await postJsonUrl('http://127.0.0.1:17322/api/chat', body);
+        writeJson(response, upstream.status || 500, {
+          ok: upstream.status >= 200 && upstream.status < 300,
+          defAgent,
+          ...upstream.body,
+        });
+        return;
+      }
+
+      if (method === 'POST' && requestUrl.pathname === '/def-agent/chat/stop') {
+        const defAgent = await startDefAgent();
+        const upstream = await postJsonUrl('http://127.0.0.1:17322/api/chat/stop', {});
+        writeJson(response, upstream.status || 500, {
+          ok: upstream.status >= 200 && upstream.status < 300,
+          defAgent,
+          ...upstream.body,
+        });
+        return;
+      }
+
       if (method === 'POST' && requestUrl.pathname === '/image-assets/create-directory') {
         writeJson(response, 200, handleCreateImageDirectory(await readJsonRequest(request)));
         return;
@@ -996,6 +1063,7 @@ function startBridgeServer() {
 
 function stopServers() {
   stopAiCliRest();
+  stopDefAgent();
   if (bridgeServer) {
     bridgeServer.close();
     bridgeServer = null;
@@ -1163,6 +1231,58 @@ function getImageReleaseVersionDir(assetVersion) {
     throw new Error('图片资源版本无效');
   }
   return path.join(getImageReleaseVersionsDir(), safeVersion);
+}
+
+async function waitForDefAgentHealth(expectedPid, timeoutMs = 15000) {
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < timeoutMs) {
+    try {
+      const health = await fetchJsonUrl('http://127.0.0.1:17322/health');
+      if (health.status === 200 && health.body?.ok === true && health.body?.pid === expectedPid) {
+        return health.body;
+      }
+    } catch {
+      // Keep polling until the sidecar starts listening.
+    }
+    await delay(250);
+  }
+  throw new Error(`DEF agent health check timed out for pid ${expectedPid}`);
+}
+
+function postJsonUrl(url, payload) {
+  return new Promise((resolve, reject) => {
+    const body = JSON.stringify(payload || {});
+    const requestUrl = new URL(url);
+    const request = http.request({
+      hostname: requestUrl.hostname,
+      port: requestUrl.port,
+      path: `${requestUrl.pathname}${requestUrl.search}`,
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json; charset=utf-8',
+        'Content-Length': Buffer.byteLength(body),
+      },
+    }, (response) => {
+      const chunks = [];
+      response.on('data', (chunk) => chunks.push(chunk));
+      response.on('end', () => {
+        try {
+          resolve({
+            status: response.statusCode,
+            body: JSON.parse(Buffer.concat(chunks).toString('utf-8') || '{}'),
+          });
+        } catch (error) {
+          reject(error);
+        }
+      });
+    });
+    request.on('error', reject);
+    request.setTimeout(30000, () => {
+      request.destroy(new Error('request timeout'));
+    });
+    request.write(body);
+    request.end();
+  });
 }
 
 function parseStrictImageReleaseVersion(value) {
@@ -2321,6 +2441,87 @@ async function stopAiCliRest() {
     pid: null,
     startedAt: null,
     url: 'http://127.0.0.1:17321',
+  };
+}
+
+async function startDefAgent() {
+  if (isDefAgentRunning()) {
+    return {
+      started: false,
+      reason: 'already-running',
+      ...getDefAgentRuntimeInfo(),
+    };
+  }
+
+  const scriptPath = path.join(__dirname, '..', 'agent', 'server', 'def-agent-server.cjs');
+  defAgentProcess = spawn(process.execPath, [scriptPath], {
+    cwd: path.join(__dirname, '..'),
+    env: {
+      ...process.env,
+      DEF_AGENT_PORT: '17322',
+    },
+    stdio: 'ignore',
+    detached: false,
+    windowsHide: true,
+  });
+  defAgentStartedAt = Date.now();
+
+  defAgentProcess.once('exit', () => {
+    defAgentProcess = null;
+    defAgentStartedAt = null;
+  });
+
+  let health = null;
+  try {
+    health = await waitForDefAgentHealth(defAgentProcess.pid);
+  } catch (error) {
+    return {
+      started: true,
+      ready: false,
+      reason: 'launched-health-timeout',
+      error: error instanceof Error ? error.message : String(error),
+      ...getDefAgentRuntimeInfo(),
+    };
+  }
+
+  return {
+    started: true,
+    ready: true,
+    reason: 'launched',
+    health,
+    ...getDefAgentRuntimeInfo(),
+  };
+}
+
+async function stopDefAgent() {
+  if (!isDefAgentRunning()) {
+    return {
+      stopped: false,
+      reason: 'not-running',
+      ...getDefAgentRuntimeInfo(),
+    };
+  }
+
+  const stoppingProcess = defAgentProcess;
+  stoppingProcess.kill();
+  const exit = await waitForProcessExit(stoppingProcess);
+  if (!exit.exited) {
+    return {
+      stopped: false,
+      reason: 'exit-timeout',
+      running: Boolean(stoppingProcess.exitCode === null),
+      pid: stoppingProcess.pid ?? null,
+      startedAt: defAgentStartedAt,
+      url: 'http://127.0.0.1:17322',
+    };
+  }
+  return {
+    stopped: true,
+    reason: 'terminated',
+    running: false,
+    pid: null,
+    startedAt: null,
+    url: 'http://127.0.0.1:17322',
   };
 }
 

@@ -1,7 +1,7 @@
 {
   "name": "dmg-end-field",
   "private": true,
-  "version": "1.7.0",
+  "version": "1.7.1",
   "author": "SailStellar <190052366@qq.com>",
   "description": "Desktop shell for dmg-end-field",
   "type": "module",

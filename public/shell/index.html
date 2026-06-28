@@ -302,6 +302,25 @@
         grid-template-columns: repeat(4, minmax(0, 1fr));
       }
 
+      .agent-top-grid {
+        display: grid;
+        grid-template-columns: minmax(280px, 0.8fr) minmax(460px, 1.2fr);
+        gap: 12px;
+        align-items: start;
+      }
+
+      .agent-api-panel {
+        min-width: 0;
+      }
+
+      .agent-api-form {
+        grid-template-columns: 1fr;
+      }
+
+      .agent-api-form input {
+        min-width: 0;
+      }
+
       .data-status-grid {
         display: grid;
         grid-template-columns: 1fr 1fr 1.35fr;
@@ -452,6 +471,10 @@
         grid-template-columns: minmax(160px, 0.55fr) minmax(240px, 1fr);
         gap: 10px 12px;
         align-items: start;
+      }
+
+      .form-grid.agent-api-form {
+        grid-template-columns: 1fr;
       }
 
       .field-label {
@@ -741,11 +764,16 @@
 
         .grid-3,
         .grid-4,
+        .agent-top-grid,
         .data-status-grid {
           grid-template-columns: repeat(2, minmax(0, 1fr));
         }
 
         .data-workbench {
+          grid-template-columns: 1fr;
+        }
+
+        .agent-top-grid {
           grid-template-columns: 1fr;
         }
       }
@@ -774,6 +802,7 @@
         .grid-4,
         .check-grid,
         .archive-columns,
+        .agent-top-grid,
         .data-status-grid,
         .data-workbench {
           grid-template-columns: 1fr;
@@ -1061,8 +1090,11 @@
           <button class="nav-button" type="button" data-page="images">
             <span class="nav-icon">04</span><span>图片</span>
           </button>
+          <button class="nav-button" type="button" data-page="agent">
+            <span class="nav-icon">05</span><span>Agent</span>
+          </button>
           <button class="nav-button" type="button" data-page="log">
-            <span class="nav-icon">05</span><span>日志</span>
+            <span class="nav-icon">06</span><span>日志</span>
           </button>
         </nav>
 
@@ -1162,8 +1194,8 @@
           <header class="page-header">
             <div>
               <div class="eyebrow">Services</div>
-              <h1 class="page-title">服务与 Agent</h1>
-              <p class="page-desc">管理本地 AI REST 服务，查看 Agent 会话和操作记录。</p>
+              <h1 class="page-title">统一服务</h1>
+              <p class="page-desc">只管理 Shell 对 Web 和本地能力暴露的统一服务入口。Agent、模型和 API 配置在 05 Agent。</p>
             </div>
             <div class="toolbar">
               <button id="refresh-ai-rest" type="button" class="subtle-button">刷新服务</button>
@@ -1171,41 +1203,17 @@
             </div>
           </header>
 
-          <section class="grid-2">
-            <article class="panel">
-              <div class="panel-header">
-                <div>
-                  <div class="panel-title">AI REST</div>
-                  <div class="panel-help">为 Web 主界面和 Agent 提供本地 API。</div>
-                </div>
-                <span class="badge warn" id="ai-rest-service-badge">检测</span>
+          <article class="panel">
+            <div class="panel-header">
+              <div>
+                <div class="panel-title">AI REST</div>
+                <div class="panel-help">为 Web 主界面和 Agent 提供本地 API。</div>
               </div>
-              <div class="copy-line" id="ai-rest-url">http://127.0.0.1:17321</div>
-              <div class="empty-state">AI REST 是 Shell 对 Web 和 Agent 暴露的本地服务入口。这里仅保留服务启停、地址状态和访问记录。</div>
-            </article>
-
-            <article class="panel">
-              <div class="panel-header">
-                <div>
-                  <div class="panel-title">Agent 记录</div>
-                  <div class="panel-help">读取 AI REST 的操作日志和最近会话。</div>
-                </div>
-                <button id="refresh-agent-records" type="button" class="subtle-button">刷新</button>
-              </div>
-              <div class="empty-state" id="agent-records-status">等待刷新</div>
-            </article>
-          </section>
-
-          <section class="grid-2">
-            <article class="panel">
-              <div class="panel-header"><div><div class="panel-title">操作日志</div><div class="panel-help">client、command、成功状态和写入范围。</div></div></div>
-              <div class="code-output" id="agent-operation-logs">暂无记录</div>
-            </article>
-            <article class="panel">
-              <div class="panel-header"><div><div class="panel-title">会话</div><div class="panel-help">最近 session、状态和消息数。</div></div></div>
-              <div class="code-output" id="agent-sessions">暂无会话</div>
-            </article>
-          </section>
+              <span class="badge warn" id="ai-rest-service-badge">检测</span>
+            </div>
+            <div class="copy-line" id="ai-rest-url">http://127.0.0.1:17321</div>
+            <div class="empty-state">AI REST 是 Shell 对 Web 和 Agent 暴露的本地服务入口。这里仅保留统一服务启停和地址状态。</div>
+          </article>
         </div>
 
         <div id="page-localdata" class="page">
@@ -1417,6 +1425,90 @@
               <button id="reveal-image-release-output" type="button" class="subtle-button">打开输出目录</button>
             </div>
             <div class="empty-state" id="image-release-builder-status">等待选择目录并填写版本。</div>
+          </section>
+        </div>
+
+        <div id="page-agent" class="page">
+          <header class="page-header">
+            <div>
+              <div class="eyebrow">Agent</div>
+              <h1 class="page-title">Agent 与 API</h1>
+              <p class="page-desc">管理 DEF Agent 后台、DeepSeek API 配置、Agent 会话和操作记录。</p>
+            </div>
+            <div class="toolbar">
+              <button id="refresh-agent-records" type="button" class="subtle-button">刷新记录</button>
+              <button id="refresh-def-agent" type="button" class="subtle-button">刷新后台</button>
+            </div>
+          </header>
+
+          <section class="agent-top-grid">
+            <article class="panel">
+              <div class="panel-header">
+                <div>
+                  <div class="panel-title">DEF Agent 后台</div>
+                  <div class="panel-help">为 /ai-cli 右侧智能录入提供本地后台。普通用户不用接触 OpenCode 或工具调用细节。</div>
+                </div>
+                <span class="badge warn" id="def-agent-service-badge">检测</span>
+              </div>
+              <div class="copy-line" id="def-agent-url">http://127.0.0.1:17322</div>
+              <div class="toolbar">
+                <button id="toggle-def-agent" type="button" class="primary-button">启动后台</button>
+              </div>
+              <div class="empty-state" id="def-agent-status">等待检测。</div>
+            </article>
+
+            <article class="panel agent-api-panel">
+              <div class="panel-header">
+                <div>
+                  <div class="panel-title">DeepSeek API 配置</div>
+                  <div class="panel-help">供智能录入后台使用。配置保存在本机 .runtime，不显示在 /ai-cli 用户对话区。</div>
+                </div>
+                <span class="badge info" id="deepseek-config-badge">未检测</span>
+              </div>
+              <div class="form-grid agent-api-form">
+                <div>
+                  <div class="field-label">API Key</div>
+                  <div class="field-help">输入新值会覆盖本机配置；留空会清空密钥。</div>
+                </div>
+                <input id="deepseek-api-key" type="password" placeholder="sk-..." />
+                <div>
+                  <div class="field-label">Base URL</div>
+                  <div class="field-help">默认 https://api.deepseek.com</div>
+                </div>
+                <input id="deepseek-base-url" type="text" value="https://api.deepseek.com" />
+                <div>
+                  <div class="field-label">Model</div>
+                  <div class="field-help">默认 deepseek-v4-pro</div>
+                </div>
+                <input id="deepseek-model" type="text" value="deepseek-v4-pro" />
+              </div>
+              <div class="toolbar">
+                <button id="save-deepseek-config" type="button" class="primary-button">保存 API 配置</button>
+                <button id="test-def-agent-hi" type="button" class="subtle-button">测试 hi</button>
+              </div>
+              <div class="empty-state" id="deepseek-config-status">等待配置。</div>
+            </article>
+          </section>
+
+          <section class="panel">
+            <div class="panel-header">
+              <div>
+                <div class="panel-title">Agent 记录</div>
+                <div class="panel-help">读取 AI REST 的操作日志和最近会话。</div>
+              </div>
+            </div>
+            <div class="empty-state" id="agent-records-status">等待刷新</div>
+          </section>
+
+          <section class="grid-2">
+            <article class="panel">
+              <div class="panel-header"><div><div class="panel-title">操作日志</div><div class="panel-help">client、command、成功状态和写入范围。</div></div></div>
+              <div class="code-output" id="agent-operation-logs">暂无记录</div>
+            </article>
+            <article class="panel">
+              <div class="panel-header"><div><div class="panel-title">会话</div><div class="panel-help">最近 session、状态和消息数。</div></div></div>
+              <div class="code-output" id="agent-sessions">暂无会话</div>
+            </article>
           </section>
         </div>
 
