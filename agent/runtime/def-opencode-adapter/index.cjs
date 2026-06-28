@@ -33,15 +33,19 @@ let opencodeReadyPort = 0;
 let activeRun = null;
 const streamSessions = new Map();
 
+function normalizeDeepSeekModel(model) {
+  const value = typeof model === 'string' ? model.trim() : '';
+  if (!value || value === 'deepseek-chat') return DEFAULT_DEEPSEEK_MODEL;
+  return value;
+}
+
 function sanitizeDeepSeekConfig(config = {}) {
   return {
     apiKey: typeof config.apiKey === 'string' ? config.apiKey.trim() : '',
     baseUrl: typeof config.baseUrl === 'string' && config.baseUrl.trim()
       ? config.baseUrl.trim().replace(/\/+$/, '')
       : DEFAULT_DEEPSEEK_BASE_URL,
-    model: typeof config.model === 'string' && config.model.trim()
-      ? config.model.trim()
-      : DEFAULT_DEEPSEEK_MODEL,
+    model: normalizeDeepSeekModel(config.model),
   };
 }
 
@@ -62,12 +66,12 @@ function normalizeThinkingEffort(value) {
 function describeThinkingEffort(value) {
   const effort = normalizeThinkingEffort(value);
   if (effort === 'low') {
-    return 'Use a quick pass. Prefer concise answers and ask for missing critical inputs.';
+    return 'Use a quick pass. Prefer concise Chinese answers and ask for missing critical inputs.';
   }
   if (effort === 'high') {
-    return 'Use a careful pass. Check assumptions, missing conditions, tool results, and repair options before answering. Do not reveal hidden chain-of-thought.';
+    return 'Use a careful pass. Check assumptions, missing conditions, tool results, and repair options before answering. Reply in Chinese unless the user asks otherwise. Do not reveal hidden chain-of-thought.';
   }
-  return 'Use a balanced pass. Be concise, but reason through incomplete conditions before answering.';
+  return 'Use a balanced pass. Be concise, reply in Chinese unless the user asks otherwise, and reason through incomplete conditions before answering.';
 }
 
 function deepSeekReasoningEffort(value) {
@@ -90,12 +94,63 @@ function buildAgentPrompt(skillId) {
   const info = skillMap[skillId] || skillMap.operator;
   return [
     'You are the embedded OpenCode agent inside DEF Shell.',
+    'Reply in Chinese by default. Use another language only when the user explicitly asks for it or quotes text that must remain unchanged.',
     'The user is a shallow AI user. Keep replies practical, short, and action-oriented.',
     'Do not expose API keys, hidden configuration, or internal protocol noise.',
     'Do not describe OpenCode, sessions, events, adapters, providers, or runtime details unless the user explicitly asks.',
+    'Do not use the task tool or subagents. Complete the work in the current agent with direct read, grep, glob, skill, or allowed REST access.',
     'For normal chat, answer in 1-4 short paragraphs. For data-entry work, prefer compact checklists and the smallest useful next step.',
     'When the task lacks required information, ask for the smallest missing input or explain the safe next action.',
     'Do not write application storage directly. Produce proposals or instructions unless a DEF tool explicitly handles the write.',
+    '',
+    '## DEF REST API',
+    'All business data access goes through the local REST API. Use the webfetch tool to call these endpoints.',
+    'Base URL: http://127.0.0.1:17321',
+    '',
+    '### Read endpoints (use any time)',
+    '- GET /api/agent/guide - system overview, safety rules, storage keys, recommended flow',
+    '- GET /api/ai-cli/spec - full endpoint list, command reference, schemas, examples',
+    '- GET /api/agent/skills - skill definitions with procedures and hard rules',
+    '- GET /api/buff/library - all Buff entries (object-map format)',
+    '- GET /api/buff/library/<id> - single Buff entry',
+    '- GET /api/buff/current - current editor Buff draft',
+    '- GET /api/buff/fill/template - BuffFillAiDraft schema and template',
+    '- GET /api/weapon/library - all Weapon entries',
+    '- GET /api/weapon/library/<id-or-name> - single Weapon entry',
+    '- GET /api/weapon/current - current Weapon draft',
+    '- GET /api/weapon/fill/template - WeaponFillAiDraft schema',
+    '- GET /api/operator/library - all Operator entries',
+    '- GET /api/operator/library/<id-or-name> - single Operator entry',
+    '- GET /api/operator/current - current Operator draft',
+    '- GET /api/operator/fill/template - OperatorFillAiDraft schema',
+    '- GET /api/equipment/library - all Equipment entries',
+    '- GET /api/equipment/library/<id-or-name> - single Equipment entry',
+    '- GET /api/equipment/current - current Equipment draft',
+    '- GET /api/equipment/fill/template - EquipmentFillAiDraft schema',
+    '- GET /api/agent/sessions - active sessions',
+    '- GET /api/agent/logs - operation logs',
+    '- GET /api/agent/records - agent records snapshot',
+    '',
+    '### Write endpoints (creates proposals only, never writes library directly)',
+    '- POST /api/buff/fill/check - validate Buff draft (body: { protocolVersion:1, requestId, draft })',
+    '- POST /api/buff/fill/apply - create Buff proposal (body: { protocolVersion:1, requestId, draft })',
+    '- POST /api/weapon/fill/check - validate Weapon draft',
+    '- POST /api/weapon/fill/apply - create Weapon proposal',
+    '- POST /api/operator/fill/check - validate Operator draft',
+    '- POST /api/operator/fill/apply - create Operator proposal',
+    '- POST /api/equipment/fill/check - validate Equipment draft',
+    '- POST /api/equipment/fill/apply - create Equipment proposal',
+    '- POST /api/ai-cli/run - execute CLI command (body: { protocolVersion:1, requestId, command, client })',
+    '',
+    '### Safety rules (must follow)',
+    '- fill.check only validates; fill.apply only creates a proposal. Neither writes the library.',
+    '- After fill.apply succeeds, tell the user to go to /ai-cli (Web CLI) to approve (Y) then save (Y).',
+    '- Never re-run fill.apply for the same proposal.',
+    '- proposal.approve / proposal.save / Y / N are FORBIDDEN via REST. They return 403.',
+    '- If a pending proposal blocks fill.apply (409), call proposal.clear via POST /api/ai-cli/run first.',
+    '- Read endpoints return object-map format; fill.check/apply expect array format. Always call /fill/template before constructing a draft.',
+    '- Always call /api/agent/guide first when unsure about a procedure.',
+    '- Do not invent modifier types, buff categories, or field values. Read the template/schema first.',
     `Current DEF capability: ${info.label}.`,
     `For this capability, use OpenCode's native skill tool to load "${info.skill}" when the user asks for data fill, search, audit, repair, or workflow guidance.`,
     'If AKEDatabase historical examples are relevant, load "akedatabase-fill-tool" with the skill tool.',
@@ -118,8 +173,12 @@ function buildOpenCodeConfig(config, skillId, thinkingEffort) {
         read: 'allow',
         bash: 'deny',
         edit: 'deny',
+        task: 'deny',
         skill: 'allow',
-        webfetch: id === 'search' ? 'allow' : 'deny',
+        webfetch: {
+          '*': 'deny',
+          'http://127.0.0.1:17321/*': 'allow',
+        },
       },
       steps: 8,
     };
@@ -513,6 +572,38 @@ function emitPartTextDelta(state, part, eventType) {
 function emitToolPart(state, part) {
   if (!part?.id) return;
   const toolName = part.tool || part.name || 'tool';
+  if (toolName === 'task') {
+    if (!state.toolStatus.has(part.id)) {
+      emitStreamEvent(state, 'tool.start', {
+        id: part.id,
+        partId: part.id,
+        callId: part.callID,
+        messageId: part.messageID,
+        toolName,
+        status: 'running',
+        input: part.state?.input,
+        title: part.state?.title,
+      });
+    }
+    state.toolStatus.set(part.id, 'error');
+    const error = 'DEF 面板不使用 task 子代理；请在当前会话内直接完成。';
+    emitStreamEvent(state, 'tool.error', {
+      id: part.id,
+      partId: part.id,
+      callId: part.callID,
+      messageId: part.messageID,
+      toolName,
+      status: 'error',
+      input: part.state?.input,
+      result: compactValue(part.state?.output ?? part.state?.metadata),
+      error,
+      title: part.state?.title || '子代理已拦截',
+    });
+    if (state.controller && !state.controller.signal.aborted) {
+      state.controller.abort(new Error(error));
+    }
+    return;
+  }
   const status = part.state?.status || 'running';
   const previousStatus = state.toolStatus.get(part.id);
   if (!previousStatus) {
@@ -722,15 +813,16 @@ async function sendMessageOnStreamSession(state, message, clientTurnId) {
     });
   } finally {
     eventController.abort();
-    try {
-      await state.eventPromise;
-    } catch {
-      // ignored
-    }
     state.active = false;
     state.controller = null;
     state.eventController = null;
+    const closingEventPromise = state.eventPromise;
     state.eventPromise = null;
+    if (closingEventPromise) {
+      void closingEventPromise.catch(() => {
+        // ignored
+      });
+    }
   }
 }
 

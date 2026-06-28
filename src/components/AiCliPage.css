@@ -735,6 +735,56 @@ body:has(.ai-cli-page),
   animation: ai-skill-cursor-blink 0.9s steps(2, start) infinite;
 }
 
+.ai-skill-progress {
+  min-width: 220px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-left: 2px solid #8fb5d4;
+  background: #f7fbfe;
+  color: #486273;
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.ai-skill-progress span {
+  margin: 0;
+  color: inherit;
+  font-size: 12px;
+}
+
+.ai-skill-progress i {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: #245f91;
+  animation: ai-skill-cursor-blink 0.9s steps(2, start) infinite;
+}
+
+.ai-skill-progress.is-error {
+  border-left-color: #9a3b2f;
+  color: #9a3b2f;
+}
+
+.ai-agent-debug-details {
+  margin-top: 8px;
+  color: #486273;
+  font-size: 12px;
+}
+
+.ai-agent-debug-details summary {
+  width: fit-content;
+  color: #607789;
+  cursor: pointer;
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.ai-agent-debug-details[open] {
+  padding-top: 4px;
+}
+
 @keyframes ai-skill-cursor-blink {
   50% {
     opacity: 0;

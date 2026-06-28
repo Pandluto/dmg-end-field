@@ -15,10 +15,12 @@ import { readPendingAgentProposals, importExternalProposals, ensureActiveSession
 import { readCurrentBuffDraft } from '../aiCli/buffFillAdapter';
 import { APP_ROUTE_PATHS, navigateToAppPath } from '../utils/appRoute';
 import {
+  listDefAgentSessions,
   sendDefAgentContinue,
   startDefAgentStream,
   stopDefAgentStream,
   subscribeDefAgentSession,
+  type DefAgentSessionSummary,
   type DefAgentActivityItem,
   type DefAgentLoopStep,
   type DefAgentStreamEvent,
@@ -105,6 +107,55 @@ const THINKING_EFFORTS: Array<{ value: DefAgentThinkingEffort; label: string; ti
 ];
 
 const LONG_MESSAGE_LIMIT = 1600;
+const DEF_AGENT_BROWSER_SESSION_KEY = 'def-opencode.activeSession.v1';
+
+type StoredDefAgentSession = {
+  sessionId: string;
+  skillId?: SkillTaskId;
+  lastSeq?: number;
+  tokens?: DefAgentTokens;
+  updatedAt?: number;
+};
+
+function readStoredDefAgentSession(): StoredDefAgentSession | null {
+  try {
+    const raw = window.localStorage.getItem(DEF_AGENT_BROWSER_SESSION_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as StoredDefAgentSession;
+    return parsed?.sessionId ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeStoredDefAgentSession(session: StoredDefAgentSession | null) {
+  try {
+    if (!session?.sessionId) {
+      window.localStorage.removeItem(DEF_AGENT_BROWSER_SESSION_KEY);
+      return;
+    }
+    window.localStorage.setItem(DEF_AGENT_BROWSER_SESSION_KEY, JSON.stringify({
+      ...session,
+      updatedAt: session.updatedAt || Date.now(),
+    }));
+  } catch {
+    // Browser storage is a convenience; chat must continue without it.
+  }
+}
+
+function pickRestorableDefAgentSession(
+  sessions: DefAgentSessionSummary[],
+  stored: StoredDefAgentSession | null,
+  skillId: SkillTaskId,
+) {
+  if (stored?.sessionId) {
+    const exact = sessions.find((session) => session.id === stored.sessionId || session.sessionID === stored.sessionId);
+    if (exact && !exact.stopped) return exact;
+  }
+  return sessions
+    .filter((session) => !session.stopped && (!session.skillId || session.skillId === skillId))
+    .sort((a, b) => (b.updatedAt || b.createdAt || 0) - (a.updatedAt || a.createdAt || 0))[0] || null;
+}
 
 function labelThinkingEffort(value: DefAgentThinkingEffort) {
   return THINKING_EFFORTS.find((item) => item.value === value)?.title || '标准';
@@ -248,16 +299,23 @@ function renderMarkdown(text: string) {
 
 function SkillMessageBody({ message }: { message: SkillChatMessage }) {
   if (message.role === 'agent') {
+    const hasDebugDetails = Boolean(message.activity?.length || message.loopSteps?.length || message.reasoningText);
     return (
       <>
-        {message.activity?.length ? <SkillAgentActivity activity={message.activity} /> : null}
-        {message.loopSteps?.length ? <SkillAgentLoop steps={message.loopSteps} /> : null}
-        {message.reasoningText ? <SkillReasoningBlock text={message.reasoningText} streaming={Boolean(message.isStreaming)} /> : null}
+        {message.text ? null : <SkillAgentProgress message={message} />}
         {message.text ? (
           <div className={message.isStreaming ? 'ai-skill-markdown is-streaming' : 'ai-skill-markdown'}>
             {renderMarkdown(message.text)}
             {message.isStreaming ? <span className="ai-skill-stream-cursor" aria-hidden="true" /> : null}
           </div>
+        ) : null}
+        {hasDebugDetails ? (
+          <details className="ai-agent-debug-details">
+            <summary>{message.isStreaming ? '后台正在处理' : '后台细节'}</summary>
+            {message.activity?.length ? <SkillAgentActivity activity={message.activity} /> : null}
+            {message.loopSteps?.length ? <SkillAgentLoop steps={message.loopSteps} /> : null}
+            {message.reasoningText ? <SkillReasoningBlock text={message.reasoningText} streaming={Boolean(message.isStreaming)} /> : null}
+          </details>
         ) : null}
       </>
     );
@@ -271,6 +329,25 @@ function SkillMessageBody({ message }: { message: SkillChatMessage }) {
     );
   }
   return <p>{message.text}</p>;
+}
+
+function SkillAgentProgress({ message }: { message: SkillChatMessage }) {
+  const activity = message.activity || [];
+  const hasError = activity.some((item) => item.status === 'error');
+  const hasRunningTool = activity.some((item) => item.kind === 'tool' && item.status === 'running');
+  const hasTool = activity.some((item) => item.kind === 'tool');
+  const hasTextStep = (message.loopSteps || []).some((step) => step.phase === 'answer' && step.status === 'running');
+  let label = '正在处理你的请求';
+  if (hasError) label = '后台处理异常，正在收尾';
+  else if (hasTextStep) label = '正在生成回复';
+  else if (hasRunningTool || hasTool) label = '正在查询和整理资料';
+  else if (!message.isStreaming) label = '没有可显示的回复';
+  return (
+    <div className={message.isStreaming ? 'ai-skill-progress is-running' : hasError ? 'ai-skill-progress is-error' : 'ai-skill-progress'}>
+      <span>{label}</span>
+      {message.isStreaming ? <i aria-hidden="true" /> : null}
+    </div>
+  );
 }
 
 function SkillReasoningBlock({ text, streaming }: { text: string; streaming: boolean }) {
@@ -300,6 +377,29 @@ function labelActivityKind(kind: string) {
     tool: '工具',
     message: '消息',
   } as Record<string, string>)[kind] ?? kind;
+}
+
+function labelBackendActor(value?: string) {
+  if (!value) return '后台处理';
+  if (value.includes('operator')) return '资料整理';
+  if (value.includes('weapon')) return '武器整理';
+  if (value.includes('equipment')) return '装备整理';
+  if (value.includes('search')) return '数据查询';
+  if (value.includes('repair')) return '错误修复';
+  if (value.includes('audit')) return '数据审计';
+  return '后台处理';
+}
+
+function labelToolName(value?: string) {
+  return ({
+    skill: '加载能力',
+    read: '读取资料',
+    grep: '搜索内容',
+    glob: '查找文件',
+    bash: '运行命令',
+    webfetch: '读取网页',
+    task: '子任务',
+  } as Record<string, string>)[value || ''] || '处理资料';
 }
 
 function SkillAgentActivity({ activity }: { activity: DefAgentActivityItem[] }) {
@@ -438,7 +538,7 @@ export function AiCliPage() {
   const skillTextareaRef = useRef<HTMLTextAreaElement>(null);
   const skillMessagesRef = useRef<HTMLDivElement>(null);
   const activeSkillEventSourceRef = useRef<EventSource | null>(null);
-  const activeSkillSessionIdRef = useRef<string | null>(null);
+  const activeSkillSessionIdRef = useRef<string | null>(readStoredDefAgentSession()?.sessionId || null);
   const activeSkillMessageIdRef = useRef<string | null>(null);
   const lastSkillStreamSeqRef = useRef(0);
   const skillStreamRetryCountRef = useRef(0);
@@ -453,8 +553,8 @@ export function AiCliPage() {
   const [sessionId, setSessionId] = useState(() => ensureActiveSession('web-cli').id);
   const [skillInput, setSkillInput] = useState('hi');
   const [skillStatus, setSkillStatus] = useState('等待输入');
-  const [activeDefSessionId, setActiveDefSessionId] = useState<string | null>(null);
-  const [skillTokenUsage, setSkillTokenUsage] = useState<DefAgentTokens | null>(null);
+  const [activeDefSessionId, setActiveDefSessionId] = useState<string | null>(() => readStoredDefAgentSession()?.sessionId || null);
+  const [skillTokenUsage, setSkillTokenUsage] = useState<DefAgentTokens | null>(() => readStoredDefAgentSession()?.tokens || null);
   const [skillMessages, setSkillMessages] = useState<SkillChatMessage[]>([
     { role: 'system', text: '说一句话，或粘贴资料让我整理成待审核修改。模型和后台配置在 DEF Shell 的服务与 Agent 页面。' },
   ]);
@@ -466,6 +566,18 @@ export function AiCliPage() {
     () => SKILL_TASKS.find((task) => task.id === selectedSkillTaskId) ?? SKILL_TASKS[0],
     [selectedSkillTaskId],
   );
+
+  const rememberDefAgentSession = (sessionId: string | null, tokens?: DefAgentTokens | null, lastSeq?: number) => {
+    activeSkillSessionIdRef.current = sessionId;
+    setActiveDefSessionId(sessionId);
+    if (tokens) setSkillTokenUsage(tokens);
+    writeStoredDefAgentSession(sessionId ? {
+      sessionId,
+      skillId: selectedSkillTaskId,
+      tokens: tokens || skillTokenUsage || undefined,
+      lastSeq: lastSeq || lastSkillStreamSeqRef.current || undefined,
+    } : null);
+  };
 
   const syncSessionId = () => {
     const currentSessionId = readAgentSession()?.id ?? ensureActiveSession('web-cli').id;
@@ -544,9 +656,32 @@ export function AiCliPage() {
     ]);
   };
 
+  const isAiCliRestAvailable = async () => {
+    try {
+      const controller = new AbortController();
+      const timeout = window.setTimeout(() => controller.abort(), 800);
+      const response = await fetch('http://127.0.0.1:31457/health', {
+        cache: 'no-store',
+        signal: controller.signal,
+      });
+      window.clearTimeout(timeout);
+      if (!response.ok) return false;
+      const payload = await response.json() as { aiCliRest?: { running?: boolean } };
+      return Boolean(payload.aiCliRest?.running);
+    } catch {
+      return false;
+    }
+  };
+
   const fetchAgentRecordsSnapshot = async (reason: string) => {
     try {
-      const response = await fetch('http://127.0.0.1:17321/api/agent/records', { cache: 'no-store' });
+      const controller = new AbortController();
+      const timeout = window.setTimeout(() => controller.abort(), 1200);
+      const response = await fetch('http://127.0.0.1:17321/api/agent/records', {
+        cache: 'no-store',
+        signal: controller.signal,
+      });
+      window.clearTimeout(timeout);
       if (!response.ok) {
         appendLines([fail(`agent records snapshot failed: HTTP ${response.status} (${reason})`)]);
         return;
@@ -560,7 +695,9 @@ export function AiCliPage() {
 
   useEffect(() => {
     appendDefaultProposalPreview(syncSessionId());
-    void fetchAgentRecordsSnapshot('startup');
+    void isAiCliRestAvailable().then((available) => {
+      if (available) void fetchAgentRecordsSnapshot('startup');
+    });
   }, []);
 
   useEffect(() => {
@@ -583,12 +720,52 @@ export function AiCliPage() {
   }, []);
 
   useEffect(() => {
+    const stored = readStoredDefAgentSession();
+    if (stored?.sessionId) {
+      activeSkillSessionIdRef.current = stored.sessionId;
+      lastSkillStreamSeqRef.current = stored.lastSeq || 0;
+      setActiveDefSessionId(stored.sessionId);
+      if (stored.tokens) setSkillTokenUsage(stored.tokens);
+      setSkillStatus('已恢复上次会话');
+    }
+    let cancelled = false;
+    listDefAgentSessions()
+      .then((sessions) => {
+        if (cancelled) return;
+        const restored = pickRestorableDefAgentSession(sessions, stored, selectedSkillTaskId);
+        if (!restored?.id) return;
+        activeSkillSessionIdRef.current = restored.id;
+        lastSkillStreamSeqRef.current = restored.lastSeq || stored?.lastSeq || 0;
+        setActiveDefSessionId(restored.id);
+        if (restored.tokens) setSkillTokenUsage(restored.tokens);
+        writeStoredDefAgentSession({
+          sessionId: restored.id,
+          skillId: (restored.skillId as SkillTaskId | undefined) || selectedSkillTaskId,
+          lastSeq: restored.lastSeq,
+          tokens: restored.tokens,
+          updatedAt: restored.updatedAt,
+        });
+        setSkillStatus('已恢复上次会话');
+      })
+      .catch(() => {
+        // Def-agent is started lazily on send; lack of a session list should not slow the page.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
     if (typeof EventSource === 'undefined') {
       return undefined;
     }
 
-    const events = new EventSource('http://127.0.0.1:17321/api/agent/events');
-    events.addEventListener('agent.records', (event) => {
+    let events: EventSource | null = null;
+    let cancelled = false;
+    void isAiCliRestAvailable().then((available) => {
+      if (!available || cancelled) return;
+      events = new EventSource('http://127.0.0.1:17321/api/agent/events');
+      events.addEventListener('agent.records', (event) => {
       let payload: AgentRecordsPayload;
       try {
         payload = JSON.parse(event.data) as AgentRecordsPayload;
@@ -611,13 +788,16 @@ export function AiCliPage() {
       }
     });
 
-    events.onerror = () => {
-      appendLines([info('agent SSE reconnecting or AI REST is offline')]);
-      void fetchAgentRecordsSnapshot('sse-error');
-    };
+      events.onerror = () => {
+        void isAiCliRestAvailable().then((availableAfterError) => {
+          if (availableAfterError) void fetchAgentRecordsSnapshot('sse-error');
+        });
+      };
+    });
 
     return () => {
-      events.close();
+      cancelled = true;
+      events?.close();
     };
   }, []);
 
@@ -750,8 +930,7 @@ export function AiCliPage() {
 
     if (payload.sessionId || payload.sessionID) {
       const nextSessionId = payload.sessionId || payload.sessionID || null;
-      activeSkillSessionIdRef.current = nextSessionId;
-      setActiveDefSessionId(nextSessionId);
+      rememberDefAgentSession(nextSessionId, payload.tokens || null, seq || undefined);
     }
 
     if (payload.type === 'done' || payload.type === 'stopped' || payload.type === 'error') {
@@ -778,7 +957,7 @@ export function AiCliPage() {
           : message
       )));
       if (payload.tokens) {
-        setSkillTokenUsage(payload.tokens);
+        rememberDefAgentSession(activeSkillSessionIdRef.current, payload.tokens, seq || undefined);
       }
       return;
     }
@@ -812,13 +991,14 @@ export function AiCliPage() {
         };
       }
       if (payload.type === 'step.start') {
+        const detail = labelBackendActor(payload.agent);
         return {
           ...message,
           activity: appendActivityItem(message.activity, {
             id: payload.messageId || `step-${payload.seq || Date.now()}`,
             kind: 'step',
-            title: 'Agent 循环',
-            detail: payload.agent || '后台步骤已开始',
+            title: '处理资料',
+            detail,
             status: 'running',
           }),
           loopSteps: [
@@ -826,10 +1006,10 @@ export function AiCliPage() {
               ...step,
               status: step.status === 'running' ? 'done' as const : step.status,
             })),
-            { phase: 'think', label: '思考', detail: payload.agent || '分析输入与上下文', status: 'running' },
-            { phase: 'act', label: '执行', detail: '等待模型或工具事件', status: 'pending' },
-            { phase: 'observe', label: '观察', detail: '等待 step 完成', status: 'pending' },
-            { phase: 'answer', label: '回复', detail: '增量生成输出', status: 'pending' },
+            { phase: 'think', label: '思考', detail: '理解请求和上下文', status: 'running' },
+            { phase: 'act', label: '执行', detail: '查询或整理资料', status: 'pending' },
+            { phase: 'observe', label: '观察', detail: '核对后台结果', status: 'pending' },
+            { phase: 'answer', label: '回复', detail: '组织可读回答', status: 'pending' },
           ],
         };
       }
@@ -848,19 +1028,20 @@ export function AiCliPage() {
       }
       if (payload.type === 'tool.start' || payload.type === 'tool.content' || payload.type === 'tool.error') {
         const status = payload.type === 'tool.error' ? 'error' : payload.status === 'done' ? 'done' : 'running';
+        const toolLabel = labelToolName(payload.toolName);
         return {
           ...message,
           activity: appendActivityItem(message.activity, {
             id: payload.id || payload.partId || payload.callId || `tool-${payload.seq || Date.now()}`,
             kind: 'tool',
-            title: payload.toolName || '工具调用',
+            title: toolLabel,
             detail: payload.title || (status === 'running' ? '运行中' : status === 'error' ? '执行异常' : '已返回结果'),
             result: payload.result || payload.error,
             status,
           }),
           loopSteps: (message.loopSteps || []).map((step) => (
             step.phase === 'act' && step.status === 'pending'
-              ? { ...step, status: 'running' as const, detail: payload.toolName || step.detail }
+              ? { ...step, status: 'running' as const, detail: toolLabel }
               : step
           )),
         };
@@ -878,7 +1059,7 @@ export function AiCliPage() {
       }
       if (payload.type === 'step.finish') {
         if (payload.tokens) {
-          setSkillTokenUsage(payload.tokens);
+          rememberDefAgentSession(activeSkillSessionIdRef.current, payload.tokens, seq || undefined);
         }
         return {
           ...message,
@@ -926,8 +1107,7 @@ export function AiCliPage() {
     if (isSkillBusy) {
       handleStopSkillMessage();
     }
-    activeSkillSessionIdRef.current = null;
-    setActiveDefSessionId(null);
+    rememberDefAgentSession(null);
     setSkillTokenUsage(null);
     lastSkillStreamSeqRef.current = 0;
     setSkillStatus('新对话已准备');
@@ -978,16 +1158,14 @@ export function AiCliPage() {
           if (!detail.includes('session-not-found') && !detail.includes('stream session not found')) {
             throw error;
           }
-          activeSkillSessionIdRef.current = null;
-          setActiveDefSessionId(null);
+          rememberDefAgentSession(null);
           lastSkillStreamSeqRef.current = 0;
           const stream = await startDefAgentStream(message, {
             thinkingEffort,
             skillId: selectedSkillTask.id,
             clientTurnId: loopMessageId,
           });
-          activeSkillSessionIdRef.current = stream.sessionId;
-          setActiveDefSessionId(stream.sessionId);
+          rememberDefAgentSession(stream.sessionId);
           activeSkillEventSourceRef.current?.close();
           activeSkillEventSourceRef.current = stream.eventSource;
           bindSkillEventSource(stream.eventSource, loopMessageId);
@@ -999,8 +1177,7 @@ export function AiCliPage() {
           skillId: selectedSkillTask.id,
           clientTurnId: loopMessageId,
         });
-        activeSkillSessionIdRef.current = stream.sessionId;
-        setActiveDefSessionId(stream.sessionId);
+        rememberDefAgentSession(stream.sessionId);
         activeSkillEventSourceRef.current?.close();
         activeSkillEventSourceRef.current = stream.eventSource;
         bindSkillEventSource(stream.eventSource, loopMessageId);
