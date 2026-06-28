@@ -106,6 +106,7 @@ function buildAgentPrompt(skillId) {
     '## DEF REST API',
     'All business data access goes through the local REST API. Use the webfetch tool to call these endpoints.',
     'Base URL: http://127.0.0.1:17321',
+    'For write endpoints, call webfetch with method: "POST", format: "text", and a JSON body object.',
     '',
     '### Read endpoints (use any time)',
     '- GET /api/agent/guide - system overview, safety rules, storage keys, recommended flow',

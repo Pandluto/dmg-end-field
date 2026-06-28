@@ -9,9 +9,20 @@ import { isImageAttachment } from "@/util/media"
 const MAX_RESPONSE_SIZE = 5 * 1024 * 1024 // 5MB
 const DEFAULT_TIMEOUT = 30 * 1000 // 30 seconds
 const MAX_TIMEOUT = 120 * 1000 // 2 minutes
+const Method = Schema.Literals(["GET", "POST", "PUT", "PATCH", "DELETE"])
 
 export const Parameters = Schema.Struct({
   url: Schema.String.annotate({ description: "The URL to fetch content from" }),
+  method: Method.annotate({
+    description: "HTTP method to use. Defaults to GET.",
+    default: "GET",
+  }).pipe(Schema.withDecodingDefault(Effect.succeed("GET" as const))),
+  headers: Schema.optional(Schema.Record(Schema.String, Schema.String)).annotate({
+    description: "Optional request headers. Content-Type is set to application/json automatically for object bodies.",
+  }),
+  body: Schema.optional(Schema.Unknown).annotate({
+    description: "Optional request body. Objects and arrays are sent as JSON; strings are sent as text.",
+  }),
   format: Schema.Literals(["text", "markdown", "html"])
     .annotate({
       description: "The format to return the content in (text, markdown, or html). Defaults to markdown.",
@@ -42,6 +53,7 @@ export const WebFetchTool = Tool.define(
             always: ["*"],
             metadata: {
               url: params.url,
+              method: params.method,
               format: params.format,
               timeout: params.timeout,
             },
@@ -71,9 +83,10 @@ export const WebFetchTool = Tool.define(
               "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36",
             Accept: acceptHeader,
             "Accept-Language": "en-US,en;q=0.9",
+            ...(params.headers ?? {}),
           }
 
-          const request = HttpClientRequest.get(params.url).pipe(HttpClientRequest.setHeaders(headers))
+          const request = buildRequest(params.url, params.method, headers, params.body)
 
           // Retry with honest UA if blocked by Cloudflare bot detection (TLS fingerprint mismatch)
           const response = yield* httpOk.execute(request).pipe(
@@ -84,9 +97,7 @@ export const WebFetchTool = Tool.define(
                 err.reason.response.headers["cf-mitigated"] === "challenge",
               () =>
                 httpOk.execute(
-                  HttpClientRequest.get(params.url).pipe(
-                    HttpClientRequest.setHeaders({ ...headers, "User-Agent": "opencode" }),
-                  ),
+                  buildRequest(params.url, params.method, { ...headers, "User-Agent": "opencode" }, params.body),
                 ),
             ),
             Effect.timeoutOrElse({ duration: timeout, orElse: () => Effect.die(new Error("Request timed out")) }),
@@ -154,6 +165,39 @@ export const WebFetchTool = Tool.define(
     }
   }),
 )
+
+function buildRequest(
+  url: string,
+  method: Schema.Schema.Type<typeof Method>,
+  headers: Record<string, string>,
+  body: unknown,
+) {
+  let request = (() => {
+    switch (method) {
+      case "POST":
+        return HttpClientRequest.post(url)
+      case "PUT":
+        return HttpClientRequest.put(url)
+      case "PATCH":
+        return HttpClientRequest.patch(url)
+      case "DELETE":
+        return HttpClientRequest.delete(url)
+      case "GET":
+        return HttpClientRequest.get(url)
+    }
+  })().pipe(HttpClientRequest.setHeaders(headers))
+
+  if (body === undefined || method === "GET") return request
+
+  if (typeof body === "string") {
+    const contentType = headers["Content-Type"] ?? headers["content-type"] ?? "text/plain; charset=utf-8"
+    return request.pipe(HttpClientRequest.bodyText(body, contentType))
+  }
+
+  return request.pipe(
+    HttpClientRequest.bodyText(JSON.stringify(body), headers["Content-Type"] ?? headers["content-type"] ?? "application/json"),
+  )
+}
 
 function extractTextFromHTML(html: string) {
   let text = ""
