@@ -659,6 +659,23 @@ function waitForProcessExit(child, timeoutMs = 5000) {
   });
 }
 
+function killProcessTree(pid) {
+  if (!pid) return false;
+  try {
+    if (process.platform === 'win32') {
+      const result = spawnSync('taskkill.exe', ['/PID', String(pid), '/T', '/F'], {
+        stdio: 'ignore',
+        windowsHide: true,
+      });
+      return result.status === 0;
+    }
+    process.kill(pid, 'SIGTERM');
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function startBridgeServer() {
   if (bridgeServer) {
     return;
@@ -922,6 +939,62 @@ function startBridgeServer() {
         const defAgent = await startDefAgent();
         const body = await readJsonRequest(request);
         const upstream = await postJsonUrl('http://127.0.0.1:17322/api/chat', body);
+        writeJson(response, upstream.status || 500, {
+          ok: upstream.status >= 200 && upstream.status < 300,
+          defAgent,
+          ...upstream.body,
+        });
+        return;
+      }
+
+      if (method === 'POST' && requestUrl.pathname === '/def-agent/chat/stream') {
+        const defAgent = await startDefAgent();
+        const body = await readJsonRequest(request);
+        const upstream = await postJsonUrl('http://127.0.0.1:17322/api/chat/stream', body);
+        writeJson(response, upstream.status || 500, {
+          ok: upstream.status >= 200 && upstream.status < 300,
+          defAgent,
+          ...upstream.body,
+        });
+        return;
+      }
+
+      if (method === 'GET' && requestUrl.pathname === '/def-agent/chat/sessions') {
+        await startDefAgent();
+        const upstream = await fetchJsonUrl('http://127.0.0.1:17322/api/chat/sessions');
+        writeJson(response, upstream.status || 500, upstream.body);
+        return;
+      }
+
+      const defAgentEventsMatch = /^\/def-agent\/chat\/([^/]+)\/events$/.exec(requestUrl.pathname);
+      if (method === 'GET' && defAgentEventsMatch) {
+        await startDefAgent();
+        const sessionID = encodeURIComponent(decodeURIComponent(defAgentEventsMatch[1]));
+        const from = requestUrl.searchParams.get('from');
+        const suffix = from ? `?from=${encodeURIComponent(from)}` : '';
+        proxySseUrl(`http://127.0.0.1:17322/api/chat/${sessionID}/events${suffix}`, request, response);
+        return;
+      }
+
+      const defAgentMessageMatch = /^\/def-agent\/chat\/([^/]+)\/message$/.exec(requestUrl.pathname);
+      if (method === 'POST' && defAgentMessageMatch) {
+        const defAgent = await startDefAgent();
+        const body = await readJsonRequest(request);
+        const sessionID = encodeURIComponent(decodeURIComponent(defAgentMessageMatch[1]));
+        const upstream = await postJsonUrl(`http://127.0.0.1:17322/api/chat/${sessionID}/message`, body);
+        writeJson(response, upstream.status || 500, {
+          ok: upstream.status >= 200 && upstream.status < 300,
+          defAgent,
+          ...upstream.body,
+        });
+        return;
+      }
+
+      const defAgentStopMatch = /^\/def-agent\/chat\/([^/]+)\/stop$/.exec(requestUrl.pathname);
+      if (method === 'POST' && defAgentStopMatch) {
+        const defAgent = await startDefAgent();
+        const sessionID = encodeURIComponent(decodeURIComponent(defAgentStopMatch[1]));
+        const upstream = await postJsonUrl(`http://127.0.0.1:17322/api/chat/${sessionID}/stop`, {});
         writeJson(response, upstream.status || 500, {
           ok: upstream.status >= 200 && upstream.status < 300,
           defAgent,
@@ -1283,6 +1356,34 @@ function postJsonUrl(url, payload) {
     request.write(body);
     request.end();
   });
+}
+
+function proxySseUrl(url, clientRequest, clientResponse) {
+  const requestUrl = new URL(url);
+  const upstream = http.request({
+    hostname: requestUrl.hostname,
+    port: requestUrl.port,
+    path: `${requestUrl.pathname}${requestUrl.search}`,
+    method: 'GET',
+    headers: { Accept: 'text/event-stream' },
+  }, (upstreamResponse) => {
+    clientResponse.writeHead(upstreamResponse.statusCode || 502, {
+      'Content-Type': upstreamResponse.headers['content-type'] || 'text/event-stream; charset=utf-8',
+      'Cache-Control': 'no-cache, no-transform',
+      Connection: 'keep-alive',
+      'Access-Control-Allow-Origin': '*',
+    });
+    upstreamResponse.pipe(clientResponse);
+  });
+  upstream.on('error', (error) => {
+    if (!clientResponse.headersSent) {
+      writeJson(clientResponse, 502, { ok: false, error: error instanceof Error ? error.message : String(error) });
+    } else {
+      clientResponse.end();
+    }
+  });
+  clientRequest.on('close', () => upstream.destroy());
+  upstream.end();
 }
 
 function parseStrictImageReleaseVersion(value) {
@@ -2363,6 +2464,14 @@ function getAssetsRoot() {
   return ensureProductionAssetsRoot();
 }
 
+function buildNodeSidecarEnv(extra = {}) {
+  return {
+    ...process.env,
+    ELECTRON_RUN_AS_NODE: '1',
+    ...extra,
+  };
+}
+
 async function startAiCliRest() {
   if (isAiCliRestRunning()) {
     return {
@@ -2375,10 +2484,9 @@ async function startAiCliRest() {
   const scriptPath = path.join(__dirname, '..', 'scripts', 'ai-cli-rest-server.mjs');
   aiCliRestProcess = spawn(process.execPath, [scriptPath], {
     cwd: path.join(__dirname, '..'),
-    env: {
-      ...process.env,
+    env: buildNodeSidecarEnv({
       AI_CLI_REST_PORT: '17321',
-    },
+    }),
     stdio: 'ignore',
     detached: false,
     windowsHide: true,
@@ -2422,7 +2530,7 @@ async function stopAiCliRest() {
   }
 
   const stoppingProcess = aiCliRestProcess;
-  stoppingProcess.kill();
+  killProcessTree(stoppingProcess.pid);
   const exit = await waitForProcessExit(stoppingProcess);
   if (!exit.exited) {
     return {
@@ -2456,10 +2564,9 @@ async function startDefAgent() {
   const scriptPath = path.join(__dirname, '..', 'agent', 'server', 'def-agent-server.cjs');
   defAgentProcess = spawn(process.execPath, [scriptPath], {
     cwd: path.join(__dirname, '..'),
-    env: {
-      ...process.env,
+    env: buildNodeSidecarEnv({
       DEF_AGENT_PORT: '17322',
-    },
+    }),
     stdio: 'ignore',
     detached: false,
     windowsHide: true,
@@ -2503,7 +2610,7 @@ async function stopDefAgent() {
   }
 
   const stoppingProcess = defAgentProcess;
-  stoppingProcess.kill();
+  killProcessTree(stoppingProcess.pid);
   const exit = await waitForProcessExit(stoppingProcess);
   if (!exit.exited) {
     return {

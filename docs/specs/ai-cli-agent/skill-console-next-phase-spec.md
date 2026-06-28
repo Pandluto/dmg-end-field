@@ -34,7 +34,7 @@
 
 ```text
 ┌────────────────────────────────┬────────────────────────────────┐
-│ AI CLI Terminal                │ 智能录入对话框                  │
+│ AI CLI Terminal                │ def-opencode对话框                  │
 │                                │                                │
 │ 原命令行输入/输出               │ 任务类型按钮                    │
 │ proposal 审批/保存              │ 自然语言任务输入                 │
@@ -59,7 +59,7 @@
 
 左栏不是废弃入口，而是专家模式。
 
-### 右栏：智能录入对话框
+### 右栏：def-opencode对话框
 
 右栏是 Codex 风格半 GUI 对话框，也是独立 skill 载体。用户不需要直接理解 REST、OpenCode、agent runtime、模型配置或 proposal storage。
 
@@ -136,7 +136,7 @@ library-audit
 
 下一阶段 runtime 方案收敛为：随应用内置 OpenCode 二进制，作为后台 skill runtime。
 
-用户不直接接触 OpenCode。产品界面仍然是右栏智能录入/资料解析/待审核修改工作台；OpenCode 只作为后台执行器，用于承载 DEF skills、tools 和 agent loop。
+用户不直接接触 OpenCode。产品界面仍然是右栏def-opencode/资料解析/待审核修改工作台；OpenCode 只作为后台执行器，用于承载 DEF skills、tools 和 agent loop。
 
 后台启停、DeepSeek API Key、Base URL、Model 等配置不放在 `/ai-cli` 右栏，而是放在 DEF Shell 的“服务与 Agent”独立区域。`/ai-cli` 右栏只负责用户任务对话、风险提示和待审核修改。
 

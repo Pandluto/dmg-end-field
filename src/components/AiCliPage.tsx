@@ -15,12 +15,15 @@ import { readPendingAgentProposals, importExternalProposals, ensureActiveSession
 import { readCurrentBuffDraft } from '../aiCli/buffFillAdapter';
 import { APP_ROUTE_PATHS, navigateToAppPath } from '../utils/appRoute';
 import {
-  sendDefAgentMessage,
-  stopDefAgentMessage,
+  sendDefAgentContinue,
+  startDefAgentStream,
+  stopDefAgentStream,
+  subscribeDefAgentSession,
   type DefAgentActivityItem,
-  type DefAgentChatResult,
   type DefAgentLoopStep,
+  type DefAgentStreamEvent,
   type DefAgentThinkingEffort,
+  type DefAgentTokens,
 } from '../utils/defAgent';
 import './AiCliPage.css';
 
@@ -87,8 +90,12 @@ type SkillChatMessage = {
   role: 'user' | 'agent' | 'system';
   text: string;
   meta?: string;
+  sessionId?: string;
+  reasoningText?: string;
   activity?: DefAgentActivityItem[];
   loopSteps?: DefAgentLoopStep[];
+  tokens?: DefAgentTokens;
+  isStreaming?: boolean;
 };
 
 const THINKING_EFFORTS: Array<{ value: DefAgentThinkingEffort; label: string; title: string }> = [
@@ -103,37 +110,13 @@ function labelThinkingEffort(value: DefAgentThinkingEffort) {
   return THINKING_EFFORTS.find((item) => item.value === value)?.title || '标准';
 }
 
-function buildRunningLoopSteps(thinkingEffort: DefAgentThinkingEffort, taskLabel: string): DefAgentLoopStep[] {
-  return [
-    {
-      phase: 'think',
-      label: '思考',
-      detail: `${labelThinkingEffort(thinkingEffort)}模式分析输入、当前能力和缺失条件`,
-      status: 'running',
-    },
-    {
-      phase: 'act',
-      label: '执行',
-      detail: `准备调用 ${taskLabel} skill / 模型运行时`,
-      status: 'pending',
-    },
-    {
-      phase: 'observe',
-      label: '观察',
-      detail: '等待工具或模型返回',
-      status: 'pending',
-    },
-    {
-      phase: 'answer',
-      label: '回复',
-      detail: '整理为用户可读输出',
-      status: 'pending',
-    },
-  ];
-}
-
 function buildStoppedLoopSteps(steps: DefAgentLoopStep[] = []): DefAgentLoopStep[] {
-  const fallback = buildRunningLoopSteps('medium', '当前');
+  const fallback: DefAgentLoopStep[] = [
+    { phase: 'think', label: '思考', detail: '已收到停止指令', status: 'stopped' },
+    { phase: 'act', label: '执行', detail: '后台生成已中断', status: 'stopped' },
+    { phase: 'observe', label: '观察', detail: '保留已返回内容', status: 'stopped' },
+    { phase: 'answer', label: '回复', detail: '本次响应未完成', status: 'stopped' },
+  ];
   return (steps.length ? steps : fallback).map((step) => ({
     ...step,
     status: step.status === 'done' ? 'done' : 'stopped',
@@ -268,8 +251,14 @@ function SkillMessageBody({ message }: { message: SkillChatMessage }) {
     return (
       <>
         {message.activity?.length ? <SkillAgentActivity activity={message.activity} /> : null}
-        {!message.activity?.length && message.loopSteps?.length ? <SkillAgentLoop steps={message.loopSteps} /> : null}
-        {message.text ? <div className="ai-skill-markdown">{renderMarkdown(message.text)}</div> : null}
+        {message.loopSteps?.length ? <SkillAgentLoop steps={message.loopSteps} /> : null}
+        {message.reasoningText ? <SkillReasoningBlock text={message.reasoningText} streaming={Boolean(message.isStreaming)} /> : null}
+        {message.text ? (
+          <div className={message.isStreaming ? 'ai-skill-markdown is-streaming' : 'ai-skill-markdown'}>
+            {renderMarkdown(message.text)}
+            {message.isStreaming ? <span className="ai-skill-stream-cursor" aria-hidden="true" /> : null}
+          </div>
+        ) : null}
       </>
     );
   }
@@ -282,6 +271,15 @@ function SkillMessageBody({ message }: { message: SkillChatMessage }) {
     );
   }
   return <p>{message.text}</p>;
+}
+
+function SkillReasoningBlock({ text, streaming }: { text: string; streaming: boolean }) {
+  return (
+    <details className="ai-skill-reasoning">
+      <summary>{streaming ? '思考中…' : '已完成推理'}</summary>
+      <p>{text}</p>
+    </details>
+  );
 }
 
 function labelActivityStatus(status: string) {
@@ -304,62 +302,56 @@ function labelActivityKind(kind: string) {
   } as Record<string, string>)[kind] ?? kind;
 }
 
-function buildSkillProgressActivity(stage: 0 | 1 | 2 | 3, taskLabel: string, thinkingLabel: string): DefAgentActivityItem[] {
-  const items: DefAgentActivityItem[] = [
-    {
-      id: 'pending-open-code',
-      kind: 'step',
-      title: '接入 OpenCode',
-      detail: `${taskLabel} · ${thinkingLabel}思考`,
-      status: stage > 0 ? 'done' : 'running',
-    },
-    {
-      id: 'pending-think',
-      kind: 'reasoning',
-      title: '思考',
-      detail: '分析输入和缺失条件',
-      status: stage > 1 ? 'done' : stage === 1 ? 'running' : 'pending',
-    },
-    {
-      id: 'pending-act',
-      kind: 'tool',
-      title: '执行',
-      detail: '交给当前能力处理',
-      status: stage > 2 ? 'done' : stage === 2 ? 'running' : 'pending',
-    },
-    {
-      id: 'pending-answer',
-      kind: 'message',
-      title: '回复',
-      detail: '整理为用户可读结果',
-      status: stage === 3 ? 'running' : 'pending',
-    },
-  ];
-  return items.filter((item) => item.status !== 'pending');
-}
-
 function SkillAgentActivity({ activity }: { activity: DefAgentActivityItem[] }) {
   return (
     <div className="ai-agent-activity" aria-label="OpenCode activity">
       {activity.map((item, index) => (
-        <div key={item.id || `${item.kind}-${index}`} className={`ai-agent-activity-item is-${item.status}`}>
-          <span>{labelActivityKind(item.kind)}</span>
-          <div>
-            <strong>{item.title}</strong>
-            {item.detail ? <small>{item.detail}</small> : null}
-          </div>
-          <em>{labelActivityStatus(item.status)}</em>
-        </div>
+        item.kind === 'tool'
+          ? <SkillToolCallItem key={item.id || `${item.kind}-${index}`} item={item} />
+          : (
+            <div key={item.id || `${item.kind}-${index}`} className={`ai-agent-activity-item is-${item.status}`}>
+              <span>{labelActivityKind(item.kind)}</span>
+              <div>
+                <strong>{item.title}</strong>
+                {item.detail ? <small>{item.detail}</small> : null}
+              </div>
+              <em>{labelActivityStatus(item.status)}</em>
+            </div>
+          )
       ))}
     </div>
   );
 }
 
+function SkillToolCallItem({ item }: { item: DefAgentActivityItem }) {
+  return (
+    <details className={`ai-skill-tool-item is-${item.status}`} open={item.status === 'running'}>
+      <summary>
+        <span>{labelActivityKind(item.kind)}</span>
+        <strong>{item.title}</strong>
+        <em>{labelActivityStatus(item.status)}</em>
+      </summary>
+      {item.detail ? <small>{item.detail}</small> : null}
+      {item.result ? <pre>{item.result}</pre> : null}
+    </details>
+  );
+}
+
+function formatShortSessionId(sessionId: string | null) {
+  if (!sessionId) return '未建立';
+  return sessionId.length > 14 ? `${sessionId.slice(0, 6)}…${sessionId.slice(-5)}` : sessionId;
+}
+
+function formatTokenUsage(tokens: DefAgentTokens | null) {
+  if (!tokens) return 'token 0';
+  return `token ${tokens.total || 0} · 入 ${tokens.prompt || 0} · 出 ${tokens.completion || 0}`;
+}
+
 function SkillAgentLoop({ steps }: { steps: DefAgentLoopStep[] }) {
   return (
     <div className="ai-agent-loop" aria-label="Agent loop">
-      {steps.map((step) => (
-        <div key={step.phase} className={`ai-agent-loop-step is-${step.status}`}>
+      {steps.map((step, index) => (
+        <div key={`${step.phase}-${index}`} className={`ai-agent-loop-step is-${step.status}`}>
           <span>{step.label}</span>
           <strong>{step.status === 'running' ? '进行中' : step.status === 'pending' ? '等待' : step.status === 'stopped' ? '已停止' : step.status === 'error' ? '异常' : '完成'}</strong>
           <small>{step.detail}</small>
@@ -445,10 +437,11 @@ export function AiCliPage() {
   const inputRef = useRef<HTMLInputElement>(null);
   const skillTextareaRef = useRef<HTMLTextAreaElement>(null);
   const skillMessagesRef = useRef<HTMLDivElement>(null);
-  const activeSkillRequestRef = useRef<AbortController | null>(null);
+  const activeSkillEventSourceRef = useRef<EventSource | null>(null);
+  const activeSkillSessionIdRef = useRef<string | null>(null);
   const activeSkillMessageIdRef = useRef<string | null>(null);
-  const skillProgressTimersRef = useRef<number[]>([]);
-  const skillTypewriterTimerRef = useRef<number | null>(null);
+  const lastSkillStreamSeqRef = useRef(0);
+  const skillStreamRetryCountRef = useRef(0);
   const lastAgentLogIdRef = useRef<string | null>(null);
   const lastPreviewProposalIdRef = useRef<string | null>(null);
 
@@ -460,6 +453,8 @@ export function AiCliPage() {
   const [sessionId, setSessionId] = useState(() => ensureActiveSession('web-cli').id);
   const [skillInput, setSkillInput] = useState('hi');
   const [skillStatus, setSkillStatus] = useState('等待输入');
+  const [activeDefSessionId, setActiveDefSessionId] = useState<string | null>(null);
+  const [skillTokenUsage, setSkillTokenUsage] = useState<DefAgentTokens | null>(null);
   const [skillMessages, setSkillMessages] = useState<SkillChatMessage[]>([
     { role: 'system', text: '说一句话，或粘贴资料让我整理成待审核修改。模型和后台配置在 DEF Shell 的服务与 Agent 页面。' },
   ]);
@@ -584,11 +579,7 @@ export function AiCliPage() {
   }, [skillMessages]);
 
   useEffect(() => () => {
-    activeSkillRequestRef.current?.abort();
-    skillProgressTimersRef.current.forEach((timer) => window.clearTimeout(timer));
-    if (skillTypewriterTimerRef.current !== null) {
-      window.clearTimeout(skillTypewriterTimerRef.current);
-    }
+    activeSkillEventSourceRef.current?.close();
   }, []);
 
   useEffect(() => {
@@ -677,80 +668,242 @@ export function AiCliPage() {
     appendLines([`${prompt} ${summarizeAiCliCommand(rawCommand)}`, ...result.lines]);
   };
 
-  const clearSkillProgressTimers = () => {
-    skillProgressTimersRef.current.forEach((timer) => window.clearTimeout(timer));
-    skillProgressTimersRef.current = [];
-    if (skillTypewriterTimerRef.current !== null) {
-      window.clearTimeout(skillTypewriterTimerRef.current);
-      skillTypewriterTimerRef.current = null;
-    }
+  const appendActivityItem = (
+    items: DefAgentActivityItem[] | undefined,
+    next: DefAgentActivityItem,
+  ): DefAgentActivityItem[] => {
+    const current = items || [];
+    const index = current.findIndex((item) => item.id === next.id);
+    if (index < 0) return [...current, next];
+    return current.map((item, itemIndex) => (itemIndex === index ? { ...item, ...next } : item));
   };
 
-  const startSkillProgress = (messageId: string, taskLabel: string, effortLabel: string) => {
-    clearSkillProgressTimers();
-    ([1, 2, 3] as const).forEach((stage, index) => {
-      const timer = window.setTimeout(() => {
-        if (activeSkillMessageIdRef.current !== messageId) {
-          return;
-        }
-        setSkillMessages((prev) => prev.map((message) => (
-          message.id === messageId
-            ? { ...message, activity: buildSkillProgressActivity(stage, taskLabel, effortLabel) }
-            : message
-        )));
-      }, [700, 1900, 3600][index]);
-      skillProgressTimersRef.current.push(timer);
+  const completeRunningSteps = (steps: DefAgentLoopStep[] | undefined, status: DefAgentLoopStep['status'] = 'done') => (
+    (steps || []).map((step) => ({
+      ...step,
+      status: step.status === 'done' ? step.status : status,
+    }))
+  );
+
+  const bindSkillEventSource = (eventSource: EventSource, agentMessageId: string) => {
+    const streamEvents = [
+      'session.created',
+      'message.start',
+      'step.start',
+      'reasoning',
+      'tool.start',
+      'tool.content',
+      'tool.error',
+      'text',
+      'step.finish',
+      'stopped',
+      'done',
+      'error',
+    ];
+    streamEvents.forEach((eventName) => {
+      eventSource.addEventListener(eventName, (event) => handleSkillStreamEvent(event as MessageEvent, agentMessageId));
     });
+    eventSource.onerror = () => {
+      if (!activeSkillMessageIdRef.current || activeSkillMessageIdRef.current !== agentMessageId) return;
+      if (skillStreamRetryCountRef.current >= 3) {
+        setSkillStatus('流连接断开');
+        setIsSkillBusy(false);
+        eventSource.close();
+        if (activeSkillEventSourceRef.current === eventSource) {
+          activeSkillEventSourceRef.current = null;
+        }
+        return;
+      }
+      skillStreamRetryCountRef.current += 1;
+      setSkillStatus(`流重连中 · ${skillStreamRetryCountRef.current}/3`);
+    };
   };
 
-  const revealSkillText = (messageId: string, fullText: string) => {
-    const text = fullText || '后台没有返回内容';
-    if (text.length < 140) {
+  const openSkillEventSource = (sessionId: string, agentMessageId: string) => {
+    activeSkillEventSourceRef.current?.close();
+    const eventSource = subscribeDefAgentSession(sessionId, lastSkillStreamSeqRef.current);
+    activeSkillEventSourceRef.current = eventSource;
+    bindSkillEventSource(eventSource, agentMessageId);
+  };
+
+  const handleSkillStreamEvent = (event: MessageEvent, agentMessageId: string) => {
+    if (typeof event.data !== 'string') return;
+    let payload: DefAgentStreamEvent;
+    try {
+      payload = JSON.parse(event.data) as DefAgentStreamEvent;
+    } catch (error) {
+      setSkillStatus(`流事件解析失败 · ${error instanceof Error ? error.message : String(error)}`);
+      return;
+    }
+    const eventTurnId = payload.turnId || payload.clientTurnId;
+    if (eventTurnId && eventTurnId !== agentMessageId) {
+      const seq = Number(payload.seq || event.lastEventId || 0);
+      if (seq && seq > lastSkillStreamSeqRef.current) {
+        lastSkillStreamSeqRef.current = seq;
+      }
+      return;
+    }
+    const seq = Number(payload.seq || event.lastEventId || 0);
+    if (seq && seq <= lastSkillStreamSeqRef.current) return;
+    if (seq) lastSkillStreamSeqRef.current = seq;
+    skillStreamRetryCountRef.current = 0;
+
+    if (payload.sessionId || payload.sessionID) {
+      const nextSessionId = payload.sessionId || payload.sessionID || null;
+      activeSkillSessionIdRef.current = nextSessionId;
+      setActiveDefSessionId(nextSessionId);
+    }
+
+    if (payload.type === 'done' || payload.type === 'stopped' || payload.type === 'error') {
+      const stopped = payload.type === 'stopped';
+      const error = payload.type === 'error';
+      setIsSkillBusy(false);
+      setSkillStatus(stopped ? '已打断' : error ? `异常 · ${payload.error || '流错误'}` : '已响应');
+      activeSkillMessageIdRef.current = null;
+      activeSkillEventSourceRef.current?.close();
+      activeSkillEventSourceRef.current = null;
       setSkillMessages((prev) => prev.map((message) => (
-        message.id === messageId ? { ...message, text } : message
+        message.id === agentMessageId
+          ? {
+            ...message,
+            isStreaming: false,
+            text: error && !message.text ? (payload.error || '流错误') : message.text,
+            activity: message.activity?.map((item) => ({
+              ...item,
+              status: item.status === 'done' ? item.status : stopped ? 'stopped' : error ? 'error' : 'done',
+            })),
+            loopSteps: stopped ? buildStoppedLoopSteps(message.loopSteps) : completeRunningSteps(message.loopSteps, error ? 'error' : 'done'),
+            tokens: payload.tokens || message.tokens,
+          }
+          : message
       )));
+      if (payload.tokens) {
+        setSkillTokenUsage(payload.tokens);
+      }
       return;
     }
 
-    const checkpoints = Array.from(new Set([
-      Math.min(text.length, 90),
-      Math.min(text.length, 220),
-      ...text
-        .split(/(?<=。|！|？|\n\n)/)
-        .reduce<number[]>((points, chunk) => {
-          const previous = points[points.length - 1] || 0;
-          const next = Math.min(text.length, previous + chunk.length);
-          if (next - previous >= 40 || chunk.includes('\n\n')) {
-            points.push(next);
-          }
-          return points;
-        }, []),
-      text.length,
-    ])).filter((point) => point > 0).slice(0, 10);
-
-    const reveal = (index: number) => {
-      const point = checkpoints[index] ?? text.length;
-      setSkillMessages((prev) => prev.map((message) => (
-        message.id === messageId ? { ...message, text: text.slice(0, point) } : message
-      )));
-      if (point >= text.length) {
-        skillTypewriterTimerRef.current = null;
-        return;
+    setSkillMessages((prev) => prev.map((message) => {
+      if (message.id !== agentMessageId) return message;
+      if (payload.type === 'session.created') {
+        return {
+          ...message,
+          sessionId: payload.sessionId || payload.sessionID,
+          activity: appendActivityItem(message.activity, {
+            id: 'session-created',
+            kind: 'step',
+            title: '会话已建立',
+            detail: `${selectedSkillTask.label} · ${labelThinkingEffort(thinkingEffort)}思考`,
+            status: 'done',
+          }),
+        };
       }
-      skillTypewriterTimerRef.current = window.setTimeout(() => reveal(index + 1), 140);
-    };
-
-    reveal(0);
+      if (payload.type === 'message.start') {
+        return {
+          ...message,
+          isStreaming: true,
+          activity: appendActivityItem(message.activity, {
+            id: `message-${payload.seq || Date.now()}`,
+            kind: 'message',
+            title: '发送消息',
+            detail: '等待后台事件',
+            status: 'running',
+          }),
+        };
+      }
+      if (payload.type === 'step.start') {
+        return {
+          ...message,
+          activity: appendActivityItem(message.activity, {
+            id: payload.messageId || `step-${payload.seq || Date.now()}`,
+            kind: 'step',
+            title: 'Agent 循环',
+            detail: payload.agent || '后台步骤已开始',
+            status: 'running',
+          }),
+          loopSteps: [
+            ...(message.loopSteps || []).map((step) => ({
+              ...step,
+              status: step.status === 'running' ? 'done' as const : step.status,
+            })),
+            { phase: 'think', label: '思考', detail: payload.agent || '分析输入与上下文', status: 'running' },
+            { phase: 'act', label: '执行', detail: '等待模型或工具事件', status: 'pending' },
+            { phase: 'observe', label: '观察', detail: '等待 step 完成', status: 'pending' },
+            { phase: 'answer', label: '回复', detail: '增量生成输出', status: 'pending' },
+          ],
+        };
+      }
+      if (payload.type === 'reasoning') {
+        return {
+          ...message,
+          reasoningText: `${message.reasoningText || ''}${payload.text || ''}`,
+          activity: appendActivityItem(message.activity, {
+            id: payload.partId || 'reasoning',
+            kind: 'reasoning',
+            title: '思考',
+            detail: '正在接收推理内容',
+            status: 'running',
+          }),
+        };
+      }
+      if (payload.type === 'tool.start' || payload.type === 'tool.content' || payload.type === 'tool.error') {
+        const status = payload.type === 'tool.error' ? 'error' : payload.status === 'done' ? 'done' : 'running';
+        return {
+          ...message,
+          activity: appendActivityItem(message.activity, {
+            id: payload.id || payload.partId || payload.callId || `tool-${payload.seq || Date.now()}`,
+            kind: 'tool',
+            title: payload.toolName || '工具调用',
+            detail: payload.title || (status === 'running' ? '运行中' : status === 'error' ? '执行异常' : '已返回结果'),
+            result: payload.result || payload.error,
+            status,
+          }),
+          loopSteps: (message.loopSteps || []).map((step) => (
+            step.phase === 'act' && step.status === 'pending'
+              ? { ...step, status: 'running' as const, detail: payload.toolName || step.detail }
+              : step
+          )),
+        };
+      }
+      if (payload.type === 'text') {
+        return {
+          ...message,
+          text: `${message.text}${payload.text || ''}`,
+          loopSteps: (message.loopSteps || []).map((step) => (
+            step.phase === 'answer' && step.status === 'pending'
+              ? { ...step, status: 'running' as const }
+              : step
+          )),
+        };
+      }
+      if (payload.type === 'step.finish') {
+        if (payload.tokens) {
+          setSkillTokenUsage(payload.tokens);
+        }
+        return {
+          ...message,
+          tokens: payload.tokens || message.tokens,
+          activity: message.activity?.map((item) => ({
+            ...item,
+            status: item.status === 'running' ? 'done' : item.status,
+          })),
+          loopSteps: completeRunningSteps(message.loopSteps),
+        };
+      }
+      return message;
+    }));
   };
 
   const handleStopSkillMessage = () => {
     const activeMessageId = activeSkillMessageIdRef.current;
-    void stopDefAgentMessage().catch((error) => {
-      setSkillStatus(`停止失败 · ${error instanceof Error ? error.message : String(error)}`);
-    });
-    clearSkillProgressTimers();
-    activeSkillRequestRef.current?.abort();
-    activeSkillRequestRef.current = null;
+    const activeSessionId = activeSkillSessionIdRef.current;
+    if (activeSessionId) {
+      void stopDefAgentStream(activeSessionId).catch((error) => {
+        setSkillStatus(`停止失败 · ${error instanceof Error ? error.message : String(error)}`);
+      });
+    }
+    activeSkillEventSourceRef.current?.close();
+    activeSkillEventSourceRef.current = null;
     activeSkillMessageIdRef.current = null;
     setIsSkillBusy(false);
     setSkillStatus('已打断');
@@ -758,7 +911,7 @@ export function AiCliPage() {
       message.id === activeMessageId
         ? {
           ...message,
-          text: '已停止当前响应。',
+          isStreaming: false,
           activity: message.activity?.map((item) => ({
             ...item,
             status: item.status === 'done' ? item.status : 'stopped',
@@ -769,6 +922,17 @@ export function AiCliPage() {
     )));
   };
 
+  const handleStartNewSkillSession = () => {
+    if (isSkillBusy) {
+      handleStopSkillMessage();
+    }
+    activeSkillSessionIdRef.current = null;
+    setActiveDefSessionId(null);
+    setSkillTokenUsage(null);
+    lastSkillStreamSeqRef.current = 0;
+    setSkillStatus('新对话已准备');
+  };
+
   const handleSendSkillMessage = async (event?: FormEvent) => {
     event?.preventDefault();
     if (isSkillBusy) {
@@ -776,10 +940,8 @@ export function AiCliPage() {
       return;
     }
     const message = skillInput.trim() || 'hi';
-    const controller = new AbortController();
     const loopMessageId = `agent-loop-${Date.now()}`;
     const effortLabel = labelThinkingEffort(thinkingEffort);
-    activeSkillRequestRef.current = controller;
     activeSkillMessageIdRef.current = loopMessageId;
     setSkillInput('');
     setIsSkillBusy(true);
@@ -795,41 +957,64 @@ export function AiCliPage() {
         id: loopMessageId,
         role: 'agent',
         text: '',
-        activity: buildSkillProgressActivity(0, selectedSkillTask.label, effortLabel),
+        sessionId: activeSkillSessionIdRef.current || undefined,
+        isStreaming: true,
+        activity: [{
+          id: 'stream-start',
+          kind: 'step',
+          title: '开始处理',
+          detail: `${selectedSkillTask.label} · ${effortLabel}思考`,
+          status: 'running',
+        }],
       },
     ]);
-    startSkillProgress(loopMessageId, selectedSkillTask.label, effortLabel);
     try {
-      const result: DefAgentChatResult = await sendDefAgentMessage(message, {
-        thinkingEffort,
-        skillId: selectedSkillTask.id,
-        signal: controller.signal,
-      });
-      clearSkillProgressTimers();
-      setSkillStatus(result.realOpenCode ? `已响应 · OpenCode · ${result.model || 'DeepSeek'}` : '已响应 · 本地运行时');
-      setSkillMessages((prev) => prev.map((item) => (
-        item.id === loopMessageId
-          ? {
-            ...item,
-            text: '',
-            activity: result.activity?.length ? result.activity : item.activity,
-            loopSteps: result.steps?.length ? result.steps : item.loopSteps?.map((step) => ({ ...step, status: 'done' as const })),
+      if (activeSkillSessionIdRef.current) {
+        try {
+          await sendDefAgentContinue(activeSkillSessionIdRef.current, message, loopMessageId);
+          openSkillEventSource(activeSkillSessionIdRef.current, loopMessageId);
+        } catch (error) {
+          const detail = error instanceof Error ? error.message : String(error);
+          if (!detail.includes('session-not-found') && !detail.includes('stream session not found')) {
+            throw error;
           }
-          : item
-      )));
-      revealSkillText(loopMessageId, result.content || result.error || '后台没有返回内容');
-    } catch (error) {
-      clearSkillProgressTimers();
-      if (error instanceof DOMException && error.name === 'AbortError') {
-        setSkillStatus('已打断');
-        return;
+          activeSkillSessionIdRef.current = null;
+          setActiveDefSessionId(null);
+          lastSkillStreamSeqRef.current = 0;
+          const stream = await startDefAgentStream(message, {
+            thinkingEffort,
+            skillId: selectedSkillTask.id,
+            clientTurnId: loopMessageId,
+          });
+          activeSkillSessionIdRef.current = stream.sessionId;
+          setActiveDefSessionId(stream.sessionId);
+          activeSkillEventSourceRef.current?.close();
+          activeSkillEventSourceRef.current = stream.eventSource;
+          bindSkillEventSource(stream.eventSource, loopMessageId);
+        }
+      } else {
+        lastSkillStreamSeqRef.current = 0;
+        const stream = await startDefAgentStream(message, {
+          thinkingEffort,
+          skillId: selectedSkillTask.id,
+          clientTurnId: loopMessageId,
+        });
+        activeSkillSessionIdRef.current = stream.sessionId;
+        setActiveDefSessionId(stream.sessionId);
+        activeSkillEventSourceRef.current?.close();
+        activeSkillEventSourceRef.current = stream.eventSource;
+        bindSkillEventSource(stream.eventSource, loopMessageId);
       }
+    } catch (error) {
       const text = error instanceof Error ? error.message : String(error);
       setSkillStatus(text);
+      setIsSkillBusy(false);
+      activeSkillMessageIdRef.current = null;
       setSkillMessages((prev) => prev.map((item) => (
         item.id === loopMessageId
           ? {
             ...item,
+            isStreaming: false,
             text,
             activity: item.activity?.map((activity) => ({
               ...activity,
@@ -842,14 +1027,6 @@ export function AiCliPage() {
           }
           : item
       )));
-    } finally {
-      if (activeSkillRequestRef.current === controller) {
-        activeSkillRequestRef.current = null;
-      }
-      if (activeSkillMessageIdRef.current === loopMessageId) {
-        activeSkillMessageIdRef.current = null;
-      }
-      setIsSkillBusy(false);
     }
   };
 
@@ -942,11 +1119,11 @@ export function AiCliPage() {
         </form>
       </section>
 
-      <aside className="ai-skill-pane" aria-label="智能录入">
+      <aside className="ai-skill-pane" aria-label="def-opencode">
         <section className="ai-skill-console">
           <header className="ai-skill-topbar">
             <div className="ai-skill-title">
-              <h1>智能录入</h1>
+              <h1>def-opencode</h1>
               <p>{selectedSkillTask.label} · 像对话一样提交资料，后台整理为待审核修改。</p>
             </div>
             <div className="ai-skill-top-actions">
@@ -1009,6 +1186,14 @@ export function AiCliPage() {
               </div>
             ) : null}
           </header>
+
+          <div className="ai-skill-session-bar">
+            <span>会话 {formatShortSessionId(activeDefSessionId)}</span>
+            <strong className="ai-skill-tokens">{formatTokenUsage(skillTokenUsage)}</strong>
+            <button type="button" onClick={handleStartNewSkillSession} disabled={isSkillBusy}>
+              新对话
+            </button>
+          </div>
 
           <div className="ai-skill-chat-surface">
             <div className="ai-skill-messages" ref={skillMessagesRef}>

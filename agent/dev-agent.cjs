@@ -1,6 +1,6 @@
 const http = require('http');
 const path = require('path');
-const { spawn } = require('child_process');
+const { spawn, spawnSync } = require('child_process');
 
 const HOST = '127.0.0.1';
 const PORT = 31457;
@@ -189,6 +189,34 @@ function postJsonUrl(url, payload) {
   });
 }
 
+function proxySseUrl(url, clientRequest, clientResponse) {
+  const requestUrl = new URL(url);
+  const upstream = http.request({
+    hostname: requestUrl.hostname,
+    port: requestUrl.port,
+    path: `${requestUrl.pathname}${requestUrl.search}`,
+    method: 'GET',
+    headers: { Accept: 'text/event-stream' },
+  }, (upstreamResponse) => {
+    clientResponse.writeHead(upstreamResponse.statusCode || 502, {
+      'Content-Type': upstreamResponse.headers['content-type'] || 'text/event-stream; charset=utf-8',
+      'Cache-Control': 'no-cache, no-transform',
+      Connection: 'keep-alive',
+      'Access-Control-Allow-Origin': '*',
+    });
+    upstreamResponse.pipe(clientResponse);
+  });
+  upstream.on('error', (error) => {
+    if (!clientResponse.headersSent) {
+      writeJson(clientResponse, 502, { ok: false, error: error instanceof Error ? error.message : String(error) });
+    } else {
+      clientResponse.end();
+    }
+  });
+  clientRequest.on('close', () => upstream.destroy());
+  upstream.end();
+}
+
 function waitForProcessExit(child, timeoutMs = 5000) {
   return new Promise((resolve) => {
     if (!child || child.exitCode !== null) {
@@ -209,6 +237,23 @@ function waitForProcessExit(child, timeoutMs = 5000) {
     };
     child.once('exit', onExit);
   });
+}
+
+function killProcessTree(pid) {
+  if (!pid) return false;
+  try {
+    if (process.platform === 'win32') {
+      const result = spawnSync('taskkill.exe', ['/PID', String(pid), '/T', '/F'], {
+        stdio: 'ignore',
+        windowsHide: true,
+      });
+      return result.status === 0;
+    }
+    process.kill(pid, 'SIGTERM');
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function openBrowserWeb(url = DEFAULT_WEB_URL) {
@@ -268,7 +313,7 @@ function stopShell() {
     };
   }
 
-  shellProcess.kill();
+  killProcessTree(shellProcess.pid);
   return {
     stopped: true,
     reason: 'terminated',
@@ -337,7 +382,7 @@ async function stopAiCliRest() {
   }
 
   const stoppingProcess = aiCliRestProcess;
-  stoppingProcess.kill();
+  killProcessTree(stoppingProcess.pid);
   const exit = await waitForProcessExit(stoppingProcess);
   if (!exit.exited) {
     return {
@@ -418,7 +463,7 @@ async function stopDefAgent() {
   }
 
   const stoppingProcess = defAgentProcess;
-  stoppingProcess.kill();
+  killProcessTree(stoppingProcess.pid);
   const exit = await waitForProcessExit(stoppingProcess);
   if (!exit.exited) {
     return {
@@ -528,6 +573,62 @@ const server = http.createServer(async (request, response) => {
     const defAgent = await startDefAgent();
     const body = await readJsonBody(request);
     const upstream = await postJsonUrl('http://127.0.0.1:17322/api/chat', body);
+    writeJson(response, upstream.status || 500, {
+      ok: upstream.status >= 200 && upstream.status < 300,
+      defAgent,
+      ...upstream.body,
+    });
+    return;
+  }
+
+  if (method === 'POST' && requestUrl.pathname === '/def-agent/chat/stream') {
+    const defAgent = await startDefAgent();
+    const body = await readJsonBody(request);
+    const upstream = await postJsonUrl('http://127.0.0.1:17322/api/chat/stream', body);
+    writeJson(response, upstream.status || 500, {
+      ok: upstream.status >= 200 && upstream.status < 300,
+      defAgent,
+      ...upstream.body,
+    });
+    return;
+  }
+
+  if (method === 'GET' && requestUrl.pathname === '/def-agent/chat/sessions') {
+    await startDefAgent();
+    const upstream = await fetchJsonUrl('http://127.0.0.1:17322/api/chat/sessions');
+    writeJson(response, upstream.status || 500, upstream.body);
+    return;
+  }
+
+  const defAgentEventsMatch = /^\/def-agent\/chat\/([^/]+)\/events$/.exec(requestUrl.pathname);
+  if (method === 'GET' && defAgentEventsMatch) {
+    await startDefAgent();
+    const sessionID = encodeURIComponent(decodeURIComponent(defAgentEventsMatch[1]));
+    const from = requestUrl.searchParams.get('from');
+    const suffix = from ? `?from=${encodeURIComponent(from)}` : '';
+    proxySseUrl(`http://127.0.0.1:17322/api/chat/${sessionID}/events${suffix}`, request, response);
+    return;
+  }
+
+  const defAgentMessageMatch = /^\/def-agent\/chat\/([^/]+)\/message$/.exec(requestUrl.pathname);
+  if (method === 'POST' && defAgentMessageMatch) {
+    const defAgent = await startDefAgent();
+    const body = await readJsonBody(request);
+    const sessionID = encodeURIComponent(decodeURIComponent(defAgentMessageMatch[1]));
+    const upstream = await postJsonUrl(`http://127.0.0.1:17322/api/chat/${sessionID}/message`, body);
+    writeJson(response, upstream.status || 500, {
+      ok: upstream.status >= 200 && upstream.status < 300,
+      defAgent,
+      ...upstream.body,
+    });
+    return;
+  }
+
+  const defAgentStopMatch = /^\/def-agent\/chat\/([^/]+)\/stop$/.exec(requestUrl.pathname);
+  if (method === 'POST' && defAgentStopMatch) {
+    const defAgent = await startDefAgent();
+    const sessionID = encodeURIComponent(decodeURIComponent(defAgentStopMatch[1]));
+    const upstream = await postJsonUrl(`http://127.0.0.1:17322/api/chat/${sessionID}/stop`, {});
     writeJson(response, upstream.status || 500, {
       ok: upstream.status >= 200 && upstream.status < 300,
       defAgent,

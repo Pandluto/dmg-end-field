@@ -3,7 +3,12 @@ const fs = require('fs');
 const path = require('path');
 const {
   runChat,
+  runChatStream,
+  continueChat,
   stopChat,
+  listChatSessions,
+  getChatSessionStream,
+  shutdownRuntime,
   sanitizeDeepSeekConfig,
   summarizeConfig,
   runtimeSummary,
@@ -33,6 +38,23 @@ function buildJsonHeaders() {
 function writeJson(response, statusCode, payload) {
   response.writeHead(statusCode, buildJsonHeaders());
   response.end(JSON.stringify(payload));
+}
+
+function writeSse(response, event) {
+  response.write(`id: ${event.seq ?? Date.now()}\n`);
+  response.write(`event: ${event.type || 'message'}\n`);
+  response.write(`data: ${JSON.stringify(event)}\n\n`);
+}
+
+function writeSseHeaders(response) {
+  response.writeHead(200, {
+    'Content-Type': 'text/event-stream; charset=utf-8',
+    'Cache-Control': 'no-cache, no-transform',
+    Connection: 'keep-alive',
+    'X-Accel-Buffering': 'no',
+    'Access-Control-Allow-Origin': '*',
+  });
+  response.write(': connected\n\n');
 }
 
 function readJsonBody(request) {
@@ -163,6 +185,14 @@ const server = http.createServer(async (request, response) => {
       return;
     }
 
+    if (method === 'GET' && requestUrl.pathname === '/api/chat/sessions') {
+      writeJson(response, 200, {
+        ok: true,
+        sessions: listChatSessions(),
+      });
+      return;
+    }
+
     if (method === 'POST' && requestUrl.pathname === '/api/chat') {
       const body = await readJsonBody(request);
       const result = await runChat({
@@ -174,6 +204,74 @@ const server = http.createServer(async (request, response) => {
       writeJson(response, result.ok ? 200 : 502, {
         ok: result.ok,
         result,
+      });
+      return;
+    }
+
+    if (method === 'POST' && requestUrl.pathname === '/api/chat/stream') {
+      const body = await readJsonBody(request);
+      const result = await runChatStream({
+        config: readConfig().deepseek,
+        message: body.message,
+        thinkingEffort: body.thinkingEffort,
+        skillId: body.skillId,
+        clientTurnId: body.clientTurnId,
+      });
+      writeJson(response, 200, {
+        ok: true,
+        sessionId: result.sessionId,
+        sessionID: result.sessionID,
+      });
+      return;
+    }
+
+    const eventsMatch = /^\/api\/chat\/([^/]+)\/events$/.exec(requestUrl.pathname);
+    if (method === 'GET' && eventsMatch) {
+      const sessionID = decodeURIComponent(eventsMatch[1]);
+      const stream = getChatSessionStream(sessionID);
+      if (!stream) {
+        writeJson(response, 404, {
+          ok: false,
+          error: 'session-not-found',
+        });
+        return;
+      }
+      const fromSeq = Number(requestUrl.searchParams.get('from') || 0) || 0;
+      writeSseHeaders(response);
+      for (const event of stream.buffer) {
+        if ((event.seq || 0) > fromSeq) writeSse(response, event);
+      }
+      const onEvent = (event) => writeSse(response, event);
+      stream.eventEmitter.on('event', onEvent);
+      const heartbeat = setInterval(() => {
+        response.write(`event: heartbeat\ndata: ${JSON.stringify({ ok: true, sessionId: sessionID, at: Date.now() })}\n\n`);
+      }, 15000);
+      request.on('close', () => {
+        clearInterval(heartbeat);
+        stream.eventEmitter.off('event', onEvent);
+      });
+      return;
+    }
+
+    const messageMatch = /^\/api\/chat\/([^/]+)\/message$/.exec(requestUrl.pathname);
+    if (method === 'POST' && messageMatch) {
+      const sessionID = decodeURIComponent(messageMatch[1]);
+      const body = await readJsonBody(request);
+      const result = await continueChat(sessionID, body.message, body.clientTurnId);
+      writeJson(response, 200, {
+        ok: true,
+        sessionId: result.sessionId,
+        sessionID: result.sessionID,
+      });
+      return;
+    }
+
+    const stopMatch = /^\/api\/chat\/([^/]+)\/stop$/.exec(requestUrl.pathname);
+    if (method === 'POST' && stopMatch) {
+      const sessionID = decodeURIComponent(stopMatch[1]);
+      writeJson(response, 200, {
+        ok: true,
+        result: await stopChat(sessionID),
       });
       return;
     }
@@ -201,4 +299,19 @@ const server = http.createServer(async (request, response) => {
 
 server.listen(PORT, HOST, () => {
   console.log(`[def-agent-sidecar] listening on http://${HOST}:${PORT}`);
+});
+
+function shutdownAndExit(signal) {
+  try {
+    shutdownRuntime();
+  } finally {
+    server.close(() => process.exit(signal === 'SIGINT' ? 130 : 0));
+    setTimeout(() => process.exit(signal === 'SIGINT' ? 130 : 0), 1500).unref();
+  }
+}
+
+process.once('SIGTERM', () => shutdownAndExit('SIGTERM'));
+process.once('SIGINT', () => shutdownAndExit('SIGINT'));
+process.once('exit', () => {
+  shutdownRuntime();
 });

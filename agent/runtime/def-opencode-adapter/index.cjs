@@ -1,13 +1,16 @@
 const crypto = require('crypto');
 const fs = require('fs');
 const http = require('http');
+const net = require('net');
 const path = require('path');
-const { spawn } = require('child_process');
+const { EventEmitter } = require('events');
+const { spawn, spawnSync } = require('child_process');
 
 const DEFAULT_DEEPSEEK_BASE_URL = 'https://api.deepseek.com';
 const DEFAULT_DEEPSEEK_MODEL = 'deepseek-v4-pro';
 const OPENCODE_HOST = '127.0.0.1';
-const OPENCODE_PORT = Number(process.env.DEF_OPENCODE_PORT || 17445);
+const OPENCODE_PORT_BASE = Number(process.env.DEF_OPENCODE_PORT || 17445);
+const OPENCODE_PORT_MAX_ATTEMPTS = 20;
 
 const projectRoot = path.resolve(__dirname, '..', '..', '..');
 const vendorRoot = path.join(projectRoot, 'agent', 'vendor', 'opencode');
@@ -26,7 +29,9 @@ const skillMap = {
 let opencodeProcess = null;
 let opencodeConfigHash = '';
 let opencodeReadyUrl = '';
+let opencodeReadyPort = 0;
 let activeRun = null;
+const streamSessions = new Map();
 
 function sanitizeDeepSeekConfig(config = {}) {
   return {
@@ -176,11 +181,69 @@ function stopOpenCodeProcess() {
   if (!processRunning(opencodeProcess)) {
     opencodeProcess = null;
     opencodeReadyUrl = '';
+    opencodeReadyPort = 0;
     return;
   }
-  opencodeProcess.kill();
+  killProcessTree(opencodeProcess.pid);
   opencodeProcess = null;
   opencodeReadyUrl = '';
+  opencodeReadyPort = 0;
+}
+
+function killProcessTree(pid) {
+  if (!pid) return false;
+  try {
+    if (process.platform === 'win32') {
+      const result = spawnSync('taskkill.exe', ['/PID', String(pid), '/T', '/F'], {
+        stdio: 'ignore',
+        windowsHide: true,
+      });
+      return result.status === 0;
+    }
+    process.kill(pid, 'SIGTERM');
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function cleanupStaleOpenCodeProcesses() {
+  if (process.platform !== 'win32') return;
+  const script = `
+$hostName = '${OPENCODE_HOST.replace(/'/g, "''")}'
+$processes = Get-CimInstance Win32_Process | Where-Object {
+  $_.CommandLine -and
+  $_.CommandLine -like '*packages/opencode/src/index.ts*' -and
+  $_.CommandLine -like '* serve *' -and
+  $_.CommandLine -like ('*--hostname=' + $hostName + '*')
+}
+foreach ($process in $processes) {
+  taskkill.exe /PID $process.ProcessId /T /F | Out-Null
+}
+`.trim();
+  spawnSync('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', script], {
+    stdio: 'ignore',
+    windowsHide: true,
+  });
+}
+
+function canListenOnPort(port) {
+  return new Promise((resolve) => {
+    const server = net.createServer();
+    server.once('error', () => resolve(false));
+    server.once('listening', () => {
+      server.close(() => resolve(true));
+    });
+    server.listen(port, OPENCODE_HOST);
+  });
+}
+
+async function findOpenCodePort() {
+  for (let offset = 0; offset < OPENCODE_PORT_MAX_ATTEMPTS; offset += 1) {
+    const port = OPENCODE_PORT_BASE + offset;
+    if (await canListenOnPort(port)) return port;
+  }
+  throw new Error(`No available OpenCode port from ${OPENCODE_PORT_BASE} to ${OPENCODE_PORT_BASE + OPENCODE_PORT_MAX_ATTEMPTS - 1}`);
 }
 
 function waitForOpenCodeReady(child, timeoutMs = 30000) {
@@ -241,15 +304,17 @@ async function ensureOpenCodeServer(config, skillId, thinkingEffort) {
   }
 
   stopOpenCodeProcess();
+  cleanupStaleOpenCodeProcesses();
   fs.mkdirSync(runtimeLogDir, { recursive: true });
   opencodeConfigHash = nextHash;
+  opencodeReadyPort = await findOpenCodePort();
   opencodeProcess = spawn('bun', [
     'run',
     '--conditions=browser',
     'packages/opencode/src/index.ts',
     'serve',
     `--hostname=${OPENCODE_HOST}`,
-    `--port=${OPENCODE_PORT}`,
+    `--port=${opencodeReadyPort}`,
   ], {
     cwd: vendorRoot,
     env: {
@@ -263,6 +328,7 @@ async function ensureOpenCodeServer(config, skillId, thinkingEffort) {
     appendLog(`[exit] code=${code} signal=${signal}`);
     opencodeProcess = null;
     opencodeReadyUrl = '';
+    opencodeReadyPort = 0;
   });
 
   opencodeReadyUrl = await waitForOpenCodeReady(opencodeProcess);
@@ -363,6 +429,355 @@ function extractText(parts = []) {
 
 function collectEventTypes(events) {
   return Array.from(new Set(events.map((event) => event.type).filter(Boolean)));
+}
+
+function normalizeTokens(tokens) {
+  if (!tokens || typeof tokens !== 'object') return undefined;
+  const prompt = Number(tokens.prompt ?? tokens.input ?? 0) || 0;
+  const completion = Number(tokens.completion ?? tokens.output ?? 0) || 0;
+  const reasoning = Number(tokens.reasoning ?? 0) || 0;
+  const total = Number(tokens.total ?? prompt + completion + reasoning) || 0;
+  return { total, prompt, completion, reasoning };
+}
+
+function compactValue(value, limit = 1200) {
+  if (value === undefined || value === null) return '';
+  const text = typeof value === 'string' ? value : JSON.stringify(value);
+  return text.length > limit ? `${text.slice(0, limit)}...` : text;
+}
+
+function makeStreamState({ baseUrl, directory, sessionID, agent, model, skillId, thinkingEffort }) {
+  const state = {
+    id: sessionID,
+    sessionID,
+    baseUrl,
+    directory,
+    agent,
+    model,
+    skillId,
+    thinkingEffort,
+    eventEmitter: new EventEmitter(),
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+    active: false,
+    stopped: false,
+    nextSeq: 1,
+    buffer: [],
+    partText: new Map(),
+    partTypes: new Map(),
+    toolStatus: new Map(),
+    assistantMessages: new Set(),
+    tokens: undefined,
+    currentTurnId: null,
+    controller: null,
+    eventController: null,
+    eventPromise: null,
+  };
+  streamSessions.set(sessionID, state);
+  return state;
+}
+
+function emitStreamEvent(state, type, payload = {}) {
+  if (!state) return null;
+  const event = {
+    seq: state.nextSeq++,
+    type,
+    at: Date.now(),
+    sessionId: state.sessionID,
+    turnId: payload.turnId || state.currentTurnId || undefined,
+    ...payload,
+  };
+  state.updatedAt = event.at;
+  state.buffer.push(event);
+  if (state.buffer.length > 800) {
+    state.buffer.splice(0, state.buffer.length - 800);
+  }
+  state.eventEmitter.emit('event', event);
+  return event;
+}
+
+function emitPartTextDelta(state, part, eventType) {
+  if (!part?.id || typeof part.text !== 'string' || !part.text) return;
+  const previous = state.partText.get(part.id) || '';
+  const next = part.text;
+  const delta = next.startsWith(previous) ? next.slice(previous.length) : next;
+  state.partText.set(part.id, next);
+  if (!delta) return;
+  emitStreamEvent(state, eventType, {
+    partId: part.id,
+    messageId: part.messageID,
+    text: delta,
+  });
+}
+
+function emitToolPart(state, part) {
+  if (!part?.id) return;
+  const toolName = part.tool || part.name || 'tool';
+  const status = part.state?.status || 'running';
+  const previousStatus = state.toolStatus.get(part.id);
+  if (!previousStatus) {
+    emitStreamEvent(state, 'tool.start', {
+      id: part.id,
+      partId: part.id,
+      callId: part.callID,
+      messageId: part.messageID,
+      toolName,
+      status: 'running',
+      input: part.state?.input,
+      title: part.state?.title,
+    });
+  }
+  state.toolStatus.set(part.id, status);
+  emitStreamEvent(state, status === 'error' ? 'tool.error' : 'tool.content', {
+    id: part.id,
+    partId: part.id,
+    callId: part.callID,
+    messageId: part.messageID,
+    toolName,
+    status: status === 'completed' ? 'done' : status === 'error' ? 'error' : 'running',
+    input: part.state?.input,
+    result: compactValue(part.state?.output ?? part.state?.metadata ?? part.state?.error),
+    error: compactValue(part.state?.error),
+    title: part.state?.title,
+  });
+}
+
+function emitStepFinishPart(state, part) {
+  const tokens = normalizeTokens(part?.tokens);
+  if (tokens) state.tokens = tokens;
+  emitStreamEvent(state, 'step.finish', {
+    partId: part?.id,
+    messageId: part?.messageID,
+    tokens,
+    finish: part?.finish,
+  });
+}
+
+function normalizeOpenCodeEventForStream(state, event) {
+  if (!event || !state) return;
+  const type = String(event.type || '');
+  const properties = event.properties || {};
+  const eventSessionID = properties.sessionID || properties.info?.sessionID || properties.part?.sessionID;
+  if (eventSessionID && eventSessionID !== state.sessionID) return;
+
+  if (type === 'session.error') {
+    emitStreamEvent(state, 'error', {
+      error: compactValue(properties.error || properties),
+    });
+    return;
+  }
+
+  if (type === 'message.updated') {
+    const info = properties.info || {};
+    if (info.role === 'assistant' && info.id && !state.assistantMessages.has(info.id)) {
+      state.assistantMessages.add(info.id);
+      emitStreamEvent(state, 'step.start', {
+        messageId: info.id,
+        agent: info.agent || info.mode || state.agent,
+        model: info.modelID || state.model,
+      });
+    }
+    if (info.error) {
+      emitStreamEvent(state, 'error', {
+        messageId: info.id,
+        error: compactValue(info.error),
+      });
+    }
+    return;
+  }
+
+  if (type === 'message.part.updated') {
+    const part = properties.part || {};
+    if (part.sessionID && part.sessionID !== state.sessionID) return;
+    if (part.messageID && !state.assistantMessages.has(part.messageID)) return;
+    if (part.id && part.type) state.partTypes.set(part.id, part.type);
+    if (part.type === 'text' && part.ignored !== true) {
+      emitPartTextDelta(state, part, 'text');
+    } else if (part.type === 'reasoning') {
+      emitPartTextDelta(state, part, 'reasoning');
+    } else if (part.type === 'tool') {
+      emitToolPart(state, part);
+    } else if (part.type === 'step-finish') {
+      emitStepFinishPart(state, part);
+    }
+    return;
+  }
+
+  if (type === 'message.part.delta') {
+    if (properties.sessionID && properties.sessionID !== state.sessionID) return;
+    if (properties.messageID && !state.assistantMessages.has(properties.messageID)) return;
+    if (properties.field !== 'text' || typeof properties.delta !== 'string' || !properties.delta) return;
+    const partId = properties.partID;
+    const partType = state.partTypes.get(partId);
+    if (partType !== 'text' && partType !== 'reasoning') return;
+    const previous = state.partText.get(partId) || '';
+    state.partText.set(partId, `${previous}${properties.delta}`);
+    emitStreamEvent(state, partType === 'reasoning' ? 'reasoning' : 'text', {
+      partId,
+      messageId: properties.messageID,
+      text: properties.delta,
+    });
+  }
+}
+
+function emitReplyRemainder(state, reply) {
+  const parts = Array.isArray(reply?.parts) ? reply.parts : [];
+  for (const part of parts) {
+    if (!part?.id) continue;
+    if (part.type === 'text' && part.ignored !== true) emitPartTextDelta(state, part, 'text');
+    if (part.type === 'reasoning') emitPartTextDelta(state, part, 'reasoning');
+    if (part.type === 'tool') emitToolPart(state, part);
+    if (part.type === 'step-finish') emitStepFinishPart(state, part);
+  }
+}
+
+function listChatSessions() {
+  return Array.from(streamSessions.values())
+    .sort((left, right) => right.updatedAt - left.updatedAt)
+    .map((session) => ({
+      id: session.sessionID,
+      sessionID: session.sessionID,
+      agent: session.agent,
+      model: session.model,
+      skillId: session.skillId,
+      active: session.active,
+      stopped: session.stopped,
+      createdAt: session.createdAt,
+      updatedAt: session.updatedAt,
+      tokens: session.tokens,
+      lastSeq: session.nextSeq - 1,
+    }));
+}
+
+function getChatSessionStream(sessionID) {
+  const state = streamSessions.get(sessionID);
+  if (!state) return null;
+  return {
+    id: state.sessionID,
+    sessionID: state.sessionID,
+    active: state.active,
+    buffer: state.buffer,
+    eventEmitter: state.eventEmitter,
+    lastSeq: state.nextSeq - 1,
+  };
+}
+
+async function sendMessageOnStreamSession(state, message, clientTurnId) {
+  if (!state) throw new Error('stream session not found');
+  if (state.active) throw new Error('stream session is already running');
+
+  const userMessage = typeof message === 'string' && message.trim() ? message.trim() : 'hi';
+  const turnId = typeof clientTurnId === 'string' && clientTurnId.trim() ? clientTurnId.trim() : crypto.randomUUID();
+  const runController = new AbortController();
+  const eventController = new AbortController();
+  state.currentTurnId = turnId;
+  state.controller = runController;
+  state.eventController = eventController;
+  state.active = true;
+  state.stopped = false;
+  emitStreamEvent(state, 'message.start', { turnId, text: userMessage });
+
+  try {
+    const eventPromise = subscribeEvents(state.baseUrl, state.directory, (event) => {
+      normalizeOpenCodeEventForStream(state, event);
+    }, eventController.signal).catch((error) => {
+      if (!eventController.signal.aborted) {
+        appendLog(`[stream-event-error] ${error instanceof Error ? error.message : String(error)}`);
+        emitStreamEvent(state, 'error', { error: error instanceof Error ? error.message : String(error) });
+      }
+    });
+    state.eventPromise = eventPromise;
+    await new Promise((resolve) => setTimeout(resolve, 80));
+
+    const query = `directory=${encodeURIComponent(state.directory)}`;
+    const payload = {
+      agent: state.agent,
+      model: {
+        providerID: 'deepseek',
+        modelID: state.model,
+      },
+      system: describeThinkingEffort(state.thinkingEffort),
+      parts: [{ type: 'text', text: userMessage }],
+    };
+    const reply = await requestJson(
+      'POST',
+      `${state.baseUrl}/session/${encodeURIComponent(state.sessionID)}/message?${query}`,
+      payload,
+      runController.signal,
+      120000,
+    );
+    emitReplyRemainder(state, reply);
+    emitStreamEvent(state, 'done', {
+      turnId,
+      ok: true,
+      content: extractText(reply.parts),
+      tokens: state.tokens || normalizeTokens(reply.parts?.find((part) => part.type === 'step-finish')?.tokens),
+    });
+  } catch (error) {
+    const stopped = runController.signal.aborted;
+    state.stopped = stopped;
+    emitStreamEvent(state, stopped ? 'stopped' : 'error', {
+      turnId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  } finally {
+    eventController.abort();
+    try {
+      await state.eventPromise;
+    } catch {
+      // ignored
+    }
+    state.active = false;
+    state.controller = null;
+    state.eventController = null;
+    state.eventPromise = null;
+  }
+}
+
+async function runChatStream({ config, message, thinkingEffort, skillId = 'operator', clientTurnId }) {
+  const deepseek = sanitizeDeepSeekConfig(config);
+  if (!deepseek.apiKey) {
+    throw new Error('DeepSeek API key is not configured in DEF Shell 05 Agent.');
+  }
+
+  const selected = skillMap[skillId] || skillMap.operator;
+  const directory = projectRoot;
+  const baseUrl = await ensureOpenCodeServer(deepseek, skillId, thinkingEffort);
+  const query = `directory=${encodeURIComponent(directory)}`;
+  const session = await requestJson('POST', `${baseUrl}/session?${query}`, {}, undefined, 15000);
+  const state = makeStreamState({
+    baseUrl,
+    directory,
+    sessionID: session.id,
+    agent: selected.agent,
+    model: deepseek.model,
+    skillId,
+    thinkingEffort,
+  });
+  emitStreamEvent(state, 'session.created', {
+    turnId: clientTurnId,
+    sessionId: session.id,
+    agent: selected.agent,
+    skillId,
+    model: deepseek.model,
+  });
+  void sendMessageOnStreamSession(state, message, clientTurnId);
+  return {
+    sessionId: session.id,
+    sessionID: session.id,
+    eventEmitter: state.eventEmitter,
+  };
+}
+
+async function continueChat(sessionID, message, clientTurnId) {
+  const state = streamSessions.get(sessionID);
+  if (!state) throw new Error('stream session not found');
+  void sendMessageOnStreamSession(state, message, clientTurnId);
+  return {
+    sessionId: state.sessionID,
+    sessionID: state.sessionID,
+    eventEmitter: state.eventEmitter,
+  };
 }
 
 function mapOpenCodeActivity(reply, events) {
@@ -580,7 +995,33 @@ async function runChat({ config, message, thinkingEffort, skillId = 'operator' }
   }
 }
 
-async function stopChat() {
+async function stopChat(sessionID) {
+  if (sessionID) {
+    const state = streamSessions.get(sessionID);
+    if (!state) {
+      return { ok: true, stopped: false, sessionID, reason: 'session-not-found' };
+    }
+    state.stopped = true;
+    state.controller?.abort(new Error('stopped by user'));
+    state.eventController?.abort();
+    if (state.sessionID && state.baseUrl) {
+      const query = `directory=${encodeURIComponent(state.directory)}`;
+      try {
+        await requestJson('POST', `${state.baseUrl}/session/${encodeURIComponent(state.sessionID)}/abort?${query}`, {}, undefined, 15000);
+      } catch (error) {
+        emitStreamEvent(state, 'error', { error: error instanceof Error ? error.message : String(error) });
+        return {
+          ok: false,
+          stopped: true,
+          sessionID: state.sessionID,
+          reason: error instanceof Error ? error.message : String(error),
+        };
+      }
+    }
+    emitStreamEvent(state, 'stopped', { reason: 'stopped by user' });
+    return { ok: true, stopped: true, sessionID: state.sessionID };
+  }
+
   const run = activeRun;
   if (!run) {
     return { ok: true, stopped: false, reason: 'no-active-run' };
@@ -603,22 +1044,35 @@ async function stopChat() {
 }
 
 function runtimeSummary(config = {}) {
+  const actualPort = opencodeReadyPort || OPENCODE_PORT_BASE;
   return {
     kind: 'embedded-opencode-upstream-source',
     vendorRoot: path.relative(projectRoot, vendorRoot).replace(/\\/g, '/'),
-    serverUrl: opencodeReadyUrl || `http://${OPENCODE_HOST}:${OPENCODE_PORT}`,
+    serverUrl: opencodeReadyUrl || `http://${OPENCODE_HOST}:${actualPort}`,
+    portBase: OPENCODE_PORT_BASE,
+    port: actualPort,
     running: processRunning(opencodeProcess),
     deepseek: summarizeConfig(config),
   };
 }
 
+function shutdownRuntime() {
+  stopOpenCodeProcess();
+  cleanupStaleOpenCodeProcesses();
+}
+
 module.exports = {
   DEFAULT_DEEPSEEK_BASE_URL,
   DEFAULT_DEEPSEEK_MODEL,
-  OPENCODE_PORT,
+  OPENCODE_PORT_BASE,
   sanitizeDeepSeekConfig,
   summarizeConfig,
   runtimeSummary,
   runChat,
+  runChatStream,
+  continueChat,
   stopChat,
+  listChatSessions,
+  getChatSessionStream,
+  shutdownRuntime,
 };

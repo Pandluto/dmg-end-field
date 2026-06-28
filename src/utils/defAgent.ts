@@ -34,9 +34,73 @@ export interface DefAgentChatResult {
   openCodeParts?: string[];
   activity?: DefAgentActivityItem[];
   steps?: DefAgentLoopStep[];
+  rawUsage?: DefAgentTokens;
 }
 
 export type DefAgentThinkingEffort = 'low' | 'medium' | 'high';
+
+export interface DefAgentTokens {
+  total: number;
+  prompt: number;
+  completion: number;
+  reasoning?: number;
+}
+
+export type DefAgentStreamEventType =
+  | 'session.created'
+  | 'message.start'
+  | 'step.start'
+  | 'reasoning'
+  | 'tool.start'
+  | 'tool.content'
+  | 'tool.error'
+  | 'text'
+  | 'step.finish'
+  | 'stopped'
+  | 'done'
+  | 'error'
+  | string;
+
+export interface DefAgentStreamEvent {
+  seq?: number;
+  type: DefAgentStreamEventType;
+  at?: number;
+  sessionId?: string;
+  sessionID?: string;
+  messageId?: string;
+  partId?: string;
+  id?: string;
+  callId?: string;
+  toolName?: string;
+  status?: string;
+  title?: string;
+  input?: unknown;
+  result?: string;
+  error?: string;
+  text?: string;
+  content?: string;
+  agent?: string;
+  model?: string;
+  skillId?: string;
+  tokens?: DefAgentTokens;
+  ok?: boolean;
+  turnId?: string;
+  clientTurnId?: string;
+}
+
+export interface DefAgentSessionSummary {
+  id: string;
+  sessionID?: string;
+  agent?: string;
+  model?: string;
+  skillId?: string;
+  active?: boolean;
+  stopped?: boolean;
+  createdAt?: number;
+  updatedAt?: number;
+  tokens?: DefAgentTokens;
+  lastSeq?: number;
+}
 
 export interface DefAgentLoopStep {
   phase: 'think' | 'act' | 'observe' | 'answer';
@@ -50,6 +114,8 @@ export interface DefAgentActivityItem {
   kind: 'event' | 'step' | 'reasoning' | 'tool' | 'message' | string;
   title: string;
   detail?: string;
+  result?: string;
+  input?: unknown;
   status: 'pending' | 'running' | 'done' | 'stopped' | 'error' | string;
 }
 
@@ -114,6 +180,72 @@ export async function sendDefAgentMessage(
   });
   const payload = await readJsonResponse<{ ok: boolean; result: DefAgentChatResult }>(response, 'DEF agent chat');
   return payload.result;
+}
+
+function openDefAgentEventSource(sessionId: string, fromSeq = 0): EventSource {
+  const url = new URL(`${LOCAL_AGENT_BASE_URL}/def-agent/chat/${encodeURIComponent(sessionId)}/events`);
+  if (fromSeq > 0) url.searchParams.set('from', String(fromSeq));
+  return new EventSource(url.toString());
+}
+
+export async function startDefAgentStream(
+  message: string,
+  options: {
+    thinkingEffort?: DefAgentThinkingEffort;
+    skillId?: string;
+    fromSeq?: number;
+    clientTurnId?: string;
+  } = {},
+): Promise<{ sessionId: string; eventSource: EventSource }> {
+  const response = await fetch(`${LOCAL_AGENT_BASE_URL}/def-agent/chat/stream`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json; charset=utf-8' },
+    body: JSON.stringify({
+      message,
+      thinkingEffort: options.thinkingEffort || 'medium',
+      skillId: options.skillId,
+      clientTurnId: options.clientTurnId,
+    }),
+  });
+  const payload = await readJsonResponse<{ ok: boolean; sessionId?: string; sessionID?: string }>(response, 'Start DEF agent stream');
+  const sessionId = payload.sessionId || payload.sessionID;
+  if (!sessionId) throw new Error('Start DEF agent stream failed: no session id');
+  return {
+    sessionId,
+    eventSource: openDefAgentEventSource(sessionId, options.fromSeq || 0),
+  };
+}
+
+export async function sendDefAgentContinue(sessionId: string, message: string, clientTurnId?: string): Promise<void> {
+  const response = await fetch(`${LOCAL_AGENT_BASE_URL}/def-agent/chat/${encodeURIComponent(sessionId)}/message`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json; charset=utf-8' },
+    body: JSON.stringify({ message, clientTurnId }),
+  });
+  await readJsonResponse<{ ok: boolean }>(response, 'Continue DEF agent stream');
+}
+
+export function subscribeDefAgentSession(sessionId: string, fromSeq = 0): EventSource {
+  return openDefAgentEventSource(sessionId, fromSeq);
+}
+
+export async function stopDefAgentStream(sessionId: string): Promise<{ ok: boolean; stopped?: boolean; reason?: string; sessionID?: string }> {
+  const response = await fetch(`${LOCAL_AGENT_BASE_URL}/def-agent/chat/${encodeURIComponent(sessionId)}/stop`, {
+    method: 'POST',
+  });
+  const payload = await readJsonResponse<{
+    ok: boolean;
+    result: { ok: boolean; stopped?: boolean; reason?: string; sessionID?: string };
+  }>(response, 'Stop DEF agent stream');
+  return payload.result;
+}
+
+export async function listDefAgentSessions(): Promise<DefAgentSessionSummary[]> {
+  const response = await fetch(`${LOCAL_AGENT_BASE_URL}/def-agent/chat/sessions`, {
+    cache: 'no-store',
+  });
+  const payload = await readJsonResponse<{ ok: boolean; sessions: DefAgentSessionSummary[] }>(response, 'List DEF agent sessions');
+  return payload.sessions || [];
 }
 
 export async function stopDefAgentMessage(): Promise<{ ok: boolean; stopped?: boolean; reason?: string; sessionID?: string }> {
