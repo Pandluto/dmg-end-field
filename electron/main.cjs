@@ -46,8 +46,10 @@ let bridgeServer = null;
 let shellStartedAt = null;
 let aiCliRestProcess = null;
 let aiCliRestStartedAt = null;
+let aiCliRestStartPromise = null;
 let defAgentProcess = null;
 let defAgentStartedAt = null;
+let defAgentStartPromise = null;
 let isAppQuitting = false;
 let appTray = null;
 let savedDesktopScaleKey = DEFAULT_DESKTOP_SCALE_KEY;
@@ -713,6 +715,11 @@ function startBridgeServer() {
         return;
       }
 
+      if (method === 'POST' && requestUrl.pathname === '/image-assets/rebuild-index') {
+        writeJson(response, 200, handleRebuildImageAssetIndex());
+        return;
+      }
+
       if (method === 'GET' && requestUrl.pathname === '/image-assets/roots') {
         writeJson(response, 200, listImageRoots());
         return;
@@ -886,6 +893,7 @@ function startBridgeServer() {
 
       if (method === 'POST' && requestUrl.pathname === '/open-browser-web') {
         const url = isDev ? 'http://127.0.0.1:3030/' : `http://${BRIDGE_HOST}:${BRIDGE_PORT}/`;
+        preloadImageAssetService();
         await shell.openExternal(url);
         writeJson(response, 200, { ok: true, url });
         return;
@@ -1143,6 +1151,47 @@ function stopServers() {
   }
 }
 
+function preloadImageAssetService() {
+  const startedAt = Date.now();
+  try {
+    const cache = getImageAssetCache();
+    appendRuntimeLog('startup', `image assets ready count=${cache.list.length} elapsedMs=${Date.now() - startedAt}`);
+    return { ok: true, count: cache.list.length, elapsedMs: Date.now() - startedAt };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    appendRuntimeLog('startup', `image assets preload failed ${message}`);
+    return { ok: false, error: message, elapsedMs: Date.now() - startedAt };
+  }
+}
+
+async function startStartupSidecars() {
+  const startedAt = Date.now();
+  const [aiCliRest, defAgent] = await Promise.allSettled([
+    startAiCliRest(),
+    startDefAgent(),
+  ]);
+  const result = {
+    aiCliRest: aiCliRest.status === 'fulfilled' ? aiCliRest.value : {
+      ready: false,
+      error: aiCliRest.reason instanceof Error ? aiCliRest.reason.message : String(aiCliRest.reason),
+      ...getAiCliRestRuntimeInfo(),
+    },
+    defAgent: defAgent.status === 'fulfilled' ? defAgent.value : {
+      ready: false,
+      error: defAgent.reason instanceof Error ? defAgent.reason.message : String(defAgent.reason),
+      ...getDefAgentRuntimeInfo(),
+    },
+    elapsedMs: Date.now() - startedAt,
+  };
+  appendRuntimeLog(
+    'startup',
+    `sidecars ai=${result.aiCliRest.ready === true ? 'ready' : result.aiCliRest.error || 'not-ready'} ` +
+      `agent=${result.defAgent.ready === true ? 'ready' : result.defAgent.error || 'not-ready'} ` +
+      `elapsedMs=${result.elapsedMs}`,
+  );
+  return result;
+}
+
 ipcMain.handle('desktop:get-role', (event) => getSenderRole(event));
 ipcMain.handle('desktop:get-shell-state', () => ({
   appName: app.getName(),
@@ -1255,6 +1304,8 @@ ipcMain.handle('desktop:reveal-path', async (_event, payload) => {
 // ── Image asset management ──
 
 const MANAGED_SUBDIR = 'assets/images';
+const IMAGE_ASSET_INDEX_NAME = 'image-asset-index.json';
+const IMAGE_ASSET_INDEX_SCHEMA_VERSION = 1;
 const IMAGE_RELEASE_MANIFEST_NAME = 'assets-release-manifest.json';
 const IMAGE_RELEASE_CONFIG_NAME = 'image-release-config.json';
 const IMAGE_RELEASE_CURRENT_NAME = 'current.json';
@@ -2480,7 +2531,17 @@ async function startAiCliRest() {
       ...getAiCliRestRuntimeInfo(),
     };
   }
+  if (aiCliRestStartPromise) {
+    return aiCliRestStartPromise;
+  }
 
+  aiCliRestStartPromise = startAiCliRestProcess().finally(() => {
+    aiCliRestStartPromise = null;
+  });
+  return aiCliRestStartPromise;
+}
+
+async function startAiCliRestProcess() {
   const scriptPath = path.join(__dirname, '..', 'scripts', 'ai-cli-rest-server.mjs');
   aiCliRestProcess = spawn(process.execPath, [scriptPath], {
     cwd: path.join(__dirname, '..'),
@@ -2560,7 +2621,17 @@ async function startDefAgent() {
       ...getDefAgentRuntimeInfo(),
     };
   }
+  if (defAgentStartPromise) {
+    return defAgentStartPromise;
+  }
 
+  defAgentStartPromise = startDefAgentProcess().finally(() => {
+    defAgentStartPromise = null;
+  });
+  return defAgentStartPromise;
+}
+
+async function startDefAgentProcess() {
   const scriptPath = path.join(__dirname, '..', 'agent', 'server', 'def-agent-server.cjs');
   defAgentProcess = spawn(process.execPath, [scriptPath], {
     cwd: path.join(__dirname, '..'),
@@ -2656,6 +2727,13 @@ function getImageRootsConfigPath() {
     return path.join(__dirname, '..', 'data', 'image-roots.json');
   }
   return path.join(getRuntimeDataRoot(), 'image-roots.json');
+}
+
+function getImageAssetIndexPath() {
+  if (isDev) {
+    return path.join(__dirname, '..', 'data', IMAGE_ASSET_INDEX_NAME);
+  }
+  return path.join(getRuntimeDataRoot(), IMAGE_ASSET_INDEX_NAME);
 }
 
 function getLegacyUserImagesDir() {
@@ -2886,9 +2964,129 @@ function sortImageAssetCacheBuckets(map) {
   }
 }
 
-function buildImageAssetCache() {
+function getImageAssetIndexContext() {
+  const installed = getLatestInstalledImageRelease();
+  const roots = readImageRootsConfig().roots.map((root) => ({
+    directory: normalizeImageRootPath(root.directory),
+    label: root.label || '',
+  }));
+  return {
+    activeReleaseVersion: installed?.assetVersion || null,
+    activeReleaseRoot: installed?.directory || null,
+    rootsConfigPath: getImageRootsConfigPath(),
+    rootsHash: crypto.createHash('sha256').update(JSON.stringify(roots)).digest('hex'),
+  };
+}
+
+function isSameImageAssetIndexContext(left, right) {
+  return Boolean(left && right)
+    && left.activeReleaseVersion === right.activeReleaseVersion
+    && left.activeReleaseRoot === right.activeReleaseRoot
+    && left.rootsConfigPath === right.rootsConfigPath
+    && left.rootsHash === right.rootsHash;
+}
+
+function serializeImageAssetEntry(entry) {
+  return {
+    kind: entry.kind,
+    fileName: entry.fileName,
+    baseName: entry.baseName,
+    ext: entry.ext,
+    relativePath: entry.relativePath,
+    source: entry.source,
+    canonicalPath: entry.canonicalPath,
+    publicUrl: entry.publicUrl,
+    rootId: entry.rootId,
+    rootLabel: entry.rootLabel,
+    rootDirectory: entry.rootDirectory,
+    rootPriority: entry.rootPriority,
+    conflictCount: entry.conflictCount,
+    mappingWinner: entry.mappingWinner,
+    mappingKey: entry.mappingKey,
+    writable: entry.writable,
+    sizeBytes: entry.sizeBytes,
+    updatedAt: entry.updatedAt,
+    absolutePath: entry.absolutePath,
+  };
+}
+
+function hydrateImageAssetEntry(raw) {
+  if (!raw || typeof raw !== 'object' || typeof raw.relativePath !== 'string' || typeof raw.fileName !== 'string') {
+    return null;
+  }
+  const absolutePath = typeof raw.absolutePath === 'string' ? raw.absolutePath : null;
+  const entry = {
+    kind: raw.kind === 'dir' ? 'dir' : 'file',
+    fileName: raw.fileName,
+    baseName: typeof raw.baseName === 'string' ? raw.baseName : path.basename(raw.fileName, path.extname(raw.fileName)),
+    ext: typeof raw.ext === 'string' ? raw.ext : path.extname(raw.fileName).toLowerCase(),
+    relativePath: raw.relativePath,
+    source: raw.source,
+    canonicalPath: raw.canonicalPath,
+    publicUrl: raw.publicUrl,
+    rootId: raw.rootId,
+    rootLabel: raw.rootLabel,
+    rootDirectory: raw.rootDirectory,
+    rootPriority: raw.rootPriority,
+    conflictCount: raw.conflictCount,
+    mappingWinner: raw.mappingWinner,
+    mappingKey: raw.mappingKey,
+    writable: Boolean(raw.writable),
+    sizeBytes: Number(raw.sizeBytes) || 0,
+    updatedAt: Number(raw.updatedAt) || 0,
+  };
+  if (absolutePath) {
+    Object.defineProperty(entry, 'absolutePath', {
+      value: absolutePath,
+      enumerable: false,
+    });
+  }
+  return entry;
+}
+
+function readImageAssetIndex() {
+  const filePath = getImageAssetIndexPath();
+  if (!fs.existsSync(filePath)) {
+    return null;
+  }
+  try {
+    const parsed = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+    if (parsed?.schemaVersion !== IMAGE_ASSET_INDEX_SCHEMA_VERSION || !Array.isArray(parsed.items)) {
+      return null;
+    }
+    if (!isSameImageAssetIndexContext(parsed.context, getImageAssetIndexContext())) {
+      return null;
+    }
+    const list = parsed.items.map(hydrateImageAssetEntry).filter(Boolean);
+    return {
+      ...parsed,
+      items: list,
+      indexPath: filePath,
+    };
+  } catch (error) {
+    appendRuntimeLog('assets-index', `read failed ${error instanceof Error ? error.message : String(error)}`);
+    return null;
+  }
+}
+
+function writeImageAssetIndex(list) {
+  const filePath = getImageAssetIndexPath();
+  const payload = {
+    schemaVersion: IMAGE_ASSET_INDEX_SCHEMA_VERSION,
+    builtAt: Date.now(),
+    context: getImageAssetIndexContext(),
+    itemCount: list.length,
+    items: list.map(serializeImageAssetEntry),
+  };
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  const tempPath = `${filePath}.tmp`;
+  fs.writeFileSync(tempPath, `${JSON.stringify(payload, null, 2)}\n`, 'utf-8');
+  fs.renameSync(tempPath, filePath);
+  return { ...payload, indexPath: filePath };
+}
+
+function buildImageAssetCacheFromList(list, indexMeta = null) {
   const activeReleaseRoot = getActiveImageReleaseRoot();
-  const list = scanAllImageAssets();
   const byRequestPath = new Map();
   const byFileName = new Map();
 
@@ -2908,12 +3106,27 @@ function buildImageAssetCache() {
     byRequestPath,
     byFileName,
     activeReleaseRoot,
+    indexMeta,
     refreshedAt: Date.now(),
   };
 }
 
+function buildImageAssetCache() {
+  const index = readImageAssetIndex();
+  if (index) {
+    return buildImageAssetCacheFromList(index.items, {
+      source: 'index',
+      indexPath: index.indexPath,
+      builtAt: index.builtAt,
+      itemCount: index.itemCount,
+    });
+  }
+  const rebuilt = rebuildImageAssetIndex();
+  return rebuilt.cache;
+}
+
 function refreshImageAssetCache() {
-  imageAssetCache = buildImageAssetCache();
+  imageAssetCache = rebuildImageAssetIndex().cache;
   return imageAssetCache;
 }
 
@@ -2923,6 +3136,28 @@ function getImageAssetCache() {
     imageAssetCache = buildImageAssetCache();
   }
   return imageAssetCache;
+}
+
+function rebuildImageAssetIndex() {
+  const startedAt = Date.now();
+  const list = scanAllImageAssets();
+  const index = writeImageAssetIndex(list);
+  const cache = buildImageAssetCacheFromList(list, {
+    source: 'rebuilt',
+    indexPath: index.indexPath,
+    builtAt: index.builtAt,
+    itemCount: index.itemCount,
+  });
+  imageAssetCache = cache;
+  appendRuntimeLog('assets-index', `rebuilt count=${list.length} elapsedMs=${Date.now() - startedAt}`);
+  return {
+    ok: true,
+    count: list.length,
+    elapsedMs: Date.now() - startedAt,
+    indexPath: index.indexPath,
+    builtAt: index.builtAt,
+    cache,
+  };
 }
 
 function addFileEntry(results, dirsWithFiles, fullPath, relPath, source, writable, rootInfo = null) {
@@ -3003,6 +3238,16 @@ function scanAllImageAssets() {
       label: `发布更新资源 · ${path.basename(activeReleaseRoot)}`,
       directory: activeReleaseRoot,
       priority: 0,
+    });
+  }
+  for (const root of getImageRootEntries()) {
+    if (root.id === 'primary' && activeReleaseRoot) continue;
+    if (!root.exists || !fs.existsSync(root.directory)) continue;
+    walk(root.directory, 'images', root.legacy ? 'legacy' : 'user', Boolean(root.writable), {
+      id: root.id,
+      label: root.label,
+      directory: root.directory,
+      priority: root.priority,
     });
   }
   const list = results;
@@ -3147,8 +3392,10 @@ function getWebImageAssetCapabilities() {
     canDeleteDir: true,
     canReveal: true,
     canManageRoots: true,
+    canRebuildIndex: true,
     primaryRoot: getUserImagesDir(),
     rootsConfigPath: getImageRootsConfigPath(),
+    indexPath: getImageAssetIndexPath(),
     backendLabel: '网页端 · 可管理',
     transportKind: 'web-bridge',
   };
@@ -3156,6 +3403,11 @@ function getWebImageAssetCapabilities() {
 
 function handleListImageAssets() {
   return getImageAssetCache().list;
+}
+
+function handleRebuildImageAssetIndex() {
+  const { cache, ...result } = rebuildImageAssetIndex();
+  return result;
 }
 
 function handleRenameImageDirectory(payload) {
@@ -3342,6 +3594,7 @@ function handleRenameImageAsset(payload) {
 
   try {
     fs.renameSync(oldPath, newPath);
+    syncImageManifest();
     return { ok: true };
   } catch (err) {
     return { ok: false, error: `重命名失败: ${err.message}` };
@@ -3370,6 +3623,7 @@ function handleDeleteImageAsset(payload) {
 
   try {
     fs.unlinkSync(targetPath);
+    syncImageManifest();
     return { ok: true };
   } catch (err) {
     return { ok: false, error: `删除失败: ${err.message}` };
@@ -3596,6 +3850,10 @@ function handleDeleteImageDirectory(payload) {
 
 ipcMain.handle('desktop:list-image-assets', () => {
   return handleListImageAssets();
+});
+
+ipcMain.handle('desktop:rebuild-image-asset-index', () => {
+  return handleRebuildImageAssetIndex();
 });
 
 ipcMain.handle('desktop:import-image-assets', async () => {
@@ -4193,14 +4451,15 @@ ipcMain.handle('desktop:reveal-local-data-archive', async (_event, payload) => {
   }
 });
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   if (process.platform === 'win32' && fs.existsSync(APP_ICON_ICO_PATH)) {
     app.setAppUserModelId('com.dmg.def');
   }
   Menu.setApplicationMenu(null);
-  syncImageManifest();
+  preloadImageAssetService();
   createTray();
   startBridgeServer();
+  await startStartupSidecars();
 
   createShellWindow();
 
