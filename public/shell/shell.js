@@ -941,35 +941,6 @@
     }
   };
 
-  const rebuildImageAssetIndex = async (button) => {
-    if (!runtime?.rebuildImageAssetIndex) {
-      const message = '当前运行时不支持重建图片索引。';
-      setText('image-root-status', message);
-      appendLog(`图片索引 | ${message}`);
-      return;
-    }
-    setButtonBusy(button, true, '重建中');
-    setText('image-root-status', '正在重新扫描图片目录并写入独立索引...');
-    try {
-      const result = await runtime.rebuildImageAssetIndex();
-      if (!result?.ok) {
-        throw new Error(result?.error || '重建失败');
-      }
-      const count = Number(result.count || 0);
-      const elapsedMs = Number(result.elapsedMs || 0);
-      const detail = `索引已重建：${count} 个条目，用时 ${elapsedMs} ms${result.indexPath ? `；${result.indexPath}` : ''}`;
-      appendLog(`图片索引 | 已重建 | ${count} 个条目 | ${elapsedMs} ms`);
-      await refreshImages();
-      setText('image-root-status', detail);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      setText('image-root-status', `重建索引失败：${message}`);
-      appendLog(`图片索引 | 重建失败 | ${message}`);
-    } finally {
-      setButtonBusy(button, false);
-    }
-  };
-
   const refreshImageUpdateState = async () => {
     if (!runtime?.getImageUpdateState) {
       renderImageUpdateState(null);
@@ -1302,9 +1273,6 @@
     });
     $('refresh-images')?.addEventListener('click', () => {
       refreshImages().catch((error) => appendLog(`图片资产 | 刷新失败 | ${error instanceof Error ? error.message : String(error)}`));
-    });
-    $('rebuild-image-index')?.addEventListener('click', (event) => {
-      rebuildImageAssetIndex(event.currentTarget).catch((error) => appendLog(`图片索引 | 重建失败 | ${error instanceof Error ? error.message : String(error)}`));
     });
     $('check-image-update')?.addEventListener('click', (event) => {
       checkImageUpdate(event.currentTarget).catch((error) => appendLog(`图片更新 | 检查失败 | ${error instanceof Error ? error.message : String(error)}`));

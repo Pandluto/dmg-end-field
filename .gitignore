@@ -19,7 +19,6 @@ release-latest/
 data/localdata/**
 !data/localdata/
 !data/localdata/.gitkeep
-data/image-asset-index.json
 .codex-remote-attachments/
 !scripts/extract-akedb-raw-index.mjs
 !scripts/research-filter-akedb.mjs

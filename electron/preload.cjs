@@ -22,7 +22,6 @@ contextBridge.exposeInMainWorld('desktopRuntime', {
   revealPath: (payload) => ipcRenderer.invoke('desktop:reveal-path', payload),
   quitApp: () => ipcRenderer.invoke('desktop:quit-app'),
   listImageAssets: () => ipcRenderer.invoke('desktop:list-image-assets'),
-  rebuildImageAssetIndex: () => ipcRenderer.invoke('desktop:rebuild-image-asset-index'),
   importImageAssets: () => ipcRenderer.invoke('desktop:import-image-assets'),
   importImageAssetsToDir: (payload) => ipcRenderer.invoke('desktop:import-image-assets-to-dir', payload),
   renameImageAsset: (payload) => ipcRenderer.invoke('desktop:rename-image-asset', payload),

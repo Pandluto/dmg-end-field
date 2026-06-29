@@ -26,10 +26,8 @@ interface BridgeCapabilityPayload {
   canDeleteDir: boolean;
   canReveal: boolean;
   canManageRoots?: boolean;
-  canRebuildIndex?: boolean;
   primaryRoot?: string;
   rootsConfigPath?: string;
-  indexPath?: string;
   backendLabel?: string;
   transportKind?: ImageManagerCapabilities['transportKind'];
 }
@@ -44,10 +42,8 @@ export interface ImageManagerCapabilities {
   canDeleteDir: boolean;
   canReveal: boolean;
   canManageRoots?: boolean;
-  canRebuildIndex?: boolean;
   primaryRoot?: string;
   rootsConfigPath?: string;
-  indexPath?: string;
   isElectron: boolean;
   isWritable: boolean;
   backendLabel: string;
@@ -84,7 +80,6 @@ function getDesktopCapabilities(): ImageManagerCapabilities {
   const canCreateDir = hasHostMethod('createImageDirectory');
   const canDeleteDir = hasHostMethod('deleteImageDirectory');
   const canReveal = hasHostMethod('revealInExplorer');
-  const canRebuildIndex = hasHostMethod('rebuildImageAssetIndex');
   const isWritable = canImport && canRename && canRenameDir && canDeleteFile && canCreateDir && canDeleteDir;
 
   return {
@@ -96,7 +91,6 @@ function getDesktopCapabilities(): ImageManagerCapabilities {
     canCreateDir,
     canDeleteDir,
     canReveal,
-    canRebuildIndex,
     isElectron: true,
     isWritable,
     backendLabel: isWritable ? '桌面端 · 可管理' : '桌面端 · 受限',
@@ -114,7 +108,6 @@ function getBrowserReadonlyCapabilities(): ImageManagerCapabilities {
     canCreateDir: false,
     canDeleteDir: false,
     canReveal: false,
-    canRebuildIndex: false,
     isElectron: false,
     backendLabel: '浏览器端 · 只读预览',
     transportKind: 'browser-readonly',
@@ -132,10 +125,8 @@ function getWebBridgeCapabilities(payload: BridgeCapabilityPayload): ImageManage
     canDeleteDir: Boolean(payload.canDeleteDir),
     canReveal: Boolean(payload.canReveal),
     canManageRoots: Boolean(payload.canManageRoots),
-    canRebuildIndex: Boolean(payload.canRebuildIndex),
     primaryRoot: payload.primaryRoot,
     rootsConfigPath: payload.rootsConfigPath,
-    indexPath: payload.indexPath,
     isElectron: false,
     backendLabel: payload.backendLabel || '网页端 · 远程管理',
     transportKind: payload.transportKind || 'web-bridge',
@@ -335,19 +326,6 @@ export const imageBridge = {
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       return res.json();
     }
-  },
-
-  async rebuildIndex(): Promise<{ ok: boolean; count?: number; elapsedMs?: number; indexPath?: string; error?: string }> {
-    if (isDesktopTransport()) {
-      const result = await window.desktopRuntime!.rebuildImageAssetIndex!();
-      setCapabilities(getDesktopCapabilities());
-      return result;
-    }
-
-    const cap = requireCapability('canRebuildIndex');
-    if (!cap.ok) return cap;
-
-    return fetchBridgeJson('/image-assets/rebuild-index', { method: 'POST' }, BRIDGE_TIMEOUT_MS);
   },
 
   async importToDir(targetDir?: string): Promise<{ ok: boolean; error?: string; imported?: string[] }> {

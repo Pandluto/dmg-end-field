@@ -88,15 +88,6 @@ interface ImageAssetRevealResult {
   error?: string;
 }
 
-interface ImageAssetIndexRebuildResult {
-  ok: boolean;
-  count?: number;
-  elapsedMs?: number;
-  indexPath?: string;
-  builtAt?: number;
-  error?: string;
-}
-
 interface EquipmentLibraryFileOpResult {
   ok: boolean;
   data?: unknown;
@@ -176,7 +167,6 @@ interface ImageAssetImportToDirResult {
 interface DesktopRuntimeBridge {
   role?: 'main' | 'shell' | string;
   listImageAssets?: () => Promise<ImageAssetEntry[]>;
-  rebuildImageAssetIndex?: () => Promise<ImageAssetIndexRebuildResult>;
   importImageAssets?: () => Promise<ImageAssetEntry[]>;
   importImageAssetsToDir?: (payload: ImageAssetImportToDirPayload) => Promise<ImageAssetImportToDirResult>;
   renameImageAsset?: (payload: ImageAssetRenamePayload) => Promise<ImageAssetOpResult>;
