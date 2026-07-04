@@ -1,9 +1,9 @@
 import { createServer } from 'vite';
 
-const testModule = process.argv[2];
+const testModules = process.argv.slice(2);
 
-if (!testModule) {
-  console.error('Usage: node scripts/run-ts-test.mjs <module>');
+if (!testModules.length) {
+  console.error('Usage: node scripts/run-ts-test.mjs <module> [module...]');
   process.exit(1);
 }
 
@@ -15,7 +15,10 @@ const server = await createServer({
 });
 
 try {
-  await server.ssrLoadModule(testModule);
+  for (const testModule of testModules) {
+    console.log(`[run-ts-test] ${testModule}`);
+    await server.ssrLoadModule(testModule);
+  }
 } finally {
   await server.close();
 }

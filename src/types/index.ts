@@ -157,6 +157,7 @@ export interface Character {
   nameEn: string;
   rarity: number;            // 星级
   profession: string;       // 职业
+  weapon?: string;           // 可用武器类型
   element: ElementType;      // 元素属性
   mainStat: AbilityType;      // 主属性
   subStat: AbilityType;       // 副属性

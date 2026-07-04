@@ -188,6 +188,7 @@ export function adaptRuntimeTemplateToLegacyCharacter(
     nameEn: template.name,
     rarity: template.rarity,
     profession: (template.profession || '未设置') as Character['profession'],
+    weapon: template.weapon || '',
     element: template.element,
     mainStat: (template.mainStat || '力量') as Character['mainStat'],
     subStat: (template.subStat || '敏捷') as Character['subStat'],

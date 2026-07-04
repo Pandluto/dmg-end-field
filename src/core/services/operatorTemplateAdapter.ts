@@ -481,7 +481,7 @@ export function buildRuntimeOperatorTemplateFromOfficialCharacter(
     avatarUrl: character.avatarUrl,
     rarity: character.rarity,
     profession: character.profession || '',
-    weapon: '', // 官方角色当前无武器字段
+    weapon: character.weapon || '',
     element: character.element || 'physical',
     mainStat: character.mainStat || '',
     subStat: character.subStat || '',

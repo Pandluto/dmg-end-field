@@ -166,7 +166,6 @@ const SKILL_ITEMS = [
   { key: 'B', name: '战技占位' },
   { key: 'E', name: '连携技占位' },
   { key: 'Q', name: '终结技占位' },
-  { key: 'Dot', name: '持续伤害占位' },
 ] as const satisfies ReadonlyArray<{ key: OperatorSkillKey; name: string }>;
 
 const SLOT_COUNT = 8;
@@ -240,6 +239,18 @@ const EQUIPMENT_SLOT_KEYS = ['accessory1', 'accessory2', 'armor', 'glove'] as co
 type EquipmentSlotKey = (typeof EQUIPMENT_SLOT_KEYS)[number];
 type EquipmentEntryIndex = 0 | 1 | 2;
 const DISABLED_CHARACTER_LEVEL_COUNTS = new Set([2, 4, 6]);
+
+function normalizeSkillConfig(
+  skillConfig: Partial<Record<OperatorSkillKey, string>> | undefined
+): Record<OperatorSkillKey, string> {
+  return {
+    A: skillConfig?.A ?? DEFAULT_SKILL_MODE,
+    B: skillConfig?.B ?? DEFAULT_SKILL_MODE,
+    E: skillConfig?.E ?? DEFAULT_SKILL_MODE,
+    Q: skillConfig?.Q ?? DEFAULT_SKILL_MODE,
+    Dot: DEFAULT_SKILL_MODE,
+  };
+}
 const WEAPON_SKILL1_TYPE_MAP: Record<string, string> = {
   敏捷提升: 'agilityBoost',
   力量提升: 'strengthBoost',
@@ -285,6 +296,10 @@ function resolveStoredImageUrl(path?: string): string {
 function resolveWeaponImageUrl(weaponName?: string): string {
   if (!weaponName) return '';
   return `http://127.0.0.1:31457/user-images/${encodeURIComponent(`${weaponName}.png`)}`;
+}
+
+function normalizeWeaponType(value: unknown): string {
+  return typeof value === 'string' ? value.trim() : '';
 }
 
 function readLocalStorageJson<T>(key: string, fallback: T): T {
@@ -496,6 +511,7 @@ function createCharacterData(character: Character): Record<string, unknown> {
     element: character.element,
     rarity: character.rarity,
     profession: character.profession,
+    weapon: character.weapon ?? '',
     mainStat: character.mainStat,
     subStat: character.subStat,
     attributes: character.attributes,
@@ -546,13 +562,7 @@ function createDefaultCharacterConfig(character: Character): OperatorConfigPageC
     },
     skills: {
       id: character.id,
-      config: {
-        A: DEFAULT_SKILL_MODE,
-        B: DEFAULT_SKILL_MODE,
-        E: DEFAULT_SKILL_MODE,
-        Q: DEFAULT_SKILL_MODE,
-        Dot: DEFAULT_SKILL_MODE,
-      },
+      config: normalizeSkillConfig(undefined),
       data: createCharacterData(character).skills as Record<string, unknown>,
     },
   };
@@ -567,6 +577,7 @@ function createCharacterConfigFromSnapshot(snapshot: ConfigSnapshot, sourceChara
       element: snapshot.operator.element,
       mainStat: snapshot.operator.mainStat,
       subStat: snapshot.operator.subStat,
+      weapon: '',
       attributes: {
         [levelValueToAttributeKey(snapshot.operator.level)]: snapshot.operator.baseAttributes,
       },
@@ -638,13 +649,7 @@ function createCharacterConfigFromSnapshot(snapshot: ConfigSnapshot, sourceChara
     equipment,
     skills: {
       id: snapshot.operator.id,
-      config: {
-        A: snapshot.operator.skillConfig.A ?? DEFAULT_SKILL_MODE,
-        B: snapshot.operator.skillConfig.B ?? DEFAULT_SKILL_MODE,
-        E: snapshot.operator.skillConfig.E ?? DEFAULT_SKILL_MODE,
-        Q: snapshot.operator.skillConfig.Q ?? DEFAULT_SKILL_MODE,
-        Dot: snapshot.operator.skillConfig.Dot ?? DEFAULT_SKILL_MODE,
-      },
+      config: normalizeSkillConfig(snapshot.operator.skillConfig),
       data: (baseCharacterData as Partial<Character>).skills as Record<string, unknown> ?? {},
     },
     sourceSnapshot: snapshot,
@@ -1067,7 +1072,7 @@ function buildOperatorPanelInput(
       subStat: operatorData.subStat ?? activeCharacter?.subStat ?? '',
       mainStatFlatBonus: getOperatorMainStatFlatBonus(config),
       subStatFlatBonus: getOperatorSubStatFlatBonus(config),
-      skillConfig: config?.skills.config,
+      skillConfig: normalizeSkillConfig(config?.skills.config),
       attributes: operatorData.attributes ?? activeCharacter?.attributes ?? {},
       buffs: operatorData.operatorBuffs ?? activeCharacter?.operatorBuffs,
     },
@@ -1593,11 +1598,12 @@ export function OperatorConfigPage() {
   const weaponSkill3ManualLevel = getWeaponSkill3ManualLevel(weaponSkillLevel3, weaponPotentialCount);
   const currentCharacterData = (currentConfig?.character.data ?? EMPTY_RECORD) as Partial<Character>;
   const currentWeaponData = (currentConfig?.weapon.data ?? EMPTY_RECORD) as Partial<WeaponData>;
+  const currentCharacterWeaponType = normalizeWeaponType(activeCharacter?.weapon ?? currentCharacterData.weapon);
   const attributeKey = levelValueToAttributeKey(currentConfig?.character.config.level ?? 90);
   const currentAttributes = currentCharacterData.attributes?.[attributeKey] ?? currentCharacterData.attributes?.level90;
   const skillData = (currentConfig?.skills.data ?? EMPTY_RECORD) as Partial<Record<OperatorSkillKey, { name?: string; type?: string }>>;
   const activeSkillDetailLevel = activeSkillDetailKey
-    ? currentConfig?.skills.config[activeSkillDetailKey] ?? DEFAULT_SKILL_MODE
+    ? normalizeSkillConfig(currentConfig?.skills.config)[activeSkillDetailKey]
     : DEFAULT_SKILL_MODE;
   const activeSkillDetailGroups = activeSkillDetailKey
     ? buildSkillDetailGroups(activeCharacter ?? currentCharacterData, activeSkillDetailKey, activeSkillDetailLevel)
@@ -1757,12 +1763,24 @@ export function OperatorConfigPage() {
       return searchText.includes(keyword);
     });
   }, [ctiInputValue, equipmentOptionsByPart, equipmentPickerMeta]);
-  const weaponOptions = React.useMemo(() => Object.keys(weaponLibrary).sort((left, right) => left.localeCompare(right, 'zh-CN')), [weaponLibrary]);
+  const weaponOptions = React.useMemo(() => {
+    const allWeaponOptions = Object.keys(weaponLibrary).sort((left, right) => left.localeCompare(right, 'zh-CN'));
+    if (!currentCharacterWeaponType) return allWeaponOptions;
+
+    const typedWeaponOptions = allWeaponOptions.filter((weaponName) => (
+      normalizeWeaponType(weaponLibrary[weaponName]?.type) === currentCharacterWeaponType
+    ));
+    return typedWeaponOptions;
+  }, [currentCharacterWeaponType, weaponLibrary]);
   const weaponPickerOptions = React.useMemo(() => {
     const keyword = ctiInputValue.trim().toLowerCase();
     if (!keyword) return weaponOptions;
-    return weaponOptions.filter((weaponName) => weaponName.toLowerCase().includes(keyword));
-  }, [ctiInputValue, weaponOptions]);
+    return weaponOptions.filter((weaponName) => {
+      const weapon = weaponLibrary[weaponName];
+      const searchText = `${weaponName} ${weapon?.id ?? ''} ${weapon?.type ?? ''}`.toLowerCase();
+      return searchText.includes(keyword);
+    });
+  }, [ctiInputValue, weaponLibrary, weaponOptions]);
 
   const updateEquipmentEntryLevel = React.useCallback((slotKey: EquipmentSlotKey, entryIndex: EquipmentEntryIndex, nextLevel: number) => {
     updateCurrentConfig((prev) => {
@@ -2078,7 +2096,16 @@ export function OperatorConfigPage() {
                     </div>
                   </section>
                   <section className="operator-config-page-section operator-config-page-skills-section operator-config-page-scrollable">
-                    <h4 className="operator-config-page-section-title">技能</h4>
+                    <div className="operator-config-page-section-heading">
+                      <h4 className="operator-config-page-section-title">技能</h4>
+                      <button
+                        type="button"
+                        className="operator-config-page-dot-detail-button"
+                        onClick={() => setActiveSkillDetailKey('Dot')}
+                      >
+                        Dot 详情
+                      </button>
+                    </div>
                     <div className="operator-config-page-track-list">
                       {SKILL_ITEMS.map((skill) => (
                         <SkillTrackRow

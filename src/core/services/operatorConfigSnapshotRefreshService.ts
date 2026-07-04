@@ -594,6 +594,7 @@ function buildSkillConfig(snapshot: ConfigSnapshot | undefined, legacyConfig: Ch
     ...DEFAULT_OPERATOR_SKILL_CONFIG,
     ...(legacyConfig?.skillLevelModeMap ?? {}),
     ...(snapshot?.operator.skillConfig ?? {}),
+    Dot: DEFAULT_OPERATOR_SKILL_CONFIG.Dot,
   };
 }
 
