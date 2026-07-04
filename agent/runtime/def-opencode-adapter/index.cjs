@@ -18,6 +18,8 @@ const runtimeRoot = path.join(projectRoot, 'agent', 'runtime', 'opencode-core');
 const skillsRoot = path.join(projectRoot, 'agent', 'runtime', 'def', 'skills');
 const runtimeLogDir = path.join(projectRoot, '.runtime', 'def-agent');
 const agentWorkspaceDir = path.join(os.tmpdir(), 'dmg-end-field', 'def-agent-workspace');
+const defaultDefOpenCodeHome = path.join(projectRoot, '.runtime', 'def-opencode');
+const DEF_TRANSCRIPT_SCHEMA_VERSION = 1;
 
 const capabilityPolicy = {
   name: 'def-runtime-minimal-v1',
@@ -300,6 +302,34 @@ function getAgentWorkspaceDir() {
   return agentWorkspaceDir;
 }
 
+function getDefOpenCodeHome() {
+  const configured = typeof process.env.DEF_OPENCODE_HOME === 'string' ? process.env.DEF_OPENCODE_HOME.trim() : '';
+  return path.resolve(configured || defaultDefOpenCodeHome);
+}
+
+function buildOpenCodeRuntimeEnv(openCodeConfig) {
+  const home = getDefOpenCodeHome();
+  const dataHome = path.join(home, 'data');
+  const stateHome = path.join(home, 'state');
+  const cacheHome = path.join(home, 'cache');
+  const configHome = path.join(home, 'config');
+  const dbPath = path.join(home, 'db', 'def-opencode.db');
+  for (const dir of [dataHome, stateHome, cacheHome, configHome, path.dirname(dbPath)]) {
+    fs.mkdirSync(dir, { recursive: true });
+  }
+  return {
+    ...process.env,
+    XDG_DATA_HOME: dataHome,
+    XDG_STATE_HOME: stateHome,
+    XDG_CACHE_HOME: cacheHome,
+    XDG_CONFIG_HOME: configHome,
+    OPENCODE_DB: dbPath,
+    OPENCODE_DISABLE_PROJECT_CONFIG: '1',
+    OPENCODE_DISABLE_SHARE: '1',
+    OPENCODE_CONFIG_CONTENT: JSON.stringify(openCodeConfig),
+  };
+}
+
 function readJsonFile(filePath) {
   try {
     return JSON.parse(fs.readFileSync(filePath, 'utf-8'));
@@ -483,7 +513,7 @@ function waitForOpenCodeReady(child, timeoutMs = 30000) {
 
 async function ensureOpenCodeServer(config, skillId, thinkingEffort) {
   const openCodeConfig = buildOpenCodeConfig(config, skillId, thinkingEffort);
-  const nextHash = hashConfig(openCodeConfig);
+  const nextHash = hashConfig({ config: openCodeConfig, opencodeHome: getDefOpenCodeHome() });
   if (processRunning(opencodeProcess) && opencodeConfigHash === nextHash && opencodeReadyUrl) {
     return opencodeReadyUrl;
   }
@@ -502,11 +532,7 @@ async function ensureOpenCodeServer(config, skillId, thinkingEffort) {
     `--port=${opencodeReadyPort}`,
   ], {
     cwd: agentWorkspaceDir,
-    env: {
-      ...process.env,
-      OPENCODE_DISABLE_SHARE: '1',
-      OPENCODE_CONFIG_CONTENT: JSON.stringify(openCodeConfig),
-    },
+    env: buildOpenCodeRuntimeEnv(openCodeConfig),
     stdio: ['ignore', 'pipe', 'pipe'],
     windowsHide: true,
   });
@@ -519,6 +545,13 @@ async function ensureOpenCodeServer(config, skillId, thinkingEffort) {
 
   opencodeReadyUrl = await waitForOpenCodeReady(opencodeProcess);
   return opencodeReadyUrl;
+}
+
+async function getOpenCodeServerForRead(config, skillId, thinkingEffort) {
+  if (processRunning(opencodeProcess) && opencodeReadyUrl) {
+    return opencodeReadyUrl;
+  }
+  return ensureOpenCodeServer(config, skillId, thinkingEffort);
 }
 
 function requestJson(method, url, body, signal, timeoutMs = 60000) {
@@ -632,6 +665,191 @@ function compactValue(value, limit = 1200) {
   return text.length > limit ? `${text.slice(0, limit)}...` : text;
 }
 
+function sanitizeError(value, limit = 300) {
+  const text = compactValue(value, limit)
+    .replace(/Bearer\s+[A-Za-z0-9._~+/-]+=*/gi, 'Bearer [redacted]')
+    .replace(/api[-_ ]?key["'\s:=]+[A-Za-z0-9._~+/-]+/gi, 'apiKey=[redacted]')
+    .replace(/token["'\s:=]+[A-Za-z0-9._~+/-]+/gi, 'token=[redacted]');
+  return text;
+}
+
+function metadataSkillId(metadata) {
+  const value = metadata && typeof metadata === 'object' ? metadata.skillId : '';
+  return typeof value === 'string' && skillMap[value] ? value : undefined;
+}
+
+function metadataThinkingEffort(metadata) {
+  const value = metadata && typeof metadata === 'object' ? metadata.thinkingEffort : '';
+  return ['low', 'medium', 'high'].includes(value) ? value : undefined;
+}
+
+function isDefOpenCodeSession(info) {
+  const metadata = info?.metadata || {};
+  if (metadata.defOpencode === true || metadata.app === 'dmg-end-field') return true;
+  return info?.directory === agentWorkspaceDir;
+}
+
+function buildSessionCreatePayload({ selected, deepseek, skillId, thinkingEffort }) {
+  const normalizedSkillId = skillMap[skillId] ? skillId : 'operator';
+  return {
+    title: `DEF ${selected.label} - ${new Date().toISOString()}`,
+    agent: selected.agent,
+    model: {
+      providerID: 'deepseek',
+      id: deepseek.model,
+    },
+    metadata: {
+      defOpencode: true,
+      app: 'dmg-end-field',
+      schemaVersion: DEF_TRANSCRIPT_SCHEMA_VERSION,
+      skillId: normalizedSkillId,
+      thinkingEffort: normalizeThinkingEffort(thinkingEffort),
+    },
+  };
+}
+
+function mapOpenCodeSessionSummary(info) {
+  const skillId = metadataSkillId(info?.metadata) || Object.keys(skillMap).find((id) => skillMap[id].agent === info?.agent);
+  return {
+    id: info.id,
+    sessionID: info.id,
+    title: info.title,
+    agent: info.agent,
+    model: modelIdFromOpenCodeSession(info),
+    skillId,
+    active: false,
+    stopped: Boolean(info.time?.archived),
+    archived: Boolean(info.time?.archived),
+    createdAt: info.time?.created,
+    updatedAt: info.time?.updated,
+    tokens: normalizeTokens(info.tokens),
+    lastSeq: 0,
+    persisted: true,
+  };
+}
+
+function modelIdFromOpenCodeSession(info, fallback) {
+  const model = info?.model;
+  if (typeof model === 'string' && model.trim()) return model.trim();
+  if (typeof model?.id === 'string' && model.id.trim()) return model.id.trim();
+  if (typeof model?.modelID === 'string' && model.modelID.trim()) return model.modelID.trim();
+  return fallback;
+}
+
+function proposalIdFromValue(value) {
+  if (!value || typeof value !== 'object') return undefined;
+  for (const key of ['proposalId', 'proposalID', 'id', 'recordId']) {
+    const candidate = value[key];
+    if (typeof candidate === 'string' && candidate.trim()) return candidate.trim();
+  }
+  return undefined;
+}
+
+function summarizeToolPart(part) {
+  const state = part?.state || {};
+  const metadata = state.metadata && typeof state.metadata === 'object' ? state.metadata : {};
+  const output = state.output && typeof state.output === 'object' ? state.output : {};
+  const proposalId = proposalIdFromValue(metadata) || proposalIdFromValue(output);
+  const status = state.status === 'completed' ? 'done' : state.status === 'error' ? 'error' : 'running';
+  return {
+    id: part.id,
+    kind: 'tool',
+    title: String(state.title || part.tool || part.name || '工具调用'),
+    detail: proposalId ? `提案 ${proposalId}` : status === 'running' ? '运行中' : status === 'error' ? '执行异常' : '已返回结果',
+    result: proposalId ? `proposal=${proposalId}` : undefined,
+    proposalId,
+    status,
+  };
+}
+
+function safeToolTitle(part, fallback = '工具调用') {
+  return String(part?.state?.title || part?.tool || part?.name || fallback);
+}
+
+function buildSafeToolPayload(part) {
+  const summary = summarizeToolPart(part);
+  return {
+    id: part.id,
+    partId: part.id,
+    callId: part.callID,
+    messageId: part.messageID,
+    toolName: part.tool || part.name || 'tool',
+    status: summary.status,
+    title: summary.title,
+    result: summary.result,
+    proposalId: summary.proposalId,
+    summary: summary.detail,
+    error: summary.status === 'error' ? sanitizeError(part.state?.error) : undefined,
+  };
+}
+
+function textFromMessageParts(parts = []) {
+  return parts
+    .filter((part) => part?.type === 'text' && part.ignored !== true && typeof part.text === 'string')
+    .map((part) => part.text)
+    .join('\n')
+    .trim();
+}
+
+function mapOpenCodeMessagesToDefTranscript(messages = [], sessionInfo) {
+  const transcript = [];
+  for (const message of Array.isArray(messages) ? messages : []) {
+    const info = message?.info || {};
+    const parts = Array.isArray(message?.parts) ? message.parts : [];
+    if (info.role === 'user') {
+      const text = textFromMessageParts(parts) || (typeof info.text === 'string' ? info.text : '');
+      if (!text) continue;
+      transcript.push({
+        id: info.id,
+        role: 'user',
+        text,
+        sessionId: info.sessionID || sessionInfo?.id,
+        createdAt: info.time?.created,
+      });
+      continue;
+    }
+
+    if (info.role !== 'assistant') continue;
+    const text = textFromMessageParts(parts);
+    const toolActivity = parts.filter((part) => part?.type === 'tool').map(summarizeToolPart);
+    const hasReasoning = parts.some((part) => part?.type === 'reasoning');
+    const finish = [...parts].reverse().find((part) => part?.type === 'step-finish');
+    const tokens = normalizeTokens(finish?.tokens || info.tokens);
+    const activity = [];
+    if (hasReasoning) {
+      activity.push({
+        id: `${info.id || 'assistant'}-reasoning`,
+        kind: 'reasoning',
+        title: '思考',
+        detail: '隐藏推理已保护',
+        status: 'done',
+      });
+    }
+    activity.push(...toolActivity);
+    if (info.error) {
+      activity.push({
+        id: `${info.id || 'assistant'}-error`,
+        kind: 'event',
+        title: '运行异常',
+        detail: sanitizeError(info.error),
+        status: 'error',
+      });
+    }
+    transcript.push({
+      id: info.id,
+      role: 'agent',
+      text: text || (info.error ? sanitizeError(info.error) : ''),
+      sessionId: info.sessionID || sessionInfo?.id,
+      activity,
+      tokens,
+      isStreaming: false,
+      createdAt: info.time?.created,
+      updatedAt: info.time?.completed || info.time?.updated,
+    });
+  }
+  return transcript;
+}
+
 function makeStreamState({ baseUrl, directory, sessionID, agent, model, skillId, thinkingEffort }) {
   const state = {
     id: sessionID,
@@ -652,6 +870,7 @@ function makeStreamState({ baseUrl, directory, sessionID, agent, model, skillId,
     partText: new Map(),
     partTypes: new Map(),
     toolStatus: new Map(),
+    reasoningStatus: new Map(),
     assistantMessages: new Set(),
     tokens: undefined,
     currentTurnId: null,
@@ -696,6 +915,21 @@ function emitPartTextDelta(state, part, eventType) {
   });
 }
 
+function emitReasoningProgress(state, part, status = 'running') {
+  if (!part?.id) return;
+  const nextStatus = status === 'done' || part.time?.end ? 'done' : 'running';
+  const previousStatus = state.reasoningStatus.get(part.id);
+  if (previousStatus === nextStatus) return;
+  state.reasoningStatus.set(part.id, nextStatus);
+  emitStreamEvent(state, 'reasoning', {
+    partId: part.id,
+    messageId: part.messageID,
+    status: nextStatus,
+    redacted: true,
+    summary: nextStatus === 'done' ? '隐藏推理已保护' : '正在分析上下文',
+  });
+}
+
 function emitToolPart(state, part) {
   if (!part?.id) return;
   const toolName = part.tool || part.name || 'tool';
@@ -708,8 +942,7 @@ function emitToolPart(state, part) {
         messageId: part.messageID,
         toolName,
         status: 'running',
-        input: part.state?.input,
-        title: part.state?.title,
+        title: safeToolTitle(part),
       });
     }
     state.toolStatus.set(part.id, 'error');
@@ -721,10 +954,10 @@ function emitToolPart(state, part) {
       messageId: part.messageID,
       toolName,
       status: 'error',
-      input: part.state?.input,
-      result: compactValue(part.state?.output ?? part.state?.metadata),
+      result: undefined,
       error,
-      title: part.state?.title || '子代理已拦截',
+      title: safeToolTitle(part, '子代理已拦截'),
+      summary: '子代理调用已拦截',
     });
     if (state.controller && !state.controller.signal.aborted) {
       state.controller.abort(new Error(error));
@@ -741,23 +974,11 @@ function emitToolPart(state, part) {
       messageId: part.messageID,
       toolName,
       status: 'running',
-      input: part.state?.input,
-      title: part.state?.title,
+      title: safeToolTitle(part),
     });
   }
   state.toolStatus.set(part.id, status);
-  emitStreamEvent(state, status === 'error' ? 'tool.error' : 'tool.content', {
-    id: part.id,
-    partId: part.id,
-    callId: part.callID,
-    messageId: part.messageID,
-    toolName,
-    status: status === 'completed' ? 'done' : status === 'error' ? 'error' : 'running',
-    input: part.state?.input,
-    result: compactValue(part.state?.output ?? part.state?.metadata ?? part.state?.error),
-    error: compactValue(part.state?.error),
-    title: part.state?.title,
-  });
+  emitStreamEvent(state, status === 'error' ? 'tool.error' : 'tool.content', buildSafeToolPayload(part));
 }
 
 function emitStepFinishPart(state, part) {
@@ -780,7 +1001,7 @@ function normalizeOpenCodeEventForStream(state, event) {
 
   if (type === 'session.error') {
     emitStreamEvent(state, 'error', {
-      error: compactValue(properties.error || properties),
+      error: sanitizeError(properties.error || properties),
     });
     return;
   }
@@ -798,7 +1019,7 @@ function normalizeOpenCodeEventForStream(state, event) {
     if (info.error) {
       emitStreamEvent(state, 'error', {
         messageId: info.id,
-        error: compactValue(info.error),
+        error: sanitizeError(info.error),
       });
     }
     return;
@@ -812,7 +1033,7 @@ function normalizeOpenCodeEventForStream(state, event) {
     if (part.type === 'text' && part.ignored !== true) {
       emitPartTextDelta(state, part, 'text');
     } else if (part.type === 'reasoning') {
-      emitPartTextDelta(state, part, 'reasoning');
+      emitReasoningProgress(state, part);
     } else if (part.type === 'tool') {
       emitToolPart(state, part);
     } else if (part.type === 'step-finish') {
@@ -828,9 +1049,17 @@ function normalizeOpenCodeEventForStream(state, event) {
     const partId = properties.partID;
     const partType = state.partTypes.get(partId);
     if (partType !== 'text' && partType !== 'reasoning') return;
+    if (partType === 'reasoning') {
+      emitReasoningProgress(state, {
+        id: partId,
+        messageID: properties.messageID,
+        sessionID: properties.sessionID,
+      });
+      return;
+    }
     const previous = state.partText.get(partId) || '';
     state.partText.set(partId, `${previous}${properties.delta}`);
-    emitStreamEvent(state, partType === 'reasoning' ? 'reasoning' : 'text', {
+    emitStreamEvent(state, 'text', {
       partId,
       messageId: properties.messageID,
       text: properties.delta,
@@ -843,7 +1072,7 @@ function emitReplyRemainder(state, reply) {
   for (const part of parts) {
     if (!part?.id) continue;
     if (part.type === 'text' && part.ignored !== true) emitPartTextDelta(state, part, 'text');
-    if (part.type === 'reasoning') emitPartTextDelta(state, part, 'reasoning');
+    if (part.type === 'reasoning') emitReasoningProgress(state, part);
     if (part.type === 'tool') emitToolPart(state, part);
     if (part.type === 'step-finish') emitStepFinishPart(state, part);
   }
@@ -865,6 +1094,87 @@ function listChatSessions() {
       tokens: session.tokens,
       lastSeq: session.nextSeq - 1,
     }));
+}
+
+async function listPersistedDefSessions({ config = {}, skillId = 'operator', thinkingEffort = 'medium', limit = 100 } = {}) {
+  const deepseek = sanitizeDeepSeekConfig(config);
+  const directory = getAgentWorkspaceDir();
+  const baseUrl = await getOpenCodeServerForRead(deepseek, skillId, thinkingEffort);
+  const query = new URLSearchParams({
+    directory,
+    roots: 'true',
+    limit: String(limit),
+  });
+  const sessions = await requestJson('GET', `${baseUrl}/session?${query.toString()}`, undefined, undefined, 15000);
+  return (Array.isArray(sessions) ? sessions : [])
+    .filter(isDefOpenCodeSession)
+    .map(mapOpenCodeSessionSummary)
+    .sort((left, right) => (right.updatedAt || right.createdAt || 0) - (left.updatedAt || left.createdAt || 0));
+}
+
+async function getPersistedDefSession(sessionID, { config = {}, skillId = 'operator', thinkingEffort = 'medium' } = {}) {
+  if (!sessionID) throw new Error('session id is required');
+  const deepseek = sanitizeDeepSeekConfig(config);
+  const directory = getAgentWorkspaceDir();
+  const baseUrl = await getOpenCodeServerForRead(deepseek, skillId, thinkingEffort);
+  const query = `directory=${encodeURIComponent(directory)}`;
+  const session = await requestJson('GET', `${baseUrl}/session/${encodeURIComponent(sessionID)}?${query}`, undefined, undefined, 15000);
+  if (!isDefOpenCodeSession(session)) {
+    const error = new Error('persisted DEF session not found');
+    error.code = 'DEF_SESSION_NOT_FOUND';
+    throw error;
+  }
+  return {
+    baseUrl,
+    directory,
+    session,
+    summary: mapOpenCodeSessionSummary(session),
+  };
+}
+
+async function hydrateDefSession(sessionID, options = {}) {
+  const persisted = await getPersistedDefSession(sessionID, options);
+  const query = `directory=${encodeURIComponent(persisted.directory)}`;
+  const messages = await requestJson(
+    'GET',
+    `${persisted.baseUrl}/session/${encodeURIComponent(sessionID)}/message?${query}`,
+    undefined,
+    undefined,
+    20000,
+  );
+  return {
+    session: persisted.summary,
+    messages: mapOpenCodeMessagesToDefTranscript(messages, persisted.session),
+  };
+}
+
+async function ensurePersistedStreamSession(sessionID, { config = {}, skillId, thinkingEffort } = {}) {
+  const existing = streamSessions.get(sessionID);
+  if (existing) return existing;
+
+  const persisted = await getPersistedDefSession(sessionID, {
+    config,
+    skillId: skillId || 'operator',
+    thinkingEffort: thinkingEffort || 'medium',
+  });
+  const session = persisted.session || {};
+  const persistedSkillId = metadataSkillId(session.metadata) || skillId || Object.keys(skillMap).find((id) => skillMap[id].agent === session.agent) || 'operator';
+  const selected = skillMap[persistedSkillId] || skillMap.operator;
+  const persistedThinkingEffort = metadataThinkingEffort(session.metadata) || thinkingEffort || 'medium';
+  const liveBaseUrl = await ensureOpenCodeServer(sanitizeDeepSeekConfig(config), persistedSkillId, persistedThinkingEffort);
+  const state = makeStreamState({
+    baseUrl: liveBaseUrl,
+    directory: persisted.directory,
+    sessionID,
+    agent: session.agent || selected.agent,
+    model: modelIdFromOpenCodeSession(session, sanitizeDeepSeekConfig(config).model),
+    skillId: persistedSkillId,
+    thinkingEffort: persistedThinkingEffort,
+  });
+  state.createdAt = session.time?.created || state.createdAt;
+  state.updatedAt = session.time?.updated || state.updatedAt;
+  state.tokens = normalizeTokens(session.tokens);
+  return state;
 }
 
 function getChatSessionStream(sessionID) {
@@ -901,7 +1211,7 @@ async function sendMessageOnStreamSession(state, message, clientTurnId) {
     }, eventController.signal).catch((error) => {
       if (!eventController.signal.aborted) {
         appendLog(`[stream-event-error] ${error instanceof Error ? error.message : String(error)}`);
-        emitStreamEvent(state, 'error', { error: error instanceof Error ? error.message : String(error) });
+        emitStreamEvent(state, 'error', { error: sanitizeError(error instanceof Error ? error.message : String(error)) });
       }
     });
     state.eventPromise = eventPromise;
@@ -936,7 +1246,7 @@ async function sendMessageOnStreamSession(state, message, clientTurnId) {
     state.stopped = stopped;
     emitStreamEvent(state, stopped ? 'stopped' : 'error', {
       turnId,
-      error: error instanceof Error ? error.message : String(error),
+      error: sanitizeError(error instanceof Error ? error.message : String(error)),
     });
   } finally {
     eventController.abort();
@@ -963,7 +1273,8 @@ async function runChatStream({ config, message, thinkingEffort, skillId = 'opera
   const directory = getAgentWorkspaceDir();
   const baseUrl = await ensureOpenCodeServer(deepseek, skillId, thinkingEffort);
   const query = `directory=${encodeURIComponent(directory)}`;
-  const session = await requestJson('POST', `${baseUrl}/session?${query}`, {}, undefined, 15000);
+  const sessionPayload = buildSessionCreatePayload({ selected, deepseek, skillId, thinkingEffort });
+  const session = await requestJson('POST', `${baseUrl}/session?${query}`, sessionPayload, undefined, 15000);
   const state = makeStreamState({
     baseUrl,
     directory,
@@ -988,9 +1299,27 @@ async function runChatStream({ config, message, thinkingEffort, skillId = 'opera
   };
 }
 
-async function continueChat(sessionID, message, clientTurnId) {
-  const state = streamSessions.get(sessionID);
-  if (!state) throw new Error('stream session not found');
+async function continueChat(sessionID, message, clientTurnId, options = {}) {
+  const deepseek = sanitizeDeepSeekConfig(options.config || {});
+  let state = streamSessions.get(sessionID);
+  if (!state) {
+    if (!deepseek.apiKey) {
+      throw new Error('DeepSeek API key is not configured in DEF Shell 05 Agent.');
+    }
+    state = await ensurePersistedStreamSession(sessionID, {
+      config: deepseek,
+      skillId: options.skillId,
+      thinkingEffort: options.thinkingEffort,
+    });
+    emitStreamEvent(state, 'session.created', {
+      turnId: clientTurnId,
+      sessionId: state.sessionID,
+      agent: state.agent,
+      skillId: state.skillId,
+      model: state.model,
+      resumed: true,
+    });
+  }
   void sendMessageOnStreamSession(state, message, clientTurnId);
   return {
     sessionId: state.sessionID,
@@ -1107,7 +1436,7 @@ function mapOpenCodeLoopSteps(reply, events, ok) {
 }
 
 function buildErrorSteps(error) {
-  const detail = error instanceof Error ? error.message : String(error);
+  const detail = sanitizeError(error instanceof Error ? error.message : String(error));
   return [
     { phase: 'think', label: '思考', detail: 'OpenCode request started', status: 'done' },
     { phase: 'act', label: '执行', detail: 'OpenCode runtime returned an error', status: 'error' },
@@ -1155,7 +1484,8 @@ async function runChat({ config, message, thinkingEffort, skillId = 'operator' }
       });
     await new Promise((resolve) => setTimeout(resolve, 80));
     const query = `directory=${encodeURIComponent(directory)}`;
-    const session = await requestJson('POST', `${baseUrl}/session?${query}`, {}, runController.signal, 15000);
+    const sessionPayload = buildSessionCreatePayload({ selected, deepseek, skillId, thinkingEffort });
+    const session = await requestJson('POST', `${baseUrl}/session?${query}`, sessionPayload, runController.signal, 15000);
     activeRun.sessionID = session.id;
     const payload = {
       agent: selected.agent,
@@ -1202,7 +1532,7 @@ async function runChat({ config, message, thinkingEffort, skillId = 'operator' }
       ok: false,
       provider: 'embedded-opencode-source',
       model: deepseek.model,
-      error: error instanceof Error ? error.message : String(error),
+      error: sanitizeError(error instanceof Error ? error.message : String(error)),
       usedRemoteModel: true,
       realOpenCode: true,
       eventTypes: collectEventTypes(events),
@@ -1228,12 +1558,13 @@ async function stopChat(sessionID) {
       try {
         await requestJson('POST', `${state.baseUrl}/session/${encodeURIComponent(state.sessionID)}/abort?${query}`, {}, undefined, 15000);
       } catch (error) {
-        emitStreamEvent(state, 'error', { error: error instanceof Error ? error.message : String(error) });
+        const detail = sanitizeError(error instanceof Error ? error.message : String(error));
+        emitStreamEvent(state, 'error', { error: detail });
         return {
           ok: false,
           stopped: true,
           sessionID: state.sessionID,
-          reason: error instanceof Error ? error.message : String(error),
+          reason: detail,
         };
       }
     }
@@ -1296,6 +1627,7 @@ function runtimeSummary(config = {}) {
     running: processRunning(opencodeProcess),
     deepseek: summarizeConfig(config),
     capabilityPolicy: capabilityPolicySummary(),
+    opencodeHome: getDefOpenCodeHome(),
   };
 }
 
@@ -1316,6 +1648,9 @@ module.exports = {
   continueChat,
   stopChat,
   listChatSessions,
+  listPersistedDefSessions,
+  getPersistedDefSession,
+  hydrateDefSession,
   getChatSessionStream,
   shutdownRuntime,
 };

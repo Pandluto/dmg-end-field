@@ -419,6 +419,7 @@ async function startDefAgent() {
     env: {
       ...process.env,
       DEF_AGENT_PORT: '17322',
+      DEF_OPENCODE_HOME: path.join(projectRoot, '.runtime', 'def-opencode'),
     },
     stdio: 'ignore',
     detached: false,
@@ -600,6 +601,15 @@ const server = http.createServer(async (request, response) => {
     return;
   }
 
+  if (method === 'GET' && requestUrl.pathname === '/def-agent/chat/persisted-sessions') {
+    await startDefAgent();
+    const limit = requestUrl.searchParams.get('limit');
+    const suffix = limit ? `?limit=${encodeURIComponent(limit)}` : '';
+    const upstream = await fetchJsonUrl(`http://127.0.0.1:17322/api/chat/persisted-sessions${suffix}`);
+    writeJson(response, upstream.status || 500, upstream.body);
+    return;
+  }
+
   const defAgentEventsMatch = /^\/def-agent\/chat\/([^/]+)\/events$/.exec(requestUrl.pathname);
   if (method === 'GET' && defAgentEventsMatch) {
     await startDefAgent();
@@ -607,6 +617,24 @@ const server = http.createServer(async (request, response) => {
     const from = requestUrl.searchParams.get('from');
     const suffix = from ? `?from=${encodeURIComponent(from)}` : '';
     proxySseUrl(`http://127.0.0.1:17322/api/chat/${sessionID}/events${suffix}`, request, response);
+    return;
+  }
+
+  const defAgentPersistedMatch = /^\/def-agent\/chat\/([^/]+)\/persisted$/.exec(requestUrl.pathname);
+  if (method === 'GET' && defAgentPersistedMatch) {
+    await startDefAgent();
+    const sessionID = encodeURIComponent(decodeURIComponent(defAgentPersistedMatch[1]));
+    const upstream = await fetchJsonUrl(`http://127.0.0.1:17322/api/chat/${sessionID}/persisted`);
+    writeJson(response, upstream.status || 500, upstream.body);
+    return;
+  }
+
+  const defAgentTranscriptMatch = /^\/def-agent\/chat\/([^/]+)\/transcript$/.exec(requestUrl.pathname);
+  if (method === 'GET' && defAgentTranscriptMatch) {
+    await startDefAgent();
+    const sessionID = encodeURIComponent(decodeURIComponent(defAgentTranscriptMatch[1]));
+    const upstream = await fetchJsonUrl(`http://127.0.0.1:17322/api/chat/${sessionID}/transcript`);
+    writeJson(response, upstream.status || 500, upstream.body);
     return;
   }
 

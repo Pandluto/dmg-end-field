@@ -7,6 +7,9 @@ const {
   continueChat,
   stopChat,
   listChatSessions,
+  listPersistedDefSessions,
+  getPersistedDefSession,
+  hydrateDefSession,
   getChatSessionStream,
   shutdownRuntime,
   sanitizeDeepSeekConfig,
@@ -193,6 +196,18 @@ const server = http.createServer(async (request, response) => {
       return;
     }
 
+    if (method === 'GET' && requestUrl.pathname === '/api/chat/persisted-sessions') {
+      const sessions = await listPersistedDefSessions({
+        config: readConfig().deepseek,
+        limit: Number(requestUrl.searchParams.get('limit') || 100) || 100,
+      });
+      writeJson(response, 200, {
+        ok: true,
+        sessions,
+      });
+      return;
+    }
+
     if (method === 'POST' && requestUrl.pathname === '/api/chat') {
       const body = await readJsonBody(request);
       const result = await runChat({
@@ -253,11 +268,37 @@ const server = http.createServer(async (request, response) => {
       return;
     }
 
+    const persistedMatch = /^\/api\/chat\/([^/]+)\/persisted$/.exec(requestUrl.pathname);
+    if (method === 'GET' && persistedMatch) {
+      const sessionID = decodeURIComponent(persistedMatch[1]);
+      const persisted = await getPersistedDefSession(sessionID, { config: readConfig().deepseek });
+      writeJson(response, 200, {
+        ok: true,
+        session: persisted.summary,
+      });
+      return;
+    }
+
+    const transcriptMatch = /^\/api\/chat\/([^/]+)\/transcript$/.exec(requestUrl.pathname);
+    if (method === 'GET' && transcriptMatch) {
+      const sessionID = decodeURIComponent(transcriptMatch[1]);
+      const transcript = await hydrateDefSession(sessionID, { config: readConfig().deepseek });
+      writeJson(response, 200, {
+        ok: true,
+        ...transcript,
+      });
+      return;
+    }
+
     const messageMatch = /^\/api\/chat\/([^/]+)\/message$/.exec(requestUrl.pathname);
     if (method === 'POST' && messageMatch) {
       const sessionID = decodeURIComponent(messageMatch[1]);
       const body = await readJsonBody(request);
-      const result = await continueChat(sessionID, body.message, body.clientTurnId);
+      const result = await continueChat(sessionID, body.message, body.clientTurnId, {
+        config: readConfig().deepseek,
+        thinkingEffort: body.thinkingEffort,
+        skillId: body.skillId,
+      });
       writeJson(response, 200, {
         ok: true,
         sessionId: result.sessionId,

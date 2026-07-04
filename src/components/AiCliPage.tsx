@@ -16,6 +16,8 @@ import { readCurrentBuffDraft } from '../aiCli/buffFillAdapter';
 import { APP_ROUTE_PATHS, navigateToAppPath } from '../utils/appRoute';
 import {
   listDefAgentSessions,
+  listPersistedDefAgentSessions,
+  hydrateDefAgentSession,
   sendDefAgentContinue,
   startDefAgentStream,
   stopDefAgentStream,
@@ -26,6 +28,7 @@ import {
   type DefAgentStreamEvent,
   type DefAgentThinkingEffort,
   type DefAgentTokens,
+  type DefAgentTranscriptMessage,
 } from '../utils/defAgent';
 import './AiCliPage.css';
 
@@ -93,7 +96,6 @@ type SkillChatMessage = {
   text: string;
   meta?: string;
   sessionId?: string;
-  reasoningText?: string;
   activity?: DefAgentActivityItem[];
   loopSteps?: DefAgentLoopStep[];
   tokens?: DefAgentTokens;
@@ -155,6 +157,22 @@ function pickRestorableDefAgentSession(
   return sessions
     .filter((session) => !session.stopped && (!session.skillId || session.skillId === skillId))
     .sort((a, b) => (b.updatedAt || b.createdAt || 0) - (a.updatedAt || a.createdAt || 0))[0] || null;
+}
+
+function transcriptToSkillMessages(messages: DefAgentTranscriptMessage[]): SkillChatMessage[] {
+  return messages
+    .filter((message) => message && (message.role === 'user' || message.role === 'agent' || message.role === 'system'))
+    .map((message) => ({
+      id: message.id,
+      role: message.role,
+      text: message.text || '',
+      meta: message.meta,
+      sessionId: message.sessionId,
+      activity: message.activity,
+      loopSteps: message.loopSteps,
+      tokens: message.tokens,
+      isStreaming: false,
+    }));
 }
 
 function labelThinkingEffort(value: DefAgentThinkingEffort) {
@@ -299,7 +317,7 @@ function renderMarkdown(text: string) {
 
 function SkillMessageBody({ message }: { message: SkillChatMessage }) {
   if (message.role === 'agent') {
-    const hasDebugDetails = Boolean(message.activity?.length || message.loopSteps?.length || message.reasoningText);
+    const hasDebugDetails = Boolean(message.activity?.length || message.loopSteps?.length);
     return (
       <>
         {message.text ? null : <SkillAgentProgress message={message} />}
@@ -314,7 +332,6 @@ function SkillMessageBody({ message }: { message: SkillChatMessage }) {
             <summary>{message.isStreaming ? '后台正在处理' : '后台细节'}</summary>
             {message.activity?.length ? <SkillAgentActivity activity={message.activity} /> : null}
             {message.loopSteps?.length ? <SkillAgentLoop steps={message.loopSteps} /> : null}
-            {message.reasoningText ? <SkillReasoningBlock text={message.reasoningText} streaming={Boolean(message.isStreaming)} /> : null}
           </details>
         ) : null}
       </>
@@ -347,15 +364,6 @@ function SkillAgentProgress({ message }: { message: SkillChatMessage }) {
       <span>{label}</span>
       {message.isStreaming ? <i aria-hidden="true" /> : null}
     </div>
-  );
-}
-
-function SkillReasoningBlock({ text, streaming }: { text: string; streaming: boolean }) {
-  return (
-    <details className="ai-skill-reasoning">
-      <summary>{streaming ? '思考中…' : '已完成推理'}</summary>
-      <p>{text}</p>
-    </details>
   );
 }
 
@@ -729,27 +737,61 @@ export function AiCliPage() {
       setSkillStatus('已恢复上次会话');
     }
     let cancelled = false;
-    listDefAgentSessions()
-      .then((sessions) => {
+    const applyHydratedSession = async (sessionId: string) => {
+      const transcript = await hydrateDefAgentSession(sessionId);
+      if (cancelled) return false;
+      const messages = transcriptToSkillMessages(transcript.messages || []);
+      if (messages.length > 0) {
+        setSkillMessages(messages);
+      }
+      const session = transcript.session;
+      activeSkillSessionIdRef.current = session.id;
+      lastSkillStreamSeqRef.current = session.lastSeq || 0;
+      setActiveDefSessionId(session.id);
+      if (session.tokens) setSkillTokenUsage(session.tokens);
+      writeStoredDefAgentSession({
+        sessionId: session.id,
+        skillId: (session.skillId as SkillTaskId | undefined) || selectedSkillTaskId,
+        lastSeq: session.lastSeq || 0,
+        tokens: session.tokens,
+        updatedAt: session.updatedAt,
+      });
+      setSkillStatus(messages.length > 0 ? '已恢复历史会话' : '已恢复上次会话');
+      return true;
+    };
+    (async () => {
+      try {
+        const sessions = await listDefAgentSessions();
         if (cancelled) return;
         const restored = pickRestorableDefAgentSession(sessions, stored, selectedSkillTaskId);
-        if (!restored?.id) return;
-        activeSkillSessionIdRef.current = restored.id;
-        lastSkillStreamSeqRef.current = restored.lastSeq || stored?.lastSeq || 0;
-        setActiveDefSessionId(restored.id);
-        if (restored.tokens) setSkillTokenUsage(restored.tokens);
-        writeStoredDefAgentSession({
-          sessionId: restored.id,
-          skillId: (restored.skillId as SkillTaskId | undefined) || selectedSkillTaskId,
-          lastSeq: restored.lastSeq,
-          tokens: restored.tokens,
-          updatedAt: restored.updatedAt,
-        });
-        setSkillStatus('已恢复上次会话');
-      })
-      .catch(() => {
+        if (restored?.id) {
+          activeSkillSessionIdRef.current = restored.id;
+          lastSkillStreamSeqRef.current = restored.lastSeq || stored?.lastSeq || 0;
+          setActiveDefSessionId(restored.id);
+          if (restored.tokens) setSkillTokenUsage(restored.tokens);
+          writeStoredDefAgentSession({
+            sessionId: restored.id,
+            skillId: (restored.skillId as SkillTaskId | undefined) || selectedSkillTaskId,
+            lastSeq: restored.lastSeq,
+            tokens: restored.tokens,
+            updatedAt: restored.updatedAt,
+          });
+          setSkillStatus('已恢复上次会话');
+          await applyHydratedSession(restored.id).catch(() => false);
+          return;
+        }
+      } catch {
         // Def-agent is started lazily on send; lack of a session list should not slow the page.
-      });
+      }
+      try {
+        const persisted = await listPersistedDefAgentSessions();
+        if (cancelled) return;
+        const restored = pickRestorableDefAgentSession(persisted, stored, selectedSkillTaskId);
+        if (restored?.id) await applyHydratedSession(restored.id);
+      } catch {
+        // Persisted history is best-effort; a missing runtime should not block normal chat.
+      }
+    })();
     return () => {
       cancelled = true;
     };
@@ -1014,15 +1056,15 @@ export function AiCliPage() {
         };
       }
       if (payload.type === 'reasoning') {
+        const status = payload.status === 'done' ? 'done' : 'running';
         return {
           ...message,
-          reasoningText: `${message.reasoningText || ''}${payload.text || ''}`,
           activity: appendActivityItem(message.activity, {
             id: payload.partId || 'reasoning',
             kind: 'reasoning',
             title: '思考',
-            detail: '正在接收推理内容',
-            status: 'running',
+            detail: payload.summary || (status === 'done' ? '隐藏推理已保护' : '正在分析上下文'),
+            status,
           }),
         };
       }
@@ -1035,7 +1077,7 @@ export function AiCliPage() {
             id: payload.id || payload.partId || payload.callId || `tool-${payload.seq || Date.now()}`,
             kind: 'tool',
             title: toolLabel,
-            detail: payload.title || (status === 'running' ? '运行中' : status === 'error' ? '执行异常' : '已返回结果'),
+            detail: payload.summary || payload.title || (status === 'running' ? '运行中' : status === 'error' ? '执行异常' : '已返回结果'),
             result: payload.result || payload.error,
             status,
           }),
@@ -1151,7 +1193,10 @@ export function AiCliPage() {
     try {
       if (activeSkillSessionIdRef.current) {
         try {
-          await sendDefAgentContinue(activeSkillSessionIdRef.current, message, loopMessageId);
+          await sendDefAgentContinue(activeSkillSessionIdRef.current, message, loopMessageId, {
+            thinkingEffort,
+            skillId: selectedSkillTask.id,
+          });
           openSkillEventSource(activeSkillSessionIdRef.current, loopMessageId);
         } catch (error) {
           const detail = error instanceof Error ? error.message : String(error);
