@@ -81,6 +81,11 @@ export const AI_CLI_REST_ENDPOINTS = [
   'GET /api/agent/logs',
   'GET /api/agent/records',
   'GET /api/agent/events',
+  'GET /api/agent/scripts',
+  'GET /api/agent/scripts/<name>',
+  'POST /api/agent/scripts/write',
+  'POST /api/agent/scripts/run',
+  'POST /api/agent/scripts/delete',
 ] as const;
 
 export interface AiCliRestRequest {
@@ -363,6 +368,40 @@ export function handleAiCliRestRequest(
         events: 'Subscribe to GET /api/agent/events for SSE agent.records updates.',
         handoff: 'REST fill.apply creates a proposal. Web CLI imports pending proposals via SSE. REST refuses another fill.apply while any pending proposal exists. Call proposal.clear through POST /api/ai-cli/run only for stale backlog, then resubmit only the current proposal, or submit multiple edits one by one. Do not re-run fill.apply in Web CLI.',
       },
+      scriptWorkbench: {
+        purpose: 'Optional temporary helper scripts for JSON cleanup, comparison, batching, and draft generation.',
+        directory: '.runtime/def-agent/scripts',
+        endpoints: [
+          'GET /api/agent/scripts',
+          'GET /api/agent/scripts/<name>',
+          'POST /api/agent/scripts/write',
+          'POST /api/agent/scripts/run',
+          'POST /api/agent/scripts/delete',
+        ],
+        rules: [
+          'Use scripts only when the transformation is too large or repetitive for direct model reasoning.',
+          'Scripts must be small .js/.mjs files and operate on JSON input/output.',
+          'Scripts may support fill draft generation, library diffing, duplicate checks, and validation-error aggregation.',
+          'Scripts must not write app truth directly. Final writes still go through fill.check/fill.apply proposals.',
+          'Do not use scripts for source-code edits, git, npm install, shell automation, or external data fetching.',
+        ],
+        writeExample: {
+          method: 'POST',
+          path: '/api/agent/scripts/write',
+          body: {
+            name: 'compare-library.mjs',
+            content: 'const chunks=[]; for await (const c of process.stdin) chunks.push(c); const { input } = JSON.parse(Buffer.concat(chunks).toString("utf8")); console.log(JSON.stringify({ ok: true, count: Array.isArray(input?.items) ? input.items.length : 0 }));',
+          },
+        },
+        runExample: {
+          method: 'POST',
+          path: '/api/agent/scripts/run',
+          body: {
+            name: 'compare-library.mjs',
+            input: { items: [] },
+          },
+        },
+      },
       emergencyFallback: {
         name: 'now-storage proposal injection',
         useOnlyWhen: 'REST fill.check/fill.apply is blocked by a verified REST runtime/cache mismatch and the draft data has already been independently validated.',
@@ -404,6 +443,36 @@ export function handleAiCliRestRequest(
       ok: true,
       protocolVersion: AI_CLI_PROTOCOL_VERSION,
       skills: [
+        {
+          id: 'agent.script-workbench',
+          title: 'Temporary JSON Script Workbench',
+          intent: 'Maintain a few small temporary scripts for repetitive DEF JSON cleanup, comparison, batching, and draft generation.',
+          readBeforeUse: [
+            'GET /api/agent/guide',
+            'GET /api/agent/scripts to inspect existing helper scripts and constraints',
+          ],
+          procedure: [
+            'Prefer direct REST reads and model reasoning for small tasks.',
+            'For repetitive or large JSON transformations, write one small .mjs/.js helper with POST /api/agent/scripts/write.',
+            'Pass all business data through the run input body; do not assume access to project files.',
+            'Run it with POST /api/agent/scripts/run and parse stdout/json from the response.',
+            'Use the script output only as a candidate draft or report.',
+            'Validate generated drafts with fill.check before any fill.apply.',
+            'Delete stale helper scripts when they are no longer useful.',
+          ],
+          outputContract: {
+            writeBody: ['name', 'content'],
+            runBody: ['name', 'input'],
+            scriptInput: '{ protocolVersion, input, restBaseUrl, constraints } via stdin JSON',
+            scriptOutput: 'Print one JSON object to stdout when structured output is needed.',
+          },
+          hardRules: [
+            'Scripts are for DEF JSON work only.',
+            'Do not edit project source code through scripts.',
+            'Do not use git, npm install, shell automation, or external network fetches.',
+            'Do not write app truth directly; use fill.check/fill.apply proposals.',
+          ],
+        },
         {
           id: 'buff.fill',
           title: 'Fill or Update Buff Library Entry',

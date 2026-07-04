@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
+import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { createServer as createViteServer } from 'vite';
 
@@ -9,10 +10,18 @@ const PORT = Number(process.env.AI_CLI_REST_PORT || 17321);
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(__dirname, '..');
 const storageDir = path.join(projectRoot, '.runtime', 'ai-cli-rest');
+const agentScriptDir = path.join(projectRoot, '.runtime', 'def-agent', 'scripts');
 const viteCacheDir = process.env.AI_CLI_REST_VITE_CACHE_DIR || path.join(projectRoot, '.runtime', 'vite-ai-cli-rest', String(process.pid));
 const nowStoragePath = path.join(projectRoot, 'data', 'localdata', 'now-storage.json');
 const storageMode = process.env.AI_CLI_REST_STORAGE_MODE || 'now-storage';
 const serverStartedAt = new Date().toISOString();
+const SCRIPT_NAME_RE = /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,79}\.m?js$/;
+const SCRIPT_MAX_FILES = 3;
+const SCRIPT_MAX_BYTES = 30000;
+const SCRIPT_MAX_LINES = 500;
+const SCRIPT_TIMEOUT_MS = 8000;
+const SCRIPT_MAX_STDOUT = 256 * 1024;
+const SCRIPT_MAX_STDERR = 64 * 1024;
 
 class FileStorage {
   constructor(filePath) {
@@ -190,6 +199,269 @@ function writeJson(response, statusCode, payload) {
   response.end(JSON.stringify(payload));
 }
 
+function failScript(status, code, message, details = undefined) {
+  return {
+    status,
+    body: {
+      ok: false,
+      protocolVersion: 1,
+      error: {
+        code,
+        message,
+        ...(details ? { details } : {}),
+      },
+    },
+  };
+}
+
+function ensureAgentScriptDir() {
+  fs.mkdirSync(agentScriptDir, { recursive: true });
+}
+
+function resolveAgentScriptPath(name) {
+  if (typeof name !== 'string' || !SCRIPT_NAME_RE.test(name)) {
+    return {
+      ok: false,
+      response: failScript(
+        400,
+        'invalid-script-name',
+        'Script name must be a simple .js or .mjs filename using letters, numbers, dot, dash, or underscore.',
+      ),
+    };
+  }
+  ensureAgentScriptDir();
+  const scriptPath = path.resolve(agentScriptDir, name);
+  const relative = path.relative(agentScriptDir, scriptPath);
+  if (!relative || relative.startsWith('..') || path.isAbsolute(relative)) {
+    return {
+      ok: false,
+      response: failScript(400, 'invalid-script-path', 'Script path must stay inside the DEF agent scripts directory.'),
+    };
+  }
+  return { ok: true, scriptPath, name };
+}
+
+function listAgentScripts() {
+  ensureAgentScriptDir();
+  return fs.readdirSync(agentScriptDir, { withFileTypes: true })
+    .filter((entry) => entry.isFile() && SCRIPT_NAME_RE.test(entry.name))
+    .map((entry) => {
+      const scriptPath = path.join(agentScriptDir, entry.name);
+      const stat = fs.statSync(scriptPath);
+      return {
+        name: entry.name,
+        bytes: stat.size,
+        updatedAt: stat.mtime.toISOString(),
+      };
+    })
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+function writeAgentScript(body) {
+  const resolved = resolveAgentScriptPath(body?.name);
+  if (!resolved.ok) return resolved.response;
+  const content = typeof body?.content === 'string' ? body.content : '';
+  const bytes = Buffer.byteLength(content, 'utf-8');
+  const lines = content ? content.split(/\r?\n/).length : 0;
+  if (!content.trim()) {
+    return failScript(400, 'empty-script', 'Script content must not be empty.');
+  }
+  if (bytes > SCRIPT_MAX_BYTES || lines > SCRIPT_MAX_LINES) {
+    return failScript(413, 'script-too-large', 'Script exceeds the DEF agent workspace limit.', {
+      maxBytes: SCRIPT_MAX_BYTES,
+      maxLines: SCRIPT_MAX_LINES,
+      bytes,
+      lines,
+    });
+  }
+  const existing = listAgentScripts();
+  if (!fs.existsSync(resolved.scriptPath) && existing.length >= SCRIPT_MAX_FILES) {
+    return failScript(409, 'script-limit-reached', 'DEF agent script workspace only allows a few temporary scripts.', {
+      maxFiles: SCRIPT_MAX_FILES,
+      files: existing.map((item) => item.name),
+    });
+  }
+  fs.writeFileSync(resolved.scriptPath, content.endsWith('\n') ? content : `${content}\n`, 'utf-8');
+  const stat = fs.statSync(resolved.scriptPath);
+  return {
+    status: 200,
+    body: {
+      ok: true,
+      protocolVersion: 1,
+      script: {
+        name: resolved.name,
+        bytes: stat.size,
+        lines,
+        updatedAt: stat.mtime.toISOString(),
+      },
+      constraints: scriptWorkbenchConstraints(),
+    },
+  };
+}
+
+function deleteAgentScript(body) {
+  const resolved = resolveAgentScriptPath(body?.name);
+  if (!resolved.ok) return resolved.response;
+  fs.rmSync(resolved.scriptPath, { force: true });
+  return {
+    status: 200,
+    body: {
+      ok: true,
+      protocolVersion: 1,
+      deleted: resolved.name,
+      scripts: listAgentScripts(),
+    },
+  };
+}
+
+function runAgentScript(body) {
+  const resolved = resolveAgentScriptPath(body?.name);
+  if (!resolved.ok) return Promise.resolve(resolved.response);
+  if (!fs.existsSync(resolved.scriptPath)) {
+    return Promise.resolve(failScript(404, 'script-not-found', `DEF agent script not found: ${resolved.name}`));
+  }
+
+  return new Promise((resolve) => {
+    const input = {
+      protocolVersion: 1,
+      input: body && Object.prototype.hasOwnProperty.call(body, 'input') ? body.input : null,
+      restBaseUrl: `http://${HOST}:${PORT}`,
+      constraints: scriptWorkbenchConstraints(),
+    };
+    let stdout = '';
+    let stderr = '';
+    let settled = false;
+    const child = spawn(process.execPath, [
+      '--permission',
+      `--allow-fs-read=${agentScriptDir}`,
+      `--allow-fs-write=${agentScriptDir}`,
+      '--disallow-code-generation-from-strings',
+      resolved.scriptPath,
+    ], {
+      cwd: agentScriptDir,
+      env: {
+        PATH: process.env.PATH || '',
+        NODE_ENV: 'production',
+        ELECTRON_RUN_AS_NODE: process.env.ELECTRON_RUN_AS_NODE || '1',
+        DEF_REST_BASE_URL: `http://${HOST}:${PORT}`,
+        DEF_AGENT_SCRIPT_DIR: agentScriptDir,
+      },
+      stdio: ['pipe', 'pipe', 'pipe'],
+      windowsHide: true,
+    });
+
+    const timer = setTimeout(() => {
+      if (!settled) {
+        child.kill('SIGKILL');
+      }
+    }, SCRIPT_TIMEOUT_MS);
+
+    child.stdout.on('data', (chunk) => {
+      stdout += chunk.toString('utf-8');
+      if (stdout.length > SCRIPT_MAX_STDOUT) {
+        stdout = stdout.slice(0, SCRIPT_MAX_STDOUT);
+        child.kill('SIGKILL');
+      }
+    });
+    child.stderr.on('data', (chunk) => {
+      stderr += chunk.toString('utf-8');
+      if (stderr.length > SCRIPT_MAX_STDERR) {
+        stderr = stderr.slice(0, SCRIPT_MAX_STDERR);
+        child.kill('SIGKILL');
+      }
+    });
+    child.on('error', (error) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve(failScript(500, 'script-spawn-failed', error instanceof Error ? error.message : String(error)));
+    });
+    child.on('exit', (code, signal) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      let json = null;
+      try {
+        json = stdout.trim() ? JSON.parse(stdout) : null;
+      } catch {
+        json = null;
+      }
+      resolve({
+        status: code === 0 ? 200 : 400,
+        body: {
+          ok: code === 0,
+          protocolVersion: 1,
+          script: resolved.name,
+          code,
+          signal,
+          stdout,
+          stderr,
+          json,
+          timedOut: signal === 'SIGKILL',
+        },
+      });
+    });
+    child.stdin.end(`${JSON.stringify(input)}\n`);
+  });
+}
+
+function scriptWorkbenchConstraints() {
+  return {
+    directory: agentScriptDir,
+    maxFiles: SCRIPT_MAX_FILES,
+    maxBytes: SCRIPT_MAX_BYTES,
+    maxLines: SCRIPT_MAX_LINES,
+    timeoutMs: SCRIPT_TIMEOUT_MS,
+    runtime: 'node',
+    allowedPurpose: 'Temporary DEF JSON cleanup, comparison, batching, and draft generation only.',
+    finalWritePath: 'Use fill.check/fill.apply proposal flow; scripts must not save app truth directly.',
+  };
+}
+
+async function handleAgentScriptRequest(method, pathname, body) {
+  if (method === 'GET' && pathname === '/api/agent/scripts') {
+    return {
+      status: 200,
+      body: {
+        ok: true,
+        protocolVersion: 1,
+        scripts: listAgentScripts(),
+        constraints: scriptWorkbenchConstraints(),
+      },
+    };
+  }
+  const readMatch = /^\/api\/agent\/scripts\/([^/]+)$/.exec(pathname);
+  if (method === 'GET' && readMatch) {
+    let decodedName = '';
+    try {
+      decodedName = decodeURIComponent(readMatch[1]);
+    } catch {
+      return failScript(400, 'bad-url-encoding', 'Script URL contains malformed percent-encoding.');
+    }
+    const resolved = resolveAgentScriptPath(decodedName);
+    if (!resolved.ok) return resolved.response;
+    if (!fs.existsSync(resolved.scriptPath)) {
+      return failScript(404, 'script-not-found', `DEF agent script not found: ${resolved.name}`);
+    }
+    return {
+      status: 200,
+      body: {
+        ok: true,
+        protocolVersion: 1,
+        script: {
+          name: resolved.name,
+          content: fs.readFileSync(resolved.scriptPath, 'utf-8'),
+        },
+        constraints: scriptWorkbenchConstraints(),
+      },
+    };
+  }
+  if (method === 'POST' && pathname === '/api/agent/scripts/write') return writeAgentScript(body);
+  if (method === 'POST' && pathname === '/api/agent/scripts/delete') return deleteAgentScript(body);
+  if (method === 'POST' && pathname === '/api/agent/scripts/run') return runAgentScript(body);
+  return null;
+}
+
 async function readJsonBody(request) {
   const chunks = [];
   for await (const chunk of request) {
@@ -334,6 +606,12 @@ const server = http.createServer(async (request, response) => {
 
   try {
     const body = method === 'POST' ? await readJsonBody(request) : undefined;
+    const scriptResponse = await handleAgentScriptRequest(method, requestUrl.pathname, body);
+    if (scriptResponse) {
+      writeJson(response, scriptResponse.status, scriptResponse.body);
+      return;
+    }
+
     const { handleAiCliRestRequest, readCurrentBuffDraft, readAgentRecordSnapshot } = await loadAiCliModules();
     const restResponse = handleAiCliRestRequest({
       method,

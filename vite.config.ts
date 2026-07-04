@@ -30,10 +30,13 @@ export default defineConfig({
     react(),
     tailwindcss(),
   ],
+  optimizeDeps: {
+    entries: ['index.html'],
+  },
   server: {
     port: 3030,
     watch: {
-      ignored: ['**/data/localdata/**', '**/.dbg/**'],
+      ignored: ['**/data/localdata/**', '**/.dbg/**', '**/agent/vendor/**'],
     },
   },
 })
