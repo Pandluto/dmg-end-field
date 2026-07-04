@@ -23,13 +23,14 @@
     "test:operator-panel": "node scripts/run-ts-test.mjs /src/core/calculators/operatorPanelCalculator.test.ts",
     "smoke:operator-config": "node scripts/run-electron-smoke.mjs",
     "build": "tsc && vite build",
+    "build:opencode-runtime": "node scripts/build-opencode-runtime.mjs",
     "preview": "vite preview",
     "app:dev": "npm run electron:shell",
     "electron:shell": "concurrently -k \"npm:dev\" \"wait-on tcp:127.0.0.1:3030 && electron . --dev --shell-only\"",
     "electron:dev": "npm run electron:shell",
-    "electron:build": "npm run build && electron-builder --win portable",
-    "electron:build:mac": "npm run build && electron-builder --mac dmg --publish never",
-    "electron:build:mac:dir": "npm run build && electron-builder --mac dir --publish never"
+    "electron:build": "npm run build && npm run build:opencode-runtime && electron-builder --win portable",
+    "electron:build:mac": "npm run build && npm run build:opencode-runtime && electron-builder --mac dmg --publish never",
+    "electron:build:mac:dir": "npm run build && npm run build:opencode-runtime && electron-builder --mac dir --publish never"
   },
   "dependencies": {
     "exceljs": "^4.4.0",
@@ -64,9 +65,16 @@
     "files": [
       "dist/**",
       "electron/**",
-      "scripts/**",
-      "agent/**",
+      "scripts/ai-cli-rest-server.mjs",
+      "scripts/build-image-release-manifest.mjs",
+      "agent/server/**",
+      "agent/runtime/**",
+      "!agent/vendor/**",
+      "!agent/dev-agent.cjs",
       "package.json"
+    ],
+    "asarUnpack": [
+      "agent/runtime/opencode-core/bin/**"
     ],
     "win": {
       "icon": "electron/assets/icon.ico",

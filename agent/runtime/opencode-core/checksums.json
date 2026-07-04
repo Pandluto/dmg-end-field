@@ -1,0 +1,9 @@
+{
+  "generatedAt": "2026-07-04T07:47:13.438Z",
+  "files": {
+    "bin/win32-x64/opencode.exe": {
+      "sha256": "9f016a977b7bee18fa84dd80206782115656c75ef5d3b0204c2a1718e0625920",
+      "bytes": 137904640
+    }
+  }
+}

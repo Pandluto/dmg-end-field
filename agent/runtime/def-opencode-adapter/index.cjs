@@ -2,6 +2,7 @@ const crypto = require('crypto');
 const fs = require('fs');
 const http = require('http');
 const net = require('net');
+const os = require('os');
 const path = require('path');
 const { EventEmitter } = require('events');
 const { spawn, spawnSync } = require('child_process');
@@ -13,9 +14,32 @@ const OPENCODE_PORT_BASE = Number(process.env.DEF_OPENCODE_PORT || 17445);
 const OPENCODE_PORT_MAX_ATTEMPTS = 20;
 
 const projectRoot = path.resolve(__dirname, '..', '..', '..');
-const vendorRoot = path.join(projectRoot, 'agent', 'vendor', 'opencode');
+const runtimeRoot = path.join(projectRoot, 'agent', 'runtime', 'opencode-core');
 const skillsRoot = path.join(projectRoot, 'agent', 'runtime', 'def', 'skills');
 const runtimeLogDir = path.join(projectRoot, '.runtime', 'def-agent');
+const agentWorkspaceDir = path.join(os.tmpdir(), 'dmg-end-field', 'def-agent-workspace');
+
+const capabilityPolicy = {
+  name: 'def-runtime-minimal-v1',
+  workspace: agentWorkspaceDir,
+  allowed: ['model-chat', 'structured-output', 'skill', 'webfetch:def-rest'],
+  denied: [
+    'bash',
+    'edit',
+    'read',
+    'grep',
+    'glob',
+    'task',
+    'todowrite',
+    'websearch',
+    'lsp',
+    'external_directory',
+    'question',
+    'plan_enter',
+    'plan_exit',
+  ],
+  webfetchAllow: ['http://127.0.0.1:17321/*'],
+};
 
 const skillMap = {
   operator: { agent: 'def-operator', skill: 'operator-fill', label: '填干员' },
@@ -80,6 +104,39 @@ function deepSeekReasoningEffort(value) {
   return 'high';
 }
 
+function buildCapabilityPermission() {
+  return {
+    bash: 'deny',
+    edit: 'deny',
+    read: 'deny',
+    grep: 'deny',
+    glob: 'deny',
+    task: 'deny',
+    todowrite: 'deny',
+    websearch: 'deny',
+    lsp: 'deny',
+    external_directory: 'deny',
+    question: 'deny',
+    plan_enter: 'deny',
+    plan_exit: 'deny',
+    skill: 'allow',
+    webfetch: {
+      '*': 'deny',
+      'http://127.0.0.1:17321/*': 'allow',
+    },
+  };
+}
+
+function capabilityPolicySummary() {
+  return {
+    name: capabilityPolicy.name,
+    workspace: capabilityPolicy.workspace,
+    allowed: capabilityPolicy.allowed,
+    denied: capabilityPolicy.denied,
+    webfetchAllow: capabilityPolicy.webfetchAllow,
+  };
+}
+
 function deepSeekRequestOptions(model, thinkingEffort) {
   const normalizedModel = String(model || '').toLowerCase();
   const supportsThinking = normalizedModel.includes('v4') || normalizedModel.includes('reasoner') || normalizedModel.includes('r1');
@@ -98,7 +155,9 @@ function buildAgentPrompt(skillId) {
     'The user is a shallow AI user. Keep replies practical, short, and action-oriented.',
     'Do not expose API keys, hidden configuration, or internal protocol noise.',
     'Do not describe OpenCode, sessions, events, adapters, providers, or runtime details unless the user explicitly asks.',
-    'Do not use the task tool or subagents. Complete the work in the current agent with direct read, grep, glob, skill, or allowed REST access.',
+    'You are a DEF business assistant, not a coding agent. Do not modify code, run shell commands, run git commands, scan arbitrary directories, or write files.',
+    'Do not use task/subagents, shell, git, direct file read/write/edit/patch, grep, glob, lsp, web search, or unrestricted external network access.',
+    'Complete the work in the current agent with normal model reasoning, the DEF skill tool, and allowed DEF REST access only.',
     'For normal chat, answer in 1-4 short paragraphs. For data-entry work, prefer compact checklists and the smallest useful next step.',
     'When the task lacks required information, ask for the smallest missing input or explain the safe next action.',
     'Do not write application storage directly. Produce proposals or instructions unless a DEF tool explicitly handles the write.',
@@ -170,17 +229,7 @@ function buildOpenCodeConfig(config, skillId, thinkingEffort) {
       mode: 'primary',
       prompt: buildAgentPrompt(id),
       options: requestOptions,
-      permission: {
-        read: 'allow',
-        bash: 'deny',
-        edit: 'deny',
-        task: 'deny',
-        skill: 'allow',
-        webfetch: {
-          '*': 'deny',
-          'http://127.0.0.1:17321/*': 'allow',
-        },
-      },
+      permission: buildCapabilityPermission(),
       steps: 8,
     };
   }
@@ -189,6 +238,7 @@ function buildOpenCodeConfig(config, skillId, thinkingEffort) {
     model: modelRef,
     default_agent: (skillMap[skillId] || skillMap.operator).agent,
     disabled_providers: ['opencode'],
+    permission: buildCapabilityPermission(),
     skills: {
       paths: [skillsRoot],
     },
@@ -233,6 +283,69 @@ function appendLog(line) {
   }
 }
 
+function getAgentWorkspaceDir() {
+  fs.mkdirSync(agentWorkspaceDir, { recursive: true });
+  return agentWorkspaceDir;
+}
+
+function readJsonFile(filePath) {
+  try {
+    return JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+  } catch {
+    return null;
+  }
+}
+
+function platformRuntimeTarget() {
+  const platform = process.platform === 'win32'
+    ? 'win32'
+    : process.platform === 'darwin'
+      ? 'darwin'
+      : process.platform === 'linux'
+        ? 'linux'
+        : process.platform;
+  return `${platform}-${process.arch}`;
+}
+
+function runtimeBinaryName() {
+  return process.platform === 'win32' ? 'opencode.exe' : 'opencode';
+}
+
+function resolveAsarUnpackedPath(filePath) {
+  const marker = `${path.sep}app.asar${path.sep}`;
+  if (!filePath.includes(marker)) return filePath;
+  return filePath.replace(marker, `${path.sep}app.asar.unpacked${path.sep}`);
+}
+
+function getRuntimeManifest() {
+  return readJsonFile(path.join(runtimeRoot, 'manifest.json'));
+}
+
+function getRuntimeChecksums() {
+  return readJsonFile(path.join(runtimeRoot, 'checksums.json'));
+}
+
+function resolveOpenCodeBinary() {
+  const target = platformRuntimeTarget();
+  const binaryName = runtimeBinaryName();
+  const manifest = getRuntimeManifest();
+  const candidates = [];
+
+  if (manifest?.runtimeTarget === target && typeof manifest.binary === 'string' && manifest.binary) {
+    candidates.push(path.join(runtimeRoot, manifest.binary));
+  }
+  candidates.push(path.join(runtimeRoot, 'bin', target, binaryName));
+
+  for (const candidate of candidates) {
+    const resolved = resolveAsarUnpackedPath(candidate);
+    if (fs.existsSync(resolved) && fs.statSync(resolved).isFile()) return resolved;
+  }
+
+  throw new Error(
+    `OpenCode runtime binary is missing for ${target}. Run "npm run build:opencode-runtime" before starting DEF agent.`,
+  );
+}
+
 function processRunning(child) {
   return Boolean(child && child.exitCode === null && !child.killed);
 }
@@ -273,7 +386,7 @@ function cleanupStaleOpenCodeProcesses() {
 $hostName = '${OPENCODE_HOST.replace(/'/g, "''")}'
 $processes = Get-CimInstance Win32_Process | Where-Object {
   $_.CommandLine -and
-  $_.CommandLine -like '*packages/opencode/src/index.ts*' -and
+  $_.CommandLine -like '*opencode.exe*' -and
   $_.CommandLine -like '* serve *' -and
   $_.CommandLine -like ('*--hostname=' + $hostName + '*')
 }
@@ -366,19 +479,20 @@ async function ensureOpenCodeServer(config, skillId, thinkingEffort) {
   stopOpenCodeProcess();
   cleanupStaleOpenCodeProcesses();
   fs.mkdirSync(runtimeLogDir, { recursive: true });
+  fs.mkdirSync(agentWorkspaceDir, { recursive: true });
   opencodeConfigHash = nextHash;
   opencodeReadyPort = await findOpenCodePort();
-  opencodeProcess = spawn('bun', [
-    'run',
-    '--conditions=browser',
-    'packages/opencode/src/index.ts',
+  const binaryPath = resolveOpenCodeBinary();
+  appendLog(`[policy] ${JSON.stringify(capabilityPolicySummary())}`);
+  opencodeProcess = spawn(binaryPath, [
     'serve',
     `--hostname=${OPENCODE_HOST}`,
     `--port=${opencodeReadyPort}`,
   ], {
-    cwd: vendorRoot,
+    cwd: agentWorkspaceDir,
     env: {
       ...process.env,
+      OPENCODE_DISABLE_SHARE: '1',
       OPENCODE_CONFIG_CONTENT: JSON.stringify(openCodeConfig),
     },
     stdio: ['ignore', 'pipe', 'pipe'],
@@ -834,7 +948,7 @@ async function runChatStream({ config, message, thinkingEffort, skillId = 'opera
   }
 
   const selected = skillMap[skillId] || skillMap.operator;
-  const directory = projectRoot;
+  const directory = getAgentWorkspaceDir();
   const baseUrl = await ensureOpenCodeServer(deepseek, skillId, thinkingEffort);
   const query = `directory=${encodeURIComponent(directory)}`;
   const session = await requestJson('POST', `${baseUrl}/session?${query}`, {}, undefined, 15000);
@@ -1005,7 +1119,7 @@ async function runChat({ config, message, thinkingEffort, skillId = 'operator' }
   }
 
   const selected = skillMap[skillId] || skillMap.operator;
-  const directory = projectRoot;
+  const directory = getAgentWorkspaceDir();
   const events = [];
   const eventController = new AbortController();
   const runController = new AbortController();
@@ -1138,14 +1252,38 @@ async function stopChat(sessionID) {
 
 function runtimeSummary(config = {}) {
   const actualPort = opencodeReadyPort || OPENCODE_PORT_BASE;
+  const manifest = getRuntimeManifest();
+  const checksums = getRuntimeChecksums();
+  let binaryPath = '';
+  let binaryAvailable = false;
+  let binaryError = '';
+  try {
+    binaryPath = resolveOpenCodeBinary();
+    binaryAvailable = true;
+  } catch (error) {
+    binaryError = error instanceof Error ? error.message : String(error);
+  }
   return {
-    kind: 'embedded-opencode-upstream-source',
-    vendorRoot: path.relative(projectRoot, vendorRoot).replace(/\\/g, '/'),
+    kind: 'embedded-opencode-runtime-binary',
+    runtimeRoot: path.relative(projectRoot, runtimeRoot).replace(/\\/g, '/'),
+    runtimeTarget: platformRuntimeTarget(),
+    binaryPath: binaryPath ? path.relative(projectRoot, binaryPath).replace(/\\/g, '/') : '',
+    binaryAvailable,
+    binaryError,
+    manifest: manifest ? {
+      upstreamVersion: manifest.upstreamVersion,
+      runtimeTarget: manifest.runtimeTarget,
+      binary: manifest.binary,
+      checksumSha256: manifest.checksumSha256,
+      builtAt: manifest.builtAt,
+    } : null,
+    checksumAvailable: Boolean(checksums?.files),
     serverUrl: opencodeReadyUrl || `http://${OPENCODE_HOST}:${actualPort}`,
     portBase: OPENCODE_PORT_BASE,
     port: actualPort,
     running: processRunning(opencodeProcess),
     deepseek: summarizeConfig(config),
+    capabilityPolicy: capabilityPolicySummary(),
   };
 }
 

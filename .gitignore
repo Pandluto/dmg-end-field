@@ -30,3 +30,4 @@ data/localdata/**
 data/operator/*
 data/research/*
 nul
+agent/runtime/opencode-core/bin/**

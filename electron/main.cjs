@@ -2551,6 +2551,13 @@ function buildNodeSidecarEnv(extra = {}) {
   };
 }
 
+function getNodeSidecarCwd() {
+  if (app.isPackaged) {
+    return path.dirname(process.execPath);
+  }
+  return path.join(__dirname, '..');
+}
+
 async function startAiCliRest() {
   if (isAiCliRestRunning()) {
     return {
@@ -2562,7 +2569,7 @@ async function startAiCliRest() {
 
   const scriptPath = path.join(__dirname, '..', 'scripts', 'ai-cli-rest-server.mjs');
   aiCliRestProcess = spawn(process.execPath, [scriptPath], {
-    cwd: path.join(__dirname, '..'),
+    cwd: getNodeSidecarCwd(),
     env: buildNodeSidecarEnv({
       AI_CLI_REST_PORT: '17321',
     }),
@@ -2642,7 +2649,7 @@ async function startDefAgent() {
 
   const scriptPath = path.join(__dirname, '..', 'agent', 'server', 'def-agent-server.cjs');
   defAgentProcess = spawn(process.execPath, [scriptPath], {
-    cwd: path.join(__dirname, '..'),
+    cwd: getNodeSidecarCwd(),
     env: buildNodeSidecarEnv({
       DEF_AGENT_PORT: '17322',
     }),
