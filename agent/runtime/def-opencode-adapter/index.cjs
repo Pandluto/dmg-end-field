@@ -77,6 +77,42 @@ function sanitizeDeepSeekConfig(config = {}) {
   };
 }
 
+function normalizeKnowledgeText(value) {
+  return String(value || '').trim().toLowerCase().replace(/[\s_\-·・.]/g, '');
+}
+
+function readGameKnowledge() {
+  try {
+    const knowledgePath = path.join(projectRoot, 'src', 'data', 'gameKnowledge.json');
+    return JSON.parse(fs.readFileSync(knowledgePath, 'utf8'));
+  } catch {
+    return null;
+  }
+}
+
+function buildGameKnowledgePromptLines() {
+  const knowledge = readGameKnowledge();
+  if (!knowledge) return [];
+  const operatorAliases = Array.isArray(knowledge.operatorAliases)
+    ? knowledge.operatorAliases.flatMap((entry) => (
+      Array.isArray(entry.terms) ? entry.terms.map((term) => `${term}=${entry.name}`) : []
+    )).join(', ')
+    : '';
+  const gearAliases = Array.isArray(knowledge.gearSetAliases)
+    ? knowledge.gearSetAliases.flatMap((entry) => (
+      Array.isArray(entry.terms)
+        ? entry.terms
+          .filter((term, index, terms) => terms.findIndex((item) => normalizeKnowledgeText(item) === normalizeKnowledgeText(term)) === index)
+          .map((term) => `${term}=${entry.gearSetId}(${entry.name})`)
+        : []
+    )).join(', ')
+    : '';
+  return [
+    operatorAliases ? `- Common operator aliases: ${operatorAliases}.` : '',
+    gearAliases ? `- Common gear-set aliases: ${gearAliases}. When an alias matches, prefer gearSetId over gearSetName.` : '',
+  ].filter(Boolean);
+}
+
 function summarizeConfig(config = {}) {
   const next = sanitizeDeepSeekConfig(config);
   return {
@@ -188,13 +224,16 @@ function buildAgentPrompt(skillId) {
       'selectCharacters, openView, openWorkbenchPage, clearTimeline, setOperatorWeapon, setOperatorEquipment, addSkillButton, removeSkillButton, addBuff, removeBuff, setTargetResistance, saveTimelineSnapshot, restoreTimelineSnapshot, listTimelineSnapshots, refreshOperatorConfig, calculateDamage, refreshSnapshot.',
       '',
       '### Common input aliases',
-      '- Treat common pinyin/ASCII aliases as direct operator ids when the intent is clear: Laiwanting=莱万汀, Antaer=安塔尔, Dapan=大潘, Huguang=弧光, Alesh=阿列什, Admin/Administrator=管理员.',
+      ...buildGameKnowledgePromptLines(),
+      '- Treat common pinyin/ASCII aliases as direct operator ids when the intent is clear.',
       '- When every requested operator is covered by the visible snapshot or the alias list above, do not fetch the operator library and do not verify ids first. Enqueue the command directly with the Chinese names.',
       '- If the user says replace A and B with C and D, read the snapshot once, preserve the other selected operators, then enqueue one selectCharacters command with the final four ids.',
       '',
       '### Fast workflow rules',
       '- This is an interactive UI action. Prefer one batched enqueue and one verification snapshot.',
       '- The user prompt includes a current selected-operator summary and current skill-button summary. Treat that summary as trusted context. Do not fetch snapshot merely to identify a visible operator or visible skill button.',
+      '- If the user only asks for current state, such as what gear/weapon an operator is wearing, which buttons exist, or current damage, do not enqueue commands. Read GET /api/main-workbench/snapshot once and answer with concrete names/numbers. Never reply only "已完成" to a read-only question.',
+      '- If the user asks to add, remove, replace, equip, release skills, add/remove Buffs, rollback, recalculate, or otherwise change the workbench, you must enqueue actual commands before the final answer. If you cannot do it, say that it failed. Never answer a mutation request by only reading the snapshot.',
       '- Use /api/main-workbench/commands/enqueue for every main-screen change.',
       '- Batch related commands into one enqueue request with {commands:[...]} whenever possible. The body shape is {"commands":[{"op":"..."},{"op":"..."}],"source":"def-opencode"}. Do not wrap commands in extra text.',
       '- Do not use /api/ai-cli/run for workbench, operator, weapon, equipment, or buff actions.',

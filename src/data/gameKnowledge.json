@@ -1,0 +1,17 @@
+{
+  "operatorAliases": [
+    { "terms": ["Laiwanting"], "name": "莱万汀" },
+    { "terms": ["Antaer"], "name": "安塔尔" },
+    { "terms": ["Dapan"], "name": "大潘" },
+    { "terms": ["Huguang"], "name": "弧光" },
+    { "terms": ["Alesh"], "name": "阿列什" },
+    { "terms": ["Admin", "Administrator"], "name": "管理员" }
+  ],
+  "gearSetAliases": [
+    {
+      "terms": ["旧峰", "舊峰", "旧锋", "舊鋒", "jiufeng", "jiu feng", "jiu-feng"],
+      "gearSetId": "gear-set-jiu-feng",
+      "name": "旧锋"
+    }
+  ]
+}

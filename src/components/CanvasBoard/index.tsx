@@ -711,7 +711,7 @@ export function CanvasBoard({
           if (!button) {
             throw new Error('未找到可回退的技能按钮');
           }
-          removeTimelineButton(button.staffIndex, button.id);
+          removeTimelineButton(button.lineIndex, button.id);
           dispatch({ type: 'REMOVE_SKILL_BUTTON', buttonId: button.id });
           const doneEntry = patchMainWorkbenchCommand(commandEntry.id, {
             status: 'done',

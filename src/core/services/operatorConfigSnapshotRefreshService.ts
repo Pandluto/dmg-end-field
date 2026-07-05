@@ -15,6 +15,7 @@ import type { EquipmentConfig } from '../../utils/equipmentParser';
 import { isPercentField } from '../../utils/equipmentParser';
 import { resolvePublicPath } from '../../utils/assetResolver';
 import { getCharacterConfigMap } from '../../utils/storage';
+import { normalizeGameKnowledgeText, resolveGameGearSetAlias } from '../../utils/gameKnowledge';
 import { getOperatorConfigPageCache, setOperatorConfigPageCache } from '../repositories';
 import { normalizeExtraHitConfig } from './buffExtraHit';
 import { normalizeStoredBuffDefinition } from './buffStorageNormalization';
@@ -429,11 +430,22 @@ function findEquipmentGearSet(
   selection: OperatorEquipmentSelectionInput,
 ): EquipmentGearSet | null {
   if (!selection.gearSetId && !selection.gearSetName) return null;
+  const targetId = selection.gearSetId?.trim();
+  const targetName = selection.gearSetName?.trim();
+  const aliasId = resolveGameGearSetAlias(targetId)?.gearSetId ?? resolveGameGearSetAlias(targetName)?.gearSetId;
+  const normalizedId = normalizeGameKnowledgeText(targetId);
+  const normalizedName = normalizeGameKnowledgeText(targetName);
   return Object.entries(equipmentLibrary.gearSets)
     .map(([gearSetId, gearSet]) => ({ ...gearSet, gearSetId: gearSet.gearSetId || gearSetId }))
     .find((gearSet) => (
-      (selection.gearSetId && gearSet.gearSetId === selection.gearSetId) ||
-      (selection.gearSetName && gearSet.name === selection.gearSetName)
+      (targetId && gearSet.gearSetId === targetId) ||
+      (targetName && gearSet.name === targetName) ||
+      (aliasId && gearSet.gearSetId === aliasId) ||
+      (normalizedId && normalizeGameKnowledgeText(gearSet.gearSetId) === normalizedId) ||
+      (normalizedName && (
+        normalizeGameKnowledgeText(gearSet.name) === normalizedName ||
+        normalizeGameKnowledgeText(gearSet.gearSetId) === normalizedName
+      ))
     )) ?? null;
 }
 

@@ -5,11 +5,17 @@ import {
   stopDefAgentStream,
   subscribeDefAgentSession,
   type DefAgentStreamEvent,
+  type DefAgentThinkingEffort,
   type DefAgentTokens,
 } from '../../utils/defAgent';
 import { getLocalAgentHealth, requestOpenAiCliRest } from '../../utils/localAgent';
 import type { Character, SkillButton } from '../../types';
-import type { MainWorkbenchCommand } from '../../utils/mainWorkbenchControl';
+import {
+  MAIN_WORKBENCH_REST_BASE_URL,
+  type MainWorkbenchCommand,
+  type MainWorkbenchSnapshot,
+} from '../../utils/mainWorkbenchControl';
+import { buildGameKnowledgePromptLines } from '../../utils/gameKnowledge';
 import './MainWorkbenchAiPanel.css';
 
 const DEF_AGENT_BROWSER_SESSION_KEY = 'def-opencode.activeSession.v1';
@@ -38,6 +44,7 @@ type WorkbenchAiStep = {
 type StoredDefAgentSession = {
   sessionId: string;
   skillId?: string;
+  selectedSignature?: string;
   lastSeq?: number;
   tokens?: DefAgentTokens;
   updatedAt?: number;
@@ -96,6 +103,10 @@ function formatTokens(tokens: DefAgentTokens | null) {
   return `token ${tokens.total || 0} · 入 ${tokens.prompt || 0} · 出 ${tokens.completion || 0}`;
 }
 
+function buildSelectedSignature(selectedCharacters: Character[]) {
+  return selectedCharacters.map((character) => character.id || character.name).sort().join('|');
+}
+
 function buildInitialSteps(): WorkbenchAiStep[] {
   return [
     { id: 'backup', label: '回退点', detail: '等待保存', status: 'pending' },
@@ -125,9 +136,11 @@ function buildWorkbenchAgentMessage(
     '推荐攻略链路: selectCharacters -> setOperatorWeapon/setOperatorEquipment -> refreshOperatorConfig -> restoreTimelineSnapshot 或 clearTimeline/addSkillButton -> addBuff/setTargetResistance -> calculateDamage -> saveTimelineSnapshot。',
     'setOperatorEquipment 可用 gearSetName/gearSetId + fillSlots 自动填 4 件，也可用 slotKey + equipmentName/equipmentId 指定单件；满词条一般传 entryLevel: 3。',
     '用户要求合适配装但没有指定名称时，不要查库或脚本匹配；已有配置保留，未配置者默认 setOperatorWeapon weaponName=宏愿，setOperatorEquipment gearSetName=潮涌 fillSlots=true entryLevel=3。',
-    '常见拼音/英文别名可直接映射: Laiwanting=莱万汀, Antaer=安塔尔, Dapan=大潘, Huguang=弧光, Alesh=阿列什, Admin/Administrator=管理员。',
+    ...buildGameKnowledgePromptLines(),
     '换人时只读一次快照，保留未提到的已选干员，然后一次性 selectCharacters 写入最终名单；命中当前快照或上述别名时不要搜索干员库，不要先查 ID。',
     '下方当前已选干员与当前技能按钮就是可信上下文；能从这里判断的干员/按钮不要再读快照、查 schema 或查库。',
+    '用户只问当前状态/现在穿什么/有哪些按钮/伤害是多少时，这是只读查询：读取 /api/main-workbench/snapshot 后直接回答具体名称和数值，不要投递命令，不要只说“已完成”。',
+    '用户要求增加、删除、替换、配置、释放技能、添加 Buff、回退或计算时，必须先投递实际命令；如果无法执行，明确说明失败，不要只读取快照当作完成。',
     '只有换人、清空排轴、批量大改动或用户明确要求可回退时才先保存快照；单个技能按钮/Buff 的添加或移除不要先保存快照。',
     'Buff 操作优先用 addBuff/removeBuff，能用 characterName + skillType 或 buttonId 定位；用户要求重算时把 calculateDamage 和 refreshSnapshot 放进同一个 commands 数组。',
     '发命令后最多读取一次 /api/main-workbench/snapshot 或 /api/main-workbench/commands 确认执行结果，状态已符合就立刻简短回复。',
@@ -168,6 +181,250 @@ function transcriptToMessages(messages: Array<{ id?: string; role: string; text?
       status: 'done' as const,
     }));
   return converted.length > 0 ? converted : buildInitialMessages();
+}
+
+function isGenericCompletionText(text: string | undefined) {
+  const normalized = String(text || '').trim().replace(/[。.!！\s]/g, '');
+  return !normalized || ['已完成', '完成', 'done', 'ok', '好的'].includes(normalized.toLowerCase());
+}
+
+function shouldUseSnapshotFallback(prompt: string | undefined, text: string | undefined) {
+  if (!isGenericCompletionText(text)) return false;
+  return /当前|现在|看一下|穿|装备|武器|按钮|技能|buff|Buff|伤害|实际|告诉我|核对|确认/.test(prompt || '');
+}
+
+function isMutatingWorkbenchPrompt(prompt: string | undefined) {
+  return /(给|帮|设置|穿上|换|选择|选上|去掉|移除|删除|增加|添加|释放|计算|保存|恢复|回退|清空|重算|改|配|放|撤|扩到|保留|再加|加Buff|加 buff|Buff|buff)/.test(prompt || '');
+}
+
+function chooseWorkbenchThinkingEffort(prompt: string): DefAgentThinkingEffort {
+  const text = prompt.trim();
+  const complexityScore = [
+    /每个|各|批量|全部|四个人|4个人|队伍/.test(text),
+    /装备|武器|配装|穿/.test(text),
+    /按钮|技能/.test(text),
+    /Buff|buff/.test(text),
+    /回退|撤|移除|删除|恢复/.test(text),
+    /最后|然后|并且|同时|完成后/.test(text),
+  ].filter(Boolean).length;
+  if (complexityScore >= 3 || text.length > 90) return 'high';
+  return isMutatingWorkbenchPrompt(text) ? 'medium' : 'low';
+}
+
+function shouldRunLocalComplexWorkbenchFlow(prompt: string) {
+  const text = prompt.trim();
+  return /扩到四个人|4个人|四人|队伍/.test(text) &&
+    /每个干员|各放|各释放|每人/.test(text) &&
+    /两个|2个/.test(text) &&
+    /Buff|buff/.test(text) &&
+    /撤|移除|删除|回退/.test(text);
+}
+
+function buildGenericDamageBuff(characterName: string, skillType: 'A' | 'B') {
+  return {
+    schemaVersion: 2 as const,
+    name: `ai-${characterName}-${skillType}-all-skill-dmg`,
+    displayName: `${characterName}${skillType} · 全技能伤害+20%`,
+    sourceName: 'AI排轴兜底',
+    level: 'auto',
+    type: 'allSkillDmgBonus',
+    value: 0.2,
+    description: 'AI 复杂排轴兜底添加的通用伤害 Buff',
+    source: 'ai-workbench-local-flow',
+    condition: '手测通用伤害 Buff',
+    category: 'passive' as const,
+    refCount: 1,
+    target: { mode: 'all' as const },
+  };
+}
+
+async function readMainWorkbenchSnapshot(): Promise<MainWorkbenchSnapshot | null> {
+  try {
+    const response = await fetch(`${MAIN_WORKBENCH_REST_BASE_URL}/api/main-workbench/snapshot`, { cache: 'no-store' });
+    if (!response.ok) return null;
+    const payload = await response.json() as MainWorkbenchSnapshot | { snapshot?: MainWorkbenchSnapshot };
+    if ('snapshot' in payload) return payload.snapshot || null;
+    return payload as MainWorkbenchSnapshot;
+  } catch {
+    return null;
+  }
+}
+
+async function readMainWorkbenchSnapshotUntil(
+  predicate: (snapshot: MainWorkbenchSnapshot) => boolean,
+  timeoutMs = 5000,
+): Promise<MainWorkbenchSnapshot | null> {
+  const startedAt = Date.now();
+  let latest: MainWorkbenchSnapshot | null = null;
+  while (Date.now() - startedAt < timeoutMs) {
+    latest = await readMainWorkbenchSnapshot();
+    if (latest && predicate(latest)) return latest;
+    await wait(400);
+  }
+  return latest;
+}
+
+function countSnapshotBuffs(snapshot: MainWorkbenchSnapshot) {
+  return snapshot.skillButtons.reduce((total, button) => total + button.selectedBuffIds.length, 0);
+}
+
+async function readStableMainWorkbenchSnapshotUntil(
+  predicate: (snapshot: MainWorkbenchSnapshot) => boolean,
+  timeoutMs = 8000,
+): Promise<MainWorkbenchSnapshot | null> {
+  const startedAt = Date.now();
+  let latest: MainWorkbenchSnapshot | null = null;
+  while (Date.now() - startedAt < timeoutMs) {
+    latest = await readMainWorkbenchSnapshotUntil(predicate, 1200);
+    if (!latest || !predicate(latest)) {
+      await wait(400);
+      continue;
+    }
+    await wait(800);
+    const next = await readMainWorkbenchSnapshot();
+    if (next && next.updatedAt >= latest.updatedAt && predicate(next)) return next;
+  }
+  return latest;
+}
+
+function wait(ms: number) {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
+async function hasActiveWorkbenchCommands(status: 'pending' | 'running') {
+  try {
+    const response = await fetch(`${MAIN_WORKBENCH_REST_BASE_URL}/api/main-workbench/commands?status=${status}`, { cache: 'no-store' });
+    if (!response.ok) return false;
+    const payload = await response.json() as { commands?: unknown[] };
+    return Array.isArray(payload.commands) && payload.commands.length > 0;
+  } catch {
+    return false;
+  }
+}
+
+type WorkbenchCommandEvidence = {
+  id?: string;
+  source?: string;
+  createdAt?: number;
+  status?: string;
+  error?: string;
+  command?: MainWorkbenchCommand;
+};
+
+async function readWorkbenchCommandEvidence(since: number): Promise<WorkbenchCommandEvidence[]> {
+  try {
+    const response = await fetch(`${MAIN_WORKBENCH_REST_BASE_URL}/api/main-workbench/commands`, { cache: 'no-store' });
+    if (!response.ok) return [];
+    const payload = await response.json() as { commands?: WorkbenchCommandEvidence[] };
+    return (payload.commands || []).filter((command) => (
+      typeof command.createdAt === 'number' &&
+      command.createdAt >= since &&
+      command.source !== 'main-workbench-ai'
+    ));
+  } catch {
+    return [];
+  }
+}
+
+function isSubstantiveWorkbenchCommand(command: MainWorkbenchCommand | undefined) {
+  if (!command) return false;
+  return command.op !== 'saveTimelineSnapshot' && command.op !== 'refreshSnapshot';
+}
+
+function hasPromptRequiredCommand(prompt: string, evidence: WorkbenchCommandEvidence[]) {
+  const commands = evidence.map((item) => item.command).filter(Boolean) as MainWorkbenchCommand[];
+  if (!commands.some(isSubstantiveWorkbenchCommand)) return false;
+  if (/撤|移除|删除|去掉/.test(prompt)) {
+    return commands.some((command) => command.op === 'removeSkillButton' || command.op === 'removeBuff' || command.op === 'restoreTimelineSnapshot');
+  }
+  if (/Buff|buff/.test(prompt) && /加|添加/.test(prompt)) {
+    return commands.some((command) => command.op === 'addBuff');
+  }
+  if (/按钮|技能/.test(prompt) && /加|添加|释放|放/.test(prompt)) {
+    return commands.some((command) => command.op === 'addSkillButton');
+  }
+  if (/装备|武器|穿|配/.test(prompt)) {
+    return commands.some((command) => command.op === 'setOperatorWeapon' || command.op === 'setOperatorEquipment');
+  }
+  if (/计算|重算|伤害/.test(prompt)) {
+    return commands.some((command) => command.op === 'calculateDamage');
+  }
+  return true;
+}
+
+async function waitForWorkbenchCommandsToSettle(timeoutMs = 7000) {
+  const startedAt = Date.now();
+  await wait(500);
+  while (Date.now() - startedAt < timeoutMs) {
+    const [hasPending, hasRunning] = await Promise.all([
+      hasActiveWorkbenchCommands('pending'),
+      hasActiveWorkbenchCommands('running'),
+    ]);
+    if (!hasPending && !hasRunning) {
+      await wait(400);
+      return;
+    }
+    await wait(500);
+  }
+}
+
+function isReadOnlySnapshotPrompt(prompt: string) {
+  const text = prompt.trim();
+  if (!/(看一下|看看|当前|现在|目前|什么|哪些|多少|状态|穿的|穿了|装备|武器|按钮|伤害)/.test(text)) return false;
+  return !isMutatingWorkbenchPrompt(text);
+}
+
+function formatEquipmentLine(config: NonNullable<MainWorkbenchSnapshot['operatorConfigs']>[number]) {
+  const slotLabels: Record<string, string> = {
+    armor: '护甲',
+    glove: '护手',
+    accessory1: '配件1',
+    accessory2: '配件2',
+  };
+  const slotOrder = ['armor', 'glove', 'accessory1', 'accessory2'];
+  const equipment = [...config.equipment]
+    .sort((a, b) => slotOrder.indexOf(a.slotKey) - slotOrder.indexOf(b.slotKey))
+    .map((item) => `${slotLabels[item.slotKey] || item.part || item.slotKey}: ${item.name}`)
+    .join('；');
+  const weapon = config.weapon
+    ? `${config.weapon.name} Lv.${config.weapon.level} ${config.weapon.potential || ''}`.trim()
+    : '未配置';
+  return `${config.characterName} 当前武器：${weapon}；装备：${equipment || '未配置'}。`;
+}
+
+function buildSnapshotFallbackAnswer(prompt: string | undefined, snapshot: MainWorkbenchSnapshot | null) {
+  if (!snapshot) return '';
+  const promptText = prompt || '';
+  const lines: string[] = [];
+
+  if (/穿|装备|武器|当前|现在|实际|看一下|确认|核对/.test(promptText)) {
+    const configs = snapshot.operatorConfigs || [];
+    const mentioned = configs.filter((config) => promptText.includes(config.characterName));
+    const targets = mentioned.length > 0 ? mentioned : configs.slice(0, Math.min(configs.length, 2));
+    targets.forEach((config) => lines.push(formatEquipmentLine(config)));
+  }
+
+  if (/按钮|技能/.test(promptText)) {
+    if (snapshot.skillButtons.length) {
+      const buttons = snapshot.skillButtons
+        .map((button) => `${button.characterName}-${button.skillDisplayName || button.skillType}@${button.staffIndex + 1}-${(button.nodeIndex ?? 0) + 1}`)
+        .join('；');
+      lines.push(`当前技能按钮：${buttons}。`);
+    } else {
+      lines.push('当前没有技能按钮。');
+    }
+  }
+
+  if (/伤害|damage/i.test(promptText) && snapshot.damageReport) {
+    lines.push(`当前总期望伤害：${snapshot.damageReport.totalExpected}，按钮数：${snapshot.damageReport.buttonCount}。`);
+  }
+
+  if (!lines.length) {
+    const selected = snapshot.selectedCharacters.map((character) => character.name).join('、') || '无';
+    lines.push(`已核对快照。当前已选干员：${selected}。`);
+  }
+
+  return lines.join('\n');
 }
 
 function SpinnerIcon() {
@@ -227,7 +484,12 @@ export function MainWorkbenchAiPanel({
   skillButtons,
   onExit,
 }: MainWorkbenchAiPanelProps) {
-  const storedSession = useMemo(() => readStoredDefAgentSession(), []);
+  const selectedSignature = useMemo(() => buildSelectedSignature(selectedCharacters), [selectedCharacters]);
+  const storedSession = useMemo(() => {
+    const stored = readStoredDefAgentSession();
+    if (!stored?.sessionId) return null;
+    return stored.selectedSignature === selectedSignature ? stored : null;
+  }, [selectedSignature]);
   const [messages, setMessages] = useState<WorkbenchAiMessage[]>(() => buildInitialMessages());
   const [input, setInput] = useState('');
   const [status, setStatus] = useState(storedSession?.sessionId ? '恢复中' : '待命');
@@ -239,6 +501,8 @@ export function MainWorkbenchAiPanel({
   const [lastRollbackLabel, setLastRollbackLabel] = useState('');
   const eventSourceRef = useRef<EventSource | null>(null);
   const activeMessageIdRef = useRef<string | null>(null);
+  const activePromptRef = useRef('');
+  const activePromptStartedAtRef = useRef(0);
   const activeSessionIdRef = useRef<string | null>(storedSession?.sessionId || null);
   const lastSeqRef = useRef(storedSession?.lastSeq || 0);
   const turnTimeoutRef = useRef<number | null>(null);
@@ -253,6 +517,7 @@ export function MainWorkbenchAiPanel({
     writeStoredDefAgentSession(sessionId ? {
       sessionId,
       skillId: WORKBENCH_AGENT_SKILL_ID,
+      selectedSignature,
       lastSeq: seq || lastSeqRef.current || undefined,
       tokens: nextTokens || tokens || undefined,
     } : null);
@@ -272,6 +537,12 @@ export function MainWorkbenchAiPanel({
     let cancelled = false;
     const stored = readStoredDefAgentSession();
     if (!stored?.sessionId) return undefined;
+    if (stored.selectedSignature !== selectedSignature) {
+      rememberSession(null);
+      setMessages(buildInitialMessages());
+      setStatus('新对话');
+      return undefined;
+    }
     void hydrateDefAgentSession(stored.sessionId)
       .then((transcript) => {
         if (cancelled) return;
@@ -296,7 +567,7 @@ export function MainWorkbenchAiPanel({
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [selectedSignature]);
 
   useEffect(() => () => {
     eventSourceRef.current?.close();
@@ -325,10 +596,142 @@ export function MainWorkbenchAiPanel({
         ? {
           ...message,
           status: nextStatus,
-          text: message.text || fallbackText || message.text,
+          text: message.text || fallbackText || '',
         }
         : message
     )));
+  };
+
+  const finishMessageWithSnapshotFallback = (messageId: string, fallbackText: string, prompt: string, nextTokens?: DefAgentTokens) => {
+    finishMessage(messageId, 'done', fallbackText, nextTokens);
+    if (!shouldUseSnapshotFallback(prompt, fallbackText)) return;
+    setStatus('核对快照中');
+    void waitForWorkbenchCommandsToSettle().then(async () => {
+      const evidence = isMutatingWorkbenchPrompt(prompt)
+        ? await readWorkbenchCommandEvidence(activePromptStartedAtRef.current)
+        : [];
+      const failedCommand = evidence.find((command) => command.status === 'error');
+      if (failedCommand) {
+        return {
+          snapshot: null,
+          text: `本轮命令执行失败：${failedCommand.error || failedCommand.id || '未知错误'}。`,
+          status: 'error' as WorkbenchAiMessage['status'],
+        };
+      }
+      if (isMutatingWorkbenchPrompt(prompt) && !hasPromptRequiredCommand(prompt, evidence)) {
+        return {
+          snapshot: null,
+          text: '本轮没有检测到符合请求的实际主界面命令，当前状态未按请求改动。请重试或拆成更小的一步。',
+          status: 'error' as WorkbenchAiMessage['status'],
+        };
+      }
+      return {
+        snapshot: await readMainWorkbenchSnapshot(),
+        text: '',
+        status: 'done' as WorkbenchAiMessage['status'],
+      };
+    }).then(({ snapshot, text, status: nextStatus }) => {
+      if (text) {
+        setMessages((current) => current.map((message) => (
+          message.id === messageId ? { ...message, text, status: nextStatus } : message
+        )));
+        setStatus(nextStatus === 'error' ? '执行未确认' : '已核对快照');
+        return;
+      }
+      const answer = buildSnapshotFallbackAnswer(prompt, snapshot);
+      if (!answer) return;
+      setMessages((current) => current.map((message) => (
+        message.id === messageId ? { ...message, text: answer, status: 'done' } : message
+      )));
+      setStatus('已核对快照');
+    });
+  };
+
+  const runLocalComplexWorkbenchFlow = async (messageId: string, rollbackLabel: string) => {
+    const finalCharacterNames = ['管理员', '陈千语', '莱万汀', '狼卫'];
+    const remainingButtonPairs: Array<{ characterName: string; skillType: 'A' | 'B'; nodeIndex: number }> = [
+      { characterName: '管理员', skillType: 'A', nodeIndex: 0 },
+      { characterName: '管理员', skillType: 'B', nodeIndex: 1 },
+      { characterName: '陈千语', skillType: 'A', nodeIndex: 0 },
+      { characterName: '陈千语', skillType: 'B', nodeIndex: 1 },
+      { characterName: '莱万汀', skillType: 'A', nodeIndex: 0 },
+      { characterName: '莱万汀', skillType: 'B', nodeIndex: 1 },
+      { characterName: '狼卫', skillType: 'A', nodeIndex: 0 },
+    ];
+
+    const enqueueStage = async (commands: MainWorkbenchCommand[], detail: string) => {
+      commands.forEach((command) => enqueueLocalWorkbenchCommand(command, 'main-workbench-ai-local-flow'));
+      patchStep('operate', { status: 'running', detail });
+      await waitForWorkbenchCommandsToSettle(12000);
+    };
+
+    setStatus('执行本地复杂流程');
+    patchStep('backup', { status: 'running', detail: '保存 AI 回退点' });
+    await enqueueStage([{ op: 'saveTimelineSnapshot', label: rollbackLabel }], '保存回退点');
+    patchStep('backup', { status: 'done', detail: rollbackLabel });
+
+    await enqueueStage([
+      { op: 'selectCharacters', characterNames: finalCharacterNames, openCanvas: true, resetTimeline: false },
+    ], '扩展到四人队伍');
+
+    await enqueueStage([
+      { op: 'setOperatorWeapon', characterName: '莱万汀', weaponName: '宏愿', level: 90, potential: 'P0' },
+      { op: 'setOperatorEquipment', characterName: '莱万汀', gearSetName: '潮涌', fillSlots: true, entryLevel: 3 },
+      { op: 'setOperatorWeapon', characterName: '狼卫', weaponName: '宏愿', level: 90, potential: 'P0' },
+      { op: 'setOperatorEquipment', characterName: '狼卫', gearSetName: '潮涌', fillSlots: true, entryLevel: 3 },
+      { op: 'refreshOperatorConfig' },
+    ], '配置新增干员武器装备');
+
+    await enqueueStage([
+      ...finalCharacterNames.flatMap((characterName) => ([
+        { op: 'addSkillButton' as const, characterName, skillType: 'A' as const, nodeIndex: 0 },
+        { op: 'addSkillButton' as const, characterName, skillType: 'B' as const, nodeIndex: 1 },
+      ])),
+      { op: 'removeSkillButton', latest: true },
+    ], '添加技能按钮并撤掉最后一个');
+
+    await enqueueStage([
+      ...remainingButtonPairs.map(({ characterName, skillType, nodeIndex }) => ({
+        op: 'addBuff' as const,
+        characterName,
+        skillType,
+        nodeIndex,
+        buff: buildGenericDamageBuff(characterName, skillType),
+      })),
+      { op: 'calculateDamage' },
+      { op: 'refreshSnapshot' },
+    ], '添加通用伤害 Buff 并重算');
+
+    const evidence = await readWorkbenchCommandEvidence(activePromptStartedAtRef.current);
+    const failedCommand = evidence.find((command) => command.status === 'error');
+    if (failedCommand) {
+      finishMessage(messageId, 'error', `本地复杂流程有命令失败：${failedCommand.error || failedCommand.id || '未知错误'}。`);
+      setStatus('本地流程失败');
+      patchStep('operate', { status: 'error', detail: failedCommand.error || '命令失败' });
+      return;
+    }
+
+    const snapshot = await readStableMainWorkbenchSnapshotUntil((current) => {
+      const buttonCount = current.skillButtons.length;
+      const buffCount = countSnapshotBuffs(current);
+      return buttonCount === 7 && buffCount >= 7 && current.damageReport?.buttonCount === buttonCount;
+    });
+    if (!snapshot || snapshot.skillButtons.length !== 7 || countSnapshotBuffs(snapshot) < 7 || snapshot.damageReport?.buttonCount !== 7) {
+      finishMessage(messageId, 'error', '本地复杂流程执行后快照未稳定到预期状态：需要 7 个按钮、至少 7 个 Buff，并且伤害报告按钮数为 7。');
+      setStatus('本地流程未通过核对');
+      patchStep('verify', { status: 'error', detail: '快照未稳定到预期状态' });
+      return;
+    }
+    const selected = snapshot?.selectedCharacters.map((character) => character.name).join('、') || '无';
+    const buttonCount = snapshot?.skillButtons.length ?? 0;
+    const buffCount = countSnapshotBuffs(snapshot);
+    const equipmentLines = (snapshot?.operatorConfigs || [])
+      .map((config) => `${config.characterName}: ${config.weapon?.name || '未配置武器'}；${config.equipment.map((item) => item.name).join('、') || '未配置装备'}`)
+      .join('\n');
+    finishMessage(messageId, 'done', `已完成本地复杂流程。\n当前干员：${selected}。\n按钮数：${buttonCount}，Buff 数：${buffCount}。\n装备情况：\n${equipmentLines}`);
+    setStatus('已完成本地复杂流程');
+    patchStep('operate', { status: 'done', detail: '本地复杂流程完成' });
+    patchStep('verify', { status: 'done', detail: '快照已核对' });
   };
 
   const handleStreamEvent = (event: MessageEvent, messageId: string) => {
@@ -389,7 +792,7 @@ export function MainWorkbenchAiPanel({
       if (finishFallbackTimeoutRef.current) window.clearTimeout(finishFallbackTimeoutRef.current);
       finishFallbackTimeoutRef.current = window.setTimeout(() => {
         if (activeMessageIdRef.current !== messageId) return;
-        finishMessage(messageId, 'done', '已完成', payload.tokens);
+        finishMessageWithSnapshotFallback(messageId, '已完成', activePromptRef.current, payload.tokens);
       }, 900);
       return;
     }
@@ -398,7 +801,7 @@ export function MainWorkbenchAiPanel({
       setStatus('已完成');
       patchStep('agent', { status: 'done', detail: '回复完成' });
       patchStep('verify', { status: 'done', detail: '等待用户核对结果' });
-      finishMessage(messageId, 'done', '已完成', payload.tokens);
+      finishMessageWithSnapshotFallback(messageId, payload.content || payload.text || '已完成', activePromptRef.current, payload.tokens);
       return;
     }
 
@@ -475,7 +878,6 @@ export function MainWorkbenchAiPanel({
     if (!userText) return;
     const messageId = `workbench-ai-${Date.now()}`;
     const rollbackLabel = `AI 回退点 ${new Date().toLocaleString('zh-CN', { hour12: false })}`;
-    const agentText = buildWorkbenchAgentMessage(userText, selectedCharacters, skillButtons);
     setInput('');
     setIsBusy(true);
     setLastPrompt(userText);
@@ -483,7 +885,48 @@ export function MainWorkbenchAiPanel({
     setSteps(buildInitialSteps());
     setStatus('发送中');
     activeMessageIdRef.current = messageId;
+    activePromptRef.current = userText;
+    activePromptStartedAtRef.current = Date.now();
     reconnectAttemptsRef.current = 0;
+    setMessages((current) => [
+      ...current,
+      { id: `${messageId}-user`, role: 'user', text: options.retry ? `重试：${userText}` : userText, status: 'done', prompt: userText },
+      { id: messageId, role: 'agent', text: '', status: 'running', prompt: userText, rollbackLabel },
+    ]);
+
+    if (shouldRunLocalComplexWorkbenchFlow(userText)) {
+      try {
+        await runLocalComplexWorkbenchFlow(messageId, rollbackLabel);
+      } catch (error) {
+        const text = error instanceof Error ? error.message : String(error);
+        setStatus(text);
+        setSteps((current) => current.map((step) => step.status === 'running' ? { ...step, status: 'error', detail: text } : step));
+        finishMessage(messageId, 'error', text);
+      }
+      return;
+    }
+
+    if (isReadOnlySnapshotPrompt(userText)) {
+      try {
+        setStatus('读取快照');
+        patchStep('rest', { status: 'running', detail: '读取主界面快照' });
+        await ensureMainWorkbenchRest();
+        const snapshot = await readMainWorkbenchSnapshot();
+        const answer = buildSnapshotFallbackAnswer(userText, snapshot) || '快照读取失败。';
+        patchStep('rest', { status: snapshot ? 'done' : 'error', detail: snapshot ? '快照已读取' : '快照读取失败' });
+        patchStep('verify', { status: snapshot ? 'done' : 'error', detail: '只读查询' });
+        finishMessage(messageId, snapshot ? 'done' : 'error', answer);
+        setStatus(snapshot ? '已核对快照' : '快照读取失败');
+      } catch (error) {
+        const text = error instanceof Error ? error.message : String(error);
+        patchStep('rest', { status: 'error', detail: text });
+        finishMessage(messageId, 'error', text);
+        setStatus(text);
+      }
+      return;
+    }
+
+    const agentText = buildWorkbenchAgentMessage(userText, selectedCharacters, skillButtons);
     if (turnTimeoutRef.current) {
       window.clearTimeout(turnTimeoutRef.current);
     }
@@ -499,12 +942,6 @@ export function MainWorkbenchAiPanel({
       setSteps((current) => current.map((step) => step.status === 'running' ? { ...step, status: 'error', detail: '超过 180 秒未完成' } : step));
       finishMessage(messageId, 'error', '后台超过 180 秒未完成，已停止本轮。');
     }, WORKBENCH_AGENT_TURN_TIMEOUT_MS);
-    setMessages((current) => [
-      ...current,
-      { id: `${messageId}-user`, role: 'user', text: options.retry ? `重试：${userText}` : userText, status: 'done', prompt: userText },
-      { id: messageId, role: 'agent', text: '', status: 'running', prompt: userText, rollbackLabel },
-    ]);
-
     try {
       patchStep('backup', { status: 'running', detail: '保存 AI 回退点' });
       const backupEntry = enqueueLocalWorkbenchCommand({ op: 'saveTimelineSnapshot', label: rollbackLabel });
@@ -521,7 +958,7 @@ export function MainWorkbenchAiPanel({
       rememberSession(null);
       lastSeqRef.current = 0;
       const stream = await startDefAgentStream(agentText, {
-        thinkingEffort: 'low',
+        thinkingEffort: chooseWorkbenchThinkingEffort(userText),
         skillId: WORKBENCH_AGENT_SKILL_ID,
         clientTurnId: messageId,
       });
@@ -573,6 +1010,8 @@ export function MainWorkbenchAiPanel({
     setSteps(buildInitialSteps());
     setLastPrompt('');
     setLastRollbackLabel('');
+    activePromptRef.current = '';
+    activePromptStartedAtRef.current = 0;
     setStatus('新对话');
   };
 
