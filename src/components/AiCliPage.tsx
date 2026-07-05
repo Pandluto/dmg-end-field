@@ -110,6 +110,7 @@ const THINKING_EFFORTS: Array<{ value: DefAgentThinkingEffort; label: string; ti
 
 const LONG_MESSAGE_LIMIT = 1600;
 const DEF_AGENT_BROWSER_SESSION_KEY = 'def-opencode.activeSession.v1';
+const DEF_AGENT_SESSION_META_KEY = 'def-opencode.sessionMeta.v1';
 
 type StoredDefAgentSession = {
   sessionId: string;
@@ -118,6 +119,14 @@ type StoredDefAgentSession = {
   tokens?: DefAgentTokens;
   updatedAt?: number;
 };
+
+type DefAgentSessionMeta = {
+  title?: string;
+  archived?: boolean;
+  updatedAt?: number;
+};
+
+type DefAgentSessionMetaMap = Record<string, DefAgentSessionMeta>;
 
 function readStoredDefAgentSession(): StoredDefAgentSession | null {
   try {
@@ -143,6 +152,48 @@ function writeStoredDefAgentSession(session: StoredDefAgentSession | null) {
   } catch {
     // Browser storage is a convenience; chat must continue without it.
   }
+}
+
+function readDefAgentSessionMeta(): DefAgentSessionMetaMap {
+  try {
+    const raw = window.localStorage.getItem(DEF_AGENT_SESSION_META_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw) as DefAgentSessionMetaMap;
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function writeDefAgentSessionMeta(meta: DefAgentSessionMetaMap) {
+  try {
+    window.localStorage.setItem(DEF_AGENT_SESSION_META_KEY, JSON.stringify(meta));
+  } catch {
+    // Local thread labels are optional; core chat history still comes from OpenCode.
+  }
+}
+
+function patchDefAgentSessionMeta(
+  sessionId: string,
+  patch: Partial<DefAgentSessionMeta>,
+  base: DefAgentSessionMetaMap = readDefAgentSessionMeta(),
+) {
+  const next = {
+    ...base,
+    [sessionId]: {
+      ...(base[sessionId] || {}),
+      ...patch,
+      updatedAt: Date.now(),
+    },
+  };
+  writeDefAgentSessionMeta(next);
+  return next;
+}
+
+function buildInitialSkillMessages(): SkillChatMessage[] {
+  return [
+    { role: 'system', text: '说一句话，或粘贴资料让我整理成待审核修改。模型和后台配置在 DEF Shell 的服务与 Agent 页面。' },
+  ];
 }
 
 function pickRestorableDefAgentSession(
@@ -172,11 +223,28 @@ function transcriptToSkillMessages(messages: DefAgentTranscriptMessage[]): Skill
       loopSteps: message.loopSteps,
       tokens: message.tokens,
       isStreaming: false,
-    }));
+  }));
+}
+
+function mergeDefAgentSessions(...groups: DefAgentSessionSummary[][]) {
+  const byId = new Map<string, DefAgentSessionSummary>();
+  groups.flat().forEach((session) => {
+    const id = session.id || session.sessionID;
+    if (!id) return;
+    const previous = byId.get(id);
+    const previousTime = previous?.updatedAt || previous?.createdAt || 0;
+    const nextTime = session.updatedAt || session.createdAt || 0;
+    byId.set(id, previous && previousTime > nextTime ? { ...session, ...previous } : { ...previous, ...session, id });
+  });
+  return [...byId.values()].sort((a, b) => (b.updatedAt || b.createdAt || 0) - (a.updatedAt || a.createdAt || 0));
 }
 
 function labelThinkingEffort(value: DefAgentThinkingEffort) {
   return THINKING_EFFORTS.find((item) => item.value === value)?.title || '标准';
+}
+
+function normalizeSkillTaskId(value: unknown): SkillTaskId | undefined {
+  return SKILL_TASKS.some((task) => task.id === value) ? value as SkillTaskId : undefined;
 }
 
 function buildStoppedLoopSteps(steps: DefAgentLoopStep[] = []): DefAgentLoopStep[] {
@@ -224,6 +292,38 @@ function renderInlineMarkdown(text: string, keyPrefix: string): ReactNode[] {
   return nodes;
 }
 
+function splitMarkdownTableRow(line: string, delimiter = '|') {
+  const trimmed = line.trim();
+  const withoutEdges = delimiter === '|'
+    ? trimmed.replace(/^\|/, '').replace(/\|$/, '')
+    : trimmed;
+  return withoutEdges.split(delimiter).map((cell) => cell.trim());
+}
+
+function isMarkdownTableDivider(line: string) {
+  const cells = splitMarkdownTableRow(line);
+  return cells.length > 1 && cells.every((cell) => /^:?-{3,}:?$/.test(cell));
+}
+
+function isMarkdownTableStart(lines: string[], index: number) {
+  const line = lines[index] ?? '';
+  const nextLine = lines[index + 1] ?? '';
+  return line.includes('|')
+    && splitMarkdownTableRow(line).length > 1
+    && isMarkdownTableDivider(nextLine);
+}
+
+function isCsvTableStart(lines: string[], index: number) {
+  const line = lines[index] ?? '';
+  const nextLine = lines[index + 1] ?? '';
+  const cells = splitMarkdownTableRow(line, ',');
+  const nextCells = splitMarkdownTableRow(nextLine, ',');
+  return line.includes(',')
+    && nextLine.includes(',')
+    && cells.length > 2
+    && cells.length === nextCells.length;
+}
+
 function renderMarkdown(text: string) {
   const blocks: ReactNode[] = [];
   const lines = text.replace(/\r\n/g, '\n').split('\n');
@@ -249,6 +349,75 @@ function renderMarkdown(text: string) {
         <pre key={`code-${index}`}>
           <code>{language ? `// ${language}\n` : ''}{codeLines.join('\n')}</code>
         </pre>,
+      );
+      continue;
+    }
+
+    if (isMarkdownTableStart(lines, index)) {
+      const headers = splitMarkdownTableRow(lines[index] ?? '');
+      const rows: string[][] = [];
+      index += 2;
+      while (index < lines.length && (lines[index] ?? '').includes('|') && (lines[index] ?? '').trim()) {
+        const cells = splitMarkdownTableRow(lines[index] ?? '');
+        rows.push(headers.map((_header, cellIndex) => cells[cellIndex] || ''));
+        index += 1;
+      }
+      blocks.push(
+        <div key={`table-${index}`} className="ai-skill-table-wrap">
+          <table>
+            <thead>
+              <tr>
+                {headers.map((header, headerIndex) => (
+                  <th key={headerIndex}>{renderInlineMarkdown(header, `th-${index}-${headerIndex}`)}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row, rowIndex) => (
+                <tr key={rowIndex}>
+                  {row.map((cell, cellIndex) => (
+                    <td key={cellIndex}>{renderInlineMarkdown(cell, `td-${index}-${rowIndex}-${cellIndex}`)}</td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>,
+      );
+      continue;
+    }
+
+    if (isCsvTableStart(lines, index)) {
+      const headers = splitMarkdownTableRow(lines[index] ?? '', ',');
+      const rows: string[][] = [];
+      index += 1;
+      while (index < lines.length && (lines[index] ?? '').includes(',') && (lines[index] ?? '').trim()) {
+        const cells = splitMarkdownTableRow(lines[index] ?? '', ',');
+        if (cells.length !== headers.length) break;
+        rows.push(cells);
+        index += 1;
+      }
+      blocks.push(
+        <div key={`csv-${index}`} className="ai-skill-table-wrap">
+          <table>
+            <thead>
+              <tr>
+                {headers.map((header, headerIndex) => (
+                  <th key={headerIndex}>{renderInlineMarkdown(header, `csv-th-${index}-${headerIndex}`)}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row, rowIndex) => (
+                <tr key={rowIndex}>
+                  {row.map((cell, cellIndex) => (
+                    <td key={cellIndex}>{renderInlineMarkdown(cell, `csv-td-${index}-${rowIndex}-${cellIndex}`)}</td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>,
       );
       continue;
     }
@@ -367,6 +536,61 @@ function SkillAgentProgress({ message }: { message: SkillChatMessage }) {
   );
 }
 
+function getLatestAgentMessage(messages: SkillChatMessage[]) {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (message?.role === 'agent') return message;
+  }
+  return null;
+}
+
+function summarizeRunMessage(message: SkillChatMessage | null, isBusy: boolean) {
+  if (!message) {
+    return {
+      title: '等待任务',
+      detail: '新对话准备就绪',
+      status: 'pending',
+    };
+  }
+  const hasError = message.activity?.some((item) => item.status === 'error') || message.loopSteps?.some((step) => step.status === 'error');
+  const runningStep = message.loopSteps?.find((step) => step.status === 'running');
+  const runningActivity = message.activity?.find((item) => item.status === 'running');
+  const lastActivity = message.activity?.[message.activity.length - 1];
+  if (hasError) {
+    return {
+      title: '处理异常',
+      detail: runningActivity?.detail || lastActivity?.detail || '后台返回异常',
+      status: 'error',
+    };
+  }
+  if (isBusy || message.isStreaming) {
+    return {
+      title: runningStep?.label || runningActivity?.title || '处理中',
+      detail: runningStep?.detail || runningActivity?.detail || '后台正在处理当前请求',
+      status: 'running',
+    };
+  }
+  return {
+    title: message.text ? '回复完成' : '等待回复',
+    detail: lastActivity?.detail || '最近一次请求已结束',
+    status: 'done',
+  };
+}
+
+function SkillRunStatusInline({ messages, isBusy }: { messages: SkillChatMessage[]; isBusy: boolean }) {
+  const latestAgentMessage = getLatestAgentMessage(messages);
+  const summary = summarizeRunMessage(latestAgentMessage, isBusy);
+  const latestActivity = (latestAgentMessage?.activity || []).slice(-1)[0];
+  const label = summary.status === 'running' ? '运行中' : summary.status === 'error' ? '异常' : summary.status === 'done' ? '完成' : '待命';
+  return (
+    <div className={`ai-skill-bottom-run is-${summary.status}`} title={`${summary.title} · ${summary.detail}`}>
+      <i>{label}</i>
+      <span>{summary.title}</span>
+      <small>{latestActivity?.title || summary.detail}</small>
+    </div>
+  );
+}
+
 function labelActivityStatus(status: string) {
   return ({
     pending: '等待',
@@ -455,6 +679,29 @@ function formatTokenUsage(tokens: DefAgentTokens | null) {
   return `token ${tokens.total || 0} · 入 ${tokens.prompt || 0} · 出 ${tokens.completion || 0}`;
 }
 
+function formatSessionTime(value?: number) {
+  if (!value) return '未知时间';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '未知时间';
+  return new Intl.DateTimeFormat('zh-CN', {
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(date);
+}
+
+function formatSessionTitle(session: DefAgentSessionSummary, meta?: DefAgentSessionMeta) {
+  if (meta?.title?.trim()) return meta.title.trim();
+  const title = session.title?.replace(/^DEF\s+/, '').trim();
+  return title || formatShortSessionId(session.id || session.sessionID || null);
+}
+
+function formatSessionSkill(session: DefAgentSessionSummary) {
+  const skillId = normalizeSkillTaskId(session.skillId);
+  return SKILL_TASKS.find((task) => task.id === skillId)?.label || '会话';
+}
+
 function SkillAgentLoop({ steps }: { steps: DefAgentLoopStep[] }) {
   return (
     <div className="ai-agent-loop" aria-label="Agent loop">
@@ -531,6 +778,25 @@ function SkillTaskIcon({ icon }: { icon: SkillTask['icon'] }) {
   );
 }
 
+function HistoryIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <circle cx="12" cy="12" r="7" />
+      <path d="M12 8v4l3 2" />
+    </svg>
+  );
+}
+
+function NewChatIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M5 5h14v14H5Z" />
+      <path d="M12 8v8" />
+      <path d="M8 12h8" />
+    </svg>
+  );
+}
+
 export function AiCliPage() {
   const [currentDraft, setCurrentDraft] = useState(() => readCurrentBuffDraft());
   const [sourceText, setSourceText] = useState('');
@@ -563,17 +829,43 @@ export function AiCliPage() {
   const [skillStatus, setSkillStatus] = useState('等待输入');
   const [activeDefSessionId, setActiveDefSessionId] = useState<string | null>(() => readStoredDefAgentSession()?.sessionId || null);
   const [skillTokenUsage, setSkillTokenUsage] = useState<DefAgentTokens | null>(() => readStoredDefAgentSession()?.tokens || null);
-  const [skillMessages, setSkillMessages] = useState<SkillChatMessage[]>([
-    { role: 'system', text: '说一句话，或粘贴资料让我整理成待审核修改。模型和后台配置在 DEF Shell 的服务与 Agent 页面。' },
-  ]);
+  const [skillMessages, setSkillMessages] = useState<SkillChatMessage[]>(() => buildInitialSkillMessages());
   const [isSkillBusy, setIsSkillBusy] = useState(false);
   const [isSkillTaskPanelOpen, setIsSkillTaskPanelOpen] = useState(false);
+  const [isSkillHistoryOpen, setIsSkillHistoryOpen] = useState(false);
+  const [isSkillHistoryLoading, setIsSkillHistoryLoading] = useState(false);
+  const [skillHistoryError, setSkillHistoryError] = useState('');
+  const [skillSessionHistory, setSkillSessionHistory] = useState<DefAgentSessionSummary[]>([]);
+  const [skillSessionMeta, setSkillSessionMeta] = useState<DefAgentSessionMetaMap>(() => readDefAgentSessionMeta());
+  const [showArchivedSkillSessions, setShowArchivedSkillSessions] = useState(false);
+  const [skillHistoryQuery, setSkillHistoryQuery] = useState('');
+  const [renamingSkillSessionId, setRenamingSkillSessionId] = useState<string | null>(null);
+  const [renamingSkillSessionTitle, setRenamingSkillSessionTitle] = useState('');
   const [selectedSkillTaskId, setSelectedSkillTaskId] = useState<SkillTaskId>('operator');
   const [thinkingEffort, setThinkingEffort] = useState<DefAgentThinkingEffort>('medium');
   const selectedSkillTask = useMemo(
     () => SKILL_TASKS.find((task) => task.id === selectedSkillTaskId) ?? SKILL_TASKS[0],
     [selectedSkillTaskId],
   );
+  const activeSkillSessionSummary = useMemo(() => {
+    if (!activeDefSessionId) return null;
+    return skillSessionHistory.find((session) => session.id === activeDefSessionId || session.sessionID === activeDefSessionId) || null;
+  }, [activeDefSessionId, skillSessionHistory]);
+  const visibleSkillSessionHistory = useMemo(() => skillSessionHistory.filter((session) => {
+    const sessionId = session.id || session.sessionID || '';
+    const meta = sessionId ? skillSessionMeta[sessionId] : undefined;
+    if (!showArchivedSkillSessions && meta?.archived && sessionId !== activeDefSessionId) return false;
+    const query = skillHistoryQuery.trim().toLowerCase();
+    if (!query) return true;
+    const haystack = [
+      sessionId,
+      session.title,
+      meta?.title,
+      formatSessionSkill(session),
+      formatTokenUsage(session.tokens || null),
+    ].filter(Boolean).join(' ').toLowerCase();
+    return haystack.includes(query);
+  }), [activeDefSessionId, showArchivedSkillSessions, skillHistoryQuery, skillSessionHistory, skillSessionMeta]);
 
   const rememberDefAgentSession = (sessionId: string | null, tokens?: DefAgentTokens | null, lastSeq?: number) => {
     activeSkillSessionIdRef.current = sessionId;
@@ -585,6 +877,100 @@ export function AiCliPage() {
       tokens: tokens || skillTokenUsage || undefined,
       lastSeq: lastSeq || lastSkillStreamSeqRef.current || undefined,
     } : null);
+  };
+
+  const refreshSkillSessionHistory = async (options: { silent?: boolean } = {}) => {
+    if (!options.silent) {
+      setIsSkillHistoryLoading(true);
+      setSkillHistoryError('');
+    }
+    const [liveResult, persistedResult] = await Promise.allSettled([
+      listDefAgentSessions(),
+      listPersistedDefAgentSessions(),
+    ]);
+    const liveSessions = liveResult.status === 'fulfilled' ? liveResult.value : [];
+    const persistedSessions = persistedResult.status === 'fulfilled' ? persistedResult.value : [];
+    const sessions = mergeDefAgentSessions(liveSessions, persistedSessions);
+    setSkillSessionHistory(sessions);
+    if (liveResult.status === 'rejected' && persistedResult.status === 'rejected') {
+      const message = liveResult.reason instanceof Error ? liveResult.reason.message : String(liveResult.reason);
+      if (!options.silent) setSkillHistoryError(message);
+      if (!options.silent) setIsSkillHistoryLoading(false);
+      return sessions;
+    }
+    if (!options.silent) setIsSkillHistoryLoading(false);
+    return sessions;
+  };
+
+  const applyHydratedSkillSession = async (sessionId: string, status = '已切换历史会话') => {
+    if (isSkillBusy) return;
+    activeSkillEventSourceRef.current?.close();
+    activeSkillEventSourceRef.current = null;
+    activeSkillMessageIdRef.current = null;
+    setSkillStatus('正在载入历史');
+    setSkillHistoryError('');
+    const transcript = await hydrateDefAgentSession(sessionId);
+    const messages = transcriptToSkillMessages(transcript.messages || []);
+    const session = transcript.session || { id: sessionId };
+    const nextSessionId = session.id || session.sessionID || sessionId;
+    const nextSkillId = normalizeSkillTaskId(session.skillId) || selectedSkillTaskId;
+    activeSkillSessionIdRef.current = nextSessionId;
+    lastSkillStreamSeqRef.current = session.lastSeq || 0;
+    setActiveDefSessionId(nextSessionId);
+    setSelectedSkillTaskId(nextSkillId);
+    setSkillTokenUsage(session.tokens || null);
+    setSkillMessages(messages.length > 0 ? messages : buildInitialSkillMessages());
+    writeStoredDefAgentSession({
+      sessionId: nextSessionId,
+      skillId: nextSkillId,
+      lastSeq: session.lastSeq || 0,
+      tokens: session.tokens,
+      updatedAt: session.updatedAt,
+    });
+    setIsSkillHistoryOpen(false);
+    setSkillStatus(status);
+    void refreshSkillSessionHistory({ silent: true });
+  };
+
+  const handleToggleSkillHistory = () => {
+    const nextOpen = !isSkillHistoryOpen;
+    setIsSkillHistoryOpen(nextOpen);
+    if (nextOpen) {
+      void refreshSkillSessionHistory();
+    }
+  };
+
+  const handleSwitchSkillSession = async (sessionId: string) => {
+    try {
+      await applyHydratedSkillSession(sessionId);
+    } catch (error) {
+      setSkillStatus(`切换失败 · ${error instanceof Error ? error.message : String(error)}`);
+      setSkillHistoryError(error instanceof Error ? error.message : String(error));
+    }
+  };
+
+  const handleBeginRenameSkillSession = (session: DefAgentSessionSummary) => {
+    const sessionId = session.id || session.sessionID || '';
+    if (!sessionId) return;
+    setRenamingSkillSessionId(sessionId);
+    setRenamingSkillSessionTitle(formatSessionTitle(session, skillSessionMeta[sessionId]));
+  };
+
+  const handleRenameSkillSession = (event: FormEvent, sessionId: string) => {
+    event.preventDefault();
+    const title = renamingSkillSessionTitle.trim();
+    const nextMeta = patchDefAgentSessionMeta(sessionId, { title: title || undefined }, skillSessionMeta);
+    setSkillSessionMeta(nextMeta);
+    setRenamingSkillSessionId(null);
+    setRenamingSkillSessionTitle('');
+    setSkillStatus(title ? '会话已重命名' : '会话标题已还原');
+  };
+
+  const handleToggleArchiveSkillSession = (sessionId: string) => {
+    const archived = !skillSessionMeta[sessionId]?.archived;
+    const nextMeta = patchDefAgentSessionMeta(sessionId, { archived }, skillSessionMeta);
+    setSkillSessionMeta(nextMeta);
+    setSkillStatus(archived ? '会话已归档' : '会话已恢复');
   };
 
   const syncSessionId = () => {
@@ -737,31 +1123,9 @@ export function AiCliPage() {
       setSkillStatus('已恢复上次会话');
     }
     let cancelled = false;
-    const applyHydratedSession = async (sessionId: string) => {
-      const transcript = await hydrateDefAgentSession(sessionId);
-      if (cancelled) return false;
-      const messages = transcriptToSkillMessages(transcript.messages || []);
-      if (messages.length > 0) {
-        setSkillMessages(messages);
-      }
-      const session = transcript.session;
-      activeSkillSessionIdRef.current = session.id;
-      lastSkillStreamSeqRef.current = session.lastSeq || 0;
-      setActiveDefSessionId(session.id);
-      if (session.tokens) setSkillTokenUsage(session.tokens);
-      writeStoredDefAgentSession({
-        sessionId: session.id,
-        skillId: (session.skillId as SkillTaskId | undefined) || selectedSkillTaskId,
-        lastSeq: session.lastSeq || 0,
-        tokens: session.tokens,
-        updatedAt: session.updatedAt,
-      });
-      setSkillStatus(messages.length > 0 ? '已恢复历史会话' : '已恢复上次会话');
-      return true;
-    };
     (async () => {
       try {
-        const sessions = await listDefAgentSessions();
+        const sessions = await refreshSkillSessionHistory({ silent: true });
         if (cancelled) return;
         const restored = pickRestorableDefAgentSession(sessions, stored, selectedSkillTaskId);
         if (restored?.id) {
@@ -777,19 +1141,11 @@ export function AiCliPage() {
             updatedAt: restored.updatedAt,
           });
           setSkillStatus('已恢复上次会话');
-          await applyHydratedSession(restored.id).catch(() => false);
+          await applyHydratedSkillSession(restored.id, '已恢复历史会话').catch(() => false);
           return;
         }
       } catch {
         // Def-agent is started lazily on send; lack of a session list should not slow the page.
-      }
-      try {
-        const persisted = await listPersistedDefAgentSessions();
-        if (cancelled) return;
-        const restored = pickRestorableDefAgentSession(persisted, stored, selectedSkillTaskId);
-        if (restored?.id) await applyHydratedSession(restored.id);
-      } catch {
-        // Persisted history is best-effort; a missing runtime should not block normal chat.
       }
     })();
     return () => {
@@ -1001,6 +1357,7 @@ export function AiCliPage() {
       if (payload.tokens) {
         rememberDefAgentSession(activeSkillSessionIdRef.current, payload.tokens, seq || undefined);
       }
+      void refreshSkillSessionHistory({ silent: true });
       return;
     }
 
@@ -1151,6 +1508,8 @@ export function AiCliPage() {
     }
     rememberDefAgentSession(null);
     setSkillTokenUsage(null);
+    setSkillMessages(buildInitialSkillMessages());
+    setIsSkillHistoryOpen(false);
     lastSkillStreamSeqRef.current = 0;
     setSkillStatus('新对话已准备');
   };
@@ -1409,16 +1768,143 @@ export function AiCliPage() {
             ) : null}
           </header>
 
-          <div className="ai-skill-session-bar">
-            <span>会话 {formatShortSessionId(activeDefSessionId)}</span>
-            <strong className="ai-skill-tokens">{formatTokenUsage(skillTokenUsage)}</strong>
-            <button type="button" onClick={handleStartNewSkillSession} disabled={isSkillBusy}>
-              新对话
+          <div className="ai-skill-floating-actions" aria-label="会话操作">
+            <button
+              type="button"
+              className={isSkillHistoryOpen ? 'is-active' : ''}
+              onClick={handleToggleSkillHistory}
+              disabled={isSkillBusy}
+              aria-label="历史会话"
+              title="历史会话"
+            >
+              <HistoryIcon />
+            </button>
+            <button
+              type="button"
+              onClick={handleStartNewSkillSession}
+              disabled={isSkillBusy}
+              aria-label="新对话"
+              title="新对话"
+            >
+              <NewChatIcon />
+              <span className="sr-only">新对话</span>
             </button>
           </div>
 
+          {isSkillHistoryOpen ? (
+            <>
+              <button
+                type="button"
+                className="ai-skill-history-backdrop"
+                aria-label="关闭历史会话抽屉"
+                onClick={() => setIsSkillHistoryOpen(false)}
+              />
+              <aside className="ai-skill-history-drawer" aria-label="历史会话">
+                <div className="ai-skill-history-head">
+                  <strong>历史会话</strong>
+                  <div className="ai-skill-history-head-actions">
+                    <button type="button" onClick={() => setShowArchivedSkillSessions((show) => !show)}>
+                      {showArchivedSkillSessions ? '隐藏归档' : '归档'}
+                    </button>
+                    <button type="button" onClick={() => void refreshSkillSessionHistory()} disabled={isSkillHistoryLoading}>
+                      刷新
+                    </button>
+                    <button type="button" onClick={() => setIsSkillHistoryOpen(false)}>
+                      关闭
+                    </button>
+                  </div>
+                </div>
+                <div className="ai-skill-history-search">
+                  <input
+                    value={skillHistoryQuery}
+                    onChange={(event) => setSkillHistoryQuery(event.target.value)}
+                    placeholder="搜索标题 / 会话 / 能力"
+                    aria-label="搜索历史会话"
+                  />
+                  <span>{visibleSkillSessionHistory.length} / {skillSessionHistory.length}</span>
+                </div>
+                {isSkillHistoryLoading ? (
+                  <div className="ai-skill-history-empty">正在读取历史</div>
+                ) : skillHistoryError ? (
+                  <div className="ai-skill-history-empty">历史读取失败 · {skillHistoryError}</div>
+                ) : visibleSkillSessionHistory.length === 0 ? (
+                  <div className="ai-skill-history-empty">还没有可恢复的历史会话</div>
+                ) : (
+                  <div className="ai-skill-history-list">
+                    {visibleSkillSessionHistory.slice(0, 12).map((session) => {
+                      const sessionId = session.id || session.sessionID || '';
+                      const isActive = Boolean(activeDefSessionId && sessionId === activeDefSessionId);
+                      const meta = sessionId ? skillSessionMeta[sessionId] : undefined;
+                      const isArchived = Boolean(meta?.archived);
+                      const isRenaming = renamingSkillSessionId === sessionId;
+                      return (
+                        <div
+                          key={sessionId}
+                          className={[
+                            'ai-skill-history-item',
+                            isActive ? 'is-active' : '',
+                            isArchived ? 'is-archived' : '',
+                          ].filter(Boolean).join(' ')}
+                        >
+                          {isRenaming ? (
+                            <form className="ai-skill-history-rename" onSubmit={(event) => handleRenameSkillSession(event, sessionId)}>
+                              <input
+                                value={renamingSkillSessionTitle}
+                                onChange={(event) => setRenamingSkillSessionTitle(event.target.value)}
+                                autoFocus
+                                aria-label="会话标题"
+                              />
+                              <button type="submit">保存</button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setRenamingSkillSessionId(null);
+                                  setRenamingSkillSessionTitle('');
+                                }}
+                              >
+                                取消
+                              </button>
+                            </form>
+                          ) : (
+                            <>
+                              <button
+                                type="button"
+                                className="ai-skill-history-open"
+                                onClick={() => void handleSwitchSkillSession(sessionId)}
+                                disabled={isActive || isSkillBusy || !sessionId}
+                                title={sessionId}
+                              >
+                                <span>{formatSessionTitle(session, meta)}</span>
+                                <small>
+                                  {formatSessionTime(session.updatedAt || session.createdAt)}
+                                  {' · '}
+                                  {formatSessionSkill(session)}
+                                  {' · '}
+                                  {formatTokenUsage(session.tokens || null)}
+                                  {isArchived ? ' · 已归档' : ''}
+                                </small>
+                              </button>
+                              <div className="ai-skill-history-actions">
+                                <button type="button" onClick={() => handleBeginRenameSkillSession(session)} disabled={!sessionId}>
+                                  命名
+                                </button>
+                                <button type="button" onClick={() => handleToggleArchiveSkillSession(sessionId)} disabled={!sessionId}>
+                                  {isArchived ? '恢复' : '归档'}
+                                </button>
+                              </div>
+                            </>
+                          )}
+                        </div>
+                      );
+                    })}
+                </div>
+              )}
+              </aside>
+            </>
+          ) : null}
+
           <div className="ai-skill-chat-surface">
-            <div className="ai-skill-messages" ref={skillMessagesRef}>
+            <div className="ai-skill-messages" key={activeDefSessionId || 'new-session'} ref={skillMessagesRef}>
               {skillMessages.map((message, index) => (
                 <div key={`${message.role}-${index}`} className={`ai-skill-message is-${message.role}`}>
                   <span>{message.role === 'user' ? '你' : message.role === 'agent' ? '后台' : '系统'}</span>
@@ -1442,7 +1928,12 @@ export function AiCliPage() {
           </form>
 
           <div className="ai-skill-bottom-bar">
-            <span>{skillStatus}</span>
+            <div className="ai-skill-bottom-session">
+              <strong>{activeSkillSessionSummary ? formatSessionTitle(activeSkillSessionSummary, activeDefSessionId ? skillSessionMeta[activeDefSessionId] : undefined) : '新对话'}</strong>
+              <small>{formatShortSessionId(activeDefSessionId) || skillStatus}</small>
+            </div>
+            <SkillRunStatusInline messages={skillMessages} isBusy={isSkillBusy} />
+            <span className="ai-skill-bottom-tokens">{formatTokenUsage(skillTokenUsage)}</span>
             <strong>待审核修改 {pendingProposals.length}</strong>
           </div>
 

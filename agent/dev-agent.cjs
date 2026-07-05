@@ -490,25 +490,26 @@ const server = http.createServer(async (request, response) => {
   const method = request.method || 'GET';
   const requestUrl = new URL(request.url || '/', `http://${HOST}:${PORT}`);
 
-  if (method === 'OPTIONS') {
-    response.writeHead(204, buildJsonHeaders());
-    response.end();
-    return;
-  }
+  try {
+    if (method === 'OPTIONS') {
+      response.writeHead(204, buildJsonHeaders());
+      response.end();
+      return;
+    }
 
-  if (method === 'GET' && requestUrl.pathname === '/health') {
-    writeJson(response, 200, {
-      ok: true,
-      service: 'def-local-agent',
-      host: HOST,
-      port: PORT,
-      shell: getShellRuntimeInfo(),
-      aiCliRest: getAiCliRestRuntimeInfo(),
-      web: getWebRuntimeInfo(),
-      defAgent: getDefAgentRuntimeInfo(),
-    });
-    return;
-  }
+    if (method === 'GET' && requestUrl.pathname === '/health') {
+      writeJson(response, 200, {
+        ok: true,
+        service: 'def-local-agent',
+        host: HOST,
+        port: PORT,
+        shell: getShellRuntimeInfo(),
+        aiCliRest: getAiCliRestRuntimeInfo(),
+        web: getWebRuntimeInfo(),
+        defAgent: getDefAgentRuntimeInfo(),
+      });
+      return;
+    }
 
   if (method === 'POST' && requestUrl.pathname === '/open-shell') {
     writeJson(response, 200, {
@@ -684,11 +685,22 @@ const server = http.createServer(async (request, response) => {
     return;
   }
 
-  writeJson(response, 404, {
-    ok: false,
-    error: 'not-found',
-    path: requestUrl.pathname,
-  });
+    writeJson(response, 404, {
+      ok: false,
+      error: 'not-found',
+      path: requestUrl.pathname,
+    });
+  } catch (error) {
+    if (response.headersSent) {
+      response.end();
+      return;
+    }
+    writeJson(response, 500, {
+      ok: false,
+      error: error instanceof Error ? error.message : String(error),
+      path: requestUrl.pathname,
+    });
+  }
 });
 
 server.listen(PORT, HOST, () => {

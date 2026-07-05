@@ -18,6 +18,7 @@ const runtimeRoot = path.join(projectRoot, 'agent', 'runtime', 'opencode-core');
 const skillsRoot = path.join(projectRoot, 'agent', 'runtime', 'def', 'skills');
 const runtimeLogDir = path.join(projectRoot, '.runtime', 'def-agent');
 const agentWorkspaceDir = path.join(os.tmpdir(), 'dmg-end-field', 'def-agent-workspace');
+let resolvedAgentWorkspaceDir = null;
 const defaultDefOpenCodeHome = path.join(projectRoot, '.runtime', 'def-opencode');
 const DEF_TRANSCRIPT_SCHEMA_VERSION = 1;
 
@@ -132,7 +133,7 @@ function buildCapabilityPermission() {
 function capabilityPolicySummary() {
   return {
     name: capabilityPolicy.name,
-    workspace: capabilityPolicy.workspace,
+    workspace: getAgentWorkspaceDir(),
     allowed: capabilityPolicy.allowed,
     denied: capabilityPolicy.denied,
     webfetchAllow: capabilityPolicy.webfetchAllow,
@@ -299,7 +300,10 @@ function appendLog(line) {
 
 function getAgentWorkspaceDir() {
   fs.mkdirSync(agentWorkspaceDir, { recursive: true });
-  return agentWorkspaceDir;
+  if (!resolvedAgentWorkspaceDir) {
+    resolvedAgentWorkspaceDir = fs.realpathSync(agentWorkspaceDir);
+  }
+  return resolvedAgentWorkspaceDir;
 }
 
 function getDefOpenCodeHome() {
@@ -520,8 +524,8 @@ async function ensureOpenCodeServer(config, skillId, thinkingEffort) {
 
   stopOpenCodeProcess();
   cleanupStaleOpenCodeProcesses();
+  const directory = getAgentWorkspaceDir();
   fs.mkdirSync(runtimeLogDir, { recursive: true });
-  fs.mkdirSync(agentWorkspaceDir, { recursive: true });
   opencodeConfigHash = nextHash;
   opencodeReadyPort = await findOpenCodePort();
   const binaryPath = resolveOpenCodeBinary();
@@ -531,7 +535,7 @@ async function ensureOpenCodeServer(config, skillId, thinkingEffort) {
     `--hostname=${OPENCODE_HOST}`,
     `--port=${opencodeReadyPort}`,
   ], {
-    cwd: agentWorkspaceDir,
+    cwd: directory,
     env: buildOpenCodeRuntimeEnv(openCodeConfig),
     stdio: ['ignore', 'pipe', 'pipe'],
     windowsHide: true,
@@ -686,7 +690,7 @@ function metadataThinkingEffort(metadata) {
 function isDefOpenCodeSession(info) {
   const metadata = info?.metadata || {};
   if (metadata.defOpencode === true || metadata.app === 'dmg-end-field') return true;
-  return info?.directory === agentWorkspaceDir;
+  return info?.directory === getAgentWorkspaceDir();
 }
 
 function buildSessionCreatePayload({ selected, deepseek, skillId, thinkingEffort }) {
