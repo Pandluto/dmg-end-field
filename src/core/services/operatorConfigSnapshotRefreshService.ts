@@ -23,6 +23,7 @@ type EquipmentPart = '护甲' | '护手' | '配件';
 type EquipmentEffectId = 'effect1' | 'effect2' | 'effect3';
 type EquipmentLevelKey = '0' | '1' | '2' | '3';
 type OperatorSkillKey = 'A' | 'B' | 'E' | 'Q' | 'Dot';
+export type OperatorConfigEquipmentSlotKey = 'armor' | 'accessory2' | 'accessory1' | 'glove';
 
 interface EquipmentEffect {
   effectId: EquipmentEffectId;
@@ -108,6 +109,41 @@ const DEFAULT_WEAPON_SKILL_LEVELS = {
   skill2: 9,
   skill3: 4,
 };
+const EQUIPMENT_SLOT_METAS: Array<{ slotKey: OperatorConfigEquipmentSlotKey; part: EquipmentPart }> = [
+  { slotKey: 'armor', part: '护甲' },
+  { slotKey: 'accessory2', part: '配件' },
+  { slotKey: 'accessory1', part: '配件' },
+  { slotKey: 'glove', part: '护手' },
+];
+
+export interface OperatorEquipmentSelectionInput {
+  slotKey?: OperatorConfigEquipmentSlotKey;
+  part?: EquipmentPart;
+  equipmentId?: string;
+  equipmentName?: string;
+  gearSetId?: string;
+  gearSetName?: string;
+  fillSlots?: boolean;
+  entryLevel?: number | string;
+  entryLevels?: Array<number | string> | Record<string, number | string>;
+}
+
+export interface OperatorEquipmentSelectionResult {
+  slotKey: OperatorConfigEquipmentSlotKey;
+  gearSetId: string;
+  gearSetName: string;
+  equipmentId: string;
+  name: string;
+  part: EquipmentPart;
+  effects: Array<{
+    effectId: string;
+    label: string;
+    typeKey: string;
+    level: number | string;
+    value: number;
+    unit?: string;
+  }>;
+}
 
 export interface OperatorConfigSnapshotRefreshResult {
   refreshedCharacterIds: string[];
@@ -386,6 +422,209 @@ function findEquipmentItemInLibrary(equipmentLibrary: EquipmentLibrary | null, e
   return Object.values(equipmentLibrary.gearSets)
     .flatMap((gearSet) => Object.values(gearSet.equipments))
     .find((item) => item.equipmentId === equipmentId) ?? null;
+}
+
+function findEquipmentGearSet(
+  equipmentLibrary: EquipmentLibrary,
+  selection: OperatorEquipmentSelectionInput,
+): EquipmentGearSet | null {
+  if (!selection.gearSetId && !selection.gearSetName) return null;
+  return Object.entries(equipmentLibrary.gearSets)
+    .map(([gearSetId, gearSet]) => ({ ...gearSet, gearSetId: gearSet.gearSetId || gearSetId }))
+    .find((gearSet) => (
+      (selection.gearSetId && gearSet.gearSetId === selection.gearSetId) ||
+      (selection.gearSetName && gearSet.name === selection.gearSetName)
+    )) ?? null;
+}
+
+function findEquipmentWithGearSet(
+  equipmentLibrary: EquipmentLibrary,
+  selection: OperatorEquipmentSelectionInput,
+): { gearSet: EquipmentGearSet; equipment: EquipmentItem } | null {
+  const targetGearSet = findEquipmentGearSet(equipmentLibrary, selection);
+  const gearSets = targetGearSet
+    ? [targetGearSet]
+    : Object.entries(equipmentLibrary.gearSets).map(([gearSetId, gearSet]) => ({
+        ...gearSet,
+        gearSetId: gearSet.gearSetId || gearSetId,
+      }));
+  const targetId = selection.equipmentId?.trim();
+  const targetName = selection.equipmentName?.trim();
+  const targetPart = selection.part;
+
+  for (const gearSet of gearSets) {
+    const match = Object.entries(gearSet.equipments)
+      .map(([equipmentId, equipment]) => ({ ...equipment, equipmentId: equipment.equipmentId || equipmentId }))
+      .find((equipment) => {
+        if (targetPart && equipment.part !== targetPart) return false;
+        if (targetId && equipment.equipmentId !== targetId) return false;
+        if (targetName && equipment.name !== targetName) return false;
+        return Boolean(targetId || targetName);
+      });
+    if (match) {
+      return { gearSet, equipment: match };
+    }
+  }
+
+  return null;
+}
+
+function resolveEquipmentEntryLevel(
+  effectId: string,
+  index: number,
+  selection: OperatorEquipmentSelectionInput,
+): number | string {
+  if (Array.isArray(selection.entryLevels) && selection.entryLevels[index] !== undefined) {
+    return selection.entryLevels[index];
+  }
+  if (selection.entryLevels && !Array.isArray(selection.entryLevels)) {
+    const keyed = selection.entryLevels[effectId] ?? selection.entryLevels[`effect${index + 1}`] ?? selection.entryLevels[String(index)];
+    if (keyed !== undefined) return keyed;
+  }
+  return selection.entryLevel ?? 0;
+}
+
+function createEquipmentPieceFromSelection(
+  slotKey: OperatorConfigEquipmentSlotKey,
+  gearSet: EquipmentGearSet,
+  equipment: EquipmentItem,
+  selection: OperatorEquipmentSelectionInput,
+): { piece: ConfigSnapshot['equipment']['pieces'][number]; result: OperatorEquipmentSelectionResult } {
+  const effects: ConfigSnapshot['equipment']['pieces'][number]['effects'] = (['effect1', 'effect2', 'effect3'] as const)
+    .flatMap((effectId, index) => {
+      const effect = equipment.effects[effectId];
+      if (!effect) return [];
+      const level = resolveEquipmentEntryLevel(effect.effectId || effectId, index, selection);
+      return [{
+        effectId: String(effect.effectId || effectId),
+        label: effect.label,
+        typeKey: effect.typeKey,
+        level,
+        value: getEquipmentEffectLevelValue(effect, level),
+        unit: effect.unit,
+        raw: effect.raw,
+      }];
+    });
+  const piece: ConfigSnapshot['equipment']['pieces'][number] = {
+    slotKey,
+    equipmentId: equipment.equipmentId,
+    name: equipment.name,
+    part: equipment.part,
+    imgUrl: equipment.imgUrl,
+    fixedStat: equipment.fixedStat,
+    effects,
+  };
+  return {
+    piece,
+    result: {
+      slotKey,
+      gearSetId: gearSet.gearSetId,
+      gearSetName: gearSet.name,
+      equipmentId: equipment.equipmentId,
+      name: equipment.name,
+      part: equipment.part,
+      effects: effects.map((effect) => ({
+        effectId: effect.effectId,
+        label: effect.label,
+        typeKey: effect.typeKey,
+        level: effect.level,
+        value: effect.value,
+        unit: effect.unit,
+      })),
+    },
+  };
+}
+
+function resolveEquipmentSlotKey(
+  selection: OperatorEquipmentSelectionInput,
+  equipment: EquipmentItem,
+  usedSlotKeys: Set<OperatorConfigEquipmentSlotKey>,
+  currentPieces: EquipmentPieceInput[],
+): OperatorConfigEquipmentSlotKey {
+  if (selection.slotKey) return selection.slotKey;
+  const matchingSlots = EQUIPMENT_SLOT_METAS
+    .filter((meta) => meta.part === (selection.part ?? equipment.part))
+    .map((meta) => meta.slotKey);
+  const emptySlot = matchingSlots.find((slotKey) => (
+    !usedSlotKeys.has(slotKey) &&
+    !currentPieces.some((piece) => piece.slotKey === slotKey && piece.equipmentId)
+  ));
+  if (emptySlot) return emptySlot;
+  return matchingSlots.find((slotKey) => !usedSlotKeys.has(slotKey)) ?? matchingSlots[0] ?? 'accessory1';
+}
+
+function expandEquipmentSelections(
+  equipmentLibrary: EquipmentLibrary,
+  selections: OperatorEquipmentSelectionInput[],
+): OperatorEquipmentSelectionInput[] {
+  return selections.flatMap((selection) => {
+    if (!selection.fillSlots || selection.equipmentId || selection.equipmentName) {
+      return [selection];
+    }
+    const gearSet = findEquipmentGearSet(equipmentLibrary, selection);
+    if (!gearSet) return [selection];
+    const byPart = (part: EquipmentPart) => Object.values(gearSet.equipments)
+      .filter((equipment) => equipment.part === part)
+      .sort((left, right) => left.name.localeCompare(right.name, 'zh-CN'));
+    const armors = byPart('护甲');
+    const gloves = byPart('护手');
+    const accessories = byPart('配件');
+    const expanded: OperatorEquipmentSelectionInput[] = [];
+    if (armors[0]) expanded.push({ ...selection, fillSlots: false, slotKey: 'armor', equipmentId: armors[0].equipmentId });
+    if (gloves[0]) expanded.push({ ...selection, fillSlots: false, slotKey: 'glove', equipmentId: gloves[0].equipmentId });
+    if (accessories[0]) expanded.push({ ...selection, fillSlots: false, slotKey: 'accessory1', equipmentId: accessories[0].equipmentId });
+    if (accessories[1]) expanded.push({ ...selection, fillSlots: false, slotKey: 'accessory2', equipmentId: accessories[1].equipmentId });
+    return expanded;
+  });
+}
+
+export function applyOperatorEquipmentSelectionsToSnapshot(
+  snapshot: ConfigSnapshot,
+  selections: OperatorEquipmentSelectionInput[],
+): { snapshot: ConfigSnapshot; applied: OperatorEquipmentSelectionResult[] } {
+  const equipmentLibrary = readEquipmentLibraryFromStorage();
+  if (Object.keys(equipmentLibrary.gearSets).length === 0) {
+    throw new Error('装备库为空，无法设置装备');
+  }
+  const expandedSelections = expandEquipmentSelections(equipmentLibrary, selections);
+  const nextPieces: ConfigSnapshot['equipment']['pieces'] = [...snapshot.equipment.pieces];
+  const applied: OperatorEquipmentSelectionResult[] = [];
+  const usedSlotKeys = new Set<OperatorConfigEquipmentSlotKey>();
+
+  expandedSelections.forEach((selection) => {
+    const resolved = findEquipmentWithGearSet(equipmentLibrary, selection);
+    if (!resolved) {
+      throw new Error(`未找到装备: ${selection.equipmentId || selection.equipmentName || selection.gearSetId || selection.gearSetName || '(empty)'}`);
+    }
+    const slotKey = resolveEquipmentSlotKey(selection, resolved.equipment, usedSlotKeys, nextPieces);
+    usedSlotKeys.add(slotKey);
+    const { piece, result } = createEquipmentPieceFromSelection(slotKey, resolved.gearSet, resolved.equipment, selection);
+    const existingIndex = nextPieces.findIndex((current) => current.slotKey === slotKey);
+    if (existingIndex >= 0) {
+      nextPieces[existingIndex] = piece;
+    } else {
+      nextPieces.push(piece);
+    }
+    applied.push(result);
+  });
+
+  return {
+    snapshot: {
+      ...snapshot,
+      equipment: {
+        ...snapshot.equipment,
+        pieces: nextPieces,
+        setBuffs: buildEquipmentSetBuffsForSnapshot({
+          ...snapshot,
+          equipment: {
+            ...snapshot.equipment,
+            pieces: nextPieces,
+          },
+        }, equipmentLibrary),
+      },
+    },
+    applied,
+  };
 }
 
 function buildEquipmentPiecesFromSnapshot(

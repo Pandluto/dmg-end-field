@@ -57,6 +57,10 @@ export function WorkbenchFrame({ activeSkillButtonId = null }: WorkbenchFramePro
     setIsDrawerOpen(prev => !prev);
   }, []);
 
+  const setWorkbenchTopZoneOpen = useCallback((open: boolean) => {
+    setIsDrawerOpen(open);
+  }, []);
+
   const handleModeClick = useCallback((mode: WorkbenchMode) => {
     if (mode !== 'selection' && selectedCharacters.length === 0) {
       return;
@@ -339,6 +343,7 @@ export function WorkbenchFrame({ activeSkillButtonId = null }: WorkbenchFramePro
             workbenchControl={workbenchControl}
             bottomRightControl={bottomNavControls}
             isWorkbenchTopZoneOpen={isDrawerOpen}
+            onWorkbenchTopZoneOpenChange={setWorkbenchTopZoneOpen}
           />
         )}
       </main>

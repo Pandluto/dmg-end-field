@@ -48,6 +48,7 @@ const skillMap = {
   operator: { agent: 'def-operator', skill: 'operator-fill', label: '填干员' },
   weapon: { agent: 'def-weapon', skill: 'weapon-fill', label: '填武器' },
   equipment: { agent: 'def-equipment', skill: 'equipment-fill', label: '填装备' },
+  workbench: { agent: 'def-search', skill: 'rest-search', label: '主界面' },
   search: { agent: 'def-search', skill: 'rest-search', label: '查库' },
   repair: { agent: 'def-repair', skill: 'check-error-repair', label: '修复错误' },
   audit: { agent: 'def-audit', skill: 'akedatabase-fill-tool', label: '审计数据' },
@@ -107,7 +108,11 @@ function deepSeekReasoningEffort(value) {
   return 'high';
 }
 
-function buildCapabilityPermission() {
+function buildCapabilityPermission(webfetchAllow = ['http://127.0.0.1:17321/*']) {
+  const webfetch = { '*': 'deny' };
+  for (const pattern of webfetchAllow) {
+    webfetch[pattern] = 'allow';
+  }
   return {
     bash: 'deny',
     edit: 'deny',
@@ -123,11 +128,20 @@ function buildCapabilityPermission() {
     plan_enter: 'deny',
     plan_exit: 'deny',
     skill: 'allow',
-    webfetch: {
-      '*': 'deny',
-      'http://127.0.0.1:17321/*': 'allow',
-    },
+    webfetch,
   };
+}
+
+function buildAgentPermission(skillId) {
+  if (skillId === 'workbench') {
+    return buildCapabilityPermission([
+      'http://127.0.0.1:17321/api/main-workbench/snapshot',
+      'http://127.0.0.1:17321/api/main-workbench/commands',
+      'http://127.0.0.1:17321/api/main-workbench/commands?*',
+      'http://127.0.0.1:17321/api/main-workbench/commands/enqueue',
+    ]);
+  }
+  return buildCapabilityPermission();
 }
 
 function capabilityPolicySummary() {
@@ -152,6 +166,50 @@ function deepSeekRequestOptions(model, thinkingEffort) {
 
 function buildAgentPrompt(skillId) {
   const info = skillMap[skillId] || skillMap.operator;
+  if (skillId === 'workbench') {
+    return [
+      'You are the embedded DEF main-workbench assistant.',
+      'Reply in Chinese by default. Keep replies practical, short, and action-oriented.',
+      'Optimize for fast interactive UI control: do the smallest correct action, verify briefly, then stop.',
+      'Do not expose API keys, hidden configuration, internal protocol noise, OpenCode runtime details, sessions, or adapters.',
+      'Do not use shell, git, direct file read/write/edit/patch, grep, glob, lsp, task/subagents, web search, unrestricted external network access, or DOM automation.',
+      '',
+      '## Local REST',
+      'Base URL: http://127.0.0.1:17321',
+      'Use webfetch only. For POST endpoints, use method: "POST", format: "text", and a JSON body object.',
+      '',
+      '### Workbench endpoints',
+      '- GET /api/main-workbench/snapshot',
+      '- GET /api/main-workbench/commands?status=pending',
+      '- GET /api/main-workbench/commands',
+      '- POST /api/main-workbench/commands/enqueue with either {command:{...}} or {commands:[...]}',
+      '',
+      '### Supported op values',
+      'selectCharacters, openView, openWorkbenchPage, clearTimeline, setOperatorWeapon, setOperatorEquipment, addSkillButton, removeSkillButton, addBuff, removeBuff, setTargetResistance, saveTimelineSnapshot, restoreTimelineSnapshot, listTimelineSnapshots, refreshOperatorConfig, calculateDamage, refreshSnapshot.',
+      '',
+      '### Common input aliases',
+      '- Treat common pinyin/ASCII aliases as direct operator ids when the intent is clear: Laiwanting=莱万汀, Antaer=安塔尔, Dapan=大潘, Huguang=弧光, Alesh=阿列什, Admin/Administrator=管理员.',
+      '- When every requested operator is covered by the visible snapshot or the alias list above, do not fetch the operator library and do not verify ids first. Enqueue the command directly with the Chinese names.',
+      '- If the user says replace A and B with C and D, read the snapshot once, preserve the other selected operators, then enqueue one selectCharacters command with the final four ids.',
+      '',
+      '### Fast workflow rules',
+      '- This is an interactive UI action. Prefer one batched enqueue and one verification snapshot.',
+      '- The user prompt includes a current selected-operator summary and current skill-button summary. Treat that summary as trusted context. Do not fetch snapshot merely to identify a visible operator or visible skill button.',
+      '- Use /api/main-workbench/commands/enqueue for every main-screen change.',
+      '- Batch related commands into one enqueue request with {commands:[...]} whenever possible. The body shape is {"commands":[{"op":"..."},{"op":"..."}],"source":"def-opencode"}. Do not wrap commands in extra text.',
+      '- Do not use /api/ai-cli/run for workbench, operator, weapon, equipment, or buff actions.',
+      '- Do not use /api/operator/*, /api/weapon/*, /api/equipment/*, /api/buff/*, /api/agent/scripts/*, or scripts. If the user asks for suitable gear without exact names, use simple defaults below.',
+      '- Do not call nonexistent CLI commands such as operator.search.',
+      '- Known official operators can be selected directly by name/id with selectCharacters; do not search first.',
+      '- Default gear plan when exact names are not provided: keep existing weapon/equipment if present; otherwise setOperatorWeapon with weaponName "宏愿"; setOperatorEquipment with gearSetName "潮涌", fillSlots:true, entryLevel:3.',
+      '- Only save a rollback snapshot when the user asks to restore later, replace many operators, clear the timeline, or perform a broad irreversible edit. Do not save a snapshot before small edits such as adding/removing one skill button or one Buff.',
+      '- setOperatorEquipment may use gearSetName/gearSetId with fillSlots:true for a four-piece set. Use entryLevel:3 when max entries are appropriate.',
+      '- For Buff edits, enqueue addBuff/removeBuff directly with characterName and skillType/buttonId when the visible summary is enough. Then include calculateDamage and refreshSnapshot in the same commands array if the user asks for recalculation.',
+      '- After enqueueing, poll snapshot/commands at most once. If the expected state is visible, reply immediately.',
+      '- Do not continue auditing, searching, or explaining after the requested state is visible.',
+      '- Finish each turn with one concise natural-language summary.',
+    ].join('\n');
+  }
   return [
     'You are the embedded OpenCode agent inside DEF Shell.',
     'Reply in Chinese by default. Use another language only when the user explicitly asks for it or quotes text that must remain unchanged.',
@@ -195,6 +253,8 @@ function buildAgentPrompt(skillId) {
     '- GET /api/agent/records - agent records snapshot',
     '- GET /api/agent/scripts - list temporary DEF JSON helper scripts and constraints',
     '- GET /api/agent/scripts/<name> - read one temporary helper script',
+    '- GET /api/main-workbench/snapshot - current main workbench mirror: selected operators, timeline buttons, selected buff ids, damage totals',
+    '- GET /api/main-workbench/commands?status=pending - queued main workbench commands waiting for the browser page to execute',
     '',
     '### Write endpoints (creates proposals only, never writes library directly)',
     '- POST /api/buff/fill/check - validate Buff draft (body: { protocolVersion:1, requestId, draft })',
@@ -209,6 +269,8 @@ function buildAgentPrompt(skillId) {
     '- POST /api/agent/scripts/write - create or update one small temporary .js/.mjs helper script',
     '- POST /api/agent/scripts/run - run a temporary helper script with JSON input and JSON/text stdout',
     '- POST /api/agent/scripts/delete - delete a temporary helper script',
+    '- POST /api/main-workbench/commands/enqueue - enqueue declarative browser-executed main workbench commands',
+    '- POST /api/main-workbench/commands/result - browser result mirror for command completion',
     '',
     '### DEF JSON script workbench (optional)',
     '- Use scripts only for repetitive JSON cleanup, comparison, batching, validation-error aggregation, or draft generation.',
@@ -216,6 +278,16 @@ function buildAgentPrompt(skillId) {
     '- Scripts must accept JSON from stdin and print compact JSON or a short report to stdout.',
     '- Do not use scripts to edit project code, read arbitrary project files, run git, run npm install, automate shell tasks, fetch external network data, or bypass proposal review.',
     '- Script output is only evidence or a candidate draft. Always validate final drafts with fill.check before fill.apply.',
+    '',
+    '### Main workbench code-control commands',
+    '- Use /api/main-workbench/commands/enqueue when the user asks to control the main screen by code.',
+    '- Supported command op values: selectCharacters, openView, openWorkbenchPage, clearTimeline, setOperatorWeapon, setOperatorEquipment, addSkillButton, removeSkillButton, addBuff, removeBuff, setTargetResistance, saveTimelineSnapshot, restoreTimelineSnapshot, listTimelineSnapshots, refreshOperatorConfig, calculateDamage, refreshSnapshot.',
+    '- Commands are declarative JSON. Do not automate DOM clicks; the browser page maps commands to React services, localStorage/sessionStorage repositories, Buff service, and damage calculation.',
+    '- Strategy flow: selectCharacters -> setOperatorWeapon/setOperatorEquipment -> refreshOperatorConfig -> restoreTimelineSnapshot or clearTimeline/addSkillButton -> addBuff/setTargetResistance -> calculateDamage -> saveTimelineSnapshot.',
+    '- setOperatorEquipment can use gearSetName/gearSetId with fillSlots:true to equip four pieces, or slotKey plus equipmentName/equipmentId for one piece. Use entryLevel:3 for max equipment entries when appropriate.',
+    '- Before risky edits, enqueue saveTimelineSnapshot with a clear label so the user can roll back with restoreTimelineSnapshot.',
+    '- After enqueue, poll GET /api/main-workbench/snapshot and GET /api/main-workbench/commands for completion evidence.',
+    '- Example: {"command":{"op":"selectCharacters","characterIds":["operator-id"],"openCanvas":true},"source":"def-opencode"}.',
     '',
     '### Safety rules (must follow)',
     '- fill.check only validates; fill.apply only creates a proposal. Neither writes the library.',
@@ -244,8 +316,8 @@ function buildOpenCodeConfig(config, skillId, thinkingEffort) {
       mode: 'primary',
       prompt: buildAgentPrompt(id),
       options: requestOptions,
-      permission: buildCapabilityPermission(),
-      steps: 8,
+      permission: buildAgentPermission(id),
+      steps: id === 'workbench' ? 4 : 8,
     };
   }
 
@@ -253,7 +325,7 @@ function buildOpenCodeConfig(config, skillId, thinkingEffort) {
     model: modelRef,
     default_agent: (skillMap[skillId] || skillMap.operator).agent,
     disabled_providers: ['opencode'],
-    permission: buildCapabilityPermission(),
+    permission: buildAgentPermission(skillId),
     skills: {
       paths: [skillsRoot],
     },

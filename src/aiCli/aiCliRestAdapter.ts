@@ -86,6 +86,10 @@ export const AI_CLI_REST_ENDPOINTS = [
   'POST /api/agent/scripts/write',
   'POST /api/agent/scripts/run',
   'POST /api/agent/scripts/delete',
+  'GET /api/main-workbench/snapshot',
+  'GET /api/main-workbench/commands',
+  'POST /api/main-workbench/commands/enqueue',
+  'POST /api/main-workbench/commands/result',
 ] as const;
 
 export interface AiCliRestRequest {
@@ -399,6 +403,53 @@ export function handleAiCliRestRequest(
           body: {
             name: 'compare-library.mjs',
             input: { items: [] },
+          },
+        },
+      },
+      mainWorkbenchControl: {
+        purpose: 'Code-driven control surface for the main workbench selection/timeline/buff/damage flow.',
+        storage: {
+          commandQueue: 'localStorage.def.main-workbench.command-queue.v1',
+          resultLog: 'localStorage.def.main-workbench.result-log.v1',
+          snapshot: 'localStorage.def.main-workbench.snapshot.v1',
+        },
+        endpoints: [
+          'GET /api/main-workbench/snapshot',
+          'GET /api/main-workbench/commands?status=pending',
+          'POST /api/main-workbench/commands/enqueue',
+        ],
+        commandOps: [
+          'selectCharacters',
+          'openView',
+          'openWorkbenchPage',
+          'clearTimeline',
+          'setOperatorWeapon',
+          'setOperatorEquipment',
+          'addSkillButton',
+          'addBuff',
+          'setTargetResistance',
+          'saveTimelineSnapshot',
+          'restoreTimelineSnapshot',
+          'listTimelineSnapshots',
+          'refreshOperatorConfig',
+          'calculateDamage',
+          'refreshSnapshot',
+        ],
+        rules: [
+          'Commands are declarative JSON; never simulate DOM clicks.',
+          'The browser page executes commands through existing React services and writes results back to result-log/snapshot.',
+          'Read snapshot after enqueue to confirm selectedCharacters, skillButtons, buff ids, and damage totals.',
+          'Use saveTimelineSnapshot before risky operations and restoreTimelineSnapshot for rollback.',
+          'Use setOperatorWeapon to equip a selected operator weapon before refreshing operator config.',
+          'Use setOperatorEquipment with gearSetName/gearSetId and fillSlots:true for four-piece equipment, or slotKey plus equipmentName/equipmentId for one piece.',
+          'Use openWorkbenchPage for operatorConfig, weaponSheet, equipmentSheet, damageSheet, damageReportPpt, aiCli, selection, or canvas.',
+        ],
+        enqueueExample: {
+          method: 'POST',
+          path: '/api/main-workbench/commands/enqueue',
+          body: {
+            command: { op: 'selectCharacters', characterIds: ['operator-id'], openCanvas: true },
+            source: 'script',
           },
         },
       },

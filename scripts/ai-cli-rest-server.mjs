@@ -22,6 +22,9 @@ const SCRIPT_MAX_LINES = 500;
 const SCRIPT_TIMEOUT_MS = 8000;
 const SCRIPT_MAX_STDOUT = 256 * 1024;
 const SCRIPT_MAX_STDERR = 64 * 1024;
+const MAIN_WORKBENCH_COMMAND_QUEUE_KEY = 'def.main-workbench.command-queue.v1';
+const MAIN_WORKBENCH_RESULT_LOG_KEY = 'def.main-workbench.result-log.v1';
+const MAIN_WORKBENCH_SNAPSHOT_KEY = 'def.main-workbench.snapshot.v1';
 
 class FileStorage {
   constructor(filePath) {
@@ -418,6 +421,193 @@ function scriptWorkbenchConstraints() {
   };
 }
 
+function readMainWorkbenchJson(key, fallback) {
+  try {
+    const raw = globalThis.window?.localStorage?.getItem(key);
+    if (!raw) return fallback;
+    return JSON.parse(raw);
+  } catch {
+    return fallback;
+  }
+}
+
+function writeMainWorkbenchJson(key, value) {
+  globalThis.window?.localStorage?.setItem(key, JSON.stringify(value));
+}
+
+function makeMainWorkbenchCommandId() {
+  return `mw-rest-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function normalizeMainWorkbenchCommandEntry(entry, fallbackSource = 'rest') {
+  if (!entry || typeof entry !== 'object' || !entry.command || typeof entry.command !== 'object') {
+    return null;
+  }
+  if (typeof entry.command.op !== 'string') {
+    return null;
+  }
+  const now = Date.now();
+  return {
+    id: typeof entry.id === 'string' && entry.id.trim() ? entry.id : makeMainWorkbenchCommandId(),
+    command: entry.command,
+    status: ['pending', 'running', 'done', 'error'].includes(entry.status) ? entry.status : 'pending',
+    source: typeof entry.source === 'string' && entry.source.trim() ? entry.source : fallbackSource,
+    createdAt: typeof entry.createdAt === 'number' ? entry.createdAt : now,
+    updatedAt: typeof entry.updatedAt === 'number' ? entry.updatedAt : now,
+    ...(Object.prototype.hasOwnProperty.call(entry, 'result') ? { result: entry.result } : {}),
+    ...(typeof entry.error === 'string' ? { error: entry.error } : {}),
+  };
+}
+
+function readMainWorkbenchCommandQueue() {
+  const raw = readMainWorkbenchJson(MAIN_WORKBENCH_COMMAND_QUEUE_KEY, []);
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((entry) => normalizeMainWorkbenchCommandEntry(entry))
+    .filter(Boolean);
+}
+
+function writeMainWorkbenchCommandQueue(queue) {
+  writeMainWorkbenchJson(MAIN_WORKBENCH_COMMAND_QUEUE_KEY, queue);
+}
+
+function appendMainWorkbenchResult(entry) {
+  const raw = readMainWorkbenchJson(MAIN_WORKBENCH_RESULT_LOG_KEY, []);
+  const current = Array.isArray(raw) ? raw : [];
+  const next = [entry, ...current.filter((item) => item?.id !== entry.id)].slice(0, 50);
+  writeMainWorkbenchJson(MAIN_WORKBENCH_RESULT_LOG_KEY, next);
+}
+
+function handleMainWorkbenchRequest(method, pathname, query, body) {
+  if (method === 'GET' && pathname === '/api/main-workbench/snapshot') {
+    return {
+      status: 200,
+      body: {
+        ok: true,
+        protocolVersion: 1,
+        snapshot: readMainWorkbenchJson(MAIN_WORKBENCH_SNAPSHOT_KEY, null),
+      },
+    };
+  }
+
+  if (method === 'POST' && pathname === '/api/main-workbench/snapshot') {
+    const snapshot = body && Object.prototype.hasOwnProperty.call(body, 'snapshot') ? body.snapshot : body;
+    if (!snapshot || typeof snapshot !== 'object') {
+      return failScript(400, 'invalid-main-workbench-snapshot', 'Snapshot payload must be an object.');
+    }
+    writeMainWorkbenchJson(MAIN_WORKBENCH_SNAPSHOT_KEY, {
+      ...snapshot,
+      updatedAt: typeof snapshot.updatedAt === 'number' ? snapshot.updatedAt : Date.now(),
+      source: snapshot.source || 'rest',
+    });
+    return {
+      status: 200,
+      body: { ok: true, protocolVersion: 1, snapshot: readMainWorkbenchJson(MAIN_WORKBENCH_SNAPSHOT_KEY, null) },
+    };
+  }
+
+  if (method === 'GET' && pathname === '/api/main-workbench/commands') {
+    const status = query.get('status');
+    const commands = readMainWorkbenchCommandQueue()
+      .filter((entry) => !status || entry.status === status);
+    return {
+      status: 200,
+      body: {
+        ok: true,
+        protocolVersion: 1,
+        commands,
+      },
+    };
+  }
+
+  if (method === 'POST' && pathname === '/api/main-workbench/commands/enqueue') {
+    const rawCommands = Array.isArray(body?.commands)
+      ? body.commands
+      : Array.isArray(body?.command)
+        ? body.command
+        : body?.command
+          ? [body.command]
+          : [];
+    const commands = rawCommands.filter((command) => command && typeof command === 'object' && typeof command.op === 'string');
+    if (!commands.length) {
+      return failScript(400, 'invalid-main-workbench-command', 'Body must contain command with an op field or commands array.');
+    }
+    const queue = readMainWorkbenchCommandQueue();
+    const source = typeof body?.source === 'string' ? body.source : 'rest';
+    if (commands.length === 1) {
+      const id = typeof body?.id === 'string' && body.id.trim() ? body.id : makeMainWorkbenchCommandId();
+      const existing = queue.find((entry) => entry.id === id);
+      if (existing) {
+        return {
+          status: 200,
+          body: { ok: true, protocolVersion: 1, command: existing, commands: [existing], duplicate: true },
+        };
+      }
+      const entry = normalizeMainWorkbenchCommandEntry({
+        id,
+        command: commands[0],
+        source,
+        status: 'pending',
+      });
+      writeMainWorkbenchCommandQueue([...queue, entry]);
+      return {
+        status: 200,
+        body: { ok: true, protocolVersion: 1, command: entry, commands: [entry] },
+      };
+    }
+    const entries = commands.map((command) => normalizeMainWorkbenchCommandEntry({
+      id: makeMainWorkbenchCommandId(),
+      command,
+      source,
+      status: 'pending',
+    }));
+    writeMainWorkbenchCommandQueue([...queue, ...entries]);
+    return {
+      status: 200,
+      body: { ok: true, protocolVersion: 1, commands: entries },
+    };
+  }
+
+  if (method === 'POST' && pathname === '/api/main-workbench/commands/result') {
+    const id = typeof body?.id === 'string' ? body.id : '';
+    if (!id) {
+      return failScript(400, 'missing-main-workbench-command-id', 'Result body must include id.');
+    }
+    const queue = readMainWorkbenchCommandQueue();
+    let patched = null;
+    const nextQueue = queue.map((entry) => {
+      if (entry.id !== id) return entry;
+      patched = {
+        ...entry,
+        status: ['done', 'error', 'running', 'pending'].includes(body.status) ? body.status : entry.status,
+        updatedAt: Date.now(),
+        ...(Object.prototype.hasOwnProperty.call(body, 'result') ? { result: body.result } : {}),
+        ...(typeof body.error === 'string' ? { error: body.error } : {}),
+      };
+      return patched;
+    });
+    if (!patched) {
+      patched = normalizeMainWorkbenchCommandEntry({
+        id,
+        command: { op: 'refreshSnapshot' },
+        status: ['done', 'error', 'running', 'pending'].includes(body.status) ? body.status : 'done',
+        result: body.result,
+        error: body.error,
+        source: 'browser-result',
+      });
+      nextQueue.push(patched);
+    }
+    writeMainWorkbenchCommandQueue(nextQueue);
+    appendMainWorkbenchResult(patched);
+    return {
+      status: 200,
+      body: { ok: true, protocolVersion: 1, command: patched },
+    };
+  }
+
+  return null;
+}
+
 async function handleAgentScriptRequest(method, pathname, body) {
   if (method === 'GET' && pathname === '/api/agent/scripts') {
     return {
@@ -606,6 +796,12 @@ const server = http.createServer(async (request, response) => {
 
   try {
     const body = method === 'POST' ? await readJsonBody(request) : undefined;
+    const mainWorkbenchResponse = handleMainWorkbenchRequest(method, requestUrl.pathname, requestUrl.searchParams, body);
+    if (mainWorkbenchResponse) {
+      writeJson(response, mainWorkbenchResponse.status, mainWorkbenchResponse.body);
+      return;
+    }
+
     const scriptResponse = await handleAgentScriptRequest(method, requestUrl.pathname, body);
     if (scriptResponse) {
       writeJson(response, scriptResponse.status, scriptResponse.body);

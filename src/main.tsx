@@ -3,6 +3,7 @@ import ReactDOM from 'react-dom/client'
 import App from './App'
 import { AppProvider } from './context/AppContext'
 import { bootstrapLocalDataBridge } from './utils/localDataBridge'
+import { installMainWorkbenchWindowApi } from './utils/mainWorkbenchControl'
 
 window.onbeforeunload = (event: BeforeUnloadEvent) => {
   event.preventDefault()
@@ -15,6 +16,7 @@ async function bootstrap() {
   if (!shouldRender) {
     return;
   }
+  installMainWorkbenchWindowApi();
 
   ReactDOM.createRoot(document.getElementById('root')!).render(
     <React.StrictMode>

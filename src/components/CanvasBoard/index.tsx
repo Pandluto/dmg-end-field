@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useAppContext } from '../../context/AppContext';
 import { SkillSandbox } from './SkillSandbox';
+import { MainWorkbenchAiPanel } from './MainWorkbenchAiPanel';
 import { useCanvasWidth } from './hooks/useCanvasWidth';
 import { useSelectStart } from './hooks/useSelectStart';
 import { useCanvasDrag } from './hooks/useCanvasDrag';
@@ -14,15 +15,17 @@ import {
   Character,
   SandboxSkill,
   SkillButton,
+  SkillButtonType,
   SkillButtonSkillChangePayload,
   SkillButtonSkillOption,
 } from '../../types';
 import { resolveSkillIconUrl } from '../../utils/assetResolver';
-import { onSkillButtonBuffAdded, onSkillButtonBuffRemoved } from '../../core/events/buffEvents';
+import { emitSkillButtonBuffAdded, onSkillButtonBuffAdded, onSkillButtonBuffRemoved } from '../../core/events/buffEvents';
 import { generateId } from '../../utils/helpers';
 import { calculateNodeNumber } from '../../utils/nodeNumbering';
 import { SKILL_BUTTON_BASELINE_OFFSET_Y } from '../../constants/canvas-layout';
 import {
+  clampGridNodeIndex,
   clientToGridCoords,
   findNearestStaffIndex,
   getGridContentOffsetX,
@@ -41,12 +44,27 @@ import {
   setSkillButtonTable,
   upsertSkillButton,
 } from '../../core/repositories';
-import { attachExistingBuffsToButton, recomputeSkillButtonPanel } from '../../core/services/buffService';
+import {
+  addBuffToButton,
+  attachExistingBuffsToButton,
+  getBuffsByButtonId,
+  recomputeSkillButtonPanel,
+  removeBuffFromButton,
+} from '../../core/services/buffService';
 import { refreshAvailableCandidateBuffsForCharacters } from '../../core/services/operatorConfigCandidateBuffService';
-import { refreshOperatorConfigSnapshotsForCharacters } from '../../core/services/operatorConfigSnapshotRefreshService';
+import {
+  applyOperatorEquipmentSelectionsToSnapshot,
+  refreshOperatorConfigSnapshotsForCharacters,
+} from '../../core/services/operatorConfigSnapshotRefreshService';
 import { APP_ROUTE_PATHS, navigateToAppPath } from '../../utils/appRoute';
 import { STORAGE_KEYS } from '../../constants/storage-keys';
-import { getRuntimeOperatorTemplateById, safeSessionStorage, setSelectedCharacterIds } from '../../utils/storage';
+import {
+  getOperatorConfigPageCache,
+  getRuntimeOperatorTemplateById,
+  safeSessionStorage,
+  setOperatorConfigPageCache,
+  setSelectedCharacterIds,
+} from '../../utils/storage';
 import {
   applyTimelineSnapshotPayload,
   buildTimelineShareFile,
@@ -62,9 +80,20 @@ import {
 } from '../../utils/timelineSnapshotStorage';
 import './CanvasBoard.css';
 import { resolveRuntimeTemplateSkill } from '../../core/services/skillDamageTemplateResolver';
+import { buildDamageReportSnapshot } from '../../core/services/damageReportService';
 import type { PersistedSkillButton } from '../../types/storage';
 import type { HitResistanceInput } from '../../types/storage';
 import DeferredNumberInput from '../DeferredNumberInput';
+import {
+  getPendingMainWorkbenchCommands,
+  patchMainWorkbenchCommand,
+  pullRemoteMainWorkbenchCommands,
+  pushMainWorkbenchCommandResult,
+  pushMainWorkbenchSnapshot,
+  writeMainWorkbenchSnapshot,
+  type MainWorkbenchCommand,
+  type MainWorkbenchSnapshot,
+} from '../../utils/mainWorkbenchControl';
 
 const EMPTY_BATCH_TARGET_RESISTANCE: Required<HitResistanceInput> = {
   physicalResistance: 0,
@@ -201,6 +230,7 @@ interface CanvasBoardProps {
   workbenchMode?: 'selection' | 'timeline' | 'toolPanel';
   isToolPanelVisible?: boolean;
   isWorkbenchTopZoneOpen?: boolean;
+  onWorkbenchTopZoneOpenChange?: (open: boolean) => void;
   onSkillButtonModalOpen?: () => void;
   onSkillButtonModalClose?: () => void;
   onOpenOperatorConfig?: (characterId: string) => void;
@@ -213,6 +243,7 @@ export function CanvasBoard({
   workbenchMode: _workbenchMode = 'timeline',
   isToolPanelVisible = true,
   isWorkbenchTopZoneOpen = false,
+  onWorkbenchTopZoneOpenChange,
   onSkillButtonModalOpen,
   onSkillButtonModalClose,
   onOpenOperatorConfig,
@@ -235,6 +266,9 @@ export function CanvasBoard({
   const [timelineSnapshots, setTimelineSnapshots] = useState<TimelineSnapshotEntry[]>([]);
   const [isBrowseMode, setIsBrowseMode] = useState(false);
   const [isInspectMode, setIsInspectMode] = useState(false);
+  const [isAiMode, setIsAiMode] = useState(false);
+  const [aiHoverZone, setAiHoverZone] = useState<'left' | 'right'>('right');
+  const shouldRestoreTopZoneAfterAiRef = useRef(false);
   const [isRefreshingAvailableCandidates, setIsRefreshingAvailableCandidates] = useState(false);
   const [isBatchResistanceModalOpen, setIsBatchResistanceModalOpen] = useState(false);
   const [batchTargetResistance, setBatchTargetResistance] = useState<Required<HitResistanceInput>>(
@@ -242,9 +276,47 @@ export function CanvasBoard({
   );
   const [resistanceRevision, setResistanceRevision] = useState(0);
   const shareImportInputRef = useRef<HTMLInputElement>(null);
+  const isProcessingWorkbenchCommandRef = useRef(false);
 
   const canvasWidth = useCanvasWidth(canvasConfig.canvasWidthPercent);
   useSelectStart();
+
+  const enterAiMode = () => {
+    shouldRestoreTopZoneAfterAiRef.current = isWorkbenchTopZoneOpen;
+    if (isWorkbenchTopZoneOpen) {
+      onWorkbenchTopZoneOpenChange?.(false);
+    }
+    setAiHoverZone('right');
+    setIsAiMode(true);
+  };
+
+  const exitAiMode = () => {
+    setIsAiMode(false);
+    setAiHoverZone('right');
+    if (shouldRestoreTopZoneAfterAiRef.current) {
+      onWorkbenchTopZoneOpenChange?.(true);
+    }
+    shouldRestoreTopZoneAfterAiRef.current = false;
+  };
+
+  const toggleAiMode = () => {
+    if (isAiMode) {
+      exitAiMode();
+      return;
+    }
+    enterAiMode();
+  };
+
+  const updateAiHoverZoneFromClientX = (clientX: number) => {
+    const aiPanelWidth = Math.min(window.innerWidth * 0.5, 760, Math.max(0, window.innerWidth - 96));
+    const nextHoverZone = clientX >= window.innerWidth - aiPanelWidth ? 'right' : 'left';
+    setAiHoverZone((current) => (current === nextHoverZone ? current : nextHoverZone));
+  };
+
+  const handleAiLayoutMouseMove = (event: React.MouseEvent<HTMLDivElement>) => {
+    if (!isAiMode) return;
+    updateAiHoverZoneFromClientX(event.clientX);
+  };
 
   const {
     timelineData,
@@ -260,6 +332,573 @@ export function CanvasBoard({
 
   const restoredSignatureRef = useRef<string | null>(null);
   const previousViewRef = useRef(currentView);
+
+  const findCharacterForWorkbenchCommand = (command: Extract<MainWorkbenchCommand, { op: 'addSkillButton' | 'removeSkillButton' | 'addBuff' | 'removeBuff' | 'setOperatorWeapon' | 'setOperatorEquipment' }>) => {
+    if ('characterId' in command && command.characterId) {
+      const byId = selectedCharacters.find((character) => character.id === command.characterId);
+      if (byId) return byId;
+    }
+    if ('characterName' in command && command.characterName) {
+      const byName = selectedCharacters.find((character) => character.name === command.characterName);
+      if (byName) return byName;
+    }
+    return null;
+  };
+
+  const normalizeWorkbenchWeaponPotential = (potential: string | undefined, fallback: string) => {
+    if (!potential) return fallback;
+    if (potential === 'P0') return '0潜';
+    if (potential === 'PMAX') return '满潜';
+    return potential;
+  };
+
+  const setOperatorWeaponFromWorkbenchCommand = async (command: Extract<MainWorkbenchCommand, { op: 'setOperatorWeapon' }>) => {
+    const weaponName = command.weaponName?.trim();
+    if (!weaponName) {
+      throw new Error('setOperatorWeapon requires weaponName');
+    }
+    const character = findCharacterForWorkbenchCommand(command) ?? selectedCharacters[0] ?? null;
+    if (!character) {
+      throw new Error('未找到可设置武器的已选干员');
+    }
+
+    await refreshOperatorConfigSnapshotsForCharacters([character]);
+    const cache = getOperatorConfigPageCache();
+    const snapshot = cache[character.id];
+    if (!snapshot) {
+      throw new Error(`未找到干员配置快照: ${character.name}`);
+    }
+
+    const nextSnapshot = {
+      ...snapshot,
+      weapon: {
+        ...snapshot.weapon,
+        id: weaponName,
+        name: weaponName,
+        config: {
+          ...snapshot.weapon.config,
+          level: command.level ?? snapshot.weapon.config.level,
+          potential: normalizeWorkbenchWeaponPotential(command.potential, snapshot.weapon.config.potential),
+          skillLevels: {
+            ...snapshot.weapon.config.skillLevels,
+            ...(command.skillLevels ?? {}),
+          },
+        },
+      },
+    };
+    setOperatorConfigPageCache({
+      ...cache,
+      [character.id]: nextSnapshot,
+    });
+    const refreshResult = await refreshOperatorConfigSnapshotsForCharacters([character]);
+    await refreshAvailableCandidateBuffsForCharacters([character]);
+    setResistanceRevision((value) => value + 1);
+    const refreshedSnapshot = getOperatorConfigPageCache()[character.id] ?? nextSnapshot;
+
+    return {
+      characterId: character.id,
+      characterName: character.name,
+      weapon: {
+        id: refreshedSnapshot.weapon.id,
+        name: refreshedSnapshot.weapon.name,
+        level: refreshedSnapshot.weapon.config.level,
+        potential: refreshedSnapshot.weapon.config.potential,
+        attack: refreshedSnapshot.weapon.attack,
+      },
+      refreshedCharacterIds: refreshResult.refreshedCharacterIds,
+      skippedCharacterIds: refreshResult.skippedCharacterIds,
+    };
+  };
+
+  const setOperatorEquipmentFromWorkbenchCommand = async (command: Extract<MainWorkbenchCommand, { op: 'setOperatorEquipment' }>) => {
+    const character = findCharacterForWorkbenchCommand(command) ?? selectedCharacters[0] ?? null;
+    if (!character) {
+      throw new Error('未找到可设置装备的已选干员');
+    }
+
+    const selections = command.equipments?.length
+      ? command.equipments.map((selection) => ({
+          ...selection,
+          gearSetId: selection.gearSetId ?? command.gearSetId,
+          gearSetName: selection.gearSetName ?? command.gearSetName,
+          entryLevel: selection.entryLevel ?? command.entryLevel,
+          entryLevels: selection.entryLevels ?? command.entryLevels,
+        }))
+      : [{
+          slotKey: command.slotKey,
+          part: command.part,
+          equipmentId: command.equipmentId,
+          equipmentName: command.equipmentName,
+          gearSetId: command.gearSetId,
+          gearSetName: command.gearSetName,
+          fillSlots: command.fillSlots,
+          entryLevel: command.entryLevel,
+          entryLevels: command.entryLevels,
+        }];
+
+    await refreshOperatorConfigSnapshotsForCharacters([character]);
+    const cache = getOperatorConfigPageCache();
+    const snapshot = cache[character.id];
+    if (!snapshot) {
+      throw new Error(`未找到干员配置快照: ${character.name}`);
+    }
+
+    const patchResult = applyOperatorEquipmentSelectionsToSnapshot(snapshot, selections);
+    setOperatorConfigPageCache({
+      ...cache,
+      [character.id]: patchResult.snapshot,
+    });
+    const refreshResult = await refreshOperatorConfigSnapshotsForCharacters([character]);
+    await refreshAvailableCandidateBuffsForCharacters([character]);
+    setResistanceRevision((value) => value + 1);
+    const refreshedSnapshot = getOperatorConfigPageCache()[character.id] ?? patchResult.snapshot;
+
+    return {
+      characterId: character.id,
+      characterName: character.name,
+      equipment: refreshedSnapshot.equipment.pieces.map((piece) => ({
+        slotKey: piece.slotKey,
+        equipmentId: piece.equipmentId,
+        name: piece.name,
+        part: piece.part,
+        effects: piece.effects.map((effect) => ({
+          effectId: effect.effectId,
+          label: effect.label,
+          typeKey: effect.typeKey,
+          level: effect.level,
+          value: effect.value,
+        })),
+      })),
+      applied: patchResult.applied,
+      setBuffs: refreshedSnapshot.equipment.setBuffs.map((buff) => ({
+        gearSetId: buff.gearSetId,
+        gearSetName: buff.gearSetName,
+        effectId: buff.effectId,
+        label: buff.label,
+        typeKey: buff.typeKey,
+        value: buff.value,
+      })),
+      refreshedCharacterIds: refreshResult.refreshedCharacterIds,
+      skippedCharacterIds: refreshResult.skippedCharacterIds,
+    };
+  };
+
+  const resolveWorkbenchCommandSkill = (
+    character: Character,
+    command: Extract<MainWorkbenchCommand, { op: 'addSkillButton' }>
+  ): SandboxSkill => {
+    const skills = Array.isArray(character.sandboxSkills) && character.sandboxSkills.length > 0
+      ? character.sandboxSkills
+      : buildSandboxSkillsFromRuntimeTemplate(character.id);
+    const matched = skills.find((skill) => command.runtimeSkillId && skill.id === command.runtimeSkillId)
+      ?? skills.find((skill) => command.skillDisplayName && skill.displayName === command.skillDisplayName)
+      ?? skills.find((skill) => command.skillType && skill.buttonType === command.skillType)
+      ?? skills[0];
+
+    if (matched) {
+      return matched;
+    }
+
+    const fallbackSkillType = command.skillType ?? 'A';
+    return {
+      id: `fallback-${character.id}-${fallbackSkillType}`,
+      displayName: fallbackSkillType,
+      buttonType: fallbackSkillType,
+      iconUrl: character.skillIconMap?.[fallbackSkillType] ?? resolveSkillIconUrl(character.name, fallbackSkillType),
+      hitCount: 1,
+      source: character.librarySource ?? 'official',
+    };
+  };
+
+  const getWorkbenchGridContentOffsetX = () => {
+    const gridStackElement = canvasRef.current?.querySelector('.canvas-grid-stack');
+    return canvasRef.current && gridStackElement
+      ? getGridContentOffsetX(canvasRef.current, gridStackElement)
+      : 0;
+  };
+
+  const buildWorkbenchButtonPosition = (staffIndex: number, lineIndex: number, nodeIndex: number) => {
+    const gridStackElement = canvasRef.current?.querySelector('.canvas-grid-stack');
+    const gridY = getGridGroupTop(staffIndex) + getGridLineCenterY(lineIndex) + SKILL_BUTTON_BASELINE_OFFSET_Y;
+    const gridX = getGridNodeCenterX(nodeIndex);
+    if (canvasRef.current && gridStackElement) {
+      return gridToCanvasContentCoords(gridX, gridY, canvasRef.current, gridStackElement);
+    }
+    return { x: gridX, y: gridY };
+  };
+
+  const resolveWorkbenchNodeIndex = (staffIndex: number, lineIndex: number, requestedNodeIndex: unknown) => {
+    const requested = typeof requestedNodeIndex === 'number' && Number.isFinite(requestedNodeIndex)
+      ? clampGridNodeIndex(Math.floor(requestedNodeIndex))
+      : null;
+    const occupied = getOccupiedNodeIndicesForLine(
+      skillButtons,
+      staffIndex,
+      lineIndex,
+      null,
+      getWorkbenchGridContentOffsetX()
+    );
+    if (requested !== null && !occupied.has(requested)) {
+      return requested;
+    }
+    if (requested !== null && occupied.has(requested)) {
+      const snapped = resolveSnappedGridNode(getGridNodeCenterX(requested), occupied);
+      if (snapped) return snapped.nodeIndex;
+    }
+    for (let nodeIndex = 0; nodeIndex < GRID_NODE_COUNT; nodeIndex += 1) {
+      if (!occupied.has(nodeIndex)) return nodeIndex;
+    }
+    throw new Error(`第 ${staffIndex + 1} 组第 ${lineIndex + 1} 行已无空节点`);
+  };
+
+  const addSkillButtonFromWorkbenchCommand = (command: Extract<MainWorkbenchCommand, { op: 'addSkillButton' }>) => {
+    const character = findCharacterForWorkbenchCommand(command);
+    if (!character) {
+      throw new Error(`未找到已选干员: ${command.characterId || command.characterName || '(empty)'}`);
+    }
+    const lineIndex = selectedCharacters.findIndex((item) => item.id === character.id);
+    if (lineIndex < 0) {
+      throw new Error(`干员未在当前出战队列中: ${character.name}`);
+    }
+    const staffIndex = typeof command.staffIndex === 'number' && Number.isFinite(command.staffIndex)
+      ? Math.max(0, Math.min(staffCount - 1, Math.floor(command.staffIndex)))
+      : 0;
+    const nodeIndex = resolveWorkbenchNodeIndex(staffIndex, lineIndex, command.nodeIndex);
+    const position = buildWorkbenchButtonPosition(staffIndex, lineIndex, nodeIndex);
+    const skill = resolveWorkbenchCommandSkill(character, command);
+    const buttonId = command.buttonId?.trim() || generateId();
+    const skillIconUrl = skill.iconUrl ?? character.skillIconMap?.[skill.buttonType] ?? resolveSkillIconUrl(character.name, skill.buttonType);
+
+    const runtimeButton: SkillButton = {
+      id: buttonId,
+      characterId: character.id,
+      characterName: character.name,
+      skillType: skill.buttonType,
+      position,
+      staffIndex,
+      lineIndex,
+      nodeIndex,
+      nodeNumber: calculateNodeNumber(nodeIndex),
+      isDragging: false,
+      isSelected: Boolean(command.select),
+      isFromSandbox: true,
+      runtimeSkillId: skill.id,
+      skillDisplayName: skill.displayName,
+      skillIconUrl,
+      customHits: skill.customHits,
+      element: character.element,
+    };
+
+    if (!skillButtons.some((button) => button.id === buttonId)) {
+      dispatch({ type: 'ADD_SKILL_BUTTON', button: runtimeButton });
+      addTimelineButton({
+        characterId: character.id,
+        characterName: character.name,
+        skillType: skill.buttonType,
+        staffIndex: lineIndex,
+        nodeIndex: staffIndex * GRID_NODE_COUNT + nodeIndex,
+        position,
+        runtimeSkillId: skill.id,
+        skillDisplayName: skill.displayName,
+        skillIconUrl,
+        customHits: skill.customHits,
+      }, buttonId);
+    }
+
+    if (command.select) {
+      dispatch({ type: 'SELECT_SKILL_BUTTON', buttonId });
+      safeSessionStorage.setItem(STORAGE_KEYS.SELECTED_SKILL_BUTTON, buttonId);
+    }
+
+    return {
+      buttonId,
+      characterId: character.id,
+      characterName: character.name,
+      skillType: skill.buttonType,
+      runtimeSkillId: skill.id,
+      staffIndex,
+      lineIndex,
+      nodeIndex,
+    };
+  };
+
+  const findWorkbenchButtonId = (command: Extract<MainWorkbenchCommand, { op: 'addBuff' | 'removeBuff' }>) => {
+    if (command.buttonId && getSkillButtonById(command.buttonId)) {
+      return command.buttonId;
+    }
+    const character = findCharacterForWorkbenchCommand(command);
+    const candidates = skillButtons.filter((button) => {
+      if (character && button.characterId !== character.id && button.characterName !== character.name) return false;
+      if (command.skillType && button.skillType !== command.skillType) return false;
+      if (typeof command.nodeIndex === 'number' && button.nodeIndex !== command.nodeIndex) return false;
+      return true;
+    });
+    return candidates[0]?.id ?? null;
+  };
+
+  const findWorkbenchBuffsForRemove = (buttonId: string, command: Extract<MainWorkbenchCommand, { op: 'removeBuff' }>) => {
+    const buffs = getBuffsByButtonId(buttonId);
+    const matched = buffs.filter((buff) => {
+      if (command.buffId && buff.id !== command.buffId) return false;
+      if (command.displayName && buff.displayName !== command.displayName) return false;
+      if (command.name && buff.name !== command.name) return false;
+      return true;
+    });
+    const candidates = matched.length > 0 ? matched : buffs;
+    const ordered = command.latest ? [...candidates].reverse() : candidates;
+    const count = Math.max(1, Math.min(command.count ?? 1, ordered.length));
+    return ordered.slice(0, count);
+  };
+
+  const findWorkbenchButtonForRemove = (command: Extract<MainWorkbenchCommand, { op: 'removeSkillButton' }>) => {
+    if (command.buttonId) {
+      const button = skillButtons.find((item) => item.id === command.buttonId);
+      if (button) return button;
+    }
+    const character = findCharacterForWorkbenchCommand(command);
+    const candidates = skillButtons.filter((button) => {
+      if (character && button.characterId !== character.id && button.characterName !== character.name) return false;
+      if (command.skillType && button.skillType !== command.skillType) return false;
+      if (typeof command.nodeIndex === 'number' && button.nodeIndex !== command.nodeIndex) return false;
+      return true;
+    });
+    const sorted = [...candidates].sort((a, b) =>
+      (b.staffIndex - a.staffIndex)
+      || (b.lineIndex - a.lineIndex)
+      || ((b.nodeIndex ?? 0) - (a.nodeIndex ?? 0))
+    );
+    return command.latest ? sorted[0] ?? null : candidates[0] ?? null;
+  };
+
+  const processMainWorkbenchCanvasCommand = async () => {
+    if (isProcessingWorkbenchCommandRef.current) {
+      return;
+    }
+    isProcessingWorkbenchCommandRef.current = true;
+    try {
+      await pullRemoteMainWorkbenchCommands();
+      const commandEntry = getPendingMainWorkbenchCommands([
+        'addSkillButton',
+        'removeSkillButton',
+        'addBuff',
+        'removeBuff',
+        'setTargetResistance',
+        'calculateDamage',
+        'saveTimelineSnapshot',
+        'restoreTimelineSnapshot',
+        'listTimelineSnapshots',
+        'refreshOperatorConfig',
+        'setOperatorWeapon',
+        'setOperatorEquipment',
+        'refreshSnapshot',
+      ])[0];
+      if (!commandEntry) {
+        return;
+      }
+
+      patchMainWorkbenchCommand(commandEntry.id, { status: 'running' });
+      const command = commandEntry.command;
+      try {
+        if (command.op === 'addSkillButton') {
+          const result = addSkillButtonFromWorkbenchCommand(command);
+          const doneEntry = patchMainWorkbenchCommand(commandEntry.id, { status: 'done', result });
+          if (doneEntry) void pushMainWorkbenchCommandResult(doneEntry);
+          return;
+        }
+
+        if (command.op === 'removeSkillButton') {
+          const button = findWorkbenchButtonForRemove(command);
+          if (!button) {
+            throw new Error('未找到可回退的技能按钮');
+          }
+          removeTimelineButton(button.staffIndex, button.id);
+          dispatch({ type: 'REMOVE_SKILL_BUTTON', buttonId: button.id });
+          const doneEntry = patchMainWorkbenchCommand(commandEntry.id, {
+            status: 'done',
+            result: { buttonId: button.id, characterName: button.characterName, skillType: button.skillType },
+          });
+          if (doneEntry) void pushMainWorkbenchCommandResult(doneEntry);
+          return;
+        }
+
+        if (command.op === 'addBuff') {
+          const buttonId = findWorkbenchButtonId(command);
+          if (!buttonId) {
+            throw new Error('未找到可添加 Buff 的技能按钮');
+          }
+          const result = addBuffToButton(buttonId, { ...command.buff, refCount: command.buff.refCount ?? 1 });
+          if (!result.success) {
+            throw new Error(`Buff 添加失败: ${command.buff.displayName || command.buff.name || '未命名 Buff'}`);
+          }
+          recomputeSkillButtonPanel(buttonId);
+          setResistanceRevision((value) => value + 1);
+          if (result.buffId) {
+            emitSkillButtonBuffAdded(buttonId, result.buffId);
+          }
+          if (command.select) {
+            dispatch({ type: 'SELECT_SKILL_BUTTON', buttonId });
+            safeSessionStorage.setItem(STORAGE_KEYS.SELECTED_SKILL_BUTTON, buttonId);
+          }
+          const doneEntry = patchMainWorkbenchCommand(commandEntry.id, {
+            status: 'done',
+            result: { buttonId, buffId: result.buffId, duplicate: result.isDuplicate },
+          });
+          if (doneEntry) void pushMainWorkbenchCommandResult(doneEntry);
+          return;
+        }
+
+        if (command.op === 'removeBuff') {
+          const buttonId = findWorkbenchButtonId(command);
+          if (!buttonId) {
+            throw new Error('未找到可回退 Buff 的技能按钮');
+          }
+          const buffs = findWorkbenchBuffsForRemove(buttonId, command);
+          if (buffs.length === 0) {
+            throw new Error('未找到可回退的 Buff');
+          }
+          buffs.forEach((buff) => removeBuffFromButton(buttonId, buff.id));
+          recomputeSkillButtonPanel(buttonId);
+          setResistanceRevision((value) => value + 1);
+          const doneEntry = patchMainWorkbenchCommand(commandEntry.id, {
+            status: 'done',
+            result: {
+              buttonId,
+              removedBuffIds: buffs.map((buff) => buff.id),
+              removedBuffNames: buffs.map((buff) => buff.displayName || buff.name),
+            },
+          });
+          if (doneEntry) void pushMainWorkbenchCommandResult(doneEntry);
+          return;
+        }
+
+        if (command.op === 'setTargetResistance') {
+          const persistedButton = getSkillButtonById(command.buttonId);
+          if (!persistedButton) {
+            throw new Error(`技能按钮不存在: ${command.buttonId}`);
+          }
+          const nextResistance = {
+            ...EMPTY_BATCH_TARGET_RESISTANCE,
+            ...Object.fromEntries(
+              Object.entries(command.targetResistance).filter(([, value]) => typeof value === 'number' && Number.isFinite(value))
+            ),
+          };
+          upsertSkillButton({
+            ...persistedButton,
+            resistanceConfig: { targetResistance: nextResistance },
+            updatedAt: Date.now(),
+          });
+          recomputeSkillButtonPanel(command.buttonId);
+          setResistanceRevision((value) => value + 1);
+          const doneEntry = patchMainWorkbenchCommand(commandEntry.id, {
+            status: 'done',
+            result: { buttonId: command.buttonId, targetResistance: nextResistance },
+          });
+          if (doneEntry) void pushMainWorkbenchCommandResult(doneEntry);
+          return;
+        }
+
+        if (command.op === 'saveTimelineSnapshot') {
+          saveTimelineData();
+          setSelectedCharacterIds(selectedCharacters.map((character) => character.id));
+          const snapshot = saveTimelineSnapshot(command.label);
+          if (!snapshot) {
+            throw new Error('当前没有可保存的排轴数据');
+          }
+          const doneEntry = patchMainWorkbenchCommand(commandEntry.id, {
+            status: 'done',
+            result: {
+              snapshotId: snapshot.id,
+              label: snapshot.label,
+              summary: snapshot.summary,
+            },
+          });
+          if (doneEntry) void pushMainWorkbenchCommandResult(doneEntry);
+          return;
+        }
+
+        if (command.op === 'restoreTimelineSnapshot') {
+          const snapshots = listTimelineSnapshots();
+          const snapshot = command.snapshotId
+            ? snapshots.find((entry) => entry.id === command.snapshotId)
+            : command.label
+              ? snapshots.find((entry) => entry.label === command.label)
+              : command.latest
+                ? snapshots[0]
+                : null;
+          if (!snapshot) {
+            throw new Error('未找到可恢复的排轴快照');
+          }
+          const restored = restoreTimelineSnapshot(snapshot.id);
+          if (!restored) {
+            throw new Error(`恢复失败：${snapshot.id}`);
+          }
+          const doneEntry = patchMainWorkbenchCommand(commandEntry.id, {
+            status: 'done',
+            result: { snapshotId: snapshot.id, label: snapshot.label, reloaded: command.reload !== false },
+          });
+          if (doneEntry) void pushMainWorkbenchCommandResult(doneEntry);
+          if (command.reload !== false) {
+            window.setTimeout(() => window.location.reload(), 80);
+          }
+          return;
+        }
+
+        if (command.op === 'listTimelineSnapshots') {
+          const snapshots = listTimelineSnapshots().map((snapshot) => ({
+            id: snapshot.id,
+            label: snapshot.label,
+            createdAt: snapshot.createdAt,
+            summary: snapshot.summary,
+          }));
+          const doneEntry = patchMainWorkbenchCommand(commandEntry.id, { status: 'done', result: { snapshots } });
+          if (doneEntry) void pushMainWorkbenchCommandResult(doneEntry);
+          return;
+        }
+
+        if (command.op === 'refreshOperatorConfig') {
+          await handleRefreshAvailableCandidates();
+          const doneEntry = patchMainWorkbenchCommand(commandEntry.id, {
+            status: 'done',
+            result: { refreshed: true, characterCount: selectedCharacters.length },
+          });
+          if (doneEntry) void pushMainWorkbenchCommandResult(doneEntry);
+          return;
+        }
+
+        if (command.op === 'setOperatorWeapon') {
+          const result = await setOperatorWeaponFromWorkbenchCommand(command);
+          const doneEntry = patchMainWorkbenchCommand(commandEntry.id, { status: 'done', result });
+          if (doneEntry) void pushMainWorkbenchCommandResult(doneEntry);
+          return;
+        }
+
+        if (command.op === 'setOperatorEquipment') {
+          const result = await setOperatorEquipmentFromWorkbenchCommand(command);
+          const doneEntry = patchMainWorkbenchCommand(commandEntry.id, { status: 'done', result });
+          if (doneEntry) void pushMainWorkbenchCommandResult(doneEntry);
+          return;
+        }
+
+        const snapshot = buildDamageReportSnapshot();
+        const result = command.op === 'calculateDamage' && command.buttonId
+          ? {
+              ...snapshot,
+              buttons: snapshot.buttons.filter((button) => button.id === command.buttonId),
+            }
+          : snapshot;
+        const doneEntry = patchMainWorkbenchCommand(commandEntry.id, { status: 'done', result });
+        if (doneEntry) void pushMainWorkbenchCommandResult(doneEntry);
+      } catch (error) {
+        const errorEntry = patchMainWorkbenchCommand(commandEntry.id, {
+          status: 'error',
+          error: error instanceof Error ? error.message : String(error),
+        });
+        if (errorEntry) void pushMainWorkbenchCommandResult(errorEntry);
+      }
+    } finally {
+      isProcessingWorkbenchCommandRef.current = false;
+    }
+  };
 
   useEffect(() => {
     const selectedCharacterSignature = selectedCharacters.map((character) => character.id).join('|');
@@ -445,6 +1084,131 @@ export function CanvasBoard({
     updateSkillButtonPosition,
     moveTimelineButtonToStaff: moveSkillButtonToStaff,
   });
+
+  useEffect(() => {
+    if (currentView !== 'canvas' || selectedCharacters.length === 0) {
+      return undefined;
+    }
+    void processMainWorkbenchCanvasCommand();
+    const handleControlEvent = () => {
+      void processMainWorkbenchCanvasCommand();
+    };
+    const timer = window.setInterval(() => {
+      void processMainWorkbenchCanvasCommand();
+    }, 1200);
+    window.addEventListener('def-main-workbench-control', handleControlEvent);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener('def-main-workbench-control', handleControlEvent);
+    };
+  }, [currentView, selectedCharacters, skillButtons, staffCount]);
+
+  useEffect(() => {
+    if (!isAiMode) {
+      return undefined;
+    }
+
+    const handlePointerMove = (event: PointerEvent) => {
+      updateAiHoverZoneFromClientX(event.clientX);
+    };
+
+    window.addEventListener('pointermove', handlePointerMove, { passive: true });
+    return () => {
+      window.removeEventListener('pointermove', handlePointerMove);
+    };
+  }, [isAiMode]);
+
+  useEffect(() => {
+    if (currentView !== 'canvas') {
+      return;
+    }
+    const damageReport = buildDamageReportSnapshot();
+    const operatorConfigCache = getOperatorConfigPageCache();
+    const persistedButtonTable = getSkillButtonTable();
+    const mirroredButtons: MainWorkbenchSnapshot['skillButtons'] = skillButtons.length > 0
+      ? skillButtons.map((button) => {
+          const persistedButton = persistedButtonTable[button.id];
+          return {
+            id: button.id,
+            characterId: button.characterId,
+            characterName: button.characterName,
+            skillType: button.skillType,
+            runtimeSkillId: button.runtimeSkillId,
+            skillDisplayName: button.skillDisplayName,
+            staffIndex: button.staffIndex,
+            lineIndex: button.lineIndex,
+            nodeIndex: button.nodeIndex,
+            nodeNumber: button.nodeNumber,
+            selectedBuffIds: [...(persistedButton?.selectedBuff ?? [])],
+          };
+        })
+      : Object.values(persistedButtonTable).map((button) => ({
+          id: button.id,
+          characterId: button.characterId ?? '',
+          characterName: button.characterName,
+          skillType: button.skillType as SkillButtonType,
+          runtimeSkillId: button.runtimeSkillId,
+          skillDisplayName: button.skillDisplayName,
+          staffIndex: button.staffIndex,
+          lineIndex: selectedCharacters.findIndex((character) => (
+            character.id === button.characterId || character.name === button.characterName
+          )),
+          nodeIndex: button.nodeIndex,
+          nodeNumber: button.nodeNumber,
+          selectedBuffIds: [...(button.selectedBuff ?? [])],
+        }));
+    const snapshot = {
+      schemaVersion: 1 as const,
+      updatedAt: Date.now(),
+      source: 'app' as const,
+      currentView,
+      selectedCharacters: selectedCharacters.map((character) => ({
+        id: character.id,
+        name: character.name,
+        element: character.element,
+        profession: character.profession,
+        librarySource: character.librarySource,
+      })),
+      skillButtons: mirroredButtons,
+      damageReport: {
+        generatedAt: damageReport.generatedAt,
+        totalExpected: damageReport.totalExpected,
+        totalNonCrit: damageReport.totalNonCrit,
+        buttonCount: damageReport.buttonCount,
+        buttons: damageReport.buttons,
+      },
+      operatorConfigs: selectedCharacters.flatMap((character) => {
+        const configSnapshot = operatorConfigCache[character.id];
+        if (!configSnapshot) return [];
+        return [{
+          characterId: character.id,
+          characterName: character.name,
+          weapon: {
+            id: configSnapshot.weapon.id,
+            name: configSnapshot.weapon.name,
+            level: configSnapshot.weapon.config.level,
+            potential: configSnapshot.weapon.config.potential,
+            attack: configSnapshot.weapon.attack,
+          },
+          equipment: configSnapshot.equipment.pieces.map((piece) => ({
+            slotKey: piece.slotKey,
+            equipmentId: piece.equipmentId,
+            name: piece.name,
+            part: piece.part,
+            effects: piece.effects.map((effect) => ({
+              effectId: effect.effectId,
+              label: effect.label,
+              typeKey: effect.typeKey,
+              level: effect.level,
+              value: effect.value,
+            })),
+          })),
+        }];
+      }),
+    };
+    writeMainWorkbenchSnapshot(snapshot);
+    void pushMainWorkbenchSnapshot(snapshot);
+  }, [currentView, selectedCharacters, skillButtons, timelineData, resistanceRevision]);
 
   const [contextMenuState, setContextMenuState] = useState<{
     buttonId: string;
@@ -994,9 +1758,40 @@ export function CanvasBoard({
     }
   };
 
+  const canvasBoardClassName = [
+    'canvas-board',
+    isWorkbenchTopZoneOpen ? 'has-top-zone' : '',
+    isAiMode ? 'is-ai-mode' : '',
+    isAiMode && aiHoverZone === 'left' ? 'is-ai-hover-left' : '',
+    isAiMode && aiHoverZone === 'right' ? 'is-ai-hover-right' : '',
+  ]
+    .filter(Boolean)
+    .join(' ');
+
+  const rightWorkbenchContent = isToolPanelVisible && isCandidatePanelEnabled ? (
+    <ToolPanel widthPercent={100} />
+  ) : (
+    <SkillSandbox
+      selectedCharacters={selectedCharacters}
+      onDragStart={handleSandboxDragStart}
+      onAvatarDoubleClick={handleAvatarDoubleClick}
+      onSave={handleOpenSaveSnapshotModal}
+      onOpenResistance={handleOpenBatchResistanceModal}
+      onRefreshAvailableCandidates={handleRefreshAvailableCandidates}
+      isRefreshingAvailableCandidates={isRefreshingAvailableCandidates}
+      isBrowseMode={isBrowseMode}
+      onToggleBrowseMode={() => setIsBrowseMode((prev) => !prev)}
+      isInspectMode={isInspectMode}
+      onInspectStart={() => setIsInspectMode(true)}
+      onInspectEnd={() => setIsInspectMode(false)}
+      isAiMode={isAiMode}
+      onToggleAiMode={toggleAiMode}
+    />
+  );
+
   return (
-    <div className={`canvas-board ${isWorkbenchTopZoneOpen ? 'has-top-zone' : ''}`}>
-      <div className="canvas-layout">
+    <div className={canvasBoardClassName}>
+      <div className="canvas-layout" onMouseMove={handleAiLayoutMouseMove}>
         <div className="canvas-background-layer">
           <div className="skew-panel" />
           <div className="skew-panel-bottom" />
@@ -1030,26 +1825,24 @@ export function CanvasBoard({
           />
         </div>
 
-        <aside className={`canvas-right-zone ${isToolPanelVisible && isCandidatePanelEnabled ? 'is-tool-panel' : 'is-skill-sandbox'}`}>
-          {isToolPanelVisible && isCandidatePanelEnabled ? (
-            <ToolPanel widthPercent={100} />
-          ) : (
-            <SkillSandbox
-              selectedCharacters={selectedCharacters}
-              onDragStart={handleSandboxDragStart}
-              onAvatarDoubleClick={handleAvatarDoubleClick}
-              onSave={handleOpenSaveSnapshotModal}
-              onOpenResistance={handleOpenBatchResistanceModal}
-              onRefreshAvailableCandidates={handleRefreshAvailableCandidates}
-              isRefreshingAvailableCandidates={isRefreshingAvailableCandidates}
-              isBrowseMode={isBrowseMode}
-              onToggleBrowseMode={() => setIsBrowseMode((prev) => !prev)}
-              isInspectMode={isInspectMode}
-              onInspectStart={() => setIsInspectMode(true)}
-              onInspectEnd={() => setIsInspectMode(false)}
-            />
-          )}
-        </aside>
+        {isAiMode ? (
+          <>
+            <aside className={`canvas-right-zone is-ai-real-right ${isToolPanelVisible && isCandidatePanelEnabled ? 'is-tool-panel' : 'is-skill-sandbox'}`}>
+              {rightWorkbenchContent}
+            </aside>
+            <aside className="canvas-right-zone is-ai-panel">
+              <MainWorkbenchAiPanel
+                selectedCharacters={selectedCharacters}
+                skillButtons={skillButtons}
+                onExit={exitAiMode}
+              />
+            </aside>
+          </>
+        ) : (
+          <aside className={`canvas-right-zone ${isToolPanelVisible && isCandidatePanelEnabled ? 'is-tool-panel' : 'is-skill-sandbox'}`}>
+            {rightWorkbenchContent}
+          </aside>
+        )}
 
         <div className="canvas-bottom-zone">
           <div className="canvas-bottom-zone-left">

@@ -35,16 +35,29 @@ import {
   setSelectedCharacterIds,
 } from '../utils/storage';
 import { STORAGE_KEYS } from '../constants/storage-keys';
+import { APP_ROUTE_PATHS, navigateToAppPath } from '../utils/appRoute';
 import {
   adaptRuntimeTemplateToLegacyCharacter,
   loadLocalOperatorCharacters,
   loadLocalOperatorDraftMap,
 } from '../core/services/localOperatorAdapter';
+import { reconcileSelectionChange } from '../core/services/timelineService';
 import {
   buildRuntimeOperatorTemplateFromOfficialCharacter,
   buildRuntimeOperatorTemplateFromDraft,
 } from '../core/services/operatorTemplateAdapter';
 import { setRuntimeOperatorTemplateMap } from '../utils/storage';
+import {
+  getPendingMainWorkbenchCommands,
+  patchMainWorkbenchCommand,
+  pullRemoteMainWorkbenchCommands,
+  pushMainWorkbenchCommandResult,
+} from '../utils/mainWorkbenchControl';
+import {
+  removeTimelineData,
+  setAllBuffList,
+  setSkillButtonTable,
+} from '../core/repositories';
 
 /** 所有支持的 Action 类型（Tagged Union）*/
 type AppAction =
@@ -280,6 +293,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const selectedCharactersHydratedRef = useRef(false);
   const canvasLocalRefreshSignatureRef = useRef<string | null>(null);
   const loadedCharactersSignatureRef = useRef<string | null>(null);
+  const isProcessingWorkbenchCommandRef = useRef(false);
 
   const refreshSelectedLocalCharacters = useCallback((selectedCharacters: Character[]) => {
     const localDraftMap = loadLocalOperatorDraftMap();
@@ -496,6 +510,144 @@ export function AppProvider({ children }: { children: ReactNode }) {
     return refreshedCharacters;
   }, [buildRestorableCharacterMap, loadOfficialCharacters, rebuildSelectedRuntimeTemplateMap, state.selectedCharacters]);
 
+  const processMainWorkbenchSelectionCommand = useCallback(async () => {
+    if (isProcessingWorkbenchCommandRef.current) {
+      return;
+    }
+    isProcessingWorkbenchCommandRef.current = true;
+    try {
+      await pullRemoteMainWorkbenchCommands();
+      const commandEntry = getPendingMainWorkbenchCommands(['selectCharacters', 'openView', 'clearTimeline', 'openWorkbenchPage'])[0];
+      if (!commandEntry) {
+        return;
+      }
+
+      patchMainWorkbenchCommand(commandEntry.id, { status: 'running' });
+      const command = commandEntry.command;
+      try {
+        if (command.op === 'openView') {
+          dispatch({ type: 'SET_VIEW', view: command.view });
+          const doneEntry = patchMainWorkbenchCommand(commandEntry.id, {
+            status: 'done',
+            result: { view: command.view },
+          });
+          if (doneEntry) void pushMainWorkbenchCommandResult(doneEntry);
+          return;
+        }
+
+        if (command.op === 'clearTimeline') {
+          removeTimelineData();
+          setSkillButtonTable({});
+          setAllBuffList([]);
+          dispatch({ type: 'CLEAR_SKILL_BUTTONS' });
+          const doneEntry = patchMainWorkbenchCommand(commandEntry.id, {
+            status: 'done',
+            result: { cleared: true },
+          });
+          if (doneEntry) void pushMainWorkbenchCommandResult(doneEntry);
+          return;
+        }
+
+        if (command.op === 'openWorkbenchPage') {
+          const pageRoutes: Record<typeof command.page, string | null> = {
+            home: APP_ROUTE_PATHS.home,
+            selection: null,
+            canvas: null,
+            operatorConfig: APP_ROUTE_PATHS.operatorConfig,
+            weaponSheet: APP_ROUTE_PATHS.weaponSheet,
+            equipmentSheet: APP_ROUTE_PATHS.equipmentSheet,
+            damageSheet: APP_ROUTE_PATHS.damageSheet,
+            damageReportPpt: APP_ROUTE_PATHS.damageReportPpt,
+            aiCli: APP_ROUTE_PATHS.aiCli,
+          };
+          if (command.characterId || command.characterName) {
+            const restorableCharacterMap = buildRestorableCharacterMap(state.loadedCharacters);
+            const target = command.characterId
+              ? restorableCharacterMap.get(command.characterId)
+              : [...restorableCharacterMap.values()].find((character) => character.name === command.characterName);
+            if (target) {
+              safeSessionStorage.setItem(STORAGE_KEYS.OPERATOR_CONFIG_ACTIVE_CHARACTER, target.id);
+            }
+          }
+          if (command.page === 'selection') {
+            dispatch({ type: 'SET_VIEW', view: 'selection' });
+          } else if (command.page === 'canvas') {
+            dispatch({ type: 'SET_VIEW', view: 'canvas' });
+          } else {
+            const route = pageRoutes[command.page];
+            if (route) navigateToAppPath(route);
+          }
+          const doneEntry = patchMainWorkbenchCommand(commandEntry.id, {
+            status: 'done',
+            result: { page: command.page },
+          });
+          if (doneEntry) void pushMainWorkbenchCommandResult(doneEntry);
+          return;
+        }
+
+        if (command.op !== 'selectCharacters') {
+          throw new Error(`Unsupported AppContext main workbench command: ${command.op}`);
+        }
+
+        const requestedIds = Array.isArray(command.characterIds) ? command.characterIds : [];
+        const requestedNames = Array.isArray(command.characterNames) ? command.characterNames : [];
+        const requestedKeys = [...requestedIds, ...requestedNames]
+          .map((key) => String(key || '').trim())
+          .filter(Boolean);
+
+        if (requestedKeys.length === 0) {
+          throw new Error('selectCharacters requires characterIds or characterNames');
+        }
+
+        const restorableCharacterMap = buildRestorableCharacterMap(state.loadedCharacters);
+        const charactersByName = new Map<string, Character>();
+        restorableCharacterMap.forEach((character) => {
+          charactersByName.set(character.name, character);
+        });
+
+        const selected = requestedKeys
+          .map((key) => restorableCharacterMap.get(key) ?? charactersByName.get(key))
+          .filter((character): character is Character => Boolean(character))
+          .filter((character, index, array) => array.findIndex((item) => item.id === character.id) === index)
+          .slice(0, 4);
+
+        if (selected.length === 0 || selected.length !== Math.min(requestedKeys.length, 4)) {
+          const selectedKeys = new Set(selected.flatMap((character) => [character.id, character.name]));
+          const missing = requestedKeys.filter((key) => !selectedKeys.has(key));
+          throw new Error(`未找到干员: ${missing.join(', ') || requestedKeys.join(', ')}`);
+        }
+
+        if (command.resetTimeline) {
+          removeTimelineData();
+          setSkillButtonTable({});
+          setAllBuffList([]);
+        } else {
+          reconcileSelectionChange(state.selectedCharacters, selected);
+        }
+        dispatch({ type: 'CLEAR_SKILL_BUTTONS' });
+        dispatch({ type: 'SET_SELECTED_CHARACTERS', characters: selected });
+        dispatch({ type: 'SET_VIEW', view: command.openCanvas === false ? 'selection' : 'canvas' });
+
+        const doneEntry = patchMainWorkbenchCommand(commandEntry.id, {
+          status: 'done',
+          result: {
+            selectedCharacters: selected.map((character) => ({ id: character.id, name: character.name })),
+            currentView: command.openCanvas === false ? 'selection' : 'canvas',
+          },
+        });
+        if (doneEntry) void pushMainWorkbenchCommandResult(doneEntry);
+      } catch (error) {
+        const errorEntry = patchMainWorkbenchCommand(commandEntry.id, {
+          status: 'error',
+          error: error instanceof Error ? error.message : String(error),
+        });
+        if (errorEntry) void pushMainWorkbenchCommandResult(errorEntry);
+      }
+    } finally {
+      isProcessingWorkbenchCommandRef.current = false;
+    }
+  }, [buildRestorableCharacterMap, state.loadedCharacters, state.selectedCharacters]);
+
   // 组件首次挂载时自动加载干员数据
   useEffect(() => {
     cleanupStorage();
@@ -515,6 +667,24 @@ export function AppProvider({ children }: { children: ReactNode }) {
       window.removeEventListener('storage', handleStorage);
     };
   }, []);
+
+  useEffect(() => {
+    if (!selectedCharactersHydratedRef.current) {
+      return undefined;
+    }
+    void processMainWorkbenchSelectionCommand();
+    const handleControlEvent = () => {
+      void processMainWorkbenchSelectionCommand();
+    };
+    const timer = window.setInterval(() => {
+      void processMainWorkbenchSelectionCommand();
+    }, 1200);
+    window.addEventListener('def-main-workbench-control', handleControlEvent);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener('def-main-workbench-control', handleControlEvent);
+    };
+  }, [processMainWorkbenchSelectionCommand, state.loadedCharacters]);
 
   useEffect(() => {
     if (!selectedCharactersHydratedRef.current) {

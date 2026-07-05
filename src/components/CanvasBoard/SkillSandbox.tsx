@@ -47,6 +47,10 @@ interface SkillSandboxProps {
   onInspectStart?: () => void;
   /** 结束透视模式 */
   onInspectEnd?: () => void;
+  /** AI 模式是否开启 */
+  isAiMode?: boolean;
+  /** 切换 AI 模式 */
+  onToggleAiMode?: () => void;
 }
 
 /** 技能显示标签（用于按钮右侧标注） */
@@ -86,6 +90,8 @@ export function SkillSandbox({
   isInspectMode = false,
   onInspectStart,
   onInspectEnd,
+  isAiMode = false,
+  onToggleAiMode,
 }: SkillSandboxProps) {
   const cardRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const [pageByCharacterId, setPageByCharacterId] = useState<Record<string, number>>({});
@@ -219,6 +225,16 @@ export function SkillSandbox({
               <path d="M6.4 8.5c1.4.1 2.5.4 3.4 1" />
               <path d="M17.6 8.5c-1.4.1-2.5.4-3.4 1" />
             </svg>
+          </button>
+          <button
+            type="button"
+            className={`sandbox-reserved-action sandbox-reserved-action--ai${isAiMode ? ' is-active' : ''}`}
+            aria-label="AI 模式"
+            title="AI 模式"
+            aria-pressed={isAiMode}
+            onClick={onToggleAiMode}
+          >
+            <span className="sandbox-reserved-action-text">AI</span>
           </button>
         </div>
         {selectedCharacters.map((character, index) => {
