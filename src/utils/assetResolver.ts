@@ -108,24 +108,24 @@ export function normalizeAssetUrl(path?: string | null): string {
 
 /**
  * 角色头像资源路径解析
- * 规范路径: /assets/avatars/<characterName>/<characterName>.png
+ * 规范路径: /assets/images/img-operator/<characterName>.png
  * @param characterName - 角色名称（URL 编码，兼容中文等特殊字符）
  */
 export function resolveAvatarUrl(characterName: string): string {
-  return resolvePublicPath(`assets/avatars/${encodeURIComponent(characterName)}/${encodeURIComponent(characterName)}.png`);
+  return resolvePublicPath(`assets/images/img-operator/${encodeURIComponent(characterName)}.png`);
 }
 
 /**
  * 技能图标资源路径解析
- * 规范路径: /assets/avatars/<characterName>/<characterName><skillName>.png
+ * 规范路径: /assets/images/img-operator/skiil-icon/<characterName>/<characterName><skillName>.png
  * 技能类型 A/B/E/Q 对应 普通攻击/战技/连携技/终结技
- * 注意：实际文件名如 "管理员战技.png"，直接拼接在角色名后，无 skills/ 子目录
+ * 注意：图片包目录名沿用上游资源的 "skiil-icon" 拼写。
  * @param characterName - 角色名称
  * @param skillType     - A | B | E | Q
  */
 export function resolveSkillIconUrl(characterName: string, skillType: SkillType): string {
   const skillName = SKILL_NAMES[skillType];
-  return resolvePublicPath(`assets/avatars/${encodeURIComponent(characterName)}/${encodeURIComponent(characterName)}${skillName}.png`);
+  return resolvePublicPath(`assets/images/img-operator/skiil-icon/${encodeURIComponent(characterName)}/${encodeURIComponent(characterName)}${skillName}.png`);
 }
 
 /**

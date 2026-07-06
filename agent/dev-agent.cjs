@@ -1,4 +1,6 @@
 const http = require('http');
+const fs = require('fs');
+const os = require('os');
 const path = require('path');
 const { spawn, spawnSync } = require('child_process');
 
@@ -27,6 +29,132 @@ function buildJsonHeaders() {
 function writeJson(response, statusCode, payload) {
   response.writeHead(statusCode, buildJsonHeaders());
   response.end(JSON.stringify(payload));
+}
+
+function getUserDataRoot() {
+  if (process.platform === 'darwin') {
+    return path.join(os.homedir(), 'Library', 'Application Support', 'dmg-end-field');
+  }
+  if (process.platform === 'win32') {
+    return path.join(process.env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming'), 'dmg-end-field');
+  }
+  return path.join(process.env.XDG_CONFIG_HOME || path.join(os.homedir(), '.config'), 'dmg-end-field');
+}
+
+function readJsonFile(filePath) {
+  try {
+    return JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+  } catch {
+    return null;
+  }
+}
+
+function getActiveImageReleaseRoot() {
+  const releaseRoot = path.join(getUserDataRoot(), 'asset-releases');
+  const current = readJsonFile(path.join(releaseRoot, 'current.json'));
+  const version = typeof current?.assetVersion === 'string' ? current.assetVersion.trim() : '';
+  if (!version || /[<>:"/\\|?*\x00-\x1F]/.test(version)) {
+    return null;
+  }
+  const root = path.join(releaseRoot, 'versions', version);
+  return fs.existsSync(root) ? root : null;
+}
+
+function decodeRequestPath(pathname, prefix) {
+  const raw = String(pathname || '').replace(prefix, '');
+  try {
+    return decodeURIComponent(raw).replace(/\\/g, '/').replace(/^\/+/, '');
+  } catch {
+    return '';
+  }
+}
+
+function isSafeImageRelPath(relPath) {
+  return Boolean(relPath) &&
+    !/(^|\/)\.\.(\/|$)/.test(relPath) &&
+    /\.(png|jpg|jpeg|webp|gif|svg|ico)$/i.test(relPath);
+}
+
+function getImageContentType(filePath) {
+  const ext = path.extname(filePath).toLowerCase();
+  return {
+    '.png': 'image/png',
+    '.jpg': 'image/jpeg',
+    '.jpeg': 'image/jpeg',
+    '.webp': 'image/webp',
+    '.gif': 'image/gif',
+    '.svg': 'image/svg+xml',
+    '.ico': 'image/x-icon',
+  }[ext] || 'application/octet-stream';
+}
+
+function trySendImageFile(response, method, filePath) {
+  if (!filePath || !fs.existsSync(filePath) || !fs.statSync(filePath).isFile()) {
+    return false;
+  }
+  const data = fs.readFileSync(filePath);
+  response.writeHead(200, {
+    'Content-Type': getImageContentType(filePath),
+    'Content-Length': data.length,
+    'Cache-Control': 'no-store, max-age=0',
+    'Access-Control-Allow-Origin': '*',
+  });
+  response.end(method === 'HEAD' ? '' : data);
+  return true;
+}
+
+function getImageRoots() {
+  const projectRoot = path.resolve(__dirname, '..');
+  const activeReleaseRoot = getActiveImageReleaseRoot();
+  return [
+    activeReleaseRoot,
+    path.join(projectRoot, '.runtime-assets'),
+    path.join(projectRoot, 'public'),
+    path.join(projectRoot, 'data'),
+  ].filter((root) => root && fs.existsSync(root));
+}
+
+function tryServeAssetImage(requestUrl, response, method) {
+  const relPath = decodeRequestPath(requestUrl.pathname, /^\/assets\/?/);
+  if (!isSafeImageRelPath(relPath)) return false;
+
+  const candidates = [];
+  for (const root of getImageRoots()) {
+    candidates.push(path.join(root, relPath));
+    candidates.push(path.join(root, 'assets', relPath));
+    if (relPath.startsWith('images/')) {
+      candidates.push(path.join(root, relPath.slice('images/'.length)));
+    } else {
+      candidates.push(path.join(root, 'images', relPath));
+    }
+    const legacyAvatarMatch = /^avatars\/([^/]+)\/([^/]+)$/u.exec(relPath);
+    if (legacyAvatarMatch) {
+      const [, characterName, fileName] = legacyAvatarMatch;
+      candidates.push(path.join(root, 'images', 'img-operator', fileName));
+      candidates.push(path.join(root, 'images', 'img-operator', 'skiil-icon', characterName, fileName));
+    }
+  }
+
+  return candidates.some((candidate) => trySendImageFile(response, method, candidate));
+}
+
+function tryServeUserImage(requestUrl, response, method) {
+  const relPath = decodeRequestPath(requestUrl.pathname, /^\/user-images\/?/);
+  if (!isSafeImageRelPath(relPath)) return false;
+
+  const projectRoot = path.resolve(__dirname, '..');
+  const activeReleaseRoot = getActiveImageReleaseRoot();
+  const roots = [
+    activeReleaseRoot ? path.join(activeReleaseRoot, 'images') : null,
+    path.join(projectRoot, 'data', 'images'),
+    path.join(projectRoot, '.runtime-assets', 'images'),
+  ].filter((root) => root && fs.existsSync(root));
+  const candidates = roots.flatMap((root) => [
+    path.join(root, relPath),
+    path.join(root, path.posix.basename(relPath)),
+  ]);
+
+  return candidates.some((candidate) => trySendImageFile(response, method, candidate));
 }
 
 function isShellRunning() {
@@ -683,6 +811,18 @@ const server = http.createServer(async (request, response) => {
       web: openBrowserWeb(requestUrl.searchParams.get('url') || DEFAULT_WEB_URL),
     });
     return;
+  }
+
+  if ((method === 'GET' || method === 'HEAD') && requestUrl.pathname.startsWith('/assets/')) {
+    if (tryServeAssetImage(requestUrl, response, method)) {
+      return;
+    }
+  }
+
+  if ((method === 'GET' || method === 'HEAD') && requestUrl.pathname.startsWith('/user-images/')) {
+    if (tryServeUserImage(requestUrl, response, method)) {
+      return;
+    }
   }
 
     writeJson(response, 404, {
