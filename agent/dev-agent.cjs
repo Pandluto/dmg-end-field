@@ -114,6 +114,77 @@ function getImageRoots() {
   ].filter((root) => root && fs.existsSync(root));
 }
 
+// --- Image file-name cache (mapping bridge) ---
+
+let imageFileCache = null;
+
+function buildImageFileCache() {
+  const roots = getImageRoots();
+  const byFileName = new Map();
+
+  function walk(baseDir, relativeDir) {
+    const dirPath = relativeDir ? path.join(baseDir, relativeDir) : baseDir;
+    let entries;
+    try {
+      entries = fs.readdirSync(dirPath, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      if (entry.isDirectory()) {
+        walk(baseDir, relativeDir ? `${relativeDir}/${entry.name}` : entry.name);
+      } else if (entry.isFile() && /\.(png|jpg|jpeg|webp|gif|svg|ico)$/i.test(entry.name)) {
+        const lower = entry.name.toLowerCase();
+        const fullPath = path.join(dirPath, entry.name);
+        if (!byFileName.has(lower)) {
+          byFileName.set(lower, []);
+        }
+        byFileName.get(lower).push(fullPath);
+      }
+    }
+  }
+
+  for (const root of roots) {
+    walk(root, '');
+  }
+
+  imageFileCache = { byFileName, builtAt: Date.now() };
+  return imageFileCache;
+}
+
+function getImageFileCache() {
+  if (!imageFileCache) {
+    return buildImageFileCache();
+  }
+  return imageFileCache;
+}
+
+function resolveImageByFileName(requestPath) {
+  const cache = getImageFileCache();
+  const decoded = decodeURIComponent(requestPath).replace(/\\/g, '/').replace(/^\/+/, '');
+  const fileName = path.posix.basename(decoded);
+  if (!fileName) return null;
+
+  const requestedExt = path.extname(fileName).toLowerCase();
+  const fileBase = fileName.slice(0, fileName.length - requestedExt.length);
+
+  const extensionOrder = [requestedExt, '.png', '.webp', '.jpg', '.jpeg', '.gif', '.svg']
+    .filter((ext, index, list) => list.indexOf(ext) === index);
+
+  for (const ext of extensionOrder) {
+    const key = `${fileBase}${ext}`.toLowerCase();
+    const paths = cache.byFileName.get(key);
+    if (paths) {
+      for (const filePath of paths) {
+        if (fs.existsSync(filePath) && fs.statSync(filePath).isFile()) {
+          return filePath;
+        }
+      }
+    }
+  }
+  return null;
+}
+
 function tryServeAssetImage(requestUrl, response, method) {
   const relPath = decodeRequestPath(requestUrl.pathname, /^\/assets\/?/);
   if (!isSafeImageRelPath(relPath)) return false;
@@ -135,7 +206,12 @@ function tryServeAssetImage(requestUrl, response, method) {
     }
   }
 
-  return candidates.some((candidate) => trySendImageFile(response, method, candidate));
+  if (candidates.some((candidate) => trySendImageFile(response, method, candidate))) {
+    return true;
+  }
+  // Fallback: filename-based cache lookup (mapping bridge)
+  const cachePath = resolveImageByFileName(relPath);
+  return cachePath ? trySendImageFile(response, method, cachePath) : false;
 }
 
 function tryServeUserImage(requestUrl, response, method) {
@@ -154,7 +230,24 @@ function tryServeUserImage(requestUrl, response, method) {
     path.join(root, path.posix.basename(relPath)),
   ]);
 
-  return candidates.some((candidate) => trySendImageFile(response, method, candidate));
+  if (candidates.some((candidate) => trySendImageFile(response, method, candidate))) {
+    return true;
+  }
+  // Fallback: filename-based cache lookup (mapping bridge)
+  const cachePath = resolveImageByFileName(relPath);
+  return cachePath ? trySendImageFile(response, method, cachePath) : false;
+}
+
+function tryServeGenericImageFallback(requestUrl, response, method) {
+  if (!/\.(png|jpg|jpeg|webp|gif|svg|ico)$/i.test(requestUrl.pathname || '')) {
+    return false;
+  }
+  const imagePath = String(requestUrl.pathname || '').replace(/^\/+/, '');
+  if (!imagePath || /(^|\/)\.\.(\/|$)/.test(imagePath) || imagePath.includes('\\')) {
+    return false;
+  }
+  const cachePath = resolveImageByFileName(imagePath);
+  return cachePath ? trySendImageFile(response, method, cachePath) : false;
 }
 
 function isShellRunning() {
@@ -825,6 +918,10 @@ const server = http.createServer(async (request, response) => {
     }
   }
 
+  if ((method === 'GET' || method === 'HEAD') && tryServeGenericImageFallback(requestUrl, response, method)) {
+    return;
+  }
+
     writeJson(response, 404, {
       ok: false,
       error: 'not-found',
@@ -845,6 +942,13 @@ const server = http.createServer(async (request, response) => {
 
 server.listen(PORT, HOST, () => {
   console.log(`[def-local-agent] listening on http://${HOST}:${PORT}`);
+  // Warm image file-name cache for mapping-bridge fallback
+  try {
+    buildImageFileCache();
+    console.log(`[def-local-agent] image cache ready (${imageFileCache.byFileName.size} filenames)`);
+  } catch (err) {
+    console.error(`[def-local-agent] image cache build failed: ${err.message}`);
+  }
   if (shouldOpenWebOnBoot) {
     const web = openBrowserWeb(DEFAULT_WEB_URL);
     console.log(`[def-local-agent] web opened at ${web.url}`);
