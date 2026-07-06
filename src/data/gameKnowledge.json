@@ -1,6 +1,8 @@
 {
   "operatorAliases": [
     { "terms": ["Laiwanting"], "name": "莱万汀" },
+    { "terms": ["Chenqianyu", "Chen Qianyu", "Chen-Qianyu"], "name": "陈千语" },
+    { "terms": ["Wolf Guard", "Wolfguard", "Langwei", "Lang Wei"], "name": "狼卫" },
     { "terms": ["Antaer"], "name": "安塔尔" },
     { "terms": ["Dapan"], "name": "大潘" },
     { "terms": ["Huguang"], "name": "弧光" },
@@ -12,6 +14,14 @@
       "terms": ["旧峰", "舊峰", "旧锋", "舊鋒", "jiufeng", "jiu feng", "jiu-feng"],
       "gearSetId": "gear-set-jiu-feng",
       "name": "旧锋"
+    },
+    {
+      "terms": ["潮涌", "chao yong", "chaoyong", "tide surge"],
+      "gearSetId": "gear-set-chao-yong",
+      "name": "潮涌"
     }
+  ],
+  "weaponAliases": [
+    { "terms": ["宏愿", "hongyuan", "hong yuan"], "name": "宏愿" }
   ]
 }

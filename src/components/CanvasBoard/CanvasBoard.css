@@ -2835,12 +2835,9 @@
 }
 
 .canvas-board.is-ai-mode .canvas-left-zone {
-  width: calc(100vw - var(--canvas-ai-right-width));
-  min-width: 0;
-  max-width: calc(100vw - var(--canvas-ai-right-width));
   background: rgba(255, 255, 255, 0.9);
   box-shadow: 16px 0 30px rgba(0, 0, 0, 0.08);
-  z-index: 20;
+  z-index: 24;
 }
 
 .canvas-board.is-ai-mode .canvas-right-zone {
@@ -2866,19 +2863,19 @@
 
 .canvas-board.is-ai-hover-left .canvas-left-zone {
   background: #ffffff;
-  z-index: 36;
+  z-index: 60;
 }
 
 .canvas-board.is-ai-hover-left .canvas-right-zone.is-ai-real-right {
-  z-index: 42;
+  z-index: 30;
 }
 
 .canvas-board.is-ai-hover-left .canvas-right-zone.is-ai-panel {
-  z-index: 40;
+  z-index: 34;
 }
 
 .canvas-board.is-ai-hover-right .canvas-left-zone {
-  z-index: 20;
+  z-index: 24;
 }
 
 .canvas-board.is-ai-hover-right .canvas-right-zone.is-ai-real-right {

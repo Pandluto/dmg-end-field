@@ -111,6 +111,7 @@
 }
 
 .main-workbench-ai-thinking {
+  position: relative;
   min-width: 0;
   display: inline-flex;
   align-items: center;
@@ -119,6 +120,37 @@
   font-weight: 700;
   color: rgba(0, 120, 212, 0.92);
   white-space: nowrap;
+  pointer-events: auto;
+  outline: none;
+}
+
+.main-workbench-ai-thinking-popover {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 8px);
+  z-index: 20;
+  width: min(260px, 72vw);
+  display: grid;
+  gap: 4px;
+  padding: 8px 9px;
+  border: 1px solid rgba(0, 0, 0, 0.24);
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.14);
+  color: #111111;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.35;
+  white-space: normal;
+  opacity: 0;
+  transform: translateY(4px);
+  pointer-events: none;
+  transition: opacity 0.14s ease, transform 0.14s ease;
+}
+
+.main-workbench-ai-thinking:hover .main-workbench-ai-thinking-popover,
+.main-workbench-ai-thinking:focus .main-workbench-ai-thinking-popover {
+  opacity: 1;
+  transform: translateY(0);
 }
 
 .main-workbench-ai-message-action-buttons {

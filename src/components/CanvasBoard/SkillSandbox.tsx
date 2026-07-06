@@ -77,6 +77,21 @@ function getCharacterSandboxSkills(character: Character): SandboxSkill[] {
   }));
 }
 
+function formatCharacterConfigPreview(character: Character): string[] {
+  const level90 = character.attributes?.level90;
+  const lines = [
+    `${character.profession || '未知职业'} · ${character.element || '未知属性'} · ${character.weapon || '未配置武器类型'}`,
+    `主 ${character.mainStat || '-'} / 副 ${character.subStat || '-'}`,
+  ];
+  if (level90) {
+    lines.push(`Lv90 生命 ${level90.hp} / 攻击 ${level90.atk}`);
+  }
+  if (character.tags?.length) {
+    lines.push(character.tags.slice(0, 4).join(' · '));
+  }
+  return lines;
+}
+
 export function SkillSandbox({
   selectedCharacters,
   onDragStart,
@@ -274,19 +289,27 @@ export function SkillSandbox({
             >
               {/* 头像 img：资源缺失时由 onError 隐藏，不显示断裂图 */}
               {character.avatarUrl && (
-                <img
-                  className="sandbox-avatar"
-                  src={normalizeAssetUrl(character.avatarUrl)}
-                  alt={`${character.name} 头像`}
-                  style={{ backgroundColor: getElementBackgroundColor(character.element) }}
-                  onDoubleClick={() => {
-                    onAvatarDoubleClick(character.id);
-                  }}
-                  draggable={false}
-                  onError={(e) => {
-                    (e.target as HTMLImageElement).style.display = 'none';
-                  }}
-                />
+                <span className="sandbox-avatar-preview-anchor">
+                  <img
+                    className="sandbox-avatar"
+                    src={normalizeAssetUrl(character.avatarUrl)}
+                    alt={`${character.name} 头像`}
+                    style={{ backgroundColor: getElementBackgroundColor(character.element) }}
+                    onDoubleClick={() => {
+                      onAvatarDoubleClick(character.id);
+                    }}
+                    draggable={false}
+                    onError={(e) => {
+                      (e.target as HTMLImageElement).style.display = 'none';
+                    }}
+                  />
+                  <span className="sandbox-avatar-config-popover">
+                    <strong>{character.name}</strong>
+                    {formatCharacterConfigPreview(character).map((line) => (
+                      <span key={line}>{line}</span>
+                    ))}
+                  </span>
+                </span>
               )}
               <span className="sandbox-character-name">{character.name}</span>
               <span className="sandbox-character-count">{sandboxSkills.length} 技能</span>

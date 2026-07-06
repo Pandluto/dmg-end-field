@@ -99,6 +99,10 @@ export interface DamageReportSnapshot {
   characters: DamageReportCharacterRow[];
 }
 
+export interface DamageReportSnapshotOptions {
+  buttonIds?: Iterable<string>;
+}
+
 const EMPTY_DAMAGE_BONUS: DamageBonusSnapshot = {
   physicalDmgBonus: 0,
   fireDmgBonus: 0,
@@ -997,7 +1001,7 @@ function buildCharacterReportRow(characterId: string, fallbackName: string): Dam
   };
 }
 
-export function buildDamageReportSnapshot(): DamageReportSnapshot {
+export function buildDamageReportSnapshot(options: DamageReportSnapshotOptions = {}): DamageReportSnapshot {
   const timelineData = loadTimelineData();
   if (!timelineData || !Array.isArray(timelineData.staffLines)) {
     return {
@@ -1011,6 +1015,7 @@ export function buildDamageReportSnapshot(): DamageReportSnapshot {
     };
   }
 
+  const allowedButtonIds = options.buttonIds ? new Set(options.buttonIds) : null;
   const buttons: DamageReportButtonRow[] = [];
   const flattenedButtons = timelineData.staffLines.flatMap((staffLine) =>
     (Array.isArray(staffLine.buttons) ? staffLine.buttons : []).map((timelineButton) => ({
@@ -1032,6 +1037,9 @@ export function buildDamageReportSnapshot(): DamageReportSnapshot {
       return (left.timelineButton.nodeIndex ?? 0) - (right.timelineButton.nodeIndex ?? 0);
     })
     .forEach(({ timelineButton, staffIndex }, orderIndex) => {
+      if (allowedButtonIds && !allowedButtonIds.has(timelineButton.id)) {
+        return;
+      }
       const persisted = getSkillButtonById(timelineButton.id);
       const reportRow = buildButtonReportRow(
         persisted ?? {
@@ -1084,4 +1092,3 @@ export function buildDamageReportSnapshot(): DamageReportSnapshot {
     characters,
   };
 }
-

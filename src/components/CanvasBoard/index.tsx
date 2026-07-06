@@ -90,6 +90,7 @@ import {
   pullRemoteMainWorkbenchCommands,
   pushMainWorkbenchCommandResult,
   pushMainWorkbenchSnapshot,
+  readMainWorkbenchSnapshot,
   writeMainWorkbenchSnapshot,
   type MainWorkbenchCommand,
   type MainWorkbenchSnapshot,
@@ -112,6 +113,65 @@ const BATCH_RESISTANCE_FIELDS: Array<[keyof HitResistanceInput, string]> = [
   ['iceResistance', '寒冷'],
   ['natureResistance', '自然'],
 ];
+
+function buildMainWorkbenchSnapshotSignature(
+  selectedCharacters: MainWorkbenchSnapshot['selectedCharacters'],
+  skillButtons: MainWorkbenchSnapshot['skillButtons'],
+  operatorConfigs: MainWorkbenchSnapshot['operatorConfigs'] = [],
+): string {
+  return JSON.stringify({
+    selectedCharacters: selectedCharacters.map((character) => ({
+      id: character.id,
+      name: character.name,
+    })),
+    skillButtons: [...skillButtons]
+      .sort((a, b) => a.id.localeCompare(b.id))
+      .map((button) => ({
+        id: button.id,
+        characterId: button.characterId,
+        characterName: button.characterName,
+        skillType: button.skillType,
+        runtimeSkillId: button.runtimeSkillId,
+        skillDisplayName: button.skillDisplayName,
+        staffIndex: button.staffIndex,
+        lineIndex: button.lineIndex,
+        nodeIndex: button.nodeIndex,
+        nodeNumber: button.nodeNumber,
+        selectedBuffIds: [...button.selectedBuffIds].sort(),
+      })),
+    operatorConfigs: [...operatorConfigs]
+      .sort((a, b) => a.characterId.localeCompare(b.characterId))
+      .map((config) => ({
+        characterId: config.characterId,
+        characterName: config.characterName,
+        weapon: config.weapon
+          ? {
+              id: config.weapon.id,
+              name: config.weapon.name,
+              level: config.weapon.level,
+              potential: config.weapon.potential,
+              attack: config.weapon.attack,
+            }
+          : null,
+        equipment: [...config.equipment]
+          .sort((a, b) => a.slotKey.localeCompare(b.slotKey))
+          .map((piece) => ({
+            slotKey: piece.slotKey,
+            equipmentId: piece.equipmentId,
+            name: piece.name,
+            part: piece.part,
+            effects: [...piece.effects]
+              .sort((a, b) => a.effectId.localeCompare(b.effectId))
+              .map((effect) => ({
+                effectId: effect.effectId,
+                typeKey: effect.typeKey,
+                level: effect.level,
+                value: effect.value,
+              })),
+          })),
+      })),
+  });
+}
 
 function clonePersistedSkillButtonConfig(button: PersistedSkillButton): Pick<
   PersistedSkillButton,
@@ -879,7 +939,8 @@ export function CanvasBoard({
           return;
         }
 
-        const snapshot = buildDamageReportSnapshot();
+        const currentSkillButtonIds = skillButtons.map((button) => button.id);
+        const snapshot = buildDamageReportSnapshot({ buttonIds: currentSkillButtonIds });
         const result = command.op === 'calculateDamage' && command.buttonId
           ? {
               ...snapshot,
@@ -1122,7 +1183,16 @@ export function CanvasBoard({
     if (currentView !== 'canvas') {
       return;
     }
-    const damageReport = buildDamageReportSnapshot();
+    const timelineButtons = timelineData.staffLines.flatMap((staffLine) =>
+      (Array.isArray(staffLine.buttons) ? staffLine.buttons : []).map((button) => ({
+        ...button,
+        staffIndex: staffLine.staffIndex,
+      }))
+    );
+    const currentSkillButtonIds = skillButtons.length > 0
+      ? skillButtons.map((button) => button.id)
+      : timelineButtons.map((button) => button.id);
+    const computedDamageReport = buildDamageReportSnapshot({ buttonIds: currentSkillButtonIds });
     const operatorConfigCache = getOperatorConfigPageCache();
     const persistedButtonTable = getSkillButtonTable();
     const mirroredButtons: MainWorkbenchSnapshot['skillButtons'] = skillButtons.length > 0
@@ -1137,6 +1207,23 @@ export function CanvasBoard({
             skillDisplayName: button.skillDisplayName,
             staffIndex: button.staffIndex,
             lineIndex: button.lineIndex,
+            nodeIndex: button.nodeIndex,
+            nodeNumber: button.nodeNumber,
+            selectedBuffIds: [...(persistedButton?.selectedBuff ?? [])],
+          };
+        })
+      : timelineButtons.length > 0
+        ? timelineButtons.map((button) => {
+          const persistedButton = persistedButtonTable[button.id];
+          return {
+            id: button.id,
+            characterId: persistedButton?.characterId ?? button.characterName,
+            characterName: button.characterName,
+            skillType: button.skillType as SkillButtonType,
+            runtimeSkillId: button.runtimeSkillId,
+            skillDisplayName: button.skillDisplayName,
+            staffIndex: button.staffIndex,
+            lineIndex: selectedCharacters.findIndex((character) => character.name === button.characterName),
             nodeIndex: button.nodeIndex,
             nodeNumber: button.nodeNumber,
             selectedBuffIds: [...(persistedButton?.selectedBuff ?? [])],
@@ -1157,18 +1244,60 @@ export function CanvasBoard({
           nodeNumber: button.nodeNumber,
           selectedBuffIds: [...(button.selectedBuff ?? [])],
         }));
+    const mirroredSelectedCharacters: MainWorkbenchSnapshot['selectedCharacters'] = selectedCharacters.map((character) => ({
+      id: character.id,
+      name: character.name,
+      element: character.element,
+      profession: character.profession,
+      librarySource: character.librarySource,
+    }));
+    const mirroredOperatorConfigs: MainWorkbenchSnapshot['operatorConfigs'] = selectedCharacters.flatMap((character) => {
+      const configSnapshot = operatorConfigCache[character.id];
+      if (!configSnapshot) return [];
+      return [{
+        characterId: character.id,
+        characterName: character.name,
+        weapon: {
+          id: configSnapshot.weapon.id,
+          name: configSnapshot.weapon.name,
+          level: configSnapshot.weapon.config.level,
+          potential: configSnapshot.weapon.config.potential,
+          attack: configSnapshot.weapon.attack,
+        },
+        equipment: configSnapshot.equipment.pieces.map((piece) => ({
+          slotKey: piece.slotKey,
+          equipmentId: piece.equipmentId,
+          name: piece.name,
+          part: piece.part,
+          effects: piece.effects.map((effect) => ({
+            effectId: effect.effectId,
+            label: effect.label,
+            typeKey: effect.typeKey,
+            level: effect.level,
+            value: effect.value,
+          })),
+        })),
+      }];
+    });
+    const previousSnapshot = readMainWorkbenchSnapshot();
+    const currentSignature = buildMainWorkbenchSnapshotSignature(mirroredSelectedCharacters, mirroredButtons, mirroredOperatorConfigs);
+    const previousSignature = previousSnapshot
+      ? buildMainWorkbenchSnapshotSignature(previousSnapshot.selectedCharacters, previousSnapshot.skillButtons, previousSnapshot.operatorConfigs)
+      : '';
+    const canReusePreviousDamageReport = computedDamageReport.buttonCount === 0 &&
+      mirroredButtons.length > 0 &&
+      previousSnapshot?.damageReport &&
+      previousSnapshot.damageReport.buttonCount === mirroredButtons.length &&
+      previousSignature === currentSignature;
+    const damageReport = canReusePreviousDamageReport && previousSnapshot?.damageReport
+      ? previousSnapshot.damageReport
+      : computedDamageReport;
     const snapshot = {
       schemaVersion: 1 as const,
       updatedAt: Date.now(),
       source: 'app' as const,
       currentView,
-      selectedCharacters: selectedCharacters.map((character) => ({
-        id: character.id,
-        name: character.name,
-        element: character.element,
-        profession: character.profession,
-        librarySource: character.librarySource,
-      })),
+      selectedCharacters: mirroredSelectedCharacters,
       skillButtons: mirroredButtons,
       damageReport: {
         generatedAt: damageReport.generatedAt,
@@ -1177,34 +1306,7 @@ export function CanvasBoard({
         buttonCount: damageReport.buttonCount,
         buttons: damageReport.buttons,
       },
-      operatorConfigs: selectedCharacters.flatMap((character) => {
-        const configSnapshot = operatorConfigCache[character.id];
-        if (!configSnapshot) return [];
-        return [{
-          characterId: character.id,
-          characterName: character.name,
-          weapon: {
-            id: configSnapshot.weapon.id,
-            name: configSnapshot.weapon.name,
-            level: configSnapshot.weapon.config.level,
-            potential: configSnapshot.weapon.config.potential,
-            attack: configSnapshot.weapon.attack,
-          },
-          equipment: configSnapshot.equipment.pieces.map((piece) => ({
-            slotKey: piece.slotKey,
-            equipmentId: piece.equipmentId,
-            name: piece.name,
-            part: piece.part,
-            effects: piece.effects.map((effect) => ({
-              effectId: effect.effectId,
-              label: effect.label,
-              typeKey: effect.typeKey,
-              level: effect.level,
-              value: effect.value,
-            })),
-          })),
-        }];
-      }),
+      operatorConfigs: mirroredOperatorConfigs,
     };
     writeMainWorkbenchSnapshot(snapshot);
     void pushMainWorkbenchSnapshot(snapshot);

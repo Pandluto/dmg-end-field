@@ -637,7 +637,7 @@
 
 .sandbox-character {
   padding: 0;
-  overflow: hidden;
+  overflow: visible;
   background: rgba(255, 255, 255, 0.7);
   border: 1px solid rgba(0, 0, 0, 0.18);
   transition: background-color 0.16s ease, border-color 0.16s ease;
@@ -677,6 +677,54 @@
   height: 36px;
   border-radius: 4px;
   box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.18);
+}
+
+.sandbox-avatar-preview-anchor {
+  position: relative;
+  flex: 0 0 auto;
+  display: inline-flex;
+  width: 36px;
+  height: 36px;
+  z-index: 2;
+}
+
+.sandbox-avatar-preview-anchor:hover .sandbox-avatar {
+  opacity: 0.62;
+}
+
+.sandbox-avatar-config-popover {
+  position: absolute;
+  left: calc(100% + 8px);
+  top: 0;
+  z-index: 30;
+  width: 210px;
+  display: grid;
+  gap: 4px;
+  padding: 8px 9px;
+  border: 1px solid rgba(0, 0, 0, 0.24);
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.14);
+  color: #111111;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.35;
+  text-align: left;
+  white-space: normal;
+  opacity: 0;
+  transform: translateX(-4px);
+  pointer-events: none;
+  transition: opacity 0.14s ease, transform 0.14s ease;
+}
+
+.sandbox-avatar-config-popover strong {
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.sandbox-avatar-preview-anchor:hover .sandbox-avatar-config-popover,
+.sandbox-avatar-preview-anchor:focus-within .sandbox-avatar-config-popover {
+  opacity: 1;
+  transform: translateX(0);
 }
 
 .sandbox-avatar:hover {
