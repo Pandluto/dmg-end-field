@@ -9,14 +9,13 @@ import {
   type DefAgentTokens,
 } from '../../utils/defAgent';
 import { getLocalAgentHealth, requestOpenAiCliRest } from '../../utils/localAgent';
-import type { Character, SkillButton, SkillButtonType } from '../../types';
+import type { Character, SkillButton } from '../../types';
 import {
   MAIN_WORKBENCH_REST_BASE_URL,
   type MainWorkbenchCommand,
   type MainWorkbenchSnapshot,
-  type QueuedMainWorkbenchCommand,
 } from '../../utils/mainWorkbenchControl';
-import { buildGameKnowledgePromptLines, resolveGameGearSetAlias, resolveGameOperatorAlias, resolveGameWeaponAlias } from '../../utils/gameKnowledge';
+import { buildGameKnowledgePromptLines } from '../../utils/gameKnowledge';
 import './MainWorkbenchAiPanel.css';
 
 const DEF_AGENT_BROWSER_SESSION_KEY = 'def-opencode.workbench.activeSession.v1';
@@ -217,120 +216,9 @@ function chooseWorkbenchThinkingEffort(prompt: string): DefAgentThinkingEffort {
   return isMutatingWorkbenchPrompt(text) ? 'medium' : 'low';
 }
 
-function shouldRunLocalComplexWorkbenchFlow(prompt: string) {
-  const text = prompt.trim();
-  const asksTeamExpansion = /扩到四个人|扩到4个人|4个人|四个人|四人|队伍|four|4|team|squad/i.test(text) ||
-    (/保留|keep/i.test(text) && /再加|新增|加入|add/i.test(text));
-  const asksMultipleSkills = (/每个干员|各放|各释放|每人|每位|每个|each|every/i.test(text) && /两个|2个|two|2/i.test(text)) ||
-    (/按钮|技能|button|skill/i.test(text) && /两个|2个|批量|都|two|2|batch|all/i.test(text));
-  const asksBuffEdit = /Buff|buff|增益|bonus/i.test(text);
-  const asksRemoval = /撤|移除|删除|去掉|回退|删掉|remove|delete|drop|undo/i.test(text);
-  return asksTeamExpansion && asksMultipleSkills && asksBuffEdit && asksRemoval;
-}
-
-function shouldRunLocalRemoveAddBackFlow(prompt: string) {
-  const text = prompt.trim();
-  if (/Buff|buff|增益|bonus/i.test(text)) return false;
-  return /(移除|删除|去掉|remove|delete|drop)/i.test(text) &&
-    /(加回|重新添加|add back|add .* back)/i.test(text) &&
-    /(按钮|技能|button|skill)/i.test(text) &&
-    /(重算|计算|伤害|calculate|recalculate|damage)/i.test(text);
-}
-
-function shouldRunLocalAddRemoveBuffFlow(prompt: string) {
-  const text = prompt.trim();
-  return /Buff|buff|增益|bonus/i.test(text) &&
-    /(加|添加|add|attach|apply)/i.test(text) &&
-    /(移除|删除|去掉|remove|delete|drop)/i.test(text) &&
-    /(重算|计算|伤害|calculate|recalculate|damage)/i.test(text);
-}
-
-function parseWorkbenchTarget(prompt: string, snapshot: MainWorkbenchSnapshot | null) {
-  const text = prompt.trim();
-  const candidates = snapshot?.selectedCharacters || [];
-  const knownAliases = ['Admin', 'Chenqianyu', 'Chen Qianyu', 'Laiwanting', 'Wolf Guard', 'Wolfguard', 'Langwei', 'Lang Wei'];
-  const target = candidates.find((character) => {
-    const aliases = [
-      character.name,
-      character.id,
-      resolveWorkbenchOperatorName(character.name),
-      resolveWorkbenchOperatorName(character.id),
-      ...knownAliases.filter((alias) => resolveWorkbenchOperatorName(alias) === character.name),
-    ].filter(Boolean);
-    return aliases.some((alias) => text.toLowerCase().includes(String(alias).toLowerCase()));
-  }) || knownAliases
-    .filter((alias) => text.toLowerCase().includes(alias.toLowerCase()))
-    .map(resolveWorkbenchOperatorName)[0];
-
-  const characterName = typeof target === 'string' ? target : target?.name;
-  if (!characterName) return null;
-  const skillTypePattern = new RegExp(`(?:${characterName}|${knownAliases.filter((alias) => resolveWorkbenchOperatorName(alias) === characterName).join('|')})\\s*[-_ ]+([ABEQ])(?:\\s*(?:button|skill|按钮|技能))?`, 'i');
-  const skillMatch = text.match(skillTypePattern) ||
-    text.match(/(?:按钮|技能|button|skill)\s*[-_ ]*([ABEQ])\b/i) ||
-    text.match(/\b([ABEQ])\s*(?:按钮|技能|button|skill)\b/i);
-  const skillType = (skillMatch?.[1]?.toUpperCase() || '') as SkillButtonType;
-  if (!(['A', 'B', 'E', 'Q'] as SkillButtonType[]).includes(skillType)) return null;
-  const matchedButtons = snapshot?.skillButtons.filter((button) =>
-    button.characterName === characterName && button.skillType === skillType
-  ) || [];
-  const matchedButton = matchedButtons[0];
-  if (matchedButtons.length > 1) {
-    return {
-      error: `${characterName} ${skillType} 有 ${matchedButtons.length} 个按钮，请指定更精确的节点或按钮。`,
-      characterName,
-      skillType,
-    };
-  }
-  return {
-    characterName,
-    skillType,
-    nodeIndex: matchedButton?.nodeIndex,
-    beforeButtonId: matchedButton?.id,
-    beforeButtonCount: snapshot?.skillButtons.length ?? 0,
-  };
-}
-
-function parseLocalRemoveAddBackFlow(prompt: string, snapshot: MainWorkbenchSnapshot | null) {
-  if (!shouldRunLocalRemoveAddBackFlow(prompt)) return null;
-  return parseWorkbenchTarget(prompt, snapshot);
-}
-
-function parseLocalAddRemoveBuffFlow(prompt: string, snapshot: MainWorkbenchSnapshot | null) {
-  if (!shouldRunLocalAddRemoveBuffFlow(prompt)) return null;
-  return parseWorkbenchTarget(prompt, snapshot);
-}
-
-function buildGenericDamageBuff(characterName: string, skillType: SkillButtonType, uniqueKey = '') {
-  const suffix = uniqueKey ? `-${uniqueKey}` : '';
-  return {
-    schemaVersion: 2 as const,
-    id: uniqueKey ? `buff-ai-${characterName}-${skillType}-${uniqueKey}` : undefined,
-    name: `ai-${characterName}-${skillType}-all-skill-dmg${suffix}`,
-    displayName: `${characterName}${skillType} · 全技能伤害+20%${uniqueKey ? ` · ${uniqueKey}` : ''}`,
-    sourceName: 'AI排轴兜底',
-    level: 'auto',
-    type: 'allSkillDmgBonus',
-    value: 0.2,
-    description: 'AI 复杂排轴兜底添加的通用伤害 Buff',
-    source: 'ai-workbench-local-flow',
-    condition: '手测通用伤害 Buff',
-    category: 'passive' as const,
-    refCount: 1,
-    target: { mode: 'all' as const },
-  };
-}
-
-function resolveWorkbenchOperatorName(value: string) {
-  return resolveGameOperatorAlias(value)?.name || value;
-}
-
-function resolveWorkbenchGearSetId(value: string) {
-  return resolveGameGearSetAlias(value)?.gearSetId || value;
-}
-
-function resolveWorkbenchWeaponName(value: string) {
-  return resolveGameWeaponAlias(value)?.name || value;
-}
+/* === [DISABLED] 本地流辅助函数 — 硬编码角色/武器/装备，仅用于开发者手测 ===
+ * 如需恢复：取消此注释块，并同步恢复下方 runLocal* 和 sendWorkbenchPrompt dispatch。
+ */
 
 async function readMainWorkbenchSnapshot(): Promise<MainWorkbenchSnapshot | null> {
   const localSnapshot = typeof window !== 'undefined' ? window.defMainWorkbench?.snapshot?.() : null;
@@ -346,43 +234,6 @@ async function readMainWorkbenchSnapshot(): Promise<MainWorkbenchSnapshot | null
   } catch {
     return null;
   }
-}
-
-async function readMainWorkbenchSnapshotUntil(
-  predicate: (snapshot: MainWorkbenchSnapshot) => boolean,
-  timeoutMs = 5000,
-): Promise<MainWorkbenchSnapshot | null> {
-  const startedAt = Date.now();
-  let latest: MainWorkbenchSnapshot | null = null;
-  while (Date.now() - startedAt < timeoutMs) {
-    latest = await readMainWorkbenchSnapshot();
-    if (latest && predicate(latest)) return latest;
-    await wait(400);
-  }
-  return latest;
-}
-
-function countSnapshotBuffs(snapshot: MainWorkbenchSnapshot) {
-  return snapshot.skillButtons.reduce((total, button) => total + button.selectedBuffIds.length, 0);
-}
-
-async function readStableMainWorkbenchSnapshotUntil(
-  predicate: (snapshot: MainWorkbenchSnapshot) => boolean,
-  timeoutMs = 8000,
-): Promise<MainWorkbenchSnapshot | null> {
-  const startedAt = Date.now();
-  let latest: MainWorkbenchSnapshot | null = null;
-  while (Date.now() - startedAt < timeoutMs) {
-    latest = await readMainWorkbenchSnapshotUntil(predicate, 1200);
-    if (!latest || !predicate(latest)) {
-      await wait(400);
-      continue;
-    }
-    await wait(800);
-    const next = await readMainWorkbenchSnapshot();
-    if (next && next.updatedAt >= latest.updatedAt && predicate(next)) return next;
-  }
-  return latest;
 }
 
 function wait(ms: number) {
@@ -477,29 +328,6 @@ async function waitForWorkbenchCommandsToSettle(timeoutMs = 7000) {
     }
     await wait(500);
   }
-}
-
-async function waitForLocalWorkbenchCommandIdsToSettle(commandIds: string[], timeoutMs = 12000) {
-  if (!commandIds.length) return { settled: true, commands: [] as QueuedMainWorkbenchCommand[] };
-  const pendingIds = new Set(commandIds);
-  const settledCommands = new Map<string, QueuedMainWorkbenchCommand>();
-  const startedAt = Date.now();
-  await wait(500);
-  while (Date.now() - startedAt < timeoutMs) {
-    const commands = window.defMainWorkbench?.commands?.() || [];
-    commands.forEach((entry) => {
-      if (pendingIds.has(entry.id) && (entry.status === 'done' || entry.status === 'error')) {
-        settledCommands.set(entry.id, entry);
-        pendingIds.delete(entry.id);
-      }
-    });
-    if (pendingIds.size === 0) {
-      await wait(500);
-      return { settled: true, commands: commandIds.map((id) => settledCommands.get(id)).filter(Boolean) as QueuedMainWorkbenchCommand[] };
-    }
-    await wait(450);
-  }
-  return { settled: false, commands: commandIds.map((id) => settledCommands.get(id)).filter(Boolean) as QueuedMainWorkbenchCommand[] };
 }
 
 function isReadOnlySnapshotPrompt(prompt: string) {
@@ -782,284 +610,11 @@ export function MainWorkbenchAiPanel({
     });
   };
 
-  const runLocalComplexWorkbenchFlow = async (messageId: string, rollbackLabel: string) => {
-    const finalCharacterNames = ['Admin', 'Chenqianyu', 'Laiwanting', 'Wolf Guard'].map(resolveWorkbenchOperatorName);
-    const fallbackWeaponName = resolveWorkbenchWeaponName('宏愿');
-    const fallbackGearSetId = resolveWorkbenchGearSetId('潮涌');
-    const remainingButtonPairs: Array<{ characterName: string; skillType: 'A' | 'B'; nodeIndex: number }> = [
-      { characterName: '管理员', skillType: 'A', nodeIndex: 0 },
-      { characterName: '管理员', skillType: 'B', nodeIndex: 1 },
-      { characterName: '陈千语', skillType: 'A', nodeIndex: 0 },
-      { characterName: '陈千语', skillType: 'B', nodeIndex: 1 },
-      { characterName: '莱万汀', skillType: 'A', nodeIndex: 0 },
-      { characterName: '莱万汀', skillType: 'B', nodeIndex: 1 },
-      { characterName: '狼卫', skillType: 'A', nodeIndex: 0 },
-    ];
-
-    const enqueueStage = async (commands: MainWorkbenchCommand[], detail: string) => {
-      const entries = commands
-        .map((command) => enqueueLocalWorkbenchCommand(command, 'main-workbench-ai-local-flow'))
-        .filter((entry): entry is NonNullable<ReturnType<typeof enqueueLocalWorkbenchCommand>> => Boolean(entry));
-      patchStep('operate', { status: 'running', detail });
-      const settled = await waitForLocalWorkbenchCommandIdsToSettle(entries.map((entry) => entry.id), 16000);
-      if (!settled.settled) {
-        throw new Error(`命令执行超时：${detail}`);
-      }
-    };
-
-    setStatus('执行本地复杂流程');
-    patchStep('backup', { status: 'running', detail: '保存 AI 回退点' });
-    await enqueueStage([{ op: 'saveTimelineSnapshot', label: rollbackLabel }], '保存回退点');
-    patchStep('backup', { status: 'done', detail: rollbackLabel });
-
-    await enqueueStage([
-      { op: 'selectCharacters', characterNames: finalCharacterNames, openCanvas: true, resetTimeline: true },
-    ], '扩展到四人队伍');
-
-    await enqueueStage([
-      { op: 'setOperatorWeapon', characterName: resolveWorkbenchOperatorName('Laiwanting'), weaponName: fallbackWeaponName, level: 90, potential: 'P0' },
-      { op: 'setOperatorEquipment', characterName: resolveWorkbenchOperatorName('Laiwanting'), gearSetId: fallbackGearSetId, fillSlots: true, entryLevel: 3 },
-      { op: 'setOperatorWeapon', characterName: resolveWorkbenchOperatorName('Wolf Guard'), weaponName: fallbackWeaponName, level: 90, potential: 'P0' },
-      { op: 'setOperatorEquipment', characterName: resolveWorkbenchOperatorName('Wolf Guard'), gearSetId: fallbackGearSetId, fillSlots: true, entryLevel: 3 },
-      { op: 'refreshOperatorConfig' },
-    ], '配置新增干员武器装备');
-
-    await enqueueStage([
-      ...finalCharacterNames.flatMap((characterName) => ([
-        { op: 'addSkillButton' as const, characterName, skillType: 'A' as const, nodeIndex: 0 },
-        { op: 'addSkillButton' as const, characterName, skillType: 'B' as const, nodeIndex: 1 },
-      ])),
-      { op: 'removeSkillButton', latest: true },
-    ], '添加技能按钮并撤掉最后一个');
-
-    await enqueueStage([
-      ...remainingButtonPairs.map(({ characterName, skillType, nodeIndex }) => ({
-        op: 'addBuff' as const,
-        characterName,
-        skillType,
-        nodeIndex,
-        buff: buildGenericDamageBuff(characterName, skillType),
-      })),
-      { op: 'calculateDamage' },
-      { op: 'refreshSnapshot' },
-    ], '添加通用伤害 Buff 并重算');
-
-    const evidence = await readWorkbenchCommandEvidence(activePromptStartedAtRef.current);
-    const failedCommand = evidence.find((command) => command.status === 'error');
-    if (failedCommand) {
-      finishMessage(messageId, 'error', `本地复杂流程有命令失败：${failedCommand.error || failedCommand.id || '未知错误'}。`);
-      setStatus('本地流程失败');
-      patchStep('operate', { status: 'error', detail: failedCommand.error || '命令失败' });
-      return;
-    }
-
-    const snapshot = await readStableMainWorkbenchSnapshotUntil((current) => {
-      const buttonCount = current.skillButtons.length;
-      const buffCount = countSnapshotBuffs(current);
-      return buttonCount === 7 && buffCount >= 7 && current.damageReport?.buttonCount === buttonCount;
-    });
-    if (!snapshot || snapshot.skillButtons.length !== 7 || countSnapshotBuffs(snapshot) < 7 || snapshot.damageReport?.buttonCount !== 7) {
-      finishMessage(messageId, 'error', '本地复杂流程执行后快照未稳定到预期状态：需要 7 个按钮、至少 7 个 Buff，并且伤害报告按钮数为 7。');
-      setStatus('本地流程未通过核对');
-      patchStep('verify', { status: 'error', detail: '快照未稳定到预期状态' });
-      return;
-    }
-    const selected = snapshot?.selectedCharacters.map((character) => character.name).join('、') || '无';
-    const buttonCount = snapshot?.skillButtons.length ?? 0;
-    const buffCount = countSnapshotBuffs(snapshot);
-    const equipmentLines = (snapshot?.operatorConfigs || [])
-      .map((config) => `${config.characterName}: ${config.weapon?.name || '未配置武器'}；${config.equipment.map((item) => item.name).join('、') || '未配置装备'}`)
-      .join('\n');
-    finishMessage(messageId, 'done', `已完成本地复杂流程。\n当前干员：${selected}。\n按钮数：${buttonCount}，Buff 数：${buffCount}。\n装备情况：\n${equipmentLines}`);
-    setStatus('已完成本地复杂流程');
-    patchStep('operate', { status: 'done', detail: '本地复杂流程完成' });
-    patchStep('verify', { status: 'done', detail: '快照已核对' });
-  };
-
-  const runLocalRemoveAddBackFlow = async (messageId: string) => {
-    setStatus('读取快照');
-    patchStep('backup', { status: 'done', detail: '小型 CRUD 不保存回退点' });
-    patchStep('rest', { status: 'running', detail: '读取主界面快照' });
-    const beforeSnapshot = await readMainWorkbenchSnapshot();
-    patchStep('rest', { status: beforeSnapshot ? 'done' : 'error', detail: beforeSnapshot ? '快照已读取' : '快照读取失败' });
-    const target = parseLocalRemoveAddBackFlow(activePromptRef.current, beforeSnapshot);
-    if (!target || !beforeSnapshot) {
-      finishMessage(messageId, 'error', '无法从请求中定位要移除再加回的干员和技能。');
-      setStatus('本地 CRUD 未定位目标');
-      patchStep('operate', { status: 'error', detail: '未定位目标' });
-      return;
-    }
-    if ('error' in target) {
-      finishMessage(messageId, 'error', target.error);
-      setStatus('本地 CRUD 目标不唯一');
-      patchStep('operate', { status: 'error', detail: '目标不唯一' });
-      return;
-    }
-
-    const enqueueStage = async (commands: MainWorkbenchCommand[], detail: string) => {
-      const entries = commands
-        .map((command) => enqueueLocalWorkbenchCommand(command, 'main-workbench-ai-local-crud'))
-        .filter((entry): entry is NonNullable<ReturnType<typeof enqueueLocalWorkbenchCommand>> => Boolean(entry));
-      patchStep('operate', { status: 'running', detail });
-      const settled = await waitForLocalWorkbenchCommandIdsToSettle(entries.map((entry) => entry.id), 12000);
-      if (!settled.settled) {
-        throw new Error(`命令执行超时：${detail}`);
-      }
-      const failed = settled.commands.find((entry) => entry.status === 'error');
-      if (failed) {
-        throw new Error(`命令执行失败：${failed.error || failed.command.op}`);
-      }
-    };
-
-    await enqueueStage([
-      {
-        op: 'removeSkillButton',
-        characterName: target.characterName,
-        skillType: target.skillType,
-        nodeIndex: target.nodeIndex,
-      },
-    ], `移除 ${target.characterName} ${target.skillType}`);
-
-    await enqueueStage([
-      {
-        op: 'addSkillButton',
-        characterName: target.characterName,
-        skillType: target.skillType,
-        nodeIndex: target.nodeIndex,
-      },
-    ], `加回 ${target.characterName} ${target.skillType}`);
-
-    const snapshot = await readStableMainWorkbenchSnapshotUntil((current) => {
-      const hasTargetButton = current.skillButtons.some((button) =>
-        button.characterName === target.characterName && button.skillType === target.skillType && button.id !== target.beforeButtonId
-      );
-      return current.skillButtons.length === target.beforeButtonCount &&
-        current.damageReport?.buttonCount === current.skillButtons.length &&
-        hasTargetButton;
-    }, 10000);
-    if (!snapshot) {
-      finishMessage(messageId, 'error', '小型 CRUD 执行后未读到稳定快照。');
-      setStatus('本地 CRUD 未通过核对');
-      patchStep('verify', { status: 'error', detail: '快照未稳定' });
-      return;
-    }
-    const totalExpected = snapshot.damageReport?.totalExpected ?? 0;
-    const buttonCount = snapshot.skillButtons.length;
-    finishMessage(messageId, 'done', `已完成。${target.characterName} ${target.skillType} 按钮已移除后再加回，伤害已重算。\n当前总期望伤害：${totalExpected}，按钮数：${buttonCount}。`);
-    setStatus('已完成本地 CRUD');
-    patchStep('operate', { status: 'done', detail: '小型 CRUD 完成' });
-    patchStep('verify', { status: 'done', detail: '快照已核对' });
-  };
-
-  const runLocalAddRemoveBuffFlow = async (messageId: string) => {
-    setStatus('读取快照');
-    patchStep('backup', { status: 'done', detail: 'Buff CRUD 不保存回退点' });
-    patchStep('rest', { status: 'running', detail: '读取主界面快照' });
-    const beforeSnapshot = await readMainWorkbenchSnapshot();
-    patchStep('rest', { status: beforeSnapshot ? 'done' : 'error', detail: beforeSnapshot ? '快照已读取' : '快照读取失败' });
-    const target = parseLocalAddRemoveBuffFlow(activePromptRef.current, beforeSnapshot);
-    if (!target || !beforeSnapshot) {
-      finishMessage(messageId, 'error', '无法从请求中定位要增删 Buff 的干员和技能。');
-      setStatus('Buff CRUD 未定位目标');
-      patchStep('operate', { status: 'error', detail: '未定位目标' });
-      return;
-    }
-    if ('error' in target) {
-      finishMessage(messageId, 'error', target.error);
-      setStatus('Buff CRUD 目标不唯一');
-      patchStep('operate', { status: 'error', detail: '目标不唯一' });
-      return;
-    }
-    const beforeTargetButton = beforeSnapshot.skillButtons.find((button) => button.id === target.beforeButtonId);
-    if (!beforeTargetButton) {
-      finishMessage(messageId, 'error', '无法读取目标按钮的 Buff 状态。');
-      setStatus('Buff CRUD 未定位目标按钮');
-      patchStep('operate', { status: 'error', detail: '未定位目标按钮' });
-      return;
-    }
-    const beforeBuffIds = new Set(beforeTargetButton.selectedBuffIds);
-    const buffUniqueKey = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-
-    const enqueueStage = async (commands: MainWorkbenchCommand[], detail: string) => {
-      const entries = commands
-        .map((command) => enqueueLocalWorkbenchCommand(command, 'main-workbench-ai-local-buff-crud'))
-        .filter((entry): entry is NonNullable<ReturnType<typeof enqueueLocalWorkbenchCommand>> => Boolean(entry));
-      patchStep('operate', { status: 'running', detail });
-      const settled = await waitForLocalWorkbenchCommandIdsToSettle(entries.map((entry) => entry.id), 12000);
-      if (!settled.settled) {
-        throw new Error(`命令执行超时：${detail}`);
-      }
-      const failed = settled.commands.find((entry) => entry.status === 'error');
-      if (failed) {
-        throw new Error(`命令执行失败：${failed.error || failed.command.op}`);
-      }
-    };
-
-    await enqueueStage([
-      {
-        op: 'addBuff',
-        characterName: target.characterName,
-        skillType: target.skillType,
-        nodeIndex: target.nodeIndex,
-        buff: buildGenericDamageBuff(target.characterName, target.skillType, buffUniqueKey),
-      },
-    ], `添加 ${target.characterName} ${target.skillType} Buff`);
-
-    const afterAddSnapshot = await readStableMainWorkbenchSnapshotUntil((current) => {
-      const button = current.skillButtons.find((item) => item.id === target.beforeButtonId) ||
-        current.skillButtons.find((item) =>
-          item.characterName === target.characterName &&
-          item.skillType === target.skillType &&
-          item.nodeIndex === target.nodeIndex
-        );
-      return Boolean(button && button.selectedBuffIds.some((id) => !beforeBuffIds.has(id)));
-    }, 10000);
-    const afterAddButton = afterAddSnapshot?.skillButtons.find((item) => item.id === target.beforeButtonId) ||
-      afterAddSnapshot?.skillButtons.find((item) =>
-        item.characterName === target.characterName &&
-        item.skillType === target.skillType &&
-        item.nodeIndex === target.nodeIndex
-      );
-    const addedBuffIds = (afterAddButton?.selectedBuffIds || []).filter((id) => !beforeBuffIds.has(id));
-    const addedBuffId = addedBuffIds[0];
-    if (!addedBuffId) {
-      finishMessage(messageId, 'error', 'Buff 添加后未在目标按钮上读到新增 Buff。');
-      setStatus('Buff CRUD 未通过添加核对');
-      patchStep('verify', { status: 'error', detail: '未读到新增 Buff' });
-      return;
-    }
-
-    await enqueueStage([
-      {
-        op: 'removeBuff',
-        characterName: target.characterName,
-        skillType: target.skillType,
-        nodeIndex: target.nodeIndex,
-        buffId: addedBuffId,
-      },
-    ], `移除 ${target.characterName} ${target.skillType} Buff`);
-
-    const snapshot = await readStableMainWorkbenchSnapshotUntil((current) => (
-      current.skillButtons.length === beforeSnapshot.skillButtons.length &&
-      current.damageReport?.buttonCount === current.skillButtons.length &&
-      current.skillButtons.some((button) =>
-        button.characterName === target.characterName &&
-        button.skillType === target.skillType &&
-        button.selectedBuffIds.length === beforeTargetButton.selectedBuffIds.length &&
-        button.selectedBuffIds.every((id) => beforeBuffIds.has(id))
-      )
-    ), 10000);
-    if (!snapshot) {
-      finishMessage(messageId, 'error', 'Buff CRUD 执行后未读到稳定快照。');
-      setStatus('Buff CRUD 未通过核对');
-      patchStep('verify', { status: 'error', detail: '快照未稳定' });
-      return;
-    }
-    finishMessage(messageId, 'done', `已完成。${target.characterName} ${target.skillType} 的 20% 全技能伤害 Buff 已添加后移除，伤害已重算。\n当前总期望伤害：${snapshot.damageReport?.totalExpected ?? 0}，按钮数：${snapshot.skillButtons.length}。`);
-    setStatus('已完成 Buff CRUD');
-    patchStep('operate', { status: 'done', detail: 'Buff CRUD 完成' });
-    patchStep('verify', { status: 'done', detail: '快照已核对' });
-  };
+/* === [DISABLED] 本地流执行函数 — 仅用于开发者手测 ===
+ * runLocalComplexWorkbenchFlow: 硬编码 4 角色 + 武器 宏愿 + 装备 潮涌
+ * runLocalRemoveAddBackFlow / runLocalAddRemoveBuffFlow: CRUD 测试
+ * 如需恢复：取消此注释块，并同步恢复上方辅助函数和下方 dispatch。
+ */
 
   const handleStreamEvent = (event: MessageEvent, messageId: string) => {
     if (typeof event.data !== 'string') return;
@@ -1217,9 +772,7 @@ export function MainWorkbenchAiPanel({
     if (!userText) return;
     const messageId = `workbench-ai-${Date.now()}`;
     const rollbackLabel = `AI 回退点 ${new Date().toLocaleString('zh-CN', { hour12: false })}`;
-    const shouldCreateRollback = isMutatingWorkbenchPrompt(userText) &&
-      !shouldRunLocalRemoveAddBackFlow(userText) &&
-      !shouldRunLocalAddRemoveBuffFlow(userText);
+    const shouldCreateRollback = isMutatingWorkbenchPrompt(userText);
     setInput('');
     setIsBusy(true);
     setLastPrompt(userText);
@@ -1237,41 +790,7 @@ export function MainWorkbenchAiPanel({
       { id: messageId, role: 'agent', text: '', status: 'running', prompt: userText, rollbackLabel: shouldCreateRollback ? rollbackLabel : undefined },
     ]);
 
-    if (shouldRunLocalComplexWorkbenchFlow(userText)) {
-      try {
-        await runLocalComplexWorkbenchFlow(messageId, rollbackLabel);
-      } catch (error) {
-        const text = error instanceof Error ? error.message : String(error);
-        setStatus(text);
-        setSteps((current) => current.map((step) => step.status === 'running' ? { ...step, status: 'error', detail: text } : step));
-        finishMessage(messageId, 'error', text);
-      }
-      return;
-    }
-
-    if (shouldRunLocalAddRemoveBuffFlow(userText)) {
-      try {
-        await runLocalAddRemoveBuffFlow(messageId);
-      } catch (error) {
-        const text = error instanceof Error ? error.message : String(error);
-        setStatus(text);
-        setSteps((current) => current.map((step) => step.status === 'running' ? { ...step, status: 'error', detail: text } : step));
-        finishMessage(messageId, 'error', text);
-      }
-      return;
-    }
-
-    if (shouldRunLocalRemoveAddBackFlow(userText)) {
-      try {
-        await runLocalRemoveAddBackFlow(messageId);
-      } catch (error) {
-        const text = error instanceof Error ? error.message : String(error);
-        setStatus(text);
-        setSteps((current) => current.map((step) => step.status === 'running' ? { ...step, status: 'error', detail: text } : step));
-        finishMessage(messageId, 'error', text);
-      }
-      return;
-    }
+    /* === [DISABLED] 本地流 dispatch — 如需恢复取消此注释块 === */
 
     if (isReadOnlySnapshotPrompt(userText)) {
       try {

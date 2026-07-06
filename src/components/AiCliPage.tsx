@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useRef, useState, type ClipboardEvent, type FormEvent, type KeyboardEvent, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ClipboardEvent, type FormEvent, type KeyboardEvent } from 'react';
+import ReactMarkdown from 'react-markdown';
 import {
   createAiCliCommandRequest,
   fail,
@@ -260,228 +261,22 @@ function buildStoppedLoopSteps(steps: DefAgentLoopStep[] = []): DefAgentLoopStep
   }));
 }
 
-function renderInlineMarkdown(text: string, keyPrefix: string): ReactNode[] {
-  const nodes: ReactNode[] = [];
-  const pattern = /(`[^`]+`|\*\*[^*]+\*\*|\*[^*]+\*|\[([^\]]+)\]\((https?:\/\/[^)\s]+)\))/g;
-  let lastIndex = 0;
-  let match: RegExpExecArray | null;
-  while ((match = pattern.exec(text)) !== null) {
-    if (match.index > lastIndex) {
-      nodes.push(text.slice(lastIndex, match.index));
-    }
-    const token = match[0];
-    const key = `${keyPrefix}-${match.index}`;
-    if (token.startsWith('`')) {
-      nodes.push(<code key={key}>{token.slice(1, -1)}</code>);
-    } else if (token.startsWith('**')) {
-      nodes.push(<strong key={key}>{token.slice(2, -2)}</strong>);
-    } else if (token.startsWith('*')) {
-      nodes.push(<em key={key}>{token.slice(1, -1)}</em>);
-    } else if (match[2] && match[3]) {
-      nodes.push(
-        <a key={key} href={match[3]} target="_blank" rel="noreferrer">
-          {match[2]}
-        </a>,
-      );
-    }
-    lastIndex = match.index + token.length;
-  }
-  if (lastIndex < text.length) {
-    nodes.push(text.slice(lastIndex));
-  }
-  return nodes;
-}
-
-function splitMarkdownTableRow(line: string, delimiter = '|') {
-  const trimmed = line.trim();
-  const withoutEdges = delimiter === '|'
-    ? trimmed.replace(/^\|/, '').replace(/\|$/, '')
-    : trimmed;
-  return withoutEdges.split(delimiter).map((cell) => cell.trim());
-}
-
-function isMarkdownTableDivider(line: string) {
-  const cells = splitMarkdownTableRow(line);
-  return cells.length > 1 && cells.every((cell) => /^:?-{3,}:?$/.test(cell));
-}
-
-function isMarkdownTableStart(lines: string[], index: number) {
-  const line = lines[index] ?? '';
-  const nextLine = lines[index + 1] ?? '';
-  return line.includes('|')
-    && splitMarkdownTableRow(line).length > 1
-    && isMarkdownTableDivider(nextLine);
-}
-
-function isCsvTableStart(lines: string[], index: number) {
-  const line = lines[index] ?? '';
-  const nextLine = lines[index + 1] ?? '';
-  const cells = splitMarkdownTableRow(line, ',');
-  const nextCells = splitMarkdownTableRow(nextLine, ',');
-  return line.includes(',')
-    && nextLine.includes(',')
-    && cells.length > 2
-    && cells.length === nextCells.length;
-}
-
-function renderMarkdown(text: string) {
-  const blocks: ReactNode[] = [];
-  const lines = text.replace(/\r\n/g, '\n').split('\n');
-  let index = 0;
-
-  while (index < lines.length) {
-    const line = lines[index] ?? '';
-    if (!line.trim()) {
-      index += 1;
-      continue;
-    }
-
-    if (line.trimStart().startsWith('```')) {
-      const language = line.trim().slice(3).trim();
-      const codeLines: string[] = [];
-      index += 1;
-      while (index < lines.length && !(lines[index] ?? '').trimStart().startsWith('```')) {
-        codeLines.push(lines[index] ?? '');
-        index += 1;
-      }
-      index += 1;
-      blocks.push(
-        <pre key={`code-${index}`}>
-          <code>{language ? `// ${language}\n` : ''}{codeLines.join('\n')}</code>
-        </pre>,
-      );
-      continue;
-    }
-
-    if (isMarkdownTableStart(lines, index)) {
-      const headers = splitMarkdownTableRow(lines[index] ?? '');
-      const rows: string[][] = [];
-      index += 2;
-      while (index < lines.length && (lines[index] ?? '').includes('|') && (lines[index] ?? '').trim()) {
-        const cells = splitMarkdownTableRow(lines[index] ?? '');
-        rows.push(headers.map((_header, cellIndex) => cells[cellIndex] || ''));
-        index += 1;
-      }
-      blocks.push(
-        <div key={`table-${index}`} className="ai-skill-table-wrap">
-          <table>
-            <thead>
-              <tr>
-                {headers.map((header, headerIndex) => (
-                  <th key={headerIndex}>{renderInlineMarkdown(header, `th-${index}-${headerIndex}`)}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((row, rowIndex) => (
-                <tr key={rowIndex}>
-                  {row.map((cell, cellIndex) => (
-                    <td key={cellIndex}>{renderInlineMarkdown(cell, `td-${index}-${rowIndex}-${cellIndex}`)}</td>
-                  ))}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>,
-      );
-      continue;
-    }
-
-    if (isCsvTableStart(lines, index)) {
-      const headers = splitMarkdownTableRow(lines[index] ?? '', ',');
-      const rows: string[][] = [];
-      index += 1;
-      while (index < lines.length && (lines[index] ?? '').includes(',') && (lines[index] ?? '').trim()) {
-        const cells = splitMarkdownTableRow(lines[index] ?? '', ',');
-        if (cells.length !== headers.length) break;
-        rows.push(cells);
-        index += 1;
-      }
-      blocks.push(
-        <div key={`csv-${index}`} className="ai-skill-table-wrap">
-          <table>
-            <thead>
-              <tr>
-                {headers.map((header, headerIndex) => (
-                  <th key={headerIndex}>{renderInlineMarkdown(header, `csv-th-${index}-${headerIndex}`)}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((row, rowIndex) => (
-                <tr key={rowIndex}>
-                  {row.map((cell, cellIndex) => (
-                    <td key={cellIndex}>{renderInlineMarkdown(cell, `csv-td-${index}-${rowIndex}-${cellIndex}`)}</td>
-                  ))}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>,
-      );
-      continue;
-    }
-
-    const heading = /^(#{1,3})\s+(.+)$/.exec(line);
-    if (heading) {
-      const Tag = `h${heading[1].length + 2}` as 'h3' | 'h4' | 'h5';
-      blocks.push(<Tag key={`h-${index}`}>{renderInlineMarkdown(heading[2], `h-${index}`)}</Tag>);
-      index += 1;
-      continue;
-    }
-
-    if (/^[-*]\s+/.test(line)) {
-      const items: string[] = [];
-      while (index < lines.length && /^[-*]\s+/.test(lines[index] ?? '')) {
-        items.push((lines[index] ?? '').replace(/^[-*]\s+/, ''));
-        index += 1;
-      }
-      blocks.push(
-        <ul key={`ul-${index}`}>
-          {items.map((item, itemIndex) => (
-            <li key={itemIndex}>{renderInlineMarkdown(item, `ul-${index}-${itemIndex}`)}</li>
-          ))}
-        </ul>,
-      );
-      continue;
-    }
-
-    if (/^\d+\.\s+/.test(line)) {
-      const items: string[] = [];
-      while (index < lines.length && /^\d+\.\s+/.test(lines[index] ?? '')) {
-        items.push((lines[index] ?? '').replace(/^\d+\.\s+/, ''));
-        index += 1;
-      }
-      blocks.push(
-        <ol key={`ol-${index}`}>
-          {items.map((item, itemIndex) => (
-            <li key={itemIndex}>{renderInlineMarkdown(item, `ol-${index}-${itemIndex}`)}</li>
-          ))}
-        </ol>,
-      );
-      continue;
-    }
-
-    const paragraphLines: string[] = [];
-    while (
-      index < lines.length
-      && (lines[index] ?? '').trim()
-      && !(lines[index] ?? '').trimStart().startsWith('```')
-      && !/^(#{1,3})\s+/.test(lines[index] ?? '')
-      && !/^[-*]\s+/.test(lines[index] ?? '')
-      && !/^\d+\.\s+/.test(lines[index] ?? '')
-    ) {
-      paragraphLines.push(lines[index] ?? '');
-      index += 1;
-    }
-    blocks.push(
-      <p key={`p-${index}`}>
-        {renderInlineMarkdown(paragraphLines.join('\n'), `p-${index}`)}
-      </p>,
-    );
-  }
-
-  return blocks;
+function MarkdownRenderer({ text }: { text: string }) {
+  return (
+    <ReactMarkdown
+      components={{
+        code: ({ className, children, ...props }) => {
+          const match = /language-(\w+)/.exec(className || '');
+          if (match) return <pre><code className={className}>{children}</code></pre>;
+          return <code {...props}>{children}</code>;
+        },
+        a: ({ href, children }) => <a href={href} target="_blank" rel="noreferrer">{children}</a>,
+        table: ({ children }) => <div className="ai-skill-table-wrap"><table>{children}</table></div>,
+      }}
+    >
+      {text}
+    </ReactMarkdown>
+  );
 }
 
 function SkillMessageBody({ message }: { message: SkillChatMessage }) {
@@ -492,7 +287,7 @@ function SkillMessageBody({ message }: { message: SkillChatMessage }) {
         {message.text ? null : <SkillAgentProgress message={message} />}
         {message.text ? (
           <div className={message.isStreaming ? 'ai-skill-markdown is-streaming' : 'ai-skill-markdown'}>
-            {renderMarkdown(message.text)}
+            <MarkdownRenderer text={message.text} />
             {message.isStreaming ? <span className="ai-skill-stream-cursor" aria-hidden="true" /> : null}
           </div>
         ) : null}

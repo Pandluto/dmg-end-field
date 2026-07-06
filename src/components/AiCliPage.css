@@ -530,32 +530,6 @@ body:has(.ai-cli-page),
   opacity: 0.6;
 }
 
-.ai-skill-header {
-  min-width: 0;
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 14px;
-  border: 1px solid #29465f;
-  background: #fbfdff;
-  box-shadow: 3px 3px 0 rgba(47, 114, 173, 0.12);
-}
-
-.ai-skill-header h1 {
-  margin: 0;
-  font-size: 18px;
-  font-weight: 700;
-  line-height: 1.2;
-}
-
-.ai-skill-header p {
-  margin: 6px 0 0;
-  color: #486273;
-  font-size: 12px;
-  line-height: 1.45;
-}
-
 .ai-skill-status {
   flex: 0 0 auto;
   min-width: 64px;
@@ -571,18 +545,6 @@ body:has(.ai-cli-page),
   border-color: #2f7b57;
   background: rgba(231, 246, 237, 0.48);
   color: #1f5b3d;
-}
-
-.ai-skill-toolbar {
-  position: relative;
-  min-width: 0;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px;
-  border: 1px solid #29465f;
-  background: #fbfdff;
-  box-shadow: 3px 3px 0 rgba(47, 114, 173, 0.12);
 }
 
 .ai-skill-icon-button {
@@ -747,31 +709,6 @@ body:has(.ai-cli-page),
   line-height: 1.35;
 }
 
-.ai-skill-section {
-  min-width: 0;
-  padding: 12px;
-  border: 1px solid #29465f;
-  background: #fbfdff;
-  box-shadow: 3px 3px 0 rgba(47, 114, 173, 0.12);
-}
-
-.ai-skill-section-title {
-  margin-bottom: 10px;
-  color: #245f91;
-  font-size: 12px;
-  font-weight: 700;
-}
-
-.ai-skill-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 8px;
-}
-
-.ai-skill-grid button,
-.ai-skill-actions button,
-.ai-skill-primary,
-.ai-skill-chat-row button,
 .ai-skill-composer button {
   min-width: 0;
   height: 32px;
@@ -783,45 +720,15 @@ body:has(.ai-cli-page),
   cursor: pointer;
 }
 
-.ai-skill-grid button:hover,
-.ai-skill-actions button:hover,
-.ai-skill-primary:hover,
-.ai-skill-chat-row button:hover,
 .ai-skill-composer button:hover {
   background: #dceefb;
 }
 
-.ai-skill-grid button:disabled,
-.ai-skill-actions button:disabled,
-.ai-skill-primary:disabled,
-.ai-skill-chat-row button:disabled,
 .ai-skill-composer button:disabled {
   cursor: not-allowed;
   opacity: 0.55;
 }
 
-.ai-skill-actions {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
-  margin-bottom: 10px;
-}
-
-.ai-skill-field {
-  min-width: 0;
-  display: grid;
-  gap: 5px;
-  margin-bottom: 8px;
-}
-
-.ai-skill-field span {
-  color: #486273;
-  font-size: 12px;
-}
-
-.ai-skill-field input,
-.ai-skill-chat-row input,
-.ai-skill-chat-row textarea,
 .ai-skill-composer textarea {
   min-width: 0;
   height: 30px;
@@ -835,27 +742,8 @@ body:has(.ai-cli-page),
   padding: 0 8px;
 }
 
-.ai-skill-field input:focus,
-.ai-skill-chat-row input:focus,
-.ai-skill-chat-row textarea:focus,
 .ai-skill-composer textarea:focus {
   border-color: #245f91;
-}
-
-.ai-skill-two-col {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 140px;
-  gap: 8px;
-}
-
-.ai-skill-primary {
-  width: 100%;
-  background: #245f91;
-  color: #fff;
-}
-
-.ai-skill-primary:hover {
-  background: #1e527d;
 }
 
 .ai-skill-chat {
@@ -1363,26 +1251,6 @@ body:has(.ai-cli-page),
   line-height: 1.35;
   white-space: pre-wrap;
   word-break: break-word;
-}
-
-.ai-skill-chat-row {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 72px;
-  align-items: end;
-  gap: 8px;
-  margin-top: 10px;
-}
-
-.ai-skill-chat-row textarea {
-  min-height: 52px;
-  height: 52px;
-  resize: vertical;
-  padding: 7px 8px;
-  line-height: 1.35;
-}
-
-.ai-skill-chat-row button {
-  height: 52px;
 }
 
 .ai-skill-composer {
