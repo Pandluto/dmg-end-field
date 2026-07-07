@@ -2,7 +2,17 @@
 
 ## Status
 
-本轮执行第一阶段：规格落地、最小 worktree 核心、旧 command queue 止血。
+本轮已执行第一阶段：规格落地、最小 worktree 核心、旧 command queue 止血。
+
+执行结果：
+
+- Task 1: 已新增 worktree 类型和独立存储模块。
+- Task 2: 已新增 payload diff。
+- Task 3: 已新增 validator。
+- Task 4: 已新增 service facade。
+- Task 5: 已完成 `removeSkillButton` / Buff 按钮定位止血。
+- Task 6: 已禁止 `step.finish` finalize。
+- Task 7: 已跑 build、test、worktree smoke。
 
 ## Task 1: 新增 worktree 类型和存储模块
 

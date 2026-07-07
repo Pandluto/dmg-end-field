@@ -2,7 +2,7 @@
 
 ## Status
 
-草案中，作为架构迭代执行清单。
+已执行 Task 1-5。Task 6 保持临时重复清单，等待后续共享模块改造。
 
 本任务集接在 `quick-fixes.md` 之后。quick fixes 到此为止，后续不再继续把能力堆进快照回答器，而是引入最小 DEF Agent Kernel。
 
@@ -129,6 +129,15 @@ src/agentKernel/mainWorkbench/
 ### 本轮执行范围
 
 本轮执行 Task 1-5，Task 6 只做注释和一致性确认。
+
+执行结果：
+
+- Task 1: 已新增 kernel command schema。
+- Task 2: 已新增 goal model。
+- Task 3: 已抽出快照回答器。
+- Task 4: 已抽出 turn verifier。
+- Task 5: 已接入 `MainWorkbenchAiPanel.tsx`。
+- Task 6: 未迁移 REST import，保持既有 Node ESM 白名单。
 
 理由：
 

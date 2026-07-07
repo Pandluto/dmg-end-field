@@ -682,9 +682,26 @@ export function CanvasBoard({
     };
   };
 
+  const formatWorkbenchButtonLabel = (button: Pick<SkillButton, 'characterName' | 'skillDisplayName' | 'skillType' | 'staffIndex' | 'nodeIndex'>) => (
+    `${button.characterName}-${button.skillDisplayName || button.skillType}@${button.staffIndex + 1}-${(button.nodeIndex ?? 0) + 1}`
+  );
+
+  const resolveWorkbenchButtonIdReference = (buttonId: string, scope = skillButtons) => {
+    const normalizedButtonId = buttonId.trim();
+    if (!normalizedButtonId) return null;
+    const exactId = scope.find((button) => button.id === normalizedButtonId);
+    if (exactId) return exactId;
+    const labelMatches = scope.filter((button) => formatWorkbenchButtonLabel(button) === normalizedButtonId);
+    if (labelMatches.length === 1) return labelMatches[0];
+    if (labelMatches.length > 1) {
+      throw new Error(`技能按钮标签不唯一: ${normalizedButtonId}`);
+    }
+    throw new Error(`技能按钮不存在: ${normalizedButtonId}`);
+  };
+
   const findWorkbenchButtonId = (command: Extract<MainWorkbenchCommand, { op: 'addBuff' | 'removeBuff' }>) => {
-    if (command.buttonId && getSkillButtonById(command.buttonId)) {
-      return command.buttonId;
+    if (command.buttonId) {
+      return resolveWorkbenchButtonIdReference(command.buttonId)?.id ?? null;
     }
     const character = findCharacterForWorkbenchCommand(command);
     const candidates = skillButtons.filter((button) => {
@@ -693,6 +710,9 @@ export function CanvasBoard({
       if (typeof command.nodeIndex === 'number' && button.nodeIndex !== command.nodeIndex) return false;
       return true;
     });
+    if (candidates.length > 1) {
+      throw new Error(`技能按钮定位不唯一: ${candidates.map(formatWorkbenchButtonLabel).join('、')}`);
+    }
     return candidates[0]?.id ?? null;
   };
 
@@ -712,8 +732,7 @@ export function CanvasBoard({
 
   const findWorkbenchButtonForRemove = (command: Extract<MainWorkbenchCommand, { op: 'removeSkillButton' }>) => {
     if (command.buttonId) {
-      const button = skillButtons.find((item) => item.id === command.buttonId);
-      if (button) return button;
+      return resolveWorkbenchButtonIdReference(command.buttonId);
     }
     const character = findCharacterForWorkbenchCommand(command);
     const candidates = skillButtons.filter((button) => {
@@ -722,6 +741,9 @@ export function CanvasBoard({
       if (typeof command.nodeIndex === 'number' && button.nodeIndex !== command.nodeIndex) return false;
       return true;
     });
+    if (candidates.length > 1 && !command.latest) {
+      throw new Error(`技能按钮定位不唯一: ${candidates.map(formatWorkbenchButtonLabel).join('、')}`);
+    }
     const sorted = [...candidates].sort((a, b) =>
       (b.staffIndex - a.staffIndex)
       || (b.lineIndex - a.lineIndex)
@@ -775,7 +797,16 @@ export function CanvasBoard({
           dispatch({ type: 'REMOVE_SKILL_BUTTON', buttonId: button.id });
           const doneEntry = patchMainWorkbenchCommand(commandEntry.id, {
             status: 'done',
-            result: { buttonId: button.id, characterName: button.characterName, skillType: button.skillType },
+            result: {
+              buttonId: button.id,
+              label: formatWorkbenchButtonLabel(button),
+              characterName: button.characterName,
+              skillType: button.skillType,
+              skillDisplayName: button.skillDisplayName,
+              staffIndex: button.staffIndex,
+              lineIndex: button.lineIndex,
+              nodeIndex: button.nodeIndex,
+            },
           });
           if (doneEntry) void pushMainWorkbenchCommandResult(doneEntry);
           return;
