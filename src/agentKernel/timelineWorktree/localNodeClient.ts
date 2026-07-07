@@ -53,6 +53,13 @@ export type CommitAiTimelineWorkNodeInput = {
   approval?: AiTimelineApproval;
 };
 
+export type MarkAiTimelineWorkNodeCheckoutAppliedInput = {
+  commitId?: string;
+  appliedAt?: number;
+  appliedBy?: 'ai' | 'user' | 'system';
+  rationale?: string;
+};
+
 async function readJsonResponse<T>(response: Response): Promise<T> {
   const payload = await response.json();
   if (!response.ok || !payload?.ok) {
@@ -166,6 +173,28 @@ export function createAiTimelineWorkNodeClient(baseUrl = DEFAULT_REST_BASE_URL) 
       return postJson<AiTimelineWorkNodeCommitResponse>(
         baseUrl,
         `/api/ai-timeline-worknodes/${encodeURIComponent(id)}/commit`,
+        input,
+      );
+    },
+
+    async markCheckoutApplied(
+      id: string,
+      input: MarkAiTimelineWorkNodeCheckoutAppliedInput = {},
+    ): Promise<AiTimelineWorkNodeCommitResponse> {
+      const desktopRuntime = getDesktopRuntime();
+      if (desktopRuntime?.markAiTimelineWorkNodeCheckoutApplied) {
+        const result = readDesktopResult(await desktopRuntime.markAiTimelineWorkNodeCheckoutApplied({ id, ...input }));
+        return {
+          ok: true,
+          protocolVersion: 1,
+          path: result.path || '',
+          node: result.node as AiTimelineWorkNode,
+          commit: result.commit as AiTimelineWorkNodeCommit,
+        };
+      }
+      return postJson<AiTimelineWorkNodeCommitResponse>(
+        baseUrl,
+        `/api/ai-timeline-worknodes/${encodeURIComponent(id)}/checkout-applied`,
         input,
       );
     },

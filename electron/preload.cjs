@@ -43,4 +43,5 @@ contextBridge.exposeInMainWorld('desktopRuntime', {
   readAiTimelineWorkNode: (payload) => ipcRenderer.invoke('desktop:read-ai-timeline-worknode', payload),
   updateAiTimelineWorkNode: (payload) => ipcRenderer.invoke('desktop:update-ai-timeline-worknode', payload),
   commitAiTimelineWorkNode: (payload) => ipcRenderer.invoke('desktop:commit-ai-timeline-worknode', payload),
+  markAiTimelineWorkNodeCheckoutApplied: (payload) => ipcRenderer.invoke('desktop:mark-ai-timeline-worknode-checkout-applied', payload),
 });

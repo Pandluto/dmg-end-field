@@ -17,7 +17,7 @@
 - Task 9: 已完成，新增 appdata/localdata AI work node REST API 骨架。
 - Task 10: 已完成，跑 build/test/REST smoke，并 review 风险。
 - Task 11: 已完成，新增 Electron IPC/bridge AI work node appdata API，并让前端 client 桌面优先。
-- Task 12: 待执行，新增 renderer checkout/apply command，把 appdata work node 应用到当前迁出态。
+- Task 12: 已完成，新增 renderer checkout/apply command，把 appdata work node 应用到当前迁出态。
 
 ## Task 8: 修正存储边界
 
@@ -117,18 +117,22 @@
   - 可选 reload，让 UI 重新挂载迁出态。
 - 不创建用户 timeline snapshot。
 - 不写 `now-storage.json`。
+- REST/Electron appdata API 新增 `checkout-applied` 回写动作。
 
 验收：
 
-- command queue 支持 `checkoutAiTimelineWorkNode`。
-- renderer apply 后当前 `sessionStorage` 排轴变为 work node 的 `workingPayload`。
-- appdata commit 被标记 `checkoutApplied:true`。
-- blocker 风险无 explicit approval 时失败且不 apply。
+- command queue 已支持 `checkoutAiTimelineWorkNode`。
+- renderer 命令已调用 `applyTimelineSnapshotPayload(workingPayload)`。
+- appdata commit 已支持标记 `checkoutApplied:true`。
+- REST 与 Electron bridge 的 `checkout-applied` smoke 已通过。
+- blocker 风险无 explicit approval 时在 renderer 命令中失败且不 apply。
 
 风险：
 
 - 还没有 UI 审核面板；短期通过 command result、work node log 和手测 smoke 验证。
 - 还没有 patch planner；AI 仍需要先生成/更新 work node，再 checkout。
+- 当前自动化 smoke 未覆盖有效已选干员排轴上下文里的完整 renderer reload 后视觉验收，需要后续手测。
+- renderer apply 与 appdata 回写不是事务；若回写失败，命令结果会返回 `checkoutMarkError`，需要后续补偿重试入口。
 
 ## Task 1: 新增 worktree 类型和存储模块
 

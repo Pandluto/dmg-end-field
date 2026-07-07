@@ -40,6 +40,7 @@ const MAIN_WORKBENCH_SUPPORTED_OPS = new Set([
   'saveTimelineSnapshot',
   'restoreTimelineSnapshot',
   'listTimelineSnapshots',
+  'checkoutAiTimelineWorkNode',
   'refreshOperatorConfig',
   'setOperatorWeapon',
   'setOperatorEquipment',
@@ -550,6 +551,48 @@ function handleAiTimelineWorkNodeRequest(method, pathname, body) {
       commits: [commit, ...archive.commits.filter((item) => item?.id !== commit.id)],
     });
     return { status: 200, body: { ok: true, protocolVersion: 1, path: aiTimelineWorkNodesPath, node: nextNode, commit } };
+  }
+
+  if (method === 'POST' && action === 'checkout-applied') {
+    const commitId = typeof body?.commitId === 'string' && body.commitId.trim() ? body.commitId.trim() : '';
+    const commitsForNode = archive.commits
+      .filter((commit) => commit?.nodeId === node.id)
+      .sort((left, right) => (right.createdAt || 0) - (left.createdAt || 0));
+    const targetCommit = commitId
+      ? archive.commits.find((commit) => commit?.id === commitId && commit?.nodeId === node.id)
+      : commitsForNode[0];
+    if (!targetCommit) {
+      return failScript(404, 'ai-worknode-commit-not-found', `AI timeline work node commit not found for node: ${node.id}`);
+    }
+    const appliedAt = typeof body?.appliedAt === 'number' ? body.appliedAt : Date.now();
+    const appliedBy = ['ai', 'user', 'system'].includes(body?.appliedBy) ? body.appliedBy : 'system';
+    const checkout = {
+      appliedAt,
+      appliedBy,
+      rationale: typeof body?.rationale === 'string' && body.rationale.trim()
+        ? body.rationale.trim()
+        : 'Renderer checkout applied to current timeline payload.',
+    };
+    const nextCommit = {
+      ...targetCommit,
+      checkoutApplied: true,
+      checkout,
+    };
+    const nextNode = {
+      ...node,
+      status: 'applied',
+      updatedAt: appliedAt,
+      logs: [
+        makeWorkNodeLog('info', `Applied AI timeline work node checkout from ${nextCommit.id}.`, { checkout }),
+        ...(Array.isArray(node.logs) ? node.logs : []),
+      ],
+    };
+    writeAiTimelineWorkNodeArchive({
+      ...archive,
+      nodes: [nextNode, ...archive.nodes.filter((item) => item?.id !== node.id)],
+      commits: [nextCommit, ...archive.commits.filter((item) => item?.id !== nextCommit.id)],
+    });
+    return { status: 200, body: { ok: true, protocolVersion: 1, path: aiTimelineWorkNodesPath, node: nextNode, commit: nextCommit } };
   }
 
   return null;

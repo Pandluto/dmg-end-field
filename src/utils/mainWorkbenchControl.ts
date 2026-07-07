@@ -108,6 +108,17 @@ export type MainWorkbenchCommand =
       op: 'listTimelineSnapshots';
     }
   | {
+      op: 'checkoutAiTimelineWorkNode';
+      nodeId: string;
+      commitId?: string;
+      reload?: boolean;
+      approval?: {
+        mode?: 'auto' | 'manual';
+        approvedBy?: 'ai' | 'user' | 'system';
+        rationale?: string;
+      };
+    }
+  | {
       op: 'refreshOperatorConfig';
     }
   | {

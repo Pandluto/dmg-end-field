@@ -944,6 +944,11 @@ function startBridgeServer() {
           writeJson(response, 200, commitAiTimelineWorkNode(nodeId, payload));
           return;
         }
+        if (method === 'POST' && action === 'checkout-applied') {
+          const payload = await readJsonRequest(request);
+          writeJson(response, 200, markAiTimelineWorkNodeCheckoutApplied(nodeId, payload));
+          return;
+        }
       }
 
       if (method === 'POST' && requestUrl.pathname === '/local-data/save') {
@@ -4384,6 +4389,54 @@ function commitAiTimelineWorkNode(id, payload = {}) {
   return { ok: true, path: getAiTimelineWorkNodesPath(), node: nextNode, commit };
 }
 
+function markAiTimelineWorkNodeCheckoutApplied(id, payload = {}) {
+  const nodeId = sanitizeAiTimelineWorkNodeId(id, 'ai-timeline-node');
+  const archive = readAiTimelineWorkNodeArchive();
+  const node = archive.nodes.find((item) => item?.id === nodeId);
+  if (!node) {
+    throw new Error(`AI timeline work node not found: ${nodeId}`);
+  }
+  const commitId = typeof payload.commitId === 'string' && payload.commitId.trim() ? payload.commitId.trim() : '';
+  const commitsForNode = archive.commits
+    .filter((commit) => commit?.nodeId === node.id)
+    .sort((left, right) => (right.createdAt || 0) - (left.createdAt || 0));
+  const targetCommit = commitId
+    ? archive.commits.find((commit) => commit?.id === commitId && commit?.nodeId === node.id)
+    : commitsForNode[0];
+  if (!targetCommit) {
+    throw new Error(`AI timeline work node commit not found for node: ${node.id}`);
+  }
+  const appliedAt = typeof payload.appliedAt === 'number' ? payload.appliedAt : Date.now();
+  const appliedBy = ['ai', 'user', 'system'].includes(payload.appliedBy) ? payload.appliedBy : 'system';
+  const checkout = {
+    appliedAt,
+    appliedBy,
+    rationale: typeof payload.rationale === 'string' && payload.rationale.trim()
+      ? payload.rationale.trim()
+      : 'Renderer checkout applied to current timeline payload.',
+  };
+  const nextCommit = {
+    ...targetCommit,
+    checkoutApplied: true,
+    checkout,
+  };
+  const nextNode = {
+    ...node,
+    status: 'applied',
+    updatedAt: appliedAt,
+    logs: [
+      makeAiTimelineWorkNodeLog('info', `Applied AI timeline work node checkout from ${nextCommit.id}.`, { checkout }),
+      ...(Array.isArray(node.logs) ? node.logs : []),
+    ],
+  };
+  writeAiTimelineWorkNodeArchive({
+    ...archive,
+    nodes: [nextNode, ...archive.nodes.filter((item) => item?.id !== node.id)],
+    commits: [nextCommit, ...archive.commits.filter((item) => item?.id !== nextCommit.id)],
+  });
+  return { ok: true, path: getAiTimelineWorkNodesPath(), node: nextNode, commit: nextCommit };
+}
+
 function resolveLocalDataPath(payload = {}) {
   const dir = getArchiveDirectory(payload.storageScope || payload.source || payload.scope || 'local');
   const fileName = sanitizeArchiveId(payload.fileName || payload.id || '');
@@ -4696,6 +4749,14 @@ ipcMain.handle('desktop:update-ai-timeline-worknode', (_event, payload) => {
 ipcMain.handle('desktop:commit-ai-timeline-worknode', (_event, payload) => {
   try {
     return commitAiTimelineWorkNode(payload?.id, payload);
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : String(error) };
+  }
+});
+
+ipcMain.handle('desktop:mark-ai-timeline-worknode-checkout-applied', (_event, payload) => {
+  try {
+    return markAiTimelineWorkNodeCheckoutApplied(payload?.id, payload);
   } catch (error) {
     return { ok: false, error: error instanceof Error ? error.message : String(error) };
   }

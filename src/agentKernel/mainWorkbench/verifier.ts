@@ -24,6 +24,9 @@ function getExpectedCommandOps(prompt: string): MainWorkbenchCommand['op'][] | n
   if (/撤|移除|删除|去掉|remove|delete|drop|undo/i.test(prompt)) {
     return ['removeSkillButton', 'removeBuff', 'restoreTimelineSnapshot'];
   }
+  if (/checkout|apply|应用|套用|迁出|检出|工作节点|work\s*node/i.test(prompt)) {
+    return ['checkoutAiTimelineWorkNode'];
+  }
   if (/Buff|buff|增益|bonus/i.test(prompt) && /加|添加|add|attach|apply/i.test(prompt)) {
     return ['addBuff'];
   }

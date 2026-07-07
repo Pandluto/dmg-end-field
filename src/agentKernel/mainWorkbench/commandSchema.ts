@@ -14,6 +14,7 @@ export const MAIN_WORKBENCH_SUPPORTED_OPS = [
   'saveTimelineSnapshot',
   'restoreTimelineSnapshot',
   'listTimelineSnapshots',
+  'checkoutAiTimelineWorkNode',
   'refreshOperatorConfig',
   'setOperatorWeapon',
   'setOperatorEquipment',
@@ -77,6 +78,13 @@ export function validateMainWorkbenchCommand(command: unknown): MainWorkbenchCom
         message: 'setOperatorEquipment requires equipment, gear set, or equipments.',
       };
     }
+  }
+  if (command.op === 'checkoutAiTimelineWorkNode' && !hasAnyString(command, ['nodeId'])) {
+    return {
+      ok: false,
+      code: 'invalid-main-workbench-checkout-worknode',
+      message: 'checkoutAiTimelineWorkNode requires nodeId.',
+    };
   }
 
   return { ok: true, command: command as MainWorkbenchCommand };

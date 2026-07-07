@@ -47,6 +47,12 @@ export type AiTimelineApproval = {
   rationale: string;
 };
 
+export type AiTimelineCheckout = {
+  appliedAt: number;
+  appliedBy: 'ai' | 'user' | 'system';
+  rationale: string;
+};
+
 export type AiTimelineWorkNode = {
   id: string;
   saveId: string;
@@ -141,6 +147,7 @@ export type AiTimelineWorkNodeCommit = {
   riskFlags: AiTimelineRiskFlag[];
   approval: AiTimelineApproval;
   checkoutApplied: boolean;
+  checkout?: AiTimelineCheckout;
 };
 
 export type AiTimelineWorktreeArchive = {

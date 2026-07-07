@@ -70,6 +70,7 @@ import {
   buildTimelineShareFile,
   buildTimelineShareFileName,
   deleteTimelineSnapshot,
+  getCurrentTimelineSnapshotPayload,
   listTimelineSnapshots,
   parseTimelineShareFile,
   restoreTimelineSnapshot,
@@ -95,6 +96,11 @@ import {
   type MainWorkbenchCommand,
   type MainWorkbenchSnapshot,
 } from '../../utils/mainWorkbenchControl';
+import {
+  createAiTimelineWorkNodeClient,
+  diffTimelinePayloads,
+  validateTimelinePayload,
+} from '../../agentKernel/timelineWorktree';
 
 const EMPTY_BATCH_TARGET_RESISTANCE: Required<HitResistanceInput> = {
   physicalResistance: 0,
@@ -752,6 +758,88 @@ export function CanvasBoard({
     return command.latest ? sorted[0] ?? null : candidates[0] ?? null;
   };
 
+  const checkoutAiTimelineWorkNodeFromCommand = async (
+    command: Extract<MainWorkbenchCommand, { op: 'checkoutAiTimelineWorkNode' }>,
+  ) => {
+    const nodeId = command.nodeId?.trim();
+    if (!nodeId) {
+      throw new Error('checkoutAiTimelineWorkNode requires nodeId');
+    }
+    const client = createAiTimelineWorkNodeClient();
+    const { node } = await client.get(nodeId);
+    const riskFlags = Array.isArray(node.riskFlags) ? node.riskFlags : [];
+    const hasBlocker = riskFlags.some((risk) => risk.severity === 'blocker');
+    const isManualApproval = command.approval?.mode === 'manual';
+    if (hasBlocker && !isManualApproval) {
+      throw new Error('AI work node 存在 blocker 风险，需要 manual approval 后才能 checkout');
+    }
+
+    const validation = validateTimelinePayload(node.workingPayload);
+    if (!validation.ok) {
+      throw new Error(`AI work node payload 校验失败：${validation.issues.map((issue) => issue.message).join('；')}`);
+    }
+
+    saveTimelineData();
+    setSelectedCharacterIds(selectedCharacters.map((character) => character.id));
+    const currentPayload = getCurrentTimelineSnapshotPayload();
+    const currentDiff = currentPayload ? diffTimelinePayloads(currentPayload, node.workingPayload).summary : null;
+    const commits = (await client.list()).commits
+      .filter((commit) => commit.nodeId === node.id)
+      .sort((left, right) => right.createdAt - left.createdAt);
+    const requestedCommit = command.commitId
+      ? commits.find((commit) => commit.id === command.commitId)
+      : null;
+    let commit = requestedCommit || commits[0] || null;
+    if (!commit || commit.checkoutApplied) {
+      const approvalMode = isManualApproval ? 'manual' : 'auto';
+      const approval = {
+        mode: approvalMode,
+        approvedAt: Date.now(),
+        approvedBy: command.approval?.approvedBy || (approvalMode === 'manual' ? 'user' : 'ai'),
+        rationale: command.approval?.rationale || (approvalMode === 'manual'
+          ? 'Manual approval supplied for AI timeline checkout.'
+          : 'Auto-approved by low-risk AI timeline checkout policy.'),
+      } as const;
+      const committed = await client.commit(node.id, {
+        label: `Checkout ${node.label}`,
+        riskFlags,
+        approval,
+      });
+      commit = committed.commit;
+    }
+
+    applyTimelineSnapshotPayload(node.workingPayload);
+    let applied: Awaited<ReturnType<ReturnType<typeof createAiTimelineWorkNodeClient>['markCheckoutApplied']>> | null = null;
+    let checkoutMarkError: string | undefined;
+    try {
+      applied = await client.markCheckoutApplied(node.id, {
+        commitId: commit.id,
+        appliedAt: Date.now(),
+        appliedBy: command.approval?.approvedBy || (isManualApproval ? 'user' : 'ai'),
+        rationale: command.approval?.rationale || 'Renderer checkout applied to current main workbench timeline.',
+      });
+    } catch (error) {
+      checkoutMarkError = error instanceof Error ? error.message : String(error);
+    }
+
+    if (command.reload !== false) {
+      window.setTimeout(() => window.location.reload(), 80);
+    } else {
+      loadTimelineData();
+    }
+
+    return {
+      nodeId: applied?.node.id || node.id,
+      commitId: applied?.commit.id || commit.id,
+      status: applied?.node.status || 'applied-unrecorded',
+      checkoutApplied: Boolean(applied?.commit.checkoutApplied),
+      checkoutMarkError,
+      reloaded: command.reload !== false,
+      riskFlags: riskFlags.map((risk) => ({ severity: risk.severity, code: risk.code, message: risk.message })),
+      currentDiff,
+    };
+  };
+
   const processMainWorkbenchCanvasCommand = async () => {
     if (isProcessingWorkbenchCommandRef.current) {
       return;
@@ -769,6 +857,7 @@ export function CanvasBoard({
         'saveTimelineSnapshot',
         'restoreTimelineSnapshot',
         'listTimelineSnapshots',
+        'checkoutAiTimelineWorkNode',
         'refreshOperatorConfig',
         'setOperatorWeapon',
         'setOperatorEquipment',
@@ -945,6 +1034,13 @@ export function CanvasBoard({
             summary: snapshot.summary,
           }));
           const doneEntry = patchMainWorkbenchCommand(commandEntry.id, { status: 'done', result: { snapshots } });
+          if (doneEntry) void pushMainWorkbenchCommandResult(doneEntry);
+          return;
+        }
+
+        if (command.op === 'checkoutAiTimelineWorkNode') {
+          const result = await checkoutAiTimelineWorkNodeFromCommand(command);
+          const doneEntry = patchMainWorkbenchCommand(commandEntry.id, { status: 'done', result });
           if (doneEntry) void pushMainWorkbenchCommandResult(doneEntry);
           return;
         }

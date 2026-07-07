@@ -431,6 +431,7 @@ export function handleAiCliRestRequest(
           'saveTimelineSnapshot',
           'restoreTimelineSnapshot',
           'listTimelineSnapshots',
+          'checkoutAiTimelineWorkNode',
           'refreshOperatorConfig',
           'calculateDamage',
           'refreshSnapshot',

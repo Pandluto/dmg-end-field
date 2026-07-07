@@ -209,6 +209,11 @@ interface AiTimelineWorkNodeCommitBridge {
   riskFlags: AiTimelineRiskFlagBridge[];
   approval: AiTimelineApprovalBridge;
   checkoutApplied: boolean;
+  checkout?: {
+    appliedAt: number;
+    appliedBy: 'ai' | 'user' | 'system';
+    rationale: string;
+  };
 }
 
 interface AiTimelineWorkNodeArchiveBridge {
@@ -261,6 +266,7 @@ interface DesktopRuntimeBridge {
   readAiTimelineWorkNode?: (payload: { id: string } | string) => Promise<AiTimelineWorkNodeOpResult>;
   updateAiTimelineWorkNode?: (payload: { id: string; [key: string]: unknown }) => Promise<AiTimelineWorkNodeOpResult>;
   commitAiTimelineWorkNode?: (payload: { id: string; [key: string]: unknown }) => Promise<AiTimelineWorkNodeOpResult>;
+  markAiTimelineWorkNodeCheckoutApplied?: (payload: { id: string; [key: string]: unknown }) => Promise<AiTimelineWorkNodeOpResult>;
 }
 
 interface Window {
