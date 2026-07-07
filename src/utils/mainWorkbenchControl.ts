@@ -191,6 +191,9 @@ export interface QueuedMainWorkbenchCommand {
   source: 'browser' | 'rest' | 'script' | string;
   createdAt: number;
   updatedAt: number;
+  batchId?: string;
+  batchIndex?: number;
+  batchSize?: number;
   result?: unknown;
   error?: string;
 }
@@ -298,6 +301,10 @@ function generateCommandId(): string {
   return `mw-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
+function generateBatchId(): string {
+  return `mw-batch-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
 function normalizeQueuedCommand(
   entry: Partial<QueuedMainWorkbenchCommand> & { command?: MainWorkbenchCommand },
   fallbackSource = 'browser',
@@ -313,6 +320,9 @@ function normalizeQueuedCommand(
     source: typeof entry.source === 'string' && entry.source.trim() ? entry.source : fallbackSource,
     createdAt: typeof entry.createdAt === 'number' ? entry.createdAt : now,
     updatedAt: typeof entry.updatedAt === 'number' ? entry.updatedAt : now,
+    batchId: typeof entry.batchId === 'string' && entry.batchId.trim() ? entry.batchId : undefined,
+    batchIndex: typeof entry.batchIndex === 'number' ? entry.batchIndex : undefined,
+    batchSize: typeof entry.batchSize === 'number' ? entry.batchSize : undefined,
     result: entry.result,
     error: typeof entry.error === 'string' ? entry.error : undefined,
   };
@@ -358,9 +368,11 @@ export function enqueueMainWorkbenchCommands(
   commands: MainWorkbenchCommand[],
   source = 'browser',
 ): QueuedMainWorkbenchCommand[] {
+  const batchId = generateBatchId();
+  const batchSize = commands.filter((command) => command && typeof command.op === 'string').length;
   const entries = commands
     .filter((command) => command && typeof command.op === 'string')
-    .map((command) => {
+    .map((command, index) => {
       const now = Date.now();
       return {
         id: generateCommandId(),
@@ -369,6 +381,9 @@ export function enqueueMainWorkbenchCommands(
         source,
         createdAt: now,
         updatedAt: now,
+        batchId,
+        batchIndex: index,
+        batchSize,
       };
     });
   if (!entries.length) return [];

@@ -967,6 +967,14 @@ function makeMainWorkbenchCommandId() {
   return `mw-rest-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
+function makeMainWorkbenchBatchId() {
+  return `mw-batch-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function normalizeMainWorkbenchBatchId(value) {
+  return typeof value === 'string' && value.trim() ? value.trim() : '';
+}
+
 function normalizeMainWorkbenchCommandEntry(entry, fallbackSource = 'rest') {
   if (!entry || typeof entry !== 'object' || !entry.command || typeof entry.command !== 'object') {
     return null;
@@ -983,6 +991,9 @@ function normalizeMainWorkbenchCommandEntry(entry, fallbackSource = 'rest') {
     source: typeof entry.source === 'string' && entry.source.trim() ? entry.source : fallbackSource,
     createdAt: typeof entry.createdAt === 'number' ? entry.createdAt : now,
     updatedAt: typeof entry.updatedAt === 'number' ? entry.updatedAt : now,
+    ...(normalizeMainWorkbenchBatchId(entry.batchId) ? { batchId: normalizeMainWorkbenchBatchId(entry.batchId) } : {}),
+    ...(typeof entry.batchIndex === 'number' ? { batchIndex: entry.batchIndex } : {}),
+    ...(typeof entry.batchSize === 'number' ? { batchSize: entry.batchSize } : {}),
     ...(Object.prototype.hasOwnProperty.call(entry, 'result') ? { result: entry.result } : {}),
     ...(typeof entry.error === 'string' ? { error: entry.error } : {}),
   };
@@ -1005,6 +1016,28 @@ function appendMainWorkbenchResult(entry) {
   const current = Array.isArray(raw) ? raw : [];
   const next = [entry, ...current.filter((item) => item?.id !== entry.id)].slice(0, 50);
   writeMainWorkbenchJson(MAIN_WORKBENCH_RESULT_LOG_KEY, next);
+}
+
+function buildMainWorkbenchCommandBatchSummary(commands, batchId = '') {
+  const items = normalizeMainWorkbenchBatchId(batchId)
+    ? commands.filter((entry) => entry.batchId === batchId)
+    : commands.filter((entry) => entry.batchId);
+  const statusCounts = items.reduce((counts, entry) => ({
+    ...counts,
+    [entry.status]: (counts[entry.status] || 0) + 1,
+  }), {});
+  const failedCommand = items.find((entry) => entry.status === 'error') || null;
+  return {
+    batchId: normalizeMainWorkbenchBatchId(batchId) || null,
+    total: items.length,
+    pending: statusCounts.pending || 0,
+    running: statusCounts.running || 0,
+    done: statusCounts.done || 0,
+    error: statusCounts.error || 0,
+    failedCommand,
+    remainingCommands: items.filter((entry) => entry.status === 'pending' || entry.status === 'running'),
+    commands: items,
+  };
 }
 
 function handleMainWorkbenchRequest(method, pathname, query, body) {
@@ -1052,14 +1085,32 @@ function handleMainWorkbenchRequest(method, pathname, query, body) {
 
   if (method === 'GET' && pathname === '/api/main-workbench/commands') {
     const status = query.get('status');
+    const batchId = normalizeMainWorkbenchBatchId(query.get('batchId'));
     const commands = readMainWorkbenchCommandQueue()
-      .filter((entry) => !status || entry.status === status);
+      .filter((entry) => !status || entry.status === status)
+      .filter((entry) => !batchId || entry.batchId === batchId);
     return {
       status: 200,
       body: {
         ok: true,
         protocolVersion: 1,
         commands,
+      },
+    };
+  }
+
+  if (method === 'GET' && pathname === '/api/main-workbench/commands/batch') {
+    const batchId = normalizeMainWorkbenchBatchId(query.get('batchId'));
+    if (!batchId) {
+      return failScript(400, 'missing-main-workbench-batch-id', 'Batch summary requires batchId.');
+    }
+    const commands = readMainWorkbenchCommandQueue();
+    return {
+      status: 200,
+      body: {
+        ok: true,
+        protocolVersion: 1,
+        batch: buildMainWorkbenchCommandBatchSummary(commands, batchId),
       },
     };
   }
@@ -1097,6 +1148,7 @@ function handleMainWorkbenchRequest(method, pathname, query, body) {
     }
     const queue = readMainWorkbenchCommandQueue();
     const source = typeof body?.source === 'string' ? body.source : 'rest';
+    const requestedBatchId = normalizeMainWorkbenchBatchId(body?.batchId);
     if (commands.length === 1) {
       const id = typeof body?.id === 'string' && body.id.trim() ? body.id : makeMainWorkbenchCommandId();
       const existing = queue.find((entry) => entry.id === id);
@@ -1111,23 +1163,41 @@ function handleMainWorkbenchRequest(method, pathname, query, body) {
         command: commands[0],
         source,
         status: 'pending',
+        ...(requestedBatchId ? { batchId: requestedBatchId, batchIndex: 0, batchSize: 1 } : {}),
       });
       writeMainWorkbenchCommandQueue([...queue, entry]);
       return {
         status: 200,
-        body: { ok: true, protocolVersion: 1, command: entry, commands: [entry] },
+        body: {
+          ok: true,
+          protocolVersion: 1,
+          command: entry,
+          commands: [entry],
+          ...(requestedBatchId ? { batch: buildMainWorkbenchCommandBatchSummary([entry], requestedBatchId) } : {}),
+        },
       };
     }
-    const entries = commands.map((command) => normalizeMainWorkbenchCommandEntry({
+    const batchId = requestedBatchId || makeMainWorkbenchBatchId();
+    const batchSize = commands.length;
+    const entries = commands.map((command, index) => normalizeMainWorkbenchCommandEntry({
       id: makeMainWorkbenchCommandId(),
       command,
       source,
       status: 'pending',
+      batchId,
+      batchIndex: index,
+      batchSize,
     }));
     writeMainWorkbenchCommandQueue([...queue, ...entries]);
     return {
       status: 200,
-      body: { ok: true, protocolVersion: 1, commands: entries },
+      body: {
+        ok: true,
+        protocolVersion: 1,
+        batchId,
+        commands: entries,
+        batch: buildMainWorkbenchCommandBatchSummary(entries, batchId),
+      },
     };
   }
 
