@@ -2,7 +2,7 @@
 
 ## Status
 
-已执行 Task 1-5。Task 6 保持临时重复清单，等待后续共享模块改造。Task 7-10 已完成，用于解除只读回答硬编码、恢复 def-agent 连续上下文，并统一 UI/REST 的只读 evidence/focus runtime。Task 11 记录前端专项，不在本轮底层架构 coding 中执行。Task 12 已完成，用于修正 removeBuff 别名字段和防误删边界。Task 13 已完成，用于共享主界面命令 schema runtime，减少 REST/UI 协议漂移。
+已执行 Task 1-5。Task 6 保持临时重复清单，等待后续共享模块改造。Task 7-10 已完成，用于解除只读回答硬编码、恢复 def-agent 连续上下文，并统一 UI/REST 的只读 evidence/focus runtime。Task 11 记录前端专项，不在本轮底层架构 coding 中执行。Task 12 已完成，用于修正 removeBuff 别名字段和防误删边界。Task 13 已完成，用于共享主界面命令 schema runtime，减少 REST/UI 协议漂移。Task 14 待执行，用于给批量命令补批次级观测。
 
 本任务集接在 `quick-fixes.md` 之后。quick fixes 到此为止，后续不再继续把能力堆进快照回答器，而是引入最小 DEF Agent Kernel。
 
@@ -331,6 +331,34 @@ src/agentKernel/mainWorkbench/
 
 - `.mjs + .d.ts` 的共享 runtime 继续增加，后续应收敛成明确的 runtime shared package，而不是长期依赖 `vite-env.d.ts` 的通用声明。
 - schema runtime 只负责低成本协议校验；不能把业务实体校验提前到 REST，否则会错误读取 current checkout 或 appdata node。
+
+### Task 14: 批量命令批次级观测（待执行）
+
+手测暴露问题：批量删除长息 Buff 时，AI 只能从一串松散 command 中自行数 pending/done，导致回答里出现“已入队/待处理/再确认”的混杂状态。低阻塞不应等于不可观察；AI 应能读取批次摘要，自行判断继续等待、报告失败或建议回退。
+
+- REST 多命令 enqueue 时生成或接受 `batchId`。
+- 每条队列记录写入：
+  - `batchId`
+  - `batchIndex`
+  - `batchSize`
+- 单命令可接受显式 `batchId`，但默认不强制生成。
+- `GET /api/main-workbench/commands` 支持按 `batchId` 过滤。
+- 新增只读批次摘要入口，返回 total、pending、running、done、error、failedCommand、remainingCommands。
+- 批次摘要只读，不写 current checkout，不写 appdata work node。
+- 本任务不实现事务停止、依赖跳过或自动回滚。
+
+验收：
+
+- 批量 enqueue 3 条命令返回同一个 `batchId`，且 `batchIndex` 为 0/1/2、`batchSize=3`。
+- `GET /api/main-workbench/commands?batchId=...` 只返回该批次命令。
+- 批次摘要能按状态统计 pending/running/done/error。
+- 当某条命令 error 时，批次摘要返回 `failedCommand`。
+- 只读批次摘要不会改变 command queue。
+
+风险：
+
+- 这只是观测层，不是事务执行器；浏览器仍按队列逐条处理。
+- 如果 agent 依赖批次全部成功，需要结合 verifier 或后续 batch executor，不能只看 enqueue 成功。
 
 ## Task Review
 

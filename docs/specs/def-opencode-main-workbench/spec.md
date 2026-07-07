@@ -480,6 +480,14 @@ Buff 操作不能只靠自然语言造一个临时 Buff。
 
 第一版可以不要求完整自动回滚，但必须保留足够结果让用户知道哪些已执行、哪些未执行。
 
+批次级观测要求：
+
+- REST enqueue 多条命令时 SHALL 生成或接受 `batchId`。
+- 每条队列记录 SHALL 包含 `batchId`、`batchIndex`、`batchSize`。
+- REST SHALL 提供批次摘要，至少包含 total、pending、running、done、error、failedCommand、remainingCommands。
+- 批次摘要只读取 command queue / result log，不修改 current checkout，不写 appdata work node。
+- 批次级观测不是事务保证；事务停止、依赖跳过和补偿回滚应由后续 batch executor 设计完成。
+
 ## Verification
 
 第一版不能只验证“agent 是否投递了某种命令”，必须验证“主界面状态是否符合用户意图”。
