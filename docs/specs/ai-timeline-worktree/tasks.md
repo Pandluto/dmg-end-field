@@ -22,15 +22,16 @@
 - Task 14: 已完成，新增 appdata work node diff/readiness 入口。
 - Task 15: 已完成，新增 renderer base rollback command，用 appdata basePayload 回退当前迁出态。
 - Task 16: 已完成，新增 checkoutDecision，让 AI 能基于 diff/risk/policy 自主判断是否 auto checkout 或请求 manual approval。
-- Task 17: 待执行，将主界面 AI 高风险入口切到 appdata work node 优先，用户快照仅作为兼容回退。
+- Task 17: 已完成，将主界面 AI 高风险入口切到 appdata work node 优先，用户快照仅作为兼容回退。
 
-## Task 17: 主界面 AI 高风险入口 work node 优先（待执行）
+## Task 17: 主界面 AI 高风险入口 work node 优先（已完成）
 
-- 高风险自然语言请求进入 def-agent 前，先投递 `createAiTimelineWorkNodeFromCurrent`。
-- 等待创建命令落地，并从 command result 提取 `nodeId/saveId/branchId`。
-- 将 work node 上下文注入本轮 agent prompt，要求后续 diff/checkout/rollback 优先使用 appdata work node。
-- AI 面板消息级回退拥有 `nodeId` 时优先投递 `restoreAiTimelineWorkNodeBase`；只有旧消息或创建失败时才允许 fallback 到 `restoreTimelineSnapshot`。
-- 用户 timeline snapshot 文案改成兼容回退，不再描述为 AI 工作节点或修改日志。
+- 已在高风险自然语言请求进入 def-agent 前，先投递 `createAiTimelineWorkNodeFromCurrent`。
+- 已等待创建命令落地，并从 command result 提取 `nodeId/saveId/branchId`。
+- 已将 work node 上下文注入本轮 agent prompt，要求后续 diff/checkout/rollback 优先使用 appdata work node。
+- 已让 AI 面板消息级回退在拥有 `nodeId` 时优先投递 `restoreAiTimelineWorkNodeBase`；只有旧消息才 fallback 到 `restoreTimelineSnapshot`。
+- 已将用户 timeline snapshot 文案改成兼容回退，不再描述为 AI 工作节点或修改日志。
+- 已修正本地命令等待逻辑，让 REST 启动前投递的本地 work node 创建命令也会被 pending/running 轮询覆盖。
 
 验收：
 
@@ -38,7 +39,9 @@
 - 创建成功时，agent prompt 明确包含本轮 work node id。
 - 点击该轮回退按钮时，命令为 `restoreAiTimelineWorkNodeBase`。
 - 低风险单按钮/Buff 操作仍不创建用户快照，也不强制创建 work node。
-- `npm run build` 通过；必要时跑 `npm test`。
+- `npm run build` 已通过。
+- `npm test` 已通过。
+- `npm run electron:dev` 已启动到 Vite ready 和 Electron 进程，随后手动停止验证进程。
 
 风险：
 

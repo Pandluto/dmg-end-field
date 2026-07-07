@@ -41,6 +41,15 @@ type WorkbenchAiMessage = {
   status?: 'pending' | 'running' | 'done' | 'error' | 'stopped';
   prompt?: string;
   rollbackLabel?: string;
+  rollbackNodeId?: string;
+};
+
+type WorkbenchAiWorkNodeContext = {
+  nodeId: string;
+  saveId?: string;
+  branchId?: string;
+  label?: string;
+  path?: string;
 };
 
 type WorkbenchAiStepId = 'backup' | 'rest' | 'agent' | 'operate' | 'verify';
@@ -120,7 +129,7 @@ function buildSelectedSignature(selectedCharacters: Character[]) {
 
 function buildInitialSteps(): WorkbenchAiStep[] {
   return [
-    { id: 'backup', label: '回退点', detail: '等待保存', status: 'pending' },
+    { id: 'backup', label: '安全点', detail: '等待判断', status: 'pending' },
     { id: 'rest', label: 'REST', detail: '等待启动', status: 'pending' },
     { id: 'agent', label: '思考', detail: '等待请求', status: 'pending' },
     { id: 'operate', label: '操作', detail: '等待命令', status: 'pending' },
@@ -133,6 +142,7 @@ function buildWorkbenchAgentMessage(
   selectedCharacters: Character[],
   skillButtons: SkillButton[],
   snapshotEvidence: string,
+  workNodeContext?: WorkbenchAiWorkNodeContext | null,
 ) {
   const selectedSummary = selectedCharacters.length
     ? selectedCharacters.map((character) => `${character.name}(${character.id})`).join(', ')
@@ -146,7 +156,13 @@ function buildWorkbenchAgentMessage(
     '当需要改动主界面时，使用 http://127.0.0.1:17321/api/main-workbench/commands/enqueue 投递声明式命令；多步操作优先一次 POST {commands:[...]}，请求体形如 {"commands":[{"op":"..."}],"source":"def-opencode"}。',
     '多步 commands enqueue 会返回 batchId；批量操作确认优先读取 /api/main-workbench/commands/batch?batchId=<batchId>，用 total/pending/running/done/error 判断进度，不要手工数全局队列。',
     '可用 op: selectCharacters, openView, openWorkbenchPage, clearTimeline, setOperatorWeapon, setOperatorEquipment, addSkillButton, removeSkillButton, addBuff, removeBuff, setTargetResistance, saveTimelineSnapshot, restoreTimelineSnapshot, listTimelineSnapshots, createAiTimelineWorkNodeFromCurrent, diffAiTimelineWorkNode, checkoutAiTimelineWorkNode, restoreAiTimelineWorkNodeBase, refreshOperatorConfig, calculateDamage, refreshSnapshot。',
-    '推荐攻略链路: selectCharacters -> setOperatorWeapon/setOperatorEquipment -> refreshOperatorConfig -> restoreTimelineSnapshot 或 clearTimeline/addSkillButton -> addBuff/setTargetResistance -> calculateDamage -> saveTimelineSnapshot。',
+    '推荐攻略链路: selectCharacters -> setOperatorWeapon/setOperatorEquipment -> refreshOperatorConfig -> clearTimeline/addSkillButton -> addBuff/setTargetResistance -> calculateDamage -> refreshSnapshot。',
+    '高风险/批量/重排轴操作优先使用 appdata AI work node：createAiTimelineWorkNodeFromCurrent -> diffAiTimelineWorkNode -> checkoutAiTimelineWorkNode；restoreAiTimelineWorkNodeBase 用于恢复 node base。',
+    'saveTimelineSnapshot/restoreTimelineSnapshot 只是当前迁出态的用户快照兼容回退，不是 AI work node、branch log 或修改日志；不要把 localStorage/sessionStorage 当前 checkout 当成 appdata work node。',
+    ...(workNodeContext ? [
+      `本轮 AI_WORK_NODE: nodeId=${workNodeContext.nodeId}; saveId=${workNodeContext.saveId || 'unknown'}; branchId=${workNodeContext.branchId || 'unknown'}; label=${workNodeContext.label || 'unknown'}; path=${workNodeContext.path || 'unknown'}`,
+      '本轮需要回退、diff、checkout 或说明安全边界时，优先引用并使用上面的 AI_WORK_NODE。',
+    ] : []),
     'setOperatorEquipment 可用 gearSetName/gearSetId + fillSlots 自动填 4 件，也可用 slotKey + equipmentName/equipmentId 指定单件；满词条一般传 entryLevel: 3。',
     '用户要求合适配装但没有指定名称时，不要查库或脚本匹配；已有配置保留，未配置者默认 setOperatorWeapon weaponName=宏愿，setOperatorEquipment gearSetName=潮涌 fillSlots=true entryLevel=3。',
     ...buildGameKnowledgePromptLines(),
@@ -156,7 +172,7 @@ function buildWorkbenchAgentMessage(
     '只读回答必须由你基于证据生成，不要要求前端模板代答。用户追问“它/这个/刚才那个/有什么 Buff”时，结合上一轮对话里的定位对象。',
     '如果用户问某个具体按钮有什么 Buff，只回答该按钮；不要退回到角色级或全局 Buff 汇总。',
     '用户要求增加、删除、替换、配置、释放技能、添加 Buff、回退或计算时，必须先投递实际命令；如果无法执行，明确说明失败，不要只读取快照当作完成。',
-    '只有换人、清空排轴、批量大改动或用户明确要求可回退时才先保存快照；单个技能按钮/Buff 的添加或移除不要先保存快照。',
+    '单个技能按钮/Buff 的添加或移除不要创建用户快照；高风险操作如果本轮已经提供 AI_WORK_NODE，不要再保存用户快照作为 AI 工作日志。',
     '用户说添加/增加/释放/放一个技能按钮时，必须使用 addSkillButton；不要使用 addBuff。',
     '用户说添加 Buff/增益时，必须使用 addBuff 且 command.buff 必须是完整对象；如果只有 buffId、没有 buff 对象，或者用户只说“任意/随便一个 Buff”，应询问具体 Buff，不要投递 addBuff。',
     'Buff 操作优先用 addBuff/removeBuff，能用 characterName + skillType 或 buttonId 定位；用户要求重算时把 calculateDamage 和 refreshSnapshot 放进同一个 commands 数组。',
@@ -305,6 +321,15 @@ function wait(ms: number) {
 }
 
 async function hasActiveWorkbenchCommands(status: 'pending' | 'running', since = 0) {
+  const localCommands = typeof window !== 'undefined'
+    ? (window.defMainWorkbench?.commands?.() || [])
+    : [];
+  if (localCommands.some((command) => (
+    command.status === status &&
+    (typeof command.createdAt !== 'number' || command.createdAt >= since)
+  ))) {
+    return true;
+  }
   try {
     const response = await fetch(`${MAIN_WORKBENCH_REST_BASE_URL}/api/main-workbench/commands?status=${status}`, { cache: 'no-store' });
     if (!response.ok) return false;
@@ -343,6 +368,29 @@ async function readWorkbenchCommandEvidence(since: number): Promise<MainWorkbenc
   } catch {
     return localEvidence;
   }
+}
+
+function readStringField(value: unknown, key: string) {
+  if (!value || typeof value !== 'object') return undefined;
+  const field = (value as Record<string, unknown>)[key];
+  return typeof field === 'string' && field.trim() ? field : undefined;
+}
+
+function extractCreatedWorkNodeContext(evidence: MainWorkbenchCommandEvidence[]): WorkbenchAiWorkNodeContext | null {
+  const createdEntry = [...evidence].reverse().find((entry) => (
+    entry.status === 'done' &&
+    entry.command?.op === 'createAiTimelineWorkNodeFromCurrent' &&
+    readStringField(entry.result, 'nodeId')
+  ));
+  const nodeId = readStringField(createdEntry?.result, 'nodeId');
+  if (!nodeId) return null;
+  return {
+    nodeId,
+    saveId: readStringField(createdEntry?.result, 'saveId'),
+    branchId: readStringField(createdEntry?.result, 'branchId'),
+    label: readStringField(createdEntry?.result, 'label'),
+    path: readStringField(createdEntry?.result, 'path'),
+  };
 }
 
 async function waitForWorkbenchCommandsToSettle(since = 0, timeoutMs = 7000) {
@@ -433,6 +481,7 @@ export function MainWorkbenchAiPanel({
   const [isBusy, setIsBusy] = useState(false);
   const [lastPrompt, setLastPrompt] = useState('');
   const [lastRollbackLabel, setLastRollbackLabel] = useState('');
+  const [lastRollbackNodeId, setLastRollbackNodeId] = useState('');
   const [thinkingDetails, setThinkingDetails] = useState<string[]>([]);
   const eventSourceRef = useRef<EventSource | null>(null);
   const activeMessageIdRef = useRef<string | null>(null);
@@ -740,7 +789,8 @@ export function MainWorkbenchAiPanel({
     setInput('');
     setIsBusy(true);
     setLastPrompt(userText);
-    setLastRollbackLabel(shouldCreateRollback ? rollbackLabel : '');
+    setLastRollbackLabel('');
+    setLastRollbackNodeId('');
     setSteps(buildInitialSteps());
     setStatus('发送中');
     setThinkingDetails([]);
@@ -751,7 +801,7 @@ export function MainWorkbenchAiPanel({
     setMessages((current) => [
       ...current,
       { id: `${messageId}-user`, role: 'user', text: options.retry ? `重试：${userText}` : userText, status: 'done', prompt: userText },
-      { id: messageId, role: 'agent', text: '', status: 'running', prompt: userText, rollbackLabel: shouldCreateRollback ? rollbackLabel : undefined },
+      { id: messageId, role: 'agent', text: '', status: 'running', prompt: userText },
     ]);
 
     /* === [DISABLED] 本地流 dispatch — 如需恢复取消此注释块 === */
@@ -759,7 +809,7 @@ export function MainWorkbenchAiPanel({
     const quickAction = buildQuickWorkbenchAction(userText, selectedCharacters);
     if (quickAction) {
       try {
-        patchStep('backup', { status: 'done', detail: '小操作不保存' });
+        patchStep('backup', { status: 'done', detail: '小操作不建节点' });
         patchStep('agent', { status: 'done', detail: '本地确定性动作' });
 
         if (quickAction.kind === 'message') {
@@ -820,15 +870,38 @@ export function MainWorkbenchAiPanel({
       finishMessage(messageId, 'error', '后台超过 180 秒未完成，已停止本轮。');
     }, WORKBENCH_AGENT_TURN_TIMEOUT_MS);
     try {
+      let workNodeContext: WorkbenchAiWorkNodeContext | null = null;
       if (shouldCreateRollback) {
-        patchStep('backup', { status: 'running', detail: '保存 AI 回退点' });
-        const backupEntry = enqueueLocalWorkbenchCommand({ op: 'saveTimelineSnapshot', label: rollbackLabel });
-        patchStep('backup', {
-          status: backupEntry ? 'done' : 'error',
-          detail: backupEntry ? rollbackLabel : '页面控制入口不可用',
+        patchStep('backup', { status: 'running', detail: '创建 AI work node' });
+        const backupEntry = enqueueLocalWorkbenchCommand({
+          op: 'createAiTimelineWorkNodeFromCurrent',
+          label: rollbackLabel,
+          approvalPolicy: 'auto-low-risk',
         });
+        if (!backupEntry) {
+          patchStep('backup', { status: 'error', detail: '页面控制入口不可用' });
+          finishMessage(messageId, 'error', '无法创建 AI work node 基线，已停止本轮高风险操作。');
+          setStatus('安全点创建失败');
+          return;
+        }
+        await waitForWorkbenchCommandsToSettle(activePromptStartedAtRef.current, 10000);
+        const backupEvidence = await readWorkbenchCommandEvidence(activePromptStartedAtRef.current);
+        const failedBackup = backupEvidence.find((entry) => entry.command?.op === 'createAiTimelineWorkNodeFromCurrent' && entry.status === 'error');
+        workNodeContext = extractCreatedWorkNodeContext(backupEvidence);
+        if (!workNodeContext) {
+          const reason = failedBackup?.error || '未取得 nodeId';
+          patchStep('backup', { status: 'error', detail: reason });
+          finishMessage(messageId, 'error', `无法创建 AI work node 基线：${reason}。已停止本轮高风险操作。`);
+          setStatus('安全点创建失败');
+          return;
+        }
+        setLastRollbackNodeId(workNodeContext.nodeId);
+        setMessages((current) => current.map((message) => (
+          message.id === messageId ? { ...message, rollbackNodeId: workNodeContext?.nodeId } : message
+        )));
+        patchStep('backup', { status: 'done', detail: `work node ${workNodeContext.nodeId}` });
       } else {
-        patchStep('backup', { status: 'done', detail: isMainWorkbenchMutatingPrompt(userText) ? '小操作不保存' : '只读请求' });
+        patchStep('backup', { status: 'done', detail: isMainWorkbenchMutatingPrompt(userText) ? '小操作不建节点' : '只读请求' });
       }
       setStatus('启动 REST');
       patchStep('rest', { status: 'running', detail: '启动 17321' });
@@ -841,7 +914,7 @@ export function MainWorkbenchAiPanel({
         lastFocusRef.current = null;
       }
       const snapshotEvidence = buildMainWorkbenchSnapshotEvidence(snapshot, userText, focusState);
-      const agentText = buildWorkbenchAgentMessage(userText, selectedCharacters, skillButtons, snapshotEvidence);
+      const agentText = buildWorkbenchAgentMessage(userText, selectedCharacters, skillButtons, snapshotEvidence, workNodeContext);
       patchStep('rest', { status: 'done', detail: snapshot ? 'REST 已就绪，快照证据已注入' : 'REST 已就绪，快照证据缺失' });
       patchStep('agent', { status: 'running', detail: 'def-opencode 正在思考' });
       eventSourceRef.current?.close();
@@ -901,16 +974,26 @@ export function MainWorkbenchAiPanel({
     void sendWorkbenchPrompt(prompt, { retry: true });
   };
 
-  const handleRollback = (rollbackLabel = lastRollbackLabel) => {
+  const handleRollback = (rollbackNodeId = lastRollbackNodeId, rollbackLabel = lastRollbackLabel) => {
     if (isBusy) return;
-    const command: MainWorkbenchCommand = rollbackLabel
+    const command: MainWorkbenchCommand = rollbackNodeId
+      ? {
+        op: 'restoreAiTimelineWorkNodeBase',
+        nodeId: rollbackNodeId,
+        reload: true,
+        approval: {
+          approvedBy: 'user',
+          rationale: '用户从 AI 面板回退到本轮 AI work node base',
+        },
+      }
+      : rollbackLabel
       ? { op: 'restoreTimelineSnapshot', label: rollbackLabel, reload: true }
       : { op: 'restoreTimelineSnapshot', latest: true, reload: true };
     const entry = enqueueLocalWorkbenchCommand(command);
     setStatus(entry ? '已请求回退' : '回退失败：页面控制入口不可用');
     setSteps((current) => current.map((step) => (
       step.id === 'operate'
-        ? { ...step, status: entry ? 'running' : 'error', detail: entry ? '恢复排轴快照' : '控制入口不可用' }
+        ? { ...step, status: entry ? 'running' : 'error', detail: entry ? (rollbackNodeId ? '恢复 work node base' : '恢复排轴快照') : '控制入口不可用' }
         : step
     )));
   };
@@ -926,6 +1009,7 @@ export function MainWorkbenchAiPanel({
     setSteps(buildInitialSteps());
     setLastPrompt('');
     setLastRollbackLabel('');
+    setLastRollbackNodeId('');
     activePromptRef.current = '';
     activePromptStartedAtRef.current = 0;
     setStatus('新对话');
@@ -1011,11 +1095,11 @@ export function MainWorkbenchAiPanel({
                   </span>
                 )}
                 <div className="main-workbench-ai-message-action-buttons">
-                  {message.role === 'agent' && message.rollbackLabel && (
+                  {message.role === 'agent' && (message.rollbackNodeId || message.rollbackLabel) && (
                     <button
                       type="button"
                       className="main-workbench-ai-icon-button"
-                      onClick={() => handleRollback(message.rollbackLabel)}
+                      onClick={() => handleRollback(message.rollbackNodeId, message.rollbackLabel)}
                       disabled={isBusy}
                       aria-label="回退到这条消息前"
                       title="回退到这条消息前"
