@@ -909,6 +909,43 @@ function startBridgeServer() {
         return;
       }
 
+      if (method === 'GET' && requestUrl.pathname === '/local-data/ai-timeline-worknodes') {
+        writeJson(response, 200, buildAiTimelineWorkNodeListResult());
+        return;
+      }
+
+      if (method === 'POST' && requestUrl.pathname === '/local-data/ai-timeline-worknodes/create') {
+        const payload = await readJsonRequest(request);
+        writeJson(response, 200, createAiTimelineWorkNode(payload));
+        return;
+      }
+
+      const aiTimelineWorkNodeMatch = /^\/local-data\/ai-timeline-worknodes\/([^/]+)(?:\/([^/]+))?$/.exec(requestUrl.pathname);
+      if (aiTimelineWorkNodeMatch) {
+        let nodeId = '';
+        try {
+          nodeId = decodeURIComponent(aiTimelineWorkNodeMatch[1]);
+        } catch {
+          writeJson(response, 400, { ok: false, error: 'AI work node URL contains malformed percent-encoding.' });
+          return;
+        }
+        const action = aiTimelineWorkNodeMatch[2] || '';
+        if (method === 'GET' && !action) {
+          writeJson(response, 200, readAiTimelineWorkNode(nodeId));
+          return;
+        }
+        if (method === 'POST' && action === 'update') {
+          const payload = await readJsonRequest(request);
+          writeJson(response, 200, updateAiTimelineWorkNode(nodeId, payload));
+          return;
+        }
+        if (method === 'POST' && action === 'commit') {
+          const payload = await readJsonRequest(request);
+          writeJson(response, 200, commitAiTimelineWorkNode(nodeId, payload));
+          return;
+        }
+      }
+
       if (method === 'POST' && requestUrl.pathname === '/local-data/save') {
         const payload = await readJsonRequest(request);
         if (!payload || payload.type !== 'def.localdata.archive.v1') {
@@ -3931,6 +3968,10 @@ function getNowStorageStatePath() {
   return path.join(getLocalDataDirectory(), 'now-storage-state.json');
 }
 
+function getAiTimelineWorkNodesPath() {
+  return path.join(getLocalDataDirectory(), 'ai-timeline-worknodes.json');
+}
+
 function sanitizeArchiveId(value) {
   const raw = typeof value === 'string' && value.trim() ? value.trim() : `archive-${Date.now()}`;
   return raw
@@ -4032,6 +4073,317 @@ function writeNowStorageArchive(archive) {
   };
 }
 
+function makeAiTimelineWorkNodeId(prefix) {
+  return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function sanitizeAiTimelineWorkNodeId(value, fallbackPrefix) {
+  const raw = typeof value === 'string' && value.trim() ? value.trim() : makeAiTimelineWorkNodeId(fallbackPrefix);
+  return raw
+    .replace(/[<>:"/\\|?*\x00-\x1F]+/g, '-')
+    .replace(/\s+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 120) || makeAiTimelineWorkNodeId(fallbackPrefix);
+}
+
+function isPlainObject(value) {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+function cloneJsonValue(value) {
+  return JSON.parse(JSON.stringify(value));
+}
+
+function summarizeAiTimelinePayload(payload) {
+  const selectedCharacters = Array.isArray(payload?.selectedCharacters) ? payload.selectedCharacters : [];
+  const skillButtonTable = isPlainObject(payload?.skillButtonTable) ? payload.skillButtonTable : {};
+  const allBuffList = Array.isArray(payload?.allBuffList) ? payload.allBuffList : [];
+  return {
+    characterCount: selectedCharacters.length,
+    buttonCount: Object.keys(skillButtonTable).length,
+    buffCount: allBuffList.length,
+  };
+}
+
+function diffAiTimelinePayloadSummary(basePayload, workingPayload) {
+  const baseButtons = new Set(Object.keys(isPlainObject(basePayload?.skillButtonTable) ? basePayload.skillButtonTable : {}));
+  const workingButtons = new Set(Object.keys(isPlainObject(workingPayload?.skillButtonTable) ? workingPayload.skillButtonTable : {}));
+  const baseBuffs = new Set((Array.isArray(basePayload?.allBuffList) ? basePayload.allBuffList : []).map((buff) => buff?.id).filter(Boolean));
+  const workingBuffs = new Set((Array.isArray(workingPayload?.allBuffList) ? workingPayload.allBuffList : []).map((buff) => buff?.id).filter(Boolean));
+  let addedButtonCount = 0;
+  let removedButtonCount = 0;
+  let addedBuffCount = 0;
+  let removedBuffCount = 0;
+  for (const id of workingButtons) {
+    if (!baseButtons.has(id)) addedButtonCount += 1;
+  }
+  for (const id of baseButtons) {
+    if (!workingButtons.has(id)) removedButtonCount += 1;
+  }
+  for (const id of workingBuffs) {
+    if (!baseBuffs.has(id)) addedBuffCount += 1;
+  }
+  for (const id of baseBuffs) {
+    if (!workingBuffs.has(id)) removedBuffCount += 1;
+  }
+  return {
+    addedButtonCount,
+    removedButtonCount,
+    changedButtonCount: 0,
+    addedBuffCount,
+    removedBuffCount,
+    beforeButtonCount: baseButtons.size,
+    afterButtonCount: workingButtons.size,
+    beforeBuffCount: baseBuffs.size,
+    afterBuffCount: workingBuffs.size,
+  };
+}
+
+function readAiTimelineWorkNodeArchive() {
+  try {
+    const filePath = getAiTimelineWorkNodesPath();
+    if (!fs.existsSync(filePath)) {
+      return { type: 'def.ai-timeline.worknodes.v1', schemaVersion: 1, nodes: [], commits: [] };
+    }
+    const parsed = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+    if (!parsed || parsed.type !== 'def.ai-timeline.worknodes.v1') {
+      return { type: 'def.ai-timeline.worknodes.v1', schemaVersion: 1, nodes: [], commits: [] };
+    }
+    return {
+      type: 'def.ai-timeline.worknodes.v1',
+      schemaVersion: 1,
+      nodes: Array.isArray(parsed.nodes) ? parsed.nodes : [],
+      commits: Array.isArray(parsed.commits) ? parsed.commits : [],
+    };
+  } catch {
+    return { type: 'def.ai-timeline.worknodes.v1', schemaVersion: 1, nodes: [], commits: [] };
+  }
+}
+
+function writeAiTimelineWorkNodeArchive(archive) {
+  ensureLocalDataDirectory();
+  fs.writeFileSync(getAiTimelineWorkNodesPath(), `${JSON.stringify({
+    type: 'def.ai-timeline.worknodes.v1',
+    schemaVersion: 1,
+    nodes: Array.isArray(archive.nodes) ? archive.nodes.slice(0, 50) : [],
+    commits: Array.isArray(archive.commits) ? archive.commits.slice(0, 200) : [],
+  }, null, 2)}\n`, 'utf-8');
+}
+
+function normalizeAiTimelineRiskFlags(value) {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((item) => isPlainObject(item))
+    .map((item) => ({
+      id: typeof item.id === 'string' && item.id.trim() ? item.id : makeAiTimelineWorkNodeId('ai-timeline-risk'),
+      severity: ['info', 'warning', 'blocker'].includes(item.severity) ? item.severity : 'warning',
+      code: typeof item.code === 'string' && item.code.trim() ? item.code.trim() : 'unspecified-risk',
+      message: typeof item.message === 'string' && item.message.trim() ? item.message.trim() : 'Unspecified AI timeline risk.',
+      ...(typeof item.path === 'string' && item.path.trim() ? { path: item.path.trim() } : {}),
+    }));
+}
+
+function normalizeAiTimelineApproval(value, fallbackMode = 'auto') {
+  const approvedAt = Date.now();
+  if (!isPlainObject(value)) {
+    return {
+      mode: fallbackMode,
+      approvedAt,
+      approvedBy: fallbackMode === 'manual' ? 'user' : 'ai',
+      rationale: fallbackMode === 'manual' ? 'Manual approval required.' : 'Auto-approved by low-risk work node policy.',
+    };
+  }
+  const mode = value.mode === 'manual' ? 'manual' : 'auto';
+  return {
+    mode,
+    approvedAt: typeof value.approvedAt === 'number' ? value.approvedAt : approvedAt,
+    approvedBy: ['ai', 'user', 'system'].includes(value.approvedBy) ? value.approvedBy : (mode === 'manual' ? 'user' : 'ai'),
+    rationale: typeof value.rationale === 'string' && value.rationale.trim()
+      ? value.rationale.trim()
+      : (mode === 'manual' ? 'Manual approval recorded.' : 'Auto-approved by work node policy.'),
+  };
+}
+
+function makeAiTimelineWorkNodeLog(level, message, details = undefined) {
+  return {
+    id: makeAiTimelineWorkNodeId('ai-timeline-log'),
+    at: Date.now(),
+    level,
+    message,
+    ...(details ? { details } : {}),
+  };
+}
+
+function validateAiTimelineWorkNodePayload(payload, fieldName) {
+  if (!isPlainObject(payload)) {
+    return `${fieldName} must be an object.`;
+  }
+  if (!Array.isArray(payload.selectedCharacters)) {
+    return `${fieldName}.selectedCharacters must be an array.`;
+  }
+  if (!isPlainObject(payload.timelineData)) {
+    return `${fieldName}.timelineData must be an object.`;
+  }
+  if (!isPlainObject(payload.skillButtonTable)) {
+    return `${fieldName}.skillButtonTable must be an object.`;
+  }
+  return null;
+}
+
+function buildAiTimelineWorkNodeListResult() {
+  const archive = readAiTimelineWorkNodeArchive();
+  return {
+    ok: true,
+    path: getAiTimelineWorkNodesPath(),
+    archive: {
+      ...archive,
+      nodes: [...archive.nodes].sort((left, right) => (right.updatedAt || 0) - (left.updatedAt || 0)),
+      commits: [...archive.commits].sort((left, right) => (right.createdAt || 0) - (left.createdAt || 0)),
+    },
+  };
+}
+
+function readAiTimelineWorkNode(id) {
+  const nodeId = sanitizeAiTimelineWorkNodeId(id, 'ai-timeline-node');
+  const archive = readAiTimelineWorkNodeArchive();
+  const node = archive.nodes.find((item) => item?.id === nodeId);
+  if (!node) {
+    throw new Error(`AI timeline work node not found: ${nodeId}`);
+  }
+  return { ok: true, path: getAiTimelineWorkNodesPath(), node };
+}
+
+function createAiTimelineWorkNode(payload) {
+  if (!payload?.saveId || typeof payload.saveId !== 'string') {
+    throw new Error('AI work node create requires saveId.');
+  }
+  const saveId = sanitizeAiTimelineWorkNodeId(payload.saveId, 'save');
+  const basePayload = payload.basePayload;
+  const payloadError = validateAiTimelineWorkNodePayload(basePayload, 'basePayload');
+  if (payloadError) {
+    throw new Error(payloadError);
+  }
+  const requestedWorkingPayload = payload?.workingPayload && isPlainObject(payload.workingPayload) ? payload.workingPayload : basePayload;
+  const workingPayloadError = validateAiTimelineWorkNodePayload(requestedWorkingPayload, 'workingPayload');
+  if (workingPayloadError) {
+    throw new Error(workingPayloadError);
+  }
+  const now = Date.now();
+  const node = {
+    id: sanitizeAiTimelineWorkNodeId(payload.id, 'ai-timeline-node'),
+    saveId,
+    branchId: sanitizeAiTimelineWorkNodeId(payload.branchId, 'branch'),
+    createdAt: now,
+    updatedAt: now,
+    label: typeof payload.label === 'string' && payload.label.trim() ? payload.label.trim() : 'AI Timeline Work Node',
+    status: 'open',
+    basePayload: cloneJsonValue(basePayload),
+    workingPayload: cloneJsonValue(requestedWorkingPayload),
+    baseSummary: summarizeAiTimelinePayload(basePayload),
+    workingSummary: summarizeAiTimelinePayload(requestedWorkingPayload),
+    approvalPolicy: ['auto-low-risk', 'ask-on-risk', 'manual'].includes(payload.approvalPolicy) ? payload.approvalPolicy : 'auto-low-risk',
+    riskFlags: normalizeAiTimelineRiskFlags(payload.riskFlags),
+    logs: [makeAiTimelineWorkNodeLog('info', 'Created AI timeline work node from checkout payload.')],
+  };
+  const archive = readAiTimelineWorkNodeArchive();
+  writeAiTimelineWorkNodeArchive({
+    ...archive,
+    nodes: [node, ...archive.nodes.filter((item) => item?.id !== node.id)],
+  });
+  return { ok: true, path: getAiTimelineWorkNodesPath(), node };
+}
+
+function updateAiTimelineWorkNode(id, payload = {}) {
+  const nodeId = sanitizeAiTimelineWorkNodeId(id, 'ai-timeline-node');
+  const archive = readAiTimelineWorkNodeArchive();
+  const node = archive.nodes.find((item) => item?.id === nodeId);
+  if (!node) {
+    throw new Error(`AI timeline work node not found: ${nodeId}`);
+  }
+  const workingPayload = Object.prototype.hasOwnProperty.call(payload || {}, 'workingPayload')
+    ? payload.workingPayload
+    : node.workingPayload;
+  const payloadError = validateAiTimelineWorkNodePayload(workingPayload, 'workingPayload');
+  if (payloadError) {
+    throw new Error(payloadError);
+  }
+  const allowedStatuses = new Set(['open', 'ready', 'committed', 'applied', 'abandoned']);
+  const riskFlags = Object.prototype.hasOwnProperty.call(payload || {}, 'riskFlags')
+    ? normalizeAiTimelineRiskFlags(payload.riskFlags)
+    : (Array.isArray(node.riskFlags) ? node.riskFlags : []);
+  const nextNode = {
+    ...node,
+    updatedAt: Date.now(),
+    status: allowedStatuses.has(payload.status) ? payload.status : node.status,
+    workingPayload: cloneJsonValue(workingPayload),
+    workingSummary: summarizeAiTimelinePayload(workingPayload),
+    riskFlags,
+    logs: [
+      makeAiTimelineWorkNodeLog('info', 'Updated AI timeline work node.', {
+        riskFlagCount: riskFlags.length,
+        status: allowedStatuses.has(payload.status) ? payload.status : node.status,
+      }),
+      ...(Array.isArray(node.logs) ? node.logs : []),
+    ],
+  };
+  writeAiTimelineWorkNodeArchive({
+    ...archive,
+    nodes: [nextNode, ...archive.nodes.filter((item) => item?.id !== nodeId)],
+  });
+  return { ok: true, path: getAiTimelineWorkNodesPath(), node: nextNode };
+}
+
+function commitAiTimelineWorkNode(id, payload = {}) {
+  const nodeId = sanitizeAiTimelineWorkNodeId(id, 'ai-timeline-node');
+  const archive = readAiTimelineWorkNodeArchive();
+  const node = archive.nodes.find((item) => item?.id === nodeId);
+  if (!node) {
+    throw new Error(`AI timeline work node not found: ${nodeId}`);
+  }
+  const riskFlags = Object.prototype.hasOwnProperty.call(payload || {}, 'riskFlags')
+    ? normalizeAiTimelineRiskFlags(payload.riskFlags)
+    : (Array.isArray(node.riskFlags) ? node.riskFlags : []);
+  const explicitApproval = isPlainObject(payload.approval);
+  if (node.approvalPolicy === 'manual' && !explicitApproval) {
+    throw new Error('Manual approval policy requires explicit approval before commit.');
+  }
+  if (riskFlags.some((risk) => risk.severity === 'blocker') && !explicitApproval) {
+    throw new Error('Blocker risk flags require explicit approval before commit.');
+  }
+  const now = Date.now();
+  const approval = normalizeAiTimelineApproval(payload.approval, explicitApproval ? 'manual' : 'auto');
+  const commit = {
+    id: sanitizeAiTimelineWorkNodeId(payload.commitId, 'ai-timeline-commit'),
+    nodeId: node.id,
+    saveId: node.saveId,
+    branchId: node.branchId,
+    createdAt: now,
+    label: typeof payload.label === 'string' && payload.label.trim() ? payload.label.trim() : node.label,
+    summary: diffAiTimelinePayloadSummary(node.basePayload, node.workingPayload),
+    basePayload: cloneJsonValue(node.basePayload),
+    appliedPayload: cloneJsonValue(node.workingPayload),
+    riskFlags,
+    approval,
+    checkoutApplied: false,
+  };
+  const nextNode = {
+    ...node,
+    status: 'committed',
+    updatedAt: now,
+    riskFlags,
+    logs: [
+      makeAiTimelineWorkNodeLog('info', `Committed AI timeline work node as ${commit.id}.`, { approval }),
+      ...(Array.isArray(node.logs) ? node.logs : []),
+    ],
+  };
+  writeAiTimelineWorkNodeArchive({
+    ...archive,
+    nodes: [nextNode, ...archive.nodes.filter((item) => item?.id !== nodeId)],
+    commits: [commit, ...archive.commits.filter((item) => item?.id !== commit.id)],
+  });
+  return { ok: true, path: getAiTimelineWorkNodesPath(), node: nextNode, commit };
+}
+
 function resolveLocalDataPath(payload = {}) {
   const dir = getArchiveDirectory(payload.storageScope || payload.source || payload.scope || 'local');
   const fileName = sanitizeArchiveId(payload.fileName || payload.id || '');
@@ -4085,7 +4437,8 @@ function listLocalDataArchives() {
       return lowerName.endsWith('.json') &&
         lowerName !== 'active-localdata.json' &&
         lowerName !== 'now-storage.json' &&
-        lowerName !== 'now-storage-state.json';
+        lowerName !== 'now-storage-state.json' &&
+        lowerName !== 'ai-timeline-worknodes.json';
     })
     .map((fileName) => {
       const filePath = path.join(dir, fileName);
@@ -4303,6 +4656,46 @@ ipcMain.handle('desktop:reveal-local-data-archive', async (_event, payload) => {
         : ensureLocalDataDirectory();
       return openDirectoryInExplorer(directory);
     }
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : String(error) };
+  }
+});
+
+ipcMain.handle('desktop:list-ai-timeline-worknodes', () => {
+  try {
+    return buildAiTimelineWorkNodeListResult();
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : String(error) };
+  }
+});
+
+ipcMain.handle('desktop:create-ai-timeline-worknode', (_event, payload) => {
+  try {
+    return createAiTimelineWorkNode(payload);
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : String(error) };
+  }
+});
+
+ipcMain.handle('desktop:read-ai-timeline-worknode', (_event, payload) => {
+  try {
+    return readAiTimelineWorkNode(payload?.id || payload);
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : String(error) };
+  }
+});
+
+ipcMain.handle('desktop:update-ai-timeline-worknode', (_event, payload) => {
+  try {
+    return updateAiTimelineWorkNode(payload?.id, payload);
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : String(error) };
+  }
+});
+
+ipcMain.handle('desktop:commit-ai-timeline-worknode', (_event, payload) => {
+  try {
+    return commitAiTimelineWorkNode(payload?.id, payload);
   } catch (error) {
     return { ok: false, error: error instanceof Error ? error.message : String(error) };
   }

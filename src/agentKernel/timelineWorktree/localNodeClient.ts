@@ -66,6 +66,17 @@ function buildUrl(baseUrl: string, pathname: string) {
   return `${baseUrl.replace(/\/$/, '')}${pathname}`;
 }
 
+function getDesktopRuntime() {
+  return typeof window !== 'undefined' ? window.desktopRuntime : undefined;
+}
+
+function readDesktopResult<T extends { ok: boolean; error?: string }>(payload: T | undefined): T {
+  if (!payload?.ok) {
+    throw new Error(payload?.error || 'Desktop AI timeline work node request failed.');
+  }
+  return payload;
+}
+
 async function postJson<T>(baseUrl: string, pathname: string, body: unknown): Promise<T> {
   const response = await fetch(buildUrl(baseUrl, pathname), {
     method: 'POST',
@@ -78,20 +89,61 @@ async function postJson<T>(baseUrl: string, pathname: string, body: unknown): Pr
 export function createAiTimelineWorkNodeClient(baseUrl = DEFAULT_REST_BASE_URL) {
   return {
     async list(): Promise<AiTimelineWorkNodeListResponse> {
+      const desktopRuntime = getDesktopRuntime();
+      if (desktopRuntime?.listAiTimelineWorkNodes) {
+        const result = readDesktopResult(await desktopRuntime.listAiTimelineWorkNodes());
+        return {
+          ok: true,
+          protocolVersion: 1,
+          path: result.path || '',
+          nodes: (result.archive?.nodes || []) as AiTimelineWorkNode[],
+          commits: (result.archive?.commits || []) as AiTimelineWorkNodeCommit[],
+        };
+      }
       const response = await fetch(buildUrl(baseUrl, '/api/ai-timeline-worknodes'));
       return readJsonResponse<AiTimelineWorkNodeListResponse>(response);
     },
 
     async get(id: string): Promise<AiTimelineWorkNodeResponse> {
+      const desktopRuntime = getDesktopRuntime();
+      if (desktopRuntime?.readAiTimelineWorkNode) {
+        const result = readDesktopResult(await desktopRuntime.readAiTimelineWorkNode({ id }));
+        return {
+          ok: true,
+          protocolVersion: 1,
+          path: result.path || '',
+          node: result.node as AiTimelineWorkNode,
+        };
+      }
       const response = await fetch(buildUrl(baseUrl, `/api/ai-timeline-worknodes/${encodeURIComponent(id)}`));
       return readJsonResponse<AiTimelineWorkNodeResponse>(response);
     },
 
-    create(input: CreateAiTimelineWorkNodeInput): Promise<AiTimelineWorkNodeResponse> {
+    async create(input: CreateAiTimelineWorkNodeInput): Promise<AiTimelineWorkNodeResponse> {
+      const desktopRuntime = getDesktopRuntime();
+      if (desktopRuntime?.createAiTimelineWorkNode) {
+        const result = readDesktopResult(await desktopRuntime.createAiTimelineWorkNode(input));
+        return {
+          ok: true,
+          protocolVersion: 1,
+          path: result.path || '',
+          node: result.node as AiTimelineWorkNode,
+        };
+      }
       return postJson<AiTimelineWorkNodeResponse>(baseUrl, '/api/ai-timeline-worknodes/create', input);
     },
 
-    update(id: string, input: UpdateAiTimelineWorkNodeInput): Promise<AiTimelineWorkNodeResponse> {
+    async update(id: string, input: UpdateAiTimelineWorkNodeInput): Promise<AiTimelineWorkNodeResponse> {
+      const desktopRuntime = getDesktopRuntime();
+      if (desktopRuntime?.updateAiTimelineWorkNode) {
+        const result = readDesktopResult(await desktopRuntime.updateAiTimelineWorkNode({ id, ...input }));
+        return {
+          ok: true,
+          protocolVersion: 1,
+          path: result.path || '',
+          node: result.node as AiTimelineWorkNode,
+        };
+      }
       return postJson<AiTimelineWorkNodeResponse>(
         baseUrl,
         `/api/ai-timeline-worknodes/${encodeURIComponent(id)}/update`,
@@ -99,7 +151,18 @@ export function createAiTimelineWorkNodeClient(baseUrl = DEFAULT_REST_BASE_URL) 
       );
     },
 
-    commit(id: string, input: CommitAiTimelineWorkNodeInput = {}): Promise<AiTimelineWorkNodeCommitResponse> {
+    async commit(id: string, input: CommitAiTimelineWorkNodeInput = {}): Promise<AiTimelineWorkNodeCommitResponse> {
+      const desktopRuntime = getDesktopRuntime();
+      if (desktopRuntime?.commitAiTimelineWorkNode) {
+        const result = readDesktopResult(await desktopRuntime.commitAiTimelineWorkNode({ id, ...input }));
+        return {
+          ok: true,
+          protocolVersion: 1,
+          path: result.path || '',
+          node: result.node as AiTimelineWorkNode,
+          commit: result.commit as AiTimelineWorkNodeCommit,
+        };
+      }
       return postJson<AiTimelineWorkNodeCommitResponse>(
         baseUrl,
         `/api/ai-timeline-worknodes/${encodeURIComponent(id)}/commit`,

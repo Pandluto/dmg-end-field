@@ -225,7 +225,7 @@ Apply 失败或风险过高时：
 ## 当前风险点
 
 - 现有 `timelineWorktree/storage.ts` 仍是浏览器 localStorage 过渡实现，不能作为最终安全边界。
-- REST/Electron 还没有完整共享的 AI work node IPC；第一阶段可先在 REST 开发服务补 appdata 文件 API。
+- REST 开发服务、Electron IPC、Electron bridge 已有 AI work node appdata 文件 API，但还没有真实 checkout apply 流程。
 - 还没有真实 patch planner，模型仍可能退回口述或 command queue。
 - 自动审批只能覆盖低风险结构变更；删除、覆盖、跨存档 apply 必须至少标记 warning/blocker。
 - UI 暂未提供 work node diff 审核面板，短期需要通过日志和手测清单验收。

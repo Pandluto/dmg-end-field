@@ -154,6 +154,79 @@ interface LocalDataOpResult {
   sessionKeyNames?: string[];
 }
 
+type AiTimelineWorkNodeStatus = 'open' | 'ready' | 'committed' | 'applied' | 'abandoned';
+type AiTimelineApprovalPolicy = 'auto-low-risk' | 'ask-on-risk' | 'manual';
+type AiTimelineRiskSeverity = 'info' | 'warning' | 'blocker';
+
+interface AiTimelinePayloadSummary {
+  characterCount: number;
+  buttonCount: number;
+  buffCount: number;
+}
+
+interface AiTimelineRiskFlagBridge {
+  id?: string;
+  severity: AiTimelineRiskSeverity;
+  code: string;
+  message: string;
+  path?: string;
+}
+
+interface AiTimelineApprovalBridge {
+  mode: 'auto' | 'manual';
+  approvedAt?: number;
+  approvedBy: 'ai' | 'user' | 'system';
+  rationale: string;
+}
+
+interface AiTimelineWorkNodeBridge {
+  id: string;
+  saveId: string;
+  branchId: string;
+  createdAt: number;
+  updatedAt: number;
+  label: string;
+  status: AiTimelineWorkNodeStatus;
+  basePayload: unknown;
+  workingPayload: unknown;
+  baseSummary: AiTimelinePayloadSummary;
+  workingSummary: AiTimelinePayloadSummary;
+  approvalPolicy: AiTimelineApprovalPolicy;
+  riskFlags: AiTimelineRiskFlagBridge[];
+  logs: unknown[];
+}
+
+interface AiTimelineWorkNodeCommitBridge {
+  id: string;
+  nodeId: string;
+  saveId: string;
+  branchId: string;
+  createdAt: number;
+  label: string;
+  summary: unknown;
+  basePayload: unknown;
+  appliedPayload: unknown;
+  riskFlags: AiTimelineRiskFlagBridge[];
+  approval: AiTimelineApprovalBridge;
+  checkoutApplied: boolean;
+}
+
+interface AiTimelineWorkNodeArchiveBridge {
+  type: 'def.ai-timeline.worknodes.v1';
+  schemaVersion: 1;
+  nodes: AiTimelineWorkNodeBridge[];
+  commits: AiTimelineWorkNodeCommitBridge[];
+}
+
+interface AiTimelineWorkNodeOpResult {
+  ok: boolean;
+  error?: string;
+  path?: string;
+  archive?: AiTimelineWorkNodeArchiveBridge;
+  node?: AiTimelineWorkNodeBridge;
+  commit?: AiTimelineWorkNodeCommitBridge;
+}
+
 interface ImageAssetImportToDirPayload {
   targetDir?: string;
 }
@@ -183,6 +256,11 @@ interface DesktopRuntimeBridge {
   readLocalDataArchive?: (payload: { id?: string; fileName?: string; storageScope?: LocalDataStorageScope }) => Promise<LocalDataOpResult>;
   deleteLocalDataArchive?: (payload: { id?: string; fileName?: string; storageScope?: LocalDataStorageScope }) => Promise<LocalDataOpResult>;
   revealLocalDataArchive?: (payload?: { id?: string; fileName?: string; storageScope?: LocalDataStorageScope }) => Promise<LocalDataOpResult>;
+  listAiTimelineWorkNodes?: () => Promise<AiTimelineWorkNodeOpResult>;
+  createAiTimelineWorkNode?: (payload: unknown) => Promise<AiTimelineWorkNodeOpResult>;
+  readAiTimelineWorkNode?: (payload: { id: string } | string) => Promise<AiTimelineWorkNodeOpResult>;
+  updateAiTimelineWorkNode?: (payload: { id: string; [key: string]: unknown }) => Promise<AiTimelineWorkNodeOpResult>;
+  commitAiTimelineWorkNode?: (payload: { id: string; [key: string]: unknown }) => Promise<AiTimelineWorkNodeOpResult>;
 }
 
 interface Window {

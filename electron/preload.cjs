@@ -38,4 +38,9 @@ contextBridge.exposeInMainWorld('desktopRuntime', {
   readLocalDataArchive: (payload) => ipcRenderer.invoke('desktop:read-local-data-archive', payload),
   deleteLocalDataArchive: (payload) => ipcRenderer.invoke('desktop:delete-local-data-archive', payload),
   revealLocalDataArchive: (payload) => ipcRenderer.invoke('desktop:reveal-local-data-archive', payload),
+  listAiTimelineWorkNodes: () => ipcRenderer.invoke('desktop:list-ai-timeline-worknodes'),
+  createAiTimelineWorkNode: (payload) => ipcRenderer.invoke('desktop:create-ai-timeline-worknode', payload),
+  readAiTimelineWorkNode: (payload) => ipcRenderer.invoke('desktop:read-ai-timeline-worknode', payload),
+  updateAiTimelineWorkNode: (payload) => ipcRenderer.invoke('desktop:update-ai-timeline-worknode', payload),
+  commitAiTimelineWorkNode: (payload) => ipcRenderer.invoke('desktop:commit-ai-timeline-worknode', payload),
 });

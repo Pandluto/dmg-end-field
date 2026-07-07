@@ -16,6 +16,7 @@
 - Task 8: 已完成，修正 spec/task 的存储边界。
 - Task 9: 已完成，新增 appdata/localdata AI work node REST API 骨架。
 - Task 10: 已完成，跑 build/test/REST smoke，并 review 风险。
+- Task 11: 已完成，新增 Electron IPC/bridge AI work node appdata API，并让前端 client 桌面优先。
 
 ## Task 8: 修正存储边界
 
@@ -72,6 +73,35 @@
 - 单测如现状通过。
 - REST smoke 能创建、更新、提交一个独立 AI work node。
 - 手测清单更新为新架构口径。
+
+## Task 11: 新增 Electron appdata 入口
+
+- 在 Electron main localdata 模块中新增 `ai-timeline-worknodes.json` 路径。
+- 新增 Electron IPC：
+  - `desktop:list-ai-timeline-worknodes`
+  - `desktop:create-ai-timeline-worknode`
+  - `desktop:read-ai-timeline-worknode`
+  - `desktop:update-ai-timeline-worknode`
+  - `desktop:commit-ai-timeline-worknode`
+- 新增 31457 bridge HTTP：
+  - `GET /local-data/ai-timeline-worknodes`
+  - `POST /local-data/ai-timeline-worknodes/create`
+  - `GET /local-data/ai-timeline-worknodes/:id`
+  - `POST /local-data/ai-timeline-worknodes/:id/update`
+  - `POST /local-data/ai-timeline-worknodes/:id/commit`
+- `localNodeClient` 在 Electron 环境优先走 `window.desktopRuntime`，否则回退 REST。
+- `listLocalDataArchives()` 排除 `ai-timeline-worknodes.json`，避免本地工作节点出现在用户存档列表里。
+
+验收：
+
+- Electron IPC/bridge 均写入 appdata/localdata 的 `ai-timeline-worknodes.json`。
+- work node 文件不写入 `now-storage.json`。
+- commit 仍只标记 `committed`，`checkoutApplied:false`，不伪装成真实排轴已应用。
+
+风险：
+
+- 真实 checkout apply 流程还未实现。
+- REST 与 Electron 目前有重复的 work node 存储逻辑，后续应抽共享模块减少漂移。
 
 ## Task 1: 新增 worktree 类型和存储模块
 
