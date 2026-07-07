@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent } from 'react';
 import {
   hydrateDefAgentSession,
+  sendDefAgentContinue,
   startDefAgentStream,
   stopDefAgentStream,
   subscribeDefAgentSession,
@@ -16,9 +17,9 @@ import {
   type MainWorkbenchSnapshot,
 } from '../../utils/mainWorkbenchControl';
 import {
+  buildMainWorkbenchSnapshotEvidence,
   buildMainWorkbenchSnapshotAnswerFromPrompt,
   isMainWorkbenchMutatingPrompt,
-  isReadOnlyMainWorkbenchSnapshotPrompt,
   shouldCreateMainWorkbenchRollback,
   verifyMainWorkbenchTurn,
   type MainWorkbenchCommandEvidence,
@@ -129,6 +130,7 @@ function buildWorkbenchAgentMessage(
   userText: string,
   selectedCharacters: Character[],
   skillButtons: SkillButton[],
+  snapshotEvidence: string,
 ) {
   const selectedSummary = selectedCharacters.length
     ? selectedCharacters.map((character) => `${character.name}(${character.id})`).join(', ')
@@ -147,7 +149,9 @@ function buildWorkbenchAgentMessage(
     ...buildGameKnowledgePromptLines(),
     '换人时只读一次快照，保留未提到的已选干员，然后一次性 selectCharacters 写入最终名单；命中当前快照或上述别名时不要搜索干员库，不要先查 ID。',
     '下方当前已选干员与当前技能按钮就是可信上下文；能从这里判断的干员/按钮不要再读快照、查 schema 或查库。',
-    '用户只问当前状态/现在穿什么/有哪些按钮/伤害是多少时，这是只读查询：读取 /api/main-workbench/snapshot 后直接回答具体名称和数值，不要投递命令，不要只说“已完成”。',
+    '用户只问当前状态/现在穿什么/有哪些按钮/伤害是多少时，这是只读查询：优先使用下方 MAIN_WORKBENCH_READONLY_EVIDENCE 自行组织答案；必要时可读取 /api/main-workbench/snapshot 核对，不要投递命令，不要只说“已完成”。',
+    '只读回答必须由你基于证据生成，不要要求前端模板代答。用户追问“它/这个/刚才那个/有什么 Buff”时，结合上一轮对话里的定位对象。',
+    '如果用户问某个具体按钮有什么 Buff，只回答该按钮；不要退回到角色级或全局 Buff 汇总。',
     '用户要求增加、删除、替换、配置、释放技能、添加 Buff、回退或计算时，必须先投递实际命令；如果无法执行，明确说明失败，不要只读取快照当作完成。',
     '只有换人、清空排轴、批量大改动或用户明确要求可回退时才先保存快照；单个技能按钮/Buff 的添加或移除不要先保存快照。',
     '用户说添加/增加/释放/放一个技能按钮时，必须使用 addSkillButton；不要使用 addBuff。',
@@ -156,6 +160,7 @@ function buildWorkbenchAgentMessage(
     '发命令后最多读取一次 /api/main-workbench/snapshot 或 /api/main-workbench/commands 确认执行结果，状态已符合就立刻简短回复。',
     `当前已选干员: ${selectedSummary}`,
     `当前技能按钮: ${buttonSummary}`,
+    snapshotEvidence,
     `用户请求: ${userText}`,
   ].join('\n');
 }
@@ -743,26 +748,6 @@ export function MainWorkbenchAiPanel({
 
     /* === [DISABLED] 本地流 dispatch — 如需恢复取消此注释块 === */
 
-    if (isReadOnlyMainWorkbenchSnapshotPrompt(userText)) {
-      try {
-        setStatus('读取快照');
-        patchStep('rest', { status: 'running', detail: '读取主界面快照' });
-        await ensureMainWorkbenchRest();
-        const snapshot = await readMainWorkbenchSnapshot();
-        const answer = buildMainWorkbenchSnapshotAnswerFromPrompt(userText, snapshot) || '快照读取失败。';
-        patchStep('rest', { status: snapshot ? 'done' : 'error', detail: snapshot ? '快照已读取' : '快照读取失败' });
-        patchStep('verify', { status: snapshot ? 'done' : 'error', detail: '只读查询' });
-        finishMessage(messageId, snapshot ? 'done' : 'error', answer);
-        setStatus(snapshot ? '已核对快照' : '快照读取失败');
-      } catch (error) {
-        const text = error instanceof Error ? error.message : String(error);
-        patchStep('rest', { status: 'error', detail: text });
-        finishMessage(messageId, 'error', text);
-        setStatus(text);
-      }
-      return;
-    }
-
     const quickAction = buildQuickWorkbenchAction(userText, selectedCharacters);
     if (quickAction) {
       try {
@@ -811,7 +796,6 @@ export function MainWorkbenchAiPanel({
       return;
     }
 
-    const agentText = buildWorkbenchAgentMessage(userText, selectedCharacters, skillButtons);
     if (turnTimeoutRef.current) {
       window.clearTimeout(turnTimeoutRef.current);
     }
@@ -841,21 +825,50 @@ export function MainWorkbenchAiPanel({
       setStatus('启动 REST');
       patchStep('rest', { status: 'running', detail: '启动 17321' });
       await ensureMainWorkbenchRest();
-      patchStep('rest', { status: 'done', detail: 'REST 已就绪' });
+      const snapshot = await readMainWorkbenchSnapshot();
+      const snapshotEvidence = buildMainWorkbenchSnapshotEvidence(snapshot, userText);
+      const agentText = buildWorkbenchAgentMessage(userText, selectedCharacters, skillButtons, snapshotEvidence);
+      patchStep('rest', { status: 'done', detail: snapshot ? 'REST 已就绪，快照证据已注入' : 'REST 已就绪，快照证据缺失' });
       patchStep('agent', { status: 'running', detail: 'def-opencode 正在思考' });
       eventSourceRef.current?.close();
-      rememberSession(null);
-      lastSeqRef.current = 0;
-      const stream = await startDefAgentStream(agentText, {
-        thinkingEffort: chooseWorkbenchThinkingEffort(userText),
-        skillId: WORKBENCH_AGENT_SKILL_ID,
-        clientTurnId: messageId,
-      });
-      lastSeqRef.current = 0;
-      rememberSession(stream.sessionId);
-      eventSourceRef.current?.close();
-      eventSourceRef.current = stream.eventSource;
-      bindEventSource(stream.eventSource, messageId);
+      const thinkingEffort = chooseWorkbenchThinkingEffort(userText);
+      const existingSessionId = activeSessionIdRef.current;
+      if (existingSessionId) {
+        const nextEventSource = subscribeDefAgentSession(existingSessionId, lastSeqRef.current);
+        eventSourceRef.current = nextEventSource;
+        bindEventSource(nextEventSource, messageId);
+        try {
+          await sendDefAgentContinue(existingSessionId, agentText, messageId, {
+            thinkingEffort,
+            skillId: WORKBENCH_AGENT_SKILL_ID,
+          });
+          rememberSession(existingSessionId);
+        } catch (continueError) {
+          nextEventSource.close();
+          const message = continueError instanceof Error ? continueError.message : String(continueError);
+          if (!/not.?found|session/i.test(message)) throw continueError;
+          lastSeqRef.current = 0;
+          const stream = await startDefAgentStream(agentText, {
+            thinkingEffort,
+            skillId: WORKBENCH_AGENT_SKILL_ID,
+            clientTurnId: messageId,
+          });
+          rememberSession(stream.sessionId);
+          eventSourceRef.current?.close();
+          eventSourceRef.current = stream.eventSource;
+          bindEventSource(stream.eventSource, messageId);
+        }
+      } else {
+        lastSeqRef.current = 0;
+        const stream = await startDefAgentStream(agentText, {
+          thinkingEffort,
+          skillId: WORKBENCH_AGENT_SKILL_ID,
+          clientTurnId: messageId,
+        });
+        rememberSession(stream.sessionId);
+        eventSourceRef.current = stream.eventSource;
+        bindEventSource(stream.eventSource, messageId);
+      }
     } catch (error) {
       const text = error instanceof Error ? error.message : String(error);
       setStatus(text);

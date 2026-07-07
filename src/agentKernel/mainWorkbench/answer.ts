@@ -36,6 +36,11 @@ function formatDamageValue(value: number | undefined) {
   return Math.round(value).toLocaleString('zh-CN');
 }
 
+function formatEvidenceDamageValue(value: number | undefined) {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return null;
+  return Math.round(value);
+}
+
 function matchesGoalCharacter(goal: MainWorkbenchGoal, characterName: string) {
   return goal.characterNames.length === 0 || goal.characterNames.includes(characterName);
 }
@@ -135,4 +140,93 @@ export function buildMainWorkbenchSnapshotAnswer(goal: MainWorkbenchGoal, snapsh
 
 export function buildMainWorkbenchSnapshotAnswerFromPrompt(prompt: string | undefined, snapshot: MainWorkbenchSnapshot | null) {
   return buildMainWorkbenchSnapshotAnswer(inferMainWorkbenchGoal(prompt, snapshot), snapshot);
+}
+
+export function buildMainWorkbenchSnapshotEvidence(snapshot: MainWorkbenchSnapshot | null, prompt = '') {
+  if (!snapshot) {
+    return 'MAIN_WORKBENCH_READONLY_EVIDENCE: unavailable';
+  }
+  const goal = inferMainWorkbenchGoal(prompt, snapshot);
+  const selectedCharacters = snapshot.selectedCharacters.map((character) => ({
+    id: character.id,
+    name: character.name,
+    element: character.element,
+    profession: character.profession,
+  }));
+  const buttons = snapshot.skillButtons.map((button) => {
+    const buffNames = button.selectedBuffs?.length
+      ? button.selectedBuffs.map(formatBuffName)
+      : button.selectedBuffIds;
+    return {
+      id: button.id,
+      label: formatButtonLabel(button),
+      characterName: button.characterName,
+      skillType: button.skillType,
+      skillDisplayName: button.skillDisplayName || button.skillType,
+      staffIndex: button.staffIndex,
+      lineIndex: button.lineIndex,
+      nodeIndex: button.nodeIndex,
+      position: `${button.staffIndex + 1}-${(button.nodeIndex ?? 0) + 1}`,
+      buffCount: buffNames.length,
+      buffs: buffNames,
+    };
+  });
+  const mentionedButtons = goal.characterNames.length
+    ? buttons.filter((button) => goal.characterNames.includes(button.characterName))
+    : buttons;
+  const equipment = (snapshot.operatorConfigs || []).map((config) => ({
+    characterName: config.characterName,
+    weapon: config.weapon
+      ? {
+        name: config.weapon.name,
+        level: config.weapon.level,
+        potential: config.weapon.potential,
+      }
+      : null,
+    equipment: config.equipment.map((item) => ({
+      slotKey: item.slotKey,
+      part: item.part,
+      name: item.name,
+    })),
+  }));
+  const damageButtons = (snapshot.damageReport?.buttons || []).map((button) => ({
+    id: button.id,
+    label: `${button.characterName}-${button.skillName}`,
+    characterName: button.characterName,
+    skillName: button.skillName,
+    skillType: button.skillType,
+    expected: formatEvidenceDamageValue(button.expected),
+    damage: formatEvidenceDamageValue(button.damage),
+  }));
+  const evidence = {
+    source: 'current-checkout-snapshot',
+    note: [
+      'This is read-only evidence from the current checked-out main workbench state.',
+      'Use this evidence to answer the user in natural language.',
+      'Do not treat this evidence as an appdata AI work node.',
+      'Do not enqueue mutation commands for read-only questions.',
+      'For follow-up pronouns like it/this/that/刚才那个, use the prior conversation plus this evidence.',
+      'When the user asks about a specific button, answer for that button, not the whole character or whole timeline.',
+    ],
+    prompt,
+    inferredGoal: {
+      kind: goal.kind,
+      characterNames: goal.characterNames,
+      mutating: goal.mutating,
+    },
+    selectedCharacters,
+    buttons,
+    mentionedCharacterButtons: mentionedButtons,
+    equipment,
+    damageReport: snapshot.damageReport
+      ? {
+        totalExpected: formatEvidenceDamageValue(snapshot.damageReport.totalExpected),
+        totalNonCrit: formatEvidenceDamageValue(snapshot.damageReport.totalNonCrit),
+        buttonCount: snapshot.damageReport.buttonCount,
+        buttons: damageButtons,
+      }
+      : null,
+    lastCommand: snapshot.lastCommand,
+  };
+  return `MAIN_WORKBENCH_READONLY_EVIDENCE:\n${JSON.stringify(evidence, null, 2)}`;
 }
