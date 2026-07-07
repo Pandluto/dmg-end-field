@@ -2,7 +2,7 @@
 
 ## Status
 
-本轮已执行第一阶段：规格落地、最小 worktree 核心、旧 command queue 止血。
+本轮已执行第一阶段止血，并开始第二阶段：把错误的浏览器 worktree 口径修正为 appdata/localdata AI work node。
 
 执行结果：
 
@@ -13,6 +13,64 @@
 - Task 5: 已完成 `removeSkillButton` / Buff 按钮定位止血。
 - Task 6: 已禁止 `step.finish` finalize。
 - Task 7: 已跑 build、test、worktree smoke。
+- Task 8: 进行中，修正 spec/task 的存储边界。
+- Task 9: 待执行，新增 appdata/localdata AI work node REST API 骨架。
+- Task 10: 待执行，跑 build/test/REST smoke，并 review 风险。
+
+## Task 8: 修正存储边界
+
+- 明确 `localStorage` / `sessionStorage` 是当前前端迁出状态。
+- 明确 `now-storage.json` 是当前迁出同步位。
+- 明确 AI work node 必须保存在 appdata/localdata 独立文件或目录。
+- 将现有浏览器 localStorage worktree 定位为 phase-0 checkout cache，而不是最终架构。
+
+验收：
+
+- spec 不再把 `def.ai-timeline.worktree-archive.v1` 描述为最终 AI 分支存储。
+- spec 明确每个 save id/branch 对应独立工作节点。
+- spec 明确修改日志不挤占用户排轴恢复位。
+
+风险：
+
+- 现有代码仍有浏览器 localStorage 过渡模块，后续需要迁移调用链。
+
+## Task 9: 新增 appdata/localdata AI work node REST API 骨架
+
+- 在本地 REST 服务中新增独立文件存储：`data/localdata/ai-timeline-worknodes.json`。
+- 提供最小 API：
+  - `GET /api/ai-timeline-worknodes`
+  - `POST /api/ai-timeline-worknodes/create`
+  - `GET /api/ai-timeline-worknodes/:id`
+  - `POST /api/ai-timeline-worknodes/:id/update`
+  - `POST /api/ai-timeline-worknodes/:id/commit`
+- 节点字段包含 `saveId`、`branchId`、`basePayload`、`workingPayload`、`riskFlags`、`logs`、`approvalPolicy`。
+- API 不写 `now-storage.json`，不写用户 timeline snapshot archive。
+
+验收：
+
+- `/health` 能暴露 work node 存储路径。
+- create/update/commit 能落盘到 appdata/localdata 文件。
+- update/commit 会记录日志和风险标记。
+- 缺少 payload 或 id 不存在时返回结构化错误。
+
+风险：
+
+- REST API 只是开发期骨架，Electron IPC 仍需后续补齐。
+- 尚未把主界面 AI 面板完全切换到这个 API。
+
+## Task 10: 验证与 review
+
+- 跑 `npm run build`。
+- 跑 `npm test`。
+- 重启 `npm run ai-cli:rest` 后跑 work node API smoke。
+- 检查 git diff，确认没有误写 now-storage 或排轴 snapshot archive。
+
+验收：
+
+- 构建通过。
+- 单测如现状通过。
+- REST smoke 能创建、更新、提交一个独立 AI work node。
+- 手测清单更新为新架构口径。
 
 ## Task 1: 新增 worktree 类型和存储模块
 
@@ -107,3 +165,4 @@
 - 不做真正 MCP server。
 - 不做 worktree UI 面板。
 - 不让 AI 执行任意 JS。
+- 不把 appdata work node 和 now-storage 合并。

@@ -14,19 +14,26 @@
 
 既有 def-opencode 主界面链路把 AI 变更建模为“自然语言 -> REST command queue -> React 局部执行 -> 再同步快照”。这让模型在脆弱接口中猜 `buttonId`、`skillType`、`nodeIndex`，并把执行、验证和回答混在一起。
 
-AI 排轴应改为“工作树”模型：AI 修改副本，系统 diff、校验、dry-run，只有通过后才 apply 到真实排轴。
+AI 排轴应改为“本地工作节点”模型：AI 在 appdata/localdata 里的独立节点上修改副本，系统 diff、校验、标记风险，低阻塞审批通过后再 checkout/apply 到真实排轴。
+
+这里必须区分三类数据：
+
+- `localStorage` / `sessionStorage`：当前前端迁出的工作副本，是正在运行的页面状态。
+- `now-storage.json`：Electron/REST 与浏览器状态同步的当前迁出位，不是 AI 分支日志。
+- appdata/localdata AI work node：AI 的独立工作节点和审计日志，每个 save id/branch 一个节点，不能挤占用户排轴快照和 now-storage。
 
 ## 目标
 
-建立 AI Timeline Worktree 作为排轴智能体的新底层交互模型。
+建立 AI Timeline Work Node 作为排轴智能体的新底层交互模型。
 
 第一阶段目标：
 
-- AI 不直接写真实 `sessionStorage` 排轴。
-- 系统能复制当前 `TimelineSnapshotPayload` 成一份 AI workspace。
-- workspace 有独立日志，不挤占用户排轴快照。
+- AI 不直接写真实 `sessionStorage` 排轴，也不把 `now-storage` 当作分支存储。
+- 系统能复制当前 `TimelineSnapshotPayload` 成一份 appdata/localdata AI work node。
+- work node 有独立日志，不挤占用户排轴快照和 now-storage。
 - 系统能比较 base/working，给出结构化 diff。
-- 系统能在校验通过后把 working payload apply 回真实排轴。
+- 系统能在校验通过、风险已标记后，把 working payload checkout/apply 回真实排轴。
+- AI 可以在低风险策略内自行判断并继续；系统主要提供风险标记、diff、回退点，而不是默认强制拦截。
 - 删除/修改类操作禁止模糊 fallback。
 
 ## 非目标
@@ -39,58 +46,102 @@ AI 排轴应改为“工作树”模型：AI 修改副本，系统 diff、校验
 
 ## 数据模型
 
-### AI Worktree Archive
+### 存储边界
 
-AI worktree 使用独立 localStorage key，不使用 `def.timeline.snapshot-archive.v1`。
+AI work node 使用 appdata/localdata 下的独立文件或目录，开发环境对应 `data/localdata`，生产环境对应 runtime localdata。禁止把它写进：
 
-建议 key：
+- `def.timeline.snapshot-archive.v1`
+- `def.ai-timeline.worktree-archive.v1` 这样的浏览器 localStorage key
+- `now-storage.json`
+
+浏览器 local/session storage 只允许表示“当前迁出”。如果前端保留 `timelineWorktree/storage.ts` 的 localStorage 版本，它只能作为 phase-0 checkout cache，不能视为最终工作节点实现。
+
+建议 appdata 路径：
 
 ```text
-def.ai-timeline.worktree-archive.v1
+data/localdata/ai-timeline-worknodes.json
 ```
+
+或后续升级为目录：
+
+```text
+data/localdata/ai-timeline-worknodes/<saveId>/<nodeId>.json
+```
+
+### AI Work Node Archive
 
 结构：
 
 ```ts
-interface AiTimelineWorktreeArchive {
-  version: "v1";
-  worktrees: AiTimelineWorktree[];
+interface AiTimelineWorkNodeArchive {
+  type: "def.ai-timeline.worknodes.v1";
+  schemaVersion: 1;
+  nodes: AiTimelineWorkNode[];
   commits: AiTimelineCommit[];
 }
 ```
 
-### Worktree
+### Work Node
 
 ```ts
-interface AiTimelineWorktree {
+interface AiTimelineWorkNode {
   id: string;
+  saveId: string;
+  branchId: string;
   createdAt: number;
   updatedAt: number;
   label: string;
-  status: "open" | "committed" | "abandoned";
+  status: "open" | "ready" | "applied" | "abandoned";
   basePayload: TimelineSnapshotPayload;
   workingPayload: TimelineSnapshotPayload;
   baseSummary: TimelinePayloadSummary;
   workingSummary: TimelinePayloadSummary;
-  logs: AiTimelineWorktreeLog[];
+  approvalPolicy: "auto-low-risk" | "ask-on-risk" | "manual";
+  riskFlags: AiTimelineRiskFlag[];
+  logs: AiTimelineWorkNodeLog[];
 }
 ```
+
+`saveId` 对应当前存档或排轴上下文。`branchId` 对应 AI 的一次独立尝试，语义类似轻量分支。
 
 ### Commit Log
 
 ```ts
 interface AiTimelineCommit {
   id: string;
-  worktreeId: string;
+  nodeId: string;
+  saveId: string;
+  branchId: string;
   createdAt: number;
   label: string;
   summary: TimelinePayloadDiffSummary;
   basePayload: TimelineSnapshotPayload;
   appliedPayload: TimelineSnapshotPayload;
+  riskFlags: AiTimelineRiskFlag[];
+  approval: AiTimelineApproval;
 }
 ```
 
 commit log 是 AI 操作审计资产，不是用户排轴恢复资产。
+
+### Risk Flag
+
+```ts
+interface AiTimelineRiskFlag {
+  id: string;
+  severity: "info" | "warning" | "blocker";
+  code: string;
+  message: string;
+  path?: string;
+}
+
+interface AiTimelineApproval {
+  mode: "auto" | "manual";
+  approvedAt: number;
+  approvedBy: "ai" | "user" | "system";
+  rationale: string;
+}
+```
 
 ## Diff
 
@@ -128,17 +179,25 @@ interface TimelinePayloadDiff {
 - `skillButtonTable` 中每个按钮必须能在 `timelineData` 找到。
 - 每个按钮引用的 Buff id 必须存在于 `allBuffList`。
 - 删除类操作不得通过“第一个候选” fallback。
+- `saveId` / `branchId` 必须存在，节点状态必须允许写入。
+- appdata node 的 `workingPayload` 与当前 checkout apply 前必须重新 diff。
 
 ## Apply
 
-通过校验后，系统调用既有 `applyTimelineSnapshotPayload()` 将 `workingPayload` 写回真实排轴。
+通过校验后，系统调用既有 `applyTimelineSnapshotPayload()` 将 `workingPayload` checkout 到真实排轴。
 
 Apply 成功后：
 
 - 创建 `AiTimelineCommit`。
-- 将 worktree 标记为 `committed`。
+- 将 work node 标记为 `applied`。
 - 不自动创建用户 timeline snapshot。
 - UI 可选择展示 diff 和 commit 摘要。
+
+Apply 失败或风险过高时：
+
+- 不修改真实排轴。
+- 保留 appdata work node。
+- 将失败原因写入 node logs 和 risk flags。
 
 ## 与旧 command queue 的关系
 
@@ -152,12 +211,20 @@ Apply 成功后：
 
 ## 未来扩展
 
-后续可以将 worktree 能力包装成 MCP-like tools：
+后续可以将 work node 能力包装成 MCP-like tools：
 
-- `timeline.create_worktree`
-- `timeline.diff_worktree`
+- `timeline.create_work_node`
+- `timeline.diff_work_node`
 - `timeline.apply_patch`
-- `timeline.commit_worktree`
-- `timeline.abandon_worktree`
+- `timeline.commit_work_node`
+- `timeline.abandon_work_node`
 
 模型生成的是 patch/DSL，系统负责编译、校验、apply。
+
+## 当前风险点
+
+- 现有 `timelineWorktree/storage.ts` 仍是浏览器 localStorage 过渡实现，不能作为最终安全边界。
+- REST/Electron 还没有完整共享的 AI work node IPC；第一阶段可先在 REST 开发服务补 appdata 文件 API。
+- 还没有真实 patch planner，模型仍可能退回口述或 command queue。
+- 自动审批只能覆盖低风险结构变更；删除、覆盖、跨存档 apply 必须至少标记 warning/blocker。
+- UI 暂未提供 work node diff 审核面板，短期需要通过日志和手测清单验收。
