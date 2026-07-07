@@ -144,6 +144,7 @@ function buildWorkbenchAgentMessage(
   return [
     '你正在 dmg-end-field 主界面右侧 AI 模式中。用户要通过自然语言操作当前主界面排轴。',
     '当需要改动主界面时，使用 http://127.0.0.1:17321/api/main-workbench/commands/enqueue 投递声明式命令；多步操作优先一次 POST {commands:[...]}，请求体形如 {"commands":[{"op":"..."}],"source":"def-opencode"}。',
+    '多步 commands enqueue 会返回 batchId；批量操作确认优先读取 /api/main-workbench/commands/batch?batchId=<batchId>，用 total/pending/running/done/error 判断进度，不要手工数全局队列。',
     '可用 op: selectCharacters, openView, openWorkbenchPage, clearTimeline, setOperatorWeapon, setOperatorEquipment, addSkillButton, removeSkillButton, addBuff, removeBuff, setTargetResistance, saveTimelineSnapshot, restoreTimelineSnapshot, listTimelineSnapshots, createAiTimelineWorkNodeFromCurrent, diffAiTimelineWorkNode, checkoutAiTimelineWorkNode, restoreAiTimelineWorkNodeBase, refreshOperatorConfig, calculateDamage, refreshSnapshot。',
     '推荐攻略链路: selectCharacters -> setOperatorWeapon/setOperatorEquipment -> refreshOperatorConfig -> restoreTimelineSnapshot 或 clearTimeline/addSkillButton -> addBuff/setTargetResistance -> calculateDamage -> saveTimelineSnapshot。',
     'setOperatorEquipment 可用 gearSetName/gearSetId + fillSlots 自动填 4 件，也可用 slotKey + equipmentName/equipmentId 指定单件；满词条一般传 entryLevel: 3。',
@@ -159,7 +160,7 @@ function buildWorkbenchAgentMessage(
     '用户说添加/增加/释放/放一个技能按钮时，必须使用 addSkillButton；不要使用 addBuff。',
     '用户说添加 Buff/增益时，必须使用 addBuff 且 command.buff 必须是完整对象；如果只有 buffId、没有 buff 对象，或者用户只说“任意/随便一个 Buff”，应询问具体 Buff，不要投递 addBuff。',
     'Buff 操作优先用 addBuff/removeBuff，能用 characterName + skillType 或 buttonId 定位；用户要求重算时把 calculateDamage 和 refreshSnapshot 放进同一个 commands 数组。',
-    '发命令后最多读取一次 /api/main-workbench/snapshot 或 /api/main-workbench/commands 确认执行结果，状态已符合就立刻简短回复。',
+    '发命令后最多读取一次 /api/main-workbench/snapshot、/api/main-workbench/commands 或批次 /api/main-workbench/commands/batch 确认执行结果；enqueue 成功不等于浏览器已执行，状态已符合就立刻简短回复。',
     `当前已选干员: ${selectedSummary}`,
     `当前技能按钮: ${buttonSummary}`,
     snapshotEvidence,

@@ -417,6 +417,8 @@ export function handleAiCliRestRequest(
           'GET /api/main-workbench/evidence?prompt=<user text>&previousButtonId=<optional>',
           'GET /api/main-workbench/snapshot',
           'GET /api/main-workbench/commands?status=pending',
+          'GET /api/main-workbench/commands?batchId=<batchId>',
+          'GET /api/main-workbench/commands/batch?batchId=<batchId>',
           'POST /api/main-workbench/commands/enqueue',
         ],
         commandOps: [
@@ -445,6 +447,8 @@ export function handleAiCliRestRequest(
           'The browser page executes commands through existing React services and writes results back to result-log/snapshot.',
           'For read-only questions, prefer GET /api/main-workbench/evidence with the user prompt; use focus/previousFocus to answer pronoun follow-ups.',
           'Evidence is current checkout state only; it is not an appdata AI work node and must not be used as branch/commit/rollback state.',
+          'For multi-command enqueue, keep the returned batchId and use GET /api/main-workbench/commands/batch?batchId=<batchId> to observe total/pending/running/done/error before summarizing.',
+          'Enqueue success only means commands entered the queue; use batch summary or result log to decide whether the browser has executed the batch.',
           'Read snapshot after enqueue to confirm selectedCharacters, skillButtons, buff ids, and damage totals.',
           'Use saveTimelineSnapshot before risky operations and restoreTimelineSnapshot for rollback.',
           'Use setOperatorWeapon to equip a selected operator weapon before refreshing operator config.',
