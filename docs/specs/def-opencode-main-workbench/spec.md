@@ -339,6 +339,22 @@ def-agent 会话 SHALL 在同一主界面上下文中连续保留，除非用户
 
 当用户追问“有什么 Buff / 它有什么 Buff / 刚才那个有什么 Buff”且本轮没有新焦点时，系统 SHOULD 将上一轮焦点作为 `previousFocus` 注入证据包。
 
+系统 SHOULD 提供只读 REST evidence 接口，让 def-agent 可以主动读取结构化证据，而不是只依赖前端 prompt 注入。该接口只能读取当前迁出态快照，不得投递命令，不得写 current storage，不得写 appdata work node。
+
+第一版接口：
+
+```text
+GET /api/main-workbench/evidence?prompt=<user text>&previousButtonId=<optional>
+```
+
+返回内容 SHALL 包含：
+
+- 当前快照摘要。
+- `focus`。
+- `previousFocus`。
+- 按钮级 Buff evidence。
+- 装备与伤害摘要 evidence。
+
 ### Mutating Intent
 
 变更意图会改变主界面。
