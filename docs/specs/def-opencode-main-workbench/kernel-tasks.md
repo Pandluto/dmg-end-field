@@ -217,6 +217,28 @@ src/agentKernel/mainWorkbench/
 - 只读接口暴露的是 current checkout snapshot，不是 appdata work node；文档和响应字段必须持续强调。
 - 测试服务会读取既有本地 command queue，因此只读性用 before/after 队列 id 一致验证，而不是要求队列为空。
 
+### Task 10: 共享 evidence/focus runtime（待执行）
+
+- 新增浏览器与 Node REST 都能 import 的运行时模块。
+- 将 focus 解析、previousFocus 校验、按钮级 evidence、装备/伤害 evidence 构建迁入共享模块。
+- `src/agentKernel/mainWorkbench/answer.ts` 只保留 fallback 文本回答和 evidence 字符串包装。
+- `scripts/ai-cli-rest-server.mjs` 删除本地重复 focus/evidence 实现，改为 import 共享模块。
+- 为 TS 提供 `.d.ts` 类型声明，避免 `allowJs` 配置变更。
+
+验收：
+
+- `buildMainWorkbenchSnapshotEvidence` 与 `GET /api/main-workbench/evidence` 共享同一套 runtime。
+- `莱万汀第一次燃尽` 的 focus 结果在 UI evidence 与 REST evidence 中一致。
+- `previousFocus` 过期时两条路径都标记 stale。
+- `node --check scripts/ai-cli-rest-server.mjs` 通过。
+- `npm run build` 通过。
+- `npm test` 通过。
+
+风险：
+
+- `.mjs + .d.ts` 会引入跨 TS/Node 的维护成本；后续若 REST 可以直接使用构建产物，可再收敛。
+- 移动共享逻辑时要确保不把 fallback 文本回答器重新变成正常只读路径。
+
 ## Task Review
 
 ### 本轮执行范围

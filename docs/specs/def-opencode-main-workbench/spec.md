@@ -355,6 +355,8 @@ GET /api/main-workbench/evidence?prompt=<user text>&previousButtonId=<optional>
 - 按钮级 Buff evidence。
 - 装备与伤害摘要 evidence。
 
+只读 evidence/focus 的解析和格式化 SHOULD 使用同一份运行时代码。浏览器 UI 和 REST 服务不得长期维护两份规则，否则会造成 AI 在 prompt 注入路径和主动 REST 读取路径得到不同证据。
+
 ### Mutating Intent
 
 变更意图会改变主界面。
