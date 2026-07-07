@@ -18,6 +18,7 @@
 - Task 10: 已完成，跑 build/test/REST smoke，并 review 风险。
 - Task 11: 已完成，新增 Electron IPC/bridge AI work node appdata API，并让前端 client 桌面优先。
 - Task 12: 已完成，新增 renderer checkout/apply command，把 appdata work node 应用到当前迁出态。
+- Task 13: 待执行，新增 renderer create-from-current command，从当前迁出态创建 appdata work node。
 
 ## Task 8: 修正存储边界
 
@@ -133,6 +134,32 @@
 - 还没有 patch planner；AI 仍需要先生成/更新 work node，再 checkout。
 - 当前自动化 smoke 未覆盖有效已选干员排轴上下文里的完整 renderer reload 后视觉验收，需要后续手测。
 - renderer apply 与 appdata 回写不是事务；若回写失败，命令结果会返回 `checkoutMarkError`，需要后续补偿重试入口。
+
+## Task 13: 新增 renderer create-from-current command
+
+- 新增主界面命令 `createAiTimelineWorkNodeFromCurrent`。
+- 命令在 renderer 中执行：
+  - 调用 `saveTimelineData()` 刷新当前迁出态。
+  - 调用 `getCurrentTimelineSnapshotPayload()` 读取完整 payload。
+  - 调用 appdata/localdata work node client 创建节点。
+  - 返回 node id、save id、branch id、summary、risk flags。
+- 默认 `saveId` 使用当前显式参数；没有参数时使用 `current-main-workbench`。
+- 默认 `branchId` 使用时间戳生成。
+- 不创建用户 timeline snapshot。
+- 不写 `now-storage.json`。
+- 不修改当前排轴。
+
+验收：
+
+- command queue 支持 `createAiTimelineWorkNodeFromCurrent`。
+- 有效排轴上下文下可创建 appdata work node。
+- 创建后的 work node 的 `basePayload` 与 `workingPayload` 都来自当前迁出态。
+- 缺少当前 payload 时失败且不写空节点。
+
+风险：
+
+- 还没有 UI 按钮；短期由 AI/REST command queue 调用。
+- 自动 saveId 仍是粗粒度默认值，后续应与真实存档 id/branch 管理绑定。
 
 ## Task 1: 新增 worktree 类型和存储模块
 

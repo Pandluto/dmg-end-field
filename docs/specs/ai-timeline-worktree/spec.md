@@ -195,6 +195,19 @@ interface TimelinePayloadDiff {
 - renderer 回写 appdata work node：`status: "applied"`，并将对应 commit 标记 `checkoutApplied: true`。
 - 如果命令要求 reload，renderer 再刷新页面以让 React 重新挂载当前迁出态。
 
+### Create From Current Checkout
+
+AI 需要能先申请一份当前排轴副本，再在 appdata work node 上思考和修改。这个动作也必须发生在 renderer，因为当前迁出态只在页面的 `localStorage` / `sessionStorage` 中完整可见。
+
+`createAiTimelineWorkNodeFromCurrent` 语义：
+
+- renderer 调用 `getCurrentTimelineSnapshotPayload()` 读取当前迁出态。
+- renderer 将 payload 作为 `basePayload` 和初始 `workingPayload` 写入 appdata/localdata work node。
+- appdata node 记录 `saveId` / `branchId` / `approvalPolicy` / 初始 risk flags。
+- 不创建用户 timeline snapshot。
+- 不写 `now-storage.json`。
+- 不修改当前排轴。
+
 Apply 成功后：
 
 - 创建 `AiTimelineCommit`。
