@@ -234,6 +234,17 @@ Apply 失败或风险过高时：
 - 有 blocker 时，必须显式传入 manual approval，或者 checkout 失败。
 - checkout 不使用用户 timeline snapshot 做日志；回退依据是 appdata node 的 `basePayload` 和 commit log。
 
+## Rollback
+
+appdata work node 的 `basePayload` 是 AI 操作前的回退点。回退必须同样发生在 renderer：
+
+- renderer 从 appdata/localdata 读取 work node。
+- renderer 校验 `basePayload`。
+- renderer 调用 `applyTimelineSnapshotPayload(basePayload)` 写入当前迁出态。
+- renderer 回写 appdata work node 日志，记录 rollback 已应用。
+- 不创建用户 timeline snapshot。
+- 不写 `now-storage.json`。
+
 ## 与旧 command queue 的关系
 
 旧 command queue 保留为兼容层，但不再作为 AI 排轴主线。

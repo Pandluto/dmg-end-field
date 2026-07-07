@@ -20,6 +20,7 @@
 - Task 12: 已完成，新增 renderer checkout/apply command，把 appdata work node 应用到当前迁出态。
 - Task 13: 已完成，新增 renderer create-from-current command，从当前迁出态创建 appdata work node。
 - Task 14: 已完成，新增 appdata work node diff/readiness 入口。
+- Task 15: 待执行，新增 renderer base rollback command，用 appdata basePayload 回退当前迁出态。
 
 ## Task 8: 修正存储边界
 
@@ -190,6 +191,28 @@
 风险：
 
 - REST/Electron 的 diff 逻辑会先实现本地 JS 版本，后续仍应抽共享模块降低漂移。
+
+## Task 15: 新增 renderer base rollback command
+
+- 新增主界面命令 `restoreAiTimelineWorkNodeBase`。
+- renderer 从 appdata/localdata 读取 work node。
+- 校验 `basePayload`。
+- 调用 `applyTimelineSnapshotPayload(basePayload)` 写入当前迁出态。
+- 回写 appdata work node 日志，记录 rollback 已应用。
+- 可选 reload，让 UI 重新挂载迁出态。
+- 不创建用户 timeline snapshot。
+- 不写 `now-storage.json`。
+
+验收：
+
+- command queue 支持 `restoreAiTimelineWorkNodeBase`。
+- REST/Electron appdata API 支持 `rollback-applied` 记录。
+- renderer 命令使用 `basePayload` 而不是用户 snapshot archive。
+- 回写失败时返回 `rollbackMarkError`，不把已应用回退伪装成完全失败。
+
+风险：
+
+- renderer apply 与 appdata 回写不是事务；后续仍需要补偿重试入口。
 
 ## Task 1: 新增 worktree 类型和存储模块
 
