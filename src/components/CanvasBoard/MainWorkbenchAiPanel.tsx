@@ -20,9 +20,11 @@ import {
   buildMainWorkbenchSnapshotEvidence,
   buildMainWorkbenchSnapshotAnswerFromPrompt,
   isMainWorkbenchMutatingPrompt,
+  resolveMainWorkbenchSnapshotFocus,
   shouldCreateMainWorkbenchRollback,
   verifyMainWorkbenchTurn,
   type MainWorkbenchCommandEvidence,
+  type MainWorkbenchSnapshotEvidenceFocus,
 } from '../../agentKernel/mainWorkbench';
 import { buildGameKnowledgePromptLines } from '../../utils/gameKnowledge';
 import './MainWorkbenchAiPanel.css';
@@ -441,6 +443,7 @@ export function MainWorkbenchAiPanel({
   const finishFallbackTimeoutRef = useRef<number | null>(null);
   const reconnectAttemptsRef = useRef(0);
   const messagesRef = useRef<HTMLDivElement>(null);
+  const lastFocusRef = useRef<MainWorkbenchSnapshotEvidenceFocus | null>(null);
 
   const rememberSession = (sessionId: string | null, nextTokens?: DefAgentTokens | null, seq?: number) => {
     activeSessionIdRef.current = sessionId;
@@ -464,6 +467,10 @@ export function MainWorkbenchAiPanel({
   useEffect(() => {
     messagesRef.current?.scrollTo({ top: messagesRef.current.scrollHeight });
   }, [messages]);
+
+  useEffect(() => {
+    lastFocusRef.current = null;
+  }, [selectedSignature]);
 
   useEffect(() => {
     let cancelled = false;
@@ -826,7 +833,13 @@ export function MainWorkbenchAiPanel({
       patchStep('rest', { status: 'running', detail: '启动 17321' });
       await ensureMainWorkbenchRest();
       const snapshot = await readMainWorkbenchSnapshot();
-      const snapshotEvidence = buildMainWorkbenchSnapshotEvidence(snapshot, userText);
+      const focusState = resolveMainWorkbenchSnapshotFocus(snapshot, userText, lastFocusRef.current);
+      if (focusState.focus && !focusState.focus.stale) {
+        lastFocusRef.current = focusState.focus;
+      } else if (focusState.previousFocus?.stale) {
+        lastFocusRef.current = null;
+      }
+      const snapshotEvidence = buildMainWorkbenchSnapshotEvidence(snapshot, userText, focusState);
       const agentText = buildWorkbenchAgentMessage(userText, selectedCharacters, skillButtons, snapshotEvidence);
       patchStep('rest', { status: 'done', detail: snapshot ? 'REST 已就绪，快照证据已注入' : 'REST 已就绪，快照证据缺失' });
       patchStep('agent', { status: 'running', detail: 'def-opencode 正在思考' });

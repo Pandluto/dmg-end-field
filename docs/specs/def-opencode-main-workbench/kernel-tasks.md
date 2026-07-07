@@ -154,16 +154,16 @@ src/agentKernel/mainWorkbench/
 - 模型仍可能答错指代；本轮以连续会话和按钮级证据降低概率，后续可增加显式 focus evidence。
 - 当前运行态已切到另一组干员且按钮数为 0，无法在不污染用户现场的情况下复现用户给出的莱万汀排轴手测。
 
-### Task 8: 结构化 focus evidence（待执行）
+### Task 8: 结构化 focus evidence（已完成）
 
-- 在 main workbench kernel 中新增只读焦点解析：
+- 已在 main workbench kernel 中新增只读焦点解析：
   - 支持 `角色 + 第 N 次/第 N 个 + 技能名`。
   - 支持 `角色-技能@行-列` 或自然语言行列定位。
   - 支持常见错字/别名的轻量归一化，例如 `燃尽` 指向 `燃烬`。
-- evidence 包新增：
+- evidence 包已新增：
   - `focus`：本轮从 prompt 解析出的技能按钮焦点。
   - `previousFocus`：上一轮主界面会话保存的焦点。
-- AI 面板在当前浏览器会话中保存最近焦点，用于下一轮“它/刚才那个/有什么 Buff”追问。
+- AI 面板已在当前浏览器会话中保存最近焦点，用于下一轮“它/刚才那个/有什么 Buff”追问。
 - focus 只属于当前迁出态上下文，不写 appdata work node，不与 work node branch/commit/rollback 混用。
 
 验收：
@@ -172,11 +172,16 @@ src/agentKernel/mainWorkbench/
 - 紧接着追问“有什么 Buff 吗”时，evidence 带上 previousFocus。
 - focus 按钮的 Buff 列表是按钮级，不是角色级/全局唯一 Buff 汇总。
 - 无匹配焦点时不编造焦点，只给出候选按钮或保持 focus 为空。
+- `npm run build` 已通过。
+- `npm test` 已通过。
+- 临时 SSR 验证已确认 `莱万汀第一次燃尽` -> `莱万汀-燃烬@1-1`，追问携带 previousFocus，按钮级 `buffCount=0`。
+- 临时 SSR 验证已确认 `莱万汀有哪些 Buff` 不会误设按钮 focus，仍保留角色级查询空间。
 
 风险：
 
 - 轻量文本解析仍可能误判复杂中文指代；后续应让 def-agent 通过 read tool 自行请求 focus 候选。
 - 如果用户在两轮之间手动大改排轴，previousFocus 可能过期；本轮应通过 button id 仍存在与否判断焦点是否有效。
+- Vite SSR 临时验证在当前沙箱会打印 HMR 端口 EPERM 噪音，但断言已通过。
 
 ## Task Review
 
