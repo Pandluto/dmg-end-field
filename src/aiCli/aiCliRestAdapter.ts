@@ -414,6 +414,7 @@ export function handleAiCliRestRequest(
           snapshot: 'localStorage.def.main-workbench.snapshot.v1',
         },
         endpoints: [
+          'GET /api/main-workbench/evidence?prompt=<user text>&previousButtonId=<optional>',
           'GET /api/main-workbench/snapshot',
           'GET /api/main-workbench/commands?status=pending',
           'POST /api/main-workbench/commands/enqueue',
@@ -442,6 +443,8 @@ export function handleAiCliRestRequest(
         rules: [
           'Commands are declarative JSON; never simulate DOM clicks.',
           'The browser page executes commands through existing React services and writes results back to result-log/snapshot.',
+          'For read-only questions, prefer GET /api/main-workbench/evidence with the user prompt; use focus/previousFocus to answer pronoun follow-ups.',
+          'Evidence is current checkout state only; it is not an appdata AI work node and must not be used as branch/commit/rollback state.',
           'Read snapshot after enqueue to confirm selectedCharacters, skillButtons, buff ids, and damage totals.',
           'Use saveTimelineSnapshot before risky operations and restoreTimelineSnapshot for rollback.',
           'Use setOperatorWeapon to equip a selected operator weapon before refreshing operator config.',

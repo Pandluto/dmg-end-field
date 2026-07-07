@@ -1014,7 +1014,177 @@ function appendMainWorkbenchResult(entry) {
   writeMainWorkbenchJson(MAIN_WORKBENCH_RESULT_LOG_KEY, next);
 }
 
+function formatMainWorkbenchBuffName(buff) {
+  return buff?.displayName || buff?.name || buff?.id || '';
+}
+
+function formatMainWorkbenchButtonLabel(button) {
+  return `${button?.characterName || '未知'}-${button?.skillDisplayName || button?.skillType || '技能'}@${(button?.staffIndex || 0) + 1}-${(button?.nodeIndex ?? 0) + 1}`;
+}
+
+function normalizeMainWorkbenchFocusText(value) {
+  return String(value || '')
+    .replace(/燃尽/g, '燃烬')
+    .replace(/[「」"'\s]/g, '')
+    .toLowerCase();
+}
+
+function parseMainWorkbenchOrdinal(value) {
+  if (!value) return null;
+  const normalized = String(value).replace(/\s+/g, '');
+  const numeric = Number(normalized);
+  if (Number.isInteger(numeric) && numeric > 0) return numeric;
+  const map = { 一: 1, 二: 2, 两: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7, 八: 8, 九: 9, 十: 10 };
+  return map[normalized] || null;
+}
+
+function parseMainWorkbenchOrdinalFromPrompt(prompt) {
+  if (/首个|第一个|第一次|第1个|第1次/i.test(prompt)) return 1;
+  const match = String(prompt || '').match(/第\s*([一二两三四五六七八九十\d]+)\s*(?:个|次)/);
+  return parseMainWorkbenchOrdinal(match?.[1]);
+}
+
+function parseMainWorkbenchPositionFromPrompt(prompt) {
+  const text = String(prompt || '');
+  const atMatch = text.match(/@(\d+)\s*[-－]\s*(\d+)/);
+  if (atMatch) return { staffIndex: Number(atMatch[1]) - 1, nodeIndex: Number(atMatch[2]) - 1 };
+  const rowColumnMatch = text.match(/行\s*(\d+).*?第?\s*(\d+)\s*列/);
+  if (rowColumnMatch) return { staffIndex: Number(rowColumnMatch[1]) - 1, nodeIndex: Number(rowColumnMatch[2]) - 1 };
+  return null;
+}
+
+function buildMainWorkbenchButtonEvidence(button, reason = 'button') {
+  const buffs = Array.isArray(button?.selectedBuffs) && button.selectedBuffs.length
+    ? button.selectedBuffs.map(formatMainWorkbenchBuffName).filter(Boolean)
+    : (Array.isArray(button?.selectedBuffIds) ? button.selectedBuffIds : []);
+  return {
+    kind: 'skillButton',
+    reason,
+    buttonId: button?.id || '',
+    label: formatMainWorkbenchButtonLabel(button),
+    characterName: button?.characterName || '',
+    skillType: button?.skillType || '',
+    skillDisplayName: button?.skillDisplayName || button?.skillType || '',
+    staffIndex: typeof button?.staffIndex === 'number' ? button.staffIndex : 0,
+    lineIndex: typeof button?.lineIndex === 'number' ? button.lineIndex : 0,
+    nodeIndex: typeof button?.nodeIndex === 'number' ? button.nodeIndex : undefined,
+    position: `${(button?.staffIndex || 0) + 1}-${(button?.nodeIndex ?? 0) + 1}`,
+    buffCount: buffs.length,
+    buffs,
+  };
+}
+
+function resolveMainWorkbenchPromptFocus(snapshot, prompt) {
+  const buttons = Array.isArray(snapshot?.skillButtons) ? snapshot.skillButtons : [];
+  if (!buttons.length) return null;
+  const normalizedPrompt = normalizeMainWorkbenchFocusText(prompt);
+  const mentionedCharacterNames = (Array.isArray(snapshot?.selectedCharacters) ? snapshot.selectedCharacters : [])
+    .filter((character) => normalizedPrompt.includes(normalizeMainWorkbenchFocusText(character?.name)))
+    .map((character) => character.name);
+  const skillNames = [...new Set(buttons.map((button) => button?.skillDisplayName || button?.skillType).filter(Boolean))];
+  const mentionedSkillNames = skillNames.filter((skillName) => normalizedPrompt.includes(normalizeMainWorkbenchFocusText(skillName)));
+  const position = parseMainWorkbenchPositionFromPrompt(prompt);
+  const ordinal = parseMainWorkbenchOrdinalFromPrompt(prompt);
+  if (!position && !mentionedSkillNames.length && !ordinal) return null;
+
+  let candidates = buttons;
+  if (mentionedCharacterNames.length) {
+    candidates = candidates.filter((button) => mentionedCharacterNames.includes(button?.characterName));
+  }
+  if (mentionedSkillNames.length) {
+    candidates = candidates.filter((button) => mentionedSkillNames.includes(button?.skillDisplayName || button?.skillType));
+  }
+  if (position) {
+    candidates = candidates.filter((button) => button?.staffIndex === position.staffIndex && (button?.nodeIndex ?? -1) === position.nodeIndex);
+  }
+  if (!candidates.length) return null;
+  const sorted = [...candidates].sort((left, right) => (
+    ((left?.staffIndex || 0) - (right?.staffIndex || 0)) ||
+    ((left?.lineIndex || 0) - (right?.lineIndex || 0)) ||
+    ((left?.nodeIndex ?? 0) - (right?.nodeIndex ?? 0))
+  ));
+  const target = sorted[Math.max(0, (ordinal || 1) - 1)];
+  return target ? buildMainWorkbenchButtonEvidence(target, 'prompt-focus') : null;
+}
+
+function resolveMainWorkbenchPreviousFocus(snapshot, previousButtonId) {
+  const id = typeof previousButtonId === 'string' && previousButtonId.trim() ? previousButtonId.trim() : '';
+  if (!id) return null;
+  const button = (Array.isArray(snapshot?.skillButtons) ? snapshot.skillButtons : []).find((item) => item?.id === id);
+  return button
+    ? buildMainWorkbenchButtonEvidence(button, 'previous-focus')
+    : { kind: 'skillButton', reason: 'previous-focus-stale', buttonId: id, stale: true };
+}
+
+function buildMainWorkbenchEvidence(snapshot, options = {}) {
+  const prompt = typeof options.prompt === 'string' ? options.prompt : '';
+  const buttons = (Array.isArray(snapshot?.skillButtons) ? snapshot.skillButtons : []).map((button) => buildMainWorkbenchButtonEvidence(button));
+  const damageButtons = (snapshot?.damageReport?.buttons || []).map((button) => ({
+    id: button?.id || '',
+    label: `${button?.characterName || ''}-${button?.skillName || ''}`,
+    characterName: button?.characterName || '',
+    skillName: button?.skillName || '',
+    skillType: button?.skillType || '',
+    expected: typeof button?.expected === 'number' && Number.isFinite(button.expected) ? Math.round(button.expected) : null,
+    damage: typeof button?.damage === 'number' && Number.isFinite(button.damage) ? Math.round(button.damage) : null,
+  }));
+  return {
+    source: 'current-checkout-snapshot',
+    readonly: true,
+    note: [
+      'This evidence is read from the current checked-out main workbench snapshot.',
+      'It is not an appdata AI work node and must not be treated as branch/commit/rollback state.',
+      'Use focus or previousFocus for pronoun follow-ups before falling back to character/global summaries.',
+    ],
+    prompt,
+    selectedCharacters: (Array.isArray(snapshot?.selectedCharacters) ? snapshot.selectedCharacters : []).map((character) => ({
+      id: character?.id || '',
+      name: character?.name || '',
+      element: character?.element || '',
+      profession: character?.profession || '',
+    })),
+    focus: snapshot ? resolveMainWorkbenchPromptFocus(snapshot, prompt) : null,
+    previousFocus: snapshot ? resolveMainWorkbenchPreviousFocus(snapshot, options.previousButtonId) : null,
+    buttons,
+    equipment: (Array.isArray(snapshot?.operatorConfigs) ? snapshot.operatorConfigs : []).map((config) => ({
+      characterName: config?.characterName || '',
+      weapon: config?.weapon ? {
+        name: config.weapon.name,
+        level: config.weapon.level,
+        potential: config.weapon.potential,
+      } : null,
+      equipment: (Array.isArray(config?.equipment) ? config.equipment : []).map((item) => ({
+        slotKey: item?.slotKey || '',
+        part: item?.part || '',
+        name: item?.name || '',
+      })),
+    })),
+    damageReport: snapshot?.damageReport ? {
+      totalExpected: typeof snapshot.damageReport.totalExpected === 'number' ? Math.round(snapshot.damageReport.totalExpected) : null,
+      totalNonCrit: typeof snapshot.damageReport.totalNonCrit === 'number' ? Math.round(snapshot.damageReport.totalNonCrit) : null,
+      buttonCount: snapshot.damageReport.buttonCount,
+      buttons: damageButtons,
+    } : null,
+    lastCommand: snapshot?.lastCommand || null,
+  };
+}
+
 function handleMainWorkbenchRequest(method, pathname, query, body) {
+  if (method === 'GET' && pathname === '/api/main-workbench/evidence') {
+    const snapshot = readMainWorkbenchJson(MAIN_WORKBENCH_SNAPSHOT_KEY, null);
+    return {
+      status: 200,
+      body: {
+        ok: true,
+        protocolVersion: 1,
+        evidence: buildMainWorkbenchEvidence(snapshot, {
+          prompt: query.get('prompt') || '',
+          previousButtonId: query.get('previousButtonId') || '',
+        }),
+      },
+    };
+  }
+
   if (method === 'GET' && pathname === '/api/main-workbench/snapshot') {
     return {
       status: 200,

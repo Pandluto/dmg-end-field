@@ -183,9 +183,9 @@ src/agentKernel/mainWorkbench/
 - 如果用户在两轮之间手动大改排轴，previousFocus 可能过期；本轮应通过 button id 仍存在与否判断焦点是否有效。
 - Vite SSR 临时验证在当前沙箱会打印 HMR 端口 EPERM 噪音，但断言已通过。
 
-### Task 9: REST 只读 evidence/focus 接口（待执行）
+### Task 9: REST 只读 evidence/focus 接口（已完成）
 
-- 在 `scripts/ai-cli-rest-server.mjs` 增加：
+- 已在 `scripts/ai-cli-rest-server.mjs` 增加：
   - `GET /api/main-workbench/evidence`
   - query: `prompt`
   - query: `previousButtonId`
@@ -198,7 +198,7 @@ src/agentKernel/mainWorkbench/
   - `equipment`
   - `damageReport`
 - 接口只读，不写 command queue、不写 snapshot、不写 appdata work node。
-- 更新 `src/aiCli/aiCliRestAdapter.ts` 的 main workbench 指引，让 def-agent 优先读取 evidence endpoint 处理只读问题。
+- 已更新 `src/aiCli/aiCliRestAdapter.ts` 的 main workbench 指引，让 def-agent 优先读取 evidence endpoint 处理只读问题。
 
 验收：
 
@@ -206,11 +206,16 @@ src/agentKernel/mainWorkbench/
 - `previousButtonId` 仍存在时可返回 previousFocus。
 - 角色级问题不误设按钮 focus。
 - `GET /api/main-workbench/evidence` 不改变 command queue。
+- `node --check scripts/ai-cli-rest-server.mjs` 已通过。
+- `npm run build` 已通过。
+- `npm test` 已通过。
+- 17329 独立 REST smoke 已通过：focus/previousFocus 命中 `莱万汀-燃烬@1-1`，调用前后 command queue id 列表一致。
 
 风险：
 
 - REST 端会与 TS kernel 暂时重复一份 evidence/focus 逻辑；后续应抽成运行时共享 JS 模块。
 - 只读接口暴露的是 current checkout snapshot，不是 appdata work node；文档和响应字段必须持续强调。
+- 测试服务会读取既有本地 command queue，因此只读性用 before/after 队列 id 一致验证，而不是要求队列为空。
 
 ## Task Review
 
