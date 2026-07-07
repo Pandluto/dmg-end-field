@@ -169,6 +169,13 @@ interface TimelinePayloadDiff {
 }
 ```
 
+Appdata work node 必须提供独立 diff/readiness 入口：
+
+- `diffAiTimelineWorkNode` 读取 appdata node，不读取当前迁出态。
+- 输出 base/working 的结构化 diff 和 risk flags。
+- 输出 `readyToCheckout`，用于低阻塞判断是否可以自动 checkout。
+- 不修改 work node，不写 current checkout，不写 now-storage。
+
 ## 校验
 
 第一阶段最小校验：

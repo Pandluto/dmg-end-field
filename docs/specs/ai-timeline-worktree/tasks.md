@@ -19,6 +19,7 @@
 - Task 11: 已完成，新增 Electron IPC/bridge AI work node appdata API，并让前端 client 桌面优先。
 - Task 12: 已完成，新增 renderer checkout/apply command，把 appdata work node 应用到当前迁出态。
 - Task 13: 已完成，新增 renderer create-from-current command，从当前迁出态创建 appdata work node。
+- Task 14: 待执行，新增 appdata work node diff/readiness 入口。
 
 ## Task 8: 修正存储边界
 
@@ -162,6 +163,32 @@
 - 还没有 UI 按钮；短期由 AI/REST command queue 调用。
 - 自动 saveId 仍是粗粒度默认值，后续应与真实存档 id/branch 管理绑定。
 - 当前自动化 smoke 未覆盖有效已选干员排轴上下文里的完整 renderer 创建节点，需要后续手测。
+
+## Task 14: 新增 appdata work node diff/readiness
+
+- 新增 REST/Electron bridge/IPC/client 的 work node diff 入口。
+- 新增主界面命令 `diffAiTimelineWorkNode`。
+- diff 基于 appdata node 的 `basePayload` 与 `workingPayload`，不读取当前迁出态。
+- 返回：
+  - `diff.summary`
+  - `selectedCharactersChanged`
+  - `addedButtons` / `removedButtons` / `changedButtons`
+  - `addedBuffs` / `removedBuffs`
+  - `riskFlags`
+  - `readyToCheckout`
+- 不修改 appdata work node。
+- 不写 `now-storage.json`。
+
+验收：
+
+- REST `GET /api/ai-timeline-worknodes/:id/diff` 可返回结构化 diff。
+- Electron bridge `GET /local-data/ai-timeline-worknodes/:id/diff` 可返回结构化 diff。
+- command queue 支持 `diffAiTimelineWorkNode`。
+- 有 blocker risk 时 `readyToCheckout:false`。
+
+风险：
+
+- REST/Electron 的 diff 逻辑会先实现本地 JS 版本，后续仍应抽共享模块降低漂移。
 
 ## Task 1: 新增 worktree 类型和存储模块
 
