@@ -275,6 +275,7 @@ interface DesktopRuntimeBridge {
   updateAiTimelineWorkNode?: (payload: { id: string; [key: string]: unknown }) => Promise<AiTimelineWorkNodeOpResult>;
   commitAiTimelineWorkNode?: (payload: { id: string; [key: string]: unknown }) => Promise<AiTimelineWorkNodeOpResult>;
   markAiTimelineWorkNodeCheckoutApplied?: (payload: { id: string; [key: string]: unknown }) => Promise<AiTimelineWorkNodeOpResult>;
+  markAiTimelineWorkNodeRollbackApplied?: (payload: { id: string; [key: string]: unknown }) => Promise<AiTimelineWorkNodeOpResult>;
 }
 
 interface Window {

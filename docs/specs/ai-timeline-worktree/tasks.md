@@ -192,7 +192,7 @@
 
 - REST/Electron 的 diff 逻辑会先实现本地 JS 版本，后续仍应抽共享模块降低漂移。
 
-## Task 15: 新增 renderer base rollback command
+## Task 15: 新增 renderer base rollback command（已完成）
 
 - 新增主界面命令 `restoreAiTimelineWorkNodeBase`。
 - renderer 从 appdata/localdata 读取 work node。
@@ -205,14 +205,20 @@
 
 验收：
 
-- command queue 支持 `restoreAiTimelineWorkNodeBase`。
-- REST/Electron appdata API 支持 `rollback-applied` 记录。
-- renderer 命令使用 `basePayload` 而不是用户 snapshot archive。
-- 回写失败时返回 `rollbackMarkError`，不把已应用回退伪装成完全失败。
+- command queue 已支持 `restoreAiTimelineWorkNodeBase`。
+- REST/Electron appdata API 已支持 `rollback-applied` 记录。
+- renderer 命令已使用 `basePayload` 而不是用户 snapshot archive。
+- 回写失败时会返回 `rollbackMarkError`，不把已应用回退伪装成完全失败。
+- `npm run build` 已通过。
+- `npm test` 已通过。
+- REST `rollback-applied` smoke 已通过。
+- Electron bridge `rollback-applied` smoke 已通过。
+- renderer command queue `restoreAiTimelineWorkNodeBase` smoke 已通过。
 
 风险：
 
 - renderer apply 与 appdata 回写不是事务；后续仍需要补偿重试入口。
+- REST/Electron API 已补基础结构校验；更深的按钮表、buff 引用一致性仍以后续共享 validator 收敛。
 
 ## Task 1: 新增 worktree 类型和存储模块
 

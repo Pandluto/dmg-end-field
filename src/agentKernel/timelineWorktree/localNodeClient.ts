@@ -74,6 +74,12 @@ export type MarkAiTimelineWorkNodeCheckoutAppliedInput = {
   rationale?: string;
 };
 
+export type MarkAiTimelineWorkNodeRollbackAppliedInput = {
+  appliedAt?: number;
+  appliedBy?: 'ai' | 'user' | 'system';
+  rationale?: string;
+};
+
 async function readJsonResponse<T>(response: Response): Promise<T> {
   const payload = await response.json();
   if (!response.ok || !payload?.ok) {
@@ -230,6 +236,27 @@ export function createAiTimelineWorkNodeClient(baseUrl = DEFAULT_REST_BASE_URL) 
       return postJson<AiTimelineWorkNodeCommitResponse>(
         baseUrl,
         `/api/ai-timeline-worknodes/${encodeURIComponent(id)}/checkout-applied`,
+        input,
+      );
+    },
+
+    async markRollbackApplied(
+      id: string,
+      input: MarkAiTimelineWorkNodeRollbackAppliedInput = {},
+    ): Promise<AiTimelineWorkNodeResponse> {
+      const desktopRuntime = getDesktopRuntime();
+      if (desktopRuntime?.markAiTimelineWorkNodeRollbackApplied) {
+        const result = readDesktopResult(await desktopRuntime.markAiTimelineWorkNodeRollbackApplied({ id, ...input }));
+        return {
+          ok: true,
+          protocolVersion: 1,
+          path: result.path || '',
+          node: result.node as AiTimelineWorkNode,
+        };
+      }
+      return postJson<AiTimelineWorkNodeResponse>(
+        baseUrl,
+        `/api/ai-timeline-worknodes/${encodeURIComponent(id)}/rollback-applied`,
         input,
       );
     },

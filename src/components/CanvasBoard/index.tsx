@@ -876,6 +876,54 @@ export function CanvasBoard({
     };
   };
 
+  const restoreAiTimelineWorkNodeBaseFromCommand = async (
+    command: Extract<MainWorkbenchCommand, { op: 'restoreAiTimelineWorkNodeBase' }>,
+  ) => {
+    const nodeId = command.nodeId?.trim();
+    if (!nodeId) {
+      throw new Error('restoreAiTimelineWorkNodeBase requires nodeId');
+    }
+    const client = createAiTimelineWorkNodeClient();
+    const { node } = await client.get(nodeId);
+    const validation = validateTimelinePayload(node.basePayload);
+    if (!validation.ok) {
+      throw new Error(`AI work node basePayload 校验失败：${validation.issues.map((issue) => issue.message).join('；')}`);
+    }
+
+    saveTimelineData();
+    setSelectedCharacterIds(selectedCharacters.map((character) => character.id));
+    const currentPayload = getCurrentTimelineSnapshotPayload();
+    const currentDiff = currentPayload ? diffTimelinePayloads(currentPayload, node.basePayload).summary : null;
+    applyTimelineSnapshotPayload(node.basePayload);
+
+    let rollbackApplied: Awaited<ReturnType<ReturnType<typeof createAiTimelineWorkNodeClient>['markRollbackApplied']>> | null = null;
+    let rollbackMarkError: string | undefined;
+    try {
+      rollbackApplied = await client.markRollbackApplied(node.id, {
+        appliedAt: Date.now(),
+        appliedBy: command.approval?.approvedBy || 'ai',
+        rationale: command.approval?.rationale || 'Renderer rollback applied from AI timeline work node basePayload.',
+      });
+    } catch (error) {
+      rollbackMarkError = error instanceof Error ? error.message : String(error);
+    }
+
+    if (command.reload !== false) {
+      window.setTimeout(() => window.location.reload(), 80);
+    } else {
+      loadTimelineData();
+    }
+
+    return {
+      nodeId: rollbackApplied?.node.id || node.id,
+      status: rollbackApplied?.node.status || 'rolled-back-unrecorded',
+      rollbackApplied: Boolean(rollbackApplied),
+      rollbackMarkError,
+      reloaded: command.reload !== false,
+      currentDiff,
+    };
+  };
+
   const processMainWorkbenchCanvasCommand = async () => {
     if (isProcessingWorkbenchCommandRef.current) {
       return;
@@ -896,6 +944,7 @@ export function CanvasBoard({
         'createAiTimelineWorkNodeFromCurrent',
         'diffAiTimelineWorkNode',
         'checkoutAiTimelineWorkNode',
+        'restoreAiTimelineWorkNodeBase',
         'refreshOperatorConfig',
         'setOperatorWeapon',
         'setOperatorEquipment',
@@ -1092,6 +1141,13 @@ export function CanvasBoard({
 
         if (command.op === 'checkoutAiTimelineWorkNode') {
           const result = await checkoutAiTimelineWorkNodeFromCommand(command);
+          const doneEntry = patchMainWorkbenchCommand(commandEntry.id, { status: 'done', result });
+          if (doneEntry) void pushMainWorkbenchCommandResult(doneEntry);
+          return;
+        }
+
+        if (command.op === 'restoreAiTimelineWorkNodeBase') {
+          const result = await restoreAiTimelineWorkNodeBaseFromCommand(command);
           const doneEntry = patchMainWorkbenchCommand(commandEntry.id, { status: 'done', result });
           if (doneEntry) void pushMainWorkbenchCommandResult(doneEntry);
           return;

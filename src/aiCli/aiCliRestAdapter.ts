@@ -434,6 +434,7 @@ export function handleAiCliRestRequest(
           'createAiTimelineWorkNodeFromCurrent',
           'diffAiTimelineWorkNode',
           'checkoutAiTimelineWorkNode',
+          'restoreAiTimelineWorkNodeBase',
           'refreshOperatorConfig',
           'calculateDamage',
           'refreshSnapshot',

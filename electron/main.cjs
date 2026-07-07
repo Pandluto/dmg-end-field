@@ -953,6 +953,11 @@ function startBridgeServer() {
           writeJson(response, 200, markAiTimelineWorkNodeCheckoutApplied(nodeId, payload));
           return;
         }
+        if (method === 'POST' && action === 'rollback-applied') {
+          const payload = await readJsonRequest(request);
+          writeJson(response, 200, markAiTimelineWorkNodeRollbackApplied(nodeId, payload));
+          return;
+        }
       }
 
       if (method === 'POST' && requestUrl.pathname === '/local-data/save') {
@@ -4343,8 +4348,14 @@ function validateAiTimelineWorkNodePayload(payload, fieldName) {
   if (!isPlainObject(payload.timelineData)) {
     return `${fieldName}.timelineData must be an object.`;
   }
+  if (!Array.isArray(payload.timelineData.staffLines)) {
+    return `${fieldName}.timelineData.staffLines must be an array.`;
+  }
   if (!isPlainObject(payload.skillButtonTable)) {
     return `${fieldName}.skillButtonTable must be an object.`;
+  }
+  if (!Array.isArray(payload.allBuffList)) {
+    return `${fieldName}.allBuffList must be an array.`;
   }
   return null;
 }
@@ -4549,6 +4560,38 @@ function markAiTimelineWorkNodeCheckoutApplied(id, payload = {}) {
     commits: [nextCommit, ...archive.commits.filter((item) => item?.id !== nextCommit.id)],
   });
   return { ok: true, path: getAiTimelineWorkNodesPath(), node: nextNode, commit: nextCommit };
+}
+
+function markAiTimelineWorkNodeRollbackApplied(id, payload = {}) {
+  const nodeId = sanitizeAiTimelineWorkNodeId(id, 'ai-timeline-node');
+  const archive = readAiTimelineWorkNodeArchive();
+  const node = archive.nodes.find((item) => item?.id === nodeId);
+  if (!node) {
+    throw new Error(`AI timeline work node not found: ${nodeId}`);
+  }
+  const appliedAt = typeof payload.appliedAt === 'number' ? payload.appliedAt : Date.now();
+  const appliedBy = ['ai', 'user', 'system'].includes(payload.appliedBy) ? payload.appliedBy : 'system';
+  const rollback = {
+    appliedAt,
+    appliedBy,
+    rationale: typeof payload.rationale === 'string' && payload.rationale.trim()
+      ? payload.rationale.trim()
+      : 'Renderer rollback applied from AI timeline work node basePayload.',
+  };
+  const nextNode = {
+    ...node,
+    status: 'open',
+    updatedAt: appliedAt,
+    logs: [
+      makeAiTimelineWorkNodeLog('info', 'Rolled back AI timeline work node from basePayload.', { rollback }),
+      ...(Array.isArray(node.logs) ? node.logs : []),
+    ],
+  };
+  writeAiTimelineWorkNodeArchive({
+    ...archive,
+    nodes: [nextNode, ...archive.nodes.filter((item) => item?.id !== node.id)],
+  });
+  return { ok: true, path: getAiTimelineWorkNodesPath(), node: nextNode, rollback };
 }
 
 function resolveLocalDataPath(payload = {}) {
@@ -4879,6 +4922,14 @@ ipcMain.handle('desktop:commit-ai-timeline-worknode', (_event, payload) => {
 ipcMain.handle('desktop:mark-ai-timeline-worknode-checkout-applied', (_event, payload) => {
   try {
     return markAiTimelineWorkNodeCheckoutApplied(payload?.id, payload);
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : String(error) };
+  }
+});
+
+ipcMain.handle('desktop:mark-ai-timeline-worknode-rollback-applied', (_event, payload) => {
+  try {
+    return markAiTimelineWorkNodeRollbackApplied(payload?.id, payload);
   } catch (error) {
     return { ok: false, error: error instanceof Error ? error.message : String(error) };
   }

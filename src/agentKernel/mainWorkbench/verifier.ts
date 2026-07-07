@@ -21,6 +21,10 @@ function isSubstantiveWorkbenchCommand(command: MainWorkbenchCommand | undefined
 }
 
 function getExpectedCommandOps(prompt: string): MainWorkbenchCommand['op'][] | null {
+  if (/base|基线|原始|回到.*节点|恢复.*节点|回退.*节点|撤回.*节点|restore|rollback|undo/i.test(prompt)
+    && /节点|node|工作节点|work\s*node/i.test(prompt)) {
+    return ['restoreAiTimelineWorkNodeBase'];
+  }
   if (/撤|移除|删除|去掉|remove|delete|drop|undo/i.test(prompt)) {
     return ['removeSkillButton', 'removeBuff', 'restoreTimelineSnapshot'];
   }

@@ -43,6 +43,7 @@ const MAIN_WORKBENCH_SUPPORTED_OPS = new Set([
   'createAiTimelineWorkNodeFromCurrent',
   'diffAiTimelineWorkNode',
   'checkoutAiTimelineWorkNode',
+  'restoreAiTimelineWorkNodeBase',
   'refreshOperatorConfig',
   'setOperatorWeapon',
   'setOperatorEquipment',
@@ -498,8 +499,14 @@ function validateWorkNodePayload(payload, fieldName) {
   if (!isObject(payload.timelineData)) {
     return `${fieldName}.timelineData must be an object.`;
   }
+  if (!Array.isArray(payload.timelineData.staffLines)) {
+    return `${fieldName}.timelineData.staffLines must be an array.`;
+  }
   if (!isObject(payload.skillButtonTable)) {
     return `${fieldName}.skillButtonTable must be an object.`;
+  }
+  if (!Array.isArray(payload.allBuffList)) {
+    return `${fieldName}.allBuffList must be an array.`;
   }
   return null;
 }
@@ -715,6 +722,32 @@ function handleAiTimelineWorkNodeRequest(method, pathname, body) {
       commits: [nextCommit, ...archive.commits.filter((item) => item?.id !== nextCommit.id)],
     });
     return { status: 200, body: { ok: true, protocolVersion: 1, path: aiTimelineWorkNodesPath, node: nextNode, commit: nextCommit } };
+  }
+
+  if (method === 'POST' && action === 'rollback-applied') {
+    const appliedAt = typeof body?.appliedAt === 'number' ? body.appliedAt : Date.now();
+    const appliedBy = ['ai', 'user', 'system'].includes(body?.appliedBy) ? body.appliedBy : 'system';
+    const rollback = {
+      appliedAt,
+      appliedBy,
+      rationale: typeof body?.rationale === 'string' && body.rationale.trim()
+        ? body.rationale.trim()
+        : 'Renderer rollback applied from AI timeline work node basePayload.',
+    };
+    const nextNode = {
+      ...node,
+      status: 'open',
+      updatedAt: appliedAt,
+      logs: [
+        makeWorkNodeLog('info', 'Rolled back AI timeline work node from basePayload.', { rollback }),
+        ...(Array.isArray(node.logs) ? node.logs : []),
+      ],
+    };
+    writeAiTimelineWorkNodeArchive({
+      ...archive,
+      nodes: [nextNode, ...archive.nodes.filter((item) => item?.id !== node.id)],
+    });
+    return { status: 200, body: { ok: true, protocolVersion: 1, path: aiTimelineWorkNodesPath, node: nextNode, rollback } };
   }
 
   return null;

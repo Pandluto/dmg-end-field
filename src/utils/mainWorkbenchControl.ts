@@ -130,6 +130,15 @@ export type MainWorkbenchCommand =
       };
     }
   | {
+      op: 'restoreAiTimelineWorkNodeBase';
+      nodeId: string;
+      reload?: boolean;
+      approval?: {
+        approvedBy?: 'ai' | 'user' | 'system';
+        rationale?: string;
+      };
+    }
+  | {
       op: 'refreshOperatorConfig';
     }
   | {
