@@ -2,7 +2,7 @@
 
 ## Status
 
-已执行 Task 1-5。Task 6 保持临时重复清单，等待后续共享模块改造。Task 7-10 已完成，用于解除只读回答硬编码、恢复 def-agent 连续上下文，并统一 UI/REST 的只读 evidence/focus runtime。Task 11 记录前端专项，不在本轮底层架构 coding 中执行。Task 12 待执行，用于修正 removeBuff 别名字段和防误删边界。
+已执行 Task 1-5。Task 6 保持临时重复清单，等待后续共享模块改造。Task 7-10 已完成，用于解除只读回答硬编码、恢复 def-agent 连续上下文，并统一 UI/REST 的只读 evidence/focus runtime。Task 11 记录前端专项，不在本轮底层架构 coding 中执行。Task 12 已完成，用于修正 removeBuff 别名字段和防误删边界。
 
 本任务集接在 `quick-fixes.md` 之后。quick fixes 到此为止，后续不再继续把能力堆进快照回答器，而是引入最小 DEF Agent Kernel。
 
@@ -267,15 +267,15 @@ src/agentKernel/mainWorkbench/
 - 前端专项不应阻塞当前底层 agent kernel 和 appdata work node 继续迭代。
 - 修 UI 时不得改变 command queue、evidence、work node 的事实源边界。
 
-### Task 12: removeBuff 参数归一与防误删（待执行）
+### Task 12: removeBuff 参数归一与防误删（已完成）
 
 手测暴露问题：模型投递批量 `removeBuff` 时使用了 `buffDisplayName` 字段。该字段不在当前 canonical command 类型中；如果执行器忽略它，可能退回到按钮首个 Buff，形成误删风险。
 
-- 扩展 canonical command，允许 `removeBuff.buffDisplayName` 作为兼容别名。
-- REST/schema 层将 `buffDisplayName` 归一化为可执行的 `displayName`，或至少接受并保留该字段供 renderer 使用。
-- renderer `removeBuff` 匹配时支持 `buffDisplayName`。
-- 当 `removeBuff` 未提供 `buffId` / `displayName` / `name` / `buffDisplayName` 且没有 `all:true` 时，命令必须失败。
-- 当提供了 Buff 条件但无匹配时，命令必须失败，不得 fallback 到第一个 Buff。
+- 已扩展 canonical command，允许 `removeBuff.buffDisplayName` 作为兼容别名。
+- REST/schema 层已将 `buffDisplayName` 归一化为可执行的 `displayName`，并保留原字段供审计。
+- renderer `removeBuff` 匹配时已支持 `buffDisplayName`。
+- 当 `removeBuff` 未提供 `buffId` / `displayName` / `name` / `buffDisplayName` 且没有 `all:true` 时，命令会失败。
+- 当提供了 Buff 条件但无匹配时，命令会失败，不再 fallback 到第一个 Buff。
 - 删除按钮全部 Buff 必须显式 `all:true`。
 
 验收：
@@ -284,6 +284,12 @@ src/agentKernel/mainWorkbench/
 - `removeBuff { buttonId, buffDisplayName:"不存在" }` 不删除任何 Buff，并返回错误。
 - `removeBuff { buttonId }` 不删除任何 Buff，并返回错误提示需要指定 Buff 或 `all:true`。
 - `removeBuff { buttonId, all:true }` 才允许删除该按钮全部 Buff。
+- `node --check scripts/ai-cli-rest-server.mjs` 已通过。
+- `npm run build` 已通过。
+- `npm test` 已通过。
+- 17329 隔离 REST smoke 已通过：
+  - 无 selector 的 `removeBuff` 返回 `invalid-main-workbench-remove-buff`。
+  - `buffDisplayName:"长息·队友伤害+16%"` 入队时带上归一化后的 `displayName`。
 
 风险：
 

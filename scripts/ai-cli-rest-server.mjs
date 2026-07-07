@@ -984,6 +984,36 @@ function makeMainWorkbenchCommandId() {
   return `mw-rest-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
+function normalizeMainWorkbenchCommand(command) {
+  if (!command || typeof command !== 'object') return command;
+  if (command.op !== 'removeBuff') return command;
+  if (typeof command.buffDisplayName === 'string' && command.buffDisplayName.trim() && typeof command.displayName !== 'string') {
+    return {
+      ...command,
+      displayName: command.buffDisplayName.trim(),
+    };
+  }
+  return command;
+}
+
+function validateMainWorkbenchCommandForRest(command) {
+  if (!command || typeof command !== 'object') {
+    return { ok: false, code: 'invalid-main-workbench-command', message: 'Command must be an object.' };
+  }
+  if (command.op === 'removeBuff') {
+    const hasSelector = ['buffId', 'displayName', 'name', 'buffDisplayName']
+      .some((key) => typeof command[key] === 'string' && command[key].trim());
+    if (!hasSelector && command.all !== true) {
+      return {
+        ok: false,
+        code: 'invalid-main-workbench-remove-buff',
+        message: 'removeBuff requires buffId/displayName/name/buffDisplayName, or all:true.',
+      };
+    }
+  }
+  return { ok: true };
+}
+
 function normalizeMainWorkbenchCommandEntry(entry, fallbackSource = 'rest') {
   if (!entry || typeof entry !== 'object' || !entry.command || typeof entry.command !== 'object') {
     return null;
@@ -991,10 +1021,11 @@ function normalizeMainWorkbenchCommandEntry(entry, fallbackSource = 'rest') {
   if (typeof entry.command.op !== 'string') {
     return null;
   }
+  const command = normalizeMainWorkbenchCommand(entry.command);
   const now = Date.now();
   return {
     id: typeof entry.id === 'string' && entry.id.trim() ? entry.id : makeMainWorkbenchCommandId(),
-    command: entry.command,
+    command,
     status: ['pending', 'running', 'done', 'error'].includes(entry.status) ? entry.status : 'pending',
     source: typeof entry.source === 'string' && entry.source.trim() ? entry.source : fallbackSource,
     createdAt: typeof entry.createdAt === 'number' ? entry.createdAt : now,
@@ -1088,7 +1119,9 @@ function handleMainWorkbenchRequest(method, pathname, query, body) {
         : body?.command
           ? [body.command]
           : [];
-    const commands = rawCommands.filter((command) => command && typeof command === 'object' && typeof command.op === 'string');
+    const commands = rawCommands
+      .filter((command) => command && typeof command === 'object' && typeof command.op === 'string')
+      .map(normalizeMainWorkbenchCommand);
     if (!commands.length) {
       return failScript(400, 'invalid-main-workbench-command', 'Body must contain command with an op field or commands array.');
     }
@@ -1102,6 +1135,12 @@ function handleMainWorkbenchRequest(method, pathname, query, body) {
         `Unsupported main workbench command op: ${[...new Set(unsupported)].join(', ')}`,
         { supportedOps: [...MAIN_WORKBENCH_SUPPORTED_OPS] },
       );
+    }
+    const invalid = commands
+      .map((command) => validateMainWorkbenchCommandForRest(command))
+      .find((validation) => !validation.ok);
+    if (invalid) {
+      return failScript(400, invalid.code, invalid.message);
     }
     const queue = readMainWorkbenchCommandQueue();
     const source = typeof body?.source === 'string' ? body.source : 'rest';

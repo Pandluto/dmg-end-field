@@ -81,8 +81,10 @@ export type MainWorkbenchCommand =
       buffId?: string;
       name?: string;
       displayName?: string;
+      buffDisplayName?: string;
       latest?: boolean;
       count?: number;
+      all?: boolean;
     }
   | {
       op: 'setTargetResistance';

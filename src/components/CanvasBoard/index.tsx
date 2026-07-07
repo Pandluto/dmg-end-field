@@ -725,14 +725,25 @@ export function CanvasBoard({
 
   const findWorkbenchBuffsForRemove = (buttonId: string, command: Extract<MainWorkbenchCommand, { op: 'removeBuff' }>) => {
     const buffs = getBuffsByButtonId(buttonId);
+    const targetDisplayName = command.displayName || command.buffDisplayName;
+    const hasSelector = Boolean(command.buffId || targetDisplayName || command.name);
+    if (!hasSelector && !command.all) {
+      throw new Error('removeBuff requires buffId/displayName/name/buffDisplayName, or all:true to remove every Buff on the button');
+    }
+    if (command.all) {
+      const ordered = command.latest ? [...buffs].reverse() : buffs;
+      const count = typeof command.count === 'number'
+        ? Math.max(1, Math.min(command.count, ordered.length))
+        : ordered.length;
+      return ordered.slice(0, count);
+    }
     const matched = buffs.filter((buff) => {
       if (command.buffId && buff.id !== command.buffId) return false;
-      if (command.displayName && buff.displayName !== command.displayName) return false;
+      if (targetDisplayName && buff.displayName !== targetDisplayName) return false;
       if (command.name && buff.name !== command.name) return false;
       return true;
     });
-    const candidates = matched.length > 0 ? matched : buffs;
-    const ordered = command.latest ? [...candidates].reverse() : candidates;
+    const ordered = command.latest ? [...matched].reverse() : matched;
     const count = Math.max(1, Math.min(command.count ?? 1, ordered.length));
     return ordered.slice(0, count);
   };

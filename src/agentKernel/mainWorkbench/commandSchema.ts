@@ -57,6 +57,13 @@ export function validateMainWorkbenchCommand(command: unknown): MainWorkbenchCom
   if (command.op === 'addBuff' && !isRecord(command.buff)) {
     return { ok: false, code: 'invalid-main-workbench-add-buff', message: 'addBuff requires buff.' };
   }
+  if (command.op === 'removeBuff' && !hasAnyString(command, ['buffId', 'displayName', 'name', 'buffDisplayName']) && command.all !== true) {
+    return {
+      ok: false,
+      code: 'invalid-main-workbench-remove-buff',
+      message: 'removeBuff requires buffId/displayName/name/buffDisplayName, or all:true.',
+    };
+  }
   if (command.op === 'setTargetResistance' && (!hasAnyString(command, ['buttonId']) || !isRecord(command.targetResistance))) {
     return {
       ok: false,
