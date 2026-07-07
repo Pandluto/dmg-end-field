@@ -14,6 +14,7 @@ export const MAIN_WORKBENCH_SUPPORTED_OPS = [
   'listTimelineSnapshots',
   'createAiTimelineWorkNodeFromCurrent',
   'diffAiTimelineWorkNode',
+  'patchAiTimelineWorkNode',
   'checkoutAiTimelineWorkNode',
   'restoreAiTimelineWorkNodeBase',
   'refreshOperatorConfig',
@@ -115,6 +116,22 @@ export function validateMainWorkbenchCommand(command) {
       code: 'invalid-main-workbench-diff-worknode',
       message: 'diffAiTimelineWorkNode requires nodeId.',
     };
+  }
+  if (command.op === 'patchAiTimelineWorkNode') {
+    if (!hasAnyString(command, ['nodeId'])) {
+      return {
+        ok: false,
+        code: 'invalid-main-workbench-patch-worknode',
+        message: 'patchAiTimelineWorkNode requires nodeId.',
+      };
+    }
+    if (!Array.isArray(command.patch) || command.patch.length === 0) {
+      return {
+        ok: false,
+        code: 'invalid-main-workbench-patch-worknode',
+        message: 'patchAiTimelineWorkNode requires non-empty patch array.',
+      };
+    }
   }
 
   return { ok: true, command: normalizeMainWorkbenchCommand(command) };

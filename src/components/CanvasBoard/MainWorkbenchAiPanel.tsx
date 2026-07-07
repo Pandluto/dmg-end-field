@@ -26,6 +26,7 @@ import {
   type MainWorkbenchCommandEvidence,
   type MainWorkbenchSnapshotEvidenceFocus,
 } from '../../agentKernel/mainWorkbench';
+import { summarizeMainWorkbenchToolsForAgent } from '../../agentKernel/mainWorkbench/toolRegistry';
 import { buildGameKnowledgePromptLines } from '../../utils/gameKnowledge';
 import { MarkdownRenderer } from '../MarkdownRenderer';
 import './MainWorkbenchAiPanel.css';
@@ -166,14 +167,18 @@ function buildWorkbenchAgentMessage(
   const buttonSummary = skillButtons.length
     ? skillButtons.map((button) => `${button.characterName}-${button.skillDisplayName || button.skillType}@${button.staffIndex + 1}-${(button.nodeIndex ?? 0) + 1}`).join(', ')
     : 'none';
+  const toolRegistrySummary = summarizeMainWorkbenchToolsForAgent().join('\n');
 
   return [
     '你正在 dmg-end-field 主界面右侧 AI 模式中。用户要通过自然语言操作当前主界面排轴。',
-    '当需要改动主界面时，使用 http://127.0.0.1:17321/api/main-workbench/commands/enqueue 投递声明式命令；多步操作优先一次 POST {commands:[...]}，请求体形如 {"commands":[{"op":"..."}],"source":"def-opencode"}。',
+    '工具策略来自 MAIN_WORKBENCH_TOOL_REGISTRY；模型选择工具和参数，代码负责 schema、policy、verifier、rollback。',
+    `TOOL_REGISTRY:\n${toolRegistrySummary}`,
+    '当前兼容执行层仍通过 http://127.0.0.1:17321/api/main-workbench/commands/enqueue 投递声明式命令；多步操作优先一次 POST {commands:[...]}，请求体形如 {"commands":[{"op":"..."}],"source":"def-opencode"}。',
     '多步 commands enqueue 会返回 batchId；批量操作确认优先读取 /api/main-workbench/commands/batch?batchId=<batchId>，用 total/pending/running/done/error 判断进度，不要手工数全局队列。',
-    '可用 op: selectCharacters, openView, openWorkbenchPage, clearTimeline, setOperatorWeapon, setOperatorEquipment, addSkillButton, removeSkillButton, addBuff, removeBuff, setTargetResistance, saveTimelineSnapshot, restoreTimelineSnapshot, listTimelineSnapshots, createAiTimelineWorkNodeFromCurrent, diffAiTimelineWorkNode, checkoutAiTimelineWorkNode, restoreAiTimelineWorkNodeBase, refreshOperatorConfig, calculateDamage, refreshSnapshot。',
+    '可用 op: selectCharacters, openView, openWorkbenchPage, clearTimeline, setOperatorWeapon, setOperatorEquipment, addSkillButton, removeSkillButton, addBuff, removeBuff, setTargetResistance, saveTimelineSnapshot, restoreTimelineSnapshot, listTimelineSnapshots, createAiTimelineWorkNodeFromCurrent, patchAiTimelineWorkNode, diffAiTimelineWorkNode, checkoutAiTimelineWorkNode, restoreAiTimelineWorkNodeBase, refreshOperatorConfig, calculateDamage, refreshSnapshot。',
     '推荐攻略链路: selectCharacters -> setOperatorWeapon/setOperatorEquipment -> refreshOperatorConfig -> clearTimeline/addSkillButton -> addBuff/setTargetResistance -> calculateDamage -> refreshSnapshot。',
-    '高风险/批量/重排轴操作优先使用 appdata AI work node：createAiTimelineWorkNodeFromCurrent -> diffAiTimelineWorkNode -> checkoutAiTimelineWorkNode；restoreAiTimelineWorkNodeBase 用于恢复 node base。',
+    '高风险/批量/重排轴操作优先使用 appdata AI work node：createAiTimelineWorkNodeFromCurrent -> patchAiTimelineWorkNode -> diffAiTimelineWorkNode -> checkoutAiTimelineWorkNode；restoreAiTimelineWorkNodeBase 用于恢复 node base。',
+    'patchAiTimelineWorkNode 只能修改 appdata node.workingPayload，不会写当前 localStorage/sessionStorage 迁出态；当前迁出态只允许 checkout/rollback 阶段写入。',
     'saveTimelineSnapshot/restoreTimelineSnapshot 只是当前迁出态的用户快照兼容回退，不是 AI work node、branch log 或修改日志；不要把 localStorage/sessionStorage 当前 checkout 当成 appdata work node。',
     ...(workNodeContext ? [
       `本轮 AI_WORK_NODE: nodeId=${workNodeContext.nodeId}; saveId=${workNodeContext.saveId || 'unknown'}; branchId=${workNodeContext.branchId || 'unknown'}; label=${workNodeContext.label || 'unknown'}; path=${workNodeContext.path || 'unknown'}`,
@@ -241,61 +246,6 @@ function isGenericCompletionText(text: string | undefined) {
 function shouldUseSnapshotFallback(prompt: string | undefined, text: string | undefined) {
   if (!isGenericCompletionText(text)) return false;
   return /当前|现在|看一下|穿|装备|武器|按钮|技能|buff|Buff|伤害|实际|告诉我|核对|确认|current|now|status|wear|gear|equipment|weapon|button|skill|damage|check|confirm/i.test(prompt || '');
-}
-
-type QuickWorkbenchAction =
-  | { kind: 'command'; command: MainWorkbenchCommand; detail: string }
-  | { kind: 'message'; text: string; status: WorkbenchAiMessage['status'] };
-
-function findMentionedSelectedCharacterName(text: string, selectedCharacters: Character[]) {
-  return selectedCharacters.find((character) => text.includes(character.name))?.name || null;
-}
-
-function buildQuickWorkbenchAction(text: string, selectedCharacters: Character[]): QuickWorkbenchAction | null {
-  const characterName = findMentionedSelectedCharacterName(text, selectedCharacters);
-
-  if (/buff|Buff|增益/.test(text) && /(加|添加|增加|add|apply)/i.test(text) && /(任意|随便|任一个|一个|any|random)/i.test(text)) {
-    const target = characterName || '目标技能按钮';
-    return {
-      kind: 'message',
-      status: 'error',
-      text: `${target} 添加 Buff 需要指定具体 Buff 名称或可解析的 Buff 对象；当前不能只添加“任意一个 Buff”。`,
-    };
-  }
-
-  if (characterName &&
-    /(添加|增加|加|释放|放|add|cast|use|place|create)/i.test(text) &&
-    /(技能按钮|按钮|技能|skill button|button|skill)/i.test(text) &&
-    !/buff|Buff|增益/.test(text)) {
-    return {
-      kind: 'command',
-      detail: `添加 ${characterName} 技能按钮`,
-      command: { op: 'addSkillButton', characterName, select: true },
-    };
-  }
-
-  return null;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
-}
-
-function buildQuickActionSuccessPrefix(action: QuickWorkbenchAction, evidence: MainWorkbenchCommandEvidence[]) {
-  if (action.kind !== 'command') return '';
-  if (action.command.op !== 'addSkillButton') return '';
-  const done = evidence.find((item) => item.status === 'done' && item.command?.op === 'addSkillButton');
-  if (!isRecord(done?.result)) return '已新增技能按钮。';
-  const characterName = typeof done.result.characterName === 'string' ? done.result.characterName : action.command.characterName || '目标干员';
-  const skillName = typeof done.result.skillDisplayName === 'string'
-    ? done.result.skillDisplayName
-    : typeof done.result.skillType === 'string'
-      ? done.result.skillType
-      : '技能';
-  const staffIndex = typeof done.result.staffIndex === 'number' ? done.result.staffIndex : null;
-  const nodeIndex = typeof done.result.nodeIndex === 'number' ? done.result.nodeIndex : null;
-  const position = staffIndex !== null && nodeIndex !== null ? `@${staffIndex + 1}-${nodeIndex + 1}` : '';
-  return `已新增技能按钮：${characterName}-${skillName}${position}。`;
 }
 
 function chooseWorkbenchThinkingEffort(prompt: string): DefAgentThinkingEffort {
@@ -820,55 +770,7 @@ export function MainWorkbenchAiPanel({
       { id: messageId, role: 'agent', text: '', status: 'running', prompt: userText },
     ]);
 
-    /* === [DISABLED] 本地流 dispatch — 如需恢复取消此注释块 === */
-
-    const quickAction = buildQuickWorkbenchAction(userText, selectedCharacters);
-    if (quickAction) {
-      try {
-        patchStep('backup', { status: 'done', detail: '小操作不建节点' });
-        patchStep('agent', { status: 'done', detail: '本地确定性动作' });
-
-        if (quickAction.kind === 'message') {
-          patchStep('operate', { status: 'error', detail: '缺少必要信息' });
-          patchStep('verify', { status: 'error', detail: '未投递命令' });
-          finishMessage(messageId, quickAction.status, quickAction.text);
-          setStatus('需要补充信息');
-          return;
-        }
-
-        setStatus(quickAction.detail);
-        patchStep('operate', { status: 'running', detail: quickAction.detail });
-        const entry = enqueueLocalWorkbenchCommand(quickAction.command, 'main-workbench-ai-quick');
-        if (!entry) {
-          throw new Error('页面控制入口不可用');
-        }
-        await waitForWorkbenchCommandsToSettle(activePromptStartedAtRef.current);
-        const evidence = await readWorkbenchCommandEvidence(activePromptStartedAtRef.current);
-        const verification = verifyMainWorkbenchTurn({ prompt: userText, evidence });
-        if (!verification.ok) {
-          patchStep('operate', { status: 'error', detail: verification.message });
-          patchStep('verify', { status: 'error', detail: '执行未确认' });
-          finishMessage(messageId, verification.status, verification.message);
-          setStatus('执行未确认');
-          return;
-        }
-        const snapshot = await readMainWorkbenchSnapshot();
-        const successPrefix = buildQuickActionSuccessPrefix(quickAction, evidence);
-        const snapshotAnswer = buildMainWorkbenchSnapshotAnswerFromPrompt(userText, snapshot);
-        const answer = [successPrefix, snapshotAnswer || ''].filter(Boolean).join('\n') || '已完成。';
-        patchStep('operate', { status: 'done', detail: quickAction.command.op });
-        patchStep('verify', { status: snapshot ? 'done' : 'error', detail: snapshot ? '已核对快照' : '快照读取失败' });
-        finishMessage(messageId, snapshot ? 'done' : 'error', answer);
-        setStatus(snapshot ? '已核对快照' : '快照读取失败');
-      } catch (error) {
-        const text = error instanceof Error ? error.message : String(error);
-        patchStep('operate', { status: 'error', detail: text });
-        patchStep('verify', { status: 'error', detail: '执行异常' });
-        finishMessage(messageId, 'error', text);
-        setStatus(text);
-      }
-      return;
-    }
+    // 第二阶段：关闭前端正则 quick action，避免绕过工具注册表和 work node patch 主路径。
 
     if (turnTimeoutRef.current) {
       window.clearTimeout(turnTimeoutRef.current);

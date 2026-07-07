@@ -37,6 +37,9 @@ function getExpectedCommandOps(prompt: string): MainWorkbenchCommand['op'][] | n
   if (/diff|差异|对比|比较|变更|readiness|ready/i.test(prompt) && /节点|node|工作节点|work/i.test(prompt)) {
     return ['diffAiTimelineWorkNode'];
   }
+  if (/patch|修改副本|修改.*节点|更新.*节点|工作节点.*改|work\s*node.*edit/i.test(prompt)) {
+    return ['patchAiTimelineWorkNode'];
+  }
   if (/checkout|apply|应用|套用|迁出|检出|工作节点|work\s*node/i.test(prompt)) {
     return ['checkoutAiTimelineWorkNode'];
   }

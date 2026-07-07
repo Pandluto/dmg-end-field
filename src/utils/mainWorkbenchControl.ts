@@ -1,6 +1,7 @@
 import type { Character, SkillButtonType } from '../types';
 import type { DamageReportSnapshot } from '../core/services/damageReportService';
 import type { SkillButtonBuff } from '../types/storage';
+import type { TimelineWorkNodePatchOperation } from '../agentKernel/timelineWorktree/patchDsl';
 
 export const MAIN_WORKBENCH_COMMAND_QUEUE_KEY = 'def.main-workbench.command-queue.v1';
 export const MAIN_WORKBENCH_RESULT_LOG_KEY = 'def.main-workbench.result-log.v1';
@@ -119,6 +120,12 @@ export type MainWorkbenchCommand =
   | {
       op: 'diffAiTimelineWorkNode';
       nodeId: string;
+    }
+  | {
+      op: 'patchAiTimelineWorkNode';
+      nodeId: string;
+      patch: TimelineWorkNodePatchOperation[];
+      dryRun?: boolean;
     }
   | {
       op: 'checkoutAiTimelineWorkNode';

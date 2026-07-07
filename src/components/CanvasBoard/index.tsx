@@ -99,6 +99,7 @@ import {
 import {
   createAiTimelineWorkNodeClient,
   diffTimelinePayloads,
+  applyTimelineWorkNodePatch,
   validateTimelinePayload,
 } from '../../agentKernel/timelineWorktree';
 import { buildAiTimelineCheckoutDecision } from '../../agentKernel/timelineWorktree/checkoutDecision.mjs';
@@ -120,6 +121,27 @@ const BATCH_RESISTANCE_FIELDS: Array<[keyof HitResistanceInput, string]> = [
   ['iceResistance', '寒冷'],
   ['natureResistance', '自然'],
 ];
+
+type PatchAiTimelineWorkNodeCommandResult =
+  | {
+      ok: true;
+      nodeId: string;
+      dryRun: boolean;
+      operationsApplied: number;
+      diff: unknown;
+      riskFlags: unknown[];
+      summary: string[];
+      status?: string;
+      checkoutDecision?: unknown;
+      path?: string;
+    }
+  | {
+      ok: false;
+      nodeId: string;
+      dryRun: boolean;
+      issues: Array<{ code: string; message: string; path?: string }>;
+      riskFlags: unknown[];
+    };
 
 function buildMainWorkbenchSnapshotSignature(
   selectedCharacters: MainWorkbenchSnapshot['selectedCharacters'],
@@ -899,6 +921,64 @@ export function CanvasBoard({
     };
   };
 
+  const patchAiTimelineWorkNodeFromCommand = async (
+    command: Extract<MainWorkbenchCommand, { op: 'patchAiTimelineWorkNode' }>,
+  ): Promise<PatchAiTimelineWorkNodeCommandResult> => {
+    const nodeId = command.nodeId?.trim();
+    if (!nodeId) {
+      throw new Error('patchAiTimelineWorkNode requires nodeId');
+    }
+    const client = createAiTimelineWorkNodeClient();
+    const { node } = await client.get(nodeId);
+    const patchResult = applyTimelineWorkNodePatch(node.workingPayload, command.patch, { dryRun: command.dryRun });
+    if (!patchResult.ok) {
+      return {
+        nodeId,
+        dryRun: command.dryRun === true,
+        ok: false,
+        issues: patchResult.issues,
+        riskFlags: patchResult.riskFlags,
+      };
+    }
+    const nextRiskFlags = [
+      ...(Array.isArray(node.riskFlags) ? node.riskFlags : []),
+      ...patchResult.riskFlags,
+    ];
+    if (command.dryRun === true) {
+      return {
+        nodeId,
+        dryRun: true,
+        ok: true,
+        operationsApplied: patchResult.operationsApplied,
+        diff: patchResult.diff,
+        riskFlags: nextRiskFlags,
+        summary: patchResult.summary,
+      };
+    }
+    const updated = await client.update(nodeId, {
+      workingPayload: patchResult.workingPayload,
+      status: 'ready',
+      riskFlags: nextRiskFlags,
+    });
+    const checkoutDecision = buildAiTimelineCheckoutDecision({
+      approvalPolicy: updated.node.approvalPolicy,
+      riskFlags: nextRiskFlags,
+      diff: patchResult.diff,
+    });
+    return {
+      nodeId: updated.node.id,
+      dryRun: false,
+      ok: true,
+      status: updated.node.status,
+      operationsApplied: patchResult.operationsApplied,
+      diff: patchResult.diff,
+      riskFlags: nextRiskFlags.map((risk) => ({ severity: risk.severity, code: risk.code, message: risk.message })),
+      checkoutDecision,
+      summary: patchResult.summary,
+      path: updated.path,
+    };
+  };
+
   const restoreAiTimelineWorkNodeBaseFromCommand = async (
     command: Extract<MainWorkbenchCommand, { op: 'restoreAiTimelineWorkNodeBase' }>,
   ) => {
@@ -966,6 +1046,7 @@ export function CanvasBoard({
         'listTimelineSnapshots',
         'createAiTimelineWorkNodeFromCurrent',
         'diffAiTimelineWorkNode',
+        'patchAiTimelineWorkNode',
         'checkoutAiTimelineWorkNode',
         'restoreAiTimelineWorkNodeBase',
         'refreshOperatorConfig',
@@ -1157,6 +1238,22 @@ export function CanvasBoard({
 
         if (command.op === 'diffAiTimelineWorkNode') {
           const result = await createAiTimelineWorkNodeClient().diff(command.nodeId);
+          const doneEntry = patchMainWorkbenchCommand(commandEntry.id, { status: 'done', result });
+          if (doneEntry) void pushMainWorkbenchCommandResult(doneEntry);
+          return;
+        }
+
+        if (command.op === 'patchAiTimelineWorkNode') {
+          const result = await patchAiTimelineWorkNodeFromCommand(command);
+          if ('issues' in result) {
+            const doneEntry = patchMainWorkbenchCommand(commandEntry.id, {
+              status: 'error',
+              result,
+              error: result.issues.map((issue) => issue.message).join('；'),
+            });
+            if (doneEntry) void pushMainWorkbenchCommandResult(doneEntry);
+            return;
+          }
           const doneEntry = patchMainWorkbenchCommand(commandEntry.id, { status: 'done', result });
           if (doneEntry) void pushMainWorkbenchCommandResult(doneEntry);
           return;

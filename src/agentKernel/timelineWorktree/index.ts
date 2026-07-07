@@ -16,6 +16,7 @@ import { validateTimelinePayload } from './validator';
 
 export * from './diff';
 export * from './localNodeClient';
+export * from './patchDsl';
 export * from './storage';
 export * from './types';
 export * from './validator';
