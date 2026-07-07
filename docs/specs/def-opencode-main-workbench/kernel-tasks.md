@@ -2,7 +2,7 @@
 
 ## Status
 
-已执行 Task 1-5。Task 6 保持临时重复清单，等待后续共享模块改造。Task 7-10 已完成，用于解除只读回答硬编码、恢复 def-agent 连续上下文，并统一 UI/REST 的只读 evidence/focus runtime。Task 11 记录前端专项，不在本轮底层架构 coding 中执行。Task 12 已完成，用于修正 removeBuff 别名字段和防误删边界。Task 13 已完成，用于共享主界面命令 schema runtime，减少 REST/UI 协议漂移。Task 14 已完成，用于给批量命令补批次级观测。Task 15 已完成，用于把批次摘要暴露给 def-agent 工具说明。Task 16 待执行，用于让 verifier 使用批次证据。
+已执行 Task 1-5。Task 6 保持临时重复清单，等待后续共享模块改造。Task 7-10 已完成，用于解除只读回答硬编码、恢复 def-agent 连续上下文，并统一 UI/REST 的只读 evidence/focus runtime。Task 11 记录前端专项，不在本轮底层架构 coding 中执行。Task 12 已完成，用于修正 removeBuff 别名字段和防误删边界。Task 13 已完成，用于共享主界面命令 schema runtime，减少 REST/UI 协议漂移。Task 14 已完成，用于给批量命令补批次级观测。Task 15 已完成，用于把批次摘要暴露给 def-agent 工具说明。Task 16 已完成，用于让 verifier 使用批次证据。
 
 本任务集接在 `quick-fixes.md` 之后。quick fixes 到此为止，后续不再继续把能力堆进快照回答器，而是引入最小 DEF Agent Kernel。
 
@@ -394,14 +394,14 @@ src/agentKernel/mainWorkbench/
 - 这只是提示接入，模型仍可能不遵守；后续应把 batch summary 变成正式 tool 调用路径或 verifier 输入。
 - 批次摘要不提供事务保证，不能代替后续 batch executor。
 
-### Task 16: verifier 批次证据接入（待执行）
+### Task 16: verifier 批次证据接入（已完成）
 
 当前问题：主界面 fallback verifier 只看单条 command 的 pending/error/done，不理解 batchId。批量命令出现未完成或失败时，用户只能看到某条 op 未完成，缺少“批次总数、已完成、失败、剩余”的可操作上下文。
 
-- 扩展 `MainWorkbenchCommandEvidence`，保留 `batchId`、`batchIndex`、`batchSize`。
-- `verifyMainWorkbenchTurn` 从 evidence 聚合批次摘要。
-- 如果批次中有 error，错误信息应包含 batchId、done/error/pending/running 统计和失败命令。
-- 如果批次中仍有 pending/running，未完成信息应包含 batchId、done/error/pending/running 统计和剩余数量。
+- 已扩展 `MainWorkbenchCommandEvidence`，保留 `batchId`、`batchIndex`、`batchSize`。
+- `verifyMainWorkbenchTurn` 已从 evidence 聚合批次摘要。
+- 如果批次中有 error，错误信息包含 batchId、done/error/pending/running 统计和失败命令。
+- 如果批次中仍有 pending/running，未完成信息包含 batchId、done/error/pending/running 统计和剩余数量。
 - 无 batchId 的旧单命令 evidence 保持原行为。
 - 本任务不实现 batch executor，不改变命令执行顺序。
 
@@ -411,8 +411,9 @@ src/agentKernel/mainWorkbench/
 - 带 batchId 的 error evidence 返回批次级失败摘要。
 - 带 batchId 的 pending/running evidence 返回批次级未完成摘要。
 - 全 done 批次仍进入原有 expected op 验证。
-- `npm run build` 通过。
-- `npm test` 通过。
+- `npm run build` 已通过。
+- 临时 verifier smoke 已通过：覆盖 batch error、batch pending、batch all done。
+- `npm test` 已通过。
 
 风险：
 

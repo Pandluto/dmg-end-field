@@ -5,6 +5,9 @@ export type MainWorkbenchCommandEvidence = {
   id?: string;
   source?: string;
   createdAt?: number;
+  batchId?: string;
+  batchIndex?: number;
+  batchSize?: number;
   status?: string;
   error?: string;
   command?: MainWorkbenchCommand;
@@ -63,11 +66,60 @@ function hasPromptRequiredCommand(prompt: string, evidence: MainWorkbenchCommand
   return commands.some((command) => expectedOps.includes(command.op));
 }
 
+function summarizeBatchEvidence(evidence: MainWorkbenchCommandEvidence[]) {
+  const batches = new Map<string, MainWorkbenchCommandEvidence[]>();
+  for (const item of evidence) {
+    if (!item.batchId) continue;
+    batches.set(item.batchId, [...(batches.get(item.batchId) || []), item]);
+  }
+  return [...batches.entries()].map(([batchId, commands]) => {
+    const pending = commands.filter((command) => command.status === 'pending').length;
+    const running = commands.filter((command) => command.status === 'running').length;
+    const done = commands.filter((command) => command.status === 'done').length;
+    const error = commands.filter((command) => command.status === 'error').length;
+    const declaredSize = commands.find((command) => typeof command.batchSize === 'number')?.batchSize;
+    return {
+      batchId,
+      total: declaredSize || commands.length,
+      observed: commands.length,
+      pending,
+      running,
+      done,
+      error,
+      failedCommand: commands.find((command) => command.status === 'error') || null,
+      unsettledCommand: commands.find((command) => command.status === 'pending' || command.status === 'running') || null,
+    };
+  });
+}
+
+function formatBatchSummary(batch: ReturnType<typeof summarizeBatchEvidence>[number]) {
+  return `批次 ${batch.batchId}：total=${batch.total}，observed=${batch.observed}，done=${batch.done}，error=${batch.error}，pending=${batch.pending}，running=${batch.running}`;
+}
+
 export function verifyMainWorkbenchTurn(input: {
   prompt: string;
   evidence: MainWorkbenchCommandEvidence[];
 }): MainWorkbenchTurnVerification {
   if (!isMainWorkbenchMutatingPrompt(input.prompt)) return { ok: true };
+
+  const batchSummaries = summarizeBatchEvidence(input.evidence);
+  const failedBatch = batchSummaries.find((batch) => batch.error > 0);
+  if (failedBatch) {
+    return {
+      ok: false,
+      status: 'error',
+      message: `${formatBatchSummary(failedBatch)}。失败命令：${failedBatch.failedCommand?.command?.op || failedBatch.failedCommand?.id || 'unknown'}；原因：${failedBatch.failedCommand?.error || '未知错误'}。`,
+    };
+  }
+
+  const unsettledBatch = batchSummaries.find((batch) => batch.pending > 0 || batch.running > 0);
+  if (unsettledBatch) {
+    return {
+      ok: false,
+      status: 'error',
+      message: `${formatBatchSummary(unsettledBatch)}。批量命令仍未全部完成，请稍后重试或读取批次摘要。`,
+    };
+  }
 
   const failedCommand = input.evidence.find((command) => command.status === 'error');
   if (failedCommand) {
