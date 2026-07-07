@@ -2,7 +2,7 @@
 
 ## Status
 
-已执行 Task 1-5。Task 6 保持临时重复清单，等待后续共享模块改造。
+已执行 Task 1-5。Task 6 保持临时重复清单，等待后续共享模块改造。Task 7 待执行，用于解除只读回答硬编码并恢复 def-agent 连续上下文。
 
 本任务集接在 `quick-fixes.md` 之后。quick fixes 到此为止，后续不再继续把能力堆进快照回答器，而是引入最小 DEF Agent Kernel。
 
@@ -118,6 +118,31 @@ src/agentKernel/mainWorkbench/
 - `scripts/ai-cli-rest-server.mjs` 作为 Node ESM 脚本，短期不能直接 import TS kernel。
 - 本阶段允许同步一份 op 列表，但需加注释标明与 `commandSchema.ts` 保持一致。
 - 后续任务再考虑把 REST server 的命令校验迁移到可运行 JS 共享模块。
+
+### Task 7: 只读证据交给 def-agent
+
+- 移除 AI 面板中只读查询的本地短路回答。
+- 构建主界面只读证据包，包含：
+  - 已选干员。
+  - 技能按钮位置与按钮 id。
+  - 每个按钮已选 Buff。
+  - 装备配置。
+  - 伤害报告摘要。
+- 把证据包放入 def-agent prompt，让模型自行组织答案。
+- `answer.ts` 保留为故障兜底，不再作为正常只读路径。
+- 同一主界面上下文中使用 `sendDefAgentContinue` 续写已有 session，不再每轮清空会话。
+
+验收：
+
+- “莱万汀第一次燃烬”后追问“有什么 Buff 吗”，不得退回莱万汀全角色 Buff 汇总。
+- “莱万汀第一次燃烬有什么 Buff”应能回答按钮级 Buff；若该按钮无 Buff，应明确说该按钮无 Buff。
+- 只读查询不投递变更命令。
+- def-agent 不可用时仍可使用本地快照回答器作为 fallback。
+
+风险：
+
+- 只读证据包会增加 prompt 体积；需要控制按钮与 Buff 字段，不直接塞完整业务对象。
+- 模型仍可能答错指代；本轮以连续会话和按钮级证据降低概率，后续可增加显式 focus evidence。
 
 验收：
 
