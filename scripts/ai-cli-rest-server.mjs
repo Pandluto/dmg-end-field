@@ -25,6 +25,25 @@ const SCRIPT_MAX_STDERR = 64 * 1024;
 const MAIN_WORKBENCH_COMMAND_QUEUE_KEY = 'def.main-workbench.command-queue.v1';
 const MAIN_WORKBENCH_RESULT_LOG_KEY = 'def.main-workbench.result-log.v1';
 const MAIN_WORKBENCH_SNAPSHOT_KEY = 'def.main-workbench.snapshot.v1';
+const MAIN_WORKBENCH_SUPPORTED_OPS = new Set([
+  'selectCharacters',
+  'openView',
+  'clearTimeline',
+  'openWorkbenchPage',
+  'addSkillButton',
+  'removeSkillButton',
+  'addBuff',
+  'removeBuff',
+  'setTargetResistance',
+  'calculateDamage',
+  'saveTimelineSnapshot',
+  'restoreTimelineSnapshot',
+  'listTimelineSnapshots',
+  'refreshOperatorConfig',
+  'setOperatorWeapon',
+  'setOperatorEquipment',
+  'refreshSnapshot',
+]);
 
 class FileStorage {
   constructor(filePath) {
@@ -531,6 +550,17 @@ function handleMainWorkbenchRequest(method, pathname, query, body) {
     const commands = rawCommands.filter((command) => command && typeof command === 'object' && typeof command.op === 'string');
     if (!commands.length) {
       return failScript(400, 'invalid-main-workbench-command', 'Body must contain command with an op field or commands array.');
+    }
+    const unsupported = commands
+      .map((command) => command.op)
+      .filter((op) => !MAIN_WORKBENCH_SUPPORTED_OPS.has(op));
+    if (unsupported.length) {
+      return failScript(
+        400,
+        'invalid-main-workbench-command-op',
+        `Unsupported main workbench command op: ${[...new Set(unsupported)].join(', ')}`,
+        { supportedOps: [...MAIN_WORKBENCH_SUPPORTED_OPS] },
+      );
     }
     const queue = readMainWorkbenchCommandQueue();
     const source = typeof body?.source === 'string' ? body.source : 'rest';

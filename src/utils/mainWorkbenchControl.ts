@@ -180,6 +180,12 @@ export interface MainWorkbenchSnapshot {
     nodeIndex?: number;
     nodeNumber?: number;
     selectedBuffIds: string[];
+    selectedBuffs?: Array<{
+      id: string;
+      name?: string;
+      displayName?: string;
+      sourceName?: string;
+    }>;
   }>;
   damageReport?: Pick<DamageReportSnapshot, 'generatedAt' | 'totalExpected' | 'totalNonCrit' | 'buttonCount' | 'buttons'>;
   operatorConfigs?: Array<{

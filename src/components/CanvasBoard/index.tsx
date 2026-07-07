@@ -655,8 +655,8 @@ export function CanvasBoard({
         characterId: character.id,
         characterName: character.name,
         skillType: skill.buttonType,
-        staffIndex: lineIndex,
-        nodeIndex: staffIndex * GRID_NODE_COUNT + nodeIndex,
+        staffIndex,
+        nodeIndex,
         position,
         runtimeSkillId: skill.id,
         skillDisplayName: skill.displayName,
@@ -782,6 +782,9 @@ export function CanvasBoard({
         }
 
         if (command.op === 'addBuff') {
+          if (!command.buff || typeof command.buff !== 'object') {
+            throw new Error('addBuff requires buff');
+          }
           const buttonId = findWorkbenchButtonId(command);
           if (!buttonId) {
             throw new Error('未找到可添加 Buff 的技能按钮');
@@ -935,6 +938,21 @@ export function CanvasBoard({
         if (command.op === 'setOperatorEquipment') {
           const result = await setOperatorEquipmentFromWorkbenchCommand(command);
           const doneEntry = patchMainWorkbenchCommand(commandEntry.id, { status: 'done', result });
+          if (doneEntry) void pushMainWorkbenchCommandResult(doneEntry);
+          return;
+        }
+
+        if (command.op === 'refreshSnapshot') {
+          const snapshot = readMainWorkbenchSnapshot();
+          const doneEntry = patchMainWorkbenchCommand(commandEntry.id, {
+            status: 'done',
+            result: {
+              refreshed: true,
+              updatedAt: snapshot?.updatedAt ?? Date.now(),
+              selectedCharacterCount: snapshot?.selectedCharacters.length ?? selectedCharacters.length,
+              skillButtonCount: snapshot?.skillButtons.length ?? skillButtons.length,
+            },
+          });
           if (doneEntry) void pushMainWorkbenchCommandResult(doneEntry);
           return;
         }
@@ -1210,6 +1228,12 @@ export function CanvasBoard({
             nodeIndex: button.nodeIndex,
             nodeNumber: button.nodeNumber,
             selectedBuffIds: [...(persistedButton?.selectedBuff ?? [])],
+            selectedBuffs: getBuffsByButtonId(button.id).map((buff) => ({
+              id: buff.id,
+              name: buff.name,
+              displayName: buff.displayName,
+              sourceName: buff.sourceName,
+            })),
           };
         })
       : timelineButtons.length > 0
@@ -1227,6 +1251,12 @@ export function CanvasBoard({
             nodeIndex: button.nodeIndex,
             nodeNumber: button.nodeNumber,
             selectedBuffIds: [...(persistedButton?.selectedBuff ?? [])],
+            selectedBuffs: getBuffsByButtonId(button.id).map((buff) => ({
+              id: buff.id,
+              name: buff.name,
+              displayName: buff.displayName,
+              sourceName: buff.sourceName,
+            })),
           };
         })
       : Object.values(persistedButtonTable).map((button) => ({
@@ -1243,6 +1273,12 @@ export function CanvasBoard({
           nodeIndex: button.nodeIndex,
           nodeNumber: button.nodeNumber,
           selectedBuffIds: [...(button.selectedBuff ?? [])],
+          selectedBuffs: getBuffsByButtonId(button.id).map((buff) => ({
+            id: buff.id,
+            name: buff.name,
+            displayName: buff.displayName,
+            sourceName: buff.sourceName,
+          })),
         }));
     const mirroredSelectedCharacters: MainWorkbenchSnapshot['selectedCharacters'] = selectedCharacters.map((character) => ({
       id: character.id,

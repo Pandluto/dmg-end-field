@@ -193,13 +193,41 @@ function shouldUseSnapshotFallback(prompt: string | undefined, text: string | un
   return /当前|现在|看一下|穿|装备|武器|按钮|技能|buff|Buff|伤害|实际|告诉我|核对|确认|current|now|status|wear|gear|equipment|weapon|button|skill|damage|check|confirm/i.test(prompt || '');
 }
 
+function hasWorkbenchMutationAction(text: string) {
+  return /(给|帮|设置|穿上|换|选择|选上|去掉|移除|删除|增加|添加|释放|计算|保存|恢复|回退|清空|重算|改|配|放|撤|扩到|保留|再加|set|equip|wear|switch|select|remove|delete|drop|add|cast|use|calculate|save|restore|rollback|clear|recalculate|change|configure|expand|keep)/i.test(text);
+}
+
+function hasBuffMutationAction(text: string) {
+  return /(加Buff|加 buff|添加.*Buff|添加.*buff|移除.*Buff|移除.*buff|删除.*Buff|删除.*buff|去掉.*Buff|去掉.*buff|改.*Buff|改.*buff|add.*Buff|add.*buff|remove.*Buff|remove.*buff|delete.*Buff|delete.*buff|apply.*Buff|apply.*buff)/i.test(text);
+}
+
+function isReadOnlyLikeWorkbenchPrompt(text: string) {
+  return /(当前|现在|目前|看一下|看看|有哪些|多少|状态|什么|查询|核对|确认|告诉我|current|now|status|what|which|how many|check|confirm)/i.test(text);
+}
+
+function hasExplicitMutationKeyword(text: string) {
+  return /(设置|穿上|换|选择|选上|去掉|移除|删除|增加|添加|释放|计算|保存|恢复|回退|清空|重算|改|配|放|撤|扩到|再加|set|equip|wear|switch|select|remove|delete|drop|add|cast|use|calculate|save|restore|rollback|clear|recalculate|change|configure|expand)/i.test(text);
+}
+
 function isMutatingWorkbenchPrompt(prompt: string | undefined) {
   const text = prompt || '';
   if (/不要改|不要变更|不需要改|do not change|don't change|no changes/i.test(text) &&
     !/(加|添加|移除|删除|设置|穿上|换|释放|计算|恢复|回退|清空|重算|add|remove|delete|set|equip|wear|switch|cast|calculate|restore|rollback|clear|recalculate)/i.test(text)) {
     return false;
   }
-  return /(给|帮|设置|穿上|换|选择|选上|去掉|移除|删除|增加|添加|释放|计算|保存|恢复|回退|清空|重算|改|配|放|撤|扩到|保留|再加|加Buff|加 buff|Buff|buff|set|equip|wear|switch|select|remove|delete|drop|add|cast|use|calculate|save|restore|rollback|clear|recalculate|change|configure|expand|keep)/i.test(text);
+  if (isReadOnlyLikeWorkbenchPrompt(text) && !hasExplicitMutationKeyword(text) && !hasBuffMutationAction(text)) {
+    return false;
+  }
+  return hasWorkbenchMutationAction(text) || hasBuffMutationAction(text);
+}
+
+function shouldCreateWorkbenchRollback(prompt: string | undefined) {
+  const text = prompt || '';
+  if (!isMutatingWorkbenchPrompt(text)) return false;
+  if (/回退点|可回退|保存快照|备份|restore point|rollback point|backup/i.test(text)) return true;
+  if (/清空|恢复|回退|撤回|批量|全部|所有|四个人|4个人|队伍|替换.*和|换成|clear|restore|rollback|batch|all|team|squad|replace/i.test(text)) return true;
+  if (/(每个|各|多个|同时).*(技能|按钮|Buff|buff|装备|武器)/i.test(text)) return true;
+  return false;
 }
 
 function chooseWorkbenchThinkingEffort(prompt: string): DefAgentThinkingEffort {
@@ -240,12 +268,14 @@ function wait(ms: number) {
   return new Promise((resolve) => window.setTimeout(resolve, ms));
 }
 
-async function hasActiveWorkbenchCommands(status: 'pending' | 'running') {
+async function hasActiveWorkbenchCommands(status: 'pending' | 'running', since = 0) {
   try {
     const response = await fetch(`${MAIN_WORKBENCH_REST_BASE_URL}/api/main-workbench/commands?status=${status}`, { cache: 'no-store' });
     if (!response.ok) return false;
-    const payload = await response.json() as { commands?: unknown[] };
-    return Array.isArray(payload.commands) && payload.commands.length > 0;
+    const payload = await response.json() as { commands?: Array<{ createdAt?: number }> };
+    return Array.isArray(payload.commands) && payload.commands.some((command) => (
+      typeof command.createdAt !== 'number' || command.createdAt >= since
+    ));
   } catch {
     return false;
   }
@@ -294,7 +324,10 @@ function isSubstantiveWorkbenchCommand(command: MainWorkbenchCommand | undefined
 }
 
 function hasPromptRequiredCommand(prompt: string, evidence: WorkbenchCommandEvidence[]) {
-  const commands = evidence.map((item) => item.command).filter(Boolean) as MainWorkbenchCommand[];
+  const commands = evidence
+    .filter((item) => item.status === 'done')
+    .map((item) => item.command)
+    .filter(Boolean) as MainWorkbenchCommand[];
   if (!commands.some(isSubstantiveWorkbenchCommand)) return false;
   if (/撤|移除|删除|去掉|remove|delete|drop|undo/i.test(prompt)) {
     return commands.some((command) => command.op === 'removeSkillButton' || command.op === 'removeBuff' || command.op === 'restoreTimelineSnapshot');
@@ -314,13 +347,13 @@ function hasPromptRequiredCommand(prompt: string, evidence: WorkbenchCommandEvid
   return true;
 }
 
-async function waitForWorkbenchCommandsToSettle(timeoutMs = 7000) {
+async function waitForWorkbenchCommandsToSettle(since = 0, timeoutMs = 7000) {
   const startedAt = Date.now();
   await wait(500);
   while (Date.now() - startedAt < timeoutMs) {
     const [hasPending, hasRunning] = await Promise.all([
-      hasActiveWorkbenchCommands('pending'),
-      hasActiveWorkbenchCommands('running'),
+      hasActiveWorkbenchCommands('pending', since),
+      hasActiveWorkbenchCommands('running', since),
     ]);
     if (!hasPending && !hasRunning) {
       await wait(400);
@@ -354,22 +387,116 @@ function formatEquipmentLine(config: NonNullable<MainWorkbenchSnapshot['operator
   return `${config.characterName} 当前武器：${weapon}；装备：${equipment || '未配置'}。`;
 }
 
+function formatBuffName(buff: NonNullable<MainWorkbenchSnapshot['skillButtons'][number]['selectedBuffs']>[number]) {
+  return buff.displayName || buff.name || buff.id;
+}
+
+function formatButtonLabel(button: MainWorkbenchSnapshot['skillButtons'][number]) {
+  return `${button.characterName}-${button.skillDisplayName || button.skillType}@${button.staffIndex + 1}-${(button.nodeIndex ?? 0) + 1}`;
+}
+
+function formatDamageValue(value: number | undefined) {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return '-';
+  return Math.round(value).toLocaleString('zh-CN');
+}
+
+function buildBuffSnapshotAnswer(promptText: string, snapshot: MainWorkbenchSnapshot) {
+  if (!/buff|Buff|增益/.test(promptText)) return '';
+  const mentionedCharacters = snapshot.selectedCharacters
+    .filter((character) => promptText.includes(character.name))
+    .map((character) => character.name);
+  const targetButtons = snapshot.skillButtons.filter((button) => (
+    mentionedCharacters.length === 0 || mentionedCharacters.includes(button.characterName)
+  ));
+  if (!targetButtons.length) {
+    const target = mentionedCharacters.join('、') || '当前主界面';
+    return `${target} 当前没有技能按钮，无法列出 Buff。`;
+  }
+
+  const buttonBuffs = targetButtons.map((button) => ({
+    button,
+    buffs: button.selectedBuffs?.length
+      ? button.selectedBuffs.map(formatBuffName)
+      : button.selectedBuffIds,
+  }));
+  const uniqueBuffs = [...new Set(buttonBuffs.flatMap((item) => item.buffs))];
+  const target = mentionedCharacters.join('、') || '当前主界面';
+  if (!uniqueBuffs.length) {
+    return `${target} 当前 ${targetButtons.length} 个技能按钮均无 Buff。`;
+  }
+
+  const wantsDetail = /每个|逐个|按钮|详细|明细|全部|展开|detail|each|button|all/i.test(promptText);
+  if (!wantsDetail) {
+    const buffLines = uniqueBuffs.map((buff, index) => `${index + 1}. ${buff}`);
+    const buttonsWithBuff = buttonBuffs.filter((item) => item.buffs.length > 0).length;
+    return [
+      `${target} 当前共有 ${uniqueBuffs.length} 个唯一 Buff，分布在 ${buttonsWithBuff}/${targetButtons.length} 个技能按钮上：`,
+      ...buffLines,
+    ].join('\n');
+  }
+
+  const visible = buttonBuffs.slice(0, 8).map(({ button, buffs }) => {
+    const names = buffs.slice(0, 6);
+    const suffix = buffs.length > names.length ? ` 等 ${buffs.length} 个` : '';
+    return `${formatButtonLabel(button)}：${names.length ? `${names.join('、')}${suffix}` : '无 Buff'}`;
+  });
+  const remaining = buttonBuffs.length - visible.length;
+  if (remaining > 0) {
+    visible.push(`另有 ${remaining} 个技能按钮未展开。可追问“详细列出全部 Buff”。`);
+  }
+  return visible.join('\n');
+}
+
+function buildTopDamageSnapshotAnswer(promptText: string, snapshot: MainWorkbenchSnapshot) {
+  if (!/(最高|最大|最多|最强|top|highest|max)/i.test(promptText) || !/伤害|damage|技能/.test(promptText)) return '';
+  const reportButtons = snapshot.damageReport?.buttons || [];
+  if (!reportButtons.length) return '当前没有可用伤害报告，请先计算伤害。';
+  const mentionedCharacters = snapshot.selectedCharacters
+    .filter((character) => promptText.includes(character.name))
+    .map((character) => character.name);
+  const candidates = reportButtons.filter((button) => (
+    mentionedCharacters.length === 0 || mentionedCharacters.includes(button.characterName)
+  ));
+  if (!candidates.length) {
+    const target = mentionedCharacters.join('、') || '当前主界面';
+    return `${target} 当前没有可用伤害按钮。`;
+  }
+  const [top, ...rest] = [...candidates].sort((a, b) => b.expected - a.expected);
+  const runnerUp = rest[0];
+  const target = mentionedCharacters.join('、') || '当前主界面';
+  return [
+    `${target} 当前最高期望伤害技能是 ${top.characterName}-${top.skillName}，期望伤害 ${formatDamageValue(top.expected)}。`,
+    runnerUp ? `第二名是 ${runnerUp.characterName}-${runnerUp.skillName}，期望伤害 ${formatDamageValue(runnerUp.expected)}。` : '',
+    snapshot.damageReport ? `当前总期望伤害 ${formatDamageValue(snapshot.damageReport.totalExpected)}，按钮数 ${snapshot.damageReport.buttonCount}。` : '',
+  ].filter(Boolean).join('\n');
+}
+
 function buildSnapshotFallbackAnswer(prompt: string | undefined, snapshot: MainWorkbenchSnapshot | null) {
   if (!snapshot) return '';
   const promptText = prompt || '';
   const lines: string[] = [];
 
-  if (/穿|装备|武器|当前|现在|实际|看一下|确认|核对/.test(promptText)) {
+  const topDamageAnswer = buildTopDamageSnapshotAnswer(promptText, snapshot);
+  if (topDamageAnswer) {
+    lines.push(topDamageAnswer);
+  }
+
+  const buffAnswer = buildBuffSnapshotAnswer(promptText, snapshot);
+  if (!topDamageAnswer && buffAnswer) {
+    lines.push(buffAnswer);
+  }
+
+  if (!topDamageAnswer && !buffAnswer && /穿|装备|武器/.test(promptText)) {
     const configs = snapshot.operatorConfigs || [];
     const mentioned = configs.filter((config) => promptText.includes(config.characterName));
     const targets = mentioned.length > 0 ? mentioned : configs.slice(0, Math.min(configs.length, 2));
     targets.forEach((config) => lines.push(formatEquipmentLine(config)));
   }
 
-  if (/按钮|技能/.test(promptText)) {
+  if (!topDamageAnswer && !buffAnswer && /按钮|技能/.test(promptText)) {
     if (snapshot.skillButtons.length) {
       const buttons = snapshot.skillButtons
-        .map((button) => `${button.characterName}-${button.skillDisplayName || button.skillType}@${button.staffIndex + 1}-${(button.nodeIndex ?? 0) + 1}`)
+        .map(formatButtonLabel)
         .join('；');
       lines.push(`当前技能按钮：${buttons}。`);
     } else {
@@ -569,7 +696,7 @@ export function MainWorkbenchAiPanel({
     finishMessage(messageId, 'done', fallbackText, nextTokens);
     if (!shouldUseSnapshotFallback(prompt, fallbackText)) return;
     setStatus('核对快照中');
-    void waitForWorkbenchCommandsToSettle().then(async () => {
+    void waitForWorkbenchCommandsToSettle(activePromptStartedAtRef.current).then(async () => {
       const evidence = isMutatingWorkbenchPrompt(prompt)
         ? await readWorkbenchCommandEvidence(activePromptStartedAtRef.current)
         : [];
@@ -578,6 +705,14 @@ export function MainWorkbenchAiPanel({
         return {
           snapshot: null,
           text: `本轮命令执行失败：${failedCommand.error || failedCommand.id || '未知错误'}。`,
+          status: 'error' as WorkbenchAiMessage['status'],
+        };
+      }
+      const unsettledCommand = evidence.find((command) => command.status === 'pending' || command.status === 'running');
+      if (unsettledCommand) {
+        return {
+          snapshot: null,
+          text: `本轮命令仍未完成：${unsettledCommand.command?.op || unsettledCommand.id || 'unknown'}。请稍后重试或查看命令队列。`,
           status: 'error' as WorkbenchAiMessage['status'],
         };
       }
@@ -772,7 +907,7 @@ export function MainWorkbenchAiPanel({
     if (!userText) return;
     const messageId = `workbench-ai-${Date.now()}`;
     const rollbackLabel = `AI 回退点 ${new Date().toLocaleString('zh-CN', { hour12: false })}`;
-    const shouldCreateRollback = isMutatingWorkbenchPrompt(userText);
+    const shouldCreateRollback = shouldCreateWorkbenchRollback(userText);
     setInput('');
     setIsBusy(true);
     setLastPrompt(userText);
@@ -829,7 +964,7 @@ export function MainWorkbenchAiPanel({
       finishMessage(messageId, 'error', '后台超过 180 秒未完成，已停止本轮。');
     }, WORKBENCH_AGENT_TURN_TIMEOUT_MS);
     try {
-      if (isMutatingWorkbenchPrompt(userText)) {
+      if (shouldCreateRollback) {
         patchStep('backup', { status: 'running', detail: '保存 AI 回退点' });
         const backupEntry = enqueueLocalWorkbenchCommand({ op: 'saveTimelineSnapshot', label: rollbackLabel });
         patchStep('backup', {
@@ -837,7 +972,7 @@ export function MainWorkbenchAiPanel({
           detail: backupEntry ? rollbackLabel : '页面控制入口不可用',
         });
       } else {
-        patchStep('backup', { status: 'done', detail: '只读请求' });
+        patchStep('backup', { status: 'done', detail: isMutatingWorkbenchPrompt(userText) ? '小操作不保存' : '只读请求' });
       }
       setStatus('启动 REST');
       patchStep('rest', { status: 'running', detail: '启动 17321' });
