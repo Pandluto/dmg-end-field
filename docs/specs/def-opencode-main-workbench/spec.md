@@ -333,6 +333,12 @@ pending -> running -> done | error
 
 def-agent 会话 SHALL 在同一主界面上下文中连续保留，除非用户开启新对话或已选干员签名变化。用户追问“它/这个/刚才那个/有什么 Buff”时，模型应能结合上一轮定位结果和当前证据包回答。
 
+系统 SHALL 在只读证据包中支持结构化焦点（focus evidence）。当用户明确定位某个技能按钮，例如“莱万汀第一次燃烬”或“莱万汀-燃烬@1-1”，证据包应包含该按钮的 id、label、位置和按钮级 Buff 列表。
+
+系统 SHALL 在当前浏览器主界面会话中保留最近一次只读焦点，用于下一轮指代追问。该焦点只是当前迁出态上下文，不是 appdata work node，不得写入 appdata work node，也不得替代 appdata 节点的 branch/commit/rollback 日志。
+
+当用户追问“有什么 Buff / 它有什么 Buff / 刚才那个有什么 Buff”且本轮没有新焦点时，系统 SHOULD 将上一轮焦点作为 `previousFocus` 注入证据包。
+
 ### Mutating Intent
 
 变更意图会改变主界面。
