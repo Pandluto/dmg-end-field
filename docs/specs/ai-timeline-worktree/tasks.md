@@ -18,7 +18,7 @@
 - Task 10: 已完成，跑 build/test/REST smoke，并 review 风险。
 - Task 11: 已完成，新增 Electron IPC/bridge AI work node appdata API，并让前端 client 桌面优先。
 - Task 12: 已完成，新增 renderer checkout/apply command，把 appdata work node 应用到当前迁出态。
-- Task 13: 待执行，新增 renderer create-from-current command，从当前迁出态创建 appdata work node。
+- Task 13: 已完成，新增 renderer create-from-current command，从当前迁出态创建 appdata work node。
 
 ## Task 8: 修正存储边界
 
@@ -151,15 +151,17 @@
 
 验收：
 
-- command queue 支持 `createAiTimelineWorkNodeFromCurrent`。
-- 有效排轴上下文下可创建 appdata work node。
+- command queue 已支持 `createAiTimelineWorkNodeFromCurrent`。
+- renderer 命令已从当前迁出态读取 payload 并创建 appdata work node。
 - 创建后的 work node 的 `basePayload` 与 `workingPayload` 都来自当前迁出态。
 - 缺少当前 payload 时失败且不写空节点。
+- REST enqueue smoke 已通过。
 
 风险：
 
 - 还没有 UI 按钮；短期由 AI/REST command queue 调用。
 - 自动 saveId 仍是粗粒度默认值，后续应与真实存档 id/branch 管理绑定。
+- 当前自动化 smoke 未覆盖有效已选干员排轴上下文里的完整 renderer 创建节点，需要后续手测。
 
 ## Task 1: 新增 worktree 类型和存储模块
 

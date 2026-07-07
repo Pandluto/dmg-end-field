@@ -14,6 +14,7 @@ export const MAIN_WORKBENCH_SUPPORTED_OPS = [
   'saveTimelineSnapshot',
   'restoreTimelineSnapshot',
   'listTimelineSnapshots',
+  'createAiTimelineWorkNodeFromCurrent',
   'checkoutAiTimelineWorkNode',
   'refreshOperatorConfig',
   'setOperatorWeapon',

@@ -758,6 +758,42 @@ export function CanvasBoard({
     return command.latest ? sorted[0] ?? null : candidates[0] ?? null;
   };
 
+  const createAiTimelineWorkNodeFromCurrentCommand = async (
+    command: Extract<MainWorkbenchCommand, { op: 'createAiTimelineWorkNodeFromCurrent' }>,
+  ) => {
+    saveTimelineData();
+    setSelectedCharacterIds(selectedCharacters.map((character) => character.id));
+    const payload = getCurrentTimelineSnapshotPayload();
+    if (!payload) {
+      throw new Error('当前没有可创建 AI work node 的排轴迁出态');
+    }
+    const validation = validateTimelinePayload(payload);
+    if (!validation.ok) {
+      throw new Error(`当前排轴 payload 校验失败：${validation.issues.map((issue) => issue.message).join('；')}`);
+    }
+    const now = Date.now();
+    const client = createAiTimelineWorkNodeClient();
+    const created = await client.create({
+      saveId: command.saveId?.trim() || 'current-main-workbench',
+      branchId: command.branchId?.trim() || `main-workbench-${now}`,
+      label: command.label?.trim() || `Main Workbench ${new Date(now).toLocaleString()}`,
+      basePayload: payload,
+      workingPayload: payload,
+      approvalPolicy: command.approvalPolicy || 'auto-low-risk',
+      riskFlags: [],
+    });
+    return {
+      nodeId: created.node.id,
+      saveId: created.node.saveId,
+      branchId: created.node.branchId,
+      label: created.node.label,
+      status: created.node.status,
+      baseSummary: created.node.baseSummary,
+      workingSummary: created.node.workingSummary,
+      path: created.path,
+    };
+  };
+
   const checkoutAiTimelineWorkNodeFromCommand = async (
     command: Extract<MainWorkbenchCommand, { op: 'checkoutAiTimelineWorkNode' }>,
   ) => {
@@ -857,6 +893,7 @@ export function CanvasBoard({
         'saveTimelineSnapshot',
         'restoreTimelineSnapshot',
         'listTimelineSnapshots',
+        'createAiTimelineWorkNodeFromCurrent',
         'checkoutAiTimelineWorkNode',
         'refreshOperatorConfig',
         'setOperatorWeapon',
@@ -1034,6 +1071,13 @@ export function CanvasBoard({
             summary: snapshot.summary,
           }));
           const doneEntry = patchMainWorkbenchCommand(commandEntry.id, { status: 'done', result: { snapshots } });
+          if (doneEntry) void pushMainWorkbenchCommandResult(doneEntry);
+          return;
+        }
+
+        if (command.op === 'createAiTimelineWorkNodeFromCurrent') {
+          const result = await createAiTimelineWorkNodeFromCurrentCommand(command);
+          const doneEntry = patchMainWorkbenchCommand(commandEntry.id, { status: 'done', result });
           if (doneEntry) void pushMainWorkbenchCommandResult(doneEntry);
           return;
         }

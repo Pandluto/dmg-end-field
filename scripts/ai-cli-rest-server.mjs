@@ -40,6 +40,7 @@ const MAIN_WORKBENCH_SUPPORTED_OPS = new Set([
   'saveTimelineSnapshot',
   'restoreTimelineSnapshot',
   'listTimelineSnapshots',
+  'createAiTimelineWorkNodeFromCurrent',
   'checkoutAiTimelineWorkNode',
   'refreshOperatorConfig',
   'setOperatorWeapon',

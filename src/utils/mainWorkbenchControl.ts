@@ -108,6 +108,13 @@ export type MainWorkbenchCommand =
       op: 'listTimelineSnapshots';
     }
   | {
+      op: 'createAiTimelineWorkNodeFromCurrent';
+      saveId?: string;
+      branchId?: string;
+      label?: string;
+      approvalPolicy?: 'auto-low-risk' | 'ask-on-risk' | 'manual';
+    }
+  | {
       op: 'checkoutAiTimelineWorkNode';
       nodeId: string;
       commitId?: string;
