@@ -13,9 +13,9 @@
 - Task 5: 已完成 `removeSkillButton` / Buff 按钮定位止血。
 - Task 6: 已禁止 `step.finish` finalize。
 - Task 7: 已跑 build、test、worktree smoke。
-- Task 8: 进行中，修正 spec/task 的存储边界。
-- Task 9: 待执行，新增 appdata/localdata AI work node REST API 骨架。
-- Task 10: 待执行，跑 build/test/REST smoke，并 review 风险。
+- Task 8: 已完成，修正 spec/task 的存储边界。
+- Task 9: 已完成，新增 appdata/localdata AI work node REST API 骨架。
+- Task 10: 已完成，跑 build/test/REST smoke，并 review 风险。
 
 ## Task 8: 修正存储边界
 
@@ -51,6 +51,7 @@
 - `/health` 能暴露 work node 存储路径。
 - create/update/commit 能落盘到 appdata/localdata 文件。
 - update/commit 会记录日志和风险标记。
+- commit 只标记本地节点 `committed`，不伪装成已 checkout 到真实排轴。
 - 缺少 payload 或 id 不存在时返回结构化错误。
 
 风险：

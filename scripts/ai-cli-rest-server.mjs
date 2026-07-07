@@ -13,6 +13,7 @@ const storageDir = path.join(projectRoot, '.runtime', 'ai-cli-rest');
 const agentScriptDir = path.join(projectRoot, '.runtime', 'def-agent', 'scripts');
 const viteCacheDir = process.env.AI_CLI_REST_VITE_CACHE_DIR || path.join(projectRoot, '.runtime', 'vite-ai-cli-rest', String(process.pid));
 const nowStoragePath = path.join(projectRoot, 'data', 'localdata', 'now-storage.json');
+const aiTimelineWorkNodesPath = path.join(projectRoot, 'data', 'localdata', 'ai-timeline-worknodes.json');
 const storageMode = process.env.AI_CLI_REST_STORAGE_MODE || 'now-storage';
 const serverStartedAt = new Date().toISOString();
 const SCRIPT_NAME_RE = /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,79}\.m?js$/;
@@ -234,6 +235,324 @@ function failScript(status, code, message, details = undefined) {
       },
     },
   };
+}
+
+function makeId(prefix) {
+  return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function sanitizeWorkNodeId(value, fallbackPrefix) {
+  const raw = typeof value === 'string' && value.trim() ? value.trim() : makeId(fallbackPrefix);
+  return raw
+    .replace(/[<>:"/\\|?*\x00-\x1F]+/g, '-')
+    .replace(/\s+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 120) || makeId(fallbackPrefix);
+}
+
+function cloneJson(value) {
+  return JSON.parse(JSON.stringify(value));
+}
+
+function isObject(value) {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+function summarizeTimelinePayload(payload) {
+  const selectedCharacters = Array.isArray(payload?.selectedCharacters) ? payload.selectedCharacters : [];
+  const skillButtonTable = isObject(payload?.skillButtonTable) ? payload.skillButtonTable : {};
+  const allBuffList = Array.isArray(payload?.allBuffList) ? payload.allBuffList : [];
+  return {
+    characterCount: selectedCharacters.length,
+    buttonCount: Object.keys(skillButtonTable).length,
+    buffCount: allBuffList.length,
+  };
+}
+
+function diffTimelinePayloadSummary(basePayload, workingPayload) {
+  const baseButtons = new Set(Object.keys(isObject(basePayload?.skillButtonTable) ? basePayload.skillButtonTable : {}));
+  const workingButtons = new Set(Object.keys(isObject(workingPayload?.skillButtonTable) ? workingPayload.skillButtonTable : {}));
+  const baseBuffs = new Set((Array.isArray(basePayload?.allBuffList) ? basePayload.allBuffList : []).map((buff) => buff?.id).filter(Boolean));
+  const workingBuffs = new Set((Array.isArray(workingPayload?.allBuffList) ? workingPayload.allBuffList : []).map((buff) => buff?.id).filter(Boolean));
+  let addedButtonCount = 0;
+  let removedButtonCount = 0;
+  let addedBuffCount = 0;
+  let removedBuffCount = 0;
+  for (const id of workingButtons) {
+    if (!baseButtons.has(id)) addedButtonCount += 1;
+  }
+  for (const id of baseButtons) {
+    if (!workingButtons.has(id)) removedButtonCount += 1;
+  }
+  for (const id of workingBuffs) {
+    if (!baseBuffs.has(id)) addedBuffCount += 1;
+  }
+  for (const id of baseBuffs) {
+    if (!workingBuffs.has(id)) removedBuffCount += 1;
+  }
+  return {
+    addedButtonCount,
+    removedButtonCount,
+    changedButtonCount: 0,
+    addedBuffCount,
+    removedBuffCount,
+    beforeButtonCount: baseButtons.size,
+    afterButtonCount: workingButtons.size,
+    beforeBuffCount: baseBuffs.size,
+    afterBuffCount: workingBuffs.size,
+  };
+}
+
+function readAiTimelineWorkNodeArchive() {
+  try {
+    if (!fs.existsSync(aiTimelineWorkNodesPath)) {
+      return { type: 'def.ai-timeline.worknodes.v1', schemaVersion: 1, nodes: [], commits: [] };
+    }
+    const parsed = JSON.parse(fs.readFileSync(aiTimelineWorkNodesPath, 'utf-8'));
+    if (!parsed || parsed.type !== 'def.ai-timeline.worknodes.v1') {
+      return { type: 'def.ai-timeline.worknodes.v1', schemaVersion: 1, nodes: [], commits: [] };
+    }
+    return {
+      type: 'def.ai-timeline.worknodes.v1',
+      schemaVersion: 1,
+      nodes: Array.isArray(parsed.nodes) ? parsed.nodes : [],
+      commits: Array.isArray(parsed.commits) ? parsed.commits : [],
+    };
+  } catch {
+    return { type: 'def.ai-timeline.worknodes.v1', schemaVersion: 1, nodes: [], commits: [] };
+  }
+}
+
+function writeAiTimelineWorkNodeArchive(archive) {
+  fs.mkdirSync(path.dirname(aiTimelineWorkNodesPath), { recursive: true });
+  fs.writeFileSync(aiTimelineWorkNodesPath, `${JSON.stringify({
+    type: 'def.ai-timeline.worknodes.v1',
+    schemaVersion: 1,
+    nodes: Array.isArray(archive.nodes) ? archive.nodes.slice(0, 50) : [],
+    commits: Array.isArray(archive.commits) ? archive.commits.slice(0, 200) : [],
+  }, null, 2)}\n`, 'utf-8');
+}
+
+function normalizeRiskFlags(value) {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((item) => isObject(item))
+    .map((item) => ({
+      id: typeof item.id === 'string' && item.id.trim() ? item.id : makeId('ai-timeline-risk'),
+      severity: ['info', 'warning', 'blocker'].includes(item.severity) ? item.severity : 'warning',
+      code: typeof item.code === 'string' && item.code.trim() ? item.code.trim() : 'unspecified-risk',
+      message: typeof item.message === 'string' && item.message.trim() ? item.message.trim() : 'Unspecified AI timeline risk.',
+      ...(typeof item.path === 'string' && item.path.trim() ? { path: item.path.trim() } : {}),
+    }));
+}
+
+function normalizeApproval(value, fallbackMode = 'auto') {
+  const approvedAt = Date.now();
+  if (!isObject(value)) {
+    return {
+      mode: fallbackMode,
+      approvedAt,
+      approvedBy: fallbackMode === 'manual' ? 'user' : 'ai',
+      rationale: fallbackMode === 'manual' ? 'Manual approval required.' : 'Auto-approved by low-risk work node policy.',
+    };
+  }
+  const mode = value.mode === 'manual' ? 'manual' : 'auto';
+  return {
+    mode,
+    approvedAt: typeof value.approvedAt === 'number' ? value.approvedAt : approvedAt,
+    approvedBy: ['ai', 'user', 'system'].includes(value.approvedBy) ? value.approvedBy : (mode === 'manual' ? 'user' : 'ai'),
+    rationale: typeof value.rationale === 'string' && value.rationale.trim()
+      ? value.rationale.trim()
+      : (mode === 'manual' ? 'Manual approval recorded.' : 'Auto-approved by work node policy.'),
+  };
+}
+
+function makeWorkNodeLog(level, message, details = undefined) {
+  return {
+    id: makeId('ai-timeline-log'),
+    at: Date.now(),
+    level,
+    message,
+    ...(details ? { details } : {}),
+  };
+}
+
+function validateWorkNodePayload(payload, fieldName) {
+  if (!isObject(payload)) {
+    return `${fieldName} must be an object.`;
+  }
+  if (!Array.isArray(payload.selectedCharacters)) {
+    return `${fieldName}.selectedCharacters must be an array.`;
+  }
+  if (!isObject(payload.timelineData)) {
+    return `${fieldName}.timelineData must be an object.`;
+  }
+  if (!isObject(payload.skillButtonTable)) {
+    return `${fieldName}.skillButtonTable must be an object.`;
+  }
+  return null;
+}
+
+function handleAiTimelineWorkNodeRequest(method, pathname, body) {
+  if (method === 'GET' && pathname === '/api/ai-timeline-worknodes') {
+    const archive = readAiTimelineWorkNodeArchive();
+    return {
+      status: 200,
+      body: {
+        ok: true,
+        protocolVersion: 1,
+        path: aiTimelineWorkNodesPath,
+        nodes: archive.nodes.sort((left, right) => (right.updatedAt || 0) - (left.updatedAt || 0)),
+        commits: archive.commits.sort((left, right) => (right.createdAt || 0) - (left.createdAt || 0)),
+      },
+    };
+  }
+
+  if (method === 'POST' && pathname === '/api/ai-timeline-worknodes/create') {
+    const saveId = sanitizeWorkNodeId(body?.saveId, 'save');
+    if (!body?.saveId || typeof body.saveId !== 'string') {
+      return failScript(400, 'missing-ai-worknode-save-id', 'AI work node create requires saveId.');
+    }
+    const basePayload = body?.basePayload;
+    const payloadError = validateWorkNodePayload(basePayload, 'basePayload');
+    if (payloadError) {
+      return failScript(400, 'invalid-ai-worknode-base-payload', payloadError);
+    }
+    const requestedWorkingPayload = body?.workingPayload && isObject(body.workingPayload) ? body.workingPayload : basePayload;
+    const workingPayloadError = validateWorkNodePayload(requestedWorkingPayload, 'workingPayload');
+    if (workingPayloadError) {
+      return failScript(400, 'invalid-ai-worknode-working-payload', workingPayloadError);
+    }
+    const now = Date.now();
+    const branchId = sanitizeWorkNodeId(body?.branchId, 'branch');
+    const node = {
+      id: sanitizeWorkNodeId(body?.id, 'ai-timeline-node'),
+      saveId,
+      branchId,
+      createdAt: now,
+      updatedAt: now,
+      label: typeof body?.label === 'string' && body.label.trim() ? body.label.trim() : 'AI Timeline Work Node',
+      status: 'open',
+      basePayload: cloneJson(basePayload),
+      workingPayload: cloneJson(requestedWorkingPayload),
+      baseSummary: summarizeTimelinePayload(basePayload),
+      workingSummary: summarizeTimelinePayload(requestedWorkingPayload),
+      approvalPolicy: ['auto-low-risk', 'ask-on-risk', 'manual'].includes(body?.approvalPolicy) ? body.approvalPolicy : 'auto-low-risk',
+      riskFlags: normalizeRiskFlags(body?.riskFlags),
+      logs: [makeWorkNodeLog('info', 'Created AI timeline work node from checkout payload.')],
+    };
+    const archive = readAiTimelineWorkNodeArchive();
+    writeAiTimelineWorkNodeArchive({
+      ...archive,
+      nodes: [node, ...archive.nodes.filter((item) => item?.id !== node.id)],
+    });
+    return { status: 200, body: { ok: true, protocolVersion: 1, path: aiTimelineWorkNodesPath, node } };
+  }
+
+  const match = /^\/api\/ai-timeline-worknodes\/([^/]+)(?:\/([^/]+))?$/.exec(pathname);
+  if (!match) {
+    return null;
+  }
+  let nodeId = '';
+  try {
+    nodeId = decodeURIComponent(match[1]);
+  } catch {
+    return failScript(400, 'bad-ai-worknode-url', 'AI work node URL contains malformed percent-encoding.');
+  }
+  const action = match[2] || '';
+  const archive = readAiTimelineWorkNodeArchive();
+  const node = archive.nodes.find((item) => item?.id === nodeId);
+  if (!node) {
+    return failScript(404, 'ai-worknode-not-found', `AI timeline work node not found: ${nodeId}`);
+  }
+
+  if (method === 'GET' && !action) {
+    return { status: 200, body: { ok: true, protocolVersion: 1, path: aiTimelineWorkNodesPath, node } };
+  }
+
+  if (method === 'POST' && action === 'update') {
+    const workingPayload = Object.prototype.hasOwnProperty.call(body || {}, 'workingPayload')
+      ? body.workingPayload
+      : node.workingPayload;
+    const payloadError = validateWorkNodePayload(workingPayload, 'workingPayload');
+    if (payloadError) {
+      return failScript(400, 'invalid-ai-worknode-working-payload', payloadError);
+    }
+    const riskFlags = Object.prototype.hasOwnProperty.call(body || {}, 'riskFlags')
+      ? normalizeRiskFlags(body.riskFlags)
+      : (Array.isArray(node.riskFlags) ? node.riskFlags : []);
+    const allowedStatuses = new Set(['open', 'ready', 'committed', 'applied', 'abandoned']);
+    const nextNode = {
+      ...node,
+      updatedAt: Date.now(),
+      status: allowedStatuses.has(body?.status) ? body.status : node.status,
+      workingPayload: cloneJson(workingPayload),
+      workingSummary: summarizeTimelinePayload(workingPayload),
+      riskFlags,
+      logs: [
+        makeWorkNodeLog('info', 'Updated AI timeline work node.', {
+          riskFlagCount: riskFlags.length,
+          status: allowedStatuses.has(body?.status) ? body.status : node.status,
+        }),
+        ...(Array.isArray(node.logs) ? node.logs : []),
+      ],
+    };
+    writeAiTimelineWorkNodeArchive({
+      ...archive,
+      nodes: [nextNode, ...archive.nodes.filter((item) => item?.id !== nodeId)],
+    });
+    return { status: 200, body: { ok: true, protocolVersion: 1, path: aiTimelineWorkNodesPath, node: nextNode } };
+  }
+
+  if (method === 'POST' && action === 'commit') {
+    const riskFlags = Object.prototype.hasOwnProperty.call(body || {}, 'riskFlags')
+      ? normalizeRiskFlags(body.riskFlags)
+      : (Array.isArray(node.riskFlags) ? node.riskFlags : []);
+    const hasBlocker = riskFlags.some((risk) => risk.severity === 'blocker');
+    const explicitApproval = isObject(body?.approval);
+    if (node.approvalPolicy === 'manual' && !explicitApproval) {
+      return failScript(409, 'ai-worknode-requires-manual-approval', 'Manual approval policy requires explicit approval before commit.', {
+        approvalPolicy: node.approvalPolicy,
+      });
+    }
+    if (hasBlocker && !explicitApproval) {
+      return failScript(409, 'ai-worknode-blocked-by-risk', 'Blocker risk flags require explicit approval before commit.', { riskFlags });
+    }
+    const approval = normalizeApproval(body?.approval, explicitApproval ? 'manual' : 'auto');
+    const now = Date.now();
+    const commit = {
+      id: sanitizeWorkNodeId(body?.commitId, 'ai-timeline-commit'),
+      nodeId: node.id,
+      saveId: node.saveId,
+      branchId: node.branchId,
+      createdAt: now,
+      label: typeof body?.label === 'string' && body.label.trim() ? body.label.trim() : node.label,
+      summary: diffTimelinePayloadSummary(node.basePayload, node.workingPayload),
+      basePayload: cloneJson(node.basePayload),
+      appliedPayload: cloneJson(node.workingPayload),
+      riskFlags,
+      approval,
+      checkoutApplied: false,
+    };
+    const nextNode = {
+      ...node,
+      status: 'committed',
+      updatedAt: now,
+      riskFlags,
+      logs: [
+        makeWorkNodeLog('info', `Committed AI timeline work node as ${commit.id}.`, { approval }),
+        ...(Array.isArray(node.logs) ? node.logs : []),
+      ],
+    };
+    writeAiTimelineWorkNodeArchive({
+      ...archive,
+      nodes: [nextNode, ...archive.nodes.filter((item) => item?.id !== nodeId)],
+      commits: [commit, ...archive.commits.filter((item) => item?.id !== commit.id)],
+    });
+    return { status: 200, body: { ok: true, protocolVersion: 1, path: aiTimelineWorkNodesPath, node: nextNode, commit } };
+  }
+
+  return null;
 }
 
 function ensureAgentScriptDir() {
@@ -798,6 +1117,7 @@ const server = http.createServer(async (request, response) => {
       storageDir,
       storageMode: storageMode === 'runtime' ? 'runtime' : 'now-storage',
       nowStoragePath,
+      aiTimelineWorkNodesPath,
       pid: process.pid,
       startedAt: serverStartedAt,
       projectRoot,
@@ -826,6 +1146,12 @@ const server = http.createServer(async (request, response) => {
 
   try {
     const body = method === 'POST' ? await readJsonBody(request) : undefined;
+    const aiTimelineWorkNodeResponse = handleAiTimelineWorkNodeRequest(method, requestUrl.pathname, body);
+    if (aiTimelineWorkNodeResponse) {
+      writeJson(response, aiTimelineWorkNodeResponse.status, aiTimelineWorkNodeResponse.body);
+      return;
+    }
+
     const mainWorkbenchResponse = handleMainWorkbenchRequest(method, requestUrl.pathname, requestUrl.searchParams, body);
     if (mainWorkbenchResponse) {
       writeJson(response, mainWorkbenchResponse.status, mainWorkbenchResponse.body);

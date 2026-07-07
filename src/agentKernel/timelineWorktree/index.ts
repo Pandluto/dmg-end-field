@@ -15,6 +15,7 @@ import type { AiTimelineWorktree, CommitAiTimelineWorktreeResult } from './types
 import { validateTimelinePayload } from './validator';
 
 export * from './diff';
+export * from './localNodeClient';
 export * from './storage';
 export * from './types';
 export * from './validator';

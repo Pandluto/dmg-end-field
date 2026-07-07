@@ -91,7 +91,7 @@ interface AiTimelineWorkNode {
   createdAt: number;
   updatedAt: number;
   label: string;
-  status: "open" | "ready" | "applied" | "abandoned";
+  status: "open" | "ready" | "committed" | "applied" | "abandoned";
   basePayload: TimelineSnapshotPayload;
   workingPayload: TimelineSnapshotPayload;
   baseSummary: TimelinePayloadSummary;
@@ -119,6 +119,7 @@ interface AiTimelineCommit {
   appliedPayload: TimelineSnapshotPayload;
   riskFlags: AiTimelineRiskFlag[];
   approval: AiTimelineApproval;
+  checkoutApplied: boolean;
 }
 ```
 
@@ -184,7 +185,7 @@ interface TimelinePayloadDiff {
 
 ## Apply
 
-通过校验后，系统调用既有 `applyTimelineSnapshotPayload()` 将 `workingPayload` checkout 到真实排轴。
+通过校验后，系统调用既有 `applyTimelineSnapshotPayload()` 将 `workingPayload` checkout 到真实排轴。本地 REST `commit` 只能表示 work node 已提交为可审计记录，不能代表浏览器真实排轴已被 apply；只有 checkout 成功后才能标记 `applied`。
 
 Apply 成功后：
 

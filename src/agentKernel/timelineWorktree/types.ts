@@ -1,7 +1,10 @@
 import type { TimelineSnapshotPayload } from '../../utils/timelineSnapshotStorage';
 
 export type AiTimelineWorktreeStatus = 'open' | 'committed' | 'abandoned';
+export type AiTimelineWorkNodeStatus = 'open' | 'ready' | 'committed' | 'applied' | 'abandoned';
 export type AiTimelineLogLevel = 'info' | 'warning' | 'error';
+export type AiTimelineApprovalPolicy = 'auto-low-risk' | 'ask-on-risk' | 'manual';
+export type AiTimelineRiskSeverity = 'info' | 'warning' | 'blocker';
 
 export type TimelinePayloadSummary = {
   characterCount: number;
@@ -26,6 +29,38 @@ export type AiTimelineWorktree = {
   workingPayload: TimelineSnapshotPayload;
   baseSummary: TimelinePayloadSummary;
   workingSummary: TimelinePayloadSummary;
+  logs: AiTimelineWorktreeLog[];
+};
+
+export type AiTimelineRiskFlag = {
+  id: string;
+  severity: AiTimelineRiskSeverity;
+  code: string;
+  message: string;
+  path?: string;
+};
+
+export type AiTimelineApproval = {
+  mode: 'auto' | 'manual';
+  approvedAt: number;
+  approvedBy: 'ai' | 'user' | 'system';
+  rationale: string;
+};
+
+export type AiTimelineWorkNode = {
+  id: string;
+  saveId: string;
+  branchId: string;
+  createdAt: number;
+  updatedAt: number;
+  label: string;
+  status: AiTimelineWorkNodeStatus;
+  basePayload: TimelineSnapshotPayload;
+  workingPayload: TimelineSnapshotPayload;
+  baseSummary: TimelinePayloadSummary;
+  workingSummary: TimelinePayloadSummary;
+  approvalPolicy: AiTimelineApprovalPolicy;
+  riskFlags: AiTimelineRiskFlag[];
   logs: AiTimelineWorktreeLog[];
 };
 
@@ -93,10 +128,32 @@ export type AiTimelineCommit = {
   appliedPayload: TimelineSnapshotPayload;
 };
 
+export type AiTimelineWorkNodeCommit = {
+  id: string;
+  nodeId: string;
+  saveId: string;
+  branchId: string;
+  createdAt: number;
+  label: string;
+  summary: TimelinePayloadDiffSummary;
+  basePayload: TimelineSnapshotPayload;
+  appliedPayload: TimelineSnapshotPayload;
+  riskFlags: AiTimelineRiskFlag[];
+  approval: AiTimelineApproval;
+  checkoutApplied: boolean;
+};
+
 export type AiTimelineWorktreeArchive = {
   version: 'v1';
   worktrees: AiTimelineWorktree[];
   commits: AiTimelineCommit[];
+};
+
+export type AiTimelineWorkNodeArchive = {
+  type: 'def.ai-timeline.worknodes.v1';
+  schemaVersion: 1;
+  nodes: AiTimelineWorkNode[];
+  commits: AiTimelineWorkNodeCommit[];
 };
 
 export type AiTimelineValidationIssue = {
