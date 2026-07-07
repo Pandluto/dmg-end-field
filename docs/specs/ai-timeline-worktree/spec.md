@@ -185,7 +185,15 @@ interface TimelinePayloadDiff {
 
 ## Apply
 
-通过校验后，系统调用既有 `applyTimelineSnapshotPayload()` 将 `workingPayload` checkout 到真实排轴。本地 REST `commit` 只能表示 work node 已提交为可审计记录，不能代表浏览器真实排轴已被 apply；只有 checkout 成功后才能标记 `applied`。
+通过校验后，系统调用既有 `applyTimelineSnapshotPayload()` 将 `workingPayload` checkout 到真实排轴。本地 REST/Electron `commit` 只能表示 work node 已提交为可审计记录，不能代表浏览器真实排轴已被 apply；只有 renderer 成功执行 checkout 后才能标记 `applied`。
+
+真实 checkout 必须发生在当前主界面 renderer：
+
+- renderer 从 appdata/localdata 读取 work node。
+- renderer 校验 `workingPayload`，并在 apply 前与当前迁出态重新 diff。
+- renderer 调用 `applyTimelineSnapshotPayload(workingPayload)` 写入当前 `sessionStorage/localStorage` 迁出态。
+- renderer 回写 appdata work node：`status: "applied"`，并将对应 commit 标记 `checkoutApplied: true`。
+- 如果命令要求 reload，renderer 再刷新页面以让 React 重新挂载当前迁出态。
 
 Apply 成功后：
 
@@ -199,6 +207,12 @@ Apply 失败或风险过高时：
 - 不修改真实排轴。
 - 保留 appdata work node。
 - 将失败原因写入 node logs 和 risk flags。
+
+低阻塞规则：
+
+- 无 blocker 时，AI 可以用 `auto` approval 自行 checkout。
+- 有 blocker 时，必须显式传入 manual approval，或者 checkout 失败。
+- checkout 不使用用户 timeline snapshot 做日志；回退依据是 appdata node 的 `basePayload` 和 commit log。
 
 ## 与旧 command queue 的关系
 
@@ -225,7 +239,7 @@ Apply 失败或风险过高时：
 ## 当前风险点
 
 - 现有 `timelineWorktree/storage.ts` 仍是浏览器 localStorage 过渡实现，不能作为最终安全边界。
-- REST 开发服务、Electron IPC、Electron bridge 已有 AI work node appdata 文件 API，但还没有真实 checkout apply 流程。
+- REST 开发服务、Electron IPC、Electron bridge 已有 AI work node appdata 文件 API；真实 checkout apply 正在迁入 renderer command。
 - 还没有真实 patch planner，模型仍可能退回口述或 command queue。
 - 自动审批只能覆盖低风险结构变更；删除、覆盖、跨存档 apply 必须至少标记 warning/blocker。
 - UI 暂未提供 work node diff 审核面板，短期需要通过日志和手测清单验收。
