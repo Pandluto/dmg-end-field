@@ -22,6 +22,29 @@
 - Task 14: 已完成，新增 appdata work node diff/readiness 入口。
 - Task 15: 已完成，新增 renderer base rollback command，用 appdata basePayload 回退当前迁出态。
 - Task 16: 已完成，新增 checkoutDecision，让 AI 能基于 diff/risk/policy 自主判断是否 auto checkout 或请求 manual approval。
+- Task 17: 待执行，将主界面 AI 高风险入口切到 appdata work node 优先，用户快照仅作为兼容回退。
+
+## Task 17: 主界面 AI 高风险入口 work node 优先（待执行）
+
+- 高风险自然语言请求进入 def-agent 前，先投递 `createAiTimelineWorkNodeFromCurrent`。
+- 等待创建命令落地，并从 command result 提取 `nodeId/saveId/branchId`。
+- 将 work node 上下文注入本轮 agent prompt，要求后续 diff/checkout/rollback 优先使用 appdata work node。
+- AI 面板消息级回退拥有 `nodeId` 时优先投递 `restoreAiTimelineWorkNodeBase`；只有旧消息或创建失败时才允许 fallback 到 `restoreTimelineSnapshot`。
+- 用户 timeline snapshot 文案改成兼容回退，不再描述为 AI 工作节点或修改日志。
+
+验收：
+
+- 高风险 prompt 不再默认先写 `saveTimelineSnapshot`。
+- 创建成功时，agent prompt 明确包含本轮 work node id。
+- 点击该轮回退按钮时，命令为 `restoreAiTimelineWorkNodeBase`。
+- 低风险单按钮/Buff 操作仍不创建用户快照，也不强制创建 work node。
+- `npm run build` 通过；必要时跑 `npm test`。
+
+风险：
+
+- 创建 work node 与后续 agent 业务命令仍不是一个事务；若 agent 后续直接投递真实命令而未更新 work node，work node 暂时只承担 base rollback 与审计锚点。
+- work node workingPayload 的 AI patch 写入仍未完全接入，后续需要把“AI 在节点副本上编程式修改 payload”补成主路径。
+- UI 审核面板尚未展示 diff/checkoutDecision，短期依赖 prompt、命令结果和日志验收。
 
 ## Task 16: 新增 checkoutDecision 自主审批判断（已完成）
 
