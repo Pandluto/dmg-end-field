@@ -2,7 +2,7 @@
 
 ## Status
 
-已执行 Task 1-5。Task 6 保持临时重复清单，等待后续共享模块改造。Task 7-10 已完成，用于解除只读回答硬编码、恢复 def-agent 连续上下文，并统一 UI/REST 的只读 evidence/focus runtime。Task 11 记录前端专项，不在本轮底层架构 coding 中执行。Task 12 已完成，用于修正 removeBuff 别名字段和防误删边界。Task 13 已完成，用于共享主界面命令 schema runtime，减少 REST/UI 协议漂移。Task 14 已完成，用于给批量命令补批次级观测。
+已执行 Task 1-5。Task 6 保持临时重复清单，等待后续共享模块改造。Task 7-10 已完成，用于解除只读回答硬编码、恢复 def-agent 连续上下文，并统一 UI/REST 的只读 evidence/focus runtime。Task 11 记录前端专项，不在本轮底层架构 coding 中执行。Task 12 已完成，用于修正 removeBuff 别名字段和防误删边界。Task 13 已完成，用于共享主界面命令 schema runtime，减少 REST/UI 协议漂移。Task 14 已完成，用于给批量命令补批次级观测。Task 15 待执行，用于把批次摘要暴露给 def-agent 工具说明。
 
 本任务集接在 `quick-fixes.md` 之后。quick fixes 到此为止，后续不再继续把能力堆进快照回答器，而是引入最小 DEF Agent Kernel。
 
@@ -366,6 +366,32 @@ src/agentKernel/mainWorkbench/
 
 - 这只是观测层，不是事务执行器；浏览器仍按队列逐条处理。
 - 如果 agent 依赖批次全部成功，需要结合 verifier 或后续 batch executor，不能只看 enqueue 成功。
+
+### Task 15: def-agent 批次观测提示接入（待执行）
+
+当前问题：Task 14 已提供批次级 REST 摘要，但 def-agent 的 REST spec 和主界面 prompt 仍只提示读取 `/commands` 或 `/snapshot`。这会让模型继续自行数命令，无法稳定使用 `batchId` 判断批量操作进度。
+
+- 更新 `src/aiCli/aiCliRestAdapter.ts` 的 main workbench control spec：
+  - endpoints 增加 `GET /api/main-workbench/commands?batchId=<batchId>`。
+  - endpoints 增加 `GET /api/main-workbench/commands/batch?batchId=<batchId>`。
+  - rules 明确批量 enqueue 后优先保存响应里的 `batchId`，再读取 batch summary 判断 pending/done/error。
+- 更新 `MainWorkbenchAiPanel` 给 def-agent 的主界面 prompt：
+  - 多步 commands enqueue 会返回 `batchId`。
+  - 批量操作确认优先读 `/api/main-workbench/commands/batch?batchId=...`，不要手工数全局队列。
+- 不改变底层 command queue，不新增业务执行能力。
+
+验收：
+
+- REST spec 中能看到批次摘要 endpoint。
+- 主界面 prompt 中能看到批次摘要使用规则。
+- 文案继续强调 enqueue 成功不等于执行完成。
+- `npm run build` 通过。
+- `npm test` 通过。
+
+风险：
+
+- 这只是提示接入，模型仍可能不遵守；后续应把 batch summary 变成正式 tool 调用路径或 verifier 输入。
+- 批次摘要不提供事务保证，不能代替后续 batch executor。
 
 ## Task Review
 
