@@ -174,7 +174,35 @@ Appdata work node 必须提供独立 diff/readiness 入口：
 - `diffAiTimelineWorkNode` 读取 appdata node，不读取当前迁出态。
 - 输出 base/working 的结构化 diff 和 risk flags。
 - 输出 `readyToCheckout`，用于低阻塞判断是否可以自动 checkout。
+- 输出 `checkoutDecision`，用于让 AI 和 UI 知道当前是自动可继续、需要人工确认，还是被 blocker 阻断。
 - 不修改 work node，不写 current checkout，不写 now-storage。
+
+### Checkout Decision
+
+`readyToCheckout` 只能表达布尔结果，不足以支撑低阻塞 agent 自主判断。系统 SHALL 为 appdata work node 生成结构化 `checkoutDecision`：
+
+```ts
+interface AiTimelineCheckoutDecision {
+  status: "auto" | "needs-manual-approval" | "blocked";
+  approvalMode: "auto" | "manual";
+  canAutoApprove: boolean;
+  requiresManualApproval: boolean;
+  blockerCount: number;
+  warningCount: number;
+  rationale: string;
+  reasons: string[];
+}
+```
+
+决策规则：
+
+- 无 blocker 且 `approvalPolicy="auto-low-risk"` 时，AI MAY 使用 auto approval 自行 checkout。
+- 无 blocker 且 `approvalPolicy="ask-on-risk"`，如果存在 warning，则 SHOULD 要求 manual approval；没有 warning 时 MAY auto checkout。
+- `approvalPolicy="manual"` 时，必须 manual approval，但这属于审批策略，不应被描述为系统错误。
+- 存在 blocker 时，默认 `blocked`；除非用户提供明确 manual approval，checkout 不应自动继续。
+- `rationale` 必须来自实际 diff/risk/policy，不得只写固定模板。
+
+`checkoutDecision` 是只读判断，不得写 current checkout，不得写 now-storage，不得修改 appdata node。checkout 真正发生时，renderer SHALL 将该 decision 的 rationale 作为 auto/manual approval 的默认理由，写入 commit log，便于用户验收 AI 是如何自判的。
 
 ## 校验
 
@@ -230,8 +258,8 @@ Apply 失败或风险过高时：
 
 低阻塞规则：
 
-- 无 blocker 时，AI 可以用 `auto` approval 自行 checkout。
-- 有 blocker 时，必须显式传入 manual approval，或者 checkout 失败。
+- 无 blocker 且 checkoutDecision 允许 auto 时，AI 可以用 `auto` approval 自行 checkout。
+- 策略要求 manual 或存在 blocker 时，必须显式传入 manual approval，或者 checkout 失败。
 - checkout 不使用用户 timeline snapshot 做日志；回退依据是 appdata node 的 `basePayload` 和 commit log。
 
 ## Rollback
