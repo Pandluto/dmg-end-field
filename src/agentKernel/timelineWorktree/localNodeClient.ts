@@ -2,6 +2,7 @@ import type { TimelineSnapshotPayload } from '../../utils/timelineSnapshotStorag
 import type {
   AiTimelineApproval,
   AiTimelineApprovalPolicy,
+  AiTimelineCheckoutDecision,
   AiTimelineRiskFlag,
   AiTimelineWorkNode,
   AiTimelineWorkNodeCommit,
@@ -41,6 +42,7 @@ export type AiTimelineWorkNodeDiffResponse = {
   diff: TimelinePayloadDiff;
   riskFlags: AiTimelineRiskFlag[];
   readyToCheckout: boolean;
+  checkoutDecision: AiTimelineCheckoutDecision;
 };
 
 export type CreateAiTimelineWorkNodeInput = {
@@ -161,6 +163,7 @@ export function createAiTimelineWorkNodeClient(baseUrl = DEFAULT_REST_BASE_URL) 
           diff: result.diff as TimelinePayloadDiff,
           riskFlags: (result.riskFlags || []) as AiTimelineRiskFlag[],
           readyToCheckout: Boolean(result.readyToCheckout),
+          checkoutDecision: result.checkoutDecision as AiTimelineCheckoutDecision,
         };
       }
       const response = await fetch(buildUrl(baseUrl, `/api/ai-timeline-worknodes/${encodeURIComponent(id)}/diff`));

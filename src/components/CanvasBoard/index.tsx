@@ -101,6 +101,7 @@ import {
   diffTimelinePayloads,
   validateTimelinePayload,
 } from '../../agentKernel/timelineWorktree';
+import { buildAiTimelineCheckoutDecision } from '../../agentKernel/timelineWorktree/checkoutDecision.mjs';
 
 const EMPTY_BATCH_TARGET_RESISTANCE: Required<HitResistanceInput> = {
   physicalResistance: 0,
@@ -804,10 +805,22 @@ export function CanvasBoard({
     const client = createAiTimelineWorkNodeClient();
     const { node } = await client.get(nodeId);
     const riskFlags = Array.isArray(node.riskFlags) ? node.riskFlags : [];
-    const hasBlocker = riskFlags.some((risk) => risk.severity === 'blocker');
     const isManualApproval = command.approval?.mode === 'manual';
-    if (hasBlocker && !isManualApproval) {
-      throw new Error('AI work node 存在 blocker 风险，需要 manual approval 后才能 checkout');
+    const nodeDiff = diffTimelinePayloads(node.basePayload, node.workingPayload);
+    const checkoutDecision = buildAiTimelineCheckoutDecision({
+      approvalPolicy: node.approvalPolicy,
+      riskFlags,
+      diff: nodeDiff,
+    }) as {
+      status: 'auto' | 'needs-manual-approval' | 'blocked';
+      approvalMode: 'auto' | 'manual';
+      canAutoApprove: boolean;
+      requiresManualApproval: boolean;
+      rationale: string;
+      reasons: string[];
+    };
+    if (!checkoutDecision.canAutoApprove && !isManualApproval) {
+      throw new Error(`AI work node 需要 manual approval 后才能 checkout：${checkoutDecision.rationale}`);
     }
 
     const validation = validateTimelinePayload(node.workingPayload);
@@ -832,9 +845,7 @@ export function CanvasBoard({
         mode: approvalMode,
         approvedAt: Date.now(),
         approvedBy: command.approval?.approvedBy || (approvalMode === 'manual' ? 'user' : 'ai'),
-        rationale: command.approval?.rationale || (approvalMode === 'manual'
-          ? 'Manual approval supplied for AI timeline checkout.'
-          : 'Auto-approved by low-risk AI timeline checkout policy.'),
+        rationale: command.approval?.rationale || checkoutDecision.rationale,
       } as const;
       const committed = await client.commit(node.id, {
         label: `Checkout ${node.label}`,
@@ -872,6 +883,7 @@ export function CanvasBoard({
       checkoutMarkError,
       reloaded: command.reload !== false,
       riskFlags: riskFlags.map((risk) => ({ severity: risk.severity, code: risk.code, message: risk.message })),
+      checkoutDecision,
       currentDiff,
     };
   };

@@ -5,6 +5,7 @@ import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { createServer as createViteServer } from 'vite';
 import { buildMainWorkbenchEvidence } from '../src/agentKernel/mainWorkbench/evidenceRuntime.mjs';
+import { buildAiTimelineCheckoutDecision } from '../src/agentKernel/timelineWorktree/checkoutDecision.mjs';
 
 const HOST = '127.0.0.1';
 const PORT = Number(process.env.AI_CLI_REST_PORT || 17321);
@@ -405,14 +406,21 @@ function diffTimelinePayloadsForWorkNode(basePayload, workingPayload) {
 
 function buildAiTimelineWorkNodeDiff(node) {
   const riskFlags = Array.isArray(node.riskFlags) ? node.riskFlags : [];
+  const diff = diffTimelinePayloadsForWorkNode(node.basePayload, node.workingPayload);
+  const checkoutDecision = buildAiTimelineCheckoutDecision({
+    approvalPolicy: node.approvalPolicy,
+    riskFlags,
+    diff,
+  });
   return {
     nodeId: node.id,
     saveId: node.saveId,
     branchId: node.branchId,
     status: node.status,
-    diff: diffTimelinePayloadsForWorkNode(node.basePayload, node.workingPayload),
+    diff,
     riskFlags,
-    readyToCheckout: !riskFlags.some((risk) => risk.severity === 'blocker'),
+    readyToCheckout: checkoutDecision.canAutoApprove || !checkoutDecision.requiresManualApproval,
+    checkoutDecision,
   };
 }
 

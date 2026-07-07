@@ -20,12 +20,12 @@
 - Task 12: 已完成，新增 renderer checkout/apply command，把 appdata work node 应用到当前迁出态。
 - Task 13: 已完成，新增 renderer create-from-current command，从当前迁出态创建 appdata work node。
 - Task 14: 已完成，新增 appdata work node diff/readiness 入口。
-- Task 15: 待执行，新增 renderer base rollback command，用 appdata basePayload 回退当前迁出态。
-- Task 16: 待执行，新增 checkoutDecision，让 AI 能基于 diff/risk/policy 自主判断是否 auto checkout 或请求 manual approval。
+- Task 15: 已完成，新增 renderer base rollback command，用 appdata basePayload 回退当前迁出态。
+- Task 16: 已完成，新增 checkoutDecision，让 AI 能基于 diff/risk/policy 自主判断是否 auto checkout 或请求 manual approval。
 
-## Task 16: 新增 checkoutDecision 自主审批判断
+## Task 16: 新增 checkoutDecision 自主审批判断（已完成）
 
-- 新增共享决策函数，把 work node 的 `approvalPolicy`、`riskFlags`、base/working diff 合成 `checkoutDecision`。
+- 已新增共享决策函数，把 work node 的 `approvalPolicy`、`riskFlags`、base/working diff 合成 `checkoutDecision`。
 - `checkoutDecision` 字段包含：
   - `status`: `auto` / `needs-manual-approval` / `blocked`
   - `approvalMode`
@@ -35,10 +35,10 @@
   - `warningCount`
   - `rationale`
   - `reasons`
-- REST/Electron diff/readiness 入口返回同一结构。
-- renderer `checkoutAiTimelineWorkNode` 使用 decision 判断默认 auto/manual，而不是散落的 blocker if 和固定模板理由。
+- REST/Electron diff/readiness 入口已返回同一结构。
+- renderer `checkoutAiTimelineWorkNode` 已使用 decision 判断默认 auto/manual，而不是散落的 blocker if 和固定模板理由。
 - `checkoutDecision` 只读，不写 current checkout、不写 now-storage、不修改 appdata node。
-- checkout 发生时把 decision rationale 写入 commit approval，保留 AI 自判依据。
+- checkout 发生时会把 decision rationale 写入 commit approval，保留 AI 自判依据。
 
 验收：
 
@@ -46,12 +46,18 @@
 - `approvalPolicy=manual` 时，`checkoutDecision.status=needs-manual-approval`，checkout 无 explicit manual approval 时失败且不 apply。
 - `approvalPolicy=ask-on-risk` 且存在 warning 时，`checkoutDecision.status=needs-manual-approval`。
 - 存在 blocker 时，`checkoutDecision.status=blocked` 且 auto checkout 失败。
-- REST diff smoke 能返回 checkoutDecision。
+- REST diff smoke 已返回 checkoutDecision。
 - renderer checkout result 能返回 checkoutDecision，并把 rationale 写进 commit approval。
+- `node --check src/agentKernel/timelineWorktree/checkoutDecision.mjs` 已通过。
+- `node --check scripts/ai-cli-rest-server.mjs` 已通过。
+- `node --check electron/main.cjs` 已通过。
+- `npm run build` 已通过。
+- `npm test` 已通过。
+- runtime 分支断言已覆盖 auto、manual、ask-on-risk warning、blocker。
 
 风险：
 
-- REST 与 Electron 仍可能存在决策逻辑重复；本轮优先抽前端/TS 共享模块，REST 端如不能直接 import TS，需要同步最小 JS 或后续抽 `.mjs`。
+- Electron main 仍因 CJS/ESM 边界保留一份同步决策函数；REST 与 renderer 已共用 `.mjs` runtime，后续应继续消除 Electron 侧重复。
 - 决策只覆盖风险级别和 policy，不等同于完整业务正确性证明；真正 apply 前仍必须跑 payload validator。
 - manual approval 的用户入口仍未做 UI 面板，短期通过 command 参数和 result/log 验收。
 

@@ -47,6 +47,17 @@ export type AiTimelineApproval = {
   rationale: string;
 };
 
+export type AiTimelineCheckoutDecision = {
+  status: 'auto' | 'needs-manual-approval' | 'blocked';
+  approvalMode: 'auto' | 'manual';
+  canAutoApprove: boolean;
+  requiresManualApproval: boolean;
+  blockerCount: number;
+  warningCount: number;
+  rationale: string;
+  reasons: string[];
+};
+
 export type AiTimelineCheckout = {
   appliedAt: number;
   appliedBy: 'ai' | 'user' | 'system';

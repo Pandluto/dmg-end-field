@@ -17,6 +17,11 @@ declare module '*.mjs' {
     previousFocusOrButtonId?: unknown,
   ) => unknown;
   export const buildMainWorkbenchButtonEvidence: (button: unknown, reason?: string) => unknown;
+  export const buildAiTimelineCheckoutDecision: (input?: {
+    approvalPolicy?: string;
+    riskFlags?: unknown[];
+    diff?: unknown;
+  }) => unknown;
 }
 
 interface ImageAssetEntry {
@@ -256,6 +261,7 @@ interface AiTimelineWorkNodeOpResult {
   diff?: unknown;
   riskFlags?: AiTimelineRiskFlagBridge[];
   readyToCheckout?: boolean;
+  checkoutDecision?: unknown;
 }
 
 interface ImageAssetImportToDirPayload {
