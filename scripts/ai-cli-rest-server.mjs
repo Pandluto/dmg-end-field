@@ -41,6 +41,7 @@ const MAIN_WORKBENCH_SUPPORTED_OPS = new Set([
   'restoreTimelineSnapshot',
   'listTimelineSnapshots',
   'createAiTimelineWorkNodeFromCurrent',
+  'diffAiTimelineWorkNode',
   'checkoutAiTimelineWorkNode',
   'refreshOperatorConfig',
   'setOperatorWeapon',
@@ -305,6 +306,114 @@ function diffTimelinePayloadSummary(basePayload, workingPayload) {
   };
 }
 
+function normalizeWorkNodeButton(button) {
+  const item = {
+    id: button.id,
+    characterName: button.characterName,
+    skillType: button.skillType,
+    skillDisplayName: button.skillDisplayName,
+    staffIndex: button.staffIndex,
+    nodeIndex: button.nodeIndex,
+    selectedBuffIds: Array.isArray(button.selectedBuff) ? [...button.selectedBuff].sort() : [],
+  };
+  return {
+    ...item,
+    label: `${item.characterName}-${item.skillDisplayName || item.skillType}@${item.staffIndex + 1}-${(item.nodeIndex ?? 0) + 1}`,
+  };
+}
+
+function normalizeWorkNodeBuff(buff) {
+  return {
+    id: buff.id,
+    displayName: buff.displayName || buff.name || buff.id,
+    sourceName: buff.sourceName,
+  };
+}
+
+function diffArrayField(changes, field, before, after) {
+  const beforeValue = Array.isArray(before) ? JSON.stringify(before) : before;
+  const afterValue = Array.isArray(after) ? JSON.stringify(after) : after;
+  if (beforeValue !== afterValue) {
+    changes.push({ field, before, after });
+  }
+}
+
+function diffTimelinePayloadsForWorkNode(basePayload, workingPayload) {
+  const baseButtons = new Map(Object.values(isObject(basePayload?.skillButtonTable) ? basePayload.skillButtonTable : {})
+    .map((button) => [button.id, normalizeWorkNodeButton(button)]));
+  const workingButtons = new Map(Object.values(isObject(workingPayload?.skillButtonTable) ? workingPayload.skillButtonTable : {})
+    .map((button) => [button.id, normalizeWorkNodeButton(button)]));
+  const baseBuffs = new Map((Array.isArray(basePayload?.allBuffList) ? basePayload.allBuffList : [])
+    .map((buff) => [buff.id, normalizeWorkNodeBuff(buff)]));
+  const workingBuffs = new Map((Array.isArray(workingPayload?.allBuffList) ? workingPayload.allBuffList : [])
+    .map((buff) => [buff.id, normalizeWorkNodeBuff(buff)]));
+  const addedButtons = [];
+  const removedButtons = [];
+  const changedButtons = [];
+  const addedBuffs = [];
+  const removedBuffs = [];
+
+  for (const [id, after] of workingButtons) {
+    const before = baseButtons.get(id);
+    if (!before) {
+      addedButtons.push(after);
+      continue;
+    }
+    const changes = [];
+    diffArrayField(changes, 'characterName', before.characterName, after.characterName);
+    diffArrayField(changes, 'skillType', before.skillType, after.skillType);
+    diffArrayField(changes, 'skillDisplayName', before.skillDisplayName, after.skillDisplayName);
+    diffArrayField(changes, 'staffIndex', before.staffIndex, after.staffIndex);
+    diffArrayField(changes, 'nodeIndex', before.nodeIndex, after.nodeIndex);
+    diffArrayField(changes, 'selectedBuffIds', before.selectedBuffIds, after.selectedBuffIds);
+    if (changes.length) changedButtons.push({ id, before, after, changes });
+  }
+  for (const [id, before] of baseButtons) {
+    if (!workingButtons.has(id)) removedButtons.push(before);
+  }
+  for (const [id, buff] of workingBuffs) {
+    if (!baseBuffs.has(id)) addedBuffs.push(buff);
+  }
+  for (const [id, buff] of baseBuffs) {
+    if (!workingBuffs.has(id)) removedBuffs.push(buff);
+  }
+
+  return {
+    summary: {
+      addedButtonCount: addedButtons.length,
+      removedButtonCount: removedButtons.length,
+      changedButtonCount: changedButtons.length,
+      addedBuffCount: addedBuffs.length,
+      removedBuffCount: removedBuffs.length,
+      beforeButtonCount: baseButtons.size,
+      afterButtonCount: workingButtons.size,
+      beforeBuffCount: baseBuffs.size,
+      afterBuffCount: workingBuffs.size,
+    },
+    selectedCharactersChanged: JSON.stringify(basePayload?.selectedCharacters || []) !== JSON.stringify(workingPayload?.selectedCharacters || []),
+    beforeSelectedCharacters: Array.isArray(basePayload?.selectedCharacters) ? basePayload.selectedCharacters : [],
+    afterSelectedCharacters: Array.isArray(workingPayload?.selectedCharacters) ? workingPayload.selectedCharacters : [],
+    addedButtons: addedButtons.sort((left, right) => left.label.localeCompare(right.label)),
+    removedButtons: removedButtons.sort((left, right) => left.label.localeCompare(right.label)),
+    changedButtons: changedButtons.sort((left, right) => left.after.label.localeCompare(right.after.label)),
+    addedBuffs: addedBuffs.sort((left, right) => left.displayName.localeCompare(right.displayName)),
+    removedBuffs: removedBuffs.sort((left, right) => left.displayName.localeCompare(right.displayName)),
+  };
+}
+
+function buildAiTimelineWorkNodeDiff(node) {
+  const riskFlags = Array.isArray(node.riskFlags) ? node.riskFlags : [];
+  return {
+    nodeId: node.id,
+    saveId: node.saveId,
+    branchId: node.branchId,
+    status: node.status,
+    diff: diffTimelinePayloadsForWorkNode(node.basePayload, node.workingPayload),
+    riskFlags,
+    readyToCheckout: !riskFlags.some((risk) => risk.severity === 'blocker'),
+  };
+}
+
 function readAiTimelineWorkNodeArchive() {
   try {
     if (!fs.existsSync(aiTimelineWorkNodesPath)) {
@@ -470,6 +579,18 @@ function handleAiTimelineWorkNodeRequest(method, pathname, body) {
 
   if (method === 'GET' && !action) {
     return { status: 200, body: { ok: true, protocolVersion: 1, path: aiTimelineWorkNodesPath, node } };
+  }
+
+  if (method === 'GET' && action === 'diff') {
+    return {
+      status: 200,
+      body: {
+        ok: true,
+        protocolVersion: 1,
+        path: aiTimelineWorkNodesPath,
+        ...buildAiTimelineWorkNodeDiff(node),
+      },
+    };
   }
 
   if (method === 'POST' && action === 'update') {

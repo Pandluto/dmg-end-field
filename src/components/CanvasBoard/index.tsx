@@ -894,6 +894,7 @@ export function CanvasBoard({
         'restoreTimelineSnapshot',
         'listTimelineSnapshots',
         'createAiTimelineWorkNodeFromCurrent',
+        'diffAiTimelineWorkNode',
         'checkoutAiTimelineWorkNode',
         'refreshOperatorConfig',
         'setOperatorWeapon',
@@ -1077,6 +1078,13 @@ export function CanvasBoard({
 
         if (command.op === 'createAiTimelineWorkNodeFromCurrent') {
           const result = await createAiTimelineWorkNodeFromCurrentCommand(command);
+          const doneEntry = patchMainWorkbenchCommand(commandEntry.id, { status: 'done', result });
+          if (doneEntry) void pushMainWorkbenchCommandResult(doneEntry);
+          return;
+        }
+
+        if (command.op === 'diffAiTimelineWorkNode') {
+          const result = await createAiTimelineWorkNodeClient().diff(command.nodeId);
           const doneEntry = patchMainWorkbenchCommand(commandEntry.id, { status: 'done', result });
           if (doneEntry) void pushMainWorkbenchCommandResult(doneEntry);
           return;

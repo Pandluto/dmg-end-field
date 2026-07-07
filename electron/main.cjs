@@ -934,6 +934,10 @@ function startBridgeServer() {
           writeJson(response, 200, readAiTimelineWorkNode(nodeId));
           return;
         }
+        if (method === 'GET' && action === 'diff') {
+          writeJson(response, 200, buildAiTimelineWorkNodeDiff(readAiTimelineWorkNode(nodeId).node));
+          return;
+        }
         if (method === 'POST' && action === 'update') {
           const payload = await readJsonRequest(request);
           writeJson(response, 200, updateAiTimelineWorkNode(nodeId, payload));
@@ -4144,6 +4148,116 @@ function diffAiTimelinePayloadSummary(basePayload, workingPayload) {
   };
 }
 
+function normalizeAiTimelineWorkNodeButton(button) {
+  const item = {
+    id: button.id,
+    characterName: button.characterName,
+    skillType: button.skillType,
+    skillDisplayName: button.skillDisplayName,
+    staffIndex: button.staffIndex,
+    nodeIndex: button.nodeIndex,
+    selectedBuffIds: Array.isArray(button.selectedBuff) ? [...button.selectedBuff].sort() : [],
+  };
+  return {
+    ...item,
+    label: `${item.characterName}-${item.skillDisplayName || item.skillType}@${item.staffIndex + 1}-${(item.nodeIndex ?? 0) + 1}`,
+  };
+}
+
+function normalizeAiTimelineWorkNodeBuff(buff) {
+  return {
+    id: buff.id,
+    displayName: buff.displayName || buff.name || buff.id,
+    sourceName: buff.sourceName,
+  };
+}
+
+function diffAiTimelineField(changes, field, before, after) {
+  const beforeValue = Array.isArray(before) ? JSON.stringify(before) : before;
+  const afterValue = Array.isArray(after) ? JSON.stringify(after) : after;
+  if (beforeValue !== afterValue) {
+    changes.push({ field, before, after });
+  }
+}
+
+function diffAiTimelinePayloads(basePayload, workingPayload) {
+  const baseButtons = new Map(Object.values(isPlainObject(basePayload?.skillButtonTable) ? basePayload.skillButtonTable : {})
+    .map((button) => [button.id, normalizeAiTimelineWorkNodeButton(button)]));
+  const workingButtons = new Map(Object.values(isPlainObject(workingPayload?.skillButtonTable) ? workingPayload.skillButtonTable : {})
+    .map((button) => [button.id, normalizeAiTimelineWorkNodeButton(button)]));
+  const baseBuffs = new Map((Array.isArray(basePayload?.allBuffList) ? basePayload.allBuffList : [])
+    .map((buff) => [buff.id, normalizeAiTimelineWorkNodeBuff(buff)]));
+  const workingBuffs = new Map((Array.isArray(workingPayload?.allBuffList) ? workingPayload.allBuffList : [])
+    .map((buff) => [buff.id, normalizeAiTimelineWorkNodeBuff(buff)]));
+  const addedButtons = [];
+  const removedButtons = [];
+  const changedButtons = [];
+  const addedBuffs = [];
+  const removedBuffs = [];
+
+  for (const [id, after] of workingButtons) {
+    const before = baseButtons.get(id);
+    if (!before) {
+      addedButtons.push(after);
+      continue;
+    }
+    const changes = [];
+    diffAiTimelineField(changes, 'characterName', before.characterName, after.characterName);
+    diffAiTimelineField(changes, 'skillType', before.skillType, after.skillType);
+    diffAiTimelineField(changes, 'skillDisplayName', before.skillDisplayName, after.skillDisplayName);
+    diffAiTimelineField(changes, 'staffIndex', before.staffIndex, after.staffIndex);
+    diffAiTimelineField(changes, 'nodeIndex', before.nodeIndex, after.nodeIndex);
+    diffAiTimelineField(changes, 'selectedBuffIds', before.selectedBuffIds, after.selectedBuffIds);
+    if (changes.length) changedButtons.push({ id, before, after, changes });
+  }
+  for (const [id, before] of baseButtons) {
+    if (!workingButtons.has(id)) removedButtons.push(before);
+  }
+  for (const [id, buff] of workingBuffs) {
+    if (!baseBuffs.has(id)) addedBuffs.push(buff);
+  }
+  for (const [id, buff] of baseBuffs) {
+    if (!workingBuffs.has(id)) removedBuffs.push(buff);
+  }
+
+  return {
+    summary: {
+      addedButtonCount: addedButtons.length,
+      removedButtonCount: removedButtons.length,
+      changedButtonCount: changedButtons.length,
+      addedBuffCount: addedBuffs.length,
+      removedBuffCount: removedBuffs.length,
+      beforeButtonCount: baseButtons.size,
+      afterButtonCount: workingButtons.size,
+      beforeBuffCount: baseBuffs.size,
+      afterBuffCount: workingBuffs.size,
+    },
+    selectedCharactersChanged: JSON.stringify(basePayload?.selectedCharacters || []) !== JSON.stringify(workingPayload?.selectedCharacters || []),
+    beforeSelectedCharacters: Array.isArray(basePayload?.selectedCharacters) ? basePayload.selectedCharacters : [],
+    afterSelectedCharacters: Array.isArray(workingPayload?.selectedCharacters) ? workingPayload.selectedCharacters : [],
+    addedButtons: addedButtons.sort((left, right) => left.label.localeCompare(right.label)),
+    removedButtons: removedButtons.sort((left, right) => left.label.localeCompare(right.label)),
+    changedButtons: changedButtons.sort((left, right) => left.after.label.localeCompare(right.after.label)),
+    addedBuffs: addedBuffs.sort((left, right) => left.displayName.localeCompare(right.displayName)),
+    removedBuffs: removedBuffs.sort((left, right) => left.displayName.localeCompare(right.displayName)),
+  };
+}
+
+function buildAiTimelineWorkNodeDiff(node) {
+  const riskFlags = Array.isArray(node.riskFlags) ? node.riskFlags : [];
+  return {
+    ok: true,
+    path: getAiTimelineWorkNodesPath(),
+    nodeId: node.id,
+    saveId: node.saveId,
+    branchId: node.branchId,
+    status: node.status,
+    diff: diffAiTimelinePayloads(node.basePayload, node.workingPayload),
+    riskFlags,
+    readyToCheckout: !riskFlags.some((risk) => risk.severity === 'blocker'),
+  };
+}
+
 function readAiTimelineWorkNodeArchive() {
   try {
     const filePath = getAiTimelineWorkNodesPath();
@@ -4733,6 +4847,14 @@ ipcMain.handle('desktop:create-ai-timeline-worknode', (_event, payload) => {
 ipcMain.handle('desktop:read-ai-timeline-worknode', (_event, payload) => {
   try {
     return readAiTimelineWorkNode(payload?.id || payload);
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : String(error) };
+  }
+});
+
+ipcMain.handle('desktop:diff-ai-timeline-worknode', (_event, payload) => {
+  try {
+    return buildAiTimelineWorkNodeDiff(readAiTimelineWorkNode(payload?.id || payload).node);
   } catch (error) {
     return { ok: false, error: error instanceof Error ? error.message : String(error) };
   }

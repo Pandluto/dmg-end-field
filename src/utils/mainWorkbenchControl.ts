@@ -115,6 +115,10 @@ export type MainWorkbenchCommand =
       approvalPolicy?: 'auto-low-risk' | 'ask-on-risk' | 'manual';
     }
   | {
+      op: 'diffAiTimelineWorkNode';
+      nodeId: string;
+    }
+  | {
       op: 'checkoutAiTimelineWorkNode';
       nodeId: string;
       commitId?: string;

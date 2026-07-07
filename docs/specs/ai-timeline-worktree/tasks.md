@@ -19,7 +19,7 @@
 - Task 11: 已完成，新增 Electron IPC/bridge AI work node appdata API，并让前端 client 桌面优先。
 - Task 12: 已完成，新增 renderer checkout/apply command，把 appdata work node 应用到当前迁出态。
 - Task 13: 已完成，新增 renderer create-from-current command，从当前迁出态创建 appdata work node。
-- Task 14: 待执行，新增 appdata work node diff/readiness 入口。
+- Task 14: 已完成，新增 appdata work node diff/readiness 入口。
 
 ## Task 8: 修正存储边界
 
@@ -183,8 +183,9 @@
 
 - REST `GET /api/ai-timeline-worknodes/:id/diff` 可返回结构化 diff。
 - Electron bridge `GET /local-data/ai-timeline-worknodes/:id/diff` 可返回结构化 diff。
-- command queue 支持 `diffAiTimelineWorkNode`。
+- command queue 已支持 `diffAiTimelineWorkNode`。
 - 有 blocker risk 时 `readyToCheckout:false`。
+- REST/Electron diff smoke 已通过。
 
 风险：
 

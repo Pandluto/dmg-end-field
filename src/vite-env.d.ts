@@ -230,6 +230,13 @@ interface AiTimelineWorkNodeOpResult {
   archive?: AiTimelineWorkNodeArchiveBridge;
   node?: AiTimelineWorkNodeBridge;
   commit?: AiTimelineWorkNodeCommitBridge;
+  nodeId?: string;
+  saveId?: string;
+  branchId?: string;
+  status?: AiTimelineWorkNodeStatus;
+  diff?: unknown;
+  riskFlags?: AiTimelineRiskFlagBridge[];
+  readyToCheckout?: boolean;
 }
 
 interface ImageAssetImportToDirPayload {
@@ -264,6 +271,7 @@ interface DesktopRuntimeBridge {
   listAiTimelineWorkNodes?: () => Promise<AiTimelineWorkNodeOpResult>;
   createAiTimelineWorkNode?: (payload: unknown) => Promise<AiTimelineWorkNodeOpResult>;
   readAiTimelineWorkNode?: (payload: { id: string } | string) => Promise<AiTimelineWorkNodeOpResult>;
+  diffAiTimelineWorkNode?: (payload: { id: string } | string) => Promise<AiTimelineWorkNodeOpResult>;
   updateAiTimelineWorkNode?: (payload: { id: string; [key: string]: unknown }) => Promise<AiTimelineWorkNodeOpResult>;
   commitAiTimelineWorkNode?: (payload: { id: string; [key: string]: unknown }) => Promise<AiTimelineWorkNodeOpResult>;
   markAiTimelineWorkNodeCheckoutApplied?: (payload: { id: string; [key: string]: unknown }) => Promise<AiTimelineWorkNodeOpResult>;

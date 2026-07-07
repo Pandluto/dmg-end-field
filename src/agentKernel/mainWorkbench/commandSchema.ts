@@ -15,6 +15,7 @@ export const MAIN_WORKBENCH_SUPPORTED_OPS = [
   'restoreTimelineSnapshot',
   'listTimelineSnapshots',
   'createAiTimelineWorkNodeFromCurrent',
+  'diffAiTimelineWorkNode',
   'checkoutAiTimelineWorkNode',
   'refreshOperatorConfig',
   'setOperatorWeapon',
@@ -85,6 +86,13 @@ export function validateMainWorkbenchCommand(command: unknown): MainWorkbenchCom
       ok: false,
       code: 'invalid-main-workbench-checkout-worknode',
       message: 'checkoutAiTimelineWorkNode requires nodeId.',
+    };
+  }
+  if (command.op === 'diffAiTimelineWorkNode' && !hasAnyString(command, ['nodeId'])) {
+    return {
+      ok: false,
+      code: 'invalid-main-workbench-diff-worknode',
+      message: 'diffAiTimelineWorkNode requires nodeId.',
     };
   }
 

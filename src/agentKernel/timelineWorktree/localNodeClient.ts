@@ -6,6 +6,7 @@ import type {
   AiTimelineWorkNode,
   AiTimelineWorkNodeCommit,
   AiTimelineWorkNodeStatus,
+  TimelinePayloadDiff,
 } from './types';
 
 const DEFAULT_REST_BASE_URL = 'http://127.0.0.1:17321';
@@ -27,6 +28,19 @@ export type AiTimelineWorkNodeResponse = {
 
 export type AiTimelineWorkNodeCommitResponse = AiTimelineWorkNodeResponse & {
   commit: AiTimelineWorkNodeCommit;
+};
+
+export type AiTimelineWorkNodeDiffResponse = {
+  ok: true;
+  protocolVersion: 1;
+  path: string;
+  nodeId: string;
+  saveId: string;
+  branchId: string;
+  status: AiTimelineWorkNodeStatus;
+  diff: TimelinePayloadDiff;
+  riskFlags: AiTimelineRiskFlag[];
+  readyToCheckout: boolean;
 };
 
 export type CreateAiTimelineWorkNodeInput = {
@@ -124,6 +138,27 @@ export function createAiTimelineWorkNodeClient(baseUrl = DEFAULT_REST_BASE_URL) 
       }
       const response = await fetch(buildUrl(baseUrl, `/api/ai-timeline-worknodes/${encodeURIComponent(id)}`));
       return readJsonResponse<AiTimelineWorkNodeResponse>(response);
+    },
+
+    async diff(id: string): Promise<AiTimelineWorkNodeDiffResponse> {
+      const desktopRuntime = getDesktopRuntime();
+      if (desktopRuntime?.diffAiTimelineWorkNode) {
+        const result = readDesktopResult(await desktopRuntime.diffAiTimelineWorkNode({ id }));
+        return {
+          ok: true,
+          protocolVersion: 1,
+          path: result.path || '',
+          nodeId: String(result.nodeId || id),
+          saveId: String(result.saveId || ''),
+          branchId: String(result.branchId || ''),
+          status: (result.status || 'open') as AiTimelineWorkNodeStatus,
+          diff: result.diff as TimelinePayloadDiff,
+          riskFlags: (result.riskFlags || []) as AiTimelineRiskFlag[],
+          readyToCheckout: Boolean(result.readyToCheckout),
+        };
+      }
+      const response = await fetch(buildUrl(baseUrl, `/api/ai-timeline-worknodes/${encodeURIComponent(id)}/diff`));
+      return readJsonResponse<AiTimelineWorkNodeDiffResponse>(response);
     },
 
     async create(input: CreateAiTimelineWorkNodeInput): Promise<AiTimelineWorkNodeResponse> {
