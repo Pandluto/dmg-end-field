@@ -22,6 +22,11 @@ declare module '*.mjs' {
     riskFlags?: unknown[];
     diff?: unknown;
   }) => unknown;
+  export const MAIN_WORKBENCH_SUPPORTED_OPS: readonly string[];
+  export const isMainWorkbenchCommandOp: (op: unknown) => boolean;
+  export const normalizeMainWorkbenchCommand: (command: unknown) => unknown;
+  export const validateMainWorkbenchCommand: (command: unknown) => unknown;
+  export const validateMainWorkbenchCommands: (commands: unknown[]) => unknown;
 }
 
 interface ImageAssetEntry {

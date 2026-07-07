@@ -5,6 +5,11 @@ import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { createServer as createViteServer } from 'vite';
 import { buildMainWorkbenchEvidence } from '../src/agentKernel/mainWorkbench/evidenceRuntime.mjs';
+import {
+  MAIN_WORKBENCH_SUPPORTED_OPS,
+  normalizeMainWorkbenchCommand,
+  validateMainWorkbenchCommand,
+} from '../src/agentKernel/mainWorkbench/commandSchemaRuntime.mjs';
 import { buildAiTimelineCheckoutDecision } from '../src/agentKernel/timelineWorktree/checkoutDecision.mjs';
 
 const HOST = '127.0.0.1';
@@ -28,29 +33,7 @@ const SCRIPT_MAX_STDERR = 64 * 1024;
 const MAIN_WORKBENCH_COMMAND_QUEUE_KEY = 'def.main-workbench.command-queue.v1';
 const MAIN_WORKBENCH_RESULT_LOG_KEY = 'def.main-workbench.result-log.v1';
 const MAIN_WORKBENCH_SNAPSHOT_KEY = 'def.main-workbench.snapshot.v1';
-const MAIN_WORKBENCH_SUPPORTED_OPS = new Set([
-  'selectCharacters',
-  'openView',
-  'clearTimeline',
-  'openWorkbenchPage',
-  'addSkillButton',
-  'removeSkillButton',
-  'addBuff',
-  'removeBuff',
-  'setTargetResistance',
-  'calculateDamage',
-  'saveTimelineSnapshot',
-  'restoreTimelineSnapshot',
-  'listTimelineSnapshots',
-  'createAiTimelineWorkNodeFromCurrent',
-  'diffAiTimelineWorkNode',
-  'checkoutAiTimelineWorkNode',
-  'restoreAiTimelineWorkNodeBase',
-  'refreshOperatorConfig',
-  'setOperatorWeapon',
-  'setOperatorEquipment',
-  'refreshSnapshot',
-]);
+const MAIN_WORKBENCH_SUPPORTED_OP_SET = new Set(MAIN_WORKBENCH_SUPPORTED_OPS);
 
 class FileStorage {
   constructor(filePath) {
@@ -984,36 +967,6 @@ function makeMainWorkbenchCommandId() {
   return `mw-rest-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
-function normalizeMainWorkbenchCommand(command) {
-  if (!command || typeof command !== 'object') return command;
-  if (command.op !== 'removeBuff') return command;
-  if (typeof command.buffDisplayName === 'string' && command.buffDisplayName.trim() && typeof command.displayName !== 'string') {
-    return {
-      ...command,
-      displayName: command.buffDisplayName.trim(),
-    };
-  }
-  return command;
-}
-
-function validateMainWorkbenchCommandForRest(command) {
-  if (!command || typeof command !== 'object') {
-    return { ok: false, code: 'invalid-main-workbench-command', message: 'Command must be an object.' };
-  }
-  if (command.op === 'removeBuff') {
-    const hasSelector = ['buffId', 'displayName', 'name', 'buffDisplayName']
-      .some((key) => typeof command[key] === 'string' && command[key].trim());
-    if (!hasSelector && command.all !== true) {
-      return {
-        ok: false,
-        code: 'invalid-main-workbench-remove-buff',
-        message: 'removeBuff requires buffId/displayName/name/buffDisplayName, or all:true.',
-      };
-    }
-  }
-  return { ok: true };
-}
-
 function normalizeMainWorkbenchCommandEntry(entry, fallbackSource = 'rest') {
   if (!entry || typeof entry !== 'object' || !entry.command || typeof entry.command !== 'object') {
     return null;
@@ -1127,7 +1080,7 @@ function handleMainWorkbenchRequest(method, pathname, query, body) {
     }
     const unsupported = commands
       .map((command) => command.op)
-      .filter((op) => !MAIN_WORKBENCH_SUPPORTED_OPS.has(op));
+      .filter((op) => !MAIN_WORKBENCH_SUPPORTED_OP_SET.has(op));
     if (unsupported.length) {
       return failScript(
         400,
@@ -1137,7 +1090,7 @@ function handleMainWorkbenchRequest(method, pathname, query, body) {
       );
     }
     const invalid = commands
-      .map((command) => validateMainWorkbenchCommandForRest(command))
+      .map((command) => validateMainWorkbenchCommand(command))
       .find((validation) => !validation.ok);
     if (invalid) {
       return failScript(400, invalid.code, invalid.message);

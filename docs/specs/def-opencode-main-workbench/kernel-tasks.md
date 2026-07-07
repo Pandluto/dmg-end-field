@@ -2,7 +2,7 @@
 
 ## Status
 
-已执行 Task 1-5。Task 6 保持临时重复清单，等待后续共享模块改造。Task 7-10 已完成，用于解除只读回答硬编码、恢复 def-agent 连续上下文，并统一 UI/REST 的只读 evidence/focus runtime。Task 11 记录前端专项，不在本轮底层架构 coding 中执行。Task 12 已完成，用于修正 removeBuff 别名字段和防误删边界。Task 13 待执行，用于共享主界面命令 schema runtime，减少 REST/UI 协议漂移。
+已执行 Task 1-5。Task 6 保持临时重复清单，等待后续共享模块改造。Task 7-10 已完成，用于解除只读回答硬编码、恢复 def-agent 连续上下文，并统一 UI/REST 的只读 evidence/focus runtime。Task 11 记录前端专项，不在本轮底层架构 coding 中执行。Task 12 已完成，用于修正 removeBuff 别名字段和防误删边界。Task 13 已完成，用于共享主界面命令 schema runtime，减少 REST/UI 协议漂移。
 
 本任务集接在 `quick-fixes.md` 之后。quick fixes 到此为止，后续不再继续把能力堆进快照回答器，而是引入最小 DEF Agent Kernel。
 
@@ -296,19 +296,19 @@ src/agentKernel/mainWorkbench/
 - 这会收紧旧行为；若已有 agent 依赖“不写 Buff 条件就删第一个 Buff”，需要改成显式条件或 `all:true`。
 - 这是 command queue 止血，不等同于完整批量事务；批量命令仍需要后续 batchId/transaction 设计。
 
-### Task 13: 共享 main workbench command schema runtime（待执行）
+### Task 13: 共享 main workbench command schema runtime（已完成）
 
 当前问题：`src/agentKernel/mainWorkbench/commandSchema.ts` 和 `scripts/ai-cli-rest-server.mjs` 各自维护 op 列表、别名归一化和基础校验。Task 12 已经暴露这种重复会造成协议漂移：模型投递 `buffDisplayName` 时，REST 与 renderer 如果不同步就会出现“入队成功但执行误删/失败”的不稳定行为。
 
-- 新增浏览器与 Node REST 都能 import 的 command schema runtime。
+- 已新增浏览器与 Node REST 都能 import 的 command schema runtime。
 - runtime 暴露：
   - `MAIN_WORKBENCH_SUPPORTED_OPS`
   - `normalizeMainWorkbenchCommand(command)`
   - `validateMainWorkbenchCommand(command)`
   - `validateMainWorkbenchCommands(commands)`
   - `isMainWorkbenchCommandOp(op)`
-- `commandSchema.ts` 改为 TS 类型包装，不再维护第二份业务规则。
-- `scripts/ai-cli-rest-server.mjs` 使用共享 runtime 做 op 校验、别名归一化和基础字段校验。
+- `commandSchema.ts` 已改为 TS 类型包装，不再维护第二份业务规则。
+- `scripts/ai-cli-rest-server.mjs` 已使用共享 runtime 做 op 校验、别名归一化和基础字段校验。
 - 保持 runtime 只校验协议边界；按钮存在性、Buff 实体匹配、排轴位置等仍由 renderer 业务执行器校验。
 
 验收：
@@ -317,9 +317,15 @@ src/agentKernel/mainWorkbench/
 - `removeBuff.buffDisplayName` 在 REST 和 TS kernel 中得到相同归一化结果。
 - `removeBuff { buttonId }` 在 REST 和 TS kernel 中都返回 `invalid-main-workbench-remove-buff`。
 - `addBuff` 缺少 `buff`、`setTargetResistance` 缺字段、work node op 缺 `nodeId` 的错误码保持一致。
-- `node --check scripts/ai-cli-rest-server.mjs` 通过。
-- `npm run build` 通过。
-- `npm test` 通过。
+- `node --check src/agentKernel/mainWorkbench/commandSchemaRuntime.mjs` 已通过。
+- `node --check scripts/ai-cli-rest-server.mjs` 已通过。
+- `npm run build` 已通过。
+- `npm test` 已通过。
+- 17329 隔离 REST smoke 已通过：
+  - 未知 op 返回 `invalid-main-workbench-command-op`。
+  - 无 selector 的 `removeBuff` 返回 `invalid-main-workbench-remove-buff`。
+  - `buffDisplayName:"长息·队友伤害+16%"` 入队时带上归一化后的 `displayName`。
+- runtime 直测已通过：supported ops 数量、`buffDisplayName` 归一化、无 selector 错误码一致。
 
 风险：
 
