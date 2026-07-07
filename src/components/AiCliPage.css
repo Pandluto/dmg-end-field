@@ -852,50 +852,6 @@ body:has(.ai-cli-page),
   padding-left: 18px;
 }
 
-.ai-skill-table-wrap {
-  max-width: 100%;
-  overflow: auto;
-  margin: 0 0 8px;
-  border: 1px solid rgba(183, 199, 212, 0.62);
-  background: rgba(251, 253, 255, 0.28);
-}
-
-.ai-skill-table-wrap table {
-  width: max-content;
-  min-width: 100%;
-  border-collapse: collapse;
-  color: #183447;
-  font-size: 12px;
-  line-height: 1.35;
-}
-
-.ai-skill-table-wrap th,
-.ai-skill-table-wrap td {
-  max-width: 280px;
-  padding: 5px 7px;
-  border-right: 1px solid rgba(213, 225, 235, 0.66);
-  border-bottom: 1px solid rgba(213, 225, 235, 0.66);
-  text-align: left;
-  vertical-align: top;
-  white-space: normal;
-  word-break: break-word;
-}
-
-.ai-skill-table-wrap th {
-  background: rgba(238, 246, 253, 0.52);
-  color: #17324a;
-  font-weight: 700;
-}
-
-.ai-skill-table-wrap tr:last-child td {
-  border-bottom: 0;
-}
-
-.ai-skill-table-wrap th:last-child,
-.ai-skill-table-wrap td:last-child {
-  border-right: 0;
-}
-
 .ai-skill-markdown li + li {
   margin-top: 3px;
 }

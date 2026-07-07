@@ -97,6 +97,19 @@
   word-break: break-word;
 }
 
+.main-workbench-ai-markdown {
+  color: var(--office-title);
+}
+
+.main-workbench-ai-markdown h1,
+.main-workbench-ai-markdown h2,
+.main-workbench-ai-markdown h3,
+.main-workbench-ai-markdown h4,
+.main-workbench-ai-markdown h5,
+.main-workbench-ai-markdown h6 {
+  color: var(--office-title);
+}
+
 .main-workbench-ai-message-actions {
   position: absolute;
   right: 6px;

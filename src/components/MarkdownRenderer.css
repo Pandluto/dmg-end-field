@@ -1,0 +1,117 @@
+.ai-markdown {
+  font-size: 12px;
+  line-height: 1.5;
+  word-break: break-word;
+}
+
+.ai-markdown h1,
+.ai-markdown h2,
+.ai-markdown h3,
+.ai-markdown h4,
+.ai-markdown h5,
+.ai-markdown h6 {
+  margin: 0 0 6px;
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+.ai-markdown p,
+.ai-markdown ul,
+.ai-markdown ol,
+.ai-markdown blockquote,
+.ai-markdown pre {
+  margin: 0 0 8px;
+}
+
+.ai-markdown p:last-child,
+.ai-markdown ul:last-child,
+.ai-markdown ol:last-child,
+.ai-markdown blockquote:last-child,
+.ai-markdown pre:last-child {
+  margin-bottom: 0;
+}
+
+.ai-markdown ul,
+.ai-markdown ol {
+  padding-left: 18px;
+}
+
+.ai-markdown li + li {
+  margin-top: 3px;
+}
+
+.ai-markdown blockquote {
+  padding-left: 9px;
+  border-left: 2px solid rgba(143, 181, 212, 0.72);
+  color: inherit;
+}
+
+.ai-markdown code {
+  border: 1px solid rgba(183, 199, 212, 0.7);
+  background: rgba(238, 246, 253, 0.48);
+  padding: 1px 4px;
+  font-family: "Cascadia Mono", Consolas, monospace;
+  font-size: 12px;
+}
+
+.ai-markdown pre {
+  max-width: 100%;
+  overflow: auto;
+  border: 1px solid rgba(183, 199, 212, 0.7);
+  background: rgba(246, 251, 255, 0.5);
+  padding: 8px;
+  white-space: pre;
+}
+
+.ai-markdown pre code {
+  border: 0;
+  background: transparent;
+  padding: 0;
+}
+
+.ai-markdown a {
+  color: #245f91;
+  text-decoration: underline;
+}
+
+.ai-markdown-table-wrap {
+  max-width: 100%;
+  overflow: auto;
+  margin: 0 0 8px;
+  border: 1px solid rgba(183, 199, 212, 0.62);
+  background: rgba(251, 253, 255, 0.28);
+}
+
+.ai-markdown-table-wrap table {
+  width: max-content;
+  min-width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.ai-markdown-table-wrap th,
+.ai-markdown-table-wrap td {
+  max-width: 280px;
+  padding: 5px 7px;
+  border-right: 1px solid rgba(213, 225, 235, 0.66);
+  border-bottom: 1px solid rgba(213, 225, 235, 0.66);
+  text-align: left;
+  vertical-align: top;
+  white-space: normal;
+  word-break: break-word;
+}
+
+.ai-markdown-table-wrap th {
+  background: rgba(238, 246, 253, 0.52);
+  font-weight: 700;
+}
+
+.ai-markdown-table-wrap tr:last-child td {
+  border-bottom: 0;
+}
+
+.ai-markdown-table-wrap th:last-child,
+.ai-markdown-table-wrap td:last-child {
+  border-right: 0;
+}

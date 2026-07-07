@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useRef, useState, type ClipboardEvent, type FormEvent, type KeyboardEvent } from 'react';
-import ReactMarkdown from 'react-markdown';
 import {
   createAiCliCommandRequest,
   fail,
@@ -15,6 +14,7 @@ import { readPendingAgentProposals, importExternalProposals, ensureActiveSession
 
 import { readCurrentBuffDraft } from '../aiCli/buffFillAdapter';
 import { APP_ROUTE_PATHS, navigateToAppPath } from '../utils/appRoute';
+import { MarkdownRenderer } from './MarkdownRenderer';
 import {
   listDefAgentSessions,
   listPersistedDefAgentSessions,
@@ -261,24 +261,6 @@ function buildStoppedLoopSteps(steps: DefAgentLoopStep[] = []): DefAgentLoopStep
   }));
 }
 
-function MarkdownRenderer({ text }: { text: string }) {
-  return (
-    <ReactMarkdown
-      components={{
-        code: ({ className, children, ...props }) => {
-          const match = /language-(\w+)/.exec(className || '');
-          if (match) return <pre><code className={className}>{children}</code></pre>;
-          return <code {...props}>{children}</code>;
-        },
-        a: ({ href, children }) => <a href={href} target="_blank" rel="noreferrer">{children}</a>,
-        table: ({ children }) => <div className="ai-skill-table-wrap"><table>{children}</table></div>,
-      }}
-    >
-      {text}
-    </ReactMarkdown>
-  );
-}
-
 function SkillMessageBody({ message }: { message: SkillChatMessage }) {
   if (message.role === 'agent') {
     const hasDebugDetails = Boolean(message.activity?.length || message.loopSteps?.length);
@@ -286,7 +268,7 @@ function SkillMessageBody({ message }: { message: SkillChatMessage }) {
       <>
         {message.text ? null : <SkillAgentProgress message={message} />}
         {message.text ? (
-          <div className={message.isStreaming ? 'ai-skill-markdown is-streaming' : 'ai-skill-markdown'}>
+          <div className={message.isStreaming ? 'ai-markdown ai-skill-markdown is-streaming' : 'ai-markdown ai-skill-markdown'}>
             <MarkdownRenderer text={message.text} />
             {message.isStreaming ? <span className="ai-skill-stream-cursor" aria-hidden="true" /> : null}
           </div>

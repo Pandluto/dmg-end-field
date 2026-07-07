@@ -27,6 +27,7 @@ import {
   type MainWorkbenchSnapshotEvidenceFocus,
 } from '../../agentKernel/mainWorkbench';
 import { buildGameKnowledgePromptLines } from '../../utils/gameKnowledge';
+import { MarkdownRenderer } from '../MarkdownRenderer';
 import './MainWorkbenchAiPanel.css';
 
 const DEF_AGENT_BROWSER_SESSION_KEY = 'def-opencode.workbench.activeSession.v1';
@@ -43,6 +44,21 @@ type WorkbenchAiMessage = {
   rollbackLabel?: string;
   rollbackNodeId?: string;
 };
+
+function WorkbenchAiMessageBody({ message }: { message: WorkbenchAiMessage }) {
+  const fallbackText = message.status === 'running' ? '正在处理' : '';
+  const text = message.text || fallbackText;
+
+  if (message.role === 'agent' && text) {
+    return (
+      <div className="ai-markdown main-workbench-ai-markdown">
+        <MarkdownRenderer text={text} />
+      </div>
+    );
+  }
+
+  return <p>{text}</p>;
+}
 
 type WorkbenchAiWorkNodeContext = {
   nodeId: string;
@@ -1080,7 +1096,7 @@ export function MainWorkbenchAiPanel({
         {messages.map((message) => (
           <div key={message.id} className={`main-workbench-ai-message is-${message.role} ${message.status ? `is-${message.status}` : ''}`}>
             <span>{message.role === 'user' ? '你' : message.role === 'agent' ? '后台' : '系统'}</span>
-            <p>{message.text || (message.status === 'running' ? '正在处理' : '')}</p>
+            <WorkbenchAiMessageBody message={message} />
             {message.role !== 'system' && (
               <div className="main-workbench-ai-message-actions">
                 {message.status === 'running' && (
