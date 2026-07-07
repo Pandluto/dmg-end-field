@@ -2,7 +2,7 @@
 
 ## Status
 
-已执行 Task 1-5。Task 6 保持临时重复清单，等待后续共享模块改造。Task 7-10 已完成，用于解除只读回答硬编码、恢复 def-agent 连续上下文，并统一 UI/REST 的只读 evidence/focus runtime。
+已执行 Task 1-5。Task 6 保持临时重复清单，等待后续共享模块改造。Task 7-10 已完成，用于解除只读回答硬编码、恢复 def-agent 连续上下文，并统一 UI/REST 的只读 evidence/focus runtime。Task 11 记录前端专项，不在本轮底层架构 coding 中执行。Task 12 待执行，用于修正 removeBuff 别名字段和防误删边界。
 
 本任务集接在 `quick-fixes.md` 之后。quick fixes 到此为止，后续不再继续把能力堆进快照回答器，而是引入最小 DEF Agent Kernel。
 
@@ -242,6 +242,53 @@ src/agentKernel/mainWorkbench/
 - `.mjs + .d.ts` 会引入跨 TS/Node 的维护成本；后续若 REST 可以直接使用构建产物，可再收敛。
 - `src/vite-env.d.ts` 当前为 `.mjs` import 提供了通用声明，后续若继续增加 `.mjs` 模块，应收窄声明或迁移到更明确的共享包边界。
 - 移动共享逻辑时要确保不把 fallback 文本回答器重新变成正常只读路径。
+
+### Task 11: AI 面板前端展示专项（记录，待后续执行）
+
+- 统一接入全局 markdown 渲染库。
+- 隐藏或折叠底层工具调用/DSML 片段，避免把协议噪音直接暴露给用户。
+- 对长输出提供摘要、展开原文、查看日志的分层展示。
+- 为批量命令增加批次级进度、失败点、已完成摘要和剩余命令展示。
+- 在 UI 文案中区分：
+  - `localStorage` / `sessionStorage` 当前迁出态。
+  - 用户排轴快照。
+  - appdata/localdata AI work node。
+- 为 appdata work node diff / checkoutDecision 补可视化审核面板。
+
+验收：
+
+- markdown 表格、列表、粗体、代码块在 AI 面板中展示稳定。
+- 批量删除 Buff 等场景不直接露出 DSML/tool call 原文。
+- 批量命令能看到批次总数、已完成数、失败点和剩余数。
+- 回退入口明确标注是用户快照还是 appdata work node basePayload。
+
+风险：
+
+- 前端专项不应阻塞当前底层 agent kernel 和 appdata work node 继续迭代。
+- 修 UI 时不得改变 command queue、evidence、work node 的事实源边界。
+
+### Task 12: removeBuff 参数归一与防误删（待执行）
+
+手测暴露问题：模型投递批量 `removeBuff` 时使用了 `buffDisplayName` 字段。该字段不在当前 canonical command 类型中；如果执行器忽略它，可能退回到按钮首个 Buff，形成误删风险。
+
+- 扩展 canonical command，允许 `removeBuff.buffDisplayName` 作为兼容别名。
+- REST/schema 层将 `buffDisplayName` 归一化为可执行的 `displayName`，或至少接受并保留该字段供 renderer 使用。
+- renderer `removeBuff` 匹配时支持 `buffDisplayName`。
+- 当 `removeBuff` 未提供 `buffId` / `displayName` / `name` / `buffDisplayName` 且没有 `all:true` 时，命令必须失败。
+- 当提供了 Buff 条件但无匹配时，命令必须失败，不得 fallback 到第一个 Buff。
+- 删除按钮全部 Buff 必须显式 `all:true`。
+
+验收：
+
+- `removeBuff { buttonId, buffDisplayName:"长息·队友伤害+16%" }` 只删除显示名匹配的 Buff。
+- `removeBuff { buttonId, buffDisplayName:"不存在" }` 不删除任何 Buff，并返回错误。
+- `removeBuff { buttonId }` 不删除任何 Buff，并返回错误提示需要指定 Buff 或 `all:true`。
+- `removeBuff { buttonId, all:true }` 才允许删除该按钮全部 Buff。
+
+风险：
+
+- 这会收紧旧行为；若已有 agent 依赖“不写 Buff 条件就删第一个 Buff”，需要改成显式条件或 `all:true`。
+- 这是 command queue 止血，不等同于完整批量事务；批量命令仍需要后续 batchId/transaction 设计。
 
 ## Task Review
 
