@@ -1,5 +1,24 @@
 /// <reference types="vite/client" />
 
+declare module '*.mjs' {
+  export const buildMainWorkbenchEvidence: (
+    snapshot: unknown,
+    options?: {
+      prompt?: string;
+      previousFocus?: unknown;
+      previousButtonId?: string;
+      focusState?: unknown;
+      inferredGoal?: unknown;
+    },
+  ) => unknown;
+  export const resolveMainWorkbenchSnapshotFocus: (
+    snapshot: unknown,
+    prompt?: string,
+    previousFocusOrButtonId?: unknown,
+  ) => unknown;
+  export const buildMainWorkbenchButtonEvidence: (button: unknown, reason?: string) => unknown;
+}
+
 interface ImageAssetEntry {
   kind?: 'file' | 'dir';
   fileName: string;

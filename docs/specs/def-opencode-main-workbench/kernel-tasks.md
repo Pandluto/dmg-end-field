@@ -2,7 +2,7 @@
 
 ## Status
 
-已执行 Task 1-5。Task 6 保持临时重复清单，等待后续共享模块改造。Task 7 已完成，用于解除只读回答硬编码并恢复 def-agent 连续上下文。
+已执行 Task 1-5。Task 6 保持临时重复清单，等待后续共享模块改造。Task 7-10 已完成，用于解除只读回答硬编码、恢复 def-agent 连续上下文，并统一 UI/REST 的只读 evidence/focus runtime。
 
 本任务集接在 `quick-fixes.md` 之后。quick fixes 到此为止，后续不再继续把能力堆进快照回答器，而是引入最小 DEF Agent Kernel。
 
@@ -217,26 +217,30 @@ src/agentKernel/mainWorkbench/
 - 只读接口暴露的是 current checkout snapshot，不是 appdata work node；文档和响应字段必须持续强调。
 - 测试服务会读取既有本地 command queue，因此只读性用 before/after 队列 id 一致验证，而不是要求队列为空。
 
-### Task 10: 共享 evidence/focus runtime（待执行）
+### Task 10: 共享 evidence/focus runtime（已完成）
 
-- 新增浏览器与 Node REST 都能 import 的运行时模块。
-- 将 focus 解析、previousFocus 校验、按钮级 evidence、装备/伤害 evidence 构建迁入共享模块。
-- `src/agentKernel/mainWorkbench/answer.ts` 只保留 fallback 文本回答和 evidence 字符串包装。
-- `scripts/ai-cli-rest-server.mjs` 删除本地重复 focus/evidence 实现，改为 import 共享模块。
-- 为 TS 提供 `.d.ts` 类型声明，避免 `allowJs` 配置变更。
+- 已新增浏览器与 Node REST 都能 import 的 `evidenceRuntime.mjs`。
+- 已将 focus 解析、previousFocus 校验、按钮级 evidence、装备/伤害 evidence 构建迁入共享模块。
+- `src/agentKernel/mainWorkbench/answer.ts` 保留 fallback 文本回答和 evidence 字符串包装，正常只读路径继续把证据交给 def-agent。
+- `scripts/ai-cli-rest-server.mjs` 已删除本地重复 focus/evidence 实现，改为 import 共享模块。
+- 已提供 `.d.ts` 类型声明，并在 TS 侧使用 typed wrapper 保持调用边界。
 
 验收：
 
 - `buildMainWorkbenchSnapshotEvidence` 与 `GET /api/main-workbench/evidence` 共享同一套 runtime。
 - `莱万汀第一次燃尽` 的 focus 结果在 UI evidence 与 REST evidence 中一致。
 - `previousFocus` 过期时两条路径都标记 stale。
-- `node --check scripts/ai-cli-rest-server.mjs` 通过。
-- `npm run build` 通过。
-- `npm test` 通过。
+- `node --check scripts/ai-cli-rest-server.mjs` 已通过。
+- `node --check src/agentKernel/mainWorkbench/evidenceRuntime.mjs` 已通过。
+- `npm run build` 已通过。
+- `npm test` 已通过。
+- 共享 runtime 直测已通过：`莱万汀第一次燃尽` 命中 `莱万汀-燃烬@1-1`，`previousButtonId=b2` 保留为 `莱万汀-燃烬@1-5`。
+- 17329 独立 REST smoke 已通过：同一输入命中相同 focus/previousFocus，读取 evidence 前后 command queue id 列表一致。
 
 风险：
 
 - `.mjs + .d.ts` 会引入跨 TS/Node 的维护成本；后续若 REST 可以直接使用构建产物，可再收敛。
+- `src/vite-env.d.ts` 当前为 `.mjs` import 提供了通用声明，后续若继续增加 `.mjs` 模块，应收窄声明或迁移到更明确的共享包边界。
 - 移动共享逻辑时要确保不把 fallback 文本回答器重新变成正常只读路径。
 
 ## Task Review

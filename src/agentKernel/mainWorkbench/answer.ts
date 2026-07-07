@@ -1,24 +1,24 @@
 import type { MainWorkbenchSnapshot } from '../../utils/mainWorkbenchControl';
 import { inferMainWorkbenchGoal, type MainWorkbenchGoal } from './goalModel';
-
-type SkillButtonSnapshot = MainWorkbenchSnapshot['skillButtons'][number];
-type SkillButtonBuffSnapshot = NonNullable<SkillButtonSnapshot['selectedBuffs']>[number];
-type OperatorConfigSnapshot = NonNullable<MainWorkbenchSnapshot['operatorConfigs']>[number];
+import {
+  buildMainWorkbenchEvidence as buildMainWorkbenchEvidenceRuntime,
+  resolveMainWorkbenchSnapshotFocus as resolveMainWorkbenchSnapshotFocusRuntime,
+} from './evidenceRuntime.mjs';
 
 export type MainWorkbenchSnapshotEvidenceFocus = {
   kind: 'skillButton';
   reason: string;
   buttonId: string;
-  label: string;
-  characterName: string;
-  skillType: string;
-  skillDisplayName: string;
-  staffIndex: number;
-  lineIndex: number;
+  label?: string;
+  characterName?: string;
+  skillType?: string;
+  skillDisplayName?: string;
+  staffIndex?: number;
+  lineIndex?: number;
   nodeIndex?: number;
-  position: string;
-  buffCount: number;
-  buffs: string[];
+  position?: string;
+  buffCount?: number;
+  buffs?: string[];
   stale?: boolean;
 };
 
@@ -26,6 +26,18 @@ export type MainWorkbenchSnapshotEvidenceFocusState = {
   focus?: MainWorkbenchSnapshotEvidenceFocus | null;
   previousFocus?: MainWorkbenchSnapshotEvidenceFocus | null;
 };
+
+export function resolveMainWorkbenchSnapshotFocus(
+  snapshot: MainWorkbenchSnapshot | null,
+  prompt = '',
+  previousFocus?: MainWorkbenchSnapshotEvidenceFocus | null,
+): MainWorkbenchSnapshotEvidenceFocusState {
+  return resolveMainWorkbenchSnapshotFocusRuntime(snapshot, prompt, previousFocus) as MainWorkbenchSnapshotEvidenceFocusState;
+}
+
+type SkillButtonSnapshot = MainWorkbenchSnapshot['skillButtons'][number];
+type SkillButtonBuffSnapshot = NonNullable<SkillButtonSnapshot['selectedBuffs']>[number];
+type OperatorConfigSnapshot = NonNullable<MainWorkbenchSnapshot['operatorConfigs']>[number];
 
 function formatEquipmentLine(config: OperatorConfigSnapshot) {
   const slotLabels: Record<string, string> = {
@@ -58,142 +70,8 @@ function formatDamageValue(value: number | undefined) {
   return Math.round(value).toLocaleString('zh-CN');
 }
 
-function formatEvidenceDamageValue(value: number | undefined) {
-  if (typeof value !== 'number' || !Number.isFinite(value)) return null;
-  return Math.round(value);
-}
-
 function matchesGoalCharacter(goal: MainWorkbenchGoal, characterName: string) {
   return goal.characterNames.length === 0 || goal.characterNames.includes(characterName);
-}
-
-function normalizeFocusText(value: string | undefined) {
-  return String(value || '')
-    .replace(/燃尽/g, '燃烬')
-    .replace(/[「」"'\s]/g, '')
-    .toLowerCase();
-}
-
-function parseChineseOrdinal(value: string | undefined) {
-  if (!value) return null;
-  const normalized = value.replace(/\s+/g, '');
-  const numeric = Number(normalized);
-  if (Number.isInteger(numeric) && numeric > 0) return numeric;
-  const map: Record<string, number> = {
-    一: 1,
-    二: 2,
-    两: 2,
-    三: 3,
-    四: 4,
-    五: 5,
-    六: 6,
-    七: 7,
-    八: 8,
-    九: 9,
-    十: 10,
-  };
-  return map[normalized] || null;
-}
-
-function parseOrdinalFromPrompt(prompt: string) {
-  if (/首个|第一个|第一次|第1个|第1次/i.test(prompt)) return 1;
-  const match = prompt.match(/第\s*([一二两三四五六七八九十\d]+)\s*(?:个|次)/);
-  return parseChineseOrdinal(match?.[1]);
-}
-
-function parsePositionFromPrompt(prompt: string) {
-  const atMatch = prompt.match(/@(\d+)\s*[-－]\s*(\d+)/);
-  if (atMatch) return { staffIndex: Number(atMatch[1]) - 1, nodeIndex: Number(atMatch[2]) - 1 };
-  const rowColumnMatch = prompt.match(/行\s*(\d+).*?第?\s*(\d+)\s*列/);
-  if (rowColumnMatch) return { staffIndex: Number(rowColumnMatch[1]) - 1, nodeIndex: Number(rowColumnMatch[2]) - 1 };
-  return null;
-}
-
-function buildButtonFocus(button: SkillButtonSnapshot, reason: string): MainWorkbenchSnapshotEvidenceFocus {
-  const buffs = button.selectedBuffs?.length
-    ? button.selectedBuffs.map(formatBuffName)
-    : button.selectedBuffIds;
-  return {
-    kind: 'skillButton',
-    reason,
-    buttonId: button.id,
-    label: formatButtonLabel(button),
-    characterName: button.characterName,
-    skillType: button.skillType,
-    skillDisplayName: button.skillDisplayName || button.skillType,
-    staffIndex: button.staffIndex,
-    lineIndex: button.lineIndex,
-    nodeIndex: button.nodeIndex,
-    position: `${button.staffIndex + 1}-${(button.nodeIndex ?? 0) + 1}`,
-    buffCount: buffs.length,
-    buffs,
-  };
-}
-
-function hydratePreviousFocus(
-  snapshot: MainWorkbenchSnapshot,
-  previousFocus?: MainWorkbenchSnapshotEvidenceFocus | null,
-) {
-  if (!previousFocus) return null;
-  const button = snapshot.skillButtons.find((item) => item.id === previousFocus.buttonId)
-    || snapshot.skillButtons.find((item) => formatButtonLabel(item) === previousFocus.label);
-  if (!button) {
-    return { ...previousFocus, reason: 'previous-focus-stale', stale: true };
-  }
-  return buildButtonFocus(button, 'previous-focus');
-}
-
-function resolvePromptFocus(snapshot: MainWorkbenchSnapshot, prompt: string) {
-  const normalizedPrompt = normalizeFocusText(prompt);
-  const mentionedCharacterNames = snapshot.selectedCharacters
-    .filter((character) => normalizedPrompt.includes(normalizeFocusText(character.name)))
-    .map((character) => character.name);
-  const skillNames = [...new Set(snapshot.skillButtons
-    .map((button) => button.skillDisplayName || button.skillType)
-    .filter(Boolean))];
-  const mentionedSkillNames = skillNames.filter((skillName) => normalizeFocusText(prompt).includes(normalizeFocusText(skillName)));
-  const position = parsePositionFromPrompt(prompt);
-  const ordinal = parseOrdinalFromPrompt(prompt);
-
-  let candidates = snapshot.skillButtons;
-  if (mentionedCharacterNames.length) {
-    candidates = candidates.filter((button) => mentionedCharacterNames.includes(button.characterName));
-  }
-  if (mentionedSkillNames.length) {
-    candidates = candidates.filter((button) => mentionedSkillNames.includes(button.skillDisplayName || button.skillType));
-  }
-  if (position) {
-    candidates = candidates.filter((button) => (
-      button.staffIndex === position.staffIndex &&
-      (button.nodeIndex ?? -1) === position.nodeIndex
-    ));
-  }
-  if (!position && !mentionedSkillNames.length && !ordinal) return null;
-  if (candidates.length === 0) return null;
-  const sorted = [...candidates].sort((left, right) => (
-    (left.staffIndex - right.staffIndex) ||
-    (left.lineIndex - right.lineIndex) ||
-    ((left.nodeIndex ?? 0) - (right.nodeIndex ?? 0))
-  ));
-  const target = sorted[Math.max(0, (ordinal || 1) - 1)] || null;
-  return target ? buildButtonFocus(target, 'prompt-focus') : null;
-}
-
-export function resolveMainWorkbenchSnapshotFocus(
-  snapshot: MainWorkbenchSnapshot | null,
-  prompt = '',
-  previousFocus?: MainWorkbenchSnapshotEvidenceFocus | null,
-): MainWorkbenchSnapshotEvidenceFocusState {
-  if (!snapshot) {
-    return {
-      focus: null,
-      previousFocus: previousFocus ? { ...previousFocus, reason: 'previous-focus-unverified', stale: true } : null,
-    };
-  }
-  return {
-    focus: resolvePromptFocus(snapshot, prompt),
-    previousFocus: hydratePreviousFocus(snapshot, previousFocus),
-  };
 }
 
 function buildBuffAnswer(goal: MainWorkbenchGoal, snapshot: MainWorkbenchSnapshot) {
@@ -302,90 +180,14 @@ export function buildMainWorkbenchSnapshotEvidence(
     return 'MAIN_WORKBENCH_READONLY_EVIDENCE: unavailable';
   }
   const goal = inferMainWorkbenchGoal(prompt, snapshot);
-  const selectedCharacters = snapshot.selectedCharacters.map((character) => ({
-    id: character.id,
-    name: character.name,
-    element: character.element,
-    profession: character.profession,
-  }));
-  const buttons = snapshot.skillButtons.map((button) => {
-    const buffNames = button.selectedBuffs?.length
-      ? button.selectedBuffs.map(formatBuffName)
-      : button.selectedBuffIds;
-    return {
-      id: button.id,
-      label: formatButtonLabel(button),
-      characterName: button.characterName,
-      skillType: button.skillType,
-      skillDisplayName: button.skillDisplayName || button.skillType,
-      staffIndex: button.staffIndex,
-      lineIndex: button.lineIndex,
-      nodeIndex: button.nodeIndex,
-      position: `${button.staffIndex + 1}-${(button.nodeIndex ?? 0) + 1}`,
-      buffCount: buffNames.length,
-      buffs: buffNames,
-    };
-  });
-  const mentionedButtons = goal.characterNames.length
-    ? buttons.filter((button) => goal.characterNames.includes(button.characterName))
-    : buttons;
-  const equipment = (snapshot.operatorConfigs || []).map((config) => ({
-    characterName: config.characterName,
-    weapon: config.weapon
-      ? {
-        name: config.weapon.name,
-        level: config.weapon.level,
-        potential: config.weapon.potential,
-      }
-      : null,
-    equipment: config.equipment.map((item) => ({
-      slotKey: item.slotKey,
-      part: item.part,
-      name: item.name,
-    })),
-  }));
-  const damageButtons = (snapshot.damageReport?.buttons || []).map((button) => ({
-    id: button.id,
-    label: `${button.characterName}-${button.skillName}`,
-    characterName: button.characterName,
-    skillName: button.skillName,
-    skillType: button.skillType,
-    expected: formatEvidenceDamageValue(button.expected),
-    damage: formatEvidenceDamageValue(button.damage),
-  }));
-  const evidence = {
-    source: 'current-checkout-snapshot',
-    note: [
-      'This is read-only evidence from the current checked-out main workbench state.',
-      'Use this evidence to answer the user in natural language.',
-      'Do not treat this evidence as an appdata AI work node.',
-      'Do not enqueue mutation commands for read-only questions.',
-      'For follow-up pronouns like it/this/that/刚才那个, use the prior conversation plus this evidence.',
-      'If focus is present, prioritize focus over character-level or global summaries.',
-      'If focus is absent and previousFocus is valid, use previousFocus for pronoun follow-ups.',
-      'When the user asks about a specific button, answer for that button, not the whole character or whole timeline.',
-    ],
+  const evidence = buildMainWorkbenchEvidenceRuntime(snapshot, {
     prompt,
     inferredGoal: {
       kind: goal.kind,
       characterNames: goal.characterNames,
       mutating: goal.mutating,
     },
-    selectedCharacters,
-    focus: focusState.focus || null,
-    previousFocus: focusState.previousFocus || null,
-    buttons,
-    mentionedCharacterButtons: mentionedButtons,
-    equipment,
-    damageReport: snapshot.damageReport
-      ? {
-        totalExpected: formatEvidenceDamageValue(snapshot.damageReport.totalExpected),
-        totalNonCrit: formatEvidenceDamageValue(snapshot.damageReport.totalNonCrit),
-        buttonCount: snapshot.damageReport.buttonCount,
-        buttons: damageButtons,
-      }
-      : null,
-    lastCommand: snapshot.lastCommand,
-  };
+    focusState,
+  });
   return `MAIN_WORKBENCH_READONLY_EVIDENCE:\n${JSON.stringify(evidence, null, 2)}`;
 }
