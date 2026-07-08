@@ -128,6 +128,198 @@ Claude Code 同样把权限放在 tool 层：
 
 ## 第三阶段 tools 候选结构
 
+## Tool 层次关系研究
+
+OpenCode / Claude Code / Codex 这类 agent 系统里，工具通常不是严格父子关系，也不是靠目录名形成硬分组。
+
+更准确的模型是：
+
+- 所有 model-facing tools 在 registry / tool list 里基本是平级的
+- 不同工具拥有不同 authority、permission action、context、output policy
+- 工具调用时通过 schema、permission、hook、verification、rollback 形成运行时层次
+
+也就是说，分层主要发生在“执行链”和“责任边界”里，而不是发生在“工具继承关系”里。
+
+### 1. OpenCode 的运行时层次
+
+OpenCode 的一条工具调用链大致是：
+
+```text
+model tool call
+  -> tool registry 查找有效工具
+  -> input schema 解码
+  -> tool execute
+  -> tool 内部 permission.assert / ctx.ask
+  -> 业务 side effect
+  -> output schema 编码
+  -> toModelOutput / output bounding
+  -> session processor 持久化 tool result
+```
+
+这里的关键点：
+
+- registry 负责“这个 tool 是否存在、如何 materialize、如何 settle”
+- schema 负责“参数是否有效”
+- leaf tool 负责“怎么查权限、怎么执行业务 side effect”
+- permission 负责“allow / ask / deny”
+- processor 负责“记录工具运行状态和结果”
+- output bounding 负责“不要把无限输出塞回模型”
+
+OpenCode v2 里甚至明确写了：registry 不做执行授权，可信工具自己捕获 `PermissionV2.Service`，由工具内部决定何时请求权限。
+
+这意味着：工具不是从属于某个父工具，而是被同一条运行时链包住。
+
+### 2. 分层不是目录分组，而是 authority 分层
+
+OpenCode 的工具可以都注册在一个 registry 里，但 authority 不一样：
+
+- `read / grep / glob`：读权限
+- `edit / write / apply_patch`：共享 edit 权限
+- `bash`：命令执行权限
+- `question`：向用户提问权限
+- `skill`：加载技能说明权限
+- `webfetch / websearch`：外部网络权限
+- MCP tools：外部服务能力
+
+这些工具在列表上是平级的，但在风险和授权上不是平级的。
+
+对 DEF 来说，同理：
+
+- `findButtons` 和 `addBuffToButtons` 不应该只是目录不同
+- 它们应该有不同 risk、approval、verification、rollback、output policy
+- 高风险工具应该捕获 work node / diff / approval 能力
+- 低风险工具可以直接 current checkout，但仍要有 verifier
+
+### 3. 业务交互工具和工程保障工具的关系
+
+业务交互工具：
+
+- 读状态
+- 查对象
+- 解析 buff / skill / button
+- 添加按钮
+- 删除按钮
+- 添加 buff
+- 修改目标抗性
+
+工程保障工具：
+
+- work node
+- diff
+- checkout
+- rollback
+- verify
+- audit log
+- approval
+
+二者不是父子关系，而是“业务动作被工程保障包住”的关系。
+
+推荐调用链：
+
+```text
+用户意图
+  -> read / evidence 获取当前事实
+  -> resolver 把自然语言变成候选对象
+  -> question 在歧义时反问
+  -> risk policy 判断直接改还是走 work node
+  -> edit tool 执行业务动作
+  -> verify tool 验收结果
+  -> audit log 记录过程
+  -> rollback 在失败或用户否决时恢复
+```
+
+这条链允许 AI 自己判断该走哪一步，但每一步都由工具 runtime 提供安全边界。
+
+### 4. DEF 不该做的分组
+
+不建议做这种硬分组：
+
+```text
+BuffTools
+  -> addLongxiToAllSkills
+  -> removeLongxi
+
+LaevatainTools
+  -> addFirstNormalAttack
+```
+
+这会把用户意图写死进工具，重新走回录制回放式 agent。
+
+也不建议做这种大一统工具：
+
+```text
+executeWorkbenchIntent({ userText })
+```
+
+这会把所有推理和风险判断都藏进一个黑盒，模型、审批、验证都失去清晰边界。
+
+### 5. DEF 应该做的分层
+
+推荐的第三阶段层次：
+
+```text
+Skill / prompt layer
+  告诉模型领域规则、工作流、何时用哪些 tool
+
+Read layer
+  提供当前事实，输出受控
+
+Resolver layer
+  把自然语言对象解析成稳定 id / candidates
+
+Interaction edit layer
+  执行业务增删改查
+
+Work node layer
+  给高风险/批量/试错操作提供副本编辑
+
+Verification layer
+  给每次改动提供结构化验收
+
+Governance layer
+  approval / ask / audit / policy
+```
+
+这些层不是要求模型必须线性调用，而是给模型提供可靠路线。
+
+低风险明确操作可以短链：
+
+```text
+resolver -> edit -> verify
+```
+
+高风险批量操作走长链：
+
+```text
+read -> resolver -> create work node -> patch -> diff -> approval -> checkout -> verify -> audit
+```
+
+歧义操作走反问链：
+
+```text
+read -> resolver -> question -> edit/worknode -> verify
+```
+
+### 6. 对当前项目的直接影响
+
+目前项目已经有一些层的雏形：
+
+- `MAIN_WORKBENCH_TOOL_REGISTRY` 有 risk / approval / verification / rollback metadata
+- `patchAiTimelineWorkNode` 已经是 work node 层雏形
+- `addBuffToButtons` 是 interaction edit 层补强
+- `/api/main-workbench/evidence` 是 read/evidence 层雏形
+
+但还缺：
+
+- 真正 model-facing typed tool runtime
+- resolver tools
+- formal question / ask tool
+- verification tools 独立化
+- audit log 和 approval decision 的本地记录
+- tool 层根据 risk 自动选择 current checkout 或 work node 的策略
+
+第三阶段的重点不应该只是“多加几个 op”，而应该是把这些层之间的责任边界打通。
+
 ### 1. Read tools
 
 只读，不改状态。
