@@ -90,6 +90,10 @@ export const AI_CLI_REST_ENDPOINTS = [
   'GET /api/main-workbench/commands',
   'POST /api/main-workbench/commands/enqueue',
   'POST /api/main-workbench/commands/result',
+  'GET /api/def-tools',
+  'GET /api/def-tools/describe?name=<toolName>',
+  'POST /api/def-tools/call',
+  'POST /api/def-tools/<toolName>/call',
 ] as const;
 
 export interface AiCliRestRequest {
@@ -414,6 +418,10 @@ export function handleAiCliRestRequest(
           snapshot: 'localStorage.def.main-workbench.snapshot.v1',
         },
         endpoints: [
+          'GET /api/def-tools',
+          'GET /api/def-tools/describe?name=<toolName>',
+          'POST /api/def-tools/call',
+          'POST /api/def-tools/<toolName>/call',
           'GET /api/main-workbench/evidence?prompt=<user text>&previousButtonId=<optional>',
           'GET /api/main-workbench/snapshot',
           'GET /api/main-workbench/commands?status=pending',
@@ -447,6 +455,12 @@ export function handleAiCliRestRequest(
           'refreshSnapshot',
         ],
         rules: [
+          'Prefer DEF typed tools over hand-written command JSON when a matching tool exists.',
+          'Use GET /api/def-tools and /api/def-tools/describe to discover tool schema, risk, approval, verification, rollback, and status.',
+          'Use POST /api/def-tools/call with {"tool":"def.workbench.list_buttons","input":{...}} or POST /api/def-tools/<toolName>/call.',
+          'Use resolver tools such as def.workbench.find_buttons, def.buff.resolve, def.skill.resolve, and def.character.resolve before edit tools when the target is ambiguous.',
+          'Use verification tools such as def.verify.command_result, def.verify.snapshot_delta, def.verify.buttons_have_buff, and def.verify.damage_recalculated before claiming completion.',
+          'Use def.worknode.patch as the class-code Patch DSL / CRUD path for high-risk, batch, timeline rewrite, or trial-and-error edits.',
           'Commands are declarative JSON; never simulate DOM clicks.',
           'The browser page executes commands through existing React services and writes results back to result-log/snapshot.',
           'For read-only questions, prefer GET /api/main-workbench/evidence with the user prompt; use focus/previousFocus to answer pronoun follow-ups.',

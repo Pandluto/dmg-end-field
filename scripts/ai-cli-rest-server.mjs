@@ -21,6 +21,7 @@ const agentScriptDir = path.join(projectRoot, '.runtime', 'def-agent', 'scripts'
 const viteCacheDir = process.env.AI_CLI_REST_VITE_CACHE_DIR || path.join(projectRoot, '.runtime', 'vite-ai-cli-rest', String(process.pid));
 const nowStoragePath = path.join(projectRoot, 'data', 'localdata', 'now-storage.json');
 const aiTimelineWorkNodesPath = path.join(projectRoot, 'data', 'localdata', 'ai-timeline-worknodes.json');
+const defToolGovernancePath = path.join(projectRoot, 'data', 'localdata', 'def-tool-governance.json');
 const storageMode = process.env.AI_CLI_REST_STORAGE_MODE || 'now-storage';
 const serverStartedAt = new Date().toISOString();
 const SCRIPT_NAME_RE = /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,79}\.m?js$/;
@@ -1040,6 +1041,732 @@ function buildMainWorkbenchCommandBatchSummary(commands, batchId = '') {
   };
 }
 
+function normalizeDefToolText(value) {
+  return String(value || '')
+    .replace(/燃尽/g, '燃烬')
+    .replace(/[「」"'\s_\-·・.]/g, '')
+    .toLowerCase();
+}
+
+function formatDefButtonLabel(button) {
+  return `${button?.characterName || '未知'}-${button?.skillDisplayName || button?.skillType || '技能'}@${(button?.staffIndex || 0) + 1}-${(button?.nodeIndex ?? 0) + 1}`;
+}
+
+function compactDefButton(button) {
+  const buffs = Array.isArray(button?.selectedBuffs)
+    ? button.selectedBuffs.map((buff) => ({
+      id: buff?.id || '',
+      name: buff?.name || '',
+      displayName: buff?.displayName || '',
+      sourceName: buff?.sourceName || '',
+    }))
+    : [];
+  return {
+    id: button?.id || '',
+    buttonId: button?.id || '',
+    label: formatDefButtonLabel(button),
+    characterId: button?.characterId || '',
+    characterName: button?.characterName || '',
+    skillType: button?.skillType || '',
+    skillDisplayName: button?.skillDisplayName || button?.skillType || '',
+    staffIndex: typeof button?.staffIndex === 'number' ? button.staffIndex : 0,
+    lineIndex: typeof button?.lineIndex === 'number' ? button.lineIndex : 0,
+    nodeIndex: typeof button?.nodeIndex === 'number' ? button.nodeIndex : undefined,
+    nodeNumber: typeof button?.nodeNumber === 'number' ? button.nodeNumber : (
+      typeof button?.nodeIndex === 'number' ? button.nodeIndex + 1 : undefined
+    ),
+    selectedBuffIds: Array.isArray(button?.selectedBuffIds) ? button.selectedBuffIds : [],
+    selectedBuffs: buffs,
+    buffCount: buffs.length || (Array.isArray(button?.selectedBuffIds) ? button.selectedBuffIds.length : 0),
+  };
+}
+
+function readMainWorkbenchSnapshotMirror() {
+  return readMainWorkbenchJson(MAIN_WORKBENCH_SNAPSHOT_KEY, null);
+}
+
+function listDefWorkbenchButtons(input = {}) {
+  const snapshot = readMainWorkbenchSnapshotMirror();
+  let buttons = Array.isArray(snapshot?.skillButtons) ? snapshot.skillButtons.map(compactDefButton) : [];
+  const buttonId = typeof input.buttonId === 'string' && input.buttonId.trim() ? input.buttonId.trim() : '';
+  const characterName = normalizeDefToolText(input.characterName || input.character || '');
+  const skillType = normalizeDefToolText(input.skillType || '');
+  const skillName = normalizeDefToolText(input.skillName || input.skillDisplayName || '');
+  const query = normalizeDefToolText(input.query || input.text || '');
+  const staffIndex = Number.isInteger(input.staffIndex) ? input.staffIndex : null;
+  const nodeIndex = Number.isInteger(input.nodeIndex) ? input.nodeIndex : null;
+  const ordinal = Number.isInteger(input.ordinal) && input.ordinal > 0 ? input.ordinal : null;
+  if (buttonId) {
+    buttons = buttons.filter((button) => button.buttonId === buttonId);
+  }
+  if (characterName) {
+    buttons = buttons.filter((button) => normalizeDefToolText(button.characterName).includes(characterName));
+  }
+  if (skillType) {
+    buttons = buttons.filter((button) => normalizeDefToolText(button.skillType) === skillType);
+  }
+  if (skillName) {
+    buttons = buttons.filter((button) => normalizeDefToolText(button.skillDisplayName).includes(skillName));
+  }
+  if (query) {
+    buttons = buttons.filter((button) => {
+      const haystack = normalizeDefToolText([
+        button.label,
+        button.characterName,
+        button.skillType,
+        button.skillDisplayName,
+        ...button.selectedBuffs.flatMap((buff) => [buff.name, buff.displayName, buff.sourceName]),
+      ].join(' '));
+      return haystack.includes(query);
+    });
+  }
+  if (staffIndex !== null) {
+    buttons = buttons.filter((button) => button.staffIndex === staffIndex);
+  }
+  if (nodeIndex !== null) {
+    buttons = buttons.filter((button) => button.nodeIndex === nodeIndex);
+  }
+  buttons = buttons.sort((left, right) => (
+    (left.staffIndex - right.staffIndex) ||
+    (left.lineIndex - right.lineIndex) ||
+    ((left.nodeIndex ?? 0) - (right.nodeIndex ?? 0)) ||
+    left.label.localeCompare(right.label)
+  ));
+  if (ordinal !== null) {
+    buttons = buttons[ordinal - 1] ? [buttons[ordinal - 1]] : [];
+  }
+  const limit = Number(input.limit || 80) || 80;
+  return {
+    snapshotUpdatedAt: snapshot?.updatedAt || null,
+    count: buttons.length,
+    buttons: buttons.slice(0, Math.max(1, Math.min(limit, 200))),
+    ambiguity: buttons.length !== 1,
+    suggestedQuestion: buttons.length > 1 ? '找到多个按钮候选。请指定 buttonId、位置或第几个。' : '',
+  };
+}
+
+function listDefWorkbenchCharacters() {
+  const snapshot = readMainWorkbenchSnapshotMirror();
+  const selectedCharacters = Array.isArray(snapshot?.selectedCharacters) ? snapshot.selectedCharacters : [];
+  const operatorConfigs = Array.isArray(snapshot?.operatorConfigs) ? snapshot.operatorConfigs : [];
+  return {
+    snapshotUpdatedAt: snapshot?.updatedAt || null,
+    count: selectedCharacters.length,
+    characters: selectedCharacters.map((character, index) => {
+      const config = operatorConfigs.find((item) => item?.characterId === character?.id || item?.characterName === character?.name);
+      return {
+        index,
+        id: character?.id || '',
+        name: character?.name || '',
+        element: character?.element || '',
+        profession: character?.profession || '',
+        weapon: config?.weapon ? {
+          id: config.weapon.id || '',
+          name: config.weapon.name || '',
+          level: config.weapon.level,
+          potential: config.weapon.potential,
+        } : null,
+        equipmentCount: Array.isArray(config?.equipment) ? config.equipment.length : 0,
+      };
+    }),
+  };
+}
+
+function resolveDefCharacters(input = {}) {
+  const query = normalizeDefToolText(input.query || input.name || input.text || '');
+  const data = listDefWorkbenchCharacters();
+  const candidates = data.characters
+    .filter((character) => !query || normalizeDefToolText(`${character.name} ${character.id}`).includes(query))
+    .map((character) => ({ ...character, confidence: normalizeDefToolText(character.name) === query ? 1 : 0.75 }));
+  return {
+    query,
+    candidates,
+    ambiguity: candidates.length !== 1,
+    suggestedQuestion: candidates.length === 0
+      ? '没有找到匹配干员。请提供干员名称或当前位置。'
+      : candidates.length > 1
+        ? '找到多个干员候选。请指定干员名称或第几个。'
+        : '',
+  };
+}
+
+function resolveDefSkills(input = {}) {
+  const query = normalizeDefToolText(input.query || input.skillName || input.text || '');
+  const buttons = listDefWorkbenchButtons({ limit: 200 }).buttons;
+  const bySkill = new Map();
+  for (const button of buttons) {
+    const key = `${button.characterName}:${button.skillType}:${button.skillDisplayName}`;
+    if (!bySkill.has(key)) {
+      bySkill.set(key, {
+        characterName: button.characterName,
+        skillType: button.skillType,
+        skillDisplayName: button.skillDisplayName,
+        buttonCount: 0,
+        exampleButtonId: button.buttonId,
+      });
+    }
+    bySkill.get(key).buttonCount += 1;
+  }
+  const candidates = [...bySkill.values()]
+    .filter((skill) => !query || normalizeDefToolText(`${skill.characterName} ${skill.skillType} ${skill.skillDisplayName}`).includes(query))
+    .map((skill) => ({ ...skill, confidence: normalizeDefToolText(skill.skillDisplayName) === query ? 1 : 0.7 }));
+  return {
+    query,
+    candidates,
+    ambiguity: candidates.length !== 1,
+    suggestedQuestion: candidates.length > 1 ? '找到多个技能候选。请指定干员或技能类型。' : '',
+  };
+}
+
+function resolveDefBuffs(input = {}) {
+  const query = normalizeDefToolText(input.query || input.name || input.text || '');
+  const snapshot = readMainWorkbenchSnapshotMirror();
+  const buttons = Array.isArray(snapshot?.skillButtons) ? snapshot.skillButtons : [];
+  const buffMap = new Map();
+  for (const button of buttons) {
+    for (const buff of Array.isArray(button?.selectedBuffs) ? button.selectedBuffs : []) {
+      const key = buff?.id || `${buff?.displayName || buff?.name || ''}:${buff?.sourceName || ''}`;
+      if (!key) continue;
+      const current = buffMap.get(key) || {
+        id: buff?.id || '',
+        name: buff?.name || '',
+        displayName: buff?.displayName || '',
+        sourceName: buff?.sourceName || '',
+        refButtonIds: [],
+      };
+      current.refButtonIds.push(button.id);
+      buffMap.set(key, current);
+    }
+  }
+  for (const config of Array.isArray(snapshot?.operatorConfigs) ? snapshot.operatorConfigs : []) {
+    for (const equipment of Array.isArray(config?.equipment) ? config.equipment : []) {
+      for (const effect of Array.isArray(equipment?.effects) ? equipment.effects : []) {
+        const key = effect?.effectId || `${equipment?.name || ''}:${effect?.label || ''}`;
+        if (!key || buffMap.has(key)) continue;
+        buffMap.set(key, {
+          id: effect?.effectId || '',
+          name: effect?.label || '',
+          displayName: effect?.label || '',
+          sourceName: equipment?.name || '',
+          typeKey: effect?.typeKey || '',
+          value: effect?.value,
+          refButtonIds: [],
+        });
+      }
+    }
+  }
+  const candidates = [...buffMap.values()]
+    .filter((buff) => !query || normalizeDefToolText(`${buff.name} ${buff.displayName} ${buff.sourceName} ${buff.id}`).includes(query))
+    .map((buff) => ({ ...buff, confidence: normalizeDefToolText(`${buff.displayName || buff.name}`) === query ? 1 : 0.72 }));
+  return {
+    query,
+    candidates,
+    ambiguity: candidates.length !== 1,
+    suggestedQuestion: candidates.length === 0
+      ? '没有找到匹配 Buff。请提供 Buff 来源、完整名称或允许从模板构造。'
+      : candidates.length > 1
+        ? '找到多个 Buff 候选。请指定来源或完整名称。'
+        : '',
+  };
+}
+
+function resolveDefEquipment(input = {}) {
+  const query = normalizeDefToolText(input.query || input.name || input.text || '');
+  const snapshot = readMainWorkbenchSnapshotMirror();
+  const candidates = [];
+  for (const config of Array.isArray(snapshot?.operatorConfigs) ? snapshot.operatorConfigs : []) {
+    for (const equipment of Array.isArray(config?.equipment) ? config.equipment : []) {
+      const candidate = {
+        characterName: config?.characterName || '',
+        slotKey: equipment?.slotKey || '',
+        equipmentId: equipment?.equipmentId || '',
+        name: equipment?.name || '',
+        part: equipment?.part || '',
+        effectCount: Array.isArray(equipment?.effects) ? equipment.effects.length : 0,
+      };
+      if (!query || normalizeDefToolText(`${candidate.characterName} ${candidate.name} ${candidate.part} ${candidate.equipmentId}`).includes(query)) {
+        candidates.push({ ...candidate, confidence: normalizeDefToolText(candidate.name) === query ? 1 : 0.7 });
+      }
+    }
+  }
+  return {
+    query,
+    candidates,
+    ambiguity: candidates.length !== 1,
+    suggestedQuestion: candidates.length > 1 ? '找到多个装备候选。请指定干员、槽位或装备名。' : '',
+  };
+}
+
+function readDefWorkNode(input = {}) {
+  const nodeId = typeof input.nodeId === 'string' && input.nodeId.trim()
+    ? input.nodeId.trim()
+    : typeof input.id === 'string' && input.id.trim()
+      ? input.id.trim()
+      : '';
+  const archive = readAiTimelineWorkNodeArchive();
+  const nodes = archive.nodes.sort((left, right) => (right.updatedAt || 0) - (left.updatedAt || 0));
+  const node = nodeId ? nodes.find((item) => item?.id === nodeId) : nodes[0];
+  if (!node) {
+    return {
+      ok: false,
+      code: 'ai-worknode-not-found',
+      message: nodeId ? `AI timeline work node not found: ${nodeId}` : 'No AI timeline work node exists.',
+      nodes: nodes.map((item) => ({
+        id: item.id,
+        saveId: item.saveId,
+        branchId: item.branchId,
+        status: item.status,
+        updatedAt: item.updatedAt,
+        label: item.label,
+      })),
+    };
+  }
+  const includePayload = input.includePayload === true;
+  return {
+    ok: true,
+    path: aiTimelineWorkNodesPath,
+    node: {
+      id: node.id,
+      saveId: node.saveId,
+      branchId: node.branchId,
+      label: node.label,
+      status: node.status,
+      createdAt: node.createdAt,
+      updatedAt: node.updatedAt,
+      approvalPolicy: node.approvalPolicy,
+      baseSummary: node.baseSummary || summarizeTimelinePayload(node.basePayload),
+      workingSummary: node.workingSummary || summarizeTimelinePayload(node.workingPayload),
+      riskFlags: Array.isArray(node.riskFlags) ? node.riskFlags : [],
+      logs: Array.isArray(node.logs) ? node.logs.slice(0, 10) : [],
+      ...(includePayload ? { basePayload: node.basePayload, workingPayload: node.workingPayload } : {}),
+    },
+    diff: buildAiTimelineWorkNodeDiff(node),
+  };
+}
+
+function validateDefWorkNode(input = {}) {
+  const readResult = readDefWorkNode(input);
+  if (!readResult.ok) return readResult;
+  const archive = readAiTimelineWorkNodeArchive();
+  const node = archive.nodes.find((item) => item?.id === readResult.node.id);
+  const baseError = validateWorkNodePayload(node?.basePayload, 'basePayload');
+  const workingError = validateWorkNodePayload(node?.workingPayload, 'workingPayload');
+  const issues = [
+    ...(baseError ? [{ code: 'invalid-ai-worknode-base-payload', message: baseError, path: 'basePayload' }] : []),
+    ...(workingError ? [{ code: 'invalid-ai-worknode-working-payload', message: workingError, path: 'workingPayload' }] : []),
+  ];
+  return {
+    ok: issues.length === 0,
+    nodeId: readResult.node.id,
+    issues,
+    baseSummary: readResult.node.baseSummary,
+    workingSummary: readResult.node.workingSummary,
+  };
+}
+
+function verifyDefWorkNodeDiffClean(input = {}) {
+  const readResult = readDefWorkNode(input);
+  if (!readResult.ok) {
+    return {
+      pass: false,
+      reason: readResult.message,
+      readResult,
+    };
+  }
+  const validation = validateDefWorkNode({ nodeId: readResult.node.id });
+  const diff = readResult.diff;
+  const riskFlags = Array.isArray(diff?.riskFlags) ? diff.riskFlags : [];
+  const blockers = riskFlags.filter((risk) => risk?.severity === 'blocker');
+  const requiresManualApproval = diff?.checkoutDecision?.requiresManualApproval === true;
+  return {
+    pass: validation.ok && blockers.length === 0,
+    nodeId: readResult.node.id,
+    validation,
+    diffSummary: diff?.diff?.summary || null,
+    riskFlags,
+    blockers,
+    requiresManualApproval,
+    checkoutDecision: diff?.checkoutDecision || null,
+  };
+}
+
+function readDefToolGovernanceArchive() {
+  try {
+    if (!fs.existsSync(defToolGovernancePath)) {
+      return { type: 'def.tool.governance.v1', schemaVersion: 1, questions: [], approvals: [] };
+    }
+    const parsed = JSON.parse(fs.readFileSync(defToolGovernancePath, 'utf-8'));
+    if (!parsed || parsed.type !== 'def.tool.governance.v1') {
+      return { type: 'def.tool.governance.v1', schemaVersion: 1, questions: [], approvals: [] };
+    }
+    return {
+      type: 'def.tool.governance.v1',
+      schemaVersion: 1,
+      questions: Array.isArray(parsed.questions) ? parsed.questions : [],
+      approvals: Array.isArray(parsed.approvals) ? parsed.approvals : [],
+    };
+  } catch {
+    return { type: 'def.tool.governance.v1', schemaVersion: 1, questions: [], approvals: [] };
+  }
+}
+
+function writeDefToolGovernanceArchive(archive) {
+  fs.mkdirSync(path.dirname(defToolGovernancePath), { recursive: true });
+  fs.writeFileSync(defToolGovernancePath, `${JSON.stringify({
+    type: 'def.tool.governance.v1',
+    schemaVersion: 1,
+    questions: Array.isArray(archive.questions) ? archive.questions.slice(0, 100) : [],
+    approvals: Array.isArray(archive.approvals) ? archive.approvals.slice(0, 200) : [],
+  }, null, 2)}\n`, 'utf-8');
+}
+
+function createDefUserQuestion(input = {}) {
+  const question = typeof input.question === 'string' && input.question.trim()
+    ? input.question.trim()
+    : typeof input.prompt === 'string' && input.prompt.trim()
+      ? input.prompt.trim()
+      : '';
+  if (!question) {
+    return { ok: false, code: 'missing-question', message: 'def.user.ask requires question or prompt.' };
+  }
+  const mode = ['optional', 'non-blocking', 'blocking'].includes(input.mode) ? input.mode : 'non-blocking';
+  const archive = readDefToolGovernanceArchive();
+  const record = {
+    id: makeId('def-question'),
+    createdAt: Date.now(),
+    status: 'open',
+    mode,
+    question,
+    suggestedOptions: Array.isArray(input.suggestedOptions) ? input.suggestedOptions.slice(0, 6) : [],
+    context: isObject(input.context) ? input.context : {},
+    workNodeId: typeof input.workNodeId === 'string' ? input.workNodeId : '',
+    toolCallId: typeof input.toolCallId === 'string' ? input.toolCallId : '',
+  };
+  writeDefToolGovernanceArchive({
+    ...archive,
+    questions: [record, ...archive.questions.filter((item) => item?.id !== record.id)],
+  });
+  return {
+    ok: true,
+    question: record,
+    note: 'Recorded question for low-blocking UI/agent follow-up. This tool does not force a modal by itself.',
+  };
+}
+
+function createDefApprovalRequest(input = {}) {
+  const summary = typeof input.summary === 'string' && input.summary.trim()
+    ? input.summary.trim()
+    : typeof input.rationale === 'string' && input.rationale.trim()
+      ? input.rationale.trim()
+      : '';
+  if (!summary) {
+    return { ok: false, code: 'missing-approval-summary', message: 'def.approval.request requires summary or rationale.' };
+  }
+  const riskLevel = ['low', 'medium', 'high'].includes(input.riskLevel) ? input.riskLevel : 'medium';
+  const mode = ['optional', 'non-blocking', 'blocking'].includes(input.mode) ? input.mode : (riskLevel === 'high' ? 'blocking' : 'non-blocking');
+  const archive = readDefToolGovernanceArchive();
+  const record = {
+    id: makeId('def-approval'),
+    createdAt: Date.now(),
+    status: 'requested',
+    mode,
+    riskLevel,
+    summary,
+    diffSummary: isObject(input.diffSummary) ? input.diffSummary : null,
+    riskFlags: Array.isArray(input.riskFlags) ? input.riskFlags : [],
+    workNodeId: typeof input.workNodeId === 'string' ? input.workNodeId : '',
+    toolCallId: typeof input.toolCallId === 'string' ? input.toolCallId : '',
+  };
+  writeDefToolGovernanceArchive({
+    ...archive,
+    approvals: [record, ...archive.approvals.filter((item) => item?.id !== record.id)],
+  });
+  return {
+    ok: true,
+    approval: record,
+    note: 'Recorded approval request. Policy/verifier still decide whether execution may continue.',
+  };
+}
+
+function recordDefApprovalDecision(input = {}) {
+  const approvalId = typeof input.approvalId === 'string' && input.approvalId.trim() ? input.approvalId.trim() : '';
+  const decision = ['approved', 'rejected', 'deferred'].includes(input.decision) ? input.decision : '';
+  if (!approvalId || !decision) {
+    return { ok: false, code: 'invalid-approval-decision', message: 'def.approval.record_decision requires approvalId and decision approved/rejected/deferred.' };
+  }
+  const archive = readDefToolGovernanceArchive();
+  let updated = null;
+  const approvals = archive.approvals.map((approval) => {
+    if (approval?.id !== approvalId) return approval;
+    updated = {
+      ...approval,
+      status: decision,
+      decidedAt: Date.now(),
+      decidedBy: ['ai', 'user', 'system'].includes(input.decidedBy) ? input.decidedBy : 'ai',
+      rationale: typeof input.rationale === 'string' ? input.rationale : '',
+    };
+    return updated;
+  });
+  if (!updated) {
+    return { ok: false, code: 'approval-not-found', message: `Approval request not found: ${approvalId}` };
+  }
+  writeDefToolGovernanceArchive({ ...archive, approvals });
+  return { ok: true, approval: updated };
+}
+
+function buildDefToolDefinitions() {
+  const executeCommand = 'Wraps current main workbench command queue; enqueue success still requires verification.';
+  const workNode = 'Uses appdata/localdata AI work node; current checkout changes only on checkout/restore.';
+  return [
+    { name: 'def.tool.list', scope: 'read', riskLevel: 'read', approval: 'none', status: 'implemented', description: 'List DEF typed tools.' },
+    { name: 'def.tool.describe', scope: 'read', riskLevel: 'read', approval: 'none', status: 'implemented', description: 'Describe one DEF typed tool.' },
+    { name: 'def.workbench.snapshot', scope: 'read', riskLevel: 'read', approval: 'none', status: 'implemented', description: 'Read the current checkout snapshot mirror.' },
+    { name: 'def.workbench.evidence', scope: 'read', riskLevel: 'read', approval: 'none', status: 'implemented', description: 'Read bounded current-checkout evidence for the model.' },
+    { name: 'def.workbench.list_buttons', scope: 'read', riskLevel: 'read', approval: 'none', status: 'implemented', description: 'List skill buttons with stable ids and labels.' },
+    { name: 'def.workbench.list_characters', scope: 'read', riskLevel: 'read', approval: 'none', status: 'implemented', description: 'List selected characters and compact config summary.' },
+    { name: 'def.workbench.damage_report', scope: 'read', riskLevel: 'read', approval: 'none', status: 'implemented', description: 'Read compact damage report.' },
+    { name: 'def.workbench.find_buttons', scope: 'read', riskLevel: 'read', approval: 'none', status: 'implemented', description: 'Resolve button candidates from query, character, skill, type, and position.' },
+    { name: 'def.buff.resolve', scope: 'read', riskLevel: 'read', approval: 'none', status: 'implemented', description: 'Resolve buff candidates from current button buffs and equipment effects.' },
+    { name: 'def.buff.search_candidates', scope: 'read', riskLevel: 'read', approval: 'none', status: 'implemented', description: 'Wide buff candidate search; alias of def.buff.resolve for now.' },
+    { name: 'def.skill.resolve', scope: 'read', riskLevel: 'read', approval: 'none', status: 'implemented', description: 'Resolve skill candidates from current timeline buttons.' },
+    { name: 'def.character.resolve', scope: 'read', riskLevel: 'read', approval: 'none', status: 'implemented', description: 'Resolve selected character candidates.' },
+    { name: 'def.equipment.resolve', scope: 'read', riskLevel: 'read', approval: 'none', status: 'implemented', description: 'Resolve equipment candidates from current operator configs.' },
+    { name: 'def.weapon.resolve', scope: 'read', riskLevel: 'read', approval: 'none', status: 'implemented', description: 'Resolve weapon candidates from current operator configs.' },
+    { name: 'def.gear.resolve', scope: 'read', riskLevel: 'read', approval: 'none', status: 'implemented', description: 'Resolve gear/equipment candidates from current operator configs.' },
+    { name: 'def.workbench.add_skill_button', commandOp: 'addSkillButton', scope: 'current-checkout', riskLevel: 'low', approval: 'auto', status: 'implemented', description: executeCommand },
+    { name: 'def.workbench.remove_skill_button', commandOp: 'removeSkillButton', scope: 'current-checkout', riskLevel: 'medium', approval: 'ai-review', status: 'implemented', description: executeCommand },
+    { name: 'def.buff.add_to_button', commandOp: 'addBuff', scope: 'current-checkout', riskLevel: 'medium', approval: 'auto', status: 'implemented', description: executeCommand },
+    { name: 'def.buff.add_to_buttons', commandOp: 'addBuffToButtons', scope: 'current-checkout', riskLevel: 'medium', approval: 'ai-review', status: 'implemented', description: executeCommand },
+    { name: 'def.buff.remove_from_button', commandOp: 'removeBuff', scope: 'current-checkout', riskLevel: 'medium', approval: 'ai-review', status: 'implemented', description: executeCommand },
+    { name: 'def.target.set_resistance', commandOp: 'setTargetResistance', scope: 'current-checkout', riskLevel: 'low', approval: 'auto', status: 'implemented', description: executeCommand },
+    { name: 'def.damage.calculate', commandOp: 'calculateDamage', scope: 'current-checkout', riskLevel: 'low', approval: 'auto', status: 'implemented', description: executeCommand },
+    { name: 'def.worknode.create_from_current', commandOp: 'createAiTimelineWorkNodeFromCurrent', scope: 'appdata-work-node', riskLevel: 'medium', approval: 'auto', status: 'implemented', description: workNode },
+    { name: 'def.worknode.patch', commandOp: 'patchAiTimelineWorkNode', scope: 'appdata-work-node', riskLevel: 'high', approval: 'ai-review', status: 'implemented', description: 'Class-code Patch DSL / CRUD tool for node.workingPayload.' },
+    { name: 'def.worknode.diff', commandOp: 'diffAiTimelineWorkNode', scope: 'appdata-work-node', riskLevel: 'read', approval: 'none', status: 'implemented', description: workNode },
+    { name: 'def.worknode.checkout', commandOp: 'checkoutAiTimelineWorkNode', scope: 'appdata-work-node', riskLevel: 'high', approval: 'ai-review', status: 'implemented', description: workNode },
+    { name: 'def.worknode.restore_base', commandOp: 'restoreAiTimelineWorkNodeBase', scope: 'appdata-work-node', riskLevel: 'high', approval: 'ai-review', status: 'implemented', description: workNode },
+    { name: 'def.worknode.read', scope: 'appdata-work-node', riskLevel: 'read', approval: 'none', status: 'implemented', description: 'Read appdata work node state without touching current checkout.' },
+    { name: 'def.worknode.validate', scope: 'appdata-work-node', riskLevel: 'read', approval: 'none', status: 'implemented', description: 'Validate work node basePayload and workingPayload without checkout.' },
+    { name: 'def.user.ask', scope: 'governance', riskLevel: 'read', approval: 'none', status: 'implemented', description: 'Record a formal low-blocking question for user follow-up.' },
+    { name: 'def.approval.request', scope: 'governance', riskLevel: 'medium', approval: 'user-confirm', status: 'implemented', description: 'Record an approval request without forcing every warning into a blocker.' },
+    { name: 'def.approval.record_decision', scope: 'governance', riskLevel: 'medium', approval: 'ai-review', status: 'implemented', description: 'Record approval rationale into local audit.' },
+    { name: 'def.verify.command_result', scope: 'verification', riskLevel: 'read', approval: 'none', status: 'implemented', description: 'Verify command or batch status from result log/queue.' },
+    { name: 'def.verify.snapshot_delta', scope: 'verification', riskLevel: 'read', approval: 'none', status: 'implemented', description: 'Return compact snapshot facts for caller-side delta checks.' },
+    { name: 'def.verify.buttons_have_buff', scope: 'verification', riskLevel: 'read', approval: 'none', status: 'implemented', description: 'Verify target buttons contain a buff by id/name/displayName.' },
+    { name: 'def.verify.damage_recalculated', scope: 'verification', riskLevel: 'read', approval: 'none', status: 'implemented', description: 'Verify damage report exists and expose generatedAt/total.' },
+    { name: 'def.verify.worknode_diff_clean', scope: 'verification', riskLevel: 'read', approval: 'none', status: 'implemented', description: 'Verify work node diff/risk before checkout.' },
+    { name: 'def.operator.config.read', scope: 'read', riskLevel: 'read', approval: 'none', status: 'implemented', description: 'Read compact operator config summary from snapshot.' },
+    { name: 'def.operator.config.patch', scope: 'current-checkout', riskLevel: 'medium', approval: 'ai-review', status: 'planned', description: 'Structured operator config patch for levels/weapon/equipment.' },
+    { name: 'def.gear.set_entry_level', scope: 'current-checkout', riskLevel: 'medium', approval: 'ai-review', status: 'planned', description: 'Set gear entry level through future config tool.' },
+  ].map((tool) => ({
+    ...tool,
+    inputSchema: tool.commandOp ? { type: 'object', description: `MainWorkbenchCommand fields without op; op is ${tool.commandOp}.` } : { type: 'object' },
+    outputSchema: { type: 'object', fields: ['ok', 'tool', 'result'] },
+    verification: tool.scope === 'current-checkout' ? ['command_result', 'snapshot_delta'] : tool.scope === 'appdata-work-node' ? ['schema', 'diff'] : ['schema'],
+    rollback: tool.scope === 'appdata-work-node' ? 'required' : tool.scope === 'current-checkout' ? 'optional' : 'none',
+    idempotency: tool.commandOp ? 'caller-provided requestId optional; command queue deduplicates explicit ids' : 'read-only',
+    modelOutputPolicy: 'bounded-json',
+    auditLog: tool.commandOp ? 'command queue/result log' : 'rest access log',
+  }));
+}
+
+const DEF_TOOL_DEFINITIONS = buildDefToolDefinitions();
+
+function getDefToolDefinition(name) {
+  return DEF_TOOL_DEFINITIONS.find((tool) => tool.name === name) || null;
+}
+
+function enqueueDefToolCommand(definition, input = {}) {
+  const { requestId: _requestId, source: _source, toolCallId: _toolCallId, ...commandInput } = isObject(input) ? input : {};
+  void _requestId;
+  void _source;
+  void _toolCallId;
+  const command = normalizeMainWorkbenchCommand({ ...commandInput, op: definition.commandOp });
+  const validation = validateMainWorkbenchCommand(command);
+  if (!validation.ok) return failScript(400, validation.code, validation.message);
+  const source = typeof input.source === 'string' ? input.source : 'def-tool-runtime';
+  const requestId = typeof input.requestId === 'string' && input.requestId.trim() ? input.requestId.trim() : '';
+  const queue = readMainWorkbenchCommandQueue();
+  if (requestId) {
+    const existing = queue.find((entry) => entry.id === requestId);
+    if (existing) {
+      return { status: 200, body: { ok: true, protocolVersion: 1, tool: definition.name, command: existing, duplicate: true } };
+    }
+  }
+  const entry = normalizeMainWorkbenchCommandEntry({
+    id: requestId || makeMainWorkbenchCommandId(),
+    command,
+    source,
+    status: 'pending',
+  });
+  writeMainWorkbenchCommandQueue([...queue, entry]);
+  return {
+    status: 200,
+    body: {
+      ok: true,
+      protocolVersion: 1,
+      tool: definition.name,
+      status: 'queued',
+      command: entry,
+      verificationRequired: definition.verification,
+      note: 'queued does not mean executed; verify command_result or snapshot_delta before final answer.',
+    },
+  };
+}
+
+function verifyButtonsHaveBuff(input = {}) {
+  const buttonIds = Array.isArray(input.buttonIds) ? input.buttonIds.filter((id) => typeof id === 'string' && id.trim()) : [];
+  const buffNeedle = normalizeDefToolText(input.buffId || input.buffName || input.displayName || input.query || '');
+  const buttons = listDefWorkbenchButtons({ limit: 200 }).buttons
+    .filter((button) => buttonIds.length === 0 || buttonIds.includes(button.buttonId));
+  const results = buttons.map((button) => {
+    const matchedBuffs = button.selectedBuffs.filter((buff) => {
+      const haystack = normalizeDefToolText(`${buff.id} ${buff.name} ${buff.displayName} ${buff.sourceName}`);
+      return buffNeedle ? haystack.includes(buffNeedle) : false;
+    });
+    return {
+      buttonId: button.buttonId,
+      label: button.label,
+      pass: matchedBuffs.length > 0,
+      matchedBuffs,
+      buffCount: button.buffCount,
+    };
+  });
+  return {
+    pass: results.length > 0 && results.every((item) => item.pass),
+    checked: results.length,
+    missing: results.filter((item) => !item.pass),
+    results,
+  };
+}
+
+function executeDefTool(name, input = {}, query = new URLSearchParams()) {
+  const definition = getDefToolDefinition(name);
+  if (!definition) {
+    return failScript(404, 'def-tool-not-found', `Unknown DEF tool: ${name}`, {
+      availableTools: DEF_TOOL_DEFINITIONS.map((tool) => tool.name),
+    });
+  }
+  if (definition.status === 'planned') {
+    return failScript(501, 'def-tool-planned', `DEF tool is planned but not implemented yet: ${name}`, { tool: definition });
+  }
+  if (definition.commandOp) return enqueueDefToolCommand(definition, input);
+
+  const snapshot = readMainWorkbenchSnapshotMirror();
+  let result = null;
+  if (name === 'def.tool.list') {
+    result = { tools: DEF_TOOL_DEFINITIONS };
+  } else if (name === 'def.tool.describe') {
+    const targetName = input.name || input.tool || query.get('name') || '';
+    result = { tool: getDefToolDefinition(targetName) };
+    if (!result.tool) return failScript(404, 'def-tool-not-found', `Unknown DEF tool: ${targetName}`);
+  } else if (name === 'def.workbench.snapshot') {
+    result = { snapshot };
+  } else if (name === 'def.workbench.evidence') {
+    result = buildMainWorkbenchEvidence(snapshot, {
+      prompt: input.prompt || input.query || '',
+      previousButtonId: input.previousButtonId || '',
+    });
+  } else if (name === 'def.workbench.list_buttons' || name === 'def.workbench.find_buttons') {
+    result = listDefWorkbenchButtons(input);
+  } else if (name === 'def.workbench.list_characters') {
+    result = listDefWorkbenchCharacters();
+  } else if (name === 'def.workbench.damage_report') {
+    result = { snapshotUpdatedAt: snapshot?.updatedAt || null, damageReport: snapshot?.damageReport || null };
+  } else if (name === 'def.character.resolve') {
+    result = resolveDefCharacters(input);
+  } else if (name === 'def.skill.resolve') {
+    result = resolveDefSkills(input);
+  } else if (name === 'def.buff.resolve' || name === 'def.buff.search_candidates') {
+    result = resolveDefBuffs(input);
+  } else if (name === 'def.equipment.resolve' || name === 'def.gear.resolve') {
+    result = resolveDefEquipment(input);
+  } else if (name === 'def.weapon.resolve') {
+    const characters = listDefWorkbenchCharacters().characters;
+    const queryText = normalizeDefToolText(input.query || input.name || input.text || '');
+    result = {
+      query: queryText,
+      candidates: characters
+        .filter((character) => character.weapon && (!queryText || normalizeDefToolText(`${character.name} ${character.weapon.name} ${character.weapon.id}`).includes(queryText)))
+        .map((character) => ({ characterName: character.name, ...character.weapon, confidence: normalizeDefToolText(character.weapon?.name) === queryText ? 1 : 0.7 })),
+    };
+    result.ambiguity = result.candidates.length !== 1;
+  } else if (name === 'def.operator.config.read') {
+    result = { snapshotUpdatedAt: snapshot?.updatedAt || null, operatorConfigs: snapshot?.operatorConfigs || [] };
+  } else if (name === 'def.user.ask') {
+    result = createDefUserQuestion(input);
+  } else if (name === 'def.approval.request') {
+    result = createDefApprovalRequest(input);
+  } else if (name === 'def.approval.record_decision') {
+    result = recordDefApprovalDecision(input);
+  } else if (name === 'def.worknode.read') {
+    result = readDefWorkNode(input);
+  } else if (name === 'def.worknode.validate') {
+    result = validateDefWorkNode(input);
+  } else if (name === 'def.verify.command_result') {
+    const commandId = typeof input.commandId === 'string' ? input.commandId : '';
+    const batchId = normalizeMainWorkbenchBatchId(input.batchId);
+    const commands = readMainWorkbenchCommandQueue();
+    result = batchId
+      ? buildMainWorkbenchCommandBatchSummary(commands, batchId)
+      : commands.find((entry) => entry.id === commandId) || null;
+    result = { pass: batchId ? result && result.total > 0 && result.pending === 0 && result.running === 0 && result.error === 0 : result?.status === 'done', result };
+  } else if (name === 'def.verify.snapshot_delta') {
+    result = {
+      pass: Boolean(snapshot),
+      snapshotUpdatedAt: snapshot?.updatedAt || null,
+      selectedCharacterCount: Array.isArray(snapshot?.selectedCharacters) ? snapshot.selectedCharacters.length : 0,
+      buttonCount: Array.isArray(snapshot?.skillButtons) ? snapshot.skillButtons.length : 0,
+      damageTotalExpected: snapshot?.damageReport?.totalExpected ?? null,
+    };
+  } else if (name === 'def.verify.buttons_have_buff') {
+    result = verifyButtonsHaveBuff(input);
+  } else if (name === 'def.verify.damage_recalculated') {
+    result = {
+      pass: Boolean(snapshot?.damageReport),
+      snapshotUpdatedAt: snapshot?.updatedAt || null,
+      generatedAt: snapshot?.damageReport?.generatedAt || null,
+      buttonCount: snapshot?.damageReport?.buttonCount || 0,
+      totalExpected: snapshot?.damageReport?.totalExpected ?? null,
+    };
+  } else if (name === 'def.verify.worknode_diff_clean') {
+    result = verifyDefWorkNodeDiffClean(input);
+  }
+
+  if (result === null) {
+    return failScript(500, 'def-tool-unhandled', `DEF tool has no executor: ${name}`);
+  }
+  return {
+    status: 200,
+    body: {
+      ok: true,
+      protocolVersion: 1,
+      tool: name,
+      result,
+    },
+  };
+}
+
+function handleDefToolRequest(method, pathname, query, body) {
+  if (method === 'GET' && pathname === '/api/def-tools') {
+    return executeDefTool('def.tool.list', {}, query);
+  }
+  if (method === 'GET' && pathname === '/api/def-tools/describe') {
+    return executeDefTool('def.tool.describe', { name: query.get('name') || '' }, query);
+  }
+  const callMatch = /^\/api\/def-tools\/([^/]+)\/call$/.exec(pathname);
+  if (method === 'POST' && callMatch) {
+    const name = decodeURIComponent(callMatch[1]);
+    const input = body && typeof body === 'object' && Object.prototype.hasOwnProperty.call(body, 'input') ? body.input : body;
+    return executeDefTool(name, input || {}, query);
+  }
+  if (method === 'POST' && pathname === '/api/def-tools/call') {
+    const name = typeof body?.tool === 'string' ? body.tool : typeof body?.name === 'string' ? body.name : '';
+    return executeDefTool(name, body?.input || {}, query);
+  }
+  return null;
+}
+
 function handleMainWorkbenchRequest(method, pathname, query, body) {
   if (method === 'GET' && pathname === '/api/main-workbench/evidence') {
     const snapshot = readMainWorkbenchJson(MAIN_WORKBENCH_SNAPSHOT_KEY, null);
@@ -1402,6 +2129,7 @@ const server = http.createServer(async (request, response) => {
       storageMode: storageMode === 'runtime' ? 'runtime' : 'now-storage',
       nowStoragePath,
       aiTimelineWorkNodesPath,
+      defToolGovernancePath,
       pid: process.pid,
       startedAt: serverStartedAt,
       projectRoot,
@@ -1433,6 +2161,12 @@ const server = http.createServer(async (request, response) => {
     const aiTimelineWorkNodeResponse = handleAiTimelineWorkNodeRequest(method, requestUrl.pathname, body);
     if (aiTimelineWorkNodeResponse) {
       writeJson(response, aiTimelineWorkNodeResponse.status, aiTimelineWorkNodeResponse.body);
+      return;
+    }
+
+    const defToolResponse = handleDefToolRequest(method, requestUrl.pathname, requestUrl.searchParams, body);
+    if (defToolResponse) {
+      writeJson(response, defToolResponse.status, defToolResponse.body);
       return;
     }
 

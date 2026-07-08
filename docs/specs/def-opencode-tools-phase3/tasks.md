@@ -8,16 +8,17 @@
 
 当前任务状态：
 
-- Task 1: 待完成，建立 DEF typed tool runtime / adapter。
-- Task 2: 待完成，补 tool discovery 与 tool metadata 输出。
-- Task 3: 待完成，将已有 current checkout command op 包装成 typed tools。
-- Task 4: 待完成，补 read tools。
-- Task 5: 待完成，补 resolver tools。
-- Task 6: 待完成，升级 work node Patch DSL / 类代码 CRUD 工具。
-- Task 7: 待完成，补 ask / approval tools。
-- Task 8: 待完成，补 verification tools。
-- Task 9: 待完成，补选人/配置页 tools 范围。
-- Task 10: 待完成，清理多余/错误 tool 形态，防止硬编码意图回潮。
+- Task 1: 已完成最小实现，新增 `/api/def-tools` typed tool runtime 入口，仍复用 command queue 执行层。
+- Task 2: 已完成最小实现，新增 `def.tool.list` / `def.tool.describe`。
+- Task 3: 已完成最小实现，将已有 current checkout command op 包装为 typed tools。
+- Task 4: 已完成最小实现，补 read tools。
+- Task 5: 已完成最小实现，补 resolver tools 的当前快照搜索版，`find_buttons` 支持 buttonId/位置/ordinal，后续需接完整库/别名/模板。
+- Task 6: 已完成最小实现，将 `patchAiTimelineWorkNode` 包装为 `def.worknode.patch`，并补 `def.worknode.read` / `def.worknode.validate`。
+- Task 7: 已完成最小实现，ask / approval tools 可写入本地 governance 记录，尚未接 UI 弹窗。
+- Task 8: 已完成最小实现，补 command/snapshot/buff/damage/worknode diff verification。
+- Task 9: 部分完成，补 operator config read 与 weapon/gear resolver，config patch / gear entry edit 仍待补。
+- Task 10: 已在工具清单中约束，仍需持续清理旧 prompt/regex 路径。
+- 调试辅助：已在 dev-agent 增加 `POST /def-agent/workbench-test/prompt`，用于模拟主界面 AI 输入框投喂一句话，便于命令行点测 agent 行为；它不是产品业务 tool，不能替代 typed tools。
 
 ## Task 1: 建立 DEF typed tool runtime / adapter
 
