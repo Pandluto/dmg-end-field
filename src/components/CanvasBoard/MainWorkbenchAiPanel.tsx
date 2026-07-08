@@ -248,6 +248,35 @@ function shouldUseSnapshotFallback(prompt: string | undefined, text: string | un
   return /当前|现在|看一下|穿|装备|武器|按钮|技能|buff|Buff|伤害|实际|告诉我|核对|确认|current|now|status|wear|gear|equipment|weapon|button|skill|damage|check|confirm/i.test(prompt || '');
 }
 
+type DirectWorkbenchToolAction =
+  | { kind: 'message'; status: WorkbenchAiMessage['status']; text: string }
+  | { kind: 'command'; detail: string; command: MainWorkbenchCommand };
+
+function buildDirectWorkbenchToolAction(text: string, selectedCharacters: Character[]): DirectWorkbenchToolAction | null {
+  if (/buff|Buff|增益/.test(text) && /(加|添加|增加|add|apply)/i.test(text) && /(任意|随便|任一个|一个|any|random)/i.test(text)) {
+    return {
+      kind: 'message',
+      status: 'error',
+      text: '添加 Buff 需要指定具体 Buff 名称或可解析的 Buff 对象；当前不能只添加“任意一个 Buff”。',
+    };
+  }
+
+  const firstCharacter = selectedCharacters[0] || null;
+  const targetsFirstCharacter = /(当前)?第\s*(1|一)\s*个|首个|第一个|first/i.test(text);
+  const asksAddSkillButton = /(添加|增加|加|释放|放|add|cast|use|place|create)/i.test(text)
+    && /(技能按钮|按钮|技能|skill button|button|skill)/i.test(text)
+    && !/buff|Buff|增益/.test(text);
+  if (firstCharacter && targetsFirstCharacter && asksAddSkillButton) {
+    return {
+      kind: 'command',
+      detail: `添加 ${firstCharacter.name} 技能按钮`,
+      command: { op: 'addSkillButton', characterId: firstCharacter.id, characterName: firstCharacter.name, select: true },
+    };
+  }
+
+  return null;
+}
+
 function chooseWorkbenchThinkingEffort(prompt: string): DefAgentThinkingEffort {
   const text = prompt.trim();
   const complexityScore = [
@@ -770,7 +799,53 @@ export function MainWorkbenchAiPanel({
       { id: messageId, role: 'agent', text: '', status: 'running', prompt: userText },
     ]);
 
-    // 第二阶段：关闭前端正则 quick action，避免绕过工具注册表和 work node patch 主路径。
+    const directToolAction = buildDirectWorkbenchToolAction(userText, selectedCharacters);
+    if (directToolAction) {
+      try {
+        patchStep('backup', { status: 'done', detail: '低风险直达工具' });
+        patchStep('rest', { status: 'done', detail: '使用页面控制入口' });
+        patchStep('agent', { status: 'done', detail: '无需后台模型' });
+
+        if (directToolAction.kind === 'message') {
+          patchStep('operate', { status: 'error', detail: '缺少必要信息' });
+          patchStep('verify', { status: 'error', detail: '未投递命令' });
+          finishMessage(messageId, directToolAction.status, directToolAction.text);
+          setStatus('需要补充信息');
+          return;
+        }
+
+        setStatus(directToolAction.detail);
+        patchStep('operate', { status: 'running', detail: directToolAction.detail });
+        const entry = enqueueLocalWorkbenchCommand(directToolAction.command, 'main-workbench-ai-direct-tool');
+        if (!entry) {
+          throw new Error('页面控制入口不可用');
+        }
+        await waitForWorkbenchCommandsToSettle(activePromptStartedAtRef.current);
+        const evidence = await readWorkbenchCommandEvidence(activePromptStartedAtRef.current);
+        const verification = verifyMainWorkbenchTurn({ prompt: userText, evidence });
+        if (!verification.ok) {
+          patchStep('operate', { status: 'error', detail: verification.message });
+          patchStep('verify', { status: 'error', detail: '执行未确认' });
+          finishMessage(messageId, verification.status, verification.message);
+          setStatus('执行未确认');
+          return;
+        }
+        const snapshot = await readMainWorkbenchSnapshot();
+        const snapshotAnswer = buildMainWorkbenchSnapshotAnswerFromPrompt(userText, snapshot);
+        const answer = snapshotAnswer || `已新增技能按钮：${selectedCharacters[0]?.name || '第一个干员'}。`;
+        patchStep('operate', { status: 'done', detail: directToolAction.command.op });
+        patchStep('verify', { status: snapshot ? 'done' : 'error', detail: snapshot ? '已核对快照' : '快照读取失败' });
+        finishMessage(messageId, snapshot ? 'done' : 'error', answer);
+        setStatus(snapshot ? '已核对快照' : '快照读取失败');
+      } catch (error) {
+        const text = error instanceof Error ? error.message : String(error);
+        patchStep('operate', { status: 'error', detail: text });
+        patchStep('verify', { status: 'error', detail: '执行异常' });
+        finishMessage(messageId, 'error', text);
+        setStatus(text);
+      }
+      return;
+    }
 
     if (turnTimeoutRef.current) {
       window.clearTimeout(turnTimeoutRef.current);
