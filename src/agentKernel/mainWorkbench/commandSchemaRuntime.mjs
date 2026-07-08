@@ -6,6 +6,7 @@ export const MAIN_WORKBENCH_SUPPORTED_OPS = [
   'addSkillButton',
   'removeSkillButton',
   'addBuff',
+  'addBuffToButtons',
   'removeBuff',
   'setTargetResistance',
   'calculateDamage',
@@ -63,6 +64,18 @@ export function validateMainWorkbenchCommand(command) {
 
   if (command.op === 'addBuff' && !isRecord(command.buff)) {
     return { ok: false, code: 'invalid-main-workbench-add-buff', message: 'addBuff requires buff.' };
+  }
+  if (command.op === 'addBuffToButtons') {
+    if (!isRecord(command.buff)) {
+      return { ok: false, code: 'invalid-main-workbench-add-buff-to-buttons', message: 'addBuffToButtons requires buff.' };
+    }
+    if (!Array.isArray(command.buttonIds) || command.buttonIds.length === 0 || !command.buttonIds.every((id) => typeof id === 'string' && id.trim())) {
+      return {
+        ok: false,
+        code: 'invalid-main-workbench-add-buff-to-buttons',
+        message: 'addBuffToButtons requires non-empty buttonIds.',
+      };
+    }
   }
   if (command.op === 'removeBuff' && !hasAnyString(command, ['buffId', 'displayName', 'name', 'buffDisplayName']) && command.all !== true) {
     return {

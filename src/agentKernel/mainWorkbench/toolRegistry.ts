@@ -68,6 +68,16 @@ export const MAIN_WORKBENCH_TOOL_REGISTRY: MainWorkbenchToolDefinition[] = [
     description: 'Direct edit for attaching a concrete buff object to one button.',
   },
   {
+    name: 'addBuffToButtons',
+    title: 'Attach one buff to multiple current checkout buttons',
+    scope: 'current-checkout',
+    riskLevel: 'medium',
+    approval: 'ai-review',
+    verification: ['snapshot', 'damage-report'],
+    rollback: 'optional',
+    description: 'Batch edit for attaching the same concrete buff object to explicit buttonIds.',
+  },
+  {
     name: 'removeBuff',
     title: 'Remove buff from current checkout button',
     scope: 'current-checkout',
@@ -144,4 +154,3 @@ export function summarizeMainWorkbenchToolsForAgent() {
     `${tool.name}: scope=${tool.scope}; risk=${tool.riskLevel}; approval=${tool.approval}; verification=${tool.verification.join('+')}; rollback=${tool.rollback}`
   ));
 }
-

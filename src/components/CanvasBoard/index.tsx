@@ -1038,6 +1038,7 @@ export function CanvasBoard({
         'addSkillButton',
         'removeSkillButton',
         'addBuff',
+        'addBuffToButtons',
         'removeBuff',
         'setTargetResistance',
         'calculateDamage',
@@ -1116,6 +1117,47 @@ export function CanvasBoard({
           const doneEntry = patchMainWorkbenchCommand(commandEntry.id, {
             status: 'done',
             result: { buttonId, buffId: result.buffId, duplicate: result.isDuplicate },
+          });
+          if (doneEntry) void pushMainWorkbenchCommandResult(doneEntry);
+          return;
+        }
+
+        if (command.op === 'addBuffToButtons') {
+          if (!command.buff || typeof command.buff !== 'object') {
+            throw new Error('addBuffToButtons requires buff');
+          }
+          const targetButtons = command.buttonIds.map((buttonId) => {
+            const button = resolveWorkbenchButtonIdReference(buttonId);
+            if (!button) {
+              throw new Error(`技能按钮不存在: ${buttonId}`);
+            }
+            return button;
+          });
+          const results = targetButtons.map((button) => {
+            const result = addBuffToButton(button.id, { ...command.buff, refCount: command.buff.refCount ?? 1 });
+            if (!result.success) {
+              throw new Error(`Buff 添加失败: ${formatWorkbenchButtonLabel(button)} / ${command.buff.displayName || command.buff.name || '未命名 Buff'}`);
+            }
+            recomputeSkillButtonPanel(button.id);
+            if (result.buffId) {
+              emitSkillButtonBuffAdded(button.id, result.buffId);
+            }
+            return {
+              buttonId: button.id,
+              label: formatWorkbenchButtonLabel(button),
+              buffId: result.buffId,
+              duplicate: result.isDuplicate,
+            };
+          });
+          setResistanceRevision((value) => value + 1);
+          const doneEntry = patchMainWorkbenchCommand(commandEntry.id, {
+            status: 'done',
+            result: {
+              requestedCount: command.buttonIds.length,
+              appliedCount: results.filter((item) => !item.duplicate).length,
+              duplicateCount: results.filter((item) => item.duplicate).length,
+              results,
+            },
           });
           if (doneEntry) void pushMainWorkbenchCommandResult(doneEntry);
           return;

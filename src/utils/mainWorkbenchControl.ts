@@ -73,6 +73,12 @@ export type MainWorkbenchCommand =
       select?: boolean;
     }
   | {
+      op: 'addBuffToButtons';
+      buttonIds: string[];
+      buff: Omit<SkillButtonBuff, 'id'> & { id?: string };
+      skipDuplicates?: boolean;
+    }
+  | {
       op: 'removeBuff';
       buttonId?: string;
       characterId?: string;
