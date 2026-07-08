@@ -51,6 +51,8 @@ let defAgentProcess = null;
 let defAgentStartedAt = null;
 let isAppQuitting = false;
 let appTray = null;
+const workbenchTestUiClients = new Set();
+const workbenchTestUiEventHistory = [];
 let savedDesktopScaleKey = DEFAULT_DESKTOP_SCALE_KEY;
 let activeDesktopScaleKey = DEFAULT_DESKTOP_SCALE_KEY;
 let startupWarmupScheduled = false;
@@ -523,6 +525,34 @@ function tryServeStaticFromRoot({ method, requestUrl, response, rootDir, urlPref
 function writeJson(response, statusCode, payload) {
   response.writeHead(statusCode, buildJsonHeaders());
   response.end(JSON.stringify(payload));
+}
+
+function writeSseHeaders(response) {
+  response.writeHead(200, {
+    'Content-Type': 'text/event-stream; charset=utf-8',
+    'Cache-Control': 'no-cache, no-transform',
+    Connection: 'keep-alive',
+    'Access-Control-Allow-Origin': '*',
+  });
+}
+
+function writeSse(response, eventName, payload) {
+  response.write(`event: ${eventName}\n`);
+  response.write(`data: ${JSON.stringify(payload)}\n\n`);
+}
+
+function broadcastWorkbenchTestUiEvent(eventName, payload) {
+  workbenchTestUiEventHistory.push({ eventName, payload });
+  if (workbenchTestUiEventHistory.length > 20) {
+    workbenchTestUiEventHistory.splice(0, workbenchTestUiEventHistory.length - 20);
+  }
+  for (const client of workbenchTestUiClients) {
+    try {
+      writeSse(client, eventName, payload);
+    } catch {
+      workbenchTestUiClients.delete(client);
+    }
+  }
 }
 
 function tryServeUserImageByRequestPath({ method, requestPath, response }) {
@@ -1089,6 +1119,97 @@ function startBridgeServer() {
         return;
       }
 
+      if (method === 'POST' && requestUrl.pathname === '/def-agent/workbench-test/prompt') {
+        const defAgent = await startDefAgent();
+        const body = await readJsonRequest(request);
+        const userText = typeof body.message === 'string' && body.message.trim()
+          ? body.message.trim()
+          : typeof body.prompt === 'string' && body.prompt.trim()
+            ? body.prompt.trim()
+            : '';
+        if (!userText) {
+          writeJson(response, 400, {
+            ok: false,
+            error: {
+              code: 'missing-workbench-test-prompt',
+              message: 'Body must include message or prompt.',
+            },
+          });
+          return;
+        }
+        const clientTurnId = typeof body.clientTurnId === 'string' && body.clientTurnId.trim()
+          ? body.clientTurnId.trim()
+          : `workbench-test-${Date.now()}`;
+        const thinkingEffort = chooseWorkbenchTestThinkingEffort(userText, body.thinkingEffort);
+        const builtPrompt = await buildWorkbenchTestPrompt(userText);
+        const sessionId = typeof body.sessionId === 'string' && body.sessionId.trim() ? body.sessionId.trim() : '';
+        const upstream = sessionId
+          ? await postJsonUrl(`http://127.0.0.1:17322/api/chat/${encodeURIComponent(sessionId)}/message`, {
+            message: builtPrompt.agentText,
+            clientTurnId,
+            thinkingEffort,
+            skillId: 'workbench',
+          })
+          : await postJsonUrl('http://127.0.0.1:17322/api/chat/stream', {
+            message: builtPrompt.agentText,
+            clientTurnId,
+            thinkingEffort,
+            skillId: 'workbench',
+          });
+        const nextSessionId = sessionId || upstream.body?.sessionId || upstream.body?.sessionID || '';
+        writeJson(response, upstream.status || 500, {
+          ok: upstream.status >= 200 && upstream.status < 300,
+          defAgent,
+          workbenchTest: {
+            prompt: userText,
+            clientTurnId,
+            thinkingEffort,
+            snapshotAvailable: builtPrompt.snapshotAvailable,
+            evidenceAvailable: builtPrompt.evidenceAvailable,
+            sessionId: nextSessionId || null,
+            eventsUrl: nextSessionId ? `http://${BRIDGE_HOST}:${BRIDGE_PORT}/def-agent/chat/${encodeURIComponent(nextSessionId)}/events` : null,
+            transcriptUrl: nextSessionId ? `http://${BRIDGE_HOST}:${BRIDGE_PORT}/def-agent/chat/${encodeURIComponent(nextSessionId)}/transcript` : null,
+            mode: sessionId ? 'continue' : 'stream',
+          },
+          ...upstream.body,
+        });
+        if (nextSessionId) {
+          broadcastWorkbenchTestUiEvent('ui.prompt', {
+            at: Date.now(),
+            prompt: userText,
+            clientTurnId,
+            thinkingEffort,
+            sessionId: nextSessionId,
+            sessionID: nextSessionId,
+            mode: sessionId ? 'continue' : 'stream',
+            snapshotAvailable: builtPrompt.snapshotAvailable,
+            evidenceAvailable: builtPrompt.evidenceAvailable,
+          });
+        }
+        return;
+      }
+
+      if (method === 'GET' && requestUrl.pathname === '/def-agent/workbench-test/ui-events') {
+        writeSseHeaders(response);
+        workbenchTestUiClients.add(response);
+        response.write(': connected\n\n');
+        writeSse(response, 'ready', {
+          ok: true,
+          at: Date.now(),
+          clients: workbenchTestUiClients.size,
+        });
+        for (const event of workbenchTestUiEventHistory) {
+          writeSse(response, event.eventName, {
+            ...event.payload,
+            replay: true,
+          });
+        }
+        request.on('close', () => {
+          workbenchTestUiClients.delete(response);
+        });
+        return;
+      }
+
       if (method === 'GET' && requestUrl.pathname === '/def-agent/chat/sessions') {
         await startDefAgent();
         const upstream = await fetchJsonUrl('http://127.0.0.1:17322/api/chat/sessions');
@@ -1513,6 +1634,83 @@ function postJsonUrl(url, payload) {
     request.write(body);
     request.end();
   });
+}
+
+function formatWorkbenchTestButtonLabel(button) {
+  return `${button?.characterName || '未知'}-${button?.skillDisplayName || button?.skillType || '技能'}@${(button?.staffIndex || 0) + 1}-${(button?.nodeIndex ?? 0) + 1}`;
+}
+
+function chooseWorkbenchTestThinkingEffort(prompt, fallback = '') {
+  if (['low', 'medium', 'high'].includes(fallback)) return fallback;
+  const text = String(prompt || '');
+  const complexity = [
+    /每个|全部|所有|批量|队伍|重排|each|every|all|batch|team/i.test(text),
+    /装备|武器|配装|gear|equipment|weapon/i.test(text),
+    /Buff|buff|增益|长息/i.test(text),
+    /删除|移除|回退|恢复|delete|remove|rollback|restore/i.test(text),
+  ].filter(Boolean).length;
+  if (complexity >= 2 || text.length > 90) return 'high';
+  if (/加|删|改|换|添加|移除|计算|add|remove|set|calculate/i.test(text)) return 'medium';
+  return 'low';
+}
+
+function buildWorkbenchTestAgentMessage(userText, snapshot, evidencePayload) {
+  const selectedCharacters = Array.isArray(snapshot?.selectedCharacters) ? snapshot.selectedCharacters : [];
+  const skillButtons = Array.isArray(snapshot?.skillButtons) ? snapshot.skillButtons : [];
+  const selectedSummary = selectedCharacters.length
+    ? selectedCharacters.map((character) => `${character.name || character.id}(${character.id || character.name})`).join(', ')
+    : 'none';
+  const buttonSummary = skillButtons.length
+    ? skillButtons.map(formatWorkbenchTestButtonLabel).join(', ')
+    : 'none';
+  const evidence = evidencePayload?.evidence || {
+    source: 'current-checkout-snapshot',
+    readonly: true,
+    snapshotAvailable: Boolean(snapshot),
+  };
+
+  return [
+    '你正在 dmg-end-field 主界面右侧 AI 模式中。当前请求来自 workbench-test REST 投喂入口，语义等同用户在主界面 AI 输入框发送一句话。',
+    '回复中文，简短，直接说明你做了什么或为什么需要反问。',
+    '优先使用 DEF typed tools，不要优先手写 /api/main-workbench/commands/enqueue。',
+    '工具入口：',
+    '- GET http://127.0.0.1:17321/api/def-tools',
+    '- GET http://127.0.0.1:17321/api/def-tools/describe?name=<toolName>',
+    '- POST http://127.0.0.1:17321/api/def-tools/call with {"tool":"def.workbench.find_buttons","input":{...}}',
+    '读状态优先用 def.workbench.list_buttons / def.workbench.evidence / def.workbench.damage_report。',
+    '指代解析优先用 def.workbench.find_buttons、def.character.resolve、def.skill.resolve、def.buff.resolve。',
+    '低风险明确编辑使用 def.workbench.add_skill_button、def.buff.add_to_button、def.buff.add_to_buttons、def.damage.calculate 等 typed tools。',
+    '高风险/批量/重排轴使用 def.worknode.create_from_current -> def.worknode.patch -> def.worknode.validate -> def.worknode.diff -> def.worknode.checkout。',
+    'def.worknode.patch 是类代码 Patch DSL / CRUD 工具，只修改 appdata work node workingPayload；checkout/rollback 阶段才写当前迁出态。',
+    'queued 不等于完成。入队后必须用 def.verify.command_result、def.verify.snapshot_delta、def.verify.buttons_have_buff 或 def.verify.damage_recalculated 验证。',
+    '如果目标不明确，例如“加一个技能按钮”没有说明 A/E/Q/技能名，必须反问；不要默认硬加。',
+    '如果 Buff 候选不唯一，例如“长息”解析出多个对象，必须说明候选并反问；不要硬编码选择。',
+    '不要使用角色名、装备 ID、Buff 名称的录制回放脚本；只硬编码工具边界、schema、policy、verifier。',
+    `当前已选干员: ${selectedSummary}`,
+    `当前技能按钮: ${buttonSummary}`,
+    `MAIN_WORKBENCH_READONLY_EVIDENCE:\n${JSON.stringify(evidence, null, 2)}`,
+    `用户请求: ${userText}`,
+  ].join('\n');
+}
+
+async function buildWorkbenchTestPrompt(userText) {
+  await startAiCliRest();
+  const encodedPrompt = encodeURIComponent(userText);
+  const [snapshotResponse, evidenceResponse] = await Promise.allSettled([
+    fetchJsonUrl('http://127.0.0.1:17321/api/main-workbench/snapshot'),
+    fetchJsonUrl(`http://127.0.0.1:17321/api/main-workbench/evidence?prompt=${encodedPrompt}`),
+  ]);
+  const snapshot = snapshotResponse.status === 'fulfilled' && snapshotResponse.value.status === 200
+    ? snapshotResponse.value.body?.snapshot
+    : null;
+  const evidence = evidenceResponse.status === 'fulfilled' && evidenceResponse.value.status === 200
+    ? evidenceResponse.value.body
+    : null;
+  return {
+    agentText: buildWorkbenchTestAgentMessage(userText, snapshot, evidence),
+    snapshotAvailable: Boolean(snapshot),
+    evidenceAvailable: Boolean(evidence?.evidence),
+  };
 }
 
 function proxySseUrl(url, clientRequest, clientResponse) {

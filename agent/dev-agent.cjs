@@ -16,6 +16,8 @@ let aiCliRestStartedAt = null;
 let defAgentProcess = null;
 let defAgentStartedAt = null;
 let webOpenedAt = null;
+const workbenchTestUiClients = new Set();
+const workbenchTestUiEventHistory = [];
 
 function buildJsonHeaders() {
   return {
@@ -29,6 +31,34 @@ function buildJsonHeaders() {
 function writeJson(response, statusCode, payload) {
   response.writeHead(statusCode, buildJsonHeaders());
   response.end(JSON.stringify(payload));
+}
+
+function writeSseHeaders(response) {
+  response.writeHead(200, {
+    'Content-Type': 'text/event-stream; charset=utf-8',
+    'Cache-Control': 'no-cache, no-transform',
+    Connection: 'keep-alive',
+    'Access-Control-Allow-Origin': '*',
+  });
+}
+
+function writeSse(response, eventName, payload) {
+  response.write(`event: ${eventName}\n`);
+  response.write(`data: ${JSON.stringify(payload)}\n\n`);
+}
+
+function broadcastWorkbenchTestUiEvent(eventName, payload) {
+  workbenchTestUiEventHistory.push({ eventName, payload });
+  if (workbenchTestUiEventHistory.length > 20) {
+    workbenchTestUiEventHistory.splice(0, workbenchTestUiEventHistory.length - 20);
+  }
+  for (const client of workbenchTestUiClients) {
+    try {
+      writeSse(client, eventName, payload);
+    } catch {
+      workbenchTestUiClients.delete(client);
+    }
+  }
 }
 
 function getUserDataRoot() {
@@ -946,6 +976,40 @@ const server = http.createServer(async (request, response) => {
         mode: sessionId ? 'continue' : 'stream',
       },
       ...upstream.body,
+    });
+    if (nextSessionId) {
+      broadcastWorkbenchTestUiEvent('ui.prompt', {
+        at: Date.now(),
+        prompt: userText,
+        clientTurnId,
+        thinkingEffort,
+        sessionId: nextSessionId,
+        sessionID: nextSessionId,
+        mode: sessionId ? 'continue' : 'stream',
+        snapshotAvailable: builtPrompt.snapshotAvailable,
+        evidenceAvailable: builtPrompt.evidenceAvailable,
+      });
+    }
+    return;
+  }
+
+  if (method === 'GET' && requestUrl.pathname === '/def-agent/workbench-test/ui-events') {
+    writeSseHeaders(response);
+    workbenchTestUiClients.add(response);
+    response.write(': connected\n\n');
+    writeSse(response, 'ready', {
+      ok: true,
+      at: Date.now(),
+      clients: workbenchTestUiClients.size,
+    });
+    for (const event of workbenchTestUiEventHistory) {
+      writeSse(response, event.eventName, {
+        ...event.payload,
+        replay: true,
+      });
+    }
+    request.on('close', () => {
+      workbenchTestUiClients.delete(response);
     });
     return;
   }

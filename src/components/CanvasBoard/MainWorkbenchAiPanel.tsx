@@ -5,9 +5,11 @@ import {
   startDefAgentStream,
   stopDefAgentStream,
   subscribeDefAgentSession,
+  subscribeWorkbenchTestUiEvents,
   type DefAgentStreamEvent,
   type DefAgentThinkingEffort,
   type DefAgentTokens,
+  type DefAgentWorkbenchTestUiEvent,
 } from '../../utils/defAgent';
 import { getLocalAgentHealth, requestOpenAiCliRest } from '../../utils/localAgent';
 import type { Character, SkillButton } from '../../types';
@@ -731,6 +733,73 @@ export function MainWorkbenchAiPanel({
       }
     };
   };
+
+  useEffect(() => {
+    const events = subscribeWorkbenchTestUiEvents();
+    events.addEventListener('ui.prompt', (event) => {
+      if (typeof (event as MessageEvent).data !== 'string') return;
+      let payload: DefAgentWorkbenchTestUiEvent;
+      try {
+        payload = JSON.parse((event as MessageEvent).data) as DefAgentWorkbenchTestUiEvent;
+      } catch {
+        setStatus('REST 投喂事件解析失败');
+        return;
+      }
+      const prompt = typeof payload.prompt === 'string' ? payload.prompt.trim() : '';
+      const sessionId = payload.sessionId || payload.sessionID || '';
+      const messageId = payload.clientTurnId || `workbench-test-${Date.now()}`;
+      if (!prompt || !sessionId) return;
+
+      if (turnTimeoutRef.current) {
+        window.clearTimeout(turnTimeoutRef.current);
+        turnTimeoutRef.current = null;
+      }
+      if (finishFallbackTimeoutRef.current) {
+        window.clearTimeout(finishFallbackTimeoutRef.current);
+        finishFallbackTimeoutRef.current = null;
+      }
+      eventSourceRef.current?.close();
+      reconnectAttemptsRef.current = 0;
+      lastSeqRef.current = 0;
+      activeMessageIdRef.current = messageId;
+      activePromptRef.current = prompt;
+      activePromptStartedAtRef.current = payload.at || Date.now();
+      activeSessionIdRef.current = sessionId;
+      setActiveSessionId(sessionId);
+      setIsBusy(true);
+      setLastPrompt(prompt);
+      setStatus('REST 投喂中');
+      setSteps(buildInitialSteps().map((step) => (
+        step.id === 'agent'
+          ? { ...step, status: 'running', detail: 'REST 投喂已接入主界面 AI' }
+          : step.id === 'rest'
+          ? { ...step, status: 'done', detail: payload.snapshotAvailable ? '快照证据已注入' : '快照证据缺失' }
+          : step.id === 'backup'
+          ? { ...step, status: 'done', detail: 'REST 投喂不创建新回退点' }
+          : step
+      )));
+      writeStoredDefAgentSession({
+        sessionId,
+        skillId: WORKBENCH_AGENT_SKILL_ID,
+        selectedSignature,
+      });
+      setMessages((current) => [
+        ...current,
+        { id: `${messageId}-user`, role: 'user', text: prompt, status: 'done', prompt },
+        { id: messageId, role: 'agent', text: '', status: 'running', prompt },
+      ]);
+
+      const stream = subscribeDefAgentSession(sessionId, 0);
+      eventSourceRef.current = stream;
+      bindEventSource(stream, messageId);
+    });
+    events.onerror = () => {
+      if (events.readyState === EventSource.CLOSED) setStatus('REST 投喂监听已断开');
+    };
+    return () => {
+      events.close();
+    };
+  }, [selectedSignature]);
 
   const handleStop = () => {
     const sessionId = activeSessionIdRef.current;

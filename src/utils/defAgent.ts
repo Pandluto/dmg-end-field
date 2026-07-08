@@ -128,6 +128,18 @@ export interface DefAgentTranscript {
   messages: DefAgentTranscriptMessage[];
 }
 
+export interface DefAgentWorkbenchTestUiEvent {
+  at?: number;
+  prompt: string;
+  clientTurnId: string;
+  thinkingEffort?: DefAgentThinkingEffort;
+  sessionId?: string;
+  sessionID?: string;
+  mode?: 'stream' | 'continue' | string;
+  snapshotAvailable?: boolean;
+  evidenceAvailable?: boolean;
+}
+
 export interface DefAgentLoopStep {
   phase: 'think' | 'act' | 'observe' | 'answer';
   label: string;
@@ -266,6 +278,10 @@ export async function sendDefAgentContinue(
 
 export function subscribeDefAgentSession(sessionId: string, fromSeq = 0): EventSource {
   return openDefAgentEventSource(sessionId, fromSeq);
+}
+
+export function subscribeWorkbenchTestUiEvents(): EventSource {
+  return new EventSource(`${LOCAL_AGENT_BASE_URL}/def-agent/workbench-test/ui-events`);
 }
 
 export async function stopDefAgentStream(sessionId: string): Promise<{ ok: boolean; stopped?: boolean; reason?: string; sessionID?: string }> {

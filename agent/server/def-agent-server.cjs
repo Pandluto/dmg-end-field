@@ -11,6 +11,7 @@ const {
   getPersistedDefSession,
   hydrateDefSession,
   getChatSessionStream,
+  getLiveDefTranscript,
   shutdownRuntime,
   sanitizeDeepSeekConfig,
   summarizeConfig,
@@ -282,7 +283,7 @@ const server = http.createServer(async (request, response) => {
     const transcriptMatch = /^\/api\/chat\/([^/]+)\/transcript$/.exec(requestUrl.pathname);
     if (method === 'GET' && transcriptMatch) {
       const sessionID = decodeURIComponent(transcriptMatch[1]);
-      const transcript = await hydrateDefSession(sessionID, { config: readConfig().deepseek });
+      const transcript = getLiveDefTranscript(sessionID) || await hydrateDefSession(sessionID, { config: readConfig().deepseek });
       writeJson(response, 200, {
         ok: true,
         ...transcript,

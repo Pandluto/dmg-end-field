@@ -23,10 +23,12 @@ import {
   startDefAgentStream,
   stopDefAgentStream,
   subscribeDefAgentSession,
+  subscribeWorkbenchTestUiEvents,
   type DefAgentSessionSummary,
   type DefAgentActivityItem,
   type DefAgentLoopStep,
   type DefAgentStreamEvent,
+  type DefAgentWorkbenchTestUiEvent,
   type DefAgentThinkingEffort,
   type DefAgentTokens,
   type DefAgentTranscriptMessage,
@@ -889,6 +891,76 @@ export function AiCliPage() {
   useEffect(() => () => {
     activeSkillEventSourceRef.current?.close();
   }, []);
+
+  useEffect(() => {
+    if (typeof EventSource === 'undefined') {
+      return undefined;
+    }
+    const events = subscribeWorkbenchTestUiEvents();
+    events.addEventListener('ui.prompt', (event) => {
+      let payload: DefAgentWorkbenchTestUiEvent;
+      try {
+        payload = JSON.parse((event as MessageEvent).data) as DefAgentWorkbenchTestUiEvent;
+      } catch (error) {
+        setSkillStatus(`REST 投喂事件解析失败 · ${error instanceof Error ? error.message : String(error)}`);
+        return;
+      }
+      const promptText = typeof payload.prompt === 'string' && payload.prompt.trim()
+        ? payload.prompt.trim()
+        : '';
+      const sessionId = payload.sessionId || payload.sessionID || '';
+      const clientTurnId = typeof payload.clientTurnId === 'string' && payload.clientTurnId.trim()
+        ? payload.clientTurnId.trim()
+        : `workbench-test-ui-${Date.now()}`;
+      if (!promptText || !sessionId) return;
+
+      activeSkillEventSourceRef.current?.close();
+      activeSkillMessageIdRef.current = clientTurnId;
+      activeSkillSessionIdRef.current = sessionId;
+      lastSkillStreamSeqRef.current = 0;
+      skillStreamRetryCountRef.current = 0;
+      setActiveDefSessionId(sessionId);
+      setIsSkillBusy(true);
+      setSkillStatus('REST 投喂中');
+      setSkillMessages((prev) => [
+        ...prev,
+        {
+          role: 'user',
+          text: promptText,
+          meta: 'REST 投喂',
+        },
+        {
+          id: clientTurnId,
+          role: 'agent',
+          text: '',
+          sessionId,
+          isStreaming: true,
+          activity: [{
+            id: 'workbench-test-stream-start',
+            kind: 'step',
+            title: 'REST 投喂',
+            detail: payload.mode === 'continue' ? '接入已有会话' : '接入新会话',
+            status: 'running',
+          }],
+        },
+      ]);
+      writeStoredDefAgentSession({
+        sessionId,
+        skillId: selectedSkillTaskId,
+        lastSeq: 0,
+        updatedAt: payload.at,
+      });
+      const stream = subscribeDefAgentSession(sessionId, 0);
+      activeSkillEventSourceRef.current = stream;
+      bindSkillEventSource(stream, clientTurnId);
+    });
+    events.onerror = () => {
+      // The dev bridge is optional; do not disturb normal in-app chat when it is unavailable.
+    };
+    return () => {
+      events.close();
+    };
+  }, [selectedSkillTaskId]);
 
   useEffect(() => {
     const stored = readStoredDefAgentSession();

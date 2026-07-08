@@ -1321,6 +1321,123 @@ function getChatSessionStream(sessionID) {
   };
 }
 
+function getLiveDefTranscript(sessionID) {
+  const state = streamSessions.get(sessionID);
+  if (!state) return null;
+
+  const turns = new Map();
+  for (const event of state.buffer) {
+    const turnId = event.turnId || 'default';
+    if (!turns.has(turnId)) {
+      turns.set(turnId, {
+        turnId,
+        userText: '',
+        assistantText: '',
+        activity: [],
+        tokens: undefined,
+        createdAt: event.at,
+        updatedAt: event.at,
+        done: false,
+      });
+    }
+    const turn = turns.get(turnId);
+    turn.updatedAt = event.at || turn.updatedAt;
+
+    if (event.type === 'message.start') {
+      turn.userText = event.text || turn.userText;
+    } else if (event.type === 'text') {
+      turn.assistantText += event.text || '';
+    } else if (event.type === 'reasoning') {
+      const existing = turn.activity.find((item) => item.kind === 'reasoning');
+      if (existing) {
+        existing.status = event.status === 'done' ? 'done' : 'running';
+        existing.detail = event.summary || existing.detail;
+      } else {
+        turn.activity.push({
+          id: `${turnId}-reasoning`,
+          kind: 'reasoning',
+          title: '思考',
+          detail: event.summary || '隐藏推理已保护',
+          status: event.status === 'done' ? 'done' : 'running',
+        });
+      }
+    } else if (event.type === 'tool.start' || event.type === 'tool.content' || event.type === 'tool.error') {
+      const toolId = event.partId || event.id || `${turnId}-tool-${turn.activity.length}`;
+      const existing = turn.activity.find((item) => item.id === toolId);
+      const next = {
+        id: toolId,
+        kind: 'tool',
+        title: event.title || event.toolName || '工具调用',
+        detail: event.summary || event.result || event.error || '',
+        status: event.type === 'tool.error' ? 'error' : event.status === 'running' ? 'running' : 'done',
+      };
+      if (existing) Object.assign(existing, next);
+      else turn.activity.push(next);
+    } else if (event.type === 'step.finish') {
+      turn.tokens = event.tokens || turn.tokens;
+    } else if (event.type === 'done') {
+      turn.done = true;
+      turn.assistantText = event.content || turn.assistantText;
+      turn.tokens = event.tokens || turn.tokens;
+    } else if (event.type === 'error' || event.type === 'stopped') {
+      turn.activity.push({
+        id: `${turnId}-${event.type}`,
+        kind: 'event',
+        title: event.type === 'stopped' ? '已停止' : '运行异常',
+        detail: event.error || '',
+        status: event.type === 'stopped' ? 'done' : 'error',
+      });
+    }
+  }
+
+  const messages = [];
+  for (const turn of turns.values()) {
+    if (turn.userText) {
+      messages.push({
+        id: `${turn.turnId}-user`,
+        role: 'user',
+        text: turn.userText,
+        sessionId: state.sessionID,
+        createdAt: turn.createdAt,
+      });
+    }
+    if (turn.assistantText || turn.activity.length) {
+      messages.push({
+        id: `${turn.turnId}-agent`,
+        role: 'agent',
+        text: turn.assistantText,
+        sessionId: state.sessionID,
+        activity: turn.activity,
+        tokens: turn.tokens,
+        isStreaming: state.active && !turn.done,
+        createdAt: turn.createdAt,
+        updatedAt: turn.updatedAt,
+      });
+    }
+  }
+
+  return {
+    session: {
+      id: state.sessionID,
+      sessionID: state.sessionID,
+      title: `DEF ${state.skillId || 'agent'} live session`,
+      agent: state.agent,
+      model: state.model,
+      skillId: state.skillId,
+      active: state.active,
+      stopped: state.stopped,
+      archived: false,
+      createdAt: state.createdAt,
+      updatedAt: state.updatedAt,
+      tokens: state.tokens,
+      lastSeq: state.nextSeq - 1,
+      persisted: false,
+      live: true,
+    },
+    messages,
+  };
+}
+
 async function sendMessageOnStreamSession(state, message, clientTurnId) {
   if (!state) throw new Error('stream session not found');
   if (state.active) throw new Error('stream session is already running');
@@ -1783,5 +1900,6 @@ module.exports = {
   getPersistedDefSession,
   hydrateDefSession,
   getChatSessionStream,
+  getLiveDefTranscript,
   shutdownRuntime,
 };
