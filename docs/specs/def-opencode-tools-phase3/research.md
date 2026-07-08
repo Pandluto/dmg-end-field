@@ -320,15 +320,41 @@ read -> resolver -> question -> edit/worknode -> verify
 
 第三阶段的重点不应该只是“多加几个 op”，而应该是把这些层之间的责任边界打通。
 
+### 第三阶段必须继承的类代码工具要求
+
+第三阶段不应把第二阶段的 `patchAiTimelineWorkNode` 视为临时命令。它应被升级为正式的高风险 work node typed tool。
+
+这里的“类代码形式”指：
+
+```text
+AI 生成受控领域 patch / CRUD 操作
+  -> tool runtime 应用到 appdata work node 的 workingPayload
+  -> validate / diff / risk / approval
+  -> checkout 后才写当前迁出态
+```
+
+它不是让 AI 任意写源码、任意执行 JS、任意覆盖完整 JSON，也不是替代所有普通交互工具。它的定位是：
+
+- 高风险批量修改
+- 重排轴
+- 多步试错
+- 需要先在副本里开发、验收后再 checkout 的操作
+
+因此第三阶段 SHALL 保留并扩展 `def.worknode.patch`，把它作为“类代码增删改查 Patch DSL”的核心工具之一。
+
+## 第三阶段 tools 批注清单
+
 ### 1. Read tools
 
 只读，不改状态。
 
-- `def.workbench.snapshot`
-- `def.workbench.evidence`
-- `def.workbench.list_buttons`
-- `def.workbench.list_characters`
-- `def.workbench.damage_report`
+| Tool | 必要性 | 可行性 | 批注 |
+| --- | --- | --- | --- |
+| `def.workbench.snapshot` | 高 | 高 | 必须有，但输出必须裁剪。不能把完整快照无脑塞给模型。 |
+| `def.workbench.evidence` | 高 | 已有雏形 | 应作为模型主读工具，比 snapshot 更适合自然语言回答和后续 resolver。 |
+| `def.workbench.list_buttons` | 高 | 高 | 必须补。用于“第二个 a”“当前第一个干员的按钮”等位置/顺序指代。 |
+| `def.workbench.list_characters` | 高 | 高 | 必须补。返回当前队伍、站位、角色 id、别名基础信息。 |
+| `def.workbench.damage_report` | 中高 | 高 | 需要。主要用于验收伤害是否已重算。 |
 
 要求：
 
@@ -336,15 +362,19 @@ read -> resolver -> question -> edit/worknode -> verify
 - 支持 filter / projection / limit
 - 返回稳定 ids 和人类可读 label
 
+批注：`snapshot` 和 `evidence` 有重叠，但不是多余。`snapshot` 偏原始状态，`evidence` 偏模型可用证据。
+
 ### 2. Resolver tools
 
 负责把自然语言候选解析成稳定对象，但不直接写状态。
 
-- `def.workbench.find_buttons`
-- `def.buff.resolve`
-- `def.skill.resolve`
-- `def.character.resolve`
-- `def.equipment.resolve`
+| Tool | 必要性 | 可行性 | 批注 |
+| --- | --- | --- | --- |
+| `def.workbench.find_buttons` | 最高 | 高 | 必须优先做。很多失败不是执行失败，而是按钮定位失败。 |
+| `def.buff.resolve` | 最高 | 中高 | 必须做。用于把“长息”解析成候选来源、完整 buff 对象、置信度和歧义。 |
+| `def.skill.resolve` | 高 | 中 | 需要。用于“A/E/Q/技能名/普攻/终结技”等技能指代。 |
+| `def.character.resolve` | 高 | 高 | 需要。处理别名、当前第几个干员、角色 id 映射。 |
+| `def.equipment.resolve` | 中 | 中 | 需要，但优先级低于 button/buff/skill/character。 |
 
 要求：
 
@@ -352,17 +382,21 @@ read -> resolver -> question -> edit/worknode -> verify
 - 模糊时建议反问问题
 - 不把“长息”写死，只做数据驱动搜索
 
+批注：resolver tools 没有多余项，是第三阶段最该补的基础层。
+
 ### 3. Current checkout edit tools
 
 直接改当前迁出态，适合低风险、小范围、用户已明确的操作。
 
-- `def.workbench.add_skill_button`
-- `def.workbench.remove_skill_button`
-- `def.buff.add_to_button`
-- `def.buff.add_to_buttons`
-- `def.buff.remove_from_button`
-- `def.target.set_resistance`
-- `def.damage.calculate`
+| Tool | 必要性 | 可行性 | 批注 |
+| --- | --- | --- | --- |
+| `def.workbench.add_skill_button` | 高 | 已有命令 | 必须包装成 typed tool。 |
+| `def.workbench.remove_skill_button` | 高 | 已有命令 | 必须要求明确 buttonId 或 resolver 确认结果。 |
+| `def.buff.add_to_button` | 高 | 已有命令 | 必须保留，适合单点低风险编辑。 |
+| `def.buff.add_to_buttons` | 最高 | 已有雏形 | 必须保留。它是“给所有技能加某 buff”这类请求的正确通用工具。 |
+| `def.buff.remove_from_button` | 高 | 已有命令 | 必须有。删除类操作应更严格验证目标。 |
+| `def.target.set_resistance` | 中高 | 已有命令 | 需要。排轴工具常用，验收应包含 damage recalculation。 |
+| `def.damage.calculate` | 高 | 已有命令 | 必须有。作为 edit 后验收链的一部分。 |
 
 要求：
 
@@ -370,16 +404,21 @@ read -> resolver -> question -> edit/worknode -> verify
 - 每个工具自带 risk / approval / verifier
 - 输出必须包含 applied / skipped / duplicate / failed
 
+批注：`add_to_button` 和 `add_to_buttons` 可以共享底层实现，但 model-facing tools 保留两个入口是合理的。
+
 ### 4. Work node tools
 
 用于高风险、批量、重排轴、试错式编辑。
 
-- `def.worknode.create_from_current`
-- `def.worknode.read`
-- `def.worknode.patch`
-- `def.worknode.diff`
-- `def.worknode.checkout`
-- `def.worknode.restore_base`
+| Tool | 必要性 | 可行性 | 批注 |
+| --- | --- | --- | --- |
+| `def.worknode.create_from_current` | 高 | 已有 | 必须。创建 appdata/localdata 节点副本。 |
+| `def.worknode.read` | 高 | 中高 | 必须补。模型需要能看到节点状态、risk、decision、summary。 |
+| `def.worknode.patch` | 最高 | 已有最小版 | 必须明确为“类代码 Patch DSL / CRUD 模型”的核心工具。 |
+| `def.worknode.validate` | 高 | 中高 | 缺少，必须补。patch 后可单独验证节点副本合法性。 |
+| `def.worknode.diff` | 高 | 已有 | 必须。checkout 前给模型和用户看差异。 |
+| `def.worknode.checkout` | 高 | 已有 | 必须受 checkoutDecision / approval policy 控制。 |
+| `def.worknode.restore_base` | 高 | 已有 | 必须。回滚保障。 |
 
 要求：
 
@@ -388,13 +427,17 @@ read -> resolver -> question -> edit/worknode -> verify
 - 当前迁出态只在 checkout / rollback 阶段被写入
 - patch DSL 要比当前第二阶段更完整，但仍然受 schema 约束
 
+批注：第三阶段不应只把 work node 当备份点。`def.worknode.patch` 应成为复杂编辑主路径，普通 edit tools 则用于低风险短链。
+
 ### 5. Approval / ask tools
 
 用于低阻塞审批和反问。
 
-- `def.user.ask`
-- `def.approval.request`
-- `def.approval.record_decision`
+| Tool | 必要性 | 可行性 | 批注 |
+| --- | --- | --- | --- |
+| `def.user.ask` | 最高 | 中 | 必须补。否则模型只能用普通文本反问，不是正式工具流程。 |
+| `def.approval.request` | 中高 | 中 | 需要，但不能把所有 warning 都变成强制弹窗。 |
+| `def.approval.record_decision` | 高 | 中 | 需要。审批理由和结果应写入 work node audit。 |
 
 要求：
 
@@ -403,21 +446,62 @@ read -> resolver -> question -> edit/worknode -> verify
 - 支持审批记录进本地工作节点
 - 不把所有事情变成强制弹窗
 
+批注：approval tools 的目标是低阻塞，不是把 agent 变成每一步都等用户确认。
+
 ### 6. Verification tools
 
 让模型不是“猜成功”，而是拿到结构化验收结果。
 
-- `def.verify.command_result`
-- `def.verify.snapshot_delta`
-- `def.verify.buttons_have_buff`
-- `def.verify.damage_recalculated`
-- `def.verify.worknode_diff_clean`
+| Tool | 必要性 | 可行性 | 批注 |
+| --- | --- | --- | --- |
+| `def.verify.command_result` | 高 | 高 | 必须。避免把 enqueue 成功误判成执行成功。 |
+| `def.verify.snapshot_delta` | 高 | 中高 | 必须。确认状态真的发生预期变化。 |
+| `def.verify.buttons_have_buff` | 最高 | 高 | 必须。直接覆盖批量 buff 的核心验收场景。 |
+| `def.verify.damage_recalculated` | 高 | 高 | 必须。确认伤害结果已刷新。 |
+| `def.verify.worknode_diff_clean` | 高 | 中 | 必须。checkout 前判断 diff/risk 是否可接受。 |
 
 要求：
 
 - 返回 pass/fail/warn
 - 返回最小证据
 - 支持失败时给出下一步建议
+
+批注：verification 可以被 edit tool 自动调用，也可以单独暴露给模型用于 repair loop。
+
+### 7. Tool discovery / runtime tools
+
+第三阶段还需要补工具发现与运行时层，否则上面的 tools 仍只是文档名或 REST 命令包装。
+
+| Tool / 模块 | 必要性 | 可行性 | 批注 |
+| --- | --- | --- | --- |
+| `def.tool.list` | 高 | 中 | 让模型读取当前可用 DEF tools，而不是靠 prompt 背列表。 |
+| `def.tool.describe` | 高 | 中 | 返回某个 tool 的 schema、risk、approval、verification、示例。 |
+| DEF typed tool runtime / adapter | 最高 | 中 | 第三阶段总入口。让模型看到领域 tools，而不是通用 `webfetch` + REST URL。 |
+
+### 8. 选人/配置页 tools
+
+第三阶段如果要覆盖“用户在 GUI 能做什么”，还应补选人配置页相关 tools。
+
+| Tool | 必要性 | 可行性 | 批注 |
+| --- | --- | --- | --- |
+| `def.operator.config.read` | 高 | 中 | 读取当前干员等级、潜能、技能等级、武器、装备、面板信息。 |
+| `def.operator.config.patch` | 高 | 中 | 结构化修改配置页字段，适合走类代码 Patch DSL 或细粒度 edit tools。 |
+| `def.weapon.resolve` | 中高 | 中 | 武器选择、武器技能、武器潜能都需要。 |
+| `def.gear.resolve` | 中高 | 中 | 装备选择和套装 buff 解析需要。 |
+| `def.gear.set_entry_level` | 中 | 中 | 装备词条等级调节需要，但优先级低于 resolver 和主界面排轴 tools。 |
+
+批注：这组 tools 不应抢第三阶段最小落地优先级，但应写进范围，避免 tools 只覆盖排轴主界面而漏掉选人配置 GUI。
+
+### 不建议设计的多余 tools
+
+这些 tools 不应进入第三阶段：
+
+| Tool 形态 | 问题 |
+| --- | --- |
+| `addLongxiToAllSkills` | 把用户意图硬编码成专用工具，回到录制回放。 |
+| `deleteSecondAButton` | 把一次自然语言指代写死。应由 `find_buttons` + `remove_skill_button` 完成。 |
+| `executeWorkbenchIntent({ text })` | 黑盒化所有推理、审批和验证，等于绕开 typed tools。 |
+| 角色专属工具，如 `laevatain.add_skill` | 会导致工具爆炸，并把数据内容写进能力边界。 |
 
 ## 推荐的 tool 定义字段
 
