@@ -821,7 +821,67 @@ export function CanvasBoard({
     `${button.characterName}-${button.skillDisplayName || button.skillType}@${button.staffIndex + 1}-${(button.nodeIndex ?? 0) + 1}`
   );
 
-  const resolveWorkbenchButtonIdReference = (buttonId: string, scope = skillButtons) => {
+  const getWorkbenchButtonReferenceScope = () => {
+    const byId = new Map(skillButtons.map((button) => [button.id, button]));
+    timelineData.staffLines.forEach((staffLine) => {
+      const buttons = Array.isArray(staffLine.buttons) ? staffLine.buttons : [];
+      buttons.forEach((button) => {
+        if (byId.has(button.id)) return;
+        const character = selectedCharacters.find((item) => item.name === button.characterName || item.id === button.characterId);
+        const lineIndex = selectedCharacters.findIndex((item) => item.name === button.characterName || item.id === button.characterId);
+        const nodeIndex = typeof button.nodeIndex === 'number' && Number.isFinite(button.nodeIndex) ? button.nodeIndex : 0;
+        const staffIndex = typeof button.staffIndex === 'number' ? button.staffIndex : staffLine.staffIndex;
+        byId.set(button.id, {
+          id: button.id,
+          characterId: character?.id ?? button.characterId ?? button.characterName,
+          characterName: button.characterName,
+          skillType: button.skillType as SkillButtonType,
+          position: button.position ?? buildWorkbenchButtonPosition(staffIndex, lineIndex >= 0 ? lineIndex : 0, nodeIndex),
+          staffIndex,
+          lineIndex: lineIndex >= 0 ? lineIndex : 0,
+          nodeIndex,
+          nodeNumber: button.nodeNumber ?? calculateNodeNumber(nodeIndex),
+          isDragging: false,
+          isSelected: false,
+          isFromSandbox: true,
+          runtimeSkillId: button.runtimeSkillId,
+          skillDisplayName: button.skillDisplayName,
+          skillIconUrl: button.skillIconUrl,
+          customHits: button.customHits,
+          element: character?.element,
+        });
+      });
+    });
+    Object.values(getSkillButtonTable()).forEach((button) => {
+      if (byId.has(button.id)) return;
+      const character = selectedCharacters.find((item) => item.name === button.characterName || item.id === button.characterId);
+      const lineIndex = selectedCharacters.findIndex((item) => item.name === button.characterName || item.id === button.characterId);
+      const nodeIndex = typeof button.nodeIndex === 'number' && Number.isFinite(button.nodeIndex) ? button.nodeIndex : 0;
+      const staffIndex = typeof button.staffIndex === 'number' ? button.staffIndex : 0;
+      byId.set(button.id, {
+        id: button.id,
+        characterId: character?.id ?? button.characterId ?? button.characterName,
+        characterName: button.characterName,
+        skillType: button.skillType as SkillButtonType,
+        position: button.position ?? buildWorkbenchButtonPosition(staffIndex, lineIndex >= 0 ? lineIndex : 0, nodeIndex),
+        staffIndex,
+        lineIndex: lineIndex >= 0 ? lineIndex : 0,
+        nodeIndex,
+        nodeNumber: button.nodeNumber ?? calculateNodeNumber(nodeIndex),
+        isDragging: false,
+        isSelected: false,
+        isFromSandbox: true,
+        runtimeSkillId: button.runtimeSkillId,
+        skillDisplayName: button.skillDisplayName,
+        skillIconUrl: button.skillIconUrl,
+        customHits: button.customHits,
+        element: character?.element,
+      });
+    });
+    return [...byId.values()];
+  };
+
+  const resolveWorkbenchButtonIdReference = (buttonId: string, scope = getWorkbenchButtonReferenceScope()) => {
     const normalizedButtonId = buttonId.trim();
     if (!normalizedButtonId) return null;
     const exactId = scope.find((button) => button.id === normalizedButtonId);
@@ -835,11 +895,12 @@ export function CanvasBoard({
   };
 
   const findWorkbenchButtonId = (command: Extract<MainWorkbenchCommand, { op: 'addBuff' | 'removeBuff' }>) => {
+    const buttonScope = getWorkbenchButtonReferenceScope();
     if (command.buttonId) {
-      return resolveWorkbenchButtonIdReference(command.buttonId)?.id ?? null;
+      return resolveWorkbenchButtonIdReference(command.buttonId, buttonScope)?.id ?? null;
     }
     const character = findCharacterForWorkbenchCommand(command);
-    const candidates = skillButtons.filter((button) => {
+    const candidates = buttonScope.filter((button) => {
       if (character && button.characterId !== character.id && button.characterName !== character.name) return false;
       if (command.skillType && button.skillType !== command.skillType) return false;
       if (typeof command.nodeIndex === 'number' && button.nodeIndex !== command.nodeIndex) return false;
@@ -1543,6 +1604,9 @@ export function CanvasBoard({
 
         if (command.op === 'refreshSnapshot') {
           const snapshot = readMainWorkbenchSnapshot();
+          if (snapshot) {
+            await pushMainWorkbenchSnapshot(snapshot);
+          }
           const doneEntry = patchMainWorkbenchCommand(commandEntry.id, {
             status: 'done',
             result: {

@@ -1473,6 +1473,79 @@ function readMainWorkbenchSnapshotMirror() {
   return readMainWorkbenchJson(MAIN_WORKBENCH_SNAPSHOT_KEY, null);
 }
 
+function readDefEquipmentLibrary() {
+  const library = readMainWorkbenchJson(EQUIPMENT_LIBRARY_STORAGE_KEY, null);
+  if (library && typeof library === 'object') return library;
+  try {
+    const payload = JSON.parse(fs.readFileSync(nowStoragePath, 'utf-8'));
+    const storedLibrary = payload?.storage?.local?.[EQUIPMENT_LIBRARY_STORAGE_KEY];
+    return storedLibrary && typeof storedLibrary === 'object' ? storedLibrary : { gearSets: {} };
+  } catch {
+    return { gearSets: {} };
+  }
+}
+
+function normalizeDefToolPercent(value, unit = '') {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return value ?? null;
+  if (unit === 'percent' || Math.abs(value) <= 1) {
+    return `${Number((value * 100).toFixed(2))}%`;
+  }
+  return value;
+}
+
+function compactDefGearSetBuff(buff = {}, gearSet = {}) {
+  return {
+    id: String(buff.effectId || ''),
+    name: String(buff.name || buff.label || buff.effectId || ''),
+    typeKey: String(buff.typeKey || ''),
+    category: String(buff.category || ''),
+    effectKind: String(buff.effectKind || 'modifier'),
+    value: normalizeDefToolPercent(buff.value, buff.unit),
+    rawValue: typeof buff.value === 'number' ? buff.value : undefined,
+    unit: String(buff.unit || ''),
+    sourceName: String(gearSet.name || ''),
+    gearSetId: String(gearSet.gearSetId || ''),
+  };
+}
+
+function compactDefEquipmentItem(equipment = {}) {
+  const effects = Object.values(equipment.effects || {})
+    .filter((effect) => effect && typeof effect === 'object')
+    .map((effect) => ({
+      label: String(effect.label || effect.effectId || ''),
+      typeKey: String(effect.typeKey || ''),
+    }));
+  return {
+    id: String(equipment.equipmentId || ''),
+    name: String(equipment.name || ''),
+    part: String(equipment.part || ''),
+    effectLabels: effects.slice(0, 4).map((effect) => effect.label).filter(Boolean),
+  };
+}
+
+function compactDefGearSet(gearSet = {}) {
+  const equipments = Object.values(gearSet.equipments || {})
+    .filter((equipment) => equipment && typeof equipment === 'object')
+    .map(compactDefEquipmentItem);
+  const threePieceBuffs = [
+    ...(gearSet.threePieceBuff ? [gearSet.threePieceBuff] : []),
+    ...Object.values(gearSet.threePieceBuffs || {}),
+  ]
+    .filter((buff) => buff && typeof buff === 'object')
+    .map((buff) => compactDefGearSetBuff(buff, gearSet));
+  return {
+    gearSetId: String(gearSet.gearSetId || ''),
+    name: String(gearSet.name || ''),
+    equipmentCount: equipments.length,
+    parts: [...new Set(equipments.map((equipment) => equipment.part).filter(Boolean))],
+    equipments: equipments.slice(0, 8),
+    threePieceBuffs,
+    summary: threePieceBuffs.length
+      ? `${gearSet.name || gearSet.gearSetId} 是装备套装；三件套效果：${threePieceBuffs.map((buff) => `${buff.name || buff.typeKey}${buff.value !== null && buff.value !== undefined ? ` ${buff.value}` : ''}`).join('、')}。`
+      : `${gearSet.name || gearSet.gearSetId} 是装备套装；未配置三件套效果。`,
+  };
+}
+
 function listDefWorkbenchButtons(input = {}) {
   const snapshot = readMainWorkbenchSnapshotMirror();
   let buttons = Array.isArray(snapshot?.skillButtons) ? snapshot.skillButtons.map(compactDefButton) : [];
@@ -1767,6 +1840,49 @@ function resolveDefBuffs(input = {}) {
       });
     }
   }
+  const equipmentLibrary = readDefEquipmentLibrary();
+  for (const gearSet of Object.values(equipmentLibrary.gearSets || {})) {
+    if (!gearSet || typeof gearSet !== 'object') continue;
+    const setBuffs = [
+      ...(gearSet.threePieceBuff ? [gearSet.threePieceBuff] : []),
+      ...Object.values(gearSet.threePieceBuffs || {}),
+    ].filter((buff) => buff && typeof buff === 'object');
+    for (const setBuff of setBuffs) {
+      const key = `library:${gearSet.gearSetId || gearSet.name}:${setBuff.effectId || setBuff.name || setBuff.label || ''}`;
+      if (!key || buffMap.has(key)) continue;
+      const resolvedBuff = buildDefResolvedBuffObject({
+        id: setBuff.effectId || '',
+        name: setBuff.name || setBuff.label || setBuff.effectId || '',
+        displayName: setBuff.name || setBuff.label || setBuff.effectId || '',
+        sourceName: gearSet.name || '',
+        gearSetName: gearSet.name || '',
+        typeKey: setBuff.typeKey || '',
+        value: setBuff.value,
+        source: 'equipment-library',
+        category: setBuff.category || 'condition',
+        effectKind: setBuff.effectKind || 'modifier',
+        ownerBuffDomain: 'equipment',
+        ownerBuffGroup: 'threePiece',
+      });
+      buffMap.set(key, {
+        id: setBuff.effectId || '',
+        name: setBuff.name || setBuff.label || '',
+        displayName: setBuff.name || setBuff.label || '',
+        sourceName: gearSet.name || '',
+        gearSetId: gearSet.gearSetId || '',
+        gearSetName: gearSet.name || '',
+        typeKey: setBuff.typeKey || '',
+        type: setBuff.typeKey || '',
+        value: setBuff.value,
+        valueLabel: normalizeDefToolPercent(setBuff.value, setBuff.unit),
+        category: setBuff.category || 'condition',
+        effectKind: setBuff.effectKind || 'modifier',
+        source: 'equipment-library',
+        buff: resolvedBuff,
+        refButtonIds: [],
+      });
+    }
+  }
   const candidates = [...buffMap.values()]
     .filter((buff) => !query || normalizeDefToolText(`${buff.name} ${buff.displayName} ${buff.sourceName} ${buff.gearSetName || ''} ${buff.id}`).includes(query))
     .map((buff) => ({ ...buff, confidence: normalizeDefToolText(`${buff.displayName || buff.name}`) === query ? 1 : 0.72 }));
@@ -1801,9 +1917,31 @@ function resolveDefEquipment(input = {}) {
       }
     }
   }
+  const library = readDefEquipmentLibrary();
+  for (const gearSet of Object.values(library.gearSets || {})) {
+    if (!gearSet || typeof gearSet !== 'object') continue;
+    const compactSet = compactDefGearSet(gearSet);
+    const haystack = normalizeDefToolText([
+      compactSet.name,
+      compactSet.gearSetId,
+      compactSet.summary,
+      ...compactSet.equipments.flatMap((equipment) => [equipment.name, equipment.part, equipment.id]),
+      ...compactSet.threePieceBuffs.flatMap((buff) => [buff.name, buff.typeKey, buff.value]),
+    ].join(' '));
+    if (query && !haystack.includes(query)) continue;
+    candidates.push({
+      kind: 'gearSet',
+      source: 'equipment-library',
+      ...compactSet,
+      confidence: normalizeDefToolText(compactSet.name) === query || normalizeDefToolText(compactSet.gearSetId) === query ? 1 : 0.82,
+      recommendation: compactSet.threePieceBuffs.length
+        ? '这是装备套装；如果用户说“加长息 Buff”，应先确认是要装套装，还是只把三件套效果作为按钮 Buff 附加。'
+        : '这是装备套装；未发现可直接附加的三件套 Buff。',
+    });
+  }
   return {
     query,
-    candidates,
+    candidates: candidates.sort((left, right) => (right.confidence || 0) - (left.confidence || 0)).slice(0, Math.max(1, Math.min(Number(input.limit || 12) || 12, 40))),
     ambiguity: candidates.length !== 1,
     suggestedQuestion: candidates.length > 1 ? '找到多个装备候选。请指定干员、槽位或装备名。' : '',
   };
@@ -2630,17 +2768,18 @@ function buildDefToolDefinitions() {
     { name: 'def.workbench.list_characters', scope: 'read', riskLevel: 'read', approval: 'none', status: 'implemented', description: 'List selected characters and compact config summary.' },
     { name: 'def.workbench.damage_report', scope: 'read', riskLevel: 'read', approval: 'none', status: 'implemented', description: 'Read compact damage report.' },
     { name: 'def.workbench.find_buttons', scope: 'read', riskLevel: 'read', approval: 'none', status: 'implemented', description: 'Resolve button candidates from query, character, skill, type, and position.' },
-    { name: 'def.buff.resolve', scope: 'read', riskLevel: 'read', approval: 'none', status: 'implemented', description: 'Resolve buff candidates from current button buffs and equipment effects.' },
+    { name: 'def.buff.resolve', scope: 'read', riskLevel: 'read', approval: 'none', status: 'implemented', description: 'Resolve buff candidates from current button buffs, equipped effects, and gear-set three-piece buffs.' },
     { name: 'def.buff.search_candidates', scope: 'read', riskLevel: 'read', approval: 'none', status: 'implemented', description: 'Wide buff candidate search; alias of def.buff.resolve for now.' },
     { name: 'def.skill.resolve', scope: 'read', riskLevel: 'read', approval: 'none', status: 'implemented', description: 'Resolve skill candidates from current timeline buttons.' },
     { name: 'def.character.resolve', scope: 'read', riskLevel: 'read', approval: 'none', status: 'implemented', description: 'Resolve selected character candidates.' },
-    { name: 'def.equipment.resolve', scope: 'read', riskLevel: 'read', approval: 'none', status: 'implemented', description: 'Resolve equipment candidates from current operator configs.' },
+    { name: 'def.equipment.resolve', scope: 'read', riskLevel: 'read', approval: 'none', status: 'implemented', description: 'Resolve current equipment and equipment-library gear sets with compact summaries; use for questions like 长息是什么/有哪些/该选哪个.' },
     { name: 'def.weapon.resolve', scope: 'read', riskLevel: 'read', approval: 'none', status: 'implemented', description: 'Resolve weapon candidates from current operator configs.' },
-    { name: 'def.gear.resolve', scope: 'read', riskLevel: 'read', approval: 'none', status: 'implemented', description: 'Resolve gear/equipment candidates from current operator configs.' },
+    { name: 'def.gear.resolve', scope: 'read', riskLevel: 'read', approval: 'none', status: 'implemented', description: 'Resolve gear/equipment candidates and gear-set three-piece buff summaries; preferred for equipment-set explanation.' },
     { name: 'def.workbench.add_skill_button', commandOp: 'addSkillButton', scope: 'current-checkout', riskLevel: 'low', approval: 'auto', status: 'implemented', description: executeCommand },
     { name: 'def.workbench.add_skill_button_and_verify', scope: 'current-checkout', riskLevel: 'low', approval: 'auto', status: 'implemented', description: 'Add one skill button, wait for browser command execution, then return command result and snapshot verification.' },
     { name: 'def.workbench.remove_skill_button', commandOp: 'removeSkillButton', scope: 'current-checkout', riskLevel: 'medium', approval: 'ai-review', status: 'implemented', description: executeCommand },
     { name: 'def.buff.add_to_button', commandOp: 'addBuff', scope: 'current-checkout', riskLevel: 'medium', approval: 'auto', status: 'implemented', description: executeCommand },
+    { name: 'def.buff.add_to_button_and_verify', scope: 'current-checkout', riskLevel: 'medium', approval: 'auto', status: 'implemented', description: 'Add one buff to one button, wait for browser command execution, then verify the target button contains that buff.' },
     { name: 'def.buff.add_to_buttons', commandOp: 'addBuffToButtons', scope: 'current-checkout', riskLevel: 'medium', approval: 'ai-review', status: 'implemented', description: executeCommand },
     { name: 'def.buff.remove_from_button', commandOp: 'removeBuff', scope: 'current-checkout', riskLevel: 'medium', approval: 'ai-review', status: 'implemented', description: executeCommand },
     { name: 'def.target.set_resistance', commandOp: 'setTargetResistance', scope: 'current-checkout', riskLevel: 'low', approval: 'auto', status: 'implemented', description: executeCommand },
@@ -3048,6 +3187,94 @@ async function executeDefAddSkillButtonAndVerify(input = {}) {
   };
 }
 
+async function executeDefAddBuffToButtonAndVerify(input = {}) {
+  const definition = getDefToolDefinition('def.buff.add_to_button');
+  let commandInput = { ...input };
+  if (!isObject(commandInput.buff)) {
+    const buffQuery = commandInput.buffId || commandInput.buffName || commandInput.name || commandInput.displayName || commandInput.query || '';
+    const resolved = resolveDefBuffs({ query: buffQuery });
+    const preferredCandidate = resolved.candidates.find((candidate) => (
+      candidate.source === 'equipment-library' &&
+      isObject(candidate.buff) &&
+      (normalizeDefToolText(candidate.sourceName) === normalizeDefToolText(buffQuery) ||
+        normalizeDefToolText(candidate.gearSetName) === normalizeDefToolText(buffQuery) ||
+        normalizeDefToolText(candidate.displayName).includes(normalizeDefToolText(buffQuery)))
+    )) || (resolved.candidates.length === 1 ? resolved.candidates[0] : null);
+    if (preferredCandidate && isObject(preferredCandidate.buff)) {
+      commandInput = {
+        ...commandInput,
+        buff: preferredCandidate.buff,
+      };
+    } else if (buffQuery || commandInput.type || commandInput.value) {
+      commandInput = {
+        ...commandInput,
+        buff: buildDefResolvedBuffObject({
+          id: commandInput.buffId || commandInput.id || '',
+          name: commandInput.buffName || commandInput.name || commandInput.displayName || buffQuery || '',
+          displayName: commandInput.displayName || commandInput.buffName || commandInput.name || buffQuery || '',
+          sourceName: commandInput.sourceName || '',
+          type: commandInput.type || commandInput.typeKey || '',
+          value: commandInput.value,
+          category: commandInput.category || 'condition',
+          effectKind: commandInput.effectKind || 'modifier',
+          source: commandInput.source || 'def-tool-input',
+        }),
+      };
+    }
+  }
+  const preflightBuff = isObject(commandInput.buff) ? commandInput.buff : {};
+  const preflightTargetButtonId = typeof commandInput.buttonId === 'string' ? commandInput.buttonId.trim() : '';
+  const preflightNeedle = commandInput.buffId || preflightBuff.id || preflightBuff.displayName || preflightBuff.name || commandInput.name || commandInput.buffName || '';
+  if (preflightTargetButtonId && preflightNeedle) {
+    const existingVerification = verifyButtonsHaveBuff({
+      buttonIds: [preflightTargetButtonId],
+      buffName: preflightNeedle,
+    });
+    if (existingVerification.pass) {
+      return {
+        ok: true,
+        skipped: true,
+        reason: 'buff-already-present',
+        targetButtonId: preflightTargetButtonId,
+        buffNeedle: preflightNeedle,
+        buffVerification: existingVerification,
+        note: 'Target button already contains the buff; no command was enqueued.',
+      };
+    }
+  }
+  const enqueued = enqueueDefToolCommand(definition, commandInput);
+  if (enqueued.status < 200 || enqueued.status >= 300 || !enqueued.body?.command) {
+    return {
+      ok: false,
+      enqueue: enqueued.body,
+    };
+  }
+  const commandVerification = await buildDefToolCommandVerification(enqueued.body.command, input.waitMs);
+  const commandResult = isObject(commandVerification.result?.result) ? commandVerification.result.result : null;
+  const targetButtonId = typeof commandResult?.buttonId === 'string' && commandResult.buttonId.trim()
+    ? commandResult.buttonId.trim()
+    : typeof input.buttonId === 'string'
+      ? input.buttonId.trim()
+      : '';
+  const buff = isObject(commandInput.buff) ? commandInput.buff : {};
+  const buffNeedle = commandInput.buffId || buff.id || buff.displayName || buff.name || commandInput.name || commandInput.buffName || '';
+  const buffVerification = await waitForDefButtonsHaveBuff({
+    buttonIds: targetButtonId ? [targetButtonId] : [],
+    buffName: buffNeedle,
+  }, input.snapshotWaitMs ?? 5000);
+  return {
+    ok: buffVerification.pass,
+    command: enqueued.body.command,
+    commandVerification,
+    targetButtonId,
+    buffNeedle,
+    buffVerification,
+    note: buffVerification.pass
+      ? 'Target button contains the buff; final state verification passed.'
+      : 'Buff command or verification was not confirmed; do not report add as complete.',
+  };
+}
+
 function compactOperatorCommandTarget(input = {}) {
   return {
     ...(typeof input.characterId === 'string' && input.characterId.trim() ? { characterId: input.characterId.trim() } : {}),
@@ -3177,7 +3404,7 @@ function buildDefGearEntryLevelCommands(input = {}) {
 
 function verifyButtonsHaveBuff(input = {}) {
   const buttonIds = Array.isArray(input.buttonIds) ? input.buttonIds.filter((id) => typeof id === 'string' && id.trim()) : [];
-  const buffNeedle = normalizeDefToolText(input.buffId || input.buffName || input.displayName || input.query || '');
+  const buffNeedle = normalizeDefToolText(input.buffId || input.buffName || input.name || input.displayName || input.query || '');
   const buttons = listDefWorkbenchButtons({ limit: 200 }).buttons
     .filter((button) => buttonIds.length === 0 || buttonIds.includes(button.buttonId));
   const results = buttons.map((button) => {
@@ -3199,6 +3426,16 @@ function verifyButtonsHaveBuff(input = {}) {
     missing: results.filter((item) => !item.pass),
     results,
   };
+}
+
+async function waitForDefButtonsHaveBuff(input = {}, waitMs = 4000) {
+  const deadline = Date.now() + normalizeDefVerifyWaitMs(waitMs, 4000);
+  let verification = verifyButtonsHaveBuff(input);
+  while (!verification.pass && Date.now() < deadline) {
+    await sleep(250);
+    verification = verifyButtonsHaveBuff(input);
+  }
+  return verification;
 }
 
 function compareDefExpectedFact(actual, expected, label) {
@@ -3319,6 +3556,17 @@ async function executeDefTool(name, input = {}, query = new URLSearchParams()) {
         protocolVersion: 1,
         tool: name,
         result: await executeDefAddSkillButtonAndVerify(input),
+      },
+    };
+  }
+  if (name === 'def.buff.add_to_button_and_verify') {
+    return {
+      status: 200,
+      body: {
+        ok: true,
+        protocolVersion: 1,
+        tool: name,
+        result: await executeDefAddBuffToButtonAndVerify(input),
       },
     };
   }

@@ -22,6 +22,10 @@
   - “把洁尔佩塔换成佩丽卡”实际 UI 已换人，但 REST snapshot mirror 仍读到旧队伍，原因是选人页不写 `def.main-workbench.snapshot.v1`，只有 CanvasBoard 写镜像。
   - “长息”解释/歧义链路会跑到 90s 超时，说明装备/Buff 查询还缺短摘要路径。
 - Task 8/修复补充：已新增 `def.workbench.add_skill_button_and_verify`，用于一次完成加技能、等待命令执行、检查 snapshot 新增一个按钮；已补 AppContext 在非 canvas 视图写 main workbench snapshot mirror，避免选人页 UI 与 REST 读数不一致。
+- Task 8/修复补充 2：已新增 `def.buff.add_to_button_and_verify`，用于单按钮 Buff 添加、等待浏览器执行、验证目标按钮已有 Buff；重复调用会返回 `skipped:true`，避免同一 Buff 被自然语言重试链路叠层。
+- Task 8/修复补充 3：`def.gear.resolve` / `def.equipment.resolve` 现在能从装备库返回“长息”这类套装短摘要；`def.buff.resolve` 能解析装备库三件套 Buff，例如 `长息·队友伤害+16%`。自然语言 “长息是哪几个？我该选哪个” 已从 90s 超时降到约 23s，并能正确反问“装套装还是附加三件套 Buff”。
+- Task 8/修复补充 4：CanvasBoard 的 Buff 命令按钮定位不再只看 runtime `skillButtons`，而是合并 runtime、`timelineData`、persisted `skillButtonTable` 三个来源，修复 REST snapshot 能看到按钮但 addBuff 报“技能按钮不存在”的问题。
+- Task 8/修复补充 5：`refreshSnapshot` 命令现在会把浏览器本地 snapshot 主动 POST 回 REST，修复 17321 重启后 REST snapshot 为空、后门测试读不到当前排轴的问题。
 - Task 9: 首批实现，已补 operator config read、weapon/gear resolver、config patch、gear entry edit；后续需加强配置 patch 的验证、UI 审批和更细 schema。
 - Task 10: 已在工具清单中约束，仍需持续清理旧 prompt/regex 路径。
 - Agent 能力测试通路：已在 dev-agent / Electron bridge 增加 `POST /def-agent/workbench-test/prompt`，用于模拟主界面 AI 输入框投喂一句话；bridge 会同步广播 `/def-agent/workbench-test/ui-events`，主界面 `MainWorkbenchAiPanel` 必须展示 live 用户消息和 agent 回复。以后测试 agent 能力不能只看 transcript/SSE，必须确认 `prompt -> ui-events -> MainWorkbenchAiPanel` 前端可见链路。UI 面板必须忽略历史 `replay` 测试事件，避免旧测试会话回放污染当前对话。它不是产品业务 tool，不能替代 typed tools。
