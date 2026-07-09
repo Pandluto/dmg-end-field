@@ -2898,9 +2898,9 @@
 }
 
 .work-node-modal {
-  width: min(760px, calc(100vw - 68px));
-  height: min(760px, calc(100vh - 68px));
-  min-height: 360px;
+  width: min(1180px, calc(100vw - 68px));
+  height: min(820px, calc(100vh - 68px));
+  min-height: 520px;
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
   gap: 10px;

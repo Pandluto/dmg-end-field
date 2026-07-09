@@ -1,4 +1,3 @@
-import type { CSSProperties } from 'react';
 import type { WorkNodeTreeNode as WorkNodeTreeNodeModel } from './workNodeTreeTypes';
 
 const SOURCE_LABELS: Record<WorkNodeTreeNodeModel['source'], string> = {
@@ -29,21 +28,15 @@ function formatTime(timestamp: number) {
   });
 }
 
-export function WorkNodeTreeNode({
-  node,
-  depth = 0,
-}: {
-  node: WorkNodeTreeNodeModel;
-  depth?: number;
-}) {
-  const hasChildren = node.children.length > 0;
-
-  const branchClassName = depth === 0
-    ? 'work-node-tree-branch is-root'
-    : 'work-node-tree-branch';
+export function WorkNodeTreeNode({ node, isRoot = false }: { node: WorkNodeTreeNodeModel; isRoot?: boolean }) {
+  const childCount = node.children.length;
+  const hasChildren = childCount > 0;
+  const childrenClassName = childCount > 1
+    ? 'work-node-tree-children is-fork'
+    : 'work-node-tree-children is-linear';
 
   return (
-    <div className={branchClassName} style={{ '--work-node-depth': depth } as CSSProperties}>
+    <div className={`work-node-flow-node${isRoot ? ' is-root' : ''}`}>
       <article className={`work-node-tree-node is-${node.status}`}>
         <div className="work-node-tree-node-header">
           <span className="work-node-tree-source">{SOURCE_LABELS[node.source]}</span>
@@ -53,9 +46,9 @@ export function WorkNodeTreeNode({
         <div className="work-node-tree-meta">
           <span>{formatTime(node.createdAt)}</span>
           <span>{node.nodeId.slice(0, 8)}</span>
-          {node.parentNodeId ? <span>父节点 {node.parentNodeId.slice(0, 8)}</span> : <span>根节点</span>}
-          {hasChildren ? <span>{node.children.length} 分支</span> : null}
-          {node.checkoutTouched ? <span>已触碰当前排轴</span> : <span>未触碰当前排轴</span>}
+          {node.parentNodeId ? <span>父 {node.parentNodeId.slice(0, 8)}</span> : <span>根</span>}
+          {childCount > 1 ? <span>{childCount} 分支</span> : null}
+          {node.checkoutTouched ? <span>已应用到当前排轴</span> : <span>未应用到当前排轴</span>}
         </div>
         <p>{node.diffSummary}</p>
         <small>{node.summary}</small>
@@ -68,9 +61,9 @@ export function WorkNodeTreeNode({
         )}
       </article>
       {hasChildren ? (
-        <div className="work-node-tree-children">
+        <div className={childrenClassName}>
           {node.children.map((child) => (
-            <WorkNodeTreeNode key={child.nodeId} node={child} depth={depth + 1} />
+            <WorkNodeTreeNode key={child.nodeId} node={child} />
           ))}
         </div>
       ) : null}
