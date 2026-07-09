@@ -8,6 +8,11 @@ export const MAIN_WORKBENCH_RESULT_LOG_KEY = 'def.main-workbench.result-log.v1';
 export const MAIN_WORKBENCH_SNAPSHOT_KEY = 'def.main-workbench.snapshot.v1';
 export const MAIN_WORKBENCH_CONTROL_EVENT = 'def-main-workbench-control';
 export const MAIN_WORKBENCH_REST_BASE_URL = 'http://127.0.0.1:17321';
+const MAIN_WORKBENCH_REMOTE_PULL_TIMEOUT_MS = 300;
+const MAIN_WORKBENCH_REMOTE_PULL_COOLDOWN_MS = 15000;
+
+let nextRemoteWorkbenchPullAt = 0;
+let remoteWorkbenchPullInFlight: Promise<void> | null = null;
 
 export type MainWorkbenchCommandStatus = 'pending' | 'running' | 'done' | 'error';
 
@@ -482,10 +487,23 @@ export function writeMainWorkbenchSnapshot(snapshot: MainWorkbenchSnapshot): voi
   writeJsonStorage(MAIN_WORKBENCH_SNAPSHOT_KEY, snapshot);
 }
 
-export async function pullRemoteMainWorkbenchCommands(): Promise<void> {
+async function fetchWithTimeout(input: RequestInfo | URL, init: RequestInit = {}, timeoutMs = MAIN_WORKBENCH_REMOTE_PULL_TIMEOUT_MS) {
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await window.fetch(input, {
+      ...init,
+      signal: init.signal || controller.signal,
+    });
+  } finally {
+    window.clearTimeout(timeoutId);
+  }
+}
+
+async function pullRemoteMainWorkbenchCommandsOnce(): Promise<void> {
   if (typeof window === 'undefined' || typeof window.fetch !== 'function') return;
   try {
-    const response = await window.fetch(`${MAIN_WORKBENCH_REST_BASE_URL}/api/main-workbench/commands?status=pending`, {
+    const response = await fetchWithTimeout(`${MAIN_WORKBENCH_REST_BASE_URL}/api/main-workbench/commands?status=pending`, {
       cache: 'no-store',
     });
     if (!response.ok) return;
@@ -502,8 +520,21 @@ export async function pullRemoteMainWorkbenchCommands(): Promise<void> {
     writeMainWorkbenchCommandQueue([...queue, ...imported]);
     emitControlEvent();
   } catch {
+    nextRemoteWorkbenchPullAt = Date.now() + MAIN_WORKBENCH_REMOTE_PULL_COOLDOWN_MS;
     // REST bridge is optional; page-local control still works without it.
   }
+}
+
+export async function pullRemoteMainWorkbenchCommands(): Promise<void> {
+  const now = Date.now();
+  if (now < nextRemoteWorkbenchPullAt) return;
+  if (remoteWorkbenchPullInFlight) return remoteWorkbenchPullInFlight;
+
+  remoteWorkbenchPullInFlight = pullRemoteMainWorkbenchCommandsOnce()
+    .finally(() => {
+      remoteWorkbenchPullInFlight = null;
+    });
+  return remoteWorkbenchPullInFlight;
 }
 
 export async function pushMainWorkbenchCommandResult(entry: QueuedMainWorkbenchCommand): Promise<void> {

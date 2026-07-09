@@ -15,6 +15,8 @@ import type {
 const DEFAULT_REST_BASE_URL = 'http://127.0.0.1:17321';
 const DEFAULT_BRIDGE_BASE_URL = 'http://127.0.0.1:31457';
 
+let listRequestInFlight: Promise<AiTimelineWorkNodeListResponse> | null = null;
+
 export type AiTimelineWorkNodeListResponse = {
   ok: true;
   protocolVersion: 1;
@@ -203,31 +205,39 @@ export async function probeAiTimelineWorkNodeRuntime(baseUrl = DEFAULT_REST_BASE
 export function createAiTimelineWorkNodeClient(baseUrl = DEFAULT_REST_BASE_URL) {
   return {
     async list(): Promise<AiTimelineWorkNodeListResponse> {
-      const desktopRuntime = getDesktopRuntime();
-      if (desktopRuntime?.listAiTimelineWorkNodes) {
-        const result = readDesktopResult(await desktopRuntime.listAiTimelineWorkNodes());
-        return toListResponse(result);
-      }
-      const bridgeResult = await getBridgeJson<{
-        ok: true;
-        path?: string;
-        archive?: { nodes?: unknown[]; commits?: unknown[] };
-      }>('/local-data/ai-timeline-worknodes');
-      if (bridgeResult) {
-        return toListResponse(bridgeResult);
-      }
-      const response = await fetch(buildUrl(baseUrl, '/api/ai-timeline-worknodes'));
-      const result = await readJsonResponse<{
-        ok: true;
-        path?: string;
-        archive?: { nodes?: unknown[]; commits?: unknown[] };
-        nodes?: unknown[];
-        commits?: unknown[];
-      }>(response);
-      return toListResponse({
-        path: result.path,
-        archive: result.archive || { nodes: result.nodes, commits: result.commits },
+      if (listRequestInFlight) return listRequestInFlight;
+
+      listRequestInFlight = (async () => {
+        const desktopRuntime = getDesktopRuntime();
+        if (desktopRuntime?.listAiTimelineWorkNodes) {
+          const result = readDesktopResult(await desktopRuntime.listAiTimelineWorkNodes());
+          return toListResponse(result);
+        }
+        const bridgeResult = await getBridgeJson<{
+          ok: true;
+          path?: string;
+          archive?: { nodes?: unknown[]; commits?: unknown[] };
+        }>('/local-data/ai-timeline-worknodes');
+        if (bridgeResult) {
+          return toListResponse(bridgeResult);
+        }
+        const response = await fetch(buildUrl(baseUrl, '/api/ai-timeline-worknodes'));
+        const result = await readJsonResponse<{
+          ok: true;
+          path?: string;
+          archive?: { nodes?: unknown[]; commits?: unknown[] };
+          nodes?: unknown[];
+          commits?: unknown[];
+        }>(response);
+        return toListResponse({
+          path: result.path,
+          archive: result.archive || { nodes: result.nodes, commits: result.commits },
+        });
+      })().finally(() => {
+        listRequestInFlight = null;
       });
+
+      return listRequestInFlight;
     },
 
     async get(id: string): Promise<AiTimelineWorkNodeResponse> {
