@@ -11,6 +11,7 @@ import type {
 } from './types';
 
 const DEFAULT_REST_BASE_URL = 'http://127.0.0.1:17321';
+const DEFAULT_BRIDGE_BASE_URL = 'http://127.0.0.1:31457';
 
 export type AiTimelineWorkNodeListResponse = {
   ok: true;
@@ -95,6 +96,12 @@ function buildUrl(baseUrl: string, pathname: string) {
   return `${baseUrl.replace(/\/$/, '')}${pathname}`;
 }
 
+function isFetchTransportError(error: unknown): boolean {
+  if (error instanceof TypeError) return true;
+  if (!(error instanceof Error)) return false;
+  return /failed to fetch|networkerror|load failed|connection/i.test(error.message);
+}
+
 function getDesktopRuntime() {
   return typeof window !== 'undefined' ? window.desktopRuntime : undefined;
 }
@@ -115,9 +122,32 @@ async function postJson<T>(baseUrl: string, pathname: string, body: unknown): Pr
   return readJsonResponse<T>(response);
 }
 
+async function getBridgeJson<T>(pathname: string): Promise<T | null> {
+  try {
+    const response = await fetch(buildUrl(DEFAULT_BRIDGE_BASE_URL, pathname), {
+      cache: 'no-store',
+    });
+    return await readJsonResponse<T>(response);
+  } catch (error) {
+    if (isFetchTransportError(error)) return null;
+    throw error;
+  }
+}
+
+async function postBridgeJson<T>(pathname: string, body: unknown): Promise<T | null> {
+  try {
+    return await postJson<T>(DEFAULT_BRIDGE_BASE_URL, pathname, body);
+  } catch (error) {
+    if (isFetchTransportError(error)) return null;
+    throw error;
+  }
+}
+
 export async function probeAiTimelineWorkNodeRuntime(baseUrl = DEFAULT_REST_BASE_URL, timeoutMs = 3500): Promise<void> {
   const desktopRuntime = getDesktopRuntime();
   if (desktopRuntime?.listAiTimelineWorkNodes) return;
+  const bridgeProbe = await getBridgeJson<{ ok: true }>('/local-data/ai-timeline-worknodes');
+  if (bridgeProbe) return;
   const controller = new AbortController();
   const timeoutId = globalThis.setTimeout(() => controller.abort(), timeoutMs);
   try {
@@ -155,6 +185,20 @@ export function createAiTimelineWorkNodeClient(baseUrl = DEFAULT_REST_BASE_URL) 
           commits: (result.archive?.commits || []) as AiTimelineWorkNodeCommit[],
         };
       }
+      const bridgeResult = await getBridgeJson<{
+        ok: true;
+        path?: string;
+        archive?: { nodes?: unknown[]; commits?: unknown[] };
+      }>('/local-data/ai-timeline-worknodes');
+      if (bridgeResult) {
+        return {
+          ok: true,
+          protocolVersion: 1,
+          path: bridgeResult.path || '',
+          nodes: (bridgeResult.archive?.nodes || []) as AiTimelineWorkNode[],
+          commits: (bridgeResult.archive?.commits || []) as AiTimelineWorkNodeCommit[],
+        };
+      }
       const response = await fetch(buildUrl(baseUrl, '/api/ai-timeline-worknodes'));
       return readJsonResponse<AiTimelineWorkNodeListResponse>(response);
     },
@@ -168,6 +212,19 @@ export function createAiTimelineWorkNodeClient(baseUrl = DEFAULT_REST_BASE_URL) 
           protocolVersion: 1,
           path: result.path || '',
           node: result.node as AiTimelineWorkNode,
+        };
+      }
+      const bridgeResult = await getBridgeJson<{
+        ok: true;
+        path?: string;
+        node?: unknown;
+      }>(`/local-data/ai-timeline-worknodes/${encodeURIComponent(id)}`);
+      if (bridgeResult) {
+        return {
+          ok: true,
+          protocolVersion: 1,
+          path: bridgeResult.path || '',
+          node: bridgeResult.node as AiTimelineWorkNode,
         };
       }
       const response = await fetch(buildUrl(baseUrl, `/api/ai-timeline-worknodes/${encodeURIComponent(id)}`));
@@ -192,6 +249,10 @@ export function createAiTimelineWorkNodeClient(baseUrl = DEFAULT_REST_BASE_URL) 
           checkoutDecision: result.checkoutDecision as AiTimelineCheckoutDecision,
         };
       }
+      const bridgeResult = await getBridgeJson<AiTimelineWorkNodeDiffResponse>(
+        `/local-data/ai-timeline-worknodes/${encodeURIComponent(id)}/diff`,
+      );
+      if (bridgeResult) return bridgeResult;
       const response = await fetch(buildUrl(baseUrl, `/api/ai-timeline-worknodes/${encodeURIComponent(id)}/diff`));
       return readJsonResponse<AiTimelineWorkNodeDiffResponse>(response);
     },
@@ -207,6 +268,19 @@ export function createAiTimelineWorkNodeClient(baseUrl = DEFAULT_REST_BASE_URL) 
           node: result.node as AiTimelineWorkNode,
         };
       }
+      const bridgeResult = await postBridgeJson<{
+        ok: true;
+        path?: string;
+        node?: unknown;
+      }>('/local-data/ai-timeline-worknodes/create', input);
+      if (bridgeResult) {
+        return {
+          ok: true,
+          protocolVersion: 1,
+          path: bridgeResult.path || '',
+          node: bridgeResult.node as AiTimelineWorkNode,
+        };
+      }
       return postJson<AiTimelineWorkNodeResponse>(baseUrl, '/api/ai-timeline-worknodes/create', input);
     },
 
@@ -219,6 +293,19 @@ export function createAiTimelineWorkNodeClient(baseUrl = DEFAULT_REST_BASE_URL) 
           protocolVersion: 1,
           path: result.path || '',
           node: result.node as AiTimelineWorkNode,
+        };
+      }
+      const bridgeResult = await postBridgeJson<{
+        ok: true;
+        path?: string;
+        node?: unknown;
+      }>(`/local-data/ai-timeline-worknodes/${encodeURIComponent(id)}/update`, input);
+      if (bridgeResult) {
+        return {
+          ok: true,
+          protocolVersion: 1,
+          path: bridgeResult.path || '',
+          node: bridgeResult.node as AiTimelineWorkNode,
         };
       }
       return postJson<AiTimelineWorkNodeResponse>(
@@ -238,6 +325,21 @@ export function createAiTimelineWorkNodeClient(baseUrl = DEFAULT_REST_BASE_URL) 
           path: result.path || '',
           node: result.node as AiTimelineWorkNode,
           commit: result.commit as AiTimelineWorkNodeCommit,
+        };
+      }
+      const bridgeResult = await postBridgeJson<{
+        ok: true;
+        path?: string;
+        node?: unknown;
+        commit?: unknown;
+      }>(`/local-data/ai-timeline-worknodes/${encodeURIComponent(id)}/commit`, input);
+      if (bridgeResult) {
+        return {
+          ok: true,
+          protocolVersion: 1,
+          path: bridgeResult.path || '',
+          node: bridgeResult.node as AiTimelineWorkNode,
+          commit: bridgeResult.commit as AiTimelineWorkNodeCommit,
         };
       }
       return postJson<AiTimelineWorkNodeCommitResponse>(
@@ -262,6 +364,21 @@ export function createAiTimelineWorkNodeClient(baseUrl = DEFAULT_REST_BASE_URL) 
           commit: result.commit as AiTimelineWorkNodeCommit,
         };
       }
+      const bridgeResult = await postBridgeJson<{
+        ok: true;
+        path?: string;
+        node?: unknown;
+        commit?: unknown;
+      }>(`/local-data/ai-timeline-worknodes/${encodeURIComponent(id)}/checkout-applied`, input);
+      if (bridgeResult) {
+        return {
+          ok: true,
+          protocolVersion: 1,
+          path: bridgeResult.path || '',
+          node: bridgeResult.node as AiTimelineWorkNode,
+          commit: bridgeResult.commit as AiTimelineWorkNodeCommit,
+        };
+      }
       return postJson<AiTimelineWorkNodeCommitResponse>(
         baseUrl,
         `/api/ai-timeline-worknodes/${encodeURIComponent(id)}/checkout-applied`,
@@ -281,6 +398,19 @@ export function createAiTimelineWorkNodeClient(baseUrl = DEFAULT_REST_BASE_URL) 
           protocolVersion: 1,
           path: result.path || '',
           node: result.node as AiTimelineWorkNode,
+        };
+      }
+      const bridgeResult = await postBridgeJson<{
+        ok: true;
+        path?: string;
+        node?: unknown;
+      }>(`/local-data/ai-timeline-worknodes/${encodeURIComponent(id)}/rollback-applied`, input);
+      if (bridgeResult) {
+        return {
+          ok: true,
+          protocolVersion: 1,
+          path: bridgeResult.path || '',
+          node: bridgeResult.node as AiTimelineWorkNode,
         };
       }
       return postJson<AiTimelineWorkNodeResponse>(
