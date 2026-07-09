@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
-import { createAiTimelineWorkNodeClient, probeAiTimelineWorkNodeRuntime } from '../../agentKernel/timelineWorktree/localNodeClient';
+import { createAiTimelineWorkNodeClient } from '../../agentKernel/timelineWorktree/localNodeClient';
 import type { AiTimelineWorkNodeCommitListItem, AiTimelineWorkNodeListItem } from '../../agentKernel/timelineWorktree/types';
-import { getLocalAgentHealth } from '../../utils/localAgent';
 import {
   enqueueMainWorkbenchCommand,
   readMainWorkbenchCommandQueue,
@@ -24,11 +23,6 @@ type WorkNodeTreePanelProps = {
   refreshKey: number;
   onSummaryChange?: (summary: WorkNodeTreeViewModel) => void;
 };
-
-async function ensureWorkNodeReadRuntime() {
-  if (typeof window !== 'undefined' && window.desktopRuntime?.listAiTimelineWorkNodes) return;
-  await getLocalAgentHealth();
-}
 
 function waitForCreatedWorkNode(commandId: string, timeoutMs = 8000): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -112,8 +106,6 @@ export function WorkNodeTreePanel({ refreshKey, onSummaryChange }: WorkNodeTreeP
     let cancelled = false;
     const load = async () => {
       try {
-        await ensureWorkNodeReadRuntime();
-        await probeAiTimelineWorkNodeRuntime();
         const response = await createAiTimelineWorkNodeClient().list();
         if (cancelled) return;
         setNodes(response.nodes || []);

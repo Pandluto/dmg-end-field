@@ -14,8 +14,11 @@ import type {
 
 const DEFAULT_REST_BASE_URL = 'http://127.0.0.1:17321';
 const DEFAULT_BRIDGE_BASE_URL = 'http://127.0.0.1:31457';
+const LIST_CACHE_TTL_MS = 1500;
 
 let listRequestInFlight: Promise<AiTimelineWorkNodeListResponse> | null = null;
+let listCachedResponse: AiTimelineWorkNodeListResponse | null = null;
+let listCachedAt = 0;
 
 export type AiTimelineWorkNodeListResponse = {
   ok: true;
@@ -153,6 +156,17 @@ function toListResponse(input: {
   };
 }
 
+function cacheListResponse(response: AiTimelineWorkNodeListResponse) {
+  listCachedResponse = response;
+  listCachedAt = Date.now();
+  return response;
+}
+
+function invalidateListCache() {
+  listCachedResponse = null;
+  listCachedAt = 0;
+}
+
 async function getBridgeJson<T>(pathname: string): Promise<T | null> {
   try {
     const response = await fetch(buildUrl(DEFAULT_BRIDGE_BASE_URL, pathname), {
@@ -205,6 +219,9 @@ export async function probeAiTimelineWorkNodeRuntime(baseUrl = DEFAULT_REST_BASE
 export function createAiTimelineWorkNodeClient(baseUrl = DEFAULT_REST_BASE_URL) {
   return {
     async list(): Promise<AiTimelineWorkNodeListResponse> {
+      if (listCachedResponse && Date.now() - listCachedAt < LIST_CACHE_TTL_MS) {
+        return listCachedResponse;
+      }
       if (listRequestInFlight) return listRequestInFlight;
 
       listRequestInFlight = (async () => {
@@ -233,7 +250,7 @@ export function createAiTimelineWorkNodeClient(baseUrl = DEFAULT_REST_BASE_URL) 
           path: result.path,
           archive: result.archive || { nodes: result.nodes, commits: result.commits },
         });
-      })().finally(() => {
+      })().then(cacheListResponse).finally(() => {
         listRequestInFlight = null;
       });
 
@@ -269,6 +286,7 @@ export function createAiTimelineWorkNodeClient(baseUrl = DEFAULT_REST_BASE_URL) 
     },
 
     async delete(id: string): Promise<AiTimelineWorkNodeListResponse> {
+      invalidateListCache();
       const desktopRuntime = getDesktopRuntime();
       if (desktopRuntime?.deleteAiTimelineWorkNode) {
         const result = readDesktopResult(await desktopRuntime.deleteAiTimelineWorkNode({ id }));
@@ -326,6 +344,7 @@ export function createAiTimelineWorkNodeClient(baseUrl = DEFAULT_REST_BASE_URL) 
     },
 
     async create(input: CreateAiTimelineWorkNodeInput): Promise<AiTimelineWorkNodeResponse> {
+      invalidateListCache();
       const desktopRuntime = getDesktopRuntime();
       if (desktopRuntime?.createAiTimelineWorkNode) {
         const result = readDesktopResult(await desktopRuntime.createAiTimelineWorkNode(input));
@@ -353,6 +372,7 @@ export function createAiTimelineWorkNodeClient(baseUrl = DEFAULT_REST_BASE_URL) 
     },
 
     async update(id: string, input: UpdateAiTimelineWorkNodeInput): Promise<AiTimelineWorkNodeResponse> {
+      invalidateListCache();
       const desktopRuntime = getDesktopRuntime();
       if (desktopRuntime?.updateAiTimelineWorkNode) {
         const result = readDesktopResult(await desktopRuntime.updateAiTimelineWorkNode({ id, ...input }));
@@ -384,6 +404,7 @@ export function createAiTimelineWorkNodeClient(baseUrl = DEFAULT_REST_BASE_URL) 
     },
 
     async commit(id: string, input: CommitAiTimelineWorkNodeInput = {}): Promise<AiTimelineWorkNodeCommitResponse> {
+      invalidateListCache();
       const desktopRuntime = getDesktopRuntime();
       if (desktopRuntime?.commitAiTimelineWorkNode) {
         const result = readDesktopResult(await desktopRuntime.commitAiTimelineWorkNode({ id, ...input }));
@@ -421,6 +442,7 @@ export function createAiTimelineWorkNodeClient(baseUrl = DEFAULT_REST_BASE_URL) 
       id: string,
       input: MarkAiTimelineWorkNodeCheckoutAppliedInput = {},
     ): Promise<AiTimelineWorkNodeCommitResponse> {
+      invalidateListCache();
       const desktopRuntime = getDesktopRuntime();
       if (desktopRuntime?.markAiTimelineWorkNodeCheckoutApplied) {
         const result = readDesktopResult(await desktopRuntime.markAiTimelineWorkNodeCheckoutApplied({ id, ...input }));
@@ -458,6 +480,7 @@ export function createAiTimelineWorkNodeClient(baseUrl = DEFAULT_REST_BASE_URL) 
       id: string,
       input: MarkAiTimelineWorkNodeRollbackAppliedInput = {},
     ): Promise<AiTimelineWorkNodeResponse> {
+      invalidateListCache();
       const desktopRuntime = getDesktopRuntime();
       if (desktopRuntime?.markAiTimelineWorkNodeRollbackApplied) {
         const result = readDesktopResult(await desktopRuntime.markAiTimelineWorkNodeRollbackApplied({ id, ...input }));
