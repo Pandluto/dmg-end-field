@@ -2,7 +2,7 @@
   min-width: 0;
   min-height: 0;
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-rows: auto auto auto minmax(0, 1fr);
   gap: 8px;
   border: 1px solid rgba(0, 0, 0, 0.22);
   background: rgba(255, 255, 255, 0.72);
@@ -53,6 +53,108 @@
   color: var(--office-body);
   font-size: 11px;
   line-height: 1.35;
+}
+
+.work-node-tree-queue {
+  min-width: 0;
+  max-height: 188px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-right: 1px;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.work-node-tree-queue::-webkit-scrollbar {
+  display: none;
+}
+
+.work-node-tree-section-title {
+  font-size: 10px;
+  font-weight: 800;
+  color: var(--office-body);
+}
+
+.work-node-tree-queue-item {
+  min-width: 0;
+  border: 1px solid rgba(0, 0, 0, 0.16);
+  background: rgba(255, 255, 255, 0.62);
+  padding: 6px;
+}
+
+.work-node-tree-queue-item.is-running,
+.work-node-tree-queue-item.is-pending {
+  border-color: rgba(0, 120, 212, 0.36);
+  background: rgba(0, 120, 212, 0.06);
+}
+
+.work-node-tree-queue-item.is-done {
+  border-color: rgba(16, 124, 16, 0.36);
+  background: rgba(16, 124, 16, 0.06);
+}
+
+.work-node-tree-queue-item.is-error {
+  border-color: rgba(176, 0, 32, 0.42);
+  background: rgba(176, 0, 32, 0.06);
+}
+
+.work-node-tree-queue-head {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.work-node-tree-queue-head strong,
+.work-node-tree-queue-head span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.work-node-tree-queue-head strong {
+  font-size: 11px;
+  color: var(--office-title);
+}
+
+.work-node-tree-queue-head span {
+  flex: 0 0 auto;
+  font-size: 10px;
+  font-weight: 800;
+  color: rgba(0, 120, 212, 0.92);
+}
+
+.work-node-tree-queue-meta {
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 5px;
+}
+
+.work-node-tree-queue-meta span {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  background: rgba(255, 255, 255, 0.5);
+  padding: 2px 4px;
+  font-size: 9px;
+  color: var(--office-body);
+}
+
+.work-node-tree-queue-item small {
+  display: block;
+  margin-top: 5px;
+  font-size: 10px;
+  line-height: 1.35;
+  color: #b00020;
+  word-break: break-word;
 }
 
 .work-node-tree-node {

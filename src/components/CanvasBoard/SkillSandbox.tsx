@@ -14,6 +14,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Character, SandboxSkill, SkillType, SKILL_LABELS } from '../../types';
 import { getElementBackgroundColor, normalizeAssetUrl } from '../../utils/assetResolver';
+import { WorkNodeTreeIcon } from './WorkNodeTreeIcon';
 import './SkillSandbox.css';
 
 interface SkillSandboxProps {
@@ -261,15 +262,7 @@ export function SkillSandbox({
             title="Work node 节点树"
             onClick={onOpenWorkNodePanel}
           >
-            <svg className="sandbox-reserved-action-icon" viewBox="0 0 24 24" aria-hidden="true">
-              <path d="M12 4v5" />
-              <path d="M7 9h10" />
-              <path d="M7 9v4" />
-              <path d="M17 9v4" />
-              <path d="M5 13h4v4H5z" />
-              <path d="M15 13h4v4h-4z" />
-              <path d="M10 3h4v4h-4z" />
-            </svg>
+            <WorkNodeTreeIcon className="sandbox-reserved-action-icon" />
           </button>
         </div>
         {selectedCharacters.map((character, index) => {

@@ -30,9 +30,9 @@ import {
 } from '../../agentKernel/mainWorkbench';
 import { summarizeMainWorkbenchToolsForAgent } from '../../agentKernel/mainWorkbench/toolRegistry';
 import { buildGameKnowledgePromptLines } from '../../utils/gameKnowledge';
-import { probeAiTimelineWorkNodeRuntime } from '../../agentKernel/timelineWorktree/localNodeClient';
 import { MarkdownRenderer } from '../MarkdownRenderer';
 import { buildAiTurnCheckpointCommand, buildManualCheckpointCommand } from './workNodeAutosave';
+import { WorkNodeTreeIcon } from './WorkNodeTreeIcon';
 import './MainWorkbenchAiPanel.css';
 
 const DEF_AGENT_BROWSER_SESSION_KEY = 'def-opencode.workbench.activeSession.v1';
@@ -473,20 +473,6 @@ function NewChatIcon() {
   );
 }
 
-function WorkNodeTreeIcon() {
-  return (
-    <svg className="main-workbench-ai-inline-icon" viewBox="0 0 24 24" aria-hidden="true">
-      <path d="M12 4v5" />
-      <path d="M7 9h10" />
-      <path d="M7 9v4" />
-      <path d="M17 9v4" />
-      <path d="M5 13h4v4H5z" />
-      <path d="M15 13h4v4h-4z" />
-      <path d="M10 3h4v4h-4z" />
-    </svg>
-  );
-}
-
 export function MainWorkbenchAiPanel({
   selectedCharacters,
   skillButtons,
@@ -560,25 +546,22 @@ export function MainWorkbenchAiPanel({
     if (manualCheckpointCreatedRef.current) return;
     manualCheckpointCreatedRef.current = true;
     let cancelled = false;
-    void ensureMainWorkbenchRest()
-      .then(() => probeAiTimelineWorkNodeRuntime())
+    const createdAt = Date.now();
+    const entry = enqueueLocalWorkbenchCommand(buildManualCheckpointCommand(createdAt), 'main-workbench-ai-manual-checkpoint');
+    if (!entry) {
+      setStatus('进入 AI 模式前节点保存失败');
+      return undefined;
+    }
+    setStatus((current) => current === '待命' ? '已投递进入 AI 模式前节点' : current);
+    onWorkNodeChanged?.();
+    void waitForWorkbenchCommandsToSettle(createdAt, 7000)
       .then(() => {
-        if (cancelled) return;
-        const createdAt = Date.now();
-        const entry = enqueueLocalWorkbenchCommand(buildManualCheckpointCommand(createdAt), 'main-workbench-ai-manual-checkpoint');
-        if (!entry) {
-          setStatus('进入 AI 模式前节点保存失败');
-          return;
+        if (!cancelled) {
+          setStatus((current) => current === '已投递进入 AI 模式前节点' ? '已保存进入 AI 模式前节点' : current);
         }
-        setStatus((current) => current === '待命' ? '已保存进入 AI 模式前节点' : current);
         onWorkNodeChanged?.();
-        void waitForWorkbenchCommandsToSettle(createdAt, 7000).then(() => {
-          onWorkNodeChanged?.();
-        });
       })
-      .catch((error) => {
-        if (!cancelled) setStatus(error instanceof Error ? error.message : String(error));
-      });
+      .catch(() => onWorkNodeChanged?.());
     return () => {
       cancelled = true;
     };
@@ -1017,8 +1000,6 @@ export function MainWorkbenchAiPanel({
       let workNodeContext: WorkbenchAiWorkNodeContext | null = null;
       if (shouldCreateWorkNode) {
         patchStep('backup', { status: 'running', detail: '创建 AI work node' });
-        await ensureMainWorkbenchRest();
-        await probeAiTimelineWorkNodeRuntime();
         const backupEntry = enqueueLocalWorkbenchCommand(buildAiTurnCheckpointCommand({
           messageId,
           prompt: userText,
@@ -1246,7 +1227,7 @@ export function MainWorkbenchAiPanel({
           aria-label="Work node 节点树"
           title="Work node 节点树"
         >
-          <WorkNodeTreeIcon />
+          <WorkNodeTreeIcon className="main-workbench-ai-inline-icon" />
         </button>
         <div className="main-workbench-ai-session">
           <strong>DEF OpenCode</strong>
