@@ -832,6 +832,18 @@ function createDefWorkNodeFromPayload(payloadSource, input = {}) {
   };
 }
 
+function toAiTimelineWorkNodeListItem(node) {
+  if (!isObject(node)) return node;
+  const { basePayload, workingPayload, ...item } = node;
+  return item;
+}
+
+function toAiTimelineWorkNodeCommitListItem(commit) {
+  if (!isObject(commit)) return commit;
+  const { basePayload, appliedPayload, ...item } = commit;
+  return item;
+}
+
 function handleAiTimelineWorkNodeRequest(method, pathname, body) {
   if (method === 'GET' && pathname === '/api/ai-timeline-worknodes') {
     const archive = readAiTimelineWorkNodeArchive();
@@ -841,8 +853,12 @@ function handleAiTimelineWorkNodeRequest(method, pathname, body) {
         ok: true,
         protocolVersion: 1,
         path: aiTimelineWorkNodesPath,
-        nodes: archive.nodes.sort((left, right) => (right.updatedAt || 0) - (left.updatedAt || 0)),
-        commits: archive.commits.sort((left, right) => (right.createdAt || 0) - (left.createdAt || 0)),
+        nodes: archive.nodes
+          .sort((left, right) => (right.updatedAt || 0) - (left.updatedAt || 0))
+          .map(toAiTimelineWorkNodeListItem),
+        commits: archive.commits
+          .sort((left, right) => (right.createdAt || 0) - (left.createdAt || 0))
+          .map(toAiTimelineWorkNodeCommitListItem),
       },
     };
   }
