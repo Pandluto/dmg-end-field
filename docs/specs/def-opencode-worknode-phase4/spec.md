@@ -95,3 +95,92 @@ AI 对 work node 做过的事情应该能被用户理解：
 - task 列表
 - 手测清单
 - 与第三阶段 feedback 的风险项逐条对应
+
+## Phase 4 上部：Work Node 明盒化
+
+第四阶段优先解决的第一个问题是把 work node 从黑盒变成明盒。第三阶段已经打通了 work node / patch / validate / diff / checkout / restore 等能力，但用户目前看不见“AI 到底创建了哪些节点、节点之间如何发展、哪个节点影响了当前排轴、回退会回到哪里”。因此上部阶段不继续扩展新业务工具，而是先把本地节点管理产品化。
+
+### 入口与布局
+
+- 主界面右区 AI 模式标题栏旁边的空位用于新增一个 work node 入口按钮。
+- 入口按钮优先使用一个简洁 SVG 图标，表达“节点树 / 分支 / 历史”的含义。
+- 点击后在 AI 模式区域内打开 work node 面板；不额外创建独立页面，不打断当前主界面工作流。
+- 面板可以是右区内的 tab / drawer / overlay，但必须和 AI 对话区并列理解：AI 对话负责自然语言交互，work node 面板负责节点事实和回退证据。
+
+### 专用数据结构
+
+需要为 UI 明盒化定义独立的视图模型，不直接把底层 `ai-timeline-worknodes.json` 原样塞给组件。
+
+建议新增一层专用 TS 模型，至少表达：
+
+- `nodeId`
+- `parentNodeId?`
+- `source`: `manual-checkpoint` / `ai-turn` / `checkout` / `restore` / `discard`
+- `title`
+- `createdAt`
+- `updatedAt`
+- `status`: `draft` / `validated` / `blocked` / `checked-out` / `restored` / `discarded`
+- `summary`
+- `diffSummary`
+- `riskFlags`
+- `conversationId?`
+- `messageId?`
+- `checkoutTouched`
+- `basePayloadRef`
+- `workingPayloadRef`
+
+UI 使用这层模型渲染节点树，底层存储仍可继续沿用现有 appdata/localdata work node 存储，但需要在转换层里补齐树形关系和展示摘要。
+
+### 专用文件边界
+
+上部实现时应避免继续把逻辑塞进 `CanvasBoard/index.tsx` 或 `MainWorkbenchAiPanel.tsx`。
+
+建议至少拆出：
+
+- `WorkNodeTreePanel.tsx`：节点树主面板。
+- `WorkNodeTreeNode.tsx`：单个节点行 / 节点卡片。
+- `workNodeTreeModel.ts`：底层节点到 UI 树模型的转换。
+- `workNodeAutosave.ts`：AI 模式进入、AI 对话前后自动保存节点的策略。
+- `workNodeTreeTypes.ts`：节点树视图模型类型。
+
+如果现有目录更适合放在 `src/components/CanvasBoard/` 下，也应保持独立文件，不把节点树 UI 写进主画布大文件。
+
+### AI 编辑与人工编辑的区分
+
+必须明确区分人工手动编辑节点和 AI 编辑节点。
+
+- 用户手动点击进入 AI 模式时，系统自动保存一次 `manual-checkpoint` 节点，作为进入 AI 协作前的人工基线。
+- 每次自然语言对话触发 AI 变更时，都要保存一个新的 `ai-turn` 节点。
+- AI 节点必须关联对话轮次或消息 id，方便从节点树追溯到对应 AI 回复。
+- AI 节点的保存不能覆盖人工基线；回退时用户应能看懂“回到进入 AI 模式前的人工状态”还是“回到某一次 AI 对话后的状态”。
+- 如果用户在 AI 模式中又手动改了排轴，应产生新的人工 checkpoint 或至少标记当前 checkout 已被人工改动，不能继续把旧 AI 节点当作唯一事实源。
+
+### 可视化闭环
+
+AI 模式 UI 层需要顺手补齐轻量状态提示：
+
+- 当前回复计时 / 等待计时。
+- 当前对话是否创建了 work node。
+- 当前节点 id / 简短标题。
+- 当前节点状态：draft、validated、blocked、checked-out、restored 等。
+- 当前节点是否触碰当前排轴。
+- 当前节点数量和最新节点时间。
+- checkout / restore / discard 的结果提示必须落在节点树和 AI 对话区两侧都能看见的位置。
+
+这些状态提示不应暴露 REST、schema、tool call 等开发概念。用户看到的是“AI 保存了一个草稿节点”“草稿校验通过”“当前排轴未被改动”“已应用到当前排轴”。
+
+### Restore 语义边界
+
+恢复排轴和 work node 回退必须拆清楚：
+
+- 传统恢复排轴是业务快照恢复。
+- work node `restore_base` 是回到某个 AI 节点的 basePayload。
+- work node `checkout` 是把某个 AI 节点的 workingPayload 应用到当前排轴。
+- UI 文案不能把 work node base restore 展示成任意历史版本管理。
+- 如果某个恢复动作背后使用了 work node，必须在节点树里留下可见记录。
+
+## Phase 4 开发时序
+
+- 上部：work node 明盒化。优先完成入口、节点树、专用数据结构、自动保存节点、AI 模式状态提示、checkout/restore 可见证据。
+- 中部：agent 回复风格和 skill / prompt 加载收敛。把 agent 从“编程助手口吻”调成 DEF 业务助手口吻，减少工具名、REST、schema 暴露。
+- 下部：清理事实源和大文件边界。收敛 `/api/def-tools`、legacy registry、prompt 文案、adapter 文案之间的重复事实源，拆分过大的 UI / server 文件。
