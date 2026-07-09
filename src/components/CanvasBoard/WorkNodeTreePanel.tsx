@@ -46,6 +46,10 @@ function waitForCreatedWorkNode(commandId: string, timeoutMs = 8000): Promise<st
   });
 }
 
+function errorMessage(error: unknown) {
+  return error instanceof Error ? error.message : String(error);
+}
+
 export function WorkNodeTreePanel({ refreshKey, onSummaryChange }: WorkNodeTreePanelProps) {
   const [nodes, setNodes] = useState<AiTimelineWorkNode[]>([]);
   const [commits, setCommits] = useState<AiTimelineWorkNodeCommit[]>([]);
@@ -81,7 +85,7 @@ export function WorkNodeTreePanel({ refreshKey, onSummaryChange }: WorkNodeTreeP
         setError('');
       } catch (loadError) {
         if (cancelled) return;
-        setError(loadError instanceof Error ? loadError.message : String(loadError));
+        setError(errorMessage(loadError));
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -103,6 +107,7 @@ export function WorkNodeTreePanel({ refreshKey, onSummaryChange }: WorkNodeTreeP
     const response = await createAiTimelineWorkNodeClient().list();
     setNodes(response.nodes || []);
     setCommits(response.commits || []);
+    return response;
   };
 
   const setActiveNode = (nodeId: string) => {
@@ -124,28 +129,55 @@ export function WorkNodeTreePanel({ refreshKey, onSummaryChange }: WorkNodeTreeP
     }, 'work-node-tree');
   };
 
+  const ensureCreatedParent = async (nodeId: string, expectedParentNodeId: string | undefined) => {
+    const expected = expectedParentNodeId || '';
+    const firstReload = await reloadNodes();
+    const createdNode = firstReload.nodes.find((node) => node.id === nodeId);
+    const actual = createdNode?.parentNodeId || '';
+    if (actual === expected) return;
+
+    const client = createAiTimelineWorkNodeClient();
+    await client.update(nodeId, { parentNodeId: expectedParentNodeId });
+    const secondReload = await reloadNodes();
+    const repairedNode = secondReload.nodes.find((node) => node.id === nodeId);
+    if ((repairedNode?.parentNodeId || '') !== expected) {
+      throw new Error('当前 Electron bridge 未保存 parentNodeId，需要重启 electron:dev 后再创建分支节点。');
+    }
+  };
+
   const createNodeFromCurrent = async (parentNodeId: string | undefined, labelPrefix: string) => {
-    const createdAt = Date.now();
-    const entry = enqueueMainWorkbenchCommand({
-      op: 'createAiTimelineWorkNodeFromCurrent',
-      parentNodeId,
-      branchId: `${labelPrefix}-${createdAt}`,
-      label: `[${labelPrefix}] ${new Date(createdAt).toLocaleString('zh-CN', { hour12: false })}`,
-      approvalPolicy: 'auto-low-risk',
-    }, 'work-node-tree');
-    const nodeId = await waitForCreatedWorkNode(entry.id);
-    setActiveNode(nodeId);
-    await reloadNodes();
+    try {
+      setError('');
+      const createdAt = Date.now();
+      const entry = enqueueMainWorkbenchCommand({
+        op: 'createAiTimelineWorkNodeFromCurrent',
+        parentNodeId,
+        branchId: `${labelPrefix}-${createdAt}`,
+        label: `[${labelPrefix}] ${new Date(createdAt).toLocaleString('zh-CN', { hour12: false })}`,
+        approvalPolicy: 'auto-low-risk',
+      }, 'work-node-tree');
+      const nodeId = await waitForCreatedWorkNode(entry.id);
+      await ensureCreatedParent(nodeId, parentNodeId);
+      setActiveNode(nodeId);
+    } catch (createError) {
+      setError(`创建节点失败：${errorMessage(createError)}`);
+    }
   };
 
   const handleDelete = async (node: WorkNodeTreeViewModel['flatNodes'][number]) => {
     const confirmed = window.confirm(`删除节点 "${node.title}"？`);
     if (!confirmed) return;
-    await createAiTimelineWorkNodeClient().delete(node.nodeId);
-    if (activeNodeId === node.nodeId) {
-      setActiveNode(node.parentNodeId || '');
+    try {
+      setError('');
+      const response = await createAiTimelineWorkNodeClient().delete(node.nodeId);
+      setNodes(response.nodes || []);
+      setCommits(response.commits || []);
+      if (activeNodeId === node.nodeId) {
+        setActiveNode(node.parentNodeId || '');
+      }
+    } catch (deleteError) {
+      setError(`删除节点失败：${errorMessage(deleteError)}。如果 electron:dev 已长时间挂载，请重启以加载新的 Work Node bridge。`);
     }
-    await reloadNodes();
   };
 
   return (
@@ -154,7 +186,7 @@ export function WorkNodeTreePanel({ refreshKey, onSummaryChange }: WorkNodeTreeP
       aria-label={`Work node 节点树，${viewModel.nodeCount} 节点，${viewModel.riskCount} 风险`}
     >
       <div className="work-node-tree-count">{viewModel.nodeCount} 节点 / {viewModel.riskCount} 风险</div>
-      {error ? <div className="work-node-tree-empty">读取归档失败：{error}</div> : null}
+      {error ? <div className="work-node-tree-empty">{error}</div> : null}
       {!error && loading && viewModel.nodeCount === 0 ? <div className="work-node-tree-empty">正在读取节点</div> : null}
       {!error && !loading && viewModel.nodeCount === 0 ? <div className="work-node-tree-empty">暂无可见节点</div> : null}
       {viewModel.nodes.map((node) => (

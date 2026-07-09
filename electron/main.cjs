@@ -4746,8 +4746,13 @@ function updateAiTimelineWorkNode(id, payload = {}) {
   const riskFlags = Object.prototype.hasOwnProperty.call(payload || {}, 'riskFlags')
     ? normalizeAiTimelineRiskFlags(payload.riskFlags)
     : (Array.isArray(node.riskFlags) ? node.riskFlags : []);
+  const hasParentNodePatch = Object.prototype.hasOwnProperty.call(payload || {}, 'parentNodeId');
+  const parentNodeId = hasParentNodePatch && typeof payload.parentNodeId === 'string' && payload.parentNodeId.trim()
+    ? sanitizeAiTimelineWorkNodeId(payload.parentNodeId, 'ai-timeline-node')
+    : undefined;
   const nextNode = {
     ...node,
+    ...(hasParentNodePatch ? (parentNodeId ? { parentNodeId } : { parentNodeId: undefined }) : {}),
     updatedAt: Date.now(),
     status: allowedStatuses.has(payload.status) ? payload.status : node.status,
     workingPayload: cloneJsonValue(workingPayload),

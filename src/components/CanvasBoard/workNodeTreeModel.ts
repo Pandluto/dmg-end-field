@@ -106,6 +106,16 @@ type WorkNodeAssembly = {
   workingSignature: string;
 };
 
+function isLegacyBranchNode(node: AiTimelineWorkNode) {
+  const text = `${node.branchId || ''} ${node.label || ''}`;
+  return /^\s*branch-/i.test(node.branchId || '') || /\[branch\]/i.test(text);
+}
+
+function findLegacyBranchParent(previousNode: WorkNodeAssembly, previousNodes: WorkNodeAssembly[]) {
+  if (!previousNode.node.parentNodeId) return undefined;
+  return previousNodes.find((candidate) => candidate.node.nodeId === previousNode.node.parentNodeId);
+}
+
 function findParentNode(current: WorkNodeAssembly, previousNodes: WorkNodeAssembly[]): WorkNodeAssembly | undefined {
   if (current.raw.parentNodeId) {
     const explicitParent = previousNodes.find((candidate) => candidate.node.nodeId === current.raw.parentNodeId);
@@ -115,6 +125,10 @@ function findParentNode(current: WorkNodeAssembly, previousNodes: WorkNodeAssemb
   const previousNode = previousNodes[previousNodes.length - 1];
   if (!previousNode) {
     return undefined;
+  }
+
+  if (isLegacyBranchNode(current.raw)) {
+    return findLegacyBranchParent(previousNode, previousNodes);
   }
 
   if (previousNode.workingSignature === current.baseSignature) {
