@@ -16,6 +16,12 @@
 - Task 6: 已完成最小实现，将 `patchAiTimelineWorkNode` 包装为 `def.worknode.patch`，并补 `def.worknode.read` / `def.worknode.validate`。
 - Task 7: 已完成最小实现，ask / approval tools 可写入本地 governance 记录，尚未接 UI 弹窗。
 - Task 8: 已完成最小实现，补 command/snapshot/buff/damage/worknode diff verification。
+- Task 8 补充：已新增 `def.worknode.checkout_and_verify`、`def.worknode.restore_base_and_verify`、`def.damage.calculate_and_verify`，并把 damage verifier 收紧为校验 command damage report 的 `buttonCount`。
+- Task 8/黑盒补充：自然语言 REST 后门 15 条场景测试暴露三个问题：
+  - “给佩丽卡加个普攻”曾因 agent 自行加/查/重试导致同一技能重复添加两次，并撞到最大步数。
+  - “把洁尔佩塔换成佩丽卡”实际 UI 已换人，但 REST snapshot mirror 仍读到旧队伍，原因是选人页不写 `def.main-workbench.snapshot.v1`，只有 CanvasBoard 写镜像。
+  - “长息”解释/歧义链路会跑到 90s 超时，说明装备/Buff 查询还缺短摘要路径。
+- Task 8/修复补充：已新增 `def.workbench.add_skill_button_and_verify`，用于一次完成加技能、等待命令执行、检查 snapshot 新增一个按钮；已补 AppContext 在非 canvas 视图写 main workbench snapshot mirror，避免选人页 UI 与 REST 读数不一致。
 - Task 9: 首批实现，已补 operator config read、weapon/gear resolver、config patch、gear entry edit；后续需加强配置 patch 的验证、UI 审批和更细 schema。
 - Task 10: 已在工具清单中约束，仍需持续清理旧 prompt/regex 路径。
 - Agent 能力测试通路：已在 dev-agent / Electron bridge 增加 `POST /def-agent/workbench-test/prompt`，用于模拟主界面 AI 输入框投喂一句话；bridge 会同步广播 `/def-agent/workbench-test/ui-events`，主界面 `MainWorkbenchAiPanel` 必须展示 live 用户消息和 agent 回复。以后测试 agent 能力不能只看 transcript/SSE，必须确认 `prompt -> ui-events -> MainWorkbenchAiPanel` 前端可见链路。UI 面板必须忽略历史 `replay` 测试事件，避免旧测试会话回放污染当前对话。它不是产品业务 tool，不能替代 typed tools。
@@ -32,6 +38,8 @@
 
 - 第三阶段验收重点是 tools / command / REST 能力真实可调用，尤其是 work node 的 create、patch、validate、diff、checkout、restore_base。
 - `def.worknode.restore_base` / `restoreAiTimelineWorkNodeBase` 在第三阶段只要求命令层能把指定 work node 的 `basePayload` 恢复到当前迁出态，并记录 rollback applied。
+- 本轮确认：worknode 当前态来源必须优先取主界面 snapshot mirror。浏览器用户手动换角色/换轴后，typed tools 应以 mirror 为当前事实源；不得在 mirror 可用时退回最近旧 worknode，否则会把旧排轴误当 base。
+- 本轮确认：snapshot mirror 必须由“当前业务状态”维护，不能只由 CanvasBoard 维护；选人页换角色后也必须立即同步给 REST 后门，否则 agent 会拿旧证据回答。
 - work node 列表、节点详情、diff 面板、checkout/restore 按钮、回退前后状态展示属于第四阶段 UI 联调和产品闭环。
 - 因此“回退节点 UI 没落实”是第三阶段 feedback 风险，不等于第三阶段 tool 能力缺失；但第三阶段必须避免只注册名字、实际命令不可执行。
 
@@ -60,6 +68,7 @@
 - [x] 强化 `def.worknode.create_from_current` 输出
   - 返回 `nodeId`、`baseSummary`、`workingSummary`、`buttonTargets`。
   - `buttonTargets` 至少包含 buttonId、label、staffIndex、nodeIndex，方便下一步 patch 直接引用。
+  - 本轮修正：server-side create 当前态来源改为 `main-workbench-snapshot-mirror` 优先，避免浏览器测试/用户手动换角色后误读最近旧 worknode。
 - [x] 给 `/api/def-tools/describe` 补更具体 schema
   - `def.worknode.patch` / `patch_and_validate` 不再只写 `{ type: 'object' }`。
   - Patch DSL 的 op、target 字段、必填字段、风险说明必须能由 describe 读到。
@@ -326,6 +335,12 @@ Patch DSL 约束：
 - 返回最小证据，不输出无关大对象。
 - 批量 buff 后可以一次验证目标按钮是否都已有指定 buff。
 - damage calculate 后可以验证伤害报告已刷新。
+- 本轮点测：
+  - `def.worknode.patch_and_validate` 创建 node `ai-timeline-node-1783592617026-zf874o15`，source=`main-workbench-snapshot-mirror`，base `buttonCount=0`，working `buttonCount=1`。
+  - `def.worknode.checkout_and_verify` 对该 node 返回 `ok:true`，snapshot `buttonCount` 从 0 到 1，`reload:false`。
+  - `def.damage.calculate_and_verify` 返回 `ok:true`，command damage report `buttonCount=1`，按钮为 `佩丽卡 / 协议α·突破`，证明 checkout 后可进入伤害报告链路。
+  - `def.worknode.restore_base_and_verify` 返回 `ok:true`，snapshot `buttonCount` 从 1 回到 0，测试态已恢复。
+  - 说明：测试态未配置面板/装备快照，所以 totalExpected 为 0；本轮验收关注链路可见性和 report buttonCount，不把数值伤害作为通过条件。
 
 ## Task 9: 补选人/配置页 tools 范围
 

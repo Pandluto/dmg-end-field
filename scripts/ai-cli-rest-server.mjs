@@ -34,6 +34,7 @@ const SCRIPT_MAX_STDERR = 64 * 1024;
 const MAIN_WORKBENCH_COMMAND_QUEUE_KEY = 'def.main-workbench.command-queue.v1';
 const MAIN_WORKBENCH_RESULT_LOG_KEY = 'def.main-workbench.result-log.v1';
 const MAIN_WORKBENCH_SNAPSHOT_KEY = 'def.main-workbench.snapshot.v1';
+const EQUIPMENT_LIBRARY_STORAGE_KEY = 'def.equipment-sheet.library.v1';
 const MAIN_WORKBENCH_SUPPORTED_OP_SET = new Set(MAIN_WORKBENCH_SUPPORTED_OPS);
 
 class FileStorage {
@@ -631,7 +632,122 @@ function readDefLatestWorkNodePayload() {
   };
 }
 
+function normalizeMirrorButtonNumber(value, fallback = 0) {
+  const numberValue = Number(value);
+  return Number.isFinite(numberValue) ? numberValue : fallback;
+}
+
+function buildDefTimelineButtonFromMirror(button = {}) {
+  const nodeIndex = normalizeMirrorButtonNumber(button.nodeIndex, 0);
+  const staffIndex = normalizeMirrorButtonNumber(button.staffIndex ?? button.lineIndex, 0);
+  return {
+    id: String(button.id || button.buttonId || makeId('mirror-button')),
+    ...(button.characterId ? { characterId: String(button.characterId) } : {}),
+    characterName: String(button.characterName || ''),
+    skillType: String(button.skillType || 'A'),
+    staffIndex,
+    nodeIndex,
+    nodeNumber: normalizeMirrorButtonNumber(button.nodeNumber, nodeIndex + 1),
+    position: isObject(button.position)
+      ? {
+        x: normalizeMirrorButtonNumber(button.position.x, 80 + nodeIndex * 22),
+        y: normalizeMirrorButtonNumber(button.position.y, 60 + staffIndex * 300),
+      }
+      : { x: 80 + nodeIndex * 22, y: 60 + staffIndex * 300 },
+    ...(button.runtimeSkillId ? { runtimeSkillId: String(button.runtimeSkillId) } : {}),
+    ...(button.skillDisplayName ? { skillDisplayName: String(button.skillDisplayName) } : {}),
+    ...(button.skillIconUrl ? { skillIconUrl: String(button.skillIconUrl) } : {}),
+    ...(Array.isArray(button.customHits) ? { customHits: cloneJson(button.customHits) } : {}),
+    buffIds: Array.isArray(button.selectedBuffIds) ? [...button.selectedBuffIds] : [],
+  };
+}
+
+function buildDefSkillButtonTableEntryFromMirror(button = {}) {
+  const timelineButton = buildDefTimelineButtonFromMirror(button);
+  const selectedBuff = Array.isArray(button.selectedBuffIds) ? [...button.selectedBuffIds] : [];
+  return {
+    ...timelineButton,
+    selectedBuff,
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+    panelConfig: { selectedBuff },
+  };
+}
+
+function buildDefAllBuffListFromMirror(buttons = []) {
+  const buffMap = new Map();
+  for (const button of buttons) {
+    for (const buff of Array.isArray(button?.selectedBuffs) ? button.selectedBuffs : []) {
+      if (!buff?.id) continue;
+      const existing = buffMap.get(buff.id);
+      buffMap.set(buff.id, {
+        ...cloneJson(buff),
+        refCount: normalizeMirrorButtonNumber(existing?.refCount, 0) + 1,
+      });
+    }
+  }
+  return [...buffMap.values()];
+}
+
+function readDefMainWorkbenchMirrorPayload() {
+  const snapshot = readMainWorkbenchSnapshotMirror();
+  const selectedCharacters = Array.isArray(snapshot?.selectedCharacters) ? snapshot.selectedCharacters : [];
+  if (selectedCharacters.length === 0) return null;
+
+  const selectedCharacterIds = selectedCharacters
+    .map((character) => String(character?.id || character?.name || '').trim())
+    .filter(Boolean)
+    .slice(0, 4);
+  if (selectedCharacterIds.length === 0) return null;
+
+  const buttons = Array.isArray(snapshot?.skillButtons) ? snapshot.skillButtons : [];
+  const staffLines = selectedCharacters.slice(0, 4).map((character, index) => {
+    const lineButtons = buttons
+      .filter((button) => normalizeMirrorButtonNumber(button?.staffIndex ?? button?.lineIndex, index) === index)
+      .map(buildDefTimelineButtonFromMirror)
+      .sort((left, right) => left.nodeIndex - right.nodeIndex);
+    return {
+      staffIndex: index,
+      characterName: String(character?.name || character?.id || `干员${index + 1}`),
+      occupiedNodes: lineButtons.map((button) => button.nodeIndex).sort((left, right) => left - right),
+      buttons: lineButtons,
+    };
+  });
+  const skillButtonTable = Object.fromEntries(
+    buttons.map((button) => {
+      const entry = buildDefSkillButtonTableEntryFromMirror(button);
+      return [entry.id, entry];
+    }),
+  );
+  const payload = {
+    selectedCharacters: selectedCharacterIds,
+    timelineData: {
+      version: '1.0.0',
+      createdAt: Number(snapshot?.updatedAt) || Date.now(),
+      updatedAt: Number(snapshot?.updatedAt) || Date.now(),
+      staffLines,
+    },
+    skillButtonTable,
+    allBuffList: buildDefAllBuffListFromMirror(buttons),
+    anomalyStateSnapshots: [],
+    characterInputMap: {},
+    characterComputedMap: {},
+    characterDisplayCacheMap: {},
+    operatorConfigPageCache: {},
+  };
+  if (validateWorkNodePayload(payload, 'basePayload') !== null) return null;
+  return {
+    payload,
+    source: 'main-workbench-snapshot-mirror',
+    sourceId: 'current-mirror',
+    sourceUpdatedAt: snapshot?.updatedAt || null,
+  };
+}
+
 function readDefCurrentTimelinePayloadSource() {
+  const payloadFromMirror = readDefMainWorkbenchMirrorPayload();
+  if (payloadFromMirror) return payloadFromMirror;
+
   const characterInputRaw = readMainWorkbenchJson('def.operator-config.character-input-map.v3', {});
   const characterComputedRaw = readMainWorkbenchJson('def.operator-runtime.character-computed-map.v3', {});
   const characterDisplayRaw = readMainWorkbenchJson('def.operator-ui.character-display-cache.v3', {});
@@ -1927,8 +2043,14 @@ function applyDefWorkNodePatchOperation(payload, operation, index, operationsApp
       ? operation.nodeIndex
       : Math.max(-1, ...(Array.isArray(staffLine?.buttons) ? staffLine.buttons : []).map((button) => button.nodeIndex)) + 1;
     const id = sanitizeWorkNodeId(operation.buttonId, `ai-patch-button-${Date.now()}-${index}`);
+    const characterId = typeof operation.characterId === 'string' && operation.characterId.trim()
+      ? operation.characterId.trim()
+      : (typeof payload?.selectedCharacters?.[staffIndex] === 'string' && payload.selectedCharacters[staffIndex].trim()
+        ? payload.selectedCharacters[staffIndex].trim()
+        : characterName);
     const button = {
       id,
+      characterId,
       characterName,
       skillType: typeof operation.skillType === 'string' && operation.skillType.trim() ? operation.skillType.trim() : 'A',
       staffIndex,
@@ -2455,6 +2577,50 @@ function buildDefToolDefinitions() {
       patch: patchDslProperty,
     },
   };
+  const checkoutWorkNodeSchema = {
+    type: 'object',
+    required: ['nodeId'],
+    properties: {
+      nodeId: { type: 'string', description: 'Existing appdata work node id to apply to current checkout.' },
+      commitId: { type: 'string' },
+      reload: { type: 'boolean', description: 'Use false for observable tests so the main UI does not reload.' },
+      waitMs: { type: 'number', description: 'Optional synchronous verification wait window in milliseconds for *_and_verify tools.' },
+      snapshotWaitMs: { type: 'number', description: 'Optional extra wait for the mirrored snapshot to reflect the applied command.' },
+      approval: {
+        type: 'object',
+        properties: {
+          mode: { type: 'string', enum: ['auto', 'manual'] },
+          approvedBy: { type: 'string', enum: ['ai', 'user', 'system'] },
+          rationale: { type: 'string' },
+        },
+      },
+    },
+  };
+  const restoreWorkNodeSchema = {
+    type: 'object',
+    required: ['nodeId'],
+    properties: {
+      nodeId: { type: 'string', description: 'Existing appdata work node id whose basePayload should be restored.' },
+      reload: { type: 'boolean', description: 'Use false for observable tests so the main UI does not reload.' },
+      waitMs: { type: 'number', description: 'Optional synchronous verification wait window in milliseconds for *_and_verify tools.' },
+      snapshotWaitMs: { type: 'number', description: 'Optional extra wait for the mirrored snapshot to reflect the restored command.' },
+      approval: {
+        type: 'object',
+        properties: {
+          approvedBy: { type: 'string', enum: ['ai', 'user', 'system'] },
+          rationale: { type: 'string' },
+        },
+      },
+    },
+  };
+  const damageCalculateAndVerifySchema = {
+    type: 'object',
+    properties: {
+      buttonId: { type: 'string' },
+      waitMs: { type: 'number', description: 'Synchronous verification wait window in milliseconds.' },
+      snapshotWaitMs: { type: 'number', description: 'Optional extra wait for the mirrored damage report.' },
+    },
+  };
   return [
     { name: 'def.tool.list', scope: 'read', riskLevel: 'read', approval: 'none', status: 'implemented', description: 'List DEF typed tools.' },
     { name: 'def.tool.describe', scope: 'read', riskLevel: 'read', approval: 'none', status: 'implemented', description: 'Describe one DEF typed tool.' },
@@ -2472,18 +2638,22 @@ function buildDefToolDefinitions() {
     { name: 'def.weapon.resolve', scope: 'read', riskLevel: 'read', approval: 'none', status: 'implemented', description: 'Resolve weapon candidates from current operator configs.' },
     { name: 'def.gear.resolve', scope: 'read', riskLevel: 'read', approval: 'none', status: 'implemented', description: 'Resolve gear/equipment candidates from current operator configs.' },
     { name: 'def.workbench.add_skill_button', commandOp: 'addSkillButton', scope: 'current-checkout', riskLevel: 'low', approval: 'auto', status: 'implemented', description: executeCommand },
+    { name: 'def.workbench.add_skill_button_and_verify', scope: 'current-checkout', riskLevel: 'low', approval: 'auto', status: 'implemented', description: 'Add one skill button, wait for browser command execution, then return command result and snapshot verification.' },
     { name: 'def.workbench.remove_skill_button', commandOp: 'removeSkillButton', scope: 'current-checkout', riskLevel: 'medium', approval: 'ai-review', status: 'implemented', description: executeCommand },
     { name: 'def.buff.add_to_button', commandOp: 'addBuff', scope: 'current-checkout', riskLevel: 'medium', approval: 'auto', status: 'implemented', description: executeCommand },
     { name: 'def.buff.add_to_buttons', commandOp: 'addBuffToButtons', scope: 'current-checkout', riskLevel: 'medium', approval: 'ai-review', status: 'implemented', description: executeCommand },
     { name: 'def.buff.remove_from_button', commandOp: 'removeBuff', scope: 'current-checkout', riskLevel: 'medium', approval: 'ai-review', status: 'implemented', description: executeCommand },
     { name: 'def.target.set_resistance', commandOp: 'setTargetResistance', scope: 'current-checkout', riskLevel: 'low', approval: 'auto', status: 'implemented', description: executeCommand },
     { name: 'def.damage.calculate', commandOp: 'calculateDamage', scope: 'current-checkout', riskLevel: 'low', approval: 'auto', status: 'implemented', description: executeCommand },
+    { name: 'def.damage.calculate_and_verify', scope: 'current-checkout', riskLevel: 'low', approval: 'auto', status: 'implemented', description: 'Trigger damage calculation, wait briefly for command execution, then return command and damage report verification.' },
     { name: 'def.worknode.create_from_current', commandOp: 'createAiTimelineWorkNodeFromCurrent', scope: 'appdata-work-node', riskLevel: 'medium', approval: 'auto', status: 'implemented', description: workNode },
     { name: 'def.worknode.patch', commandOp: 'patchAiTimelineWorkNode', scope: 'appdata-work-node', riskLevel: 'high', approval: 'ai-review', status: 'implemented', description: 'Class-code Patch DSL / CRUD tool for node.workingPayload.' },
     { name: 'def.worknode.patch_and_validate', scope: 'appdata-work-node', riskLevel: 'high', approval: 'ai-review', status: 'implemented', description: 'Apply a constrained work node patch, validate, summarize diff, and prove checkout=false did not touch current checkout.' },
     { name: 'def.worknode.diff', commandOp: 'diffAiTimelineWorkNode', scope: 'appdata-work-node', riskLevel: 'read', approval: 'none', status: 'implemented', description: workNode },
     { name: 'def.worknode.checkout', commandOp: 'checkoutAiTimelineWorkNode', scope: 'appdata-work-node', riskLevel: 'high', approval: 'ai-review', status: 'implemented', description: workNode },
+    { name: 'def.worknode.checkout_and_verify', scope: 'appdata-work-node', riskLevel: 'high', approval: 'ai-review', status: 'implemented', description: 'Checkout a work node with reload:false by default, wait briefly for renderer execution, and verify current checkout snapshot.' },
     { name: 'def.worknode.restore_base', commandOp: 'restoreAiTimelineWorkNodeBase', scope: 'appdata-work-node', riskLevel: 'high', approval: 'ai-review', status: 'implemented', description: workNode },
+    { name: 'def.worknode.restore_base_and_verify', scope: 'appdata-work-node', riskLevel: 'high', approval: 'ai-review', status: 'implemented', description: 'Restore a work node basePayload with reload:false by default, wait briefly for renderer execution, and verify current checkout snapshot.' },
     { name: 'def.worknode.read', scope: 'appdata-work-node', riskLevel: 'read', approval: 'none', status: 'implemented', description: 'Read appdata work node state without touching current checkout.' },
     { name: 'def.worknode.validate', scope: 'appdata-work-node', riskLevel: 'read', approval: 'none', status: 'implemented', description: 'Validate work node basePayload and workingPayload without checkout.' },
     { name: 'def.user.ask', scope: 'governance', riskLevel: 'read', approval: 'none', status: 'implemented', description: 'Record a formal low-blocking question for user follow-up.' },
@@ -2503,7 +2673,13 @@ function buildDefToolDefinitions() {
       ? patchAndValidateSchema
       : tool.name === 'def.worknode.patch'
         ? workNodePatchSchema
-        : tool.commandOp ? { type: 'object', description: `MainWorkbenchCommand fields without op; op is ${tool.commandOp}.` } : { type: 'object' },
+        : tool.name === 'def.worknode.checkout' || tool.name === 'def.worknode.checkout_and_verify'
+          ? checkoutWorkNodeSchema
+          : tool.name === 'def.worknode.restore_base' || tool.name === 'def.worknode.restore_base_and_verify'
+            ? restoreWorkNodeSchema
+            : tool.name === 'def.damage.calculate_and_verify'
+              ? damageCalculateAndVerifySchema
+              : tool.commandOp ? { type: 'object', description: `MainWorkbenchCommand fields without op; op is ${tool.commandOp}.` } : { type: 'object' },
     outputSchema: { type: 'object', fields: ['ok', 'tool', 'result'] },
     verification: tool.scope === 'current-checkout' ? ['command_result', 'snapshot_delta'] : tool.scope === 'appdata-work-node' ? ['schema', 'diff'] : ['schema'],
     rollback: tool.scope === 'appdata-work-node' ? 'required' : tool.scope === 'current-checkout' ? 'optional' : 'none',
@@ -2632,6 +2808,243 @@ function enqueueDefToolCommands(definition, commands, input = {}) {
       verificationRequired: definition.verification,
       note: 'queued does not mean executed; verify command_result or snapshot_delta before final answer.',
     },
+  };
+}
+
+function sleep(ms) {
+  if (!Number.isFinite(ms) || ms <= 0) return Promise.resolve();
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function normalizeDefVerifyWaitMs(value, fallback = 8000) {
+  const waitMs = Number(value);
+  if (!Number.isFinite(waitMs)) return fallback;
+  return Math.max(0, Math.min(waitMs, 30000));
+}
+
+function readDefCommandResultById(commandId) {
+  const queueEntry = readMainWorkbenchCommandQueue().find((entry) => entry.id === commandId);
+  if (queueEntry) return queueEntry;
+  const raw = readMainWorkbenchJson(MAIN_WORKBENCH_RESULT_LOG_KEY, []);
+  const resultLog = Array.isArray(raw) ? raw.map((entry) => normalizeMainWorkbenchCommandEntry(entry)).filter(Boolean) : [];
+  return resultLog.find((entry) => entry.id === commandId) || null;
+}
+
+async function waitForDefCommandResult(commandId, waitMs) {
+  const deadline = Date.now() + normalizeDefVerifyWaitMs(waitMs);
+  let entry = readDefCommandResultById(commandId);
+  while (entry && (entry.status === 'pending' || entry.status === 'running') && Date.now() < deadline) {
+    await sleep(250);
+    entry = readDefCommandResultById(commandId);
+  }
+  return entry;
+}
+
+async function buildDefToolCommandVerification(commandEntry, waitMs) {
+  const commandId = commandEntry?.id || '';
+  const result = commandId ? await waitForDefCommandResult(commandId, waitMs) : null;
+  const classified = classifyDefCommandResult(result || commandEntry);
+  return {
+    commandId,
+    pass: classified.resultState === 'applied' || classified.resultState === 'duplicate' || classified.resultState === 'skipped',
+    ...classified,
+    result: result || commandEntry || null,
+  };
+}
+
+function readDefWorkNodeById(nodeId) {
+  const archive = readAiTimelineWorkNodeArchive();
+  return archive.nodes.find((node) => node?.id === nodeId) || null;
+}
+
+function snapshotButtonCount(snapshot = readMainWorkbenchSnapshotMirror()) {
+  return Array.isArray(snapshot?.skillButtons) ? snapshot.skillButtons.length : 0;
+}
+
+async function waitForDefSnapshotButtonCount(expectedButtonCount, waitMs) {
+  const deadline = Date.now() + normalizeDefVerifyWaitMs(waitMs, 4000);
+  let snapshot = readMainWorkbenchSnapshotMirror();
+  while (snapshotButtonCount(snapshot) !== expectedButtonCount && Date.now() < deadline) {
+    await sleep(250);
+    snapshot = readMainWorkbenchSnapshotMirror();
+  }
+  return snapshot;
+}
+
+async function waitForDefDamageReport(waitMs) {
+  const deadline = Date.now() + normalizeDefVerifyWaitMs(waitMs, 4000);
+  let snapshot = readMainWorkbenchSnapshotMirror();
+  while (!snapshot?.damageReport && Date.now() < deadline) {
+    await sleep(250);
+    snapshot = readMainWorkbenchSnapshotMirror();
+  }
+  return snapshot;
+}
+
+async function executeDefWorkNodeApplyAndVerify(name, input = {}, restore = false) {
+  const nodeId = typeof input.nodeId === 'string' && input.nodeId.trim() ? input.nodeId.trim() : '';
+  if (!nodeId) {
+    return { ok: false, code: 'missing-node-id', message: `${name} requires nodeId.` };
+  }
+  const node = readDefWorkNodeById(nodeId);
+  if (!node) {
+    return { ok: false, code: 'ai-worknode-not-found', message: `AI timeline work node not found: ${nodeId}` };
+  }
+  const before = readMainWorkbenchSnapshotMirror();
+  const expectedPayload = restore ? node.basePayload : node.workingPayload;
+  const expectedSummary = summarizeTimelinePayload(expectedPayload);
+  const definition = getDefToolDefinition(restore ? 'def.worknode.restore_base' : 'def.worknode.checkout');
+  const commandInput = {
+    ...input,
+    nodeId,
+    reload: input.reload === true ? true : false,
+  };
+  const enqueued = enqueueDefToolCommand(definition, commandInput);
+  if (enqueued.status < 200 || enqueued.status >= 300 || !enqueued.body?.command) {
+    return {
+      ok: false,
+      nodeId,
+      before: { buttonCount: snapshotButtonCount(before) },
+      expectedSummary,
+      enqueue: enqueued.body,
+    };
+  }
+  const commandVerification = await buildDefToolCommandVerification(enqueued.body.command, input.waitMs);
+  const after = commandVerification.pass
+    ? await waitForDefSnapshotButtonCount(expectedSummary.buttonCount, input.snapshotWaitMs ?? 5000)
+    : readMainWorkbenchSnapshotMirror();
+  const snapshotVerification = verifyDefSnapshotDelta(after, {
+    expected: { buttonCount: { equals: expectedSummary.buttonCount } },
+  });
+  return {
+    ok: commandVerification.pass && snapshotVerification.pass,
+    nodeId,
+    mode: restore ? 'restore_base' : 'checkout',
+    command: enqueued.body.command,
+    commandVerification,
+    before: { buttonCount: snapshotButtonCount(before), snapshotUpdatedAt: before?.updatedAt || null },
+    after: { buttonCount: snapshotButtonCount(after), snapshotUpdatedAt: after?.updatedAt || null },
+    expectedSummary,
+    snapshotVerification,
+    reload: commandInput.reload,
+    note: commandVerification.pass
+      ? 'Command reached terminal success state and snapshot was checked.'
+      : 'Command was not confirmed within waitMs; do not report applied as complete.',
+  };
+}
+
+async function executeDefDamageCalculateAndVerify(input = {}) {
+  const definition = getDefToolDefinition('def.damage.calculate');
+  const before = readMainWorkbenchSnapshotMirror();
+  const enqueued = enqueueDefToolCommand(definition, input);
+  if (enqueued.status < 200 || enqueued.status >= 300 || !enqueued.body?.command) {
+    return {
+      ok: false,
+      before: {
+        snapshotUpdatedAt: before?.updatedAt || null,
+        damageGeneratedAt: before?.damageReport?.generatedAt || null,
+      },
+      enqueue: enqueued.body,
+    };
+  }
+  const commandVerification = await buildDefToolCommandVerification(enqueued.body.command, input.waitMs);
+  const after = commandVerification.pass
+    ? await waitForDefDamageReport(input.snapshotWaitMs ?? 5000)
+    : readMainWorkbenchSnapshotMirror();
+  const commandDamageReport = isObject(commandVerification.result?.result)
+    ? commandVerification.result.result
+    : null;
+  const expectedButtonCount = typeof input.buttonId === 'string' && input.buttonId.trim()
+    ? (snapshotButtonCount(before) > 0 ? 1 : 0)
+    : snapshotButtonCount(before);
+  const damageVerification = {
+    pass: Boolean(commandDamageReport)
+      && Number(commandDamageReport.buttonCount) === expectedButtonCount
+      && Boolean(commandDamageReport.generatedAt),
+    expectedButtonCount,
+    commandButtonCount: Number(commandDamageReport?.buttonCount ?? 0),
+    commandGeneratedAt: commandDamageReport?.generatedAt || null,
+    snapshotUpdatedAt: after?.updatedAt || null,
+    generatedAt: after?.damageReport?.generatedAt || null,
+    buttonCount: after?.damageReport?.buttonCount || 0,
+    totalExpected: after?.damageReport?.totalExpected ?? null,
+  };
+  return {
+    ok: commandVerification.pass && damageVerification.pass,
+    command: enqueued.body.command,
+    commandVerification,
+    before: {
+      snapshotUpdatedAt: before?.updatedAt || null,
+      damageGeneratedAt: before?.damageReport?.generatedAt || null,
+      buttonCount: snapshotButtonCount(before),
+    },
+    after: {
+      snapshotUpdatedAt: after?.updatedAt || null,
+      damageGeneratedAt: after?.damageReport?.generatedAt || null,
+      buttonCount: snapshotButtonCount(after),
+    },
+    damageVerification,
+    note: commandVerification.pass
+      ? 'Damage command reached terminal success state and damage report was checked.'
+      : 'Damage command was not confirmed within waitMs; do not report recalculation as complete.',
+  };
+}
+
+async function executeDefAddSkillButtonAndVerify(input = {}) {
+  const definition = getDefToolDefinition('def.workbench.add_skill_button');
+  const before = readMainWorkbenchSnapshotMirror();
+  const beforeButtonCount = snapshotButtonCount(before);
+  const enqueued = enqueueDefToolCommand(definition, input);
+  if (enqueued.status < 200 || enqueued.status >= 300 || !enqueued.body?.command) {
+    return {
+      ok: false,
+      before: { buttonCount: beforeButtonCount, snapshotUpdatedAt: before?.updatedAt || null },
+      enqueue: enqueued.body,
+    };
+  }
+  const commandVerification = await buildDefToolCommandVerification(enqueued.body.command, input.waitMs);
+  const after = commandVerification.pass
+    ? await waitForDefSnapshotButtonCount(beforeButtonCount + 1, input.snapshotWaitMs ?? 5000)
+    : readMainWorkbenchSnapshotMirror();
+  const afterButtons = Array.isArray(after?.skillButtons) ? after.skillButtons : [];
+  const commandResult = isObject(commandVerification.result?.result) ? commandVerification.result.result : null;
+  const resultButtonId = typeof commandResult?.buttonId === 'string' ? commandResult.buttonId : '';
+  const addedButton = resultButtonId
+    ? afterButtons.find((button) => button.id === resultButtonId) || null
+    : afterButtons.find((button) => {
+      const characterMatched = input.characterId
+        ? button.characterId === input.characterId
+        : input.characterName
+          ? button.characterName === input.characterName
+          : true;
+      const skillMatched = input.skillType ? button.skillType === input.skillType : true;
+      return characterMatched && skillMatched;
+    }) || null;
+  const snapshotVerification = verifyDefSnapshotDelta(after, {
+    expected: { buttonCount: { equals: beforeButtonCount + 1 } },
+  });
+  return {
+    ok: commandVerification.pass && snapshotVerification.pass && Boolean(addedButton),
+    command: enqueued.body.command,
+    commandVerification,
+    before: { buttonCount: beforeButtonCount, snapshotUpdatedAt: before?.updatedAt || null },
+    after: { buttonCount: snapshotButtonCount(after), snapshotUpdatedAt: after?.updatedAt || null },
+    addedButton: addedButton
+      ? {
+          id: addedButton.id,
+          characterId: addedButton.characterId,
+          characterName: addedButton.characterName,
+          skillType: addedButton.skillType,
+          skillDisplayName: addedButton.skillDisplayName,
+          staffIndex: addedButton.staffIndex,
+          lineIndex: addedButton.lineIndex,
+          nodeIndex: addedButton.nodeIndex,
+        }
+      : null,
+    snapshotVerification,
+    note: commandVerification.pass && snapshotVerification.pass && addedButton
+      ? 'Add command reached terminal success state and exactly one new mirrored button was checked.'
+      : 'Add command or snapshot verification was not confirmed; do not report add as complete.',
   };
 }
 
@@ -2845,7 +3258,7 @@ function classifyDefCommandResult(entryOrBatch) {
   return { resultState: 'applied', reason: 'command-done' };
 }
 
-function executeDefTool(name, input = {}, query = new URLSearchParams()) {
+async function executeDefTool(name, input = {}, query = new URLSearchParams()) {
   const definition = getDefToolDefinition(name);
   if (!definition) {
     return failScript(404, 'def-tool-not-found', `Unknown DEF tool: ${name}`, {
@@ -2864,6 +3277,50 @@ function executeDefTool(name, input = {}, query = new URLSearchParams()) {
     const commandsOrResponse = buildDefGearEntryLevelCommands(input);
     if (commandsOrResponse?.status && commandsOrResponse?.body) return commandsOrResponse;
     return enqueueDefToolCommands(definition, commandsOrResponse, input);
+  }
+  if (name === 'def.worknode.checkout_and_verify') {
+    return {
+      status: 200,
+      body: {
+        ok: true,
+        protocolVersion: 1,
+        tool: name,
+        result: await executeDefWorkNodeApplyAndVerify(name, input, false),
+      },
+    };
+  }
+  if (name === 'def.worknode.restore_base_and_verify') {
+    return {
+      status: 200,
+      body: {
+        ok: true,
+        protocolVersion: 1,
+        tool: name,
+        result: await executeDefWorkNodeApplyAndVerify(name, input, true),
+      },
+    };
+  }
+  if (name === 'def.damage.calculate_and_verify') {
+    return {
+      status: 200,
+      body: {
+        ok: true,
+        protocolVersion: 1,
+        tool: name,
+        result: await executeDefDamageCalculateAndVerify(input),
+      },
+    };
+  }
+  if (name === 'def.workbench.add_skill_button_and_verify') {
+    return {
+      status: 200,
+      body: {
+        ok: true,
+        protocolVersion: 1,
+        tool: name,
+        result: await executeDefAddSkillButtonAndVerify(input),
+      },
+    };
   }
   const snapshot = readMainWorkbenchSnapshotMirror();
   let result = null;
@@ -2961,9 +3418,9 @@ function executeDefTool(name, input = {}, query = new URLSearchParams()) {
   };
 }
 
-function handleDefToolRequest(method, pathname, query, body) {
+async function handleDefToolRequest(method, pathname, query, body) {
   if (method === 'GET' && pathname === '/api/def-tools') {
-    return executeDefTool('def.tool.list', {}, query);
+    return await executeDefTool('def.tool.list', {}, query);
   }
   if (method === 'GET' && pathname === '/api/def-tools/governance') {
     const archive = readDefToolGovernanceArchive();
@@ -2992,17 +3449,17 @@ function handleDefToolRequest(method, pathname, query, body) {
     };
   }
   if (method === 'GET' && pathname === '/api/def-tools/describe') {
-    return executeDefTool('def.tool.describe', { name: query.get('name') || '' }, query);
+    return await executeDefTool('def.tool.describe', { name: query.get('name') || '' }, query);
   }
   const callMatch = /^\/api\/def-tools\/([^/]+)\/call$/.exec(pathname);
   if (method === 'POST' && callMatch) {
     const name = decodeURIComponent(callMatch[1]);
     const input = body && typeof body === 'object' && Object.prototype.hasOwnProperty.call(body, 'input') ? body.input : body;
-    return executeDefTool(name, input || {}, query);
+    return await executeDefTool(name, input || {}, query);
   }
   if (method === 'POST' && pathname === '/api/def-tools/call') {
     const name = typeof body?.tool === 'string' ? body.tool : typeof body?.name === 'string' ? body.name : '';
-    return executeDefTool(name, body?.input || {}, query);
+    return await executeDefTool(name, body?.input || {}, query);
   }
   return null;
 }
@@ -3404,7 +3861,7 @@ const server = http.createServer(async (request, response) => {
       return;
     }
 
-    const defToolResponse = handleDefToolRequest(method, requestUrl.pathname, requestUrl.searchParams, body);
+    const defToolResponse = await handleDefToolRequest(method, requestUrl.pathname, requestUrl.searchParams, body);
     if (defToolResponse) {
       writeJson(response, defToolResponse.status, defToolResponse.body);
       return;

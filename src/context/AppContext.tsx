@@ -9,7 +9,7 @@
  * Action 说明：
  * - SELECT_CHARACTER / DESELECT_CHARACTER：干员选择（最多 4 人）
  * - SET_VIEW：切换视图（selection <-> canvas）
- * - ADD_SKILL_BUTTON / REMOVE_SKILL_BUTTON：画布上技能按钮的增删
+ * - ADD_SKILL_BUTTON / REMOVE_SKILL_BUTTON / SET_SKILL_BUTTONS：画布上技能按钮的增删与整表替换
  * - SET_SKILL_BUTTON_POSITION：移动画布上已有按钮
  * - SELECT_SKILL_BUTTON：选中画布上的技能按钮
  * - SET_DRAGGING：标记按钮是否正在被拖拽（影响拖拽跟随）
@@ -52,12 +52,83 @@ import {
   patchMainWorkbenchCommand,
   pullRemoteMainWorkbenchCommands,
   pushMainWorkbenchCommandResult,
+  pushMainWorkbenchSnapshot,
+  readMainWorkbenchSnapshot,
+  writeMainWorkbenchSnapshot,
+  type MainWorkbenchSnapshot,
 } from '../utils/mainWorkbenchControl';
 import {
   removeTimelineData,
   setAllBuffList,
   setSkillButtonTable,
 } from '../core/repositories';
+
+function buildSelectionWorkbenchSnapshot(
+  selectedCharacters: Character[],
+  currentView: ViewType,
+  skillButtons: SkillButton[],
+): MainWorkbenchSnapshot {
+  const previousSnapshot = readMainWorkbenchSnapshot();
+  const selectedKeys = new Set(selectedCharacters.flatMap((character) => [character.id, character.name]));
+  const selectedLineIndex = new Map(selectedCharacters.flatMap((character, index) => [
+    [character.id, index],
+    [character.name, index],
+  ]));
+  const previousButtons = Array.isArray(previousSnapshot?.skillButtons) ? previousSnapshot.skillButtons : [];
+  const sourceButtons = skillButtons.length > 0
+    ? skillButtons.map((button) => ({
+        id: button.id,
+        characterId: button.characterId,
+        characterName: button.characterName,
+        skillType: button.skillType,
+        runtimeSkillId: button.runtimeSkillId,
+        skillDisplayName: button.skillDisplayName,
+        staffIndex: button.staffIndex,
+        lineIndex: button.lineIndex,
+        nodeIndex: button.nodeIndex,
+        nodeNumber: button.nodeNumber,
+        selectedBuffIds: [],
+      }))
+    : previousButtons;
+  const mirroredButtons = sourceButtons
+    .filter((button) => selectedKeys.has(button.characterId) || selectedKeys.has(button.characterName))
+    .map((button) => ({
+      ...button,
+      lineIndex: selectedLineIndex.get(button.characterId) ?? selectedLineIndex.get(button.characterName) ?? button.lineIndex,
+      selectedBuffIds: [...(button.selectedBuffIds ?? [])],
+    }));
+  const previousDamageReport = previousSnapshot?.damageReport;
+  const canReuseDamageReport = Boolean(previousDamageReport) &&
+    previousSnapshot?.skillButtons?.length === mirroredButtons.length &&
+    previousDamageReport?.buttonCount === mirroredButtons.length;
+
+  return {
+    schemaVersion: 1,
+    updatedAt: Date.now(),
+    source: 'app',
+    currentView,
+    selectedCharacters: selectedCharacters.map((character) => ({
+      id: character.id,
+      name: character.name,
+      element: character.element,
+      profession: character.profession,
+      librarySource: character.librarySource,
+    })),
+    skillButtons: mirroredButtons,
+    damageReport: canReuseDamageReport && previousDamageReport
+      ? previousDamageReport
+      : {
+          generatedAt: 0,
+          totalExpected: 0,
+          totalNonCrit: 0,
+          buttonCount: mirroredButtons.length,
+          buttons: [],
+        },
+    operatorConfigs: (previousSnapshot?.operatorConfigs ?? []).filter((config) =>
+      selectedKeys.has(config.characterId) || selectedKeys.has(config.characterName)
+    ),
+  };
+}
 
 /** 所有支持的 Action 类型（Tagged Union）*/
 type AppAction =
@@ -67,6 +138,7 @@ type AppAction =
   | { type: 'DESELECT_CHARACTER'; characterId: string }
   | { type: 'SET_VIEW'; view: ViewType }
   | { type: 'ADD_SKILL_BUTTON'; button: SkillButton }
+  | { type: 'SET_SKILL_BUTTONS'; buttons: SkillButton[] }
   | { type: 'REMOVE_SKILL_BUTTON'; buttonId: string }
   | {
       type: 'SET_SKILL_BUTTON_POSITION';
@@ -187,6 +259,12 @@ function appReducer(state: AppState, action: AppAction): AppState {
       return {
         ...state,
         skillButtons: [...state.skillButtons, action.button],
+      };
+
+    case 'SET_SKILL_BUTTONS':
+      return {
+        ...state,
+        skillButtons: action.buttons,
       };
 
     // 移除技能按钮
@@ -724,6 +802,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
     rebuildSelectedRuntimeTemplateMap(refreshedCharacters);
   }, [rebuildSelectedRuntimeTemplateMap, refreshSelectedLocalCharacters, state.currentView, state.selectedCharacters]);
+
+  useEffect(() => {
+    if (!selectedCharactersHydratedRef.current || state.currentView === 'canvas') {
+      return;
+    }
+    const snapshot = buildSelectionWorkbenchSnapshot(state.selectedCharacters, state.currentView, state.skillButtons);
+    writeMainWorkbenchSnapshot(snapshot);
+    void pushMainWorkbenchSnapshot(snapshot);
+  }, [state.currentView, state.selectedCharacters, state.skillButtons]);
 
   const contextValue = useMemo(() => ({
     state,

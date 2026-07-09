@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useAppContext } from '../../context/AppContext';
 import { SkillSandbox } from './SkillSandbox';
 import { MainWorkbenchAiPanel } from './MainWorkbenchAiPanel';
@@ -18,6 +18,7 @@ import {
   SkillButtonType,
   SkillButtonSkillChangePayload,
   SkillButtonSkillOption,
+  TimelineData,
 } from '../../types';
 import { resolveSkillIconUrl } from '../../utils/assetResolver';
 import { emitSkillButtonBuffAdded, onSkillButtonBuffAdded, onSkillButtonBuffRemoved } from '../../core/events/buffEvents';
@@ -474,6 +475,58 @@ export function CanvasBoard({
 
   const restoredSignatureRef = useRef<string | null>(null);
   const previousViewRef = useRef(currentView);
+
+  const syncRuntimeSkillButtonsFromTimelineData = useCallback((dataToRestore: TimelineData) => {
+    const restoredButtons: SkillButton[] = [];
+    dataToRestore.staffLines.forEach((staffLine) => {
+      const buttons = Array.isArray(staffLine.buttons) ? staffLine.buttons : [];
+      buttons.forEach((btn) => {
+        const character = selectedCharacters.find((item) => item.name === btn.characterName || item.id === btn.characterId);
+        const lineIndex = selectedCharacters.findIndex((item) => item.name === btn.characterName || item.id === btn.characterId);
+        const restoredLineIndex = lineIndex >= 0 ? lineIndex : 0;
+        const restoredStaffIndex = typeof btn.staffIndex === 'number' ? btn.staffIndex : staffLine.staffIndex;
+        const restoredNodeIndex = typeof btn.nodeIndex === 'number' && Number.isFinite(btn.nodeIndex) ? btn.nodeIndex : 0;
+        const restoredButtonCharacterId = character?.id ?? btn.characterId ?? btn.characterName;
+        const resolvedRuntimeSkill = resolveRuntimeTemplateSkill({
+          id: btn.id,
+          characterId: restoredButtonCharacterId,
+          characterName: btn.characterName,
+          skillType: btn.skillType,
+          position: btn.position,
+          staffIndex: restoredStaffIndex,
+          lineIndex: restoredLineIndex,
+          isDragging: false,
+          isSelected: false,
+          isFromSandbox: true,
+          runtimeSkillId: btn.runtimeSkillId,
+          skillDisplayName: btn.skillDisplayName,
+          skillIconUrl: btn.skillIconUrl,
+          customHits: btn.customHits,
+          element: character?.element,
+        });
+        restoredButtons.push({
+          id: btn.id,
+          characterId: restoredButtonCharacterId,
+          characterName: btn.characterName,
+          skillType: btn.skillType,
+          position: btn.position,
+          staffIndex: restoredStaffIndex,
+          lineIndex: restoredLineIndex,
+          nodeIndex: restoredNodeIndex,
+          nodeNumber: calculateNodeNumber(restoredNodeIndex),
+          isDragging: false,
+          isSelected: false,
+          isFromSandbox: true,
+          runtimeSkillId: resolvedRuntimeSkill?.id ?? btn.runtimeSkillId,
+          skillDisplayName: resolvedRuntimeSkill?.displayName || btn.skillDisplayName,
+          skillIconUrl: resolvedRuntimeSkill?.iconUrl ?? btn.skillIconUrl ?? resolveSkillIconUrl(btn.characterName, btn.skillType),
+          customHits: btn.customHits,
+          element: character?.element,
+        });
+      });
+    });
+    dispatch({ type: 'SET_SKILL_BUTTONS', buttons: restoredButtons });
+  }, [dispatch, selectedCharacters]);
 
   const findCharacterForWorkbenchCommand = (command: Extract<MainWorkbenchCommand, { op: 'addSkillButton' | 'removeSkillButton' | 'addBuff' | 'removeBuff' | 'setOperatorWeapon' | 'setOperatorEquipment' }>) => {
     if ('characterId' in command && command.characterId) {
@@ -960,6 +1013,7 @@ export function CanvasBoard({
       window.setTimeout(() => window.location.reload(), 80);
     } else {
       loadTimelineData();
+      syncRuntimeSkillButtonsFromTimelineData(node.workingPayload.timelineData);
     }
 
     return {
@@ -1150,6 +1204,7 @@ export function CanvasBoard({
       window.setTimeout(() => window.location.reload(), 80);
     } else {
       loadTimelineData();
+      syncRuntimeSkillButtonsFromTimelineData(node.basePayload.timelineData);
     }
 
     return {
@@ -1501,7 +1556,104 @@ export function CanvasBoard({
           return;
         }
 
-        const currentSkillButtonIds = skillButtons.map((button) => button.id);
+        let timelineSkillButtonIds = timelineData.staffLines.flatMap((staffLine) =>
+          (Array.isArray(staffLine.buttons) ? staffLine.buttons : []).map((button) => button.id)
+        );
+        const mirroredSnapshot = readMainWorkbenchSnapshot();
+        const mirroredSkillButtons = Array.isArray(mirroredSnapshot?.skillButtons) ? mirroredSnapshot.skillButtons : [];
+        if (timelineSkillButtonIds.length === 0 && mirroredSkillButtons.length > 0) {
+          const mirroredSkillButtonTable = Object.fromEntries(mirroredSkillButtons.map((button) => [button.id, {
+            id: button.id,
+            characterId: button.characterId,
+            characterName: button.characterName,
+            skillType: button.skillType,
+            staffIndex: button.staffIndex,
+            nodeIndex: button.nodeIndex ?? 0,
+            nodeNumber: button.nodeNumber ?? ((button.nodeIndex ?? 0) + 1),
+            position: { x: 80 + (button.nodeIndex ?? 0) * 22, y: 60 + button.staffIndex * 300 },
+            runtimeSkillId: button.runtimeSkillId,
+            skillDisplayName: button.skillDisplayName,
+            selectedBuff: [...(button.selectedBuffIds ?? [])],
+            panelConfig: { selectedBuff: [...(button.selectedBuffIds ?? [])] },
+            runtimeSnapshot: null,
+            createdAt: Date.now(),
+            updatedAt: Date.now(),
+          }]));
+          const repairedTimelineData: TimelineData = {
+            version: '1.0.0',
+            createdAt: Date.now(),
+            updatedAt: Date.now(),
+            staffLines: selectedCharacters.map((character, index) => {
+              const buttons = mirroredSkillButtons
+                .filter((button) => button.staffIndex === index || button.characterId === character.id || button.characterName === character.name)
+                .map((button) => ({
+                  id: button.id,
+                  characterId: button.characterId,
+                  characterName: button.characterName,
+                  skillType: button.skillType as SkillButtonType,
+                  staffIndex: button.staffIndex,
+                  nodeIndex: button.nodeIndex ?? 0,
+                  nodeNumber: button.nodeNumber ?? ((button.nodeIndex ?? 0) + 1),
+                  position: { x: 80 + (button.nodeIndex ?? 0) * 22, y: 60 + button.staffIndex * 300 },
+                  runtimeSkillId: button.runtimeSkillId,
+                  skillDisplayName: button.skillDisplayName,
+                  buffIds: [...(button.selectedBuffIds ?? [])],
+                }))
+                .sort((left, right) => left.nodeIndex - right.nodeIndex);
+              return {
+                staffIndex: index,
+                characterName: character.name,
+                occupiedNodes: buttons.map((button) => button.nodeIndex).sort((left, right) => left - right),
+                buttons,
+              };
+            }),
+          };
+          setSkillButtonTable(mirroredSkillButtonTable);
+          saveTimelineRepo(repairedTimelineData);
+          timelineSkillButtonIds = repairedTimelineData.staffLines.flatMap((staffLine) => staffLine.buttons.map((button) => button.id));
+        }
+        const persistedSkillButtonTable = getSkillButtonTable();
+        const persistedSkillButtonIds = Object.keys(persistedSkillButtonTable);
+        if (timelineSkillButtonIds.length === 0 && persistedSkillButtonIds.length > 0) {
+          const repairedTimelineData: TimelineData = {
+            version: '1.0.0',
+            createdAt: Date.now(),
+            updatedAt: Date.now(),
+            staffLines: selectedCharacters.map((character, index) => {
+              const buttons = Object.values(persistedSkillButtonTable)
+                .filter((button) => button.staffIndex === index || button.characterId === character.id || button.characterName === character.name)
+                .map((button) => ({
+                  id: button.id,
+                  characterId: button.characterId,
+                  characterName: button.characterName,
+                  skillType: button.skillType as SkillButtonType,
+                  staffIndex: button.staffIndex,
+                  nodeIndex: button.nodeIndex,
+                  nodeNumber: button.nodeNumber,
+                  position: button.position,
+                  runtimeSkillId: button.runtimeSkillId,
+                  skillDisplayName: button.skillDisplayName,
+                  skillIconUrl: button.skillIconUrl,
+                  customHits: button.customHits,
+                  buffIds: [...(button.selectedBuff ?? [])],
+                }))
+                .sort((left, right) => left.nodeIndex - right.nodeIndex);
+              return {
+                staffIndex: index,
+                characterName: character.name,
+                occupiedNodes: buttons.map((button) => button.nodeIndex).sort((left, right) => left - right),
+                buttons,
+              };
+            }),
+          };
+          saveTimelineRepo(repairedTimelineData);
+          timelineSkillButtonIds = repairedTimelineData.staffLines.flatMap((staffLine) => staffLine.buttons.map((button) => button.id));
+        }
+        const currentSkillButtonIds = skillButtons.length > 0
+          ? skillButtons.map((button) => button.id)
+          : timelineSkillButtonIds.length > 0
+            ? timelineSkillButtonIds
+            : persistedSkillButtonIds;
         const snapshot = buildDamageReportSnapshot({ buttonIds: currentSkillButtonIds });
         const result = command.op === 'calculateDamage' && command.buttonId
           ? {
