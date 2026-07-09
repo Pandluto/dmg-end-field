@@ -2892,22 +2892,22 @@
   z-index: 2200;
   display: grid;
   place-items: center;
-  padding: 34px;
+  padding: 24px;
   box-sizing: border-box;
   background: rgba(0, 0, 0, 0.18);
 }
 
 .work-node-modal {
-  width: min(1180px, calc(100vw - 68px));
-  height: min(820px, calc(100vh - 68px));
-  min-height: 520px;
+  width: min(1220px, calc(100vw - 48px));
+  height: min(800px, calc(100vh - 48px));
+  min-height: 500px;
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
-  gap: 10px;
+  gap: 8px;
   border: 1px solid rgba(0, 0, 0, 0.72);
   background: rgba(255, 255, 255, 0.96);
   box-shadow: 0 18px 44px rgba(0, 0, 0, 0.18);
-  padding: 12px;
+  padding: 10px;
   box-sizing: border-box;
 }
 

@@ -1,8 +1,8 @@
 import type { WorkNodeTreeNode as WorkNodeTreeNodeModel } from './workNodeTreeTypes';
 
 const SOURCE_LABELS: Record<WorkNodeTreeNodeModel['source'], string> = {
-  'manual-checkpoint': '人工基线',
-  'ai-turn': 'AI 对话',
+  'manual-checkpoint': '基线',
+  'ai-turn': 'AI',
   checkout: '应用',
   restore: '回退',
   discard: '丢弃',
@@ -10,22 +10,27 @@ const SOURCE_LABELS: Record<WorkNodeTreeNodeModel['source'], string> = {
 
 const STATUS_LABELS: Record<WorkNodeTreeNodeModel['status'], string> = {
   draft: '草稿',
-  validated: '已校验',
+  validated: '校验',
   blocked: '阻塞',
   'checked-out': '已应用',
   restored: '已回退',
-  discarded: '已丢弃',
+  discarded: '丢弃',
 };
 
 function formatTime(timestamp: number) {
-  if (!timestamp) return '未知时间';
-  return new Date(timestamp).toLocaleString('zh-CN', {
-    month: '2-digit',
-    day: '2-digit',
+  if (!timestamp) return '--:--';
+  return new Date(timestamp).toLocaleTimeString('zh-CN', {
     hour: '2-digit',
     minute: '2-digit',
     hour12: false,
   });
+}
+
+function compactTitle(title: string) {
+  return title
+    .replace(/^进入 AI 模式前\s*/i, '')
+    .replace(/^\d{4}\/\d{1,2}\/\d{1,2}\s*/, '')
+    .trim() || 'checkpoint';
 }
 
 export function WorkNodeTreeNode({ node, isRoot = false }: { node: WorkNodeTreeNodeModel; isRoot?: boolean }) {
@@ -37,28 +42,21 @@ export function WorkNodeTreeNode({ node, isRoot = false }: { node: WorkNodeTreeN
 
   return (
     <div className={`work-node-flow-node${isRoot ? ' is-root' : ''}`}>
-      <article className={`work-node-tree-node is-${node.status}`}>
-        <div className="work-node-tree-node-header">
+      <article
+        className={`work-node-tree-node is-${node.status}`}
+        title={`${node.title}\n${node.diffSummary}\n${node.summary}`}
+      >
+        <div className="work-node-tree-node-top">
           <span className="work-node-tree-source">{SOURCE_LABELS[node.source]}</span>
           <span className="work-node-tree-status">{STATUS_LABELS[node.status]}</span>
         </div>
-        <strong title={node.nodeId}>{node.title}</strong>
+        <strong>{compactTitle(node.title)}</strong>
         <div className="work-node-tree-meta">
           <span>{formatTime(node.createdAt)}</span>
-          <span>{node.nodeId.slice(0, 8)}</span>
-          {node.parentNodeId ? <span>父 {node.parentNodeId.slice(0, 8)}</span> : <span>根</span>}
           {childCount > 1 ? <span>{childCount} 分支</span> : null}
-          {node.checkoutTouched ? <span>已应用到当前排轴</span> : <span>未应用到当前排轴</span>}
+          {node.checkoutTouched ? <span>应用</span> : null}
+          {node.riskFlags.length > 0 ? <span>{node.riskFlags.length} 风险</span> : null}
         </div>
-        <p>{node.diffSummary}</p>
-        <small>{node.summary}</small>
-        {node.riskFlags.length > 0 && (
-          <div className="work-node-tree-risks">
-            {node.riskFlags.slice(0, 3).map((risk) => (
-              <span key={risk}>{risk}</span>
-            ))}
-          </div>
-        )}
       </article>
       {hasChildren ? (
         <div className={childrenClassName}>
