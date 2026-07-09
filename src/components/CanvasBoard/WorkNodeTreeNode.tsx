@@ -21,6 +21,7 @@ const STATUS_LABELS: Record<WorkNodeTreeNodeModel['status'], string> = {
 type WorkNodeTreeNodeProps = {
   node: WorkNodeTreeNodeModel;
   activeNodeId: string;
+  activePathNodeIds: Set<string>;
   isRoot?: boolean;
   onSelect: (node: WorkNodeTreeNodeModel) => void;
   onDelete: (node: WorkNodeTreeNodeModel) => void;
@@ -82,6 +83,7 @@ function BranchIcon() {
 export function WorkNodeTreeNode({
   node,
   activeNodeId,
+  activePathNodeIds,
   isRoot = false,
   onSelect,
   onDelete,
@@ -91,27 +93,31 @@ export function WorkNodeTreeNode({
   const childCount = node.children.length;
   const hasChildren = childCount > 0;
   const isActive = activeNodeId === node.nodeId;
+  const isInActivePath = activePathNodeIds.has(node.nodeId);
+  const pathClassName = isActive ? ' is-active' : isInActivePath ? ' is-path' : ' is-muted';
   const childrenClassName = childCount > 1
     ? 'work-node-tree-children is-fork'
     : 'work-node-tree-children is-linear';
 
   return (
     <div className={`work-node-flow-node${isRoot ? ' is-root' : ''}`}>
-      <article
-        className={`work-node-tree-node is-${node.status}${isActive ? ' is-active' : ' is-muted'}`}
-        title={`${node.title}\n${node.diffSummary}\n${node.summary}`}
-        onClick={() => onSelect(node)}
-      >
-        <div className="work-node-tree-node-top">
-          <span className="work-node-tree-source">{SOURCE_LABELS[node.source]}</span>
-          <span className="work-node-tree-status">{STATUS_LABELS[node.status]}</span>
-        </div>
-        <strong>{compactTitle(node.title)}</strong>
-        <div className="work-node-tree-meta">
-          <span>{formatTime(node.createdAt)}</span>
-          {childCount > 1 ? <span>{childCount} 分支</span> : null}
-          {node.checkoutTouched ? <span>应用</span> : null}
-          {node.riskFlags.length > 0 ? <span>{node.riskFlags.length} 风险</span> : null}
+      <article className="work-node-tree-node-shell">
+        <div
+          className={`work-node-tree-node is-${node.status}${pathClassName}`}
+          title={`${node.title}\n${node.diffSummary}\n${node.summary}`}
+          onClick={() => onSelect(node)}
+        >
+          <div className="work-node-tree-node-top">
+            <span className="work-node-tree-source">{SOURCE_LABELS[node.source]}</span>
+            <span className="work-node-tree-status">{STATUS_LABELS[node.status]}</span>
+          </div>
+          <strong>{compactTitle(node.title)}</strong>
+          <div className="work-node-tree-meta">
+            <span>{formatTime(node.createdAt)}</span>
+            {childCount > 1 ? <span>{childCount} 分支</span> : null}
+            {node.checkoutTouched ? <span>应用</span> : null}
+            {node.riskFlags.length > 0 ? <span>{node.riskFlags.length} 风险</span> : null}
+          </div>
         </div>
         <div className="work-node-tree-actions" aria-label="节点操作">
           <button type="button" title="删除节点" onClick={(event) => stopAction(event, () => onDelete(node))}>
@@ -132,6 +138,7 @@ export function WorkNodeTreeNode({
               key={child.nodeId}
               node={child}
               activeNodeId={activeNodeId}
+              activePathNodeIds={activePathNodeIds}
               onSelect={onSelect}
               onDelete={onDelete}
               onAddChild={onAddChild}

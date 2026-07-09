@@ -54,6 +54,19 @@ export function WorkNodeTreePanel({ refreshKey, onSummaryChange }: WorkNodeTreeP
   const [activeNodeId, setActiveNodeId] = useState(() => readActiveWorkNodeId());
 
   const viewModel = useMemo(() => buildWorkNodeTreeViewModel(nodes, commits), [nodes, commits]);
+  const effectiveActiveNodeId = activeNodeId || viewModel.latestNode?.nodeId || '';
+  const activePathNodeIds = useMemo(() => {
+    const pathIds = new Set<string>();
+    const byId = new Map(viewModel.flatNodes.map((node) => [node.nodeId, node]));
+    let current = effectiveActiveNodeId ? byId.get(effectiveActiveNodeId) : undefined;
+
+    while (current) {
+      pathIds.add(current.nodeId);
+      current = current.parentNodeId ? byId.get(current.parentNodeId) : undefined;
+    }
+
+    return pathIds;
+  }, [effectiveActiveNodeId, viewModel.flatNodes]);
 
   useEffect(() => {
     let cancelled = false;
@@ -148,7 +161,8 @@ export function WorkNodeTreePanel({ refreshKey, onSummaryChange }: WorkNodeTreeP
         <WorkNodeTreeNode
           key={node.nodeId}
           node={node}
-          activeNodeId={activeNodeId || viewModel.latestNode?.nodeId || ''}
+          activeNodeId={effectiveActiveNodeId}
+          activePathNodeIds={activePathNodeIds}
           isRoot
           onSelect={(target) => checkoutNode(target.nodeId)}
           onDelete={handleDelete}

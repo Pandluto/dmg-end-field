@@ -47,9 +47,25 @@
   align-items: center;
 }
 
-.work-node-tree-node {
+.work-node-tree-node-shell {
   position: relative;
   z-index: 1;
+  width: 168px;
+  min-height: 44px;
+  box-sizing: border-box;
+}
+
+.work-node-tree-node-shell::after {
+  content: "";
+  position: absolute;
+  left: 100%;
+  top: -14px;
+  bottom: -14px;
+  width: 34px;
+}
+
+.work-node-tree-node {
+  position: relative;
   width: 168px;
   min-height: 44px;
   border: 1px solid rgba(0, 0, 0, 0.22);
@@ -69,6 +85,11 @@
   opacity: 1;
   border-color: rgba(0, 120, 212, 0.78);
   box-shadow: 0 0 0 2px rgba(0, 120, 212, 0.16);
+}
+
+.work-node-tree-node.is-path {
+  opacity: 1;
+  border-color: rgba(0, 0, 0, 0.28);
 }
 
 .work-node-tree-node:hover {
@@ -168,23 +189,25 @@
   top: 50%;
   z-index: 3;
   display: flex;
+  flex-direction: column;
   align-items: center;
-  gap: 3px;
+  gap: 2px;
   opacity: 0;
   pointer-events: none;
   transform: translateY(-50%);
   transition: opacity 0.12s ease;
 }
 
-.work-node-tree-node:hover .work-node-tree-actions,
+.work-node-tree-node-shell:hover .work-node-tree-actions,
+.work-node-tree-actions:hover,
 .work-node-tree-actions:focus-within {
   opacity: 1;
   pointer-events: auto;
 }
 
 .work-node-tree-actions button {
-  width: 20px;
-  height: 20px;
+  width: 21px;
+  height: 21px;
   display: grid;
   place-items: center;
   border: 1px solid rgba(0, 0, 0, 0.26);
