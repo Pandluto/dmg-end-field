@@ -973,6 +973,10 @@ function startBridgeServer() {
           writeJson(response, 200, updateAiTimelineWorkNode(nodeId, payload));
           return;
         }
+        if (method === 'POST' && action === 'delete') {
+          writeJson(response, 200, deleteAiTimelineWorkNode(nodeId));
+          return;
+        }
         if (method === 'POST' && action === 'commit') {
           const payload = await readJsonRequest(request);
           writeJson(response, 200, commitAiTimelineWorkNode(nodeId, payload));
@@ -4699,6 +4703,9 @@ function createAiTimelineWorkNode(payload) {
   const now = Date.now();
   const node = {
     id: sanitizeAiTimelineWorkNodeId(payload.id, 'ai-timeline-node'),
+    ...(typeof payload.parentNodeId === 'string' && payload.parentNodeId.trim()
+      ? { parentNodeId: sanitizeAiTimelineWorkNodeId(payload.parentNodeId, 'ai-timeline-node') }
+      : {}),
     saveId,
     branchId: sanitizeAiTimelineWorkNodeId(payload.branchId, 'branch'),
     createdAt: now,
@@ -4759,6 +4766,27 @@ function updateAiTimelineWorkNode(id, payload = {}) {
     nodes: [nextNode, ...archive.nodes.filter((item) => item?.id !== nodeId)],
   });
   return { ok: true, path: getAiTimelineWorkNodesPath(), node: nextNode };
+}
+
+function deleteAiTimelineWorkNode(id) {
+  const nodeId = sanitizeAiTimelineWorkNodeId(id, 'ai-timeline-node');
+  const archive = readAiTimelineWorkNodeArchive();
+  const target = archive.nodes.find((item) => item?.id === nodeId);
+  if (!target) {
+    throw new Error(`AI timeline work node not found: ${nodeId}`);
+  }
+  const parentNodeId = typeof target.parentNodeId === 'string' && target.parentNodeId.trim()
+    ? target.parentNodeId
+    : undefined;
+  const nodes = archive.nodes
+    .filter((item) => item?.id !== nodeId)
+    .map((item) => item?.parentNodeId === nodeId
+      ? { ...item, ...(parentNodeId ? { parentNodeId } : { parentNodeId: undefined }) }
+      : item);
+  const commits = archive.commits.filter((commit) => commit?.nodeId !== nodeId);
+  const nextArchive = { ...archive, nodes, commits };
+  writeAiTimelineWorkNodeArchive(nextArchive);
+  return buildAiTimelineWorkNodeListResult();
 }
 
 function commitAiTimelineWorkNode(id, payload = {}) {
@@ -5228,6 +5256,14 @@ ipcMain.handle('desktop:mark-ai-timeline-worknode-checkout-applied', (_event, pa
 ipcMain.handle('desktop:mark-ai-timeline-worknode-rollback-applied', (_event, payload) => {
   try {
     return markAiTimelineWorkNodeRollbackApplied(payload?.id, payload);
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : String(error) };
+  }
+});
+
+ipcMain.handle('desktop:delete-ai-timeline-worknode', (_event, payload) => {
+  try {
+    return deleteAiTimelineWorkNode(payload?.id || payload);
   } catch (error) {
     return { ok: false, error: error instanceof Error ? error.message : String(error) };
   }

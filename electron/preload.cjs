@@ -46,4 +46,5 @@ contextBridge.exposeInMainWorld('desktopRuntime', {
   commitAiTimelineWorkNode: (payload) => ipcRenderer.invoke('desktop:commit-ai-timeline-worknode', payload),
   markAiTimelineWorkNodeCheckoutApplied: (payload) => ipcRenderer.invoke('desktop:mark-ai-timeline-worknode-checkout-applied', payload),
   markAiTimelineWorkNodeRollbackApplied: (payload) => ipcRenderer.invoke('desktop:mark-ai-timeline-worknode-rollback-applied', payload),
+  deleteAiTimelineWorkNode: (payload) => ipcRenderer.invoke('desktop:delete-ai-timeline-worknode', payload),
 });

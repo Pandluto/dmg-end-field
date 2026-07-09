@@ -210,6 +210,7 @@ interface AiTimelineApprovalBridge {
 
 interface AiTimelineWorkNodeBridge {
   id: string;
+  parentNodeId?: string;
   saveId: string;
   branchId: string;
   createdAt: number;
@@ -306,6 +307,7 @@ interface DesktopRuntimeBridge {
   commitAiTimelineWorkNode?: (payload: { id: string; [key: string]: unknown }) => Promise<AiTimelineWorkNodeOpResult>;
   markAiTimelineWorkNodeCheckoutApplied?: (payload: { id: string; [key: string]: unknown }) => Promise<AiTimelineWorkNodeOpResult>;
   markAiTimelineWorkNodeRollbackApplied?: (payload: { id: string; [key: string]: unknown }) => Promise<AiTimelineWorkNodeOpResult>;
+  deleteAiTimelineWorkNode?: (payload: { id: string } | string) => Promise<AiTimelineWorkNodeOpResult>;
 }
 
 interface Window {

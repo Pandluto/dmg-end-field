@@ -66,6 +66,7 @@ export type AiTimelineCheckout = {
 
 export type AiTimelineWorkNode = {
   id: string;
+  parentNodeId?: string;
   saveId: string;
   branchId: string;
   createdAt: number;

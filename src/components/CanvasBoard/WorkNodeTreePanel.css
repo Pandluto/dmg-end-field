@@ -57,6 +57,23 @@
   padding: 6px 7px 6px 9px;
   box-sizing: border-box;
   box-shadow: 0 1px 0 rgba(0, 0, 0, 0.04);
+  cursor: pointer;
+  transition: opacity 0.14s ease, border-color 0.14s ease, box-shadow 0.14s ease;
+}
+
+.work-node-tree-node.is-muted {
+  opacity: 0.48;
+}
+
+.work-node-tree-node.is-active {
+  opacity: 1;
+  border-color: rgba(0, 120, 212, 0.78);
+  box-shadow: 0 0 0 2px rgba(0, 120, 212, 0.16);
+}
+
+.work-node-tree-node:hover {
+  opacity: 1;
+  border-color: rgba(0, 120, 212, 0.58);
 }
 
 .work-node-tree-node::before {
@@ -143,6 +160,54 @@
 .work-node-tree-node.is-restored {
   border-color: rgba(16, 124, 16, 0.38);
   background: rgba(247, 255, 247, 0.96);
+}
+
+.work-node-tree-actions {
+  position: absolute;
+  left: calc(100% + 5px);
+  top: 50%;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(-50%);
+  transition: opacity 0.12s ease;
+}
+
+.work-node-tree-node:hover .work-node-tree-actions,
+.work-node-tree-actions:focus-within {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.work-node-tree-actions button {
+  width: 20px;
+  height: 20px;
+  display: grid;
+  place-items: center;
+  border: 1px solid rgba(0, 0, 0, 0.26);
+  background: rgba(255, 255, 255, 0.96);
+  color: var(--office-title);
+  padding: 0;
+  cursor: pointer;
+}
+
+.work-node-tree-actions button:hover {
+  background: #0078d4;
+  border-color: #0078d4;
+  color: #ffffff;
+}
+
+.work-node-tree-actions svg {
+  width: 13px;
+  height: 13px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
 .work-node-tree-node-top {

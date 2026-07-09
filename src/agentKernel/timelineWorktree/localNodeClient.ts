@@ -50,6 +50,7 @@ export type CreateAiTimelineWorkNodeInput = {
   saveId: string;
   branchId?: string;
   id?: string;
+  parentNodeId?: string;
   label?: string;
   basePayload: TimelineSnapshotPayload;
   workingPayload?: TimelineSnapshotPayload;
@@ -229,6 +230,39 @@ export function createAiTimelineWorkNodeClient(baseUrl = DEFAULT_REST_BASE_URL) 
       }
       const response = await fetch(buildUrl(baseUrl, `/api/ai-timeline-worknodes/${encodeURIComponent(id)}`));
       return readJsonResponse<AiTimelineWorkNodeResponse>(response);
+    },
+
+    async delete(id: string): Promise<AiTimelineWorkNodeListResponse> {
+      const desktopRuntime = getDesktopRuntime();
+      if (desktopRuntime?.deleteAiTimelineWorkNode) {
+        const result = readDesktopResult(await desktopRuntime.deleteAiTimelineWorkNode({ id }));
+        return {
+          ok: true,
+          protocolVersion: 1,
+          path: result.path || '',
+          nodes: (result.archive?.nodes || []) as AiTimelineWorkNode[],
+          commits: (result.archive?.commits || []) as AiTimelineWorkNodeCommit[],
+        };
+      }
+      const bridgeResult = await postBridgeJson<{
+        ok: true;
+        path?: string;
+        archive?: { nodes?: unknown[]; commits?: unknown[] };
+      }>(`/local-data/ai-timeline-worknodes/${encodeURIComponent(id)}/delete`, {});
+      if (bridgeResult) {
+        return {
+          ok: true,
+          protocolVersion: 1,
+          path: bridgeResult.path || '',
+          nodes: (bridgeResult.archive?.nodes || []) as AiTimelineWorkNode[],
+          commits: (bridgeResult.archive?.commits || []) as AiTimelineWorkNodeCommit[],
+        };
+      }
+      return postJson<AiTimelineWorkNodeListResponse>(
+        baseUrl,
+        `/api/ai-timeline-worknodes/${encodeURIComponent(id)}/delete`,
+        {},
+      );
     },
 
     async diff(id: string): Promise<AiTimelineWorkNodeDiffResponse> {

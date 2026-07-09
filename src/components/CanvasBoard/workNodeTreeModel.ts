@@ -107,6 +107,11 @@ type WorkNodeAssembly = {
 };
 
 function findParentNode(current: WorkNodeAssembly, previousNodes: WorkNodeAssembly[]): WorkNodeAssembly | undefined {
+  if (current.raw.parentNodeId) {
+    const explicitParent = previousNodes.find((candidate) => candidate.node.nodeId === current.raw.parentNodeId);
+    if (explicitParent) return explicitParent;
+  }
+
   const previousNode = previousNodes[previousNodes.length - 1];
   if (!previousNode) {
     return undefined;
