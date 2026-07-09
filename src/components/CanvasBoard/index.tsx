@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useAppContext } from '../../context/AppContext';
 import { SkillSandbox } from './SkillSandbox';
 import { MainWorkbenchAiPanel } from './MainWorkbenchAiPanel';
+import { WorkNodeTreePanel } from './WorkNodeTreePanel';
 import { useCanvasWidth } from './hooks/useCanvasWidth';
 import { useSelectStart } from './hooks/useSelectStart';
 import { useCanvasDrag } from './hooks/useCanvasDrag';
@@ -410,6 +411,8 @@ export function CanvasBoard({
   const [isBrowseMode, setIsBrowseMode] = useState(false);
   const [isInspectMode, setIsInspectMode] = useState(false);
   const [isAiMode, setIsAiMode] = useState(false);
+  const [isWorkNodePanelOpen, setIsWorkNodePanelOpen] = useState(false);
+  const [workNodeRefreshKey, setWorkNodeRefreshKey] = useState(0);
   const [aiHoverZone, setAiHoverZone] = useState<'left' | 'right'>('right');
   const shouldRestoreTopZoneAfterAiRef = useRef(false);
   const [isRefreshingAvailableCandidates, setIsRefreshingAvailableCandidates] = useState(false);
@@ -448,6 +451,19 @@ export function CanvasBoard({
       return;
     }
     enterAiMode();
+  };
+
+  const openWorkNodePanel = () => {
+    setWorkNodeRefreshKey((current) => current + 1);
+    setIsWorkNodePanelOpen(true);
+  };
+
+  const closeWorkNodePanel = () => {
+    setIsWorkNodePanelOpen(false);
+  };
+
+  const refreshWorkNodePanel = () => {
+    setWorkNodeRefreshKey((current) => current + 1);
   };
 
   const updateAiHoverZoneFromClientX = (clientX: number) => {
@@ -2718,6 +2734,7 @@ export function CanvasBoard({
       onInspectEnd={() => setIsInspectMode(false)}
       isAiMode={isAiMode}
       onToggleAiMode={toggleAiMode}
+      onOpenWorkNodePanel={openWorkNodePanel}
     />
   );
 
@@ -2767,6 +2784,8 @@ export function CanvasBoard({
                 selectedCharacters={selectedCharacters}
                 skillButtons={skillButtons}
                 onExit={exitAiMode}
+                onOpenWorkNodePanel={openWorkNodePanel}
+                onWorkNodeChanged={refreshWorkNodePanel}
               />
             </aside>
           </>
@@ -2795,6 +2814,23 @@ export function CanvasBoard({
           <div className="canvas-bottom-zone-right">{bottomRightControl}</div>
         </div>
       </div>
+
+      {isWorkNodePanelOpen && (
+        <div className="work-node-modal-overlay" onClick={closeWorkNodePanel}>
+          <div className="work-node-modal" onClick={(event) => event.stopPropagation()}>
+            <div className="work-node-modal-head">
+              <div>
+                <h3>Work Node 节点树</h3>
+                <p>查看 AI 与人工 checkpoint 的节点、差异、风险和 checkout / restore 证据。</p>
+              </div>
+              <button type="button" className="modal-close-btn" onClick={closeWorkNodePanel}>
+                关闭
+              </button>
+            </div>
+            <WorkNodeTreePanel refreshKey={workNodeRefreshKey} />
+          </div>
+        </div>
+      )}
 
       <DraggingOverlay
         draggingState={draggingState ? { id: draggingState.id, skillType: draggingState.skillType } : null}

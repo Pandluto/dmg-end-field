@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent } from 'react';
 import {
   hydrateDefAgentSession,
   sendDefAgentContinue,
@@ -32,9 +32,7 @@ import { summarizeMainWorkbenchToolsForAgent } from '../../agentKernel/mainWorkb
 import { buildGameKnowledgePromptLines } from '../../utils/gameKnowledge';
 import { probeAiTimelineWorkNodeRuntime } from '../../agentKernel/timelineWorktree/localNodeClient';
 import { MarkdownRenderer } from '../MarkdownRenderer';
-import { WorkNodeTreePanel } from './WorkNodeTreePanel';
 import { buildAiTurnCheckpointCommand, buildManualCheckpointCommand } from './workNodeAutosave';
-import type { WorkNodeTreeViewModel } from './workNodeTreeTypes';
 import './MainWorkbenchAiPanel.css';
 
 const DEF_AGENT_BROWSER_SESSION_KEY = 'def-opencode.workbench.activeSession.v1';
@@ -117,6 +115,8 @@ interface MainWorkbenchAiPanelProps {
   selectedCharacters: Character[];
   skillButtons: SkillButton[];
   onExit: () => void;
+  onOpenWorkNodePanel?: () => void;
+  onWorkNodeChanged?: () => void;
 }
 
 function readStoredDefAgentSession(): StoredDefAgentSession | null {
@@ -491,6 +491,8 @@ export function MainWorkbenchAiPanel({
   selectedCharacters,
   skillButtons,
   onExit,
+  onOpenWorkNodePanel,
+  onWorkNodeChanged,
 }: MainWorkbenchAiPanelProps) {
   const selectedSignature = useMemo(() => buildSelectedSignature(selectedCharacters), [selectedCharacters]);
   const storedSession = useMemo(() => {
@@ -509,14 +511,6 @@ export function MainWorkbenchAiPanel({
   const [lastRollbackLabel, setLastRollbackLabel] = useState('');
   const [lastRollbackNodeId, setLastRollbackNodeId] = useState('');
   const [thinkingDetails, setThinkingDetails] = useState<string[]>([]);
-  const [workNodePanelOpen, setWorkNodePanelOpen] = useState(false);
-  const [workNodeRefreshKey, setWorkNodeRefreshKey] = useState(0);
-  const [workNodeSummary, setWorkNodeSummary] = useState<WorkNodeTreeViewModel>({
-    nodes: [],
-    flatNodes: [],
-    nodeCount: 0,
-    riskCount: 0,
-  });
   const [currentWorkNodeContext, setCurrentWorkNodeContext] = useState<WorkbenchAiWorkNodeContext | null>(null);
   const [nowTick, setNowTick] = useState(Date.now());
   const eventSourceRef = useRef<EventSource | null>(null);
@@ -553,10 +547,6 @@ export function MainWorkbenchAiPanel({
     )));
   };
 
-  const handleWorkNodeSummaryChange = useCallback((summary: WorkNodeTreeViewModel) => {
-    setWorkNodeSummary(summary);
-  }, []);
-
   useEffect(() => {
     messagesRef.current?.scrollTo({ top: messagesRef.current.scrollHeight });
   }, [messages]);
@@ -581,9 +571,9 @@ export function MainWorkbenchAiPanel({
           return;
         }
         setStatus((current) => current === '待命' ? '已保存进入 AI 模式前节点' : current);
-        setWorkNodeRefreshKey((current) => current + 1);
+        onWorkNodeChanged?.();
         void waitForWorkbenchCommandsToSettle(createdAt, 7000).then(() => {
-          setWorkNodeRefreshKey((current) => current + 1);
+          onWorkNodeChanged?.();
         });
       })
       .catch((error) => {
@@ -718,7 +708,7 @@ export function MainWorkbenchAiPanel({
         }
         : message
     )));
-    setWorkNodeRefreshKey((current) => current + 1);
+    onWorkNodeChanged?.();
   };
 
   const finishMessageWithSnapshotFallback = (messageId: string, fallbackText: string, prompt: string, nextTokens?: DefAgentTokens) => {
@@ -1056,7 +1046,7 @@ export function MainWorkbenchAiPanel({
         setMessages((current) => current.map((message) => (
           message.id === messageId ? { ...message, rollbackLabel, rollbackNodeId: workNodeContext?.nodeId } : message
         )));
-        setWorkNodeRefreshKey((current) => current + 1);
+        onWorkNodeChanged?.();
         patchStep('backup', { status: 'done', detail: `work node ${workNodeContext.nodeId}` });
       } else {
         patchStep('backup', { status: 'done', detail: '只读请求' });
@@ -1150,9 +1140,9 @@ export function MainWorkbenchAiPanel({
     const entry = enqueueLocalWorkbenchCommand(command);
     setStatus(entry ? '已请求回退' : '回退失败：页面控制入口不可用');
     if (entry) {
-      setWorkNodeRefreshKey((current) => current + 1);
+      onWorkNodeChanged?.();
       void waitForWorkbenchCommandsToSettle(Date.now(), 7000).then(() => {
-        setWorkNodeRefreshKey((current) => current + 1);
+        onWorkNodeChanged?.();
       });
     }
     setSteps((current) => current.map((step) => (
@@ -1199,12 +1189,8 @@ export function MainWorkbenchAiPanel({
     : '待命';
   const latestNode = currentWorkNodeContext?.nodeId
     ? `当前节点 ${currentWorkNodeContext.nodeId.slice(0, 8)}`
-    : workNodeSummary.latestNode
-    ? `最新节点 ${workNodeSummary.latestNode.nodeId.slice(0, 8)}`
     : '暂无节点';
-  const workNodeStatusText = workNodeSummary.latestNode
-    ? `${workNodeSummary.nodeCount} 节点 · ${workNodeSummary.latestNode.status}`
-    : `${workNodeSummary.nodeCount} 节点`;
+  const workNodeStatusText = currentWorkNodeContext ? '本轮已保存节点' : '未关联本轮节点';
 
   return (
     <div className="main-workbench-ai-panel">
@@ -1248,18 +1234,16 @@ export function MainWorkbenchAiPanel({
         </button>
         <button
           type="button"
-          className={`main-workbench-ai-topbar-button ${workNodePanelOpen ? 'is-active' : ''}`}
+          className="main-workbench-ai-topbar-button"
           onPointerDown={(event) => {
             event.preventDefault();
             event.stopPropagation();
           }}
           onClick={(event) => {
             event.stopPropagation();
-            setWorkNodePanelOpen((current) => !current);
-            setWorkNodeRefreshKey((current) => current + 1);
+            onOpenWorkNodePanel?.();
           }}
           aria-label="Work node 节点树"
-          aria-pressed={workNodePanelOpen}
           title="Work node 节点树"
         >
           <WorkNodeTreeIcon />
@@ -1276,7 +1260,7 @@ export function MainWorkbenchAiPanel({
         <span>{workNodeStatusText}</span>
       </div>
 
-      <div className={`main-workbench-ai-body ${workNodePanelOpen ? 'is-worknode-open' : ''}`}>
+      <div className="main-workbench-ai-body">
         <div className="main-workbench-ai-messages" ref={messagesRef}>
           {messages.map((message) => (
             <div key={message.id} className={`main-workbench-ai-message is-${message.role} ${message.status ? `is-${message.status}` : ''}`}>
@@ -1324,12 +1308,6 @@ export function MainWorkbenchAiPanel({
             </div>
           ))}
         </div>
-        {workNodePanelOpen && (
-          <WorkNodeTreePanel
-            refreshKey={workNodeRefreshKey}
-            onSummaryChange={handleWorkNodeSummaryChange}
-          />
-        )}
       </div>
 
       <form className="main-workbench-ai-composer" onSubmit={handleSubmit}>

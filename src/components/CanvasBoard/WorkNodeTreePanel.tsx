@@ -5,6 +5,7 @@ import { getLocalAgentHealth, requestOpenAiCliRest } from '../../utils/localAgen
 import { buildWorkNodeTreeViewModel } from './workNodeTreeModel';
 import { WorkNodeTreeNode } from './WorkNodeTreeNode';
 import type { WorkNodeTreeViewModel } from './workNodeTreeTypes';
+import './WorkNodeTreePanel.css';
 
 type WorkNodeTreePanelProps = {
   refreshKey: number;
