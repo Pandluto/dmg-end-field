@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { createAiTimelineWorkNodeClient, probeAiTimelineWorkNodeRuntime } from '../../agentKernel/timelineWorktree/localNodeClient';
-import type { AiTimelineWorkNode, AiTimelineWorkNodeCommit } from '../../agentKernel/timelineWorktree/types';
+import type { AiTimelineWorkNodeCommitListItem, AiTimelineWorkNodeListItem } from '../../agentKernel/timelineWorktree/types';
 import { getLocalAgentHealth } from '../../utils/localAgent';
 import {
   enqueueMainWorkbenchCommand,
@@ -58,7 +58,7 @@ function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : String(error);
 }
 
-function applyParentOverrides(nodes: AiTimelineWorkNode[], overrides: Record<string, string>) {
+function applyParentOverrides(nodes: AiTimelineWorkNodeListItem[], overrides: Record<string, string>) {
   if (Object.keys(overrides).length === 0) return nodes;
   return nodes.map((node) => {
     if (!Object.prototype.hasOwnProperty.call(overrides, node.id)) return node;
@@ -81,8 +81,8 @@ function collectSubtreeNodeIds(node: WorkNodeTreeViewModel['flatNodes'][number])
 }
 
 export function WorkNodeTreePanel({ refreshKey, onSummaryChange }: WorkNodeTreePanelProps) {
-  const [nodes, setNodes] = useState<AiTimelineWorkNode[]>([]);
-  const [commits, setCommits] = useState<AiTimelineWorkNodeCommit[]>([]);
+  const [nodes, setNodes] = useState<AiTimelineWorkNodeListItem[]>([]);
+  const [commits, setCommits] = useState<AiTimelineWorkNodeCommitListItem[]>([]);
   const [parentOverrides, setParentOverrides] = useState(() => readWorkNodeParentOverrides());
   const [deletedNodeIds, setDeletedNodeIds] = useState(() => readWorkNodeDeletedIds());
   const [error, setError] = useState('');

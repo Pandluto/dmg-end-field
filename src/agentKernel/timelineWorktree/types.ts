@@ -82,6 +82,8 @@ export type AiTimelineWorkNode = {
   logs: AiTimelineWorktreeLog[];
 };
 
+export type AiTimelineWorkNodeListItem = Omit<AiTimelineWorkNode, 'basePayload' | 'workingPayload'>;
+
 export type TimelineButtonDiffItem = {
   id: string;
   label: string;
@@ -161,6 +163,8 @@ export type AiTimelineWorkNodeCommit = {
   checkoutApplied: boolean;
   checkout?: AiTimelineCheckout;
 };
+
+export type AiTimelineWorkNodeCommitListItem = Omit<AiTimelineWorkNodeCommit, 'basePayload' | 'appliedPayload'>;
 
 export type AiTimelineWorktreeArchive = {
   version: 'v1';

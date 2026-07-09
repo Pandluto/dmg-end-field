@@ -6,6 +6,8 @@ import type {
   AiTimelineRiskFlag,
   AiTimelineWorkNode,
   AiTimelineWorkNodeCommit,
+  AiTimelineWorkNodeCommitListItem,
+  AiTimelineWorkNodeListItem,
   AiTimelineWorkNodeStatus,
   TimelinePayloadDiff,
 } from './types';
@@ -17,8 +19,8 @@ export type AiTimelineWorkNodeListResponse = {
   ok: true;
   protocolVersion: 1;
   path: string;
-  nodes: AiTimelineWorkNode[];
-  commits: AiTimelineWorkNodeCommit[];
+  nodes: AiTimelineWorkNodeListItem[];
+  commits: AiTimelineWorkNodeCommitListItem[];
 };
 
 export type AiTimelineWorkNodeResponse = {
@@ -124,6 +126,31 @@ async function postJson<T>(baseUrl: string, pathname: string, body: unknown): Pr
   return readJsonResponse<T>(response);
 }
 
+function toWorkNodeListItem(value: unknown): AiTimelineWorkNodeListItem {
+  const node = value as AiTimelineWorkNode;
+  const { basePayload: _basePayload, workingPayload: _workingPayload, ...item } = node;
+  return item as AiTimelineWorkNodeListItem;
+}
+
+function toWorkNodeCommitListItem(value: unknown): AiTimelineWorkNodeCommitListItem {
+  const commit = value as AiTimelineWorkNodeCommit;
+  const { basePayload: _basePayload, appliedPayload: _appliedPayload, ...item } = commit;
+  return item as AiTimelineWorkNodeCommitListItem;
+}
+
+function toListResponse(input: {
+  path?: string;
+  archive?: { nodes?: unknown[]; commits?: unknown[] };
+}): AiTimelineWorkNodeListResponse {
+  return {
+    ok: true,
+    protocolVersion: 1,
+    path: input.path || '',
+    nodes: (input.archive?.nodes || []).map(toWorkNodeListItem),
+    commits: (input.archive?.commits || []).map(toWorkNodeCommitListItem),
+  };
+}
+
 async function getBridgeJson<T>(pathname: string): Promise<T | null> {
   try {
     const response = await fetch(buildUrl(DEFAULT_BRIDGE_BASE_URL, pathname), {
@@ -179,13 +206,7 @@ export function createAiTimelineWorkNodeClient(baseUrl = DEFAULT_REST_BASE_URL) 
       const desktopRuntime = getDesktopRuntime();
       if (desktopRuntime?.listAiTimelineWorkNodes) {
         const result = readDesktopResult(await desktopRuntime.listAiTimelineWorkNodes());
-        return {
-          ok: true,
-          protocolVersion: 1,
-          path: result.path || '',
-          nodes: (result.archive?.nodes || []) as AiTimelineWorkNode[],
-          commits: (result.archive?.commits || []) as AiTimelineWorkNodeCommit[],
-        };
+        return toListResponse(result);
       }
       const bridgeResult = await getBridgeJson<{
         ok: true;
@@ -193,16 +214,20 @@ export function createAiTimelineWorkNodeClient(baseUrl = DEFAULT_REST_BASE_URL) 
         archive?: { nodes?: unknown[]; commits?: unknown[] };
       }>('/local-data/ai-timeline-worknodes');
       if (bridgeResult) {
-        return {
-          ok: true,
-          protocolVersion: 1,
-          path: bridgeResult.path || '',
-          nodes: (bridgeResult.archive?.nodes || []) as AiTimelineWorkNode[],
-          commits: (bridgeResult.archive?.commits || []) as AiTimelineWorkNodeCommit[],
-        };
+        return toListResponse(bridgeResult);
       }
       const response = await fetch(buildUrl(baseUrl, '/api/ai-timeline-worknodes'));
-      return readJsonResponse<AiTimelineWorkNodeListResponse>(response);
+      const result = await readJsonResponse<{
+        ok: true;
+        path?: string;
+        archive?: { nodes?: unknown[]; commits?: unknown[] };
+        nodes?: unknown[];
+        commits?: unknown[];
+      }>(response);
+      return toListResponse({
+        path: result.path,
+        archive: result.archive || { nodes: result.nodes, commits: result.commits },
+      });
     },
 
     async get(id: string): Promise<AiTimelineWorkNodeResponse> {
@@ -237,13 +262,7 @@ export function createAiTimelineWorkNodeClient(baseUrl = DEFAULT_REST_BASE_URL) 
       const desktopRuntime = getDesktopRuntime();
       if (desktopRuntime?.deleteAiTimelineWorkNode) {
         const result = readDesktopResult(await desktopRuntime.deleteAiTimelineWorkNode({ id }));
-        return {
-          ok: true,
-          protocolVersion: 1,
-          path: result.path || '',
-          nodes: (result.archive?.nodes || []) as AiTimelineWorkNode[],
-          commits: (result.archive?.commits || []) as AiTimelineWorkNodeCommit[],
-        };
+        return toListResponse(result);
       }
       const bridgeResult = await postBridgeJson<{
         ok: true;
@@ -251,19 +270,23 @@ export function createAiTimelineWorkNodeClient(baseUrl = DEFAULT_REST_BASE_URL) 
         archive?: { nodes?: unknown[]; commits?: unknown[] };
       }>(`/local-data/ai-timeline-worknodes/${encodeURIComponent(id)}/delete`, {});
       if (bridgeResult) {
-        return {
-          ok: true,
-          protocolVersion: 1,
-          path: bridgeResult.path || '',
-          nodes: (bridgeResult.archive?.nodes || []) as AiTimelineWorkNode[],
-          commits: (bridgeResult.archive?.commits || []) as AiTimelineWorkNodeCommit[],
-        };
+        return toListResponse(bridgeResult);
       }
-      return postJson<AiTimelineWorkNodeListResponse>(
+      const result = await postJson<{
+        ok: true;
+        path?: string;
+        archive?: { nodes?: unknown[]; commits?: unknown[] };
+        nodes?: unknown[];
+        commits?: unknown[];
+      }>(
         baseUrl,
         `/api/ai-timeline-worknodes/${encodeURIComponent(id)}/delete`,
         {},
       );
+      return toListResponse({
+        path: result.path,
+        archive: result.archive || { nodes: result.nodes, commits: result.commits },
+      });
     },
 
     async diff(id: string): Promise<AiTimelineWorkNodeDiffResponse> {

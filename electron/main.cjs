@@ -4662,6 +4662,18 @@ function validateAiTimelineWorkNodePayload(payload, fieldName) {
   return null;
 }
 
+function toAiTimelineWorkNodeListItem(node) {
+  if (!isPlainObject(node)) return node;
+  const { basePayload, workingPayload, ...item } = node;
+  return item;
+}
+
+function toAiTimelineWorkNodeCommitListItem(commit) {
+  if (!isPlainObject(commit)) return commit;
+  const { basePayload, appliedPayload, ...item } = commit;
+  return item;
+}
+
 function buildAiTimelineWorkNodeListResult() {
   const archive = readAiTimelineWorkNodeArchive();
   return {
@@ -4669,8 +4681,12 @@ function buildAiTimelineWorkNodeListResult() {
     path: getAiTimelineWorkNodesPath(),
     archive: {
       ...archive,
-      nodes: [...archive.nodes].sort((left, right) => (right.updatedAt || 0) - (left.updatedAt || 0)),
-      commits: [...archive.commits].sort((left, right) => (right.createdAt || 0) - (left.createdAt || 0)),
+      nodes: [...archive.nodes]
+        .sort((left, right) => (right.updatedAt || 0) - (left.updatedAt || 0))
+        .map(toAiTimelineWorkNodeListItem),
+      commits: [...archive.commits]
+        .sort((left, right) => (right.createdAt || 0) - (left.createdAt || 0))
+        .map(toAiTimelineWorkNodeCommitListItem),
     },
   };
 }

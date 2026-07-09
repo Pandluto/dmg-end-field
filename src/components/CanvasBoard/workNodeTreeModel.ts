@@ -1,6 +1,6 @@
 import type {
-  AiTimelineWorkNode,
-  AiTimelineWorkNodeCommit,
+  AiTimelineWorkNodeCommitListItem,
+  AiTimelineWorkNodeListItem,
   TimelinePayloadDiffSummary,
   TimelinePayloadSummary,
 } from '../../agentKernel/timelineWorktree/types';
@@ -23,11 +23,11 @@ function formatDiffSummary(summary?: TimelinePayloadDiffSummary) {
   return parts.length ? parts.join(' / ') : 'base 与 working 一致';
 }
 
-function hasLog(node: AiTimelineWorkNode, pattern: RegExp) {
+function hasLog(node: AiTimelineWorkNodeListItem, pattern: RegExp) {
   return (node.logs || []).some((log) => pattern.test(log.message || ''));
 }
 
-function inferSource(node: AiTimelineWorkNode, hasCheckout: boolean): WorkNodeTreeSource {
+function inferSource(node: AiTimelineWorkNodeListItem, hasCheckout: boolean): WorkNodeTreeSource {
   const label = node.label || '';
   if (/manual-checkpoint|进入 AI 模式前|人工基线/i.test(label)) return 'manual-checkpoint';
   if (node.status === 'abandoned') return 'discard';
@@ -36,7 +36,7 @@ function inferSource(node: AiTimelineWorkNode, hasCheckout: boolean): WorkNodeTr
   return 'ai-turn';
 }
 
-function inferStatus(node: AiTimelineWorkNode, source: WorkNodeTreeSource, hasCheckout: boolean): WorkNodeTreeStatus {
+function inferStatus(node: AiTimelineWorkNodeListItem, source: WorkNodeTreeSource, hasCheckout: boolean): WorkNodeTreeStatus {
   if (source === 'restore') return 'restored';
   if (source === 'discard' || node.status === 'abandoned') return 'discarded';
   if (source === 'checkout' || hasCheckout || node.status === 'applied') return 'checked-out';
@@ -45,19 +45,19 @@ function inferStatus(node: AiTimelineWorkNode, source: WorkNodeTreeSource, hasCh
   return 'draft';
 }
 
-function extractMessageId(node: AiTimelineWorkNode) {
+function extractMessageId(node: AiTimelineWorkNodeListItem) {
   const haystack = `${node.id} ${node.branchId} ${node.label}`;
   const match = /\b(workbench-ai-\d+|workbench-test-\d+|msg[-_a-zA-Z0-9]+)\b/.exec(haystack);
   return match?.[1];
 }
 
-function extractConversationId(node: AiTimelineWorkNode) {
+function extractConversationId(node: AiTimelineWorkNodeListItem) {
   const haystack = `${node.branchId} ${node.label}`;
   const match = /\b(ses[-_a-zA-Z0-9]+|session[-_a-zA-Z0-9]+)\b/.exec(haystack);
   return match?.[1];
 }
 
-function buildNodeTitle(node: AiTimelineWorkNode, source: WorkNodeTreeSource) {
+function buildNodeTitle(node: AiTimelineWorkNodeListItem, source: WorkNodeTreeSource) {
   const cleaned = (node.label || node.id)
     .replace(/^\[(manual-checkpoint|ai-turn|checkout|restore|discard)\]\s*/i, '')
     .trim();
@@ -68,16 +68,16 @@ function buildNodeTitle(node: AiTimelineWorkNode, source: WorkNodeTreeSource) {
   return 'AI 对话节点';
 }
 
-function makePayloadRef(kind: 'base' | 'working', node: AiTimelineWorkNode) {
+function makePayloadRef(kind: 'base' | 'working', node: AiTimelineWorkNodeListItem) {
   return `${node.id}:${kind}:${node.updatedAt || node.createdAt || 0}`;
 }
 
-function isLegacyBranchNode(node: AiTimelineWorkNode) {
+function isLegacyBranchNode(node: AiTimelineWorkNodeListItem) {
   const text = `${node.branchId || ''} ${node.label || ''}`;
   return /^\s*branch-/i.test(node.branchId || '') || /\[branch\]/i.test(text);
 }
 
-function inferParentId(node: AiTimelineWorkNode, previousNode?: WorkNodeTreeNode) {
+function inferParentId(node: AiTimelineWorkNodeListItem, previousNode?: WorkNodeTreeNode) {
   if (node.parentNodeId) return node.parentNodeId;
   if (!previousNode) return '';
   if (isLegacyBranchNode(node)) return previousNode.parentNodeId || '';
@@ -85,8 +85,8 @@ function inferParentId(node: AiTimelineWorkNode, previousNode?: WorkNodeTreeNode
 }
 
 export function buildWorkNodeTreeViewModel(
-  nodes: AiTimelineWorkNode[],
-  commits: AiTimelineWorkNodeCommit[],
+  nodes: AiTimelineWorkNodeListItem[],
+  commits: AiTimelineWorkNodeCommitListItem[],
 ): WorkNodeTreeViewModel {
   const checkoutNodeIds = new Set(commits.filter((commit) => commit.checkoutApplied).map((commit) => commit.nodeId));
   const sortedNodes = [...nodes].sort((left, right) => (left.createdAt || 0) - (right.createdAt || 0));
