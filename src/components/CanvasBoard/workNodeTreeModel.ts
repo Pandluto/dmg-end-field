@@ -107,31 +107,25 @@ type WorkNodeAssembly = {
 };
 
 function findParentNode(current: WorkNodeAssembly, previousNodes: WorkNodeAssembly[]): WorkNodeAssembly | undefined {
-  const sameBaseManualCheckpoint = [...previousNodes]
-    .reverse()
-    .find((candidate) =>
-      candidate.node.source === 'manual-checkpoint' &&
-      candidate.workingSignature === current.baseSignature
-    );
-  if (sameBaseManualCheckpoint && current.node.source !== 'manual-checkpoint') {
-    return sameBaseManualCheckpoint;
+  const previousNode = previousNodes[previousNodes.length - 1];
+  if (!previousNode) {
+    return undefined;
   }
 
-  const changedParent = [...previousNodes]
-    .reverse()
-    .find((candidate) =>
-      candidate.workingSignature === current.baseSignature &&
-      candidate.baseSignature !== candidate.workingSignature
-    );
-  if (changedParent) return changedParent;
+  if (previousNode.workingSignature === current.baseSignature) {
+    return previousNode;
+  }
 
-  return [...previousNodes]
+  const explicitOlderBaseParent = [...previousNodes]
     .reverse()
     .find((candidate) =>
-      candidate.workingSignature === current.baseSignature &&
-      candidate.raw.saveId === current.raw.saveId &&
-      candidate.node.source !== 'manual-checkpoint'
+      candidate.workingSignature === current.baseSignature
     );
+  if (explicitOlderBaseParent) {
+    return explicitOlderBaseParent;
+  }
+
+  return previousNode;
 }
 
 export function buildWorkNodeTreeViewModel(
@@ -185,7 +179,7 @@ export function buildWorkNodeTreeViewModel(
   });
 
   const sortTree = (treeNodes: WorkNodeTreeNode[]) => {
-    treeNodes.sort((left, right) => (right.updatedAt || 0) - (left.updatedAt || 0));
+    treeNodes.sort((left, right) => (left.createdAt || 0) - (right.createdAt || 0));
     treeNodes.forEach((node) => sortTree(node.children));
   };
   sortTree(roots);
@@ -202,7 +196,10 @@ export function buildWorkNodeTreeViewModel(
   return {
     nodes: roots,
     flatNodes,
-    latestNode: flatNodes[0],
+    latestNode: flatNodes.reduce<WorkNodeTreeNode | undefined>((latest, node) => {
+      if (!latest) return node;
+      return (node.updatedAt || node.createdAt || 0) > (latest.updatedAt || latest.createdAt || 0) ? node : latest;
+    }, undefined),
     nodeCount: flatNodes.length,
     riskCount: flatNodes.reduce((total, node) => total + node.riskFlags.length, 0),
   };
