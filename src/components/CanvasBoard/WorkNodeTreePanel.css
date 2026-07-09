@@ -35,9 +35,7 @@
 .work-node-tree-list {
   min-height: 0;
   overflow-y: auto;
-  display: flex;
-  flex-direction: column;
-  gap: 7px;
+  display: block;
   padding-right: 1px;
   scrollbar-width: none;
   -ms-overflow-style: none;
@@ -157,11 +155,58 @@
   word-break: break-word;
 }
 
+.work-node-tree-branch {
+  --work-node-depth: 0;
+  position: relative;
+  min-width: 0;
+  margin-top: 7px;
+  padding-left: 18px;
+}
+
+.work-node-tree-branch:first-child {
+  margin-top: 0;
+}
+
+.work-node-tree-branch::before {
+  content: "";
+  position: absolute;
+  left: 8px;
+  top: -7px;
+  bottom: 0;
+  width: 1px;
+  background: rgba(0, 0, 0, 0.16);
+}
+
+.work-node-tree-branch::after {
+  content: "";
+  position: absolute;
+  left: 8px;
+  top: 18px;
+  width: 10px;
+  height: 1px;
+  background: rgba(0, 0, 0, 0.16);
+}
+
+.work-node-tree-branch.is-root {
+  padding-left: 0;
+}
+
+.work-node-tree-branch.is-root::before,
+.work-node-tree-branch.is-root::after {
+  display: none;
+}
+
 .work-node-tree-node {
+  position: relative;
   min-width: 0;
   border: 1px solid rgba(0, 0, 0, 0.18);
   background: rgba(255, 255, 255, 0.68);
   padding: 7px;
+}
+
+.work-node-tree-children {
+  min-width: 0;
+  margin-top: 7px;
 }
 
 .work-node-tree-node.is-blocked {

@@ -9,7 +9,7 @@ import type { WorkNodeTreeNode, WorkNodeTreeSource, WorkNodeTreeStatus, WorkNode
 
 function formatPayloadSummary(summary?: TimelinePayloadSummary) {
   if (!summary) return '无 payload 摘要';
-  return `${summary.characterCount} 干员 · ${summary.buttonCount} 按钮 · ${summary.buffCount} Buff`;
+  return `${summary.characterCount} 干员 / ${summary.buttonCount} 按钮 / ${summary.buffCount} Buff`;
 }
 
 function formatDiffSummary(summary?: TimelinePayloadDiffSummary) {
@@ -21,7 +21,33 @@ function formatDiffSummary(summary?: TimelinePayloadDiffSummary) {
     summary.addedBuffCount ? `+${summary.addedBuffCount} Buff` : '',
     summary.removedBuffCount ? `-${summary.removedBuffCount} Buff` : '',
   ].filter(Boolean);
-  return parts.length ? parts.join(' · ') : 'base 与 working 一致';
+  return parts.length ? parts.join(' / ') : 'base 与 working 一致';
+}
+
+function stableStringify(value: unknown): string {
+  if (Array.isArray(value)) {
+    return `[${value.map(stableStringify).join(',')}]`;
+  }
+  if (value && typeof value === 'object') {
+    return `{${Object.keys(value as Record<string, unknown>)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${stableStringify((value as Record<string, unknown>)[key])}`)
+      .join(',')}}`;
+  }
+  return JSON.stringify(value);
+}
+
+function hashText(value: string): string {
+  let hash = 2166136261;
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(36);
+}
+
+function payloadSignature(value: unknown): string {
+  return hashText(stableStringify(value));
 }
 
 function hasLog(node: AiTimelineWorkNode, pattern: RegExp) {
@@ -73,39 +99,108 @@ function makePayloadRef(kind: 'base' | 'working', node: AiTimelineWorkNode) {
   return `${node.id}:${kind}:${node.updatedAt || node.createdAt || 0}`;
 }
 
+type WorkNodeAssembly = {
+  node: WorkNodeTreeNode;
+  raw: AiTimelineWorkNode;
+  baseSignature: string;
+  workingSignature: string;
+};
+
+function findParentNode(current: WorkNodeAssembly, previousNodes: WorkNodeAssembly[]): WorkNodeAssembly | undefined {
+  const sameBaseManualCheckpoint = [...previousNodes]
+    .reverse()
+    .find((candidate) =>
+      candidate.node.source === 'manual-checkpoint' &&
+      candidate.workingSignature === current.baseSignature
+    );
+  if (sameBaseManualCheckpoint && current.node.source !== 'manual-checkpoint') {
+    return sameBaseManualCheckpoint;
+  }
+
+  const changedParent = [...previousNodes]
+    .reverse()
+    .find((candidate) =>
+      candidate.workingSignature === current.baseSignature &&
+      candidate.baseSignature !== candidate.workingSignature
+    );
+  if (changedParent) return changedParent;
+
+  return [...previousNodes]
+    .reverse()
+    .find((candidate) =>
+      candidate.workingSignature === current.baseSignature &&
+      candidate.raw.saveId === current.raw.saveId &&
+      candidate.node.source !== 'manual-checkpoint'
+    );
+}
+
 export function buildWorkNodeTreeViewModel(
   nodes: AiTimelineWorkNode[],
   commits: AiTimelineWorkNodeCommit[],
 ): WorkNodeTreeViewModel {
   const checkoutNodeIds = new Set(commits.filter((commit) => commit.checkoutApplied).map((commit) => commit.nodeId));
-  const flatNodes = nodes
-    .map((node): WorkNodeTreeNode => {
+  const assemblies = [...nodes]
+    .sort((left, right) => (left.createdAt || 0) - (right.createdAt || 0))
+    .map((node): WorkNodeAssembly => {
       const hasCheckout = checkoutNodeIds.has(node.id);
       const source = inferSource(node, hasCheckout);
       const status = inferStatus(node, source, hasCheckout);
       const diff = diffTimelinePayloads(node.basePayload, node.workingPayload);
       return {
-        nodeId: node.id,
-        source,
-        title: buildNodeTitle(node, source),
-        createdAt: node.createdAt,
-        updatedAt: node.updatedAt,
-        status,
-        summary: `${formatPayloadSummary(node.baseSummary)} -> ${formatPayloadSummary(node.workingSummary)}`,
-        diffSummary: formatDiffSummary(diff.summary),
-        riskFlags: (node.riskFlags || []).map((risk) => `${risk.severity}: ${risk.message || risk.code}`),
-        conversationId: extractConversationId(node),
-        messageId: extractMessageId(node),
-        checkoutTouched: status === 'checked-out' || status === 'restored',
-        basePayloadRef: makePayloadRef('base', node),
-        workingPayloadRef: makePayloadRef('working', node),
-        children: [],
+        raw: node,
+        baseSignature: payloadSignature(node.basePayload),
+        workingSignature: payloadSignature(node.workingPayload),
+        node: {
+          nodeId: node.id,
+          source,
+          title: buildNodeTitle(node, source),
+          createdAt: node.createdAt,
+          updatedAt: node.updatedAt,
+          status,
+          summary: `${formatPayloadSummary(node.baseSummary)} -> ${formatPayloadSummary(node.workingSummary)}`,
+          diffSummary: formatDiffSummary(diff.summary),
+          riskFlags: (node.riskFlags || []).map((risk) => `${risk.severity}: ${risk.message || risk.code}`),
+          conversationId: extractConversationId(node),
+          messageId: extractMessageId(node),
+          checkoutTouched: status === 'checked-out' || status === 'restored',
+          basePayloadRef: makePayloadRef('base', node),
+          workingPayloadRef: makePayloadRef('working', node),
+          children: [],
+        },
       };
-    })
-    .sort((left, right) => (right.updatedAt || 0) - (left.updatedAt || 0));
+    });
+
+  const roots: WorkNodeTreeNode[] = [];
+  const previousNodes: WorkNodeAssembly[] = [];
+
+  assemblies.forEach((assembly) => {
+    const parent = findParentNode(assembly, previousNodes);
+    if (parent) {
+      assembly.node.parentNodeId = parent.node.nodeId;
+      parent.node.children.push(assembly.node);
+    } else {
+      roots.push(assembly.node);
+    }
+    previousNodes.push(assembly);
+  });
+
+  const sortTree = (treeNodes: WorkNodeTreeNode[]) => {
+    treeNodes.sort((left, right) => (right.updatedAt || 0) - (left.updatedAt || 0));
+    treeNodes.forEach((node) => sortTree(node.children));
+  };
+  sortTree(roots);
+
+  const flatNodes: WorkNodeTreeNode[] = [];
+  const flatten = (treeNodes: WorkNodeTreeNode[]) => {
+    treeNodes.forEach((node) => {
+      flatNodes.push(node);
+      flatten(node.children);
+    });
+  };
+  flatten(roots);
 
   return {
-    nodes: flatNodes,
+    nodes: roots,
     flatNodes,
     latestNode: flatNodes[0],
     nodeCount: flatNodes.length,

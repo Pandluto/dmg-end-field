@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { createAiTimelineWorkNodeClient, probeAiTimelineWorkNodeRuntime } from '../../agentKernel/timelineWorktree/localNodeClient';
 import type { AiTimelineWorkNode, AiTimelineWorkNodeCommit } from '../../agentKernel/timelineWorktree/types';
-import { getLocalAgentHealth, requestOpenAiCliRest } from '../../utils/localAgent';
+import { getLocalAgentHealth } from '../../utils/localAgent';
 import {
   MAIN_WORKBENCH_CONTROL_EVENT,
   readMainWorkbenchCommandQueue,
@@ -40,10 +40,7 @@ const WORK_NODE_COMMAND_OPS = new Set<MainWorkbenchCommand['op']>([
 
 async function ensureWorkNodeReadRuntime() {
   if (typeof window !== 'undefined' && window.desktopRuntime?.listAiTimelineWorkNodes) return;
-  const health = await getLocalAgentHealth();
-  if (!health.aiCliRest?.running) {
-    await requestOpenAiCliRest();
-  }
+  await getLocalAgentHealth();
 }
 
 function readStringField(value: unknown, key: string): string | undefined {
