@@ -408,6 +408,61 @@ function buildAiTimelineWorkNodeDiff(node) {
   };
 }
 
+function formatDefWorkNodeDiffSummary(diff) {
+  const summary = diff?.summary || {};
+  const parts = [];
+  if (summary.addedButtonCount) parts.push(`added ${summary.addedButtonCount} button(s)`);
+  if (summary.removedButtonCount) parts.push(`removed ${summary.removedButtonCount} button(s)`);
+  if (summary.changedButtonCount) parts.push(`changed ${summary.changedButtonCount} button(s)`);
+  if (summary.addedBuffCount) parts.push(`added ${summary.addedBuffCount} buff(s)`);
+  if (summary.removedBuffCount) parts.push(`removed ${summary.removedBuffCount} buff(s)`);
+  if (diff?.selectedCharactersChanged) parts.push('selected characters changed');
+  return parts.length ? parts.join('; ') : 'no diff';
+}
+
+function summarizeDefWorkNodeChangedButtons(diff) {
+  return [
+    ...(Array.isArray(diff?.addedButtons) ? diff.addedButtons.map((button) => ({
+      kind: 'added',
+      buttonId: button.id,
+      label: button.label,
+      after: button,
+    })) : []),
+    ...(Array.isArray(diff?.removedButtons) ? diff.removedButtons.map((button) => ({
+      kind: 'removed',
+      buttonId: button.id,
+      label: button.label,
+      before: button,
+    })) : []),
+    ...(Array.isArray(diff?.changedButtons) ? diff.changedButtons.map((change) => ({
+      kind: 'changed',
+      buttonId: change.id,
+      beforeLabel: change.before?.label,
+      afterLabel: change.after?.label,
+      changes: change.changes,
+    })) : []),
+  ];
+}
+
+function buildDefWorkNodeButtonTargets(payload) {
+  return Object.values(isObject(payload?.skillButtonTable) ? payload.skillButtonTable : {})
+    .filter(isObject)
+    .map((button) => ({
+      buttonId: button.id,
+      label: `${button.characterName}-${button.skillDisplayName || button.skillType}@${(button.staffIndex ?? 0) + 1}-${(button.nodeIndex ?? 0) + 1}`,
+      characterName: button.characterName,
+      skillType: button.skillType,
+      skillDisplayName: button.skillDisplayName,
+      staffIndex: button.staffIndex ?? 0,
+      nodeIndex: button.nodeIndex ?? 0,
+    }))
+    .sort((left, right) => (
+      (left.staffIndex - right.staffIndex)
+      || (left.nodeIndex - right.nodeIndex)
+      || String(left.label).localeCompare(String(right.label))
+    ));
+}
+
 function readAiTimelineWorkNodeArchive() {
   try {
     if (!fs.existsSync(aiTimelineWorkNodesPath)) {
@@ -502,6 +557,163 @@ function validateWorkNodePayload(payload, fieldName) {
     return `${fieldName}.allBuffList must be an array.`;
   }
   return null;
+}
+
+function validateWorkNodePayloadIssues(payload, fieldName) {
+  const structuralError = validateWorkNodePayload(payload, fieldName);
+  if (structuralError) {
+    return [{ code: `invalid-${fieldName}`, message: structuralError, path: fieldName }];
+  }
+  const issues = [];
+  const timelineButtonIds = new Set((Array.isArray(payload.timelineData?.staffLines) ? payload.timelineData.staffLines : [])
+    .flatMap((staffLine) => (Array.isArray(staffLine?.buttons) ? staffLine.buttons.map((button) => button?.id).filter(Boolean) : [])));
+  const tableButtonIds = new Set(Object.keys(isObject(payload.skillButtonTable) ? payload.skillButtonTable : {}));
+  for (const buttonId of timelineButtonIds) {
+    if (!tableButtonIds.has(buttonId)) {
+      issues.push({
+        code: 'timeline-button-missing-table-entry',
+        message: `Timeline button ${buttonId} is missing from skillButtonTable.`,
+        path: `${fieldName}.skillButtonTable.${buttonId}`,
+      });
+    }
+  }
+  for (const buttonId of tableButtonIds) {
+    if (!timelineButtonIds.has(buttonId)) {
+      issues.push({
+        code: 'table-button-missing-timeline-entry',
+        message: `skillButtonTable button ${buttonId} is missing from timelineData.`,
+        path: `${fieldName}.timelineData.${buttonId}`,
+      });
+    }
+  }
+  const buffIds = new Set((Array.isArray(payload.allBuffList) ? payload.allBuffList : []).map((buff) => buff?.id).filter(Boolean));
+  for (const [buttonId, button] of Object.entries(isObject(payload.skillButtonTable) ? payload.skillButtonTable : {})) {
+    for (const buffId of Array.isArray(button?.selectedBuff) ? button.selectedBuff : []) {
+      if (!buffIds.has(buffId)) {
+        issues.push({
+          code: 'button-selected-buff-missing',
+          message: `Button ${buttonId} references missing Buff ${buffId}.`,
+          path: `${fieldName}.skillButtonTable.${buttonId}.selectedBuff`,
+        });
+      }
+    }
+  }
+  return issues;
+}
+
+function readDefTimelineSnapshotArchivePayload() {
+  const archive = readMainWorkbenchJson('def.timeline.snapshot-archive.v1', null);
+  const snapshots = Array.isArray(archive?.snapshots) ? archive.snapshots : [];
+  const snapshot = [...snapshots]
+    .filter((item) => isObject(item?.payload))
+    .sort((left, right) => (right.createdAt || 0) - (left.createdAt || 0))[0];
+  if (!snapshot) return null;
+  return {
+    payload: cloneJson(snapshot.payload),
+    source: 'timeline-snapshot-archive',
+    sourceId: snapshot.id || '',
+    sourceUpdatedAt: snapshot.createdAt || null,
+  };
+}
+
+function readDefLatestWorkNodePayload() {
+  const archive = readAiTimelineWorkNodeArchive();
+  const nodes = [...archive.nodes]
+    .filter((node) => isObject(node?.workingPayload) || isObject(node?.basePayload))
+    .sort((left, right) => (right.updatedAt || 0) - (left.updatedAt || 0));
+  const preferred = nodes.find((node) => node?.saveId === 'current-main-workbench') || nodes[0];
+  if (!preferred) return null;
+  return {
+    payload: cloneJson(preferred.basePayload || preferred.workingPayload),
+    source: 'latest-ai-worknode',
+    sourceId: preferred.id || '',
+    sourceUpdatedAt: preferred.updatedAt || null,
+  };
+}
+
+function readDefCurrentTimelinePayloadSource() {
+  const characterInputRaw = readMainWorkbenchJson('def.operator-config.character-input-map.v3', {});
+  const characterComputedRaw = readMainWorkbenchJson('def.operator-runtime.character-computed-map.v3', {});
+  const characterDisplayRaw = readMainWorkbenchJson('def.operator-ui.character-display-cache.v3', {});
+  const payloadFromStorage = {
+    selectedCharacters: readMainWorkbenchJson('def.selected-characters.v1', []),
+    timelineData: readMainWorkbenchJson('def.timeline.data.v1', null),
+    skillButtonTable: readMainWorkbenchJson('def.skill-button.v1', {}),
+    allBuffList: readMainWorkbenchJson('def.all-buff-list.v1', []),
+    anomalyStateSnapshots: readMainWorkbenchJson('def.anomaly-state-snapshot-archive.v1', { snapshots: [] })?.snapshots || [],
+    characterInputMap: characterInputRaw?.items || characterInputRaw,
+    characterComputedMap: characterComputedRaw?.items || characterComputedRaw,
+    characterDisplayCacheMap: characterDisplayRaw?.items || characterDisplayRaw,
+    operatorConfigPageCache: readMainWorkbenchJson('def.operator-config.page-cache.v1', {}),
+  };
+  if (validateWorkNodePayload(payloadFromStorage, 'basePayload') === null) {
+    return {
+      payload: payloadFromStorage,
+      source: 'local-storage-current',
+      sourceId: 'now-storage',
+      sourceUpdatedAt: Date.now(),
+    };
+  }
+  return readDefLatestWorkNodePayload() || readDefTimelineSnapshotArchivePayload();
+}
+
+function createDefWorkNodeFromPayload(payloadSource, input = {}) {
+  if (!payloadSource || !isObject(payloadSource.payload)) {
+    return {
+      ok: false,
+      code: 'current-payload-unavailable',
+      message: 'No usable current timeline payload source is available for server-side work node creation.',
+    };
+  }
+  const payloadError = validateWorkNodePayload(payloadSource.payload, 'basePayload');
+  if (payloadError) {
+    return {
+      ok: false,
+      code: 'invalid-current-payload',
+      message: payloadError,
+      source: payloadSource.source,
+      sourceId: payloadSource.sourceId,
+    };
+  }
+  const now = Date.now();
+  const saveId = typeof input.saveId === 'string' && input.saveId.trim()
+    ? sanitizeWorkNodeId(input.saveId, 'save')
+    : 'current-main-workbench';
+  const node = {
+    id: sanitizeWorkNodeId(input.id, 'ai-timeline-node'),
+    saveId,
+    branchId: sanitizeWorkNodeId(input.branchId, `main-workbench-${now}`),
+    createdAt: now,
+    updatedAt: now,
+    label: typeof input.label === 'string' && input.label.trim()
+      ? input.label.trim()
+      : `Main Workbench ${new Date(now).toLocaleString()}`,
+    status: 'open',
+    basePayload: cloneJson(payloadSource.payload),
+    workingPayload: cloneJson(payloadSource.payload),
+    baseSummary: summarizeTimelinePayload(payloadSource.payload),
+    workingSummary: summarizeTimelinePayload(payloadSource.payload),
+    approvalPolicy: ['auto-low-risk', 'ask-on-risk', 'manual'].includes(input.approvalPolicy) ? input.approvalPolicy : 'auto-low-risk',
+    riskFlags: normalizeRiskFlags(input.riskFlags),
+    logs: [makeWorkNodeLog('info', 'Created AI timeline work node from server-side payload source.', {
+      source: payloadSource.source,
+      sourceId: payloadSource.sourceId,
+    })],
+  };
+  const archive = readAiTimelineWorkNodeArchive();
+  writeAiTimelineWorkNodeArchive({
+    ...archive,
+    nodes: [node, ...archive.nodes.filter((item) => item?.id !== node.id)],
+  });
+  return {
+    ok: true,
+    node,
+    path: aiTimelineWorkNodesPath,
+    source: payloadSource.source,
+    sourceId: payloadSource.sourceId,
+    sourceUpdatedAt: payloadSource.sourceUpdatedAt,
+    buttonTargets: buildDefWorkNodeButtonTargets(payloadSource.payload),
+  };
 }
 
 function handleAiTimelineWorkNodeRequest(method, pathname, body) {
@@ -1048,6 +1260,58 @@ function normalizeDefToolText(value) {
     .toLowerCase();
 }
 
+function parseDefOrdinalText(text) {
+  const normalized = normalizeDefToolText(text);
+  const digitMatch = /第?(\d+)(?:个|次|号)?/.exec(normalized);
+  if (digitMatch) {
+    const value = Number(digitMatch[1]);
+    return Number.isInteger(value) && value > 0 ? value : null;
+  }
+  const chineseDigits = [
+    ['一', 1],
+    ['二', 2],
+    ['两', 2],
+    ['三', 3],
+    ['四', 4],
+    ['五', 5],
+    ['六', 6],
+    ['七', 7],
+    ['八', 8],
+    ['九', 9],
+    ['十', 10],
+  ];
+  for (const [label, value] of chineseDigits) {
+    if (normalized.includes(`第${label}`) || normalized.includes(`${label}个`) || normalized.includes(`${label}号`)) {
+      return value;
+    }
+  }
+  return null;
+}
+
+function inferDefSkillTypeFromText(text) {
+  const normalized = normalizeDefToolText(text);
+  const raw = String(text || '');
+  if (/(^|[^a-z])a([^a-z]|$)/i.test(raw) || normalized.includes('普攻') || normalized.includes('普通攻击')) return 'A';
+  if (/(^|[^a-z])e([^a-z]|$)/i.test(raw) || normalized.includes('战技')) return 'E';
+  if (/(^|[^a-z])q([^a-z]|$)/i.test(raw) || normalized.includes('终结') || normalized.includes('大招')) return 'Q';
+  if (/(^|[^a-z])b([^a-z]|$)/i.test(raw) || normalized.includes('连携')) return 'B';
+  if (normalized.includes('dot') || normalized.includes('持续')) return 'Dot';
+  return '';
+}
+
+function parseDefButtonNaturalQuery(text) {
+  const normalized = normalizeDefToolText(text);
+  const ordinal = parseDefOrdinalText(text);
+  const skillType = inferDefSkillTypeFromText(text);
+  const staffIndex = /第?一(?:个)?干员|当前第?一|第?1(?:个)?干员/.test(normalized)
+    ? 0
+    : /第?二(?:个)?干员|第?2(?:个)?干员/.test(normalized)
+      ? 1
+      : null;
+  const hasStructuredIntent = Boolean(ordinal || skillType || staffIndex !== null);
+  return { ordinal, skillType, staffIndex, hasStructuredIntent };
+}
+
 function formatDefButtonLabel(button) {
   return `${button?.characterName || '未知'}-${button?.skillDisplayName || button?.skillType || '技能'}@${(button?.staffIndex || 0) + 1}-${(button?.nodeIndex ?? 0) + 1}`;
 }
@@ -1059,6 +1323,14 @@ function compactDefButton(button) {
       name: buff?.name || '',
       displayName: buff?.displayName || '',
       sourceName: buff?.sourceName || '',
+      level: buff?.level || '',
+      type: buff?.type || '',
+      value: typeof buff?.value === 'number' ? buff.value : undefined,
+      description: buff?.description || '',
+      source: buff?.source || '',
+      condition: buff?.condition || '',
+      category: buff?.category || '',
+      effectKind: buff?.effectKind || '',
     }))
     : [];
   return {
@@ -1088,14 +1360,16 @@ function readMainWorkbenchSnapshotMirror() {
 function listDefWorkbenchButtons(input = {}) {
   const snapshot = readMainWorkbenchSnapshotMirror();
   let buttons = Array.isArray(snapshot?.skillButtons) ? snapshot.skillButtons.map(compactDefButton) : [];
+  const rawQuery = input.query || input.text || '';
+  const parsedQuery = parseDefButtonNaturalQuery(rawQuery);
   const buttonId = typeof input.buttonId === 'string' && input.buttonId.trim() ? input.buttonId.trim() : '';
   const characterName = normalizeDefToolText(input.characterName || input.character || '');
-  const skillType = normalizeDefToolText(input.skillType || '');
+  const skillType = normalizeDefToolText(input.skillType || parsedQuery.skillType || '');
   const skillName = normalizeDefToolText(input.skillName || input.skillDisplayName || '');
-  const query = normalizeDefToolText(input.query || input.text || '');
-  const staffIndex = Number.isInteger(input.staffIndex) ? input.staffIndex : null;
+  const query = parsedQuery.hasStructuredIntent ? '' : normalizeDefToolText(rawQuery);
+  const staffIndex = Number.isInteger(input.staffIndex) ? input.staffIndex : parsedQuery.staffIndex;
   const nodeIndex = Number.isInteger(input.nodeIndex) ? input.nodeIndex : null;
-  const ordinal = Number.isInteger(input.ordinal) && input.ordinal > 0 ? input.ordinal : null;
+  const ordinal = Number.isInteger(input.ordinal) && input.ordinal > 0 ? input.ordinal : parsedQuery.ordinal;
   if (buttonId) {
     buttons = buttons.filter((button) => button.buttonId === buttonId);
   }
@@ -1173,11 +1447,22 @@ function listDefWorkbenchCharacters() {
 }
 
 function resolveDefCharacters(input = {}) {
-  const query = normalizeDefToolText(input.query || input.name || input.text || '');
+  const rawQuery = input.query || input.name || input.text || '';
+  const normalizedQuery = normalizeDefToolText(rawQuery);
+  const parsedOrdinal = parseDefOrdinalText(rawQuery);
+  const ordinal = Number.isInteger(input.ordinal) && input.ordinal > 0 ? input.ordinal : parsedOrdinal;
+  const ordinalCharacterQuery = Boolean(ordinal && (
+    Number.isInteger(input.ordinal) ||
+    /干员|角色|operator|character/i.test(String(rawQuery || ''))
+  ));
+  const query = ordinalCharacterQuery ? '' : normalizedQuery;
   const data = listDefWorkbenchCharacters();
-  const candidates = data.characters
+  let candidates = data.characters
     .filter((character) => !query || normalizeDefToolText(`${character.name} ${character.id}`).includes(query))
-    .map((character) => ({ ...character, confidence: normalizeDefToolText(character.name) === query ? 1 : 0.75 }));
+    .map((character) => ({ ...character, confidence: normalizeDefToolText(character.name) === normalizedQuery ? 1 : 0.75 }));
+  if (ordinal && candidates.length >= ordinal) {
+    candidates = [{ ...candidates[ordinal - 1], confidence: Math.max(candidates[ordinal - 1].confidence || 0, 0.9) }];
+  }
   return {
     query,
     candidates,
@@ -1191,7 +1476,10 @@ function resolveDefCharacters(input = {}) {
 }
 
 function resolveDefSkills(input = {}) {
-  const query = normalizeDefToolText(input.query || input.skillName || input.text || '');
+  const rawQuery = input.query || input.skillName || input.text || '';
+  const query = normalizeDefToolText(rawQuery);
+  const requestedSkillType = normalizeDefToolText(input.skillType || inferDefSkillTypeFromText(rawQuery));
+  const requestedCharacter = normalizeDefToolText(input.characterName || input.character || '');
   const buttons = listDefWorkbenchButtons({ limit: 200 }).buttons;
   const bySkill = new Map();
   for (const button of buttons) {
@@ -1208,13 +1496,52 @@ function resolveDefSkills(input = {}) {
     bySkill.get(key).buttonCount += 1;
   }
   const candidates = [...bySkill.values()]
-    .filter((skill) => !query || normalizeDefToolText(`${skill.characterName} ${skill.skillType} ${skill.skillDisplayName}`).includes(query))
-    .map((skill) => ({ ...skill, confidence: normalizeDefToolText(skill.skillDisplayName) === query ? 1 : 0.7 }));
+    .filter((skill) => !requestedSkillType || normalizeDefToolText(skill.skillType) === requestedSkillType)
+    .filter((skill) => !requestedCharacter || normalizeDefToolText(skill.characterName).includes(requestedCharacter))
+    .filter((skill) => !query || requestedSkillType || normalizeDefToolText(`${skill.characterName} ${skill.skillType} ${skill.skillDisplayName}`).includes(query))
+    .map((skill) => ({ ...skill, confidence: normalizeDefToolText(skill.skillDisplayName) === query || normalizeDefToolText(skill.skillType) === requestedSkillType ? 1 : 0.7 }));
   return {
     query,
     candidates,
     ambiguity: candidates.length !== 1,
     suggestedQuestion: candidates.length > 1 ? '找到多个技能候选。请指定干员或技能类型。' : '',
+  };
+}
+
+function buildDefResolvedBuffObject(source = {}) {
+  const effectKind = source.effectKind === 'extraHit' ? 'extraHit' : 'modifier';
+  const type = effectKind === 'extraHit' ? '' : String(source.type || source.typeKey || '');
+  const displayName = String(source.displayName || source.name || source.label || source.effectId || '未命名 Buff');
+  const sourceName = String(source.sourceName || source.gearSetName || source.equipmentName || source.characterName || '');
+  const idParts = [
+    source.id || source.effectId || '',
+    displayName,
+    sourceName,
+    type,
+    source.value ?? '',
+  ].filter((part) => String(part).trim().length > 0);
+  return {
+    ...(source.id ? { id: String(source.id) } : { id: `resolved-${Buffer.from(idParts.join('|')).toString('base64url').slice(0, 32)}` }),
+    name: displayName,
+    displayName,
+    sourceName,
+    level: String(source.level || ''),
+    type,
+    ...(typeof source.value === 'number' ? { value: source.value } : {}),
+    description: String(source.description || source.raw || ''),
+    source: String(source.source || 'resolver'),
+    condition: String(source.condition || ''),
+    category: ['positive', 'passive', 'condition', 'countable'].includes(source.category) ? source.category : 'condition',
+    ownerBuffDomain: source.ownerBuffDomain || (source.gearSetName || source.equipmentName ? 'equipment' : undefined),
+    ownerCharacterId: source.ownerCharacterId || source.characterId || undefined,
+    ownerBuffGroup: source.ownerBuffGroup || (source.gearSetName ? 'threePiece' : undefined),
+    refCount: 1,
+    effectKind,
+    ...(source.maxStacks !== undefined ? { maxStacks: source.maxStacks } : {}),
+    ...(source.multiplier ? { multiplier: source.multiplier } : {}),
+    ...(source.valueMode ? { valueMode: source.valueMode } : {}),
+    ...(source.derivedValue ? { derivedValue: source.derivedValue } : {}),
+    ...(effectKind === 'extraHit' && source.extraHitConfig ? { extraHitConfig: source.extraHitConfig } : {}),
   };
 }
 
@@ -1227,11 +1554,22 @@ function resolveDefBuffs(input = {}) {
     for (const buff of Array.isArray(button?.selectedBuffs) ? button.selectedBuffs : []) {
       const key = buff?.id || `${buff?.displayName || buff?.name || ''}:${buff?.sourceName || ''}`;
       if (!key) continue;
+      const resolvedBuff = buildDefResolvedBuffObject({
+        ...buff,
+        source: buff?.source || 'selected-button',
+        ownerCharacterId: button?.characterId,
+      });
       const current = buffMap.get(key) || {
         id: buff?.id || '',
         name: buff?.name || '',
         displayName: buff?.displayName || '',
         sourceName: buff?.sourceName || '',
+        type: buff?.type || '',
+        value: typeof buff?.value === 'number' ? buff.value : undefined,
+        category: buff?.category || '',
+        effectKind: buff?.effectKind || 'modifier',
+        source: buff?.source || 'selected-button',
+        buff: resolvedBuff,
         refButtonIds: [],
       };
       current.refButtonIds.push(button.id);
@@ -1243,20 +1581,78 @@ function resolveDefBuffs(input = {}) {
       for (const effect of Array.isArray(equipment?.effects) ? equipment.effects : []) {
         const key = effect?.effectId || `${equipment?.name || ''}:${effect?.label || ''}`;
         if (!key || buffMap.has(key)) continue;
+        const resolvedBuff = buildDefResolvedBuffObject({
+          id: effect?.effectId || '',
+          name: effect?.label || effect?.effectId || '',
+          displayName: effect?.label || effect?.effectId || '',
+          sourceName: equipment?.name || '',
+          equipmentName: equipment?.name || '',
+          characterId: config?.characterId || '',
+          typeKey: effect?.typeKey || '',
+          value: effect?.value,
+          level: effect?.level || '',
+          source: 'equipment',
+          category: 'positive',
+          ownerBuffDomain: 'equipment',
+        });
         buffMap.set(key, {
           id: effect?.effectId || '',
           name: effect?.label || '',
           displayName: effect?.label || '',
           sourceName: equipment?.name || '',
           typeKey: effect?.typeKey || '',
+          type: effect?.typeKey || '',
           value: effect?.value,
+          category: 'positive',
+          effectKind: 'modifier',
+          source: 'equipment',
+          characterId: config?.characterId || '',
+          characterName: config?.characterName || '',
+          buff: resolvedBuff,
           refButtonIds: [],
         });
       }
     }
+    for (const setBuff of Array.isArray(config?.setBuffs) ? config.setBuffs : []) {
+      const key = setBuff?.effectId || `${setBuff?.gearSetName || ''}:${setBuff?.label || ''}`;
+      if (!key || buffMap.has(key)) continue;
+      const resolvedBuff = buildDefResolvedBuffObject({
+        id: setBuff?.effectId || '',
+        name: setBuff?.label || setBuff?.effectId || '',
+        displayName: setBuff?.label || setBuff?.effectId || '',
+        sourceName: setBuff?.gearSetName || '',
+        gearSetName: setBuff?.gearSetName || '',
+        characterId: config?.characterId || '',
+        typeKey: setBuff?.typeKey || '',
+        value: setBuff?.value,
+        source: 'equipment',
+        category: setBuff?.category || 'condition',
+        effectKind: setBuff?.effectKind || 'modifier',
+        ownerBuffDomain: 'equipment',
+        ownerBuffGroup: 'threePiece',
+      });
+      buffMap.set(key, {
+        id: setBuff?.effectId || '',
+        name: setBuff?.label || '',
+        displayName: setBuff?.label || '',
+        sourceName: setBuff?.gearSetName || '',
+        gearSetId: setBuff?.gearSetId || '',
+        gearSetName: setBuff?.gearSetName || '',
+        typeKey: setBuff?.typeKey || '',
+        type: setBuff?.typeKey || '',
+        value: setBuff?.value,
+        category: setBuff?.category || 'condition',
+        effectKind: setBuff?.effectKind || 'modifier',
+        source: 'equipment',
+        characterId: config?.characterId || '',
+        characterName: config?.characterName || '',
+        buff: resolvedBuff,
+        refButtonIds: [],
+      });
+    }
   }
   const candidates = [...buffMap.values()]
-    .filter((buff) => !query || normalizeDefToolText(`${buff.name} ${buff.displayName} ${buff.sourceName} ${buff.id}`).includes(query))
+    .filter((buff) => !query || normalizeDefToolText(`${buff.name} ${buff.displayName} ${buff.sourceName} ${buff.gearSetName || ''} ${buff.id}`).includes(query))
     .map((buff) => ({ ...buff, confidence: normalizeDefToolText(`${buff.displayName || buff.name}`) === query ? 1 : 0.72 }));
   return {
     query,
@@ -1349,11 +1745,9 @@ function validateDefWorkNode(input = {}) {
   if (!readResult.ok) return readResult;
   const archive = readAiTimelineWorkNodeArchive();
   const node = archive.nodes.find((item) => item?.id === readResult.node.id);
-  const baseError = validateWorkNodePayload(node?.basePayload, 'basePayload');
-  const workingError = validateWorkNodePayload(node?.workingPayload, 'workingPayload');
   const issues = [
-    ...(baseError ? [{ code: 'invalid-ai-worknode-base-payload', message: baseError, path: 'basePayload' }] : []),
-    ...(workingError ? [{ code: 'invalid-ai-worknode-working-payload', message: workingError, path: 'workingPayload' }] : []),
+    ...validateWorkNodePayloadIssues(node?.basePayload, 'basePayload'),
+    ...validateWorkNodePayloadIssues(node?.workingPayload, 'workingPayload'),
   ];
   return {
     ok: issues.length === 0,
@@ -1390,6 +1784,458 @@ function verifyDefWorkNodeDiffClean(input = {}) {
   };
 }
 
+function findDefWorkNodePatchTargetButton(payload, target = {}) {
+  const table = isObject(payload?.skillButtonTable) ? payload.skillButtonTable : {};
+  const buttons = Object.values(table).filter(isObject);
+  const buttonId = typeof target.buttonId === 'string' && target.buttonId.trim() ? target.buttonId.trim() : '';
+  if (buttonId) {
+    const button = buttons.find((item) => item.id === buttonId || item.buttonId === buttonId);
+    return button ? { ok: true, button } : { ok: false, code: 'button-not-found', message: `Button not found: ${buttonId}` };
+  }
+
+  const characterName = normalizeDefToolText(target.characterName || '');
+  const skillType = normalizeDefToolText(target.skillType || '');
+  const nodeIndex = Number.isInteger(target.nodeIndex) ? target.nodeIndex : null;
+  const candidates = buttons.filter((button) => {
+    if (characterName && !normalizeDefToolText(button.characterName).includes(characterName)) return false;
+    if (skillType && normalizeDefToolText(button.skillType) !== skillType) return false;
+    if (nodeIndex !== null && button.nodeIndex !== nodeIndex) return false;
+    return true;
+  });
+  if (!candidates.length) {
+    return { ok: false, code: 'button-not-found', message: 'No button matched patch target.' };
+  }
+  if (candidates.length > 1 && target.latest !== true) {
+    return {
+      ok: false,
+      code: 'button-target-ambiguous',
+      message: 'Patch target matched multiple buttons; pass buttonId, nodeIndex, or latest:true.',
+      candidates: candidates.map(normalizeWorkNodeButton),
+    };
+  }
+  const sorted = [...candidates].sort((left, right) => (
+    (right.staffIndex || 0) - (left.staffIndex || 0)
+    || (right.nodeIndex || 0) - (left.nodeIndex || 0)
+  ));
+  return { ok: true, button: target.latest === true ? sorted[0] : candidates[0] };
+}
+
+function makeDefWorkNodeRiskFlag(severity, code, message, path = '') {
+  return {
+    id: makeId('def-worknode-risk'),
+    severity: ['info', 'warning', 'blocker'].includes(severity) ? severity : 'warning',
+    code,
+    message,
+    ...(path ? { path } : {}),
+  };
+}
+
+function getDefWorkNodeSelectedBuffIds(button = {}) {
+  return Array.isArray(button.selectedBuff) ? button.selectedBuff : [];
+}
+
+function findDefWorkNodeStaffLineByCharacter(payload, characterName) {
+  return (Array.isArray(payload?.timelineData?.staffLines) ? payload.timelineData.staffLines : [])
+    .find((line) => line?.characterName === characterName);
+}
+
+function removeDefWorkNodeTimelineButton(payload, buttonId) {
+  for (const staffLine of Array.isArray(payload?.timelineData?.staffLines) ? payload.timelineData.staffLines : []) {
+    staffLine.buttons = (Array.isArray(staffLine.buttons) ? staffLine.buttons : []).filter((button) => button?.id !== buttonId);
+    staffLine.occupiedNodes = staffLine.buttons.map((button) => button.nodeIndex).sort((left, right) => left - right);
+  }
+}
+
+function insertDefWorkNodeTimelineButton(payload, buttonId) {
+  const tableButton = payload?.skillButtonTable?.[buttonId];
+  if (!tableButton) return;
+  const staffLine = (Array.isArray(payload?.timelineData?.staffLines) ? payload.timelineData.staffLines : [])
+    .find((line) => line?.staffIndex === tableButton.staffIndex)
+    || findDefWorkNodeStaffLineByCharacter(payload, tableButton.characterName);
+  if (!staffLine) {
+    throw new Error(`staff line not found for ${tableButton.characterName || buttonId}`);
+  }
+  staffLine.buttons = (Array.isArray(staffLine.buttons) ? staffLine.buttons : []).filter((button) => button?.id !== buttonId);
+  staffLine.buttons.push({
+    id: tableButton.id,
+    characterId: tableButton.characterId,
+    characterName: tableButton.characterName,
+    skillType: tableButton.skillType,
+    staffIndex: tableButton.staffIndex,
+    nodeIndex: tableButton.nodeIndex,
+    nodeNumber: tableButton.nodeNumber,
+    position: tableButton.position,
+    runtimeSkillId: tableButton.runtimeSkillId,
+    skillDisplayName: tableButton.skillDisplayName,
+    skillIconUrl: tableButton.skillIconUrl,
+    customHits: tableButton.customHits,
+    buffIds: [...getDefWorkNodeSelectedBuffIds(tableButton)],
+  });
+  staffLine.buttons.sort((left, right) => left.nodeIndex - right.nodeIndex);
+  staffLine.occupiedNodes = staffLine.buttons.map((button) => button.nodeIndex).sort((left, right) => left - right);
+}
+
+function syncDefWorkNodeTimelineButtonFromTable(payload, buttonId) {
+  const tableButton = payload?.skillButtonTable?.[buttonId];
+  if (!tableButton) return;
+  for (const staffLine of Array.isArray(payload?.timelineData?.staffLines) ? payload.timelineData.staffLines : []) {
+    const timelineButton = (Array.isArray(staffLine.buttons) ? staffLine.buttons : []).find((button) => button?.id === buttonId);
+    if (!timelineButton) continue;
+    timelineButton.characterId = tableButton.characterId;
+    timelineButton.characterName = tableButton.characterName;
+    timelineButton.skillType = tableButton.skillType;
+    timelineButton.staffIndex = tableButton.staffIndex;
+    timelineButton.nodeIndex = tableButton.nodeIndex;
+    timelineButton.nodeNumber = tableButton.nodeNumber;
+    timelineButton.position = tableButton.position;
+    timelineButton.runtimeSkillId = tableButton.runtimeSkillId;
+    timelineButton.skillDisplayName = tableButton.skillDisplayName;
+    timelineButton.skillIconUrl = tableButton.skillIconUrl;
+    timelineButton.customHits = tableButton.customHits;
+    timelineButton.buffIds = [...getDefWorkNodeSelectedBuffIds(tableButton)];
+  }
+}
+
+function applyDefWorkNodePatchOperation(payload, operation, index, operationsApplied, riskFlags) {
+  const path = `patch[${index}]`;
+  if (!isObject(operation)) {
+    throw new Error(`${path}: operation must be an object.`);
+  }
+
+  if (operation.op === 'clearTimeline') {
+    for (const staffLine of Array.isArray(payload?.timelineData?.staffLines) ? payload.timelineData.staffLines : []) {
+      staffLine.buttons = [];
+      staffLine.occupiedNodes = [];
+    }
+    payload.skillButtonTable = {};
+    riskFlags.push(makeDefWorkNodeRiskFlag('warning', 'timeline-cleared', 'Patch clears all timeline buttons.', path));
+    operationsApplied.push({ op: 'clearTimeline', index });
+    return;
+  }
+
+  if (operation.op === 'addButton') {
+    if (typeof operation.characterName !== 'string' || !operation.characterName.trim()) {
+      throw new Error(`${path}: addButton requires characterName.`);
+    }
+    const characterName = operation.characterName.trim();
+    const staffLine = findDefWorkNodeStaffLineByCharacter(payload, characterName);
+    if (!staffLine && !Number.isInteger(operation.staffIndex)) {
+      throw new Error(`${path}: addButton requires selected characterName or explicit staffIndex.`);
+    }
+    const staffIndex = Number.isInteger(operation.staffIndex) ? operation.staffIndex : staffLine.staffIndex;
+    const nodeIndex = Number.isInteger(operation.nodeIndex)
+      ? operation.nodeIndex
+      : Math.max(-1, ...(Array.isArray(staffLine?.buttons) ? staffLine.buttons : []).map((button) => button.nodeIndex)) + 1;
+    const id = sanitizeWorkNodeId(operation.buttonId, `ai-patch-button-${Date.now()}-${index}`);
+    const button = {
+      id,
+      characterName,
+      skillType: typeof operation.skillType === 'string' && operation.skillType.trim() ? operation.skillType.trim() : 'A',
+      staffIndex,
+      nodeIndex,
+      nodeNumber: nodeIndex + 1,
+      position: { x: 80 + nodeIndex * 22, y: 60 + staffIndex * 300 },
+      runtimeSkillId: typeof operation.runtimeSkillId === 'string' ? operation.runtimeSkillId : undefined,
+      skillDisplayName: typeof operation.skillDisplayName === 'string' ? operation.skillDisplayName : undefined,
+      selectedBuff: [],
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    };
+    payload.skillButtonTable[id] = button;
+    insertDefWorkNodeTimelineButton(payload, id);
+    operationsApplied.push({ op: 'addButton', index, buttonId: id, after: normalizeWorkNodeButton(button) });
+    return;
+  }
+
+  if (operation.op === 'removeButton') {
+    const targetResult = findDefWorkNodePatchTargetButton(payload, isObject(operation.target) ? operation.target : {});
+    if (!targetResult.ok) throw new Error(`${path}: ${targetResult.message}`);
+    const before = normalizeWorkNodeButton(targetResult.button);
+    delete payload.skillButtonTable[targetResult.button.id];
+    removeDefWorkNodeTimelineButton(payload, targetResult.button.id);
+    riskFlags.push(makeDefWorkNodeRiskFlag('warning', 'button-removed', `Patch removes button ${before.label}.`, path));
+    operationsApplied.push({ op: 'removeButton', index, buttonId: before.id, before });
+    return;
+  }
+
+  if (operation.op === 'moveButton') {
+    if (!Number.isInteger(operation.nodeIndex)) {
+      throw new Error(`${path}: moveButton requires integer nodeIndex.`);
+    }
+    const targetResult = findDefWorkNodePatchTargetButton(payload, isObject(operation.target) ? operation.target : {});
+    if (!targetResult.ok) throw new Error(`${path}: ${targetResult.message}`);
+    const before = normalizeWorkNodeButton(targetResult.button);
+    const nextStaffIndex = Number.isInteger(operation.staffIndex) ? operation.staffIndex : targetResult.button.staffIndex;
+    targetResult.button.staffIndex = nextStaffIndex;
+    targetResult.button.nodeIndex = operation.nodeIndex;
+    targetResult.button.nodeNumber = operation.nodeIndex + 1;
+    targetResult.button.position = {
+      ...targetResult.button.position,
+      x: 80 + operation.nodeIndex * 22,
+      y: 60 + nextStaffIndex * 300,
+    };
+    removeDefWorkNodeTimelineButton(payload, targetResult.button.id);
+    insertDefWorkNodeTimelineButton(payload, targetResult.button.id);
+    operationsApplied.push({
+      op: 'moveButton',
+      index,
+      buttonId: targetResult.button.id,
+      before,
+      after: normalizeWorkNodeButton(targetResult.button),
+    });
+    return;
+  }
+
+  if (operation.op === 'attachBuff') {
+    if (typeof operation.buffId !== 'string' || !operation.buffId.trim()) {
+      throw new Error(`${path}: attachBuff requires buffId.`);
+    }
+    const buff = (Array.isArray(payload?.allBuffList) ? payload.allBuffList : []).find((item) => item?.id === operation.buffId);
+    if (!buff) throw new Error(`${path}: buff not found: ${operation.buffId}`);
+    const targetResult = findDefWorkNodePatchTargetButton(payload, isObject(operation.target) ? operation.target : {});
+    if (!targetResult.ok) throw new Error(`${path}: ${targetResult.message}`);
+    const before = normalizeWorkNodeButton(targetResult.button);
+    const selectedBuff = new Set(getDefWorkNodeSelectedBuffIds(targetResult.button));
+    selectedBuff.add(buff.id);
+    targetResult.button.selectedBuff = [...selectedBuff];
+    targetResult.button.updatedAt = Date.now();
+    buff.refCount = Math.max(1, Number(buff.refCount || 0) + 1);
+    syncDefWorkNodeTimelineButtonFromTable(payload, targetResult.button.id);
+    operationsApplied.push({
+      op: 'attachBuff',
+      index,
+      buttonId: targetResult.button.id,
+      buffId: buff.id,
+      before,
+      after: normalizeWorkNodeButton(targetResult.button),
+    });
+    return;
+  }
+
+  if (operation.op === 'removeBuff') {
+    if (typeof operation.buffId !== 'string' || !operation.buffId.trim()) {
+      throw new Error(`${path}: removeBuff requires buffId.`);
+    }
+    const targetResult = findDefWorkNodePatchTargetButton(payload, isObject(operation.target) ? operation.target : {});
+    if (!targetResult.ok) throw new Error(`${path}: ${targetResult.message}`);
+    const before = normalizeWorkNodeButton(targetResult.button);
+    const selectedBuffIds = getDefWorkNodeSelectedBuffIds(targetResult.button);
+    if (!selectedBuffIds.includes(operation.buffId)) {
+      throw new Error(`${path}: button does not reference buff ${operation.buffId}.`);
+    }
+    targetResult.button.selectedBuff = selectedBuffIds.filter((id) => id !== operation.buffId);
+    targetResult.button.updatedAt = Date.now();
+    const buff = (Array.isArray(payload?.allBuffList) ? payload.allBuffList : []).find((item) => item?.id === operation.buffId);
+    if (buff) buff.refCount = Math.max(0, Number(buff.refCount || 0) - 1);
+    syncDefWorkNodeTimelineButtonFromTable(payload, targetResult.button.id);
+    riskFlags.push(makeDefWorkNodeRiskFlag('warning', 'buff-removed', `Patch removes buff ${operation.buffId} from a button.`, path));
+    operationsApplied.push({
+      op: 'removeBuff',
+      index,
+      buttonId: targetResult.button.id,
+      buffId: operation.buffId,
+      before,
+      after: normalizeWorkNodeButton(targetResult.button),
+    });
+    return;
+  }
+
+  if (operation.op === 'setTargetResistance') {
+    if (!isObject(operation.targetResistance)) {
+      throw new Error(`${path}: setTargetResistance requires targetResistance object.`);
+    }
+    const targetResult = findDefWorkNodePatchTargetButton(payload, isObject(operation.target) ? operation.target : {});
+    if (!targetResult.ok) throw new Error(`${path}: ${targetResult.message}`);
+    const before = normalizeWorkNodeButton(targetResult.button);
+    targetResult.button.resistanceConfig = { targetResistance: { ...operation.targetResistance } };
+    targetResult.button.updatedAt = Date.now();
+    syncDefWorkNodeTimelineButtonFromTable(payload, targetResult.button.id);
+    operationsApplied.push({
+      op: 'setTargetResistance',
+      index,
+      buttonId: targetResult.button.id,
+      before,
+      after: normalizeWorkNodeButton(targetResult.button),
+    });
+    return;
+  }
+
+  throw new Error(`${path}: unsupported patch op ${operation.op || 'unknown'}.`);
+}
+
+function applyDefWorkNodePatchAndValidate(input = {}) {
+  let nodeId = typeof input.nodeId === 'string' && input.nodeId.trim() ? input.nodeId.trim() : '';
+  const patch = Array.isArray(input.patch) ? input.patch : [];
+  const checkout = input.checkout === true;
+  const dryRun = input.dryRun === true;
+  let created = null;
+  if (checkout) {
+    return {
+      ok: false,
+      code: 'checkout-not-supported',
+      message: 'def.worknode.patch_and_validate does not checkout in Phase 3 lower-half implementation.',
+      checkout: false,
+      nextActions: ['Use def.worknode.checkout separately after explicit approval.'],
+    };
+  }
+  if (!nodeId) {
+    const createResult = createDefWorkNodeFromPayload(readDefCurrentTimelinePayloadSource(), input);
+    if (!createResult.ok) {
+      return {
+        ...createResult,
+        checkout: false,
+        currentCheckoutTouched: false,
+        completedSteps: ['create-node-failed'],
+        nextActions: ['Open the Web main workbench once so it can mirror the current timeline payload, then retry.'],
+      };
+    }
+    created = {
+      nodeId: createResult.node.id,
+      saveId: createResult.node.saveId,
+      branchId: createResult.node.branchId,
+      label: createResult.node.label,
+      status: createResult.node.status,
+      baseSummary: createResult.node.baseSummary,
+      workingSummary: createResult.node.workingSummary,
+      buttonTargets: createResult.buttonTargets,
+      source: createResult.source,
+      sourceId: createResult.sourceId,
+      sourceUpdatedAt: createResult.sourceUpdatedAt,
+      path: createResult.path,
+    };
+    nodeId = createResult.node.id;
+  }
+  if (!patch.length) {
+    return {
+      ok: false,
+      code: 'empty-patch',
+      message: 'patch_and_validate requires a non-empty patch array.',
+      nodeId,
+      checkout: false,
+      currentCheckoutTouched: false,
+      completedSteps: created ? ['create-node', 'read-input'] : ['read-input'],
+    };
+  }
+
+  const archive = readAiTimelineWorkNodeArchive();
+  const node = archive.nodes.find((item) => item?.id === nodeId);
+  if (!node) {
+    return {
+      ok: false,
+      code: 'ai-worknode-not-found',
+      message: `AI timeline work node not found: ${nodeId}`,
+      nodeId,
+      checkout: false,
+      currentCheckoutTouched: false,
+      completedSteps: created ? ['create-node', 'read-input'] : ['read-input'],
+    };
+  }
+
+  const workingPayload = cloneJson(node.workingPayload);
+  const operationsApplied = [];
+  const riskFlags = [...(Array.isArray(node.riskFlags) ? node.riskFlags : [])];
+  try {
+    patch.forEach((operation, index) => applyDefWorkNodePatchOperation(workingPayload, operation, index, operationsApplied, riskFlags));
+  } catch (error) {
+    return {
+      ok: false,
+      code: 'patch-failed',
+      message: 'Patch failed before writing work node.',
+      nodeId,
+      checkout: false,
+      currentCheckoutTouched: false,
+      completedSteps: created ? ['create-node', 'read-node'] : ['read-node'],
+      issues: [{
+        code: 'patch-apply-failed',
+        message: error instanceof Error ? error.message : String(error),
+      }],
+      operationsApplied,
+      riskFlags: [
+        ...riskFlags,
+        makeDefWorkNodeRiskFlag('blocker', 'patch-apply-failed', error instanceof Error ? error.message : String(error)),
+      ],
+    };
+  }
+
+  if (isObject(workingPayload.timelineData)) workingPayload.timelineData.updatedAt = Date.now();
+  const validationIssues = validateWorkNodePayloadIssues(workingPayload, 'workingPayload');
+  if (validationIssues.length) {
+    return {
+      ok: false,
+      code: 'validation-failed',
+      message: validationIssues.map((issue) => issue.message).join('; '),
+      nodeId,
+      patchApplied: false,
+      checkout: false,
+      currentCheckoutTouched: false,
+      completedSteps: created ? ['create-node', 'read-node', 'patch-dry-build'] : ['read-node', 'patch-dry-build'],
+      operationsApplied,
+      validation: { ok: false, issues: validationIssues },
+    };
+  }
+
+  const nextNode = {
+    ...node,
+    updatedAt: Date.now(),
+    status: dryRun ? node.status : 'ready',
+    workingPayload,
+    workingSummary: summarizeTimelinePayload(workingPayload),
+    riskFlags,
+    logs: dryRun ? node.logs : [
+      makeWorkNodeLog('info', 'Applied patch_and_validate work node patch.', {
+        operationCount: operationsApplied.length,
+        dryRun,
+      }),
+      ...(Array.isArray(node.logs) ? node.logs : []),
+    ],
+  };
+  const diff = diffTimelinePayloadsForWorkNode(node.basePayload, workingPayload);
+  const checkoutDecision = buildAiTimelineCheckoutDecision({
+    approvalPolicy: nextNode.approvalPolicy,
+    riskFlags,
+    diff,
+  });
+  if (!dryRun) {
+    writeAiTimelineWorkNodeArchive({
+      ...archive,
+      nodes: [nextNode, ...archive.nodes.filter((item) => item?.id !== nodeId)],
+    });
+  }
+  const validation = {
+    ok: true,
+    nodeId: nextNode.id,
+    issues: [],
+    baseSummary: summarizeTimelinePayload(node.basePayload),
+    workingSummary: summarizeTimelinePayload(workingPayload),
+  };
+  return {
+    ok: validation.ok,
+    nodeId: nextNode.id,
+    ...(created ? { created } : {}),
+    dryRun,
+    patchApplied: !dryRun,
+    operationsApplied,
+    validation,
+    diffSummary: formatDefWorkNodeDiffSummary(diff),
+    diff: { summary: diff.summary, selectedCharactersChanged: diff.selectedCharactersChanged },
+    changedButtons: summarizeDefWorkNodeChangedButtons(diff),
+    checkout: false,
+    currentCheckoutTouched: false,
+    pollutionCheck: {
+      pass: true,
+      method: 'server-side work node update only; checkout path disabled',
+    },
+    riskFlags,
+    checkoutDecision,
+    completedSteps: created
+      ? ['create-node', 'read-node', 'patch', 'validate', 'diff', 'pollution-check']
+      : ['read-node', 'patch', 'validate', 'diff', 'pollution-check'],
+    nextActions: checkoutDecision.requiresManualApproval
+      ? ['Review diff/risk flags before def.worknode.checkout.']
+      : ['Use def.worknode.checkout only if the user explicitly wants to apply this work node.'],
+  };
+}
+
 function readDefToolGovernanceArchive() {
   try {
     if (!fs.existsSync(defToolGovernancePath)) {
@@ -1420,6 +2266,27 @@ function writeDefToolGovernanceArchive(archive) {
   }, null, 2)}\n`, 'utf-8');
 }
 
+function appendDefGovernanceWorkNodeLog(workNodeId, level, message, data = {}) {
+  if (typeof workNodeId !== 'string' || !workNodeId.trim()) return null;
+  const archive = readAiTimelineWorkNodeArchive();
+  let updatedNode = null;
+  const nodes = archive.nodes.map((node) => {
+    if (node?.id !== workNodeId.trim()) return node;
+    updatedNode = {
+      ...node,
+      updatedAt: Date.now(),
+      logs: [
+        makeWorkNodeLog(level, message, data),
+        ...(Array.isArray(node.logs) ? node.logs : []),
+      ].slice(0, 100),
+    };
+    return updatedNode;
+  });
+  if (!updatedNode) return null;
+  writeAiTimelineWorkNodeArchive({ ...archive, nodes });
+  return updatedNode;
+}
+
 function createDefUserQuestion(input = {}) {
   const question = typeof input.question === 'string' && input.question.trim()
     ? input.question.trim()
@@ -1445,6 +2312,11 @@ function createDefUserQuestion(input = {}) {
   writeDefToolGovernanceArchive({
     ...archive,
     questions: [record, ...archive.questions.filter((item) => item?.id !== record.id)],
+  });
+  appendDefGovernanceWorkNodeLog(record.workNodeId, 'info', 'Recorded DEF user question.', {
+    questionId: record.id,
+    mode: record.mode,
+    question: record.question,
   });
   return {
     ok: true,
@@ -1481,6 +2353,12 @@ function createDefApprovalRequest(input = {}) {
     ...archive,
     approvals: [record, ...archive.approvals.filter((item) => item?.id !== record.id)],
   });
+  appendDefGovernanceWorkNodeLog(record.workNodeId, 'warning', 'Recorded DEF approval request.', {
+    approvalId: record.id,
+    mode: record.mode,
+    riskLevel: record.riskLevel,
+    summary: record.summary,
+  });
   return {
     ok: true,
     approval: record,
@@ -1511,12 +2389,72 @@ function recordDefApprovalDecision(input = {}) {
     return { ok: false, code: 'approval-not-found', message: `Approval request not found: ${approvalId}` };
   }
   writeDefToolGovernanceArchive({ ...archive, approvals });
+  appendDefGovernanceWorkNodeLog(updated.workNodeId, decision === 'approved' ? 'info' : 'warning', 'Recorded DEF approval decision.', {
+    approvalId,
+    decision,
+    decidedBy: updated.decidedBy,
+    rationale: updated.rationale,
+  });
   return { ok: true, approval: updated };
 }
 
 function buildDefToolDefinitions() {
   const executeCommand = 'Wraps current main workbench command queue; enqueue success still requires verification.';
   const workNode = 'Uses appdata/localdata AI work node; current checkout changes only on checkout/restore.';
+  const patchDslProperty = {
+    type: 'array',
+    description: 'Constrained work node Patch DSL. Edits workingPayload only; checkout remains separate.',
+    items: {
+      type: 'object',
+      properties: {
+        op: {
+          type: 'string',
+          enum: ['addButton', 'removeButton', 'moveButton', 'attachBuff', 'removeBuff', 'setTargetResistance', 'clearTimeline'],
+        },
+        characterName: { type: 'string', description: 'Required for addButton.' },
+        skillType: { type: 'string' },
+        runtimeSkillId: { type: 'string' },
+        skillDisplayName: { type: 'string' },
+        target: {
+          type: 'object',
+          properties: {
+            buttonId: { type: 'string' },
+            characterName: { type: 'string' },
+            skillType: { type: 'string' },
+            nodeIndex: { type: 'number' },
+            latest: { type: 'boolean' },
+          },
+        },
+        staffIndex: { type: 'number' },
+        nodeIndex: { type: 'number', description: 'Required for moveButton; optional for addButton.' },
+        buffId: { type: 'string', description: 'Required for attachBuff/removeBuff.' },
+        targetResistance: { type: 'object', description: 'Required for setTargetResistance.' },
+      },
+    },
+  };
+  const workNodePatchSchema = {
+    type: 'object',
+    required: ['nodeId', 'patch'],
+    properties: {
+      nodeId: { type: 'string', description: 'Existing appdata work node id.' },
+      dryRun: { type: 'boolean' },
+      patch: patchDslProperty,
+    },
+  };
+  const patchAndValidateSchema = {
+    type: 'object',
+    required: ['patch'],
+    properties: {
+      nodeId: { type: 'string', description: 'Optional existing appdata work node id. If omitted, the tool creates a new work node from the best available current payload mirror before patching.' },
+      checkout: { type: 'boolean', const: false, description: 'Must be false; checkout is intentionally separate.' },
+      dryRun: { type: 'boolean' },
+      approvalPolicy: { type: 'string', enum: ['auto-low-risk', 'ask-on-risk', 'manual'] },
+      label: { type: 'string' },
+      saveId: { type: 'string' },
+      branchId: { type: 'string' },
+      patch: patchDslProperty,
+    },
+  };
   return [
     { name: 'def.tool.list', scope: 'read', riskLevel: 'read', approval: 'none', status: 'implemented', description: 'List DEF typed tools.' },
     { name: 'def.tool.describe', scope: 'read', riskLevel: 'read', approval: 'none', status: 'implemented', description: 'Describe one DEF typed tool.' },
@@ -1542,6 +2480,7 @@ function buildDefToolDefinitions() {
     { name: 'def.damage.calculate', commandOp: 'calculateDamage', scope: 'current-checkout', riskLevel: 'low', approval: 'auto', status: 'implemented', description: executeCommand },
     { name: 'def.worknode.create_from_current', commandOp: 'createAiTimelineWorkNodeFromCurrent', scope: 'appdata-work-node', riskLevel: 'medium', approval: 'auto', status: 'implemented', description: workNode },
     { name: 'def.worknode.patch', commandOp: 'patchAiTimelineWorkNode', scope: 'appdata-work-node', riskLevel: 'high', approval: 'ai-review', status: 'implemented', description: 'Class-code Patch DSL / CRUD tool for node.workingPayload.' },
+    { name: 'def.worknode.patch_and_validate', scope: 'appdata-work-node', riskLevel: 'high', approval: 'ai-review', status: 'implemented', description: 'Apply a constrained work node patch, validate, summarize diff, and prove checkout=false did not touch current checkout.' },
     { name: 'def.worknode.diff', commandOp: 'diffAiTimelineWorkNode', scope: 'appdata-work-node', riskLevel: 'read', approval: 'none', status: 'implemented', description: workNode },
     { name: 'def.worknode.checkout', commandOp: 'checkoutAiTimelineWorkNode', scope: 'appdata-work-node', riskLevel: 'high', approval: 'ai-review', status: 'implemented', description: workNode },
     { name: 'def.worknode.restore_base', commandOp: 'restoreAiTimelineWorkNodeBase', scope: 'appdata-work-node', riskLevel: 'high', approval: 'ai-review', status: 'implemented', description: workNode },
@@ -1556,11 +2495,15 @@ function buildDefToolDefinitions() {
     { name: 'def.verify.damage_recalculated', scope: 'verification', riskLevel: 'read', approval: 'none', status: 'implemented', description: 'Verify damage report exists and expose generatedAt/total.' },
     { name: 'def.verify.worknode_diff_clean', scope: 'verification', riskLevel: 'read', approval: 'none', status: 'implemented', description: 'Verify work node diff/risk before checkout.' },
     { name: 'def.operator.config.read', scope: 'read', riskLevel: 'read', approval: 'none', status: 'implemented', description: 'Read compact operator config summary from snapshot.' },
-    { name: 'def.operator.config.patch', scope: 'current-checkout', riskLevel: 'medium', approval: 'ai-review', status: 'planned', description: 'Structured operator config patch for levels/weapon/equipment.' },
-    { name: 'def.gear.set_entry_level', scope: 'current-checkout', riskLevel: 'medium', approval: 'ai-review', status: 'planned', description: 'Set gear entry level through future config tool.' },
+    { name: 'def.operator.config.patch', scope: 'current-checkout', riskLevel: 'medium', approval: 'ai-review', status: 'implemented', description: 'Structured operator config patch for weapon/equipment fields.' },
+    { name: 'def.gear.set_entry_level', scope: 'current-checkout', riskLevel: 'medium', approval: 'ai-review', status: 'implemented', description: 'Set equipped gear entry level through structured config commands.' },
   ].map((tool) => ({
     ...tool,
-    inputSchema: tool.commandOp ? { type: 'object', description: `MainWorkbenchCommand fields without op; op is ${tool.commandOp}.` } : { type: 'object' },
+    inputSchema: tool.name === 'def.worknode.patch_and_validate'
+      ? patchAndValidateSchema
+      : tool.name === 'def.worknode.patch'
+        ? workNodePatchSchema
+        : tool.commandOp ? { type: 'object', description: `MainWorkbenchCommand fields without op; op is ${tool.commandOp}.` } : { type: 'object' },
     outputSchema: { type: 'object', fields: ['ok', 'tool', 'result'] },
     verification: tool.scope === 'current-checkout' ? ['command_result', 'snapshot_delta'] : tool.scope === 'appdata-work-node' ? ['schema', 'diff'] : ['schema'],
     rollback: tool.scope === 'appdata-work-node' ? 'required' : tool.scope === 'current-checkout' ? 'optional' : 'none',
@@ -1606,12 +2549,217 @@ function enqueueDefToolCommand(definition, input = {}) {
       ok: true,
       protocolVersion: 1,
       tool: definition.name,
+      resultState: 'queued',
       status: 'queued',
       command: entry,
       verificationRequired: definition.verification,
       note: 'queued does not mean executed; verify command_result or snapshot_delta before final answer.',
     },
   };
+}
+
+function enqueueDefToolCommands(definition, commands, input = {}) {
+  const normalizedCommands = Array.isArray(commands)
+    ? commands.map(normalizeMainWorkbenchCommand)
+    : [];
+  if (!normalizedCommands.length) {
+    return failScript(400, 'def-tool-no-commands', `${definition.name} did not produce any command.`);
+  }
+  const invalid = normalizedCommands
+    .map((command) => validateMainWorkbenchCommand(command))
+    .find((validation) => !validation.ok);
+  if (invalid) {
+    return failScript(400, invalid.code, invalid.message);
+  }
+
+  const queue = readMainWorkbenchCommandQueue();
+  const source = typeof input.source === 'string' ? input.source : 'def-tool-runtime';
+  const requestedBatchId = normalizeMainWorkbenchBatchId(input.batchId);
+  if (normalizedCommands.length === 1) {
+    const requestId = typeof input.requestId === 'string' && input.requestId.trim() ? input.requestId.trim() : '';
+    const id = requestId || makeMainWorkbenchCommandId();
+    const existing = queue.find((entry) => entry.id === id);
+    if (existing) {
+      return { status: 200, body: { ok: true, protocolVersion: 1, tool: definition.name, command: existing, commands: [existing], duplicate: true } };
+    }
+    const entry = normalizeMainWorkbenchCommandEntry({
+      id,
+      command: normalizedCommands[0],
+      source,
+      status: 'pending',
+      ...(requestedBatchId ? { batchId: requestedBatchId, batchIndex: 0, batchSize: 1 } : {}),
+    });
+    writeMainWorkbenchCommandQueue([...queue, entry]);
+    return {
+      status: 200,
+      body: {
+        ok: true,
+        protocolVersion: 1,
+        tool: definition.name,
+        resultState: 'queued',
+        status: 'queued',
+        command: entry,
+        commands: [entry],
+        verificationRequired: definition.verification,
+        note: 'queued does not mean executed; verify command_result or snapshot_delta before final answer.',
+      },
+    };
+  }
+
+  const batchId = requestedBatchId || makeMainWorkbenchBatchId();
+  const batchSize = normalizedCommands.length;
+  const entries = normalizedCommands.map((command, index) => normalizeMainWorkbenchCommandEntry({
+    id: makeMainWorkbenchCommandId(),
+    command,
+    source,
+    status: 'pending',
+    batchId,
+    batchIndex: index,
+    batchSize,
+  }));
+  writeMainWorkbenchCommandQueue([...queue, ...entries]);
+  return {
+    status: 200,
+    body: {
+      ok: true,
+      protocolVersion: 1,
+      tool: definition.name,
+      resultState: 'queued',
+      status: 'queued',
+      batchId,
+      commands: entries,
+      batch: buildMainWorkbenchCommandBatchSummary(entries, batchId),
+      verificationRequired: definition.verification,
+      note: 'queued does not mean executed; verify command_result or snapshot_delta before final answer.',
+    },
+  };
+}
+
+function compactOperatorCommandTarget(input = {}) {
+  return {
+    ...(typeof input.characterId === 'string' && input.characterId.trim() ? { characterId: input.characterId.trim() } : {}),
+    ...(typeof input.characterName === 'string' && input.characterName.trim() ? { characterName: input.characterName.trim() } : {}),
+  };
+}
+
+function normalizeDefToolWeaponPatch(input = {}) {
+  const patch = isObject(input.weapon) ? input.weapon : isObject(input.setWeapon) ? input.setWeapon : null;
+  if (!patch) return null;
+  const weaponName = patch.weaponName || patch.name || patch.weaponId || patch.id;
+  if (typeof weaponName !== 'string' || !weaponName.trim()) return null;
+  return {
+    op: 'setOperatorWeapon',
+    ...compactOperatorCommandTarget(input),
+    weaponName: weaponName.trim(),
+    ...(patch.level !== undefined ? { level: patch.level } : {}),
+    ...(typeof patch.potential === 'string' ? { potential: patch.potential } : {}),
+    ...(isObject(patch.skillLevels) ? { skillLevels: patch.skillLevels } : {}),
+  };
+}
+
+function normalizeDefToolEquipmentSelection(selection = {}, input = {}) {
+  const normalized = {
+    ...(selection.slotKey ? { slotKey: selection.slotKey } : {}),
+    ...(selection.part ? { part: selection.part } : {}),
+    ...(selection.equipmentId ? { equipmentId: selection.equipmentId } : {}),
+    ...(selection.equipmentName || selection.name ? { equipmentName: selection.equipmentName || selection.name } : {}),
+    ...(selection.gearSetId ? { gearSetId: selection.gearSetId } : {}),
+    ...(selection.gearSetName || selection.setName ? { gearSetName: selection.gearSetName || selection.setName } : {}),
+    ...(selection.fillSlots !== undefined ? { fillSlots: selection.fillSlots === true } : {}),
+    ...(selection.entryLevel !== undefined ? { entryLevel: selection.entryLevel } : input.entryLevel !== undefined ? { entryLevel: input.entryLevel } : {}),
+    ...(selection.entryLevels !== undefined ? { entryLevels: selection.entryLevels } : input.entryLevels !== undefined ? { entryLevels: input.entryLevels } : {}),
+  };
+  if (!normalized.equipmentId && !normalized.equipmentName && !normalized.gearSetId && !normalized.gearSetName) {
+    return null;
+  }
+  return normalized;
+}
+
+function normalizeDefToolEquipmentCommands(input = {}) {
+  const rawSelections = [];
+  if (Array.isArray(input.equipments)) rawSelections.push(...input.equipments);
+  if (Array.isArray(input.equipment)) rawSelections.push(...input.equipment);
+  if (isObject(input.equipment)) rawSelections.push(input.equipment);
+  if (isObject(input.gear)) rawSelections.push(input.gear);
+  if (isObject(input.setEquipment)) rawSelections.push(input.setEquipment);
+  if (input.gearSetName || input.gearSetId || input.equipmentName || input.equipmentId) rawSelections.push(input);
+
+  const selections = rawSelections
+    .filter(isObject)
+    .map((selection) => normalizeDefToolEquipmentSelection(selection, input))
+    .filter(Boolean);
+  if (!selections.length) return [];
+
+  if (selections.length === 1) {
+    return [{
+      op: 'setOperatorEquipment',
+      ...compactOperatorCommandTarget(input),
+      ...selections[0],
+    }];
+  }
+  return [{
+    op: 'setOperatorEquipment',
+    ...compactOperatorCommandTarget(input),
+    equipments: selections,
+  }];
+}
+
+function buildDefOperatorConfigPatchCommands(input = {}) {
+  const commands = [];
+  const patchItems = Array.isArray(input.patches) ? input.patches : Array.isArray(input.patch) ? input.patch : [];
+  if (patchItems.length) {
+    for (const patch of patchItems.filter(isObject)) {
+      commands.push(...buildDefOperatorConfigPatchCommands({ ...input, ...patch, patches: undefined, patch: undefined }));
+    }
+    return commands;
+  }
+  const weaponCommand = normalizeDefToolWeaponPatch(input);
+  if (weaponCommand) commands.push(weaponCommand);
+  commands.push(...normalizeDefToolEquipmentCommands(input));
+  return commands;
+}
+
+function findDefOperatorConfig(input = {}) {
+  const snapshot = readMainWorkbenchSnapshotMirror();
+  const configs = Array.isArray(snapshot?.operatorConfigs) ? snapshot.operatorConfigs : [];
+  const characterId = typeof input.characterId === 'string' && input.characterId.trim() ? input.characterId.trim() : '';
+  const characterName = normalizeDefToolText(input.characterName || input.character || '');
+  return configs.find((config) => (
+    (characterId && config?.characterId === characterId) ||
+    (characterName && normalizeDefToolText(config?.characterName).includes(characterName))
+  )) || (!characterId && !characterName ? configs[0] : null);
+}
+
+function buildDefGearEntryLevelCommands(input = {}) {
+  const directSelection = normalizeDefToolEquipmentSelection(input, input);
+  if (directSelection) {
+    return [{
+      op: 'setOperatorEquipment',
+      ...compactOperatorCommandTarget(input),
+      ...directSelection,
+    }];
+  }
+
+  const config = findDefOperatorConfig(input);
+  if (!config) {
+    return failScript(404, 'def-operator-config-not-found', 'No matching operator config found for gear entry level patch.');
+  }
+  const slotKey = typeof input.slotKey === 'string' && input.slotKey.trim() ? input.slotKey.trim() : '';
+  const part = typeof input.part === 'string' && input.part.trim() ? input.part.trim() : '';
+  const pieces = (Array.isArray(config.equipment) ? config.equipment : [])
+    .filter((piece) => (!slotKey || piece?.slotKey === slotKey) && (!part || piece?.part === part));
+  if (!pieces.length) {
+    return failScript(404, 'def-gear-piece-not-found', 'No matching equipped gear piece found for entry level patch.');
+  }
+  return pieces.map((piece) => ({
+    op: 'setOperatorEquipment',
+    characterId: config.characterId,
+    characterName: config.characterName,
+    slotKey: piece.slotKey,
+    equipmentId: piece.equipmentId,
+    ...(input.entryLevel !== undefined ? { entryLevel: input.entryLevel } : {}),
+    ...(input.entryLevels !== undefined ? { entryLevels: input.entryLevels } : {}),
+  }));
 }
 
 function verifyButtonsHaveBuff(input = {}) {
@@ -1640,6 +2788,63 @@ function verifyButtonsHaveBuff(input = {}) {
   };
 }
 
+function compareDefExpectedFact(actual, expected, label) {
+  if (!isObject(expected)) {
+    return actual === expected
+      ? { label, pass: true, actual, expected }
+      : { label, pass: false, actual, expected };
+  }
+  if (Object.prototype.hasOwnProperty.call(expected, 'equals') && actual !== expected.equals) {
+    return { label, pass: false, actual, expected };
+  }
+  if (Object.prototype.hasOwnProperty.call(expected, 'min') && !(actual >= expected.min)) {
+    return { label, pass: false, actual, expected };
+  }
+  if (Object.prototype.hasOwnProperty.call(expected, 'max') && !(actual <= expected.max)) {
+    return { label, pass: false, actual, expected };
+  }
+  if (Object.prototype.hasOwnProperty.call(expected, 'notEquals') && actual === expected.notEquals) {
+    return { label, pass: false, actual, expected };
+  }
+  return { label, pass: true, actual, expected };
+}
+
+function verifyDefSnapshotDelta(snapshot, input = {}) {
+  const facts = {
+    snapshotUpdatedAt: snapshot?.updatedAt || null,
+    selectedCharacterCount: Array.isArray(snapshot?.selectedCharacters) ? snapshot.selectedCharacters.length : 0,
+    buttonCount: Array.isArray(snapshot?.skillButtons) ? snapshot.skillButtons.length : 0,
+    damageTotalExpected: snapshot?.damageReport?.totalExpected ?? null,
+  };
+  const expected = isObject(input.expected) ? input.expected : {};
+  const checks = Object.entries(expected)
+    .filter(([key]) => Object.prototype.hasOwnProperty.call(facts, key))
+    .map(([key, expectation]) => compareDefExpectedFact(facts[key], expectation, key));
+  return {
+    pass: Boolean(snapshot) && checks.every((check) => check.pass),
+    ...facts,
+    checks,
+  };
+}
+
+function classifyDefCommandResult(entryOrBatch) {
+  if (!entryOrBatch) return { resultState: 'failed', reason: 'command-not-found' };
+  if (entryOrBatch.batchId || Object.prototype.hasOwnProperty.call(entryOrBatch, 'total')) {
+    if (entryOrBatch.error > 0) return { resultState: 'failed', reason: 'batch-has-error' };
+    if (entryOrBatch.pending > 0 || entryOrBatch.running > 0) return { resultState: 'queued', reason: 'batch-still-running' };
+    if (entryOrBatch.done > 0) return { resultState: 'applied', reason: 'batch-done' };
+    return { resultState: 'skipped', reason: 'batch-empty' };
+  }
+  if (entryOrBatch.status === 'error') return { resultState: 'failed', reason: entryOrBatch.error || 'command-error' };
+  if (entryOrBatch.status === 'pending' || entryOrBatch.status === 'running') return { resultState: 'queued', reason: `command-${entryOrBatch.status}` };
+  if (entryOrBatch.status !== 'done') return { resultState: 'failed', reason: `command-${entryOrBatch.status || 'unknown'}` };
+  if (entryOrBatch.result && typeof entryOrBatch.result === 'object') {
+    if (entryOrBatch.result.duplicate === true) return { resultState: 'duplicate', reason: 'command-result-duplicate' };
+    if (entryOrBatch.result.skipped === true) return { resultState: 'skipped', reason: 'command-result-skipped' };
+  }
+  return { resultState: 'applied', reason: 'command-done' };
+}
+
 function executeDefTool(name, input = {}, query = new URLSearchParams()) {
   const definition = getDefToolDefinition(name);
   if (!definition) {
@@ -1652,6 +2857,14 @@ function executeDefTool(name, input = {}, query = new URLSearchParams()) {
   }
   if (definition.commandOp) return enqueueDefToolCommand(definition, input);
 
+  if (name === 'def.operator.config.patch') {
+    return enqueueDefToolCommands(definition, buildDefOperatorConfigPatchCommands(input), input);
+  }
+  if (name === 'def.gear.set_entry_level') {
+    const commandsOrResponse = buildDefGearEntryLevelCommands(input);
+    if (commandsOrResponse?.status && commandsOrResponse?.body) return commandsOrResponse;
+    return enqueueDefToolCommands(definition, commandsOrResponse, input);
+  }
   const snapshot = readMainWorkbenchSnapshotMirror();
   let result = null;
   if (name === 'def.tool.list') {
@@ -1699,6 +2912,8 @@ function executeDefTool(name, input = {}, query = new URLSearchParams()) {
     result = createDefApprovalRequest(input);
   } else if (name === 'def.approval.record_decision') {
     result = recordDefApprovalDecision(input);
+  } else if (name === 'def.worknode.patch_and_validate') {
+    result = applyDefWorkNodePatchAndValidate(input);
   } else if (name === 'def.worknode.read') {
     result = readDefWorkNode(input);
   } else if (name === 'def.worknode.validate') {
@@ -1710,15 +2925,14 @@ function executeDefTool(name, input = {}, query = new URLSearchParams()) {
     result = batchId
       ? buildMainWorkbenchCommandBatchSummary(commands, batchId)
       : commands.find((entry) => entry.id === commandId) || null;
-    result = { pass: batchId ? result && result.total > 0 && result.pending === 0 && result.running === 0 && result.error === 0 : result?.status === 'done', result };
-  } else if (name === 'def.verify.snapshot_delta') {
+    const classified = classifyDefCommandResult(result);
     result = {
-      pass: Boolean(snapshot),
-      snapshotUpdatedAt: snapshot?.updatedAt || null,
-      selectedCharacterCount: Array.isArray(snapshot?.selectedCharacters) ? snapshot.selectedCharacters.length : 0,
-      buttonCount: Array.isArray(snapshot?.skillButtons) ? snapshot.skillButtons.length : 0,
-      damageTotalExpected: snapshot?.damageReport?.totalExpected ?? null,
+      pass: classified.resultState === 'applied' || classified.resultState === 'duplicate' || classified.resultState === 'skipped',
+      ...classified,
+      result,
     };
+  } else if (name === 'def.verify.snapshot_delta') {
+    result = verifyDefSnapshotDelta(snapshot, input);
   } else if (name === 'def.verify.buttons_have_buff') {
     result = verifyButtonsHaveBuff(input);
   } else if (name === 'def.verify.damage_recalculated') {
@@ -1750,6 +2964,32 @@ function executeDefTool(name, input = {}, query = new URLSearchParams()) {
 function handleDefToolRequest(method, pathname, query, body) {
   if (method === 'GET' && pathname === '/api/def-tools') {
     return executeDefTool('def.tool.list', {}, query);
+  }
+  if (method === 'GET' && pathname === '/api/def-tools/governance') {
+    const archive = readDefToolGovernanceArchive();
+    const limit = Math.max(1, Math.min(Number(query.get('limit') || 20) || 20, 100));
+    const since = Number(query.get('since') || 0) || 0;
+    const questions = archive.questions
+      .filter((item) => !since || (item?.createdAt || 0) >= since || (item?.decidedAt || 0) >= since)
+      .slice(0, limit);
+    const approvals = archive.approvals
+      .filter((item) => !since || (item?.createdAt || 0) >= since || (item?.decidedAt || 0) >= since)
+      .slice(0, limit);
+    return {
+      status: 200,
+      body: {
+        ok: true,
+        protocolVersion: 1,
+        path: defToolGovernancePath,
+        questions,
+        approvals,
+        latestAt: Math.max(
+          0,
+          ...questions.map((item) => item?.createdAt || item?.decidedAt || 0),
+          ...approvals.map((item) => item?.createdAt || item?.decidedAt || 0),
+        ),
+      },
+    };
   }
   if (method === 'GET' && pathname === '/api/def-tools/describe') {
     return executeDefTool('def.tool.describe', { name: query.get('name') || '' }, query);

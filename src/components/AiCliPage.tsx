@@ -912,6 +912,7 @@ export function AiCliPage() {
       const clientTurnId = typeof payload.clientTurnId === 'string' && payload.clientTurnId.trim()
         ? payload.clientTurnId.trim()
         : `workbench-test-ui-${Date.now()}`;
+      if (payload.replay) return;
       if (!promptText || !sessionId) return;
 
       activeSkillEventSourceRef.current?.close();

@@ -134,6 +134,17 @@ export type MainWorkbenchCommand =
       dryRun?: boolean;
     }
   | {
+      op: 'patchAndValidateAiTimelineWorkNode';
+      nodeId?: string;
+      saveId?: string;
+      branchId?: string;
+      label?: string;
+      approvalPolicy?: 'auto-low-risk' | 'ask-on-risk' | 'manual';
+      patch: TimelineWorkNodePatchOperation[];
+      dryRun?: boolean;
+      checkout?: false;
+    }
+  | {
       op: 'checkoutAiTimelineWorkNode';
       nodeId: string;
       commitId?: string;
@@ -234,6 +245,14 @@ export interface MainWorkbenchSnapshot {
       name?: string;
       displayName?: string;
       sourceName?: string;
+      level?: string;
+      type?: string;
+      value?: number;
+      description?: string;
+      source?: string;
+      condition?: string;
+      category?: string;
+      effectKind?: string;
     }>;
   }>;
   damageReport?: Pick<DamageReportSnapshot, 'generatedAt' | 'totalExpected' | 'totalNonCrit' | 'buttonCount' | 'buttons'>;
@@ -259,6 +278,16 @@ export interface MainWorkbenchSnapshot {
         level: number | string;
         value: number;
       }>;
+    }>;
+    setBuffs?: Array<{
+      gearSetId: string;
+      gearSetName: string;
+      effectId: string;
+      label: string;
+      typeKey: string;
+      value: number;
+      category?: string;
+      effectKind?: string;
     }>;
   }>;
   lastCommand?: {

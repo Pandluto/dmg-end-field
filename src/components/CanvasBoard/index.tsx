@@ -129,6 +129,9 @@ type PatchAiTimelineWorkNodeCommandResult =
       dryRun: boolean;
       operationsApplied: number;
       diff: unknown;
+      diffSummary?: string;
+      changedButtons?: ReturnType<typeof summarizeTimelineChangedButtons>;
+      currentCheckoutTouched?: false;
       riskFlags: unknown[];
       summary: string[];
       status?: string;
@@ -142,6 +145,56 @@ type PatchAiTimelineWorkNodeCommandResult =
       issues: Array<{ code: string; message: string; path?: string }>;
       riskFlags: unknown[];
     };
+
+function formatTimelineDiffSummary(diff: ReturnType<typeof diffTimelinePayloads>) {
+  const summary = diff.summary;
+  const parts: string[] = [];
+  if (summary.addedButtonCount) parts.push(`added ${summary.addedButtonCount} button(s)`);
+  if (summary.removedButtonCount) parts.push(`removed ${summary.removedButtonCount} button(s)`);
+  if (summary.changedButtonCount) parts.push(`changed ${summary.changedButtonCount} button(s)`);
+  if (summary.addedBuffCount) parts.push(`added ${summary.addedBuffCount} buff(s)`);
+  if (summary.removedBuffCount) parts.push(`removed ${summary.removedBuffCount} buff(s)`);
+  if (diff.selectedCharactersChanged) parts.push('selected characters changed');
+  return parts.length ? parts.join('; ') : 'no diff';
+}
+
+function summarizeTimelineChangedButtons(diff: ReturnType<typeof diffTimelinePayloads>) {
+  return [
+    ...diff.addedButtons.map((button) => ({
+      kind: 'added' as const,
+      buttonId: button.id,
+      label: button.label,
+      after: button,
+    })),
+    ...diff.removedButtons.map((button) => ({
+      kind: 'removed' as const,
+      buttonId: button.id,
+      label: button.label,
+      before: button,
+    })),
+    ...diff.changedButtons.map((change) => ({
+      kind: 'changed' as const,
+      buttonId: change.id,
+      beforeLabel: change.before.label,
+      afterLabel: change.after.label,
+      changes: change.changes,
+    })),
+  ];
+}
+
+function buildTimelineButtonTargets(payload: NonNullable<ReturnType<typeof getCurrentTimelineSnapshotPayload>>) {
+  return Object.values(payload.skillButtonTable || {})
+    .map((button) => ({
+      buttonId: button.id,
+      label: `${button.characterName}-${button.skillDisplayName || button.skillType}@${button.staffIndex + 1}-${(button.nodeIndex ?? 0) + 1}`,
+      characterName: button.characterName,
+      skillType: button.skillType,
+      skillDisplayName: button.skillDisplayName,
+      staffIndex: button.staffIndex,
+      nodeIndex: button.nodeIndex,
+    }))
+    .sort((left, right) => (left.staffIndex - right.staffIndex) || (left.nodeIndex - right.nodeIndex) || left.label.localeCompare(right.label));
+}
 
 function buildMainWorkbenchSnapshotSignature(
   selectedCharacters: MainWorkbenchSnapshot['selectedCharacters'],
@@ -824,6 +877,7 @@ export function CanvasBoard({
       status: created.node.status,
       baseSummary: created.node.baseSummary,
       workingSummary: created.node.workingSummary,
+      buttonTargets: buildTimelineButtonTargets(payload),
       path: created.path,
     };
   };
@@ -951,6 +1005,9 @@ export function CanvasBoard({
         ok: true,
         operationsApplied: patchResult.operationsApplied,
         diff: patchResult.diff,
+        diffSummary: formatTimelineDiffSummary(patchResult.diff),
+        changedButtons: summarizeTimelineChangedButtons(patchResult.diff),
+        currentCheckoutTouched: false,
         riskFlags: nextRiskFlags,
         summary: patchResult.summary,
       };
@@ -972,10 +1029,88 @@ export function CanvasBoard({
       status: updated.node.status,
       operationsApplied: patchResult.operationsApplied,
       diff: patchResult.diff,
+      diffSummary: formatTimelineDiffSummary(patchResult.diff),
+      changedButtons: summarizeTimelineChangedButtons(patchResult.diff),
+      currentCheckoutTouched: false,
       riskFlags: nextRiskFlags.map((risk) => ({ severity: risk.severity, code: risk.code, message: risk.message })),
       checkoutDecision,
       summary: patchResult.summary,
       path: updated.path,
+    };
+  };
+
+  const patchAndValidateAiTimelineWorkNodeFromCommand = async (
+    command: Extract<MainWorkbenchCommand, { op: 'patchAndValidateAiTimelineWorkNode' }>,
+  ) => {
+    if ((command as { checkout?: boolean }).checkout === true) {
+      throw new Error('patchAndValidateAiTimelineWorkNode does not support checkout:true');
+    }
+    let created: Awaited<ReturnType<typeof createAiTimelineWorkNodeFromCurrentCommand>> | null = null;
+    let nodeId = command.nodeId?.trim() || '';
+    if (!nodeId) {
+      created = await createAiTimelineWorkNodeFromCurrentCommand({
+        op: 'createAiTimelineWorkNodeFromCurrent',
+        saveId: command.saveId,
+        branchId: command.branchId,
+        label: command.label,
+        approvalPolicy: command.approvalPolicy,
+      });
+      nodeId = created.nodeId;
+    }
+
+    const patchResult = await patchAiTimelineWorkNodeFromCommand({
+      op: 'patchAiTimelineWorkNode',
+      nodeId,
+      patch: command.patch,
+      dryRun: command.dryRun,
+    });
+    if (!patchResult.ok) {
+      return {
+        ok: false,
+        nodeId,
+        created,
+        dryRun: command.dryRun === true,
+        patchApplied: false,
+        validation: {
+          ok: false,
+          issues: patchResult.issues,
+        },
+        checkout: false,
+        currentCheckoutTouched: false,
+        completedSteps: created ? ['create-node', 'patch-failed'] : ['patch-failed'],
+        issues: patchResult.issues,
+        riskFlags: patchResult.riskFlags,
+      };
+    }
+
+    const client = createAiTimelineWorkNodeClient();
+    const { node } = await client.get(nodeId);
+    const validation = validateTimelinePayload(command.dryRun === true ? node.workingPayload : node.workingPayload);
+    const diff = patchResult.diff as ReturnType<typeof diffTimelinePayloads>;
+    return {
+      ok: validation.ok,
+      nodeId,
+      created,
+      dryRun: command.dryRun === true,
+      patchApplied: command.dryRun !== true,
+      operationsApplied: patchResult.operationsApplied,
+      validation,
+      diffSummary: patchResult.diffSummary || formatTimelineDiffSummary(diff),
+      diff: {
+        summary: diff.summary,
+        selectedCharactersChanged: diff.selectedCharactersChanged,
+      },
+      changedButtons: patchResult.changedButtons || summarizeTimelineChangedButtons(diff),
+      checkout: false,
+      currentCheckoutTouched: false,
+      pollutionCheck: {
+        pass: true,
+        method: 'front-end work node update only; checkout path disabled',
+      },
+      riskFlags: patchResult.riskFlags,
+      checkoutDecision: patchResult.checkoutDecision,
+      completedSteps: created ? ['create-node', 'patch', 'validate', 'diff', 'pollution-check'] : ['patch', 'validate', 'diff', 'pollution-check'],
+      nextActions: ['Use checkoutAiTimelineWorkNode only if the user explicitly wants to apply this work node.'],
     };
   };
 
@@ -1048,6 +1183,7 @@ export function CanvasBoard({
         'createAiTimelineWorkNodeFromCurrent',
         'diffAiTimelineWorkNode',
         'patchAiTimelineWorkNode',
+        'patchAndValidateAiTimelineWorkNode',
         'checkoutAiTimelineWorkNode',
         'restoreAiTimelineWorkNodeBase',
         'refreshOperatorConfig',
@@ -1297,6 +1433,17 @@ export function CanvasBoard({
             return;
           }
           const doneEntry = patchMainWorkbenchCommand(commandEntry.id, { status: 'done', result });
+          if (doneEntry) void pushMainWorkbenchCommandResult(doneEntry);
+          return;
+        }
+
+        if (command.op === 'patchAndValidateAiTimelineWorkNode') {
+          const result = await patchAndValidateAiTimelineWorkNodeFromCommand(command);
+          const doneEntry = patchMainWorkbenchCommand(commandEntry.id, {
+            status: result.ok ? 'done' : 'error',
+            result,
+            ...(result.ok ? {} : { error: result.issues?.map((issue) => issue.message).join('；') || 'patch_and_validate failed' }),
+          });
           if (doneEntry) void pushMainWorkbenchCommandResult(doneEntry);
           return;
         }
@@ -1630,6 +1777,14 @@ export function CanvasBoard({
               name: buff.name,
               displayName: buff.displayName,
               sourceName: buff.sourceName,
+              level: buff.level,
+              type: buff.type,
+              value: buff.value,
+              description: buff.description,
+              source: buff.source,
+              condition: buff.condition,
+              category: buff.category,
+              effectKind: buff.effectKind,
             })),
           };
         })
@@ -1653,6 +1808,14 @@ export function CanvasBoard({
               name: buff.name,
               displayName: buff.displayName,
               sourceName: buff.sourceName,
+              level: buff.level,
+              type: buff.type,
+              value: buff.value,
+              description: buff.description,
+              source: buff.source,
+              condition: buff.condition,
+              category: buff.category,
+              effectKind: buff.effectKind,
             })),
           };
         })
@@ -1675,6 +1838,14 @@ export function CanvasBoard({
             name: buff.name,
             displayName: buff.displayName,
             sourceName: buff.sourceName,
+            level: buff.level,
+            type: buff.type,
+            value: buff.value,
+            description: buff.description,
+            source: buff.source,
+            condition: buff.condition,
+            category: buff.category,
+            effectKind: buff.effectKind,
           })),
         }));
     const mirroredSelectedCharacters: MainWorkbenchSnapshot['selectedCharacters'] = selectedCharacters.map((character) => ({
@@ -1709,6 +1880,16 @@ export function CanvasBoard({
             level: effect.level,
             value: effect.value,
           })),
+        })),
+        setBuffs: configSnapshot.equipment.setBuffs.map((buff) => ({
+          gearSetId: buff.gearSetId,
+          gearSetName: buff.gearSetName,
+          effectId: buff.effectId,
+          label: buff.label,
+          typeKey: buff.typeKey,
+          value: buff.value,
+          category: buff.category,
+          effectKind: buff.effectKind,
         })),
       }];
     });

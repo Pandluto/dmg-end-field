@@ -138,6 +138,7 @@ export interface DefAgentWorkbenchTestUiEvent {
   mode?: 'stream' | 'continue' | string;
   snapshotAvailable?: boolean;
   evidenceAvailable?: boolean;
+  replay?: boolean;
 }
 
 export interface DefAgentLoopStep {

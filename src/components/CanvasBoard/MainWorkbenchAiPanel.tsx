@@ -48,6 +48,26 @@ type WorkbenchAiMessage = {
   rollbackNodeId?: string;
 };
 
+type DefToolGovernanceRecord = {
+  id?: string;
+  createdAt?: number;
+  decidedAt?: number;
+  status?: string;
+  mode?: string;
+  riskLevel?: string;
+  question?: string;
+  summary?: string;
+  rationale?: string;
+  context?: Record<string, unknown>;
+};
+
+type DefToolGovernanceResponse = {
+  ok?: boolean;
+  latestAt?: number;
+  questions?: DefToolGovernanceRecord[];
+  approvals?: DefToolGovernanceRecord[];
+};
+
 function WorkbenchAiMessageBody({ message }: { message: WorkbenchAiMessage }) {
   const fallbackText = message.status === 'running' ? '正在处理' : '';
   const text = message.text || fallbackText;
@@ -132,6 +152,11 @@ function buildInitialMessages(): WorkbenchAiMessage[] {
   ];
 }
 
+function isTestGovernanceRecord(record: DefToolGovernanceRecord) {
+  const suite = typeof record.context?.suite === 'string' ? record.context.suite : '';
+  return Boolean(suite && /test|smoke|matrix|点测|测试/i.test(suite));
+}
+
 function formatSessionId(sessionId: string | null) {
   if (!sessionId) return 'new';
   return sessionId.length > 12 ? `${sessionId.slice(0, 5)}...${sessionId.slice(-4)}` : sessionId;
@@ -173,21 +198,19 @@ function buildWorkbenchAgentMessage(
 
   return [
     '你正在 dmg-end-field 主界面右侧 AI 模式中。用户要通过自然语言操作当前主界面排轴。',
-    '工具策略来自 MAIN_WORKBENCH_TOOL_REGISTRY；模型选择工具和参数，代码负责 schema、policy、verifier、rollback。',
-    `TOOL_REGISTRY:\n${toolRegistrySummary}`,
-    '当前兼容执行层仍通过 http://127.0.0.1:17321/api/main-workbench/commands/enqueue 投递声明式命令；多步操作优先一次 POST {commands:[...]}，请求体形如 {"commands":[{"op":"..."}],"source":"def-opencode"}。',
-    '多步 commands enqueue 会返回 batchId；批量操作确认优先读取 /api/main-workbench/commands/batch?batchId=<batchId>，用 total/pending/running/done/error 判断进度，不要手工数全局队列。',
-    '可用 op: selectCharacters, openView, openWorkbenchPage, clearTimeline, setOperatorWeapon, setOperatorEquipment, addSkillButton, removeSkillButton, addBuff, addBuffToButtons, removeBuff, setTargetResistance, saveTimelineSnapshot, restoreTimelineSnapshot, listTimelineSnapshots, createAiTimelineWorkNodeFromCurrent, patchAiTimelineWorkNode, diffAiTimelineWorkNode, checkoutAiTimelineWorkNode, restoreAiTimelineWorkNodeBase, refreshOperatorConfig, calculateDamage, refreshSnapshot。',
-    '推荐攻略链路: selectCharacters -> setOperatorWeapon/setOperatorEquipment -> refreshOperatorConfig -> clearTimeline/addSkillButton -> addBuff/setTargetResistance -> calculateDamage -> refreshSnapshot。',
-    '高风险/批量/重排轴操作优先使用 appdata AI work node：createAiTimelineWorkNodeFromCurrent -> patchAiTimelineWorkNode -> diffAiTimelineWorkNode -> checkoutAiTimelineWorkNode；restoreAiTimelineWorkNodeBase 用于恢复 node base。',
-    'patchAiTimelineWorkNode 只能修改 appdata node.workingPayload，不会写当前 localStorage/sessionStorage 迁出态；当前迁出态只允许 checkout/rollback 阶段写入。',
+    '工具事实源是 /api/def-tools；模型选择工具和参数，代码负责 schema、policy、verifier、rollback。',
+    `LEGACY_TOOL_REGISTRY_SUMMARY（仅作兼容摘要，schema 以 /api/def-tools 为准）:\n${toolRegistrySummary}`,
+    '业务操作优先通过 http://127.0.0.1:17321/api/def-tools/call 调用 DEF typed tools；/api/main-workbench/commands/enqueue 只是兼容执行层，不是首选协议。',
+    '先用 def.tool.list / def.tool.describe 查看工具，再用 read/resolver/edit/verify 工具完成动作；tool 返回 queued 不等于已生效，最终回复前必须做关键验证。',
+    '低风险明确操作可用 current checkout typed tools；批量/高风险/重排轴优先使用 def.worknode.patch_and_validate。没有 nodeId 时直接省略 nodeId，工具会先从可用的当前 payload 镜像创建 work node；checkout 单独执行。',
+    'def.worknode.patch 只能修改 appdata node.workingPayload，不会写当前 localStorage/sessionStorage 迁出态；当前迁出态只允许 checkout/rollback 阶段写入。',
     'saveTimelineSnapshot/restoreTimelineSnapshot 只是当前迁出态的用户快照兼容回退，不是 AI work node、branch log 或修改日志；不要把 localStorage/sessionStorage 当前 checkout 当成 appdata work node。',
     ...(workNodeContext ? [
       `本轮 AI_WORK_NODE: nodeId=${workNodeContext.nodeId}; saveId=${workNodeContext.saveId || 'unknown'}; branchId=${workNodeContext.branchId || 'unknown'}; label=${workNodeContext.label || 'unknown'}; path=${workNodeContext.path || 'unknown'}`,
       '本轮需要回退、diff、checkout 或说明安全边界时，优先引用并使用上面的 AI_WORK_NODE。',
     ] : []),
-    'setOperatorEquipment 可用 gearSetName/gearSetId + fillSlots 自动填 4 件，也可用 slotKey + equipmentName/equipmentId 指定单件；满词条一般传 entryLevel: 3。',
-    '用户要求合适配装但没有指定名称时，不要查库或脚本匹配；已有配置保留，未配置者默认 setOperatorWeapon weaponName=宏愿，setOperatorEquipment gearSetName=潮涌 fillSlots=true entryLevel=3。',
+    '配置页修改使用 def.operator.config.patch / def.gear.set_entry_level；可用 gearSetName/gearSetId + fillSlots 自动填 4 件，也可用 slotKey + equipmentName/equipmentId 指定单件。',
+    '用户要求合适配装但没有指定名称时，不要写死回放步骤；优先读取当前配置和 resolver 候选，必要时用 def.user.ask 做非阻塞确认。',
     ...buildGameKnowledgePromptLines(),
     '换人时只读一次快照，保留未提到的已选干员，然后一次性 selectCharacters 写入最终名单；命中当前快照或上述别名时不要搜索干员库，不要先查 ID。',
     '下方当前已选干员与当前技能按钮就是可信上下文；能从这里判断的干员/按钮不要再读快照、查 schema 或查库。',
@@ -262,6 +285,16 @@ function chooseWorkbenchThinkingEffort(prompt: string): DefAgentThinkingEffort {
   ].filter(Boolean).length;
   if (complexityScore >= 3 || text.length > 90) return 'high';
   return isMainWorkbenchMutatingPrompt(text) ? 'medium' : 'low';
+}
+
+function formatGovernanceMessage(kind: 'question' | 'approval', record: DefToolGovernanceRecord) {
+  if (kind === 'question') {
+    const mode = record.mode ? ` · ${record.mode}` : '';
+    return `AI 反问${mode}\n\n${record.question || '需要补充信息'}`;
+  }
+  const mode = record.mode ? ` · ${record.mode}` : '';
+  const risk = record.riskLevel ? ` · ${record.riskLevel}` : '';
+  return `AI 审批提示${risk}${mode}\n\n${record.summary || record.rationale || '需要审批确认'}`;
 }
 
 /* === [DISABLED] 本地流辅助函数 — 硬编码角色/武器/装备，仅用于开发者手测 ===
@@ -462,6 +495,8 @@ export function MainWorkbenchAiPanel({
   const reconnectAttemptsRef = useRef(0);
   const messagesRef = useRef<HTMLDivElement>(null);
   const lastFocusRef = useRef<MainWorkbenchSnapshotEvidenceFocus | null>(null);
+  const governanceSeenRef = useRef<Set<string>>(new Set());
+  const governanceInitializedRef = useRef(false);
 
   const rememberSession = (sessionId: string | null, nextTokens?: DefAgentTokens | null, seq?: number) => {
     activeSessionIdRef.current = sessionId;
@@ -487,6 +522,56 @@ export function MainWorkbenchAiPanel({
   }, [messages]);
 
   useEffect(() => {
+    let disposed = false;
+    const pollGovernance = async () => {
+      try {
+        const response = await fetch(`${MAIN_WORKBENCH_REST_BASE_URL}/api/def-tools/governance?limit=8`, { cache: 'no-store' });
+        if (!response.ok) return;
+        const payload = await response.json() as DefToolGovernanceResponse;
+        if (disposed || !payload.ok) return;
+        const nextMessages: WorkbenchAiMessage[] = [];
+        const firstPoll = !governanceInitializedRef.current;
+        (payload.questions || []).forEach((question) => {
+          if (!question.id || governanceSeenRef.current.has(question.id)) return;
+          governanceSeenRef.current.add(question.id);
+          if (isTestGovernanceRecord(question)) return;
+          if (firstPoll) return;
+          nextMessages.push({
+            id: `governance-question-${question.id}`,
+            role: 'system',
+            text: formatGovernanceMessage('question', question),
+            status: 'done',
+          });
+        });
+        (payload.approvals || []).forEach((approval) => {
+          if (!approval.id || governanceSeenRef.current.has(approval.id)) return;
+          governanceSeenRef.current.add(approval.id);
+          if (isTestGovernanceRecord(approval)) return;
+          if (firstPoll) return;
+          nextMessages.push({
+            id: `governance-approval-${approval.id}`,
+            role: 'system',
+            text: formatGovernanceMessage('approval', approval),
+            status: 'done',
+          });
+        });
+        if (nextMessages.length) {
+          setMessages((current) => [...current, ...nextMessages]);
+        }
+        governanceInitializedRef.current = true;
+      } catch {
+        // Governance visibility is best-effort; agent execution must not depend on UI polling.
+      }
+    };
+    void pollGovernance();
+    const timer = window.setInterval(() => void pollGovernance(), 2500);
+    return () => {
+      disposed = true;
+      window.clearInterval(timer);
+    };
+  }, []);
+
+  useEffect(() => {
     lastFocusRef.current = null;
   }, [selectedSignature]);
 
@@ -503,6 +588,9 @@ export function MainWorkbenchAiPanel({
     void hydrateDefAgentSession(stored.sessionId)
       .then((transcript) => {
         if (cancelled) return;
+        if (activeMessageIdRef.current || activeSessionIdRef.current !== stored.sessionId) {
+          return;
+        }
         setMessages(transcriptToMessages(transcript.messages || []));
         const sessionId = transcript.session?.id || transcript.session?.sessionID || stored.sessionId;
         lastSeqRef.current = transcript.session?.lastSeq || stored.lastSeq || 0;
@@ -735,6 +823,8 @@ export function MainWorkbenchAiPanel({
   };
 
   useEffect(() => {
+    // Agent ability smoke tests enter through /def-agent/workbench-test/prompt.
+    // This listener makes that REST-fed turn visible in the same panel as real user input.
     const events = subscribeWorkbenchTestUiEvents();
     events.addEventListener('ui.prompt', (event) => {
       if (typeof (event as MessageEvent).data !== 'string') return;
@@ -748,6 +838,7 @@ export function MainWorkbenchAiPanel({
       const prompt = typeof payload.prompt === 'string' ? payload.prompt.trim() : '';
       const sessionId = payload.sessionId || payload.sessionID || '';
       const messageId = payload.clientTurnId || `workbench-test-${Date.now()}`;
+      if (payload.replay) return;
       if (!prompt || !sessionId) return;
 
       if (turnTimeoutRef.current) {

@@ -1119,6 +1119,8 @@ function startBridgeServer() {
         return;
       }
 
+      // Test-only ingress for agent ability checks: behave like the main workbench AI textbox,
+      // then broadcast ui.prompt so the frontend panel can prove the turn is user-visible.
       if (method === 'POST' && requestUrl.pathname === '/def-agent/workbench-test/prompt') {
         const defAgent = await startDefAgent();
         const body = await readJsonRequest(request);
@@ -1680,8 +1682,9 @@ function buildWorkbenchTestAgentMessage(userText, snapshot, evidencePayload) {
     '读状态优先用 def.workbench.list_buttons / def.workbench.evidence / def.workbench.damage_report。',
     '指代解析优先用 def.workbench.find_buttons、def.character.resolve、def.skill.resolve、def.buff.resolve。',
     '低风险明确编辑使用 def.workbench.add_skill_button、def.buff.add_to_button、def.buff.add_to_buttons、def.damage.calculate 等 typed tools。',
-    '高风险/批量/重排轴使用 def.worknode.create_from_current -> def.worknode.patch -> def.worknode.validate -> def.worknode.diff -> def.worknode.checkout。',
+    '高风险/批量/重排轴优先直接使用 def.worknode.patch_and_validate；没有 nodeId 时省略 nodeId，工具会先从可用的当前 payload 镜像创建 work node；checkout 单独执行。',
     'def.worknode.patch 是类代码 Patch DSL / CRUD 工具，只修改 appdata work node workingPayload；checkout/rollback 阶段才写当前迁出态。',
+    'def.worknode.patch input: {"nodeId":"...","patch":[{"op":"moveButton","target":{"buttonId":"..."},"nodeIndex":1}],"dryRun":false}。常用 op: addButton/removeButton/moveButton/attachBuff/removeBuff/setTargetResistance/clearTimeline；target 可用 buttonId/characterName/skillType/nodeIndex/latest。',
     'queued 不等于完成。入队后必须用 def.verify.command_result、def.verify.snapshot_delta、def.verify.buttons_have_buff 或 def.verify.damage_recalculated 验证。',
     '如果目标不明确，例如“加一个技能按钮”没有说明 A/E/Q/技能名，必须反问；不要默认硬加。',
     '如果 Buff 候选不唯一，例如“长息”解析出多个对象，必须说明候选并反问；不要硬编码选择。',
