@@ -115,6 +115,32 @@ async function postJson<T>(baseUrl: string, pathname: string, body: unknown): Pr
   return readJsonResponse<T>(response);
 }
 
+export async function probeAiTimelineWorkNodeRuntime(baseUrl = DEFAULT_REST_BASE_URL, timeoutMs = 3500): Promise<void> {
+  const desktopRuntime = getDesktopRuntime();
+  if (desktopRuntime?.listAiTimelineWorkNodes) return;
+  const controller = new AbortController();
+  const timeoutId = globalThis.setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(buildUrl(baseUrl, '/api/ai-timeline-worknodes'), {
+      cache: 'no-store',
+      signal: controller.signal,
+    });
+    if (!response.ok) {
+      throw new Error(`AI timeline work node runtime probe failed: ${response.status}`);
+    }
+  } catch (error) {
+    const errorName = typeof error === 'object' && error && 'name' in error
+      ? String((error as { name?: unknown }).name)
+      : '';
+    if (errorName === 'AbortError') {
+      throw new Error('AI timeline work node runtime probe timed out.');
+    }
+    throw error;
+  } finally {
+    globalThis.clearTimeout(timeoutId);
+  }
+}
+
 export function createAiTimelineWorkNodeClient(baseUrl = DEFAULT_REST_BASE_URL) {
   return {
     async list(): Promise<AiTimelineWorkNodeListResponse> {
