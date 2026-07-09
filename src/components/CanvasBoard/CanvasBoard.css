@@ -2903,11 +2903,11 @@
   min-height: 500px;
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
-  gap: 8px;
+  gap: 0;
   border: 1px solid rgba(0, 0, 0, 0.72);
   background: rgba(255, 255, 255, 0.96);
   box-shadow: 0 18px 44px rgba(0, 0, 0, 0.18);
-  padding: 10px;
+  padding: 0;
   box-sizing: border-box;
 }
 
@@ -2917,6 +2917,8 @@
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: start;
   gap: 12px;
+  padding: 10px 12px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.16);
 }
 
 .work-node-modal-head h3 {

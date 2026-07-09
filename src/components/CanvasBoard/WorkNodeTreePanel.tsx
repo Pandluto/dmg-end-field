@@ -57,21 +57,17 @@ export function WorkNodeTreePanel({ refreshKey, onSummaryChange }: WorkNodeTreeP
   }, [onSummaryChange, viewModel]);
 
   return (
-    <aside className="work-node-tree-panel" aria-label="Work node 节点树">
-      <header>
-        <strong>Work Node</strong>
-        <span>{viewModel.nodeCount} 节点 / {viewModel.riskCount} 风险</span>
-      </header>
+    <div
+      className="work-node-tree-panel"
+      aria-label={`Work node 节点树，${viewModel.nodeCount} 节点，${viewModel.riskCount} 风险`}
+    >
+      <div className="work-node-tree-count">{viewModel.nodeCount} 节点 / {viewModel.riskCount} 风险</div>
       {error ? <div className="work-node-tree-empty">读取归档失败：{error}</div> : null}
       {!error && loading && viewModel.nodeCount === 0 ? <div className="work-node-tree-empty">正在读取节点</div> : null}
       {!error && !loading && viewModel.nodeCount === 0 ? <div className="work-node-tree-empty">暂无可见节点</div> : null}
-      <div className="work-node-tree-list">
-        <div className="work-node-flow-canvas">
-          {viewModel.nodes.map((node) => (
-            <WorkNodeTreeNode key={node.nodeId} node={node} isRoot />
-          ))}
-        </div>
-      </div>
-    </aside>
+      {viewModel.nodes.map((node) => (
+        <WorkNodeTreeNode key={node.nodeId} node={node} isRoot />
+      ))}
+    </div>
   );
 }
