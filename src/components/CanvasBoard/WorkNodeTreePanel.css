@@ -223,6 +223,17 @@
   color: #ffffff;
 }
 
+.work-node-tree-actions button:disabled {
+  opacity: 0.34;
+  cursor: not-allowed;
+}
+
+.work-node-tree-actions button:disabled:hover {
+  background: rgba(255, 255, 255, 0.96);
+  border-color: rgba(0, 0, 0, 0.26);
+  color: var(--office-title);
+}
+
 .work-node-tree-actions svg {
   width: 13px;
   height: 13px;

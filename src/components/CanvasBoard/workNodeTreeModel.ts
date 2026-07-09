@@ -4,7 +4,6 @@ import type {
   TimelinePayloadDiffSummary,
   TimelinePayloadSummary,
 } from '../../agentKernel/timelineWorktree/types';
-import { diffTimelinePayloads } from '../../agentKernel/timelineWorktree/diff';
 import type { WorkNodeTreeNode, WorkNodeTreeSource, WorkNodeTreeStatus, WorkNodeTreeViewModel } from './workNodeTreeTypes';
 
 function formatPayloadSummary(summary?: TimelinePayloadSummary) {
@@ -13,7 +12,7 @@ function formatPayloadSummary(summary?: TimelinePayloadSummary) {
 }
 
 function formatDiffSummary(summary?: TimelinePayloadDiffSummary) {
-  if (!summary) return '未生成差异';
+  if (!summary) return '未计算差异';
   const parts = [
     summary.addedButtonCount ? `+${summary.addedButtonCount} 按钮` : '',
     summary.removedButtonCount ? `-${summary.removedButtonCount} 按钮` : '',
@@ -22,32 +21,6 @@ function formatDiffSummary(summary?: TimelinePayloadDiffSummary) {
     summary.removedBuffCount ? `-${summary.removedBuffCount} Buff` : '',
   ].filter(Boolean);
   return parts.length ? parts.join(' / ') : 'base 与 working 一致';
-}
-
-function stableStringify(value: unknown): string {
-  if (Array.isArray(value)) {
-    return `[${value.map(stableStringify).join(',')}]`;
-  }
-  if (value && typeof value === 'object') {
-    return `{${Object.keys(value as Record<string, unknown>)
-      .sort()
-      .map((key) => `${JSON.stringify(key)}:${stableStringify((value as Record<string, unknown>)[key])}`)
-      .join(',')}}`;
-  }
-  return JSON.stringify(value);
-}
-
-function hashText(value: string): string {
-  let hash = 2166136261;
-  for (let index = 0; index < value.length; index += 1) {
-    hash ^= value.charCodeAt(index);
-    hash = Math.imul(hash, 16777619);
-  }
-  return (hash >>> 0).toString(36);
-}
-
-function payloadSignature(value: unknown): string {
-  return hashText(stableStringify(value));
 }
 
 function hasLog(node: AiTimelineWorkNode, pattern: RegExp) {
@@ -99,52 +72,16 @@ function makePayloadRef(kind: 'base' | 'working', node: AiTimelineWorkNode) {
   return `${node.id}:${kind}:${node.updatedAt || node.createdAt || 0}`;
 }
 
-type WorkNodeAssembly = {
-  node: WorkNodeTreeNode;
-  raw: AiTimelineWorkNode;
-  baseSignature: string;
-  workingSignature: string;
-};
-
 function isLegacyBranchNode(node: AiTimelineWorkNode) {
   const text = `${node.branchId || ''} ${node.label || ''}`;
   return /^\s*branch-/i.test(node.branchId || '') || /\[branch\]/i.test(text);
 }
 
-function findLegacyBranchParent(previousNode: WorkNodeAssembly, previousNodes: WorkNodeAssembly[]) {
-  if (!previousNode.node.parentNodeId) return undefined;
-  return previousNodes.find((candidate) => candidate.node.nodeId === previousNode.node.parentNodeId);
-}
-
-function findParentNode(current: WorkNodeAssembly, previousNodes: WorkNodeAssembly[]): WorkNodeAssembly | undefined {
-  if (current.raw.parentNodeId) {
-    const explicitParent = previousNodes.find((candidate) => candidate.node.nodeId === current.raw.parentNodeId);
-    if (explicitParent) return explicitParent;
-  }
-
-  const previousNode = previousNodes[previousNodes.length - 1];
-  if (!previousNode) {
-    return undefined;
-  }
-
-  if (isLegacyBranchNode(current.raw)) {
-    return findLegacyBranchParent(previousNode, previousNodes);
-  }
-
-  if (previousNode.workingSignature === current.baseSignature) {
-    return previousNode;
-  }
-
-  const explicitOlderBaseParent = [...previousNodes]
-    .reverse()
-    .find((candidate) =>
-      candidate.workingSignature === current.baseSignature
-    );
-  if (explicitOlderBaseParent) {
-    return explicitOlderBaseParent;
-  }
-
-  return previousNode;
+function inferParentId(node: AiTimelineWorkNode, previousNode?: WorkNodeTreeNode) {
+  if (node.parentNodeId) return node.parentNodeId;
+  if (!previousNode) return '';
+  if (isLegacyBranchNode(node)) return previousNode.parentNodeId || '';
+  return previousNode.nodeId;
 }
 
 export function buildWorkNodeTreeViewModel(
@@ -152,49 +89,45 @@ export function buildWorkNodeTreeViewModel(
   commits: AiTimelineWorkNodeCommit[],
 ): WorkNodeTreeViewModel {
   const checkoutNodeIds = new Set(commits.filter((commit) => commit.checkoutApplied).map((commit) => commit.nodeId));
-  const assemblies = [...nodes]
-    .sort((left, right) => (left.createdAt || 0) - (right.createdAt || 0))
-    .map((node): WorkNodeAssembly => {
-      const hasCheckout = checkoutNodeIds.has(node.id);
-      const source = inferSource(node, hasCheckout);
-      const status = inferStatus(node, source, hasCheckout);
-      const diff = diffTimelinePayloads(node.basePayload, node.workingPayload);
-      return {
-        raw: node,
-        baseSignature: payloadSignature(node.basePayload),
-        workingSignature: payloadSignature(node.workingPayload),
-        node: {
-          nodeId: node.id,
-          source,
-          title: buildNodeTitle(node, source),
-          createdAt: node.createdAt,
-          updatedAt: node.updatedAt,
-          status,
-          summary: `${formatPayloadSummary(node.baseSummary)} -> ${formatPayloadSummary(node.workingSummary)}`,
-          diffSummary: formatDiffSummary(diff.summary),
-          riskFlags: (node.riskFlags || []).map((risk) => `${risk.severity}: ${risk.message || risk.code}`),
-          conversationId: extractConversationId(node),
-          messageId: extractMessageId(node),
-          checkoutTouched: status === 'checked-out' || status === 'restored',
-          basePayloadRef: makePayloadRef('base', node),
-          workingPayloadRef: makePayloadRef('working', node),
-          children: [],
-        },
-      };
-    });
-
+  const sortedNodes = [...nodes].sort((left, right) => (left.createdAt || 0) - (right.createdAt || 0));
   const roots: WorkNodeTreeNode[] = [];
-  const previousNodes: WorkNodeAssembly[] = [];
+  const byId = new Map<string, WorkNodeTreeNode>();
+  let previousTreeNode: WorkNodeTreeNode | undefined;
 
-  assemblies.forEach((assembly) => {
-    const parent = findParentNode(assembly, previousNodes);
+  sortedNodes.forEach((rawNode) => {
+    const hasCheckout = checkoutNodeIds.has(rawNode.id);
+    const source = inferSource(rawNode, hasCheckout);
+    const status = inferStatus(rawNode, source, hasCheckout);
+    const parentNodeId = inferParentId(rawNode, previousTreeNode);
+    const node: WorkNodeTreeNode = {
+      nodeId: rawNode.id,
+      parentNodeId: parentNodeId || undefined,
+      source,
+      title: buildNodeTitle(rawNode, source),
+      createdAt: rawNode.createdAt,
+      updatedAt: rawNode.updatedAt,
+      status,
+      summary: `${formatPayloadSummary(rawNode.baseSummary)} -> ${formatPayloadSummary(rawNode.workingSummary)}`,
+      diffSummary: formatDiffSummary(undefined),
+      riskFlags: (rawNode.riskFlags || []).map((risk) => `${risk.severity}: ${risk.message || risk.code}`),
+      conversationId: extractConversationId(rawNode),
+      messageId: extractMessageId(rawNode),
+      checkoutTouched: status === 'checked-out' || status === 'restored',
+      basePayloadRef: makePayloadRef('base', rawNode),
+      workingPayloadRef: makePayloadRef('working', rawNode),
+      children: [],
+    };
+
+    const parent = parentNodeId ? byId.get(parentNodeId) : undefined;
     if (parent) {
-      assembly.node.parentNodeId = parent.node.nodeId;
-      parent.node.children.push(assembly.node);
+      parent.children.push(node);
     } else {
-      roots.push(assembly.node);
+      node.parentNodeId = undefined;
+      roots.push(node);
     }
-    previousNodes.push(assembly);
+
+    byId.set(node.nodeId, node);
+    previousTreeNode = node;
   });
 
   const sortTree = (treeNodes: WorkNodeTreeNode[]) => {

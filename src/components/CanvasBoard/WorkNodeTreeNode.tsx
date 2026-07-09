@@ -94,6 +94,7 @@ export function WorkNodeTreeNode({
   const hasChildren = childCount > 0;
   const isActive = activeNodeId === node.nodeId;
   const isInActivePath = activePathNodeIds.has(node.nodeId);
+  const canDelete = !isInActivePath;
   const pathClassName = isActive ? ' is-active' : isInActivePath ? ' is-path' : ' is-muted';
   const childrenClassName = childCount > 1
     ? 'work-node-tree-children is-fork'
@@ -120,7 +121,12 @@ export function WorkNodeTreeNode({
           </div>
         </div>
         <div className="work-node-tree-actions" aria-label="节点操作">
-          <button type="button" title="删除节点" onClick={(event) => stopAction(event, () => onDelete(node))}>
+          <button
+            type="button"
+            title={canDelete ? '删除节点及其子树' : '当前路径节点不能删除'}
+            disabled={!canDelete}
+            onClick={(event) => stopAction(event, () => canDelete && onDelete(node))}
+          >
             <DeleteIcon />
           </button>
           <button type="button" title="新增子节点" onClick={(event) => stopAction(event, () => onAddChild(node))}>

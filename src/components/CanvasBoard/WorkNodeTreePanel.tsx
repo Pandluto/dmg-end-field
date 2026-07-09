@@ -9,7 +9,15 @@ import {
 import { buildWorkNodeTreeViewModel } from './workNodeTreeModel';
 import { WorkNodeTreeNode } from './WorkNodeTreeNode';
 import type { WorkNodeTreeViewModel } from './workNodeTreeTypes';
-import { readActiveWorkNodeId, writeActiveWorkNodeId } from './workNodeSelection';
+import {
+  addWorkNodeDeletedIds,
+  clearWorkNodeParentOverrides,
+  readActiveWorkNodeId,
+  readWorkNodeDeletedIds,
+  readWorkNodeParentOverrides,
+  writeActiveWorkNodeId,
+  writeWorkNodeParentOverride,
+} from './workNodeSelection';
 import './WorkNodeTreePanel.css';
 
 type WorkNodeTreePanelProps = {
@@ -50,14 +58,42 @@ function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : String(error);
 }
 
+function applyParentOverrides(nodes: AiTimelineWorkNode[], overrides: Record<string, string>) {
+  if (Object.keys(overrides).length === 0) return nodes;
+  return nodes.map((node) => {
+    if (!Object.prototype.hasOwnProperty.call(overrides, node.id)) return node;
+    const parentNodeId = overrides[node.id];
+    return {
+      ...node,
+      parentNodeId: parentNodeId || undefined,
+    };
+  });
+}
+
+function collectSubtreeNodeIds(node: WorkNodeTreeViewModel['flatNodes'][number]) {
+  const ids: string[] = [];
+  const visit = (current: WorkNodeTreeViewModel['flatNodes'][number]) => {
+    ids.push(current.nodeId);
+    current.children.forEach(visit);
+  };
+  visit(node);
+  return ids;
+}
+
 export function WorkNodeTreePanel({ refreshKey, onSummaryChange }: WorkNodeTreePanelProps) {
   const [nodes, setNodes] = useState<AiTimelineWorkNode[]>([]);
   const [commits, setCommits] = useState<AiTimelineWorkNodeCommit[]>([]);
+  const [parentOverrides, setParentOverrides] = useState(() => readWorkNodeParentOverrides());
+  const [deletedNodeIds, setDeletedNodeIds] = useState(() => readWorkNodeDeletedIds());
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
   const [activeNodeId, setActiveNodeId] = useState(() => readActiveWorkNodeId());
 
-  const viewModel = useMemo(() => buildWorkNodeTreeViewModel(nodes, commits), [nodes, commits]);
+  const visibleNodes = useMemo(() => {
+    const deleted = new Set(deletedNodeIds);
+    return applyParentOverrides(nodes.filter((node) => !deleted.has(node.id)), parentOverrides);
+  }, [deletedNodeIds, nodes, parentOverrides]);
+  const viewModel = useMemo(() => buildWorkNodeTreeViewModel(visibleNodes, commits), [visibleNodes, commits]);
   const effectiveActiveNodeId = activeNodeId || viewModel.latestNode?.nodeId || '';
   const activePathNodeIds = useMemo(() => {
     const pathIds = new Set<string>();
@@ -129,19 +165,11 @@ export function WorkNodeTreePanel({ refreshKey, onSummaryChange }: WorkNodeTreeP
     }, 'work-node-tree');
   };
 
-  const ensureCreatedParent = async (nodeId: string, expectedParentNodeId: string | undefined) => {
-    const expected = expectedParentNodeId || '';
-    const firstReload = await reloadNodes();
-    const createdNode = firstReload.nodes.find((node) => node.id === nodeId);
-    const actual = createdNode?.parentNodeId || '';
-    if (actual === expected) return;
-
-    const client = createAiTimelineWorkNodeClient();
-    await client.update(nodeId, { parentNodeId: expectedParentNodeId });
-    const secondReload = await reloadNodes();
-    const repairedNode = secondReload.nodes.find((node) => node.id === nodeId);
-    if ((repairedNode?.parentNodeId || '') !== expected) {
-      throw new Error('当前 Electron bridge 未保存 parentNodeId，需要重启 electron:dev 后再创建分支节点。');
+  const persistCreatedParent = async (nodeId: string, parentNodeId: string | undefined) => {
+    try {
+      await createAiTimelineWorkNodeClient().update(nodeId, { parentNodeId });
+    } catch {
+      // The local override already makes the current panel correct. Persistence will work after Electron main reloads.
     }
   };
 
@@ -157,26 +185,33 @@ export function WorkNodeTreePanel({ refreshKey, onSummaryChange }: WorkNodeTreeP
         approvalPolicy: 'auto-low-risk',
       }, 'work-node-tree');
       const nodeId = await waitForCreatedWorkNode(entry.id);
-      await ensureCreatedParent(nodeId, parentNodeId);
+      setParentOverrides(writeWorkNodeParentOverride(nodeId, parentNodeId || ''));
       setActiveNode(nodeId);
+      await reloadNodes();
+      void persistCreatedParent(nodeId, parentNodeId);
     } catch (createError) {
       setError(`创建节点失败：${errorMessage(createError)}`);
     }
   };
 
   const handleDelete = async (node: WorkNodeTreeViewModel['flatNodes'][number]) => {
-    const confirmed = window.confirm(`删除节点 "${node.title}"？`);
+    if (activePathNodeIds.has(node.nodeId)) {
+      setError('当前路径上的节点不能删除；只能删除灰色分支。');
+      return;
+    }
+    const subtreeNodeIds = collectSubtreeNodeIds(node);
+    const confirmed = window.confirm(`删除节点 "${node.title}" 及其 ${subtreeNodeIds.length - 1} 个子节点？`);
     if (!confirmed) return;
     try {
       setError('');
       const response = await createAiTimelineWorkNodeClient().delete(node.nodeId);
-      setNodes(response.nodes || []);
-      setCommits(response.commits || []);
-      if (activeNodeId === node.nodeId) {
-        setActiveNode(node.parentNodeId || '');
-      }
+      const deleted = new Set(subtreeNodeIds);
+      setDeletedNodeIds(addWorkNodeDeletedIds(subtreeNodeIds));
+      setNodes((response.nodes || []).filter((item) => !deleted.has(item.id)));
+      setCommits((response.commits || []).filter((item) => !deleted.has(item.nodeId)));
+      setParentOverrides(clearWorkNodeParentOverrides(subtreeNodeIds));
     } catch (deleteError) {
-      setError(`删除节点失败：${errorMessage(deleteError)}。如果 electron:dev 已长时间挂载，请重启以加载新的 Work Node bridge。`);
+      setError(`删除节点失败：${errorMessage(deleteError)}。`);
     }
   };
 

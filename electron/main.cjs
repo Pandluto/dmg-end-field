@@ -4780,15 +4780,19 @@ function deleteAiTimelineWorkNode(id) {
   if (!target) {
     throw new Error(`AI timeline work node not found: ${nodeId}`);
   }
-  const parentNodeId = typeof target.parentNodeId === 'string' && target.parentNodeId.trim()
-    ? target.parentNodeId
-    : undefined;
-  const nodes = archive.nodes
-    .filter((item) => item?.id !== nodeId)
-    .map((item) => item?.parentNodeId === nodeId
-      ? { ...item, ...(parentNodeId ? { parentNodeId } : { parentNodeId: undefined }) }
-      : item);
-  const commits = archive.commits.filter((commit) => commit?.nodeId !== nodeId);
+  const deletedNodeIds = new Set([nodeId]);
+  let changed = true;
+  while (changed) {
+    changed = false;
+    archive.nodes.forEach((item) => {
+      if (item?.parentNodeId && deletedNodeIds.has(item.parentNodeId) && !deletedNodeIds.has(item.id)) {
+        deletedNodeIds.add(item.id);
+        changed = true;
+      }
+    });
+  }
+  const nodes = archive.nodes.filter((item) => !deletedNodeIds.has(item?.id));
+  const commits = archive.commits.filter((commit) => !deletedNodeIds.has(commit?.nodeId));
   const nextArchive = { ...archive, nodes, commits };
   writeAiTimelineWorkNodeArchive(nextArchive);
   return buildAiTimelineWorkNodeListResult();
