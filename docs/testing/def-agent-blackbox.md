@@ -22,6 +22,49 @@ prompt -> ui-events -> MainWorkbenchAiPanel
 
 Do not replace it with an ad hoc smoke script that bypasses the workbench prompt path.
 
+## Windows Chrome UI Route
+
+When the test must verify that the main workbench UI is actually usable on Windows, use the Chrome plugin path:
+
+```text
+Chrome Extension + node_repl JavaScript control
+```
+
+This is not desktop-level Computer Use. It only controls Chrome through the Codex Chrome Extension.
+
+Required setup:
+
+1. Use the `control-chrome` skill.
+2. Search for `node_repl js JavaScript execution` with `tool_search`.
+3. Use the exposed `mcp__node_repl.js` tool.
+4. Bootstrap Chrome with `browser-client.mjs` and `agent.browsers.get('extension')`.
+
+Reference bootstrap:
+
+```js
+if (!globalThis.agent) {
+  const { setupBrowserRuntime } = await import(
+    'file:///C:/Users/zsk86/.codex/plugins/cache/openai-bundled/chrome/26.527.31326/scripts/browser-client.mjs'
+  );
+  await setupBrowserRuntime({ globals: globalThis });
+}
+
+if (!globalThis.browser) {
+  globalThis.browser = await agent.browsers.get('extension');
+}
+```
+
+For the local workbench:
+
+1. Open `http://127.0.0.1:3030/`.
+2. If `3030` is already listening, do not stop or restart `npm run electron:dev`.
+3. If `3030` is not listening and the test requires the main UI, it is acceptable to start `npm run electron:dev`.
+4. Select local operators in the selection page until `开始排轴` is enabled.
+5. Enter the main workbench and click the right-side `AI 模式` button.
+6. Treat the UI route as ready only after the `输入排轴操作` textbox is visible and the panel shows `DEF OpenCode` in a waiting/ready state.
+
+When the browser tab is the handoff artifact, finalize the Chrome session with that tab kept as `deliverable`.
+
 ## Prompt Rules
 
 Blackbox prompts must look like normal user messages.
