@@ -16,6 +16,8 @@ export type WorkNodeTreeNode = {
   conversationId?: string;
   messageId?: string;
   checkoutTouched: boolean;
+  buttonCount: number;
+  buffCount: number;
   basePayloadRef: string;
   workingPayloadRef: string;
   children: WorkNodeTreeNode[];

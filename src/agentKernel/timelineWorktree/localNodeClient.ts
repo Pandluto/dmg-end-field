@@ -76,6 +76,7 @@ export type CreateAiTimelineWorkNodeInput = {
 
 export type UpdateAiTimelineWorkNodeInput = {
   parentNodeId?: string;
+  label?: string;
   workingPayload?: TimelineSnapshotPayload;
   status?: AiTimelineWorkNodeStatus;
   riskFlags?: AiTimelineRiskFlag[];

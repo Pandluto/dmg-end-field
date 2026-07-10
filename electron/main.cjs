@@ -4748,12 +4748,17 @@ function updateAiTimelineWorkNode(id, payload = {}) {
     ? normalizeAiTimelineRiskFlags(payload.riskFlags)
     : (Array.isArray(node.riskFlags) ? node.riskFlags : []);
   const hasParentNodePatch = Object.prototype.hasOwnProperty.call(payload || {}, 'parentNodeId');
+  const hasLabelPatch = Object.prototype.hasOwnProperty.call(payload || {}, 'label');
+  const label = hasLabelPatch && typeof payload.label === 'string' && payload.label.trim()
+    ? payload.label.trim().slice(0, 120)
+    : node.label;
   const parentNodeId = hasParentNodePatch && typeof payload.parentNodeId === 'string' && payload.parentNodeId.trim()
     ? sanitizeAiTimelineWorkNodeId(payload.parentNodeId, 'ai-timeline-node')
     : undefined;
   const nextNode = {
     ...node,
     ...(hasParentNodePatch ? (parentNodeId ? { parentNodeId } : { parentNodeId: undefined }) : {}),
+    label,
     updatedAt: Date.now(),
     status: allowedStatuses.has(payload.status) ? payload.status : node.status,
     workingPayload: cloneJsonValue(workingPayload),
@@ -4763,6 +4768,7 @@ function updateAiTimelineWorkNode(id, payload = {}) {
       makeAiTimelineWorkNodeLog('info', 'Updated AI timeline work node.', {
         riskFlagCount: riskFlags.length,
         status: allowedStatuses.has(payload.status) ? payload.status : node.status,
+        ...(hasLabelPatch ? { label } : {}),
       }),
       ...(Array.isArray(node.logs) ? node.logs : []),
     ],

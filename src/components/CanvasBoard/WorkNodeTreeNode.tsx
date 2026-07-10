@@ -1,4 +1,5 @@
-import type { CSSProperties, MouseEvent } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import type { CSSProperties, FormEvent, MouseEvent } from 'react';
 import type { WorkNodeTreeNode as WorkNodeTreeNodeModel } from './workNodeTreeTypes';
 
 const SOURCE_LABELS: Record<WorkNodeTreeNodeModel['source'], string> = {
@@ -28,6 +29,7 @@ type WorkNodeTreeNodeProps = {
   onDelete: (node: WorkNodeTreeNodeModel) => void;
   onAddChild: (node: WorkNodeTreeNodeModel) => void;
   onAddSibling: (node: WorkNodeTreeNodeModel) => void;
+  onRename: (node: WorkNodeTreeNodeModel, title: string) => Promise<void>;
 };
 
 function formatTime(timestamp: number) {
@@ -91,12 +93,47 @@ export function WorkNodeTreeNode({
   onDelete,
   onAddChild,
   onAddSibling,
+  onRename,
 }: WorkNodeTreeNodeProps) {
   const childCount = node.children.length;
+  const [isRenaming, setIsRenaming] = useState(false);
+  const [titleDraft, setTitleDraft] = useState(node.title);
+  const clickTimerRef = useRef<number | null>(null);
   const isActive = activeNodeId === node.nodeId;
   const isInActivePath = activePathNodeIds.has(node.nodeId);
   const canDelete = !isInActivePath;
   const pathClassName = isActive ? ' is-active' : isInActivePath ? ' is-path' : ' is-muted';
+  useEffect(() => () => {
+    if (clickTimerRef.current !== null) window.clearTimeout(clickTimerRef.current);
+  }, []);
+
+  const selectNode = () => {
+    if (isRenaming) return;
+    if (clickTimerRef.current !== null) window.clearTimeout(clickTimerRef.current);
+    clickTimerRef.current = window.setTimeout(() => {
+      clickTimerRef.current = null;
+      onSelect(node);
+    }, 220);
+  };
+
+  const startRename = (event: MouseEvent<HTMLElement>) => {
+    event.stopPropagation();
+    if (clickTimerRef.current !== null) window.clearTimeout(clickTimerRef.current);
+    clickTimerRef.current = null;
+    setTitleDraft(node.title);
+    setIsRenaming(true);
+  };
+
+  const saveRename = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const nextTitle = titleDraft.trim();
+    if (!nextTitle || nextTitle === node.title) {
+      setIsRenaming(false);
+      return;
+    }
+    await onRename(node, nextTitle);
+    setIsRenaming(false);
+  };
   return (
     <article
       className="work-node-tree-node-shell"
@@ -105,15 +142,33 @@ export function WorkNodeTreeNode({
         <div
           className={`work-node-tree-node is-${node.status}${pathClassName}`}
           title={`${node.title}\n${node.diffSummary}\n${node.summary}`}
-          onClick={() => onSelect(node)}
+          onClick={selectNode}
         >
           <div className="work-node-tree-node-top">
             <span className="work-node-tree-source">{SOURCE_LABELS[node.source]}</span>
             <span className="work-node-tree-status">{STATUS_LABELS[node.status]}</span>
           </div>
-          <strong>{compactTitle(node.title)}</strong>
+          {isRenaming ? (
+            <form className="work-node-tree-title-form" onSubmit={(event) => void saveRename(event)}>
+              <input
+                autoFocus
+                value={titleDraft}
+                onChange={(event) => setTitleDraft(event.target.value)}
+                onBlur={() => setIsRenaming(false)}
+                onClick={(event) => event.stopPropagation()}
+                onKeyDown={(event) => {
+                  if (event.key === 'Escape') setIsRenaming(false);
+                }}
+                aria-label="节点名称"
+              />
+            </form>
+          ) : (
+            <strong title="双击重命名" onDoubleClick={startRename}>{compactTitle(node.title)}</strong>
+          )}
           <div className="work-node-tree-meta">
             <span>{formatTime(node.createdAt)}</span>
+            <span>{node.buttonCount} 按钮</span>
+            <span>{node.buffCount} Buff</span>
             {childCount > 1 ? <span>{childCount} 分支</span> : null}
             {node.checkoutTouched ? <span>应用</span> : null}
             {node.riskFlags.length > 0 ? <span>{node.riskFlags.length} 风险</span> : null}

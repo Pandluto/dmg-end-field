@@ -186,6 +186,17 @@ export function WorkNodeTreePanel({ refreshKey, onSummaryChange }: WorkNodeTreeP
     }
   };
 
+  const handleRename = async (node: WorkNodeTreeViewModel['flatNodes'][number], title: string) => {
+    try {
+      setError('');
+      await createAiTimelineWorkNodeClient().update(node.nodeId, { label: title });
+      await reloadNodes();
+    } catch (renameError) {
+      setError(`重命名节点失败：${errorMessage(renameError)}`);
+      throw renameError;
+    }
+  };
+
   const handleCanvasPointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
     const target = event.target as Element;
     if (event.button !== 0 || target.closest('.work-node-tree-node-shell, .work-node-tree-count, .work-node-tree-empty')) return;
@@ -275,6 +286,7 @@ export function WorkNodeTreePanel({ refreshKey, onSummaryChange }: WorkNodeTreeP
             onDelete={handleDelete}
             onAddChild={(target) => void createNodeFromCurrent(target.nodeId, 'child')}
             onAddSibling={(target) => void createNodeFromCurrent(target.parentNodeId || null, 'branch')}
+            onRename={handleRename}
           />
         ))}
       </div>

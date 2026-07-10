@@ -1,7 +1,7 @@
 import type { WorkNodeTreeNode } from './workNodeTreeTypes';
 
 export const WORK_NODE_CARD_WIDTH = 168;
-export const WORK_NODE_CARD_HEIGHT = 64;
+export const WORK_NODE_CARD_HEIGHT = 82;
 
 const HORIZONTAL_GAP = 40;
 const CONNECTOR_LENGTH = 14;

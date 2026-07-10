@@ -99,6 +99,8 @@ export function buildWorkNodeTreeViewModel(
       conversationId: extractConversationId(rawNode),
       messageId: extractMessageId(rawNode),
       checkoutTouched: status === 'checked-out' || status === 'restored',
+      buttonCount: rawNode.workingSummary?.buttonCount ?? rawNode.baseSummary?.buttonCount ?? 0,
+      buffCount: rawNode.workingSummary?.buffCount ?? rawNode.baseSummary?.buffCount ?? 0,
       basePayloadRef: makePayloadRef('base', rawNode),
       workingPayloadRef: makePayloadRef('working', rawNode),
       children: [],
