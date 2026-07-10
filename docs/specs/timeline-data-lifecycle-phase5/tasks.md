@@ -33,20 +33,20 @@
 
 ## T3：迁移当前本地数据
 
-- [ ] 从现有恢复快照 archive 导入用户快照。
+- [x] 从现有恢复快照 archive 导入用户快照。
 - [ ] 从现有 Work Node SQLite 导入合法 AI 树和审计事件。
-- [ ] 为历史 `current-main-workbench` 建立默认 TimelineDocument。
-- [ ] 生成异常 snapshot-node 的迁移预览与用户确认操作。
+- [x] 为历史 `current-main-workbench` 建立默认 TimelineDocument。
+- [x] 生成异常 snapshot-node 的迁移预览与用户确认操作。
 - [ ] 提供一次性回滚到备份的恢复工具。
 
 验收：迁移前后正常快照数量、AI 节点数量、可读取 payload 数量可核对；异常数据不自动丢失。
 
 ## T4：重写快照保存与恢复链路
 
-- [ ] 工具栏保存改为创建/复用 TimelineSnapshot。
-- [ ] 以 payload hash 去重；重复保存返回已有快照信息。
-- [ ] 恢复动作更新 CheckoutRef(snapshot) 并写审计事件。
-- [ ] 删除快照实现引用检查、归档或明确级联确认。
+- [x] 工具栏保存改为创建/复用 TimelineSnapshot。
+- [x] 以 payload hash 去重；重复保存返回已有快照信息。
+- [x] 恢复动作更新 CheckoutRef(snapshot) 并写审计事件。
+- [x] 删除快照实现引用检查、归档或明确级联确认。
 - [ ] 移除以 `localStorage` 为快照事实来源的运行时写路径。
 
 验收：保存、恢复、删除快照均不创建或修改 Work Node。
@@ -74,7 +74,7 @@
 
 ## T7：重写分享与导入
 
-- [ ] 定义 `dmg.timeline-bundle.v2` manifest、schema 和哈希校验。
+- [x] 定义 `dmg.timeline-bundle.v2` manifest、schema 和哈希校验。
 - [ ] 实现当前排轴、AI 分支、完整文档三种导出范围。
 - [ ] 导入默认创建新 TimelineDocument，并在单一事务中写入。
 - [ ] 提供导入预览、冲突说明和版本不兼容提示。
