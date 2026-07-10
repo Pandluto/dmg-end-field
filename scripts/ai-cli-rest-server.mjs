@@ -2746,7 +2746,7 @@ function buildDefToolDefinitions() {
     properties: {
       nodeId: { type: 'string', description: 'Existing appdata work node id to apply to current checkout.' },
       commitId: { type: 'string' },
-      reload: { type: 'boolean', description: 'Use false for observable tests so the main UI does not reload.' },
+      reload: { type: 'boolean', description: 'Defaults to false to preserve the current UI. Set true only when the user explicitly requests a full reload.' },
       waitMs: { type: 'number', description: 'Optional synchronous verification wait window in milliseconds for *_and_verify tools.' },
       snapshotWaitMs: { type: 'number', description: 'Optional extra wait for the mirrored snapshot to reflect the applied command.' },
       approval: {
@@ -2764,7 +2764,7 @@ function buildDefToolDefinitions() {
     required: ['nodeId'],
     properties: {
       nodeId: { type: 'string', description: 'Existing appdata work node id whose basePayload should be restored.' },
-      reload: { type: 'boolean', description: 'Use false for observable tests so the main UI does not reload.' },
+      reload: { type: 'boolean', description: 'Defaults to false to preserve the current UI. Set true only when the user explicitly requests a full reload.' },
       waitMs: { type: 'number', description: 'Optional synchronous verification wait window in milliseconds for *_and_verify tools.' },
       snapshotWaitMs: { type: 'number', description: 'Optional extra wait for the mirrored snapshot to reflect the restored command.' },
       approval: {

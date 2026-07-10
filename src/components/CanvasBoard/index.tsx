@@ -79,6 +79,7 @@ import {
   saveTimelineSnapshot,
   TIMELINE_SNAPSHOT_LIMIT,
   type TimelineSnapshotEntry,
+  type TimelineSnapshotPayload,
   type TimelineShareFile,
 } from '../../utils/timelineSnapshotStorage';
 import './CanvasBoard.css';
@@ -397,7 +398,7 @@ export function CanvasBoard({
 }: CanvasBoardProps) {
   const isCandidatePanelEnabled = false;
   const { state, dispatch, refreshSelectedCharacters } = useAppContext();
-  const { currentView, selectedCharacters, canvasConfig, skillButtons } = state;
+  const { currentView, selectedCharacters, canvasConfig, skillButtons, loadedCharacters } = state;
   const canvasRef = useRef<HTMLDivElement>(null);
   const [staffCount, setStaffCount] = React.useState(canvasConfig.staffCount);
   const [isReportModalOpen, setIsReportModalOpen] = useState(false);
@@ -500,6 +501,7 @@ export function CanvasBoard({
     moveSkillButtonToStaff,
     saveTimelineData,
     loadTimelineData,
+    replaceTimelineData,
     normalizeTimelineData,
     updateSkillButtonType: updateTimelineButtonType,
   } = useTimelineData(selectedCharacters);
@@ -507,13 +509,13 @@ export function CanvasBoard({
   const restoredSignatureRef = useRef<string | null>(null);
   const previousViewRef = useRef(currentView);
 
-  const syncRuntimeSkillButtonsFromTimelineData = useCallback((dataToRestore: TimelineData) => {
+  const syncRuntimeSkillButtonsFromTimelineData = useCallback((dataToRestore: TimelineData, characters = selectedCharacters) => {
     const restoredButtons: SkillButton[] = [];
     dataToRestore.staffLines.forEach((staffLine) => {
       const buttons = Array.isArray(staffLine.buttons) ? staffLine.buttons : [];
       buttons.forEach((btn) => {
-        const character = selectedCharacters.find((item) => item.name === btn.characterName || item.id === btn.characterId);
-        const lineIndex = selectedCharacters.findIndex((item) => item.name === btn.characterName || item.id === btn.characterId);
+        const character = characters.find((item) => item.name === btn.characterName || item.id === btn.characterId);
+        const lineIndex = characters.findIndex((item) => item.name === btn.characterName || item.id === btn.characterId);
         const restoredLineIndex = lineIndex >= 0 ? lineIndex : 0;
         const restoredStaffIndex = typeof btn.staffIndex === 'number' ? btn.staffIndex : staffLine.staffIndex;
         const restoredNodeIndex = typeof btn.nodeIndex === 'number' && Number.isFinite(btn.nodeIndex) ? btn.nodeIndex : 0;
@@ -558,6 +560,24 @@ export function CanvasBoard({
     });
     dispatch({ type: 'SET_SKILL_BUTTONS', buttons: restoredButtons });
   }, [dispatch, selectedCharacters]);
+
+  const hydrateCheckoutRuntime = useCallback((payload: TimelineSnapshotPayload) => {
+    applyTimelineSnapshotPayload(payload);
+    const nextCharacters = payload.selectedCharacters
+      .map((id) => loadedCharacters.find((character) => character.id === id || character.name === id))
+      .filter((character): character is Character => Boolean(character));
+    const resolvedCharacters = nextCharacters.length === payload.selectedCharacters.length
+      ? nextCharacters
+      : selectedCharacters;
+    if (resolvedCharacters.length === 0) {
+      throw new Error('CHECKOUT_RUNTIME_HYDRATION_FAILED: 无法解析 checkout 中的干员。');
+    }
+    const normalizedTimelineData = normalizeTimelineData(payload.timelineData, resolvedCharacters);
+    saveTimelineRepo(normalizedTimelineData);
+    replaceTimelineData(normalizedTimelineData);
+    dispatch({ type: 'SET_SELECTED_CHARACTERS', characters: resolvedCharacters });
+    syncRuntimeSkillButtonsFromTimelineData(normalizedTimelineData, resolvedCharacters);
+  }, [dispatch, loadedCharacters, normalizeTimelineData, replaceTimelineData, selectedCharacters, syncRuntimeSkillButtonsFromTimelineData]);
 
   const findCharacterForWorkbenchCommand = (command: Extract<MainWorkbenchCommand, { op: 'addSkillButton' | 'removeSkillButton' | 'addBuff' | 'removeBuff' | 'setOperatorWeapon' | 'setOperatorEquipment' }>) => {
     if ('characterId' in command && command.characterId) {
@@ -1091,7 +1111,7 @@ export function CanvasBoard({
       commit = committed.commit;
     }
 
-    applyTimelineSnapshotPayload(node.workingPayload);
+    hydrateCheckoutRuntime(node.workingPayload);
     let applied: Awaited<ReturnType<ReturnType<typeof createAiTimelineWorkNodeClient>['markCheckoutApplied']>> | null = null;
     let checkoutMarkError: string | undefined;
     try {
@@ -1105,11 +1125,8 @@ export function CanvasBoard({
       checkoutMarkError = error instanceof Error ? error.message : String(error);
     }
 
-    if (command.reload !== false) {
+    if (command.reload === true) {
       window.setTimeout(() => window.location.reload(), 80);
-    } else {
-      loadTimelineData();
-      syncRuntimeSkillButtonsFromTimelineData(node.workingPayload.timelineData);
     }
 
     return {
@@ -1118,7 +1135,7 @@ export function CanvasBoard({
       status: applied?.node.status || 'applied-unrecorded',
       checkoutApplied: Boolean(applied?.commit.checkoutApplied),
       checkoutMarkError,
-      reloaded: command.reload !== false,
+      reloaded: command.reload === true,
       riskFlags: riskFlags.map((risk) => ({ severity: risk.severity, code: risk.code, message: risk.message })),
       checkoutDecision,
       currentDiff,
@@ -1283,7 +1300,7 @@ export function CanvasBoard({
     setSelectedCharacterIds(selectedCharacters.map((character) => character.id));
     const currentPayload = getCurrentTimelineSnapshotPayload();
     const currentDiff = currentPayload ? diffTimelinePayloads(currentPayload, node.basePayload).summary : null;
-    applyTimelineSnapshotPayload(node.basePayload);
+    hydrateCheckoutRuntime(node.basePayload);
 
     let rollbackApplied: Awaited<ReturnType<ReturnType<typeof createAiTimelineWorkNodeClient>['markRollbackApplied']>> | null = null;
     let rollbackMarkError: string | undefined;
@@ -1297,11 +1314,8 @@ export function CanvasBoard({
       rollbackMarkError = error instanceof Error ? error.message : String(error);
     }
 
-    if (command.reload !== false) {
+    if (command.reload === true) {
       window.setTimeout(() => window.location.reload(), 80);
-    } else {
-      loadTimelineData();
-      syncRuntimeSkillButtonsFromTimelineData(node.basePayload.timelineData);
     }
 
     return {
@@ -1309,7 +1323,7 @@ export function CanvasBoard({
       status: rollbackApplied?.node.status || 'rolled-back-unrecorded',
       rollbackApplied: Boolean(rollbackApplied),
       rollbackMarkError,
-      reloaded: command.reload !== false,
+      reloaded: command.reload === true,
       currentDiff,
     };
   };

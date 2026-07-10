@@ -152,6 +152,10 @@ export function useTimelineData(selectedCharacters: { name: string }[]) {
     return null;
   }, [selectedCharacters]);
 
+  const replaceTimelineData = useCallback((nextTimelineData: TimelineData) => {
+    setTimelineData(nextTimelineData);
+  }, []);
+
   return {
     timelineData,
     addSkillButton,
@@ -163,6 +167,7 @@ export function useTimelineData(selectedCharacters: { name: string }[]) {
     getStaffButtons,
     saveTimelineData,
     loadTimelineData,
+    replaceTimelineData,
     normalizeTimelineData,
   };
 }
