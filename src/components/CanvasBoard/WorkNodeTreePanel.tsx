@@ -167,6 +167,12 @@ export function WorkNodeTreePanel({ refreshKey, onSelectedNodeChange, onSummaryC
           : '';
         throw new Error(markError || 'Work Node 已应用，但 HEAD 确认失败。');
       }
+      await createTimelineRepositoryClient().setCheckoutRef({
+        timelineId: DEFAULT_TIMELINE_ID,
+        targetType: 'work-node',
+        targetId: nodeId,
+        updatedAt: Date.now(),
+      });
       await reloadNodes();
     } catch (checkoutError) {
       setError(`应用节点失败：${errorMessage(checkoutError)}`);
