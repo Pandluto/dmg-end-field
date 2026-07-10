@@ -222,7 +222,7 @@ function createTimelineRepository({ databasePath }) {
     getSnapshot: (id) => readSnapshot(db.prepare('SELECT * FROM timeline_snapshots WHERE id = ?').get(id), true),
     listSnapshots: (timelineId) => db.prepare(`
       SELECT * FROM timeline_snapshots WHERE timeline_id = ? AND archived_at IS NULL ORDER BY created_at DESC
-    `).all(timelineId).map((row) => readSnapshot(row)),
+    `).all(timelineId).map((row) => readSnapshot(row, true)),
     getCheckoutRef: (timelineId) => {
       const row = db.prepare('SELECT * FROM checkout_refs WHERE timeline_id = ?').get(timelineId);
       return row && { timelineId: row.timeline_id, targetType: row.target_type, targetId: row.target_id, updatedAt: row.updated_at };

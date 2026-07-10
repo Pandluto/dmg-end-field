@@ -2625,8 +2625,20 @@ export function CanvasBoard({
     setIsBatchResistanceModalOpen(false);
   };
 
-  const refreshTimelineSnapshotList = () => {
-    setTimelineSnapshots(listTimelineSnapshots());
+  const refreshTimelineSnapshotList = async () => {
+    try {
+      const repository = createTimelineRepositoryClient();
+      await repository.ensureDocument({ id: DEFAULT_TIMELINE_ID, label: '主排轴' });
+      const snapshots = await repository.listSnapshots(DEFAULT_TIMELINE_ID);
+      setTimelineSnapshots(snapshots.map((snapshot) => {
+        const payload = snapshot.payload!;
+        const buttonCount = payload.timelineData.staffLines.reduce((count, line) => count + (line.buttons?.length || 0), 0);
+        return { id: snapshot.id, createdAt: snapshot.createdAt, label: snapshot.label, payload,
+          summary: { characterCount: payload.selectedCharacters.length, buttonCount, buffCount: payload.allBuffList.length } };
+      }));
+    } catch {
+      setTimelineSnapshots(listTimelineSnapshots());
+    }
   };
 
   const handleOpenSaveSnapshotModal = () => {
@@ -2670,7 +2682,7 @@ export function CanvasBoard({
   };
 
   const handleOpenSnapshotModal = () => {
-    refreshTimelineSnapshotList();
+    void refreshTimelineSnapshotList();
     setIsSnapshotModalOpen(true);
   };
 
@@ -2692,11 +2704,7 @@ export function CanvasBoard({
       return;
     }
 
-    const restored = restoreTimelineSnapshot(pendingRestoreSnapshot.id);
-    if (!restored) {
-      alert('恢复失败：未找到对应快照');
-      return;
-    }
+    applyTimelineSnapshotPayload(pendingRestoreSnapshot.payload);
 
     setPendingRestoreSnapshot(null);
     window.location.reload();
@@ -2704,7 +2712,7 @@ export function CanvasBoard({
 
   const handleDeleteSnapshot = (snapshotId: string) => {
     deleteTimelineSnapshot(snapshotId);
-    refreshTimelineSnapshotList();
+    void refreshTimelineSnapshotList();
   };
 
   const handleOpenShareModal = () => {
