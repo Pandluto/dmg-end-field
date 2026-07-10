@@ -72,11 +72,11 @@ import {
   buildTimelineShareFile,
   buildTimelineShareFileName,
   deleteTimelineSnapshot,
+  createTimelineSnapshotEntry,
   getCurrentTimelineSnapshotPayload,
   listTimelineSnapshots,
   parseTimelineShareFile,
   restoreTimelineSnapshot,
-  saveTimelineSnapshot,
   TIMELINE_SNAPSHOT_LIMIT,
   type TimelineSnapshotEntry,
   type TimelineSnapshotPayload,
@@ -108,6 +108,7 @@ import {
 } from '../../agentKernel/timelineWorktree';
 import { buildAiTimelineCheckoutDecision } from '../../agentKernel/timelineWorktree/checkoutDecision.mjs';
 import { DEFAULT_TIMELINE_ID } from '../../core/domain/timeline';
+import { createTimelineRepositoryClient } from '../../agentKernel/timelineRepository/localTimelineClient';
 
 const EMPTY_BATCH_TARGET_RESISTANCE: Required<HitResistanceInput> = {
   physicalResistance: 0,
@@ -1576,10 +1577,19 @@ export function CanvasBoard({
         if (command.op === 'saveTimelineSnapshot') {
           saveTimelineData();
           setSelectedCharacterIds(selectedCharacters.map((character) => character.id));
-          const snapshot = saveTimelineSnapshot(command.label);
+          const snapshot = createTimelineSnapshotEntry(command.label);
           if (!snapshot) {
             throw new Error('当前没有可保存的排轴数据');
           }
+          const repository = createTimelineRepositoryClient();
+          await repository.ensureDocument({ id: DEFAULT_TIMELINE_ID, label: '主排轴' });
+          await repository.saveSnapshot({
+            id: snapshot.id,
+            timelineId: DEFAULT_TIMELINE_ID,
+            label: snapshot.label,
+            payload: snapshot.payload,
+            createdAt: snapshot.createdAt,
+          });
           const doneEntry = patchMainWorkbenchCommand(commandEntry.id, {
             status: 'done',
             result: {
@@ -2629,17 +2639,32 @@ export function CanvasBoard({
     setSnapshotDraftName('');
   };
 
-  const handleSaveTimelineSnapshot = () => {
+  const handleSaveTimelineSnapshot = async () => {
     saveTimelineData();
     setSelectedCharacterIds(selectedCharacters.map((character) => character.id));
 
-    const snapshot = saveTimelineSnapshot(snapshotDraftName);
+    const snapshot = createTimelineSnapshotEntry(snapshotDraftName);
     if (!snapshot) {
       alert('当前没有可保存的排轴数据');
       return;
     }
 
-    refreshTimelineSnapshotList();
+    try {
+      const repository = createTimelineRepositoryClient();
+      await repository.ensureDocument({ id: DEFAULT_TIMELINE_ID, label: '主排轴' });
+      const saved = await repository.saveSnapshot({
+        id: snapshot.id,
+        timelineId: DEFAULT_TIMELINE_ID,
+        label: snapshot.label,
+        payload: snapshot.payload,
+        createdAt: snapshot.createdAt,
+      });
+      setTimelineSnapshots((current) => [snapshot, ...current.filter((item) => item.id !== saved.snapshot.id)].slice(0, TIMELINE_SNAPSHOT_LIMIT));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      alert(`快照保存失败：${message}`);
+      return;
+    }
     handleCloseSaveSnapshotModal();
     alert(`快照已保存：${snapshot.label}`);
   };

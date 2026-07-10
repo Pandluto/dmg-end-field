@@ -309,7 +309,7 @@ export function listTimelineSnapshots(): TimelineSnapshotEntry[] {
     .sort((left, right) => right.createdAt - left.createdAt);
 }
 
-export function saveTimelineSnapshot(customLabel?: string): TimelineSnapshotEntry | null {
+export function createTimelineSnapshotEntry(customLabel?: string): TimelineSnapshotEntry | null {
   const payload = readCurrentPayload();
   if (!payload) {
     return null;
@@ -325,6 +325,12 @@ export function saveTimelineSnapshot(customLabel?: string): TimelineSnapshotEntr
     payload: normalizeSnapshotPayload(payload),
   };
 
+  return entry;
+}
+
+export function saveTimelineSnapshot(customLabel?: string): TimelineSnapshotEntry | null {
+  const entry = createTimelineSnapshotEntry(customLabel);
+  if (!entry) return null;
   const archive = readArchive();
   archive.snapshots = [entry, ...archive.snapshots].slice(0, TIMELINE_SNAPSHOT_LIMIT);
   writeArchive(archive);
