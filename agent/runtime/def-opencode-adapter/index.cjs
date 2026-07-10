@@ -781,10 +781,16 @@ function extractReplyError(reply) {
   const info = reply.info && typeof reply.info === 'object' ? reply.info : reply;
   const error = info.error || reply.error;
   if (!error) return '';
-  if (typeof error === 'string') return error;
-  if (typeof error.message === 'string') return error.message;
-  if (typeof error.data?.message === 'string') return error.data.message;
-  return compactValue(error);
+  const statusCode = Number(error?.data?.statusCode || error?.statusCode || error?.status) || 0;
+  const code = statusCode ? `AI_MODEL_${statusCode}` : 'AI_MODEL_REJECTED';
+  const message = typeof error === 'string'
+    ? error
+    : typeof error.message === 'string'
+      ? error.message
+      : typeof error.data?.message === 'string'
+        ? error.data.message
+        : compactValue(error);
+  return `${code}: ${message}`;
 }
 
 function collectEventTypes(events) {

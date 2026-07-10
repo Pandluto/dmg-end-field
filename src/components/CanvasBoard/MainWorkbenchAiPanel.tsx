@@ -508,6 +508,7 @@ export function MainWorkbenchAiPanel({
   const turnTimeoutRef = useRef<number | null>(null);
   const finishFallbackTimeoutRef = useRef<number | null>(null);
   const reconnectAttemptsRef = useRef(0);
+  const streamedTextByMessageIdRef = useRef(new Map<string, string>());
   const messagesRef = useRef<HTMLDivElement>(null);
   const lastFocusRef = useRef<MainWorkbenchSnapshotEvidenceFocus | null>(null);
   const governanceSeenRef = useRef<Set<string>>(new Set());
@@ -765,6 +766,10 @@ export function MainWorkbenchAiPanel({
     }
 
     if (payload.type === 'text') {
+      streamedTextByMessageIdRef.current.set(
+        messageId,
+        `${streamedTextByMessageIdRef.current.get(messageId) || ''}${payload.text || ''}`,
+      );
       setStatus('响应中');
       patchStep('agent', { status: 'running', detail: '正在生成回复' });
       setMessages((current) => current.map((message) => (
@@ -809,6 +814,17 @@ export function MainWorkbenchAiPanel({
     }
 
     if (payload.type === 'done') {
+      const finalText = (payload.content || payload.text || '').trim();
+      const streamedText = (streamedTextByMessageIdRef.current.get(messageId) || '').trim();
+      if (!finalText && !streamedText) {
+        const error = 'AI_EMPTY_RESPONSE: 后台已结束，但模型没有返回回复内容。';
+        setStatus(error);
+        setSteps((current) => current.map((step) => step.status === 'running'
+          ? { ...step, status: 'error', detail: error }
+          : step));
+        finishMessage(messageId, 'error', error, payload.tokens);
+        return;
+      }
       setStatus('已完成');
       patchStep('agent', { status: 'done', detail: '回复完成' });
       patchStep('verify', { status: 'done', detail: '结果已返回' });
