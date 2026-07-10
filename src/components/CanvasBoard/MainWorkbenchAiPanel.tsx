@@ -1169,11 +1169,21 @@ export function MainWorkbenchAiPanel({
         eventSourceRef.current = nextEventSource;
         bindEventSource(nextEventSource, messageId);
         try {
-          await sendDefAgentContinue(existingSessionId, agentText, messageId, {
+          const continued = await sendDefAgentContinue(existingSessionId, agentText, messageId, {
             thinkingEffort,
             skillId: WORKBENCH_AGENT_SKILL_ID,
           });
-          rememberSession(existingSessionId);
+          const continuedSessionId = continued.sessionId || continued.sessionID || existingSessionId;
+          if (continuedSessionId !== existingSessionId) {
+            nextEventSource.close();
+            lastSeqRef.current = 0;
+            rememberSession(continuedSessionId);
+            const directEventSource = subscribeDefAgentSession(continuedSessionId, 0);
+            eventSourceRef.current = directEventSource;
+            bindEventSource(directEventSource, messageId);
+          } else {
+            rememberSession(existingSessionId);
+          }
         } catch (continueError) {
           nextEventSource.close();
           const message = continueError instanceof Error ? continueError.message : String(continueError);

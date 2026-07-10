@@ -263,7 +263,7 @@ export async function sendDefAgentContinue(
     thinkingEffort?: DefAgentThinkingEffort;
     skillId?: string;
   } = {},
-): Promise<void> {
+): Promise<{ ok: boolean; sessionId?: string; sessionID?: string }> {
   const response = await fetch(`${LOCAL_AGENT_BASE_URL}/def-agent/chat/${encodeURIComponent(sessionId)}/message`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json; charset=utf-8' },
@@ -274,7 +274,7 @@ export async function sendDefAgentContinue(
       skillId: options.skillId,
     }),
   });
-  await readJsonResponse<{ ok: boolean }>(response, 'Continue DEF agent stream');
+  return readJsonResponse<{ ok: boolean; sessionId?: string; sessionID?: string }>(response, 'Continue DEF agent stream');
 }
 
 export function subscribeDefAgentSession(sessionId: string, fromSeq = 0): EventSource {

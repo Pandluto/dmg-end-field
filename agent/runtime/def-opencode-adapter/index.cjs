@@ -1664,6 +1664,10 @@ async function runChatStream({ config, message, thinkingEffort, skillId = 'opera
 }
 
 async function continueChat(sessionID, message, clientTurnId, options = {}) {
+  if (options.skillId === 'workbench') {
+    const directIntent = resolveWorkbenchDirectIntent(message);
+    if (directIntent) return runWorkbenchDirectIntent(directIntent, clientTurnId);
+  }
   const deepseek = sanitizeDeepSeekConfig(options.config || {});
   let state = streamSessions.get(sessionID);
   if (!state) {
