@@ -3692,7 +3692,7 @@ async function executeDefTool(name, input = {}, query = new URLSearchParams()) {
 }
 
 async function handleDefToolRequest(method, pathname, query, body) {
-  if (method === 'GET' && pathname === '/api/def-tools') {
+  if (method === 'GET' && (pathname === '/api/def-tools' || pathname === '/api/def-tools/list')) {
     return await executeDefTool('def.tool.list', {}, query);
   }
   if (method === 'GET' && pathname === '/api/def-tools/governance') {

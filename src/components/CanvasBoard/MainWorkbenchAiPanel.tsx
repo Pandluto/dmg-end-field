@@ -36,6 +36,7 @@ import { WorkNodeTreeIcon } from './WorkNodeTreeIcon';
 import './MainWorkbenchAiPanel.css';
 
 const DEF_AGENT_BROWSER_SESSION_KEY = 'def-opencode.workbench.activeSession.v1';
+const DEF_AGENT_BROWSER_HISTORY_KEY = 'def-opencode.workbench.history.v1';
 const WORKBENCH_AGENT_SKILL_ID = 'workbench';
 const WORKBENCH_AGENT_TURN_TIMEOUT_MS = 180000;
 const WORKBENCH_AGENT_STREAM_RECONNECT_LIMIT = 3;
@@ -171,6 +172,27 @@ function formatTokens(tokens: DefAgentTokens | null) {
   return `token ${tokens.total || 0} · 入 ${tokens.prompt || 0} · 出 ${tokens.completion || 0}`;
 }
 
+function readStoredDefAgentHistory(sessionId: string): WorkbenchAiMessage[] {
+  try {
+    const raw = window.localStorage.getItem(DEF_AGENT_BROWSER_HISTORY_KEY);
+    const archive = raw ? JSON.parse(raw) as Record<string, WorkbenchAiMessage[]> : {};
+    return Array.isArray(archive[sessionId]) ? archive[sessionId] : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeStoredDefAgentHistory(sessionId: string, messages: WorkbenchAiMessage[]) {
+  try {
+    const raw = window.localStorage.getItem(DEF_AGENT_BROWSER_HISTORY_KEY);
+    const archive = raw ? JSON.parse(raw) as Record<string, WorkbenchAiMessage[]> : {};
+    archive[sessionId] = messages.filter((message) => message.id !== 'system-ready').slice(-80);
+    window.localStorage.setItem(DEF_AGENT_BROWSER_HISTORY_KEY, JSON.stringify(archive));
+  } catch {
+    // Conversation history is a local recovery cache; backend transcript remains authoritative when available.
+  }
+}
+
 function formatElapsed(ms: number) {
   const totalSeconds = Math.max(0, Math.floor(ms / 1000));
   const minutes = Math.floor(totalSeconds / 60);
@@ -237,6 +259,7 @@ function buildWorkbenchAgentMessage(
     `当前已选干员: ${selectedSummary}`,
     `当前技能按钮: ${buttonSummary}`,
     snapshotEvidence,
+    'EXECUTION CONTRACT: Do not narrate plans, reasoning, tool names, URLs, command ids, step tables, internal errors, or suggested next steps. Use the visible button summary directly. Do not call any tool-list endpoint: /api/def-tools/list does not exist; GET /api/def-tools is only a fallback when the supplied context is insufficient. For one requested timeline move, call def.worknode.patch_and_validate once. When the user confirms, call def.worknode.checkout_and_verify once. After a verified result, answer in one short Chinese sentence with only the visible outcome. If a command is pending, say only that it is pending; do not continue exploring.',
     `用户请求: ${userText}`,
   ].join('\n');
 }
@@ -473,6 +496,18 @@ function NewChatIcon() {
   );
 }
 
+function mergeTranscriptWithStoredHistory(sessionId: string, transcript: WorkbenchAiMessage[]) {
+  const history = readStoredDefAgentHistory(sessionId);
+  const seen = new Set<string>();
+  const merged = [...history, ...transcript].filter((message) => {
+    const key = `${message.role}:${message.text.trim()}`;
+    if (!message.text.trim() || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+  return merged.length > 0 ? merged : buildInitialMessages();
+}
+
 export function MainWorkbenchAiPanel({
   selectedCharacters,
   skillButtons,
@@ -538,6 +573,10 @@ export function MainWorkbenchAiPanel({
   useEffect(() => {
     messagesRef.current?.scrollTo({ top: messagesRef.current.scrollHeight });
   }, [messages]);
+
+  useEffect(() => {
+    if (activeSessionId) writeStoredDefAgentHistory(activeSessionId, messages);
+  }, [activeSessionId, messages]);
 
   useEffect(() => {
     const timer = window.setInterval(() => setNowTick(Date.now()), 1000);
@@ -639,8 +678,8 @@ export function MainWorkbenchAiPanel({
         if (activeMessageIdRef.current || activeSessionIdRef.current !== stored.sessionId) {
           return;
         }
-        setMessages(transcriptToMessages(transcript.messages || []));
         const sessionId = transcript.session?.id || transcript.session?.sessionID || stored.sessionId;
+        setMessages(mergeTranscriptWithStoredHistory(sessionId, transcriptToMessages(transcript.messages || [])));
         lastSeqRef.current = transcript.session?.lastSeq || stored.lastSeq || 0;
         rememberSession(sessionId, transcript.session?.tokens || stored.tokens || null, lastSeqRef.current);
         setStatus('已连接');

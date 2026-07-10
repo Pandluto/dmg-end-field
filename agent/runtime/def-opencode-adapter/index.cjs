@@ -221,7 +221,7 @@ function buildAgentPrompt(skillId) {
       '',
       '### DEF typed tools preferred',
       '- Prefer DEF typed tools over hand-written command queue JSON.',
-      '- GET /api/def-tools lists available DEF tools with risk/approval/verification metadata.',
+      '- GET /api/def-tools lists available DEF tools with risk/approval/verification metadata. Never request /api/def-tools/list.',
       '- GET /api/def-tools/describe?name=<toolName> describes one tool schema and policy.',
       '- POST /api/def-tools/call with {"tool":"def.workbench.list_buttons","input":{...}} executes a DEF tool.',
       '- POST /api/def-tools/<url-encoded-tool-name>/call with {"input":{...}} is also supported.',
@@ -262,6 +262,7 @@ function buildAgentPrompt(skillId) {
       '- After a typed edit tool returns queued, verify with def.verify.command_result or a snapshot verifier at most once. If the expected state is visible, reply immediately.',
       '- Do not continue auditing, searching, or explaining after the requested state is visible.',
       '- Finish each turn with one concise natural-language summary.',
+      '- Do not narrate your plan, chain of thought, tool sequence, command ids, or next-step suggestions. For a clear single action, call the one relevant tool immediately; after verification, reply with one short visible result sentence and stop.',
     ].join('\n');
   }
   return [
@@ -361,7 +362,9 @@ function buildAgentPrompt(skillId) {
 function buildOpenCodeConfig(config, skillId, thinkingEffort) {
   const deepseek = sanitizeDeepSeekConfig(config);
   const modelRef = `deepseek/${deepseek.model}`;
-  const requestOptions = deepSeekRequestOptions(deepseek.model, thinkingEffort);
+  const requestOptions = skillId === 'workbench'
+    ? { thinking: { type: 'disabled' } }
+    : deepSeekRequestOptions(deepseek.model, thinkingEffort);
   const agents = {};
   for (const id of Object.keys(skillMap)) {
     const info = skillMap[id];

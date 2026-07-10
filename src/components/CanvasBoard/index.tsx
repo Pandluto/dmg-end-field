@@ -511,21 +511,30 @@ export function CanvasBoard({
 
   const syncRuntimeSkillButtonsFromTimelineData = useCallback((dataToRestore: TimelineData, characters = selectedCharacters) => {
     const restoredButtons: SkillButton[] = [];
+    const gridStackElement = canvasRef.current?.querySelector('.canvas-grid-stack');
+    const gridContentOffsetX = canvasRef.current && gridStackElement
+      ? getGridContentOffsetX(canvasRef.current, gridStackElement)
+      : 0;
     dataToRestore.staffLines.forEach((staffLine) => {
       const buttons = Array.isArray(staffLine.buttons) ? staffLine.buttons : [];
       buttons.forEach((btn) => {
         const character = characters.find((item) => item.name === btn.characterName || item.id === btn.characterId);
         const lineIndex = characters.findIndex((item) => item.name === btn.characterName || item.id === btn.characterId);
         const restoredLineIndex = lineIndex >= 0 ? lineIndex : 0;
-        const restoredStaffIndex = typeof btn.staffIndex === 'number' ? btn.staffIndex : staffLine.staffIndex;
-        const restoredNodeIndex = typeof btn.nodeIndex === 'number' && Number.isFinite(btn.nodeIndex) ? btn.nodeIndex : 0;
+        const timelineNodeIndex = typeof btn.nodeIndex === 'number' && Number.isFinite(btn.nodeIndex) ? btn.nodeIndex : 0;
+        const restoredStaffIndex = Math.floor(timelineNodeIndex / GRID_NODE_COUNT);
+        const restoredNodeIndex = timelineNodeIndex % GRID_NODE_COUNT;
+        const position = {
+          x: gridContentOffsetX + getGridNodeCenterX(restoredNodeIndex),
+          y: getGridGroupTop(restoredStaffIndex) + getGridLineCenterY(restoredLineIndex) + SKILL_BUTTON_BASELINE_OFFSET_Y,
+        };
         const restoredButtonCharacterId = character?.id ?? btn.characterId ?? btn.characterName;
         const resolvedRuntimeSkill = resolveRuntimeTemplateSkill({
           id: btn.id,
           characterId: restoredButtonCharacterId,
           characterName: btn.characterName,
           skillType: btn.skillType,
-          position: btn.position,
+          position,
           staffIndex: restoredStaffIndex,
           lineIndex: restoredLineIndex,
           isDragging: false,
@@ -542,7 +551,7 @@ export function CanvasBoard({
           characterId: restoredButtonCharacterId,
           characterName: btn.characterName,
           skillType: btn.skillType,
-          position: btn.position,
+          position,
           staffIndex: restoredStaffIndex,
           lineIndex: restoredLineIndex,
           nodeIndex: restoredNodeIndex,
