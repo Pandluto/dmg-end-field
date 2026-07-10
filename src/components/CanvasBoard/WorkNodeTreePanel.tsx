@@ -202,10 +202,6 @@ export function WorkNodeTreePanel({ refreshKey, onSelectedNodeChange, onSummaryC
   };
 
   const handleDelete = async (node: WorkNodeTreeViewModel['flatNodes'][number]) => {
-    if (activePathNodeIds.has(node.nodeId)) {
-      setError('当前路径上的节点不能删除；只能删除灰色分支。');
-      return;
-    }
     const subtreeNodeIds = collectSubtreeNodeIds(node);
     const confirmed = window.confirm(`删除节点 "${node.title}" 及其 ${subtreeNodeIds.length - 1} 个子节点？`);
     if (!confirmed) return;
