@@ -78,7 +78,10 @@ assert.equal('workingPayload' in migrated.nodes[0], false);
 assert.equal('appliedPayload' in migrated.commits[0], false);
 assert.deepEqual(store.getNode('branch').workingPayload, payloadA);
 
-assert.throws(() => store.deleteSubtree('root'), /current Work Node path/i);
+assert.throws(
+  () => store.deleteSubtree('root'),
+  (error) => error?.code === 'ai-worknode-current-checkout-protected' && error?.status === 409,
+);
 
 store.setHead('save-1', 'child');
 const grayParent = node('gray-parent', 5, { parentNodeId: 'root', workingPayload: payloadB });

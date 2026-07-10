@@ -975,7 +975,18 @@ function startBridgeServer() {
           return;
         }
         if (method === 'POST' && action === 'delete') {
-          writeJson(response, 200, deleteAiTimelineWorkNode(nodeId));
+          try {
+            writeJson(response, 200, deleteAiTimelineWorkNode(nodeId));
+          } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            writeJson(response, error?.status === 409 ? 409 : 500, {
+              ok: false,
+              error: {
+                code: error?.code || 'ai-worknode-delete-failed',
+                message,
+              },
+            });
+          }
           return;
         }
         if (method === 'POST' && action === 'commit') {
@@ -5262,7 +5273,12 @@ ipcMain.handle('desktop:delete-ai-timeline-worknode', (_event, payload) => {
   try {
     return deleteAiTimelineWorkNode(payload?.id || payload);
   } catch (error) {
-    return { ok: false, error: error instanceof Error ? error.message : String(error) };
+    return {
+      ok: false,
+      error: error instanceof Error ? error.message : String(error),
+      code: error?.code || 'ai-worknode-delete-failed',
+      status: error?.status || 500,
+    };
   }
 });
 

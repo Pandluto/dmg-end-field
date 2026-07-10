@@ -11,6 +11,13 @@ const EMPTY_ARCHIVE = Object.freeze({
   commits: [],
 });
 
+function workNodeStoreError(code, message, status = 500) {
+  const error = new Error(message);
+  error.code = code;
+  error.status = status;
+  return error;
+}
+
 function json(value, fallback) {
   try {
     return JSON.stringify(value ?? fallback);
@@ -448,7 +455,11 @@ function createAiTimelineWorkNodeStore({ databasePath, legacyJsonPath }) {
   function deleteSubtree(nodeId) {
     return transaction(() => {
       const target = db.prepare('SELECT id FROM work_nodes WHERE id = ?').get(nodeId);
-      if (!target) throw new Error(`AI timeline work node not found: ${nodeId}`);
+      if (!target) throw workNodeStoreError(
+        'ai-worknode-not-found',
+        `AI timeline work node not found: ${nodeId}`,
+        404,
+      );
       const descendants = db.prepare(`
         WITH RECURSIVE subtree(id) AS (
           SELECT id FROM work_nodes WHERE id = ?
@@ -459,10 +470,14 @@ function createAiTimelineWorkNodeStore({ databasePath, legacyJsonPath }) {
       `).all(nodeId).map((row) => row.id);
       const placeholders = descendants.map(() => '?').join(', ');
       const protectedHead = db.prepare(`
-        SELECT current_node_id FROM work_node_heads WHERE current_node_id IN (${placeholders}) LIMIT 1
+        SELECT save_id, current_node_id FROM work_node_heads WHERE current_node_id IN (${placeholders}) LIMIT 1
       `).get(...descendants);
       if (protectedHead) {
-        throw new Error('Cannot delete the current Work Node path. Checkout another branch first.');
+        throw workNodeStoreError(
+          'ai-worknode-current-checkout-protected',
+          'Cannot delete the current Work Node path. Checkout another branch first.',
+          409,
+        );
       }
       db.prepare('DELETE FROM work_nodes WHERE id = ?').run(nodeId);
       const revision = bumpRevision();

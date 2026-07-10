@@ -998,7 +998,14 @@ function handleAiTimelineWorkNodeRequest(method, pathname, body) {
   }
 
   if (method === 'POST' && action === 'delete') {
-    store.deleteSubtree(nodeId);
+    try {
+      store.deleteSubtree(nodeId);
+    } catch (error) {
+      if (error?.code === 'ai-worknode-current-checkout-protected') {
+        return failScript(409, error.code, error.message, { nodeId });
+      }
+      throw error;
+    }
     const list = store.list();
     return {
       status: 200,
