@@ -107,6 +107,36 @@
   box-shadow: 0 0 0 2px var(--work-node-path-color), 0 0 14px var(--work-node-path-color);
 }
 
+.work-node-tree-detail {
+  position: absolute;
+  left: 10px;
+  bottom: 10px;
+  z-index: 2;
+  display: grid;
+  gap: 3px;
+  max-width: min(460px, calc(100% - 20px));
+  padding: 7px 9px;
+  border: 1px solid rgba(0, 0, 0, 0.24);
+  border-left: 3px solid var(--work-node-path-color);
+  background: rgba(255, 255, 255, 0.94);
+  color: var(--office-body);
+  font-size: 10px;
+  line-height: 1.35;
+  pointer-events: none;
+}
+
+.work-node-tree-detail strong,
+.work-node-tree-detail span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.work-node-tree-detail strong {
+  color: var(--office-title);
+  font-size: 11px;
+}
+
 .work-node-tree-node.is-path {
   opacity: 1;
   border-color: var(--work-node-path-color);

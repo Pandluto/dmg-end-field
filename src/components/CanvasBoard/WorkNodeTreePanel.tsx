@@ -84,6 +84,10 @@ export function WorkNodeTreePanel({ refreshKey, onSelectedNodeChange, onSummaryC
 
   const viewModel = useMemo(() => buildWorkNodeTreeViewModel(nodes, commits), [nodes, commits]);
   const treeLayout = useMemo(() => buildWorkNodeTreeLayout(viewModel.nodes), [viewModel.nodes]);
+  const selectedNode = useMemo(
+    () => nodes.find((node) => node.id === selectedNodeId) || null,
+    [nodes, selectedNodeId],
+  );
   const activePathNodeIds = useMemo(() => {
     const pathIds = new Set<string>();
     const byId = new Map(viewModel.flatNodes.map((node) => [node.nodeId, node]));
@@ -269,6 +273,16 @@ export function WorkNodeTreePanel({ refreshKey, onSelectedNodeChange, onSummaryC
       onPointerCancel={stopCanvasDrag}
     >
       <div className="work-node-tree-count">{viewModel.nodeCount} 节点 / {viewModel.riskCount} 风险</div>
+      {selectedNode ? (
+        <aside className="work-node-tree-detail" aria-label="Selected Work Node details">
+          <strong>{selectedNode.label}</strong>
+          <span>基线：{selectedNode.baseSummary?.characterCount ?? 0} 干员 / {selectedNode.baseSummary?.buttonCount ?? 0} 按钮 / {selectedNode.baseSummary?.buffCount ?? 0} Buff</span>
+          <span>草稿：{selectedNode.workingSummary?.characterCount ?? 0} 干员 / {selectedNode.workingSummary?.buttonCount ?? 0} 按钮 / {selectedNode.workingSummary?.buffCount ?? 0} Buff</span>
+          <span>状态：{selectedNode.status} · 策略：{selectedNode.approvalPolicy}</span>
+          {selectedNode.riskFlags.length ? <span>风险：{selectedNode.riskFlags.map((risk) => risk.message || risk.code).join('；')}</span> : <span>风险：无</span>}
+          {selectedNode.logs[0] ? <span>最近审计：{selectedNode.logs[0].message}</span> : null}
+        </aside>
+      ) : null}
       {error ? <div className="work-node-tree-empty">{error}</div> : null}
       {!error && loading && viewModel.nodeCount === 0 ? <div className="work-node-tree-empty">正在读取节点</div> : null}
       {!error && !loading && viewModel.nodeCount === 0 ? <div className="work-node-tree-empty">暂无可见节点</div> : null}
