@@ -263,6 +263,32 @@ function createTimelineRepository({ databasePath }) {
     });
   }
 
+  function deleteWorkNodeSubtree(nodeId) {
+    return transaction(() => {
+      const target = db.prepare('SELECT id, timeline_id FROM timeline_work_nodes WHERE id = ?').get(nodeId);
+      if (!target) throw new Error(`Timeline work node not found: ${nodeId}`);
+      const descendants = db.prepare(`
+        WITH RECURSIVE subtree(id) AS (
+          SELECT id FROM timeline_work_nodes WHERE id = ?
+          UNION ALL
+          SELECT node.id FROM timeline_work_nodes node JOIN subtree ON node.parent_id = subtree.id
+        ) SELECT id FROM subtree
+      `).all(nodeId).map((row) => row.id);
+      const marks = descendants.map(() => '?').join(', ');
+      const active = db.prepare(`
+        SELECT target_id FROM checkout_refs WHERE timeline_id = ? AND target_type = 'work-node' AND target_id IN (${marks})
+      `).get(target.timeline_id, ...descendants);
+      if (active) {
+        const error = new Error('Cannot delete the current Work Node path. Checkout another target first.');
+        error.code = 'timeline-work-node-current-checkout-protected';
+        error.status = 409;
+        throw error;
+      }
+      db.prepare('DELETE FROM timeline_work_nodes WHERE id = ?').run(nodeId);
+      return { deletedNodeIds: descendants };
+    });
+  }
+
   return {
     databasePath,
     ensureDocument,
@@ -271,6 +297,7 @@ function createTimelineRepository({ databasePath }) {
     appendAuditEvent,
     archiveSnapshot,
     importWorkNode,
+    deleteWorkNodeSubtree,
     getDocument: (id) => readDocument(db.prepare('SELECT * FROM timeline_documents WHERE id = ?').get(id)),
     listDocuments: () => db.prepare(`
       SELECT * FROM timeline_documents WHERE archived_at IS NULL ORDER BY updated_at DESC
