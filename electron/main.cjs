@@ -4884,6 +4884,9 @@ function updateAiTimelineWorkNode(id, payload = {}) {
 function deleteAiTimelineWorkNode(id) {
   const nodeId = sanitizeAiTimelineWorkNodeId(id, 'ai-timeline-node');
   getAiTimelineWorkNodeStore().deleteSubtree(nodeId);
+  if (getTimelineRepository().getWorkNode(nodeId)) {
+    getTimelineRepository().deleteWorkNodeSubtree(nodeId);
+  }
   return buildAiTimelineWorkNodeListResult();
 }
 
@@ -4974,6 +4977,12 @@ function markAiTimelineWorkNodeCheckoutApplied(id, payload = {}) {
   };
   store.saveNodeAndCommit(nextNode, nextCommit, { setHead: true });
   mirrorAiTimelineWorkNodeToRepository(nextNode);
+  getTimelineRepository().setCheckoutRef({
+    timelineId: nextNode.saveId || 'current-main-workbench',
+    targetType: 'work-node',
+    targetId: nextNode.id,
+    updatedAt: appliedAt,
+  });
   return { ok: true, path: getAiTimelineWorkNodesPath(), node: nextNode, commit: nextCommit };
 }
 
@@ -4993,29 +5002,27 @@ function markAiTimelineWorkNodeRollbackApplied(id, payload = {}) {
       ? payload.rationale.trim()
       : 'Renderer rollback applied from AI timeline work node basePayload.',
   };
-  const restoreNode = {
-    id: makeAiTimelineWorkNodeId('ai-timeline-restore'),
-    parentNodeId: node.id,
-    saveId: node.saveId,
-    branchId: sanitizeAiTimelineWorkNodeId(`restore-${node.branchId}-${appliedAt}`, 'restore'),
-    createdAt: appliedAt,
+  const nextNode = {
+    ...node,
+    status: 'ready',
     updatedAt: appliedAt,
-    label: `[restore] ${node.label}`,
-    status: 'applied',
-    basePayload: cloneJsonValue(node.workingPayload),
-    workingPayload: cloneJsonValue(node.basePayload),
-    baseSummary: node.workingSummary,
-    workingSummary: node.baseSummary,
-    approvalPolicy: node.approvalPolicy,
-    riskFlags: [],
-    logs: [makeAiTimelineWorkNodeLog('info', 'Rolled back AI timeline work node from basePayload.', {
+    logs: [makeAiTimelineWorkNodeLog('info', 'Restored current checkout from work node basePayload.', {
       ...rollback,
       sourceNodeId: node.id,
-    })],
+    }), ...(Array.isArray(node.logs) ? node.logs : [])],
   };
-  store.saveNode(restoreNode, { setHead: true });
-  mirrorAiTimelineWorkNodeToRepository(restoreNode);
-  return { ok: true, path: getAiTimelineWorkNodesPath(), node: restoreNode, rollback };
+  store.saveNode(nextNode);
+  mirrorAiTimelineWorkNodeToRepository(nextNode);
+  getTimelineRepository().appendAuditEvent({
+    id: `work-node-base-restored-${node.id}-${appliedAt}`,
+    timelineId: nextNode.saveId || 'current-main-workbench',
+    eventType: 'work-node.base-restored',
+    subjectType: 'work-node',
+    subjectId: node.id,
+    details: rollback,
+    createdAt: appliedAt,
+  });
+  return { ok: true, path: getAiTimelineWorkNodesPath(), node: nextNode, rollback };
 }
 
 function resolveLocalDataPath(payload = {}) {

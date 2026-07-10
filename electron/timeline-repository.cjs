@@ -229,6 +229,10 @@ function createTimelineRepository({ databasePath }) {
         const snapshot = db.prepare('SELECT id FROM timeline_snapshots WHERE id = ? AND timeline_id = ? AND archived_at IS NULL')
           .get(input.targetId, input.timelineId);
         if (!snapshot) throw new Error(`Timeline snapshot not found for checkout: ${input.targetId}`);
+      } else {
+        const node = db.prepare('SELECT id FROM timeline_work_nodes WHERE id = ? AND timeline_id = ?')
+          .get(input.targetId, input.timelineId);
+        if (!node) throw new Error(`Timeline work node not found for checkout: ${input.targetId}`);
       }
       const updatedAt = input.updatedAt || Date.now();
       db.prepare(`
@@ -285,6 +289,13 @@ function createTimelineRepository({ databasePath }) {
         throw error;
       }
       db.prepare('UPDATE timeline_snapshots SET archived_at = ? WHERE id = ?').run(Date.now(), snapshotId);
+      writeAuditEvent({
+        timelineId: snapshot.timeline_id,
+        eventType: 'snapshot.archived',
+        subjectType: 'snapshot',
+        subjectId: snapshotId,
+        details: { payloadHash: snapshot.payload_hash },
+      });
       garbageCollectPayloadBlobs();
       return { id: snapshotId, timelineId: snapshot.timeline_id, archived: true };
     });
@@ -342,6 +353,14 @@ function createTimelineRepository({ databasePath }) {
         throw error;
       }
       db.prepare('DELETE FROM timeline_work_nodes WHERE id = ?').run(nodeId);
+      writeAuditEvent({
+        timelineId: target.timeline_id,
+        eventType: 'work-node.deleted',
+        subjectType: 'work-node',
+        subjectId: nodeId,
+        details: { deletedNodeIds: descendants },
+      });
+      garbageCollectPayloadBlobs();
       return { deletedNodeIds: descendants };
     });
   }
@@ -378,6 +397,19 @@ function createTimelineRepository({ databasePath }) {
       details: parse(row.details, {}),
       createdAt: row.created_at,
     })),
+    getWorkNode: (id) => {
+      const row = db.prepare('SELECT * FROM timeline_work_nodes WHERE id = ?').get(id);
+      if (!row) return null;
+      const basePayload = parse(db.prepare('SELECT payload FROM timeline_payload_blobs WHERE content_hash = ?').get(row.base_payload_hash)?.payload, {});
+      const workingPayload = parse(db.prepare('SELECT payload FROM timeline_payload_blobs WHERE content_hash = ?').get(row.working_payload_hash)?.payload, {});
+      return {
+        id: row.id, parentNodeId: row.parent_id || undefined, timelineId: row.timeline_id, branchId: row.branch_id,
+        label: row.label, status: row.status, approvalPolicy: row.approval_policy,
+        riskFlags: parse(row.risk_flags, []), logs: parse(row.logs, []), basePayload, workingPayload,
+        baseSummary: summarizePayload(basePayload), workingSummary: summarizePayload(workingPayload),
+        createdAt: row.created_at, updatedAt: row.updated_at,
+      };
+    },
     listWorkNodes: (timelineId) => db.prepare(`
       SELECT * FROM timeline_work_nodes WHERE timeline_id = ? ORDER BY created_at ASC
     `).all(timelineId).map((row) => {

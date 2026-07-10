@@ -25,7 +25,7 @@
 
 - [ ] 创建 documents、payload blobs、snapshots、work nodes、patches、checkout refs、audit events、schema meta 表。
 - [ ] 实现 payload SHA-256 去重、外键、索引、事务和垃圾回收策略。
-- [ ] 实现“创建 Work Node 不自动 checkout”。
+- [x] 实现“创建 Work Node 不自动 checkout”。
 - [ ] 实现每个 TimelineDocument 独立的 CheckoutRef。
 - [ ] 将删除冲突映射为结构化 `409`。
 
@@ -56,7 +56,7 @@
 - [ ] 定义并实现 AI 意图执行策略：明确低风险单步操作保留 Phase 4 的实时 checkout；复杂/重排/分支/预览操作创建或复用 AI Work Node。
 - [ ] Patch 只能改 node working state，随后返回 validate、diff、risk 证据。
 - [ ] checkout 显式更新 CheckoutRef(work-node) 并应用 payload。
-- [ ] restore base 作为 Work Node 操作，写审计事件但不伪造树节点。
+- [x] restore base 作为 Work Node 操作，写审计事件但不伪造树节点。
 - [ ] 删除旧的“AI turn / manual checkpoint 必须自动建节点”策略。
 
 验收：后门自然话术测试同时证明：复杂重排在 Patch 阶段不改变当前排轴，应用后才变化；明确低风险操作仍能沿用 Phase 4 的实时 checkout 并收到真实回执。

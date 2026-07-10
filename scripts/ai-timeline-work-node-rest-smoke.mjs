@@ -106,13 +106,31 @@ try {
   assert.equal(list.body.nodes.find((node) => node.id === 'child')?.parentNodeId, 'root');
   assert.equal(list.body.nodes.some((node) => 'basePayload' in node || 'workingPayload' in node), false);
 
+  const committed = await request('POST', '/api/ai-timeline-worknodes/branch/commit', {
+    commitId: 'commit-branch',
+    approval: { approvedBy: 'user', rationale: 'REST smoke checkout' },
+  });
+  assert.equal(committed.status, 200, JSON.stringify(committed.body));
+  const checkedOut = await request('POST', '/api/ai-timeline-worknodes/branch/checkout-applied', {
+    commitId: 'commit-branch', appliedBy: 'user', rationale: 'REST smoke checkout',
+  });
+  assert.equal(checkedOut.status, 200, JSON.stringify(checkedOut.body));
+  const repositoryCheckout = await request('GET', '/api/timeline-checkout-ref?timelineId=save-rest');
+  assert.equal(repositoryCheckout.status, 200, JSON.stringify(repositoryCheckout.body));
+  assert.equal(repositoryCheckout.body.checkoutRef.targetId, 'branch');
+
   const restored = await request('POST', '/api/ai-timeline-worknodes/branch/rollback-applied', {
     appliedBy: 'user',
     rationale: 'REST smoke restore',
   });
   assert.equal(restored.status, 200, JSON.stringify(restored.body));
-  assert.equal(restored.body.node.parentNodeId, 'branch');
-  assert.match(restored.body.node.label, /^\[restore\]/);
+  assert.equal(restored.body.node.id, 'branch');
+  assert.equal(restored.body.node.status, 'ready');
+  const repositoryNodes = await request('GET', '/api/timeline-work-nodes?timelineId=save-rest');
+  assert.equal(repositoryNodes.body.nodes.length, 3);
+  const audit = await request('GET', '/api/timeline-audit-events?timelineId=save-rest');
+  assert.equal(audit.status, 200, JSON.stringify(audit.body));
+  assert.equal(audit.body.events.some((event) => event.eventType === 'work-node.base-restored'), true);
 
   const protectedDelete = await request('POST', '/api/ai-timeline-worknodes/root/delete', {});
   assert.notEqual(protectedDelete.status, 200);
@@ -122,8 +140,8 @@ try {
   assert.equal(grayDelete.body.nodes.some((node) => node.id === 'child'), false);
 
   list = await request('GET', '/api/ai-timeline-worknodes');
-  assert.equal(list.body.nodes.length, 3);
-  assert.equal(list.body.headNodeId, restored.body.node.id);
+  assert.equal(list.body.nodes.length, 2);
+  assert.equal(list.body.headNodeId, 'branch');
   console.log('AI timeline Work Node REST smoke passed.');
 } finally {
   if (server.exitCode === null) {
