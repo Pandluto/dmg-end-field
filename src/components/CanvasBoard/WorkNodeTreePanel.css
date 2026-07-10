@@ -1,4 +1,5 @@
 .work-node-tree-panel {
+  --work-node-path-color: #8B5CF6;
   position: relative;
   min-width: 0;
   min-height: 0;
@@ -38,9 +39,9 @@
 }
 
 .work-node-tree-connectors .is-path {
-  stroke: #003fbe;
+  stroke: var(--work-node-path-color);
   stroke-width: 2;
-  filter: drop-shadow(0 0 2px #003fbe);
+  filter: drop-shadow(0 0 2px var(--work-node-path-color));
 }
 
 .work-node-tree-count {
@@ -102,14 +103,14 @@
 
 .work-node-tree-node.is-active {
   opacity: 1;
-  border-color: #003fbe;
-  box-shadow: 0 0 0 2px #003fbe, 0 0 14px #003fbe;
+  border-color: var(--work-node-path-color);
+  box-shadow: 0 0 0 2px var(--work-node-path-color), 0 0 14px var(--work-node-path-color);
 }
 
 .work-node-tree-node.is-path {
   opacity: 1;
-  border-color: #003fbe;
-  box-shadow: 0 0 0 2px #003fbe, 0 0 11px #003fbe;
+  border-color: var(--work-node-path-color);
+  box-shadow: 0 0 0 2px var(--work-node-path-color), 0 0 11px var(--work-node-path-color);
 }
 
 .work-node-tree-node:hover {
