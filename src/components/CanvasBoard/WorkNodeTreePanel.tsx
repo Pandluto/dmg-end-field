@@ -106,6 +106,7 @@ export function WorkNodeTreePanel({ refreshKey, onSelectedNodeChange, onSummaryC
         if (cancelled) return;
         applyListResponse({ ...response, nodes: repositoryNodes.map((node) => ({
           ...node,
+          riskFlags: node.riskFlags.map((risk, index) => ({ ...risk, id: `${risk.code || 'risk'}-${index}` })),
           saveId: node.timelineId,
           status: node.status as AiTimelineWorkNodeListItem['status'],
           approvalPolicy: node.approvalPolicy as AiTimelineWorkNodeListItem['approvalPolicy'],
@@ -135,7 +136,7 @@ export function WorkNodeTreePanel({ refreshKey, onSelectedNodeChange, onSummaryC
     const response = await createAiTimelineWorkNodeClient().list();
     const repositoryNodes = await createTimelineRepositoryClient().listWorkNodes(DEFAULT_TIMELINE_ID);
     const next = { ...response, nodes: repositoryNodes.map((node) => ({
-      ...node, saveId: node.timelineId,
+      ...node, riskFlags: node.riskFlags.map((risk, index) => ({ ...risk, id: `${risk.code || 'risk'}-${index}` })), saveId: node.timelineId,
       status: node.status as AiTimelineWorkNodeListItem['status'],
       approvalPolicy: node.approvalPolicy as AiTimelineWorkNodeListItem['approvalPolicy'],
       baseSummary: { characterCount: 0, buttonCount: 0, buffCount: 0 },
