@@ -6,8 +6,8 @@
 - [x] 移除进入 AI 模式自动创建 manual checkpoint 的遗留代码，而非仅用标志位禁用。
 - [x] 暂停任何把 snapshot id 写入 Work Node `saveId` 的调用。
 - [x] 在改动前固定 Phase 4 兼容清单：实时 checkout、整组复制、staff line 重建、会话隔离和 AI 模式拖拽禁用不得回退。
-- [ ] 为现有 localdata 与 Work Node SQLite 建立只读备份和迁移预览命令。
-- [ ] 记录并分类现有异常 `[snapshot]` Work Node，默认不删除。
+- [x] 为现有 localdata 与 Work Node SQLite 建立只读备份和迁移预览命令。
+- [x] 记录并分类现有异常 `[snapshot]` Work Node，默认不删除；提供只读迁移预览命令。
 
 验收：保存、进入 AI、打开树都不会新增 Work Node。
 
