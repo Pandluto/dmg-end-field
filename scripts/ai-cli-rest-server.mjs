@@ -2607,6 +2607,28 @@ function applyDefWorkNodePatchAndValidate(input = {}) {
   };
 }
 
+function copyDefWorkNodeStaffLineAndValidate(input = {}) {
+  if (!Number.isInteger(input.sourceStaffIndex) || !Number.isInteger(input.targetStaffIndex)) {
+    return {
+      ok: false,
+      code: 'invalid-staff-line-copy-input',
+      message: 'sourceStaffIndex and targetStaffIndex must be integers.',
+      checkout: false,
+      currentCheckoutTouched: false,
+    };
+  }
+  return applyDefWorkNodePatchAndValidate({
+    ...input,
+    patch: [{
+      op: 'copyStaffLine',
+      sourceStaffIndex: input.sourceStaffIndex,
+      targetStaffIndex: input.targetStaffIndex,
+      preserveCharacterIdentity: input.preserveCharacterIdentity !== false,
+      replaceTarget: input.replaceTarget === true,
+    }],
+  });
+}
+
 function readDefToolGovernanceArchive() {
   try {
     if (!fs.existsSync(defToolGovernancePath)) {
@@ -2826,6 +2848,19 @@ function buildDefToolDefinitions() {
       patch: patchDslProperty,
     },
   };
+  const copyStaffLineSchema = {
+    type: 'object',
+    required: ['sourceStaffIndex', 'targetStaffIndex'],
+    properties: {
+      nodeId: { type: 'string', description: 'Optional existing work node. Omit to create one from the current checkout.' },
+      sourceStaffIndex: { type: 'number', description: 'Zero-based source staff line index.' },
+      targetStaffIndex: { type: 'number', description: 'Zero-based target staff line index.' },
+      preserveCharacterIdentity: { type: 'boolean', description: 'Defaults to true for an exact copy.' },
+      replaceTarget: { type: 'boolean', description: 'Only true when the user explicitly requested replacing a non-empty target line.' },
+      checkout: { type: 'boolean', description: 'Defaults to true and applies the validated work node without a browser reload.' },
+      dryRun: { type: 'boolean' },
+    },
+  };
   const checkoutWorkNodeSchema = {
     type: 'object',
     required: ['nodeId'],
@@ -2899,6 +2934,7 @@ function buildDefToolDefinitions() {
     { name: 'def.worknode.create_from_current', commandOp: 'createAiTimelineWorkNodeFromCurrent', scope: 'appdata-work-node', riskLevel: 'medium', approval: 'auto', status: 'implemented', description: workNode },
     { name: 'def.worknode.patch', commandOp: 'patchAiTimelineWorkNode', scope: 'appdata-work-node', riskLevel: 'high', approval: 'ai-review', status: 'implemented', description: 'Class-code Patch DSL / CRUD tool for node.workingPayload.' },
     { name: 'def.worknode.patch_and_validate', scope: 'appdata-work-node', riskLevel: 'high', approval: 'ai-review', status: 'implemented', description: 'Apply a constrained work node patch, validate, then immediately checkout and verify explicit low-risk user mutations without reloading. Use checkout:false only to stage a draft.' },
+    { name: 'def.worknode.copy_staff_line_and_verify', scope: 'appdata-work-node', riskLevel: 'high', approval: 'ai-review', status: 'implemented', description: 'Directly copy one complete timeline staff line into another work-node line, validate it, then checkout and verify. Use for requests such as copying all of group 1 to group 2; do not emulate with addButton patches.' },
     { name: 'def.worknode.diff', commandOp: 'diffAiTimelineWorkNode', scope: 'appdata-work-node', riskLevel: 'read', approval: 'none', status: 'implemented', description: workNode },
     { name: 'def.worknode.checkout', commandOp: 'checkoutAiTimelineWorkNode', scope: 'appdata-work-node', riskLevel: 'high', approval: 'ai-review', status: 'implemented', description: workNode },
     { name: 'def.worknode.checkout_and_verify', scope: 'appdata-work-node', riskLevel: 'high', approval: 'ai-review', status: 'implemented', description: 'Checkout a work node with reload:false by default, wait briefly for renderer execution, and verify current checkout snapshot.' },
@@ -2919,7 +2955,9 @@ function buildDefToolDefinitions() {
     { name: 'def.gear.set_entry_level', scope: 'current-checkout', riskLevel: 'medium', approval: 'ai-review', status: 'implemented', description: 'Set equipped gear entry level through structured config commands.' },
   ].map((tool) => ({
     ...tool,
-    inputSchema: tool.name === 'def.worknode.patch_and_validate'
+    inputSchema: tool.name === 'def.worknode.copy_staff_line_and_verify'
+      ? copyStaffLineSchema
+      : tool.name === 'def.worknode.patch_and_validate'
       ? patchAndValidateSchema
       : tool.name === 'def.worknode.patch'
         ? workNodePatchSchema
@@ -3728,8 +3766,10 @@ async function executeDefTool(name, input = {}, query = new URLSearchParams()) {
     result = createDefApprovalRequest(input);
   } else if (name === 'def.approval.record_decision') {
     result = recordDefApprovalDecision(input);
-  } else if (name === 'def.worknode.patch_and_validate') {
-    result = applyDefWorkNodePatchAndValidate(input);
+  } else if (name === 'def.worknode.patch_and_validate' || name === 'def.worknode.copy_staff_line_and_verify') {
+    result = name === 'def.worknode.copy_staff_line_and_verify'
+      ? copyDefWorkNodeStaffLineAndValidate(input)
+      : applyDefWorkNodePatchAndValidate(input);
     if (result.ok && result.checkout === true && result.dryRun !== true && !result.checkoutDecision?.requiresManualApproval) {
       const applied = await executeDefWorkNodeApplyAndVerify('def.worknode.checkout_and_verify', {
         nodeId: result.nodeId,
@@ -3964,6 +4004,7 @@ function handleMainWorkbenchRequest(method, pathname, query, body) {
         ...(requestedBatchId ? { batchId: requestedBatchId, batchIndex: 0, batchSize: 1 } : {}),
       });
       writeMainWorkbenchCommandQueue([...queue, entry]);
+      broadcastMainWorkbenchCommands([entry]);
       return {
         status: 200,
         body: {
@@ -3987,6 +4028,7 @@ function handleMainWorkbenchRequest(method, pathname, query, body) {
       batchSize,
     }));
     writeMainWorkbenchCommandQueue([...queue, ...entries]);
+    broadcastMainWorkbenchCommands(entries);
     return {
       status: 200,
       body: {
@@ -4124,6 +4166,7 @@ const { getAiCliRestDiagnostics } = await loadAiCliModules();
 const startupDiagnostics = getAiCliRestDiagnostics();
 
 const sseClients = new Set();
+const mainWorkbenchCommandSseClients = new Set();
 
 function writeSse(response, eventName, payload) {
   try {
@@ -4132,6 +4175,15 @@ function writeSse(response, eventName, payload) {
     return true;
   } catch {
     return false;
+  }
+}
+
+function broadcastMainWorkbenchCommands(commands) {
+  const payload = { ok: true, protocolVersion: 1, commands };
+  for (const client of Array.from(mainWorkbenchCommandSseClients)) {
+    if (!writeSse(client, 'main-workbench.commands', payload)) {
+      mainWorkbenchCommandSseClients.delete(client);
+    }
   }
 }
 
@@ -4176,6 +4228,11 @@ const heartbeatTimer = setInterval(() => {
   for (const client of sseClients) {
     if (!writeSse(client, 'heartbeat', { ok: true, now: Date.now() })) {
       sseClients.delete(client);
+    }
+  }
+  for (const client of mainWorkbenchCommandSseClients) {
+    if (!writeSse(client, 'heartbeat', { ok: true, now: Date.now() })) {
+      mainWorkbenchCommandSseClients.delete(client);
     }
   }
 }, 15000);
@@ -4223,6 +4280,26 @@ const server = http.createServer(async (request, response) => {
     writeSse(response, 'agent.records', { ok: true, protocolVersion: 1, ...readAgentRecordSnapshot() });
     request.on('close', () => {
       sseClients.delete(response);
+    });
+    return;
+  }
+
+  if (method === 'GET' && requestUrl.pathname === '/api/main-workbench/commands/events') {
+    response.writeHead(200, {
+      'Content-Type': 'text/event-stream; charset=utf-8',
+      'Cache-Control': 'no-cache, no-transform',
+      'Connection': 'keep-alive',
+      'Access-Control-Allow-Origin': '*',
+    });
+    response.write(': connected\n\n');
+    mainWorkbenchCommandSseClients.add(response);
+    writeSse(response, 'main-workbench.commands', {
+      ok: true,
+      protocolVersion: 1,
+      commands: readMainWorkbenchCommandQueue().filter((entry) => entry.status === 'pending'),
+    });
+    request.on('close', () => {
+      mainWorkbenchCommandSseClients.delete(response);
     });
     return;
   }

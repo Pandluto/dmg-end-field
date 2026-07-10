@@ -230,7 +230,7 @@ function buildAgentPrompt(skillId) {
       '- High-risk/batch/timeline rewrite uses def.worknode.patch_and_validate directly. If nodeId is omitted, the tool creates a work node from the best available current payload mirror first. For an explicit user mutation it validates and immediately performs protected no-reload checkout by default; pass checkout:false only when the user explicitly asks to stage a draft.',
       '- Legacy long flow is def.worknode.create_from_current -> def.worknode.patch -> def.worknode.validate -> def.worknode.diff -> def.verify.worknode_diff_clean -> approval if needed -> def.worknode.checkout.',
       '- def.worknode.patch is the class-code Patch DSL / CRUD tool: it edits appdata work node workingPayload only, then validate/diff/approval/checkout applies to current checkout.',
-      '- def.worknode.patch input example: {"nodeId":"...","patch":[{"op":"moveButton","target":{"buttonId":"..."},"nodeIndex":1}],"dryRun":false}. Common ops: addButton/copyStaffLine/removeButton/moveButton/attachBuff/removeBuff/setTargetResistance/clearTimeline. For “把第一组所有按钮在第二组原封不动做一遍”, call exactly one copyStaffLine with sourceStaffIndex:0,targetStaffIndex:1,preserveCharacterIdentity:true. It rejects a non-empty target unless the user explicitly asks to replace it; never simulate this request with many addButton calls. Target fields: buttonId/characterName/skillType/nodeIndex/latest.',
+      '- For copying a whole timeline group, use def.worknode.copy_staff_line_and_verify directly with sourceStaffIndex/targetStaffIndex. For “把第一组所有按钮在第二组原封不动做一遍”, call it once with 0 and 1. Never emulate this request with addButton patches. def.worknode.patch remains for genuinely custom Patch DSL edits.',
       '- Tool queued status is not completion. Verify with def.verify.command_result, def.verify.snapshot_delta, def.verify.buttons_have_buff, or def.verify.damage_recalculated.',
       '',
       '### Legacy workbench endpoints',
@@ -1032,95 +1032,6 @@ function makeStreamState({ baseUrl, directory, sessionID, agent, model, skillId,
   return state;
 }
 
-function extractWorkbenchUserRequest(message) {
-  const text = typeof message === 'string' ? message : '';
-  const marker = '用户请求:';
-  const index = text.lastIndexOf(marker);
-  return (index >= 0 ? text.slice(index + marker.length) : text).trim();
-}
-
-function parseChineseGroupIndex(value) {
-  const normalized = String(value || '').trim();
-  if (/^\d+$/.test(normalized)) return Number(normalized) - 1;
-  const values = { 一: 1, 二: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7, 八: 8, 九: 9, 十: 10 };
-  return Number.isInteger(values[normalized]) ? values[normalized] - 1 : null;
-}
-
-function resolveWorkbenchDirectIntent(message) {
-  const userRequest = extractWorkbenchUserRequest(message);
-  const match = /(?:复制|把|将)?\s*第([一二三四五六七八九十\d]+)组(?:的)?(?:所有)?(?:按钮|内容)?[\s\S]{0,32}?(?:到|在|至)\s*第([一二三四五六七八九十\d]+)组/.exec(userRequest);
-  if (!match) return null;
-  const sourceStaffIndex = parseChineseGroupIndex(match[1]);
-  const targetStaffIndex = parseChineseGroupIndex(match[2]);
-  if (!Number.isInteger(sourceStaffIndex) || !Number.isInteger(targetStaffIndex)) return null;
-  const nodeMatch = /AI_WORK_NODE:\s*nodeId=([^;\s]+)/.exec(message);
-  return {
-    kind: 'copyStaffLine',
-    sourceStaffIndex,
-    targetStaffIndex,
-    nodeId: nodeMatch?.[1] || undefined,
-    userRequest,
-  };
-}
-
-async function runWorkbenchDirectIntent(intent, clientTurnId) {
-  const sessionID = `def-direct-${crypto.randomUUID()}`;
-  const state = makeStreamState({
-    baseUrl: '',
-    directory: '',
-    sessionID,
-    agent: 'def-workbench-direct',
-    model: 'typed-tool-runtime',
-    skillId: 'workbench',
-    thinkingEffort: 'disabled',
-  });
-  state.active = true;
-  state.directWorkbench = true;
-  state.currentTurnId = clientTurnId;
-  emitStreamEvent(state, 'session.created', { turnId: clientTurnId, sessionId: sessionID, agent: state.agent, skillId: 'workbench' });
-  void (async () => {
-    try {
-      emitStreamEvent(state, 'message.start', { turnId: clientTurnId, text: intent.userRequest });
-      emitStreamEvent(state, 'reasoning', { status: 'done', summary: '已识别受控排轴操作' });
-      emitStreamEvent(state, 'tool.start', { title: '复制时间轴分组', summary: `第 ${intent.sourceStaffIndex + 1} 组 → 第 ${intent.targetStaffIndex + 1} 组` });
-      const response = await requestJson('POST', 'http://127.0.0.1:17321/api/def-tools/call', {
-        tool: 'def.worknode.patch_and_validate',
-        input: {
-          ...(intent.nodeId ? { nodeId: intent.nodeId } : {}),
-          patch: [{
-            op: 'copyStaffLine',
-            sourceStaffIndex: intent.sourceStaffIndex,
-            targetStaffIndex: intent.targetStaffIndex,
-            preserveCharacterIdentity: true,
-          }],
-        },
-      }, undefined, 45000);
-      const result = response?.result;
-      if (!response?.ok || !result?.ok) {
-        throw new Error(result?.message || response?.error?.message || 'DEF_DIRECT_INTENT_FAILED');
-      }
-      const pending = result?.checkoutResult?.status === 'pending' || result?.checkoutVerification?.status === 'pending';
-      emitStreamEvent(state, 'tool.content', { title: '复制时间轴分组', status: 'done', summary: pending ? '已提交，等待界面确认' : '已完成并校验' });
-      emitStreamEvent(state, 'done', {
-        turnId: clientTurnId,
-        ok: true,
-        directIntent: intent.kind,
-        content: pending
-          ? `已复制第 ${intent.sourceStaffIndex + 1} 组到第 ${intent.targetStaffIndex + 1} 组，正在应用到当前时间轴，等待执行确认。`
-          : `已将第 ${intent.sourceStaffIndex + 1} 组所有按钮复制到第 ${intent.targetStaffIndex + 1} 组并完成校验。`,
-      });
-    } catch (error) {
-      emitStreamEvent(state, 'error', {
-        turnId: clientTurnId,
-        error: `DEF_DIRECT_INTENT_FAILED: ${sanitizeError(error instanceof Error ? error.message : String(error))}`,
-      });
-    } finally {
-      state.active = false;
-    }
-  })();
-  return { sessionId: sessionID, sessionID, eventEmitter: state.eventEmitter };
-}
-
 function emitStreamEvent(state, type, payload = {}) {
   if (!state) return null;
   const event = {
@@ -1624,10 +1535,6 @@ async function sendMessageOnStreamSession(state, message, clientTurnId) {
 }
 
 async function runChatStream({ config, message, thinkingEffort, skillId = 'operator', clientTurnId }) {
-  if (skillId === 'workbench') {
-    const directIntent = resolveWorkbenchDirectIntent(message);
-    if (directIntent) return runWorkbenchDirectIntent(directIntent, clientTurnId);
-  }
   const deepseek = sanitizeDeepSeekConfig(config);
   if (!deepseek.apiKey) {
     throw new Error('DeepSeek API key is not configured in DEF Shell 05 Agent.');
@@ -1664,10 +1571,6 @@ async function runChatStream({ config, message, thinkingEffort, skillId = 'opera
 }
 
 async function continueChat(sessionID, message, clientTurnId, options = {}) {
-  if (options.skillId === 'workbench') {
-    const directIntent = resolveWorkbenchDirectIntent(message);
-    if (directIntent) return runWorkbenchDirectIntent(directIntent, clientTurnId);
-  }
   const deepseek = sanitizeDeepSeekConfig(options.config || {});
   let state = streamSessions.get(sessionID);
   if (!state) {

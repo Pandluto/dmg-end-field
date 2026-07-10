@@ -13,6 +13,7 @@ const MAIN_WORKBENCH_REMOTE_PULL_COOLDOWN_MS = 15000;
 
 let nextRemoteWorkbenchPullAt = 0;
 let remoteWorkbenchPullInFlight: Promise<void> | null = null;
+let remoteWorkbenchCommandEventSource: EventSource | null = null;
 
 export type MainWorkbenchCommandStatus = 'pending' | 'running' | 'done' | 'error';
 
@@ -510,19 +511,38 @@ async function pullRemoteMainWorkbenchCommandsOnce(): Promise<void> {
     const payload = await response.json() as { commands?: QueuedMainWorkbenchCommand[] };
     if (!Array.isArray(payload.commands) || payload.commands.length === 0) return;
 
-    const queue = readMainWorkbenchCommandQueue();
-    const knownIds = new Set(queue.map((entry) => entry.id));
-    const imported = payload.commands
-      .map((entry) => normalizeQueuedCommand(entry, 'rest'))
-      .filter((entry): entry is QueuedMainWorkbenchCommand => Boolean(entry))
-      .filter((entry) => !knownIds.has(entry.id));
-    if (imported.length === 0) return;
-    writeMainWorkbenchCommandQueue([...queue, ...imported]);
-    emitControlEvent();
+    importRemoteMainWorkbenchCommands(payload.commands);
   } catch {
     nextRemoteWorkbenchPullAt = Date.now() + MAIN_WORKBENCH_REMOTE_PULL_COOLDOWN_MS;
     // REST bridge is optional; page-local control still works without it.
   }
+}
+
+function importRemoteMainWorkbenchCommands(commands: QueuedMainWorkbenchCommand[]): void {
+  const queue = readMainWorkbenchCommandQueue();
+  const knownIds = new Set(queue.map((entry) => entry.id));
+  const imported = commands
+      .map((entry) => normalizeQueuedCommand(entry, 'rest'))
+      .filter((entry): entry is QueuedMainWorkbenchCommand => Boolean(entry))
+      .filter((entry) => !knownIds.has(entry.id));
+  if (imported.length === 0) return;
+  writeMainWorkbenchCommandQueue([...queue, ...imported]);
+  emitControlEvent();
+}
+
+function connectRemoteMainWorkbenchCommandEvents(): void {
+  if (typeof window === 'undefined' || typeof window.EventSource !== 'function') return;
+  remoteWorkbenchCommandEventSource?.close();
+  const eventSource = new window.EventSource(`${MAIN_WORKBENCH_REST_BASE_URL}/api/main-workbench/commands/events`);
+  remoteWorkbenchCommandEventSource = eventSource;
+  eventSource.addEventListener('main-workbench.commands', (event) => {
+    try {
+      const payload = JSON.parse((event as MessageEvent).data) as { commands?: QueuedMainWorkbenchCommand[] };
+      if (Array.isArray(payload.commands)) importRemoteMainWorkbenchCommands(payload.commands);
+    } catch {
+      // Polling remains as a fallback when an event frame is malformed.
+    }
+  });
 }
 
 export async function pullRemoteMainWorkbenchCommands(): Promise<void> {
@@ -576,4 +596,5 @@ export function installMainWorkbenchWindowApi(): void {
     commands: readMainWorkbenchCommandQueue,
     snapshot: readMainWorkbenchSnapshot,
   };
+  connectRemoteMainWorkbenchCommandEvents();
 }

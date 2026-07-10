@@ -259,7 +259,7 @@ function buildWorkbenchAgentMessage(
     `当前已选干员: ${selectedSummary}`,
     `当前技能按钮: ${buttonSummary}`,
     snapshotEvidence,
-    'EXECUTION CONTRACT: Do not narrate plans, reasoning, tool names, URLs, command ids, step tables, internal errors, or suggested next steps. Use the visible button summary directly. Do not call any tool-list endpoint: /api/def-tools/list does not exist; GET /api/def-tools is only a fallback when the supplied context is insufficient. For one requested timeline move, call def.worknode.patch_and_validate once; it validates and immediately performs the protected no-reload checkout by default. For “把第一组所有按钮在第二组原封不动做一遍”, use one copyStaffLine patch with sourceStaffIndex:0,targetStaffIndex:1,preserveCharacterIdentity:true; never synthesize it through many addButton calls. Use checkout:false only when the user explicitly asks to stage a draft. After a verified result, answer in one short Chinese sentence with only the visible outcome. Never answer only “pending”; if confirmation is still pending, say “正在应用到当前时间轴，等待执行确认。” and stop.',
+    'EXECUTION CONTRACT: Do not narrate plans, reasoning, tool names, URLs, command ids, step tables, internal errors, or suggested next steps. Use the visible button summary directly. Do not call any tool-list endpoint: /api/def-tools/list does not exist; GET /api/def-tools is only a fallback when the supplied context is insufficient. For one requested timeline move, call def.worknode.patch_and_validate once; it validates and immediately performs the protected no-reload checkout by default. For “复制第一组所有内容到第二组” or equivalent requests, call def.worknode.copy_staff_line_and_verify once with sourceStaffIndex:0,targetStaffIndex:1; never synthesize it through addButton calls or bypass the DEF tool layer. Use checkout:false only when the user explicitly asks to stage a draft. After a verified result, answer in one short Chinese sentence with only the visible outcome. Never answer only “pending”; if confirmation is still pending, say “正在应用到当前时间轴，等待执行确认。” and stop.',
     `用户请求: ${userText}`,
   ].join('\n');
 }
@@ -920,9 +920,6 @@ export function MainWorkbenchAiPanel({
       const userFacingText = compactWorkbenchAgentReply(finalText || streamedText, activePromptRef.current);
       payload.content = userFacingText;
       payload.text = userFacingText;
-      if ((payload as DefAgentStreamEvent & { directIntent?: string }).directIntent) {
-        rememberSession(null, payload.tokens);
-      }
       setStatus('已完成');
       patchStep('agent', { status: 'done', detail: '回复完成' });
       patchStep('verify', { status: 'done', detail: '结果已返回' });
@@ -1169,21 +1166,11 @@ export function MainWorkbenchAiPanel({
         eventSourceRef.current = nextEventSource;
         bindEventSource(nextEventSource, messageId);
         try {
-          const continued = await sendDefAgentContinue(existingSessionId, agentText, messageId, {
+          await sendDefAgentContinue(existingSessionId, agentText, messageId, {
             thinkingEffort,
             skillId: WORKBENCH_AGENT_SKILL_ID,
           });
-          const continuedSessionId = continued.sessionId || continued.sessionID || existingSessionId;
-          if (continuedSessionId !== existingSessionId) {
-            nextEventSource.close();
-            lastSeqRef.current = 0;
-            rememberSession(continuedSessionId);
-            const directEventSource = subscribeDefAgentSession(continuedSessionId, 0);
-            eventSourceRef.current = directEventSource;
-            bindEventSource(directEventSource, messageId);
-          } else {
-            rememberSession(existingSessionId);
-          }
+          rememberSession(existingSessionId);
         } catch (continueError) {
           nextEventSource.close();
           const message = continueError instanceof Error ? continueError.message : String(continueError);
