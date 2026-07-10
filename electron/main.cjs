@@ -8,6 +8,7 @@ const { spawn, spawnSync } = require('child_process');
 const { pathToFileURL } = require('url');
 const { tryServeDesktopApp } = require('./web-host.cjs');
 const { createAiTimelineWorkNodeStore } = require('./ai-timeline-work-node-store.cjs');
+const { createTimelineRepository } = require('./timeline-repository.cjs');
 const {
   app,
   BrowserWindow,
@@ -942,6 +943,39 @@ function startBridgeServer() {
 
       if (method === 'GET' && requestUrl.pathname === '/local-data/ai-timeline-worknodes') {
         writeJson(response, 200, buildAiTimelineWorkNodeListResult());
+        return;
+      }
+
+      if (method === 'GET' && requestUrl.pathname === '/local-data/timeline-documents') {
+        writeJson(response, 200, { ok: true, path: getTimelineRepositoryPath(), documents: getTimelineRepository().listDocuments() });
+        return;
+      }
+
+      if (method === 'POST' && requestUrl.pathname === '/local-data/timeline-documents') {
+        const payload = await readJsonRequest(request);
+        writeJson(response, 200, { ok: true, path: getTimelineRepositoryPath(), document: getTimelineRepository().ensureDocument(payload) });
+        return;
+      }
+
+      if (method === 'GET' && requestUrl.pathname === '/local-data/timeline-snapshots') {
+        const timelineId = requestUrl.searchParams.get('timelineId') || '';
+        if (!timelineId) {
+          writeJson(response, 400, { ok: false, error: { code: 'missing-timeline-id', message: 'Timeline snapshot list requires timelineId.' } });
+          return;
+        }
+        writeJson(response, 200, { ok: true, path: getTimelineRepositoryPath(), snapshots: getTimelineRepository().listSnapshots(timelineId) });
+        return;
+      }
+
+      if (method === 'POST' && requestUrl.pathname === '/local-data/timeline-snapshots') {
+        const payload = await readJsonRequest(request);
+        writeJson(response, 200, { ok: true, path: getTimelineRepositoryPath(), ...getTimelineRepository().createOrReuseSnapshot(payload) });
+        return;
+      }
+
+      if (method === 'POST' && requestUrl.pathname === '/local-data/timeline-checkout-ref') {
+        const payload = await readJsonRequest(request);
+        writeJson(response, 200, { ok: true, path: getTimelineRepositoryPath(), checkoutRef: getTimelineRepository().setCheckoutRef(payload) });
         return;
       }
 
@@ -4210,11 +4244,16 @@ function getAiTimelineWorkNodesPath() {
   return path.join(getLocalDataDirectory(), 'ai-timeline-worknodes.sqlite3');
 }
 
+function getTimelineRepositoryPath() {
+  return path.join(getLocalDataDirectory(), 'timeline-repository.sqlite3');
+}
+
 function getLegacyAiTimelineWorkNodesPath() {
   return path.join(getLocalDataDirectory(), 'ai-timeline-worknodes.json');
 }
 
 let aiTimelineWorkNodeStore = null;
+let timelineRepository = null;
 
 function getAiTimelineWorkNodeStore() {
   if (!aiTimelineWorkNodeStore) {
@@ -4225,6 +4264,14 @@ function getAiTimelineWorkNodeStore() {
     });
   }
   return aiTimelineWorkNodeStore;
+}
+
+function getTimelineRepository() {
+  if (!timelineRepository) {
+    ensureLocalDataDirectory();
+    timelineRepository = createTimelineRepository({ databasePath: getTimelineRepositoryPath() });
+  }
+  return timelineRepository;
 }
 
 function sanitizeArchiveId(value) {
@@ -5313,6 +5360,10 @@ app.on('before-quit', () => {
   if (aiTimelineWorkNodeStore) {
     aiTimelineWorkNodeStore.close();
     aiTimelineWorkNodeStore = null;
+  }
+  if (timelineRepository) {
+    timelineRepository.close();
+    timelineRepository = null;
   }
 });
 
