@@ -17,6 +17,10 @@ export type MainWorkbenchGoal = {
   mutating: boolean;
 };
 
+function hasTimelineMoveAction(text: string) {
+  return /\u79fb\u52a8|\u524d\u79fb|\u540e\u79fb|\u5f80\u524d\u79fb|\u5f80\u540e\u79fb|\u6316\u4e00\u683c|move/i.test(text);
+}
+
 function hasWorkbenchMutationAction(text: string) {
   return /(给|帮|设置|穿上|换|选择|选上|去掉|移除|删除|增加|添加|释放|计算|保存|恢复|回退|清空|重算|改|配|放|撤|扩到|保留|再加|set|equip|wear|switch|select|remove|delete|drop|add|cast|use|calculate|save|restore|rollback|clear|recalculate|change|configure|expand|keep)/i.test(text);
 }
@@ -39,10 +43,10 @@ export function isMainWorkbenchMutatingPrompt(prompt: string | undefined) {
     !/(加|添加|移除|删除|设置|穿上|换|释放|计算|恢复|回退|清空|重算|add|remove|delete|set|equip|wear|switch|cast|calculate|restore|rollback|clear|recalculate)/i.test(text)) {
     return false;
   }
-  if (isMainWorkbenchReadOnlyLikePrompt(text) && !hasExplicitMutationKeyword(text) && !hasBuffMutationAction(text)) {
+  if (isMainWorkbenchReadOnlyLikePrompt(text) && !hasExplicitMutationKeyword(text) && !hasBuffMutationAction(text) && !hasTimelineMoveAction(text)) {
     return false;
   }
-  return hasWorkbenchMutationAction(text) || hasBuffMutationAction(text);
+  return hasWorkbenchMutationAction(text) || hasBuffMutationAction(text) || hasTimelineMoveAction(text);
 }
 
 export function shouldCreateMainWorkbenchRollback(prompt: string | undefined) {

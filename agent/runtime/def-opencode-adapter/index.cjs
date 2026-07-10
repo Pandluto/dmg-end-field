@@ -776,6 +776,17 @@ function extractText(parts = []) {
     .trim();
 }
 
+function extractReplyError(reply) {
+  if (!reply || typeof reply !== 'object') return '';
+  const info = reply.info && typeof reply.info === 'object' ? reply.info : reply;
+  const error = info.error || reply.error;
+  if (!error) return '';
+  if (typeof error === 'string') return error;
+  if (typeof error.message === 'string') return error.message;
+  if (typeof error.data?.message === 'string') return error.data.message;
+  return compactValue(error);
+}
+
 function collectEventTypes(events) {
   return Array.from(new Set(events.map((event) => event.type).filter(Boolean)));
 }
@@ -1481,6 +1492,10 @@ async function sendMessageOnStreamSession(state, message, clientTurnId) {
       runController.signal,
       120000,
     );
+    const replyError = extractReplyError(reply);
+    if (replyError) {
+      throw new Error(replyError);
+    }
     emitReplyRemainder(state, reply);
     emitStreamEvent(state, 'done', {
       turnId,
