@@ -512,7 +512,8 @@ export function MainWorkbenchAiPanel({
   const lastFocusRef = useRef<MainWorkbenchSnapshotEvidenceFocus | null>(null);
   const governanceSeenRef = useRef<Set<string>>(new Set());
   const governanceInitializedRef = useRef(false);
-  const manualCheckpointCreatedRef = useRef(false);
+  // Entering AI mode must not create a work node. User saves create the checkpoint instead.
+  const manualCheckpointCreatedRef = useRef(true);
 
   const rememberSession = (sessionId: string | null, nextTokens?: DefAgentTokens | null, seq?: number) => {
     activeSessionIdRef.current = sessionId;

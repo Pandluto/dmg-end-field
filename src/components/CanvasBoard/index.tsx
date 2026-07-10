@@ -2546,6 +2546,29 @@ export function CanvasBoard({
     setTimelineSnapshots(listTimelineSnapshots());
   };
 
+  const ensureWorkNodeForTimelineSnapshot = async (snapshot: TimelineSnapshotEntry) => {
+    const client = createAiTimelineWorkNodeClient();
+    const existing = await client.list();
+    if (existing.nodes.some((node) => node.saveId === snapshot.id)) return false;
+
+    const validation = validateTimelinePayload(snapshot.payload);
+    if (!validation.ok) {
+      throw new Error(validation.issues.map((issue) => issue.message).join('；'));
+    }
+
+    await client.create({
+      saveId: snapshot.id,
+      branchId: `timeline-snapshot-${snapshot.id}`,
+      label: `[snapshot] ${snapshot.label}`,
+      basePayload: snapshot.payload,
+      workingPayload: snapshot.payload,
+      approvalPolicy: 'auto-low-risk',
+      riskFlags: [],
+    });
+    setWorkNodeRefreshKey((current) => current + 1);
+    return true;
+  };
+
   const handleOpenSaveSnapshotModal = () => {
     setSnapshotDraftName('');
     setIsSaveSnapshotModalOpen(true);
@@ -2556,7 +2579,7 @@ export function CanvasBoard({
     setSnapshotDraftName('');
   };
 
-  const handleSaveTimelineSnapshot = () => {
+  const handleSaveTimelineSnapshot = async () => {
     saveTimelineData();
     setSelectedCharacterIds(selectedCharacters.map((character) => character.id));
 
@@ -2566,9 +2589,17 @@ export function CanvasBoard({
       return;
     }
 
+    let workNodeCreated = false;
+    try {
+      workNodeCreated = await ensureWorkNodeForTimelineSnapshot(snapshot);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      alert(`快照已保存，但对应 Work Node 创建失败：${message}`);
+    }
+
     refreshTimelineSnapshotList();
     handleCloseSaveSnapshotModal();
-    alert(`快照已保存：${snapshot.label}`);
+    alert(`快照已保存：${snapshot.label}${workNodeCreated ? '；已创建对应 Work Node' : ''}`);
   };
 
   const handleOpenSnapshotModal = () => {
