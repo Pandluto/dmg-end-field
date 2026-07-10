@@ -12,8 +12,10 @@ import {
 } from '../src/agentKernel/mainWorkbench/commandSchemaRuntime.mjs';
 import { buildAiTimelineCheckoutDecision } from '../src/agentKernel/timelineWorktree/checkoutDecision.mjs';
 import workNodeStoreModule from '../electron/ai-timeline-work-node-store.cjs';
+import timelineRepositoryModule from '../electron/timeline-repository.cjs';
 
 const { createAiTimelineWorkNodeStore } = workNodeStoreModule;
+const { createTimelineRepository } = timelineRepositoryModule;
 
 const HOST = '127.0.0.1';
 const PORT = Number(process.env.AI_CLI_REST_PORT || 17321);
@@ -27,6 +29,8 @@ const aiTimelineWorkNodesPath = process.env.AI_TIMELINE_WORK_NODE_DB_PATH
   || path.join(projectRoot, 'data', 'localdata', 'ai-timeline-worknodes.sqlite3');
 const legacyAiTimelineWorkNodesPath = process.env.AI_TIMELINE_WORK_NODE_LEGACY_PATH
   || path.join(projectRoot, 'data', 'localdata', 'ai-timeline-worknodes.json');
+const timelineRepositoryPath = process.env.TIMELINE_REPOSITORY_DB_PATH
+  || path.join(projectRoot, 'data', 'localdata', 'timeline-repository.sqlite3');
 const defToolGovernancePath = path.join(projectRoot, 'data', 'localdata', 'def-tool-governance.json');
 const storageMode = process.env.AI_CLI_REST_STORAGE_MODE || 'now-storage';
 const serverStartedAt = new Date().toISOString();
@@ -471,6 +475,7 @@ function buildDefWorkNodeButtonTargets(payload) {
 }
 
 let aiTimelineWorkNodeStore;
+let timelineRepository;
 
 function getAiTimelineWorkNodeStore() {
   if (!aiTimelineWorkNodeStore) {
@@ -480,6 +485,11 @@ function getAiTimelineWorkNodeStore() {
     });
   }
   return aiTimelineWorkNodeStore;
+}
+
+function getTimelineRepository() {
+  if (!timelineRepository) timelineRepository = createTimelineRepository({ databasePath: timelineRepositoryPath });
+  return timelineRepository;
 }
 
 function readAiTimelineWorkNodeArchive() {
@@ -1133,6 +1143,33 @@ function handleAiTimelineWorkNodeRequest(method, pathname, body) {
     return { status: 200, body: { ok: true, protocolVersion: 1, path: aiTimelineWorkNodesPath, node: restoreNode, rollback } };
   }
 
+  return null;
+}
+
+function handleTimelineRepositoryRequest(method, pathname, query, body) {
+  const repository = getTimelineRepository();
+  if (method === 'GET' && pathname === '/api/timeline-documents') {
+    return { status: 200, body: { ok: true, protocolVersion: 1, documents: repository.listDocuments() } };
+  }
+  if (method === 'POST' && pathname === '/api/timeline-documents') {
+    return { status: 200, body: { ok: true, protocolVersion: 1, document: repository.ensureDocument(body) } };
+  }
+  if (method === 'GET' && pathname === '/api/timeline-snapshots') {
+    const timelineId = query.get('timelineId') || '';
+    if (!timelineId) return failScript(400, 'missing-timeline-id', 'Timeline snapshot list requires timelineId.');
+    return { status: 200, body: { ok: true, protocolVersion: 1, snapshots: repository.listSnapshots(timelineId) } };
+  }
+  if (method === 'POST' && pathname === '/api/timeline-snapshots') {
+    return { status: 200, body: { ok: true, protocolVersion: 1, ...repository.createOrReuseSnapshot(body) } };
+  }
+  if (method === 'GET' && pathname === '/api/timeline-checkout-ref') {
+    const timelineId = query.get('timelineId') || '';
+    if (!timelineId) return failScript(400, 'missing-timeline-id', 'Timeline checkout ref requires timelineId.');
+    return { status: 200, body: { ok: true, protocolVersion: 1, checkoutRef: repository.getCheckoutRef(timelineId) } };
+  }
+  if (method === 'POST' && pathname === '/api/timeline-checkout-ref') {
+    return { status: 200, body: { ok: true, protocolVersion: 1, checkoutRef: repository.setCheckoutRef(body) } };
+  }
   return null;
 }
 
@@ -4354,6 +4391,12 @@ const server = http.createServer(async (request, response) => {
     const aiTimelineWorkNodeResponse = handleAiTimelineWorkNodeRequest(method, requestUrl.pathname, body);
     if (aiTimelineWorkNodeResponse) {
       writeJson(response, aiTimelineWorkNodeResponse.status, aiTimelineWorkNodeResponse.body);
+      return;
+    }
+
+    const timelineRepositoryResponse = handleTimelineRepositoryRequest(method, requestUrl.pathname, requestUrl.searchParams, body);
+    if (timelineRepositoryResponse) {
+      writeJson(response, timelineRepositoryResponse.status, timelineRepositoryResponse.body);
       return;
     }
 

@@ -7,6 +7,7 @@ import { once } from 'node:events';
 
 const tempDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'def-work-node-rest-'));
 const databasePath = path.join(tempDirectory, 'work-nodes.sqlite3');
+const timelineRepositoryPath = path.join(tempDirectory, 'timeline-repository.sqlite3');
 const legacyJsonPath = path.join(tempDirectory, 'legacy.json');
 const port = 18000 + (process.pid % 1000);
 const baseUrl = `http://127.0.0.1:${port}`;
@@ -32,6 +33,7 @@ const server = spawn(process.execPath, ['scripts/ai-cli-rest-server.mjs'], {
     AI_CLI_REST_STORAGE_MODE: 'runtime',
     AI_TIMELINE_WORK_NODE_DB_PATH: databasePath,
     AI_TIMELINE_WORK_NODE_LEGACY_PATH: legacyJsonPath,
+    TIMELINE_REPOSITORY_DB_PATH: timelineRepositoryPath,
   },
   stdio: ['ignore', 'ignore', 'pipe'],
   windowsHide: true,
@@ -81,6 +83,19 @@ async function createNode(id, parentNodeId) {
 
 try {
   await waitForHealth();
+  const document = await request('POST', '/api/timeline-documents', { id: 'timeline-rest', label: 'REST 排轴' });
+  assert.equal(document.status, 200, JSON.stringify(document.body));
+  const snapshot = await request('POST', '/api/timeline-snapshots', {
+    id: 'snapshot-rest', timelineId: 'timeline-rest', label: 'REST 快照', payload,
+  });
+  assert.equal(snapshot.status, 200, JSON.stringify(snapshot.body));
+  const checkoutRef = await request('POST', '/api/timeline-checkout-ref', {
+    timelineId: 'timeline-rest', targetType: 'snapshot', targetId: 'snapshot-rest',
+  });
+  assert.equal(checkoutRef.status, 200, JSON.stringify(checkoutRef.body));
+  const snapshots = await request('GET', '/api/timeline-snapshots?timelineId=timeline-rest');
+  assert.equal(snapshots.body.snapshots.length, 1);
+
   await createNode('root', null);
   await createNode('child', 'root');
   await createNode('branch', 'root');
