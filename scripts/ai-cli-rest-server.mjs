@@ -558,8 +558,11 @@ function validateWorkNodePayloadIssues(payload, fieldName) {
     return [{ code: `invalid-${fieldName}`, message: structuralError, path: fieldName }];
   }
   const issues = [];
-  const timelineButtonIds = new Set((Array.isArray(payload.timelineData?.staffLines) ? payload.timelineData.staffLines : [])
-    .flatMap((staffLine) => (Array.isArray(staffLine?.buttons) ? staffLine.buttons.map((button) => button?.id).filter(Boolean) : [])));
+  const timelineButtonEntries = (Array.isArray(payload.timelineData?.staffLines) ? payload.timelineData.staffLines : [])
+    .flatMap((staffLine) => (Array.isArray(staffLine?.buttons)
+      ? staffLine.buttons.map((button) => ({ button, staffIndex: staffLine?.staffIndex }))
+      : []));
+  const timelineButtonIds = new Set(timelineButtonEntries.map(({ button }) => button?.id).filter(Boolean));
   const tableButtonIds = new Set(Object.keys(isObject(payload.skillButtonTable) ? payload.skillButtonTable : {}));
   for (const buttonId of timelineButtonIds) {
     if (!tableButtonIds.has(buttonId)) {
@@ -859,6 +862,27 @@ function handleAiTimelineWorkNodeRequest(method, pathname, body) {
         revision: archive.revision,
       },
     };
+  }
+  const seenTimelineButtonIds = new Set();
+  for (const { button, staffIndex } of timelineButtonEntries) {
+    if (!button?.id) continue;
+    if (seenTimelineButtonIds.has(button.id)) {
+      issues.push({
+        code: 'duplicate-timeline-button-entry',
+        message: `Timeline button ${button.id} appears in more than one staff line.`,
+        path: `${fieldName}.timelineData.staffLines`,
+      });
+      continue;
+    }
+    seenTimelineButtonIds.add(button.id);
+    const tableButton = payload.skillButtonTable[button.id];
+    if (tableButton && tableButton.staffIndex !== staffIndex) {
+      issues.push({
+        code: 'timeline-button-staff-mismatch',
+        message: `Timeline button ${button.id} is on staff ${staffIndex}, but its table entry targets staff ${tableButton.staffIndex}.`,
+        path: `${fieldName}.timelineData.staffLines`,
+      });
+    }
   }
 
   if (method === 'POST' && pathname === '/api/ai-timeline-worknodes/create') {
@@ -2239,6 +2263,72 @@ function applyDefWorkNodePatchOperation(payload, operation, index, operationsApp
     return;
   }
 
+  if (operation.op === 'copyStaffLine') {
+    if (!Number.isInteger(operation.sourceStaffIndex) || !Number.isInteger(operation.targetStaffIndex)) {
+      throw new Error(`${path}: copyStaffLine requires integer sourceStaffIndex and targetStaffIndex.`);
+    }
+    if (operation.sourceStaffIndex === operation.targetStaffIndex) {
+      throw new Error(`${path}: copyStaffLine source and target must be different staff lines.`);
+    }
+    const lines = Array.isArray(payload?.timelineData?.staffLines) ? payload.timelineData.staffLines : [];
+    const sourceLine = lines.find((line) => line?.staffIndex === operation.sourceStaffIndex);
+    const targetLine = lines.find((line) => line?.staffIndex === operation.targetStaffIndex);
+    if (!sourceLine || !targetLine) {
+      throw new Error(`${path}: copyStaffLine source or target staff line does not exist.`);
+    }
+    if (Array.isArray(targetLine.buttons) && targetLine.buttons.length && operation.replaceTarget !== true) {
+      throw new Error(`${path}: target staff line is not empty; set replaceTarget:true only when the user explicitly asked to replace it.`);
+    }
+    if (operation.replaceTarget === true) {
+      for (const button of Array.isArray(targetLine.buttons) ? targetLine.buttons : []) {
+        delete payload.skillButtonTable[button.id];
+      }
+      targetLine.buttons = [];
+      targetLine.occupiedNodes = [];
+      riskFlags.push(makeDefWorkNodeRiskFlag('warning', 'staff-line-replaced', `Patch replaces staff line ${operation.targetStaffIndex + 1}.`, path));
+    }
+    const sourceButtons = [...(Array.isArray(sourceLine.buttons) ? sourceLine.buttons : [])]
+      .map((button) => payload.skillButtonTable?.[button?.id])
+      .filter(Boolean)
+      .sort((left, right) => left.nodeIndex - right.nodeIndex);
+    const copiedButtonIds = [];
+    for (const sourceButton of sourceButtons) {
+      const id = makeId('ai-copy-button');
+      const copiedButton = cloneJson(sourceButton);
+      copiedButton.id = id;
+      copiedButton.staffIndex = operation.targetStaffIndex;
+      copiedButton.nodeNumber = Number(copiedButton.nodeIndex || 0) + 1;
+      copiedButton.position = {
+        ...copiedButton.position,
+        x: 80 + Number(copiedButton.nodeIndex || 0) * 22,
+        y: 60 + operation.targetStaffIndex * 300,
+      };
+      copiedButton.createdAt = Date.now();
+      copiedButton.updatedAt = Date.now();
+      if (operation.preserveCharacterIdentity === false) {
+        copiedButton.characterId = payload.selectedCharacters?.[operation.targetStaffIndex] || targetLine.characterId || copiedButton.characterId;
+        copiedButton.characterName = targetLine.characterName || copiedButton.characterName;
+      }
+      payload.skillButtonTable[id] = copiedButton;
+      for (const buffId of getDefWorkNodeSelectedBuffIds(copiedButton)) {
+        const buff = (Array.isArray(payload.allBuffList) ? payload.allBuffList : []).find((item) => item?.id === buffId);
+        if (buff) buff.refCount = Math.max(1, Number(buff.refCount || 0) + 1);
+      }
+      insertDefWorkNodeTimelineButton(payload, id);
+      copiedButtonIds.push(id);
+    }
+    operationsApplied.push({
+      op: 'copyStaffLine',
+      index,
+      sourceStaffIndex: operation.sourceStaffIndex,
+      targetStaffIndex: operation.targetStaffIndex,
+      copiedButtonCount: copiedButtonIds.length,
+      copiedButtonIds,
+      preserveCharacterIdentity: operation.preserveCharacterIdentity !== false,
+    });
+    return;
+  }
+
   if (operation.op === 'removeButton') {
     const targetResult = findDefWorkNodePatchTargetButton(payload, isObject(operation.target) ? operation.target : {});
     if (!targetResult.ok) throw new Error(`${path}: ${targetResult.message}`);
@@ -2687,7 +2777,7 @@ function buildDefToolDefinitions() {
       properties: {
         op: {
           type: 'string',
-          enum: ['addButton', 'removeButton', 'moveButton', 'attachBuff', 'removeBuff', 'setTargetResistance', 'clearTimeline'],
+          enum: ['addButton', 'copyStaffLine', 'removeButton', 'moveButton', 'attachBuff', 'removeBuff', 'setTargetResistance', 'clearTimeline'],
         },
         characterName: { type: 'string', description: 'Required for addButton.' },
         skillType: { type: 'string' },
@@ -2704,6 +2794,10 @@ function buildDefToolDefinitions() {
           },
         },
         staffIndex: { type: 'number' },
+        sourceStaffIndex: { type: 'number', description: 'Required for copyStaffLine.' },
+        targetStaffIndex: { type: 'number', description: 'Required for copyStaffLine.' },
+        preserveCharacterIdentity: { type: 'boolean', description: 'copyStaffLine defaults to true for an exact visual/content duplicate.' },
+        replaceTarget: { type: 'boolean', description: 'copyStaffLine rejects non-empty targets unless this is explicitly true.' },
         nodeIndex: { type: 'number', description: 'Required for moveButton; optional for addButton.' },
         buffId: { type: 'string', description: 'Required for attachBuff/removeBuff.' },
         targetResistance: { type: 'object', description: 'Required for setTargetResistance.' },

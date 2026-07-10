@@ -1,10 +1,12 @@
 import type { TimelineSnapshotPayload } from '../../utils/timelineSnapshotStorage';
 import type { AiTimelineValidationIssue, AiTimelineValidationResult } from './types';
 
-function collectTimelineButtonIds(payload: TimelineSnapshotPayload) {
-  return new Set(payload.timelineData.staffLines.flatMap((staffLine) => (
-    Array.isArray(staffLine.buttons) ? staffLine.buttons.map((button) => button.id) : []
-  )));
+function collectTimelineButtonEntries(payload: TimelineSnapshotPayload) {
+  return payload.timelineData.staffLines.flatMap((staffLine) => (
+    Array.isArray(staffLine.buttons)
+      ? staffLine.buttons.map((button) => ({ button, staffIndex: staffLine.staffIndex }))
+      : []
+  ));
 }
 
 function issue(code: string, message: string, path?: string): AiTimelineValidationIssue {
@@ -27,7 +29,8 @@ export function validateTimelinePayload(payload: TimelineSnapshotPayload): AiTim
   }
   if (issues.length) return { ok: false, issues };
 
-  const timelineButtonIds = collectTimelineButtonIds(payload);
+  const timelineButtonEntries = collectTimelineButtonEntries(payload);
+  const timelineButtonIds = new Set(timelineButtonEntries.map(({ button }) => button.id));
   const tableButtonIds = new Set(Object.keys(payload.skillButtonTable));
   for (const buttonId of timelineButtonIds) {
     if (!tableButtonIds.has(buttonId)) {
@@ -37,6 +40,18 @@ export function validateTimelinePayload(payload: TimelineSnapshotPayload): AiTim
   for (const buttonId of tableButtonIds) {
     if (!timelineButtonIds.has(buttonId)) {
       issues.push(issue('table-button-missing-timeline-entry', `skillButtonTable button ${buttonId} is missing from timelineData.`, `timelineData.${buttonId}`));
+    }
+  }
+  const seenTimelineButtonIds = new Set<string>();
+  for (const { button, staffIndex } of timelineButtonEntries) {
+    if (seenTimelineButtonIds.has(button.id)) {
+      issues.push(issue('duplicate-timeline-button-entry', `Timeline button ${button.id} appears in more than one staff line.`, 'timelineData.staffLines'));
+      continue;
+    }
+    seenTimelineButtonIds.add(button.id);
+    const tableButton = payload.skillButtonTable[button.id];
+    if (tableButton && tableButton.staffIndex !== staffIndex) {
+      issues.push(issue('timeline-button-staff-mismatch', `Timeline button ${button.id} is on staff ${staffIndex}, but its table entry targets staff ${tableButton.staffIndex}.`, 'timelineData.staffLines'));
     }
   }
 

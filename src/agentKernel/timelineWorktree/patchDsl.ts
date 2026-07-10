@@ -24,6 +24,13 @@ export type TimelineWorkNodePatchOperation =
       nodeIndex?: number;
     }
   | {
+      op: 'copyStaffLine';
+      sourceStaffIndex: number;
+      targetStaffIndex: number;
+      preserveCharacterIdentity?: boolean;
+      replaceTarget?: boolean;
+    }
+  | {
       op: 'removeButton';
       target: TimelinePatchTarget;
     }
@@ -228,6 +235,53 @@ function applyPatchOperation(payload: TimelineSnapshotPayload, operation: Timeli
     };
     insertTimelineButton(payload, id);
     summary.push(`Added button ${operation.characterName}-${operation.skillType || 'A'}@${staffIndex + 1}-${nodeIndex + 1}.`);
+    return;
+  }
+
+  if (operation.op === 'copyStaffLine') {
+    if (!Number.isInteger(operation.sourceStaffIndex) || !Number.isInteger(operation.targetStaffIndex)) {
+      throw new Error(`${path}: copyStaffLine requires integer sourceStaffIndex and targetStaffIndex`);
+    }
+    if (operation.sourceStaffIndex === operation.targetStaffIndex) {
+      throw new Error(`${path}: copyStaffLine source and target must differ`);
+    }
+    const sourceLine = payload.timelineData.staffLines.find((line) => line.staffIndex === operation.sourceStaffIndex);
+    const targetLine = payload.timelineData.staffLines.find((line) => line.staffIndex === operation.targetStaffIndex);
+    if (!sourceLine || !targetLine) throw new Error(`${path}: copyStaffLine source or target staff line not found`);
+    if (targetLine.buttons.length && operation.replaceTarget !== true) {
+      throw new Error(`${path}: target staff line is not empty; replaceTarget:true requires explicit user approval`);
+    }
+    if (operation.replaceTarget === true) {
+      targetLine.buttons.forEach((button) => delete payload.skillButtonTable[button.id]);
+      targetLine.buttons = [];
+      targetLine.occupiedNodes = [];
+      riskFlags.push(makeRiskFlag('warning', 'staff-line-replaced', `Patch replaces staff line ${operation.targetStaffIndex + 1}.`, path));
+    }
+    const sourceButtons = sourceLine.buttons
+      .map((button) => payload.skillButtonTable[button.id])
+      .filter(Boolean)
+      .sort((left, right) => left.nodeIndex - right.nodeIndex);
+    sourceButtons.forEach((sourceButton, copyIndex) => {
+      const id = `ai-copy-button-${Date.now()}-${index}-${copyIndex}-${Math.random().toString(36).slice(2, 7)}`;
+      const copiedButton = JSON.parse(JSON.stringify(sourceButton)) as SkillButtonTable[string];
+      copiedButton.id = id;
+      copiedButton.staffIndex = operation.targetStaffIndex;
+      copiedButton.nodeNumber = copiedButton.nodeIndex + 1;
+      copiedButton.position = { ...copiedButton.position, x: 80 + copiedButton.nodeIndex * 22, y: 60 + operation.targetStaffIndex * 300 };
+      copiedButton.createdAt = Date.now();
+      copiedButton.updatedAt = Date.now();
+      if (operation.preserveCharacterIdentity === false) {
+        copiedButton.characterId = payload.selectedCharacters[operation.targetStaffIndex] || copiedButton.characterId;
+        copiedButton.characterName = targetLine.characterName || copiedButton.characterName;
+      }
+      payload.skillButtonTable[id] = copiedButton;
+      getSelectedBuffIds(copiedButton).forEach((buffId) => {
+        const buff = payload.allBuffList.find((item) => item.id === buffId);
+        if (buff) buff.refCount = Math.max(1, Number(buff.refCount || 0) + 1);
+      });
+      insertTimelineButton(payload, id);
+    });
+    summary.push(`Copied ${sourceButtons.length} buttons from staff ${operation.sourceStaffIndex + 1} to staff ${operation.targetStaffIndex + 1}.`);
     return;
   }
 
