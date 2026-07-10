@@ -1048,7 +1048,7 @@ function parseChineseGroupIndex(value) {
 
 function resolveWorkbenchDirectIntent(message) {
   const userRequest = extractWorkbenchUserRequest(message);
-  const match = /第([一二三四五六七八九十\d]+)组(?:的)?所有按钮[\s\S]{0,32}?第([一二三四五六七八九十\d]+)组[\s\S]{0,32}?(?:原封不动|复制|做一遍)/.exec(userRequest);
+  const match = /(?:复制|把|将)?\s*第([一二三四五六七八九十\d]+)组(?:的)?(?:所有)?(?:按钮|内容)?[\s\S]{0,32}?(?:到|在|至)\s*第([一二三四五六七八九十\d]+)组/.exec(userRequest);
   if (!match) return null;
   const sourceStaffIndex = parseChineseGroupIndex(match[1]);
   const targetStaffIndex = parseChineseGroupIndex(match[2]);
