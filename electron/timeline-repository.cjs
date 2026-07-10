@@ -17,6 +17,15 @@ function parse(value, fallback) {
   }
 }
 
+function summarizePayload(payload) {
+  const staffLines = Array.isArray(payload?.timelineData?.staffLines) ? payload.timelineData.staffLines : [];
+  return {
+    characterCount: Array.isArray(payload?.selectedCharacters) ? payload.selectedCharacters.length : 0,
+    buttonCount: staffLines.reduce((total, line) => total + (Array.isArray(line?.buttons) ? line.buttons.length : 0), 0),
+    buffCount: Array.isArray(payload?.allBuffList) ? payload.allBuffList.length : 0,
+  };
+}
+
 function createTimelineRepository({ databasePath }) {
   if (!databasePath) throw new Error('Timeline repository requires databasePath.');
   fs.mkdirSync(path.dirname(databasePath), { recursive: true });
@@ -334,7 +343,10 @@ function createTimelineRepository({ databasePath }) {
     })),
     listWorkNodes: (timelineId) => db.prepare(`
       SELECT * FROM timeline_work_nodes WHERE timeline_id = ? ORDER BY created_at ASC
-    `).all(timelineId).map((row) => ({
+    `).all(timelineId).map((row) => {
+      const basePayload = parse(db.prepare('SELECT payload FROM timeline_payload_blobs WHERE content_hash = ?').get(row.base_payload_hash)?.payload, {});
+      const workingPayload = parse(db.prepare('SELECT payload FROM timeline_payload_blobs WHERE content_hash = ?').get(row.working_payload_hash)?.payload, {});
+      return ({
       id: row.id,
       parentNodeId: row.parent_id || undefined,
       timelineId: row.timeline_id,
@@ -344,9 +356,11 @@ function createTimelineRepository({ databasePath }) {
       approvalPolicy: row.approval_policy,
       riskFlags: parse(row.risk_flags, []),
       logs: parse(row.logs, []),
+      baseSummary: summarizePayload(basePayload),
+      workingSummary: summarizePayload(workingPayload),
       createdAt: row.created_at,
       updatedAt: row.updated_at,
-    })),
+    }); }),
     close: () => db.close(),
   };
 }

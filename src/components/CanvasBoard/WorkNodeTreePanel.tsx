@@ -110,8 +110,8 @@ export function WorkNodeTreePanel({ refreshKey, onSelectedNodeChange, onSummaryC
           saveId: node.timelineId,
           status: node.status as AiTimelineWorkNodeListItem['status'],
           approvalPolicy: node.approvalPolicy as AiTimelineWorkNodeListItem['approvalPolicy'],
-          baseSummary: { characterCount: 0, buttonCount: 0, buffCount: 0 },
-          workingSummary: { characterCount: 0, buttonCount: 0, buffCount: 0 },
+          baseSummary: node.baseSummary,
+          workingSummary: node.workingSummary,
         })) });
         setError('');
       } catch (loadError) {
@@ -139,8 +139,8 @@ export function WorkNodeTreePanel({ refreshKey, onSelectedNodeChange, onSummaryC
       ...node, riskFlags: node.riskFlags.map((risk, index) => ({ ...risk, id: `${risk.code || 'risk'}-${index}` })), saveId: node.timelineId,
       status: node.status as AiTimelineWorkNodeListItem['status'],
       approvalPolicy: node.approvalPolicy as AiTimelineWorkNodeListItem['approvalPolicy'],
-      baseSummary: { characterCount: 0, buttonCount: 0, buffCount: 0 },
-      workingSummary: { characterCount: 0, buttonCount: 0, buffCount: 0 },
+      baseSummary: node.baseSummary,
+      workingSummary: node.workingSummary,
     })) };
     applyListResponse(next);
     return next;

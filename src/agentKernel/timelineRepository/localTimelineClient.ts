@@ -8,6 +8,8 @@ type RepositoryResponse<T> = { ok: true; path?: string } & T;
 export type TimelineRepositoryWorkNode = {
   id: string; parentNodeId?: string; timelineId: string; branchId: string; label: string; status: string;
   approvalPolicy: string; riskFlags: Array<{ severity: 'info' | 'warning' | 'blocker'; code: string; message: string }>; logs: Array<{ id: string; at: number; level: 'info' | 'warning' | 'error'; message: string }>;
+  baseSummary: { characterCount: number; buttonCount: number; buffCount: number };
+  workingSummary: { characterCount: number; buttonCount: number; buffCount: number };
   createdAt: number; updatedAt: number;
 };
 
