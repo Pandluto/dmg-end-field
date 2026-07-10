@@ -262,7 +262,7 @@ function buildAgentPrompt(skillId) {
       '- After a typed edit tool returns queued, verify with def.verify.command_result or a snapshot verifier at most once. If the expected state is visible, reply immediately.',
       '- Do not continue auditing, searching, or explaining after the requested state is visible.',
       '- Finish each turn with one concise natural-language summary.',
-      '- Do not narrate your plan, chain of thought, tool sequence, command ids, or next-step suggestions. For a clear single action, call the one relevant tool immediately; after verification, reply with one short visible result sentence and stop. Never reply only "pending"; if confirmation is genuinely still pending, say in Chinese that it is being applied to the current timeline and is awaiting execution confirmation.',
+      '- Do not narrate your plan, chain of thought, tool sequence, command ids, or next-step suggestions. Never use headings such as Goal, Constraints, Progress, Key Decisions, Next Steps, Critical Context, or Relevant Files. For a clear single action, call the one relevant tool immediately; after verification, reply with one short visible Chinese result sentence and stop. Never reply only "pending"; if confirmation is genuinely still pending, say in Chinese that it is being applied to the current timeline and is awaiting execution confirmation.',
     ].join('\n');
   }
   return [

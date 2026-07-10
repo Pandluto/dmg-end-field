@@ -496,6 +496,21 @@ function NewChatIcon() {
   );
 }
 
+function compactWorkbenchAgentReply(text: string, prompt: string) {
+  const normalized = text.trim();
+  if (!normalized) return '';
+  if (/\b(?:Goal|Constraints|Progress|Key Decisions|Next Steps|Critical Context|Relevant Files)\b/i.test(normalized)) {
+    if (/\bpending\b|等待(?:浏览器|执行|确认)|queued/i.test(normalized)) {
+      return '正在应用到当前时间轴，等待执行确认。';
+    }
+    const move = /(?:把|将)?(.+?)@(\d+-\d+)\s*(?:→|->|移到)\s*(?:.+?@)?(\d+-\d+)/.exec(prompt);
+    if (move && /已完成|已生效|checkoutApplied\s*[:=]\s*true|验证通过/i.test(normalized)) {
+      return `已将${move[1].trim()}从 ${move[2]} 移到 ${move[3]}。`;
+    }
+  }
+  return normalized;
+}
+
 function mergeTranscriptWithStoredHistory(sessionId: string, transcript: WorkbenchAiMessage[]) {
   const history = readStoredDefAgentHistory(sessionId);
   const seen = new Set<string>();
@@ -809,12 +824,14 @@ export function MainWorkbenchAiPanel({
         messageId,
         `${streamedTextByMessageIdRef.current.get(messageId) || ''}${payload.text || ''}`,
       );
+      setThinkingDetails((current) => [
+        ...current.filter((detail) => !detail.startsWith('工作草稿：')),
+        `工作草稿：${streamedTextByMessageIdRef.current.get(messageId) || ''}`,
+      ].slice(-6));
       setStatus('响应中');
       patchStep('agent', { status: 'running', detail: '正在生成回复' });
       setMessages((current) => current.map((message) => (
-        message.id === messageId
-          ? { ...message, text: `${message.text}${payload.text || ''}`, status: 'running' }
-          : message
+        message.id === messageId ? { ...message, status: 'running' } : message
       )));
       return;
     }
@@ -864,6 +881,9 @@ export function MainWorkbenchAiPanel({
         finishMessage(messageId, 'error', error, payload.tokens);
         return;
       }
+      const userFacingText = compactWorkbenchAgentReply(finalText || streamedText, activePromptRef.current);
+      payload.content = userFacingText;
+      payload.text = userFacingText;
       setStatus('已完成');
       patchStep('agent', { status: 'done', detail: '回复完成' });
       patchStep('verify', { status: 'done', detail: '结果已返回' });
