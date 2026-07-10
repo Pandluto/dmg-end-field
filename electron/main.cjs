@@ -957,6 +957,19 @@ function startBridgeServer() {
         return;
       }
 
+      if (method === 'POST' && requestUrl.pathname === '/local-data/timeline-bundles/import') {
+        const payload = await readJsonRequest(request);
+        try {
+          writeJson(response, 200, { ok: true, path: getTimelineRepositoryPath(), ...getTimelineRepository().importDocumentBundle(payload) });
+        } catch (error) {
+          writeJson(response, error?.status || (error?.code?.includes('timeline-bundle') ? 400 : 500), {
+            ok: false,
+            error: { code: error?.code || 'timeline-bundle-import-failed', message: error instanceof Error ? error.message : String(error) },
+          });
+        }
+        return;
+      }
+
       if (method === 'GET' && requestUrl.pathname === '/local-data/timeline-snapshots') {
         const timelineId = requestUrl.searchParams.get('timelineId') || '';
         if (!timelineId) {

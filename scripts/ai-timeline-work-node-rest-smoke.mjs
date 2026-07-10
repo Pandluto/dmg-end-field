@@ -96,6 +96,20 @@ try {
   const snapshots = await request('GET', '/api/timeline-snapshots?timelineId=timeline-rest');
   assert.equal(snapshots.body.snapshots.length, 1);
 
+  const imported = await request('POST', '/api/timeline-bundles/import', {
+    document: { id: 'timeline-imported', label: 'Imported timeline' },
+    snapshots: [{ id: 'snapshot-imported', label: 'Imported snapshot', payload }],
+  });
+  assert.equal(imported.status, 200, JSON.stringify(imported.body));
+  assert.equal(imported.body.snapshots.length, 1);
+  const brokenImport = await request('POST', '/api/timeline-bundles/import', {
+    document: { id: 'timeline-broken', label: 'Broken timeline' },
+    snapshots: [{ id: 'snapshot-broken', label: 'Broken snapshot' }],
+  });
+  assert.equal(brokenImport.status, 400, JSON.stringify(brokenImport.body));
+  const documents = await request('GET', '/api/timeline-documents');
+  assert.equal(documents.body.documents.some((document) => document.id === 'timeline-broken'), false);
+
   await createNode('root', null);
   await createNode('child', 'root');
   await createNode('branch', 'root');

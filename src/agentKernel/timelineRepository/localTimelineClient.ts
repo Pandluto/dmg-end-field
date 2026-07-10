@@ -43,6 +43,15 @@ export function createTimelineRepositoryClient() {
       const response = await requestWithFallback<RepositoryResponse<{ document: TimelineDocument }>>('/local-data/timeline-documents', 'POST', input);
       return response.document;
     },
+    async importDocumentBundle(input: {
+      document: Pick<TimelineDocument, 'id' | 'label'> & Partial<Pick<TimelineDocument, 'createdAt'>>;
+      snapshots: Array<{ id: string; label: string; createdAt?: number; payload: TimelineSnapshotPayload }>;
+    }) {
+      const response = await requestWithFallback<RepositoryResponse<{ document: TimelineDocument; snapshots: TimelineSnapshot[] }>>(
+        '/local-data/timeline-bundles/import', 'POST', input,
+      );
+      return { document: response.document, snapshots: response.snapshots };
+    },
     async listSnapshots(timelineId: string) {
       const response = await requestWithFallback<RepositoryResponse<{ snapshots: TimelineSnapshot[] }>>(
         `/local-data/timeline-snapshots?timelineId=${encodeURIComponent(timelineId)}`,

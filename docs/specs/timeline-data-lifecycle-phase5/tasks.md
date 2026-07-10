@@ -76,7 +76,7 @@
 
 - [x] 定义 `dmg.timeline-bundle.v2` manifest、schema 和哈希校验。
 - [ ] 实现当前排轴、AI 分支、完整文档三种导出范围。
-- [ ] 导入默认创建新 TimelineDocument，并在单一事务中写入。
+- [x] 导入默认创建新 TimelineDocument，并在单一事务中写入。
 - [ ] 提供导入预览、冲突说明和版本不兼容提示。
 - [ ] 明确排除本机 AppData 路径、无关全局设置和临时 UI 状态。
 

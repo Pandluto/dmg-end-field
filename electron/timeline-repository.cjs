@@ -220,6 +220,69 @@ function createTimelineRepository({ databasePath }) {
     });
   }
 
+  function importDocumentBundle(input) {
+    if (!input?.document?.id || !input?.document?.label || !Array.isArray(input.snapshots) || !input.snapshots.length) {
+      const error = new Error('Timeline bundle import requires a document and at least one snapshot.');
+      error.code = 'invalid-timeline-bundle';
+      throw error;
+    }
+    const documentId = input.document.id;
+    const snapshotIds = new Set();
+    for (const snapshot of input.snapshots) {
+      if (!snapshot?.id || !snapshot?.label || !Object.prototype.hasOwnProperty.call(snapshot, 'payload')) {
+        const error = new Error('Timeline bundle contains an invalid snapshot.');
+        error.code = 'invalid-timeline-bundle-snapshot';
+        throw error;
+      }
+      if (snapshotIds.has(snapshot.id)) {
+        const error = new Error(`Timeline bundle has duplicate snapshot id: ${snapshot.id}`);
+        error.code = 'duplicate-timeline-bundle-snapshot';
+        throw error;
+      }
+      snapshotIds.add(snapshot.id);
+    }
+    return transaction(() => {
+      const existing = db.prepare('SELECT id FROM timeline_documents WHERE id = ?').get(documentId);
+      if (existing) {
+        const error = new Error(`Timeline document already exists: ${documentId}`);
+        error.code = 'timeline-document-already-exists';
+        error.status = 409;
+        throw error;
+      }
+      const now = input.document.createdAt || Date.now();
+      db.prepare(`
+        INSERT INTO timeline_documents (id, label, created_at, updated_at, archived_at)
+        VALUES (?, ?, ?, ?, NULL)
+      `).run(documentId, input.document.label, now, now);
+      const snapshots = input.snapshots.map((snapshot) => {
+        const createdAt = snapshot.createdAt || now;
+        const payloadHash = ensurePayload(snapshot.payload, createdAt);
+        db.prepare(`
+          INSERT INTO timeline_snapshots (id, timeline_id, payload_hash, label, created_at, archived_at)
+          VALUES (?, ?, ?, ?, ?, NULL)
+        `).run(snapshot.id, documentId, payloadHash, snapshot.label, createdAt);
+        writeAuditEvent({
+          timelineId: documentId,
+          eventType: 'bundle.imported-snapshot',
+          subjectType: 'snapshot',
+          subjectId: snapshot.id,
+          details: { payloadHash },
+          createdAt,
+        });
+        return readSnapshot(db.prepare('SELECT * FROM timeline_snapshots WHERE id = ?').get(snapshot.id));
+      });
+      writeAuditEvent({
+        timelineId: documentId,
+        eventType: 'bundle.imported',
+        subjectType: 'document',
+        subjectId: documentId,
+        details: { snapshotCount: snapshots.length },
+        createdAt: now,
+      });
+      return { document: readDocument(db.prepare('SELECT * FROM timeline_documents WHERE id = ?').get(documentId)), snapshots };
+    });
+  }
+
   function setCheckoutRef(input) {
     if (!input?.timelineId || !input?.targetId || !['snapshot', 'work-node'].includes(input.targetType)) {
       throw new Error('Checkout ref requires timelineId, targetType, and targetId.');
@@ -369,6 +432,7 @@ function createTimelineRepository({ databasePath }) {
     databasePath,
     ensureDocument,
     createOrReuseSnapshot,
+    importDocumentBundle,
     setCheckoutRef,
     appendAuditEvent,
     archiveSnapshot,

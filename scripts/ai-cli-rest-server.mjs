@@ -1197,6 +1197,15 @@ function handleTimelineRepositoryRequest(method, pathname, query, body) {
   if (method === 'POST' && pathname === '/api/timeline-documents') {
     return { status: 200, body: { ok: true, protocolVersion: 1, document: repository.ensureDocument(body) } };
   }
+  if (method === 'POST' && pathname === '/api/timeline-bundles/import') {
+    try {
+      return { status: 200, body: { ok: true, protocolVersion: 1, ...repository.importDocumentBundle(body) } };
+    } catch (error) {
+      if (error?.status === 409) return failScript(409, error.code, error.message);
+      if (error?.code?.includes('timeline-bundle')) return failScript(400, error.code, error.message);
+      throw error;
+    }
+  }
   if (method === 'GET' && pathname === '/api/timeline-snapshots') {
     const timelineId = query.get('timelineId') || '';
     if (!timelineId) return failScript(400, 'missing-timeline-id', 'Timeline snapshot list requires timelineId.');
