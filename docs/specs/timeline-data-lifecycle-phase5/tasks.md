@@ -14,10 +14,10 @@
 
 ## T1：定义统一领域类型与 Repository 边界
 
-- [ ] 新增 `TimelineDocument`、`TimelineSnapshot`、`WorkNode`、`CheckoutRef`、`AuditEvent` 领域类型。
+- [x] 新增 `TimelineDocument`、`TimelineSnapshot`、`WorkNode`、`CheckoutRef`、`AuditEvent` 领域类型。
 - [ ] 将 `saveId` 的业务含义替换为稳定 `timelineId`；保留旧字段仅用于迁移兼容。
 - [ ] 定义所有状态转换和结构化错误码。
-- [ ] 新建统一 Timeline Repository；renderer 只通过 IPC/bridge/REST 客户端访问。
+- [x] 新建统一 Timeline Repository 基座；renderer 后续只通过 IPC/bridge/REST 客户端访问，迁移完成前不接管现有运行路径。
 
 验收：前端不再根据 label、创建时间或全局 head 推导关系。
 
