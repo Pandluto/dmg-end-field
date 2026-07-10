@@ -7,6 +7,7 @@ const path = require('path');
 const { spawn, spawnSync } = require('child_process');
 const { pathToFileURL } = require('url');
 const { tryServeDesktopApp } = require('./web-host.cjs');
+const { createAiTimelineWorkNodeStore } = require('./ai-timeline-work-node-store.cjs');
 const {
   app,
   BrowserWindow,
@@ -4189,7 +4190,24 @@ function getNowStorageStatePath() {
 }
 
 function getAiTimelineWorkNodesPath() {
+  return path.join(getLocalDataDirectory(), 'ai-timeline-worknodes.sqlite3');
+}
+
+function getLegacyAiTimelineWorkNodesPath() {
   return path.join(getLocalDataDirectory(), 'ai-timeline-worknodes.json');
+}
+
+let aiTimelineWorkNodeStore = null;
+
+function getAiTimelineWorkNodeStore() {
+  if (!aiTimelineWorkNodeStore) {
+    ensureLocalDataDirectory();
+    aiTimelineWorkNodeStore = createAiTimelineWorkNodeStore({
+      databasePath: getAiTimelineWorkNodesPath(),
+      legacyJsonPath: getLegacyAiTimelineWorkNodesPath(),
+    });
+  }
+  return aiTimelineWorkNodeStore;
 }
 
 function sanitizeArchiveId(value) {
@@ -4565,37 +4583,6 @@ function buildAiTimelineWorkNodeDiff(node) {
   };
 }
 
-function readAiTimelineWorkNodeArchive() {
-  try {
-    const filePath = getAiTimelineWorkNodesPath();
-    if (!fs.existsSync(filePath)) {
-      return { type: 'def.ai-timeline.worknodes.v1', schemaVersion: 1, nodes: [], commits: [] };
-    }
-    const parsed = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
-    if (!parsed || parsed.type !== 'def.ai-timeline.worknodes.v1') {
-      return { type: 'def.ai-timeline.worknodes.v1', schemaVersion: 1, nodes: [], commits: [] };
-    }
-    return {
-      type: 'def.ai-timeline.worknodes.v1',
-      schemaVersion: 1,
-      nodes: Array.isArray(parsed.nodes) ? parsed.nodes : [],
-      commits: Array.isArray(parsed.commits) ? parsed.commits : [],
-    };
-  } catch {
-    return { type: 'def.ai-timeline.worknodes.v1', schemaVersion: 1, nodes: [], commits: [] };
-  }
-}
-
-function writeAiTimelineWorkNodeArchive(archive) {
-  ensureLocalDataDirectory();
-  fs.writeFileSync(getAiTimelineWorkNodesPath(), `${JSON.stringify({
-    type: 'def.ai-timeline.worknodes.v1',
-    schemaVersion: 1,
-    nodes: Array.isArray(archive.nodes) ? archive.nodes.slice(0, 50) : [],
-    commits: Array.isArray(archive.commits) ? archive.commits.slice(0, 200) : [],
-  }, null, 2)}\n`, 'utf-8');
-}
-
 function normalizeAiTimelineRiskFlags(value) {
   if (!Array.isArray(value)) return [];
   return value
@@ -4675,7 +4662,7 @@ function toAiTimelineWorkNodeCommitListItem(commit) {
 }
 
 function buildAiTimelineWorkNodeListResult() {
-  const archive = readAiTimelineWorkNodeArchive();
+  const archive = getAiTimelineWorkNodeStore().list();
   return {
     ok: true,
     path: getAiTimelineWorkNodesPath(),
@@ -4693,8 +4680,7 @@ function buildAiTimelineWorkNodeListResult() {
 
 function readAiTimelineWorkNode(id) {
   const nodeId = sanitizeAiTimelineWorkNodeId(id, 'ai-timeline-node');
-  const archive = readAiTimelineWorkNodeArchive();
-  const node = archive.nodes.find((item) => item?.id === nodeId);
+  const node = getAiTimelineWorkNodeStore().getNode(nodeId);
   if (!node) {
     throw new Error(`AI timeline work node not found: ${nodeId}`);
   }
@@ -4717,11 +4703,15 @@ function createAiTimelineWorkNode(payload) {
     throw new Error(workingPayloadError);
   }
   const now = Date.now();
+  const store = getAiTimelineWorkNodeStore();
+  const hasParentNodeInput = Object.prototype.hasOwnProperty.call(payload || {}, 'parentNodeId');
+  const requestedParentNodeId = typeof payload.parentNodeId === 'string' && payload.parentNodeId.trim()
+    ? sanitizeAiTimelineWorkNodeId(payload.parentNodeId, 'ai-timeline-node')
+    : undefined;
+  const parentNodeId = hasParentNodeInput ? requestedParentNodeId : store.getHead(saveId)?.nodeId;
   const node = {
     id: sanitizeAiTimelineWorkNodeId(payload.id, 'ai-timeline-node'),
-    ...(typeof payload.parentNodeId === 'string' && payload.parentNodeId.trim()
-      ? { parentNodeId: sanitizeAiTimelineWorkNodeId(payload.parentNodeId, 'ai-timeline-node') }
-      : {}),
+    ...(parentNodeId ? { parentNodeId } : {}),
     saveId,
     branchId: sanitizeAiTimelineWorkNodeId(payload.branchId, 'branch'),
     createdAt: now,
@@ -4736,18 +4726,13 @@ function createAiTimelineWorkNode(payload) {
     riskFlags: normalizeAiTimelineRiskFlags(payload.riskFlags),
     logs: [makeAiTimelineWorkNodeLog('info', 'Created AI timeline work node from checkout payload.')],
   };
-  const archive = readAiTimelineWorkNodeArchive();
-  writeAiTimelineWorkNodeArchive({
-    ...archive,
-    nodes: [node, ...archive.nodes.filter((item) => item?.id !== node.id)],
-  });
+  store.saveNode(node, { setHead: true });
   return { ok: true, path: getAiTimelineWorkNodesPath(), node };
 }
 
 function updateAiTimelineWorkNode(id, payload = {}) {
   const nodeId = sanitizeAiTimelineWorkNodeId(id, 'ai-timeline-node');
-  const archive = readAiTimelineWorkNodeArchive();
-  const node = archive.nodes.find((item) => item?.id === nodeId);
+  const node = getAiTimelineWorkNodeStore().getNode(nodeId);
   if (!node) {
     throw new Error(`AI timeline work node not found: ${nodeId}`);
   }
@@ -4782,42 +4767,19 @@ function updateAiTimelineWorkNode(id, payload = {}) {
       ...(Array.isArray(node.logs) ? node.logs : []),
     ],
   };
-  writeAiTimelineWorkNodeArchive({
-    ...archive,
-    nodes: [nextNode, ...archive.nodes.filter((item) => item?.id !== nodeId)],
-  });
+  getAiTimelineWorkNodeStore().saveNode(nextNode);
   return { ok: true, path: getAiTimelineWorkNodesPath(), node: nextNode };
 }
 
 function deleteAiTimelineWorkNode(id) {
   const nodeId = sanitizeAiTimelineWorkNodeId(id, 'ai-timeline-node');
-  const archive = readAiTimelineWorkNodeArchive();
-  const target = archive.nodes.find((item) => item?.id === nodeId);
-  if (!target) {
-    throw new Error(`AI timeline work node not found: ${nodeId}`);
-  }
-  const deletedNodeIds = new Set([nodeId]);
-  let changed = true;
-  while (changed) {
-    changed = false;
-    archive.nodes.forEach((item) => {
-      if (item?.parentNodeId && deletedNodeIds.has(item.parentNodeId) && !deletedNodeIds.has(item.id)) {
-        deletedNodeIds.add(item.id);
-        changed = true;
-      }
-    });
-  }
-  const nodes = archive.nodes.filter((item) => !deletedNodeIds.has(item?.id));
-  const commits = archive.commits.filter((commit) => !deletedNodeIds.has(commit?.nodeId));
-  const nextArchive = { ...archive, nodes, commits };
-  writeAiTimelineWorkNodeArchive(nextArchive);
+  getAiTimelineWorkNodeStore().deleteSubtree(nodeId);
   return buildAiTimelineWorkNodeListResult();
 }
 
 function commitAiTimelineWorkNode(id, payload = {}) {
   const nodeId = sanitizeAiTimelineWorkNodeId(id, 'ai-timeline-node');
-  const archive = readAiTimelineWorkNodeArchive();
-  const node = archive.nodes.find((item) => item?.id === nodeId);
+  const node = getAiTimelineWorkNodeStore().getNode(nodeId);
   if (!node) {
     throw new Error(`AI timeline work node not found: ${nodeId}`);
   }
@@ -4857,28 +4819,22 @@ function commitAiTimelineWorkNode(id, payload = {}) {
       ...(Array.isArray(node.logs) ? node.logs : []),
     ],
   };
-  writeAiTimelineWorkNodeArchive({
-    ...archive,
-    nodes: [nextNode, ...archive.nodes.filter((item) => item?.id !== nodeId)],
-    commits: [commit, ...archive.commits.filter((item) => item?.id !== commit.id)],
-  });
+  getAiTimelineWorkNodeStore().saveNodeAndCommit(nextNode, commit);
   return { ok: true, path: getAiTimelineWorkNodesPath(), node: nextNode, commit };
 }
 
 function markAiTimelineWorkNodeCheckoutApplied(id, payload = {}) {
   const nodeId = sanitizeAiTimelineWorkNodeId(id, 'ai-timeline-node');
-  const archive = readAiTimelineWorkNodeArchive();
-  const node = archive.nodes.find((item) => item?.id === nodeId);
+  const store = getAiTimelineWorkNodeStore();
+  const node = store.getNode(nodeId);
   if (!node) {
     throw new Error(`AI timeline work node not found: ${nodeId}`);
   }
   const commitId = typeof payload.commitId === 'string' && payload.commitId.trim() ? payload.commitId.trim() : '';
-  const commitsForNode = archive.commits
-    .filter((commit) => commit?.nodeId === node.id)
-    .sort((left, right) => (right.createdAt || 0) - (left.createdAt || 0));
-  const targetCommit = commitId
-    ? archive.commits.find((commit) => commit?.id === commitId && commit?.nodeId === node.id)
-    : commitsForNode[0];
+  const targetCommit = commitId ? store.getCommit(commitId) : store.getLatestCommitForNode(node.id);
+  if (targetCommit?.nodeId !== node.id) {
+    throw new Error(`AI timeline work node commit not found for node: ${node.id}`);
+  }
   if (!targetCommit) {
     throw new Error(`AI timeline work node commit not found for node: ${node.id}`);
   }
@@ -4905,18 +4861,14 @@ function markAiTimelineWorkNodeCheckoutApplied(id, payload = {}) {
       ...(Array.isArray(node.logs) ? node.logs : []),
     ],
   };
-  writeAiTimelineWorkNodeArchive({
-    ...archive,
-    nodes: [nextNode, ...archive.nodes.filter((item) => item?.id !== node.id)],
-    commits: [nextCommit, ...archive.commits.filter((item) => item?.id !== nextCommit.id)],
-  });
+  store.saveNodeAndCommit(nextNode, nextCommit, { setHead: true });
   return { ok: true, path: getAiTimelineWorkNodesPath(), node: nextNode, commit: nextCommit };
 }
 
 function markAiTimelineWorkNodeRollbackApplied(id, payload = {}) {
   const nodeId = sanitizeAiTimelineWorkNodeId(id, 'ai-timeline-node');
-  const archive = readAiTimelineWorkNodeArchive();
-  const node = archive.nodes.find((item) => item?.id === nodeId);
+  const store = getAiTimelineWorkNodeStore();
+  const node = store.getNode(nodeId);
   if (!node) {
     throw new Error(`AI timeline work node not found: ${nodeId}`);
   }
@@ -4929,20 +4881,28 @@ function markAiTimelineWorkNodeRollbackApplied(id, payload = {}) {
       ? payload.rationale.trim()
       : 'Renderer rollback applied from AI timeline work node basePayload.',
   };
-  const nextNode = {
-    ...node,
-    status: 'open',
+  const restoreNode = {
+    id: makeAiTimelineWorkNodeId('ai-timeline-restore'),
+    parentNodeId: node.id,
+    saveId: node.saveId,
+    branchId: sanitizeAiTimelineWorkNodeId(`restore-${node.branchId}-${appliedAt}`, 'restore'),
+    createdAt: appliedAt,
     updatedAt: appliedAt,
-    logs: [
-      makeAiTimelineWorkNodeLog('info', 'Rolled back AI timeline work node from basePayload.', { rollback }),
-      ...(Array.isArray(node.logs) ? node.logs : []),
-    ],
+    label: `[restore] ${node.label}`,
+    status: 'applied',
+    basePayload: cloneJsonValue(node.workingPayload),
+    workingPayload: cloneJsonValue(node.basePayload),
+    baseSummary: node.workingSummary,
+    workingSummary: node.baseSummary,
+    approvalPolicy: node.approvalPolicy,
+    riskFlags: [],
+    logs: [makeAiTimelineWorkNodeLog('info', 'Rolled back AI timeline work node from basePayload.', {
+      ...rollback,
+      sourceNodeId: node.id,
+    })],
   };
-  writeAiTimelineWorkNodeArchive({
-    ...archive,
-    nodes: [nextNode, ...archive.nodes.filter((item) => item?.id !== node.id)],
-  });
-  return { ok: true, path: getAiTimelineWorkNodesPath(), node: nextNode, rollback };
+  store.saveNode(restoreNode, { setHead: true });
+  return { ok: true, path: getAiTimelineWorkNodesPath(), node: restoreNode, rollback };
 }
 
 function resolveLocalDataPath(payload = {}) {
@@ -5322,6 +5282,10 @@ app.on('before-quit', () => {
   }
   destroyWebPrewarmWindow();
   stopServers();
+  if (aiTimelineWorkNodeStore) {
+    aiTimelineWorkNodeStore.close();
+    aiTimelineWorkNodeStore = null;
+  }
 });
 
 app.on('window-all-closed', (event) => {

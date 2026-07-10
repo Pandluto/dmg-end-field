@@ -19,6 +19,12 @@ const LIST_CACHE_TTL_MS = 1500;
 let listRequestInFlight: Promise<AiTimelineWorkNodeListResponse> | null = null;
 let listCachedResponse: AiTimelineWorkNodeListResponse | null = null;
 let listCachedAt = 0;
+let listCacheGeneration = 0;
+
+export type AiTimelineWorkNodeHead = {
+  nodeId: string;
+  revision: number;
+};
 
 export type AiTimelineWorkNodeListResponse = {
   ok: true;
@@ -26,6 +32,9 @@ export type AiTimelineWorkNodeListResponse = {
   path: string;
   nodes: AiTimelineWorkNodeListItem[];
   commits: AiTimelineWorkNodeCommitListItem[];
+  heads: Record<string, AiTimelineWorkNodeHead>;
+  headNodeId: string;
+  revision: number;
 };
 
 export type AiTimelineWorkNodeResponse = {
@@ -57,7 +66,7 @@ export type CreateAiTimelineWorkNodeInput = {
   saveId: string;
   branchId?: string;
   id?: string;
-  parentNodeId?: string;
+  parentNodeId?: string | null;
   label?: string;
   basePayload: TimelineSnapshotPayload;
   workingPayload?: TimelineSnapshotPayload;
@@ -145,7 +154,13 @@ function toWorkNodeCommitListItem(value: unknown): AiTimelineWorkNodeCommitListI
 
 function toListResponse(input: {
   path?: string;
-  archive?: { nodes?: unknown[]; commits?: unknown[] };
+  archive?: {
+    nodes?: unknown[];
+    commits?: unknown[];
+    heads?: Record<string, AiTimelineWorkNodeHead>;
+    headNodeId?: string;
+    revision?: number;
+  };
 }): AiTimelineWorkNodeListResponse {
   return {
     ok: true,
@@ -153,6 +168,9 @@ function toListResponse(input: {
     path: input.path || '',
     nodes: (input.archive?.nodes || []).map(toWorkNodeListItem),
     commits: (input.archive?.commits || []).map(toWorkNodeCommitListItem),
+    heads: input.archive?.heads || {},
+    headNodeId: input.archive?.headNodeId || '',
+    revision: Number(input.archive?.revision || 0),
   };
 }
 
@@ -163,8 +181,10 @@ function cacheListResponse(response: AiTimelineWorkNodeListResponse) {
 }
 
 function invalidateListCache() {
+  listCacheGeneration += 1;
   listCachedResponse = null;
   listCachedAt = 0;
+  listRequestInFlight = null;
 }
 
 async function getBridgeJson<T>(pathname: string): Promise<T | null> {
@@ -224,7 +244,8 @@ export function createAiTimelineWorkNodeClient(baseUrl = DEFAULT_REST_BASE_URL) 
       }
       if (listRequestInFlight) return listRequestInFlight;
 
-      listRequestInFlight = (async () => {
+      const generation = listCacheGeneration;
+      const request = (async () => {
         const desktopRuntime = getDesktopRuntime();
         if (desktopRuntime?.listAiTimelineWorkNodes) {
           const result = readDesktopResult(await desktopRuntime.listAiTimelineWorkNodes());
@@ -233,7 +254,13 @@ export function createAiTimelineWorkNodeClient(baseUrl = DEFAULT_REST_BASE_URL) 
         const bridgeResult = await getBridgeJson<{
           ok: true;
           path?: string;
-          archive?: { nodes?: unknown[]; commits?: unknown[] };
+          archive?: {
+            nodes?: unknown[];
+            commits?: unknown[];
+            heads?: Record<string, AiTimelineWorkNodeHead>;
+            headNodeId?: string;
+            revision?: number;
+          };
         }>('/local-data/ai-timeline-worknodes');
         if (bridgeResult) {
           return toListResponse(bridgeResult);
@@ -245,16 +272,25 @@ export function createAiTimelineWorkNodeClient(baseUrl = DEFAULT_REST_BASE_URL) 
           archive?: { nodes?: unknown[]; commits?: unknown[] };
           nodes?: unknown[];
           commits?: unknown[];
+          heads?: Record<string, AiTimelineWorkNodeHead>;
+          headNodeId?: string;
+          revision?: number;
         }>(response);
         return toListResponse({
           path: result.path,
-          archive: result.archive || { nodes: result.nodes, commits: result.commits },
+          archive: result.archive || {
+            nodes: result.nodes,
+            commits: result.commits,
+            heads: result.heads,
+            headNodeId: result.headNodeId,
+            revision: result.revision,
+          },
         });
-      })().then(cacheListResponse).finally(() => {
-        listRequestInFlight = null;
+      })().then((response) => generation === listCacheGeneration ? cacheListResponse(response) : response).finally(() => {
+        if (listRequestInFlight === request) listRequestInFlight = null;
       });
-
-      return listRequestInFlight;
+      listRequestInFlight = request;
+      return request;
     },
 
     async get(id: string): Promise<AiTimelineWorkNodeResponse> {
@@ -295,7 +331,13 @@ export function createAiTimelineWorkNodeClient(baseUrl = DEFAULT_REST_BASE_URL) 
       const bridgeResult = await postBridgeJson<{
         ok: true;
         path?: string;
-        archive?: { nodes?: unknown[]; commits?: unknown[] };
+        archive?: {
+          nodes?: unknown[];
+          commits?: unknown[];
+          heads?: Record<string, AiTimelineWorkNodeHead>;
+          headNodeId?: string;
+          revision?: number;
+        };
       }>(`/local-data/ai-timeline-worknodes/${encodeURIComponent(id)}/delete`, {});
       if (bridgeResult) {
         return toListResponse(bridgeResult);
@@ -306,6 +348,9 @@ export function createAiTimelineWorkNodeClient(baseUrl = DEFAULT_REST_BASE_URL) 
         archive?: { nodes?: unknown[]; commits?: unknown[] };
         nodes?: unknown[];
         commits?: unknown[];
+        heads?: Record<string, AiTimelineWorkNodeHead>;
+        headNodeId?: string;
+        revision?: number;
       }>(
         baseUrl,
         `/api/ai-timeline-worknodes/${encodeURIComponent(id)}/delete`,
@@ -313,7 +358,13 @@ export function createAiTimelineWorkNodeClient(baseUrl = DEFAULT_REST_BASE_URL) 
       );
       return toListResponse({
         path: result.path,
-        archive: result.archive || { nodes: result.nodes, commits: result.commits },
+        archive: result.archive || {
+          nodes: result.nodes,
+          commits: result.commits,
+          heads: result.heads,
+          headNodeId: result.headNodeId,
+          revision: result.revision,
+        },
       });
     },
 

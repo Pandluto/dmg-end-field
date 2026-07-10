@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { createAiTimelineWorkNodeClient } from '../../agentKernel/timelineWorktree/localNodeClient';
+import type { AiTimelineWorkNodeListResponse } from '../../agentKernel/timelineWorktree/localNodeClient';
 import type { AiTimelineWorkNodeCommitListItem, AiTimelineWorkNodeListItem } from '../../agentKernel/timelineWorktree/types';
 import {
   enqueueMainWorkbenchCommand,
@@ -8,15 +9,6 @@ import {
 import { buildWorkNodeTreeViewModel } from './workNodeTreeModel';
 import { WorkNodeTreeNode } from './WorkNodeTreeNode';
 import type { WorkNodeTreeViewModel } from './workNodeTreeTypes';
-import {
-  addWorkNodeDeletedIds,
-  clearWorkNodeParentOverrides,
-  readActiveWorkNodeId,
-  readWorkNodeDeletedIds,
-  readWorkNodeParentOverrides,
-  writeActiveWorkNodeId,
-  writeWorkNodeParentOverride,
-} from './workNodeSelection';
 import './WorkNodeTreePanel.css';
 
 type WorkNodeTreePanelProps = {
@@ -24,15 +16,14 @@ type WorkNodeTreePanelProps = {
   onSummaryChange?: (summary: WorkNodeTreeViewModel) => void;
 };
 
-function waitForCreatedWorkNode(commandId: string, timeoutMs = 8000): Promise<string> {
+function waitForWorkbenchCommand(commandId: string, timeoutMs = 8000): Promise<unknown> {
   return new Promise((resolve, reject) => {
     const startedAt = Date.now();
     const timer = window.setInterval(() => {
       const entry = readMainWorkbenchCommandQueue().find((item) => item.id === commandId);
-      const result = entry?.result && typeof entry.result === 'object' ? entry.result as { nodeId?: unknown } : null;
-      if (entry?.status === 'done' && typeof result?.nodeId === 'string') {
+      if (entry?.status === 'done') {
         window.clearInterval(timer);
-        resolve(result.nodeId);
+        resolve(entry.result);
         return;
       }
       if (entry?.status === 'error') {
@@ -42,7 +33,7 @@ function waitForCreatedWorkNode(commandId: string, timeoutMs = 8000): Promise<st
       }
       if (Date.now() - startedAt > timeoutMs) {
         window.clearInterval(timer);
-        reject(new Error('Work node create timed out.'));
+        reject(new Error('Work node operation timed out.'));
       }
     }, 250);
   });
@@ -50,18 +41,6 @@ function waitForCreatedWorkNode(commandId: string, timeoutMs = 8000): Promise<st
 
 function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : String(error);
-}
-
-function applyParentOverrides(nodes: AiTimelineWorkNodeListItem[], overrides: Record<string, string>) {
-  if (Object.keys(overrides).length === 0) return nodes;
-  return nodes.map((node) => {
-    if (!Object.prototype.hasOwnProperty.call(overrides, node.id)) return node;
-    const parentNodeId = overrides[node.id];
-    return {
-      ...node,
-      parentNodeId: parentNodeId || undefined,
-    };
-  });
 }
 
 function collectSubtreeNodeIds(node: WorkNodeTreeViewModel['flatNodes'][number]) {
@@ -77,22 +56,25 @@ function collectSubtreeNodeIds(node: WorkNodeTreeViewModel['flatNodes'][number])
 export function WorkNodeTreePanel({ refreshKey, onSummaryChange }: WorkNodeTreePanelProps) {
   const [nodes, setNodes] = useState<AiTimelineWorkNodeListItem[]>([]);
   const [commits, setCommits] = useState<AiTimelineWorkNodeCommitListItem[]>([]);
-  const [parentOverrides, setParentOverrides] = useState(() => readWorkNodeParentOverrides());
-  const [deletedNodeIds, setDeletedNodeIds] = useState(() => readWorkNodeDeletedIds());
+  const [headNodeId, setHeadNodeId] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
-  const [activeNodeId, setActiveNodeId] = useState(() => readActiveWorkNodeId());
+  const revisionRef = useRef(0);
 
-  const visibleNodes = useMemo(() => {
-    const deleted = new Set(deletedNodeIds);
-    return applyParentOverrides(nodes.filter((node) => !deleted.has(node.id)), parentOverrides);
-  }, [deletedNodeIds, nodes, parentOverrides]);
-  const viewModel = useMemo(() => buildWorkNodeTreeViewModel(visibleNodes, commits), [visibleNodes, commits]);
-  const effectiveActiveNodeId = activeNodeId || viewModel.latestNode?.nodeId || '';
+  const applyListResponse = (response: AiTimelineWorkNodeListResponse) => {
+    if (response.revision < revisionRef.current) return false;
+    revisionRef.current = response.revision;
+    setNodes(response.nodes || []);
+    setCommits(response.commits || []);
+    setHeadNodeId(response.headNodeId || '');
+    return true;
+  };
+
+  const viewModel = useMemo(() => buildWorkNodeTreeViewModel(nodes, commits), [nodes, commits]);
   const activePathNodeIds = useMemo(() => {
     const pathIds = new Set<string>();
     const byId = new Map(viewModel.flatNodes.map((node) => [node.nodeId, node]));
-    let current = effectiveActiveNodeId ? byId.get(effectiveActiveNodeId) : undefined;
+    let current = headNodeId ? byId.get(headNodeId) : undefined;
 
     while (current) {
       pathIds.add(current.nodeId);
@@ -100,7 +82,7 @@ export function WorkNodeTreePanel({ refreshKey, onSummaryChange }: WorkNodeTreeP
     }
 
     return pathIds;
-  }, [effectiveActiveNodeId, viewModel.flatNodes]);
+  }, [headNodeId, viewModel.flatNodes]);
 
   useEffect(() => {
     let cancelled = false;
@@ -108,8 +90,7 @@ export function WorkNodeTreePanel({ refreshKey, onSummaryChange }: WorkNodeTreeP
       try {
         const response = await createAiTimelineWorkNodeClient().list();
         if (cancelled) return;
-        setNodes(response.nodes || []);
-        setCommits(response.commits || []);
+        applyListResponse(response);
         setError('');
       } catch (loadError) {
         if (cancelled) return;
@@ -131,39 +112,38 @@ export function WorkNodeTreePanel({ refreshKey, onSummaryChange }: WorkNodeTreeP
 
   const reloadNodes = async () => {
     const response = await createAiTimelineWorkNodeClient().list();
-    setNodes(response.nodes || []);
-    setCommits(response.commits || []);
+    applyListResponse(response);
     return response;
   };
 
-  const setActiveNode = (nodeId: string) => {
-    writeActiveWorkNodeId(nodeId);
-    setActiveNodeId(nodeId);
-  };
-
-  const checkoutNode = (nodeId: string) => {
-    setActiveNode(nodeId);
-    enqueueMainWorkbenchCommand({
-      op: 'checkoutAiTimelineWorkNode',
-      nodeId,
-      reload: false,
-      approval: {
-        mode: 'manual',
-        approvedBy: 'user',
-        rationale: 'Selected from Work Node tree.',
-      },
-    }, 'work-node-tree');
-  };
-
-  const persistCreatedParent = async (nodeId: string, parentNodeId: string | undefined) => {
+  const checkoutNode = async (nodeId: string) => {
     try {
-      await createAiTimelineWorkNodeClient().update(nodeId, { parentNodeId });
-    } catch {
-      // The local override already makes the current panel correct. Persistence will work after Electron main reloads.
+      setError('');
+      const entry = enqueueMainWorkbenchCommand({
+        op: 'checkoutAiTimelineWorkNode',
+        nodeId,
+        reload: false,
+        approval: {
+          mode: 'manual',
+          approvedBy: 'user',
+          rationale: 'Selected from Work Node tree.',
+        },
+      }, 'work-node-tree');
+      const result = await waitForWorkbenchCommand(entry.id);
+      if (result && typeof result === 'object' && 'checkoutApplied' in result
+        && (result as { checkoutApplied?: unknown }).checkoutApplied !== true) {
+        const markError = 'checkoutMarkError' in result
+          ? String((result as { checkoutMarkError?: unknown }).checkoutMarkError || '')
+          : '';
+        throw new Error(markError || 'Work Node 已应用，但 HEAD 确认失败。');
+      }
+      await reloadNodes();
+    } catch (checkoutError) {
+      setError(`应用节点失败：${errorMessage(checkoutError)}`);
     }
   };
 
-  const createNodeFromCurrent = async (parentNodeId: string | undefined, labelPrefix: string) => {
+  const createNodeFromCurrent = async (parentNodeId: string | null, labelPrefix: string) => {
     try {
       setError('');
       const createdAt = Date.now();
@@ -174,11 +154,12 @@ export function WorkNodeTreePanel({ refreshKey, onSummaryChange }: WorkNodeTreeP
         label: `[${labelPrefix}] ${new Date(createdAt).toLocaleString('zh-CN', { hour12: false })}`,
         approvalPolicy: 'auto-low-risk',
       }, 'work-node-tree');
-      const nodeId = await waitForCreatedWorkNode(entry.id);
-      setParentOverrides(writeWorkNodeParentOverride(nodeId, parentNodeId || ''));
-      setActiveNode(nodeId);
+      const result = await waitForWorkbenchCommand(entry.id);
+      const nodeId = result && typeof result === 'object' && 'nodeId' in result
+        ? (result as { nodeId?: unknown }).nodeId
+        : undefined;
+      if (typeof nodeId !== 'string') throw new Error('Work node create result is missing nodeId.');
       await reloadNodes();
-      void persistCreatedParent(nodeId, parentNodeId);
     } catch (createError) {
       setError(`创建节点失败：${errorMessage(createError)}`);
     }
@@ -195,11 +176,7 @@ export function WorkNodeTreePanel({ refreshKey, onSummaryChange }: WorkNodeTreeP
     try {
       setError('');
       const response = await createAiTimelineWorkNodeClient().delete(node.nodeId);
-      const deleted = new Set(subtreeNodeIds);
-      setDeletedNodeIds(addWorkNodeDeletedIds(subtreeNodeIds));
-      setNodes((response.nodes || []).filter((item) => !deleted.has(item.id)));
-      setCommits((response.commits || []).filter((item) => !deleted.has(item.nodeId)));
-      setParentOverrides(clearWorkNodeParentOverrides(subtreeNodeIds));
+      applyListResponse(response);
     } catch (deleteError) {
       setError(`删除节点失败：${errorMessage(deleteError)}。`);
     }
@@ -218,13 +195,13 @@ export function WorkNodeTreePanel({ refreshKey, onSummaryChange }: WorkNodeTreeP
         <WorkNodeTreeNode
           key={node.nodeId}
           node={node}
-          activeNodeId={effectiveActiveNodeId}
+          activeNodeId={headNodeId}
           activePathNodeIds={activePathNodeIds}
           isRoot
-          onSelect={(target) => checkoutNode(target.nodeId)}
+          onSelect={(target) => void checkoutNode(target.nodeId)}
           onDelete={handleDelete}
           onAddChild={(target) => void createNodeFromCurrent(target.nodeId, 'child')}
-          onAddSibling={(target) => void createNodeFromCurrent(target.parentNodeId, 'branch')}
+          onAddSibling={(target) => void createNodeFromCurrent(target.parentNodeId || null, 'branch')}
         />
       ))}
     </div>

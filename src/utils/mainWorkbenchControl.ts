@@ -125,7 +125,7 @@ export type MainWorkbenchCommand =
       op: 'createAiTimelineWorkNodeFromCurrent';
       saveId?: string;
       branchId?: string;
-      parentNodeId?: string;
+      parentNodeId?: string | null;
       label?: string;
       approvalPolicy?: 'auto-low-risk' | 'ask-on-risk' | 'manual';
     }
@@ -145,7 +145,7 @@ export type MainWorkbenchCommand =
       saveId?: string;
       branchId?: string;
       label?: string;
-      parentNodeId?: string;
+      parentNodeId?: string | null;
       approvalPolicy?: 'auto-low-risk' | 'ask-on-risk' | 'manual';
       patch: TimelineWorkNodePatchOperation[];
       dryRun?: boolean;

@@ -72,18 +72,6 @@ function makePayloadRef(kind: 'base' | 'working', node: AiTimelineWorkNodeListIt
   return `${node.id}:${kind}:${node.updatedAt || node.createdAt || 0}`;
 }
 
-function isLegacyBranchNode(node: AiTimelineWorkNodeListItem) {
-  const text = `${node.branchId || ''} ${node.label || ''}`;
-  return /^\s*branch-/i.test(node.branchId || '') || /\[branch\]/i.test(text);
-}
-
-function inferParentId(node: AiTimelineWorkNodeListItem, previousNode?: WorkNodeTreeNode) {
-  if (node.parentNodeId) return node.parentNodeId;
-  if (!previousNode) return '';
-  if (isLegacyBranchNode(node)) return previousNode.parentNodeId || '';
-  return previousNode.nodeId;
-}
-
 export function buildWorkNodeTreeViewModel(
   nodes: AiTimelineWorkNodeListItem[],
   commits: AiTimelineWorkNodeCommitListItem[],
@@ -92,16 +80,14 @@ export function buildWorkNodeTreeViewModel(
   const sortedNodes = [...nodes].sort((left, right) => (left.createdAt || 0) - (right.createdAt || 0));
   const roots: WorkNodeTreeNode[] = [];
   const byId = new Map<string, WorkNodeTreeNode>();
-  let previousTreeNode: WorkNodeTreeNode | undefined;
 
   sortedNodes.forEach((rawNode) => {
     const hasCheckout = checkoutNodeIds.has(rawNode.id);
     const source = inferSource(rawNode, hasCheckout);
     const status = inferStatus(rawNode, source, hasCheckout);
-    const parentNodeId = inferParentId(rawNode, previousTreeNode);
     const node: WorkNodeTreeNode = {
       nodeId: rawNode.id,
-      parentNodeId: parentNodeId || undefined,
+      parentNodeId: rawNode.parentNodeId || undefined,
       source,
       title: buildNodeTitle(rawNode, source),
       createdAt: rawNode.createdAt,
@@ -118,16 +104,19 @@ export function buildWorkNodeTreeViewModel(
       children: [],
     };
 
-    const parent = parentNodeId ? byId.get(parentNodeId) : undefined;
+    byId.set(node.nodeId, node);
+  });
+
+  sortedNodes.forEach((rawNode) => {
+    const node = byId.get(rawNode.id);
+    if (!node) return;
+    const parent = node.parentNodeId ? byId.get(node.parentNodeId) : undefined;
     if (parent) {
       parent.children.push(node);
     } else {
       node.parentNodeId = undefined;
       roots.push(node);
     }
-
-    byId.set(node.nodeId, node);
-    previousTreeNode = node;
   });
 
   const sortTree = (treeNodes: WorkNodeTreeNode[]) => {

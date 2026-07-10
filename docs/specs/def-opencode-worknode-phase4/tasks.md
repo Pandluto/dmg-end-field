@@ -92,55 +92,55 @@
 
 ### Task G：SQLite store 与 schema
 
-- [ ] 新增独立 Work Node SQLite store/repository，使用 `node:sqlite`。
-- [ ] 建立 snapshots、nodes、commits、heads、meta 表及外键、唯一约束、必要索引。
-- [ ] snapshot 使用内容 hash 去重，list 查询不读取 payload。
-- [ ] 所有多表写操作使用事务，并开启 foreign keys。
-- [ ] repository 对上层暴露业务方法，不向 renderer 暴露 SQL 或 `DatabaseSync`。
+- [x] 新增独立 Work Node SQLite store/repository，使用 `node:sqlite`。
+- [x] 建立 snapshots、nodes、commits、heads、meta 表及外键、唯一约束、必要索引。
+- [x] snapshot 使用内容 hash 去重，list 查询不读取 payload。
+- [x] 所有多表写操作使用事务，并开启 foreign keys。
+- [x] repository 对上层暴露业务方法，不向 renderer 暴露 SQL 或 `DatabaseSync`。
 
 ### Task H：Legacy JSON 一次性迁移
 
-- [ ] 首次初始化时检测 legacy `ai-timeline-worknodes.json`。
-- [ ] 在单事务内迁移 nodes、commits、payload snapshots 和 parent 关系。
-- [ ] 仅为缺失 parent 的 legacy 节点执行一次兼容推断。
-- [ ] 根据最近 checkout 证据或最近更新节点建立初始 HEAD。
-- [ ] 写入 migration meta；迁移成功后停止双写，保留 JSON 只读备份。
-- [ ] 迁移失败必须回滚且不能破坏 legacy JSON。
+- [x] 首次初始化时检测 legacy `ai-timeline-worknodes.json`。
+- [x] 在单事务内迁移 nodes、commits、payload snapshots 和 parent 关系。
+- [x] 仅为缺失 parent 的 legacy 节点执行一次兼容推断。
+- [x] 根据最近 checkout 证据或最近更新节点建立初始 HEAD。
+- [x] 写入 migration meta；迁移成功后停止双写，保留 JSON 只读备份。
+- [x] 迁移失败必须回滚且不能破坏 legacy JSON。
 
 ### Task I：统一 Electron / bridge / REST 语义
 
-- [ ] Electron IPC 的 list/create/read/update/delete/commit/checkout-applied/rollback-applied 接入 SQLite store。
-- [ ] 31457 bridge 复用 Electron 同一 store 和操作结果。
-- [ ] 17321 REST 删除重复 JSON CRUD，复用同一 store 模块。
-- [ ] 三条 transport 返回统一的轻量 list、headNodeId/heads 和 revision。
-- [ ] create/update/delete/commit 后正确失效 list cache，旧 in-flight list 不得覆盖新状态。
+- [x] Electron IPC 的 list/create/read/update/delete/commit/checkout-applied/rollback-applied 接入 SQLite store。
+- [x] 31457 bridge 复用 Electron 同一 store 和操作结果。
+- [x] 17321 REST 删除重复 JSON CRUD，复用同一 store 模块。
+- [x] 三条 transport 返回统一的轻量 list、headNodeId/heads 和 revision。
+- [x] create/update/delete/commit 后正确失效 list cache，旧 in-flight list 不得覆盖新状态。
 
 ### Task J：后端权威 HEAD 与删除约束
 
-- [ ] 新建 checkpoint 成功后事务更新对应 saveId HEAD。
-- [ ] checkout/restore 只有在 renderer apply 成功确认后才更新 HEAD。
-- [ ] list 返回 HEAD；前端沿 parent 关系计算当前路径。
-- [ ] 后端事务递归删除完整子树及 commits。
-- [ ] 子树包含有效 HEAD 时拒绝删除，而不是只依赖按钮禁用。
-- [ ] 删除后清理无引用 snapshot。
+- [x] 新建 checkpoint 成功后事务更新对应 saveId HEAD。
+- [x] checkout/restore 只有在 renderer apply 成功确认后才更新 HEAD。
+- [x] list 返回 HEAD；前端沿 parent 关系计算当前路径。
+- [x] 后端事务递归删除完整子树及 commits。
+- [x] 子树包含有效 HEAD 时拒绝删除，而不是只依赖按钮禁用。
+- [x] 删除后清理无引用 snapshot。
 
 ### Task K：移除 renderer 补丁状态
 
-- [ ] 删除 Work Node parent override localStorage。
-- [ ] 删除 Work Node deleted-id tombstone localStorage。
-- [ ] 删除 active-id 作为权威 HEAD 的逻辑。
-- [ ] `WorkNodeTreePanel` 使用 list 返回的 headNodeId 和 revision。
-- [ ] 点击节点时不提前切换当前路径；checkout 结果刷新权威 HEAD。
-- [ ] `workNodeTreeModel` 不再按时间或 branch label 推断 parent。
+- [x] 删除 Work Node parent override localStorage。
+- [x] 删除 Work Node deleted-id tombstone localStorage。
+- [x] 删除 active-id 作为权威 HEAD 的逻辑。
+- [x] `WorkNodeTreePanel` 使用 list 返回的 headNodeId 和 revision。
+- [x] 点击节点时不提前切换当前路径；checkout 结果刷新权威 HEAD。
+- [x] `workNodeTreeModel` 不再按时间或 branch label 推断 parent。
 
 ### Task L：验证与迁移验收
 
-- [ ] 增加必要的 SQLite smoke，覆盖 schema 初始化、legacy 迁移和 snapshot 去重。
-- [ ] 覆盖子节点、同级分支、HEAD 切换、当前路径删除拒绝和灰色子树删除。
-- [ ] 验证 list 返回不含 base/working/applied payload。
-- [ ] 验证 SQLite 初始化后重复 list 不再读取 legacy JSON。
-- [ ] 运行 `npm run build`。
-- [ ] 运行相关 smoke；不扩大为与本次重构无关的全量测试建设。
+- [x] 增加必要的 SQLite smoke，覆盖 schema 初始化、legacy 迁移和 snapshot 去重。
+- [x] 覆盖子节点、同级分支、HEAD 切换、当前路径删除拒绝和灰色子树删除。
+- [x] 验证 list 返回不含 base/working/applied payload。
+- [x] 验证 SQLite 初始化后重复 list 不再读取 legacy JSON。
+- [x] 运行 `npm run build`。
+- [x] 运行相关 smoke；不扩大为与本次重构无关的全量测试建设。
 
 ## Phase 4 后续中部任务：回复风格与 Skill / Prompt 收敛
 

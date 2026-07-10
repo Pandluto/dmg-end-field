@@ -251,6 +251,9 @@ interface AiTimelineWorkNodeArchiveBridge {
   schemaVersion: 1;
   nodes: AiTimelineWorkNodeBridge[];
   commits: AiTimelineWorkNodeCommitBridge[];
+  heads?: Record<string, { nodeId: string; revision: number }>;
+  headNodeId?: string;
+  revision?: number;
 }
 
 interface AiTimelineWorkNodeOpResult {

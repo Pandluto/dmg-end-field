@@ -990,10 +990,13 @@ export function CanvasBoard({
     }
     const now = Date.now();
     const client = createAiTimelineWorkNodeClient();
+    const hasParentNodeInput = Object.prototype.hasOwnProperty.call(command, 'parentNodeId');
     const created = await client.create({
       saveId: command.saveId?.trim() || 'current-main-workbench',
       branchId: command.branchId?.trim() || `main-workbench-${now}`,
-      parentNodeId: command.parentNodeId?.trim() || undefined,
+      ...(hasParentNodeInput ? {
+        parentNodeId: command.parentNodeId === null ? null : (command.parentNodeId?.trim() || null),
+      } : {}),
       label: command.label?.trim() || `Main Workbench ${new Date(now).toLocaleString()}`,
       basePayload: payload,
       workingPayload: payload,
@@ -1184,7 +1187,7 @@ export function CanvasBoard({
         op: 'createAiTimelineWorkNodeFromCurrent',
         saveId: command.saveId,
         branchId: command.branchId,
-        parentNodeId: command.parentNodeId,
+        ...(Object.prototype.hasOwnProperty.call(command, 'parentNodeId') ? { parentNodeId: command.parentNodeId } : {}),
         label: command.label,
         approvalPolicy: command.approvalPolicy,
       });
