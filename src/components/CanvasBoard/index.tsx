@@ -69,7 +69,7 @@ import {
 } from '../../utils/storage';
 import {
   applyTimelineSnapshotPayload,
-  buildTimelineShareFile,
+  buildTimelineBundleV2,
   buildTimelineShareFileName,
   createTimelineSnapshotEntry,
   getCurrentTimelineSnapshotPayload,
@@ -2735,11 +2735,12 @@ export function CanvasBoard({
     saveTimelineData();
     setSelectedCharacterIds(selectedCharacters.map((character) => character.id));
 
-    const shareFile = buildTimelineShareFile(shareDraftName);
-    if (!shareFile) {
+    const snapshot = createTimelineSnapshotEntry(shareDraftName);
+    if (!snapshot) {
       alert('当前没有可导出的排轴数据');
       return;
     }
+    const shareFile = buildTimelineBundleV2({ timelineId: DEFAULT_TIMELINE_ID, label: shareDraftName, snapshot });
 
     const blob = new Blob([JSON.stringify(shareFile, null, 2)], {
       type: 'application/json;charset=utf-8',
@@ -2747,7 +2748,7 @@ export function CanvasBoard({
     const url = window.URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = buildTimelineShareFileName(shareFile.label, shareFile.exportedAt);
+    link.download = buildTimelineShareFileName(shareFile.manifest.label, shareFile.manifest.exportedAt);
     link.click();
     window.URL.revokeObjectURL(url);
   };
