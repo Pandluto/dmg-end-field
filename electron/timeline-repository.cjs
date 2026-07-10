@@ -241,6 +241,26 @@ function createTimelineRepository({ databasePath }) {
       }
       snapshotIds.add(snapshot.id);
     }
+    const workNodes = Array.isArray(input.workNodes) ? input.workNodes : [];
+    const workNodeIds = new Set();
+    for (const node of workNodes) {
+      if (!node?.id || !Object.prototype.hasOwnProperty.call(node, 'basePayload') || !Object.prototype.hasOwnProperty.call(node, 'workingPayload')) {
+        const error = new Error('Timeline bundle contains an invalid Work Node.');
+        error.code = 'invalid-timeline-bundle-work-node';
+        throw error;
+      }
+      if (workNodeIds.has(node.id)) {
+        const error = new Error(`Timeline bundle has duplicate Work Node id: ${node.id}`);
+        error.code = 'duplicate-timeline-bundle-work-node';
+        throw error;
+      }
+      workNodeIds.add(node.id);
+      if (node.parentNodeId && !workNodeIds.has(node.parentNodeId) && !workNodes.some((candidate) => candidate?.id === node.parentNodeId)) {
+        const error = new Error(`Timeline bundle Work Node parent is absent: ${node.parentNodeId}`);
+        error.code = 'orphan-timeline-bundle-work-node';
+        throw error;
+      }
+    }
     return transaction(() => {
       const existing = db.prepare('SELECT id FROM timeline_documents WHERE id = ?').get(documentId);
       if (existing) {
@@ -271,15 +291,38 @@ function createTimelineRepository({ databasePath }) {
         });
         return readSnapshot(db.prepare('SELECT * FROM timeline_snapshots WHERE id = ?').get(snapshot.id));
       });
+      const pendingNodes = [...workNodes];
+      const insertedNodeIds = new Set();
+      while (pendingNodes.length) {
+        const index = pendingNodes.findIndex((node) => !node.parentNodeId || insertedNodeIds.has(node.parentNodeId));
+        if (index < 0) {
+          const error = new Error('Timeline bundle Work Node parents contain a cycle.');
+          error.code = 'cyclic-timeline-bundle-work-nodes';
+          throw error;
+        }
+        const node = pendingNodes.splice(index, 1)[0];
+        const createdAt = node.createdAt || now;
+        const basePayloadHash = ensurePayload(node.basePayload, createdAt);
+        const workingPayloadHash = ensurePayload(node.workingPayload, node.updatedAt || createdAt);
+        db.prepare(`
+          INSERT INTO timeline_work_nodes (
+            id, timeline_id, parent_id, base_payload_hash, working_payload_hash, branch_id, label,
+            status, approval_policy, risk_flags, logs, created_at, updated_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `).run(node.id, documentId, node.parentNodeId || null, basePayloadHash, workingPayloadHash,
+          node.branchId || node.id, node.label || node.id, node.status || 'draft', node.approvalPolicy || 'auto-low-risk',
+          serialize(node.riskFlags), serialize(node.logs), createdAt, node.updatedAt || createdAt);
+        insertedNodeIds.add(node.id);
+      }
       writeAuditEvent({
         timelineId: documentId,
         eventType: 'bundle.imported',
         subjectType: 'document',
         subjectId: documentId,
-        details: { snapshotCount: snapshots.length },
+        details: { snapshotCount: snapshots.length, workNodeCount: workNodes.length },
         createdAt: now,
       });
-      return { document: readDocument(db.prepare('SELECT * FROM timeline_documents WHERE id = ?').get(documentId)), snapshots };
+      return { document: readDocument(db.prepare('SELECT * FROM timeline_documents WHERE id = ?').get(documentId)), snapshots, workNodeCount: workNodes.length };
     });
   }
 
