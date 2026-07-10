@@ -39,6 +39,17 @@ try {
       updatedAt: appliedCommit.createdAt || Date.now(),
     });
   }
+  for (const commit of archive.commits.filter((item) => item?.checkoutApplied && importedIds.has(item.nodeId))) {
+    repository.appendAuditEvent({
+      id: `legacy-checkout-${commit.id}`,
+      timelineId,
+      eventType: 'work-node.checked-out',
+      subjectType: 'work-node',
+      subjectId: commit.nodeId,
+      details: { legacyCommitId: commit.id, checkout: commit.checkout || null },
+      createdAt: commit.createdAt || Date.now(),
+    });
+  }
   const reportPath = path.join(local, 'timeline-work-node-migration-report.json');
   fs.writeFileSync(reportPath, `${JSON.stringify({ generatedAt: new Date().toISOString(), imported, checkoutNodeId: appliedCommit?.nodeId || null, anomalous }, null, 2)}\n`, 'utf8');
   console.log(JSON.stringify({ ok: true, imported, checkoutNodeId: appliedCommit?.nodeId || null, anomalous: anomalous.length, reportPath }, null, 2));
