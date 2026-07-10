@@ -129,6 +129,21 @@ function createTimelineRepository({ databasePath }) {
     return hash;
   }
 
+  function writeAuditEvent(input) {
+    db.prepare(`
+      INSERT INTO timeline_audit_events (id, timeline_id, event_type, subject_type, subject_id, details, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      input.id || `timeline-audit-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`,
+      input.timelineId,
+      input.eventType,
+      input.subjectType,
+      input.subjectId,
+      serialize(input.details),
+      input.createdAt || Date.now(),
+    );
+  }
+
   function readDocument(row) {
     return row && {
       id: row.id,
@@ -185,6 +200,7 @@ function createTimelineRepository({ databasePath }) {
         INSERT INTO timeline_snapshots (id, timeline_id, payload_hash, label, created_at, archived_at)
         VALUES (?, ?, ?, ?, ?, NULL)
       `).run(input.id, input.timelineId, payloadHash, input.label, createdAt);
+      writeAuditEvent({ timelineId: input.timelineId, eventType: 'snapshot.saved', subjectType: 'snapshot', subjectId: input.id, details: { payloadHash }, createdAt });
       return {
         snapshot: readSnapshot(db.prepare('SELECT * FROM timeline_snapshots WHERE id = ?').get(input.id)),
         reused: false,
@@ -211,6 +227,14 @@ function createTimelineRepository({ databasePath }) {
           target_id = excluded.target_id,
           updated_at = excluded.updated_at
       `).run(input.timelineId, input.targetType, input.targetId, updatedAt);
+      writeAuditEvent({
+        timelineId: input.timelineId,
+        eventType: input.targetType === 'snapshot' ? 'snapshot.restored' : 'work-node.checked-out',
+        subjectType: input.targetType,
+        subjectId: input.targetId,
+        details: {},
+        createdAt: updatedAt,
+      });
       return { timelineId: input.timelineId, targetType: input.targetType, targetId: input.targetId, updatedAt };
     });
   }
