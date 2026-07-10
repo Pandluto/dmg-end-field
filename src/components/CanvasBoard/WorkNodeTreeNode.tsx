@@ -1,4 +1,5 @@
-import type { MouseEvent } from 'react';
+import { useLayoutEffect, useRef, useState } from 'react';
+import type { CSSProperties, MouseEvent } from 'react';
 import type { WorkNodeTreeNode as WorkNodeTreeNodeModel } from './workNodeTreeTypes';
 
 const SOURCE_LABELS: Record<WorkNodeTreeNodeModel['source'], string> = {
@@ -90,6 +91,9 @@ export function WorkNodeTreeNode({
   onAddChild,
   onAddSibling,
 }: WorkNodeTreeNodeProps) {
+  const nodeShellRef = useRef<HTMLElement>(null);
+  const childrenRef = useRef<HTMLDivElement>(null);
+  const [nodeOffset, setNodeOffset] = useState(0);
   const childCount = node.children.length;
   const hasChildren = childCount > 0;
   const isActive = activeNodeId === node.nodeId;
@@ -100,9 +104,46 @@ export function WorkNodeTreeNode({
     ? 'work-node-tree-children is-fork'
     : 'work-node-tree-children is-linear';
 
+  useLayoutEffect(() => {
+    const childrenElement = childrenRef.current;
+    const parentElement = nodeShellRef.current;
+    if (!childrenElement || !parentElement || childCount < 2) {
+      setNodeOffset((current) => (current === 0 ? current : 0));
+      return;
+    }
+
+    const childShells = Array.from(childrenElement.children)
+      .map((child) => child.querySelector<HTMLElement>(':scope > .work-node-tree-node-shell'))
+      .filter((shell): shell is HTMLElement => Boolean(shell));
+    if (childShells.length < 2) return;
+
+    const containerRect = childrenElement.getBoundingClientRect();
+    const centers = childShells.map((shell) => {
+      const rect = shell.getBoundingClientRect();
+      return rect.left + rect.width / 2 - containerRect.left;
+    });
+    const left = centers[0];
+    const right = centers[centers.length - 1];
+    const middle = (left + right) / 2;
+    const parentRect = parentElement.getBoundingClientRect();
+    const parentCenter = parentRect.left + parentRect.width / 2 - containerRect.left;
+    childrenElement.style.setProperty('--branch-left', `${left}px`);
+    childrenElement.style.setProperty('--branch-width', `${right - left}px`);
+    childrenElement.style.setProperty('--branch-middle', `${middle}px`);
+    const nextOffset = middle - parentCenter;
+    setNodeOffset((current) => Math.abs(current - nextOffset) < 0.5 ? current : nextOffset);
+  }, [childCount, node.children]);
+
   return (
-    <div className={`work-node-flow-node${isRoot ? ' is-root' : ''}`}>
-      <article className="work-node-tree-node-shell">
+    <div
+      className={`work-node-flow-node${isRoot ? ' is-root' : ''}`}
+      style={nodeOffset ? { '--node-offset': `${nodeOffset}px` } as CSSProperties : undefined}
+    >
+      <article
+        ref={nodeShellRef}
+        className="work-node-tree-node-shell"
+        style={nodeOffset ? { transform: `translateX(${nodeOffset}px)` } : undefined}
+      >
         <div
           className={`work-node-tree-node is-${node.status}${pathClassName}`}
           title={`${node.title}\n${node.diffSummary}\n${node.summary}`}
@@ -138,7 +179,7 @@ export function WorkNodeTreeNode({
         </div>
       </article>
       {hasChildren ? (
-        <div className={childrenClassName}>
+        <div ref={childrenRef} className={childrenClassName}>
           {node.children.map((child) => (
             <WorkNodeTreeNode
               key={child.nodeId}

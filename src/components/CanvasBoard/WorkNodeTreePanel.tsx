@@ -59,6 +59,8 @@ export function WorkNodeTreePanel({ refreshKey, onSummaryChange }: WorkNodeTreeP
   const [headNodeId, setHeadNodeId] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
+  const [camera, setCamera] = useState({ x: 0, y: 0 });
+  const dragRef = useRef<{ pointerId: number; startX: number; startY: number; cameraX: number; cameraY: number } | null>(null);
   const revisionRef = useRef(0);
 
   const applyListResponse = (response: AiTimelineWorkNodeListResponse) => {
@@ -182,28 +184,59 @@ export function WorkNodeTreePanel({ refreshKey, onSummaryChange }: WorkNodeTreeP
     }
   };
 
+  const handleCanvasPointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (event.target !== event.currentTarget || event.button !== 0) return;
+    dragRef.current = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      cameraX: camera.x,
+      cameraY: camera.y,
+    };
+    event.currentTarget.setPointerCapture(event.pointerId);
+  };
+
+  const handleCanvasPointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
+    const drag = dragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    setCamera({
+      x: drag.cameraX + event.clientX - drag.startX,
+      y: drag.cameraY + event.clientY - drag.startY,
+    });
+  };
+
+  const stopCanvasDrag = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (dragRef.current?.pointerId === event.pointerId) dragRef.current = null;
+  };
+
   return (
     <div
       className="work-node-tree-panel"
       aria-label={`Work node 节点树，${viewModel.nodeCount} 节点，${viewModel.riskCount} 风险`}
+      onPointerDown={handleCanvasPointerDown}
+      onPointerMove={handleCanvasPointerMove}
+      onPointerUp={stopCanvasDrag}
+      onPointerCancel={stopCanvasDrag}
     >
       <div className="work-node-tree-count">{viewModel.nodeCount} 节点 / {viewModel.riskCount} 风险</div>
       {error ? <div className="work-node-tree-empty">{error}</div> : null}
       {!error && loading && viewModel.nodeCount === 0 ? <div className="work-node-tree-empty">正在读取节点</div> : null}
       {!error && !loading && viewModel.nodeCount === 0 ? <div className="work-node-tree-empty">暂无可见节点</div> : null}
-      {viewModel.nodes.map((node) => (
-        <WorkNodeTreeNode
-          key={node.nodeId}
-          node={node}
-          activeNodeId={headNodeId}
-          activePathNodeIds={activePathNodeIds}
-          isRoot
-          onSelect={(target) => void checkoutNode(target.nodeId)}
-          onDelete={handleDelete}
-          onAddChild={(target) => void createNodeFromCurrent(target.nodeId, 'child')}
-          onAddSibling={(target) => void createNodeFromCurrent(target.parentNodeId || null, 'branch')}
-        />
-      ))}
+      <div className="work-node-tree-canvas" style={{ transform: `translate(${camera.x}px, ${camera.y}px)` }}>
+        {viewModel.nodes.map((node) => (
+          <WorkNodeTreeNode
+            key={node.nodeId}
+            node={node}
+            activeNodeId={headNodeId}
+            activePathNodeIds={activePathNodeIds}
+            isRoot
+            onSelect={(target) => void checkoutNode(target.nodeId)}
+            onDelete={handleDelete}
+            onAddChild={(target) => void createNodeFromCurrent(target.nodeId, 'child')}
+            onAddSibling={(target) => void createNodeFromCurrent(target.parentNodeId || null, 'branch')}
+          />
+        ))}
+      </div>
     </div>
   );
 }

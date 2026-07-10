@@ -14,6 +14,19 @@
   background-size: 24px 24px;
   padding: 24px 32px 40px;
   box-sizing: border-box;
+  cursor: grab;
+  touch-action: none;
+}
+
+.work-node-tree-panel:active {
+  cursor: grabbing;
+}
+
+.work-node-tree-canvas {
+  position: relative;
+  width: max-content;
+  min-width: 100%;
+  transition: transform 0.05s linear;
 }
 
 .work-node-tree-count {
@@ -124,15 +137,15 @@
   position: relative;
   display: flex;
   justify-content: center;
-  gap: 18px;
-  padding-top: 14px;
+  gap: 32px;
+  padding-top: 28px;
 }
 
 .work-node-tree-children::before {
   content: "";
   position: absolute;
   top: 0;
-  left: 50%;
+  left: var(--branch-middle, 50%);
   width: 1px;
   height: 14px;
   background: rgba(0, 0, 0, 0.48);
@@ -142,8 +155,9 @@
   content: "";
   position: absolute;
   top: 14px;
-  left: 84px;
-  right: 84px;
+  left: var(--branch-left, 84px);
+  width: var(--branch-width, calc(100% - 168px));
+  right: auto;
   height: 1px;
   background: rgba(0, 0, 0, 0.48);
 }
@@ -152,7 +166,7 @@
   content: "";
   position: absolute;
   top: -14px;
-  left: 50%;
+  left: calc(50% + var(--node-offset, 0px));
   width: 1px;
   height: 14px;
   background: rgba(0, 0, 0, 0.48);
@@ -166,6 +180,10 @@
 
 .work-node-tree-children.is-linear::after {
   display: none;
+}
+
+.work-node-tree-children.is-linear::before {
+  height: 28px;
 }
 
 .work-node-tree-children.is-linear > .work-node-flow-node::before {
