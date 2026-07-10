@@ -75,6 +75,7 @@ import {
   getCurrentTimelineSnapshotPayload,
   listTimelineSnapshots,
   parseTimelineShareFile,
+  parseTimelineBundleV2,
   restoreTimelineSnapshot,
   TIMELINE_SNAPSHOT_LIMIT,
   type TimelineSnapshotEntry,
@@ -410,6 +411,7 @@ export function CanvasBoard({
   const [shareDraftName, setShareDraftName] = useState('');
   const [pendingRestoreSnapshot, setPendingRestoreSnapshot] = useState<TimelineSnapshotEntry | null>(null);
   const [pendingImportShare, setPendingImportShare] = useState<TimelineShareFile | null>(null);
+  const [pendingImportTimelineId, setPendingImportTimelineId] = useState('');
   const [timelineSnapshots, setTimelineSnapshots] = useState<TimelineSnapshotEntry[]>([]);
   const [isBrowseMode, setIsBrowseMode] = useState(false);
   const [isInspectMode, setIsInspectMode] = useState(false);
@@ -2726,6 +2728,7 @@ export function CanvasBoard({
   const handleCloseShareModal = () => {
     setIsShareModalOpen(false);
     setPendingImportShare(null);
+    setPendingImportTimelineId('');
     if (shareImportInputRef.current) {
       shareImportInputRef.current.value = '';
     }
@@ -2764,6 +2767,15 @@ export function CanvasBoard({
     }
 
     const rawText = await file.text();
+    const bundle = parseTimelineBundleV2(rawText);
+    if (bundle) {
+      const snapshot = bundle.snapshots[0];
+      const payload = bundle.payloads[snapshot.payloadIndex];
+      setPendingImportShare({ type: 'timeline-share.v1', exportedAt: bundle.manifest.exportedAt, label: bundle.manifest.label, payload });
+      setPendingImportTimelineId(`imported-${Date.now()}`);
+      event.target.value = '';
+      return;
+    }
     const parsed = parseTimelineShareFile(rawText);
     if (!parsed) {
       alert('导入失败：文件不是有效的排轴分享 JSON');
@@ -2777,15 +2789,22 @@ export function CanvasBoard({
 
   const handleCancelImportShare = () => {
     setPendingImportShare(null);
+    setPendingImportTimelineId('');
   };
 
-  const handleConfirmImportShare = () => {
+  const handleConfirmImportShare = async () => {
     if (!pendingImportShare) {
       return;
     }
 
+    if (pendingImportTimelineId) {
+      const repository = createTimelineRepositoryClient();
+      await repository.ensureDocument({ id: pendingImportTimelineId, label: pendingImportShare.label });
+      await repository.saveSnapshot({ id: `imported-snapshot-${Date.now()}`, timelineId: pendingImportTimelineId, label: pendingImportShare.label, payload: pendingImportShare.payload });
+    }
     applyTimelineSnapshotPayload(pendingImportShare.payload);
     setPendingImportShare(null);
+    setPendingImportTimelineId('');
     window.location.reload();
   };
 
