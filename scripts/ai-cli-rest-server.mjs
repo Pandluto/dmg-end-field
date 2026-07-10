@@ -492,6 +492,14 @@ function getTimelineRepository() {
   return timelineRepository;
 }
 
+function mirrorWorkNodeToTimelineRepository(node) {
+  if (!node || node.saveId?.startsWith('timeline-snapshot-') || /^\[snapshot\]/i.test(node.label || '')) return;
+  const timelineId = node.saveId || 'current-main-workbench';
+  const repository = getTimelineRepository();
+  repository.ensureDocument({ id: timelineId, label: '主排轴' });
+  repository.importWorkNode({ ...node, timelineId });
+}
+
 function readAiTimelineWorkNodeArchive() {
   return getAiTimelineWorkNodeStore().readArchive();
 }
@@ -935,6 +943,7 @@ function handleAiTimelineWorkNodeRequest(method, pathname, body) {
       logs: [makeWorkNodeLog('info', 'Created AI timeline work node from checkout payload.')],
     };
     store.saveNode(node);
+    mirrorWorkNodeToTimelineRepository(node);
     return { status: 200, body: { ok: true, protocolVersion: 1, path: aiTimelineWorkNodesPath, node } };
   }
 
@@ -1004,6 +1013,7 @@ function handleAiTimelineWorkNodeRequest(method, pathname, body) {
       ],
     };
     store.saveNode(nextNode);
+    mirrorWorkNodeToTimelineRepository(nextNode);
     return { status: 200, body: { ok: true, protocolVersion: 1, path: aiTimelineWorkNodesPath, node: nextNode } };
   }
 
@@ -1073,6 +1083,7 @@ function handleAiTimelineWorkNodeRequest(method, pathname, body) {
       ],
     };
     store.saveNodeAndCommit(nextNode, commit);
+    mirrorWorkNodeToTimelineRepository(nextNode);
     return { status: 200, body: { ok: true, protocolVersion: 1, path: aiTimelineWorkNodesPath, node: nextNode, commit } };
   }
 
@@ -1106,6 +1117,7 @@ function handleAiTimelineWorkNodeRequest(method, pathname, body) {
       ],
     };
     store.saveNodeAndCommit(nextNode, nextCommit, { setHead: true });
+    mirrorWorkNodeToTimelineRepository(nextNode);
     return { status: 200, body: { ok: true, protocolVersion: 1, path: aiTimelineWorkNodesPath, node: nextNode, commit: nextCommit } };
   }
 
@@ -1140,6 +1152,7 @@ function handleAiTimelineWorkNodeRequest(method, pathname, body) {
       })],
     };
     store.saveNode(restoreNode, { setHead: true });
+    mirrorWorkNodeToTimelineRepository(restoreNode);
     return { status: 200, body: { ok: true, protocolVersion: 1, path: aiTimelineWorkNodesPath, node: restoreNode, rollback } };
   }
 

@@ -252,10 +252,21 @@ function createTimelineRepository({ databasePath }) {
       const basePayloadHash = ensurePayload(input.basePayload, createdAt);
       const workingPayloadHash = ensurePayload(input.workingPayload, input.updatedAt || createdAt);
       db.prepare(`
-        INSERT OR IGNORE INTO timeline_work_nodes (
+        INSERT INTO timeline_work_nodes (
           id, timeline_id, parent_id, base_payload_hash, working_payload_hash, branch_id, label,
           status, approval_policy, risk_flags, logs, created_at, updated_at
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+          parent_id = excluded.parent_id,
+          base_payload_hash = excluded.base_payload_hash,
+          working_payload_hash = excluded.working_payload_hash,
+          branch_id = excluded.branch_id,
+          label = excluded.label,
+          status = excluded.status,
+          approval_policy = excluded.approval_policy,
+          risk_flags = excluded.risk_flags,
+          logs = excluded.logs,
+          updated_at = excluded.updated_at
       `).run(input.id, input.timelineId, input.parentNodeId || null, basePayloadHash, workingPayloadHash,
         input.branchId || input.id, input.label || input.id, input.status || 'draft', input.approvalPolicy || 'auto-low-risk',
         serialize(input.riskFlags), serialize(input.logs), createdAt, input.updatedAt || createdAt);
