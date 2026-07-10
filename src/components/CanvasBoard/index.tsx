@@ -2745,7 +2745,7 @@ export function CanvasBoard({
     }
   };
 
-  const handleExportTimelineJson = () => {
+  const handleExportTimelineJson = async () => {
     saveTimelineData();
     setSelectedCharacterIds(selectedCharacters.map((character) => character.id));
 
@@ -2754,7 +2754,7 @@ export function CanvasBoard({
       alert('当前没有可导出的排轴数据');
       return;
     }
-    const shareFile = buildTimelineBundleV2({ timelineId: DEFAULT_TIMELINE_ID, label: shareDraftName, snapshot });
+    const shareFile = await buildTimelineBundleV2({ timelineId: DEFAULT_TIMELINE_ID, label: shareDraftName, snapshot });
 
     const blob = new Blob([JSON.stringify(shareFile, null, 2)], {
       type: 'application/json;charset=utf-8',
@@ -2778,7 +2778,7 @@ export function CanvasBoard({
     }
 
     const rawText = await file.text();
-    const bundle = parseTimelineBundleV2(rawText);
+    const bundle = await parseTimelineBundleV2(rawText);
     if (bundle) {
       const snapshot = bundle.snapshots[0];
       const payload = bundle.payloads[snapshot.payloadIndex];

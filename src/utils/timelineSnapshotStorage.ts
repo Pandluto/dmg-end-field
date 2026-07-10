@@ -67,7 +67,7 @@ export interface TimelineShareFile {
 export interface TimelineBundleV2 {
   type: 'dmg.timeline-bundle.v2';
   schemaVersion: 2;
-  manifest: { exportedAt: number; scope: 'snapshot'; timelineId: string; label: string };
+  manifest: { exportedAt: number; scope: 'snapshot'; timelineId: string; label: string; payloadHash: string };
   document: { id: string; label: string };
   payloads: TimelineSnapshotPayload[];
   snapshots: Array<{ id: string; label: string; createdAt: number; payloadIndex: number }>;
@@ -283,24 +283,32 @@ export function buildTimelineShareFile(customLabel?: string): TimelineShareFile 
   };
 }
 
-export function buildTimelineBundleV2(input: { timelineId: string; label?: string; snapshot: TimelineSnapshotEntry }): TimelineBundleV2 {
+async function sha256(value: unknown): Promise<string> {
+  const bytes = new TextEncoder().encode(JSON.stringify(value));
+  const hash = await crypto.subtle.digest('SHA-256', bytes);
+  return `sha256:${Array.from(new Uint8Array(hash)).map((byte) => byte.toString(16).padStart(2, '0')).join('')}`;
+}
+
+export async function buildTimelineBundleV2(input: { timelineId: string; label?: string; snapshot: TimelineSnapshotEntry }): Promise<TimelineBundleV2> {
+  const payloads = [normalizeSnapshotPayload(input.snapshot.payload)];
   return {
     type: 'dmg.timeline-bundle.v2',
     schemaVersion: 2,
-    manifest: { exportedAt: Date.now(), scope: 'snapshot', timelineId: input.timelineId, label: normalizeShareLabel(input.label || input.snapshot.label) },
+    manifest: { exportedAt: Date.now(), scope: 'snapshot', timelineId: input.timelineId, label: normalizeShareLabel(input.label || input.snapshot.label), payloadHash: await sha256(payloads) },
     document: { id: input.timelineId, label: normalizeShareLabel(input.label || '导入排轴') },
-    payloads: [normalizeSnapshotPayload(input.snapshot.payload)],
+    payloads,
     snapshots: [{ id: input.snapshot.id, label: input.snapshot.label, createdAt: input.snapshot.createdAt, payloadIndex: 0 }],
   };
 }
 
-export function parseTimelineBundleV2(rawText: string): TimelineBundleV2 | null {
+export async function parseTimelineBundleV2(rawText: string): Promise<TimelineBundleV2 | null> {
   try {
     const bundle = JSON.parse(rawText) as Partial<TimelineBundleV2>;
     if (bundle.type !== 'dmg.timeline-bundle.v2' || bundle.schemaVersion !== 2 || bundle.manifest?.scope !== 'snapshot') return null;
-    if (!bundle.document?.id || !Array.isArray(bundle.payloads) || !Array.isArray(bundle.snapshots)) return null;
+    if (!bundle.document?.id || !bundle.manifest?.payloadHash || !Array.isArray(bundle.payloads) || !Array.isArray(bundle.snapshots)) return null;
     if (!bundle.payloads.every(isValidTimelineSnapshotPayload)) return null;
     if (!bundle.snapshots.every((item) => typeof item?.id === 'string' && typeof item.payloadIndex === 'number' && bundle.payloads![item.payloadIndex])) return null;
+    if (await sha256(bundle.payloads) !== bundle.manifest.payloadHash) return null;
     return bundle as TimelineBundleV2;
   } catch {
     return null;
