@@ -704,6 +704,11 @@ export function MainWorkbenchAiPanel({
       setStatus('新对话');
       return undefined;
     }
+    const cachedHistory = readStoredDefAgentHistory(stored.sessionId);
+    if (cachedHistory.length > 0) {
+      setMessages(cachedHistory);
+      setStatus('正在恢复会话历史');
+    }
     void hydrateDefAgentSession(stored.sessionId)
       .then((transcript) => {
         if (cancelled) return;
@@ -724,6 +729,11 @@ export function MainWorkbenchAiPanel({
           setTokens(null);
           setMessages(buildInitialMessages());
           setStatus('新对话');
+          return;
+        }
+        if (cachedHistory.length > 0) {
+          setMessages(cachedHistory);
+          setStatus('历史已从本地缓存恢复；后台记录仍在重试。');
           return;
         }
         setStatus(message);

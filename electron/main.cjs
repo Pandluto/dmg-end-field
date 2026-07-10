@@ -1256,7 +1256,10 @@ function startBridgeServer() {
       if (method === 'GET' && defAgentTranscriptMatch) {
         await startDefAgent();
         const sessionID = encodeURIComponent(decodeURIComponent(defAgentTranscriptMatch[1]));
-        const upstream = await fetchJsonUrl(`http://127.0.0.1:17322/api/chat/${sessionID}/transcript`);
+        const upstream = await fetchJsonUrl(`http://127.0.0.1:17322/api/chat/${sessionID}/transcript`, {
+          timeoutMs: 60000,
+          retries: 0,
+        });
         writeJson(response, upstream.status || 500, upstream.body);
         return;
       }
@@ -2099,8 +2102,11 @@ async function fetchUrlRawWithRetry(targetUrl, options = {}) {
   throw lastError || new Error(`请求失败: ${targetUrl}`);
 }
 
-async function fetchJsonUrl(url) {
-  const response = await fetchUrlRawWithRetry(url, { timeoutMs: 1000, retries: 1 });
+async function fetchJsonUrl(url, options = {}) {
+  const response = await fetchUrlRawWithRetry(url, {
+    timeoutMs: options.timeoutMs ?? 1000,
+    retries: options.retries ?? 1,
+  });
   return {
     status: response.statusCode,
     body: JSON.parse(response.body.toString('utf-8') || '{}'),
