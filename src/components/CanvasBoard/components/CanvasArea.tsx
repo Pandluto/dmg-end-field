@@ -34,6 +34,7 @@ interface CanvasAreaProps {
   isDraggingActive?: boolean;
   isBrowseMode?: boolean;
   isInspectMode?: boolean;
+  isDragDisabled?: boolean;
   resistanceRevision?: number;
 }
 
@@ -62,6 +63,7 @@ export const CanvasArea = forwardRef<HTMLDivElement, CanvasAreaProps>(({
   isDraggingActive = false,
   isBrowseMode = false,
   isInspectMode = false,
+  isDragDisabled = false,
   resistanceRevision = 0,
 }, canvasRef) => {
   const renderSkillButtons = () => {
@@ -76,6 +78,7 @@ export const CanvasArea = forwardRef<HTMLDivElement, CanvasAreaProps>(({
           onContextMenu={(event) => onButtonContextMenu(event, button.id)}
           isBrowseMode={isBrowseMode}
           isInspectMode={isInspectMode}
+          isDragDisabled={isDragDisabled}
           resistanceRevision={resistanceRevision}
           timelineData={timelineData}
           onModalOpen={onSkillButtonModalOpen}

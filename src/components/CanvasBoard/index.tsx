@@ -2017,6 +2017,7 @@ export function CanvasBoard({
   }, []);
 
   const { draggingState, mousePosition, handleSandboxDragStart, handleButtonMouseDown } = useCanvasDrag({
+    disabled: isAiMode,
     config: canvasConfig,
     canvasWidth,
     staffCount,
@@ -2890,6 +2891,7 @@ export function CanvasBoard({
             isDraggingActive={Boolean(draggingState)}
             isBrowseMode={isBrowseMode}
             isInspectMode={isInspectMode}
+            isDragDisabled={isAiMode}
             resistanceRevision={resistanceRevision}
           />
         </div>

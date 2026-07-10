@@ -183,6 +183,7 @@ interface SkillButtonProps {
   skillChangeOptions?: SkillButtonSkillOption[];
   isBrowseMode?: boolean;
   isInspectMode?: boolean;
+  isDragDisabled?: boolean;
   resistanceRevision?: number;
 }
 
@@ -211,6 +212,7 @@ export function SkillButtonComponent({
   skillChangeOptions = [],
   isBrowseMode = false,
   isInspectMode = false,
+  isDragDisabled = false,
   resistanceRevision = 0,
 }: SkillButtonProps) {
   /**
@@ -1476,7 +1478,7 @@ export function SkillButtonComponent({
    */
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
-    if (isBrowseMode) {
+    if (isBrowseMode || isDragDisabled) {
       return;
     }
 
@@ -1500,7 +1502,16 @@ export function SkillButtonComponent({
     };
 
     document.addEventListener('mouseup', handleMouseUp);
-  }, [isBrowseMode, onMouseDown]);
+  }, [isBrowseMode, isDragDisabled, onMouseDown]);
+
+  useEffect(() => {
+    if (!isDragDisabled) return;
+    if (longPressTimerRef.current) {
+      clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
+    isLongPressRef.current = false;
+  }, [isDragDisabled]);
 
   /**
    * 处理点击事件（区分单击和双击）
@@ -1555,7 +1566,8 @@ export function SkillButtonComponent({
   return (
     <>
       <div
-        className={`canvas-skill-button ${isSelected ? 'selected' : ''} ${isDragging ? 'dragging' : ''} ${isLocked ? 'locked' : ''} ${isBrowseMode ? 'is-browse-mode' : ''} ${isBrowseMode && isDotButton ? 'is-browse-dot' : ''} ${isInspectMode ? 'is-inspect-mode' : ''}`}
+        className={`canvas-skill-button ${isSelected ? 'selected' : ''} ${isDragging ? 'dragging' : ''} ${isLocked ? 'locked' : ''} ${isBrowseMode ? 'is-browse-mode' : ''} ${isBrowseMode && isDotButton ? 'is-browse-dot' : ''} ${isInspectMode ? 'is-inspect-mode' : ''} ${isDragDisabled ? 'is-drag-disabled' : ''}`}
+        aria-disabled={isDragDisabled}
         style={{
           left: position.x - radius - visualOffsetX,
           top: position.y - radius - visualOffsetY,

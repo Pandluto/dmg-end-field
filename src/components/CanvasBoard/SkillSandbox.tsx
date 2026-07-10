@@ -362,10 +362,11 @@ export function SkillSandbox({
                   className={`sandbox-skill-item ${isLocalCharacter ? 'sandbox-skill-item--local' : ''}`}
                 >
                   <div
-                    className={`sandbox-skill-button skill-${sandboxSkill.buttonType.toLowerCase()}`}
+                    className={`sandbox-skill-button skill-${sandboxSkill.buttonType.toLowerCase()}${isAiMode ? ' is-drag-disabled' : ''}`}
+                    aria-disabled={isAiMode}
                     style={{ backgroundColor: getElementBackgroundColor(character.element) }}
                     onMouseDown={(e) => {
-                      if (isBrowseMode) {
+                      if (isBrowseMode || isAiMode) {
                         e.preventDefault();
                         return;
                       }

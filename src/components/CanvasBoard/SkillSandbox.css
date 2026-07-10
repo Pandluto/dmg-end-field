@@ -240,6 +240,13 @@
   transform: scale(1.2);
 }
 
+.sandbox-skill-button.is-drag-disabled,
+.sandbox-skill-button.is-drag-disabled:hover,
+.sandbox-skill-button.is-drag-disabled:active {
+  cursor: default;
+  transform: none;
+}
+
 .skill-sandbox.is-browse-mode .sandbox-skill-button,
 .skill-sandbox.is-browse-mode .sandbox-skill-button:active {
   cursor: default;

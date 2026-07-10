@@ -30,6 +30,11 @@
   cursor: default;
 }
 
+.canvas-skill-button.is-drag-disabled {
+  cursor: default;
+  touch-action: auto;
+}
+
 .skill-button-anchor {
   position: absolute;
   left: var(--skill-button-radius);

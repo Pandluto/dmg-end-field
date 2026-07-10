@@ -34,6 +34,7 @@ interface DraggingState {
 }
 
 interface UseCanvasDragProps {
+  disabled?: boolean;
   config: CanvasConfig;
   canvasWidth: number;
   staffCount: number;
@@ -77,6 +78,7 @@ export interface UseCanvasDragReturn {
 }
 
 export function useCanvasDrag({
+  disabled = false,
   config,
   canvasWidth,
   staffCount,
@@ -105,6 +107,7 @@ export function useCanvasDrag({
       e: React.MouseEvent
     ) => {
       e.preventDefault();
+      if (disabled) return;
       const offset = config.skillButtonSize / 2;
 
       setDraggingState({
@@ -122,11 +125,15 @@ export function useCanvasDrag({
       });
       setMousePosition({ x: e.clientX, y: e.clientY });
     },
-    [config]
+    [config, disabled]
   );
 
   const handleButtonMouseDown = useCallback(
     (e: React.MouseEvent, buttonId: string) => {
+      if (disabled) {
+        e.preventDefault();
+        return;
+      }
       if (e.button !== 0) return;
       e.stopPropagation();
 
@@ -155,11 +162,26 @@ export function useCanvasDrag({
         setMousePosition({ x: e.clientX, y: e.clientY });
       }
     },
-    [skillButtons, config, dispatch, canvasRef]
+    [disabled, skillButtons, config, dispatch, canvasRef]
   );
 
   useEffect(() => {
-    if (!draggingState) return;
+    if (!disabled) return;
+    skillButtonsRef.current.forEach((button) => {
+      if (button.isDragging) {
+        dispatch({ type: 'SET_DRAGGING', buttonId: button.id, isDragging: false });
+      }
+    });
+    setDraggingState((current) => {
+      if (current) {
+        dispatch({ type: 'SET_DRAGGING', buttonId: current.id, isDragging: false });
+      }
+      return null;
+    });
+  }, [disabled, dispatch]);
+
+  useEffect(() => {
+    if (!draggingState || disabled) return;
 
     const handleMouseMove = (e: MouseEvent) => {
       setMousePosition({ x: e.clientX, y: e.clientY });
@@ -377,7 +399,7 @@ export function useCanvasDrag({
       window.removeEventListener('mousemove', handleMouseMove);
       window.removeEventListener('mouseup', handleMouseUp);
     };
-  }, [draggingState, config, canvasWidth, staffCount, selectedCharacters, dispatch, canvasRef, addTimelineButton, updateSkillButtonPosition, moveTimelineButtonToStaff]);
+  }, [draggingState, disabled, config, canvasWidth, staffCount, selectedCharacters, dispatch, canvasRef, addTimelineButton, updateSkillButtonPosition, moveTimelineButtonToStaff]);
 
   return {
     draggingState,
