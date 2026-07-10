@@ -1470,7 +1470,7 @@ function getLiveDefTranscript(sessionID) {
       messages.push({
         id: `${turn.turnId}-agent`,
         role: 'agent',
-        text: turn.assistantText,
+        text: userVisibleReply(turn.assistantText),
         sessionId: state.sessionID,
         activity: turn.activity,
         tokens: turn.tokens,
