@@ -54,5 +54,11 @@ export function createTimelineRepositoryClient() {
       );
       return response.checkoutRef;
     },
+    async archiveSnapshot(snapshotId: string) {
+      const response = await requestWithFallback<RepositoryResponse<{ result: { id: string; archived: boolean } }>>(
+        `/local-data/timeline-snapshots/${encodeURIComponent(snapshotId)}/archive`, 'POST', {},
+      );
+      return response.result;
+    },
   };
 }

@@ -209,12 +209,31 @@ function createTimelineRepository({ databasePath }) {
     });
   }
 
+  function archiveSnapshot(snapshotId) {
+    return transaction(() => {
+      const snapshot = db.prepare('SELECT * FROM timeline_snapshots WHERE id = ? AND archived_at IS NULL').get(snapshotId);
+      if (!snapshot) throw new Error(`Timeline snapshot not found: ${snapshotId}`);
+      const checkout = db.prepare(`
+        SELECT 1 FROM checkout_refs WHERE timeline_id = ? AND target_type = 'snapshot' AND target_id = ?
+      `).get(snapshot.timeline_id, snapshotId);
+      if (checkout) {
+        const error = new Error('Cannot delete the current timeline snapshot. Restore or apply another target first.');
+        error.code = 'timeline-snapshot-current-checkout-protected';
+        error.status = 409;
+        throw error;
+      }
+      db.prepare('UPDATE timeline_snapshots SET archived_at = ? WHERE id = ?').run(Date.now(), snapshotId);
+      return { id: snapshotId, timelineId: snapshot.timeline_id, archived: true };
+    });
+  }
+
   return {
     databasePath,
     ensureDocument,
     createOrReuseSnapshot,
     setCheckoutRef,
     appendAuditEvent,
+    archiveSnapshot,
     getDocument: (id) => readDocument(db.prepare('SELECT * FROM timeline_documents WHERE id = ?').get(id)),
     listDocuments: () => db.prepare(`
       SELECT * FROM timeline_documents WHERE archived_at IS NULL ORDER BY updated_at DESC

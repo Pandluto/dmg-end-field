@@ -71,7 +71,6 @@ import {
   applyTimelineSnapshotPayload,
   buildTimelineShareFile,
   buildTimelineShareFileName,
-  deleteTimelineSnapshot,
   createTimelineSnapshotEntry,
   getCurrentTimelineSnapshotPayload,
   listTimelineSnapshots,
@@ -2710,9 +2709,13 @@ export function CanvasBoard({
     window.location.reload();
   };
 
-  const handleDeleteSnapshot = (snapshotId: string) => {
-    deleteTimelineSnapshot(snapshotId);
-    void refreshTimelineSnapshotList();
+  const handleDeleteSnapshot = async (snapshotId: string) => {
+    try {
+      await createTimelineRepositoryClient().archiveSnapshot(snapshotId);
+      await refreshTimelineSnapshotList();
+    } catch (error) {
+      alert(`删除快照失败：${error instanceof Error ? error.message : String(error)}`);
+    }
   };
 
   const handleOpenShareModal = () => {

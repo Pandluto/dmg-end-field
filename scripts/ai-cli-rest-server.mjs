@@ -1162,6 +1162,15 @@ function handleTimelineRepositoryRequest(method, pathname, query, body) {
   if (method === 'POST' && pathname === '/api/timeline-snapshots') {
     return { status: 200, body: { ok: true, protocolVersion: 1, ...repository.createOrReuseSnapshot(body) } };
   }
+  const snapshotDeleteMatch = /^\/api\/timeline-snapshots\/([^/]+)\/archive$/.exec(pathname);
+  if (method === 'POST' && snapshotDeleteMatch) {
+    try {
+      return { status: 200, body: { ok: true, protocolVersion: 1, result: repository.archiveSnapshot(decodeURIComponent(snapshotDeleteMatch[1])) } };
+    } catch (error) {
+      if (error?.status === 409) return failScript(409, error.code, error.message);
+      throw error;
+    }
+  }
   if (method === 'GET' && pathname === '/api/timeline-checkout-ref') {
     const timelineId = query.get('timelineId') || '';
     if (!timelineId) return failScript(400, 'missing-timeline-id', 'Timeline checkout ref requires timelineId.');
