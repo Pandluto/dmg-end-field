@@ -89,6 +89,7 @@ import type { HitResistanceInput } from '../../types/storage';
 import DeferredNumberInput from '../DeferredNumberInput';
 import {
   getPendingMainWorkbenchCommands,
+  enqueueMainWorkbenchCommand,
   patchMainWorkbenchCommand,
   pullRemoteMainWorkbenchCommands,
   pushMainWorkbenchCommandResult,
@@ -413,6 +414,7 @@ export function CanvasBoard({
   const [isAiMode, setIsAiMode] = useState(false);
   const [isWorkNodePanelOpen, setIsWorkNodePanelOpen] = useState(false);
   const [workNodeRefreshKey, setWorkNodeRefreshKey] = useState(0);
+  const [pendingWorkNodeCheckoutId, setPendingWorkNodeCheckoutId] = useState('');
   const [aiHoverZone, setAiHoverZone] = useState<'left' | 'right'>('right');
   const shouldRestoreTopZoneAfterAiRef = useRef(false);
   const [isRefreshingAvailableCandidates, setIsRefreshingAvailableCandidates] = useState(false);
@@ -454,12 +456,25 @@ export function CanvasBoard({
   };
 
   const openWorkNodePanel = () => {
+    setPendingWorkNodeCheckoutId('');
     setWorkNodeRefreshKey((current) => current + 1);
     setIsWorkNodePanelOpen(true);
   };
 
   const closeWorkNodePanel = () => {
     setIsWorkNodePanelOpen(false);
+    if (!pendingWorkNodeCheckoutId) return;
+    enqueueMainWorkbenchCommand({
+      op: 'checkoutAiTimelineWorkNode',
+      nodeId: pendingWorkNodeCheckoutId,
+      reload: false,
+      approval: {
+        mode: 'manual',
+        approvedBy: 'user',
+        rationale: 'Selected from Work Node tree before closing.',
+      },
+    }, 'work-node-tree');
+    setPendingWorkNodeCheckoutId('');
   };
 
   const refreshWorkNodePanel = () => {
@@ -2832,7 +2847,10 @@ export function CanvasBoard({
                 关闭
               </button>
             </div>
-            <WorkNodeTreePanel refreshKey={workNodeRefreshKey} />
+            <WorkNodeTreePanel
+              refreshKey={workNodeRefreshKey}
+              onSelectedNodeChange={setPendingWorkNodeCheckoutId}
+            />
           </div>
         </div>
       )}

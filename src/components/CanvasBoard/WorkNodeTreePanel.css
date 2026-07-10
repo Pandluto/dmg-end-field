@@ -125,16 +125,16 @@
   top: -1px;
   bottom: -1px;
   width: 3px;
-  background: rgba(0, 120, 212, 0.88);
+  background: #64748b;
 }
 
 .work-node-tree-node.is-blocked::before {
-  background: #b00020;
+  background: #475569;
 }
 
 .work-node-tree-node.is-checked-out::before,
 .work-node-tree-node.is-restored::before {
-  background: #107c10;
+  background: #64748b;
 }
 
 .work-node-tree-node.is-discarded::before {
@@ -142,14 +142,14 @@
 }
 
 .work-node-tree-node.is-blocked {
-  border-color: rgba(176, 0, 32, 0.42);
-  background: rgba(255, 246, 248, 0.96);
+  border-color: rgba(71, 85, 105, 0.45);
+  background: rgba(255, 255, 255, 0.96);
 }
 
 .work-node-tree-node.is-checked-out,
 .work-node-tree-node.is-restored {
-  border-color: rgba(16, 124, 16, 0.38);
-  background: rgba(247, 255, 247, 0.96);
+  border-color: rgba(100, 116, 139, 0.4);
+  background: rgba(249, 250, 251, 0.96);
 }
 
 .work-node-tree-actions {

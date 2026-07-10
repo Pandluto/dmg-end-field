@@ -14,6 +14,7 @@ import './WorkNodeTreePanel.css';
 
 type WorkNodeTreePanelProps = {
   refreshKey: number;
+  onSelectedNodeChange?: (nodeId: string) => void;
   onSummaryChange?: (summary: WorkNodeTreeViewModel) => void;
 };
 
@@ -54,10 +55,12 @@ function collectSubtreeNodeIds(node: WorkNodeTreeViewModel['flatNodes'][number])
   return ids;
 }
 
-export function WorkNodeTreePanel({ refreshKey, onSummaryChange }: WorkNodeTreePanelProps) {
+export function WorkNodeTreePanel({ refreshKey, onSelectedNodeChange, onSummaryChange }: WorkNodeTreePanelProps) {
   const [nodes, setNodes] = useState<AiTimelineWorkNodeListItem[]>([]);
   const [commits, setCommits] = useState<AiTimelineWorkNodeCommitListItem[]>([]);
   const [headNodeId, setHeadNodeId] = useState('');
+  const [selectedNodeId, setSelectedNodeId] = useState('');
+  const selectionInitializedRef = useRef(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
   const [camera, setCamera] = useState({ x: 0, y: 0 });
@@ -70,6 +73,10 @@ export function WorkNodeTreePanel({ refreshKey, onSummaryChange }: WorkNodeTreeP
     setNodes(response.nodes || []);
     setCommits(response.commits || []);
     setHeadNodeId(response.headNodeId || '');
+    if (!selectionInitializedRef.current) {
+      selectionInitializedRef.current = true;
+      setSelectedNodeId(response.headNodeId || '');
+    }
     return true;
   };
 
@@ -78,7 +85,7 @@ export function WorkNodeTreePanel({ refreshKey, onSummaryChange }: WorkNodeTreeP
   const activePathNodeIds = useMemo(() => {
     const pathIds = new Set<string>();
     const byId = new Map(viewModel.flatNodes.map((node) => [node.nodeId, node]));
-    let current = headNodeId ? byId.get(headNodeId) : undefined;
+    let current = selectedNodeId ? byId.get(selectedNodeId) : undefined;
 
     while (current) {
       pathIds.add(current.nodeId);
@@ -86,7 +93,7 @@ export function WorkNodeTreePanel({ refreshKey, onSummaryChange }: WorkNodeTreeP
     }
 
     return pathIds;
-  }, [headNodeId, viewModel.flatNodes]);
+  }, [selectedNodeId, viewModel.flatNodes]);
 
   useEffect(() => {
     let cancelled = false;
@@ -197,6 +204,14 @@ export function WorkNodeTreePanel({ refreshKey, onSummaryChange }: WorkNodeTreeP
     }
   };
 
+  const selectNode = (nodeId: string) => {
+    setSelectedNodeId(nodeId);
+    onSelectedNodeChange?.(nodeId);
+  };
+
+  // Checkout is deliberately deferred to the modal close handler in CanvasBoard.
+  void checkoutNode;
+
   const handleCanvasPointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
     const target = event.target as Element;
     if (event.button !== 0 || target.closest('.work-node-tree-node-shell, .work-node-tree-count, .work-node-tree-empty')) return;
@@ -297,11 +312,11 @@ export function WorkNodeTreePanel({ refreshKey, onSummaryChange }: WorkNodeTreeP
           <WorkNodeTreeNode
             key={node.nodeId}
             node={node}
-            activeNodeId={headNodeId}
+            activeNodeId={selectedNodeId || headNodeId}
             activePathNodeIds={activePathNodeIds}
             x={x}
             y={y}
-            onSelect={(target) => void checkoutNode(target.nodeId)}
+            onSelect={(target) => selectNode(target.nodeId)}
             onDelete={handleDelete}
             onAddChild={(target) => void createNodeFromCurrent(target.nodeId, 'child')}
             onAddSibling={(target) => void createNodeFromCurrent(target.parentNodeId || null, 'branch')}
