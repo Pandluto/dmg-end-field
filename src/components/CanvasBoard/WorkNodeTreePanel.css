@@ -2,10 +2,7 @@
   position: relative;
   min-width: 0;
   min-height: 0;
-  display: flex;
-  align-items: flex-start;
-  justify-content: center;
-  gap: 28px;
+  display: block;
   overflow: auto;
   background:
     linear-gradient(rgba(0, 0, 0, 0.035) 1px, transparent 1px),
@@ -24,9 +21,20 @@
 
 .work-node-tree-canvas {
   position: relative;
-  width: max-content;
   min-width: 100%;
   transition: transform 0.05s linear;
+}
+
+.work-node-tree-connectors {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.work-node-tree-connectors line {
+  stroke: rgba(0, 0, 0, 0.48);
+  stroke-width: 1;
+  shape-rendering: crispEdges;
 }
 
 .work-node-tree-count {
@@ -51,21 +59,13 @@
   line-height: 1.35;
 }
 
-.work-node-flow-node {
-  position: relative;
-  min-width: 168px;
-  width: max-content;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-}
-
 .work-node-tree-node-shell {
-  position: relative;
+  position: absolute;
   z-index: 1;
   width: 168px;
-  min-height: 44px;
+  height: 64px;
   box-sizing: border-box;
+  transform: translateX(-50%);
 }
 
 .work-node-tree-node-shell::after {
@@ -80,7 +80,7 @@
 .work-node-tree-node {
   position: relative;
   width: 168px;
-  min-height: 44px;
+  height: 64px;
   border: 1px solid rgba(0, 0, 0, 0.22);
   background: rgba(255, 255, 255, 0.92);
   padding: 6px 7px 6px 9px;
@@ -131,63 +131,6 @@
 
 .work-node-tree-node.is-discarded::before {
   background: rgba(0, 0, 0, 0.38);
-}
-
-.work-node-tree-children {
-  position: relative;
-  display: flex;
-  justify-content: center;
-  gap: 32px;
-  padding-top: 28px;
-}
-
-.work-node-tree-children::before {
-  content: "";
-  position: absolute;
-  top: 0;
-  left: var(--branch-middle, 50%);
-  width: 1px;
-  height: 14px;
-  background: rgba(0, 0, 0, 0.48);
-}
-
-.work-node-tree-children.is-fork::after {
-  content: "";
-  position: absolute;
-  top: 14px;
-  left: var(--branch-left, 84px);
-  width: var(--branch-width, calc(100% - 168px));
-  right: auto;
-  height: 1px;
-  background: rgba(0, 0, 0, 0.48);
-}
-
-.work-node-tree-children > .work-node-flow-node::before {
-  content: "";
-  position: absolute;
-  top: -14px;
-  left: calc(50% + var(--node-offset, 0px));
-  width: 1px;
-  height: 14px;
-  background: rgba(0, 0, 0, 0.48);
-}
-
-.work-node-tree-children.is-linear {
-  flex-direction: column;
-  align-items: center;
-  gap: 0;
-}
-
-.work-node-tree-children.is-linear::after {
-  display: none;
-}
-
-.work-node-tree-children.is-linear::before {
-  height: 28px;
-}
-
-.work-node-tree-children.is-linear > .work-node-flow-node::before {
-  display: none;
 }
 
 .work-node-tree-node.is-blocked {

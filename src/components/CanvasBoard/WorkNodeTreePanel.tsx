@@ -7,6 +7,7 @@ import {
   readMainWorkbenchCommandQueue,
 } from '../../utils/mainWorkbenchControl';
 import { buildWorkNodeTreeViewModel } from './workNodeTreeModel';
+import { buildWorkNodeTreeLayout } from './workNodeTreeLayout';
 import { WorkNodeTreeNode } from './WorkNodeTreeNode';
 import type { WorkNodeTreeViewModel } from './workNodeTreeTypes';
 import './WorkNodeTreePanel.css';
@@ -73,6 +74,7 @@ export function WorkNodeTreePanel({ refreshKey, onSummaryChange }: WorkNodeTreeP
   };
 
   const viewModel = useMemo(() => buildWorkNodeTreeViewModel(nodes, commits), [nodes, commits]);
+  const treeLayout = useMemo(() => buildWorkNodeTreeLayout(viewModel.nodes), [viewModel.nodes]);
   const activePathNodeIds = useMemo(() => {
     const pathIds = new Set<string>();
     const byId = new Map(viewModel.flatNodes.map((node) => [node.nodeId, node]));
@@ -185,7 +187,8 @@ export function WorkNodeTreePanel({ refreshKey, onSummaryChange }: WorkNodeTreeP
   };
 
   const handleCanvasPointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
-    if (event.target !== event.currentTarget || event.button !== 0) return;
+    const target = event.target as Element;
+    if (event.button !== 0 || target.closest('.work-node-tree-node-shell, .work-node-tree-count, .work-node-tree-empty')) return;
     dragRef.current = {
       pointerId: event.pointerId,
       startX: event.clientX,
@@ -222,14 +225,52 @@ export function WorkNodeTreePanel({ refreshKey, onSummaryChange }: WorkNodeTreeP
       {error ? <div className="work-node-tree-empty">{error}</div> : null}
       {!error && loading && viewModel.nodeCount === 0 ? <div className="work-node-tree-empty">正在读取节点</div> : null}
       {!error && !loading && viewModel.nodeCount === 0 ? <div className="work-node-tree-empty">暂无可见节点</div> : null}
-      <div className="work-node-tree-canvas" style={{ transform: `translate(${camera.x}px, ${camera.y}px)` }}>
-        {viewModel.nodes.map((node) => (
+      <div
+        className="work-node-tree-canvas"
+        style={{
+          width: treeLayout.width,
+          height: treeLayout.height,
+          transform: `translate(${camera.x}px, ${camera.y}px)`,
+        }}
+      >
+        <svg
+          className="work-node-tree-connectors"
+          width={treeLayout.width}
+          height={treeLayout.height}
+          aria-hidden="true"
+        >
+          {treeLayout.connectors.map((connector, index) => {
+            const branchY = connector.parentBottom + 14;
+            if (connector.childXs.length === 1) {
+              return (
+                <line
+                  key={`linear-${index}`}
+                  x1={connector.parentX}
+                  y1={connector.parentBottom}
+                  x2={connector.childXs[0]}
+                  y2={connector.childTop}
+                />
+              );
+            }
+            return (
+              <g key={`fork-${index}`}>
+                <line x1={connector.parentX} y1={connector.parentBottom} x2={connector.parentX} y2={branchY} />
+                <line x1={connector.childXs[0]} y1={branchY} x2={connector.childXs[connector.childXs.length - 1]} y2={branchY} />
+                {connector.childXs.map((childX, childIndex) => (
+                  <line key={childIndex} x1={childX} y1={branchY} x2={childX} y2={connector.childTop} />
+                ))}
+              </g>
+            );
+          })}
+        </svg>
+        {treeLayout.nodes.map(({ node, x, y }) => (
           <WorkNodeTreeNode
             key={node.nodeId}
             node={node}
             activeNodeId={headNodeId}
             activePathNodeIds={activePathNodeIds}
-            isRoot
+            x={x}
+            y={y}
             onSelect={(target) => void checkoutNode(target.nodeId)}
             onDelete={handleDelete}
             onAddChild={(target) => void createNodeFromCurrent(target.nodeId, 'child')}
