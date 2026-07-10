@@ -966,6 +966,14 @@ function textFromMessageParts(parts = []) {
     .trim();
 }
 
+function userVisibleReply(text) {
+  const normalized = typeof text === 'string' ? text.trim() : '';
+  if (!normalized || !/\b(?:Goal|Constraints|Progress|Key Decisions|Next Steps|Critical Context|Relevant Files)\b/i.test(normalized)) return normalized;
+  if (/checkout\s*[:=]\s*false|暂不应用|尚未应用/i.test(normalized)) return '已生成排轴草稿，尚未应用到当前时间轴。';
+  if (/\bpending\b|等待(?:浏览器|执行|确认)|queued/i.test(normalized)) return '正在应用到当前时间轴，等待执行确认。';
+  return '已完成本轮排轴操作。';
+}
+
 function mapOpenCodeMessagesToDefTranscript(messages = [], sessionInfo) {
   const transcript = [];
   for (const message of Array.isArray(messages) ? messages : []) {
@@ -1013,7 +1021,7 @@ function mapOpenCodeMessagesToDefTranscript(messages = [], sessionInfo) {
     transcript.push({
       id: info.id,
       role: 'agent',
-      text: text || (info.error ? sanitizeError(info.error) : ''),
+      text: userVisibleReply(text) || (info.error ? sanitizeError(info.error) : ''),
       sessionId: info.sessionID || sessionInfo?.id,
       activity,
       tokens,
@@ -1547,7 +1555,7 @@ async function sendMessageOnStreamSession(state, message, clientTurnId) {
     emitStreamEvent(state, 'done', {
       turnId,
       ok: true,
-      content: extractText(reply.parts),
+      content: userVisibleReply(extractText(reply.parts)),
       tokens: state.tokens || normalizeTokens(reply.parts?.find((part) => part.type === 'step-finish')?.tokens),
     });
   } catch (error) {
