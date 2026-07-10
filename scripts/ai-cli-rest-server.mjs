@@ -2358,18 +2358,9 @@ function applyDefWorkNodePatchOperation(payload, operation, index, operationsApp
 function applyDefWorkNodePatchAndValidate(input = {}) {
   let nodeId = typeof input.nodeId === 'string' && input.nodeId.trim() ? input.nodeId.trim() : '';
   const patch = Array.isArray(input.patch) ? input.patch : [];
-  const checkout = input.checkout === true;
+  const checkout = input.checkout !== false;
   const dryRun = input.dryRun === true;
   let created = null;
-  if (checkout) {
-    return {
-      ok: false,
-      code: 'checkout-not-supported',
-      message: 'def.worknode.patch_and_validate does not checkout in Phase 3 lower-half implementation.',
-      checkout: false,
-      nextActions: ['Use def.worknode.checkout separately after explicit approval.'],
-    };
-  }
   if (!nodeId) {
     const createResult = createDefWorkNodeFromPayload(readDefCurrentTimelinePayloadSource(), input);
     if (!createResult.ok) {
@@ -2508,11 +2499,11 @@ function applyDefWorkNodePatchAndValidate(input = {}) {
     diffSummary: formatDefWorkNodeDiffSummary(diff),
     diff: { summary: diff.summary, selectedCharactersChanged: diff.selectedCharactersChanged },
     changedButtons: summarizeDefWorkNodeChangedButtons(diff),
-    checkout: false,
+    checkout,
     currentCheckoutTouched: false,
     pollutionCheck: {
       pass: true,
-      method: 'server-side work node update only; checkout path disabled',
+      method: 'server-side work node update; checkout is executed by the verified renderer command path',
     },
     riskFlags,
     checkoutDecision,
@@ -2521,7 +2512,9 @@ function applyDefWorkNodePatchAndValidate(input = {}) {
       : ['read-node', 'patch', 'validate', 'diff', 'pollution-check'],
     nextActions: checkoutDecision.requiresManualApproval
       ? ['Review diff/risk flags before def.worknode.checkout.']
-      : ['Use def.worknode.checkout only if the user explicitly wants to apply this work node.'],
+      : checkout && !dryRun
+        ? ['Apply this protected work node immediately through checkout_and_verify.']
+        : ['Work node remains staged because checkout:false or dryRun was requested.'],
   };
 }
 
@@ -2731,7 +2724,7 @@ function buildDefToolDefinitions() {
     required: ['patch'],
     properties: {
       nodeId: { type: 'string', description: 'Optional existing appdata work node id. If omitted, the tool creates a new work node from the best available current payload mirror before patching.' },
-      checkout: { type: 'boolean', const: false, description: 'Must be false; checkout is intentionally separate.' },
+      checkout: { type: 'boolean', description: 'Defaults to true for an explicit user mutation: after validation, immediately checkout through the protected no-reload path. Set false only to stage a draft.' },
       dryRun: { type: 'boolean' },
       approvalPolicy: { type: 'string', enum: ['auto-low-risk', 'ask-on-risk', 'manual'] },
       label: { type: 'string' },
@@ -2812,7 +2805,7 @@ function buildDefToolDefinitions() {
     { name: 'def.damage.calculate_and_verify', scope: 'current-checkout', riskLevel: 'low', approval: 'auto', status: 'implemented', description: 'Trigger damage calculation, wait briefly for command execution, then return command and damage report verification.' },
     { name: 'def.worknode.create_from_current', commandOp: 'createAiTimelineWorkNodeFromCurrent', scope: 'appdata-work-node', riskLevel: 'medium', approval: 'auto', status: 'implemented', description: workNode },
     { name: 'def.worknode.patch', commandOp: 'patchAiTimelineWorkNode', scope: 'appdata-work-node', riskLevel: 'high', approval: 'ai-review', status: 'implemented', description: 'Class-code Patch DSL / CRUD tool for node.workingPayload.' },
-    { name: 'def.worknode.patch_and_validate', scope: 'appdata-work-node', riskLevel: 'high', approval: 'ai-review', status: 'implemented', description: 'Apply a constrained work node patch, validate, summarize diff, and prove checkout=false did not touch current checkout.' },
+    { name: 'def.worknode.patch_and_validate', scope: 'appdata-work-node', riskLevel: 'high', approval: 'ai-review', status: 'implemented', description: 'Apply a constrained work node patch, validate, then immediately checkout and verify explicit low-risk user mutations without reloading. Use checkout:false only to stage a draft.' },
     { name: 'def.worknode.diff', commandOp: 'diffAiTimelineWorkNode', scope: 'appdata-work-node', riskLevel: 'read', approval: 'none', status: 'implemented', description: workNode },
     { name: 'def.worknode.checkout', commandOp: 'checkoutAiTimelineWorkNode', scope: 'appdata-work-node', riskLevel: 'high', approval: 'ai-review', status: 'implemented', description: workNode },
     { name: 'def.worknode.checkout_and_verify', scope: 'appdata-work-node', riskLevel: 'high', approval: 'ai-review', status: 'implemented', description: 'Checkout a work node with reload:false by default, wait briefly for renderer execution, and verify current checkout snapshot.' },
@@ -3644,6 +3637,21 @@ async function executeDefTool(name, input = {}, query = new URLSearchParams()) {
     result = recordDefApprovalDecision(input);
   } else if (name === 'def.worknode.patch_and_validate') {
     result = applyDefWorkNodePatchAndValidate(input);
+    if (result.ok && result.checkout === true && result.dryRun !== true && !result.checkoutDecision?.requiresManualApproval) {
+      const applied = await executeDefWorkNodeApplyAndVerify('def.worknode.checkout_and_verify', {
+        nodeId: result.nodeId,
+        reload: false,
+        waitMs: input.waitMs,
+        snapshotWaitMs: input.snapshotWaitMs,
+      }, false);
+      result = {
+        ...result,
+        checkout: applied,
+        currentCheckoutTouched: applied.ok === true,
+        completedSteps: [...(result.completedSteps || []), 'checkout', 'verify'],
+        nextActions: applied.ok ? [] : ['Checkout command was not confirmed; report the pending/error state without retrying automatically.'],
+      };
+    }
   } else if (name === 'def.worknode.read') {
     result = readDefWorkNode(input);
   } else if (name === 'def.worknode.validate') {
