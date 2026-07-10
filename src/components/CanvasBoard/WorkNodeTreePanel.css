@@ -37,6 +37,12 @@
   shape-rendering: crispEdges;
 }
 
+.work-node-tree-connectors .is-path {
+  stroke: #003fbe;
+  stroke-width: 2;
+  filter: drop-shadow(0 0 2px #003fbe);
+}
+
 .work-node-tree-count {
   position: absolute;
   top: 8px;
@@ -96,14 +102,14 @@
 
 .work-node-tree-node.is-active {
   opacity: 1;
-  border-color: #0078d4;
-  box-shadow: 0 0 0 2px rgba(0, 120, 212, 0.3), 0 0 14px rgba(0, 120, 212, 0.48);
+  border-color: #003fbe;
+  box-shadow: 0 0 0 2px #003fbe, 0 0 14px #003fbe;
 }
 
 .work-node-tree-node.is-path {
   opacity: 1;
-  border-color: rgba(0, 120, 212, 0.8);
-  box-shadow: 0 0 0 2px rgba(0, 120, 212, 0.22), 0 0 11px rgba(0, 120, 212, 0.38);
+  border-color: #003fbe;
+  box-shadow: 0 0 0 2px #003fbe, 0 0 11px #003fbe;
 }
 
 .work-node-tree-node:hover {

@@ -170,7 +170,6 @@ export function WorkNodeTreeNode({
             <span>{node.buttonCount} 按钮</span>
             <span>{node.buffCount} Buff</span>
             {childCount > 1 ? <span>{childCount} 分支</span> : null}
-            {node.checkoutTouched ? <span>应用</span> : null}
             {node.riskFlags.length > 0 ? <span>{node.riskFlags.length} 风险</span> : null}
           </div>
         </div>

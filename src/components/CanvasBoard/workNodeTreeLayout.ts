@@ -14,8 +14,10 @@ export type WorkNodeTreeLayoutNode = {
 };
 
 export type WorkNodeTreeConnector = {
+  parentNodeId: string;
   parentX: number;
   parentBottom: number;
+  childNodeIds: string[];
   childXs: number[];
   childTop: number;
 };
@@ -48,8 +50,10 @@ export function buildWorkNodeTreeLayout(roots: WorkNodeTreeNode[]): WorkNodeTree
     nodes.push({ node, x, y });
     if (childXs.length) {
       connectors.push({
+        parentNodeId: node.nodeId,
         parentX: x,
         parentBottom: y + WORK_NODE_CARD_HEIGHT,
+        childNodeIds: node.children.map((child) => child.nodeId),
         childXs,
         childTop: CANVAS_PADDING + (depth + 1) * (WORK_NODE_CARD_HEIGHT + CONNECTOR_LENGTH * 2),
       });

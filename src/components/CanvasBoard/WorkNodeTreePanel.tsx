@@ -252,15 +252,27 @@ export function WorkNodeTreePanel({ refreshKey, onSummaryChange }: WorkNodeTreeP
         >
           {treeLayout.connectors.map((connector, index) => {
             const branchY = connector.parentBottom + 14;
+            const activeChildIndex = connector.childNodeIds.findIndex((nodeId) => activePathNodeIds.has(nodeId));
+            const isPathSegment = activePathNodeIds.has(connector.parentNodeId) && activeChildIndex >= 0;
             if (connector.childXs.length === 1) {
               return (
-                <line
-                  key={`linear-${index}`}
-                  x1={connector.parentX}
-                  y1={connector.parentBottom}
-                  x2={connector.childXs[0]}
-                  y2={connector.childTop}
-                />
+                <g key={`linear-${index}`}>
+                  <line
+                    x1={connector.parentX}
+                    y1={connector.parentBottom}
+                    x2={connector.childXs[0]}
+                    y2={connector.childTop}
+                  />
+                  {isPathSegment ? (
+                    <line
+                      className="is-path"
+                      x1={connector.parentX}
+                      y1={connector.parentBottom}
+                      x2={connector.childXs[0]}
+                      y2={connector.childTop}
+                    />
+                  ) : null}
+                </g>
               );
             }
             return (
@@ -270,6 +282,13 @@ export function WorkNodeTreePanel({ refreshKey, onSummaryChange }: WorkNodeTreeP
                 {connector.childXs.map((childX, childIndex) => (
                   <line key={childIndex} x1={childX} y1={branchY} x2={childX} y2={connector.childTop} />
                 ))}
+                {isPathSegment ? (
+                  <>
+                    <line className="is-path" x1={connector.parentX} y1={connector.parentBottom} x2={connector.parentX} y2={branchY} />
+                    <line className="is-path" x1={connector.parentX} y1={branchY} x2={connector.childXs[activeChildIndex]} y2={branchY} />
+                    <line className="is-path" x1={connector.childXs[activeChildIndex]} y1={branchY} x2={connector.childXs[activeChildIndex]} y2={connector.childTop} />
+                  </>
+                ) : null}
               </g>
             );
           })}
