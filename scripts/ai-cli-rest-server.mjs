@@ -2607,12 +2607,29 @@ function applyDefWorkNodePatchAndValidate(input = {}) {
   };
 }
 
+function normalizeDefStaffIndex(value) {
+  if (typeof value === 'number') {
+    return Number.isInteger(value) && value >= 0 ? value : null;
+  }
+  if (typeof value === 'string' && /^\d+$/.test(value.trim())) {
+    const parsed = Number(value.trim());
+    return Number.isSafeInteger(parsed) ? parsed : null;
+  }
+  return null;
+}
+
 function copyDefWorkNodeStaffLineAndValidate(input = {}) {
-  if (!Number.isInteger(input.sourceStaffIndex) || !Number.isInteger(input.targetStaffIndex)) {
+  const sourceStaffIndex = normalizeDefStaffIndex(input.sourceStaffIndex);
+  const targetStaffIndex = normalizeDefStaffIndex(input.targetStaffIndex);
+  if (sourceStaffIndex === null || targetStaffIndex === null) {
     return {
       ok: false,
       code: 'invalid-staff-line-copy-input',
-      message: 'sourceStaffIndex and targetStaffIndex must be integers.',
+      message: 'sourceStaffIndex and targetStaffIndex must be non-negative integers or integer strings.',
+      details: {
+        sourceStaffIndex: input.sourceStaffIndex,
+        targetStaffIndex: input.targetStaffIndex,
+      },
       checkout: false,
       currentCheckoutTouched: false,
     };
@@ -2621,8 +2638,8 @@ function copyDefWorkNodeStaffLineAndValidate(input = {}) {
     ...input,
     patch: [{
       op: 'copyStaffLine',
-      sourceStaffIndex: input.sourceStaffIndex,
-      targetStaffIndex: input.targetStaffIndex,
+      sourceStaffIndex,
+      targetStaffIndex,
       preserveCharacterIdentity: input.preserveCharacterIdentity !== false,
       replaceTarget: input.replaceTarget === true,
     }],
@@ -2853,8 +2870,8 @@ function buildDefToolDefinitions() {
     required: ['sourceStaffIndex', 'targetStaffIndex'],
     properties: {
       nodeId: { type: 'string', description: 'Optional existing work node. Omit to create one from the current checkout.' },
-      sourceStaffIndex: { type: 'number', description: 'Zero-based source staff line index.' },
-      targetStaffIndex: { type: 'number', description: 'Zero-based target staff line index.' },
+      sourceStaffIndex: { type: 'integer', minimum: 0, description: 'Zero-based source staff line index. Numeric strings are normalized defensively.' },
+      targetStaffIndex: { type: 'integer', minimum: 0, description: 'Zero-based target staff line index. Numeric strings are normalized defensively.' },
       preserveCharacterIdentity: { type: 'boolean', description: 'Defaults to true for an exact copy.' },
       replaceTarget: { type: 'boolean', description: 'Only true when the user explicitly requested replacing a non-empty target line.' },
       checkout: { type: 'boolean', description: 'Defaults to true and applies the validated work node without a browser reload.' },
