@@ -259,7 +259,7 @@ function buildWorkbenchAgentMessage(
     `当前已选干员: ${selectedSummary}`,
     `当前技能按钮: ${buttonSummary}`,
     snapshotEvidence,
-    'EXECUTION CONTRACT: Do not narrate plans, reasoning, tool names, URLs, command ids, step tables, internal errors, or suggested next steps. Use the visible button summary directly. Do not call any tool-list endpoint: /api/def-tools/list does not exist; GET /api/def-tools is only a fallback when the supplied context is insufficient. For one requested timeline move, call def.worknode.patch_and_validate once; it validates and immediately performs the protected no-reload checkout by default. Use checkout:false only when the user explicitly asks to stage a draft. After a verified result, answer in one short Chinese sentence with only the visible outcome. If a command is pending, say only that it is pending; do not continue exploring.',
+    'EXECUTION CONTRACT: Do not narrate plans, reasoning, tool names, URLs, command ids, step tables, internal errors, or suggested next steps. Use the visible button summary directly. Do not call any tool-list endpoint: /api/def-tools/list does not exist; GET /api/def-tools is only a fallback when the supplied context is insufficient. For one requested timeline move, call def.worknode.patch_and_validate once; it validates and immediately performs the protected no-reload checkout by default. Use checkout:false only when the user explicitly asks to stage a draft. After a verified result, answer in one short Chinese sentence with only the visible outcome. Never answer only “pending”; if confirmation is still pending, say “正在应用到当前时间轴，等待执行确认。” and stop.',
     `用户请求: ${userText}`,
   ].join('\n');
 }

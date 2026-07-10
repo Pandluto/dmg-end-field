@@ -3641,8 +3641,8 @@ async function executeDefTool(name, input = {}, query = new URLSearchParams()) {
       const applied = await executeDefWorkNodeApplyAndVerify('def.worknode.checkout_and_verify', {
         nodeId: result.nodeId,
         reload: false,
-        waitMs: input.waitMs,
-        snapshotWaitMs: input.snapshotWaitMs,
+        waitMs: input.waitMs ?? 20000,
+        snapshotWaitMs: input.snapshotWaitMs ?? 8000,
       }, false);
       result = {
         ...result,

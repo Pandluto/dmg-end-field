@@ -581,7 +581,49 @@ export function CanvasBoard({
     if (resolvedCharacters.length === 0) {
       throw new Error('CHECKOUT_RUNTIME_HYDRATION_FAILED: 无法解析 checkout 中的干员。');
     }
-    const normalizedTimelineData = normalizeTimelineData(payload.timelineData, resolvedCharacters);
+    const normalizedSkillButtonTable = Object.fromEntries(
+      Object.entries(payload.skillButtonTable).map(([buttonId, button]) => {
+        const lineIndex = resolvedCharacters.findIndex((character) => (
+          character.id === button.characterId || character.name === button.characterName
+        ));
+        return [buttonId, {
+          ...button,
+          staffIndex: lineIndex >= 0 ? lineIndex : button.staffIndex,
+          nodeNumber: calculateNodeNumber(button.nodeIndex),
+        }];
+      }),
+    );
+    const canonicalTimelineData: TimelineData = {
+      ...payload.timelineData,
+      staffLines: resolvedCharacters.map((character, staffIndex) => {
+        const buttons = Object.values(normalizedSkillButtonTable)
+          .filter((button) => button.characterId === character.id || button.characterName === character.name)
+          .map((button) => ({
+            id: button.id,
+            characterId: button.characterId || character.id,
+            characterName: button.characterName,
+            skillType: button.skillType as SkillButtonType,
+            staffIndex,
+            nodeIndex: button.nodeIndex,
+            nodeNumber: calculateNodeNumber(button.nodeIndex),
+            position: button.position,
+            runtimeSkillId: button.runtimeSkillId,
+            skillDisplayName: button.skillDisplayName,
+            skillIconUrl: button.skillIconUrl,
+            customHits: button.customHits,
+            buffIds: [...(button.selectedBuff || [])],
+          }))
+          .sort((left, right) => left.nodeIndex - right.nodeIndex);
+        return {
+          staffIndex,
+          characterName: character.name,
+          occupiedNodes: [...new Set(buttons.map((button) => button.nodeIndex))],
+          buttons,
+        };
+      }),
+    };
+    setSkillButtonTable(normalizedSkillButtonTable);
+    const normalizedTimelineData = normalizeTimelineData(canonicalTimelineData, resolvedCharacters);
     saveTimelineRepo(normalizedTimelineData);
     replaceTimelineData(normalizedTimelineData);
     dispatch({ type: 'SET_SELECTED_CHARACTERS', characters: resolvedCharacters });
