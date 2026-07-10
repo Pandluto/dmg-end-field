@@ -294,6 +294,21 @@ function createTimelineRepository({ databasePath }) {
       details: parse(row.details, {}),
       createdAt: row.created_at,
     })),
+    listWorkNodes: (timelineId) => db.prepare(`
+      SELECT * FROM timeline_work_nodes WHERE timeline_id = ? ORDER BY created_at ASC
+    `).all(timelineId).map((row) => ({
+      id: row.id,
+      parentNodeId: row.parent_id || undefined,
+      timelineId: row.timeline_id,
+      branchId: row.branch_id,
+      label: row.label,
+      status: row.status,
+      approvalPolicy: row.approval_policy,
+      riskFlags: parse(row.risk_flags, []),
+      logs: parse(row.logs, []),
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    })),
     close: () => db.close(),
   };
 }

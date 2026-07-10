@@ -1159,6 +1159,11 @@ function handleTimelineRepositoryRequest(method, pathname, query, body) {
     if (!timelineId) return failScript(400, 'missing-timeline-id', 'Timeline snapshot list requires timelineId.');
     return { status: 200, body: { ok: true, protocolVersion: 1, snapshots: repository.listSnapshots(timelineId) } };
   }
+  if (method === 'GET' && pathname === '/api/timeline-work-nodes') {
+    const timelineId = query.get('timelineId') || '';
+    if (!timelineId) return failScript(400, 'missing-timeline-id', 'Timeline work node list requires timelineId.');
+    return { status: 200, body: { ok: true, protocolVersion: 1, nodes: repository.listWorkNodes(timelineId) } };
+  }
   if (method === 'POST' && pathname === '/api/timeline-snapshots') {
     return { status: 200, body: { ok: true, protocolVersion: 1, ...repository.createOrReuseSnapshot(body) } };
   }
