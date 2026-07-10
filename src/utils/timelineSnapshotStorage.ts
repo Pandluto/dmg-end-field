@@ -64,6 +64,15 @@ export interface TimelineShareFile {
   payload: TimelineSnapshotPayload;
 }
 
+export interface TimelineBundleV2 {
+  type: 'dmg.timeline-bundle.v2';
+  schemaVersion: 2;
+  manifest: { exportedAt: number; scope: 'snapshot'; timelineId: string; label: string };
+  document: { id: string; label: string };
+  payloads: TimelineSnapshotPayload[];
+  snapshots: Array<{ id: string; label: string; createdAt: number; payloadIndex: number }>;
+}
+
 interface TimelineSnapshotArchive {
   version: 'v1';
   snapshots: TimelineSnapshotEntry[];
@@ -272,6 +281,30 @@ export function buildTimelineShareFile(customLabel?: string): TimelineShareFile 
     label: normalizeShareLabel(customLabel),
     payload: normalizeSnapshotPayload(payload),
   };
+}
+
+export function buildTimelineBundleV2(input: { timelineId: string; label?: string; snapshot: TimelineSnapshotEntry }): TimelineBundleV2 {
+  return {
+    type: 'dmg.timeline-bundle.v2',
+    schemaVersion: 2,
+    manifest: { exportedAt: Date.now(), scope: 'snapshot', timelineId: input.timelineId, label: normalizeShareLabel(input.label || input.snapshot.label) },
+    document: { id: input.timelineId, label: normalizeShareLabel(input.label || '导入排轴') },
+    payloads: [normalizeSnapshotPayload(input.snapshot.payload)],
+    snapshots: [{ id: input.snapshot.id, label: input.snapshot.label, createdAt: input.snapshot.createdAt, payloadIndex: 0 }],
+  };
+}
+
+export function parseTimelineBundleV2(rawText: string): TimelineBundleV2 | null {
+  try {
+    const bundle = JSON.parse(rawText) as Partial<TimelineBundleV2>;
+    if (bundle.type !== 'dmg.timeline-bundle.v2' || bundle.schemaVersion !== 2 || bundle.manifest?.scope !== 'snapshot') return null;
+    if (!bundle.document?.id || !Array.isArray(bundle.payloads) || !Array.isArray(bundle.snapshots)) return null;
+    if (!bundle.payloads.every(isValidTimelineSnapshotPayload)) return null;
+    if (!bundle.snapshots.every((item) => typeof item?.id === 'string' && typeof item.payloadIndex === 'number' && bundle.payloads![item.payloadIndex])) return null;
+    return bundle as TimelineBundleV2;
+  } catch {
+    return null;
+  }
 }
 
 export function parseTimelineShareFile(rawText: string): TimelineShareFile | null {
