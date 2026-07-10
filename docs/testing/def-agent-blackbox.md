@@ -137,21 +137,9 @@ Each blackbox turn should record:
 
 Without timing, the result is only qualitative and should not be treated as a complete performance assessment.
 
-## Minimum Coverage
+## Test Scope
 
-For a meaningful pass, run at least 15 natural user turns across mixed intents:
-
-- read/query
-- why/explain
-- preview add
-- preview move
-- preview remove
-- ambiguous edit
-- follow-up clarification
-- invalid target
-- cross-character or lineup change
-- buff add/remove
-- damage check
-- equipment/config query
-
-Prefer multi-turn sessions over isolated one-shot prompts when judging real usability.
+Choose natural-language prompts and the number of turns according to the behavior
+being checked. Prefer a short multi-turn conversation when the behavior depends on
+clarification or retained context; a focused single turn is sufficient for an
+isolated capability.
