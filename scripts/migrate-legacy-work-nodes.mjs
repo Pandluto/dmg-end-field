@@ -28,9 +28,20 @@ try {
     importedIds.add(node.id);
     imported += 1;
   }
+  const appliedCommit = archive.commits
+    .filter((commit) => commit?.checkoutApplied && importedIds.has(commit.nodeId))
+    .sort((left, right) => (right.createdAt || 0) - (left.createdAt || 0))[0];
+  if (appliedCommit) {
+    repository.setCheckoutRef({
+      timelineId,
+      targetType: 'work-node',
+      targetId: appliedCommit.nodeId,
+      updatedAt: appliedCommit.createdAt || Date.now(),
+    });
+  }
   const reportPath = path.join(local, 'timeline-work-node-migration-report.json');
-  fs.writeFileSync(reportPath, `${JSON.stringify({ generatedAt: new Date().toISOString(), imported, anomalous }, null, 2)}\n`, 'utf8');
-  console.log(JSON.stringify({ ok: true, imported, anomalous: anomalous.length, reportPath }, null, 2));
+  fs.writeFileSync(reportPath, `${JSON.stringify({ generatedAt: new Date().toISOString(), imported, checkoutNodeId: appliedCommit?.nodeId || null, anomalous }, null, 2)}\n`, 'utf8');
+  console.log(JSON.stringify({ ok: true, imported, checkoutNodeId: appliedCommit?.nodeId || null, anomalous: anomalous.length, reportPath }, null, 2));
 } finally {
   oldStore.close();
   repository.close();
