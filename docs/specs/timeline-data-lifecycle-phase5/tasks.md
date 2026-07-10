@@ -5,6 +5,7 @@
 - [ ] 移除“保存快照自动创建 Work Node”的逻辑。
 - [ ] 移除进入 AI 模式自动创建 manual checkpoint 的遗留代码，而非仅用标志位禁用。
 - [ ] 暂停任何把 snapshot id 写入 Work Node `saveId` 的调用。
+- [ ] 在改动前固定 Phase 4 兼容清单：实时 checkout、整组复制、staff line 重建、会话隔离和 AI 模式拖拽禁用不得回退。
 - [ ] 为现有 localdata 与 Work Node SQLite 建立只读备份和迁移预览命令。
 - [ ] 记录并分类现有异常 `[snapshot]` Work Node，默认不删除。
 
@@ -51,13 +52,13 @@
 
 ## T5：重写 Work Node 与 AI 链路
 
-- [ ] 高风险/排轴重排自然话术默认创建或复用 AI Work Node。
+- [ ] 定义并实现 AI 意图执行策略：明确低风险单步操作保留 Phase 4 的实时 checkout；复杂/重排/分支/预览操作创建或复用 AI Work Node。
 - [ ] Patch 只能改 node working state，随后返回 validate、diff、risk 证据。
 - [ ] checkout 显式更新 CheckoutRef(work-node) 并应用 payload。
 - [ ] restore base 作为 Work Node 操作，写审计事件但不伪造树节点。
 - [ ] 删除旧的“AI turn / manual checkpoint 必须自动建节点”策略。
 
-验收：后门自然话术测试可证明“Patch 前当前排轴不变；明确应用后才变化”。
+验收：后门自然话术测试同时证明：复杂重排在 Patch 阶段不改变当前排轴，应用后才变化；明确低风险操作仍能沿用 Phase 4 的实时 checkout 并收到真实回执。
 
 ## T6：重建 UI 信息架构
 
