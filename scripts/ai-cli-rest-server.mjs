@@ -1206,6 +1206,16 @@ function handleTimelineRepositoryRequest(method, pathname, query, body) {
       throw error;
     }
   }
+  if (method === 'GET' && pathname === '/api/timeline-bundles/export') {
+    const timelineId = query.get('timelineId') || '';
+    if (!timelineId) return failScript(400, 'missing-timeline-id', 'Timeline bundle export requires timelineId.');
+    try {
+      return { status: 200, body: { ok: true, protocolVersion: 1, ...repository.exportDocumentBundle(timelineId) } };
+    } catch (error) {
+      if (error?.status === 404) return failScript(404, error.code, error.message);
+      throw error;
+    }
+  }
   if (method === 'GET' && pathname === '/api/timeline-snapshots') {
     const timelineId = query.get('timelineId') || '';
     if (!timelineId) return failScript(400, 'missing-timeline-id', 'Timeline snapshot list requires timelineId.');

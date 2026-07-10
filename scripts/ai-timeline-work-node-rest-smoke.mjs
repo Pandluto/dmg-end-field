@@ -109,6 +109,11 @@ try {
   assert.equal(imported.body.workNodeCount, 1);
   const importedNodes = await request('GET', '/api/timeline-work-nodes?timelineId=timeline-imported');
   assert.equal(importedNodes.body.nodes[0]?.id, 'imported-node');
+  const exported = await request('GET', '/api/timeline-bundles/export?timelineId=timeline-imported');
+  assert.equal(exported.status, 200, JSON.stringify(exported.body));
+  assert.equal(exported.body.snapshots[0]?.id, 'snapshot-imported');
+  assert.equal(exported.body.workNodes[0]?.id, 'imported-node');
+  assert.deepEqual(exported.body.workNodes[0]?.workingPayload, payload);
   const brokenImport = await request('POST', '/api/timeline-bundles/import', {
     document: { id: 'timeline-broken', label: 'Broken timeline' },
     snapshots: [{ id: 'snapshot-broken', label: 'Broken snapshot' }],

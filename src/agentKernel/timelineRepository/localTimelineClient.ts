@@ -13,6 +13,11 @@ export type TimelineRepositoryWorkNode = {
   createdAt: number; updatedAt: number;
 };
 
+export type TimelineRepositoryBundleWorkNode = TimelineRepositoryWorkNode & {
+  basePayload: TimelineSnapshotPayload;
+  workingPayload: TimelineSnapshotPayload;
+};
+
 async function readResponse<T>(response: Response): Promise<T> {
   const payload = await response.json();
   if (!response.ok || !payload?.ok) throw new Error(payload?.error?.message || `Timeline repository request failed: ${response.status}`);
@@ -51,6 +56,14 @@ export function createTimelineRepositoryClient() {
         '/local-data/timeline-bundles/import', 'POST', input,
       );
       return { document: response.document, snapshots: response.snapshots };
+    },
+    async exportDocumentBundle(timelineId: string) {
+      const response = await requestWithFallback<RepositoryResponse<{
+        document: TimelineDocument;
+        snapshots: TimelineSnapshot[];
+        workNodes: TimelineRepositoryBundleWorkNode[];
+      }>>(`/local-data/timeline-bundles/export?timelineId=${encodeURIComponent(timelineId)}`);
+      return { document: response.document, snapshots: response.snapshots, workNodes: response.workNodes };
     },
     async listSnapshots(timelineId: string) {
       const response = await requestWithFallback<RepositoryResponse<{ snapshots: TimelineSnapshot[] }>>(

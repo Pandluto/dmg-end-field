@@ -970,6 +970,20 @@ function startBridgeServer() {
         return;
       }
 
+      if (method === 'GET' && requestUrl.pathname === '/local-data/timeline-bundles/export') {
+        const timelineId = requestUrl.searchParams.get('timelineId') || '';
+        if (!timelineId) {
+          writeJson(response, 400, { ok: false, error: { code: 'missing-timeline-id', message: 'Timeline bundle export requires timelineId.' } });
+          return;
+        }
+        try {
+          writeJson(response, 200, { ok: true, path: getTimelineRepositoryPath(), ...getTimelineRepository().exportDocumentBundle(timelineId) });
+        } catch (error) {
+          writeJson(response, error?.status || 500, { ok: false, error: { code: error?.code || 'timeline-bundle-export-failed', message: error instanceof Error ? error.message : String(error) } });
+        }
+        return;
+      }
+
       if (method === 'GET' && requestUrl.pathname === '/local-data/timeline-snapshots') {
         const timelineId = requestUrl.searchParams.get('timelineId') || '';
         if (!timelineId) {

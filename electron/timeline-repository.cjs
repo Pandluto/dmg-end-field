@@ -181,6 +181,35 @@ function createTimelineRepository({ databasePath }) {
     return { ...snapshot, payload: parse(payload?.payload, {}) };
   }
 
+  function readWorkNode(row, includePayload = false) {
+    if (!row) return null;
+    const basePayload = includePayload
+      ? parse(db.prepare('SELECT payload FROM timeline_payload_blobs WHERE content_hash = ?').get(row.base_payload_hash)?.payload, {})
+      : null;
+    const workingPayload = includePayload
+      ? parse(db.prepare('SELECT payload FROM timeline_payload_blobs WHERE content_hash = ?').get(row.working_payload_hash)?.payload, {})
+      : null;
+    return {
+      id: row.id,
+      parentNodeId: row.parent_id || undefined,
+      timelineId: row.timeline_id,
+      branchId: row.branch_id,
+      label: row.label,
+      status: row.status,
+      approvalPolicy: row.approval_policy,
+      riskFlags: parse(row.risk_flags, []),
+      logs: parse(row.logs, []),
+      ...(includePayload ? {
+        basePayload,
+        workingPayload,
+        baseSummary: summarizePayload(basePayload),
+        workingSummary: summarizePayload(workingPayload),
+      } : {}),
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    };
+  }
+
   function ensureDocument(input) {
     if (!input?.id || !input?.label) throw new Error('Timeline document requires id and label.');
     const now = input.createdAt || Date.now();
@@ -324,6 +353,25 @@ function createTimelineRepository({ databasePath }) {
       });
       return { document: readDocument(db.prepare('SELECT * FROM timeline_documents WHERE id = ?').get(documentId)), snapshots, workNodeCount: workNodes.length };
     });
+  }
+
+  function exportDocumentBundle(timelineId) {
+    const document = readDocument(db.prepare('SELECT * FROM timeline_documents WHERE id = ? AND archived_at IS NULL').get(timelineId));
+    if (!document) {
+      const error = new Error(`Timeline document not found: ${timelineId}`);
+      error.code = 'timeline-document-not-found';
+      error.status = 404;
+      throw error;
+    }
+    return {
+      document,
+      snapshots: db.prepare(`
+        SELECT * FROM timeline_snapshots WHERE timeline_id = ? AND archived_at IS NULL ORDER BY created_at ASC
+      `).all(timelineId).map((row) => readSnapshot(row, true)),
+      workNodes: db.prepare(`
+        SELECT * FROM timeline_work_nodes WHERE timeline_id = ? ORDER BY created_at ASC
+      `).all(timelineId).map((row) => readWorkNode(row, true)),
+    };
   }
 
   function setCheckoutRef(input) {
@@ -476,6 +524,7 @@ function createTimelineRepository({ databasePath }) {
     ensureDocument,
     createOrReuseSnapshot,
     importDocumentBundle,
+    exportDocumentBundle,
     setCheckoutRef,
     appendAuditEvent,
     archiveSnapshot,
@@ -504,19 +553,7 @@ function createTimelineRepository({ databasePath }) {
       details: parse(row.details, {}),
       createdAt: row.created_at,
     })),
-    getWorkNode: (id) => {
-      const row = db.prepare('SELECT * FROM timeline_work_nodes WHERE id = ?').get(id);
-      if (!row) return null;
-      const basePayload = parse(db.prepare('SELECT payload FROM timeline_payload_blobs WHERE content_hash = ?').get(row.base_payload_hash)?.payload, {});
-      const workingPayload = parse(db.prepare('SELECT payload FROM timeline_payload_blobs WHERE content_hash = ?').get(row.working_payload_hash)?.payload, {});
-      return {
-        id: row.id, parentNodeId: row.parent_id || undefined, timelineId: row.timeline_id, branchId: row.branch_id,
-        label: row.label, status: row.status, approvalPolicy: row.approval_policy,
-        riskFlags: parse(row.risk_flags, []), logs: parse(row.logs, []), basePayload, workingPayload,
-        baseSummary: summarizePayload(basePayload), workingSummary: summarizePayload(workingPayload),
-        createdAt: row.created_at, updatedAt: row.updated_at,
-      };
-    },
+    getWorkNode: (id) => readWorkNode(db.prepare('SELECT * FROM timeline_work_nodes WHERE id = ?').get(id), true),
     listWorkNodes: (timelineId) => db.prepare(`
       SELECT * FROM timeline_work_nodes WHERE timeline_id = ? ORDER BY created_at ASC
     `).all(timelineId).map((row) => {
