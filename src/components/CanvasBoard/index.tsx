@@ -2700,12 +2700,23 @@ export function CanvasBoard({
     setPendingRestoreSnapshot(null);
   };
 
-  const handleConfirmRestoreSnapshot = () => {
+  const handleConfirmRestoreSnapshot = async () => {
     if (!pendingRestoreSnapshot) {
       return;
     }
 
-    applyTimelineSnapshotPayload(pendingRestoreSnapshot.payload);
+    try {
+      await createTimelineRepositoryClient().setCheckoutRef({
+        timelineId: DEFAULT_TIMELINE_ID,
+        targetType: 'snapshot',
+        targetId: pendingRestoreSnapshot.id,
+        updatedAt: Date.now(),
+      });
+      applyTimelineSnapshotPayload(pendingRestoreSnapshot.payload);
+    } catch (error) {
+      alert(`恢复失败：${error instanceof Error ? error.message : String(error)}`);
+      return;
+    }
 
     setPendingRestoreSnapshot(null);
     window.location.reload();
