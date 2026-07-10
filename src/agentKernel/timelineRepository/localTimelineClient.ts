@@ -53,6 +53,12 @@ export function createTimelineRepositoryClient() {
       );
       return response.nodes;
     },
+    async deleteWorkNode(nodeId: string) {
+      const response = await requestWithFallback<RepositoryResponse<{ result: { deletedNodeIds: string[] } }>>(
+        `/local-data/timeline-work-nodes/${encodeURIComponent(nodeId)}/delete`, 'POST', {},
+      );
+      return response.result;
+    },
     async saveSnapshot(input: { id: string; timelineId: string; label: string; payload: TimelineSnapshotPayload; createdAt?: number }) {
       const response = await requestWithFallback<RepositoryResponse<{ snapshot: TimelineSnapshot; reused: boolean }>>(
         '/local-data/timeline-snapshots', 'POST', input,

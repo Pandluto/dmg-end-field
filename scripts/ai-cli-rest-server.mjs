@@ -1164,6 +1164,15 @@ function handleTimelineRepositoryRequest(method, pathname, query, body) {
     if (!timelineId) return failScript(400, 'missing-timeline-id', 'Timeline work node list requires timelineId.');
     return { status: 200, body: { ok: true, protocolVersion: 1, nodes: repository.listWorkNodes(timelineId) } };
   }
+  const workNodeDeleteMatch = /^\/api\/timeline-work-nodes\/([^/]+)\/delete$/.exec(pathname);
+  if (method === 'POST' && workNodeDeleteMatch) {
+    try {
+      return { status: 200, body: { ok: true, result: repository.deleteWorkNodeSubtree(decodeURIComponent(workNodeDeleteMatch[1])) } };
+    } catch (error) {
+      if (error?.status === 409) return failScript(409, error.code, error.message);
+      throw error;
+    }
+  }
   if (method === 'POST' && pathname === '/api/timeline-snapshots') {
     return { status: 200, body: { ok: true, protocolVersion: 1, ...repository.createOrReuseSnapshot(body) } };
   }

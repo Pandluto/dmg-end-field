@@ -211,8 +211,8 @@ export function WorkNodeTreePanel({ refreshKey, onSelectedNodeChange, onSummaryC
     if (!confirmed) return;
     try {
       setError('');
-      const response = await createAiTimelineWorkNodeClient().delete(node.nodeId);
-      applyListResponse(response);
+      await createTimelineRepositoryClient().deleteWorkNode(node.nodeId);
+      await reloadNodes();
     } catch (deleteError) {
       setError(`删除节点失败：${errorMessage(deleteError)}。`);
     }

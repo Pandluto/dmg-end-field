@@ -977,6 +977,16 @@ function startBridgeServer() {
         return;
       }
 
+      const timelineWorkNodeDeleteMatch = /^\/local-data\/timeline-work-nodes\/([^/]+)\/delete$/.exec(requestUrl.pathname);
+      if (method === 'POST' && timelineWorkNodeDeleteMatch) {
+        try {
+          writeJson(response, 200, { ok: true, result: getTimelineRepository().deleteWorkNodeSubtree(decodeURIComponent(timelineWorkNodeDeleteMatch[1])) });
+        } catch (error) {
+          writeJson(response, error?.status || 500, { ok: false, error: { code: error?.code || 'timeline-work-node-delete-failed', message: error instanceof Error ? error.message : String(error) } });
+        }
+        return;
+      }
+
       if (method === 'POST' && requestUrl.pathname === '/local-data/timeline-snapshots') {
         const payload = await readJsonRequest(request);
         writeJson(response, 200, { ok: true, path: getTimelineRepositoryPath(), ...getTimelineRepository().createOrReuseSnapshot(payload) });
