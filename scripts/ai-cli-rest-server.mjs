@@ -504,6 +504,20 @@ function readAiTimelineWorkNodeArchive() {
   return getAiTimelineWorkNodeStore().readArchive();
 }
 
+// New DEF mutations read payloads from the TimelineRepository. The old store
+// remains only as a compatibility projection for the existing Electron IPC.
+function readRepositoryWorkNode(nodeId) {
+  const node = getTimelineRepository().getWorkNode(nodeId);
+  return node ? { ...node, saveId: node.timelineId } : null;
+}
+
+function listRepositoryWorkNodes() {
+  return getTimelineRepository().listDocuments()
+    .flatMap((document) => getTimelineRepository().listWorkNodes(document.id)
+      .map((node) => readRepositoryWorkNode(node.id))
+      .filter(Boolean));
+}
+
 function normalizeRiskFlags(value) {
   if (!Array.isArray(value)) return [];
   return value
@@ -2109,8 +2123,7 @@ function readDefWorkNode(input = {}) {
     : typeof input.id === 'string' && input.id.trim()
       ? input.id.trim()
       : '';
-  const archive = readAiTimelineWorkNodeArchive();
-  const nodes = archive.nodes.sort((left, right) => (right.updatedAt || 0) - (left.updatedAt || 0));
+  const nodes = listRepositoryWorkNodes().sort((left, right) => (right.updatedAt || 0) - (left.updatedAt || 0));
   const node = nodeId ? nodes.find((item) => item?.id === nodeId) : nodes[0];
   if (!node) {
     return {
@@ -2153,8 +2166,7 @@ function readDefWorkNode(input = {}) {
 function validateDefWorkNode(input = {}) {
   const readResult = readDefWorkNode(input);
   if (!readResult.ok) return readResult;
-  const archive = readAiTimelineWorkNodeArchive();
-  const node = archive.nodes.find((item) => item?.id === readResult.node.id);
+  const node = readRepositoryWorkNode(readResult.node.id);
   const issues = [
     ...validateWorkNodePayloadIssues(node?.basePayload, 'basePayload'),
     ...validateWorkNodePayloadIssues(node?.workingPayload, 'workingPayload'),
@@ -2590,8 +2602,7 @@ function applyDefWorkNodePatchAndValidate(input = {}) {
     };
   }
 
-  const archive = readAiTimelineWorkNodeArchive();
-  const node = archive.nodes.find((item) => item?.id === nodeId);
+  const node = readRepositoryWorkNode(nodeId);
   if (!node) {
     return {
       ok: false,
@@ -3261,8 +3272,7 @@ async function buildDefToolCommandVerification(commandEntry, waitMs) {
 }
 
 function readDefWorkNodeById(nodeId) {
-  const archive = readAiTimelineWorkNodeArchive();
-  return archive.nodes.find((node) => node?.id === nodeId) || null;
+  return readRepositoryWorkNode(nodeId);
 }
 
 function snapshotButtonCount(snapshot = readMainWorkbenchSnapshotMirror()) {
