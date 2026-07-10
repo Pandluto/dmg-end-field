@@ -34,7 +34,7 @@
 ## T3：迁移当前本地数据
 
 - [x] 从现有恢复快照 archive 导入用户快照。
-- [ ] 从现有 Work Node SQLite 导入合法 AI 树和审计事件。
+- [x] 从现有 Work Node SQLite 导入合法 AI 树和审计事件。
 - [x] 为历史 `current-main-workbench` 建立默认 TimelineDocument。
 - [x] 生成异常 snapshot-node 的迁移预览与用户确认操作。
 - [ ] 提供一次性回滚到备份的恢复工具。
