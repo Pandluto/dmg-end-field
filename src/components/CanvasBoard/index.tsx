@@ -2812,6 +2812,10 @@ export function CanvasBoard({
       const repository = createTimelineRepositoryClient();
       await repository.ensureDocument({ id: pendingImportTimelineId, label: pendingImportShare.label });
       await repository.saveSnapshot({ id: `imported-snapshot-${Date.now()}`, timelineId: pendingImportTimelineId, label: pendingImportShare.label, payload: pendingImportShare.payload });
+      setPendingImportShare(null);
+      setPendingImportTimelineId('');
+      alert('已导入为新的排轴文档，当前排轴未被覆盖。');
+      return;
     }
     applyTimelineSnapshotPayload(pendingImportShare.payload);
     setPendingImportShare(null);
