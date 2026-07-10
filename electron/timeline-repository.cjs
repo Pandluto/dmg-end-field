@@ -144,6 +144,17 @@ function createTimelineRepository({ databasePath }) {
     );
   }
 
+  function garbageCollectPayloadBlobs() {
+    db.exec(`
+      DELETE FROM timeline_payload_blobs
+      WHERE content_hash NOT IN (
+        SELECT payload_hash FROM timeline_snapshots
+        UNION SELECT base_payload_hash FROM timeline_work_nodes
+        UNION SELECT working_payload_hash FROM timeline_work_nodes
+      );
+    `);
+  }
+
   function readDocument(row) {
     return row && {
       id: row.id,
@@ -273,6 +284,7 @@ function createTimelineRepository({ databasePath }) {
         throw error;
       }
       db.prepare('UPDATE timeline_snapshots SET archived_at = ? WHERE id = ?').run(Date.now(), snapshotId);
+      garbageCollectPayloadBlobs();
       return { id: snapshotId, timelineId: snapshot.timeline_id, archived: true };
     });
   }
