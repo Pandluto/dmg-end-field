@@ -910,6 +910,9 @@ export function MainWorkbenchAiPanel({
       const userFacingText = compactWorkbenchAgentReply(finalText || streamedText, activePromptRef.current);
       payload.content = userFacingText;
       payload.text = userFacingText;
+      if ((payload as DefAgentStreamEvent & { directIntent?: string }).directIntent) {
+        rememberSession(null, payload.tokens);
+      }
       setStatus('已完成');
       patchStep('agent', { status: 'done', detail: '回复完成' });
       patchStep('verify', { status: 'done', detail: '结果已返回' });

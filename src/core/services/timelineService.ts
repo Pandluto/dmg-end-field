@@ -57,15 +57,16 @@ export function normalizeTimelineData(
   for (let i = 0; i < characters.length; i++) {
     const characterName = characters[i].name;
 
-    // 按 characterName 匹配旧 line，禁止按下标继承
-    const existingLine = data.staffLines.find(
-      line => line.characterName === characterName
-    );
+    // checkout payload 的 staffIndex 是分组权威；旧缓存才回退按角色名匹配。
+    const existingLine = data.staffLines.find((line) => line.staffIndex === i)
+      ?? data.staffLines.find((line) => line.characterName === characterName);
 
     if (existingLine && Array.isArray(existingLine.buttons)) {
-      // 过滤：只保留属于当前角色的按钮
+      // 保留属于当前分组的按钮；历史数据未记录 staffIndex 时才回退角色名。
       const validButtons = existingLine.buttons.filter(
-        btn => btn.characterName === characterName
+        btn => Number.isInteger(btn.staffIndex)
+          ? btn.staffIndex === i
+          : btn.characterName === characterName
       );
 
       // 从有效按钮重建 occupiedNodes，不信任缓存

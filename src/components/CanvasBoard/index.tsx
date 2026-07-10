@@ -583,12 +583,16 @@ export function CanvasBoard({
     }
     const normalizedSkillButtonTable = Object.fromEntries(
       Object.entries(payload.skillButtonTable).map(([buttonId, button]) => {
-        const lineIndex = resolvedCharacters.findIndex((character) => (
-          character.id === button.characterId || character.name === button.characterName
-        ));
+        const staffIndex = Number.isInteger(button.staffIndex)
+          && button.staffIndex >= 0
+          && button.staffIndex < resolvedCharacters.length
+          ? button.staffIndex
+          : resolvedCharacters.findIndex((character) => (
+            character.id === button.characterId || character.name === button.characterName
+          ));
         return [buttonId, {
           ...button,
-          staffIndex: lineIndex >= 0 ? lineIndex : button.staffIndex,
+          staffIndex: staffIndex >= 0 ? staffIndex : button.staffIndex,
           nodeNumber: calculateNodeNumber(button.nodeIndex),
         }];
       }),
@@ -597,13 +601,13 @@ export function CanvasBoard({
       ...payload.timelineData,
       staffLines: resolvedCharacters.map((character, staffIndex) => {
         const buttons = Object.values(normalizedSkillButtonTable)
-          .filter((button) => button.characterId === character.id || button.characterName === character.name)
+          .filter((button) => button.staffIndex === staffIndex)
           .map((button) => ({
             id: button.id,
             characterId: button.characterId || character.id,
             characterName: button.characterName,
             skillType: button.skillType as SkillButtonType,
-            staffIndex,
+            staffIndex: button.staffIndex,
             nodeIndex: button.nodeIndex,
             nodeNumber: calculateNodeNumber(button.nodeIndex),
             position: button.position,
