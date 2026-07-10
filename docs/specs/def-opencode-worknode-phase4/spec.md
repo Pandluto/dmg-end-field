@@ -182,5 +182,117 @@ AI 模式 UI 层需要顺手补齐轻量状态提示：
 ## Phase 4 开发时序
 
 - 上部：work node 明盒化。优先完成入口、节点树、专用数据结构、自动保存节点、AI 模式状态提示、checkout/restore 可见证据。
-- 中部：agent 回复风格和 skill / prompt 加载收敛。把 agent 从“编程助手口吻”调成 DEF 业务助手口吻，减少工具名、REST、schema 暴露。
+- 中段：Work Node SQLite 树重构。把上部已经可运行的树原型升级成后端权威、可事务化、可迁移的历史数据结构，先解决树关系、HEAD、删除和加载性能问题。
+- 后续中部：agent 回复风格和 skill / prompt 加载收敛。把 agent 从“编程助手口吻”调成 DEF 业务助手口吻，减少工具名、REST、schema 暴露。
 - 下部：清理事实源和大文件边界。收敛 `/api/def-tools`、legacy registry、prompt 文案、adapter 文案之间的重复事实源，拆分过大的 UI / server 文件。
+
+## Phase 4 中段：Work Node SQLite 树重构
+
+### 问题定义
+
+上部完成后，Work Node 树已经具备入口、路径高亮、分支、新增和删除等可运行交互，但底层仍是单个 `ai-timeline-worknodes.json`：
+
+- list 为生成轻量响应，仍需同步读取和解析包含完整 payload 的大文件。
+- `parentNodeId`、当前路径和删除状态没有完整的后端权威模型。
+- 前端使用 parent override、deleted-id tombstone 和 active-id 补齐后端缺口，形成第二套事实源。
+- Electron、31457 bridge 和 17321 REST 的树写入语义不一致。
+- checkout 先改变前端 active-id，再异步应用 payload，失败时当前路径会失真。
+- 删除约束只在 UI 判断，后端不能保证当前路径不被删除。
+
+本中段不是继续压缩 JSON 响应，也不是把大 JSON 拆成多个小 JSON。目标是把 Work Node 建设为一个小型、可靠的本地版本历史子系统。
+
+### 技术选择
+
+- 使用 Electron 35 / Node 22 已内置的 `node:sqlite`，不引入 `better-sqlite3`、ORM 或独立数据库服务。
+- SQLite 数据库是 Work Node 树、HEAD、提交关系和快照引用的唯一权威事实源。
+- renderer 不直接访问数据库，只通过现有 Electron IPC / 31457 bridge / 17321 REST client 使用业务接口。
+- 数据库访问封装在独立 store/repository 模块中，业务代码不直接依赖 `DatabaseSync`，为未来升级驱动保留边界。
+- 本阶段使用完整不可变快照，不引入 delta chain、事件溯源或跨设备同步。
+
+### 数据模型
+
+数据库至少包含以下结构：
+
+1. `work_node_snapshots`
+   - `id`：内容 hash 或稳定 snapshot id。
+   - `payload`：序列化后的完整 timeline payload。
+   - `created_at`。
+   - 相同内容复用同一 snapshot，节点列表查询不得选择 payload。
+2. `work_nodes`
+   - `id`、`save_id`、`branch_id`、`parent_id`。
+   - `base_snapshot_id`、`working_snapshot_id`。
+   - `label`、`status`、`approval_policy`。
+   - `base_summary`、`working_summary`、`risk_flags`、`logs`。
+   - `created_at`、`updated_at`。
+3. `work_node_commits`
+   - 保留现有 commit、approval、checkoutApplied 和 checkout 证据。
+   - payload 改为 snapshot 引用，不在列表记录中内嵌。
+4. `work_node_heads`
+   - 按 `save_id` 保存唯一 `current_node_id` 和单调递增 `revision`。
+   - HEAD 只在节点创建成功或 checkout/restore 应用成功确认后更新。
+5. `work_node_meta`
+   - 保存 schema version、legacy JSON migration 状态等数据库级元数据。
+
+外键、唯一约束和必要索引至少覆盖：`parent_id`、`save_id + updated_at`、commit 的 `node_id`、snapshot 内容 hash。
+
+### 权威树与 HEAD 语义
+
+- `parent_id` 是唯一树关系，不再根据创建时间或 label 在前端推断父节点。
+- list 返回轻量节点、轻量 commits、`heads`/当前 `headNodeId` 和 `revision`，不返回任何 snapshot payload。
+- 新建 checkpoint 成功后，新节点成为对应 `save_id` 的 HEAD，因为它记录了当前主界面状态。
+- 点击树节点只发起 checkout，不提前改变 HEAD。
+- checkout 在 renderer 成功应用 working snapshot，并完成 `checkout-applied` 确认后，才把目标节点设为 HEAD。
+- restore_base 成功确认后，需要留下明确操作证据；其 HEAD 语义由服务端统一处理，前端不得自行猜测。
+- 当前路径由 HEAD 沿 `parent_id` 回溯得到；没有有效 HEAD 时才使用迁移期确定的兼容 head，不能长期用 latest-updated 猜测。
+
+### 删除语义
+
+- 删除由后端事务执行，前端只提交目标节点 id。
+- 后端递归计算目标子树并删除整棵子树及其 commits。
+- 如果目标子树包含任一有效 HEAD，删除必须失败。
+- 删除成功后返回权威轻量树和新 revision。
+- 删除后清理无引用 snapshot；清理可以在同一事务完成，本阶段数据规模不需要后台 GC。
+- renderer 删除 parent override、deleted-id tombstone；不能再用本地隐藏伪装删除成功。
+
+### Legacy JSON 迁移
+
+- 首次打开数据库时，如果数据库没有 Work Node 且 legacy JSON 存在，执行一次迁移。
+- 迁移在单个数据库事务中完成；失败时回滚，legacy JSON 保持不变。
+- 保留已有 `parentNodeId`；仅对确实缺失父关系的 legacy 节点执行一次兼容推断，并把结果固化进数据库。
+- snapshots 按内容 hash 去重导入，commits 改写为 snapshot 引用。
+- 优先选择最近一次成功 checkout 的节点作为迁移 HEAD；没有 checkout 证据时选择最近更新节点。
+- 迁移完成后写入 meta 标记。legacy JSON 只作为只读备份，不再双写。
+
+### 运行时与接口收敛
+
+- Electron IPC 和 31457 bridge 使用同一个 SQLite store 实例和同一套树操作。
+- 17321 REST 使用同一 store 模块，但数据库路径仍遵循其开发环境路径。
+- create/update/delete/list/commit/checkout-applied/rollback-applied 三条 transport 必须具有相同输入输出和错误语义。
+- list cache 必须带 revision 或 generation；写操作不得让旧的 in-flight list 覆盖新状态。
+- UI 打开树面板时只进行一次轻量查询，不做 health/probe 前置请求，不轮询完整树。
+
+### 文件边界
+
+- 新增独立 SQLite store/repository 文件，`electron/main.cjs` 只负责路径、IPC 和 HTTP 适配。
+- `scripts/ai-cli-rest-server.mjs` 不再保留第二套 JSON Work Node CRUD。
+- `localNodeClient.ts` 负责 transport 选择、协议归一化和 revision-aware cache，不保存业务真相。
+- `WorkNodeTreePanel.tsx` 只消费后端返回的 HEAD 和树元数据，不持久化 parent/delete/active 补丁。
+
+### 验收标准
+
+- 现有 legacy JSON 能一次性迁移，节点数、commit 数、父子关系和 payload 可读取。
+- 打开树面板不读取或解析 legacy JSON，也不加载 snapshot payload。
+- 创建子节点和同级分支后，关闭并重开应用仍保持正确关系。
+- checkout 失败时 HEAD 和高亮路径不变化；成功后 HEAD 与路径同步变化。
+- 当前路径任一节点及包含 HEAD 的子树都无法删除；灰色分支父节点删除会删除完整子树。
+- Electron IPC、31457 bridge、17321 REST 对树操作行为一致。
+- renderer 不再存在 Work Node parent override、deleted tombstone 或 active-id 权威状态。
+- SQLite 数据库写入使用事务，进程中断不会产生半棵树或节点存在但 snapshot 缺失的状态。
+- `npm run build` 通过，并有针对迁移、HEAD、子树删除和轻量 list 的自动化 smoke 验证。
+
+### 非目标
+
+- 本阶段不重构全部 localStorage/sessionStorage。
+- 不把普通 UI 展开状态、hover 状态或临时表单状态迁入 SQLite。
+- 不实现多用户、云同步、CRDT、远程数据库或 Git worktree。
+- 不在本阶段继续扩展节点树视觉设计，除非 SQLite 权威状态接入需要调整。
