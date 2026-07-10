@@ -1,5 +1,7 @@
 import type { TimelineSnapshotPayload } from '../../utils/timelineSnapshotStorage';
 
+export const DEFAULT_TIMELINE_ID = 'current-main-workbench';
+
 export type TimelineCheckoutTarget =
   | { targetType: 'snapshot'; targetId: string }
   | { targetType: 'work-node'; targetId: string };
@@ -20,6 +22,17 @@ export interface TimelineSnapshot {
   createdAt: number;
   archivedAt: number | null;
   payload?: TimelineSnapshotPayload;
+}
+
+export interface TimelineWorkNode {
+  id: string;
+  timelineId: string;
+  parentNodeId: string | null;
+  basePayloadHash: string;
+  workingPayloadHash: string;
+  status: 'draft' | 'validated' | 'blocked' | 'applied' | 'archived';
+  createdAt: number;
+  updatedAt: number;
 }
 
 export type TimelineCheckoutRef = TimelineCheckoutTarget & {

@@ -107,6 +107,7 @@ import {
   validateTimelinePayload,
 } from '../../agentKernel/timelineWorktree';
 import { buildAiTimelineCheckoutDecision } from '../../agentKernel/timelineWorktree/checkoutDecision.mjs';
+import { DEFAULT_TIMELINE_ID } from '../../core/domain/timeline';
 
 const EMPTY_BATCH_TARGET_RESISTANCE: Required<HitResistanceInput> = {
   physicalResistance: 0,
@@ -1084,7 +1085,7 @@ export function CanvasBoard({
     const client = createAiTimelineWorkNodeClient();
     const hasParentNodeInput = Object.prototype.hasOwnProperty.call(command, 'parentNodeId');
     const created = await client.create({
-      saveId: command.saveId?.trim() || 'current-main-workbench',
+      saveId: command.saveId?.trim() || DEFAULT_TIMELINE_ID,
       branchId: command.branchId?.trim() || `main-workbench-${now}`,
       ...(hasParentNodeInput ? {
         parentNodeId: command.parentNodeId === null ? null : (command.parentNodeId?.trim() || null),

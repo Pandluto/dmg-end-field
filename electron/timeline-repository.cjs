@@ -216,6 +216,9 @@ function createTimelineRepository({ databasePath }) {
     setCheckoutRef,
     appendAuditEvent,
     getDocument: (id) => readDocument(db.prepare('SELECT * FROM timeline_documents WHERE id = ?').get(id)),
+    listDocuments: () => db.prepare(`
+      SELECT * FROM timeline_documents WHERE archived_at IS NULL ORDER BY updated_at DESC
+    `).all().map(readDocument),
     getSnapshot: (id) => readSnapshot(db.prepare('SELECT * FROM timeline_snapshots WHERE id = ?').get(id), true),
     listSnapshots: (timelineId) => db.prepare(`
       SELECT * FROM timeline_snapshots WHERE timeline_id = ? AND archived_at IS NULL ORDER BY created_at DESC
@@ -224,6 +227,17 @@ function createTimelineRepository({ databasePath }) {
       const row = db.prepare('SELECT * FROM checkout_refs WHERE timeline_id = ?').get(timelineId);
       return row && { timelineId: row.timeline_id, targetType: row.target_type, targetId: row.target_id, updatedAt: row.updated_at };
     },
+    listAuditEvents: (timelineId, limit = 100) => db.prepare(`
+      SELECT * FROM timeline_audit_events WHERE timeline_id = ? ORDER BY created_at DESC LIMIT ?
+    `).all(timelineId, Math.max(1, Math.min(Number(limit) || 100, 500))).map((row) => ({
+      id: row.id,
+      timelineId: row.timeline_id,
+      eventType: row.event_type,
+      subjectType: row.subject_type,
+      subjectId: row.subject_id,
+      details: parse(row.details, {}),
+      createdAt: row.created_at,
+    })),
     close: () => db.close(),
   };
 }
