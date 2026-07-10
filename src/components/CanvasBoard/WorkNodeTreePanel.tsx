@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createAiTimelineWorkNodeClient } from '../../agentKernel/timelineWorktree/localNodeClient';
+import { createTimelineRepositoryClient } from '../../agentKernel/timelineRepository/localTimelineClient';
+import { DEFAULT_TIMELINE_ID } from '../../core/domain/timeline';
 import type { AiTimelineWorkNodeListResponse } from '../../agentKernel/timelineWorktree/localNodeClient';
 import type { AiTimelineWorkNodeCommitListItem, AiTimelineWorkNodeListItem } from '../../agentKernel/timelineWorktree/types';
 import {
@@ -100,8 +102,16 @@ export function WorkNodeTreePanel({ refreshKey, onSelectedNodeChange, onSummaryC
     const load = async () => {
       try {
         const response = await createAiTimelineWorkNodeClient().list();
+        const repositoryNodes = await createTimelineRepositoryClient().listWorkNodes(DEFAULT_TIMELINE_ID);
         if (cancelled) return;
-        applyListResponse(response);
+        applyListResponse({ ...response, nodes: repositoryNodes.map((node) => ({
+          ...node,
+          saveId: node.timelineId,
+          status: node.status as AiTimelineWorkNodeListItem['status'],
+          approvalPolicy: node.approvalPolicy as AiTimelineWorkNodeListItem['approvalPolicy'],
+          baseSummary: { characterCount: 0, buttonCount: 0, buffCount: 0 },
+          workingSummary: { characterCount: 0, buttonCount: 0, buffCount: 0 },
+        })) });
         setError('');
       } catch (loadError) {
         if (cancelled) return;
@@ -123,8 +133,16 @@ export function WorkNodeTreePanel({ refreshKey, onSelectedNodeChange, onSummaryC
 
   const reloadNodes = async () => {
     const response = await createAiTimelineWorkNodeClient().list();
-    applyListResponse(response);
-    return response;
+    const repositoryNodes = await createTimelineRepositoryClient().listWorkNodes(DEFAULT_TIMELINE_ID);
+    const next = { ...response, nodes: repositoryNodes.map((node) => ({
+      ...node, saveId: node.timelineId,
+      status: node.status as AiTimelineWorkNodeListItem['status'],
+      approvalPolicy: node.approvalPolicy as AiTimelineWorkNodeListItem['approvalPolicy'],
+      baseSummary: { characterCount: 0, buttonCount: 0, buffCount: 0 },
+      workingSummary: { characterCount: 0, buttonCount: 0, buffCount: 0 },
+    })) };
+    applyListResponse(next);
+    return next;
   };
 
   const checkoutNode = async (nodeId: string) => {

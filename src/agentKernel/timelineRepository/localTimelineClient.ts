@@ -5,6 +5,11 @@ const REST_BASE_URL = 'http://127.0.0.1:17321';
 const BRIDGE_BASE_URL = 'http://127.0.0.1:31457';
 
 type RepositoryResponse<T> = { ok: true; path?: string } & T;
+export type TimelineRepositoryWorkNode = {
+  id: string; parentNodeId?: string; timelineId: string; branchId: string; label: string; status: string;
+  approvalPolicy: string; riskFlags: Array<{ severity: 'info' | 'warning' | 'blocker'; code: string; message: string }>; logs: Array<{ id: string; at: number; level: 'info' | 'warning' | 'error'; message: string }>;
+  createdAt: number; updatedAt: number;
+};
 
 async function readResponse<T>(response: Response): Promise<T> {
   const payload = await response.json();
@@ -41,6 +46,12 @@ export function createTimelineRepositoryClient() {
         `/local-data/timeline-snapshots?timelineId=${encodeURIComponent(timelineId)}`,
       );
       return response.snapshots;
+    },
+    async listWorkNodes(timelineId: string) {
+      const response = await requestWithFallback<RepositoryResponse<{ nodes: TimelineRepositoryWorkNode[] }>>(
+        `/local-data/timeline-work-nodes?timelineId=${encodeURIComponent(timelineId)}`,
+      );
+      return response.nodes;
     },
     async saveSnapshot(input: { id: string; timelineId: string; label: string; payload: TimelineSnapshotPayload; createdAt?: number }) {
       const response = await requestWithFallback<RepositoryResponse<{ snapshot: TimelineSnapshot; reused: boolean }>>(
