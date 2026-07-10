@@ -916,6 +916,30 @@ function safeToolTitle(part, fallback = '工具调用') {
   return String(part?.state?.title || part?.tool || part?.name || fallback);
 }
 
+function defBusinessToolName(part) {
+  const input = part?.state?.input;
+  if (!input || typeof input !== 'object') return undefined;
+  let body = input.body;
+  if (typeof body === 'string') {
+    try {
+      body = JSON.parse(body);
+    } catch {
+      body = undefined;
+    }
+  }
+  if (body && typeof body === 'object' && typeof body.tool === 'string') {
+    return body.tool;
+  }
+  const url = typeof input.url === 'string' ? input.url : '';
+  const directMatch = /\/api\/def-tools\/([^/?]+)\/call(?:[/?]|$)/.exec(url);
+  if (!directMatch) return undefined;
+  try {
+    return decodeURIComponent(directMatch[1]);
+  } catch {
+    return directMatch[1];
+  }
+}
+
 function buildSafeToolPayload(part) {
   const summary = summarizeToolPart(part);
   return {
@@ -924,6 +948,7 @@ function buildSafeToolPayload(part) {
     callId: part.callID,
     messageId: part.messageID,
     toolName: part.tool || part.name || 'tool',
+    businessToolName: defBusinessToolName(part),
     status: summary.status,
     title: summary.title,
     result: summary.result,
@@ -1300,7 +1325,14 @@ async function hydrateDefSession(sessionID, options = {}) {
 
 async function ensurePersistedStreamSession(sessionID, { config = {}, skillId, thinkingEffort } = {}) {
   const existing = streamSessions.get(sessionID);
-  if (existing) return existing;
+  if (existing) {
+    if (skillId && existing.skillId !== skillId) {
+      const error = new Error(`DEF session skill mismatch: expected ${skillId}, received ${existing.skillId || 'unknown'}`);
+      error.code = 'DEF_SESSION_SKILL_MISMATCH';
+      throw error;
+    }
+    return existing;
+  }
 
   const persisted = await getPersistedDefSession(sessionID, {
     config,
@@ -1308,7 +1340,13 @@ async function ensurePersistedStreamSession(sessionID, { config = {}, skillId, t
     thinkingEffort: thinkingEffort || 'medium',
   });
   const session = persisted.session || {};
-  const persistedSkillId = metadataSkillId(session.metadata) || skillId || Object.keys(skillMap).find((id) => skillMap[id].agent === session.agent) || 'operator';
+  const metadataSkill = metadataSkillId(session.metadata);
+  if (skillId && metadataSkill && metadataSkill !== skillId) {
+    const error = new Error(`DEF session skill mismatch: expected ${skillId}, received ${metadataSkill}`);
+    error.code = 'DEF_SESSION_SKILL_MISMATCH';
+    throw error;
+  }
+  const persistedSkillId = metadataSkill || skillId || Object.keys(skillMap).find((id) => skillMap[id].agent === session.agent) || 'operator';
   const selected = skillMap[persistedSkillId] || skillMap.operator;
   const persistedThinkingEffort = metadataThinkingEffort(session.metadata) || thinkingEffort || 'medium';
   const liveBaseUrl = await ensureOpenCodeServer(sanitizeDeepSeekConfig(config), persistedSkillId, persistedThinkingEffort);
@@ -1573,6 +1611,11 @@ async function runChatStream({ config, message, thinkingEffort, skillId = 'opera
 async function continueChat(sessionID, message, clientTurnId, options = {}) {
   const deepseek = sanitizeDeepSeekConfig(options.config || {});
   let state = streamSessions.get(sessionID);
+  if (state && options.skillId && state.skillId !== options.skillId) {
+    const error = new Error(`DEF session skill mismatch: expected ${options.skillId}, received ${state.skillId || 'unknown'}`);
+    error.code = 'DEF_SESSION_SKILL_MISMATCH';
+    throw error;
+  }
   if (!state) {
     if (!deepseek.apiKey) {
       throw new Error('DeepSeek API key is not configured in DEF Shell 05 Agent.');

@@ -332,9 +332,11 @@ const server = http.createServer(async (request, response) => {
       path: requestUrl.pathname,
     });
   } catch (error) {
-    writeJson(response, 500, {
+    const errorCode = error && typeof error === 'object' && typeof error.code === 'string' ? error.code : undefined;
+    writeJson(response, errorCode === 'DEF_SESSION_SKILL_MISMATCH' ? 409 : 500, {
       ok: false,
       error: error instanceof Error ? error.message : String(error),
+      ...(errorCode ? { code: errorCode } : {}),
     });
   }
 });

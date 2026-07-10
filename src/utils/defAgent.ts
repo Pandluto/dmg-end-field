@@ -72,6 +72,7 @@ export interface DefAgentStreamEvent {
   id?: string;
   callId?: string;
   toolName?: string;
+  businessToolName?: string;
   status?: string;
   title?: string;
   input?: unknown;

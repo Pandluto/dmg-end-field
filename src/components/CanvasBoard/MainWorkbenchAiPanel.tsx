@@ -107,6 +107,7 @@ type StoredDefAgentSession = {
   sessionId: string;
   skillId?: string;
   selectedSignature?: string;
+  lastToolName?: string;
   lastSeq?: number;
   tokens?: DefAgentTokens;
   updatedAt?: number;
@@ -537,6 +538,15 @@ function compactWorkbenchAgentReply(text: string, prompt: string) {
   return normalized;
 }
 
+function isLastOperationMethodQuestion(text: string) {
+  const normalized = text.trim();
+  return /(?:用的|使用的|刚才用).*(?:工具|代码|脚本)|(?:工具|typed\s*tool).*(?:还是|或).*(?:代码|脚本)/i.test(normalized);
+}
+
+function buildLastOperationMethodAnswer(toolName: string) {
+  return `刚才用的是正式 typed tool：${toolName}。它在工具内部修改 work node 并完成受保护 checkout，不是临时脚本。`;
+}
+
 function mergeTranscriptWithStoredHistory(sessionId: string, transcript: WorkbenchAiMessage[]) {
   const history = readStoredDefAgentHistory(sessionId);
   const seen = new Set<string>();
@@ -587,6 +597,7 @@ export function MainWorkbenchAiPanel({
   const streamedTextByMessageIdRef = useRef(new Map<string, string>());
   const messagesRef = useRef<HTMLDivElement>(null);
   const lastFocusRef = useRef<MainWorkbenchSnapshotEvidenceFocus | null>(null);
+  const lastCompletedToolNameRef = useRef(storedSession?.lastToolName || '');
   const governanceSeenRef = useRef<Set<string>>(new Set());
   const governanceInitializedRef = useRef(false);
   // Entering AI mode must not create a work node. User saves create the checkpoint instead.
@@ -600,6 +611,7 @@ export function MainWorkbenchAiPanel({
       sessionId,
       skillId: WORKBENCH_AGENT_SKILL_ID,
       selectedSignature,
+      lastToolName: lastCompletedToolNameRef.current || undefined,
       lastSeq: seq || lastSeqRef.current || undefined,
       tokens: nextTokens || tokens || undefined,
     } : null);
@@ -722,6 +734,13 @@ export function MainWorkbenchAiPanel({
       .then((transcript) => {
         if (cancelled) return;
         if (activeMessageIdRef.current || activeSessionIdRef.current !== stored.sessionId) {
+          return;
+        }
+        if (transcript.session?.skillId && transcript.session.skillId !== WORKBENCH_AGENT_SKILL_ID) {
+          rememberSession(null);
+          setTokens(null);
+          setMessages(buildInitialMessages());
+          setStatus('新对话');
           return;
         }
         const sessionId = transcript.session?.id || transcript.session?.sessionID || stored.sessionId;
@@ -881,6 +900,11 @@ export function MainWorkbenchAiPanel({
     }
 
     if (payload.type === 'tool.start' || payload.type === 'tool.content') {
+      if (payload.type === 'tool.content' && payload.businessToolName) {
+        lastCompletedToolNameRef.current = payload.businessToolName;
+        const sessionId = activeSessionIdRef.current;
+        if (sessionId) rememberSession(sessionId);
+      }
       setStatus(payload.summary || payload.title || '执行中');
       setThinkingDetails((current) => [
         ...current,
@@ -1079,6 +1103,18 @@ export function MainWorkbenchAiPanel({
     if (!userText) return;
     const contextReset = parseWorkbenchContextResetPrompt(userText);
     const effectiveUserText = contextReset.prompt;
+    if (!contextReset.reset && isLastOperationMethodQuestion(effectiveUserText) && lastCompletedToolNameRef.current) {
+      const messageId = `workbench-local-${Date.now()}`;
+      setInput('');
+      setLastPrompt(effectiveUserText);
+      setStatus('已回答');
+      setMessages((current) => [
+        ...current,
+        { id: `${messageId}-user`, role: 'user', text: effectiveUserText, status: 'done', prompt: effectiveUserText },
+        { id: messageId, role: 'agent', text: buildLastOperationMethodAnswer(lastCompletedToolNameRef.current), status: 'done', prompt: effectiveUserText },
+      ]);
+      return;
+    }
     if (contextReset.reset) {
       rememberSession(null);
       lastSeqRef.current = 0;

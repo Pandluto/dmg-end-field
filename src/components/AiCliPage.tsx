@@ -206,7 +206,9 @@ function pickRestorableDefAgentSession(
 ) {
   if (stored?.sessionId) {
     const exact = sessions.find((session) => session.id === stored.sessionId || session.sessionID === stored.sessionId);
-    if (exact && !exact.stopped) return exact;
+    if (exact && !exact.stopped && (!exact.skillId || exact.skillId === skillId) && (!stored.skillId || stored.skillId === skillId)) {
+      return exact;
+    }
   }
   return sessions
     .filter((session) => !session.stopped && (!session.skillId || session.skillId === skillId))
