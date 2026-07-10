@@ -52,6 +52,22 @@ function createTimelineRepository({ databasePath }) {
       UNIQUE(timeline_id, payload_hash)
     ) STRICT;
 
+    CREATE TABLE IF NOT EXISTS timeline_work_nodes (
+      id TEXT PRIMARY KEY,
+      timeline_id TEXT NOT NULL REFERENCES timeline_documents(id) ON DELETE RESTRICT,
+      parent_id TEXT REFERENCES timeline_work_nodes(id) ON DELETE RESTRICT,
+      base_payload_hash TEXT NOT NULL REFERENCES timeline_payload_blobs(content_hash) ON DELETE RESTRICT,
+      working_payload_hash TEXT NOT NULL REFERENCES timeline_payload_blobs(content_hash) ON DELETE RESTRICT,
+      branch_id TEXT NOT NULL,
+      label TEXT NOT NULL,
+      status TEXT NOT NULL,
+      approval_policy TEXT NOT NULL,
+      risk_flags TEXT NOT NULL,
+      logs TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    ) STRICT;
+
     CREATE TABLE IF NOT EXISTS checkout_refs (
       timeline_id TEXT PRIMARY KEY REFERENCES timeline_documents(id) ON DELETE CASCADE,
       target_type TEXT NOT NULL CHECK(target_type IN ('snapshot', 'work-node')),
@@ -70,6 +86,7 @@ function createTimelineRepository({ databasePath }) {
     ) STRICT;
 
     CREATE INDEX IF NOT EXISTS timeline_snapshots_timeline_created_idx ON timeline_snapshots(timeline_id, created_at DESC);
+    CREATE INDEX IF NOT EXISTS timeline_work_nodes_timeline_updated_idx ON timeline_work_nodes(timeline_id, updated_at DESC);
     CREATE INDEX IF NOT EXISTS timeline_audit_events_timeline_created_idx ON timeline_audit_events(timeline_id, created_at DESC);
   `);
   db.prepare(`
@@ -227,6 +244,25 @@ function createTimelineRepository({ databasePath }) {
     });
   }
 
+  function importWorkNode(input) {
+    return transaction(() => {
+      const document = db.prepare('SELECT id FROM timeline_documents WHERE id = ?').get(input.timelineId);
+      if (!document) throw new Error(`Timeline document not found: ${input.timelineId}`);
+      const createdAt = input.createdAt || Date.now();
+      const basePayloadHash = ensurePayload(input.basePayload, createdAt);
+      const workingPayloadHash = ensurePayload(input.workingPayload, input.updatedAt || createdAt);
+      db.prepare(`
+        INSERT OR IGNORE INTO timeline_work_nodes (
+          id, timeline_id, parent_id, base_payload_hash, working_payload_hash, branch_id, label,
+          status, approval_policy, risk_flags, logs, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(input.id, input.timelineId, input.parentNodeId || null, basePayloadHash, workingPayloadHash,
+        input.branchId || input.id, input.label || input.id, input.status || 'draft', input.approvalPolicy || 'auto-low-risk',
+        serialize(input.riskFlags), serialize(input.logs), createdAt, input.updatedAt || createdAt);
+      return { id: input.id, imported: db.prepare('SELECT 1 FROM timeline_work_nodes WHERE id = ?').get(input.id) != null };
+    });
+  }
+
   return {
     databasePath,
     ensureDocument,
@@ -234,6 +270,7 @@ function createTimelineRepository({ databasePath }) {
     setCheckoutRef,
     appendAuditEvent,
     archiveSnapshot,
+    importWorkNode,
     getDocument: (id) => readDocument(db.prepare('SELECT * FROM timeline_documents WHERE id = ?').get(id)),
     listDocuments: () => db.prepare(`
       SELECT * FROM timeline_documents WHERE archived_at IS NULL ORDER BY updated_at DESC
