@@ -3221,8 +3221,28 @@ async function executeDefWorkNodeApplyAndVerify(name, input = {}, restore = fals
   const snapshotVerification = verifyDefSnapshotDelta(after, {
     expected: { buttonCount: { equals: expectedSummary.buttonCount } },
   });
+  const expectedStaffCounts = Object.values(isObject(expectedPayload?.skillButtonTable) ? expectedPayload.skillButtonTable : {})
+    .reduce((counts, button) => {
+      const staffIndex = Number(button?.staffIndex);
+      if (Number.isInteger(staffIndex) && staffIndex >= 0) counts[staffIndex] = (counts[staffIndex] || 0) + 1;
+      return counts;
+    }, {});
+  const actualStaffCounts = (Array.isArray(after?.skillButtons) ? after.skillButtons : [])
+    .reduce((counts, button) => {
+      const staffIndex = Number(button?.staffIndex);
+      if (Number.isInteger(staffIndex) && staffIndex >= 0) counts[staffIndex] = (counts[staffIndex] || 0) + 1;
+      return counts;
+    }, {});
+  const expectedStaffKeys = Object.keys(expectedStaffCounts).sort();
+  const actualStaffKeys = Object.keys(actualStaffCounts).sort();
+  const staffIndexVerification = {
+    pass: expectedStaffKeys.length === actualStaffKeys.length
+      && expectedStaffKeys.every((key, index) => key === actualStaffKeys[index] && expectedStaffCounts[key] === actualStaffCounts[key]),
+    expected: expectedStaffCounts,
+    actual: actualStaffCounts,
+  };
   return {
-    ok: commandVerification.pass && snapshotVerification.pass,
+    ok: commandVerification.pass && snapshotVerification.pass && staffIndexVerification.pass,
     nodeId,
     mode: restore ? 'restore_base' : 'checkout',
     command: enqueued.body.command,
@@ -3231,6 +3251,7 @@ async function executeDefWorkNodeApplyAndVerify(name, input = {}, restore = fals
     after: { buttonCount: snapshotButtonCount(after), snapshotUpdatedAt: after?.updatedAt || null },
     expectedSummary,
     snapshotVerification,
+    staffIndexVerification,
     reload: commandInput.reload,
     note: commandVerification.pass
       ? 'Command reached terminal success state and snapshot was checked.'

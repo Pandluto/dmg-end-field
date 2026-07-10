@@ -522,7 +522,9 @@ export function CanvasBoard({
         const lineIndex = characters.findIndex((item) => item.name === btn.characterName || item.id === btn.characterId);
         const restoredLineIndex = lineIndex >= 0 ? lineIndex : 0;
         const timelineNodeIndex = typeof btn.nodeIndex === 'number' && Number.isFinite(btn.nodeIndex) ? btn.nodeIndex : 0;
-        const restoredStaffIndex = Math.floor(timelineNodeIndex / GRID_NODE_COUNT);
+        const restoredStaffIndex = Number.isInteger(btn.staffIndex) && btn.staffIndex >= 0
+          ? btn.staffIndex
+          : staffLine.staffIndex;
         const restoredNodeIndex = timelineNodeIndex % GRID_NODE_COUNT;
         const position = {
           x: gridContentOffsetX + getGridNodeCenterX(restoredNodeIndex),

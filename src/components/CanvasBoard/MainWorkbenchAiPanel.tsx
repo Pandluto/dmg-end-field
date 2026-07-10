@@ -513,6 +513,15 @@ function isAgentStepLimitText(text: string | undefined) {
   return /maximum\s+steps|到达最大步骤限制|达到最大步骤限制|max(?:imum)?\s*step/i.test(String(text || ''));
 }
 
+function parseWorkbenchContextResetPrompt(text: string) {
+  const match = /^(?:请)?清空(?:当前)?(?:上下文|会话)(?:并|然后|后|，|,|\s)*(.*)$/i.exec(text.trim());
+  const nextPrompt = match?.[1]?.trim();
+  return {
+    reset: Boolean(match),
+    prompt: nextPrompt || text.trim(),
+  };
+}
+
 function compactWorkbenchAgentReply(text: string, prompt: string) {
   const normalized = text.trim();
   if (!normalized) return '';
@@ -1068,13 +1077,23 @@ export function MainWorkbenchAiPanel({
       return;
     }
     if (!userText) return;
+    const contextReset = parseWorkbenchContextResetPrompt(userText);
+    const effectiveUserText = contextReset.prompt;
+    if (contextReset.reset) {
+      rememberSession(null);
+      lastSeqRef.current = 0;
+      eventSourceRef.current?.close();
+      eventSourceRef.current = null;
+      setTokens(null);
+      setMessages(buildInitialMessages());
+    }
     const messageId = `workbench-ai-${Date.now()}`;
     const rollbackLabel = `AI 回退点 ${new Date().toLocaleString('zh-CN', { hour12: false })}`;
-    const shouldCreateRollback = shouldCreateMainWorkbenchRollback(userText);
-    const shouldCreateWorkNode = shouldCreateRollback || isMainWorkbenchMutatingPrompt(userText);
+    const shouldCreateRollback = shouldCreateMainWorkbenchRollback(effectiveUserText);
+    const shouldCreateWorkNode = shouldCreateRollback || isMainWorkbenchMutatingPrompt(effectiveUserText);
     setInput('');
     setIsBusy(true);
-    setLastPrompt(userText);
+    setLastPrompt(effectiveUserText);
     setLastRollbackLabel('');
     setLastRollbackNodeId('');
     setCurrentWorkNodeContext(null);
@@ -1082,13 +1101,13 @@ export function MainWorkbenchAiPanel({
     setStatus('发送中');
     setThinkingDetails([]);
     activeMessageIdRef.current = messageId;
-    activePromptRef.current = userText;
+    activePromptRef.current = effectiveUserText;
     activePromptStartedAtRef.current = Date.now();
     reconnectAttemptsRef.current = 0;
     setMessages((current) => [
       ...current,
-      { id: `${messageId}-user`, role: 'user', text: options.retry ? `重试：${userText}` : userText, status: 'done', prompt: userText },
-      { id: messageId, role: 'agent', text: '', status: 'running', prompt: userText },
+      { id: `${messageId}-user`, role: 'user', text: options.retry ? `重试：${userText}` : userText, status: 'done', prompt: effectiveUserText },
+      { id: messageId, role: 'agent', text: '', status: 'running', prompt: effectiveUserText },
     ]);
 
     // 第二阶段：关闭前端正则 quick action，避免绕过工具注册表和 work node patch 主路径。
@@ -1114,7 +1133,7 @@ export function MainWorkbenchAiPanel({
         patchStep('backup', { status: 'running', detail: '创建 AI work node' });
         const backupEntry = enqueueLocalWorkbenchCommand(buildAiTurnCheckpointCommand({
           messageId,
-          prompt: userText,
+          prompt: effectiveUserText,
         }));
         if (!backupEntry) {
           patchStep('backup', { status: 'error', detail: '页面控制入口不可用' });
@@ -1148,14 +1167,14 @@ export function MainWorkbenchAiPanel({
       patchStep('rest', { status: 'running', detail: '启动 17321' });
       await ensureMainWorkbenchRest();
       const snapshot = await readMainWorkbenchSnapshot();
-      const focusState = resolveMainWorkbenchSnapshotFocus(snapshot, userText, lastFocusRef.current);
+      const focusState = resolveMainWorkbenchSnapshotFocus(snapshot, effectiveUserText, lastFocusRef.current);
       if (focusState.focus && !focusState.focus.stale) {
         lastFocusRef.current = focusState.focus;
       } else if (focusState.previousFocus?.stale) {
         lastFocusRef.current = null;
       }
-      const snapshotEvidence = buildMainWorkbenchSnapshotEvidence(snapshot, userText, focusState);
-      const agentText = buildWorkbenchAgentMessage(userText, selectedCharacters, skillButtons, snapshotEvidence, workNodeContext);
+      const snapshotEvidence = buildMainWorkbenchSnapshotEvidence(snapshot, effectiveUserText, focusState);
+      const agentText = buildWorkbenchAgentMessage(effectiveUserText, selectedCharacters, skillButtons, snapshotEvidence, workNodeContext);
       patchStep('rest', { status: 'done', detail: snapshot ? 'REST 已就绪，快照证据已注入' : 'REST 已就绪，快照证据缺失' });
       patchStep('agent', { status: 'running', detail: 'def-opencode 正在思考' });
       eventSourceRef.current?.close();
