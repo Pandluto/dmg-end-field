@@ -2,10 +2,10 @@
 
 ## T0：冻结错误语义并建立迁移护栏
 
-- [ ] 移除“保存快照自动创建 Work Node”的逻辑。
-- [ ] 移除进入 AI 模式自动创建 manual checkpoint 的遗留代码，而非仅用标志位禁用。
-- [ ] 暂停任何把 snapshot id 写入 Work Node `saveId` 的调用。
-- [ ] 在改动前固定 Phase 4 兼容清单：实时 checkout、整组复制、staff line 重建、会话隔离和 AI 模式拖拽禁用不得回退。
+- [x] 移除“保存快照自动创建 Work Node”的逻辑。
+- [x] 移除进入 AI 模式自动创建 manual checkpoint 的遗留代码，而非仅用标志位禁用。
+- [x] 暂停任何把 snapshot id 写入 Work Node `saveId` 的调用。
+- [x] 在改动前固定 Phase 4 兼容清单：实时 checkout、整组复制、staff line 重建、会话隔离和 AI 模式拖拽禁用不得回退。
 - [ ] 为现有 localdata 与 Work Node SQLite 建立只读备份和迁移预览命令。
 - [ ] 记录并分类现有异常 `[snapshot]` Work Node，默认不删除。
 

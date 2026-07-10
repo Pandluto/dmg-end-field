@@ -12,15 +12,6 @@ function compactText(text: string, maxLength = 28) {
   return `${normalized.slice(0, maxLength - 1)}...`;
 }
 
-export function buildManualCheckpointCommand(timestamp = Date.now()): CreateWorkNodeCommand {
-  return {
-    op: 'createAiTimelineWorkNodeFromCurrent',
-    branchId: `manual-checkpoint-${timestamp}`,
-    label: `[manual-checkpoint] 进入 AI 模式前 ${formatTimestamp(timestamp)}`,
-    approvalPolicy: 'auto-low-risk',
-  };
-}
-
 export function buildAiTurnCheckpointCommand(input: {
   messageId: string;
   prompt: string;

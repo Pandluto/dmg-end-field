@@ -31,7 +31,7 @@ import {
 import { summarizeMainWorkbenchToolsForAgent } from '../../agentKernel/mainWorkbench/toolRegistry';
 import { buildGameKnowledgePromptLines } from '../../utils/gameKnowledge';
 import { MarkdownRenderer } from '../MarkdownRenderer';
-import { buildAiTurnCheckpointCommand, buildManualCheckpointCommand } from './workNodeAutosave';
+import { buildAiTurnCheckpointCommand } from './workNodeAutosave';
 import { WorkNodeTreeIcon } from './WorkNodeTreeIcon';
 import './MainWorkbenchAiPanel.css';
 
@@ -600,8 +600,6 @@ export function MainWorkbenchAiPanel({
   const lastCompletedToolNameRef = useRef(storedSession?.lastToolName || '');
   const governanceSeenRef = useRef<Set<string>>(new Set());
   const governanceInitializedRef = useRef(false);
-  // Entering AI mode must not create a work node. User saves create the checkpoint instead.
-  const manualCheckpointCreatedRef = useRef(true);
 
   const rememberSession = (sessionId: string | null, nextTokens?: DefAgentTokens | null, seq?: number) => {
     activeSessionIdRef.current = sessionId;
@@ -634,31 +632,6 @@ export function MainWorkbenchAiPanel({
   useEffect(() => {
     const timer = window.setInterval(() => setNowTick(Date.now()), 1000);
     return () => window.clearInterval(timer);
-  }, []);
-
-  useEffect(() => {
-    if (manualCheckpointCreatedRef.current) return;
-    manualCheckpointCreatedRef.current = true;
-    let cancelled = false;
-    const createdAt = Date.now();
-    const entry = enqueueLocalWorkbenchCommand(buildManualCheckpointCommand(createdAt), 'main-workbench-ai-manual-checkpoint');
-    if (!entry) {
-      setStatus('进入 AI 模式前节点保存失败');
-      return undefined;
-    }
-    setStatus((current) => current === '待命' ? '已投递进入 AI 模式前节点' : current);
-    onWorkNodeChanged?.();
-    void waitForWorkbenchCommandsToSettle(createdAt, 7000)
-      .then(() => {
-        if (!cancelled) {
-          setStatus((current) => current === '已投递进入 AI 模式前节点' ? '已保存进入 AI 模式前节点' : current);
-        }
-        onWorkNodeChanged?.();
-      })
-      .catch(() => onWorkNodeChanged?.());
-    return () => {
-      cancelled = true;
-    };
   }, []);
 
   useEffect(() => {
