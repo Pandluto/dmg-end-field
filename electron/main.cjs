@@ -4304,6 +4304,14 @@ function getTimelineRepository() {
   return timelineRepository;
 }
 
+function mirrorAiTimelineWorkNodeToRepository(node) {
+  if (!node || node.saveId?.startsWith('timeline-snapshot-') || /^\[snapshot\]/i.test(node.label || '')) return;
+  const timelineId = node.saveId || 'current-main-workbench';
+  const repository = getTimelineRepository();
+  repository.ensureDocument({ id: timelineId, label: '主排轴' });
+  repository.importWorkNode({ ...node, timelineId });
+}
+
 function sanitizeArchiveId(value) {
   const raw = typeof value === 'string' && value.trim() ? value.trim() : `archive-${Date.now()}`;
   return raw
@@ -4821,6 +4829,7 @@ function createAiTimelineWorkNode(payload) {
     logs: [makeAiTimelineWorkNodeLog('info', 'Created AI timeline work node from checkout payload.')],
   };
   store.saveNode(node);
+  mirrorAiTimelineWorkNodeToRepository(node);
   return { ok: true, path: getAiTimelineWorkNodesPath(), node };
 }
 
@@ -4868,6 +4877,7 @@ function updateAiTimelineWorkNode(id, payload = {}) {
     ],
   };
   getAiTimelineWorkNodeStore().saveNode(nextNode);
+  mirrorAiTimelineWorkNodeToRepository(nextNode);
   return { ok: true, path: getAiTimelineWorkNodesPath(), node: nextNode };
 }
 
@@ -4920,6 +4930,7 @@ function commitAiTimelineWorkNode(id, payload = {}) {
     ],
   };
   getAiTimelineWorkNodeStore().saveNodeAndCommit(nextNode, commit);
+  mirrorAiTimelineWorkNodeToRepository(nextNode);
   return { ok: true, path: getAiTimelineWorkNodesPath(), node: nextNode, commit };
 }
 
@@ -4962,6 +4973,7 @@ function markAiTimelineWorkNodeCheckoutApplied(id, payload = {}) {
     ],
   };
   store.saveNodeAndCommit(nextNode, nextCommit, { setHead: true });
+  mirrorAiTimelineWorkNodeToRepository(nextNode);
   return { ok: true, path: getAiTimelineWorkNodesPath(), node: nextNode, commit: nextCommit };
 }
 
@@ -5002,6 +5014,7 @@ function markAiTimelineWorkNodeRollbackApplied(id, payload = {}) {
     })],
   };
   store.saveNode(restoreNode, { setHead: true });
+  mirrorAiTimelineWorkNodeToRepository(restoreNode);
   return { ok: true, path: getAiTimelineWorkNodesPath(), node: restoreNode, rollback };
 }
 
