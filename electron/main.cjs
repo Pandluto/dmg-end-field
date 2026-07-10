@@ -4820,7 +4820,7 @@ function createAiTimelineWorkNode(payload) {
     riskFlags: normalizeAiTimelineRiskFlags(payload.riskFlags),
     logs: [makeAiTimelineWorkNodeLog('info', 'Created AI timeline work node from checkout payload.')],
   };
-  store.saveNode(node, { setHead: true });
+  store.saveNode(node);
   return { ok: true, path: getAiTimelineWorkNodesPath(), node };
 }
 

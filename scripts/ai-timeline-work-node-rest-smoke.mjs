@@ -102,7 +102,7 @@ try {
 
   let list = await request('GET', '/api/ai-timeline-worknodes');
   assert.equal(list.status, 200);
-  assert.equal(list.body.headNodeId, 'branch');
+  assert.equal(list.body.headNodeId, '');
   assert.equal(list.body.nodes.find((node) => node.id === 'child')?.parentNodeId, 'root');
   assert.equal(list.body.nodes.some((node) => 'basePayload' in node || 'workingPayload' in node), false);
 

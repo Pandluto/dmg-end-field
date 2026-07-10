@@ -934,7 +934,7 @@ function handleAiTimelineWorkNodeRequest(method, pathname, body) {
       riskFlags: normalizeRiskFlags(body?.riskFlags),
       logs: [makeWorkNodeLog('info', 'Created AI timeline work node from checkout payload.')],
     };
-    store.saveNode(node, { setHead: true });
+    store.saveNode(node);
     return { status: 200, body: { ok: true, protocolVersion: 1, path: aiTimelineWorkNodesPath, node } };
   }
 
