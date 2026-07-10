@@ -374,7 +374,7 @@ function buildOpenCodeConfig(config, skillId, thinkingEffort) {
       prompt: buildAgentPrompt(id),
       options: requestOptions,
       permission: buildAgentPermission(id),
-      steps: id === 'workbench' ? 4 : 8,
+      steps: id === 'workbench' ? 8 : 8,
     };
   }
 

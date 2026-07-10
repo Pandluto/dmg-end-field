@@ -11,7 +11,7 @@ import {
   type DefAgentTokens,
   type DefAgentWorkbenchTestUiEvent,
 } from '../../utils/defAgent';
-import { getLocalAgentHealth, requestOpenAiCliRest } from '../../utils/localAgent';
+import { getLocalAgentHealth, requestCloseAiCliRest, requestOpenAiCliRest } from '../../utils/localAgent';
 import type { Character, SkillButton } from '../../types';
 import {
   MAIN_WORKBENCH_REST_BASE_URL,
@@ -234,7 +234,7 @@ function buildWorkbenchAgentMessage(
     '工具事实源是 /api/def-tools；模型选择工具和参数，代码负责 schema、policy、verifier、rollback。',
     `LEGACY_TOOL_REGISTRY_SUMMARY（仅作兼容摘要，schema 以 /api/def-tools 为准）:\n${toolRegistrySummary}`,
     '业务操作优先通过 http://127.0.0.1:17321/api/def-tools/call 调用 DEF typed tools；/api/main-workbench/commands/enqueue 只是兼容执行层，不是首选协议。',
-    '先用 def.tool.list / def.tool.describe 查看工具，再用 read/resolver/edit/verify 工具完成动作；tool 返回 queued 不等于已生效，最终回复前必须做关键验证。',
+    '当前请求已附带可信快照与工具约定。能直接执行时直接调用对应 typed tool；不要为了例行操作先列工具、查 schema 或重复读取快照。tool 返回 queued 不等于已生效，最终回复前只做一次关键验证。',
     '低风险明确操作可用 current checkout typed tools；批量/高风险/重排轴优先使用 def.worknode.patch_and_validate。没有 nodeId 时直接省略 nodeId，工具会先从可用的当前 payload 镜像创建 work node；checkout 单独执行。',
     'def.worknode.patch 只能修改 appdata node.workingPayload，不会写当前 localStorage/sessionStorage 迁出态；当前迁出态只允许 checkout/rollback 阶段写入。',
     'saveTimelineSnapshot/restoreTimelineSnapshot 只是当前迁出态的用户快照兼容回退，不是 AI work node、branch log 或修改日志；不要把 localStorage/sessionStorage 当前 checkout 当成 appdata work node。',
@@ -266,9 +266,22 @@ function buildWorkbenchAgentMessage(
 
 async function ensureMainWorkbenchRest() {
   const health = await getLocalAgentHealth();
-  if (health.aiCliRest?.running) {
+  if (!health.aiCliRest?.running) {
+    return requestOpenAiCliRest();
+  }
+  const expectedOperation = 'copyStaffLine';
+  try {
+    const response = await fetch(`${MAIN_WORKBENCH_REST_BASE_URL}/api/def-tools/describe?name=def.worknode.patch_and_validate`, { cache: 'no-store' });
+    const payload = await response.json() as { result?: { tool?: { inputSchema?: { properties?: { patch?: { items?: { properties?: { op?: { enum?: unknown[] } } } } } } } } };
+    const operations = payload.result?.tool?.inputSchema?.properties?.patch?.items?.properties?.op?.enum;
+    if (Array.isArray(operations) && operations.includes(expectedOperation)) {
+      return health.aiCliRest;
+    }
+  } catch {
+    // A transient schema probe failure must not kill an otherwise usable sidecar.
     return health.aiCliRest;
   }
+  await requestCloseAiCliRest();
   return requestOpenAiCliRest();
 }
 
@@ -494,6 +507,10 @@ function NewChatIcon() {
       <path d="M5 12h14" />
     </svg>
   );
+}
+
+function isAgentStepLimitText(text: string | undefined) {
+  return /maximum\s+steps|到达最大步骤限制|达到最大步骤限制|max(?:imum)?\s*step/i.test(String(text || ''));
 }
 
 function compactWorkbenchAgentReply(text: string, prompt: string) {
@@ -872,6 +889,15 @@ export function MainWorkbenchAiPanel({
     if (payload.type === 'done') {
       const finalText = (payload.content || payload.text || '').trim();
       const streamedText = (streamedTextByMessageIdRef.current.get(messageId) || '').trim();
+      if (isAgentStepLimitText(finalText || streamedText)) {
+        const error = 'AI_STEP_LIMIT：本轮达到步骤上限，未能确认最终应用结果；请不要将此消息视为已完成。';
+        setStatus(error);
+        setSteps((current) => current.map((step) => step.status === 'running'
+          ? { ...step, status: 'error', detail: error }
+          : step));
+        finishMessage(messageId, 'error', error, payload.tokens);
+        return;
+      }
       if (!finalText && !streamedText) {
         const error = 'AI_EMPTY_RESPONSE: 后台已结束，但模型没有返回回复内容。';
         setStatus(error);

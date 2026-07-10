@@ -582,6 +582,27 @@ function validateWorkNodePayloadIssues(payload, fieldName) {
       });
     }
   }
+  const seenTimelineButtonIds = new Set();
+  for (const { button, staffIndex } of timelineButtonEntries) {
+    if (!button?.id) continue;
+    if (seenTimelineButtonIds.has(button.id)) {
+      issues.push({
+        code: 'duplicate-timeline-button-entry',
+        message: `Timeline button ${button.id} appears in more than one staff line.`,
+        path: `${fieldName}.timelineData.staffLines`,
+      });
+      continue;
+    }
+    seenTimelineButtonIds.add(button.id);
+    const tableButton = payload.skillButtonTable[button.id];
+    if (tableButton && tableButton.staffIndex !== staffIndex) {
+      issues.push({
+        code: 'timeline-button-staff-mismatch',
+        message: `Timeline button ${button.id} is on staff ${staffIndex}, but its table entry targets staff ${tableButton.staffIndex}.`,
+        path: `${fieldName}.timelineData.staffLines`,
+      });
+    }
+  }
   const buffIds = new Set((Array.isArray(payload.allBuffList) ? payload.allBuffList : []).map((buff) => buff?.id).filter(Boolean));
   for (const [buttonId, button] of Object.entries(isObject(payload.skillButtonTable) ? payload.skillButtonTable : {})) {
     for (const buffId of Array.isArray(button?.selectedBuff) ? button.selectedBuff : []) {
@@ -863,28 +884,6 @@ function handleAiTimelineWorkNodeRequest(method, pathname, body) {
       },
     };
   }
-  const seenTimelineButtonIds = new Set();
-  for (const { button, staffIndex } of timelineButtonEntries) {
-    if (!button?.id) continue;
-    if (seenTimelineButtonIds.has(button.id)) {
-      issues.push({
-        code: 'duplicate-timeline-button-entry',
-        message: `Timeline button ${button.id} appears in more than one staff line.`,
-        path: `${fieldName}.timelineData.staffLines`,
-      });
-      continue;
-    }
-    seenTimelineButtonIds.add(button.id);
-    const tableButton = payload.skillButtonTable[button.id];
-    if (tableButton && tableButton.staffIndex !== staffIndex) {
-      issues.push({
-        code: 'timeline-button-staff-mismatch',
-        message: `Timeline button ${button.id} is on staff ${staffIndex}, but its table entry targets staff ${tableButton.staffIndex}.`,
-        path: `${fieldName}.timelineData.staffLines`,
-      });
-    }
-  }
-
   if (method === 'POST' && pathname === '/api/ai-timeline-worknodes/create') {
     const saveId = sanitizeWorkNodeId(body?.saveId, 'save');
     if (!body?.saveId || typeof body.saveId !== 'string') {
