@@ -159,11 +159,20 @@ try {
   assert.equal(list.body.nodes.find((node) => node.id === 'child')?.parentNodeId, 'root');
   assert.equal(list.body.nodes.some((node) => 'basePayload' in node || 'workingPayload' in node), false);
 
+  const invalidStatus = await request('POST', '/api/ai-timeline-worknodes/branch/update', { status: 'made-up-state' });
+  assert.equal(invalidStatus.status, 400, JSON.stringify(invalidStatus.body));
+  assert.equal(invalidStatus.body.error?.code, 'invalid-timeline-work-node-status');
+
   const committed = await request('POST', '/api/ai-timeline-worknodes/branch/commit', {
     commitId: 'commit-branch',
     approval: { approvedBy: 'user', rationale: 'REST smoke checkout' },
   });
   assert.equal(committed.status, 200, JSON.stringify(committed.body));
+  const duplicateCommit = await request('POST', '/api/ai-timeline-worknodes/branch/commit', {
+    commitId: 'commit-branch', approval: { approvedBy: 'user', rationale: 'duplicate id check' },
+  });
+  assert.equal(duplicateCommit.status, 409, JSON.stringify(duplicateCommit.body));
+  assert.equal(duplicateCommit.body.error?.code, 'ai-worknode-commit-id-conflict');
   const checkedOut = await request('POST', '/api/ai-timeline-worknodes/branch/checkout-applied', {
     commitId: 'commit-branch', appliedBy: 'user', rationale: 'REST smoke checkout',
   });

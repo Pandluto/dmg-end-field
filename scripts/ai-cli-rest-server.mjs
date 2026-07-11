@@ -1030,6 +1030,9 @@ function handleAiTimelineWorkNodeRequest(method, pathname, body) {
       ? normalizeRiskFlags(body.riskFlags)
       : (Array.isArray(node.riskFlags) ? node.riskFlags : []);
     const allowedStatuses = new Set(['open', 'ready', 'committed', 'applied', 'abandoned']);
+    if (Object.prototype.hasOwnProperty.call(body || {}, 'status') && !allowedStatuses.has(body.status)) {
+      return failScript(400, 'invalid-timeline-work-node-status', `Unsupported AI Work Node status: ${String(body.status)}`);
+    }
     const hasParentNodePatch = Object.prototype.hasOwnProperty.call(body || {}, 'parentNodeId');
     const parentNodeId = hasParentNodePatch && typeof body.parentNodeId === 'string' && body.parentNodeId.trim()
       ? sanitizeWorkNodeId(body.parentNodeId, 'ai-timeline-node')
@@ -1118,6 +1121,9 @@ function handleAiTimelineWorkNodeRequest(method, pathname, body) {
       approval,
       checkoutApplied: false,
     };
+    if (store.getCommit(commit.id)) {
+      return failScript(409, 'ai-worknode-commit-id-conflict', `AI Work Node commit id already exists: ${commit.id}`);
+    }
     const nextNode = {
       ...node,
       status: 'committed',

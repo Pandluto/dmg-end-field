@@ -5062,6 +5062,9 @@ function commitAiTimelineWorkNode(id, payload = {}) {
     approval,
     checkoutApplied: false,
   };
+  if (getAiTimelineWorkNodeStore().getCommit(commit.id)) {
+    throw aiTimelineWorkNodeError('ai-worknode-commit-id-conflict', 409, `AI Work Node commit id already exists: ${commit.id}`);
+  }
   const nextNode = {
     ...node,
     status: 'committed',
