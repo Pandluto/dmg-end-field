@@ -126,6 +126,24 @@ try {
   await createNode('child', 'root');
   await createNode('branch', 'root');
 
+  // Simulate a legacy-only ancestry left behind before repository migration.
+  // Updating either descendant must restore its complete parent chain instead
+  // of leaving legacy and repository trees split.
+  const erasedRepositoryTree = await request('POST', '/api/timeline-work-nodes/root/delete', {});
+  assert.equal(erasedRepositoryTree.status, 200, JSON.stringify(erasedRepositoryTree.body));
+  for (const nodeId of ['child', 'branch']) {
+    const legacyNode = await request('GET', `/api/ai-timeline-worknodes/${nodeId}`);
+    assert.equal(legacyNode.status, 200, JSON.stringify(legacyNode.body));
+    const remirrored = await request('POST', `/api/ai-timeline-worknodes/${nodeId}/update`, {
+      workingPayload: legacyNode.body.node.workingPayload,
+      status: legacyNode.body.node.status,
+      riskFlags: legacyNode.body.node.riskFlags,
+    });
+    assert.equal(remirrored.status, 200, JSON.stringify(remirrored.body));
+  }
+  const remirroredRepositoryTree = await request('GET', '/api/timeline-work-nodes?timelineId=save-rest');
+  assert.deepEqual(new Set(remirroredRepositoryTree.body.nodes.map((node) => node.id)), new Set(['root', 'child', 'branch']));
+
   let list = await request('GET', '/api/ai-timeline-worknodes');
   assert.equal(list.status, 200);
   assert.equal(list.body.headNodeId, '');
