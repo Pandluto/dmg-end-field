@@ -495,6 +495,29 @@ function createAiTimelineWorkNodeStore({ databasePath, legacyJsonPath }) {
     });
   }
 
+  // Canonical Timeline Repository deletion must not be vetoed by this legacy
+  // projection's stale HEAD. Remove any projected HEAD inside the subtree and
+  // purge the projection after the canonical transaction has succeeded.
+  function deleteSubtreeProjection(nodeId) {
+    return transaction(() => {
+      const target = db.prepare('SELECT id FROM work_nodes WHERE id = ?').get(nodeId);
+      if (!target) return { deletedNodeIds: [], revision: currentRevision() };
+      const deletedNodeIds = db.prepare(`
+        WITH RECURSIVE subtree(id) AS (
+          SELECT id FROM work_nodes WHERE id = ?
+          UNION ALL
+          SELECT node.id FROM work_nodes node JOIN subtree ON node.parent_id = subtree.id
+        ) SELECT id FROM subtree
+      `).all(nodeId).map((row) => row.id);
+      const placeholders = deletedNodeIds.map(() => '?').join(', ');
+      db.prepare(`DELETE FROM work_node_heads WHERE current_node_id IN (${placeholders})`).run(...deletedNodeIds);
+      db.prepare('DELETE FROM work_nodes WHERE id = ?').run(nodeId);
+      const revision = bumpRevision();
+      garbageCollectSnapshots();
+      return { deletedNodeIds, revision };
+    });
+  }
+
   function deleteTimeline(saveId) {
     return transaction(() => {
       const nodeIds = db.prepare('SELECT id FROM work_nodes WHERE save_id = ?').all(saveId).map((row) => row.id);
@@ -581,6 +604,7 @@ function createAiTimelineWorkNodeStore({ databasePath, legacyJsonPath }) {
     getHead,
     assertSubtreeDeletable,
     deleteSubtree,
+    deleteSubtreeProjection,
     deleteTimeline,
     replaceArchive,
     close: () => db.close(),

@@ -83,6 +83,14 @@ assert.throws(
   (error) => error?.code === 'ai-worknode-current-checkout-protected' && error?.status === 409,
 );
 
+const staleProjectionHead = node('stale-projection-head', 5, { parentNodeId: 'root' });
+store.saveNode(staleProjectionHead);
+store.setHead('save-1', staleProjectionHead.id);
+const purgedProjection = store.deleteSubtreeProjection(staleProjectionHead.id);
+assert.deepEqual(purgedProjection.deletedNodeIds, [staleProjectionHead.id]);
+assert.equal(store.getNode(staleProjectionHead.id), null);
+assert.equal(store.getHead('save-1'), null);
+
 store.setHead('save-1', 'child');
 const grayParent = node('gray-parent', 5, { parentNodeId: 'root', workingPayload: payloadB });
 const grayChild = node('gray-child', 6, { parentNodeId: 'gray-parent', workingPayload: payloadB });

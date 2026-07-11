@@ -1113,10 +1113,9 @@ function handleAiTimelineWorkNodeRequest(method, pathname, body) {
       // remove both so a later compatibility update cannot resurrect this node.
       const repository = getTimelineRepository();
       const legacyStore = getAiTimelineWorkNodeStore();
-      if (legacyStore.getNode(nodeId)) legacyStore.assertSubtreeDeletable(nodeId);
       if (repository.getWorkNode(nodeId)) repository.assertWorkNodeSubtreeDeletable(nodeId);
       if (repository.getWorkNode(nodeId)) repository.deleteWorkNodeSubtree(nodeId);
-      if (legacyStore.getNode(nodeId)) legacyStore.deleteSubtree(nodeId);
+      if (legacyStore.getNode(nodeId)) legacyStore.deleteSubtreeProjection(nodeId);
     } catch (error) {
       if (error?.code === 'ai-worknode-current-checkout-protected') {
         return failScript(409, error.code, error.message, { nodeId });
@@ -1331,10 +1330,9 @@ function handleTimelineRepositoryRequest(method, pathname, query, body) {
       // During migration both stores can still contain the same node.  Validate
       // both before either write, then remove both projections so an old update
       // cannot mirror a deleted node back into the Repository.
-      if (legacyStore.getNode(nodeId)) legacyStore.assertSubtreeDeletable(nodeId);
       repository.assertWorkNodeSubtreeDeletable(nodeId);
       const result = repository.deleteWorkNodeSubtree(nodeId);
-      if (legacyStore.getNode(nodeId)) legacyStore.deleteSubtree(nodeId);
+      if (legacyStore.getNode(nodeId)) legacyStore.deleteSubtreeProjection(nodeId);
       return { status: 200, body: { ok: true, result } };
     } catch (error) {
       if (error?.status === 409 || error?.status === 404) return failScript(error.status, error.code, error.message);

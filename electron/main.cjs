@@ -1060,10 +1060,9 @@ function startBridgeServer() {
           const nodeId = decodeURIComponent(timelineWorkNodeDeleteMatch[1]);
           const legacyStore = getAiTimelineWorkNodeStore();
           const repository = getTimelineRepository();
-          if (legacyStore.getNode(nodeId)) legacyStore.assertSubtreeDeletable(nodeId);
           repository.assertWorkNodeSubtreeDeletable(nodeId);
           const result = repository.deleteWorkNodeSubtree(nodeId);
-          if (legacyStore.getNode(nodeId)) legacyStore.deleteSubtree(nodeId);
+          if (legacyStore.getNode(nodeId)) legacyStore.deleteSubtreeProjection(nodeId);
           writeJson(response, 200, { ok: true, result });
         } catch (error) {
           writeJson(response, error?.status || 500, { ok: false, error: { code: error?.code || 'timeline-work-node-delete-failed', message: error instanceof Error ? error.message : String(error) } });
@@ -5096,10 +5095,9 @@ function deleteAiTimelineWorkNode(id) {
   const nodeId = sanitizeAiTimelineWorkNodeId(id, 'ai-timeline-node');
   const store = getAiTimelineWorkNodeStore();
   const repository = getTimelineRepository();
-  if (store.getNode(nodeId)) store.assertSubtreeDeletable(nodeId);
   if (repository.getWorkNode(nodeId)) repository.assertWorkNodeSubtreeDeletable(nodeId);
   if (repository.getWorkNode(nodeId)) repository.deleteWorkNodeSubtree(nodeId);
-  if (store.getNode(nodeId)) store.deleteSubtree(nodeId);
+  if (store.getNode(nodeId)) store.deleteSubtreeProjection(nodeId);
   return buildAiTimelineWorkNodeListResult();
 }
 
