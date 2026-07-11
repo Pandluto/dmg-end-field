@@ -74,6 +74,12 @@ export interface TimelineBundleV2 {
     riskFlags: unknown[]; logs: unknown[]; createdAt: number; updatedAt: number;
     basePayloadIndex: number; workingPayloadIndex: number;
   }>;
+  commits?: Array<{
+    id: string; nodeId: string; branchId: string; label: string; createdAt: number; summary: unknown;
+    riskFlags: unknown[]; approval: unknown; checkoutApplied: boolean; checkout?: unknown;
+    basePayloadIndex: number; appliedPayloadIndex: number;
+  }>;
+  checkoutRef?: { targetType: 'snapshot' | 'work-node'; targetId: string; updatedAt: number };
 }
 
 interface TimelineSnapshotArchive {
@@ -285,6 +291,12 @@ type TimelineBundleWorkNodeInput = {
   basePayload: TimelineSnapshotPayload; workingPayload: TimelineSnapshotPayload;
 };
 
+type TimelineBundleCommitInput = {
+  id: string; nodeId: string; branchId: string; label: string; createdAt: number; summary: unknown;
+  riskFlags?: unknown[]; approval?: unknown; checkoutApplied: boolean; checkout?: unknown;
+  basePayload: TimelineSnapshotPayload; appliedPayload: TimelineSnapshotPayload;
+};
+
 async function sha256(value: unknown): Promise<string> {
   const bytes = new TextEncoder().encode(JSON.stringify(value));
   const hash = await crypto.subtle.digest('SHA-256', bytes);
@@ -294,6 +306,8 @@ async function sha256(value: unknown): Promise<string> {
 export async function buildTimelineBundleV2(input: {
   timelineId: string; label?: string; snapshot: TimelineSnapshotEntry;
   snapshots?: TimelineSnapshotEntry[]; workNodes?: TimelineBundleWorkNodeInput[];
+  commits?: TimelineBundleCommitInput[];
+  checkoutRef?: { targetType: 'snapshot' | 'work-node'; targetId: string; updatedAt: number } | null;
   scope?: 'snapshot' | 'branch' | 'document';
 }): Promise<TimelineBundleV2> {
   const sourceSnapshots = input.snapshots || [input.snapshot];
@@ -319,18 +333,26 @@ export async function buildTimelineBundleV2(input: {
     riskFlags: node.riskFlags || [], logs: node.logs || [], createdAt: node.createdAt, updatedAt: node.updatedAt,
     basePayloadIndex: addPayload(node.basePayload), workingPayloadIndex: addPayload(node.workingPayload),
   }));
+  const commits = input.commits?.map((commit) => ({
+    id: commit.id, nodeId: commit.nodeId, branchId: commit.branchId, label: commit.label, createdAt: commit.createdAt,
+    summary: commit.summary, riskFlags: commit.riskFlags || [], approval: commit.approval || {},
+    checkoutApplied: commit.checkoutApplied, ...(commit.checkout ? { checkout: commit.checkout } : {}),
+    basePayloadIndex: addPayload(commit.basePayload), appliedPayloadIndex: addPayload(commit.appliedPayload),
+  }));
   return {
     type: 'dmg.timeline-bundle.v2',
     schemaVersion: 2,
     manifest: {
       exportedAt: Date.now(), scope: input.scope || (workNodes?.length ? 'document' : 'snapshot'), timelineId: input.timelineId,
       label: normalizeShareLabel(input.label || input.snapshot.label),
-      payloadHash: await sha256({ payloads, snapshots, workNodes: workNodes || [] }),
+      payloadHash: await sha256({ payloads, snapshots, workNodes: workNodes || [], commits: commits || [], checkoutRef: input.checkoutRef || null }),
     },
     document: { id: input.timelineId, label: normalizeShareLabel(input.label || '导入排轴') },
     payloads,
     snapshots,
     ...(workNodes?.length ? { workNodes } : {}),
+    ...(commits?.length ? { commits } : {}),
+    ...(input.checkoutRef ? { checkoutRef: input.checkoutRef } : {}),
   };
 }
 
@@ -346,9 +368,20 @@ export async function parseTimelineBundleV2(rawText: string): Promise<TimelineBu
     if (!workNodes.every((node) => typeof node?.id === 'string' && typeof node.branchId === 'string'
       && typeof node.basePayloadIndex === 'number' && bundle.payloads![node.basePayloadIndex]
       && typeof node.workingPayloadIndex === 'number' && bundle.payloads![node.workingPayloadIndex])) return null;
-    const actualHash = await sha256({ payloads: bundle.payloads, snapshots: bundle.snapshots, workNodes });
+    const workNodeIds = new Set(workNodes.map((node) => node.id));
+    if (!workNodes.every((node) => !node.parentNodeId || workNodeIds.has(node.parentNodeId))) return null;
+    const commits = Array.isArray(bundle.commits) ? bundle.commits : [];
+    if (!commits.every((commit) => typeof commit?.id === 'string' && workNodeIds.has(commit.nodeId)
+      && typeof commit.basePayloadIndex === 'number' && bundle.payloads![commit.basePayloadIndex]
+      && typeof commit.appliedPayloadIndex === 'number' && bundle.payloads![commit.appliedPayloadIndex])) return null;
+    const snapshotIds = new Set(bundle.snapshots.map((snapshot) => snapshot.id));
+    if (bundle.checkoutRef && (bundle.checkoutRef.targetType === 'snapshot'
+      ? !snapshotIds.has(bundle.checkoutRef.targetId)
+      : !workNodeIds.has(bundle.checkoutRef.targetId))) return null;
+    const actualHash = await sha256({ payloads: bundle.payloads, snapshots: bundle.snapshots, workNodes, commits, checkoutRef: bundle.checkoutRef || null });
+    const previousV2Hash = await sha256({ payloads: bundle.payloads, snapshots: bundle.snapshots, workNodes });
     const legacyHash = await sha256(bundle.payloads);
-    if (actualHash !== bundle.manifest.payloadHash && legacyHash !== bundle.manifest.payloadHash) return null;
+    if (actualHash !== bundle.manifest.payloadHash && previousV2Hash !== bundle.manifest.payloadHash && legacyHash !== bundle.manifest.payloadHash) return null;
     return bundle as TimelineBundleV2;
   } catch {
     return null;

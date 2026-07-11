@@ -414,6 +414,17 @@ function createTimelineRepository({ databasePath }) {
         throw error;
       }
     }
+    const commits = Array.isArray(input.commits) ? input.commits : [];
+    const commitIds = new Set();
+    for (const commit of commits) {
+      if (!commit?.id || !commit?.nodeId || !workNodeIds.has(commit.nodeId)
+        || !Object.prototype.hasOwnProperty.call(commit, 'basePayload')
+        || !Object.prototype.hasOwnProperty.call(commit, 'appliedPayload')) {
+        throw repositoryError('invalid-timeline-bundle-work-node-commit', 400, 'Timeline bundle contains an invalid Work Node commit.');
+      }
+      if (commitIds.has(commit.id)) throw repositoryError('duplicate-timeline-bundle-work-node-commit', 400, `Timeline bundle has duplicate commit id: ${commit.id}`);
+      commitIds.add(commit.id);
+    }
     return transaction(() => {
       const existing = db.prepare('SELECT id FROM timeline_documents WHERE id = ?').get(documentId);
       if (existing) {
@@ -467,15 +478,38 @@ function createTimelineRepository({ databasePath }) {
           serialize(node.riskFlags), serialize(node.logs), createdAt, node.updatedAt || createdAt);
         insertedNodeIds.add(node.id);
       }
+      for (const commit of commits) {
+        const createdAt = commit.createdAt || now;
+        const basePayloadHash = ensurePayload(commit.basePayload, createdAt);
+        const appliedPayloadHash = ensurePayload(commit.appliedPayload, createdAt);
+        db.prepare(`
+          INSERT INTO timeline_work_node_commits (
+            id, timeline_id, node_id, branch_id, label, summary, base_payload_hash, applied_payload_hash,
+            risk_flags, approval, checkout_applied, checkout, created_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `).run(
+          commit.id, documentId, commit.nodeId, commit.branchId || commit.nodeId, commit.label || commit.id,
+          serialize(commit.summary), basePayloadHash, appliedPayloadHash, serialize(commit.riskFlags), serialize(commit.approval),
+          commit.checkoutApplied ? 1 : 0, commit.checkout ? serialize(commit.checkout) : null, createdAt,
+        );
+      }
+      if (input.checkoutRef) {
+        const targetExists = input.checkoutRef.targetType === 'snapshot'
+          ? snapshotIds.has(input.checkoutRef.targetId)
+          : workNodeIds.has(input.checkoutRef.targetId);
+        if (!targetExists) throw repositoryError('invalid-timeline-bundle-checkout-ref', 400, 'Timeline bundle checkout target is outside the imported bundle.');
+        db.prepare(`INSERT INTO checkout_refs (timeline_id, target_type, target_id, updated_at) VALUES (?, ?, ?, ?)`)
+          .run(documentId, input.checkoutRef.targetType, input.checkoutRef.targetId, input.checkoutRef.updatedAt || now);
+      }
       writeAuditEvent({
         timelineId: documentId,
         eventType: 'bundle.imported',
         subjectType: 'document',
         subjectId: documentId,
-        details: { snapshotCount: snapshots.length, workNodeCount: workNodes.length },
+        details: { snapshotCount: snapshots.length, workNodeCount: workNodes.length, commitCount: commits.length },
         createdAt: now,
       });
-      return { document: readDocument(db.prepare('SELECT * FROM timeline_documents WHERE id = ?').get(documentId)), snapshots, workNodeCount: workNodes.length };
+      return { document: readDocument(db.prepare('SELECT * FROM timeline_documents WHERE id = ?').get(documentId)), snapshots, workNodeCount: workNodes.length, commitCount: commits.length };
     });
   }
 
@@ -495,6 +529,13 @@ function createTimelineRepository({ databasePath }) {
       workNodes: db.prepare(`
         SELECT * FROM timeline_work_nodes WHERE timeline_id = ? ORDER BY created_at ASC
       `).all(timelineId).map((row) => readWorkNode(row, true)),
+      commits: db.prepare(`
+        SELECT * FROM timeline_work_node_commits WHERE timeline_id = ? ORDER BY created_at ASC
+      `).all(timelineId).map((row) => readWorkNodeCommit(row, true)),
+      checkoutRef: (() => {
+        const row = db.prepare('SELECT * FROM checkout_refs WHERE timeline_id = ?').get(timelineId);
+        return row ? { timelineId: row.timeline_id, targetType: row.target_type, targetId: row.target_id, updatedAt: row.updated_at } : null;
+      })(),
     };
   }
 

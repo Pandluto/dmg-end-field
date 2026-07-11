@@ -130,6 +130,8 @@ export function createTimelineRepositoryClient() {
         riskFlags?: unknown[]; logs?: unknown[]; createdAt?: number; updatedAt?: number;
         basePayload: TimelineSnapshotPayload; workingPayload: TimelineSnapshotPayload;
       }>;
+      commits?: Array<TimelineRepositoryWorkNodeCommit & { basePayload: TimelineSnapshotPayload; appliedPayload: TimelineSnapshotPayload }>;
+      checkoutRef?: Omit<TimelineCheckoutRef, 'timelineId'>;
     }) {
       const response = await requestWithFallback<RepositoryResponse<{ document: TimelineDocument; snapshots: TimelineSnapshot[] }>>(
         '/local-data/timeline-bundles/import', 'POST', input,
@@ -141,8 +143,10 @@ export function createTimelineRepositoryClient() {
         document: TimelineDocument;
         snapshots: TimelineSnapshot[];
         workNodes: TimelineRepositoryBundleWorkNode[];
+        commits: Array<TimelineRepositoryWorkNodeCommit & { basePayload: TimelineSnapshotPayload; appliedPayload: TimelineSnapshotPayload }>;
+        checkoutRef: TimelineCheckoutRef | null;
       }>>(`/local-data/timeline-bundles/export?timelineId=${encodeURIComponent(timelineId)}`);
-      return { document: response.document, snapshots: response.snapshots, workNodes: response.workNodes };
+      return { document: response.document, snapshots: response.snapshots, workNodes: response.workNodes, commits: response.commits, checkoutRef: response.checkoutRef };
     },
     async listSnapshots(timelineId: string) {
       const response = await requestWithFallback<RepositoryResponse<{ snapshots: TimelineSnapshot[] }>>(

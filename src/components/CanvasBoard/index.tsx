@@ -3245,12 +3245,30 @@ export function CanvasBoard({
           .filter((node) => branchNodeIds.has(node.id))
           .map((node) => node.id === shareBranchRootId ? { ...node, parentNodeId: undefined } : node)
           : [];
+      const includedNodeIds = new Set(workNodes.map((node) => node.id));
+      const commits = shareScope === 'snapshot'
+        ? []
+        : exported.commits.filter((commit) => includedNodeIds.has(commit.nodeId));
+      const bundledSnapshots = shareScope === 'document' && snapshots.length ? snapshots : [snapshot];
+      const checkoutRef = shareScope === 'snapshot'
+        ? { targetType: 'snapshot' as const, targetId: snapshot.id, updatedAt: snapshot.createdAt }
+        : exported.checkoutRef && (
+          exported.checkoutRef.targetType === 'snapshot'
+            ? (shareScope === 'document' && snapshots.some((entry) => entry.id === exported.checkoutRef!.targetId))
+            : includedNodeIds.has(exported.checkoutRef.targetId)
+        )
+          ? { targetType: exported.checkoutRef.targetType, targetId: exported.checkoutRef.targetId, updatedAt: exported.checkoutRef.updatedAt }
+          : workNodes[0]
+            ? { targetType: 'work-node' as const, targetId: workNodes[0].id, updatedAt: workNodes[0].updatedAt }
+            : { targetType: 'snapshot' as const, targetId: bundledSnapshots[0].id, updatedAt: bundledSnapshots[0].createdAt };
       shareFile = await buildTimelineBundleV2({
         timelineId: activeTimelineId,
         label: shareDraftName,
         snapshot,
-        snapshots: shareScope === 'document' && snapshots.length ? snapshots : [snapshot],
+        snapshots: bundledSnapshots,
         ...(workNodes.length ? { workNodes } : {}),
+        ...(commits.length ? { commits } : {}),
+        checkoutRef,
         scope: shareScope,
       });
     } catch {
@@ -3319,17 +3337,19 @@ export function CanvasBoard({
     if (pendingImportTimelineId) {
       const repository = createTimelineRepositoryClient();
       const importedAt = Date.now();
+      const snapshotIdMap = new Map(pendingImportBundle?.snapshots.map((snapshot) => [snapshot.id, `imported-${snapshot.id}-${importedAt}`]) || []);
+      const nodeIdMap = new Map(pendingImportBundle?.workNodes?.map((node) => [node.id, `imported-${node.id}-${importedAt}`]) || []);
       const bundleSnapshots = pendingImportBundle
         ? pendingImportBundle.snapshots.map((snapshot) => ({
-          id: `imported-${snapshot.id}-${importedAt}`,
+          id: snapshotIdMap.get(snapshot.id)!,
           label: snapshot.label,
           createdAt: snapshot.createdAt,
           payload: pendingImportBundle.payloads[snapshot.payloadIndex],
         }))
         : [{ id: `imported-snapshot-${importedAt}`, label: pendingImportShare.label, payload: pendingImportShare.payload }];
       const bundleWorkNodes = pendingImportBundle?.workNodes?.map((node) => ({
-        id: `imported-${node.id}-${importedAt}`,
-        ...(node.parentNodeId ? { parentNodeId: `imported-${node.parentNodeId}-${importedAt}` } : {}),
+        id: nodeIdMap.get(node.id)!,
+        ...(node.parentNodeId ? { parentNodeId: nodeIdMap.get(node.parentNodeId)! } : {}),
         branchId: node.branchId,
         label: node.label,
         status: node.status,
@@ -3341,10 +3361,36 @@ export function CanvasBoard({
         basePayload: pendingImportBundle.payloads[node.basePayloadIndex],
         workingPayload: pendingImportBundle.payloads[node.workingPayloadIndex],
       }));
+      const bundleCommits = pendingImportBundle?.commits?.map((commit) => ({
+        id: `imported-${commit.id}-${importedAt}`,
+        nodeId: nodeIdMap.get(commit.nodeId)!,
+        timelineId: pendingImportTimelineId,
+        branchId: commit.branchId,
+        label: commit.label,
+        createdAt: commit.createdAt,
+        summary: commit.summary as import('../../agentKernel/timelineWorktree/types').TimelinePayloadDiffSummary,
+        riskFlags: commit.riskFlags as import('../../agentKernel/timelineWorktree/types').AiTimelineRiskFlag[],
+        approval: commit.approval as import('../../agentKernel/timelineWorktree/types').AiTimelineApproval,
+        checkoutApplied: commit.checkoutApplied,
+        ...(commit.checkout ? { checkout: commit.checkout as import('../../agentKernel/timelineWorktree/types').AiTimelineCheckout } : {}),
+        basePayload: pendingImportBundle.payloads[commit.basePayloadIndex],
+        appliedPayload: pendingImportBundle.payloads[commit.appliedPayloadIndex],
+      }));
+      const importedCheckoutRef = pendingImportBundle?.checkoutRef
+        ? {
+          targetType: pendingImportBundle.checkoutRef.targetType,
+          targetId: pendingImportBundle.checkoutRef.targetType === 'snapshot'
+            ? snapshotIdMap.get(pendingImportBundle.checkoutRef.targetId)!
+            : nodeIdMap.get(pendingImportBundle.checkoutRef.targetId)!,
+          updatedAt: pendingImportBundle.checkoutRef.updatedAt,
+        }
+        : undefined;
       await repository.importDocumentBundle({
         document: { id: pendingImportTimelineId, label: pendingImportShare.label },
         snapshots: bundleSnapshots,
         ...(bundleWorkNodes?.length ? { workNodes: bundleWorkNodes } : {}),
+        ...(bundleCommits?.length ? { commits: bundleCommits } : {}),
+        ...(importedCheckoutRef ? { checkoutRef: importedCheckoutRef } : {}),
       });
       setPendingImportShare(null);
       setPendingImportBundle(null);

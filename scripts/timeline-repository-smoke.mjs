@@ -119,11 +119,25 @@ const imported = repository.importDocumentBundle({
     id: `imported-${node.id}`,
     parentNodeId: node.parentNodeId ? `imported-${node.parentNodeId}` : undefined,
   })),
+  commits: exported.commits.map((commit) => ({
+    ...commit,
+    id: `imported-${commit.id}`,
+    nodeId: `imported-${commit.nodeId}`,
+  })),
+  checkoutRef: exported.checkoutRef ? {
+    targetType: exported.checkoutRef.targetType,
+    targetId: exported.checkoutRef.targetType === 'snapshot'
+      ? `imported-${exported.checkoutRef.targetId}`
+      : `imported-${exported.checkoutRef.targetId}`,
+    updatedAt: exported.checkoutRef.updatedAt,
+  } : undefined,
 });
 assert.equal(imported.document.id, 'timeline-imported');
 assert.equal(repository.listSnapshots('timeline-imported').length, 1);
 assert.equal(repository.listWorkNodes('timeline-imported').length, 1);
 assert.equal(repository.getWorkNode('imported-node-1')?.timelineId, 'timeline-imported');
+assert.equal(repository.listWorkNodeCommits('timeline-imported').length, 1);
+assert.equal(repository.getCheckoutRef('timeline-imported')?.targetId, 'imported-snapshot-1');
 assert.equal(repository.listDocuments().length, 4);
 repository.ensureDocument({ id: 'timeline-imported', label: '主排轴', preserveExistingLabel: true });
 assert.equal(repository.getDocument('timeline-imported')?.label, imported.document.label);
