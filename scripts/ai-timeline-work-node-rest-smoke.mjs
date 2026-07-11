@@ -70,7 +70,7 @@ async function waitForHealth() {
 async function createNode(id, parentNodeId) {
   const result = await request('POST', '/api/ai-timeline-worknodes/create', {
     id,
-    saveId: 'save-rest',
+    timelineId: 'save-rest',
     branchId: id,
     parentNodeId,
     label: id,

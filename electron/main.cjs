@@ -4358,7 +4358,7 @@ function getTimelineRepository() {
 
 function mirrorAiTimelineWorkNodeToRepository(node) {
   if (!node || node.saveId?.startsWith('timeline-snapshot-') || /^\[snapshot\]/i.test(node.label || '')) return;
-  const timelineId = node.saveId || 'current-main-workbench';
+  const timelineId = node.timelineId || node.saveId || 'current-main-workbench';
   const repository = getTimelineRepository();
   repository.ensureDocument({ id: timelineId, label: '主排轴' });
   const visiting = new Set();
@@ -4850,10 +4850,13 @@ function readAiTimelineWorkNode(id) {
 }
 
 function createAiTimelineWorkNode(payload) {
-  if (!payload?.saveId || typeof payload.saveId !== 'string') {
-    throw new Error('AI work node create requires saveId.');
+  const rawTimelineId = typeof payload?.timelineId === 'string' && payload.timelineId.trim()
+    ? payload.timelineId
+    : payload?.saveId;
+  if (!rawTimelineId || typeof rawTimelineId !== 'string') {
+    throw new Error('AI work node create requires timelineId.');
   }
-  const saveId = sanitizeAiTimelineWorkNodeId(payload.saveId, 'save');
+  const saveId = sanitizeAiTimelineWorkNodeId(rawTimelineId, 'timeline');
   const basePayload = payload.basePayload;
   const payloadError = validateAiTimelineWorkNodePayload(basePayload, 'basePayload');
   if (payloadError) {
@@ -4875,6 +4878,7 @@ function createAiTimelineWorkNode(payload) {
     id: sanitizeAiTimelineWorkNodeId(payload.id, 'ai-timeline-node'),
     ...(parentNodeId ? { parentNodeId } : {}),
     saveId,
+    timelineId: saveId,
     branchId: sanitizeAiTimelineWorkNodeId(payload.branchId, 'branch'),
     createdAt: now,
     updatedAt: now,

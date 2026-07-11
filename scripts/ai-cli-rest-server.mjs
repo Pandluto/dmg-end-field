@@ -494,7 +494,7 @@ function getTimelineRepository() {
 
 function mirrorWorkNodeToTimelineRepository(node) {
   if (!node || node.saveId?.startsWith('timeline-snapshot-') || /^\[snapshot\]/i.test(node.label || '')) return;
-  const timelineId = node.saveId || 'current-main-workbench';
+  const timelineId = node.timelineId || node.saveId || 'current-main-workbench';
   const repository = getTimelineRepository();
   repository.ensureDocument({ id: timelineId, label: '主排轴' });
   // Legacy nodes can predate the repository migration. Importing a new child
@@ -851,9 +851,12 @@ function createDefWorkNodeFromPayload(payloadSource, input = {}) {
     };
   }
   const now = Date.now();
-  const saveId = typeof input.saveId === 'string' && input.saveId.trim()
-    ? sanitizeWorkNodeId(input.saveId, 'save')
+  const timelineId = typeof input.timelineId === 'string' && input.timelineId.trim()
+    ? sanitizeWorkNodeId(input.timelineId, 'timeline')
+    : typeof input.saveId === 'string' && input.saveId.trim()
+      ? sanitizeWorkNodeId(input.saveId, 'timeline')
     : 'current-main-workbench';
+  const saveId = timelineId;
   const store = getAiTimelineWorkNodeStore();
   const hasParentNodeInput = Object.prototype.hasOwnProperty.call(input, 'parentNodeId');
   const requestedParentNodeId = typeof input.parentNodeId === 'string' && input.parentNodeId.trim()
@@ -864,6 +867,7 @@ function createDefWorkNodeFromPayload(payloadSource, input = {}) {
     id: sanitizeWorkNodeId(input.id, 'ai-timeline-node'),
     ...(parentNodeId ? { parentNodeId } : {}),
     saveId,
+    timelineId,
     branchId: sanitizeWorkNodeId(input.branchId, `main-workbench-${now}`),
     createdAt: now,
     updatedAt: now,
@@ -931,9 +935,12 @@ function handleAiTimelineWorkNodeRequest(method, pathname, body) {
     };
   }
   if (method === 'POST' && pathname === '/api/ai-timeline-worknodes/create') {
-    const saveId = sanitizeWorkNodeId(body?.saveId, 'save');
-    if (!body?.saveId || typeof body.saveId !== 'string') {
-      return failScript(400, 'missing-ai-worknode-save-id', 'AI work node create requires saveId.');
+    const rawTimelineId = typeof body?.timelineId === 'string' && body.timelineId.trim()
+      ? body.timelineId
+      : body?.saveId;
+    const saveId = sanitizeWorkNodeId(rawTimelineId, 'timeline');
+    if (!rawTimelineId || typeof rawTimelineId !== 'string') {
+      return failScript(400, 'missing-ai-worknode-timeline-id', 'AI work node create requires timelineId.');
     }
     const basePayload = body?.basePayload;
     const payloadError = validateWorkNodePayload(basePayload, 'basePayload');
@@ -957,6 +964,7 @@ function handleAiTimelineWorkNodeRequest(method, pathname, body) {
       id: sanitizeWorkNodeId(body?.id, 'ai-timeline-node'),
       ...(parentNodeId ? { parentNodeId } : {}),
       saveId,
+      timelineId: saveId,
       branchId,
       createdAt: now,
       updatedAt: now,
