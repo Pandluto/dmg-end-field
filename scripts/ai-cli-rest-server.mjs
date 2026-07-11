@@ -644,7 +644,7 @@ function validateWorkNodePayloadIssues(payload, fieldName) {
   const issues = [];
   const timelineButtonEntries = (Array.isArray(payload.timelineData?.staffLines) ? payload.timelineData.staffLines : [])
     .flatMap((staffLine) => (Array.isArray(staffLine?.buttons)
-      ? staffLine.buttons.map((button) => ({ button, staffIndex: staffLine?.staffIndex }))
+      ? staffLine.buttons.map((button) => ({ button, staffIndex: button?.staffIndex }))
       : []));
   const timelineButtonIds = new Set(timelineButtonEntries.map(({ button }) => button?.id).filter(Boolean));
   const tableButtonIds = new Set(Object.keys(isObject(payload.skillButtonTable) ? payload.skillButtonTable : {}));
@@ -802,7 +802,9 @@ function readDefMainWorkbenchMirrorPayload() {
   const buttons = Array.isArray(snapshot?.skillButtons) ? snapshot.skillButtons : [];
   const staffLines = selectedCharacters.slice(0, 4).map((character, index) => {
     const lineButtons = buttons
-      .filter((button) => normalizeMirrorButtonNumber(button?.staffIndex ?? button?.lineIndex, index) === index)
+      .filter((button) => Number.isInteger(Number(button?.lineIndex))
+        ? Number(button.lineIndex) === index
+        : String(button?.characterId || button?.characterName || '') === String(character?.id || character?.name || ''))
       .map(buildDefTimelineButtonFromMirror)
       .sort((left, right) => left.nodeIndex - right.nodeIndex);
     return {
@@ -2400,9 +2402,9 @@ function removeDefWorkNodeTimelineButton(payload, buttonId) {
 function insertDefWorkNodeTimelineButton(payload, buttonId) {
   const tableButton = payload?.skillButtonTable?.[buttonId];
   if (!tableButton) return;
-  const staffLine = (Array.isArray(payload?.timelineData?.staffLines) ? payload.timelineData.staffLines : [])
-    .find((line) => line?.staffIndex === tableButton.staffIndex)
-    || findDefWorkNodeStaffLineByCharacter(payload, tableButton.characterName);
+  const staffLine = findDefWorkNodeStaffLineByCharacter(payload, tableButton.characterName)
+    || (Array.isArray(payload?.timelineData?.staffLines) ? payload.timelineData.staffLines : [])
+      .find((line) => line?.staffIndex === tableButton.staffIndex);
   if (!staffLine) {
     throw new Error(`staff line not found for ${tableButton.characterName || buttonId}`);
   }
@@ -2470,10 +2472,14 @@ function applyDefWorkNodePatchOperation(payload, operation, index, operationsApp
     }
     const characterName = operation.characterName.trim();
     const staffLine = findDefWorkNodeStaffLineByCharacter(payload, characterName);
-    if (!staffLine && !Number.isInteger(operation.staffIndex)) {
+    if (!staffLine && !Number.isInteger(operation.staffIndex) && !Number.isInteger(operation.lineIndex)) {
       throw new Error(`${path}: addButton requires selected characterName or explicit staffIndex.`);
     }
-    const staffIndex = Number.isInteger(operation.staffIndex) ? operation.staffIndex : staffLine.staffIndex;
+    const staffIndex = Number.isInteger(operation.staffIndex)
+      ? operation.staffIndex
+      : Number.isInteger(operation.lineIndex)
+        ? operation.lineIndex
+        : staffLine.staffIndex;
     const nodeIndex = Number.isInteger(operation.nodeIndex)
       ? operation.nodeIndex
       : Math.max(-1, ...(Array.isArray(staffLine?.buttons) ? staffLine.buttons : []).map((button) => button.nodeIndex)) + 1;
@@ -3200,6 +3206,23 @@ function buildDefToolDefinitions() {
       snapshotWaitMs: { type: 'number', description: 'Optional extra wait for the mirrored damage report.' },
     },
   };
+  const addSkillButtonSchema = {
+    type: 'object',
+    additionalProperties: false,
+    required: ['characterName', 'skillType'],
+    properties: {
+      characterId: { type: 'string' },
+      characterName: { type: 'string' },
+      skillType: { type: 'string' },
+      runtimeSkillId: { type: 'string' },
+      skillDisplayName: { type: 'string' },
+      staffIndex: { type: 'integer', minimum: 0, description: 'Zero-based visual timeline group. “第二组” means staffIndex=1. Never use lineIndex for a group.' },
+      nodeIndex: { type: 'integer', minimum: 0, maximum: 14, description: 'Zero-based position in the group. “第一个” means nodeIndex=0.' },
+      select: { type: 'boolean' },
+      waitMs: { type: 'number' },
+      snapshotWaitMs: { type: 'number' },
+    },
+  };
   return [
     { name: 'def.tool.list', scope: 'read', riskLevel: 'read', approval: 'none', status: 'implemented', description: 'List DEF typed tools.' },
     { name: 'def.tool.describe', scope: 'read', riskLevel: 'read', approval: 'none', status: 'implemented', description: 'Describe one DEF typed tool.' },
@@ -3250,7 +3273,9 @@ function buildDefToolDefinitions() {
     { name: 'def.gear.set_entry_level', scope: 'current-checkout', riskLevel: 'medium', approval: 'ai-review', status: 'implemented', description: 'Set equipped gear entry level through structured config commands.' },
   ].map((tool) => ({
     ...tool,
-    inputSchema: tool.name === 'def.worknode.copy_staff_line_and_verify'
+    inputSchema: tool.name === 'def.workbench.add_skill_button' || tool.name === 'def.workbench.add_skill_button_and_verify'
+      ? addSkillButtonSchema
+      : tool.name === 'def.worknode.copy_staff_line_and_verify'
       ? copyStaffLineSchema
       : tool.name === 'def.buff.add_to_buttons'
         ? batchBuffSchema
@@ -3628,8 +3653,20 @@ async function executeDefAddSkillButtonAndVerify(input = {}) {
   const snapshotVerification = verifyDefSnapshotDelta(after, {
     expected: { buttonCount: { equals: beforeButtonCount + 1 } },
   });
+  const normalizedCommand = enqueued.body.command.command || {};
+  const expectedStaffIndex = Number.isInteger(normalizedCommand.staffIndex) ? normalizedCommand.staffIndex : 0;
+  const placementVerification = {
+    pass: Boolean(addedButton)
+      && addedButton.staffIndex === expectedStaffIndex
+      && (!Number.isInteger(normalizedCommand.nodeIndex) || addedButton.nodeIndex === normalizedCommand.nodeIndex),
+    expected: {
+      staffIndex: expectedStaffIndex,
+      nodeIndex: Number.isInteger(normalizedCommand.nodeIndex) ? normalizedCommand.nodeIndex : null,
+    },
+    actual: addedButton ? { staffIndex: addedButton.staffIndex, nodeIndex: addedButton.nodeIndex } : null,
+  };
   return {
-    ok: commandVerification.pass && snapshotVerification.pass && Boolean(addedButton),
+    ok: commandVerification.pass && snapshotVerification.pass && placementVerification.pass,
     command: enqueued.body.command,
     commandVerification,
     before: { buttonCount: beforeButtonCount, snapshotUpdatedAt: before?.updatedAt || null },
@@ -3647,7 +3684,8 @@ async function executeDefAddSkillButtonAndVerify(input = {}) {
         }
       : null,
     snapshotVerification,
-    note: commandVerification.pass && snapshotVerification.pass && addedButton
+    placementVerification,
+    note: commandVerification.pass && snapshotVerification.pass && placementVerification.pass
       ? 'Add command reached terminal success state and exactly one new mirrored button was checked.'
       : 'Add command or snapshot verification was not confirmed; do not report add as complete.',
   };

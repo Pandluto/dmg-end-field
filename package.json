@@ -16,6 +16,7 @@
     "smoke:timeline-client": "node scripts/run-ts-test.mjs /src/agentKernel/timelineRepository/localTimelineClient.test.ts",
     "smoke:work-node-tree-ui": "node scripts/run-ts-test.mjs /src/agentKernel/timelineWorktree/checkoutLifecycle.test.ts",
     "smoke:workbench-history": "node scripts/run-ts-test.mjs /src/components/CanvasBoard/workbenchAiHistory.test.ts",
+    "smoke:workbench-command": "node scripts/run-ts-test.mjs /src/agentKernel/mainWorkbench/commandSchemaRuntime.test.ts",
     "dev": "vite --host 127.0.0.1 --port 3030",
     "assets:release": "node scripts/build-image-release-manifest.mjs",
     "akedb:extract": "node scripts/extract-akedb-raw-index.mjs",

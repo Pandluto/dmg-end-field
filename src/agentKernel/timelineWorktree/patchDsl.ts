@@ -21,6 +21,7 @@ export type TimelineWorkNodePatchOperation =
       runtimeSkillId?: string;
       skillDisplayName?: string;
       staffIndex?: number;
+      lineIndex?: number;
       nodeIndex?: number;
     }
   | {
@@ -161,8 +162,8 @@ function removeTimelineButton(payload: TimelineSnapshotPayload, buttonId: string
 
 function insertTimelineButton(payload: TimelineSnapshotPayload, buttonId: string) {
   const tableButton = payload.skillButtonTable[buttonId];
-  const staffLine = payload.timelineData.staffLines.find((line) => line.staffIndex === tableButton.staffIndex)
-    || findStaffLineByCharacter(payload, tableButton.characterName);
+  const staffLine = findStaffLineByCharacter(payload, tableButton.characterName)
+    || payload.timelineData.staffLines.find((line) => line.staffIndex === tableButton.staffIndex);
   if (!staffLine) {
     throw new Error(`addButton: staff line not found for ${tableButton.characterName}`);
   }
@@ -213,7 +214,11 @@ function applyPatchOperation(payload: TimelineSnapshotPayload, operation: Timeli
     if (!staffLine && typeof operation.staffIndex !== 'number') {
       throw new Error(`${path}: addButton requires a selected characterName or explicit staffIndex`);
     }
-    const staffIndex = typeof operation.staffIndex === 'number' ? operation.staffIndex : staffLine?.staffIndex ?? 0;
+    const staffIndex = typeof operation.staffIndex === 'number'
+      ? operation.staffIndex
+      : typeof operation.lineIndex === 'number'
+        ? operation.lineIndex
+        : staffLine?.staffIndex ?? 0;
     const nodeIndex = typeof operation.nodeIndex === 'number'
       ? operation.nodeIndex
       : Math.max(-1, ...(staffLine?.buttons || []).map((button) => button.nodeIndex)) + 1;

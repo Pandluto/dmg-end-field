@@ -41,6 +41,15 @@ export function isMainWorkbenchCommandOp(op) {
 
 export function normalizeMainWorkbenchCommand(command) {
   if (!isRecord(command)) return command;
+  if (command.op === 'addSkillButton') {
+    const legacyGroupIndex = Number(command.lineIndex);
+    if (command.staffIndex === undefined && Number.isInteger(legacyGroupIndex)) {
+      const { lineIndex: _legacyLineIndex, ...rest } = command;
+      void _legacyLineIndex;
+      return { ...rest, staffIndex: legacyGroupIndex };
+    }
+    return command;
+  }
   if (command.op !== 'removeBuff') return command;
   if (typeof command.buffDisplayName === 'string' && command.buffDisplayName.trim() && typeof command.displayName !== 'string') {
     return {
@@ -72,6 +81,14 @@ export function validateMainWorkbenchCommand(command) {
       ok: false,
       code: 'invalid-main-workbench-node-index',
       message: 'addSkillButton nodeIndex must be an integer from 0 to 14 (user-facing position 1 to 15).',
+    };
+  }
+  if (command.op === 'addSkillButton' && command.staffIndex !== undefined
+    && (!Number.isInteger(command.staffIndex) || command.staffIndex < 0)) {
+    return {
+      ok: false,
+      code: 'invalid-main-workbench-staff-index',
+      message: 'addSkillButton staffIndex must be a zero-based non-negative timeline group index.',
     };
   }
   if (command.op === 'addBuffToButtons') {

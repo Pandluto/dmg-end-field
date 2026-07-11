@@ -4,7 +4,7 @@ import type { AiTimelineValidationIssue, AiTimelineValidationResult } from './ty
 function collectTimelineButtonEntries(payload: TimelineSnapshotPayload) {
   return payload.timelineData.staffLines.flatMap((staffLine) => (
     Array.isArray(staffLine.buttons)
-      ? staffLine.buttons.map((button) => ({ button, staffIndex: staffLine.staffIndex }))
+      ? staffLine.buttons.map((button) => ({ button, staffIndex: button.staffIndex }))
       : []
   ));
 }
