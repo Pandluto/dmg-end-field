@@ -497,7 +497,18 @@ function mirrorWorkNodeToTimelineRepository(node) {
   const timelineId = node.saveId || 'current-main-workbench';
   const repository = getTimelineRepository();
   repository.ensureDocument({ id: timelineId, label: '主排轴' });
-  repository.importWorkNode({ ...node, timelineId });
+  // Legacy nodes can predate the repository migration. Importing a new child
+  // must first repair any missing ancestry, otherwise SQLite rejects the child
+  // foreign key and the two stores diverge again.
+  const visiting = new Set();
+  const mirrorOne = (candidate) => {
+    if (!candidate || visiting.has(candidate.id) || repository.getWorkNode(candidate.id)) return;
+    visiting.add(candidate.id);
+    if (candidate.parentNodeId) mirrorOne(getAiTimelineWorkNodeStore().getNode(candidate.parentNodeId));
+    repository.importWorkNode({ ...candidate, timelineId });
+    visiting.delete(candidate.id);
+  };
+  mirrorOne(node);
 }
 
 function readAiTimelineWorkNodeArchive() {
