@@ -1131,6 +1131,46 @@ const server = http.createServer(async (request, response) => {
     return;
   }
 
+  // DEF Shell's status widgets probe these roots before they request a concrete
+  // file or snapshot.  Treat them as capability probes instead of image/data
+  // requests so a healthy shell does not show a misleading `not-found` state.
+  if (method === 'GET' && (requestUrl.pathname === '/assets' || requestUrl.pathname === '/assets/')) {
+    writeJson(response, 200, {
+      ok: true,
+      kind: 'image-assets',
+      roots: getImageRoots().map((root) => path.basename(root)),
+    });
+    return;
+  }
+
+  if (method === 'GET' && (requestUrl.pathname === '/current-data' || requestUrl.pathname === '/api/current-data')) {
+    try {
+      await startAiCliRest();
+      const upstream = await fetchJsonUrl('http://127.0.0.1:17321/api/main-workbench/snapshot');
+      const available = upstream.status >= 200 && upstream.status < 300 && upstream.body?.ok !== false;
+      writeJson(response, 200, {
+        ok: true,
+        available,
+        kind: 'current-data',
+        data: available ? (upstream.body?.snapshot || upstream.body || null) : null,
+        source: 'main-workbench-snapshot',
+        ...(available ? {} : { reason: `upstream-http-${upstream.status || 500}` }),
+      });
+    } catch (error) {
+      // The UI can continue with its renderer-local data while the optional
+      // REST mirror is starting.  This is an availability state, not 500.
+      writeJson(response, 200, {
+        ok: true,
+        available: false,
+        kind: 'current-data',
+        data: null,
+        source: 'main-workbench-snapshot',
+        reason: error instanceof Error ? error.message : String(error),
+      });
+    }
+    return;
+  }
+
   if ((method === 'GET' || method === 'HEAD') && requestUrl.pathname.startsWith('/assets/')) {
     if (tryServeAssetImage(requestUrl, response, method)) {
       return;

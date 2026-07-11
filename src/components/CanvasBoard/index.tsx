@@ -111,6 +111,23 @@ import { DEFAULT_TIMELINE_ID } from '../../core/domain/timeline';
 import { createTimelineRepositoryClient } from '../../agentKernel/timelineRepository/localTimelineClient';
 import type { TimelineRepositoryBundleWorkNode } from '../../agentKernel/timelineRepository/localTimelineClient';
 
+const ACTIVE_TIMELINE_DOCUMENT_KEY = 'dmg.active-timeline-document-id';
+
+function readActiveTimelineDocumentId(): string {
+  if (typeof window === 'undefined') return DEFAULT_TIMELINE_ID;
+  return window.localStorage.getItem(ACTIVE_TIMELINE_DOCUMENT_KEY)?.trim() || DEFAULT_TIMELINE_ID;
+}
+
+function writeActiveTimelineDocumentId(timelineId: string): void {
+  window.localStorage.setItem(ACTIVE_TIMELINE_DOCUMENT_KEY, timelineId);
+}
+
+function getLegacySnapshotTimelineId(snapshotId: string): string {
+  return `timeline-document-${snapshotId}`;
+}
+
+type TimelineSnapshotListEntry = TimelineSnapshotEntry & { timelineId: string };
+
 const EMPTY_BATCH_TARGET_RESISTANCE: Required<HitResistanceInput> = {
   physicalResistance: 0,
   fireResistance: 0,
@@ -413,11 +430,11 @@ export function CanvasBoard({
   const [shareScope, setShareScope] = useState<'snapshot' | 'branch' | 'document'>('snapshot');
   const [shareBranchRootId, setShareBranchRootId] = useState('');
   const [shareWorkNodes, setShareWorkNodes] = useState<TimelineRepositoryBundleWorkNode[]>([]);
-  const [pendingRestoreSnapshot, setPendingRestoreSnapshot] = useState<TimelineSnapshotEntry | null>(null);
+  const [pendingRestoreSnapshot, setPendingRestoreSnapshot] = useState<TimelineSnapshotListEntry | null>(null);
   const [pendingImportShare, setPendingImportShare] = useState<TimelineShareFile | null>(null);
   const [pendingImportBundle, setPendingImportBundle] = useState<TimelineBundleV2 | null>(null);
   const [pendingImportTimelineId, setPendingImportTimelineId] = useState('');
-  const [timelineSnapshots, setTimelineSnapshots] = useState<TimelineSnapshotEntry[]>([]);
+  const [timelineSnapshots, setTimelineSnapshots] = useState<TimelineSnapshotListEntry[]>([]);
   const [isBrowseMode, setIsBrowseMode] = useState(false);
   const [isInspectMode, setIsInspectMode] = useState(false);
   const [isAiMode, setIsAiMode] = useState(false);
@@ -433,8 +450,10 @@ export function CanvasBoard({
   );
   const [resistanceRevision, setResistanceRevision] = useState(0);
   const [checkoutBootstrapRevision, setCheckoutBootstrapRevision] = useState(0);
+  const [activeTimelineId, setActiveTimelineId] = useState(readActiveTimelineDocumentId);
   const shareImportInputRef = useRef<HTMLInputElement>(null);
   const isProcessingWorkbenchCommandRef = useRef(false);
+  const isCheckoutBootstrapStartedRef = useRef(false);
   const isCheckoutBootstrapPendingRef = useRef(true);
 
   const canvasWidth = useCanvasWidth(canvasConfig.canvasWidthPercent);
@@ -532,9 +551,12 @@ export function CanvasBoard({
         const lineIndex = characters.findIndex((item) => item.name === btn.characterName || item.id === btn.characterId);
         const restoredLineIndex = lineIndex >= 0 ? lineIndex : 0;
         const timelineNodeIndex = typeof btn.nodeIndex === 'number' && Number.isFinite(btn.nodeIndex) ? btn.nodeIndex : 0;
-        const restoredStaffIndex = Number.isInteger(btn.staffIndex) && btn.staffIndex >= 0
-          ? btn.staffIndex
-          : staffLine.staffIndex;
+        // Persisted staffIndex identifies the character row. The horizontal
+        // grid group is encoded in the global nodeIndex (0..14, 15..29, ...).
+        // Treating staffIndex as the group index produces the characteristic
+        // diagonal restore bug: character 1 only appears in group 1,
+        // character 2 in group 2, and later groups disappear off-canvas.
+        const restoredStaffIndex = Math.floor(timelineNodeIndex / GRID_NODE_COUNT);
         const restoredNodeIndex = timelineNodeIndex % GRID_NODE_COUNT;
         const position = {
           x: gridContentOffsetX + getGridNodeCenterX(restoredNodeIndex),
@@ -647,13 +669,14 @@ export function CanvasBoard({
   }, [dispatch, loadedCharacters, normalizeTimelineData, replaceTimelineData, selectedCharacters, syncRuntimeSkillButtonsFromTimelineData]);
 
   useEffect(() => {
-    if (!isCheckoutBootstrapPendingRef.current || loadedCharacters.length === 0) return;
+    if (isCheckoutBootstrapStartedRef.current || loadedCharacters.length === 0) return;
+    isCheckoutBootstrapStartedRef.current = true;
     void (async () => {
       try {
         const repository = createTimelineRepositoryClient();
-        const checkoutRef = await repository.getCheckoutRef(DEFAULT_TIMELINE_ID);
+        const checkoutRef = await repository.getCheckoutRef(activeTimelineId);
         if (!checkoutRef) return;
-        const exported = await repository.exportDocumentBundle(DEFAULT_TIMELINE_ID);
+        const exported = await repository.exportDocumentBundle(activeTimelineId);
         const payload = checkoutRef.targetType === 'snapshot'
           ? exported.snapshots.find((snapshot) => snapshot.id === checkoutRef.targetId)?.payload
           : exported.workNodes.find((node) => node.id === checkoutRef.targetId)?.workingPayload;
@@ -665,7 +688,7 @@ export function CanvasBoard({
         setCheckoutBootstrapRevision((revision) => revision + 1);
       }
     })();
-  }, [hydrateCheckoutRuntime, loadedCharacters.length]);
+  }, [activeTimelineId, hydrateCheckoutRuntime, loadedCharacters.length]);
 
   const findCharacterForWorkbenchCommand = (command: Extract<MainWorkbenchCommand, { op: 'addSkillButton' | 'removeSkillButton' | 'addBuff' | 'removeBuff' | 'setOperatorWeapon' | 'setOperatorEquipment' }>) => {
     if ('characterId' in command && command.characterId) {
@@ -1115,7 +1138,7 @@ export function CanvasBoard({
     const client = createAiTimelineWorkNodeClient();
     const hasParentNodeInput = Object.prototype.hasOwnProperty.call(command, 'parentNodeId');
     const created = await client.create({
-      timelineId: command.timelineId?.trim() || command.saveId?.trim() || DEFAULT_TIMELINE_ID,
+      timelineId: command.timelineId?.trim() || command.saveId?.trim() || activeTimelineId,
       branchId: command.branchId?.trim() || `main-workbench-${now}`,
       ...(hasParentNodeInput ? {
         parentNodeId: command.parentNodeId === null ? null : (command.parentNodeId?.trim() || null),
@@ -1611,9 +1634,10 @@ export function CanvasBoard({
             throw new Error('当前没有可保存的排轴数据');
           }
           const repository = await saveLegacySnapshotsToRepository();
+          await repository.ensureDocument({ id: activeTimelineId, label: snapshot.label || '主排轴' });
           await repository.saveSnapshot({
             id: snapshot.id,
-            timelineId: DEFAULT_TIMELINE_ID,
+            timelineId: activeTimelineId,
             label: snapshot.label,
             payload: snapshot.payload,
             createdAt: snapshot.createdAt,
@@ -1632,10 +1656,16 @@ export function CanvasBoard({
 
         if (command.op === 'restoreTimelineSnapshot') {
           const repository = await saveLegacySnapshotsToRepository();
-          const snapshots = (await repository.listSnapshots(DEFAULT_TIMELINE_ID)).map((entry) => {
+          const sourceTimelineIds = activeTimelineId === DEFAULT_TIMELINE_ID
+            ? [DEFAULT_TIMELINE_ID]
+            : [activeTimelineId, DEFAULT_TIMELINE_ID];
+          const snapshots = (await Promise.all(sourceTimelineIds.map(async (timelineId) => (
+            (await repository.listSnapshots(timelineId)).map((entry) => ({ ...entry, timelineId }))
+          )))).flat().map((entry) => {
             const payload = entry.payload!;
             return {
               id: entry.id,
+              timelineId: entry.timelineId,
               label: entry.label,
               createdAt: entry.createdAt,
               payload,
@@ -1656,20 +1686,26 @@ export function CanvasBoard({
           if (!snapshot) {
             throw new Error('未找到可恢复的排轴快照');
           }
+          const targetTimelineId = snapshot.timelineId === DEFAULT_TIMELINE_ID
+            ? getLegacySnapshotTimelineId(snapshot.id)
+            : snapshot.timelineId;
+          await repository.ensureDocument({ id: targetTimelineId, label: snapshot.label });
           const persisted = await repository.saveSnapshot({
             id: snapshot.id,
-            timelineId: DEFAULT_TIMELINE_ID,
+            timelineId: targetTimelineId,
             label: snapshot.label,
             payload: snapshot.payload,
             createdAt: snapshot.createdAt,
           });
           await repository.setCheckoutRef({
-            timelineId: DEFAULT_TIMELINE_ID,
+            timelineId: targetTimelineId,
             targetType: 'snapshot',
             targetId: persisted.snapshot.id,
             updatedAt: Date.now(),
           });
           applyTimelineSnapshotPayload(snapshot.payload);
+          writeActiveTimelineDocumentId(targetTimelineId);
+          setActiveTimelineId(targetTimelineId);
           const doneEntry = patchMainWorkbenchCommand(commandEntry.id, {
             status: 'done',
             result: { snapshotId: snapshot.id, label: snapshot.label, reloaded: command.reload !== false },
@@ -1683,7 +1719,7 @@ export function CanvasBoard({
 
         if (command.op === 'listTimelineSnapshots') {
           const repository = await saveLegacySnapshotsToRepository();
-          const snapshots = (await repository.listSnapshots(DEFAULT_TIMELINE_ID)).map((snapshot) => ({
+          const snapshots = (await repository.listSnapshots(activeTimelineId)).map((snapshot) => ({
             id: snapshot.id,
             label: snapshot.label,
             createdAt: snapshot.createdAt,
@@ -2687,20 +2723,32 @@ export function CanvasBoard({
     try {
       const repository = createTimelineRepositoryClient();
       await repository.ensureDocument({ id: DEFAULT_TIMELINE_ID, label: '主排轴' });
-      const snapshots = await repository.listSnapshots(DEFAULT_TIMELINE_ID);
-      const repositoryEntries = snapshots.map((snapshot) => {
+      const timelineIds = activeTimelineId === DEFAULT_TIMELINE_ID
+        ? [DEFAULT_TIMELINE_ID]
+        : [activeTimelineId, DEFAULT_TIMELINE_ID];
+      const snapshots = (await Promise.all(timelineIds.map(async (timelineId) => (
+        (await repository.listSnapshots(timelineId)).map((snapshot) => ({ ...snapshot, timelineId }))
+      )))).flat();
+      const seenPayloadHashes = new Set<string>();
+      const repositoryEntries: TimelineSnapshotListEntry[] = snapshots.filter((snapshot) => {
+        if (seenPayloadHashes.has(snapshot.payloadHash)) return false;
+        seenPayloadHashes.add(snapshot.payloadHash);
+        return true;
+      }).map((snapshot) => {
         const payload = snapshot.payload!;
         const buttonCount = payload.timelineData.staffLines.reduce((count, line) => count + (line.buttons?.length || 0), 0);
-        return { id: snapshot.id, createdAt: snapshot.createdAt, label: snapshot.label, payload,
+        return { id: snapshot.id, timelineId: snapshot.timelineId, createdAt: snapshot.createdAt, label: snapshot.label, payload,
           summary: { characterCount: payload.selectedCharacters.length, buttonCount, buffCount: payload.allBuffList.length } };
       });
       // Old browser archives remain visible until their first save/restore.  Do not
       // hide them merely because the repository is already available.
       const repositoryIds = new Set(repositoryEntries.map((snapshot) => snapshot.id));
-      setTimelineSnapshots([...repositoryEntries, ...listTimelineSnapshots().filter((snapshot) => !repositoryIds.has(snapshot.id))]
+      setTimelineSnapshots([...repositoryEntries, ...listTimelineSnapshots()
+        .filter((snapshot) => !repositoryIds.has(snapshot.id))
+        .map((snapshot) => ({ ...snapshot, timelineId: DEFAULT_TIMELINE_ID }))]
         .sort((left, right) => right.createdAt - left.createdAt));
     } catch {
-      setTimelineSnapshots(listTimelineSnapshots());
+      setTimelineSnapshots(listTimelineSnapshots().map((snapshot) => ({ ...snapshot, timelineId: DEFAULT_TIMELINE_ID })));
     }
   };
 
@@ -2745,14 +2793,21 @@ export function CanvasBoard({
       // A new save is the migration boundary for pre-Spec-5 browser archives.
       // Import them first so future restores no longer depend on localStorage.
       const repository = await saveLegacySnapshotsToRepository();
+      await repository.ensureDocument({ id: activeTimelineId, label: snapshot.label || '主排轴' });
       const saved = await repository.saveSnapshot({
         id: snapshot.id,
-        timelineId: DEFAULT_TIMELINE_ID,
+        timelineId: activeTimelineId,
         label: snapshot.label,
         payload: snapshot.payload,
         createdAt: snapshot.createdAt,
       });
-      const persistedSnapshot = { ...snapshot, id: saved.snapshot.id, label: saved.snapshot.label, createdAt: saved.snapshot.createdAt };
+      const persistedSnapshot: TimelineSnapshotListEntry = {
+        ...snapshot,
+        timelineId: activeTimelineId,
+        id: saved.snapshot.id,
+        label: saved.snapshot.label,
+        createdAt: saved.snapshot.createdAt,
+      };
       setTimelineSnapshots((current) => [persistedSnapshot, ...current.filter((item) => item.id !== saved.snapshot.id)]);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -2773,7 +2828,7 @@ export function CanvasBoard({
     setPendingRestoreSnapshot(null);
   };
 
-  const handleRequestRestoreSnapshot = (snapshot: TimelineSnapshotEntry) => {
+  const handleRequestRestoreSnapshot = (snapshot: TimelineSnapshotListEntry) => {
     setPendingRestoreSnapshot(snapshot);
   };
 
@@ -2790,20 +2845,26 @@ export function CanvasBoard({
       // A snapshot shown from the legacy archive has no repository row yet.  Upsert
       // it before writing CheckoutRef so restoring an old save cannot fail with 404.
       const repository = await saveLegacySnapshotsToRepository();
+      const targetTimelineId = pendingRestoreSnapshot.timelineId === DEFAULT_TIMELINE_ID
+        ? getLegacySnapshotTimelineId(pendingRestoreSnapshot.id)
+        : pendingRestoreSnapshot.timelineId;
+      await repository.ensureDocument({ id: targetTimelineId, label: pendingRestoreSnapshot.label });
       const persisted = await repository.saveSnapshot({
         id: pendingRestoreSnapshot.id,
-        timelineId: DEFAULT_TIMELINE_ID,
+        timelineId: targetTimelineId,
         label: pendingRestoreSnapshot.label,
         payload: pendingRestoreSnapshot.payload,
         createdAt: pendingRestoreSnapshot.createdAt,
       });
       await repository.setCheckoutRef({
-        timelineId: DEFAULT_TIMELINE_ID,
+        timelineId: targetTimelineId,
         targetType: 'snapshot',
         targetId: persisted.snapshot.id,
         updatedAt: Date.now(),
       });
       applyTimelineSnapshotPayload(pendingRestoreSnapshot.payload);
+      writeActiveTimelineDocumentId(targetTimelineId);
+      setActiveTimelineId(targetTimelineId);
     } catch (error) {
       alert(`恢复失败：${error instanceof Error ? error.message : String(error)}`);
       return;
@@ -2828,7 +2889,7 @@ export function CanvasBoard({
     setShareBranchRootId('');
     setShareWorkNodes([]);
     setIsShareModalOpen(true);
-    void createTimelineRepositoryClient().exportDocumentBundle(DEFAULT_TIMELINE_ID)
+    void createTimelineRepositoryClient().exportDocumentBundle(activeTimelineId)
       .then((exported) => {
         setShareWorkNodes(exported.workNodes);
         const firstRoot = exported.workNodes.find((node) => !node.parentNodeId);
@@ -2862,7 +2923,7 @@ export function CanvasBoard({
     }
     let shareFile;
     try {
-      const exported = await createTimelineRepositoryClient().exportDocumentBundle(DEFAULT_TIMELINE_ID);
+      const exported = await createTimelineRepositoryClient().exportDocumentBundle(activeTimelineId);
       const snapshots = exported.snapshots.map((item) => ({
         id: item.id,
         label: item.label,
@@ -2888,7 +2949,7 @@ export function CanvasBoard({
           .map((node) => node.id === shareBranchRootId ? { ...node, parentNodeId: undefined } : node)
           : [];
       shareFile = await buildTimelineBundleV2({
-        timelineId: DEFAULT_TIMELINE_ID,
+        timelineId: activeTimelineId,
         label: shareDraftName,
         snapshot,
         snapshots: shareScope === 'document' && snapshots.length ? snapshots : [snapshot],
@@ -2900,7 +2961,7 @@ export function CanvasBoard({
         alert('当前无法读取排轴文档，不能导出 AI 分支或完整文档。');
         return;
       }
-      shareFile = await buildTimelineBundleV2({ timelineId: DEFAULT_TIMELINE_ID, label: shareDraftName, snapshot });
+      shareFile = await buildTimelineBundleV2({ timelineId: activeTimelineId, label: shareDraftName, snapshot });
     }
 
     const blob = new Blob([JSON.stringify(shareFile, null, 2)], {
@@ -3171,6 +3232,7 @@ export function CanvasBoard({
               </button>
             </div>
             <WorkNodeTreePanel
+              timelineId={activeTimelineId}
               refreshKey={workNodeRefreshKey}
               onSelectedNodeChange={setPendingWorkNodeCheckoutId}
             />
@@ -3340,38 +3402,6 @@ export function CanvasBoard({
               maxLength={60}
             />
 
-            <label className="timeline-snapshot-form-label" htmlFor="timeline-share-scope">
-              导出范围
-            </label>
-            <select
-              id="timeline-share-scope"
-              className="timeline-snapshot-name-input"
-              value={shareScope}
-              onChange={(event) => setShareScope(event.target.value as 'snapshot' | 'branch' | 'document')}
-            >
-              <option value="snapshot">当前排轴</option>
-              <option value="branch" disabled={shareWorkNodes.length === 0}>指定 AI 分支</option>
-              <option value="document" disabled={shareWorkNodes.length === 0}>完整排轴文档</option>
-            </select>
-
-            {shareScope === 'branch' && (
-              <>
-                <label className="timeline-snapshot-form-label" htmlFor="timeline-share-branch">
-                  AI 分支根节点
-                </label>
-                <select
-                  id="timeline-share-branch"
-                  className="timeline-snapshot-name-input"
-                  value={shareBranchRootId}
-                  onChange={(event) => setShareBranchRootId(event.target.value)}
-                >
-                  {shareWorkNodes.map((node) => (
-                    <option key={node.id} value={node.id}>{node.parentNodeId ? `↳ ${node.label}` : node.label}</option>
-                  ))}
-                </select>
-              </>
-            )}
-
             <div className="timeline-snapshot-form-actions">
               <button type="button" className="btn-calculate" onClick={handleCloseSaveSnapshotModal}>
                 取消
@@ -3446,6 +3476,38 @@ export function CanvasBoard({
               placeholder="留空则使用未命名"
               maxLength={60}
             />
+
+            <label className="timeline-snapshot-form-label" htmlFor="timeline-share-scope">
+              导出范围
+            </label>
+            <select
+              id="timeline-share-scope"
+              className="timeline-snapshot-name-input"
+              value={shareScope}
+              onChange={(event) => setShareScope(event.target.value as 'snapshot' | 'branch' | 'document')}
+            >
+              <option value="snapshot">当前排轴</option>
+              <option value="branch" disabled={shareWorkNodes.length === 0}>指定 AI 分支</option>
+              <option value="document" disabled={shareWorkNodes.length === 0}>完整排轴文档</option>
+            </select>
+
+            {shareScope === 'branch' && (
+              <>
+                <label className="timeline-snapshot-form-label" htmlFor="timeline-share-branch">
+                  AI 分支根节点
+                </label>
+                <select
+                  id="timeline-share-branch"
+                  className="timeline-snapshot-name-input"
+                  value={shareBranchRootId}
+                  onChange={(event) => setShareBranchRootId(event.target.value)}
+                >
+                  {shareWorkNodes.map((node) => (
+                    <option key={node.id} value={node.id}>{node.parentNodeId ? `↳ ${node.label}` : node.label}</option>
+                  ))}
+                </select>
+              </>
+            )}
 
             <input
               ref={shareImportInputRef}

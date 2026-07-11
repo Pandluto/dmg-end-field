@@ -5,6 +5,19 @@ const { DatabaseSync } = require('node:sqlite');
 
 const SCHEMA_VERSION = 1;
 const WORK_NODE_STATUSES = new Set(['draft', 'validated', 'blocked', 'applied', 'archived', 'open', 'ready', 'committed', 'abandoned']);
+const WORK_NODE_STATUS_TRANSITIONS = new Map([
+  ['draft', new Set(['draft', 'validated', 'blocked', 'archived', 'abandoned'])],
+  ['validated', new Set(['validated', 'blocked', 'applied', 'archived', 'abandoned'])],
+  ['blocked', new Set(['blocked', 'draft', 'validated', 'archived', 'abandoned'])],
+  // Legacy values stay readable during migration, but their mutation path is
+  // now explicit and bounded instead of accepting arbitrary status strings.
+  ['open', new Set(['open', 'ready', 'committed', 'applied', 'blocked', 'abandoned', 'archived'])],
+  ['ready', new Set(['ready', 'committed', 'applied', 'blocked', 'abandoned', 'archived'])],
+  ['committed', new Set(['committed', 'ready', 'applied', 'blocked', 'abandoned', 'archived'])],
+  ['applied', new Set(['applied', 'ready', 'validated', 'archived'])],
+  ['abandoned', new Set(['abandoned', 'archived'])],
+  ['archived', new Set(['archived'])],
+]);
 
 function normalizeWorkNodeStatus(status) {
   const normalized = typeof status === 'string' && status.trim() ? status.trim() : 'draft';
@@ -12,6 +25,16 @@ function normalizeWorkNodeStatus(status) {
   const error = new Error(`Unsupported Timeline Work Node status: ${normalized}`);
   error.code = 'invalid-timeline-work-node-status';
   error.status = 400;
+  throw error;
+}
+
+function assertWorkNodeStatusTransition(fromStatus, toStatus) {
+  const from = normalizeWorkNodeStatus(fromStatus);
+  const to = normalizeWorkNodeStatus(toStatus);
+  if (WORK_NODE_STATUS_TRANSITIONS.get(from)?.has(to)) return to;
+  const error = new Error(`Cannot transition Timeline Work Node from ${from} to ${to}.`);
+  error.code = 'invalid-timeline-work-node-transition';
+  error.status = 409;
   throw error;
 }
 
@@ -256,16 +279,48 @@ function createTimelineRepository({ databasePath }) {
       const payloadHash = ensurePayload(input.payload, createdAt);
       const existing = db.prepare(`
         SELECT * FROM timeline_snapshots
-        WHERE timeline_id = ? AND payload_hash = ? AND archived_at IS NULL
+        WHERE timeline_id = ? AND payload_hash = ?
       `).get(input.timelineId, payloadHash);
-      if (existing) return { snapshot: readSnapshot(existing), reused: true };
+      if (existing) {
+        if (existing.archived_at !== null) {
+          db.prepare('UPDATE timeline_snapshots SET archived_at = NULL, label = ? WHERE id = ?').run(input.label, existing.id);
+          writeAuditEvent({
+            timelineId: input.timelineId,
+            eventType: 'snapshot.unarchived',
+            subjectType: 'snapshot',
+            subjectId: existing.id,
+            details: { payloadHash },
+            createdAt,
+          });
+          return { snapshot: readSnapshot(db.prepare('SELECT * FROM timeline_snapshots WHERE id = ?').get(existing.id)), reused: true };
+        }
+        return { snapshot: readSnapshot(existing), reused: true };
+      }
+      // Browser-era archives used timestamp ids without a document namespace.
+      // A legacy id can therefore already belong to another document (or an
+      // archived predecessor).  Keep the immutable row and mint a deterministic
+      // repository id instead of failing a restore with a raw SQLite UNIQUE error.
+      let snapshotId = input.id;
+      const idOwner = db.prepare('SELECT timeline_id, payload_hash, archived_at FROM timeline_snapshots WHERE id = ?').get(snapshotId);
+      if (idOwner) {
+        if (idOwner.timeline_id === input.timelineId && idOwner.payload_hash === payloadHash && idOwner.archived_at === null) {
+          return { snapshot: readSnapshot(db.prepare('SELECT * FROM timeline_snapshots WHERE id = ?').get(snapshotId)), reused: true };
+        }
+        const baseId = `${input.id}-${payloadHash.slice(-12)}`;
+        snapshotId = baseId;
+        let suffix = 2;
+        while (db.prepare('SELECT 1 FROM timeline_snapshots WHERE id = ?').get(snapshotId)) {
+          snapshotId = `${baseId}-${suffix}`;
+          suffix += 1;
+        }
+      }
       db.prepare(`
         INSERT INTO timeline_snapshots (id, timeline_id, payload_hash, label, created_at, archived_at)
         VALUES (?, ?, ?, ?, ?, NULL)
-      `).run(input.id, input.timelineId, payloadHash, input.label, createdAt);
-      writeAuditEvent({ timelineId: input.timelineId, eventType: 'snapshot.saved', subjectType: 'snapshot', subjectId: input.id, details: { payloadHash }, createdAt });
+      `).run(snapshotId, input.timelineId, payloadHash, input.label, createdAt);
+      writeAuditEvent({ timelineId: input.timelineId, eventType: 'snapshot.saved', subjectType: 'snapshot', subjectId: snapshotId, details: { payloadHash }, createdAt });
       return {
-        snapshot: readSnapshot(db.prepare('SELECT * FROM timeline_snapshots WHERE id = ?').get(input.id)),
+        snapshot: readSnapshot(db.prepare('SELECT * FROM timeline_snapshots WHERE id = ?').get(snapshotId)),
         reused: false,
       };
     });
@@ -516,6 +571,17 @@ function createTimelineRepository({ databasePath }) {
     return transaction(() => {
       const document = db.prepare('SELECT id FROM timeline_documents WHERE id = ?').get(input.timelineId);
       if (!document) throw new Error(`Timeline document not found: ${input.timelineId}`);
+      const existingNode = db.prepare('SELECT id, timeline_id, status FROM timeline_work_nodes WHERE id = ?').get(input.id);
+      if (existingNode?.timeline_id !== undefined && existingNode.timeline_id !== input.timelineId) {
+        const error = new Error(`Timeline Work Node id already belongs to document: ${existingNode.timeline_id}`);
+        error.code = 'timeline-work-node-id-conflict';
+        error.status = 409;
+        throw error;
+      }
+      const nextStatus = normalizeWorkNodeStatus(input.status);
+      if (existingNode && !input.migration) {
+        assertWorkNodeStatusTransition(existingNode.status, nextStatus);
+      }
       const createdAt = input.createdAt || Date.now();
       const basePayloadHash = ensurePayload(input.basePayload, createdAt);
       const workingPayloadHash = ensurePayload(input.workingPayload, input.updatedAt || createdAt);
@@ -536,7 +602,7 @@ function createTimelineRepository({ databasePath }) {
           logs = excluded.logs,
           updated_at = excluded.updated_at
       `).run(input.id, input.timelineId, input.parentNodeId || null, basePayloadHash, workingPayloadHash,
-        input.branchId || input.id, input.label || input.id, normalizeWorkNodeStatus(input.status), input.approvalPolicy || 'auto-low-risk',
+        input.branchId || input.id, input.label || input.id, nextStatus, input.approvalPolicy || 'auto-low-risk',
         serialize(input.riskFlags), serialize(input.logs), createdAt, input.updatedAt || createdAt);
       return { id: input.id, imported: db.prepare('SELECT 1 FROM timeline_work_nodes WHERE id = ?').get(input.id) != null };
     });

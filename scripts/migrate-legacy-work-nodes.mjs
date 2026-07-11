@@ -70,7 +70,7 @@ try {
   const importedIds = new Set();
   for (const node of nodes) {
     const parentNodeId = importedIds.has(node.parentNodeId) ? node.parentNodeId : null;
-    repository.importWorkNode({ ...node, timelineId, parentNodeId });
+    repository.importWorkNode({ ...node, timelineId, parentNodeId, migration: true });
     importedIds.add(node.id);
     imported += 1;
   }

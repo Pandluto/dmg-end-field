@@ -2,7 +2,6 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { createAiTimelineWorkNodeClient } from '../../agentKernel/timelineWorktree/localNodeClient';
 import { createTimelineRepositoryClient, type TimelineRepositoryWorkNodePatch } from '../../agentKernel/timelineRepository/localTimelineClient';
 import type { TimelineAuditEvent } from '../../core/domain/timeline';
-import { DEFAULT_TIMELINE_ID } from '../../core/domain/timeline';
 import type { AiTimelineWorkNodeListResponse } from '../../agentKernel/timelineWorktree/localNodeClient';
 import type { AiTimelineWorkNodeCommitListItem, AiTimelineWorkNodeListItem } from '../../agentKernel/timelineWorktree/types';
 import {
@@ -16,6 +15,7 @@ import type { WorkNodeTreeViewModel } from './workNodeTreeTypes';
 import './WorkNodeTreePanel.css';
 
 type WorkNodeTreePanelProps = {
+  timelineId: string;
   refreshKey: number;
   onSelectedNodeChange?: (nodeId: string) => void;
   onSummaryChange?: (summary: WorkNodeTreeViewModel) => void;
@@ -58,7 +58,7 @@ function collectSubtreeNodeIds(node: WorkNodeTreeViewModel['flatNodes'][number])
   return ids;
 }
 
-export function WorkNodeTreePanel({ refreshKey, onSelectedNodeChange, onSummaryChange }: WorkNodeTreePanelProps) {
+export function WorkNodeTreePanel({ timelineId, refreshKey, onSelectedNodeChange, onSummaryChange }: WorkNodeTreePanelProps) {
   const [nodes, setNodes] = useState<AiTimelineWorkNodeListItem[]>([]);
   const [commits, setCommits] = useState<AiTimelineWorkNodeCommitListItem[]>([]);
   const [headNodeId, setHeadNodeId] = useState('');
@@ -105,13 +105,30 @@ export function WorkNodeTreePanel({ refreshKey, onSelectedNodeChange, onSummaryC
   }, [selectedNodeId, viewModel.flatNodes]);
 
   useEffect(() => {
+    revisionRef.current = 0;
+    selectionInitializedRef.current = false;
+    setSelectedNodeId('');
+    setSelectedNodePatches([]);
+    setSelectedNodeAuditEvents([]);
+    setCamera({ x: 0, y: 0 });
+  }, [timelineId]);
+
+  useEffect(() => {
     let cancelled = false;
     const load = async () => {
       try {
         const response = await createAiTimelineWorkNodeClient().list();
-        const repositoryNodes = await createTimelineRepositoryClient().listWorkNodes(DEFAULT_TIMELINE_ID);
+        const repository = createTimelineRepositoryClient();
+        const [repositoryNodes, checkoutRef] = await Promise.all([
+          repository.listWorkNodes(timelineId),
+          repository.getCheckoutRef(timelineId),
+        ]);
         if (cancelled) return;
-        applyListResponse({ ...response, nodes: repositoryNodes.map((node) => ({
+        applyListResponse({
+          ...response,
+          headNodeId: checkoutRef?.targetType === 'work-node' ? checkoutRef.targetId : '',
+          commits: (response.commits || []).filter((commit) => commit.timelineId === timelineId),
+          nodes: repositoryNodes.map((node) => ({
           ...node,
           riskFlags: node.riskFlags.map((risk, index) => ({ ...risk, id: `${risk.code || 'risk'}-${index}` })),
           saveId: node.timelineId,
@@ -119,7 +136,8 @@ export function WorkNodeTreePanel({ refreshKey, onSelectedNodeChange, onSummaryC
           approvalPolicy: node.approvalPolicy as AiTimelineWorkNodeListItem['approvalPolicy'],
           baseSummary: node.baseSummary,
           workingSummary: node.workingSummary,
-        })) });
+          })),
+        });
         setError('');
       } catch (loadError) {
         if (cancelled) return;
@@ -133,7 +151,7 @@ export function WorkNodeTreePanel({ refreshKey, onSelectedNodeChange, onSummaryC
     return () => {
       cancelled = true;
     };
-  }, [refreshKey]);
+  }, [refreshKey, timelineId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -145,7 +163,7 @@ export function WorkNodeTreePanel({ refreshKey, onSelectedNodeChange, onSummaryC
     const repository = createTimelineRepositoryClient();
     void Promise.all([
       repository.listWorkNodePatches(selectedNodeId),
-      repository.listAuditEvents(DEFAULT_TIMELINE_ID),
+      repository.listAuditEvents(timelineId),
     ]).then(([patches, events]) => {
       if (cancelled) return;
       setSelectedNodePatches(patches);
@@ -156,7 +174,7 @@ export function WorkNodeTreePanel({ refreshKey, onSelectedNodeChange, onSummaryC
       setSelectedNodeAuditEvents([]);
     });
     return () => { cancelled = true; };
-  }, [selectedNodeId, refreshKey]);
+  }, [selectedNodeId, refreshKey, timelineId]);
 
   useEffect(() => {
     onSummaryChange?.(viewModel);
@@ -164,14 +182,23 @@ export function WorkNodeTreePanel({ refreshKey, onSelectedNodeChange, onSummaryC
 
   const reloadNodes = async () => {
     const response = await createAiTimelineWorkNodeClient().list();
-    const repositoryNodes = await createTimelineRepositoryClient().listWorkNodes(DEFAULT_TIMELINE_ID);
-    const next = { ...response, nodes: repositoryNodes.map((node) => ({
+    const repository = createTimelineRepositoryClient();
+    const [repositoryNodes, checkoutRef] = await Promise.all([
+      repository.listWorkNodes(timelineId),
+      repository.getCheckoutRef(timelineId),
+    ]);
+    const next = {
+      ...response,
+      headNodeId: checkoutRef?.targetType === 'work-node' ? checkoutRef.targetId : '',
+      commits: (response.commits || []).filter((commit) => commit.timelineId === timelineId),
+      nodes: repositoryNodes.map((node) => ({
       ...node, riskFlags: node.riskFlags.map((risk, index) => ({ ...risk, id: `${risk.code || 'risk'}-${index}` })), saveId: node.timelineId,
       status: node.status as AiTimelineWorkNodeListItem['status'],
       approvalPolicy: node.approvalPolicy as AiTimelineWorkNodeListItem['approvalPolicy'],
       baseSummary: node.baseSummary,
       workingSummary: node.workingSummary,
-    })) };
+      })),
+    };
     applyListResponse(next);
     return next;
   };
@@ -198,7 +225,7 @@ export function WorkNodeTreePanel({ refreshKey, onSelectedNodeChange, onSummaryC
         throw new Error(markError || 'Work Node 已应用，但 HEAD 确认失败。');
       }
       await createTimelineRepositoryClient().setCheckoutRef({
-        timelineId: DEFAULT_TIMELINE_ID,
+        timelineId,
         targetType: 'work-node',
         targetId: nodeId,
         updatedAt: Date.now(),
@@ -215,6 +242,7 @@ export function WorkNodeTreePanel({ refreshKey, onSelectedNodeChange, onSummaryC
       const createdAt = Date.now();
       const entry = enqueueMainWorkbenchCommand({
         op: 'createAiTimelineWorkNodeFromCurrent',
+        timelineId,
         parentNodeId,
         branchId: `${labelPrefix}-${createdAt}`,
         label: `[${labelPrefix}] ${new Date(createdAt).toLocaleString('zh-CN', { hour12: false })}`,

@@ -4397,7 +4397,9 @@ function mirrorAiTimelineWorkNodeToRepository(node) {
   repository.ensureDocument({ id: timelineId, label: '主排轴' });
   const visiting = new Set();
   const mirrorOne = (candidate) => {
-    if (!candidate || visiting.has(candidate.id) || repository.getWorkNode(candidate.id)) return;
+    // Existing ids still need an upsert: the compatibility SQLite store may
+    // have received a newer working payload, status, or audit log.
+    if (!candidate || visiting.has(candidate.id)) return;
     visiting.add(candidate.id);
     if (candidate.parentNodeId) mirrorOne(getAiTimelineWorkNodeStore().getNode(candidate.parentNodeId));
     repository.importWorkNode({ ...candidate, timelineId });

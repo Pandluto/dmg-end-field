@@ -20,6 +20,25 @@ const duplicate = repository.createOrReuseSnapshot({
 assert.equal(first.reused, false);
 assert.equal(duplicate.reused, true);
 assert.equal(repository.listSnapshots('timeline-main').length, 1);
+repository.ensureDocument({ id: 'timeline-legacy-import', label: '旧存档导入', createdAt: 4 });
+const remappedId = repository.createOrReuseSnapshot({
+  id: 'snapshot-1', timelineId: 'timeline-legacy-import', label: '同名旧存档',
+  payload: { ...payload, allBuffList: [{ id: 'legacy-buff' }] }, createdAt: 4,
+});
+assert.equal(remappedId.reused, false);
+assert.notEqual(remappedId.snapshot.id, 'snapshot-1');
+assert.equal(repository.listSnapshots('timeline-legacy-import').length, 1);
+repository.ensureDocument({ id: 'timeline-archived-import', label: '归档旧存档', createdAt: 4 });
+repository.createOrReuseSnapshot({
+  id: 'archived-snapshot', timelineId: 'timeline-archived-import', label: '已归档旧存档', payload, createdAt: 4,
+});
+repository.archiveSnapshot('archived-snapshot');
+const restoredArchivedId = repository.createOrReuseSnapshot({
+  id: 'archived-snapshot', timelineId: 'timeline-archived-import', label: '恢复归档旧存档', payload, createdAt: 4,
+});
+assert.equal(restoredArchivedId.reused, true);
+assert.equal(restoredArchivedId.snapshot.id, 'archived-snapshot');
+assert.equal(repository.listSnapshots('timeline-archived-import').length, 1);
 const checkout = repository.setCheckoutRef({ timelineId: 'timeline-main', targetType: 'snapshot', targetId: 'snapshot-1', updatedAt: 4 });
 assert.equal(checkout.targetId, 'snapshot-1');
 repository.appendAuditEvent({
@@ -30,6 +49,18 @@ repository.importWorkNode({
   id: 'node-1', timelineId: 'timeline-main', branchId: 'branch-1', label: 'Draft',
   basePayload: payload, workingPayload: payload, createdAt: 6, updatedAt: 6,
 });
+assert.throws(() => repository.importWorkNode({
+  id: 'node-1', timelineId: 'timeline-main', branchId: 'branch-1', label: 'Invalid transition', status: 'applied',
+  basePayload: payload, workingPayload: payload,
+}), { code: 'invalid-timeline-work-node-transition' });
+repository.importWorkNode({
+  id: 'node-1', timelineId: 'timeline-main', branchId: 'branch-1', label: 'Validated', status: 'validated',
+  basePayload: payload, workingPayload: payload,
+});
+assert.throws(() => repository.importWorkNode({
+  id: 'node-1', timelineId: 'timeline-legacy-import', branchId: 'branch-1', label: 'Cross-document collision', status: 'validated',
+  basePayload: payload, workingPayload: payload,
+}), { code: 'timeline-work-node-id-conflict' });
 assert.throws(() => repository.importWorkNode({
   id: 'node-invalid-status', timelineId: 'timeline-main', branchId: 'invalid', label: 'Invalid', status: 'not-a-status',
   basePayload: payload, workingPayload: payload,
@@ -66,7 +97,7 @@ assert.equal(imported.document.id, 'timeline-imported');
 assert.equal(repository.listSnapshots('timeline-imported').length, 1);
 assert.equal(repository.listWorkNodes('timeline-imported').length, 1);
 assert.equal(repository.getWorkNode('imported-node-1')?.timelineId, 'timeline-imported');
-assert.equal(repository.listDocuments().length, 2);
+assert.equal(repository.listDocuments().length, 4);
 repository.close();
 fs.rmSync(directory, { recursive: true, force: true });
 console.log('Timeline repository smoke passed.');

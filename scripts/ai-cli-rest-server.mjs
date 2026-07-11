@@ -500,10 +500,11 @@ function mirrorWorkNodeToTimelineRepository(node) {
   repository.ensureDocument({ id: timelineId, label: '主排轴' });
   // Legacy nodes can predate the repository migration. Importing a new child
   // must first repair any missing ancestry, otherwise SQLite rejects the child
-  // foreign key and the two stores diverge again.
+  // foreign key and the two stores diverge again.  Do not stop at an existing
+  // node: this function is also the compatibility projection's update path.
   const visiting = new Set();
   const mirrorOne = (candidate) => {
-    if (!candidate || visiting.has(candidate.id) || repository.getWorkNode(candidate.id)) return;
+    if (!candidate || visiting.has(candidate.id)) return;
     visiting.add(candidate.id);
     if (candidate.parentNodeId) mirrorOne(getAiTimelineWorkNodeStore().getNode(candidate.parentNodeId));
     repository.importWorkNode({ ...candidate, timelineId });
