@@ -3320,6 +3320,7 @@ export function CanvasBoard({
 
     setPendingImportShare(parsed);
     setPendingImportBundle(null);
+    setPendingImportTimelineId(`imported-${Date.now()}`);
     event.target.value = '';
   };
 
@@ -3395,7 +3396,9 @@ export function CanvasBoard({
       setPendingImportShare(null);
       setPendingImportBundle(null);
       setPendingImportTimelineId('');
-      alert('已导入为新的排轴文档，当前排轴未被覆盖。');
+      setIsShareModalOpen(false);
+      setWorkNodeSaveNotice(`已导入为新的 SQLite 排轴：${pendingImportShare.label}`);
+      window.setTimeout(() => setWorkNodeSaveNotice(''), 2600);
       return;
     }
     applyTimelineSnapshotPayload(pendingImportShare.payload);

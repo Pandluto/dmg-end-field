@@ -208,6 +208,33 @@ function normalizeSnapshotPayload(payload: TimelineSnapshotPayload): TimelineSna
   };
 }
 
+function isLocalMachinePath(value: string): boolean {
+  return /^(?:file:\/\/|[a-z]:[\\/]|\\\\)/i.test(value)
+    || /[\\/]AppData[\\/]/i.test(value)
+    || /^\/(?:Users|home)\//i.test(value);
+}
+
+function sanitizePortableValue(value: unknown): unknown {
+  if (typeof value === 'string') return isLocalMachinePath(value) ? '' : value;
+  if (Array.isArray(value)) return value.map(sanitizePortableValue);
+  if (!value || typeof value !== 'object') return value;
+  return Object.fromEntries(Object.entries(value).map(([key, entry]) => [key, sanitizePortableValue(entry)]));
+}
+
+function containsLocalMachinePath(value: unknown): boolean {
+  if (typeof value === 'string') return isLocalMachinePath(value);
+  if (Array.isArray(value)) return value.some(containsLocalMachinePath);
+  return Boolean(value && typeof value === 'object' && Object.values(value).some(containsLocalMachinePath));
+}
+
+function normalizePortableSnapshotPayload(payload: TimelineSnapshotPayload): TimelineSnapshotPayload {
+  return sanitizePortableValue(normalizeSnapshotPayload(payload)) as TimelineSnapshotPayload;
+}
+
+function portableText(value: string): string {
+  return isLocalMachinePath(value) ? '' : value;
+}
+
 function readCurrentPayload(): TimelineSnapshotPayload | null {
   const selectedCharacters = readSessionJson<string[]>(STORAGE_KEYS.SELECTED_CHARACTERS, []);
   const timelineData = readSessionJson<TimelineData | null>(STORAGE_KEYS.TIMELINE_DATA, null);
@@ -315,7 +342,7 @@ export async function buildTimelineBundleV2(input: {
   const payloads: TimelineSnapshotPayload[] = [];
   const payloadIndex = new Map<string, number>();
   const addPayload = (payload: TimelineSnapshotPayload) => {
-    const normalized = normalizeSnapshotPayload(payload);
+    const normalized = normalizePortableSnapshotPayload(payload);
     const key = JSON.stringify(normalized);
     const existing = payloadIndex.get(key);
     if (existing !== undefined) return existing;
@@ -325,18 +352,18 @@ export async function buildTimelineBundleV2(input: {
     return index;
   };
   const snapshots = sourceSnapshots.map((snapshot) => ({
-    id: snapshot.id, label: snapshot.label, createdAt: snapshot.createdAt, payloadIndex: addPayload(snapshot.payload),
+    id: snapshot.id, label: portableText(snapshot.label), createdAt: snapshot.createdAt, payloadIndex: addPayload(snapshot.payload),
   }));
   const workNodes = input.workNodes?.map((node) => ({
     id: node.id, ...(node.parentNodeId ? { parentNodeId: node.parentNodeId } : {}), branchId: node.branchId,
-    label: node.label, status: node.status, approvalPolicy: node.approvalPolicy,
-    riskFlags: node.riskFlags || [], logs: node.logs || [], createdAt: node.createdAt, updatedAt: node.updatedAt,
+    label: portableText(node.label), status: node.status, approvalPolicy: node.approvalPolicy,
+    riskFlags: sanitizePortableValue(node.riskFlags || []) as unknown[], logs: sanitizePortableValue(node.logs || []) as unknown[], createdAt: node.createdAt, updatedAt: node.updatedAt,
     basePayloadIndex: addPayload(node.basePayload), workingPayloadIndex: addPayload(node.workingPayload),
   }));
   const commits = input.commits?.map((commit) => ({
-    id: commit.id, nodeId: commit.nodeId, branchId: commit.branchId, label: commit.label, createdAt: commit.createdAt,
-    summary: commit.summary, riskFlags: commit.riskFlags || [], approval: commit.approval || {},
-    checkoutApplied: commit.checkoutApplied, ...(commit.checkout ? { checkout: commit.checkout } : {}),
+    id: commit.id, nodeId: commit.nodeId, branchId: commit.branchId, label: portableText(commit.label), createdAt: commit.createdAt,
+    summary: sanitizePortableValue(commit.summary), riskFlags: sanitizePortableValue(commit.riskFlags || []) as unknown[], approval: sanitizePortableValue(commit.approval || {}),
+    checkoutApplied: commit.checkoutApplied, ...(commit.checkout ? { checkout: sanitizePortableValue(commit.checkout) } : {}),
     basePayloadIndex: addPayload(commit.basePayload), appliedPayloadIndex: addPayload(commit.appliedPayload),
   }));
   return {
@@ -344,10 +371,10 @@ export async function buildTimelineBundleV2(input: {
     schemaVersion: 2,
     manifest: {
       exportedAt: Date.now(), scope: input.scope || (workNodes?.length ? 'document' : 'snapshot'), timelineId: input.timelineId,
-      label: normalizeShareLabel(input.label || input.snapshot.label),
+      label: portableText(normalizeShareLabel(input.label || input.snapshot.label)),
       payloadHash: await sha256({ payloads, snapshots, workNodes: workNodes || [], commits: commits || [], checkoutRef: input.checkoutRef || null }),
     },
-    document: { id: input.timelineId, label: normalizeShareLabel(input.label || '导入排轴') },
+    document: { id: input.timelineId, label: portableText(normalizeShareLabel(input.label || '导入排轴')) },
     payloads,
     snapshots,
     ...(workNodes?.length ? { workNodes } : {}),
@@ -362,6 +389,7 @@ export async function parseTimelineBundleV2(rawText: string): Promise<TimelineBu
     if (bundle.type !== 'dmg.timeline-bundle.v2' || bundle.schemaVersion !== 2 || !['snapshot', 'branch', 'document'].includes(bundle.manifest?.scope || '')) return null;
     if (!bundle.document?.id || !bundle.manifest?.payloadHash || !Array.isArray(bundle.payloads) || !Array.isArray(bundle.snapshots)) return null;
     if (!bundle.payloads.every(isValidTimelineSnapshotPayload)) return null;
+    if (containsLocalMachinePath(bundle)) return null;
     if (!bundle.snapshots.every((item) => typeof item?.id === 'string' && typeof item.payloadIndex === 'number' && bundle.payloads![item.payloadIndex])) return null;
     if (!bundle.snapshots.every((item) => typeof item?.label === 'string' && typeof item.createdAt === 'number')) return null;
     const workNodes = Array.isArray(bundle.workNodes) ? bundle.workNodes : [];
