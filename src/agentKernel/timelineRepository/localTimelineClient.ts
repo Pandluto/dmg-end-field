@@ -5,6 +5,12 @@ const REST_BASE_URL = 'http://127.0.0.1:17321';
 const BRIDGE_BASE_URL = 'http://127.0.0.1:31457';
 
 type RepositoryResponse<T> = { ok: true; path?: string } & T;
+class TimelineRepositoryRequestError extends Error {
+  constructor(message: string, readonly status: number) {
+    super(message);
+    this.name = 'TimelineRepositoryRequestError';
+  }
+}
 export type TimelineRepositoryWorkNode = {
   id: string; parentNodeId?: string; timelineId: string; branchId: string; label: string; status: string;
   approvalPolicy: string; riskFlags: Array<{ severity: 'info' | 'warning' | 'blocker'; code: string; message: string }>; logs: Array<{ id: string; at: number; level: 'info' | 'warning' | 'error'; message: string }>;
@@ -31,7 +37,12 @@ export type TimelineRepositoryWorkNodePatch = {
 
 async function readResponse<T>(response: Response): Promise<T> {
   const payload = await response.json();
-  if (!response.ok || !payload?.ok) throw new Error(payload?.error?.message || `Timeline repository request failed: ${response.status}`);
+  if (!response.ok || !payload?.ok) {
+    throw new TimelineRepositoryRequestError(
+      payload?.error?.message || `Timeline repository request failed: ${response.status}`,
+      response.status,
+    );
+  }
   return payload as T;
 }
 
@@ -48,7 +59,11 @@ async function requestWithFallback<T>(pathname: string, method = 'GET', body?: u
   try {
     return await request<T>(BRIDGE_BASE_URL, pathname, method, body);
   } catch (error) {
-    if (!(error instanceof TypeError) && !/failed to fetch|network|load failed/i.test(String(error))) throw error;
+    // The development shell owns port 31457 but intentionally does not expose
+    // the Electron local-data bridge.  Its 404 must fall through to the REST
+    // repository just like an unavailable bridge does.
+    const bridgeRouteMissing = error instanceof TimelineRepositoryRequestError && error.status === 404;
+    if (!bridgeRouteMissing && !(error instanceof TypeError) && !/failed to fetch|network|load failed/i.test(String(error))) throw error;
     return request<T>(REST_BASE_URL, pathname.replace('/local-data/', '/api/'), method, body);
   }
 }
