@@ -4952,7 +4952,7 @@ function createAiTimelineWorkNode(payload) {
     branchId: sanitizeAiTimelineWorkNodeId(payload.branchId, 'branch'),
     createdAt: now,
     updatedAt: now,
-    label: typeof payload.label === 'string' && payload.label.trim() ? payload.label.trim() : 'AI Timeline Work Node',
+    label: typeof payload.label === 'string' && payload.label.trim() ? payload.label.trim() : '[ai] AI Timeline Work Node',
     status: 'open',
     basePayload: cloneJsonValue(basePayload),
     workingPayload: cloneJsonValue(requestedWorkingPayload),

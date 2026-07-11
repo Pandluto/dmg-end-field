@@ -85,6 +85,25 @@ try {
   await waitForHealth();
   const invalidSnapshotMirror = await request('POST', '/api/main-workbench/snapshot', { updatedAt: Date.now(), source: 'rest' });
   assert.equal(invalidSnapshotMirror.status, 400, JSON.stringify(invalidSnapshotMirror.body));
+  const validSnapshotMirror = await request('POST', '/api/main-workbench/snapshot', {
+    selectedCharacters: [{ id: 'operator-1', name: '测试干员' }],
+    skillButtons: [
+      { id: 'button-a', characterId: 'operator-1', characterName: '测试干员', staffIndex: 0, nodeIndex: 0, skillType: 'normal' },
+      { id: 'button-b', characterId: 'operator-1', characterName: '测试干员', staffIndex: 0, nodeIndex: 1, skillType: 'skill' },
+    ],
+  });
+  assert.equal(validSnapshotMirror.status, 200, JSON.stringify(validSnapshotMirror.body));
+  const stagedBatch = await request('POST', '/api/def-tools/def.buff.add_to_buttons/call', {
+    buttonIds: ['button-a', 'button-b'],
+    buff: { id: 'buff-batch', displayName: '批量测试 Buff', category: 'positive' },
+  });
+  assert.equal(stagedBatch.status, 200, JSON.stringify(stagedBatch.body));
+  assert.equal(stagedBatch.body.result.currentCheckoutTouched, false);
+  assert.equal(stagedBatch.body.result.checkoutDecision.requiresManualApproval, true);
+  assert.equal(stagedBatch.body.result.diff.summary.changedButtonCount, 2);
+  const stagedNodes = await request('GET', '/api/timeline-work-nodes?timelineId=current-main-workbench');
+  assert.equal(stagedNodes.body.nodes.length, 1, JSON.stringify(stagedNodes.body));
+  assert.match(stagedNodes.body.nodes[0].label, /^\[ai\]/);
   const document = await request('POST', '/api/timeline-documents', { id: 'timeline-rest', label: 'REST 排轴' });
   assert.equal(document.status, 200, JSON.stringify(document.body));
   const snapshot = await request('POST', '/api/timeline-snapshots', {
@@ -202,7 +221,8 @@ try {
   assert.equal(grayDelete.body.nodes.some((node) => node.id === 'child'), false);
 
   list = await request('GET', '/api/ai-timeline-worknodes');
-  assert.equal(list.body.nodes.length, 2);
+  assert.equal(list.body.nodes.filter((node) => node.timelineId === 'save-rest').length, 2);
+  assert.equal(list.body.nodes.some((node) => node.timelineId === 'current-main-workbench' && /^\[ai\]/.test(node.label)), true);
   assert.equal(list.body.headNodeId, 'branch');
   console.log('AI timeline Work Node REST smoke passed.');
 } finally {

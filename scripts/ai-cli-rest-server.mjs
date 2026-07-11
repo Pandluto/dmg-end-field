@@ -875,7 +875,7 @@ function createDefWorkNodeFromPayload(payloadSource, input = {}) {
     updatedAt: now,
     label: typeof input.label === 'string' && input.label.trim()
       ? input.label.trim()
-      : `Main Workbench ${new Date(now).toLocaleString()}`,
+      : `[ai] Main Workbench ${new Date(now).toLocaleString()}`,
     status: 'open',
     basePayload: cloneJson(payloadSource.payload),
     workingPayload: cloneJson(payloadSource.payload),
@@ -970,7 +970,7 @@ function handleAiTimelineWorkNodeRequest(method, pathname, body) {
       branchId,
       createdAt: now,
       updatedAt: now,
-      label: typeof body?.label === 'string' && body.label.trim() ? body.label.trim() : 'AI Timeline Work Node',
+      label: typeof body?.label === 'string' && body.label.trim() ? body.label.trim() : '[ai] AI Timeline Work Node',
       status: 'open',
       basePayload: cloneJson(basePayload),
       workingPayload: cloneJson(requestedWorkingPayload),
@@ -2567,11 +2567,19 @@ function applyDefWorkNodePatchOperation(payload, operation, index, operationsApp
   }
 
   if (operation.op === 'attachBuff') {
-    if (typeof operation.buffId !== 'string' || !operation.buffId.trim()) {
+    const suppliedBuff = isObject(operation.buff) ? cloneJson(operation.buff) : null;
+    const suppliedBuffId = typeof suppliedBuff?.id === 'string' ? suppliedBuff.id.trim() : '';
+    const buffId = typeof operation.buffId === 'string' && operation.buffId.trim() ? operation.buffId.trim() : suppliedBuffId;
+    if (!buffId) {
       throw new Error(`${path}: attachBuff requires buffId.`);
     }
-    const buff = (Array.isArray(payload?.allBuffList) ? payload.allBuffList : []).find((item) => item?.id === operation.buffId);
-    if (!buff) throw new Error(`${path}: buff not found: ${operation.buffId}`);
+    if (!Array.isArray(payload.allBuffList)) payload.allBuffList = [];
+    let buff = payload.allBuffList.find((item) => item?.id === buffId);
+    if (!buff && suppliedBuff) {
+      buff = { ...suppliedBuff, id: buffId, refCount: 0 };
+      payload.allBuffList.push(buff);
+    }
+    if (!buff) throw new Error(`${path}: buff not found: ${buffId}`);
     const targetResult = findDefWorkNodePatchTargetButton(payload, isObject(operation.target) ? operation.target : {});
     if (!targetResult.ok) throw new Error(`${path}: ${targetResult.message}`);
     const before = normalizeWorkNodeButton(targetResult.button);
@@ -2703,7 +2711,10 @@ function applyDefWorkNodePatchAndValidate(input = {}) {
 
   const workingPayload = cloneJson(node.workingPayload);
   const operationsApplied = [];
-  const riskFlags = [...(Array.isArray(node.riskFlags) ? node.riskFlags : [])];
+  const riskFlags = [
+    ...(Array.isArray(node.riskFlags) ? node.riskFlags : []),
+    ...normalizeRiskFlags(input.riskFlags),
+  ].filter((risk, index, all) => all.findIndex((candidate) => candidate.code === risk.code) === index);
   try {
     patch.forEach((operation, index) => applyDefWorkNodePatchOperation(workingPayload, operation, index, operationsApplied, riskFlags));
   } catch (error) {
@@ -3048,6 +3059,7 @@ function buildDefToolDefinitions() {
         replaceTarget: { type: 'boolean', description: 'copyStaffLine rejects non-empty targets unless this is explicitly true.' },
         nodeIndex: { type: 'number', description: 'Required for moveButton; optional for addButton.' },
         buffId: { type: 'string', description: 'Required for attachBuff/removeBuff.' },
+        buff: { type: 'object', description: 'Optional full buff object for attachBuff when it is not already present in allBuffList.' },
         targetResistance: { type: 'object', description: 'Required for setTargetResistance.' },
       },
     },
@@ -3086,6 +3098,18 @@ function buildDefToolDefinitions() {
       replaceTarget: { type: 'boolean', description: 'Only true when the user explicitly requested replacing a non-empty target line.' },
       checkout: { type: 'boolean', description: 'Defaults to true and applies the validated work node without a browser reload.' },
       dryRun: { type: 'boolean' },
+    },
+  };
+  const batchBuffSchema = {
+    type: 'object',
+    required: ['buttonIds', 'buff'],
+    properties: {
+      buttonIds: { type: 'array', items: { type: 'string' }, description: 'Two or more stable button ids.' },
+      buff: { type: 'object', description: 'Buff object to stage in the Work Node and attach to every target.' },
+      nodeId: { type: 'string', description: 'Optional existing Work Node; omitted creates one from current checkout.' },
+      timelineId: { type: 'string' },
+      label: { type: 'string' },
+      checkout: { type: 'boolean', description: 'Batch changes remain staged when risk review is required.' },
     },
   };
   const checkoutWorkNodeSchema = {
@@ -3153,7 +3177,7 @@ function buildDefToolDefinitions() {
     { name: 'def.workbench.remove_skill_button', commandOp: 'removeSkillButton', scope: 'current-checkout', riskLevel: 'medium', approval: 'ai-review', status: 'implemented', description: executeCommand },
     { name: 'def.buff.add_to_button', commandOp: 'addBuff', scope: 'current-checkout', riskLevel: 'medium', approval: 'auto', status: 'implemented', description: executeCommand },
     { name: 'def.buff.add_to_button_and_verify', scope: 'current-checkout', riskLevel: 'medium', approval: 'auto', status: 'implemented', description: 'Add one buff to one button, wait for browser command execution, then verify the target button contains that buff.' },
-    { name: 'def.buff.add_to_buttons', commandOp: 'addBuffToButtons', scope: 'current-checkout', riskLevel: 'medium', approval: 'ai-review', status: 'implemented', description: executeCommand },
+    { name: 'def.buff.add_to_buttons', scope: 'appdata-work-node', riskLevel: 'high', approval: 'ai-review', status: 'implemented', description: 'Batch mutation: stage one attachBuff patch per button in a Work Node and expose validate/diff/risk evidence before checkout.' },
     { name: 'def.buff.remove_from_button', commandOp: 'removeBuff', scope: 'current-checkout', riskLevel: 'medium', approval: 'ai-review', status: 'implemented', description: executeCommand },
     { name: 'def.target.set_resistance', commandOp: 'setTargetResistance', scope: 'current-checkout', riskLevel: 'low', approval: 'auto', status: 'implemented', description: executeCommand },
     { name: 'def.damage.calculate', commandOp: 'calculateDamage', scope: 'current-checkout', riskLevel: 'low', approval: 'auto', status: 'implemented', description: executeCommand },
@@ -3184,6 +3208,8 @@ function buildDefToolDefinitions() {
     ...tool,
     inputSchema: tool.name === 'def.worknode.copy_staff_line_and_verify'
       ? copyStaffLineSchema
+      : tool.name === 'def.buff.add_to_buttons'
+        ? batchBuffSchema
       : tool.name === 'def.worknode.patch_and_validate'
       ? patchAndValidateSchema
       : tool.name === 'def.worknode.patch'
@@ -3902,6 +3928,34 @@ async function executeDefTool(name, input = {}, query = new URLSearchParams()) {
     return failScript(501, 'def-tool-planned', `DEF tool is planned but not implemented yet: ${name}`, { tool: definition });
   }
   if (definition.commandOp) return enqueueDefToolCommand(definition, input);
+
+  if (name === 'def.buff.add_to_buttons') {
+    const buttonIds = [...new Set((Array.isArray(input.buttonIds) ? input.buttonIds : [])
+      .filter((id) => typeof id === 'string' && id.trim()).map((id) => id.trim()))];
+    if (buttonIds.length < 2 || !isObject(input.buff)) {
+      return failScript(400, 'invalid-batch-buff-input', 'Batch buff mutation requires at least two buttonIds and one buff object.');
+    }
+    const buffId = typeof input.buff.id === 'string' && input.buff.id.trim()
+      ? input.buff.id.trim()
+      : `def-batch-buff-${Date.now()}`;
+    const result = applyDefWorkNodePatchAndValidate({
+      ...input,
+      checkout: input.checkout !== false,
+      approvalPolicy: 'ask-on-risk',
+      label: typeof input.label === 'string' && input.label.trim() ? input.label.trim() : '[ai] 批量添加 Buff',
+      riskFlags: [
+        ...(Array.isArray(input.riskFlags) ? input.riskFlags : []),
+        makeDefWorkNodeRiskFlag('warning', 'multi-button-mutation', `Batch mutation targets ${buttonIds.length} buttons.`),
+      ],
+      patch: buttonIds.map((buttonId) => ({
+        op: 'attachBuff',
+        target: { buttonId },
+        buffId,
+        buff: { ...input.buff, id: buffId },
+      })),
+    });
+    return { status: result.ok ? 200 : 400, body: { ok: result.ok, protocolVersion: 1, tool: name, result } };
+  }
 
   if (name === 'def.operator.config.patch') {
     return enqueueDefToolCommands(definition, buildDefOperatorConfigPatchCommands(input), input);
