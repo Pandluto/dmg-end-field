@@ -1,5 +1,6 @@
 import { useSyncExternalStore } from 'react';
 import {
+  activateTimelineSession,
   getTimelineSessionSnapshot,
   refreshTimelineSessionDocument,
   resetActiveTimelineDocument,
@@ -21,6 +22,7 @@ export function useTimelineSession() {
     resetActiveDocument: resetActiveTimelineDocument,
     setCheckoutRef: setTimelineSessionCheckoutRef,
     setWorkingPayload: setTimelineSessionWorkingPayload,
+    activate: activateTimelineSession,
     refreshActiveDocument: refreshTimelineSessionDocument,
   };
 }

@@ -468,9 +468,8 @@ export function CanvasBoard({
     activeTimelineId,
     activeTimelineLabel,
     checkoutRef: activeCheckoutRef,
-    setActiveDocument,
-    setCheckoutRef: setSessionCheckoutRef,
     setWorkingPayload: setSessionWorkingPayload,
+    activate: activateTimeline,
     resetActiveDocument,
     refreshActiveDocument,
   } = useTimelineSession();
@@ -1250,7 +1249,6 @@ export function CanvasBoard({
       commit = committed.commit;
     }
 
-    hydrateCheckoutRuntime(node.workingPayload);
     let applied: Awaited<ReturnType<ReturnType<typeof createAiTimelineWorkNodeClient>['markCheckoutApplied']>> | null = null;
     let checkoutMarkError: string | undefined;
     try {
@@ -1265,12 +1263,18 @@ export function CanvasBoard({
     }
 
     if (applied?.commit.checkoutApplied) {
-      setSessionCheckoutRef({
+      const checkoutRef = {
         timelineId: node.timelineId || activeTimelineId,
         targetType: 'work-node',
         targetId: node.id,
         updatedAt: applied.commit.checkout?.appliedAt || Date.now(),
-      });
+      } as const;
+      const document = node.timelineId === activeTimelineId
+        ? { id: activeTimelineId, label: activeTimelineLabel }
+        : (await createTimelineRepositoryClient().listDocuments()).find((entry) => entry.id === node.timelineId)
+          || { id: node.timelineId, label: node.label };
+      activateTimeline({ document, checkoutRef, workingPayload: node.workingPayload });
+      hydrateCheckoutRuntime(node.workingPayload);
     }
 
     if (command.reload === true) {
@@ -1780,9 +1784,12 @@ export function CanvasBoard({
             targetId: persisted.snapshot.id,
             updatedAt: Date.now(),
           });
+          activateTimeline({
+            document: { id: targetTimelineId, label: snapshot.label },
+            checkoutRef: restoredCheckoutRef,
+            workingPayload: snapshot.payload,
+          });
           applyTimelineSnapshotPayload(snapshot.payload);
-          setActiveDocument({ id: targetTimelineId, label: snapshot.label });
-          setSessionCheckoutRef(restoredCheckoutRef);
           await ensureTimelineDocumentBaselineWorkNode(targetTimelineId, snapshot.payload, snapshot.label);
           const doneEntry = patchMainWorkbenchCommand(commandEntry.id, {
             status: 'done',
@@ -2883,8 +2890,11 @@ export function CanvasBoard({
       )));
       const activeDocumentEntry = documentEntries.find((entry) => entry.document.id === activeTimelineId);
       if (activeDocumentEntry) {
-        setActiveDocument(activeDocumentEntry.document);
-        setSessionCheckoutRef(activeDocumentEntry.checkoutRef);
+        activateTimeline({
+          document: activeDocumentEntry.document,
+          checkoutRef: activeDocumentEntry.checkoutRef,
+          workingPayload: activeDocumentEntry.payload,
+        });
       }
     } catch {
       setTimelineSnapshots(listTimelineSnapshots().map((snapshot) => ({ ...snapshot, timelineId: DEFAULT_TIMELINE_ID })));
@@ -3041,8 +3051,7 @@ export function CanvasBoard({
           targetId: entry.targetId,
           updatedAt: Date.now(),
         });
-      setActiveDocument(entry.document);
-      setSessionCheckoutRef(checkoutRef);
+      activateTimeline({ document: entry.document, checkoutRef, workingPayload: entry.payload });
       hydrateCheckoutRuntime(entry.payload);
       if (entry.workNodeCount === 0) {
         await ensureTimelineDocumentBaselineWorkNode(entry.document.id, entry.payload, entry.document.label);
@@ -3115,9 +3124,12 @@ export function CanvasBoard({
         targetId: persisted.snapshot.id,
         updatedAt: Date.now(),
       });
+      activateTimeline({
+        document: { id: targetTimelineId, label: pendingRestoreSnapshot.label },
+        checkoutRef: restoredCheckoutRef,
+        workingPayload: pendingRestoreSnapshot.payload,
+      });
       applyTimelineSnapshotPayload(pendingRestoreSnapshot.payload);
-      setActiveDocument({ id: targetTimelineId, label: pendingRestoreSnapshot.label });
-      setSessionCheckoutRef(restoredCheckoutRef);
       await ensureTimelineDocumentBaselineWorkNode(
         targetTimelineId,
         pendingRestoreSnapshot.payload,

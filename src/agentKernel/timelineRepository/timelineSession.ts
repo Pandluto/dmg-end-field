@@ -33,10 +33,36 @@ function publish(next: Omit<TimelineSessionSnapshot, 'revision'>): TimelineSessi
   if (
     next.activeTimelineId === snapshot.activeTimelineId
     && next.activeTimelineLabel === snapshot.activeTimelineLabel
+    && next.checkoutRef?.timelineId === snapshot.checkoutRef?.timelineId
+    && next.checkoutRef?.targetType === snapshot.checkoutRef?.targetType
+    && next.checkoutRef?.targetId === snapshot.checkoutRef?.targetId
+    && next.checkoutRef?.updatedAt === snapshot.checkoutRef?.updatedAt
+    && next.workingPayload === snapshot.workingPayload
+    && next.workingPayloadSource === snapshot.workingPayloadSource
   ) return snapshot;
   snapshot = { ...next, revision: snapshot.revision + 1 };
   listeners.forEach((listener) => listener());
   return snapshot;
+}
+
+export function activateTimelineSession(input: {
+  document: Pick<TimelineDocument, 'id' | 'label'>;
+  checkoutRef: TimelineCheckoutRef | null;
+  workingPayload: TimelineSnapshotPayload | null;
+}): TimelineSessionSnapshot {
+  if (input.checkoutRef && input.checkoutRef.timelineId !== input.document.id) {
+    throw new Error('Timeline session checkout must belong to the active document.');
+  }
+  if (typeof window !== 'undefined') {
+    window.localStorage.setItem(ACTIVE_TIMELINE_DOCUMENT_KEY, input.document.id);
+  }
+  return publish({
+    activeTimelineId: input.document.id,
+    activeTimelineLabel: input.document.label,
+    checkoutRef: input.checkoutRef,
+    workingPayload: input.workingPayload,
+    workingPayloadSource: input.workingPayload ? 'checkout' : null,
+  });
 }
 
 export function getTimelineSessionSnapshot(): TimelineSessionSnapshot {
