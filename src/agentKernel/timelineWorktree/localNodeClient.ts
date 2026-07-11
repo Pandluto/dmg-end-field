@@ -197,6 +197,10 @@ async function getBridgeJson<T>(pathname: string): Promise<T | null> {
     const response = await fetch(buildUrl(DEFAULT_BRIDGE_BASE_URL, pathname), {
       cache: 'no-store',
     });
+    // In browser development the DEF shell owns 31457 while Electron is not
+    // running. Its unrelated 404 must fall through to the REST compatibility
+    // transport instead of making a real Work Node checkout fail.
+    if (response.status === 404) return null;
     return await readJsonResponse<T>(response);
   } catch (error) {
     if (isFetchTransportError(error)) return null;
@@ -206,7 +210,13 @@ async function getBridgeJson<T>(pathname: string): Promise<T | null> {
 
 async function postBridgeJson<T>(pathname: string, body: unknown): Promise<T | null> {
   try {
-    return await postJson<T>(DEFAULT_BRIDGE_BASE_URL, pathname, body);
+    const response = await fetch(buildUrl(DEFAULT_BRIDGE_BASE_URL, pathname), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    if (response.status === 404) return null;
+    return await readJsonResponse<T>(response);
   } catch (error) {
     if (isFetchTransportError(error)) return null;
     throw error;
