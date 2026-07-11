@@ -1055,13 +1055,14 @@ function handleAiTimelineWorkNodeRequest(method, pathname, body) {
 
   if (method === 'POST' && action === 'delete') {
     try {
-      store.deleteSubtree(nodeId);
       // The legacy store is retained only for runtime compatibility during the
-      // migration.  Keep its cleanup in lockstep so a deleted repository node
-      // cannot be resurrected by a later compatibility read.
-      if (getTimelineRepository().getWorkNode(nodeId)) {
-        getTimelineRepository().deleteWorkNodeSubtree(nodeId);
-      }
+      // migration. Validate both projections before changing either one, then
+      // remove both so a later compatibility update cannot resurrect this node.
+      const repository = getTimelineRepository();
+      store.assertSubtreeDeletable(nodeId);
+      if (repository.getWorkNode(nodeId)) repository.assertWorkNodeSubtreeDeletable(nodeId);
+      if (repository.getWorkNode(nodeId)) repository.deleteWorkNodeSubtree(nodeId);
+      store.deleteSubtree(nodeId);
     } catch (error) {
       if (error?.code === 'ai-worknode-current-checkout-protected') {
         return failScript(409, error.code, error.message, { nodeId });
@@ -1260,9 +1261,18 @@ function handleTimelineRepositoryRequest(method, pathname, query, body) {
   const workNodeDeleteMatch = /^\/api\/timeline-work-nodes\/([^/]+)\/delete$/.exec(pathname);
   if (method === 'POST' && workNodeDeleteMatch) {
     try {
-      return { status: 200, body: { ok: true, result: repository.deleteWorkNodeSubtree(decodeURIComponent(workNodeDeleteMatch[1])) } };
+      const nodeId = decodeURIComponent(workNodeDeleteMatch[1]);
+      const legacyStore = getAiTimelineWorkNodeStore();
+      // During migration both stores can still contain the same node.  Validate
+      // both before either write, then remove both projections so an old update
+      // cannot mirror a deleted node back into the Repository.
+      if (legacyStore.getNode(nodeId)) legacyStore.assertSubtreeDeletable(nodeId);
+      repository.assertWorkNodeSubtreeDeletable(nodeId);
+      const result = repository.deleteWorkNodeSubtree(nodeId);
+      if (legacyStore.getNode(nodeId)) legacyStore.deleteSubtree(nodeId);
+      return { status: 200, body: { ok: true, result } };
     } catch (error) {
-      if (error?.status === 409) return failScript(409, error.code, error.message);
+      if (error?.status === 409 || error?.status === 404) return failScript(error.status, error.code, error.message);
       throw error;
     }
   }

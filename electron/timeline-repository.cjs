@@ -532,10 +532,14 @@ function createTimelineRepository({ databasePath }) {
     });
   }
 
-  function deleteWorkNodeSubtree(nodeId) {
-    return transaction(() => {
+  function assertWorkNodeSubtreeDeletable(nodeId) {
       const target = db.prepare('SELECT id, timeline_id FROM timeline_work_nodes WHERE id = ?').get(nodeId);
-      if (!target) throw new Error(`Timeline work node not found: ${nodeId}`);
+      if (!target) {
+        const error = new Error(`Timeline work node not found: ${nodeId}`);
+        error.code = 'timeline-work-node-not-found';
+        error.status = 404;
+        throw error;
+      }
       const descendants = db.prepare(`
         WITH RECURSIVE subtree(id) AS (
           SELECT id FROM timeline_work_nodes WHERE id = ?
@@ -553,19 +557,25 @@ function createTimelineRepository({ databasePath }) {
         error.status = 409;
         throw error;
       }
+      return { timelineId: target.timeline_id, deletedNodeIds: descendants };
+  }
+
+  function deleteWorkNodeSubtree(nodeId) {
+    return transaction(() => {
+      const { timelineId, deletedNodeIds } = assertWorkNodeSubtreeDeletable(nodeId);
       const deleteNode = db.prepare('DELETE FROM timeline_work_nodes WHERE id = ?');
       // Foreign keys are immediate in SQLite. Delete leaves before parents so
       // a branching tree never depends on row deletion order inside one SQL IN.
-      [...descendants].reverse().forEach((id) => deleteNode.run(id));
+      [...deletedNodeIds].reverse().forEach((id) => deleteNode.run(id));
       writeAuditEvent({
-        timelineId: target.timeline_id,
+        timelineId,
         eventType: 'work-node.deleted',
         subjectType: 'work-node',
         subjectId: nodeId,
-        details: { deletedNodeIds: descendants },
+        details: { deletedNodeIds },
       });
       garbageCollectPayloadBlobs();
-      return { deletedNodeIds: descendants };
+      return { deletedNodeIds };
     });
   }
 
@@ -580,6 +590,7 @@ function createTimelineRepository({ databasePath }) {
     appendWorkNodePatch,
     archiveSnapshot,
     importWorkNode,
+    assertWorkNodeSubtreeDeletable,
     deleteWorkNodeSubtree,
     getDocument: (id) => readDocument(db.prepare('SELECT * FROM timeline_documents WHERE id = ?').get(id)),
     listDocuments: () => db.prepare(`

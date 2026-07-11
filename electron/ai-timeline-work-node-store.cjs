@@ -452,9 +452,8 @@ function createAiTimelineWorkNodeStore({ databasePath, legacyJsonPath }) {
     return row ? { nodeId: row.current_node_id, revision: row.revision } : null;
   }
 
-  function deleteSubtree(nodeId) {
-    return transaction(() => {
-      const target = db.prepare('SELECT id FROM work_nodes WHERE id = ?').get(nodeId);
+  function assertSubtreeDeletable(nodeId) {
+    const target = db.prepare('SELECT id FROM work_nodes WHERE id = ?').get(nodeId);
       if (!target) throw workNodeStoreError(
         'ai-worknode-not-found',
         `AI timeline work node not found: ${nodeId}`,
@@ -479,10 +478,16 @@ function createAiTimelineWorkNodeStore({ databasePath, legacyJsonPath }) {
           409,
         );
       }
+      return { deletedNodeIds: descendants };
+  }
+
+  function deleteSubtree(nodeId) {
+    return transaction(() => {
+      const { deletedNodeIds } = assertSubtreeDeletable(nodeId);
       db.prepare('DELETE FROM work_nodes WHERE id = ?').run(nodeId);
       const revision = bumpRevision();
       garbageCollectSnapshots();
-      return { deletedNodeIds: descendants, revision };
+      return { deletedNodeIds, revision };
     });
   }
 
@@ -558,6 +563,7 @@ function createAiTimelineWorkNodeStore({ databasePath, legacyJsonPath }) {
     saveNodeAndCommit,
     setHead,
     getHead,
+    assertSubtreeDeletable,
     deleteSubtree,
     replaceArchive,
     close: () => db.close(),
