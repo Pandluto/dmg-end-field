@@ -11,7 +11,7 @@
     "agent:dev:web": "node agent/dev-agent.cjs --open-web",
     "ai-cli:rest": "node scripts/ai-cli-rest-server.mjs",
     "smoke:ai-cli-rest": "node scripts/ai-cli-rest-smoke.mjs",
-    "smoke:work-node-sqlite": "node scripts/ai-timeline-work-node-sqlite-smoke.mjs && node scripts/ai-timeline-work-node-rest-smoke.mjs",
+    "smoke:work-node-sqlite": "node scripts/ai-timeline-work-node-sqlite-smoke.mjs && node scripts/ai-timeline-work-node-rest-smoke.mjs && node scripts/ai-timeline-work-node-backup-restore-smoke.mjs",
     "dev": "vite --host 127.0.0.1 --port 3030",
     "assets:release": "node scripts/build-image-release-manifest.mjs",
     "akedb:extract": "node scripts/extract-akedb-raw-index.mjs",
