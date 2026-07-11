@@ -41,6 +41,32 @@ repository.appendWorkNodePatch({
 });
 assert.equal(repository.listWorkNodePatches('node-1').length, 1);
 assert.equal(repository.listAuditEvents('timeline-main').some((event) => event.eventType === 'work-node.patched'), true);
+
+// A portable bundle is reconstructed from atomic rows, then imported as a
+// distinct document with remapped ids.  This verifies sharing never copies a
+// database file or overwrites the source document.
+const exported = repository.exportDocumentBundle('timeline-main');
+assert.equal(exported.snapshots.length, 1);
+assert.equal(exported.workNodes.length, 1);
+const imported = repository.importDocumentBundle({
+  document: { id: 'timeline-imported', label: '导入排轴', createdAt: 8 },
+  snapshots: exported.snapshots.map((snapshot) => ({
+    id: `imported-${snapshot.id}`,
+    label: snapshot.label,
+    payload: snapshot.payload,
+    createdAt: snapshot.createdAt,
+  })),
+  workNodes: exported.workNodes.map((node) => ({
+    ...node,
+    id: `imported-${node.id}`,
+    parentNodeId: node.parentNodeId ? `imported-${node.parentNodeId}` : undefined,
+  })),
+});
+assert.equal(imported.document.id, 'timeline-imported');
+assert.equal(repository.listSnapshots('timeline-imported').length, 1);
+assert.equal(repository.listWorkNodes('timeline-imported').length, 1);
+assert.equal(repository.getWorkNode('imported-node-1')?.timelineId, 'timeline-imported');
+assert.equal(repository.listDocuments().length, 2);
 repository.close();
 fs.rmSync(directory, { recursive: true, force: true });
 console.log('Timeline repository smoke passed.');
