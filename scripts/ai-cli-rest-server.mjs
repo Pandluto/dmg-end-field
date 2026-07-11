@@ -497,7 +497,7 @@ function mirrorWorkNodeToTimelineRepository(node) {
   if (!node || node.saveId?.startsWith('timeline-snapshot-') || /^\[snapshot\]/i.test(node.label || '')) return;
   const timelineId = node.timelineId || node.saveId || 'current-main-workbench';
   const repository = getTimelineRepository();
-  repository.ensureDocument({ id: timelineId, label: '主排轴' });
+  repository.ensureDocument({ id: timelineId, label: '主排轴', preserveExistingLabel: true });
   // Legacy nodes can predate the repository migration. Importing a new child
   // must first repair any missing ancestry, otherwise SQLite rejects the child
   // foreign key and the two stores diverge again.  Do not stop at an existing
@@ -1219,6 +1219,17 @@ function handleTimelineRepositoryRequest(method, pathname, query, body) {
   }
   if (method === 'POST' && pathname === '/api/timeline-documents') {
     return { status: 200, body: { ok: true, protocolVersion: 1, document: repository.ensureDocument(body) } };
+  }
+  const timelineDocumentDeleteMatch = /^\/api\/timeline-documents\/([^/]+)\/delete$/.exec(pathname);
+  if (method === 'POST' && timelineDocumentDeleteMatch) {
+    try {
+      const timelineId = decodeURIComponent(timelineDocumentDeleteMatch[1]);
+      const result = repository.deleteDocument(timelineId);
+      getAiTimelineWorkNodeStore().deleteTimeline(timelineId);
+      return { status: 200, body: { ok: true, protocolVersion: 1, result } };
+    } catch (error) {
+      return failScript(error?.status || 500, error?.code || 'timeline-document-delete-failed', error instanceof Error ? error.message : String(error));
+    }
   }
   if (method === 'POST' && pathname === '/api/timeline-bundles/import') {
     try {

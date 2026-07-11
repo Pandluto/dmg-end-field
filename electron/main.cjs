@@ -957,6 +957,19 @@ function startBridgeServer() {
         return;
       }
 
+      const timelineDocumentDeleteMatch = /^\/local-data\/timeline-documents\/([^/]+)\/delete$/.exec(requestUrl.pathname);
+      if (method === 'POST' && timelineDocumentDeleteMatch) {
+        try {
+          const timelineId = decodeURIComponent(timelineDocumentDeleteMatch[1]);
+          const result = getTimelineRepository().deleteDocument(timelineId);
+          getAiTimelineWorkNodeStore().deleteTimeline(timelineId);
+          writeJson(response, 200, { ok: true, path: getTimelineRepositoryPath(), result });
+        } catch (error) {
+          writeJson(response, error?.status || 500, { ok: false, error: { code: error?.code || 'timeline-document-delete-failed', message: error instanceof Error ? error.message : String(error) } });
+        }
+        return;
+      }
+
       if (method === 'POST' && requestUrl.pathname === '/local-data/timeline-bundles/import') {
         const payload = await readJsonRequest(request);
         try {
@@ -4394,7 +4407,7 @@ function mirrorAiTimelineWorkNodeToRepository(node) {
   if (!node || node.saveId?.startsWith('timeline-snapshot-') || /^\[snapshot\]/i.test(node.label || '')) return;
   const timelineId = node.timelineId || node.saveId || 'current-main-workbench';
   const repository = getTimelineRepository();
-  repository.ensureDocument({ id: timelineId, label: '主排轴' });
+  repository.ensureDocument({ id: timelineId, label: '主排轴', preserveExistingLabel: true });
   const visiting = new Set();
   const mirrorOne = (candidate) => {
     // Existing ids still need an upsert: the compatibility SQLite store may

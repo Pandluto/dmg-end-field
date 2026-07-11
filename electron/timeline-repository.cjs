@@ -262,8 +262,10 @@ function createTimelineRepository({ databasePath }) {
       db.prepare(`
         INSERT INTO timeline_documents (id, label, created_at, updated_at, archived_at)
         VALUES (?, ?, ?, ?, NULL)
-        ON CONFLICT(id) DO UPDATE SET label = excluded.label, updated_at = excluded.updated_at
-      `).run(input.id, input.label, now, Date.now());
+        ON CONFLICT(id) DO UPDATE SET
+          label = CASE WHEN ? THEN timeline_documents.label ELSE excluded.label END,
+          updated_at = excluded.updated_at
+      `).run(input.id, input.label, now, Date.now(), input.preserveExistingLabel ? 1 : 0);
       return readDocument(db.prepare('SELECT * FROM timeline_documents WHERE id = ?').get(input.id));
     });
   }
@@ -655,6 +657,37 @@ function createTimelineRepository({ databasePath }) {
     });
   }
 
+  function deleteDocument(timelineId) {
+    return transaction(() => {
+      const document = readDocument(db.prepare('SELECT * FROM timeline_documents WHERE id = ?').get(timelineId));
+      if (!document) {
+        const error = new Error(`Timeline document not found: ${timelineId}`);
+        error.code = 'timeline-document-not-found';
+        error.status = 404;
+        throw error;
+      }
+      const nodeIds = db.prepare(`
+        WITH RECURSIVE tree(id, depth) AS (
+          SELECT id, 0 FROM timeline_work_nodes WHERE timeline_id = ? AND parent_id IS NULL
+          UNION ALL
+          SELECT node.id, tree.depth + 1
+          FROM timeline_work_nodes node JOIN tree ON node.parent_id = tree.id
+        )
+        SELECT id FROM tree ORDER BY depth DESC
+      `).all(timelineId).map((row) => row.id);
+      const snapshotCount = db.prepare('SELECT COUNT(*) AS count FROM timeline_snapshots WHERE timeline_id = ?').get(timelineId).count;
+      db.prepare('DELETE FROM checkout_refs WHERE timeline_id = ?').run(timelineId);
+      db.prepare('DELETE FROM timeline_audit_events WHERE timeline_id = ?').run(timelineId);
+      db.prepare('DELETE FROM timeline_work_node_patches WHERE timeline_id = ?').run(timelineId);
+      const deleteNode = db.prepare('DELETE FROM timeline_work_nodes WHERE id = ?');
+      nodeIds.forEach((nodeId) => deleteNode.run(nodeId));
+      db.prepare('DELETE FROM timeline_snapshots WHERE timeline_id = ?').run(timelineId);
+      db.prepare('DELETE FROM timeline_documents WHERE id = ?').run(timelineId);
+      garbageCollectPayloadBlobs();
+      return { document, deletedNodeIds: nodeIds, deletedSnapshotCount: snapshotCount };
+    });
+  }
+
   return {
     databasePath,
     ensureDocument,
@@ -668,6 +701,7 @@ function createTimelineRepository({ databasePath }) {
     importWorkNode,
     assertWorkNodeSubtreeDeletable,
     deleteWorkNodeSubtree,
+    deleteDocument,
     getDocument: (id) => readDocument(db.prepare('SELECT * FROM timeline_documents WHERE id = ?').get(id)),
     listDocuments: () => db.prepare(`
       SELECT * FROM timeline_documents WHERE archived_at IS NULL ORDER BY updated_at DESC

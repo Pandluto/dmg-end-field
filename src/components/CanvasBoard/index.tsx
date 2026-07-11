@@ -139,6 +139,15 @@ type TimelineDocumentListEntry = {
   summary: { characterCount: number; buttonCount: number; buffCount: number };
 };
 
+async function ensureTimelineDocumentExists(
+  repository: ReturnType<typeof createTimelineRepositoryClient>,
+  timelineId: string,
+  label: string,
+) {
+  const existing = (await repository.listDocuments()).find((document) => document.id === timelineId);
+  return existing || repository.ensureDocument({ id: timelineId, label });
+}
+
 const EMPTY_BATCH_TARGET_RESISTANCE: Required<HitResistanceInput> = {
   physicalResistance: 0,
   fireResistance: 0,
@@ -465,6 +474,7 @@ export function CanvasBoard({
   const [resistanceRevision, setResistanceRevision] = useState(0);
   const [checkoutBootstrapRevision, setCheckoutBootstrapRevision] = useState(0);
   const [activeTimelineId, setActiveTimelineId] = useState(readActiveTimelineDocumentId);
+  const [activeTimelineLabel, setActiveTimelineLabel] = useState('主排轴');
   const shareImportInputRef = useRef<HTMLInputElement>(null);
   const isProcessingWorkbenchCommandRef = useRef(false);
   const isCheckoutBootstrapStartedRef = useRef(false);
@@ -681,6 +691,15 @@ export function CanvasBoard({
     dispatch({ type: 'SET_SELECTED_CHARACTERS', characters: resolvedCharacters });
     syncRuntimeSkillButtonsFromTimelineData(normalizedTimelineData, resolvedCharacters);
   }, [dispatch, loadedCharacters, normalizeTimelineData, replaceTimelineData, selectedCharacters, syncRuntimeSkillButtonsFromTimelineData]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void createTimelineRepositoryClient().listDocuments().then((documents) => {
+      if (cancelled) return;
+      setActiveTimelineLabel(documents.find((document) => document.id === activeTimelineId)?.label || '主排轴');
+    }).catch(() => undefined);
+    return () => { cancelled = true; };
+  }, [activeTimelineId]);
 
   useEffect(() => {
     if (isCheckoutBootstrapStartedRef.current || loadedCharacters.length === 0) return;
@@ -1686,7 +1705,7 @@ export function CanvasBoard({
             throw new Error('当前没有可保存的排轴数据');
           }
           const repository = await saveLegacySnapshotsToRepository();
-          await repository.ensureDocument({ id: activeTimelineId, label: snapshot.label || '主排轴' });
+          await ensureTimelineDocumentExists(repository, activeTimelineId, snapshot.label || '主排轴');
           await repository.saveSnapshot({
             id: snapshot.id,
             timelineId: activeTimelineId,
@@ -1743,7 +1762,7 @@ export function CanvasBoard({
           const targetTimelineId = snapshot.timelineId === DEFAULT_TIMELINE_ID
             ? getLegacySnapshotTimelineId(snapshot.id)
             : snapshot.timelineId;
-          await repository.ensureDocument({ id: targetTimelineId, label: snapshot.label });
+          await ensureTimelineDocumentExists(repository, targetTimelineId, snapshot.label);
           const persisted = await repository.saveSnapshot({
             id: snapshot.id,
             timelineId: targetTimelineId,
@@ -1760,6 +1779,7 @@ export function CanvasBoard({
           applyTimelineSnapshotPayload(snapshot.payload);
           writeActiveTimelineDocumentId(targetTimelineId);
           setActiveTimelineId(targetTimelineId);
+          setActiveTimelineLabel(snapshot.label);
           await ensureTimelineDocumentBaselineWorkNode(targetTimelineId, snapshot.payload, snapshot.label);
           const doneEntry = patchMainWorkbenchCommand(commandEntry.id, {
             status: 'done',
@@ -2807,6 +2827,11 @@ export function CanvasBoard({
         ]);
         const fallbackSnapshot = [...bundle.snapshots].sort((left, right) => right.createdAt - left.createdAt)[0];
         const fallbackWorkNode = [...bundle.workNodes].sort((left, right) => right.updatedAt - left.updatedAt)[0];
+        const repairedDocument = document.label === '主排轴'
+          && document.id.startsWith('timeline-document-')
+          && fallbackSnapshot?.label
+          ? await repository.ensureDocument({ id: document.id, label: fallbackSnapshot.label, createdAt: document.createdAt })
+          : document;
         const targetSnapshot = checkoutRef?.targetType === 'snapshot'
           ? bundle.snapshots.find((snapshot) => snapshot.id === checkoutRef.targetId)
           : undefined;
@@ -2822,7 +2847,7 @@ export function CanvasBoard({
           || (fallbackSnapshot ? 'snapshot' : fallbackWorkNode ? 'work-node' : null);
         const targetId = checkoutRef?.targetId || fallbackSnapshot?.id || fallbackWorkNode?.id || '';
         return {
-          document,
+          document: repairedDocument,
           checkoutRef,
           targetType,
           targetId,
@@ -2874,7 +2899,7 @@ export function CanvasBoard({
 
     try {
       const repository = createTimelineRepositoryClient();
-      await repository.ensureDocument({ id: activeTimelineId, label: '主排轴' });
+      await ensureTimelineDocumentExists(repository, activeTimelineId, activeTimelineLabel);
       const [documentBundle, checkoutRef] = await Promise.all([
         repository.exportDocumentBundle(activeTimelineId),
         repository.getCheckoutRef(activeTimelineId),
@@ -2893,7 +2918,9 @@ export function CanvasBoard({
         timelineId: activeTimelineId,
         ...(parent ? { parentNodeId: parent.id } : { parentNodeId: null }),
         branchId: `manual-save-${createdAt}`,
-        label: `[save] ${new Date(createdAt).toLocaleString('zh-CN', { hour12: false })}`,
+        label: parent
+          ? `[save] ${new Date(createdAt).toLocaleString('zh-CN', { hour12: false })}`
+          : `[save] ${activeTimelineLabel} ${new Date(createdAt).toLocaleString('zh-CN', { hour12: false })}`,
         basePayload: parent?.workingPayload || payload,
         workingPayload: payload,
         approvalPolicy: 'auto-low-risk',
@@ -2944,7 +2971,7 @@ export function CanvasBoard({
       // A new save is the migration boundary for pre-Spec-5 browser archives.
       // Import them first so future restores no longer depend on localStorage.
       const repository = await saveLegacySnapshotsToRepository();
-      await repository.ensureDocument({ id: activeTimelineId, label: snapshot.label || '主排轴' });
+      await ensureTimelineDocumentExists(repository, activeTimelineId, snapshot.label || activeTimelineLabel);
       const saved = await repository.saveSnapshot({
         id: snapshot.id,
         timelineId: activeTimelineId,
@@ -2997,6 +3024,7 @@ export function CanvasBoard({
       }
       writeActiveTimelineDocumentId(entry.document.id);
       setActiveTimelineId(entry.document.id);
+      setActiveTimelineLabel(entry.document.label);
       hydrateCheckoutRuntime(entry.payload);
       if (entry.workNodeCount === 0) {
         await ensureTimelineDocumentBaselineWorkNode(entry.document.id, entry.payload, entry.document.label);
@@ -3005,6 +3033,35 @@ export function CanvasBoard({
       window.location.reload();
     } catch (error) {
       alert(`打开 SQLite 排轴失败：${error instanceof Error ? error.message : String(error)}`);
+    }
+  };
+
+  const handleDeleteTimelineDocument = async (entry: TimelineDocumentListEntry) => {
+    const confirmed = window.confirm(
+      `删除 SQLite 排轴“${entry.document.label}”？\n将同时删除 ${entry.snapshotCount} 个快照和 ${entry.workNodeCount} 个工作节点，此操作不可撤销。`,
+    );
+    if (!confirmed) return;
+    try {
+      const repository = createTimelineRepositoryClient();
+      await repository.deleteDocument(entry.document.id);
+      if (entry.document.id === activeTimelineId) {
+        const fallback = timelineDocuments.find((candidate) => (
+          candidate.document.id !== entry.document.id && candidate.payload
+        ));
+        if (fallback) {
+          await handleOpenTimelineDocument(fallback);
+          return;
+        }
+        await repository.ensureDocument({ id: DEFAULT_TIMELINE_ID, label: '主排轴' });
+        writeActiveTimelineDocumentId(DEFAULT_TIMELINE_ID);
+        setActiveTimelineId(DEFAULT_TIMELINE_ID);
+        setActiveTimelineLabel('主排轴');
+        window.location.reload();
+        return;
+      }
+      await refreshTimelineSnapshotList();
+    } catch (error) {
+      alert(`删除 SQLite 排轴失败：${error instanceof Error ? error.message : String(error)}`);
     }
   };
 
@@ -3028,7 +3085,7 @@ export function CanvasBoard({
       const targetTimelineId = pendingRestoreSnapshot.timelineId === DEFAULT_TIMELINE_ID
         ? getLegacySnapshotTimelineId(pendingRestoreSnapshot.id)
         : pendingRestoreSnapshot.timelineId;
-      await repository.ensureDocument({ id: targetTimelineId, label: pendingRestoreSnapshot.label });
+      await ensureTimelineDocumentExists(repository, targetTimelineId, pendingRestoreSnapshot.label);
       const persisted = await repository.saveSnapshot({
         id: pendingRestoreSnapshot.id,
         timelineId: targetTimelineId,
@@ -3045,6 +3102,7 @@ export function CanvasBoard({
       applyTimelineSnapshotPayload(pendingRestoreSnapshot.payload);
       writeActiveTimelineDocumentId(targetTimelineId);
       setActiveTimelineId(targetTimelineId);
+      setActiveTimelineLabel(pendingRestoreSnapshot.label);
       await ensureTimelineDocumentBaselineWorkNode(
         targetTimelineId,
         pendingRestoreSnapshot.payload,
@@ -3410,7 +3468,7 @@ export function CanvasBoard({
           <div className="work-node-modal" onClick={(event) => event.stopPropagation()}>
             <div className="work-node-modal-head">
               <div>
-                <h3>Work Node 节点树</h3>
+                <h3>Work Node 节点树 · {activeTimelineLabel}</h3>
                 <p>查看 AI 与人工 checkpoint 的节点、差异、风险和 checkout / restore 证据。</p>
               </div>
               <button type="button" className="modal-close-btn" onClick={closeWorkNodePanel}>
@@ -3609,6 +3667,13 @@ export function CanvasBoard({
                         onClick={() => void handleOpenTimelineDocument(entry)}
                       >
                         打开
+                      </button>
+                      <button
+                        type="button"
+                        className="btn-calculate timeline-snapshot-delete-btn"
+                        onClick={() => void handleDeleteTimelineDocument(entry)}
+                      >
+                        删除
                       </button>
                     </div>
                   </div>

@@ -102,6 +102,9 @@ store.close();
 fs.writeFileSync(legacyJsonPath, '{broken legacy json');
 store = createAiTimelineWorkNodeStore({ databasePath, legacyJsonPath });
 assert.equal(store.list().nodes.length, 3);
+const deletedTimeline = store.deleteTimeline('save-1');
+assert.equal(deletedTimeline.deletedNodeIds.length, 3);
+assert.equal(store.list().nodes.length, 0);
 store.close();
 
 fs.rmSync(tempDirectory, { recursive: true, force: true });

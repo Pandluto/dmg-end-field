@@ -495,6 +495,18 @@ function createAiTimelineWorkNodeStore({ databasePath, legacyJsonPath }) {
     });
   }
 
+  function deleteTimeline(saveId) {
+    return transaction(() => {
+      const nodeIds = db.prepare('SELECT id FROM work_nodes WHERE save_id = ?').all(saveId).map((row) => row.id);
+      db.prepare('DELETE FROM work_node_heads WHERE save_id = ?').run(saveId);
+      db.prepare('DELETE FROM work_node_commits WHERE save_id = ?').run(saveId);
+      db.prepare('DELETE FROM work_nodes WHERE save_id = ?').run(saveId);
+      const revision = bumpRevision();
+      garbageCollectSnapshots();
+      return { deletedNodeIds: nodeIds, revision };
+    });
+  }
+
   function replaceArchive(archive) {
     return transaction(() => {
       const existingHeads = db.prepare('SELECT save_id, current_node_id FROM work_node_heads').all();
@@ -569,6 +581,7 @@ function createAiTimelineWorkNodeStore({ databasePath, legacyJsonPath }) {
     getHead,
     assertSubtreeDeletable,
     deleteSubtree,
+    deleteTimeline,
     replaceArchive,
     close: () => db.close(),
   };

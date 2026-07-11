@@ -74,9 +74,17 @@ export function createTimelineRepositoryClient() {
       const response = await requestWithFallback<RepositoryResponse<{ documents: TimelineDocument[] }>>('/local-data/timeline-documents');
       return response.documents;
     },
-    async ensureDocument(input: Pick<TimelineDocument, 'id' | 'label'> & Partial<Pick<TimelineDocument, 'createdAt'>>) {
+    async ensureDocument(input: Pick<TimelineDocument, 'id' | 'label'> & Partial<Pick<TimelineDocument, 'createdAt'>> & { preserveExistingLabel?: boolean }) {
       const response = await requestWithFallback<RepositoryResponse<{ document: TimelineDocument }>>('/local-data/timeline-documents', 'POST', input);
       return response.document;
+    },
+    async deleteDocument(timelineId: string) {
+      const response = await requestWithFallback<RepositoryResponse<{ result: {
+        document: TimelineDocument;
+        deletedNodeIds: string[];
+        deletedSnapshotCount: number;
+      } }>>(`/local-data/timeline-documents/${encodeURIComponent(timelineId)}/delete`, 'POST', {});
+      return response.result;
     },
     async importDocumentBundle(input: {
       document: Pick<TimelineDocument, 'id' | 'label'> & Partial<Pick<TimelineDocument, 'createdAt'>>;
