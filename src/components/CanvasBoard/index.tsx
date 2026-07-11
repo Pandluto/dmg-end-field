@@ -71,12 +71,12 @@ import {
   applyTimelineSnapshotPayload,
   buildTimelineBundleV2,
   buildTimelineShareFileName,
+  clearLegacyTimelineSnapshotArchive,
   createTimelineSnapshotEntry,
   getCurrentTimelineSnapshotPayload,
   listTimelineSnapshots,
   parseTimelineShareFile,
   parseTimelineBundleV2,
-  TIMELINE_SNAPSHOT_LIMIT,
   type TimelineSnapshotEntry,
   type TimelineSnapshotPayload,
   type TimelineBundleV2,
@@ -1604,7 +1604,21 @@ export function CanvasBoard({
         }
 
         if (command.op === 'restoreTimelineSnapshot') {
-          const snapshots = listTimelineSnapshots();
+          const repository = await saveLegacySnapshotsToRepository();
+          const snapshots = (await repository.listSnapshots(DEFAULT_TIMELINE_ID)).map((entry) => {
+            const payload = entry.payload!;
+            return {
+              id: entry.id,
+              label: entry.label,
+              createdAt: entry.createdAt,
+              payload,
+              summary: {
+                characterCount: payload.selectedCharacters.length,
+                buttonCount: Object.keys(payload.skillButtonTable).length,
+                buffCount: payload.allBuffList.length,
+              },
+            };
+          });
           const snapshot = command.snapshotId
             ? snapshots.find((entry) => entry.id === command.snapshotId)
             : command.label
@@ -1615,7 +1629,6 @@ export function CanvasBoard({
           if (!snapshot) {
             throw new Error('未找到可恢复的排轴快照');
           }
-          const repository = await saveLegacySnapshotsToRepository();
           const persisted = await repository.saveSnapshot({
             id: snapshot.id,
             timelineId: DEFAULT_TIMELINE_ID,
@@ -1642,11 +1655,16 @@ export function CanvasBoard({
         }
 
         if (command.op === 'listTimelineSnapshots') {
-          const snapshots = listTimelineSnapshots().map((snapshot) => ({
+          const repository = await saveLegacySnapshotsToRepository();
+          const snapshots = (await repository.listSnapshots(DEFAULT_TIMELINE_ID)).map((snapshot) => ({
             id: snapshot.id,
             label: snapshot.label,
             createdAt: snapshot.createdAt,
-            summary: snapshot.summary,
+            summary: {
+              characterCount: snapshot.payload?.selectedCharacters.length || 0,
+              buttonCount: Object.keys(snapshot.payload?.skillButtonTable || {}).length,
+              buffCount: snapshot.payload?.allBuffList.length || 0,
+            },
           }));
           const doneEntry = patchMainWorkbenchCommand(commandEntry.id, { status: 'done', result: { snapshots } });
           if (doneEntry) void pushMainWorkbenchCommandResult(doneEntry);
@@ -2661,7 +2679,8 @@ export function CanvasBoard({
   const saveLegacySnapshotsToRepository = async () => {
     const repository = createTimelineRepositoryClient();
     await repository.ensureDocument({ id: DEFAULT_TIMELINE_ID, label: '主排轴' });
-    for (const legacySnapshot of listTimelineSnapshots()) {
+    const legacySnapshots = listTimelineSnapshots();
+    for (const legacySnapshot of legacySnapshots) {
       await repository.saveSnapshot({
         id: legacySnapshot.id,
         timelineId: DEFAULT_TIMELINE_ID,
@@ -2670,6 +2689,7 @@ export function CanvasBoard({
         createdAt: legacySnapshot.createdAt,
       });
     }
+    if (legacySnapshots.length > 0) clearLegacyTimelineSnapshotArchive();
     return repository;
   };
 
@@ -2705,7 +2725,7 @@ export function CanvasBoard({
         createdAt: snapshot.createdAt,
       });
       const persistedSnapshot = { ...snapshot, id: saved.snapshot.id, label: saved.snapshot.label, createdAt: saved.snapshot.createdAt };
-      setTimelineSnapshots((current) => [persistedSnapshot, ...current.filter((item) => item.id !== saved.snapshot.id)].slice(0, TIMELINE_SNAPSHOT_LIMIT));
+      setTimelineSnapshots((current) => [persistedSnapshot, ...current.filter((item) => item.id !== saved.snapshot.id)]);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       alert(`快照保存失败：${message}`);
@@ -3175,7 +3195,7 @@ export function CanvasBoard({
             <div className="timeline-snapshot-modal-head">
               <div>
                 <h3>恢复排轴快照</h3>
-                <p>恢复会覆盖当前 4 项排轴缓存，并在写回后自动刷新界面。仅保留最近 {TIMELINE_SNAPSHOT_LIMIT} 条快照。</p>
+                <p>恢复会覆盖当前排轴缓存，并在写回后自动刷新界面。</p>
               </div>
               <button type="button" className="modal-close-btn" onClick={handleCloseSnapshotModal}>
                 关闭
@@ -3236,7 +3256,7 @@ export function CanvasBoard({
             <div className="timeline-snapshot-modal-head">
               <div>
                 <h3>保存排轴快照</h3>
-                <p>可自定义快照名称；留空时自动使用当前时间。仅保留最近 {TIMELINE_SNAPSHOT_LIMIT} 条快照。</p>
+                <p>可自定义快照名称；留空时自动使用当前时间。</p>
               </div>
               <button type="button" className="modal-close-btn" onClick={handleCloseSaveSnapshotModal}>
                 关闭

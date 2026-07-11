@@ -29,8 +29,6 @@ import {
   normalizeStoredOperatorConfigPageCache,
 } from '../core/services/buffStorageNormalization';
 
-export const TIMELINE_SNAPSHOT_LIMIT = 20;
-
 export interface TimelineSnapshotPayload {
   selectedCharacters: string[];
   timelineData: TimelineData;
@@ -115,13 +113,6 @@ function readArchive(): TimelineSnapshotArchive {
       snapshots: [],
     };
   }
-}
-
-function writeArchive(archive: TimelineSnapshotArchive): void {
-  if (!canUseLocalStorage()) {
-    return;
-  }
-  window.localStorage.setItem(STORAGE_KEYS.TIMELINE_SNAPSHOT_ARCHIVE, JSON.stringify(archive));
 }
 
 function readSessionJson<T>(key: string, fallback: T): T {
@@ -398,6 +389,12 @@ export function listTimelineSnapshots(): TimelineSnapshotEntry[] {
     .sort((left, right) => right.createdAt - left.createdAt);
 }
 
+/** Removes the pre-Spec-5 browser archive only after its caller has migrated it. */
+export function clearLegacyTimelineSnapshotArchive(): void {
+  if (!canUseLocalStorage()) return;
+  window.localStorage.removeItem(STORAGE_KEYS.TIMELINE_SNAPSHOT_ARCHIVE);
+}
+
 export function createTimelineSnapshotEntry(customLabel?: string): TimelineSnapshotEntry | null {
   const payload = readCurrentPayload();
   if (!payload) {
@@ -415,29 +412,4 @@ export function createTimelineSnapshotEntry(customLabel?: string): TimelineSnaps
   };
 
   return entry;
-}
-
-export function saveTimelineSnapshot(customLabel?: string): TimelineSnapshotEntry | null {
-  const entry = createTimelineSnapshotEntry(customLabel);
-  if (!entry) return null;
-  const archive = readArchive();
-  archive.snapshots = [entry, ...archive.snapshots].slice(0, TIMELINE_SNAPSHOT_LIMIT);
-  writeArchive(archive);
-  return entry;
-}
-
-export function restoreTimelineSnapshot(snapshotId: string): boolean {
-  const snapshot = readArchive().snapshots.find((entry) => entry.id === snapshotId);
-  if (!snapshot) {
-    return false;
-  }
-
-  applyTimelineSnapshotPayload(normalizeSnapshotPayload(snapshot.payload));
-  return true;
-}
-
-export function deleteTimelineSnapshot(snapshotId: string): void {
-  const archive = readArchive();
-  archive.snapshots = archive.snapshots.filter((entry) => entry.id !== snapshotId);
-  writeArchive(archive);
 }
