@@ -23,11 +23,11 @@
 
 ## T2：实现 SQLite Schema 与原子事务
 
-- [ ] 创建 documents、payload blobs、snapshots、work nodes、patches、checkout refs、audit events、schema meta 表。
-- [ ] 实现 payload SHA-256 去重、外键、索引、事务和垃圾回收策略。
+- [x] 创建 documents、payload blobs、snapshots、work nodes、patches、checkout refs、audit events、schema meta 表。
+- [x] 实现 payload SHA-256 去重、外键、索引、事务和垃圾回收策略。
 - [x] 实现“创建 Work Node 不自动 checkout”。
-- [ ] 实现每个 TimelineDocument 独立的 CheckoutRef。
-- [ ] 将删除冲突映射为结构化 `409`。
+- [x] 实现每个 TimelineDocument 独立的 CheckoutRef。
+- [x] 将删除冲突映射为结构化 `409`。
 
 验收：中断任意写操作后，不存在半写入的引用、节点或当前应用目标。
 
@@ -47,15 +47,15 @@
 - [x] 以 payload hash 去重；重复保存返回已有快照信息。
 - [x] 恢复动作更新 CheckoutRef(snapshot) 并写审计事件。
 - [x] 删除快照实现引用检查、归档或明确级联确认。
-- [ ] 移除以 `localStorage` 为快照事实来源的运行时写路径。
+- [x] 移除以 `localStorage` 为快照事实来源的运行时写路径。
 
 验收：保存、恢复、删除快照均不创建或修改 Work Node。
 
 ## T5：重写 Work Node 与 AI 链路
 
 - [ ] 定义并实现 AI 意图执行策略：明确低风险单步操作保留 Phase 4 的实时 checkout；复杂/重排/分支/预览操作创建或复用 AI Work Node。
-- [ ] Patch 只能改 node working state，随后返回 validate、diff、risk 证据。
-- [ ] checkout 显式更新 CheckoutRef(work-node) 并应用 payload。
+- [x] Patch 只能改 node working state，随后返回 validate、diff、risk 证据。
+- [x] checkout 显式更新 CheckoutRef(work-node) 并应用 payload。
 - [x] restore base 作为 Work Node 操作，写审计事件但不伪造树节点。
 - [ ] 删除旧的“AI turn / manual checkpoint 必须自动建节点”策略。
 
@@ -63,33 +63,33 @@
 
 ## T6：重建 UI 信息架构
 
-- [ ] 恢复面板只渲染 TimelineSnapshot。
-- [ ] Work Node 面板一次只渲染当前 TimelineDocument 的 AI 树。
-- [ ] 节点详情显示 base、diff、验证、风险、应用状态和审计历史。
+- [x] 恢复面板只渲染 TimelineSnapshot。
+- [x] Work Node 面板一次只渲染当前 TimelineDocument 的 AI 树。
+- [x] 节点详情显示 base、diff、验证、风险、应用状态和审计历史。
 - [ ] 应用按钮与关闭按钮语义分离；增加可选“应用并关闭”。
-- [ ] 删除按钮使用后端 capability/错误码，不在客户端猜测可删性。
-- [ ] 删除 snapshot 卡片、伪 checkout/restore 节点与全局 head 高亮逻辑。
+- [x] 删除按钮使用后端 capability/错误码，不在客户端猜测可删性。
+- [x] 删除 snapshot 卡片、伪 checkout/restore 节点与全局 head 高亮逻辑。
 
 验收：UI 中不存在 `[snapshot]` Work Node 根；多文档不会混在同一树里。
 
 ## T7：重写分享与导入
 
 - [x] 定义 `dmg.timeline-bundle.v2` manifest、schema 和哈希校验。
-- [ ] 实现当前排轴、AI 分支、完整文档三种导出范围。
+- [x] 实现当前排轴、AI 分支、完整文档三种导出范围。
 - [x] 导入默认创建新 TimelineDocument，并在单一事务中写入。
-- [ ] 提供导入预览、冲突说明和版本不兼容提示。
-- [ ] 明确排除本机 AppData 路径、无关全局设置和临时 UI 状态。
+- [x] 提供导入预览、冲突说明和版本不兼容提示。
+- [x] 明确排除本机 AppData 路径、无关全局设置和临时 UI 状态。
 
 验收：导出的文件可在另一份本地库导入，恢复同样的排轴或 AI 分支，不覆盖对方现有文档。
 
 ## T8：测试与发布验收
 
-- [ ] SQLite repository smoke：事务、哈希去重、外键、删除 409、CheckoutRef。
+- [x] SQLite repository smoke：事务、哈希去重、外键、删除 409、CheckoutRef。
 - [ ] 迁移 smoke：正常树、快照、异常 snapshot-node、回滚备份。
 - [ ] UI 手测：保存、恢复、打开 AI、树内 patch、明确应用、删除、分享、导入。
 - [ ] 后门黑盒：自然话术 → Work Node Patch → diff → 当前排轴未变 → 显式应用。
 - [ ] Chrome UI 验证：输入、工具活动、最终结果在 `MainWorkbenchAiPanel` 可见。
-- [ ] 运行 `npm run build` 及本阶段针对性 smoke。
+- [x] 运行 `npm run build` 及本阶段针对性 smoke。
 
 验收：满足 Spec 5 全部验收标准，且不再出现 snapshot 变根节点、跨树混显、删除 500 或关闭即应用。
 
