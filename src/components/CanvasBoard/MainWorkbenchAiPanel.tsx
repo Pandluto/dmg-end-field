@@ -15,7 +15,6 @@ import { getLocalAgentHealth, requestCloseAiCliRest, requestOpenAiCliRest } from
 import type { Character, SkillButton } from '../../types';
 import {
   MAIN_WORKBENCH_REST_BASE_URL,
-  type MainWorkbenchCommand,
   type MainWorkbenchSnapshot,
 } from '../../utils/mainWorkbenchControl';
 import {
@@ -23,7 +22,6 @@ import {
   buildMainWorkbenchSnapshotAnswerFromPrompt,
   isMainWorkbenchMutatingPrompt,
   resolveMainWorkbenchSnapshotFocus,
-  shouldCreateMainWorkbenchRollback,
   verifyMainWorkbenchTurn,
   type MainWorkbenchCommandEvidence,
   type MainWorkbenchSnapshotEvidenceFocus,
@@ -31,7 +29,6 @@ import {
 import { summarizeMainWorkbenchToolsForAgent } from '../../agentKernel/mainWorkbench/toolRegistry';
 import { buildGameKnowledgePromptLines } from '../../utils/gameKnowledge';
 import { MarkdownRenderer } from '../MarkdownRenderer';
-import { buildAiTurnCheckpointCommand } from './workNodeAutosave';
 import { WorkNodeTreeIcon } from './WorkNodeTreeIcon';
 import './MainWorkbenchAiPanel.css';
 
@@ -47,8 +44,6 @@ type WorkbenchAiMessage = {
   text: string;
   status?: 'pending' | 'running' | 'done' | 'error' | 'stopped';
   prompt?: string;
-  rollbackLabel?: string;
-  rollbackNodeId?: string;
 };
 
 type DefToolGovernanceRecord = {
@@ -85,14 +80,6 @@ function WorkbenchAiMessageBody({ message }: { message: WorkbenchAiMessage }) {
 
   return <p>{text}</p>;
 }
-
-type WorkbenchAiWorkNodeContext = {
-  nodeId: string;
-  timelineId?: string;
-  branchId?: string;
-  label?: string;
-  path?: string;
-};
 
 type WorkbenchAiStepId = 'backup' | 'rest' | 'agent' | 'operate' | 'verify';
 
@@ -220,7 +207,6 @@ function buildWorkbenchAgentMessage(
   selectedCharacters: Character[],
   skillButtons: SkillButton[],
   snapshotEvidence: string,
-  workNodeContext?: WorkbenchAiWorkNodeContext | null,
 ) {
   const selectedSummary = selectedCharacters.length
     ? selectedCharacters.map((character) => `${character.name}(${character.id})`).join(', ')
@@ -239,10 +225,7 @@ function buildWorkbenchAgentMessage(
     '低风险明确操作可用 current checkout typed tools；批量/高风险/重排轴优先使用 def.worknode.patch_and_validate。没有 nodeId 时直接省略 nodeId，工具会先从可用的当前 payload 镜像创建 work node；checkout 单独执行。',
     'def.worknode.patch 只能修改 appdata node.workingPayload，不会写当前 localStorage/sessionStorage 迁出态；当前迁出态只允许 checkout/rollback 阶段写入。',
     'saveTimelineSnapshot/restoreTimelineSnapshot 只是当前迁出态的用户快照兼容回退，不是 AI work node、branch log 或修改日志；不要把 localStorage/sessionStorage 当前 checkout 当成 appdata work node。',
-    ...(workNodeContext ? [
-      `本轮 AI_WORK_NODE: nodeId=${workNodeContext.nodeId}; timelineId=${workNodeContext.timelineId || 'unknown'}; branchId=${workNodeContext.branchId || 'unknown'}; label=${workNodeContext.label || 'unknown'}; path=${workNodeContext.path || 'unknown'}`,
-      '本轮需要回退、diff、checkout 或说明安全边界时，优先引用并使用上面的 AI_WORK_NODE。',
-    ] : []),
+    '不要在对话开始时创建 AI Work Node。只有批量、高风险、重排、分支或用户明确要求“先不要应用/预览”时，才由 def.worknode.patch_and_validate 按需创建草稿；低风险单步操作保持既有受控 checkout。',
     '配置页修改使用 def.operator.config.patch / def.gear.set_entry_level；可用 gearSetName/gearSetId + fillSlots 自动填 4 件，也可用 slotKey + equipmentName/equipmentId 指定单件。',
     '用户要求合适配装但没有指定名称时，不要写死回放步骤；优先读取当前配置和 resolver 候选，必要时用 def.user.ask 做非阻塞确认。',
     ...buildGameKnowledgePromptLines(),
@@ -284,11 +267,6 @@ async function ensureMainWorkbenchRest() {
   }
   await requestCloseAiCliRest();
   return requestOpenAiCliRest();
-}
-
-function enqueueLocalWorkbenchCommand(command: MainWorkbenchCommand, source = 'main-workbench-ai') {
-  if (typeof window === 'undefined' || !window.defMainWorkbench) return null;
-  return window.defMainWorkbench.enqueue(command, source);
 }
 
 function displayTranscriptText(role: string, text = '') {
@@ -419,29 +397,6 @@ async function readWorkbenchCommandEvidence(since: number): Promise<MainWorkbenc
   }
 }
 
-function readStringField(value: unknown, key: string) {
-  if (!value || typeof value !== 'object') return undefined;
-  const field = (value as Record<string, unknown>)[key];
-  return typeof field === 'string' && field.trim() ? field : undefined;
-}
-
-function extractCreatedWorkNodeContext(evidence: MainWorkbenchCommandEvidence[]): WorkbenchAiWorkNodeContext | null {
-  const createdEntry = [...evidence].reverse().find((entry) => (
-    entry.status === 'done' &&
-    entry.command?.op === 'createAiTimelineWorkNodeFromCurrent' &&
-    readStringField(entry.result, 'nodeId')
-  ));
-  const nodeId = readStringField(createdEntry?.result, 'nodeId');
-  if (!nodeId) return null;
-  return {
-    nodeId,
-    timelineId: readStringField(createdEntry?.result, 'timelineId') || readStringField(createdEntry?.result, 'saveId'),
-    branchId: readStringField(createdEntry?.result, 'branchId'),
-    label: readStringField(createdEntry?.result, 'label'),
-    path: readStringField(createdEntry?.result, 'path'),
-  };
-}
-
 async function waitForWorkbenchCommandsToSettle(since = 0, timeoutMs = 7000) {
   const startedAt = Date.now();
   await wait(500);
@@ -462,15 +417,6 @@ function SpinnerIcon() {
   return (
     <svg className="main-workbench-ai-inline-icon main-workbench-ai-spinner" viewBox="0 0 24 24" aria-hidden="true">
       <path d="M12 3a9 9 0 1 0 9 9" />
-    </svg>
-  );
-}
-
-function RollbackIcon() {
-  return (
-    <svg className="main-workbench-ai-inline-icon" viewBox="0 0 24 24" aria-hidden="true">
-      <path d="M9 7 4 12l5 5" />
-      <path d="M5 12h8.4c3.1 0 5.6 2.2 5.6 5.1V18" />
     </svg>
   );
 }
@@ -580,10 +526,7 @@ export function MainWorkbenchAiPanel({
   const [tokens, setTokens] = useState<DefAgentTokens | null>(storedSession?.tokens || null);
   const [isBusy, setIsBusy] = useState(false);
   const [lastPrompt, setLastPrompt] = useState('');
-  const [lastRollbackLabel, setLastRollbackLabel] = useState('');
-  const [lastRollbackNodeId, setLastRollbackNodeId] = useState('');
   const [thinkingDetails, setThinkingDetails] = useState<string[]>([]);
-  const [currentWorkNodeContext, setCurrentWorkNodeContext] = useState<WorkbenchAiWorkNodeContext | null>(null);
   const [nowTick, setNowTick] = useState(Date.now());
   const eventSourceRef = useRef<EventSource | null>(null);
   const activeMessageIdRef = useRef<string | null>(null);
@@ -1097,15 +1040,9 @@ export function MainWorkbenchAiPanel({
       setMessages(buildInitialMessages());
     }
     const messageId = `workbench-ai-${Date.now()}`;
-    const rollbackLabel = `AI 回退点 ${new Date().toLocaleString('zh-CN', { hour12: false })}`;
-    const shouldCreateRollback = shouldCreateMainWorkbenchRollback(effectiveUserText);
-    const shouldCreateWorkNode = shouldCreateRollback || isMainWorkbenchMutatingPrompt(effectiveUserText);
     setInput('');
     setIsBusy(true);
     setLastPrompt(effectiveUserText);
-    setLastRollbackLabel('');
-    setLastRollbackNodeId('');
-    setCurrentWorkNodeContext(null);
     setSteps(buildInitialSteps());
     setStatus('发送中');
     setThinkingDetails([]);
@@ -1137,41 +1074,7 @@ export function MainWorkbenchAiPanel({
       finishMessage(messageId, 'error', '后台超过 180 秒未完成，已停止本轮。');
     }, WORKBENCH_AGENT_TURN_TIMEOUT_MS);
     try {
-      let workNodeContext: WorkbenchAiWorkNodeContext | null = null;
-      if (shouldCreateWorkNode) {
-        patchStep('backup', { status: 'running', detail: '创建 AI work node' });
-        const backupEntry = enqueueLocalWorkbenchCommand(buildAiTurnCheckpointCommand({
-          messageId,
-          prompt: effectiveUserText,
-        }));
-        if (!backupEntry) {
-          patchStep('backup', { status: 'error', detail: '页面控制入口不可用' });
-          finishMessage(messageId, 'error', '无法创建 AI work node 节点，已停止本轮操作。');
-          setStatus('安全点创建失败');
-          return;
-        }
-        await waitForWorkbenchCommandsToSettle(activePromptStartedAtRef.current, 10000);
-        const backupEvidence = await readWorkbenchCommandEvidence(activePromptStartedAtRef.current);
-        const failedBackup = backupEvidence.find((entry) => entry.command?.op === 'createAiTimelineWorkNodeFromCurrent' && entry.status === 'error');
-        workNodeContext = extractCreatedWorkNodeContext(backupEvidence);
-        if (!workNodeContext) {
-          const reason = failedBackup?.error || '未取得 nodeId';
-          patchStep('backup', { status: 'error', detail: reason });
-          finishMessage(messageId, 'error', `无法创建 AI work node 节点：${reason}。已停止本轮操作。`);
-          setStatus('安全点创建失败');
-          return;
-        }
-        setLastRollbackNodeId(workNodeContext.nodeId);
-        setLastRollbackLabel(rollbackLabel);
-        setCurrentWorkNodeContext(workNodeContext);
-        setMessages((current) => current.map((message) => (
-          message.id === messageId ? { ...message, rollbackLabel, rollbackNodeId: workNodeContext?.nodeId } : message
-        )));
-        onWorkNodeChanged?.();
-        patchStep('backup', { status: 'done', detail: `work node ${workNodeContext.nodeId}` });
-      } else {
-        patchStep('backup', { status: 'done', detail: '只读请求' });
-      }
+      patchStep('backup', { status: 'done', detail: '不自动创建节点；由受控工具按需处理' });
       setStatus('启动 REST');
       patchStep('rest', { status: 'running', detail: '启动 17321' });
       await ensureMainWorkbenchRest();
@@ -1183,7 +1086,7 @@ export function MainWorkbenchAiPanel({
         lastFocusRef.current = null;
       }
       const snapshotEvidence = buildMainWorkbenchSnapshotEvidence(snapshot, effectiveUserText, focusState);
-      const agentText = buildWorkbenchAgentMessage(effectiveUserText, selectedCharacters, skillButtons, snapshotEvidence, workNodeContext);
+      const agentText = buildWorkbenchAgentMessage(effectiveUserText, selectedCharacters, skillButtons, snapshotEvidence);
       patchStep('rest', { status: 'done', detail: snapshot ? 'REST 已就绪，快照证据已注入' : 'REST 已就绪，快照证据缺失' });
       patchStep('agent', { status: 'running', detail: 'def-opencode 正在思考' });
       eventSourceRef.current?.close();
@@ -1243,36 +1146,6 @@ export function MainWorkbenchAiPanel({
     void sendWorkbenchPrompt(prompt, { retry: true });
   };
 
-  const handleRollback = (rollbackNodeId = lastRollbackNodeId, rollbackLabel = lastRollbackLabel) => {
-    if (isBusy) return;
-    const command: MainWorkbenchCommand = rollbackNodeId
-      ? {
-        op: 'restoreAiTimelineWorkNodeBase',
-        nodeId: rollbackNodeId,
-        reload: true,
-        approval: {
-          approvedBy: 'user',
-          rationale: '用户从 AI 面板回退到本轮 AI work node base',
-        },
-      }
-      : rollbackLabel
-      ? { op: 'restoreTimelineSnapshot', label: rollbackLabel, reload: true }
-      : { op: 'restoreTimelineSnapshot', latest: true, reload: true };
-    const entry = enqueueLocalWorkbenchCommand(command);
-    setStatus(entry ? '已请求回退' : '回退失败：页面控制入口不可用');
-    if (entry) {
-      onWorkNodeChanged?.();
-      void waitForWorkbenchCommandsToSettle(Date.now(), 7000).then(() => {
-        onWorkNodeChanged?.();
-      });
-    }
-    setSteps((current) => current.map((step) => (
-      step.id === 'operate'
-        ? { ...step, status: entry ? 'running' : 'error', detail: entry ? (rollbackNodeId ? '恢复 work node base' : '恢复排轴快照') : '控制入口不可用' }
-        : step
-    )));
-  };
-
   const handleNewChat = () => {
     if (isBusy) handleStop();
     rememberSession(null);
@@ -1283,9 +1156,6 @@ export function MainWorkbenchAiPanel({
     setMessages(buildInitialMessages());
     setSteps(buildInitialSteps());
     setLastPrompt('');
-    setLastRollbackLabel('');
-    setLastRollbackNodeId('');
-    setCurrentWorkNodeContext(null);
     activePromptRef.current = '';
     activePromptStartedAtRef.current = 0;
     setStatus('新对话');
@@ -1308,10 +1178,6 @@ export function MainWorkbenchAiPanel({
   const elapsedText = isBusy && activePromptStartedAtRef.current
     ? `计时 ${formatElapsed(nowTick - activePromptStartedAtRef.current)}`
     : '待命';
-  const latestNode = currentWorkNodeContext?.nodeId
-    ? `当前节点 ${currentWorkNodeContext.nodeId.slice(0, 8)}`
-    : '暂无节点';
-  const workNodeStatusText = currentWorkNodeContext ? '本轮已保存节点' : '未关联本轮节点';
 
   return (
     <div className="main-workbench-ai-panel">
@@ -1377,8 +1243,7 @@ export function MainWorkbenchAiPanel({
 
       <div className="main-workbench-ai-node-summary">
         <span>{elapsedText}</span>
-        <span>{latestNode}</span>
-        <span>{workNodeStatusText}</span>
+        <span>高风险操作由工具按需创建草稿节点</span>
       </div>
 
       <div className="main-workbench-ai-body">
@@ -1401,18 +1266,6 @@ export function MainWorkbenchAiPanel({
                     </span>
                   )}
                   <div className="main-workbench-ai-message-action-buttons">
-                    {message.role === 'agent' && (message.rollbackNodeId || message.rollbackLabel) && (
-                      <button
-                        type="button"
-                        className="main-workbench-ai-icon-button"
-                        onClick={() => handleRollback(message.rollbackNodeId, message.rollbackLabel)}
-                        disabled={isBusy}
-                        aria-label="回退到这条消息前"
-                        title="回退到这条消息前"
-                      >
-                        <RollbackIcon />
-                      </button>
-                    )}
                     <button
                       type="button"
                       className="main-workbench-ai-icon-button"

@@ -49,15 +49,6 @@ export function isMainWorkbenchMutatingPrompt(prompt: string | undefined) {
   return hasWorkbenchMutationAction(text) || hasBuffMutationAction(text) || hasTimelineMoveAction(text);
 }
 
-export function shouldCreateMainWorkbenchRollback(prompt: string | undefined) {
-  const text = prompt || '';
-  if (!isMainWorkbenchMutatingPrompt(text)) return false;
-  if (/回退点|可回退|保存快照|备份|restore point|rollback point|backup/i.test(text)) return true;
-  if (/清空|恢复|回退|撤回|批量|全部|所有|四个人|4个人|队伍|替换.*和|换成|clear|restore|rollback|batch|all|team|squad|replace/i.test(text)) return true;
-  if (/(每个|各|多个|同时).*(技能|按钮|Buff|buff|装备|武器)/i.test(text)) return true;
-  return false;
-}
-
 export function isReadOnlyMainWorkbenchSnapshotPrompt(prompt: string) {
   const text = prompt.trim();
   if (!/(看一下|看看|当前|现在|目前|什么|哪些|多少|状态|穿的|穿了|装备|武器|按钮|伤害|current|now|status|summary|what|which|how many|gear|equipment|weapon|button|skill|damage|report)/i.test(text)) {

@@ -469,7 +469,7 @@ export function handleAiCliRestRequest(
           'Enqueue success only means commands entered the queue; use batch summary or result log to decide whether the browser has executed the batch.',
           'Read snapshot after enqueue to confirm selectedCharacters, skillButtons, buff ids, and damage totals.',
           'Use addBuffToButtons when the same complete buff object must be attached to multiple explicit buttonIds; do not enqueue one addBuff per target unless there is only one target.',
-          'For risky/batch/timeline rewrite operations, prefer appdata AI work node flow: createAiTimelineWorkNodeFromCurrent -> patchAiTimelineWorkNode -> diffAiTimelineWorkNode -> checkoutAiTimelineWorkNode; use restoreAiTimelineWorkNodeBase for node rollback.',
+          'For risky/batch/timeline rewrite operations, call def.worknode.patch_and_validate directly. It creates a Work Node only when needed, writes only workingPayload during staging, and checkout remains an explicit tool decision; use restoreAiTimelineWorkNodeBase only for a chosen node rollback.',
           'patchAiTimelineWorkNode applies a constrained patch DSL to appdata node.workingPayload only; it must not be described as writing browser localStorage/sessionStorage current checkout.',
           'saveTimelineSnapshot/restoreTimelineSnapshot are legacy user snapshot compatibility tools for current checkout only; do not use them as AI branch logs or appdata work nodes.',
           'Use setOperatorWeapon to equip a selected operator weapon before refreshing operator config.',
