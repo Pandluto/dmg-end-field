@@ -1789,7 +1789,7 @@ export function CanvasBoard({
             checkoutRef: restoredCheckoutRef,
             workingPayload: snapshot.payload,
           });
-          applyTimelineSnapshotPayload(snapshot.payload);
+          hydrateCheckoutRuntime(snapshot.payload);
           await ensureTimelineDocumentBaselineWorkNode(targetTimelineId, snapshot.payload, snapshot.label);
           const doneEntry = patchMainWorkbenchCommand(commandEntry.id, {
             status: 'done',
@@ -3024,7 +3024,8 @@ export function CanvasBoard({
       return;
     }
     handleCloseSaveSnapshotModal();
-    alert(`快照已保存：${snapshot.label}`);
+    setWorkNodeSaveNotice(`快照已保存：${snapshot.label}`);
+    window.setTimeout(() => setWorkNodeSaveNotice(''), 2200);
   };
 
   const handleOpenSnapshotModal = () => {
@@ -3056,8 +3057,10 @@ export function CanvasBoard({
       if (entry.workNodeCount === 0) {
         await ensureTimelineDocumentBaselineWorkNode(entry.document.id, entry.payload, entry.document.label);
       }
+      setWorkNodeRefreshKey((current) => current + 1);
       setIsSnapshotModalOpen(false);
-      window.location.reload();
+      setWorkNodeSaveNotice(`已打开 SQLite 排轴：${entry.document.label}`);
+      window.setTimeout(() => setWorkNodeSaveNotice(''), 2200);
     } catch (error) {
       alert(`打开 SQLite 排轴失败：${error instanceof Error ? error.message : String(error)}`);
     }
@@ -3129,7 +3132,7 @@ export function CanvasBoard({
         checkoutRef: restoredCheckoutRef,
         workingPayload: pendingRestoreSnapshot.payload,
       });
-      applyTimelineSnapshotPayload(pendingRestoreSnapshot.payload);
+      hydrateCheckoutRuntime(pendingRestoreSnapshot.payload);
       await ensureTimelineDocumentBaselineWorkNode(
         targetTimelineId,
         pendingRestoreSnapshot.payload,
@@ -3141,7 +3144,10 @@ export function CanvasBoard({
     }
 
     setPendingRestoreSnapshot(null);
-    window.location.reload();
+    setIsSnapshotModalOpen(false);
+    setWorkNodeRefreshKey((current) => current + 1);
+    setWorkNodeSaveNotice(`已恢复快照：${pendingRestoreSnapshot.label}`);
+    window.setTimeout(() => setWorkNodeSaveNotice(''), 2200);
   };
 
   const handleDeleteSnapshot = async (snapshotId: string) => {
