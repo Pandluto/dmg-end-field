@@ -506,7 +506,10 @@ function createTimelineRepository({ databasePath }) {
         error.status = 409;
         throw error;
       }
-      db.prepare('DELETE FROM timeline_work_nodes WHERE id = ?').run(nodeId);
+      const deleteNode = db.prepare('DELETE FROM timeline_work_nodes WHERE id = ?');
+      // Foreign keys are immediate in SQLite. Delete leaves before parents so
+      // a branching tree never depends on row deletion order inside one SQL IN.
+      [...descendants].reverse().forEach((id) => deleteNode.run(id));
       writeAuditEvent({
         timelineId: target.timeline_id,
         eventType: 'work-node.deleted',
