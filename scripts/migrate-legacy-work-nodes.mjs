@@ -7,9 +7,55 @@ const require = createRequire(import.meta.url);
 const { createAiTimelineWorkNodeStore } = require('../electron/ai-timeline-work-node-store.cjs');
 const { createTimelineRepository } = require('../electron/timeline-repository.cjs');
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const local = path.join(root, 'data', 'localdata');
-const oldStore = createAiTimelineWorkNodeStore({ databasePath: path.join(local, 'ai-timeline-worknodes.sqlite3'), legacyJsonPath: path.join(local, 'ai-timeline-worknodes.json') });
-const repository = createTimelineRepository({ databasePath: path.join(local, 'timeline-repository.sqlite3') });
+function readOption(name) {
+  const index = process.argv.indexOf(name);
+  return index >= 0 ? process.argv[index + 1] : undefined;
+}
+
+const local = path.resolve(readOption('--local-dir') || path.join(root, 'data', 'localdata'));
+const backupDirectoryInput = readOption('--backup-dir');
+const backupDirectory = backupDirectoryInput ? path.resolve(backupDirectoryInput) : null;
+const legacyDatabasePath = path.join(local, 'ai-timeline-worknodes.sqlite3');
+const legacyJsonPath = path.join(local, 'ai-timeline-worknodes.json');
+const repositoryDatabasePath = path.join(local, 'timeline-repository.sqlite3');
+
+function copyIfPresent(sourcePath, targetDirectory, copiedFiles) {
+  if (!fs.existsSync(sourcePath)) return;
+  const targetPath = path.join(targetDirectory, path.basename(sourcePath));
+  fs.copyFileSync(sourcePath, targetPath, fs.constants.COPYFILE_EXCL);
+  copiedFiles.push({ sourcePath, targetPath });
+}
+
+function createMigrationBackup() {
+  if (!backupDirectory) return null;
+  fs.mkdirSync(backupDirectory, { recursive: true });
+  const copiedFiles = [];
+  const trackedPaths = [
+    legacyDatabasePath,
+    `${legacyDatabasePath}-wal`,
+    `${legacyDatabasePath}-shm`,
+    legacyJsonPath,
+    repositoryDatabasePath,
+    `${repositoryDatabasePath}-wal`,
+    `${repositoryDatabasePath}-shm`,
+    path.join(local, 'now-storage.json'),
+  ];
+  trackedPaths.forEach((sourcePath) => copyIfPresent(sourcePath, backupDirectory, copiedFiles));
+  const manifestPath = path.join(backupDirectory, 'timeline-migration-backup.json');
+  fs.writeFileSync(manifestPath, `${JSON.stringify({
+    type: 'def.timeline-migration.raw-backup.v1',
+    createdAt: new Date().toISOString(),
+    sourceLocalDirectory: local,
+    files: copiedFiles,
+    missingPaths: trackedPaths.filter((sourcePath) => !fs.existsSync(sourcePath)),
+    note: 'This is a raw local-data backup set. Close the app before backup or restore so SQLite database, WAL, and SHM files stay consistent.',
+  }, null, 2)}\n`, 'utf8');
+  return { backupDirectory, manifestPath, copiedFiles };
+}
+
+const backup = createMigrationBackup();
+const oldStore = createAiTimelineWorkNodeStore({ databasePath: legacyDatabasePath, legacyJsonPath });
+const repository = createTimelineRepository({ databasePath: repositoryDatabasePath });
 const timelineId = 'current-main-workbench';
 const archive = oldStore.readArchive();
 const anomalous = [];
@@ -51,8 +97,8 @@ try {
     });
   }
   const reportPath = path.join(local, 'timeline-work-node-migration-report.json');
-  fs.writeFileSync(reportPath, `${JSON.stringify({ generatedAt: new Date().toISOString(), imported, checkoutNodeId: appliedCommit?.nodeId || null, anomalous }, null, 2)}\n`, 'utf8');
-  console.log(JSON.stringify({ ok: true, imported, checkoutNodeId: appliedCommit?.nodeId || null, anomalous: anomalous.length, reportPath }, null, 2));
+  fs.writeFileSync(reportPath, `${JSON.stringify({ generatedAt: new Date().toISOString(), imported, checkoutNodeId: appliedCommit?.nodeId || null, anomalous, backup }, null, 2)}\n`, 'utf8');
+  console.log(JSON.stringify({ ok: true, imported, checkoutNodeId: appliedCommit?.nodeId || null, anomalous: anomalous.length, reportPath, backup }, null, 2));
 } finally {
   oldStore.close();
   repository.close();

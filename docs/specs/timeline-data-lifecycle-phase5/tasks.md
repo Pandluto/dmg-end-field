@@ -37,7 +37,7 @@
 - [x] 从现有 Work Node SQLite 导入合法 AI 树和审计事件。
 - [x] 为历史 `current-main-workbench` 建立默认 TimelineDocument。
 - [x] 生成异常 snapshot-node 的迁移预览与用户确认操作。
-- [ ] 提供一次性回滚到备份的恢复工具。
+- [x] 提供一次性回滚到备份的恢复工具。
 
 验收：迁移前后正常快照数量、AI 节点数量、可读取 payload 数量可核对；异常数据不自动丢失。
 
@@ -85,7 +85,7 @@
 ## T8：测试与发布验收
 
 - [x] SQLite repository smoke：事务、哈希去重、外键、删除 409、CheckoutRef。
-- [ ] 迁移 smoke：正常树、快照、异常 snapshot-node、回滚备份。
+- [x] 迁移 smoke：正常树、快照、异常 snapshot-node、回滚备份。
 - [ ] UI 手测：保存、恢复、打开 AI、树内 patch、明确应用、删除、分享、导入。
 - [ ] 后门黑盒：自然话术 → Work Node Patch → diff → 当前排轴未变 → 显式应用。
 - [ ] Chrome UI 验证：输入、工具活动、最终结果在 `MainWorkbenchAiPanel` 可见。
