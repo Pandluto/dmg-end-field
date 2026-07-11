@@ -64,6 +64,7 @@ import {
   getOperatorConfigPageCache,
   getRuntimeOperatorTemplateById,
   safeSessionStorage,
+  setAllBuffList,
   setOperatorConfigPageCache,
   setSelectedCharacterIds,
 } from '../../utils/storage';
@@ -84,6 +85,7 @@ import {
 } from '../../utils/timelineSnapshotStorage';
 import './CanvasBoard.css';
 import { resolveRuntimeTemplateSkill } from '../../core/services/skillDamageTemplateResolver';
+import { createEmptyTimelineData } from '../../core/services/timelineService';
 import { buildDamageReportSnapshot } from '../../core/services/damageReportService';
 import type { PersistedSkillButton } from '../../types/storage';
 import type { HitResistanceInput } from '../../types/storage';
@@ -3082,8 +3084,22 @@ export function CanvasBoard({
           return;
         }
         await repository.ensureDocument({ id: DEFAULT_TIMELINE_ID, label: '主排轴' });
+        const emptyTimeline = createEmptyTimelineData([]);
         resetActiveDocument();
-        window.location.reload();
+        setSessionWorkingPayload(null, null);
+        setSelectedCharacterIds([]);
+        setAllBuffList([]);
+        setSkillButtonTable({});
+        saveTimelineRepo(emptyTimeline);
+        replaceTimelineData(emptyTimeline);
+        dispatch({ type: 'SET_SELECTED_CHARACTERS', characters: [] });
+        dispatch({ type: 'SET_SKILL_BUTTONS', buttons: [] });
+        setTimelineDocuments([]);
+        setTimelineSnapshots([]);
+        setIsSnapshotModalOpen(false);
+        setWorkNodeRefreshKey((current) => current + 1);
+        setWorkNodeSaveNotice(`已删除 SQLite 排轴：${entry.document.label}，当前已切换到空白排轴`);
+        window.setTimeout(() => setWorkNodeSaveNotice(''), 2600);
         return;
       }
       await refreshTimelineSnapshotList();
