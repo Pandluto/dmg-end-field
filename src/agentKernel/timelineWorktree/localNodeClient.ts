@@ -53,6 +53,8 @@ export type AiTimelineWorkNodeDiffResponse = {
   protocolVersion: 1;
   path: string;
   nodeId: string;
+  timelineId: string;
+  /** @deprecated Migration alias for timelineId. */
   saveId: string;
   branchId: string;
   status: AiTimelineWorkNodeStatus;
@@ -63,7 +65,9 @@ export type AiTimelineWorkNodeDiffResponse = {
 };
 
 export type CreateAiTimelineWorkNodeInput = {
-  saveId: string;
+  timelineId: string;
+  /** @deprecated Migration input alias for timelineId. */
+  saveId?: string;
   branchId?: string;
   id?: string;
   parentNodeId?: string | null;
@@ -378,7 +382,8 @@ export function createAiTimelineWorkNodeClient(baseUrl = DEFAULT_REST_BASE_URL) 
           protocolVersion: 1,
           path: result.path || '',
           nodeId: String(result.nodeId || id),
-          saveId: String(result.saveId || ''),
+          timelineId: String(result.timelineId || result.saveId || ''),
+          saveId: String(result.saveId || result.timelineId || ''),
           branchId: String(result.branchId || ''),
           status: (result.status || 'open') as AiTimelineWorkNodeStatus,
           diff: result.diff as TimelinePayloadDiff,

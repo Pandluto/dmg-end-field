@@ -211,6 +211,8 @@ interface AiTimelineApprovalBridge {
 interface AiTimelineWorkNodeBridge {
   id: string;
   parentNodeId?: string;
+  timelineId: string;
+  /** @deprecated Migration alias for timelineId. */
   saveId: string;
   branchId: string;
   createdAt: number;
@@ -229,6 +231,8 @@ interface AiTimelineWorkNodeBridge {
 interface AiTimelineWorkNodeCommitBridge {
   id: string;
   nodeId: string;
+  timelineId: string;
+  /** @deprecated Migration alias for timelineId. */
   saveId: string;
   branchId: string;
   createdAt: number;
@@ -264,6 +268,8 @@ interface AiTimelineWorkNodeOpResult {
   node?: AiTimelineWorkNodeBridge;
   commit?: AiTimelineWorkNodeCommitBridge;
   nodeId?: string;
+  timelineId?: string;
+  /** @deprecated Migration alias for timelineId. */
   saveId?: string;
   branchId?: string;
   status?: AiTimelineWorkNodeStatus;

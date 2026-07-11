@@ -409,6 +409,7 @@ function buildAiTimelineWorkNodeDiff(node) {
   });
   return {
     nodeId: node.id,
+    timelineId: node.timelineId || node.saveId,
     saveId: node.saveId,
     branchId: node.branchId,
     status: node.status,
@@ -1104,6 +1105,7 @@ function handleAiTimelineWorkNodeRequest(method, pathname, body) {
     const commit = {
       id: sanitizeWorkNodeId(body?.commitId, 'ai-timeline-commit'),
       nodeId: node.id,
+      timelineId: node.timelineId || node.saveId,
       saveId: node.saveId,
       branchId: node.branchId,
       createdAt: now,
@@ -1162,7 +1164,7 @@ function handleAiTimelineWorkNodeRequest(method, pathname, body) {
     store.saveNodeAndCommit(nextNode, nextCommit, { setHead: true });
     mirrorWorkNodeToTimelineRepository(nextNode);
     getTimelineRepository().setCheckoutRef({
-      timelineId: nextNode.saveId || 'current-main-workbench',
+      timelineId: nextNode.timelineId || nextNode.saveId || 'current-main-workbench',
       targetType: 'work-node',
       targetId: nextNode.id,
       updatedAt: appliedAt,
@@ -1196,7 +1198,7 @@ function handleAiTimelineWorkNodeRequest(method, pathname, body) {
     mirrorWorkNodeToTimelineRepository(nextNode);
     getTimelineRepository().appendAuditEvent({
       id: `work-node-base-restored-${node.id}-${appliedAt}`,
-      timelineId: nextNode.saveId || 'current-main-workbench',
+      timelineId: nextNode.timelineId || nextNode.saveId || 'current-main-workbench',
       eventType: 'work-node.base-restored',
       subjectType: 'work-node',
       subjectId: node.id,
@@ -2201,6 +2203,7 @@ function readDefWorkNode(input = {}) {
     path: aiTimelineWorkNodesPath,
     node: {
       id: node.id,
+      timelineId: node.timelineId || node.saveId,
       saveId: node.saveId,
       branchId: node.branchId,
       label: node.label,
@@ -2739,7 +2742,7 @@ function applyDefWorkNodePatchAndValidate(input = {}) {
     mirrorWorkNodeToTimelineRepository(nextNode);
     getTimelineRepository().appendWorkNodePatch({
       id: `work-node-patch-${nextNode.id}-${nextNode.updatedAt}`,
-      timelineId: nextNode.saveId || 'current-main-workbench',
+      timelineId: nextNode.timelineId || nextNode.saveId || 'current-main-workbench',
       nodeId: nextNode.id,
       patch,
       validation: { ok: true, issues: [] },

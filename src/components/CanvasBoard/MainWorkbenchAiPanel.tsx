@@ -88,7 +88,7 @@ function WorkbenchAiMessageBody({ message }: { message: WorkbenchAiMessage }) {
 
 type WorkbenchAiWorkNodeContext = {
   nodeId: string;
-  saveId?: string;
+  timelineId?: string;
   branchId?: string;
   label?: string;
   path?: string;
@@ -240,7 +240,7 @@ function buildWorkbenchAgentMessage(
     'def.worknode.patch 只能修改 appdata node.workingPayload，不会写当前 localStorage/sessionStorage 迁出态；当前迁出态只允许 checkout/rollback 阶段写入。',
     'saveTimelineSnapshot/restoreTimelineSnapshot 只是当前迁出态的用户快照兼容回退，不是 AI work node、branch log 或修改日志；不要把 localStorage/sessionStorage 当前 checkout 当成 appdata work node。',
     ...(workNodeContext ? [
-      `本轮 AI_WORK_NODE: nodeId=${workNodeContext.nodeId}; saveId=${workNodeContext.saveId || 'unknown'}; branchId=${workNodeContext.branchId || 'unknown'}; label=${workNodeContext.label || 'unknown'}; path=${workNodeContext.path || 'unknown'}`,
+      `本轮 AI_WORK_NODE: nodeId=${workNodeContext.nodeId}; timelineId=${workNodeContext.timelineId || 'unknown'}; branchId=${workNodeContext.branchId || 'unknown'}; label=${workNodeContext.label || 'unknown'}; path=${workNodeContext.path || 'unknown'}`,
       '本轮需要回退、diff、checkout 或说明安全边界时，优先引用并使用上面的 AI_WORK_NODE。',
     ] : []),
     '配置页修改使用 def.operator.config.patch / def.gear.set_entry_level；可用 gearSetName/gearSetId + fillSlots 自动填 4 件，也可用 slotKey + equipmentName/equipmentId 指定单件。',
@@ -435,7 +435,7 @@ function extractCreatedWorkNodeContext(evidence: MainWorkbenchCommandEvidence[])
   if (!nodeId) return null;
   return {
     nodeId,
-    saveId: readStringField(createdEntry?.result, 'saveId'),
+    timelineId: readStringField(createdEntry?.result, 'timelineId') || readStringField(createdEntry?.result, 'saveId'),
     branchId: readStringField(createdEntry?.result, 'branchId'),
     label: readStringField(createdEntry?.result, 'label'),
     path: readStringField(createdEntry?.result, 'path'),

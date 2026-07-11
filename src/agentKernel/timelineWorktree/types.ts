@@ -67,6 +67,8 @@ export type AiTimelineCheckout = {
 export type AiTimelineWorkNode = {
   id: string;
   parentNodeId?: string;
+  timelineId: string;
+  /** @deprecated Migration alias for timelineId. */
   saveId: string;
   branchId: string;
   createdAt: number;
@@ -151,6 +153,8 @@ export type AiTimelineCommit = {
 export type AiTimelineWorkNodeCommit = {
   id: string;
   nodeId: string;
+  timelineId: string;
+  /** @deprecated Migration alias for timelineId. */
   saveId: string;
   branchId: string;
   createdAt: number;

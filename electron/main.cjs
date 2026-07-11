@@ -4742,6 +4742,7 @@ function buildAiTimelineWorkNodeDiff(node) {
     ok: true,
     path: getAiTimelineWorkNodesPath(),
     nodeId: node.id,
+    timelineId: node.timelineId || node.saveId,
     saveId: node.saveId,
     branchId: node.branchId,
     status: node.status,
@@ -4984,6 +4985,7 @@ function commitAiTimelineWorkNode(id, payload = {}) {
   const commit = {
     id: sanitizeAiTimelineWorkNodeId(payload.commitId, 'ai-timeline-commit'),
     nodeId: node.id,
+    timelineId: node.timelineId || node.saveId,
     saveId: node.saveId,
     branchId: node.branchId,
     createdAt: now,
@@ -5051,7 +5053,7 @@ function markAiTimelineWorkNodeCheckoutApplied(id, payload = {}) {
   store.saveNodeAndCommit(nextNode, nextCommit, { setHead: true });
   mirrorAiTimelineWorkNodeToRepository(nextNode);
   getTimelineRepository().setCheckoutRef({
-    timelineId: nextNode.saveId || 'current-main-workbench',
+    timelineId: nextNode.timelineId || nextNode.saveId || 'current-main-workbench',
     targetType: 'work-node',
     targetId: nextNode.id,
     updatedAt: appliedAt,
@@ -5088,7 +5090,7 @@ function markAiTimelineWorkNodeRollbackApplied(id, payload = {}) {
   mirrorAiTimelineWorkNodeToRepository(nextNode);
   getTimelineRepository().appendAuditEvent({
     id: `work-node-base-restored-${node.id}-${appliedAt}`,
-    timelineId: nextNode.saveId || 'current-main-workbench',
+    timelineId: nextNode.timelineId || nextNode.saveId || 'current-main-workbench',
     eventType: 'work-node.base-restored',
     subjectType: 'work-node',
     subjectId: node.id,

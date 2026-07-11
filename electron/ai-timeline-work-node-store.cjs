@@ -208,6 +208,8 @@ function createAiTimelineWorkNodeStore({ databasePath, legacyJsonPath }) {
     return {
       id: row.id,
       ...(row.parent_id ? { parentNodeId: row.parent_id } : {}),
+      timelineId: row.save_id,
+      // Legacy transport alias. New callers must use timelineId.
       saveId: row.save_id,
       branchId: row.branch_id,
       createdAt: row.created_at,
@@ -231,6 +233,8 @@ function createAiTimelineWorkNodeStore({ databasePath, legacyJsonPath }) {
     return {
       id: row.id,
       nodeId: row.node_id,
+      timelineId: row.save_id,
+      // Legacy transport alias. New callers must use timelineId.
       saveId: row.save_id,
       branchId: row.branch_id,
       createdAt: row.created_at,
