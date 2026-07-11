@@ -109,6 +109,7 @@ import {
   validateTimelinePayload,
 } from '../../agentKernel/timelineWorktree';
 import { buildAiTimelineCheckoutDecision } from '../../agentKernel/timelineWorktree/checkoutDecision.mjs';
+import { planTimelineWorkNodeCheckoutLifecycle } from '../../agentKernel/timelineWorktree/checkoutLifecycle';
 import { DEFAULT_TIMELINE_ID } from '../../core/domain/timeline';
 import type { TimelineCheckoutRef, TimelineDocument } from '../../core/domain/timeline';
 import { createTimelineRepositoryClient, formatTimelineOperationError } from '../../agentKernel/timelineRepository/localTimelineClient';
@@ -1233,11 +1234,13 @@ export function CanvasBoard({
     const commits = (await client.list()).commits
       .filter((commit) => commit.nodeId === node.id)
       .sort((left, right) => right.createdAt - left.createdAt);
-    const requestedCommit = command.commitId
-      ? commits.find((commit) => commit.id === command.commitId)
-      : null;
-    let commit = requestedCommit || commits[0] || null;
-    if (!commit || commit.checkoutApplied) {
+    const lifecyclePlan = planTimelineWorkNodeCheckoutLifecycle({
+      nodeStatus: node.status,
+      commits,
+      requestedCommitId: command.commitId,
+    });
+    let commit = lifecyclePlan.commit;
+    if (lifecyclePlan.createCommit) {
       const approvalMode = isManualApproval ? 'manual' : 'auto';
       const approval = {
         mode: approvalMode,
@@ -1253,26 +1256,35 @@ export function CanvasBoard({
       commit = committed.commit;
     }
 
-    let applied: Awaited<ReturnType<ReturnType<typeof createAiTimelineWorkNodeClient>['markCheckoutApplied']>> | null = null;
-    let checkoutMarkError: string | undefined;
-    try {
-      applied = await client.markCheckoutApplied(node.id, {
-        commitId: commit.id,
-        appliedAt: Date.now(),
-        appliedBy: command.approval?.approvedBy || (isManualApproval ? 'user' : 'ai'),
-        rationale: command.approval?.rationale || 'Renderer checkout applied to current main workbench timeline.',
-      });
-    } catch (error) {
-      checkoutMarkError = error instanceof Error ? error.message : String(error);
+    if (!commit) {
+      throw new Error(`AI work node checkout commit missing: ${node.id}`);
     }
 
-    if (applied?.commit.checkoutApplied) {
+    let applied: Awaited<ReturnType<ReturnType<typeof createAiTimelineWorkNodeClient>['markCheckoutApplied']>> | null = null;
+    let checkoutMarkError: string | undefined;
+    if (lifecyclePlan.markCheckoutApplied) {
+      try {
+        applied = await client.markCheckoutApplied(node.id, {
+          commitId: commit.id,
+          appliedAt: Date.now(),
+          appliedBy: command.approval?.approvedBy || (isManualApproval ? 'user' : 'ai'),
+          rationale: command.approval?.rationale || 'Renderer checkout applied to current main workbench timeline.',
+        });
+      } catch (error) {
+        checkoutMarkError = error instanceof Error ? error.message : String(error);
+      }
+    }
+
+    const checkoutApplied = lifecyclePlan.reuseAppliedCommit || Boolean(applied?.commit.checkoutApplied);
+    if (checkoutApplied) {
+      const checkoutUpdatedAt = applied?.commit.checkout?.appliedAt || Date.now();
       const checkoutRef = {
         timelineId: node.timelineId || activeTimelineId,
         targetType: 'work-node',
         targetId: node.id,
-        updatedAt: applied.commit.checkout?.appliedAt || Date.now(),
+        updatedAt: checkoutUpdatedAt,
       } as const;
+      await createTimelineRepositoryClient().setCheckoutRef(checkoutRef);
       const document = node.timelineId === activeTimelineId
         ? { id: activeTimelineId, label: activeTimelineLabel }
         : (await createTimelineRepositoryClient().listDocuments()).find((entry) => entry.id === node.timelineId)
@@ -1288,8 +1300,8 @@ export function CanvasBoard({
     return {
       nodeId: applied?.node.id || node.id,
       commitId: applied?.commit.id || commit.id,
-      status: applied?.node.status || 'applied-unrecorded',
-      checkoutApplied: Boolean(applied?.commit.checkoutApplied),
+      status: applied?.node.status || node.status,
+      checkoutApplied,
       checkoutMarkError,
       reloaded: command.reload === true,
       riskFlags: riskFlags.map((risk) => ({ severity: risk.severity, code: risk.code, message: risk.message })),
