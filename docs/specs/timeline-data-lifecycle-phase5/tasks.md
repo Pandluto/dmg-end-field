@@ -15,8 +15,8 @@
 ## T1：定义统一领域类型与 Repository 边界
 
 - [x] 新增 `TimelineDocument`、`TimelineSnapshot`、`WorkNode`、`CheckoutRef`、`AuditEvent` 领域类型。
-- [ ] 将 `saveId` 的业务含义替换为稳定 `timelineId`；保留旧字段仅用于迁移兼容。
-- [ ] 定义所有状态转换和结构化错误码。
+- [x] 将 `saveId` 的业务含义替换为稳定 `timelineId`；保留旧字段仅用于迁移兼容。
+- [x] 定义所有状态转换和结构化错误码。
 - [x] 新建统一 Timeline Repository 基座；renderer 后续只通过 IPC/bridge/REST 客户端访问，迁移完成前不接管现有运行路径。
 
 验收：前端不再根据 label、创建时间或全局 head 推导关系。
@@ -53,7 +53,7 @@
 
 ## T5：重写 Work Node 与 AI 链路
 
-- [ ] 定义并实现 AI 意图执行策略：明确低风险单步操作保留 Phase 4 的实时 checkout；复杂/重排/分支/预览操作创建或复用 AI Work Node。
+- [x] 定义并实现 AI 意图执行策略：明确低风险单步操作保留 Phase 4 的实时 checkout；复杂/重排/分支/预览操作创建或复用 AI Work Node。
 - [x] Patch 只能改 node working state，随后返回 validate、diff、risk 证据。
 - [x] checkout 显式更新 CheckoutRef(work-node) 并应用 payload。
 - [x] restore base 作为 Work Node 操作，写审计事件但不伪造树节点。
@@ -66,7 +66,7 @@
 - [x] 恢复面板只渲染 TimelineSnapshot。
 - [x] Work Node 面板一次只渲染当前 TimelineDocument 的 AI 树。
 - [x] 节点详情显示 base、diff、验证、风险、应用状态和审计历史。
-- [ ] 应用按钮与关闭按钮语义分离；增加可选“应用并关闭”。
+- [x] 按最终认可交互固定为：树内点击只暂存选择，关闭节点树时应用该选择；未选择新节点时只关闭。
 - [x] 删除按钮使用后端 capability/错误码，不在客户端猜测可删性。
 - [x] 删除 snapshot 卡片、伪 checkout/restore 节点与全局 head 高亮逻辑。
 
@@ -88,7 +88,7 @@
 - [x] 迁移 smoke：正常树、快照、异常 snapshot-node、回滚备份。
 - [ ] UI 手测：保存、恢复、打开 AI、树内 patch、明确应用、删除、分享、导入。
 - [x] 后门黑盒：自然话术 → Work Node Patch → diff → 当前排轴未变 → 显式应用。
-- [ ] Chrome UI 验证：输入、工具活动、最终结果在 `MainWorkbenchAiPanel` 可见。
+- [x] Chrome UI 验证：输入、工具活动、最终结果在 `MainWorkbenchAiPanel` 可见。
 - [x] 运行 `npm run build` 及本阶段针对性 smoke。
 
 验收：满足 Spec 5 全部验收标准，且不再出现 snapshot 变根节点、跨树混显、删除 500 或关闭即应用。

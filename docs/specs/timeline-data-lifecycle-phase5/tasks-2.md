@@ -6,21 +6,21 @@
 
 ## S2-T1：统一活动排轴会话
 
-- [ ] 新建单一 `TimelineSession` 应用层，统一提供 `activeTimelineId`、活动文档名称、CheckoutRef 和当前工作副本。
-- [ ] CanvasBoard、AI 面板、WorkNode 树、快照面板、分享导入不再分别维护或推导活动文档。
-- [ ] 活动文档切换必须一次性完成文档身份、画布 payload、CheckoutRef 和工作树切换。
-- [ ] 刷新后从持久化活动文档恢复；活动文档不存在时明确回退到可用文档或空白默认文档。
-- [ ] 删除当前文档后不得留下悬空活动 ID、旧画布或旧工作树。
+- [x] 新建单一 `TimelineSession` 应用层，统一提供 `activeTimelineId`、活动文档名称、CheckoutRef 和当前工作副本。
+- [x] CanvasBoard、AI 面板、WorkNode 树、快照面板、分享导入不再分别维护或推导活动文档。
+- [x] 活动文档切换必须一次性完成文档身份、画布 payload、CheckoutRef 和工作树切换。
+- [x] 刷新后从持久化活动文档恢复；活动文档不存在时明确回退到可用文档或空白默认文档。
+- [x] 删除当前文档后不得留下悬空活动 ID、旧画布或旧工作树。
 
 验收：连续切换至少三份 SQLite 文档并刷新，每次画布、文档名、CheckoutRef 和工作树均属于同一 `timelineId`。
 
 ## S2-T2：完成 `saveId` 退役
 
-- [ ] 新业务接口、领域类型、Repository 和 renderer 命令统一使用 `timelineId`。
-- [ ] `saveId` 只允许存在于旧 WorkNode SQLite、历史 JSON 和迁移适配器边界。
-- [ ] 删除通过 label、创建时间、全局 head 或 snapshot id 推导文档归属的运行时逻辑。
-- [ ] 为兼容字段增加明确的 deprecated 注释、读取边界和移除条件。
-- [ ] 搜索并审核所有 `saveId` 调用，形成剩余兼容点清单。
+- [x] 新业务接口、领域类型、Repository 和 renderer 命令统一使用 `timelineId`。
+- [x] `saveId` 只允许存在于旧 WorkNode SQLite、历史 JSON 和迁移适配器边界。
+- [x] 删除通过 label、创建时间、全局 head 或 snapshot id 推导文档归属的运行时逻辑。
+- [x] 为兼容字段增加明确的 deprecated 注释、读取边界和移除条件。
+- [x] 搜索并审核所有 `saveId` 调用，形成剩余兼容点清单。
 
 验收：新建文档、软盘保存、AI 分支、checkout、分享和导入产生的新数据只使用稳定 `timelineId`。
 
@@ -79,8 +79,8 @@
 
 ## S2-T8：完整发布验收
 
-- [ ] 运行 `npm run build`。
-- [ ] 运行 Timeline Repository、WorkNode SQLite/REST、迁移和备份恢复 smoke。
+- [x] 运行 `npm run build`。
+- [x] 运行 Timeline Repository、WorkNode SQLite/REST、迁移和备份恢复 smoke。
 - [x] 按 `docs/testing/def-agent-blackbox.md` 完成后门自然语言验证。
 - [ ] 完成 UI 手测矩阵：快照保存/恢复/删除、SQLite 打开/删除、软盘首节点/子节点、树切换、AI patch/apply、分享和导入。
 - [x] 完成 Chrome UI 验证：输入、工具活动和最终结果在 MainWorkbenchAiPanel 可见。
