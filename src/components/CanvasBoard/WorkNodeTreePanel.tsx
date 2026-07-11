@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createAiTimelineWorkNodeClient } from '../../agentKernel/timelineWorktree/localNodeClient';
-import { createTimelineRepositoryClient } from '../../agentKernel/timelineRepository/localTimelineClient';
+import { createTimelineRepositoryClient, type TimelineRepositoryWorkNodePatch } from '../../agentKernel/timelineRepository/localTimelineClient';
 import { DEFAULT_TIMELINE_ID } from '../../core/domain/timeline';
 import type { AiTimelineWorkNodeListResponse } from '../../agentKernel/timelineWorktree/localNodeClient';
 import type { AiTimelineWorkNodeCommitListItem, AiTimelineWorkNodeListItem } from '../../agentKernel/timelineWorktree/types';
@@ -62,6 +62,7 @@ export function WorkNodeTreePanel({ refreshKey, onSelectedNodeChange, onSummaryC
   const [commits, setCommits] = useState<AiTimelineWorkNodeCommitListItem[]>([]);
   const [headNodeId, setHeadNodeId] = useState('');
   const [selectedNodeId, setSelectedNodeId] = useState('');
+  const [selectedNodePatches, setSelectedNodePatches] = useState<TimelineRepositoryWorkNodePatch[]>([]);
   const selectionInitializedRef = useRef(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
@@ -131,6 +132,18 @@ export function WorkNodeTreePanel({ refreshKey, onSelectedNodeChange, onSummaryC
       cancelled = true;
     };
   }, [refreshKey]);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!selectedNodeId) {
+      setSelectedNodePatches([]);
+      return () => { cancelled = true; };
+    }
+    void createTimelineRepositoryClient().listWorkNodePatches(selectedNodeId)
+      .then((patches) => { if (!cancelled) setSelectedNodePatches(patches); })
+      .catch(() => { if (!cancelled) setSelectedNodePatches([]); });
+    return () => { cancelled = true; };
+  }, [selectedNodeId, refreshKey]);
 
   useEffect(() => {
     onSummaryChange?.(viewModel);
@@ -280,6 +293,9 @@ export function WorkNodeTreePanel({ refreshKey, onSelectedNodeChange, onSummaryC
           <span>草稿：{selectedNode.workingSummary?.characterCount ?? 0} 干员 / {selectedNode.workingSummary?.buttonCount ?? 0} 按钮 / {selectedNode.workingSummary?.buffCount ?? 0} Buff</span>
           <span>状态：{selectedNode.status} · 策略：{selectedNode.approvalPolicy}</span>
           {selectedNode.riskFlags.length ? <span>风险：{selectedNode.riskFlags.map((risk) => risk.message || risk.code).join('；')}</span> : <span>风险：无</span>}
+          {selectedNodePatches[0] ? (
+            <span>最近 Patch：{selectedNodePatches[0].patch.length} 项操作 · 校验 {selectedNodePatches[0].validation.ok === false ? '失败' : '通过'} · {Object.entries(selectedNodePatches[0].diffSummary).filter(([, value]) => Number(value) > 0).map(([key, value]) => `${key}:${value}`).join(' / ') || '无结构变化'}</span>
+          ) : <span>最近 Patch：暂无</span>}
           {selectedNode.logs[0] ? <span>最近审计：{selectedNode.logs[0].message}</span> : null}
         </aside>
       ) : null}

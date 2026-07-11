@@ -18,6 +18,17 @@ export type TimelineRepositoryBundleWorkNode = TimelineRepositoryWorkNode & {
   workingPayload: TimelineSnapshotPayload;
 };
 
+export type TimelineRepositoryWorkNodePatch = {
+  id: string;
+  timelineId: string;
+  nodeId: string;
+  patch: Array<{ op?: string }>;
+  validation: { ok?: boolean; issues?: unknown[] };
+  diffSummary: Record<string, unknown>;
+  riskFlags: unknown[];
+  createdAt: number;
+};
+
 async function readResponse<T>(response: Response): Promise<T> {
   const payload = await response.json();
   if (!response.ok || !payload?.ok) throw new Error(payload?.error?.message || `Timeline repository request failed: ${response.status}`);
@@ -81,6 +92,12 @@ export function createTimelineRepositoryClient() {
         `/local-data/timeline-work-nodes?timelineId=${encodeURIComponent(timelineId)}`,
       );
       return response.nodes;
+    },
+    async listWorkNodePatches(nodeId: string) {
+      const response = await requestWithFallback<RepositoryResponse<{ patches: TimelineRepositoryWorkNodePatch[] }>>(
+        `/local-data/timeline-work-nodes/${encodeURIComponent(nodeId)}/patches`,
+      );
+      return response.patches;
     },
     async deleteWorkNode(nodeId: string) {
       const response = await requestWithFallback<RepositoryResponse<{ result: { deletedNodeIds: string[] } }>>(
