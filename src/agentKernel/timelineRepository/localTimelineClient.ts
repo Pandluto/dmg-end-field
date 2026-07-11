@@ -5,11 +5,28 @@ const REST_BASE_URL = 'http://127.0.0.1:17321';
 const BRIDGE_BASE_URL = 'http://127.0.0.1:31457';
 
 type RepositoryResponse<T> = { ok: true; path?: string } & T;
-class TimelineRepositoryRequestError extends Error {
+export class TimelineRepositoryRequestError extends Error {
   constructor(message: string, readonly status: number, readonly code: string, readonly details?: unknown) {
     super(message);
     this.name = 'TimelineRepositoryRequestError';
   }
+}
+
+const TIMELINE_ERROR_ACTIONS: Record<string, string> = {
+  'timeline-work-node-current-checkout-protected': '请先切换到其他节点或快照，再删除该分支。',
+  'timeline-snapshot-current-checkout-protected': '请先恢复其他节点或快照，再删除当前快照。',
+  'timeline-work-node-parent-not-found': '请刷新工作树后重新选择父节点。',
+  'timeline-work-node-cross-document-parent': '父子节点必须位于同一个排轴文档。',
+  'timeline-checkout-target-not-found': '目标可能已被删除，请刷新恢复列表后重试。',
+  'timeline-document-not-found': '该排轴可能已被删除，请返回 SQLite 列表重新选择。',
+};
+
+export function formatTimelineOperationError(error: unknown): string {
+  const candidate = error as { message?: unknown; code?: unknown } | null;
+  const message = typeof candidate?.message === 'string' ? candidate.message : String(error);
+  const code = typeof candidate?.code === 'string' ? candidate.code : '';
+  const action = code ? TIMELINE_ERROR_ACTIONS[code] : '';
+  return `${code ? `[${code}] ` : ''}${message}${action ? ` ${action}` : ''}`;
 }
 export type TimelineRepositoryWorkNode = {
   id: string; parentNodeId?: string; timelineId: string; branchId: string; label: string; status: string;

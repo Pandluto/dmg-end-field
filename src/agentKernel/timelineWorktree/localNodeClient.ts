@@ -21,6 +21,13 @@ let listCachedResponse: AiTimelineWorkNodeListResponse | null = null;
 let listCachedAt = 0;
 let listCacheGeneration = 0;
 
+class AiTimelineWorkNodeRequestError extends Error {
+  constructor(message: string, readonly status: number, readonly code: string, readonly details?: unknown) {
+    super(message);
+    this.name = 'AiTimelineWorkNodeRequestError';
+  }
+}
+
 export type AiTimelineWorkNodeHead = {
   nodeId: string;
   revision: number;
@@ -106,7 +113,12 @@ async function readJsonResponse<T>(response: Response): Promise<T> {
   const payload = await response.json();
   if (!response.ok || !payload?.ok) {
     const message = payload?.error?.message || `AI timeline work node request failed: ${response.status}`;
-    throw new Error(message);
+    throw new AiTimelineWorkNodeRequestError(
+      message,
+      response.status,
+      payload?.error?.code || 'ai-worknode-request-failed',
+      payload?.error?.details,
+    );
   }
   return payload as T;
 }

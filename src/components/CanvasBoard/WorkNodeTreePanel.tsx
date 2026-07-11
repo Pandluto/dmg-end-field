@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createAiTimelineWorkNodeClient } from '../../agentKernel/timelineWorktree/localNodeClient';
-import { createTimelineRepositoryClient, type TimelineRepositoryWorkNodePatch } from '../../agentKernel/timelineRepository/localTimelineClient';
+import { createTimelineRepositoryClient, formatTimelineOperationError, type TimelineRepositoryWorkNodePatch } from '../../agentKernel/timelineRepository/localTimelineClient';
 import type { TimelineAuditEvent } from '../../core/domain/timeline';
 import type { AiTimelineWorkNodeListResponse } from '../../agentKernel/timelineWorktree/localNodeClient';
 import type { AiTimelineWorkNodeCommitListItem, AiTimelineWorkNodeListItem } from '../../agentKernel/timelineWorktree/types';
@@ -45,7 +45,7 @@ function waitForWorkbenchCommand(commandId: string, timeoutMs = 8000): Promise<u
 }
 
 function errorMessage(error: unknown) {
-  return error instanceof Error ? error.message : String(error);
+  return formatTimelineOperationError(error);
 }
 
 function collectSubtreeNodeIds(node: WorkNodeTreeViewModel['flatNodes'][number]) {

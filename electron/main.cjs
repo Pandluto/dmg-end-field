@@ -1572,9 +1572,13 @@ function startBridgeServer() {
         path: requestUrl.pathname,
       });
     } catch (error) {
-      writeJson(response, 500, {
+      writeJson(response, error?.status || 500, {
         ok: false,
-        error: error instanceof Error ? error.message : String(error),
+        error: {
+          code: error?.code || 'bridge-request-failed',
+          message: error instanceof Error ? error.message : String(error),
+          details: error?.details,
+        },
         path: requestUrl.pathname,
       });
     }
@@ -4881,6 +4885,14 @@ function toAiTimelineWorkNodeCommitListItem(commit) {
   return item;
 }
 
+function aiTimelineWorkNodeError(code, status, message, details) {
+  const error = new Error(message);
+  error.code = code;
+  error.status = status;
+  if (details !== undefined) error.details = details;
+  return error;
+}
+
 function buildAiTimelineWorkNodeListResult() {
   const archive = getAiTimelineWorkNodeStore().list();
   return {
@@ -4902,7 +4914,7 @@ function readAiTimelineWorkNode(id) {
   const nodeId = sanitizeAiTimelineWorkNodeId(id, 'ai-timeline-node');
   const node = getAiTimelineWorkNodeStore().getNode(nodeId);
   if (!node) {
-    throw new Error(`AI timeline work node not found: ${nodeId}`);
+    throw aiTimelineWorkNodeError('ai-worknode-not-found', 404, `AI timeline work node not found: ${nodeId}`);
   }
   return { ok: true, path: getAiTimelineWorkNodesPath(), node };
 }
@@ -4912,18 +4924,18 @@ function createAiTimelineWorkNode(payload) {
     ? payload.timelineId
     : payload?.saveId;
   if (!rawTimelineId || typeof rawTimelineId !== 'string') {
-    throw new Error('AI work node create requires timelineId.');
+    throw aiTimelineWorkNodeError('missing-ai-worknode-timeline-id', 400, 'AI work node create requires timelineId.');
   }
   const saveId = sanitizeAiTimelineWorkNodeId(rawTimelineId, 'timeline');
   const basePayload = payload.basePayload;
   const payloadError = validateAiTimelineWorkNodePayload(basePayload, 'basePayload');
   if (payloadError) {
-    throw new Error(payloadError);
+    throw aiTimelineWorkNodeError('invalid-ai-worknode-base-payload', 400, payloadError);
   }
   const requestedWorkingPayload = payload?.workingPayload && isPlainObject(payload.workingPayload) ? payload.workingPayload : basePayload;
   const workingPayloadError = validateAiTimelineWorkNodePayload(requestedWorkingPayload, 'workingPayload');
   if (workingPayloadError) {
-    throw new Error(workingPayloadError);
+    throw aiTimelineWorkNodeError('invalid-ai-worknode-working-payload', 400, workingPayloadError);
   }
   const now = Date.now();
   const store = getAiTimelineWorkNodeStore();
@@ -4959,16 +4971,19 @@ function updateAiTimelineWorkNode(id, payload = {}) {
   const nodeId = sanitizeAiTimelineWorkNodeId(id, 'ai-timeline-node');
   const node = getAiTimelineWorkNodeStore().getNode(nodeId);
   if (!node) {
-    throw new Error(`AI timeline work node not found: ${nodeId}`);
+    throw aiTimelineWorkNodeError('ai-worknode-not-found', 404, `AI timeline work node not found: ${nodeId}`);
   }
   const workingPayload = Object.prototype.hasOwnProperty.call(payload || {}, 'workingPayload')
     ? payload.workingPayload
     : node.workingPayload;
   const payloadError = validateAiTimelineWorkNodePayload(workingPayload, 'workingPayload');
   if (payloadError) {
-    throw new Error(payloadError);
+    throw aiTimelineWorkNodeError('invalid-ai-worknode-working-payload', 400, payloadError);
   }
   const allowedStatuses = new Set(['open', 'ready', 'committed', 'applied', 'abandoned']);
+  if (Object.prototype.hasOwnProperty.call(payload || {}, 'status') && !allowedStatuses.has(payload.status)) {
+    throw aiTimelineWorkNodeError('invalid-timeline-work-node-status', 400, `Unsupported AI Work Node status: ${String(payload.status)}`);
+  }
   const riskFlags = Object.prototype.hasOwnProperty.call(payload || {}, 'riskFlags')
     ? normalizeAiTimelineRiskFlags(payload.riskFlags)
     : (Array.isArray(node.riskFlags) ? node.riskFlags : []);
@@ -5018,17 +5033,17 @@ function commitAiTimelineWorkNode(id, payload = {}) {
   const nodeId = sanitizeAiTimelineWorkNodeId(id, 'ai-timeline-node');
   const node = getAiTimelineWorkNodeStore().getNode(nodeId);
   if (!node) {
-    throw new Error(`AI timeline work node not found: ${nodeId}`);
+    throw aiTimelineWorkNodeError('ai-worknode-not-found', 404, `AI timeline work node not found: ${nodeId}`);
   }
   const riskFlags = Object.prototype.hasOwnProperty.call(payload || {}, 'riskFlags')
     ? normalizeAiTimelineRiskFlags(payload.riskFlags)
     : (Array.isArray(node.riskFlags) ? node.riskFlags : []);
   const explicitApproval = isPlainObject(payload.approval);
   if (node.approvalPolicy === 'manual' && !explicitApproval) {
-    throw new Error('Manual approval policy requires explicit approval before commit.');
+    throw aiTimelineWorkNodeError('ai-worknode-requires-manual-approval', 409, 'Manual approval policy requires explicit approval before commit.');
   }
   if (riskFlags.some((risk) => risk.severity === 'blocker') && !explicitApproval) {
-    throw new Error('Blocker risk flags require explicit approval before commit.');
+    throw aiTimelineWorkNodeError('ai-worknode-blocked-by-risk', 409, 'Blocker risk flags require explicit approval before commit.', { riskFlags });
   }
   const now = Date.now();
   const approval = normalizeAiTimelineApproval(payload.approval, explicitApproval ? 'manual' : 'auto');
@@ -5067,15 +5082,15 @@ function markAiTimelineWorkNodeCheckoutApplied(id, payload = {}) {
   const store = getAiTimelineWorkNodeStore();
   const node = store.getNode(nodeId);
   if (!node) {
-    throw new Error(`AI timeline work node not found: ${nodeId}`);
+    throw aiTimelineWorkNodeError('ai-worknode-not-found', 404, `AI timeline work node not found: ${nodeId}`);
   }
   const commitId = typeof payload.commitId === 'string' && payload.commitId.trim() ? payload.commitId.trim() : '';
   const targetCommit = commitId ? store.getCommit(commitId) : store.getLatestCommitForNode(node.id);
   if (targetCommit?.nodeId !== node.id) {
-    throw new Error(`AI timeline work node commit not found for node: ${node.id}`);
+    throw aiTimelineWorkNodeError('ai-worknode-commit-not-found', 404, `AI timeline work node commit not found for node: ${node.id}`);
   }
   if (!targetCommit) {
-    throw new Error(`AI timeline work node commit not found for node: ${node.id}`);
+    throw aiTimelineWorkNodeError('ai-worknode-commit-not-found', 404, `AI timeline work node commit not found for node: ${node.id}`);
   }
   const appliedAt = typeof payload.appliedAt === 'number' ? payload.appliedAt : Date.now();
   const appliedBy = ['ai', 'user', 'system'].includes(payload.appliedBy) ? payload.appliedBy : 'system';
@@ -5116,7 +5131,7 @@ function markAiTimelineWorkNodeRollbackApplied(id, payload = {}) {
   const store = getAiTimelineWorkNodeStore();
   const node = store.getNode(nodeId);
   if (!node) {
-    throw new Error(`AI timeline work node not found: ${nodeId}`);
+    throw aiTimelineWorkNodeError('ai-worknode-not-found', 404, `AI timeline work node not found: ${nodeId}`);
   }
   const appliedAt = typeof payload.appliedAt === 'number' ? payload.appliedAt : Date.now();
   const appliedBy = ['ai', 'user', 'system'].includes(payload.appliedBy) ? payload.appliedBy : 'system';
