@@ -890,8 +890,8 @@ function createDefWorkNodeFromPayload(payloadSource, input = {}) {
   };
   // Creating a draft is deliberately not a checkout operation.  HEAD is only
   // advanced after the renderer has applied a validated work node.
-  store.saveNode(node);
   mirrorWorkNodeToTimelineRepository(node);
+  store.saveNode(node);
   return {
     ok: true,
     node,
@@ -980,8 +980,8 @@ function handleAiTimelineWorkNodeRequest(method, pathname, body) {
       riskFlags: normalizeRiskFlags(body?.riskFlags),
       logs: [makeWorkNodeLog('info', 'Created AI timeline work node from checkout payload.')],
     };
-    store.saveNode(node);
     mirrorWorkNodeToTimelineRepository(node);
+    store.saveNode(node);
     return { status: 200, body: { ok: true, protocolVersion: 1, path: aiTimelineWorkNodesPath, node } };
   }
 
@@ -1050,8 +1050,8 @@ function handleAiTimelineWorkNodeRequest(method, pathname, body) {
         ...(Array.isArray(node.logs) ? node.logs : []),
       ],
     };
-    store.saveNode(nextNode);
     mirrorWorkNodeToTimelineRepository(nextNode);
+    store.saveNode(nextNode);
     return { status: 200, body: { ok: true, protocolVersion: 1, path: aiTimelineWorkNodesPath, node: nextNode } };
   }
 
@@ -1128,8 +1128,8 @@ function handleAiTimelineWorkNodeRequest(method, pathname, body) {
         ...(Array.isArray(node.logs) ? node.logs : []),
       ],
     };
-    store.saveNodeAndCommit(nextNode, commit);
     mirrorWorkNodeToTimelineRepository(nextNode);
+    store.saveNodeAndCommit(nextNode, commit);
     return { status: 200, body: { ok: true, protocolVersion: 1, path: aiTimelineWorkNodesPath, node: nextNode, commit } };
   }
 
@@ -1162,7 +1162,6 @@ function handleAiTimelineWorkNodeRequest(method, pathname, body) {
         ...(Array.isArray(node.logs) ? node.logs : []),
       ],
     };
-    store.saveNodeAndCommit(nextNode, nextCommit, { setHead: true });
     mirrorWorkNodeToTimelineRepository(nextNode);
     getTimelineRepository().setCheckoutRef({
       timelineId: nextNode.timelineId || nextNode.saveId || 'current-main-workbench',
@@ -1170,6 +1169,7 @@ function handleAiTimelineWorkNodeRequest(method, pathname, body) {
       targetId: nextNode.id,
       updatedAt: appliedAt,
     });
+    store.saveNodeAndCommit(nextNode, nextCommit, { setHead: true });
     return { status: 200, body: { ok: true, protocolVersion: 1, path: aiTimelineWorkNodesPath, node: nextNode, commit: nextCommit } };
   }
 
@@ -1195,7 +1195,6 @@ function handleAiTimelineWorkNodeRequest(method, pathname, body) {
         sourceNodeId: node.id,
       }), ...(Array.isArray(node.logs) ? node.logs : [])],
     };
-    store.saveNode(nextNode);
     mirrorWorkNodeToTimelineRepository(nextNode);
     getTimelineRepository().appendAuditEvent({
       id: `work-node-base-restored-${node.id}-${appliedAt}`,
@@ -1206,6 +1205,7 @@ function handleAiTimelineWorkNodeRequest(method, pathname, body) {
       details: rollback,
       createdAt: appliedAt,
     });
+    store.saveNode(nextNode);
     return { status: 200, body: { ok: true, protocolVersion: 1, path: aiTimelineWorkNodesPath, node: nextNode, rollback } };
   }
 
@@ -2760,7 +2760,6 @@ function applyDefWorkNodePatchAndValidate(input = {}) {
     diff,
   });
   if (!dryRun) {
-    getAiTimelineWorkNodeStore().saveNode(nextNode);
     mirrorWorkNodeToTimelineRepository(nextNode);
     getTimelineRepository().appendWorkNodePatch({
       id: `work-node-patch-${nextNode.id}-${nextNode.updatedAt}`,
@@ -2772,6 +2771,7 @@ function applyDefWorkNodePatchAndValidate(input = {}) {
       riskFlags,
       createdAt: nextNode.updatedAt,
     });
+    getAiTimelineWorkNodeStore().saveNode(nextNode);
   }
   const validation = {
     ok: true,
@@ -2892,8 +2892,8 @@ function appendDefGovernanceWorkNodeLog(workNodeId, level, message, data = {}) {
       ...(Array.isArray(node.logs) ? node.logs : []),
     ].slice(0, 100),
   };
-  store.saveNode(updatedNode);
   mirrorWorkNodeToTimelineRepository(updatedNode);
+  store.saveNode(updatedNode);
   return updatedNode;
 }
 
@@ -4594,11 +4594,12 @@ const server = http.createServer(async (request, response) => {
       broadcastSnapshot(readAgentRecordSnapshot);
     }
   } catch (error) {
-    writeJson(response, 500, {
+    writeJson(response, error?.status || 500, {
       ok: false,
       error: {
-        code: 'internal-error',
+        code: error?.code || 'internal-error',
         message: error instanceof Error ? error.message : String(error),
+        ...(error?.details !== undefined ? { details: error.details } : {}),
       },
     });
     if (shouldBroadcastAfter(requestUrl.pathname)) {

@@ -4962,8 +4962,8 @@ function createAiTimelineWorkNode(payload) {
     riskFlags: normalizeAiTimelineRiskFlags(payload.riskFlags),
     logs: [makeAiTimelineWorkNodeLog('info', 'Created AI timeline work node from checkout payload.')],
   };
-  store.saveNode(node);
   mirrorAiTimelineWorkNodeToRepository(node);
+  store.saveNode(node);
   return { ok: true, path: getAiTimelineWorkNodesPath(), node };
 }
 
@@ -5013,8 +5013,8 @@ function updateAiTimelineWorkNode(id, payload = {}) {
       ...(Array.isArray(node.logs) ? node.logs : []),
     ],
   };
-  getAiTimelineWorkNodeStore().saveNode(nextNode);
   mirrorAiTimelineWorkNodeToRepository(nextNode);
+  getAiTimelineWorkNodeStore().saveNode(nextNode);
   return { ok: true, path: getAiTimelineWorkNodesPath(), node: nextNode };
 }
 
@@ -5072,8 +5072,8 @@ function commitAiTimelineWorkNode(id, payload = {}) {
       ...(Array.isArray(node.logs) ? node.logs : []),
     ],
   };
-  getAiTimelineWorkNodeStore().saveNodeAndCommit(nextNode, commit);
   mirrorAiTimelineWorkNodeToRepository(nextNode);
+  getAiTimelineWorkNodeStore().saveNodeAndCommit(nextNode, commit);
   return { ok: true, path: getAiTimelineWorkNodesPath(), node: nextNode, commit };
 }
 
@@ -5115,7 +5115,6 @@ function markAiTimelineWorkNodeCheckoutApplied(id, payload = {}) {
       ...(Array.isArray(node.logs) ? node.logs : []),
     ],
   };
-  store.saveNodeAndCommit(nextNode, nextCommit, { setHead: true });
   mirrorAiTimelineWorkNodeToRepository(nextNode);
   getTimelineRepository().setCheckoutRef({
     timelineId: nextNode.timelineId || nextNode.saveId || 'current-main-workbench',
@@ -5123,6 +5122,7 @@ function markAiTimelineWorkNodeCheckoutApplied(id, payload = {}) {
     targetId: nextNode.id,
     updatedAt: appliedAt,
   });
+  store.saveNodeAndCommit(nextNode, nextCommit, { setHead: true });
   return { ok: true, path: getAiTimelineWorkNodesPath(), node: nextNode, commit: nextCommit };
 }
 
@@ -5151,7 +5151,6 @@ function markAiTimelineWorkNodeRollbackApplied(id, payload = {}) {
       sourceNodeId: node.id,
     }), ...(Array.isArray(node.logs) ? node.logs : [])],
   };
-  store.saveNode(nextNode);
   mirrorAiTimelineWorkNodeToRepository(nextNode);
   getTimelineRepository().appendAuditEvent({
     id: `work-node-base-restored-${node.id}-${appliedAt}`,
@@ -5162,6 +5161,7 @@ function markAiTimelineWorkNodeRollbackApplied(id, payload = {}) {
     details: rollback,
     createdAt: appliedAt,
   });
+  store.saveNode(nextNode);
   return { ok: true, path: getAiTimelineWorkNodesPath(), node: nextNode, rollback };
 }
 

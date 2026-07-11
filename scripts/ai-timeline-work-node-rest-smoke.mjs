@@ -124,6 +124,17 @@ try {
   const documents = await request('GET', '/api/timeline-documents');
   assert.equal(documents.body.documents.some((document) => document.id === 'timeline-broken'), false);
 
+  const orphanCreate = await request('POST', '/api/ai-timeline-worknodes/create', {
+    id: 'orphan', timelineId: 'save-rest', branchId: 'orphan', parentNodeId: 'missing-parent',
+    label: 'orphan', basePayload: payload, workingPayload: payload,
+  });
+  assert.equal(orphanCreate.status, 404, JSON.stringify(orphanCreate.body));
+  assert.equal(orphanCreate.body.error?.code, 'timeline-work-node-parent-not-found');
+  const orphanLegacyProjection = await request('GET', '/api/ai-timeline-worknodes/orphan');
+  assert.equal(orphanLegacyProjection.status, 404, JSON.stringify(orphanLegacyProjection.body));
+  const orphanRepositoryProjection = await request('GET', '/api/timeline-work-nodes?timelineId=save-rest');
+  assert.deepEqual(orphanRepositoryProjection.body.nodes, []);
+
   await createNode('root', null);
   await createNode('child', 'root');
   await createNode('branch', 'root');
