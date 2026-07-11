@@ -5,6 +5,7 @@ import {
   resetActiveTimelineDocument,
   setActiveTimelineDocument,
   setTimelineSessionCheckoutRef,
+  setTimelineSessionWorkingPayload,
   subscribeTimelineSession,
 } from './timelineSession';
 
@@ -19,6 +20,7 @@ export function useTimelineSession() {
     setActiveDocument: setActiveTimelineDocument,
     resetActiveDocument: resetActiveTimelineDocument,
     setCheckoutRef: setTimelineSessionCheckoutRef,
+    setWorkingPayload: setTimelineSessionWorkingPayload,
     refreshActiveDocument: refreshTimelineSessionDocument,
   };
 }

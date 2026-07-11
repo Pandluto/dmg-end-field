@@ -470,6 +470,7 @@ export function CanvasBoard({
     checkoutRef: activeCheckoutRef,
     setActiveDocument,
     setCheckoutRef: setSessionCheckoutRef,
+    setWorkingPayload: setSessionWorkingPayload,
     resetActiveDocument,
     refreshActiveDocument,
   } = useTimelineSession();
@@ -627,6 +628,7 @@ export function CanvasBoard({
   }, [dispatch, selectedCharacters]);
 
   const hydrateCheckoutRuntime = useCallback((payload: TimelineSnapshotPayload) => {
+    setSessionWorkingPayload(payload, 'checkout');
     applyTimelineSnapshotPayload(payload);
     const nextCharacters = payload.selectedCharacters
       .map((id) => loadedCharacters.find((character) => character.id === id || character.name === id))
@@ -688,7 +690,7 @@ export function CanvasBoard({
     replaceTimelineData(normalizedTimelineData);
     dispatch({ type: 'SET_SELECTED_CHARACTERS', characters: resolvedCharacters });
     syncRuntimeSkillButtonsFromTimelineData(normalizedTimelineData, resolvedCharacters);
-  }, [dispatch, loadedCharacters, normalizeTimelineData, replaceTimelineData, selectedCharacters, syncRuntimeSkillButtonsFromTimelineData]);
+  }, [dispatch, loadedCharacters, normalizeTimelineData, replaceTimelineData, selectedCharacters, setSessionWorkingPayload, syncRuntimeSkillButtonsFromTimelineData]);
 
   useEffect(() => {
     void refreshActiveDocument().catch(() => undefined).finally(() => setIsTimelineSessionReady(true));
@@ -2192,15 +2194,19 @@ export function CanvasBoard({
     return onSkillButtonBuffAdded(({ buttonId, buffId }) => {
       if (!buttonId || !buffId) return;
       console.log('[Buff event] added:', buttonId, buffId);
+      const payload = getCurrentTimelineSnapshotPayload();
+      if (payload) setSessionWorkingPayload(payload, 'runtime');
     });
-  }, []);
+  }, [setSessionWorkingPayload]);
 
   useEffect(() => {
     return onSkillButtonBuffRemoved(({ buttonId, buffId }) => {
       if (!buttonId || !buffId) return;
       console.log('[Buff event] removed:', buttonId, buffId);
+      const payload = getCurrentTimelineSnapshotPayload();
+      if (payload) setSessionWorkingPayload(payload, 'runtime');
     });
-  }, []);
+  }, [setSessionWorkingPayload]);
 
   const { draggingState, mousePosition, handleSandboxDragStart, handleButtonMouseDown } = useCanvasDrag({
     disabled: isAiMode,
@@ -2434,6 +2440,15 @@ export function CanvasBoard({
     writeMainWorkbenchSnapshot(snapshot);
     void pushMainWorkbenchSnapshot(snapshot);
   }, [checkoutBootstrapRevision, currentView, selectedCharacters, skillButtons, timelineData, resistanceRevision]);
+
+  useEffect(() => {
+    if (isCheckoutBootstrapPendingRef.current || currentView !== 'canvas') return undefined;
+    const timer = window.setTimeout(() => {
+      const payload = getCurrentTimelineSnapshotPayload();
+      if (payload) setSessionWorkingPayload(payload, 'runtime');
+    }, 380);
+    return () => window.clearTimeout(timer);
+  }, [checkoutBootstrapRevision, currentView, resistanceRevision, selectedCharacters, setSessionWorkingPayload, skillButtons, timelineData]);
 
   const [contextMenuState, setContextMenuState] = useState<{
     buttonId: string;

@@ -1,5 +1,6 @@
 import { DEFAULT_TIMELINE_ID } from '../../core/domain/timeline';
 import type { TimelineCheckoutRef, TimelineDocument } from '../../core/domain/timeline';
+import type { TimelineSnapshotPayload } from '../../utils/timelineSnapshotStorage';
 import { createTimelineRepositoryClient } from './localTimelineClient';
 
 const ACTIVE_TIMELINE_DOCUMENT_KEY = 'dmg.active-timeline-document-id';
@@ -8,6 +9,8 @@ export type TimelineSessionSnapshot = {
   activeTimelineId: string;
   activeTimelineLabel: string;
   checkoutRef: TimelineCheckoutRef | null;
+  workingPayload: TimelineSnapshotPayload | null;
+  workingPayloadSource: 'checkout' | 'runtime' | null;
   revision: number;
 };
 
@@ -20,6 +23,8 @@ let snapshot: TimelineSessionSnapshot = {
   activeTimelineId: readPersistedTimelineId(),
   activeTimelineLabel: '主排轴',
   checkoutRef: null,
+  workingPayload: null,
+  workingPayloadSource: null,
   revision: 0,
 };
 const listeners = new Set<() => void>();
@@ -51,6 +56,8 @@ export function setActiveTimelineDocument(document: Pick<TimelineDocument, 'id' 
     activeTimelineId: document.id,
     activeTimelineLabel: document.label,
     checkoutRef: document.id === snapshot.activeTimelineId ? snapshot.checkoutRef : null,
+    workingPayload: document.id === snapshot.activeTimelineId ? snapshot.workingPayload : null,
+    workingPayloadSource: document.id === snapshot.activeTimelineId ? snapshot.workingPayloadSource : null,
   });
 }
 
@@ -60,6 +67,22 @@ export function setTimelineSessionCheckoutRef(checkoutRef: TimelineCheckoutRef |
     activeTimelineId: snapshot.activeTimelineId,
     activeTimelineLabel: snapshot.activeTimelineLabel,
     checkoutRef,
+    workingPayload: snapshot.workingPayload,
+    workingPayloadSource: snapshot.workingPayloadSource,
+  });
+}
+
+export function setTimelineSessionWorkingPayload(
+  workingPayload: TimelineSnapshotPayload | null,
+  workingPayloadSource: 'checkout' | 'runtime' | null,
+): TimelineSessionSnapshot {
+  if (workingPayload === snapshot.workingPayload && workingPayloadSource === snapshot.workingPayloadSource) return snapshot;
+  return publish({
+    activeTimelineId: snapshot.activeTimelineId,
+    activeTimelineLabel: snapshot.activeTimelineLabel,
+    checkoutRef: snapshot.checkoutRef,
+    workingPayload,
+    workingPayloadSource,
   });
 }
 
@@ -67,7 +90,13 @@ export function resetActiveTimelineDocument(): TimelineSessionSnapshot {
   if (typeof window !== 'undefined') {
     window.localStorage.setItem(ACTIVE_TIMELINE_DOCUMENT_KEY, DEFAULT_TIMELINE_ID);
   }
-  return publish({ activeTimelineId: DEFAULT_TIMELINE_ID, activeTimelineLabel: '主排轴', checkoutRef: null });
+  return publish({
+    activeTimelineId: DEFAULT_TIMELINE_ID,
+    activeTimelineLabel: '主排轴',
+    checkoutRef: null,
+    workingPayload: null,
+    workingPayloadSource: null,
+  });
 }
 
 export async function refreshTimelineSessionDocument(): Promise<TimelineSessionSnapshot> {
@@ -77,13 +106,25 @@ export async function refreshTimelineSessionDocument(): Promise<TimelineSessionS
   if (current) {
     const checkoutRef = await repository.getCheckoutRef(current.id);
     if (typeof window !== 'undefined') window.localStorage.setItem(ACTIVE_TIMELINE_DOCUMENT_KEY, current.id);
-    return publish({ activeTimelineId: current.id, activeTimelineLabel: current.label, checkoutRef });
+    return publish({
+      activeTimelineId: current.id,
+      activeTimelineLabel: current.label,
+      checkoutRef,
+      workingPayload: snapshot.activeTimelineId === current.id ? snapshot.workingPayload : null,
+      workingPayloadSource: snapshot.activeTimelineId === current.id ? snapshot.workingPayloadSource : null,
+    });
   }
   const fallback = documents[0];
   if (fallback) {
     const checkoutRef = await repository.getCheckoutRef(fallback.id);
     if (typeof window !== 'undefined') window.localStorage.setItem(ACTIVE_TIMELINE_DOCUMENT_KEY, fallback.id);
-    return publish({ activeTimelineId: fallback.id, activeTimelineLabel: fallback.label, checkoutRef });
+    return publish({
+      activeTimelineId: fallback.id,
+      activeTimelineLabel: fallback.label,
+      checkoutRef,
+      workingPayload: null,
+      workingPayloadSource: null,
+    });
   }
   const created = await repository.ensureDocument({ id: DEFAULT_TIMELINE_ID, label: '主排轴' });
   return setActiveTimelineDocument(created);
