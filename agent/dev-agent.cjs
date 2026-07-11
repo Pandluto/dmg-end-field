@@ -137,12 +137,19 @@ function getImageRoots() {
   const projectRoot = path.resolve(__dirname, '..');
   const activeReleaseRoot = getActiveImageReleaseRoot();
   return [
-    'For “先不要应用” / “do not apply yet”, create a persisted Work Node draft with checkout:false and dryRun:false so diff evidence remains reviewable. Use dryRun:true only when the user explicitly asks for a preview or simulation.',
     activeReleaseRoot,
     path.join(projectRoot, '.runtime-assets'),
     path.join(projectRoot, 'public'),
     path.join(projectRoot, 'data'),
-  ].filter((root) => root && fs.existsSync(root));
+  ].filter((root) => {
+    try {
+      return Boolean(root) && fs.statSync(root).isDirectory();
+    } catch {
+      // A stale release pointer or an invalid resource path must not prevent
+      // the DEF shell from starting with its remaining data sources.
+      return false;
+    }
+  });
 }
 
 // --- Image file-name cache (mapping bridge) ---
@@ -486,6 +493,7 @@ function buildWorkbenchTestAgentMessage(userText, snapshot, evidencePayload) {
   };
 
   return [
+    'For “先不要应用” / “do not apply yet”, create a persisted Work Node draft with checkout:false and dryRun:false so diff evidence remains reviewable. Use dryRun:true only when the user explicitly asks for a preview or simulation.',
     '你正在 dmg-end-field 主界面右侧 AI 模式中。当前请求来自 dev-agent workbench-test REST 投喂入口，语义等同用户在主界面 AI 输入框发送一句话。',
     '回复中文，简短，直接说明你做了什么或为什么需要反问。',
     '优先使用 DEF typed tools，不要优先手写 /api/main-workbench/commands/enqueue。',

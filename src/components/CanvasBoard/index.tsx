@@ -76,7 +76,6 @@ import {
   listTimelineSnapshots,
   parseTimelineShareFile,
   parseTimelineBundleV2,
-  restoreTimelineSnapshot,
   TIMELINE_SNAPSHOT_LIMIT,
   type TimelineSnapshotEntry,
   type TimelineSnapshotPayload,
@@ -1584,8 +1583,7 @@ export function CanvasBoard({
           if (!snapshot) {
             throw new Error('当前没有可保存的排轴数据');
           }
-          const repository = createTimelineRepositoryClient();
-          await repository.ensureDocument({ id: DEFAULT_TIMELINE_ID, label: '主排轴' });
+          const repository = await saveLegacySnapshotsToRepository();
           await repository.saveSnapshot({
             id: snapshot.id,
             timelineId: DEFAULT_TIMELINE_ID,
@@ -1617,10 +1615,21 @@ export function CanvasBoard({
           if (!snapshot) {
             throw new Error('未找到可恢复的排轴快照');
           }
-          const restored = restoreTimelineSnapshot(snapshot.id);
-          if (!restored) {
-            throw new Error(`恢复失败：${snapshot.id}`);
-          }
+          const repository = await saveLegacySnapshotsToRepository();
+          const persisted = await repository.saveSnapshot({
+            id: snapshot.id,
+            timelineId: DEFAULT_TIMELINE_ID,
+            label: snapshot.label,
+            payload: snapshot.payload,
+            createdAt: snapshot.createdAt,
+          });
+          await repository.setCheckoutRef({
+            timelineId: DEFAULT_TIMELINE_ID,
+            targetType: 'snapshot',
+            targetId: persisted.snapshot.id,
+            updatedAt: Date.now(),
+          });
+          applyTimelineSnapshotPayload(snapshot.payload);
           const doneEntry = patchMainWorkbenchCommand(commandEntry.id, {
             status: 'done',
             result: { snapshotId: snapshot.id, label: snapshot.label, reloaded: command.reload !== false },
@@ -2633,15 +2642,35 @@ export function CanvasBoard({
       const repository = createTimelineRepositoryClient();
       await repository.ensureDocument({ id: DEFAULT_TIMELINE_ID, label: '主排轴' });
       const snapshots = await repository.listSnapshots(DEFAULT_TIMELINE_ID);
-      setTimelineSnapshots(snapshots.map((snapshot) => {
+      const repositoryEntries = snapshots.map((snapshot) => {
         const payload = snapshot.payload!;
         const buttonCount = payload.timelineData.staffLines.reduce((count, line) => count + (line.buttons?.length || 0), 0);
         return { id: snapshot.id, createdAt: snapshot.createdAt, label: snapshot.label, payload,
           summary: { characterCount: payload.selectedCharacters.length, buttonCount, buffCount: payload.allBuffList.length } };
-      }));
+      });
+      // Old browser archives remain visible until their first save/restore.  Do not
+      // hide them merely because the repository is already available.
+      const repositoryIds = new Set(repositoryEntries.map((snapshot) => snapshot.id));
+      setTimelineSnapshots([...repositoryEntries, ...listTimelineSnapshots().filter((snapshot) => !repositoryIds.has(snapshot.id))]
+        .sort((left, right) => right.createdAt - left.createdAt));
     } catch {
       setTimelineSnapshots(listTimelineSnapshots());
     }
+  };
+
+  const saveLegacySnapshotsToRepository = async () => {
+    const repository = createTimelineRepositoryClient();
+    await repository.ensureDocument({ id: DEFAULT_TIMELINE_ID, label: '主排轴' });
+    for (const legacySnapshot of listTimelineSnapshots()) {
+      await repository.saveSnapshot({
+        id: legacySnapshot.id,
+        timelineId: DEFAULT_TIMELINE_ID,
+        label: legacySnapshot.label,
+        payload: legacySnapshot.payload,
+        createdAt: legacySnapshot.createdAt,
+      });
+    }
+    return repository;
   };
 
   const handleOpenSaveSnapshotModal = () => {
@@ -2665,8 +2694,9 @@ export function CanvasBoard({
     }
 
     try {
-      const repository = createTimelineRepositoryClient();
-      await repository.ensureDocument({ id: DEFAULT_TIMELINE_ID, label: '主排轴' });
+      // A new save is the migration boundary for pre-Spec-5 browser archives.
+      // Import them first so future restores no longer depend on localStorage.
+      const repository = await saveLegacySnapshotsToRepository();
       const saved = await repository.saveSnapshot({
         id: snapshot.id,
         timelineId: DEFAULT_TIMELINE_ID,
@@ -2674,7 +2704,8 @@ export function CanvasBoard({
         payload: snapshot.payload,
         createdAt: snapshot.createdAt,
       });
-      setTimelineSnapshots((current) => [snapshot, ...current.filter((item) => item.id !== saved.snapshot.id)].slice(0, TIMELINE_SNAPSHOT_LIMIT));
+      const persistedSnapshot = { ...snapshot, id: saved.snapshot.id, label: saved.snapshot.label, createdAt: saved.snapshot.createdAt };
+      setTimelineSnapshots((current) => [persistedSnapshot, ...current.filter((item) => item.id !== saved.snapshot.id)].slice(0, TIMELINE_SNAPSHOT_LIMIT));
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       alert(`快照保存失败：${message}`);
@@ -2708,10 +2739,20 @@ export function CanvasBoard({
     }
 
     try {
-      await createTimelineRepositoryClient().setCheckoutRef({
+      // A snapshot shown from the legacy archive has no repository row yet.  Upsert
+      // it before writing CheckoutRef so restoring an old save cannot fail with 404.
+      const repository = await saveLegacySnapshotsToRepository();
+      const persisted = await repository.saveSnapshot({
+        id: pendingRestoreSnapshot.id,
+        timelineId: DEFAULT_TIMELINE_ID,
+        label: pendingRestoreSnapshot.label,
+        payload: pendingRestoreSnapshot.payload,
+        createdAt: pendingRestoreSnapshot.createdAt,
+      });
+      await repository.setCheckoutRef({
         timelineId: DEFAULT_TIMELINE_ID,
         targetType: 'snapshot',
-        targetId: pendingRestoreSnapshot.id,
+        targetId: persisted.snapshot.id,
         updatedAt: Date.now(),
       });
       applyTimelineSnapshotPayload(pendingRestoreSnapshot.payload);
@@ -2940,7 +2981,7 @@ export function CanvasBoard({
       selectedCharacters={selectedCharacters}
       onDragStart={handleSandboxDragStart}
       onAvatarDoubleClick={handleAvatarDoubleClick}
-      onSave={handleOpenSaveSnapshotModal}
+      onSave={handleSaveTimelineSnapshot}
       onOpenResistance={handleOpenBatchResistanceModal}
       onRefreshAvailableCandidates={handleRefreshAvailableCandidates}
       isRefreshingAvailableCandidates={isRefreshingAvailableCandidates}
