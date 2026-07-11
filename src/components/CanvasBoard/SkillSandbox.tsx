@@ -30,7 +30,7 @@ interface SkillSandboxProps {
   ) => void;
   /** 头像双击回调：用于打开干员配置界面 */
   onAvatarDoubleClick: (characterId: string) => void;
-  /** 保存排轴快照回调 */
+  /** 将当前排轴保存为 Work Node checkpoint */
   onSave?: () => void;
   /** 打开全局敌方抗性设置 */
   onOpenResistance?: () => void;
@@ -174,8 +174,8 @@ export function SkillSandbox({
             type="button"
             className="sandbox-reserved-action"
             onClick={onSave}
-            aria-label="保存"
-            title="保存"
+            aria-label="保存工作节点"
+            title="保存到工作树"
           >
             <svg className="sandbox-reserved-action-icon" viewBox="0 0 24 24" aria-hidden="true">
               <path d="M5 3h12l2 2v16H5V3zm2 2v6h9V5H7zm0 14h10v-6H7v6zm2-12h5V5H9v2z" />

@@ -2933,3 +2933,18 @@
   line-height: 1.4;
   color: var(--office-body);
 }
+.canvas-work-node-save-notice {
+  position: fixed;
+  top: 20px;
+  left: 50%;
+  z-index: 10050;
+  transform: translateX(-50%);
+  padding: 9px 14px;
+  border: 1px solid #8b5cf6;
+  border-radius: 4px;
+  background: #fff;
+  color: #111827;
+  box-shadow: 0 4px 16px rgb(17 24 39 / 18%);
+  font-size: 13px;
+  pointer-events: none;
+}

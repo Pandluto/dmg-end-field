@@ -70,6 +70,10 @@ async function requestWithFallback<T>(pathname: string, method = 'GET', body?: u
 
 export function createTimelineRepositoryClient() {
   return {
+    async listDocuments() {
+      const response = await requestWithFallback<RepositoryResponse<{ documents: TimelineDocument[] }>>('/local-data/timeline-documents');
+      return response.documents;
+    },
     async ensureDocument(input: Pick<TimelineDocument, 'id' | 'label'> & Partial<Pick<TimelineDocument, 'createdAt'>>) {
       const response = await requestWithFallback<RepositoryResponse<{ document: TimelineDocument }>>('/local-data/timeline-documents', 'POST', input);
       return response.document;

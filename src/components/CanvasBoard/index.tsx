@@ -440,6 +440,7 @@ export function CanvasBoard({
   const [isAiMode, setIsAiMode] = useState(false);
   const [isWorkNodePanelOpen, setIsWorkNodePanelOpen] = useState(false);
   const [workNodeRefreshKey, setWorkNodeRefreshKey] = useState(0);
+  const [workNodeSaveNotice, setWorkNodeSaveNotice] = useState('');
   const [pendingWorkNodeCheckoutId, setPendingWorkNodeCheckoutId] = useState('');
   const [aiHoverZone, setAiHoverZone] = useState<'left' | 'right'>('right');
   const shouldRestoreTopZoneAfterAiRef = useRef(false);
@@ -1253,6 +1254,44 @@ export function CanvasBoard({
     };
   };
 
+  const ensureTimelineDocumentBaselineWorkNode = async (
+    timelineId: string,
+    payload: TimelineSnapshotPayload,
+    documentLabel: string,
+  ) => {
+    const repository = createTimelineRepositoryClient();
+    const existingNodes = await repository.listWorkNodes(timelineId);
+    if (existingNodes.length > 0) {
+      return existingNodes.find((node) => !node.parentNodeId) || existingNodes[0];
+    }
+
+    const createdAt = Date.now();
+    const created = await createAiTimelineWorkNodeClient().create({
+      timelineId,
+      parentNodeId: null,
+      branchId: `baseline-${createdAt}`,
+      label: `[baseline] ${documentLabel}`,
+      basePayload: payload,
+      workingPayload: payload,
+      approvalPolicy: 'auto-low-risk',
+      riskFlags: [],
+    });
+    const checkout = await checkoutAiTimelineWorkNodeFromCommand({
+      op: 'checkoutAiTimelineWorkNode',
+      nodeId: created.node.id,
+      reload: false,
+      approval: {
+        mode: 'manual',
+        approvedBy: 'user',
+        rationale: 'Created the baseline Work Node for a restored timeline document.',
+      },
+    });
+    if (!checkout.checkoutApplied) {
+      throw new Error(checkout.checkoutMarkError || '基线工作节点创建后未能完成 checkout');
+    }
+    return created.node;
+  };
+
   const patchAiTimelineWorkNodeFromCommand = async (
     command: Extract<MainWorkbenchCommand, { op: 'patchAiTimelineWorkNode' }>,
   ): Promise<PatchAiTimelineWorkNodeCommandResult> => {
@@ -1656,9 +1695,11 @@ export function CanvasBoard({
 
         if (command.op === 'restoreTimelineSnapshot') {
           const repository = await saveLegacySnapshotsToRepository();
-          const sourceTimelineIds = activeTimelineId === DEFAULT_TIMELINE_ID
-            ? [DEFAULT_TIMELINE_ID]
-            : [activeTimelineId, DEFAULT_TIMELINE_ID];
+          const documents = await repository.listDocuments();
+          const sourceTimelineIds = [
+            activeTimelineId,
+            ...documents.map((document) => document.id).filter((timelineId) => timelineId !== activeTimelineId),
+          ];
           const snapshots = (await Promise.all(sourceTimelineIds.map(async (timelineId) => (
             (await repository.listSnapshots(timelineId)).map((entry) => ({ ...entry, timelineId }))
           )))).flat().map((entry) => {
@@ -1706,6 +1747,7 @@ export function CanvasBoard({
           applyTimelineSnapshotPayload(snapshot.payload);
           writeActiveTimelineDocumentId(targetTimelineId);
           setActiveTimelineId(targetTimelineId);
+          await ensureTimelineDocumentBaselineWorkNode(targetTimelineId, snapshot.payload, snapshot.label);
           const doneEntry = patchMainWorkbenchCommand(commandEntry.id, {
             status: 'done',
             result: { snapshotId: snapshot.id, label: snapshot.label, reloaded: command.reload !== false },
@@ -1719,8 +1761,12 @@ export function CanvasBoard({
 
         if (command.op === 'listTimelineSnapshots') {
           const repository = await saveLegacySnapshotsToRepository();
-          const snapshots = (await repository.listSnapshots(activeTimelineId)).map((snapshot) => ({
+          const documents = await repository.listDocuments();
+          const snapshots = (await Promise.all(documents.map(async (document) => (
+            (await repository.listSnapshots(document.id)).map((snapshot) => ({ ...snapshot, timelineId: document.id }))
+          )))).flat().map((snapshot) => ({
             id: snapshot.id,
+            timelineId: snapshot.timelineId,
             label: snapshot.label,
             createdAt: snapshot.createdAt,
             summary: {
@@ -2721,32 +2767,26 @@ export function CanvasBoard({
 
   const refreshTimelineSnapshotList = async () => {
     try {
-      const repository = createTimelineRepositoryClient();
-      await repository.ensureDocument({ id: DEFAULT_TIMELINE_ID, label: '主排轴' });
-      const timelineIds = activeTimelineId === DEFAULT_TIMELINE_ID
-        ? [DEFAULT_TIMELINE_ID]
-        : [activeTimelineId, DEFAULT_TIMELINE_ID];
+      const repository = await saveLegacySnapshotsToRepository();
+      const documents = await repository.listDocuments();
+      const timelineIds = [
+        activeTimelineId,
+        ...documents.map((document) => document.id).filter((timelineId) => timelineId !== activeTimelineId),
+      ];
       const snapshots = (await Promise.all(timelineIds.map(async (timelineId) => (
         (await repository.listSnapshots(timelineId)).map((snapshot) => ({ ...snapshot, timelineId }))
       )))).flat();
-      const seenPayloadHashes = new Set<string>();
-      const repositoryEntries: TimelineSnapshotListEntry[] = snapshots.filter((snapshot) => {
-        if (seenPayloadHashes.has(snapshot.payloadHash)) return false;
-        seenPayloadHashes.add(snapshot.payloadHash);
-        return true;
-      }).map((snapshot) => {
+      const documentIds = new Set(documents.map((document) => document.id));
+      const repositoryEntries: TimelineSnapshotListEntry[] = snapshots.filter((snapshot) => !(
+        snapshot.timelineId === DEFAULT_TIMELINE_ID
+        && documentIds.has(getLegacySnapshotTimelineId(snapshot.id))
+      )).map((snapshot) => {
         const payload = snapshot.payload!;
         const buttonCount = payload.timelineData.staffLines.reduce((count, line) => count + (line.buttons?.length || 0), 0);
         return { id: snapshot.id, timelineId: snapshot.timelineId, createdAt: snapshot.createdAt, label: snapshot.label, payload,
           summary: { characterCount: payload.selectedCharacters.length, buttonCount, buffCount: payload.allBuffList.length } };
       });
-      // Old browser archives remain visible until their first save/restore.  Do not
-      // hide them merely because the repository is already available.
-      const repositoryIds = new Set(repositoryEntries.map((snapshot) => snapshot.id));
-      setTimelineSnapshots([...repositoryEntries, ...listTimelineSnapshots()
-        .filter((snapshot) => !repositoryIds.has(snapshot.id))
-        .map((snapshot) => ({ ...snapshot, timelineId: DEFAULT_TIMELINE_ID }))]
-        .sort((left, right) => right.createdAt - left.createdAt));
+      setTimelineSnapshots(repositoryEntries.sort((left, right) => right.createdAt - left.createdAt));
     } catch {
       setTimelineSnapshots(listTimelineSnapshots().map((snapshot) => ({ ...snapshot, timelineId: DEFAULT_TIMELINE_ID })));
     }
@@ -2767,6 +2807,63 @@ export function CanvasBoard({
     }
     if (legacySnapshots.length > 0) clearLegacyTimelineSnapshotArchive();
     return repository;
+  };
+
+  const handleSaveWorkNodeCheckpoint = async () => {
+    saveTimelineData();
+    setSelectedCharacterIds(selectedCharacters.map((character) => character.id));
+    const payload = getCurrentTimelineSnapshotPayload();
+    if (!payload) {
+      alert('当前没有可保存到工作树的排轴数据');
+      return;
+    }
+
+    try {
+      const repository = createTimelineRepositoryClient();
+      await repository.ensureDocument({ id: activeTimelineId, label: '主排轴' });
+      const [documentBundle, checkoutRef] = await Promise.all([
+        repository.exportDocumentBundle(activeTimelineId),
+        repository.getCheckoutRef(activeTimelineId),
+      ]);
+      const nodes = documentBundle.workNodes;
+      const checkoutParent = checkoutRef?.targetType === 'work-node'
+        ? nodes.find((node) => node.id === checkoutRef.targetId)
+        : undefined;
+      const baselineParent = [...nodes]
+        .filter((node) => !node.parentNodeId)
+        .sort((left, right) => left.createdAt - right.createdAt)[0];
+      const latestParent = [...nodes].sort((left, right) => right.updatedAt - left.updatedAt)[0];
+      const parent = checkoutParent || baselineParent || latestParent;
+      const createdAt = Date.now();
+      const created = await createAiTimelineWorkNodeClient().create({
+        timelineId: activeTimelineId,
+        ...(parent ? { parentNodeId: parent.id } : { parentNodeId: null }),
+        branchId: `manual-save-${createdAt}`,
+        label: `[save] ${new Date(createdAt).toLocaleString('zh-CN', { hour12: false })}`,
+        basePayload: parent?.workingPayload || payload,
+        workingPayload: payload,
+        approvalPolicy: 'auto-low-risk',
+        riskFlags: [],
+      });
+      const checkout = await checkoutAiTimelineWorkNodeFromCommand({
+        op: 'checkoutAiTimelineWorkNode',
+        nodeId: created.node.id,
+        reload: false,
+        approval: {
+          mode: 'manual',
+          approvedBy: 'user',
+          rationale: 'Saved from the main workbench disk button.',
+        },
+      });
+      if (!checkout.checkoutApplied) {
+        throw new Error(checkout.checkoutMarkError || '工作节点已创建，但 checkout 持久化失败');
+      }
+      setWorkNodeRefreshKey((current) => current + 1);
+      setWorkNodeSaveNotice(parent ? '已保存为当前工作树的子节点' : '已保存为当前工作树的首个节点');
+      window.setTimeout(() => setWorkNodeSaveNotice(''), 2200);
+    } catch (error) {
+      alert(`工作节点保存失败：${error instanceof Error ? error.message : String(error)}`);
+    }
   };
 
   const handleOpenSaveSnapshotModal = () => {
@@ -2865,6 +2962,11 @@ export function CanvasBoard({
       applyTimelineSnapshotPayload(pendingRestoreSnapshot.payload);
       writeActiveTimelineDocumentId(targetTimelineId);
       setActiveTimelineId(targetTimelineId);
+      await ensureTimelineDocumentBaselineWorkNode(
+        targetTimelineId,
+        pendingRestoreSnapshot.payload,
+        pendingRestoreSnapshot.label,
+      );
     } catch (error) {
       alert(`恢复失败：${error instanceof Error ? error.message : String(error)}`);
       return;
@@ -3126,7 +3228,7 @@ export function CanvasBoard({
       selectedCharacters={selectedCharacters}
       onDragStart={handleSandboxDragStart}
       onAvatarDoubleClick={handleAvatarDoubleClick}
-      onSave={handleSaveTimelineSnapshot}
+      onSave={handleSaveWorkNodeCheckpoint}
       onOpenResistance={handleOpenBatchResistanceModal}
       onRefreshAvailableCandidates={handleRefreshAvailableCandidates}
       isRefreshingAvailableCandidates={isRefreshingAvailableCandidates}
@@ -3143,6 +3245,7 @@ export function CanvasBoard({
 
   return (
     <div className={canvasBoardClassName}>
+      {workNodeSaveNotice && <div className="canvas-work-node-save-notice" role="status">{workNodeSaveNotice}</div>}
       <div className="canvas-layout" onMouseMove={handleAiLayoutMouseMove}>
         <div className="canvas-background-layer">
           <div className="skew-panel" />
