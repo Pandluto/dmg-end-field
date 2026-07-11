@@ -83,6 +83,8 @@ async function createNode(id, parentNodeId) {
 
 try {
   await waitForHealth();
+  const invalidSnapshotMirror = await request('POST', '/api/main-workbench/snapshot', { updatedAt: Date.now(), source: 'rest' });
+  assert.equal(invalidSnapshotMirror.status, 400, JSON.stringify(invalidSnapshotMirror.body));
   const document = await request('POST', '/api/timeline-documents', { id: 'timeline-rest', label: 'REST 排轴' });
   assert.equal(document.status, 200, JSON.stringify(document.body));
   const snapshot = await request('POST', '/api/timeline-snapshots', {

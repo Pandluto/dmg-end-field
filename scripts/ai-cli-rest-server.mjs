@@ -4088,8 +4088,10 @@ function handleMainWorkbenchRequest(method, pathname, query, body) {
 
   if (method === 'POST' && pathname === '/api/main-workbench/snapshot') {
     const snapshot = body && Object.prototype.hasOwnProperty.call(body, 'snapshot') ? body.snapshot : body;
-    if (!snapshot || typeof snapshot !== 'object') {
-      return failScript(400, 'invalid-main-workbench-snapshot', 'Snapshot payload must be an object.');
+    if (!snapshot || typeof snapshot !== 'object'
+      || !Array.isArray(snapshot.selectedCharacters)
+      || !Array.isArray(snapshot.skillButtons)) {
+      return failScript(400, 'invalid-main-workbench-snapshot', 'Snapshot requires selectedCharacters and skillButtons arrays.');
     }
     writeMainWorkbenchJson(MAIN_WORKBENCH_SNAPSHOT_KEY, {
       ...snapshot,
