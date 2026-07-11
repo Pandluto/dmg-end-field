@@ -109,6 +109,7 @@ import {
 import { buildAiTimelineCheckoutDecision } from '../../agentKernel/timelineWorktree/checkoutDecision.mjs';
 import { DEFAULT_TIMELINE_ID } from '../../core/domain/timeline';
 import { createTimelineRepositoryClient } from '../../agentKernel/timelineRepository/localTimelineClient';
+import type { TimelineRepositoryBundleWorkNode } from '../../agentKernel/timelineRepository/localTimelineClient';
 
 const EMPTY_BATCH_TARGET_RESISTANCE: Required<HitResistanceInput> = {
   physicalResistance: 0,
@@ -409,6 +410,9 @@ export function CanvasBoard({
   const [isShareModalOpen, setIsShareModalOpen] = useState(false);
   const [snapshotDraftName, setSnapshotDraftName] = useState('');
   const [shareDraftName, setShareDraftName] = useState('');
+  const [shareScope, setShareScope] = useState<'snapshot' | 'branch' | 'document'>('snapshot');
+  const [shareBranchRootId, setShareBranchRootId] = useState('');
+  const [shareWorkNodes, setShareWorkNodes] = useState<TimelineRepositoryBundleWorkNode[]>([]);
   const [pendingRestoreSnapshot, setPendingRestoreSnapshot] = useState<TimelineSnapshotEntry | null>(null);
   const [pendingImportShare, setPendingImportShare] = useState<TimelineShareFile | null>(null);
   const [pendingImportBundle, setPendingImportBundle] = useState<TimelineBundleV2 | null>(null);
@@ -2796,7 +2800,17 @@ export function CanvasBoard({
 
   const handleOpenShareModal = () => {
     setShareDraftName('');
+    setShareScope('snapshot');
+    setShareBranchRootId('');
+    setShareWorkNodes([]);
     setIsShareModalOpen(true);
+    void createTimelineRepositoryClient().exportDocumentBundle(DEFAULT_TIMELINE_ID)
+      .then((exported) => {
+        setShareWorkNodes(exported.workNodes);
+        const firstRoot = exported.workNodes.find((node) => !node.parentNodeId);
+        if (firstRoot) setShareBranchRootId(firstRoot.id);
+      })
+      .catch(() => undefined);
   };
 
   const handleCloseShareModal = () => {
@@ -2818,6 +2832,10 @@ export function CanvasBoard({
       alert('当前没有可导出的排轴数据');
       return;
     }
+    if (shareScope === 'branch' && !shareBranchRootId) {
+      alert('请选择要导出的 AI 分支根节点。');
+      return;
+    }
     let shareFile;
     try {
       const exported = await createTimelineRepositoryClient().exportDocumentBundle(DEFAULT_TIMELINE_ID);
@@ -2828,14 +2846,34 @@ export function CanvasBoard({
         payload: item.payload,
         summary: { characterCount: 0, buttonCount: 0, buffCount: 0 },
       } as TimelineSnapshotEntry));
+      const branchNodeIds = new Set<string>();
+      if (shareScope === 'branch' && shareBranchRootId) {
+        const pendingNodeIds = [shareBranchRootId];
+        while (pendingNodeIds.length) {
+          const nodeId = pendingNodeIds.pop()!;
+          if (branchNodeIds.has(nodeId)) continue;
+          branchNodeIds.add(nodeId);
+          exported.workNodes.filter((node) => node.parentNodeId === nodeId).forEach((node) => pendingNodeIds.push(node.id));
+        }
+      }
+      const workNodes = shareScope === 'document'
+        ? exported.workNodes
+        : shareScope === 'branch'
+          ? exported.workNodes.filter((node) => branchNodeIds.has(node.id))
+          : [];
       shareFile = await buildTimelineBundleV2({
         timelineId: DEFAULT_TIMELINE_ID,
         label: shareDraftName,
         snapshot,
-        snapshots: snapshots.length ? snapshots : [snapshot],
-        workNodes: exported.workNodes,
+        snapshots: shareScope === 'document' && snapshots.length ? snapshots : [snapshot],
+        ...(workNodes.length ? { workNodes } : {}),
+        scope: shareScope,
       });
     } catch {
+      if (shareScope !== 'snapshot') {
+        alert('当前无法读取排轴文档，不能导出 AI 分支或完整文档。');
+        return;
+      }
       shareFile = await buildTimelineBundleV2({ timelineId: DEFAULT_TIMELINE_ID, label: shareDraftName, snapshot });
     }
 
@@ -3276,6 +3314,38 @@ export function CanvasBoard({
               maxLength={60}
             />
 
+            <label className="timeline-snapshot-form-label" htmlFor="timeline-share-scope">
+              导出范围
+            </label>
+            <select
+              id="timeline-share-scope"
+              className="timeline-snapshot-name-input"
+              value={shareScope}
+              onChange={(event) => setShareScope(event.target.value as 'snapshot' | 'branch' | 'document')}
+            >
+              <option value="snapshot">当前排轴</option>
+              <option value="branch" disabled={shareWorkNodes.length === 0}>指定 AI 分支</option>
+              <option value="document" disabled={shareWorkNodes.length === 0}>完整排轴文档</option>
+            </select>
+
+            {shareScope === 'branch' && (
+              <>
+                <label className="timeline-snapshot-form-label" htmlFor="timeline-share-branch">
+                  AI 分支根节点
+                </label>
+                <select
+                  id="timeline-share-branch"
+                  className="timeline-snapshot-name-input"
+                  value={shareBranchRootId}
+                  onChange={(event) => setShareBranchRootId(event.target.value)}
+                >
+                  {shareWorkNodes.filter((node) => !node.parentNodeId).map((node) => (
+                    <option key={node.id} value={node.id}>{node.label}</option>
+                  ))}
+                </select>
+              </>
+            )}
+
             <div className="timeline-snapshot-form-actions">
               <button type="button" className="btn-calculate" onClick={handleCloseSaveSnapshotModal}>
                 取消
@@ -3380,7 +3450,7 @@ export function CanvasBoard({
             <div className="timeline-snapshot-modal-head">
               <div>
                 <h3>确认导入分享</h3>
-                <p>将覆盖当前排轴缓存，并在导入后自动刷新界面。</p>
+                <p>导入会创建新的本地排轴文档，不会覆盖当前排轴。</p>
               </div>
               <button type="button" className="modal-close-btn" onClick={handleCancelImportShare}>
                 关闭
@@ -3391,6 +3461,7 @@ export function CanvasBoard({
               <strong>{pendingImportShare.label}</strong>
               <span>
                 {pendingImportShare.payload.selectedCharacters.length} 干员 / {pendingImportShare.payload.allBuffList.length} Buff / 分享时间 {new Date(pendingImportShare.exportedAt).toLocaleString()}
+                {pendingImportBundle ? ` / v${pendingImportBundle.schemaVersion} / ${pendingImportBundle.snapshots.length} 快照 / ${pendingImportBundle.workNodes?.length || 0} 节点` : ' / 旧版单快照文件'}
               </span>
             </div>
 

@@ -65,7 +65,7 @@ export interface TimelineShareFile {
 export interface TimelineBundleV2 {
   type: 'dmg.timeline-bundle.v2';
   schemaVersion: 2;
-  manifest: { exportedAt: number; scope: 'snapshot' | 'document'; timelineId: string; label: string; payloadHash: string };
+  manifest: { exportedAt: number; scope: 'snapshot' | 'branch' | 'document'; timelineId: string; label: string; payloadHash: string };
   document: { id: string; label: string };
   payloads: TimelineSnapshotPayload[];
   snapshots: Array<{ id: string; label: string; createdAt: number; payloadIndex: number }>;
@@ -294,6 +294,7 @@ async function sha256(value: unknown): Promise<string> {
 export async function buildTimelineBundleV2(input: {
   timelineId: string; label?: string; snapshot: TimelineSnapshotEntry;
   snapshots?: TimelineSnapshotEntry[]; workNodes?: TimelineBundleWorkNodeInput[];
+  scope?: 'snapshot' | 'branch' | 'document';
 }): Promise<TimelineBundleV2> {
   const sourceSnapshots = input.snapshots || [input.snapshot];
   if (!sourceSnapshots.length) throw new Error('Timeline bundle requires at least one snapshot.');
@@ -322,7 +323,7 @@ export async function buildTimelineBundleV2(input: {
     type: 'dmg.timeline-bundle.v2',
     schemaVersion: 2,
     manifest: {
-      exportedAt: Date.now(), scope: workNodes?.length ? 'document' : 'snapshot', timelineId: input.timelineId,
+      exportedAt: Date.now(), scope: input.scope || (workNodes?.length ? 'document' : 'snapshot'), timelineId: input.timelineId,
       label: normalizeShareLabel(input.label || input.snapshot.label),
       payloadHash: await sha256({ payloads, snapshots, workNodes: workNodes || [] }),
     },
@@ -336,7 +337,7 @@ export async function buildTimelineBundleV2(input: {
 export async function parseTimelineBundleV2(rawText: string): Promise<TimelineBundleV2 | null> {
   try {
     const bundle = JSON.parse(rawText) as Partial<TimelineBundleV2>;
-    if (bundle.type !== 'dmg.timeline-bundle.v2' || bundle.schemaVersion !== 2 || !['snapshot', 'document'].includes(bundle.manifest?.scope || '')) return null;
+    if (bundle.type !== 'dmg.timeline-bundle.v2' || bundle.schemaVersion !== 2 || !['snapshot', 'branch', 'document'].includes(bundle.manifest?.scope || '')) return null;
     if (!bundle.document?.id || !bundle.manifest?.payloadHash || !Array.isArray(bundle.payloads) || !Array.isArray(bundle.snapshots)) return null;
     if (!bundle.payloads.every(isValidTimelineSnapshotPayload)) return null;
     if (!bundle.snapshots.every((item) => typeof item?.id === 'string' && typeof item.payloadIndex === 'number' && bundle.payloads![item.payloadIndex])) return null;
