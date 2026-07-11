@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
+import { DatabaseSync } from 'node:sqlite';
 
 const tempDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'def-work-node-rest-'));
 const databasePath = path.join(tempDirectory, 'work-nodes.sqlite3');
@@ -34,6 +35,7 @@ const server = spawn(process.execPath, ['scripts/ai-cli-rest-server.mjs'], {
     AI_TIMELINE_WORK_NODE_DB_PATH: databasePath,
     AI_TIMELINE_WORK_NODE_LEGACY_PATH: legacyJsonPath,
     TIMELINE_REPOSITORY_DB_PATH: timelineRepositoryPath,
+    AI_TIMELINE_DISABLE_LEGACY_PROJECTION: '1',
   },
   stdio: ['ignore', 'ignore', 'pipe'],
   windowsHide: true,
@@ -229,6 +231,10 @@ try {
   assert.equal(list.body.nodes.filter((node) => node.timelineId === 'save-rest').length, 2);
   assert.equal(list.body.nodes.some((node) => node.timelineId === 'current-main-workbench' && /^\[ai\]/.test(node.label)), true);
   assert.equal(list.body.headNodeId, 'branch');
+  const legacyDb = new DatabaseSync(databasePath, { readOnly: true });
+  assert.equal(legacyDb.prepare('SELECT COUNT(*) AS count FROM work_nodes').get().count, 0);
+  assert.equal(legacyDb.prepare('SELECT COUNT(*) AS count FROM work_node_commits').get().count, 0);
+  legacyDb.close();
   console.log('AI timeline Work Node REST smoke passed.');
 } finally {
   if (server.exitCode === null) {

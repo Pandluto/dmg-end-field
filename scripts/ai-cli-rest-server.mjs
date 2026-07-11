@@ -506,7 +506,9 @@ function mirrorWorkNodeToTimelineRepository(node) {
   const mirrorOne = (candidate) => {
     if (!candidate || visiting.has(candidate.id)) return;
     visiting.add(candidate.id);
-    if (candidate.parentNodeId) mirrorOne(getAiTimelineWorkNodeStore().getNode(candidate.parentNodeId));
+    if (candidate.parentNodeId && !repository.getWorkNode(candidate.parentNodeId)) {
+      mirrorOne(getAiTimelineWorkNodeStore().getNode(candidate.parentNodeId));
+    }
     repository.importWorkNode({ ...candidate, timelineId });
     visiting.delete(candidate.id);
   };
@@ -537,6 +539,32 @@ function listRepositoryWorkNodes() {
     .flatMap((document) => getTimelineRepository().listWorkNodes(document.id)
       .map((node) => readRepositoryWorkNode(node.id))
       .filter(Boolean));
+}
+
+function listRepositoryWorkNodeCommits() {
+  return getTimelineRepository().listDocuments()
+    .flatMap((document) => getTimelineRepository().listWorkNodeCommits(document.id)
+      .map((commit) => ({ ...commit, saveId: commit.timelineId })));
+}
+
+function shouldWriteLegacyWorkNodeProjection() {
+  if (process.env.AI_TIMELINE_DISABLE_LEGACY_PROJECTION === '1') return false;
+  const migrationRaw = getTimelineRepository().getMeta('legacy_work_node_migration_v1');
+  try {
+    if (migrationRaw && JSON.parse(migrationRaw)?.complete === true) return false;
+  } catch {
+    // An invalid marker is not completion evidence.
+  }
+  const archive = getAiTimelineWorkNodeStore().list();
+  return archive.nodes.length > 0 || archive.commits.length > 0;
+}
+
+function writeLegacyNodeProjection(node) {
+  if (shouldWriteLegacyWorkNodeProjection()) getAiTimelineWorkNodeStore().saveNode(node);
+}
+
+function writeLegacyNodeCommitProjection(node, commit, options) {
+  if (shouldWriteLegacyWorkNodeProjection()) getAiTimelineWorkNodeStore().saveNodeAndCommit(node, commit, options);
 }
 
 function normalizeRiskFlags(value) {
@@ -687,11 +715,10 @@ function readDefTimelineSnapshotArchivePayload() {
 }
 
 function readDefLatestWorkNodePayload() {
-  const archive = readAiTimelineWorkNodeArchive();
-  const nodes = [...archive.nodes]
+  const nodes = listRepositoryWorkNodes()
     .filter((node) => isObject(node?.workingPayload) || isObject(node?.basePayload))
     .sort((left, right) => (right.updatedAt || 0) - (left.updatedAt || 0));
-  const preferred = nodes.find((node) => node?.saveId === 'current-main-workbench') || nodes[0];
+  const preferred = nodes.find((node) => node?.timelineId === 'current-main-workbench') || nodes[0];
   if (!preferred) return null;
   return {
     payload: cloneJson(preferred.basePayload || preferred.workingPayload),
@@ -867,12 +894,14 @@ function createDefWorkNodeFromPayload(payloadSource, input = {}) {
       ? sanitizeWorkNodeId(input.saveId, 'timeline')
     : 'current-main-workbench';
   const saveId = timelineId;
-  const store = getAiTimelineWorkNodeStore();
   const hasParentNodeInput = Object.prototype.hasOwnProperty.call(input, 'parentNodeId');
   const requestedParentNodeId = typeof input.parentNodeId === 'string' && input.parentNodeId.trim()
     ? sanitizeWorkNodeId(input.parentNodeId, 'ai-timeline-node')
     : undefined;
-  const parentNodeId = hasParentNodeInput ? requestedParentNodeId : store.getHead(saveId)?.nodeId;
+  const checkoutRef = getTimelineRepository().getCheckoutRef(timelineId);
+  const parentNodeId = hasParentNodeInput
+    ? requestedParentNodeId
+    : checkoutRef?.targetType === 'work-node' ? checkoutRef.targetId : undefined;
   const node = {
     id: sanitizeWorkNodeId(input.id, 'ai-timeline-node'),
     ...(parentNodeId ? { parentNodeId } : {}),
@@ -897,7 +926,7 @@ function createDefWorkNodeFromPayload(payloadSource, input = {}) {
   // Creating a draft is deliberately not a checkout operation.  HEAD is only
   // advanced after the renderer has applied a validated work node.
   mirrorWorkNodeToTimelineRepository(node);
-  store.saveNode(node);
+  writeLegacyNodeProjection(node);
   return {
     ok: true,
     node,
@@ -928,22 +957,26 @@ function toAiTimelineWorkNodeCommitListItem(commit) {
 
 function handleAiTimelineWorkNodeRequest(method, pathname, body) {
   if (method === 'GET' && pathname === '/api/ai-timeline-worknodes') {
-    const archive = getAiTimelineWorkNodeStore().list();
+    const nodes = listRepositoryWorkNodes().sort((left, right) => (right.updatedAt || 0) - (left.updatedAt || 0));
+    const commits = listRepositoryWorkNodeCommits().sort((left, right) => (right.createdAt || 0) - (left.createdAt || 0));
+    const heads = Object.fromEntries(getTimelineRepository().listDocuments().map((document) => {
+      const checkout = getTimelineRepository().getCheckoutRef(document.id);
+      return [document.id, checkout?.targetType === 'work-node'
+        ? { nodeId: checkout.targetId, revision: checkout.updatedAt }
+        : { nodeId: '', revision: checkout?.updatedAt || 0 }];
+    }));
+    const latestHead = Object.values(heads).sort((left, right) => right.revision - left.revision)[0];
     return {
       status: 200,
       body: {
         ok: true,
         protocolVersion: 1,
         path: aiTimelineWorkNodesPath,
-        nodes: archive.nodes
-          .sort((left, right) => (right.updatedAt || 0) - (left.updatedAt || 0))
-          .map(toAiTimelineWorkNodeListItem),
-        commits: archive.commits
-          .sort((left, right) => (right.createdAt || 0) - (left.createdAt || 0))
-          .map(toAiTimelineWorkNodeCommitListItem),
-        heads: archive.heads,
-        headNodeId: archive.headNodeId,
-        revision: archive.revision,
+        nodes: nodes.map(toAiTimelineWorkNodeListItem),
+        commits: commits.map(toAiTimelineWorkNodeCommitListItem),
+        heads,
+        headNodeId: latestHead?.nodeId || '',
+        revision: latestHead?.revision || 0,
       },
     };
   }
@@ -967,12 +1000,14 @@ function handleAiTimelineWorkNodeRequest(method, pathname, body) {
     }
     const now = Date.now();
     const branchId = sanitizeWorkNodeId(body?.branchId, 'branch');
-    const store = getAiTimelineWorkNodeStore();
     const hasParentNodeInput = Object.prototype.hasOwnProperty.call(body || {}, 'parentNodeId');
     const requestedParentNodeId = typeof body?.parentNodeId === 'string' && body.parentNodeId.trim()
       ? sanitizeWorkNodeId(body.parentNodeId, 'ai-timeline-node')
       : undefined;
-    const parentNodeId = hasParentNodeInput ? requestedParentNodeId : store.getHead(saveId)?.nodeId;
+    const checkoutRef = getTimelineRepository().getCheckoutRef(saveId);
+    const parentNodeId = hasParentNodeInput
+      ? requestedParentNodeId
+      : checkoutRef?.targetType === 'work-node' ? checkoutRef.targetId : undefined;
     const node = {
       id: sanitizeWorkNodeId(body?.id, 'ai-timeline-node'),
       ...(parentNodeId ? { parentNodeId } : {}),
@@ -992,7 +1027,7 @@ function handleAiTimelineWorkNodeRequest(method, pathname, body) {
       logs: [makeWorkNodeLog('info', 'Created AI timeline work node from checkout payload.')],
     };
     mirrorWorkNodeToTimelineRepository(node);
-    store.saveNode(node);
+    writeLegacyNodeProjection(node);
     return { status: 200, body: { ok: true, protocolVersion: 1, path: aiTimelineWorkNodesPath, node } };
   }
 
@@ -1007,8 +1042,7 @@ function handleAiTimelineWorkNodeRequest(method, pathname, body) {
     return failScript(400, 'bad-ai-worknode-url', 'AI work node URL contains malformed percent-encoding.');
   }
   const action = match[2] || '';
-  const store = getAiTimelineWorkNodeStore();
-  const node = store.getNode(nodeId);
+  const node = readRepositoryWorkNode(nodeId);
   if (!node) {
     return failScript(404, 'ai-worknode-not-found', `AI timeline work node not found: ${nodeId}`);
   }
@@ -1065,7 +1099,7 @@ function handleAiTimelineWorkNodeRequest(method, pathname, body) {
       ],
     };
     mirrorWorkNodeToTimelineRepository(nextNode);
-    store.saveNode(nextNode);
+    writeLegacyNodeProjection(nextNode);
     return { status: 200, body: { ok: true, protocolVersion: 1, path: aiTimelineWorkNodesPath, node: nextNode } };
   }
 
@@ -1075,30 +1109,18 @@ function handleAiTimelineWorkNodeRequest(method, pathname, body) {
       // migration. Validate both projections before changing either one, then
       // remove both so a later compatibility update cannot resurrect this node.
       const repository = getTimelineRepository();
-      store.assertSubtreeDeletable(nodeId);
+      const legacyStore = getAiTimelineWorkNodeStore();
+      if (legacyStore.getNode(nodeId)) legacyStore.assertSubtreeDeletable(nodeId);
       if (repository.getWorkNode(nodeId)) repository.assertWorkNodeSubtreeDeletable(nodeId);
       if (repository.getWorkNode(nodeId)) repository.deleteWorkNodeSubtree(nodeId);
-      store.deleteSubtree(nodeId);
+      if (legacyStore.getNode(nodeId)) legacyStore.deleteSubtree(nodeId);
     } catch (error) {
       if (error?.code === 'ai-worknode-current-checkout-protected') {
         return failScript(409, error.code, error.message, { nodeId });
       }
       throw error;
     }
-    const list = store.list();
-    return {
-      status: 200,
-      body: {
-        ok: true,
-        protocolVersion: 1,
-        path: aiTimelineWorkNodesPath,
-        nodes: list.nodes,
-        commits: list.commits,
-        heads: list.heads,
-        headNodeId: list.headNodeId,
-        revision: list.revision,
-      },
-    };
+    return handleAiTimelineWorkNodeRequest('GET', '/api/ai-timeline-worknodes', null);
   }
 
   if (method === 'POST' && action === 'commit') {
@@ -1132,7 +1154,7 @@ function handleAiTimelineWorkNodeRequest(method, pathname, body) {
       approval,
       checkoutApplied: false,
     };
-    if (store.getCommit(commit.id)) {
+    if (getTimelineRepository().getWorkNodeCommit(commit.id)) {
       return failScript(409, 'ai-worknode-commit-id-conflict', `AI Work Node commit id already exists: ${commit.id}`);
     }
     const nextNode = {
@@ -1147,13 +1169,15 @@ function handleAiTimelineWorkNodeRequest(method, pathname, body) {
     };
     mirrorWorkNodeToTimelineRepository(nextNode);
     mirrorWorkNodeCommitToTimelineRepository(commit);
-    store.saveNodeAndCommit(nextNode, commit);
+    writeLegacyNodeCommitProjection(nextNode, commit);
     return { status: 200, body: { ok: true, protocolVersion: 1, path: aiTimelineWorkNodesPath, node: nextNode, commit } };
   }
 
   if (method === 'POST' && action === 'checkout-applied') {
     const commitId = typeof body?.commitId === 'string' && body.commitId.trim() ? body.commitId.trim() : '';
-    const targetCommit = commitId ? store.getCommit(commitId) : store.getLatestCommitForNode(node.id);
+    const targetCommit = commitId
+      ? getTimelineRepository().getWorkNodeCommit(commitId)
+      : getTimelineRepository().getLatestWorkNodeCommit(node.id);
     if (!targetCommit || targetCommit.nodeId !== node.id) {
       return failScript(404, 'ai-worknode-commit-not-found', `AI timeline work node commit not found for node: ${node.id}`);
     }
@@ -1188,7 +1212,7 @@ function handleAiTimelineWorkNodeRequest(method, pathname, body) {
       targetId: nextNode.id,
       updatedAt: appliedAt,
     });
-    store.saveNodeAndCommit(nextNode, nextCommit, { setHead: true });
+    writeLegacyNodeCommitProjection(nextNode, nextCommit, { setHead: true });
     return { status: 200, body: { ok: true, protocolVersion: 1, path: aiTimelineWorkNodesPath, node: nextNode, commit: nextCommit } };
   }
 
@@ -1224,7 +1248,7 @@ function handleAiTimelineWorkNodeRequest(method, pathname, body) {
       details: rollback,
       createdAt: appliedAt,
     });
-    store.saveNode(nextNode);
+    writeLegacyNodeProjection(nextNode);
     return { status: 200, body: { ok: true, protocolVersion: 1, path: aiTimelineWorkNodesPath, node: nextNode, rollback } };
   }
 
@@ -2806,7 +2830,7 @@ function applyDefWorkNodePatchAndValidate(input = {}) {
       riskFlags,
       createdAt: nextNode.updatedAt,
     });
-    getAiTimelineWorkNodeStore().saveNode(nextNode);
+    writeLegacyNodeProjection(nextNode);
   }
   const validation = {
     ok: true,
@@ -2916,8 +2940,7 @@ function writeDefToolGovernanceArchive(archive) {
 
 function appendDefGovernanceWorkNodeLog(workNodeId, level, message, data = {}) {
   if (typeof workNodeId !== 'string' || !workNodeId.trim()) return null;
-  const store = getAiTimelineWorkNodeStore();
-  const node = store.getNode(workNodeId.trim());
+  const node = readRepositoryWorkNode(workNodeId.trim());
   if (!node) return null;
   const updatedNode = {
     ...node,
@@ -2928,7 +2951,7 @@ function appendDefGovernanceWorkNodeLog(workNodeId, level, message, data = {}) {
     ].slice(0, 100),
   };
   mirrorWorkNodeToTimelineRepository(updatedNode);
-  store.saveNode(updatedNode);
+  writeLegacyNodeProjection(updatedNode);
   return updatedNode;
 }
 
