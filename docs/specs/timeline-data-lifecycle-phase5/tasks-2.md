@@ -59,11 +59,11 @@
 
 ## S2-T6：退休双写兼容链路
 
-- [ ] 明确统一 Timeline Repository 与旧 `ai-timeline-worknodes.sqlite3` 的迁移完成判定。
-- [ ] 迁移完成后，新节点、commit、head/checkout 和删除不再依赖旧 WorkNode Store 双写。
-- [ ] `localStorage`、`sessionStorage` 和旧 archive 只保留工作缓存或一次性迁移职责，不再作为版本事实来源。
-- [ ] 提供迁移前备份、迁移计数核对、失败回滚和重复执行幂等验证。
-- [ ] 删除文档时确认统一 Repository 与兼容库均无残留，防止节点树复活。
+- [x] 明确统一 Timeline Repository 与旧 `ai-timeline-worknodes.sqlite3` 的迁移完成判定。
+- [x] 迁移完成后，新节点、commit、head/checkout 和删除不再依赖旧 WorkNode Store 双写。
+- [x] `localStorage`、`sessionStorage` 和旧 archive 只保留工作缓存或一次性迁移职责，不再作为版本事实来源。
+- [x] 提供迁移前备份、迁移计数核对、失败回滚和重复执行幂等验证。
+- [x] 删除文档时确认统一 Repository 与兼容库均无残留，防止节点树复活。
 
 验收：关闭旧兼容读取后，保存、恢复、AI WorkNode、分享导入和删除仍可完整运行。
 
