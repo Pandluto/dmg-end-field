@@ -2933,6 +2933,12 @@
   line-height: 1.4;
   color: var(--office-body);
 }
+
+.work-node-modal-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
 .canvas-work-node-save-notice {
   position: fixed;
   top: 20px;

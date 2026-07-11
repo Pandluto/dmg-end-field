@@ -18,6 +18,7 @@ import './WorkNodeTreePanel.css';
 type WorkNodeTreePanelProps = {
   timelineId: string;
   refreshKey: number;
+  cameraResetKey?: number;
   onSelectedNodeChange?: (nodeId: string) => void;
   onSummaryChange?: (summary: WorkNodeTreeViewModel) => void;
 };
@@ -59,7 +60,7 @@ function collectSubtreeNodeIds(node: WorkNodeTreeViewModel['flatNodes'][number])
   return ids;
 }
 
-export function WorkNodeTreePanel({ timelineId, refreshKey, onSelectedNodeChange, onSummaryChange }: WorkNodeTreePanelProps) {
+export function WorkNodeTreePanel({ timelineId, refreshKey, cameraResetKey = 0, onSelectedNodeChange, onSummaryChange }: WorkNodeTreePanelProps) {
   const [nodes, setNodes] = useState<AiTimelineWorkNodeListItem[]>([]);
   const [commits, setCommits] = useState<AiTimelineWorkNodeCommitListItem[]>([]);
   const [headNodeId, setHeadNodeId] = useState('');
@@ -123,6 +124,24 @@ export function WorkNodeTreePanel({ timelineId, refreshKey, onSelectedNodeChange
     if (cameraFrameRef.current !== null) window.cancelAnimationFrame(cameraFrameRef.current);
     if (cameraCommitTimerRef.current !== null) window.clearTimeout(cameraCommitTimerRef.current);
   }, []);
+
+  useEffect(() => {
+    if (cameraFrameRef.current !== null) {
+      window.cancelAnimationFrame(cameraFrameRef.current);
+      cameraFrameRef.current = null;
+    }
+    if (cameraCommitTimerRef.current !== null) {
+      window.clearTimeout(cameraCommitTimerRef.current);
+      cameraCommitTimerRef.current = null;
+    }
+    dragRef.current = null;
+    const reset = { x: 0, y: 0, zoom: 1 };
+    cameraRef.current = reset;
+    if (treeCanvasRef.current) {
+      treeCanvasRef.current.style.transform = 'translate3d(0px, 0px, 0) scale(1)';
+    }
+    setCamera(reset);
+  }, [cameraResetKey]);
 
   useEffect(() => {
     let cancelled = false;

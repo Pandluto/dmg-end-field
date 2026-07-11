@@ -455,6 +455,7 @@ export function CanvasBoard({
   const [isAiMode, setIsAiMode] = useState(false);
   const [isWorkNodePanelOpen, setIsWorkNodePanelOpen] = useState(false);
   const [workNodeRefreshKey, setWorkNodeRefreshKey] = useState(0);
+  const [workNodeCameraResetKey, setWorkNodeCameraResetKey] = useState(0);
   const [workNodeSaveNotice, setWorkNodeSaveNotice] = useState('');
   const [pendingWorkNodeCheckoutId, setPendingWorkNodeCheckoutId] = useState('');
   const [aiHoverZone, setAiHoverZone] = useState<'left' | 'right'>('right');
@@ -3582,17 +3583,23 @@ export function CanvasBoard({
         <div className="work-node-modal-overlay" onClick={closeWorkNodePanel}>
           <div className="work-node-modal" onClick={(event) => event.stopPropagation()}>
             <div className="work-node-modal-head">
-              <div>
+              <div className="work-node-modal-actions">
                 <h3>Work Node 节点树 · {activeTimelineLabel}</h3>
                 <p>查看 AI 与人工 checkpoint 的节点、差异、风险和 checkout / restore 证据。</p>
               </div>
-              <button type="button" className="modal-close-btn" onClick={closeWorkNodePanel}>
-                关闭
-              </button>
+              <div>
+                <button type="button" className="modal-close-btn" onClick={() => setWorkNodeCameraResetKey((current) => current + 1)}>
+                  归正
+                </button>
+                <button type="button" className="modal-close-btn" onClick={closeWorkNodePanel}>
+                  关闭
+                </button>
+              </div>
             </div>
             <WorkNodeTreePanel
               timelineId={activeTimelineId}
               refreshKey={workNodeRefreshKey}
+              cameraResetKey={workNodeCameraResetKey}
               onSelectedNodeChange={setPendingWorkNodeCheckoutId}
             />
           </div>
