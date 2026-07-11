@@ -77,6 +77,17 @@ function createTimelineRepository({ databasePath }) {
       updated_at INTEGER NOT NULL
     ) STRICT;
 
+    CREATE TABLE IF NOT EXISTS timeline_work_node_patches (
+      id TEXT PRIMARY KEY,
+      timeline_id TEXT NOT NULL REFERENCES timeline_documents(id) ON DELETE RESTRICT,
+      node_id TEXT NOT NULL REFERENCES timeline_work_nodes(id) ON DELETE CASCADE,
+      patch TEXT NOT NULL,
+      validation TEXT NOT NULL,
+      diff_summary TEXT NOT NULL,
+      risk_flags TEXT NOT NULL,
+      created_at INTEGER NOT NULL
+    ) STRICT;
+
     CREATE TABLE IF NOT EXISTS checkout_refs (
       timeline_id TEXT PRIMARY KEY REFERENCES timeline_documents(id) ON DELETE CASCADE,
       target_type TEXT NOT NULL CHECK(target_type IN ('snapshot', 'work-node')),
@@ -96,6 +107,7 @@ function createTimelineRepository({ databasePath }) {
 
     CREATE INDEX IF NOT EXISTS timeline_snapshots_timeline_created_idx ON timeline_snapshots(timeline_id, created_at DESC);
     CREATE INDEX IF NOT EXISTS timeline_work_nodes_timeline_updated_idx ON timeline_work_nodes(timeline_id, updated_at DESC);
+    CREATE INDEX IF NOT EXISTS timeline_work_node_patches_node_created_idx ON timeline_work_node_patches(node_id, created_at DESC);
     CREATE INDEX IF NOT EXISTS timeline_audit_events_timeline_created_idx ON timeline_audit_events(timeline_id, created_at DESC);
   `);
   db.prepare(`
@@ -429,6 +441,41 @@ function createTimelineRepository({ databasePath }) {
     });
   }
 
+  function appendWorkNodePatch(input) {
+    if (!input?.id || !input?.timelineId || !input?.nodeId || !Array.isArray(input.patch)) {
+      throw new Error('Work Node patch is missing required fields.');
+    }
+    return transaction(() => {
+      const node = db.prepare('SELECT id FROM timeline_work_nodes WHERE id = ? AND timeline_id = ?')
+        .get(input.nodeId, input.timelineId);
+      if (!node) throw new Error(`Timeline work node not found for patch: ${input.nodeId}`);
+      const createdAt = input.createdAt || Date.now();
+      db.prepare(`
+        INSERT INTO timeline_work_node_patches (
+          id, timeline_id, node_id, patch, validation, diff_summary, risk_flags, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        input.id,
+        input.timelineId,
+        input.nodeId,
+        serialize(input.patch),
+        serialize(input.validation),
+        serialize(input.diffSummary),
+        serialize(input.riskFlags),
+        createdAt,
+      );
+      writeAuditEvent({
+        timelineId: input.timelineId,
+        eventType: 'work-node.patched',
+        subjectType: 'work-node',
+        subjectId: input.nodeId,
+        details: { patchId: input.id, operationCount: input.patch.length },
+        createdAt,
+      });
+      return { id: input.id, nodeId: input.nodeId, createdAt };
+    });
+  }
+
   function archiveSnapshot(snapshotId) {
     return transaction(() => {
       const snapshot = db.prepare('SELECT * FROM timeline_snapshots WHERE id = ? AND archived_at IS NULL').get(snapshotId);
@@ -530,6 +577,7 @@ function createTimelineRepository({ databasePath }) {
     exportDocumentBundle,
     setCheckoutRef,
     appendAuditEvent,
+    appendWorkNodePatch,
     archiveSnapshot,
     importWorkNode,
     deleteWorkNodeSubtree,
@@ -554,6 +602,18 @@ function createTimelineRepository({ databasePath }) {
       subjectType: row.subject_type,
       subjectId: row.subject_id,
       details: parse(row.details, {}),
+      createdAt: row.created_at,
+    })),
+    listWorkNodePatches: (nodeId, limit = 100) => db.prepare(`
+      SELECT * FROM timeline_work_node_patches WHERE node_id = ? ORDER BY created_at DESC LIMIT ?
+    `).all(nodeId, Math.max(1, Math.min(Number(limit) || 100, 500))).map((row) => ({
+      id: row.id,
+      timelineId: row.timeline_id,
+      nodeId: row.node_id,
+      patch: parse(row.patch, []),
+      validation: parse(row.validation, {}),
+      diffSummary: parse(row.diff_summary, {}),
+      riskFlags: parse(row.risk_flags, []),
       createdAt: row.created_at,
     })),
     getWorkNode: (id) => readWorkNode(db.prepare('SELECT * FROM timeline_work_nodes WHERE id = ?').get(id), true),

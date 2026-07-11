@@ -1242,6 +1242,13 @@ function handleTimelineRepositoryRequest(method, pathname, query, body) {
     if (!timelineId) return failScript(400, 'missing-timeline-id', 'Timeline audit list requires timelineId.');
     return { status: 200, body: { ok: true, protocolVersion: 1, events: repository.listAuditEvents(timelineId, query.get('limit')) } };
   }
+  const workNodePatchMatch = /^\/api\/timeline-work-nodes\/([^/]+)\/patches$/.exec(pathname);
+  if (method === 'GET' && workNodePatchMatch) {
+    return {
+      status: 200,
+      body: { ok: true, protocolVersion: 1, patches: repository.listWorkNodePatches(decodeURIComponent(workNodePatchMatch[1]), query.get('limit')) },
+    };
+  }
   const workNodeDeleteMatch = /^\/api\/timeline-work-nodes\/([^/]+)\/delete$/.exec(pathname);
   if (method === 'POST' && workNodeDeleteMatch) {
     try {
@@ -2712,6 +2719,16 @@ function applyDefWorkNodePatchAndValidate(input = {}) {
   if (!dryRun) {
     getAiTimelineWorkNodeStore().saveNode(nextNode);
     mirrorWorkNodeToTimelineRepository(nextNode);
+    getTimelineRepository().appendWorkNodePatch({
+      id: `work-node-patch-${nextNode.id}-${nextNode.updatedAt}`,
+      timelineId: nextNode.saveId || 'current-main-workbench',
+      nodeId: nextNode.id,
+      patch,
+      validation: { ok: true, issues: [] },
+      diffSummary: diff.summary,
+      riskFlags,
+      createdAt: nextNode.updatedAt,
+    });
   }
   const validation = {
     ok: true,

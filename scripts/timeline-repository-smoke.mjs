@@ -26,6 +26,17 @@ repository.appendAuditEvent({
   id: 'event-1', timelineId: 'timeline-main', eventType: 'snapshot.saved', subjectType: 'snapshot', subjectId: 'snapshot-1', details: {}, createdAt: 5,
 });
 assert.deepEqual(repository.getSnapshot('snapshot-1')?.payload, payload);
+repository.importWorkNode({
+  id: 'node-1', timelineId: 'timeline-main', branchId: 'branch-1', label: 'Draft',
+  basePayload: payload, workingPayload: payload, createdAt: 6, updatedAt: 6,
+});
+repository.appendWorkNodePatch({
+  id: 'patch-1', timelineId: 'timeline-main', nodeId: 'node-1',
+  patch: [{ op: 'moveButton', target: { buttonId: 'button-1' }, nodeIndex: 1 }],
+  validation: { ok: true, issues: [] }, diffSummary: { changedButtonCount: 1 }, riskFlags: [], createdAt: 7,
+});
+assert.equal(repository.listWorkNodePatches('node-1').length, 1);
+assert.equal(repository.listAuditEvents('timeline-main').some((event) => event.eventType === 'work-node.patched'), true);
 repository.close();
 fs.rmSync(directory, { recursive: true, force: true });
 console.log('Timeline repository smoke passed.');

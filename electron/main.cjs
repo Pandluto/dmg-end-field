@@ -1004,6 +1004,19 @@ function startBridgeServer() {
         return;
       }
 
+      const timelineWorkNodePatchMatch = /^\/local-data\/timeline-work-nodes\/([^/]+)\/patches$/.exec(requestUrl.pathname);
+      if (method === 'GET' && timelineWorkNodePatchMatch) {
+        writeJson(response, 200, {
+          ok: true,
+          path: getTimelineRepositoryPath(),
+          patches: getTimelineRepository().listWorkNodePatches(
+            decodeURIComponent(timelineWorkNodePatchMatch[1]),
+            requestUrl.searchParams.get('limit'),
+          ),
+        });
+        return;
+      }
+
       const timelineWorkNodeDeleteMatch = /^\/local-data\/timeline-work-nodes\/([^/]+)\/delete$/.exec(requestUrl.pathname);
       if (method === 'POST' && timelineWorkNodeDeleteMatch) {
         try {
