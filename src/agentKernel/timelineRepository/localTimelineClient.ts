@@ -1,5 +1,6 @@
 import type { TimelineAuditEvent, TimelineCheckoutRef, TimelineDocument, TimelineSnapshot } from '../../core/domain/timeline';
 import type { TimelineSnapshotPayload } from '../../utils/timelineSnapshotStorage';
+import type { AiTimelineApproval, AiTimelineCheckout, AiTimelineRiskFlag, TimelinePayloadDiffSummary } from '../timelineWorktree/types';
 
 const REST_BASE_URL = 'http://127.0.0.1:17321';
 const BRIDGE_BASE_URL = 'http://127.0.0.1:31457';
@@ -50,6 +51,22 @@ export type TimelineRepositoryWorkNodePatch = {
   diffSummary: Record<string, unknown>;
   riskFlags: unknown[];
   createdAt: number;
+};
+
+export type TimelineRepositoryWorkNodeCommit = {
+  id: string;
+  nodeId: string;
+  timelineId: string;
+  branchId: string;
+  createdAt: number;
+  label: string;
+  summary: TimelinePayloadDiffSummary;
+  riskFlags: AiTimelineRiskFlag[];
+  approval: AiTimelineApproval;
+  checkoutApplied: boolean;
+  checkout?: AiTimelineCheckout;
+  basePayload?: TimelineSnapshotPayload;
+  appliedPayload?: TimelineSnapshotPayload;
 };
 
 async function readResponse<T>(response: Response): Promise<T> {
@@ -144,6 +161,12 @@ export function createTimelineRepositoryClient() {
         `/local-data/timeline-work-nodes/${encodeURIComponent(nodeId)}/patches`,
       );
       return response.patches;
+    },
+    async listWorkNodeCommits(timelineId: string) {
+      const response = await requestWithFallback<RepositoryResponse<{ commits: TimelineRepositoryWorkNodeCommit[] }>>(
+        `/local-data/timeline-work-node-commits?timelineId=${encodeURIComponent(timelineId)}`,
+      );
+      return response.commits;
     },
     async listAuditEvents(timelineId: string, limit = 100) {
       const response = await requestWithFallback<RepositoryResponse<{ events: TimelineAuditEvent[] }>>(

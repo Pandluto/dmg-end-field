@@ -1279,6 +1279,11 @@ function handleTimelineRepositoryRequest(method, pathname, query, body) {
     if (!timelineId) return failScript(400, 'missing-timeline-id', 'Timeline work node list requires timelineId.');
     return { status: 200, body: { ok: true, protocolVersion: 1, nodes: repository.listWorkNodes(timelineId) } };
   }
+  if (method === 'GET' && pathname === '/api/timeline-work-node-commits') {
+    const timelineId = query.get('timelineId') || '';
+    if (!timelineId) return failScript(400, 'missing-timeline-id', 'Timeline Work Node commit list requires timelineId.');
+    return { status: 200, body: { ok: true, protocolVersion: 1, commits: repository.listWorkNodeCommits(timelineId) } };
+  }
   if (method === 'GET' && pathname === '/api/timeline-audit-events') {
     const timelineId = query.get('timelineId') || '';
     if (!timelineId) return failScript(400, 'missing-timeline-id', 'Timeline audit list requires timelineId.');

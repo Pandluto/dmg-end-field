@@ -119,15 +119,16 @@ export function WorkNodeTreePanel({ timelineId, refreshKey, onSelectedNodeChange
       try {
         const response = await createAiTimelineWorkNodeClient().list();
         const repository = createTimelineRepositoryClient();
-        const [repositoryNodes, checkoutRef] = await Promise.all([
+        const [repositoryNodes, repositoryCommits, checkoutRef] = await Promise.all([
           repository.listWorkNodes(timelineId),
+          repository.listWorkNodeCommits(timelineId),
           repository.getCheckoutRef(timelineId),
         ]);
         if (cancelled) return;
         applyListResponse({
           ...response,
           headNodeId: checkoutRef?.targetType === 'work-node' ? checkoutRef.targetId : '',
-          commits: (response.commits || []).filter((commit) => commit.timelineId === timelineId),
+          commits: repositoryCommits as AiTimelineWorkNodeCommitListItem[],
           nodes: repositoryNodes.map((node) => ({
           ...node,
           riskFlags: node.riskFlags.map((risk, index) => ({ ...risk, id: `${risk.code || 'risk'}-${index}` })),
@@ -182,14 +183,15 @@ export function WorkNodeTreePanel({ timelineId, refreshKey, onSelectedNodeChange
   const reloadNodes = async () => {
     const response = await createAiTimelineWorkNodeClient().list();
     const repository = createTimelineRepositoryClient();
-    const [repositoryNodes, checkoutRef] = await Promise.all([
+    const [repositoryNodes, repositoryCommits, checkoutRef] = await Promise.all([
       repository.listWorkNodes(timelineId),
+      repository.listWorkNodeCommits(timelineId),
       repository.getCheckoutRef(timelineId),
     ]);
     const next = {
       ...response,
       headNodeId: checkoutRef?.targetType === 'work-node' ? checkoutRef.targetId : '',
-      commits: (response.commits || []).filter((commit) => commit.timelineId === timelineId),
+      commits: repositoryCommits as AiTimelineWorkNodeCommitListItem[],
       nodes: repositoryNodes.map((node) => ({
       ...node, riskFlags: node.riskFlags.map((risk, index) => ({ ...risk, id: `${risk.code || 'risk'}-${index}` })),
       status: node.status as AiTimelineWorkNodeListItem['status'],

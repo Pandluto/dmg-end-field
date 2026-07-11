@@ -199,6 +199,11 @@ try {
   const repositoryCheckout = await request('GET', '/api/timeline-checkout-ref?timelineId=save-rest');
   assert.equal(repositoryCheckout.status, 200, JSON.stringify(repositoryCheckout.body));
   assert.equal(repositoryCheckout.body.checkoutRef.targetId, 'branch');
+  const repositoryCommits = await request('GET', '/api/timeline-work-node-commits?timelineId=save-rest');
+  assert.equal(repositoryCommits.status, 200, JSON.stringify(repositoryCommits.body));
+  assert.equal(repositoryCommits.body.commits.length, 1);
+  assert.equal(repositoryCommits.body.commits[0].id, 'commit-branch');
+  assert.equal(repositoryCommits.body.commits[0].checkoutApplied, true);
 
   const restored = await request('POST', '/api/ai-timeline-worknodes/branch/rollback-applied', {
     appliedBy: 'user',

@@ -1017,6 +1017,16 @@ function startBridgeServer() {
         return;
       }
 
+      if (method === 'GET' && requestUrl.pathname === '/local-data/timeline-work-node-commits') {
+        const timelineId = requestUrl.searchParams.get('timelineId') || '';
+        if (!timelineId) {
+          writeJson(response, 400, { ok: false, error: { code: 'missing-timeline-id', message: 'Timeline Work Node commit list requires timelineId.' } });
+          return;
+        }
+        writeJson(response, 200, { ok: true, path: getTimelineRepositoryPath(), commits: getTimelineRepository().listWorkNodeCommits(timelineId) });
+        return;
+      }
+
       if (method === 'GET' && requestUrl.pathname === '/local-data/timeline-audit-events') {
         const timelineId = requestUrl.searchParams.get('timelineId') || '';
         if (!timelineId) {
