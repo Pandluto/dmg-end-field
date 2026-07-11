@@ -108,6 +108,7 @@ import {
 } from '../../agentKernel/timelineWorktree';
 import { buildAiTimelineCheckoutDecision } from '../../agentKernel/timelineWorktree/checkoutDecision.mjs';
 import { DEFAULT_TIMELINE_ID } from '../../core/domain/timeline';
+import type { TimelineCheckoutRef, TimelineDocument } from '../../core/domain/timeline';
 import { createTimelineRepositoryClient } from '../../agentKernel/timelineRepository/localTimelineClient';
 import type { TimelineRepositoryBundleWorkNode } from '../../agentKernel/timelineRepository/localTimelineClient';
 
@@ -127,6 +128,16 @@ function getLegacySnapshotTimelineId(snapshotId: string): string {
 }
 
 type TimelineSnapshotListEntry = TimelineSnapshotEntry & { timelineId: string };
+type TimelineDocumentListEntry = {
+  document: TimelineDocument;
+  checkoutRef: TimelineCheckoutRef | null;
+  targetType: 'snapshot' | 'work-node' | null;
+  targetId: string;
+  payload: TimelineSnapshotPayload | null;
+  snapshotCount: number;
+  workNodeCount: number;
+  summary: { characterCount: number; buttonCount: number; buffCount: number };
+};
 
 const EMPTY_BATCH_TARGET_RESISTANCE: Required<HitResistanceInput> = {
   physicalResistance: 0,
@@ -435,6 +446,8 @@ export function CanvasBoard({
   const [pendingImportBundle, setPendingImportBundle] = useState<TimelineBundleV2 | null>(null);
   const [pendingImportTimelineId, setPendingImportTimelineId] = useState('');
   const [timelineSnapshots, setTimelineSnapshots] = useState<TimelineSnapshotListEntry[]>([]);
+  const [timelineDocuments, setTimelineDocuments] = useState<TimelineDocumentListEntry[]>([]);
+  const [restorePanelTab, setRestorePanelTab] = useState<'snapshots' | 'sqlite'>('snapshots');
   const [isBrowseMode, setIsBrowseMode] = useState(false);
   const [isInspectMode, setIsInspectMode] = useState(false);
   const [isAiMode, setIsAiMode] = useState(false);
@@ -2787,8 +2800,49 @@ export function CanvasBoard({
           summary: { characterCount: payload.selectedCharacters.length, buttonCount, buffCount: payload.allBuffList.length } };
       });
       setTimelineSnapshots(repositoryEntries.sort((left, right) => right.createdAt - left.createdAt));
+      const documentEntries = await Promise.all(documents.map(async (document): Promise<TimelineDocumentListEntry> => {
+        const [bundle, checkoutRef] = await Promise.all([
+          repository.exportDocumentBundle(document.id),
+          repository.getCheckoutRef(document.id),
+        ]);
+        const fallbackSnapshot = [...bundle.snapshots].sort((left, right) => right.createdAt - left.createdAt)[0];
+        const fallbackWorkNode = [...bundle.workNodes].sort((left, right) => right.updatedAt - left.updatedAt)[0];
+        const targetSnapshot = checkoutRef?.targetType === 'snapshot'
+          ? bundle.snapshots.find((snapshot) => snapshot.id === checkoutRef.targetId)
+          : undefined;
+        const targetWorkNode = checkoutRef?.targetType === 'work-node'
+          ? bundle.workNodes.find((node) => node.id === checkoutRef.targetId)
+          : undefined;
+        const payload = targetSnapshot?.payload
+          || targetWorkNode?.workingPayload
+          || fallbackSnapshot?.payload
+          || fallbackWorkNode?.workingPayload
+          || null;
+        const targetType = checkoutRef?.targetType
+          || (fallbackSnapshot ? 'snapshot' : fallbackWorkNode ? 'work-node' : null);
+        const targetId = checkoutRef?.targetId || fallbackSnapshot?.id || fallbackWorkNode?.id || '';
+        return {
+          document,
+          checkoutRef,
+          targetType,
+          targetId,
+          payload,
+          snapshotCount: bundle.snapshots.length,
+          workNodeCount: bundle.workNodes.length,
+          summary: payload ? {
+            characterCount: payload.selectedCharacters.length,
+            buttonCount: Object.keys(payload.skillButtonTable).length,
+            buffCount: payload.allBuffList.length,
+          } : { characterCount: 0, buttonCount: 0, buffCount: 0 },
+        };
+      }));
+      setTimelineDocuments(documentEntries.sort((left, right) => (
+        Number(right.document.id === activeTimelineId) - Number(left.document.id === activeTimelineId)
+        || right.document.updatedAt - left.document.updatedAt
+      )));
     } catch {
       setTimelineSnapshots(listTimelineSnapshots().map((snapshot) => ({ ...snapshot, timelineId: DEFAULT_TIMELINE_ID })));
+      setTimelineDocuments([]);
     }
   };
 
@@ -2916,6 +2970,7 @@ export function CanvasBoard({
   };
 
   const handleOpenSnapshotModal = () => {
+    setRestorePanelTab('snapshots');
     void refreshTimelineSnapshotList();
     setIsSnapshotModalOpen(true);
   };
@@ -2923,6 +2978,34 @@ export function CanvasBoard({
   const handleCloseSnapshotModal = () => {
     setIsSnapshotModalOpen(false);
     setPendingRestoreSnapshot(null);
+  };
+
+  const handleOpenTimelineDocument = async (entry: TimelineDocumentListEntry) => {
+    if (!entry.payload || !entry.targetType || !entry.targetId) {
+      alert('该 SQLite 排轴文档还没有可打开的快照或工作节点');
+      return;
+    }
+    try {
+      const repository = createTimelineRepositoryClient();
+      if (!entry.checkoutRef) {
+        await repository.setCheckoutRef({
+          timelineId: entry.document.id,
+          targetType: entry.targetType,
+          targetId: entry.targetId,
+          updatedAt: Date.now(),
+        });
+      }
+      writeActiveTimelineDocumentId(entry.document.id);
+      setActiveTimelineId(entry.document.id);
+      hydrateCheckoutRuntime(entry.payload);
+      if (entry.workNodeCount === 0) {
+        await ensureTimelineDocumentBaselineWorkNode(entry.document.id, entry.payload, entry.document.label);
+      }
+      setIsSnapshotModalOpen(false);
+      window.location.reload();
+    } catch (error) {
+      alert(`打开 SQLite 排轴失败：${error instanceof Error ? error.message : String(error)}`);
+    }
   };
 
   const handleRequestRestoreSnapshot = (snapshot: TimelineSnapshotListEntry) => {
@@ -3423,15 +3506,36 @@ export function CanvasBoard({
           <div className="timeline-snapshot-modal" onClick={(event) => event.stopPropagation()}>
             <div className="timeline-snapshot-modal-head">
               <div>
-                <h3>恢复排轴快照</h3>
-                <p>恢复会覆盖当前排轴缓存，并在写回后自动刷新界面。</p>
+                <h3>恢复排轴</h3>
+                <p>“快照”用于回退恢复点；“SQLite”用于直接打开完整排轴文档及其工作树。</p>
               </div>
               <button type="button" className="modal-close-btn" onClick={handleCloseSnapshotModal}>
                 关闭
               </button>
             </div>
 
-            {timelineSnapshots.length === 0 ? (
+            <div className="timeline-restore-tabs" role="tablist" aria-label="恢复来源">
+              <button
+                type="button"
+                role="tab"
+                aria-selected={restorePanelTab === 'snapshots'}
+                className={restorePanelTab === 'snapshots' ? 'is-active' : ''}
+                onClick={() => setRestorePanelTab('snapshots')}
+              >
+                快照
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={restorePanelTab === 'sqlite'}
+                className={restorePanelTab === 'sqlite' ? 'is-active' : ''}
+                onClick={() => setRestorePanelTab('sqlite')}
+              >
+                SQLite
+              </button>
+            </div>
+
+            {restorePanelTab === 'snapshots' && (timelineSnapshots.length === 0 ? (
               <div className="timeline-snapshot-empty">
                 当前还没有可恢复的快照。先点一次“保存”即可创建时间点。
               </div>
@@ -3474,7 +3578,43 @@ export function CanvasBoard({
                   </div>
                 ))}
               </div>
-            )}
+            ))}
+
+            {restorePanelTab === 'sqlite' && (timelineDocuments.length === 0 ? (
+              <div className="timeline-snapshot-empty">
+                SQLite 中还没有可直接打开的排轴文档。
+              </div>
+            ) : (
+              <div className="timeline-snapshot-list timeline-document-list">
+                {timelineDocuments.map((entry) => (
+                  <div
+                    key={entry.document.id}
+                    className={`timeline-snapshot-item timeline-document-item${entry.document.id === activeTimelineId ? ' is-active' : ''}`}
+                  >
+                    <div className="timeline-snapshot-item-main">
+                      <strong>{entry.document.label}</strong>
+                      <span>
+                        {entry.summary.characterCount} 干员 / {entry.summary.buttonCount} 按钮 / {entry.summary.buffCount} Buff
+                      </span>
+                      <span>
+                        {entry.snapshotCount} 快照 / {entry.workNodeCount} 工作节点
+                        {entry.document.id === activeTimelineId ? ' / 当前打开' : ''}
+                      </span>
+                    </div>
+                    <div className="timeline-snapshot-item-actions">
+                      <button
+                        type="button"
+                        className="btn-save"
+                        disabled={!entry.payload}
+                        onClick={() => void handleOpenTimelineDocument(entry)}
+                      >
+                        打开
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ))}
           </div>
         </div>
       )}

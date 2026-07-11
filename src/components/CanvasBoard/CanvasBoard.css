@@ -2948,3 +2948,33 @@
   font-size: 13px;
   pointer-events: none;
 }
+
+.timeline-restore-tabs {
+  display: flex;
+  gap: 6px;
+  margin: 12px 0;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #d1d5db;
+}
+
+.timeline-restore-tabs button {
+  min-width: 88px;
+  padding: 7px 14px;
+  border: 1px solid #9ca3af;
+  border-radius: 3px;
+  background: #fff;
+  color: #374151;
+  cursor: pointer;
+}
+
+.timeline-restore-tabs button.is-active {
+  border-color: #8b5cf6;
+  background: #f5f3ff;
+  color: #5b21b6;
+  box-shadow: inset 0 -2px 0 #8b5cf6;
+}
+
+.timeline-document-item.is-active {
+  border-color: #8b5cf6;
+  box-shadow: 0 0 0 1px #8b5cf6;
+}
