@@ -13,6 +13,7 @@
     "smoke:ai-cli-rest": "node scripts/ai-cli-rest-smoke.mjs",
     "smoke:work-node-sqlite": "node scripts/ai-timeline-work-node-sqlite-smoke.mjs && node scripts/ai-timeline-work-node-rest-smoke.mjs && node scripts/ai-timeline-work-node-backup-restore-smoke.mjs && node scripts/timeline-migration-smoke.mjs",
     "smoke:timeline-bundle": "node scripts/timeline-bundle-v2-smoke.mjs",
+    "smoke:timeline-client": "node scripts/run-ts-test.mjs /src/agentKernel/timelineRepository/localTimelineClient.test.ts",
     "dev": "vite --host 127.0.0.1 --port 3030",
     "assets:release": "node scripts/build-image-release-manifest.mjs",
     "akedb:extract": "node scripts/extract-akedb-raw-index.mjs",
