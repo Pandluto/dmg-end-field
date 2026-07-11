@@ -125,8 +125,6 @@ export type MainWorkbenchCommand =
   | {
       op: 'createAiTimelineWorkNodeFromCurrent';
       timelineId?: string;
-      /** @deprecated Migration input alias for timelineId. */
-      saveId?: string;
       branchId?: string;
       parentNodeId?: string | null;
       label?: string;
@@ -146,8 +144,6 @@ export type MainWorkbenchCommand =
       op: 'patchAndValidateAiTimelineWorkNode';
       nodeId?: string;
       timelineId?: string;
-      /** @deprecated Migration input alias for timelineId. */
-      saveId?: string;
       branchId?: string;
       label?: string;
       parentNodeId?: string | null;

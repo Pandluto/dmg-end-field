@@ -212,7 +212,7 @@ interface AiTimelineWorkNodeBridge {
   id: string;
   parentNodeId?: string;
   timelineId: string;
-  /** @deprecated Migration alias for timelineId. */
+  /** @deprecated Legacy Electron bridge alias; do not consume in renderer domain code. */
   saveId: string;
   branchId: string;
   createdAt: number;
@@ -232,7 +232,7 @@ interface AiTimelineWorkNodeCommitBridge {
   id: string;
   nodeId: string;
   timelineId: string;
-  /** @deprecated Migration alias for timelineId. */
+  /** @deprecated Legacy Electron bridge alias; do not consume in renderer domain code. */
   saveId: string;
   branchId: string;
   createdAt: number;
@@ -269,7 +269,7 @@ interface AiTimelineWorkNodeOpResult {
   commit?: AiTimelineWorkNodeCommitBridge;
   nodeId?: string;
   timelineId?: string;
-  /** @deprecated Migration alias for timelineId. */
+  /** @deprecated Legacy Electron bridge alias; read only at the bridge boundary. */
   saveId?: string;
   branchId?: string;
   status?: AiTimelineWorkNodeStatus;

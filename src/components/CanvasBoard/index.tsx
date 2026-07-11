@@ -1166,7 +1166,7 @@ export function CanvasBoard({
     const client = createAiTimelineWorkNodeClient();
     const hasParentNodeInput = Object.prototype.hasOwnProperty.call(command, 'parentNodeId');
     const created = await client.create({
-      timelineId: command.timelineId?.trim() || command.saveId?.trim() || activeTimelineId,
+      timelineId: command.timelineId?.trim() || activeTimelineId,
       branchId: command.branchId?.trim() || `main-workbench-${now}`,
       ...(hasParentNodeInput ? {
         parentNodeId: command.parentNodeId === null ? null : (command.parentNodeId?.trim() || null),
@@ -1403,7 +1403,7 @@ export function CanvasBoard({
     if (!nodeId) {
       created = await createAiTimelineWorkNodeFromCurrentCommand({
         op: 'createAiTimelineWorkNodeFromCurrent',
-        timelineId: command.timelineId || command.saveId,
+        timelineId: command.timelineId,
         branchId: command.branchId,
         ...(Object.prototype.hasOwnProperty.call(command, 'parentNodeId') ? { parentNodeId: command.parentNodeId } : {}),
         label: command.label,

@@ -131,7 +131,6 @@ export function WorkNodeTreePanel({ timelineId, refreshKey, onSelectedNodeChange
           nodes: repositoryNodes.map((node) => ({
           ...node,
           riskFlags: node.riskFlags.map((risk, index) => ({ ...risk, id: `${risk.code || 'risk'}-${index}` })),
-          saveId: node.timelineId,
           status: node.status as AiTimelineWorkNodeListItem['status'],
           approvalPolicy: node.approvalPolicy as AiTimelineWorkNodeListItem['approvalPolicy'],
           baseSummary: node.baseSummary,
@@ -192,7 +191,7 @@ export function WorkNodeTreePanel({ timelineId, refreshKey, onSelectedNodeChange
       headNodeId: checkoutRef?.targetType === 'work-node' ? checkoutRef.targetId : '',
       commits: (response.commits || []).filter((commit) => commit.timelineId === timelineId),
       nodes: repositoryNodes.map((node) => ({
-      ...node, riskFlags: node.riskFlags.map((risk, index) => ({ ...risk, id: `${risk.code || 'risk'}-${index}` })), saveId: node.timelineId,
+      ...node, riskFlags: node.riskFlags.map((risk, index) => ({ ...risk, id: `${risk.code || 'risk'}-${index}` })),
       status: node.status as AiTimelineWorkNodeListItem['status'],
       approvalPolicy: node.approvalPolicy as AiTimelineWorkNodeListItem['approvalPolicy'],
       baseSummary: node.baseSummary,
