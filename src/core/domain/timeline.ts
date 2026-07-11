@@ -30,7 +30,9 @@ export interface TimelineWorkNode {
   parentNodeId: string | null;
   basePayloadHash: string;
   workingPayloadHash: string;
-  status: 'draft' | 'validated' | 'blocked' | 'applied' | 'archived';
+  // The latter four values are retained while legacy Work Node rows are
+  // mirrored into the Repository; new callers should prefer the canonical set.
+  status: 'draft' | 'validated' | 'blocked' | 'applied' | 'archived' | 'open' | 'ready' | 'committed' | 'abandoned';
   createdAt: number;
   updatedAt: number;
 }

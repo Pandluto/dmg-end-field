@@ -4,6 +4,16 @@ const path = require('node:path');
 const { DatabaseSync } = require('node:sqlite');
 
 const SCHEMA_VERSION = 1;
+const WORK_NODE_STATUSES = new Set(['draft', 'validated', 'blocked', 'applied', 'archived', 'open', 'ready', 'committed', 'abandoned']);
+
+function normalizeWorkNodeStatus(status) {
+  const normalized = typeof status === 'string' && status.trim() ? status.trim() : 'draft';
+  if (WORK_NODE_STATUSES.has(normalized)) return normalized;
+  const error = new Error(`Unsupported Timeline Work Node status: ${normalized}`);
+  error.code = 'invalid-timeline-work-node-status';
+  error.status = 400;
+  throw error;
+}
 
 function serialize(value) {
   return JSON.stringify(value ?? {});
@@ -351,7 +361,7 @@ function createTimelineRepository({ databasePath }) {
             status, approval_policy, risk_flags, logs, created_at, updated_at
           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `).run(node.id, documentId, node.parentNodeId || null, basePayloadHash, workingPayloadHash,
-          node.branchId || node.id, node.label || node.id, node.status || 'draft', node.approvalPolicy || 'auto-low-risk',
+          node.branchId || node.id, node.label || node.id, normalizeWorkNodeStatus(node.status), node.approvalPolicy || 'auto-low-risk',
           serialize(node.riskFlags), serialize(node.logs), createdAt, node.updatedAt || createdAt);
         insertedNodeIds.add(node.id);
       }
@@ -526,7 +536,7 @@ function createTimelineRepository({ databasePath }) {
           logs = excluded.logs,
           updated_at = excluded.updated_at
       `).run(input.id, input.timelineId, input.parentNodeId || null, basePayloadHash, workingPayloadHash,
-        input.branchId || input.id, input.label || input.id, input.status || 'draft', input.approvalPolicy || 'auto-low-risk',
+        input.branchId || input.id, input.label || input.id, normalizeWorkNodeStatus(input.status), input.approvalPolicy || 'auto-low-risk',
         serialize(input.riskFlags), serialize(input.logs), createdAt, input.updatedAt || createdAt);
       return { id: input.id, imported: db.prepare('SELECT 1 FROM timeline_work_nodes WHERE id = ?').get(input.id) != null };
     });

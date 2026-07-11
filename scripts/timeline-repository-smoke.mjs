@@ -30,6 +30,10 @@ repository.importWorkNode({
   id: 'node-1', timelineId: 'timeline-main', branchId: 'branch-1', label: 'Draft',
   basePayload: payload, workingPayload: payload, createdAt: 6, updatedAt: 6,
 });
+assert.throws(() => repository.importWorkNode({
+  id: 'node-invalid-status', timelineId: 'timeline-main', branchId: 'invalid', label: 'Invalid', status: 'not-a-status',
+  basePayload: payload, workingPayload: payload,
+}), { code: 'invalid-timeline-work-node-status' });
 repository.appendWorkNodePatch({
   id: 'patch-1', timelineId: 'timeline-main', nodeId: 'node-1',
   patch: [{ op: 'moveButton', target: { buttonId: 'button-1' }, nodeIndex: 1 }],

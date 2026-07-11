@@ -1224,7 +1224,7 @@ function handleTimelineRepositoryRequest(method, pathname, query, body) {
       return { status: 200, body: { ok: true, protocolVersion: 1, ...repository.importDocumentBundle(body) } };
     } catch (error) {
       if (error?.status === 409) return failScript(409, error.code, error.message);
-      if (error?.code?.includes('timeline-bundle')) return failScript(400, error.code, error.message);
+      if (error?.status === 400 || error?.code?.includes('timeline-bundle')) return failScript(400, error.code, error.message);
       throw error;
     }
   }
