@@ -26,11 +26,11 @@
 
 ## S2-T3：收口 WorkNode 状态与错误协议
 
-- [ ] 完成 WorkNode 全部合法状态转换表，并由 Repository 作为唯一权威执行。
-- [ ] create、patch、validate、commit、checkout、restore-base、delete 和 document-delete 统一返回结构化业务错误。
-- [ ] REST、Electron bridge 和 renderer 不再把业务冲突泄漏为原始 SQLite 错误或 500。
-- [ ] 文档删除、节点删除、当前 checkout 保护、跨文档 parent、重复 ID 和非法状态分别提供稳定错误码。
-- [ ] UI 显示错误原因和建议动作，不根据错误文本猜测能力。
+- [x] 完成 WorkNode 全部合法状态转换表，并由 Repository 作为唯一权威执行。
+- [x] create、patch、validate、commit、checkout、restore-base、delete 和 document-delete 统一返回结构化业务错误。
+- [x] REST、Electron bridge 和 renderer 不再把业务冲突泄漏为原始 SQLite 错误或 500。
+- [x] 文档删除、节点删除、当前 checkout 保护、跨文档 parent、重复 ID 和非法状态分别提供稳定错误码。
+- [x] UI 显示错误原因和建议动作，不根据错误文本猜测能力。
 
 验收：所有预期冲突返回 4xx 和稳定错误码；smoke 中不得出现原始约束错误。
 

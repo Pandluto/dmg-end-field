@@ -109,7 +109,7 @@ import {
 import { buildAiTimelineCheckoutDecision } from '../../agentKernel/timelineWorktree/checkoutDecision.mjs';
 import { DEFAULT_TIMELINE_ID } from '../../core/domain/timeline';
 import type { TimelineCheckoutRef, TimelineDocument } from '../../core/domain/timeline';
-import { createTimelineRepositoryClient } from '../../agentKernel/timelineRepository/localTimelineClient';
+import { createTimelineRepositoryClient, formatTimelineOperationError } from '../../agentKernel/timelineRepository/localTimelineClient';
 import type { TimelineRepositoryBundleWorkNode } from '../../agentKernel/timelineRepository/localTimelineClient';
 import { useTimelineSession } from '../../agentKernel/timelineRepository/useTimelineSession';
 
@@ -2974,7 +2974,7 @@ export function CanvasBoard({
       setWorkNodeSaveNotice(parent ? '已保存为当前工作树的子节点' : '已保存为当前工作树的首个节点');
       window.setTimeout(() => setWorkNodeSaveNotice(''), 2200);
     } catch (error) {
-      alert(`工作节点保存失败：${error instanceof Error ? error.message : String(error)}`);
+      alert(`工作节点保存失败：${formatTimelineOperationError(error)}`);
     }
   };
 
@@ -3019,8 +3019,7 @@ export function CanvasBoard({
       };
       setTimelineSnapshots((current) => [persistedSnapshot, ...current.filter((item) => item.id !== saved.snapshot.id)]);
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      alert(`快照保存失败：${message}`);
+      alert(`快照保存失败：${formatTimelineOperationError(error)}`);
       return;
     }
     handleCloseSaveSnapshotModal();
@@ -3062,7 +3061,7 @@ export function CanvasBoard({
       setWorkNodeSaveNotice(`已打开 SQLite 排轴：${entry.document.label}`);
       window.setTimeout(() => setWorkNodeSaveNotice(''), 2200);
     } catch (error) {
-      alert(`打开 SQLite 排轴失败：${error instanceof Error ? error.message : String(error)}`);
+      alert(`打开 SQLite 排轴失败：${formatTimelineOperationError(error)}`);
     }
   };
 
@@ -3088,8 +3087,10 @@ export function CanvasBoard({
         return;
       }
       await refreshTimelineSnapshotList();
+      setWorkNodeSaveNotice(`已删除 SQLite 排轴：${entry.document.label}`);
+      window.setTimeout(() => setWorkNodeSaveNotice(''), 2200);
     } catch (error) {
-      alert(`删除 SQLite 排轴失败：${error instanceof Error ? error.message : String(error)}`);
+      alert(`删除 SQLite 排轴失败：${formatTimelineOperationError(error)}`);
     }
   };
 
@@ -3139,7 +3140,7 @@ export function CanvasBoard({
         pendingRestoreSnapshot.label,
       );
     } catch (error) {
-      alert(`恢复失败：${error instanceof Error ? error.message : String(error)}`);
+      alert(`恢复失败：${formatTimelineOperationError(error)}`);
       return;
     }
 
@@ -3154,8 +3155,10 @@ export function CanvasBoard({
     try {
       await createTimelineRepositoryClient().archiveSnapshot(snapshotId);
       await refreshTimelineSnapshotList();
+      setWorkNodeSaveNotice('快照已删除');
+      window.setTimeout(() => setWorkNodeSaveNotice(''), 2200);
     } catch (error) {
-      alert(`删除快照失败：${error instanceof Error ? error.message : String(error)}`);
+      alert(`删除快照失败：${formatTimelineOperationError(error)}`);
     }
   };
 
