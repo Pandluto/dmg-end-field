@@ -2883,7 +2883,9 @@ export function CanvasBoard({
       const workNodes = shareScope === 'document'
         ? exported.workNodes
         : shareScope === 'branch'
-          ? exported.workNodes.filter((node) => branchNodeIds.has(node.id))
+        ? exported.workNodes
+          .filter((node) => branchNodeIds.has(node.id))
+          .map((node) => node.id === shareBranchRootId ? { ...node, parentNodeId: undefined } : node)
           : [];
       shareFile = await buildTimelineBundleV2({
         timelineId: DEFAULT_TIMELINE_ID,
@@ -3363,8 +3365,8 @@ export function CanvasBoard({
                   value={shareBranchRootId}
                   onChange={(event) => setShareBranchRootId(event.target.value)}
                 >
-                  {shareWorkNodes.filter((node) => !node.parentNodeId).map((node) => (
-                    <option key={node.id} value={node.id}>{node.label}</option>
+                  {shareWorkNodes.map((node) => (
+                    <option key={node.id} value={node.id}>{node.parentNodeId ? `↳ ${node.label}` : node.label}</option>
                   ))}
                 </select>
               </>
