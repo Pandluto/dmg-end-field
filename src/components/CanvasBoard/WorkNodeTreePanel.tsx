@@ -70,6 +70,9 @@ export function WorkNodeTreePanel({ timelineId, refreshKey, onSelectedNodeChange
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
   const [camera, setCamera] = useState({ x: 0, y: 0 });
+  const cameraRef = useRef(camera);
+  const treeCanvasRef = useRef<HTMLDivElement | null>(null);
+  const cameraFrameRef = useRef<number | null>(null);
   const dragRef = useRef<{ pointerId: number; startX: number; startY: number; cameraX: number; cameraY: number } | null>(null);
   const revisionRef = useRef(0);
 
@@ -111,8 +114,13 @@ export function WorkNodeTreePanel({ timelineId, refreshKey, onSelectedNodeChange
     setSelectedNodeId('');
     setSelectedNodePatches([]);
     setSelectedNodeAuditEvents([]);
+    cameraRef.current = { x: 0, y: 0 };
     setCamera({ x: 0, y: 0 });
   }, [timelineId]);
+
+  useEffect(() => () => {
+    if (cameraFrameRef.current !== null) window.cancelAnimationFrame(cameraFrameRef.current);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -310,8 +318,8 @@ export function WorkNodeTreePanel({ timelineId, refreshKey, onSelectedNodeChange
       pointerId: event.pointerId,
       startX: event.clientX,
       startY: event.clientY,
-      cameraX: camera.x,
-      cameraY: camera.y,
+      cameraX: cameraRef.current.x,
+      cameraY: cameraRef.current.y,
     };
     event.currentTarget.setPointerCapture(event.pointerId);
   };
@@ -319,14 +327,32 @@ export function WorkNodeTreePanel({ timelineId, refreshKey, onSelectedNodeChange
   const handleCanvasPointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
     const drag = dragRef.current;
     if (!drag || drag.pointerId !== event.pointerId) return;
-    setCamera({
+    cameraRef.current = {
       x: drag.cameraX + event.clientX - drag.startX,
       y: drag.cameraY + event.clientY - drag.startY,
+    };
+    if (cameraFrameRef.current !== null) return;
+    cameraFrameRef.current = window.requestAnimationFrame(() => {
+      cameraFrameRef.current = null;
+      const canvas = treeCanvasRef.current;
+      if (!canvas) return;
+      const next = cameraRef.current;
+      canvas.style.transform = `translate3d(${next.x}px, ${next.y}px, 0)`;
     });
   };
 
   const stopCanvasDrag = (event: React.PointerEvent<HTMLDivElement>) => {
-    if (dragRef.current?.pointerId === event.pointerId) dragRef.current = null;
+    if (dragRef.current?.pointerId !== event.pointerId) return;
+    dragRef.current = null;
+    if (cameraFrameRef.current !== null) {
+      window.cancelAnimationFrame(cameraFrameRef.current);
+      cameraFrameRef.current = null;
+    }
+    const next = cameraRef.current;
+    if (treeCanvasRef.current) {
+      treeCanvasRef.current.style.transform = `translate3d(${next.x}px, ${next.y}px, 0)`;
+    }
+    setCamera(next);
   };
 
   return (
@@ -358,11 +384,12 @@ export function WorkNodeTreePanel({ timelineId, refreshKey, onSelectedNodeChange
       {!error && loading && viewModel.nodeCount === 0 ? <div className="work-node-tree-empty">正在读取节点</div> : null}
       {!error && !loading && viewModel.nodeCount === 0 ? <div className="work-node-tree-empty">暂无可见节点</div> : null}
       <div
+        ref={treeCanvasRef}
         className="work-node-tree-canvas"
         style={{
           width: treeLayout.width,
           height: treeLayout.height,
-          transform: `translate(${camera.x}px, ${camera.y}px)`,
+          transform: `translate3d(${camera.x}px, ${camera.y}px, 0)`,
         }}
       >
         <svg

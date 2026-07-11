@@ -23,7 +23,7 @@
 .work-node-tree-canvas {
   position: relative;
   min-width: 100%;
-  transition: transform 0.05s linear;
+  will-change: transform;
 }
 
 .work-node-tree-connectors {
