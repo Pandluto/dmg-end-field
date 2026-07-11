@@ -432,8 +432,10 @@ export function CanvasBoard({
     EMPTY_BATCH_TARGET_RESISTANCE
   );
   const [resistanceRevision, setResistanceRevision] = useState(0);
+  const [checkoutBootstrapRevision, setCheckoutBootstrapRevision] = useState(0);
   const shareImportInputRef = useRef<HTMLInputElement>(null);
   const isProcessingWorkbenchCommandRef = useRef(false);
+  const isCheckoutBootstrapPendingRef = useRef(true);
 
   const canvasWidth = useCanvasWidth(canvasConfig.canvasWidthPercent);
   useSelectStart();
@@ -643,6 +645,27 @@ export function CanvasBoard({
     dispatch({ type: 'SET_SELECTED_CHARACTERS', characters: resolvedCharacters });
     syncRuntimeSkillButtonsFromTimelineData(normalizedTimelineData, resolvedCharacters);
   }, [dispatch, loadedCharacters, normalizeTimelineData, replaceTimelineData, selectedCharacters, syncRuntimeSkillButtonsFromTimelineData]);
+
+  useEffect(() => {
+    if (!isCheckoutBootstrapPendingRef.current || loadedCharacters.length === 0) return;
+    void (async () => {
+      try {
+        const repository = createTimelineRepositoryClient();
+        const checkoutRef = await repository.getCheckoutRef(DEFAULT_TIMELINE_ID);
+        if (!checkoutRef) return;
+        const exported = await repository.exportDocumentBundle(DEFAULT_TIMELINE_ID);
+        const payload = checkoutRef.targetType === 'snapshot'
+          ? exported.snapshots.find((snapshot) => snapshot.id === checkoutRef.targetId)?.payload
+          : exported.workNodes.find((node) => node.id === checkoutRef.targetId)?.workingPayload;
+        if (payload) hydrateCheckoutRuntime(payload);
+      } catch {
+        // A first-run document legitimately has no checkout to hydrate.
+      } finally {
+        isCheckoutBootstrapPendingRef.current = false;
+        setCheckoutBootstrapRevision((revision) => revision + 1);
+      }
+    })();
+  }, [hydrateCheckoutRuntime, loadedCharacters.length]);
 
   const findCharacterForWorkbenchCommand = (command: Extract<MainWorkbenchCommand, { op: 'addSkillButton' | 'removeSkillButton' | 'addBuff' | 'removeBuff' | 'setOperatorWeapon' | 'setOperatorEquipment' }>) => {
     if ('characterId' in command && command.characterId) {
@@ -2262,6 +2285,7 @@ export function CanvasBoard({
         })),
       }];
     });
+    if (isCheckoutBootstrapPendingRef.current) return;
     const previousSnapshot = readMainWorkbenchSnapshot();
     const currentSignature = buildMainWorkbenchSnapshotSignature(mirroredSelectedCharacters, mirroredButtons, mirroredOperatorConfigs);
     const previousSignature = previousSnapshot
@@ -2293,7 +2317,7 @@ export function CanvasBoard({
     };
     writeMainWorkbenchSnapshot(snapshot);
     void pushMainWorkbenchSnapshot(snapshot);
-  }, [currentView, selectedCharacters, skillButtons, timelineData, resistanceRevision]);
+  }, [checkoutBootstrapRevision, currentView, selectedCharacters, skillButtons, timelineData, resistanceRevision]);
 
   const [contextMenuState, setContextMenuState] = useState<{
     buttonId: string;

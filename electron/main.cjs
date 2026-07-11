@@ -1056,6 +1056,16 @@ function startBridgeServer() {
         return;
       }
 
+      if (method === 'GET' && requestUrl.pathname === '/local-data/timeline-checkout-ref') {
+        const timelineId = requestUrl.searchParams.get('timelineId') || '';
+        if (!timelineId) {
+          writeJson(response, 400, { ok: false, error: { code: 'missing-timeline-id', message: 'Timeline checkout ref requires timelineId.' } });
+          return;
+        }
+        writeJson(response, 200, { ok: true, path: getTimelineRepositoryPath(), checkoutRef: getTimelineRepository().getCheckoutRef(timelineId) });
+        return;
+      }
+
       if (method === 'POST' && requestUrl.pathname === '/local-data/ai-timeline-worknodes/create') {
         const payload = await readJsonRequest(request);
         writeJson(response, 200, createAiTimelineWorkNode(payload));

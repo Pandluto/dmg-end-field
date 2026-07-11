@@ -117,6 +117,12 @@ export function createTimelineRepositoryClient() {
       );
       return response.checkoutRef;
     },
+    async getCheckoutRef(timelineId: string) {
+      const response = await requestWithFallback<RepositoryResponse<{ checkoutRef: TimelineCheckoutRef | null }>>(
+        `/local-data/timeline-checkout-ref?timelineId=${encodeURIComponent(timelineId)}`,
+      );
+      return response.checkoutRef;
+    },
     async archiveSnapshot(snapshotId: string) {
       const response = await requestWithFallback<RepositoryResponse<{ result: { id: string; archived: boolean } }>>(
         `/local-data/timeline-snapshots/${encodeURIComponent(snapshotId)}/archive`, 'POST', {},
