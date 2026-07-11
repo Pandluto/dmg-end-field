@@ -470,7 +470,10 @@ function buildWorkbenchTestAgentMessage(userText, snapshot, evidencePayload) {
   const selectedCharacters = Array.isArray(snapshot?.selectedCharacters) ? snapshot.selectedCharacters : [];
   const skillButtons = Array.isArray(snapshot?.skillButtons) ? snapshot.skillButtons : [];
   const selectedSummary = selectedCharacters.length
-    ? selectedCharacters.map((character) => `${character.name || character.id}(${character.id || character.name})`).join(', ')
+    ? selectedCharacters.map((character) => {
+      if (typeof character === 'string') return character;
+      return `${character?.name || character?.id || 'unknown'}(${character?.id || character?.name || 'unknown'})`;
+    }).join(', ')
     : 'none';
   const buttonSummary = skillButtons.length
     ? `${skillButtons.slice(0, 40).map(formatWorkbenchTestButtonLabel).join(', ')}${skillButtons.length > 40 ? `，另有 ${skillButtons.length - 40} 个` : ''}`
