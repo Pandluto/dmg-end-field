@@ -1004,6 +1004,20 @@ function startBridgeServer() {
         return;
       }
 
+      if (method === 'GET' && requestUrl.pathname === '/local-data/timeline-audit-events') {
+        const timelineId = requestUrl.searchParams.get('timelineId') || '';
+        if (!timelineId) {
+          writeJson(response, 400, { ok: false, error: { code: 'missing-timeline-id', message: 'Timeline audit list requires timelineId.' } });
+          return;
+        }
+        writeJson(response, 200, {
+          ok: true,
+          path: getTimelineRepositoryPath(),
+          events: getTimelineRepository().listAuditEvents(timelineId, requestUrl.searchParams.get('limit')),
+        });
+        return;
+      }
+
       const timelineWorkNodePatchMatch = /^\/local-data\/timeline-work-nodes\/([^/]+)\/patches$/.exec(requestUrl.pathname);
       if (method === 'GET' && timelineWorkNodePatchMatch) {
         writeJson(response, 200, {

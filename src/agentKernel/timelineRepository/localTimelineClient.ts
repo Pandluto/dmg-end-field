@@ -1,4 +1,4 @@
-import type { TimelineCheckoutRef, TimelineDocument, TimelineSnapshot } from '../../core/domain/timeline';
+import type { TimelineAuditEvent, TimelineCheckoutRef, TimelineDocument, TimelineSnapshot } from '../../core/domain/timeline';
 import type { TimelineSnapshotPayload } from '../../utils/timelineSnapshotStorage';
 
 const REST_BASE_URL = 'http://127.0.0.1:17321';
@@ -98,6 +98,12 @@ export function createTimelineRepositoryClient() {
         `/local-data/timeline-work-nodes/${encodeURIComponent(nodeId)}/patches`,
       );
       return response.patches;
+    },
+    async listAuditEvents(timelineId: string, limit = 100) {
+      const response = await requestWithFallback<RepositoryResponse<{ events: TimelineAuditEvent[] }>>(
+        `/local-data/timeline-audit-events?timelineId=${encodeURIComponent(timelineId)}&limit=${encodeURIComponent(limit)}`,
+      );
+      return response.events;
     },
     async deleteWorkNode(nodeId: string) {
       const response = await requestWithFallback<RepositoryResponse<{ result: { deletedNodeIds: string[] } }>>(

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createAiTimelineWorkNodeClient } from '../../agentKernel/timelineWorktree/localNodeClient';
 import { createTimelineRepositoryClient, type TimelineRepositoryWorkNodePatch } from '../../agentKernel/timelineRepository/localTimelineClient';
+import type { TimelineAuditEvent } from '../../core/domain/timeline';
 import { DEFAULT_TIMELINE_ID } from '../../core/domain/timeline';
 import type { AiTimelineWorkNodeListResponse } from '../../agentKernel/timelineWorktree/localNodeClient';
 import type { AiTimelineWorkNodeCommitListItem, AiTimelineWorkNodeListItem } from '../../agentKernel/timelineWorktree/types';
@@ -63,6 +64,7 @@ export function WorkNodeTreePanel({ refreshKey, onSelectedNodeChange, onSummaryC
   const [headNodeId, setHeadNodeId] = useState('');
   const [selectedNodeId, setSelectedNodeId] = useState('');
   const [selectedNodePatches, setSelectedNodePatches] = useState<TimelineRepositoryWorkNodePatch[]>([]);
+  const [selectedNodeAuditEvents, setSelectedNodeAuditEvents] = useState<TimelineAuditEvent[]>([]);
   const selectionInitializedRef = useRef(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
@@ -137,11 +139,22 @@ export function WorkNodeTreePanel({ refreshKey, onSelectedNodeChange, onSummaryC
     let cancelled = false;
     if (!selectedNodeId) {
       setSelectedNodePatches([]);
+      setSelectedNodeAuditEvents([]);
       return () => { cancelled = true; };
     }
-    void createTimelineRepositoryClient().listWorkNodePatches(selectedNodeId)
-      .then((patches) => { if (!cancelled) setSelectedNodePatches(patches); })
-      .catch(() => { if (!cancelled) setSelectedNodePatches([]); });
+    const repository = createTimelineRepositoryClient();
+    void Promise.all([
+      repository.listWorkNodePatches(selectedNodeId),
+      repository.listAuditEvents(DEFAULT_TIMELINE_ID),
+    ]).then(([patches, events]) => {
+      if (cancelled) return;
+      setSelectedNodePatches(patches);
+      setSelectedNodeAuditEvents(events.filter((event) => event.subjectType === 'work-node' && event.subjectId === selectedNodeId));
+    }).catch(() => {
+      if (cancelled) return;
+      setSelectedNodePatches([]);
+      setSelectedNodeAuditEvents([]);
+    });
     return () => { cancelled = true; };
   }, [selectedNodeId, refreshKey]);
 
@@ -296,7 +309,9 @@ export function WorkNodeTreePanel({ refreshKey, onSelectedNodeChange, onSummaryC
           {selectedNodePatches[0] ? (
             <span>最近 Patch：{selectedNodePatches[0].patch.length} 项操作 · 校验 {selectedNodePatches[0].validation.ok === false ? '失败' : '通过'} · {Object.entries(selectedNodePatches[0].diffSummary).filter(([, value]) => Number(value) > 0).map(([key, value]) => `${key}:${value}`).join(' / ') || '无结构变化'}</span>
           ) : <span>最近 Patch：暂无</span>}
-          {selectedNode.logs[0] ? <span>最近审计：{selectedNode.logs[0].message}</span> : null}
+          {selectedNodeAuditEvents[0]
+            ? <span>最近审计：{selectedNodeAuditEvents[0].eventType} · {new Date(selectedNodeAuditEvents[0].createdAt).toLocaleString()}</span>
+            : selectedNode.logs[0] ? <span>最近日志：{selectedNode.logs[0].message}</span> : <span>最近审计：暂无</span>}
         </aside>
       ) : null}
       {error ? <div className="work-node-tree-empty">{error}</div> : null}
