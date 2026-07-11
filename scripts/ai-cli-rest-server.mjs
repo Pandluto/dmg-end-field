@@ -2479,6 +2479,7 @@ function applyDefWorkNodePatchOperation(payload, operation, index, operationsApp
     const nodeIndex = Number.isInteger(operation.nodeIndex)
       ? operation.nodeIndex
       : Math.max(-1, ...(Array.isArray(staffLine?.buttons) ? staffLine.buttons : []).map((button) => button.nodeIndex)) + 1;
+    if (nodeIndex < 0 || nodeIndex > 14) throw new Error(`${path}: nodeIndex must be between 0 and 14.`);
     const id = sanitizeWorkNodeId(operation.buttonId, `ai-patch-button-${Date.now()}-${index}`);
     const characterId = typeof operation.characterId === 'string' && operation.characterId.trim()
       ? operation.characterId.trim()
@@ -2618,6 +2619,7 @@ function applyDefWorkNodePatchOperation(payload, operation, index, operationsApp
     if (!buffId) {
       throw new Error(`${path}: attachBuff requires buffId.`);
     }
+    if (operation.nodeIndex < 0 || operation.nodeIndex > 14) throw new Error(`${path}: nodeIndex must be between 0 and 14.`);
     if (!Array.isArray(payload.allBuffList)) payload.allBuffList = [];
     let buff = payload.allBuffList.find((item) => item?.id === buffId);
     if (!buff && suppliedBuff) {
@@ -3092,7 +3094,7 @@ function buildDefToolDefinitions() {
             buttonId: { type: 'string' },
             characterName: { type: 'string' },
             skillType: { type: 'string' },
-            nodeIndex: { type: 'number' },
+            nodeIndex: { type: 'integer', minimum: 0, maximum: 14 },
             latest: { type: 'boolean' },
           },
         },
@@ -3101,7 +3103,7 @@ function buildDefToolDefinitions() {
         targetStaffIndex: { type: 'number', description: 'Required for copyStaffLine.' },
         preserveCharacterIdentity: { type: 'boolean', description: 'copyStaffLine defaults to true for an exact visual/content duplicate.' },
         replaceTarget: { type: 'boolean', description: 'copyStaffLine rejects non-empty targets unless this is explicitly true.' },
-        nodeIndex: { type: 'number', description: 'Required for moveButton; optional for addButton.' },
+        nodeIndex: { type: 'integer', minimum: 0, maximum: 14, description: 'Required for moveButton; optional for addButton. User-facing positions are 1-15.' },
         buffId: { type: 'string', description: 'Required for attachBuff/removeBuff.' },
         buff: { type: 'object', description: 'Optional full buff object for attachBuff when it is not already present in allBuffList.' },
         targetResistance: { type: 'object', description: 'Required for setTargetResistance.' },

@@ -496,7 +496,7 @@ function buildWorkbenchTestAgentMessage(userText, snapshot, evidencePayload) {
   };
 
   return [
-    'For “先不要应用” / “do not apply yet”, create a persisted Work Node draft with checkout:false and dryRun:false so diff evidence remains reviewable. Use dryRun:true only when the user explicitly asks for a preview or simulation.',
+    '只有用户明确说“先不要应用”/“暂存”/“do not apply yet”时，才创建 checkout:false、dryRun:false 的持久 Work Node；只有明确要求预览/模拟时才用 dryRun:true。用户没有这些措辞时，禁止自行改成 checkout:false。',
     '你正在 dmg-end-field 主界面右侧 AI 模式中。当前请求来自 dev-agent workbench-test REST 投喂入口，语义等同用户在主界面 AI 输入框发送一句话。',
     '回复中文，简短，直接说明你做了什么或为什么需要反问。',
     '优先使用 DEF typed tools，不要优先手写 /api/main-workbench/commands/enqueue。',
@@ -507,7 +507,8 @@ function buildWorkbenchTestAgentMessage(userText, snapshot, evidencePayload) {
     '读状态优先用 def.workbench.list_buttons / def.workbench.evidence / def.workbench.damage_report。',
     '指代解析优先用 def.workbench.find_buttons、def.character.resolve、def.skill.resolve、def.buff.resolve。',
     '用户问装备套装/长息是什么/有哪些/该选哪个时，优先用 def.gear.resolve 或 def.equipment.resolve 的短摘要；不要直接拉完整 /api/equipment/library。',
-    '低风险明确加技能优先使用 def.workbench.add_skill_button_and_verify；给单个按钮加 Buff 优先使用 def.buff.add_to_button_and_verify，批量 Buff 使用 def.buff.add_to_buttons；用户要算伤害时优先用 def.damage.calculate_and_verify。',
+    '低风险单步决策是强约束：给一个明确干员在一个明确位置新增一个按钮，必须优先使用 def.workbench.add_skill_button_and_verify，不得改走 Work Node；给单个按钮加 Buff 优先使用 def.buff.add_to_button_and_verify。批量 Buff 才使用 def.buff.add_to_buttons；用户要算伤害时优先用 def.damage.calculate_and_verify。',
+    '每组排轴只有第1到第15格（nodeIndex 0-14）。用户说第16格或更大位置时必须反问组号/合法位置，禁止擅自换算、截断或落到其他格。',
     '高风险/批量/重排轴优先直接使用 def.worknode.patch_and_validate；没有 nodeId 时省略 nodeId，工具会先从可用的当前 payload 镜像创建 work node；用户明确要应用/回退时优先用 def.worknode.checkout_and_verify / def.worknode.restore_base_and_verify，默认 reload:false。',
     'def.worknode.patch 是类代码 Patch DSL / CRUD 工具，只修改 appdata work node workingPayload；checkout/rollback 阶段才写当前迁出态。',
     'def.worknode.patch input: {"nodeId":"...","patch":[{"op":"moveButton","target":{"buttonId":"..."},"nodeIndex":1}],"dryRun":false}。常用 op: addButton/removeButton/moveButton/attachBuff/removeBuff/setTargetResistance/clearTimeline；target 可用 buttonId/characterName/skillType/nodeIndex/latest。',

@@ -52,7 +52,7 @@
 - [x] 复杂重排、多步骤、分支、预览和高风险操作必须创建或复用当前文档的 WorkNode。
 - [x] patch 阶段只更新 `workingPayload`，不得提前修改当前画布或 CheckoutRef。
 - [x] validate、diff 和 risk 证据必须在应用前可读取。
-- [ ] 应用后同时对齐画布工作副本、WorkNode 状态、commit 和 CheckoutRef。
+- [x] 应用后同时对齐画布工作副本、WorkNode 状态、commit 和 CheckoutRef。
 - [x] AI 创建的节点、人工软盘节点和旧存档基线节点使用可区分的来源/标签语义。
 
 验收：低风险即时操作与复杂 WorkNode 操作各完成一组后门自然语言黑盒验证，结果符合各自策略。
@@ -81,9 +81,9 @@
 
 - [ ] 运行 `npm run build`。
 - [ ] 运行 Timeline Repository、WorkNode SQLite/REST、迁移和备份恢复 smoke。
-- [ ] 按 `docs/testing/def-agent-blackbox.md` 完成后门自然语言验证。
+- [x] 按 `docs/testing/def-agent-blackbox.md` 完成后门自然语言验证。
 - [ ] 完成 UI 手测矩阵：快照保存/恢复/删除、SQLite 打开/删除、软盘首节点/子节点、树切换、AI patch/apply、分享和导入。
-- [ ] 完成 Chrome UI 验证：输入、工具活动和最终结果在 MainWorkbenchAiPanel 可见。
+- [x] 完成 Chrome UI 验证：输入、工具活动和最终结果在 MainWorkbenchAiPanel 可见。
 - [ ] 验证刷新、异常中断和服务不可用恢复，不回退 Phase 4 已确认可靠性。
 - [ ] 更新原 `tasks.md` 勾选和 Spec 5 最终完成审计。
 

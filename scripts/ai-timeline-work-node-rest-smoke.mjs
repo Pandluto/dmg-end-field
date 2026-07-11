@@ -95,6 +95,11 @@ try {
     ],
   });
   assert.equal(validSnapshotMirror.status, 200, JSON.stringify(validSnapshotMirror.body));
+  const invalidGridPosition = await request('POST', '/api/def-tools/def.workbench.add_skill_button/call', {
+    characterId: 'operator-1', characterName: '测试干员', skillType: 'A', staffIndex: 0, nodeIndex: 18,
+  });
+  assert.equal(invalidGridPosition.status, 400, JSON.stringify(invalidGridPosition.body));
+  assert.equal(invalidGridPosition.body.error?.code, 'invalid-main-workbench-node-index');
   const stagedBatch = await request('POST', '/api/def-tools/def.buff.add_to_buttons/call', {
     buttonIds: ['button-a', 'button-b'],
     buff: { id: 'buff-batch', displayName: '批量测试 Buff', category: 'positive' },

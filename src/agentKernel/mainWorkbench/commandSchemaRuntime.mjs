@@ -66,6 +66,14 @@ export function validateMainWorkbenchCommand(command) {
   if (command.op === 'addBuff' && !isRecord(command.buff)) {
     return { ok: false, code: 'invalid-main-workbench-add-buff', message: 'addBuff requires buff.' };
   }
+  if (command.op === 'addSkillButton' && command.nodeIndex !== undefined
+    && (!Number.isInteger(command.nodeIndex) || command.nodeIndex < 0 || command.nodeIndex > 14)) {
+    return {
+      ok: false,
+      code: 'invalid-main-workbench-node-index',
+      message: 'addSkillButton nodeIndex must be an integer from 0 to 14 (user-facing position 1 to 15).',
+    };
+  }
   if (command.op === 'addBuffToButtons') {
     if (!isRecord(command.buff)) {
       return { ok: false, code: 'invalid-main-workbench-add-buff-to-buttons', message: 'addBuffToButtons requires buff.' };
