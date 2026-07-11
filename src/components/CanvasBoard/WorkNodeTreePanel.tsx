@@ -12,6 +12,7 @@ import { buildWorkNodeTreeViewModel } from './workNodeTreeModel';
 import { buildWorkNodeTreeLayout } from './workNodeTreeLayout';
 import { WorkNodeTreeNode } from './WorkNodeTreeNode';
 import type { WorkNodeTreeViewModel } from './workNodeTreeTypes';
+import { resolveCheckoutTargetBeforeWorkNodeDeletion } from '../../agentKernel/timelineWorktree/checkoutLifecycle';
 import './WorkNodeTreePanel.css';
 
 type WorkNodeTreePanelProps = {
@@ -205,8 +206,7 @@ export function WorkNodeTreePanel({ timelineId, refreshKey, onSelectedNodeChange
   };
 
   const checkoutNode = async (nodeId: string) => {
-    try {
-      setError('');
+    setError('');
       const entry = enqueueMainWorkbenchCommand({
         op: 'checkoutAiTimelineWorkNode',
         nodeId,
@@ -232,9 +232,6 @@ export function WorkNodeTreePanel({ timelineId, refreshKey, onSelectedNodeChange
         updatedAt: Date.now(),
       });
       await reloadNodes();
-    } catch (checkoutError) {
-      setError(`应用节点失败：${errorMessage(checkoutError)}`);
-    }
   };
 
   const createNodeFromCurrent = async (parentNodeId: string | null, labelPrefix: string) => {
@@ -266,7 +263,21 @@ export function WorkNodeTreePanel({ timelineId, refreshKey, onSelectedNodeChange
     if (!confirmed) return;
     try {
       setError('');
-      await createTimelineRepositoryClient().deleteWorkNode(node.nodeId);
+      const repository = createTimelineRepositoryClient();
+      const checkoutRef = await repository.getCheckoutRef(timelineId);
+      const checkoutTargetId = resolveCheckoutTargetBeforeWorkNodeDeletion({
+        deletedNodeIds: subtreeNodeIds,
+        persistedCheckoutNodeId: checkoutRef?.targetType === 'work-node' ? checkoutRef.targetId : '',
+        selectedNodeId,
+        parentNodeId: node.parentNodeId || '',
+      });
+      if (checkoutTargetId === null) {
+        throw new Error('待删除子树包含当前 Checkout，且没有可承接 Checkout 的父节点或其他分支。');
+      }
+      if (checkoutTargetId) {
+        await checkoutNode(checkoutTargetId);
+      }
+      await repository.deleteWorkNode(node.nodeId);
       await reloadNodes();
     } catch (deleteError) {
       setError(`删除节点失败：${errorMessage(deleteError)}。`);
@@ -289,8 +300,8 @@ export function WorkNodeTreePanel({ timelineId, refreshKey, onSelectedNodeChange
     onSelectedNodeChange?.(nodeId);
   };
 
-  // Checkout is deliberately deferred to the modal close handler in CanvasBoard.
-  void checkoutNode;
+  // Ordinary selection is deferred until close. Deletion is ordered explicitly:
+  // move a checkout out of the target subtree, wait for persistence, then delete.
 
   const handleCanvasPointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
     const target = event.target as Element;

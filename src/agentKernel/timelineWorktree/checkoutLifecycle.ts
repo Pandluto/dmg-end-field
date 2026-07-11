@@ -26,3 +26,18 @@ export function planTimelineWorkNodeCheckoutLifecycle(input: {
     reuseAppliedCommit,
   };
 }
+
+export function resolveCheckoutTargetBeforeWorkNodeDeletion(input: {
+  deletedNodeIds: string[];
+  persistedCheckoutNodeId: string;
+  selectedNodeId: string;
+  parentNodeId: string;
+}): string | null | undefined {
+  const deletedIds = new Set(input.deletedNodeIds);
+  if (!input.persistedCheckoutNodeId || !deletedIds.has(input.persistedCheckoutNodeId)) {
+    return undefined;
+  }
+  const target = [input.selectedNodeId, input.parentNodeId]
+    .find((nodeId) => nodeId && !deletedIds.has(nodeId));
+  return target || null;
+}

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { planTimelineWorkNodeCheckoutLifecycle } from './checkoutLifecycle';
+import { planTimelineWorkNodeCheckoutLifecycle, resolveCheckoutTargetBeforeWorkNodeDeletion } from './checkoutLifecycle';
 import type { AiTimelineWorkNodeCommitListItem } from './types';
 
 const commit = (overrides: Partial<AiTimelineWorkNodeCommitListItem> = {}): AiTimelineWorkNodeCommitListItem => ({
@@ -35,6 +35,27 @@ assert.equal(planTimelineWorkNodeCheckoutLifecycle({
   nodeStatus: 'ready',
   commits: [commit()],
 }).createCommit, true);
+
+assert.equal(resolveCheckoutTargetBeforeWorkNodeDeletion({
+  deletedNodeIds: ['node-2'],
+  persistedCheckoutNodeId: 'node-2',
+  selectedNodeId: 'node-1',
+  parentNodeId: 'node-1',
+}), 'node-1');
+
+assert.equal(resolveCheckoutTargetBeforeWorkNodeDeletion({
+  deletedNodeIds: ['node-2'],
+  persistedCheckoutNodeId: 'node-1',
+  selectedNodeId: 'node-1',
+  parentNodeId: 'node-1',
+}), undefined);
+
+assert.equal(resolveCheckoutTargetBeforeWorkNodeDeletion({
+  deletedNodeIds: ['node-1', 'node-2'],
+  persistedCheckoutNodeId: 'node-2',
+  selectedNodeId: 'node-1',
+  parentNodeId: '',
+}), null);
 
 assert.equal(planTimelineWorkNodeCheckoutLifecycle({
   nodeStatus: 'committed',
