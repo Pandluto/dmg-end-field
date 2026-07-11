@@ -65,11 +65,26 @@ assert.throws(() => repository.importWorkNode({
   id: 'node-invalid-status', timelineId: 'timeline-main', branchId: 'invalid', label: 'Invalid', status: 'not-a-status',
   basePayload: payload, workingPayload: payload,
 }), { code: 'invalid-timeline-work-node-status' });
+assert.throws(() => repository.importWorkNode({
+  id: 'node-orphan', timelineId: 'timeline-main', parentNodeId: 'missing-parent', branchId: 'invalid', label: 'Orphan',
+  basePayload: payload, workingPayload: payload,
+}), { code: 'timeline-work-node-parent-not-found', status: 404 });
+assert.throws(() => repository.importWorkNode({
+  id: 'node-cross-parent', timelineId: 'timeline-legacy-import', parentNodeId: 'node-1', branchId: 'invalid', label: 'Cross parent',
+  basePayload: payload, workingPayload: payload,
+}), { code: 'timeline-work-node-cross-document-parent', status: 409 });
 repository.appendWorkNodePatch({
   id: 'patch-1', timelineId: 'timeline-main', nodeId: 'node-1',
   patch: [{ op: 'moveButton', target: { buttonId: 'button-1' }, nodeIndex: 1 }],
   validation: { ok: true, issues: [] }, diffSummary: { changedButtonCount: 1 }, riskFlags: [], createdAt: 7,
 });
+assert.throws(() => repository.appendWorkNodePatch({
+  id: 'patch-1', timelineId: 'timeline-main', nodeId: 'node-1', patch: [],
+  validation: { ok: true }, diffSummary: {}, riskFlags: [],
+}), { code: 'timeline-work-node-patch-id-conflict', status: 409 });
+assert.throws(() => repository.setCheckoutRef({
+  timelineId: 'timeline-main', targetType: 'work-node', targetId: 'missing-node', updatedAt: 8,
+}), { code: 'timeline-checkout-target-not-found', status: 404 });
 assert.equal(repository.listWorkNodePatches('node-1').length, 1);
 assert.equal(repository.listAuditEvents('timeline-main').some((event) => event.eventType === 'work-node.patched'), true);
 

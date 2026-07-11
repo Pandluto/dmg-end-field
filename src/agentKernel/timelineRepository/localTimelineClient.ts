@@ -6,7 +6,7 @@ const BRIDGE_BASE_URL = 'http://127.0.0.1:31457';
 
 type RepositoryResponse<T> = { ok: true; path?: string } & T;
 class TimelineRepositoryRequestError extends Error {
-  constructor(message: string, readonly status: number) {
+  constructor(message: string, readonly status: number, readonly code: string, readonly details?: unknown) {
     super(message);
     this.name = 'TimelineRepositoryRequestError';
   }
@@ -41,6 +41,8 @@ async function readResponse<T>(response: Response): Promise<T> {
     throw new TimelineRepositoryRequestError(
       payload?.error?.message || `Timeline repository request failed: ${response.status}`,
       response.status,
+      payload?.error?.code || 'timeline-repository-request-failed',
+      payload?.error?.details,
     );
   }
   return payload as T;

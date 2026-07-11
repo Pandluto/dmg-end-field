@@ -1291,7 +1291,12 @@ function handleTimelineRepositoryRequest(method, pathname, query, body) {
     }
   }
   if (method === 'POST' && pathname === '/api/timeline-snapshots') {
-    return { status: 200, body: { ok: true, protocolVersion: 1, ...repository.createOrReuseSnapshot(body) } };
+    try {
+      return { status: 200, body: { ok: true, protocolVersion: 1, ...repository.createOrReuseSnapshot(body) } };
+    } catch (error) {
+      if (error?.status) return failScript(error.status, error.code, error.message);
+      throw error;
+    }
   }
   const snapshotDeleteMatch = /^\/api\/timeline-snapshots\/([^/]+)\/archive$/.exec(pathname);
   if (method === 'POST' && snapshotDeleteMatch) {
@@ -1308,7 +1313,12 @@ function handleTimelineRepositoryRequest(method, pathname, query, body) {
     return { status: 200, body: { ok: true, protocolVersion: 1, checkoutRef: repository.getCheckoutRef(timelineId) } };
   }
   if (method === 'POST' && pathname === '/api/timeline-checkout-ref') {
-    return { status: 200, body: { ok: true, protocolVersion: 1, checkoutRef: repository.setCheckoutRef(body) } };
+    try {
+      return { status: 200, body: { ok: true, protocolVersion: 1, checkoutRef: repository.setCheckoutRef(body) } };
+    } catch (error) {
+      if (error?.status) return failScript(error.status, error.code, error.message);
+      throw error;
+    }
   }
   return null;
 }

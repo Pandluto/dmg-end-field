@@ -19,23 +19,25 @@ const WORK_NODE_STATUS_TRANSITIONS = new Map([
   ['archived', new Set(['archived'])],
 ]);
 
+function repositoryError(code, status, message, details) {
+  const error = new Error(message);
+  error.code = code;
+  error.status = status;
+  if (details !== undefined) error.details = details;
+  return error;
+}
+
 function normalizeWorkNodeStatus(status) {
   const normalized = typeof status === 'string' && status.trim() ? status.trim() : 'draft';
   if (WORK_NODE_STATUSES.has(normalized)) return normalized;
-  const error = new Error(`Unsupported Timeline Work Node status: ${normalized}`);
-  error.code = 'invalid-timeline-work-node-status';
-  error.status = 400;
-  throw error;
+  throw repositoryError('invalid-timeline-work-node-status', 400, `Unsupported Timeline Work Node status: ${normalized}`);
 }
 
 function assertWorkNodeStatusTransition(fromStatus, toStatus) {
   const from = normalizeWorkNodeStatus(fromStatus);
   const to = normalizeWorkNodeStatus(toStatus);
   if (WORK_NODE_STATUS_TRANSITIONS.get(from)?.has(to)) return to;
-  const error = new Error(`Cannot transition Timeline Work Node from ${from} to ${to}.`);
-  error.code = 'invalid-timeline-work-node-transition';
-  error.status = 409;
-  throw error;
+  throw repositoryError('invalid-timeline-work-node-transition', 409, `Cannot transition Timeline Work Node from ${from} to ${to}.`, { from, to });
 }
 
 function serialize(value) {
@@ -256,7 +258,7 @@ function createTimelineRepository({ databasePath }) {
   }
 
   function ensureDocument(input) {
-    if (!input?.id || !input?.label) throw new Error('Timeline document requires id and label.');
+    if (!input?.id || !input?.label) throw repositoryError('invalid-timeline-document', 400, 'Timeline document requires id and label.');
     const now = input.createdAt || Date.now();
     return transaction(() => {
       db.prepare(`
@@ -272,11 +274,11 @@ function createTimelineRepository({ databasePath }) {
 
   function createOrReuseSnapshot(input) {
     if (!input?.id || !input?.timelineId || !input?.label) {
-      throw new Error('Timeline snapshot requires id, timelineId, and label.');
+      throw repositoryError('invalid-timeline-snapshot', 400, 'Timeline snapshot requires id, timelineId, and label.');
     }
     return transaction(() => {
       const document = db.prepare('SELECT id FROM timeline_documents WHERE id = ?').get(input.timelineId);
-      if (!document) throw new Error(`Timeline document not found: ${input.timelineId}`);
+      if (!document) throw repositoryError('timeline-document-not-found', 404, `Timeline document not found: ${input.timelineId}`);
       const createdAt = input.createdAt || Date.now();
       const payloadHash = ensurePayload(input.payload, createdAt);
       const existing = db.prepare(`
@@ -455,17 +457,17 @@ function createTimelineRepository({ databasePath }) {
 
   function setCheckoutRef(input) {
     if (!input?.timelineId || !input?.targetId || !['snapshot', 'work-node'].includes(input.targetType)) {
-      throw new Error('Checkout ref requires timelineId, targetType, and targetId.');
+      throw repositoryError('invalid-timeline-checkout-ref', 400, 'Checkout ref requires timelineId, targetType, and targetId.');
     }
     return transaction(() => {
       if (input.targetType === 'snapshot') {
         const snapshot = db.prepare('SELECT id FROM timeline_snapshots WHERE id = ? AND timeline_id = ? AND archived_at IS NULL')
           .get(input.targetId, input.timelineId);
-        if (!snapshot) throw new Error(`Timeline snapshot not found for checkout: ${input.targetId}`);
+        if (!snapshot) throw repositoryError('timeline-checkout-target-not-found', 404, `Timeline snapshot not found for checkout: ${input.targetId}`);
       } else {
         const node = db.prepare('SELECT id FROM timeline_work_nodes WHERE id = ? AND timeline_id = ?')
           .get(input.targetId, input.timelineId);
-        if (!node) throw new Error(`Timeline work node not found for checkout: ${input.targetId}`);
+        if (!node) throw repositoryError('timeline-checkout-target-not-found', 404, `Timeline work node not found for checkout: ${input.targetId}`);
       }
       const updatedAt = input.updatedAt || Date.now();
       db.prepare(`
@@ -490,7 +492,7 @@ function createTimelineRepository({ databasePath }) {
 
   function appendAuditEvent(input) {
     if (!input?.id || !input?.timelineId || !input?.eventType || !input?.subjectType || !input?.subjectId) {
-      throw new Error('Timeline audit event is missing required fields.');
+      throw repositoryError('invalid-timeline-audit-event', 400, 'Timeline audit event is missing required fields.');
     }
     return transaction(() => {
       db.prepare(`
@@ -510,12 +512,15 @@ function createTimelineRepository({ databasePath }) {
 
   function appendWorkNodePatch(input) {
     if (!input?.id || !input?.timelineId || !input?.nodeId || !Array.isArray(input.patch)) {
-      throw new Error('Work Node patch is missing required fields.');
+      throw repositoryError('invalid-timeline-work-node-patch', 400, 'Work Node patch is missing required fields.');
     }
     return transaction(() => {
       const node = db.prepare('SELECT id FROM timeline_work_nodes WHERE id = ? AND timeline_id = ?')
         .get(input.nodeId, input.timelineId);
-      if (!node) throw new Error(`Timeline work node not found for patch: ${input.nodeId}`);
+      if (!node) throw repositoryError('timeline-work-node-not-found', 404, `Timeline work node not found for patch: ${input.nodeId}`);
+      if (db.prepare('SELECT 1 FROM timeline_work_node_patches WHERE id = ?').get(input.id)) {
+        throw repositoryError('timeline-work-node-patch-id-conflict', 409, `Work Node patch id already exists: ${input.id}`);
+      }
       const createdAt = input.createdAt || Date.now();
       db.prepare(`
         INSERT INTO timeline_work_node_patches (
@@ -572,7 +577,7 @@ function createTimelineRepository({ databasePath }) {
   function importWorkNode(input) {
     return transaction(() => {
       const document = db.prepare('SELECT id FROM timeline_documents WHERE id = ?').get(input.timelineId);
-      if (!document) throw new Error(`Timeline document not found: ${input.timelineId}`);
+      if (!document) throw repositoryError('timeline-document-not-found', 404, `Timeline document not found: ${input.timelineId}`);
       const existingNode = db.prepare('SELECT id, timeline_id, status FROM timeline_work_nodes WHERE id = ?').get(input.id);
       if (existingNode?.timeline_id !== undefined && existingNode.timeline_id !== input.timelineId) {
         const error = new Error(`Timeline Work Node id already belongs to document: ${existingNode.timeline_id}`);
@@ -583,6 +588,26 @@ function createTimelineRepository({ databasePath }) {
       const nextStatus = normalizeWorkNodeStatus(input.status);
       if (existingNode && !input.migration) {
         assertWorkNodeStatusTransition(existingNode.status, nextStatus);
+      }
+      if (input.parentNodeId) {
+        if (input.parentNodeId === input.id) {
+          throw repositoryError('timeline-work-node-parent-cycle', 409, 'Timeline Work Node cannot be its own parent.');
+        }
+        const parent = db.prepare('SELECT timeline_id FROM timeline_work_nodes WHERE id = ?').get(input.parentNodeId);
+        if (!parent) {
+          throw repositoryError('timeline-work-node-parent-not-found', 404, `Timeline Work Node parent not found: ${input.parentNodeId}`);
+        }
+        if (parent.timeline_id !== input.timelineId) {
+          throw repositoryError('timeline-work-node-cross-document-parent', 409, 'Timeline Work Node parent must belong to the same document.');
+        }
+        const cycle = existingNode && db.prepare(`
+          WITH RECURSIVE descendants(id) AS (
+            SELECT id FROM timeline_work_nodes WHERE parent_id = ?
+            UNION ALL
+            SELECT node.id FROM timeline_work_nodes node JOIN descendants ON node.parent_id = descendants.id
+          ) SELECT 1 FROM descendants WHERE id = ?
+        `).get(input.id, input.parentNodeId);
+        if (cycle) throw repositoryError('timeline-work-node-parent-cycle', 409, 'Timeline Work Node parent would create a cycle.');
       }
       const createdAt = input.createdAt || Date.now();
       const basePayloadHash = ensurePayload(input.basePayload, createdAt);

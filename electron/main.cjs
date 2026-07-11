@@ -1063,7 +1063,11 @@ function startBridgeServer() {
 
       if (method === 'POST' && requestUrl.pathname === '/local-data/timeline-snapshots') {
         const payload = await readJsonRequest(request);
-        writeJson(response, 200, { ok: true, path: getTimelineRepositoryPath(), ...getTimelineRepository().createOrReuseSnapshot(payload) });
+        try {
+          writeJson(response, 200, { ok: true, path: getTimelineRepositoryPath(), ...getTimelineRepository().createOrReuseSnapshot(payload) });
+        } catch (error) {
+          writeJson(response, error?.status || 500, { ok: false, error: { code: error?.code || 'timeline-snapshot-save-failed', message: error instanceof Error ? error.message : String(error), details: error?.details } });
+        }
         return;
       }
 
@@ -1079,7 +1083,11 @@ function startBridgeServer() {
 
       if (method === 'POST' && requestUrl.pathname === '/local-data/timeline-checkout-ref') {
         const payload = await readJsonRequest(request);
-        writeJson(response, 200, { ok: true, path: getTimelineRepositoryPath(), checkoutRef: getTimelineRepository().setCheckoutRef(payload) });
+        try {
+          writeJson(response, 200, { ok: true, path: getTimelineRepositoryPath(), checkoutRef: getTimelineRepository().setCheckoutRef(payload) });
+        } catch (error) {
+          writeJson(response, error?.status || 500, { ok: false, error: { code: error?.code || 'timeline-checkout-ref-failed', message: error instanceof Error ? error.message : String(error), details: error?.details } });
+        }
         return;
       }
 
