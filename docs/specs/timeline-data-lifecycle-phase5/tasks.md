@@ -57,7 +57,7 @@
 - [x] Patch 只能改 node working state，随后返回 validate、diff、risk 证据。
 - [x] checkout 显式更新 CheckoutRef(work-node) 并应用 payload。
 - [x] restore base 作为 Work Node 操作，写审计事件但不伪造树节点。
-- [ ] 删除旧的“AI turn / manual checkpoint 必须自动建节点”策略。
+- [x] 删除旧的“AI turn / manual checkpoint 必须自动建节点”策略。
 
 验收：后门自然话术测试同时证明：复杂重排在 Patch 阶段不改变当前排轴，应用后才变化；明确低风险操作仍能沿用 Phase 4 的实时 checkout 并收到真实回执。
 
@@ -87,7 +87,7 @@
 - [x] SQLite repository smoke：事务、哈希去重、外键、删除 409、CheckoutRef。
 - [x] 迁移 smoke：正常树、快照、异常 snapshot-node、回滚备份。
 - [ ] UI 手测：保存、恢复、打开 AI、树内 patch、明确应用、删除、分享、导入。
-- [ ] 后门黑盒：自然话术 → Work Node Patch → diff → 当前排轴未变 → 显式应用。
+- [x] 后门黑盒：自然话术 → Work Node Patch → diff → 当前排轴未变 → 显式应用。
 - [ ] Chrome UI 验证：输入、工具活动、最终结果在 `MainWorkbenchAiPanel` 可见。
 - [x] 运行 `npm run build` 及本阶段针对性 smoke。
 

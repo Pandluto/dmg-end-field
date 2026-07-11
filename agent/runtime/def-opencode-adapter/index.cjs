@@ -225,6 +225,7 @@ function buildAgentPrompt(skillId) {
       '- GET /api/def-tools/describe?name=<toolName> describes one tool schema and policy.',
       '- POST /api/def-tools/call with {"tool":"def.workbench.list_buttons","input":{...}} executes a DEF tool.',
       '- POST /api/def-tools/<url-encoded-tool-name>/call with {"input":{...}} is also supported.',
+      '- For a known action already specified by the user prompt, do not fetch a tool descriptor first. Call the matching typed tool immediately; its contract in the prompt is authoritative.',
       '- For equipment-set questions such as 长息是什么/有哪些/该选哪个, prefer def.gear.resolve or def.equipment.resolve compact summaries; do not fetch full equipment libraries unless the summary is insufficient.',
       '- Current low-risk skill-button edits should use def.workbench.add_skill_button_and_verify. Use def.buff.add_to_button_and_verify for one-button buff edits, def.buff.add_to_buttons for batch buff edits. For damage calculation, prefer def.damage.calculate_and_verify.',
       '- High-risk/batch/timeline rewrite uses def.worknode.patch_and_validate directly. If nodeId is omitted, the tool creates a work node from the best available current payload mirror first. For an explicit user mutation it validates and immediately performs protected no-reload checkout by default; pass checkout:false only when the user explicitly asks to stage a draft.',
