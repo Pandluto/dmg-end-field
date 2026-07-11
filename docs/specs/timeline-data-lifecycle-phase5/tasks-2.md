@@ -69,11 +69,11 @@
 
 ## S2-T7：分享与导入终验
 
-- [ ] 分别验证当前排轴、指定分支、完整文档三种 Bundle V2 导出。
-- [ ] 导入默认创建新 TimelineDocument，不覆盖同名或同内容现有文档。
-- [ ] 导入后能从 SQLite 标签页直接打开，并显示正确名称、CheckoutRef、快照和工作树。
-- [ ] 校验 payload hash、父子引用、schemaVersion 和跨文档节点 ID。
-- [ ] 分享文件不包含 AppData 路径、本机设置、活动 UI 状态或无关全局数据。
+- [x] 分别验证当前排轴、指定分支、完整文档三种 Bundle V2 导出。
+- [x] 导入默认创建新 TimelineDocument，不覆盖同名或同内容现有文档。
+- [x] 导入后能从 SQLite 标签页直接打开，并显示正确名称、CheckoutRef、快照和工作树。
+- [x] 校验 payload hash、父子引用、schemaVersion 和跨文档节点 ID。
+- [x] 分享文件不包含 AppData 路径、本机设置、活动 UI 状态或无关全局数据。
 
 验收：在一份独立临时本地库中导入导出文件，画布内容和树关系与源文档一致。
 
