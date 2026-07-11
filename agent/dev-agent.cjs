@@ -465,12 +465,23 @@ function buildWorkbenchTestAgentMessage(userText, snapshot, evidencePayload) {
     ? selectedCharacters.map((character) => `${character.name || character.id}(${character.id || character.name})`).join(', ')
     : 'none';
   const buttonSummary = skillButtons.length
-    ? skillButtons.map(formatWorkbenchTestButtonLabel).join(', ')
+    ? `${skillButtons.slice(0, 40).map(formatWorkbenchTestButtonLabel).join(', ')}${skillButtons.length > 40 ? `，另有 ${skillButtons.length - 40} 个` : ''}`
     : 'none';
-  const evidence = evidencePayload?.evidence || {
+  const fullEvidence = evidencePayload?.evidence || {
     source: 'current-checkout-snapshot',
     readonly: true,
     snapshotAvailable: Boolean(snapshot),
+  };
+  const evidence = {
+    ...fullEvidence,
+    buttons: Array.isArray(fullEvidence.buttons) ? fullEvidence.buttons.slice(0, 40) : [],
+    mentionedCharacterButtons: Array.isArray(fullEvidence.mentionedCharacterButtons)
+      ? fullEvidence.mentionedCharacterButtons.slice(0, 40)
+      : [],
+    damageReport: fullEvidence.damageReport ? {
+      ...fullEvidence.damageReport,
+      buttons: Array.isArray(fullEvidence.damageReport.buttons) ? fullEvidence.damageReport.buttons.slice(0, 20) : [],
+    } : null,
   };
 
   return [
