@@ -4433,6 +4433,14 @@ function mirrorAiTimelineWorkNodeToRepository(node) {
   mirrorOne(node);
 }
 
+function mirrorAiTimelineWorkNodeCommitToRepository(commit) {
+  if (!commit) return null;
+  return getTimelineRepository().importWorkNodeCommit({
+    ...commit,
+    timelineId: commit.timelineId || commit.saveId || 'current-main-workbench',
+  });
+}
+
 function sanitizeArchiveId(value) {
   const raw = typeof value === 'string' && value.trim() ? value.trim() : `archive-${Date.now()}`;
   return raw
@@ -5081,6 +5089,7 @@ function commitAiTimelineWorkNode(id, payload = {}) {
     ],
   };
   mirrorAiTimelineWorkNodeToRepository(nextNode);
+  mirrorAiTimelineWorkNodeCommitToRepository(commit);
   getAiTimelineWorkNodeStore().saveNodeAndCommit(nextNode, commit);
   return { ok: true, path: getAiTimelineWorkNodesPath(), node: nextNode, commit };
 }
@@ -5124,6 +5133,7 @@ function markAiTimelineWorkNodeCheckoutApplied(id, payload = {}) {
     ],
   };
   mirrorAiTimelineWorkNodeToRepository(nextNode);
+  mirrorAiTimelineWorkNodeCommitToRepository(nextCommit);
   getTimelineRepository().setCheckoutRef({
     timelineId: nextNode.timelineId || nextNode.saveId || 'current-main-workbench',
     targetType: 'work-node',

@@ -541,6 +541,7 @@ function createTimelineRepository({ databasePath }) {
       db.prepare(`
         INSERT INTO timeline_audit_events (id, timeline_id, event_type, subject_type, subject_id, details, created_at)
         VALUES (?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(id) DO NOTHING
       `).run(
         input.id,
         input.timelineId,

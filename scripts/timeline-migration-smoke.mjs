@@ -24,10 +24,20 @@ try {
   fs.mkdirSync(localDirectory, { recursive: true });
   fs.writeFileSync(path.join(localDirectory, 'now-storage.json'), '{"before":true}\n', 'utf8');
   const store = createAiTimelineWorkNodeStore({ databasePath, legacyJsonPath: path.join(localDirectory, 'ai-timeline-worknodes.json') });
-  store.saveNode({
+  const goodNode = {
     id: 'good-node', saveId: 'current-main-workbench', timelineId: 'current-main-workbench', branchId: 'main',
     label: 'good node', status: 'open', approvalPolicy: 'auto-low-risk', basePayload: payload, workingPayload: payload,
     baseSummary: {}, workingSummary: {}, riskFlags: [], logs: [], createdAt: 1, updatedAt: 1,
+  };
+  store.saveNodeAndCommit(goodNode, {
+    id: 'good-commit', nodeId: 'good-node', saveId: 'current-main-workbench', timelineId: 'current-main-workbench', branchId: 'main',
+    label: 'good commit', summary: {}, basePayload: payload, appliedPayload: payload, riskFlags: [],
+    approval: { mode: 'auto', approvedBy: 'ai', rationale: 'migration smoke' }, checkoutApplied: true, createdAt: 2,
+  }, { setHead: true });
+  store.saveNode({
+    id: 'other-node', saveId: 'timeline-other', timelineId: 'timeline-other', branchId: 'other',
+    label: 'other node', status: 'open', approvalPolicy: 'auto-low-risk', basePayload: payload, workingPayload: payload,
+    baseSummary: {}, workingSummary: {}, riskFlags: [], logs: [], createdAt: 2, updatedAt: 2,
   });
   store.saveNode({
     id: 'snapshot-node', saveId: 'timeline-snapshot-legacy', timelineId: 'timeline-snapshot-legacy', branchId: 'timeline-snapshot-legacy',
@@ -37,13 +47,26 @@ try {
   store.close();
 
   const migrated = run('scripts/migrate-legacy-work-nodes.mjs', ['--local-dir', localDirectory, '--backup-dir', backupDirectory]);
-  assert.equal(migrated.imported, 1);
+  assert.equal(migrated.imported, 2);
+  assert.equal(migrated.importedCommits, 1);
   assert.equal(migrated.anomalous, 1);
   assert.equal(fs.existsSync(path.join(backupDirectory, 'timeline-migration-backup.json')), true);
   const repository = createTimelineRepository({ databasePath: path.join(localDirectory, 'timeline-repository.sqlite3') });
   assert.equal(repository.listWorkNodes('current-main-workbench').length, 1);
+  assert.equal(repository.listWorkNodes('timeline-other').length, 1);
+  assert.equal(repository.listWorkNodeCommits('current-main-workbench').length, 1);
+  assert.equal(repository.getCheckoutRef('current-main-workbench')?.targetId, 'good-node');
+  assert.equal(JSON.parse(repository.getMeta('legacy_work_node_migration_v1')).complete, true);
   assert.equal(repository.getWorkNode('good-node')?.id, 'good-node');
   repository.close();
+
+  const rerun = run('scripts/migrate-legacy-work-nodes.mjs', ['--local-dir', localDirectory]);
+  assert.equal(rerun.imported, 2);
+  assert.equal(rerun.importedCommits, 1);
+  const rerunRepository = createTimelineRepository({ databasePath: path.join(localDirectory, 'timeline-repository.sqlite3') });
+  assert.equal(rerunRepository.listWorkNodes('current-main-workbench').length, 1);
+  assert.equal(rerunRepository.listWorkNodeCommits('current-main-workbench').length, 1);
+  rerunRepository.close();
 
   fs.writeFileSync(path.join(localDirectory, 'now-storage.json'), '{"after":true}\n', 'utf8');
   run('scripts/restore-timeline-migration-backup.mjs', ['--backup-dir', backupDirectory, '--target-local-dir', localDirectory, '--confirm']);
