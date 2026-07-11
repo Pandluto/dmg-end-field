@@ -123,6 +123,22 @@ function createTimelineRepository({ databasePath }) {
       created_at INTEGER NOT NULL
     ) STRICT;
 
+    CREATE TABLE IF NOT EXISTS timeline_work_node_commits (
+      id TEXT PRIMARY KEY,
+      timeline_id TEXT NOT NULL REFERENCES timeline_documents(id) ON DELETE RESTRICT,
+      node_id TEXT NOT NULL REFERENCES timeline_work_nodes(id) ON DELETE CASCADE,
+      branch_id TEXT NOT NULL,
+      label TEXT NOT NULL,
+      summary TEXT NOT NULL,
+      base_payload_hash TEXT NOT NULL REFERENCES timeline_payload_blobs(content_hash) ON DELETE RESTRICT,
+      applied_payload_hash TEXT NOT NULL REFERENCES timeline_payload_blobs(content_hash) ON DELETE RESTRICT,
+      risk_flags TEXT NOT NULL,
+      approval TEXT NOT NULL,
+      checkout_applied INTEGER NOT NULL CHECK(checkout_applied IN (0, 1)),
+      checkout TEXT,
+      created_at INTEGER NOT NULL
+    ) STRICT;
+
     CREATE TABLE IF NOT EXISTS checkout_refs (
       timeline_id TEXT PRIMARY KEY REFERENCES timeline_documents(id) ON DELETE CASCADE,
       target_type TEXT NOT NULL CHECK(target_type IN ('snapshot', 'work-node')),
@@ -143,6 +159,8 @@ function createTimelineRepository({ databasePath }) {
     CREATE INDEX IF NOT EXISTS timeline_snapshots_timeline_created_idx ON timeline_snapshots(timeline_id, created_at DESC);
     CREATE INDEX IF NOT EXISTS timeline_work_nodes_timeline_updated_idx ON timeline_work_nodes(timeline_id, updated_at DESC);
     CREATE INDEX IF NOT EXISTS timeline_work_node_patches_node_created_idx ON timeline_work_node_patches(node_id, created_at DESC);
+    CREATE INDEX IF NOT EXISTS timeline_work_node_commits_timeline_created_idx ON timeline_work_node_commits(timeline_id, created_at DESC);
+    CREATE INDEX IF NOT EXISTS timeline_work_node_commits_node_created_idx ON timeline_work_node_commits(node_id, created_at DESC);
     CREATE INDEX IF NOT EXISTS timeline_audit_events_timeline_created_idx ON timeline_audit_events(timeline_id, created_at DESC);
   `);
   db.prepare(`
@@ -199,6 +217,8 @@ function createTimelineRepository({ databasePath }) {
         SELECT payload_hash FROM timeline_snapshots
         UNION SELECT base_payload_hash FROM timeline_work_nodes
         UNION SELECT working_payload_hash FROM timeline_work_nodes
+        UNION SELECT base_payload_hash FROM timeline_work_node_commits
+        UNION SELECT applied_payload_hash FROM timeline_work_node_commits
       );
     `);
   }
@@ -254,6 +274,29 @@ function createTimelineRepository({ databasePath }) {
       } : {}),
       createdAt: row.created_at,
       updatedAt: row.updated_at,
+    };
+  }
+
+  function readWorkNodeCommit(row, includePayload = false) {
+    if (!row) return null;
+    const result = {
+      id: row.id,
+      nodeId: row.node_id,
+      timelineId: row.timeline_id,
+      branchId: row.branch_id,
+      createdAt: row.created_at,
+      label: row.label,
+      summary: parse(row.summary, {}),
+      riskFlags: parse(row.risk_flags, []),
+      approval: parse(row.approval, {}),
+      checkoutApplied: row.checkout_applied === 1,
+      ...(row.checkout ? { checkout: parse(row.checkout, {}) } : {}),
+    };
+    if (!includePayload) return result;
+    return {
+      ...result,
+      basePayload: parse(db.prepare('SELECT payload FROM timeline_payload_blobs WHERE content_hash = ?').get(row.base_payload_hash)?.payload, {}),
+      appliedPayload: parse(db.prepare('SELECT payload FROM timeline_payload_blobs WHERE content_hash = ?').get(row.applied_payload_hash)?.payload, {}),
     };
   }
 
@@ -635,6 +678,44 @@ function createTimelineRepository({ databasePath }) {
     });
   }
 
+  function importWorkNodeCommit(input) {
+    if (!input?.id || !input?.nodeId || !input?.timelineId) {
+      throw repositoryError('invalid-timeline-work-node-commit', 400, 'Timeline Work Node commit is missing required fields.');
+    }
+    return transaction(() => {
+      const node = db.prepare('SELECT timeline_id FROM timeline_work_nodes WHERE id = ?').get(input.nodeId);
+      if (!node) throw repositoryError('timeline-work-node-not-found', 404, `Timeline Work Node not found for commit: ${input.nodeId}`);
+      if (node.timeline_id !== input.timelineId) {
+        throw repositoryError('timeline-work-node-commit-document-mismatch', 409, 'Timeline Work Node commit must belong to the node document.');
+      }
+      const existing = db.prepare('SELECT timeline_id, node_id FROM timeline_work_node_commits WHERE id = ?').get(input.id);
+      if (existing && (existing.timeline_id !== input.timelineId || existing.node_id !== input.nodeId)) {
+        throw repositoryError('timeline-work-node-commit-id-conflict', 409, `Timeline Work Node commit id already belongs to another node: ${input.id}`);
+      }
+      const createdAt = input.createdAt || Date.now();
+      const basePayloadHash = ensurePayload(input.basePayload, createdAt);
+      const appliedPayloadHash = ensurePayload(input.appliedPayload, createdAt);
+      db.prepare(`
+        INSERT INTO timeline_work_node_commits (
+          id, timeline_id, node_id, branch_id, label, summary, base_payload_hash, applied_payload_hash,
+          risk_flags, approval, checkout_applied, checkout, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+          label = excluded.label,
+          summary = excluded.summary,
+          risk_flags = excluded.risk_flags,
+          approval = excluded.approval,
+          checkout_applied = excluded.checkout_applied,
+          checkout = excluded.checkout
+      `).run(
+        input.id, input.timelineId, input.nodeId, input.branchId || input.nodeId, input.label || input.id,
+        serialize(input.summary), basePayloadHash, appliedPayloadHash, serialize(input.riskFlags), serialize(input.approval),
+        input.checkoutApplied ? 1 : 0, input.checkout ? serialize(input.checkout) : null, createdAt,
+      );
+      return readWorkNodeCommit(db.prepare('SELECT * FROM timeline_work_node_commits WHERE id = ?').get(input.id), true);
+    });
+  }
+
   function assertWorkNodeSubtreeDeletable(nodeId) {
       const target = db.prepare('SELECT id, timeline_id FROM timeline_work_nodes WHERE id = ?').get(nodeId);
       if (!target) {
@@ -724,9 +805,15 @@ function createTimelineRepository({ databasePath }) {
     appendWorkNodePatch,
     archiveSnapshot,
     importWorkNode,
+    importWorkNodeCommit,
     assertWorkNodeSubtreeDeletable,
     deleteWorkNodeSubtree,
     deleteDocument,
+    getMeta: (key) => db.prepare('SELECT value FROM timeline_schema_meta WHERE key = ?').get(key)?.value || null,
+    setMeta: (key, value) => db.prepare(`
+      INSERT INTO timeline_schema_meta (key, value) VALUES (?, ?)
+      ON CONFLICT(key) DO UPDATE SET value = excluded.value
+    `).run(key, typeof value === 'string' ? value : serialize(value)),
     getDocument: (id) => readDocument(db.prepare('SELECT * FROM timeline_documents WHERE id = ?').get(id)),
     listDocuments: () => db.prepare(`
       SELECT * FROM timeline_documents WHERE archived_at IS NULL ORDER BY updated_at DESC
@@ -763,6 +850,13 @@ function createTimelineRepository({ databasePath }) {
       createdAt: row.created_at,
     })),
     getWorkNode: (id) => readWorkNode(db.prepare('SELECT * FROM timeline_work_nodes WHERE id = ?').get(id), true),
+    getWorkNodeCommit: (id) => readWorkNodeCommit(db.prepare('SELECT * FROM timeline_work_node_commits WHERE id = ?').get(id), true),
+    getLatestWorkNodeCommit: (nodeId) => readWorkNodeCommit(db.prepare(`
+      SELECT * FROM timeline_work_node_commits WHERE node_id = ? ORDER BY created_at DESC LIMIT 1
+    `).get(nodeId), true),
+    listWorkNodeCommits: (timelineId) => db.prepare(`
+      SELECT * FROM timeline_work_node_commits WHERE timeline_id = ? ORDER BY created_at DESC
+    `).all(timelineId).map((row) => readWorkNodeCommit(row, true)),
     listWorkNodes: (timelineId) => db.prepare(`
       SELECT * FROM timeline_work_nodes WHERE timeline_id = ? ORDER BY created_at ASC
     `).all(timelineId).map((row) => {

@@ -49,6 +49,18 @@ repository.importWorkNode({
   id: 'node-1', timelineId: 'timeline-main', branchId: 'branch-1', label: 'Draft',
   basePayload: payload, workingPayload: payload, createdAt: 6, updatedAt: 6,
 });
+const canonicalCommit = repository.importWorkNodeCommit({
+  id: 'commit-1', nodeId: 'node-1', timelineId: 'timeline-main', branchId: 'branch-1', label: 'Commit',
+  summary: { changedButtonCount: 0 }, basePayload: payload, appliedPayload: payload,
+  riskFlags: [], approval: { mode: 'auto', approvedBy: 'ai', rationale: 'smoke' }, checkoutApplied: false, createdAt: 7,
+});
+assert.equal(canonicalCommit.id, 'commit-1');
+assert.equal(repository.getLatestWorkNodeCommit('node-1')?.id, 'commit-1');
+assert.equal(repository.listWorkNodeCommits('timeline-main').length, 1);
+assert.throws(() => repository.importWorkNodeCommit({
+  id: 'commit-orphan', nodeId: 'missing-node', timelineId: 'timeline-main', branchId: 'bad', label: 'Bad',
+  basePayload: payload, appliedPayload: payload,
+}), { code: 'timeline-work-node-not-found', status: 404 });
 assert.throws(() => repository.importWorkNode({
   id: 'node-1', timelineId: 'timeline-main', branchId: 'branch-1', label: 'Invalid transition', status: 'applied',
   basePayload: payload, workingPayload: payload,
