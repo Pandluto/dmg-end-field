@@ -51,6 +51,11 @@ export function createTimelineRepositoryClient() {
     async importDocumentBundle(input: {
       document: Pick<TimelineDocument, 'id' | 'label'> & Partial<Pick<TimelineDocument, 'createdAt'>>;
       snapshots: Array<{ id: string; label: string; createdAt?: number; payload: TimelineSnapshotPayload }>;
+      workNodes?: Array<{
+        id: string; parentNodeId?: string; branchId: string; label: string; status: string; approvalPolicy: string;
+        riskFlags?: unknown[]; logs?: unknown[]; createdAt?: number; updatedAt?: number;
+        basePayload: TimelineSnapshotPayload; workingPayload: TimelineSnapshotPayload;
+      }>;
     }) {
       const response = await requestWithFallback<RepositoryResponse<{ document: TimelineDocument; snapshots: TimelineSnapshot[] }>>(
         '/local-data/timeline-bundles/import', 'POST', input,

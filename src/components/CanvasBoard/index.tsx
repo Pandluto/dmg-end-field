@@ -80,6 +80,7 @@ import {
   TIMELINE_SNAPSHOT_LIMIT,
   type TimelineSnapshotEntry,
   type TimelineSnapshotPayload,
+  type TimelineBundleV2,
   type TimelineShareFile,
 } from '../../utils/timelineSnapshotStorage';
 import './CanvasBoard.css';
@@ -411,6 +412,7 @@ export function CanvasBoard({
   const [shareDraftName, setShareDraftName] = useState('');
   const [pendingRestoreSnapshot, setPendingRestoreSnapshot] = useState<TimelineSnapshotEntry | null>(null);
   const [pendingImportShare, setPendingImportShare] = useState<TimelineShareFile | null>(null);
+  const [pendingImportBundle, setPendingImportBundle] = useState<TimelineBundleV2 | null>(null);
   const [pendingImportTimelineId, setPendingImportTimelineId] = useState('');
   const [timelineSnapshots, setTimelineSnapshots] = useState<TimelineSnapshotEntry[]>([]);
   const [isBrowseMode, setIsBrowseMode] = useState(false);
@@ -2739,6 +2741,7 @@ export function CanvasBoard({
   const handleCloseShareModal = () => {
     setIsShareModalOpen(false);
     setPendingImportShare(null);
+    setPendingImportBundle(null);
     setPendingImportTimelineId('');
     if (shareImportInputRef.current) {
       shareImportInputRef.current.value = '';
@@ -2754,7 +2757,26 @@ export function CanvasBoard({
       alert('当前没有可导出的排轴数据');
       return;
     }
-    const shareFile = await buildTimelineBundleV2({ timelineId: DEFAULT_TIMELINE_ID, label: shareDraftName, snapshot });
+    let shareFile;
+    try {
+      const exported = await createTimelineRepositoryClient().exportDocumentBundle(DEFAULT_TIMELINE_ID);
+      const snapshots = exported.snapshots.map((item) => ({
+        id: item.id,
+        label: item.label,
+        createdAt: item.createdAt,
+        payload: item.payload,
+        summary: { characterCount: 0, buttonCount: 0, buffCount: 0 },
+      } as TimelineSnapshotEntry));
+      shareFile = await buildTimelineBundleV2({
+        timelineId: DEFAULT_TIMELINE_ID,
+        label: shareDraftName,
+        snapshot,
+        snapshots: snapshots.length ? snapshots : [snapshot],
+        workNodes: exported.workNodes,
+      });
+    } catch {
+      shareFile = await buildTimelineBundleV2({ timelineId: DEFAULT_TIMELINE_ID, label: shareDraftName, snapshot });
+    }
 
     const blob = new Blob([JSON.stringify(shareFile, null, 2)], {
       type: 'application/json;charset=utf-8',
@@ -2783,6 +2805,7 @@ export function CanvasBoard({
       const snapshot = bundle.snapshots[0];
       const payload = bundle.payloads[snapshot.payloadIndex];
       setPendingImportShare({ type: 'timeline-share.v1', exportedAt: bundle.manifest.exportedAt, label: bundle.manifest.label, payload });
+      setPendingImportBundle(bundle);
       setPendingImportTimelineId(`imported-${Date.now()}`);
       event.target.value = '';
       return;
@@ -2795,11 +2818,13 @@ export function CanvasBoard({
     }
 
     setPendingImportShare(parsed);
+    setPendingImportBundle(null);
     event.target.value = '';
   };
 
   const handleCancelImportShare = () => {
     setPendingImportShare(null);
+    setPendingImportBundle(null);
     setPendingImportTimelineId('');
   };
 
@@ -2810,21 +2835,43 @@ export function CanvasBoard({
 
     if (pendingImportTimelineId) {
       const repository = createTimelineRepositoryClient();
+      const importedAt = Date.now();
+      const bundleSnapshots = pendingImportBundle
+        ? pendingImportBundle.snapshots.map((snapshot) => ({
+          id: `imported-${snapshot.id}-${importedAt}`,
+          label: snapshot.label,
+          createdAt: snapshot.createdAt,
+          payload: pendingImportBundle.payloads[snapshot.payloadIndex],
+        }))
+        : [{ id: `imported-snapshot-${importedAt}`, label: pendingImportShare.label, payload: pendingImportShare.payload }];
+      const bundleWorkNodes = pendingImportBundle?.workNodes?.map((node) => ({
+        id: `imported-${node.id}-${importedAt}`,
+        ...(node.parentNodeId ? { parentNodeId: `imported-${node.parentNodeId}-${importedAt}` } : {}),
+        branchId: node.branchId,
+        label: node.label,
+        status: node.status,
+        approvalPolicy: node.approvalPolicy,
+        riskFlags: node.riskFlags,
+        logs: node.logs,
+        createdAt: node.createdAt,
+        updatedAt: node.updatedAt,
+        basePayload: pendingImportBundle.payloads[node.basePayloadIndex],
+        workingPayload: pendingImportBundle.payloads[node.workingPayloadIndex],
+      }));
       await repository.importDocumentBundle({
         document: { id: pendingImportTimelineId, label: pendingImportShare.label },
-        snapshots: [{
-          id: `imported-snapshot-${Date.now()}`,
-          label: pendingImportShare.label,
-          payload: pendingImportShare.payload,
-        }],
+        snapshots: bundleSnapshots,
+        ...(bundleWorkNodes?.length ? { workNodes: bundleWorkNodes } : {}),
       });
       setPendingImportShare(null);
+      setPendingImportBundle(null);
       setPendingImportTimelineId('');
       alert('已导入为新的排轴文档，当前排轴未被覆盖。');
       return;
     }
     applyTimelineSnapshotPayload(pendingImportShare.payload);
     setPendingImportShare(null);
+    setPendingImportBundle(null);
     setPendingImportTimelineId('');
     window.location.reload();
   };

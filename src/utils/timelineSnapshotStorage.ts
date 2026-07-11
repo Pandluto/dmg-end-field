@@ -67,10 +67,15 @@ export interface TimelineShareFile {
 export interface TimelineBundleV2 {
   type: 'dmg.timeline-bundle.v2';
   schemaVersion: 2;
-  manifest: { exportedAt: number; scope: 'snapshot'; timelineId: string; label: string; payloadHash: string };
+  manifest: { exportedAt: number; scope: 'snapshot' | 'document'; timelineId: string; label: string; payloadHash: string };
   document: { id: string; label: string };
   payloads: TimelineSnapshotPayload[];
   snapshots: Array<{ id: string; label: string; createdAt: number; payloadIndex: number }>;
+  workNodes?: Array<{
+    id: string; parentNodeId?: string; branchId: string; label: string; status: string; approvalPolicy: string;
+    riskFlags: unknown[]; logs: unknown[]; createdAt: number; updatedAt: number;
+    basePayloadIndex: number; workingPayloadIndex: number;
+  }>;
 }
 
 interface TimelineSnapshotArchive {
@@ -283,32 +288,75 @@ export function buildTimelineShareFile(customLabel?: string): TimelineShareFile 
   };
 }
 
+type TimelineBundleWorkNodeInput = {
+  id: string; parentNodeId?: string; branchId: string; label: string; status: string; approvalPolicy: string;
+  riskFlags?: unknown[]; logs?: unknown[]; createdAt: number; updatedAt: number;
+  basePayload: TimelineSnapshotPayload; workingPayload: TimelineSnapshotPayload;
+};
+
 async function sha256(value: unknown): Promise<string> {
   const bytes = new TextEncoder().encode(JSON.stringify(value));
   const hash = await crypto.subtle.digest('SHA-256', bytes);
   return `sha256:${Array.from(new Uint8Array(hash)).map((byte) => byte.toString(16).padStart(2, '0')).join('')}`;
 }
 
-export async function buildTimelineBundleV2(input: { timelineId: string; label?: string; snapshot: TimelineSnapshotEntry }): Promise<TimelineBundleV2> {
-  const payloads = [normalizeSnapshotPayload(input.snapshot.payload)];
+export async function buildTimelineBundleV2(input: {
+  timelineId: string; label?: string; snapshot: TimelineSnapshotEntry;
+  snapshots?: TimelineSnapshotEntry[]; workNodes?: TimelineBundleWorkNodeInput[];
+}): Promise<TimelineBundleV2> {
+  const sourceSnapshots = input.snapshots || [input.snapshot];
+  if (!sourceSnapshots.length) throw new Error('Timeline bundle requires at least one snapshot.');
+  const payloads: TimelineSnapshotPayload[] = [];
+  const payloadIndex = new Map<string, number>();
+  const addPayload = (payload: TimelineSnapshotPayload) => {
+    const normalized = normalizeSnapshotPayload(payload);
+    const key = JSON.stringify(normalized);
+    const existing = payloadIndex.get(key);
+    if (existing !== undefined) return existing;
+    const index = payloads.length;
+    payloads.push(normalized);
+    payloadIndex.set(key, index);
+    return index;
+  };
+  const snapshots = sourceSnapshots.map((snapshot) => ({
+    id: snapshot.id, label: snapshot.label, createdAt: snapshot.createdAt, payloadIndex: addPayload(snapshot.payload),
+  }));
+  const workNodes = input.workNodes?.map((node) => ({
+    id: node.id, ...(node.parentNodeId ? { parentNodeId: node.parentNodeId } : {}), branchId: node.branchId,
+    label: node.label, status: node.status, approvalPolicy: node.approvalPolicy,
+    riskFlags: node.riskFlags || [], logs: node.logs || [], createdAt: node.createdAt, updatedAt: node.updatedAt,
+    basePayloadIndex: addPayload(node.basePayload), workingPayloadIndex: addPayload(node.workingPayload),
+  }));
   return {
     type: 'dmg.timeline-bundle.v2',
     schemaVersion: 2,
-    manifest: { exportedAt: Date.now(), scope: 'snapshot', timelineId: input.timelineId, label: normalizeShareLabel(input.label || input.snapshot.label), payloadHash: await sha256(payloads) },
+    manifest: {
+      exportedAt: Date.now(), scope: workNodes?.length ? 'document' : 'snapshot', timelineId: input.timelineId,
+      label: normalizeShareLabel(input.label || input.snapshot.label),
+      payloadHash: await sha256({ payloads, snapshots, workNodes: workNodes || [] }),
+    },
     document: { id: input.timelineId, label: normalizeShareLabel(input.label || '导入排轴') },
     payloads,
-    snapshots: [{ id: input.snapshot.id, label: input.snapshot.label, createdAt: input.snapshot.createdAt, payloadIndex: 0 }],
+    snapshots,
+    ...(workNodes?.length ? { workNodes } : {}),
   };
 }
 
 export async function parseTimelineBundleV2(rawText: string): Promise<TimelineBundleV2 | null> {
   try {
     const bundle = JSON.parse(rawText) as Partial<TimelineBundleV2>;
-    if (bundle.type !== 'dmg.timeline-bundle.v2' || bundle.schemaVersion !== 2 || bundle.manifest?.scope !== 'snapshot') return null;
+    if (bundle.type !== 'dmg.timeline-bundle.v2' || bundle.schemaVersion !== 2 || !['snapshot', 'document'].includes(bundle.manifest?.scope || '')) return null;
     if (!bundle.document?.id || !bundle.manifest?.payloadHash || !Array.isArray(bundle.payloads) || !Array.isArray(bundle.snapshots)) return null;
     if (!bundle.payloads.every(isValidTimelineSnapshotPayload)) return null;
     if (!bundle.snapshots.every((item) => typeof item?.id === 'string' && typeof item.payloadIndex === 'number' && bundle.payloads![item.payloadIndex])) return null;
-    if (await sha256(bundle.payloads) !== bundle.manifest.payloadHash) return null;
+    if (!bundle.snapshots.every((item) => typeof item?.label === 'string' && typeof item.createdAt === 'number')) return null;
+    const workNodes = Array.isArray(bundle.workNodes) ? bundle.workNodes : [];
+    if (!workNodes.every((node) => typeof node?.id === 'string' && typeof node.branchId === 'string'
+      && typeof node.basePayloadIndex === 'number' && bundle.payloads![node.basePayloadIndex]
+      && typeof node.workingPayloadIndex === 'number' && bundle.payloads![node.workingPayloadIndex])) return null;
+    const actualHash = await sha256({ payloads: bundle.payloads, snapshots: bundle.snapshots, workNodes });
+    const legacyHash = await sha256(bundle.payloads);
+    if (actualHash !== bundle.manifest.payloadHash && legacyHash !== bundle.manifest.payloadHash) return null;
     return bundle as TimelineBundleV2;
   } catch {
     return null;
