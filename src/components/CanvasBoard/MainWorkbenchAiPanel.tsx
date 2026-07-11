@@ -30,6 +30,7 @@ import { summarizeMainWorkbenchToolsForAgent } from '../../agentKernel/mainWorkb
 import { buildGameKnowledgePromptLines } from '../../utils/gameKnowledge';
 import { MarkdownRenderer } from '../MarkdownRenderer';
 import { WorkNodeTreeIcon } from './WorkNodeTreeIcon';
+import { mergeWorkbenchAiHistory } from './workbenchAiHistory';
 import './MainWorkbenchAiPanel.css';
 
 const DEF_AGENT_BROWSER_SESSION_KEY = 'def-opencode.workbench.activeSession.v1';
@@ -174,7 +175,10 @@ function writeStoredDefAgentHistory(sessionId: string, messages: WorkbenchAiMess
   try {
     const raw = window.localStorage.getItem(DEF_AGENT_BROWSER_HISTORY_KEY);
     const archive = raw ? JSON.parse(raw) as Record<string, WorkbenchAiMessage[]> : {};
-    archive[sessionId] = messages.filter((message) => message.id !== 'system-ready').slice(-80);
+    archive[sessionId] = mergeWorkbenchAiHistory(
+      Array.isArray(archive[sessionId]) ? archive[sessionId] : [],
+      messages,
+    );
     window.localStorage.setItem(DEF_AGENT_BROWSER_HISTORY_KEY, JSON.stringify(archive));
   } catch {
     // Conversation history is a local recovery cache; backend transcript remains authoritative when available.
@@ -495,13 +499,7 @@ function buildLastOperationMethodAnswer(toolName: string) {
 
 function mergeTranscriptWithStoredHistory(sessionId: string, transcript: WorkbenchAiMessage[]) {
   const history = readStoredDefAgentHistory(sessionId);
-  const seen = new Set<string>();
-  const merged = [...history, ...transcript].filter((message) => {
-    const key = `${message.role}:${message.text.trim()}`;
-    if (!message.text.trim() || seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
+  const merged = mergeWorkbenchAiHistory(history, transcript);
   return merged.length > 0 ? merged : buildInitialMessages();
 }
 
@@ -516,8 +514,8 @@ export function MainWorkbenchAiPanel({
   const storedSession = useMemo(() => {
     const stored = readStoredDefAgentSession();
     if (!stored?.sessionId) return null;
-    return stored.selectedSignature === selectedSignature ? stored : null;
-  }, [selectedSignature]);
+    return stored;
+  }, []);
   const [messages, setMessages] = useState<WorkbenchAiMessage[]>(() => buildInitialMessages());
   const [input, setInput] = useState('');
   const [status, setStatus] = useState(storedSession?.sessionId ? '恢复中' : '待命');
@@ -635,12 +633,6 @@ export function MainWorkbenchAiPanel({
     let cancelled = false;
     const stored = readStoredDefAgentSession();
     if (!stored?.sessionId) return undefined;
-    if (stored.selectedSignature !== selectedSignature) {
-      rememberSession(null);
-      setMessages(buildInitialMessages());
-      setStatus('新对话');
-      return undefined;
-    }
     const cachedHistory = readStoredDefAgentHistory(stored.sessionId);
     if (cachedHistory.length > 0) {
       setMessages(cachedHistory);
