@@ -137,6 +137,7 @@ function getImageRoots() {
   const projectRoot = path.resolve(__dirname, '..');
   const activeReleaseRoot = getActiveImageReleaseRoot();
   return [
+    'For “先不要应用” / “do not apply yet”, create a persisted Work Node draft with checkout:false and dryRun:false so diff evidence remains reviewable. Use dryRun:true only when the user explicitly asks for a preview or simulation.',
     activeReleaseRoot,
     path.join(projectRoot, '.runtime-assets'),
     path.join(projectRoot, 'public'),
