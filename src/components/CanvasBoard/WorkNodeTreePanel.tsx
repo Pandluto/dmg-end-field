@@ -69,10 +69,11 @@ export function WorkNodeTreePanel({ timelineId, refreshKey, onSelectedNodeChange
   const selectionInitializedRef = useRef(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
-  const [camera, setCamera] = useState({ x: 0, y: 0 });
+  const [camera, setCamera] = useState({ x: 0, y: 0, zoom: 1 });
   const cameraRef = useRef(camera);
   const treeCanvasRef = useRef<HTMLDivElement | null>(null);
   const cameraFrameRef = useRef<number | null>(null);
+  const cameraCommitTimerRef = useRef<number | null>(null);
   const dragRef = useRef<{ pointerId: number; startX: number; startY: number; cameraX: number; cameraY: number } | null>(null);
   const revisionRef = useRef(0);
 
@@ -114,12 +115,13 @@ export function WorkNodeTreePanel({ timelineId, refreshKey, onSelectedNodeChange
     setSelectedNodeId('');
     setSelectedNodePatches([]);
     setSelectedNodeAuditEvents([]);
-    cameraRef.current = { x: 0, y: 0 };
-    setCamera({ x: 0, y: 0 });
+    cameraRef.current = { x: 0, y: 0, zoom: 1 };
+    setCamera({ x: 0, y: 0, zoom: 1 });
   }, [timelineId]);
 
   useEffect(() => () => {
     if (cameraFrameRef.current !== null) window.cancelAnimationFrame(cameraFrameRef.current);
+    if (cameraCommitTimerRef.current !== null) window.clearTimeout(cameraCommitTimerRef.current);
   }, []);
 
   useEffect(() => {
@@ -330,6 +332,7 @@ export function WorkNodeTreePanel({ timelineId, refreshKey, onSelectedNodeChange
     cameraRef.current = {
       x: drag.cameraX + event.clientX - drag.startX,
       y: drag.cameraY + event.clientY - drag.startY,
+      zoom: cameraRef.current.zoom,
     };
     if (cameraFrameRef.current !== null) return;
     cameraFrameRef.current = window.requestAnimationFrame(() => {
@@ -337,7 +340,7 @@ export function WorkNodeTreePanel({ timelineId, refreshKey, onSelectedNodeChange
       const canvas = treeCanvasRef.current;
       if (!canvas) return;
       const next = cameraRef.current;
-      canvas.style.transform = `translate3d(${next.x}px, ${next.y}px, 0)`;
+      canvas.style.transform = `translate3d(${next.x}px, ${next.y}px, 0) scale(${next.zoom})`;
     });
   };
 
@@ -350,9 +353,40 @@ export function WorkNodeTreePanel({ timelineId, refreshKey, onSelectedNodeChange
     }
     const next = cameraRef.current;
     if (treeCanvasRef.current) {
-      treeCanvasRef.current.style.transform = `translate3d(${next.x}px, ${next.y}px, 0)`;
+      treeCanvasRef.current.style.transform = `translate3d(${next.x}px, ${next.y}px, 0) scale(${next.zoom})`;
     }
     setCamera(next);
+  };
+
+  const handleCanvasWheel = (event: React.WheelEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    const bounds = event.currentTarget.getBoundingClientRect();
+    const pointerX = event.clientX - bounds.left;
+    const pointerY = event.clientY - bounds.top;
+    const current = cameraRef.current;
+    const zoomFactor = Math.exp(-event.deltaY * 0.0015);
+    const zoom = Math.min(2, Math.max(0.4, current.zoom * zoomFactor));
+    if (Math.abs(zoom - current.zoom) < 0.0001) return;
+    const worldX = (pointerX - current.x) / current.zoom;
+    const worldY = (pointerY - current.y) / current.zoom;
+    cameraRef.current = {
+      x: pointerX - worldX * zoom,
+      y: pointerY - worldY * zoom,
+      zoom,
+    };
+    if (cameraFrameRef.current !== null) return;
+    cameraFrameRef.current = window.requestAnimationFrame(() => {
+      cameraFrameRef.current = null;
+      const canvas = treeCanvasRef.current;
+      if (!canvas) return;
+      const next = cameraRef.current;
+      canvas.style.transform = `translate3d(${next.x}px, ${next.y}px, 0) scale(${next.zoom})`;
+    });
+    if (cameraCommitTimerRef.current !== null) window.clearTimeout(cameraCommitTimerRef.current);
+    cameraCommitTimerRef.current = window.setTimeout(() => {
+      cameraCommitTimerRef.current = null;
+      setCamera(cameraRef.current);
+    }, 120);
   };
 
   return (
@@ -363,8 +397,9 @@ export function WorkNodeTreePanel({ timelineId, refreshKey, onSelectedNodeChange
       onPointerMove={handleCanvasPointerMove}
       onPointerUp={stopCanvasDrag}
       onPointerCancel={stopCanvasDrag}
+      onWheel={handleCanvasWheel}
     >
-      <div className="work-node-tree-count">{viewModel.nodeCount} 节点 / {viewModel.riskCount} 风险</div>
+      <div className="work-node-tree-count">{viewModel.nodeCount} 节点 / {viewModel.riskCount} 风险 · {Math.round(camera.zoom * 100)}%</div>
       {selectedNode ? (
         <aside className="work-node-tree-detail" aria-label="Selected Work Node details">
           <strong>{selectedNode.label}</strong>
@@ -389,7 +424,8 @@ export function WorkNodeTreePanel({ timelineId, refreshKey, onSelectedNodeChange
         style={{
           width: treeLayout.width,
           height: treeLayout.height,
-          transform: `translate3d(${camera.x}px, ${camera.y}px, 0)`,
+          transform: `translate3d(${camera.x}px, ${camera.y}px, 0) scale(${camera.zoom})`,
+          transformOrigin: '0 0',
         }}
       >
         <svg
