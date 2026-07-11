@@ -4873,6 +4873,11 @@ function validateAiTimelineWorkNodePayload(payload, fieldName) {
   return null;
 }
 
+function aiTimelineWorkNodeLabel(value, fallback) {
+  const label = typeof value === 'string' && value.trim() ? value.trim() : fallback;
+  return /^\[(?:ai|save|baseline)\]\s*/i.test(label) ? label : `[ai] ${label}`;
+}
+
 function toAiTimelineWorkNodeListItem(node) {
   if (!isPlainObject(node)) return node;
   const { basePayload, workingPayload, ...item } = node;
@@ -4952,7 +4957,7 @@ function createAiTimelineWorkNode(payload) {
     branchId: sanitizeAiTimelineWorkNodeId(payload.branchId, 'branch'),
     createdAt: now,
     updatedAt: now,
-    label: typeof payload.label === 'string' && payload.label.trim() ? payload.label.trim() : '[ai] AI Timeline Work Node',
+    label: aiTimelineWorkNodeLabel(payload.label, 'AI Timeline Work Node'),
     status: 'open',
     basePayload: cloneJsonValue(basePayload),
     workingPayload: cloneJsonValue(requestedWorkingPayload),

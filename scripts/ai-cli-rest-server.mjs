@@ -873,9 +873,7 @@ function createDefWorkNodeFromPayload(payloadSource, input = {}) {
     branchId: sanitizeWorkNodeId(input.branchId, `main-workbench-${now}`),
     createdAt: now,
     updatedAt: now,
-    label: typeof input.label === 'string' && input.label.trim()
-      ? input.label.trim()
-      : `[ai] Main Workbench ${new Date(now).toLocaleString()}`,
+    label: aiWorkNodeLabel(input.label, `Main Workbench ${new Date(now).toLocaleString()}`),
     status: 'open',
     basePayload: cloneJson(payloadSource.payload),
     workingPayload: cloneJson(payloadSource.payload),
@@ -901,6 +899,11 @@ function createDefWorkNodeFromPayload(payloadSource, input = {}) {
     sourceUpdatedAt: payloadSource.sourceUpdatedAt,
     buttonTargets: buildDefWorkNodeButtonTargets(payloadSource.payload),
   };
+}
+
+function aiWorkNodeLabel(value, fallback) {
+  const label = typeof value === 'string' && value.trim() ? value.trim() : fallback;
+  return /^\[(?:ai|save|baseline)\]\s*/i.test(label) ? label : `[ai] ${label}`;
 }
 
 function toAiTimelineWorkNodeListItem(node) {
@@ -970,7 +973,7 @@ function handleAiTimelineWorkNodeRequest(method, pathname, body) {
       branchId,
       createdAt: now,
       updatedAt: now,
-      label: typeof body?.label === 'string' && body.label.trim() ? body.label.trim() : '[ai] AI Timeline Work Node',
+      label: aiWorkNodeLabel(body?.label, 'AI Timeline Work Node'),
       status: 'open',
       basePayload: cloneJson(basePayload),
       workingPayload: cloneJson(requestedWorkingPayload),

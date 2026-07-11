@@ -1172,7 +1172,9 @@ export function CanvasBoard({
       ...(hasParentNodeInput ? {
         parentNodeId: command.parentNodeId === null ? null : (command.parentNodeId?.trim() || null),
       } : {}),
-      label: command.label?.trim() || `[ai] Main Workbench ${new Date(now).toLocaleString()}`,
+      label: command.label?.trim()
+        ? (/^\[ai\]\s*/i.test(command.label.trim()) ? command.label.trim() : `[ai] ${command.label.trim()}`)
+        : `[ai] Main Workbench ${new Date(now).toLocaleString()}`,
       basePayload: payload,
       workingPayload: payload,
       approvalPolicy: command.approvalPolicy || 'auto-low-risk',
