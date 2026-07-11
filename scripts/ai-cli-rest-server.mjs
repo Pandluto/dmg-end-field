@@ -489,7 +489,10 @@ function getAiTimelineWorkNodeStore() {
 }
 
 function getTimelineRepository() {
-  if (!timelineRepository) timelineRepository = createTimelineRepository({ databasePath: timelineRepositoryPath });
+  if (!timelineRepository) {
+    timelineRepository = createTimelineRepository({ databasePath: timelineRepositoryPath });
+    timelineRepository.migrateLegacyWorkNodeArchive(getAiTimelineWorkNodeStore().readArchive());
+  }
   return timelineRepository;
 }
 

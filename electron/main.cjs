@@ -4421,6 +4421,7 @@ function getTimelineRepository() {
   if (!timelineRepository) {
     ensureLocalDataDirectory();
     timelineRepository = createTimelineRepository({ databasePath: getTimelineRepositoryPath() });
+    timelineRepository.migrateLegacyWorkNodeArchive(getAiTimelineWorkNodeStore().readArchive());
   }
   return timelineRepository;
 }
@@ -4436,7 +4437,9 @@ function mirrorAiTimelineWorkNodeToRepository(node) {
     // have received a newer working payload, status, or audit log.
     if (!candidate || visiting.has(candidate.id)) return;
     visiting.add(candidate.id);
-    if (candidate.parentNodeId) mirrorOne(getAiTimelineWorkNodeStore().getNode(candidate.parentNodeId));
+    if (candidate.parentNodeId && !repository.getWorkNode(candidate.parentNodeId)) {
+      mirrorOne(getAiTimelineWorkNodeStore().getNode(candidate.parentNodeId));
+    }
     repository.importWorkNode({ ...candidate, timelineId });
     visiting.delete(candidate.id);
   };
@@ -4449,6 +4452,43 @@ function mirrorAiTimelineWorkNodeCommitToRepository(commit) {
     ...commit,
     timelineId: commit.timelineId || commit.saveId || 'current-main-workbench',
   });
+}
+
+function readRepositoryAiTimelineWorkNode(nodeId) {
+  const node = getTimelineRepository().getWorkNode(nodeId);
+  return node ? { ...node, saveId: node.timelineId } : null;
+}
+
+function listRepositoryAiTimelineWorkNodes() {
+  return getTimelineRepository().listDocuments().flatMap((document) => (
+    getTimelineRepository().listWorkNodes(document.id).map((node) => ({ ...node, saveId: node.timelineId }))
+  ));
+}
+
+function listRepositoryAiTimelineWorkNodeCommits() {
+  return getTimelineRepository().listDocuments().flatMap((document) => (
+    getTimelineRepository().listWorkNodeCommits(document.id).map((commit) => ({ ...commit, saveId: commit.timelineId }))
+  ));
+}
+
+function shouldWriteLegacyAiTimelineProjection() {
+  if (process.env.AI_TIMELINE_DISABLE_LEGACY_PROJECTION === '1') return false;
+  const migrationRaw = getTimelineRepository().getMeta('legacy_work_node_migration_v1');
+  try {
+    if (migrationRaw && JSON.parse(migrationRaw)?.complete === true) return false;
+  } catch {
+    // Invalid metadata is not migration completion evidence.
+  }
+  const archive = getAiTimelineWorkNodeStore().list();
+  return archive.nodes.length > 0 || archive.commits.length > 0;
+}
+
+function writeLegacyAiTimelineNode(node) {
+  if (shouldWriteLegacyAiTimelineProjection()) getAiTimelineWorkNodeStore().saveNode(node);
+}
+
+function writeLegacyAiTimelineCommit(node, commit, options) {
+  if (shouldWriteLegacyAiTimelineProjection()) getAiTimelineWorkNodeStore().saveNodeAndCommit(node, commit, options);
 }
 
 function sanitizeArchiveId(value) {
@@ -4917,25 +4957,33 @@ function aiTimelineWorkNodeError(code, status, message, details) {
 }
 
 function buildAiTimelineWorkNodeListResult() {
-  const archive = getAiTimelineWorkNodeStore().list();
+  const nodes = listRepositoryAiTimelineWorkNodes().sort((left, right) => (right.updatedAt || 0) - (left.updatedAt || 0));
+  const commits = listRepositoryAiTimelineWorkNodeCommits().sort((left, right) => (right.createdAt || 0) - (left.createdAt || 0));
+  const heads = Object.fromEntries(getTimelineRepository().listDocuments().map((document) => {
+    const checkout = getTimelineRepository().getCheckoutRef(document.id);
+    return [document.id, checkout?.targetType === 'work-node'
+      ? { nodeId: checkout.targetId, revision: checkout.updatedAt }
+      : { nodeId: '', revision: checkout?.updatedAt || 0 }];
+  }));
+  const latestHead = Object.values(heads).sort((left, right) => right.revision - left.revision)[0];
   return {
     ok: true,
     path: getAiTimelineWorkNodesPath(),
     archive: {
-      ...archive,
-      nodes: [...archive.nodes]
-        .sort((left, right) => (right.updatedAt || 0) - (left.updatedAt || 0))
-        .map(toAiTimelineWorkNodeListItem),
-      commits: [...archive.commits]
-        .sort((left, right) => (right.createdAt || 0) - (left.createdAt || 0))
-        .map(toAiTimelineWorkNodeCommitListItem),
+      type: 'def.ai-timeline.worknodes.v1',
+      schemaVersion: 1,
+      nodes: nodes.map(toAiTimelineWorkNodeListItem),
+      commits: commits.map(toAiTimelineWorkNodeCommitListItem),
+      heads,
+      headNodeId: latestHead?.nodeId || '',
+      revision: latestHead?.revision || 0,
     },
   };
 }
 
 function readAiTimelineWorkNode(id) {
   const nodeId = sanitizeAiTimelineWorkNodeId(id, 'ai-timeline-node');
-  const node = getAiTimelineWorkNodeStore().getNode(nodeId);
+  const node = readRepositoryAiTimelineWorkNode(nodeId);
   if (!node) {
     throw aiTimelineWorkNodeError('ai-worknode-not-found', 404, `AI timeline work node not found: ${nodeId}`);
   }
@@ -4961,12 +5009,14 @@ function createAiTimelineWorkNode(payload) {
     throw aiTimelineWorkNodeError('invalid-ai-worknode-working-payload', 400, workingPayloadError);
   }
   const now = Date.now();
-  const store = getAiTimelineWorkNodeStore();
   const hasParentNodeInput = Object.prototype.hasOwnProperty.call(payload || {}, 'parentNodeId');
   const requestedParentNodeId = typeof payload.parentNodeId === 'string' && payload.parentNodeId.trim()
     ? sanitizeAiTimelineWorkNodeId(payload.parentNodeId, 'ai-timeline-node')
     : undefined;
-  const parentNodeId = hasParentNodeInput ? requestedParentNodeId : store.getHead(saveId)?.nodeId;
+  const checkoutRef = getTimelineRepository().getCheckoutRef(saveId);
+  const parentNodeId = hasParentNodeInput
+    ? requestedParentNodeId
+    : checkoutRef?.targetType === 'work-node' ? checkoutRef.targetId : undefined;
   const node = {
     id: sanitizeAiTimelineWorkNodeId(payload.id, 'ai-timeline-node'),
     ...(parentNodeId ? { parentNodeId } : {}),
@@ -4986,13 +5036,13 @@ function createAiTimelineWorkNode(payload) {
     logs: [makeAiTimelineWorkNodeLog('info', 'Created AI timeline work node from checkout payload.')],
   };
   mirrorAiTimelineWorkNodeToRepository(node);
-  store.saveNode(node);
+  writeLegacyAiTimelineNode(node);
   return { ok: true, path: getAiTimelineWorkNodesPath(), node };
 }
 
 function updateAiTimelineWorkNode(id, payload = {}) {
   const nodeId = sanitizeAiTimelineWorkNodeId(id, 'ai-timeline-node');
-  const node = getAiTimelineWorkNodeStore().getNode(nodeId);
+  const node = readRepositoryAiTimelineWorkNode(nodeId);
   if (!node) {
     throw aiTimelineWorkNodeError('ai-worknode-not-found', 404, `AI timeline work node not found: ${nodeId}`);
   }
@@ -5037,7 +5087,7 @@ function updateAiTimelineWorkNode(id, payload = {}) {
     ],
   };
   mirrorAiTimelineWorkNodeToRepository(nextNode);
-  getAiTimelineWorkNodeStore().saveNode(nextNode);
+  writeLegacyAiTimelineNode(nextNode);
   return { ok: true, path: getAiTimelineWorkNodesPath(), node: nextNode };
 }
 
@@ -5045,16 +5095,16 @@ function deleteAiTimelineWorkNode(id) {
   const nodeId = sanitizeAiTimelineWorkNodeId(id, 'ai-timeline-node');
   const store = getAiTimelineWorkNodeStore();
   const repository = getTimelineRepository();
-  store.assertSubtreeDeletable(nodeId);
+  if (store.getNode(nodeId)) store.assertSubtreeDeletable(nodeId);
   if (repository.getWorkNode(nodeId)) repository.assertWorkNodeSubtreeDeletable(nodeId);
   if (repository.getWorkNode(nodeId)) repository.deleteWorkNodeSubtree(nodeId);
-  store.deleteSubtree(nodeId);
+  if (store.getNode(nodeId)) store.deleteSubtree(nodeId);
   return buildAiTimelineWorkNodeListResult();
 }
 
 function commitAiTimelineWorkNode(id, payload = {}) {
   const nodeId = sanitizeAiTimelineWorkNodeId(id, 'ai-timeline-node');
-  const node = getAiTimelineWorkNodeStore().getNode(nodeId);
+  const node = readRepositoryAiTimelineWorkNode(nodeId);
   if (!node) {
     throw aiTimelineWorkNodeError('ai-worknode-not-found', 404, `AI timeline work node not found: ${nodeId}`);
   }
@@ -5085,7 +5135,7 @@ function commitAiTimelineWorkNode(id, payload = {}) {
     approval,
     checkoutApplied: false,
   };
-  if (getAiTimelineWorkNodeStore().getCommit(commit.id)) {
+  if (getTimelineRepository().getWorkNodeCommit(commit.id)) {
     throw aiTimelineWorkNodeError('ai-worknode-commit-id-conflict', 409, `AI Work Node commit id already exists: ${commit.id}`);
   }
   const nextNode = {
@@ -5100,19 +5150,20 @@ function commitAiTimelineWorkNode(id, payload = {}) {
   };
   mirrorAiTimelineWorkNodeToRepository(nextNode);
   mirrorAiTimelineWorkNodeCommitToRepository(commit);
-  getAiTimelineWorkNodeStore().saveNodeAndCommit(nextNode, commit);
+  writeLegacyAiTimelineCommit(nextNode, commit);
   return { ok: true, path: getAiTimelineWorkNodesPath(), node: nextNode, commit };
 }
 
 function markAiTimelineWorkNodeCheckoutApplied(id, payload = {}) {
   const nodeId = sanitizeAiTimelineWorkNodeId(id, 'ai-timeline-node');
-  const store = getAiTimelineWorkNodeStore();
-  const node = store.getNode(nodeId);
+  const node = readRepositoryAiTimelineWorkNode(nodeId);
   if (!node) {
     throw aiTimelineWorkNodeError('ai-worknode-not-found', 404, `AI timeline work node not found: ${nodeId}`);
   }
   const commitId = typeof payload.commitId === 'string' && payload.commitId.trim() ? payload.commitId.trim() : '';
-  const targetCommit = commitId ? store.getCommit(commitId) : store.getLatestCommitForNode(node.id);
+  const targetCommit = commitId
+    ? getTimelineRepository().getWorkNodeCommit(commitId)
+    : getTimelineRepository().getLatestWorkNodeCommit(node.id);
   if (targetCommit?.nodeId !== node.id) {
     throw aiTimelineWorkNodeError('ai-worknode-commit-not-found', 404, `AI timeline work node commit not found for node: ${node.id}`);
   }
@@ -5150,14 +5201,13 @@ function markAiTimelineWorkNodeCheckoutApplied(id, payload = {}) {
     targetId: nextNode.id,
     updatedAt: appliedAt,
   });
-  store.saveNodeAndCommit(nextNode, nextCommit, { setHead: true });
+  writeLegacyAiTimelineCommit(nextNode, nextCommit, { setHead: true });
   return { ok: true, path: getAiTimelineWorkNodesPath(), node: nextNode, commit: nextCommit };
 }
 
 function markAiTimelineWorkNodeRollbackApplied(id, payload = {}) {
   const nodeId = sanitizeAiTimelineWorkNodeId(id, 'ai-timeline-node');
-  const store = getAiTimelineWorkNodeStore();
-  const node = store.getNode(nodeId);
+  const node = readRepositoryAiTimelineWorkNode(nodeId);
   if (!node) {
     throw aiTimelineWorkNodeError('ai-worknode-not-found', 404, `AI timeline work node not found: ${nodeId}`);
   }
@@ -5189,7 +5239,7 @@ function markAiTimelineWorkNodeRollbackApplied(id, payload = {}) {
     details: rollback,
     createdAt: appliedAt,
   });
-  store.saveNode(nextNode);
+  writeLegacyAiTimelineNode(nextNode);
   return { ok: true, path: getAiTimelineWorkNodesPath(), node: nextNode, rollback };
 }
 

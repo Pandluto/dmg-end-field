@@ -717,6 +717,56 @@ function createTimelineRepository({ databasePath }) {
     });
   }
 
+  function migrateLegacyWorkNodeArchive(archive) {
+    const existingRaw = db.prepare('SELECT value FROM timeline_schema_meta WHERE key = ?').get('legacy_work_node_migration_v1')?.value;
+    try {
+      const existing = existingRaw ? JSON.parse(existingRaw) : null;
+      if (existing?.complete === true) return existing;
+    } catch {
+      // Rebuild invalid or partial migration metadata from source rows.
+    }
+    const sourceNodes = (Array.isArray(archive?.nodes) ? archive.nodes : [])
+      .filter((node) => node && !node.saveId?.startsWith('timeline-snapshot-') && !/^\[snapshot\]/i.test(node.label || ''))
+      .sort((left, right) => (left.createdAt || 0) - (right.createdAt || 0));
+    const importedIds = new Set();
+    const nodeTimelineIds = new Map();
+    for (const node of sourceNodes) {
+      const timelineId = node.timelineId || node.saveId || 'current-main-workbench';
+      ensureDocument({ id: timelineId, label: timelineId === 'current-main-workbench' ? '主排轴' : `迁移排轴 ${timelineId}`, preserveExistingLabel: true });
+      const parentNodeId = importedIds.has(node.parentNodeId) && nodeTimelineIds.get(node.parentNodeId) === timelineId ? node.parentNodeId : null;
+      importWorkNode({ ...node, timelineId, parentNodeId, migration: true });
+      importedIds.add(node.id);
+      nodeTimelineIds.set(node.id, timelineId);
+    }
+    const sourceCommits = (Array.isArray(archive?.commits) ? archive.commits : []).filter((commit) => importedIds.has(commit?.nodeId));
+    for (const commit of sourceCommits) importWorkNodeCommit({ ...commit, timelineId: nodeTimelineIds.get(commit.nodeId) });
+    const latestAppliedByTimeline = new Map();
+    for (const commit of sourceCommits.filter((entry) => entry.checkoutApplied)) {
+      const timelineId = nodeTimelineIds.get(commit.nodeId);
+      const previous = latestAppliedByTimeline.get(timelineId);
+      if (!previous || (commit.createdAt || 0) > (previous.createdAt || 0)) latestAppliedByTimeline.set(timelineId, commit);
+    }
+    for (const [timelineId, commit] of latestAppliedByTimeline) {
+      setCheckoutRef({ timelineId, targetType: 'work-node', targetId: commit.nodeId, updatedAt: commit.createdAt || Date.now() });
+    }
+    const timelineIds = [...new Set(nodeTimelineIds.values())];
+    const timelineCounts = timelineIds.map((timelineId) => ({
+      timelineId,
+      expectedNodes: [...nodeTimelineIds.values()].filter((value) => value === timelineId).length,
+      actualNodes: db.prepare('SELECT COUNT(*) AS count FROM timeline_work_nodes WHERE timeline_id = ?').get(timelineId).count,
+      expectedCommits: sourceCommits.filter((commit) => nodeTimelineIds.get(commit.nodeId) === timelineId).length,
+      actualCommits: db.prepare('SELECT COUNT(*) AS count FROM timeline_work_node_commits WHERE timeline_id = ?').get(timelineId).count,
+    }));
+    const complete = timelineCounts.every((entry) => entry.actualNodes >= entry.expectedNodes && entry.actualCommits >= entry.expectedCommits);
+    const state = {
+      version: 1, complete, completedAt: complete ? Date.now() : null,
+      sourceNodeCount: sourceNodes.length, sourceCommitCount: sourceCommits.length, timelineCounts,
+    };
+    db.prepare(`INSERT INTO timeline_schema_meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`)
+      .run('legacy_work_node_migration_v1', serialize(state));
+    return state;
+  }
+
   function assertWorkNodeSubtreeDeletable(nodeId) {
       const target = db.prepare('SELECT id, timeline_id FROM timeline_work_nodes WHERE id = ?').get(nodeId);
       if (!target) {
@@ -807,6 +857,7 @@ function createTimelineRepository({ databasePath }) {
     archiveSnapshot,
     importWorkNode,
     importWorkNodeCommit,
+    migrateLegacyWorkNodeArchive,
     assertWorkNodeSubtreeDeletable,
     deleteWorkNodeSubtree,
     deleteDocument,

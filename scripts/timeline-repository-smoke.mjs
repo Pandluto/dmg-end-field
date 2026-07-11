@@ -133,6 +133,18 @@ assert.equal(deletedDocument.deletedSnapshotCount, 1);
 assert.equal(repository.getDocument('timeline-imported'), undefined);
 assert.equal(repository.getWorkNode('imported-node-1'), null);
 assert.equal(repository.listDocuments().length, 3);
+const automaticMigration = repository.migrateLegacyWorkNodeArchive({
+  nodes: [{
+    id: 'auto-migrated-node', saveId: 'auto-migrated-document', timelineId: 'auto-migrated-document', branchId: 'main',
+    label: 'auto migrated', status: 'open', approvalPolicy: 'auto-low-risk', basePayload: payload, workingPayload: payload,
+    riskFlags: [], logs: [], createdAt: 10, updatedAt: 10,
+  }],
+  commits: [],
+});
+assert.equal(automaticMigration.complete, true);
+assert.equal(repository.getWorkNode('auto-migrated-node')?.timelineId, 'auto-migrated-document');
+assert.equal(JSON.parse(repository.getMeta('legacy_work_node_migration_v1')).complete, true);
+assert.equal(repository.migrateLegacyWorkNodeArchive({ nodes: [], commits: [] }).completedAt, automaticMigration.completedAt);
 repository.close();
 fs.rmSync(directory, { recursive: true, force: true });
 console.log('Timeline repository smoke passed.');
