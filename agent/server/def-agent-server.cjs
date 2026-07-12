@@ -284,6 +284,7 @@ async function proxyOpenCodeRequest(request, response) {
   const runtime = runtimeSummary(readConfig().deepseek);
   if (!runtime.running || !runtime.serverUrl) return Promise.resolve(false);
   const target = new URL(request.url || '/', runtime.serverUrl);
+  await rejectPendingQuestionsForSessionAbort(runtime, request, target);
   const sessionMessageMatch = /^\/session\/([^/]+)\/message$/.exec(target.pathname);
   let rewrittenBody = null;
   let binding = null;
@@ -326,6 +327,33 @@ async function proxyOpenCodeRequest(request, response) {
     }
     request.pipe(upstream);
   });
+}
+
+async function rejectPendingQuestionsForSessionAbort(runtime, request, target) {
+  if (request.method !== 'POST') return;
+  const abortMatch = /^\/session\/([^/]+)\/abort$/.exec(target.pathname);
+  if (!abortMatch) return;
+
+  const directory = target.searchParams.get('directory') || '';
+  if (!directory) return;
+  const sessionID = decodeURIComponent(abortMatch[1]);
+  const query = `directory=${encodeURIComponent(directory)}`;
+
+  try {
+    const pendingResponse = await fetch(`${runtime.serverUrl}/question?${query}`);
+    if (!pendingResponse.ok) return;
+    const pending = await pendingResponse.json();
+    if (!Array.isArray(pending)) return;
+
+    for (const question of pending) {
+      if (question?.sessionID !== sessionID || !question?.id) continue;
+      await fetch(`${runtime.serverUrl}/question/${encodeURIComponent(question.id)}/reject?${query}`, {
+        method: 'POST',
+      }).catch(() => undefined);
+    }
+  } catch {
+    // A stop request must still reach OpenCode when its question list is unavailable.
+  }
 }
 
 const server = http.createServer(async (request, response) => {

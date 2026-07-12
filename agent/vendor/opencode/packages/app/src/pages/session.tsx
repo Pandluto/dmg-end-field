@@ -1657,6 +1657,12 @@ export default function Page() {
             }
           : undefined,
       onResponseSubmit: resumeScroll,
+      onAbort: async () => {
+        const id = params.id
+        if (!id) return
+        setFollowup("paused", id, true)
+        await sdk().client.session.abort({ sessionID: id })
+      },
       openParent: () => {
         const id = info()?.parentID
         if (!id) return

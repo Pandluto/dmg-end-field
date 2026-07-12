@@ -60,7 +60,11 @@ function Option(props: {
   )
 }
 
-export const SessionQuestionDock: Component<{ request: QuestionRequest; onSubmit: () => void }> = (props) => {
+export const SessionQuestionDock: Component<{
+  request: QuestionRequest
+  onSubmit: () => void
+  onAbort?: () => Promise<void>
+}> = (props) => {
   const sdk = useSDK()
   const serverSDK = useServerSDK()
   const language = useLanguage()
@@ -232,7 +236,16 @@ export const SessionQuestionDock: Component<{ request: QuestionRequest; onSubmit
     onError: fail,
   }))
 
-  const sending = createMemo(() => replyMutation.isPending || rejectMutation.isPending)
+  const abortMutation = useMutation(() => ({
+    mutationFn: () => props.onAbort?.() ?? Promise.resolve(),
+    onSuccess: () => {
+      replied = true
+      cache.delete(cacheKey)
+    },
+    onError: fail,
+  }))
+
+  const sending = createMemo(() => replyMutation.isPending || rejectMutation.isPending || abortMutation.isPending)
 
   const reply = async (answers: QuestionAnswer[]) => {
     if (sending()) return
@@ -242,6 +255,11 @@ export const SessionQuestionDock: Component<{ request: QuestionRequest; onSubmit
   const reject = async () => {
     if (sending()) return
     await rejectMutation.mutateAsync()
+  }
+
+  const abort = async () => {
+    if (sending() || !props.onAbort) return
+    await abortMutation.mutateAsync()
   }
 
   const submit = () => void reply(questions().map((_, i) => store.answers[i] ?? []))
@@ -453,6 +471,11 @@ export const SessionQuestionDock: Component<{ request: QuestionRequest; onSubmit
       }
       footer={
         <>
+          <Show when={props.onAbort}>
+            <Button variant="ghost" size="large" disabled={sending()} onClick={() => void abort()}>
+              {language.t("prompt.action.stop")}
+            </Button>
+          </Show>
           <Button variant="ghost" size="large" disabled={sending()} onClick={reject} aria-keyshortcuts="Escape">
             {language.t("ui.common.dismiss")}
           </Button>
