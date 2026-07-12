@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useAppContext } from '../../context/AppContext';
 import { SkillSandbox } from './SkillSandbox';
 import { MainWorkbenchAiPanel } from './MainWorkbenchAiPanel';
-import { WorkNodeTreePanel } from './WorkNodeTreePanel';
+import { WorkNodeTreePanel, type WorkbenchSelectedNodeContext } from './WorkNodeTreePanel';
 import { useCanvasWidth } from './hooks/useCanvasWidth';
 import { useSelectStart } from './hooks/useSelectStart';
 import { useCanvasDrag } from './hooks/useCanvasDrag';
@@ -458,6 +458,7 @@ export function CanvasBoard({
   const [workNodeCameraResetKey, setWorkNodeCameraResetKey] = useState(0);
   const [workNodeSaveNotice, setWorkNodeSaveNotice] = useState('');
   const [pendingWorkNodeCheckoutId, setPendingWorkNodeCheckoutId] = useState('');
+  const [selectedWorkbenchNode, setSelectedWorkbenchNode] = useState<WorkbenchSelectedNodeContext | null>(null);
   const [aiHoverZone, setAiHoverZone] = useState<'left' | 'right'>('right');
   const shouldRestoreTopZoneAfterAiRef = useRef(false);
   const [isRefreshingAvailableCandidates, setIsRefreshingAvailableCandidates] = useState(false);
@@ -516,6 +517,15 @@ export function CanvasBoard({
     setWorkNodeRefreshKey((current) => current + 1);
     setIsWorkNodePanelOpen(true);
   };
+
+  const handleWorkNodeSelection = useCallback((node: WorkbenchSelectedNodeContext) => {
+    setPendingWorkNodeCheckoutId(node.nodeId);
+    setSelectedWorkbenchNode(node);
+  }, []);
+
+  useEffect(() => {
+    setSelectedWorkbenchNode(null);
+  }, [activeTimelineId]);
 
   const closeWorkNodePanel = () => {
     setIsWorkNodePanelOpen(false);
@@ -3547,6 +3557,9 @@ export function CanvasBoard({
               <MainWorkbenchAiPanel
                 selectedCharacters={selectedCharacters}
                 skillButtons={skillButtons}
+                timelineId={activeTimelineId}
+                timelineLabel={activeTimelineLabel}
+                selectedWorkbenchNode={selectedWorkbenchNode}
                 onExit={exitAiMode}
                 onWorkNodeChanged={refreshWorkNodePanel}
               />
@@ -3599,7 +3612,7 @@ export function CanvasBoard({
               timelineId={activeTimelineId}
               refreshKey={workNodeRefreshKey}
               cameraResetKey={workNodeCameraResetKey}
-              onSelectedNodeChange={setPendingWorkNodeCheckoutId}
+              onSelectedNodeChange={handleWorkNodeSelection}
             />
           </div>
         </div>

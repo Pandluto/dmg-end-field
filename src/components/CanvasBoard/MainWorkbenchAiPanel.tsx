@@ -1,18 +1,38 @@
 import { useMemo } from 'react';
 import type { Character, SkillButton } from '../../types';
 import { DefOpenCodeView } from '../def-opencode/DefOpenCodeView';
+import type { WorkbenchSelectedNodeContext } from './WorkNodeTreePanel';
 
 interface MainWorkbenchAiPanelProps {
   selectedCharacters: Character[];
   skillButtons: SkillButton[];
+  timelineId: string;
+  timelineLabel: string;
+  selectedWorkbenchNode: WorkbenchSelectedNodeContext | null;
   onExit: () => void;
   onWorkNodeChanged?: () => void;
 }
 
-export function MainWorkbenchAiPanel({ selectedCharacters, skillButtons, onExit }: MainWorkbenchAiPanelProps) {
+export function MainWorkbenchAiPanel({
+  selectedCharacters,
+  skillButtons,
+  timelineId,
+  timelineLabel,
+  selectedWorkbenchNode,
+  onExit,
+}: MainWorkbenchAiPanelProps) {
   const workbenchContext = useMemo(() => ({
     schemaVersion: 1,
     source: 'main-workbench-react',
+    timeline: {
+      id: timelineId,
+      name: timelineLabel,
+    },
+    selectedWorkbenchNode: selectedWorkbenchNode ? {
+      id: selectedWorkbenchNode.nodeId,
+      name: selectedWorkbenchNode.name,
+      description: selectedWorkbenchNode.description,
+    } : null,
     selectedCharacters: selectedCharacters.map((character) => ({
       id: character.id,
       name: character.name,
@@ -32,7 +52,7 @@ export function MainWorkbenchAiPanel({ selectedCharacters, skillButtons, onExit 
       nodeNumber: button.nodeNumber,
       position: button.position,
     })),
-  }), [selectedCharacters, skillButtons]);
+  }), [selectedCharacters, selectedWorkbenchNode, skillButtons, timelineId, timelineLabel]);
 
   return (
     <DefOpenCodeView

@@ -357,13 +357,13 @@ async function proxyOpenCodeRequest(request, response) {
     binding = readNativeSessionBinding(directory, sessionID);
     if (binding) {
       const incoming = await readJsonBody(request);
-      const workbenchState = binding.host === 'workbench'
-        ? await syncNativeWorkbenchAxisBinding(binding).then((axisContext) => updateNativeWorkbenchCheckoutState(binding, axisContext)).catch(() => null)
+      const workbenchContext = binding.host === 'workbench'
+        ? readNativeWorkbenchContext(binding)
         : null;
       rewrittenBody = Buffer.from(JSON.stringify({
         ...incoming,
         agent: binding.agent,
-        ...(workbenchState ? { system: buildWorkbenchCheckoutSystemPrompt(workbenchState, incoming.system, incoming.parts) } : {}),
+        ...(binding.host === 'workbench' ? { system: buildWorkbenchContextSystemPrompt(workbenchContext, incoming.system) } : {}),
       }), 'utf8');
     }
   }
@@ -534,6 +534,39 @@ function buildWorkbenchCheckoutSystemPrompt(state, existingSystem, parts) {
       'DIRECT CURRENT-NODE CONTRACT: call def_workbench_current_node before replying.',
       'Reply with exactly its label and nodeId. Do not mention axis bindings, node cursors, parents, latest-applied nodes, summaries, or any earlier answer.',
     );
+  }
+  if (typeof existingSystem === 'string' && existingSystem.trim()) lines.push(existingSystem.trim());
+  return lines.join('\n');
+}
+
+function readNativeWorkbenchContext(binding) {
+  if (!binding?.directory) return null;
+  const attached = readJsonFileIfPresent(path.join(binding.directory, '.def-workbench-context.json'));
+  const context = attached?.context;
+  if (!context || typeof context !== 'object') return null;
+  const selected = context.selectedWorkbenchNode;
+  if (!selected || typeof selected !== 'object' || typeof selected.id !== 'string' || !selected.id.trim()) return null;
+  return {
+    id: selected.id.trim(),
+    name: typeof selected.name === 'string' && selected.name.trim() ? selected.name.trim() : '未命名节点',
+    description: typeof selected.description === 'string' ? selected.description.trim() : '',
+  };
+}
+
+function buildWorkbenchContextSystemPrompt(selectedNode, existingSystem) {
+  const lines = [
+    'DEF WORKBENCH LIVE SELECTION (authoritative system context; not user text):',
+    'This value is refreshed from the Work Node tree before every user message. Treat every older transcript claim about the current node as stale.',
+  ];
+  if (selectedNode) {
+    lines.push(
+      `Selected node ID: ${selectedNode.id}`,
+      `Selected node name: ${selectedNode.name}`,
+      `Selected node description: ${selectedNode.description || '（无描述）'}`,
+      'When asked for the current node, answer directly from these three fields. Do not ask the user to confirm and do not call a tool merely to rediscover them.',
+    );
+  } else {
+    lines.push('No Work Node has been selected in this UI session. State that fact plainly if the user asks for the current node.');
   }
   if (typeof existingSystem === 'string' && existingSystem.trim()) lines.push(existingSystem.trim());
   return lines.join('\n');

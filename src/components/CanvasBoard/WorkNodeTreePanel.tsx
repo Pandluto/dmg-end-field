@@ -15,11 +15,17 @@ import type { WorkNodeTreeViewModel } from './workNodeTreeTypes';
 import { resolveCheckoutTargetBeforeWorkNodeDeletion } from '../../agentKernel/timelineWorktree/checkoutLifecycle';
 import './WorkNodeTreePanel.css';
 
+export type WorkbenchSelectedNodeContext = {
+  nodeId: string;
+  name: string;
+  description: string;
+};
+
 type WorkNodeTreePanelProps = {
   timelineId: string;
   refreshKey: number;
   cameraResetKey?: number;
-  onSelectedNodeChange?: (nodeId: string) => void;
+  onSelectedNodeChange?: (node: WorkbenchSelectedNodeContext) => void;
   onSummaryChange?: (summary: WorkNodeTreeViewModel) => void;
 };
 
@@ -326,7 +332,14 @@ export function WorkNodeTreePanel({ timelineId, refreshKey, cameraResetKey = 0, 
 
   const selectNode = (nodeId: string) => {
     setSelectedNodeId(nodeId);
-    onSelectedNodeChange?.(nodeId);
+    const node = viewModel.flatNodes.find((item) => item.nodeId === nodeId);
+    if (node) {
+      onSelectedNodeChange?.({
+        nodeId: node.nodeId,
+        name: node.title,
+        description: node.description,
+      });
+    }
   };
 
   // Ordinary selection is deferred until close. Deletion is ordered explicitly:
