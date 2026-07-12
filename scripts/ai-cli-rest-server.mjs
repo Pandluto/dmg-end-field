@@ -15,6 +15,7 @@ import {
   buildDefToolRouteMap,
   createDefToolRegistry,
 } from '../agent/runtime/def-tools/registry.mjs';
+import { DEF_TOOL_DEFINITION_BASE } from '../agent/runtime/def-tools/definitions.mjs';
 import workNodeStoreModule from '../electron/ai-timeline-work-node-store.cjs';
 import timelineRepositoryModule from '../electron/timeline-repository.cjs';
 
@@ -3080,8 +3081,6 @@ function recordDefApprovalDecision(input = {}) {
 }
 
 function buildDefToolDefinitions() {
-  const executeCommand = 'Wraps current main workbench command queue; enqueue success still requires verification.';
-  const workNode = 'Uses appdata/localdata AI work node; current checkout changes only on checkout/restore.';
   const patchDslProperty = {
     type: 'array',
     description: 'Constrained work node Patch DSL. Edits workingPayload only; checkout remains separate.',
@@ -3227,55 +3226,7 @@ function buildDefToolDefinitions() {
       snapshotWaitMs: { type: 'number' },
     },
   };
-  return [
-    { name: 'def.tool.list', scope: 'read', riskLevel: 'read', approval: 'none', status: 'implemented', description: 'List DEF typed tools.' },
-    { name: 'def.tool.describe', scope: 'read', riskLevel: 'read', approval: 'none', status: 'implemented', description: 'Describe one DEF typed tool.' },
-    { name: 'def.workbench.snapshot', scope: 'read', riskLevel: 'read', approval: 'none', status: 'implemented', description: 'Read the current checkout snapshot mirror.' },
-    { name: 'def.workbench.evidence', scope: 'read', riskLevel: 'read', approval: 'none', status: 'implemented', description: 'Read bounded current-checkout evidence for the model.' },
-    { name: 'def.workbench.list_buttons', scope: 'read', riskLevel: 'read', approval: 'none', status: 'implemented', description: 'List skill buttons with stable ids and labels.' },
-    { name: 'def.workbench.list_characters', scope: 'read', riskLevel: 'read', approval: 'none', status: 'implemented', description: 'List selected characters and compact config summary.' },
-    { name: 'def.workbench.damage_report', scope: 'read', riskLevel: 'read', approval: 'none', status: 'implemented', description: 'Read compact damage report.' },
-    { name: 'def.workbench.find_buttons', scope: 'read', riskLevel: 'read', approval: 'none', status: 'implemented', description: 'Resolve button candidates from query, character, skill, type, and position.' },
-    { name: 'def.buff.resolve', scope: 'read', riskLevel: 'read', approval: 'none', status: 'implemented', description: 'Resolve buff candidates from current button buffs, equipped effects, and gear-set three-piece buffs.' },
-    { name: 'def.buff.search_candidates', scope: 'read', riskLevel: 'read', approval: 'none', status: 'implemented', description: 'Wide buff candidate search; alias of def.buff.resolve for now.' },
-    { name: 'def.skill.resolve', scope: 'read', riskLevel: 'read', approval: 'none', status: 'implemented', description: 'Resolve skill candidates from current timeline buttons.' },
-    { name: 'def.character.resolve', scope: 'read', riskLevel: 'read', approval: 'none', status: 'implemented', description: 'Resolve selected character candidates.' },
-    { name: 'def.equipment.resolve', scope: 'read', riskLevel: 'read', approval: 'none', status: 'implemented', description: 'Resolve current equipment and equipment-library gear sets with compact summaries; use for questions like 长息是什么/有哪些/该选哪个.' },
-    { name: 'def.weapon.resolve', scope: 'read', riskLevel: 'read', approval: 'none', status: 'implemented', description: 'Resolve weapon candidates from current operator configs.' },
-    { name: 'def.gear.resolve', scope: 'read', riskLevel: 'read', approval: 'none', status: 'implemented', description: 'Resolve gear/equipment candidates and gear-set three-piece buff summaries; preferred for equipment-set explanation.' },
-    { name: 'def.workbench.add_skill_button', commandOp: 'addSkillButton', scope: 'current-checkout', riskLevel: 'low', approval: 'auto', status: 'implemented', description: executeCommand },
-    { name: 'def.workbench.add_skill_button_and_verify', scope: 'current-checkout', riskLevel: 'low', approval: 'auto', status: 'implemented', description: 'Add one skill button, wait for browser command execution, then return command result and snapshot verification.' },
-    { name: 'def.workbench.remove_skill_button', commandOp: 'removeSkillButton', scope: 'current-checkout', riskLevel: 'medium', approval: 'ai-review', status: 'implemented', description: executeCommand },
-    { name: 'def.buff.add_to_button', commandOp: 'addBuff', scope: 'current-checkout', riskLevel: 'medium', approval: 'auto', status: 'implemented', description: executeCommand },
-    { name: 'def.buff.add_to_button_and_verify', scope: 'current-checkout', riskLevel: 'medium', approval: 'auto', status: 'implemented', description: 'Add one buff to one button, wait for browser command execution, then verify the target button contains that buff.' },
-    { name: 'def.buff.add_to_buttons', scope: 'appdata-work-node', riskLevel: 'high', approval: 'ai-review', status: 'implemented', description: 'Batch mutation: stage one attachBuff patch per button in a Work Node and expose validate/diff/risk evidence before checkout.' },
-    { name: 'def.buff.remove_from_button', commandOp: 'removeBuff', scope: 'current-checkout', riskLevel: 'medium', approval: 'ai-review', status: 'implemented', description: executeCommand },
-    { name: 'def.target.set_resistance', commandOp: 'setTargetResistance', scope: 'current-checkout', riskLevel: 'low', approval: 'auto', status: 'implemented', description: executeCommand },
-    { name: 'def.damage.calculate', commandOp: 'calculateDamage', scope: 'current-checkout', riskLevel: 'low', approval: 'auto', status: 'implemented', description: executeCommand },
-    { name: 'def.damage.calculate_and_verify', scope: 'current-checkout', riskLevel: 'low', approval: 'auto', status: 'implemented', description: 'Trigger damage calculation, wait briefly for command execution, then return command and damage report verification.' },
-    { name: 'def.worknode.create_from_current', commandOp: 'createAiTimelineWorkNodeFromCurrent', scope: 'appdata-work-node', riskLevel: 'medium', approval: 'auto', status: 'implemented', description: workNode },
-    { name: 'def.worknode.patch', commandOp: 'patchAiTimelineWorkNode', scope: 'appdata-work-node', riskLevel: 'high', approval: 'ai-review', status: 'implemented', description: 'Class-code Patch DSL / CRUD tool for node.workingPayload.' },
-    { name: 'def.worknode.patch_and_validate', scope: 'appdata-work-node', riskLevel: 'high', approval: 'ai-review', status: 'implemented', description: 'Apply a constrained work node patch, validate, then immediately checkout and verify explicit low-risk user mutations without reloading. Use checkout:false only to stage a draft.' },
-    { name: 'def.worknode.copy_staff_line_and_verify', scope: 'appdata-work-node', riskLevel: 'high', approval: 'ai-review', status: 'implemented', description: 'Directly copy one complete timeline staff line into another work-node line, validate it, then checkout and verify. Use for requests such as copying all of group 1 to group 2; do not emulate with addButton patches.' },
-    { name: 'def.worknode.diff', commandOp: 'diffAiTimelineWorkNode', scope: 'appdata-work-node', riskLevel: 'read', approval: 'none', status: 'implemented', description: workNode },
-    { name: 'def.worknode.checkout', commandOp: 'checkoutAiTimelineWorkNode', scope: 'appdata-work-node', riskLevel: 'high', approval: 'ai-review', status: 'implemented', description: workNode },
-    { name: 'def.worknode.checkout_and_verify', scope: 'appdata-work-node', riskLevel: 'high', approval: 'ai-review', status: 'implemented', description: 'Checkout a work node with reload:false by default, wait briefly for renderer execution, and verify current checkout snapshot.' },
-    { name: 'def.worknode.restore_base', commandOp: 'restoreAiTimelineWorkNodeBase', scope: 'appdata-work-node', riskLevel: 'high', approval: 'ai-review', status: 'implemented', description: workNode },
-    { name: 'def.worknode.restore_base_and_verify', scope: 'appdata-work-node', riskLevel: 'high', approval: 'ai-review', status: 'implemented', description: 'Restore a work node basePayload with reload:false by default, wait briefly for renderer execution, and verify current checkout snapshot.' },
-    { name: 'def.worknode.read', scope: 'appdata-work-node', riskLevel: 'read', approval: 'none', status: 'implemented', description: 'Read appdata work node state without touching current checkout.' },
-    { name: 'def.worknode.validate', scope: 'appdata-work-node', riskLevel: 'read', approval: 'none', status: 'implemented', description: 'Validate work node basePayload and workingPayload without checkout.' },
-    { name: 'def.user.ask', scope: 'governance', riskLevel: 'read', approval: 'none', status: 'implemented', description: 'Record a formal low-blocking question for user follow-up.' },
-    { name: 'def.approval.request', scope: 'governance', riskLevel: 'medium', approval: 'user-confirm', status: 'implemented', description: 'Record an approval request without forcing every warning into a blocker.' },
-    { name: 'def.approval.record_decision', scope: 'governance', riskLevel: 'medium', approval: 'ai-review', status: 'implemented', description: 'Record approval rationale into local audit.' },
-    { name: 'def.verify.command_result', scope: 'verification', riskLevel: 'read', approval: 'none', status: 'implemented', description: 'Verify command or batch status from result log/queue.' },
-    { name: 'def.verify.snapshot_delta', scope: 'verification', riskLevel: 'read', approval: 'none', status: 'implemented', description: 'Return compact snapshot facts for caller-side delta checks.' },
-    { name: 'def.verify.buttons_have_buff', scope: 'verification', riskLevel: 'read', approval: 'none', status: 'implemented', description: 'Verify target buttons contain a buff by id/name/displayName.' },
-    { name: 'def.verify.damage_recalculated', scope: 'verification', riskLevel: 'read', approval: 'none', status: 'implemented', description: 'Verify damage report exists and expose generatedAt/total.' },
-    { name: 'def.verify.worknode_diff_clean', scope: 'verification', riskLevel: 'read', approval: 'none', status: 'implemented', description: 'Verify work node diff/risk before checkout.' },
-    { name: 'def.operator.config.read', scope: 'read', riskLevel: 'read', approval: 'none', status: 'implemented', description: 'Read compact operator config summary from snapshot.' },
-    { name: 'def.operator.config.patch', scope: 'current-checkout', riskLevel: 'medium', approval: 'ai-review', status: 'implemented', description: 'Structured operator config patch for weapon/equipment fields.' },
-    { name: 'def.gear.set_entry_level', scope: 'current-checkout', riskLevel: 'medium', approval: 'ai-review', status: 'implemented', description: 'Set equipped gear entry level through structured config commands.' },
-  ].map((tool) => ({
+  return DEF_TOOL_DEFINITION_BASE.map((tool) => ({
     ...tool,
     inputSchema: tool.name === 'def.workbench.add_skill_button' || tool.name === 'def.workbench.add_skill_button_and_verify'
       ? addSkillButtonSchema
