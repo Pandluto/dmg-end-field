@@ -2,6 +2,7 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const { spawn } = require('child_process');
+const { DatabaseSync } = require('node:sqlite');
 const {
   runChat,
   runChatStream,
@@ -32,9 +33,11 @@ const runtimeRoot = path.join(projectRoot, 'agent', 'runtime');
 const defRuntimeRoot = path.join(runtimeRoot, 'def');
 const openCodeUiRoot = path.join(runtimeRoot, 'opencode-ui');
 const configPath = path.join(projectRoot, '.runtime', 'def-agent', 'config.json');
+const questionStorePath = path.join(projectRoot, '.runtime', 'def-agent', 'questions.sqlite3');
 const startedAt = Date.now();
 const defRestUrl = process.env.DEF_REST_BASE_URL || 'http://127.0.0.1:17321';
 let defRestProcess = null;
+let questionStore = null;
 
 async function defRestReady() {
   try {
@@ -71,7 +74,7 @@ function buildJsonHeaders() {
   return {
     'Content-Type': 'application/json; charset=utf-8',
     'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Methods': 'GET,POST,OPTIONS',
+    'Access-Control-Allow-Methods': 'GET,POST,DELETE,OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type',
   };
 }
@@ -176,6 +179,58 @@ function healthPayload() {
     },
     skills: listSkills(),
   };
+}
+
+function getQuestionStore() {
+  if (questionStore) return questionStore;
+  ensureParent(questionStorePath);
+  questionStore = new DatabaseSync(questionStorePath);
+  questionStore.exec(`
+    CREATE TABLE IF NOT EXISTS def_native_question (
+      request_id TEXT PRIMARY KEY,
+      session_id TEXT NOT NULL,
+      directory TEXT NOT NULL,
+      questions_json TEXT NOT NULL,
+      status TEXT NOT NULL,
+      answers_json TEXT,
+      runtime_status TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS def_native_question_session_idx ON def_native_question(session_id);
+  `);
+  return questionStore;
+}
+
+function saveNativeQuestion(input) {
+  const now = Date.now();
+  const store = getQuestionStore();
+  store.prepare(`
+    INSERT INTO def_native_question (request_id, session_id, directory, questions_json, status, answers_json, runtime_status, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(request_id) DO UPDATE SET
+      session_id = excluded.session_id,
+      directory = excluded.directory,
+      questions_json = excluded.questions_json,
+      status = excluded.status,
+      answers_json = excluded.answers_json,
+      runtime_status = excluded.runtime_status,
+      updated_at = excluded.updated_at
+  `).run(
+    input.requestID,
+    input.sessionID,
+    input.directory,
+    JSON.stringify(Array.isArray(input.questions) ? input.questions : []),
+    input.status,
+    input.answers === undefined ? null : JSON.stringify(input.answers),
+    input.runtimeStatus || null,
+    now,
+    now,
+  );
+}
+
+function deleteNativeQuestionRecords(sessionID) {
+  getQuestionStore().prepare('DELETE FROM def_native_question WHERE session_id = ?').run(sessionID);
 }
 
 function readJsonFileIfPresent(filePath) {
@@ -348,31 +403,53 @@ function readRequestHeader(request, name) {
   return Array.isArray(header) ? header[0] || '' : header || '';
 }
 
-async function rejectPendingQuestionsForSessionAbort(runtime, request, target) {
-  if (request.method !== 'POST') return;
-  const abortMatch = /^\/session\/([^/]+)\/abort$/.exec(target.pathname);
-  if (!abortMatch) return;
-
-  const directory = readRequestDirectory(request, target);
-  if (!directory) return;
-  const sessionID = decodeURIComponent(abortMatch[1]);
+async function rejectPendingQuestions(runtime, directory, sessionID) {
+  if (!directory || !sessionID) return [];
   const query = `directory=${encodeURIComponent(directory)}`;
 
   try {
     const pendingResponse = await fetch(`${runtime.serverUrl}/question?${query}`);
     if (!pendingResponse.ok) return;
     const pending = await pendingResponse.json();
-    if (!Array.isArray(pending)) return;
+    if (!Array.isArray(pending)) return [];
 
+    const rejected = [];
     for (const question of pending) {
       if (question?.sessionID !== sessionID || !question?.id) continue;
       await fetch(`${runtime.serverUrl}/question/${encodeURIComponent(question.id)}/reject?${query}`, {
         method: 'POST',
+        headers: { 'x-opencode-directory': encodeURIComponent(directory) },
       }).catch(() => undefined);
+      rejected.push(question.id);
     }
+    return rejected;
   } catch {
-    // A stop request must still reach OpenCode when its question list is unavailable.
+    return [];
   }
+}
+
+async function rejectPendingQuestionsForSessionAbort(runtime, request, target) {
+  if (request.method !== 'POST') return;
+  const abortMatch = /^\/session\/([^/]+)\/abort$/.exec(target.pathname);
+  if (!abortMatch) return;
+  const sessionID = decodeURIComponent(abortMatch[1]);
+  const nativeBinding = findNativeSessionBinding(sessionID);
+  const directory = nativeBinding?.directory || readRequestDirectory(request, target);
+  await rejectPendingQuestions(runtime, directory, sessionID);
+}
+
+async function submitNativeQuestionDecision(runtime, input) {
+  const query = `directory=${encodeURIComponent(input.binding.directory)}`;
+  const endpoint = `${runtime.serverUrl}/question/${encodeURIComponent(input.requestID)}/${input.action === 'reply' ? 'reply' : 'reject'}?${query}`;
+  const response = await fetch(endpoint, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      'x-opencode-directory': encodeURIComponent(input.binding.directory),
+    },
+    body: input.action === 'reply' ? JSON.stringify({ answers: input.answers || [] }) : undefined,
+  });
+  return { ok: response.ok, status: response.status, body: await response.text() };
 }
 
 const server = http.createServer(async (request, response) => {
@@ -412,6 +489,84 @@ const server = http.createServer(async (request, response) => {
         thinkingEffort: body.thinkingEffort,
       });
       writeJson(response, 200, { ok: true, session });
+      return;
+    }
+
+    const nativeQuestionAction = /^\/api\/native\/question\/([^/]+)\/(reply|ignore|stop)$/.exec(requestUrl.pathname);
+    if (method === 'POST' && nativeQuestionAction) {
+      const requestID = decodeURIComponent(nativeQuestionAction[1]);
+      const action = nativeQuestionAction[2];
+      const body = await readJsonBody(request);
+      const sessionID = typeof body.sessionID === 'string' ? body.sessionID : '';
+      const binding = findNativeSessionBinding(sessionID);
+      if (!binding) {
+        writeJson(response, 404, { ok: false, error: 'native-session-binding-not-found' });
+        return;
+      }
+
+      const runtime = runtimeSummary(readConfig().deepseek);
+      const answers = Array.isArray(body.answers) ? body.answers : [];
+      saveNativeQuestion({
+        requestID,
+        sessionID,
+        directory: binding.directory,
+        questions: body.questions,
+        status: 'open',
+      });
+
+      if (action === 'stop') {
+        await rejectPendingQuestions(runtime, binding.directory, sessionID);
+        await fetch(`${runtime.serverUrl}/session/${encodeURIComponent(sessionID)}/abort?directory=${encodeURIComponent(binding.directory)}`, {
+          method: 'POST',
+          headers: { 'x-opencode-directory': encodeURIComponent(binding.directory) },
+        }).catch(() => undefined);
+        saveNativeQuestion({ requestID, sessionID, directory: binding.directory, questions: body.questions, status: 'stopped' });
+        writeJson(response, 200, { ok: true, status: 'stopped' });
+        return;
+      }
+
+      const decision = await submitNativeQuestionDecision(runtime, {
+        requestID,
+        action: action === 'reply' ? 'reply' : 'reject',
+        answers,
+        binding,
+      }).catch((error) => ({ ok: false, status: 0, body: error instanceof Error ? error.message : String(error) }));
+      const status = action === 'reply' ? (decision.ok ? 'answered' : 'answered-stale') : 'ignored';
+      saveNativeQuestion({
+        requestID,
+        sessionID,
+        directory: binding.directory,
+        questions: body.questions,
+        answers,
+        status,
+        runtimeStatus: decision.ok ? 'resolved' : `runtime-${decision.status || 'unavailable'}`,
+      });
+      // Ignore is terminal from the user's perspective. A stale runtime Map must never re-open the card or throw a toast.
+      writeJson(response, 200, { ok: true, status, runtimeResolved: decision.ok });
+      return;
+    }
+
+    const nativeSessionDelete = /^\/api\/native\/session\/([^/]+)$/.exec(requestUrl.pathname);
+    if (method === 'DELETE' && nativeSessionDelete) {
+      const sessionID = decodeURIComponent(nativeSessionDelete[1]);
+      const binding = findNativeSessionBinding(sessionID);
+      if (!binding) {
+        writeJson(response, 200, { ok: true, status: 'already-deleted' });
+        return;
+      }
+      const runtime = runtimeSummary(readConfig().deepseek);
+      await rejectPendingQuestions(runtime, binding.directory, sessionID);
+      const upstream = await fetch(`${runtime.serverUrl}/session/${encodeURIComponent(sessionID)}?directory=${encodeURIComponent(binding.directory)}`, {
+        method: 'DELETE',
+        headers: { 'x-opencode-directory': encodeURIComponent(binding.directory) },
+      }).catch(() => undefined);
+      if (upstream && !upstream.ok && upstream.status !== 404) {
+        writeJson(response, upstream.status, { ok: false, error: 'native-session-delete-failed' });
+        return;
+      }
+      deleteNativeQuestionRecords(sessionID);
+      fs.rmSync(binding.directory, { recursive: true, force: true });
+      writeJson(response, 200, { ok: true, status: 'deleted' });
       return;
     }
 

@@ -347,6 +347,18 @@ export function Titlebar(props: { update?: TitlebarUpdate }) {
               tabs.newDraft({ server: fallback.server, directory: fallback.project.worktree }, "")
             }
             const toggleHome = () => tabs.toggleHome({ home: layout.route().type === "home", current: currentTab() })
+            const closeTab = async (tab: typeof tabsStore[number]) => {
+              const index = tabsStore.findIndex((item) => tabKey(item) === tabKey(tab))
+              if (index === -1) return
+              if (!defEmbeddedProfile() || tab.type !== "session") {
+                tabsStoreActions.removeTab(index)
+                return
+              }
+
+              const response = await fetch(`/api/native/session/${encodeURIComponent(tab.sessionId)}`, { method: "DELETE" })
+              if (!response.ok) return
+              tabsStoreActions.removeTab(index)
+            }
 
             command.register("titlebar-home", () => [
               {
@@ -471,10 +483,7 @@ export function Titlebar(props: { update?: TitlebarUpdate }) {
                     tabs.select(tab)
                     el?.scrollIntoView({ behavior: "instant" })
                   }}
-                  onClose={(tab) => {
-                    const index = tabsStore.findIndex((item) => tabKey(item) === tabKey(tab))
-                    if (index !== -1) tabsStoreActions.removeTab(index)
-                  }}
+                  onClose={(tab) => void closeTab(tab)}
                   onReorder={(keys) => tabsStoreActions.reorder(keys)}
                 />
                 <Show when={!creating()}>

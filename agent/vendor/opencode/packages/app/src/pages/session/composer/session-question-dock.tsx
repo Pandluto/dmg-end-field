@@ -12,6 +12,7 @@ import { makeEventListener } from "@solid-primitives/event-listener"
 import { createResizeObserver } from "@solid-primitives/resize-observer"
 import { useServerSDK } from "@/context/server-sdk"
 import { ScopedKey } from "@/utils/server-scope"
+import { defEmbeddedProfile } from "@/utils/def-embedded"
 
 const cache = new Map<string, { tab: number; answers: QuestionAnswer[]; custom: string[]; customOn: boolean[] }>()
 
@@ -212,12 +213,23 @@ export const SessionQuestionDock: Component<{
     showToast({ title: language.t("common.requestFailed"), description: message })
   }
 
+  const nativeDecision = async (action: "reply" | "ignore" | "stop", answers: QuestionAnswer[] = []) => {
+    const response = await fetch(`/api/native/question/${encodeURIComponent(props.request.id)}/${action}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        sessionID: props.request.sessionID,
+        questions: props.request.questions,
+        answers,
+      }),
+    })
+    const payload = await response.json().catch(() => undefined)
+    if (!response.ok || !payload?.ok) throw new Error(payload?.error ?? `Question decision failed (${response.status})`)
+  }
+
   const replyMutation = useMutation(() => ({
     mutationFn: (answers: QuestionAnswer[]) =>
-      sdk().client.question.reply(
-        { requestID: props.request.id, answers },
-        { headers: { "x-def-question-session": props.request.sessionID } },
-      ),
+      defEmbeddedProfile() ? nativeDecision("reply", answers) : sdk().client.question.reply({ requestID: props.request.id, answers }),
     onMutate: () => {
       props.onSubmit()
     },
@@ -229,11 +241,7 @@ export const SessionQuestionDock: Component<{
   }))
 
   const rejectMutation = useMutation(() => ({
-    mutationFn: () =>
-      sdk().client.question.reject(
-        { requestID: props.request.id },
-        { headers: { "x-def-question-session": props.request.sessionID } },
-      ),
+    mutationFn: () => (defEmbeddedProfile() ? nativeDecision("ignore") : sdk().client.question.reject({ requestID: props.request.id })),
     onMutate: () => {
       props.onSubmit()
     },
@@ -245,7 +253,7 @@ export const SessionQuestionDock: Component<{
   }))
 
   const abortMutation = useMutation(() => ({
-    mutationFn: () => props.onAbort?.() ?? Promise.resolve(),
+    mutationFn: () => (defEmbeddedProfile() ? nativeDecision("stop") : props.onAbort?.() ?? Promise.resolve()),
     onSuccess: () => {
       replied = true
       cache.delete(cacheKey)
