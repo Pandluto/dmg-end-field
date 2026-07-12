@@ -5,6 +5,7 @@ const restBase = process.env.DEF_REST_BASE_URL || 'http://127.0.0.1:17321'
 const bindingFile = '.def-node.json'
 const workingFile = 'working-payload.json'
 const baseFile = 'base-payload.json'
+const workbenchContextFile = '.def-workbench-context.json'
 
 async function callDefTool(tool, input = {}) {
   const response = await fetch(`${restBase}/api/def-tools/call`, {
@@ -90,6 +91,22 @@ export const node_fork = {
       title: 'DEF child node ready',
       output: JSON.stringify(materialize(context, created.node), null, 2),
       metadata: { nodeId: created.node.id, family: 'def-node-crud' },
+    }
+  },
+}
+
+export const workbench_context = {
+  description: 'Read the bounded live DEF main-workbench context for this Workbench session, including selected operators and current timeline buttons.',
+  args: {},
+  async execute(_args, context) {
+    const target = inside(context.directory, workbenchContextFile)
+    if (!fs.existsSync(target)) throw new Error('No live Workbench context is attached to this session.')
+    const attached = JSON.parse(fs.readFileSync(target, 'utf8'))
+    const snapshot = await callDefTool('def.workbench.snapshot', {})
+    return {
+      title: 'DEF Workbench context',
+      output: JSON.stringify(boundResourceValue({ attached, snapshot }), null, 2),
+      metadata: { family: 'def-node-crud', host: 'workbench', updatedAt: attached.updatedAt },
     }
   },
 }

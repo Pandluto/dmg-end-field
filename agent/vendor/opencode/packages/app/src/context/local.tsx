@@ -11,6 +11,7 @@ import { useSDK } from "./sdk"
 import { useSync } from "./sync"
 import { useServerSDK } from "./server-sdk"
 import { ScopedKey, type ServerScope } from "@/utils/server-scope"
+import { defEmbeddedProfile } from "@/utils/def-embedded"
 
 export type ModelKey = { providerID: string; modelID: string; variant?: string }
 
@@ -64,7 +65,12 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
     const models = useModels()
 
     const id = createMemo(() => params.id || undefined)
-    const list = createMemo(() => sync().data.agent.filter((item) => item.mode !== "subagent" && !item.hidden))
+    const lockedAgent = () => defEmbeddedProfile()?.lockedAgent === true ? defEmbeddedProfile()?.agent : undefined
+    const list = createMemo(() => {
+      const items = sync().data.agent.filter((item) => item.mode !== "subagent" && !item.hidden)
+      const locked = lockedAgent()
+      return locked ? items.filter((item) => item.name === locked) : items
+    })
     const connected = createMemo(() => new Set(providers.connected().map((item) => item.id)))
 
     const [saved, setSaved] = persisted(
@@ -181,6 +187,8 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
         return pickAgent(scope()?.agent ?? store.current)
       },
       set(name: string | undefined) {
+        const locked = lockedAgent()
+        if (locked && name !== locked) return
         const item = pickAgent(name)
         if (!item) {
           setStore("current", undefined)

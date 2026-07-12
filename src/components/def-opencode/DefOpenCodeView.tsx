@@ -8,6 +8,15 @@ type NativeSession = {
   uiPath: string;
   host: DefOpenCodeHost;
   directory: string;
+  agent?: string;
+  profile?: {
+    schemaVersion: number;
+    host: DefOpenCodeHost;
+    agent: string;
+    lockedAgent: boolean;
+    lockedModel: boolean;
+    theme: string;
+  };
 };
 
 interface DefOpenCodeViewProps {
@@ -15,6 +24,7 @@ interface DefOpenCodeViewProps {
   title: string;
   onClose?: () => void;
   onOpenWorkNodePanel?: () => void;
+  workbenchContext?: Record<string, unknown>;
 }
 
 const SIDECAR_PORT = 17322;
@@ -24,6 +34,7 @@ export function DefOpenCodeView({
   title,
   onClose,
   onOpenWorkNodePanel,
+  workbenchContext,
 }: DefOpenCodeViewProps) {
   const [status, setStatus] = useState<'checking' | 'ready' | 'error'>('checking');
   const [session, setSession] = useState<NativeSession | null>(null);
@@ -38,11 +49,18 @@ export function DefOpenCodeView({
   const sessionExists = async (candidate: NativeSession) => {
     if (!candidate.directory) return false;
     const response = await fetch(
-      `${origin}/session/${encodeURIComponent(candidate.id)}?directory=${encodeURIComponent(candidate.directory)}`,
+      `${origin}/api/native/bootstrap?sessionID=${encodeURIComponent(candidate.id)}&directory=${encodeURIComponent(candidate.directory)}`,
       { headers: { accept: 'application/json' } },
     );
     return response.ok;
   };
+
+  const frameSrc = useMemo(() => {
+    if (!session) return '';
+    const url = new URL(session.uiPath, origin);
+    url.searchParams.set('def_host', host);
+    return url.toString();
+  }, [host, origin, session]);
 
   const createSession = async () => {
     setStatus('checking');
@@ -103,6 +121,18 @@ export function DefOpenCodeView({
     return () => { disposed = true; };
   }, [host, origin, storageKey]);
 
+  useEffect(() => {
+    if (host !== 'workbench' || !session || !workbenchContext) return;
+    const controller = new AbortController();
+    void fetch(`${origin}/api/native/context`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ sessionID: session.id, directory: session.directory, context: workbenchContext }),
+      signal: controller.signal,
+    }).catch(() => undefined);
+    return () => controller.abort();
+  }, [host, origin, session, workbenchContext]);
+
   return (
     <section className={`def-opencode-view def-opencode-view--${host}`} data-def-opencode-host={host}>
       <header className="def-opencode-view__header">
@@ -125,7 +155,7 @@ export function DefOpenCodeView({
           <iframe
             key={`${origin}:${session.id}`}
             className="def-opencode-view__frame"
-            src={`${origin}${session.uiPath}`}
+            src={frameSrc}
             title={`${title} OpenCode`}
             allow="clipboard-read; clipboard-write"
           />

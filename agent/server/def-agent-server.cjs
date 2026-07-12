@@ -19,6 +19,9 @@ const {
   runtimeSummary,
   ensureRuntime,
   createNativeHostSession,
+  buildNativeHostProfile,
+  readNativeSessionBinding,
+  writeNativeWorkbenchContext,
 } = require('../runtime/def-opencode-adapter/index.cjs');
 
 const HOST = '127.0.0.1';
@@ -187,13 +190,13 @@ const staticMimeTypes = {
   '.woff2': 'font/woff2',
 };
 
-function serveOpenCodeUi(request, response, pathname) {
+function serveOpenCodeUi(request, response, requestUrl) {
   if (!['GET', 'HEAD'].includes(request.method || 'GET')) return false;
   if (!fs.existsSync(path.join(openCodeUiRoot, 'index.html'))) return false;
 
   let requestedPath;
   try {
-    requestedPath = decodeURIComponent(pathname);
+    requestedPath = decodeURIComponent(requestUrl.pathname);
   } catch {
     return false;
   }
@@ -207,10 +210,25 @@ function serveOpenCodeUi(request, response, pathname) {
   const extension = path.extname(assetPath).toLowerCase();
   const isIndex = assetPath === path.join(openCodeUiRoot, 'index.html');
   const fileBody = fs.readFileSync(assetPath);
+  const routeParts = requestUrl.pathname.split('/').filter(Boolean);
+  let embeddedProfile = null;
+  if (routeParts.length >= 3 && routeParts[1] === 'session') {
+    try {
+      const directory = Buffer.from(routeParts[0], 'base64url').toString('utf8');
+      const binding = readNativeSessionBinding(directory, decodeURIComponent(routeParts[2]));
+      embeddedProfile = binding?.profile || null;
+    } catch {
+      embeddedProfile = null;
+    }
+  }
+  if (!embeddedProfile) {
+    const requestedHost = requestUrl.searchParams.get('def_host') === 'workbench' ? 'workbench' : 'ai-cli';
+    embeddedProfile = buildNativeHostProfile(requestedHost);
+  }
   const body = isIndex
     ? Buffer.from(fileBody.toString('utf8').replace(
       '</head>',
-      `<script>try{localStorage.setItem("opencode.settings.dat:defaultServerUrl",location.origin)}catch{}</script></head>`,
+      `<script>window.__DEF_EMBEDDED_PROFILE__=${JSON.stringify(embeddedProfile)};try{localStorage.setItem("opencode.settings.dat:defaultServerUrl",location.origin)}catch{}</script></head>`,
     ), 'utf8')
     : fileBody;
   response.writeHead(200, {
@@ -223,20 +241,37 @@ function serveOpenCodeUi(request, response, pathname) {
   return true;
 }
 
-function proxyOpenCodeRequest(request, response) {
+async function proxyOpenCodeRequest(request, response) {
   const runtime = runtimeSummary(readConfig().deepseek);
   if (!runtime.running || !runtime.serverUrl) return Promise.resolve(false);
   const target = new URL(request.url || '/', runtime.serverUrl);
+  const sessionMessageMatch = /^\/session\/([^/]+)\/message$/.exec(target.pathname);
+  let rewrittenBody = null;
+  let binding = null;
+  if (request.method === 'POST' && sessionMessageMatch) {
+    const sessionID = decodeURIComponent(sessionMessageMatch[1]);
+    const directory = target.searchParams.get('directory') || '';
+    binding = readNativeSessionBinding(directory, sessionID);
+    if (binding) {
+      const incoming = await readJsonBody(request);
+      rewrittenBody = Buffer.from(JSON.stringify({ ...incoming, agent: binding.agent }), 'utf8');
+    }
+  }
   return new Promise((resolve, reject) => {
+    const headers = { ...request.headers, host: target.host };
+    if (rewrittenBody) {
+      delete headers['transfer-encoding'];
+      headers['content-type'] = 'application/json; charset=utf-8';
+      headers['content-length'] = String(rewrittenBody.length);
+      headers['x-def-host'] = binding.host;
+      headers['x-def-agent'] = binding.agent;
+    }
     const upstream = http.request({
       hostname: target.hostname,
       port: target.port,
       path: `${target.pathname}${target.search}`,
       method: request.method,
-      headers: {
-        ...request.headers,
-        host: target.host,
-      },
+      headers,
     }, (upstreamResponse) => {
       response.writeHead(upstreamResponse.statusCode || 502, {
         ...upstreamResponse.headers,
@@ -246,6 +281,10 @@ function proxyOpenCodeRequest(request, response) {
       upstreamResponse.on('end', () => resolve(true));
     });
     upstream.on('error', reject);
+    if (rewrittenBody) {
+      upstream.end(rewrittenBody);
+      return;
+    }
     request.pipe(upstream);
   });
 }
@@ -287,6 +326,29 @@ const server = http.createServer(async (request, response) => {
         thinkingEffort: body.thinkingEffort,
       });
       writeJson(response, 200, { ok: true, session });
+      return;
+    }
+
+    if (method === 'GET' && requestUrl.pathname === '/api/native/bootstrap') {
+      const sessionID = requestUrl.searchParams.get('sessionID') || '';
+      const directory = requestUrl.searchParams.get('directory') || '';
+      const binding = readNativeSessionBinding(directory, sessionID);
+      if (!binding) {
+        writeJson(response, 404, { ok: false, error: 'native-session-binding-not-found' });
+        return;
+      }
+      writeJson(response, 200, { ok: true, binding, profile: binding.profile });
+      return;
+    }
+
+    if (method === 'POST' && requestUrl.pathname === '/api/native/context') {
+      const body = await readJsonBody(request);
+      const saved = writeNativeWorkbenchContext(body.directory, body.sessionID, body.context);
+      if (!saved) {
+        writeJson(response, 403, { ok: false, error: 'invalid-workbench-session-binding' });
+        return;
+      }
+      writeJson(response, 200, { ok: true, context: saved });
       return;
     }
 
@@ -462,7 +524,7 @@ const server = http.createServer(async (request, response) => {
       return;
     }
 
-    if (serveOpenCodeUi(request, response, requestUrl.pathname)) return;
+    if (serveOpenCodeUi(request, response, requestUrl)) return;
     if (await proxyOpenCodeRequest(request, response)) return;
 
     writeJson(response, 404, {

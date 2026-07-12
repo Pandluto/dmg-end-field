@@ -8,6 +8,10 @@ interface ImportMetaEnv {
   readonly VITE_SENTRY_RELEASE?: string
 }
 
+interface Window {
+  __DEF_EMBEDDED_PROFILE__?: import("@/utils/def-embedded").DefEmbeddedProfile
+}
+
 interface ImportMeta {
   readonly env: ImportMetaEnv
 }

@@ -17,6 +17,7 @@ import { useSync } from "@/context/sync"
 import { useTabs } from "@/context/tabs"
 import { useProviders } from "@/hooks/use-providers"
 import { pathKey } from "@/utils/path-key"
+import { defEmbeddedProfile } from "@/utils/def-embedded"
 
 export function createPromptInputController(input: {
   sessionKey: Accessor<string>
@@ -40,7 +41,7 @@ export function createPromptInputController(input: {
       options: local.agent.list().map((agent) => agent.name),
       current: local.agent.current()?.name ?? "",
       loading: agentsQuery.isLoading,
-      visible: settings.visibility.customAgents(),
+      visible: !defEmbeddedProfile()?.lockedAgent && settings.visibility.customAgents(),
       select: local.agent.set,
     },
     model: {

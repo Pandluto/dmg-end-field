@@ -51,11 +51,45 @@ const skillMap = {
   operator: { agent: 'def-operator', skill: 'operator-fill', label: '填干员' },
   weapon: { agent: 'def-weapon', skill: 'weapon-fill', label: '填武器' },
   equipment: { agent: 'def-equipment', skill: 'equipment-fill', label: '填装备' },
-  workbench: { agent: 'def-workbench', skill: 'rest-search', label: '主界面' },
+  workbench: { agent: 'def-workbench', skill: 'timeline-workbench', label: '主界面排轴' },
   search: { agent: 'def-search', skill: 'rest-search', label: '查库' },
   repair: { agent: 'def-repair', skill: 'check-error-repair', label: '修复错误' },
   audit: { agent: 'def-audit', skill: 'akedatabase-fill-tool', label: '审计数据' },
 };
+
+const DEF_EMBEDDED_PROFILE_VERSION = 1;
+
+function buildNativeHostProfile(host = 'ai-cli') {
+  const normalizedHost = host === 'workbench' ? 'workbench' : 'ai-cli';
+  const skillId = normalizedHost === 'workbench' ? 'workbench' : 'operator';
+  const selected = skillMap[skillId];
+  return Object.freeze({
+    schemaVersion: DEF_EMBEDDED_PROFILE_VERSION,
+    host: normalizedHost,
+    agent: selected.agent,
+    skillId,
+    theme: 'def-line-blue',
+    lockedAgent: true,
+    lockedModel: true,
+    features: Object.freeze({
+      sessionCreate: true,
+      sessionList: true,
+      sessionArchive: true,
+      nodeReview: normalizedHost === 'workbench',
+      nodeFiles: normalizedHost === 'workbench',
+      nodeApproval: normalizedHost === 'workbench',
+      modelSelect: false,
+      providerManage: false,
+      serverManage: false,
+      projectManage: false,
+      terminalOpen: false,
+      gitManage: false,
+      shareSession: false,
+      settingsAppearance: true,
+      settingsShortcuts: true,
+    }),
+  });
+}
 
 let opencodeProcess = null;
 let opencodeConfigHash = '';
@@ -208,6 +242,8 @@ function buildAgentPrompt(skillId) {
       'Do not expose API keys, hidden configuration, internal protocol noise, session ids, REST URLs, or adapters.',
       '',
       '## Node-first execution',
+      '- You can arrange and edit the DEF timeline. 排轴、调轴、改顺序、改格位、添加/删除/复制技能和组合 Buff are core Workbench responsibilities.',
+      '- Call def_workbench_context before answering about the current canvas or deciding what to edit.',
       '- Mutations happen in a copied child Work Node, never directly in the parent node or current checkout.',
       '- If this session has no bound node, call def_node_fork. To continue an existing node, call def_node_bind.',
       '- Use the native read/edit/apply_patch tools on working-payload.json for flexible node changes. base-payload.json is immutable evidence.',
@@ -226,6 +262,7 @@ function buildAgentPrompt(skillId) {
       '- Read-only questions do not create or use a node.',
       '- A mutation is not complete until node validation passes and, when requested, def_node_use confirms the checkout.',
       '- Ask only when the target or approval is genuinely ambiguous. Do not invent operator, equipment, skill, or Buff data.',
+      '- Never say that you lack timeline-arrangement capability merely because there is no single tool named 排轴. Use node code editing plus CRUD and trusted resources.',
       '- Do not narrate plans, chain of thought, tool names, URLs, command ids, step tables, or suggested next steps.',
       '- If application is still pending, say it is waiting for execution confirmation; never claim success without evidence.',
       ...buildGameKnowledgePromptLines(),
@@ -691,7 +728,8 @@ async function createNativeHostSession({ config = {}, host = 'ai-cli', skillId, 
   const query = `directory=${encodeURIComponent(directory)}`;
   const payload = buildSessionCreatePayload({ selected, deepseek, skillId: resolvedSkillId, thinkingEffort });
   const session = await requestJson('POST', `${serverUrl}/session?${query}`, payload, undefined, 15000);
-  writeSessionBinding(directory, { id: session.id, agent: selected.agent, skillId: resolvedSkillId });
+  const profile = buildNativeHostProfile(host);
+  writeSessionBinding(directory, { id: session.id, agent: selected.agent, skillId: resolvedSkillId, profile });
   return {
     id: session.id,
     sessionID: session.id,
@@ -700,6 +738,7 @@ async function createNativeHostSession({ config = {}, host = 'ai-cli', skillId, 
     agent: selected.agent,
     directory,
     serverUrl,
+    profile,
     uiPath: `/${encodeDirectorySlug(directory)}/session/${encodeURIComponent(session.id)}`,
   };
 }
@@ -728,14 +767,53 @@ function createAgentSessionWorkspace(skillId) {
 
 function writeSessionBinding(directory, session) {
   fs.writeFileSync(path.join(directory, '.def-session.json'), `${JSON.stringify({
-    schemaVersion: 1,
+    schemaVersion: 2,
     sessionID: session.id,
     directory,
     agent: session.agent,
     skillId: session.skillId,
     host: session.skillId === 'workbench' ? 'workbench' : 'ai-cli',
+    profile: session.profile || buildNativeHostProfile(session.skillId === 'workbench' ? 'workbench' : 'ai-cli'),
     createdAt: Date.now(),
   }, null, 2)}\n`, 'utf8');
+}
+
+function readNativeSessionBinding(directory, sessionID) {
+  if (typeof directory !== 'string' || !directory.trim()) return null;
+  const sessionsRoot = path.resolve(getAgentWorkspaceDir(), 'sessions');
+  const resolved = path.resolve(directory);
+  const relative = path.relative(sessionsRoot, resolved);
+  if (!relative || relative.startsWith('..') || path.isAbsolute(relative)) return null;
+  const binding = readJsonFile(path.join(resolved, '.def-session.json'));
+  if (!binding?.sessionID || binding.sessionID !== sessionID) return null;
+  if (path.resolve(binding.directory || resolved) !== resolved) return null;
+  const host = binding.host === 'workbench' ? 'workbench' : 'ai-cli';
+  const expected = buildNativeHostProfile(host);
+  return {
+    ...binding,
+    directory: resolved,
+    host,
+    agent: expected.agent,
+    skillId: expected.skillId,
+    profile: expected,
+  };
+}
+
+function writeNativeWorkbenchContext(directory, sessionID, context) {
+  const binding = readNativeSessionBinding(directory, sessionID);
+  if (!binding || binding.host !== 'workbench') return null;
+  const target = path.join(binding.directory, '.def-workbench-context.json');
+  const temporary = `${target}.${process.pid}.${Date.now()}.tmp`;
+  const payload = {
+    schemaVersion: 1,
+    host: 'workbench',
+    sessionID,
+    updatedAt: Date.now(),
+    context: context && typeof context === 'object' ? context : {},
+  };
+  fs.writeFileSync(temporary, `${JSON.stringify(payload, null, 2)}\n`, 'utf8');
+  fs.renameSync(temporary, target);
+  return payload;
 }
 
 function listSessionBindings() {
@@ -1971,6 +2049,9 @@ module.exports = {
   runtimeSummary,
   ensureRuntime,
   createNativeHostSession,
+  buildNativeHostProfile,
+  readNativeSessionBinding,
+  writeNativeWorkbenchContext,
   runChat,
   runChatStream,
   continueChat,
