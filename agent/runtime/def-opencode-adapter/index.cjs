@@ -838,6 +838,13 @@ function readNativeSessionBinding(directory, sessionID) {
   };
 }
 
+function findNativeSessionBinding(sessionID) {
+  if (typeof sessionID !== 'string' || !sessionID.trim()) return null;
+  const binding = listSessionBindings().find((item) => item.sessionID === sessionID);
+  if (!binding) return null;
+  return readNativeSessionBinding(binding.directory, sessionID);
+}
+
 function writeNativeWorkbenchContext(directory, sessionID, context) {
   const binding = readNativeSessionBinding(directory, sessionID);
   if (!binding || binding.host !== 'workbench') return null;
@@ -2106,6 +2113,7 @@ module.exports = {
   createNativeHostSession,
   buildNativeHostProfile,
   readNativeSessionBinding,
+  findNativeSessionBinding,
   writeNativeWorkbenchContext,
   runChat,
   runChatStream,

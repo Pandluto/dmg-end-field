@@ -21,6 +21,7 @@ const {
   createNativeHostSession,
   buildNativeHostProfile,
   readNativeSessionBinding,
+  findNativeSessionBinding,
   writeNativeWorkbenchContext,
 } = require('../runtime/def-opencode-adapter/index.cjs');
 
@@ -342,6 +343,11 @@ function readRequestDirectory(request, requestUrl) {
   }
 }
 
+function readRequestHeader(request, name) {
+  const header = request.headers[name];
+  return Array.isArray(header) ? header[0] || '' : header || '';
+}
+
 async function rejectPendingQuestionsForSessionAbort(runtime, request, target) {
   if (request.method !== 'POST') return;
   const abortMatch = /^\/session\/([^/]+)\/abort$/.exec(target.pathname);
@@ -661,18 +667,22 @@ const server = http.createServer(async (request, response) => {
     const nativeQuestionDecision = /^\/question\/([^/]+)\/(reply|reject)$/.exec(requestUrl.pathname);
     if (method === 'POST' && nativeQuestionDecision) {
       const runtime = runtimeSummary(readConfig().deepseek);
-      const directory = readRequestDirectory(request, requestUrl);
+      const requestedDirectory = readRequestDirectory(request, requestUrl);
       const requestID = decodeURIComponent(nativeQuestionDecision[1]);
       const action = nativeQuestionDecision[2];
+      const nativeSessionID = decodeURIComponent(readRequestHeader(request, 'x-def-question-session'));
+      const nativeBinding = findNativeSessionBinding(nativeSessionID);
+      const directory = nativeBinding?.directory || requestedDirectory;
       const pending = await fetch(`${runtime.serverUrl}/question?directory=${encodeURIComponent(directory)}`).then((item) => item.json());
       const requestRecord = Array.isArray(pending) ? pending.find((item) => item?.id === requestID) : null;
       const decisionBody = action === 'reply' ? await readJsonBody(request) : {};
-      const upstreamUrl = new URL(request.url || requestUrl.pathname, runtime.serverUrl);
+      const upstreamUrl = new URL(`${requestUrl.pathname}?directory=${encodeURIComponent(directory)}`, runtime.serverUrl);
       const upstreamHeaders = Object.fromEntries(
         Object.entries(request.headers)
           .filter(([name, value]) => name !== 'host' && name !== 'content-length' && name !== 'transfer-encoding' && value !== undefined)
           .map(([name, value]) => [name, Array.isArray(value) ? value.join(', ') : value]),
       );
+      upstreamHeaders['x-opencode-directory'] = encodeURIComponent(directory);
       if (action === 'reply') upstreamHeaders['content-type'] = 'application/json';
       const upstream = await fetch(upstreamUrl, {
         method: 'POST',
