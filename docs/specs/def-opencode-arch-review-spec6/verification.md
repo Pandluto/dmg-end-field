@@ -84,6 +84,10 @@ Chrome 可视验收：
 - `npm run electron:dev`：3030 监听并完成两个真实宿主 Chrome 验收。
 - 黑盒入口严格使用 `POST /def-agent/workbench-test/prompt`；没有用直接 smoke 替代 agent 行为。
 
+### 失效原生会话回归
+
+首次验收后发现宿主会无条件复用 localStorage 中的旧 OpenCode session；runtime 已丢失该 session 时，原生前端请求 `/session/<id>` 会得到 404，阻塞手动测试。现已改为先使用 session id 与精确 directory 查询 runtime：200 才恢复，404、旧格式或损坏缓存均删除并自动创建新 session。回归请求验证有效 session 为 200、失效 session 为 404，`npm run build` 再次通过。
+
 ## 上游差异
 
 本轮 version lock 为 OpenCode v1.17.11，tag commit `67aec2212010d67775c35e696d8b8b54902eb338`。验收时最新 tag 为 v1.17.18，commit `b1fc8113948b518835c2a39ece49553cffe9b30c`；GitHub compare 显示相差 456 commits / 1200 files。当前没有混用最新版 UI 和旧 runtime；后续升级必须同步更新 vendor、runtime、UI 并重跑本记录中的兼容验收。

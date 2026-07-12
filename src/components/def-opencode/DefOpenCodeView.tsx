@@ -7,6 +7,7 @@ type NativeSession = {
   id: string;
   uiPath: string;
   host: DefOpenCodeHost;
+  directory: string;
 };
 
 interface DefOpenCodeViewProps {
@@ -34,6 +35,15 @@ export function DefOpenCodeView({
 
   const storageKey = `def-opencode.native-session.${host}.v1`;
 
+  const sessionExists = async (candidate: NativeSession) => {
+    if (!candidate.directory) return false;
+    const response = await fetch(
+      `${origin}/session/${encodeURIComponent(candidate.id)}?directory=${encodeURIComponent(candidate.directory)}`,
+      { headers: { accept: 'application/json' } },
+    );
+    return response.ok;
+  };
+
   const createSession = async () => {
     setStatus('checking');
     const response = await fetch(`${origin}/api/native/session`, {
@@ -56,14 +66,24 @@ export function DefOpenCodeView({
       if (!ensureResponse.ok) throw new Error(`HTTP ${ensureResponse.status}`);
       const stored = window.localStorage.getItem(storageKey);
       if (stored) {
-        const parsed = JSON.parse(stored) as NativeSession;
-        if (parsed?.id && parsed.uiPath && parsed.host === host) {
-          if (!disposed) {
-            setSession(parsed);
-            setStatus('ready');
+        try {
+          const parsed = JSON.parse(stored) as NativeSession;
+          if (
+            parsed?.id
+            && parsed.uiPath
+            && parsed.host === host
+            && await sessionExists(parsed)
+          ) {
+            if (!disposed) {
+              setSession(parsed);
+              setStatus('ready');
+            }
+            return;
           }
-          return;
+        } catch {
+          // Invalid or obsolete persisted sessions are replaced below.
         }
+        window.localStorage.removeItem(storageKey);
       }
       const response = await fetch(`${origin}/api/native/session`, {
         method: 'POST',
