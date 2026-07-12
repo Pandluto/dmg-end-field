@@ -24,6 +24,44 @@
   }
 }
 
+html[data-def-theme="def-line-blue"] {
+  --v2-background-bg-deep: #f7faff;
+  --v2-background-bg-base: #ffffff;
+  --v2-background-bg-strong: #edf4ff;
+  --v2-border-border-weak: #c6d3e6;
+  --v2-border-border-base: #7186a5;
+  --v2-text-text-base: #17233b;
+  --v2-text-text-muted: #50617a;
+  --v2-text-text-faint: #718096;
+  --v2-icon-icon-base: #19345f;
+  --v2-icon-icon-muted: #60738f;
+  color-scheme: light;
+}
+
+html[data-def-theme="def-line-blue"] body,
+html[data-def-theme="def-line-blue"] #root {
+  background-color: #f7faff;
+  color: #17233b;
+}
+
+html[data-def-theme="def-line-blue"] [data-component="session-composer"],
+html[data-def-theme="def-line-blue"] [data-component="session-new-composer"] {
+  border: 1px solid #7186a5;
+  border-radius: 3px;
+  box-shadow: none;
+  background: #fff;
+}
+
+html[data-def-theme="def-line-blue"] button,
+html[data-def-theme="def-line-blue"] [role="tab"] {
+  border-radius: 2px;
+}
+
+html[data-def-theme="def-line-blue"] [aria-selected="true"],
+html[data-def-theme="def-line-blue"] [data-selected="true"] {
+  box-shadow: inset 0 -2px #185bd8;
+}
+
 @layer components {
   [data-component="getting-started"] {
     container-type: inline-size;

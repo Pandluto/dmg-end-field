@@ -6,11 +6,10 @@ interface MainWorkbenchAiPanelProps {
   selectedCharacters: Character[];
   skillButtons: SkillButton[];
   onExit: () => void;
-  onOpenWorkNodePanel?: () => void;
   onWorkNodeChanged?: () => void;
 }
 
-export function MainWorkbenchAiPanel({ selectedCharacters, skillButtons, onExit, onOpenWorkNodePanel }: MainWorkbenchAiPanelProps) {
+export function MainWorkbenchAiPanel({ selectedCharacters, skillButtons, onExit }: MainWorkbenchAiPanelProps) {
   const workbenchContext = useMemo(() => ({
     schemaVersion: 1,
     source: 'main-workbench-react',
@@ -40,7 +39,6 @@ export function MainWorkbenchAiPanel({ selectedCharacters, skillButtons, onExit,
       host="workbench"
       title="DEF 节点工作台"
       onClose={onExit}
-      onOpenWorkNodePanel={onOpenWorkNodePanel}
       workbenchContext={workbenchContext}
     />
   );

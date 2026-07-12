@@ -6,6 +6,7 @@ import { Titlebar, type TitlebarUpdate } from "@/components/titlebar"
 import { usePlatform } from "@/context/platform"
 import { setNavigate } from "@/utils/notification-click"
 import { setV2Toast, ToastRegion } from "@/utils/toast"
+import { defEmbeddedProfile } from "@/utils/def-embedded"
 
 export default function NewLayout(props: ParentProps) {
   const platform = usePlatform()
@@ -36,8 +37,8 @@ export default function NewLayout(props: ParentProps) {
       <main class="flex-1 min-h-0 min-w-0 overflow-x-hidden flex flex-col items-start contain-strict">
         <Suspense>{props.children}</Suspense>
       </main>
-      {import.meta.env.DEV && <DebugBar inline />}
-      <HelpButton />
+      {import.meta.env.DEV && !defEmbeddedProfile() && <DebugBar inline />}
+      {!defEmbeddedProfile() && <HelpButton />}
       <ToastRegion v2 />
     </div>
   )

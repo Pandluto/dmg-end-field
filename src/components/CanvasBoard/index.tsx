@@ -3548,7 +3548,6 @@ export function CanvasBoard({
                 selectedCharacters={selectedCharacters}
                 skillButtons={skillButtons}
                 onExit={exitAiMode}
-                onOpenWorkNodePanel={openWorkNodePanel}
                 onWorkNodeChanged={refreshWorkNodePanel}
               />
             </aside>

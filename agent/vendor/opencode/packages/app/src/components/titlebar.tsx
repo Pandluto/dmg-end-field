@@ -27,6 +27,7 @@ import { ServerConnection, useServer } from "@/context/server"
 import { tabKey, useTabs } from "@/context/tabs"
 import "./titlebar.css"
 import { newTabTooltipKeybind } from "./command-tooltip-keybind"
+import { createDefNativeSession, defEmbeddedProfile } from "@/utils/def-embedded"
 
 type TauriDesktopWindow = {
   startDragging?: () => Promise<void>
@@ -314,6 +315,10 @@ export function Titlebar(props: { update?: TitlebarUpdate }) {
             })
 
             const openNewTab = () => {
+              if (defEmbeddedProfile()) {
+                void createDefNativeSession()
+                return
+              }
               const route = layout.route()
               const activeSession = session()
               if (route.type === "session" && activeSession) {

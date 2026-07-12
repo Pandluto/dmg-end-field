@@ -23,7 +23,6 @@ interface DefOpenCodeViewProps {
   host: DefOpenCodeHost;
   title: string;
   onClose?: () => void;
-  onOpenWorkNodePanel?: () => void;
   workbenchContext?: Record<string, unknown>;
 }
 
@@ -33,7 +32,6 @@ export function DefOpenCodeView({
   host,
   title,
   onClose,
-  onOpenWorkNodePanel,
   workbenchContext,
 }: DefOpenCodeViewProps) {
   const [status, setStatus] = useState<'checking' | 'ready' | 'error'>('checking');
@@ -61,21 +59,6 @@ export function DefOpenCodeView({
     url.searchParams.set('def_host', host);
     return url.toString();
   }, [host, origin, session]);
-
-  const createSession = async () => {
-    setStatus('checking');
-    const response = await fetch(`${origin}/api/native/session`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ host }),
-    });
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    const payload = await response.json() as { ok?: boolean; session?: NativeSession };
-    if (!payload.ok || !payload.session?.id || !payload.session.uiPath) throw new Error('Invalid native session response');
-    window.localStorage.setItem(storageKey, JSON.stringify(payload.session));
-    setSession(payload.session);
-    setStatus('ready');
-  };
 
   useEffect(() => {
     let disposed = false;
@@ -135,17 +118,11 @@ export function DefOpenCodeView({
 
   return (
     <section className={`def-opencode-view def-opencode-view--${host}`} data-def-opencode-host={host}>
-      <header className="def-opencode-view__header">
-        <div>
-          <strong>{title}</strong>
-          <span>OpenCode 1.17.11 · {host === 'workbench' ? '节点修改会话' : '数据资源会话'}</span>
-        </div>
-        <nav aria-label="DEF OpenCode controls">
-          <button type="button" onClick={() => void createSession().catch(() => setStatus('error'))}>新建会话</button>
-          {onOpenWorkNodePanel ? <button type="button" onClick={onOpenWorkNodePanel}>工作节点</button> : null}
-          {onClose ? <button type="button" onClick={onClose}>返回</button> : null}
+      {onClose ? (
+        <nav className="def-opencode-view__nav" aria-label="DEF OpenCode navigation">
+          <button type="button" onClick={onClose}>返回</button>
         </nav>
-      </header>
+      ) : null}
       <div className="def-opencode-view__body">
         {status === 'error' ? (
           <div className="def-opencode-view__status" role="alert">

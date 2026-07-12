@@ -43,6 +43,7 @@ import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { ModelSelectorPopover } from "@/components/dialog-select-model"
 import { useCommand } from "@/context/command"
 import { Persist, persisted } from "@/utils/persist"
+import { defEmbeddedProfile } from "@/utils/def-embedded"
 import { usePermission } from "@/context/permission"
 import { useLanguage } from "@/context/language"
 import { usePlatform } from "@/context/platform"
@@ -1525,8 +1526,17 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                     <ComposerAgentControl state={agentControlState()} />
                   </Show>
                   {props.toolbar}
-                  <ComposerModelControl state={modelControlState()} />
-                  <Show when={!providersLoading() && store.mode !== "shell" && showVariantControl()}>
+                  <Show when={!defEmbeddedProfile()?.lockedModel}>
+                    <ComposerModelControl state={modelControlState()} />
+                  </Show>
+                  <Show
+                    when={
+                      !defEmbeddedProfile()?.lockedModel &&
+                      !providersLoading() &&
+                      store.mode !== "shell" &&
+                      showVariantControl()
+                    }
+                  >
                     <div
                       data-component="prompt-variant-control"
                       classList={{
@@ -1802,7 +1812,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                         </TooltipKeybind>
                       </div>
                     </Show>
-                    <Show when={!providersLoading()}>
+                    <Show when={!defEmbeddedProfile()?.lockedModel && !providersLoading()}>
                       <Show when={store.mode !== "shell"}>
                         <div
                           data-component="prompt-model-control"

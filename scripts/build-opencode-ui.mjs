@@ -13,6 +13,8 @@ const expected = {
   upstreamVersion: packageJson.version,
   base: '/',
   sourcemap: false,
+  embeddedProfile: 'def',
+  embeddedProfileVersion: 1,
 };
 
 try {
@@ -44,6 +46,10 @@ const result = spawnSync(vite, [
   cwd: appRoot,
   stdio: 'inherit',
   shell: false,
+  env: {
+    ...process.env,
+    VITE_DEF_EMBEDDED_PROFILE: 'def',
+  },
 });
 if (result.status !== 0) process.exit(result.status ?? 1);
 

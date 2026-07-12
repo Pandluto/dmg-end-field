@@ -10,6 +10,7 @@ import { handleNotificationClick } from "@/utils/notification-click"
 import { authFromToken } from "@/utils/server"
 import pkg from "../package.json"
 import { ServerConnection } from "./context/server"
+import { defEmbeddedProfile } from "@/utils/def-embedded"
 
 const DEFAULT_SERVER_URL_KEY = "opencode.settings.dat:defaultServerUrl"
 
@@ -95,6 +96,12 @@ const restart: Platform["restart"] = async () => {
 }
 
 const root = document.getElementById("root")
+const defProfile = defEmbeddedProfile()
+if (defProfile) {
+  document.documentElement.dataset.defTheme = defProfile.theme
+  document.documentElement.dataset.defHost = defProfile.host
+  document.documentElement.lang = "zh-CN"
+}
 if (!(root instanceof HTMLElement) && import.meta.env.DEV) {
   throw new Error(getRootNotFoundError())
 }

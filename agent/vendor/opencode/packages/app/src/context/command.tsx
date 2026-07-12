@@ -7,6 +7,7 @@ import { useLanguage } from "@/context/language"
 import { useSettings } from "@/context/settings"
 import { dict as en } from "@/i18n/en"
 import { Persist, persisted } from "@/utils/persist"
+import { defEmbeddedProfile, defFeature } from "@/utils/def-embedded"
 
 const IS_MAC = typeof navigator === "object" && /(Mac|iPod|iPhone|iPad)/.test(navigator.platform)
 
@@ -14,6 +15,23 @@ const PALETTE_ID = "command.palette"
 const DEFAULT_PALETTE_KEYBIND = "mod+shift+p"
 const SUGGESTED_PREFIX = "suggested."
 const EDITABLE_KEYBIND_IDS = new Set(["terminal.toggle", "terminal.new", "file.attach"])
+
+function defCommandAllowed(id: string) {
+  const profile = defEmbeddedProfile()
+  if (!profile) return true
+  const rules: Array<[RegExp, string]> = [
+    [/^(model\.|model$)/, "modelSelect"],
+    [/^(provider\.|provider$)/, "providerManage"],
+    [/^(server\.|server$)/, "serverManage"],
+    [/^(project\.|project$|worktree\.|worktree$)/, "projectManage"],
+    [/^(terminal\.|terminal$)/, "terminalOpen"],
+    [/^(git\.|git$|branch\.|branch$)/, "gitManage"],
+    [/^(share\.|share$|unshare\.|unshare$)/, "shareSession"],
+  ]
+  if (profile.lockedAgent && /^(agent\.|agent$)/.test(id)) return false
+  const rule = rules.find(([pattern]) => pattern.test(id))
+  return rule ? defFeature(rule[1]) : true
+}
 
 type KeyLabel =
   | "common.key.ctrl"
@@ -271,6 +289,7 @@ export const { use: useCommand, provider: CommandProvider } = createSimpleContex
 
       for (const reg of store.registrations) {
         for (const opt of reg.options()) {
+          if (!defCommandAllowed(opt.id)) continue
           if (seen.has(opt.id)) {
             if (import.meta.env.DEV && !warnedDuplicates.has(opt.id)) {
               warnedDuplicates.add(opt.id)
