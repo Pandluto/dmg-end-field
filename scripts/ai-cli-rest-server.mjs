@@ -11,6 +11,10 @@ import {
   validateMainWorkbenchCommand,
 } from '../src/agentKernel/mainWorkbench/commandSchemaRuntime.mjs';
 import { buildAiTimelineCheckoutDecision } from '../src/agentKernel/timelineWorktree/checkoutDecision.mjs';
+import {
+  buildDefToolRouteMap,
+  createDefToolRegistry,
+} from '../agent/runtime/def-tools/registry.mjs';
 import workNodeStoreModule from '../electron/ai-timeline-work-node-store.cjs';
 import timelineRepositoryModule from '../electron/timeline-repository.cjs';
 
@@ -3299,7 +3303,8 @@ function buildDefToolDefinitions() {
   }));
 }
 
-const DEF_TOOL_DEFINITIONS = buildDefToolDefinitions();
+const DEF_TOOL_REGISTRY = createDefToolRegistry(buildDefToolDefinitions());
+const DEF_TOOL_DEFINITIONS = DEF_TOOL_REGISTRY;
 
 function getDefToolDefinition(name) {
   return DEF_TOOL_DEFINITIONS.find((tool) => tool.name === name) || null;
@@ -4216,6 +4221,16 @@ async function executeDefTool(name, input = {}, query = new URLSearchParams()) {
 }
 
 async function handleDefToolRequest(method, pathname, query, body) {
+  if (method === 'GET' && pathname === '/api/def-tools/route-map') {
+    return {
+      status: 200,
+      body: {
+        ok: true,
+        protocolVersion: 1,
+        result: buildDefToolRouteMap(DEF_TOOL_REGISTRY),
+      },
+    };
+  }
   if (method === 'GET' && (pathname === '/api/def-tools' || pathname === '/api/def-tools/list')) {
     return await executeDefTool('def.tool.list', {}, query);
   }

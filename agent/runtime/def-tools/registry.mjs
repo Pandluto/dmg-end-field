@@ -1,0 +1,173 @@
+export const DEF_TOOL_FAMILY = Object.freeze({
+  NODE_CODE: 'def-node-code',
+  NODE_CRUD: 'def-node-crud',
+  DATA_RESOURCE: 'def-data-resource',
+});
+
+const NODE_CODE_TOOLS = new Set([
+  'def.buff.add_to_buttons',
+  'def.worknode.patch',
+  'def.worknode.patch_and_validate',
+  'def.worknode.copy_staff_line_and_verify',
+]);
+
+const DATA_RESOURCE_TOOLS = new Set([
+  'def.buff.resolve',
+  'def.buff.search_candidates',
+  'def.skill.resolve',
+  'def.character.resolve',
+  'def.equipment.resolve',
+  'def.weapon.resolve',
+  'def.gear.resolve',
+  'def.workbench.list_characters',
+  'def.workbench.damage_report',
+  'def.damage.calculate',
+  'def.damage.calculate_and_verify',
+  'def.verify.damage_recalculated',
+  'def.operator.config.read',
+  'def.operator.config.patch',
+  'def.gear.set_entry_level',
+]);
+
+const CANONICAL_TARGETS = Object.freeze({
+  'def.worknode.create_from_current': 'def.node.crud.fork',
+  'def.worknode.read': 'def.node.crud.read',
+  'def.worknode.validate': 'def.node.crud.validate',
+  'def.worknode.diff': 'def.node.crud.diff',
+  'def.worknode.checkout': 'def.node.crud.use',
+  'def.worknode.checkout_and_verify': 'def.node.crud.use',
+  'def.worknode.restore_base': 'def.node.crud.restore',
+  'def.worknode.restore_base_and_verify': 'def.node.crud.restore',
+  'def.worknode.patch': 'def.node.code.apply_patch',
+  'def.worknode.patch_and_validate': 'def.node.code.apply_patch',
+  'def.worknode.copy_staff_line_and_verify': 'def.node.code.apply_patch',
+  'def.buff.add_to_buttons': 'def.node.code.apply_patch',
+  'def.user.ask': 'def.node.crud.request_approval',
+  'def.approval.request': 'def.node.crud.request_approval',
+  'def.approval.record_decision': 'def.node.crud.record_approval',
+});
+
+export const DEF_NATIVE_TARGETS = Object.freeze([
+  { id: 'def.node.code.read', family: DEF_TOOL_FAMILY.NODE_CODE, source: 'opencode-native', status: 'planned', workspaceScope: 'child-node' },
+  { id: 'def.node.code.edit', family: DEF_TOOL_FAMILY.NODE_CODE, source: 'opencode-native', status: 'planned', workspaceScope: 'child-node' },
+  { id: 'def.node.code.apply_patch', family: DEF_TOOL_FAMILY.NODE_CODE, source: 'opencode-native', status: 'planned', workspaceScope: 'child-node' },
+  { id: 'def.node.crud.fork', family: DEF_TOOL_FAMILY.NODE_CRUD, source: 'def-native', status: 'planned', workspaceScope: 'node-store' },
+  { id: 'def.node.crud.read', family: DEF_TOOL_FAMILY.NODE_CRUD, source: 'def-native', status: 'planned', workspaceScope: 'node-store' },
+  { id: 'def.node.crud.validate', family: DEF_TOOL_FAMILY.NODE_CRUD, source: 'def-native', status: 'planned', workspaceScope: 'node-store' },
+  { id: 'def.node.crud.diff', family: DEF_TOOL_FAMILY.NODE_CRUD, source: 'def-native', status: 'planned', workspaceScope: 'node-store' },
+  { id: 'def.node.crud.request_approval', family: DEF_TOOL_FAMILY.NODE_CRUD, source: 'def-native', status: 'planned', workspaceScope: 'node-store' },
+  { id: 'def.node.crud.record_approval', family: DEF_TOOL_FAMILY.NODE_CRUD, source: 'def-native', status: 'planned', workspaceScope: 'node-store' },
+  { id: 'def.node.crud.use', family: DEF_TOOL_FAMILY.NODE_CRUD, source: 'def-native', status: 'planned', workspaceScope: 'current-checkout' },
+  { id: 'def.node.crud.restore', family: DEF_TOOL_FAMILY.NODE_CRUD, source: 'def-native', status: 'planned', workspaceScope: 'current-checkout' },
+  { id: 'def.data.resource.operator', family: DEF_TOOL_FAMILY.DATA_RESOURCE, source: 'def-native', status: 'planned', workspaceScope: 'data-resource' },
+  { id: 'def.data.resource.weapon', family: DEF_TOOL_FAMILY.DATA_RESOURCE, source: 'def-native', status: 'planned', workspaceScope: 'data-resource' },
+  { id: 'def.data.resource.equipment', family: DEF_TOOL_FAMILY.DATA_RESOURCE, source: 'def-native', status: 'planned', workspaceScope: 'data-resource' },
+  { id: 'def.data.resource.skill', family: DEF_TOOL_FAMILY.DATA_RESOURCE, source: 'def-native', status: 'planned', workspaceScope: 'data-resource' },
+  { id: 'def.data.resource.buff', family: DEF_TOOL_FAMILY.DATA_RESOURCE, source: 'def-native', status: 'planned', workspaceScope: 'data-resource' },
+  { id: 'def.data.resource.damage', family: DEF_TOOL_FAMILY.DATA_RESOURCE, source: 'def-native', status: 'planned', workspaceScope: 'data-resource' },
+]);
+
+function familyFor(id) {
+  if (NODE_CODE_TOOLS.has(id)) return DEF_TOOL_FAMILY.NODE_CODE;
+  if (DATA_RESOURCE_TOOLS.has(id)) return DEF_TOOL_FAMILY.DATA_RESOURCE;
+  return DEF_TOOL_FAMILY.NODE_CRUD;
+}
+
+function dataTargetFor(id) {
+  if (/character|operator/.test(id)) return 'def.data.resource.operator';
+  if (/weapon/.test(id)) return 'def.data.resource.weapon';
+  if (/equipment|gear/.test(id)) return 'def.data.resource.equipment';
+  if (/skill/.test(id)) return 'def.data.resource.skill';
+  if (/buff/.test(id)) return 'def.data.resource.buff';
+  if (/damage/.test(id)) return 'def.data.resource.damage';
+  return undefined;
+}
+
+function defaultCanonicalTarget(tool) {
+  if (CANONICAL_TARGETS[tool.name]) return CANONICAL_TARGETS[tool.name];
+  if (familyFor(tool.name) === DEF_TOOL_FAMILY.DATA_RESOURCE) return dataTargetFor(tool.name);
+  if (tool.name.startsWith('def.verify.')) return 'def.node.crud.validate';
+  if (tool.name.startsWith('def.tool.')) return 'def.node.crud.read';
+  if (tool.name.startsWith('def.workbench.') || tool.name.startsWith('def.buff.') || tool.name.startsWith('def.target.')) {
+    return tool.riskLevel === 'read' ? 'def.node.crud.read' : 'def.node.crud.update';
+  }
+  return tool.name;
+}
+
+function migrationStatus(tool, canonicalTarget) {
+  if (canonicalTarget === tool.name) return 'canonical';
+  if (NODE_CODE_TOOLS.has(tool.name)) return 'absorbed';
+  if (tool.name.includes('_and_verify') || tool.name.startsWith('def.verify.')) return 'absorbed';
+  return 'alias';
+}
+
+export function createDefToolRegistry(definitions) {
+  const records = definitions.map((tool) => {
+    const canonicalTarget = defaultCanonicalTarget(tool);
+    return Object.freeze({
+      ...tool,
+      id: tool.name,
+      family: familyFor(tool.name),
+      source: 'legacy-adapter',
+      workspaceScope: tool.scope === 'appdata-work-node'
+        ? 'node-store'
+        : tool.scope === 'current-checkout'
+          ? 'current-checkout'
+          : familyFor(tool.name) === DEF_TOOL_FAMILY.DATA_RESOURCE
+            ? 'data-resource'
+            : 'node-store',
+      exposure: ['workbench', 'ai-cli'],
+      canonicalTarget,
+      legacyAliases: [tool.name],
+      legacyRoutes: [
+        '/api/def-tools/call',
+        `/api/def-tools/${encodeURIComponent(tool.name)}/call`,
+      ],
+      migrationStatus: migrationStatus(tool, canonicalTarget),
+    });
+  });
+  assertDefToolRegistry(records);
+  return Object.freeze(records);
+}
+
+export function assertDefToolRegistry(records) {
+  const ids = new Set();
+  const errors = [];
+  for (const record of records) {
+    if (!record?.id) errors.push('tool without id');
+    if (ids.has(record.id)) errors.push(`duplicate tool id: ${record.id}`);
+    ids.add(record.id);
+    if (!Object.values(DEF_TOOL_FAMILY).includes(record.family)) errors.push(`tool without valid family: ${record.id}`);
+    if (!record.canonicalTarget) errors.push(`tool without canonical target: ${record.id}`);
+    if (record.status === 'implemented' && !record.description) errors.push(`implemented tool without description: ${record.id}`);
+  }
+  if (errors.length) throw new Error(`Invalid DEF tool registry:\n${errors.join('\n')}`);
+  return true;
+}
+
+export function buildDefToolRouteMap(records) {
+  assertDefToolRegistry(records);
+  const families = Object.values(DEF_TOOL_FAMILY).map((family) => ({
+    id: family,
+    legacyTools: records
+      .filter((tool) => tool.family === family)
+      .map((tool) => ({
+        id: tool.id,
+        canonicalTarget: tool.canonicalTarget,
+        migrationStatus: tool.migrationStatus,
+        legacyRoutes: tool.legacyRoutes,
+        status: tool.status,
+      })),
+    nativeTargets: DEF_NATIVE_TARGETS.filter((tool) => tool.family === family),
+  }));
+  return {
+    registryVersion: 1,
+    families,
+    diagnostics: {
+      ok: true,
+      legacyToolCount: records.length,
+      nativeTargetCount: DEF_NATIVE_TARGETS.length,
+      unclassified: [],
+    },
+  };
+}
