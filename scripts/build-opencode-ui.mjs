@@ -9,6 +9,17 @@ const appRoot = path.join(projectRoot, 'agent', 'vendor', 'opencode', 'packages'
 const packageJson = JSON.parse(fs.readFileSync(path.join(appRoot, 'package.json'), 'utf8'));
 const outputDir = path.join(projectRoot, 'agent', 'runtime', 'opencode-ui');
 const markerPath = path.join(outputDir, 'def-opencode-ui.json');
+const compactStyle = `<script id="def-workbench-compact-script">if(new URLSearchParams(location.search).get('def_host')==='workbench')document.documentElement.classList.add('def-workbench-compact')</script><style id="def-workbench-compact-style">html.def-workbench-compact body{font-size:12px;line-height:1.45}html.def-workbench-compact [data-slot="session-turn-message-container"]{padding-left:12px!important;padding-right:12px!important}html.def-workbench-compact [data-slot="session-turn-message-content"],html.def-workbench-compact [data-slot="session-turn-assistant-content"]{font-size:12px;line-height:1.45}html.def-workbench-compact [data-slot="session-turn-message-content"] :is(p,li),html.def-workbench-compact [data-slot="session-turn-assistant-content"] :is(p,li){line-height:1.45;margin-block:0.35rem}html.def-workbench-compact [data-slot^="basic-tool-v2"],html.def-workbench-compact [data-slot^="tool-error-card"]{font-size:11px;line-height:1.35}html.def-workbench-compact [contenteditable="true"]{font-size:12px!important;line-height:1.45!important}</style>`;
+
+function applyDefOpenCodeUiOverrides() {
+  const indexPath = path.join(outputDir, 'index.html');
+  const html = fs.readFileSync(indexPath, 'utf8');
+  const next = html.includes('def-workbench-compact-style')
+    ? html
+    : html.replace('</head>', `${compactStyle}</head>`);
+  if (next !== html) fs.writeFileSync(indexPath, next, 'utf8');
+}
+
 function hashTree(root) {
   const hash = crypto.createHash('sha256');
   const visit = (directory) => {
@@ -39,6 +50,7 @@ try {
   if (fs.existsSync(path.join(outputDir, 'index.html'))
     && Object.entries(expected).every(([key, value]) => marker[key] === value)
     && !process.argv.includes('--force')) {
+    applyDefOpenCodeUiOverrides();
     console.log(`[opencode-ui] ${packageJson.version} already built`);
     process.exit(0);
   }
@@ -74,4 +86,5 @@ fs.writeFileSync(markerPath, `${JSON.stringify({
   ...expected,
   builtAt: new Date().toISOString(),
 }, null, 2)}\n`);
+applyDefOpenCodeUiOverrides();
 console.log(`[opencode-ui] built upstream ${packageJson.version} into ${path.relative(projectRoot, outputDir)}`);
