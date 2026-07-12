@@ -667,9 +667,16 @@ const server = http.createServer(async (request, response) => {
       const pending = await fetch(`${runtime.serverUrl}/question?directory=${encodeURIComponent(directory)}`).then((item) => item.json());
       const requestRecord = Array.isArray(pending) ? pending.find((item) => item?.id === requestID) : null;
       const decisionBody = action === 'reply' ? await readJsonBody(request) : {};
-      const upstream = await fetch(`${runtime.serverUrl}${requestUrl.pathname}?directory=${encodeURIComponent(directory)}`, {
+      const upstreamUrl = new URL(request.url || requestUrl.pathname, runtime.serverUrl);
+      const upstreamHeaders = Object.fromEntries(
+        Object.entries(request.headers)
+          .filter(([name, value]) => name !== 'host' && name !== 'content-length' && name !== 'transfer-encoding' && value !== undefined)
+          .map(([name, value]) => [name, Array.isArray(value) ? value.join(', ') : value]),
+      );
+      if (action === 'reply') upstreamHeaders['content-type'] = 'application/json';
+      const upstream = await fetch(upstreamUrl, {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
+        headers: upstreamHeaders,
         body: action === 'reply' ? JSON.stringify(decisionBody) : undefined,
       });
       const upstreamText = await upstream.text();
