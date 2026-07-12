@@ -1,4 +1,4 @@
-import { For, Show, createMemo, onCleanup, onMount, type Component } from "solid-js"
+import { For, Show, createMemo, createSignal, onCleanup, onMount, type Component } from "solid-js"
 import { createStore } from "solid-js/store"
 import { useMutation } from "@tanstack/solid-query"
 import { Button } from "@opencode-ai/ui/button"
@@ -75,6 +75,7 @@ export const SessionQuestionDock: Component<{
   const total = createMemo(() => questions().length)
 
   const cached = cache.get(cacheKey)
+  const [resolved, setResolved] = createSignal(false)
   const [store, setStore] = createStore({
     tab: cached?.tab ?? 0,
     answers: cached?.answers ?? ([] as QuestionAnswer[]),
@@ -230,24 +231,22 @@ export const SessionQuestionDock: Component<{
   const replyMutation = useMutation(() => ({
     mutationFn: (answers: QuestionAnswer[]) =>
       defEmbeddedProfile() ? nativeDecision("reply", answers) : sdk().client.question.reply({ requestID: props.request.id, answers }),
-    onMutate: () => {
-      props.onSubmit()
-    },
     onSuccess: () => {
       replied = true
       cache.delete(cacheKey)
+      setResolved(true)
+      props.onSubmit()
     },
     onError: fail,
   }))
 
   const rejectMutation = useMutation(() => ({
     mutationFn: () => (defEmbeddedProfile() ? nativeDecision("ignore") : sdk().client.question.reject({ requestID: props.request.id })),
-    onMutate: () => {
-      props.onSubmit()
-    },
     onSuccess: () => {
       replied = true
       cache.delete(cacheKey)
+      setResolved(true)
+      props.onSubmit()
     },
     onError: fail,
   }))
@@ -257,6 +256,7 @@ export const SessionQuestionDock: Component<{
     onSuccess: () => {
       replied = true
       cache.delete(cacheKey)
+      setResolved(true)
     },
     onError: fail,
   }))
@@ -274,7 +274,7 @@ export const SessionQuestionDock: Component<{
   }
 
   const abort = async () => {
-    if (sending() || !props.onAbort) return
+    if (sending() || (!props.onAbort && !defEmbeddedProfile())) return
     await abortMutation.mutateAsync()
   }
 
@@ -459,7 +459,8 @@ export const SessionQuestionDock: Component<{
   }
 
   return (
-    <DockPrompt
+    <Show when={!resolved()}>
+      <DockPrompt
       kind="question"
       ref={(el) => (root = el)}
       onKeyDown={nav}
@@ -487,7 +488,7 @@ export const SessionQuestionDock: Component<{
       }
       footer={
         <>
-          <Show when={props.onAbort}>
+          <Show when={props.onAbort || defEmbeddedProfile()}>
             <Button variant="ghost" size="large" disabled={sending()} onClick={() => void abort()}>
               {language.t("prompt.action.stop")}
             </Button>
@@ -610,6 +611,7 @@ export const SessionQuestionDock: Component<{
           </form>
         </Show>
       </div>
-    </DockPrompt>
+      </DockPrompt>
+    </Show>
   )
 }

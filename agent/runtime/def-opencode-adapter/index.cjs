@@ -816,7 +816,7 @@ function readNativeNodeRelation(directory) {
   };
 }
 
-function readNativeSessionBinding(directory, sessionID) {
+function readNativeSessionBinding(directory, sessionID, options = {}) {
   if (typeof directory !== 'string' || !directory.trim()) return null;
   const sessionsRoot = path.resolve(getAgentWorkspaceDir(), 'sessions');
   const resolved = path.resolve(directory);
@@ -834,15 +834,27 @@ function readNativeSessionBinding(directory, sessionID) {
     agent: expected.agent,
     skillId: expected.skillId,
     profile: expected,
-    nodeRelation: readNativeNodeRelation(resolved),
+    nodeRelation: options.includeNodeRelation === false ? null : readNativeNodeRelation(resolved),
   };
 }
 
 function findNativeSessionBinding(sessionID) {
   if (typeof sessionID !== 'string' || !sessionID.trim()) return null;
-  const binding = listSessionBindings().find((item) => item.sessionID === sessionID);
-  if (!binding) return null;
-  return readNativeSessionBinding(binding.directory, sessionID);
+  const sessionsRoot = path.join(getAgentWorkspaceDir(), 'sessions');
+  if (!fs.existsSync(sessionsRoot)) return null;
+  for (const hostEntry of fs.readdirSync(sessionsRoot, { withFileTypes: true })) {
+    if (!hostEntry.isDirectory()) continue;
+    const hostRoot = path.join(sessionsRoot, hostEntry.name);
+    for (const sessionEntry of fs.readdirSync(hostRoot, { withFileTypes: true })) {
+      if (!sessionEntry.isDirectory()) continue;
+      const directory = path.join(hostRoot, sessionEntry.name);
+      const binding = readJsonFile(path.join(directory, '.def-session.json'));
+      if (binding?.sessionID === sessionID) {
+        return readNativeSessionBinding(directory, sessionID, { includeNodeRelation: false });
+      }
+    }
+  }
+  return null;
 }
 
 function writeNativeWorkbenchContext(directory, sessionID, context) {

@@ -389,9 +389,7 @@ export function Titlebar(props: { update?: TitlebarUpdate }) {
                   title: language.t("command.tab.close"),
                   keybind: "mod+w",
                   hidden: true,
-                  onSelect: () => {
-                    tabsStoreActions.removeTab(tabsStore.findIndex((tab) => current === tab))
-                  },
+                  onSelect: () => void closeTab(current),
                 },
                 {
                   id: `tab.prev`,

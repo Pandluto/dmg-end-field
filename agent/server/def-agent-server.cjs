@@ -34,6 +34,7 @@ const defRuntimeRoot = path.join(runtimeRoot, 'def');
 const openCodeUiRoot = path.join(runtimeRoot, 'opencode-ui');
 const configPath = path.join(projectRoot, '.runtime', 'def-agent', 'config.json');
 const questionStorePath = path.join(projectRoot, '.runtime', 'def-agent', 'questions.sqlite3');
+const OPENCODE_ACTION_TIMEOUT_MS = 5000;
 const startedAt = Date.now();
 const defRestUrl = process.env.DEF_REST_BASE_URL || 'http://127.0.0.1:17321';
 let defRestProcess = null;
@@ -408,7 +409,9 @@ async function rejectPendingQuestions(runtime, directory, sessionID) {
   const query = `directory=${encodeURIComponent(directory)}`;
 
   try {
-    const pendingResponse = await fetch(`${runtime.serverUrl}/question?${query}`);
+    const pendingResponse = await fetch(`${runtime.serverUrl}/question?${query}`, {
+      signal: AbortSignal.timeout(OPENCODE_ACTION_TIMEOUT_MS),
+    });
     if (!pendingResponse.ok) return;
     const pending = await pendingResponse.json();
     if (!Array.isArray(pending)) return [];
@@ -419,6 +422,7 @@ async function rejectPendingQuestions(runtime, directory, sessionID) {
       await fetch(`${runtime.serverUrl}/question/${encodeURIComponent(question.id)}/reject?${query}`, {
         method: 'POST',
         headers: { 'x-opencode-directory': encodeURIComponent(directory) },
+        signal: AbortSignal.timeout(OPENCODE_ACTION_TIMEOUT_MS),
       }).catch(() => undefined);
       rejected.push(question.id);
     }
@@ -448,6 +452,7 @@ async function submitNativeQuestionDecision(runtime, input) {
       'x-opencode-directory': encodeURIComponent(input.binding.directory),
     },
     body: input.action === 'reply' ? JSON.stringify({ answers: input.answers || [] }) : undefined,
+    signal: AbortSignal.timeout(OPENCODE_ACTION_TIMEOUT_MS),
   });
   return { ok: response.ok, status: response.status, body: await response.text() };
 }
@@ -519,6 +524,7 @@ const server = http.createServer(async (request, response) => {
         await fetch(`${runtime.serverUrl}/session/${encodeURIComponent(sessionID)}/abort?directory=${encodeURIComponent(binding.directory)}`, {
           method: 'POST',
           headers: { 'x-opencode-directory': encodeURIComponent(binding.directory) },
+          signal: AbortSignal.timeout(OPENCODE_ACTION_TIMEOUT_MS),
         }).catch(() => undefined);
         saveNativeQuestion({ requestID, sessionID, directory: binding.directory, questions: body.questions, status: 'stopped' });
         writeJson(response, 200, { ok: true, status: 'stopped' });
@@ -559,6 +565,7 @@ const server = http.createServer(async (request, response) => {
       const upstream = await fetch(`${runtime.serverUrl}/session/${encodeURIComponent(sessionID)}?directory=${encodeURIComponent(binding.directory)}`, {
         method: 'DELETE',
         headers: { 'x-opencode-directory': encodeURIComponent(binding.directory) },
+        signal: AbortSignal.timeout(OPENCODE_ACTION_TIMEOUT_MS),
       }).catch(() => undefined);
       if (upstream && !upstream.ok && upstream.status !== 404) {
         writeJson(response, upstream.status, { ok: false, error: 'native-session-delete-failed' });
