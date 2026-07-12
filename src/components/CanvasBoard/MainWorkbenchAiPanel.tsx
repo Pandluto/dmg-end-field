@@ -30,7 +30,7 @@ import { summarizeMainWorkbenchToolsForAgent } from '../../agentKernel/mainWorkb
 import { buildGameKnowledgePromptLines } from '../../utils/gameKnowledge';
 import { MarkdownRenderer } from '../MarkdownRenderer';
 import { WorkNodeTreeIcon } from './WorkNodeTreeIcon';
-import { mergeWorkbenchAiHistory, resolveRecalledWorkbenchAiHistory } from './workbenchAiHistory';
+import { collapseRecalledWorkbenchTurns, mergeWorkbenchAiHistory, resolveRecalledWorkbenchAiHistory } from './workbenchAiHistory';
 import './MainWorkbenchAiPanel.css';
 
 const DEF_AGENT_BROWSER_SESSION_KEY = 'def-opencode.workbench.activeSession.v1';
@@ -290,7 +290,7 @@ function transcriptToMessages(messages: Array<{ id?: string; role: string; text?
       text: displayTranscriptText(message.role, message.text || ''),
       status: 'done' as const,
     }));
-  return converted;
+  return collapseRecalledWorkbenchTurns(converted);
 }
 
 function isGenericCompletionText(text: string | undefined) {

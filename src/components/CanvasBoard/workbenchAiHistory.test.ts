@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mergeWorkbenchAiHistory, resolveRecalledWorkbenchAiHistory, type PersistedWorkbenchAiMessage } from './workbenchAiHistory';
+import { collapseRecalledWorkbenchTurns, mergeWorkbenchAiHistory, resolveRecalledWorkbenchAiHistory, type PersistedWorkbenchAiMessage } from './workbenchAiHistory';
 
 const message = (id: string, role: PersistedWorkbenchAiMessage['role'], text: string): PersistedWorkbenchAiMessage => ({
   id, role, text, status: 'done',
@@ -42,5 +42,17 @@ const recalledRepeatedTurns = [
 assert.equal(mergeWorkbenchAiHistory(repeatedTurns, recalledRepeatedTurns, 200, true).length, 4);
 assert.deepEqual(resolveRecalledWorkbenchAiHistory(localHistory, recalledTranscript), recalledTranscript);
 assert.deepEqual(resolveRecalledWorkbenchAiHistory(localHistory, []), localHistory);
+assert.deepEqual(collapseRecalledWorkbenchTurns([
+  message('u-turn', 'user', '添加按钮'),
+  message('a-progress-1', 'agent', '正在检查'),
+  message('a-progress-2', 'agent', '正在应用'),
+  message('a-final', 'agent', '按钮已添加'),
+]), [message('u-turn', 'user', '添加按钮'), message('a-final', 'agent', '按钮已添加')]);
+assert.deepEqual(collapseRecalledWorkbenchTurns([
+  message('u-turn-2', 'user', '添加按钮'),
+  message('a-progress-3', 'agent', '正在应用'),
+  message('u-auto', 'user', 'Continue if you have next steps, or stop and ask for clarification if you are unsure how to proceed.'),
+  message('a-final-2', 'agent', '按钮已添加'),
+]), [message('u-turn-2', 'user', '添加按钮'), message('a-final-2', 'agent', '按钮已添加')]);
 
 console.log('workbench AI history merge passed');

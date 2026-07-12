@@ -76,3 +76,26 @@ export function resolveRecalledWorkbenchAiHistory<T extends PersistedWorkbenchAi
   const recalled = transcript.filter((message) => message?.id && message.text?.trim() && message.id !== 'system-ready');
   return recalled.length > 0 ? recalled : cached;
 }
+
+export function collapseRecalledWorkbenchTurns<T extends PersistedWorkbenchAiMessage>(messages: T[]): T[] {
+  const turns: T[] = [];
+  let pendingAgent: T | null = null;
+  const flushAgent = () => {
+    if (pendingAgent) turns.push(pendingAgent);
+    pendingAgent = null;
+  };
+  for (const message of messages) {
+    if (!message?.text?.trim()) continue;
+    if (message.role === 'user') {
+      if (/^Continue if you have next steps, or stop and ask for clarification if you are unsure how to proceed\.?$/i.test(message.text.trim())) {
+        continue;
+      }
+      flushAgent();
+      turns.push(message);
+      continue;
+    }
+    if (message.role === 'agent') pendingAgent = message;
+  }
+  flushAgent();
+  return turns;
+}
