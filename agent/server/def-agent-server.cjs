@@ -329,12 +329,25 @@ async function proxyOpenCodeRequest(request, response) {
   });
 }
 
+function readRequestDirectory(request, requestUrl) {
+  const queryDirectory = requestUrl.searchParams.get('directory');
+  if (queryDirectory) return queryDirectory;
+  const header = request.headers['x-opencode-directory'];
+  const rawDirectory = Array.isArray(header) ? header[0] : header;
+  if (!rawDirectory) return '';
+  try {
+    return decodeURIComponent(rawDirectory);
+  } catch {
+    return rawDirectory;
+  }
+}
+
 async function rejectPendingQuestionsForSessionAbort(runtime, request, target) {
   if (request.method !== 'POST') return;
   const abortMatch = /^\/session\/([^/]+)\/abort$/.exec(target.pathname);
   if (!abortMatch) return;
 
-  const directory = target.searchParams.get('directory') || '';
+  const directory = readRequestDirectory(request, target);
   if (!directory) return;
   const sessionID = decodeURIComponent(abortMatch[1]);
   const query = `directory=${encodeURIComponent(directory)}`;
@@ -648,7 +661,7 @@ const server = http.createServer(async (request, response) => {
     const nativeQuestionDecision = /^\/question\/([^/]+)\/(reply|reject)$/.exec(requestUrl.pathname);
     if (method === 'POST' && nativeQuestionDecision) {
       const runtime = runtimeSummary(readConfig().deepseek);
-      const directory = requestUrl.searchParams.get('directory') || '';
+      const directory = readRequestDirectory(request, requestUrl);
       const requestID = decodeURIComponent(nativeQuestionDecision[1]);
       const action = nativeQuestionDecision[2];
       const pending = await fetch(`${runtime.serverUrl}/question?directory=${encodeURIComponent(directory)}`).then((item) => item.json());
