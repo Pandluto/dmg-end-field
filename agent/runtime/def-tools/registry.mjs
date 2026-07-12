@@ -62,12 +62,12 @@ export const DEF_NATIVE_TARGETS = Object.freeze([
   { id: 'def.node.crud.record_approval', family: DEF_TOOL_FAMILY.NODE_CRUD, source: 'def-native', status: 'planned', workspaceScope: 'node-store' },
   { id: 'def.node.crud.use', family: DEF_TOOL_FAMILY.NODE_CRUD, source: 'def-native', nativeBinding: 'def_node_use', status: 'implemented', workspaceScope: 'current-checkout' },
   { id: 'def.node.crud.restore', family: DEF_TOOL_FAMILY.NODE_CRUD, source: 'def-native', status: 'planned', workspaceScope: 'current-checkout' },
-  { id: 'def.data.resource.operator', family: DEF_TOOL_FAMILY.DATA_RESOURCE, source: 'def-native', status: 'planned', workspaceScope: 'data-resource' },
-  { id: 'def.data.resource.weapon', family: DEF_TOOL_FAMILY.DATA_RESOURCE, source: 'def-native', status: 'planned', workspaceScope: 'data-resource' },
-  { id: 'def.data.resource.equipment', family: DEF_TOOL_FAMILY.DATA_RESOURCE, source: 'def-native', status: 'planned', workspaceScope: 'data-resource' },
-  { id: 'def.data.resource.skill', family: DEF_TOOL_FAMILY.DATA_RESOURCE, source: 'def-native', status: 'planned', workspaceScope: 'data-resource' },
-  { id: 'def.data.resource.buff', family: DEF_TOOL_FAMILY.DATA_RESOURCE, source: 'def-native', status: 'planned', workspaceScope: 'data-resource' },
-  { id: 'def.data.resource.damage', family: DEF_TOOL_FAMILY.DATA_RESOURCE, source: 'def-native', status: 'planned', workspaceScope: 'data-resource' },
+  { id: 'def.data.resource.operator', family: DEF_TOOL_FAMILY.DATA_RESOURCE, source: 'def-native', nativeBinding: 'def_data_operator', status: 'implemented', workspaceScope: 'data-resource' },
+  { id: 'def.data.resource.weapon', family: DEF_TOOL_FAMILY.DATA_RESOURCE, source: 'def-native', nativeBinding: 'def_data_weapon', status: 'implemented', workspaceScope: 'data-resource' },
+  { id: 'def.data.resource.equipment', family: DEF_TOOL_FAMILY.DATA_RESOURCE, source: 'def-native', nativeBinding: 'def_data_equipment', status: 'implemented', workspaceScope: 'data-resource' },
+  { id: 'def.data.resource.skill', family: DEF_TOOL_FAMILY.DATA_RESOURCE, source: 'def-native', nativeBinding: 'def_data_skill', status: 'implemented', workspaceScope: 'data-resource' },
+  { id: 'def.data.resource.buff', family: DEF_TOOL_FAMILY.DATA_RESOURCE, source: 'def-native', nativeBinding: 'def_data_buff', status: 'implemented', workspaceScope: 'data-resource' },
+  { id: 'def.data.resource.damage', family: DEF_TOOL_FAMILY.DATA_RESOURCE, source: 'def-native', nativeBinding: 'def_data_damage', status: 'implemented', workspaceScope: 'data-resource' },
 ]);
 
 function familyFor(id) {

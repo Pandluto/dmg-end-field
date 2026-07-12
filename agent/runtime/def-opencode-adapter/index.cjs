@@ -26,9 +26,9 @@ const defaultDefOpenCodeHome = path.join(projectRoot, '.runtime', 'def-opencode'
 const DEF_TRANSCRIPT_SCHEMA_VERSION = 1;
 
 const capabilityPolicy = {
-  name: 'def-runtime-minimal-v1',
+  name: 'def-runtime-native-tools-v2',
   workspace: agentWorkspaceDir,
-  allowed: ['model-chat', 'structured-output', 'skill', 'webfetch:def-rest', 'script-workbench:def-json'],
+  allowed: ['model-chat', 'structured-output', 'skill', 'def-node-code', 'def-node-crud', 'def-data-resource'],
   denied: [
     'bash',
     'edit',
@@ -44,7 +44,7 @@ const capabilityPolicy = {
     'plan_enter',
     'plan_exit',
   ],
-  webfetchAllow: ['http://127.0.0.1:17321/*'],
+  webfetchAllow: [],
 };
 
 const skillMap = {
@@ -147,12 +147,8 @@ function deepSeekReasoningEffort(value) {
   return 'high';
 }
 
-function buildCapabilityPermission(webfetchAllow = ['http://127.0.0.1:17321/*'], options = {}) {
+function buildCapabilityPermission(_webfetchAllow = [], options = {}) {
   const nodeCode = options.nodeCode === true;
-  const webfetch = { '*': 'deny' };
-  for (const pattern of webfetchAllow) {
-    webfetch[pattern] = 'allow';
-  }
   return {
     bash: 'deny',
     edit: nodeCode ? 'allow' : 'deny',
@@ -170,23 +166,13 @@ function buildCapabilityPermission(webfetchAllow = ['http://127.0.0.1:17321/*'],
     skill: 'allow',
     'def_*': 'allow',
     def_node_use: 'ask',
-    webfetch,
+    webfetch: 'deny',
   };
 }
 
 function buildAgentPermission(skillId) {
   if (skillId === 'workbench') {
-    return buildCapabilityPermission([
-      'http://127.0.0.1:17321/api/main-workbench/snapshot',
-      'http://127.0.0.1:17321/api/main-workbench/commands',
-      'http://127.0.0.1:17321/api/main-workbench/commands?*',
-      'http://127.0.0.1:17321/api/main-workbench/commands/enqueue',
-      'http://127.0.0.1:17321/api/def-tools',
-      'http://127.0.0.1:17321/api/def-tools/*',
-      'http://127.0.0.1:17321/api/def-tools?*',
-      'http://127.0.0.1:17321/api/def-tools/describe?*',
-      'http://127.0.0.1:17321/api/def-tools/call',
-    ], { nodeCode: true });
+    return buildCapabilityPermission([], { nodeCode: true });
   }
   return buildCapabilityPermission();
 }
@@ -246,103 +232,20 @@ function buildAgentPrompt(skillId) {
   return [
     'You are the embedded OpenCode agent inside DEF Shell.',
     'Reply in Chinese by default. Use another language only when the user explicitly asks for it or quotes text that must remain unchanged.',
-    'The user is a shallow AI user. Keep replies practical, short, and action-oriented.',
+    'Keep replies practical, short, and action-oriented.',
     'Do not expose API keys, hidden configuration, or internal protocol noise.',
-    'Do not describe OpenCode, sessions, events, adapters, providers, or runtime details unless the user explicitly asks.',
-    'You are a DEF business assistant, not a coding agent. Do not modify project code, run shell commands, run git commands, scan arbitrary directories, or write project files.',
-    'Do not use task/subagents, shell, git, direct file read/write/edit/patch, grep, glob, lsp, web search, or unrestricted external network access.',
-    'Complete the work in the current agent with normal model reasoning, the DEF skill tool, allowed DEF REST access, and the optional DEF JSON script workbench only.',
-    'For normal chat, answer in 1-4 short paragraphs. For data-entry work, prefer compact checklists and the smallest useful next step.',
-    'When the task lacks required information, ask for the smallest missing input or explain the safe next action.',
-    'Do not write application storage directly. Produce proposals or instructions unless a DEF tool explicitly handles the write.',
-    '',
-    '## DEF REST API',
-    'All business data access goes through the local REST API. Use the webfetch tool to call these endpoints.',
-    'Base URL: http://127.0.0.1:17321',
-    'For write endpoints, call webfetch with method: "POST", format: "text", and a JSON body object.',
-    '',
-    '### Read endpoints (use any time)',
-    '- GET /api/agent/guide - system overview, safety rules, storage keys, recommended flow',
-    '- GET /api/ai-cli/spec - full endpoint list, command reference, schemas, examples',
-    '- GET /api/agent/skills - skill definitions with procedures and hard rules',
-    '- GET /api/buff/library - all Buff entries (object-map format)',
-    '- GET /api/buff/library/<id> - single Buff entry',
-    '- GET /api/buff/current - current editor Buff draft',
-    '- GET /api/buff/fill/template - BuffFillAiDraft schema and template',
-    '- GET /api/weapon/library - all Weapon entries',
-    '- GET /api/weapon/library/<id-or-name> - single Weapon entry',
-    '- GET /api/weapon/current - current Weapon draft',
-    '- GET /api/weapon/fill/template - WeaponFillAiDraft schema',
-    '- GET /api/operator/library - all Operator entries',
-    '- GET /api/operator/library/<id-or-name> - single Operator entry',
-    '- GET /api/operator/current - current Operator draft',
-    '- GET /api/operator/fill/template - OperatorFillAiDraft schema',
-    '- GET /api/equipment/library - all Equipment entries',
-    '- GET /api/equipment/library/<id-or-name> - single Equipment entry',
-    '- GET /api/equipment/current - current Equipment draft',
-    '- GET /api/equipment/fill/template - EquipmentFillAiDraft schema',
-    '- GET /api/agent/sessions - active sessions',
-    '- GET /api/agent/logs - operation logs',
-    '- GET /api/agent/records - agent records snapshot',
-    '- GET /api/agent/scripts - list temporary DEF JSON helper scripts and constraints',
-    '- GET /api/agent/scripts/<name> - read one temporary helper script',
-    '- GET /api/main-workbench/snapshot - current main workbench mirror: selected operators, timeline buttons, selected buff ids, damage totals',
-    '- GET /api/main-workbench/commands?status=pending - queued main workbench commands waiting for the browser page to execute',
-    '',
-    '### Write endpoints (creates proposals only, never writes library directly)',
-    '- POST /api/buff/fill/check - validate Buff draft (body: { protocolVersion:1, requestId, draft })',
-    '- POST /api/buff/fill/apply - create Buff proposal (body: { protocolVersion:1, requestId, draft })',
-    '- POST /api/weapon/fill/check - validate Weapon draft',
-    '- POST /api/weapon/fill/apply - create Weapon proposal',
-    '- POST /api/operator/fill/check - validate Operator draft',
-    '- POST /api/operator/fill/apply - create Operator proposal',
-    '- POST /api/equipment/fill/check - validate Equipment draft',
-    '- POST /api/equipment/fill/apply - create Equipment proposal',
-    '- POST /api/ai-cli/run - execute CLI command (body: { protocolVersion:1, requestId, command, client })',
-    '- POST /api/agent/scripts/write - create or update one small temporary .js/.mjs helper script',
-    '- POST /api/agent/scripts/run - run a temporary helper script with JSON input and JSON/text stdout',
-    '- POST /api/agent/scripts/delete - delete a temporary helper script',
-    '- POST /api/main-workbench/commands/enqueue - enqueue declarative browser-executed main workbench commands',
-    '- POST /api/main-workbench/commands/result - browser result mirror for command completion',
-    '',
-    '### DEF JSON script workbench (optional)',
-    '- Use scripts only for repetitive JSON cleanup, comparison, batching, validation-error aggregation, or draft generation.',
-    '- Scripts live only under .runtime/def-agent/scripts and are managed through /api/agent/scripts/* endpoints.',
-    '- Scripts must accept JSON from stdin and print compact JSON or a short report to stdout.',
-    '- Do not use scripts to edit project code, read arbitrary project files, run git, run npm install, automate shell tasks, fetch external network data, or bypass proposal review.',
-    '- Script output is only evidence or a candidate draft. Always validate final drafts with fill.check before fill.apply.',
-    '',
-    '### Main workbench code-control commands',
-    '- Use /api/main-workbench/commands/enqueue when the user asks to control the main screen by code.',
-    '- Supported command op values: selectCharacters, openView, openWorkbenchPage, clearTimeline, setOperatorWeapon, setOperatorEquipment, addSkillButton, removeSkillButton, addBuff, removeBuff, setTargetResistance, saveTimelineSnapshot, restoreTimelineSnapshot, listTimelineSnapshots, refreshOperatorConfig, calculateDamage, refreshSnapshot.',
-    '- Commands are declarative JSON. Do not automate DOM clicks; the browser page maps commands to React services, localStorage/sessionStorage repositories, Buff service, and damage calculation.',
-    '- Strategy flow: selectCharacters -> setOperatorWeapon/setOperatorEquipment -> refreshOperatorConfig -> restoreTimelineSnapshot or clearTimeline/addSkillButton -> addBuff/setTargetResistance -> calculateDamage -> saveTimelineSnapshot.',
-    '- setOperatorEquipment can use gearSetName/gearSetId with fillSlots:true to equip four pieces, or slotKey plus equipmentName/equipmentId for one piece. Use entryLevel:3 for max equipment entries when appropriate.',
-    '- Before risky edits, enqueue saveTimelineSnapshot with a clear label so the user can roll back with restoreTimelineSnapshot.',
-    '- After enqueue, poll GET /api/main-workbench/snapshot and GET /api/main-workbench/commands for completion evidence.',
-    '- Example: {"command":{"op":"selectCharacters","characterIds":["operator-id"],"openCanvas":true},"source":"def-opencode"}.',
-    '',
-    '### Safety rules (must follow)',
-    '- fill.check only validates; fill.apply only creates a proposal. Neither writes the library.',
-    '- After fill.apply succeeds, tell the user to go to /ai-cli (Web CLI) to approve (Y) then save (Y).',
-    '- Never re-run fill.apply for the same proposal.',
-    '- proposal.approve / proposal.save / Y / N are FORBIDDEN via REST. They return 403.',
-    '- If a pending proposal blocks fill.apply (409), call proposal.clear via POST /api/ai-cli/run first.',
-    '- Read endpoints return object-map format; fill.check/apply expect array format. Always call /fill/template before constructing a draft.',
-    '- Always call /api/agent/guide first when unsure about a procedure.',
-    '- Do not invent modifier types, buff categories, or field values. Read the template/schema first.',
+    'Do not use webfetch, shell, task/subagents, git, or arbitrary project files.',
+    'Use the registered def_data_* tools for operator, weapon, equipment, skill, Buff, and damage resources.',
+    'Use native OpenCode permission prompts for approval. Never claim a write succeeded without tool evidence.',
+    'When required information is missing, ask for the smallest missing input. Never invent game data.',
     `Current DEF capability: ${info.label}.`,
-    `For this capability, use OpenCode's native skill tool to load "${info.skill}" when the user asks for data fill, search, audit, repair, or workflow guidance.`,
-    'If AKEDatabase historical examples are relevant, load "akedatabase-fill-tool" with the skill tool.',
+    `Load the native skill "${info.skill}" when its detailed workflow is needed.`,
   ].join('\n');
 }
 
-function buildOpenCodeConfig(config, skillId, thinkingEffort) {
+function buildOpenCodeConfig(config) {
   const deepseek = sanitizeDeepSeekConfig(config);
   const modelRef = `deepseek/${deepseek.model}`;
-  const requestOptions = skillId === 'workbench'
-    ? { thinking: { type: 'disabled' } }
-    : deepSeekRequestOptions(deepseek.model, thinkingEffort);
   const agents = {};
   for (const id of Object.keys(skillMap)) {
     const info = skillMap[id];
@@ -350,7 +253,9 @@ function buildOpenCodeConfig(config, skillId, thinkingEffort) {
       model: modelRef,
       mode: 'primary',
       prompt: buildAgentPrompt(id),
-      options: requestOptions,
+      options: id === 'workbench'
+        ? { thinking: { type: 'disabled' } }
+        : deepSeekRequestOptions(deepseek.model, 'high'),
       permission: buildAgentPermission(id),
       steps: id === 'workbench' ? 8 : 8,
     };
@@ -358,9 +263,9 @@ function buildOpenCodeConfig(config, skillId, thinkingEffort) {
 
   return {
     model: modelRef,
-    default_agent: (skillMap[skillId] || skillMap.operator).agent,
+    default_agent: skillMap.operator.agent,
     disabled_providers: ['opencode'],
-    permission: buildAgentPermission(skillId),
+    permission: buildCapabilityPermission(),
     skills: {
       paths: [skillsRoot],
     },
@@ -624,7 +529,7 @@ function waitForOpenCodeReady(child, timeoutMs = 30000) {
 }
 
 async function ensureOpenCodeServer(config, skillId, thinkingEffort) {
-  const openCodeConfig = buildOpenCodeConfig(config, skillId, thinkingEffort);
+  const openCodeConfig = buildOpenCodeConfig(config);
   const nextHash = hashConfig({ config: openCodeConfig, opencodeHome: getDefOpenCodeHome() });
   if (processRunning(opencodeProcess) && opencodeConfigHash === nextHash && opencodeReadyUrl) {
     return opencodeReadyUrl;

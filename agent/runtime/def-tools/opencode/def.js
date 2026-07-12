@@ -176,3 +176,64 @@ export const node_use = {
     }
   },
 }
+
+function dataResource(definition) {
+  return {
+    description: definition.description,
+    args: {
+      query: { type: 'string', description: 'Optional id, name, or search text.' },
+    },
+    async execute(args, context) {
+      context.metadata({ title: definition.title })
+      const input = typeof definition.input === 'function' ? definition.input(args) : args
+      const result = await callDefTool(definition.tool, input)
+      return {
+        title: definition.title,
+        output: JSON.stringify(result, null, 2),
+        metadata: { family: 'def-data-resource', legacyTool: definition.tool },
+      }
+    },
+  }
+}
+
+export const data_operator = dataResource({
+  title: 'DEF operator resource',
+  description: 'Resolve trusted DEF operator/character data by id, name, or query.',
+  tool: 'def.character.resolve',
+  input: ({ query }) => ({ query }),
+})
+
+export const data_weapon = dataResource({
+  title: 'DEF weapon resource',
+  description: 'Resolve trusted DEF weapon data by id, name, or query.',
+  tool: 'def.weapon.resolve',
+  input: ({ query }) => ({ query }),
+})
+
+export const data_equipment = dataResource({
+  title: 'DEF equipment resource',
+  description: 'Resolve trusted DEF equipment and gear-set data by id, name, or query.',
+  tool: 'def.equipment.resolve',
+  input: ({ query }) => ({ query }),
+})
+
+export const data_skill = dataResource({
+  title: 'DEF skill resource',
+  description: 'Resolve trusted DEF skill data by id, name, or query.',
+  tool: 'def.skill.resolve',
+  input: ({ query }) => ({ query }),
+})
+
+export const data_buff = dataResource({
+  title: 'DEF Buff resource',
+  description: 'Resolve trusted DEF Buff candidates by id, name, or query.',
+  tool: 'def.buff.resolve',
+  input: ({ query }) => ({ query }),
+})
+
+export const data_damage = dataResource({
+  title: 'DEF damage resource',
+  description: 'Read the trusted current DEF damage report.',
+  tool: 'def.workbench.damage_report',
+  input: () => ({}),
+})

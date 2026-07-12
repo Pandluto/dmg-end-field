@@ -31,3 +31,4 @@ data/operator/*
 data/research/*
 nul
 agent/runtime/opencode-core/bin/**
+agent/runtime/opencode-ui/**

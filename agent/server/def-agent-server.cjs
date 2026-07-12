@@ -23,6 +23,7 @@ const PORT = Number(process.env.DEF_AGENT_PORT || 17322);
 const projectRoot = path.resolve(__dirname, '..', '..');
 const runtimeRoot = path.join(projectRoot, 'agent', 'runtime');
 const defRuntimeRoot = path.join(runtimeRoot, 'def');
+const openCodeUiRoot = path.join(runtimeRoot, 'opencode-ui');
 const configPath = path.join(projectRoot, '.runtime', 'def-agent', 'config.json');
 const startedAt = Date.now();
 
@@ -139,6 +140,56 @@ function healthPayload() {
     },
     skills: listSkills(),
   };
+}
+
+const staticMimeTypes = {
+  '.css': 'text/css; charset=utf-8',
+  '.html': 'text/html; charset=utf-8',
+  '.ico': 'image/x-icon',
+  '.js': 'text/javascript; charset=utf-8',
+  '.json': 'application/json; charset=utf-8',
+  '.png': 'image/png',
+  '.svg': 'image/svg+xml',
+  '.wasm': 'application/wasm',
+  '.webmanifest': 'application/manifest+json; charset=utf-8',
+  '.woff2': 'font/woff2',
+};
+
+function injectOpenCodeRuntime(indexHtml) {
+  const serverUrl = runtimeSummary(readConfig().deepseek).serverUrl;
+  const preload = `<script>localStorage.setItem("opencode.settings.dat:defaultServerUrl",${JSON.stringify(serverUrl)});</script>`;
+  return indexHtml.replace('</head>', `${preload}</head>`);
+}
+
+function serveOpenCodeUi(request, response, pathname) {
+  if (!['GET', 'HEAD'].includes(request.method || 'GET')) return false;
+  if (!fs.existsSync(path.join(openCodeUiRoot, 'index.html'))) return false;
+
+  let requestedPath;
+  try {
+    requestedPath = decodeURIComponent(pathname);
+  } catch {
+    return false;
+  }
+  const relativePath = requestedPath === '/' ? 'index.html' : requestedPath.replace(/^\/+/, '');
+  const resolved = path.resolve(openCodeUiRoot, relativePath);
+  const insideRoot = resolved === openCodeUiRoot || resolved.startsWith(`${openCodeUiRoot}${path.sep}`);
+  const assetPath = insideRoot && fs.existsSync(resolved) && fs.statSync(resolved).isFile()
+    ? resolved
+    : path.join(openCodeUiRoot, 'index.html');
+  const extension = path.extname(assetPath).toLowerCase();
+  const isIndex = assetPath === path.join(openCodeUiRoot, 'index.html');
+  let body = fs.readFileSync(assetPath);
+  if (isIndex) body = Buffer.from(injectOpenCodeRuntime(body.toString('utf8')));
+  response.writeHead(200, {
+    'Content-Type': staticMimeTypes[extension] || 'application/octet-stream',
+    'Content-Length': body.length,
+    'Cache-Control': isIndex ? 'no-store' : 'public, max-age=31536000, immutable',
+    'Access-Control-Allow-Origin': '*',
+    'Content-Security-Policy': "frame-ancestors 'self' http://127.0.0.1:3030",
+  });
+  response.end(request.method === 'HEAD' ? undefined : body);
+  return true;
 }
 
 const server = http.createServer(async (request, response) => {
@@ -325,6 +376,8 @@ const server = http.createServer(async (request, response) => {
       });
       return;
     }
+
+    if (serveOpenCodeUi(request, response, requestUrl.pathname)) return;
 
     writeJson(response, 404, {
       ok: false,
