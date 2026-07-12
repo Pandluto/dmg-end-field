@@ -11,6 +11,10 @@ Use this skill only for the Workbench host. The user may call the task 排轴、
 
 Call `def_workbench_context` before reasoning about the visible canvas. It provides the bounded host attachment and the current checkout snapshot. Do not infer the current timeline from old transcript text.
 
+`@N-L` always means `nodeIndex=N-1` and `lineIndex=L-1`. Before editing a coordinate or claiming it is empty, call `def_workbench_buttons` with both exact indices. If no candidate is returned, report the coordinate as empty; never reinterpret it as an ordinal or select another button.
+
+For questions about which skill has the most Buffs, call `def_workbench_buff_ranking` for the named character and report its first result. Do not count Buffs manually or restrict the answer to an inferred visible range.
+
 ## Read-only requests
 
 Answer from the live context and trusted `def_data_*` resources. Do not fork a node for a read-only question.

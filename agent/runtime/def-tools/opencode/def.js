@@ -311,6 +311,41 @@ export const workbench_context = {
   },
 }
 
+export const workbench_buttons = {
+  description: 'Read current-checkout buttons using exact coordinates. @N-L always means nodeIndex=N-1 and lineIndex=L-1; use this before resolving a button for deletion or edit.',
+  args: {
+    characterName: { type: 'string', description: 'Optional character name.' },
+    skillName: { type: 'string', description: 'Optional skill display name.' },
+    nodeIndex: { type: 'number', description: 'Zero-based timeline node index.' },
+    lineIndex: { type: 'number', description: 'Zero-based timeline line index.' },
+  },
+  async execute(args, context) {
+    context.metadata({ title: 'Find DEF timeline buttons' })
+    const result = await callDefTool('def.workbench.find_buttons', args)
+    return {
+      title: 'DEF timeline button candidates',
+      output: JSON.stringify(result, null, 2),
+      metadata: { family: 'def-node-crud', count: result.count, snapshotUpdatedAt: result.snapshotUpdatedAt },
+    }
+  },
+}
+
+export const workbench_buff_ranking = {
+  description: 'Rank current-checkout buttons for one character by selected Buff count. Use this for questions about which skill has the most Buffs; do not count Buffs manually.',
+  args: {
+    characterName: { type: 'string', description: 'Character name to rank. Required for character-specific questions.' },
+  },
+  async execute(args, context) {
+    context.metadata({ title: 'Rank DEF timeline button Buffs' })
+    const result = await callDefTool('def.workbench.rank_buttons_by_buff', args)
+    return {
+      title: 'DEF timeline Buff ranking',
+      output: JSON.stringify(result, null, 2),
+      metadata: { family: 'def-node-crud', count: result.count, snapshotUpdatedAt: result.snapshotUpdatedAt },
+    }
+  },
+}
+
 export const node_bind = {
   description: 'Bind an existing DEF Work Node to this isolated OpenCode session and materialize its editable payload files.',
   args: {

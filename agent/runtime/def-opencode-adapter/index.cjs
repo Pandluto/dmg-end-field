@@ -248,6 +248,8 @@ function buildAgentPrompt(skillId) {
       '## Node-first execution',
       '- You can arrange and edit the DEF timeline. 排轴、调轴、改顺序、改格位、添加/删除/复制技能和组合 Buff are core Workbench responsibilities.',
       '- Call def_workbench_context before answering about the current canvas or deciding what to edit.',
+      '- @N-L is immutable coordinate notation: nodeIndex=N-1 and lineIndex=L-1. Before editing or saying that a coordinate is empty, call def_workbench_buttons with both exact indices. If it returns no candidate, report that it is empty; never reinterpret it as an ordinal or choose another button.',
+      '- For “which skill has the most Buffs”, call def_workbench_buff_ranking with the character name and report its first result. Never manually count, mix drafts with checkout, or infer a visible-range cutoff.',
       '- Mutations happen in a copied child Work Node, never directly in the parent node or current checkout.',
       '- If this session has no bound node, call def_node_fork. Before calling it, compose a 2-48 character Chinese change name and an 8-240 character one-sentence scope description. Both are required; never use ids, timestamps, or generic names. To continue an existing node, call def_node_bind.',
       '- An unambiguous mutation request authorizes creating and editing the isolated child-node draft immediately. Never ask whether to fork or preview. 先看看 means complete rebuild/validation/diff, then stop before approval/use.',

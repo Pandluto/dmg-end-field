@@ -327,7 +327,7 @@ function normalizeWorkNodeButton(button) {
   };
   return {
     ...item,
-    label: `${item.characterName}-${item.skillDisplayName || item.skillType}@${item.staffIndex + 1}-${(item.nodeIndex ?? 0) + 1}`,
+    label: `${item.characterName}-${item.skillDisplayName || item.skillType}@${(item.nodeIndex ?? 0) + 1}-${(item.lineIndex ?? item.staffIndex ?? 0) + 1}`,
   };
 }
 
@@ -472,7 +472,7 @@ function buildDefWorkNodeButtonTargets(payload) {
     .filter(isObject)
     .map((button) => ({
       buttonId: button.id,
-      label: `${button.characterName}-${button.skillDisplayName || button.skillType}@${(button.staffIndex ?? 0) + 1}-${(button.nodeIndex ?? 0) + 1}`,
+      label: `${button.characterName}-${button.skillDisplayName || button.skillType}@${(button.nodeIndex ?? 0) + 1}-${(button.lineIndex ?? button.staffIndex ?? 0) + 1}`,
       characterName: button.characterName,
       skillType: button.skillType,
       skillDisplayName: button.skillDisplayName,
@@ -1772,7 +1772,7 @@ function parseDefButtonNaturalQuery(text) {
 }
 
 function formatDefButtonLabel(button) {
-  return `${button?.characterName || '未知'}-${button?.skillDisplayName || button?.skillType || '技能'}@${(button?.staffIndex || 0) + 1}-${(button?.nodeIndex ?? 0) + 1}`;
+  return `${button?.characterName || '未知'}-${button?.skillDisplayName || button?.skillType || '技能'}@${(button?.nodeIndex ?? 0) + 1}-${(button?.lineIndex ?? button?.staffIndex ?? 0) + 1}`;
 }
 
 function compactDefButton(button) {
@@ -1900,6 +1900,7 @@ function listDefWorkbenchButtons(input = {}) {
   const skillName = normalizeDefToolText(input.skillName || input.skillDisplayName || '');
   const query = parsedQuery.hasStructuredIntent ? '' : normalizeDefToolText(rawQuery);
   const staffIndex = Number.isInteger(input.staffIndex) ? input.staffIndex : parsedQuery.staffIndex;
+  const lineIndex = Number.isInteger(input.lineIndex) ? input.lineIndex : null;
   const nodeIndex = Number.isInteger(input.nodeIndex) ? input.nodeIndex : null;
   const ordinal = Number.isInteger(input.ordinal) && input.ordinal > 0 ? input.ordinal : parsedQuery.ordinal;
   if (buttonId) {
@@ -1928,6 +1929,9 @@ function listDefWorkbenchButtons(input = {}) {
   }
   if (staffIndex !== null) {
     buttons = buttons.filter((button) => button.staffIndex === staffIndex);
+  }
+  if (lineIndex !== null) {
+    buttons = buttons.filter((button) => button.lineIndex === lineIndex);
   }
   if (nodeIndex !== null) {
     buttons = buttons.filter((button) => button.nodeIndex === nodeIndex);
@@ -2922,6 +2926,27 @@ function applyDefWorkNodePatchAndValidate(input = {}) {
   };
 }
 
+function rankDefWorkbenchButtonsByBuff(input = {}) {
+  const listed = listDefWorkbenchButtons({
+    characterName: input.characterName || input.character || '',
+    skillName: input.skillName || input.skillDisplayName || '',
+    limit: 200,
+  });
+  const buttons = [...listed.buttons]
+    .sort((left, right) => (
+      right.buffCount - left.buffCount
+      || (left.nodeIndex ?? Number.MAX_SAFE_INTEGER) - (right.nodeIndex ?? Number.MAX_SAFE_INTEGER)
+      || left.label.localeCompare(right.label)
+    ))
+    .map((button, index) => ({ rank: index + 1, ...button }));
+  return {
+    snapshotUpdatedAt: listed.snapshotUpdatedAt,
+    characterName: input.characterName || input.character || '',
+    count: buttons.length,
+    buttons,
+  };
+}
+
 function syncDefWorkNodeWorkspace(input = {}) {
   const nodeId = typeof input.nodeId === 'string' ? input.nodeId.trim() : '';
   const node = nodeId ? readRepositoryWorkNode(nodeId) : null;
@@ -3412,6 +3437,18 @@ function buildDefToolDefinitions() {
       snapshotWaitMs: { type: 'number', description: 'Optional extra wait for the mirrored damage report.' },
     },
   };
+  const buttonLookupSchema = {
+    type: 'object',
+    properties: {
+      buttonId: { type: 'string' },
+      characterName: { type: 'string' },
+      skillName: { type: 'string' },
+      skillType: { type: 'string' },
+      nodeIndex: { type: 'integer', minimum: 0, maximum: 14, description: 'Zero-based node coordinate. In @N-L notation, N maps to nodeIndex=N-1.' },
+      lineIndex: { type: 'integer', minimum: 0, description: 'Zero-based line coordinate. In @N-L notation, L maps to lineIndex=L-1.' },
+      limit: { type: 'integer', minimum: 1, maximum: 200 },
+    },
+  };
   const addSkillButtonSchema = {
     type: 'object',
     additionalProperties: false,
@@ -3448,6 +3485,8 @@ function buildDefToolDefinitions() {
     ...tool,
     inputSchema: tool.name === 'def.workbench.add_skill_button' || tool.name === 'def.workbench.add_skill_button_and_verify'
       ? addSkillButtonSchema
+      : tool.name === 'def.workbench.find_buttons' || tool.name === 'def.workbench.rank_buttons_by_buff'
+        ? buttonLookupSchema
       : tool.name === 'def.worknode.copy_staff_line_and_verify'
       ? copyStaffLineSchema
       : tool.name === 'def.buff.add_to_buttons'
@@ -4419,6 +4458,8 @@ async function executeDefTool(name, input = {}, query = new URLSearchParams()) {
     });
   } else if (name === 'def.workbench.list_buttons' || name === 'def.workbench.find_buttons') {
     result = listDefWorkbenchButtons(input);
+  } else if (name === 'def.workbench.rank_buttons_by_buff') {
+    result = rankDefWorkbenchButtonsByBuff(input);
   } else if (name === 'def.workbench.list_characters') {
     result = listDefWorkbenchCharacters();
   } else if (name === 'def.workbench.damage_report') {
