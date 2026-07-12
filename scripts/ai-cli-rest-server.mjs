@@ -927,6 +927,7 @@ function createDefWorkNodeFromPayload(payloadSource, input = {}) {
     createdAt: now,
     updatedAt: now,
     contentRevision: now,
+    description: normalizeWorkNodeDescription(input.description),
     label: aiWorkNodeLabel(input.label, `Main Workbench ${new Date(now).toLocaleString()}`),
     status: 'open',
     basePayload: cloneJson(payloadSource.payload),
@@ -973,10 +974,15 @@ function readDefWorkbenchAxisContext(input = {}) {
     parentNodeId: node.parentNodeId || null,
     branchId: node.branchId,
     label: node.label,
+    description: node.description || '',
     status: node.status,
     updatedAt: node.updatedAt,
   }));
   return { binding: null, document, checkout, nodes };
+}
+
+function normalizeWorkNodeDescription(value) {
+  return typeof value === 'string' ? value.trim().slice(0, 240) : '';
 }
 
 function aiWorkNodeLabel(value, fallback) {
@@ -3772,8 +3778,13 @@ async function executeDefWorkNodeApplyAndVerify(name, input = {}, restore = fals
     expected: expectedStaffCounts,
     actual: actualStaffCounts,
   };
+  const checkoutRef = getTimelineRepository().getCheckoutRef(node.timelineId || node.saveId || 'current-main-workbench');
+  const checkoutVerification = {
+    pass: checkoutRef?.targetType === 'work-node' && checkoutRef.targetId === nodeId,
+    actual: checkoutRef || null,
+  };
   return {
-    ok: commandVerification.pass && snapshotVerification.pass && staffIndexVerification.pass,
+    ok: commandVerification.pass && checkoutVerification.pass,
     currentCheckoutTouched: commandVerification.pass,
     nodeId,
     mode: restore ? 'restore_base' : 'checkout',
@@ -3784,9 +3795,10 @@ async function executeDefWorkNodeApplyAndVerify(name, input = {}, restore = fals
     expectedSummary,
     snapshotVerification,
     staffIndexVerification,
+    checkoutVerification,
     reload: commandInput.reload,
     note: commandVerification.pass
-      ? 'Command reached terminal success state and snapshot was checked.'
+      ? 'Command reached terminal success state and the persisted checkout ref was checked.'
       : 'Command was not confirmed within waitMs; do not report applied as complete.',
   };
 }

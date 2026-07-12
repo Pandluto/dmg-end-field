@@ -263,11 +263,17 @@ export const node_code_discard = {
 export const node_fork = {
   description: 'Fork the current DEF Work Node/current checkout into an isolated child-node code workspace bound to this OpenCode session.',
   args: {
+    name: { type: 'string', description: 'Short phrase naming this change, for example "调整莱万汀燃烬顺序". Do not use ids or timestamps.' },
+    description: { type: 'string', description: 'Concise description of the intended timeline change and scope.' },
     approvalPolicy: { type: 'string', enum: ['auto-low-risk', 'ask-on-risk', 'manual'], description: 'Approval policy for using this child node.' },
   },
   async execute(args, context) {
     context.metadata({ title: 'Fork DEF child node' })
-    const created = await callDefTool('def.worknode.create_from_current', { approvalPolicy: args.approvalPolicy })
+    const created = await callDefTool('def.worknode.create_from_current', {
+      approvalPolicy: args.approvalPolicy,
+      label: args.name,
+      description: args.description,
+    })
     return {
       title: 'DEF child node ready',
       output: JSON.stringify(materialize(context, created.node), null, 2),

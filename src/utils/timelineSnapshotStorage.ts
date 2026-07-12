@@ -71,6 +71,7 @@ export interface TimelineBundleV2 {
   snapshots: Array<{ id: string; label: string; createdAt: number; payloadIndex: number }>;
   workNodes?: Array<{
     id: string; parentNodeId?: string; branchId: string; label: string; status: string; approvalPolicy: string;
+    description?: string;
     riskFlags: unknown[]; logs: unknown[]; createdAt: number; updatedAt: number;
     basePayloadIndex: number; workingPayloadIndex: number;
   }>;
@@ -314,6 +315,7 @@ export function buildTimelineShareFile(customLabel?: string): TimelineShareFile 
 
 type TimelineBundleWorkNodeInput = {
   id: string; parentNodeId?: string; branchId: string; label: string; status: string; approvalPolicy: string;
+  description?: string;
   riskFlags?: unknown[]; logs?: unknown[]; createdAt: number; updatedAt: number;
   basePayload: TimelineSnapshotPayload; workingPayload: TimelineSnapshotPayload;
 };
@@ -357,6 +359,7 @@ export async function buildTimelineBundleV2(input: {
   const workNodes = input.workNodes?.map((node) => ({
     id: node.id, ...(node.parentNodeId ? { parentNodeId: node.parentNodeId } : {}), branchId: node.branchId,
     label: portableText(node.label), status: node.status, approvalPolicy: node.approvalPolicy,
+    ...(node.description ? { description: portableText(node.description) } : {}),
     riskFlags: sanitizePortableValue(node.riskFlags || []) as unknown[], logs: sanitizePortableValue(node.logs || []) as unknown[], createdAt: node.createdAt, updatedAt: node.updatedAt,
     basePayloadIndex: addPayload(node.basePayload), workingPayloadIndex: addPayload(node.workingPayload),
   }));

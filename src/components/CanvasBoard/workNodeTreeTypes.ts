@@ -7,6 +7,7 @@ export type WorkNodeTreeNode = {
   parentNodeId?: string;
   source: WorkNodeTreeSource;
   title: string;
+  description: string;
   createdAt: number;
   updatedAt: number;
   status: WorkNodeTreeStatus;

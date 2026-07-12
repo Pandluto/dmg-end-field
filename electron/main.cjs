@@ -4980,6 +4980,7 @@ function createAiTimelineWorkNode(payload) {
     createdAt: now,
     updatedAt: now,
     label: aiTimelineWorkNodeLabel(payload.label, 'AI Timeline Work Node'),
+    description: typeof payload.description === 'string' ? payload.description.trim().slice(0, 240) : '',
     status: 'open',
     basePayload: cloneJsonValue(basePayload),
     workingPayload: cloneJsonValue(requestedWorkingPayload),
@@ -5016,16 +5017,21 @@ function updateAiTimelineWorkNode(id, payload = {}) {
     : (Array.isArray(node.riskFlags) ? node.riskFlags : []);
   const hasParentNodePatch = Object.prototype.hasOwnProperty.call(payload || {}, 'parentNodeId');
   const hasLabelPatch = Object.prototype.hasOwnProperty.call(payload || {}, 'label');
+  const hasDescriptionPatch = Object.prototype.hasOwnProperty.call(payload || {}, 'description');
   const label = hasLabelPatch && typeof payload.label === 'string' && payload.label.trim()
     ? payload.label.trim().slice(0, 120)
     : node.label;
   const parentNodeId = hasParentNodePatch && typeof payload.parentNodeId === 'string' && payload.parentNodeId.trim()
     ? sanitizeAiTimelineWorkNodeId(payload.parentNodeId, 'ai-timeline-node')
     : undefined;
+  const description = hasDescriptionPatch && typeof payload.description === 'string'
+    ? payload.description.trim().slice(0, 240)
+    : (node.description || '');
   const nextNode = {
     ...node,
     ...(hasParentNodePatch ? (parentNodeId ? { parentNodeId } : { parentNodeId: undefined }) : {}),
     label,
+    description,
     updatedAt: Date.now(),
     status: allowedStatuses.has(payload.status) ? payload.status : node.status,
     workingPayload: cloneJsonValue(workingPayload),
@@ -5036,6 +5042,7 @@ function updateAiTimelineWorkNode(id, payload = {}) {
         riskFlagCount: riskFlags.length,
         status: allowedStatuses.has(payload.status) ? payload.status : node.status,
         ...(hasLabelPatch ? { label } : {}),
+        ...(hasDescriptionPatch ? { description } : {}),
       }),
       ...(Array.isArray(node.logs) ? node.logs : []),
     ],

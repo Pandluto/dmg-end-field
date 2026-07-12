@@ -30,7 +30,7 @@ export function formatTimelineOperationError(error: unknown): string {
   return `${code ? `[${code}] ` : ''}${message}${action ? ` ${action}` : ''}`;
 }
 export type TimelineRepositoryWorkNode = {
-  id: string; parentNodeId?: string; timelineId: string; branchId: string; label: string; status: string;
+  id: string; parentNodeId?: string; timelineId: string; branchId: string; label: string; description: string; status: string;
   approvalPolicy: string; riskFlags: Array<{ severity: 'info' | 'warning' | 'blocker'; code: string; message: string }>; logs: Array<{ id: string; at: number; level: 'info' | 'warning' | 'error'; message: string }>;
   baseSummary: { characterCount: number; buttonCount: number; buffCount: number };
   workingSummary: { characterCount: number; buttonCount: number; buffCount: number };
@@ -126,7 +126,7 @@ export function createTimelineRepositoryClient() {
       document: Pick<TimelineDocument, 'id' | 'label'> & Partial<Pick<TimelineDocument, 'createdAt'>>;
       snapshots: Array<{ id: string; label: string; createdAt?: number; payload: TimelineSnapshotPayload }>;
       workNodes?: Array<{
-        id: string; parentNodeId?: string; branchId: string; label: string; status: string; approvalPolicy: string;
+        id: string; parentNodeId?: string; branchId: string; label: string; description?: string; status: string; approvalPolicy: string;
         riskFlags?: unknown[]; logs?: unknown[]; createdAt?: number; updatedAt?: number;
         basePayload: TimelineSnapshotPayload; workingPayload: TimelineSnapshotPayload;
       }>;

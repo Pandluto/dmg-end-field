@@ -72,6 +72,7 @@ export type AiTimelineWorkNode = {
   createdAt: number;
   updatedAt: number;
   label: string;
+  description: string;
   status: AiTimelineWorkNodeStatus;
   basePayload: TimelineSnapshotPayload;
   workingPayload: TimelineSnapshotPayload;

@@ -128,6 +128,7 @@ export type MainWorkbenchCommand =
       branchId?: string;
       parentNodeId?: string | null;
       label?: string;
+      description?: string;
       approvalPolicy?: 'auto-low-risk' | 'ask-on-risk' | 'manual';
     }
   | {
@@ -146,6 +147,7 @@ export type MainWorkbenchCommand =
       timelineId?: string;
       branchId?: string;
       label?: string;
+      description?: string;
       parentNodeId?: string | null;
       approvalPolicy?: 'auto-low-risk' | 'ask-on-risk' | 'manual';
       patch: TimelineWorkNodePatchOperation[];

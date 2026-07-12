@@ -98,14 +98,31 @@ export function WorkNodeTreeNode({
   const childCount = node.children.length;
   const [isRenaming, setIsRenaming] = useState(false);
   const [titleDraft, setTitleDraft] = useState(node.title);
+  const [showDetails, setShowDetails] = useState(false);
   const clickTimerRef = useRef<number | null>(null);
+  const hoverTimerRef = useRef<number | null>(null);
   const isActive = activeNodeId === node.nodeId;
   const isInActivePath = activePathNodeIds.has(node.nodeId);
   const canDelete = !isInActivePath;
   const pathClassName = isActive ? ' is-active' : isInActivePath ? ' is-path' : ' is-muted';
   useEffect(() => () => {
     if (clickTimerRef.current !== null) window.clearTimeout(clickTimerRef.current);
+    if (hoverTimerRef.current !== null) window.clearTimeout(hoverTimerRef.current);
   }, []);
+
+  const scheduleDetails = () => {
+    if (!node.parentNodeId || hoverTimerRef.current !== null) return;
+    hoverTimerRef.current = window.setTimeout(() => {
+      hoverTimerRef.current = null;
+      setShowDetails(true);
+    }, 550);
+  };
+
+  const hideDetails = () => {
+    if (hoverTimerRef.current !== null) window.clearTimeout(hoverTimerRef.current);
+    hoverTimerRef.current = null;
+    setShowDetails(false);
+  };
 
   const selectNode = () => {
     if (isRenaming) return;
@@ -138,6 +155,8 @@ export function WorkNodeTreeNode({
     <article
       className="work-node-tree-node-shell"
       style={{ left: x, top: y } as CSSProperties}
+      onPointerEnter={scheduleDetails}
+      onPointerLeave={hideDetails}
     >
         <div
           className={`work-node-tree-node is-${node.status}${pathClassName}`}
@@ -173,6 +192,12 @@ export function WorkNodeTreeNode({
             {node.riskFlags.length > 0 ? <span>{node.riskFlags.length} 风险</span> : null}
           </div>
         </div>
+        {showDetails ? (
+          <div className="work-node-tree-hover-card" role="tooltip">
+            <strong>{node.title}</strong>
+            <span>{node.description || '暂无描述'}</span>
+          </div>
+        ) : null}
         <div className="work-node-tree-actions" aria-label="节点操作">
           <button
             type="button"

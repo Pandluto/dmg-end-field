@@ -3,7 +3,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { DatabaseSync } = require('node:sqlite');
 
-const SCHEMA_VERSION = 1;
+const SCHEMA_VERSION = 2;
 const WORK_NODE_STATUSES = new Set(['draft', 'validated', 'blocked', 'applied', 'archived', 'open', 'ready', 'committed', 'abandoned']);
 const WORK_NODE_STATUS_TRANSITIONS = new Map([
   ['draft', new Set(['draft', 'validated', 'blocked', 'archived', 'abandoned'])],
@@ -104,6 +104,7 @@ function createTimelineRepository({ databasePath }) {
       working_payload_hash TEXT NOT NULL REFERENCES timeline_payload_blobs(content_hash) ON DELETE RESTRICT,
       branch_id TEXT NOT NULL,
       label TEXT NOT NULL,
+      description TEXT NOT NULL DEFAULT '',
       status TEXT NOT NULL,
       approval_policy TEXT NOT NULL,
       risk_flags TEXT NOT NULL,
@@ -174,6 +175,10 @@ function createTimelineRepository({ databasePath }) {
     CREATE INDEX IF NOT EXISTS timeline_session_axis_bindings_timeline_idx ON timeline_session_axis_bindings(timeline_id, updated_at DESC);
     CREATE INDEX IF NOT EXISTS timeline_audit_events_timeline_created_idx ON timeline_audit_events(timeline_id, created_at DESC);
   `);
+  const workNodeColumns = db.prepare('PRAGMA table_info(timeline_work_nodes)').all();
+  if (!workNodeColumns.some((column) => column.name === 'description')) {
+    db.exec("ALTER TABLE timeline_work_nodes ADD COLUMN description TEXT NOT NULL DEFAULT '';");
+  }
   db.prepare(`
     INSERT INTO timeline_schema_meta (key, value) VALUES ('schema_version', ?)
     ON CONFLICT(key) DO UPDATE SET value = excluded.value
@@ -273,6 +278,7 @@ function createTimelineRepository({ databasePath }) {
       timelineId: row.timeline_id,
       branchId: row.branch_id,
       label: row.label,
+      description: row.description || '',
       status: row.status,
       approvalPolicy: row.approval_policy,
       riskFlags: parse(row.risk_flags, []),
@@ -494,10 +500,10 @@ function createTimelineRepository({ databasePath }) {
         db.prepare(`
           INSERT INTO timeline_work_nodes (
             id, timeline_id, parent_id, base_payload_hash, working_payload_hash, branch_id, label,
-            status, approval_policy, risk_flags, logs, created_at, updated_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            description, status, approval_policy, risk_flags, logs, created_at, updated_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `).run(node.id, documentId, node.parentNodeId || null, basePayloadHash, workingPayloadHash,
-          node.branchId || node.id, node.label || node.id, normalizeWorkNodeStatus(node.status), node.approvalPolicy || 'auto-low-risk',
+          node.branchId || node.id, node.label || node.id, node.description || '', normalizeWorkNodeStatus(node.status), node.approvalPolicy || 'auto-low-risk',
           serialize(node.riskFlags), serialize(node.logs), createdAt, node.updatedAt || createdAt);
         insertedNodeIds.add(node.id);
       }
@@ -636,13 +642,14 @@ function createTimelineRepository({ databasePath }) {
       return row ? { timelineId: row.timeline_id, targetType: row.target_type, targetId: row.target_id, updatedAt: row.updated_at } : null;
     })();
     const nodes = db.prepare(`
-      SELECT id, parent_id, branch_id, label, status, updated_at
+      SELECT id, parent_id, branch_id, label, description, status, updated_at
       FROM timeline_work_nodes WHERE timeline_id = ? ORDER BY created_at ASC
     `).all(binding.timelineId).map((row) => ({
       id: row.id,
       parentNodeId: row.parent_id || null,
       branchId: row.branch_id,
       label: row.label,
+      description: row.description || '',
       status: row.status,
       updatedAt: row.updated_at,
     }));
@@ -779,21 +786,22 @@ function createTimelineRepository({ databasePath }) {
       db.prepare(`
         INSERT INTO timeline_work_nodes (
           id, timeline_id, parent_id, base_payload_hash, working_payload_hash, branch_id, label,
-          status, approval_policy, risk_flags, logs, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          description, status, approval_policy, risk_flags, logs, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET
           parent_id = excluded.parent_id,
           base_payload_hash = excluded.base_payload_hash,
           working_payload_hash = excluded.working_payload_hash,
           branch_id = excluded.branch_id,
           label = excluded.label,
+          description = excluded.description,
           status = excluded.status,
           approval_policy = excluded.approval_policy,
           risk_flags = excluded.risk_flags,
           logs = excluded.logs,
           updated_at = excluded.updated_at
       `).run(input.id, input.timelineId, input.parentNodeId || null, basePayloadHash, workingPayloadHash,
-        input.branchId || input.id, input.label || input.id, nextStatus, input.approvalPolicy || 'auto-low-risk',
+        input.branchId || input.id, input.label || input.id, input.description || '', nextStatus, input.approvalPolicy || 'auto-low-risk',
         serialize(input.riskFlags), serialize(input.logs), createdAt, input.updatedAt || createdAt);
       return { id: input.id, imported: db.prepare('SELECT 1 FROM timeline_work_nodes WHERE id = ?').get(input.id) != null };
     });

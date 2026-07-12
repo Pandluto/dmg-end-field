@@ -218,6 +218,7 @@ interface AiTimelineWorkNodeBridge {
   createdAt: number;
   updatedAt: number;
   label: string;
+  description: string;
   status: AiTimelineWorkNodeStatus;
   basePayload: unknown;
   workingPayload: unknown;

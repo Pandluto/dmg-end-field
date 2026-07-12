@@ -90,6 +90,7 @@ export function buildWorkNodeTreeViewModel(
       parentNodeId: rawNode.parentNodeId || undefined,
       source,
       title: buildNodeTitle(rawNode, source),
+      description: rawNode.description || '',
       createdAt: rawNode.createdAt,
       updatedAt: rawNode.updatedAt,
       status,

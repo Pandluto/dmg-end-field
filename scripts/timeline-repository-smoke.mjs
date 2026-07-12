@@ -46,9 +46,10 @@ repository.appendAuditEvent({
 });
 assert.deepEqual(repository.getSnapshot('snapshot-1')?.payload, payload);
 repository.importWorkNode({
-  id: 'node-1', timelineId: 'timeline-main', branchId: 'branch-1', label: 'Draft',
+  id: 'node-1', timelineId: 'timeline-main', branchId: 'branch-1', label: 'Draft', description: 'Move the opening skill to the third slot.',
   basePayload: payload, workingPayload: payload, createdAt: 6, updatedAt: 6,
 });
+assert.equal(repository.getWorkNode('node-1')?.description, 'Move the opening skill to the third slot.');
 const canonicalCommit = repository.importWorkNodeCommit({
   id: 'commit-1', nodeId: 'node-1', timelineId: 'timeline-main', branchId: 'branch-1', label: 'Commit',
   summary: { changedButtonCount: 0 }, basePayload: payload, appliedPayload: payload,

@@ -422,6 +422,7 @@ export function WorkNodeTreePanel({ timelineId, refreshKey, cameraResetKey = 0, 
       {selectedNode ? (
         <aside className="work-node-tree-detail" aria-label="Selected Work Node details">
           <strong>{selectedNode.label}</strong>
+          {selectedNode.description ? <span>说明：{selectedNode.description}</span> : null}
           <span>基线：{selectedNode.baseSummary?.characterCount ?? 0} 干员 / {selectedNode.baseSummary?.buttonCount ?? 0} 按钮 / {selectedNode.baseSummary?.buffCount ?? 0} Buff</span>
           <span>草稿：{selectedNode.workingSummary?.characterCount ?? 0} 干员 / {selectedNode.workingSummary?.buttonCount ?? 0} 按钮 / {selectedNode.workingSummary?.buffCount ?? 0} Buff</span>
           <span>状态：{selectedNode.status} · 策略：{selectedNode.approvalPolicy}</span>

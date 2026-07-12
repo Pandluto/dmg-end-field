@@ -84,6 +84,35 @@
   width: 34px;
 }
 
+.work-node-tree-hover-card {
+  position: absolute;
+  left: 0;
+  top: calc(100% + 8px);
+  z-index: 8;
+  width: 260px;
+  display: grid;
+  gap: 4px;
+  padding: 8px 10px;
+  border: 1px solid rgba(0, 0, 0, 0.28);
+  border-left: 3px solid var(--work-node-path-color);
+  background: rgba(255, 255, 255, 0.98);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.16);
+  color: var(--office-body);
+  font-size: 11px;
+  line-height: 1.45;
+  pointer-events: none;
+}
+
+.work-node-tree-hover-card strong {
+  color: var(--office-title);
+  font-size: 12px;
+}
+
+.work-node-tree-hover-card span {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 .work-node-tree-node {
   position: relative;
   width: 168px;
