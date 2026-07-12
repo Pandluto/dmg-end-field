@@ -663,6 +663,41 @@ function extractText(parts = []) {
     .trim();
 }
 
+async function ensureRuntime(config = {}) {
+  const deepseek = sanitizeDeepSeekConfig(config);
+  const serverUrl = await ensureOpenCodeServer(deepseek, 'operator', 'medium');
+  return { serverUrl, ...runtimeSummary(deepseek) };
+}
+
+function encodeDirectorySlug(directory) {
+  return Buffer.from(directory, 'utf8').toString('base64url');
+}
+
+async function createNativeHostSession({ config = {}, host = 'ai-cli', skillId, thinkingEffort = 'medium' } = {}) {
+  const resolvedSkillId = host === 'workbench'
+    ? 'workbench'
+    : skillMap[skillId] && skillId !== 'workbench'
+      ? skillId
+      : 'operator';
+  const selected = skillMap[resolvedSkillId] || skillMap.operator;
+  const deepseek = sanitizeDeepSeekConfig(config);
+  const directory = createAgentSessionWorkspace(resolvedSkillId);
+  const serverUrl = await ensureOpenCodeServer(deepseek, resolvedSkillId, thinkingEffort);
+  const query = `directory=${encodeURIComponent(directory)}`;
+  const payload = buildSessionCreatePayload({ selected, deepseek, skillId: resolvedSkillId, thinkingEffort });
+  const session = await requestJson('POST', `${serverUrl}/session?${query}`, payload, undefined, 15000);
+  return {
+    id: session.id,
+    sessionID: session.id,
+    host,
+    skillId: resolvedSkillId,
+    agent: selected.agent,
+    directory,
+    serverUrl,
+    uiPath: `/${encodeDirectorySlug(directory)}/session/${encodeURIComponent(session.id)}`,
+  };
+}
+
 function createAgentSessionWorkspace(skillId) {
   const root = getAgentWorkspaceDir();
   const host = skillId === 'workbench' ? 'workbench' : 'ai-cli';
@@ -1884,6 +1919,8 @@ module.exports = {
   sanitizeDeepSeekConfig,
   summarizeConfig,
   runtimeSummary,
+  ensureRuntime,
+  createNativeHostSession,
   runChat,
   runChatStream,
   continueChat,

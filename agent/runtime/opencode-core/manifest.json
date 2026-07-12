@@ -2,12 +2,12 @@
   "name": "opencode-core",
   "upstreamName": "opencode",
   "upstreamVersion": "1.17.11",
-  "runtimeTarget": "darwin-arm64",
-  "binary": "bin/darwin-arm64/opencode",
+  "runtimeTarget": "win32-x64",
+  "binary": "bin/win32-x64/opencode-1.17.11.exe",
   "source": "agent/vendor/opencode/packages/opencode",
   "buildCommand": "bun run --cwd agent/vendor/opencode/packages/opencode script/build.ts --single --skip-embed-web-ui --skip-install",
   "bunVersion": "1.3.14",
   "modelsSnapshot": ".runtime/opencode-build/models.dev.api.json",
-  "checksumSha256": "9a4f4d037eafeb20730be52506af1438f59529863fa28337e964b355e186b837",
-  "builtAt": "2026-07-04T13:41:29.853Z"
+  "checksumSha256": "33d4a7b4052092bc7c7c9cd7d941c72332d27bd556764d84c96ff92647e9f978",
+  "builtAt": "2026-07-12T04:53:21.342Z"
 }

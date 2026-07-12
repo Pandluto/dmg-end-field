@@ -16,6 +16,8 @@ const {
   sanitizeDeepSeekConfig,
   summarizeConfig,
   runtimeSummary,
+  ensureRuntime,
+  createNativeHostSession,
 } = require('../runtime/def-opencode-adapter/index.cjs');
 
 const HOST = '127.0.0.1';
@@ -155,12 +157,6 @@ const staticMimeTypes = {
   '.woff2': 'font/woff2',
 };
 
-function injectOpenCodeRuntime(indexHtml) {
-  const serverUrl = runtimeSummary(readConfig().deepseek).serverUrl;
-  const preload = `<script>localStorage.setItem("opencode.settings.dat:defaultServerUrl",${JSON.stringify(serverUrl)});</script>`;
-  return indexHtml.replace('</head>', `${preload}</head>`);
-}
-
 function serveOpenCodeUi(request, response, pathname) {
   if (!['GET', 'HEAD'].includes(request.method || 'GET')) return false;
   if (!fs.existsSync(path.join(openCodeUiRoot, 'index.html'))) return false;
@@ -174,13 +170,13 @@ function serveOpenCodeUi(request, response, pathname) {
   const relativePath = requestedPath === '/' ? 'index.html' : requestedPath.replace(/^\/+/, '');
   const resolved = path.resolve(openCodeUiRoot, relativePath);
   const insideRoot = resolved === openCodeUiRoot || resolved.startsWith(`${openCodeUiRoot}${path.sep}`);
-  const assetPath = insideRoot && fs.existsSync(resolved) && fs.statSync(resolved).isFile()
-    ? resolved
-    : path.join(openCodeUiRoot, 'index.html');
+  const hasAsset = insideRoot && fs.existsSync(resolved) && fs.statSync(resolved).isFile();
+  const acceptsHtml = String(request.headers.accept || '').includes('text/html');
+  if (!hasAsset && !acceptsHtml) return false;
+  const assetPath = hasAsset ? resolved : path.join(openCodeUiRoot, 'index.html');
   const extension = path.extname(assetPath).toLowerCase();
   const isIndex = assetPath === path.join(openCodeUiRoot, 'index.html');
-  let body = fs.readFileSync(assetPath);
-  if (isIndex) body = Buffer.from(injectOpenCodeRuntime(body.toString('utf8')));
+  const body = fs.readFileSync(assetPath);
   response.writeHead(200, {
     'Content-Type': staticMimeTypes[extension] || 'application/octet-stream',
     'Content-Length': body.length,
@@ -190,6 +186,33 @@ function serveOpenCodeUi(request, response, pathname) {
   });
   response.end(request.method === 'HEAD' ? undefined : body);
   return true;
+}
+
+function proxyOpenCodeRequest(request, response) {
+  const runtime = runtimeSummary(readConfig().deepseek);
+  if (!runtime.running || !runtime.serverUrl) return Promise.resolve(false);
+  const target = new URL(request.url || '/', runtime.serverUrl);
+  return new Promise((resolve, reject) => {
+    const upstream = http.request({
+      hostname: target.hostname,
+      port: target.port,
+      path: `${target.pathname}${target.search}`,
+      method: request.method,
+      headers: {
+        ...request.headers,
+        host: target.host,
+      },
+    }, (upstreamResponse) => {
+      response.writeHead(upstreamResponse.statusCode || 502, {
+        ...upstreamResponse.headers,
+        'access-control-allow-origin': '*',
+      });
+      upstreamResponse.pipe(response);
+      upstreamResponse.on('end', () => resolve(true));
+    });
+    upstream.on('error', reject);
+    request.pipe(upstream);
+  });
 }
 
 const server = http.createServer(async (request, response) => {
@@ -205,6 +228,27 @@ const server = http.createServer(async (request, response) => {
   try {
     if (method === 'GET' && requestUrl.pathname === '/health') {
       writeJson(response, 200, healthPayload());
+      return;
+    }
+
+    if (method === 'POST' && requestUrl.pathname === '/api/runtime/ensure') {
+      writeJson(response, 200, {
+        ok: true,
+        runtime: await ensureRuntime(readConfig().deepseek),
+      });
+      return;
+    }
+
+    if (method === 'POST' && requestUrl.pathname === '/api/native/session') {
+      const body = await readJsonBody(request);
+      const host = body.host === 'workbench' ? 'workbench' : 'ai-cli';
+      const session = await createNativeHostSession({
+        config: readConfig().deepseek,
+        host,
+        skillId: typeof body.skillId === 'string' ? body.skillId : undefined,
+        thinkingEffort: body.thinkingEffort,
+      });
+      writeJson(response, 200, { ok: true, session });
       return;
     }
 
@@ -378,6 +422,7 @@ const server = http.createServer(async (request, response) => {
     }
 
     if (serveOpenCodeUi(request, response, requestUrl.pathname)) return;
+    if (await proxyOpenCodeRequest(request, response)) return;
 
     writeJson(response, 404, {
       ok: false,

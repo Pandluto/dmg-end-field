@@ -103,7 +103,12 @@ async function rmWithRetry(targetPath) {
 }
 
 function findBun() {
-  for (const command of ['bun', 'bun.exe']) {
+  const homeBun = process.platform === 'win32' && process.env.USERPROFILE
+    ? path.join(process.env.USERPROFILE, '.bun', 'bin', 'bun.exe')
+    : process.env.HOME
+      ? path.join(process.env.HOME, '.bun', 'bin', 'bun')
+      : '';
+  for (const command of ['bun', 'bun.exe', homeBun].filter(Boolean)) {
     const result = spawnSync(command, ['--version'], {
       encoding: 'utf-8',
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -173,12 +178,14 @@ if (!builtBinary) {
 
 fs.mkdirSync(runtimeRoot, { recursive: true });
 ensureInside(runtimeRoot, runtimeBinRoot);
-await rmWithRetry(runtimeBinRoot);
-
 const targetDir = path.join(runtimeBinRoot, runtimeTarget);
-const targetBinary = path.join(targetDir, binaryName);
+const versionedBinaryName = process.platform === 'win32'
+  ? `opencode-${upstreamVersion}.exe`
+  : `opencode-${upstreamVersion}`;
+const targetBinary = path.join(targetDir, versionedBinaryName);
 ensureInside(runtimeRoot, targetBinary);
 fs.mkdirSync(targetDir, { recursive: true });
+await rmWithRetry(targetBinary);
 fs.copyFileSync(builtBinary, targetBinary);
 if (process.platform !== 'win32') {
   fs.chmodSync(targetBinary, 0o755);

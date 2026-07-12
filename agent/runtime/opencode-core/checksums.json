@@ -1,9 +1,9 @@
 {
-  "generatedAt": "2026-07-04T13:41:29.853Z",
+  "generatedAt": "2026-07-12T04:53:21.342Z",
   "files": {
-    "bin/darwin-arm64/opencode": {
-      "sha256": "9a4f4d037eafeb20730be52506af1438f59529863fa28337e964b355e186b837",
-      "bytes": 99275746
+    "bin/win32-x64/opencode-1.17.11.exe": {
+      "sha256": "33d4a7b4052092bc7c7c9cd7d941c72332d27bd556764d84c96ff92647e9f978",
+      "bytes": 138071040
     }
   }
 }
