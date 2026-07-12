@@ -357,7 +357,14 @@ async function proxyOpenCodeRequest(request, response) {
     binding = readNativeSessionBinding(directory, sessionID);
     if (binding) {
       const incoming = await readJsonBody(request);
-      rewrittenBody = Buffer.from(JSON.stringify({ ...incoming, agent: binding.agent }), 'utf8');
+      const workbenchState = binding.host === 'workbench'
+        ? await syncNativeWorkbenchAxisBinding(binding).then((axisContext) => updateNativeWorkbenchCheckoutState(binding, axisContext)).catch(() => null)
+        : null;
+      rewrittenBody = Buffer.from(JSON.stringify({
+        ...incoming,
+        agent: binding.agent,
+        ...(workbenchState ? { system: buildWorkbenchCheckoutSystemPrompt(workbenchState, incoming.system) } : {}),
+      }), 'utf8');
     }
   }
   return new Promise((resolve, reject) => {
@@ -461,6 +468,66 @@ async function submitNativeQuestionDecision(runtime, input) {
     signal: AbortSignal.timeout(OPENCODE_ACTION_TIMEOUT_MS),
   });
   return { ok: response.ok, status: response.status, body: await response.text() };
+}
+
+function normalizeWorkbenchCheckout(axisContext) {
+  const checkout = axisContext?.checkout;
+  if (!checkout || typeof checkout.targetId !== 'string' || !checkout.targetId.trim()) return null;
+  return { targetType: checkout.targetType || '', targetId: checkout.targetId.trim() };
+}
+
+function updateNativeWorkbenchCheckoutState(binding, axisContext) {
+  if (!binding?.directory) return null;
+  const target = path.join(binding.directory, '.def-session.json');
+  const session = readJsonFileIfPresent(target);
+  if (!session || session.sessionID !== binding.sessionID) return null;
+  const current = normalizeWorkbenchCheckout(axisContext);
+  const previous = session.workbenchCheckout || null;
+  const changed = Boolean(previous && (previous.targetType !== current?.targetType || previous.targetId !== current?.targetId));
+  const existing = session.workbenchCheckoutState && typeof session.workbenchCheckoutState === 'object'
+    ? session.workbenchCheckoutState
+    : {};
+  const phase = changed ? 'checkout-changed' : (existing.phase === 'checkout-changed' ? 'checkout-changed' : 'ready');
+  session.workbenchCheckout = current;
+  session.workbenchCheckoutState = {
+    phase,
+    current,
+    previous: changed ? previous : (existing.previous || null),
+    observedAt: Date.now(),
+  };
+  const temporary = `${target}.${process.pid}.${Date.now()}.tmp`;
+  fs.writeFileSync(temporary, `${JSON.stringify(session, null, 2)}\n`, 'utf8');
+  fs.renameSync(temporary, target);
+  return {
+    phase,
+    current,
+    previous: session.workbenchCheckoutState.previous,
+    axisContext,
+  };
+}
+
+function buildWorkbenchCheckoutSystemPrompt(state, existingSystem) {
+  const currentNode = Array.isArray(state.axisContext?.nodes)
+    ? state.axisContext.nodes.find((node) => node?.id === state.current?.targetId)
+    : null;
+  const lines = [
+    'DEF WORKBENCH AUTHORITATIVE STATE (system instruction, not user text):',
+    'This conversation is bound to the timeline document and its Work Node tree. A Work Node is never the conversation identity.',
+    `Current checkout: ${currentNode?.label || 'unnamed node'} (${state.current?.targetId || 'none'}).`,
+    `Checkout state: ${state.phase}.`,
+    'Do not use, repeat, or reconcile any older transcript claim about a bound node or latest applied node.',
+  ];
+  if (state.phase === 'checkout-changed') {
+    lines.push(
+      'HARD GATE: before answering the user request or calling any other DEF node tool, call def_node_bind with nodeId="".',
+      'After that succeeds, call def_workbench_context again, reason at high effort from the returned checkout only, then answer or continue.',
+      'Do not report a current-node result, mutate a draft, or infer timeline content until the gate is cleared.',
+    );
+  } else {
+    lines.push('Before answering a current-canvas or current-node question, call def_workbench_context and use its checkout as the only source of truth.');
+  }
+  if (typeof existingSystem === 'string' && existingSystem.trim()) lines.push(existingSystem.trim());
+  return lines.join('\n');
 }
 
 async function syncNativeWorkbenchAxisBinding(binding) {
@@ -698,7 +765,8 @@ const server = http.createServer(async (request, response) => {
       }
       const binding = ensureNativeSessionAxisBinding(body.directory, body.sessionID);
       const axisContext = await syncNativeWorkbenchAxisBinding(binding);
-      writeJson(response, 200, { ok: true, context: saved, axisContext });
+      const checkoutState = updateNativeWorkbenchCheckoutState(binding, axisContext);
+      writeJson(response, 200, { ok: true, context: saved, axisContext, checkoutState });
       return;
     }
 

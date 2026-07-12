@@ -41,4 +41,5 @@ The transient OpenCode session ID may change after recovery. Its persistent sess
 - Session-axis persistence never infers a session `boundNodeId` from the current checkout. The axis tree remains the conversation identity; a node is only an optional cursor.
 - A materialized node workspace records the checkout it started from as a temporary anchor. On the next Workbench context read, a manual checkout change is exposed as a transition with a high-reasoning directive.
 - Sync, use, restore, and discard reject a stale checkout anchor. The agent must bind the active checkout before continuing, while unsynchronized `node/working` edits remain intact.
+- The native session stores `ready` or `checkout-changed` beside the observed checkout. Every iframe message receives a server-generated system state; `checkout-changed` requires `def_node_bind` with `nodeId=""` before any answer or other node operation.
 - DeepSeek V4 Pro Workbench sessions enable high reasoning and declare the provider's `100000000` native context limit.

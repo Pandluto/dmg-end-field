@@ -323,7 +323,6 @@ function createTimelineRepository({ databasePath }) {
       timelineId: row.timeline_id,
       host: row.host,
       opencodeSessionId: row.opencode_session_id,
-      boundNodeId: row.bound_node_id || null,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     };

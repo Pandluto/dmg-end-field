@@ -180,14 +180,48 @@ function writeSessionCheckoutObservation(context, checkout) {
   const next = checkout
     ? { targetType: checkout.targetType, targetId: checkout.targetId, updatedAt: checkout.updatedAt || null }
     : null
-  const changed = previous?.targetType !== next?.targetType
-    || previous?.targetId !== next?.targetId
-    || previous?.updatedAt !== next?.updatedAt
-  if (changed) {
-    session.workbenchCheckout = next
-    fs.writeFileSync(target, `${JSON.stringify(session, null, 2)}\n`, 'utf8')
+  const changed = Boolean(previous) && (previous?.targetType !== next?.targetType || previous?.targetId !== next?.targetId)
+  const existing = session.workbenchCheckoutState && typeof session.workbenchCheckoutState === 'object'
+    ? session.workbenchCheckoutState
+    : {}
+  session.workbenchCheckout = next
+  session.workbenchCheckoutState = {
+    phase: changed ? 'checkout-changed' : (existing.phase === 'checkout-changed' ? 'checkout-changed' : 'ready'),
+    current: next,
+    previous: changed ? previous : (existing.previous || null),
+    observedAt: Date.now(),
   }
-  return { changed, previous }
+  fs.writeFileSync(target, `${JSON.stringify(session, null, 2)}\n`, 'utf8')
+  return { changed, previous, phase: session.workbenchCheckoutState.phase }
+}
+
+function readSessionCheckoutState(context) {
+  const target = inside(context.directory, '.def-session.json')
+  if (!fs.existsSync(target)) return null
+  return JSON.parse(fs.readFileSync(target, 'utf8'))?.workbenchCheckoutState || null
+}
+
+function markWorkbenchCheckoutReady(context, checkoutNodeId) {
+  const target = inside(context.directory, '.def-session.json')
+  if (!fs.existsSync(target)) return
+  const session = JSON.parse(fs.readFileSync(target, 'utf8'))
+  const current = session.workbenchCheckout || null
+  if (!checkoutNodeId || current?.targetType !== 'work-node' || current.targetId !== checkoutNodeId) return
+  session.workbenchCheckoutState = {
+    phase: 'ready',
+    current,
+    previous: null,
+    acknowledgedAt: Date.now(),
+  }
+  fs.writeFileSync(target, `${JSON.stringify(session, null, 2)}\n`, 'utf8')
+}
+
+function requireWorkbenchCheckoutReady(context) {
+  const state = readSessionCheckoutState(context)
+  if (state?.phase !== 'checkout-changed') return
+  const error = new Error(`Workbench checkout changed to ${state.current?.targetId || 'an unknown node'}. Call def_node_bind with nodeId="" before any other node operation.`)
+  error.code = 'def-workbench-checkout-rebind-required'
+  throw error
 }
 
 async function readWorkbenchState(context) {
@@ -204,6 +238,7 @@ async function readWorkbenchState(context) {
     checkoutNodeId: activeCheckoutNodeId(snapshot),
     checkoutChanged: observation.changed,
     previousCheckout: observation.previous,
+    checkoutPhase: observation.phase,
   }
 }
 
@@ -224,6 +259,7 @@ async function readBindingForCurrentCheckout(context) {
   let binding = readBinding(context)
   const workbench = await readOptionalWorkbenchState(context)
   if (!workbench) return { binding, workbench: null }
+  requireWorkbenchCheckoutReady(context)
   if (!binding.checkoutAnchorNodeId && workbench.checkoutNodeId) {
     if (binding.nodeId !== workbench.checkoutNodeId) {
       const error = new Error(`The active Workbench checkout is ${workbench.checkoutNodeId}, but this legacy workspace is materialized for ${binding.nodeId}. Call def_node_bind with nodeId="" before continuing; unsynchronized edits were preserved.`)
@@ -297,6 +333,7 @@ export const node_code_materialize = {
   args: { nodeId: { type: 'string', description: 'Existing Work Node id.' } },
   async execute(args, context) {
     const workbench = await readOptionalWorkbenchState(context)
+    if (workbench) requireWorkbenchCheckoutReady(context)
     const current = fs.existsSync(inside(context.directory, bindingFile)) ? readBinding(context) : null
     if (current?.nodeId !== args.nodeId && workspaceIsDirty(context, current)) {
       throw new Error(`Cannot replace ${current.nodeId} because node/working has unsynchronized edits. Sync, discard, or explicitly preserve that draft first.`)
@@ -369,6 +406,7 @@ export const node_fork = {
     context.metadata({ title: 'Fork DEF child node' })
     const metadata = readForkMetadata(args)
     const workbench = await readOptionalWorkbenchState(context)
+    if (workbench) requireWorkbenchCheckoutReady(context)
     const current = fs.existsSync(inside(context.directory, bindingFile)) ? readBinding(context) : null
     if (workspaceIsDirty(context, current)) {
       throw new Error(`Cannot fork over ${current.nodeId} because node/working has unsynchronized edits. Sync, discard, or explicitly preserve that draft first.`)
@@ -399,11 +437,12 @@ export const workbench_context = {
       activeCheckoutNodeId: workbench.checkoutNodeId,
       boundWorkspaceNodeId: binding?.nodeId || null,
       checkoutAnchorNodeId: binding?.checkoutAnchorNodeId || null,
-      requiresRebind: Boolean(workbench.checkoutNodeId && binding && (
+      requiresRebind: workbench.checkoutPhase === 'checkout-changed' || Boolean(workbench.checkoutNodeId && binding && (
         (binding.checkoutAnchorNodeId && binding.checkoutAnchorNodeId !== workbench.checkoutNodeId)
         || (!binding.checkoutAnchorNodeId && binding.nodeId !== workbench.checkoutNodeId)
       )),
       reasoningEffort: workbench.checkoutChanged ? 'high' : 'normal',
+      phase: workbench.checkoutPhase,
     }
     return {
       title: 'DEF Workbench context',
@@ -466,9 +505,11 @@ export const node_bind = {
       throw new Error(`Cannot replace ${current.nodeId} because node/working has unsynchronized edits. Sync, discard, or explicitly preserve that draft first.`)
     }
     const read = await callDefTool('def.worknode.read', { nodeId, includePayload: true })
+    const materialized = materialize(context, read.node, { checkoutAnchorNodeId: workbench?.checkoutNodeId })
+    if (workbench?.checkoutNodeId) markWorkbenchCheckoutReady(context, workbench.checkoutNodeId)
     return {
       title: 'DEF child node bound',
-      output: JSON.stringify(materialize(context, read.node, { checkoutAnchorNodeId: workbench?.checkoutNodeId }), null, 2),
+      output: JSON.stringify(materialized, null, 2),
       metadata: { nodeId: read.node.id, family: 'def-node-crud', checkoutAnchorNodeId: workbench?.checkoutNodeId || null },
     }
   },
