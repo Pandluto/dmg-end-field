@@ -750,6 +750,54 @@ async function createNativeHostSession({ config = {}, host = 'ai-cli', skillId, 
   };
 }
 
+async function recoverNativeHostSession({ config = {}, directory, sessionID } = {}) {
+  const binding = readNativeSessionBinding(directory, sessionID, { includeNodeRelation: false });
+  if (!binding) throw new Error('Native session binding not found.');
+
+  const resolvedSkillId = skillMap[binding.skillId]
+    ? binding.skillId
+    : binding.host === 'workbench'
+      ? 'workbench'
+      : 'operator';
+  const selected = skillMap[resolvedSkillId] || skillMap.operator;
+  const deepseek = sanitizeDeepSeekConfig(config);
+  const serverUrl = await ensureOpenCodeServer(deepseek, resolvedSkillId, 'medium');
+  const query = `directory=${encodeURIComponent(binding.directory)}`;
+  const existing = await fetch(`${serverUrl}/session/${encodeURIComponent(sessionID)}?${query}`, {
+    signal: AbortSignal.timeout(5000),
+  });
+  if (existing.ok) {
+    return {
+      id: sessionID,
+      sessionID,
+      directory: binding.directory,
+      host: binding.host,
+      skillId: resolvedSkillId,
+      agent: selected.agent,
+      profile: binding.profile,
+      recovered: false,
+      uiPath: `/${encodeDirectorySlug(binding.directory)}/session/${encodeURIComponent(sessionID)}`,
+    };
+  }
+  if (existing.status !== 404) throw new Error(`OpenCode session check failed: HTTP ${existing.status}`);
+
+  const payload = buildSessionCreatePayload({ selected, deepseek, skillId: resolvedSkillId, thinkingEffort: 'medium' });
+  const session = await requestJson('POST', `${serverUrl}/session?${query}`, payload, undefined, 15000);
+  const profile = buildNativeHostProfile(binding.host);
+  writeSessionBinding(binding.directory, { id: session.id, agent: selected.agent, skillId: resolvedSkillId, profile });
+  return {
+    id: session.id,
+    sessionID: session.id,
+    directory: binding.directory,
+    host: binding.host,
+    skillId: resolvedSkillId,
+    agent: selected.agent,
+    profile,
+    recovered: true,
+    uiPath: `/${encodeDirectorySlug(binding.directory)}/session/${encodeURIComponent(session.id)}`,
+  };
+}
+
 function createAgentSessionWorkspace(skillId) {
   const root = getAgentWorkspaceDir();
   const host = skillId === 'workbench' ? 'workbench' : 'ai-cli';
@@ -2123,6 +2171,7 @@ module.exports = {
   runtimeSummary,
   ensureRuntime,
   createNativeHostSession,
+  recoverNativeHostSession,
   buildNativeHostProfile,
   readNativeSessionBinding,
   findNativeSessionBinding,

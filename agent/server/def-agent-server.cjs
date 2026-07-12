@@ -20,6 +20,7 @@ const {
   runtimeSummary,
   ensureRuntime,
   createNativeHostSession,
+  recoverNativeHostSession,
   buildNativeHostProfile,
   readNativeSessionBinding,
   findNativeSessionBinding,
@@ -308,13 +309,17 @@ function serveOpenCodeUi(request, response, requestUrl) {
   const fileBody = fs.readFileSync(assetPath);
   const routeParts = requestUrl.pathname.split('/').filter(Boolean);
   let embeddedProfile = null;
+  let embeddedSession = null;
   if (routeParts.length >= 3 && routeParts[1] === 'session') {
     try {
       const directory = Buffer.from(routeParts[0], 'base64url').toString('utf8');
-      const binding = readNativeSessionBinding(directory, decodeURIComponent(routeParts[2]));
+      const sessionID = decodeURIComponent(routeParts[2]);
+      const binding = readNativeSessionBinding(directory, sessionID);
       embeddedProfile = binding?.profile || null;
+      if (binding) embeddedSession = { sessionID, directory: binding.directory };
     } catch {
       embeddedProfile = null;
+      embeddedSession = null;
     }
   }
   if (!embeddedProfile) {
@@ -324,7 +329,7 @@ function serveOpenCodeUi(request, response, requestUrl) {
   const body = isIndex
     ? Buffer.from(fileBody.toString('utf8').replace(
       '</head>',
-      `<script>window.__DEF_EMBEDDED_PROFILE__=${JSON.stringify(embeddedProfile)};try{localStorage.setItem("opencode.settings.dat:defaultServerUrl",location.origin)}catch{}</script></head>`,
+      `<script>window.__DEF_EMBEDDED_PROFILE__=${JSON.stringify(embeddedProfile)};window.__DEF_NATIVE_SESSION__=${JSON.stringify(embeddedSession)};try{localStorage.setItem("opencode.settings.dat:defaultServerUrl",location.origin)}catch{}</script></head>`,
     ), 'utf8')
     : fileBody;
   response.writeHead(200, {
@@ -492,6 +497,19 @@ const server = http.createServer(async (request, response) => {
         host,
         skillId: typeof body.skillId === 'string' ? body.skillId : undefined,
         thinkingEffort: body.thinkingEffort,
+      });
+      writeJson(response, 200, { ok: true, session });
+      return;
+    }
+
+    const nativeSessionRecovery = /^\/api\/native\/session\/([^/]+)\/recover$/.exec(requestUrl.pathname);
+    if (method === 'POST' && nativeSessionRecovery) {
+      const sessionID = decodeURIComponent(nativeSessionRecovery[1]);
+      const body = await readJsonBody(request);
+      const session = await recoverNativeHostSession({
+        config: readConfig().deepseek,
+        directory: typeof body.directory === 'string' ? body.directory : '',
+        sessionID,
       });
       writeJson(response, 200, { ok: true, session });
       return;

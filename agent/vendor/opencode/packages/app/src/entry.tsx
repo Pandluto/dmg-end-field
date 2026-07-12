@@ -162,34 +162,58 @@ if (import.meta.env.VITE_SENTRY_DSN) {
 
 const defRouteAllowed = !defProfile || /^\/[^/]+\/session\/[^/]+\/?$/.test(location.pathname)
 
+const recoverDefNativeSession = async () => {
+  const nativeSession = window.__DEF_NATIVE_SESSION__
+  if (!defProfile || !nativeSession) return true
+  try {
+    const response = await fetch(`/api/native/session/${encodeURIComponent(nativeSession.sessionID)}/recover`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ directory: nativeSession.directory }),
+    })
+    const payload = await response.json().catch(() => undefined)
+    if (!response.ok || !payload?.ok) return true
+    if (payload.session?.recovered && payload.session.uiPath) {
+      window.location.replace(payload.session.uiPath)
+      return false
+    }
+  } catch {
+    return true
+  }
+  return true
+}
+
 if (root instanceof HTMLElement && !defRouteAllowed) {
   root.innerHTML = '<main style="display:grid;height:100%;place-items:center;color:#19345f;background:#f7faff">该通用 OpenCode 入口在 DEF 嵌入模式中不可用。</main>'
 }
 
 if (root instanceof HTMLElement && defRouteAllowed) {
-  const auth = authFromToken(new URLSearchParams(location.search).get("auth_token"))
-  clearAuthToken()
-  const server: ServerConnection.Http = {
-    type: "http",
-    authToken: !!auth,
-    http: {
-      url: getCurrentUrl(),
-      ...auth,
-    },
-  }
-  render(
-    () => (
-      <PlatformProvider value={platform}>
-        <AppBaseProviders>
-          <AppInterface
-            defaultServer={ServerConnection.Key.make(getDefaultUrl())}
-            canonicalLocalServer={ServerConnection.key(server)}
-            servers={[server]}
-            disableHealthCheck
-          />
-        </AppBaseProviders>
-      </PlatformProvider>
-    ),
-    root,
-  )
+  void (async () => {
+    if (!(await recoverDefNativeSession())) return
+    const auth = authFromToken(new URLSearchParams(location.search).get("auth_token"))
+    clearAuthToken()
+    const server: ServerConnection.Http = {
+      type: "http",
+      authToken: !!auth,
+      http: {
+        url: getCurrentUrl(),
+        ...auth,
+      },
+    }
+    render(
+      () => (
+        <PlatformProvider value={platform}>
+          <AppBaseProviders>
+            <AppInterface
+              defaultServer={ServerConnection.Key.make(getDefaultUrl())}
+              canonicalLocalServer={ServerConnection.key(server)}
+              servers={[server]}
+              disableHealthCheck
+            />
+          </AppBaseProviders>
+        </PlatformProvider>
+      ),
+      root,
+    )
+  })()
 }

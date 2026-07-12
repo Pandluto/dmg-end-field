@@ -10,6 +10,7 @@ interface ImportMetaEnv {
 
 interface Window {
   __DEF_EMBEDDED_PROFILE__?: import("@/utils/def-embedded").DefEmbeddedProfile
+  __DEF_NATIVE_SESSION__?: { sessionID: string; directory: string } | null
 }
 
 interface ImportMeta {
