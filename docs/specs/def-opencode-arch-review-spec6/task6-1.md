@@ -186,4 +186,3 @@ agent/runtime/def-tools/
 ## 后续衔接
 
 Task 6-2 将基于该注册表建立子节点代码工作区，并把 OpenCode 原生 `read/edit/apply_patch` 以 `def-node-code` 能力注册；后续任务再分别收敛节点 CRUD、数据资源工具和共享 OpenCode 原生前端子界面。
-
