@@ -4304,7 +4304,6 @@ async function executeDefTool(name, input = {}, query = new URLSearchParams()) {
     }
     const repository = getTimelineRepository();
     repository.ensureDocument({ id: timelineId, label: '主排轴', preserveExistingLabel: true });
-    const checkout = repository.getCheckoutRef(timelineId);
     const binding = repository.upsertSessionAxisBinding({
       id: bindingId,
       timelineId,
@@ -4312,9 +4311,7 @@ async function executeDefTool(name, input = {}, query = new URLSearchParams()) {
       opencodeSessionId: sessionID,
       boundNodeId: typeof input.boundNodeId === 'string' && input.boundNodeId.trim()
         ? input.boundNodeId.trim()
-        : checkout?.targetType === 'work-node'
-          ? checkout.targetId
-          : null,
+        : null,
     });
     return { status: 200, body: { ok: true, protocolVersion: 1, tool: name, result: { ok: true, binding, context: repository.getSessionAxisContext(binding.id) } } };
   }

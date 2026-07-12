@@ -92,7 +92,7 @@ function writeJson(file, value) {
   fs.writeFileSync(file, `${JSON.stringify(value, null, 2)}\n`, 'utf8')
 }
 
-function materialize(context, node) {
+function materialize(context, node, options = {}) {
   if (!node?.id || !node?.workingPayload || !node?.basePayload) throw new Error('Work node payload is incomplete')
   fs.mkdirSync(context.directory, { recursive: true })
   const source = decodeDefNodePayload(node.workingPayload)
@@ -108,6 +108,7 @@ function materialize(context, node) {
     baseHash: hashDefNodeValue(node.basePayload),
     workingHash: hashDefNodeValue(node.workingPayload),
     sourceHash: hashDefNodeValue(source),
+    checkoutAnchorNodeId: options.checkoutAnchorNodeId || null,
     materializedAt: Date.now(),
   }
   writeJson(inside(context.directory, bindingFile), {
@@ -158,6 +159,87 @@ function readBinding(context) {
   return JSON.parse(fs.readFileSync(target, 'utf8'))
 }
 
+function writeBinding(context, binding) {
+  writeJson(inside(context.directory, bindingFile), binding)
+  writeJson(inside(context.directory, nodeManifest), { ...binding, schemaVersion: 1 })
+  return binding
+}
+
+function activeCheckoutNodeId(snapshot) {
+  const checkout = snapshot?.axisContext?.checkout
+  return checkout?.targetType === 'work-node' && typeof checkout.targetId === 'string' && checkout.targetId
+    ? checkout.targetId
+    : null
+}
+
+function writeSessionCheckoutObservation(context, checkout) {
+  const target = inside(context.directory, '.def-session.json')
+  if (!fs.existsSync(target)) return { changed: false, previous: null }
+  const session = JSON.parse(fs.readFileSync(target, 'utf8'))
+  const previous = session.workbenchCheckout || null
+  const next = checkout
+    ? { targetType: checkout.targetType, targetId: checkout.targetId, updatedAt: checkout.updatedAt || null }
+    : null
+  const changed = previous?.targetType !== next?.targetType
+    || previous?.targetId !== next?.targetId
+    || previous?.updatedAt !== next?.updatedAt
+  if (changed) {
+    session.workbenchCheckout = next
+    fs.writeFileSync(target, `${JSON.stringify(session, null, 2)}\n`, 'utf8')
+  }
+  return { changed, previous }
+}
+
+async function readWorkbenchState(context) {
+  const target = inside(context.directory, workbenchContextFile)
+  if (!fs.existsSync(target)) throw new Error('No live Workbench context is attached to this session.')
+  const attached = JSON.parse(fs.readFileSync(target, 'utf8'))
+  const snapshot = await callDefTool('def.workbench.snapshot', { sessionBindingId: attached.axisBindingId })
+  const checkout = snapshot?.axisContext?.checkout || null
+  const observation = writeSessionCheckoutObservation(context, checkout)
+  return {
+    attached,
+    snapshot,
+    checkout,
+    checkoutNodeId: activeCheckoutNodeId(snapshot),
+    checkoutChanged: observation.changed,
+    previousCheckout: observation.previous,
+  }
+}
+
+async function readOptionalWorkbenchState(context) {
+  if (!fs.existsSync(inside(context.directory, workbenchContextFile))) return null
+  return readWorkbenchState(context)
+}
+
+function workspaceIsDirty(context, binding) {
+  try {
+    return Boolean(binding?.sourceHash) && hashDefNodeValue(readWorkspaceSource(context)) !== binding.sourceHash
+  } catch {
+    return false
+  }
+}
+
+async function readBindingForCurrentCheckout(context) {
+  let binding = readBinding(context)
+  const workbench = await readOptionalWorkbenchState(context)
+  if (!workbench) return { binding, workbench: null }
+  if (!binding.checkoutAnchorNodeId && workbench.checkoutNodeId) {
+    if (binding.nodeId !== workbench.checkoutNodeId) {
+      const error = new Error(`The active Workbench checkout is ${workbench.checkoutNodeId}, but this legacy workspace is materialized for ${binding.nodeId}. Call def_node_bind with nodeId="" before continuing; unsynchronized edits were preserved.`)
+      error.code = 'def-workbench-checkout-changed'
+      throw error
+    }
+    binding = writeBinding(context, { ...binding, checkoutAnchorNodeId: workbench.checkoutNodeId })
+  }
+  if (workbench.checkoutNodeId && binding.checkoutAnchorNodeId && binding.checkoutAnchorNodeId !== workbench.checkoutNodeId) {
+    const error = new Error(`The Workbench checkout changed from ${binding.checkoutAnchorNodeId} to ${workbench.checkoutNodeId}. Call def_node_bind with nodeId="" before continuing; unsynchronized edits were preserved.`)
+    error.code = 'def-workbench-checkout-changed'
+    throw error
+  }
+  return { binding, workbench }
+}
+
 function readForkMetadata(args) {
   const name = typeof args?.name === 'string' ? args.name.trim() : ''
   const description = typeof args?.description === 'string' ? args.description.trim() : ''
@@ -171,7 +253,7 @@ function readForkMetadata(args) {
 }
 
 async function syncWorkspace(context) {
-  const binding = readBinding(context)
+  const { binding } = await readBindingForCurrentCheckout(context)
   const workspaceSource = {
     schemaVersion: 1,
     selection: JSON.parse(fs.readFileSync(inside(context.directory, nodeSelection), 'utf8')),
@@ -189,8 +271,7 @@ async function syncWorkspace(context) {
   })
   const nextBinding = { ...binding, revision: result.revision, workingHash: result.workingHash, synchronizedAt: Date.now() }
   nextBinding.sourceHash = hashDefNodeValue(workspaceSource)
-  writeJson(inside(context.directory, bindingFile), nextBinding)
-  writeJson(inside(context.directory, nodeManifest), { ...nextBinding, schemaVersion: 1 })
+  writeBinding(context, nextBinding)
   if (result.generatedPayload) {
     writeJson(inside(context.directory, workingFile), result.generatedPayload)
     writeJson(inside(context.directory, 'node/generated/payload.json'), result.generatedPayload)
@@ -215,8 +296,13 @@ export const node_code_materialize = {
   description: 'Materialize an existing DEF Work Node as normalized editable node/working sources in this isolated session.',
   args: { nodeId: { type: 'string', description: 'Existing Work Node id.' } },
   async execute(args, context) {
+    const workbench = await readOptionalWorkbenchState(context)
+    const current = fs.existsSync(inside(context.directory, bindingFile)) ? readBinding(context) : null
+    if (current?.nodeId !== args.nodeId && workspaceIsDirty(context, current)) {
+      throw new Error(`Cannot replace ${current.nodeId} because node/working has unsynchronized edits. Sync, discard, or explicitly preserve that draft first.`)
+    }
     const read = await callDefTool('def.worknode.read', { nodeId: args.nodeId, includePayload: true })
-    return { title: 'DEF node code workspace materialized', output: JSON.stringify(materialize(context, read.node), null, 2), metadata: { family: 'def-node-code', nodeId: args.nodeId } }
+    return { title: 'DEF node code workspace materialized', output: JSON.stringify(materialize(context, read.node, { checkoutAnchorNodeId: workbench?.checkoutNodeId }), null, 2), metadata: { family: 'def-node-code', nodeId: args.nodeId } }
   },
 }
 
@@ -257,7 +343,7 @@ export const node_code_discard = {
   description: 'Discard unsynchronized node/working file edits after native confirmation and re-materialize the repository Work Node revision.',
   args: {},
   async execute(_args, context) {
-    const binding = readBinding(context)
+    const { binding } = await readBindingForCurrentCheckout(context)
     await askWithApproval(context, {
       action: 'Discard node code edits',
       summary: `Discard unsynchronized code edits for ${binding.nodeId}`,
@@ -268,7 +354,7 @@ export const node_code_discard = {
       consequence: 'All unsynchronized node/working edits will be replaced from the repository Work Node.',
     })
     const read = await callDefTool('def.worknode.read', { nodeId: binding.nodeId, includePayload: true })
-    return { title: 'DEF node code edits discarded', output: JSON.stringify(materialize(context, read.node), null, 2), metadata: { family: 'def-node-code', nodeId: binding.nodeId } }
+    return { title: 'DEF node code edits discarded', output: JSON.stringify(materialize(context, read.node, { checkoutAnchorNodeId: binding.checkoutAnchorNodeId }), null, 2), metadata: { family: 'def-node-code', nodeId: binding.nodeId } }
   },
 }
 
@@ -282,6 +368,11 @@ export const node_fork = {
   async execute(args, context) {
     context.metadata({ title: 'Fork DEF child node' })
     const metadata = readForkMetadata(args)
+    const workbench = await readOptionalWorkbenchState(context)
+    const current = fs.existsSync(inside(context.directory, bindingFile)) ? readBinding(context) : null
+    if (workspaceIsDirty(context, current)) {
+      throw new Error(`Cannot fork over ${current.nodeId} because node/working has unsynchronized edits. Sync, discard, or explicitly preserve that draft first.`)
+    }
     const created = await callDefTool('def.worknode.create_from_current', {
       approvalPolicy: args.approvalPolicy,
       label: metadata.name,
@@ -289,24 +380,35 @@ export const node_fork = {
     })
     return {
       title: 'DEF child node ready',
-      output: JSON.stringify(materialize(context, created.node), null, 2),
+      output: JSON.stringify(materialize(context, created.node, { checkoutAnchorNodeId: workbench?.checkoutNodeId }), null, 2),
       metadata: { nodeId: created.node.id, family: 'def-node-crud' },
     }
   },
 }
 
 export const workbench_context = {
-  description: 'Read the bounded live DEF main-workbench context for this Workbench session, including selected operators and current timeline buttons.',
+  description: 'Read the bound DEF timeline tree and live current-checkout context. Detects manual checkout changes and requires a current-checkout rebind before stale node work can continue.',
   args: {},
   async execute(_args, context) {
-    const target = inside(context.directory, workbenchContextFile)
-    if (!fs.existsSync(target)) throw new Error('No live Workbench context is attached to this session.')
-    const attached = JSON.parse(fs.readFileSync(target, 'utf8'))
-    const snapshot = await callDefTool('def.workbench.snapshot', { sessionBindingId: attached.axisBindingId })
+    const workbench = await readWorkbenchState(context)
+    const binding = fs.existsSync(inside(context.directory, bindingFile)) ? readBinding(context) : null
+    const checkoutTransition = {
+      changed: workbench.checkoutChanged,
+      previous: workbench.previousCheckout,
+      current: workbench.checkout,
+      activeCheckoutNodeId: workbench.checkoutNodeId,
+      boundWorkspaceNodeId: binding?.nodeId || null,
+      checkoutAnchorNodeId: binding?.checkoutAnchorNodeId || null,
+      requiresRebind: Boolean(workbench.checkoutNodeId && binding && (
+        (binding.checkoutAnchorNodeId && binding.checkoutAnchorNodeId !== workbench.checkoutNodeId)
+        || (!binding.checkoutAnchorNodeId && binding.nodeId !== workbench.checkoutNodeId)
+      )),
+      reasoningEffort: workbench.checkoutChanged ? 'high' : 'normal',
+    }
     return {
       title: 'DEF Workbench context',
-      output: JSON.stringify(boundResourceValue({ attached, snapshot }), null, 2),
-      metadata: { family: 'def-node-crud', host: 'workbench', updatedAt: attached.updatedAt },
+      output: JSON.stringify(boundResourceValue({ attached: workbench.attached, snapshot: workbench.snapshot, checkoutTransition }), null, 2),
+      metadata: { family: 'def-node-crud', host: 'workbench', updatedAt: workbench.attached.updatedAt, checkoutChanged: workbench.checkoutChanged },
     }
   },
 }
@@ -347,17 +449,27 @@ export const workbench_buff_ranking = {
 }
 
 export const node_bind = {
-  description: 'Bind an existing DEF Work Node to this isolated OpenCode session and materialize its editable payload files.',
+  description: 'Bind an existing DEF Work Node to this isolated workspace. Pass an empty nodeId to bind the current Workbench checkout after a manual node switch.',
   args: {
-    nodeId: { type: 'string', description: 'Existing DEF Work Node id.' },
+    nodeId: { type: 'string', description: 'Existing DEF Work Node id. Pass an empty string to bind the active Workbench checkout.' },
   },
   async execute(args, context) {
     context.metadata({ title: 'Bind DEF child node' })
-    const read = await callDefTool('def.worknode.read', { nodeId: args.nodeId, includePayload: true })
+    const workbench = await readOptionalWorkbenchState(context)
+    const nodeId = typeof args.nodeId === 'string' && args.nodeId.trim() ? args.nodeId.trim() : workbench?.checkoutNodeId
+    if (!nodeId) throw new Error('No current Workbench Work Node is checked out. Provide nodeId explicitly.')
+    if (workbench?.checkoutNodeId && nodeId !== workbench.checkoutNodeId) {
+      throw new Error(`The Workbench is currently checked out at ${workbench.checkoutNodeId}. Bind that active checkout instead of ${nodeId}.`)
+    }
+    const current = fs.existsSync(inside(context.directory, bindingFile)) ? readBinding(context) : null
+    if (current?.nodeId !== nodeId && workspaceIsDirty(context, current)) {
+      throw new Error(`Cannot replace ${current.nodeId} because node/working has unsynchronized edits. Sync, discard, or explicitly preserve that draft first.`)
+    }
+    const read = await callDefTool('def.worknode.read', { nodeId, includePayload: true })
     return {
       title: 'DEF child node bound',
-      output: JSON.stringify(materialize(context, read.node), null, 2),
-      metadata: { nodeId: read.node.id, family: 'def-node-crud' },
+      output: JSON.stringify(materialize(context, read.node, { checkoutAnchorNodeId: workbench?.checkoutNodeId }), null, 2),
+      metadata: { nodeId: read.node.id, family: 'def-node-crud', checkoutAnchorNodeId: workbench?.checkoutNodeId || null },
     }
   },
 }
@@ -453,6 +565,9 @@ export const node_use = {
       expectedWorkingHash: binding.workingHash,
       reload: false,
     })
+    if (used.currentCheckoutTouched === true) {
+      writeBinding(context, { ...readBinding(context), checkoutAnchorNodeId: binding.nodeId })
+    }
     return {
       title: used.ok ? 'DEF child node in use' : 'DEF child node use pending',
       output: JSON.stringify(used, null, 2),
@@ -466,7 +581,7 @@ export const node_restore = {
   args: {},
   async execute(_args, context) {
     context.metadata({ title: 'Restore DEF node base' })
-    const binding = readBinding(context)
+    const { binding } = await readBindingForCurrentCheckout(context)
     await askWithApproval(context, {
       action: 'Restore Work Node base',
       summary: `Restore immutable base for DEF Work Node ${binding.nodeId}`,
