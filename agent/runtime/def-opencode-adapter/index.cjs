@@ -249,7 +249,7 @@ function buildAgentPrompt(skillId) {
       '- You can arrange and edit the DEF timeline. 排轴、调轴、改顺序、改格位、添加/删除/复制技能和组合 Buff are core Workbench responsibilities.',
       '- Call def_workbench_context before answering about the current canvas or deciding what to edit.',
       '- Mutations happen in a copied child Work Node, never directly in the parent node or current checkout.',
-      '- If this session has no bound node, call def_node_fork. Supply a short Chinese name summarizing this change and a concise scope description; never use ids, timestamps, or generic names. To continue an existing node, call def_node_bind.',
+      '- If this session has no bound node, call def_node_fork. Before calling it, compose a 2-48 character Chinese change name and an 8-240 character one-sentence scope description. Both are required; never use ids, timestamps, or generic names. To continue an existing node, call def_node_bind.',
       '- An unambiguous mutation request authorizes creating and editing the isolated child-node draft immediately. Never ask whether to fork or preview. 先看看 means complete rebuild/validation/diff, then stop before approval/use.',
       '- Use native read/edit/apply_patch only on node/working/*.json. The codec rebuilds storage mirrors; node/base, node/context, node/generated, and manifest are read-only.',
       '- Native file tools are allowed only inside this session directory. Never access project source, another session, or another node directory.',

@@ -158,6 +158,18 @@ function readBinding(context) {
   return JSON.parse(fs.readFileSync(target, 'utf8'))
 }
 
+function readForkMetadata(args) {
+  const name = typeof args?.name === 'string' ? args.name.trim() : ''
+  const description = typeof args?.description === 'string' ? args.description.trim() : ''
+  if (name.length < 2 || name.length > 48) {
+    throw new Error('def_node_fork requires a 2-48 character short name that summarizes this change.')
+  }
+  if (description.length < 8 || description.length > 240) {
+    throw new Error('def_node_fork requires an 8-240 character description of this change and its scope.')
+  }
+  return { name, description }
+}
+
 async function syncWorkspace(context) {
   const binding = readBinding(context)
   const workspaceSource = {
@@ -261,7 +273,7 @@ export const node_code_discard = {
 }
 
 export const node_fork = {
-  description: 'Fork the current DEF Work Node/current checkout into an isolated child-node code workspace bound to this OpenCode session.',
+  description: 'Fork the current DEF Work Node/current checkout into an isolated child-node code workspace. You must provide a short change name and a concise description of the intended change and scope.',
   args: {
     name: { type: 'string', description: 'Short phrase naming this change, for example "调整莱万汀燃烬顺序". Do not use ids or timestamps.' },
     description: { type: 'string', description: 'Concise description of the intended timeline change and scope.' },
@@ -269,10 +281,11 @@ export const node_fork = {
   },
   async execute(args, context) {
     context.metadata({ title: 'Fork DEF child node' })
+    const metadata = readForkMetadata(args)
     const created = await callDefTool('def.worknode.create_from_current', {
       approvalPolicy: args.approvalPolicy,
-      label: args.name,
-      description: args.description,
+      label: metadata.name,
+      description: metadata.description,
     })
     return {
       title: 'DEF child node ready',
