@@ -88,6 +88,8 @@ Chrome 可视验收：
 
 首次验收后发现宿主会无条件复用 localStorage 中的旧 OpenCode session；runtime 已丢失该 session 时，原生前端请求 `/session/<id>` 会得到 404，阻塞手动测试。现已改为先使用 session id 与精确 directory 查询 runtime：200 才恢复，404、旧格式或损坏缓存均删除并自动创建新 session。回归请求验证有效 session 为 200、失效 session 为 404，`npm run build` 再次通过。
 
+随后发现 OpenCode 自身可能残留直连 runtime 的默认服务器 `http://127.0.0.1:17445`，导致通知上下文与 sidecar 注册连接不一致并抛出 `Notification server not found`。sidecar 现于入口页把原生默认服务器规范为当前 origin；两个宿主分别保持自己的 17322 origin，所有 API/SSE 继续经同源代理。已重启独立 17322 sidecar，并验证 health 与入口注入生效。
+
 ## 上游差异
 
 本轮 version lock 为 OpenCode v1.17.11，tag commit `67aec2212010d67775c35e696d8b8b54902eb338`。验收时最新 tag 为 v1.17.18，commit `b1fc8113948b518835c2a39ece49553cffe9b30c`；GitHub compare 显示相差 456 commits / 1200 files。当前没有混用最新版 UI 和旧 runtime；后续升级必须同步更新 vendor、runtime、UI 并重跑本记录中的兼容验收。

@@ -206,7 +206,13 @@ function serveOpenCodeUi(request, response, pathname) {
   const assetPath = hasAsset ? resolved : path.join(openCodeUiRoot, 'index.html');
   const extension = path.extname(assetPath).toLowerCase();
   const isIndex = assetPath === path.join(openCodeUiRoot, 'index.html');
-  const body = fs.readFileSync(assetPath);
+  const fileBody = fs.readFileSync(assetPath);
+  const body = isIndex
+    ? Buffer.from(fileBody.toString('utf8').replace(
+      '</head>',
+      `<script>try{localStorage.setItem("opencode.settings.dat:defaultServerUrl",location.origin)}catch{}</script></head>`,
+    ), 'utf8')
+    : fileBody;
   response.writeHead(200, {
     'Content-Type': staticMimeTypes[extension] || 'application/octet-stream',
     'Content-Length': body.length,
