@@ -212,7 +212,6 @@ function serveOpenCodeUi(request, response, pathname) {
     'Content-Length': body.length,
     'Cache-Control': isIndex ? 'no-store' : 'public, max-age=31536000, immutable',
     'Access-Control-Allow-Origin': '*',
-    'Content-Security-Policy': "frame-ancestors 'self' http://127.0.0.1:3030",
   });
   response.end(request.method === 'HEAD' ? undefined : body);
   return true;
