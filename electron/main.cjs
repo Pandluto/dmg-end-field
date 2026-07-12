@@ -1844,90 +1844,19 @@ function chooseWorkbenchTestThinkingEffort(prompt, fallback = '') {
   return 'low';
 }
 
-function buildWorkbenchTestAgentMessage(userText, snapshot, evidencePayload) {
-  const selectedCharacters = Array.isArray(snapshot?.selectedCharacters) ? snapshot.selectedCharacters : [];
-  const skillButtons = Array.isArray(snapshot?.skillButtons) ? snapshot.skillButtons : [];
-  const selectedSummary = selectedCharacters.length
-    ? selectedCharacters.map((character) => {
-      if (typeof character === 'string') return character;
-      return `${character?.name || character?.id || 'unknown'}(${character?.id || character?.name || 'unknown'})`;
-    }).join(', ')
-    : 'none';
-  const buttonSummary = skillButtons.length
-    ? `${skillButtons.slice(0, 40).map(formatWorkbenchTestButtonLabel).join(', ')}${skillButtons.length > 40 ? `，另有 ${skillButtons.length - 40} 个` : ''}`
-    : 'none';
-  const fullEvidence = evidencePayload?.evidence || {
-    source: 'current-checkout-snapshot',
-    readonly: true,
-    snapshotAvailable: Boolean(snapshot),
-  };
-  const evidence = {
-    ...fullEvidence,
-    buttons: Array.isArray(fullEvidence.buttons) ? fullEvidence.buttons.slice(0, 40) : [],
-    mentionedCharacterButtons: Array.isArray(fullEvidence.mentionedCharacterButtons)
-      ? fullEvidence.mentionedCharacterButtons.slice(0, 40)
-      : [],
-    damageReport: fullEvidence.damageReport ? {
-      ...fullEvidence.damageReport,
-      buttons: Array.isArray(fullEvidence.damageReport.buttons) ? fullEvidence.damageReport.buttons.slice(0, 20) : [],
-    } : null,
-  };
-
-  return [
-    '只有用户明确说“先不要应用”/“暂存”/“do not apply yet”时，才创建 checkout:false、dryRun:false 的持久 Work Node；只有明确要求预览/模拟时才用 dryRun:true。用户没有这些措辞时，禁止自行改成 checkout:false。',
-    '你正在 dmg-end-field 主界面右侧 AI 模式中。当前请求来自 workbench-test REST 投喂入口，语义等同用户在主界面 AI 输入框发送一句话。',
-    '回复中文，简短，直接说明你做了什么或为什么需要反问。',
-    '优先使用 DEF typed tools，不要优先手写 /api/main-workbench/commands/enqueue。',
-    '工具入口：',
-    '- GET http://127.0.0.1:17321/api/def-tools',
-    '- GET http://127.0.0.1:17321/api/def-tools/describe?name=<toolName>',
-    '- POST http://127.0.0.1:17321/api/def-tools/call with {"tool":"def.workbench.find_buttons","input":{...}}',
-    '读状态优先用 def.workbench.list_buttons / def.workbench.evidence / def.workbench.damage_report。',
-    '指代解析优先用 def.workbench.find_buttons、def.character.resolve、def.skill.resolve、def.buff.resolve。',
-    '用户问装备套装/长息是什么/有哪些/该选哪个时，优先用 def.gear.resolve 或 def.equipment.resolve 的短摘要；不要直接拉完整 /api/equipment/library。',
-    '低风险单步决策是强约束：给一个明确干员在一个明确位置新增一个按钮，必须优先使用 def.workbench.add_skill_button_and_verify，不得改走 Work Node；给单个按钮加 Buff 优先使用 def.buff.add_to_button_and_verify。批量 Buff 才使用 def.buff.add_to_buttons；用户要算伤害时优先用 def.damage.calculate_and_verify。',
-    '每组排轴只有第1到第15格（nodeIndex 0-14）。用户说第16格或更大位置时必须反问组号/合法位置，禁止擅自换算、截断或落到其他格。',
-    '高风险/批量/重排轴优先直接使用 def.worknode.patch_and_validate；没有 nodeId 时省略 nodeId，工具会先从可用的当前 payload 镜像创建 work node；用户明确要应用/回退时优先用 def.worknode.checkout_and_verify / def.worknode.restore_base_and_verify，默认 reload:false。',
-    'def.worknode.patch 是类代码 Patch DSL / CRUD 工具，只修改 appdata work node workingPayload；checkout/rollback 阶段才写当前迁出态。',
-    'def.worknode.patch input: {"nodeId":"...","patch":[{"op":"moveButton","target":{"buttonId":"..."},"nodeIndex":1}],"dryRun":false}。常用 op: addButton/removeButton/moveButton/attachBuff/removeBuff/setTargetResistance/clearTimeline；target 可用 buttonId/characterName/skillType/nodeIndex/latest。',
-    'queued 不等于完成。入队后必须用 def.verify.command_result、def.verify.snapshot_delta、def.verify.buttons_have_buff 或 def.verify.damage_recalculated 验证。',
-    '如果目标不明确，例如“加一个技能按钮”没有说明 A/E/Q/技能名，必须反问；不要默认硬加。',
-    '如果 Buff 候选不唯一，例如“长息”解析出多个对象，必须说明候选并反问；不要硬编码选择。',
-    '不要使用角色名、装备 ID、Buff 名称的录制回放脚本；只硬编码工具边界、schema、policy、verifier。',
-    `当前已选干员: ${selectedSummary}`,
-    `当前技能按钮: ${buttonSummary}`,
-    `MAIN_WORKBENCH_READONLY_EVIDENCE:\n${JSON.stringify(evidence, null, 2)}`,
-    `用户请求: ${userText}`,
-  ].join('\n');
-}
-
 async function buildWorkbenchTestPrompt(userText) {
-  return { agentText: [
-    'This request came from the DEF workbench blackbox ingress and is equivalent to a normal user message.',
-    'Reply in Chinese. Use the registered native DEF tools; do not call or describe legacy REST tool routes.',
-    'For mutations, work only through an isolated child node, validate and diff it, then request approval before use.',
-    `User request: ${userText}`,
-  ].join('\n'), snapshotAvailable: false, evidenceAvailable: false };
-
-  /* Legacy evidence-prompt builder retained below only until the bridge compatibility routes are removed. */
-  await startAiCliRest();
-  const encodedPrompt = encodeURIComponent(userText);
-  const [snapshotResponse, evidenceResponse] = await Promise.allSettled([
-    fetchJsonUrl('http://127.0.0.1:17321/api/main-workbench/snapshot'),
-    fetchJsonUrl(`http://127.0.0.1:17321/api/main-workbench/evidence?prompt=${encodedPrompt}`),
-  ]);
-  const snapshot = snapshotResponse.status === 'fulfilled' && snapshotResponse.value.status === 200
-    ? snapshotResponse.value.body?.snapshot
-    : null;
-  const evidence = evidenceResponse.status === 'fulfilled' && evidenceResponse.value.status === 200
-    ? evidenceResponse.value.body
-    : null;
   return {
-    agentText: buildWorkbenchTestAgentMessage(userText, snapshot, evidence),
-    snapshotAvailable: Boolean(snapshot),
-    evidenceAvailable: Boolean(evidence?.evidence),
+    agentText: [
+      'This request came from the DEF workbench blackbox ingress and is equivalent to a normal user message.',
+      'Reply in Chinese. Use the registered native DEF tools; do not call or describe legacy REST tool routes.',
+      'For mutations, work only through an isolated child node, validate and diff it, then request approval before use.',
+      `User request: ${userText}`,
+    ].join('\\n'),
+    snapshotAvailable: false,
+    evidenceAvailable: false,
   };
 }
+
 
 function proxySseUrl(url, clientRequest, clientResponse) {
   const requestUrl = new URL(url);

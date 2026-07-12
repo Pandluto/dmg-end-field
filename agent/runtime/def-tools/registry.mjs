@@ -114,6 +114,8 @@ export function createDefToolRegistry(definitions) {
       id: tool.name,
       family: familyFor(tool.name),
       source: 'legacy-adapter',
+      schema: tool.inputSchema || { type: 'object' },
+      handler: `executeDefTool:${tool.name}`,
       workspaceScope: tool.scope === 'appdata-work-node'
         ? 'node-store'
         : tool.scope === 'current-checkout'
@@ -144,6 +146,10 @@ export function assertDefToolRegistry(records) {
     ids.add(record.id);
     if (!Object.values(DEF_TOOL_FAMILY).includes(record.family)) errors.push(`tool without valid family: ${record.id}`);
     if (!record.canonicalTarget) errors.push(`tool without canonical target: ${record.id}`);
+    if (!record.handler && !record.nativeBinding) errors.push(`tool without handler/native binding: ${record.id}`);
+    if (!record.schema) errors.push(`tool without schema: ${record.id}`);
+    if (!Array.isArray(record.legacyAliases) || record.legacyAliases.length === 0) errors.push(`tool without legacy alias: ${record.id}`);
+    if (!Array.isArray(record.exposure) || record.exposure.some((host) => !['workbench', 'ai-cli'].includes(host))) errors.push(`tool with invalid exposure: ${record.id}`);
     if (record.status === 'implemented' && !record.description) errors.push(`implemented tool without description: ${record.id}`);
   }
   if (errors.length) throw new Error(`Invalid DEF tool registry:\n${errors.join('\n')}`);
@@ -158,7 +164,16 @@ export function buildDefToolRouteMap(records) {
       .filter((tool) => tool.family === family)
       .map((tool) => ({
         id: tool.id,
+        description: tool.description,
         canonicalTarget: tool.canonicalTarget,
+        schema: tool.schema,
+        handler: tool.handler,
+        workspaceScope: tool.workspaceScope,
+        riskLevel: tool.riskLevel,
+        approval: tool.approval,
+        verification: tool.verification,
+        exposure: tool.exposure,
+        legacyAliases: tool.legacyAliases,
         migrationStatus: tool.migrationStatus,
         legacyRoutes: tool.legacyRoutes,
         status: tool.status,
