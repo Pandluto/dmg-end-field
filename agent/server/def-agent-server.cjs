@@ -87,6 +87,46 @@ function writeJson(response, statusCode, payload) {
   response.end(JSON.stringify(payload));
 }
 
+function buildEmbeddedProviderCatalog(config) {
+  const deepseek = sanitizeDeepSeekConfig(config || {});
+  const modelId = deepseek.model;
+  return {
+    all: [{
+      id: 'deepseek',
+      name: 'DeepSeek',
+      source: 'config',
+      env: [],
+      options: {},
+      models: {
+        [modelId]: {
+          id: modelId,
+          providerID: 'deepseek',
+          api: { id: modelId, url: deepseek.baseUrl, npm: '@ai-sdk/openai-compatible' },
+          name: modelId,
+          family: 'deepseek',
+          capabilities: {
+            temperature: true,
+            reasoning: true,
+            attachment: true,
+            toolcall: true,
+            input: { text: true, audio: false, image: false, video: false, pdf: false },
+            output: { text: true, audio: false, image: false, video: false, pdf: false },
+            interleaved: false,
+          },
+          cost: { input: 0, output: 0, cache: { read: 0, write: 0 } },
+          limit: { context: 128000, output: 8192 },
+          status: 'active',
+          options: {},
+          headers: {},
+          variants: {},
+        },
+      },
+    }],
+    default: { deepseek: modelId },
+    connected: ['deepseek'],
+  };
+}
+
 function writeSse(response, event) {
   response.write(`id: ${event.seq ?? Date.now()}\n`);
   response.write(`event: ${event.type || 'message'}\n`);
@@ -1064,6 +1104,15 @@ const server = http.createServer(async (request, response) => {
       || (method !== 'GET' && /\/(vcs|share|unshare|project|worktree|config|provider|auth)(\/|$)/.test(requestUrl.pathname));
     if (deniedNativeRoute) {
       writeJson(response, 403, { ok: false, error: 'disabled-by-def-feature-matrix', path: requestUrl.pathname });
+      return;
+    }
+
+    // The embedded UI asks OpenCode for every registry provider on startup.
+    // DEF locks the model to its configured DeepSeek provider, so proxying that
+    // multi-megabyte registry only delays the first paint and exposes irrelevant
+    // provider metadata to the renderer.
+    if (method === 'GET' && requestUrl.pathname === '/provider') {
+      writeJson(response, 200, buildEmbeddedProviderCatalog(readConfig().deepseek));
       return;
     }
 
