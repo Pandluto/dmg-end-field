@@ -18,8 +18,8 @@ Answer from the live context and trusted `def_data_*` resources. Do not fork a n
 ## Mutations
 
 1. Fork with `def_node_fork`, or bind an explicitly selected existing node with `def_node_bind`.
-2. Read the node workspace before editing.
-3. Use native `edit` or `apply_patch` for flexible node changes. Do not translate the request into legacy button-command JSON or Patch DSL.
+2. Read `node/working/*.json` before editing. Files below `node/base`, `node/context`, `node/generated`, and the manifest are read-only.
+3. Use native `edit` or `apply_patch` on the normalized working source for flexible node changes. The codec rebuilds storage mirrors; do not translate the request into legacy button-command JSON or Patch DSL.
 4. Run `def_node_sync_validate` and inspect the returned diff/risk evidence.
 5. If the user says 先看看、先不要应用、预览 or equivalent, stop after validation/diff.
 6. Only call `def_node_use` when the user explicitly requests application or clearly approves the reviewed result.

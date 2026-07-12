@@ -19,6 +19,7 @@ const runtimeRoot = path.join(projectRoot, 'agent', 'runtime', 'opencode-core');
 const skillsRoot = path.join(projectRoot, 'agent', 'runtime', 'def', 'skills');
 const defOpenCodeToolSource = path.join(projectRoot, 'agent', 'runtime', 'def-tools', 'opencode', 'def.js');
 const defOpenCodePluginSource = path.join(projectRoot, 'agent', 'runtime', 'def-tools', 'opencode', 'plugin.js');
+const defNodeWorkspaceCodecSource = path.join(projectRoot, 'agent', 'runtime', 'def-node-workspace', 'codec.mjs');
 const runtimeLogDir = path.join(projectRoot, '.runtime', 'def-agent');
 const agentWorkspaceDir = path.join(os.tmpdir(), 'dmg-end-field', 'def-agent-workspace');
 let resolvedAgentWorkspaceDir = null;
@@ -28,7 +29,7 @@ const DEF_TRANSCRIPT_SCHEMA_VERSION = 1;
 const capabilityPolicy = {
   name: 'def-runtime-native-tools-v2',
   workspace: agentWorkspaceDir,
-  allowed: ['model-chat', 'structured-output', 'skill', 'def-node-code', 'def-node-crud', 'def-data-resource'],
+  allowed: ['model-chat', 'structured-output', 'skill', 'native-question', 'def-node-code', 'def-node-crud', 'def-data-resource'],
   denied: [
     'bash',
     'edit',
@@ -40,7 +41,6 @@ const capabilityPolicy = {
     'websearch',
     'lsp',
     'external_directory',
-    'question',
     'plan_enter',
     'plan_exit',
   ],
@@ -185,8 +185,14 @@ function buildCapabilityPermission(_webfetchAllow = [], options = {}) {
   const nodeCode = options.nodeCode === true;
   return {
     bash: 'deny',
-    edit: nodeCode ? 'allow' : 'deny',
-    read: nodeCode ? 'allow' : 'deny',
+    edit: nodeCode ? { '*': 'deny', 'node/working/**': 'allow' } : 'deny',
+    read: nodeCode ? {
+      '*': 'deny',
+      'node/**': 'allow',
+      '.def-workbench-context.json': 'allow',
+      'README.md': 'allow',
+      'AGENTS.md': 'allow',
+    } : 'deny',
     grep: nodeCode ? 'allow' : 'deny',
     glob: nodeCode ? 'allow' : 'deny',
     task: 'deny',
@@ -194,7 +200,7 @@ function buildCapabilityPermission(_webfetchAllow = [], options = {}) {
     websearch: 'deny',
     lsp: 'deny',
     external_directory: 'deny',
-    question: 'deny',
+    question: 'allow',
     plan_enter: 'deny',
     plan_exit: 'deny',
     skill: 'allow',
@@ -202,6 +208,7 @@ function buildCapabilityPermission(_webfetchAllow = [], options = {}) {
     def_node_use: 'ask',
     def_node_delete: 'ask',
     def_node_restore: 'ask',
+    def_node_code_discard: 'ask',
     webfetch: 'deny',
   };
 }
@@ -246,7 +253,7 @@ function buildAgentPrompt(skillId) {
       '- Call def_workbench_context before answering about the current canvas or deciding what to edit.',
       '- Mutations happen in a copied child Work Node, never directly in the parent node or current checkout.',
       '- If this session has no bound node, call def_node_fork. To continue an existing node, call def_node_bind.',
-      '- Use the native read/edit/apply_patch tools on working-payload.json for flexible node changes. base-payload.json is immutable evidence.',
+      '- Use native read/edit/apply_patch only on node/working/*.json. The codec rebuilds storage mirrors; node/base, node/context, node/generated, and manifest are read-only.',
       '- Native file tools are allowed only inside this session directory. Never access project source, another session, or another node directory.',
       '- After editing, call def_node_sync_validate. Use def_node_diff when the user needs review evidence.',
       '- Call def_node_use only after validation and any required approval. It is the only normal step that may touch current checkout.',
@@ -753,13 +760,16 @@ function createAgentSessionWorkspace(skillId) {
     throw new Error(`Missing DEF OpenCode native tool module: ${defOpenCodeToolSource}`);
   }
   fs.copyFileSync(defOpenCodeToolSource, path.join(toolsDir, 'def.js'));
+  const workspaceCodecDir = path.join(directory, 'def-node-workspace');
+  fs.mkdirSync(workspaceCodecDir, { recursive: true });
+  fs.copyFileSync(defNodeWorkspaceCodecSource, path.join(workspaceCodecDir, 'codec.mjs'));
   fs.writeFileSync(path.join(directory, 'AGENTS.md'), [
     '# DEF isolated session workspace',
     '',
     'This directory belongs to one OpenCode session.',
     'For Work Node changes, call def_node_fork or def_node_bind before using read/edit/apply_patch.',
-    'Only working-payload.json is editable node truth. base-payload.json is immutable comparison evidence.',
-    'Run def_node_sync_validate before def_node_use.',
+    'Only node/working/*.json is editable node truth. node/base, node/context, node/generated and manifest are read-only.',
+    'Run def_node_sync_validate to rebuild and validate before def_node_use.',
     '',
   ].join('\n'), 'utf8');
   return fs.realpathSync(directory);

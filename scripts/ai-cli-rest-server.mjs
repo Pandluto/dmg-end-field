@@ -16,6 +16,11 @@ import {
   createDefToolRegistry,
 } from '../agent/runtime/def-tools/registry.mjs';
 import { DEF_TOOL_DEFINITION_BASE } from '../agent/runtime/def-tools/definitions.mjs';
+import {
+  computeDefNodeSourceRisk,
+  hashDefNodeValue,
+  rebuildDefNodePayload,
+} from '../agent/runtime/def-node-workspace/codec.mjs';
 import workNodeStoreModule from '../electron/ai-timeline-work-node-store.cjs';
 import timelineRepositoryModule from '../electron/timeline-repository.cjs';
 
@@ -921,6 +926,7 @@ function createDefWorkNodeFromPayload(payloadSource, input = {}) {
     branchId: sanitizeWorkNodeId(input.branchId, `main-workbench-${now}`),
     createdAt: now,
     updatedAt: now,
+    contentRevision: now,
     label: aiWorkNodeLabel(input.label, `Main Workbench ${new Date(now).toLocaleString()}`),
     status: 'open',
     basePayload: cloneJson(payloadSource.payload),
@@ -1027,6 +1033,7 @@ function handleAiTimelineWorkNodeRequest(method, pathname, body) {
       branchId,
       createdAt: now,
       updatedAt: now,
+      contentRevision: now,
       label: aiWorkNodeLabel(body?.label, 'AI Timeline Work Node'),
       status: 'open',
       basePayload: cloneJson(basePayload),
@@ -2289,6 +2296,7 @@ function readDefWorkNode(input = {}) {
       status: node.status,
       createdAt: node.createdAt,
       updatedAt: node.updatedAt,
+      contentRevision: node.contentRevision || node.updatedAt,
       approvalPolicy: node.approvalPolicy,
       baseSummary: node.baseSummary || summarizeTimelinePayload(node.basePayload),
       workingSummary: node.workingSummary || summarizeTimelinePayload(node.workingPayload),
@@ -2895,16 +2903,71 @@ function syncDefWorkNodeWorkspace(input = {}) {
       currentCheckoutTouched: false,
     };
   }
-  if (!isObject(input.workingPayload)) {
+  const expectedRevision = Number(input.expectedRevision);
+  const actualRevision = Number(node.contentRevision || node.updatedAt);
+  if (Number.isFinite(Number(node.contentRevision)) && Number.isFinite(expectedRevision) && expectedRevision !== actualRevision) {
+    return {
+      ok: false,
+      code: 'workspace-revision-conflict',
+      message: `Work Node revision changed from ${expectedRevision} to ${actualRevision}. Re-read or fork before rebuilding.`,
+      nodeId,
+      expectedRevision,
+      actualRevision,
+      currentCheckoutTouched: false,
+    };
+  }
+  const actualBaseHash = hashDefNodeValue(node.basePayload);
+  if (typeof input.expectedBaseHash === 'string' && input.expectedBaseHash !== actualBaseHash) {
+    return {
+      ok: false,
+      code: 'workspace-base-conflict',
+      message: 'Work Node base hash changed. Re-materialize before rebuilding.',
+      nodeId,
+      expectedBaseHash: input.expectedBaseHash,
+      actualBaseHash,
+      currentCheckoutTouched: false,
+    };
+  }
+  const actualWorkingHash = hashDefNodeValue(node.workingPayload);
+  if (typeof input.expectedWorkingHash === 'string' && input.expectedWorkingHash !== actualWorkingHash) {
+    return {
+      ok: false,
+      code: 'workspace-working-conflict',
+      message: 'Work Node working payload changed after materialization. Re-read or fork before rebuilding.',
+      nodeId,
+      expectedWorkingHash: input.expectedWorkingHash,
+      actualWorkingHash,
+      currentCheckoutTouched: false,
+    };
+  }
+  let workingPayload = null;
+  let sourceIssues = [];
+  if (isObject(input.workspaceSource)) {
+    const rebuilt = rebuildDefNodePayload(node.workingPayload, input.workspaceSource);
+    if (!rebuilt.ok) sourceIssues = rebuilt.issues;
+    else workingPayload = rebuilt.payload;
+  } else if (isObject(input.workingPayload)) {
+    workingPayload = cloneJson(input.workingPayload);
+  }
+  if (sourceIssues.length) {
+    return {
+      ok: false,
+      code: 'workspace-source-validation-failed',
+      message: sourceIssues.map((issue) => issue.message).join('; '),
+      nodeId,
+      validation: { ok: false, issues: sourceIssues },
+      currentCheckoutTouched: false,
+    };
+  }
+  if (!isObject(workingPayload)) {
     return {
       ok: false,
       code: 'invalid-workspace-payload',
-      message: 'sync_workspace requires a workingPayload object.',
+      message: 'sync_workspace requires workspaceSource or workingPayload.',
       nodeId,
       currentCheckoutTouched: false,
     };
   }
-  const workingPayload = cloneJson(input.workingPayload);
   const issues = validateWorkNodePayloadIssues(workingPayload, 'workingPayload');
   if (issues.length) {
     return {
@@ -2916,13 +2979,22 @@ function syncDefWorkNodeWorkspace(input = {}) {
       currentCheckoutTouched: false,
     };
   }
+  const diff = diffTimelinePayloadsForWorkNode(node.basePayload, workingPayload);
+  const riskFlags = computeDefNodeSourceRisk(diff).map((risk) => makeDefWorkNodeRiskFlag(
+    risk.severity,
+    risk.code,
+    risk.message,
+    risk.path,
+  ));
   const now = Date.now();
   const nextNode = {
     ...node,
     workingPayload,
     workingSummary: summarizeTimelinePayload(workingPayload),
     updatedAt: now,
+    contentRevision: now,
     status: 'ready',
+    riskFlags,
     logs: [
       makeWorkNodeLog('info', 'Synchronized working payload from isolated OpenCode node workspace.', {
         sessionId: typeof input.sessionId === 'string' ? input.sessionId : undefined,
@@ -2930,10 +3002,9 @@ function syncDefWorkNodeWorkspace(input = {}) {
       ...(Array.isArray(node.logs) ? node.logs : []),
     ],
   };
-  const diff = diffTimelinePayloadsForWorkNode(node.basePayload, workingPayload);
   const checkoutDecision = buildAiTimelineCheckoutDecision({
     approvalPolicy: nextNode.approvalPolicy,
-    riskFlags: nextNode.riskFlags,
+    riskFlags,
     diff,
   });
   mirrorWorkNodeToTimelineRepository(nextNode);
@@ -2941,14 +3012,16 @@ function syncDefWorkNodeWorkspace(input = {}) {
   return {
     ok: true,
     nodeId,
+    revision: now,
+    baseHash: actualBaseHash,
+    workingHash: hashDefNodeValue(workingPayload),
     validation: { ok: true, issues: [] },
-    diff: {
-      summary: diff.summary,
-      selectedCharactersChanged: diff.selectedCharactersChanged,
-    },
+    diff,
     diffSummary: formatDefWorkNodeDiffSummary(diff),
+    riskFlags,
     checkoutDecision,
     workingSummary: nextNode.workingSummary,
+    generatedPayload: workingPayload,
     currentCheckoutTouched: false,
   };
 }
@@ -3099,6 +3172,11 @@ function createDefApprovalRequest(input = {}) {
     diffSummary: isObject(input.diffSummary) ? input.diffSummary : null,
     riskFlags: Array.isArray(input.riskFlags) ? input.riskFlags : [],
     workNodeId: typeof input.workNodeId === 'string' ? input.workNodeId : '',
+    sessionId: typeof input.sessionId === 'string' ? input.sessionId : '',
+    nodeRevision: Number.isFinite(Number(input.nodeRevision)) ? Number(input.nodeRevision) : null,
+    diffHash: typeof input.diffHash === 'string' ? input.diffHash : '',
+    riskHash: typeof input.riskHash === 'string' ? input.riskHash : '',
+    workingHash: typeof input.workingHash === 'string' ? input.workingHash : '',
     toolCallId: typeof input.toolCallId === 'string' ? input.toolCallId : '',
   };
   writeDefToolGovernanceArchive({
@@ -3125,6 +3203,28 @@ function recordDefApprovalDecision(input = {}) {
     return { ok: false, code: 'invalid-approval-decision', message: 'def.approval.record_decision requires approvalId and decision approved/rejected/deferred.' };
   }
   const archive = readDefToolGovernanceArchive();
+  const requested = archive.approvals.find((approval) => approval?.id === approvalId);
+  if (decision === 'approved' && requested?.workNodeId) {
+    const node = readRepositoryWorkNode(requested.workNodeId);
+    const actualRevision = Number(node?.contentRevision || node?.updatedAt);
+    const actualWorkingHash = node ? hashDefNodeValue(node.workingPayload) : '';
+    const staleRevision = Number.isFinite(Number(node?.contentRevision))
+      && Number.isFinite(Number(requested.nodeRevision))
+      && actualRevision !== Number(requested.nodeRevision);
+    const staleHash = requested.workingHash && actualWorkingHash !== requested.workingHash;
+    if (!node || staleRevision || staleHash) {
+      return {
+        ok: false,
+        code: 'approval-stale',
+        message: 'Work Node content changed after approval was requested. Rebuild the diff and request approval again.',
+        approvalId,
+        expectedRevision: requested.nodeRevision,
+        actualRevision: node ? actualRevision : null,
+        expectedWorkingHash: requested.workingHash || '',
+        actualWorkingHash,
+      };
+    }
+  }
   let updated = null;
   const approvals = archive.approvals.map((approval) => {
     if (approval?.id !== approvalId) return approval;
@@ -3244,6 +3344,8 @@ function buildDefToolDefinitions() {
       reload: { type: 'boolean', description: 'Defaults to false to preserve the current UI. Set true only when the user explicitly requests a full reload.' },
       waitMs: { type: 'number', description: 'Optional synchronous verification wait window in milliseconds for *_and_verify tools.' },
       snapshotWaitMs: { type: 'number', description: 'Optional extra wait for the mirrored snapshot to reflect the applied command.' },
+      expectedRevision: { type: 'number' },
+      expectedWorkingHash: { type: 'string' },
       approval: {
         type: 'object',
         properties: {
@@ -3262,6 +3364,7 @@ function buildDefToolDefinitions() {
       reload: { type: 'boolean', description: 'Defaults to false to preserve the current UI. Set true only when the user explicitly requests a full reload.' },
       waitMs: { type: 'number', description: 'Optional synchronous verification wait window in milliseconds for *_and_verify tools.' },
       snapshotWaitMs: { type: 'number', description: 'Optional extra wait for the mirrored snapshot to reflect the restored command.' },
+      expectedRevision: { type: 'number' },
       approval: {
         type: 'object',
         properties: {
@@ -3299,11 +3402,16 @@ function buildDefToolDefinitions() {
   const syncWorkspaceSchema = {
     type: 'object',
     additionalProperties: false,
-    required: ['nodeId', 'workingPayload'],
+    required: ['nodeId'],
+    anyOf: [{ required: ['workspaceSource'] }, { required: ['workingPayload'] }],
     properties: {
       nodeId: { type: 'string' },
       workingPayload: { type: 'object' },
+      workspaceSource: { type: 'object' },
       sessionId: { type: 'string' },
+      expectedRevision: { type: 'number' },
+      expectedBaseHash: { type: 'string' },
+      expectedWorkingHash: { type: 'string' },
     },
   };
   return DEF_TOOL_DEFINITION_BASE.map((tool) => ({
@@ -3536,6 +3644,30 @@ async function executeDefWorkNodeApplyAndVerify(name, input = {}, restore = fals
   const node = readDefWorkNodeById(nodeId);
   if (!node) {
     return { ok: false, code: 'ai-worknode-not-found', message: `AI timeline work node not found: ${nodeId}` };
+  }
+  const actualRevision = Number(node.contentRevision || node.updatedAt);
+  if (Number.isFinite(Number(node.contentRevision)) && Number.isFinite(Number(input.expectedRevision)) && Number(input.expectedRevision) !== actualRevision) {
+    return {
+      ok: false,
+      code: 'worknode-use-revision-conflict',
+      message: `Work Node revision changed from ${input.expectedRevision} to ${actualRevision}. Rebuild and review again before use.`,
+      nodeId,
+      expectedRevision: Number(input.expectedRevision),
+      actualRevision,
+      currentCheckoutTouched: false,
+    };
+  }
+  const actualWorkingHash = hashDefNodeValue(node.workingPayload);
+  if (!restore && typeof input.expectedWorkingHash === 'string' && input.expectedWorkingHash !== actualWorkingHash) {
+    return {
+      ok: false,
+      code: 'worknode-use-hash-conflict',
+      message: 'Work Node payload changed after review. Rebuild and approve the new diff before use.',
+      nodeId,
+      expectedWorkingHash: input.expectedWorkingHash,
+      actualWorkingHash,
+      currentCheckoutTouched: false,
+    };
   }
   const before = readMainWorkbenchSnapshotMirror();
   const expectedPayload = restore ? node.basePayload : node.workingPayload;

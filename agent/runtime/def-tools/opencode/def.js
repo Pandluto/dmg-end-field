@@ -1,11 +1,18 @@
 import fs from 'node:fs'
 import path from 'node:path'
+import { decodeDefNodePayload, hashDefNodeValue } from '../../def-node-workspace/codec.mjs'
 
 const restBase = process.env.DEF_REST_BASE_URL || 'http://127.0.0.1:17321'
 const bindingFile = '.def-node.json'
 const workingFile = 'working-payload.json'
 const baseFile = 'base-payload.json'
 const workbenchContextFile = '.def-workbench-context.json'
+const nodeRoot = 'node'
+const nodeManifest = 'node/manifest.json'
+const nodeSelection = 'node/working/selection.json'
+const nodeTimeline = 'node/working/timeline.json'
+const nodeBuffs = 'node/working/buffs.json'
+const nodeInputs = 'node/working/inputs.json'
 
 async function callDefTool(tool, input = {}) {
   const response = await fetch(`${restBase}/api/def-tools/call`, {
@@ -33,21 +40,43 @@ function inside(directory, name) {
 }
 
 function writeJson(file, value) {
+  fs.mkdirSync(path.dirname(file), { recursive: true })
   fs.writeFileSync(file, `${JSON.stringify(value, null, 2)}\n`, 'utf8')
 }
 
 function materialize(context, node) {
   if (!node?.id || !node?.workingPayload || !node?.basePayload) throw new Error('Work node payload is incomplete')
   fs.mkdirSync(context.directory, { recursive: true })
-  writeJson(inside(context.directory, bindingFile), {
+  const source = decodeDefNodePayload(node.workingPayload)
+  const manifest = {
     schemaVersion: 1,
     nodeId: node.id,
     parentNodeId: node.parentNodeId || null,
     saveId: node.saveId,
     branchId: node.branchId,
     sessionId: context.sessionID,
+    revision: node.contentRevision || node.updatedAt,
+    baseHash: hashDefNodeValue(node.basePayload),
+    workingHash: hashDefNodeValue(node.workingPayload),
+    sourceHash: hashDefNodeValue(source),
     materializedAt: Date.now(),
+  }
+  writeJson(inside(context.directory, bindingFile), {
+    ...manifest,
+    schemaVersion: 2,
   })
+  writeJson(inside(context.directory, nodeManifest), manifest)
+  writeJson(inside(context.directory, 'node/base/snapshot.json'), node.basePayload)
+  writeJson(inside(context.directory, nodeSelection), source.selection)
+  writeJson(inside(context.directory, nodeTimeline), source.timeline)
+  writeJson(inside(context.directory, nodeBuffs), source.buffs)
+  writeJson(inside(context.directory, nodeInputs), source.inputs)
+  writeJson(inside(context.directory, 'node/context/derived.json'), {
+    anomalyStateSnapshots: node.workingPayload.anomalyStateSnapshots || [],
+    characterComputedMap: node.workingPayload.characterComputedMap || {},
+    characterDisplayCacheMap: node.workingPayload.characterDisplayCacheMap || {},
+  })
+  writeJson(inside(context.directory, 'node/generated/payload.json'), node.workingPayload)
   writeJson(inside(context.directory, baseFile), node.basePayload)
   writeJson(inside(context.directory, workingFile), node.workingPayload)
   fs.writeFileSync(inside(context.directory, 'README.md'), [
@@ -55,12 +84,19 @@ function materialize(context, node) {
     '',
     `Node: ${node.id}`,
     '',
-    `Edit ${workingFile} with OpenCode read/edit/apply_patch.`,
-    `Do not edit ${baseFile}; it is the immutable comparison baseline.`,
-    'Run def_node_sync_validate before requesting approval or using the node.',
+    `Edit only ${nodeRoot}/working/*.json with OpenCode read/edit/apply_patch.`,
+    'The normalized timeline keeps every button once; generated storage mirrors are rebuilt by the codec.',
+    `${nodeRoot}/base, ${nodeRoot}/context, ${nodeRoot}/generated and ${nodeManifest} are read-only evidence.`,
+    'Run def_node_sync_validate to rebuild, validate and review before requesting approval or using the node.',
     '',
   ].join('\n'), 'utf8')
-  return { nodeId: node.id, directory: context.directory, files: [bindingFile, baseFile, workingFile, 'README.md'] }
+  return {
+    nodeId: node.id,
+    directory: context.directory,
+    revision: manifest.revision,
+    editableFiles: [nodeSelection, nodeTimeline, nodeBuffs, nodeInputs],
+    readOnlyFiles: [nodeManifest, 'node/base/snapshot.json', 'node/context/derived.json', 'node/generated/payload.json'],
+  }
 }
 
 function readBinding(context) {
@@ -71,12 +107,96 @@ function readBinding(context) {
 
 async function syncWorkspace(context) {
   const binding = readBinding(context)
-  const workingPayload = JSON.parse(fs.readFileSync(inside(context.directory, workingFile), 'utf8'))
-  return callDefTool('def.worknode.sync_workspace', {
+  const workspaceSource = {
+    schemaVersion: 1,
+    selection: JSON.parse(fs.readFileSync(inside(context.directory, nodeSelection), 'utf8')),
+    timeline: JSON.parse(fs.readFileSync(inside(context.directory, nodeTimeline), 'utf8')),
+    buffs: JSON.parse(fs.readFileSync(inside(context.directory, nodeBuffs), 'utf8')),
+    inputs: JSON.parse(fs.readFileSync(inside(context.directory, nodeInputs), 'utf8')),
+  }
+  const result = await callDefTool('def.worknode.sync_workspace', {
     nodeId: binding.nodeId,
     sessionId: context.sessionID,
-    workingPayload,
+    expectedRevision: binding.revision,
+    expectedBaseHash: binding.baseHash,
+    expectedWorkingHash: binding.workingHash,
+    workspaceSource,
   })
+  const nextBinding = { ...binding, revision: result.revision, workingHash: result.workingHash, synchronizedAt: Date.now() }
+  nextBinding.sourceHash = hashDefNodeValue(workspaceSource)
+  writeJson(inside(context.directory, bindingFile), nextBinding)
+  writeJson(inside(context.directory, nodeManifest), { ...nextBinding, schemaVersion: 1 })
+  if (result.generatedPayload) {
+    writeJson(inside(context.directory, workingFile), result.generatedPayload)
+    writeJson(inside(context.directory, 'node/generated/payload.json'), result.generatedPayload)
+  }
+  writeJson(inside(context.directory, 'node/generated/validation.json'), result.validation)
+  writeJson(inside(context.directory, 'node/generated/diff.json'), result.diff)
+  writeJson(inside(context.directory, 'node/generated/risk.json'), { riskFlags: result.riskFlags, checkoutDecision: result.checkoutDecision })
+  return result
+}
+
+function readWorkspaceSource(context) {
+  return {
+    schemaVersion: 1,
+    selection: JSON.parse(fs.readFileSync(inside(context.directory, nodeSelection), 'utf8')),
+    timeline: JSON.parse(fs.readFileSync(inside(context.directory, nodeTimeline), 'utf8')),
+    buffs: JSON.parse(fs.readFileSync(inside(context.directory, nodeBuffs), 'utf8')),
+    inputs: JSON.parse(fs.readFileSync(inside(context.directory, nodeInputs), 'utf8')),
+  }
+}
+
+export const node_code_materialize = {
+  description: 'Materialize an existing DEF Work Node as normalized editable node/working sources in this isolated session.',
+  args: { nodeId: { type: 'string', description: 'Existing Work Node id.' } },
+  async execute(args, context) {
+    const read = await callDefTool('def.worknode.read', { nodeId: args.nodeId, includePayload: true })
+    return { title: 'DEF node code workspace materialized', output: JSON.stringify(materialize(context, read.node), null, 2), metadata: { family: 'def-node-code', nodeId: args.nodeId } }
+  },
+}
+
+export const node_code_status = {
+  description: 'Read the current DEF node code workspace revision, hashes, dirty state, and latest generated validation reports.',
+  args: {},
+  async execute(_args, context) {
+    const manifest = JSON.parse(fs.readFileSync(inside(context.directory, nodeManifest), 'utf8'))
+    const source = readWorkspaceSource(context)
+    const report = (name) => {
+      const target = inside(context.directory, `node/generated/${name}.json`)
+      return fs.existsSync(target) ? JSON.parse(fs.readFileSync(target, 'utf8')) : null
+    }
+    const output = {
+      nodeId: manifest.nodeId,
+      revision: manifest.revision,
+      baseHash: manifest.baseHash,
+      workingHash: manifest.workingHash,
+      dirty: hashDefNodeValue(source) !== manifest.sourceHash,
+      validation: report('validation'),
+      diff: report('diff'),
+      risk: report('risk'),
+    }
+    return { title: 'DEF node code workspace status', output: JSON.stringify(boundResourceValue(output), null, 2), metadata: { family: 'def-node-code', nodeId: manifest.nodeId, dirty: output.dirty } }
+  },
+}
+
+export const node_code_rebuild = {
+  description: 'Rebuild the bound Work Node payload from normalized node/working sources with revision checks, validation, semantic diff, and risk analysis.',
+  args: {},
+  async execute(_args, context) {
+    const result = await syncWorkspace(context)
+    return { title: result.validation?.ok ? 'DEF node source rebuilt' : 'DEF node rebuild failed', output: JSON.stringify(result, null, 2), metadata: { family: 'def-node-code', nodeId: result.nodeId, revision: result.revision } }
+  },
+}
+
+export const node_code_discard = {
+  description: 'Discard unsynchronized node/working file edits after native confirmation and re-materialize the repository Work Node revision.',
+  args: {},
+  async execute(_args, context) {
+    const binding = readBinding(context)
+    await context.ask({ permission: 'def_node_code_discard', patterns: [binding.nodeId], always: [], metadata: { nodeId: binding.nodeId } })
+    const read = await callDefTool('def.worknode.read', { nodeId: binding.nodeId, includePayload: true })
+    return { title: 'DEF node code edits discarded', output: JSON.stringify(materialize(context, read.node), null, 2), metadata: { family: 'def-node-code', nodeId: binding.nodeId } }
+  },
 }
 
 export const node_fork = {
@@ -202,8 +322,14 @@ export const node_use = {
         riskLevel: 'high',
         mode: 'blocking',
         workNodeId: binding.nodeId,
+        sessionId: context.sessionID,
+        nodeRevision: binding.revision,
+        diffHash: hashDefNodeValue(synced.diff),
+        riskHash: hashDefNodeValue(synced.riskFlags || []),
+        workingHash: binding.workingHash,
         toolCallId: context.messageID,
         diffSummary: synced.diff,
+        riskFlags: synced.riskFlags || [],
       })
       try {
         await context.ask({
@@ -230,6 +356,8 @@ export const node_use = {
     }
     const used = await callDefTool('def.worknode.checkout_and_verify', {
       nodeId: binding.nodeId,
+      expectedRevision: binding.revision,
+      expectedWorkingHash: binding.workingHash,
       reload: false,
     })
     return {
@@ -251,6 +379,8 @@ export const node_restore = {
       riskLevel: 'high',
       mode: 'blocking',
       workNodeId: binding.nodeId,
+      sessionId: context.sessionID,
+      nodeRevision: binding.revision,
       toolCallId: context.messageID,
     })
     try {
@@ -275,7 +405,7 @@ export const node_restore = {
       decidedBy: 'user',
       rationale: 'Restore approved through OpenCode native permission UI.',
     })
-    const restored = await callDefTool('def.worknode.restore_base_and_verify', { nodeId: binding.nodeId, reload: false })
+    const restored = await callDefTool('def.worknode.restore_base_and_verify', { nodeId: binding.nodeId, expectedRevision: binding.revision, reload: false })
     return {
       title: restored.ok ? 'DEF node base restored' : 'DEF node restore pending',
       output: JSON.stringify(restored, null, 2),
