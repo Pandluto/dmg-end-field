@@ -45,6 +45,7 @@ const CANONICAL_TARGETS = Object.freeze({
   'def.worknode.copy_staff_line_and_verify': 'def.node.code.apply_patch',
   'def.buff.add_to_buttons': 'def.node.code.apply_patch',
   'def.user.ask': 'def.node.crud.request_approval',
+  'def.user.record_answer': 'def.node.crud.record_approval',
   'def.approval.request': 'def.node.crud.request_approval',
   'def.approval.record_decision': 'def.node.crud.record_approval',
 });

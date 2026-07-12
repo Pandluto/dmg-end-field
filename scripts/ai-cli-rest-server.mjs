@@ -3612,6 +3612,39 @@ function readDefWorkNodeById(nodeId) {
   return readRepositoryWorkNode(nodeId);
 }
 
+function recordDefUserQuestionAnswer(input = {}) {
+  const nativeRequestId = typeof input.nativeRequestId === 'string' ? input.nativeRequestId.trim() : '';
+  const sessionId = typeof input.sessionId === 'string' ? input.sessionId.trim() : '';
+  if (!nativeRequestId || !sessionId) {
+    return { ok: false, code: 'invalid-question-decision', message: 'nativeRequestId and sessionId are required.' };
+  }
+  const status = input.status === 'answered' ? 'answered' : 'rejected';
+  const archive = readDefToolGovernanceArchive();
+  const record = {
+    id: `def-question-${nativeRequestId}`,
+    nativeRequestId,
+    sessionId,
+    workNodeId: typeof input.workNodeId === 'string' ? input.workNodeId : '',
+    createdAt: Number(input.createdAt || Date.now()),
+    decidedAt: Date.now(),
+    status,
+    mode: 'blocking',
+    questions: Array.isArray(input.questions) ? input.questions.slice(0, 6) : [],
+    answers: Array.isArray(input.answers) ? input.answers.slice(0, 6) : [],
+  };
+  writeDefToolGovernanceArchive({
+    ...archive,
+    questions: [record, ...archive.questions.filter((item) => item?.id !== record.id)],
+  });
+  appendDefGovernanceWorkNodeLog(record.workNodeId, status === 'answered' ? 'info' : 'warning', 'Recorded OpenCode native question decision.', {
+    questionId: record.id,
+    nativeRequestId,
+    sessionId,
+    status,
+  });
+  return { ok: true, question: record };
+}
+
 function snapshotButtonCount(snapshot = readMainWorkbenchSnapshotMirror()) {
   return Array.isArray(snapshot?.skillButtons) ? snapshot.skillButtons.length : 0;
 }
@@ -4344,6 +4377,8 @@ async function executeDefTool(name, input = {}, query = new URLSearchParams()) {
     result = { snapshotUpdatedAt: snapshot?.updatedAt || null, operatorConfigs: snapshot?.operatorConfigs || [] };
   } else if (name === 'def.user.ask') {
     result = createDefUserQuestion(input);
+  } else if (name === 'def.user.record_answer') {
+    result = recordDefUserQuestionAnswer(input);
   } else if (name === 'def.approval.request') {
     result = createDefApprovalRequest(input);
   } else if (name === 'def.approval.record_decision') {

@@ -467,6 +467,15 @@ function chooseWorkbenchTestThinkingEffort(prompt, fallback = '') {
 }
 
 async function buildWorkbenchTestPrompt(userText) {
+  let snapshot = null;
+  try {
+    const upstream = await fetchJsonUrl('http://127.0.0.1:17321/api/main-workbench/snapshot');
+    if (upstream.status >= 200 && upstream.status < 300 && upstream.body?.ok !== false) {
+      snapshot = upstream.body?.snapshot || upstream.body?.data || upstream.body;
+    }
+  } catch {
+    snapshot = null;
+  }
   return {
     agentText: [
       'This request came from the DEF workbench blackbox ingress and is equivalent to a normal user message.',
@@ -474,8 +483,14 @@ async function buildWorkbenchTestPrompt(userText) {
       'For mutations, work only through an isolated child node, validate and diff it, then request approval before use.',
       `User request: ${userText}`,
     ].join('\\n'),
-    snapshotAvailable: false,
-    evidenceAvailable: false,
+    workbenchContext: snapshot ? {
+      schemaVersion: 1,
+      source: 'workbench-blackbox-ingress',
+      updatedAt: Date.now(),
+      snapshot,
+    } : null,
+    snapshotAvailable: Boolean(snapshot),
+    evidenceAvailable: Boolean(snapshot?.checkoutRef || snapshot?.currentCheckout || snapshot?.workNodes),
   };
 }
 
@@ -918,12 +933,14 @@ const server = http.createServer(async (request, response) => {
         clientTurnId,
         thinkingEffort,
         skillId: 'workbench',
+        workbenchContext: builtPrompt.workbenchContext,
       })
       : await postJsonUrl('http://127.0.0.1:17322/api/chat/stream', {
         message: builtPrompt.agentText,
         clientTurnId,
         thinkingEffort,
         skillId: 'workbench',
+        workbenchContext: builtPrompt.workbenchContext,
       });
     const nextSessionId = sessionId || upstream.body?.sessionId || upstream.body?.sessionID || '';
     writeJson(response, upstream.status || 500, {

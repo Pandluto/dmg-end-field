@@ -489,6 +489,7 @@ const server = http.createServer(async (request, response) => {
         message: body.message,
         thinkingEffort: body.thinkingEffort,
         skillId: body.skillId,
+        workbenchContext: body.workbenchContext,
       });
       writeJson(response, result.ok ? 200 : 502, {
         ok: result.ok,
@@ -500,12 +501,26 @@ const server = http.createServer(async (request, response) => {
     if (method === 'POST' && requestUrl.pathname === '/api/chat/stream') {
       await ensureDefRestService();
       const body = await readJsonBody(request);
+      let workbenchContext = body.workbenchContext;
+      if (body.skillId === 'workbench' && (!workbenchContext || typeof workbenchContext !== 'object')) {
+        try {
+          const snapshotResponse = await fetch(`${defRestUrl}/api/main-workbench/snapshot`, { signal: AbortSignal.timeout(4000) });
+          const snapshotBody = await snapshotResponse.json();
+          const snapshot = snapshotBody?.snapshot || snapshotBody?.data || snapshotBody;
+          if (snapshotResponse.ok && snapshotBody?.ok !== false) {
+            workbenchContext = { schemaVersion: 1, source: 'sidecar-workbench-snapshot', updatedAt: Date.now(), snapshot };
+          }
+        } catch {
+          workbenchContext = null;
+        }
+      }
       const result = await runChatStream({
         config: readConfig().deepseek,
         message: body.message,
         thinkingEffort: body.thinkingEffort,
         skillId: body.skillId,
         clientTurnId: body.clientTurnId,
+        workbenchContext,
       });
       writeJson(response, 200, {
         ok: true,
@@ -574,6 +589,7 @@ const server = http.createServer(async (request, response) => {
         config: readConfig().deepseek,
         thinkingEffort: body.thinkingEffort,
         skillId: body.skillId,
+        workbenchContext: body.workbenchContext,
       });
       writeJson(response, 200, {
         ok: true,
@@ -598,6 +614,45 @@ const server = http.createServer(async (request, response) => {
         ok: true,
         result: await stopChat(),
       });
+      return;
+    }
+
+    const nativeQuestionDecision = /^\/question\/([^/]+)\/(reply|reject)$/.exec(requestUrl.pathname);
+    if (method === 'POST' && nativeQuestionDecision) {
+      const runtime = runtimeSummary(readConfig().deepseek);
+      const directory = requestUrl.searchParams.get('directory') || '';
+      const requestID = decodeURIComponent(nativeQuestionDecision[1]);
+      const action = nativeQuestionDecision[2];
+      const pending = await fetch(`${runtime.serverUrl}/question?directory=${encodeURIComponent(directory)}`).then((item) => item.json());
+      const requestRecord = Array.isArray(pending) ? pending.find((item) => item?.id === requestID) : null;
+      const decisionBody = action === 'reply' ? await readJsonBody(request) : {};
+      const upstream = await fetch(`${runtime.serverUrl}${requestUrl.pathname}?directory=${encodeURIComponent(directory)}`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: action === 'reply' ? JSON.stringify(decisionBody) : undefined,
+      });
+      const upstreamText = await upstream.text();
+      if (upstream.ok && requestRecord) {
+        const nodeBinding = readJsonFileIfPresent(path.join(directory, '.def-node.json'));
+        await fetch(`${defRestUrl}/api/def-tools/call`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            tool: 'def.user.record_answer',
+            input: {
+              nativeRequestId: requestID,
+              sessionId: requestRecord.sessionID || '',
+              workNodeId: nodeBinding?.nodeId || '',
+              createdAt: requestRecord.time?.created,
+              status: action === 'reply' ? 'answered' : 'rejected',
+              questions: requestRecord.questions || [],
+              answers: decisionBody.answers || [],
+            },
+          }),
+        }).catch(() => undefined);
+      }
+      response.writeHead(upstream.status, buildJsonHeaders());
+      response.end(upstreamText);
       return;
     }
 

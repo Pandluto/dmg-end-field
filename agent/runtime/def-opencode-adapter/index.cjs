@@ -183,10 +183,12 @@ function buildCapabilityPermission(_webfetchAllow = [], options = {}) {
   const nodeCode = options.nodeCode === true;
   return {
     bash: 'deny',
-    edit: nodeCode ? { '*': 'deny', 'node/working/**': 'allow' } : 'deny',
+    edit: nodeCode ? { '*': 'deny', 'node/working/**': 'allow', '*/node/working/**': 'allow', '**/node/working/**': 'allow' } : 'deny',
     read: nodeCode ? {
       '*': 'deny',
       'node/**': 'allow',
+      '*/node/**': 'allow',
+      '**/node/**': 'allow',
       '.def-workbench-context.json': 'allow',
       'README.md': 'allow',
       'AGENTS.md': 'allow',
@@ -248,6 +250,7 @@ function buildAgentPrompt(skillId) {
       '- Call def_workbench_context before answering about the current canvas or deciding what to edit.',
       '- Mutations happen in a copied child Work Node, never directly in the parent node or current checkout.',
       '- If this session has no bound node, call def_node_fork. To continue an existing node, call def_node_bind.',
+      '- An unambiguous mutation request authorizes creating and editing the isolated child-node draft immediately. Never ask whether to fork or preview. 先看看 means complete rebuild/validation/diff, then stop before approval/use.',
       '- Use native read/edit/apply_patch only on node/working/*.json. The codec rebuilds storage mirrors; node/base, node/context, node/generated, and manifest are read-only.',
       '- Native file tools are allowed only inside this session directory. Never access project source, another session, or another node directory.',
       '- After editing, call def_node_sync_validate. Use def_node_diff when the user needs review evidence.',
@@ -264,6 +267,7 @@ function buildAgentPrompt(skillId) {
       '- Read-only questions do not create or use a node.',
       '- A mutation is not complete until node validation passes and, when requested, def_node_use confirms the checkout.',
       '- Ask only when the target or approval is genuinely ambiguous. Do not invent operator, equipment, skill, or Buff data.',
+      '- For an occupied-slot ambiguity, keep or restore a valid draft and use the native question tool with business choices; never ask only in ordinary assistant prose.',
       '- Never say that you lack timeline-arrangement capability merely because there is no single tool named 排轴. Use node code editing plus CRUD and trusted resources.',
       '- Do not narrate plans, chain of thought, tool names, URLs, command ids, step tables, or suggested next steps.',
       '- If application is still pending, say it is waiting for execution confirmation; never claim success without evidence.',
@@ -302,7 +306,7 @@ function buildOpenCodeConfig(config) {
         ? { thinking: { type: 'disabled' } }
         : deepSeekRequestOptions(deepseek.model, 'high'),
       permission: buildAgentPermission(id),
-      steps: id === 'workbench' ? 16 : 8,
+      steps: id === 'workbench' ? 24 : 12,
     };
   }
 
@@ -784,6 +788,34 @@ function writeSessionBinding(directory, session) {
   }, null, 2)}\n`, 'utf8');
 }
 
+function readNativeNodeRelation(directory) {
+  const manifest = readJsonFile(path.join(directory, 'node', 'manifest.json'));
+  if (!manifest?.nodeId) return null;
+  const validation = readJsonFile(path.join(directory, 'node', 'generated', 'validation.json'));
+  const risk = readJsonFile(path.join(directory, 'node', 'generated', 'risk.json'));
+  const workingRoot = path.join(directory, 'node', 'working');
+  let latestWorkingEdit = 0;
+  try {
+    for (const entry of fs.readdirSync(workingRoot, { withFileTypes: true })) {
+      if (entry.isFile()) latestWorkingEdit = Math.max(latestWorkingEdit, fs.statSync(path.join(workingRoot, entry.name)).mtimeMs);
+    }
+  } catch {
+    latestWorkingEdit = 0;
+  }
+  return {
+    schemaVersion: 1,
+    nodeId: manifest.nodeId,
+    parentNodeId: manifest.parentNodeId || null,
+    revision: manifest.revision,
+    baseHash: manifest.baseHash,
+    workingHash: manifest.workingHash,
+    synchronizedAt: manifest.synchronizedAt || null,
+    dirty: latestWorkingEdit > Number(manifest.synchronizedAt || manifest.materializedAt || 0),
+    validation: validation ? { ok: validation.ok !== false, issueCount: Array.isArray(validation.issues) ? validation.issues.length : 0 } : null,
+    risk: risk ? { riskFlags: Array.isArray(risk.riskFlags) ? risk.riskFlags : [], checkoutDecision: risk.checkoutDecision || null } : null,
+  };
+}
+
 function readNativeSessionBinding(directory, sessionID) {
   if (typeof directory !== 'string' || !directory.trim()) return null;
   const sessionsRoot = path.resolve(getAgentWorkspaceDir(), 'sessions');
@@ -802,6 +834,7 @@ function readNativeSessionBinding(directory, sessionID) {
     agent: expected.agent,
     skillId: expected.skillId,
     profile: expected,
+    nodeRelation: readNativeNodeRelation(resolved),
   };
 }
 
@@ -834,7 +867,7 @@ function listSessionBindings() {
       const directory = path.join(hostRoot, sessionEntry.name);
       const binding = readJsonFile(path.join(directory, '.def-session.json'));
       if (binding?.sessionID && path.resolve(binding.directory || directory) === path.resolve(directory)) {
-        bindings.push({ ...binding, directory });
+        bindings.push({ ...binding, directory, nodeRelation: readNativeNodeRelation(directory) });
       }
     }
   }
@@ -1031,7 +1064,17 @@ function textFromMessageParts(parts = []) {
 }
 
 function userVisibleReply(text) {
-  const normalized = typeof text === 'string' ? text.trim() : '';
+  let normalized = typeof text === 'string' ? text.trim() : '';
+  if (normalized.length >= 8) {
+    const prefix = normalized.slice(0, 4);
+    const occurrences = [];
+    for (let index = normalized.indexOf(prefix); index >= 0; index = normalized.indexOf(prefix, index + prefix.length)) {
+      occurrences.push(index);
+    }
+    if (occurrences.length >= 3 || (occurrences.length >= 2 && /[`"'>]{2,}/.test(normalized.slice(0, 200)))) {
+      normalized = normalized.slice(occurrences.at(-1)).trim();
+    }
+  }
   if (!normalized || !/\b(?:Goal|Constraints|Progress|Key Decisions|Next Steps|Critical Context|Relevant Files)\b/i.test(normalized)) return normalized;
   if (/checkout\s*[:=]\s*false|暂不应用|尚未应用/i.test(normalized)) return '已生成排轴草稿，尚未应用到当前时间轴。';
   if (/\bpending\b|等待(?:浏览器|执行|确认)|queued/i.test(normalized)) return '正在应用到当前时间轴，等待执行确认。';
@@ -1666,7 +1709,7 @@ async function sendMessageOnStreamSession(state, message, clientTurnId) {
   }
 }
 
-async function runChatStream({ config, message, thinkingEffort, skillId = 'operator', clientTurnId }) {
+async function runChatStream({ config, message, thinkingEffort, skillId = 'operator', clientTurnId, workbenchContext }) {
   const deepseek = sanitizeDeepSeekConfig(config);
   if (!deepseek.apiKey) {
     throw new Error('DeepSeek API key is not configured in DEF Shell 05 Agent.');
@@ -1679,6 +1722,9 @@ async function runChatStream({ config, message, thinkingEffort, skillId = 'opera
   const sessionPayload = buildSessionCreatePayload({ selected, deepseek, skillId, thinkingEffort });
   const session = await requestJson('POST', `${baseUrl}/session?${query}`, sessionPayload, undefined, 15000);
   writeSessionBinding(directory, { id: session.id, agent: selected.agent, skillId });
+  if (skillId === 'workbench' && workbenchContext && typeof workbenchContext === 'object') {
+    writeNativeWorkbenchContext(directory, session.id, workbenchContext);
+  }
   const state = makeStreamState({
     baseUrl,
     directory,
@@ -1728,6 +1774,9 @@ async function continueChat(sessionID, message, clientTurnId, options = {}) {
       model: state.model,
       resumed: true,
     });
+  }
+  if (state.skillId === 'workbench' && options.workbenchContext && typeof options.workbenchContext === 'object') {
+    writeNativeWorkbenchContext(state.directory, state.sessionID, options.workbenchContext);
   }
   void sendMessageOnStreamSession(state, message, clientTurnId);
   return {

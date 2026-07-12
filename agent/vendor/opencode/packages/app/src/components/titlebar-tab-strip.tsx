@@ -1,4 +1,4 @@
-import { createEffect, createMemo, createResource, createRoot, For, onCleanup, onMount } from "solid-js"
+import { createEffect, createMemo, createResource, createRoot, For, onCleanup, onMount, Show } from "solid-js"
 import { createResizeObserver } from "@solid-primitives/resize-observer"
 import { DragDropProvider, PointerSensor } from "@dnd-kit/solid"
 import { isSortable, useSortable } from "@dnd-kit/solid/sortable"
@@ -16,6 +16,7 @@ import { useTabs } from "@/context/tabs"
 import { createTabPromptState } from "@/context/prompt"
 import { base64Encode } from "@opencode-ai/core/util/encode"
 import { canStartTabDrag, isTabCloseTarget } from "./titlebar-tab-gesture"
+import { defEmbeddedProfile } from "@/utils/def-embedded"
 
 const sortableTransition = { duration: 0 }
 
@@ -50,6 +51,19 @@ function SessionTabSlot(props: {
     ({ id, ctx }) => ctx.sync.session.resolve(id).catch(() => undefined),
   )
   const session = createMemo(() => cachedSession() ?? loadedSession())
+  const [nodeRelation] = createResource(
+    () => {
+      const value = session()
+      return defEmbeddedProfile() && value ? { id: value.id, directory: value.directory } : null
+    },
+    async ({ id, directory }) => {
+      const query = new URLSearchParams({ sessionID: id, directory })
+      const response = await fetch(`/api/native/bootstrap?${query}`)
+      if (!response.ok) return null
+      const payload = await response.json()
+      return payload?.binding?.nodeRelation ?? null
+    },
+  )
   let prefetched = false
 
   createEffect(() => {
@@ -112,6 +126,16 @@ function SessionTabSlot(props: {
         forceTruncate={props.forceTruncate}
         dragging={sortable.isDragSource()}
       />
+      <Show when={nodeRelation()}>
+        {(relation) => (
+          <span
+            class="pointer-events-none absolute bottom-0.5 right-8 rounded-[1px] border border-v2-border-border-base bg-v2-background-bg-base px-1 text-[9px] leading-3 text-v2-text-text-muted"
+            title={`Work Node ${relation().nodeId} · ${relation().dirty ? "未同步" : relation().validation?.ok ? "已校验" : "待校验"}`}
+          >
+            {relation().dirty ? "节点·未同步" : relation().validation?.ok ? "节点·已校验" : "节点"}
+          </span>
+        )}
+      </Show>
     </div>
   )
 }
