@@ -4,6 +4,7 @@ const http = require('http');
 const net = require('net');
 const os = require('os');
 const path = require('path');
+const { pathToFileURL } = require('url');
 const { EventEmitter } = require('events');
 const { spawn, spawnSync } = require('child_process');
 
@@ -16,6 +17,8 @@ const OPENCODE_PORT_MAX_ATTEMPTS = 20;
 const projectRoot = path.resolve(__dirname, '..', '..', '..');
 const runtimeRoot = path.join(projectRoot, 'agent', 'runtime', 'opencode-core');
 const skillsRoot = path.join(projectRoot, 'agent', 'runtime', 'def', 'skills');
+const defOpenCodeToolSource = path.join(projectRoot, 'agent', 'runtime', 'def-tools', 'opencode', 'def.js');
+const defOpenCodePluginSource = path.join(projectRoot, 'agent', 'runtime', 'def-tools', 'opencode', 'plugin.js');
 const runtimeLogDir = path.join(projectRoot, '.runtime', 'def-agent');
 const agentWorkspaceDir = path.join(os.tmpdir(), 'dmg-end-field', 'def-agent-workspace');
 let resolvedAgentWorkspaceDir = null;
@@ -144,17 +147,18 @@ function deepSeekReasoningEffort(value) {
   return 'high';
 }
 
-function buildCapabilityPermission(webfetchAllow = ['http://127.0.0.1:17321/*']) {
+function buildCapabilityPermission(webfetchAllow = ['http://127.0.0.1:17321/*'], options = {}) {
+  const nodeCode = options.nodeCode === true;
   const webfetch = { '*': 'deny' };
   for (const pattern of webfetchAllow) {
     webfetch[pattern] = 'allow';
   }
   return {
     bash: 'deny',
-    edit: 'deny',
-    read: 'deny',
-    grep: 'deny',
-    glob: 'deny',
+    edit: nodeCode ? 'allow' : 'deny',
+    read: nodeCode ? 'allow' : 'deny',
+    grep: nodeCode ? 'allow' : 'deny',
+    glob: nodeCode ? 'allow' : 'deny',
     task: 'deny',
     todowrite: 'deny',
     websearch: 'deny',
@@ -164,6 +168,8 @@ function buildCapabilityPermission(webfetchAllow = ['http://127.0.0.1:17321/*'])
     plan_enter: 'deny',
     plan_exit: 'deny',
     skill: 'allow',
+    'def_*': 'allow',
+    def_node_use: 'ask',
     webfetch,
   };
 }
@@ -180,7 +186,7 @@ function buildAgentPermission(skillId) {
       'http://127.0.0.1:17321/api/def-tools?*',
       'http://127.0.0.1:17321/api/def-tools/describe?*',
       'http://127.0.0.1:17321/api/def-tools/call',
-    ]);
+    ], { nodeCode: true });
   }
   return buildCapabilityPermission();
 }
@@ -209,61 +215,32 @@ function buildAgentPrompt(skillId) {
   const info = skillMap[skillId] || skillMap.operator;
   if (skillId === 'workbench') {
     return [
-      'You are the embedded DEF main-workbench assistant.',
-      'Reply in Chinese by default. Keep replies practical, short, and action-oriented.',
-      'Optimize for fast interactive UI control: do the smallest correct action, verify briefly, then stop.',
-      'Do not expose API keys, hidden configuration, internal protocol noise, OpenCode runtime details, sessions, or adapters.',
-      'Do not use shell, git, direct file read/write/edit/patch, grep, glob, lsp, task/subagents, web search, unrestricted external network access, or DOM automation.',
+      'You are the embedded DEF main-workbench assistant operating an isolated child-node workspace.',
+      'Reply in Chinese by default. Keep the final answer short and describe only the visible outcome.',
+      'Do not expose API keys, hidden configuration, internal protocol noise, session ids, REST URLs, or adapters.',
       '',
-      '## Local REST',
-      'Base URL: http://127.0.0.1:17321',
-      'Use webfetch only. For POST endpoints, use method: "POST", format: "text", and a JSON body object.',
+      '## Node-first execution',
+      '- Mutations happen in a copied child Work Node, never directly in the parent node or current checkout.',
+      '- If this session has no bound node, call def_node_fork. To continue an existing node, call def_node_bind.',
+      '- Use the native read/edit/apply_patch tools on working-payload.json for flexible node changes. base-payload.json is immutable evidence.',
+      '- Native file tools are allowed only inside this session directory. Never access project source, another session, or another node directory.',
+      '- After editing, call def_node_sync_validate. Use def_node_diff when the user needs review evidence.',
+      '- Call def_node_use only after validation and any required approval. It is the only normal step that may touch current checkout.',
+      '- Do not translate a completed node file back into button-by-button commands or a legacy Patch DSL.',
       '',
-      '### DEF typed tools preferred',
-      '- Prefer DEF typed tools over hand-written command queue JSON.',
-      '- GET /api/def-tools lists available DEF tools with risk/approval/verification metadata. Never request /api/def-tools/list.',
-      '- GET /api/def-tools/describe?name=<toolName> describes one tool schema and policy.',
-      '- POST /api/def-tools/call with {"tool":"def.workbench.list_buttons","input":{...}} executes a DEF tool.',
-      '- POST /api/def-tools/<url-encoded-tool-name>/call with {"input":{...}} is also supported.',
-      '- For a known action already specified by the user prompt, do not fetch a tool descriptor first. Call the matching typed tool immediately; its contract in the prompt is authoritative.',
-      '- For equipment-set questions such as 长息是什么/有哪些/该选哪个, prefer def.gear.resolve or def.equipment.resolve compact summaries; do not fetch full equipment libraries unless the summary is insufficient.',
-      '- Current low-risk skill-button edits should use def.workbench.add_skill_button_and_verify. Use def.buff.add_to_button_and_verify for one-button buff edits, def.buff.add_to_buttons for batch buff edits. For damage calculation, prefer def.damage.calculate_and_verify.',
-      '- High-risk/batch/timeline rewrite uses def.worknode.patch_and_validate directly. If nodeId is omitted, the tool creates a work node from the best available current payload mirror first. For an explicit user mutation it validates and immediately performs protected no-reload checkout by default; pass checkout:false only when the user explicitly asks to stage a draft.',
-      '- Legacy long flow is def.worknode.create_from_current -> def.worknode.patch -> def.worknode.validate -> def.worknode.diff -> def.verify.worknode_diff_clean -> approval if needed -> def.worknode.checkout.',
-      '- def.worknode.patch is the class-code Patch DSL / CRUD tool: it edits appdata work node workingPayload only, then validate/diff/approval/checkout applies to current checkout.',
-      '- For copying a whole timeline group, use def.worknode.copy_staff_line_and_verify directly with sourceStaffIndex/targetStaffIndex. For “把第一组所有按钮在第二组原封不动做一遍”, call it once with 0 and 1. Never emulate this request with addButton patches. def.worknode.patch remains for genuinely custom Patch DSL edits.',
-      '- Tool queued status is not completion. Verify with def.verify.command_result, def.verify.snapshot_delta, def.verify.buttons_have_buff, or def.verify.damage_recalculated.',
+      '## Tool families',
+      '- def-node-code: native read/edit/apply_patch in the bound child-node workspace.',
+      '- def-node-crud: fork, bind, validate, diff, approval, use, restore, and simple structured node operations.',
+      '- def-data-resource: trusted operator, weapon, equipment, skill, Buff, and damage data.',
+      '- Legacy REST tools are compatibility fallbacks while migration is incomplete; do not treat their current list as the architecture.',
       '',
-      '### Legacy workbench endpoints',
-      '- These endpoints are compatibility/readback only. Prefer DEF typed tools for business actions.',
-      '- GET /api/main-workbench/snapshot may be used for readback when def.workbench.evidence is insufficient.',
-      '- GET /api/main-workbench/commands and /api/main-workbench/commands?status=pending may be used to inspect execution state.',
-      '- Do not hand-write /api/main-workbench/commands/enqueue bodies unless a typed tool is missing and the user action cannot otherwise be completed.',
-      '',
-      '### Common input aliases',
+      '## Interaction rules',
+      '- Read-only questions do not create or use a node.',
+      '- A mutation is not complete until node validation passes and, when requested, def_node_use confirms the checkout.',
+      '- Ask only when the target or approval is genuinely ambiguous. Do not invent operator, equipment, skill, or Buff data.',
+      '- Do not narrate plans, chain of thought, tool names, URLs, command ids, step tables, or suggested next steps.',
+      '- If application is still pending, say it is waiting for execution confirmation; never claim success without evidence.',
       ...buildGameKnowledgePromptLines(),
-      '- Treat common pinyin/ASCII aliases as direct operator ids when the intent is clear.',
-      '- When every requested operator is covered by the visible snapshot or the alias list above, do not fetch the operator library and do not verify ids first. Use the relevant typed tool directly with Chinese names.',
-      '- If the user says replace A and B with C and D, read evidence once, preserve the other selected operators, then call the appropriate typed edit tool once.',
-      '',
-      '### Fast workflow rules',
-      '- This is an interactive UI action. Prefer one typed tool call or one batched typed tool call and one verification snapshot.',
-      '- The user prompt includes a current selected-operator summary and current skill-button summary. Treat that summary as trusted context. Do not fetch snapshot merely to identify a visible operator or visible skill button.',
-      '- If the user only asks for current state, such as what gear/weapon an operator is wearing, which buttons exist, or current damage, do not enqueue commands. Read GET /api/main-workbench/snapshot once and answer with concrete names/numbers. Never reply only "已完成" to a read-only question.',
-      '- If the user asks to add, remove, replace, equip, release skills, add/remove Buffs, rollback, recalculate, or otherwise change the workbench, you must call a typed edit tool before the final answer. If you cannot do it, say that it failed. Never answer a mutation request by only reading the snapshot.',
-      '- Use /api/def-tools/call for main-screen changes. Batch related changes through tools such as def.buff.add_to_buttons, def.operator.config.patch, or def.worknode.patch.',
-      '- Do not use /api/ai-cli/run for workbench, operator, weapon, equipment, or buff actions.',
-      '- Do not use /api/operator/*, /api/weapon/*, /api/equipment/*, /api/buff/*, /api/agent/scripts/*, or scripts. If the user asks for suitable gear without exact names, use simple defaults below.',
-      '- Do not call nonexistent CLI commands such as operator.search.',
-      '- Known official operators can be selected directly by name/id with selectCharacters; do not search first.',
-      '- Default gear plan when exact names are not provided: keep existing weapon/equipment if present; otherwise ask a non-blocking question or use def.operator.config.patch with explicit defaults from the current project knowledge.',
-      '- Only save a rollback snapshot when the user asks to restore later, replace many operators, clear the timeline, or perform a broad irreversible edit. Do not save a snapshot before small edits such as adding/removing one skill button or one Buff.',
-      '- def.operator.config.patch may use gearSetName/gearSetId with fillSlots:true for a four-piece set. Use entryLevel:3 when max entries are appropriate.',
-      '- For Buff edits, resolve target buttons and buff candidates with typed resolver tools, then use def.buff.add_to_button(s) or def.buff.remove_from_button. Call def.damage.calculate if the user asks for recalculation.',
-      '- After a typed edit tool returns queued, verify with def.verify.command_result or a snapshot verifier at most once. If the expected state is visible, reply immediately.',
-      '- Do not continue auditing, searching, or explaining after the requested state is visible.',
-      '- Finish each turn with one concise natural-language summary.',
-      '- Do not narrate your plan, chain of thought, tool sequence, command ids, or next-step suggestions. Never use headings such as Goal, Constraints, Progress, Key Decisions, Next Steps, Critical Context, or Relevant Files. For a clear single action, call the one relevant tool immediately; after verification, reply with one short visible Chinese result sentence and stop. Never reply only "pending"; if confirmation is genuinely still pending, say in Chinese that it is being applied to the current timeline and is awaiting execution confirmation.',
     ].join('\n');
   }
   return [
@@ -387,6 +364,7 @@ function buildOpenCodeConfig(config, skillId, thinkingEffort) {
     skills: {
       paths: [skillsRoot],
     },
+    plugin: [pathToFileURL(defOpenCodePluginSource).href],
     provider: {
       deepseek: {
         name: 'DeepSeek',
@@ -780,6 +758,28 @@ function extractText(parts = []) {
     .trim();
 }
 
+function createAgentSessionWorkspace(skillId) {
+  const root = getAgentWorkspaceDir();
+  const host = skillId === 'workbench' ? 'workbench' : 'ai-cli';
+  const directory = path.join(root, 'sessions', host, crypto.randomUUID());
+  const toolsDir = path.join(directory, '.opencode', 'tools');
+  fs.mkdirSync(toolsDir, { recursive: true });
+  if (!fs.existsSync(defOpenCodeToolSource)) {
+    throw new Error(`Missing DEF OpenCode native tool module: ${defOpenCodeToolSource}`);
+  }
+  fs.copyFileSync(defOpenCodeToolSource, path.join(toolsDir, 'def.js'));
+  fs.writeFileSync(path.join(directory, 'AGENTS.md'), [
+    '# DEF isolated session workspace',
+    '',
+    'This directory belongs to one OpenCode session.',
+    'For Work Node changes, call def_node_fork or def_node_bind before using read/edit/apply_patch.',
+    'Only working-payload.json is editable node truth. base-payload.json is immutable comparison evidence.',
+    'Run def_node_sync_validate before def_node_use.',
+    '',
+  ].join('\n'), 'utf8');
+  return fs.realpathSync(directory);
+}
+
 function extractReplyError(reply) {
   if (!reply || typeof reply !== 'object') return '';
   const info = reply.info && typeof reply.info === 'object' ? reply.info : reply;
@@ -854,6 +854,7 @@ function buildSessionCreatePayload({ selected, deepseek, skillId, thinkingEffort
       app: 'dmg-end-field',
       schemaVersion: DEF_TRANSCRIPT_SCHEMA_VERSION,
       skillId: normalizedSkillId,
+      host: normalizedSkillId === 'workbench' ? 'workbench' : 'ai-cli',
       thinkingEffort: normalizeThinkingEffort(thinkingEffort),
     },
   };
@@ -868,6 +869,7 @@ function mapOpenCodeSessionSummary(info) {
     agent: info.agent,
     model: modelIdFromOpenCodeSession(info),
     skillId,
+    directory: info.directory,
     active: false,
     stopped: Boolean(info.time?.archived),
     archived: Boolean(info.time?.archived),
@@ -1299,8 +1301,19 @@ async function listPersistedDefSessions({ config = {}, skillId = 'operator', thi
 async function getPersistedDefSession(sessionID, { config = {}, skillId = 'operator', thinkingEffort = 'medium' } = {}) {
   if (!sessionID) throw new Error('session id is required');
   const deepseek = sanitizeDeepSeekConfig(config);
-  const directory = getAgentWorkspaceDir();
+  const rootDirectory = getAgentWorkspaceDir();
   const baseUrl = await getOpenCodeServerForRead(deepseek, skillId, thinkingEffort);
+  const listQuery = new URLSearchParams({ directory: rootDirectory, roots: 'true', limit: '500' });
+  const sessions = await requestJson('GET', `${baseUrl}/session?${listQuery.toString()}`, undefined, undefined, 15000);
+  const candidate = (Array.isArray(sessions) ? sessions : []).find((item) => item?.id === sessionID && isDefOpenCodeSession(item));
+  if (!candidate) {
+    const error = new Error('persisted DEF session not found');
+    error.code = 'DEF_SESSION_NOT_FOUND';
+    throw error;
+  }
+  const directory = typeof candidate.directory === 'string' && candidate.directory.trim()
+    ? candidate.directory
+    : rootDirectory;
   const query = `directory=${encodeURIComponent(directory)}`;
   const session = await requestJson('GET', `${baseUrl}/session/${encodeURIComponent(sessionID)}?${query}`, undefined, undefined, 15000);
   if (!isDefOpenCodeSession(session)) {
@@ -1588,7 +1601,7 @@ async function runChatStream({ config, message, thinkingEffort, skillId = 'opera
   }
 
   const selected = skillMap[skillId] || skillMap.operator;
-  const directory = getAgentWorkspaceDir();
+  const directory = createAgentSessionWorkspace(skillId);
   const baseUrl = await ensureOpenCodeServer(deepseek, skillId, thinkingEffort);
   const query = `directory=${encodeURIComponent(directory)}`;
   const sessionPayload = buildSessionCreatePayload({ selected, deepseek, skillId, thinkingEffort });
@@ -1783,7 +1796,7 @@ async function runChat({ config, message, thinkingEffort, skillId = 'operator' }
   }
 
   const selected = skillMap[skillId] || skillMap.operator;
-  const directory = getAgentWorkspaceDir();
+  const directory = createAgentSessionWorkspace(skillId);
   const events = [];
   const eventController = new AbortController();
   const runController = new AbortController();
@@ -1974,6 +1987,7 @@ module.exports = {
   listPersistedDefSessions,
   getPersistedDefSession,
   hydrateDefSession,
+  createAgentSessionWorkspace,
   getChatSessionStream,
   getLiveDefTranscript,
   shutdownRuntime,

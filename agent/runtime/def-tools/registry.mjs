@@ -7,6 +7,7 @@ export const DEF_TOOL_FAMILY = Object.freeze({
 const NODE_CODE_TOOLS = new Set([
   'def.buff.add_to_buttons',
   'def.worknode.patch',
+  'def.worknode.sync_workspace',
   'def.worknode.patch_and_validate',
   'def.worknode.copy_staff_line_and_verify',
 ]);
@@ -39,6 +40,7 @@ const CANONICAL_TARGETS = Object.freeze({
   'def.worknode.restore_base': 'def.node.crud.restore',
   'def.worknode.restore_base_and_verify': 'def.node.crud.restore',
   'def.worknode.patch': 'def.node.code.apply_patch',
+  'def.worknode.sync_workspace': 'def.node.code.apply_patch',
   'def.worknode.patch_and_validate': 'def.node.code.apply_patch',
   'def.worknode.copy_staff_line_and_verify': 'def.node.code.apply_patch',
   'def.buff.add_to_buttons': 'def.node.code.apply_patch',
@@ -48,16 +50,17 @@ const CANONICAL_TARGETS = Object.freeze({
 });
 
 export const DEF_NATIVE_TARGETS = Object.freeze([
-  { id: 'def.node.code.read', family: DEF_TOOL_FAMILY.NODE_CODE, source: 'opencode-native', status: 'planned', workspaceScope: 'child-node' },
-  { id: 'def.node.code.edit', family: DEF_TOOL_FAMILY.NODE_CODE, source: 'opencode-native', status: 'planned', workspaceScope: 'child-node' },
-  { id: 'def.node.code.apply_patch', family: DEF_TOOL_FAMILY.NODE_CODE, source: 'opencode-native', status: 'planned', workspaceScope: 'child-node' },
-  { id: 'def.node.crud.fork', family: DEF_TOOL_FAMILY.NODE_CRUD, source: 'def-native', status: 'planned', workspaceScope: 'node-store' },
-  { id: 'def.node.crud.read', family: DEF_TOOL_FAMILY.NODE_CRUD, source: 'def-native', status: 'planned', workspaceScope: 'node-store' },
-  { id: 'def.node.crud.validate', family: DEF_TOOL_FAMILY.NODE_CRUD, source: 'def-native', status: 'planned', workspaceScope: 'node-store' },
-  { id: 'def.node.crud.diff', family: DEF_TOOL_FAMILY.NODE_CRUD, source: 'def-native', status: 'planned', workspaceScope: 'node-store' },
+  { id: 'def.node.code.read', family: DEF_TOOL_FAMILY.NODE_CODE, source: 'opencode-native', nativeBinding: 'read', status: 'implemented', workspaceScope: 'child-node' },
+  { id: 'def.node.code.edit', family: DEF_TOOL_FAMILY.NODE_CODE, source: 'opencode-native', nativeBinding: 'edit', status: 'implemented', workspaceScope: 'child-node' },
+  { id: 'def.node.code.apply_patch', family: DEF_TOOL_FAMILY.NODE_CODE, source: 'opencode-native', nativeBinding: 'apply_patch', status: 'implemented', workspaceScope: 'child-node' },
+  { id: 'def.node.crud.fork', family: DEF_TOOL_FAMILY.NODE_CRUD, source: 'def-native', nativeBinding: 'def_node_fork', status: 'implemented', workspaceScope: 'node-store' },
+  { id: 'def.node.crud.read', family: DEF_TOOL_FAMILY.NODE_CRUD, source: 'def-native', nativeBinding: 'def_node_bind', status: 'implemented', workspaceScope: 'node-store' },
+  { id: 'def.node.crud.update', family: DEF_TOOL_FAMILY.NODE_CRUD, source: 'def-native', status: 'planned', workspaceScope: 'node-store' },
+  { id: 'def.node.crud.validate', family: DEF_TOOL_FAMILY.NODE_CRUD, source: 'def-native', nativeBinding: 'def_node_sync_validate', status: 'implemented', workspaceScope: 'node-store' },
+  { id: 'def.node.crud.diff', family: DEF_TOOL_FAMILY.NODE_CRUD, source: 'def-native', nativeBinding: 'def_node_diff', status: 'implemented', workspaceScope: 'node-store' },
   { id: 'def.node.crud.request_approval', family: DEF_TOOL_FAMILY.NODE_CRUD, source: 'def-native', status: 'planned', workspaceScope: 'node-store' },
   { id: 'def.node.crud.record_approval', family: DEF_TOOL_FAMILY.NODE_CRUD, source: 'def-native', status: 'planned', workspaceScope: 'node-store' },
-  { id: 'def.node.crud.use', family: DEF_TOOL_FAMILY.NODE_CRUD, source: 'def-native', status: 'planned', workspaceScope: 'current-checkout' },
+  { id: 'def.node.crud.use', family: DEF_TOOL_FAMILY.NODE_CRUD, source: 'def-native', nativeBinding: 'def_node_use', status: 'implemented', workspaceScope: 'current-checkout' },
   { id: 'def.node.crud.restore', family: DEF_TOOL_FAMILY.NODE_CRUD, source: 'def-native', status: 'planned', workspaceScope: 'current-checkout' },
   { id: 'def.data.resource.operator', family: DEF_TOOL_FAMILY.DATA_RESOURCE, source: 'def-native', status: 'planned', workspaceScope: 'data-resource' },
   { id: 'def.data.resource.weapon', family: DEF_TOOL_FAMILY.DATA_RESOURCE, source: 'def-native', status: 'planned', workspaceScope: 'data-resource' },

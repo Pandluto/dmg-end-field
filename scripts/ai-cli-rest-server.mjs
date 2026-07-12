@@ -26,7 +26,8 @@ const HOST = '127.0.0.1';
 const PORT = Number(process.env.AI_CLI_REST_PORT || 17321);
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(__dirname, '..');
-const storageDir = path.join(projectRoot, '.runtime', 'ai-cli-rest');
+const storageDir = process.env.AI_CLI_REST_STORAGE_DIR
+  || path.join(projectRoot, '.runtime', 'ai-cli-rest');
 const agentScriptDir = path.join(projectRoot, '.runtime', 'def-agent', 'scripts');
 const viteCacheDir = process.env.AI_CLI_REST_VITE_CACHE_DIR || path.join(projectRoot, '.runtime', 'vite-ai-cli-rest', String(process.pid));
 const nowStoragePath = path.join(projectRoot, 'data', 'localdata', 'now-storage.json');
@@ -2883,6 +2884,75 @@ function applyDefWorkNodePatchAndValidate(input = {}) {
   };
 }
 
+function syncDefWorkNodeWorkspace(input = {}) {
+  const nodeId = typeof input.nodeId === 'string' ? input.nodeId.trim() : '';
+  const node = nodeId ? readRepositoryWorkNode(nodeId) : null;
+  if (!node) {
+    return {
+      ok: false,
+      code: 'ai-worknode-not-found',
+      message: nodeId ? `AI timeline work node not found: ${nodeId}` : 'sync_workspace requires nodeId.',
+      currentCheckoutTouched: false,
+    };
+  }
+  if (!isObject(input.workingPayload)) {
+    return {
+      ok: false,
+      code: 'invalid-workspace-payload',
+      message: 'sync_workspace requires a workingPayload object.',
+      nodeId,
+      currentCheckoutTouched: false,
+    };
+  }
+  const workingPayload = cloneJson(input.workingPayload);
+  const issues = validateWorkNodePayloadIssues(workingPayload, 'workingPayload');
+  if (issues.length) {
+    return {
+      ok: false,
+      code: 'workspace-validation-failed',
+      message: issues.map((issue) => issue.message).join('; '),
+      nodeId,
+      validation: { ok: false, issues },
+      currentCheckoutTouched: false,
+    };
+  }
+  const now = Date.now();
+  const nextNode = {
+    ...node,
+    workingPayload,
+    workingSummary: summarizeTimelinePayload(workingPayload),
+    updatedAt: now,
+    status: 'ready',
+    logs: [
+      makeWorkNodeLog('info', 'Synchronized working payload from isolated OpenCode node workspace.', {
+        sessionId: typeof input.sessionId === 'string' ? input.sessionId : undefined,
+      }),
+      ...(Array.isArray(node.logs) ? node.logs : []),
+    ],
+  };
+  const diff = diffTimelinePayloadsForWorkNode(node.basePayload, workingPayload);
+  const checkoutDecision = buildAiTimelineCheckoutDecision({
+    approvalPolicy: nextNode.approvalPolicy,
+    riskFlags: nextNode.riskFlags,
+    diff,
+  });
+  mirrorWorkNodeToTimelineRepository(nextNode);
+  writeLegacyNodeProjection(nextNode);
+  return {
+    ok: true,
+    nodeId,
+    validation: { ok: true, issues: [] },
+    diff: {
+      summary: diff.summary,
+      selectedCharactersChanged: diff.selectedCharactersChanged,
+    },
+    diffSummary: formatDefWorkNodeDiffSummary(diff),
+    checkoutDecision,
+    workingSummary: nextNode.workingSummary,
+    currentCheckoutTouched: false,
+  };
+}
+
 function normalizeDefStaffIndex(value) {
   if (typeof value === 'number') {
     return Number.isInteger(value) && value >= 0 ? value : null;
@@ -3226,6 +3296,16 @@ function buildDefToolDefinitions() {
       snapshotWaitMs: { type: 'number' },
     },
   };
+  const syncWorkspaceSchema = {
+    type: 'object',
+    additionalProperties: false,
+    required: ['nodeId', 'workingPayload'],
+    properties: {
+      nodeId: { type: 'string' },
+      workingPayload: { type: 'object' },
+      sessionId: { type: 'string' },
+    },
+  };
   return DEF_TOOL_DEFINITION_BASE.map((tool) => ({
     ...tool,
     inputSchema: tool.name === 'def.workbench.add_skill_button' || tool.name === 'def.workbench.add_skill_button_and_verify'
@@ -3236,6 +3316,8 @@ function buildDefToolDefinitions() {
         ? batchBuffSchema
       : tool.name === 'def.worknode.patch_and_validate'
       ? patchAndValidateSchema
+      : tool.name === 'def.worknode.sync_workspace'
+        ? syncWorkspaceSchema
       : tool.name === 'def.worknode.patch'
         ? workNodePatchSchema
         : tool.name === 'def.worknode.checkout' || tool.name === 'def.worknode.checkout_and_verify'
@@ -4126,6 +4208,8 @@ async function executeDefTool(name, input = {}, query = new URLSearchParams()) {
     }
   } else if (name === 'def.worknode.read') {
     result = readDefWorkNode(input);
+  } else if (name === 'def.worknode.sync_workspace') {
+    result = syncDefWorkNodeWorkspace(input);
   } else if (name === 'def.worknode.validate') {
     result = validateDefWorkNode(input);
   } else if (name === 'def.verify.command_result') {
