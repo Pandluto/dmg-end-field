@@ -23,6 +23,7 @@ const {
   recoverNativeHostSession,
   buildNativeHostProfile,
   readNativeSessionBinding,
+  ensureNativeSessionAxisBinding,
   findNativeSessionBinding,
   writeNativeWorkbenchContext,
 } = require('../runtime/def-opencode-adapter/index.cjs');
@@ -462,6 +463,43 @@ async function submitNativeQuestionDecision(runtime, input) {
   return { ok: response.ok, status: response.status, body: await response.text() };
 }
 
+async function syncNativeWorkbenchAxisBinding(binding) {
+  if (!binding || binding.host !== 'workbench') return null;
+  const current = binding.axisBindingId ? binding : ensureNativeSessionAxisBinding(binding.directory, binding.sessionID);
+  if (!current?.axisBindingId) return null;
+  await ensureDefRestService();
+  const response = await fetch(`${defRestUrl}/api/def-tools/call`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      tool: 'def.workbench.bind_session_axis',
+      input: {
+        sessionBindingId: current.axisBindingId,
+        sessionID: current.sessionID,
+        host: 'workbench',
+        timelineId: 'current-main-workbench',
+      },
+    }),
+    signal: AbortSignal.timeout(5000),
+  });
+  const payload = await response.json().catch(() => null);
+  if (!response.ok || payload?.ok !== true || payload?.result?.ok === false) {
+    throw new Error(payload?.result?.message || payload?.message || 'native-session-axis-binding-failed');
+  }
+  return payload.result.context || null;
+}
+
+async function removeNativeWorkbenchAxisBinding(binding) {
+  if (!binding?.axisBindingId || binding.host !== 'workbench') return;
+  await ensureDefRestService();
+  await fetch(`${defRestUrl}/api/def-tools/call`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ tool: 'def.workbench.unbind_session_axis', input: { sessionBindingId: binding.axisBindingId } }),
+    signal: AbortSignal.timeout(5000),
+  }).catch(() => undefined);
+}
+
 const server = http.createServer(async (request, response) => {
   const method = request.method || 'GET';
   const requestUrl = new URL(request.url || '/', `http://${HOST}:${PORT}`);
@@ -498,7 +536,9 @@ const server = http.createServer(async (request, response) => {
         skillId: typeof body.skillId === 'string' ? body.skillId : undefined,
         thinkingEffort: body.thinkingEffort,
       });
-      writeJson(response, 200, { ok: true, session });
+      const binding = ensureNativeSessionAxisBinding(session.directory, session.sessionID);
+      const axisContext = await syncNativeWorkbenchAxisBinding(binding);
+      writeJson(response, 200, { ok: true, session: { ...session, axisContext } });
       return;
     }
 
@@ -511,7 +551,9 @@ const server = http.createServer(async (request, response) => {
         directory: typeof body.directory === 'string' ? body.directory : '',
         sessionID,
       });
-      writeJson(response, 200, { ok: true, session });
+      const binding = ensureNativeSessionAxisBinding(session.directory, session.sessionID);
+      const axisContext = await syncNativeWorkbenchAxisBinding(binding);
+      writeJson(response, 200, { ok: true, session: { ...session, axisContext } });
       return;
     }
 
@@ -590,6 +632,7 @@ const server = http.createServer(async (request, response) => {
         return;
       }
       deleteNativeQuestionRecords(sessionID);
+      await removeNativeWorkbenchAxisBinding(binding);
       fs.rmSync(binding.directory, { recursive: true, force: true });
       writeJson(response, 200, { ok: true, status: 'deleted' });
       return;
@@ -598,13 +641,14 @@ const server = http.createServer(async (request, response) => {
     if (method === 'GET' && requestUrl.pathname === '/api/native/bootstrap') {
       const sessionID = requestUrl.searchParams.get('sessionID') || '';
       const directory = requestUrl.searchParams.get('directory') || '';
-      const binding = readNativeSessionBinding(directory, sessionID);
+      const binding = ensureNativeSessionAxisBinding(directory, sessionID);
       if (!binding) {
         writeJson(response, 404, { ok: false, error: 'native-session-binding-not-found' });
         return;
       }
       await migrateNativeSessionTitle(binding);
-      writeJson(response, 200, { ok: true, binding, profile: binding.profile });
+      const axisContext = await syncNativeWorkbenchAxisBinding(binding);
+      writeJson(response, 200, { ok: true, binding, profile: binding.profile, axisContext });
       return;
     }
 
@@ -652,7 +696,9 @@ const server = http.createServer(async (request, response) => {
         writeJson(response, 403, { ok: false, error: 'invalid-workbench-session-binding' });
         return;
       }
-      writeJson(response, 200, { ok: true, context: saved });
+      const binding = ensureNativeSessionAxisBinding(body.directory, body.sessionID);
+      const axisContext = await syncNativeWorkbenchAxisBinding(binding);
+      writeJson(response, 200, { ok: true, context: saved, axisContext });
       return;
     }
 
@@ -749,10 +795,15 @@ const server = http.createServer(async (request, response) => {
         clientTurnId: body.clientTurnId,
         workbenchContext,
       });
+      const binding = body.skillId === 'workbench'
+        ? ensureNativeSessionAxisBinding(result.directory, result.sessionID)
+        : null;
+      const axisContext = await syncNativeWorkbenchAxisBinding(binding);
       writeJson(response, 200, {
         ok: true,
         sessionId: result.sessionId,
         sessionID: result.sessionID,
+        axisContext,
       });
       return;
     }
@@ -818,10 +869,15 @@ const server = http.createServer(async (request, response) => {
         skillId: body.skillId,
         workbenchContext: body.workbenchContext,
       });
+      const binding = body.skillId === 'workbench'
+        ? ensureNativeSessionAxisBinding(result.directory, result.sessionID)
+        : null;
+      const axisContext = await syncNativeWorkbenchAxisBinding(binding);
       writeJson(response, 200, {
         ok: true,
         sessionId: result.sessionId,
         sessionID: result.sessionID,
+        axisContext,
       });
       return;
     }

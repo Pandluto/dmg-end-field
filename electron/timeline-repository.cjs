@@ -146,6 +146,16 @@ function createTimelineRepository({ databasePath }) {
       updated_at INTEGER NOT NULL
     ) STRICT;
 
+    CREATE TABLE IF NOT EXISTS timeline_session_axis_bindings (
+      id TEXT PRIMARY KEY,
+      timeline_id TEXT NOT NULL REFERENCES timeline_documents(id) ON DELETE CASCADE,
+      host TEXT NOT NULL,
+      opencode_session_id TEXT NOT NULL,
+      bound_node_id TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    ) STRICT;
+
     CREATE TABLE IF NOT EXISTS timeline_audit_events (
       id TEXT PRIMARY KEY,
       timeline_id TEXT NOT NULL REFERENCES timeline_documents(id) ON DELETE RESTRICT,
@@ -161,6 +171,7 @@ function createTimelineRepository({ databasePath }) {
     CREATE INDEX IF NOT EXISTS timeline_work_node_patches_node_created_idx ON timeline_work_node_patches(node_id, created_at DESC);
     CREATE INDEX IF NOT EXISTS timeline_work_node_commits_timeline_created_idx ON timeline_work_node_commits(timeline_id, created_at DESC);
     CREATE INDEX IF NOT EXISTS timeline_work_node_commits_node_created_idx ON timeline_work_node_commits(node_id, created_at DESC);
+    CREATE INDEX IF NOT EXISTS timeline_session_axis_bindings_timeline_idx ON timeline_session_axis_bindings(timeline_id, updated_at DESC);
     CREATE INDEX IF NOT EXISTS timeline_audit_events_timeline_created_idx ON timeline_audit_events(timeline_id, created_at DESC);
   `);
   db.prepare(`
@@ -297,6 +308,18 @@ function createTimelineRepository({ databasePath }) {
       ...result,
       basePayload: parse(db.prepare('SELECT payload FROM timeline_payload_blobs WHERE content_hash = ?').get(row.base_payload_hash)?.payload, {}),
       appliedPayload: parse(db.prepare('SELECT payload FROM timeline_payload_blobs WHERE content_hash = ?').get(row.applied_payload_hash)?.payload, {}),
+    };
+  }
+
+  function readSessionAxisBinding(row) {
+    return row && {
+      id: row.id,
+      timelineId: row.timeline_id,
+      host: row.host,
+      opencodeSessionId: row.opencode_session_id,
+      boundNodeId: row.bound_node_id || null,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
     };
   }
 
@@ -574,6 +597,62 @@ function createTimelineRepository({ databasePath }) {
     });
   }
 
+  function upsertSessionAxisBinding(input) {
+    if (!input?.id || !input?.timelineId || !input?.host || !input?.opencodeSessionId) {
+      throw repositoryError('invalid-timeline-session-axis-binding', 400, 'Session axis binding requires id, timelineId, host, and opencodeSessionId.');
+    }
+    return transaction(() => {
+      const document = db.prepare('SELECT id FROM timeline_documents WHERE id = ? AND archived_at IS NULL').get(input.timelineId);
+      if (!document) throw repositoryError('timeline-document-not-found', 404, `Timeline document not found: ${input.timelineId}`);
+      const boundNodeId = typeof input.boundNodeId === 'string' && input.boundNodeId.trim() ? input.boundNodeId.trim() : null;
+      if (boundNodeId) {
+        const node = db.prepare('SELECT id FROM timeline_work_nodes WHERE id = ? AND timeline_id = ?').get(boundNodeId, input.timelineId);
+        if (!node) throw repositoryError('timeline-session-axis-node-not-found', 404, `Timeline Work Node not found for session binding: ${boundNodeId}`);
+      }
+      const createdAt = input.createdAt || Date.now();
+      const updatedAt = input.updatedAt || Date.now();
+      db.prepare(`
+        INSERT INTO timeline_session_axis_bindings (
+          id, timeline_id, host, opencode_session_id, bound_node_id, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+          timeline_id = excluded.timeline_id,
+          host = excluded.host,
+          opencode_session_id = excluded.opencode_session_id,
+          bound_node_id = excluded.bound_node_id,
+          updated_at = excluded.updated_at
+      `).run(input.id, input.timelineId, input.host, input.opencodeSessionId, boundNodeId, createdAt, updatedAt);
+      return readSessionAxisBinding(db.prepare('SELECT * FROM timeline_session_axis_bindings WHERE id = ?').get(input.id));
+    });
+  }
+
+  function getSessionAxisContext(bindingId) {
+    const binding = readSessionAxisBinding(db.prepare('SELECT * FROM timeline_session_axis_bindings WHERE id = ?').get(bindingId));
+    if (!binding) return null;
+    const document = readDocument(db.prepare('SELECT * FROM timeline_documents WHERE id = ? AND archived_at IS NULL').get(binding.timelineId));
+    if (!document) return null;
+    const checkout = (() => {
+      const row = db.prepare('SELECT * FROM checkout_refs WHERE timeline_id = ?').get(binding.timelineId);
+      return row ? { timelineId: row.timeline_id, targetType: row.target_type, targetId: row.target_id, updatedAt: row.updated_at } : null;
+    })();
+    const nodes = db.prepare(`
+      SELECT id, parent_id, branch_id, label, status, updated_at
+      FROM timeline_work_nodes WHERE timeline_id = ? ORDER BY created_at ASC
+    `).all(binding.timelineId).map((row) => ({
+      id: row.id,
+      parentNodeId: row.parent_id || null,
+      branchId: row.branch_id,
+      label: row.label,
+      status: row.status,
+      updatedAt: row.updated_at,
+    }));
+    return { binding, document, checkout, nodes };
+  }
+
+  function deleteSessionAxisBinding(bindingId) {
+    return transaction(() => ({ deleted: db.prepare('DELETE FROM timeline_session_axis_bindings WHERE id = ?').run(bindingId).changes > 0 }));
+  }
+
   function appendAuditEvent(input) {
     if (!input?.id || !input?.timelineId || !input?.eventType || !input?.subjectType || !input?.subjectId) {
       throw repositoryError('invalid-timeline-audit-event', 400, 'Timeline audit event is missing required fields.');
@@ -839,6 +918,8 @@ function createTimelineRepository({ databasePath }) {
   function deleteWorkNodeSubtree(nodeId) {
     return transaction(() => {
       const { timelineId, deletedNodeIds } = assertWorkNodeSubtreeDeletable(nodeId);
+      const marks = deletedNodeIds.map(() => '?').join(', ');
+      db.prepare(`UPDATE timeline_session_axis_bindings SET bound_node_id = NULL WHERE bound_node_id IN (${marks})`).run(...deletedNodeIds);
       const deleteNode = db.prepare('DELETE FROM timeline_work_nodes WHERE id = ?');
       // Foreign keys are immediate in SQLite. Delete leaves before parents so
       // a branching tree never depends on row deletion order inside one SQL IN.
@@ -893,6 +974,9 @@ function createTimelineRepository({ databasePath }) {
     importDocumentBundle,
     exportDocumentBundle,
     setCheckoutRef,
+    upsertSessionAxisBinding,
+    getSessionAxisContext,
+    deleteSessionAxisBinding,
     appendAuditEvent,
     appendWorkNodePatch,
     archiveSnapshot,

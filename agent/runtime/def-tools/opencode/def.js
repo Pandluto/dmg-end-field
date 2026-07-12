@@ -283,7 +283,7 @@ export const workbench_context = {
     const target = inside(context.directory, workbenchContextFile)
     if (!fs.existsSync(target)) throw new Error('No live Workbench context is attached to this session.')
     const attached = JSON.parse(fs.readFileSync(target, 'utf8'))
-    const snapshot = await callDefTool('def.workbench.snapshot', {})
+    const snapshot = await callDefTool('def.workbench.snapshot', { sessionBindingId: attached.axisBindingId })
     return {
       title: 'DEF Workbench context',
       output: JSON.stringify(boundResourceValue({ attached, snapshot }), null, 2),

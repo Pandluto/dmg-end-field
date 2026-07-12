@@ -955,6 +955,30 @@ function createDefWorkNodeFromPayload(payloadSource, input = {}) {
   };
 }
 
+function readDefWorkbenchAxisContext(input = {}) {
+  const repository = getTimelineRepository();
+  const bindingId = typeof input.sessionBindingId === 'string' ? input.sessionBindingId.trim() : '';
+  if (bindingId) {
+    const context = repository.getSessionAxisContext(bindingId);
+    if (context) return context;
+  }
+  const timelineId = typeof input.timelineId === 'string' && input.timelineId.trim()
+    ? input.timelineId.trim()
+    : 'current-main-workbench';
+  const document = repository.getDocument(timelineId);
+  if (!document) return null;
+  const checkout = repository.getCheckoutRef(timelineId);
+  const nodes = repository.listWorkNodes(timelineId).map((node) => ({
+    id: node.id,
+    parentNodeId: node.parentNodeId || null,
+    branchId: node.branchId,
+    label: node.label,
+    status: node.status,
+    updatedAt: node.updatedAt,
+  }));
+  return { binding: null, document, checkout, nodes };
+}
+
 function aiWorkNodeLabel(value, fallback) {
   const label = typeof value === 'string' && value.trim() ? value.trim() : fallback;
   return /^\[(?:ai|save|baseline)\]\s*/i.test(label) ? label : `[ai] ${label}`;
@@ -4217,6 +4241,38 @@ async function executeDefTool(name, input = {}, query = new URLSearchParams()) {
     const result = createDefWorkNodeFromPayload(readDefCurrentTimelinePayloadSource(), input);
     return { status: result.ok ? 200 : 400, body: { ok: result.ok, protocolVersion: 1, tool: name, result } };
   }
+  if (name === 'def.workbench.bind_session_axis') {
+    const bindingId = typeof input.sessionBindingId === 'string' ? input.sessionBindingId.trim() : '';
+    const sessionID = typeof input.sessionID === 'string' ? input.sessionID.trim() : '';
+    const host = input.host === 'workbench' ? 'workbench' : '';
+    const timelineId = typeof input.timelineId === 'string' && input.timelineId.trim()
+      ? input.timelineId.trim()
+      : 'current-main-workbench';
+    if (!bindingId || !sessionID || !host) {
+      return failScript(400, 'invalid-session-axis-binding', 'sessionBindingId, sessionID, and host=workbench are required.');
+    }
+    const repository = getTimelineRepository();
+    repository.ensureDocument({ id: timelineId, label: '主排轴', preserveExistingLabel: true });
+    const checkout = repository.getCheckoutRef(timelineId);
+    const binding = repository.upsertSessionAxisBinding({
+      id: bindingId,
+      timelineId,
+      host,
+      opencodeSessionId: sessionID,
+      boundNodeId: typeof input.boundNodeId === 'string' && input.boundNodeId.trim()
+        ? input.boundNodeId.trim()
+        : checkout?.targetType === 'work-node'
+          ? checkout.targetId
+          : null,
+    });
+    return { status: 200, body: { ok: true, protocolVersion: 1, tool: name, result: { ok: true, binding, context: repository.getSessionAxisContext(binding.id) } } };
+  }
+  if (name === 'def.workbench.unbind_session_axis') {
+    const bindingId = typeof input.sessionBindingId === 'string' ? input.sessionBindingId.trim() : '';
+    if (!bindingId) return failScript(400, 'invalid-session-axis-binding', 'sessionBindingId is required.');
+    const result = getTimelineRepository().deleteSessionAxisBinding(bindingId);
+    return { status: 200, body: { ok: true, protocolVersion: 1, tool: name, result: { ok: true, ...result } } };
+  }
   if (name === 'def.worknode.list') {
     const limit = Math.max(1, Math.min(Number(input.limit || 50) || 50, 100));
     const nodes = listRepositoryWorkNodes()
@@ -4343,7 +4399,7 @@ async function executeDefTool(name, input = {}, query = new URLSearchParams()) {
     result = { tool: getDefToolDefinition(targetName) };
     if (!result.tool) return failScript(404, 'def-tool-not-found', `Unknown DEF tool: ${targetName}`);
   } else if (name === 'def.workbench.snapshot') {
-    result = { snapshot };
+    result = { snapshot, axisContext: readDefWorkbenchAxisContext(input) };
   } else if (name === 'def.workbench.evidence') {
     result = buildMainWorkbenchEvidence(snapshot, {
       prompt: input.prompt || input.query || '',
@@ -4524,12 +4580,13 @@ function handleMainWorkbenchRequest(method, pathname, query, body) {
   }
 
   if (method === 'GET' && pathname === '/api/main-workbench/snapshot') {
+    const snapshot = readMainWorkbenchJson(MAIN_WORKBENCH_SNAPSHOT_KEY, null);
     return {
       status: 200,
       body: {
         ok: true,
         protocolVersion: 1,
-        snapshot: readMainWorkbenchJson(MAIN_WORKBENCH_SNAPSHOT_KEY, null),
+        snapshot: snapshot ? { ...snapshot, axisContext: readDefWorkbenchAxisContext() } : null,
       },
     };
   }

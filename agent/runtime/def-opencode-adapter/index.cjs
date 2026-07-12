@@ -824,9 +824,14 @@ function createAgentSessionWorkspace(skillId) {
 }
 
 function writeSessionBinding(directory, session) {
+  const existing = readJsonFile(path.join(directory, '.def-session.json'));
+  const axisBindingId = typeof existing?.axisBindingId === 'string' && existing.axisBindingId.trim()
+    ? existing.axisBindingId.trim()
+    : `axis-${crypto.randomUUID()}`;
   fs.writeFileSync(path.join(directory, '.def-session.json'), `${JSON.stringify({
     schemaVersion: 2,
     sessionID: session.id,
+    axisBindingId,
     directory,
     agent: session.agent,
     skillId: session.skillId,
@@ -834,6 +839,7 @@ function writeSessionBinding(directory, session) {
     profile: session.profile || buildNativeHostProfile(session.skillId === 'workbench' ? 'workbench' : 'ai-cli'),
     createdAt: Date.now(),
   }, null, 2)}\n`, 'utf8');
+  return axisBindingId;
 }
 
 function readNativeNodeRelation(directory) {
@@ -882,8 +888,20 @@ function readNativeSessionBinding(directory, sessionID, options = {}) {
     agent: expected.agent,
     skillId: expected.skillId,
     profile: expected,
+    axisBindingId: typeof binding.axisBindingId === 'string' && binding.axisBindingId.trim() ? binding.axisBindingId.trim() : null,
     nodeRelation: options.includeNodeRelation === false ? null : readNativeNodeRelation(resolved),
   };
+}
+
+function ensureNativeSessionAxisBinding(directory, sessionID) {
+  const binding = readNativeSessionBinding(directory, sessionID, { includeNodeRelation: false });
+  if (!binding || binding.axisBindingId) return binding;
+  const target = path.join(binding.directory, '.def-session.json');
+  const stored = readJsonFile(target);
+  if (!stored) return binding;
+  stored.axisBindingId = `axis-${crypto.randomUUID()}`;
+  fs.writeFileSync(target, `${JSON.stringify(stored, null, 2)}\n`, 'utf8');
+  return readNativeSessionBinding(binding.directory, sessionID, { includeNodeRelation: false });
 }
 
 function findNativeSessionBinding(sessionID) {
@@ -906,7 +924,7 @@ function findNativeSessionBinding(sessionID) {
 }
 
 function writeNativeWorkbenchContext(directory, sessionID, context) {
-  const binding = readNativeSessionBinding(directory, sessionID);
+  const binding = ensureNativeSessionAxisBinding(directory, sessionID);
   if (!binding || binding.host !== 'workbench') return null;
   const target = path.join(binding.directory, '.def-workbench-context.json');
   const temporary = `${target}.${process.pid}.${Date.now()}.tmp`;
@@ -914,6 +932,7 @@ function writeNativeWorkbenchContext(directory, sessionID, context) {
     schemaVersion: 1,
     host: 'workbench',
     sessionID,
+    axisBindingId: binding.axisBindingId,
     updatedAt: Date.now(),
     context: context && typeof context === 'object' ? context : {},
   };
@@ -1812,6 +1831,7 @@ async function runChatStream({ config, message, thinkingEffort, skillId = 'opera
   return {
     sessionId: session.id,
     sessionID: session.id,
+    directory,
     eventEmitter: state.eventEmitter,
   };
 }
@@ -1849,6 +1869,7 @@ async function continueChat(sessionID, message, clientTurnId, options = {}) {
   return {
     sessionId: state.sessionID,
     sessionID: state.sessionID,
+    directory: state.directory,
     eventEmitter: state.eventEmitter,
   };
 }
@@ -2174,6 +2195,7 @@ module.exports = {
   recoverNativeHostSession,
   buildNativeHostProfile,
   readNativeSessionBinding,
+  ensureNativeSessionAxisBinding,
   findNativeSessionBinding,
   writeNativeWorkbenchContext,
   runChat,
