@@ -197,6 +197,25 @@ function countChangedLines(before, after) {
   };
 }
 
+async function migrateNativeSessionTitle(binding) {
+  const runtime = runtimeSummary(readConfig().deepseek);
+  if (!runtime.serverUrl || !binding?.sessionID || !binding.directory) return;
+  const query = `directory=${encodeURIComponent(binding.directory)}`;
+  try {
+    const current = await fetch(`${runtime.serverUrl}/session/${encodeURIComponent(binding.sessionID)}?${query}`).then((r) => r.json());
+    const title = String(current?.title || '');
+    if (!/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/.test(title)) return;
+    const nextTitle = binding.host === 'workbench' ? '排轴会话' : 'DEF 数据会话';
+    await fetch(`${runtime.serverUrl}/session/${encodeURIComponent(binding.sessionID)}?${query}`, {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ title: nextTitle }),
+    });
+  } catch {
+    // Title migration is cosmetic and must not block session recovery.
+  }
+}
+
 const staticMimeTypes = {
   '.css': 'text/css; charset=utf-8',
   '.html': 'text/html; charset=utf-8',
@@ -357,6 +376,7 @@ const server = http.createServer(async (request, response) => {
         writeJson(response, 404, { ok: false, error: 'native-session-binding-not-found' });
         return;
       }
+      await migrateNativeSessionTitle(binding);
       writeJson(response, 200, { ok: true, binding, profile: binding.profile });
       return;
     }
@@ -578,6 +598,13 @@ const server = http.createServer(async (request, response) => {
         ok: true,
         result: await stopChat(),
       });
+      return;
+    }
+
+    const deniedNativeRoute = /\/pty(\/|$)/.test(requestUrl.pathname)
+      || (method !== 'GET' && /\/(vcs|share|unshare|project|worktree|config|provider|auth)(\/|$)/.test(requestUrl.pathname));
+    if (deniedNativeRoute) {
+      writeJson(response, 403, { ok: false, error: 'disabled-by-def-feature-matrix', path: requestUrl.pathname });
       return;
     }
 

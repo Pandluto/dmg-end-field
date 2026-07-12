@@ -430,11 +430,14 @@ export function Titlebar(props: { update?: TitlebarUpdate }) {
                   "md:pl-4": !mac(),
                 }}
               >
-                <ChannelIndicator />
-                <Show when={windows() || linux()}>
+                <Show when={!defEmbeddedProfile()}>
+                  <ChannelIndicator />
+                </Show>
+                <Show when={!defEmbeddedProfile() && (windows() || linux())}>
                   <WindowsAppMenu command={command} platform={platform} variant="v2" />
                 </Show>
-                <TooltipV2
+                <Show when={!defEmbeddedProfile()}>
+                  <TooltipV2
                   placement="bottom"
                   value={
                     <>
@@ -455,7 +458,8 @@ export function Titlebar(props: { update?: TitlebarUpdate }) {
                     aria-label={language.t("home.title")}
                     aria-pressed={layout.route().type === "home"}
                   />
-                </TooltipV2>
+                  </TooltipV2>
+                </Show>
 
                 <TitlebarTabStrip
                   tabs={tabsStore}

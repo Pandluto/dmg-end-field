@@ -32,10 +32,8 @@ const capabilityPolicy = {
   allowed: ['model-chat', 'structured-output', 'skill', 'native-question', 'def-node-code', 'def-node-crud', 'def-data-resource'],
   denied: [
     'bash',
-    'edit',
-    'read',
-    'grep',
-    'glob',
+    'arbitrary-project-read',
+    'arbitrary-project-edit',
     'task',
     'todowrite',
     'websearch',
@@ -75,9 +73,9 @@ function buildNativeHostProfile(host = 'ai-cli') {
       sessionCreate: true,
       sessionList: true,
       sessionArchive: true,
-      nodeReview: normalizedHost === 'workbench',
-      nodeFiles: normalizedHost === 'workbench',
-      nodeApproval: normalizedHost === 'workbench',
+      nodeReview: true,
+      nodeFiles: true,
+      nodeApproval: true,
       modelSelect: false,
       providerManage: false,
       serverManage: false,
@@ -85,8 +83,8 @@ function buildNativeHostProfile(host = 'ai-cli') {
       terminalOpen: false,
       gitManage: false,
       shareSession: false,
-      settingsAppearance: true,
-      settingsShortcuts: true,
+      settingsAppearance: false,
+      settingsShortcuts: false,
     }),
   });
 }
@@ -214,10 +212,7 @@ function buildCapabilityPermission(_webfetchAllow = [], options = {}) {
 }
 
 function buildAgentPermission(skillId) {
-  if (skillId === 'workbench') {
-    return buildCapabilityPermission([], { nodeCode: true });
-  }
-  return buildCapabilityPermission();
+  return buildCapabilityPermission([], { nodeCode: true });
 }
 
 function capabilityPolicySummary() {
@@ -282,6 +277,7 @@ function buildAgentPrompt(skillId) {
     'Do not expose API keys, hidden configuration, or internal protocol noise.',
     'Do not use webfetch, shell, task/subagents, git, or arbitrary project files.',
     'Use the registered def_data_* tools for operator, weapon, equipment, skill, Buff, and damage resources.',
+    'When this AI CLI task explicitly creates or binds a Work Node, use native read/edit/apply_patch only on that session node/working/*.json and rebuild through DEF node tools; never inherit the main Workbench context.',
     'Use native OpenCode permission prompts for approval. Never claim a write succeeded without tool evidence.',
     'When required information is missing, ask for the smallest missing input. Never invent game data.',
     `Current DEF capability: ${info.label}.`,

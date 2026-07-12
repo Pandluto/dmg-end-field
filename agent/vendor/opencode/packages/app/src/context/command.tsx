@@ -27,6 +27,8 @@ function defCommandAllowed(id: string) {
     [/^(terminal\.|terminal$)/, "terminalOpen"],
     [/^(git\.|git$|branch\.|branch$)/, "gitManage"],
     [/^(share\.|share$|unshare\.|unshare$)/, "shareSession"],
+    [/^(home\.|home$)/, "projectManage"],
+    [/^(settings\.|settings$)/, "settingsAppearance"],
   ]
   if (profile.lockedAgent && /^(agent\.|agent$)/.test(id)) return false
   const rule = rules.find(([pattern]) => pattern.test(id))

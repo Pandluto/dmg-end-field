@@ -1357,6 +1357,9 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
 
   const designPlaceholder = () => {
     if (store.mode === "shell") return placeholder()
+    const profile = defEmbeddedProfile()
+    if (profile?.host === "workbench") return "描述你想查看、调整或应用的排轴…"
+    if (profile?.host === "ai-cli") return "查询或整理 DEF 数据资源…"
     return "Ask anything, / for commands, @ for context..."
   }
 

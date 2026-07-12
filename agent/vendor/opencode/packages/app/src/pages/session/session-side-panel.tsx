@@ -11,6 +11,7 @@ import type { DragEvent } from "@thisbeyond/solid-dnd"
 import type { SnapshotFileDiff, VcsFileDiff } from "@opencode-ai/sdk/v2"
 import { ConstrainDragYAxis, getDraggableId } from "@/utils/solid-dnd"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
+import { defEmbeddedProfile } from "@/utils/def-embedded"
 
 import FileTree from "@/components/file-tree"
 import { SessionContextUsage } from "@/components/session-context-usage"
@@ -264,7 +265,7 @@ export function SessionSidePanel(props: {
                         <Show when={reviewTab() && props.canReview()}>
                           <Tabs.Trigger value="review">
                             <div class="flex items-center gap-1.5">
-                              <div>{language.t("session.tab.review")}</div>
+                              <div>{defEmbeddedProfile() ? "节点变更" : language.t("session.tab.review")}</div>
                               <Show when={props.hasReview()}>
                                 <div>{props.reviewCount()}</div>
                               </Show>
@@ -400,10 +401,11 @@ export function SessionSidePanel(props: {
                   >
                     <Tabs.List>
                       <Tabs.Trigger value="changes" class="flex-1" classes={{ button: "w-full" }}>
-                        {props.reviewCount()}{" "}
-                        {language.t(
-                          props.reviewCount() === 1 ? "session.review.change.one" : "session.review.change.other",
-                        )}
+                        {defEmbeddedProfile()
+                          ? `${props.reviewCount()} 项节点变更`
+                          : `${props.reviewCount()} ${language.t(
+                              props.reviewCount() === 1 ? "session.review.change.one" : "session.review.change.other",
+                            )}`}
                       </Tabs.Trigger>
                       <Tabs.Trigger value="all" class="flex-1" classes={{ button: "w-full" }}>
                         {language.t("session.files.all")}
