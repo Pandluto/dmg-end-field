@@ -30,7 +30,7 @@ import { summarizeMainWorkbenchToolsForAgent } from '../../agentKernel/mainWorkb
 import { buildGameKnowledgePromptLines } from '../../utils/gameKnowledge';
 import { MarkdownRenderer } from '../MarkdownRenderer';
 import { WorkNodeTreeIcon } from './WorkNodeTreeIcon';
-import { mergeWorkbenchAiHistory } from './workbenchAiHistory';
+import { mergeWorkbenchAiHistory, resolveRecalledWorkbenchAiHistory } from './workbenchAiHistory';
 import './MainWorkbenchAiPanel.css';
 
 const DEF_AGENT_BROWSER_SESSION_KEY = 'def-opencode.workbench.activeSession.v1';
@@ -171,12 +171,12 @@ function readStoredDefAgentHistory(sessionId: string): WorkbenchAiMessage[] {
   }
 }
 
-function writeStoredDefAgentHistory(sessionId: string, messages: WorkbenchAiMessage[]) {
+function writeStoredDefAgentHistory(sessionId: string, messages: WorkbenchAiMessage[], replace = false) {
   try {
     const raw = window.localStorage.getItem(DEF_AGENT_BROWSER_HISTORY_KEY);
     const archive = raw ? JSON.parse(raw) as Record<string, WorkbenchAiMessage[]> : {};
     archive[sessionId] = mergeWorkbenchAiHistory(
-      Array.isArray(archive[sessionId]) ? archive[sessionId] : [],
+      replace ? [] : (Array.isArray(archive[sessionId]) ? archive[sessionId] : []),
       messages,
     );
     window.localStorage.setItem(DEF_AGENT_BROWSER_HISTORY_KEY, JSON.stringify(archive));
@@ -290,7 +290,7 @@ function transcriptToMessages(messages: Array<{ id?: string; role: string; text?
       text: displayTranscriptText(message.role, message.text || ''),
       status: 'done' as const,
     }));
-  return converted.length > 0 ? converted : buildInitialMessages();
+  return converted;
 }
 
 function isGenericCompletionText(text: string | undefined) {
@@ -497,12 +497,6 @@ function buildLastOperationMethodAnswer(toolName: string) {
   return `刚才用的是正式 typed tool：${toolName}。它在工具内部修改 work node 并完成受保护 checkout，不是临时脚本。`;
 }
 
-function mergeTranscriptWithStoredHistory(sessionId: string, transcript: WorkbenchAiMessage[]) {
-  const history = readStoredDefAgentHistory(sessionId);
-  const merged = mergeWorkbenchAiHistory(history, transcript, 200, true);
-  return merged.length > 0 ? merged : buildInitialMessages();
-}
-
 export function MainWorkbenchAiPanel({
   selectedCharacters,
   skillButtons,
@@ -652,7 +646,10 @@ export function MainWorkbenchAiPanel({
           return;
         }
         const sessionId = transcript.session?.id || transcript.session?.sessionID || stored.sessionId;
-        setMessages(mergeTranscriptWithStoredHistory(sessionId, transcriptToMessages(transcript.messages || [])));
+        const recalledMessages = transcriptToMessages(transcript.messages || []);
+        const resolvedMessages = resolveRecalledWorkbenchAiHistory(cachedHistory, recalledMessages);
+        writeStoredDefAgentHistory(sessionId, resolvedMessages, recalledMessages.length > 0);
+        setMessages(resolvedMessages.length > 0 ? resolvedMessages : buildInitialMessages());
         lastSeqRef.current = transcript.session?.lastSeq || stored.lastSeq || 0;
         rememberSession(sessionId, transcript.session?.tokens || stored.tokens || null, lastSeqRef.current);
         setStatus('已连接');

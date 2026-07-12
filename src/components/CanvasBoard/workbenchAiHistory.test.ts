@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mergeWorkbenchAiHistory, type PersistedWorkbenchAiMessage } from './workbenchAiHistory';
+import { mergeWorkbenchAiHistory, resolveRecalledWorkbenchAiHistory, type PersistedWorkbenchAiMessage } from './workbenchAiHistory';
 
 const message = (id: string, role: PersistedWorkbenchAiMessage['role'], text: string): PersistedWorkbenchAiMessage => ({
   id, role, text, status: 'done',
@@ -40,5 +40,7 @@ const recalledRepeatedTurns = [
   message('remote-repeat-u2', 'user', '再试试'), message('remote-repeat-a2', 'agent', '正在应用'),
 ];
 assert.equal(mergeWorkbenchAiHistory(repeatedTurns, recalledRepeatedTurns, 200, true).length, 4);
+assert.deepEqual(resolveRecalledWorkbenchAiHistory(localHistory, recalledTranscript), recalledTranscript);
+assert.deepEqual(resolveRecalledWorkbenchAiHistory(localHistory, []), localHistory);
 
 console.log('workbench AI history merge passed');

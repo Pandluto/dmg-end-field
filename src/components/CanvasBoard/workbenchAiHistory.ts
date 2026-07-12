@@ -68,3 +68,11 @@ export function mergeWorkbenchAiHistory<T extends PersistedWorkbenchAiMessage>(
   });
   return merged.slice(-Math.max(1, limit));
 }
+
+export function resolveRecalledWorkbenchAiHistory<T extends PersistedWorkbenchAiMessage>(
+  cached: T[],
+  transcript: T[],
+): T[] {
+  const recalled = transcript.filter((message) => message?.id && message.text?.trim() && message.id !== 'system-ready');
+  return recalled.length > 0 ? recalled : cached;
+}
