@@ -452,6 +452,35 @@ export const workbench_context = {
   },
 }
 
+export const workbench_current_node = {
+  description: 'Read the one authoritative current Workbench checkout node. Never infer it from a node list, node cursor, parent, or latest-applied status.',
+  args: {},
+  async execute(_args, context) {
+    const workbench = await readWorkbenchState(context)
+    requireWorkbenchCheckoutReady(context)
+    const checkout = workbench.checkout
+    if (checkout?.targetType !== 'work-node' || !workbench.checkoutNodeId) {
+      throw new Error('The current Workbench checkout is not a Work Node.')
+    }
+    const nodes = Array.isArray(workbench.snapshot?.axisContext?.nodes) ? workbench.snapshot.axisContext.nodes : []
+    const node = nodes.find((candidate) => candidate?.id === workbench.checkoutNodeId)
+    if (!node) throw new Error(`Current Workbench checkout node is missing from its bound tree: ${workbench.checkoutNodeId}`)
+    const result = {
+      nodeId: node.id,
+      label: node.label,
+      description: node.description || '',
+      status: node.status,
+      parentNodeId: node.parentNodeId || null,
+      updatedAt: node.updatedAt,
+    }
+    return {
+      title: 'DEF current checkout node',
+      output: JSON.stringify(result, null, 2),
+      metadata: { family: 'def-node-crud', host: 'workbench', nodeId: node.id, checkoutUpdatedAt: checkout.updatedAt },
+    }
+  },
+}
+
 export const workbench_buttons = {
   description: 'Read current-checkout buttons using exact coordinates. @N-L always means nodeIndex=N-1 and lineIndex=L-1; use this before resolving a button for deletion or edit.',
   args: {

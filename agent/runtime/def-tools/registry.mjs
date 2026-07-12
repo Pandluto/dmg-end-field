@@ -62,6 +62,7 @@ export const DEF_NATIVE_TARGETS = Object.freeze([
   { id: 'def.node.crud.list', family: DEF_TOOL_FAMILY.NODE_CRUD, source: 'def-native', nativeBinding: 'def_node_list', status: 'implemented', workspaceScope: 'node-store' },
   { id: 'def.node.crud.read', family: DEF_TOOL_FAMILY.NODE_CRUD, source: 'def-native', nativeBinding: 'def_node_bind', status: 'implemented', workspaceScope: 'node-store' },
   { id: 'def.node.crud.context', family: DEF_TOOL_FAMILY.NODE_CRUD, source: 'def-native', nativeBinding: 'def_workbench_context', status: 'implemented', workspaceScope: 'current-checkout', exposure: ['workbench'] },
+  { id: 'def.node.crud.current', family: DEF_TOOL_FAMILY.NODE_CRUD, source: 'def-native', nativeBinding: 'def_workbench_current_node', status: 'implemented', workspaceScope: 'current-checkout', exposure: ['workbench'] },
   { id: 'def.node.crud.buttons', family: DEF_TOOL_FAMILY.NODE_CRUD, source: 'def-native', nativeBinding: 'def_workbench_buttons', status: 'implemented', workspaceScope: 'current-checkout', exposure: ['workbench'] },
   { id: 'def.node.crud.buff_ranking', family: DEF_TOOL_FAMILY.NODE_CRUD, source: 'def-native', nativeBinding: 'def_workbench_buff_ranking', status: 'implemented', workspaceScope: 'current-checkout', exposure: ['workbench'] },
   { id: 'def.node.crud.update', family: DEF_TOOL_FAMILY.NODE_CRUD, source: 'def-native', nativeBinding: 'def_node_sync_validate', status: 'implemented', workspaceScope: 'node-store' },

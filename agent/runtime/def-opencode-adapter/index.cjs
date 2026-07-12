@@ -249,6 +249,7 @@ function buildAgentPrompt(skillId) {
       '- You can arrange and edit the DEF timeline. 排轴、调轴、改顺序、改格位、添加/删除/复制技能和组合 Buff are core Workbench responsibilities.',
       '- This conversation is permanently bound to one timeline document and its Work Node tree, never to one Work Node. A Work Node is only a flexible checkout or draft.',
       '- Call def_workbench_context before every answer about the current canvas and before every mutation. It is the only source for the active checkout after a user manually switches nodes.',
+      '- For a direct current-node question, call def_workbench_current_node. Reply with that tool result only; never derive a current node from a parent, a node cursor, a latest-applied node, or the transcript.',
       '- When the injected Workbench state or def_workbench_context reports checkoutPhase="checkout-changed", checkoutTransition.changed, or requiresRebind, the hard gate is active: do not answer, read another node tool, or mutate. First call def_node_bind with nodeId="". After it succeeds, call def_workbench_context again, reason at high effort from that checkout only, then continue.',
       '- @N-L is immutable coordinate notation: nodeIndex=N-1 and lineIndex=L-1. Before editing or saying that a coordinate is empty, call def_workbench_buttons with both exact indices. If it returns no candidate, report that it is empty; never reinterpret it as an ordinal or choose another button.',
       '- For “which skill has the most Buffs”, call def_workbench_buff_ranking with the character name and report its first result. Never manually count, mix drafts with checkout, or infer a visible-range cutoff.',
@@ -825,6 +826,15 @@ function createAgentSessionWorkspace(skillId) {
   return fs.realpathSync(directory);
 }
 
+function syncNativeSessionWorkspaceFiles(directory) {
+  const toolsDir = path.join(directory, '.opencode', 'tools');
+  const codecDir = path.join(directory, 'def-node-workspace');
+  fs.mkdirSync(toolsDir, { recursive: true });
+  fs.mkdirSync(codecDir, { recursive: true });
+  fs.copyFileSync(defOpenCodeToolSource, path.join(toolsDir, 'def.js'));
+  fs.copyFileSync(defNodeWorkspaceCodecSource, path.join(codecDir, 'codec.mjs'));
+}
+
 function writeSessionBinding(directory, session) {
   const existing = readJsonFile(path.join(directory, '.def-session.json'));
   const axisBindingId = typeof existing?.axisBindingId === 'string' && existing.axisBindingId.trim()
@@ -881,6 +891,7 @@ function readNativeSessionBinding(directory, sessionID, options = {}) {
   const binding = readJsonFile(path.join(resolved, '.def-session.json'));
   if (!binding?.sessionID || binding.sessionID !== sessionID) return null;
   if (path.resolve(binding.directory || resolved) !== resolved) return null;
+  syncNativeSessionWorkspaceFiles(resolved);
   const host = binding.host === 'workbench' ? 'workbench' : 'ai-cli';
   const expected = buildNativeHostProfile(host);
   return {

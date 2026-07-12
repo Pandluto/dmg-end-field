@@ -363,7 +363,7 @@ async function proxyOpenCodeRequest(request, response) {
       rewrittenBody = Buffer.from(JSON.stringify({
         ...incoming,
         agent: binding.agent,
-        ...(workbenchState ? { system: buildWorkbenchCheckoutSystemPrompt(workbenchState, incoming.system) } : {}),
+        ...(workbenchState ? { system: buildWorkbenchCheckoutSystemPrompt(workbenchState, incoming.system, incoming.parts) } : {}),
       }), 'utf8');
     }
   }
@@ -506,7 +506,7 @@ function updateNativeWorkbenchCheckoutState(binding, axisContext) {
   };
 }
 
-function buildWorkbenchCheckoutSystemPrompt(state, existingSystem) {
+function buildWorkbenchCheckoutSystemPrompt(state, existingSystem, parts) {
   const currentNode = Array.isArray(state.axisContext?.nodes)
     ? state.axisContext.nodes.find((node) => node?.id === state.current?.targetId)
     : null;
@@ -525,6 +525,15 @@ function buildWorkbenchCheckoutSystemPrompt(state, existingSystem) {
     );
   } else {
     lines.push('Before answering a current-canvas or current-node question, call def_workbench_context and use its checkout as the only source of truth.');
+  }
+  const userText = Array.isArray(parts)
+    ? parts.filter((part) => part?.type === 'text').map((part) => String(part.text || '')).join('\n')
+    : '';
+  if (/当前节点|当前.*节点|现在.*节点/.test(userText)) {
+    lines.push(
+      'DIRECT CURRENT-NODE CONTRACT: call def_workbench_current_node before replying.',
+      'Reply with exactly its label and nodeId. Do not mention axis bindings, node cursors, parents, latest-applied nodes, summaries, or any earlier answer.',
+    );
   }
   if (typeof existingSystem === 'string' && existingSystem.trim()) lines.push(existingSystem.trim());
   return lines.join('\n');
