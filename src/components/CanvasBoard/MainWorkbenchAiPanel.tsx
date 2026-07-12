@@ -499,7 +499,7 @@ function buildLastOperationMethodAnswer(toolName: string) {
 
 function mergeTranscriptWithStoredHistory(sessionId: string, transcript: WorkbenchAiMessage[]) {
   const history = readStoredDefAgentHistory(sessionId);
-  const merged = mergeWorkbenchAiHistory(history, transcript);
+  const merged = mergeWorkbenchAiHistory(history, transcript, 200, true);
   return merged.length > 0 ? merged : buildInitialMessages();
 }
 

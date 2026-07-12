@@ -19,4 +19,26 @@ assert.deepEqual(
   firstBatch,
 );
 
+const localHistory = [
+  message('local-u1', 'user', 'hi'), message('local-a1', 'agent', '排轴已就绪'),
+  message('local-u2', 'user', '随便聊聊'), message('local-a2', 'agent', '好的'),
+  message('local-u3', 'user', '没什么'), message('local-a3', 'agent', '随时可以调轴'),
+];
+const recalledTranscript = [
+  message('remote-u1', 'user', 'hi'), message('remote-a1', 'agent', '排轴已就绪'),
+  message('remote-u2', 'user', '随便聊聊'), message('remote-a2', 'agent', '好的'),
+  message('remote-u3', 'user', '没什么'), message('remote-a3', 'agent', '随时可以调轴'),
+];
+assert.equal(mergeWorkbenchAiHistory(localHistory, recalledTranscript, 200, true).length, 6);
+
+const repeatedTurns = [
+  message('local-repeat-u1', 'user', '再试试'), message('local-repeat-a1', 'agent', '正在应用'),
+  message('local-repeat-u2', 'user', '再试试'), message('local-repeat-a2', 'agent', '正在应用'),
+];
+const recalledRepeatedTurns = [
+  message('remote-repeat-u1', 'user', '再试试'), message('remote-repeat-a1', 'agent', '正在应用'),
+  message('remote-repeat-u2', 'user', '再试试'), message('remote-repeat-a2', 'agent', '正在应用'),
+];
+assert.equal(mergeWorkbenchAiHistory(repeatedTurns, recalledRepeatedTurns, 200, true).length, 4);
+
 console.log('workbench AI history merge passed');
