@@ -51,7 +51,7 @@ const skillMap = {
   operator: { agent: 'def-operator', skill: 'operator-fill', label: '填干员' },
   weapon: { agent: 'def-weapon', skill: 'weapon-fill', label: '填武器' },
   equipment: { agent: 'def-equipment', skill: 'equipment-fill', label: '填装备' },
-  workbench: { agent: 'def-search', skill: 'rest-search', label: '主界面' },
+  workbench: { agent: 'def-workbench', skill: 'rest-search', label: '主界面' },
   search: { agent: 'def-search', skill: 'rest-search', label: '查库' },
   repair: { agent: 'def-repair', skill: 'check-error-repair', label: '修复错误' },
   audit: { agent: 'def-audit', skill: 'akedatabase-fill-tool', label: '审计数据' },
@@ -249,6 +249,9 @@ function buildOpenCodeConfig(config) {
   const agents = {};
   for (const id of Object.keys(skillMap)) {
     const info = skillMap[id];
+    if (agents[info.agent]) {
+      throw new Error(`Duplicate DEF OpenCode agent identity: ${info.agent}`);
+    }
     agents[info.agent] = {
       model: modelRef,
       mode: 'primary',
@@ -257,7 +260,7 @@ function buildOpenCodeConfig(config) {
         ? { thinking: { type: 'disabled' } }
         : deepSeekRequestOptions(deepseek.model, 'high'),
       permission: buildAgentPermission(id),
-      steps: id === 'workbench' ? 8 : 8,
+      steps: id === 'workbench' ? 16 : 8,
     };
   }
 
@@ -686,6 +689,7 @@ async function createNativeHostSession({ config = {}, host = 'ai-cli', skillId, 
   const query = `directory=${encodeURIComponent(directory)}`;
   const payload = buildSessionCreatePayload({ selected, deepseek, skillId: resolvedSkillId, thinkingEffort });
   const session = await requestJson('POST', `${serverUrl}/session?${query}`, payload, undefined, 15000);
+  writeSessionBinding(directory, { id: session.id, agent: selected.agent, skillId: resolvedSkillId });
   return {
     id: session.id,
     sessionID: session.id,
@@ -718,6 +722,37 @@ function createAgentSessionWorkspace(skillId) {
     '',
   ].join('\n'), 'utf8');
   return fs.realpathSync(directory);
+}
+
+function writeSessionBinding(directory, session) {
+  fs.writeFileSync(path.join(directory, '.def-session.json'), `${JSON.stringify({
+    schemaVersion: 1,
+    sessionID: session.id,
+    directory,
+    agent: session.agent,
+    skillId: session.skillId,
+    host: session.skillId === 'workbench' ? 'workbench' : 'ai-cli',
+    createdAt: Date.now(),
+  }, null, 2)}\n`, 'utf8');
+}
+
+function listSessionBindings() {
+  const sessionsRoot = path.join(getAgentWorkspaceDir(), 'sessions');
+  const bindings = [];
+  if (!fs.existsSync(sessionsRoot)) return bindings;
+  for (const hostEntry of fs.readdirSync(sessionsRoot, { withFileTypes: true })) {
+    if (!hostEntry.isDirectory()) continue;
+    const hostRoot = path.join(sessionsRoot, hostEntry.name);
+    for (const sessionEntry of fs.readdirSync(hostRoot, { withFileTypes: true })) {
+      if (!sessionEntry.isDirectory()) continue;
+      const directory = path.join(hostRoot, sessionEntry.name);
+      const binding = readJsonFile(path.join(directory, '.def-session.json'));
+      if (binding?.sessionID && path.resolve(binding.directory || directory) === path.resolve(directory)) {
+        bindings.push({ ...binding, directory });
+      }
+    }
+  }
+  return bindings;
 }
 
 function extractReplyError(reply) {
@@ -1224,17 +1259,17 @@ function listChatSessions() {
 
 async function listPersistedDefSessions({ config = {}, skillId = 'operator', thinkingEffort = 'medium', limit = 100 } = {}) {
   const deepseek = sanitizeDeepSeekConfig(config);
-  const directory = getAgentWorkspaceDir();
   const baseUrl = await getOpenCodeServerForRead(deepseek, skillId, thinkingEffort);
-  const query = new URLSearchParams({
-    directory,
-    roots: 'true',
-    limit: String(limit),
-  });
-  const sessions = await requestJson('GET', `${baseUrl}/session?${query.toString()}`, undefined, undefined, 15000);
-  return (Array.isArray(sessions) ? sessions : [])
-    .filter(isDefOpenCodeSession)
-    .map(mapOpenCodeSessionSummary)
+  const sessions = await Promise.all(listSessionBindings().slice(-Math.max(limit, 1)).map(async (binding) => {
+    try {
+      const session = await requestJson('GET', `${baseUrl}/session/${encodeURIComponent(binding.sessionID)}?directory=${encodeURIComponent(binding.directory)}`, undefined, undefined, 15000);
+      return { session, binding };
+    } catch {
+      return null;
+    }
+  }));
+  return sessions.filter((item) => item?.session && isDefOpenCodeSession(item.session))
+    .map(({ session, binding }) => ({ ...mapOpenCodeSessionSummary(session), host: binding.host, skillId: binding.skillId, directory: binding.directory }))
     .sort((left, right) => (right.updatedAt || right.createdAt || 0) - (left.updatedAt || left.createdAt || 0));
 }
 
@@ -1243,6 +1278,17 @@ async function getPersistedDefSession(sessionID, { config = {}, skillId = 'opera
   const deepseek = sanitizeDeepSeekConfig(config);
   const rootDirectory = getAgentWorkspaceDir();
   const baseUrl = await getOpenCodeServerForRead(deepseek, skillId, thinkingEffort);
+  const binding = listSessionBindings().find((item) => item.sessionID === sessionID);
+  if (binding) {
+    const query = `directory=${encodeURIComponent(binding.directory)}`;
+    const session = await requestJson('GET', `${baseUrl}/session/${encodeURIComponent(sessionID)}?${query}`, undefined, undefined, 15000);
+    return {
+      baseUrl,
+      directory: binding.directory,
+      session,
+      summary: { ...mapOpenCodeSessionSummary(session), host: binding.host, skillId: binding.skillId, directory: binding.directory },
+    };
+  }
   const listQuery = new URLSearchParams({ directory: rootDirectory, roots: 'true', limit: '500' });
   const sessions = await requestJson('GET', `${baseUrl}/session?${listQuery.toString()}`, undefined, undefined, 15000);
   const candidate = (Array.isArray(sessions) ? sessions : []).find((item) => item?.id === sessionID && isDefOpenCodeSession(item));
@@ -1546,6 +1592,7 @@ async function runChatStream({ config, message, thinkingEffort, skillId = 'opera
   const query = `directory=${encodeURIComponent(directory)}`;
   const sessionPayload = buildSessionCreatePayload({ selected, deepseek, skillId, thinkingEffort });
   const session = await requestJson('POST', `${baseUrl}/session?${query}`, sessionPayload, undefined, 15000);
+  writeSessionBinding(directory, { id: session.id, agent: selected.agent, skillId });
   const state = makeStreamState({
     baseUrl,
     directory,
@@ -1762,6 +1809,7 @@ async function runChat({ config, message, thinkingEffort, skillId = 'operator' }
     const query = `directory=${encodeURIComponent(directory)}`;
     const sessionPayload = buildSessionCreatePayload({ selected, deepseek, skillId, thinkingEffort });
     const session = await requestJson('POST', `${baseUrl}/session?${query}`, sessionPayload, runController.signal, 15000);
+    writeSessionBinding(directory, { id: session.id, agent: selected.agent, skillId });
     activeRun.sessionID = session.id;
     const payload = {
       agent: selected.agent,

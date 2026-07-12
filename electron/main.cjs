@@ -1902,12 +1902,12 @@ function buildWorkbenchTestAgentMessage(userText, snapshot, evidencePayload) {
 }
 
 async function buildWorkbenchTestPrompt(userText) {
-  return [
+  return { agentText: [
     'This request came from the DEF workbench blackbox ingress and is equivalent to a normal user message.',
     'Reply in Chinese. Use the registered native DEF tools; do not call or describe legacy REST tool routes.',
     'For mutations, work only through an isolated child node, validate and diff it, then request approval before use.',
     `User request: ${userText}`,
-  ].join('\n');
+  ].join('\n'), snapshotAvailable: false, evidenceAvailable: false };
 
   /* Legacy evidence-prompt builder retained below only until the bridge compatibility routes are removed. */
   await startAiCliRest();

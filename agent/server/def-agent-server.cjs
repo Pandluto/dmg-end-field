@@ -338,6 +338,7 @@ const server = http.createServer(async (request, response) => {
     }
 
     if (method === 'POST' && requestUrl.pathname === '/api/chat') {
+      await ensureDefRestService();
       const body = await readJsonBody(request);
       const result = await runChat({
         config: readConfig().deepseek,
@@ -353,6 +354,7 @@ const server = http.createServer(async (request, response) => {
     }
 
     if (method === 'POST' && requestUrl.pathname === '/api/chat/stream') {
+      await ensureDefRestService();
       const body = await readJsonBody(request);
       const result = await runChatStream({
         config: readConfig().deepseek,
@@ -421,6 +423,7 @@ const server = http.createServer(async (request, response) => {
 
     const messageMatch = /^\/api\/chat\/([^/]+)\/message$/.exec(requestUrl.pathname);
     if (method === 'POST' && messageMatch) {
+      await ensureDefRestService();
       const sessionID = decodeURIComponent(messageMatch[1]);
       const body = await readJsonBody(request);
       const result = await continueChat(sessionID, body.message, body.clientTurnId, {
