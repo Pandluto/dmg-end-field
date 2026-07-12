@@ -80,10 +80,12 @@ async function syncWorkspace(context) {
 
 export const node_fork = {
   description: 'Fork the current DEF Work Node/current checkout into an isolated child-node code workspace bound to this OpenCode session.',
-  args: {},
-  async execute(_args, context) {
+  args: {
+    approvalPolicy: { type: 'string', enum: ['auto-low-risk', 'ask-on-risk', 'manual'], description: 'Approval policy for using this child node.' },
+  },
+  async execute(args, context) {
     context.metadata({ title: 'Fork DEF child node' })
-    const created = await callDefTool('def.worknode.create_from_current', {})
+    const created = await callDefTool('def.worknode.create_from_current', { approvalPolicy: args.approvalPolicy })
     return {
       title: 'DEF child node ready',
       output: JSON.stringify(materialize(context, created.node), null, 2),
@@ -136,6 +138,40 @@ export const node_diff = {
   },
 }
 
+export const node_list = {
+  description: 'List bounded DEF Work Node metadata without loading node payloads.',
+  args: { limit: { type: 'number', description: 'Maximum nodes, from 1 to 100.' } },
+  async execute(args, context) {
+    context.metadata({ title: 'List DEF child nodes' })
+    const result = await callDefTool('def.worknode.list', { limit: args.limit })
+    return {
+      title: 'DEF child nodes',
+      output: JSON.stringify(boundResourceValue(result), null, 2),
+      metadata: { family: 'def-node-crud', count: result.nodes?.length || 0 },
+    }
+  },
+}
+
+export const node_delete = {
+  description: 'Delete one non-checked-out DEF Work Node subtree after native user approval and repository protection checks.',
+  args: { nodeId: { type: 'string', description: 'Work Node id to delete.' } },
+  async execute(args, context) {
+    context.metadata({ title: 'Delete DEF child node' })
+    await context.ask({
+      permission: 'def_node_delete',
+      patterns: [args.nodeId],
+      always: [],
+      metadata: { nodeId: args.nodeId },
+    })
+    const result = await callDefTool('def.worknode.delete', { nodeId: args.nodeId })
+    return {
+      title: 'DEF child node deleted',
+      output: JSON.stringify(result, null, 2),
+      metadata: { family: 'def-node-crud', nodeId: args.nodeId },
+    }
+  },
+}
+
 export const node_use = {
   description: 'Synchronize, validate, approve when required, and directly use the bound child Work Node as the current checkout.',
   args: {},
@@ -152,12 +188,22 @@ export const node_use = {
         toolCallId: context.messageID,
         diffSummary: synced.diff,
       })
-      await context.ask({
-        permission: 'def_node_use',
-        patterns: [binding.nodeId],
-        always: [],
-        metadata: { nodeId: binding.nodeId, diff: synced.diff, approvalId: requested.approval.id },
-      })
+      try {
+        await context.ask({
+          permission: 'def_node_use',
+          patterns: [binding.nodeId],
+          always: [],
+          metadata: { nodeId: binding.nodeId, diff: synced.diff, approvalId: requested.approval.id },
+        })
+      } catch (error) {
+        await callDefTool('def.approval.record_decision', {
+          approvalId: requested.approval.id,
+          decision: 'rejected',
+          decidedBy: 'user',
+          rationale: 'Rejected through OpenCode native permission UI.',
+        })
+        throw error
+      }
       await callDefTool('def.approval.record_decision', {
         approvalId: requested.approval.id,
         decision: 'approved',
@@ -177,6 +223,58 @@ export const node_use = {
   },
 }
 
+export const node_restore = {
+  description: 'Restore the current checkout from the bound child node immutable base after native user approval.',
+  args: {},
+  async execute(_args, context) {
+    context.metadata({ title: 'Restore DEF node base' })
+    const binding = readBinding(context)
+    const requested = await callDefTool('def.approval.request', {
+      summary: `Restore DEF node base ${binding.nodeId}`,
+      riskLevel: 'high',
+      mode: 'blocking',
+      workNodeId: binding.nodeId,
+      toolCallId: context.messageID,
+    })
+    try {
+      await context.ask({
+        permission: 'def_node_restore',
+        patterns: [binding.nodeId],
+        always: [],
+        metadata: { nodeId: binding.nodeId, approvalId: requested.approval.id },
+      })
+    } catch (error) {
+      await callDefTool('def.approval.record_decision', {
+        approvalId: requested.approval.id,
+        decision: 'rejected',
+        decidedBy: 'user',
+        rationale: 'Restore rejected through OpenCode native permission UI.',
+      })
+      throw error
+    }
+    await callDefTool('def.approval.record_decision', {
+      approvalId: requested.approval.id,
+      decision: 'approved',
+      decidedBy: 'user',
+      rationale: 'Restore approved through OpenCode native permission UI.',
+    })
+    const restored = await callDefTool('def.worknode.restore_base_and_verify', { nodeId: binding.nodeId, reload: false })
+    return {
+      title: restored.ok ? 'DEF node base restored' : 'DEF node restore pending',
+      output: JSON.stringify(restored, null, 2),
+      metadata: { nodeId: binding.nodeId, family: 'def-node-crud', currentCheckoutTouched: restored.currentCheckoutTouched === true },
+    }
+  },
+}
+
+function boundResourceValue(value, depth = 0) {
+  if (typeof value === 'string') return value.length > 600 ? `${value.slice(0, 600)}…` : value
+  if (value === null || typeof value !== 'object') return value
+  if (depth >= 5) return '[bounded]'
+  if (Array.isArray(value)) return value.slice(0, 12).map((item) => boundResourceValue(item, depth + 1))
+  return Object.fromEntries(Object.entries(value).slice(0, 40).map(([key, item]) => [key, boundResourceValue(item, depth + 1)]))
+}
+
 function dataResource(definition) {
   return {
     description: definition.description,
@@ -187,9 +285,10 @@ function dataResource(definition) {
       context.metadata({ title: definition.title })
       const input = typeof definition.input === 'function' ? definition.input(args) : args
       const result = await callDefTool(definition.tool, input)
+      const bounded = boundResourceValue(typeof definition.transform === 'function' ? definition.transform(result) : result)
       return {
         title: definition.title,
-        output: JSON.stringify(result, null, 2),
+        output: JSON.stringify(bounded, null, 2),
         metadata: { family: 'def-data-resource', legacyTool: definition.tool },
       }
     },
@@ -200,35 +299,63 @@ export const data_operator = dataResource({
   title: 'DEF operator resource',
   description: 'Resolve trusted DEF operator/character data by id, name, or query.',
   tool: 'def.character.resolve',
-  input: ({ query }) => ({ query }),
+  input: ({ query }) => ({ query, limit: 12 }),
 })
 
 export const data_weapon = dataResource({
   title: 'DEF weapon resource',
   description: 'Resolve trusted DEF weapon data by id, name, or query.',
   tool: 'def.weapon.resolve',
-  input: ({ query }) => ({ query }),
+  input: ({ query }) => ({ query, limit: 12 }),
 })
 
 export const data_equipment = dataResource({
   title: 'DEF equipment resource',
   description: 'Resolve trusted DEF equipment and gear-set data by id, name, or query.',
   tool: 'def.equipment.resolve',
-  input: ({ query }) => ({ query }),
+  input: ({ query }) => ({ query, limit: 12 }),
+  transform: (result) => ({
+    query: result.query,
+    ambiguity: result.ambiguity,
+    suggestedQuestion: result.suggestedQuestion,
+    candidates: Array.isArray(result.candidates) ? result.candidates.slice(0, 12).map((item) => ({
+      kind: item.kind,
+      source: item.source,
+      characterName: item.characterName,
+      slotKey: item.slotKey,
+      equipmentId: item.equipmentId,
+      gearSetId: item.gearSetId,
+      name: item.name,
+      part: item.part,
+      summary: item.summary,
+      confidence: item.confidence,
+      equipments: Array.isArray(item.equipments) ? item.equipments.slice(0, 4).map((equipment) => ({
+        id: equipment.id,
+        name: equipment.name,
+        part: equipment.part,
+      })) : undefined,
+      threePieceBuffs: Array.isArray(item.threePieceBuffs) ? item.threePieceBuffs.slice(0, 4).map((buff) => ({
+        id: buff.id,
+        name: buff.name,
+        typeKey: buff.typeKey,
+        value: buff.value,
+      })) : undefined,
+    })) : [],
+  }),
 })
 
 export const data_skill = dataResource({
   title: 'DEF skill resource',
   description: 'Resolve trusted DEF skill data by id, name, or query.',
   tool: 'def.skill.resolve',
-  input: ({ query }) => ({ query }),
+  input: ({ query }) => ({ query, limit: 12 }),
 })
 
 export const data_buff = dataResource({
   title: 'DEF Buff resource',
   description: 'Resolve trusted DEF Buff candidates by id, name, or query.',
   tool: 'def.buff.resolve',
-  input: ({ query }) => ({ query }),
+  input: ({ query }) => ({ query, limit: 12 }),
 })
 
 export const data_damage = dataResource({
@@ -236,4 +363,24 @@ export const data_damage = dataResource({
   description: 'Read the trusted current DEF damage report.',
   tool: 'def.workbench.damage_report',
   input: () => ({}),
+  transform: (result) => ({
+    snapshotUpdatedAt: result.snapshotUpdatedAt,
+    damageReport: result.damageReport ? {
+      generatedAt: result.damageReport.generatedAt,
+      buttonCount: result.damageReport.buttonCount,
+      totalExpected: result.damageReport.totalExpected,
+      totalNonCrit: result.damageReport.totalNonCrit,
+      buttons: Array.isArray(result.damageReport.buttons)
+        ? result.damageReport.buttons.slice(0, 20).map((button) => ({
+          id: button.id,
+          label: button.label,
+          characterName: button.characterName,
+          skillName: button.skillName,
+          skillType: button.skillType,
+          expected: button.expected,
+          damage: button.damage,
+        }))
+        : [],
+    } : null,
+  }),
 })

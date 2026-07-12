@@ -166,6 +166,8 @@ function buildCapabilityPermission(_webfetchAllow = [], options = {}) {
     skill: 'allow',
     'def_*': 'allow',
     def_node_use: 'ask',
+    def_node_delete: 'ask',
+    def_node_restore: 'ask',
     webfetch: 'deny',
   };
 }

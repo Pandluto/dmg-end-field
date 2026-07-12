@@ -3585,6 +3585,7 @@ async function executeDefWorkNodeApplyAndVerify(name, input = {}, restore = fals
   };
   return {
     ok: commandVerification.pass && snapshotVerification.pass && staffIndexVerification.pass,
+    currentCheckoutTouched: commandVerification.pass,
     nodeId,
     mode: restore ? 'restore_base' : 'checkout',
     command: enqueued.body.command,
@@ -4050,6 +4051,30 @@ async function executeDefTool(name, input = {}, query = new URLSearchParams()) {
   if (name === 'def.worknode.create_from_current') {
     const result = createDefWorkNodeFromPayload(readDefCurrentTimelinePayloadSource(), input);
     return { status: result.ok ? 200 : 400, body: { ok: result.ok, protocolVersion: 1, tool: name, result } };
+  }
+  if (name === 'def.worknode.list') {
+    const limit = Math.max(1, Math.min(Number(input.limit || 50) || 50, 100));
+    const nodes = listRepositoryWorkNodes()
+      .sort((left, right) => (right.updatedAt || 0) - (left.updatedAt || 0))
+      .slice(0, limit)
+      .map(toAiTimelineWorkNodeListItem);
+    return { status: 200, body: { ok: true, protocolVersion: 1, tool: name, result: { ok: true, nodes } } };
+  }
+  if (name === 'def.worknode.delete') {
+    const nodeId = typeof input.nodeId === 'string' ? input.nodeId.trim() : '';
+    if (!nodeId) return failScript(400, 'missing-node-id', 'def.worknode.delete requires nodeId.');
+    try {
+      const repository = getTimelineRepository();
+      const legacyStore = getAiTimelineWorkNodeStore();
+      if (!repository.getWorkNode(nodeId)) return failScript(404, 'ai-worknode-not-found', `AI timeline work node not found: ${nodeId}`);
+      repository.assertWorkNodeSubtreeDeletable(nodeId);
+      repository.deleteWorkNodeSubtree(nodeId);
+      if (legacyStore.getNode(nodeId)) legacyStore.deleteSubtreeProjection(nodeId);
+      return { status: 200, body: { ok: true, protocolVersion: 1, tool: name, result: { ok: true, nodeId, deleted: true } } };
+    } catch (error) {
+      if (error?.code === 'ai-worknode-current-checkout-protected') return failScript(409, error.code, error.message, { nodeId });
+      throw error;
+    }
   }
   if (definition.commandOp) return enqueueDefToolCommand(definition, input);
 
