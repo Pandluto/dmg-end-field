@@ -1,6 +1,7 @@
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
+const { spawn } = require('child_process');
 const {
   runChat,
   runChatStream,
@@ -28,6 +29,35 @@ const defRuntimeRoot = path.join(runtimeRoot, 'def');
 const openCodeUiRoot = path.join(runtimeRoot, 'opencode-ui');
 const configPath = path.join(projectRoot, '.runtime', 'def-agent', 'config.json');
 const startedAt = Date.now();
+const defRestUrl = process.env.DEF_REST_BASE_URL || 'http://127.0.0.1:17321';
+let defRestProcess = null;
+
+async function defRestReady() {
+  try {
+    const response = await fetch(`${defRestUrl}/health`, { signal: AbortSignal.timeout(1000) });
+    return response.ok;
+  } catch {
+    return false;
+  }
+}
+
+async function ensureDefRestService() {
+  if (await defRestReady()) return { running: true, owned: false, url: defRestUrl };
+  if (!defRestProcess || defRestProcess.exitCode !== null) {
+    defRestProcess = spawn(process.execPath, [path.join(projectRoot, 'scripts', 'ai-cli-rest-server.mjs')], {
+      cwd: projectRoot,
+      env: { ...process.env, DEF_REST_BASE_URL: defRestUrl },
+      stdio: ['ignore', 'ignore', 'ignore'],
+      windowsHide: true,
+    });
+    defRestProcess.once('exit', () => { defRestProcess = null; });
+  }
+  for (let attempt = 0; attempt < 75; attempt += 1) {
+    if (await defRestReady()) return { running: true, owned: true, url: defRestUrl };
+    await new Promise((resolve) => setTimeout(resolve, 200));
+  }
+  throw new Error(`DEF tool service did not become ready at ${defRestUrl}`);
+}
 
 function ensureParent(filePath) {
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
@@ -232,14 +262,17 @@ const server = http.createServer(async (request, response) => {
     }
 
     if (method === 'POST' && requestUrl.pathname === '/api/runtime/ensure') {
+      const defTools = await ensureDefRestService();
       writeJson(response, 200, {
         ok: true,
         runtime: await ensureRuntime(readConfig().deepseek),
+        defTools,
       });
       return;
     }
 
     if (method === 'POST' && requestUrl.pathname === '/api/native/session') {
+      await ensureDefRestService();
       const body = await readJsonBody(request);
       const host = body.host === 'workbench' ? 'workbench' : 'ai-cli';
       const session = await createNativeHostSession({
@@ -446,6 +479,7 @@ server.listen(PORT, HOST, () => {
 function shutdownAndExit(signal) {
   try {
     shutdownRuntime();
+    if (defRestProcess && defRestProcess.exitCode === null) defRestProcess.kill('SIGTERM');
   } finally {
     server.close(() => process.exit(signal === 'SIGINT' ? 130 : 0));
     setTimeout(() => process.exit(signal === 'SIGINT' ? 130 : 0), 1500).unref();

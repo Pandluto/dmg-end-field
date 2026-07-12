@@ -4047,6 +4047,10 @@ async function executeDefTool(name, input = {}, query = new URLSearchParams()) {
   if (definition.status === 'planned') {
     return failScript(501, 'def-tool-planned', `DEF tool is planned but not implemented yet: ${name}`, { tool: definition });
   }
+  if (name === 'def.worknode.create_from_current') {
+    const result = createDefWorkNodeFromPayload(readDefCurrentTimelinePayloadSource(), input);
+    return { status: result.ok ? 200 : 400, body: { ok: result.ok, protocolVersion: 1, tool: name, result } };
+  }
   if (definition.commandOp) return enqueueDefToolCommand(definition, input);
 
   if (name === 'def.buff.add_to_buttons') {
