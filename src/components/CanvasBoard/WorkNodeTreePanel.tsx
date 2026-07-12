@@ -2,7 +2,6 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { createAiTimelineWorkNodeClient } from '../../agentKernel/timelineWorktree/localNodeClient';
 import { createTimelineRepositoryClient, formatTimelineOperationError, type TimelineRepositoryWorkNodePatch } from '../../agentKernel/timelineRepository/localTimelineClient';
 import type { TimelineAuditEvent } from '../../core/domain/timeline';
-import type { AiTimelineWorkNodeListResponse } from '../../agentKernel/timelineWorktree/localNodeClient';
 import type { AiTimelineWorkNodeCommitListItem, AiTimelineWorkNodeListItem } from '../../agentKernel/timelineWorktree/types';
 import {
   enqueueMainWorkbenchCommand,
@@ -84,7 +83,7 @@ export function WorkNodeTreePanel({ timelineId, refreshKey, cameraResetKey = 0, 
   const dragRef = useRef<{ pointerId: number; startX: number; startY: number; cameraX: number; cameraY: number } | null>(null);
   const revisionRef = useRef(0);
 
-  const applyListResponse = (response: AiTimelineWorkNodeListResponse) => {
+  const applyListResponse = (response: { revision: number; nodes: AiTimelineWorkNodeListItem[]; commits: AiTimelineWorkNodeCommitListItem[]; headNodeId: string }) => {
     if (response.revision < revisionRef.current) return false;
     revisionRef.current = response.revision;
     setNodes(response.nodes || []);
@@ -153,7 +152,6 @@ export function WorkNodeTreePanel({ timelineId, refreshKey, cameraResetKey = 0, 
     let cancelled = false;
     const load = async () => {
       try {
-        const response = await createAiTimelineWorkNodeClient().list();
         const repository = createTimelineRepositoryClient();
         const [repositoryNodes, repositoryCommits, checkoutRef] = await Promise.all([
           repository.listWorkNodes(timelineId),
@@ -162,7 +160,7 @@ export function WorkNodeTreePanel({ timelineId, refreshKey, cameraResetKey = 0, 
         ]);
         if (cancelled) return;
         applyListResponse({
-          ...response,
+          revision: revisionRef.current + 1,
           headNodeId: checkoutRef?.targetType === 'work-node' ? checkoutRef.targetId : '',
           commits: repositoryCommits as AiTimelineWorkNodeCommitListItem[],
           nodes: repositoryNodes.map((node) => ({
@@ -217,7 +215,6 @@ export function WorkNodeTreePanel({ timelineId, refreshKey, cameraResetKey = 0, 
   }, [onSummaryChange, viewModel]);
 
   const reloadNodes = async () => {
-    const response = await createAiTimelineWorkNodeClient().list();
     const repository = createTimelineRepositoryClient();
     const [repositoryNodes, repositoryCommits, checkoutRef] = await Promise.all([
       repository.listWorkNodes(timelineId),
@@ -225,7 +222,7 @@ export function WorkNodeTreePanel({ timelineId, refreshKey, cameraResetKey = 0, 
       repository.getCheckoutRef(timelineId),
     ]);
     const next = {
-      ...response,
+      revision: revisionRef.current + 1,
       headNodeId: checkoutRef?.targetType === 'work-node' ? checkoutRef.targetId : '',
       commits: repositoryCommits as AiTimelineWorkNodeCommitListItem[],
       nodes: repositoryNodes.map((node) => ({

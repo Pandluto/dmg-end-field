@@ -1040,7 +1040,7 @@ function createTimelineRepository({ databasePath }) {
     `).get(nodeId), true),
     listWorkNodeCommits: (timelineId) => db.prepare(`
       SELECT * FROM timeline_work_node_commits WHERE timeline_id = ? ORDER BY created_at DESC
-    `).all(timelineId).map((row) => readWorkNodeCommit(row, true)),
+    `).all(timelineId).map((row) => readWorkNodeCommit(row, false)),
     listWorkNodes: (timelineId) => db.prepare(`
       SELECT * FROM timeline_work_nodes WHERE timeline_id = ? ORDER BY created_at ASC
     `).all(timelineId).map((row) => {
