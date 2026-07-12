@@ -10,28 +10,28 @@ const packageJson = JSON.parse(fs.readFileSync(path.join(appRoot, 'package.json'
 const outputDir = path.join(projectRoot, 'agent', 'runtime', 'opencode-ui');
 const markerPath = path.join(outputDir, 'def-opencode-ui.json');
 const compactStyle = `<style id="def-ai-compact-style">
-body{font-size:10px;line-height:1.45}
-[data-slot="session-turn-list"]{gap:6px}
-[data-timeline-row="TurnGap"]{height:6px!important;min-height:6px!important}
-[data-timeline-row="AssistantPart"]{padding-top:4px!important}
+body{font-size:12px;line-height:1.45}
+[data-slot="session-turn-list"]{gap:2px}
+[data-timeline-row="TurnGap"]{height:2px!important;min-height:2px!important}
+[data-timeline-row="AssistantPart"]{padding-top:2px!important}
 [data-slot="session-turn-message-container"]{padding-left:10px!important;padding-right:10px!important}
-[data-slot="session-turn-message-content"],[data-slot="session-turn-assistant-content"]{font-size:10px;line-height:1.45}
-[data-slot="session-turn-assistant-content"]{gap:4px}
+[data-slot="session-turn-message-content"],[data-slot="session-turn-assistant-content"]{font-size:12px;line-height:1.45}
+[data-slot="session-turn-assistant-content"]{gap:2px}
 [data-slot="session-turn-message-content"] :is(p,li),[data-slot="session-turn-assistant-content"] :is(p,li){line-height:1.45;margin-block:3px}
-[data-component="basic-tool-v2"]{padding:2px 0;gap:3px}
-[data-component="basic-tool-v2"] [data-slot^="basic-tool-v2-"]{font-size:10px;line-height:1.2}
-[data-slot^="basic-tool-v2"],[data-slot^="tool-error-card"]{font-size:10px;line-height:1.2}
-[data-slot^="basic-tool-v2"] :is(pre,code,table,th,td),[data-slot^="tool-error-card"] :is(pre,code,table,th,td){font-size:10px;line-height:1.2}
+[data-component="basic-tool-v2"]{padding:2px 0;gap:2px}
+[data-component="basic-tool-v2"] [data-slot^="basic-tool-v2-"]{font-size:12px;line-height:1.45}
+[data-slot^="basic-tool-v2"],[data-slot^="tool-error-card"]{font-size:12px;line-height:1.45}
+[data-slot^="basic-tool-v2"] :is(pre,code,table,th,td),[data-slot^="tool-error-card"] :is(pre,code,table,th,td){font-size:12px;line-height:1.45}
 [data-slot^="basic-tool-v2"] pre,[data-slot^="tool-error-card"] pre{margin-block:4px}
 [data-slot^="basic-tool-v2"] table,[data-slot^="tool-error-card"] table{border-collapse:collapse;margin-block:6px}
 [data-slot^="basic-tool-v2"] :is(th,td),[data-slot^="tool-error-card"] :is(th,td){padding:2px 4px}
-[data-slot="session-turn-message-content"] [data-component="markdown"],[data-slot="session-turn-assistant-content"] [data-component="markdown"]{font-size:10px;line-height:1.45}
+[data-slot="session-turn-message-content"] [data-component="markdown"],[data-slot="session-turn-assistant-content"] [data-component="markdown"]{font-size:12px;line-height:1.45}
 [data-slot="session-turn-message-content"] [data-component="markdown"] :is(h1,h2,h3,h4,h5,h6),[data-slot="session-turn-assistant-content"] [data-component="markdown"] :is(h1,h2,h3,h4,h5,h6){margin-bottom:6px;line-height:1.45}
 [data-slot="session-turn-message-content"] [data-component="markdown"] :is(p,ul,ol,li),[data-slot="session-turn-assistant-content"] [data-component="markdown"] :is(p,ul,ol,li){margin-top:3px;margin-bottom:3px;line-height:1.45}
 [data-slot="session-turn-message-content"] [data-component="markdown"] pre,[data-slot="session-turn-assistant-content"] [data-component="markdown"] pre{margin-block:4px}
 [data-slot="session-turn-message-content"] [data-component="markdown"] table,[data-slot="session-turn-assistant-content"] [data-component="markdown"] table{margin-block:6px}
 [data-slot="session-turn-message-content"] [data-component="markdown"] :is(th,td),[data-slot="session-turn-assistant-content"] [data-component="markdown"] :is(th,td){padding:2px 4px}
-[contenteditable="true"]{font-size:10px!important;line-height:1.2!important}
+[contenteditable="true"]{font-size:12px!important;line-height:1.45!important}
 </style>`;
 
 function applyDefOpenCodeUiOverrides() {
