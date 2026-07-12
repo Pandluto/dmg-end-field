@@ -908,7 +908,7 @@ function isDefOpenCodeSession(info) {
 function buildSessionCreatePayload({ selected, deepseek, skillId, thinkingEffort }) {
   const normalizedSkillId = skillMap[skillId] ? skillId : 'operator';
   return {
-    title: `DEF ${selected.label} - ${new Date().toISOString()}`,
+    title: normalizedSkillId === 'workbench' ? '新建排轴会话' : `新建 ${selected.label} 会话`,
     agent: selected.agent,
     model: {
       providerID: 'deepseek',

@@ -29,6 +29,54 @@ async function callDefTool(tool, input = {}) {
   return payload.result
 }
 
+async function askWithApproval(context, input) {
+  const requested = await callDefTool('def.approval.request', {
+    summary: input.summary,
+    riskLevel: input.riskLevel || 'high',
+    mode: 'blocking',
+    workNodeId: input.nodeId,
+    sessionId: context.sessionID,
+    nodeRevision: input.revision,
+    diffHash: input.diffHash,
+    riskHash: input.riskHash,
+    workingHash: input.workingHash,
+    toolCallId: context.messageID,
+    diffSummary: input.diff,
+    riskFlags: input.riskFlags || [],
+  })
+  try {
+    await context.ask({
+      permission: input.permission,
+      patterns: [input.nodeId],
+      always: [],
+      metadata: {
+        action: input.action,
+        nodeId: input.nodeId,
+        revision: input.revision,
+        diff: input.diff,
+        riskFlags: input.riskFlags || [],
+        consequence: input.consequence,
+        approvalId: requested.approval.id,
+      },
+    })
+  } catch (error) {
+    await callDefTool('def.approval.record_decision', {
+      approvalId: requested.approval.id,
+      decision: 'rejected',
+      decidedBy: 'user',
+      rationale: `${input.action} rejected through OpenCode native permission UI.`,
+    })
+    throw error
+  }
+  await callDefTool('def.approval.record_decision', {
+    approvalId: requested.approval.id,
+    decision: 'approved',
+    decidedBy: 'user',
+    rationale: `${input.action} approved through OpenCode native permission UI.`,
+  })
+  return requested.approval
+}
+
 function inside(directory, name) {
   const root = path.resolve(directory)
   const target = path.resolve(root, name)
@@ -48,6 +96,7 @@ function materialize(context, node) {
   if (!node?.id || !node?.workingPayload || !node?.basePayload) throw new Error('Work node payload is incomplete')
   fs.mkdirSync(context.directory, { recursive: true })
   const source = decodeDefNodePayload(node.workingPayload)
+  const baseSource = decodeDefNodePayload(node.basePayload)
   const manifest = {
     schemaVersion: 1,
     nodeId: node.id,
@@ -67,6 +116,10 @@ function materialize(context, node) {
   })
   writeJson(inside(context.directory, nodeManifest), manifest)
   writeJson(inside(context.directory, 'node/base/snapshot.json'), node.basePayload)
+  writeJson(inside(context.directory, 'node/base/selection.json'), baseSource.selection)
+  writeJson(inside(context.directory, 'node/base/timeline.json'), baseSource.timeline)
+  writeJson(inside(context.directory, 'node/base/buffs.json'), baseSource.buffs)
+  writeJson(inside(context.directory, 'node/base/inputs.json'), baseSource.inputs)
   writeJson(inside(context.directory, nodeSelection), source.selection)
   writeJson(inside(context.directory, nodeTimeline), source.timeline)
   writeJson(inside(context.directory, nodeBuffs), source.buffs)
@@ -193,7 +246,15 @@ export const node_code_discard = {
   args: {},
   async execute(_args, context) {
     const binding = readBinding(context)
-    await context.ask({ permission: 'def_node_code_discard', patterns: [binding.nodeId], always: [], metadata: { nodeId: binding.nodeId } })
+    await askWithApproval(context, {
+      action: 'Discard node code edits',
+      summary: `Discard unsynchronized code edits for ${binding.nodeId}`,
+      permission: 'def_node_code_discard',
+      nodeId: binding.nodeId,
+      revision: binding.revision,
+      workingHash: binding.workingHash,
+      consequence: 'All unsynchronized node/working edits will be replaced from the repository Work Node.',
+    })
     const read = await callDefTool('def.worknode.read', { nodeId: binding.nodeId, includePayload: true })
     return { title: 'DEF node code edits discarded', output: JSON.stringify(materialize(context, read.node), null, 2), metadata: { family: 'def-node-code', nodeId: binding.nodeId } }
   },
@@ -294,11 +355,14 @@ export const node_delete = {
   args: { nodeId: { type: 'string', description: 'Work Node id to delete.' } },
   async execute(args, context) {
     context.metadata({ title: 'Delete DEF child node' })
-    await context.ask({
+    const read = await callDefTool('def.worknode.read', { nodeId: args.nodeId, includePayload: false })
+    await askWithApproval(context, {
+      action: 'Delete Work Node',
+      summary: `Delete DEF Work Node ${args.nodeId}`,
       permission: 'def_node_delete',
-      patterns: [args.nodeId],
-      always: [],
-      metadata: { nodeId: args.nodeId },
+      nodeId: args.nodeId,
+      revision: read.node?.contentRevision || read.node?.updatedAt,
+      consequence: 'The Work Node subtree will be permanently deleted; the current checkout remains protected.',
     })
     const result = await callDefTool('def.worknode.delete', { nodeId: args.nodeId })
     return {
@@ -316,44 +380,19 @@ export const node_use = {
     context.metadata({ title: 'Use DEF child node' })
     const synced = await syncWorkspace(context)
     const binding = readBinding(context)
-    if (synced.checkoutDecision?.requiresManualApproval) {
-      const requested = await callDefTool('def.approval.request', {
-        summary: `Use DEF child node ${binding.nodeId}`,
-        riskLevel: 'high',
-        mode: 'blocking',
-        workNodeId: binding.nodeId,
-        sessionId: context.sessionID,
-        nodeRevision: binding.revision,
-        diffHash: hashDefNodeValue(synced.diff),
-        riskHash: hashDefNodeValue(synced.riskFlags || []),
-        workingHash: binding.workingHash,
-        toolCallId: context.messageID,
-        diffSummary: synced.diff,
-        riskFlags: synced.riskFlags || [],
-      })
-      try {
-        await context.ask({
-          permission: 'def_node_use',
-          patterns: [binding.nodeId],
-          always: [],
-          metadata: { nodeId: binding.nodeId, diff: synced.diff, approvalId: requested.approval.id },
-        })
-      } catch (error) {
-        await callDefTool('def.approval.record_decision', {
-          approvalId: requested.approval.id,
-          decision: 'rejected',
-          decidedBy: 'user',
-          rationale: 'Rejected through OpenCode native permission UI.',
-        })
-        throw error
-      }
-      await callDefTool('def.approval.record_decision', {
-        approvalId: requested.approval.id,
-        decision: 'approved',
-        decidedBy: 'user',
-        rationale: 'Approved through OpenCode native permission UI.',
-      })
-    }
+    await askWithApproval(context, {
+      action: 'Apply Work Node',
+      summary: `Apply DEF Work Node ${binding.nodeId} to the main Workbench`,
+      permission: 'def_node_use',
+      nodeId: binding.nodeId,
+      revision: binding.revision,
+      diffHash: hashDefNodeValue(synced.diff),
+      riskHash: hashDefNodeValue(synced.riskFlags || []),
+      workingHash: binding.workingHash,
+      diff: synced.diff,
+      riskFlags: synced.riskFlags || [],
+      consequence: 'The validated Work Node becomes the current checkout and is sent to the Workbench renderer.',
+    })
     const used = await callDefTool('def.worknode.checkout_and_verify', {
       nodeId: binding.nodeId,
       expectedRevision: binding.revision,
@@ -374,36 +413,14 @@ export const node_restore = {
   async execute(_args, context) {
     context.metadata({ title: 'Restore DEF node base' })
     const binding = readBinding(context)
-    const requested = await callDefTool('def.approval.request', {
-      summary: `Restore DEF node base ${binding.nodeId}`,
-      riskLevel: 'high',
-      mode: 'blocking',
-      workNodeId: binding.nodeId,
-      sessionId: context.sessionID,
-      nodeRevision: binding.revision,
-      toolCallId: context.messageID,
-    })
-    try {
-      await context.ask({
-        permission: 'def_node_restore',
-        patterns: [binding.nodeId],
-        always: [],
-        metadata: { nodeId: binding.nodeId, approvalId: requested.approval.id },
-      })
-    } catch (error) {
-      await callDefTool('def.approval.record_decision', {
-        approvalId: requested.approval.id,
-        decision: 'rejected',
-        decidedBy: 'user',
-        rationale: 'Restore rejected through OpenCode native permission UI.',
-      })
-      throw error
-    }
-    await callDefTool('def.approval.record_decision', {
-      approvalId: requested.approval.id,
-      decision: 'approved',
-      decidedBy: 'user',
-      rationale: 'Restore approved through OpenCode native permission UI.',
+    await askWithApproval(context, {
+      action: 'Restore Work Node base',
+      summary: `Restore immutable base for DEF Work Node ${binding.nodeId}`,
+      permission: 'def_node_restore',
+      nodeId: binding.nodeId,
+      revision: binding.revision,
+      workingHash: binding.workingHash,
+      consequence: 'The Work Node base snapshot becomes the current checkout after renderer verification.',
     })
     const restored = await callDefTool('def.worknode.restore_base_and_verify', { nodeId: binding.nodeId, expectedRevision: binding.revision, reload: false })
     return {

@@ -2,12 +2,28 @@ import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import crypto from 'node:crypto';
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const appRoot = path.join(projectRoot, 'agent', 'vendor', 'opencode', 'packages', 'app');
 const packageJson = JSON.parse(fs.readFileSync(path.join(appRoot, 'package.json'), 'utf8'));
 const outputDir = path.join(projectRoot, 'agent', 'runtime', 'opencode-ui');
 const markerPath = path.join(outputDir, 'def-opencode-ui.json');
+function hashTree(root) {
+  const hash = crypto.createHash('sha256');
+  const visit = (directory) => {
+    for (const entry of fs.readdirSync(directory, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
+      const target = path.join(directory, entry.name);
+      if (entry.isDirectory()) visit(target);
+      else {
+        hash.update(path.relative(root, target).replaceAll('\\', '/'));
+        hash.update(fs.readFileSync(target));
+      }
+    }
+  };
+  visit(root);
+  return hash.digest('hex');
+}
 const expected = {
   source: '@opencode-ai/app',
   upstreamVersion: packageJson.version,
@@ -15,6 +31,7 @@ const expected = {
   sourcemap: false,
   embeddedProfile: 'def',
   embeddedProfileVersion: 1,
+  sourceHash: hashTree(path.join(appRoot, 'src')),
 };
 
 try {

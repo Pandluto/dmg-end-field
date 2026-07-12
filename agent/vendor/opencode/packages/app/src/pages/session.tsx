@@ -73,6 +73,7 @@ import { Identifier } from "@/utils/id"
 import { diffs as list } from "@/utils/diffs"
 import { Persist, persisted } from "@/utils/persist"
 import { extractPromptFromParts } from "@/utils/prompt"
+import { defFeature } from "@/utils/def-embedded"
 import { formatServerError } from "@/utils/server-errors"
 import { legacySessionHref, requireServerKey, sessionHref } from "@/utils/session-route"
 import { useUsageExceededDialogs } from "./session/usage-exceeded-dialogs"
@@ -82,8 +83,19 @@ type FollowupItem = FollowupDraft & { id: string }
 type FollowupEdit = Pick<FollowupItem, "id" | "prompt" | "context">
 const emptyFollowups: FollowupItem[] = []
 
-type ChangeMode = "git" | "branch" | "turn"
+type ChangeMode = "git" | "branch" | "turn" | "node"
 type VcsMode = "git" | "branch"
+
+type DefNodeReview = {
+  bound: boolean
+  diffs: Array<{ file: string; before: string; after: string; additions: number; deletions: number }>
+  report: null | {
+    manifest: Record<string, unknown>
+    validation: { valid?: boolean; issues?: unknown[] } | null
+    semanticDiff: { changes?: unknown[]; summary?: unknown } | null
+    risk: { riskFlags?: unknown[]; checkoutDecision?: unknown } | null
+  }
+}
 
 const sessionViewState = () => ({
   messageId: undefined as string | undefined,
@@ -354,11 +366,13 @@ export default function Page() {
   }, desktopReviewOpen())
 
   const turnDiffs = createMemo(() => list(lastUserMessage()?.summary?.diffs))
+  const nodeMode = createMemo(() => defFeature("nodeReview"))
   const nogit = createMemo(() => {
     const project = sync().project
     return !!project && project.vcs !== "git"
   })
   const changesOptions = createMemo<ChangeMode[]>(() => {
+    if (nodeMode()) return ["node"]
     const list: ChangeMode[] = []
     const project = sync().project
     const vcs = sync().data.vcs
@@ -378,6 +392,17 @@ export default function Page() {
   const vcsMode = createMemo<VcsMode | undefined>(() => {
     if (store.changes === "git" || store.changes === "branch") return store.changes
   })
+  const nodeReviewQuery = createQuery(() => ({
+    queryKey: ["def-node-review", params.id ?? "", sdk().directory] as const,
+    enabled: nodeMode() && wantsReview() && !!params.id,
+    refetchInterval: 1500,
+    queryFn: async () => {
+      const query = new URLSearchParams({ sessionID: params.id ?? "", directory: sdk().directory })
+      const response = await fetch(`/api/native/node-review?${query}`)
+      if (!response.ok) throw new Error(`DEF node review failed (${response.status})`)
+      return (await response.json()) as DefNodeReview
+    },
+  }))
   const vcsKey = createMemo(
     () =>
       ["session-vcs", sdk().directory, sync().data.vcs?.branch ?? "", sync().data.vcs?.default_branch ?? ""] as const,
@@ -403,6 +428,7 @@ export default function Page() {
   })
   const refreshVcs = debounce(() => void queryClient.invalidateQueries({ queryKey: vcsKey() }), 100)
   const reviewDiffs = () => {
+    if (store.changes === "node") return nodeReviewQuery.data?.diffs ?? []
     if (store.changes === "git" || store.changes === "branch")
       // avoids suspense
       return vcsQuery.isFetched ? (vcsQuery.data ?? []) : []
@@ -411,6 +437,7 @@ export default function Page() {
   const reviewCount = () => reviewDiffs().length
   const hasReview = () => reviewCount() > 0
   const reviewReady = () => {
+    if (store.changes === "node") return !nodeReviewQuery.isPending
     if (store.changes === "git" || store.changes === "branch") return !vcsQuery.isPending
     return true
   }
@@ -810,6 +837,7 @@ export default function Page() {
     }
 
     const label = (option: ChangeMode) => {
+      if (option === "node") return "节点变更"
       if (option === "git") return language.t("ui.sessionReview.title.git")
       if (option === "branch") return language.t("ui.sessionReview.title.branch")
       return language.t("ui.sessionReview.title.lastTurn")
@@ -851,6 +879,9 @@ export default function Page() {
   )
 
   const reviewEmptyText = createMemo(() => {
+    if (store.changes === "node") {
+      return nodeReviewQuery.data?.bound ? "当前节点没有未应用的代码变更" : "当前会话尚未绑定工作节点"
+    }
     if (store.changes === "git") return language.t("session.review.noUncommittedChanges")
     if (store.changes === "branch") return language.t("session.review.noBranchChanges")
     return language.t("session.review.noChanges")
@@ -882,7 +913,22 @@ export default function Page() {
     emptyClass: string
   }) => (
     <Show when={!store.deferRender}>
-      <SessionReviewTab
+      <div class="flex min-h-0 h-full flex-col">
+        <Show when={store.changes === "node" && nodeReviewQuery.data?.report}>
+          {(report) => (
+            <div class="shrink-0 border-b border-border-weak-base bg-background-base px-4 py-3 text-12-regular text-text-base">
+              <div class="text-13-medium text-text-strong">节点 {String(report().manifest.nodeId ?? "未绑定")}</div>
+              <div class="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-text-weak">
+                <span>版本 {String(report().manifest.revision ?? "-")}</span>
+                <span>校验 {report().validation?.valid === false ? "未通过" : "通过"}</span>
+                <span>问题 {report().validation?.issues?.length ?? 0}</span>
+                <span>风险 {report().risk?.riskFlags?.length ?? 0}</span>
+                <span>语义变更 {report().semanticDiff?.changes?.length ?? 0}</span>
+              </div>
+            </div>
+          )}
+        </Show>
+        <SessionReviewTab
         title={changesTitle()}
         empty={reviewEmpty(input)}
         diffs={reviewDiffs}
@@ -903,7 +949,8 @@ export default function Page() {
         onFocusedCommentChange={comments.setFocus}
         onViewFile={openReviewFile}
         classes={input.classes}
-      />
+        />
+      </div>
     </Show>
   )
 

@@ -160,7 +160,13 @@ if (import.meta.env.VITE_SENTRY_DSN) {
   })
 }
 
-if (root instanceof HTMLElement) {
+const defRouteAllowed = !defProfile || /^\/[^/]+\/session\/[^/]+\/?$/.test(location.pathname)
+
+if (root instanceof HTMLElement && !defRouteAllowed) {
+  root.innerHTML = '<main style="display:grid;height:100%;place-items:center;color:#19345f;background:#f7faff">该通用 OpenCode 入口在 DEF 嵌入模式中不可用。</main>'
+}
+
+if (root instanceof HTMLElement && defRouteAllowed) {
   const auth = authFromToken(new URLSearchParams(location.search).get("auth_token"))
   clearAuthToken()
   const server: ServerConnection.Http = {

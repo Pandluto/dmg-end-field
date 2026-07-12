@@ -177,6 +177,26 @@ function healthPayload() {
   };
 }
 
+function readJsonFileIfPresent(filePath) {
+  try {
+    return JSON.parse(fs.readFileSync(filePath, 'utf8'));
+  } catch {
+    return null;
+  }
+}
+
+function countChangedLines(before, after) {
+  const left = String(before).split('\n');
+  const right = String(after).split('\n');
+  const shared = Math.min(left.length, right.length);
+  let changed = 0;
+  for (let index = 0; index < shared; index += 1) if (left[index] !== right[index]) changed += 1;
+  return {
+    additions: changed + Math.max(0, right.length - left.length),
+    deletions: changed + Math.max(0, left.length - right.length),
+  };
+}
+
 const staticMimeTypes = {
   '.css': 'text/css; charset=utf-8',
   '.html': 'text/html; charset=utf-8',
@@ -338,6 +358,43 @@ const server = http.createServer(async (request, response) => {
         return;
       }
       writeJson(response, 200, { ok: true, binding, profile: binding.profile });
+      return;
+    }
+
+    if (method === 'GET' && requestUrl.pathname === '/api/native/node-review') {
+      const sessionID = requestUrl.searchParams.get('sessionID') || '';
+      const directory = requestUrl.searchParams.get('directory') || '';
+      const binding = readNativeSessionBinding(directory, sessionID);
+      if (!binding || binding.profile?.features?.nodeReview !== true) {
+        writeJson(response, 403, { ok: false, error: 'node-review-not-permitted' });
+        return;
+      }
+      const manifest = readJsonFileIfPresent(path.join(directory, 'node', 'manifest.json'));
+      if (!manifest) {
+        writeJson(response, 200, { ok: true, bound: false, diffs: [], report: null });
+        return;
+      }
+      const files = ['selection.json', 'timeline.json', 'buffs.json', 'inputs.json'];
+      const diffs = files.flatMap((name) => {
+        const beforeValue = readJsonFileIfPresent(path.join(directory, 'node', 'base', name));
+        const afterValue = readJsonFileIfPresent(path.join(directory, 'node', 'working', name));
+        if (beforeValue === null || afterValue === null) return [];
+        const before = `${JSON.stringify(beforeValue, null, 2)}\n`;
+        const after = `${JSON.stringify(afterValue, null, 2)}\n`;
+        if (before === after) return [];
+        return [{ file: `node/working/${name}`, before, after, ...countChangedLines(before, after) }];
+      });
+      writeJson(response, 200, {
+        ok: true,
+        bound: true,
+        diffs,
+        report: {
+          manifest,
+          validation: readJsonFileIfPresent(path.join(directory, 'node', 'generated', 'validation.json')),
+          semanticDiff: readJsonFileIfPresent(path.join(directory, 'node', 'generated', 'diff.json')),
+          risk: readJsonFileIfPresent(path.join(directory, 'node', 'generated', 'risk.json')),
+        },
+      });
       return;
     }
 
