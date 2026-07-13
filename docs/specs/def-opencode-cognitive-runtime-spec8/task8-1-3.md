@@ -22,5 +22,6 @@
 - [x] 以 v1 新 Session 完成 skill reference readable replay。
 - [x] 确认只读 replay state before/after 相同且没有 `def_node_use`。
 - [x] 用 Computer Use 确认重载后的真实 Workbench AI iframe。
+- [x] 修复第二个真实 failure：`def.weapon.resolve` 已从“当前已装配武器”改为读取干员配置页同源的 `def.weapon-sheet.library.v1`，并返回 `scope/source/catalogCount/exhaustive`，不会再把空装备状态误报成武器库为空。
 - [ ] 建立可机器执行的 candidate promotion decision 后，交由人工 reviewer 决定是否 promotion。
 - [ ] 完成 Spec 8-1-3 的全部独立回归与 reviewer approval。

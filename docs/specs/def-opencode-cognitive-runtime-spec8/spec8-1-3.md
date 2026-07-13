@@ -2,7 +2,7 @@
 
 ## 状态
 
-实施中；首个真实 failure 的诊断、最小返修与 candidate replay 已开始，尚未 promotion 或完成本 Spec。详见 [Task 8-1-3：首次真实会话诊断与教学返修](./task8-1-3.md)。
+实施中；首个真实 failure 的诊断、最小返修与 candidate replay 已开始。第二个真实 failure（武器 resolver 把未装配状态误作配置页武器库为空）已完成 runtime/tool contract 修复并记录在 Task/verification；尚未 promotion 或完成本 Spec。详见 [Task 8-1-3：首次真实会话诊断与教学返修](./task8-1-3.md)。
 
 ## 一句话定调
 

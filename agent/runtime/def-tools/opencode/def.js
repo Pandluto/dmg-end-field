@@ -721,7 +721,7 @@ export const data_game_knowledge = dataResource({
 
 export const data_weapon = dataResource({
   title: 'DEF weapon resource',
-  description: 'Resolve trusted DEF weapon data by id, name, or query.',
+  description: 'Search the same read-only local weapon library shown by the Operator Configuration page. Results include catalog scope/source and never mean only currently equipped weapons.',
   tool: 'def.weapon.resolve',
   input: ({ query }) => ({ query, limit: 12 }),
 })

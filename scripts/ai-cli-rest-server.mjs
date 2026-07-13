@@ -57,6 +57,7 @@ const MAIN_WORKBENCH_RESULT_LOG_KEY = 'def.main-workbench.result-log.v1';
 const MAIN_WORKBENCH_SNAPSHOT_KEY = 'def.main-workbench.snapshot.v1';
 const EQUIPMENT_LIBRARY_STORAGE_KEY = 'def.equipment-sheet.library.v1';
 const OPERATOR_CATALOG_STORAGE_KEY = 'def.operator-editor.library.v1';
+const WEAPON_LIBRARY_STORAGE_KEY = 'def.weapon-sheet.library.v1';
 const GAME_KNOWLEDGE_REFERENCES_DIR = path.join(projectRoot, 'agent', 'runtime', 'def', 'skills', 'game-knowledge', 'references');
 const MAIN_WORKBENCH_SUPPORTED_OP_SET = new Set(MAIN_WORKBENCH_SUPPORTED_OPS);
 
@@ -2082,6 +2083,56 @@ function listDefOperatorCatalog(input = {}) {
       ? '选人目录中没有匹配干员。此结果只覆盖当前本地选人目录，不代表外部游戏知识库。'
       : matched.length > 1
         ? '选人目录中有多个候选。请指定干员名称或 id。'
+        : '',
+  };
+}
+
+function compactDefWeaponLibraryEntry(raw, fallbackId) {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const id = String(raw.id || fallbackId || '').trim();
+  const name = String(raw.name || '').trim();
+  if (!id || !name) return null;
+  const skills = raw.skills && typeof raw.skills === 'object' && !Array.isArray(raw.skills)
+    ? Object.keys(raw.skills).filter((key) => raw.skills[key] && typeof raw.skills[key] === 'object').slice(0, 3)
+    : [];
+  return {
+    id,
+    name,
+    type: String(raw.type || '').trim(),
+    rarity: Number.isFinite(Number(raw.rarity)) ? Number(raw.rarity) : null,
+    skillKeys: skills,
+  };
+}
+
+function resolveDefWeapons(input = {}) {
+  const library = readMainWorkbenchJson(WEAPON_LIBRARY_STORAGE_KEY, {});
+  const entries = library && typeof library === 'object' && !Array.isArray(library)
+    ? Object.entries(library).map(([fallbackId, raw]) => compactDefWeaponLibraryEntry(raw, fallbackId)).filter(Boolean)
+    : [];
+  const rawQuery = input.query || input.name || input.text || '';
+  const query = normalizeDefToolText(rawQuery);
+  const limit = boundedDefLimit(input.limit, 12);
+  const matched = entries
+    .filter((weapon) => !query || normalizeDefToolText(`${weapon.name} ${weapon.id} ${weapon.type}`).includes(query))
+    .map((weapon) => ({
+      ...weapon,
+      confidence: normalizeDefToolText(weapon.name) === query || normalizeDefToolText(weapon.id) === query ? 1 : 0.8,
+    }));
+  const candidates = matched.slice(0, limit);
+  return {
+    scope: 'catalog',
+    source: 'operator-config-weapon-library',
+    catalogCount: entries.length,
+    count: candidates.length,
+    query,
+    candidates,
+    ambiguity: matched.length !== 1,
+    exhaustive: matched.length <= limit,
+    truncated: matched.length > limit,
+    suggestedQuestion: matched.length === 0
+      ? '干员配置页武器库中没有匹配武器；这不代表外部游戏资料不存在。'
+      : matched.length > 1
+        ? '干员配置页武器库中有多个候选。请指定完整武器名、id 或武器类型。'
         : '',
   };
 }
@@ -4609,15 +4660,7 @@ async function executeDefTool(name, input = {}, query = new URLSearchParams()) {
   } else if (name === 'def.equipment.resolve' || name === 'def.gear.resolve') {
     result = resolveDefEquipment(input);
   } else if (name === 'def.weapon.resolve') {
-    const characters = listDefWorkbenchCharacters().characters;
-    const queryText = normalizeDefToolText(input.query || input.name || input.text || '');
-    result = {
-      query: queryText,
-      candidates: characters
-        .filter((character) => character.weapon && (!queryText || normalizeDefToolText(`${character.name} ${character.weapon.name} ${character.weapon.id}`).includes(queryText)))
-        .map((character) => ({ characterName: character.name, ...character.weapon, confidence: normalizeDefToolText(character.weapon?.name) === queryText ? 1 : 0.7 })),
-    };
-    result.ambiguity = result.candidates.length !== 1;
+    result = resolveDefWeapons(input);
   } else if (name === 'def.operator.config.read') {
     result = { snapshotUpdatedAt: snapshot?.updatedAt || null, operatorConfigs: snapshot?.operatorConfigs || [] };
   } else if (name === 'def.user.ask') {

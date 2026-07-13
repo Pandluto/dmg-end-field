@@ -47,6 +47,12 @@ Both candidate runs have equal v1 state before/after and no `def_node_use`. The 
 
 One accidental duplicate runner execution timed out and cleaned its owned fixture/session. It is retained only as `INCOMPLETE` runtime evidence and is not used as a pass.
 
+## Addendum — second real failure: weapon-library scope
+
+The later real Workbench session correctly showed that the Operator Configuration page has its own local weapon truth: `localStorage.def.weapon-sheet.library.v1`. The prior `def.weapon.resolve` instead searched only `snapshot.operatorConfigs[*].weapon`, so an unconfigured roster returned an empty result for every query and DEF falsely concluded that the weapon library was empty.
+
+This major runtime/tool-contract bug is fixed. `def.weapon.resolve` now searches the same local library as the Operator Configuration picker and returns bounded `scope=catalog`, `source=operator-config-weapon-library`, `catalogCount`, `exhaustive`, and `truncated` facts. `def_data_weapon` and the typed-tool definition now explicitly describe that source. The repair is read-only: it neither writes the library nor equips a weapon. No Harness candidate was changed or promoted for this runtime correction.
+
 ## UI evidence
 
 Computer Use reopened the real macOS Workbench after the minimal process reload. `AI 模式` was enabled and the native `DEF · 排轴助手` iframe was visible for the original session. No UI mutation or message was sent during this verification; protocol truth remains v1 evidence above.
