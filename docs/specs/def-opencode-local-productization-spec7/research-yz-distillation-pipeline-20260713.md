@@ -12,6 +12,8 @@
 
 运行时接入另见 [`research-yz-runtime-deep-dive-20260713.md`](./research-yz-runtime-deep-dive-20260713.md)。
 
+以角色卡为主要入口的拆分方式、分层加载策略和莱万汀试点见 [`research-yz-character-card-loading-20260713.md`](./research-yz-character-card-loading-20260713.md)。
+
 ## 结论摘要
 
 推荐采用“证据优先、两阶段蒸馏、五类知识对象、三层发布”的流水线：
