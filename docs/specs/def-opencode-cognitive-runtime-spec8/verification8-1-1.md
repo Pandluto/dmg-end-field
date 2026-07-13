@@ -23,6 +23,29 @@ The former `/def-agent/workbench-test/prompt` is a v1 compatibility alias. The o
 `ui.prompt`/`workbench-test/ui-events` transport and prompt wrapper were removed: the
 current consumer is the native OpenCode session hosted by `DefOpenCodeView`.
 
+## Local integration entry
+
+The npm entry only calls the v1 allowlisted routes; it adds no file, terminal, or
+permission-bypass capability.
+
+```bash
+npm run interop -- status
+npm run interop:hello
+npm run interop -- continue <sessionId> "请继续"
+npm run interop -- transcript <sessionId>
+npm run interop:check
+```
+
+On 2026-07-13, `npm run interop:hello` accepted Pure Blackbox `你好` with
+`testRunId=fd1eb37d-d597-4e1a-93e6-d865864e6546`,
+`sessionId=ses_0a5e6e05effeuiCzouD1v3IlLY`,
+`turnId=8bd6955d-6bb1-4cc1-be2f-7e74d5d59bd7`, and
+`clientTurnId=codex-1783924323924-6e9b8523`. The returned
+`rawUserText` and `providerVisibleUserText` were both exactly `你好`.
+Computer Use then observed that same user message and its native response in the
+visible Workbench iframe; the turn completed in about 3 seconds with no tool call,
+pending command, or mutation.
+
 ## Client sketch
 
 ```js

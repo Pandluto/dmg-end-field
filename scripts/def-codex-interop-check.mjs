@@ -83,6 +83,18 @@ try {
   assert.equal(retry.turn.turnId, firstPayload.turn.turnId);
   assert.equal(promptCalls, 1);
 
+  const replay = await fetch(`${base}/def-agent/interop/v1/ui-events?cursor=0`);
+  const replayReader = replay.body.getReader();
+  let replayText = '';
+  for (let index = 0; index < 4 && !replayText.includes('event: ui-prompt-consumed'); index += 1) {
+    const { done, value } = await replayReader.read();
+    if (done) break;
+    replayText += new TextDecoder().decode(value);
+  }
+  await replayReader.cancel();
+  assert.match(replayText, /event: ui-prompt-consumed/);
+  assert.match(replayText, /\"uiEventId\":\"[0-9a-f-]{36}\"/);
+
   const state = await (await fetch(`${base}/def-agent/interop/v1/state`)).json();
   assert.deepEqual(state.state.selectedOperators, [{ id: 'a', name: 'A' }]);
   assert.equal(Object.hasOwn(state.state, 'snapshot'), false);
