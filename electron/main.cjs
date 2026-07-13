@@ -58,6 +58,7 @@ const workbenchTestUiEventHistory = [];
 let savedDesktopScaleKey = DEFAULT_DESKTOP_SCALE_KEY;
 let activeDesktopScaleKey = DEFAULT_DESKTOP_SCALE_KEY;
 let startupWarmupScheduled = false;
+let aiRuntimeWarmupPromise = null;
 const imageUpdateState = {
   status: 'idle',
   currentVersion: null,
@@ -412,6 +413,7 @@ function scheduleStartupWarmups() {
     return;
   }
   startupWarmupScheduled = true;
+  void warmAiRuntimeAtStartup();
   setTimeout(warmWebAppInHiddenWindow, 300);
   setTimeout(() => warmImageAssetCache('startup'), 1200);
 }
@@ -3127,6 +3129,31 @@ async function startDefAgent() {
     health,
     ...getDefAgentRuntimeInfo(),
   };
+}
+
+function warmAiRuntimeAtStartup() {
+  if (aiRuntimeWarmupPromise) return aiRuntimeWarmupPromise;
+  const startedAt = Date.now();
+  aiRuntimeWarmupPromise = (async () => {
+    const rest = await startAiCliRest();
+    if (rest.ready === false) {
+      throw new Error(`AI REST did not become ready: ${rest.reason || 'unknown'}`);
+    }
+    const agent = await startDefAgent();
+    if (agent.ready === false) {
+      throw new Error(`DEF sidecar did not become ready: ${agent.reason || 'unknown'}`);
+    }
+    const runtime = await postJsonUrl('http://127.0.0.1:17322/api/runtime/ensure', {});
+    if (runtime.status < 200 || runtime.status >= 300 || runtime.body?.ok !== true) {
+      throw new Error(runtime.body?.error || `OpenCode prewarm failed: HTTP ${runtime.status}`);
+    }
+    appendRuntimeLog('ai-prewarm', `ready elapsedMs=${Date.now() - startedAt} rest=${rest.pid || '-'} sidecar=${agent.pid || '-'} opencode=${runtime.body?.runtime?.port || '-'}`);
+    return { ok: true, rest, agent, runtime: runtime.body?.runtime || null };
+  })().catch((error) => {
+    appendRuntimeLog('ai-prewarm', `failed elapsedMs=${Date.now() - startedAt} ${error instanceof Error ? error.message : String(error)}`);
+    return { ok: false, error: error instanceof Error ? error.message : String(error) };
+  });
+  return aiRuntimeWarmupPromise;
 }
 
 async function stopDefAgent() {
