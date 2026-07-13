@@ -700,9 +700,23 @@ function dataResource(definition) {
 
 export const data_operator = dataResource({
   title: 'DEF operator resource',
-  description: 'Resolve trusted DEF operator/character data by id, name, or query.',
+  description: 'Resolve only the currently selected Workbench operators. Empty results are scoped to the current selection, not the full catalog.',
   tool: 'def.character.resolve',
   input: ({ query }) => ({ query, limit: 12 }),
+})
+
+export const data_operator_catalog = dataResource({
+  title: 'DEF selection catalog resource',
+  description: 'Search the read-only operator catalog used by the selection screen. Use this after a user asks to find someone outside the current selected roster; it never changes that roster.',
+  tool: 'def.operator.catalog.search',
+  input: ({ query }) => ({ query, limit: 12 }),
+})
+
+export const data_game_knowledge = dataResource({
+  title: 'DEF game knowledge references',
+  description: 'Read bounded evidence excerpts from the game-knowledge Skill references. Use it for glossary and team-guide facts instead of arbitrary filesystem reads.',
+  tool: 'def.knowledge.game.search',
+  input: ({ query }) => ({ query, limit: 3 }),
 })
 
 export const data_weapon = dataResource({

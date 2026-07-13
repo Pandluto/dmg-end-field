@@ -55,8 +55,8 @@ All game knowledge is stored in `references/`:
 
 ## Procedure
 
-1. When the user mentions a character, team, or game term, consult `glossary.md` to resolve nicknames and ASR errors.
-2. Identify the relevant guide(s) from `references/`.
-3. Extract structured recommendations: team composition, rotation sequence, equipment priorities.
+1. Load this Skill, then use the bounded typed resource `def_data_game_knowledge` to consult `glossary.md` and the relevant guide(s). Do not use direct `read`, `glob`, or `grep` on this directory: the typed resource is the only available reference reader.
+2. Use the returned reference id and excerpt as evidence to resolve nicknames and ASR errors, then identify the relevant guide(s).
+3. Extract structured recommendations from the returned evidence: team composition, rotation sequence, equipment priorities.
 4. Present findings concisely — do not dump entire guide files.
 5. If the user's request goes beyond the guides (e.g., real-time game state), fall back to DEF typed tools.

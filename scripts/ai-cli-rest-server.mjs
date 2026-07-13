@@ -56,6 +56,8 @@ const MAIN_WORKBENCH_COMMAND_QUEUE_KEY = 'def.main-workbench.command-queue.v1';
 const MAIN_WORKBENCH_RESULT_LOG_KEY = 'def.main-workbench.result-log.v1';
 const MAIN_WORKBENCH_SNAPSHOT_KEY = 'def.main-workbench.snapshot.v1';
 const EQUIPMENT_LIBRARY_STORAGE_KEY = 'def.equipment-sheet.library.v1';
+const OPERATOR_CATALOG_STORAGE_KEY = 'def.operator-editor.library.v1';
+const GAME_KNOWLEDGE_REFERENCES_DIR = path.join(projectRoot, 'agent', 'runtime', 'def', 'skills', 'game-knowledge', 'references');
 const MAIN_WORKBENCH_SUPPORTED_OP_SET = new Set(MAIN_WORKBENCH_SUPPORTED_OPS);
 
 class FileStorage {
@@ -1973,6 +1975,9 @@ function listDefWorkbenchCharacters() {
   const selectedCharacters = Array.isArray(snapshot?.selectedCharacters) ? snapshot.selectedCharacters : [];
   const operatorConfigs = Array.isArray(snapshot?.operatorConfigs) ? snapshot.operatorConfigs : [];
   return {
+    scope: 'selected',
+    source: 'current-workbench-selection',
+    exhaustive: false,
     snapshotUpdatedAt: snapshot?.updatedAt || null,
     count: selectedCharacters.length,
     characters: selectedCharacters.map((character, index) => {
@@ -2013,14 +2018,131 @@ function resolveDefCharacters(input = {}) {
     candidates = [{ ...candidates[ordinal - 1], confidence: Math.max(candidates[ordinal - 1].confidence || 0, 0.9) }];
   }
   return {
+    scope: 'selected',
+    source: 'current-workbench-selection',
+    exhaustive: false,
+    selectedCount: data.count,
     query,
     candidates,
     ambiguity: candidates.length !== 1,
     suggestedQuestion: candidates.length === 0
-      ? '没有找到匹配干员。请提供干员名称或当前位置。'
+      ? '当前已选阵容中没有匹配干员；这不代表选人目录或外部知识库中不存在。若要查选人界面目录，请使用 catalog scope。'
       : candidates.length > 1
         ? '找到多个干员候选。请指定干员名称或第几个。'
         : '',
+  };
+}
+
+function boundedDefLimit(value, fallback = 12, maximum = 24) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return fallback;
+  return Math.max(1, Math.min(Math.floor(numeric), maximum));
+}
+
+function compactDefOperatorCatalogEntry(raw, fallbackId) {
+  if (!raw || typeof raw !== 'object') return null;
+  const id = String(raw.id || fallbackId || '').trim();
+  const name = String(raw.name || '').trim();
+  if (!id || !name) return null;
+  const skills = Array.isArray(raw.skills) ? raw.skills : [];
+  return {
+    id,
+    name,
+    element: String(raw.element || '').trim(),
+    profession: String(raw.profession || '').trim(),
+    rarity: Number.isFinite(Number(raw.rarity)) ? Number(raw.rarity) : null,
+    weapon: String(raw.weapon || '').trim(),
+    skillTypes: skills.map((skill) => String(skill?.buttonType || skill?.type || '')).filter(Boolean).slice(0, 8),
+  };
+}
+
+function listDefOperatorCatalog(input = {}) {
+  const library = readMainWorkbenchJson(OPERATOR_CATALOG_STORAGE_KEY, {});
+  const entries = library && typeof library === 'object' && !Array.isArray(library)
+    ? Object.entries(library).map(([fallbackId, raw]) => compactDefOperatorCatalogEntry(raw, fallbackId)).filter(Boolean)
+    : [];
+  const rawQuery = input.query || input.name || input.text || '';
+  const query = normalizeDefToolText(rawQuery);
+  const limit = boundedDefLimit(input.limit, 12);
+  const matched = entries
+    .filter((character) => !query || normalizeDefToolText(`${character.name} ${character.id} ${character.element} ${character.profession}`).includes(query))
+    .map((character) => ({ ...character, confidence: normalizeDefToolText(character.name) === query ? 1 : 0.8 }));
+  const candidates = matched.slice(0, limit);
+  return {
+    scope: 'catalog',
+    source: 'selection-screen-local-library',
+    catalogCount: entries.length,
+    count: candidates.length,
+    query,
+    candidates,
+    ambiguity: matched.length !== 1,
+    exhaustive: matched.length <= limit,
+    truncated: matched.length > limit,
+    suggestedQuestion: matched.length === 0
+      ? '选人目录中没有匹配干员。此结果只覆盖当前本地选人目录，不代表外部游戏知识库。'
+      : matched.length > 1
+        ? '选人目录中有多个候选。请指定干员名称或 id。'
+        : '',
+  };
+}
+
+function safeGameKnowledgeReferenceFiles() {
+  const root = fs.realpathSync(GAME_KNOWLEDGE_REFERENCES_DIR);
+  return fs.readdirSync(root, { withFileTypes: true })
+    .filter((entry) => entry.isFile() && entry.name.endsWith('.md'))
+    .map((entry) => {
+      const target = path.join(root, entry.name);
+      const resolved = fs.realpathSync(target);
+      if (!resolved.startsWith(`${root}${path.sep}`)) return null;
+      return { id: entry.name, path: resolved };
+    })
+    .filter(Boolean);
+}
+
+function boundedGameKnowledgeExcerpt(text, query) {
+  const lines = String(text || '').split(/\r?\n/);
+  const terms = gameKnowledgeQueryTerms(query);
+  const matching = terms.length
+    ? lines.filter((line) => terms.some((term) => normalizeDefToolText(line).includes(term)))
+    : [];
+  const chosen = (matching.length ? matching : lines.filter((line) => line.trim()).slice(0, 36))
+    .slice(0, 36)
+    .join('\n')
+    .trim();
+  return chosen.slice(0, 6000);
+}
+
+function gameKnowledgeQueryTerms(query) {
+  const namedTerms = String(query || '').match(/[\p{Script=Han}]{2,}|[a-zA-Z0-9]{2,}/gu) || [];
+  const normalized = namedTerms.map((term) => normalizeDefToolText(term)).filter(Boolean);
+  return normalized.length ? [...new Set(normalized)] : [normalizeDefToolText(query)].filter(Boolean);
+}
+
+function searchDefGameKnowledge(input = {}) {
+  const query = String(input.query || input.name || input.text || '').trim();
+  const queryTerms = gameKnowledgeQueryTerms(query);
+  const limit = boundedDefLimit(input.limit, 3, 6);
+  const candidates = safeGameKnowledgeReferenceFiles()
+    .map((reference) => ({ ...reference, text: fs.readFileSync(reference.path, 'utf8') }))
+    .filter((reference) => {
+      const searchable = normalizeDefToolText(`${reference.id}\n${reference.text}`);
+      return !queryTerms.length || queryTerms.every((term) => searchable.includes(term));
+    })
+    .slice(0, limit)
+    .map((reference) => ({
+      referenceId: reference.id,
+      source: `game-knowledge/references/${reference.id}`,
+      excerpt: boundedGameKnowledgeExcerpt(reference.text, query),
+    }));
+  return {
+    scope: 'game-knowledge-references',
+    source: 'allowlisted-game-knowledge-skill',
+    query,
+    count: candidates.length,
+    ambiguity: candidates.length !== 1,
+    exhaustive: candidates.length < limit,
+    candidates,
+    suggestedQuestion: candidates.length === 0 ? '当前 game-knowledge references 中没有匹配内容；这不表示游戏中不存在该角色或机制。' : '',
   };
 }
 
@@ -4476,6 +4598,10 @@ async function executeDefTool(name, input = {}, query = new URLSearchParams()) {
     result = { snapshotUpdatedAt: snapshot?.updatedAt || null, damageReport: snapshot?.damageReport || null };
   } else if (name === 'def.character.resolve') {
     result = resolveDefCharacters(input);
+  } else if (name === 'def.operator.catalog.search') {
+    result = listDefOperatorCatalog(input);
+  } else if (name === 'def.knowledge.game.search') {
+    result = searchDefGameKnowledge(input);
   } else if (name === 'def.skill.resolve') {
     result = resolveDefSkills(input);
   } else if (name === 'def.buff.resolve' || name === 'def.buff.search_candidates') {

@@ -17,6 +17,8 @@ const DATA_RESOURCE_TOOLS = new Set([
   'def.buff.search_candidates',
   'def.skill.resolve',
   'def.character.resolve',
+  'def.operator.catalog.search',
+  'def.knowledge.game.search',
   'def.equipment.resolve',
   'def.weapon.resolve',
   'def.gear.resolve',
@@ -74,6 +76,8 @@ export const DEF_NATIVE_TARGETS = Object.freeze([
   { id: 'def.node.crud.use', family: DEF_TOOL_FAMILY.NODE_CRUD, source: 'def-native', nativeBinding: 'def_node_use', status: 'implemented', workspaceScope: 'current-checkout' },
   { id: 'def.node.crud.restore', family: DEF_TOOL_FAMILY.NODE_CRUD, source: 'def-native', nativeBinding: 'def_node_restore', status: 'implemented', workspaceScope: 'current-checkout' },
   { id: 'def.data.resource.operator', family: DEF_TOOL_FAMILY.DATA_RESOURCE, source: 'def-native', nativeBinding: 'def_data_operator', status: 'implemented', workspaceScope: 'data-resource' },
+  { id: 'def.data.resource.operator_catalog', family: DEF_TOOL_FAMILY.DATA_RESOURCE, source: 'def-native', nativeBinding: 'def_data_operator_catalog', status: 'implemented', workspaceScope: 'data-resource' },
+  { id: 'def.data.resource.game_knowledge', family: DEF_TOOL_FAMILY.DATA_RESOURCE, source: 'def-native', nativeBinding: 'def_data_game_knowledge', status: 'implemented', workspaceScope: 'data-resource' },
   { id: 'def.data.resource.weapon', family: DEF_TOOL_FAMILY.DATA_RESOURCE, source: 'def-native', nativeBinding: 'def_data_weapon', status: 'implemented', workspaceScope: 'data-resource' },
   { id: 'def.data.resource.equipment', family: DEF_TOOL_FAMILY.DATA_RESOURCE, source: 'def-native', nativeBinding: 'def_data_equipment', status: 'implemented', workspaceScope: 'data-resource' },
   { id: 'def.data.resource.skill', family: DEF_TOOL_FAMILY.DATA_RESOURCE, source: 'def-native', nativeBinding: 'def_data_skill', status: 'implemented', workspaceScope: 'data-resource' },
@@ -88,6 +92,8 @@ function familyFor(id) {
 }
 
 function dataTargetFor(id) {
+  if (/knowledge/.test(id)) return 'def.data.resource.game_knowledge';
+  if (/operator.*catalog|catalog.*operator/.test(id)) return 'def.data.resource.operator_catalog';
   if (/character|operator/.test(id)) return 'def.data.resource.operator';
   if (/weapon/.test(id)) return 'def.data.resource.weapon';
   if (/equipment|gear/.test(id)) return 'def.data.resource.equipment';
