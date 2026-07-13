@@ -59,6 +59,7 @@ const defCodexInterop = createDefCodexInteropProtocol({
   baseUrl: `http://${BRIDGE_HOST}:${BRIDGE_PORT}`,
   sidecarUrl: 'http://127.0.0.1:17322',
   snapshotUrl: 'http://127.0.0.1:17321/api/main-workbench/snapshot',
+  auditFile: path.join(app.getPath('userData'), 'def-codex-interop.audit.jsonl'),
   bridgeVersion: 'electron-main',
   writeJson,
   writeSse,

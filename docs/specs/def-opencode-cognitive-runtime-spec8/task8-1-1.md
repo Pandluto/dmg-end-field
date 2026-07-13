@@ -2,7 +2,7 @@
 
 ## 状态
 
-待实施。本任务对应 [`spec8-1-1.md`](./spec8-1-1.md)，完成后才能进入 Spec 8-1-2 的 Harness 迭代框架建设。
+实施中：v1 bridge、真实 UI 链路、聚焦协议检查与黑盒记录已落地；完成勾选以本次 verification 证据为准。
 
 Task 8-1-1 是 Spec 8-1-1 的唯一总实施任务，不是前置盘点。允许按检查点分批编码、黑盒验证和提交，但任务完成必须意味着高级 Codex 已能依赖稳定协议完成一次真实 DEF Workbench Agent 联调。
 
@@ -56,30 +56,30 @@ Codex Teacher Client
 
 ### 1.1 审计现有链路
 
-- [ ] 逐项记录 Electron bridge、`agent/dev-agent.cjs`、DEF sidecar 和前端 helper 的实际 route、method、request、response、event 与错误结构。
-- [ ] 确认 `electron/main.cjs` 与 `agent/dev-agent.cjs` 分别在什么运行模式使用，禁止误删仍被 Windows/开发流程调用的入口。
-- [ ] 确认当前原生 DEF OpenCode UI 如何发现/切换/hydrate session，以及 `ui.prompt` 是否仍有真实 consumer。
+- [x] 逐项记录 Electron bridge、`agent/dev-agent.cjs`、DEF sidecar 和前端 helper 的实际 route、method、request、response、event 与错误结构。
+- [x] 确认 `electron/main.cjs` 与 `agent/dev-agent.cjs` 分别在什么运行模式使用，禁止误删仍被 Windows/开发流程调用的入口。
+- [x] 确认当前原生 DEF OpenCode UI 如何发现/切换/hydrate session，以及 `ui.prompt` 是否仍有真实 consumer。
 - [ ] 确认 Workbench snapshot、checkout、revision 和 session metadata 的当前权威来源。
 - [ ] 确认 sidecar `/api/chat/:session/events` 的 seq/from、重连、完成和错误语义。
-- [ ] 确认相同 `clientTurnId` 重试是否会重复执行 turn；没有幂等保证时明确补齐。
-- [ ] 形成旧 route → v1 capability 对照，不把遗留 route 数量直接当成协议能力。
+- [x] 确认相同 `clientTurnId` 重试是否会重复执行 turn；没有幂等保证时明确补齐。
+- [x] 形成旧 route → v1 capability 对照，不把遗留 route 数量直接当成协议能力。
 
 ### 1.2 建立协议 schema
 
-- [ ] 为 v1 定义 request/response/event/error schema，不再让 Electron、dev-agent、前端各自维护隐式结构。
-- [ ] schema 至少覆盖 status、start、continue、stop、events、transcript、state、ui-events。
-- [ ] 定义 `pure-blackbox`、`diagnostic` 两种 ingress enum。
-- [ ] 定义 stable ids、cursor、timestamps、component status 和 retryability。
-- [ ] 对未知字段保持向前兼容；对未知 protocol major version 明确拒绝。
-- [ ] schema 可被 CommonJS bridge 和 TypeScript 前端/client 共同消费或由同一源派生。
+- [x] 为 v1 定义 request/response/event/error schema，不再让 Electron、dev-agent、前端各自维护隐式结构。
+- [x] schema 至少覆盖 status、start、continue、stop、events、transcript、state、ui-events。
+- [x] 定义 `pure-blackbox`、`diagnostic` 两种 ingress enum。
+- [x] 定义 stable ids、cursor、timestamps、component status 和 retryability。
+- [x] 对未知字段保持向前兼容；对未知 protocol major version 明确拒绝。
+- [x] schema 可被 CommonJS bridge 和 TypeScript 前端/client 共同消费或由同一源派生。
 
 ### 1.3 收敛重复实现
 
-- [ ] 将协议常量、id/error/event 构造和 request validation 收敛到可由 Electron bridge 与 dev-agent 复用的模块。
-- [ ] `electron/main.cjs` 与 `agent/dev-agent.cjs` 保留各自进程管理/transport 适配，但不再复制协议业务语义。
-- [ ] `src/utils/defAgent.ts` 的类型和 helper 从 v1 contract 对齐，不手写另一套相似返回结构。
-- [ ] sidecar adapter 只负责 OpenCode session/runtime，不承担 Teacher 协议的本地安全与 UI correlation。
-- [ ] 保留旧 route 兼容时，统一转到 v1 handler；禁止复制业务逻辑。
+- [x] 将协议常量、id/error/event 构造和 request validation 收敛到可由 Electron bridge 与 dev-agent 复用的模块。
+- [x] `electron/main.cjs` 与 `agent/dev-agent.cjs` 保留各自进程管理/transport 适配，但不再复制协议业务语义。
+- [x] `src/utils/defAgent.ts` 的类型和 helper 从 v1 contract 对齐，不手写另一套相似返回结构。
+- [x] sidecar adapter 只负责 OpenCode session/runtime，不承担 Teacher 协议的本地安全与 UI correlation。
+- [x] 保留旧 route 兼容时，统一转到 v1 handler；禁止复制业务逻辑。
 
 ---
 
@@ -87,22 +87,22 @@ Codex Teacher Client
 
 ### 2.1 只读 handshake/status
 
-- [ ] 新增或整理一个不发送用户消息、默认不隐式创建 session 的 status 能力。
-- [ ] 返回 protocol name/version、developmentOnly、bridge/sidecar/workbench/UI readiness。
-- [ ] 返回 snapshot 是否可用、当前 UI consumer 数、可用 capability 清单。
+- [x] 新增或整理一个不发送用户消息、默认不隐式创建 session 的 status 能力。
+- [x] 返回 protocol name/version、developmentOnly、bridge/sidecar/workbench/UI readiness。
+- [x] 返回 snapshot 是否可用、当前 UI consumer 数、可用 capability 清单。
 - [ ] 返回 bridge/agent build/version 摘要，但不泄露用户目录、token、完整环境变量或敏感配置。
 - [ ] sidecar 未启动时明确区分 `not-started`、`starting`、`unhealthy`，不统一报 500。
 - [ ] snapshot 服务、UI consumer 或 OpenCode runtime 缺失时给出稳定 component code。
 
 ### 2.2 本地教师授权
 
-- [ ] Teacher/Diagnostic mutation 只在明确 development/test profile 启用。
-- [ ] bridge 继续只监听 loopback，拒绝非本地来源或错误 Host/Origin 组合。
-- [ ] 为教师 mutation 能力增加临时 token 或等价的本地能力证明。
-- [ ] token 不写入前端 bundle、Git、普通 transcript 或 UI event payload。
+- [x] Teacher/Diagnostic mutation 只在明确 development/test profile 启用。
+- [x] bridge 继续只监听 loopback，拒绝非本地来源或错误 Host/Origin 组合。
+- [x] 为教师 mutation 能力增加临时 token 或等价的本地能力证明。
+- [x] token 不写入前端 bundle、Git、普通 transcript 或 UI event payload。
 - [ ] Pure Blackbox 前端内部使用与外部 Codex 教师调用的授权边界明确，不破坏现有用户正常聊天。
-- [ ] production/release profile 对教师 mutation route 返回稳定 `teacher-ingress-disabled`，而不是静默放行。
-- [ ] append-only audit 记录 testRunId、调用模式、时间、动作和结果，不记录敏感 token。
+- [x] production/release profile 对教师 mutation route返回稳定 `teacher-ingress-disabled`，而不是静默放行。
+- [x] append-only audit 记录 testRunId、调用模式、时间、动作和结果，不记录敏感 token。
 
 ---
 
@@ -267,18 +267,18 @@ Codex Teacher Client
 
 ### 8.3 文档
 
-- [ ] 在 Spec 8-1-1 verification 中记录实际 route map、protocolVersion 和验收证据；具体 verification 文件在实施完成时创建。
-- [ ] 更新 `docs/testing/def-agent-blackbox.md`，将旧 `MainWorkbenchAiPanel` 表述校准为当前真实 DEF OpenCode UI。
-- [ ] 记录 Codex client 的 handshake/start/continue/events/state/stop 最小调用示例。
-- [ ] 明确 Pure Blackbox 与 Diagnostic 的报告用语。
-- [ ] 记录 Electron bridge 修改后需要重启、普通 sidecar/UI 改动的最小刷新方式。
+- [x] 在 Spec 8-1-1 verification 中记录实际 route map、protocolVersion 和验收证据；具体 verification 文件在实施完成时创建。
+- [x] 更新 `docs/testing/def-agent-blackbox.md`，将旧 `MainWorkbenchAiPanel` 表述校准为当前真实 DEF OpenCode UI。
+- [x] 记录 Codex client 的 handshake/start/continue/events/state/stop 最小调用示例。
+- [x] 明确 Pure Blackbox 与 Diagnostic 的报告用语。
+- [x] 记录 Electron bridge 修改后需要重启、普通 sidecar/UI 改动的最小刷新方式。
 
 ### 8.4 清理
 
-- [ ] 删除失去 consumer 的旧 helper、重复 prompt builder 和无调用 route；删除前必须证明替代链路已验收。
-- [ ] 不保留 v1、新 route、旧 route 三套独立业务实现。
-- [ ] 不引入任意终端、文件或跳过 permission 的“万能教师后门”。
-- [ ] 工作区无临时 trace、截图、token、debug 文件或无关生成物。
+- [x] 删除失去 consumer 的旧 helper、重复 prompt builder 和无调用 route；删除前必须证明替代链路已验收。
+- [x] 不保留 v1、新 route、旧 route 三套独立业务实现。
+- [x] 不引入任意终端、文件或跳过 permission 的“万能教师后门”。
+- [x] 工作区无临时 trace、截图、token、debug 文件或无关生成物。
 
 ## 交付物
 

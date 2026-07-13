@@ -1,4 +1,5 @@
 const crypto = require('crypto');
+const fs = require('fs');
 
 const PROTOCOL = 'def-codex-interop';
 const PROTOCOL_VERSION = 1;
@@ -42,10 +43,13 @@ function createDefCodexInteropProtocol(options) {
       ...(record.sessionId ? { sessionId: record.sessionId } : {}),
       ...(record.turnId ? { turnId: record.turnId } : {}),
       ...(record.clientTurnId ? { clientTurnId: record.clientTurnId } : {}),
+      ...(record.scenarioId ? { scenarioId: record.scenarioId } : {}),
+      ...(record.uiEventId ? { uiEventId: record.uiEventId } : {}),
     };
   }
 
   function emit(kind, record = {}, payload = {}) {
+    const uiEventId = kind.startsWith('ui-') ? crypto.randomUUID() : undefined;
     const event = {
       protocol: PROTOCOL,
       protocolVersion: PROTOCOL_VERSION,
@@ -54,6 +58,7 @@ function createDefCodexInteropProtocol(options) {
       at: Date.now(),
       type: kind,
       ...idsFor(record),
+      ...(uiEventId ? { uiEventId } : {}),
       payload,
     };
     events.push(event);
@@ -65,8 +70,17 @@ function createDefCodexInteropProtocol(options) {
   }
 
   function appendAudit(action, record, result) {
-    audit.push({ at: Date.now(), action, ingressMode: record?.ingressMode, ...idsFor(record), result });
+    const entry = { at: Date.now(), action, ingressMode: record?.ingressMode, ...idsFor(record), result };
+    audit.push(entry);
     if (audit.length > 512) audit.splice(0, audit.length - 512);
+    if (options.auditFile) {
+      try {
+        fs.mkdirSync(require('path').dirname(options.auditFile), { recursive: true });
+        fs.appendFileSync(options.auditFile, `${JSON.stringify(entry)}\n`, 'utf8');
+      } catch {
+        // Audit persistence must not make a local stop request unsafe or non-idempotent.
+      }
+    }
   }
 
   function json(response, status, payload) { options.writeJson(response, status, payload); }
@@ -126,16 +140,17 @@ function createDefCodexInteropProtocol(options) {
     return { available: false, value: null };
   }
 
-  function summarizeState(value) {
-    const snapshot = value && typeof value === 'object' ? value : {};
+  function summarizeState(value, native = null) {
+    const outer = value && typeof value === 'object' ? value : {};
+    const snapshot = outer.snapshot && typeof outer.snapshot === 'object' ? outer.snapshot : outer;
     const operators = Array.isArray(snapshot.selectedCharacters)
       ? snapshot.selectedCharacters.slice(0, 32).map((item) => ({ id: item?.id || '', name: item?.name || '' }))
       : Array.isArray(snapshot.operators)
         ? snapshot.operators.slice(0, 32).map((item) => ({ id: item?.id || '', name: item?.name || '' }))
         : [];
     return {
-      checkout: snapshot.checkout || snapshot.checkoutRef || snapshot.currentCheckout || null,
-      revision: snapshot.revision || snapshot.checkoutRevision || null,
+      checkout: native?.axisContext?.checkout || snapshot.checkout || snapshot.checkoutRef || snapshot.currentCheckout || null,
+      revision: native?.axisContext?.checkout?.updatedAt || snapshot.revision || snapshot.checkoutRevision || null,
       selectedOperators: operators,
       pending: snapshot.pendingApproval || snapshot.pendingNode || snapshot.pendingCommand || null,
     };
@@ -144,7 +159,7 @@ function createDefCodexInteropProtocol(options) {
   async function observeTurn(record) {
     let firstToken = false;
     const seenTools = new Set();
-    for (let attempt = 0; attempt < 90 && record.status === 'accepted'; attempt += 1) {
+    for (let attempt = 0; attempt < 180 && record.status === 'accepted'; attempt += 1) {
       await new Promise((resolve) => {
         const timer = setTimeout(resolve, 1000);
         timer.unref?.();
@@ -174,6 +189,16 @@ function createDefCodexInteropProtocol(options) {
       }
     }
     if (record.status === 'accepted') { record.status = 'timeout'; appendAudit('turn.timeout', record, 'timeout'); emit('timeout', record, { component: 'provider' }); }
+  }
+
+  function reconcileTranscriptCompletion(run, messages) {
+    const latest = Array.isArray(messages) ? messages[messages.length - 1] : null;
+    if (!latest?.info?.time?.completed) return;
+    const record = [...run.turns].reverse().find((turn) => ['accepted', 'timeout'].includes(turn.status));
+    if (!record) return;
+    record.status = 'completed';
+    appendAudit('turn.completed', record, 'completed-reconciled');
+    emit('completed', record, { reconciledFromTranscript: true });
   }
 
   function currentConsumer(sessionId = '') {
@@ -224,6 +249,7 @@ function createDefCodexInteropProtocol(options) {
       sessionId: consumer.sessionId,
       turnId: crypto.randomUUID(),
       clientTurnId: body.clientTurnId,
+      scenarioId: typeof body.scenarioId === 'string' ? body.scenarioId.slice(0, 128) : undefined,
       ingressMode: body.ingressMode || 'pure-blackbox',
       rawUserText: body.rawUserText.trim(),
       providerVisibleUserText: body.rawUserText.trim(),
@@ -358,11 +384,21 @@ function createDefCodexInteropProtocol(options) {
       const run = runs.get(sessionId);
       if (!run) { reject(response, 404, createError('interop-session-not-found', 'No protocol run exists for this session.', 'session', { ids: { sessionId } })); return true; }
       const upstream = await options.fetchJson(`${options.sidecarUrl}/api/native/session/${encodeURIComponent(sessionId)}/interop-transcript`);
+      reconcileTranscriptCompletion(run, upstream.body?.messages);
       json(response, upstream.status || 502, { ok: upstream.status >= 200 && upstream.status < 300, protocol: PROTOCOL, protocolVersion: PROTOCOL_VERSION, testRunId: run.testRunId, sessionId, turns: run.turns.map((turn) => ({ ...idsFor(turn), ingressMode: turn.ingressMode, rawUserText: turn.rawUserText, providerVisibleUserText: turn.providerVisibleUserText, ...(turn.ingressMode === 'diagnostic' ? { diagnostic: turn.diagnostic, providerVisibleMessages: turn.providerVisibleMessages } : {}), status: turn.status })), transcript: upstream.body?.messages || [] }); return true;
     }
     if (method === 'GET' && path === '/def-agent/interop/v1/state') {
       const state = await snapshot();
-      json(response, 200, { ok: true, protocol: PROTOCOL, protocolVersion: PROTOCOL_VERSION, source: 'main-workbench-snapshot', schemaVersion: 1, updatedAt: Date.now(), snapshotAvailable: state.available, state: state.available ? summarizeState(state.value) : null, uiConsumerCount: consumers.size }); return true;
+      const consumer = currentConsumer();
+      let native = null;
+      if (consumer?.directory) {
+        try {
+          const query = new URLSearchParams({ sessionID: consumer.sessionId, directory: consumer.directory });
+          const response = await options.fetchJson(`${options.sidecarUrl}/api/native/bootstrap?${query}`);
+          native = response.body?.ok ? response.body : null;
+        } catch {}
+      }
+      json(response, 200, { ok: true, protocol: PROTOCOL, protocolVersion: PROTOCOL_VERSION, source: 'main-workbench-snapshot', schemaVersion: 1, updatedAt: Date.now(), snapshotAvailable: state.available, state: state.available ? summarizeState(state.value, native) : null, uiConsumerCount: consumers.size }); return true;
     }
     const eventsMatch = /^\/def-agent\/interop\/v1\/sessions\/([^/]+)\/events$/.exec(path);
     if (method === 'GET' && eventsMatch) { subscribe(request, response, requestUrl, decodeURIComponent(eventsMatch[1]), false); return true; }

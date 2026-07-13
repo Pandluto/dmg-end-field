@@ -8,19 +8,27 @@ The test target is the agent behavior, not just whether a tool exists.
 
 ## Entry
 
-Use the project workbench backdoor:
+Use `DefCodexInteropProtocol v1` through the project workbench bridge:
 
 ```http
-POST /def-agent/workbench-test/prompt
+GET  /def-agent/interop/v1/status
+POST /def-agent/interop/v1/authorize
+POST /def-agent/interop/v1/turns
 ```
 
-This path should simulate a real main workbench AI input turn and preserve the chain:
+`POST /def-agent/workbench-test/prompt` remains a compatibility alias, but it requires
+the same local teacher authorization and uses the same v1 handler. New checks should use
+the v1 routes so that `testRunId/sessionId/turnId/clientTurnId/cursor` are recorded.
+
+The path must preserve the current native DEF OpenCode Workbench chain:
 
 ```text
-prompt -> ui-events -> MainWorkbenchAiPanel
+turn.start -> native Workbench OpenCode session -> DefOpenCodeView iframe -> visible UI
 ```
 
-Do not replace it with an ad hoc smoke script that bypasses the workbench prompt path.
+Do not replace it with an ad hoc smoke script that bypasses the native Workbench session.
+`MainWorkbenchAiPanel` is only the React host for `DefOpenCodeView`; it is not a second
+chat renderer and must not consume a legacy `ui.prompt` event.
 
 ## Windows Chrome UI Route
 

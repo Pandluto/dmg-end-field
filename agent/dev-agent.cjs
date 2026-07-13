@@ -22,6 +22,7 @@ const defCodexInterop = createDefCodexInteropProtocol({
   baseUrl: `http://${HOST}:${PORT}`,
   sidecarUrl: 'http://127.0.0.1:17322',
   snapshotUrl: 'http://127.0.0.1:17321/api/main-workbench/snapshot',
+  auditFile: path.join(__dirname, '..', '.runtime', 'def-agent', 'def-codex-interop.audit.jsonl'),
   bridgeVersion: 'dev-agent',
   writeJson,
   writeSse,

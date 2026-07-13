@@ -86,6 +86,16 @@ try {
   const state = await (await fetch(`${base}/def-agent/interop/v1/state`)).json();
   assert.deepEqual(state.state.selectedOperators, [{ id: 'a', name: 'A' }]);
   assert.equal(Object.hasOwn(state.state, 'snapshot'), false);
+
+  let releaseResponse;
+  const release = createDefCodexInteropProtocol({
+    profile: 'release', baseUrl: 'http://127.0.0.1:0', sidecarUrl: 'http://sidecar.invalid', snapshotUrl: 'http://snapshot.invalid',
+    writeJson(_response, status, payload) { releaseResponse = { status, payload }; }, writeSse, writeSseHeaders,
+    async fetchJson() { return { status: 200, body: { ok: true } }; }, async postJson() { throw new Error('release must not call sidecar'); },
+  });
+  await release.handle({ method: 'POST', headers: {} }, {}, new URL('http://127.0.0.1/def-agent/interop/v1/turns'), async () => ({ rawUserText: '看看这个', clientTurnId: 'release-denied' }));
+  assert.equal(releaseResponse.status, 403);
+  assert.equal(releaseResponse.payload.error.code, 'teacher-ingress-disabled');
   console.log('def-codex-interop-check: ok');
 } finally {
   await new Promise((resolve) => server.close(resolve));
