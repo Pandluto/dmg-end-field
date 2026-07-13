@@ -3,7 +3,7 @@
   "version": 1,
   "regressionKind": "PASS_TO_PASS",
   "turns": [
-    { "userText": "把弭弗的技能“绝心”复制到 @1-2，先看一下，不要应用。" }
+    { "userText": "把弭弗当前技能的显示名称改成“绝心（预览）”，先看一下，不要应用。" }
   ],
   "requiresSnapshot": true,
   "fixtureMode": "clone-current",
