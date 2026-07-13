@@ -933,7 +933,19 @@ async function syncNativeWorkbenchAxisBinding(binding) {
   if (!response.ok || payload?.ok !== true || payload?.result?.ok === false) {
     throw new Error(payload?.result?.message || payload?.message || 'native-session-axis-binding-failed');
   }
-  return payload.result.context || null;
+  const axisContext = payload.result.context || null;
+  // Native sessions do not pass through the React-side attach endpoint.  The
+  // local tool module still needs the same on-disk context attachment so its
+  // current-checkout tools cannot fall back to an unrelated node store.
+  writeNativeWorkbenchContext(current.directory, current.sessionID, {
+    schemaVersion: 1,
+    source: 'native-session-axis-binding',
+    timeline: { id: current.timelineId || 'current-main-workbench' },
+    selectedWorkbenchNode: null,
+    axisContext,
+  });
+  updateNativeWorkbenchCheckoutState(current, axisContext);
+  return axisContext;
 }
 
 async function removeNativeWorkbenchAxisBinding(binding) {
