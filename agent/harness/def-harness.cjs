@@ -239,11 +239,19 @@ function registerPackage(runtimeRoot, packageDirectory, channel = '') {
 }
 function ensureBaseline(runtimeRoot, sourceDirectory) {
   const paths = registryPaths(runtimeRoot);
+  const channels = readChannels(paths.root);
+  // A selected stable package is immutable.  Rebuilding it on every native
+  // session would turn an unrelated dirty worktree into an id/version
+  // conflict and make an already validated stable channel unavailable.
+  if (channels.stable) {
+    const stable = validatePackageDirectory(getPackageDirectory(paths.root, channels.stable));
+    if (!sameRef(channels.stable, packageRef(stable))) fail('HARNESS_HASH_MISMATCH', 'Stable channel pointer hash mismatch.', { component: 'registry' });
+    return packageRef(stable);
+  }
   const built = buildPackage(sourceDirectory, path.join(paths.root, 'builds'));
   const ref = registerPackage(paths.root, built.directory);
-  const channels = readChannels(paths.root);
-  if (!channels.stable) setChannel(paths.root, 'stable', ref);
-  return readChannels(paths.root).stable;
+  setChannel(paths.root, 'stable', ref);
+  return ref;
 }
 function resolveSelector(runtimeRoot, selector = 'stable', lastVerifiedStable = null) {
   const channels = readChannels(runtimeRoot);

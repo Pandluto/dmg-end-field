@@ -3,7 +3,7 @@
   "version": 1,
   "regressionKind": "PASS_TO_PASS",
   "turns": [
-    { "userText": "加个技能，先看一下。" }
+    { "userText": "把弭弗的技能“绝心”复制到 @1-2，先看一下，不要应用。" }
   ],
   "requiresSnapshot": true,
   "fixtureMode": "clone-current",
