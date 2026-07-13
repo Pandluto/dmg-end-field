@@ -325,3 +325,27 @@ acknowledgement, cursor replay and the pre-existing stopped-turn regression. The
 restarted live bridge reported protocol version 1 and the new `questions.read`
 capability. At the time of this check no Workbench AI consumer was open
 (`uiConnected=false`), so no live model turn or UI claim is made for this entry.
+
+## 2026-07-13 — blocked live protocol observation (17:19 +0800)
+
+This was a deliberately single-attempt real desktop preparation for the new OpenCode
+observation contract. Computer Use selected 弭弗、陈千语、洛茜、黎风, entered the
+Workbench, opened AI mode, and confirmed the native session
+`ses_0a57a08d5ffe8uLlvzjVYBjSoi` with an actual input box. The visible current canvas
+contained Q-绝心, E-见天河, B-血红之影 and A-摧破. AI mode was then exited using its
+`返回` button; the main page was not refreshed and no session was deleted.
+
+No prompt, `testRunId`, `turnId`, tool call, pending command, provider response or
+question was created for this case. Before a backdoor turn was sent,
+`127.0.0.1:17321` (the Workbench snapshot service) stopped responding. Its Electron
+process was listening but consuming about 92–97% CPU. As a recovery attempt, the stale
+snapshot process and duplicate starter were stopped, then the sidecar's normal
+`POST /api/runtime/ensure` path reported `defTools.running=true, owned=true`; the new
+snapshot process again listened yet timed out after 3 seconds. The sidecar health route
+remained `200`, while bridge status again blocked waiting for the snapshot dependency.
+
+Judgment: **blocked before turn submission**. This is a snapshot-process defect, not a
+model/tool/option-card result and not a reason to retry the same prompt. The next valid
+live protocol test starts only after `17321/health` responds promptly; it should then
+use one read-only natural-language turn and record the resulting ids, tool events,
+questions and terminal state.
