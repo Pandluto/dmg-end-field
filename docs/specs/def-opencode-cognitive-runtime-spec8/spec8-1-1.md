@@ -1,4 +1,4 @@
-# Spec 8-1-1：Runtime Harness 与真实黑盒基线
+# Spec 8-1-1：OpenCode 后门与 Codex 联调协议
 
 ## 状态
 
@@ -6,193 +6,189 @@
 
 ## 一句话定调
 
-**先让 `def-opencode` 的身份、真实能力、实时 Workbench 状态和用户原始输入成为分层、版本化、可审计的运行时事实，建立不带测试答案的真实黑盒基线。**
+**打通 `def-opencode` 的本地调测后门，形成高级 Codex 可稳定发起 turn、继续会话、订阅事件、读取状态与关联真实 UI 的联调协议。**
 
 ## 背景
 
-Spec 7 已建立原生 OpenCode loop、三类 DEF tools、Work Node、节点代码 workspace、validation/diff、CAS、permission 与 host/session 隔离，但当前行为基础仍有三类混杂：
+仓库仍保留 `/def-agent/workbench-test/prompt`、session transcript/events 和 `ui-events` 等旧后门能力，说明这条路线没有消失；但当前入口更像零散测试辅助：
 
-1. Workbench 身份、操作流程和安全提醒同时存在于 agent prompt、skills 和黑盒 per-message 包装中；
-2. checkout、revision、selected operators 等实时状态尚未形成统一、精简、每 turn 重算的 contract；
-3. `/def-agent/workbench-test/prompt` 虽然能驱动真实 MainWorkbenchAiPanel，却会给普通用户文本追加工具和流程教程，现有成功不能等价证明原生弱提示能力。
+1. `buildWorkbenchTestPrompt` 会把工具和安全流程拼进 provider-visible user text，污染真实黑盒；
+2. prompt、session、SSE、Workbench snapshot 与 UI event 虽然存在，但没有一个面向高级 Codex 的统一协议；
+3. start、continue、stop、timeout、sidecar/Electron 重启后的语义与错误结构尚未被稳定定义；
+4. Computer Use 看到的前端 turn 与后门内部 session/trace 缺少统一 correlation id；
+5. Diagnostic 与真实 Pure Blackbox 没有清晰分线，容易把带答案的调试成功误报为产品能力。
 
-8-1-1 先修正这些事实基线，不引入 Teacher 自动返修和知识训练。
+8-1-1 只解决“Codex 如何可靠接入和观察 DEF”，不提前建设 Harness 迭代算法。
 
 ## 目标
 
-1. 建立版本化 `DefAgentContract`；
-2. 从真实权限和 provider-visible tools 生成 `DefCapabilityManifest`；
-3. 建立每 turn 重算的 `WorkbenchTurnState`；
-4. 明确 Agent Contract、skills、tool schema/result 和动态 state 的单一职责；
-5. 让 Pure Blackbox 的 provider-visible user text 与用户原文完全一致；
-6. 为 8-1-2 预留稳定的版本/hash 和 turn correlation 字段。
+1. 定义 `DefCodexInteropProtocol v1`；
+2. 保留并修正真实 Workbench 可见链路；
+3. 区分 Pure Blackbox 与 Diagnostic；
+4. 统一 run/session/turn/UI correlation；
+5. 提供发起、继续、观察、停止和状态读取的最小能力；
+6. 让外部 Codex/Computer Use 无需理解 Electron/sidecar 内部实现即可完成一次调测；
+7. 将后门限制在本地开发环境，避免演化为生产远程控制接口。
 
-## Runtime Harness 结构
+## 协议角色
 
 ```text
-DefRuntimeHarness
-  ├─ Agent Contract          稳定身份与职责
-  ├─ Capability Manifest     真实能力与权限
-  ├─ WorkbenchTurnState      当前现场与 hard gate
-  ├─ Skill Bundle            程序知识
-  ├─ Tool Schema / Result    工具局部合同与下一动作
-  └─ Response Policy         最终表达边界
+Codex Teacher Client
+  ├─ Repository tools      读取与返修代码
+  ├─ Computer Use          观察真实桌面 UI
+  └─ DEF interop client    调用后门、订阅事件、读取状态
+
+Electron bridge
+  ├─ 启动/发现 DEF sidecar
+  ├─ 校验本地教师权限
+  ├─ 关联 testRunId/sessionId/turnId
+  └─ 转发 prompt、events、transcript、state
+
+def-opencode
+  └─ 作为普通 Workbench Agent 执行真实 turn
 ```
 
-它必须是可版本化组合，而不是把所有内容拼成一段 system prompt。
+## 第一部分：Handshake 与能力发现
 
-## 第一部分：Agent Contract
-
-`DefAgentContract` 只描述稳定事实：
-
-- agent id、host、任务使命；
-- 三类工具边界；
-- 能否读取当前轴、查询知识、建立草稿、校验、申请应用；
-- 不可直接覆盖 checkout、不可绕过 approval/use；
-- 回复语言以及事实、社区建议、草稿、已应用状态的基本区分。
-
-示意：
+协议必须提供只读 handshake/status，至少返回：
 
 ```json
 {
-  "schemaVersion": 1,
-  "agent": "def-workbench",
-  "host": "workbench",
-  "mission": "帮助用户理解、规划、审查并调整当前 DEF 战斗方案",
-  "toolFamilies": ["def-node-code", "def-node-crud", "def-data-resource"],
-  "canArrangeTimeline": true,
-  "requiresReviewBeforeApply": true,
-  "responseLanguage": "zh-CN",
-  "contractVersion": "..."
+  "protocol": "def-codex-interop",
+  "protocolVersion": 1,
+  "developmentOnly": true,
+  "bridge": { "ready": true, "version": "..." },
+  "agent": { "ready": true, "version": "..." },
+  "workbench": { "snapshotAvailable": true, "uiConnected": true },
+  "capabilities": [
+    "turn.start",
+    "turn.continue",
+    "turn.stop",
+    "events.subscribe",
+    "transcript.read",
+    "state.read",
+    "ui-events.subscribe"
+  ]
 }
 ```
 
-Agent Contract 不包含当前角色、checkout、工具参数教程、完整操作步骤或 YZ 正文。变化必须产生新版本/hash。
+Codex 应能在不发送测试消息的情况下判断缺少的是 Electron bridge、DEF sidecar、Workbench snapshot 还是 UI consumer。
 
-## 第二部分：Capability Manifest
+## 第二部分：统一标识
 
-`DefCapabilityManifest` 必须由真实 host profile、permission 和 provider-visible tool allowlist 生成，不能由 prompt 手写推测：
+协议至少使用：
 
-```json
-{
-  "schemaVersion": 1,
-  "host": "workbench",
-  "agent": "def-workbench",
-  "allowedFamilies": ["def-node-code", "def-node-crud", "def-data-resource"],
-  "allowedTools": [],
-  "deniedCapabilities": [],
-  "knowledgeIndexVersion": null,
-  "generatedAt": "..."
-}
-```
+- `testRunId`：一次完整教师联调；
+- `scenarioId`：可选，指向后续 Harness scenario；
+- `sessionId`：DEF/OpenCode 会话；
+- `turnId`：服务端稳定 turn id；
+- `clientTurnId`：调用端幂等与 UI 关联 id；
+- `uiEventId`：真实前端消费事件；
+- `traceCursor/seq`：事件断线续读位置。
 
-要求：
+所有 HTTP/SSE/文件证据均能通过这些 id 关联，不能继续依赖时间戳猜测某个 UI turn 对应哪次后门调用。
 
-- Workbench 与 AI CLI 分别生成 manifest；
-- manifest 与 provider 实际可见 tools 一致；
-- legacy/迁移期近似工具不能只靠 prompt 要求“不使用”，必须在 allowlist/permission 层明确；
-- manifest version/hash 进入 turn metadata；
-- manifest 是事实输出，不允许模型修改。
+## 第三部分：Pure Blackbox 与 Diagnostic
 
-## 第三部分：WorkbenchTurnState
+| 模式 | 用途 | provider-visible user text | 调试注入 |
+| --- | --- | --- | --- |
+| `pure-blackbox` | 证明真实产品能力 | 与 `rawUserText` 完全一致 | 禁止 |
+| `diagnostic` | 定位工具、状态或流程问题 | 完整记录最终文本 | 允许、显式声明 |
 
-建立统一的动态状态对象，至少表达：
+Pure Blackbox 要求：
 
-- selected operators；
-- axis/timeline id；
-- current checkout node/revision；
-- bound workspace node/revision/phase；
-- pending draft/approval；
-- knowledge/strategy context version；
-- checkout-changed 等 gate 与唯一 next action；
-- schemaVersion、updatedAt 和来源。
+- 移除 `buildWorkbenchTestPrompt` 对 user text 的工具/流程包装；
+- host、agent、Workbench context 通过独立字段/source 传递；
+- 继续走 `prompt → ui-events → MainWorkbenchAiPanel`；
+- `rawUserText` 和 `providerVisibleUserText` 同时记录并相等；
+- 不允许测试编号、预期工具、验收说明混入用户话术。
 
-```json
-{
-  "schemaVersion": 1,
-  "selectedOperators": [],
-  "checkout": { "nodeId": "...", "revision": 12 },
-  "workspace": { "boundNodeId": "...", "phase": "checkout-changed" },
-  "gate": {
-    "code": "checkout-rebind-required",
-    "nextAction": { "tool": "def_node_bind", "args": { "nodeId": "" } }
-  },
-  "updatedAt": "..."
-}
-```
+Diagnostic 要求：
 
-TurnState 通过独立 system/context source 注入，不伪装成 user message，不重复完整工作流。checkout、revision、CAS 和 gate 继续由工具代码硬拒绝兜底。
+- 记录原始文本、注入内容、原因和最终 provider-visible messages；
+- 显式标记 `ingressMode=diagnostic`；
+- 不得在报告中冒充 Pure Blackbox 成功；
+- mutation 默认停在 diff，除非测试环境明确授权。
 
-## 第四部分：职责去重
+## 第四部分：最小命令面
 
-| 载体 | 只负责 |
+协议语义至少覆盖：
+
+| 能力 | 作用 |
 | --- | --- |
-| Agent Contract | 稳定身份、能力边界和回复原则 |
-| `timeline-workbench` | 排轴草稿、validate/diff、approval/use 与恢复流程 |
-| `game-knowledge` | 术语、知识查询、冲突与交接策略 |
-| Tool schema/result | 当前工具前置条件、参数、错误码和下一允许动作 |
-| WorkbenchTurnState | 当前 turn 的动态事实与 hard gate |
-| User message | 用户原始表达 |
+| `turn.start` | 创建 Workbench session 并发送首个 turn |
+| `turn.continue` | 在同一 session 发送自然后续 |
+| `turn.stop` | 停止进行中的生成/工具循环 |
+| `events.subscribe` | 从 seq/cursor 订阅 Agent 事件 |
+| `transcript.read` | 读取 provider-visible transcript |
+| `state.read` | 读取当前 Workbench snapshot/checkout/revision 摘要 |
+| `ui-events.subscribe` | 确认真实前端已消费 prompt/turn |
 
-现有重复规则需要按上表收敛。高频且必须遵守的安全性质应优先下沉到 runtime/tool，不继续堆叠 prompt。
+具体 REST 路径可以复用现有接口或在 tasks 中整理，但外部 Codex 只依赖协议语义，不依赖 Electron 内部函数名。
 
-## 第五部分：Pure Blackbox
+## 第五部分：事件与错误合同
 
-现有 Workbench 测试入口应保留真实可见链路：
+事件至少区分：
 
-```text
-prompt → ui-events → MainWorkbenchAiPanel
-```
+- accepted / session-created；
+- response-first-token；
+- tool-start / tool-result / tool-error；
+- permission/approval waiting；
+- completed / stopped / timeout / max-step / provider-error；
+- ui-prompt-consumed / ui-rendered；
+- snapshot-unavailable / checkout-changed。
 
-但 Pure Blackbox 必须满足：
+错误返回必须结构化包含：
 
-- `rawUserText === providerVisibleUserText`；
-- 不追加 native tools、legacy REST、fork、validate/diff/approval 等教程；
-- host、agent、manifest 和 TurnState 通过独立字段/source 传递；
-- 记录 session id、client turn id、ingress mode 和基础版本；
-- 测试话术继续遵循 `docs/testing/def-agent-blackbox.md`；
-- 如果需要调试注入，只能进入 8-1-2 定义的 Diagnostic 通道，不得污染 Pure Blackbox。
+- stable error code；
+- retryable；
+- failed component；
+- run/session/turn ids；
+- 建议的唯一恢复动作（若存在）；
+- 原始内部错误引用，不把敏感堆栈直接暴露给 UI。
 
-## 基础版本描述
+## 第六部分：Computer Use 关联
 
-本阶段建立最小 `DefHarnessDescriptor`：
+本阶段不在 DEF 内实现 Computer Use tool；外部高级 Codex 使用现有 Computer Use 能力。协议需要确保：
 
-```json
-{
-  "schemaVersion": 1,
-  "contractVersion": "...",
-  "manifestHash": "...",
-  "turnStateSchemaVersion": 1,
-  "skillVersions": {},
-  "toolRegistryVersion": "...",
-  "knowledgeIndexVersion": null,
-  "codeCommit": "..."
-}
-```
+- testRunId/clientTurnId 能在 UI event 或可观察 DOM 属性中关联；
+- Codex 能判断消息已经进入真实 MainWorkbenchAiPanel；
+- UI 显示 ready/streaming/waiting/complete/error 的状态可与事件流核对；
+- Computer Use 截图/观察记录能够附加同一 testRunId；
+- UI 不可见但 API 成功时，协议必须报告为联调链路不完整。
 
-8-1-1 不要求完整 trace bundle，只要求每 turn 可以关联这一基础描述，为 8-1-2 的观察与回放提供稳定键。
+## 第七部分：本地安全
+
+- 只在 development/test profile 启用；
+- 仅 bind localhost；
+- 使用临时 token 或等价的本地授权；
+- release 构建不得启用教师 mutation；
+- 默认使用隔离 session/Work Node；
+- 不提供任意文件读取、终端或跳过 permission 的后门；
+- 协议调用写入 append-only audit；
+- 不主动关闭或重启已有 `electron:dev`，除非修改 Electron bridge 或发生明确阻塞。
 
 ## 验收标准
 
-- [ ] `DefAgentContract`、`DefCapabilityManifest`、`WorkbenchTurnState` 均有 schema、版本/hash 和单一来源。
-- [ ] Workbench/AI CLI manifest 分离，且与 provider-visible tools 完全一致。
-- [ ] checkout/revision/gate 每 turn 重新计算，工具硬门继续生效。
-- [ ] Agent Contract、skills、tool schema 和动态 state 不再重复承载同一套完整教程。
-- [ ] Pure Blackbox 的 raw/provider-visible user text 字节级一致。
-- [ ] Pure Blackbox 仍能通过 UI event 驱动真实 MainWorkbenchAiPanel。
-- [ ] 至少覆盖只读、歧义、预览、应用、checkout 切换五类普通话术，记录真实工具与状态结果。
-- [ ] 每个 turn 能关联 HarnessDescriptor、session 和 client turn id。
-- [ ] 现有 permission、approval/use、CAS、host/session isolation 不退化。
+- [ ] Codex 可通过 handshake 判断 bridge、sidecar、Workbench snapshot 和 UI consumer 状态。
+- [ ] start、continue、stop、events、transcript、state、ui-events 具有稳定协议语义。
+- [ ] testRunId/sessionId/turnId/clientTurnId 能关联一次完整调测。
+- [ ] Pure Blackbox 的 raw/provider-visible user text 完全一致。
+- [ ] Diagnostic 注入可审计，且不会被误报为真实黑盒结果。
+- [ ] 一个普通只读 turn 能从后门进入真实 MainWorkbenchAiPanel，并被 Codex 同时从 UI 和事件流观察。
+- [ ] 一个 mutation preview turn 能完成草稿/validation/diff，但不会未经批准 use。
+- [ ] 断线后可以从 seq/cursor 恢复事件读取，不重复执行 turn。
+- [ ] snapshot 缺失、sidecar 未就绪、timeout、stop 和 provider error 有稳定错误码。
+- [ ] 非开发/release 环境无法调用教师 mutation 能力。
 
 ## 明确不做
 
-- 不建立完整 Teacher trace/replay；
-- 不接入 Computer Use 证据；
-- 不生成 HarnessProposal；
-- 不实现 Knowledge Runtime；
-- 不自动修改 prompt/skills；
+- 不建立 replay 和 hidden regression；
+- 不建立 HarnessProposal/Version；
+- 不实施 Codex 自动返修；
+- 不接入 YZ/Knowledge Runtime；
 - 不创建 tasks 或提前进入 8-1-2。
 
 ## 完成定义
 
-当普通用户原话可以在不携带测试教程的情况下进入真实 Workbench Agent，并且该 turn 使用的身份、能力、状态和 Harness 版本都可被准确导出时，8-1-1 完成。
+当高级 Codex 能依赖一份稳定协议，而不是临时脚本或内部实现知识，完成“发现环境 → 发起/继续 turn → 观察 UI/事件/状态 → 停止或收尾”的真实 DEF 联调时，8-1-1 完成。

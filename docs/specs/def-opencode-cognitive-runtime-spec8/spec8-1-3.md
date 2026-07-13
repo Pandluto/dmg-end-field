@@ -1,4 +1,4 @@
-# Spec 8-1-3：最小知识入口与训练就绪闭环
+# Spec 8-1-3：Codex 协议联调与初版验证
 
 ## 状态
 
@@ -6,215 +6,171 @@
 
 ## 一句话定调
 
-**接入少量可追溯游戏知识，建立失败归因、Harness 候选和版本记录，并用一次真实的 Codex 返修与独立回归证明 DEF 已经具备开始受控训练的条件。**
+**由高级 Codex 真实使用联调协议和 Harness 框架，结合 Computer Use 完成一次 DEF 失败诊断、最小返修、独立回归与提交，验证可训练基建初版成立。**
 
 ## 前置条件
 
-- Runtime Harness 和 Pure Blackbox 已稳定；
-- Turn Trace Bundle、Computer Use、Scenario Replay 与独立 verifier 已接通；
-- FAIL_TO_PASS、PASS_TO_PASS 和 safety invariants 已能执行；
-- Codex 教师修改仓库与 verifier/hidden cases 保持隔离。
+- `DefCodexInteropProtocol v1` 已可稳定调用；
+- Pure Blackbox 与 Diagnostic 已严格分线；
+- Turn Trace Bundle、Scenario、Replay、Verifier、Regression 已可运行；
+- HarnessProposal/Version/rollback 记录已建立；
+- hidden cases、安全定义和原始 trace 对返修 Codex 保持只读或不可见。
 
 ## 目标
 
-1. 在 `def-data-resource` 下建立最小 Knowledge Runtime；
-2. 用极少量受审阅 YZ/游戏知识证明 provenance → claim → query → evidence；
-3. 让知识建议可以与当前 Workbench 状态和官方 resource 核对后生成草稿；
-4. 建立首版 failure taxonomy、`HarnessProposal` 和 `HarnessVersion`；
-5. 选择一个真实失败完成 Codex 返修、重放、回归、审阅和提交；
-6. 用端到端证据判定系统是否达到“training ready”。
+1. 形成 Codex Teacher 的标准联调 runbook；
+2. 让 Codex 同时使用 Computer Use、interop protocol、trace 和仓库工具；
+3. 从真实 Pure Blackbox case 选择并复现一个 DEF failure；
+4. 基于证据进行责任层归因，而不是默认修改 prompt；
+5. 实现一个最小、可解释、可回滚返修；
+6. 通过目标、相邻、安全和 UI 回归；
+7. 产出首份正式 Harness 初版验证记录；
+8. 确认系统达到进入 Spec 8-2 受控训练的条件。
 
-## 第一部分：最小 Knowledge Runtime
+## 总体流程
 
-知识查询继续归入现有 `def-data-resource`，不新增第四类工具：
-
-- `def_knowledge_search`；
-- `def_knowledge_get`；
-- `def_knowledge_evidence`；
-- `def_knowledge_status`。
-
-工具共同约束：
-
-- 不接受任意文件路径；
-- 不返回整份 `YZ.md`；
-- 输出有界；
-- 返回 knowledge index version；
-- 记录 query、过滤条件、命中理由和 evidence；
-- 不可越过 official resource 和当前 Workbench 事实；
-- 全部调用进入 Turn Trace Bundle。
-
-## 第二部分：最小知识模型
-
-本阶段只要求以下对象：
-
-| 对象 | 最小职责 |
-| --- | --- |
-| Source | URL/视频 id、日期、版本、转录方法、hash |
-| Claim | 条件、实体、结论、source span、review/conflict 状态 |
-| Terminology | 玩家别名、正式名、ASR 候选 |
-| Operator/Decision Card | 角色定位、方案取舍和适用条件 |
-| Rotation | 动作、前置状态、分支、恢复与证据引用 |
-
-原始 source/转录不可被摘要覆盖；卡片和 rotation 是可重建派生资产。高风险数值必须说明来源和核验状态。
-
-## 第三部分：样本边界
-
-只选择足以证明架构的极小样本，例如：
-
-- 两个有明确来源和版本的 YZ 视频/攻略；
-- 一组玩家别名；
-- 两张存在明确取舍的 Decision Card；
-- 一条经过人工审阅、能够映射到 Workbench 草稿的 Rotation；
-- 至少一个来源冲突或版本过期样本。
-
-样本数量以验证查询、证据、冲突和草稿闭环为准，不以覆盖率为目标。批量导入和完整角色库属于 Spec 8-2。
-
-## 第四部分：知识到 Workbench 草稿
-
-```text
-用户自然语言
-→ terminology normalize
-→ knowledge search/get/evidence
-→ 读取当前 WorkbenchTurnState
-→ 使用 official resource 核对角色、技能、数值和可用按钮
-→ 映射为隔离 Work Node 草稿
-→ validation / semantic diff
-→ 用户审批前停止
+```mermaid
+flowchart LR
+  S["选择真实场景"] --> CU["Computer Use 建立并观察 UI"]
+  CU --> PB["Pure Blackbox 复现"]
+  PB --> T["协议收集 trace/state/events"]
+  T --> F["Codex 证据归因"]
+  F --> P["最小返修"]
+  P --> R["Scenario Replay"]
+  R --> V["Hidden + Safety + UI Regression"]
+  V -->|"通过"| C["人工审阅与 Commit"]
+  V -->|"退化"| B["拒绝或继续返修"]
 ```
 
-不能根据攻略文本猜测 buttonId、slot 或实时配置；条件不足时必须展示缺失信息或替代路线。社区观点与当前事实冲突时，以实时/官方 resource 为准，并保留来源说明。
+## 第一部分：Codex Teacher Runbook
 
-## 第五部分：训练信号与用户 delta
+标准流程必须分为四个互不混淆的阶段：
 
-训练信号按可靠程度使用：
+### 1. 观察
 
-1. typed validation；
-2. semantic diff 和 checkout/revision 结果；
-3. 用户是否批准应用；
-4. 用户应用前后的编辑 delta；
-5. 相似 scenario replay；
-6. 用户文字反馈；
-7. Agent 自我评价。
+- 检查 handshake 与当前 HarnessVersion；
+- 通过 Computer Use 建立真实 Workbench 前置状态；
+- 使用 Pure Blackbox 发送普通用户原文；
+- 保存 UI、events、transcript、state、validation/diff；
+- 在修改任何代码前冻结 baseline trace。
 
-系统必须关联：
+### 2. 诊断
 
-```text
-知识命中与 evidence
-→ Agent 生成的 draft
-→ 用户编辑 delta
-→ 最终 applied node
-```
+- 判断失败属于 protocol、UI、self-model、state、routing、tool、workflow 或 expression；
+- 必要时使用 Diagnostic 通道缩小问题，但不把其结果当真实能力证明；
+- 引用代表 trace/event/state/code 证据；
+- 形成单一 primary cause 和可能的 contributing causes。
 
-本阶段只记录和用于一次人工审阅的返修，不自动形成全局 skill、知识或个人偏好。
+### 3. 返修
 
-## 第六部分：Failure Taxonomy
+- 创建一个 HarnessProposal；
+- 只修改与 primary cause 对应的最小责任层；
+- 保留代码/Harness diff；
+- 不修改 hidden cases、verifier、安全定义和 baseline trace；
+- 修改 Electron bridge 时按规则重启，已有常驻进程不因无关修改被主动重启。
 
-首版至少包含：
+### 4. 验证
 
-| 类别 | 示例 | 责任层候选 |
-| --- | --- | --- |
-| self-model | 否认自己能排轴 | Agent Contract |
-| intent-routing | 解释请求误进入写入 | routing/skill |
-| knowledge-recall | 不识别玩家别名 | terminology/search |
-| evidence | 将旧视频阈值当实时事实 | knowledge policy |
-| state-staleness | checkout 变化后操作旧 node | TurnState/hard gate |
-| tool-selection | 选择错误工具家族 | mediation/tool description |
-| parameter-grounding | 猜 buttonId/slot | resource-first procedure |
-| workflow-omission | 未 validate/diff 就称完成 | deterministic workflow |
-| ui-observability | 内部成功但 UI 不可见 | bridge/frontend |
-| expression | 风格掩盖不确定性 | response policy |
+- replay 原 FAIL_TO_PASS；
+- 运行相邻 PASS_TO_PASS；
+- 运行 permission/approval/checkout 等 safety invariants；
+- 再用 Computer Use 走真实 UI；
+- 人工审阅证据和代码 diff 后才 commit 新 HarnessVersion。
 
-failure label 是可修订判断，必须引用代表 trace，不能覆盖原始证据。
+## 第二部分：首轮场景选择
 
-## 第七部分：HarnessProposal
+首轮必须选择真实、可复现、影响明确的 DEF 问题，优先级：
 
-一个候选只处理一个可归因弱点，至少包含：
+1. Pure Blackbox 与真实 UI 行为不一致；
+2. Agent Contract/self-model 或普通语言路由错误；
+3. checkout/state 恢复错误；
+4. 工具选择或 validate/diff 工作流遗漏；
+5. 其他已经有明确 verifier 的问题。
 
-- failure cluster 与代表 trace ids；
-- 修改对象和基线 HarnessVersion；
-- 修改前后 diff；
-- 目标 FAIL_TO_PASS；
-- 相邻 PASS_TO_PASS 与安全风险；
-- replay、hidden regression、UI 结果；
-- reviewer、rollback target 与最终处理状态。
+不选择：
 
-拒绝：
+- 需要大规模 YZ 知识才能判断的问题；
+- 只有审美偏好、没有明确成功条件的问题；
+- 为演示闭环而人为制造并写死答案的问题；
+- 必须同时重构多个子系统的问题。
 
-- 单次偶发失败直接形成长期规则；
-- 无法归因的整体 system prompt 重写；
-- 通过修改 verifier 或降低成功标准提高通过率；
-- 将未经核验的模型总结发布为知识事实。
+## 第三部分：Computer Use 与协议联合证据
 
-## 第八部分：HarnessVersion
+同一次 testRunId 至少关联：
 
-稳定版本至少关联：
+- Computer Use 前置状态和关键截图；
+- Pure Blackbox raw/provider-visible text；
+- session/turn/ui event ids；
+- tool trace、Workbench state、validation/diff；
+- 用户可见最终回复和 UI 状态；
+- baseline 与 repaired HarnessDescriptor；
+- replay/verifier/regression 结果；
+- repository diff 与 commit。
 
-- code commit；
-- Agent Contract version；
-- skill bundle version；
-- tool mediation/allowlist version；
-- TurnState serializer version；
-- knowledge index version；
-- scenario/verifier suite version；
-- reviewer、发布时间和上一稳定版本。
+只有 API 成功但 UI 不可见，或 UI 看似成功但 state/validation 不成立，都不能判定通过。
 
-Spec 8-1-3 可用本地文件、SQLite 与 Git 组合实现，不建设完整管理后台，不要求自动灰度。
+## 第四部分：独立性检查
 
-## 第九部分：训练就绪证明
+初版验证必须主动证明：
 
-必须选择一个真实、非人为写死的 DEF failure 完成：
+- 返修 Codex 未读取 hidden case 完整答案；
+- verifier 和 safety invariants 在返修前后无未授权变化；
+- Diagnostic 提示没有进入最终 Pure Blackbox replay；
+- regression 由独立命令/进程运行，而不是由 Codex 自述结果；
+- baseline 与 repaired 运行使用可比较 fixture；
+- 人工 reviewer 能从 evidence bundle 复核通过原因。
 
-```text
-Pure Blackbox 复现失败
-→ Computer Use + trace 收集证据
-→ failure taxonomy 归因
-→ Codex 形成并实现最小 HarnessProposal
-→ 重放目标 FAIL_TO_PASS
-→ 执行相邻 PASS_TO_PASS 和 safety invariants
-→ 人工审阅代码/知识/行为 diff
-→ 提交新 HarnessVersion
-→ 再次通过真实 UI 验证
-```
+## 第五部分：验证报告
 
-如果修复只能在 Diagnostic 提示下成功，或需要修改 hidden case/成功标准，不能判定 training ready。
+产出一份首版验证记录，至少包括：
+
+- scenario/failure 标题；
+- baseline 环境、HarnessVersion 和复现步骤；
+- UI/trace/state 证据；
+- failure classification 与根因；
+- HarnessProposal 和代码 diff 摘要；
+- FAIL_TO_PASS、PASS_TO_PASS、safety、UI 结果；
+- 退化、限制和未覆盖范围；
+- reviewer 结论；
+- 新 HarnessVersion、commit 和 rollback target；
+- 是否允许进入 Spec 8-2。
+
+## 进入 Spec 8-2 的 Gate
+
+只有同时满足以下条件，Spec 8-1 才算完成：
+
+- Codex 联调协议无需临时内部脚本即可工作；
+- Pure Blackbox 不携带测试答案；
+- trace/replay/verifier 证据完整；
+- 一个真实 failure 已被最小返修并通过独立回归；
+- safety invariants 无退化；
+- Computer Use 证明真实 UI 闭环；
+- 新版本可追溯、可回滚；
+- 已知限制被明确记录，而不是以“初版”掩盖。
 
 ## 验收标准
 
-### Knowledge Runtime
-
-- [ ] 四个只读知识入口已归入 `def-data-resource` 并输出 index version。
-- [ ] Source、Claim、Terminology、Card、Rotation 均保留 provenance/review/conflict。
-- [ ] 受审阅小样本能完成 local evidence 与跨卡片查询。
-- [ ] 版本/来源冲突不会被摘要静默覆盖。
-- [ ] 知识建议能与 official resource 和 WorkbenchTurnState 核对。
-
-### 草稿闭环
-
-- [ ] 至少一条 Rotation 可生成隔离 Work Node 草稿并通过 validation/diff。
-- [ ] 映射过程不猜测 buttonId、slot 或实时数值。
-- [ ] 未经用户审批不会 use。
-- [ ] Agent draft、用户 delta、最终 applied node 与知识 evidence 可以关联。
-
-### 返修闭环
-
-- [ ] 一个真实失败形成带证据的 failure classification。
-- [ ] Codex 实现的候选是单点、可解释、可回滚修改。
-- [ ] 目标 FAIL_TO_PASS、相邻 PASS_TO_PASS 和 safety invariants 全部运行。
-- [ ] hidden/verifier 未被返修 Codex 修改或泄露。
-- [ ] 返修经人工审阅、commit 和真实 UI 复验。
-- [ ] 新 HarnessVersion 可完整追溯并能回滚上一版本。
+- [ ] Codex 按标准 runbook 完成观察、诊断、返修、验证四阶段。
+- [ ] baseline failure 来自 Pure Blackbox 与真实 UI，不依赖 Diagnostic 提示。
+- [ ] 根因引用 protocol/trace/state/code 证据，并定位到单一主要责任层。
+- [ ] HarnessProposal 是最小、可解释、可回滚修改。
+- [ ] 原 FAIL_TO_PASS 通过，相关 PASS_TO_PASS 与 safety invariants 无退化。
+- [ ] Computer Use 复验与内部 state/validation 结论一致。
+- [ ] hidden cases、verifier、安全定义和 baseline trace 未被返修流程修改。
+- [ ] 人工 reviewer 可以复核证据并批准或拒绝。
+- [ ] 新 HarnessVersion 已提交并包含 rollback target。
+- [ ] 完成首版验证报告，明确是否允许进入 Spec 8-2。
 
 ## 明确不做
 
-- 不批量迁移全部 YZ/游戏资料；
-- 不自动从 trace 修改或发布 skills；
-- 不自动生成全局用户偏好；
-- 不训练模型权重；
-- 不完成 Voice Profile 或主播角色模仿；
-- 不开发 Harness Evolution UI；
-- 不自动灰度到生产用户；
-- 不提前展开 Spec 8-2。
+- 不接入或训练 YZ/Knowledge Runtime；
+- 不自动生成下一轮返修任务；
+- 不自动发布 HarnessProposal；
+- 不在线训练模型权重；
+- 不建设 Harness Evolution 产品 UI；
+- 不用一次成功宣称持续自进化已经完成；
+- 不提前实现 Spec 8-2 的知识、skills 和风格蒸馏。
 
 ## 完成定义
 
-当少量知识能够安全进入真实 DEF 工作流，且一个真实失败能经过“观察 → 归因 → Codex 返修 → 独立回归 → 人工发布”形成完整、可追溯、可回滚的证据链时，8-1-3 完成，整个 Spec 8-1 才被判定为 training ready。
+当高级 Codex 能稳定使用正式协议和 Harness 框架，在真实 UI 上修复一个实际 DEF failure，并由独立回归、人工审阅和可回滚提交共同证明结果时，8-1-3 完成，Spec 8-1 的可训练基建初版成立。
