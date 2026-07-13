@@ -143,7 +143,27 @@ function buildEmbeddedWorkbenchProject() {
 function buildEmbeddedBrandingScript(profile, session) {
   const title = profile?.host === 'workbench' ? 'DEF · 排轴助手' : 'DEF · 数据助手';
   const mark = JSON.stringify(DEF_WORKBENCH_MARK_DATA_URL);
-  return `<link rel="icon" type="image/svg+xml" href="/def-workbench-mark.svg"/><script>window.__DEF_EMBEDDED_PROFILE__=${JSON.stringify(profile)};window.__DEF_NATIVE_SESSION__=${JSON.stringify(session)};try{localStorage.setItem("opencode.settings.dat:defaultServerUrl",location.origin)}catch{};(()=>{const mark=${mark};const apply=()=>{document.querySelectorAll('[data-slot="project-avatar-surface"]').forEach((element)=>{if(element.dataset.defWorkbenchMark||element.querySelector('img'))return;element.dataset.defWorkbenchMark='';element.textContent='';element.setAttribute('aria-label','DEF 工作台');element.style.backgroundImage='url("'+mark+'")';element.style.backgroundPosition='center';element.style.backgroundRepeat='no-repeat';element.style.backgroundSize='78%';element.style.backgroundColor='#fff';})};const watch=()=>{apply();new MutationObserver(apply).observe(document.documentElement,{childList:true,subtree:true})};document.readyState==='loading'?document.addEventListener('DOMContentLoaded',watch,{once:true}):watch();document.title=${JSON.stringify(title)};})();</script>`;
+  const embeddedInterop = '';
+  return `<link rel="icon" type="image/svg+xml" href="/def-workbench-mark.svg"/><script>window.__DEF_EMBEDDED_PROFILE__=${JSON.stringify(profile)};window.__DEF_NATIVE_SESSION__=${JSON.stringify(session)};try{localStorage.setItem("opencode.settings.dat:defaultServerUrl",location.origin)}catch{};(()=>{const mark=${mark};const apply=()=>{document.querySelectorAll('[data-slot="project-avatar-surface"]').forEach((element)=>{if(element.dataset.defWorkbenchMark||element.querySelector('img'))return;element.dataset.defWorkbenchMark='';element.textContent='';element.setAttribute('aria-label','DEF 工作台');element.style.backgroundImage='url("'+mark+'")';element.style.backgroundPosition='center';element.style.backgroundRepeat='no-repeat';element.style.backgroundSize='78%';element.style.backgroundColor='#fff';})};const watch=()=>{apply();new MutationObserver(apply).observe(document.documentElement,{childList:true,subtree:true})};document.readyState==='loading'?document.addEventListener('DOMContentLoaded',watch,{once:true}):watch();document.title=${JSON.stringify(title)};})();${embeddedInterop}</script>`;
+}
+
+function buildInteropUiBridgeScript(sessionID) {
+  return `(()=>{const sessionId=${JSON.stringify(sessionID)};const isLoopback=(origin)=>{try{const url=new URL(origin);return url.protocol==='http:'&&(url.hostname==='127.0.0.1'||url.hostname==='localhost')&&Boolean(url.port)}catch{return false}};const ready=(origin)=>window.parent?.postMessage({type:'def-opencode-interop-ready',protocolVersion:1,sessionId},origin);const awaitTurnRender=(request,replyOrigin)=>{const text=String(request.rawUserText||'').trim();if(!text)return;let done=false;let observer;let timeout;const finish=()=>{if(done)return;done=true;observer?.disconnect();clearTimeout(timeout);window.parent?.postMessage({type:'def-opencode-interop-rendered',protocolVersion:1,sessionId,turnId:request.turnId},replyOrigin)};const rendered=()=>Boolean(document.body?.innerText?.includes(text));if(rendered()){finish();return}observer=new MutationObserver(()=>{if(rendered())finish()});observer.observe(document.documentElement,{childList:true,subtree:true,characterData:true});timeout=setTimeout(()=>observer?.disconnect(),15000)};window.addEventListener('message',(event)=>{const request=event.data;if(event.source!==window.parent||!isLoopback(event.origin)||!request||request.protocolVersion!==1||request.sessionId!==sessionId)return;if(request.type==='def-opencode-interop-probe'){ready(event.origin);return}if(request.type!=='def-opencode-interop-await-render'||typeof request.turnId!=='string')return;awaitTurnRender(request,event.origin)})})();`;
+}
+
+function serveInteropUiBridgeScript(request, response, requestUrl) {
+  if (!['GET', 'HEAD'].includes(request.method || 'GET') || requestUrl.pathname !== '/def-interop-ui-bridge.js') return false;
+  const sessionID = String(requestUrl.searchParams.get('sessionID') || '');
+  const binding = sessionID ? findNativeSessionBinding(sessionID) : null;
+  if (!binding || binding.host !== 'workbench') {
+    response.writeHead(404, { 'Content-Type': 'application/javascript; charset=utf-8', 'Cache-Control': 'no-store' });
+    response.end();
+    return true;
+  }
+  const body = Buffer.from(buildInteropUiBridgeScript(sessionID), 'utf8');
+  response.writeHead(200, { 'Content-Type': 'application/javascript; charset=utf-8', 'Content-Length': body.length, 'Cache-Control': 'no-store' });
+  response.end(request.method === 'HEAD' ? undefined : body);
+  return true;
 }
 
 function writeSse(response, event) {
@@ -415,6 +435,11 @@ async function proxyOpenCodeRequest(request, response) {
   const runtime = runtimeSummary(readConfig().deepseek);
   if (!runtime.running || !runtime.serverUrl) return Promise.resolve(false);
   const target = new URL(request.url || '/', runtime.serverUrl);
+  const nativePageMatch = /^\/(?:server\/[^/]+\/)?session\/([^/]+)$/.exec(target.pathname);
+  const nativePageBinding = request.method === 'GET' && nativePageMatch
+    ? findNativeSessionBinding(decodeURIComponent(nativePageMatch[1]))
+    : null;
+  const embedInteropBridge = nativePageBinding?.host === 'workbench';
   await rejectPendingQuestionsForSessionAbort(runtime, request, target);
   const sessionMessageMatch = /^\/session\/([^/]+)\/message$/.exec(target.pathname);
   let rewrittenBody = null;
@@ -444,6 +469,7 @@ async function proxyOpenCodeRequest(request, response) {
       headers['x-def-host'] = binding.host;
       headers['x-def-agent'] = binding.agent;
     }
+    if (embedInteropBridge) headers['accept-encoding'] = 'identity';
     const upstream = http.request({
       hostname: target.hostname,
       port: target.port,
@@ -451,6 +477,21 @@ async function proxyOpenCodeRequest(request, response) {
       method: request.method,
       headers,
     }, (upstreamResponse) => {
+      const contentType = String(upstreamResponse.headers['content-type'] || '');
+      if (embedInteropBridge && contentType.includes('text/html')) {
+        const chunks = [];
+        upstreamResponse.on('data', (chunk) => chunks.push(chunk));
+        upstreamResponse.on('end', () => {
+          const bridge = `<script src="/def-interop-ui-bridge.js?sessionID=${encodeURIComponent(nativePageMatch[1])}"></script>`;
+          const body = Buffer.from(Buffer.concat(chunks).toString('utf8').replace('</head>', `${bridge}</head>`), 'utf8');
+          const responseHeaders = { ...upstreamResponse.headers, 'access-control-allow-origin': '*', 'content-length': body.length };
+          delete responseHeaders['content-encoding'];
+          response.writeHead(upstreamResponse.statusCode || 502, responseHeaders);
+          response.end(body);
+          resolve(true);
+        });
+        return;
+      }
       response.writeHead(upstreamResponse.statusCode || 502, {
         ...upstreamResponse.headers,
         'access-control-allow-origin': '*',
@@ -1268,6 +1309,7 @@ const server = http.createServer(async (request, response) => {
       return;
     }
 
+    if (serveInteropUiBridgeScript(request, response, requestUrl)) return;
     if (serveOpenCodeUi(request, response, requestUrl)) return;
     if (await proxyOpenCodeRequest(request, response)) return;
 

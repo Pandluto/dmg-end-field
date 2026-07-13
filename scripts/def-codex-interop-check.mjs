@@ -76,7 +76,8 @@ try {
   assert.equal(rejected.status, 409);
   assert.equal((await rejected.json()).error.code, 'ui-consumer-unavailable');
 
-  await fetch(`${base}/def-agent/interop/v1/ui/consumer`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ host: 'workbench', sessionId: 'native-a', consumerId: 'ui-a' }) });
+  const renderSecret = 'render-secret-a';
+  await fetch(`${base}/def-agent/interop/v1/ui/consumer`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ host: 'workbench', sessionId: 'native-a', consumerId: 'ui-a', renderSecret }) });
   const request = { rawUserText: '这个怎么样', clientTurnId: 'turn-a', ingressMode: 'pure-blackbox' };
   const first = await fetch(`${base}/def-agent/interop/v1/turns`, { method: 'POST', headers, body: JSON.stringify(request) });
   assert.equal(first.status, 202);
@@ -87,6 +88,22 @@ try {
   assert.equal(retry.idempotent, true);
   assert.equal(retry.turn.turnId, firstPayload.turn.turnId);
   assert.equal(promptCalls, 1);
+
+  const forbiddenRenderTarget = await fetch(`${base}/def-agent/interop/v1/ui/render-target`, {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ consumerId: 'ui-a', renderSecret: 'wrong', sessionId: 'native-a', turnId: firstPayload.turn.turnId }),
+  });
+  assert.equal(forbiddenRenderTarget.status, 403);
+  const renderTarget = await (await fetch(`${base}/def-agent/interop/v1/ui/render-target`, {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ consumerId: 'ui-a', renderSecret, sessionId: 'native-a', turnId: firstPayload.turn.turnId }),
+  })).json();
+  assert.equal(renderTarget.rawUserText, request.rawUserText);
+  const rendered = await fetch(`${base}/def-agent/interop/v1/ui/rendered`, {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ consumerId: 'ui-a', sessionId: 'native-a', turnId: firstPayload.turn.turnId, surface: 'native-iframe', target: 'user-message' }),
+  });
+  assert.equal(rendered.status, 200);
 
   const stoppedStart = await (await fetch(`${base}/def-agent/interop/v1/turns`, {
     method: 'POST', headers,

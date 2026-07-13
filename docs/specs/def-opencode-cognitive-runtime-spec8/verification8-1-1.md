@@ -270,3 +270,34 @@ iframe does not independently attest that a particular native message was painte
 is a protocol/UI-consumer semantics issue to repair in the current architecture, not a
 future Harness concern. Until then, `ui-rendered` is dispatch acknowledgement rather
 than sufficient visual proof; Computer Use remains the visual proof source.
+
+## 2026-07-13 — native iframe render-attestation investigation
+
+The immediate outer-consumer acknowledgement was removed from the active path. The
+consumer now has a scoped render secret, verifies it before reading the exact turn text,
+and closes its registration when AI mode closes; a close/reopen was observed to move
+`uiConsumerCount` from `1` to `0` and back to `1`. The protocol rejects unverified
+render-target reads and unverified `ui/rendered` acknowledgements in the focused check.
+
+The sidecar additionally injects a same-origin external bridge script into proxied native
+session HTML and waits for a matching text node before it would acknowledge rendering.
+The script was fetched from the real `17322` session route and its served JavaScript
+parsed successfully. However, repeated live Pure Blackbox runs still produced only
+`ui-prompt-consumed`, `response-first-token`, and `completed`; no matching
+`ui-rendered` event was received. The real desktop UI visibly rendered every tested
+prompt, including:
+
+- `你好，最终验证原生 UI 渲染事件。`
+  (`turnId=37ee5cab-2cbc-4f64-8c8d-2c13aa57e7b0`), and
+- `你好，确认 load 后的真实 UI 渲染事件。`
+  (`turnId=ff7117da-a86e-420a-8e12-ef1e97f10bf1`).
+
+Both were attached to `sessionId=ses_0a57a08d5ffe8uLlvzjVYBjSoi`; raw and
+provider-visible text were exactly equal. Computer Use visibly showed the real native
+messages and the current four-button canvas (弭弗/Q绝心, 陈千语/E见天河,
+洛茜/B血红之影, 黎风/A摧破), without a browser refresh.
+
+This is an unresolved current architecture defect in the iframe-to-parent attestation
+path, not a Harness item. `ui-rendered` must remain absent rather than be fabricated;
+Computer Use is the valid visual evidence until the cross-frame callback is made
+observable end-to-end.

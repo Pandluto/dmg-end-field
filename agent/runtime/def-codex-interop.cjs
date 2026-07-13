@@ -414,14 +414,30 @@ function createDefCodexInteropProtocol(options) {
       const body = await readBody(request);
       if (body?.host !== 'workbench' || typeof body?.sessionId !== 'string' || !body.sessionId.trim()) { reject(response, 400, createError('invalid-ui-consumer', 'A workbench sessionId is required.', 'ui-consumer')); return true; }
       const id = typeof body.consumerId === 'string' && body.consumerId ? body.consumerId : crypto.randomUUID();
-      const consumer = { id, host: 'workbench', sessionId: body.sessionId.trim(), directory: typeof body.directory === 'string' ? body.directory : '', updatedAt: Date.now() };
+      const renderSecret = typeof body.renderSecret === 'string' && body.renderSecret ? body.renderSecret : crypto.randomUUID();
+      const consumer = { id, host: 'workbench', sessionId: body.sessionId.trim(), directory: typeof body.directory === 'string' ? body.directory : '', renderSecret, updatedAt: Date.now() };
       consumers.set(id, consumer); emit('ui-session-opened', { sessionId: consumer.sessionId }, { uiConsumerId: id });
       json(response, 200, { ok: true, protocol: PROTOCOL, protocolVersion: PROTOCOL_VERSION, consumer }); return true;
     }
-    if (method === 'POST' && path === '/def-agent/interop/v1/ui/rendered') {
-      const body = await readBody(request); const turn = [...turnsByClient.values()].find((item) => item.turnId === body?.turnId && item.sessionId === body?.sessionId);
+    if (method === 'POST' && path === '/def-agent/interop/v1/ui/consumer/close') {
+      const body = await readBody(request); const consumer = consumers.get(body?.consumerId);
+      if (consumer && consumer.sessionId === body?.sessionId) consumers.delete(consumer.id);
+      json(response, 200, { ok: true, protocol: PROTOCOL, protocolVersion: PROTOCOL_VERSION }); return true;
+    }
+    if (method === 'POST' && path === '/def-agent/interop/v1/ui/render-target') {
+      const body = await readBody(request); const consumer = consumers.get(body?.consumerId);
+      if (!consumer || consumer.sessionId !== body?.sessionId || consumer.renderSecret !== body?.renderSecret) {
+        reject(response, 403, createError('ui-render-target-forbidden', 'The current workbench UI consumer could not be verified.', 'ui-consumer', { retryable: true, ids: { sessionId: typeof body?.sessionId === 'string' ? body.sessionId : '' }, nextAction: 'Reopen the Workbench AI mode and retry the turn.' })); return true;
+      }
+      const turn = [...turnsByClient.values()].find((item) => item.turnId === body?.turnId && item.sessionId === body?.sessionId);
       if (!turn) { reject(response, 404, createError('turn-not-found', 'Turn was not found.', 'ui-consumer')); return true; }
-      emit('ui-rendered', turn, { uiConsumerId: body.consumerId || null }); json(response, 200, { ok: true }); return true;
+      json(response, 200, { ok: true, protocol: PROTOCOL, protocolVersion: PROTOCOL_VERSION, sessionId: turn.sessionId, turnId: turn.turnId, rawUserText: turn.rawUserText }); return true;
+    }
+    if (method === 'POST' && path === '/def-agent/interop/v1/ui/rendered') {
+      const body = await readBody(request); const consumer = consumers.get(body?.consumerId); const turn = [...turnsByClient.values()].find((item) => item.turnId === body?.turnId && item.sessionId === body?.sessionId);
+      if (!consumer || consumer.sessionId !== body?.sessionId) { reject(response, 403, createError('ui-rendered-forbidden', 'The current workbench UI consumer could not be verified.', 'ui-consumer', { retryable: true, ids: { sessionId: typeof body?.sessionId === 'string' ? body.sessionId : '' }, nextAction: 'Reopen the Workbench AI mode and retry the turn.' })); return true; }
+      if (!turn) { reject(response, 404, createError('turn-not-found', 'Turn was not found.', 'ui-consumer')); return true; }
+      emit('ui-rendered', turn, { uiConsumerId: consumer.id, surface: body.surface === 'native-iframe' ? 'native-iframe' : 'unknown', target: body.target === 'user-message' ? 'user-message' : 'unknown' }); json(response, 200, { ok: true }); return true;
     }
     return false;
   }
