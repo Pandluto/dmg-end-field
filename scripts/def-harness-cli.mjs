@@ -21,6 +21,7 @@ function build(source) {
 function regression(id = 'manual-regression') {
   return { kind: harness.REGRESSION_SCHEMA, schemaVersion: 1, id, status: 'PASS', complete: true, failToPassPassed: true, passToPassPassed: true, safetyPassed: true };
 }
+function scenarioPath(id) { return path.resolve(process.cwd(), 'agent/harness/scenarios', `${id}.json`); }
 
 try {
   if (command === 'doctor') {
@@ -41,12 +42,17 @@ try {
     const loader = harness.createLoader(root);
     const resolved = loader.resolve(args[0] || 'stable');
     json({ ok: true, selector: resolved.selector, fallback: resolved.fallback, ref: resolved.ref });
+  } else if (command === 'run') {
+    const result = harness.runScenario({ runtimeRoot: root, scenarioFile: scenarioPath(args[0]), selector: option('--harness') || 'stable', snapshotAvailable: option('--snapshot') !== 'unavailable' });
+    json({ ok: result.status === 'PASS', run: result });
+  } else if (command === 'compare') {
+    json({ ok: true, comparison: harness.compareRuns(root, args[0], args[1]) });
   } else if (command === 'promote') {
     const [harnessId, version] = String(args[0] || '').split('@');
     json({ ok: true, decision: harness.promote(root, { harnessId, version }, regression(option('--decision') || 'manual'), option('--reviewer'), option('--note')) });
   } else if (command === 'rollback') {
     json({ ok: true, decision: harness.rollback(root, option('--reviewer'), option('--reason')) });
   } else {
-    fail(new Error('Usage: doctor | package build <sourceDir> | package validate <packageDir> | registry add <packageDir> --channel stable|candidate/<name> | registry list | resolve [selector] | promote <id@version> --decision <id> --reviewer <name> | rollback --reviewer <name>'));
+    fail(new Error('Usage: doctor | package build <sourceDir> | package validate <packageDir> | registry add <packageDir> --channel stable|candidate/<name> | registry list | resolve [selector] | run <scenarioId> --harness stable|candidate/<name> [--snapshot unavailable] | compare <baselineRun> <candidateRun> | promote <id@version> --decision <id> --reviewer <name> | rollback --reviewer <name>'));
   }
 } catch (error) { fail(error); }

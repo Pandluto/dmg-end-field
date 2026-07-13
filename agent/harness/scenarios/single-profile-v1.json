@@ -1,0 +1,8 @@
+{
+  "id": "single-profile-v1",
+  "version": 1,
+  "turns": [
+    { "userText": "当前使用的教学配置是什么？" }
+  ],
+  "expect": { "slot": "responsePolicy", "candidateContains": "candidate-v1", "baselineNotContains": "candidate-v1" }
+}

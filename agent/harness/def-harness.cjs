@@ -282,6 +282,66 @@ function traceRef({ runId, sessionId, turnId, clientTurnId, scenarioId, binding,
     events: compact(events).slice(0, 64), terminalState: terminalState || null, environment: compact(environment), createdAt: Date.now(),
   };
 }
+function loadScenario(filePath) {
+  const scenario = readJson(filePath);
+  if (!isObject(scenario) || typeof scenario.id !== 'string' || !Array.isArray(scenario.turns) || !scenario.turns.length) {
+    fail('HARNESS_SCENARIO_INVALID', 'Scenario needs an id and at least one user turn.', { component: 'scenario' });
+  }
+  for (const turn of scenario.turns) {
+    if (!isObject(turn) || typeof turn.userText !== 'string' || !turn.userText.trim()) fail('HARNESS_SCENARIO_INVALID', 'Scenario turns require ordinary user text.', { component: 'scenario' });
+    if (turn.userText.includes('这是测试') || /expected|tool name|validation criteria/i.test(turn.userText)) fail('HARNESS_SCENARIO_PROMPT_POLLUTION', 'Scenario user text contains test instructions.', { component: 'scenario' });
+  }
+  return scenario;
+}
+function createFixture(scenario) {
+  return Object.freeze({ fixtureId: `fixture-${crypto.randomUUID()}`, timelineId: `timeline-${crypto.randomUUID()}`, workNodeId: `node-${crypto.randomUUID()}`, createdAt: Date.now(), scenarioId: scenario.id });
+}
+function runScenario({ runtimeRoot, scenarioFile, selector = 'stable', snapshotAvailable = true }) {
+  const scenario = loadScenario(scenarioFile);
+  const fixture = createFixture(scenario);
+  const runId = `harness-run-${crypto.randomUUID()}`;
+  if (scenario.requiresSnapshot === true && !snapshotAvailable) {
+    const blocked = { runId, scenarioId: scenario.id, fixture, selector, status: 'BLOCKED_ENVIRONMENT', reason: 'snapshot-unavailable', createdAt: Date.now() };
+    writeAtomic(path.join(registryPaths(runtimeRoot).root, 'runs', runId, 'run.json'), blocked);
+    return blocked;
+  }
+  const loader = createLoader(runtimeRoot);
+  const resolved = loader.resolve(selector);
+  const sessionId = `scenario-session-${crypto.randomUUID()}`;
+  const binding = createSessionBinding({ sessionId, resolved });
+  const rule = scenario.expect || {};
+  const slot = typeof rule.slot === 'string' ? rule.slot : 'responsePolicy';
+  const slotText = (resolved.artifactView[slot] || []).map((entry) => entry.text).join('\n');
+  const candidateSelector = String(selector).startsWith('candidate/');
+  const requiredText = candidateSelector ? rule.candidateContains || rule.contains : rule.baselineContains || rule.contains;
+  const forbiddenText = candidateSelector ? rule.candidateNotContains || rule.notContains : rule.baselineNotContains || rule.notContains;
+  const match = typeof requiredText === 'string' ? slotText.includes(requiredText) : true;
+  const absent = typeof forbiddenText === 'string' ? !slotText.includes(forbiddenText) : true;
+  const turns = scenario.turns.map((turn, index) => ({
+    turnId: `scenario-turn-${crypto.randomUUID()}`,
+    clientTurnId: `scenario-client-${crypto.randomUUID()}`,
+    rawUserText: turn.userText,
+    providerVisibleUserText: turn.userText,
+    status: match && absent ? 'completed' : 'failed',
+    order: index + 1,
+  }));
+  const traces = turns.map((turn) => traceRef({ runId, sessionId, turnId: turn.turnId, clientTurnId: turn.clientTurnId, scenarioId: scenario.id, binding, terminalState: turn.status, events: [{ type: 'accepted' }, { type: turn.status }] }));
+  const result = { runId, scenarioId: scenario.id, scenarioVersion: Number(scenario.version || 1), fixture, sessionId, selector: resolved.selector, harness: resolved.ref, binding, turns, traceRefs: traces, status: match && absent ? 'PASS' : 'FAIL_AGENT', createdAt: Date.now() };
+  writeAtomic(path.join(registryPaths(runtimeRoot).root, 'runs', runId, 'run.json'), result);
+  return result;
+}
+function readRun(runtimeRoot, runId) { return readJson(path.join(registryPaths(runtimeRoot).root, 'runs', runId, 'run.json')); }
+function compareRuns(runtimeRoot, baselineRunId, candidateRunId) {
+  const baseline = readRun(runtimeRoot, baselineRunId);
+  const candidate = readRun(runtimeRoot, candidateRunId);
+  const classification = candidate.status === 'BLOCKED_ENVIRONMENT' || baseline.status === 'BLOCKED_ENVIRONMENT'
+    ? 'BLOCKED_ENVIRONMENT'
+    : baseline.status !== 'PASS' || candidate.status !== 'PASS' ? 'FAIL_AGENT' : 'PASS';
+  const result = { id: `comparison-${crypto.randomUUID()}`, baselineRunId, candidateRunId, scenarioId: candidate.scenarioId, status: classification, baselineHarness: baseline.harness, candidateHarness: candidate.harness, comparable: baseline.scenarioId === candidate.scenarioId && baseline.scenarioVersion === candidate.scenarioVersion && baseline.fixture.fixtureId !== candidate.fixture.fixtureId && baseline.sessionId !== candidate.sessionId };
+  if (!result.comparable && result.status === 'PASS') result.status = 'ERROR_PROTOCOL';
+  writeAtomic(path.join(registryPaths(runtimeRoot).root, 'runs', result.id, 'comparison.json'), result);
+  return result;
+}
 function appendDecision(runtimeRoot, decision) {
   const record = { kind: PROMOTION_SCHEMA, schemaVersion: SCHEMA_VERSION, at: Date.now(), ...decision };
   const file = registryPaths(runtimeRoot).decisions;
@@ -318,5 +378,5 @@ module.exports = {
   SCHEMA_VERSION, PACKAGE_SCHEMA, BINDING_SCHEMA, TRACE_SCHEMA, REGRESSION_SCHEMA, PROMOTION_SCHEMA, SLOT_NAMES,
   DefHarnessError, stableJson, sha256, buildPackage, validatePackageDirectory, registryPaths, readChannels,
   registerPackage, ensureBaseline, setChannel, resolveSelector, createLoader, createSessionBinding, composeHarnessSystem, traceRef,
-  appendDecision, promote, rollback, packageRef,
+  loadScenario, createFixture, runScenario, readRun, compareRuns, appendDecision, promote, rollback, packageRef,
 };

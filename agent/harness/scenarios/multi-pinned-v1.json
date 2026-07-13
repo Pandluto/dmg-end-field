@@ -1,0 +1,9 @@
+{
+  "id": "multi-pinned-v1",
+  "version": 1,
+  "turns": [
+    { "userText": "当前使用的教学配置是什么？" },
+    { "userText": "请继续说明。" }
+  ],
+  "expect": { "slot": "responsePolicy", "candidateContains": "candidate-v1", "baselineNotContains": "candidate-v1" }
+}
