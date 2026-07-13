@@ -57,7 +57,7 @@ export function MainWorkbenchAiPanel({
   return (
     <DefOpenCodeView
       host="workbench"
-      title="DEF 节点工作台"
+      title="DEF 排轴助手"
       onClose={onExit}
       workbenchContext={workbenchContext}
     />

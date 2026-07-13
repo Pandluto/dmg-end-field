@@ -39,6 +39,8 @@ const questionStorePath = path.join(projectRoot, '.runtime', 'def-agent', 'quest
 const OPENCODE_ACTION_TIMEOUT_MS = 5000;
 const startedAt = Date.now();
 const defRestUrl = process.env.DEF_REST_BASE_URL || 'http://127.0.0.1:17321';
+const DEF_WORKBENCH_MARK_SVG = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect x="4" y="4" width="24" height="24" fill="none" stroke="#111" stroke-width="1.5"/><path d="M10 10h12M10 16h8M10 22h12M20 13v6l3-3z" fill="none" stroke="#111" stroke-width="1.5" stroke-linecap="square" stroke-linejoin="miter"/></svg>';
+const DEF_WORKBENCH_MARK_DATA_URL = `data:image/svg+xml,${encodeURIComponent(DEF_WORKBENCH_MARK_SVG)}`;
 let defRestProcess = null;
 let questionStore = null;
 
@@ -125,6 +127,17 @@ function buildEmbeddedProviderCatalog(config) {
     default: { deepseek: modelId },
     connected: ['deepseek'],
   };
+}
+
+function buildEmbeddedWorkbenchProject() {
+  return [{
+    id: 'global',
+    name: 'DEF 排轴工作台',
+    worktree: '/',
+    time: { created: 0, updated: Date.now() },
+    sandboxes: [],
+    icon: { override: DEF_WORKBENCH_MARK_DATA_URL },
+  }];
 }
 
 function writeSse(response, event) {
@@ -303,8 +316,11 @@ async function migrateNativeSessionTitle(binding) {
   try {
     const current = await fetch(`${runtime.serverUrl}/session/${encodeURIComponent(binding.sessionID)}?${query}`).then((r) => r.json());
     const title = String(current?.title || '');
-    if (!/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/.test(title)) return;
-    const nextTitle = binding.host === 'workbench' ? '排轴会话' : 'DEF 数据会话';
+    const legacyDefault = binding.host === 'workbench'
+      ? title === '新建排轴会话' || title === '排轴会话'
+      : /^新建 .+ 会话$/.test(title) || title === 'DEF 数据会话';
+    if (!legacyDefault && !/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/.test(title)) return;
+    const nextTitle = binding.host === 'workbench' ? '排轴助手' : 'DEF 数据助手';
     await fetch(`${runtime.serverUrl}/session/${encodeURIComponent(binding.sessionID)}?${query}`, {
       method: 'PATCH',
       headers: { 'content-type': 'application/json' },
@@ -338,6 +354,11 @@ function serveOpenCodeUi(request, response, requestUrl) {
   } catch {
     return false;
   }
+  if (requestedPath === '/def-workbench-mark.svg') {
+    response.writeHead(200, { 'Content-Type': 'image/svg+xml; charset=utf-8', 'Cache-Control': 'public, max-age=3600' });
+    response.end(request.method === 'HEAD' ? undefined : DEF_WORKBENCH_MARK_SVG);
+    return true;
+  }
   const relativePath = requestedPath === '/' ? 'index.html' : requestedPath.replace(/^\/+/, '');
   const resolved = path.resolve(openCodeUiRoot, relativePath);
   const insideRoot = resolved === openCodeUiRoot || resolved.startsWith(`${openCodeUiRoot}${path.sep}`);
@@ -367,10 +388,11 @@ function serveOpenCodeUi(request, response, requestUrl) {
     const requestedHost = requestUrl.searchParams.get('def_host') === 'workbench' ? 'workbench' : 'ai-cli';
     embeddedProfile = buildNativeHostProfile(requestedHost);
   }
+  const embeddedTitle = embeddedProfile.host === 'workbench' ? 'DEF · 排轴助手' : 'DEF · 数据助手';
   const body = isIndex
-    ? Buffer.from(fileBody.toString('utf8').replace(
+    ? Buffer.from(fileBody.toString('utf8').replace('<title>OpenCode</title>', `<title>${embeddedTitle}</title>`).replace(
       '</head>',
-      `<script>window.__DEF_EMBEDDED_PROFILE__=${JSON.stringify(embeddedProfile)};window.__DEF_NATIVE_SESSION__=${JSON.stringify(embeddedSession)};try{localStorage.setItem("opencode.settings.dat:defaultServerUrl",location.origin)}catch{}</script></head>`,
+      `<link rel="icon" type="image/svg+xml" href="/def-workbench-mark.svg"/><script>window.__DEF_EMBEDDED_PROFILE__=${JSON.stringify(embeddedProfile)};window.__DEF_NATIVE_SESSION__=${JSON.stringify(embeddedSession)};try{localStorage.setItem("opencode.settings.dat:defaultServerUrl",location.origin)}catch{}</script></head>`,
     ), 'utf8')
     : fileBody;
   response.writeHead(200, {
@@ -1113,6 +1135,11 @@ const server = http.createServer(async (request, response) => {
     // provider metadata to the renderer.
     if (method === 'GET' && requestUrl.pathname === '/provider') {
       writeJson(response, 200, buildEmbeddedProviderCatalog(readConfig().deepseek));
+      return;
+    }
+
+    if (method === 'GET' && requestUrl.pathname === '/project') {
+      writeJson(response, 200, buildEmbeddedWorkbenchProject());
       return;
     }
 
