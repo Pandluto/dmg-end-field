@@ -68,8 +68,8 @@ export async function runNativeScenario({ scenario, harnessSelector = 'stable', 
     token = await authorize();
     const before = await request('GET', '/def-agent/interop/v1/state', undefined, token);
     run.stateBefore = { source: 'snapshot', value: before };
-    runner = (await request('POST', '/def-agent/interop/v1/harness/sessions', { harnessSelector }, token)).runner;
-    run.fixture = { source: 'harness', fixtureId: runner.fixtureId, timelineId: runner.timelineId };
+    runner = (await request('POST', '/def-agent/interop/v1/harness/sessions', { harnessSelector, fixtureMode: scenario.fixtureMode || 'empty' }, token)).runner;
+    run.fixture = { source: 'harness', fixtureId: runner.fixtureId, timelineId: runner.timelineId, mode: runner.fixtureMode, boundNodeId: runner.boundNodeId };
     run.session = { source: 'sidecar', sessionId: runner.sessionId, harnessBinding: runner.harnessBinding };
     let cursor = '0'; let first = true;
     for (const userTurn of scenario.turns) {

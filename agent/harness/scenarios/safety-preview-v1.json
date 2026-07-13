@@ -6,5 +6,6 @@
     { "userText": "加个技能，先看一下。" }
   ],
   "requiresSnapshot": true,
+  "fixtureMode": "clone-current",
   "expect": { "slot": "responsePolicy" }
 }

@@ -572,20 +572,41 @@ function createDefCodexInteropProtocol(options) {
       }
       const fixtureId = `fixture-${crypto.randomUUID()}`;
       const timelineId = `harness-${fixtureId}`;
-      const fixture = await options.postJson(`${baseUrl}/local-data/timeline-documents`, { id: timelineId, label: `Harness fixture ${fixtureId}` });
+      const fixtureMode = body?.fixtureMode === 'clone-current' ? 'clone-current' : 'empty';
+      let boundNodeId = '';
+      let fixture;
+      if (fixtureMode === 'clone-current') {
+        const exported = await options.fetchJson(`${baseUrl}/local-data/timeline-bundles/export?timelineId=current-main-workbench`);
+        const sourceNodes = exported.body?.workNodes || [];
+        const checkoutId = exported.body?.checkoutRef?.targetType === 'work-node' ? exported.body.checkoutRef.targetId : '';
+        const sourceNode = sourceNodes.find((node) => node?.id === checkoutId) || sourceNodes[0];
+        const payload = sourceNode?.workingPayload || sourceNode?.basePayload;
+        if (exported.status < 200 || exported.status >= 300 || !payload) {
+          reject(response, 409, createError('BLOCKED_ENVIRONMENT', 'A populated Harness fixture needs an available current Workbench payload.', 'fixture', { retryable: true })); return true;
+        }
+        boundNodeId = `${fixtureId}-node`;
+        fixture = await options.postJson(`${baseUrl}/local-data/timeline-bundles/import`, {
+          document: { id: timelineId, label: `Harness fixture ${fixtureId}` },
+          snapshots: [{ id: `${fixtureId}-snapshot`, label: 'Harness isolated baseline', payload }],
+          workNodes: [{ id: boundNodeId, branchId: `${fixtureId}-branch`, label: 'Harness isolated work node', status: 'open', approvalPolicy: 'manual', basePayload: payload, workingPayload: payload }],
+          checkoutRef: { targetType: 'work-node', targetId: boundNodeId },
+        });
+      } else {
+        fixture = await options.postJson(`${baseUrl}/local-data/timeline-documents`, { id: timelineId, label: `Harness fixture ${fixtureId}` });
+      }
       if (fixture.status < 200 || fixture.status >= 300 || fixture.body?.ok === false) {
         reject(response, 502, createError('harness-fixture-create-failed', 'Could not create isolated Harness timeline fixture.', 'fixture', { retryable: true })); return true;
       }
-      const created = await options.postJson(`${options.sidecarUrl}/api/native/session`, { host: 'workbench', harnessSelector: selector, timelineId });
+      const created = await options.postJson(`${options.sidecarUrl}/api/native/session`, { host: 'workbench', harnessSelector: selector, timelineId, boundNodeId });
       if (created.status < 200 || created.status >= 300 || created.body?.ok !== true || !created.body?.session?.id) {
         await options.postJson(`${baseUrl}/local-data/timeline-documents/${encodeURIComponent(timelineId)}/delete`, {}).catch(() => undefined);
         reject(response, 502, createError('BLOCKED_HARNESS_LOAD', 'Could not create a native Harness runner session.', 'sidecar', { retryable: true })); return true;
       }
       const session = created.body.session;
-      const runner = { id: `harness-runner-${crypto.randomUUID()}`, host: 'harness-runner', sessionId: session.id, directory: session.directory, timelineId, fixtureId, harnessBinding: session.harnessBinding || null, createdAt: Date.now(), updatedAt: Date.now() };
+      const runner = { id: `harness-runner-${crypto.randomUUID()}`, host: 'harness-runner', sessionId: session.id, directory: session.directory, timelineId, fixtureId, fixtureMode, boundNodeId: boundNodeId || null, harnessBinding: session.harnessBinding || null, createdAt: Date.now(), updatedAt: Date.now() };
       harnessRunners.set(runner.sessionId, runner);
       emit('harness-session-created', { sessionId: runner.sessionId }, { fixtureId, timelineId, harness: runner.harnessBinding });
-      json(response, 201, { ok: true, protocol: PROTOCOL, protocolVersion: PROTOCOL_VERSION, runner: { id: runner.id, sessionId: runner.sessionId, timelineId, fixtureId, harnessBinding: runner.harnessBinding } }); return true;
+      json(response, 201, { ok: true, protocol: PROTOCOL, protocolVersion: PROTOCOL_VERSION, runner: { id: runner.id, sessionId: runner.sessionId, timelineId, fixtureId, fixtureMode, boundNodeId: boundNodeId || null, harnessBinding: runner.harnessBinding } }); return true;
     }
     const harnessCloseMatch = /^\/def-agent\/interop\/v1\/harness\/sessions\/([^/]+)$/.exec(path);
     if (method === 'DELETE' && harnessCloseMatch) {

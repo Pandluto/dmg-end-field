@@ -924,6 +924,7 @@ async function syncNativeWorkbenchAxisBinding(binding) {
         sessionID: current.sessionID,
         host: 'workbench',
         timelineId: binding.timelineId || 'current-main-workbench',
+        boundNodeId: binding.boundNodeId || undefined,
       },
     }),
     signal: AbortSignal.timeout(5000),
@@ -983,6 +984,7 @@ const server = http.createServer(async (request, response) => {
         thinkingEffort: body.thinkingEffort,
         harnessSelector: typeof body.harnessSelector === 'string' ? body.harnessSelector : 'stable',
         timelineId: typeof body.timelineId === 'string' ? body.timelineId : '',
+        boundNodeId: typeof body.boundNodeId === 'string' ? body.boundNodeId : '',
       });
       const binding = ensureNativeSessionAxisBinding(session.directory, session.sessionID);
       const axisContext = await syncNativeWorkbenchAxisBinding(binding);
