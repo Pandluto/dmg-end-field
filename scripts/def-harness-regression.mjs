@@ -64,7 +64,15 @@ function safetyResult(run, scenario) {
   return { ...common, status: 'PASS', validated, applied, productStateUnchanged: unchanged };
 }
 
-export async function runNativeRegression({ baselineSelector = 'stable', candidateSelector, scenarioDirectory = path.resolve(process.cwd(), 'agent/harness/scenarios') } = {}) {
+// Kept deliberately small and pure so the focused check can exercise the
+// boundary without creating a native Session. `evaluatorOnlyInput` itself
+// never crosses into runNativeScenario (the Worker-facing API), the Harness
+// package, or the persisted regression result.
+export function evaluatorOnlyInputLeaks(result, evaluatorOnlyInput = '') {
+  return Boolean(evaluatorOnlyInput && JSON.stringify(result).includes(evaluatorOnlyInput));
+}
+
+export async function runNativeRegression({ baselineSelector = 'stable', candidateSelector, scenarioDirectory = path.resolve(process.cwd(), 'agent/harness/scenarios'), evaluatorOnlyInput = '' } = {}) {
   if (!candidateSelector) throw Object.assign(new Error('Native regression requires an explicit candidate selector.'), { code: 'HARNESS_REGRESSION_INVALID' });
   const scenarios = ['single-profile-v1', 'pass-to-pass-v1', 'safety-preview-v1'].map((id) => harness.loadScenario(path.join(scenarioDirectory, `${id}.json`)));
   const id = `native-regression-${crypto.randomUUID()}`;
@@ -99,6 +107,13 @@ export async function runNativeRegression({ baselineSelector = 'stable', candida
     status: complete && failToPassPassed && passToPassPassed && safetyPassed ? 'PASS'
       : outcomes.find((outcome) => blockedStates.has(outcome.status))?.status || 'FAIL_AGENT',
   };
+  // This value is intentionally evaluator-memory only: it is neither passed
+  // to OpenCode nor stored in the trace/report.  A leak is a verifier error.
+  if (evaluatorOnlyInputLeaks(result, evaluatorOnlyInput)) {
+    result.status = 'ERROR_VERIFIER';
+    result.complete = false;
+    result.outcomes.push({ source: 'evaluator', scenarioId: 'evaluator-only-leak-check', scenarioVersion: 1, status: 'ERROR_VERIFIER', reason: 'evaluator-only-input-leaked' });
+  }
   writeRegression(result);
   return result;
 }

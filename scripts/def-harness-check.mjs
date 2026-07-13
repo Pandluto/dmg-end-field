@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import harness from '../agent/harness/def-harness.cjs';
+import { evaluatorOnlyInputLeaks, runNativeRegression } from './def-harness-regression.mjs';
 
 const project = path.resolve(import.meta.dirname, '..');
 const runtime = fs.mkdtempSync(path.join(os.tmpdir(), 'def-harness-check-'));
@@ -50,6 +51,10 @@ assert.throws(() => harness.buildPackage(unsafe, builds), (caught) => caught.cod
 fs.writeFileSync(path.join(unsafe, 'artifact.md'), 'safe');
 fs.writeFileSync(path.join(unsafe, 'manifest.json'), JSON.stringify({ schemaVersion: 2, harnessId: 'unsafe-test', version: '1.0.0', slots: { agentContract: { path: 'artifact.md', capability: 'hotSwappable' } } }));
 assert.throws(() => harness.buildPackage(unsafe, builds), (caught) => caught.code === 'HARNESS_UNKNOWN_SCHEMA');
+assert.equal(typeof runNativeRegression, 'function', 'native regression keeps evaluator-only input outside package checks');
+const evaluatorOnlySentinel = 'evaluator-only-sentinel-9ce6dd5a';
+assert.equal(evaluatorOnlyInputLeaks({ source: 'evaluator', outcome: 'PASS' }, evaluatorOnlySentinel), false, 'evaluator-only input is absent from an ordinary public result');
+assert.equal(evaluatorOnlyInputLeaks({ source: 'evaluator', accidental: evaluatorOnlySentinel }, evaluatorOnlySentinel), true, 'the evaluator leak guard detects public-result disclosure');
 fs.rmSync(runtime, { recursive: true, force: true });
 fs.rmSync(unsafe, { recursive: true, force: true });
-console.log(JSON.stringify({ ok: true, checks: ['git-provenance', 'immutable-registry', 'pinned-bindings', 'materialized-candidate', 'package-self-check-only', 'cross-candidate-promotion-rejected', 'fail-closed-selector', 'traversal', 'executable', 'schema'] }));
+console.log(JSON.stringify({ ok: true, checks: ['git-provenance', 'immutable-registry', 'pinned-bindings', 'materialized-candidate', 'package-self-check-only', 'cross-candidate-promotion-rejected', 'fail-closed-selector', 'traversal', 'executable', 'schema', 'evaluator-only-leak-guard'] }));

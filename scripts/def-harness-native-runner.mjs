@@ -65,6 +65,9 @@ export async function runNativeScenario({ scenario, harnessSelector = 'stable', 
     const status = await request('GET', '/def-agent/interop/v1/status');
     run.readiness = { source: 'interop', status };
     if (!status.agent?.ready) throw error('BLOCKED_ENVIRONMENT', 'DEF sidecar is not ready.');
+    if (scenario.requiresSnapshot === true && status.workbench?.snapshotAvailable !== true) {
+      throw error('BLOCKED_ENVIRONMENT', 'This Scenario requires an available Workbench snapshot.', { code: 'snapshot-unavailable' });
+    }
     token = await authorize();
     const before = await request('GET', '/def-agent/interop/v1/state', undefined, token);
     run.stateBefore = { source: 'snapshot', value: before };
