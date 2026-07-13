@@ -315,6 +315,60 @@ function deleteNativeQuestionRecords(sessionID) {
   getQuestionStore().prepare('DELETE FROM def_native_question WHERE session_id = ?').run(sessionID);
 }
 
+function compactInteropValue(value, limit = 600) {
+  const text = typeof value === 'string' ? value : JSON.stringify(value ?? null);
+  return text.length > limit ? `${text.slice(0, limit)}…` : text;
+}
+
+function readStoredJson(value) {
+  if (typeof value !== 'string' || !value) return [];
+  try { return JSON.parse(value); } catch { return []; }
+}
+
+function safeInteropQuestions(value) {
+  return Array.isArray(value)
+    ? value.slice(0, 8).map((question) => ({
+      header: compactInteropValue(question?.header || question?.title || '', 240),
+      question: compactInteropValue(question?.question || question?.text || '', 600),
+      options: Array.isArray(question?.options)
+        ? question.options.slice(0, 12).map((option) => ({
+          label: compactInteropValue(option?.label || option?.title || option || '', 240),
+          description: compactInteropValue(option?.description || option?.detail || '', 400),
+        }))
+        : [],
+    }))
+    : [];
+}
+
+function safeInteropAnswers(value) {
+  return Array.isArray(value)
+    ? value.slice(0, 16).map((answer) => {
+      if (typeof answer === 'string' || typeof answer === 'number' || typeof answer === 'boolean') return compactInteropValue(answer, 400);
+      if (Array.isArray(answer)) return answer.slice(0, 12).map((item) => compactInteropValue(item, 400));
+      if (answer && typeof answer === 'object') {
+        return Object.fromEntries(Object.entries(answer).slice(0, 16).map(([key, item]) => [key, compactInteropValue(item, 400)]));
+      }
+      return null;
+    })
+    : [];
+}
+
+function readStoredNativeQuestions(sessionID) {
+  return getQuestionStore().prepare(`
+    SELECT request_id, session_id, questions_json, status, answers_json, runtime_status, created_at, updated_at
+    FROM def_native_question WHERE session_id = ? ORDER BY updated_at DESC LIMIT 32
+  `).all(sessionID).map((row) => ({
+    requestId: row.request_id,
+    sessionId: row.session_id,
+    questions: safeInteropQuestions(readStoredJson(row.questions_json)),
+    status: row.status,
+    answers: safeInteropAnswers(readStoredJson(row.answers_json)),
+    runtimeStatus: row.runtime_status || null,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  }));
+}
+
 function readJsonFileIfPresent(filePath) {
   try {
     return JSON.parse(fs.readFileSync(filePath, 'utf8'));
@@ -435,7 +489,12 @@ async function proxyOpenCodeRequest(request, response) {
   const runtime = runtimeSummary(readConfig().deepseek);
   if (!runtime.running || !runtime.serverUrl) return Promise.resolve(false);
   const target = new URL(request.url || '/', runtime.serverUrl);
-  const nativePageMatch = /^\/(?:server\/[^/]+\/)?session\/([^/]+)$/.exec(target.pathname);
+  // Native DEF sessions are served under an encoded workspace-directory prefix:
+  // `/{directorySlug}/session/{sessionId}`.  Keep accepting the unprefixed
+  // OpenCode route as well, but do not assume the prefix is literally `server`.
+  // If this misses, the iframe remains usable yet never receives the interop
+  // bridge script, which makes UI render acknowledgement impossible.
+  const nativePageMatch = /^\/(?:[^/]+\/)?session\/([^/]+)$/.exec(target.pathname);
   const nativePageBinding = request.method === 'GET' && nativePageMatch
     ? findNativeSessionBinding(decodeURIComponent(nativePageMatch[1]))
     : null;
@@ -526,6 +585,53 @@ async function readNativeInteropTranscript(sessionID) {
     throw error;
   }
   return { binding, messages: await response.json() };
+}
+
+async function readNativeInteropQuestions(sessionID) {
+  const binding = findNativeSessionBinding(sessionID);
+  if (!binding || binding.host !== 'workbench') {
+    const error = new Error('native-workbench-session-binding-not-found');
+    error.status = 404;
+    throw error;
+  }
+  const runtime = await ensureRuntime(readConfig().deepseek);
+  const response = await fetch(`${runtime.serverUrl}/question?directory=${encodeURIComponent(binding.directory)}`, {
+    signal: AbortSignal.timeout(OPENCODE_ACTION_TIMEOUT_MS),
+  });
+  if (!response.ok) {
+    const error = new Error(`native-question-list-failed-${response.status}`);
+    error.status = response.status;
+    throw error;
+  }
+  const payload = await response.json();
+  const liveQuestions = Array.isArray(payload) ? payload : [];
+  const stored = new Map(readStoredNativeQuestions(sessionID).map((item) => [item.requestId, item]));
+  for (const question of liveQuestions) {
+    if (question?.sessionID !== sessionID || !question?.id) continue;
+    if (stored.get(question.id)?.status === 'open') continue;
+    saveNativeQuestion({
+      requestID: question.id,
+      sessionID,
+      directory: binding.directory,
+      questions: question.questions,
+      status: 'open',
+    });
+  }
+  const records = new Map(readStoredNativeQuestions(sessionID).map((item) => [item.requestId, item]));
+  for (const question of liveQuestions) {
+    if (question?.sessionID !== sessionID || !question?.id) continue;
+    records.set(question.id, {
+      requestId: question.id,
+      sessionId: sessionID,
+      questions: safeInteropQuestions(question.questions),
+      status: 'open',
+      answers: records.get(question.id)?.answers || [],
+      runtimeStatus: 'pending',
+      createdAt: question?.time?.created || records.get(question.id)?.createdAt || Date.now(),
+      updatedAt: records.get(question.id)?.updatedAt || question?.time?.created || Date.now(),
+    });
+  }
+  return { binding, questions: [...records.values()].sort((left, right) => right.updatedAt - left.updatedAt) };
 }
 
 async function sendNativeInteropPrompt(sessionID, body) {
@@ -1030,6 +1136,14 @@ const server = http.createServer(async (request, response) => {
       const sessionID = decodeURIComponent(nativeInteropTranscript[1]);
       const result = await readNativeInteropTranscript(sessionID);
       writeJson(response, 200, { ok: true, sessionId: sessionID, messages: result.messages });
+      return;
+    }
+
+    const nativeInteropQuestions = /^\/api\/native\/session\/([^/]+)\/interop-questions$/.exec(requestUrl.pathname);
+    if (method === 'GET' && nativeInteropQuestions) {
+      const sessionID = decodeURIComponent(nativeInteropQuestions[1]);
+      const result = await readNativeInteropQuestions(sessionID);
+      writeJson(response, 200, { ok: true, sessionId: sessionID, questions: result.questions });
       return;
     }
 

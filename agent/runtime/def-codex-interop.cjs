@@ -5,7 +5,7 @@ const PROTOCOL = 'def-codex-interop';
 const PROTOCOL_VERSION = 1;
 const CAPABILITIES = Object.freeze([
   'turn.start', 'turn.continue', 'turn.stop', 'events.subscribe',
-  'transcript.read', 'state.read', 'ui-events.subscribe',
+  'transcript.read', 'state.read', 'questions.read', 'ui-events.subscribe',
 ]);
 const CLIENT_TURN_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
 
@@ -32,6 +32,7 @@ function createDefCodexInteropProtocol(options) {
   const clients = new Set();
   const audit = [];
   const tokens = new Map();
+  const questionOwners = new Map();
   let seq = 0;
 
   const developmentOnly = isDevelopmentProfile(options.profile);
@@ -156,6 +157,96 @@ function createDefCodexInteropProtocol(options) {
     };
   }
 
+  function compactInteropValue(value, limit = 600) {
+    const text = typeof value === 'string' ? value : JSON.stringify(value ?? null);
+    const redacted = text
+      .replace(/Bearer\s+[A-Za-z0-9._~+/-]+=*/gi, 'Bearer [redacted]')
+      .replace(/(?:api[-_ ]?key|token|authorization|password)["'\s:=]+[A-Za-z0-9._~+/-]+/gi, '$1=[redacted]');
+    return redacted.length > limit ? `${redacted.slice(0, limit)}…` : redacted;
+  }
+
+  function safeInteropValue(value, depth = 0) {
+    if (value === null || typeof value === 'boolean' || typeof value === 'number') return value;
+    if (typeof value === 'string') return compactInteropValue(value, 600);
+    // Keep a question card's option objects structured: question list -> card
+    // -> options -> option object.  Deeper values are still bounded text.
+    if (depth >= 4) return compactInteropValue(value, 600);
+    if (Array.isArray(value)) return value.slice(0, 16).map((item) => safeInteropValue(item, depth + 1));
+    if (value && typeof value === 'object') {
+      return Object.fromEntries(Object.entries(value).slice(0, 32).map(([key, item]) => [
+        key,
+        /(?:api[-_ ]?key|token|authorization|password|secret)/i.test(key) ? '[redacted]' : safeInteropValue(item, depth + 1),
+      ]));
+    }
+    return compactInteropValue(value, 600);
+  }
+
+  function toolPayload(part) {
+    const state = part?.state && typeof part.state === 'object' ? part.state : {};
+    const status = state.status === 'completed' || part?.status === 'completed'
+      ? 'completed'
+      : state.status === 'error' || part?.status === 'error'
+        ? 'error'
+        : 'running';
+    const errorText = status === 'error' ? compactInteropValue(state.error || part?.error || 'OpenCode tool failed', 600) : '';
+    return {
+      toolCallId: String(part?.callID || part?.id || ''),
+      tool: String(part?.tool || part?.name || state.title || 'native-tool'),
+      status,
+      input: safeInteropValue(state.input ?? part?.input ?? {}),
+      ...(status === 'completed' ? { result: safeInteropValue(state.output ?? state.result ?? part?.output ?? null) } : {}),
+      ...(status === 'error' ? {
+        error: {
+          code: /timeout/i.test(errorText) ? 'tool-timeout' : 'tool-execution-failed',
+          message: errorText,
+          component: 'opencode-tool',
+          retryable: /timeout|temporar|unavailable|network/i.test(errorText),
+        },
+      } : {}),
+    };
+  }
+
+  function providerErrorPayload(value) {
+    const message = compactInteropValue(value || 'OpenCode provider failed', 600);
+    const aborted = /\baborted?\b/i.test(message);
+    return {
+      aborted,
+      error: {
+        code: aborted ? 'provider-aborted' : /timeout/i.test(message) ? 'provider-timeout' : 'provider-message-error',
+        message,
+        component: 'provider',
+        retryable: !aborted && /timeout|temporar|unavailable|network/i.test(message),
+        ...(!aborted ? { nextAction: 'Inspect this turn transcript and retry only after the provider is ready.' } : {}),
+      },
+    };
+  }
+
+  function normalizeQuestions(items) {
+    return Array.isArray(items) ? items.slice(0, 32).map((item) => ({
+      requestId: String(item?.requestId || ''),
+      status: String(item?.status || 'open'),
+      questions: safeInteropValue(item?.questions || []),
+      answers: safeInteropValue(item?.answers || []),
+      runtimeStatus: item?.runtimeStatus || null,
+      createdAt: item?.createdAt || null,
+      updatedAt: item?.updatedAt || null,
+    })).filter((item) => item.requestId) : [];
+  }
+
+  function attachQuestions(record, items) {
+    for (const question of normalizeQuestions(items)) {
+      const owner = questionOwners.get(question.requestId) || record;
+      questionOwners.set(question.requestId, owner);
+      const signature = `${question.requestId}:${question.status}:${question.updatedAt || ''}`;
+      owner.observedQuestionStates ||= new Set();
+      if (owner.observedQuestionStates.has(signature)) continue;
+      owner.observedQuestionStates.add(signature);
+      emit(question.status === 'open' ? 'permission' : 'permission-resolved', owner, {
+        kind: 'native-question', question,
+      });
+    }
+  }
+
   async function observeTurn(record) {
     let firstToken = false;
     const seenTools = new Set();
@@ -169,8 +260,12 @@ function createDefCodexInteropProtocol(options) {
       // has already become stopped.
       if (record.status !== 'accepted') return;
       try {
-        const upstream = await options.fetchJson(`${options.sidecarUrl}/api/native/session/${encodeURIComponent(record.sessionId)}/interop-transcript`);
+        const [upstream, questions] = await Promise.all([
+          options.fetchJson(`${options.sidecarUrl}/api/native/session/${encodeURIComponent(record.sessionId)}/interop-transcript`),
+          options.fetchJson(`${options.sidecarUrl}/api/native/session/${encodeURIComponent(record.sessionId)}/interop-questions`).catch(() => ({ status: 0, body: null })),
+        ]);
         if (record.status !== 'accepted') return;
+        if (questions.status >= 200 && questions.status < 300) attachQuestions(record, questions.body?.questions);
         const messages = Array.isArray(upstream.body?.messages) ? upstream.body.messages : [];
         const latest = messages[messages.length - 1];
         const parts = Array.isArray(latest?.parts) ? latest.parts : [];
@@ -182,12 +277,20 @@ function createDefCodexInteropProtocol(options) {
           }
           if (String(part?.type || '').includes('tool')) {
             const toolKey = String(part.callID || part.id || part.tool || JSON.stringify(part.input || {}));
-            if (!seenTools.has(toolKey)) { seenTools.add(toolKey); emit('tool-start', record, { tool: part.tool || part.name || 'native-tool' }); }
-            if (part.state?.status === 'completed' || part.status === 'completed') emit('tool-result', record, { tool: part.tool || part.name || 'native-tool' });
-            if (part.state?.status === 'error' || part.status === 'error') emit('tool-error', record, { tool: part.tool || part.name || 'native-tool' });
+            const payload = toolPayload(part);
+            if (!seenTools.has(`${toolKey}:start`)) { seenTools.add(`${toolKey}:start`); emit('tool-start', record, payload); }
+            if (payload.status === 'completed' && !seenTools.has(`${toolKey}:completed`)) { seenTools.add(`${toolKey}:completed`); emit('tool-result', record, payload); }
+            if (payload.status === 'error' && !seenTools.has(`${toolKey}:error`)) { seenTools.add(`${toolKey}:error`); emit('tool-error', record, payload); }
           }
         }
         if (record.status !== 'accepted') return;
+        if (latest?.info?.error) {
+          const provider = providerErrorPayload(latest.info.error);
+          record.status = provider.aborted ? 'stopped' : 'provider-error';
+          appendAudit(provider.aborted ? 'turn.stopped' : 'turn.provider-error', record, provider.error.code);
+          emit(record.status, record, provider.error);
+          return;
+        }
         if (latest?.info?.time?.completed || latest?.info?.completedAt) {
           record.status = 'completed'; appendAudit('turn.completed', record, 'completed'); emit('completed', record, {}); return;
         }
@@ -203,6 +306,13 @@ function createDefCodexInteropProtocol(options) {
     if (!latest?.info?.time?.completed) return;
     const record = [...run.turns].reverse().find((turn) => ['accepted', 'timeout'].includes(turn.status));
     if (!record) return;
+    if (latest?.info?.error) {
+      const provider = providerErrorPayload(latest.info.error);
+      record.status = provider.aborted ? 'stopped' : 'provider-error';
+      appendAudit(provider.aborted ? 'turn.stopped' : 'turn.provider-error', record, provider.error.code);
+      emit(record.status, record, provider.error);
+      return;
+    }
     record.status = 'completed';
     appendAudit('turn.completed', record, 'completed-reconciled');
     emit('completed', record, { reconciledFromTranscript: true });
@@ -394,6 +504,20 @@ function createDefCodexInteropProtocol(options) {
       reconcileTranscriptCompletion(run, upstream.body?.messages);
       json(response, upstream.status || 502, { ok: upstream.status >= 200 && upstream.status < 300, protocol: PROTOCOL, protocolVersion: PROTOCOL_VERSION, testRunId: run.testRunId, sessionId, turns: run.turns.map((turn) => ({ ...idsFor(turn), ingressMode: turn.ingressMode, rawUserText: turn.rawUserText, providerVisibleUserText: turn.providerVisibleUserText, ...(turn.ingressMode === 'diagnostic' ? { diagnostic: turn.diagnostic, providerVisibleMessages: turn.providerVisibleMessages } : {}), status: turn.status })), transcript: upstream.body?.messages || [] }); return true;
     }
+    const questionsMatch = /^\/def-agent\/interop\/v1\/sessions\/([^/]+)\/questions$/.exec(path);
+    if (method === 'GET' && questionsMatch) {
+      const sessionId = decodeURIComponent(questionsMatch[1]);
+      const run = runs.get(sessionId);
+      if (!run) { reject(response, 404, createError('interop-session-not-found', 'No protocol run exists for this session.', 'session', { ids: { sessionId } })); return true; }
+      const upstream = await options.fetchJson(`${options.sidecarUrl}/api/native/session/${encodeURIComponent(sessionId)}/interop-questions`);
+      if (upstream.status < 200 || upstream.status >= 300) {
+        reject(response, upstream.status === 404 ? 404 : 502, createError('native-question-observation-unavailable', 'OpenCode native question state could not be read.', 'sidecar', { retryable: upstream.status >= 500 || upstream.status === 0, ids: { testRunId: run.testRunId, sessionId }, nextAction: 'Check sidecar status, then retry question observation.' })); return true;
+      }
+      const questions = normalizeQuestions(upstream.body?.questions);
+      const current = run.turns.find((turn) => turn.status === 'accepted') || run.turns.at(-1) || {};
+      attachQuestions(current, questions);
+      json(response, 200, { ok: true, protocol: PROTOCOL, protocolVersion: PROTOCOL_VERSION, testRunId: run.testRunId, sessionId, questions: questions.map((question) => ({ ...question, ...(questionOwners.get(question.requestId) ? { turnId: questionOwners.get(question.requestId).turnId, clientTurnId: questionOwners.get(question.requestId).clientTurnId } : {}) })) }); return true;
+    }
     if (method === 'GET' && path === '/def-agent/interop/v1/state') {
       const state = await snapshot();
       const consumer = currentConsumer();
@@ -437,7 +561,12 @@ function createDefCodexInteropProtocol(options) {
       const body = await readBody(request); const consumer = consumers.get(body?.consumerId); const turn = [...turnsByClient.values()].find((item) => item.turnId === body?.turnId && item.sessionId === body?.sessionId);
       if (!consumer || consumer.sessionId !== body?.sessionId) { reject(response, 403, createError('ui-rendered-forbidden', 'The current workbench UI consumer could not be verified.', 'ui-consumer', { retryable: true, ids: { sessionId: typeof body?.sessionId === 'string' ? body.sessionId : '' }, nextAction: 'Reopen the Workbench AI mode and retry the turn.' })); return true; }
       if (!turn) { reject(response, 404, createError('turn-not-found', 'Turn was not found.', 'ui-consumer')); return true; }
-      emit('ui-rendered', turn, { uiConsumerId: consumer.id, surface: body.surface === 'native-iframe' ? 'native-iframe' : 'unknown', target: body.target === 'user-message' ? 'user-message' : 'unknown' }); json(response, 200, { ok: true }); return true;
+      turn.renderedConsumerIds ||= new Set();
+      if (turn.renderedConsumerIds.has(consumer.id)) {
+        json(response, 200, { ok: true, protocol: PROTOCOL, protocolVersion: PROTOCOL_VERSION, idempotent: true }); return true;
+      }
+      turn.renderedConsumerIds.add(consumer.id);
+      emit('ui-rendered', turn, { uiConsumerId: consumer.id, surface: body.surface === 'native-iframe' ? 'native-iframe' : 'unknown', target: body.target === 'user-message' ? 'user-message' : 'unknown' }); json(response, 200, { ok: true, protocol: PROTOCOL, protocolVersion: PROTOCOL_VERSION }); return true;
     }
     return false;
   }

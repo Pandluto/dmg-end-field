@@ -93,7 +93,9 @@ export function DefOpenCodeView({
     const target = await targetResponse.json() as { rawUserText?: string };
     const frame = frameRef.current;
     if (!frame?.contentWindow || !frameLoadedRef.current || !bridgeReadyRef.current) {
-      pendingRenderRef.current.push({ sessionId, turnId });
+      if (!pendingRenderRef.current.some((item) => item.sessionId === sessionId && item.turnId === turnId)) {
+        pendingRenderRef.current.push({ sessionId, turnId });
+      }
       if (frame?.contentWindow && frameLoadedRef.current) {
         frame.contentWindow.postMessage({ type: 'def-opencode-interop-probe', protocolVersion: 1, sessionId }, origin);
       }
@@ -250,12 +252,11 @@ export function DefOpenCodeView({
               const frame = frameRef.current;
               if (!frame?.contentWindow) return;
               frameLoadedRef.current = true;
-              bridgeReadyRef.current = true;
-              const pending = pendingRenderRef.current.splice(0);
-              for (const item of pending) {
-                if (item.sessionId !== session.id) continue;
-                void requestRenderedCheck(consumerIdRef.current, item.sessionId, item.turnId).catch(() => undefined);
-              }
+              // A load event only proves that the native document loaded.  The
+              // render bridge is ready solely after the injected script replies
+              // to this probe; otherwise a missing injection can be mistaken
+              // for a rendered user message.
+              bridgeReadyRef.current = false;
               frame.contentWindow.postMessage({ type: 'def-opencode-interop-probe', protocolVersion: 1, sessionId: session.id }, origin);
             }}
           />

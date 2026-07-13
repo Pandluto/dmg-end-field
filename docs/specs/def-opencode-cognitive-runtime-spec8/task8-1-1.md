@@ -192,7 +192,7 @@ Codex Teacher Client
 
 ### 6.1 规范化事件
 
-- [ ] 至少规范化 accepted、session-created、response-first-token、tool-start、tool-result、tool-error。
+- [x] 至少规范化 accepted、session-created、response-first-token、tool-start、tool-result、tool-error。
 - [ ] 至少规范化 permission-waiting、approval-waiting、completed、stopped、timeout、max-step、provider-error。
 - [ ] 至少规范化 ui-prompt-consumed、ui-session-opened/ui-rendered、snapshot-unavailable、checkout-changed。
 - [ ] 每个事件包含 protocolVersion、seq、at、testRunId、sessionId、turnId 和必要 payload。

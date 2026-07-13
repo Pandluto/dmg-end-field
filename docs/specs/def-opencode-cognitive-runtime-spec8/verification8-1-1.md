@@ -301,3 +301,27 @@ This is an unresolved current architecture defect in the iframe-to-parent attest
 path, not a Harness item. `ui-rendered` must remain absent rather than be fabricated;
 Computer Use is the valid visual evidence until the cross-frame callback is made
 observable end-to-end.
+
+## 2026-07-13 — OpenCode-native observation hardening
+
+The v1 protocol now exposes `questions.read` at
+`GET /def-agent/interop/v1/sessions/:sessionId/questions`. It reads the native
+OpenCode question queue through the sidecar, preserves each `requestId`, question text,
+options, answer/status and runtime status, and associates observed questions with the
+owning protocol turn. It is strictly read-only: it does not add a teacher route to
+answer, approve or bypass a native question.
+
+`observeTurn` now normalizes a tool's stable call id, name, bounded/redacted input,
+result summary and structured failure payload. It emits each `tool-start`,
+`tool-result` or `tool-error` state once. A completed provider message carrying
+`info.error` now becomes `provider-error` (or `stopped` for an abort), instead of being
+silently reported as `completed`. Open native questions emit `permission`; their later
+state changes emit `permission-resolved`.
+
+Focused in-process protocol checks passed after the sidecar/bridge restart. They cover
+a completed native tool with a redacted token input, an open two-option native question
+card, a provider network timeout mapped to `provider-error`, idempotent render
+acknowledgement, cursor replay and the pre-existing stopped-turn regression. The
+restarted live bridge reported protocol version 1 and the new `questions.read`
+capability. At the time of this check no Workbench AI consumer was open
+(`uiConnected=false`), so no live model turn or UI claim is made for this entry.

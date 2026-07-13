@@ -31,6 +31,7 @@ function readBody(request) {
 
 let promptCalls = 0;
 let abortedMessages = [];
+let questionRecords = [];
 const protocol = createDefCodexInteropProtocol({
   profile: 'development',
   baseUrl: 'http://127.0.0.1:0',
@@ -42,11 +43,23 @@ const protocol = createDefCodexInteropProtocol({
   async fetchJson(url) {
     if (url.endsWith('/health')) return { status: 200, body: { ok: true, service: 'fake-sidecar' } };
     if (url.includes('interop-transcript')) return { status: 200, body: { ok: true, messages: abortedMessages } };
+    if (url.includes('interop-questions')) return { status: 200, body: { ok: true, questions: questionRecords } };
     return { status: 200, body: { ok: true, snapshot: { checkout: { id: 'node-a' }, revision: 7, selectedCharacters: [{ id: 'a', name: 'A' }] } } };
   },
   async postJson(url, body) {
     if (url.endsWith('/interop-prompt')) {
       promptCalls += 1;
+      if (body.rawUserText === '这个怎么样') {
+        abortedMessages = [{
+          info: { time: { completed: Date.now() } },
+          parts: [{ type: 'tool', id: 'tool-a', callID: 'call-a', tool: 'def_workbench_context', state: { status: 'completed', input: { nodeId: 'node-a', token: 'must-not-leak' }, output: { revision: 7 } } }],
+        }];
+        questionRecords = [{ requestId: 'question-a', status: 'open', questions: [{ header: '选择范围', question: '要查看当前排轴还是草稿？', options: [{ label: '当前排轴', description: '只读' }, { label: '草稿', description: '不应用' }] }], createdAt: Date.now(), updatedAt: Date.now() }];
+      }
+      if (body.rawUserText === '再试一次') {
+        abortedMessages = [{ info: { time: { completed: Date.now() }, error: 'Provider network timeout' }, parts: [] }];
+        questionRecords = [];
+      }
       return { status: 202, body: { ok: true, providerVisibleMessages: [{ role: 'user', text: body.rawUserText }] } };
     }
     if (url.endsWith('/interop-stop')) {
@@ -104,6 +117,25 @@ try {
     body: JSON.stringify({ consumerId: 'ui-a', sessionId: 'native-a', turnId: firstPayload.turn.turnId, surface: 'native-iframe', target: 'user-message' }),
   });
   assert.equal(rendered.status, 200);
+  const renderedRetry = await (await fetch(`${base}/def-agent/interop/v1/ui/rendered`, {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ consumerId: 'ui-a', sessionId: 'native-a', turnId: firstPayload.turn.turnId, surface: 'native-iframe', target: 'user-message' }),
+  })).json();
+  assert.equal(renderedRetry.idempotent, true);
+
+  await new Promise((resolve) => setTimeout(resolve, 1100));
+  const questions = await (await fetch(`${base}/def-agent/interop/v1/sessions/native-a/questions`)).json();
+  assert.equal(questions.questions[0].requestId, 'question-a');
+  assert.equal(questions.questions[0].questions[0].options[1].label, '草稿');
+  await (await fetch(`${base}/def-agent/interop/v1/sessions/native-a/questions`)).json();
+
+  const failed = await (await fetch(`${base}/def-agent/interop/v1/sessions/native-a/turns`, {
+    method: 'POST', headers,
+    body: JSON.stringify({ rawUserText: '再试一次', clientTurnId: 'turn-provider-error', ingressMode: 'pure-blackbox' }),
+  })).json();
+  await new Promise((resolve) => setTimeout(resolve, 1100));
+  const failedTranscript = await (await fetch(`${base}/def-agent/interop/v1/sessions/native-a/transcript`)).json();
+  assert.equal(failedTranscript.turns.find((turn) => turn.turnId === failed.turn.turnId)?.status, 'provider-error');
 
   const stoppedStart = await (await fetch(`${base}/def-agent/interop/v1/turns`, {
     method: 'POST', headers,
@@ -117,10 +149,10 @@ try {
   const stoppedTranscript = await (await fetch(`${base}/def-agent/interop/v1/sessions/native-a/transcript`)).json();
   assert.equal(stoppedTranscript.turns.find((turn) => turn.turnId === stoppedStart.turn.turnId)?.status, 'stopped');
 
-  const replay = await fetch(`${base}/def-agent/interop/v1/ui-events?cursor=0`);
+  const replay = await fetch(`${base}/def-agent/interop/v1/sessions/native-a/events?cursor=0`);
   const replayReader = replay.body.getReader();
   let replayText = '';
-  for (let index = 0; index < 4 && !replayText.includes('event: ui-prompt-consumed'); index += 1) {
+  for (let index = 0; index < 8 && !replayText.includes('event: provider-error'); index += 1) {
     const { done, value } = await replayReader.read();
     if (done) break;
     replayText += new TextDecoder().decode(value);
@@ -128,6 +160,12 @@ try {
   await replayReader.cancel();
   assert.match(replayText, /event: ui-prompt-consumed/);
   assert.match(replayText, /\"uiEventId\":\"[0-9a-f-]{36}\"/);
+  assert.match(replayText, /event: tool-result/);
+  assert.match(replayText, /\"tool\":\"def_workbench_context\"/);
+  assert.match(replayText, /\"token\":\"\[redacted\]\"/);
+  assert.match(replayText, /event: permission/);
+  assert.equal((replayText.match(/event: permission\n/g) || []).length, 1);
+  assert.match(replayText, /event: provider-error/);
 
   const state = await (await fetch(`${base}/def-agent/interop/v1/state`)).json();
   assert.deepEqual(state.state.selectedOperators, [{ id: 'a', name: 'A' }]);
