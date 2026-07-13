@@ -6,6 +6,8 @@
 
 这里的“角色卡”定义为**角色中心的社区玩法知识卡**，不是替换 `public/data/characters/**` 中的官方角色数据，也不是用于角色扮演的人设 prompt。它回答的是：这个角色在玩家攻略里怎么定位、怎么操作、怎么配装、和谁搭配、在什么条件下选择不同方案。
 
+角色卡如何成为面向玩家的完整产品入口、与 Workbench/Agent 形成闭环的产品形态研究见 [`research-product-form-character-cards-20260713.md`](./research-product-form-character-cards-20260713.md)。
+
 ## 结论
 
 角色卡是合理的主入口，但不能成为唯一知识形态。
