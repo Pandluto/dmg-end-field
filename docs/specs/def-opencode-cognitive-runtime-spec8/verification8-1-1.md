@@ -153,3 +153,38 @@ showed the applied node as the current protected path with `4 干员 / 4 按钮`
 The draft's display labels (`怒鸣/凝冰/迅影/破风`) are normalized to the local
 runtime templates during hydration; the visible canonical labels above are therefore the
 expected renderer result, not a failed checkout. Chrome's reload control was never used.
+
+## 2026-07-13 — four-operator loadout blocked-run record
+
+This is a failure record, not a passing loadout result. After the user requested suitable
+weapons and equipment for 弭弗 (`mifu`), 陈千语 (`chenqianyu`), 洛茜 (`luoxi`), and
+黎风 (`lifeng`), the native conversation logs were collected instead of retrying the
+blocked request.
+
+- Initial session `ses_0a5ba5e3dffeFbiCIEFn870gQ3`, prompt at 15:18:
+  `Configure suitable weapons and full equipment for all four current operators: mifu, Chen Qianyu, Luoxi, and Lifeng. Create an isolated draft, validate the diff, then apply it to the Workbench after the native confirmation.`
+  It called context, weapon and equipment resources, then stated that weapons were not
+  available in the trusted data store. It forked a draft but was stopped before the
+  write/validation sequence completed; the visible UI recorded `write 失败` and
+  `已中断`. No `def_node_use` call occurred.
+- Fresh session `ses_0a5a44d9effe14YCi5KM5tSnf3`, prompt at 15:23:
+  `For the four current operators only (mifu, chenqianyu, luoxi, lifeng), inspect the current trusted weapon and equipment candidates. Create a draft assigning each operator one valid weapon and a complete valid equipment set. Do not invent data. Validate the diff and show the four exact loadouts. Do not apply anything yet.`
+  The transcript records `weapon: null` and `equipmentCount: 0` for all four operator
+  resources, and every `def_data_weapon` query returned an empty candidate list.
+  Equipment candidates were found: 旧锋, 碾骨, 50式应龙, and M.I.警用.
+- The stopped session nevertheless has an in-flight isolated child node
+  `ai-timeline-node-1783927517234-b99xdwv2` (`为四人配装武器与装备`). Its final
+  recorded tool was `def_node_sync_validate`: `validation.ok=true`, no blocker, and
+  `currentCheckoutTouched=false`. Its diff was incorrectly `no diff` even though the
+  generated payload contained three equipment ids per operator in `characterInputMap`.
+  No `def_node_use` or checkout route appears in the transcript.
+- Computer Use then left AI mode and opened the real Work Node tree. It visibly showed
+  the `AI 校验` child with `4 按钮 / 0 Buff`; the main canvas still visibly showed the
+  same four cards and four skills. No browser reload was used.
+
+The record exposes two follow-up defects: semantic diff/risk analysis does not include
+`characterInputMap` loadout changes, and the agent can describe a weapon assignment even
+when the trusted weapon query returns no candidates. The child-node validation that was
+already in flight also completes after the user stops the turn; the stop state must be
+correlated with tool completion so the UI cannot represent that partial draft as a
+completed loadout. These are not accepted as a successful weapon/equipment test.
