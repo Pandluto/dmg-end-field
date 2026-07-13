@@ -10,6 +10,8 @@
 
 本轮只形成实现方案与验证方法，不编写下一阶段 spec/tasks，也不把未经黑盒验证的推断写成已实现效果。
 
+运行时正文可达性、OpenCode skill 加载机制与知识 typed resource 方案的进一步审计，见 [`research-yz-runtime-deep-dive-20260713.md`](./research-yz-runtime-deep-dive-20260713.md)。该审计发现当前攻略正文尚未形成可证明的产品 Agent 消费链路，因此应优先于批量扩充资料或 prompt 调优处理。
+
 ## 结论摘要
 
 三种手段都值得使用，但它们解决的是不同问题，不能互相替代：
