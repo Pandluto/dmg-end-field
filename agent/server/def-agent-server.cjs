@@ -509,10 +509,11 @@ async function proxyOpenCodeRequest(request, response) {
       const workbenchContext = binding.host === 'workbench'
         ? readNativeWorkbenchContext(binding)
         : null;
+      const harness = getNativeHarnessSystem(binding);
       rewrittenBody = Buffer.from(JSON.stringify({
         ...incoming,
         agent: binding.agent,
-        ...(binding.host === 'workbench' ? { system: buildWorkbenchContextSystemPrompt(workbenchContext, incoming.system) } : {}),
+        ...(binding.host === 'workbench' ? { system: buildWorkbenchContextSystemPrompt(workbenchContext, [harness.system, incoming.system].filter(Boolean).join('\n\n')) } : {}),
       }), 'utf8');
     }
   }
