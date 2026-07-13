@@ -2,7 +2,7 @@
 
 ## 状态
 
-规格已形成，等待后续任务拆分与实现。
+已完成：`DefCodexInteropProtocol v1` 与真实 Workbench 联调链路已稳定，可移交 8-1-2 建设可训练 Harness。
 
 ## 一句话定调
 

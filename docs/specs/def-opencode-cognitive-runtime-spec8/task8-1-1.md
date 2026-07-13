@@ -2,7 +2,7 @@
 
 ## 状态
 
-实施中：v1 bridge、真实 UI 链路、聚焦协议检查与黑盒记录已落地；完成勾选以本次 verification 证据为准。
+已完成：Codex 已可通过稳定协议发起、观察和结束真实 DEF Workbench 调试；Harness 训练、回放与裁判建设移交 Task 8-1-2。
 
 Task 8-1-1 是 Spec 8-1-1 的唯一总实施任务，不是前置盘点。允许按检查点分批编码、黑盒验证和提交，但任务完成必须意味着高级 Codex 已能依赖稳定协议完成一次真实 DEF Workbench Agent 联调。
 
