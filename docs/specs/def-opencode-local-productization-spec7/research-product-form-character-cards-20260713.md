@@ -2,6 +2,8 @@
 
 ## 结论
 
+让 `def-opencode` 获得游戏知识、玩家表达和稳定 Workbench 自我认知的运行时升级方案见 [`research-def-opencode-cognitive-runtime-upgrade-20260713.md`](./research-def-opencode-cognitive-runtime-upgrade-20260713.md)。本文聚焦这些能力最终应如何成为用户可见的产品。
+
 DEF 最有潜力的最终产品形态不是“带 AI 的终末地资料库”，也不是“自动给最优解的排轴机器人”。
 
 它应成为一个本地、可解释、可迭代的：
