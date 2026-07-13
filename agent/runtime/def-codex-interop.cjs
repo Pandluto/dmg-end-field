@@ -555,12 +555,16 @@ function createDefCodexInteropProtocol(options) {
       }
       const turn = [...turnsByClient.values()].find((item) => item.turnId === body?.turnId && item.sessionId === body?.sessionId);
       if (!turn) { reject(response, 404, createError('turn-not-found', 'Turn was not found.', 'ui-consumer')); return true; }
-      json(response, 200, { ok: true, protocol: PROTOCOL, protocolVersion: PROTOCOL_VERSION, sessionId: turn.sessionId, turnId: turn.turnId, rawUserText: turn.rawUserText }); return true;
+      turn.renderNonces ||= new Map();
+      const renderNonce = turn.renderNonces.get(consumer.id) || crypto.randomUUID();
+      turn.renderNonces.set(consumer.id, renderNonce);
+      json(response, 200, { ok: true, protocol: PROTOCOL, protocolVersion: PROTOCOL_VERSION, sessionId: turn.sessionId, turnId: turn.turnId, rawUserText: turn.rawUserText, renderNonce }); return true;
     }
     if (method === 'POST' && path === '/def-agent/interop/v1/ui/rendered') {
       const body = await readBody(request); const consumer = consumers.get(body?.consumerId); const turn = [...turnsByClient.values()].find((item) => item.turnId === body?.turnId && item.sessionId === body?.sessionId);
-      if (!consumer || consumer.sessionId !== body?.sessionId) { reject(response, 403, createError('ui-rendered-forbidden', 'The current workbench UI consumer could not be verified.', 'ui-consumer', { retryable: true, ids: { sessionId: typeof body?.sessionId === 'string' ? body.sessionId : '' }, nextAction: 'Reopen the Workbench AI mode and retry the turn.' })); return true; }
+      if (!consumer || consumer.sessionId !== body?.sessionId || consumer.renderSecret !== body?.renderSecret) { reject(response, 403, createError('ui-rendered-forbidden', 'The current workbench UI consumer could not be verified.', 'ui-consumer', { retryable: true, ids: { sessionId: typeof body?.sessionId === 'string' ? body.sessionId : '' }, nextAction: 'Reopen the Workbench AI mode and retry the turn.' })); return true; }
       if (!turn) { reject(response, 404, createError('turn-not-found', 'Turn was not found.', 'ui-consumer')); return true; }
+      if (!turn.renderNonces?.get(consumer.id) || turn.renderNonces.get(consumer.id) !== body?.renderNonce) { reject(response, 409, createError('ui-render-proof-required', 'The rendered acknowledgement did not match the current iframe render target.', 'ui-consumer', { retryable: true, ids: idsFor(turn), nextAction: 'Keep the current Workbench AI mode open and wait for the native user message to render.' })); return true; }
       turn.renderedConsumerIds ||= new Set();
       if (turn.renderedConsumerIds.has(consumer.id)) {
         json(response, 200, { ok: true, protocol: PROTOCOL, protocolVersion: PROTOCOL_VERSION, idempotent: true }); return true;

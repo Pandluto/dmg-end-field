@@ -112,14 +112,20 @@ try {
     body: JSON.stringify({ consumerId: 'ui-a', renderSecret, sessionId: 'native-a', turnId: firstPayload.turn.turnId }),
   })).json();
   assert.equal(renderTarget.rawUserText, request.rawUserText);
+  assert.match(renderTarget.renderNonce, /^[0-9a-f-]{36}$/);
+  const missingRenderProof = await fetch(`${base}/def-agent/interop/v1/ui/rendered`, {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ consumerId: 'ui-a', renderSecret, sessionId: 'native-a', turnId: firstPayload.turn.turnId, surface: 'native-iframe', target: 'user-message' }),
+  });
+  assert.equal(missingRenderProof.status, 409);
   const rendered = await fetch(`${base}/def-agent/interop/v1/ui/rendered`, {
     method: 'POST', headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ consumerId: 'ui-a', sessionId: 'native-a', turnId: firstPayload.turn.turnId, surface: 'native-iframe', target: 'user-message' }),
+    body: JSON.stringify({ consumerId: 'ui-a', renderSecret, renderNonce: renderTarget.renderNonce, sessionId: 'native-a', turnId: firstPayload.turn.turnId, surface: 'native-iframe', target: 'user-message' }),
   });
   assert.equal(rendered.status, 200);
   const renderedRetry = await (await fetch(`${base}/def-agent/interop/v1/ui/rendered`, {
     method: 'POST', headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ consumerId: 'ui-a', sessionId: 'native-a', turnId: firstPayload.turn.turnId, surface: 'native-iframe', target: 'user-message' }),
+    body: JSON.stringify({ consumerId: 'ui-a', renderSecret, renderNonce: renderTarget.renderNonce, sessionId: 'native-a', turnId: firstPayload.turn.turnId, surface: 'native-iframe', target: 'user-message' }),
   })).json();
   assert.equal(renderedRetry.idempotent, true);
 
