@@ -36,6 +36,8 @@
 - `图片资源管理`  
   管本地图片资源、清单和部分桌面侧联动能力
 
+- `DEF OpenCode / AI CLI`：在主界面排轴与独立 AI CLI 中提供受控的本地 Agent、数据资源查询、Work Node 审查和应用流程
+
 ## 为什么做这个
 
 因为手动配表真的很烦。
@@ -89,6 +91,23 @@ npm run electron:build
 默认打包输出目录是 `release/`。  
 构建产物和调试残留不建议提交到 Git。
 
+## 开发与文档
+
+项目采用 Spec 驱动开发：需求、研究、任务、验收和后续维护记录都以对应 Spec 为主轴。开始开发前先进入相应 Spec，而不是在顶层新建零散文档。
+
+- [文档入口](docs/README.md)
+- [Spec 总索引](docs/specs/README.md)
+- [跨 Spec 测试口径](docs/testing/README.md)
+- [跨 Spec 架构审计](docs/architecture/README.md)
+
+一个 Spec 的标准生命周期是：
+
+```text
+research → spec → tasks → coding → verification → maintenance review/fix
+```
+
+`spec.md` 记录需求事实，`tasks.md` 记录执行清单，`verification*.md` 保存完成证据。新一轮 Spec 或 Tasks 必须先有明确标题、目标或内容，不能用空目录替代需求定义。
+
 ## 技术栈
 
 - `React 18`
@@ -114,6 +133,7 @@ npm run electron:build
 - 请不要提交构建产物、临时文件或本地编辑器配置
 - 涉及本地环境的私有配置请放在忽略文件范围内
 - 如果要继续扩功能，优先保持“能编辑、能保存、能回看”这条主线稳定
+- 新文档默认进入对应 `docs/specs/<spec-id>/`；仅跨多个 Spec 的审计进入 `docs/architecture/`
 
 ## 免责声明
 
