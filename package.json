@@ -12,6 +12,8 @@
     "interop": "node scripts/def-codex-interop-client.mjs",
     "interop:hello": "node scripts/def-codex-interop-client.mjs hello",
     "interop:check": "node scripts/def-codex-interop-check.mjs",
+    "harness": "node scripts/def-harness-cli.mjs",
+    "harness:check": "node scripts/def-harness-check.mjs",
     "ai-cli:rest": "node scripts/ai-cli-rest-server.mjs",
     "smoke:ai-cli-rest": "node scripts/ai-cli-rest-smoke.mjs",
     "smoke:work-node-sqlite": "node scripts/ai-timeline-work-node-sqlite-smoke.mjs && node scripts/ai-timeline-work-node-rest-smoke.mjs && node scripts/ai-timeline-work-node-backup-restore-smoke.mjs && node scripts/timeline-migration-smoke.mjs",

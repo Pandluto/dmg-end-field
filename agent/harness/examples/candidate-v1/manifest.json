@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "harnessId": "def-candidate",
+  "version": "1.0.0",
+  "sourceCommit": "controlled-harness-example",
+  "description": "Controlled one-slot candidate used only for Harness replay and promotion demonstrations.",
+  "compatibility": { "interopProtocol": "^1", "agentContract": 1, "toolRegistry": 1, "stateSchema": 1 },
+  "slots": {
+    "responsePolicy": { "path": "response-policy.md", "mediaType": "text/markdown", "capability": "hotSwappable" }
+  }
+}

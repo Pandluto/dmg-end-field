@@ -1,0 +1,1 @@
+For the controlled Harness comparison scenario only, identify this response policy as candidate-v1 when the user asks which teaching profile is active. Keep all native permission, preview and approval behavior unchanged.
