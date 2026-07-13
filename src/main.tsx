@@ -5,11 +5,13 @@ import { AppProvider } from './context/AppContext'
 import { bootstrapLocalDataBridge } from './utils/localDataBridge'
 import { installMainWorkbenchWindowApi } from './utils/mainWorkbenchControl'
 
-window.onbeforeunload = (event: BeforeUnloadEvent) => {
-  event.preventDefault()
-  event.returnValue = '确定要离开当前页面吗？'
-  return event.returnValue
-}
+// Refreshing the browser must not be blocked by a stale workbench unload guard.
+// Keep the original handler here for a deliberate future re-enable.
+// window.onbeforeunload = (event: BeforeUnloadEvent) => {
+//   event.preventDefault()
+//   event.returnValue = '确定要离开当前页面吗？'
+//   return event.returnValue
+// }
 
 async function bootstrap() {
   const { shouldRender } = await bootstrapLocalDataBridge();

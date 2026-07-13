@@ -186,6 +186,7 @@ export function DefOpenCodeView({
             allow="clipboard-read; clipboard-write"
           />
         ) : null}
+        {status === 'checking' ? <div className="def-opencode-view__loading">正在连接 OpenCode…</div> : null}
       </div>
     </section>
   );
