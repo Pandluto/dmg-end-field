@@ -20,6 +20,7 @@ const {
   runtimeSummary,
   ensureRuntime,
   createNativeHostSession,
+  getNativeHarnessSystem,
   recoverNativeHostSession,
   buildNativeHostProfile,
   readNativeSessionBinding,
@@ -648,6 +649,18 @@ async function sendNativeInteropPromptOnce(sessionID, body) {
     error.status = 404;
     throw error;
   }
+  const requestedHarness = typeof body?.harnessSelector === 'string' ? body.harnessSelector.trim() : '';
+  if (requestedHarness) {
+    const pinned = binding.harnessBinding?.harness;
+    const matches = requestedHarness === binding.harnessBinding?.selector
+      || requestedHarness === `${pinned?.harnessId || ''}@${pinned?.version || ''}`;
+    if (!matches) {
+      const error = new Error('BLOCKED_HARNESS_LOAD: native session is pinned to a different Harness.');
+      error.code = 'BLOCKED_HARNESS_LOAD';
+      error.status = 409;
+      throw error;
+    }
+  }
   const rawUserText = typeof body?.rawUserText === 'string' ? body.rawUserText.trim() : '';
   const providerVisibleUserText = typeof body?.providerVisibleUserText === 'string'
     ? body.providerVisibleUserText.trim()
@@ -663,13 +676,14 @@ async function sendNativeInteropPromptOnce(sessionID, body) {
     : null;
   const runtime = await ensureRuntime(readConfig().deepseek);
   const workbenchContext = readNativeWorkbenchContext(binding);
+  const harness = getNativeHarnessSystem(binding);
   const diagnosticSystem = diagnostic
     ? `Diagnostic ingress. Purpose: ${String(diagnostic.purpose || '').slice(0, 240)}. Scope: ${String(diagnostic.scope || '').slice(0, 240)}. Mutation allowed: ${diagnostic.mutationAllowed === true}. This diagnostic marker is not user text.`
     : undefined;
   const payload = {
     agent: binding.agent,
     model: { providerID: 'deepseek', modelID: sanitizeDeepSeekConfig(readConfig().deepseek).model },
-    system: buildWorkbenchContextSystemPrompt(workbenchContext, diagnosticSystem),
+    system: buildWorkbenchContextSystemPrompt(workbenchContext, [harness.system, diagnosticSystem].filter(Boolean).join('\n\n')),
     parts: [{ type: 'text', text: rawUserText }],
   };
   const response = await fetch(
@@ -696,6 +710,8 @@ async function sendNativeInteropPromptOnce(sessionID, body) {
       { role: 'system', source: 'workbench-context', text: payload.system },
       { role: 'user', text: rawUserText },
     ],
+    harnessBinding: harness.binding,
+    harnessWarning: harness.warning,
   };
 }
 
@@ -964,6 +980,7 @@ const server = http.createServer(async (request, response) => {
         host,
         skillId: typeof body.skillId === 'string' ? body.skillId : undefined,
         thinkingEffort: body.thinkingEffort,
+        harnessSelector: typeof body.harnessSelector === 'string' ? body.harnessSelector : 'stable',
       });
       const binding = ensureNativeSessionAxisBinding(session.directory, session.sessionID);
       const axisContext = await syncNativeWorkbenchAxisBinding(binding);
@@ -1136,7 +1153,7 @@ const server = http.createServer(async (request, response) => {
     if (method === 'POST' && nativeInteropPrompt) {
       const sessionID = decodeURIComponent(nativeInteropPrompt[1]);
       const result = await sendNativeInteropPrompt(sessionID, await readJsonBody(request));
-      writeJson(response, 202, { ok: true, sessionId: sessionID, ingressMode: result.ingressMode, acceptedAt: result.acceptedAt, nativeUserMessageId: result.nativeUserMessageId || undefined, providerVisibleMessages: result.providerVisibleMessages, idempotent: result.idempotent === true });
+      writeJson(response, 202, { ok: true, sessionId: sessionID, ingressMode: result.ingressMode, acceptedAt: result.acceptedAt, nativeUserMessageId: result.nativeUserMessageId || undefined, providerVisibleMessages: result.providerVisibleMessages, harnessBinding: result.harnessBinding || null, harnessWarning: result.harnessWarning || null, idempotent: result.idempotent === true });
       return;
     }
 
@@ -1442,7 +1459,7 @@ const server = http.createServer(async (request, response) => {
     });
   } catch (error) {
     const errorCode = error && typeof error === 'object' && typeof error.code === 'string' ? error.code : undefined;
-    writeJson(response, errorCode === 'DEF_SESSION_SKILL_MISMATCH' ? 409 : 500, {
+    writeJson(response, Number.isInteger(error?.status) ? error.status : errorCode === 'DEF_SESSION_SKILL_MISMATCH' || errorCode === 'BLOCKED_HARNESS_LOAD' ? 409 : 500, {
       ok: false,
       error: error instanceof Error ? error.message : String(error),
       ...(errorCode ? { code: errorCode } : {}),

@@ -208,6 +208,14 @@ function registerPackage(runtimeRoot, packageDirectory, channel = '') {
   if (channel) setChannel(runtimeRoot, channel, ref);
   return ref;
 }
+function ensureBaseline(runtimeRoot, sourceDirectory) {
+  const paths = registryPaths(runtimeRoot);
+  const built = buildPackage(sourceDirectory, path.join(paths.root, 'builds'));
+  const ref = registerPackage(paths.root, built.directory);
+  const channels = readChannels(paths.root);
+  if (!channels.stable) setChannel(paths.root, 'stable', ref);
+  return readChannels(paths.root).stable;
+}
 function resolveSelector(runtimeRoot, selector = 'stable', lastVerifiedStable = null) {
   const channels = readChannels(runtimeRoot);
   let ref;
@@ -309,6 +317,6 @@ function rollback(runtimeRoot, reviewer, reason = '') {
 module.exports = {
   SCHEMA_VERSION, PACKAGE_SCHEMA, BINDING_SCHEMA, TRACE_SCHEMA, REGRESSION_SCHEMA, PROMOTION_SCHEMA, SLOT_NAMES,
   DefHarnessError, stableJson, sha256, buildPackage, validatePackageDirectory, registryPaths, readChannels,
-  registerPackage, setChannel, resolveSelector, createLoader, createSessionBinding, composeHarnessSystem, traceRef,
+  registerPackage, ensureBaseline, setChannel, resolveSelector, createLoader, createSessionBinding, composeHarnessSystem, traceRef,
   appendDecision, promote, rollback, packageRef,
 };

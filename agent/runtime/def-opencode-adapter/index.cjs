@@ -7,6 +7,7 @@ const path = require('path');
 const { pathToFileURL } = require('url');
 const { EventEmitter } = require('events');
 const { spawn, spawnSync } = require('child_process');
+const defHarness = require('../../harness/def-harness.cjs');
 
 const DEFAULT_DEEPSEEK_BASE_URL = 'https://api.deepseek.com';
 const DEFAULT_DEEPSEEK_MODEL = 'deepseek-v4-pro';
@@ -25,6 +26,10 @@ const agentWorkspaceDir = path.join(os.tmpdir(), 'dmg-end-field', 'def-agent-wor
 let resolvedAgentWorkspaceDir = null;
 const defaultDefOpenCodeHome = path.join(projectRoot, '.runtime', 'def-opencode');
 const DEF_TRANSCRIPT_SCHEMA_VERSION = 1;
+const harnessRuntimeRoot = path.join(projectRoot, '.runtime', 'def-harness');
+const harnessBaselineSource = path.join(projectRoot, 'agent', 'harness', 'baseline', 'stable-v0');
+const nativeHarnessLoader = defHarness.createLoader(harnessRuntimeRoot);
+const nativeHarnessBySession = new Map();
 
 const capabilityPolicy = {
   name: 'def-runtime-native-tools-v2',
@@ -727,7 +732,33 @@ function encodeDirectorySlug(directory) {
   return Buffer.from(directory, 'utf8').toString('base64url');
 }
 
-async function createNativeHostSession({ config = {}, host = 'ai-cli', skillId, thinkingEffort = 'medium' } = {}) {
+function resolveNativeHarness(selector = 'stable') {
+  defHarness.ensureBaseline(harnessRuntimeRoot, harnessBaselineSource);
+  return nativeHarnessLoader.resolve(selector || 'stable');
+}
+
+function getNativeHarnessSystem(binding) {
+  const pinned = binding?.harnessBinding;
+  if (!pinned?.harness?.harnessId || !pinned?.harness?.version || !pinned?.harness?.contentHash) return { system: '', binding: null, warning: null };
+  let loaded = nativeHarnessBySession.get(binding.sessionID);
+  if (!loaded) {
+    const resolved = nativeHarnessLoader.resolve(`${pinned.harness.harnessId}@${pinned.harness.version}`);
+    if (resolved.ref.contentHash !== pinned.harness.contentHash) {
+      const error = new Error('native-harness-binding-hash-mismatch');
+      error.code = 'HARNESS_HASH_MISMATCH';
+      throw error;
+    }
+    loaded = { resolved, binding: pinned };
+    nativeHarnessBySession.set(binding.sessionID, loaded);
+  }
+  return {
+    system: defHarness.composeHarnessSystem(loaded.binding, loaded.resolved.artifactView),
+    binding: loaded.binding,
+    warning: binding.harnessWarning || null,
+  };
+}
+
+async function createNativeHostSession({ config = {}, host = 'ai-cli', skillId, thinkingEffort = 'medium', harnessSelector = 'stable' } = {}) {
   const resolvedSkillId = host === 'workbench'
     ? 'workbench'
     : skillMap[skillId] && skillId !== 'workbench'
@@ -735,13 +766,16 @@ async function createNativeHostSession({ config = {}, host = 'ai-cli', skillId, 
       : 'operator';
   const selected = skillMap[resolvedSkillId] || skillMap.operator;
   const deepseek = sanitizeDeepSeekConfig(config);
+  const resolvedHarness = resolveNativeHarness(harnessSelector);
   const directory = createAgentSessionWorkspace(resolvedSkillId);
   const serverUrl = await ensureOpenCodeServer(deepseek, resolvedSkillId, thinkingEffort);
   const query = `directory=${encodeURIComponent(directory)}`;
   const payload = buildSessionCreatePayload({ selected, deepseek, skillId: resolvedSkillId, thinkingEffort });
   const session = await requestJson('POST', `${serverUrl}/session?${query}`, payload, undefined, 15000);
   const profile = buildNativeHostProfile(host);
-  writeSessionBinding(directory, { id: session.id, agent: selected.agent, skillId: resolvedSkillId, profile });
+  const harnessBinding = defHarness.createSessionBinding({ sessionId: session.id, resolved: resolvedHarness });
+  nativeHarnessBySession.set(session.id, { resolved: resolvedHarness, binding: harnessBinding });
+  writeSessionBinding(directory, { id: session.id, agent: selected.agent, skillId: resolvedSkillId, profile, harnessBinding, harnessWarning: resolvedHarness.error || null });
   return {
     id: session.id,
     sessionID: session.id,
@@ -751,6 +785,8 @@ async function createNativeHostSession({ config = {}, host = 'ai-cli', skillId, 
     directory,
     serverUrl,
     profile,
+    harnessBinding,
+    harnessWarning: resolvedHarness.error || null,
     uiPath: `/${encodeDirectorySlug(directory)}/session/${encodeURIComponent(session.id)}`,
   };
 }
@@ -789,7 +825,18 @@ async function recoverNativeHostSession({ config = {}, directory, sessionID } = 
   const payload = buildSessionCreatePayload({ selected, deepseek, skillId: resolvedSkillId, thinkingEffort: 'medium' });
   const session = await requestJson('POST', `${serverUrl}/session?${query}`, payload, undefined, 15000);
   const profile = buildNativeHostProfile(binding.host);
-  writeSessionBinding(binding.directory, { id: session.id, agent: selected.agent, skillId: resolvedSkillId, profile });
+  const priorHarness = binding.harnessBinding?.harness;
+  const resolvedHarness = priorHarness
+    ? nativeHarnessLoader.resolve(`${priorHarness.harnessId}@${priorHarness.version}`)
+    : resolveNativeHarness('stable');
+  if (priorHarness && resolvedHarness.ref.contentHash !== priorHarness.contentHash) {
+    const error = new Error('native-harness-recovery-hash-mismatch');
+    error.code = 'HARNESS_HASH_MISMATCH';
+    throw error;
+  }
+  const harnessBinding = defHarness.createSessionBinding({ sessionId: session.id, resolved: resolvedHarness });
+  nativeHarnessBySession.set(session.id, { resolved: resolvedHarness, binding: harnessBinding });
+  writeSessionBinding(binding.directory, { id: session.id, agent: selected.agent, skillId: resolvedSkillId, profile, harnessBinding, harnessWarning: resolvedHarness.error || null });
   return {
     id: session.id,
     sessionID: session.id,
@@ -798,6 +845,8 @@ async function recoverNativeHostSession({ config = {}, directory, sessionID } = 
     skillId: resolvedSkillId,
     agent: selected.agent,
     profile,
+    harnessBinding,
+    harnessWarning: resolvedHarness.error || null,
     recovered: true,
     uiPath: `/${encodeDirectorySlug(binding.directory)}/session/${encodeURIComponent(session.id)}`,
   };
@@ -843,7 +892,7 @@ function writeSessionBinding(directory, session) {
     ? existing.axisBindingId.trim()
     : `axis-${crypto.randomUUID()}`;
   fs.writeFileSync(path.join(directory, '.def-session.json'), `${JSON.stringify({
-    schemaVersion: 2,
+    schemaVersion: 3,
     sessionID: session.id,
     axisBindingId,
     directory,
@@ -851,6 +900,8 @@ function writeSessionBinding(directory, session) {
     skillId: session.skillId,
     host: session.skillId === 'workbench' ? 'workbench' : 'ai-cli',
     profile: session.profile || buildNativeHostProfile(session.skillId === 'workbench' ? 'workbench' : 'ai-cli'),
+    ...(session.harnessBinding ? { harnessBinding: session.harnessBinding } : existing?.harnessBinding ? { harnessBinding: existing.harnessBinding } : {}),
+    ...(session.harnessWarning ? { harnessWarning: session.harnessWarning } : existing?.harnessWarning ? { harnessWarning: existing.harnessWarning } : {}),
     createdAt: Date.now(),
   }, null, 2)}\n`, 'utf8');
   return axisBindingId;
@@ -904,6 +955,8 @@ function readNativeSessionBinding(directory, sessionID, options = {}) {
     skillId: expected.skillId,
     profile: expected,
     axisBindingId: typeof binding.axisBindingId === 'string' && binding.axisBindingId.trim() ? binding.axisBindingId.trim() : null,
+    harnessBinding: binding.harnessBinding || null,
+    harnessWarning: binding.harnessWarning || null,
     nodeRelation: options.includeNodeRelation === false ? null : readNativeNodeRelation(resolved),
   };
 }
@@ -2207,6 +2260,7 @@ module.exports = {
   runtimeSummary,
   ensureRuntime,
   createNativeHostSession,
+  getNativeHarnessSystem,
   recoverNativeHostSession,
   buildNativeHostProfile,
   readNativeSessionBinding,

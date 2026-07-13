@@ -133,6 +133,9 @@ function createDefCodexInteropProtocol(options) {
     if (!continuation && body?.sessionId !== undefined && typeof body.sessionId !== 'string') {
       return createError('invalid-session-id', 'sessionId must be a string when present.', 'protocol');
     }
+    if (body?.harnessSelector !== undefined && (typeof body.harnessSelector !== 'string' || !/^(?:stable|previousStable|candidate\/[a-z][a-z0-9-]{0,63}|[a-z][a-z0-9-]{1,63}@[0-9]+(?:\.[0-9]+){0,2}(?:-[a-z0-9.-]+)?)$/.test(body.harnessSelector))) {
+      return createError('invalid-harness-selector', 'harnessSelector must be stable, previousStable, candidate/<name>, or id@version.', 'protocol');
+    }
     const ingressMode = body?.ingressMode || 'pure-blackbox';
     if (!['pure-blackbox', 'diagnostic'].includes(ingressMode)) {
       return createError('invalid-ingress-mode', 'ingressMode must be pure-blackbox or diagnostic.', 'protocol');
@@ -167,6 +170,7 @@ function createDefCodexInteropProtocol(options) {
       revision: native?.axisContext?.checkout?.updatedAt || snapshot.revision || snapshot.checkoutRevision || null,
       selectedOperators: operators,
       pending: snapshot.pendingApproval || snapshot.pendingNode || snapshot.pendingCommand || null,
+      harness: native?.binding?.harnessBinding || null,
     };
   }
 
@@ -411,6 +415,7 @@ function createDefCodexInteropProtocol(options) {
       turnId: crypto.randomUUID(),
       clientTurnId: body.clientTurnId,
       scenarioId: typeof body.scenarioId === 'string' ? body.scenarioId.slice(0, 128) : undefined,
+      harnessSelector: typeof body.harnessSelector === 'string' ? body.harnessSelector : undefined,
       ingressMode: body.ingressMode || 'pure-blackbox',
       rawUserText: body.rawUserText.trim(),
       providerVisibleUserText: body.rawUserText.trim(),
@@ -471,6 +476,7 @@ function createDefCodexInteropProtocol(options) {
         providerVisibleUserText: record.providerVisibleUserText,
         ingressMode: record.ingressMode,
         diagnostic,
+        harnessSelector: record.harnessSelector,
         thinkingEffort: body.thinkingEffort,
         correlation: idsFor(record),
       });
@@ -500,9 +506,12 @@ function createDefCodexInteropProtocol(options) {
     }
     record.providerVisibleMessages = sidecar.body?.providerVisibleMessages || [{ role: 'user', text: record.providerVisibleUserText }];
     record.nativeUserMessageId = String(sidecar.body?.nativeUserMessageId || '');
+    record.harnessBinding = sidecar.body?.harnessBinding || null;
+    record.harnessWarning = sidecar.body?.harnessWarning || null;
+    record.response = { ...record.response, harness: record.harnessBinding, ...(record.harnessWarning ? { harnessWarning: record.harnessWarning } : {}) };
     if (record.ingressMode === 'diagnostic') record.response.providerVisibleMessages = record.providerVisibleMessages;
     appendAudit(continuation ? 'turn.continue' : 'turn.start', record, 'accepted');
-    emit('accepted', record, { ingressMode: record.ingressMode, snapshotAvailable: record.snapshotAvailable });
+    emit('accepted', record, { ingressMode: record.ingressMode, snapshotAvailable: record.snapshotAvailable, harness: record.harnessBinding, ...(record.harnessWarning ? { harnessWarning: record.harnessWarning } : {}) });
     if (!continuation) emit('session-created', record, { host: 'workbench', nativeSession: true });
     if (!state.available) emit('snapshot-unavailable', record, { source: 'workbench-snapshot' });
     emit('ui-prompt-consumed', record, { uiConsumerId: consumer.id, nativeSession: true });
@@ -520,10 +529,20 @@ function createDefCodexInteropProtocol(options) {
         : { ready: false, state: health.status ? 'unhealthy' : 'not-started' };
     } catch {}
     const state = await snapshot();
+    const consumer = currentConsumer();
+    let harness = null;
+    if (consumer?.directory) {
+      try {
+        const query = new URLSearchParams({ sessionID: consumer.sessionId, directory: consumer.directory });
+        const bootstrap = await options.fetchJson(`${options.sidecarUrl}/api/native/bootstrap?${query}`);
+        harness = bootstrap.body?.binding?.harnessBinding || null;
+      } catch {}
+    }
     json(response, 200, {
       ok: true, protocol: PROTOCOL, protocolVersion: PROTOCOL_VERSION, developmentOnly: true,
       bridge: { ready: true, version: options.bridgeVersion || 'local' }, agent: sidecar,
       workbench: { snapshotAvailable: state.available, uiConnected: currentConsumer() !== null, uiConsumerCount: consumers.size },
+      harness: { enabled: true, activeSessionBinding: harness },
       capabilities: CAPABILITIES,
       authorization: { required: true, authorizeUrl: `${baseUrl}/def-agent/interop/v1/authorize`, expiresInSeconds: 900 },
     });
@@ -582,7 +601,7 @@ function createDefCodexInteropProtocol(options) {
       if (!run) { reject(response, 404, createError('interop-session-not-found', 'No protocol run exists for this session.', 'session', { ids: { sessionId } })); return true; }
       const upstream = await options.fetchJson(`${options.sidecarUrl}/api/native/session/${encodeURIComponent(sessionId)}/interop-transcript`);
       reconcileTranscriptCompletion(run, upstream.body?.messages);
-      json(response, upstream.status || 502, { ok: upstream.status >= 200 && upstream.status < 300, protocol: PROTOCOL, protocolVersion: PROTOCOL_VERSION, testRunId: run.testRunId, sessionId, turns: run.turns.map((turn) => ({ ...idsFor(turn), ingressMode: turn.ingressMode, rawUserText: turn.rawUserText, providerVisibleUserText: turn.providerVisibleUserText, ...(turn.ingressMode === 'diagnostic' ? { diagnostic: turn.diagnostic, providerVisibleMessages: turn.providerVisibleMessages } : {}), status: turn.status })), transcript: upstream.body?.messages || [] }); return true;
+      json(response, upstream.status || 502, { ok: upstream.status >= 200 && upstream.status < 300, protocol: PROTOCOL, protocolVersion: PROTOCOL_VERSION, testRunId: run.testRunId, sessionId, turns: run.turns.map((turn) => ({ ...idsFor(turn), ingressMode: turn.ingressMode, rawUserText: turn.rawUserText, providerVisibleUserText: turn.providerVisibleUserText, harness: turn.harnessBinding || null, ...(turn.harnessWarning ? { harnessWarning: turn.harnessWarning } : {}), ...(turn.ingressMode === 'diagnostic' ? { diagnostic: turn.diagnostic, providerVisibleMessages: turn.providerVisibleMessages } : {}), status: turn.status })), transcript: upstream.body?.messages || [] }); return true;
     }
     const questionsMatch = /^\/def-agent\/interop\/v1\/sessions\/([^/]+)\/questions$/.exec(path);
     if (method === 'GET' && questionsMatch) {
