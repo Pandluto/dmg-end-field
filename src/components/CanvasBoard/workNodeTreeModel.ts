@@ -19,6 +19,7 @@ function formatDiffSummary(summary?: TimelinePayloadDiffSummary) {
     summary.changedButtonCount ? `${summary.changedButtonCount} 按钮变更` : '',
     summary.addedBuffCount ? `+${summary.addedBuffCount} Buff` : '',
     summary.removedBuffCount ? `-${summary.removedBuffCount} Buff` : '',
+    summary.changedCharacterInputCount ? `${summary.changedCharacterInputCount} 干员配装变更` : '',
   ].filter(Boolean);
   return parts.length ? parts.join(' / ') : 'base 与 working 一致';
 }

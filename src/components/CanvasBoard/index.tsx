@@ -191,6 +191,7 @@ function formatTimelineDiffSummary(diff: ReturnType<typeof diffTimelinePayloads>
   if (summary.changedButtonCount) parts.push(`changed ${summary.changedButtonCount} button(s)`);
   if (summary.addedBuffCount) parts.push(`added ${summary.addedBuffCount} buff(s)`);
   if (summary.removedBuffCount) parts.push(`removed ${summary.removedBuffCount} buff(s)`);
+  if (summary.changedCharacterInputCount) parts.push(`changed ${summary.changedCharacterInputCount} character loadout(s)`);
   if (diff.selectedCharactersChanged) parts.push('selected characters changed');
   return parts.length ? parts.join('; ') : 'no diff';
 }

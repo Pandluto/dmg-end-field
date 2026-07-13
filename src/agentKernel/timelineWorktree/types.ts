@@ -115,12 +115,19 @@ export type TimelineBuffDiffItem = {
   sourceName?: string;
 };
 
+export type TimelineCharacterInputChange = {
+  characterId: string;
+  before: unknown;
+  after: unknown;
+};
+
 export type TimelinePayloadDiffSummary = {
   addedButtonCount: number;
   removedButtonCount: number;
   changedButtonCount: number;
   addedBuffCount: number;
   removedBuffCount: number;
+  changedCharacterInputCount: number;
   beforeButtonCount: number;
   afterButtonCount: number;
   beforeBuffCount: number;
@@ -137,6 +144,7 @@ export type TimelinePayloadDiff = {
   changedButtons: TimelineButtonChange[];
   addedBuffs: TimelineBuffDiffItem[];
   removedBuffs: TimelineBuffDiffItem[];
+  changedCharacterInputs: TimelineCharacterInputChange[];
 };
 
 export type AiTimelineCommit = {

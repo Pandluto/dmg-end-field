@@ -4,6 +4,7 @@ import type {
   TimelineButtonChange,
   TimelineButtonDiffItem,
   TimelineButtonFieldChange,
+  TimelineCharacterInputChange,
   TimelinePayloadDiff,
   TimelinePayloadSummary,
 } from './types';
@@ -64,6 +65,19 @@ function compareButton(before: TimelineButtonDiffItem, after: TimelineButtonDiff
   return { id: before.id, before, after, changes };
 }
 
+function stableJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(stableJson).join(',')}]`;
+  if (!value || typeof value !== 'object') return JSON.stringify(value);
+  return `{${Object.entries(value)
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([key, entry]) => `${JSON.stringify(key)}:${stableJson(entry)}`)
+    .join(',')}}`;
+}
+
+function inputMap(payload: TimelineSnapshotPayload) {
+  return new Map(Object.entries(payload.characterInputMap || {}));
+}
+
 export function summarizeTimelinePayload(payload: TimelineSnapshotPayload): TimelinePayloadSummary {
   return {
     characterCount: payload.selectedCharacters.length,
@@ -77,11 +91,14 @@ export function diffTimelinePayloads(basePayload: TimelineSnapshotPayload, worki
   const workingButtons = buttonMap(workingPayload);
   const baseBuffs = buffMap(basePayload);
   const workingBuffs = buffMap(workingPayload);
+  const baseInputs = inputMap(basePayload);
+  const workingInputs = inputMap(workingPayload);
   const addedButtons: TimelineButtonDiffItem[] = [];
   const removedButtons: TimelineButtonDiffItem[] = [];
   const changedButtons: TimelineButtonChange[] = [];
   const addedBuffs: TimelineBuffDiffItem[] = [];
   const removedBuffs: TimelineBuffDiffItem[] = [];
+  const changedCharacterInputs: TimelineCharacterInputChange[] = [];
 
   for (const [id, button] of workingButtons) {
     const before = baseButtons.get(id);
@@ -101,6 +118,13 @@ export function diffTimelinePayloads(basePayload: TimelineSnapshotPayload, worki
   for (const [id, buff] of baseBuffs) {
     if (!workingBuffs.has(id)) removedBuffs.push(buff);
   }
+  for (const characterId of new Set([...baseInputs.keys(), ...workingInputs.keys()])) {
+    const before = baseInputs.get(characterId);
+    const after = workingInputs.get(characterId);
+    if (stableJson(before) !== stableJson(after)) {
+      changedCharacterInputs.push({ characterId, before: before ?? null, after: after ?? null });
+    }
+  }
 
   return {
     summary: {
@@ -109,6 +133,7 @@ export function diffTimelinePayloads(basePayload: TimelineSnapshotPayload, worki
       changedButtonCount: changedButtons.length,
       addedBuffCount: addedBuffs.length,
       removedBuffCount: removedBuffs.length,
+      changedCharacterInputCount: changedCharacterInputs.length,
       beforeButtonCount: baseButtons.size,
       afterButtonCount: workingButtons.size,
       beforeBuffCount: baseBuffs.size,
@@ -122,5 +147,6 @@ export function diffTimelinePayloads(basePayload: TimelineSnapshotPayload, worki
     changedButtons: changedButtons.sort((left, right) => left.after.label.localeCompare(right.after.label)),
     addedBuffs: addedBuffs.sort((left, right) => left.displayName.localeCompare(right.displayName)),
     removedBuffs: removedBuffs.sort((left, right) => left.displayName.localeCompare(right.displayName)),
+    changedCharacterInputs: changedCharacterInputs.sort((left, right) => left.characterId.localeCompare(right.characterId)),
   };
 }

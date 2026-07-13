@@ -4531,6 +4531,15 @@ function diffAiTimelineField(changes, field, before, after) {
   }
 }
 
+function stableAiTimelineJson(value) {
+  if (Array.isArray(value)) return `[${value.map(stableAiTimelineJson).join(',')}]`;
+  if (!value || typeof value !== 'object') return JSON.stringify(value);
+  return `{${Object.entries(value)
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([key, entry]) => `${JSON.stringify(key)}:${stableAiTimelineJson(entry)}`)
+    .join(',')}}`;
+}
+
 function diffAiTimelinePayloads(basePayload, workingPayload) {
   const baseButtons = new Map(Object.values(isPlainObject(basePayload?.skillButtonTable) ? basePayload.skillButtonTable : {})
     .map((button) => [button.id, normalizeAiTimelineWorkNodeButton(button)]));
@@ -4540,11 +4549,14 @@ function diffAiTimelinePayloads(basePayload, workingPayload) {
     .map((buff) => [buff.id, normalizeAiTimelineWorkNodeBuff(buff)]));
   const workingBuffs = new Map((Array.isArray(workingPayload?.allBuffList) ? workingPayload.allBuffList : [])
     .map((buff) => [buff.id, normalizeAiTimelineWorkNodeBuff(buff)]));
+  const baseInputs = new Map(Object.entries(isPlainObject(basePayload?.characterInputMap) ? basePayload.characterInputMap : {}));
+  const workingInputs = new Map(Object.entries(isPlainObject(workingPayload?.characterInputMap) ? workingPayload.characterInputMap : {}));
   const addedButtons = [];
   const removedButtons = [];
   const changedButtons = [];
   const addedBuffs = [];
   const removedBuffs = [];
+  const changedCharacterInputs = [];
 
   for (const [id, after] of workingButtons) {
     const before = baseButtons.get(id);
@@ -4570,6 +4582,13 @@ function diffAiTimelinePayloads(basePayload, workingPayload) {
   for (const [id, buff] of baseBuffs) {
     if (!workingBuffs.has(id)) removedBuffs.push(buff);
   }
+  for (const characterId of new Set([...baseInputs.keys(), ...workingInputs.keys()])) {
+    const before = baseInputs.get(characterId);
+    const after = workingInputs.get(characterId);
+    if (stableAiTimelineJson(before) !== stableAiTimelineJson(after)) {
+      changedCharacterInputs.push({ characterId, before: before ?? null, after: after ?? null });
+    }
+  }
 
   return {
     summary: {
@@ -4578,6 +4597,7 @@ function diffAiTimelinePayloads(basePayload, workingPayload) {
       changedButtonCount: changedButtons.length,
       addedBuffCount: addedBuffs.length,
       removedBuffCount: removedBuffs.length,
+      changedCharacterInputCount: changedCharacterInputs.length,
       beforeButtonCount: baseButtons.size,
       afterButtonCount: workingButtons.size,
       beforeBuffCount: baseBuffs.size,
@@ -4591,6 +4611,7 @@ function diffAiTimelinePayloads(basePayload, workingPayload) {
     changedButtons: changedButtons.sort((left, right) => left.after.label.localeCompare(right.after.label)),
     addedBuffs: addedBuffs.sort((left, right) => left.displayName.localeCompare(right.displayName)),
     removedBuffs: removedBuffs.sort((left, right) => left.displayName.localeCompare(right.displayName)),
+    changedCharacterInputs: changedCharacterInputs.sort((left, right) => left.characterId.localeCompare(right.characterId)),
   };
 }
 
@@ -4606,6 +4627,7 @@ function countAiTimelineDiffChanges(diff) {
     summary.changedButtonCount,
     summary.addedBuffCount,
     summary.removedBuffCount,
+    summary.changedCharacterInputCount,
     diff?.selectedCharactersChanged ? 1 : 0,
   ].reduce((total, value) => total + (typeof value === 'number' && Number.isFinite(value) ? value : 0), 0);
 }
@@ -4618,6 +4640,7 @@ function formatAiTimelineChangeReason(diff) {
   if (summary.changedButtonCount) parts.push(`修改技能按钮 ${summary.changedButtonCount} 个`);
   if (summary.addedBuffCount) parts.push(`新增 Buff ${summary.addedBuffCount} 个`);
   if (summary.removedBuffCount) parts.push(`删除 Buff ${summary.removedBuffCount} 个`);
+  if (summary.changedCharacterInputCount) parts.push(`修改干员配装 ${summary.changedCharacterInputCount} 人`);
   if (diff?.selectedCharactersChanged) parts.push('出战干员变化');
   return parts.length ? parts.join('，') : 'base 与 working 没有结构化差异';
 }

@@ -188,3 +188,15 @@ when the trusted weapon query returns no candidates. The child-node validation t
 already in flight also completes after the user stops the turn; the stop state must be
 correlated with tool completion so the UI cannot represent that partial draft as a
 completed loadout. These are not accepted as a successful weapon/equipment test.
+
+### Recorded repair (no prompt replay)
+
+The loadout diff now includes `characterInputMap` changes as
+`changedCharacterInputCount` / `changedCharacterInputs` in both the renderer worktree
+model and the Electron bridge. Consequently, a loadout-only child node has a non-empty
+diff summary and an approval rationale that counts the affected operators. The embedded
+Workbench agent now has a hard instruction that an empty `def_data_weapon` result blocks
+a full weapon-and-equipment draft: it must neither mutate that draft nor claim a weapon
+assignment. A focused `diff.test.ts` check, the existing checkout lifecycle check,
+`node --check` for Electron/adapter, and `npx vite build` passed. Per the blocked-run
+instruction, the native loadout prompt was not replayed after this repair.

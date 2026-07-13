@@ -12,6 +12,7 @@ const commit = (overrides: Partial<AiTimelineWorkNodeCommitListItem> = {}): AiTi
   summary: {
     addedButtonCount: 0, removedButtonCount: 0, changedButtonCount: 0,
     addedBuffCount: 0, removedBuffCount: 0,
+    changedCharacterInputCount: 0,
     beforeButtonCount: 0, afterButtonCount: 0,
     beforeBuffCount: 0, afterBuffCount: 0,
   },

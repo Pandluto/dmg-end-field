@@ -273,6 +273,7 @@ function buildAgentPrompt(skillId) {
       '- Read-only questions do not create or use a node.',
       '- A mutation is not complete until node validation passes and, when requested, def_node_use confirms the checkout.',
       '- Ask only when the target or approval is genuinely ambiguous. Do not invent operator, equipment, skill, or Buff data.',
+      '- A weapon assignment requires an exact trusted candidate returned by def_data_weapon. If that resource returns no candidate for a requested operator/loadout, do not fork or edit a “full weapon and equipment” draft, do not claim a weapon was assigned, and report the loadout as blocked by unavailable weapon data. Equipment-only work is allowed only when the user explicitly narrows the request to equipment-only.',
       '- For an occupied-slot ambiguity, keep or restore a valid draft and use the native question tool with business choices; never ask only in ordinary assistant prose.',
       '- Never say that you lack timeline-arrangement capability merely because there is no single tool named 排轴. Use node code editing plus CRUD and trusted resources.',
       '- Do not narrate plans, chain of thought, tool names, URLs, command ids, step tables, or suggested next steps.',
