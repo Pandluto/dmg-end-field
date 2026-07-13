@@ -140,6 +140,12 @@ function buildEmbeddedWorkbenchProject() {
   }];
 }
 
+function buildEmbeddedBrandingScript(profile, session) {
+  const title = profile?.host === 'workbench' ? 'DEF · 排轴助手' : 'DEF · 数据助手';
+  const mark = JSON.stringify(DEF_WORKBENCH_MARK_DATA_URL);
+  return `<link rel="icon" type="image/svg+xml" href="/def-workbench-mark.svg"/><script>window.__DEF_EMBEDDED_PROFILE__=${JSON.stringify(profile)};window.__DEF_NATIVE_SESSION__=${JSON.stringify(session)};try{localStorage.setItem("opencode.settings.dat:defaultServerUrl",location.origin)}catch{};(()=>{const mark=${mark};const apply=()=>{document.querySelectorAll('[data-slot="project-avatar-surface"]').forEach((element)=>{if(element.dataset.defWorkbenchMark||element.querySelector('img'))return;element.dataset.defWorkbenchMark='';element.textContent='';element.setAttribute('aria-label','DEF 工作台');element.style.backgroundImage='url("'+mark+'")';element.style.backgroundPosition='center';element.style.backgroundRepeat='no-repeat';element.style.backgroundSize='78%';element.style.backgroundColor='#fff';})};const watch=()=>{apply();new MutationObserver(apply).observe(document.documentElement,{childList:true,subtree:true})};document.readyState==='loading'?document.addEventListener('DOMContentLoaded',watch,{once:true}):watch();document.title=${JSON.stringify(title)};})();</script>`;
+}
+
 function writeSse(response, event) {
   response.write(`id: ${event.seq ?? Date.now()}\n`);
   response.write(`event: ${event.type || 'message'}\n`);
@@ -392,7 +398,7 @@ function serveOpenCodeUi(request, response, requestUrl) {
   const body = isIndex
     ? Buffer.from(fileBody.toString('utf8').replace('<title>OpenCode</title>', `<title>${embeddedTitle}</title>`).replace(
       '</head>',
-      `<link rel="icon" type="image/svg+xml" href="/def-workbench-mark.svg"/><script>window.__DEF_EMBEDDED_PROFILE__=${JSON.stringify(embeddedProfile)};window.__DEF_NATIVE_SESSION__=${JSON.stringify(embeddedSession)};try{localStorage.setItem("opencode.settings.dat:defaultServerUrl",location.origin)}catch{}</script></head>`,
+      `${buildEmbeddedBrandingScript(embeddedProfile, embeddedSession)}</head>`,
     ), 'utf8')
     : fileBody;
   response.writeHead(200, {
