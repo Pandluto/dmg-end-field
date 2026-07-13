@@ -1,0 +1,15 @@
+{
+  "id": "user-correction-replan-v1",
+  "version": 1,
+  "fixtureMode": "clone-current",
+  "turns": [
+    { "userText": "帮我找当前阵容之外的埃特拉和阿列什，看看能不能配进弭弗队。" },
+    { "userText": "不要再查当前四个人；我说的是选人界面目录。" }
+  ],
+  "verification": {
+    "requiredTools": ["def_data_operator_catalog"],
+    "maxRepeatedToolCalls": { "def_data_operator": 1 },
+    "forbiddenAssistantText": ["数据库只有四名", "重新导入角色"],
+    "mustKeepState": true
+  }
+}

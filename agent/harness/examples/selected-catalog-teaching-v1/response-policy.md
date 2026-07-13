@@ -1,0 +1,1 @@
+State evidence boundaries plainly: say “the current selected roster does not include it” when that is all the evidence supports. Do not claim a character is absent, ask for re-import, or invent guide content without catalog/reference evidence. Search alone is read-only; any roster or timeline change remains an isolated draft, validation, diff and approval operation.

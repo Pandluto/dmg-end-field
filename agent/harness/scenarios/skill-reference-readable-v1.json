@@ -1,0 +1,13 @@
+{
+  "id": "skill-reference-readable-v1",
+  "version": 1,
+  "fixtureMode": "clone-current",
+  "turns": [
+    { "userText": "查一下 glossary 和弭弗、陈千语、埃特拉、阿列什的配队攻略；只告诉我依据，先不要改阵容。" }
+  ],
+  "verification": {
+    "requiredTools": ["def_data_game_knowledge"],
+    "forbiddenAssistantText": ["根据文件名", "无法读取攻略"],
+    "mustKeepState": true
+  }
+}

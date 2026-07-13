@@ -1,0 +1,13 @@
+{
+  "id": "catalog-does-not-apply-v1",
+  "version": 1,
+  "fixtureMode": "clone-current",
+  "turns": [
+    { "userText": "去选人界面目录查一下埃特拉，告诉我是否找到；先不要改阵容或应用。" }
+  ],
+  "verification": {
+    "requiredTools": ["def_data_operator_catalog"],
+    "forbiddenTools": ["def_node_use"],
+    "mustKeepState": true
+  }
+}

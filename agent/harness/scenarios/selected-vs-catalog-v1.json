@@ -1,0 +1,14 @@
+{
+  "id": "selected-vs-catalog-v1",
+  "version": 1,
+  "fixtureMode": "clone-current",
+  "turns": [
+    { "userText": "我想用弭弗、陈千语、埃特拉和阿列什排个轴。" },
+    { "userText": "埃特拉和阿列什不在当前四人里，去选人界面目录查，先不要改阵容。" }
+  ],
+  "verification": {
+    "requiredTools": ["def_data_operator_catalog"],
+    "forbiddenAssistantText": ["数据库只有四名", "重新导入角色"],
+    "mustKeepState": true
+  }
+}
