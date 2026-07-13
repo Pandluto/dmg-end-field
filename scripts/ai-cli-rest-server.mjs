@@ -105,15 +105,27 @@ class NowStorageLocalStorage {
   constructor(filePath, fallbackFilePath) {
     this.filePath = filePath;
     this.fallback = new FileStorage(fallbackFilePath);
+    this.archiveFingerprint = null;
     this.archive = this.readArchive();
+  }
+
+  fingerprint() {
+    try {
+      const stat = fs.statSync(this.filePath);
+      return `${stat.size}:${stat.mtimeMs}`;
+    } catch {
+      return null;
+    }
   }
 
   readArchive() {
     try {
       if (!fs.existsSync(this.filePath)) {
+        this.archiveFingerprint = null;
         return null;
       }
       const parsed = JSON.parse(fs.readFileSync(this.filePath, 'utf-8'));
+      this.archiveFingerprint = this.fingerprint();
       if (!parsed || parsed.type !== 'def.localdata.archive.v1' || !parsed.storage) {
         return null;
       }
@@ -125,6 +137,7 @@ class NowStorageLocalStorage {
         : {};
       return parsed;
     } catch {
+      this.archiveFingerprint = this.fingerprint();
       return null;
     }
   }
@@ -154,6 +167,7 @@ class NowStorageLocalStorage {
     archive.exportedAt = new Date().toISOString();
     fs.mkdirSync(path.dirname(this.filePath), { recursive: true });
     fs.writeFileSync(this.filePath, `${JSON.stringify(archive, null, 2)}\n`, 'utf-8');
+    this.archiveFingerprint = this.fingerprint();
   }
 
   get local() {
@@ -161,10 +175,9 @@ class NowStorageLocalStorage {
   }
 
   refresh() {
+    if (this.fingerprint() === this.archiveFingerprint) return;
     const nextArchive = this.readArchive();
-    if (nextArchive) {
-      this.archive = nextArchive;
-    }
+    this.archive = nextArchive;
   }
 
   getItem(key) {

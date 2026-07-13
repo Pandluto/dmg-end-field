@@ -236,9 +236,9 @@ Codex Teacher Client
 
 ### 7.3 Computer Use 验证
 
-- [ ] 按真实桌面流程进入 Workbench、打开 AI 模式并确认 DEF ready。
-- [ ] 通过协议发起自然语言 turn，同时用 Computer Use 观察消息和回复。
-- [ ] 保存关键 UI 观察/截图，并在验证记录中关联 testRunId/sessionId/clientTurnId。
+- [x] 按真实桌面流程进入 Workbench、打开 AI 模式并确认 DEF ready。
+- [x] 通过协议发起自然语言 turn，同时用 Computer Use 观察消息和回复。
+- [x] 保存关键 UI 观察/截图，并在验证记录中关联 testRunId/sessionId/clientTurnId。
 - [ ] 验证 permission/diff 等交互真实可见，而不是只看 transcript。
 - [ ] 如果使用 Chrome Extension 补充 Windows 路线，明确其不是桌面 Computer Use 结论。
 
@@ -257,7 +257,7 @@ Codex Teacher Client
 ### 8.2 自然语言黑盒矩阵
 
 - [ ] 按 `docs/testing/def-agent-blackbox.md` 使用普通用户话术，不把预期工具和规则写进 prompt。
-- [ ] 只读 case：发起新 session，读取事件/transcript/state，并在当前 UI 可见。
+- [x] 只读 case：发起新 session，读取事件/transcript/state，并在当前 UI 可见。
 - [ ] 多 turn case：Agent 正常追问后，用自然语言 continue，同一 session 正确延续。
 - [ ] mutation preview case：创建隔离草稿，完成 validation/diff，未 use 当前轴。
 - [ ] stop case：停止指定进行中 turn，不影响其他 session。

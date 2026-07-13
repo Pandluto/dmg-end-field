@@ -349,3 +349,54 @@ model/tool/option-card result and not a reason to retry the same prompt. The nex
 live protocol test starts only after `17321/health` responds promptly; it should then
 use one read-only natural-language turn and record the resulting ids, tool events,
 questions and terminal state.
+
+## 2026-07-13 — snapshot-service repair and live read-only retest (17:32 +0800)
+
+The blocked observation was traced to `NowStorageLocalStorage.refresh()` in the
+snapshot REST service. Every `localStorage.getItem()` reparsed the complete
+`data/localdata/now-storage.json` archive (about 12 MB), even when the file had not
+changed. During SSR/snapshot reads this kept the Electron snapshot process near one CPU
+core and made `17321/health` and bridge status time out.
+
+The storage adapter now remembers the archive file's size/mtime fingerprint and only
+reparses when that fingerprint changes. It also clears its in-memory archive when the
+external file disappears or becomes unreadable, avoiding a stale snapshot claim. An
+isolated fresh server using the real archive returned health in about one second. After
+the normal development processes were restarted once for this bridge dependency,
+`17321/health`, `/api/main-workbench/snapshot`, and the v1 status route again responded
+promptly.
+
+One and only one new natural-language Pure Blackbox turn was then sent through the
+backdoor; this is the valid retest of the previously blocked preparation, rather than a
+blind prompt retry:
+
+- Prompt: `现在的排轴状态怎么样？`
+- `testRunId=bcd2a1a0-bdb8-4241-b7af-9289d9716a90`
+- `sessionId=ses_0a57a08d5ffe8uLlvzjVYBjSoi`
+- `turnId=f0a6704e-e5b6-4f01-b5cf-7acf5aae3d43`
+- `clientTurnId=live-readonly-1783935126334`
+- Accepted at `1783935126334`; provider completion was observed at
+  `1783935133199`, and the protocol `completed` event at `1783935133234` (about
+  6.9 seconds end to end).
+
+The start response was `202 Accepted` with `snapshotAvailable=true`. Its raw and
+provider-visible user text were both exactly the prompt above. Cursor replay yielded:
+`ui-session-opened` (seq 1), `accepted` (2), `session-created` (3),
+`ui-prompt-consumed` (4, `uiEventId=71341016-a94e-484a-9ba3-f88cfc8fe7e2`),
+`response-first-token` (5), and `completed` (6). Transcript/state retrieval succeeded;
+there were no tool calls, pending command, native question, permission card, mutation,
+or `def_node_use`. State still reported checkout
+`ai-timeline-node-1783926199949-8i1p4ubr`, revision `1783926318429`, and the visible
+four operator/skill pairs 弭弗/Q绝心、陈千语/E见天河、洛茜/B血红之影、黎风/A摧破.
+
+Computer Use observed the actual `DEF · 排轴助手` iframe showing the exact user message
+and its completed answer, including the four-item status and the two existing child
+nodes `[ai] 配置四人装备套装 — open` and `[ai] 为四人配装武器与装备 — ready`.
+This is desktop-visible evidence; it was not inferred from the transcript or DOM. A
+Chrome slow-tab warning appeared after the request and was dismissed with **关闭**;
+neither Chrome's repair/refresh action nor a page reload was used.
+
+The event stream still did not contain `ui-rendered`. This is deliberately recorded as
+an outstanding iframe render-attestation defect, not fabricated as success: the visible
+desktop observation above is the evidence for this read-only case, while a true protocol
+render acknowledgement remains unfinished.
