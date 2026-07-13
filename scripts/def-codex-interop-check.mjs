@@ -30,6 +30,7 @@ function readBody(request) {
 }
 
 let promptCalls = 0;
+let abortedMessages = [];
 const protocol = createDefCodexInteropProtocol({
   profile: 'development',
   baseUrl: 'http://127.0.0.1:0',
@@ -40,13 +41,17 @@ const protocol = createDefCodexInteropProtocol({
   writeSseHeaders,
   async fetchJson(url) {
     if (url.endsWith('/health')) return { status: 200, body: { ok: true, service: 'fake-sidecar' } };
-    if (url.includes('interop-transcript')) return { status: 200, body: { ok: true, messages: [] } };
+    if (url.includes('interop-transcript')) return { status: 200, body: { ok: true, messages: abortedMessages } };
     return { status: 200, body: { ok: true, snapshot: { checkout: { id: 'node-a' }, revision: 7, selectedCharacters: [{ id: 'a', name: 'A' }] } } };
   },
   async postJson(url, body) {
     if (url.endsWith('/interop-prompt')) {
       promptCalls += 1;
       return { status: 202, body: { ok: true, providerVisibleMessages: [{ role: 'user', text: body.rawUserText }] } };
+    }
+    if (url.endsWith('/interop-stop')) {
+      abortedMessages = [{ info: { time: { completed: Date.now() }, error: 'MessageAbortedError: Aborted' }, parts: [] }];
+      return { status: 200, body: { ok: true, reason: 'requested' } };
     }
     return { status: 200, body: { ok: true, reason: 'requested' } };
   },
@@ -82,6 +87,18 @@ try {
   assert.equal(retry.idempotent, true);
   assert.equal(retry.turn.turnId, firstPayload.turn.turnId);
   assert.equal(promptCalls, 1);
+
+  const stoppedStart = await (await fetch(`${base}/def-agent/interop/v1/turns`, {
+    method: 'POST', headers,
+    body: JSON.stringify({ rawUserText: '请停止这个只读问候', clientTurnId: 'turn-stop', ingressMode: 'pure-blackbox' }),
+  })).json();
+  const stopped = await (await fetch(`${base}/def-agent/interop/v1/sessions/native-a/turns/${encodeURIComponent(stoppedStart.turn.turnId)}/stop`, {
+    method: 'POST', headers,
+  })).json();
+  assert.equal(stopped.status, 'stopped');
+  await new Promise((resolve) => setTimeout(resolve, 1100));
+  const stoppedTranscript = await (await fetch(`${base}/def-agent/interop/v1/sessions/native-a/transcript`)).json();
+  assert.equal(stoppedTranscript.turns.find((turn) => turn.turnId === stoppedStart.turn.turnId)?.status, 'stopped');
 
   const replay = await fetch(`${base}/def-agent/interop/v1/ui-events?cursor=0`);
   const replayReader = replay.body.getReader();

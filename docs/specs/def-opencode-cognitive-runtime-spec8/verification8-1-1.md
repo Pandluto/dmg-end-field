@@ -221,3 +221,52 @@ visible final result said the current axis was unchanged and all four operators 
 weapon or equipment. The transcript contains no `def_node_fork`, edit/write,
 `def_node_sync_validate`, or `def_node_use`; completion took about 1 minute 54 seconds.
 This is a successful blocked-path result, not a successful application of equipment.
+
+## 2026-07-13 — delegated backdoor blackbox audit
+
+A delegated, read-only blackbox run used the stable v1 backdoor while the primary agent
+audited the protocol state machine. It did not change code, start or stop services, use
+the UI, trigger mutation, or use Teacher ingress.
+
+- Handshake/status and state were ready: bridge, sidecar, snapshot and one Workbench UI
+  consumer were available; state reported the four current operators and no pending
+  command.
+- Pure Blackbox `你好` used `testRunId=8a37137f-97c0-4ee9-9893-cb16aeb8507a`,
+  `sessionId=ses_0a596edb2ffe3QCfvN0tqizaZ8`,
+  `turnId=49df0db6-8859-431a-b892-8bbef02e21e0`, and
+  `clientTurnId=blackbox-hello-1783929233608-e79039`. It was accepted at cursor 3,
+  first response at cursor 6 (about 6.1 s), and completed at cursor 7. The raw and
+  provider-visible text were both exactly `你好`; no tool ran.
+- Continue `现在的排轴状态怎么样？` used turn
+  `e75deea7-2ec8-4ac1-9af8-9887598e5a70`; it produced accepted, UI-consumed,
+  first-response and completed events (cursors 8–11), with no tool or pending command.
+- The initial stop test exposed an architecture bug: turn
+  `307297a1-c021-4ba8-8b2b-75e6bffc2ffb` returned `stopped` at cursor 14, but the
+  observer later emitted `completed` at cursor 15 from an upstream
+  `MessageAbortedError: Aborted` message with zero tokens. Cursor replay from 7 was
+  otherwise correct (`headCursor=15`, `earliestCursor=1`, `gap=false`); UI replay had
+  stable `uiEventId` values and no `ui-rendered` because that delegated run did not use
+  the desktop UI.
+
+### Stop terminal-state repair
+
+`observeTurn` now rechecks the protocol record after every sleep, transcript fetch and
+tool iteration before it emits an event or reconciles a provider completion. A focused
+in-process regression creates an aborted upstream transcript after a stop and asserts
+that the transcript status remains `stopped` after the observer wakeup.
+
+After restarting the Electron bridge, a real backdoor start/stop run verified the fix:
+`testRunId=0114211a-7556-4507-ae30-956ee2423bd6`,
+`sessionId=ses_0a596edb2ffe3QCfvN0tqizaZ8`,
+`turnId=43a05a6a-65d5-4625-bf2d-87cb09094e69`, and
+`clientTurnId=stop-regression-1783929541560`. The raw and provider-visible text were
+identical. The replay sequence was `accepted` (2), `session-created` (3),
+`ui-prompt-consumed` (4), `ui-rendered` (5), `stopped` (6); after 1.4 seconds the
+transcript still reported `stopped` and no `completed` event existed for that turn.
+
+The audit also found a remaining architecture item: `ui-rendered` is currently emitted
+by the outer Workbench consumer immediately after it receives `ui-prompt-consumed`; the
+iframe does not independently attest that a particular native message was painted. This
+is a protocol/UI-consumer semantics issue to repair in the current architecture, not a
+future Harness concern. Until then, `ui-rendered` is dispatch acknowledgement rather
+than sufficient visual proof; Computer Use remains the visual proof source.

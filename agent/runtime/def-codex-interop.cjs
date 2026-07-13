@@ -164,12 +164,18 @@ function createDefCodexInteropProtocol(options) {
         const timer = setTimeout(resolve, 1000);
         timer.unref?.();
       });
+      // A stop can arrive while this observer is asleep. Do not poll, emit, or
+      // reconcile a provider terminal timestamp after the protocol terminal state
+      // has already become stopped.
+      if (record.status !== 'accepted') return;
       try {
         const upstream = await options.fetchJson(`${options.sidecarUrl}/api/native/session/${encodeURIComponent(record.sessionId)}/interop-transcript`);
+        if (record.status !== 'accepted') return;
         const messages = Array.isArray(upstream.body?.messages) ? upstream.body.messages : [];
         const latest = messages[messages.length - 1];
         const parts = Array.isArray(latest?.parts) ? latest.parts : [];
         for (const part of parts) {
+          if (record.status !== 'accepted') return;
           if (!firstToken && part?.type === 'text' && String(part.text || '').trim()) {
             firstToken = true;
             emit('response-first-token', record, {});
@@ -181,6 +187,7 @@ function createDefCodexInteropProtocol(options) {
             if (part.state?.status === 'error' || part.status === 'error') emit('tool-error', record, { tool: part.tool || part.name || 'native-tool' });
           }
         }
+        if (record.status !== 'accepted') return;
         if (latest?.info?.time?.completed || latest?.info?.completedAt) {
           record.status = 'completed'; appendAudit('turn.completed', record, 'completed'); emit('completed', record, {}); return;
         }
