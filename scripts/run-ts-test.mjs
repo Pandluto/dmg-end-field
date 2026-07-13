@@ -9,7 +9,7 @@ if (!testModules.length) {
 
 const server = await createServer({
   configFile: './vite.config.ts',
-  server: { middlewareMode: true },
+  server: { middlewareMode: true, hmr: false },
   appType: 'custom',
   logLevel: 'error',
 });
