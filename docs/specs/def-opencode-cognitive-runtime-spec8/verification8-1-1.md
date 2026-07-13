@@ -200,3 +200,24 @@ a full weapon-and-equipment draft: it must neither mutate that draft nor claim a
 assignment. A focused `diff.test.ts` check, the existing checkout lifecycle check,
 `node --check` for Electron/adapter, and `npx vite build` passed. Per the blocked-run
 instruction, the native loadout prompt was not replayed after this repair.
+
+## 2026-07-13 — four-operator loadout retry
+
+Computer Use retried the original full-loadout intent in a new visible native session
+`ses_0a596edb2ffe3QCfvN0tqizaZ8` at 15:37:
+
+`Give all four current operators (mifu, chenqianyu, luoxi, lifeng) suitable weapons and complete equipment sets. Use only trusted current data. Create a validated preview, do not apply it.`
+
+The native transcript first completed Workbench/operator/weapon/equipment reads. Every
+weapon lookup for the four operators and physical/guard variants returned no trusted
+candidate. Instead of forking or editing a complete loadout draft, the real Workbench UI
+rendered a single native business question with two choices: equipment-only preview or
+cancel. It visibly presented the equipment recommendations 旧锋 (弭弗), 碾骨 (陈千语),
+50式应龙 (洛茜), and M.I.警用 (黎风), while explicitly stating that it could not claim a
+weapon assignment or fork a weapon-and-equipment draft.
+
+The test selected `取消本次请求` to preserve the requested full-loadout boundary. The
+visible final result said the current axis was unchanged and all four operators had no
+weapon or equipment. The transcript contains no `def_node_fork`, edit/write,
+`def_node_sync_validate`, or `def_node_use`; completion took about 1 minute 54 seconds.
+This is a successful blocked-path result, not a successful application of equipment.
