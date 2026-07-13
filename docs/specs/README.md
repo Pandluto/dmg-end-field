@@ -1,0 +1,57 @@
+# Spec 总索引
+
+本页是开发文档的主导航。目录按产品演进线组织，阶段顺序从早到晚排列；具体完成状态以各目录中的 `spec.md`、`tasks.md` 或 verification 为准。
+
+## DEF OpenCode / Agent
+
+1. [主界面初版](./def-opencode-main-workbench/)
+2. [Tools + Work Node Phase 2](./def-opencode-tools-worknode-phase2/)
+3. [Tools Phase 3](./def-opencode-tools-phase3/)
+4. [Work Node Phase 4](./def-opencode-worknode-phase4/)
+5. [Spec 6：原生工具与原生前端回归](./def-opencode-arch-review-spec6/)
+6. [Spec 7：本地产品化](./def-opencode-local-productization-spec7/)
+
+关联演进线：
+
+- [AI CLI Agent](./ai-cli-agent/)
+- [AI Timeline Worktree](./ai-timeline-worktree/)
+- [主界面](./main-workbench/)
+- [主界面下一阶段](./main-workbench-next-phase/)
+- [主界面 Buff 计层](./main-workbench-buff-countable-phase/)
+
+## Timeline 与计算
+
+- [Spec 5：Timeline 数据生命周期](./timeline-data-lifecycle-phase5/)
+- [Buff 计算链路重构](./buff-calculation-pipeline-refactor/)
+- [抗性区](./resistance-zone/)
+
+## 干员与配置
+
+- [Operator Studio](./operator-studio/)
+- [OperatorConfigPage 替换 Phase 1](./operator-config-page-replacement/)
+- [OperatorConfigPage 替换 Phase 2](./operator-config-page-replacement-phase2/)
+- [OperatorConfigPage 替换 Phase 3](./operator-config-page-replacement-phase3/)
+
+## 装备、武器与 Buff 编辑
+
+1. [Sheet Equipment](./sheet-equipment/)
+2. [编辑交互 Phase 2](./sheet-equipment-editing-phase2/)
+3. [FX 与 imgUrl 迁移 Phase 3](./sheet-equipment-fx-migration-phase3/)
+4. [保存与导入导出 Phase 4](./sheet-equipment-save-import-export-phase4/)
+5. [武器与装备 Buff 编辑器统一](./weapon-equipment-buff-editor-unification/)
+
+## Shell
+
+- [Shell 图片更新](./shell-image-update/)
+
+## 目录内文件约定
+
+优先使用稳定名称 `spec.md`、`tasks.md`、`research.md` 和 `verification.md`。存在多个任务或验收批次时使用语义后缀，例如：
+
+- `task7-2.md`
+- `verification-blackbox-task2-20260711.md`
+- `health-review-20260713.md`
+- `fix-report-20260615.md`
+
+禁止重新创建顶层 `*-spec.md`。新阶段应创建新的 Spec 目录，旧阶段的维护记录则进入原 Spec 目录。
+

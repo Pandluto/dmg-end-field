@@ -68,7 +68,7 @@ Modify as needed:
 - new or existing Weapon data helper module under `src/aiCli` or `src/utils`
 - `src/aiCli/aiCliCommandService.test.ts`
 - REST smoke scripts if needed
-- `docs/ai-cli-agent-spec.md`
+- [`spec.md`](./spec.md)
 - `docs/specs/ai-cli-agent/tasks.md`
 
 Do not change:

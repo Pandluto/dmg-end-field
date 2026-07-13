@@ -274,4 +274,4 @@ http://127.0.0.1:31457/user-images/img-equipment/50式应龙护手·壹型.png
 ## 六、关联文档
 
 - [Shell 图片更新 Spec](file:///c:/Users/zsk86/Desktop/dmg/dmg-end-field/docs/specs/shell-image-update/spec.md)
-- [ImageManager 架构说明](file:///c:/Users/zsk86/Desktop/dmg/dmg-end-field/docs/image-manager-architecture.md)
+- [ImageManager 架构说明](../../image-manager-architecture.md)

@@ -17,7 +17,7 @@
 ## Tasks
 
 - [ ] Task 1: 固定架构边界
-  - [ ] 在 `docs/ai-cli-agent-spec.md` 保持 Shell / Web / REST / Service / Storage 责任分层。
+  - [ ] 在 [`spec.md`](./spec.md) 保持 Shell / Web / REST / Service / Storage 责任分层。
   - [ ] 明确 REST 是本地伴随服务，不是公网后端。
   - [ ] 明确 REST 代码由应用项目维护，不由 shell、Codex、Claude 维护。
   - [ ] 明确所有一方实现代码使用 TypeScript。
