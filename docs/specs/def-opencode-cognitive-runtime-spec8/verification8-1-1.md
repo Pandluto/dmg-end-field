@@ -131,3 +131,25 @@ test typing errors in `aiCliCommandService.test.ts` and missing `node:assert/str
 Electron bridge changes require restarting `npm run electron:dev`; the UI consumer must
 then remount (toggle Workbench AI mode is sufficient). Normal sidecar/UI changes only need
 the smallest relevant refresh. No token, trace dump or screenshot is committed.
+
+## 2026-07-13 — native checkout repaint repair
+
+The native `def_node_use` route already reached the renderer checkout command with
+`reload:false`, but the checkout completion path only hydrated its data stores. Stateful
+Canvas and skill-sandbox children could therefore retain pre-approval layout state until a
+browser refresh. `CanvasBoard` now increments a checkout-only render revision after a
+successful checkout hydration. That re-mounts only the data-bound canvas and right-side
+tool/sandbox once and refreshes the Work Node tree; it does not call
+`window.location.reload()` and does not recreate the native OpenCode session.
+
+Computer Use verified the real Chrome Workbench after native session
+`ses_0a5ba5e3dffeFbiCIEFn870gQ3` reviewed node
+`ai-timeline-node-1783926199949-8i1p4ubr` (`替换四人新干员各一技`). After the
+checkout path completed, leaving AI mode without reloading still showed the four visible
+operator cards 弭弗、陈千语、洛茜、黎风 and exactly four visible canvas skills
+Q 绝心、E 见天河、B 血红之影、A 摧破. Opening the Work Node tree in the same page
+showed the applied node as the current protected path with `4 干员 / 4 按钮`.
+
+The draft's display labels (`怒鸣/凝冰/迅影/破风`) are normalized to the local
+runtime templates during hydration; the visible canonical labels above are therefore the
+expected renderer result, not a failed checkout. Chrome's reload control was never used.

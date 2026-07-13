@@ -468,6 +468,7 @@ export function CanvasBoard({
   );
   const [resistanceRevision, setResistanceRevision] = useState(0);
   const [checkoutBootstrapRevision, setCheckoutBootstrapRevision] = useState(0);
+  const [checkoutRenderRevision, setCheckoutRenderRevision] = useState(0);
   const [isTimelineSessionReady, setIsTimelineSessionReady] = useState(false);
   const {
     activeTimelineId,
@@ -704,6 +705,15 @@ export function CanvasBoard({
     dispatch({ type: 'SET_SELECTED_CHARACTERS', characters: resolvedCharacters });
     syncRuntimeSkillButtonsFromTimelineData(normalizedTimelineData, resolvedCharacters);
   }, [dispatch, loadedCharacters, normalizeTimelineData, replaceTimelineData, selectedCharacters, setSessionWorkingPayload, syncRuntimeSkillButtonsFromTimelineData]);
+
+  const refreshWorkbenchAfterCheckout = useCallback(() => {
+    // A native DEF OpenCode checkout changes data outside the normal pointer-driven
+    // canvas flow. Re-mount the data-bound canvas/sandbox once after hydration so
+    // their local layout caches cannot retain the pre-approval operator set.
+    // This is intentionally not a browser reload and does not recreate OpenCode.
+    setCheckoutRenderRevision((revision) => revision + 1);
+    setWorkNodeRefreshKey((revision) => revision + 1);
+  }, []);
 
   useEffect(() => {
     void refreshActiveDocument().catch(() => undefined).finally(() => setIsTimelineSessionReady(true));
@@ -1302,6 +1312,7 @@ export function CanvasBoard({
           || { id: node.timelineId, label: node.label };
       activateTimeline({ document, checkoutRef, workingPayload: node.workingPayload });
       hydrateCheckoutRuntime(node.workingPayload);
+      refreshWorkbenchAfterCheckout();
     }
 
     if (command.reload === true) {
@@ -3489,9 +3500,10 @@ export function CanvasBoard({
     .join(' ');
 
   const rightWorkbenchContent = isToolPanelVisible && isCandidatePanelEnabled ? (
-    <ToolPanel widthPercent={100} />
+    <ToolPanel key={`checkout-${checkoutRenderRevision}`} widthPercent={100} />
   ) : (
     <SkillSandbox
+      key={`checkout-${checkoutRenderRevision}`}
       selectedCharacters={selectedCharacters}
       onDragStart={handleSandboxDragStart}
       onAvatarDoubleClick={handleAvatarDoubleClick}
@@ -3521,6 +3533,7 @@ export function CanvasBoard({
 
         <div className="canvas-left-zone">
           <CanvasArea
+            key={`checkout-${checkoutRenderRevision}`}
             ref={canvasRef}
             activeSkillButtonId={activeSkillButtonId}
             config={canvasConfig}
