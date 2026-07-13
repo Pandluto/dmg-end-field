@@ -2,571 +2,470 @@
 
 ## 状态
 
-待实施：任务范围与完成定义已形成。允许按检查点分批编码、验证和提交，但不得提前进入 8-1-3 的真实 Codex 返修。
+待实施：任务边界已收敛为“热插拔教学层 + 最小安全训练闭环”。允许按检查点分批编码、验证和提交，但不得提前进入 8-1-3 的真实 Codex 返修。
 
 ## 一句话目标
 
-**把 8-1-1 已稳定的 DEF 联调协议接入一条最小但完整的离线 Harness 流水线，使一次受控 DEF 执行能够被版本化记录、隔离重放、独立裁决，并形成可解释、可回滚的返修候选。**
+**建立可版本化、按 Session 固定、可并行验证和快速回滚的热插拔 Harness，使角色卡、提示词、知识、Skills 与策略成为安全可训练的候选层。**
 
-## 任务定位
+## 为什么这样收敛
 
-8-1-1 已回答“Codex 如何稳定接入和观察 DEF”。本任务只回答：
+当前 DEF Harness 虽然不够聪明，但已经能够调用基础功能。8-1-2 的首要目标不是赋予系统无限自改能力，而是在不破坏现有能力的前提下建立第一块可训练表面。
 
-> 接入以后，如何把一次执行变成可以重复训练、比较和回归的证据？
+因此本任务采用两条边界：
 
-这里的“可训练”不是在线更新模型权重，也不是自动改 prompt，而是建立以下最小闭环：
+1. **训练只能修改热插拔教学层**；
+2. **运行时、工具实现和裁判保持冻结**。
 
-```text
-Harness 版本快照
-  → Scenario + 隔离 Fixture
-  → DEF turn
-  → Trace Bundle
-  → Replay
-  → Independent Verifier
-  → Failure Classification
-  → HarnessProposal / HarnessVersion 记录
-```
-
-8-1-2 只用受控样例证明这条数据流能工作。高级 Codex 对真实 failure 的观察、返修和 UI 回归属于 8-1-3。
-
-## 前置事实
-
-- `DefCodexInteropProtocol v1` 是 Harness 调用和观察 DEF 的唯一正式入口；
-- `status / authorize / start / continue / stop / events / transcript / questions / state` 已可用；
-- Pure Blackbox 与 Diagnostic 已分线；
-- `testRunId / sessionId / turnId / clientTurnId / scenarioId / seq` 可关联；
-- 教师入口只允许 loopback + bearer，token 不得进入 trace；
-- 当前 snapshot 服务来自 `127.0.0.1:17321`，不可用时只读场景可降级记录，依赖当前轴的 mutation 场景必须判定为 `BLOCKED_ENVIRONMENT`；
-- 真实 UI 是否可见仍由 Computer Use 确认，但 8-1-2 不自动驱动 Computer Use。
+热插拔仍需要版本、Session 固定、Trace、对照回归和回滚，否则只能算动态读取配置，不能算可安全训练的 Harness。
 
 ## 完成定义
 
-本任务完成必须同时满足：
+本任务完成必须同时证明：
 
-1. 能生成确定、可比较的 `DefHarnessDescriptor`；
-2. 能通过正式 interop 协议运行 scenario，并生成 append-only `DefTurnTraceBundle`；
-3. 能在全新 fixture 和 session 中 replay，而不是重复消费原会话；
-4. 能运行结构、业务、行为、UI 四层 verifier；
-5. 能联合执行 FAIL_TO_PASS、PASS_TO_PASS 和 safety invariants；
-6. 能区分环境阻塞、协议失败、Agent 失败和裁判失败；
-7. hidden evaluator 输入不会泄露给 Worker 或返修上下文；
-8. 能形成只记录、不自动应用的 `HarnessProposal`；
-9. 能记录带上一稳定版本和 rollback target 的 `HarnessVersion`；
-10. 一个受控单 turn 和一个受控多 turn scenario 完整跑通。
-
-只实现若干 JSON schema、只保存 transcript，或只写一组 smoke test，都不算“可训练 Harness 已打通”。
+1. 一组教学内容可以被构建为不可变 `DefHarnessPackageV1`；
+2. stable 与 candidate 可以同时存在；
+3. 新 Session 可以选择并固定某一 Harness 版本；
+4. Session 运行中切换 active pointer 不会造成版本漂移；
+5. stable/candidate 两个 Session 不会串用 prompt、知识、Skill 或策略；
+6. 每个 turn 的 Trace 能追溯实际 Harness id/hash；
+7. 同一 Scenario 可在新 fixture、新 Session 下分别对照运行；
+8. FAIL_TO_PASS、PASS_TO_PASS 和 safety checks 能阻止明显退化；
+9. promotion 和 rollback 都是显式操作，且只影响新 Session；
+10. 候选加载失败不会破坏普通 stable 路径，也不会伪装成候选通过。
 
 ---
 
 ## 一、架构边界
 
-### 1.1 在线执行与离线迭代分离
+### 1.1 三层架构
 
 ```text
-Electron / DEF sidecar / def-opencode
-  = 在线 Worker Runtime
+DefHarnessPackage
+  = 可教学内容；本任务允许形成候选
 
-agent/harness + scripts/def-harness-*.mjs
-  = 离线采集、Replay、Verifier 与版本记录
+Harness Host / DEF Runtime
+  = 装载、固定版本并执行；本任务只做必要接线
+
+Regression / Verifier
+  = 独立裁判；候选不得修改
 ```
 
-- 不把 Scenario、Verifier、hidden case 或 HarnessProposal 业务塞进 Electron bridge；
-- bridge 只继续提供稳定协议和原始事实；
-- Harness 可以读取协议输出和受控 fixture，不得绕过 permission、approval/use 或 typed validation；
-- Harness 失败不得影响普通用户聊天和 Workbench 常驻进程；
-- 不修改 `agent/vendor/opencode` 来实现 Harness 编排。
+### 1.2 热插拔白名单
 
-### 1.2 Worker、Teacher、Verifier 分离
+首版允许的 package slot：
 
-- Worker 只接收 scenario 中的普通用户消息；
-- Teacher/返修上下文可以读取公开 trace、failure classification 和 proposal，不得读取 hidden case 完整输入与答案；
-- Verifier 读取原始 trace、fixture truth 和 evaluator-only 数据；
-- 同一个模型的自评不能覆盖确定性 verifier；
-- safety invariant 一票否决，不能通过提高其他分数抵消。
+| Slot | 内容 | 首版要求 |
+| --- | --- | --- |
+| `agentContract` | 身份、职责、边界、系统提示词 | 支持文本 artifact |
+| `roleCards` | 人格、主播语言风格，例如未来 `yz.md` | 支持多个卡片和加载条件 |
+| `knowledgePacks` | 游戏知识、项目知识、工作台自我知识 | 支持 manifest/ref，不建设完整 RAG |
+| `skills` | 可复用 procedure 与触发条件 | 支持清单、优先级和 hash |
+| `routingPolicy` | 意图与知识路由 | 仅声明式配置 |
+| `toolGuidance` | 工具说明、选择与调用指导 | 不替换真实 tool schema/实现 |
+| `responsePolicy` | 回复、追问、预览、不确定性表达 | 仅声明式配置 |
+| `workflows` | 可验证的声明式步骤 | 不允许嵌入任意可执行代码 |
 
-### 1.3 建议目录
+本任务提供最小示例内容证明 slot 生效，但不正式编写 YZ 角色卡，不蒸馏主播数据，也不导入大规模游戏知识。
 
-实施时可按实际代码调整命名，但职责必须保持：
+### 1.3 冻结层
+
+候选不得包含或修改：
+
+- Electron bridge、sidecar 和 interop 实现；
+- typed tools、参数 schema 和业务校验实现；
+- Workbench 状态存储、数据库和 migration；
+- permission、approval/use、安全门禁；
+- verifier、hidden case、safety invariant；
+- OpenCode vendor 核心代码；
+- 任意 `.js/.cjs/.mjs/.ts/.tsx` 可执行 payload。
+
+如果未来训练结论需要修改这些层，应生成工程建议，另开 coding task，经过正常测试和发布；不得借 Harness package 绕过代码审查。
+
+### 1.4 能力分级
+
+Package manifest 必须声明每个 artifact 的能力类型：
+
+- `hotSwappable`：本任务允许装载；
+- `restartRequired`：可以被描述，但本任务拒绝作为候选激活；
+- `codeChangeRequired`：仅作诊断输出，不能进入 package。
+
+首版 loader 只接受全部生效项均为 `hotSwappable` 的 package。
+
+---
+
+## 二、合同与 Package
+
+### 2.1 单一合同事实源
+
+建立统一运行时校验，不允许 CLI、Registry 和 loader 各自维护相似结构：
+
+- `DefHarnessPackageV1`；
+- `DefHarnessManifestV1`；
+- `DefHarnessCompatibilityV1`；
+- `DefHarnessSessionBindingV1`；
+- `DefHarnessTraceRefV1`；
+- `DefHarnessRegressionResultV1`；
+- `DefHarnessPromotionRecordV1`。
+
+未知 additive 字段保持兼容；未知 major version、未知 slot、可执行 payload 或非法 capability 必须明确拒绝。
+
+### 2.2 Package 身份与不可变性
+
+每个 package 至少记录：
+
+- `harnessId / version / schemaVersion / contentHash`；
+- 创建时间、来源 commit、dirty 状态；
+- 每个 slot 的 artifact path、hash、media type 和 capability；
+- 所需 interop protocol range；
+- 所需 Agent Contract、tool registry、state schema、knowledge schema 版本；
+- 兼容的 provider/model 条件，可为宽松声明；
+- previous stable / rollback target，可为空；
+- 创建者和说明。
+
+Package 发布进入 Registry 后不可原地修改。内容变化必须生成新 version 和新 hash。
+
+### 2.3 构建安全
+
+- artifact path 必须限制在 package 根目录内；
+- 拒绝 symlink 逃逸、绝对路径和 `..` 穿越；
+- manifest、artifact 和最终 package 都进行 SHA-256 校验；
+- 不把 token、Authorization、真实用户 transcript 或环境变量打包；
+- dirty workspace 可构建开发 candidate，但不得直接 promote 为 stable；
+- 角色卡和知识内容视为不可信数据，不能通过内容声明扩大工具权限。
+
+---
+
+## 三、Harness Registry
+
+### 3.1 本地 Registry
+
+首版使用可人工检查的本地 artifact，不建设管理后台：
 
 ```text
-agent/harness/
-  contracts/          # schema 与 validation
-  descriptor/         # HarnessDescriptor 生成与 hash
-  trace/              # collector、store、redaction、artifact refs
-  scenario/           # scenario loader、fixture adapter、runner、replay
-  verifier/           # 四层 verifier、regression、verdict precedence
-  failure/            # taxonomy 与 append-only classification
-  versioning/         # proposal、version、rollback 记录
-  fixtures/           # 仅受控开发 fixture
-  scenarios/          # 公开单 turn / 多 turn样例
-
-scripts/
-  def-harness-cli.mjs
-  def-harness-check.mjs
-
 .runtime/def-harness/
-  runs/
-  proposals/
-  versions/
-  evaluator/
+  registry/
+    packages/<harnessId>/<version>/
+    channels.json
+    decisions.jsonl
+  runs/<runId>/
 ```
 
-`.runtime/def-harness` 必须保持本地运行时数据，不提交 token、真实用户 transcript 或临时 evaluator 输出。
+`.runtime/def-harness` 不提交真实运行数据。仓库内可以提交不含敏感信息的开发 fixture 和示例 package。
+
+### 3.2 Channel 与指针
+
+至少支持：
+
+- `stable`：普通新 Session 默认版本；
+- `candidate/<name>`：显式测试版本；
+- `previousStable`：最近一次可回滚目标。
+
+active pointer 是对不可变 package 的引用，不复制或改写 package 内容。
+
+### 3.3 激活规则
+
+- 注册 package 不等于激活；
+- candidate 不得自动成为 stable；
+- promote 必须引用 regression result 和人工 decision；
+- safety FAIL、artifact hash 不一致、兼容性失败、dirty source 或回归不完整时禁止 promote；
+- rollback 创建新的 append-only decision，不覆盖历史 promotion；
+- Registry 更新需要原子写入，失败时保留旧指针。
 
 ---
 
-## 二、合同与版本事实源
+## 四、Session 固定与 Runtime 装载
 
-### 2.1 首版合同
+### 4.1 选择时机
 
-建立同一事实源并进行运行时校验：
-
-- `DefHarnessDescriptorV1`；
-- `DefTurnTraceBundleV1`；
-- `DefHarnessScenarioV1`；
-- `DefFixtureDescriptorV1`；
-- `DefVerifierResultV1`；
-- `DefRegressionRunV1`；
-- `DefFailureClassificationV1`；
-- `HarnessProposalV1`；
-- `HarnessVersionV1`。
-
-未知 additive 字段保持兼容，未知 major/schema version 明确拒绝。不得由 CLI、runner、verifier 各自手写一套相似结构。
-
-### 2.2 HarnessDescriptor
-
-至少记录：
-
-- descriptor id/schemaVersion/content hash；
-- repository commit 和 dirty 状态；
-- `DefCodexInteropProtocol` version；
-- Agent Contract、Capability Manifest、TurnState schema 的版本/hash；
-- skill 清单与内容 hash；
-- visible tool registry/schema hash；
-- tool mediation 与 response policy 版本；
-- provider/model 与关键运行配置摘要；
-- fixture/scenario/verifier suite version；
-- knowledge index version，当前允许为 `null`。
-
-相同代码和配置应产生相同 content hash。dirty workspace 可以运行开发场景，但不得记录为可发布 stable HarnessVersion。
-
-### 2.3 Artifact 身份
-
-- 所有持久 artifact 使用稳定 id + schemaVersion + SHA-256；
-- 引用必须包含 artifact type、id、hash 和相对位置；
-- hash 不匹配、文件缺失或 schema 不兼容时 fail closed；
-- 原始事件和状态快照不允许被后续 judgment 原地改写。
-
----
-
-## 三、Turn Trace Bundle 与存储
-
-### 3.1 采集入口
-
-Collector 必须使用 8-1-1 正式协议：
+Harness 只在创建 native Session 时解析一次：
 
 ```text
-status → authorize → state(before)
-  → start/continue
-  → events(cursor resume) + questions
-  → transcript + state(after)
-  → finalize trace
+create session
+  → resolve stable 或显式 candidate
+  → validate compatibility + hash
+  → create DefHarnessSessionBinding
+  → load resolved artifacts
+  → pin binding for session lifetime
 ```
 
-不得为 Harness 新建绕过原生 session 的 prompt route。
+后续 `continue`、问题回答和工具执行都沿用相同 binding。禁止在同一 Session 中无提示漂移版本。
 
-### 3.2 Trace 内容
+### 4.2 协议接线
 
-每个 turn 至少保存：
+在不新建旁路 prompt route 的前提下，对现有正式路径做最小 additive 扩展：
 
-- HarnessDescriptor ref；
-- scenario/fixture/version；
-- testRun/session/turn/clientTurn ids；
-- ingress mode、raw user text、provider-visible user text；
-- state before/after、snapshot availability、checkout/revision；
-- accepted、首个响应、首个工具、完成时间；
-- 有序事件、cursor/gap、工具参数/结果/错误；
-- questions、permission、approval/use；
-- validation、semantic diff、pending command/node；
-- provider/model、终态、环境错误；
-- 最终回复摘要和 UI evidence refs；
-- 后追加的 judgments/classifications/proposal refs。
+- `start` 测试入口可显式携带 `harnessSelector`；
+- 普通 Workbench 创建 Session 时默认解析 stable；
+- status/state/transcript 或 Trace 中可观察 resolved harness id/version/hash；
+- sidecar/native session binding 保存不可变 resolved ref；
+- 旧调用方不传 selector 时保持兼容。
 
-token、Authorization header、完整环境变量、任意用户文件和无界工具结果不得进入 trace。
+如果现有 native Session 无法安全注入某个 slot，应在 compatibility 中明确标为 unsupported，而不是建立第二套假的聊天运行时。
 
-### 3.3 Append-only 存储
+### 4.3 失败语义
 
-首版优先使用可人工检查的文件 artifact，不为“像平台”提前建设复杂数据库：
+- 显式 candidate 测试加载失败：`BLOCKED_HARNESS_LOAD`，fail closed；
+- 普通 stable 路径解析失败：继续使用进程内最近一次已验证 stable，记录告警；
+- 没有任何可验证 stable：拒绝创建 Harness-enabled Session，不猜测默认内容；
+- 运行中 package 文件被篡改：已装载 Session 保持内存 binding，新 Session 拒绝该 package；
+- 不主动关闭或重启已运行的 `npm run electron:dev` 来模拟热插拔。
 
-```text
-runs/<runId>/manifest.json
-runs/<runId>/events.jsonl
-runs/<runId>/transcript.json
-runs/<runId>/state-before.json
-runs/<runId>/state-after.json
-runs/<runId>/judgments.jsonl
-runs/<runId>/artifacts/*
-```
+### 4.4 隔离要求
 
-- 原始事实写入后不可覆盖；
-- judgment、classification 和 reviewer decision 只追加；
-- finalize 生成 manifest/hash；
-- 未 finalize、缺事件或 cursor gap 的 run 标为 incomplete，不得伪装为 Agent FAIL；
-- 后续若增加 SQLite，只能作为索引，文件 artifact 仍是可移植证据。
+- stable 与 candidate 使用独立 resolved artifact view；
+- package loader 不共享可变 prompt/knowledge/skill 对象；
+- cache key 必须包含 content hash；
+- active pointer 改变后，已有 Session binding 不变；
+- 同一 package 的内容 hash 相同才允许复用只读 cache。
 
 ---
 
-## 四、Scenario 与隔离 Fixture
+## 五、Trace、Scenario 与最小 Replay
 
-### 4.1 Scenario
+### 5.1 Trace 最小扩展
 
-Scenario 必须把用户表达与验收定义分开：
+继续使用 8-1-1 正式 interop 采集事实。每个测试 turn 至少追加：
 
-- `messages` 只包含正常玩家/用户话术；
-- expected tool、case id、安全说明和验收答案不得注入 user text；
-- 单 turn 与多 turn 使用同一 scenario schema；
-- 明确 ingress mode、fixture、required capabilities、verifier ids；
-- 明确允许结果、禁止结果、是否需要 snapshot、是否需要 UI evidence；
-- 记录 model/provider/Harness 前置条件。
+- Harness package ref 与 Session binding ref；
+- selector 来源：stable/candidate/explicit version；
+- resolved slot hashes；
+- package load/compatibility 结果；
+- testRun/session/turn/clientTurn/scenario ids；
+- transcript、tool events、questions、终态和环境状态；
+- verifier/regression refs。
 
-### 4.2 Fixture 生命周期
+原始事件 append-only；token、Authorization 和真实用户无界数据不得进入 artifact。
 
-每个 fixture adapter 至少提供：
+### 5.2 Scenario 与 Fixture
 
-```text
-create → inspect → reset/recreate → destroy
-```
+首版只建设证明版本切换所需的受控场景：
 
-- 使用唯一 timeline/save/work-node/session 标识；
-- 不读取或修改用户当前生产 timeline；
-- replay 总是新建 fixture 和 native session；
-- cleanup 只能删除本 run 自己创建的资源；
-- cleanup 失败进入环境报告，不得全局清库；
-- fixture truth 与 Worker 可见上下文分开保存。
+1. 一个单 turn 场景，能确定性区分 stable/candidate 的 role、knowledge 或 response policy；
+2. 一个多 turn 场景，证明同一 Session 始终使用创建时绑定的版本；
+3. 一组当前基础功能 PASS_TO_PASS；
+4. permission、approval/use、mutation preview 等 safety checks。
 
-### 4.3 首版受控样例
+Scenario 的普通用户消息和 expected result 必须分开保存，不能把答案或测试说明污染 provider-visible text。
 
-至少提供：
+Fixture 必须使用新的 timeline/save/work-node/session 标识，不复用用户当前生产 Session。snapshot 不可用且场景依赖当前轴 mutation 时判定为 `BLOCKED_ENVIRONMENT`，不得计为 Agent FAIL。
 
-1. 一个只读单 turn scenario，用来证明 trace、工具观察和确定性 verdict；
-2. 一个需要自然追问/继续的多 turn scenario，用来证明同一 testRun/session 的关联和 replay。
+### 5.3 Replay 与可比较边界
 
-样例不能依赖大规模 YZ 知识，不能通过在 prompt 中写出期望工具来“演示成功”。
-
----
-
-## 五、Replay Runner
-
-### 5.1 Replay 语义
-
-Replay 是“重新建立等价环境并重新执行”，不是：
-
-- 重放旧 SSE；
-- 复制旧 transcript；
-- 对旧 session 再发同一个 `clientTurnId`；
-- 用缓存 verdict 代替新执行。
-
-每次 replay 必须产生新的 run/session/turn ids，并记录 baseline 与 replay 的 Harness、fixture、model/provider 和环境差异。
-
-### 5.2 可比较边界
-
-允许模型文本不同，但至少比较：
-
-- 用户意图是否满足；
-- 是否选择允许的工具家族；
-- typed state/validation/diff 是否满足；
-- 是否出现禁止 mutation、越权 use、checkout 污染；
-- permission/question 是否正确处理；
-- 终态和用户可见结果是否成立。
-
-### 5.3 环境失败
-
-以下情况输出 `BLOCKED_ENVIRONMENT`，不能记为 Agent regression：
-
-- bridge/sidecar/OpenCode 未就绪；
-- snapshot 缺失但 scenario 要求 mutation/current-axis truth；
-- fixture 无法建立或清理；
-- provider 不可用；
-- trace cursor gap 无法补齐；
-- verifier 依赖缺失。
-
-只读 scenario 在 snapshot 缺失时是否允许继续，必须由 scenario 显式声明，并在 trace 中保留 `snapshotAvailable=false`。
+- replay 总是创建新 fixture 和新 Session；
+- stable 与 candidate 使用同一 scenario version 和等价 fixture；
+- 记录 provider/model/environment 差异；
+- 不要求自然语言逐字一致；
+- 比较意图满足、工具路径、业务结果、安全性质和选定风格/知识 rubric；
+- 不消费旧 Session，也不通过复用 `clientTurnId` 伪造 replay。
 
 ---
 
-## 六、独立 Verifier
+## 六、最小 Regression Gate
 
-### 6.1 统一结果
+### 6.1 三类检查
 
-每个 verifier 输出：
+- `FAIL_TO_PASS`：候选是否改善目标教学弱点；
+- `PASS_TO_PASS`：当前已经可用的基础能力是否保持；
+- `SAFETY`：permission、approval/use、typed validation、preview/apply 等不变量，一票否决。
 
-- verifier id/version/layer；
-- verdict：`PASS | FAIL | BLOCKED | ERROR`；
-- severity；
-- evidence refs；
-- deterministic checks；
-- 可选解释，不得只有自然语言理由；
-- evaluator-only 标记和公开摘要。
+确定性业务和安全 verifier 优先于 LLM/Codex 自评。同一个 Worker 的自评不能覆盖确定性失败。
 
-### 6.2 四层 Verifier
+### 6.2 结果状态
 
-1. **结构层**：合同完整性、ids、cursor、终态、工具事件顺序；
-2. **业务层**：fixture truth、typed validation、semantic diff、revision/CAS、checkout；
-3. **行为层**：意图满足、是否应追问、预览/应用边界、事实与不确定性；
-4. **UI 层**：scenario 要求 UI 时是否存在有效 evidence ref，且 UI 结论与内部 state 不矛盾。
+统一结果至少区分：
 
-8-1-2 的 UI verifier 只建立 evidence 合同与 fail-closed 规则；真实 Computer Use 回归由 8-1-3 执行。
+- `PASS`；
+- `FAIL_AGENT`；
+- `BLOCKED_ENVIRONMENT`；
+- `ERROR_PROTOCOL`；
+- `ERROR_VERIFIER`；
+- `INCOMPLETE`。
 
-### 6.3 Verdict 优先级
+环境、协议或裁判错误不能被计为候选能力失败，也不能被包装成通过。
 
-```text
-safety FAIL
-  > deterministic business FAIL
-  > protocol/trace ERROR
-  > environment BLOCKED
-  > behavioral/LLM judgment
-```
+### 6.3 本阶段的 hidden 边界
 
-- safety FAIL 永远不能被平均分覆盖；
-- verifier 自己异常输出 ERROR，不得把 Worker 判为 FAIL；
-- LLM/Codex judgment 只能补充难以结构化的行为判断；
-- verifier 版本必须进入每次 regression report。
+本阶段只保留 evaluator-only 输入与 Worker/候选 package 隔离的接口和一项泄漏检查，不建设完整 hidden regression 平台。高级 Codex 诊断、返修与 hidden 回归闭环属于 8-1-3。
 
 ---
 
-## 七、Regression 与 Hidden Boundary
+## 七、Promotion 与 Rollback
 
-### 7.1 Regression Suite
+### 7.1 Candidate decision
 
-一次 regression 至少包含：
+每次决定以 append-only 记录保存：
 
-- 目标 FAIL_TO_PASS；
-- 至少一个相邻 PASS_TO_PASS；
-- permission/approval/use/checkout 等 safety invariants；
-- 环境 preflight；
-- 汇总 report 和稳定进程退出码。
+- candidate 与 baseline package refs；
+- 目标弱点和变更 slot；
+- regression report；
+- reviewer 与时间；
+- `accepted/rejected/rolled-back`；
+- rejection reason 或已知限制；
+- previous stable / rollback target。
 
-建议退出码：
+8-1-2 不允许训练系统自己批准自己的候选。
 
-- `0`：全部通过；
-- `1`：Worker/Harness regression；
-- `2`：环境阻塞；
-- `3`：合同、artifact 或 verifier 错误。
+### 7.2 Promotion
 
-### 7.2 Hidden Boundary
+Promotion 只更新 `stable` 和 `previousStable` 指针，对已有 Session 无效。必须满足：
 
-- hidden case 从 evaluator-only root/service 加载；
-- scenario id 和公开 rubric 可以暴露，完整 prompt、fixture truth、expected answer 不进入 Teacher bundle；
-- proposal 生成器只能获得公开 failure summary 和 evidence refs；
-- report 只输出通过/失败类别、必要证据摘要和 reviewer 可见详情；
-- focused check 必须证明序列化给 Teacher 的对象不含 hidden 原文与答案。
+- package 与 artifact hash 完整；
+- compatibility 通过；
+- FAIL_TO_PASS 达标；
+- PASS_TO_PASS 无阻塞退化；
+- safety 全部通过；
+- 环境/协议/verifier 没有未解决错误；
+- 存在人工 reviewer decision。
 
-首版不要求远程评测平台，但不能把 hidden JSON 与返修上下文放在同一可读目录后宣称“隐藏”。
+### 7.3 Rollback
 
----
+Rollback 只把 `stable` 指回可验证的 previous stable：
 
-## 八、Failure Classification
-
-首版 taxonomy 与 `spec8-1-2.md` 对齐，至少覆盖：
-
-- protocol；
-- self-model；
-- intent-routing；
-- state-staleness；
-- tool-selection；
-- parameter-grounding；
-- workflow-omission；
-- ui-observability；
-- expression；
-- environment；
-- verifier-error。
-
-每条 classification 必须：
-
-- 引用一个或多个 trace/evidence refs；
-- 区分 primary cause 与 contributing causes；
-- 记录 confidence 和 classifier kind（deterministic/Codex/human）；
-- 追加写入，不覆盖原始 trace；
-- 允许 reviewer 追加更正，但保留历史判断。
-
-单次 provider 波动、环境阻塞或无证据猜测不得直接形成长期 Harness 规则。
+- 不执行 `git reset`；
+- 不改写或删除失败 package；
+- 不改变已有 Session；
+- 新 Session 立即解析到回滚后的 stable；
+- 决策和原因保留在 append-only history。
 
 ---
 
-## 九、HarnessProposal、Version 与 Rollback
+## 八、统一 CLI
 
-### 9.1 HarnessProposal
-
-首版只创建结构化候选记录，不自动编辑或应用生产 Harness。每个 proposal：
-
-- 只对应一个 primary failure；
-- 引用 baseline traces 和 classification；
-- 记录目标责任层与允许修改面；
-- 记录候选 diff/artifact ref，而不是无界大 prompt；
-- 声明目标 FAIL_TO_PASS、相邻 PASS_TO_PASS 和 safety 风险；
-- 记录 verifier/regression 结果；
-- 包含 reviewer、状态、rejection reason 和 rollback target。
-
-禁止修改 verifier、hidden case 或 safety rule 来制造通过。
-
-### 9.2 HarnessVersion
-
-稳定版本至少关联：
-
-- descriptor/hash 和代码 commit；
-- scenario/verifier suite versions；
-- proposal 与 regression report；
-- reviewer decision；
-- previous stable version；
-- rollback target；
-- 已知限制。
-
-dirty workspace、缺 reviewer、存在 safety FAIL、artifact hash 不一致或 regression 未完成时，不得记录为 stable。
-
-### 9.3 Rollback
-
-8-1-2 只证明 rollback target 可解析、目标 artifact 完整且能重新载入 descriptor；不自动执行 Git reset、生产发布或数据回滚。
-
----
-
-## 十、CLI 与开发工作流
-
-提供一个统一 CLI，命令名可调整，但能力不得散落为只能靠维护者记忆的临时脚本：
+命令名可以按现有项目风格微调，但能力不得散落成临时脚本：
 
 ```text
 def-harness doctor
-def-harness describe
-def-harness run <scenarioId>
-def-harness replay <runId>
-def-harness verify <runId>
-def-harness regress <suiteId>
-def-harness classify <runId>
-def-harness proposal create <classificationId>
-def-harness version record <proposalId>
+def-harness package build <sourceDir>
+def-harness package validate <packageRef>
+def-harness registry list
+def-harness registry add <packageRef> --channel candidate/<name>
+def-harness run <scenarioId> --harness stable|candidate/<name>|<version>
+def-harness compare <baselineRun> <candidateRun>
+def-harness regress <suiteId> --baseline stable --candidate <ref>
+def-harness promote <candidateRef> --decision <decisionRef>
+def-harness rollback
 def-harness report <runId|regressionId>
 ```
 
-- `doctor` 只检查依赖，不隐式创建 session 或 mutation；
 - 所有命令支持 JSON 输出和稳定退出码；
 - token 只保留在进程内；
-- 默认输出写入 `.runtime/def-harness`；
-- 命令失败返回明确 component、retryability 和 next action；
-- 不主动关闭或重启已经运行的 `npm run electron:dev`。
+- `doctor` 不创建 Session 或 mutation；
+- 显式 candidate 失败不能静默改跑 stable；
+- 普通用户不需要了解 Registry 才能继续使用当前 stable。
 
 ---
 
-## 十一、实施检查点
+## 九、实施检查点
 
-这些是同一 Task 8-1-2 的实施顺序，不新增 8-1-2-1 等规格层级。
+这些是同一 Task 8-1-2 的实施顺序，不继续增加规格层级。
 
-### Checkpoint A：合同、Artifact Store 与 Descriptor
+### Checkpoint A：Package 合同与 Registry
 
-- [ ] 建立 V1 contracts 和统一 validation；
-- [ ] 建立 artifact id/hash/ref 与 append-only store；
-- [ ] 生成稳定 HarnessDescriptor；
-- [ ] 建立 redaction 和 token 泄漏检查；
-- [ ] `doctor / describe` 可运行。
+- [ ] 建立 V1 contracts 与统一 validation；
+- [ ] 实现 slot 白名单、capability 和 compatibility 检查；
+- [ ] 实现 package build、hash、路径安全和不可变存储；
+- [ ] 实现 stable/candidate/previousStable 指针和原子更新；
+- [ ] 建立 baseline `stable-v0`，记录当前可用 Harness 内容；
+- [ ] `doctor/package/registry` 命令可运行。
 
-### Checkpoint B：Interop Collector 与 Trace Bundle
+### Checkpoint B：Session Pinning 与 Loader
 
-- [ ] 使用正式 interop client 采集 before/after state；
-- [ ] 支持事件 cursor resume、gap 和终态；
-- [ ] 收集 transcript/questions/tool/permission/provider error；
-- [ ] incomplete/blocked/failure 明确分开；
-- [ ] Trace Bundle 可 finalize 并校验 hash。
+- [ ] 新 Session 默认解析 stable，测试入口可显式选择 candidate；
+- [ ] 建立不可变 `DefHarnessSessionBindingV1`；
+- [ ] 将允许的 slot 接入真实 native Session；
+- [ ] status/trace 可观察 resolved Harness；
+- [ ] active pointer 改变不影响已有 Session；
+- [ ] stable/candidate 并行不串配置；
+- [ ] candidate 加载失败 fail closed，普通 stable 路径有安全 fallback。
 
-### Checkpoint C：Scenario、Fixture 与 Replay
+### Checkpoint C：Trace、Scenario 与 Replay
 
-- [ ] 建立 scenario loader 和消息/验收分离；
-- [ ] 建立隔离 fixture 生命周期；
-- [ ] replay 创建全新 fixture/session/ids；
-- [ ] 跑通一个单 turn 和一个多 turn受控场景；
-- [ ] snapshot 缺失时 mutation scenario 稳定 BLOCKED。
+- [ ] Trace 保存 package、binding 和 slot hashes；
+- [ ] 建立隔离 fixture 与 Scenario loader；
+- [ ] replay 使用新 fixture/session/ids；
+- [ ] 跑通一个单 turn 与一个多 turn受控场景；
+- [ ] provider-visible text 不被测试说明污染；
+- [ ] snapshot 缺失时相关 mutation 场景稳定 BLOCKED。
 
-### Checkpoint D：Verifier、Regression 与 Hidden Boundary
+### Checkpoint D：Regression、Promotion 与 Rollback
 
-- [ ] 四层 verifier 输出统一合同；
-- [ ] 建立 verdict precedence；
-- [ ] FAIL_TO_PASS、PASS_TO_PASS、safety 联合运行；
-- [ ] 环境失败不计 Agent FAIL；
-- [ ] Teacher bundle 不泄露 hidden 输入和答案。
+- [ ] 建立最小 FAIL_TO_PASS、PASS_TO_PASS 和 safety gate；
+- [ ] 环境/协议/Agent/verifier 结果明确分开；
+- [ ] hidden evaluator-only 数据不进入 Worker/package/公开 Trace；
+- [ ] promotion 需要完整证据和人工 decision；
+- [ ] rollback 只影响新 Session，且历史可审计；
+- [ ] 创建 `verification8-1-2.md`，记录真实命令、ids、结果和限制。
 
-### Checkpoint E：Classification、Proposal、Version 与验证记录
-
-- [ ] classification 引用 trace 并追加写入；
-- [ ] proposal 为单点、可解释、不可自动应用；
-- [ ] stable version gate 和 rollback target 校验；
-- [ ] 受控演示跑通 proposal → replay → verifier → accept/reject 数据流；
-- [ ] 创建 `verification8-1-2.md`，记录命令、artifact ids、结果和已知限制。
-
-每个 checkpoint 完成并验证后按项目规则自动提交；不要求等整个 Task 一次性完成才提交。
+每个 checkpoint 完成并验证后按项目规则自动提交。
 
 ---
 
-## 十二、最小必要检查
+## 十、聚焦检查
 
-本任务属于训练与裁判基础设施，以下聚焦检查确实必要，不受“默认不写测试”限制：
+本任务修改版本与运行时选择边界，下列检查确实必要：
 
-- contract validation 与未知 major 拒绝；
-- descriptor/hash 的确定性；
-- append-only 与 artifact tamper 检测；
-- token/secret redaction；
-- cursor resume 不重复 turn；
-- fixture 隔离和 cleanup ownership；
-- replay 使用新 session/ids；
-- snapshot 缺失时 mutation scenario BLOCKED；
-- verifier ERROR/BLOCKED/FAIL 优先级；
-- safety invariant 一票否决；
-- hidden payload 不进入 Teacher bundle；
-- dirty commit、缺 reviewer或 regression 失败时不能形成 stable version。
+- package hash 确定性与篡改拒绝；
+- path traversal、symlink escape、可执行 payload 拒绝；
+- 未知 major、slot、capability 和不兼容 schema 拒绝；
+- Session 创建后 Harness binding 不漂移；
+- stable/candidate 并发 Session 不串配置；
+- cache key 包含 content hash；
+- active pointer 更新只影响新 Session；
+- 显式 candidate 加载失败不 fallback 成 stable；
+- 普通 stable 加载异常保留上一已验证版本；
+- PASS_TO_PASS 或 safety 失败禁止 promotion；
+- rollback 原子恢复 previous stable；
+- Trace 和 evaluator 边界不泄漏 token、真实用户数据或 hidden 输入。
 
-不扩展成对现有业务模块的全面测试重构，不把 vendor OpenCode 测试套件纳入本任务。
+不扩展为现有业务模块或 vendor OpenCode 的全面测试重构。
 
-## 十三、最终验收演示
+---
 
-最终演示应由一条命令或清晰的最小命令序列完成，并留下机器可读 artifact：
+## 十一、最终验收演示
 
-1. `doctor` 确认协议、sidecar、snapshot 和 evaluator 环境；
-2. 生成 baseline HarnessDescriptor；
-3. 创建隔离 fixture；
-4. 运行单 turn 和多 turn scenarios；
-5. 生成并校验 Trace Bundles；
-6. 在新 fixture/session replay；
-7. 运行四层 verifier 与 regression suite；
-8. 展示环境 BLOCKED 与 Agent FAIL 的区别；
-9. 创建一个受控 failure classification 和 HarnessProposal；
-10. 记录 accept 或 reject 的 HarnessVersion 决策及 rollback target；
-11. 证明 hidden 原文、token、真实用户数据没有进入 Teacher/public artifacts；
-12. 清理本次 fixture，不影响用户当前 Workbench。
+最终演示应通过统一 CLI 和正式 interop 完成：
 
-该演示只证明 Harness 框架可训练、可裁决、可回滚，不把受控样例包装成真实产品能力提升。
+1. 将当前可用教学内容冻结为 `stable-v0`；
+2. 构建只修改一个热插拔 slot 的 `candidate-v1`；
+3. 同时创建 pinned `stable-v0` 和 `candidate-v1` Session；
+4. 证明切换 active pointer 后两个已有 Session 仍保持原版本；
+5. 在新 fixture/new Session 分别运行单 turn 与多 turn Scenario；
+6. Trace 展示准确 package/binding/slot hashes；
+7. 运行 FAIL_TO_PASS、PASS_TO_PASS 和 safety gate；
+8. 演示一个 rejected candidate 不影响 stable；
+9. 经人工 decision promote 一个受控 candidate；
+10. 新 Session 使用新 stable，旧 Session不漂移；
+11. rollback 后再建 Session，确认恢复 `stable-v0`；
+12. 证明 token、真实用户 transcript 和 evaluator-only 输入未进入 package/public artifacts。
 
-## 十四、明确不做
+该演示只证明热插拔 Harness 已具备安全训练条件，不宣称 YZ 风格、游戏知识或真实产品效果已经提升。
 
-- 不执行 8-1-3 的真实 Codex failure 返修；
-- 不接入或蒸馏 YZ、主播风格和大规模游戏知识；
-- 不训练或微调模型权重；
-- 不自动修改、提交或发布生产 prompt/skills/code；
-- 不建设 Harness Evolution 前端管理页面；
-- 不建设云端评测平台、分布式队列或多 Agent swarm；
-- 不让 Worker 同时担任最终 Verifier；
-- 不用总体成功率替代 safety、业务不变量和失败归因；
-- 不以一次受控演示宣称系统已完成自进化。
+## 明确不做
 
-## 十五、交付物
+- 不执行 8-1-3 的 Codex 自主诊断和真实返修；
+- 不正式蒸馏或加载 YZ 内容；
+- 不建设完整知识库/RAG runtime；
+- 不训练模型权重；
+- 不让 package 携带任意代码或扩大权限；
+- 不热更新 bridge、sidecar、typed tools、数据库或 verifier；
+- 不自动批准、发布、提交或推送候选；
+- 不建设前端管理页面、云评测平台或多 Agent swarm；
+- 不以一次受控演示宣称系统已经自进化。
 
-- Harness V1 contracts 与 validation；
-- HarnessDescriptor generator；
-- append-only artifact store 与 Turn Trace collector；
-- scenario/fixture/replay runner；
-- 四层 verifier 与 regression runner；
-- hidden evaluator boundary；
-- failure classification、proposal、version、rollback records；
-- 统一 CLI 与 focused check；
-- 一个单 turn、一个多 turn受控 scenario；
+## 交付物
+
+- Package/manifest/compatibility/session binding/regression/decision V1 contracts；
+- immutable package builder 与本地 Registry；
+- stable/candidate channel、Session pinning 和 runtime loader；
+- Harness-aware Trace、受控 Scenario、fixture 与 replay；
+- 最小 regression gate；
+- promotion/rollback 记录与统一 CLI；
+- baseline `stable-v0` 和一个无真实 YZ 数据的受控 candidate；
+- focused checks；
 - `verification8-1-2.md`；
-- 从 8-1-2 移交给 8-1-3 的 runbook 输入和已知限制。
+- 交给 8-1-3 的 candidate/trace/regression 接口说明。
 
 ## 完成口径
 
-当维护者不需要临时拼接 curl、复制 transcript 或手工猜测环境状态，便能通过统一命令把一次受控 DEF scenario 变成“可追溯证据 → 隔离 replay → 独立 verdict → 返修候选/版本决策”，并且安全、hidden、rollback 边界可验证时，Task 8-1-2 完成。
+当维护者无需覆盖当前稳定 DEF，就能把提示词、角色卡、知识、Skills 与策略打成不可变候选，为新 Session 显式装载，与 stable 并行对照，经过最小回归决定接受或拒绝，并能让之后的新 Session 一步回到上一稳定版本时，Task 8-1-2 完成。
