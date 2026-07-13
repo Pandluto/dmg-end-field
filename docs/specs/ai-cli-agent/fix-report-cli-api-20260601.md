@@ -1,7 +1,7 @@
 # Agent Tool CLI API 修复报告
 
 **修复日期**: 2026-06-01  
-**测评报告**: [check20260601-2217.md](./check20260601-2217.md)  
+**测评报告**: [CLI API 验证记录](./verification-cli-api-20260601.md)
 **修复人**: Executor Agent  
 **验证方式**: Smoke Test + Browser Use 自动化测试
 

@@ -172,7 +172,7 @@ Sheet Equipment SHALL 参考 Sheet-Weapon 的以下模式：
 - WHEN `public/data/equipments/equipments.json` 被加载
 - THEN 每个 gearSet SHALL 允许存在 `imgUrl`
 - AND 每个 equipment SHALL 允许存在 `imgUrl`
-- AND 页面运行时不依赖 `docs/装备.txt` 补充图片字段
+- AND 页面运行时不依赖 `../sheet-equipment/reference/source-gear-data.txt` 补充图片字段
 
 #### Scenario: 保存
 
@@ -223,4 +223,4 @@ Sheet Equipment SHALL 参考 Sheet-Weapon 的以下模式：
 - `public/data/equipments/equipments.json` 能保存并重新加载 `imgUrl`。
 - localStorage 草稿能保存并恢复 `imgUrl`。
 - 导入导出 JSON 能保留 `imgUrl`。
-- 页面运行时不读取 `docs/装备.txt` 来补充 `imgUrl`。
+- 页面运行时不读取 `../sheet-equipment/reference/source-gear-data.txt` 来补充 `imgUrl`。

@@ -6,8 +6,9 @@
 
 - [Spec 总索引](./specs/README.md)：按产品演进线查找规格与实施记录。
 - [测试方法](./testing/README.md)：跨 Spec 复用的测试口径，不存放某次 Spec 的验收结果。
-- [历史审查收件箱](./agent-check/README.md)：尚未完成 Spec 归属迁移的旧审查文档。
-- [用户指南](./使用指南.md)：面向使用者的产品说明。
+- [架构审计](./architecture/README.md)：跨多个 Spec 的架构债务与归档审计。
+- [历史记录](./history/README.md)：无单一 Spec 归属的历史迭代记录。
+- [用户指南](./guides/quick-start.md)：面向使用者的产品说明。
 
 ## 文档归属规则
 
@@ -27,7 +28,7 @@ health-review*.md          # 完成后的架构或行为健康审查
 
 1. 新的需求、任务、研究、验收和修复记录默认进入对应 Spec 目录。
 2. 某次 Spec 的测试记录属于该 Spec；`docs/testing/` 只保存可跨 Spec 复用的方法和口径。
-3. `docs/agent-check/` 不再作为新审查文档的默认落点；明确归属的审查直接写入对应 Spec。
+3. 明确归属的审查直接写入对应 Spec；只有跨多个 Spec 的审计才进入 `docs/architecture/audits/`。
 4. 顶层 `docs/` 只保留导航、用户文档和确实跨 Spec 的稳定参考资料。
 5. 开启新一轮 Spec / Tasks 时，仍须先等待用户给出标题、目标或具体内容；目录和空壳不能替代需求输入。
 
@@ -41,5 +42,4 @@ research → spec → tasks → coding → verification → maintenance review/f
 
 ## Legacy 文档
 
-目前仍有部分旧文档位于 `docs/`、`docs/agent-check/` 和 `docs/agent-cli/`。第一轮整理不对归属不明确的材料强行迁移；它们已在各目录 README 中登记，后续应在确认对应演进线后逐批归档。
-
+第一轮迁移已经清空顶层开发文档、`docs/agent-check/` 与 `docs/agent-cli/`。历史材料按“所属 Spec / 跨 Spec 架构审计 / 无法归属的历史记录”三类安置；后续新增文档不得恢复这些散落目录。

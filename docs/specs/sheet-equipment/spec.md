@@ -2,7 +2,7 @@
 
 ## Why
 
-项目需要一个统一的装备管理页面，用于维护装备数据，并在后续角色配置面板中复用。装备数据初始来源为 `docs/装备.txt`，但页面运行时不依赖该文本文件。
+项目需要一个统一的装备管理页面，用于维护装备数据，并在后续角色配置面板中复用。装备数据初始来源为 [`reference/source-gear-data.txt`](./reference/source-gear-data.txt)，但页面运行时不依赖该文本文件。
 
 页面必须延续现有 Sheet-Buff / Sheet-Weapon 的 sheet page 风格，保持一致的工具栏、资源管理器、右键菜单、表格编辑和分享体验。
 
@@ -11,7 +11,7 @@
 - 新增 `/sheet-equipment` 页面。
 - 新增装备数据源：`public/data/equipments/equipments.json`。
 - 新增本地草稿缓存：`def.equipment-sheet.draft.v1`。
-- 从 `docs/装备.txt` 一次性迁移生成装备 JSON。
+- 从 `reference/source-gear-data.txt` 一次性迁移生成装备 JSON。
 - 页面运行时以本地 JSON 为主，localStorage 为辅助。
 - 保存时同时写入本地 JSON 和 localStorage。
 - 如果本地 JSON 与 localStorage 不一致，提示用户选择使用本地 JSON 或本地草稿。
@@ -153,7 +153,7 @@ interface EquipmentEffect {
 
 #### Scenario: 中文属性迁移
 
-- WHEN 从 `docs/装备.txt` 迁移属性
+- WHEN 从 `reference/source-gear-data.txt` 迁移属性
 - THEN 系统尝试把中文 label 映射为 typeKey
 - AND 能力值映射为 strengthBoost、agilityBoost、intelligenceBoost、willBoost 等
 - AND buff 类属性映射为 physicalDmgBonus、ultimateDmgBonus、sourceSkillBoost 等
@@ -207,7 +207,7 @@ interface EquipmentEffect {
 
 - 首次打开页面时，系统能读取 `public/data/equipments/equipments.json`。
 - 如果 localStorage 中没有草稿，则以本地 JSON 初始化页面数据。
-- 页面运行时不读取 `docs/装备.txt`。
+- 页面运行时不读取 `reference/source-gear-data.txt`。
 
 ### AC4: localStorage 冲突处理
 
@@ -264,9 +264,9 @@ interface EquipmentEffect {
 
 ### AC11: 迁移结果
 
-- 从 `docs/装备.txt` 一次性迁移生成初始 JSON。
+- 从 `reference/source-gear-data.txt` 一次性迁移生成初始 JSON。
 - 迁移后的装备保留套装、装备名、部位、图片、固定数值、effect 数值。
-- 页面运行时不依赖 `docs/装备.txt`。
+- 页面运行时不依赖 `reference/source-gear-data.txt`。
 
 ### AC12: 构建通过
 

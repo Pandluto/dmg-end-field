@@ -37,18 +37,18 @@
 
 ## 过期文档候选
 
-建议先归档，不建议立即物理删除：
+原始建议是先归档、不立即物理删除。2026-07-13 文档整理已完成下列迁移，保留这张表作为当时的审计证据：
 
 | 文件 | 判断 | 处理建议 |
 |---|---|---|
-| `debug-image-bridge-url.md` | 临时调试记录 | 移入 `docs/agent-check/archive/` 或删除 |
-| `debug-image-bridge-miss.md` | 临时调试记录 | 移入 `docs/agent-check/archive/` 或删除 |
-| `docs/使用指南.txt` | 与 `docs/使用指南.md` 重叠 | 以 Markdown 为主，确认无额外内容后删除 txt |
-| `def-1.6迭代文档.md` | 根目录历史迭代文档 | 移入 `docs/agent-check/archive/` |
-| `docs/ai-buff-fill-demo.md` | 被 AI CLI / Fill spec 取代 | 移入归档，README 不再推荐 |
-| `docs/agent-check/check20260601-2217.md` | 原始检查输出，标题不清晰 | 并入对应 fix report 或归档 |
+| `debug-image-bridge-url.md` | 临时调试记录 | 已迁入 `docs/specs/shell-image-update/history/` |
+| `debug-image-bridge-miss.md` | 临时调试记录 | 已迁入 `docs/specs/shell-image-update/history/` |
+| `docs/使用指南.txt` | 与 Markdown 指南重叠 | 已迁入 `docs/guides/quick-start-legacy.txt`，Markdown 为主入口 |
+| `def-1.6迭代文档.md` | 根目录历史迭代文档 | 已迁入 `docs/history/` |
+| `docs/ai-buff-fill-demo.md` | 被 AI CLI / Fill spec 取代 | 已迁入 `docs/specs/ai-cli-agent/` 作为研究材料 |
+| `docs/agent-check/check20260601-2217.md` | 原始检查输出，标题不清晰 | 已迁入 AI CLI Spec，作为 verification 记录 |
 
-保留但标记为参考：`docs/装备.txt`、`docs/综合AI开发.md`。这两份更像原始资料/阶段设计，不应在未确认来源前删除。
+保留但标记为参考：装备原始资料已迁入 `docs/specs/sheet-equipment/reference/`；综合 AI 阶段设计已迁入 `docs/specs/ai-cli-agent/`。
 
 ## 代码删减计划
 

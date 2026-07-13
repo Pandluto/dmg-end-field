@@ -241,7 +241,7 @@
 - `src/components/ImageManager/`
 - `src/utils/imageBridge.ts`
 - `src/utils/assetHostApi.ts`
-- `docs/image-manager-architecture.md`
+- [`docs/specs/image-manager/architecture.md`](../specs/image-manager/architecture.md)
 
 确认到的问题：
 

@@ -13,7 +13,7 @@
   - [x] 定义 fixedStat typeKey 初版支持：defense，并预留 hp、flatAtk。
 
 - [x] Task 3: 迁移装备数据
-  - [x] 从 `docs/装备.txt` 解析初始装备数据。
+  - [x] 从 `reference/source-gear-data.txt` 解析初始装备数据。
   - [x] 生成 `public/data/equipments/equipments.json`。
   - [x] 将防御力等固定属性迁移为 fixedStat。
   - [x] 将可升级属性迁移为 effect1/effect2/effect3。
