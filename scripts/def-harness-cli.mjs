@@ -3,6 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import process from 'node:process';
 import harness from '../agent/harness/def-harness.cjs';
+import { runNativeScenario } from './def-harness-native-runner.mjs';
 
 const root = path.resolve(process.cwd(), '.runtime', 'def-harness');
 const [command = 'doctor', ...args] = process.argv.slice(2);
@@ -12,21 +13,16 @@ const fail = (error) => {
   process.exitCode = 1;
 };
 const option = (name) => { const index = args.indexOf(name); return index >= 0 ? args[index + 1] : ''; };
+const sourceDirectory = (input) => path.resolve(input || '');
+const scenarioPath = (id) => path.resolve(process.cwd(), 'agent/harness/scenarios', `${id}.json`);
 
-function sourceDirectory(input) { return path.resolve(input || ''); }
-function build(source) {
-  const output = path.join(root, 'builds');
-  return harness.buildPackage(sourceDirectory(source), output);
-}
-function scenarioPath(id) { return path.resolve(process.cwd(), 'agent/harness/scenarios', `${id}.json`); }
-
-try {
+async function main() {
   if (command === 'doctor') {
     const writable = fs.mkdtempSync(path.join(os.tmpdir(), 'def-harness-doctor-'));
     fs.rmSync(writable, { recursive: true, force: true });
     json({ ok: true, schemaVersion: 1, runtimeRoot: root, slots: harness.SLOT_NAMES, registry: harness.readChannels(root), writable: true });
   } else if (command === 'package' && args[0] === 'build') {
-    const result = build(args[1]);
+    const result = harness.buildPackage(sourceDirectory(args[1]), path.join(root, 'builds'));
     json({ ok: true, package: result.package, directory: result.directory, existing: result.existing });
   } else if (command === 'package' && args[0] === 'validate') {
     json({ ok: true, package: harness.validatePackageDirectory(sourceDirectory(args[1])) });
@@ -36,25 +32,26 @@ try {
   } else if (command === 'registry' && args[0] === 'list') {
     json({ ok: true, registry: harness.readChannels(root) });
   } else if (command === 'resolve') {
-    const loader = harness.createLoader(root);
-    const resolved = loader.resolve(args[0] || 'stable');
+    const resolved = harness.createLoader(root).resolve(args[0] || 'stable');
     json({ ok: true, selector: resolved.selector, fallback: resolved.fallback, ref: resolved.ref });
+  } else if (command === 'package-check') {
+    const result = harness.runPackageSelfCheck({ runtimeRoot: root, scenarioFile: scenarioPath(args[0]), selector: option('--harness') || 'stable' });
+    json({ ok: result.status === 'PACKAGE_CHECK_PASS', packageCheck: result });
   } else if (command === 'run') {
-    const result = harness.runScenario({ runtimeRoot: root, scenarioFile: scenarioPath(args[0]), selector: option('--harness') || 'stable', snapshotAvailable: option('--snapshot') !== 'unavailable' });
-    json({ ok: result.status === 'PASS', run: result });
-  } else if (command === 'compare') {
-    json({ ok: true, comparison: harness.compareRuns(root, args[0], args[1]) });
-  } else if (command === 'regress') {
-    const result = harness.runRegression({ runtimeRoot: root, scenarioFiles: ['single-profile-v1', 'pass-to-pass-v1', 'safety-preview-v1'].map(scenarioPath), baselineSelector: option('--baseline') || 'stable', candidateSelector: option('--candidate'), evaluatorOnlyInput: 'evaluator-only-control' });
-    json({ ok: result.status === 'PASS', regression: result });
+    const scenario = harness.loadScenario(scenarioPath(args[0]));
+    const run = await runNativeScenario({ scenario, harnessSelector: option('--harness') || 'stable' });
+    json({ ok: run.status === 'EXECUTED', run });
   } else if (command === 'promote') {
     const [harnessId, version] = String(args[0] || '').split('@');
-    const decisionId = option('--decision');
-    if (!decisionId) throw new Error('promote requires --decision <regressionId>.');
-    json({ ok: true, decision: harness.promote(root, { harnessId, version }, harness.readRegression(root, decisionId), option('--reviewer'), option('--note')) });
+    const regressionPath = option('--regression');
+    if (!regressionPath) throw new Error('promote requires --regression <real-regression.json>.');
+    const regression = JSON.parse(fs.readFileSync(path.resolve(regressionPath), 'utf8'));
+    json({ ok: true, decision: harness.promote(root, { harnessId, version, contentHash: option('--content-hash') }, regression, option('--reviewer'), option('--note')) });
   } else if (command === 'rollback') {
     json({ ok: true, decision: harness.rollback(root, option('--reviewer'), option('--reason')) });
   } else {
-    fail(new Error('Usage: doctor | package build <sourceDir> | package validate <packageDir> | registry add <packageDir> --channel stable|candidate/<name> | registry list | resolve [selector] | run <scenarioId> --harness stable|candidate/<name> [--snapshot unavailable] | compare <baselineRun> <candidateRun> | regress <suite> --baseline stable --candidate candidate/<name> | promote <id@version> --decision <id> --reviewer <name> | rollback --reviewer <name>'));
+    throw new Error('Usage: doctor | package build <sourceDir> | package validate <packageDir> | registry add <packageDir> --channel stable|candidate/<name> | registry list | resolve [selector] | package-check <scenarioId> --harness stable|candidate/<name> | run <scenarioId> --harness stable|candidate/<name> | promote <id@version> --content-hash <hash> --regression <real-regression.json> --reviewer <name> | rollback --reviewer <name>');
   }
-} catch (error) { fail(error); }
+}
+
+main().catch(fail);

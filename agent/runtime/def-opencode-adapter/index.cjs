@@ -758,7 +758,7 @@ function getNativeHarnessSystem(binding) {
   };
 }
 
-async function createNativeHostSession({ config = {}, host = 'ai-cli', skillId, thinkingEffort = 'medium', harnessSelector = 'stable' } = {}) {
+async function createNativeHostSession({ config = {}, host = 'ai-cli', skillId, thinkingEffort = 'medium', harnessSelector = 'stable', timelineId = '' } = {}) {
   const resolvedSkillId = host === 'workbench'
     ? 'workbench'
     : skillMap[skillId] && skillId !== 'workbench'
@@ -775,7 +775,7 @@ async function createNativeHostSession({ config = {}, host = 'ai-cli', skillId, 
   const profile = buildNativeHostProfile(host);
   const harnessBinding = defHarness.createSessionBinding({ sessionId: session.id, resolved: resolvedHarness });
   nativeHarnessBySession.set(session.id, { resolved: resolvedHarness, binding: harnessBinding });
-  writeSessionBinding(directory, { id: session.id, agent: selected.agent, skillId: resolvedSkillId, profile, harnessBinding, harnessWarning: resolvedHarness.error || null });
+  writeSessionBinding(directory, { id: session.id, agent: selected.agent, skillId: resolvedSkillId, profile, harnessBinding, harnessWarning: resolvedHarness.error || null, timelineId });
   return {
     id: session.id,
     sessionID: session.id,
@@ -787,6 +787,7 @@ async function createNativeHostSession({ config = {}, host = 'ai-cli', skillId, 
     profile,
     harnessBinding,
     harnessWarning: resolvedHarness.error || null,
+    timelineId: typeof timelineId === 'string' && timelineId.trim() ? timelineId.trim() : undefined,
     uiPath: `/${encodeDirectorySlug(directory)}/session/${encodeURIComponent(session.id)}`,
   };
 }
@@ -836,7 +837,7 @@ async function recoverNativeHostSession({ config = {}, directory, sessionID } = 
   }
   const harnessBinding = defHarness.createSessionBinding({ sessionId: session.id, resolved: resolvedHarness });
   nativeHarnessBySession.set(session.id, { resolved: resolvedHarness, binding: harnessBinding });
-  writeSessionBinding(binding.directory, { id: session.id, agent: selected.agent, skillId: resolvedSkillId, profile, harnessBinding, harnessWarning: resolvedHarness.error || null });
+  writeSessionBinding(binding.directory, { id: session.id, agent: selected.agent, skillId: resolvedSkillId, profile, harnessBinding, harnessWarning: resolvedHarness.error || null, timelineId: binding.timelineId });
   return {
     id: session.id,
     sessionID: session.id,
@@ -847,6 +848,7 @@ async function recoverNativeHostSession({ config = {}, directory, sessionID } = 
     profile,
     harnessBinding,
     harnessWarning: resolvedHarness.error || null,
+    timelineId: binding.timelineId || undefined,
     recovered: true,
     uiPath: `/${encodeDirectorySlug(binding.directory)}/session/${encodeURIComponent(session.id)}`,
   };
@@ -902,6 +904,7 @@ function writeSessionBinding(directory, session) {
     profile: session.profile || buildNativeHostProfile(session.skillId === 'workbench' ? 'workbench' : 'ai-cli'),
     ...(session.harnessBinding ? { harnessBinding: session.harnessBinding } : existing?.harnessBinding ? { harnessBinding: existing.harnessBinding } : {}),
     ...(session.harnessWarning ? { harnessWarning: session.harnessWarning } : existing?.harnessWarning ? { harnessWarning: existing.harnessWarning } : {}),
+    ...(typeof session.timelineId === 'string' && session.timelineId.trim() ? { timelineId: session.timelineId.trim() } : existing?.timelineId ? { timelineId: existing.timelineId } : {}),
     createdAt: Date.now(),
   }, null, 2)}\n`, 'utf8');
   return axisBindingId;
@@ -957,6 +960,7 @@ function readNativeSessionBinding(directory, sessionID, options = {}) {
     axisBindingId: typeof binding.axisBindingId === 'string' && binding.axisBindingId.trim() ? binding.axisBindingId.trim() : null,
     harnessBinding: binding.harnessBinding || null,
     harnessWarning: binding.harnessWarning || null,
+    timelineId: typeof binding.timelineId === 'string' && binding.timelineId.trim() ? binding.timelineId.trim() : null,
     nodeRelation: options.includeNodeRelation === false ? null : readNativeNodeRelation(resolved),
   };
 }

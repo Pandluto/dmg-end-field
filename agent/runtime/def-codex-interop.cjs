@@ -28,6 +28,7 @@ function createDefCodexInteropProtocol(options) {
   const runs = new Map();
   const turnsByClient = new Map();
   const consumers = new Map();
+  const harnessRunners = new Map();
   const events = [];
   // Keep the subscription predicate with the connection.  Replaying with a
   // predicate but broadcasting live events to every response leaks activity
@@ -370,7 +371,8 @@ function createDefCodexInteropProtocol(options) {
     const list = [...consumers.values()]
       .filter((consumer) => consumer.host === 'workbench' && (!sessionId || consumer.sessionId === sessionId))
       .sort((left, right) => right.updatedAt - left.updatedAt);
-    return list[0] || null;
+    if (list[0]) return list[0];
+    return sessionId ? harnessRunners.get(sessionId) || null : null;
   }
 
   async function startOrContinue(request, response, body, continuation) {
@@ -559,6 +561,45 @@ function createDefCodexInteropProtocol(options) {
       tokens.set(token, Date.now() + 15 * 60 * 1000);
       json(response, 201, { ok: true, protocol: PROTOCOL, protocolVersion: PROTOCOL_VERSION, token, expiresAt: Date.now() + 15 * 60 * 1000 });
       return true;
+    }
+    if (method === 'POST' && path === '/def-agent/interop/v1/harness/sessions') {
+      if (!developmentOnly) { reject(response, 403, createError('teacher-ingress-disabled', 'Harness runner is disabled outside development/test profiles.', 'bridge')); return true; }
+      if (!authorize(request, response)) return true;
+      const body = await readBody(request);
+      const selector = typeof body?.harnessSelector === 'string' ? body.harnessSelector : 'stable';
+      if (!/^(?:stable|candidate\/[a-z][a-z0-9-]{0,63}|[a-z][a-z0-9-]{1,63}@[0-9]+(?:\.[0-9]+){0,2}(?:-[a-z0-9.-]+)?)$/.test(selector)) {
+        reject(response, 400, createError('invalid-harness-selector', 'Harness runner needs stable, candidate/<name>, or id@version.', 'protocol')); return true;
+      }
+      const fixtureId = `fixture-${crypto.randomUUID()}`;
+      const timelineId = `harness-${fixtureId}`;
+      const fixture = await options.postJson(`${baseUrl}/local-data/timeline-documents`, { id: timelineId, label: `Harness fixture ${fixtureId}` });
+      if (fixture.status < 200 || fixture.status >= 300 || fixture.body?.ok === false) {
+        reject(response, 502, createError('harness-fixture-create-failed', 'Could not create isolated Harness timeline fixture.', 'fixture', { retryable: true })); return true;
+      }
+      const created = await options.postJson(`${options.sidecarUrl}/api/native/session`, { host: 'workbench', harnessSelector: selector, timelineId });
+      if (created.status < 200 || created.status >= 300 || created.body?.ok !== true || !created.body?.session?.id) {
+        await options.postJson(`${baseUrl}/local-data/timeline-documents/${encodeURIComponent(timelineId)}/delete`, {}).catch(() => undefined);
+        reject(response, 502, createError('BLOCKED_HARNESS_LOAD', 'Could not create a native Harness runner session.', 'sidecar', { retryable: true })); return true;
+      }
+      const session = created.body.session;
+      const runner = { id: `harness-runner-${crypto.randomUUID()}`, host: 'harness-runner', sessionId: session.id, directory: session.directory, timelineId, fixtureId, harnessBinding: session.harnessBinding || null, createdAt: Date.now(), updatedAt: Date.now() };
+      harnessRunners.set(runner.sessionId, runner);
+      emit('harness-session-created', { sessionId: runner.sessionId }, { fixtureId, timelineId, harness: runner.harnessBinding });
+      json(response, 201, { ok: true, protocol: PROTOCOL, protocolVersion: PROTOCOL_VERSION, runner: { id: runner.id, sessionId: runner.sessionId, timelineId, fixtureId, harnessBinding: runner.harnessBinding } }); return true;
+    }
+    const harnessCloseMatch = /^\/def-agent\/interop\/v1\/harness\/sessions\/([^/]+)$/.exec(path);
+    if (method === 'DELETE' && harnessCloseMatch) {
+      if (!authorize(request, response)) return true;
+      const sessionId = decodeURIComponent(harnessCloseMatch[1]);
+      const runner = harnessRunners.get(sessionId);
+      if (!runner) { json(response, 200, { ok: true, protocol: PROTOCOL, protocolVersion: PROTOCOL_VERSION, status: 'already-closed' }); return true; }
+      const deleted = await options.postJson(`${options.sidecarUrl}/api/native/session/${encodeURIComponent(sessionId)}/runner-cleanup`, {});
+      if (deleted.status < 200 || deleted.status >= 300) { reject(response, 502, createError('harness-session-cleanup-failed', 'Native Harness runner session could not be cleaned up.', 'sidecar', { retryable: true, ids: { sessionId } })); return true; }
+      const fixture = await options.postJson(`${baseUrl}/local-data/timeline-documents/${encodeURIComponent(runner.timelineId)}/delete`, {});
+      if (fixture.status < 200 || fixture.status >= 300) { reject(response, 502, createError('harness-fixture-cleanup-failed', 'Harness timeline fixture could not be cleaned up.', 'fixture', { retryable: true, ids: { sessionId } })); return true; }
+      harnessRunners.delete(sessionId);
+      emit('harness-session-cleaned', { sessionId }, { fixtureId: runner.fixtureId, timelineId: runner.timelineId });
+      json(response, 200, { ok: true, protocol: PROTOCOL, protocolVersion: PROTOCOL_VERSION, status: 'cleaned' }); return true;
     }
     if (method === 'POST' && path === '/def-agent/workbench-test/prompt') {
       const legacy = await readBody(request);

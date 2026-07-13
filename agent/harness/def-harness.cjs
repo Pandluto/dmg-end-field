@@ -1,11 +1,11 @@
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
+const { spawnSync } = require('child_process');
 
 const SCHEMA_VERSION = 1;
 const PACKAGE_SCHEMA = 'DefHarnessPackageV1';
 const BINDING_SCHEMA = 'DefHarnessSessionBindingV1';
-const TRACE_SCHEMA = 'DefHarnessTraceRefV1';
 const REGRESSION_SCHEMA = 'DefHarnessRegressionResultV1';
 const PROMOTION_SCHEMA = 'DefHarnessPromotionRecordV1';
 const SLOT_NAMES = Object.freeze([
@@ -116,6 +116,25 @@ function normalizedPackageForHash(pkg) {
   return copy;
 }
 function computePackageHash(pkg) { return sha256(stableJson(normalizedPackageForHash(pkg))); }
+function gitSourceEvidence(sourceDir) {
+  const execute = (args) => spawnSync('git', ['-C', sourceDir, ...args], { encoding: 'utf8' });
+  const head = execute(['rev-parse', 'HEAD']);
+  const status = execute(['status', '--porcelain', '--untracked-files=normal']);
+  const tree = execute(['rev-parse', 'HEAD^{tree}']);
+  if (head.status !== 0 || status.status !== 0 || tree.status !== 0) fail('HARNESS_GIT_EVIDENCE_UNAVAILABLE', 'Harness package build requires Git source evidence.', { component: 'package' });
+  const sourceCommit = String(head.stdout || '').trim();
+  const porcelain = String(status.stdout || '');
+  const diff = execute(['diff', '--no-ext-diff', '--binary', 'HEAD']);
+  const untracked = execute(['ls-files', '--others', '--exclude-standard']);
+  if (diff.status !== 0 || untracked.status !== 0) fail('HARNESS_GIT_EVIDENCE_UNAVAILABLE', 'Harness package build could not read Git workspace evidence.', { component: 'package' });
+  const workspaceEvidence = [
+    String(tree.stdout || '').trim(),
+    porcelain,
+    String(diff.stdout || ''),
+    String(untracked.stdout || ''),
+  ].join('\n');
+  return { sourceCommit, dirty: Boolean(porcelain.trim()), sourceTreeHash: sha256(workspaceEvidence) };
+}
 function assertCompatibility(compatibility) {
   const value = compatibility && typeof compatibility === 'object' ? compatibility : {};
   if (value.interopProtocol !== undefined && !['1', '^1', '>=1 <2'].includes(String(value.interopProtocol))) fail('HARNESS_INCOMPATIBLE', 'Harness requires an unsupported interop protocol.', { component: 'loader' });
@@ -130,13 +149,15 @@ function buildPackage(sourceDir, outputRoot) {
   for (const slot of Object.keys(source.slots).sort()) {
     slots[slot] = source.slots[slot].map((artifact) => ({ ...artifact, ...assertSafeArtifact(root, artifact.path) })).map(({ absolutePath, ...artifact }) => artifact);
   }
+  const sourceEvidence = gitSourceEvidence(root);
   const pkg = {
     kind: PACKAGE_SCHEMA,
     schemaVersion: SCHEMA_VERSION,
     harnessId: source.harnessId,
     version: source.version,
-    sourceCommit: source.sourceCommit,
-    dirty: source.dirty,
+    sourceCommit: sourceEvidence.sourceCommit,
+    dirty: sourceEvidence.dirty,
+    sourceTreeHash: sourceEvidence.sourceTreeHash,
     description: source.description,
     compatibility: source.compatibility,
     slots,
@@ -282,14 +303,6 @@ function composeHarnessSystem(binding, artifactView) {
   }
   return sections.join('\n\n');
 }
-function traceRef({ runId, sessionId, turnId, clientTurnId, scenarioId, binding, events = [], terminalState, environment = {} }) {
-  const compact = (value) => JSON.parse(JSON.stringify(value, (key, item) => /token|authorization|secret|transcript|evaluator/i.test(key) ? '[redacted]' : item));
-  return {
-    kind: TRACE_SCHEMA, schemaVersion: SCHEMA_VERSION, runId, sessionId, turnId, clientTurnId, scenarioId,
-    harness: binding?.harness, binding: binding ? { selector: binding.selector, slotHashes: binding.slotHashes, createdAt: binding.createdAt } : null,
-    events: compact(events).slice(0, 64), terminalState: terminalState || null, environment: compact(environment), createdAt: Date.now(),
-  };
-}
 function loadScenario(filePath) {
   const scenario = readJson(filePath);
   if (!isObject(scenario) || typeof scenario.id !== 'string' || !Array.isArray(scenario.turns) || !scenario.turns.length) {
@@ -301,22 +314,11 @@ function loadScenario(filePath) {
   }
   return scenario;
 }
-function createFixture(scenario) {
-  return Object.freeze({ fixtureId: `fixture-${crypto.randomUUID()}`, timelineId: `timeline-${crypto.randomUUID()}`, workNodeId: `node-${crypto.randomUUID()}`, createdAt: Date.now(), scenarioId: scenario.id });
-}
-function runScenario({ runtimeRoot, scenarioFile, selector = 'stable', snapshotAvailable = true }) {
+function inspectPackageScenario({ runtimeRoot, scenarioFile, selector = 'stable' }) {
   const scenario = loadScenario(scenarioFile);
-  const fixture = createFixture(scenario);
-  const runId = `harness-run-${crypto.randomUUID()}`;
-  if (scenario.requiresSnapshot === true && !snapshotAvailable) {
-    const blocked = { runId, scenarioId: scenario.id, fixture, selector, status: 'BLOCKED_ENVIRONMENT', reason: 'snapshot-unavailable', createdAt: Date.now() };
-    writeAtomic(path.join(registryPaths(runtimeRoot).root, 'runs', runId, 'run.json'), blocked);
-    return blocked;
-  }
+  const packageCheckId = `package-check-${crypto.randomUUID()}`;
   const loader = createLoader(runtimeRoot);
   const resolved = loader.resolve(selector);
-  const sessionId = `scenario-session-${crypto.randomUUID()}`;
-  const binding = createSessionBinding({ sessionId, resolved });
   const rule = scenario.expect || {};
   const slot = typeof rule.slot === 'string' ? rule.slot : 'responsePolicy';
   const slotText = (resolved.artifactView[slot] || []).map((entry) => entry.text).join('\n');
@@ -325,52 +327,11 @@ function runScenario({ runtimeRoot, scenarioFile, selector = 'stable', snapshotA
   const forbiddenText = candidateSelector ? rule.candidateNotContains || rule.notContains : rule.baselineNotContains || rule.notContains;
   const match = typeof requiredText === 'string' ? slotText.includes(requiredText) : true;
   const absent = typeof forbiddenText === 'string' ? !slotText.includes(forbiddenText) : true;
-  const turns = scenario.turns.map((turn, index) => ({
-    turnId: `scenario-turn-${crypto.randomUUID()}`,
-    clientTurnId: `scenario-client-${crypto.randomUUID()}`,
-    rawUserText: turn.userText,
-    providerVisibleUserText: turn.userText,
-    status: match && absent ? 'completed' : 'failed',
-    order: index + 1,
-  }));
-  const traces = turns.map((turn) => traceRef({ runId, sessionId, turnId: turn.turnId, clientTurnId: turn.clientTurnId, scenarioId: scenario.id, binding, terminalState: turn.status, events: [{ type: 'accepted' }, { type: turn.status }] }));
-  const result = { runId, scenarioId: scenario.id, scenarioVersion: Number(scenario.version || 1), fixture, sessionId, selector: resolved.selector, harness: resolved.ref, binding, turns, traceRefs: traces, status: match && absent ? 'PASS' : 'FAIL_AGENT', createdAt: Date.now() };
-  writeAtomic(path.join(registryPaths(runtimeRoot).root, 'runs', runId, 'run.json'), result);
+  const result = { kind: 'DefHarnessPackageCheckV1', packageCheckId, scenarioId: scenario.id, scenarioVersion: Number(scenario.version || 1), selector: resolved.selector, harness: resolved.ref, slot: rule.slot || 'responsePolicy', status: match && absent ? 'PACKAGE_CHECK_PASS' : 'PACKAGE_CHECK_FAIL', createdAt: Date.now() };
+  writeAtomic(path.join(registryPaths(runtimeRoot).root, 'runs', packageCheckId, 'package-check.json'), result);
   return result;
 }
-function readRun(runtimeRoot, runId) { return readJson(path.join(registryPaths(runtimeRoot).root, 'runs', runId, 'run.json')); }
-function compareRuns(runtimeRoot, baselineRunId, candidateRunId) {
-  const baseline = readRun(runtimeRoot, baselineRunId);
-  const candidate = readRun(runtimeRoot, candidateRunId);
-  const classification = candidate.status === 'BLOCKED_ENVIRONMENT' || baseline.status === 'BLOCKED_ENVIRONMENT'
-    ? 'BLOCKED_ENVIRONMENT'
-    : baseline.status !== 'PASS' || candidate.status !== 'PASS' ? 'FAIL_AGENT' : 'PASS';
-  const result = { id: `comparison-${crypto.randomUUID()}`, baselineRunId, candidateRunId, scenarioId: candidate.scenarioId, status: classification, baselineHarness: baseline.harness, candidateHarness: candidate.harness, comparable: baseline.scenarioId === candidate.scenarioId && baseline.scenarioVersion === candidate.scenarioVersion && baseline.fixture.fixtureId !== candidate.fixture.fixtureId && baseline.sessionId !== candidate.sessionId };
-  if (!result.comparable && result.status === 'PASS') result.status = 'ERROR_PROTOCOL';
-  writeAtomic(path.join(registryPaths(runtimeRoot).root, 'runs', result.id, 'comparison.json'), result);
-  return result;
-}
-function runRegression({ runtimeRoot, scenarioFiles, baselineSelector = 'stable', candidateSelector, evaluatorOnlyInput = 'evaluator-only' }) {
-  if (!candidateSelector) fail('HARNESS_REGRESSION_INVALID', 'Regression requires an explicit candidate selector.', { component: 'regression' });
-  const id = `regression-${crypto.randomUUID()}`;
-  const cases = scenarioFiles.map((scenarioFile) => {
-    const scenario = loadScenario(scenarioFile);
-    const baseline = runScenario({ runtimeRoot, scenarioFile, selector: baselineSelector });
-    const candidate = runScenario({ runtimeRoot, scenarioFile, selector: candidateSelector });
-    return { kind: scenario.regressionKind || 'PASS_TO_PASS', scenarioId: scenario.id, baselineRunId: baseline.runId, candidateRunId: candidate.runId, comparison: compareRuns(runtimeRoot, baseline.runId, candidate.runId) };
-  });
-  const failToPassPassed = cases.filter((entry) => entry.kind === 'FAIL_TO_PASS').every((entry) => entry.comparison.status === 'PASS');
-  const passToPassPassed = cases.filter((entry) => entry.kind === 'PASS_TO_PASS').every((entry) => entry.comparison.status === 'PASS');
-  const candidate = createLoader(runtimeRoot).resolve(candidateSelector).package;
-  const serialized = JSON.stringify({ cases, candidate: packageRef(candidate) });
-  const evaluatorLeakFree = !serialized.includes(evaluatorOnlyInput) && !Object.values(candidate.slots).flat().some((artifact) => fs.readFileSync(assertSafeArtifact(getPackageDirectory(runtimeRoot, packageRef(candidate)), artifact.path).absolutePath, 'utf8').includes(evaluatorOnlyInput));
-  const safetyPassed = evaluatorLeakFree && candidate.dirty !== true;
-  const complete = cases.length > 0 && cases.every((entry) => entry.comparison.comparable) && safetyPassed;
-  const result = { kind: REGRESSION_SCHEMA, schemaVersion: SCHEMA_VERSION, id, status: complete && failToPassPassed && passToPassPassed ? 'PASS' : 'FAIL_AGENT', complete, failToPassPassed, passToPassPassed, safetyPassed, evaluatorLeakFree, candidate: packageRef(candidate), baselineSelector, candidateSelector, cases, createdAt: Date.now() };
-  writeAtomic(path.join(registryPaths(runtimeRoot).root, 'runs', id, 'regression.json'), result);
-  return result;
-}
-function readRegression(runtimeRoot, regressionId) { return readJson(path.join(registryPaths(runtimeRoot).root, 'runs', regressionId, 'regression.json')); }
+function runPackageSelfCheck(options) { return inspectPackageScenario(options); }
 function appendDecision(runtimeRoot, decision) {
   const record = { kind: PROMOTION_SCHEMA, schemaVersion: SCHEMA_VERSION, at: Date.now(), ...decision };
   const file = registryPaths(runtimeRoot).decisions;
@@ -378,17 +339,31 @@ function appendDecision(runtimeRoot, decision) {
   fs.appendFileSync(file, `${JSON.stringify(record)}\n`, { encoding: 'utf8', mode: 0o600 });
   return record;
 }
-function assertPromotionAllowed({ candidate, regression, reviewer }) {
+function sameRef(left, right) {
+  return Boolean(left && right
+    && left.harnessId === right.harnessId
+    && left.version === right.version
+    && left.contentHash === right.contentHash);
+}
+function assertPromotionAllowed({ candidate, candidateRef, baselineRef, regression, reviewer }) {
   if (!candidate || candidate.dirty) fail('HARNESS_PROMOTION_BLOCKED', 'Dirty or missing candidate cannot be promoted.', { component: 'registry' });
   if (!reviewer || typeof reviewer !== 'string') fail('HARNESS_PROMOTION_BLOCKED', 'Promotion requires an explicit human reviewer.', { component: 'registry' });
-  if (!regression || regression.kind !== REGRESSION_SCHEMA || regression.status !== 'PASS' || regression.complete !== true || regression.safetyPassed !== true || regression.passToPassPassed !== true || regression.failToPassPassed !== true) {
+  if (!candidateRef?.contentHash) fail('HARNESS_PROMOTION_BLOCKED', 'Promotion requires an immutable candidate reference.', { component: 'registry' });
+  if (!regression || regression.kind !== REGRESSION_SCHEMA || regression.status !== 'PASS' || regression.complete !== true
+    || regression.safetyPassed !== true || regression.passToPassPassed !== true || regression.failToPassPassed !== true
+    || !sameRef(regression.candidate, candidateRef) || !sameRef(regression.baseline, baselineRef)
+    || !Array.isArray(regression.suite) || !regression.suite.length
+    || regression.suite.some((entry) => !entry?.scenarioId || !entry?.scenarioVersion || !['PASS', 'FAIL'].includes(entry?.status))
+    || Array.isArray(regression.outcomes) && regression.outcomes.some((outcome) => ['BLOCKED_ENVIRONMENT', 'ERROR_PROTOCOL', 'ERROR_VERIFIER', 'INCOMPLETE'].includes(outcome?.status))) {
     fail('HARNESS_PROMOTION_BLOCKED', 'Promotion requires a complete passing regression and safety gate.', { component: 'registry' });
   }
 }
 function promote(runtimeRoot, candidateRef, regression, reviewer, note = '') {
   const candidate = validatePackageDirectory(getPackageDirectory(runtimeRoot, candidateRef));
-  assertPromotionAllowed({ candidate, regression, reviewer });
   const channels = readChannels(runtimeRoot);
+  const immutableCandidate = packageRef(candidate);
+  if (!sameRef(candidateRef, immutableCandidate)) fail('HARNESS_PROMOTION_BLOCKED', 'Candidate reference does not match the immutable Registry artifact.', { component: 'registry' });
+  assertPromotionAllowed({ candidate, candidateRef: immutableCandidate, baselineRef: channels.stable, regression, reviewer });
   const prior = channels.stable;
   const next = { ...channels, previousStable: prior, stable: packageRef(candidate) };
   writeAtomic(registryPaths(runtimeRoot).channels, next);
@@ -404,8 +379,8 @@ function rollback(runtimeRoot, reviewer, reason = '') {
 }
 
 module.exports = {
-  SCHEMA_VERSION, PACKAGE_SCHEMA, BINDING_SCHEMA, TRACE_SCHEMA, REGRESSION_SCHEMA, PROMOTION_SCHEMA, SLOT_NAMES,
+  SCHEMA_VERSION, PACKAGE_SCHEMA, BINDING_SCHEMA, REGRESSION_SCHEMA, PROMOTION_SCHEMA, SLOT_NAMES,
   DefHarnessError, stableJson, sha256, buildPackage, validatePackageDirectory, registryPaths, readChannels,
-  registerPackage, ensureBaseline, setChannel, resolveSelector, createLoader, createSessionBinding, composeHarnessSystem, traceRef,
-  loadScenario, createFixture, runScenario, readRun, compareRuns, runRegression, readRegression, appendDecision, promote, rollback, packageRef,
+  registerPackage, ensureBaseline, setChannel, resolveSelector, createLoader, createSessionBinding, composeHarnessSystem,
+  loadScenario, inspectPackageScenario, runPackageSelfCheck, appendDecision, assertPromotionAllowed, promote, rollback, packageRef, sameRef,
 };

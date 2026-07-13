@@ -923,7 +923,7 @@ async function syncNativeWorkbenchAxisBinding(binding) {
         sessionBindingId: current.axisBindingId,
         sessionID: current.sessionID,
         host: 'workbench',
-        timelineId: 'current-main-workbench',
+        timelineId: binding.timelineId || 'current-main-workbench',
       },
     }),
     signal: AbortSignal.timeout(5000),
@@ -982,6 +982,7 @@ const server = http.createServer(async (request, response) => {
         skillId: typeof body.skillId === 'string' ? body.skillId : undefined,
         thinkingEffort: body.thinkingEffort,
         harnessSelector: typeof body.harnessSelector === 'string' ? body.harnessSelector : 'stable',
+        timelineId: typeof body.timelineId === 'string' ? body.timelineId : '',
       });
       const binding = ensureNativeSessionAxisBinding(session.directory, session.sessionID);
       const axisContext = await syncNativeWorkbenchAxisBinding(binding);
@@ -1060,8 +1061,9 @@ const server = http.createServer(async (request, response) => {
     }
 
     const nativeSessionDelete = /^\/api\/native\/session\/([^/]+)$/.exec(requestUrl.pathname);
-    if (method === 'DELETE' && nativeSessionDelete) {
-      const sessionID = decodeURIComponent(nativeSessionDelete[1]);
+    const nativeRunnerCleanup = /^\/api\/native\/session\/([^/]+)\/runner-cleanup$/.exec(requestUrl.pathname);
+    if ((method === 'DELETE' && nativeSessionDelete) || (method === 'POST' && nativeRunnerCleanup)) {
+      const sessionID = decodeURIComponent((nativeSessionDelete || nativeRunnerCleanup)[1]);
       const binding = findNativeSessionBinding(sessionID);
       if (!binding) {
         writeJson(response, 200, { ok: true, status: 'already-deleted' });
