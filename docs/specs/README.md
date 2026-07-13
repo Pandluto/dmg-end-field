@@ -10,6 +10,7 @@
 4. [Work Node Phase 4](./def-opencode-worknode-phase4/spec.md)
 5. [Spec 6：原生工具与原生前端回归](./def-opencode-arch-review-spec6/spec.md)
 6. [Spec 7：本地产品化](./def-opencode-local-productization-spec7/spec.md)
+7. [Spec 8 预研究：认知运行时与游戏知识 Agent](./def-opencode-cognitive-runtime-spec8/research.md)
 
 关联演进线：
 
