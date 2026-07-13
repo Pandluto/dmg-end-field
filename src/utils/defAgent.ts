@@ -142,6 +142,41 @@ export interface DefAgentWorkbenchTestUiEvent {
   replay?: boolean;
 }
 
+export type DefCodexIngressMode = 'pure-blackbox' | 'diagnostic';
+
+export interface DefCodexInteropError {
+  code: string;
+  message: string;
+  component: string;
+  retryable: boolean;
+  ids?: Record<string, string>;
+  nextAction?: string;
+}
+
+export interface DefCodexInteropTurn {
+  accepted: boolean;
+  testRunId: string;
+  sessionId: string;
+  turnId: string;
+  clientTurnId: string;
+  ingressMode: DefCodexIngressMode;
+  rawUserText: string;
+  providerVisibleUserText: string;
+  snapshotAvailable: boolean;
+  eventCursor: string;
+  links: Record<string, string>;
+}
+
+export interface DefCodexInteropStatus {
+  protocol: 'def-codex-interop';
+  protocolVersion: 1;
+  developmentOnly: boolean;
+  bridge: { ready: boolean; version: string };
+  agent: { ready: boolean; state: string; version?: string };
+  workbench: { snapshotAvailable: boolean; uiConnected: boolean; uiConsumerCount: number };
+  capabilities: string[];
+}
+
 export interface DefAgentLoopStep {
   phase: 'think' | 'act' | 'observe' | 'answer';
   label: string;
@@ -282,8 +317,53 @@ export function subscribeDefAgentSession(sessionId: string, fromSeq = 0): EventS
   return openDefAgentEventSource(sessionId, fromSeq);
 }
 
-export function subscribeWorkbenchTestUiEvents(): EventSource {
-  return new EventSource(`${LOCAL_AGENT_BASE_URL}/def-agent/workbench-test/ui-events`);
+export async function authorizeDefCodexInterop(): Promise<{ token: string; expiresAt: number }> {
+  const response = await fetch(`${LOCAL_AGENT_BASE_URL}/def-agent/interop/v1/authorize`, { method: 'POST' });
+  return readJsonResponse<{ token: string; expiresAt: number }>(response, 'Authorize DEF Codex interop');
+}
+
+export async function getDefCodexInteropStatus(): Promise<DefCodexInteropStatus> {
+  const response = await fetch(`${LOCAL_AGENT_BASE_URL}/def-agent/interop/v1/status`, { cache: 'no-store' });
+  return readJsonResponse<DefCodexInteropStatus>(response, 'Read DEF Codex interop status');
+}
+
+export async function startDefCodexInteropTurn(input: {
+  token: string;
+  rawUserText: string;
+  clientTurnId: string;
+  ingressMode?: DefCodexIngressMode;
+  thinkingEffort?: DefAgentThinkingEffort;
+  diagnostic?: { purpose: string; scope?: string; mutationAllowed?: boolean };
+}): Promise<DefCodexInteropTurn> {
+  const response = await fetch(`${LOCAL_AGENT_BASE_URL}/def-agent/interop/v1/turns`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json; charset=utf-8', Authorization: `Bearer ${input.token}` },
+    body: JSON.stringify({ protocolVersion: 1, ...input }),
+  });
+  const payload = await readJsonResponse<{ turn: DefCodexInteropTurn }>(response, 'Start DEF Codex interop turn');
+  return payload.turn;
+}
+
+export async function continueDefCodexInteropTurn(sessionId: string, input: Omit<Parameters<typeof startDefCodexInteropTurn>[0], 'sessionId'>): Promise<DefCodexInteropTurn> {
+  const response = await fetch(`${LOCAL_AGENT_BASE_URL}/def-agent/interop/v1/sessions/${encodeURIComponent(sessionId)}/turns`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json; charset=utf-8', Authorization: `Bearer ${input.token}` },
+    body: JSON.stringify({ protocolVersion: 1, ...input }),
+  });
+  const payload = await readJsonResponse<{ turn: DefCodexInteropTurn }>(response, 'Continue DEF Codex interop turn');
+  return payload.turn;
+}
+
+export function subscribeDefCodexInteropEvents(sessionId: string, from = 0): EventSource {
+  const url = new URL(`${LOCAL_AGENT_BASE_URL}/def-agent/interop/v1/sessions/${encodeURIComponent(sessionId)}/events`);
+  if (from > 0) url.searchParams.set('from', String(from));
+  return new EventSource(url.toString());
+}
+
+export function subscribeDefCodexInteropUiEvents(from = 0): EventSource {
+  const url = new URL(`${LOCAL_AGENT_BASE_URL}/def-agent/interop/v1/ui-events`);
+  if (from > 0) url.searchParams.set('from', String(from));
+  return new EventSource(url.toString());
 }
 
 export async function stopDefAgentStream(sessionId: string): Promise<{ ok: boolean; stopped?: boolean; reason?: string; sessionID?: string }> {

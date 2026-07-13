@@ -467,6 +467,102 @@ async function proxyOpenCodeRequest(request, response) {
   });
 }
 
+async function readNativeInteropTranscript(sessionID) {
+  const binding = findNativeSessionBinding(sessionID);
+  if (!binding) {
+    const error = new Error('native-session-binding-not-found');
+    error.status = 404;
+    throw error;
+  }
+  const runtime = await ensureRuntime(readConfig().deepseek);
+  const response = await fetch(
+    `${runtime.serverUrl}/session/${encodeURIComponent(sessionID)}/message?directory=${encodeURIComponent(binding.directory)}`,
+    { signal: AbortSignal.timeout(15000) },
+  );
+  if (!response.ok) {
+    const error = new Error(`native-session-transcript-failed-${response.status}`);
+    error.status = response.status;
+    throw error;
+  }
+  return { binding, messages: await response.json() };
+}
+
+async function sendNativeInteropPrompt(sessionID, body) {
+  const binding = findNativeSessionBinding(sessionID);
+  if (!binding || binding.host !== 'workbench') {
+    const error = new Error('native-workbench-session-binding-not-found');
+    error.status = 404;
+    throw error;
+  }
+  const rawUserText = typeof body?.rawUserText === 'string' ? body.rawUserText.trim() : '';
+  const providerVisibleUserText = typeof body?.providerVisibleUserText === 'string'
+    ? body.providerVisibleUserText.trim()
+    : '';
+  if (!rawUserText || rawUserText !== providerVisibleUserText) {
+    const error = new Error('pure-blackbox-user-text-mismatch');
+    error.status = 400;
+    throw error;
+  }
+  const ingressMode = body?.ingressMode === 'diagnostic' ? 'diagnostic' : 'pure-blackbox';
+  const diagnostic = ingressMode === 'diagnostic' && body?.diagnostic && typeof body.diagnostic === 'object'
+    ? body.diagnostic
+    : null;
+  const runtime = await ensureRuntime(readConfig().deepseek);
+  const workbenchContext = readNativeWorkbenchContext(binding);
+  const diagnosticSystem = diagnostic
+    ? `Diagnostic ingress. Purpose: ${String(diagnostic.purpose || '').slice(0, 240)}. Scope: ${String(diagnostic.scope || '').slice(0, 240)}. Mutation allowed: ${diagnostic.mutationAllowed === true}. This diagnostic marker is not user text.`
+    : undefined;
+  const payload = {
+    agent: binding.agent,
+    model: { providerID: 'deepseek', modelID: sanitizeDeepSeekConfig(readConfig().deepseek).model },
+    system: buildWorkbenchContextSystemPrompt(workbenchContext, diagnosticSystem),
+    parts: [{ type: 'text', text: rawUserText }],
+  };
+  const response = await fetch(
+    `${runtime.serverUrl}/session/${encodeURIComponent(sessionID)}/prompt_async?directory=${encodeURIComponent(binding.directory)}`,
+    {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-def-interop': 'v1' },
+      body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(15000),
+    },
+  );
+  if (!response.ok) {
+    const error = new Error(`native-session-prompt-failed-${response.status}`);
+    error.status = response.status;
+    throw error;
+  }
+  return {
+    binding,
+    ingressMode,
+    acceptedAt: Date.now(),
+    providerVisibleMessages: [
+      { role: 'system', source: 'workbench-context', text: payload.system },
+      { role: 'user', text: rawUserText },
+    ],
+  };
+}
+
+async function stopNativeInteropPrompt(sessionID) {
+  const binding = findNativeSessionBinding(sessionID);
+  if (!binding || binding.host !== 'workbench') {
+    const error = new Error('native-workbench-session-binding-not-found');
+    error.status = 404;
+    throw error;
+  }
+  const runtime = await ensureRuntime(readConfig().deepseek);
+  const response = await fetch(
+    `${runtime.serverUrl}/session/${encodeURIComponent(sessionID)}/abort?directory=${encodeURIComponent(binding.directory)}`,
+    { method: 'POST', signal: AbortSignal.timeout(OPENCODE_ACTION_TIMEOUT_MS) },
+  );
+  if (!response.ok && response.status !== 404) {
+    const error = new Error(`native-session-stop-failed-${response.status}`);
+    error.status = response.status;
+    throw error;
+  }
+  return { reason: response.status === 404 ? 'already-complete' : 'requested' };
+}
+
 function readRequestDirectory(request, requestUrl) {
   const queryDirectory = requestUrl.searchParams.get('directory');
   if (queryDirectory) return queryDirectory;
@@ -877,6 +973,29 @@ const server = http.createServer(async (request, response) => {
       const axisContext = await syncNativeWorkbenchAxisBinding(binding);
       const checkoutState = updateNativeWorkbenchCheckoutState(binding, axisContext);
       writeJson(response, 200, { ok: true, context: saved, axisContext, checkoutState });
+      return;
+    }
+
+    const nativeInteropPrompt = /^\/api\/native\/session\/([^/]+)\/interop-prompt$/.exec(requestUrl.pathname);
+    if (method === 'POST' && nativeInteropPrompt) {
+      const sessionID = decodeURIComponent(nativeInteropPrompt[1]);
+      const result = await sendNativeInteropPrompt(sessionID, await readJsonBody(request));
+      writeJson(response, 202, { ok: true, sessionId: sessionID, ingressMode: result.ingressMode, acceptedAt: result.acceptedAt, providerVisibleMessages: result.providerVisibleMessages });
+      return;
+    }
+
+    const nativeInteropTranscript = /^\/api\/native\/session\/([^/]+)\/interop-transcript$/.exec(requestUrl.pathname);
+    if (method === 'GET' && nativeInteropTranscript) {
+      const sessionID = decodeURIComponent(nativeInteropTranscript[1]);
+      const result = await readNativeInteropTranscript(sessionID);
+      writeJson(response, 200, { ok: true, sessionId: sessionID, messages: result.messages });
+      return;
+    }
+
+    const nativeInteropStop = /^\/api\/native\/session\/([^/]+)\/interop-stop$/.exec(requestUrl.pathname);
+    if (method === 'POST' && nativeInteropStop) {
+      const sessionID = decodeURIComponent(nativeInteropStop[1]);
+      writeJson(response, 200, { ok: true, sessionId: sessionID, ...(await stopNativeInteropPrompt(sessionID)) });
       return;
     }
 

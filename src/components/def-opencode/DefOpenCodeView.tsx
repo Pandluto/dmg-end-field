@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import './DefOpenCodeView.css';
 
 export type DefOpenCodeHost = 'workbench' | 'ai-cli';
@@ -27,6 +27,7 @@ interface DefOpenCodeViewProps {
 }
 
 const SIDECAR_PORT = 17322;
+const INTEROP_BASE_URL = 'http://127.0.0.1:31457/def-agent/interop/v1';
 
 export function DefOpenCodeView({
   host,
@@ -36,6 +37,7 @@ export function DefOpenCodeView({
 }: DefOpenCodeViewProps) {
   const [status, setStatus] = useState<'checking' | 'ready' | 'error'>('checking');
   const [session, setSession] = useState<NativeSession | null>(null);
+  const consumerIdRef = useRef<string>('');
   const origin = useMemo(() => (
     host === 'workbench'
       ? `http://127.0.0.1:${SIDECAR_PORT}`
@@ -116,8 +118,44 @@ export function DefOpenCodeView({
     return () => controller.abort();
   }, [host, origin, session, workbenchContext]);
 
+  useEffect(() => {
+    if (host !== 'workbench' || !session) return;
+    const consumerId = consumerIdRef.current || crypto.randomUUID();
+    consumerIdRef.current = consumerId;
+    const controller = new AbortController();
+    void fetch(`${INTEROP_BASE_URL}/ui/consumer`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ consumerId, host, sessionId: session.id, directory: session.directory }),
+      signal: controller.signal,
+    }).catch(() => undefined);
+
+    const events = new EventSource(`${INTEROP_BASE_URL}/ui-events`);
+    const rendered = (event: MessageEvent<string>) => {
+      const payload = JSON.parse(event.data) as { sessionId?: string; turnId?: string };
+      if (payload.sessionId !== session.id || !payload.turnId) return;
+      // The iframe is the native OpenCode session view. Once its mounted session consumes
+      // this prompt, the browser's own session SSE will hydrate/render the turn.
+      void fetch(`${INTEROP_BASE_URL}/ui/rendered`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ consumerId, sessionId: session.id, turnId: payload.turnId }),
+      }).catch(() => undefined);
+    };
+    events.addEventListener('ui-prompt-consumed', rendered);
+    return () => {
+      controller.abort();
+      events.removeEventListener('ui-prompt-consumed', rendered);
+      events.close();
+    };
+  }, [host, session]);
+
   return (
-    <section className={`def-opencode-view def-opencode-view--${host}`} data-def-opencode-host={host}>
+    <section
+      className={`def-opencode-view def-opencode-view--${host}`}
+      data-def-opencode-host={host}
+      data-def-opencode-session-id={session?.id || undefined}
+    >
       {onClose ? (
         <nav className="def-opencode-view__nav" aria-label="DEF OpenCode navigation">
           <button type="button" onClick={onClose}>返回</button>

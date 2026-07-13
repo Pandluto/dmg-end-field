@@ -3,6 +3,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { spawn, spawnSync } = require('child_process');
+const { createDefCodexInteropProtocol } = require('./runtime/def-codex-interop.cjs');
 
 const HOST = '127.0.0.1';
 const PORT = 31457;
@@ -16,15 +17,25 @@ let aiCliRestStartedAt = null;
 let defAgentProcess = null;
 let defAgentStartedAt = null;
 let webOpenedAt = null;
-const workbenchTestUiClients = new Set();
-const workbenchTestUiEventHistory = [];
+const defCodexInterop = createDefCodexInteropProtocol({
+  profile: process.env.DEF_CODEX_INTEROP_PROFILE || 'development',
+  baseUrl: `http://${HOST}:${PORT}`,
+  sidecarUrl: 'http://127.0.0.1:17322',
+  snapshotUrl: 'http://127.0.0.1:17321/api/main-workbench/snapshot',
+  bridgeVersion: 'dev-agent',
+  writeJson,
+  writeSse,
+  writeSseHeaders,
+  fetchJson: fetchJsonUrl,
+  postJson: postJsonUrl,
+});
 
 function buildJsonHeaders() {
   return {
     'Content-Type': 'application/json; charset=utf-8',
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Methods': 'GET,POST,OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
   };
 }
 
@@ -45,20 +56,6 @@ function writeSseHeaders(response) {
 function writeSse(response, eventName, payload) {
   response.write(`event: ${eventName}\n`);
   response.write(`data: ${JSON.stringify(payload)}\n\n`);
-}
-
-function broadcastWorkbenchTestUiEvent(eventName, payload) {
-  workbenchTestUiEventHistory.push({ eventName, payload });
-  if (workbenchTestUiEventHistory.length > 20) {
-    workbenchTestUiEventHistory.splice(0, workbenchTestUiEventHistory.length - 20);
-  }
-  for (const client of workbenchTestUiClients) {
-    try {
-      writeSse(client, eventName, payload);
-    } catch {
-      workbenchTestUiClients.delete(client);
-    }
-  }
 }
 
 function getUserDataRoot() {
@@ -448,53 +445,6 @@ function postJsonUrl(url, payload) {
   });
 }
 
-function formatWorkbenchTestButtonLabel(button) {
-  return `${button?.characterName || '未知'}-${button?.skillDisplayName || button?.skillType || '技能'}@${(button?.staffIndex || 0) + 1}-${(button?.nodeIndex ?? 0) + 1}`;
-}
-
-function chooseWorkbenchTestThinkingEffort(prompt, fallback = '') {
-  if (['low', 'medium', 'high'].includes(fallback)) return fallback;
-  const text = String(prompt || '');
-  const complexity = [
-    /每个|全部|所有|批量|队伍|重排|each|every|all|batch|team/i.test(text),
-    /装备|武器|配装|gear|equipment|weapon/i.test(text),
-    /Buff|buff|增益|长息/i.test(text),
-    /删除|移除|回退|恢复|delete|remove|rollback|restore/i.test(text),
-  ].filter(Boolean).length;
-  if (complexity >= 2 || text.length > 90) return 'high';
-  if (/加|删|改|换|添加|移除|计算|add|remove|set|calculate/i.test(text)) return 'medium';
-  return 'low';
-}
-
-async function buildWorkbenchTestPrompt(userText) {
-  let snapshot = null;
-  try {
-    const upstream = await fetchJsonUrl('http://127.0.0.1:17321/api/main-workbench/snapshot');
-    if (upstream.status >= 200 && upstream.status < 300 && upstream.body?.ok !== false) {
-      snapshot = upstream.body?.snapshot || upstream.body?.data || upstream.body;
-    }
-  } catch {
-    snapshot = null;
-  }
-  return {
-    agentText: [
-      'This request came from the DEF workbench blackbox ingress and is equivalent to a normal user message.',
-      'Reply in Chinese. Use the registered native DEF tools; do not call or describe legacy REST tool routes.',
-      'For mutations, work only through an isolated child node, validate and diff it, then request approval before use.',
-      `User request: ${userText}`,
-    ].join('\\n'),
-    workbenchContext: snapshot ? {
-      schemaVersion: 1,
-      source: 'workbench-blackbox-ingress',
-      updatedAt: Date.now(),
-      snapshot,
-    } : null,
-    snapshotAvailable: Boolean(snapshot),
-    evidenceAvailable: Boolean(snapshot?.checkoutRef || snapshot?.currentCheckout || snapshot?.workNodes),
-  };
-}
-
-
 function proxySseUrl(url, clientRequest, clientResponse) {
   const requestUrl = new URL(url);
   const upstream = http.request({
@@ -803,6 +753,10 @@ const server = http.createServer(async (request, response) => {
       return;
     }
 
+    if (await defCodexInterop.handle(request, response, requestUrl, readJsonBody)) {
+      return;
+    }
+
     if (method === 'GET' && requestUrl.pathname === '/health') {
       writeJson(response, 200, {
         ok: true,
@@ -897,101 +851,6 @@ const server = http.createServer(async (request, response) => {
       ok: upstream.status >= 200 && upstream.status < 300,
       defAgent,
       ...upstream.body,
-    });
-    return;
-  }
-
-  // Test-only ingress for agent ability checks: behave like the main workbench AI textbox,
-  // then broadcast ui.prompt so the frontend panel can prove the turn is user-visible.
-  if (method === 'POST' && requestUrl.pathname === '/def-agent/workbench-test/prompt') {
-    const defAgent = await startDefAgent();
-    const body = await readJsonBody(request);
-    const userText = typeof body.message === 'string' && body.message.trim()
-      ? body.message.trim()
-      : typeof body.prompt === 'string' && body.prompt.trim()
-        ? body.prompt.trim()
-        : '';
-    if (!userText) {
-      writeJson(response, 400, {
-        ok: false,
-        error: {
-          code: 'missing-workbench-test-prompt',
-          message: 'Body must include message or prompt.',
-        },
-      });
-      return;
-    }
-    const clientTurnId = typeof body.clientTurnId === 'string' && body.clientTurnId.trim()
-      ? body.clientTurnId.trim()
-      : `workbench-test-${Date.now()}`;
-    const thinkingEffort = chooseWorkbenchTestThinkingEffort(userText, body.thinkingEffort);
-    const builtPrompt = await buildWorkbenchTestPrompt(userText);
-    const sessionId = typeof body.sessionId === 'string' && body.sessionId.trim() ? body.sessionId.trim() : '';
-    const upstream = sessionId
-      ? await postJsonUrl(`http://127.0.0.1:17322/api/chat/${encodeURIComponent(sessionId)}/message`, {
-        message: builtPrompt.agentText,
-        clientTurnId,
-        thinkingEffort,
-        skillId: 'workbench',
-        workbenchContext: builtPrompt.workbenchContext,
-      })
-      : await postJsonUrl('http://127.0.0.1:17322/api/chat/stream', {
-        message: builtPrompt.agentText,
-        clientTurnId,
-        thinkingEffort,
-        skillId: 'workbench',
-        workbenchContext: builtPrompt.workbenchContext,
-      });
-    const nextSessionId = sessionId || upstream.body?.sessionId || upstream.body?.sessionID || '';
-    writeJson(response, upstream.status || 500, {
-      ok: upstream.status >= 200 && upstream.status < 300,
-      defAgent,
-      workbenchTest: {
-        prompt: userText,
-        clientTurnId,
-        thinkingEffort,
-        snapshotAvailable: builtPrompt.snapshotAvailable,
-        evidenceAvailable: builtPrompt.evidenceAvailable,
-        sessionId: nextSessionId || null,
-        eventsUrl: nextSessionId ? `http://${HOST}:${PORT}/def-agent/chat/${encodeURIComponent(nextSessionId)}/events` : null,
-        transcriptUrl: nextSessionId ? `http://${HOST}:${PORT}/def-agent/chat/${encodeURIComponent(nextSessionId)}/transcript` : null,
-        mode: sessionId ? 'continue' : 'stream',
-      },
-      ...upstream.body,
-    });
-    if (nextSessionId) {
-      broadcastWorkbenchTestUiEvent('ui.prompt', {
-        at: Date.now(),
-        prompt: userText,
-        clientTurnId,
-        thinkingEffort,
-        sessionId: nextSessionId,
-        sessionID: nextSessionId,
-        mode: sessionId ? 'continue' : 'stream',
-        snapshotAvailable: builtPrompt.snapshotAvailable,
-        evidenceAvailable: builtPrompt.evidenceAvailable,
-      });
-    }
-    return;
-  }
-
-  if (method === 'GET' && requestUrl.pathname === '/def-agent/workbench-test/ui-events') {
-    writeSseHeaders(response);
-    workbenchTestUiClients.add(response);
-    response.write(': connected\n\n');
-    writeSse(response, 'ready', {
-      ok: true,
-      at: Date.now(),
-      clients: workbenchTestUiClients.size,
-    });
-    for (const event of workbenchTestUiEventHistory) {
-      writeSse(response, event.eventName, {
-        ...event.payload,
-        replay: true,
-      });
-    }
-    request.on('close', () => {
-      workbenchTestUiClients.delete(response);
     });
     return;
   }

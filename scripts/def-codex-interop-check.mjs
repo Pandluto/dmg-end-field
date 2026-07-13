@@ -1,0 +1,92 @@
+import assert from 'node:assert/strict';
+import http from 'node:http';
+import { createRequire } from 'node:module';
+
+const require = createRequire(import.meta.url);
+const { createDefCodexInteropProtocol } = require('../agent/runtime/def-codex-interop.cjs');
+
+function writeJson(response, status, payload) {
+  response.writeHead(status, { 'content-type': 'application/json' });
+  response.end(JSON.stringify(payload));
+}
+
+function writeSseHeaders(response) {
+  response.writeHead(200, { 'content-type': 'text/event-stream' });
+}
+
+function writeSse(response, type, payload) {
+  response.write(`event: ${type}\ndata: ${JSON.stringify(payload)}\n\n`);
+}
+
+function readBody(request) {
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    request.on('data', (chunk) => chunks.push(chunk));
+    request.on('end', () => {
+      try { resolve(JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}')); } catch (error) { reject(error); }
+    });
+    request.on('error', reject);
+  });
+}
+
+let promptCalls = 0;
+const protocol = createDefCodexInteropProtocol({
+  profile: 'development',
+  baseUrl: 'http://127.0.0.1:0',
+  sidecarUrl: 'http://sidecar.invalid',
+  snapshotUrl: 'http://snapshot.invalid',
+  writeJson,
+  writeSse,
+  writeSseHeaders,
+  async fetchJson(url) {
+    if (url.endsWith('/health')) return { status: 200, body: { ok: true, service: 'fake-sidecar' } };
+    if (url.includes('interop-transcript')) return { status: 200, body: { ok: true, messages: [] } };
+    return { status: 200, body: { ok: true, snapshot: { checkout: { id: 'node-a' }, revision: 7, selectedCharacters: [{ id: 'a', name: 'A' }] } } };
+  },
+  async postJson(url, body) {
+    if (url.endsWith('/interop-prompt')) {
+      promptCalls += 1;
+      return { status: 202, body: { ok: true, providerVisibleMessages: [{ role: 'user', text: body.rawUserText }] } };
+    }
+    return { status: 200, body: { ok: true, reason: 'requested' } };
+  },
+});
+
+const server = http.createServer(async (request, response) => {
+  const url = new URL(request.url || '/', 'http://127.0.0.1');
+  if (!(await protocol.handle(request, response, url, readBody))) writeJson(response, 404, { ok: false });
+});
+await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+const port = server.address().port;
+const base = `http://127.0.0.1:${port}`;
+
+try {
+  const status = await (await fetch(`${base}/def-agent/interop/v1/status`)).json();
+  assert.equal(status.protocolVersion, 1);
+  assert.equal(status.workbench.uiConnected, false);
+
+  const authorization = await (await fetch(`${base}/def-agent/interop/v1/authorize`, { method: 'POST' })).json();
+  const headers = { authorization: `Bearer ${authorization.token}`, 'content-type': 'application/json' };
+  const rejected = await fetch(`${base}/def-agent/interop/v1/turns`, { method: 'POST', headers, body: JSON.stringify({ rawUserText: '这个怎么样', clientTurnId: 'no-ui' }) });
+  assert.equal(rejected.status, 409);
+  assert.equal((await rejected.json()).error.code, 'ui-consumer-unavailable');
+
+  await fetch(`${base}/def-agent/interop/v1/ui/consumer`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ host: 'workbench', sessionId: 'native-a', consumerId: 'ui-a' }) });
+  const request = { rawUserText: '这个怎么样', clientTurnId: 'turn-a', ingressMode: 'pure-blackbox' };
+  const first = await fetch(`${base}/def-agent/interop/v1/turns`, { method: 'POST', headers, body: JSON.stringify(request) });
+  assert.equal(first.status, 202);
+  const firstPayload = await first.json();
+  assert.equal(firstPayload.turn.rawUserText, firstPayload.turn.providerVisibleUserText);
+  assert.equal(promptCalls, 1);
+  const retry = await (await fetch(`${base}/def-agent/interop/v1/turns`, { method: 'POST', headers, body: JSON.stringify(request) })).json();
+  assert.equal(retry.idempotent, true);
+  assert.equal(retry.turn.turnId, firstPayload.turn.turnId);
+  assert.equal(promptCalls, 1);
+
+  const state = await (await fetch(`${base}/def-agent/interop/v1/state`)).json();
+  assert.deepEqual(state.state.selectedOperators, [{ id: 'a', name: 'A' }]);
+  assert.equal(Object.hasOwn(state.state, 'snapshot'), false);
+  console.log('def-codex-interop-check: ok');
+} finally {
+  await new Promise((resolve) => server.close(resolve));
+}
