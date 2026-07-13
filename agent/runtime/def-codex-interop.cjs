@@ -260,6 +260,27 @@ function createDefCodexInteropProtocol(options) {
     }
   }
 
+  function messageId(message) { return String(message?.info?.id || message?.id || ''); }
+
+  function correlatedMessages(record, messages) {
+    const list = Array.isArray(messages) ? messages : [];
+    let userMessageId = record.nativeUserMessageId || '';
+    if (!userMessageId && record.transcriptBaselineKnown) {
+      const user = [...list].reverse().find((message) => (
+        !record.transcriptBaselineIds.has(messageId(message))
+        && message?.info?.role === 'user'
+        && (message?.parts || []).some((part) => part?.type === 'text' && part?.text === record.rawUserText)
+      ));
+      userMessageId = messageId(user);
+      if (userMessageId) record.nativeUserMessageId = userMessageId;
+    }
+    if (!userMessageId) return { userMessageId: '', assistants: [] };
+    return {
+      userMessageId,
+      assistants: list.filter((message) => message?.info?.role === 'assistant' && message?.info?.parentID === userMessageId),
+    };
+  }
+
   async function observeTurn(record) {
     let firstToken = false;
     const seenTools = new Set();
@@ -278,9 +299,14 @@ function createDefCodexInteropProtocol(options) {
           options.fetchJson(`${options.sidecarUrl}/api/native/session/${encodeURIComponent(record.sessionId)}/interop-questions`).catch(() => ({ status: 0, body: null })),
         ]);
         if (record.status !== 'accepted') return;
-        if (questions.status >= 200 && questions.status < 300) attachQuestions(record, questions.body?.questions);
         const messages = Array.isArray(upstream.body?.messages) ? upstream.body.messages : [];
-        const latest = messages[messages.length - 1];
+        const correlated = correlatedMessages(record, messages);
+        // An uncertain submission without a new native user message must stay
+        // uncertain. A completed answer from an earlier session turn is never
+        // evidence that this clientTurnId ran.
+        if (!correlated.userMessageId) continue;
+        if (questions.status >= 200 && questions.status < 300) attachQuestions(record, questions.body?.questions);
+        const latest = correlated.assistants.at(-1);
         const parts = Array.isArray(latest?.parts) ? latest.parts : [];
         for (const part of parts) {
           if (record.status !== 'accepted') return;
@@ -315,10 +341,15 @@ function createDefCodexInteropProtocol(options) {
   }
 
   function reconcileTranscriptCompletion(run, messages) {
-    const latest = Array.isArray(messages) ? messages[messages.length - 1] : null;
-    if (!latest?.info?.time?.completed) return;
-    const record = [...run.turns].reverse().find((turn) => ['accepted', 'timeout'].includes(turn.status));
-    if (!record) return;
+    const record = [...run.turns].reverse().find((turn) => {
+      if (!['accepted', 'timeout'].includes(turn.status)) return false;
+      const correlated = correlatedMessages(turn, messages);
+      turn.nativeUserMessageId ||= correlated.userMessageId;
+      turn.reconciledAssistant = correlated.assistants.at(-1);
+      return Boolean(turn.reconciledAssistant?.info?.time?.completed || turn.reconciledAssistant?.info?.completedAt);
+    });
+    const latest = record?.reconciledAssistant;
+    if (!record || !latest) return;
     if (latest?.info?.error) {
       const provider = providerErrorPayload(latest.info.error);
       record.status = provider.aborted ? 'stopped' : 'provider-error';
@@ -424,6 +455,15 @@ function createDefCodexInteropProtocol(options) {
     };
     run.turns.push(record);
     turnsByClient.set(idempotencyKey, record);
+    try {
+      const baseline = await options.fetchJson(`${options.sidecarUrl}/api/native/session/${encodeURIComponent(record.sessionId)}/interop-transcript`);
+      const messages = Array.isArray(baseline.body?.messages) ? baseline.body.messages : [];
+      record.transcriptBaselineKnown = baseline.status >= 200 && baseline.status < 300;
+      record.transcriptBaselineIds = new Set(messages.map(messageId).filter(Boolean));
+    } catch {
+      record.transcriptBaselineKnown = false;
+      record.transcriptBaselineIds = new Set();
+    }
     let sidecar;
     try {
       sidecar = await options.postJson(`${options.sidecarUrl}/api/native/session/${encodeURIComponent(record.sessionId)}/interop-prompt`, {
@@ -459,6 +499,7 @@ function createDefCodexInteropProtocol(options) {
       return true;
     }
     record.providerVisibleMessages = sidecar.body?.providerVisibleMessages || [{ role: 'user', text: record.providerVisibleUserText }];
+    record.nativeUserMessageId = String(sidecar.body?.nativeUserMessageId || '');
     if (record.ingressMode === 'diagnostic') record.response.providerVisibleMessages = record.providerVisibleMessages;
     appendAudit(continuation ? 'turn.continue' : 'turn.start', record, 'accepted');
     emit('accepted', record, { ingressMode: record.ingressMode, snapshotAvailable: record.snapshotAvailable });

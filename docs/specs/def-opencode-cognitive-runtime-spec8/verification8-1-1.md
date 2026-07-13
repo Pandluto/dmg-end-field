@@ -421,6 +421,11 @@ follow-up in `c7a89ac`.
   that same turn and does not send a second prompt. The sidecar additionally coalesces
   `correlation.sessionId + correlation.clientTurnId` while its prompt is in flight or
   completed.
+- Before submission, the bridge records the transcript message-id baseline. Observer and
+  transcript reconciliation only advance a turn after a post-baseline native user
+  message (or sidecar-returned native user id) matches its raw text and an assistant
+  message names that user as parent. An unsubmitted unknown turn therefore remains
+  unknown/accepted instead of inheriting an old completed transcript answer.
 - Read observation and SSE endpoints are bearer-protected; authorization and consumer
   control reject non-loopback Origin, and bridge CORS no longer returns `*`. The focused
   check proves `Origin: https://evil.example` cannot mint a token, read state, or close

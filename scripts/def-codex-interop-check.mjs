@@ -52,14 +52,14 @@ const protocol = createDefCodexInteropProtocol({
       promptCalls += 1;
       if (losePromptResponse) throw new Error('simulated bridge-to-sidecar response loss');
       if (body.rawUserText === '这个怎么样') {
-        abortedMessages = [{
-          info: { time: { completed: Date.now() } },
+        abortedMessages = [{ info: { id: 'user-a', role: 'user' }, parts: [{ type: 'text', text: body.rawUserText }] }, {
+          info: { id: 'assistant-a', role: 'assistant', parentID: 'user-a', time: { completed: Date.now() } },
           parts: [{ type: 'tool', id: 'tool-a', callID: 'call-a', tool: 'def_workbench_context', state: { status: 'completed', input: { nodeId: 'node-a', token: 'must-not-leak' }, output: { revision: 7 } } }],
         }];
         questionRecords = [{ requestId: 'question-a', status: 'open', questions: [{ header: '选择范围', question: '要查看当前排轴还是草稿？', options: [{ label: '当前排轴', description: '只读' }, { label: '草稿', description: '不应用' }] }], createdAt: Date.now(), updatedAt: Date.now() }];
       }
       if (body.rawUserText === '再试一次') {
-        abortedMessages = [{ info: { time: { completed: Date.now() }, error: 'Provider network timeout' }, parts: [] }];
+        abortedMessages = [{ info: { id: 'user-provider-error', role: 'user' }, parts: [{ type: 'text', text: body.rawUserText }] }, { info: { id: 'assistant-provider-error', role: 'assistant', parentID: 'user-provider-error', time: { completed: Date.now() }, error: 'Provider network timeout' }, parts: [] }];
         questionRecords = [];
       }
       return { status: 202, body: { ok: true, providerVisibleMessages: [{ role: 'user', text: body.rawUserText }] } };
@@ -131,6 +131,8 @@ try {
   assert.equal(promptCalls, callsAfterUncertain);
 
   await new Promise((resolve) => setTimeout(resolve, 1100));
+  const uncertainTranscript = await (await fetch(`${base}/def-agent/interop/v1/sessions/native-a/transcript`, { headers })).json();
+  assert.equal(uncertainTranscript.turns.find((turn) => turn.turnId === uncertain.turn.turnId)?.status, 'accepted');
   const questions = await (await fetch(`${base}/def-agent/interop/v1/sessions/native-a/questions`, { headers })).json();
   assert.equal(questions.questions[0].requestId, 'question-a');
   assert.equal(questions.questions[0].questions[0].options[1].label, '草稿');

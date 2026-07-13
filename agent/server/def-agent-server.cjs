@@ -686,10 +686,12 @@ async function sendNativeInteropPromptOnce(sessionID, body) {
     error.status = response.status;
     throw error;
   }
+  const accepted = await response.json().catch(() => null);
   return {
     binding,
     ingressMode,
     acceptedAt: Date.now(),
+    nativeUserMessageId: String(accepted?.info?.id || accepted?.message?.id || accepted?.id || ''),
     providerVisibleMessages: [
       { role: 'system', source: 'workbench-context', text: payload.system },
       { role: 'user', text: rawUserText },
@@ -1134,7 +1136,7 @@ const server = http.createServer(async (request, response) => {
     if (method === 'POST' && nativeInteropPrompt) {
       const sessionID = decodeURIComponent(nativeInteropPrompt[1]);
       const result = await sendNativeInteropPrompt(sessionID, await readJsonBody(request));
-      writeJson(response, 202, { ok: true, sessionId: sessionID, ingressMode: result.ingressMode, acceptedAt: result.acceptedAt, providerVisibleMessages: result.providerVisibleMessages, idempotent: result.idempotent === true });
+      writeJson(response, 202, { ok: true, sessionId: sessionID, ingressMode: result.ingressMode, acceptedAt: result.acceptedAt, nativeUserMessageId: result.nativeUserMessageId || undefined, providerVisibleMessages: result.providerVisibleMessages, idempotent: result.idempotent === true });
       return;
     }
 
