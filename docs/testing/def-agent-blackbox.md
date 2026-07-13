@@ -30,6 +30,65 @@ Do not replace it with an ad hoc smoke script that bypasses the native Workbench
 `MainWorkbenchAiPanel` is only the React host for `DefOpenCodeView`; it is not a second
 chat renderer and must not consume a legacy `ui.prompt` event.
 
+## Mac Desktop Interop Route
+
+This is the current Mac testing route for DEF OpenCode. It supersedes treating the old
+`/def-agent/workbench-test/prompt` backdoor as a test protocol. Use the v1 bridge as the
+authoritative observation channel; use Computer Use only to verify that the current
+desktop Workbench is visible to a user.
+
+```text
+Mac Computer Use
+  -> open 127.0.0.1:3030 -> Workbench -> AI 模式 -> DEF · 排轴助手
+
+DefCodexInteropProtocol v1
+  -> status -> authorize -> turn.start / continue / stop
+  -> events + transcript + questions + state
+```
+
+### Readiness and normal route
+
+1. Call `GET /def-agent/interop/v1/status` first. It must report a ready bridge and
+   sidecar. A UI-visible test additionally needs `snapshotAvailable=true` and one
+   Workbench consumer after AI mode is opened.
+2. In the real Chrome Workbench, enter `AI 模式`. The current product surface is the
+   native iframe titled `DEF · 排轴助手`; do not restore or test the retired legacy chat
+   consumer.
+3. Obtain the short-lived loopback authorization through `POST .../authorize`, then send
+   a normal-language Pure Blackbox turn through `POST .../turns`. Keep
+   `rawUserText` and `providerVisibleUserText` identical.
+4. Use the returned `testRunId`, `sessionId`, `turnId`, `clientTurnId`, and event cursor
+   to read the results below. The protocol, rather than Computer Use, is the authority
+   for what OpenCode invoked and whether it succeeded.
+5. Use Computer Use to confirm the user message and answer are visible in the native
+   iframe. Leave AI mode with its `返回` control when the case is finished; do not use a
+   browser refresh as a normal test step.
+
+### What the backdoor can observe without Computer Use
+
+| Need | v1 route / evidence |
+| --- | --- |
+| accepted, first reply, terminal state, tool start/result/error | `GET /sessions/:sessionId/events?cursor=:seq` |
+| provider-visible messages and native tool parts | `GET /sessions/:sessionId/transcript` |
+| native option/permission cards, choices and resolution state | `GET /sessions/:sessionId/questions` |
+| checkout, selected operators and pending command/node | `GET /state` |
+| UI-consumer/session lifecycle only | `GET /ui-events?cursor=:seq` |
+
+An absent `ui-rendered` callback is not a failure of an OpenCode turn and is not a
+blackbox acceptance gate. Do not spend a normal Agent capability test debugging that
+optional frontend acknowledgement. A visible message in the real iframe is the UI check;
+events/transcript/questions/state are the diagnostic record.
+
+### Blocked-case rule
+
+If a turn is blocked, stalls, or produces unexpected repeated tool activity, do not send
+the same prompt again. First collect the session's events, transcript, questions and
+state, then record the observed tool calls, error/permission status, pending command and
+terminal state. Fix a confirmed process/bridge defect before starting a fresh case.
+
+Do not delete native sessions during a normal test. Closing the extra visible session is
+allowed only when it is clearly not the active case and the action has been confirmed.
+
 ## Windows Chrome UI Route
 
 When the test must verify that the main workbench UI is actually usable on Windows, use the Chrome plugin path:
