@@ -2,48 +2,60 @@
 
 ## Result
 
-Task 8-1-2 remains **in progress**. Package/Registry and native session pinning are verified. The earlier Scenario/Replay/Regression evidence was package self-check output, not a real DEF Agent execution, and must not be treated as completion evidence.
+Task 8-1-2 remains **in progress**. Package/Registry, native session pinning, real native Scenario execution, minimal regression, promotion and rollback now have v1-backed evidence. Snapshot-unavailable mutation blocking and the evaluator-only leak interface remain unverified; neither is represented as a pass.
 
 ## Architecture and route map
 
 ```text
 source package -> package hash/Registry -> stable|candidate selector
   -> DefHarnessSessionBindingV1 at native-session creation
-  -> native /message proxy + v1 interop prompt system context
-  -> TraceRef / isolated Scenario fixture / RegressionResult
+  -> loopback+bearer protected /interop/v1/harness/sessions fixture creation
+  -> native /interop-prompt + v1 events/transcript/questions/state observation
+  -> source-labelled native run / evaluator regression / explicit decision
   -> explicit human promotion or rollback decision
 ```
 
 | Surface | Location |
 | --- | --- |
-| contracts, build/validate, Registry, loader, trace/regression | `agent/harness/def-harness.cjs` |
+| contracts, build/validate, Registry, loader, package self-check | `agent/harness/def-harness.cjs` |
 | immutable baseline and controlled candidate | `agent/harness/baseline/stable-v0`, `agent/harness/examples/candidate-v1` |
 | native session pin/cache | `agent/runtime/def-opencode-adapter/index.cjs` |
 | native iframe and interop system-context injection | `agent/server/def-agent-server.cjs` |
 | v1 status/state/accepted/event/transcript binding observation | `agent/runtime/def-codex-interop.cjs` |
+| native runner and regression evaluator | `scripts/def-harness-native-runner.mjs`, `scripts/def-harness-regression.mjs` |
 | command surface and focused checks | `scripts/def-harness-cli.mjs`, `scripts/def-harness-check.mjs` |
 
 `DefCodexInteropProtocol v1` remains protocol version `1`. `turn.start` and `turn.continue` accept an optional selector only when it matches the already-pinned native session; a candidate is selected at native-session creation, never by replacing a live session's Harness. `status`, `state`, accepted events and transcript turns expose `DefHarnessSessionBindingV1`.
 
 ## Package and security evidence
 
-Baseline `def-stable@0.0.0`: `3a3854db7a257020d5befd7b2defadd34477952e6b8839c116e3849c9954d4c9`.
-Controlled one-slot candidate `def-candidate@1.0.0`: `6c60d2d582d10c70f40d2f1606fa1ec56f0245e7a5a9ca8ed3562bc3ffbd1616`.
+The real regression used clean Git-derived package evidence from source commit `aa3c31a`:
+
+- baseline `def-stable@0.0.0`: `90c89aadd8797fdbcf5b6db1ae39944d6be6efd828be129fe06fcb1d96571f16`;
+- controlled, fully materialized candidate `def-candidate@1.0.0`: `b19e4b165839213dc31a642dc4bfc32f7193fa570b44da19408da8fe966ee642`.
+
+Candidate has all eight resolved slots. Its seven non-`responsePolicy` artifact hashes equal stable; only `responsePolicy` differs. The builder derives `sourceCommit`, `dirty` and `sourceTreeHash` from Git; manifest self-report cannot override them. A dirty package can be built in a fresh development runtime but `promote()` rejects it.
 
 ```bash
 npm run harness:check
 npm run harness -- doctor
 npm run harness -- package build agent/harness/examples/candidate-v1
 npm run harness -- registry add .runtime/def-harness/builds/def-candidate/1.0.0 --channel candidate/v1
-npm run harness -- regress controlled --baseline stable --candidate candidate/v1
+npm run harness -- regress --baseline stable --candidate candidate/v1
 ```
 
-All passed on 2026-07-13. The check covers deterministic hash, immutable storage, tamper/path/symlink/executable rejection, unknown schema/slot/capability and compatibility rejection, candidate fail-closed, stable pinning, trace/evaluator redaction, regression gates, promotion and rollback. Runtime Registry/run artifacts remain ignored under `.runtime/def-harness/`; no token, real transcript or evaluator input is committed.
+`npm run harness:check` covers deterministic Git provenance, immutable storage, materialized candidate equivalence, package-self-check-only output, cross-candidate promotion rejection, fail-closed selection and artifact safety. `npm run interop:check` passed. Runtime Registry/run artifacts remain ignored under `.runtime/def-harness/`; token is process-local and no run artifact is committed.
 
 ## Verified native evidence
 
-- Visible native stable session `ses_0a4512e5affeWjyS4Qb5wqW9W8` pinned to `def-stable@0.0.0`. Pure Blackbox run `0dfd19fe-a0a7-4d6d-bd5d-cab984d37ba0`, turn `03907c9b-5303-4303-aaa2-47c8d24c3c0f`, completed; raw and provider-visible text were both `你好`.
-- Explicit native candidate binding check `ses_0a44da376ffeuhwRwNYNxOHCjt` pinned to `candidate/v1`; it was closed after recording. This proves selector/pinning only, not candidate behavior.
+All values below come from `DefCodexInteropProtocol v1`, sidecar binding, or evaluator-labelled facts; no native ids or terminal events were generated by Harness.
+
+- Stable single turn: regression run `native-harness-run-9467174f-043d-44b2-a1c3-5c28100fc7e6`, fresh `ses_*`, completed with real `testRunId/turnId/clientTurnId/nativeUserMessageId`; raw and provider-visible user text are identical.
+- Candidate single turn: regression run `native-harness-run-9a5d38d9-f94c-4b9d-a2a0-2ab411a4a106` completed and its assistant reply says `candidate-v1`.
+- Candidate multi-turn: run `native-harness-run-af266a0b-cd37-4167-8d82-c143b5fc7cc5` has two completed real turns in one `ses_0a41d85b3ffeLxeQjMhTC72sLI`; both accepted bindings have candidate hash `b19e…e642`.
+- Native regression `native-regression-80cf4d8e-c750-4794-8aa0-6a40c961976b` passed. Its `FAIL_TO_PASS` outcome is baseline `FAIL` / candidate `PASS`; its `PASS_TO_PASS` outcome passed; its safety run used a new cloned timeline fixture and required `def_node_sync_validate=completed`, observed no `def_node_use`, equal v1 state before/after, and completed runner cleanup.
+- Promotion record binds that exact regression and candidate hash; a real-regression attempt to promote the distinct stable artifact returned `HARNESS_PROMOTION_BLOCKED`. Promotion made a newly created stable session resolve candidate. Rollback made a newly created stable session resolve `def-stable@0.0.0` again.
+- An existing native stable session `ses_0a4227c58ffe1aAQsDLbPxRMYy` continued after promotion with real turn `559fdb7c-c3b6-4b3c-8511-328fc6ce9ef3`, retaining the stable hash, then cleanup returned `cleaned`.
 
 ## Invalidated simulated evidence
 
@@ -51,10 +63,11 @@ The former `scenario-session-*`, `scenario-turn-*`, synthetic accepted/completed
 
 ## Desktop UI evidence
 
-Computer Use opened the real macOS Workbench and native iframe titled `DEF · 排轴助手`, verified the composer and completed greeting response. After the sidecar restart required for the native `/message` proxy connection, v1 status again reported one active UI consumer with the stable binding. The real iframe visibly rendered the exact greeting and completed answer; no browser refresh was used as a test step.
+Computer Use opened the real macOS Chrome Workbench, selected four operators, entered the visible axis, enabled **AI 模式**, and observed the native iframe titled `DEF · 排轴助手`. The iframe visibly listed real sessions, two completed visible `你好` exchanges, and the active message composer. No browser refresh was used. This is UI evidence only; all protocol facts above were read through v1.
 
 ## Known limits / 8-1-3 boundary
 
 - The candidate is a controlled response-policy example, not YZ distillation or a game-knowledge claim.
 - The evaluator is deterministic package/scenario comparison and safety-boundary checking. Autonomous Codex diagnosis, hidden regression infrastructure and automatic repair remain 8-1-3.
-- A real asynchronous native interop runner, actual safety preview evidence, exact candidate inheritance and promotion-evidence binding are still required before completion.
+- `snapshotAvailable=false` has not yet been observed in a real mutation Scenario; its required `BLOCKED_ENVIRONMENT` assertion remains open.
+- The spec's evaluator-only leak interface/check remains open. There is no hidden-regression platform or Harness-provided hidden data.
