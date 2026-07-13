@@ -8,6 +8,6 @@
   "buildCommand": "bun run --cwd agent/vendor/opencode/packages/opencode script/build.ts --single --skip-embed-web-ui --skip-install",
   "bunVersion": "1.3.14",
   "modelsSnapshot": ".runtime/opencode-build/models.dev.api.json",
-  "checksumSha256": "33d4a7b4052092bc7c7c9cd7d941c72332d27bd556764d84c96ff92647e9f978",
-  "builtAt": "2026-07-12T04:53:21.342Z"
+  "checksumSha256": "1b907012374abf3b5f6945befcbe8c254f9e82e1b57922c7c0c53681eb1c7be2",
+  "builtAt": "2026-07-13T02:29:46.693Z"
 }

@@ -191,6 +191,19 @@ if (process.platform !== 'win32') {
   fs.chmodSync(targetBinary, 0o755);
 }
 
+// A release only needs the manifest-selected binary for its current target.
+// Remove obsolete versioned binaries and the historical unversioned fallback so
+// `agent/runtime/**` cannot silently ship another full OpenCode executable.
+for (const entry of fs.readdirSync(targetDir, { withFileTypes: true })) {
+  if (!entry.isFile() || entry.name === versionedBinaryName) continue;
+  const isOpenCodeBinary = process.platform === 'win32'
+    ? /^opencode(?:-[\w.-]+)?\.exe$/i.test(entry.name)
+    : /^opencode(?:-[\w.-]+)?$/i.test(entry.name);
+  if (isOpenCodeBinary) {
+    await rmWithRetry(path.join(targetDir, entry.name));
+  }
+}
+
 const checksum = sha256(targetBinary);
 const relativeBinaryPath = path.relative(runtimeRoot, targetBinary).replace(/\\/g, '/');
 const builtAt = new Date().toISOString();

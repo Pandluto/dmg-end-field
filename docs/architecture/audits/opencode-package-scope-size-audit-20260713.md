@@ -24,6 +24,34 @@
 
 本轮未重新打包，不修改运行时代码或打包配置。
 
+> 更新（2026-07-13）：后续已落实本审计中的无争议裁剪并完成 Windows portable 构建。以下“执行结果”覆盖这句历史记录；production sidecar bundle 缺口仍未解决。
+
+## 执行结果：清理旧包体后的 Windows portable 构建
+
+已删除旧 `release/`，然后成功运行 `npm run electron:build`。构建包含 Web/TypeScript build、OpenCode runtime build、OpenCode binary smoke 与 `electron-builder --win portable`。
+
+| 项目 | 旧产物 | 新产物 | 变化 |
+| --- | ---: | ---: | ---: |
+| portable 下载文件 | 454.86 MB | **105.71 MB** | -349.15 MB（-76.8%） |
+| `win-unpacked` 展开体 | 454.22 MB | **443.10 MB** | -11.12 MB（-2.4%） |
+| `app.asar` | 37.78 MB | 67.58 MB | +29.80 MB；当前含 OpenCode UI。 |
+| `app.asar.unpacked` | 132.31 MB | 132.49 MB | 单一 OpenCode binary。 |
+| `locales/` | 41.58 MB（55 个） | 0.49 MB（仅 `zh-CN`） | -41.09 MB。 |
+
+完成的裁剪：
+
+- `compression` 从 `store` 改为 `normal`；portable 文件因此远小于展开体。
+- `electronLanguages` 固定为 `zh-CN`。
+- runtime build 在复制 manifest 指向的版本化 binary 后清理旧版本和无版本 fallback。
+- 生产包排除 codec test 与 adapter README。
+
+核验结果：
+
+- source 与 packaged runtime 都仅保留 `opencode-1.17.11.exe`；
+- `app.asar` 含 859 个 `opencode-ui` 条目；
+- packaged OpenCode binary 执行 `--version` 成功，输出 `0.0.0-def-1.8-win-202607130229`；
+- 本次只完成构建和 runtime binary smoke，尚未替代 production sidecar / AI CLI 的完整启动验收。
+
 ## 当前与旧产物的体积
 
 ### 旧 Windows 产物（仅作历史参照）
@@ -53,7 +81,7 @@
 | 其余 `agent/runtime/` | 0.18 MB | skills、typed tools、codec、adapter；基本必需。 |
 | 旧产物中的 production `node_modules/` | 31.61 MB | 大部分是前端构建依赖的重复随包。 |
 
-基于旧 Electron 平台成本和当前新增内容估算，若按当前源目录直接重新打 Windows portable，未压缩展开体大约为 **610–615 MB**：
+在清理双份 binary 前，按当前源目录直接重新打 Windows portable 的未压缩展开体曾估算为 **610–615 MB**：
 
 ```text
 旧 unpacked 454.22 MB
@@ -122,7 +150,7 @@ TypeScript sidecar source
 | P2 | 将 `compression: store` 改为 `normal` 或发布渠道专属压缩策略 | 降低下载文件大小，展开体不变 | 用实际 portable 构建测量启动时间与大小；不对节省量做预估承诺。 |
 | P3 | 定制 OpenCode UI 的语言/字体 build | 取决于支持集合 | 上游构建改造，必须做 native UI/diff/Markdown 回归。 |
 
-完成 P0、P1 的前提下，Windows unpacked 体积理论上可从约 613 MB 降至约 **410 MB**；portable 的最终文件大小还取决于压缩策略。这个数字是目录差额估算，不是发布承诺，必须以干净构建产物复测。
+实际构建表明，保留一份 binary、裁掉 locale 并加入 OpenCode UI 后，Windows unpacked 为 **443.10 MB**；portable 因 `normal` 压缩已降至 **105.71 MB**。生产 sidecar bundle 和 production `node_modules` 清理仍可继续降低展开体，但不能再把“portable 已低于 300 MB”与“安装后展开体低于 300 MB”混为一谈。
 
 ## 后续验收口径
 

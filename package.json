@@ -58,7 +58,7 @@
   "build": {
     "appId": "com.dmg.def",
     "productName": "dmg-end-field",
-    "compression": "store",
+    "compression": "normal",
     "afterSign": "scripts/notarize.cjs",
     "directories": {
       "output": "release"
@@ -71,12 +71,17 @@
       "scripts/build-image-release-manifest.mjs",
       "agent/server/**",
       "agent/runtime/**",
+      "!agent/runtime/def-node-workspace/codec.test.mjs",
+      "!agent/runtime/def-opencode-adapter/README.md",
       "!agent/vendor/**",
       "!agent/dev-agent.cjs",
       "package.json"
     ],
     "asarUnpack": [
       "agent/runtime/opencode-core/bin/**"
+    ],
+    "electronLanguages": [
+      "zh-CN"
     ],
     "win": {
       "icon": "electron/assets/icon.ico",
