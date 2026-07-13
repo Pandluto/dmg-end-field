@@ -46,6 +46,27 @@ Computer Use then observed that same user message and its native response in the
 visible Workbench iframe; the turn completed in about 3 seconds with no tool call,
 pending command, or mutation.
 
+## 2026-07-13 stale-draft regression and retest
+
+An initial four-operator preview exposed a safe failure: an old session had an
+unsynchronized draft while the Workbench checkout had changed. `def_node_bind`
+correctly rejected replacement of that draft, but the agent then retried unrelated
+node tools. The Workbench wrapper now provides **新建 DEF 会话**, which creates an
+independent native workspace and re-registers the real UI consumer; bind-rejection
+guidance now tells the agent to stop tool activity and ask the user to review the
+preserved draft or start that new session.
+
+Computer Use created the new visible native session
+`ses_0a5cb4a7bffeWFs8iii5OIuWZ1` and completed a Pure Blackbox mutation-preview
+run `testRunId=8b671b25-f3fa-49c7-bc4b-0b9204cf39f7`. The initially requested
+replacement could not select four *other* operators because the local catalog has
+only the four already present. A natural continuation then retained those four and
+previewed one skill each: 莱万汀 Q 黄昏, 狼卫 E 连携, 艾尔黛拉 E 火山蘑菇云,
+and 卡缪 Q 猩红坠雨. `turnId=1ffeabb5-81f2-4441-92fe-32e4f6d61dc1` completed
+after `def_node_sync_validate` with 23 buttons reduced to 4, no blocker, two
+warnings, and no `def_node_use`/apply. The validation table and “未应用” notice
+were visibly rendered in the desktop Workbench UI.
+
 ## Client sketch
 
 ```js

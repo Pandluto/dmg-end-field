@@ -55,6 +55,20 @@ export function DefOpenCodeView({
     return response.ok;
   };
 
+  const createNativeSession = async () => {
+    const response = await fetch(`${origin}/api/native/session`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ host }),
+    });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const payload = await response.json() as { ok?: boolean; session?: NativeSession };
+    if (!payload.ok || !payload.session?.id || !payload.session.uiPath) throw new Error('Invalid native session response');
+    window.localStorage.setItem(storageKey, JSON.stringify(payload.session));
+    setSession(payload.session);
+    setStatus('ready');
+  };
+
   const frameSrc = useMemo(() => {
     if (!session) return '';
     const url = new URL(session.uiPath, origin);
@@ -88,19 +102,7 @@ export function DefOpenCodeView({
         }
         window.localStorage.removeItem(storageKey);
       }
-      const response = await fetch(`${origin}/api/native/session`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ host }),
-      });
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      const payload = await response.json() as { ok?: boolean; session?: NativeSession };
-      if (!payload.ok || !payload.session?.id || !payload.session.uiPath) throw new Error('Invalid native session response');
-      window.localStorage.setItem(storageKey, JSON.stringify(payload.session));
-      if (!disposed) {
-        setSession(payload.session);
-        setStatus('ready');
-      }
+      if (!disposed) await createNativeSession();
     };
     bootstrap().catch(() => { if (!disposed) setStatus('error'); });
     return () => { disposed = true; };
@@ -159,6 +161,15 @@ export function DefOpenCodeView({
       {onClose ? (
         <nav className="def-opencode-view__nav" aria-label="DEF OpenCode navigation">
           <button type="button" onClick={onClose}>返回</button>
+          <button
+            type="button"
+            onClick={() => {
+              setStatus('checking');
+              void createNativeSession().catch(() => setStatus('error'));
+            }}
+          >
+            新建 DEF 会话
+          </button>
         </nav>
       ) : null}
       <div className="def-opencode-view__body">
