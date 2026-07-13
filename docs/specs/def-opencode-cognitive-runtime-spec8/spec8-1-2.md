@@ -2,7 +2,7 @@
 
 ## 状态
 
-实施中；Package/Registry 与 native session pinning 已验证，真实 Scenario/Regression 尚在修复。详见 [Task 8-1-2：打通可训练 Harness](./task8-1-2.md)。
+已完成；Package/Registry、native session pinning、真实 Scenario/Regression 与 safety gate 均已验证。详见 [Task 8-1-2：打通可训练 Harness](./task8-1-2.md)。
 
 ## 一句话定调
 
@@ -99,11 +99,11 @@ flowchart LR
 - [x] stable/candidate 并行 Session 不串配置；
 - [x] active pointer 切换不影响已有 Session；
 - [x] candidate 加载失败的测试明确失败，普通稳定路径不被破坏；
-- [ ] Trace 能证明本次运行使用的确切 Harness 版本；
-- [ ] 最小 replay/regression 能比较 stable 与 candidate；
-- [ ] PASS_TO_PASS 与 safety 失败能够阻止 promotion；
-- [ ] rollback 能恢复上一 stable，并只影响新 Session；
-- [ ] 一个受控候选完成 package → pin → replay → verify → promote/reject → rollback 演示。
+- [x] Trace 能证明本次运行使用的确切 Harness 版本；
+- [x] 最小 replay/regression 能比较 stable 与 candidate；
+- [x] PASS_TO_PASS 与 safety 失败能够阻止 promotion；
+- [x] rollback 能恢复上一 stable，并只影响新 Session；
+- [x] 一个受控候选完成 package → pin → replay → verify → promote/reject → rollback 演示。
 
 ## 明确不做
 

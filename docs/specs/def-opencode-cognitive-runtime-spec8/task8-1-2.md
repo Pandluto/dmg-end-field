@@ -2,7 +2,7 @@
 
 ## 状态
 
-实施中：Checkpoint A/B 已验证；Checkpoint C/D 的旧 package 自检不是 Agent replay，正在替换为真实 native interop 证据。不得提前进入 8-1-3 的真实 Codex 返修。
+已完成：Checkpoint A/B/C/D 均有真实 native interop 证据。旧 package 自检已降级为 `PACKAGE_CHECK_*`，不得将其作为 Agent replay；不得提前进入 8-1-3 的真实 Codex 返修。
 
 ## 一句话目标
 
@@ -386,13 +386,13 @@ def-harness report <runId|regressionId>
 - [x] replay 使用新 fixture/session/ids；
 - [x] 跑通一个单 turn 与一个多 turn受控场景；
 - [x] provider-visible text 不被测试说明污染；
-- [ ] snapshot 缺失时相关 mutation 场景稳定 BLOCKED。
+- [x] snapshot 缺失时相关 mutation 场景稳定 BLOCKED。
 
 ### Checkpoint D：Regression、Promotion 与 Rollback
 
 - [x] 建立最小 FAIL_TO_PASS、PASS_TO_PASS 和 safety gate；
 - [x] 环境/协议/Agent/verifier 结果明确分开；
-- [ ] hidden evaluator-only 数据不进入 Worker/package/公开 Trace；
+- [x] hidden evaluator-only 数据不进入 Worker/package/公开 Trace；
 - [x] promotion 需要完整证据和人工 decision；
 - [x] rollback 只影响新 Session，且历史可审计；
 - [x] 创建 `verification8-1-2.md`，记录真实命令、ids、结果和限制。
