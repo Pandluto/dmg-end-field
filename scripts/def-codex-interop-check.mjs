@@ -30,6 +30,7 @@ function readBody(request) {
 }
 
 let promptCalls = 0;
+let losePromptResponse = false;
 let abortedMessages = [];
 let questionRecords = [];
 const protocol = createDefCodexInteropProtocol({
@@ -49,6 +50,7 @@ const protocol = createDefCodexInteropProtocol({
   async postJson(url, body) {
     if (url.endsWith('/interop-prompt')) {
       promptCalls += 1;
+      if (losePromptResponse) throw new Error('simulated bridge-to-sidecar response loss');
       if (body.rawUserText === '这个怎么样') {
         abortedMessages = [{
           info: { time: { completed: Date.now() } },
@@ -83,6 +85,11 @@ try {
   assert.equal(status.protocolVersion, 1);
   assert.equal(status.workbench.uiConnected, false);
 
+  const evilAuthorize = await fetch(`${base}/def-agent/interop/v1/authorize`, { method: 'POST', headers: { origin: 'https://evil.example' } });
+  assert.equal(evilAuthorize.status, 403);
+  const publicState = await fetch(`${base}/def-agent/interop/v1/state`, { headers: { origin: 'https://evil.example' } });
+  assert.equal(publicState.status, 403);
+
   const authorization = await (await fetch(`${base}/def-agent/interop/v1/authorize`, { method: 'POST' })).json();
   const headers = { authorization: `Bearer ${authorization.token}`, 'content-type': 'application/json' };
   const rejected = await fetch(`${base}/def-agent/interop/v1/turns`, { method: 'POST', headers, body: JSON.stringify({ rawUserText: '这个怎么样', clientTurnId: 'no-ui' }) });
@@ -102,48 +109,60 @@ try {
   assert.equal(retry.turn.turnId, firstPayload.turn.turnId);
   assert.equal(promptCalls, 1);
 
-  const forbiddenRenderTarget = await fetch(`${base}/def-agent/interop/v1/ui/render-target`, {
-    method: 'POST', headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ consumerId: 'ui-a', renderSecret: 'wrong', sessionId: 'native-a', turnId: firstPayload.turn.turnId }),
+  const evilClose = await fetch(`${base}/def-agent/interop/v1/ui/consumer/close`, {
+    method: 'POST', headers: { 'content-type': 'application/json', origin: 'https://evil.example' },
+    body: JSON.stringify({ consumerId: 'ui-a', renderSecret, sessionId: 'native-a' }),
   });
-  assert.equal(forbiddenRenderTarget.status, 403);
-  const renderTarget = await (await fetch(`${base}/def-agent/interop/v1/ui/render-target`, {
-    method: 'POST', headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ consumerId: 'ui-a', renderSecret, sessionId: 'native-a', turnId: firstPayload.turn.turnId }),
+  assert.equal(evilClose.status, 403);
+
+  await fetch(`${base}/def-agent/interop/v1/ui/consumer`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ host: 'workbench', sessionId: 'native-b', consumerId: 'ui-b', renderSecret: 'render-secret-b' }) });
+  const stream = await fetch(`${base}/def-agent/interop/v1/sessions/native-a/events?cursor=9999`, { headers });
+  const streamReader = stream.body.getReader();
+  protocol.emit('completed', { testRunId: 'run-b', sessionId: 'native-b', turnId: 'turn-b', clientTurnId: 'turn-b' });
+  const chunks = [];
+  const cancelStream = setTimeout(() => { void streamReader.cancel(); }, 100);
+  for (;;) {
+    const { done, value } = await streamReader.read();
+    if (done) break;
+    chunks.push(new TextDecoder().decode(value));
+  }
+  clearTimeout(cancelStream);
+  assert.doesNotMatch(chunks.join(''), /native-b/);
+
+  losePromptResponse = true;
+  const uncertain = await (await fetch(`${base}/def-agent/interop/v1/sessions/native-a/turns`, {
+    method: 'POST', headers,
+    body: JSON.stringify({ rawUserText: '请保留当前草稿', clientTurnId: 'turn-uncertain', ingressMode: 'pure-blackbox' }),
   })).json();
-  assert.equal(renderTarget.rawUserText, request.rawUserText);
-  assert.match(renderTarget.renderNonce, /^[0-9a-f-]{36}$/);
-  const missingRenderProof = await fetch(`${base}/def-agent/interop/v1/ui/rendered`, {
-    method: 'POST', headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ consumerId: 'ui-a', renderSecret, sessionId: 'native-a', turnId: firstPayload.turn.turnId, surface: 'native-iframe', target: 'user-message' }),
-  });
-  assert.equal(missingRenderProof.status, 409);
-  const rendered = await fetch(`${base}/def-agent/interop/v1/ui/rendered`, {
-    method: 'POST', headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ consumerId: 'ui-a', renderSecret, renderNonce: renderTarget.renderNonce, sessionId: 'native-a', turnId: firstPayload.turn.turnId, surface: 'native-iframe', target: 'user-message' }),
-  });
-  assert.equal(rendered.status, 200);
-  const renderedRetry = await (await fetch(`${base}/def-agent/interop/v1/ui/rendered`, {
-    method: 'POST', headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ consumerId: 'ui-a', renderSecret, renderNonce: renderTarget.renderNonce, sessionId: 'native-a', turnId: firstPayload.turn.turnId, surface: 'native-iframe', target: 'user-message' }),
+  const callsAfterUncertain = promptCalls;
+  const uncertainRetry = await (await fetch(`${base}/def-agent/interop/v1/sessions/native-a/turns`, {
+    method: 'POST', headers,
+    body: JSON.stringify({ rawUserText: '请保留当前草稿', clientTurnId: 'turn-uncertain', ingressMode: 'pure-blackbox' }),
   })).json();
-  assert.equal(renderedRetry.idempotent, true);
+  losePromptResponse = false;
+  assert.equal(uncertain.turn.submissionState, 'unknown');
+  assert.equal(uncertainRetry.idempotent, true);
+  assert.equal(promptCalls, callsAfterUncertain);
 
   await new Promise((resolve) => setTimeout(resolve, 1100));
-  const questions = await (await fetch(`${base}/def-agent/interop/v1/sessions/native-a/questions`)).json();
+  const questions = await (await fetch(`${base}/def-agent/interop/v1/sessions/native-a/questions`, { headers })).json();
   assert.equal(questions.questions[0].requestId, 'question-a');
   assert.equal(questions.questions[0].questions[0].options[1].label, '草稿');
-  await (await fetch(`${base}/def-agent/interop/v1/sessions/native-a/questions`)).json();
+  await (await fetch(`${base}/def-agent/interop/v1/sessions/native-a/questions`, { headers })).json();
 
   const failed = await (await fetch(`${base}/def-agent/interop/v1/sessions/native-a/turns`, {
     method: 'POST', headers,
     body: JSON.stringify({ rawUserText: '再试一次', clientTurnId: 'turn-provider-error', ingressMode: 'pure-blackbox' }),
   })).json();
   await new Promise((resolve) => setTimeout(resolve, 1100));
-  const failedTranscript = await (await fetch(`${base}/def-agent/interop/v1/sessions/native-a/transcript`)).json();
+  const failedTranscript = await (await fetch(`${base}/def-agent/interop/v1/sessions/native-a/transcript`, { headers })).json();
   assert.equal(failedTranscript.turns.find((turn) => turn.turnId === failed.turn.turnId)?.status, 'provider-error');
+  const failedStop = await (await fetch(`${base}/def-agent/interop/v1/sessions/native-a/turns/${encodeURIComponent(failed.turn.turnId)}/stop`, {
+    method: 'POST', headers,
+  })).json();
+  assert.equal(failedStop.status, 'already-provider-error');
 
-  const stoppedStart = await (await fetch(`${base}/def-agent/interop/v1/turns`, {
+  const stoppedStart = await (await fetch(`${base}/def-agent/interop/v1/sessions/native-a/turns`, {
     method: 'POST', headers,
     body: JSON.stringify({ rawUserText: '请停止这个只读问候', clientTurnId: 'turn-stop', ingressMode: 'pure-blackbox' }),
   })).json();
@@ -152,10 +171,10 @@ try {
   })).json();
   assert.equal(stopped.status, 'stopped');
   await new Promise((resolve) => setTimeout(resolve, 1100));
-  const stoppedTranscript = await (await fetch(`${base}/def-agent/interop/v1/sessions/native-a/transcript`)).json();
+  const stoppedTranscript = await (await fetch(`${base}/def-agent/interop/v1/sessions/native-a/transcript`, { headers })).json();
   assert.equal(stoppedTranscript.turns.find((turn) => turn.turnId === stoppedStart.turn.turnId)?.status, 'stopped');
 
-  const replay = await fetch(`${base}/def-agent/interop/v1/sessions/native-a/events?cursor=0`);
+  const replay = await fetch(`${base}/def-agent/interop/v1/sessions/native-a/events?cursor=0`, { headers });
   const replayReader = replay.body.getReader();
   let replayText = '';
   for (let index = 0; index < 8 && !replayText.includes('event: provider-error'); index += 1) {
@@ -173,7 +192,7 @@ try {
   assert.equal((replayText.match(/event: permission\n/g) || []).length, 1);
   assert.match(replayText, /event: provider-error/);
 
-  const state = await (await fetch(`${base}/def-agent/interop/v1/state`)).json();
+  const state = await (await fetch(`${base}/def-agent/interop/v1/state`, { headers })).json();
   assert.deepEqual(state.state.selectedOperators, [{ id: 'a', name: 'A' }]);
   assert.equal(Object.hasOwn(state.state, 'snapshot'), false);
 

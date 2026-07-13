@@ -43,6 +43,10 @@ const DEF_WORKBENCH_MARK_SVG = '<svg xmlns="http://www.w3.org/2000/svg" viewBox=
 const DEF_WORKBENCH_MARK_DATA_URL = `data:image/svg+xml,${encodeURIComponent(DEF_WORKBENCH_MARK_SVG)}`;
 let defRestProcess = null;
 let questionStore = null;
+// Bridge requests can lose their HTTP response after prompt_async accepted the
+// turn. Keep the sidecar's acceptance keyed by the caller correlation so a
+// retry joins the original operation instead of issuing another prompt.
+const nativeInteropPromptRequests = new Map();
 
 async function defRestReady() {
   try {
@@ -140,33 +144,10 @@ function buildEmbeddedWorkbenchProject() {
   }];
 }
 
-function buildEmbeddedBrandingScript(profile, session, embeddedInterop = '') {
+function buildEmbeddedBrandingScript(profile, session) {
   const title = profile?.host === 'workbench' ? 'DEF · 排轴助手' : 'DEF · 数据助手';
   const mark = JSON.stringify(DEF_WORKBENCH_MARK_DATA_URL);
-  return `<link rel="icon" type="image/svg+xml" href="/def-workbench-mark.svg"/><script>window.__DEF_EMBEDDED_PROFILE__=${JSON.stringify(profile)};window.__DEF_NATIVE_SESSION__=${JSON.stringify(session)};try{localStorage.setItem("opencode.settings.dat:defaultServerUrl",location.origin)}catch{};(()=>{const mark=${mark};const apply=()=>{document.querySelectorAll('[data-slot="project-avatar-surface"]').forEach((element)=>{if(element.dataset.defWorkbenchMark||element.querySelector('img'))return;element.dataset.defWorkbenchMark='';element.textContent='';element.setAttribute('aria-label','DEF 工作台');element.style.backgroundImage='url("'+mark+'")';element.style.backgroundPosition='center';element.style.backgroundRepeat='no-repeat';element.style.backgroundSize='78%';element.style.backgroundColor='#fff';})};const watch=()=>{apply();new MutationObserver(apply).observe(document.documentElement,{childList:true,subtree:true})};document.readyState==='loading'?document.addEventListener('DOMContentLoaded',watch,{once:true}):watch();document.title=${JSON.stringify(title)};})();${embeddedInterop}</script>`;
-  return `<link rel="icon" type="image/svg+xml" href="/def-workbench-mark.svg"/><script>window.__DEF_EMBEDDED_PROFILE__=${JSON.stringify(profile)};window.__DEF_NATIVE_SESSION__=${JSON.stringify(session)};try{localStorage.setItem("opencode.settings.dat:defaultServerUrl",location.origin)}catch{};(()=>{const mark=${mark};const apply=()=>{document.querySelectorAll('[data-slot="project-avatar-surface"]').forEach((element)=>{if(element.dataset.defWorkbenchMark||element.querySelector('img'))return;element.dataset.defWorkbenchMark='';element.textContent='';element.setAttribute('aria-label','DEF 工作台');element.style.backgroundImage='url("'+mark+'")';element.style.backgroundPosition='center';element.style.backgroundRepeat='no-repeat';element.style.backgroundSize='78%';element.style.backgroundColor='#fff';})};const watch=()=>{apply();new MutationObserver(apply).observe(document.documentElement,{childList:true,subtree:true})};document.readyState==='loading'?document.addEventListener('DOMContentLoaded',watch,{once:true}):watch();document.title=${JSON.stringify(title)};})();</script>${embeddedInterop}`;
-}
-
-function buildInteropUiBridgeScript(sessionID, config = {}) {
-  return `(()=>{const sessionId=${JSON.stringify(sessionID)};const consumerId=${JSON.stringify(config.consumerId || '')};const renderSecret=${JSON.stringify(config.renderSecret || '')};const base='http://127.0.0.1:31457/def-agent/interop/v1';const isLoopback=(origin)=>{try{const url=new URL(origin);return url.protocol==='http:'&&(url.hostname==='127.0.0.1'||url.hostname==='localhost')&&Boolean(url.port)}catch{return false}};const normalized=(value)=>String(value||'').replace(/\\s+/g,' ').trim();const ready=(origin)=>window.parent?.postMessage({type:'def-opencode-interop-ready',protocolVersion:1,sessionId},origin);let readyTimer=setInterval(()=>ready('*'),500);let readyDeadline=setTimeout(stopReady,15000);const stopReady=()=>{if(readyTimer){clearInterval(readyTimer);readyTimer=0}if(readyDeadline){clearTimeout(readyDeadline);readyDeadline=0}};const visible=(element)=>{if(!(element instanceof HTMLElement)||!element.isConnected||!element.getClientRects().length)return false;const style=getComputedStyle(element);return style.display!=='none'&&style.visibility!=='hidden'};const awaitTurnRender=(request,replyOrigin,ack)=>{const text=normalized(request.rawUserText);const renderNonce=String(request.renderNonce||'');if(!text||!renderNonce)return;let done=false;let observer;let timeout;const rendered=()=>[...document.querySelectorAll('[data-slot="user-message-text"]')].some((element)=>visible(element)&&normalized(element.textContent)===text);const finish=()=>{if(done)return;done=true;observer?.disconnect();clearTimeout(timeout);requestAnimationFrame(()=>requestAnimationFrame(()=>ack?ack():window.parent?.postMessage({type:'def-opencode-interop-rendered',protocolVersion:1,sessionId,turnId:request.turnId,renderNonce},replyOrigin)))};if(rendered()){finish();return}observer=new MutationObserver(()=>{if(rendered())finish()});observer.observe(document.documentElement,{childList:true,subtree:true,characterData:true});timeout=setTimeout(()=>observer?.disconnect(),15000)};const directAttest=async(turnId)=>{if(!consumerId||!renderSecret)return;const target=await fetch(base+'/ui/render-target',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({consumerId,renderSecret,sessionId,turnId})});if(!target.ok)return;const request=await target.json();awaitTurnRender({...request,turnId},'',()=>fetch(base+'/ui/rendered',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({consumerId,renderSecret,renderNonce:request.renderNonce,sessionId,turnId,surface:'native-iframe',target:'user-message'})}))};if(consumerId&&renderSecret){const events=new EventSource(base+'/ui-events');events.addEventListener('ui-prompt-consumed',(event)=>{try{const item=JSON.parse(event.data);if(item.sessionId===sessionId&&item.turnId)void directAttest(item.turnId)}catch{}})}window.addEventListener('message',(event)=>{const request=event.data;if(event.source!==window.parent||!isLoopback(event.origin)||!request||request.protocolVersion!==1||request.sessionId!==sessionId)return;if(request.type==='def-opencode-interop-ready-ack'){stopReady();return}if(request.type==='def-opencode-interop-probe'){ready(event.origin);return}if(request.type!=='def-opencode-interop-await-render'||typeof request.turnId!=='string')return;awaitTurnRender(request,event.origin)});ready('*')})();`;
-}
-
-function serveInteropUiBridgeScript(request, response, requestUrl) {
-  if (!['GET', 'HEAD'].includes(request.method || 'GET') || requestUrl.pathname !== '/def-interop-ui-bridge.js') return false;
-  const sessionID = String(requestUrl.searchParams.get('sessionID') || '');
-  const binding = sessionID ? findNativeSessionBinding(sessionID) : null;
-  if (!binding || binding.host !== 'workbench') {
-    response.writeHead(404, { 'Content-Type': 'application/javascript; charset=utf-8', 'Cache-Control': 'no-store' });
-    response.end();
-    return true;
-  }
-  const body = Buffer.from(buildInteropUiBridgeScript(sessionID, {
-    consumerId: String(requestUrl.searchParams.get('consumerId') || ''),
-    renderSecret: String(requestUrl.searchParams.get('renderSecret') || ''),
-  }), 'utf8');
-  response.writeHead(200, { 'Content-Type': 'application/javascript; charset=utf-8', 'Content-Length': body.length, 'Cache-Control': 'no-store' });
-  response.end(request.method === 'HEAD' ? undefined : body);
-  return true;
+  return `<link rel="icon" type="image/svg+xml" href="/def-workbench-mark.svg"/><script>window.__DEF_EMBEDDED_PROFILE__=${JSON.stringify(profile)};window.__DEF_NATIVE_SESSION__=${JSON.stringify(session)};try{localStorage.setItem("opencode.settings.dat:defaultServerUrl",location.origin)}catch{};(()=>{const mark=${mark};const apply=()=>{document.querySelectorAll('[data-slot="project-avatar-surface"]').forEach((element)=>{if(element.dataset.defWorkbenchMark||element.querySelector('img'))return;element.dataset.defWorkbenchMark='';element.textContent='';element.setAttribute('aria-label','DEF 工作台');element.style.backgroundImage='url("'+mark+'")';element.style.backgroundPosition='center';element.style.backgroundRepeat='no-repeat';element.style.backgroundSize='78%';element.style.backgroundColor='#fff';})};const watch=()=>{apply();new MutationObserver(apply).observe(document.documentElement,{childList:true,subtree:true})};document.readyState==='loading'?document.addEventListener('DOMContentLoaded',watch,{once:true}):watch();document.title=${JSON.stringify(title)};})();</script>`;
 }
 
 function writeSse(response, event) {
@@ -455,12 +436,10 @@ function serveOpenCodeUi(request, response, requestUrl) {
   const routeParts = requestUrl.pathname.split('/').filter(Boolean);
   let embeddedProfile = null;
   let embeddedSession = null;
-  let embeddedInterop = '';
   // The local OpenCode UI normalizes an embedded native session to either
   // `/{directorySlug}/session/{sessionId}` or
-  // `/server/{directorySlug}/session/{sessionId}`.  Both are client-document
-  // routes served from this static UI; missing the latter means the iframe
-  // appears functional but never loads the render-attestation bridge.
+  // `/server/{directorySlug}/session/{sessionId}`. Both are client-document
+  // routes served from this static UI.
   const sessionRouteIndex = routeParts.lastIndexOf('session');
   const directorySlug = sessionRouteIndex > 0 ? routeParts[sessionRouteIndex - 1] : '';
   const sessionID = sessionRouteIndex >= 0 ? routeParts[sessionRouteIndex + 1] : '';
@@ -482,11 +461,6 @@ function serveOpenCodeUi(request, response, requestUrl) {
       embeddedProfile = binding?.profile || null;
       if (binding) {
         embeddedSession = { sessionID: decodedSessionID, directory: binding.directory };
-        if (binding.host === 'workbench') {
-          const consumerId = requestUrl.searchParams.get('def_interop_consumer') || '';
-          const renderSecret = requestUrl.searchParams.get('def_interop_render_secret') || '';
-          embeddedInterop = `<script src="/def-interop-ui-bridge.js?sessionID=${encodeURIComponent(decodedSessionID)}&consumerId=${encodeURIComponent(consumerId)}&renderSecret=${encodeURIComponent(renderSecret)}"></script>`;
-        }
       }
     } catch {
       embeddedProfile = null;
@@ -501,7 +475,7 @@ function serveOpenCodeUi(request, response, requestUrl) {
   const body = isIndex
     ? Buffer.from(fileBody.toString('utf8').replace('<title>OpenCode</title>', `<title>${embeddedTitle}</title>`).replace(
       '</head>',
-      `${buildEmbeddedBrandingScript(embeddedProfile, embeddedSession, embeddedInterop)}</head>`,
+      `${buildEmbeddedBrandingScript(embeddedProfile, embeddedSession)}</head>`,
     ), 'utf8')
     : fileBody;
   response.writeHead(200, {
@@ -521,13 +495,6 @@ async function proxyOpenCodeRequest(request, response) {
   // Native DEF sessions are served under an encoded workspace-directory prefix:
   // `/{directorySlug}/session/{sessionId}`.  Keep accepting the unprefixed
   // OpenCode route as well, but do not assume the prefix is literally `server`.
-  // If this misses, the iframe remains usable yet never receives the interop
-  // bridge script, which makes UI render acknowledgement impossible.
-  const nativePageMatch = /^\/(?:[^/]+\/)?session\/([^/]+)$/.exec(target.pathname);
-  const nativePageBinding = request.method === 'GET' && nativePageMatch
-    ? findNativeSessionBinding(decodeURIComponent(nativePageMatch[1]))
-    : null;
-  const embedInteropBridge = nativePageBinding?.host === 'workbench';
   await rejectPendingQuestionsForSessionAbort(runtime, request, target);
   const sessionMessageMatch = /^\/session\/([^/]+)\/message$/.exec(target.pathname);
   let rewrittenBody = null;
@@ -557,7 +524,6 @@ async function proxyOpenCodeRequest(request, response) {
       headers['x-def-host'] = binding.host;
       headers['x-def-agent'] = binding.agent;
     }
-    if (embedInteropBridge) headers['accept-encoding'] = 'identity';
     const upstream = http.request({
       hostname: target.hostname,
       port: target.port,
@@ -565,21 +531,6 @@ async function proxyOpenCodeRequest(request, response) {
       method: request.method,
       headers,
     }, (upstreamResponse) => {
-      const contentType = String(upstreamResponse.headers['content-type'] || '');
-      if (embedInteropBridge && contentType.includes('text/html')) {
-        const chunks = [];
-        upstreamResponse.on('data', (chunk) => chunks.push(chunk));
-        upstreamResponse.on('end', () => {
-          const bridge = `<script src="/def-interop-ui-bridge.js?sessionID=${encodeURIComponent(nativePageMatch[1])}"></script>`;
-          const body = Buffer.from(Buffer.concat(chunks).toString('utf8').replace('</head>', `${bridge}</head>`), 'utf8');
-          const responseHeaders = { ...upstreamResponse.headers, 'access-control-allow-origin': '*', 'content-length': body.length };
-          delete responseHeaders['content-encoding'];
-          response.writeHead(upstreamResponse.statusCode || 502, responseHeaders);
-          response.end(body);
-          resolve(true);
-        });
-        return;
-      }
       response.writeHead(upstreamResponse.statusCode || 502, {
         ...upstreamResponse.headers,
         'access-control-allow-origin': '*',
@@ -663,7 +614,34 @@ async function readNativeInteropQuestions(sessionID) {
   return { binding, questions: [...records.values()].sort((left, right) => right.updatedAt - left.updatedAt) };
 }
 
+function nativeInteropCorrelationKey(sessionID, correlation) {
+  const clientTurnId = typeof correlation?.clientTurnId === 'string' ? correlation.clientTurnId.trim() : '';
+  if (!clientTurnId || correlation?.sessionId !== sessionID) return '';
+  return `${sessionID}:${clientTurnId}`;
+}
+
 async function sendNativeInteropPrompt(sessionID, body) {
+  const key = nativeInteropCorrelationKey(sessionID, body?.correlation);
+  if (!key) return sendNativeInteropPromptOnce(sessionID, body);
+  const existing = nativeInteropPromptRequests.get(key);
+  if (existing) return { ...(await existing.promise), idempotent: true };
+  const entry = { createdAt: Date.now(), promise: sendNativeInteropPromptOnce(sessionID, body) };
+  nativeInteropPromptRequests.set(key, entry);
+  if (nativeInteropPromptRequests.size > 512) {
+    const oldest = nativeInteropPromptRequests.keys().next().value;
+    if (oldest && oldest !== key) nativeInteropPromptRequests.delete(oldest);
+  }
+  try {
+    return await entry.promise;
+  } catch (error) {
+    // A rejected request was not accepted by prompt_async, so a later caller
+    // may safely start a fresh operation after diagnosing the failure.
+    nativeInteropPromptRequests.delete(key);
+    throw error;
+  }
+}
+
+async function sendNativeInteropPromptOnce(sessionID, body) {
   const binding = findNativeSessionBinding(sessionID);
   if (!binding || binding.host !== 'workbench') {
     const error = new Error('native-workbench-session-binding-not-found');
@@ -1156,7 +1134,7 @@ const server = http.createServer(async (request, response) => {
     if (method === 'POST' && nativeInteropPrompt) {
       const sessionID = decodeURIComponent(nativeInteropPrompt[1]);
       const result = await sendNativeInteropPrompt(sessionID, await readJsonBody(request));
-      writeJson(response, 202, { ok: true, sessionId: sessionID, ingressMode: result.ingressMode, acceptedAt: result.acceptedAt, providerVisibleMessages: result.providerVisibleMessages });
+      writeJson(response, 202, { ok: true, sessionId: sessionID, ingressMode: result.ingressMode, acceptedAt: result.acceptedAt, providerVisibleMessages: result.providerVisibleMessages, idempotent: result.idempotent === true });
       return;
     }
 
@@ -1452,7 +1430,6 @@ const server = http.createServer(async (request, response) => {
       return;
     }
 
-    if (serveInteropUiBridgeScript(request, response, requestUrl)) return;
     if (serveOpenCodeUi(request, response, requestUrl)) return;
     if (await proxyOpenCodeRequest(request, response)) return;
 

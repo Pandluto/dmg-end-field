@@ -29,6 +29,9 @@ function createDefCodexInteropProtocol(options) {
   const turnsByClient = new Map();
   const consumers = new Map();
   const events = [];
+  // Keep the subscription predicate with the connection.  Replaying with a
+  // predicate but broadcasting live events to every response leaks activity
+  // between native Workbench sessions.
   const clients = new Set();
   const audit = [];
   const tokens = new Map();
@@ -65,7 +68,8 @@ function createDefCodexInteropProtocol(options) {
     events.push(event);
     if (events.length > 256) events.splice(0, events.length - 256);
     for (const client of clients) {
-      try { options.writeSse(client, kind, event); } catch { clients.delete(client); }
+      if ((client.sessionId && event.sessionId !== client.sessionId) || (client.uiOnly && !event.type.startsWith('ui-'))) continue;
+      try { options.writeSse(client.response, kind, event); } catch { clients.delete(client); }
     }
     return event;
   }
@@ -90,13 +94,22 @@ function createDefCodexInteropProtocol(options) {
     json(response, status, { ok: false, protocol: PROTOCOL, protocolVersion: PROTOCOL_VERSION, error });
   }
 
-  function authorize(request, response) {
+  function hasTrustedLoopbackOrigin(request) {
     const host = String(request.headers.host || '');
     const origin = String(request.headers.origin || '');
-    if ((host && !/^(127\.0\.0\.1|localhost)(:\d+)?$/i.test(host)) || (origin && !/^http:\/\/(127\.0\.0\.1|localhost)(:\d+)?$/i.test(origin))) {
+    return !((host && !/^(127\.0\.0\.1|localhost)(:\d+)?$/i.test(host)) || (origin && !/^http:\/\/(127\.0\.0\.1|localhost)(:\d+)?$/i.test(origin)));
+  }
+
+  function requireTrustedLoopbackOrigin(request, response) {
+    if (!hasTrustedLoopbackOrigin(request)) {
       reject(response, 403, createError('teacher-local-origin-required', 'Teacher ingress accepts loopback Host and Origin only.', 'bridge'));
       return false;
     }
+    return true;
+  }
+
+  function authorize(request, response) {
+    if (!requireTrustedLoopbackOrigin(request, response)) return false;
     const supplied = String(request.headers.authorization || '').replace(/^Bearer\s+/i, '');
     const expiry = tokens.get(supplied);
     if (!supplied || !expiry || expiry <= Date.now()) {
@@ -371,6 +384,9 @@ function createDefCodexInteropProtocol(options) {
       rawUserText: body.rawUserText.trim(),
       providerVisibleUserText: body.rawUserText.trim(),
       snapshotAvailable: state.available,
+      // Reserve the caller key before the first sidecar byte is sent.  A
+      // response can be lost after OpenCode accepted the prompt; treating a
+      // retry as a new prompt would be unsafe for mutation previews.
       status: 'accepted',
       acceptedAt: Date.now(),
     };
@@ -387,21 +403,6 @@ function createDefCodexInteropProtocol(options) {
       }));
       return true;
     }
-    const sidecar = await options.postJson(`${options.sidecarUrl}/api/native/session/${encodeURIComponent(record.sessionId)}/interop-prompt`, {
-      rawUserText: record.rawUserText,
-      providerVisibleUserText: record.providerVisibleUserText,
-      ingressMode: record.ingressMode,
-      diagnostic,
-      thinkingEffort: body.thinkingEffort,
-      correlation: idsFor(record),
-    });
-    if (sidecar.status < 200 || sidecar.status >= 300 || sidecar.body?.ok === false) {
-      reject(response, sidecar.status === 404 ? 404 : 502, createError('sidecar-turn-rejected', sidecar.body?.error || 'The DEF OpenCode sidecar rejected the turn.', 'sidecar', {
-        retryable: sidecar.status >= 500, ids: idsFor(record), nextAction: 'Check sidecar status and retry the same clientTurnId only after it is ready.',
-      }));
-      return true;
-    }
-    record.providerVisibleMessages = sidecar.body?.providerVisibleMessages || [{ role: 'user', text: record.providerVisibleUserText }];
     record.response = {
       accepted: true,
       testRunId: record.testRunId,
@@ -423,6 +424,42 @@ function createDefCodexInteropProtocol(options) {
     };
     run.turns.push(record);
     turnsByClient.set(idempotencyKey, record);
+    let sidecar;
+    try {
+      sidecar = await options.postJson(`${options.sidecarUrl}/api/native/session/${encodeURIComponent(record.sessionId)}/interop-prompt`, {
+        rawUserText: record.rawUserText,
+        providerVisibleUserText: record.providerVisibleUserText,
+        ingressMode: record.ingressMode,
+        diagnostic,
+        thinkingEffort: body.thinkingEffort,
+        correlation: idsFor(record),
+      });
+    } catch {
+      // This is deliberately not retryable by resending the prompt.  The
+      // sidecar may have already accepted it; observe the reserved turn and
+      // reuse its stable ids to reconcile the native transcript.
+      record.submissionState = 'unknown';
+      record.response = { ...record.response, submissionState: 'unknown' };
+      appendAudit(continuation ? 'turn.continue' : 'turn.start', record, 'acceptance-unknown');
+      emit('accepted', record, { ingressMode: record.ingressMode, snapshotAvailable: record.snapshotAvailable, submissionState: 'unknown' });
+      void observeTurn(record);
+      json(response, 202, { ok: true, protocol: PROTOCOL, protocolVersion: PROTOCOL_VERSION, turn: record.response });
+      return true;
+    }
+    if (sidecar.status < 200 || sidecar.status >= 300 || sidecar.body?.ok === false) {
+      const error = createError('sidecar-turn-rejected', sidecar.body?.error || 'The DEF OpenCode sidecar rejected the turn.', 'sidecar', {
+        retryable: false, ids: idsFor(record), nextAction: 'Inspect sidecar status and this reserved turn before creating a new clientTurnId.',
+      });
+      record.status = 'bridge-error';
+      record.error = error;
+      record.response = { ...record.response, accepted: false, status: record.status, error };
+      appendAudit(continuation ? 'turn.continue' : 'turn.start', record, error.code);
+      emit('bridge-error', record, error);
+      reject(response, sidecar.status === 404 ? 404 : 502, error);
+      return true;
+    }
+    record.providerVisibleMessages = sidecar.body?.providerVisibleMessages || [{ role: 'user', text: record.providerVisibleUserText }];
+    if (record.ingressMode === 'diagnostic') record.response.providerVisibleMessages = record.providerVisibleMessages;
     appendAudit(continuation ? 'turn.continue' : 'turn.start', record, 'accepted');
     emit('accepted', record, { ingressMode: record.ingressMode, snapshotAvailable: record.snapshotAvailable });
     if (!continuation) emit('session-created', record, { host: 'workbench', nativeSession: true });
@@ -457,6 +494,7 @@ function createDefCodexInteropProtocol(options) {
     if (method === 'GET' && path === '/def-agent/interop/v1/status') { await status(response); return true; }
     if (method === 'POST' && path === '/def-agent/interop/v1/authorize') {
       if (!developmentOnly) { reject(response, 403, createError('teacher-ingress-disabled', 'Teacher ingress is disabled outside development/test profiles.', 'bridge')); return true; }
+      if (!requireTrustedLoopbackOrigin(request, response)) return true;
       const token = crypto.randomBytes(24).toString('base64url');
       tokens.set(token, Date.now() + 15 * 60 * 1000);
       json(response, 201, { ok: true, protocol: PROTOCOL, protocolVersion: PROTOCOL_VERSION, token, expiresAt: Date.now() + 15 * 60 * 1000 });
@@ -488,7 +526,7 @@ function createDefCodexInteropProtocol(options) {
       const turnId = decodeURIComponent(stopMatch[2]);
       const record = [...turnsByClient.values()].find((turn) => turn.sessionId === sessionId && turn.turnId === turnId);
       if (!record) { reject(response, 404, createError('turn-not-found', 'Turn was not found.', 'session', { ids: { sessionId, turnId } })); return true; }
-      if (['completed', 'stopped'].includes(record.status)) {
+      if (['completed', 'stopped', 'timeout', 'max-step', 'provider-error', 'bridge-error'].includes(record.status)) {
         json(response, 200, { ok: true, protocol: PROTOCOL, protocolVersion: PROTOCOL_VERSION, status: `already-${record.status}`, ids: idsFor(record) }); return true;
       }
       const upstream = await options.postJson(`${options.sidecarUrl}/api/native/session/${encodeURIComponent(sessionId)}/interop-stop`, {});
@@ -497,6 +535,7 @@ function createDefCodexInteropProtocol(options) {
     }
     const transcriptMatch = /^\/def-agent\/interop\/v1\/sessions\/([^/]+)\/transcript$/.exec(path);
     if (method === 'GET' && transcriptMatch) {
+      if (!authorize(request, response)) return true;
       const sessionId = decodeURIComponent(transcriptMatch[1]);
       const run = runs.get(sessionId);
       if (!run) { reject(response, 404, createError('interop-session-not-found', 'No protocol run exists for this session.', 'session', { ids: { sessionId } })); return true; }
@@ -506,6 +545,7 @@ function createDefCodexInteropProtocol(options) {
     }
     const questionsMatch = /^\/def-agent\/interop\/v1\/sessions\/([^/]+)\/questions$/.exec(path);
     if (method === 'GET' && questionsMatch) {
+      if (!authorize(request, response)) return true;
       const sessionId = decodeURIComponent(questionsMatch[1]);
       const run = runs.get(sessionId);
       if (!run) { reject(response, 404, createError('interop-session-not-found', 'No protocol run exists for this session.', 'session', { ids: { sessionId } })); return true; }
@@ -519,6 +559,7 @@ function createDefCodexInteropProtocol(options) {
       json(response, 200, { ok: true, protocol: PROTOCOL, protocolVersion: PROTOCOL_VERSION, testRunId: run.testRunId, sessionId, questions: questions.map((question) => ({ ...question, ...(questionOwners.get(question.requestId) ? { turnId: questionOwners.get(question.requestId).turnId, clientTurnId: questionOwners.get(question.requestId).clientTurnId } : {}) })) }); return true;
     }
     if (method === 'GET' && path === '/def-agent/interop/v1/state') {
+      if (!authorize(request, response)) return true;
       const state = await snapshot();
       const consumer = currentConsumer();
       let native = null;
@@ -532,9 +573,10 @@ function createDefCodexInteropProtocol(options) {
       json(response, 200, { ok: true, protocol: PROTOCOL, protocolVersion: PROTOCOL_VERSION, source: 'main-workbench-snapshot', schemaVersion: 1, updatedAt: Date.now(), snapshotAvailable: state.available, state: state.available ? summarizeState(state.value, native) : null, uiConsumerCount: consumers.size }); return true;
     }
     const eventsMatch = /^\/def-agent\/interop\/v1\/sessions\/([^/]+)\/events$/.exec(path);
-    if (method === 'GET' && eventsMatch) { subscribe(request, response, requestUrl, decodeURIComponent(eventsMatch[1]), false); return true; }
-    if (method === 'GET' && path === '/def-agent/interop/v1/ui-events') { subscribe(request, response, requestUrl, '', true); return true; }
+    if (method === 'GET' && eventsMatch) { if (!authorize(request, response)) return true; subscribe(request, response, requestUrl, decodeURIComponent(eventsMatch[1]), false); return true; }
+    if (method === 'GET' && path === '/def-agent/interop/v1/ui-events') { if (!authorize(request, response)) return true; subscribe(request, response, requestUrl, '', true); return true; }
     if (method === 'POST' && path === '/def-agent/interop/v1/ui/consumer') {
+      if (!requireTrustedLoopbackOrigin(request, response)) return true;
       const body = await readBody(request);
       if (body?.host !== 'workbench' || typeof body?.sessionId !== 'string' || !body.sessionId.trim()) { reject(response, 400, createError('invalid-ui-consumer', 'A workbench sessionId is required.', 'ui-consumer')); return true; }
       const id = typeof body.consumerId === 'string' && body.consumerId ? body.consumerId : crypto.randomUUID();
@@ -544,44 +586,22 @@ function createDefCodexInteropProtocol(options) {
       json(response, 200, { ok: true, protocol: PROTOCOL, protocolVersion: PROTOCOL_VERSION, consumer }); return true;
     }
     if (method === 'POST' && path === '/def-agent/interop/v1/ui/consumer/close') {
+      if (!requireTrustedLoopbackOrigin(request, response)) return true;
       const body = await readBody(request); const consumer = consumers.get(body?.consumerId);
-      if (consumer && consumer.sessionId === body?.sessionId) consumers.delete(consumer.id);
+      if (consumer && consumer.sessionId === body?.sessionId && consumer.renderSecret === body?.renderSecret) consumers.delete(consumer.id);
       json(response, 200, { ok: true, protocol: PROTOCOL, protocolVersion: PROTOCOL_VERSION }); return true;
-    }
-    if (method === 'POST' && path === '/def-agent/interop/v1/ui/render-target') {
-      const body = await readBody(request); const consumer = consumers.get(body?.consumerId);
-      if (!consumer || consumer.sessionId !== body?.sessionId || consumer.renderSecret !== body?.renderSecret) {
-        reject(response, 403, createError('ui-render-target-forbidden', 'The current workbench UI consumer could not be verified.', 'ui-consumer', { retryable: true, ids: { sessionId: typeof body?.sessionId === 'string' ? body.sessionId : '' }, nextAction: 'Reopen the Workbench AI mode and retry the turn.' })); return true;
-      }
-      const turn = [...turnsByClient.values()].find((item) => item.turnId === body?.turnId && item.sessionId === body?.sessionId);
-      if (!turn) { reject(response, 404, createError('turn-not-found', 'Turn was not found.', 'ui-consumer')); return true; }
-      turn.renderNonces ||= new Map();
-      const renderNonce = turn.renderNonces.get(consumer.id) || crypto.randomUUID();
-      turn.renderNonces.set(consumer.id, renderNonce);
-      json(response, 200, { ok: true, protocol: PROTOCOL, protocolVersion: PROTOCOL_VERSION, sessionId: turn.sessionId, turnId: turn.turnId, rawUserText: turn.rawUserText, renderNonce }); return true;
-    }
-    if (method === 'POST' && path === '/def-agent/interop/v1/ui/rendered') {
-      const body = await readBody(request); const consumer = consumers.get(body?.consumerId); const turn = [...turnsByClient.values()].find((item) => item.turnId === body?.turnId && item.sessionId === body?.sessionId);
-      if (!consumer || consumer.sessionId !== body?.sessionId || consumer.renderSecret !== body?.renderSecret) { reject(response, 403, createError('ui-rendered-forbidden', 'The current workbench UI consumer could not be verified.', 'ui-consumer', { retryable: true, ids: { sessionId: typeof body?.sessionId === 'string' ? body.sessionId : '' }, nextAction: 'Reopen the Workbench AI mode and retry the turn.' })); return true; }
-      if (!turn) { reject(response, 404, createError('turn-not-found', 'Turn was not found.', 'ui-consumer')); return true; }
-      if (!turn.renderNonces?.get(consumer.id) || turn.renderNonces.get(consumer.id) !== body?.renderNonce) { reject(response, 409, createError('ui-render-proof-required', 'The rendered acknowledgement did not match the current iframe render target.', 'ui-consumer', { retryable: true, ids: idsFor(turn), nextAction: 'Keep the current Workbench AI mode open and wait for the native user message to render.' })); return true; }
-      turn.renderedConsumerIds ||= new Set();
-      if (turn.renderedConsumerIds.has(consumer.id)) {
-        json(response, 200, { ok: true, protocol: PROTOCOL, protocolVersion: PROTOCOL_VERSION, idempotent: true }); return true;
-      }
-      turn.renderedConsumerIds.add(consumer.id);
-      emit('ui-rendered', turn, { uiConsumerId: consumer.id, surface: body.surface === 'native-iframe' ? 'native-iframe' : 'unknown', target: body.target === 'user-message' ? 'user-message' : 'unknown' }); json(response, 200, { ok: true, protocol: PROTOCOL, protocolVersion: PROTOCOL_VERSION }); return true;
     }
     return false;
   }
 
   function subscribe(request, response, requestUrl, sessionId, uiOnly) {
     const from = Number(requestUrl.searchParams.get('from') || requestUrl.searchParams.get('cursor') || 0) || 0;
-    options.writeSseHeaders(response); clients.add(response);
+    const client = { response, sessionId, uiOnly };
+    options.writeSseHeaders(response); clients.add(client);
     const earliest = events[0]?.seq || seq;
     options.writeSse(response, 'ready', { protocol: PROTOCOL, protocolVersion: PROTOCOL_VERSION, headCursor: String(seq), earliestCursor: String(earliest), gap: from > 0 && from < earliest - 1 });
     for (const event of events) if (event.seq > from && (!sessionId || event.sessionId === sessionId) && (!uiOnly || event.type.startsWith('ui-'))) options.writeSse(response, event.type, { ...event, replay: true });
-    request.on('close', () => clients.delete(response));
+    request.on('close', () => clients.delete(client));
   }
 
   return { handle, audit, emit };

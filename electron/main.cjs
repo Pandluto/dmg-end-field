@@ -472,12 +472,13 @@ function getSenderRole(event) {
   return 'unknown';
 }
 
-function buildJsonHeaders() {
+function buildJsonHeaders(response) {
+  const origin = String(response.__defRequestOrigin || '');
   return {
     'Content-Type': 'application/json; charset=utf-8',
-    'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Methods': 'GET,POST,OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+    ...( /^http:\/\/(127\.0\.0\.1|localhost)(:\d+)?$/i.test(origin) ? { 'Access-Control-Allow-Origin': origin, Vary: 'Origin' } : {}),
   };
 }
 
@@ -539,16 +540,17 @@ function tryServeStaticFromRoot({ method, requestUrl, response, rootDir, urlPref
 }
 
 function writeJson(response, statusCode, payload) {
-  response.writeHead(statusCode, buildJsonHeaders());
+  response.writeHead(statusCode, buildJsonHeaders(response));
   response.end(JSON.stringify(payload));
 }
 
 function writeSseHeaders(response) {
+  const origin = String(response.__defRequestOrigin || '');
   response.writeHead(200, {
     'Content-Type': 'text/event-stream; charset=utf-8',
     'Cache-Control': 'no-cache, no-transform',
     Connection: 'keep-alive',
-    'Access-Control-Allow-Origin': '*',
+    ...( /^http:\/\/(127\.0\.0\.1|localhost)(:\d+)?$/i.test(origin) ? { 'Access-Control-Allow-Origin': origin, Vary: 'Origin' } : {}),
   });
 }
 
@@ -795,10 +797,11 @@ function startBridgeServer() {
   bridgeServer = http.createServer(async (request, response) => {
     const method = request.method || 'GET';
     const requestUrl = new URL(request.url || '/', `http://${BRIDGE_HOST}:${BRIDGE_PORT}`);
+    response.__defRequestOrigin = request.headers.origin || '';
 
     try {
       if (method === 'OPTIONS') {
-        response.writeHead(204, buildJsonHeaders());
+      response.writeHead(204, buildJsonHeaders(response));
         response.end();
         return;
       }
