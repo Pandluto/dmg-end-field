@@ -2,6 +2,8 @@
 
 ## 研究结论
 
+原始证据、claim-first 双阶段蒸馏、Rotation Graph 与质检发布方案见 [`research-yz-distillation-pipeline-20260713.md`](./research-yz-distillation-pipeline-20260713.md)。本文主要处理蒸馏产物如何进入产品运行时。
+
 进一步审计表明，当前最大问题不是 YZ 蒸馏内容不够，而是**攻略正文尚未形成可证明的运行时消费链路**。
 
 `game-knowledge` 已能被 OpenCode 发现，system prompt 也注入了 `src/data/gameKnowledge.json` 中的部分别名；但加载 skill 时，原生 `skill` tool 只返回 `SKILL.md` 正文和最多 10 个 reference 文件路径样本。Workbench 的 `read` 权限只允许 session 内的 `node/**`、context、README 和 AGENTS，且 `external_directory` 为 deny。攻略正文位于项目目录，不能据此认定模型可以读取。
