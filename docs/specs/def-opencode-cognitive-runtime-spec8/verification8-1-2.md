@@ -1,0 +1,58 @@
+# Spec 8-1-2 verification — hot-swappable DEF Harness
+
+## Result
+
+Task 8-1-2 is implemented. The teaching surface is immutable, declarative, pinned per native OpenCode session, traceable, replayable and explicitly promotable/rollbackable. It does not alter the Electron bridge security model, typed tools, permissions, approval/use, storage, OpenCode vendor, or executable payloads.
+
+## Architecture and route map
+
+```text
+source package -> package hash/Registry -> stable|candidate selector
+  -> DefHarnessSessionBindingV1 at native-session creation
+  -> native /message proxy + v1 interop prompt system context
+  -> TraceRef / isolated Scenario fixture / RegressionResult
+  -> explicit human promotion or rollback decision
+```
+
+| Surface | Location |
+| --- | --- |
+| contracts, build/validate, Registry, loader, trace/regression | `agent/harness/def-harness.cjs` |
+| immutable baseline and controlled candidate | `agent/harness/baseline/stable-v0`, `agent/harness/examples/candidate-v1` |
+| native session pin/cache | `agent/runtime/def-opencode-adapter/index.cjs` |
+| native iframe and interop system-context injection | `agent/server/def-agent-server.cjs` |
+| v1 status/state/accepted/event/transcript binding observation | `agent/runtime/def-codex-interop.cjs` |
+| command surface and focused checks | `scripts/def-harness-cli.mjs`, `scripts/def-harness-check.mjs` |
+
+`DefCodexInteropProtocol v1` remains protocol version `1`. `turn.start` and `turn.continue` accept an optional selector only when it matches the already-pinned native session; a candidate is selected at native-session creation, never by replacing a live session's Harness. `status`, `state`, accepted events and transcript turns expose `DefHarnessSessionBindingV1`.
+
+## Package and security evidence
+
+Baseline `def-stable@0.0.0`: `3a3854db7a257020d5befd7b2defadd34477952e6b8839c116e3849c9954d4c9`.
+Controlled one-slot candidate `def-candidate@1.0.0`: `6c60d2d582d10c70f40d2f1606fa1ec56f0245e7a5a9ca8ed3562bc3ffbd1616`.
+
+```bash
+npm run harness:check
+npm run harness -- doctor
+npm run harness -- package build agent/harness/examples/candidate-v1
+npm run harness -- registry add .runtime/def-harness/builds/def-candidate/1.0.0 --channel candidate/v1
+npm run harness -- regress controlled --baseline stable --candidate candidate/v1
+```
+
+All passed on 2026-07-13. The check covers deterministic hash, immutable storage, tamper/path/symlink/executable rejection, unknown schema/slot/capability and compatibility rejection, candidate fail-closed, stable pinning, trace/evaluator redaction, regression gates, promotion and rollback. Runtime Registry/run artifacts remain ignored under `.runtime/def-harness/`; no token, real transcript or evaluator input is committed.
+
+## Session, trace and replay evidence
+
+- Visible native stable session `ses_0a4512e5affeWjyS4Qb5wqW9W8` pinned to `def-stable@0.0.0`. Pure Blackbox run `0dfd19fe-a0a7-4d6d-bd5d-cab984d37ba0`, turn `03907c9b-5303-4303-aaa2-47c8d24c3c0f`, completed; raw and provider-visible text were both `你好`.
+- Explicit native candidate binding check `ses_0a44da376ffeuhwRwNYNxOHCjt` pinned to `candidate/v1`; it was closed after recording.
+- Regression `regression-1e5b0e90-7edf-4c35-80e7-a1b22ea1f79a` passed FAIL_TO_PASS, PASS_TO_PASS and safety preview. Replays use fresh fixture/session/turn/client ids; unavailable snapshot mutation returns `BLOCKED_ENVIRONMENT`.
+- After human promotion, new session `ses_0a44d1b33ffeV542PX6U1lJgIh` resolved candidate v1 while the old stable session did not drift. After append-only rollback, new session `ses_0a44d1a3fffe4Vg9e6YG1dC2Vu` resolved `def-stable@0.0.0`. Both temporary sessions were closed.
+
+## Desktop UI evidence
+
+Computer Use opened the real macOS Workbench and native iframe titled `DEF · 排轴助手`, verified the composer and completed greeting response. After the sidecar restart required for the native `/message` proxy connection, v1 status again reported one active UI consumer with the stable binding. The real iframe visibly rendered the exact greeting and completed answer; no browser refresh was used as a test step.
+
+## Known limits / 8-1-3 boundary
+
+- The candidate is a controlled response-policy example, not YZ distillation or a game-knowledge claim.
+- The evaluator is deterministic package/scenario comparison and safety-boundary checking. Autonomous Codex diagnosis, hidden regression infrastructure and automatic repair remain 8-1-3.
+- Scenario fixtures prove selection/pinning without mutating the user's Workbench. Natural-language product behavior remains checked via native v1 and desktop UI.

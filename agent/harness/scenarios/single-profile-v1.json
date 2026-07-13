@@ -1,6 +1,7 @@
 {
   "id": "single-profile-v1",
   "version": 1,
+  "regressionKind": "FAIL_TO_PASS",
   "turns": [
     { "userText": "当前使用的教学配置是什么？" }
   ],

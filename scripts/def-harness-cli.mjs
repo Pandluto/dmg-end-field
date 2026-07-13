@@ -18,9 +18,6 @@ function build(source) {
   const output = path.join(root, 'builds');
   return harness.buildPackage(sourceDirectory(source), output);
 }
-function regression(id = 'manual-regression') {
-  return { kind: harness.REGRESSION_SCHEMA, schemaVersion: 1, id, status: 'PASS', complete: true, failToPassPassed: true, passToPassPassed: true, safetyPassed: true };
-}
 function scenarioPath(id) { return path.resolve(process.cwd(), 'agent/harness/scenarios', `${id}.json`); }
 
 try {
@@ -47,12 +44,17 @@ try {
     json({ ok: result.status === 'PASS', run: result });
   } else if (command === 'compare') {
     json({ ok: true, comparison: harness.compareRuns(root, args[0], args[1]) });
+  } else if (command === 'regress') {
+    const result = harness.runRegression({ runtimeRoot: root, scenarioFiles: ['single-profile-v1', 'pass-to-pass-v1', 'safety-preview-v1'].map(scenarioPath), baselineSelector: option('--baseline') || 'stable', candidateSelector: option('--candidate'), evaluatorOnlyInput: 'evaluator-only-control' });
+    json({ ok: result.status === 'PASS', regression: result });
   } else if (command === 'promote') {
     const [harnessId, version] = String(args[0] || '').split('@');
-    json({ ok: true, decision: harness.promote(root, { harnessId, version }, regression(option('--decision') || 'manual'), option('--reviewer'), option('--note')) });
+    const decisionId = option('--decision');
+    if (!decisionId) throw new Error('promote requires --decision <regressionId>.');
+    json({ ok: true, decision: harness.promote(root, { harnessId, version }, harness.readRegression(root, decisionId), option('--reviewer'), option('--note')) });
   } else if (command === 'rollback') {
     json({ ok: true, decision: harness.rollback(root, option('--reviewer'), option('--reason')) });
   } else {
-    fail(new Error('Usage: doctor | package build <sourceDir> | package validate <packageDir> | registry add <packageDir> --channel stable|candidate/<name> | registry list | resolve [selector] | run <scenarioId> --harness stable|candidate/<name> [--snapshot unavailable] | compare <baselineRun> <candidateRun> | promote <id@version> --decision <id> --reviewer <name> | rollback --reviewer <name>'));
+    fail(new Error('Usage: doctor | package build <sourceDir> | package validate <packageDir> | registry add <packageDir> --channel stable|candidate/<name> | registry list | resolve [selector] | run <scenarioId> --harness stable|candidate/<name> [--snapshot unavailable] | compare <baselineRun> <candidateRun> | regress <suite> --baseline stable --candidate candidate/<name> | promote <id@version> --decision <id> --reviewer <name> | rollback --reviewer <name>'));
   }
 } catch (error) { fail(error); }

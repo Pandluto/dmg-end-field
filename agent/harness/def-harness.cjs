@@ -116,6 +116,13 @@ function normalizedPackageForHash(pkg) {
   return copy;
 }
 function computePackageHash(pkg) { return sha256(stableJson(normalizedPackageForHash(pkg))); }
+function assertCompatibility(compatibility) {
+  const value = compatibility && typeof compatibility === 'object' ? compatibility : {};
+  if (value.interopProtocol !== undefined && !['1', '^1', '>=1 <2'].includes(String(value.interopProtocol))) fail('HARNESS_INCOMPATIBLE', 'Harness requires an unsupported interop protocol.', { component: 'loader' });
+  for (const key of ['agentContract', 'toolRegistry', 'stateSchema', 'knowledgeSchema']) {
+    if (value[key] !== undefined && Number(value[key]) !== 1) fail('HARNESS_INCOMPATIBLE', `Harness requires unsupported ${key} version.`, { component: 'loader', key });
+  }
+}
 function buildPackage(sourceDir, outputRoot) {
   const root = fs.realpathSync(sourceDir);
   const source = validateSourceManifest(readJson(path.join(root, 'manifest.json')));
@@ -160,6 +167,7 @@ function validatePackageDirectory(directory) {
   const pkg = readJson(path.join(root, 'package.json'));
   if (pkg?.kind !== PACKAGE_SCHEMA || Number(pkg?.schemaVersion) !== SCHEMA_VERSION) fail('HARNESS_UNKNOWN_SCHEMA', 'Registry package does not implement DefHarnessPackageV1.', { component: 'loader' });
   validateSourceManifest({ ...pkg, slots: pkg.slots });
+  assertCompatibility(pkg.compatibility);
   for (const entries of Object.values(pkg.slots || {})) for (const artifact of entries || []) {
     if (artifact.capability !== 'hotSwappable') fail('HARNESS_CAPABILITY_BLOCKED', 'Only hotSwappable artifacts can be activated.', { component: 'loader', capability: artifact.capability });
     const checked = assertSafeArtifact(root, artifact.path);
@@ -342,6 +350,27 @@ function compareRuns(runtimeRoot, baselineRunId, candidateRunId) {
   writeAtomic(path.join(registryPaths(runtimeRoot).root, 'runs', result.id, 'comparison.json'), result);
   return result;
 }
+function runRegression({ runtimeRoot, scenarioFiles, baselineSelector = 'stable', candidateSelector, evaluatorOnlyInput = 'evaluator-only' }) {
+  if (!candidateSelector) fail('HARNESS_REGRESSION_INVALID', 'Regression requires an explicit candidate selector.', { component: 'regression' });
+  const id = `regression-${crypto.randomUUID()}`;
+  const cases = scenarioFiles.map((scenarioFile) => {
+    const scenario = loadScenario(scenarioFile);
+    const baseline = runScenario({ runtimeRoot, scenarioFile, selector: baselineSelector });
+    const candidate = runScenario({ runtimeRoot, scenarioFile, selector: candidateSelector });
+    return { kind: scenario.regressionKind || 'PASS_TO_PASS', scenarioId: scenario.id, baselineRunId: baseline.runId, candidateRunId: candidate.runId, comparison: compareRuns(runtimeRoot, baseline.runId, candidate.runId) };
+  });
+  const failToPassPassed = cases.filter((entry) => entry.kind === 'FAIL_TO_PASS').every((entry) => entry.comparison.status === 'PASS');
+  const passToPassPassed = cases.filter((entry) => entry.kind === 'PASS_TO_PASS').every((entry) => entry.comparison.status === 'PASS');
+  const candidate = createLoader(runtimeRoot).resolve(candidateSelector).package;
+  const serialized = JSON.stringify({ cases, candidate: packageRef(candidate) });
+  const evaluatorLeakFree = !serialized.includes(evaluatorOnlyInput) && !Object.values(candidate.slots).flat().some((artifact) => fs.readFileSync(assertSafeArtifact(getPackageDirectory(runtimeRoot, packageRef(candidate)), artifact.path).absolutePath, 'utf8').includes(evaluatorOnlyInput));
+  const safetyPassed = evaluatorLeakFree && candidate.dirty !== true;
+  const complete = cases.length > 0 && cases.every((entry) => entry.comparison.comparable) && safetyPassed;
+  const result = { kind: REGRESSION_SCHEMA, schemaVersion: SCHEMA_VERSION, id, status: complete && failToPassPassed && passToPassPassed ? 'PASS' : 'FAIL_AGENT', complete, failToPassPassed, passToPassPassed, safetyPassed, evaluatorLeakFree, candidate: packageRef(candidate), baselineSelector, candidateSelector, cases, createdAt: Date.now() };
+  writeAtomic(path.join(registryPaths(runtimeRoot).root, 'runs', id, 'regression.json'), result);
+  return result;
+}
+function readRegression(runtimeRoot, regressionId) { return readJson(path.join(registryPaths(runtimeRoot).root, 'runs', regressionId, 'regression.json')); }
 function appendDecision(runtimeRoot, decision) {
   const record = { kind: PROMOTION_SCHEMA, schemaVersion: SCHEMA_VERSION, at: Date.now(), ...decision };
   const file = registryPaths(runtimeRoot).decisions;
@@ -378,5 +407,5 @@ module.exports = {
   SCHEMA_VERSION, PACKAGE_SCHEMA, BINDING_SCHEMA, TRACE_SCHEMA, REGRESSION_SCHEMA, PROMOTION_SCHEMA, SLOT_NAMES,
   DefHarnessError, stableJson, sha256, buildPackage, validatePackageDirectory, registryPaths, readChannels,
   registerPackage, ensureBaseline, setChannel, resolveSelector, createLoader, createSessionBinding, composeHarnessSystem, traceRef,
-  loadScenario, createFixture, runScenario, readRun, compareRuns, appendDecision, promote, rollback, packageRef,
+  loadScenario, createFixture, runScenario, readRun, compareRuns, runRegression, readRegression, appendDecision, promote, rollback, packageRef,
 };

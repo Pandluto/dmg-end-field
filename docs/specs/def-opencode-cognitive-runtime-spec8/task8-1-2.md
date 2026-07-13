@@ -2,7 +2,7 @@
 
 ## 状态
 
-待实施：任务边界已收敛为“热插拔教学层 + 最小安全训练闭环”。允许按检查点分批编码、验证和提交，但不得提前进入 8-1-3 的真实 Codex 返修。
+已完成：热插拔教学层与最小安全训练闭环已实施、验证并按检查点提交；不得提前进入 8-1-3 的真实 Codex 返修。
 
 ## 一句话目标
 
@@ -362,40 +362,40 @@ def-harness report <runId|regressionId>
 
 ### Checkpoint A：Package 合同与 Registry
 
-- [ ] 建立 V1 contracts 与统一 validation；
-- [ ] 实现 slot 白名单、capability 和 compatibility 检查；
-- [ ] 实现 package build、hash、路径安全和不可变存储；
-- [ ] 实现 stable/candidate/previousStable 指针和原子更新；
-- [ ] 建立 baseline `stable-v0`，记录当前可用 Harness 内容；
-- [ ] `doctor/package/registry` 命令可运行。
+- [x] 建立 V1 contracts 与统一 validation；
+- [x] 实现 slot 白名单、capability 和 compatibility 检查；
+- [x] 实现 package build、hash、路径安全和不可变存储；
+- [x] 实现 stable/candidate/previousStable 指针和原子更新；
+- [x] 建立 baseline `stable-v0`，记录当前可用 Harness 内容；
+- [x] `doctor/package/registry` 命令可运行。
 
 ### Checkpoint B：Session Pinning 与 Loader
 
-- [ ] 新 Session 默认解析 stable，测试入口可显式选择 candidate；
-- [ ] 建立不可变 `DefHarnessSessionBindingV1`；
-- [ ] 将允许的 slot 接入真实 native Session；
-- [ ] status/trace 可观察 resolved Harness；
-- [ ] active pointer 改变不影响已有 Session；
-- [ ] stable/candidate 并行不串配置；
-- [ ] candidate 加载失败 fail closed，普通 stable 路径有安全 fallback。
+- [x] 新 Session 默认解析 stable，测试入口可显式选择 candidate；
+- [x] 建立不可变 `DefHarnessSessionBindingV1`；
+- [x] 将允许的 slot 接入真实 native Session；
+- [x] status/trace 可观察 resolved Harness；
+- [x] active pointer 改变不影响已有 Session；
+- [x] stable/candidate 并行不串配置；
+- [x] candidate 加载失败 fail closed，普通 stable 路径有安全 fallback。
 
 ### Checkpoint C：Trace、Scenario 与 Replay
 
-- [ ] Trace 保存 package、binding 和 slot hashes；
-- [ ] 建立隔离 fixture 与 Scenario loader；
-- [ ] replay 使用新 fixture/session/ids；
-- [ ] 跑通一个单 turn 与一个多 turn受控场景；
-- [ ] provider-visible text 不被测试说明污染；
-- [ ] snapshot 缺失时相关 mutation 场景稳定 BLOCKED。
+- [x] Trace 保存 package、binding 和 slot hashes；
+- [x] 建立隔离 fixture 与 Scenario loader；
+- [x] replay 使用新 fixture/session/ids；
+- [x] 跑通一个单 turn 与一个多 turn受控场景；
+- [x] provider-visible text 不被测试说明污染；
+- [x] snapshot 缺失时相关 mutation 场景稳定 BLOCKED。
 
 ### Checkpoint D：Regression、Promotion 与 Rollback
 
-- [ ] 建立最小 FAIL_TO_PASS、PASS_TO_PASS 和 safety gate；
-- [ ] 环境/协议/Agent/verifier 结果明确分开；
-- [ ] hidden evaluator-only 数据不进入 Worker/package/公开 Trace；
-- [ ] promotion 需要完整证据和人工 decision；
-- [ ] rollback 只影响新 Session，且历史可审计；
-- [ ] 创建 `verification8-1-2.md`，记录真实命令、ids、结果和限制。
+- [x] 建立最小 FAIL_TO_PASS、PASS_TO_PASS 和 safety gate；
+- [x] 环境/协议/Agent/verifier 结果明确分开；
+- [x] hidden evaluator-only 数据不进入 Worker/package/公开 Trace；
+- [x] promotion 需要完整证据和人工 decision；
+- [x] rollback 只影响新 Session，且历史可审计；
+- [x] 创建 `verification8-1-2.md`，记录真实命令、ids、结果和限制。
 
 每个 checkpoint 完成并验证后按项目规则自动提交。
 

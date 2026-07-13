@@ -49,6 +49,15 @@ assert.equal(harness.runScenario({ runtimeRoot: runtime, scenarioFile: path.join
 const mutationScenario = path.join(runtime, 'mutation-scenario.json');
 fs.writeFileSync(mutationScenario, JSON.stringify({ id: 'mutation', turns: [{ userText: '加个技能，先看一下。' }], requiresSnapshot: true }));
 assert.equal(harness.runScenario({ runtimeRoot: runtime, scenarioFile: mutationScenario, selector: 'stable', snapshotAvailable: false }).status, 'BLOCKED_ENVIRONMENT');
+const regression = harness.runRegression({ runtimeRoot: runtime, scenarioFiles: [path.join(scenarios, 'single-profile-v1.json'), path.join(scenarios, 'pass-to-pass-v1.json'), path.join(scenarios, 'safety-preview-v1.json')], candidateSelector: 'candidate/v1', evaluatorOnlyInput: 'evaluator-only-control' });
+assert.equal(regression.status, 'PASS');
+const promotion = harness.promote(runtime, candidateRef, regression, 'def-maintainer', 'controlled candidate promotion');
+assert.equal(promotion.action, 'promoted');
+assert.equal(harness.createLoader(runtime).resolve('stable').ref.contentHash, candidateRef.contentHash, 'promotion affects a new resolution only');
+assert.equal(stableBinding.harness.contentHash, stableRef.contentHash, 'promotion cannot change prior session binding');
+const rollback = harness.rollback(runtime, 'def-maintainer', 'controlled rollback');
+assert.equal(rollback.action, 'rolled-back');
+assert.equal(harness.createLoader(runtime).resolve('stable').ref.contentHash, stableRef.contentHash, 'rollback restores previous stable for new sessions');
 const packageJson = path.join(runtime, 'registry/packages', candidateRef.harnessId, candidateRef.version, 'response-policy.md');
 fs.appendFileSync(packageJson, '\ntamper');
 assert.throws(() => harness.resolveSelector(runtime, 'candidate/v1'), (error) => error.code === 'HARNESS_HASH_MISMATCH');
@@ -66,6 +75,9 @@ fs.writeFileSync(path.join(unsafe, 'manifest.json'), JSON.stringify({ schemaVers
 assert.throws(() => harness.buildPackage(unsafe, builds), (error) => error.code === 'HARNESS_UNKNOWN_SLOT');
 fs.writeFileSync(path.join(unsafe, 'manifest.json'), JSON.stringify({ schemaVersion: 1, harnessId: 'unsafe-test', version: '1.0.0', slots: { agentContract: { path: 'artifact.md', capability: 'arbitraryCode' } } }));
 assert.throws(() => harness.buildPackage(unsafe, builds), (error) => error.code === 'HARNESS_UNKNOWN_CAPABILITY');
+fs.writeFileSync(path.join(unsafe, 'manifest.json'), JSON.stringify({ schemaVersion: 1, harnessId: 'incompatible-test', version: '1.0.0', compatibility: { interopProtocol: '^2' }, slots: { agentContract: { path: 'artifact.md', capability: 'hotSwappable' } } }));
+const incompatible = harness.buildPackage(unsafe, builds);
+assert.throws(() => harness.validatePackageDirectory(incompatible.directory), (error) => error.code === 'HARNESS_INCOMPATIBLE');
 fs.rmSync(runtime, { recursive: true, force: true });
 fs.rmSync(unsafe, { recursive: true, force: true });
-console.log(JSON.stringify({ ok: true, checks: ['deterministic-hash', 'immutable-registry', 'pinning', 'candidate-fail-closed', 'tamper', 'trace-redaction', 'promotion-gate', 'traversal', 'executable', 'schema-slot-capability', 'scenario-replay', 'multi-turn-pinning', 'snapshot-blocked'] }));
+console.log(JSON.stringify({ ok: true, checks: ['deterministic-hash', 'immutable-registry', 'pinning', 'candidate-fail-closed', 'tamper', 'trace-redaction', 'promotion-gate', 'traversal', 'executable', 'schema-slot-capability', 'scenario-replay', 'multi-turn-pinning', 'snapshot-blocked', 'regression', 'promotion', 'rollback'] }));

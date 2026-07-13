@@ -2,7 +2,7 @@
 
 ## 状态
 
-已进入任务阶段；详细实施与验收见 [Task 8-1-2：打通可训练 Harness](./task8-1-2.md)。
+已完成；详细实施与验收见 [Task 8-1-2：打通可训练 Harness](./task8-1-2.md) 和 [verification8-1-2](./verification8-1-2.md)。
 
 ## 一句话定调
 
@@ -92,18 +92,18 @@ flowchart LR
 
 ## 验收标准
 
-- [ ] 可构建并校验不可变 `DefHarnessPackage`；
-- [ ] 至少覆盖 prompt/contract、role card、knowledge、skills、routing、tool guidance、response policy 插槽；
-- [ ] Registry 能同时保存 stable 和 candidate，并校验 hash 与兼容性；
-- [ ] 新 Session 可显式选择 Harness，且整个 Session 版本保持不变；
-- [ ] stable/candidate 并行 Session 不串配置；
-- [ ] active pointer 切换不影响已有 Session；
-- [ ] candidate 加载失败的测试明确失败，普通稳定路径不被破坏；
-- [ ] Trace 能证明本次运行使用的确切 Harness 版本；
-- [ ] 最小 replay/regression 能比较 stable 与 candidate；
-- [ ] PASS_TO_PASS 与 safety 失败能够阻止 promotion；
-- [ ] rollback 能恢复上一 stable，并只影响新 Session；
-- [ ] 一个受控候选完成 package → pin → replay → verify → promote/reject → rollback 演示。
+- [x] 可构建并校验不可变 `DefHarnessPackage`；
+- [x] 至少覆盖 prompt/contract、role card、knowledge、skills、routing、tool guidance、response policy 插槽；
+- [x] Registry 能同时保存 stable 和 candidate，并校验 hash 与兼容性；
+- [x] 新 Session 可显式选择 Harness，且整个 Session 版本保持不变；
+- [x] stable/candidate 并行 Session 不串配置；
+- [x] active pointer 切换不影响已有 Session；
+- [x] candidate 加载失败的测试明确失败，普通稳定路径不被破坏；
+- [x] Trace 能证明本次运行使用的确切 Harness 版本；
+- [x] 最小 replay/regression 能比较 stable 与 candidate；
+- [x] PASS_TO_PASS 与 safety 失败能够阻止 promotion；
+- [x] rollback 能恢复上一 stable，并只影响新 Session；
+- [x] 一个受控候选完成 package → pin → replay → verify → promote/reject → rollback 演示；见 [verification8-1-2](./verification8-1-2.md)。
 
 ## 明确不做
 
