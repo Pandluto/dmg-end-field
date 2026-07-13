@@ -1,141 +1,193 @@
 # dmg-end-field
 
-> 地表作业终端 / 非制式战斗模拟工作台
+> 地表作业终端 / 本地战斗配置、排轴与数据编辑工作台
 
-## 项目简介
+`dmg-end-field` 是一个面向《明日方舟：终末地》相关资料整理的本地工作台。它把干员、武器、装备、Buff、技能按钮、时间轴和伤害计算集中到同一套 Web 界面，并提供 Electron Shell、存档管理、图片资源管理和受控的本地 AI 工作流。
 
-这不是一套什么正经八百的大型工业平台。
+它不是在线服务，也不是自动战斗脚本；设计重点是让一套配置能够被编辑、计算、保存、比较、恢复和继续迭代。
 
-它更像是我给自己搓的一台前线终端: 用来整理角色、武器、装备、技能面板和伤害配置，省得每次改数据都靠手抄、脑补和硬记。
+## 这套工具解决什么
 
-说人话一点:
+- 整理干员、武器、装备与 Buff 的本地资料和草稿。
+- 在主界面配置角色、放置技能按钮、调整时间轴、叠加 Buff 与异常。
+- 从面板、命中段、Buff 乘区一路追溯到伤害结果。
+- 保存、恢复、分享本地排轴和配置，避免修改后失去来路。
+- 通过 AI CLI 处理受约束的数据填表、资料查询、校验和修复。
+- 通过主界面 AI 模式在隔离 Work Node 中审查排轴改动，再决定是否应用。
 
-- 这是一个自用向的战斗模拟/配置编辑工具
-- 主要服务于角色数据整理、武器配置、装备编辑和伤害面板调试
-- 能本地保存草稿，方便反复试配和回滚
-- 也支持 Electron 打包，能当桌面工具单独跑
+## 核心能力
 
-如果你也有“开了十几个表格和记事本，最后还是不知道这套配置到底差在哪”的情况，那这东西大概就是给这种场景准备的。
+| 工作区 | 作用 |
+| --- | --- |
+| 主界面 / 排轴 | 选择干员、配置技能按钮、Buff、目标抗性与时间轴，查看技能详情和伤害结果。 |
+| 角色配置 | 编辑角色等级、潜能、属性、武器、装备、词条与技能等级。 |
+| 数据编辑页 | 维护干员、武器、装备和 Buff 数据；装备支持导入导出。 |
+| 伤害与报告 | 查看伤害表、面板计算与可导出的报告数据。 |
+| 图片管理 | 管理本地图片资源、图片根目录和 Shell 侧图片更新。 |
+| AI CLI | 用受控命令完成数据填表、校验、提案与保存。 |
+| DEF OpenCode | 在 Workbench 与 AI CLI 两个隔离宿主中复用原生对话、tool、diff、question 与 permission 交互。 |
 
-## 当前包含的模块
+## 两种运行方式
 
-终端目前已经接入以下作业模块:
+```text
+Web 开发模式
+  Vite dev server (127.0.0.1:3030)
+  └─ 直接调试主界面、编辑页和本地浏览器存储
 
-- `角色配置`  
-  管角色草稿、技能等级、属性配置和本地模板
+Electron Shell 模式
+  Electron Shell + Vite Web
+  ├─ 本地存档、图片与运行时管理
+  ├─ 打开浏览器 Web 主界面
+  └─ 托管本地 DEF OpenCode / AI runtime
+```
 
-- `武器编辑`  
-  管武器数据、效果词条、候选方案和本地保存
+日常开发以 `npm run electron:dev` 为主。它会启动 Vite 与 Electron Shell；如果 3030 已在监听，复用现有进程，不要随意重启常驻开发实例。
 
-- `装备编辑`  
-  用来整理装备信息、导入导出和配套展示逻辑
+## 快速开始
 
-- `伤害/面板工作区`  
-  用来做技能按钮、Buff、时间线、面板联动和伤害演算相关调试
+### 环境
 
-- `图片资源管理`  
-  管本地图片资源、清单和部分桌面侧联动能力
+- Node.js 与 npm
+- Windows 开发 Electron 便携版；macOS 构建需要对应本机签名/打包环境
 
-- `DEF OpenCode / AI CLI`：在主界面排轴与独立 AI CLI 中提供受控的本地 Agent、数据资源查询、Work Node 审查和应用流程
-
-## 为什么做这个
-
-因为手动配表真的很烦。
-
-很多时候不是不会算，而是数据散、版本乱、改动频繁，最后一套配置到底怎么来的，自己过两天都看不明白。  
-所以干脆做一个能把这些东西集中起来的工作台，把角色、武器、装备、草稿和本地缓存都塞进一个终端里。
-
-它首先是给我自己用的，所以会偏实战、偏工具、偏“能跑就先上”。  
-但也正因为这样，很多功能都不是拿来摆样子的，而是真的为了减少重复劳动。
-
-## 快速启动
-
-先装依赖:
+### 安装与启动
 
 ```bash
 npm install
-```
 
-启动 Web 开发环境:
-
-```bash
+# 只启动 Web 开发服务：http://127.0.0.1:3030
 npm run dev
-```
 
-启动 Electron 开发环境:
-
-```bash
+# 常用：启动 Electron Shell，并等待 Web 服务就绪
 npm run electron:dev
 ```
 
-只开壳层模式:
+常用入口：
+
+- Web 主界面：`http://127.0.0.1:3030/`
+- AI CLI：`#/ai-cli`
+- 角色编辑：`#/operator-studio`
+- Buff / 武器 / 装备编辑：`#/buff-sheet`、`#/weapon-sheet`、`#/sheet-equipment`
+- 图片管理：`#/image-manager`
+
+### 打包
 
 ```bash
-npm run electron:shell
-```
-
-## 构建
-
-构建前端资源:
-
-```bash
+# 构建 Web 与嵌入式 OpenCode UI
 npm run build
-```
 
-构建 Electron 便携版:
-
-```bash
+# Windows portable
 npm run electron:build
+
+# macOS dmg
+npm run electron:build:mac
 ```
 
-默认打包输出目录是 `release/`。  
-构建产物和调试残留不建议提交到 Git。
+构建产物默认位于 `release/`，不应提交到 Git。
 
-## 开发与文档
+## Agent 与 Work Node
 
-项目采用 Spec 驱动开发：需求、研究、任务、验收和后续维护记录都以对应 Spec 为主轴。开始开发前先进入相应 Spec，而不是在顶层新建零散文档。
+项目的 AI 能力分为两个职责不同的宿主：
 
-- [文档入口](docs/README.md)
-- [Spec 总索引](docs/specs/README.md)
-- [跨 Spec 测试口径](docs/testing/README.md)
-- [跨 Spec 架构审计](docs/architecture/README.md)
+```text
+Main Workbench AI mode                 /AI CLI
+  ├─ 排轴与当前主界面上下文              ├─ 数据资源、填表与资料处理
+  ├─ def-workbench agent               ├─ 独立 agent / session / history
+  ├─ Work Node 草稿、diff、审批、use    └─ 仅在自身任务需要时创建节点工作区
+  └─ 不与 AI CLI 共享 active session       不继承 Workbench checkout/context
+```
 
-一个 Spec 的标准生命周期是：
+正式工具只有三类：
+
+- `def-node-code`：在隔离节点工作区中使用原生 `read/edit/apply_patch` 修改规范化排轴源。
+- `def-node-crud`：负责节点 fork、bind、校验、diff、审批、use、restore 等生命周期。
+- `def-data-resource`：提供可信的干员、武器、装备、技能、Buff 和伤害数据。
+
+排轴改动不会直接覆盖当前主界面：模型先在 Work Node 中修改，系统 rebuild、校验、生成语义 diff 与风险，再通过原生 permission 让用户决定是否 `use`。详情见 [Spec 7](docs/specs/def-opencode-local-productization-spec7/spec.md)。
+
+## 架构概览
+
+```text
+React / Vite Web
+  ├─ WorkbenchFrame：主界面、排轴、技能详情与伤害视图
+  ├─ Sheet pages：干员、Buff、武器、装备与图片管理
+  └─ local state / local data bridge
+             │
+             ├─ Electron Shell：存档、图片、桌面 bridge、打包运行时
+             │
+             └─ DEF OpenCode runtime：host profile、typed tools、Work Node、审批与历史
+                         │
+                         └─ timeline repository：节点、revision、diff、checkout 证据
+```
+
+前端负责用户编辑和展示；Electron 负责本地运行体验、文件/图片桥接和本地服务；Work Node 负责把高风险 AI 改动从当前 checkout 隔离出来。不要让 Agent 直接修改项目源码、浏览器存储或任意本地目录。
+
+## 常用开发命令
+
+| 命令 | 用途 |
+| --- | --- |
+| `npm run electron:dev` | 常用开发入口：启动 Shell 和 Web。 |
+| `npm run dev` | 只启动 Vite Web。 |
+| `npm run build` | 构建嵌入式 OpenCode UI、执行 TypeScript 检查并构建 Web。 |
+| `npm test` | 运行当前收录的核心单元测试与节点 codec 测试。 |
+| `npm run smoke:work-node-sqlite` | 验证 Work Node SQLite、REST、备份恢复和迁移 smoke。 |
+| `npm run smoke:ai-cli-rest` | 验证 AI CLI REST 基础链路。 |
+| `npm run smoke:operator-config` | 运行 Electron 侧角色配置 smoke。 |
+| `npm run akedb:extract` | 从本机 AKEDatabase 原始资料生成精简索引。 |
+| `npm run electron:build` | 构建 Windows portable。 |
+
+测试与验收不是只看命令成功。涉及 DEF agent / typed tools 时，按 [DEF Agent 黑盒测试口径](docs/testing/def-agent-blackbox.md) 从真实 Workbench prompt 入口验证用户可观察行为。
+
+## 仓库地图
+
+```text
+src/                    React 页面、组件、领域服务、计算器与前端状态
+electron/               Electron 主进程、preload、Shell 与本地 repository
+agent/runtime/          DEF tools、OpenCode adapter、skills、节点 workspace codec
+scripts/                构建、smoke、数据抽取和本地辅助脚本
+public/data/            干员、武器、装备等静态资料
+docs/specs/             Spec 驱动的需求、研究、任务、验收和维护记录
+docs/testing/           跨 Spec 的测试口径
+docs/architecture/      跨 Spec 架构审计
+docs/guides/            用户指南
+```
+
+## 文档与 Spec 工作流
+
+项目采用 Spec 驱动开发。一个开发主题以 `docs/specs/<spec-id>/` 为唯一主轴：
 
 ```text
 research → spec → tasks → coding → verification → maintenance review/fix
 ```
 
-`spec.md` 记录需求事实，`tasks.md` 记录执行清单，`verification*.md` 保存完成证据。新一轮 Spec 或 Tasks 必须先有明确标题、目标或内容，不能用空目录替代需求定义。
+| 文档 | 作用 |
+| --- | --- |
+| `spec.md` | 目标、范围、约束与验收标准，是需求事实源。 |
+| `tasks.md` | 已确认范围内的执行清单与状态。 |
+| `research*.md` | 规格前后的调查、架构判断与证据。 |
+| `verification*.md` | 构建、测试、黑盒与手工验收记录。 |
+| `fix-report*.md` / `health-review*.md` | 已完成 Spec 的维护修复和健康审查。 |
 
-## 技术栈
+新一轮 Spec 或 Tasks 必须先有用户提供的标题、目标或具体内容；不能用空目录或自动拆分替代需求定义。新文档默认进入对应 Spec，只有跨多个 Spec 的审计进入 `docs/architecture/`。
 
-- `React 18`
-- `TypeScript`
-- `Vite`
-- `Electron`
-- `exceljs`
+入口：
 
-整体思路很简单:  
-前端负责编辑、展示和交互，桌面壳层负责本地运行体验，数据尽量走本地草稿和静态资源，方便折腾、方便回档、方便继续魔改。
+- [项目文档导航](docs/README.md)
+- [Spec 总索引](docs/specs/README.md)
+- [用户快速上手](docs/guides/quick-start.md)
+- [跨 Spec 测试口径](docs/testing/README.md)
+- [架构审计](docs/architecture/README.md)
 
-## 使用说明
+## 贡献与本地约定
 
-这不是面向所有人的标准化产品，也不是准备发版收费的商业软件。
+- 不提交构建产物、临时文件、私有配置或本机数据。
+- 已存在的用户改动默认属于用户；处理任务时避免覆盖无关工作区内容。
+- 代码改动是否补测试取决于风险，避免为文档或低风险调整扩张无关测试。
+- 每个完成的 research、spec/task、编码任务或修复按项目约定独立提交，便于回滚与审查。
+- 数据和计算链路优先保持“能编辑、能保存、能回看、能解释”的主线。
 
-它本质上就是一个自用终端，一个把战斗配置、角色资料和编辑流程尽量收拢到一起的工作台。  
-如果你刚好也在做类似整理，可以直接拿去改；如果你想找的是开箱即用、文档齐全、一步到位的成熟工具，那它现在还不是那种路线。
+## 使用说明与免责声明
 
-日常操作流程见：[快速上手](docs/guides/quick-start.md)。
+这是一个个人工具和研究项目，不承诺成为开箱即用的商业化产品。它适合希望直接整理资料、试配、排轴和追踪配置来源的人，也适合在本地继续扩展自己的数据或流程。
 
-## 仓库说明
-
-- 请不要提交构建产物、临时文件或本地编辑器配置
-- 涉及本地环境的私有配置请放在忽略文件范围内
-- 如果要继续扩功能，优先保持“能编辑、能保存、能回看”这条主线稳定
-- 新文档默认进入对应 `docs/specs/<spec-id>/`；仅跨多个 Spec 的审计进入 `docs/architecture/`
-
-## 免责声明
-
-本项目为非官方、同人性质的个人工具仓库，仅用于学习、研究和流程整理。  
-README 的语气和包装风格借鉴了《明日方舟: 终末地》那类工业基地与地表终端氛围，但不代表任何官方设定、组织或授权关系。
+本项目为非官方、同人性质的个人工具仓库，仅用于学习、研究和流程整理。README 的叙事风格借鉴《明日方舟：终末地》的工业基地与地表终端氛围，不代表任何官方设定、组织或授权关系。
