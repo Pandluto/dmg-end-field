@@ -115,20 +115,6 @@ try {
   });
   assert.equal(evilClose.status, 403);
 
-  await fetch(`${base}/def-agent/interop/v1/ui/consumer`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ host: 'workbench', sessionId: 'native-b', consumerId: 'ui-b', renderSecret: 'render-secret-b' }) });
-  const stream = await fetch(`${base}/def-agent/interop/v1/sessions/native-a/events?cursor=9999`, { headers });
-  const streamReader = stream.body.getReader();
-  protocol.emit('completed', { testRunId: 'run-b', sessionId: 'native-b', turnId: 'turn-b', clientTurnId: 'turn-b' });
-  const chunks = [];
-  const cancelStream = setTimeout(() => { void streamReader.cancel(); }, 100);
-  for (;;) {
-    const { done, value } = await streamReader.read();
-    if (done) break;
-    chunks.push(new TextDecoder().decode(value));
-  }
-  clearTimeout(cancelStream);
-  assert.doesNotMatch(chunks.join(''), /native-b/);
-
   losePromptResponse = true;
   const uncertain = await (await fetch(`${base}/def-agent/interop/v1/sessions/native-a/turns`, {
     method: 'POST', headers,
@@ -173,6 +159,25 @@ try {
   await new Promise((resolve) => setTimeout(resolve, 1100));
   const stoppedTranscript = await (await fetch(`${base}/def-agent/interop/v1/sessions/native-a/transcript`, { headers })).json();
   assert.equal(stoppedTranscript.turns.find((turn) => turn.turnId === stoppedStart.turn.turnId)?.status, 'stopped');
+
+  await fetch(`${base}/def-agent/interop/v1/ui/consumer`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ host: 'workbench', sessionId: 'native-b', consumerId: 'ui-b', renderSecret: 'render-secret-b' }) });
+  const activeConsumerTurn = await (await fetch(`${base}/def-agent/interop/v1/turns`, {
+    method: 'POST', headers,
+    body: JSON.stringify({ rawUserText: '看看当前会话', clientTurnId: 'turn-current-consumer', ingressMode: 'pure-blackbox' }),
+  })).json();
+  assert.equal(activeConsumerTurn.turn.sessionId, 'native-b');
+  const stream = await fetch(`${base}/def-agent/interop/v1/sessions/native-a/events?cursor=9999`, { headers });
+  const streamReader = stream.body.getReader();
+  protocol.emit('completed', { testRunId: 'run-b', sessionId: 'native-b', turnId: 'turn-b', clientTurnId: 'turn-b' });
+  const chunks = [];
+  const cancelStream = setTimeout(() => { void streamReader.cancel(); }, 100);
+  for (;;) {
+    const { done, value } = await streamReader.read();
+    if (done) break;
+    chunks.push(new TextDecoder().decode(value));
+  }
+  clearTimeout(cancelStream);
+  assert.doesNotMatch(chunks.join(''), /native-b/);
 
   const replay = await fetch(`${base}/def-agent/interop/v1/sessions/native-a/events?cursor=0`, { headers });
   const replayReader = replay.body.getReader();

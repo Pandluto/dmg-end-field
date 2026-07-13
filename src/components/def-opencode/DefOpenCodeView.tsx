@@ -37,8 +37,6 @@ export function DefOpenCodeView({
 }: DefOpenCodeViewProps) {
   const [status, setStatus] = useState<'checking' | 'ready' | 'error'>('checking');
   const [session, setSession] = useState<NativeSession | null>(null);
-  const consumerIdRef = useRef<string>('');
-  const renderSecretRef = useRef<string>('');
   const origin = useMemo(() => (
     host === 'workbench'
       ? `http://127.0.0.1:${SIDECAR_PORT}`
@@ -74,10 +72,6 @@ export function DefOpenCodeView({
 
   const frameSrc = useMemo(() => {
     if (!session) return '';
-    const consumerId = consumerIdRef.current || crypto.randomUUID();
-    const renderSecret = renderSecretRef.current || crypto.randomUUID();
-    consumerIdRef.current = consumerId;
-    renderSecretRef.current = renderSecret;
     const url = new URL(session.uiPath, origin);
     url.searchParams.set('def_host', host);
     return url.toString();
@@ -129,10 +123,10 @@ export function DefOpenCodeView({
 
   useEffect(() => {
     if (host !== 'workbench' || !session) return;
-    const consumerId = consumerIdRef.current || crypto.randomUUID();
-    const renderSecret = renderSecretRef.current || crypto.randomUUID();
-    consumerIdRef.current = consumerId;
-    renderSecretRef.current = renderSecret;
+    // A per-effect capability makes a delayed development cleanup unable to
+    // close the consumer that replaced it.
+    const consumerId = crypto.randomUUID();
+    const renderSecret = crypto.randomUUID();
     const controller = new AbortController();
     void fetch(`${INTEROP_BASE_URL}/ui/consumer`, {
       method: 'POST',

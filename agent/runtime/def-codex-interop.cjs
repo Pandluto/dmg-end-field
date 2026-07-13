@@ -581,9 +581,15 @@ function createDefCodexInteropProtocol(options) {
       if (body?.host !== 'workbench' || typeof body?.sessionId !== 'string' || !body.sessionId.trim()) { reject(response, 400, createError('invalid-ui-consumer', 'A workbench sessionId is required.', 'ui-consumer')); return true; }
       const id = typeof body.consumerId === 'string' && body.consumerId ? body.consumerId : crypto.randomUUID();
       const renderSecret = typeof body.renderSecret === 'string' && body.renderSecret ? body.renderSecret : crypto.randomUUID();
+      // The product has one visible Workbench AI surface.  React development
+      // effect replay and a previously unmounted panel must not leave an old
+      // session eligible for a bare turn.start request.
+      for (const existing of consumers.values()) {
+        if (existing.host === 'workbench' && existing.id !== id) consumers.delete(existing.id);
+      }
       const consumer = { id, host: 'workbench', sessionId: body.sessionId.trim(), directory: typeof body.directory === 'string' ? body.directory : '', renderSecret, updatedAt: Date.now() };
       consumers.set(id, consumer); emit('ui-session-opened', { sessionId: consumer.sessionId }, { uiConsumerId: id });
-      json(response, 200, { ok: true, protocol: PROTOCOL, protocolVersion: PROTOCOL_VERSION, consumer }); return true;
+      json(response, 200, { ok: true, protocol: PROTOCOL, protocolVersion: PROTOCOL_VERSION, consumer: { id: consumer.id, host: consumer.host, sessionId: consumer.sessionId, updatedAt: consumer.updatedAt } }); return true;
     }
     if (method === 'POST' && path === '/def-agent/interop/v1/ui/consumer/close') {
       if (!requireTrustedLoopbackOrigin(request, response)) return true;
