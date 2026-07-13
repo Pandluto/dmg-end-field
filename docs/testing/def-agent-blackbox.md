@@ -64,6 +64,11 @@ DefCodexInteropProtocol v1
    iframe. Leave AI mode with its `返回` control when the case is finished; do not use a
    browser refresh as a normal test step.
 
+When Computer Use identifies the visible iframe session before its first protocol turn,
+use `start-session <sessionId> <text>` (or `POST /turns` with that `sessionId`) rather
+than guessing from a stale session list. A normal bare `start` targets the one currently
+registered Workbench consumer; consumer registration is intentionally single-active.
+
 ### What the backdoor can observe without Computer Use
 
 | Need | v1 route / evidence |

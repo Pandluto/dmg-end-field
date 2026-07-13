@@ -118,10 +118,10 @@ Codex Teacher Client
 
 ### 3.2 幂等与重复请求
 
-- [ ] 同一 session + clientTurnId 的重复 start/continue 不得重复执行工具副作用。
-- [ ] 重复请求返回原 turn/session 状态或稳定 conflict，不创建第二条模糊 turn。
-- [ ] 网络超时但服务端已 accepted 时，Codex 能通过 clientTurnId 查询/恢复，而不是重新发送。
-- [ ] stop 对已完成/已停止 turn 幂等，并返回明确 reason。
+- [x] 同一 session + clientTurnId 的重复 start/continue 不得重复执行工具副作用。
+- [x] 重复请求返回原 turn/session 状态或稳定 conflict，不创建第二条模糊 turn。
+- [x] 网络超时但服务端已 accepted 时，Codex 能通过 clientTurnId 查询/恢复，而不是重新发送。
+- [x] stop 对已完成/已停止 turn 幂等，并返回明确 reason。
 - [ ] session 不存在、已归档、正在运行、等待 permission 等状态有明确生命周期错误。
 
 ### 3.3 Run 收尾
@@ -248,10 +248,10 @@ Codex Teacher Client
 
 ### 8.1 协议级检查
 
-- [ ] 为 request validation、idempotency、cursor resume 和 error mapping 增加最小必要的自动检查；本任务协议风险高，允许增加聚焦测试，但不扩展成无关测试重构。
-- [ ] 检查同一 clientTurnId 重试不会重复执行。
-- [ ] 检查 events/UI events 断线续读不会重复 turn 或重复 UI 消息。
-- [ ] 检查 release/non-dev profile 拒绝教师 mutation。
+- [x] 为 request validation、idempotency、cursor resume 和 error mapping 增加最小必要的自动检查；本任务协议风险高，允许增加聚焦测试，但不扩展成无关测试重构。
+- [x] 检查同一 clientTurnId 重试不会重复执行。
+- [x] 检查 events/UI events 断线续读不会重复 turn 或重复 UI 消息。
+- [x] 检查 release/non-dev profile 拒绝教师 mutation。
 - [ ] 检查 Workbench 与 `/AI CLI` 的 session/event/state 无串线。
 
 ### 8.2 自然语言黑盒矩阵

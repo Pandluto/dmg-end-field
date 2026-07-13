@@ -19,6 +19,11 @@ Protocol: `def-codex-interop`, major `1`.
 | state | `GET /def-agent/interop/v1/state` |
 | UI events | `GET /def-agent/interop/v1/ui-events?from=:seq` |
 
+`status` stays token-free but only reports readiness. `authorize`, turns, stop,
+transcript, questions, state, events and UI-events require a current loopback bearer
+token. UI consumer register/close accepts only a loopback Origin; close additionally
+requires its private per-consumer capability.
+
 The former `/def-agent/workbench-test/prompt` is a v1 compatibility alias. The old
 `ui.prompt`/`workbench-test/ui-events` transport and prompt wrapper were removed: the
 current consumer is the native OpenCode session hosted by `DefOpenCodeView`.
@@ -31,8 +36,10 @@ permission-bypass capability.
 ```bash
 npm run interop -- status
 npm run interop:hello
+npm run interop -- start-session <currentSessionId> "你好"
 npm run interop -- continue <sessionId> "请继续"
 npm run interop -- transcript <sessionId>
+npm run interop -- questions <sessionId>
 npm run interop:check
 ```
 
@@ -400,3 +407,55 @@ The event stream still did not contain `ui-rendered`. This is deliberately recor
 an outstanding iframe render-attestation defect, not fabricated as success: the visible
 desktop observation above is the evidence for this read-only case, while a true protocol
 render acknowledgement remains unfinished.
+
+## 2026-07-13 — protocol audit remediation and live retest
+
+The audit's three P1 findings were repaired in `a20f38c` and the active-consumer
+follow-up in `c7a89ac`.
+
+- SSE clients now retain their `sessionId`/`uiOnly` predicate and apply it to both
+  history replay and live emission. The focused check subscribes `native-a`, emits a
+  `native-b` completion, and proves that it is absent.
+- The bridge reserves `(sessionId, clientTurnId)` before its sidecar call. An uncertain
+  sidecar response leaves the stable turn at `submissionState=unknown`; a retry returns
+  that same turn and does not send a second prompt. The sidecar additionally coalesces
+  `correlation.sessionId + correlation.clientTurnId` while its prompt is in flight or
+  completed.
+- Read observation and SSE endpoints are bearer-protected; authorization and consumer
+  control reject non-loopback Origin, and bridge CORS no longer returns `*`. The focused
+  check proves `Origin: https://evil.example` cannot mint a token, read state, or close
+  a consumer.
+- `provider-error`, `timeout`, `max-step` and `bridge-error` are irreversible terminal
+  states for `turn.stop`.
+- The optional `ui-rendered`/render-target injected-script path was removed rather than
+  treated as an acceptance signal. Native iframe visibility remains the Computer Use
+  check; events, transcript and questions are the protocol observation record.
+- A Workbench registration retires every earlier Workbench consumer. This prevents a
+  remounted React panel from directing a bare `turn.start` to a non-visible session.
+  `start-session <sessionId> <text>` is available when a caller deliberately targets a
+  visible session that has not yet acquired a protocol run.
+
+Focused `npm run interop:check` passed after the remediation. It now covers the live
+SSE isolation, uncertain-response retry, active-consumer selection, unauthorized
+observation/control rejection, terminal stop idempotency and the prior v1 contract.
+`npx tsc --noEmit` is still red only on the existing test TypeScript setup issues:
+missing `node:assert/strict` typings and nullable proposal assertions in
+`aiCliCommandService.test.ts`.
+
+### Live macOS evidence after remediation
+
+After restarting Electron once to load bridge changes, Computer Use entered the real
+Workbench AI mode and observed the native iframe `DEF · 排轴助手` at
+`sessionId=ses_0a4c739deffebvxhbsTt1Lijae`. A Pure Blackbox start was sent explicitly
+to that current session:
+
+- prompt/raw/provider-visible text: `你好，单一活动会话确认。`
+- `testRunId=1cefbced-ca4e-4b8e-a84d-a7b62cad11dc`
+- `turnId=3321f671-26e9-4b63-b103-e8ad17874543`
+- `clientTurnId=codex-1783942269099-44826ba3`
+
+Computer Use observed AI mode still open and the exact user message in that iframe. No
+browser reload was used. During this retest the snapshot service was briefly absent;
+the accepted Pure Blackbox response correctly exposed `snapshotAvailable=false` rather
+than inventing current state. This is the documented degraded read-only path, not a
+mutation-preview pass.
