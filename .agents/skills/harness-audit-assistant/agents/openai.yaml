@@ -1,0 +1,4 @@
+interface:
+  display_name: "Harness 审计辅助"
+  short_description: "导出 DEF 会话、审计 Harness 轨迹并生成返修交接提示词"
+  default_prompt: "使用 $harness-audit-assistant 导出这个 DEF 会话，完成证据审计并生成给另一位 Codex 的返修提示词。"
