@@ -195,6 +195,15 @@ class NowStorageLocalStorage {
     return typeof value === 'string' ? value : JSON.stringify(value);
   }
 
+  getSessionItem(key) {
+    this.refresh();
+    if (!this.archive || !Object.prototype.hasOwnProperty.call(this.archive.storage.session, key)) {
+      return null;
+    }
+    const value = this.archive.storage.session[key];
+    return typeof value === 'string' ? value : JSON.stringify(value);
+  }
+
   setItem(key, value) {
     this.refresh();
     const archive = this.ensureArchive();
@@ -660,7 +669,119 @@ function validateWorkNodePayload(payload, fieldName) {
   if (!Array.isArray(payload.allBuffList)) {
     return `${fieldName}.allBuffList must be an array.`;
   }
+  if (!isObject(payload.characterInputMap)) {
+    return `${fieldName}.characterInputMap must be an object.`;
+  }
+  if (!isObject(payload.operatorConfigPageCache)) {
+    return `${fieldName}.operatorConfigPageCache must be an object.`;
+  }
   return null;
+}
+
+const DEF_CHARACTER_INPUT_EQUIPMENT_KEYS = new Set([
+  'strength', 'agility', 'intelligence', 'will', 'mainStatBoost', 'subStatBoost', 'allStatBoost',
+  'flatAtk', 'atkPercentBoost', 'critRateBoost', 'critDmgBonusBoost', 'defense', 'hp',
+  'physicalDmgBonus', 'fireDmgBonus', 'electricDmgBonus', 'iceDmgBonus', 'natureDmgBonus',
+  'magicDmgBonus', 'skillDmgBonus', 'chainSkillDmgBonus', 'ultimateDmgBonus', 'normalAttackDmgBonus',
+  'dotDmgBonus', 'imbalanceDmgBonus', 'sourceSkillBoost', 'allSkillDmgBonus', 'allDmgBonus',
+]);
+const DEF_CHARACTER_INPUT_KEYS = new Set(['potential', 'skillLevels', 'weapon', 'equipment']);
+const DEF_CHARACTER_SKILL_KEYS = new Set(['A', 'B', 'E', 'Q', 'Dot']);
+const DEF_CHARACTER_WEAPON_KEYS = new Set(['name', 'potentialMode']);
+const DEF_OPERATOR_CONFIG_SNAPSHOT_KEYS = new Set(['panel', 'operator', 'weapon', 'equipment', 'buff', 'detailMarkdown']);
+
+function validateDefObjectKeys(value, allowedKeys, path, issues) {
+  for (const key of Object.keys(value)) {
+    if (!allowedKeys.has(key)) {
+      issues.push({
+        code: 'unknown-operator-config-field',
+        message: `${path}.${key} is not part of the DEF operator configuration schema.`,
+        path: `${path}.${key}`,
+      });
+    }
+  }
+}
+
+function validateDefCharacterInputMap(value, path, issues) {
+  if (!isObject(value)) {
+    issues.push({ code: 'invalid-character-input-map', message: `${path} must be an object.`, path });
+    return;
+  }
+  for (const [characterId, config] of Object.entries(value)) {
+    const configPath = `${path}.${characterId}`;
+    if (!characterId.trim() || !isObject(config)) {
+      issues.push({ code: 'invalid-character-input-config', message: `${configPath} must be a non-empty id mapped to an object.`, path: configPath });
+      continue;
+    }
+    validateDefObjectKeys(config, DEF_CHARACTER_INPUT_KEYS, configPath, issues);
+    if (config.potential !== '0潜' && config.potential !== '满潜') {
+      issues.push({ code: 'invalid-character-input-potential', message: `${configPath}.potential must be 0潜 or 满潜.`, path: `${configPath}.potential` });
+    }
+    if (!isObject(config.skillLevels)) {
+      issues.push({ code: 'invalid-character-input-skill-levels', message: `${configPath}.skillLevels must be an object.`, path: `${configPath}.skillLevels` });
+    } else {
+      validateDefObjectKeys(config.skillLevels, DEF_CHARACTER_SKILL_KEYS, `${configPath}.skillLevels`, issues);
+      for (const key of DEF_CHARACTER_SKILL_KEYS) {
+        if (config.skillLevels[key] !== 'L9' && config.skillLevels[key] !== 'M3') {
+          issues.push({ code: 'invalid-character-input-skill-level', message: `${configPath}.skillLevels.${key} must be L9 or M3.`, path: `${configPath}.skillLevels.${key}` });
+        }
+      }
+    }
+    if (!isObject(config.weapon)) {
+      issues.push({ code: 'invalid-character-input-weapon', message: `${configPath}.weapon must be an object.`, path: `${configPath}.weapon` });
+    } else {
+      validateDefObjectKeys(config.weapon, DEF_CHARACTER_WEAPON_KEYS, `${configPath}.weapon`, issues);
+      if (typeof config.weapon.name !== 'string' || !config.weapon.name.trim()) {
+        issues.push({ code: 'invalid-character-input-weapon-name', message: `${configPath}.weapon.name must be a non-empty string.`, path: `${configPath}.weapon.name` });
+      }
+      if (config.weapon.potentialMode !== 'P0' && config.weapon.potentialMode !== 'PMAX') {
+        issues.push({ code: 'invalid-character-input-weapon-potential', message: `${configPath}.weapon.potentialMode must be P0 or PMAX.`, path: `${configPath}.weapon.potentialMode` });
+      }
+    }
+    if (!isObject(config.equipment)) {
+      issues.push({ code: 'invalid-character-input-equipment', message: `${configPath}.equipment must be an object.`, path: `${configPath}.equipment` });
+    } else {
+      validateDefObjectKeys(config.equipment, DEF_CHARACTER_INPUT_EQUIPMENT_KEYS, `${configPath}.equipment`, issues);
+      for (const [key, equipmentValue] of Object.entries(config.equipment)) {
+        if (!Number.isFinite(equipmentValue)) {
+          issues.push({ code: 'invalid-character-input-equipment-value', message: `${configPath}.equipment.${key} must be a finite number.`, path: `${configPath}.equipment.${key}` });
+        }
+      }
+    }
+  }
+}
+
+function validateDefOperatorConfigPageCache(value, path, issues) {
+  if (!isObject(value)) {
+    issues.push({ code: 'invalid-operator-config-page-cache', message: `${path} must be an object.`, path });
+    return;
+  }
+  for (const [characterId, snapshot] of Object.entries(value)) {
+    const snapshotPath = `${path}.${characterId}`;
+    if (!characterId.trim() || !isObject(snapshot)) {
+      issues.push({ code: 'invalid-operator-config-snapshot', message: `${snapshotPath} must be a non-empty id mapped to a ConfigSnapshot object.`, path: snapshotPath });
+      continue;
+    }
+    validateDefObjectKeys(snapshot, DEF_OPERATOR_CONFIG_SNAPSHOT_KEYS, snapshotPath, issues);
+    if (!isObject(snapshot.panel) || !isObject(snapshot.panel.calc) || !isObject(snapshot.panel.display)) {
+      issues.push({ code: 'invalid-operator-config-panel', message: `${snapshotPath}.panel must contain calc and display objects.`, path: `${snapshotPath}.panel` });
+    }
+    if (!isObject(snapshot.operator) || typeof snapshot.operator.id !== 'string' || typeof snapshot.operator.name !== 'string') {
+      issues.push({ code: 'invalid-operator-config-operator', message: `${snapshotPath}.operator must contain string id and name.`, path: `${snapshotPath}.operator` });
+    }
+    if (!isObject(snapshot.weapon) || typeof snapshot.weapon.id !== 'string' || typeof snapshot.weapon.name !== 'string' || !isObject(snapshot.weapon.config)) {
+      issues.push({ code: 'invalid-operator-config-weapon', message: `${snapshotPath}.weapon must contain id, name, and config.`, path: `${snapshotPath}.weapon` });
+    }
+    if (!isObject(snapshot.equipment) || !Array.isArray(snapshot.equipment.pieces) || !Array.isArray(snapshot.equipment.setBuffs)) {
+      issues.push({ code: 'invalid-operator-config-equipment', message: `${snapshotPath}.equipment must contain pieces and setBuffs arrays.`, path: `${snapshotPath}.equipment` });
+    }
+    if (!isObject(snapshot.buff) || !Array.isArray(snapshot.buff.operator) || !Array.isArray(snapshot.buff.weapon) || !Array.isArray(snapshot.buff.equipment)) {
+      issues.push({ code: 'invalid-operator-config-buff', message: `${snapshotPath}.buff must contain operator, weapon, and equipment arrays.`, path: `${snapshotPath}.buff` });
+    }
+    if (typeof snapshot.detailMarkdown !== 'string') {
+      issues.push({ code: 'invalid-operator-config-detail', message: `${snapshotPath}.detailMarkdown must be a string.`, path: `${snapshotPath}.detailMarkdown` });
+    }
+  }
 }
 
 function validateWorkNodePayloadIssues(payload, fieldName) {
@@ -669,6 +790,8 @@ function validateWorkNodePayloadIssues(payload, fieldName) {
     return [{ code: `invalid-${fieldName}`, message: structuralError, path: fieldName }];
   }
   const issues = [];
+  validateDefCharacterInputMap(payload.characterInputMap, `${fieldName}.characterInputMap`, issues);
+  validateDefOperatorConfigPageCache(payload.operatorConfigPageCache, `${fieldName}.operatorConfigPageCache`, issues);
   const timelineButtonEntries = (Array.isArray(payload.timelineData?.staffLines) ? payload.timelineData.staffLines : [])
     .flatMap((staffLine) => (Array.isArray(staffLine?.buttons)
       ? staffLine.buttons.map((button) => ({ button, staffIndex: button?.staffIndex }))
@@ -827,6 +950,8 @@ function readDefMainWorkbenchMirrorPayload() {
   if (selectedCharacterIds.length === 0) return null;
 
   const buttons = Array.isArray(snapshot?.skillButtons) ? snapshot.skillButtons : [];
+  const characterInputRaw = readMainWorkbenchSessionJson('def.operator-config.character-input-map.v3', {});
+  const operatorConfigPageCache = readMainWorkbenchSessionJson('def.operator-config.page-cache.v1', {});
   const staffLines = selectedCharacters.slice(0, 4).map((character, index) => {
     const lineButtons = buttons
       .filter((button) => Number.isInteger(Number(button?.lineIndex))
@@ -858,10 +983,10 @@ function readDefMainWorkbenchMirrorPayload() {
     skillButtonTable,
     allBuffList: buildDefAllBuffListFromMirror(buttons),
     anomalyStateSnapshots: [],
-    characterInputMap: {},
+    characterInputMap: characterInputRaw?.items || characterInputRaw?.data || characterInputRaw,
     characterComputedMap: {},
     characterDisplayCacheMap: {},
-    operatorConfigPageCache: {},
+    operatorConfigPageCache,
   };
   if (validateWorkNodePayload(payload, 'basePayload') !== null) return null;
   return {
@@ -876,19 +1001,19 @@ function readDefCurrentTimelinePayloadSource() {
   const payloadFromMirror = readDefMainWorkbenchMirrorPayload();
   if (payloadFromMirror) return payloadFromMirror;
 
-  const characterInputRaw = readMainWorkbenchJson('def.operator-config.character-input-map.v3', {});
-  const characterComputedRaw = readMainWorkbenchJson('def.operator-runtime.character-computed-map.v3', {});
-  const characterDisplayRaw = readMainWorkbenchJson('def.operator-ui.character-display-cache.v3', {});
+  const characterInputRaw = readMainWorkbenchSessionJson('def.operator-config.character-input-map.v3', {});
+  const characterComputedRaw = readMainWorkbenchSessionJson('def.operator-runtime.character-computed-map.v3', {});
+  const characterDisplayRaw = readMainWorkbenchSessionJson('def.operator-ui.character-display-cache.v3', {});
   const payloadFromStorage = {
     selectedCharacters: readMainWorkbenchJson('def.selected-characters.v1', []),
     timelineData: readMainWorkbenchJson('def.timeline.data.v1', null),
     skillButtonTable: readMainWorkbenchJson('def.skill-button.v1', {}),
     allBuffList: readMainWorkbenchJson('def.all-buff-list.v1', []),
     anomalyStateSnapshots: readMainWorkbenchJson('def.anomaly-state-snapshot-archive.v1', { snapshots: [] })?.snapshots || [],
-    characterInputMap: characterInputRaw?.items || characterInputRaw,
-    characterComputedMap: characterComputedRaw?.items || characterComputedRaw,
-    characterDisplayCacheMap: characterDisplayRaw?.items || characterDisplayRaw,
-    operatorConfigPageCache: readMainWorkbenchJson('def.operator-config.page-cache.v1', {}),
+    characterInputMap: characterInputRaw?.items || characterInputRaw?.data || characterInputRaw,
+    characterComputedMap: characterComputedRaw?.items || characterComputedRaw?.data || characterComputedRaw,
+    characterDisplayCacheMap: characterDisplayRaw?.items || characterDisplayRaw?.data || characterDisplayRaw,
+    operatorConfigPageCache: readMainWorkbenchSessionJson('def.operator-config.page-cache.v1', {}),
   };
   if (validateWorkNodePayload(payloadFromStorage, 'basePayload') === null) {
     return {
@@ -909,14 +1034,15 @@ function createDefWorkNodeFromPayload(payloadSource, input = {}) {
       message: 'No usable current timeline payload source is available for server-side work node creation.',
     };
   }
-  const payloadError = validateWorkNodePayload(payloadSource.payload, 'basePayload');
-  if (payloadError) {
+  const payloadIssues = validateWorkNodePayloadIssues(payloadSource.payload, 'basePayload');
+  if (payloadIssues.length > 0) {
     return {
       ok: false,
       code: 'invalid-current-payload',
-      message: payloadError,
+      message: payloadIssues.map((issue) => issue.message).join('; '),
       source: payloadSource.source,
       sourceId: payloadSource.sourceId,
+      issues: payloadIssues,
     };
   }
   const now = Date.now();
@@ -1640,6 +1766,19 @@ function scriptWorkbenchConstraints() {
 function readMainWorkbenchJson(key, fallback) {
   try {
     const raw = globalThis.window?.localStorage?.getItem(key);
+    if (!raw) return fallback;
+    return JSON.parse(raw);
+  } catch {
+    return fallback;
+  }
+}
+
+function readMainWorkbenchSessionJson(key, fallback) {
+  try {
+    const storage = globalThis.window?.localStorage;
+    const raw = typeof storage?.getSessionItem === 'function'
+      ? storage.getSessionItem(key)
+      : globalThis.window?.sessionStorage?.getItem(key);
     if (!raw) return fallback;
     return JSON.parse(raw);
   } catch {
