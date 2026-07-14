@@ -23,6 +23,9 @@ export const MAIN_WORKBENCH_SUPPORTED_OPS = [
   'setOperatorWeapon',
   'setOperatorEquipment',
   'setOperatorConfig',
+  'previewOperatorConfig',
+  'applyPreparedOperatorConfig',
+  'finalizePreparedOperatorConfig',
   'refreshSnapshot',
 ];
 
@@ -144,6 +147,37 @@ export function validateMainWorkbenchCommand(command) {
         message: `${command.op} requires a weapon, equipment, gear set, or equipments.`,
       };
     }
+    if (command.op === 'setOperatorConfig') {
+      const weaponLevel = command.weaponLevel ?? command.level;
+      if (weaponLevel !== undefined && (!Number.isInteger(Number(weaponLevel)) || Number(weaponLevel) < 1 || Number(weaponLevel) > 90)) {
+        return { ok: false, code: 'invalid-main-workbench-weapon-level', message: 'weaponLevel must be an integer from 1 to 90.' };
+      }
+      const weaponSkills = command.weaponSkillLevels ?? command.skillLevels ?? {};
+      for (const [key, value] of Object.entries(weaponSkills)) {
+        const max = key === 'skill3' ? 4 : 9;
+        if (!Number.isInteger(Number(value)) || Number(value) < 1 || Number(value) > max) {
+          return { ok: false, code: 'invalid-main-workbench-weapon-skill-level', message: `${key} must be an integer from 1 to ${max}.` };
+        }
+      }
+      for (const [key, value] of Object.entries(command.operatorSkillLevels || {})) {
+        if (!['A', 'B', 'E', 'Q'].includes(key) || !['L9', 'M3'].includes(value)) {
+          return { ok: false, code: 'invalid-main-workbench-operator-skill-level', message: 'operatorSkillLevels only accepts A/B/E/Q with L9 or M3.' };
+        }
+      }
+    }
+  }
+  if (command.op === 'previewOperatorConfig') {
+    if (!isRecord(command.request) || command.request.op !== 'setOperatorConfig') {
+      return { ok: false, code: 'invalid-main-workbench-preview-operator-config', message: 'previewOperatorConfig requires one setOperatorConfig request.' };
+    }
+    return validateMainWorkbenchCommand(command.request);
+  }
+  if (command.op === 'applyPreparedOperatorConfig') {
+    if (!hasAnyString(command, ['parentNodeId', 'nodeId'])
+      || !Number.isFinite(Number(command.parentRevision))
+      || !Number.isFinite(Number(command.nodeRevision))) {
+      return { ok: false, code: 'invalid-main-workbench-apply-prepared-operator-config', message: 'applyPreparedOperatorConfig requires node ids and revisions.' };
+    }
   }
   if (command.op === 'checkoutAiTimelineWorkNode' && !hasAnyString(command, ['nodeId'])) {
     return {
@@ -197,6 +231,13 @@ export function validateMainWorkbenchCommand(command) {
         message: 'patchAndValidateAiTimelineWorkNode does not support checkout:true.',
       };
     }
+  }
+  if (command.op === 'finalizePreparedOperatorConfig' && (!hasAnyString(command, ['nodeId']) || !hasAnyString(command, ['commitId']))) {
+    return {
+      ok: false,
+      code: 'invalid-main-workbench-finalize-operator-config',
+      message: 'finalizePreparedOperatorConfig requires nodeId and commitId.',
+    };
   }
 
   return { ok: true, command: normalizeMainWorkbenchCommand(command) };

@@ -47,7 +47,13 @@ async function askWithApproval(context, input) {
   try {
     await context.ask({
       permission: input.permission,
-      patterns: input.nodeId ? [input.nodeId] : ['operator-config'],
+      // OpenCode's native permission dock renders patterns, not arbitrary
+      // metadata. Supply the reviewed values as bounded display patterns so
+      // the user approves the exact resolved loadout rather than a name-only
+      // request. The child node remains the first, stable authorization key.
+      patterns: Array.isArray(input.patterns) && input.patterns.length
+        ? input.patterns
+        : input.nodeId ? [input.nodeId] : ['operator-config'],
       always: [],
       metadata: {
         action: input.action,
@@ -75,6 +81,24 @@ async function askWithApproval(context, input) {
     rationale: `${input.action} approved through OpenCode native permission UI.`,
   })
   return requested.approval
+}
+
+function formatOperatorConfigApprovalPatterns(prepared) {
+  const config = prepared?.finalConfig || {}
+  const weapon = config?.weapon || {}
+  const skill = weapon?.skillLevels || {}
+  const operator = config?.operatorSkillLevels || {}
+  const checkout = prepared?.checkout || {}
+  const equipment = Array.isArray(config?.equipment) ? config.equipment : []
+  const displayValue = (value) => typeof value === 'number' ? String(value) : value ?? '-'
+  return [
+    `审批 Work Node: ${prepared?.nodeId || '-'} @ r${prepared?.nodeRevision ?? '-'}`,
+    `Checkout: ${checkout?.nodeId || '-'} @ r${checkout?.revision ?? '-'}`,
+    `干员: ${config?.characterName || config?.characterId || '-'}`,
+    `武器: ${weapon?.name || weapon?.id || '-'} · Lv${weapon?.level ?? '-'} · ${weapon?.potential || '-'} · ${skill.skill1 ?? '-'}/${skill.skill2 ?? '-'}/${skill.skill3 ?? '-'}`,
+    ...equipment.map((piece) => `${piece?.slotKey || '-'}: ${piece?.name || piece?.equipmentId || '-'} · ${(Array.isArray(piece?.effects) ? piece.effects : []).map((effect) => `${effect?.label || effect?.effectId || '-'} Lv${effect?.level ?? '-'}=${displayValue(effect?.value)}`).join('；') || '无词条'}`),
+    `干员技能: A ${operator.A || '-'} · B ${operator.B || '-'} · E ${operator.E || '-'} · Q ${operator.Q || '-'}`,
+  ]
 }
 
 function inside(directory, name) {
@@ -808,6 +832,10 @@ export const operator_config_patch = {
     characterId: { type: 'string', description: 'Selected operator id.' },
     characterName: { type: 'string', description: 'Selected operator name when id is unavailable.' },
     weaponName: { type: 'string', description: 'Exact weapon name from DEF weapon resource.' },
+    weaponLevel: { type: 'number', minimum: 1, maximum: 90, description: 'Weapon level. Omit only to use the product default Lv90 for a newly selected weapon.' },
+    weaponSkill1Level: { type: 'number', minimum: 1, maximum: 9, description: 'Weapon skill 1 level.' },
+    weaponSkill2Level: { type: 'number', minimum: 1, maximum: 9, description: 'Weapon skill 2 level.' },
+    weaponSkill3Level: { type: 'number', minimum: 1, maximum: 4, description: 'Weapon skill 3 base level before the existing potential bonus.' },
     weaponPotential: { type: 'string', enum: ['P0', 'PMAX'], description: 'Optional weapon potential.' },
     gearSetName: { type: 'string', description: 'Exact equipment set name from DEF equipment resource.' },
     gearSetId: { type: 'string', description: 'Exact equipment set id from DEF equipment resource.' },
@@ -815,10 +843,22 @@ export const operator_config_patch = {
     equipmentId: { type: 'string', description: 'Exact single equipment id from DEF equipment resource.' },
     slotKey: { type: 'string', enum: ['armor', 'accessory2', 'accessory1', 'glove'], description: 'Slot for one equipment piece.' },
     fillSlots: { type: 'boolean', description: 'Fill all four slots from the named gear set.' },
+    equipmentEntryLevel: { type: 'number', minimum: 0, maximum: 3, description: 'Default level for every real entry on newly selected equipment. Explicit 0 is preserved.' },
+    equipmentEntry1Level: { type: 'number', minimum: 0, maximum: 3, description: 'Level for the first actual equipment entry.' },
+    equipmentEntry2Level: { type: 'number', minimum: 0, maximum: 3, description: 'Level for the second actual equipment entry.' },
+    equipmentEntry3Level: { type: 'number', minimum: 0, maximum: 3, description: 'Level for the third actual equipment entry.' },
+    operatorSkillA: { type: 'string', enum: ['L9', 'M3'], description: 'Operator A skill level.' },
+    operatorSkillB: { type: 'string', enum: ['L9', 'M3'], description: 'Operator B skill level.' },
+    operatorSkillE: { type: 'string', enum: ['L9', 'M3'], description: 'Operator E skill level.' },
+    operatorSkillQ: { type: 'string', enum: ['L9', 'M3'], description: 'Operator Q skill level.' },
   },
   async execute(args, context) {
     const weapon = typeof args.weaponName === 'string' && args.weaponName.trim()
-      ? { name: args.weaponName.trim(), ...(typeof args.weaponPotential === 'string' ? { potential: args.weaponPotential } : {}) }
+      ? { name: args.weaponName.trim(), ...(typeof args.weaponPotential === 'string' ? { potential: args.weaponPotential } : {}), ...(args.weaponLevel !== undefined ? { level: args.weaponLevel } : {}), skillLevels: {
+        ...(args.weaponSkill1Level !== undefined ? { skill1: args.weaponSkill1Level } : {}),
+        ...(args.weaponSkill2Level !== undefined ? { skill2: args.weaponSkill2Level } : {}),
+        ...(args.weaponSkill3Level !== undefined ? { skill3: args.weaponSkill3Level } : {}),
+      } }
       : undefined
     const input = {
       ...(typeof args.characterId === 'string' && args.characterId.trim() ? { characterId: args.characterId.trim() } : {}),
@@ -830,27 +870,36 @@ export const operator_config_patch = {
       ...(typeof args.equipmentId === 'string' && args.equipmentId.trim() ? { equipmentId: args.equipmentId.trim() } : {}),
       ...(typeof args.slotKey === 'string' && args.slotKey.trim() ? { slotKey: args.slotKey.trim() } : {}),
       ...(args.fillSlots === true ? { fillSlots: true } : {}),
+      ...(args.equipmentEntryLevel !== undefined ? { equipmentEntryLevel: args.equipmentEntryLevel } : {}),
+      ...((args.equipmentEntry1Level !== undefined || args.equipmentEntry2Level !== undefined || args.equipmentEntry3Level !== undefined) ? { equipmentEntryLevels: [args.equipmentEntry1Level, args.equipmentEntry2Level, args.equipmentEntry3Level] } : {}),
+      ...((args.operatorSkillA || args.operatorSkillB || args.operatorSkillE || args.operatorSkillQ) ? { operatorSkillLevels: {
+        ...(args.operatorSkillA ? { A: args.operatorSkillA } : {}),
+        ...(args.operatorSkillB ? { B: args.operatorSkillB } : {}),
+        ...(args.operatorSkillE ? { E: args.operatorSkillE } : {}),
+        ...(args.operatorSkillQ ? { Q: args.operatorSkillQ } : {}),
+      } } : {}),
     }
     if (!input.weapon && !input.gearSetName && !input.gearSetId && !input.equipmentName && !input.equipmentId) {
       throw new Error('Provide an exact weapon or equipment selection before applying operator configuration.')
     }
-    const before = await callDefTool('def.operator.config.read', {})
-    await askWithApproval(context, {
+    const prepared = await callDefTool('def.operator.config.prepare', input)
+    try {
+      await askWithApproval(context, {
       action: 'Apply operator configuration',
       summary: `Apply reviewed operator weapon/equipment configuration for ${input.characterName || input.characterId || 'selected operator'}`,
       permission: 'def_operator_config_patch',
-      // Operator configuration is renderer-owned state, not a Work Node
-      // mutation.  Supplying the symbolic "current-checkout" here makes the
-      // Work Node freshness verifier look up a node that does not exist and
-      // reject every approval as stale before the native permission card can
-      // authorize the typed command.
-      nodeId: '',
-      revision: before.snapshotUpdatedAt || undefined,
-      diff: { type: 'operator-config', requested: input },
+      nodeId: prepared.nodeId,
+      revision: prepared.nodeRevision,
+      patterns: formatOperatorConfigApprovalPatterns(prepared),
+      diff: { type: 'operator-config', requested: input, finalConfig: prepared.finalConfig, checkout: prepared.checkout },
       riskFlags: [{ severity: 'warning', code: 'operator-config-mutation', message: 'Changes the visible operator weapon and/or equipment configuration.' }],
-      consequence: 'The selected operator configuration changes only if the Workbench renderer returns a matching live postcondition.',
-    })
-    const result = await callDefTool('def.operator.config.patch', input)
+      consequence: 'The approved child Work Node is committed and applied only if its checkout and revision still match this exact preview.',
+      })
+    } catch (error) {
+      await callDefTool('def.operator.config.discard_prepared', { nodeId: prepared.nodeId })
+      throw error
+    }
+    const result = await callDefTool('def.operator.config.apply_prepared', { ...prepared, input })
     return {
       title: 'DEF operator configuration applied',
       output: JSON.stringify(result, null, 2),

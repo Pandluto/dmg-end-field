@@ -99,3 +99,27 @@ def-selected-catalog-teaching@1.0.0
 ```
 
 Remaining Spec 8-1-3 work: independent promotion-decision execution, adjacent PASS_TO_PASS under this candidate, reviewer approval/rejection, and a user-visible replay message in a fresh UI session. No YZ/Knowledge Runtime integration is implied.
+
+## Addendum — operator config consistency and level contract return fix (not a promotion)
+
+The former name-only postcondition is withdrawn. A configuration is now reported as applied only when the normalized, full value object is identical in all three authoritative locations:
+
+```text
+live Workbench mirror
+  = approved child Work Node workingPayload
+  = latest checkoutApplied commit appliedPayload
+```
+
+The reviewed configuration is first resolved without mutating the live page. It is stored in a new manual child of the exact checkout parent. Before commit, the bridge compares both parent and child revisions with the review values. It then commits the child, applies its payload in the renderer, waits for the live mirror, marks the exact commit checkout-applied, and finally synchronizes the renderer checkout ref to that child. A stale parent/child/check-out returns `checkout-changed`; the retired direct overwrite helper now fails closed.
+
+The typed `def_operator_config_patch` contract now carries weapon level and three skills, per-entry equipment levels, and operator A/B/E/Q levels. Defaults are centralized in the operator-config snapshot service: a newly selected weapon is Lv90/9-9-4, a newly selected equipment entry is Lv3, and a missing operator skill is M3. `??` is used for levels so explicit `0` is retained. The weapon skill-3 input is the base level and the existing potential rule is applied exactly once.
+
+Focused explicit-level live regression, 2026-07-14:
+
+- direct reviewed child: `ai-timeline-node-1784029600555-iz458hgr`
+- checkoutApplied commit: `ai-timeline-commit-1784029600587-gz1pdxix`
+- final values: 弭弗 / 昔日精品 Lv60 / 0潜 / 7-8-3; 潮涌四件的每条词条 0-1-2; A=L9, B=M3, E=L9, Q=M3.
+- protocol postcondition returned `liveMirror=true`, `checkoutPayload=true`, `commitPayload=true`, and the finalize command switched the active checkout to the child.
+- Computer Use opened `#/operator-config`, returned to the workbench, and re-entered it twice. Both re-entries visibly retained Lv60, 7/8/3, the 0/1/2 entry levels, the four pieces, the set effects, and A/E L9.
+
+Native preview evidence is a separate Pure Blackbox v1 turn: `testRunId` `c2db3ea3-ad9d-4c43-a25a-9524c168c01b`, session `ses_0a11f31ebffeOgg4LD0z75Q9M8`, turn `c4dd989c-14a4-469c-8e00-a9fe68d9913e`, client turn `task813-default-approval-1784029771`. Its raw and provider-visible text are identical. Chrome showed the actual `DEF · 排轴助手` permission card with the resolved default card values: Lv90/9-9-4, all twelve real equipment entries at Lv3 with computed values, A/B/E/Q, plus exact node and checkout revisions. This turn remains pending native decision while the reviewer controls the destructive reject test; it is not an application pass and no Harness candidate was promoted.

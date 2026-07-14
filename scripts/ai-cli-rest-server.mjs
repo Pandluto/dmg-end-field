@@ -4303,6 +4303,210 @@ async function executeDefOperatorConfigPatchAndVerify(definition, input = {}) {
   };
 }
 
+function buildDefOperatorConfigPreviewCommand(input = {}) {
+  const commands = buildDefOperatorConfigPatchCommands(input);
+  if (commands.length !== 1) {
+    return { ok: false, code: 'operator-config-preview-requires-one-command', message: 'One native approval must resolve exactly one operator configuration mutation.' };
+  }
+  return {
+    ok: true,
+    command: {
+      ...commands[0],
+      op: 'setOperatorConfig',
+      ...(isObject(input.operatorSkillLevels) ? { operatorSkillLevels: input.operatorSkillLevels } : {}),
+    },
+  };
+}
+
+function extractDefOperatorConfig(payload, characterId) {
+  const snapshot = payload?.operatorConfigPageCache?.[characterId];
+  if (!snapshot) return null;
+  return {
+    characterId,
+    characterName: snapshot?.operator?.name || '',
+    weapon: {
+      id: snapshot?.weapon?.id || '',
+      name: snapshot?.weapon?.name || '',
+      level: snapshot?.weapon?.config?.level,
+      potential: snapshot?.weapon?.config?.potential || '',
+      skillLevels: snapshot?.weapon?.config?.skillLevels || {},
+    },
+    equipment: (Array.isArray(snapshot?.equipment?.pieces) ? snapshot.equipment.pieces : []).map((piece) => ({
+      slotKey: piece?.slotKey || '', equipmentId: piece?.equipmentId || '', name: piece?.name || '',
+      effects: (Array.isArray(piece?.effects) ? piece.effects : []).map((effect) => ({ effectId: effect?.effectId || '', label: effect?.label || '', level: effect?.level, value: effect?.value })),
+    })),
+    operatorSkillLevels: snapshot?.operator?.skillConfig || {},
+  };
+}
+
+function exactDefOperatorConfigMatches(actual, expected) {
+  return JSON.stringify(actual) === JSON.stringify(expected);
+}
+
+function normalizeLiveDefOperatorConfig(snapshot, finalConfig) {
+  const live = Array.isArray(snapshot?.operatorConfigs)
+    ? snapshot.operatorConfigs.find((config) => config?.characterId === finalConfig?.characterId) || null
+    : null;
+  return live ? {
+    characterId: live.characterId,
+    characterName: live.characterName,
+    weapon: {
+      id: live.weapon?.id || '', name: live.weapon?.name || '', level: live.weapon?.level,
+      potential: live.weapon?.potential || '', skillLevels: live.weapon?.skillLevels || {},
+    },
+    equipment: (Array.isArray(live.equipment) ? live.equipment : []).map((piece) => ({
+      slotKey: piece?.slotKey || '', equipmentId: piece?.equipmentId || '', name: piece?.name || '',
+      effects: (Array.isArray(piece?.effects) ? piece.effects : []).map((effect) => ({ effectId: effect?.effectId || '', label: effect?.label || '', level: effect?.level, value: effect?.value })),
+    })),
+    operatorSkillLevels: live.operatorSkillLevels || live.skillConfig || {},
+  } : null;
+}
+
+async function waitForExactDefOperatorConfig(finalConfig, waitMs) {
+  const deadline = Date.now() + normalizeDefVerifyWaitMs(waitMs, 8000);
+  let snapshot = readMainWorkbenchSnapshotMirror();
+  let normalized = normalizeLiveDefOperatorConfig(snapshot, finalConfig);
+  while (!exactDefOperatorConfigMatches(normalized, finalConfig) && Date.now() < deadline) {
+    await sleep(150);
+    snapshot = readMainWorkbenchSnapshotMirror();
+    normalized = normalizeLiveDefOperatorConfig(snapshot, finalConfig);
+  }
+  return { snapshot, normalized, pass: exactDefOperatorConfigMatches(normalized, finalConfig) };
+}
+
+async function executeDefOperatorConfigPrepare(input = {}) {
+  const planned = buildDefOperatorConfigPreviewCommand(input);
+  if (!planned.ok) return planned;
+  const definition = getDefToolDefinition('def.operator.config.patch');
+  const enqueued = enqueueDefToolCommands(definition, [{ op: 'previewOperatorConfig', request: planned.command }], input);
+  if (enqueued.status < 200 || enqueued.status >= 300 || !enqueued.body?.commands?.[0]) {
+    return { ok: false, code: 'operator-config-preview-enqueue-failed', component: 'operator-config', retryable: true, nextAction: 'Restore the current Workbench connection and retry the preview.', enqueue: enqueued.body || null };
+  }
+  const verification = await buildDefToolCommandVerification(enqueued.body.commands[0], input.waitMs);
+  const preview = verification?.result?.result;
+  if (!verification.pass || !isObject(preview?.preparedPayload) || !isObject(preview?.finalConfig)) {
+    return { ok: false, code: 'operator-config-preview-failed', component: 'operator-config', retryable: true, nextAction: 'Read the renderer command result; no approval should be requested.', commandVerification: verification };
+  }
+  const parentNodeId = typeof preview.parentNodeId === 'string' ? preview.parentNodeId : '';
+  const parentRevision = Number(preview.parentRevision);
+  const parent = readRepositoryWorkNode(parentNodeId);
+  const checkout = readDefWorkbenchAxisContext()?.checkout || null;
+  if (!parent || checkout?.targetType !== 'work-node' || checkout.targetId !== parentNodeId || Number(parent.contentRevision || parent.updatedAt) !== parentRevision) {
+    return { ok: false, code: 'checkout-changed', component: 'operator-config', retryable: true, nextAction: 'The checkout changed during preview. Re-read it and request a new approval.', currentCheckoutTouched: false };
+  }
+  const created = handleAiTimelineWorkNodeRequest('POST', '/api/ai-timeline-worknodes/create', {
+    timelineId: parent.timelineId || parent.saveId,
+    parentNodeId,
+    branchId: `operator-config-${Date.now()}`,
+    label: `[ai] ${preview.finalConfig.characterName || preview.finalConfig.characterId} operator config`,
+    basePayload: parent.workingPayload,
+    workingPayload: preview.preparedPayload,
+    approvalPolicy: 'manual',
+    riskFlags: [{ severity: 'warning', code: 'operator-config-mutation', message: 'Native approval is required before this prepared operator configuration can be applied.' }],
+  });
+  if (created?.status !== 200 || !created?.body?.node) {
+    return { ok: false, code: created?.body?.code || 'operator-config-child-create-failed', component: 'operator-config', retryable: true, nextAction: 'No configuration was applied. Rebuild the preview after resolving the Work Node error.', create: created?.body || null };
+  }
+  const node = created.body.node;
+  return {
+    ok: true,
+    component: 'operator-config',
+    nodeId: node.id,
+    nodeRevision: Number(node.contentRevision || node.updatedAt),
+    parentNodeId,
+    parentRevision,
+    checkout: { nodeId: parentNodeId, revision: parentRevision },
+    finalConfig: preview.finalConfig,
+    diff: diffTimelinePayloadsForWorkNode(node.basePayload, node.workingPayload),
+    commandVerification: verification,
+  };
+}
+
+async function executeDefOperatorConfigApplyPrepared(input = {}) {
+  const nodeId = typeof input.nodeId === 'string' ? input.nodeId.trim() : '';
+  const parentNodeId = typeof input.parentNodeId === 'string' ? input.parentNodeId.trim() : '';
+  const nodeRevision = Number(input.nodeRevision);
+  const parentRevision = Number(input.parentRevision);
+  const finalConfig = input.finalConfig;
+  const node = readRepositoryWorkNode(nodeId);
+  const parent = readRepositoryWorkNode(parentNodeId);
+  const checkout = readDefWorkbenchAxisContext()?.checkout || null;
+  if (!node || !parent || checkout?.targetType !== 'work-node' || checkout.targetId !== parentNodeId
+    || Number(parent.contentRevision || parent.updatedAt) !== parentRevision
+    || Number(node.contentRevision || node.updatedAt) !== nodeRevision) {
+    return { ok: false, code: 'checkout-changed', component: 'operator-config', retryable: true, nextAction: 'Checkout or prepared revision changed during approval; no mutation was executed.', currentCheckoutTouched: false };
+  }
+  // Commit the reviewed child before touching the live renderer.  It remains
+  // un-applied until the exact live mirror has converged.
+  const committed = handleAiTimelineWorkNodeRequest('POST', `/api/ai-timeline-worknodes/${encodeURIComponent(nodeId)}/commit`, {
+    label: `Approved operator config ${finalConfig?.characterName || finalConfig?.characterId || ''}`,
+    approval: { mode: 'manual', approvedBy: 'user', approvedAt: Date.now(), rationale: 'Native DEF operator configuration approval.' },
+  });
+  if (committed?.status !== 200 || !committed?.body?.commit) {
+    return { ok: false, code: committed?.body?.code || 'operator-config-commit-failed', component: 'operator-config', retryable: false, nextAction: 'No live mutation was executed; inspect the prepared child node before any recovery.' };
+  }
+  // The approval CAS above protects the reviewed child revision. Committing
+  // that exact child advances only its lifecycle revision, so the renderer
+  // must check the committed revision rather than falsely treating the
+  // bridge's own commit as an external checkout change.
+  const committedNodeRevision = Number(committed.body.node?.contentRevision || committed.body.node?.updatedAt);
+  if (!Number.isFinite(committedNodeRevision)) {
+    return { ok: false, code: 'operator-config-commit-revision-missing', component: 'operator-config', retryable: false, nextAction: 'The reviewed child commit did not return a stable revision; no renderer mutation was executed.' };
+  }
+  const definition = getDefToolDefinition('def.operator.config.patch');
+  const enqueued = enqueueDefToolCommands(definition, [{ op: 'applyPreparedOperatorConfig', parentNodeId, parentRevision, nodeId, nodeRevision: committedNodeRevision }], input);
+  if (enqueued.status < 200 || enqueued.status >= 300 || !enqueued.body?.commands?.[0]) {
+    return { ok: false, code: 'operator-config-apply-enqueue-failed', component: 'operator-config', retryable: true, nextAction: 'The reviewed child remains un-applied. Read the queue failure before retrying.', enqueue: enqueued.body || null, commitId: committed.body.commit.id };
+  }
+  const commandVerification = await buildDefToolCommandVerification(enqueued.body.commands[0], input.waitMs);
+  if (!commandVerification.pass) {
+    return { ok: false, code: commandVerification?.result?.error?.includes('checkout-changed') ? 'checkout-changed' : 'operator-config-apply-failed', component: 'operator-config', retryable: true, nextAction: 'Read the renderer command result. Do not report applied.', commandVerification };
+  }
+  const liveVerification = await waitForExactDefOperatorConfig(finalConfig, input.snapshotWaitMs ?? 8000);
+  if (!liveVerification.pass) {
+    return { ok: false, code: 'postcondition-failed', component: 'operator-config', retryable: true, nextAction: 'The child commit remains un-applied because the live mirror did not converge to the reviewed values.', nodeId, commitId: committed.body.commit.id, commandVerification, postcondition: { pass: false, live: liveVerification.normalized } };
+  }
+  const applied = handleAiTimelineWorkNodeRequest('POST', `/api/ai-timeline-worknodes/${encodeURIComponent(nodeId)}/checkout-applied`, {
+    commitId: committed.body.commit.id, appliedBy: 'user', appliedAt: Date.now(), rationale: 'Native DEF operator configuration approval applied exact reviewed payload.',
+  });
+  if (applied?.status !== 200) {
+    return { ok: false, code: applied?.body?.code || 'operator-config-checkout-apply-failed', component: 'operator-config', retryable: true, nextAction: 'The live mirror changed but the reviewed commit was not marked checkout-applied. Do not report applied.' };
+  }
+  const finalized = enqueueDefToolCommands(definition, [{ op: 'finalizePreparedOperatorConfig', nodeId, commitId: committed.body.commit.id }], input);
+  if (finalized.status < 200 || finalized.status >= 300 || !finalized.body?.commands?.[0]) {
+    return { ok: false, code: 'operator-config-finalize-enqueue-failed', component: 'operator-config', retryable: true, nextAction: 'The commit is applied but the renderer checkout did not synchronize; reconcile before another mutation.' };
+  }
+  const finalizeVerification = await buildDefToolCommandVerification(finalized.body.commands[0], input.waitMs);
+  if (!finalizeVerification.pass) {
+    return { ok: false, code: finalizeVerification?.result?.error?.includes('checkout-changed') ? 'checkout-changed' : 'operator-config-finalize-failed', component: 'operator-config', retryable: true, nextAction: 'The commit is applied but the renderer checkout did not synchronize; reconcile before another mutation.', finalizeVerification };
+  }
+  const liveNormalized = liveVerification.normalized;
+  const payloadNormalized = extractDefOperatorConfig(node.workingPayload, finalConfig?.characterId);
+  const commitNormalized = extractDefOperatorConfig(committed.body.commit.appliedPayload, finalConfig?.characterId);
+  const exact = {
+    liveMirror: exactDefOperatorConfigMatches(liveNormalized, finalConfig),
+    checkoutPayload: exactDefOperatorConfigMatches(payloadNormalized, finalConfig),
+    commitPayload: exactDefOperatorConfigMatches(commitNormalized, finalConfig),
+  };
+  const pass = exact.liveMirror && exact.checkoutPayload && exact.commitPayload;
+  return {
+    ok: pass, component: 'operator-config', code: pass ? 'applied' : 'postcondition-failed', retryable: !pass,
+    nextAction: pass ? 'None.' : 'Inspect live mirror, child working payload, and checkoutApplied commit; do not describe the change as applied.',
+    nodeId, commitId: committed.body.commit.id, finalConfig, commandVerification, finalizeVerification, postcondition: { pass, exact, live: liveNormalized, checkoutPayload: payloadNormalized, commitPayload: commitNormalized },
+  };
+}
+
+function discardDefPreparedOperatorConfig(input = {}) {
+  const nodeId = typeof input.nodeId === 'string' ? input.nodeId.trim() : '';
+  if (!nodeId) return { ok: false, code: 'missing-node-id', component: 'operator-config', retryable: false, nextAction: 'No prepared node id was supplied.' };
+  const node = readRepositoryWorkNode(nodeId);
+  if (!node) return { ok: true, nodeId, discarded: false, reason: 'already-absent' };
+  const deleted = handleAiTimelineWorkNodeRequest('POST', `/api/ai-timeline-worknodes/${encodeURIComponent(nodeId)}/delete`, {});
+  return deleted?.status === 200
+    ? { ok: true, nodeId, discarded: true }
+    : { ok: false, code: deleted?.body?.code || 'operator-config-discard-failed', component: 'operator-config', retryable: true, nextAction: 'Remove the unapproved child node before retrying.', nodeId };
+}
+
 async function executeDefWorkNodeApplyAndVerify(name, input = {}, restore = false) {
   const nodeId = typeof input.nodeId === 'string' && input.nodeId.trim() ? input.nodeId.trim() : '';
   if (!nodeId) {
@@ -4639,9 +4843,9 @@ function normalizeDefToolWeaponPatch(input = {}) {
     op: 'setOperatorWeapon',
     ...compactOperatorCommandTarget(input),
     weaponName: weaponName.trim(),
-    ...(patch.level !== undefined ? { level: patch.level } : {}),
+    ...(patch.level !== undefined ? { weaponLevel: patch.level } : {}),
     ...(typeof patch.potential === 'string' ? { potential: patch.potential } : {}),
-    ...(isObject(patch.skillLevels) ? { skillLevels: patch.skillLevels } : {}),
+    ...(isObject(patch.skillLevels) ? { weaponSkillLevels: patch.skillLevels } : {}),
   };
 }
 
@@ -4654,8 +4858,8 @@ function normalizeDefToolEquipmentSelection(selection = {}, input = {}) {
     ...(selection.gearSetId ? { gearSetId: selection.gearSetId } : {}),
     ...(selection.gearSetName || selection.setName ? { gearSetName: selection.gearSetName || selection.setName } : {}),
     ...(selection.fillSlots !== undefined ? { fillSlots: selection.fillSlots === true } : {}),
-    ...(selection.entryLevel !== undefined ? { entryLevel: selection.entryLevel } : input.entryLevel !== undefined ? { entryLevel: input.entryLevel } : {}),
-    ...(selection.entryLevels !== undefined ? { entryLevels: selection.entryLevels } : input.entryLevels !== undefined ? { entryLevels: input.entryLevels } : {}),
+    ...(selection.entryLevel !== undefined ? { equipmentEntryLevel: selection.entryLevel } : input.equipmentEntryLevel !== undefined ? { equipmentEntryLevel: input.equipmentEntryLevel } : input.entryLevel !== undefined ? { equipmentEntryLevel: input.entryLevel } : {}),
+    ...(selection.entryLevels !== undefined ? { equipmentEntryLevels: selection.entryLevels } : input.equipmentEntryLevels !== undefined ? { equipmentEntryLevels: input.equipmentEntryLevels } : input.entryLevels !== undefined ? { equipmentEntryLevels: input.entryLevels } : {}),
   };
   if (!normalized.equipmentId && !normalized.equipmentName && !normalized.gearSetId && !normalized.gearSetName) {
     return null;
@@ -4717,10 +4921,11 @@ function buildDefOperatorConfigPatchCommands(input = {}) {
       ...compactOperatorCommandTarget(input),
       ...weapon,
       ...equipment,
+      ...(isObject(input.operatorSkillLevels) ? { operatorSkillLevels: input.operatorSkillLevels } : {}),
     });
     return commands;
   }
-  if (weaponCommand) commands.push(weaponCommand);
+  if (weaponCommand) commands.push({ ...weaponCommand, ...(isObject(input.operatorSkillLevels) ? { operatorSkillLevels: input.operatorSkillLevels } : {}) });
   commands.push(...equipmentCommands);
   return commands;
 }
@@ -4862,7 +5067,17 @@ function classifyDefCommandResult(entryOrBatch) {
 }
 
 async function executeDefTool(name, input = {}, query = new URLSearchParams()) {
-  const definition = getDefToolDefinition(name);
+  // These three names are private continuations of the single public typed
+  // operator-config tool.  They are intentionally not registry routes: only
+  // the native adapter can call them after it has constructed a reviewed
+  // child-node plan, so they cannot become a generic mutation backdoor.
+  const privateOperatorConfigContinuation = new Set([
+    'def.operator.config.prepare',
+    'def.operator.config.apply_prepared',
+    'def.operator.config.discard_prepared',
+  ]);
+  const definition = getDefToolDefinition(name)
+    || (privateOperatorConfigContinuation.has(name) ? getDefToolDefinition('def.operator.config.patch') : null);
   if (!definition) {
     return failScript(404, 'def-tool-not-found', `Unknown DEF tool: ${name}`, {
       availableTools: DEF_TOOL_DEFINITIONS.map((tool) => tool.name),
@@ -4960,6 +5175,18 @@ async function executeDefTool(name, input = {}, query = new URLSearchParams()) {
 
   if (name === 'def.operator.config.patch') {
     const result = await executeDefOperatorConfigPatchAndVerify(definition, input);
+    return { status: result.ok ? 200 : 409, body: { ok: result.ok, protocolVersion: 1, tool: name, result } };
+  }
+  if (name === 'def.operator.config.prepare') {
+    const result = await executeDefOperatorConfigPrepare(input);
+    return { status: result.ok ? 200 : 409, body: { ok: result.ok, protocolVersion: 1, tool: name, result } };
+  }
+  if (name === 'def.operator.config.apply_prepared') {
+    const result = await executeDefOperatorConfigApplyPrepared(input);
+    return { status: result.ok ? 200 : 409, body: { ok: result.ok, protocolVersion: 1, tool: name, result } };
+  }
+  if (name === 'def.operator.config.discard_prepared') {
+    const result = discardDefPreparedOperatorConfig(input);
     return { status: result.ok ? 200 : 409, body: { ok: result.ok, protocolVersion: 1, tool: name, result } };
   }
   if (name === 'def.gear.set_entry_level') {

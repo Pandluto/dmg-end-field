@@ -98,18 +98,22 @@ type RawWeaponLibrary = Record<string, Partial<WeaponData> & { id?: string; imgU
 const WEAPON_LIBRARY_STORAGE_KEY = 'def.weapon-sheet.library.v1';
 const EQUIPMENT_DRAFT_STORAGE_KEY = 'def.equipment-sheet.draft.v1';
 const EQUIPMENT_LIBRARY_STORAGE_KEY = 'def.equipment-sheet.library.v1';
-const DEFAULT_OPERATOR_SKILL_CONFIG: Record<OperatorSkillKey, string> = {
+// These defaults are product policy, not UI fallbacks.  Every typed command
+// and every page refresh must resolve through this one source of truth.
+export const DEFAULT_OPERATOR_SKILL_CONFIG: Record<OperatorSkillKey, string> = {
   A: 'M3',
   B: 'M3',
   E: 'M3',
   Q: 'M3',
   Dot: 'M3',
 };
-const DEFAULT_WEAPON_SKILL_LEVELS = {
+export const DEFAULT_WEAPON_SKILL_LEVELS = {
   skill1: 9,
   skill2: 9,
   skill3: 4,
 };
+export const DEFAULT_WEAPON_LEVEL = 90;
+export const DEFAULT_EQUIPMENT_ENTRY_LEVEL = 3;
 const EQUIPMENT_SLOT_METAS: Array<{ slotKey: OperatorConfigEquipmentSlotKey; part: EquipmentPart }> = [
   { slotKey: 'armor', part: '护甲' },
   { slotKey: 'accessory2', part: '配件' },
@@ -338,7 +342,7 @@ function legacyWeaponPotential(mode: CharacterConfigJson['weaponPotentialMode'] 
   return mode === 'PMAX' ? '5潜' : '0潜';
 }
 
-function getWeaponSkill3PotentialBonus(weaponPotential: string): number {
+export function getWeaponSkill3PotentialBonus(weaponPotential: string): number {
   return Math.max(0, Math.min(5, parsePotentialToCount(weaponPotential) - 1));
 }
 
@@ -493,7 +497,9 @@ function resolveEquipmentEntryLevel(
     const keyed = selection.entryLevels[effectId] ?? selection.entryLevels[`effect${index + 1}`] ?? selection.entryLevels[String(index)];
     if (keyed !== undefined) return keyed;
   }
-  return selection.entryLevel ?? 0;
+  // A new piece is a real configured loadout, not an empty editor draft.
+  // Explicit 0 is meaningful and must therefore use ?? rather than ||.
+  return selection.entryLevel ?? DEFAULT_EQUIPMENT_ENTRY_LEVEL;
 }
 
 function createEquipmentPieceFromSelection(
@@ -507,6 +513,10 @@ function createEquipmentPieceFromSelection(
       const effect = equipment.effects[effectId];
       if (!effect) return [];
       const level = resolveEquipmentEntryLevel(effect.effectId || effectId, index, selection);
+      const levelKey = String(level) as EquipmentLevelKey;
+      if (!Object.prototype.hasOwnProperty.call(effect.levels, levelKey)) {
+        throw new Error(`equipment-entry-level-unsupported:${equipment.name}:${effect.label}:${String(level)}`);
+      }
       return [{
         effectId: String(effect.effectId || effectId),
         label: effect.label,
@@ -872,7 +882,7 @@ function buildWeaponConfig(snapshot: ConfigSnapshot | undefined, legacyConfig: C
   }
   const potential = legacyWeaponPotential(legacyConfig?.weaponPotentialMode);
   return {
-    level: 90,
+    level: DEFAULT_WEAPON_LEVEL,
     potential,
     skillLevels: {
       skill1: DEFAULT_WEAPON_SKILL_LEVELS.skill1,

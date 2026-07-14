@@ -222,12 +222,24 @@ export type MainWorkbenchCommand =
       characterId?: string;
       characterName?: string;
       weaponName?: string;
+      weaponLevel?: number | string;
+      weaponSkillLevels?: {
+        skill1?: number;
+        skill2?: number;
+        skill3?: number;
+      };
       level?: number | string;
       potential?: string;
       skillLevels?: {
         skill1?: number;
         skill2?: number;
         skill3?: number;
+      };
+      operatorSkillLevels?: {
+        A?: 'L9' | 'M3';
+        B?: 'L9' | 'M3';
+        E?: 'L9' | 'M3';
+        Q?: 'L9' | 'M3';
       };
       slotKey?: 'armor' | 'accessory2' | 'accessory1' | 'glove';
       part?: '护甲' | '护手' | '配件';
@@ -238,6 +250,8 @@ export type MainWorkbenchCommand =
       fillSlots?: boolean;
       entryLevel?: number | string;
       entryLevels?: Array<number | string> | Record<string, number | string>;
+      equipmentEntryLevel?: number | string;
+      equipmentEntryLevels?: Array<number | string> | Record<string, number | string>;
       equipments?: Array<{
         slotKey?: 'armor' | 'accessory2' | 'accessory1' | 'glove';
         part?: '护甲' | '护手' | '配件';
@@ -248,6 +262,31 @@ export type MainWorkbenchCommand =
         entryLevel?: number | string;
         entryLevels?: Array<number | string> | Record<string, number | string>;
       }>;
+    }
+  | {
+      // Pure renderer-side resolution. This command must not touch the live
+      // mirror: the REST bridge turns its resulting payload into an isolated
+      // child Work Node for native approval.
+      op: 'previewOperatorConfig';
+      request: Extract<MainWorkbenchCommand, { op: 'setOperatorConfig' }>;
+    }
+  | {
+      // Applies the already reviewed child node only if the original checkout
+      // still has the same revision. Commit/checkout bookkeeping happens in
+      // the bridge after this renderer acknowledgement.
+      op: 'applyPreparedOperatorConfig';
+      parentNodeId: string;
+      parentRevision: number;
+      nodeId: string;
+      nodeRevision: number;
+    }
+  | {
+      // Runs only after the bridge has marked this reviewed child commit as
+      // checkout-applied. It synchronizes the renderer session to that same
+      // child and never changes configuration values.
+      op: 'finalizePreparedOperatorConfig';
+      nodeId: string;
+      commitId: string;
     }
   | {
       op: 'refreshSnapshot';
@@ -309,6 +348,7 @@ export interface MainWorkbenchSnapshot {
       name: string;
       level: number | string;
       potential: string;
+      skillLevels?: { skill1?: number; skill2?: number; skill3?: number };
       attack: number;
     };
     equipment: Array<{
@@ -334,6 +374,7 @@ export interface MainWorkbenchSnapshot {
       category?: string;
       effectKind?: string;
     }>;
+    operatorSkillLevels?: { A?: 'L9' | 'M3'; B?: 'L9' | 'M3'; E?: 'L9' | 'M3'; Q?: 'L9' | 'M3'; Dot?: 'L9' | 'M3' };
   }>;
   lastCommand?: {
     id: string;

@@ -23,6 +23,9 @@ export type AiTimelineWorktree = {
   id: string;
   createdAt: number;
   updatedAt: number;
+  // Monotonic content revision used by native approval CAS. Older archives
+  // can fall back to updatedAt while being migrated.
+  contentRevision?: number;
   label: string;
   status: AiTimelineWorktreeStatus;
   basePayload: TimelineSnapshotPayload;
@@ -71,6 +74,7 @@ export type AiTimelineWorkNode = {
   branchId: string;
   createdAt: number;
   updatedAt: number;
+  contentRevision?: number;
   label: string;
   description: string;
   status: AiTimelineWorkNodeStatus;

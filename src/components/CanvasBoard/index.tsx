@@ -56,6 +56,10 @@ import {
 import { refreshAvailableCandidateBuffsForCharacters } from '../../core/services/operatorConfigCandidateBuffService';
 import {
   applyOperatorEquipmentSelectionsToSnapshot,
+  DEFAULT_OPERATOR_SKILL_CONFIG,
+  DEFAULT_WEAPON_LEVEL,
+  DEFAULT_WEAPON_SKILL_LEVELS,
+  getWeaponSkill3PotentialBonus,
   refreshOperatorConfigSnapshotsForCharacters,
 } from '../../core/services/operatorConfigSnapshotRefreshService';
 import { APP_ROUTE_PATHS, navigateToAppPath } from '../../utils/appRoute';
@@ -798,22 +802,11 @@ export function CanvasBoard({
   };
 
   const persistOperatorConfigCheckout = async (checkoutNodeId: string) => {
-    const payload = getCurrentTimelineSnapshotPayload();
-    if (!payload) {
-      throw makeOperatorConfigCommandError('operator-config-payload-unavailable', '无法读取当前角色配置的完整 checkout payload。');
-    }
-    const client = createAiTimelineWorkNodeClient();
-    const updated = await client.update(checkoutNodeId, { workingPayload: payload });
-    setSessionWorkingPayload(updated.node.workingPayload, 'checkout');
-    return {
-      pass: true,
-      checkout: {
-        timelineId: updated.node.timelineId,
-        targetType: 'work-node' as const,
-        targetId: updated.node.id,
-        updatedAt: updated.node.updatedAt,
-      },
-    };
+    // This pre-approved path performed an unconditional full payload update.
+    // Fail closed: typed DEF mutations must use preview -> child -> approval
+    // -> revision-checked apply, never silently overwrite a Work Node.
+    void checkoutNodeId;
+    throw makeOperatorConfigCommandError('operator-config-legacy-route-retired', '旧角色配置写入链路已停用；请使用带原生审批的 def_operator_config_patch。');
   };
 
   const normalizeWorkbenchWeaponPotential = (potential: string | undefined, fallback: string) => {
@@ -821,6 +814,186 @@ export function CanvasBoard({
     if (potential === 'P0') return '0潜';
     if (potential === 'PMAX') return '满潜';
     return potential;
+  };
+
+  const buildOperatorConfigPreviewFromWorkbenchCommand = async (
+    command: Extract<MainWorkbenchCommand, { op: 'setOperatorConfig' }>,
+  ) => {
+    const checkout = await prepareOperatorConfigCheckout();
+    const character = resolveOperatorCharacterForWorkbenchCommand(command);
+    const originalCache = getOperatorConfigPageCache();
+    const originalPayload = getCurrentTimelineSnapshotPayload();
+    if (!originalPayload) {
+      throw makeOperatorConfigCommandError('operator-config-payload-unavailable', '无法读取当前角色配置的完整 checkout payload。');
+    }
+    const weaponName = command.weaponName?.trim() || '';
+    const hasEquipment = Boolean(command.equipments?.length || command.equipmentId || command.equipmentName || command.gearSetId || command.gearSetName);
+    const selections = hasEquipment
+      ? (command.equipments?.length
+        ? command.equipments.map((selection) => ({
+            ...selection,
+            gearSetId: selection.gearSetId ?? command.gearSetId,
+            gearSetName: selection.gearSetName ?? command.gearSetName,
+            entryLevel: selection.entryLevel ?? command.equipmentEntryLevel ?? command.entryLevel,
+            entryLevels: selection.entryLevels ?? command.equipmentEntryLevels ?? command.entryLevels,
+          }))
+        : [{
+            slotKey: command.slotKey,
+            part: command.part,
+            equipmentId: command.equipmentId,
+            equipmentName: command.equipmentName,
+            gearSetId: command.gearSetId,
+            gearSetName: command.gearSetName,
+            fillSlots: command.fillSlots,
+            entryLevel: command.equipmentEntryLevel ?? command.entryLevel,
+            entryLevels: command.equipmentEntryLevels ?? command.entryLevels,
+          }])
+      : [];
+
+    try {
+      // Refresh is used only to obtain the same canonical source data as the
+      // configuration page.  Its temporary cache write is restored before the
+      // preview command returns, so a preview cannot mutate live state.
+      await refreshOperatorConfigSnapshotsForCharacters([character]);
+      const snapshot = getOperatorConfigPageCache()[character.id];
+      if (!snapshot) throw makeOperatorConfigCommandError('operator-config-snapshot-unavailable', `未找到干员配置快照: ${character.name}`);
+
+      let nextSnapshot = snapshot;
+      if (weaponName) {
+        const potential = normalizeWorkbenchWeaponPotential(command.potential, '0潜');
+        const requestedSkills = command.weaponSkillLevels ?? command.skillLevels ?? {};
+        const skill3Base = requestedSkills.skill3 ?? DEFAULT_WEAPON_SKILL_LEVELS.skill3;
+        nextSnapshot = {
+          ...nextSnapshot,
+          weapon: {
+            ...nextSnapshot.weapon,
+            id: weaponName,
+            name: weaponName,
+            config: {
+              ...nextSnapshot.weapon.config,
+              level: command.weaponLevel ?? command.level ?? DEFAULT_WEAPON_LEVEL,
+              potential,
+              skillLevels: {
+                skill1: requestedSkills.skill1 ?? DEFAULT_WEAPON_SKILL_LEVELS.skill1,
+                skill2: requestedSkills.skill2 ?? DEFAULT_WEAPON_SKILL_LEVELS.skill2,
+                // skill3 is specified before potential.  Store the resolved
+                // UI value once, never add the bonus again during apply.
+                skill3: skill3Base + getWeaponSkill3PotentialBonus(potential),
+              },
+            },
+          },
+        };
+      }
+      const equipmentPatch = hasEquipment ? applyOperatorEquipmentSelectionsToSnapshot(nextSnapshot, selections) : null;
+      if (equipmentPatch) nextSnapshot = equipmentPatch.snapshot;
+      const operatorSkillLevels = {
+        ...DEFAULT_OPERATOR_SKILL_CONFIG,
+        ...(nextSnapshot.operator.skillConfig ?? {}),
+        ...(command.operatorSkillLevels ?? {}),
+      };
+      nextSnapshot = {
+        ...nextSnapshot,
+        operator: { ...nextSnapshot.operator, skillConfig: operatorSkillLevels },
+      };
+
+      // Let the canonical refresher resolve weapon data/equipment calculations
+      // against the page libraries, then immediately restore the live cache.
+      setOperatorConfigPageCache({ ...originalCache, [character.id]: nextSnapshot });
+      await refreshOperatorConfigSnapshotsForCharacters([character]);
+      const resolvedSnapshot = getOperatorConfigPageCache()[character.id] ?? nextSnapshot;
+      const preparedPayload = structuredClone(originalPayload);
+      preparedPayload.operatorConfigPageCache = {
+        ...preparedPayload.operatorConfigPageCache,
+        [character.id]: resolvedSnapshot,
+      };
+      preparedPayload.characterInputMap = {
+        ...preparedPayload.characterInputMap,
+        [character.id]: {
+          ...(preparedPayload.characterInputMap[character.id] ?? {}),
+          skillLevels: {
+            ...DEFAULT_OPERATOR_SKILL_CONFIG,
+            ...(preparedPayload.characterInputMap[character.id]?.skillLevels ?? {}),
+            ...operatorSkillLevels,
+          } as typeof preparedPayload.characterInputMap[string]['skillLevels'],
+        },
+      };
+      const finalConfig = {
+        characterId: character.id,
+        characterName: character.name,
+        weapon: {
+          id: resolvedSnapshot.weapon.id,
+          name: resolvedSnapshot.weapon.name,
+          level: resolvedSnapshot.weapon.config.level,
+          potential: resolvedSnapshot.weapon.config.potential,
+          skillLevels: resolvedSnapshot.weapon.config.skillLevels,
+        },
+        equipment: resolvedSnapshot.equipment.pieces.map((piece) => ({
+          slotKey: piece.slotKey,
+          equipmentId: piece.equipmentId,
+          name: piece.name,
+          effects: piece.effects.map((effect) => ({ effectId: effect.effectId, label: effect.label, level: effect.level, value: effect.value })),
+        })),
+        operatorSkillLevels: resolvedSnapshot.operator.skillConfig,
+      };
+      return {
+        parentNodeId: checkout.id,
+        parentRevision: Number(checkout.contentRevision || checkout.updatedAt),
+        preparedPayload,
+        finalConfig,
+      };
+    } finally {
+      setOperatorConfigPageCache(originalCache);
+    }
+  };
+
+  const applyPreparedOperatorConfigFromWorkbenchCommand = async (
+    command: Extract<MainWorkbenchCommand, { op: 'applyPreparedOperatorConfig' }>,
+  ) => {
+    if (activeCheckoutRef?.targetType !== 'work-node' || activeCheckoutRef.targetId !== command.parentNodeId) {
+      throw makeOperatorConfigCommandError('checkout-changed', '审批期间 checkout 已变化；未执行角色配置。');
+    }
+    const client = createAiTimelineWorkNodeClient();
+    const parent = await client.get(command.parentNodeId);
+    if (Number(parent.node.contentRevision || parent.node.updatedAt) !== Number(command.parentRevision)) {
+      throw makeOperatorConfigCommandError('checkout-changed', '审批期间 checkout revision 已变化；未执行角色配置。');
+    }
+    const child = await client.get(command.nodeId);
+    if (Number(child.node.contentRevision || child.node.updatedAt) !== Number(command.nodeRevision)) {
+      throw makeOperatorConfigCommandError('checkout-changed', '待审批 Work Node 已变化；未执行角色配置。');
+    }
+    applyTimelineSnapshotPayload(child.node.workingPayload);
+    setSessionWorkingPayload(child.node.workingPayload, 'checkout');
+    setResistanceRevision((value) => value + 1);
+    return {
+      nodeId: child.node.id,
+      nodeRevision: Number(child.node.contentRevision || child.node.updatedAt),
+      parentNodeId: parent.node.id,
+      parentRevision: Number(parent.node.contentRevision || parent.node.updatedAt),
+      appliedPayload: child.node.workingPayload,
+    };
+  };
+
+  const finalizePreparedOperatorConfigFromWorkbenchCommand = async (
+    command: Extract<MainWorkbenchCommand, { op: 'finalizePreparedOperatorConfig' }>,
+  ) => {
+    const client = createAiTimelineWorkNodeClient();
+    const { node } = await client.get(command.nodeId);
+    const commit = (await client.list()).commits.find((entry) => entry.id === command.commitId && entry.nodeId === node.id);
+    if (!commit?.checkoutApplied) {
+      throw makeOperatorConfigCommandError('checkout-changed', '审批后的 checkout commit 未处于已应用状态；未切换前端 checkout。');
+    }
+    const repository = createTimelineRepositoryClient();
+    const persistedCheckout = await repository.getCheckoutRef(node.timelineId || activeTimelineId);
+    if (persistedCheckout?.targetType !== 'work-node' || persistedCheckout.targetId !== node.id) {
+      throw makeOperatorConfigCommandError('checkout-changed', '审批期间 checkout 已变化；未切换前端 checkout。');
+    }
+    const document = node.timelineId === activeTimelineId
+      ? { id: activeTimelineId, label: activeTimelineLabel }
+      : (await repository.listDocuments()).find((entry) => entry.id === node.timelineId) || { id: node.timelineId, label: node.label };
+    activateTimeline({ document, checkoutRef: persistedCheckout, workingPayload: node.workingPayload });
+    hydrateCheckoutRuntime(node.workingPayload);
+    refreshWorkbenchAfterCheckout();
+    return { nodeId: node.id, commitId: commit.id, checkout: persistedCheckout, finalized: true };
   };
 
   const setOperatorWeaponFromWorkbenchCommand = async (command: Extract<MainWorkbenchCommand, { op: 'setOperatorWeapon' }>) => {
@@ -1783,6 +1956,9 @@ export function CanvasBoard({
         'setOperatorWeapon',
         'setOperatorEquipment',
         'setOperatorConfig',
+        'previewOperatorConfig',
+        'applyPreparedOperatorConfig',
+        'finalizePreparedOperatorConfig',
         'refreshSnapshot',
       ])[0];
       if (!commandEntry) {
@@ -2142,6 +2318,27 @@ export function CanvasBoard({
 
         if (command.op === 'setOperatorConfig') {
           const result = await setOperatorConfigFromWorkbenchCommand(command);
+          const doneEntry = patchMainWorkbenchCommand(commandEntry.id, { status: 'done', result });
+          if (doneEntry) void pushMainWorkbenchCommandResult(doneEntry);
+          return;
+        }
+
+        if (command.op === 'previewOperatorConfig') {
+          const result = await buildOperatorConfigPreviewFromWorkbenchCommand(command.request);
+          const doneEntry = patchMainWorkbenchCommand(commandEntry.id, { status: 'done', result });
+          if (doneEntry) void pushMainWorkbenchCommandResult(doneEntry);
+          return;
+        }
+
+        if (command.op === 'applyPreparedOperatorConfig') {
+          const result = await applyPreparedOperatorConfigFromWorkbenchCommand(command);
+          const doneEntry = patchMainWorkbenchCommand(commandEntry.id, { status: 'done', result });
+          if (doneEntry) void pushMainWorkbenchCommandResult(doneEntry);
+          return;
+        }
+
+        if (command.op === 'finalizePreparedOperatorConfig') {
+          const result = await finalizePreparedOperatorConfigFromWorkbenchCommand(command);
           const doneEntry = patchMainWorkbenchCommand(commandEntry.id, { status: 'done', result });
           if (doneEntry) void pushMainWorkbenchCommandResult(doneEntry);
           return;
@@ -2635,6 +2832,7 @@ export function CanvasBoard({
           name: configSnapshot.weapon.name,
           level: configSnapshot.weapon.config.level,
           potential: configSnapshot.weapon.config.potential,
+          skillLevels: configSnapshot.weapon.config.skillLevels,
           attack: configSnapshot.weapon.attack,
         },
         equipment: configSnapshot.equipment.pieces.map((piece) => ({
@@ -2660,6 +2858,7 @@ export function CanvasBoard({
           category: buff.category,
           effectKind: buff.effectKind,
         })),
+        operatorSkillLevels: configSnapshot.operator.skillConfig,
       }];
     });
     if (isCheckoutBootstrapPendingRef.current) return;

@@ -18,6 +18,7 @@ import { APP_ROUTE_PATHS, navigateToAppPath } from '../utils/appRoute';
 import { normalizeAssetUrl } from '../utils/assetResolver';
 import type { BuffEffectKind, BuffExtraHitConfig, BuffMultiplier } from '../core/domain/buff';
 import { normalizeExtraHitConfig } from '../core/services/buffExtraHit';
+import { DEFAULT_WEAPON_SKILL_LEVELS } from '../core/services/operatorConfigSnapshotRefreshService';
 import DeferredNumberInput from './DeferredNumberInput';
 
 type AttributeItem = {
@@ -228,11 +229,6 @@ const EQUIPMENT_FORM_ROWS = [
 
 const CHARACTER_LEVEL_VALUES = [1, 20, 30, 40, 50, 60, 70, 80, 90] as const;
 const CHARACTER_LEVEL_LABELS = ['1级', '20级', '30级', '40级', '50级', '60级', '70级', '80级', '90级'] as const;
-const DEFAULT_WEAPON_SKILL_LEVELS = {
-  skill1: 9,
-  skill2: 9,
-  skill3: 4,
-} as const;
 const DEFAULT_SKILL_MODE = 'M3';
 const EMPTY_RECORD: Record<string, unknown> = {};
 const EQUIPMENT_SLOT_KEYS = ['accessory1', 'accessory2', 'armor', 'glove'] as const;
