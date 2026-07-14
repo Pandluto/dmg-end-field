@@ -2308,6 +2308,291 @@ function resolveDefWeapons(input = {}) {
   };
 }
 
+function selectedDefCharacterIds(input = {}) {
+  const supplied = Array.isArray(input.characterIds) ? input.characterIds : [];
+  return [...new Set(supplied
+    .filter((value) => typeof value === 'string')
+    .map((value) => value.trim())
+    .filter(Boolean))];
+}
+
+function defOperatorSkillNames(rawOperator = {}) {
+  const grouped = { A: [], B: [], E: [], Q: [] };
+  const skills = rawOperator?.skills && typeof rawOperator.skills === 'object'
+    ? Object.values(rawOperator.skills)
+    : [];
+  for (const skill of skills) {
+    const type = String(skill?.buttonType || skill?.type || '').trim();
+    const name = String(skill?.displayName || skill?.name || '').trim();
+    if (Object.hasOwn(grouped, type) && name && !grouped[type].includes(name)) grouped[type].push(name);
+  }
+  return grouped;
+}
+
+function defSelectedTeamLoadoutFromSnapshot(snapshot, input = {}) {
+  const selectedCharacters = Array.isArray(snapshot?.selectedCharacters) ? snapshot.selectedCharacters : [];
+  const operatorConfigs = Array.isArray(snapshot?.operatorConfigs) ? snapshot.operatorConfigs : [];
+  const requestedIds = selectedDefCharacterIds(input);
+  const selectedById = new Map(selectedCharacters.map((character) => [String(character?.id || ''), character]));
+  const catalog = readMainWorkbenchJson(OPERATOR_CATALOG_STORAGE_KEY, {});
+  const catalogById = catalog && typeof catalog === 'object' && !Array.isArray(catalog) ? catalog : {};
+  const missing = requestedIds
+    .filter((characterId) => !selectedById.has(characterId))
+    .map((characterId) => ({
+      code: 'selected-character-not-found',
+      component: 'team-loadouts',
+      characterId,
+      message: '该 characterId 不在当前已选队伍中。',
+    }));
+  const selected = requestedIds.length
+    ? requestedIds.map((characterId) => selectedById.get(characterId)).filter(Boolean)
+    : selectedCharacters;
+  const operators = selected.map((character, index) => {
+    const characterId = String(character?.id || '');
+    const rawOperator = catalogById[characterId] && typeof catalogById[characterId] === 'object'
+      ? catalogById[characterId]
+      : null;
+    const config = operatorConfigs.find((entry) => entry?.characterId === characterId) || null;
+    const operatorMissing = [];
+    if (!rawOperator) {
+      operatorMissing.push({
+        code: 'operator-catalog-entry-unavailable',
+        component: 'team-loadouts',
+        characterId,
+        message: '当前选人目录没有该干员的结构化武器类型和技能数据。',
+      });
+    }
+    if (!config) {
+      operatorMissing.push({
+        code: 'operator-loadout-unavailable',
+        component: 'team-loadouts',
+        characterId,
+        message: '当前快照没有该干员的已保存配装；未按默认值补全。',
+      });
+    }
+    const equipment = Array.isArray(config?.equipment) ? config.equipment.map((piece) => ({
+      slotKey: String(piece?.slotKey || ''),
+      equipmentId: String(piece?.equipmentId || ''),
+      name: String(piece?.name || ''),
+      part: String(piece?.part || ''),
+      effects: Array.isArray(piece?.effects) ? piece.effects.map((effect) => ({
+        effectId: String(effect?.effectId || ''),
+        label: String(effect?.label || ''),
+        typeKey: String(effect?.typeKey || ''),
+        level: typeof effect?.level === 'number' ? effect.level : null,
+        value: typeof effect?.value === 'number' ? effect.value : null,
+      })) : [],
+    })) : [];
+    const weapon = config?.weapon && typeof config.weapon === 'object' ? {
+      id: String(config.weapon.id || ''),
+      name: String(config.weapon.name || ''),
+      level: typeof config.weapon.level === 'number' ? config.weapon.level : null,
+      potential: config.weapon.potential ?? null,
+      skillLevels: {
+        skill1: typeof config.weapon.skillLevels?.skill1 === 'number' ? config.weapon.skillLevels.skill1 : null,
+        skill2: typeof config.weapon.skillLevels?.skill2 === 'number' ? config.weapon.skillLevels.skill2 : null,
+        skill3: typeof config.weapon.skillLevels?.skill3 === 'number' ? config.weapon.skillLevels.skill3 : null,
+      },
+    } : null;
+    const operatorSkillLevels = config?.operatorSkillLevels && typeof config.operatorSkillLevels === 'object' ? {
+      A: config.operatorSkillLevels.A ?? null,
+      B: config.operatorSkillLevels.B ?? null,
+      E: config.operatorSkillLevels.E ?? null,
+      Q: config.operatorSkillLevels.Q ?? null,
+    } : { A: null, B: null, E: null, Q: null };
+    missing.push(...operatorMissing);
+    return {
+      index,
+      characterId,
+      characterName: String(character?.name || rawOperator?.name || ''),
+      element: String(character?.element || rawOperator?.element || ''),
+      profession: String(character?.profession || rawOperator?.profession || ''),
+      weaponType: rawOperator ? String(rawOperator.weapon || '') : null,
+      skills: rawOperator ? defOperatorSkillNames(rawOperator) : { A: [], B: [], E: [], Q: [] },
+      operatorSkillLevels,
+      weapon,
+      equipment,
+      setBuffs: Array.isArray(config?.setBuffs) ? config.setBuffs.map((buff) => ({
+        gearSetId: String(buff?.gearSetId || ''),
+        gearSetName: String(buff?.gearSetName || ''),
+        effectId: String(buff?.effectId || ''),
+        label: String(buff?.label || ''),
+        typeKey: String(buff?.typeKey || ''),
+        value: typeof buff?.value === 'number' ? buff.value : null,
+      })) : [],
+    };
+  });
+  const axis = readDefWorkbenchAxisContext();
+  const checkout = axis?.checkout || null;
+  return {
+    protocolVersion: 1,
+    contract: 'DefSelectedTeamLoadoutsV1',
+    scope: 'selected',
+    source: {
+      snapshot: 'main-workbench-snapshot-mirror',
+      operatorCatalog: 'selection-screen-local-library',
+      checkout: 'timeline-repository',
+    },
+    snapshotUpdatedAt: snapshot?.updatedAt || null,
+    checkout: {
+      timelineId: checkout?.timelineId || axis?.document?.id || 'current-main-workbench',
+      targetType: checkout?.targetType || null,
+      targetId: checkout?.targetId || null,
+      revision: checkout?.updatedAt ?? null,
+    },
+    selectedCount: selectedCharacters.length,
+    complete: missing.length === 0,
+    operators,
+    missing,
+    truncated: false,
+  };
+}
+
+function readDefSelectedTeamLoadouts(input = {}) {
+  const snapshot = readMainWorkbenchSnapshotMirror();
+  if (!snapshot || typeof snapshot !== 'object') return null;
+  return defSelectedTeamLoadoutFromSnapshot(snapshot, input);
+}
+
+function compactDefLoadoutCandidateGearSet(gearSet = {}) {
+  const equipments = Object.values(gearSet?.equipments || {})
+    .filter((equipment) => equipment && typeof equipment === 'object')
+    .slice(0, 4)
+    .map((equipment) => ({
+      name: String(equipment.name || ''),
+      part: String(equipment.part || ''),
+    }));
+  const buffs = [
+    ...(gearSet?.threePieceBuff ? [gearSet.threePieceBuff] : []),
+    ...Object.values(gearSet?.threePieceBuffs || {}),
+  ].filter((buff) => buff && typeof buff === 'object').slice(0, 2).map((buff) => ({
+    effectId: String(buff.effectId || ''),
+    label: String(buff.name || buff.label || buff.effectId || ''),
+    typeKey: String(buff.typeKey || ''),
+    value: typeof buff.value === 'number' ? normalizeDefToolPercent(buff.value, buff.unit) : null,
+  }));
+  return {
+    gearSetId: String(gearSet.gearSetId || ''),
+    name: String(gearSet.name || ''),
+    equipmentPieces: equipments,
+    threePieceBuffs: buffs,
+  };
+}
+
+function readDefLoadoutCandidates(input = {}) {
+  const snapshot = readMainWorkbenchSnapshotMirror();
+  if (!snapshot || typeof snapshot !== 'object') return null;
+  const team = defSelectedTeamLoadoutFromSnapshot(snapshot, input);
+  const include = Array.isArray(input.include) && input.include.length
+    ? [...new Set(input.include.filter((kind) => kind === 'weapon' || kind === 'equipment'))]
+    : ['weapon', 'equipment'];
+  const limitPerOperator = boundedDefLimit(input.limitPerOperator, 4, 4);
+  const weaponLibrary = readMainWorkbenchJson(WEAPON_LIBRARY_STORAGE_KEY, {});
+  const weapons = weaponLibrary && typeof weaponLibrary === 'object' && !Array.isArray(weaponLibrary)
+    ? Object.entries(weaponLibrary).map(([fallbackId, raw]) => compactDefWeaponLibraryEntry(raw, fallbackId)).filter(Boolean)
+    : [];
+  const equipmentLibrary = readDefEquipmentLibrary();
+  const gearSets = equipmentLibrary?.gearSets && typeof equipmentLibrary.gearSets === 'object'
+    ? Object.values(equipmentLibrary.gearSets).filter((set) => set && typeof set === 'object').map(compactDefLoadoutCandidateGearSet)
+    : [];
+  const goal = typeof input.goal === 'string' ? input.goal.trim().slice(0, 240) : '';
+  // One exact-team lookup is more useful than repeatedly translating a
+  // natural-language goal into aliases. It remains bounded and optional: an
+  // absent match is reported as no evidence, never invented as a strategy.
+  const evidenceQuery = team.operators.map((operator) => operator.characterName).filter(Boolean).join(' ') || goal;
+  const evidence = evidenceQuery ? searchDefGameKnowledge({ query: evidenceQuery, limit: 3 }).candidates.slice(0, 3).map((candidate) => ({
+    referenceId: candidate.referenceId,
+    source: candidate.source,
+    // The batch result is planning evidence, not a guide dump. Keep it in
+    // the first tool response so OpenCode never needs a follow-up file read.
+    excerpt: String(candidate.excerpt || '').slice(0, 500),
+  })) : [];
+  let truncated = false;
+  const missingReasons = [...team.missing];
+  const operators = team.operators.map((operator) => {
+    const reasons = team.missing.filter((reason) => reason.characterId === operator.characterId);
+    const type = typeof operator.weaponType === 'string' ? operator.weaponType : '';
+    const compatibleWeapons = type
+      ? weapons.filter((weapon) => normalizeDefToolText(weapon.type) === normalizeDefToolText(type))
+      : [];
+    const weaponCandidates = include.includes('weapon') ? compatibleWeapons.slice(0, limitPerOperator).map((weapon) => ({
+      id: weapon.id,
+      name: weapon.name,
+      rarity: weapon.rarity,
+    })) : [];
+    // Equipment compatibility is not operator-specific in the product model.
+    // Keep detailed four-piece set facts once at bundle scope and use tiny,
+    // stable references per operator so the response stays directly usable by
+    // OpenCode instead of being spilled into a follow-up file read.
+    const equipmentSetCandidates = include.includes('equipment')
+      ? gearSets.slice(0, limitPerOperator).map((gearSet) => gearSet.gearSetId)
+      : [];
+    if (include.includes('weapon') && !type) {
+      reasons.push({
+        code: 'weapon-type-unavailable',
+        component: 'loadout-candidates',
+        characterId: operator.characterId,
+        message: '没有结构化 weaponType，未使用干员名称搜索武器库。',
+      });
+    } else if (include.includes('weapon') && compatibleWeapons.length === 0) {
+      reasons.push({
+        code: 'compatible-weapon-unavailable',
+        component: 'loadout-candidates',
+        characterId: operator.characterId,
+        message: '当前本地武器库没有该 weaponType 的候选。',
+      });
+    }
+    if (include.includes('equipment') && gearSets.length === 0) {
+      reasons.push({
+        code: 'equipment-library-unavailable',
+        component: 'loadout-candidates',
+        characterId: operator.characterId,
+        message: '当前本地装备库没有可返回的套装候选。',
+      });
+    }
+    if ((include.includes('weapon') && compatibleWeapons.length > limitPerOperator) || (include.includes('equipment') && gearSets.length > limitPerOperator)) truncated = true;
+    missingReasons.push(...reasons.filter((reason) => !missingReasons.includes(reason)));
+    return {
+      characterId: operator.characterId,
+      characterName: operator.characterName,
+      weaponType: operator.weaponType,
+      currentLoadout: {
+        state: operator.weapon || operator.equipment.length ? 'configured' : 'unconfigured',
+        weaponName: operator.weapon?.name || null,
+        equipmentCount: operator.equipment.length,
+      },
+      weaponCandidates,
+      equipmentSetCandidates,
+      missingReasons: reasons,
+    };
+  });
+  return {
+    protocolVersion: 1,
+    contract: 'DefLoadoutCandidateBundleV1',
+    scope: 'selected',
+    source: {
+      team: team.source,
+      weaponLibrary: 'operator-config-weapon-library',
+      equipmentLibrary: 'operator-config-equipment-library',
+      ...(goal ? { evidence: 'allowlisted-game-knowledge-skill' } : {}),
+    },
+    snapshotUpdatedAt: team.snapshotUpdatedAt,
+    checkout: team.checkout,
+    include,
+    goal: goal || null,
+    limitPerOperator,
+    operators,
+    equipmentSetCandidates: include.includes('equipment') ? gearSets.slice(0, limitPerOperator).map((gearSet) => ({
+      ...gearSet,
+      source: 'operator-config-equipment-library',
+    })) : [],
+    evidence,
+    exhaustive: !truncated,
+    truncated,
+    missingReasons,
+  };
+}
+
 function safeGameKnowledgeReferenceFiles() {
   const root = fs.realpathSync(GAME_KNOWLEDGE_REFERENCES_DIR);
   return fs.readdirSync(root, { withFileTypes: true })
@@ -5348,6 +5633,20 @@ async function executeDefTool(name, input = {}, query = new URLSearchParams()) {
     result = rankDefWorkbenchButtonsByBuff(input);
   } else if (name === 'def.workbench.list_characters') {
     result = listDefWorkbenchCharacters();
+  } else if (name === 'def.team.loadouts.read') {
+    result = readDefSelectedTeamLoadouts(input);
+    if (!result) return failScript(409, 'snapshot-unavailable', 'Current Workbench snapshot is unavailable.', {
+      state: 'BLOCKED_ENVIRONMENT',
+      component: 'team-loadouts',
+      nextAction: 'Open the current DEF Workbench and wait for its snapshot mirror before retrying.',
+    });
+  } else if (name === 'def.loadout.candidates.read') {
+    result = readDefLoadoutCandidates(input);
+    if (!result) return failScript(409, 'snapshot-unavailable', 'Current Workbench snapshot is unavailable.', {
+      state: 'BLOCKED_ENVIRONMENT',
+      component: 'loadout-candidates',
+      nextAction: 'Open the current DEF Workbench and wait for its snapshot mirror before retrying.',
+    });
   } else if (name === 'def.workbench.damage_report') {
     result = { snapshotUpdatedAt: snapshot?.updatedAt || null, damageReport: snapshot?.damageReport || null };
   } else if (name === 'def.character.resolve') {

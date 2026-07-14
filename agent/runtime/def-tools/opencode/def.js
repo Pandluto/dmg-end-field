@@ -735,6 +735,59 @@ export const data_operator = dataResource({
   input: ({ query }) => ({ query, limit: 12 }),
 })
 
+function batchLoadoutResource(definition) {
+  return {
+    description: definition.description,
+    args: definition.args,
+    async execute(args, context) {
+      context.metadata({ title: definition.title })
+      const result = await callDefTool(definition.tool, definition.input(args))
+      // Both server contracts are structurally bounded (selected team and
+      // limitPerOperator <= 4). Keep their nested effect values intact rather
+      // than applying the generic depth limiter used by free-form searches.
+      return {
+        title: definition.title,
+        output: JSON.stringify(result),
+        metadata: { family: 'def-data-resource', legacyTool: definition.tool, contract: definition.contract },
+      }
+    },
+  }
+}
+
+const selectedTeamArgs = {
+  characterIds: tool.schema.array(tool.schema.string().min(1).max(160)).max(4).optional()
+    .describe('Optional exact selected character ids. Omit to read the whole current team.'),
+}
+
+export const data_team_loadouts = batchLoadoutResource({
+  title: 'DEF selected team loadouts',
+  contract: 'DefSelectedTeamLoadoutsV1',
+  description: 'Read the exact current loadouts for the whole selected team from one snapshot. For “current four / everyone / what are they equipped with”, call this once and do not call per-operator or catalog resources.',
+  tool: 'def.team.loadouts.read',
+  args: selectedTeamArgs,
+  input: ({ characterIds }) => (Array.isArray(characterIds) && characterIds.length ? { characterIds } : {}),
+})
+
+export const data_loadout_candidates = batchLoadoutResource({
+  title: 'DEF selected team loadout candidates',
+  contract: 'DefLoadoutCandidateBundleV1',
+  description: 'Aggregate bounded compatible weapons by structured weaponType plus equipment-set candidates for the whole selected team. Detailed four-piece set facts appear once in top-level equipmentSetCandidates; each operator’s equipmentSetCandidates is an array of those gearSetId references. Use after def_data_team_loadouts for read-only team planning; never search weapons with operator names or apply changes.',
+  tool: 'def.loadout.candidates.read',
+  args: {
+    ...selectedTeamArgs,
+    include: tool.schema.array(tool.schema.enum(['weapon', 'equipment'])).min(1).max(2).optional()
+      .describe('Candidate groups to include; omit for weapon and equipment.'),
+    goal: tool.schema.string().max(240).optional().describe('Optional whole-team goal in the user’s words.'),
+    limitPerOperator: tool.schema.number().int().min(1).max(4).optional().describe('Maximum candidates per operator; defaults to 4.'),
+  },
+  input: ({ characterIds, include, goal, limitPerOperator }) => ({
+    ...(Array.isArray(characterIds) && characterIds.length ? { characterIds } : {}),
+    ...(Array.isArray(include) && include.length ? { include } : {}),
+    ...(typeof goal === 'string' && goal.trim() ? { goal: goal.trim() } : {}),
+    ...(limitPerOperator !== undefined ? { limitPerOperator } : {}),
+  }),
+})
+
 export const data_operator_catalog = dataResource({
   title: 'DEF selection catalog resource',
   description: 'Search the read-only operator catalog used by the selection screen. Use this after a user asks to find someone outside the current selected roster; it never changes that roster.',

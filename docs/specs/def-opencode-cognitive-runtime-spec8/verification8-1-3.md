@@ -201,3 +201,53 @@ The v1 event stream currently records the tool lifecycle and UI-prompt
 consumption for this native card; the visible native permission choice remains
 the Computer Use evidence in this run. That observability distinction is
 documented here rather than being treated as a Harness promotion signal.
+
+## Addendum — tool routing efficiency (read-only, no promotion)
+
+Two read-only native data resources now compact the common current-team
+planning path without changing any operator-config mutation, approval, or
+checkout/commit rule:
+
+- `def_data_team_loadouts` returns `DefSelectedTeamLoadoutsV1`: one current
+  Workbench snapshot, exact selected ids, configured values, structured
+  weapon types, checkout revision, and explicit missing records. It never
+  creates a Work Node or fills absent values with defaults.
+- `def_data_loadout_candidates` returns `DefLoadoutCandidateBundleV1`: one
+  snapshot-derived team view, one structured-weaponType library read, one
+  equipment-library read, up to four candidates per operator, shared
+  four-piece set details once, and at most three bounded allowlisted evidence
+  excerpts. It returns only candidates and missing reasons; it never applies.
+
+Workbench routing now treats current-four/team/everyone loadout questions as
+batch-only. A configuration question calls only `def_data_team_loadouts`.
+A read-only current-team recommendation calls `def_data_team_loadouts` then
+`def_data_loadout_candidates`; after that bundle it must not call context,
+individual operator/weapon/equipment/knowledge resources, native file tools,
+permissions, or Work Node operations. The same exception is present in the
+timeline-workbench Skill so the generic canvas-context rule cannot override
+it.
+
+### Live v1 evidence
+
+| Scenario | Stable ids | Tool sequence | Result |
+| --- | --- | --- | --- |
+| current configuration | run `0e994ab2-40a1-461d-81f7-ca06feb1221f`; session `ses_09f254c1effeeYkmiEvrsPntRJ`; turn `3aa2b77d-3885-4f03-bd43-ada12b7921ff`; client `task813-team-loadouts-20260714-a` | `def_data_team_loadouts` ×1 | PASS: no individual operator/catalog/Work Node call; raw text equals provider-visible text. |
+| four weapon candidates | same run/session; turn `18189a64-070d-4f91-be56-aa5676ccd57b`; client `task813-team-candidates-20260714-b` | `def_data_team_loadouts` ×1 → `def_data_loadout_candidates` ×1 | PASS: structured weaponType grouping, no mutation/permission/alias search. |
+| four-person weapon/equipment proposal | run `bc28aa8a-1061-4a9c-8fa2-f5ddb1f31ea7`; isolated session `ses_09edd574affekQ0Nj2GRvICUcY`; turn `e70d1366-150c-4173-86c0-b397eff4b795`; client `task813-team-recommendation-compact-20260714-i` | `def_data_team_loadouts` ×1 → `def_data_loadout_candidates` ×1 | PASS: evidence-backed proposal, no context, knowledge, file, permission, or mutation call. The owned clone-current runner/fixture was cleaned. |
+
+Computer Use confirmed the real `DEF · 排轴助手` iframe rendered the first
+four-person configuration table (弭弗：昔日精品 Lv90 and four 潮涌 pieces;
+陈千语、埃特拉、阿列什 were explicitly empty) and the second response's
+weapon candidates. The table matched the current real role configuration.
+
+Compared with the historical traces (47 weapon-heavy, 33 unconfigured-team,
+29 equipment-heavy, and 5 current-config calls), the accepted routes use 2,
+2, and 1 data calls respectively. Exact duplicate queries, alias fishing,
+permission requests, and read-only Work Node mutations were all zero in the
+passing traces. The deliberately stopped intermediate oversized-output and
+old-session runs are failure evidence only and are not counted as passes.
+
+Known limits: `complete=false` is expected while three selected characters
+have no saved loadout; candidate ranking remains a model judgment over the
+bounded compatibility/evidence bundle, rather than a product-owned optimizer.
+No Harness candidate was promoted.

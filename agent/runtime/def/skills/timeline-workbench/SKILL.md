@@ -11,6 +11,8 @@ Use this skill only for the Workbench host. The user may call the task 排轴、
 
 Call `def_workbench_context` before reasoning about the visible canvas. It provides the bounded host attachment and the current checkout snapshot. Do not infer the current timeline from old transcript text.
 
+This rule does **not** apply to a read-only request about “当前四人 / 全队 / 他们 / 每个人” and their weapons or equipment. Do not call `def_workbench_context` for those requests: use `def_data_team_loadouts` once for current configuration, then `def_data_loadout_candidates` once for team-wide planning. Do not use any other data, node, file, or permission tool in that turn.
+
 `@N-L` always means `nodeIndex=N-1` and `lineIndex=L-1`. Before editing a coordinate or claiming it is empty, call `def_workbench_buttons` with both exact indices. If no candidate is returned, report the coordinate as empty; never reinterpret it as an ordinal or select another button.
 
 For questions about which skill has the most Buffs, call `def_workbench_buff_ranking` for the named character and report its first result. Do not count Buffs manually or restrict the answer to an inferred visible range.

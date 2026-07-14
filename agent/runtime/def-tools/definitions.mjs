@@ -10,6 +10,8 @@ export const DEF_TOOL_DEFINITION_BASE = Object.freeze([
   { name: 'def.workbench.evidence', scope: 'read', riskLevel: 'read', approval: 'none', status: 'implemented', description: 'Read bounded current-checkout evidence for the model.' },
   { name: 'def.workbench.list_buttons', scope: 'read', riskLevel: 'read', approval: 'none', status: 'implemented', description: 'List skill buttons with stable ids and labels.' },
   { name: 'def.workbench.list_characters', scope: 'read', riskLevel: 'read', approval: 'none', status: 'implemented', description: 'List selected characters and compact config summary.' },
+  { name: 'def.team.loadouts.read', scope: 'read', riskLevel: 'read', approval: 'none', status: 'implemented', description: 'Read all selected operators and their exact current loadouts from one Workbench snapshot.' },
+  { name: 'def.loadout.candidates.read', scope: 'read', riskLevel: 'read', approval: 'none', status: 'implemented', description: 'Aggregate bounded compatible weapon and equipment-set candidates for the selected team without applying changes.' },
   { name: 'def.workbench.damage_report', scope: 'read', riskLevel: 'read', approval: 'none', status: 'implemented', description: 'Read compact damage report.' },
   { name: 'def.workbench.find_buttons', scope: 'read', riskLevel: 'read', approval: 'none', status: 'implemented', description: 'Resolve button candidates from query, character, skill, type, and position.' },
   { name: 'def.workbench.rank_buttons_by_buff', scope: 'read', riskLevel: 'read', approval: 'none', status: 'implemented', description: 'Rank current-checkout buttons by selected Buff count, with stable button ids and coordinates.' },
