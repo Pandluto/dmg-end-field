@@ -53,6 +53,36 @@ The later real Workbench session correctly showed that the Operator Configuratio
 
 This major runtime/tool-contract bug is fixed. `def.weapon.resolve` now searches the same local library as the Operator Configuration picker and returns bounded `scope=catalog`, `source=operator-config-weapon-library`, `catalogCount`, `exhaustive`, and `truncated` facts. `def_data_weapon` and the typed-tool definition now explicitly describe that source. The repair is read-only: it neither writes the library nor equips a weapon. No Harness candidate was changed or promoted for this runtime correction.
 
+## Addendum — second real Harness failure: Work Node loadout was not a configuration mutation
+
+### Classification and root cause
+
+This is a runtime/tool-contract failure, not a Harness-only failure. The original real session wrote guessed `weaponId`, `weaponSkillKey`, `gearSetId`, and `equipmentIds` fields into a Work Node `inputs.json`, then treated validate/apply as proof that the character configuration page changed. The actual product contract is `CharacterInputConfig` plus the `ConfigSnapshot` cache used by the Operator Configuration page; `CanvasBoard` owns the renderer commands that update it.
+
+There was a second contributing source-loss defect: the server-side mirror reader serialized both `characterInputMap` and `operatorConfigPageCache` as empty objects. The real sources are `sessionStorage.def.operator-config.character-input-map.v3` and `sessionStorage.def.operator-config.page-cache.v1`. Thus a Work Node could discard a real UI configuration even when it had been rendered correctly.
+
+### Minimal repair
+
+- Work Node payload capture now reads those two current session-storage sources and semantically validates their exact supported shapes. Unknown guessed loadout fields fail closed with `invalid-current-payload`; they cannot be validated or used as a successful loadout application.
+- `def.operator.config.patch` is a typed renderer route, exposed to OpenCode as native `def_operator_config_patch`. It queues only the existing CanvasBoard `setOperatorWeapon` / `setOperatorEquipment` commands, waits for terminal command results, then verifies the live operator-config mirror against the renderer's returned weapon and equipment targets.
+- The tool is a mutation, not a data resource. It requires a normal user preview followed by the native OpenCode permission UI. Its approval record deliberately has no Work Node id: configuration-page state is not a Work Node revision. This fixes the discovered false `approval-stale` rejection while preserving explicit approval.
+- A tool result now contains a stable component/code path and a live `postcondition.pass`; no queued command, Work Node validation, diff, or checkout is treated as configuration success.
+
+### Candidate and replay status
+
+`def-operator-config-postcondition@1.0.1` remains a non-promoted candidate (`candidate/operator-config-postcondition`, content hash `a605e92a97388815da87c1b7697b8efefabdb355d5a1c1d2580d1a1a1679cfb0`). The focused explicit preview scenario completed without mutation. The broad prompt asking for four independently suitable loadouts remained incomplete because the stable stack expands into knowledge/skill exploration; this is a known Harness limitation, not a candidate pass or promotion basis.
+
+### Live v1 + UI regression
+
+The final fresh workbench run used Pure Blackbox text only:
+
+1. `把当前弭弗的武器换成赤缨，装备点剑一套；先给我确认方案，不要应用。`
+2. `就按这套应用。`
+
+`rawUserText` and `providerVisibleUserText` were identical for both turns. The run (`testRunId` `3b797523-bdd4-4427-a6e6-0671cac3fd3d`) opened and resolved the native question for the partially specified set, then recorded a native approval with an empty `workNodeId`. `def_operator_config_patch` completed with a matching live postcondition: weapon `赤缨`; equipment `点剑轻装甲` (armor), `点剑战术手甲` (glove), `点剑定位信标` (accessory1), and `点剑短刃` (accessory2). There was no pending command.
+
+Computer Use then exited AI mode, selected 弭弗, and opened the real `#/operator-config` page. The user-visible page showed the four equipped items, `点剑 · 点剑·额外物理伤害`, and weapon `赤缨` (`6★ / 双手剑 / Lv.90 / ATK 510`). This is the acceptance evidence that the old “tool said applied but configuration page stayed empty” defect is fixed.
+
 ## UI evidence
 
 Computer Use reopened the real macOS Workbench after the minimal process reload. `AI 模式` was enabled and the native `DEF · 排轴助手` iframe was visible for the original session. No UI mutation or message was sent during this verification; protocol truth remains v1 evidence above.

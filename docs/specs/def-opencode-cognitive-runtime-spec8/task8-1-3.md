@@ -23,5 +23,10 @@
 - [x] 确认只读 replay state before/after 相同且没有 `def_node_use`。
 - [x] 用 Computer Use 确认重载后的真实 Workbench AI iframe。
 - [x] 修复第二个真实 failure：`def.weapon.resolve` 已从“当前已装配武器”改为读取干员配置页同源的 `def.weapon-sheet.library.v1`，并返回 `scope/source/catalogCount/exhaustive`，不会再把空装备状态误报成武器库为空。
+- [x] 修复第二个真实 Harness failure：旧 Work Node `inputs.json` 里的猜测字段（`weaponId`、`weaponSkillKey`、`gearSetId`、`equipmentIds`）现在会被语义校验拒绝；当前 Workbench snapshot 会同时读取 `sessionStorage.def.operator-config.character-input-map.v3` 与 `sessionStorage.def.operator-config.page-cache.v1`，不再把真实角色配置页状态丢成空对象。
+- [x] 新增受控的 `def_operator_config_patch` native route。它只在用户确认后排入真实 CanvasBoard 配置命令，并在 `def.operator-config.page-cache.v1` 实时镜像与渲染器结果一致后才报告成功；队列确认、Work Node validate/diff 均不再作为成功证据。
+- [x] 修复该 route 的 approval 归属：角色配置是 renderer-owned state，不携带虚构的 `current-checkout` Work Node id，因而不会被 Work Node revision verifier 误判为 stale；native permission 仍保留。
+- [x] 用新的 v1 Pure Blackbox session 做真实回归：确认方案、回答点剑槽位问题、native permission、`def_operator_config_patch` completed、live postcondition passed，并以 Computer Use 在角色配置页确认弭弗已显示赤缨和点剑四件装备。
+- [x] 建立并运行 `def-operator-config-postcondition@1.0.1` Harness candidate 与显式 preview scenario；candidate 未 promotion。广义“合适的四人配装”仍会触发超范围探索，已保留为限制而非冒充通过。
 - [ ] 建立可机器执行的 candidate promotion decision 后，交由人工 reviewer 决定是否 promotion。
 - [ ] 完成 Spec 8-1-3 的全部独立回归与 reviewer approval。
