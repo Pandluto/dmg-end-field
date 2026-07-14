@@ -47,11 +47,11 @@ async function askWithApproval(context, input) {
   try {
     await context.ask({
       permission: input.permission,
-      patterns: [input.nodeId],
+      patterns: input.nodeId ? [input.nodeId] : ['operator-config'],
       always: [],
       metadata: {
         action: input.action,
-        nodeId: input.nodeId,
+        nodeId: input.nodeId || null,
         revision: input.revision,
         diff: input.diff,
         riskFlags: input.riskFlags || [],
@@ -839,7 +839,12 @@ export const operator_config_patch = {
       action: 'Apply operator configuration',
       summary: `Apply reviewed operator weapon/equipment configuration for ${input.characterName || input.characterId || 'selected operator'}`,
       permission: 'def_operator_config_patch',
-      nodeId: 'current-checkout',
+      // Operator configuration is renderer-owned state, not a Work Node
+      // mutation.  Supplying the symbolic "current-checkout" here makes the
+      // Work Node freshness verifier look up a node that does not exist and
+      // reject every approval as stale before the native permission card can
+      // authorize the typed command.
+      nodeId: '',
       revision: before.snapshotUpdatedAt || undefined,
       diff: { type: 'operator-config', requested: input },
       riskFlags: [{ severity: 'warning', code: 'operator-config-mutation', message: 'Changes the visible operator weapon and/or equipment configuration.' }],
