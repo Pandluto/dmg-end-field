@@ -32,7 +32,7 @@
 - [x] 返修 Work Node/commit 一致性 P1：配置 preview 现在从审批前 checkout 创建独立 manual child；服务端先 CAS 校验 parent/child revision，再 commit child、应用 renderer、验证 live mirror，最后 mark `checkout-applied` 并同步前端 checkout。成功结果逐字段验证 live mirror = child working payload = checkoutApplied commit payload；旧的无 CAS 整包覆盖链路已 fail-closed。
 - [x] 返修 typed operator-config 等级合同：武器 Lv/三技能、装备各词条、A/B/E/Q 均经 schema 进入 preview、child payload、postcondition；新武器默认 Lv90/9-9-4，新装备真实词条默认 Lv3，显式 0/L9 保留。实际库不支持的词条等级会 fail-closed。
 - [x] 原生 permission card 现在展示最终解析值：审批 Work Node/revision、checkout/revision、干员、武器 Lv/潜能/三技能、四件装备所有词条 Lv 与计算值、A/B/E/Q；不再只显示名称或 metadata。
-- [ ] 在此返修后的 native permission card 上完成一次 Computer Use `拒绝` 回归（拒绝会删除临时 child，须在操作时取得桌面删除确认）；此前拒绝证据不得替代本次完整等级卡的拒绝验证。
+- [x] 在此返修后的 native permission card 上完成一次 Computer Use `拒绝` 回归：正确默认等级卡的临时 child 被删除（404），head、live mirror、commit/node 数均不变；桌面删除确认已在操作时取得。
 - [ ] 在审批期间切换 checkout 的独立回归：必须返回 `checkout-changed`，不提交/不应用任一 child。
 - [x] 建立并运行 `def-operator-config-postcondition@1.0.1` Harness candidate 与显式 preview scenario；candidate 未 promotion。广义“合适的四人配装”仍会触发超范围探索，已保留为限制而非冒充通过。
 - [ ] 建立可机器执行的 candidate promotion decision 后，交由人工 reviewer 决定是否 promotion。

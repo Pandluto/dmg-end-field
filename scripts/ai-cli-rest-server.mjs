@@ -60,6 +60,17 @@ const OPERATOR_CATALOG_STORAGE_KEY = 'def.operator-editor.library.v1';
 const WEAPON_LIBRARY_STORAGE_KEY = 'def.weapon-sheet.library.v1';
 const GAME_KNOWLEDGE_REFERENCES_DIR = path.join(projectRoot, 'agent', 'runtime', 'def', 'skills', 'game-knowledge', 'references');
 const MAIN_WORKBENCH_SUPPORTED_OP_SET = new Set(MAIN_WORKBENCH_SUPPORTED_OPS);
+// Ephemeral, unforgeable capability for a reviewed operator-config child.
+// A sidecar restart invalidates it safely; callers must build a fresh preview.
+const preparedOperatorConfigCapabilities = new Map();
+const PREPARED_OPERATOR_CONFIG_TTL_MS = 15 * 60 * 1000;
+
+function prunePreparedOperatorConfigCapabilities() {
+  const now = Date.now();
+  for (const [token, prepared] of preparedOperatorConfigCapabilities) {
+    if (prepared.expiresAt <= now) preparedOperatorConfigCapabilities.delete(token);
+  }
+}
 
 class FileStorage {
   constructor(filePath) {
@@ -1254,7 +1265,25 @@ function handleAiTimelineWorkNodeRequest(method, pathname, body) {
   }
 
   if (method === 'POST' && action === 'update') {
-    const workingPayload = Object.prototype.hasOwnProperty.call(body || {}, 'workingPayload')
+    const hasWorkingPayloadPatch = Object.prototype.hasOwnProperty.call(body || {}, 'workingPayload');
+    const currentContentRevision = Number(node.contentRevision || node.updatedAt);
+    if (hasWorkingPayloadPatch) {
+      const expectedContentRevision = Number(body?.expectedContentRevision);
+      if (!Number.isFinite(expectedContentRevision)) {
+        return failScript(409, 'ai-worknode-content-revision-required', 'Replacing a Work Node working payload requires expectedContentRevision.', {
+          nodeId: node.id,
+          actualContentRevision: currentContentRevision,
+        });
+      }
+      if (expectedContentRevision !== currentContentRevision) {
+        return failScript(409, 'ai-worknode-content-revision-conflict', 'Work Node content changed before this payload update could be applied.', {
+          nodeId: node.id,
+          expectedContentRevision,
+          actualContentRevision: currentContentRevision,
+        });
+      }
+    }
+    const workingPayload = hasWorkingPayloadPatch
       ? body.workingPayload
       : node.workingPayload;
     const payloadError = validateWorkNodePayload(workingPayload, 'workingPayload');
@@ -1278,6 +1307,9 @@ function handleAiTimelineWorkNodeRequest(method, pathname, body) {
       updatedAt: Date.now(),
       status: allowedStatuses.has(body?.status) ? body.status : node.status,
       workingPayload: cloneJson(workingPayload),
+      contentRevision: hashDefNodeValue(workingPayload) === hashDefNodeValue(node.workingPayload)
+        ? currentContentRevision
+        : currentContentRevision + 1,
       workingSummary: summarizeTimelinePayload(workingPayload),
       riskFlags,
       logs: [
@@ -4408,11 +4440,24 @@ async function executeDefOperatorConfigPrepare(input = {}) {
     return { ok: false, code: created?.body?.code || 'operator-config-child-create-failed', component: 'operator-config', retryable: true, nextAction: 'No configuration was applied. Rebuild the preview after resolving the Work Node error.', create: created?.body || null };
   }
   const node = created.body.node;
+  prunePreparedOperatorConfigCapabilities();
+  const preparedToken = crypto.randomUUID();
+  const workingHash = hashDefNodeValue(node.workingPayload);
+  preparedOperatorConfigCapabilities.set(preparedToken, {
+    nodeId: node.id,
+    nodeRevision: Number(node.contentRevision || node.updatedAt),
+    parentNodeId,
+    parentRevision,
+    workingHash,
+    expiresAt: Date.now() + PREPARED_OPERATOR_CONFIG_TTL_MS,
+  });
   return {
     ok: true,
     component: 'operator-config',
     nodeId: node.id,
     nodeRevision: Number(node.contentRevision || node.updatedAt),
+    preparedToken,
+    workingHash,
     parentNodeId,
     parentRevision,
     checkout: { nodeId: parentNodeId, revision: parentRevision },
@@ -4428,12 +4473,20 @@ async function executeDefOperatorConfigApplyPrepared(input = {}) {
   const nodeRevision = Number(input.nodeRevision);
   const parentRevision = Number(input.parentRevision);
   const finalConfig = input.finalConfig;
+  const preparedToken = typeof input.preparedToken === 'string' ? input.preparedToken : '';
+  prunePreparedOperatorConfigCapabilities();
+  const capability = preparedOperatorConfigCapabilities.get(preparedToken);
+  if (!capability || capability.nodeId !== nodeId || capability.nodeRevision !== nodeRevision
+    || capability.parentNodeId !== parentNodeId || capability.parentRevision !== parentRevision) {
+    return { ok: false, code: 'prepared-capability-invalid', component: 'operator-config', retryable: false, nextAction: 'Build a new reviewed preview; this apply capability is missing, expired, or does not match the child.' };
+  }
   const node = readRepositoryWorkNode(nodeId);
   const parent = readRepositoryWorkNode(parentNodeId);
   const checkout = readDefWorkbenchAxisContext()?.checkout || null;
   if (!node || !parent || checkout?.targetType !== 'work-node' || checkout.targetId !== parentNodeId
     || Number(parent.contentRevision || parent.updatedAt) !== parentRevision
-    || Number(node.contentRevision || node.updatedAt) !== nodeRevision) {
+    || Number(node.contentRevision || node.updatedAt) !== nodeRevision
+    || hashDefNodeValue(node.workingPayload) !== capability.workingHash) {
     return { ok: false, code: 'checkout-changed', component: 'operator-config', retryable: true, nextAction: 'Checkout or prepared revision changed during approval; no mutation was executed.', currentCheckoutTouched: false };
   }
   // Commit the reviewed child before touching the live renderer.  It remains
@@ -4489,6 +4542,7 @@ async function executeDefOperatorConfigApplyPrepared(input = {}) {
     commitPayload: exactDefOperatorConfigMatches(commitNormalized, finalConfig),
   };
   const pass = exact.liveMirror && exact.checkoutPayload && exact.commitPayload;
+  if (pass) preparedOperatorConfigCapabilities.delete(preparedToken);
   return {
     ok: pass, component: 'operator-config', code: pass ? 'applied' : 'postcondition-failed', retryable: !pass,
     nextAction: pass ? 'None.' : 'Inspect live mirror, child working payload, and checkoutApplied commit; do not describe the change as applied.',
@@ -4498,10 +4552,34 @@ async function executeDefOperatorConfigApplyPrepared(input = {}) {
 
 function discardDefPreparedOperatorConfig(input = {}) {
   const nodeId = typeof input.nodeId === 'string' ? input.nodeId.trim() : '';
+  const parentNodeId = typeof input.parentNodeId === 'string' ? input.parentNodeId.trim() : '';
+  const nodeRevision = Number(input.nodeRevision);
+  const parentRevision = Number(input.parentRevision);
+  const preparedToken = typeof input.preparedToken === 'string' ? input.preparedToken : '';
   if (!nodeId) return { ok: false, code: 'missing-node-id', component: 'operator-config', retryable: false, nextAction: 'No prepared node id was supplied.' };
+  prunePreparedOperatorConfigCapabilities();
+  const capability = preparedOperatorConfigCapabilities.get(preparedToken);
+  if (!capability || capability.nodeId !== nodeId || capability.parentNodeId !== parentNodeId
+    || capability.nodeRevision !== nodeRevision || capability.parentRevision !== parentRevision) {
+    return { ok: false, code: 'prepared-capability-invalid', component: 'operator-config', retryable: false, nextAction: 'Discard requires the matching active prepared capability; no node was deleted.' };
+  }
   const node = readRepositoryWorkNode(nodeId);
-  if (!node) return { ok: true, nodeId, discarded: false, reason: 'already-absent' };
+  const parent = readRepositoryWorkNode(parentNodeId);
+  const checkout = readDefWorkbenchAxisContext()?.checkout || null;
+  const latestCommit = node ? getTimelineRepository().getLatestWorkNodeCommit(node.id) : null;
+  const hasPreparedChild = node
+    ? listRepositoryWorkNodes().some((candidate) => candidate.parentNodeId === node.id)
+    : false;
+  if (!node || !parent || checkout?.targetType !== 'work-node' || checkout.targetId !== parentNodeId
+    || node.parentNodeId !== parentNodeId || node.status !== 'open' || node.approvalPolicy !== 'manual'
+    || Number(node.contentRevision || node.updatedAt) !== nodeRevision
+    || Number(parent.contentRevision || parent.updatedAt) !== parentRevision
+    || hashDefNodeValue(node.workingPayload) !== capability.workingHash
+    || latestCommit || hasPreparedChild || (checkout?.targetType === 'work-node' && checkout.targetId === nodeId)) {
+    return { ok: false, code: 'prepared-discard-precondition-failed', component: 'operator-config', retryable: false, nextAction: 'The prepared child is no longer an uncommitted open/manual leaf; no node was deleted.' };
+  }
   const deleted = handleAiTimelineWorkNodeRequest('POST', `/api/ai-timeline-worknodes/${encodeURIComponent(nodeId)}/delete`, {});
+  if (deleted?.status === 200) preparedOperatorConfigCapabilities.delete(preparedToken);
   return deleted?.status === 200
     ? { ok: true, nodeId, discarded: true }
     : { ok: false, code: deleted?.body?.code || 'operator-config-discard-failed', component: 'operator-config', retryable: true, nextAction: 'Remove the unapproved child node before retrying.', nodeId };

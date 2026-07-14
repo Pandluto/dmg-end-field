@@ -17,6 +17,8 @@ const payload = {
   timelineData: { staffLines: [] },
   skillButtonTable: {},
   allBuffList: [],
+  characterInputMap: {},
+  operatorConfigPageCache: {},
 };
 
 fs.writeFileSync(legacyJsonPath, JSON.stringify({

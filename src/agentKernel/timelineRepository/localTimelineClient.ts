@@ -34,7 +34,7 @@ export type TimelineRepositoryWorkNode = {
   approvalPolicy: string; riskFlags: Array<{ severity: 'info' | 'warning' | 'blocker'; code: string; message: string }>; logs: Array<{ id: string; at: number; level: 'info' | 'warning' | 'error'; message: string }>;
   baseSummary: { characterCount: number; buttonCount: number; buffCount: number };
   workingSummary: { characterCount: number; buttonCount: number; buffCount: number };
-  createdAt: number; updatedAt: number;
+  createdAt: number; updatedAt: number; contentRevision: number;
 };
 
 export type TimelineRepositoryBundleWorkNode = TimelineRepositoryWorkNode & {
@@ -127,7 +127,7 @@ export function createTimelineRepositoryClient() {
       snapshots: Array<{ id: string; label: string; createdAt?: number; payload: TimelineSnapshotPayload }>;
       workNodes?: Array<{
         id: string; parentNodeId?: string; branchId: string; label: string; description?: string; status: string; approvalPolicy: string;
-        riskFlags?: unknown[]; logs?: unknown[]; createdAt?: number; updatedAt?: number;
+        riskFlags?: unknown[]; logs?: unknown[]; createdAt?: number; updatedAt?: number; contentRevision?: number;
         basePayload: TimelineSnapshotPayload; workingPayload: TimelineSnapshotPayload;
       }>;
       commits?: Array<TimelineRepositoryWorkNodeCommit & { basePayload: TimelineSnapshotPayload; appliedPayload: TimelineSnapshotPayload }>;

@@ -4457,6 +4457,10 @@ function cloneJsonValue(value) {
   return JSON.parse(JSON.stringify(value));
 }
 
+function hashAiTimelinePayload(payload) {
+  return crypto.createHash('sha256').update(JSON.stringify(payload)).digest('hex');
+}
+
 function summarizeAiTimelinePayload(payload) {
   const selectedCharacters = Array.isArray(payload?.selectedCharacters) ? payload.selectedCharacters : [];
   const skillButtonTable = isPlainObject(payload?.skillButtonTable) ? payload.skillButtonTable : {};
@@ -4892,6 +4896,7 @@ function createAiTimelineWorkNode(payload) {
     branchId: sanitizeAiTimelineWorkNodeId(payload.branchId, 'branch'),
     createdAt: now,
     updatedAt: now,
+    contentRevision: now,
     label: aiTimelineWorkNodeLabel(payload.label, 'AI Timeline Work Node'),
     description: typeof payload.description === 'string' ? payload.description.trim().slice(0, 240) : '',
     status: 'open',
@@ -4914,7 +4919,18 @@ function updateAiTimelineWorkNode(id, payload = {}) {
   if (!node) {
     throw aiTimelineWorkNodeError('ai-worknode-not-found', 404, `AI timeline work node not found: ${nodeId}`);
   }
-  const workingPayload = Object.prototype.hasOwnProperty.call(payload || {}, 'workingPayload')
+  const hasWorkingPayloadPatch = Object.prototype.hasOwnProperty.call(payload || {}, 'workingPayload');
+  const currentContentRevision = Number(node.contentRevision || node.updatedAt);
+  if (hasWorkingPayloadPatch) {
+    const expectedContentRevision = Number(payload?.expectedContentRevision);
+    if (!Number.isFinite(expectedContentRevision)) {
+      throw aiTimelineWorkNodeError('ai-worknode-content-revision-required', 409, 'Replacing a Work Node working payload requires expectedContentRevision.');
+    }
+    if (expectedContentRevision !== currentContentRevision) {
+      throw aiTimelineWorkNodeError('ai-worknode-content-revision-conflict', 409, 'Work Node content changed before this payload update could be applied.');
+    }
+  }
+  const workingPayload = hasWorkingPayloadPatch
     ? payload.workingPayload
     : node.workingPayload;
   const payloadError = validateAiTimelineWorkNodePayload(workingPayload, 'workingPayload');
@@ -4948,6 +4964,9 @@ function updateAiTimelineWorkNode(id, payload = {}) {
     updatedAt: Date.now(),
     status: allowedStatuses.has(payload.status) ? payload.status : node.status,
     workingPayload: cloneJsonValue(workingPayload),
+    contentRevision: hashAiTimelinePayload(workingPayload) === hashAiTimelinePayload(node.workingPayload)
+      ? currentContentRevision
+      : currentContentRevision + 1,
     workingSummary: summarizeAiTimelinePayload(workingPayload),
     riskFlags,
     logs: [

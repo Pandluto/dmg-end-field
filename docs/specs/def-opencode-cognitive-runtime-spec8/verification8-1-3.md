@@ -123,3 +123,81 @@ Focused explicit-level live regression, 2026-07-14:
 - Computer Use opened `#/operator-config`, returned to the workbench, and re-entered it twice. Both re-entries visibly retained Lv60, 7/8/3, the 0/1/2 entry levels, the four pieces, the set effects, and A/E L9.
 
 Native preview evidence is a separate Pure Blackbox v1 turn: `testRunId` `c2db3ea3-ad9d-4c43-a25a-9524c168c01b`, session `ses_0a11f31ebffeOgg4LD0z75Q9M8`, turn `c4dd989c-14a4-469c-8e00-a9fe68d9913e`, client turn `task813-default-approval-1784029771`. Its raw and provider-visible text are identical. Chrome showed the actual `DEF · 排轴助手` permission card with the resolved default card values: Lv90/9-9-4, all twelve real equipment entries at Lv3 with computed values, A/B/E/Q, plus exact node and checkout revisions. This turn remains pending native decision while the reviewer controls the destructive reject test; it is not an application pass and no Harness candidate was promoted.
+
+## Addendum — content revision import and final native default-level regression
+
+This addendum replaces the preceding pending-preview wording for the focused
+default-level regression. It does not promote any Harness candidate or close
+the remaining checkout-change/promotion-decision work.
+
+### Repository repair
+
+`timeline_work_nodes.content_revision` is now preserved by document-bundle
+import. A v3 bundle imports its explicit `contentRevision`; an older bundle
+without that field deterministically seeds it from the persisted `updatedAt`
+(falling back to `createdAt`). All `timeline_work_nodes` INSERT/UPSERT paths
+were audited: the bundle import and repository work-node import both supply
+the non-null column. Approval/audit timestamps remain separate from this
+content revision, so they cannot invalidate their own compare-and-swap.
+
+The custom OpenCode plugin also now imports the vendored plugin tool entrypoint
+by its real workspace file path. The former bare subpath could not be resolved
+by Bun, which meant that `def_operator_config_patch` was absent even though the
+data-resource guidance was visible in the prompt. A focused Bun load confirms
+the native tool and optional Zod level fields are registered.
+
+### Final approved default-card run
+
+The final Pure Blackbox run used `testRunId`
+`dd5fa8ab-d328-4fe3-8ddb-54c326741d9a`, session
+`ses_09f254c1effeeYkmiEvrsPntRJ`, turn
+`fdacd560-2e96-4e1b-a2f3-5af049c05a93`, and client turn
+`task813-native-default-final-1784036391`. `rawUserText` equalled
+`providerVisibleUserText` exactly. v1 recorded accepted, UI prompt consumed,
+the `def_operator_config_patch` tool start, and completed terminal state.
+
+Computer Use saw the real native card in `DEF · 排轴助手` before approval. It
+displayed the reviewed child `ai-timeline-node-1784036403156-xp81hrpv`, its
+checkout parent/revision, 弭弗, 昔日精品 `Lv90 · 0潜 · 9/9/4`, all four 潮涌
+pieces, every actual entry at `Lv3` with its computed value, and `A L9 / B M3
+/ E L9 / Q M3`. After `允许一次`:
+
+- commit `ai-timeline-commit-1784036449905-sa8259bz` became
+  `checkoutApplied` for the same child;
+- live mirror, child `workingPayload`, and that commit's `appliedPayload`
+  agree on the exact weapon, its three levels, all twelve equipment-entry
+  levels, four slot ids, and the operator skill map;
+- Computer Use exited AI mode and opened `#/operator-config` twice, returning
+  to the main workbench between entries. Both entries visibly retained
+  昔日精品 `Lv90`, `9/9/4`, the four 潮涌 pieces and set effects, and the
+  `A L9 / B M3 / E L9 / Q M3` skill states.
+
+### Final rejection run
+
+The independent correct-default rejection card used the same test run/session,
+turn `70b2deb4-a28a-4b2f-a89c-4f74a5479dad`, client turn
+`task813-native-default-reject-final-1784037280`, and temporary child
+`ai-timeline-node-1784037286324-eqhvgstc`. Its native card displayed the same
+fully resolved Lv90/9-9-4 and all-Lv3 review values. After an explicit
+desktop confirmation, Computer Use chose `拒绝`.
+
+The child then returned HTTP 404. Before/after assertions show the active head
+still `ai-timeline-node-1784036403156-xp81hrpv`, commit count still 16, node
+count still 33, and the normalized live 弭弗 configuration unchanged. Thus a
+rejection leaves no applied commit, checkout change, or renderer mutation.
+
+Focused checks after the repair all passed:
+
+```text
+node scripts/timeline-repository-smoke.mjs
+node scripts/ai-timeline-work-node-rest-smoke.mjs
+node --check (changed JS/CJS/MJS files)
+npm run harness:check
+npm run interop:check
+git diff --check
+```
+
+The v1 event stream currently records the tool lifecycle and UI-prompt
+consumption for this native card; the visible native permission choice remains
+the Computer Use evidence in this run. That observability distinction is
+documented here rather than being treated as a Harness promotion signal.

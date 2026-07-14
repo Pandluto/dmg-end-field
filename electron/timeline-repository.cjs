@@ -3,7 +3,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { DatabaseSync } = require('node:sqlite');
 
-const SCHEMA_VERSION = 2;
+const SCHEMA_VERSION = 3;
 const WORK_NODE_STATUSES = new Set(['draft', 'validated', 'blocked', 'applied', 'archived', 'open', 'ready', 'committed', 'abandoned']);
 const WORK_NODE_STATUS_TRANSITIONS = new Map([
   ['draft', new Set(['draft', 'validated', 'blocked', 'archived', 'abandoned'])],
@@ -110,7 +110,8 @@ function createTimelineRepository({ databasePath }) {
       risk_flags TEXT NOT NULL,
       logs TEXT NOT NULL,
       created_at INTEGER NOT NULL,
-      updated_at INTEGER NOT NULL
+      updated_at INTEGER NOT NULL,
+      content_revision INTEGER NOT NULL
     ) STRICT;
 
     CREATE TABLE IF NOT EXISTS timeline_work_node_patches (
@@ -178,6 +179,13 @@ function createTimelineRepository({ databasePath }) {
   const workNodeColumns = db.prepare('PRAGMA table_info(timeline_work_nodes)').all();
   if (!workNodeColumns.some((column) => column.name === 'description')) {
     db.exec("ALTER TABLE timeline_work_nodes ADD COLUMN description TEXT NOT NULL DEFAULT '';");
+  }
+  if (!workNodeColumns.some((column) => column.name === 'content_revision')) {
+    db.exec('ALTER TABLE timeline_work_nodes ADD COLUMN content_revision INTEGER NOT NULL DEFAULT 0;');
+    // Existing archives have no independent revision.  Seed it once from the
+    // last historical content timestamp, then never advance it for logs or
+    // lifecycle-only writes.
+    db.exec('UPDATE timeline_work_nodes SET content_revision = updated_at WHERE content_revision = 0;');
   }
   db.prepare(`
     INSERT INTO timeline_schema_meta (key, value) VALUES ('schema_version', ?)
@@ -291,6 +299,7 @@ function createTimelineRepository({ databasePath }) {
       } : {}),
       createdAt: row.created_at,
       updatedAt: row.updated_at,
+      contentRevision: row.content_revision,
     };
   }
 
@@ -494,16 +503,23 @@ function createTimelineRepository({ databasePath }) {
         }
         const node = pendingNodes.splice(index, 1)[0];
         const createdAt = node.createdAt || now;
+        // v3 bundles preserve the independent payload revision.  Archives
+        // created before v3 have no such field, so seed it once from their
+        // last content timestamp instead of treating import/audit time as a
+        // payload mutation.
+        const contentRevision = Number.isFinite(Number(node.contentRevision))
+          ? Number(node.contentRevision)
+          : Number(node.updatedAt || createdAt);
         const basePayloadHash = ensurePayload(node.basePayload, createdAt);
         const workingPayloadHash = ensurePayload(node.workingPayload, node.updatedAt || createdAt);
         db.prepare(`
           INSERT INTO timeline_work_nodes (
             id, timeline_id, parent_id, base_payload_hash, working_payload_hash, branch_id, label,
-            description, status, approval_policy, risk_flags, logs, created_at, updated_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            description, status, approval_policy, risk_flags, logs, created_at, updated_at, content_revision
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `).run(node.id, documentId, node.parentNodeId || null, basePayloadHash, workingPayloadHash,
           node.branchId || node.id, node.label || node.id, node.description || '', normalizeWorkNodeStatus(node.status), node.approvalPolicy || 'auto-low-risk',
-          serialize(node.riskFlags), serialize(node.logs), createdAt, node.updatedAt || createdAt);
+          serialize(node.riskFlags), serialize(node.logs), createdAt, node.updatedAt || createdAt, contentRevision);
         insertedNodeIds.add(node.id);
       }
       for (const commit of commits) {
@@ -748,7 +764,7 @@ function createTimelineRepository({ databasePath }) {
     return transaction(() => {
       const document = db.prepare('SELECT id FROM timeline_documents WHERE id = ?').get(input.timelineId);
       if (!document) throw repositoryError('timeline-document-not-found', 404, `Timeline document not found: ${input.timelineId}`);
-      const existingNode = db.prepare('SELECT id, timeline_id, status FROM timeline_work_nodes WHERE id = ?').get(input.id);
+      const existingNode = db.prepare('SELECT id, timeline_id, status, content_revision FROM timeline_work_nodes WHERE id = ?').get(input.id);
       if (existingNode?.timeline_id !== undefined && existingNode.timeline_id !== input.timelineId) {
         const error = new Error(`Timeline Work Node id already belongs to document: ${existingNode.timeline_id}`);
         error.code = 'timeline-work-node-id-conflict';
@@ -782,11 +798,14 @@ function createTimelineRepository({ databasePath }) {
       const createdAt = input.createdAt || Date.now();
       const basePayloadHash = ensurePayload(input.basePayload, createdAt);
       const workingPayloadHash = ensurePayload(input.workingPayload, input.updatedAt || createdAt);
+      const contentRevision = Number.isFinite(Number(input.contentRevision))
+        ? Number(input.contentRevision)
+        : existingNode?.content_revision || createdAt;
       db.prepare(`
         INSERT INTO timeline_work_nodes (
           id, timeline_id, parent_id, base_payload_hash, working_payload_hash, branch_id, label,
-          description, status, approval_policy, risk_flags, logs, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          description, status, approval_policy, risk_flags, logs, created_at, updated_at, content_revision
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET
           parent_id = excluded.parent_id,
           base_payload_hash = excluded.base_payload_hash,
@@ -798,10 +817,11 @@ function createTimelineRepository({ databasePath }) {
           approval_policy = excluded.approval_policy,
           risk_flags = excluded.risk_flags,
           logs = excluded.logs,
-          updated_at = excluded.updated_at
+          updated_at = excluded.updated_at,
+          content_revision = excluded.content_revision
       `).run(input.id, input.timelineId, input.parentNodeId || null, basePayloadHash, workingPayloadHash,
         input.branchId || input.id, input.label || input.id, input.description || '', nextStatus, input.approvalPolicy || 'auto-low-risk',
-        serialize(input.riskFlags), serialize(input.logs), createdAt, input.updatedAt || createdAt);
+        serialize(input.riskFlags), serialize(input.logs), createdAt, input.updatedAt || createdAt, contentRevision);
       return { id: input.id, imported: db.prepare('SELECT 1 FROM timeline_work_nodes WHERE id = ?').get(input.id) != null };
     });
   }
@@ -1060,6 +1080,7 @@ function createTimelineRepository({ databasePath }) {
       workingSummary: summarizePayload(workingPayload),
       createdAt: row.created_at,
       updatedAt: row.updated_at,
+      contentRevision: row.content_revision,
     }); }),
     close: () => db.close(),
   };

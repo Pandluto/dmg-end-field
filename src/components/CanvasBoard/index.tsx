@@ -1781,6 +1781,7 @@ export function CanvasBoard({
     }
     const updated = await client.update(nodeId, {
       workingPayload: patchResult.workingPayload,
+      expectedContentRevision: Number(node.contentRevision || node.updatedAt),
       status: 'ready',
       riskFlags: nextRiskFlags,
     });

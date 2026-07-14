@@ -1,5 +1,11 @@
 import fs from 'node:fs'
 import path from 'node:path'
+// DEF tools are loaded from this repository rather than a package workspace.
+// Resolve the vendored OpenCode plugin API explicitly so Bun does not look for
+// a nonexistent repo-root @opencode-ai/plugin installation. This is a local
+// workspace package, so the file URL must include the exported TypeScript
+// entrypoint; bare package subpaths are not resolved from this repository.
+import { tool } from '../../../vendor/opencode/node_modules/@opencode-ai/plugin/src/tool.ts'
 import { decodeDefNodePayload, hashDefNodeValue } from '../../def-node-workspace/codec.mjs'
 
 const restBase = process.env.DEF_REST_BASE_URL || 'http://127.0.0.1:17321'
@@ -829,28 +835,31 @@ export const data_damage = dataResource({
 export const operator_config_patch = {
   description: 'Apply one explicitly approved weapon or equipment change to a selected operator through the typed Workbench route. Use only after the user has reviewed the proposed loadout and asked to apply it. The tool waits for the real operator-config mirror; a queued command alone is never success.',
   args: {
-    characterId: { type: 'string', description: 'Selected operator id.' },
-    characterName: { type: 'string', description: 'Selected operator name when id is unavailable.' },
-    weaponName: { type: 'string', description: 'Exact weapon name from DEF weapon resource.' },
-    weaponLevel: { type: 'number', minimum: 1, maximum: 90, description: 'Weapon level. Omit only to use the product default Lv90 for a newly selected weapon.' },
-    weaponSkill1Level: { type: 'number', minimum: 1, maximum: 9, description: 'Weapon skill 1 level.' },
-    weaponSkill2Level: { type: 'number', minimum: 1, maximum: 9, description: 'Weapon skill 2 level.' },
-    weaponSkill3Level: { type: 'number', minimum: 1, maximum: 4, description: 'Weapon skill 3 base level before the existing potential bonus.' },
-    weaponPotential: { type: 'string', enum: ['P0', 'PMAX'], description: 'Optional weapon potential.' },
-    gearSetName: { type: 'string', description: 'Exact equipment set name from DEF equipment resource.' },
-    gearSetId: { type: 'string', description: 'Exact equipment set id from DEF equipment resource.' },
-    equipmentName: { type: 'string', description: 'Exact single equipment name from DEF equipment resource.' },
-    equipmentId: { type: 'string', description: 'Exact single equipment id from DEF equipment resource.' },
-    slotKey: { type: 'string', enum: ['armor', 'accessory2', 'accessory1', 'glove'], description: 'Slot for one equipment piece.' },
-    fillSlots: { type: 'boolean', description: 'Fill all four slots from the named gear set.' },
-    equipmentEntryLevel: { type: 'number', minimum: 0, maximum: 3, description: 'Default level for every real entry on newly selected equipment. Explicit 0 is preserved.' },
-    equipmentEntry1Level: { type: 'number', minimum: 0, maximum: 3, description: 'Level for the first actual equipment entry.' },
-    equipmentEntry2Level: { type: 'number', minimum: 0, maximum: 3, description: 'Level for the second actual equipment entry.' },
-    equipmentEntry3Level: { type: 'number', minimum: 0, maximum: 3, description: 'Level for the third actual equipment entry.' },
-    operatorSkillA: { type: 'string', enum: ['L9', 'M3'], description: 'Operator A skill level.' },
-    operatorSkillB: { type: 'string', enum: ['L9', 'M3'], description: 'Operator B skill level.' },
-    operatorSkillE: { type: 'string', enum: ['L9', 'M3'], description: 'Operator E skill level.' },
-    operatorSkillQ: { type: 'string', enum: ['L9', 'M3'], description: 'Operator Q skill level.' },
+    // These must be actual optional Zod fields.  The legacy JSON-schema
+    // adapter marks every property required, which coerced a model that was
+    // asked to omit levels into inventing 1/1/1 and Lv0 values.
+    characterId: tool.schema.string().optional().describe('Selected operator id.'),
+    characterName: tool.schema.string().optional().describe('Selected operator name when id is unavailable.'),
+    weaponName: tool.schema.string().optional().describe('Exact weapon name from DEF weapon resource.'),
+    weaponLevel: tool.schema.number().int().min(1).max(90).optional().describe('Weapon level. Omit to use the product default Lv90 for a newly selected weapon.'),
+    weaponSkill1Level: tool.schema.number().int().min(1).max(9).optional().describe('Weapon skill 1 level. Omit to use product default 9.'),
+    weaponSkill2Level: tool.schema.number().int().min(1).max(9).optional().describe('Weapon skill 2 level. Omit to use product default 9.'),
+    weaponSkill3Level: tool.schema.number().int().min(1).max(4).optional().describe('Weapon skill 3 base level before the existing potential bonus. Omit to use product default 4.'),
+    weaponPotential: tool.schema.enum(['P0', 'PMAX']).optional().describe('Optional weapon potential.'),
+    gearSetName: tool.schema.string().optional().describe('Exact equipment set name from DEF equipment resource.'),
+    gearSetId: tool.schema.string().optional().describe('Exact equipment set id from DEF equipment resource.'),
+    equipmentName: tool.schema.string().optional().describe('Exact single equipment name from DEF equipment resource.'),
+    equipmentId: tool.schema.string().optional().describe('Exact single equipment id from DEF equipment resource.'),
+    slotKey: tool.schema.enum(['armor', 'accessory2', 'accessory1', 'glove']).optional().describe('Slot for one equipment piece.'),
+    fillSlots: tool.schema.boolean().optional().describe('Fill all four slots from the named gear set.'),
+    equipmentEntryLevel: tool.schema.number().int().min(0).max(3).optional().describe('Default level for every real entry on newly selected equipment. Omit to use product default Lv3; explicit 0 is preserved.'),
+    equipmentEntry1Level: tool.schema.number().int().min(0).max(3).optional().describe('Level for the first actual equipment entry.'),
+    equipmentEntry2Level: tool.schema.number().int().min(0).max(3).optional().describe('Level for the second actual equipment entry.'),
+    equipmentEntry3Level: tool.schema.number().int().min(0).max(3).optional().describe('Level for the third actual equipment entry.'),
+    operatorSkillA: tool.schema.enum(['L9', 'M3']).optional().describe('Operator A skill level.'),
+    operatorSkillB: tool.schema.enum(['L9', 'M3']).optional().describe('Operator B skill level.'),
+    operatorSkillE: tool.schema.enum(['L9', 'M3']).optional().describe('Operator E skill level.'),
+    operatorSkillQ: tool.schema.enum(['L9', 'M3']).optional().describe('Operator Q skill level.'),
   },
   async execute(args, context) {
     const weapon = typeof args.weaponName === 'string' && args.weaponName.trim()
@@ -871,7 +880,11 @@ export const operator_config_patch = {
       ...(typeof args.slotKey === 'string' && args.slotKey.trim() ? { slotKey: args.slotKey.trim() } : {}),
       ...(args.fillSlots === true ? { fillSlots: true } : {}),
       ...(args.equipmentEntryLevel !== undefined ? { equipmentEntryLevel: args.equipmentEntryLevel } : {}),
-      ...((args.equipmentEntry1Level !== undefined || args.equipmentEntry2Level !== undefined || args.equipmentEntry3Level !== undefined) ? { equipmentEntryLevels: [args.equipmentEntry1Level, args.equipmentEntry2Level, args.equipmentEntry3Level] } : {}),
+      ...((args.equipmentEntry1Level !== undefined || args.equipmentEntry2Level !== undefined || args.equipmentEntry3Level !== undefined) ? { equipmentEntryLevels: {
+        ...(args.equipmentEntry1Level !== undefined ? { effect1: args.equipmentEntry1Level } : {}),
+        ...(args.equipmentEntry2Level !== undefined ? { effect2: args.equipmentEntry2Level } : {}),
+        ...(args.equipmentEntry3Level !== undefined ? { effect3: args.equipmentEntry3Level } : {}),
+      } } : {}),
       ...((args.operatorSkillA || args.operatorSkillB || args.operatorSkillE || args.operatorSkillQ) ? { operatorSkillLevels: {
         ...(args.operatorSkillA ? { A: args.operatorSkillA } : {}),
         ...(args.operatorSkillB ? { B: args.operatorSkillB } : {}),
@@ -890,13 +903,14 @@ export const operator_config_patch = {
       permission: 'def_operator_config_patch',
       nodeId: prepared.nodeId,
       revision: prepared.nodeRevision,
+      workingHash: prepared.workingHash,
       patterns: formatOperatorConfigApprovalPatterns(prepared),
       diff: { type: 'operator-config', requested: input, finalConfig: prepared.finalConfig, checkout: prepared.checkout },
       riskFlags: [{ severity: 'warning', code: 'operator-config-mutation', message: 'Changes the visible operator weapon and/or equipment configuration.' }],
       consequence: 'The approved child Work Node is committed and applied only if its checkout and revision still match this exact preview.',
       })
     } catch (error) {
-      await callDefTool('def.operator.config.discard_prepared', { nodeId: prepared.nodeId })
+      await callDefTool('def.operator.config.discard_prepared', prepared)
       throw error
     }
     const result = await callDefTool('def.operator.config.apply_prepared', { ...prepared, input })
