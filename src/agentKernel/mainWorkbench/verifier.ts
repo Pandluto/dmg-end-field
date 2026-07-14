@@ -50,7 +50,7 @@ function getExpectedCommandOps(prompt: string): MainWorkbenchCommand['op'][] | n
     return ['addSkillButton'];
   }
   if (/装备|武器|穿|配|gear|equipment|weapon|equip|wear|configure/i.test(prompt)) {
-    return ['setOperatorWeapon', 'setOperatorEquipment'];
+    return ['setOperatorWeapon', 'setOperatorEquipment', 'setOperatorConfig'];
   }
   if (/计算|重算|伤害|calculate|recalculate|damage/i.test(prompt)) {
     return ['calculateDamage'];

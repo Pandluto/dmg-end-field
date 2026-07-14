@@ -22,6 +22,7 @@ export const MAIN_WORKBENCH_SUPPORTED_OPS = [
   'refreshOperatorConfig',
   'setOperatorWeapon',
   'setOperatorEquipment',
+  'setOperatorConfig',
   'refreshSnapshot',
 ];
 
@@ -124,14 +125,23 @@ export function validateMainWorkbenchCommand(command) {
       message: 'setOperatorWeapon requires weaponName.',
     };
   }
-  if (command.op === 'setOperatorEquipment') {
+  if ((command.op === 'setOperatorWeapon' || command.op === 'setOperatorEquipment' || command.op === 'setOperatorConfig')
+    && !hasAnyString(command, ['characterId', 'characterName'])) {
+    return {
+      ok: false,
+      code: 'missing-main-workbench-operator-target',
+      message: `${command.op} requires an exact characterId or characterName.`,
+    };
+  }
+  if (command.op === 'setOperatorEquipment' || command.op === 'setOperatorConfig') {
     const hasDirectEquipment = hasAnyString(command, ['equipmentId', 'equipmentName', 'gearSetId', 'gearSetName']);
     const hasEquipmentList = Array.isArray(command.equipments) && command.equipments.length > 0;
-    if (!hasDirectEquipment && !hasEquipmentList) {
+    const hasWeapon = hasAnyString(command, ['weaponName']);
+    if (!hasDirectEquipment && !hasEquipmentList && !hasWeapon) {
       return {
         ok: false,
         code: 'invalid-main-workbench-operator-equipment',
-        message: 'setOperatorEquipment requires equipment, gear set, or equipments.',
+        message: `${command.op} requires a weapon, equipment, gear set, or equipments.`,
       };
     }
   }

@@ -64,24 +64,26 @@ There was a second contributing source-loss defect: the server-side mirror reade
 ### Minimal repair
 
 - Work Node payload capture now reads those two current session-storage sources and semantically validates their exact supported shapes. Unknown guessed loadout fields fail closed with `invalid-current-payload`; they cannot be validated or used as a successful loadout application.
-- `def.operator.config.patch` is a typed renderer route, exposed to OpenCode as native `def_operator_config_patch`. It queues only the existing CanvasBoard `setOperatorWeapon` / `setOperatorEquipment` commands, waits for terminal command results, then verifies the live operator-config mirror against the renderer's returned weapon and equipment targets.
-- The tool is a mutation, not a data resource. It requires a normal user preview followed by the native OpenCode permission UI. Its approval record deliberately has no Work Node id: configuration-page state is not a Work Node revision. This fixes the discovered false `approval-stale` rejection while preserving explicit approval.
-- A tool result now contains a stable component/code path and a live `postcondition.pass`; no queued command, Work Node validation, diff, or checkout is treated as configuration success.
+- `def.operator.config.patch` is a typed renderer route, exposed to OpenCode as native `def_operator_config_patch`. A combined weapon/loadout request becomes one CanvasBoard `setOperatorConfig` command: it preflights the active Work Node checkout, resolves one exact selected target, writes the page cache once, and persists the complete snapshot to that checkout once. Legacy narrow commands remain only for compatibility.
+- The tool is a mutation, not a data resource. `def_operator_config_patch` explicitly overrides the broad `def_*` permission with `ask`; native approval is therefore required every time. Its approval record deliberately has no fake Work Node id, while the renderer command itself must have a real checked-out Work Node to persist into.
+- The result now contains stable renderer error codes, a live `postcondition.pass`, and a checkout-payload postcondition. A missing/ambiguous target or id/name mismatch fails closed; no command falls back to the first selected operator. No queued command, Work Node validation, diff, or immediate page-cache read is treated as configuration success.
 
 ### Candidate and replay status
 
 `def-operator-config-postcondition@1.0.1` remains a non-promoted candidate (`candidate/operator-config-postcondition`, content hash `a605e92a97388815da87c1b7697b8efefabdb355d5a1c1d2580d1a1a1679cfb0`). The focused explicit preview scenario completed without mutation. The broad prompt asking for four independently suitable loadouts remained incomplete because the stable stack expands into knowledge/skill exploration; this is a known Harness limitation, not a candidate pass or promotion basis.
 
-### Live v1 + UI regression
+### Corrected live v1 + UI regression
 
-The final fresh workbench run used Pure Blackbox text only:
+The former “赤缨/点剑通过” statement is invalidated: it only observed the immediate page mirror, the broad `def_*: allow` rule could auto-approve the native request, and it did not prove checkout hydration or a route round-trip. It is retained as failure evidence, not acceptance evidence.
 
-1. `把当前弭弗的武器换成赤缨，装备点剑一套；先给我确认方案，不要应用。`
-2. `就按这套应用。`
+The corrected validation used Pure Blackbox text only. First, a rejection run (`testRunId` `ff5446d7-abf5-4542-b9c0-22632d5d8b07`, session `ses_0a1268f98ffecU6baydB4QHct6`, turn `b8a0058b-1d2f-4922-9c41-0658e8c45b52`) showed the native `需要权限 operator-config` card. Computer Use chose `拒绝`; v1 recorded `def_operator_config_patch` as rejected and both the live mifu config and current checkout payload remained `null` before/after.
 
-`rawUserText` and `providerVisibleUserText` were identical for both turns. The run (`testRunId` `3b797523-bdd4-4427-a6e6-0671cac3fd3d`) opened and resolved the native question for the partially specified set, then recorded a native approval with an empty `workNodeId`. `def_operator_config_patch` completed with a matching live postcondition: weapon `赤缨`; equipment `点剑轻装甲` (armor), `点剑战术手甲` (glove), `点剑定位信标` (accessory1), and `点剑短刃` (accessory2). There was no pending command.
+The corrected approval run was `testRunId` `c2db3ea3-ad9d-4c43-a25a-9524c168c01b`, session `ses_0a11f31ebffeOgg4LD0z75Q9M8`, turn `ce4f636e-6f58-486d-b6dc-b60d07acb955`, client turn `codex-1784003224916-f7d605d0`. `rawUserText` and `providerVisibleUserText` were identical. The real native permission card appeared and Computer Use chose `允许一次`. The completed tool result was cross-checked against both sources:
 
-Computer Use then exited AI mode, selected 弭弗, and opened the real `#/operator-config` page. The user-visible page showed the four equipped items, `点剑 · 点剑·额外物理伤害`, and weapon `赤缨` (`6★ / 双手剑 / Lv.90 / ATK 510`). This is the acceptance evidence that the old “tool said applied but configuration page stayed empty” defect is fixed.
+- live mirror: `昔日精品`; `落潮轻甲` (armor), `潮涌手甲` (glove), `悬河供氧栓` (accessory1), `浊流切割炬` (accessory2); both 潮涌 three-piece effects;
+- checked-out Work Node `ai-timeline-node-1783998441575-8wxmn31x` payload: the identical weapon, four pieces, and effects.
+
+Computer Use then exited AI mode, opened real `#/operator-config`, returned to the main workbench, and opened `#/operator-config` again. Both entries visibly showed weapon `昔日精品` (`6★ / 双手剑 / Lv.90 / ATK 495`) and the two 潮涌 effects. This is the acceptance evidence for approval, four-slot expansion, checkout persistence, and hydration round-trip. The prior first attempt that only applied the armor exposed the `fillSlots` expansion defect and was fixed before this final run.
 
 ## UI evidence
 

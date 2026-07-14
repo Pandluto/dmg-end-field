@@ -4084,13 +4084,13 @@ function buildDefOperatorConfigPostconditions(commands, commandVerifications) {
     const key = target.characterId || normalizeDefToolText(target.characterName);
     if (!key) continue;
     const current = targets.get(key) || { ...target };
-    if (command.op === 'setOperatorWeapon' && isObject(result.weapon)) {
+    if ((command.op === 'setOperatorWeapon' || command.op === 'setOperatorConfig') && isObject(result.weapon)) {
       current.weapon = {
         id: typeof result.weapon.id === 'string' ? result.weapon.id : '',
         name: typeof result.weapon.name === 'string' ? result.weapon.name : command.weaponName || '',
       };
     }
-    if (command.op === 'setOperatorEquipment' && Array.isArray(result.equipment)) {
+    if ((command.op === 'setOperatorEquipment' || command.op === 'setOperatorConfig') && Array.isArray(result.equipment)) {
       current.equipment = result.equipment.map((piece) => ({
         slotKey: typeof piece?.slotKey === 'string' ? piece.slotKey : '',
         equipmentId: typeof piece?.equipmentId === 'string' ? piece.equipmentId : '',
@@ -4102,8 +4102,7 @@ function buildDefOperatorConfigPostconditions(commands, commandVerifications) {
   return [...targets.values()];
 }
 
-function verifyDefOperatorConfigPostconditions(snapshot, expectedTargets) {
-  const configs = Array.isArray(snapshot?.operatorConfigs) ? snapshot.operatorConfigs : [];
+function verifyDefOperatorConfigTargets(configs, expectedTargets) {
   const results = expectedTargets.map((expected) => {
     const config = configs.find((candidate) => (
       (expected.characterId && candidate?.characterId === expected.characterId)
@@ -4147,6 +4146,55 @@ function verifyDefOperatorConfigPostconditions(snapshot, expectedTargets) {
   return { pass: results.length > 0 && results.every((result) => result.pass), results };
 }
 
+function verifyDefOperatorConfigPostconditions(snapshot, expectedTargets) {
+  const configs = Array.isArray(snapshot?.operatorConfigs) ? snapshot.operatorConfigs : [];
+  return verifyDefOperatorConfigTargets(configs, expectedTargets);
+}
+
+function verifyDefOperatorConfigCheckoutPostconditions(expectedTargets) {
+  const axis = readDefWorkbenchAxisContext();
+  const checkout = axis?.checkout || null;
+  if (checkout?.targetType !== 'work-node' || !checkout.targetId) {
+    return {
+      pass: false,
+      code: 'operator-config-checkout-unavailable',
+      checkout,
+      verification: { pass: false, results: [] },
+    };
+  }
+  const node = readRepositoryWorkNode(checkout.targetId);
+  if (!node?.workingPayload) {
+    return {
+      pass: false,
+      code: 'operator-config-checkout-unavailable',
+      checkout,
+      verification: { pass: false, results: [] },
+    };
+  }
+  const cache = isObject(node.workingPayload.operatorConfigPageCache)
+    ? node.workingPayload.operatorConfigPageCache
+    : {};
+  const configs = Object.entries(cache).map(([characterId, snapshot]) => ({
+    characterId,
+    characterName: snapshot?.operator?.name || '',
+    weapon: snapshot?.weapon || null,
+    equipment: Array.isArray(snapshot?.equipment?.pieces) ? snapshot.equipment.pieces : [],
+  }));
+  const verification = verifyDefOperatorConfigTargets(configs, expectedTargets);
+  return {
+    pass: verification.pass,
+    code: verification.pass ? 'operator-config-checkout-persisted' : 'operator-config-checkout-mismatch',
+    checkout: {
+      timelineId: node.timelineId || node.saveId || '',
+      targetType: 'work-node',
+      targetId: node.id,
+      updatedAt: node.updatedAt || null,
+      contentRevision: node.contentRevision || node.updatedAt || null,
+    },
+    verification,
+  };
+}
+
 async function waitForDefOperatorConfigPostconditions(expectedTargets, waitMs) {
   const deadline = Date.now() + normalizeDefVerifyWaitMs(waitMs, 8000);
   let snapshot = readMainWorkbenchSnapshotMirror();
@@ -4186,6 +4234,19 @@ async function executeDefOperatorConfigPatchAndVerify(definition, input = {}) {
       commandVerifications,
     };
   }
+  const persistence = commandVerifications.map((verification) => verification.result?.result?.persistence || null);
+  if (!persistence.every((result) => result?.pass === true)) {
+    return {
+      ok: false,
+      code: 'operator-config-persistence-failed',
+      component: 'operator-config',
+      retryable: true,
+      nextAction: 'Read the command result and restore a writable Work Node checkout before retrying.',
+      commands: enqueued.body.commands,
+      commandVerifications,
+      persistence,
+    };
+  }
   const expectedTargets = buildDefOperatorConfigPostconditions(commands, commandVerifications);
   if (!expectedTargets.length) {
     return {
@@ -4213,6 +4274,22 @@ async function executeDefOperatorConfigPatchAndVerify(definition, input = {}) {
       snapshotUpdatedAt: snapshot?.updatedAt || null,
     };
   }
+  const checkoutPersistence = verifyDefOperatorConfigCheckoutPostconditions(expectedTargets);
+  if (!checkoutPersistence.pass) {
+    return {
+      ok: false,
+      code: 'operator-config-persistence-failed',
+      component: 'operator-config',
+      retryable: true,
+      nextAction: 'The live page changed but the checked-out payload does not contain the same configuration; do not describe it as applied.',
+      commands: enqueued.body.commands,
+      commandVerifications,
+      expectedTargets,
+      postcondition: verification,
+      checkoutPersistence,
+      snapshotUpdatedAt: snapshot?.updatedAt || null,
+    };
+  }
   return {
     ok: true,
     component: 'operator-config',
@@ -4220,6 +4297,7 @@ async function executeDefOperatorConfigPatchAndVerify(definition, input = {}) {
     commandVerifications,
     expectedTargets,
     postcondition: verification,
+    checkoutPersistence,
     snapshotUpdatedAt: snapshot?.updatedAt || null,
     note: 'Applied only after the live Workbench operator-config mirror matched the renderer result.',
   };
@@ -4624,8 +4702,26 @@ function buildDefOperatorConfigPatchCommands(input = {}) {
     return commands;
   }
   const weaponCommand = normalizeDefToolWeaponPatch(input);
+  const equipmentCommands = normalizeDefToolEquipmentCommands(input);
+  if (weaponCommand && equipmentCommands.length === 1) {
+    const { op: _weaponOp, characterId: _weaponCharacterId, characterName: _weaponCharacterName, ...weapon } = weaponCommand;
+    const { op: _equipmentOp, characterId: _equipmentCharacterId, characterName: _equipmentCharacterName, ...equipment } = equipmentCommands[0];
+    void _weaponOp;
+    void _weaponCharacterId;
+    void _weaponCharacterName;
+    void _equipmentOp;
+    void _equipmentCharacterId;
+    void _equipmentCharacterName;
+    commands.push({
+      op: 'setOperatorConfig',
+      ...compactOperatorCommandTarget(input),
+      ...weapon,
+      ...equipment,
+    });
+    return commands;
+  }
   if (weaponCommand) commands.push(weaponCommand);
-  commands.push(...normalizeDefToolEquipmentCommands(input));
+  commands.push(...equipmentCommands);
   return commands;
 }
 

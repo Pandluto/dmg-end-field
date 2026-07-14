@@ -436,6 +436,7 @@ export function handleAiCliRestRequest(
           'clearTimeline',
           'setOperatorWeapon',
           'setOperatorEquipment',
+          'setOperatorConfig',
           'addSkillButton',
           'removeSkillButton',
           'addBuff',
@@ -472,8 +473,8 @@ export function handleAiCliRestRequest(
           'For risky/batch/timeline rewrite operations, call def.worknode.patch_and_validate directly. It creates a Work Node only when needed, writes only workingPayload during staging, and checkout remains an explicit tool decision; use restoreAiTimelineWorkNodeBase only for a chosen node rollback.',
           'patchAiTimelineWorkNode applies a constrained patch DSL to appdata node.workingPayload only; it must not be described as writing browser localStorage/sessionStorage current checkout.',
           'saveTimelineSnapshot/restoreTimelineSnapshot are legacy user snapshot compatibility tools for current checkout only; do not use them as AI branch logs or appdata work nodes.',
-          'Use setOperatorWeapon to equip a selected operator weapon before refreshing operator config.',
-          'Use setOperatorEquipment with gearSetName/gearSetId and fillSlots:true for four-piece equipment, or slotKey plus equipmentName/equipmentId for one piece.',
+          'Use setOperatorConfig to atomically change a selected operator weapon and/or equipment before refreshing operator config.',
+          'Legacy setOperatorWeapon/setOperatorEquipment remain supported; use setOperatorConfig with gearSetName/gearSetId and fillSlots:true for a four-piece loadout, or slotKey plus equipmentName/equipmentId for one piece.',
           'Use openWorkbenchPage for operatorConfig, weaponSheet, equipmentSheet, damageSheet, damageReportPpt, aiCli, selection, or canvas.',
         ],
         enqueueExample: {

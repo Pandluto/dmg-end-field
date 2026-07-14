@@ -570,7 +570,10 @@ function expandEquipmentSelections(
   selections: OperatorEquipmentSelectionInput[],
 ): OperatorEquipmentSelectionInput[] {
   return selections.flatMap((selection) => {
-    if (!selection.fillSlots || selection.equipmentId || selection.equipmentName) {
+    // A resolver may include the first matching equipment together with the
+    // user's explicit "fill every slot" intent.  The intent is authoritative:
+    // do not silently downgrade a four-slot request to that one piece.
+    if (!selection.fillSlots) {
       return [selection];
     }
     const gearSet = findEquipmentGearSet(equipmentLibrary, selection);
@@ -581,11 +584,25 @@ function expandEquipmentSelections(
     const armors = byPart('护甲');
     const gloves = byPart('护手');
     const accessories = byPart('配件');
+    // Resolver input can carry the first candidate's id/name/slot.  Those are
+    // useful for a single-piece request, but must not constrain the remaining
+    // generated slots in a fillSlots request.
+    const {
+      equipmentId: _equipmentId,
+      equipmentName: _equipmentName,
+      slotKey: _slotKey,
+      part: _part,
+      ...fillSelection
+    } = selection;
+    void _equipmentId;
+    void _equipmentName;
+    void _slotKey;
+    void _part;
     const expanded: OperatorEquipmentSelectionInput[] = [];
-    if (armors[0]) expanded.push({ ...selection, fillSlots: false, slotKey: 'armor', equipmentId: armors[0].equipmentId });
-    if (gloves[0]) expanded.push({ ...selection, fillSlots: false, slotKey: 'glove', equipmentId: gloves[0].equipmentId });
-    if (accessories[0]) expanded.push({ ...selection, fillSlots: false, slotKey: 'accessory1', equipmentId: accessories[0].equipmentId });
-    if (accessories[1]) expanded.push({ ...selection, fillSlots: false, slotKey: 'accessory2', equipmentId: accessories[1].equipmentId });
+    if (armors[0]) expanded.push({ ...fillSelection, fillSlots: false, slotKey: 'armor', equipmentId: armors[0].equipmentId });
+    if (gloves[0]) expanded.push({ ...fillSelection, fillSlots: false, slotKey: 'glove', equipmentId: gloves[0].equipmentId });
+    if (accessories[0]) expanded.push({ ...fillSelection, fillSlots: false, slotKey: 'accessory1', equipmentId: accessories[0].equipmentId });
+    if (accessories[1]) expanded.push({ ...fillSelection, fillSlots: false, slotKey: 'accessory2', equipmentId: accessories[1].equipmentId });
     return expanded;
   });
 }

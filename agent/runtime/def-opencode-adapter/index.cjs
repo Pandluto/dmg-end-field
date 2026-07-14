@@ -210,6 +210,9 @@ function buildCapabilityPermission(_webfetchAllow = [], options = {}) {
     plan_exit: 'deny',
     skill: 'allow',
     'def_*': 'allow',
+    // This is a user-visible renderer mutation.  It must not inherit the
+    // broad native-tool allow rule, otherwise context.ask() is auto-approved.
+    def_operator_config_patch: 'ask',
     def_node_use: 'ask',
     def_node_delete: 'ask',
     def_node_restore: 'ask',

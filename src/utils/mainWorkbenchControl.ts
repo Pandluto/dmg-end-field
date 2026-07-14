@@ -215,6 +215,41 @@ export type MainWorkbenchCommand =
       }>;
     }
   | {
+      // The typed DEF operator-config tool uses this combined operation so a
+      // weapon plus four-piece loadout is persisted as one checkout revision.
+      // Keep the two narrower operations above for legacy callers only.
+      op: 'setOperatorConfig';
+      characterId?: string;
+      characterName?: string;
+      weaponName?: string;
+      level?: number | string;
+      potential?: string;
+      skillLevels?: {
+        skill1?: number;
+        skill2?: number;
+        skill3?: number;
+      };
+      slotKey?: 'armor' | 'accessory2' | 'accessory1' | 'glove';
+      part?: '护甲' | '护手' | '配件';
+      equipmentId?: string;
+      equipmentName?: string;
+      gearSetId?: string;
+      gearSetName?: string;
+      fillSlots?: boolean;
+      entryLevel?: number | string;
+      entryLevels?: Array<number | string> | Record<string, number | string>;
+      equipments?: Array<{
+        slotKey?: 'armor' | 'accessory2' | 'accessory1' | 'glove';
+        part?: '护甲' | '护手' | '配件';
+        equipmentId?: string;
+        equipmentName?: string;
+        gearSetId?: string;
+        gearSetName?: string;
+        entryLevel?: number | string;
+        entryLevels?: Array<number | string> | Record<string, number | string>;
+      }>;
+    }
+  | {
       op: 'refreshSnapshot';
     };
 

@@ -742,7 +742,7 @@ export function CanvasBoard({
     })();
   }, [activeCheckoutRef, activeTimelineId, hydrateCheckoutRuntime, isTimelineSessionReady, loadedCharacters.length]);
 
-  const findCharacterForWorkbenchCommand = (command: Extract<MainWorkbenchCommand, { op: 'addSkillButton' | 'removeSkillButton' | 'addBuff' | 'removeBuff' | 'setOperatorWeapon' | 'setOperatorEquipment' }>) => {
+  const findCharacterForWorkbenchCommand = (command: Extract<MainWorkbenchCommand, { op: 'addSkillButton' | 'removeSkillButton' | 'addBuff' | 'removeBuff' | 'setOperatorWeapon' | 'setOperatorEquipment' | 'setOperatorConfig' }>) => {
     if ('characterId' in command && command.characterId) {
       const byId = selectedCharacters.find((character) => character.id === command.characterId);
       if (byId) return byId;
@@ -752,6 +752,68 @@ export function CanvasBoard({
       if (byName) return byName;
     }
     return null;
+  };
+
+  const makeOperatorConfigCommandError = (code: string, message: string) => {
+    const error = new Error(message) as Error & { code?: string };
+    error.code = code;
+    return error;
+  };
+
+  const resolveOperatorCharacterForWorkbenchCommand = (command: Extract<MainWorkbenchCommand, { op: 'setOperatorWeapon' | 'setOperatorEquipment' | 'setOperatorConfig' }>) => {
+    const characterId = command.characterId?.trim() || '';
+    const characterName = command.characterName?.trim() || '';
+    if (!characterId && !characterName) {
+      throw makeOperatorConfigCommandError('operator-config-target-required', `${command.op} requires an exact characterId or characterName.`);
+    }
+    const idMatches = characterId ? selectedCharacters.filter((character) => character.id === characterId) : [];
+    const nameMatches = characterName ? selectedCharacters.filter((character) => character.name === characterName) : [];
+    if (characterId && idMatches.length !== 1) {
+      throw makeOperatorConfigCommandError('operator-config-target-not-found', `未找到已选干员 id: ${characterId}`);
+    }
+    if (characterName && nameMatches.length !== 1) {
+      throw makeOperatorConfigCommandError(
+        nameMatches.length > 1 ? 'operator-config-target-ambiguous' : 'operator-config-target-not-found',
+        `未找到唯一的已选干员名称: ${characterName}`,
+      );
+    }
+    const byId = idMatches[0];
+    const byName = nameMatches[0];
+    if (byId && byName && byId.id !== byName.id) {
+      throw makeOperatorConfigCommandError('operator-config-target-mismatch', `干员 id ${characterId} 与名称 ${characterName} 不属于同一已选干员。`);
+    }
+    return byId || byName;
+  };
+
+  const prepareOperatorConfigCheckout = async () => {
+    if (!activeCheckoutRef || activeCheckoutRef.targetType !== 'work-node') {
+      throw makeOperatorConfigCommandError('operator-config-checkout-unavailable', '当前角色配置只能写入一个已检出的 Work Node；未找到可持久化的 checkout。');
+    }
+    const client = createAiTimelineWorkNodeClient();
+    const { node } = await client.get(activeCheckoutRef.targetId);
+    if (node.timelineId !== activeTimelineId || node.id !== activeCheckoutRef.targetId) {
+      throw makeOperatorConfigCommandError('operator-config-checkout-conflict', '当前 Work Node checkout 已变化；请重新打开工作台后再应用角色配置。');
+    }
+    return node;
+  };
+
+  const persistOperatorConfigCheckout = async (checkoutNodeId: string) => {
+    const payload = getCurrentTimelineSnapshotPayload();
+    if (!payload) {
+      throw makeOperatorConfigCommandError('operator-config-payload-unavailable', '无法读取当前角色配置的完整 checkout payload。');
+    }
+    const client = createAiTimelineWorkNodeClient();
+    const updated = await client.update(checkoutNodeId, { workingPayload: payload });
+    setSessionWorkingPayload(updated.node.workingPayload, 'checkout');
+    return {
+      pass: true,
+      checkout: {
+        timelineId: updated.node.timelineId,
+        targetType: 'work-node' as const,
+        targetId: updated.node.id,
+        updatedAt: updated.node.updatedAt,
+      },
+    };
   };
 
   const normalizeWorkbenchWeaponPotential = (potential: string | undefined, fallback: string) => {
@@ -766,64 +828,68 @@ export function CanvasBoard({
     if (!weaponName) {
       throw new Error('setOperatorWeapon requires weaponName');
     }
-    const character = findCharacterForWorkbenchCommand(command) ?? selectedCharacters[0] ?? null;
-    if (!character) {
-      throw new Error('未找到可设置武器的已选干员');
-    }
-
-    await refreshOperatorConfigSnapshotsForCharacters([character]);
     const cache = getOperatorConfigPageCache();
-    const snapshot = cache[character.id];
-    if (!snapshot) {
-      throw new Error(`未找到干员配置快照: ${character.name}`);
-    }
+    const checkout = await prepareOperatorConfigCheckout();
+    const character = resolveOperatorCharacterForWorkbenchCommand(command);
+    try {
+      await refreshOperatorConfigSnapshotsForCharacters([character]);
+      const snapshot = getOperatorConfigPageCache()[character.id];
+      if (!snapshot) {
+        throw new Error(`未找到干员配置快照: ${character.name}`);
+      }
 
-    const nextSnapshot = {
-      ...snapshot,
-      weapon: {
-        ...snapshot.weapon,
-        id: weaponName,
-        name: weaponName,
-        config: {
-          ...snapshot.weapon.config,
-          level: command.level ?? snapshot.weapon.config.level,
-          potential: normalizeWorkbenchWeaponPotential(command.potential, snapshot.weapon.config.potential),
-          skillLevels: {
-            ...snapshot.weapon.config.skillLevels,
-            ...(command.skillLevels ?? {}),
+      const nextSnapshot = {
+        ...snapshot,
+        weapon: {
+          ...snapshot.weapon,
+          id: weaponName,
+          name: weaponName,
+          config: {
+            ...snapshot.weapon.config,
+            level: command.level ?? snapshot.weapon.config.level,
+            potential: normalizeWorkbenchWeaponPotential(command.potential, snapshot.weapon.config.potential),
+            skillLevels: {
+              ...snapshot.weapon.config.skillLevels,
+              ...(command.skillLevels ?? {}),
+            },
           },
         },
-      },
-    };
-    setOperatorConfigPageCache({
-      ...cache,
-      [character.id]: nextSnapshot,
-    });
-    const refreshResult = await refreshOperatorConfigSnapshotsForCharacters([character]);
-    await refreshAvailableCandidateBuffsForCharacters([character]);
-    setResistanceRevision((value) => value + 1);
-    const refreshedSnapshot = getOperatorConfigPageCache()[character.id] ?? nextSnapshot;
+      };
+      setOperatorConfigPageCache({
+        ...getOperatorConfigPageCache(),
+        [character.id]: nextSnapshot,
+      });
+      const refreshResult = await refreshOperatorConfigSnapshotsForCharacters([character]);
+      await refreshAvailableCandidateBuffsForCharacters([character]);
+      const persistence = await persistOperatorConfigCheckout(checkout.id);
+      setResistanceRevision((value) => value + 1);
+      const refreshedSnapshot = getOperatorConfigPageCache()[character.id] ?? nextSnapshot;
 
-    return {
-      characterId: character.id,
-      characterName: character.name,
-      weapon: {
-        id: refreshedSnapshot.weapon.id,
-        name: refreshedSnapshot.weapon.name,
-        level: refreshedSnapshot.weapon.config.level,
-        potential: refreshedSnapshot.weapon.config.potential,
-        attack: refreshedSnapshot.weapon.attack,
-      },
-      refreshedCharacterIds: refreshResult.refreshedCharacterIds,
-      skippedCharacterIds: refreshResult.skippedCharacterIds,
-    };
+      return {
+        characterId: character.id,
+        characterName: character.name,
+        weapon: {
+          id: refreshedSnapshot.weapon.id,
+          name: refreshedSnapshot.weapon.name,
+          level: refreshedSnapshot.weapon.config.level,
+          potential: refreshedSnapshot.weapon.config.potential,
+          attack: refreshedSnapshot.weapon.attack,
+        },
+        refreshedCharacterIds: refreshResult.refreshedCharacterIds,
+        skippedCharacterIds: refreshResult.skippedCharacterIds,
+        persistence,
+      };
+    } catch (error) {
+      setOperatorConfigPageCache(cache);
+      await refreshAvailableCandidateBuffsForCharacters([character]);
+      throw error;
+    }
   };
 
   const setOperatorEquipmentFromWorkbenchCommand = async (command: Extract<MainWorkbenchCommand, { op: 'setOperatorEquipment' }>) => {
-    const character = findCharacterForWorkbenchCommand(command) ?? selectedCharacters[0] ?? null;
-    if (!character) {
-      throw new Error('未找到可设置装备的已选干员');
-    }
+    const cache = getOperatorConfigPageCache();
+    const checkout = await prepareOperatorConfigCheckout();
+    const character = resolveOperatorCharacterForWorkbenchCommand(command);
 
     const selections = command.equipments?.length
       ? command.equipments.map((selection) => ({
@@ -845,51 +911,183 @@ export function CanvasBoard({
           entryLevels: command.entryLevels,
         }];
 
-    await refreshOperatorConfigSnapshotsForCharacters([character]);
-    const cache = getOperatorConfigPageCache();
-    const snapshot = cache[character.id];
-    if (!snapshot) {
-      throw new Error(`未找到干员配置快照: ${character.name}`);
-    }
+    try {
+      await refreshOperatorConfigSnapshotsForCharacters([character]);
+      const snapshot = getOperatorConfigPageCache()[character.id];
+      if (!snapshot) {
+        throw new Error(`未找到干员配置快照: ${character.name}`);
+      }
 
-    const patchResult = applyOperatorEquipmentSelectionsToSnapshot(snapshot, selections);
-    setOperatorConfigPageCache({
-      ...cache,
-      [character.id]: patchResult.snapshot,
-    });
-    const refreshResult = await refreshOperatorConfigSnapshotsForCharacters([character]);
-    await refreshAvailableCandidateBuffsForCharacters([character]);
-    setResistanceRevision((value) => value + 1);
-    const refreshedSnapshot = getOperatorConfigPageCache()[character.id] ?? patchResult.snapshot;
+      const patchResult = applyOperatorEquipmentSelectionsToSnapshot(snapshot, selections);
+      setOperatorConfigPageCache({
+        ...getOperatorConfigPageCache(),
+        [character.id]: patchResult.snapshot,
+      });
+      const refreshResult = await refreshOperatorConfigSnapshotsForCharacters([character]);
+      await refreshAvailableCandidateBuffsForCharacters([character]);
+      const persistence = await persistOperatorConfigCheckout(checkout.id);
+      setResistanceRevision((value) => value + 1);
+      const refreshedSnapshot = getOperatorConfigPageCache()[character.id] ?? patchResult.snapshot;
 
-    return {
-      characterId: character.id,
-      characterName: character.name,
-      equipment: refreshedSnapshot.equipment.pieces.map((piece) => ({
-        slotKey: piece.slotKey,
-        equipmentId: piece.equipmentId,
-        name: piece.name,
-        part: piece.part,
-        effects: piece.effects.map((effect) => ({
-          effectId: effect.effectId,
-          label: effect.label,
-          typeKey: effect.typeKey,
-          level: effect.level,
-          value: effect.value,
+      return {
+        characterId: character.id,
+        characterName: character.name,
+        equipment: refreshedSnapshot.equipment.pieces.map((piece) => ({
+          slotKey: piece.slotKey,
+          equipmentId: piece.equipmentId,
+          name: piece.name,
+          part: piece.part,
+          effects: piece.effects.map((effect) => ({
+            effectId: effect.effectId,
+            label: effect.label,
+            typeKey: effect.typeKey,
+            level: effect.level,
+            value: effect.value,
+          })),
         })),
-      })),
-      applied: patchResult.applied,
-      setBuffs: refreshedSnapshot.equipment.setBuffs.map((buff) => ({
-        gearSetId: buff.gearSetId,
-        gearSetName: buff.gearSetName,
-        effectId: buff.effectId,
-        label: buff.label,
-        typeKey: buff.typeKey,
-        value: buff.value,
-      })),
-      refreshedCharacterIds: refreshResult.refreshedCharacterIds,
-      skippedCharacterIds: refreshResult.skippedCharacterIds,
-    };
+        applied: patchResult.applied,
+        setBuffs: refreshedSnapshot.equipment.setBuffs.map((buff) => ({
+          gearSetId: buff.gearSetId,
+          gearSetName: buff.gearSetName,
+          effectId: buff.effectId,
+          label: buff.label,
+          typeKey: buff.typeKey,
+          value: buff.value,
+        })),
+        refreshedCharacterIds: refreshResult.refreshedCharacterIds,
+        skippedCharacterIds: refreshResult.skippedCharacterIds,
+        persistence,
+      };
+    } catch (error) {
+      setOperatorConfigPageCache(cache);
+      await refreshAvailableCandidateBuffsForCharacters([character]);
+      throw error;
+    }
+  };
+
+  const setOperatorConfigFromWorkbenchCommand = async (command: Extract<MainWorkbenchCommand, { op: 'setOperatorConfig' }>) => {
+    const cache = getOperatorConfigPageCache();
+    const checkout = await prepareOperatorConfigCheckout();
+    const character = resolveOperatorCharacterForWorkbenchCommand(command);
+    const weaponName = command.weaponName?.trim() || '';
+    const hasEquipment = Boolean(
+      command.equipments?.length
+      || command.equipmentId
+      || command.equipmentName
+      || command.gearSetId
+      || command.gearSetName,
+    );
+    const selections = hasEquipment
+      ? (command.equipments?.length
+        ? command.equipments.map((selection) => ({
+            ...selection,
+            gearSetId: selection.gearSetId ?? command.gearSetId,
+            gearSetName: selection.gearSetName ?? command.gearSetName,
+            entryLevel: selection.entryLevel ?? command.entryLevel,
+            entryLevels: selection.entryLevels ?? command.entryLevels,
+          }))
+        : [{
+            slotKey: command.slotKey,
+            part: command.part,
+            equipmentId: command.equipmentId,
+            equipmentName: command.equipmentName,
+            gearSetId: command.gearSetId,
+            gearSetName: command.gearSetName,
+            fillSlots: command.fillSlots,
+            entryLevel: command.entryLevel,
+            entryLevels: command.entryLevels,
+          }])
+      : [];
+
+    try {
+      await refreshOperatorConfigSnapshotsForCharacters([character]);
+      const snapshot = getOperatorConfigPageCache()[character.id];
+      if (!snapshot) {
+        throw makeOperatorConfigCommandError('operator-config-snapshot-unavailable', `未找到干员配置快照: ${character.name}`);
+      }
+
+      let nextSnapshot = snapshot;
+      if (weaponName) {
+        nextSnapshot = {
+          ...nextSnapshot,
+          weapon: {
+            ...nextSnapshot.weapon,
+            id: weaponName,
+            name: weaponName,
+            config: {
+              ...nextSnapshot.weapon.config,
+              level: command.level ?? nextSnapshot.weapon.config.level,
+              potential: normalizeWorkbenchWeaponPotential(command.potential, nextSnapshot.weapon.config.potential),
+              skillLevels: {
+                ...nextSnapshot.weapon.config.skillLevels,
+                ...(command.skillLevels ?? {}),
+              },
+            },
+          },
+        };
+      }
+      const equipmentPatch = hasEquipment
+        ? applyOperatorEquipmentSelectionsToSnapshot(nextSnapshot, selections)
+        : null;
+      if (equipmentPatch) nextSnapshot = equipmentPatch.snapshot;
+
+      // This is deliberately one cache update followed by one Work Node write.
+      // A combined weapon/loadout request can never persist a half-applied pair.
+      setOperatorConfigPageCache({
+        ...getOperatorConfigPageCache(),
+        [character.id]: nextSnapshot,
+      });
+      const refreshResult = await refreshOperatorConfigSnapshotsForCharacters([character]);
+      await refreshAvailableCandidateBuffsForCharacters([character]);
+      const persistence = await persistOperatorConfigCheckout(checkout.id);
+      setResistanceRevision((value) => value + 1);
+      const refreshedSnapshot = getOperatorConfigPageCache()[character.id] ?? nextSnapshot;
+
+      return {
+        characterId: character.id,
+        characterName: character.name,
+        ...(weaponName ? {
+          weapon: {
+            id: refreshedSnapshot.weapon.id,
+            name: refreshedSnapshot.weapon.name,
+            level: refreshedSnapshot.weapon.config.level,
+            potential: refreshedSnapshot.weapon.config.potential,
+            attack: refreshedSnapshot.weapon.attack,
+          },
+        } : {}),
+        ...(equipmentPatch ? {
+          equipment: refreshedSnapshot.equipment.pieces.map((piece) => ({
+            slotKey: piece.slotKey,
+            equipmentId: piece.equipmentId,
+            name: piece.name,
+            part: piece.part,
+            effects: piece.effects.map((effect) => ({
+              effectId: effect.effectId,
+              label: effect.label,
+              typeKey: effect.typeKey,
+              level: effect.level,
+              value: effect.value,
+            })),
+          })),
+          applied: equipmentPatch.applied,
+          setBuffs: refreshedSnapshot.equipment.setBuffs.map((buff) => ({
+            gearSetId: buff.gearSetId,
+            gearSetName: buff.gearSetName,
+            effectId: buff.effectId,
+            label: buff.label,
+            typeKey: buff.typeKey,
+            value: buff.value,
+          })),
+        } : {}),
+        refreshedCharacterIds: refreshResult.refreshedCharacterIds,
+        skippedCharacterIds: refreshResult.skippedCharacterIds,
+        persistence,
+      };
+    } catch (error) {
+      setOperatorConfigPageCache(cache);
+      await refreshAvailableCandidateBuffsForCharacters([character]);
+      throw error;
+    }
   };
 
   const resolveWorkbenchCommandSkill = (
@@ -1584,6 +1782,7 @@ export function CanvasBoard({
         'refreshOperatorConfig',
         'setOperatorWeapon',
         'setOperatorEquipment',
+        'setOperatorConfig',
         'refreshSnapshot',
       ])[0];
       if (!commandEntry) {
@@ -1941,6 +2140,13 @@ export function CanvasBoard({
           return;
         }
 
+        if (command.op === 'setOperatorConfig') {
+          const result = await setOperatorConfigFromWorkbenchCommand(command);
+          const doneEntry = patchMainWorkbenchCommand(commandEntry.id, { status: 'done', result });
+          if (doneEntry) void pushMainWorkbenchCommandResult(doneEntry);
+          return;
+        }
+
         if (command.op === 'refreshSnapshot') {
           const snapshot = readMainWorkbenchSnapshot();
           if (snapshot) {
@@ -2067,9 +2273,12 @@ export function CanvasBoard({
         const doneEntry = patchMainWorkbenchCommand(commandEntry.id, { status: 'done', result });
         if (doneEntry) void pushMainWorkbenchCommandResult(doneEntry);
       } catch (error) {
+        const errorCode = typeof error === 'object' && error && 'code' in error && typeof error.code === 'string'
+          ? error.code
+          : '';
         const errorEntry = patchMainWorkbenchCommand(commandEntry.id, {
           status: 'error',
-          error: error instanceof Error ? error.message : String(error),
+          error: `${errorCode ? `[${errorCode}] ` : ''}${error instanceof Error ? error.message : String(error)}`,
         });
         if (errorEntry) void pushMainWorkbenchCommandResult(errorEntry);
       }
