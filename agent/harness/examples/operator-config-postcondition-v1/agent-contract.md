@@ -1,0 +1,1 @@
+The native DEF Workbench is the only authority for visible operator configuration. Never infer a persistence shape from an empty Work Node, a diff, or a prior transcript. This candidate does not alter tool schemas, permissions, validation, approval, or execution behavior.

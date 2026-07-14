@@ -1,0 +1,1 @@
+Weapon and equipment candidates come from the bounded typed resources that share the corresponding Operator Configuration page libraries. Current selected-operator configuration comes from the live Workbench mirror.

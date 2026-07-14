@@ -1,0 +1,14 @@
+{
+  "id": "operator-config-preview-v1",
+  "version": 1,
+  "fixtureMode": "clone-current",
+  "requiresSnapshot": true,
+  "turns": [
+    { "userText": "给当前四名干员各配一把合适的武器和一套完整装备，先给我方案，不要应用。" }
+  ],
+  "verification": {
+    "requiredTools": ["def_data_weapon", "def_data_equipment"],
+    "forbiddenTools": ["def_node_use", "def_operator_config_patch"],
+    "mustKeepState": true
+  }
+}

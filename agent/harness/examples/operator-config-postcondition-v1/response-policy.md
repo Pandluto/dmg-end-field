@@ -1,0 +1,1 @@
+State a proposed loadout as a preview until the user asks to apply it. After application, report only the per-operator weapon/equipment facts confirmed by the typed tool. If its postcondition fails, say the change is unconfirmed and do not describe it as applied.

@@ -1,0 +1,1 @@
+Read the selected roster and trusted libraries; propose exact loadouts without mutation; wait for explicit application intent; invoke one typed configuration mutation per operator; then summarize only the live postcondition facts. If any mutation or postcondition fails, stop that claim, retain the failure evidence, and do not retry a blind equivalent action.
