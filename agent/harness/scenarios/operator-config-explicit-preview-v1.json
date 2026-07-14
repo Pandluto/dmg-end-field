@@ -1,0 +1,14 @@
+{
+  "id": "operator-config-explicit-preview-v1",
+  "version": 1,
+  "fixtureMode": "clone-current",
+  "requiresSnapshot": true,
+  "turns": [
+    { "userText": "把当前弭弗的武器换成赤缨，装备点剑一套；先给我确认方案，不要应用。" }
+  ],
+  "verification": {
+    "requiredTools": ["def_data_weapon", "def_data_equipment"],
+    "forbiddenTools": ["def_node_use", "def_operator_config_patch"],
+    "mustKeepState": true
+  }
+}
