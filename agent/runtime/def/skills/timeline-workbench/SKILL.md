@@ -11,7 +11,7 @@ Use this skill only for the Workbench host. The user may call the task 排轴、
 
 Call `def_workbench_context` before reasoning about the visible canvas. It provides the bounded host attachment and the current checkout snapshot. Do not infer the current timeline from old transcript text.
 
-This rule does **not** apply to a read-only request about “当前四人 / 全队 / 他们 / 每个人” and their weapons or equipment. Do not call `def_workbench_context` for those requests: use `def_data_team_loadouts` once for current configuration, then `def_data_loadout_candidates` once for team-wide planning. Do not use any other data, node, file, or permission tool in that turn.
+This rule does **not** apply to a read-only request about “当前四人 / 全队 / 他们 / 每个人” and their weapons or equipment. Do not call `def_workbench_context` for those requests: use `def_data_team_loadouts` once for current configuration, then `def_data_loadout_candidates` once for ordinary team-wide planning. Do not use node, file, or permission tools in that turn. A named-guide/author request is a hard override, including “按他那篇攻略…先让我确认”: use `def_data_team_loadouts` only if current-team identity is needed, then `def_data_game_knowledge` once and `def_data_game_knowledge_section` once for its exact equipment/养成 section. Stop data-tool use and return a source-faithful proposal; do not resolve guide names against equipment/weapon catalogs, create a Work Node, or prepare an application.
 
 `@N-L` always means `nodeIndex=N-1` and `lineIndex=L-1`. Before editing a coordinate or claiming it is empty, call `def_workbench_buttons` with both exact indices. If no candidate is returned, report the coordinate as empty; never reinterpret it as an ordinal or select another button.
 

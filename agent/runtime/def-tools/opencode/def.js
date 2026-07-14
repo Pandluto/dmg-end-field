@@ -711,18 +711,22 @@ function boundResourceValue(value, depth = 0) {
 function dataResource(definition) {
   return {
     description: definition.description,
-    args: {
+    args: definition.args || {
       query: { type: 'string', description: 'Optional id, name, or search text.' },
     },
     async execute(args, context) {
       context.metadata({ title: definition.title })
       const input = typeof definition.input === 'function' ? definition.input(args) : args
       const result = await callDefTool(definition.tool, input)
-      const bounded = boundResourceValue(typeof definition.transform === 'function' ? definition.transform(result) : result)
+      const transformed = typeof definition.transform === 'function' ? definition.transform(result) : result
+      // Section reads enforce their own server-side character/cursor contract.
+      // Do not silently apply the generic 600-character free-text limiter to
+      // an already bounded, continuous Markdown section.
+      const bounded = definition.preserveContract === true ? transformed : boundResourceValue(transformed)
       return {
         title: definition.title,
         output: JSON.stringify(bounded, null, 2),
-        metadata: { family: 'def-data-resource', legacyTool: definition.tool },
+        metadata: { family: 'def-data-resource', legacyTool: definition.tool, ...(definition.contract ? { contract: definition.contract } : {}) },
       }
     },
   }
@@ -796,10 +800,29 @@ export const data_operator_catalog = dataResource({
 })
 
 export const data_game_knowledge = dataResource({
-  title: 'DEF game knowledge references',
-  description: 'Read bounded evidence excerpts from the game-knowledge Skill references. Use it for glossary and team-guide facts instead of arbitrary filesystem reads.',
+  title: 'DEF game knowledge reference search',
+  contract: 'DefGameKnowledgeReferenceSearchV1',
+  description: 'Search only allowlisted game-knowledge Markdown references. Returns stable referenceId and heading/section indexes; follow with def_data_game_knowledge_section for the exact continuous section. Never use arbitrary filesystem reads.',
   tool: 'def.knowledge.game.search',
   input: ({ query }) => ({ query, limit: 3 }),
+})
+
+export const data_game_knowledge_section = dataResource({
+  title: 'DEF game knowledge exact section',
+  contract: 'DefGameKnowledgeSectionReadV1',
+  preserveContract: true,
+  description: 'Read one continuous, bounded Markdown section by the exact allowlisted referenceId plus sectionId returned from def_data_game_knowledge. The result includes truncation, nextSection cursor facts, and the reference heading index.',
+  tool: 'def.knowledge.game.section.read',
+  args: {
+    referenceId: tool.schema.string().min(1).max(280).describe('Exact referenceId returned by def_data_game_knowledge.'),
+    sectionId: tool.schema.string().min(1).max(160).describe('Exact sectionId returned by def_data_game_knowledge.'),
+    cursor: tool.schema.number().int().min(0).max(1_000_000).optional().describe('Only use the returned nextSection.cursor when the prior section response was truncated.'),
+  },
+  input: ({ referenceId, sectionId, cursor }) => ({
+    referenceId: referenceId.trim(),
+    sectionId: sectionId.trim(),
+    ...(cursor !== undefined ? { cursor } : {}),
+  }),
 })
 
 export const data_weapon = dataResource({

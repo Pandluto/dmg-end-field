@@ -55,8 +55,8 @@ All game knowledge is stored in `references/`:
 
 ## Procedure
 
-1. Load this Skill, then use the bounded typed resource `def_data_game_knowledge` to consult `glossary.md` and the relevant guide(s). Do not use direct `read`, `glob`, or `grep` on this directory: the typed resource is the only available reference reader.
-2. Use the returned reference id and excerpt as evidence to resolve nicknames and ASR errors, then identify the relevant guide(s).
-3. Extract structured recommendations from the returned evidence: team composition, rotation sequence, equipment priorities.
-4. Present findings concisely — do not dump entire guide files.
-5. If the user's request goes beyond the guides (e.g., real-time game state), fall back to DEF typed tools.
+1. Load this Skill, then use `def_data_game_knowledge` once to search only the allowlisted references. It returns stable `referenceId` plus heading/section indexes, not a guide excerpt. For a named four-person guide, its returned title is the roster source: do not read team state merely to confirm it, and never call the guide roster the “current team”. Do not use direct `read`, `glob`, or `grep` on this directory: typed resources are the only available reference readers.
+2. Select the exact returned `referenceId` and call `def_data_game_knowledge_section` exactly once with `exactReadPolicy.requiredSectionId`; use `recommendedSection.sectionId` only if no `exactReadPolicy` is present. `exactReadPolicy.maxSectionReads` is a hard limit, not a hint: never read overview or any second section. For a four-person build question, use the matched guide title for the roster rather than spending a section read on an overview. It returns the continuous bounded Markdown section together with `truncated`, `nextSection`, and `availableSections` facts.
+3. Make claims only from that exact section. After the section returns, stop data-tool use and answer; “先让我确认” means present this source-faithful draft, not resolve names against the product catalog, describe a future application, request a catalog lookup, or prepare one. If the section does not specify a weapon, slot, threshold, or condition, label it 待确认 rather than filling it from another guide. A truncated section is not complete evidence; report its returned continuation fact instead of guessing.
+4. Do not re-search the same guide with aliases, keywords, pinyin, or one-character queries after a reference is found. Do not use direct filesystem tools.
+5. Present findings concisely — do not dump entire guide files. If the user's request goes beyond the guides (e.g., real-time game state), fall back to DEF typed tools.

@@ -2497,15 +2497,20 @@ function readDefLoadoutCandidates(input = {}) {
     : [];
   const goal = typeof input.goal === 'string' ? input.goal.trim().slice(0, 240) : '';
   // One exact-team lookup is more useful than repeatedly translating a
-  // natural-language goal into aliases. It remains bounded and optional: an
-  // absent match is reported as no evidence, never invented as a strategy.
-  const evidenceQuery = team.operators.map((operator) => operator.characterName).filter(Boolean).join(' ') || goal;
+  // natural-language goal into aliases. This is an index citation, not an
+  // excerpt: a guide fact is usable only after the caller reads the returned
+  // exact section through def.knowledge.game.section.read.
+  const evidenceQuery = [
+    team.operators.map((operator) => operator.characterName).filter(Boolean).join(' '),
+    goal,
+  ].filter(Boolean).join(' ');
   const evidence = evidenceQuery ? searchDefGameKnowledge({ query: evidenceQuery, limit: 3 }).candidates.slice(0, 3).map((candidate) => ({
     referenceId: candidate.referenceId,
+    title: candidate.title,
     source: candidate.source,
-    // The batch result is planning evidence, not a guide dump. Keep it in
-    // the first tool response so OpenCode never needs a follow-up file read.
-    excerpt: String(candidate.excerpt || '').slice(0, 500),
+    section: candidate.recommendedSection || null,
+    availableSections: candidate.headings,
+    state: candidate.recommendedSection ? 'section-read-required' : 'no-section-match',
   })) : [];
   let truncated = false;
   const missingReasons = [...team.missing];
@@ -2574,7 +2579,7 @@ function readDefLoadoutCandidates(input = {}) {
       team: team.source,
       weaponLibrary: 'operator-config-weapon-library',
       equipmentLibrary: 'operator-config-equipment-library',
-      ...(goal ? { evidence: 'allowlisted-game-knowledge-skill' } : {}),
+      ...(goal ? { evidence: 'allowlisted-game-knowledge-reference-index' } : {}),
     },
     snapshotUpdatedAt: team.snapshotUpdatedAt,
     checkout: team.checkout,
@@ -2606,50 +2611,240 @@ function safeGameKnowledgeReferenceFiles() {
     .filter(Boolean);
 }
 
-function boundedGameKnowledgeExcerpt(text, query) {
-  const lines = String(text || '').split(/\r?\n/);
-  const terms = gameKnowledgeQueryTerms(query);
-  const matching = terms.length
-    ? lines.filter((line) => terms.some((term) => normalizeDefToolText(line).includes(term)))
-    : [];
-  const chosen = (matching.length ? matching : lines.filter((line) => line.trim()).slice(0, 36))
-    .slice(0, 36)
-    .join('\n')
-    .trim();
-  return chosen.slice(0, 6000);
+const GAME_KNOWLEDGE_SECTION_MAX_CHARS = 12_000;
+const GAME_KNOWLEDGE_SEARCH_ALIAS_TERMS = Object.freeze([
+  ['yz', '月咒'],
+  ['月咒', 'yz'],
+  ['新手', '萌新'],
+  ['萌新', '新手'],
+  ['配装', '装备'],
+  ['养成', '装备'],
+]);
+const GAME_KNOWLEDGE_QUERY_KEYWORDS = Object.freeze([
+  '新手', '萌新', '碎冰', '装备', '配装', '养成', '武器', '攻略', '配队', '排轴',
+]);
+
+function gameKnowledgeSectionId(level, heading, counts) {
+  const normalized = String(heading || '')
+    .normalize('NFKC')
+    .toLowerCase()
+    .replace(/[^\p{Script=Han}a-z0-9]+/gu, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 80) || 'section';
+  const base = `h${level}-${normalized}`;
+  const seen = (counts.get(base) || 0) + 1;
+  counts.set(base, seen);
+  return seen === 1 ? base : `${base}-${seen}`;
+}
+
+function indexGameKnowledgeSections(text) {
+  const lines = String(text || '').replace(/\r\n/g, '\n').split('\n');
+  const counts = new Map();
+  const headings = [];
+  const stack = [];
+  for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
+    const match = lines[lineIndex].match(/^(#{1,6})\s+(.+?)\s*#*\s*$/);
+    if (!match) continue;
+    const level = match[1].length;
+    const heading = match[2].trim();
+    while (stack.length && stack.at(-1).level >= level) stack.pop();
+    const entry = {
+      sectionId: gameKnowledgeSectionId(level, heading, counts),
+      heading,
+      level,
+      lineStart: lineIndex,
+      parentSectionId: stack.at(-1)?.sectionId || null,
+      lineEnd: lines.length,
+    };
+    headings.push(entry);
+    stack.push(entry);
+  }
+  for (let index = 0; index < headings.length; index += 1) {
+    const current = headings[index];
+    const nextBoundary = headings.slice(index + 1).find((entry) => entry.level <= current.level);
+    current.lineEnd = nextBoundary ? nextBoundary.lineStart : lines.length;
+  }
+  return { lines, headings };
 }
 
 function gameKnowledgeQueryTerms(query) {
-  const namedTerms = String(query || '').match(/[\p{Script=Han}]{2,}|[a-zA-Z0-9]{2,}/gu) || [];
-  const normalized = namedTerms.map((term) => normalizeDefToolText(term)).filter(Boolean);
-  return normalized.length ? [...new Set(normalized)] : [normalizeDefToolText(query)].filter(Boolean);
+  const raw = String(query || '').normalize('NFKC').toLowerCase();
+  const namedTerms = raw.match(/[\p{Script=Han}]{2,}|[a-z0-9]{2,}/gu) || [];
+  const expanded = [...namedTerms];
+  for (const keyword of GAME_KNOWLEDGE_QUERY_KEYWORDS) {
+    if (raw.includes(keyword)) expanded.push(keyword);
+  }
+  for (const [from, to] of GAME_KNOWLEDGE_SEARCH_ALIAS_TERMS) {
+    if (raw.includes(from)) expanded.push(to);
+  }
+  const normalized = expanded.map((term) => normalizeDefToolText(term)).filter(Boolean);
+  return normalized.length ? [...new Set(normalized)] : [normalizeDefToolText(raw)].filter(Boolean);
+}
+
+function compactGameKnowledgeHeading(entry) {
+  return {
+    sectionId: entry.sectionId,
+    heading: entry.heading,
+    level: entry.level,
+    parentSectionId: entry.parentSectionId,
+  };
+}
+
+function scoreGameKnowledgeReference(reference, queryTerms, query) {
+  const title = normalizeDefToolText(reference.title || reference.id);
+  const body = normalizeDefToolText(reference.text);
+  const matchedTerms = queryTerms.filter((term) => body.includes(term));
+  if (queryTerms.length && matchedTerms.length === 0) return null;
+  const headingMatches = reference.index.headings.filter((entry) => {
+    const section = reference.text.slice(
+      reference.lineOffsets[entry.lineStart] || 0,
+      reference.lineOffsets[entry.lineEnd] || reference.text.length,
+    );
+    const searchable = normalizeDefToolText(`${entry.heading}\n${section}`);
+    return matchedTerms.some((term) => searchable.includes(term));
+  });
+  const normalizedQuery = normalizeDefToolText(query);
+  const asksBeginnerIceTeam = (normalizedQuery.includes('新手') || normalizedQuery.includes('萌新')) && normalizedQuery.includes('碎冰');
+  const score = matchedTerms.reduce((total, term) => total + (title.includes(term) ? 4 : 1), 0)
+    + headingMatches.reduce((total, entry) => total + (normalizeDefToolText(entry.heading).includes('装备') || normalizeDefToolText(entry.heading).includes('养成') ? 0.25 : 0), 0);
+  // “新手碎冰” is a joint guide intent, not two unrelated common words.
+  // Prefer a beginner-labelled reference that actually contains the ice-team
+  // material over a generic YZ/装备 guide whose title merely has more tokens.
+  const intentBonus = asksBeginnerIceTeam && title.includes('萌新') && body.includes('碎冰') ? 20 : 0;
+  return { score: score + intentBonus, matchedTerms, headingMatches };
+}
+
+function preferredGameKnowledgeSection(reference, headingMatches, queryTerms) {
+  const beginnerIceBuild = queryTerms.some((term) => term.includes('新手') || term.includes('萌新'))
+    && queryTerms.some((term) => term.includes('碎冰'))
+    && /弭弗.*陈千语.*埃特拉.*阿列什/.test(reference.title);
+  const equipmentRequest = beginnerIceBuild || queryTerms.some((term) => ['装备', '配装', '养成', '武器'].includes(term));
+  const candidates = equipmentRequest
+    ? reference.index.headings.filter((entry) => entry.level === 2 && /装备|养成|配装/.test(entry.heading))
+    : headingMatches;
+  return (candidates[0] || headingMatches[0] || reference.index.headings[0])
+    ? compactGameKnowledgeHeading(candidates[0] || headingMatches[0] || reference.index.headings[0])
+    : null;
+}
+
+function gameKnowledgeExactReadPolicy(reference, recommendedSection) {
+  if (!recommendedSection) return null;
+  return {
+    mode: 'single-exact-section',
+    maxSectionReads: 1,
+    requiredSectionId: recommendedSection.sectionId,
+    reason: '此检索已给出完成当前攻略问题所需的精读章节；不得再读取概述或其他章节。',
+    rosterSource: /弭弗.*陈千语.*埃特拉.*阿列什/.test(reference.title) ? 'reference-title' : null,
+  };
+}
+
+function readGameKnowledgeReference(referenceId) {
+  const requested = String(referenceId || '').trim();
+  if (!requested || requested !== path.basename(requested) || requested.includes(path.sep) || requested.includes('/') || requested.includes('\\')) {
+    return { error: { status: 400, code: 'invalid-game-knowledge-reference', message: 'referenceId 必须是 allowlisted Markdown 文件名，不能包含路径。' } };
+  }
+  const allowed = safeGameKnowledgeReferenceFiles().find((reference) => reference.id === requested);
+  if (!allowed) {
+    return { error: { status: 404, code: 'game-knowledge-reference-not-allowed', message: 'referenceId 不在 allowlisted game-knowledge references 中。' } };
+  }
+  const root = fs.realpathSync(GAME_KNOWLEDGE_REFERENCES_DIR);
+  const resolved = fs.realpathSync(allowed.path);
+  if (!resolved.startsWith(`${root}${path.sep}`)) {
+    return { error: { status: 403, code: 'game-knowledge-reference-outside-root', message: 'referenceId 未解析到允许的 references root。' } };
+  }
+  const text = fs.readFileSync(resolved, 'utf8').replace(/\r\n/g, '\n');
+  const index = indexGameKnowledgeSections(text);
+  const lineOffsets = [];
+  let offset = 0;
+  for (const line of index.lines) {
+    lineOffsets.push(offset);
+    offset += line.length + 1;
+  }
+  const title = index.headings.find((entry) => entry.level === 1)?.heading || requested.replace(/\.md$/i, '');
+  return { reference: { id: requested, path: resolved, text, title, index, lineOffsets } };
 }
 
 function searchDefGameKnowledge(input = {}) {
   const query = String(input.query || input.name || input.text || '').trim();
   const queryTerms = gameKnowledgeQueryTerms(query);
   const limit = boundedDefLimit(input.limit, 3, 6);
-  const candidates = safeGameKnowledgeReferenceFiles()
-    .map((reference) => ({ ...reference, text: fs.readFileSync(reference.path, 'utf8') }))
-    .filter((reference) => {
-      const searchable = normalizeDefToolText(`${reference.id}\n${reference.text}`);
-      return !queryTerms.length || queryTerms.every((term) => searchable.includes(term));
-    })
-    .slice(0, limit)
-    .map((reference) => ({
+  const matched = safeGameKnowledgeReferenceFiles()
+    .map((entry) => readGameKnowledgeReference(entry.id).reference)
+    .filter(Boolean)
+    .map((reference) => ({ reference, ranking: scoreGameKnowledgeReference(reference, queryTerms, query) }))
+    .filter((entry) => entry.ranking)
+    .sort((left, right) => right.ranking.score - left.ranking.score || left.reference.id.localeCompare(right.reference.id, 'zh-Hans-CN'));
+  const candidates = matched.slice(0, limit).map(({ reference, ranking }) => {
+    const recommendedSection = preferredGameKnowledgeSection(reference, ranking.headingMatches, queryTerms);
+    return {
       referenceId: reference.id,
+      title: reference.title,
       source: `game-knowledge/references/${reference.id}`,
-      excerpt: boundedGameKnowledgeExcerpt(reference.text, query),
-    }));
+      matchedTerms: ranking.matchedTerms,
+      headings: reference.index.headings.map(compactGameKnowledgeHeading),
+      matchingSections: ranking.headingMatches.map(compactGameKnowledgeHeading),
+      recommendedSection,
+      exactReadPolicy: gameKnowledgeExactReadPolicy(reference, recommendedSection),
+    };
+  });
   return {
-    scope: 'game-knowledge-references',
+    protocolVersion: 1,
+    contract: 'DefGameKnowledgeReferenceSearchV1',
+    scope: 'allowlisted-game-knowledge-references',
     source: 'allowlisted-game-knowledge-skill',
     query,
+    queryTerms,
     count: candidates.length,
     ambiguity: candidates.length !== 1,
-    exhaustive: candidates.length < limit,
+    exhaustive: matched.length <= limit,
+    truncated: matched.length > limit,
     candidates,
-    suggestedQuestion: candidates.length === 0 ? '当前 game-knowledge references 中没有匹配内容；这不表示游戏中不存在该角色或机制。' : '',
+    suggestedQuestion: candidates.length === 0 ? '当前 allowlisted game-knowledge references 中没有匹配内容；这不表示游戏中不存在该角色或机制。' : '',
+  };
+}
+
+function readDefGameKnowledgeSection(input = {}) {
+  const loaded = readGameKnowledgeReference(input.referenceId);
+  if (loaded.error) return { ok: false, ...loaded.error, component: 'game-knowledge-section' };
+  const reference = loaded.reference;
+  const sectionId = String(input.sectionId || '').trim();
+  const heading = String(input.heading || '').trim();
+  const section = reference.index.headings.find((entry) => (
+    (sectionId && entry.sectionId === sectionId) || (!sectionId && heading && entry.heading === heading)
+  ));
+  if (!section) {
+    return {
+      ok: false,
+      status: 404,
+      code: 'game-knowledge-section-not-found',
+      component: 'game-knowledge-section',
+      message: '该 reference 中不存在精确 sectionId 或 heading。请使用 reference search 返回的 headings。',
+      availableSections: reference.index.headings.map(compactGameKnowledgeHeading),
+    };
+  }
+  const cursor = Number.isInteger(input.cursor) && input.cursor >= 0 ? input.cursor : 0;
+  const sectionText = reference.text.slice(
+    reference.lineOffsets[section.lineStart] || 0,
+    reference.lineOffsets[section.lineEnd] || reference.text.length,
+  ).trim();
+  const content = sectionText.slice(cursor, cursor + GAME_KNOWLEDGE_SECTION_MAX_CHARS);
+  const nextCursor = cursor + content.length;
+  const truncated = nextCursor < sectionText.length;
+  return {
+    ok: true,
+    protocolVersion: 1,
+    contract: 'DefGameKnowledgeSectionReadV1',
+    scope: 'allowlisted-game-knowledge-section',
+    source: `game-knowledge/references/${reference.id}`,
+    referenceId: reference.id,
+    title: reference.title,
+    requested: { sectionId: section.sectionId, heading: section.heading, cursor },
+    section: compactGameKnowledgeHeading(section),
+    content,
+    characterLimit: GAME_KNOWLEDGE_SECTION_MAX_CHARS,
+    truncated,
+    nextSection: truncated ? { referenceId: reference.id, sectionId: section.sectionId, cursor: nextCursor } : null,
+    availableSections: reference.index.headings.map(compactGameKnowledgeHeading),
   };
 }
 
@@ -5655,6 +5850,15 @@ async function executeDefTool(name, input = {}, query = new URLSearchParams()) {
     result = listDefOperatorCatalog(input);
   } else if (name === 'def.knowledge.game.search') {
     result = searchDefGameKnowledge(input);
+  } else if (name === 'def.knowledge.game.section.read') {
+    result = readDefGameKnowledgeSection(input);
+    if (!result.ok) {
+      return failScript(result.status || 400, result.code || 'game-knowledge-section-read-failed', result.message || 'Unable to read game-knowledge section.', {
+        component: result.component || 'game-knowledge-section',
+        ...(Array.isArray(result.availableSections) ? { availableSections: result.availableSections } : {}),
+        nextAction: 'Use def.knowledge.game.search and select an exact allowlisted referenceId plus sectionId.',
+      });
+    }
   } else if (name === 'def.skill.resolve') {
     result = resolveDefSkills(input);
   } else if (name === 'def.buff.resolve' || name === 'def.buff.search_candidates') {

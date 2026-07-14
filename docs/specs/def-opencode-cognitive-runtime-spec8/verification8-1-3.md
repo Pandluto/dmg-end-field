@@ -251,3 +251,68 @@ Known limits: `complete=false` is expected while three selected characters
 have no saved loadout; candidate ranking remains a model judgment over the
 bounded compatibility/evidence bundle, rather than a product-owned optimizer.
 No Harness candidate was promoted.
+
+## Addendum — game-knowledge exact-section contract (2026-07-15, no promotion)
+
+This addendum replaces neither the prior routing evidence nor the task status.
+It records a targeted repair only; Spec 8-1-3 remains **实施中** and no
+Harness candidate is promoted.
+
+### Historical evidence kept as failures
+
+- The first native knowledge-routing attempt made 59 tool calls and failed.
+- The second made 36 tool calls, did not completely read the 阿列什 portion,
+  and mixed conclusions not explicitly supplied by the requested guide. It is
+  **not PASS**.
+- A further pre-repair probe read both `一、阵容概述` and
+  `三、装备养成推荐`; it is failure evidence because it exceeded the one-section
+  route, even though its final answer looked plausible.
+
+### Repair
+
+`DefGameKnowledgeReferenceSearchV1` now searches only the realpath-checked
+allowlisted `game-knowledge/references/*.md` files. It returns a stable
+`referenceId`, complete heading index, `recommendedSection`, and a
+single-section `exactReadPolicy`. The companion
+`DefGameKnowledgeSectionReadV1` accepts only that allowlisted filename and a
+stable section id, returns continuous bounded Markdown rather than isolated
+keyword lines, and reports `truncated`, `nextSection`, and
+`availableSections`. It has its own 12,000-character bound and bypasses the
+generic 600-character resource string truncation.
+
+The resource rejects path traversal, unknown references and unknown headings
+with stable errors. Batch loadout-candidate evidence now points at structured
+reference/section facts rather than presenting a fixed file-prefix excerpt.
+
+For a named four-person guide, the route is exactly one reference search then
+one exact section read. The guide title is the roster source, so there is no
+unnecessary current-team read. It may not open an overview section, run
+per-person/catalog/file tools, request permission, create a Work Node, or
+prepare/apply a mutation. It preserves source notation (including `专1+`) and
+marks facts absent from the requested section as 待确认.
+
+### Focused contract check
+
+`node scripts/def-game-knowledge-contract-check.mjs` checks the target
+`【萌新推荐】弭弗x陈千语x埃特拉x阿列什 低配高伤&无脑循环打法教学.md` reference,
+continuous `三、装备养成推荐` content through 3.1–3.4, the >600-character
+contract path, truncation metadata, path traversal, unknown reference, and
+unknown heading.
+
+### Final native v1 evidence
+
+| Case | Stable ids | Data-tool sequence | Terminal / evidence |
+| --- | --- | --- | --- |
+| A — `你知道 YZ 的新手碎冰队吗？四个人分别是谁，攻略里怎么配装备？` | run `e6686e69-32b9-4cb1-a0b3-f29ec9f69d29`; session `ses_09e8c8360ffeJxn3k1HXgva473`; turn `dd4b8b59-340a-40c9-99a0-3d6aeda6e59d`; client `codex-1784046396519-d320b113` | `def_data_game_knowledge` → `def_data_game_knowledge_section(h2-三-装备养成推荐)` | completed in 21,828 ms; raw text exactly equals provider-visible text; answer covers 弭弗、陈千语、埃特拉、阿列什 and source-only equipment facts. |
+| B — `按他那篇新手碎冰队攻略给当前四人出配装方案，先让我确认。` | run `e30d2588-9b02-4473-a9e4-0b43fdf8508b`; session `ses_09e88ebecffeQyvHwP3XM0Uxh0`; turn `10282bdb-761e-4da9-98e9-50253f65a967`; client `codex-1784046630334-e77ef4be` | `def_data_game_knowledge` → `def_data_game_knowledge_section(h2-三-装备养成推荐)` | completed in 28,909 ms; raw text exactly equals provider-visible text; source-faithful proposal stops at confirmation, with omitted values marked 待确认. |
+
+Both paths selected the exact requested reference and read the entire 3.1–3.4
+equipment chapter, including 阿列什. No transcript contains `direct read`,
+`glob`, catalog/per-person lookup, permission, Work Node, or mutation tool.
+Computer Use confirmed the real `DEF · 排轴助手` iframe visibly rendered the
+complete final A answer and the final B confirmation draft. The v1 transcript,
+not UI pixels, remains the authority for tool order and terminal state.
+
+Known limit: this repair provides guide-faithful recommendations, not a
+product-catalog id resolution or an apply flow; those are deliberately out of
+scope for this route and this addendum.
