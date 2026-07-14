@@ -28,8 +28,6 @@ const DATA_RESOURCE_TOOLS = new Set([
   'def.damage.calculate_and_verify',
   'def.verify.damage_recalculated',
   'def.operator.config.read',
-  'def.operator.config.patch',
-  'def.gear.set_entry_level',
 ]);
 
 const CANONICAL_TARGETS = Object.freeze({
@@ -83,6 +81,7 @@ export const DEF_NATIVE_TARGETS = Object.freeze([
   { id: 'def.data.resource.skill', family: DEF_TOOL_FAMILY.DATA_RESOURCE, source: 'def-native', nativeBinding: 'def_data_skill', status: 'implemented', workspaceScope: 'data-resource' },
   { id: 'def.data.resource.buff', family: DEF_TOOL_FAMILY.DATA_RESOURCE, source: 'def-native', nativeBinding: 'def_data_buff', status: 'implemented', workspaceScope: 'data-resource' },
   { id: 'def.data.resource.damage', family: DEF_TOOL_FAMILY.DATA_RESOURCE, source: 'def-native', nativeBinding: 'def_data_damage', status: 'implemented', workspaceScope: 'data-resource' },
+  { id: 'def.operator.config.patch', family: DEF_TOOL_FAMILY.NODE_CRUD, source: 'def-native', nativeBinding: 'def_operator_config_patch', status: 'implemented', workspaceScope: 'current-checkout', exposure: ['workbench'] },
 ]);
 
 function familyFor(id) {

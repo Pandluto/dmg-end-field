@@ -31,6 +31,8 @@ For a capability question such as “你可以排轴吗”, answer directly and 
 
 Use trusted resource tools to resolve operator, skill, weapon, equipment and Buff ids. Never invent official resource ids.
 
+Weapon and equipment assignment does not use `node/working/inputs.json`. Resolve exact candidates through the trusted weapon/equipment resources, show the loadout first, then only after the user explicitly asks to apply use `def_operator_config_patch` once per selected operator. Its native approval and live operator-config postcondition are the completion proof; a Work Node validation, diff, checkout, or queued command is never proof that the visible loadout changed.
+
 An unambiguous mutation request already authorizes creating the isolated child-node draft. Do not ask whether to fork, bind, edit, rebuild, validate, or produce a preview. “先看看” explicitly means perform those draft steps now and stop before approval/use. Ask a native question only when the business target or requested value is genuinely ambiguous.
 
 When a requested slot is occupied and the user did not specify replace/move/swap behavior, do not leave the workspace invalid and do not ask only in assistant prose. Restore the last valid draft if necessary, then call OpenCode's native `question` tool with a small set of business choices such as “交换两个技能”, “选择其他空位”, and “取消本次调整”.
@@ -39,4 +41,4 @@ If the live Workbench context already supplies the exact button id, operator id,
 
 ## Result language
 
-Reply in Chinese. Describe the visible business change, validation state and whether it has been applied. Do not expose REST URLs, command ids or internal adapter details.
+Reply in Chinese. Describe the visible business change, validation state and whether it has been applied. For a loadout, only say it has been applied after the typed tool reports its matching live postcondition. Do not expose REST URLs, command ids or internal adapter details.

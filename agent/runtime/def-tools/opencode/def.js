@@ -801,3 +801,55 @@ export const data_damage = dataResource({
     } : null,
   }),
 })
+
+export const operator_config_patch = {
+  description: 'Apply one explicitly approved weapon or equipment change to a selected operator through the typed Workbench route. Use only after the user has reviewed the proposed loadout and asked to apply it. The tool waits for the real operator-config mirror; a queued command alone is never success.',
+  args: {
+    characterId: { type: 'string', description: 'Selected operator id.' },
+    characterName: { type: 'string', description: 'Selected operator name when id is unavailable.' },
+    weaponName: { type: 'string', description: 'Exact weapon name from DEF weapon resource.' },
+    weaponPotential: { type: 'string', enum: ['P0', 'PMAX'], description: 'Optional weapon potential.' },
+    gearSetName: { type: 'string', description: 'Exact equipment set name from DEF equipment resource.' },
+    gearSetId: { type: 'string', description: 'Exact equipment set id from DEF equipment resource.' },
+    equipmentName: { type: 'string', description: 'Exact single equipment name from DEF equipment resource.' },
+    equipmentId: { type: 'string', description: 'Exact single equipment id from DEF equipment resource.' },
+    slotKey: { type: 'string', enum: ['armor', 'accessory2', 'accessory1', 'glove'], description: 'Slot for one equipment piece.' },
+    fillSlots: { type: 'boolean', description: 'Fill all four slots from the named gear set.' },
+  },
+  async execute(args, context) {
+    const weapon = typeof args.weaponName === 'string' && args.weaponName.trim()
+      ? { name: args.weaponName.trim(), ...(typeof args.weaponPotential === 'string' ? { potential: args.weaponPotential } : {}) }
+      : undefined
+    const input = {
+      ...(typeof args.characterId === 'string' && args.characterId.trim() ? { characterId: args.characterId.trim() } : {}),
+      ...(typeof args.characterName === 'string' && args.characterName.trim() ? { characterName: args.characterName.trim() } : {}),
+      ...(weapon ? { weapon } : {}),
+      ...(typeof args.gearSetName === 'string' && args.gearSetName.trim() ? { gearSetName: args.gearSetName.trim() } : {}),
+      ...(typeof args.gearSetId === 'string' && args.gearSetId.trim() ? { gearSetId: args.gearSetId.trim() } : {}),
+      ...(typeof args.equipmentName === 'string' && args.equipmentName.trim() ? { equipmentName: args.equipmentName.trim() } : {}),
+      ...(typeof args.equipmentId === 'string' && args.equipmentId.trim() ? { equipmentId: args.equipmentId.trim() } : {}),
+      ...(typeof args.slotKey === 'string' && args.slotKey.trim() ? { slotKey: args.slotKey.trim() } : {}),
+      ...(args.fillSlots === true ? { fillSlots: true } : {}),
+    }
+    if (!input.weapon && !input.gearSetName && !input.gearSetId && !input.equipmentName && !input.equipmentId) {
+      throw new Error('Provide an exact weapon or equipment selection before applying operator configuration.')
+    }
+    const before = await callDefTool('def.operator.config.read', {})
+    await askWithApproval(context, {
+      action: 'Apply operator configuration',
+      summary: `Apply reviewed operator weapon/equipment configuration for ${input.characterName || input.characterId || 'selected operator'}`,
+      permission: 'def_operator_config_patch',
+      nodeId: 'current-checkout',
+      revision: before.snapshotUpdatedAt || undefined,
+      diff: { type: 'operator-config', requested: input },
+      riskFlags: [{ severity: 'warning', code: 'operator-config-mutation', message: 'Changes the visible operator weapon and/or equipment configuration.' }],
+      consequence: 'The selected operator configuration changes only if the Workbench renderer returns a matching live postcondition.',
+    })
+    const result = await callDefTool('def.operator.config.patch', input)
+    return {
+      title: 'DEF operator configuration applied',
+      output: JSON.stringify(result, null, 2),
+      metadata: { family: 'def-operator-config', currentCheckoutTouched: result.ok === true, postcondition: result.postcondition?.pass === true },
+    }
+  },
+}

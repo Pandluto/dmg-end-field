@@ -4063,6 +4063,168 @@ async function waitForDefDamageReport(waitMs) {
   return snapshot;
 }
 
+function normalizeDefOperatorConfigTarget(value = {}) {
+  return {
+    characterId: typeof value.characterId === 'string' ? value.characterId.trim() : '',
+    characterName: typeof value.characterName === 'string' ? value.characterName.trim() : '',
+  };
+}
+
+function buildDefOperatorConfigPostconditions(commands, commandVerifications) {
+  const targets = new Map();
+  for (let index = 0; index < commands.length; index += 1) {
+    const command = commands[index];
+    const verification = commandVerifications[index];
+    const result = isObject(verification?.result?.result) ? verification.result.result : null;
+    if (!verification?.pass || !result) continue;
+    const target = normalizeDefOperatorConfigTarget({
+      characterId: result.characterId || command.characterId,
+      characterName: result.characterName || command.characterName,
+    });
+    const key = target.characterId || normalizeDefToolText(target.characterName);
+    if (!key) continue;
+    const current = targets.get(key) || { ...target };
+    if (command.op === 'setOperatorWeapon' && isObject(result.weapon)) {
+      current.weapon = {
+        id: typeof result.weapon.id === 'string' ? result.weapon.id : '',
+        name: typeof result.weapon.name === 'string' ? result.weapon.name : command.weaponName || '',
+      };
+    }
+    if (command.op === 'setOperatorEquipment' && Array.isArray(result.equipment)) {
+      current.equipment = result.equipment.map((piece) => ({
+        slotKey: typeof piece?.slotKey === 'string' ? piece.slotKey : '',
+        equipmentId: typeof piece?.equipmentId === 'string' ? piece.equipmentId : '',
+        name: typeof piece?.name === 'string' ? piece.name : '',
+      }));
+    }
+    targets.set(key, current);
+  }
+  return [...targets.values()];
+}
+
+function verifyDefOperatorConfigPostconditions(snapshot, expectedTargets) {
+  const configs = Array.isArray(snapshot?.operatorConfigs) ? snapshot.operatorConfigs : [];
+  const results = expectedTargets.map((expected) => {
+    const config = configs.find((candidate) => (
+      (expected.characterId && candidate?.characterId === expected.characterId)
+      || (expected.characterName && normalizeDefToolText(candidate?.characterName) === normalizeDefToolText(expected.characterName))
+    ));
+    const mismatches = [];
+    if (!config) {
+      mismatches.push('operator-config-not-mirrored');
+    } else {
+      if (expected.weapon) {
+        const actualWeapon = config.weapon || {};
+        const matchesWeapon = (expected.weapon.id && actualWeapon.id === expected.weapon.id)
+          || (expected.weapon.name && actualWeapon.name === expected.weapon.name);
+        if (!matchesWeapon) mismatches.push('weapon-mismatch');
+      }
+      if (Array.isArray(expected.equipment)) {
+        const actualEquipment = Array.isArray(config.equipment) ? config.equipment : [];
+        for (const expectedPiece of expected.equipment) {
+          const found = actualEquipment.some((actualPiece) => (
+            (expectedPiece.slotKey && actualPiece?.slotKey === expectedPiece.slotKey)
+            && ((expectedPiece.equipmentId && actualPiece?.equipmentId === expectedPiece.equipmentId)
+              || (expectedPiece.name && actualPiece?.name === expectedPiece.name))
+          ));
+          if (!found) mismatches.push(`equipment-mismatch:${expectedPiece.slotKey || expectedPiece.equipmentId || expectedPiece.name || 'unknown'}`);
+        }
+      }
+    }
+    return {
+      characterId: expected.characterId || config?.characterId || '',
+      characterName: expected.characterName || config?.characterName || '',
+      pass: mismatches.length === 0,
+      mismatches,
+      actual: config ? {
+        weapon: config.weapon ? { id: config.weapon.id || '', name: config.weapon.name || '' } : null,
+        equipment: Array.isArray(config.equipment) ? config.equipment.map((piece) => ({
+          slotKey: piece?.slotKey || '', equipmentId: piece?.equipmentId || '', name: piece?.name || '',
+        })) : [],
+      } : null,
+    };
+  });
+  return { pass: results.length > 0 && results.every((result) => result.pass), results };
+}
+
+async function waitForDefOperatorConfigPostconditions(expectedTargets, waitMs) {
+  const deadline = Date.now() + normalizeDefVerifyWaitMs(waitMs, 8000);
+  let snapshot = readMainWorkbenchSnapshotMirror();
+  let verification = verifyDefOperatorConfigPostconditions(snapshot, expectedTargets);
+  while (!verification.pass && Date.now() < deadline) {
+    await sleep(250);
+    snapshot = readMainWorkbenchSnapshotMirror();
+    verification = verifyDefOperatorConfigPostconditions(snapshot, expectedTargets);
+  }
+  return { snapshot, verification };
+}
+
+async function executeDefOperatorConfigPatchAndVerify(definition, input = {}) {
+  const commands = buildDefOperatorConfigPatchCommands(input);
+  const enqueued = enqueueDefToolCommands(definition, commands, input);
+  if (enqueued.status < 200 || enqueued.status >= 300 || !enqueued.body?.commands?.length) {
+    return {
+      ok: false,
+      code: enqueued.body?.code || 'operator-config-enqueue-failed',
+      component: 'operator-config',
+      retryable: false,
+      nextAction: 'Correct the typed weapon/equipment input before retrying.',
+      enqueue: enqueued.body || null,
+    };
+  }
+  const commandVerifications = await Promise.all(
+    enqueued.body.commands.map((command) => buildDefToolCommandVerification(command, input.waitMs)),
+  );
+  if (!commandVerifications.every((verification) => verification.pass)) {
+    return {
+      ok: false,
+      code: 'operator-config-command-failed',
+      component: 'operator-config',
+      retryable: true,
+      nextAction: 'Read the failed command result; do not describe the configuration as applied.',
+      commands: enqueued.body.commands,
+      commandVerifications,
+    };
+  }
+  const expectedTargets = buildDefOperatorConfigPostconditions(commands, commandVerifications);
+  if (!expectedTargets.length) {
+    return {
+      ok: false,
+      code: 'operator-config-postcondition-unavailable',
+      component: 'operator-config',
+      retryable: false,
+      nextAction: 'The renderer did not return a typed operator-config result; do not claim application.',
+      commands: enqueued.body.commands,
+      commandVerifications,
+    };
+  }
+  const { snapshot, verification } = await waitForDefOperatorConfigPostconditions(expectedTargets, input.snapshotWaitMs ?? 8000);
+  if (!verification.pass) {
+    return {
+      ok: false,
+      code: 'postcondition-failed',
+      component: 'operator-config',
+      retryable: true,
+      nextAction: 'Read the live operator configuration and reconcile the renderer before retrying.',
+      commands: enqueued.body.commands,
+      commandVerifications,
+      expectedTargets,
+      postcondition: verification,
+      snapshotUpdatedAt: snapshot?.updatedAt || null,
+    };
+  }
+  return {
+    ok: true,
+    component: 'operator-config',
+    commands: enqueued.body.commands,
+    commandVerifications,
+    expectedTargets,
+    postcondition: verification,
+    snapshotUpdatedAt: snapshot?.updatedAt || null,
+    note: 'Applied only after the live Workbench operator-config mirror matched the renderer result.',
+  };
+}
+
 async function executeDefWorkNodeApplyAndVerify(name, input = {}, restore = false) {
   const nodeId = typeof input.nodeId === 'string' && input.nodeId.trim() ? input.nodeId.trim() : '';
   if (!nodeId) {
@@ -4701,7 +4863,8 @@ async function executeDefTool(name, input = {}, query = new URLSearchParams()) {
   }
 
   if (name === 'def.operator.config.patch') {
-    return enqueueDefToolCommands(definition, buildDefOperatorConfigPatchCommands(input), input);
+    const result = await executeDefOperatorConfigPatchAndVerify(definition, input);
+    return { status: result.ok ? 200 : 409, body: { ok: result.ok, protocolVersion: 1, tool: name, result } };
   }
   if (name === 'def.gear.set_entry_level') {
     const commandsOrResponse = buildDefGearEntryLevelCommands(input);
