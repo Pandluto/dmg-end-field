@@ -1,193 +1,127 @@
-# dmg-end-field
+<p align="center">
+  <img src="electron/assets/icon.png" width="112" alt="终末地伤害模拟器图标" />
+</p>
 
-> 地表作业终端 / 本地战斗配置、排轴与数据编辑工作台
+<h1 align="center">终末地伤害模拟器</h1>
 
-`dmg-end-field` 是一个面向《明日方舟：终末地》相关资料整理的本地工作台。它把干员、武器、装备、Buff、技能按钮、时间轴和伤害计算集中到同一套 Web 界面，并提供 Electron Shell、存档管理、图片资源管理和受控的本地 AI 工作流。
+<p align="center">为《明日方舟：终末地》配装、排轴、伤害计算与本地资料维护打造的桌面工作台。</p>
 
-它不是在线服务，也不是自动战斗脚本；设计重点是让一套配置能够被编辑、计算、保存、比较、恢复和继续迭代。
+<p align="center">
+  <img src="https://img.shields.io/badge/平台-Windows%20%7C%20macOS-4b6bfb?style=flat-square" alt="支持 Windows 与 macOS" />
+  <img src="https://img.shields.io/badge/技术栈-Electron%20%2B%20React%20%2B%20Vite-2ea44f?style=flat-square" alt="Electron、React 与 Vite" />
+  <img src="https://img.shields.io/badge/数据-本地优先-f59e0b?style=flat-square" alt="本地优先" />
+</p>
 
-## 这套工具解决什么
+> 这不是自动战斗脚本，也不是在线服务。它把角色、武器、装备、Buff、技能按键、时间轴和伤害结果放进同一个可编辑、可追溯的本地工作流。
 
-- 整理干员、武器、装备与 Buff 的本地资料和草稿。
-- 在主界面配置角色、放置技能按钮、调整时间轴、叠加 Buff 与异常。
-- 从面板、命中段、Buff 乘区一路追溯到伤害结果。
-- 保存、恢复、分享本地排轴和配置，避免修改后失去来路。
-- 通过 AI CLI 处理受约束的数据填表、资料查询、校验和修复。
-- 通过主界面 AI 模式在隔离 Work Node 中审查排轴改动，再决定是否应用。
+## 它能做什么？
 
-## 核心能力
-
-| 工作区 | 作用 |
+| 模块 | 你可以完成的事 |
 | --- | --- |
-| 主界面 / 排轴 | 选择干员、配置技能按钮、Buff、目标抗性与时间轴，查看技能详情和伤害结果。 |
-| 角色配置 | 编辑角色等级、潜能、属性、武器、装备、词条与技能等级。 |
-| 数据编辑页 | 维护干员、武器、装备和 Buff 数据；装备支持导入导出。 |
-| 伤害与报告 | 查看伤害表、面板计算与可导出的报告数据。 |
-| 图片管理 | 管理本地图片资源、图片根目录和 Shell 侧图片更新。 |
-| AI CLI | 用受控命令完成数据填表、校验、提案与保存。 |
-| DEF OpenCode | 在 Workbench 与 AI CLI 两个隔离宿主中复用原生对话、tool、diff、question 与 permission 交互。 |
+| 配装与计算 | 配置角色等级、潜能、武器、装备、词条与技能等级，查看面板、乘区和伤害结果。 |
+| 排轴工作台 | 摆放技能按键、调整时间轴、叠加 Buff 与异常，并回看每一段命中如何影响结果。 |
+| 本地资料库 | 维护角色、武器、装备、Buff 与图片资源；数据可编辑、可保存、可导入导出。 |
+| AI 协作 | 在受控的本地工作流中查询资料、填写配置、生成提案，并在应用前检查差异与风险。 |
 
-## 两种运行方式
+## 为什么是桌面工作台？
+
+排轴与配装并不是一次性算出一个数字：你往往需要反复比较角色状态、技能时序、Buff 来源和目标抗性。终末地伤害模拟器将这些上下文留在本地，让一次配置能够被保存、复看、修改和继续推演。
 
 ```text
-Web 开发模式
-  Vite dev server (127.0.0.1:3030)
-  └─ 直接调试主界面、编辑页和本地浏览器存储
-
-Electron Shell 模式
-  Electron Shell + Vite Web
-  ├─ 本地存档、图片与运行时管理
-  ├─ 打开浏览器 Web 主界面
-  └─ 托管本地 DEF OpenCode / AI runtime
+角色 / 武器 / 装备 / Buff
+            │
+            ▼
+       配装与排轴编辑
+            │
+            ▼
+   技能段、乘区与伤害结果
+            │
+            ▼
+  保存、比较、恢复与继续迭代
 ```
-
-日常开发以 `npm run electron:dev` 为主。它会启动 Vite 与 Electron Shell；如果 3030 已在监听，复用现有进程，不要随意重启常驻开发实例。
 
 ## 快速开始
 
-### 环境
-
-- Node.js 与 npm
-- Windows 开发 Electron 便携版；macOS 构建需要对应本机签名/打包环境
-
-### 安装与启动
+需要安装 Node.js 与 npm。日常开发推荐直接启动 Electron Shell：
 
 ```bash
 npm install
-
-# 只启动 Web 开发服务：http://127.0.0.1:3030
-npm run dev
-
-# 常用：启动 Electron Shell，并等待 Web 服务就绪
 npm run electron:dev
 ```
 
-常用入口：
+该命令会启动 Vite 开发服务和 Electron 桌面壳。若只需要调试 Web 界面：
 
-- Web 主界面：`http://127.0.0.1:3030/`
-- AI CLI：`#/ai-cli`
-- 角色编辑：`#/operator-studio`
-- Buff / 武器 / 装备编辑：`#/buff-sheet`、`#/weapon-sheet`、`#/sheet-equipment`
-- 图片管理：`#/image-manager`
+```bash
+npm run dev
+```
 
-### 打包
+然后访问 <http://127.0.0.1:3030/>。
+
+### 常用页面
+
+| 页面 | 地址 |
+| --- | --- |
+| 主工作台 | `/#/` |
+| AI CLI | `/#/ai-cli` |
+| 角色编辑器 | `/#/operator-studio` |
+| Buff、武器与装备编辑 | `/#/buff-sheet`、`/#/weapon-sheet`、`/#/sheet-equipment` |
+| 图片管理 | `/#/image-manager` |
+
+## 打包
 
 ```bash
 # 构建 Web 与嵌入式 OpenCode UI
 npm run build
 
-# Windows portable
+# Windows 便携版
 npm run electron:build
 
-# macOS dmg
+# macOS arm64 DMG（需在 macOS 上构建）
 npm run electron:build:mac
 ```
 
-构建产物默认位于 `release/`，不应提交到 Git。
+构建产物位于 `release/`，它们属于发布制品，不应提交到 Git。
 
-## Agent 与 Work Node
+## AI 与 Work Node
 
-项目的 AI 能力分为两个职责不同的宿主：
-
-```text
-Main Workbench AI mode                 /AI CLI
-  ├─ 排轴与当前主界面上下文              ├─ 数据资源、填表与资料处理
-  ├─ def-workbench agent               ├─ 独立 agent / session / history
-  ├─ Work Node 草稿、diff、审批、use    └─ 仅在自身任务需要时创建节点工作区
-  └─ 不与 AI CLI 共享 active session       不继承 Workbench checkout/context
-```
-
-正式工具只有三类：
-
-- `def-node-code`：在隔离节点工作区中使用原生 `read/edit/apply_patch` 修改规范化排轴源。
-- `def-node-crud`：负责节点 fork、bind、校验、diff、审批、use、restore 等生命周期。
-- `def-data-resource`：提供可信的干员、武器、装备、技能、Buff 和伤害数据。
-
-排轴改动不会直接覆盖当前主界面：模型先在 Work Node 中修改，系统 rebuild、校验、生成语义 diff 与风险，再通过原生 permission 让用户决定是否 `use`。详情见 [Spec 7](docs/specs/def-opencode-local-productization-spec7/spec.md)。
-
-## 架构概览
+AI 的改动不会直接覆盖当前配置。涉及排轴或高风险内容时，系统会先在隔离的 Work Node 中生成草稿、重建并校验，再提供差异、风险与应用入口。
 
 ```text
-React / Vite Web
-  ├─ WorkbenchFrame：主界面、排轴、技能详情与伤害视图
-  ├─ Sheet pages：干员、Buff、武器、装备与图片管理
-  └─ local state / local data bridge
-             │
-             ├─ Electron Shell：存档、图片、桌面 bridge、打包运行时
-             │
-             └─ DEF OpenCode runtime：host profile、typed tools、Work Node、审批与历史
-                         │
-                         └─ timeline repository：节点、revision、diff、checkout 证据
+提出需求 → 隔离修改 → 校验与差异 → 你决定是否应用
 ```
 
-前端负责用户编辑和展示；Electron 负责本地运行体验、文件/图片桥接和本地服务；Work Node 负责把高风险 AI 改动从当前 checkout 隔离出来。不要让 Agent 直接修改项目源码、浏览器存储或任意本地目录。
+这套机制让 AI 能协助资料整理和配置推演，同时保留你对最终结果的控制权。详细测试方式见 [DEF Agent 黑盒测试口径](docs/testing/def-agent-blackbox.md)。
 
 ## 常用开发命令
 
-| 命令 | 用途 |
+| 命令 | 说明 |
 | --- | --- |
-| `npm run electron:dev` | 常用开发入口：启动 Shell 和 Web。 |
-| `npm run dev` | 只启动 Vite Web。 |
-| `npm run build` | 构建嵌入式 OpenCode UI、执行 TypeScript 检查并构建 Web。 |
-| `npm test` | 运行当前收录的核心单元测试与节点 codec 测试。 |
-| `npm run smoke:work-node-sqlite` | 验证 Work Node SQLite、REST、备份恢复和迁移 smoke。 |
+| `npm run electron:dev` | 推荐的日常开发入口：启动 Electron 与 Web。 |
+| `npm run dev` | 只启动 Vite Web 开发服务器。 |
+| `npm run build` | 构建 Web、嵌入式 OpenCode UI 并执行 TypeScript 检查。 |
+| `npm test` | 运行当前核心单元测试与 Work Node codec 测试。 |
+| `npm run smoke:work-node-sqlite` | 验证 Work Node、SQLite、REST 与备份恢复链路。 |
 | `npm run smoke:ai-cli-rest` | 验证 AI CLI REST 基础链路。 |
-| `npm run smoke:operator-config` | 运行 Electron 侧角色配置 smoke。 |
-| `npm run akedb:extract` | 从本机 AKEDatabase 原始资料生成精简索引。 |
-| `npm run electron:build` | 构建 Windows portable。 |
-
-测试与验收不是只看命令成功。涉及 DEF agent / typed tools 时，按 [DEF Agent 黑盒测试口径](docs/testing/def-agent-blackbox.md) 从真实 Workbench prompt 入口验证用户可观察行为。
+| `npm run electron:build` | 构建 Windows 便携版。 |
 
 ## 仓库地图
 
 ```text
-src/                    React 页面、组件、领域服务、计算器与前端状态
-electron/               Electron 主进程、preload、Shell 与本地 repository
-agent/runtime/          DEF tools、OpenCode adapter、skills、节点 workspace codec
-scripts/                构建、smoke、数据抽取和本地辅助脚本
-public/data/            干员、武器、装备等静态资料
-docs/specs/             Spec 驱动的需求、研究、任务、验收和维护记录
-docs/testing/           跨 Spec 的测试口径
-docs/architecture/      跨 Spec 架构审计
-docs/guides/            用户指南
+src/                    React 页面、组件、领域逻辑与计算器
+electron/               Electron 主进程、预加载与本地能力桥接
+agent/runtime/          DEF tools、OpenCode adapter 与 Work Node 运行时
+scripts/                构建、数据处理与 smoke 脚本
+public/data/            角色、武器、装备等静态资料
+docs/specs/             需求、研究、任务与验收记录
+docs/testing/           测试口径与验证说明
 ```
 
-## 文档与 Spec 工作流
+更多入口： [文档导航](docs/README.md) · [Spec 索引](docs/specs/README.md) · [快速上手](docs/guides/quick-start.md)
 
-项目采用 Spec 驱动开发。一个开发主题以 `docs/specs/<spec-id>/` 为唯一主轴：
+## 版本与开发分支
 
-```text
-research → spec → tasks → coding → verification → maintenance review/fix
-```
+`main` 是持续集成的开发主线；每个可发布版本以不可变标签标记，例如 `v1.8.1`。较大的功能从 `main` 创建 `feature/*` 分支，合入后删除；修复使用 `fix/*` 分支。不要再为每个版本长期保留一条 `def-*` 分支。
 
-| 文档 | 作用 |
-| --- | --- |
-| `spec.md` | 目标、范围、约束与验收标准，是需求事实源。 |
-| `tasks.md` | 已确认范围内的执行清单与状态。 |
-| `research*.md` | 规格前后的调查、架构判断与证据。 |
-| `verification*.md` | 构建、测试、黑盒与手工验收记录。 |
-| `fix-report*.md` / `health-review*.md` | 已完成 Spec 的维护修复和健康审查。 |
+## 说明
 
-新一轮 Spec 或 Tasks 必须先有用户提供的标题、目标或具体内容；不能用空目录或自动拆分替代需求定义。新文档默认进入对应 Spec，只有跨多个 Spec 的审计进入 `docs/architecture/`。
-
-入口：
-
-- [项目文档导航](docs/README.md)
-- [Spec 总索引](docs/specs/README.md)
-- [用户快速上手](docs/guides/quick-start.md)
-- [跨 Spec 测试口径](docs/testing/README.md)
-- [架构审计](docs/architecture/README.md)
-
-## 贡献与本地约定
-
-- 不提交构建产物、临时文件、私有配置或本机数据。
-- 已存在的用户改动默认属于用户；处理任务时避免覆盖无关工作区内容。
-- 代码改动是否补测试取决于风险，避免为文档或低风险调整扩张无关测试。
-- 每个完成的 research、spec/task、编码任务或修复按项目约定独立提交，便于回滚与审查。
-- 数据和计算链路优先保持“能编辑、能保存、能回看、能解释”的主线。
-
-## 使用说明与免责声明
-
-这是一个个人工具和研究项目，不承诺成为开箱即用的商业化产品。它适合希望直接整理资料、试配、排轴和追踪配置来源的人，也适合在本地继续扩展自己的数据或流程。
-
-本项目为非官方、同人性质的个人工具仓库，仅用于学习、研究和流程整理。README 的叙事风格借鉴《明日方舟：终末地》的工业基地与地表终端氛围，不代表任何官方设定、组织或授权关系。
+这是一个非官方的个人工具与研究项目，仅用于资料整理、配装推演和开发实践。项目中的名称、内容与素材不代表任何官方立场、组织关系或授权关系。
