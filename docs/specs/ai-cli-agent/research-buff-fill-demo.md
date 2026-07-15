@@ -2,9 +2,9 @@
 
 这版 demo 先落三样东西：
 
-- 映射词典：[src/ai/buffFillCatalog.ts](/C:/Users/zsk86/Desktop/dmg/dmg-end-field/src/ai/buffFillCatalog.ts)
-- OpenAI JSON Schema：[src/ai/buffFillSchema.ts](/C:/Users/zsk86/Desktop/dmg/dmg-end-field/src/ai/buffFillSchema.ts)
-- 本地验证器：[src/ai/buffFillValidator.ts](/C:/Users/zsk86/Desktop/dmg/dmg-end-field/src/ai/buffFillValidator.ts)
+- 映射词典：[src/ai/buffFillCatalog.ts](../../../src/ai/buffFillCatalog.ts)
+- OpenAI JSON Schema：[src/ai/buffFillSchema.ts](../../../src/ai/buffFillSchema.ts)
+- 本地验证器：[src/ai/buffFillValidator.ts](../../../src/ai/buffFillValidator.ts)
 
 ## 目标
 
