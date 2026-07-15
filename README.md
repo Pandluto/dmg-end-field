@@ -4,17 +4,16 @@
 
 <h1 align="center">终末地伤害模拟器</h1>
 
-<p align="center">把一次配装与排轴，沉淀为可恢复、可分享、可审计的本地战斗方案。</p>
+<p align="center">为《明日方舟：终末地》配装、排轴、伤害计算与本地资料维护打造的桌面工作台。</p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Electron%20桌面工作台-1F2937?style=flat-square" alt="Electron 桌面工作台" />
-  <img src="https://img.shields.io/badge/OpenCode%20运行时-1F2937?style=flat-square" alt="OpenCode 运行时" />
-  <img src="https://img.shields.io/badge/Typed%20Tools%20受控执行-1F2937?style=flat-square" alt="Typed Tools 受控执行" />
-  <img src="https://img.shields.io/badge/Harness%20回放回归-1F2937?style=flat-square" alt="Harness 回放回归" />
-  <img src="https://img.shields.io/badge/SQLite%20排轴仓库-1F2937?style=flat-square" alt="SQLite 排轴仓库" />
+  <img src="https://img.shields.io/badge/Desktop-Electron-47848F?style=flat-square" alt="Electron 桌面壳" />
+  <img src="https://img.shields.io/badge/AI_Runtime-OpenCode-111827?style=flat-square" alt="内置 OpenCode Runtime" />
+  <img src="https://img.shields.io/badge/Agent_Runtime-Typed%20Tools%20%2B%20Harness-7C3AED?style=flat-square" alt="Typed Tools 与 Harness" />
+  <img src="https://img.shields.io/badge/Timeline_Repository-SQLite-003B57?style=flat-square" alt="排轴 SQLite Repository" />
 </p>
 
-> 这不是自动战斗脚本，也不是在线配装网站。角色、武器、装备、Buff、技能按键和伤害结果围绕同一份排轴文档组织；AI 只能先提交可验证的草稿，是否应用始终由你决定。
+> 这不是自动战斗脚本，也不是在线配装网站。它把角色、武器、装备、Buff、技能按键、时间轴和伤害结果组织成可保存、可回看、可分享的本地方案；AI 的修改先成为草稿，再由你决定是否应用。
 
 ## 可验证的 AI 协作能力
 
