@@ -282,7 +282,7 @@ GET /api/buff/library/test-buff-001
 
 ## 六、附录：允许的 Modifier Type 白名单
 
-完整列表见 `src/ai/buffFillCatalog.ts`：
+完整列表见 `src/aiCli/buffFill/catalog.ts`：
 
 - 攻击类：`atkPercentBoost`, `flatAtk`, `mainStatBoost`, `subStatBoost`, `allStatBoost`
 - 属性类：`strengthBoost`, `agilityBoost`, `intelligenceBoost`, `willBoost`

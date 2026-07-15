@@ -1,4 +1,4 @@
-import type { BuffExtraHitDamageType, BuffExtraHitTrigger } from '../core/domain/buff';
+import type { BuffExtraHitDamageType, BuffExtraHitTrigger } from '../../core/domain/buff';
 
 export type BuffModifierType =
   | 'atkPercentBoost'
@@ -738,12 +738,6 @@ export const BUFF_TYPE_CATALOG: readonly BuffTypeCatalogEntry[] = [
     canInferFromImplicitText: false,
   }),
 ] as const;
-
-export const BUFF_TYPE_CATALOG_BY_ID: Readonly<Record<BuffModifierType, BuffTypeCatalogEntry>> =
-  BUFF_TYPE_CATALOG.reduce((acc, entry) => {
-    acc[entry.id] = entry;
-    return acc;
-  }, {} as Record<BuffModifierType, BuffTypeCatalogEntry>);
 
 export const BUFF_MODIFIER_TYPE_IDS = BUFF_TYPE_CATALOG.map((entry) => entry.id) as readonly BuffModifierType[];
 

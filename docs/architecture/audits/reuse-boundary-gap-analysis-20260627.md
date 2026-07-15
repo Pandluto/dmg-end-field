@@ -55,7 +55,7 @@
 
 重复维护位置：
 
-- `src/ai/buffFillCatalog.ts`
+- `src/aiCli/buffFill/catalog.ts`
 - `src/components/operatorDraftBuffModel.ts`
 - `src/components/BuffDraftPage.tsx`
 - `src/components/EquipmentSheetPage.tsx`

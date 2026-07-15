@@ -1,5 +1,5 @@
-import type { BuffExtraHitDamageType, BuffExtraHitSkillType, BuffExtraHitTrigger } from '../core/domain/buff';
-import { BUFF_EXTRA_HIT_RULE, BUFF_MODIFIER_TYPE_IDS } from './buffFillCatalog';
+import type { BuffExtraHitDamageType, BuffExtraHitSkillType, BuffExtraHitTrigger } from '../../core/domain/buff';
+import { BUFF_EXTRA_HIT_RULE, BUFF_MODIFIER_TYPE_IDS } from './catalog';
 
 export interface JsonSchemaObject {
   [key: string]: unknown;
@@ -168,17 +168,6 @@ export function createBuffFillAiDraftSchema(): JsonSchemaObject {
           },
         },
       },
-    },
-  };
-}
-
-export function createOpenAiResponseFormatPayload() {
-  return {
-    type: 'json_schema' as const,
-    json_schema: {
-      name: 'buff_fill_ai_draft',
-      strict: true,
-      schema: createBuffFillAiDraftSchema(),
     },
   };
 }

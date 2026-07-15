@@ -142,7 +142,7 @@
   - [x] `src/components/DamageSheetPage.tsx` 伤害表里按类型筛选/展示补 `dotDmgBonus`。
 
 - [x] 导入、白名单、报表、导出
-  - [x] `src/ai/buffFillCatalog.ts` 的 `BuffModifierType` 加 `dotDmgBonus`，catalog 加“持续伤害加成 / Dot / DOT”。
+  - [x] `src/aiCli/buffFill/catalog.ts` 的 `BuffModifierType` 加 `dotDmgBonus`，catalog 加“持续伤害加成 / Dot / DOT”。
   - [x] `src/aiCli/operatorFillAdapter.ts` 拆 `BUTTON_TYPES` 和 `HIT_SKILL_TYPES`，hit 校验允许 Dot，button 仍只允许 A/B/E/Q；effect 白名单加 `dotDmgBonus`。
   - [x] `src/aiCli/equipmentFillAdapter.ts`、`src/aiCli/weaponFillAdapter.ts` CLI 装备/武器 effect 白名单加 `dotDmgBonus`。
   - [x] `src/components/BuffDraftPage.tsx`、`src/components/EquipmentSheetPage.tsx`、`src/components/WeaponDraftPage.tsx` 三个编辑页的 buff 类型选项和 label 加 `dotDmgBonus`。

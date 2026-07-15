@@ -1,9 +1,9 @@
-import type { BuffDraft } from '../types/buffFill';
-import { BUFF_EXTRA_HIT_RULE, BUFF_MODIFIER_TYPE_IDS, type BuffModifierType } from './buffFillCatalog';
-import type { BuffFillAiDraft } from './buffFillSchema';
-import { normalizeExtraHitConfig } from '../core/services/buffExtraHit';
-import { normalizeBuffMultiplier } from '../core/domain/buffMultiplier';
-import { isMultiplierSupportedBuffType } from '../core/domain/buffTypeRegistry';
+import type { BuffDraft } from '../../types/buffFill';
+import { BUFF_EXTRA_HIT_RULE, BUFF_MODIFIER_TYPE_IDS, type BuffModifierType } from './catalog';
+import type { BuffFillAiDraft } from './schema';
+import { normalizeExtraHitConfig } from '../../core/services/buffExtraHit';
+import { normalizeBuffMultiplier } from '../../core/domain/buffMultiplier';
+import { isMultiplierSupportedBuffType } from '../../core/domain/buffTypeRegistry';
 
 export interface BuffFillValidationResult {
   ok: boolean;

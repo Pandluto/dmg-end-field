@@ -1,7 +1,7 @@
 import buffSheetAiSystemPromptRaw from '../prompts/buff-sheet-ai-system-prompt.md?raw';
-import { buildBuffTypeCatalogPromptSection, BUFF_MODIFIER_TYPE_IDS } from '../ai/buffFillCatalog';
-import { createBuffFillAiDraftSchema } from '../ai/buffFillSchema';
-import { convertBuffFillAiDraftToBuffDraft, sanitizeBuffFillAiDraft, validateBuffFillAiDraft } from '../ai/buffFillValidator';
+import { buildBuffTypeCatalogPromptSection, BUFF_MODIFIER_TYPE_IDS } from './buffFill/catalog';
+import { createBuffFillAiDraftSchema } from './buffFill/schema';
+import { convertBuffFillAiDraftToBuffDraft, sanitizeBuffFillAiDraft, validateBuffFillAiDraft } from './buffFill/validator';
 import type { BuffDraft } from '../types/buffFill';
 import { normalizeStoredBuffDefinition } from '../core/services/buffStorageNormalization';
 import { AI_CLI_PROTOCOL_VERSION } from './aiCliAgentTypes';
