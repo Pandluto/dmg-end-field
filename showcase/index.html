@@ -19,7 +19,6 @@
         <span>终末地伤害工作台</span>
       </a>
       <nav aria-label="页面导航">
-        <a href="#evidence">证据链</a>
         <a href="#atlas">实机功能</a>
         <a href="#architecture">系统边界</a>
       </nav>
@@ -33,7 +32,7 @@
           <h1>把伤害推演，<br /><em>做成可验证的工程记录。</em></h1>
           <p class="hero-summary">这是一个为《明日方舟：终末地》制作的本地优先桌面工作台。它把选队、配装、排轴、伤害计算与 AI 协作收敛到同一份可保存、可恢复、可审查的文档中。</p>
           <div class="hero-actions">
-            <a class="button button-primary" href="#evidence">查看真实证据链 <span>↓</span></a>
+            <a class="button button-primary" href="#atlas">查看实机功能 <span>↓</span></a>
             <a class="button button-quiet" href="https://github.com/Pandluto/dmg-end-field" target="_blank" rel="noreferrer">查看实现源码 <span>↗</span></a>
           </div>
           <dl class="hero-facts">
@@ -64,23 +63,6 @@
             <li><b>02 / REPLAYABLE</b><strong>结果可以回到过程</strong><span>报告能回查配置与排轴；保存记录能恢复到指定节点继续推演。</span></li>
             <li><b>03 / AUDITABLE AI</b><strong>AI 先留痕，再应用</strong><span>领域工具调用、草稿、校验、风险与人工确认都形成可查看的工作节点。</span></li>
           </ol>
-        </div>
-      </section>
-
-      <section class="session-evidence" id="evidence">
-        <div class="container">
-          <div class="evidence-heading">
-            <div><p class="eyebrow"><span></span> SAVED DEF SESSION / 2026-07-14</p><h2>官网展示的不是想象中的流程，<br />是可回放的真实会话。</h2></div>
-            <p>主证据来自已保存的“新手碎冰队”会话与同一份主排轴：弭弗、陈千语、埃特拉、阿列什。截图、节点树和下列步骤都取自同一条可恢复的链路。</p>
-          </div>
-          <ol class="evidence-flow">
-            <li><b>01</b><strong>攻略检索</strong><span><code>def_data_game_knowledge</code> 找到碎冰队资料，并锁定“装备养成推荐”章节。</span></li>
-            <li><b>02</b><strong>章节精读</strong><span><code>def_data_game_knowledge_section</code> 只读取指定章节，保留推荐依据和边界。</span></li>
-            <li><b>03</b><strong>四人方案</strong><span><code>def_data_team_loadouts</code>、武器/装备候选与配装候选共同生成可确认的预览。</span></li>
-            <li><b>04</b><strong>人工确认后应用</strong><span><code>def_operator_config_patch</code> 逐人变更，并以工作台镜像回写结果作后置校验。</span></li>
-            <li><b>05</b><strong>追问与复核</strong><span>继续核对弭弗武器、阿列什 3+1 装备与充能数值；每个结论都能回到节点与会话。</span></li>
-          </ol>
-          <div class="evidence-foot"><span>4 名干员</span><i>×</i><span>11 个技能节点</span><i>×</i><span>工作节点与人工审批记录</span></div>
         </div>
       </section>
 
