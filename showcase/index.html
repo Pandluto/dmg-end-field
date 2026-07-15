@@ -19,7 +19,7 @@
         <span>终末地伤害工作台</span>
       </a>
       <nav aria-label="页面导航">
-        <a href="#capabilities">能力</a>
+        <a href="#atlas">实机功能</a>
         <a href="#journey">全流程</a>
         <a href="#architecture">架构</a>
       </nav>
@@ -45,10 +45,10 @@
         <div class="hero-visual">
           <div class="screen-frame hero-screen">
             <div class="screen-bar"><i></i><i></i><i></i><b>WORKBENCH / SELECT OPERATORS</b><span>●</span></div>
-            <img src="assets/team-setup.png" alt="在终末地伤害工作台中选择本地干员并组成出战队列" />
+            <img src="assets/four-operator-selection.png" alt="在终末地伤害工作台中选择狼卫、佩丽卡、艾尔黛拉和赛希组成四人队伍" />
           </div>
-          <div class="hero-note note-top"><b>01</b><span>角色与资料<br />从本地开始</span></div>
-          <div class="hero-note note-bottom"><b>02</b><span>编排、保存、<br />继续演算</span></div>
+          <div class="hero-note note-top"><b>01</b><span>28 名本地干员<br />自由组成四人队伍</span></div>
+          <div class="hero-note note-bottom"><b>02</b><span>选队、配置、排轴<br />进入同一份方案</span></div>
         </div>
       </section>
 
@@ -69,8 +69,8 @@
         <div class="capability-grid">
           <article class="capability capability-wide accent-blue">
             <div class="card-number">01</div>
-            <div><p class="card-kicker">OPERATOR LIBRARY</p><h3>本地资料，随时可编辑</h3><p>从干员、武器、装备到 Buff，资料与配置就在工作台里。选入出战队列后，开始下一步推演。</p></div>
-            <img src="assets/operator-selection.png" alt="终末地伤害工作台的本地干员选择页面" loading="lazy" />
+            <div><p class="card-kicker">FOUR-OPERATOR TIMELINE</p><h3>四人队伍不是概念，<br />直接进入已排好的技能轴</h3><p>恢复后的排轴包含多个技能节点、Buff 与分组。队伍选择是配置、排轴、报告和版本记录共同引用的起点。</p></div>
+            <img src="assets/four-team-timeline.png" alt="终末地伤害工作台中包含多个技能节点的已恢复四人排轴" loading="lazy" />
           </article>
           <article class="capability accent-violet">
             <div class="card-number">02</div>
@@ -157,6 +157,39 @@
           <p>运行时的演进不只看一次演示是否成功。Harness 将规则、技能、路由与真实会话场景版本化，对候选行为进行回放与比较，关注修复是否有效、原有能力是否退化，以及用户状态是否安全。</p>
           <div class="finale-marks"><span>HARNESS</span><i>×</i><span>REAL SESSION</span><i>×</i><span>REGRESSION CHECK</span></div>
         </article>
+      </section>
+
+      <section class="product-atlas" id="atlas">
+        <div class="container">
+          <div class="atlas-heading">
+            <div><p class="eyebrow"><span></span> LIVE PRODUCT SURFACES</p><h2>不是功能名列表。<br />这是实际打开后的工作面。</h2></div>
+            <p>以下全部来自本地运行的工作台：四人选队、已排技能轴、可计算报表、资料工作表、资源库、恢复历史与工作节点树。每个区域都有自己的操作、数据与导入导出边界。</p>
+          </div>
+
+          <article class="atlas-feature atlas-timeline">
+            <div class="atlas-copy"><p class="step-index">01 / TEAM → TIMELINE</p><h3>队伍进入排轴后，<br />技能不再是一张静态表。</h3><p>最多四名干员构成出战队列。排轴画布按分组组织 A / B / E / Q 技能节点；每个节点都能继续承载 Buff、状态、敌方抗性、命中微调和伤害详情。</p><div class="atlas-points"><span>四人出战队列</span><span>技能节点拖拽与分组</span><span>批量 Buff 操作</span><span>目标抗性 / Hit 微调</span></div></div>
+            <figure class="screen-frame"><div class="screen-bar"><i></i><i></i><i></i><b>LIVE TIMELINE / FOUR-OPERATOR TEAM</b><span>●</span></div><img src="assets/four-team-timeline.png" alt="实际恢复的四人技能排轴与多个技能节点" loading="lazy" /><figcaption>恢复的实际排轴，不是示意图：画布内已出现多段技能节点。</figcaption></figure>
+          </article>
+
+          <article class="atlas-feature atlas-report reverse">
+            <div class="atlas-copy"><p class="step-index">02 / CALCULATE → REPORT</p><h3>计算之后，<br />还要把过程讲清楚。</h3><p>伤害报告将队伍配置、两组排轴与伤害图表放进同一份可读页面，展示总伤、角色占比和过程时序；底部的表格入口可继续把结果带出工作台。</p><div class="atlas-points"><span>队伍配置总览</span><span>分组排轴概览</span><span>总伤与占比图表</span><span>过程时序与报告页</span></div></div>
+            <figure class="screen-frame"><div class="screen-bar"><i></i><i></i><i></i><b>DAMAGE REPORT / 3 PAGES</b><span>●</span></div><img src="assets/damage-report.png" alt="终末地伤害工作台的伤害报表，包含队伍配置、排轴和总伤图表" loading="lazy" /><figcaption>实际打开的三页伤害报告，含总伤、按钮次数和排轴概览。</figcaption></figure>
+          </article>
+
+          <div class="atlas-section-title"><p class="eyebrow"><span></span> LOCAL DATA STUDIO</p><h3>资料不是只读素材；它们本身也是可维护的工作表。</h3><p>干员、武器、装备和 Buff 都有独立的本地编辑面，可新建、保护、整理、保存、导入与导出。图片资源另有专门的管理器，而不是散落在文件夹里。</p></div>
+          <div class="studio-grid">
+            <figure class="studio-card"><img src="assets/operator-editor.png" alt="干员模板编辑器，显示角色基础属性与等级成长数据" loading="lazy" /><figcaption><b>干员模板编辑器</b><span>角色档案、属性成长、技能与 JSON / 库分享。</span></figcaption></figure>
+            <figure class="studio-card"><img src="assets/weapon-editor.png" alt="武器数据工作表，列出本地武器和技能效果" loading="lazy" /><figcaption><b>Sheet-Weapon</b><span>按 weapon → skill → level → effect 编辑本地武器档案。</span></figcaption></figure>
+            <figure class="studio-card"><img src="assets/equipment-editor.png" alt="装备数据工作表，展示装备套装与词条数据" loading="lazy" /><figcaption><b>Sheet-Equipment</b><span>套装、装备、固定属性和等级效果都可维护。</span></figcaption></figure>
+            <figure class="studio-card"><img src="assets/buff-editor.png" alt="Buff 数据工作表，显示 Buff 分组、自定义项和效果" loading="lazy" /><figcaption><b>Sheet-Buff</b><span>将 Buff 组、自定义项与效果平铺到同一张工作表。</span></figcaption></figure>
+            <figure class="studio-card studio-wide"><img src="assets/image-manager.png" alt="图片资源管理器，列出数百张本地图片和资源目录" loading="lazy" /><figcaption><b>图片资源管理</b><span>524 项资源可搜索、浏览、导入、刷新与按目录管理；发布图包与本地可写资源边界明确。</span></figcaption></figure>
+          </div>
+
+          <div class="atlas-control">
+            <div><p class="eyebrow"><span></span> VERSION CONTROL FOR A TIMELINE</p><h3>保存、恢复、分支与 AI 协作，<br />都不是隐藏在背景里的动作。</h3><p>恢复面板列出每个快照的队伍、按钮和 Buff 数量；完整 SQLite 文档再提供工作节点树。AI 草稿、校验节点、人工 checkpoint、风险与回退路径一并可见。</p></div>
+            <div class="control-shots"><figure class="screen-frame"><img src="assets/timeline-restore.png" alt="保存了多个快照的排轴恢复界面" loading="lazy" /></figure><figure class="screen-frame"><img src="assets/work-node-tree.png" alt="带有 AI 草稿、校验和风险标记的 Work Node 节点树" loading="lazy" /></figure></div>
+          </div>
+        </div>
       </section>
 
       <section class="architecture container" id="architecture">
