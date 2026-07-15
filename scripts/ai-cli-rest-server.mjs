@@ -72,6 +72,12 @@ const PREPARED_OPERATOR_CONFIG_TTL_MS = 15 * 60 * 1000;
 const guideLoadoutPlanSources = new Map();
 const preparedTeamLoadoutPlans = new Map();
 const PREPARED_TEAM_LOADOUT_TTL_MS = 15 * 60 * 1000;
+// A native permission card can remain open longer than the short planning
+// TTL.  Once that exact immutable plan has produced its one review card, keep
+// only its server-side capability alive for a bounded grace period so approval
+// cannot turn into a spurious plan-not-found race.  The reservation is still
+// session-bound, sidecar-ephemeral, and consumed by the first apply attempt.
+const PREPARED_TEAM_LOADOUT_APPROVAL_GRACE_MS = 4 * 60 * 60 * 1000;
 
 function hashDefLoadoutPlan(value) {
   return createHash('sha256').update(JSON.stringify(value)).digest('hex');
@@ -90,7 +96,8 @@ function pruneDefTeamLoadoutPlans() {
     if (source.expiresAt <= now) guideLoadoutPlanSources.delete(sessionId);
   }
   for (const [planHash, prepared] of preparedTeamLoadoutPlans) {
-    if (prepared.expiresAt <= now && !prepared.usedResult) preparedTeamLoadoutPlans.delete(planHash);
+    const approvalReservationActive = Number(prepared.approvalExpiresAt) > now;
+    if (prepared.expiresAt <= now && !approvalReservationActive && !prepared.usedResult) preparedTeamLoadoutPlans.delete(planHash);
   }
 }
 
@@ -3113,6 +3120,10 @@ function prepareDefTeamLoadoutPlanApply(input = {}) {
   if (plan.usedResult) return { ...plan.usedResult, idempotent: true };
   if (!defPlanCheckoutMatches(plan.checkoutBinding)) return { ok: false, code: 'team-loadout-checkout-changed', state: 'BLOCKED', component: 'team-loadout-plan', message: 'Checkout target or revision changed after planning; no apply was started.' };
   if (plan.state !== 'READY') return { ...plan, ok: true, approvalPatterns: [], nextAction: plan.nextAction };
+  if (!plan.usedAt && Number(plan.approvalExpiresAt) <= Date.now()) {
+    plan.approvalReservedAt = Date.now();
+    plan.approvalExpiresAt = plan.approvalReservedAt + PREPARED_TEAM_LOADOUT_APPROVAL_GRACE_MS;
+  }
   const approvalPatterns = [
     `团队计划: ${plan.planId}`, `Plan hash: ${plan.planHash}`, `来源: ${plan.sourceReferenceId} / ${plan.sourceSectionId} / ${plan.sourceContentHash}`,
     `Checkout: ${plan.checkout?.targetId || '-'} @ r${plan.checkout?.revision || '-'}`,

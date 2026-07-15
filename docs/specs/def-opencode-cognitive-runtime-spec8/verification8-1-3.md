@@ -365,3 +365,34 @@ for plan creation and apply verification. `node --check` and `git diff --check`
 pass for the repair, but the already-running REST process has not loaded it.
 The remaining native approval/postcondition/persistence replay requires an
 explicitly authorized minimal REST/sidecar reload; no extra restart was made.
+
+## Minimal approval closure (2026-07-15)
+
+The prior reject proof above remains the authoritative zero-change evidence;
+it was not replayed. The historical approval run remains a failure record. Its
+first real error was a plan that had expired after its native permission card
+was shown, so the apply continuation pruned the unconsumed in-memory plan and
+returned HTTP 409. The repair keeps only that reviewed, session-bound plan
+capability alive for a bounded four-hour native-approval grace period. The
+original plan TTL, session binding, checkout CAS, sidecar-restart invalidation,
+and single-use apply semantics are unchanged.
+
+After a controlled REST reload, one fresh native session completed the minimal
+approval path:
+
+| Check | Evidence | Result |
+| --- | --- | --- |
+| native run | run `b0fb732f-4b3a-4258-87cd-094e0aec3197`; session `ses_09a76cfc3ffe2sB8M5PrKy180s`; approval turn `3698c7f0-a38f-41fc-92d9-bf0112823c50`; client `codex-1784114989977-67ac7b8e` | PASS |
+| tool route | knowledge search → exact `h2-三-装备养成推荐` section → prepare ×1 → revise ×1 → team apply ×1 | one READY plan `ffb0fd6b…77ba048`; the pre-revise plan was `7d4b2924…43e696`; no per-operator model patch calls or retries |
+| native approval | real full-team card was visible and **允许一次** was clicked once | PASS |
+| apply | returned `APPLIED`, same READY/apply hash `ffb0fd6b2afecb54cc3911113c2e14b49396694d5bae12d3fb93639ce77ba048`, aggregate and all four operator postconditions true | PASS, no HTTP 409 |
+| persistence | Computer Use exited the real role configuration page and entered it once again; 弭弗 still showed 典范 and the 旧锋 configuration | PASS |
+
+The apply returned four explicit serial commit results (弭弗
+`ai-timeline-commit-1784115024044-ek7guuy7`, 陈千语
+`ai-timeline-commit-1784115026432-y9rgrwoy`, 埃特拉
+`ai-timeline-commit-1784115030027-anux3evp`, 阿列什
+`ai-timeline-commit-1784115033580-mmgx76dh`). Each has a passing live,
+checkout-payload, and commit-payload postcondition. This verifies the approved
+plan hash against the live four-person result; it is not a repeat rejection,
+full regression, or second page round-trip.
