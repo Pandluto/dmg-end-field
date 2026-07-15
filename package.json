@@ -3,7 +3,7 @@
   "private": true,
   "version": "1.7.1",
   "author": "SailStellar <190052366@qq.com>",
-  "description": "Desktop shell for dmg-end-field",
+  "description": "终末地伤害工作台的桌面壳",
   "type": "module",
   "main": "electron/main.cjs",
   "scripts": {
@@ -62,7 +62,7 @@
   },
   "build": {
     "appId": "com.dmg.def",
-    "productName": "dmg-end-field",
+    "productName": "终末地伤害工作台",
     "compression": "normal",
     "afterSign": "scripts/notarize.cjs",
     "directories": {
