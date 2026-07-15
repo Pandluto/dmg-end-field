@@ -100,24 +100,41 @@
       </section>
 
       <section class="architecture container" id="architecture">
-        <div class="section-heading compact">
-          <p class="eyebrow"><span></span> VISIBLE BOUNDARIES</p>
-          <h2>本地优先，<br />也把边界摆在台面上。</h2>
+        <div class="architecture-heading">
+          <p class="eyebrow"><span></span> SYSTEM ARCHITECTURE / README-ALIGNED</p>
+          <h2>一条本地保存、受限协作、<br />可回放验证的链路。</h2>
+          <p>它不是网页聊天框外接几个接口：正式方案与 AI 草稿分开保存，模型只能经过已定义的领域操作，运行时改动还要用真实会话回放验证。</p>
         </div>
-        <div class="system-map" aria-label="系统架构流程">
-          <div class="map-node node-user"><strong>你</strong><small>判断与确认</small></div>
-          <div class="map-arrow">→</div>
-          <div class="map-node node-ui"><strong>React 工作台</strong><small>配装 · 排轴 · 资料编辑</small></div>
-          <div class="map-arrow">→</div>
-          <div class="map-node node-data"><strong>SQLite 文档库</strong><small>快照 · 工作节点 · 审计事件</small></div>
-          <div class="map-branch"><span>受限领域操作</span><i>↘</i></div>
-          <div class="map-node node-ai"><strong>DEF + Typed Tools</strong><small>提案 · 校验 · Diff</small></div>
-          <div class="map-return">审查 / 应用 / 丢弃 <span>↗</span></div>
+        <div class="architecture-lanes" aria-label="本地文档与 AI 协作架构">
+          <section class="architecture-lane">
+            <div class="lane-heading"><b>01 / FORMAL DOCUMENT PATH</b><span>正式方案：本地事实源</span></div>
+            <div class="architecture-flow">
+              <article class="architecture-node"><strong>React 工作台</strong><small>配装 · 排轴 · 资料编辑</small></article>
+              <i class="architecture-arrow">→</i>
+              <article class="architecture-node"><strong>Electron 本地桥接</strong><small>REST / SSE · 127.0.0.1</small></article>
+              <i class="architecture-arrow">→</i>
+              <article class="architecture-node node-emphasis"><strong>Timeline Repository</strong><small>SQLite · 本机 AppData</small></article>
+            </div>
+            <p class="lane-note">文档内包含 Snapshot、Work Node、CheckoutRef 与 Audit Event；分享包导入前校验 schema、哈希和引用，再原子写入。</p>
+          </section>
+          <section class="architecture-lane architecture-ai-lane">
+            <div class="lane-heading"><b>02 / AI PROPOSAL &amp; VERIFICATION PATH</b><span>提案不直接覆盖正式方案</span></div>
+            <div class="architecture-flow">
+              <article class="architecture-node"><strong>OpenCode Runtime</strong><small>本地会话与工具调度</small></article>
+              <i class="architecture-arrow">→</i>
+              <article class="architecture-node"><strong>DEF Adapter</strong><small>会话、技能与能力策略</small></article>
+              <i class="architecture-arrow">→</i>
+              <article class="architecture-node"><strong>Typed Tools</strong><small>角色 · 装备 · 伤害 · 排轴</small></article>
+              <i class="architecture-arrow">→</i>
+              <article class="architecture-node node-violet"><strong>Work Node</strong><small>草稿 · Diff · 风险 · 校验</small></article>
+            </div>
+            <div class="architecture-verification"><b>HARNESS</b><span>将规则、技能、路由与真实会话打成版本化工件，回放候选行为并比较修复、回归与用户状态安全。</span><i>验证 → DEF Adapter</i></div>
+          </section>
         </div>
-        <div class="architecture-notes">
-          <p><b>数据事实源在本机。</b>排轴不是易失的页面状态，而是一份可恢复的 SQLite 文档。</p>
-          <p><b>AI 没有任意权限。</b>它通过已定义的角色、武器、装备、伤害与排轴工具操作。</p>
-          <p><b>运行时可被验证。</b>Harness 用真实会话回放比较候选与稳定行为，关注修复、回归和用户状态安全。</p>
+        <div class="architecture-boundaries">
+          <p><b>不是云端排轴数据库。</b>正式事实源在本机 SQLite，不依赖浏览器缓存或远程同步。</p>
+          <p><b>不是任意本机代理。</b>Typed Tools 拒绝任意 Shell、文件访问、任务编排和未知目录写入。</p>
+          <p><b>不是一次演示即算验证。</b>Harness 以版本化工件和真实会话场景验证运行时演进。</p>
         </div>
       </section>
 
