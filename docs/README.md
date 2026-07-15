@@ -9,7 +9,7 @@
 - [技术栈与技术选择](./technology-stack.md)：核心技术边界及其取舍。
 - [Spec 总索引](./specs/README.md)：按产品演进线查找规格与实施记录。
 - [测试方法](./testing/README.md)：跨 Spec 复用的测试口径，不存放某次 Spec 的验收结果。
-- [架构审计](./architecture/README.md)：跨多个 Spec 的架构债务与归档审计。
+- [架构事实源](./architecture/README.md)：当前系统、运行拓扑、数据与安全边界、CI/CD、ADR 和跨 Spec 审计。
 - [历史记录](./history/README.md)：无单一 Spec 归属的历史迭代记录。
 - [用户指南](./guides/quick-start.md)：面向使用者的产品说明。
 

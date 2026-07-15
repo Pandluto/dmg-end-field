@@ -6,7 +6,7 @@
 
 ## 环境准备
 
-安装 Node.js 与 npm 后，在仓库根目录执行：
+项目当前要求 Node.js 24.x 与 npm 11.x；安装后，在仓库根目录执行：
 
 ```bash
 npm install

@@ -2,9 +2,9 @@
 
 这版 demo 先落三样东西：
 
-- 映射词典：[src/ai/buffFillCatalog.ts](../../../src/ai/buffFillCatalog.ts)
-- OpenAI JSON Schema：[src/ai/buffFillSchema.ts](../../../src/ai/buffFillSchema.ts)
-- 本地验证器：[src/ai/buffFillValidator.ts](../../../src/ai/buffFillValidator.ts)
+- 映射词典：[src/aiCli/buffFill/catalog.ts](../../../src/aiCli/buffFill/catalog.ts)
+- Buff Fill JSON Schema：[src/aiCli/buffFill/schema.ts](../../../src/aiCli/buffFill/schema.ts)
+- 本地验证器：[src/aiCli/buffFill/validator.ts](../../../src/aiCli/buffFill/validator.ts)
 
 ## 目标
 
@@ -19,20 +19,20 @@
 
 程序再把它转成现有编辑器使用的 `BuffDraft`。
 
-## OpenAI 接法
+## 当前接法
 
 给模型的上下文至少要包含两部分：
 
-1. 结构约束：`createOpenAiResponseFormatPayload()`
+1. 结构约束：`createBuffFillAiDraftSchema()`
 2. 语义约束：`buildBuffTypeCatalogPromptSection()`
 
 最小接法示意：
 
 ```ts
-import { buildBuffTypeCatalogPromptSection } from '../src/ai/buffFillCatalog';
-import { createOpenAiResponseFormatPayload } from '../src/ai/buffFillSchema';
+import { buildBuffTypeCatalogPromptSection } from '../src/aiCli/buffFill/catalog';
+import { createBuffFillAiDraftSchema } from '../src/aiCli/buffFill/schema';
 
-const responseFormat = createOpenAiResponseFormatPayload();
+const outputSchema = createBuffFillAiDraftSchema();
 const catalogSection = buildBuffTypeCatalogPromptSection();
 
 const prompt = [
@@ -48,7 +48,7 @@ const prompt = [
 如果模型返回结果后需要落表，先做两步：
 
 ```ts
-import { validateBuffFillAiDraft, convertBuffFillAiDraftToBuffDraft } from '../src/ai/buffFillValidator';
+import { validateBuffFillAiDraft, convertBuffFillAiDraftToBuffDraft } from '../src/aiCli/buffFill/validator';
 
 const result = validateBuffFillAiDraft(modelOutput);
 if (!result.ok) {
@@ -77,7 +77,7 @@ const draft = convertBuffFillAiDraftToBuffDraft(modelOutput);
 - 多阶段抽取
 - 回归样本跑批
 
-但它已经够你做第一轮 OpenAI 接入实验，先验证：
+但它已经够你做第一轮受约束模型接入实验，先验证：
 
 - 白名单词典是否够用
 - schema 是否够严

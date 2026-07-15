@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { pinyin } from 'pinyin-pro';
 import './OperatorDraftPage.css';
-import assetPathsRaw from '../../asset-paths.txt?raw';
+import assetPathsRaw from '../data/operatorAssetPaths.txt?raw';
 import { buildWeaponSearchIndex, searchWeapons } from '../utils/weaponFuzzySearch';
 import { APP_ROUTE_PATHS, navigateToAppPath } from '../utils/appRoute';
 import {

@@ -6,6 +6,11 @@
   "description": "终末地伤害工作台的桌面壳",
   "type": "module",
   "main": "electron/main.cjs",
+  "packageManager": "npm@11.13.0",
+  "engines": {
+    "node": ">=24 <25",
+    "npm": ">=11 <12"
+  },
   "scripts": {
     "agent:dev": "node agent/dev-agent.cjs",
     "agent:dev:web": "node agent/dev-agent.cjs --open-web",
@@ -16,6 +21,7 @@
     "harness:check": "node scripts/def-harness-check.mjs",
     "ai-cli:rest": "node scripts/ai-cli-rest-server.mjs",
     "smoke:ai-cli-rest": "node scripts/ai-cli-rest-smoke.mjs",
+    "smoke:packaged-sidecar": "node scripts/packaged-sidecar-smoke.mjs",
     "smoke:work-node-sqlite": "node scripts/ai-timeline-work-node-sqlite-smoke.mjs && node scripts/ai-timeline-work-node-rest-smoke.mjs && node scripts/ai-timeline-work-node-backup-restore-smoke.mjs && node scripts/timeline-migration-smoke.mjs",
     "smoke:timeline-bundle": "node scripts/timeline-bundle-v2-smoke.mjs",
     "dev": "vite --host 127.0.0.1 --port 3030",
@@ -24,10 +30,17 @@
     "operator:imports": "node scripts/build-operator-imports.mjs",
     "operator:validate": "node scripts/validate-operator-outputs.mjs",
     "weapon:build": "node scripts/build-weapon-library.mjs",
-    "test": "node scripts/run-ts-test.mjs /src/core/calculators/buffPanelCalculator.test.ts /src/core/calculators/buffZoneCalculator.test.ts /src/core/calculators/resistanceZone.test.ts /src/aiCli/aiCliCommandService.test.ts /src/agentKernel/timelineRepository/localTimelineClient.test.ts /src/agentKernel/timelineWorktree/checkoutLifecycle.test.ts && node agent/runtime/def-node-workspace/codec.test.mjs",
+    "test": "node scripts/run-ts-test.mjs /src/core/calculators/buffPanelCalculator.test.ts /src/core/calculators/buffZoneCalculator.test.ts /src/core/calculators/resistanceZone.test.ts /src/aiCli/aiCliCommandService.test.ts /src/agentKernel/timelineRepository/localTimelineClient.test.ts /src/agentKernel/timelineWorktree/checkoutLifecycle.test.ts /src/agentKernel/timelineWorktree/diff.test.ts && node agent/runtime/def-node-workspace/codec.test.mjs",
     "test:numeric": "node scripts/run-ts-test.mjs /src/core/calculators/buffPanelCalculator.test.ts /src/core/calculators/buffZoneCalculator.test.ts /src/core/calculators/resistanceZone.test.ts",
+    "typecheck": "tsc --noEmit",
+    "build:web": "vite build",
+    "check:repo": "node scripts/repository-check.mjs",
+    "check:knowledge": "node scripts/def-game-knowledge-contract-check.mjs",
+    "audit:dependencies": "npm audit --audit-level=critical",
+    "check": "npm run check:repo && npm run audit:dependencies && npm run typecheck && npm test && npm run harness:check && npm run check:knowledge && npm run build:web",
+    "release:verify": "node scripts/check-release-version.mjs",
     "smoke:operator-config": "node scripts/run-electron-smoke.mjs",
-    "build": "npm run opencode-ui:build && tsc && vite build",
+    "build": "npm run opencode-ui:build && npm run typecheck && npm run build:web",
     "opencode-ui:build": "node scripts/build-opencode-ui.mjs",
     "build:opencode-runtime": "node scripts/build-opencode-runtime.mjs",
     "preview": "vite preview",
@@ -44,7 +57,8 @@
     "pinyin-pro": "^3.28.1",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
-    "react-markdown": "^10.1.0"
+    "react-markdown": "^10.1.0",
+    "vite": "^7.3.6"
   },
   "devDependencies": {
     "@playwright/test": "^1.60.0",
@@ -53,11 +67,10 @@
     "@types/react-dom": "^18.2.0",
     "@vitejs/plugin-react": "^4.0.0",
     "concurrently": "^9.1.2",
-    "electron": "^35.5.1",
+    "electron": "^39.8.10",
     "electron-builder": "^26.0.12",
     "tailwindcss": "^4.2.2",
     "typescript": "^5.0.0",
-    "vite": "^5.0.0",
     "wait-on": "^8.0.3"
   },
   "build": {
@@ -71,6 +84,7 @@
     "icon": "electron/assets/icon.png",
     "files": [
       "dist/**",
+      "src/**",
       "electron/**",
       "scripts/ai-cli-rest-server.mjs",
       "scripts/build-image-release-manifest.mjs",
@@ -83,7 +97,8 @@
       "package.json"
     ],
     "asarUnpack": [
-      "agent/runtime/opencode-core/bin/**"
+      "agent/runtime/opencode-core/bin/**",
+      "node_modules/@esbuild/**"
     ],
     "electronLanguages": [
       "zh-CN"

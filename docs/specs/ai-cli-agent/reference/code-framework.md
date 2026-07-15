@@ -156,9 +156,9 @@
 ### 3.3 新增 Fill 工作流能力
 
 ```
-1. buffFillCatalog.ts    — 加 modifier type (含别名/正负例/注释)
-2. buffFillSchema.ts     — 加 JSON Schema 字段
-3. buffFillValidator.ts  — 加验证规则
+1. buffFill/catalog.ts   — 加 modifier type (含别名/正负例/注释)
+2. buffFill/schema.ts    — 加 JSON Schema 字段
+3. buffFill/validator.ts — 加验证规则
 4. buff-sheet-ai-system-prompt.md — 加抽取规则
 ```
 
@@ -212,7 +212,7 @@
 | 优先级 | 项 | 影响 |
 |--------|-----|------|
 | P1 | `executeCommand` 仍是巨型函数 | 每加命令都在膨胀，后续可拆 handler/registry |
-| P1 | `as never` 绕过类型 (`commandService`, `buffFillValidator`, `BuffDraftPage`) | 类型安全失效，重构时风险较高 |
+| P1 | `as never` 绕过类型 (`commandService`, `buffFill/validator`, `BuffDraftPage`) | 类型安全失效，重构时风险较高 |
 | P1 | `readJsonStorage` 2 文件重复 | DRY 违反 |
 | P1 | Vite SSR 作为 REST 开发服务入口 | 开发便利；若生产化应预构建 bundle |
 | P2 | 无认证/无速率限制 | 若暴露到非本机网络会有安全风险 |

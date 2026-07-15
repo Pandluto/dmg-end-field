@@ -34,16 +34,19 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(__dirname, '..');
 const storageDir = process.env.AI_CLI_REST_STORAGE_DIR
   || path.join(projectRoot, '.runtime', 'ai-cli-rest');
-const agentScriptDir = path.join(projectRoot, '.runtime', 'def-agent', 'scripts');
+const agentScriptDir = process.env.DEF_AGENT_SCRIPT_DIR
+  || path.join(projectRoot, '.runtime', 'def-agent', 'scripts');
 const viteCacheDir = process.env.AI_CLI_REST_VITE_CACHE_DIR || path.join(projectRoot, '.runtime', 'vite-ai-cli-rest', String(process.pid));
-const nowStoragePath = path.join(projectRoot, 'data', 'localdata', 'now-storage.json');
+const nowStoragePath = process.env.AI_CLI_NOW_STORAGE_PATH
+  || path.join(projectRoot, 'data', 'localdata', 'now-storage.json');
 const aiTimelineWorkNodesPath = process.env.AI_TIMELINE_WORK_NODE_DB_PATH
   || path.join(projectRoot, 'data', 'localdata', 'ai-timeline-worknodes.sqlite3');
 const legacyAiTimelineWorkNodesPath = process.env.AI_TIMELINE_WORK_NODE_LEGACY_PATH
   || path.join(projectRoot, 'data', 'localdata', 'ai-timeline-worknodes.json');
 const timelineRepositoryPath = process.env.TIMELINE_REPOSITORY_DB_PATH
   || path.join(projectRoot, 'data', 'localdata', 'timeline-repository.sqlite3');
-const defToolGovernancePath = path.join(projectRoot, 'data', 'localdata', 'def-tool-governance.json');
+const defToolGovernancePath = process.env.DEF_TOOL_GOVERNANCE_PATH
+  || path.join(projectRoot, 'data', 'localdata', 'def-tool-governance.json');
 const storageMode = process.env.AI_CLI_REST_STORAGE_MODE || 'now-storage';
 const serverStartedAt = new Date().toISOString();
 const SCRIPT_NAME_RE = /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,79}\.m?js$/;
@@ -6615,9 +6618,13 @@ async function readJsonBody(request) {
 installNodeWindowStorage();
 
 const vite = await createViteServer({
-  configFile: path.join(projectRoot, 'vite.config.ts'),
+  // The packaged sidecar only needs Vite's SSR loader. Pulling in the app's
+  // development config would make the release depend on Tailwind/React plugins.
+  configFile: false,
+  root: projectRoot,
   cacheDir: viteCacheDir,
-  server: { middlewareMode: true },
+  server: { middlewareMode: true, hmr: false, ws: false },
+  optimizeDeps: { noDiscovery: true, include: [] },
   appType: 'custom',
   logLevel: 'error',
 });

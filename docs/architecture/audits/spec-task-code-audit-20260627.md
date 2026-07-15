@@ -108,7 +108,7 @@ AI CLI 已引入：
 
 同一类业务枚举在多处维护：
 
-- `src/ai/buffFillCatalog.ts`
+- `src/aiCli/buffFill/catalog.ts`
 - `src/components/operatorDraftBuffModel.ts`
 - `src/components/BuffDraftPage.tsx`
 - `src/components/EquipmentSheetPage.tsx`
