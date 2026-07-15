@@ -6,6 +6,13 @@
 
 <p align="center">为《明日方舟：终末地》配装、排轴、伤害计算与本地资料维护打造的桌面工作台。</p>
 
+<p align="center">
+  <img src="https://img.shields.io/badge/Desktop-Electron-47848F?style=flat-square" alt="Electron 桌面壳" />
+  <img src="https://img.shields.io/badge/UI-React%20%2B%20Vite-61DAFB?style=flat-square" alt="React 与 Vite" />
+  <img src="https://img.shields.io/badge/AI_Runtime-OpenCode-111827?style=flat-square" alt="内置 OpenCode Runtime" />
+  <img src="https://img.shields.io/badge/Timeline-SQLite-003B57?style=flat-square" alt="排轴 SQLite Repository" />
+</p>
+
 > 这不是自动战斗脚本，也不是在线配装网站。它把角色、武器、装备、Buff、技能按键、时间轴和伤害结果组织成可保存、可回看、可分享的本地方案；AI 的修改先成为草稿，再由你决定是否应用。
 
 ## 可验证的 AI 协作能力
