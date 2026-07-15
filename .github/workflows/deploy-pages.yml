@@ -1,5 +1,5 @@
 name: Deploy showcase to GitHub Pages
-# Pages deployment is triggered from the showcase branch as well as main.
+# Pages deployment supports the showcase branch used for interview presentation.
 
 on:
   push:
