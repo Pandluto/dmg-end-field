@@ -108,65 +108,65 @@
       <section class="architecture container" id="architecture">
         <div class="architecture-heading">
           <p class="eyebrow"><span></span> SYSTEM ARCHITECTURE / README-ALIGNED</p>
-          <h2>AI 到底怎么参与，<br />又为什么不会乱改？</h2>
-          <p>一句话：你的方案先安全地存在本机；AI 只能拿指定工具在草稿里试；想更新 AI 的能力，先开一段新会话考试，通过后才让它上岗。</p>
+          <h2><span class="architecture-keyword">Electron</span> 把方案留在本机；<br /><span class="architecture-keyword">OpenCode</span> 让 AI 在边界里干活。</h2>
+          <p>不用背架构图：方案先存好，AI 再拿指定工具试做；它的改动先出现在草稿里。想换一套 AI 能力？交给 <span class="architecture-keyword inline-keyword">Harness</span> 在新会话里考试，通过后才上岗。</p>
         </div>
         <div class="architecture-lanes" aria-label="本地文档与 AI 协作架构">
           <section class="architecture-lane">
-            <div class="lane-heading"><b>01 / YOUR PLAN STAYS LOCAL</b><span>你做的方案，先变成可恢复的本地档案</span></div>
+            <div class="lane-heading"><b>01 / ELECTRON → SQLITE</b><span>你做的方案，先变成可恢复的本地档案</span></div>
             <div class="architecture-flow">
-              <article class="architecture-node"><strong>你在工作台里操作</strong><small>选人 · 配装 · 排轴 · 计算</small></article>
+              <article class="architecture-node"><strong>React Workbench</strong><small>你在这里选人、配装、排轴、计算</small></article>
               <i class="architecture-arrow">→</i>
-              <article class="architecture-node"><strong>只在本机传递</strong><small>Electron Bridge · 127.0.0.1</small></article>
+              <article class="architecture-node"><strong><span class="architecture-keyword">Electron Bridge</span></strong><small>只在你的电脑上把数据送到下一站</small></article>
               <i class="architecture-arrow">→</i>
-              <article class="architecture-node node-emphasis"><strong>可恢复的方案档案</strong><small>SQLite Repository · 本机 AppData</small></article>
+              <article class="architecture-node node-emphasis"><strong><span class="architecture-keyword">SQLite Repository</span></strong><small>可恢复的方案档案，存在本机 AppData</small></article>
             </div>
             <p class="lane-note">每一份方案都能保存快照、保留 AI 草稿、记录当前版本与操作历史；分享包会先校验，再一次性写入，避免半截数据覆盖你的方案。</p>
           </section>
           <section class="architecture-lane architecture-ai-lane">
-            <div class="lane-heading"><b>02 / AI IS A BOUNDED ASSISTANT</b><span>它能帮你试，但不能偷偷替你改</span></div>
+            <div class="lane-heading"><b>02 / OPENCODE → WORK NODE</b><span>它能帮你试，但不能偷偷替你改</span></div>
             <div class="architecture-flow">
-              <article class="architecture-node"><strong>AI 负责理解你的问题</strong><small>OpenCode Runtime · 本地会话</small></article>
+              <article class="architecture-node"><strong><span class="architecture-keyword">OpenCode Runtime</span></strong><small>负责听懂你的问题、调度本地 AI 会话</small></article>
               <i class="architecture-arrow">→</i>
-              <article class="architecture-node"><strong>系统先给它划边界</strong><small>DEF Adapter · 会话与能力策略</small></article>
+              <article class="architecture-node"><strong><span class="architecture-keyword">DEF Adapter</span></strong><small>先给 AI 划好终末地任务与能力边界</small></article>
               <i class="architecture-arrow">→</i>
-              <article class="architecture-node"><strong>只准用指定工具做事</strong><small>角色 · 装备 · 伤害 · 排轴</small></article>
+              <article class="architecture-node"><strong><span class="architecture-keyword">Typed Tools</span></strong><small>只准碰角色、装备、伤害和排轴这些指定操作</small></article>
               <i class="architecture-arrow">→</i>
-              <article class="architecture-node node-violet"><strong>先在草稿里试一遍</strong><small>Work Node · Diff · 风险 · 校验</small></article>
+              <article class="architecture-node node-violet"><strong><span class="architecture-keyword">Work Node</span></strong><small>先在草稿里试，告诉你 Diff、风险与校验结果</small></article>
             </div>
             <p class="lane-note">它没有任意 Shell 或文件权限。真正的修改会先变成草稿，展示改了什么、有什么风险；你可以检查、应用，也可以直接丢掉。</p>
           </section>
           <section class="architecture-lane harness-lane">
-            <div class="lane-heading"><b>03 / UPDATE AI, THEN EXAMINE IT</b><span>热插拔：新对话试新能力，旧对话不受影响</span></div>
+            <div class="lane-heading"><b>03 / HARNESS HOT-SWAP</b><span>热插拔：新对话试新能力，旧对话不受影响</span></div>
             <div class="architecture-flow harness-flow">
               <article class="architecture-node"><strong>发现一次真实失败</strong><small>导出、脱敏、定位原因</small></article>
               <i class="architecture-arrow">→</i>
-              <article class="architecture-node"><strong>做一份候选“脑回路”</strong><small>Harness Package · 8 个可迭代 slot</small></article>
+              <article class="architecture-node"><strong><span class="architecture-keyword">Harness Package</span></strong><small>把候选“脑回路”做成可比较、带 hash 的版本包</small></article>
               <i class="architecture-arrow">→</i>
-              <article class="architecture-node node-emphasis"><strong>只让新对话试用</strong><small>Native Session pin 到内容 hash</small></article>
+              <article class="architecture-node node-emphasis"><strong><span class="architecture-keyword">Session Pinning</span></strong><small>只让新对话绑定候选 hash；旧对话保持原样</small></article>
               <i class="architecture-arrow">→</i>
               <article class="architecture-node"><strong>拿真实场景回放考试</strong><small>修复 · 回归 · 安全三项检查</small></article>
               <i class="architecture-arrow">→</i>
               <article class="architecture-node node-violet"><strong>人来决定是否上岗</strong><small>stable / candidate / rollback</small></article>
             </div>
-            <div class="architecture-verification"><b>热插拔到底是什么？</b><span>不是聊到一半给 AI 换人格。每个新 session 创建时绑定自己的 <code>DefHarnessSessionBindingV1</code> 与内容 hash；通过或回滚只影响之后的新对话，所以可以比较，也能安全回退。</span><i>旧对话保持原样</i></div>
+            <div class="architecture-verification"><b><span class="architecture-keyword">热插拔</span> 到底是什么？</b><span>不是聊到一半给 AI 换人格。每个新 session 创建时绑定自己的 <code>DefHarnessSessionBindingV1</code> 与内容 hash；通过或回滚只影响之后的新对话，所以可以比较，也能安全回退。</span><i>旧对话保持原样</i></div>
           </section>
           <section class="architecture-lane data-lane">
-            <div class="lane-heading"><b>04 / SAVE PLANS, UPDATE ASSETS</b><span>攻略方案与图片资源，各走各的路</span></div>
+            <div class="lane-heading"><b>04 / SQLITE NODE TREE + GITHUB RELEASE</b><span>攻略方案与图片资源，各走各的路</span></div>
             <div class="architecture-data-grid">
               <div class="data-path">
                 <p class="data-path-title">你的攻略方案 / 本机事实源</p>
                 <div class="architecture-flow data-flow">
                   <article class="architecture-node"><strong>一份排轴方案</strong><small>队伍 · 配装 · 按键 · Buff</small></article>
                   <i class="architecture-arrow">→</i>
-                  <article class="architecture-node node-emphasis"><strong>本机 SQLite 档案库</strong><small>内容 hash · 原子导入 · 本机保存</small></article>
+                  <article class="architecture-node node-emphasis"><strong><span class="architecture-keyword">SQLite</span></strong><small>内容 hash、原子导入与本机保存</small></article>
                   <i class="architecture-arrow">→</i>
-                  <article class="architecture-node node-violet"><strong>可以回看的节点树</strong><small>Snapshot · 草稿 · Checkout · Audit</small></article>
+                  <article class="architecture-node node-violet"><strong><span class="architecture-keyword">Work Node Tree</span></strong><small>把快照、草稿、Checkout 与审计串起来</small></article>
                 </div>
                 <p class="lane-note">节点树不是装饰图：它把保存、恢复、AI 草稿、校验、审批与回退串起来，所以你随时知道这套攻略从哪里来、改过什么。</p>
               </div>
               <div class="release-path">
-                <p class="data-path-title">图片资源更新 / GitHub Release</p>
+                <p class="data-path-title"><span class="architecture-keyword inline-keyword">GitHub Release</span> / 图片资源更新</p>
                 <div class="release-flow"><span>GitHub Release</span><i>→</i><span>版本检查与下载</span><i>→</i><span>本地图片资源</span></div>
                 <p>立绘等图片走发布更新；你的排轴和攻略方案仍只在本机 SQLite 里保存。更新图片，不会覆盖你的方案。</p>
               </div>
