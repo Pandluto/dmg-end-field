@@ -9,6 +9,9 @@ release-latest/
 .trae/
 .codex-temp-*
 .runtime/
+.runtime-assets/
+.dbg/
+test-results/
 .env
 .env.*
 !.env.example
