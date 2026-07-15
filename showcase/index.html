@@ -108,75 +108,75 @@
       <section class="architecture container" id="architecture">
         <div class="architecture-heading">
           <p class="eyebrow"><span></span> SYSTEM ARCHITECTURE / README-ALIGNED</p>
-          <h2>一条本地保存、受限协作、<br />可回放验证的链路。</h2>
-          <p>它不是网页聊天框外接几个接口：正式方案与 AI 草稿分开保存，模型只能经过已定义的领域操作，运行时改动还要用真实会话回放验证。</p>
+          <h2>AI 到底怎么参与，<br />又为什么不会乱改？</h2>
+          <p>一句话：你的方案先安全地存在本机；AI 只能拿指定工具在草稿里试；想更新 AI 的能力，先开一段新会话考试，通过后才让它上岗。</p>
         </div>
         <div class="architecture-lanes" aria-label="本地文档与 AI 协作架构">
           <section class="architecture-lane">
-            <div class="lane-heading"><b>01 / FORMAL DOCUMENT PATH</b><span>正式方案：本地事实源</span></div>
+            <div class="lane-heading"><b>01 / YOUR PLAN STAYS LOCAL</b><span>你做的方案，先变成可恢复的本地档案</span></div>
             <div class="architecture-flow">
-              <article class="architecture-node"><strong>React 工作台</strong><small>配装 · 排轴 · 资料编辑</small></article>
+              <article class="architecture-node"><strong>你在工作台里操作</strong><small>选人 · 配装 · 排轴 · 计算</small></article>
               <i class="architecture-arrow">→</i>
-              <article class="architecture-node"><strong>Electron 本地桥接</strong><small>REST / SSE · 127.0.0.1</small></article>
+              <article class="architecture-node"><strong>只在本机传递</strong><small>Electron Bridge · 127.0.0.1</small></article>
               <i class="architecture-arrow">→</i>
-              <article class="architecture-node node-emphasis"><strong>Timeline Repository</strong><small>SQLite · 本机 AppData</small></article>
+              <article class="architecture-node node-emphasis"><strong>可恢复的方案档案</strong><small>SQLite Repository · 本机 AppData</small></article>
             </div>
-            <p class="lane-note">文档内包含 Snapshot、Work Node、CheckoutRef 与 Audit Event；分享包导入前校验 schema、哈希和引用，再原子写入。</p>
+            <p class="lane-note">每一份方案都能保存快照、保留 AI 草稿、记录当前版本与操作历史；分享包会先校验，再一次性写入，避免半截数据覆盖你的方案。</p>
           </section>
           <section class="architecture-lane architecture-ai-lane">
-            <div class="lane-heading"><b>02 / AI PROPOSAL &amp; VERIFICATION PATH</b><span>提案不直接覆盖正式方案</span></div>
+            <div class="lane-heading"><b>02 / AI IS A BOUNDED ASSISTANT</b><span>它能帮你试，但不能偷偷替你改</span></div>
             <div class="architecture-flow">
-              <article class="architecture-node"><strong>OpenCode Runtime</strong><small>本地会话与工具调度</small></article>
+              <article class="architecture-node"><strong>AI 负责理解你的问题</strong><small>OpenCode Runtime · 本地会话</small></article>
               <i class="architecture-arrow">→</i>
-              <article class="architecture-node"><strong>DEF Adapter</strong><small>会话、技能与能力策略</small></article>
+              <article class="architecture-node"><strong>系统先给它划边界</strong><small>DEF Adapter · 会话与能力策略</small></article>
               <i class="architecture-arrow">→</i>
-              <article class="architecture-node"><strong>Typed Tools</strong><small>角色 · 装备 · 伤害 · 排轴</small></article>
+              <article class="architecture-node"><strong>只准用指定工具做事</strong><small>角色 · 装备 · 伤害 · 排轴</small></article>
               <i class="architecture-arrow">→</i>
-              <article class="architecture-node node-violet"><strong>Work Node</strong><small>草稿 · Diff · 风险 · 校验</small></article>
+              <article class="architecture-node node-violet"><strong>先在草稿里试一遍</strong><small>Work Node · Diff · 风险 · 校验</small></article>
             </div>
-            <p class="lane-note">Typed Tools 决定 AI 当前允许做什么；Work Node 保存基线、工作副本、补丁与风险，让提案可检查、可应用、可丢弃。</p>
+            <p class="lane-note">它没有任意 Shell 或文件权限。真正的修改会先变成草稿，展示改了什么、有什么风险；你可以检查、应用，也可以直接丢掉。</p>
           </section>
           <section class="architecture-lane harness-lane">
-            <div class="lane-heading"><b>03 / HOT-SWAPPABLE HARNESS</b><span>迭代 Agent，不在线改写既有会话</span></div>
+            <div class="lane-heading"><b>03 / UPDATE AI, THEN EXAMINE IT</b><span>热插拔：新对话试新能力，旧对话不受影响</span></div>
             <div class="architecture-flow harness-flow">
-              <article class="architecture-node"><strong>真实失败会话</strong><small>导出、脱敏与根因审计</small></article>
+              <article class="architecture-node"><strong>发现一次真实失败</strong><small>导出、脱敏、定位原因</small></article>
               <i class="architecture-arrow">→</i>
-              <article class="architecture-node"><strong>Candidate Package</strong><small>8 个 slot 物化为内容 hash</small></article>
+              <article class="architecture-node"><strong>做一份候选“脑回路”</strong><small>Harness Package · 8 个可迭代 slot</small></article>
               <i class="architecture-arrow">→</i>
-              <article class="architecture-node node-emphasis"><strong>新 Native Session</strong><small>pin 到不可变 Harness package</small></article>
+              <article class="architecture-node node-emphasis"><strong>只让新对话试用</strong><small>Native Session pin 到内容 hash</small></article>
               <i class="architecture-arrow">→</i>
-              <article class="architecture-node"><strong>Scenario / Replay</strong><small>FAIL_TO_PASS · PASS_TO_PASS · Safety</small></article>
+              <article class="architecture-node"><strong>拿真实场景回放考试</strong><small>修复 · 回归 · 安全三项检查</small></article>
               <i class="architecture-arrow">→</i>
-              <article class="architecture-node node-violet"><strong>人工 Promotion</strong><small>stable / candidate / rollback</small></article>
+              <article class="architecture-node node-violet"><strong>人来决定是否上岗</strong><small>stable / candidate / rollback</small></article>
             </div>
-            <div class="architecture-verification"><b>HOT-SWAP BOUNDARY</b><span>热插拔指“新 session 选择不同不可变包”：创建时写入 <code>DefHarnessSessionBindingV1</code>，后续 turn 固定使用同一 hash。promotion 或 rollback 只影响之后的新 session。</span><i>不是在线换人格</i></div>
+            <div class="architecture-verification"><b>热插拔到底是什么？</b><span>不是聊到一半给 AI 换人格。每个新 session 创建时绑定自己的 <code>DefHarnessSessionBindingV1</code> 与内容 hash；通过或回滚只影响之后的新对话，所以可以比较，也能安全回退。</span><i>旧对话保持原样</i></div>
           </section>
           <section class="architecture-lane data-lane">
-            <div class="lane-heading"><b>04 / SQLITE, NODE TREE &amp; ASSET UPDATES</b><span>方案数据与发布资源是两条独立链路</span></div>
+            <div class="lane-heading"><b>04 / SAVE PLANS, UPDATE ASSETS</b><span>攻略方案与图片资源，各走各的路</span></div>
             <div class="architecture-data-grid">
               <div class="data-path">
-                <p class="data-path-title">TIMELINE DOCUMENT / 本机事实源</p>
+                <p class="data-path-title">你的攻略方案 / 本机事实源</p>
                 <div class="architecture-flow data-flow">
-                  <article class="architecture-node"><strong>TimelineDocument</strong><small>队伍 · 配装 · 按键 · Buff</small></article>
+                  <article class="architecture-node"><strong>一份排轴方案</strong><small>队伍 · 配装 · 按键 · Buff</small></article>
                   <i class="architecture-arrow">→</i>
-                  <article class="architecture-node node-emphasis"><strong>SQLite Repository</strong><small>内容 hash · 原子导入 · 本机保存</small></article>
+                  <article class="architecture-node node-emphasis"><strong>本机 SQLite 档案库</strong><small>内容 hash · 原子导入 · 本机保存</small></article>
                   <i class="architecture-arrow">→</i>
-                  <article class="architecture-node node-violet"><strong>Work Node Tree</strong><small>Snapshot · 草稿 · Checkout · Audit</small></article>
+                  <article class="architecture-node node-violet"><strong>可以回看的节点树</strong><small>Snapshot · 草稿 · Checkout · Audit</small></article>
                 </div>
-                <p class="lane-note">节点树不是 UI 装饰：它记录正式文档与 AI 子节点的引用关系，使保存、恢复、校验、审批与回退都可追溯。</p>
+                <p class="lane-note">节点树不是装饰图：它把保存、恢复、AI 草稿、校验、审批与回退串起来，所以你随时知道这套攻略从哪里来、改过什么。</p>
               </div>
               <div class="release-path">
-                <p class="data-path-title">GITHUB RELEASE / 资源更新链</p>
+                <p class="data-path-title">图片资源更新 / GitHub Release</p>
                 <div class="release-flow"><span>GitHub Release</span><i>→</i><span>版本检查与下载</span><i>→</i><span>本地图片资源</span></div>
-                <p>图片资源的版本检查与下载走发布链路；它不等于排轴数据同步，也不替代 SQLite 中的正式方案。</p>
+                <p>立绘等图片走发布更新；你的排轴和攻略方案仍只在本机 SQLite 里保存。更新图片，不会覆盖你的方案。</p>
               </div>
             </div>
           </section>
         </div>
         <div class="architecture-boundaries">
-          <p><b>不是云端排轴数据库。</b>正式事实源在本机 SQLite，不依赖浏览器缓存或远程同步。</p>
-          <p><b>不是任意本机代理。</b>Typed Tools 拒绝任意 Shell、文件访问、任务编排和未知目录写入。</p>
-          <p><b>不是一次演示即算验证。</b>Harness 以版本化工件和真实会话场景验证运行时演进。</p>
+          <p><b>你的方案在哪？</b>在本机 SQLite，不在浏览器缓存，也不依赖云端同步。</p>
+          <p><b>AI 为什么不会乱来？</b>它没有任意 Shell 和文件权限，只能调用规定好的领域工具。</p>
+          <p><b>更新 AI 凭什么可信？</b>候选能力要在真实会话中回放，通过修复、回归与安全检查后才由人批准。</p>
         </div>
       </section>
 
