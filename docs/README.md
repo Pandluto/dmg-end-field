@@ -4,6 +4,9 @@
 
 ## 从这里开始
 
+- [项目架构总览](./architecture/overview.md)：桌面界面、本地数据、AI 协作与 Harness 如何分层。
+- [开发与启动](./guides/development.md)：安装依赖、启动桌面开发环境、构建与验证入口。
+- [技术栈与技术选择](./technology-stack.md)：核心技术边界及其取舍。
 - [Spec 总索引](./specs/README.md)：按产品演进线查找规格与实施记录。
 - [测试方法](./testing/README.md)：跨 Spec 复用的测试口径，不存放某次 Spec 的验收结果。
 - [架构审计](./architecture/README.md)：跨多个 Spec 的架构债务与归档审计。
