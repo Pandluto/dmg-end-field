@@ -1,7 +1,8 @@
 # ADR-0002：Teacher / Worker / Judge 分离
 
 - Status: Accepted
-- Date: 2026-07-15
+- Recorded: 2026-07-15
+- Decision period: Retrospective record of the Spec 8 research and implementation; see Evidence for the original artifacts.
 
 ## Context
 

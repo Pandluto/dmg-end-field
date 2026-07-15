@@ -9,6 +9,7 @@ const { pathToFileURL } = require('url');
 const { tryServeDesktopApp } = require('./web-host.cjs');
 const { createAiTimelineWorkNodeStore } = require('./ai-timeline-work-node-store.cjs');
 const { createTimelineRepository } = require('./timeline-repository.cjs');
+const { buildNodeSidecarEnv: createNodeSidecarEnv } = require('./sidecar-runtime.cjs');
 const { createDefCodexInteropProtocol } = require('../agent/runtime/def-codex-interop.cjs');
 const {
   app,
@@ -2850,25 +2851,12 @@ function getAssetsRoot() {
 }
 
 function buildNodeSidecarEnv(extra = {}) {
-  const defOpenCodeHome = path.join(app.getPath('userData'), 'def-opencode');
-  const packagedEsbuildBinary = app.isPackaged
-    ? path.join(
-        process.resourcesPath,
-        'app.asar.unpacked',
-        'node_modules',
-        '@esbuild',
-        `${process.platform}-${process.arch}`,
-        'bin',
-        process.platform === 'win32' ? 'esbuild.exe' : 'esbuild'
-      )
-    : '';
-  return {
-    ...process.env,
-    ELECTRON_RUN_AS_NODE: '1',
-    DEF_OPENCODE_HOME: defOpenCodeHome,
-    ...(packagedEsbuildBinary ? { ESBUILD_BINARY_PATH: packagedEsbuildBinary } : {}),
-    ...extra,
-  };
+  return createNodeSidecarEnv({
+    userDataPath: app.getPath('userData'),
+    resourcesPath: process.resourcesPath,
+    packaged: app.isPackaged,
+    extra,
+  });
 }
 
 function getNodeSidecarCwd() {

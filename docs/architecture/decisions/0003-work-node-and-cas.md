@@ -1,7 +1,8 @@
 # ADR-0003：mutation 使用 child Work Node 与 revision CAS
 
 - Status: Accepted
-- Date: 2026-07-15
+- Recorded: 2026-07-15
+- Decision period: Retrospective record of the Spec 8-1-3 implementation; see Evidence for the original artifacts.
 
 ## Context
 

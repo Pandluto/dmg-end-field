@@ -1,7 +1,8 @@
 # ADR-0006：知识采用 allowlist 两阶段读取
 
 - Status: Accepted
-- Date: 2026-07-15
+- Recorded: 2026-07-15
+- Decision period: Retrospective record of the Spec 8-1-3 implementation; see Evidence for the original artifacts.
 
 ## Context
 

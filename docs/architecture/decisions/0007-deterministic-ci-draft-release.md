@@ -1,7 +1,8 @@
 # ADR-0007：确定性 CI 与人工闸门 Draft Release
 
 - Status: Accepted
-- Date: 2026-07-15
+- Recorded: 2026-07-15
+- Decision period: New decision introduced with the CI/CD baseline recorded in commit `6d85548`.
 
 ## Context
 

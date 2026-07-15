@@ -7,10 +7,18 @@ updates:
       day: monday
     open-pull-requests-limit: 5
     groups:
+      vite-toolchain:
+        patterns:
+          - vite
+          - '@vitejs/plugin-react'
       production-dependencies:
         dependency-type: production
+        exclude-patterns:
+          - vite
       development-dependencies:
         dependency-type: development
+        exclude-patterns:
+          - '@vitejs/plugin-react'
 
   - package-ecosystem: github-actions
     directory: /

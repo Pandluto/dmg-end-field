@@ -1,7 +1,8 @@
 # ADR-0005：Harness 不可变并在 session 创建时 pin
 
 - Status: Accepted
-- Date: 2026-07-15
+- Recorded: 2026-07-15
+- Decision period: Retrospective record of the Spec 8-1-2 implementation; see Evidence for the original artifacts.
 
 ## Context
 

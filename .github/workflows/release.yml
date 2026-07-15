@@ -38,9 +38,38 @@ jobs:
       - name: Run deterministic quality gate
         run: npm run check
 
+  models_snapshot:
+    name: Freeze models.dev snapshot
+    needs: validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      sha256: ${{ steps.snapshot.outputs.sha256 }}
+    steps:
+      - name: Fetch and validate one release snapshot
+        id: snapshot
+        shell: bash
+        run: |
+          mkdir -p release-inputs
+          curl --fail --location --retry 3 --retry-all-errors \
+            https://models.dev/api.json \
+            --output release-inputs/models.dev.api.json
+          node -e "JSON.parse(require('node:fs').readFileSync('release-inputs/models.dev.api.json', 'utf8'))"
+          sha256="$(sha256sum release-inputs/models.dev.api.json | cut -d ' ' -f 1)"
+          echo "sha256=$sha256" >> "$GITHUB_OUTPUT"
+          echo "$sha256  models.dev.api.json" > release-inputs/SHA256SUMS
+
+      - name: Upload frozen models snapshot
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: release-models-snapshot
+          path: release-inputs
+          if-no-files-found: error
+          retention-days: 14
+
   package:
     name: Package ${{ matrix.label }}
-    needs: validate
+    needs: [validate, models_snapshot]
     strategy:
       fail-fast: false
       matrix:
@@ -77,14 +106,25 @@ jobs:
         working-directory: agent/vendor/opencode
         run: bun install --frozen-lockfile
 
+      - name: Download frozen models snapshot
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: release-models-snapshot
+          path: .runtime/release-inputs
+
       - name: Build Windows portable package
         if: runner.os == 'Windows'
+        env:
+          MODELS_DEV_API_JSON: ${{ github.workspace }}/.runtime/release-inputs/models.dev.api.json
+          MODELS_DEV_API_SHA256: ${{ needs.models_snapshot.outputs.sha256 }}
         run: npm run electron:build
 
       - name: Build macOS DMG without automatic signing
         if: runner.os == 'macOS'
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+          MODELS_DEV_API_JSON: ${{ github.workspace }}/.runtime/release-inputs/models.dev.api.json
+          MODELS_DEV_API_SHA256: ${{ needs.models_snapshot.outputs.sha256 }}
         run: npm run electron:build:mac
 
       - name: Start packaged sidecar and verify writable paths
@@ -122,9 +162,27 @@ jobs:
             echo 'No release artifacts were downloaded.' >&2
             exit 1
           fi
-          printf '%s\0' "${files[@]}" | sort -z | xargs -0 sha256sum > SHA256SUMS
-          gh release create "$GITHUB_REF_NAME" "${files[@]}" SHA256SUMS \
-            --draft \
-            --verify-tag \
-            --generate-notes \
-            --title "dmg-end-field $GITHUB_REF_NAME"
+          mkdir release-files
+          for file in "${files[@]}"; do
+            name="$(basename "$file")"
+            if [[ -e "release-files/$name" ]]; then
+              echo "Duplicate release artifact name: $name" >&2
+              exit 1
+            fi
+            cp "$file" "release-files/$name"
+          done
+          (cd release-files && sha256sum -- *) > SHA256SUMS
+          mapfile -d '' release_files < <(find release-files -maxdepth 1 -type f -print0 | sort -z)
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            if [[ "$(gh api "repos/$GH_REPO/releases/tags/$GITHUB_REF_NAME" --jq .draft)" != 'true' ]]; then
+              echo "Refusing to replace assets on a published release." >&2
+              exit 1
+            fi
+            gh release upload "$GITHUB_REF_NAME" "${release_files[@]}" SHA256SUMS --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" "${release_files[@]}" SHA256SUMS \
+              --draft \
+              --verify-tag \
+              --generate-notes \
+              --title "终末地伤害工作台 $GITHUB_REF_NAME"
+          fi

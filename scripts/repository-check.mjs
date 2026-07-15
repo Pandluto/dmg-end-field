@@ -65,7 +65,8 @@ const syntaxFiles = files.filter(
   (file) =>
     syntaxRoots.some((prefix) => file.startsWith(prefix)) &&
     !file.startsWith('agent/vendor/') &&
-    /\.(?:cjs|mjs)$/.test(file),
+    /\.(?:cjs|mjs|js)$/.test(file) &&
+    !file.startsWith('agent/runtime/opencode-ui/'),
 );
 for (const file of syntaxFiles) {
   const result = spawnSync(process.execPath, ['--check', path.join(root, file)], {

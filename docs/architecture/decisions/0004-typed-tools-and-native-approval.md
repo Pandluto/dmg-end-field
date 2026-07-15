@@ -1,7 +1,8 @@
 # ADR-0004：typed tools 与原生审批构成副作用边界
 
 - Status: Accepted
-- Date: 2026-07-15
+- Recorded: 2026-07-15
+- Decision period: Retrospective record of the Spec 8-1-1 through 8-1-3 implementation; see Evidence for the original artifacts.
 
 ## Context
 

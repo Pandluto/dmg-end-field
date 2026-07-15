@@ -59,7 +59,17 @@ async function fetchModelsSnapshot() {
     if (!fs.existsSync(configured)) {
       fail(`MODELS_DEV_API_JSON points to a missing file: ${configured}`);
     }
+    const actualHash = sha256(configured);
+    const expectedHash = String(process.env.MODELS_DEV_API_SHA256 || '').trim().toLowerCase();
+    if (expectedHash && actualHash !== expectedHash) {
+      fail(`MODELS_DEV_API_JSON checksum mismatch: expected ${expectedHash}, received ${actualHash}`);
+    }
+    JSON.parse(fs.readFileSync(configured, 'utf8'));
     return configured;
+  }
+
+  if (process.env.CI) {
+    fail('CI builds require a workflow-provided MODELS_DEV_API_JSON snapshot.');
   }
 
   fs.mkdirSync(buildCacheDir, { recursive: true });
@@ -218,6 +228,7 @@ const manifest = {
   buildCommand: 'bun run --cwd agent/vendor/opencode/packages/opencode script/build.ts --single --skip-embed-web-ui --skip-install',
   bunVersion: bun.version,
   modelsSnapshot: path.relative(projectRoot, modelsSnapshot).replace(/\\/g, '/'),
+  modelsSnapshotSha256: sha256(modelsSnapshot),
   checksumSha256: checksum,
   builtAt,
 };

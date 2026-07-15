@@ -4,6 +4,8 @@
 
 Please use GitHub private vulnerability reporting for this repository. Do not open a public issue containing provider credentials, bearer tokens, native session transcripts, user data or a working local exploit.
 
+Open the repository **Security → Advisories → Report a vulnerability** flow. Private vulnerability reporting is enabled; if GitHub is temporarily unavailable, contact the maintainer at `190052366@qq.com` without attaching live credentials or raw private transcripts.
+
 Include the affected version/commit, platform, minimal reproduction, impact and whether the report involves the loopback bridge, typed mutation tools, Work Node persistence, Harness promotion or packaged application.
 
 ## Supported versions
