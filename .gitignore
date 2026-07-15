@@ -5,6 +5,7 @@ release-latest/
 .DS_Store
 *.log
 .vscode/
+.zcode/
 .claude/
 .trae/
 .codex-temp-*
