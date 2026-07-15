@@ -2851,10 +2851,22 @@ function getAssetsRoot() {
 
 function buildNodeSidecarEnv(extra = {}) {
   const defOpenCodeHome = path.join(app.getPath('userData'), 'def-opencode');
+  const packagedEsbuildBinary = app.isPackaged
+    ? path.join(
+        process.resourcesPath,
+        'app.asar.unpacked',
+        'node_modules',
+        '@esbuild',
+        `${process.platform}-${process.arch}`,
+        'bin',
+        process.platform === 'win32' ? 'esbuild.exe' : 'esbuild'
+      )
+    : '';
   return {
     ...process.env,
     ELECTRON_RUN_AS_NODE: '1',
     DEF_OPENCODE_HOME: defOpenCodeHome,
+    ...(packagedEsbuildBinary ? { ESBUILD_BINARY_PATH: packagedEsbuildBinary } : {}),
     ...extra,
   };
 }
@@ -2875,11 +2887,23 @@ async function startAiCliRest() {
     };
   }
 
+  ensureLocalDataDirectory();
+  const runtimeRoot = app.isPackaged
+    ? path.join(app.getPath('userData'), 'runtime')
+    : path.join(__dirname, '..', '.runtime');
   const scriptPath = path.join(__dirname, '..', 'scripts', 'ai-cli-rest-server.mjs');
   aiCliRestProcess = spawn(process.execPath, [scriptPath], {
     cwd: getNodeSidecarCwd(),
     env: buildNodeSidecarEnv({
       AI_CLI_REST_PORT: '17321',
+      AI_CLI_REST_STORAGE_DIR: path.join(runtimeRoot, 'ai-cli-rest'),
+      AI_CLI_REST_VITE_CACHE_DIR: path.join(runtimeRoot, 'vite-ai-cli-rest', String(process.pid)),
+      AI_CLI_NOW_STORAGE_PATH: getNowStoragePath(),
+      AI_TIMELINE_WORK_NODE_DB_PATH: getAiTimelineWorkNodesPath(),
+      AI_TIMELINE_WORK_NODE_LEGACY_PATH: getLegacyAiTimelineWorkNodesPath(),
+      TIMELINE_REPOSITORY_DB_PATH: getTimelineRepositoryPath(),
+      DEF_TOOL_GOVERNANCE_PATH: path.join(getLocalDataDirectory(), 'def-tool-governance.json'),
+      DEF_AGENT_SCRIPT_DIR: path.join(runtimeRoot, 'def-agent', 'scripts'),
     }),
     stdio: 'ignore',
     detached: false,
@@ -4176,10 +4200,10 @@ function getShareDataDirectory() {
 
 function getRuntimeDataRoot() {
   const portableDir = process.env.PORTABLE_EXECUTABLE_DIR;
-  const executableDir = portableDir && portableDir.trim()
-    ? portableDir
-    : path.dirname(process.execPath);
-  return path.join(executableDir, 'data');
+  if (portableDir && portableDir.trim()) {
+    return path.join(portableDir, 'data');
+  }
+  return path.join(app.getPath('userData'), 'data');
 }
 
 function getRuntimeLogDirectory() {
