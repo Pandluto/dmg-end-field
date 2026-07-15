@@ -7,6 +7,10 @@
 <p align="center">为《明日方舟：终末地》配装、排轴、伤害计算与本地资料维护打造的桌面工作台。</p>
 
 <p align="center">
+  <a href="https://pandluto.github.io/dmg-end-field/">项目展示页</a> · <a href="https://github.com/Pandluto/dmg-end-field/releases">发布版本</a> · <a href="docs/guides/quick-start.md">使用指南</a>
+</p>
+
+<p align="center">
   <img src="https://img.shields.io/badge/Desktop-Electron-47848F?style=flat-square" alt="Electron 桌面壳" />
   <img src="https://img.shields.io/badge/AI_Runtime-OpenCode-111827?style=flat-square" alt="内置 OpenCode Runtime" />
   <img src="https://img.shields.io/badge/Agent_Runtime-Typed%20Tools%20%2B%20Harness-7C3AED?style=flat-square" alt="Typed Tools 与 Harness" />
