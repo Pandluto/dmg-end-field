@@ -128,7 +128,43 @@
               <i class="architecture-arrow">→</i>
               <article class="architecture-node node-violet"><strong>Work Node</strong><small>草稿 · Diff · 风险 · 校验</small></article>
             </div>
-            <div class="architecture-verification"><b>HARNESS</b><span>将规则、技能、路由与真实会话打成版本化工件，回放候选行为并比较修复、回归与用户状态安全。</span><i>验证 → DEF Adapter</i></div>
+            <p class="lane-note">Typed Tools 决定 AI 当前允许做什么；Work Node 保存基线、工作副本、补丁与风险，让提案可检查、可应用、可丢弃。</p>
+          </section>
+          <section class="architecture-lane harness-lane">
+            <div class="lane-heading"><b>03 / HOT-SWAPPABLE HARNESS</b><span>迭代 Agent，不在线改写既有会话</span></div>
+            <div class="architecture-flow harness-flow">
+              <article class="architecture-node"><strong>真实失败会话</strong><small>导出、脱敏与根因审计</small></article>
+              <i class="architecture-arrow">→</i>
+              <article class="architecture-node"><strong>Candidate Package</strong><small>8 个 slot 物化为内容 hash</small></article>
+              <i class="architecture-arrow">→</i>
+              <article class="architecture-node node-emphasis"><strong>新 Native Session</strong><small>pin 到不可变 Harness package</small></article>
+              <i class="architecture-arrow">→</i>
+              <article class="architecture-node"><strong>Scenario / Replay</strong><small>FAIL_TO_PASS · PASS_TO_PASS · Safety</small></article>
+              <i class="architecture-arrow">→</i>
+              <article class="architecture-node node-violet"><strong>人工 Promotion</strong><small>stable / candidate / rollback</small></article>
+            </div>
+            <div class="architecture-verification"><b>HOT-SWAP BOUNDARY</b><span>热插拔指“新 session 选择不同不可变包”：创建时写入 <code>DefHarnessSessionBindingV1</code>，后续 turn 固定使用同一 hash。promotion 或 rollback 只影响之后的新 session。</span><i>不是在线换人格</i></div>
+          </section>
+          <section class="architecture-lane data-lane">
+            <div class="lane-heading"><b>04 / SQLITE, NODE TREE &amp; ASSET UPDATES</b><span>方案数据与发布资源是两条独立链路</span></div>
+            <div class="architecture-data-grid">
+              <div class="data-path">
+                <p class="data-path-title">TIMELINE DOCUMENT / 本机事实源</p>
+                <div class="architecture-flow data-flow">
+                  <article class="architecture-node"><strong>TimelineDocument</strong><small>队伍 · 配装 · 按键 · Buff</small></article>
+                  <i class="architecture-arrow">→</i>
+                  <article class="architecture-node node-emphasis"><strong>SQLite Repository</strong><small>内容 hash · 原子导入 · 本机保存</small></article>
+                  <i class="architecture-arrow">→</i>
+                  <article class="architecture-node node-violet"><strong>Work Node Tree</strong><small>Snapshot · 草稿 · Checkout · Audit</small></article>
+                </div>
+                <p class="lane-note">节点树不是 UI 装饰：它记录正式文档与 AI 子节点的引用关系，使保存、恢复、校验、审批与回退都可追溯。</p>
+              </div>
+              <div class="release-path">
+                <p class="data-path-title">GITHUB RELEASE / 资源更新链</p>
+                <div class="release-flow"><span>GitHub Release</span><i>→</i><span>版本检查与下载</span><i>→</i><span>本地图片资源</span></div>
+                <p>图片资源的版本检查与下载走发布链路；它不等于排轴数据同步，也不替代 SQLite 中的正式方案。</p>
+              </div>
+            </div>
           </section>
         </div>
         <div class="architecture-boundaries">
