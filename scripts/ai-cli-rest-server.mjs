@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { createServer as createViteServer } from 'vite';
 import { buildMainWorkbenchEvidence } from '../src/agentKernel/mainWorkbench/evidenceRuntime.mjs';
@@ -59,16 +60,37 @@ const EQUIPMENT_LIBRARY_STORAGE_KEY = 'def.equipment-sheet.library.v1';
 const OPERATOR_CATALOG_STORAGE_KEY = 'def.operator-editor.library.v1';
 const WEAPON_LIBRARY_STORAGE_KEY = 'def.weapon-sheet.library.v1';
 const GAME_KNOWLEDGE_REFERENCES_DIR = path.join(projectRoot, 'agent', 'runtime', 'def', 'skills', 'game-knowledge', 'references');
+const GAME_KNOWLEDGE_LOADOUT_MANIFESTS_DIR = path.join(projectRoot, 'agent', 'runtime', 'def', 'skills', 'game-knowledge', 'loadout-plans');
 const MAIN_WORKBENCH_SUPPORTED_OP_SET = new Set(MAIN_WORKBENCH_SUPPORTED_OPS);
 // Ephemeral, unforgeable capability for a reviewed operator-config child.
 // A sidecar restart invalidates it safely; callers must build a fresh preview.
 const preparedOperatorConfigCapabilities = new Map();
 const PREPARED_OPERATOR_CONFIG_TTL_MS = 15 * 60 * 1000;
+// Guide reads are deliberately session-scoped and in-memory. They are an
+// opaque hand-off between two native turns, never a filesystem capability or
+// a cross-session recommendation cache.
+const guideLoadoutPlanSources = new Map();
+const preparedTeamLoadoutPlans = new Map();
+const PREPARED_TEAM_LOADOUT_TTL_MS = 15 * 60 * 1000;
+
+function hashDefLoadoutPlan(value) {
+  return createHash('sha256').update(JSON.stringify(value)).digest('hex');
+}
 
 function prunePreparedOperatorConfigCapabilities() {
   const now = Date.now();
   for (const [token, prepared] of preparedOperatorConfigCapabilities) {
     if (prepared.expiresAt <= now) preparedOperatorConfigCapabilities.delete(token);
+  }
+}
+
+function pruneDefTeamLoadoutPlans() {
+  const now = Date.now();
+  for (const [sessionId, source] of guideLoadoutPlanSources) {
+    if (source.expiresAt <= now) guideLoadoutPlanSources.delete(sessionId);
+  }
+  for (const [planHash, prepared] of preparedTeamLoadoutPlans) {
+    if (prepared.expiresAt <= now && !prepared.usedResult) preparedTeamLoadoutPlans.delete(planHash);
   }
 }
 
@@ -2424,6 +2446,14 @@ function defSelectedTeamLoadoutFromSnapshot(snapshot, input = {}) {
   });
   const axis = readDefWorkbenchAxisContext();
   const checkout = axis?.checkout || null;
+  // The UI checkout timestamp identifies the selected target, but it is not
+  // the optimistic-concurrency revision used by prepared operator-config
+  // children. Bind a team plan to the same repository-node revision that the
+  // serial apply path will CAS-check.
+  const checkoutNode = checkout?.targetType === 'work-node' && checkout?.targetId
+    ? readRepositoryWorkNode(checkout.targetId)
+    : null;
+  const checkoutRevision = Number(checkoutNode?.contentRevision || checkoutNode?.updatedAt || checkout?.updatedAt);
   return {
     protocolVersion: 1,
     contract: 'DefSelectedTeamLoadoutsV1',
@@ -2438,7 +2468,7 @@ function defSelectedTeamLoadoutFromSnapshot(snapshot, input = {}) {
       timelineId: checkout?.timelineId || axis?.document?.id || 'current-main-workbench',
       targetType: checkout?.targetType || null,
       targetId: checkout?.targetId || null,
-      revision: checkout?.updatedAt ?? null,
+      revision: Number.isFinite(checkoutRevision) ? checkoutRevision : null,
     },
     selectedCount: selectedCharacters.length,
     complete: missing.length === 0,
@@ -2846,6 +2876,280 @@ function readDefGameKnowledgeSection(input = {}) {
     nextSection: truncated ? { referenceId: reference.id, sectionId: section.sectionId, cursor: nextCursor } : null,
     availableSections: reference.index.headings.map(compactGameKnowledgeHeading),
   };
+}
+
+function rememberDefGuideLoadoutSource(input = {}) {
+  const sessionId = typeof input.__defSessionId === 'string' ? input.__defSessionId.trim() : '';
+  const referenceId = typeof input.referenceId === 'string' ? input.referenceId.trim() : '';
+  const sectionId = typeof input.sectionId === 'string' ? input.sectionId.trim() : '';
+  const content = typeof input.content === 'string' ? input.content : '';
+  if (!sessionId || !referenceId || !sectionId || !content) {
+    return { ok: false, code: 'invalid-guide-plan-source', component: 'team-loadout-plan', message: 'A native session, exact reference, section and content are required.' };
+  }
+  const sourceContentHash = hashDefLoadoutPlan(content);
+  pruneDefTeamLoadoutPlans();
+  guideLoadoutPlanSources.set(sessionId, { sessionId, referenceId, sectionId, content, sourceContentHash, rememberedAt: Date.now(), expiresAt: Date.now() + PREPARED_TEAM_LOADOUT_TTL_MS });
+  return { ok: true, sessionId, referenceId, sectionId, sourceContentHash };
+}
+
+function safeDefGuideLoadoutManifestFiles() {
+  try {
+    if (!fs.existsSync(GAME_KNOWLEDGE_LOADOUT_MANIFESTS_DIR)) return [];
+    const root = fs.realpathSync(GAME_KNOWLEDGE_LOADOUT_MANIFESTS_DIR);
+    return fs.readdirSync(root, { withFileTypes: true })
+      .filter((entry) => entry.isFile() && entry.name.endsWith('.json'))
+      .map((entry) => path.join(root, entry.name))
+      .filter((candidate) => {
+        try { return fs.realpathSync(candidate).startsWith(`${root}${path.sep}`); } catch { return false; }
+      });
+  } catch { return []; }
+}
+
+function readDefGuideLoadoutManifest(source) {
+  for (const manifestPath of safeDefGuideLoadoutManifestFiles()) {
+    try {
+      const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+      if (manifest?.contract !== 'DefGuideTeamLoadoutManifestV1'
+        || manifest?.referenceId !== source.referenceId
+        || manifest?.sectionId !== source.sectionId
+        || manifest?.sourceContentHash !== source.sourceContentHash
+        || !Array.isArray(manifest?.operators)) continue;
+      return { manifest, manifestPath: path.basename(manifestPath) };
+    } catch { /* invalid companion manifests are not executable */ }
+  }
+  return null;
+}
+
+function defPlanNumber(value) {
+  return typeof value === 'number' && Number.isFinite(value) ? value : 0;
+}
+
+function defPlanPercent(value, unit = '') {
+  const numeric = defPlanNumber(value);
+  return unit === 'percent' && Math.abs(numeric) <= 1 ? numeric * 100 : numeric;
+}
+
+function defPlanEffectValue(effect = {}, level = 3) {
+  const levels = effect?.levels && typeof effect.levels === 'object' ? effect.levels : {};
+  const value = levels[String(level)] ?? levels[level] ?? effect?.value ?? 0;
+  return defPlanPercent(value, String(effect?.unit || ''));
+}
+
+function findDefPlanEquipment(library, selection, usedEquipmentIds) {
+  const all = Object.values(library?.gearSets || {}).flatMap((gearSet) => Object.values(gearSet?.equipments || {}).map((equipment) => ({ gearSet, equipment })));
+  const exact = selection?.equipmentId
+    ? all.filter(({ gearSet, equipment }) => gearSet?.gearSetId === selection.gearSetId && equipment?.equipmentId === selection.equipmentId)
+    : all.filter(({ gearSet, equipment }) => (
+      (!selection?.gearSetId || gearSet?.gearSetId === selection.gearSetId)
+      && (!selection?.part || equipment?.part === selection.part)
+      && (!selection?.effectType || Object.values(equipment?.effects || {}).some((effect) => effect?.typeKey === selection.effectType))
+      && !usedEquipmentIds.has(String(equipment?.equipmentId || ''))
+    ));
+  const candidates = exact.sort((left, right) => `${left.gearSet?.gearSetId}:${left.equipment?.equipmentId}`.localeCompare(`${right.gearSet?.gearSetId}:${right.equipment?.equipmentId}`));
+  if (candidates.length !== 1) return { error: candidates.length ? 'product-selector-ambiguous' : 'product-selector-empty' };
+  const { gearSet, equipment } = candidates[0];
+  if (selection?.name && selection.name !== equipment.name) return { error: 'product-name-mismatch' };
+  const entryLevel = Number.isInteger(selection?.entryLevel) ? selection.entryLevel : 3;
+  const effects = Object.values(equipment?.effects || {}).map((effect) => ({
+    effectId: String(effect?.effectId || ''), label: String(effect?.label || effect?.effectId || ''), typeKey: String(effect?.typeKey || ''),
+    level: entryLevel, value: defPlanEffectValue(effect, entryLevel), unit: String(effect?.unit || ''),
+  }));
+  return { product: { gearSetId: String(gearSet?.gearSetId || ''), gearSetName: String(gearSet?.name || ''), equipmentId: String(equipment?.equipmentId || ''), name: String(equipment?.name || ''), part: String(equipment?.part || ''), entryLevel, effects } };
+}
+
+function resolveDefPlanSelectedOperator(team, name) {
+  const matches = (team?.operators || []).filter((operator) => normalizeDefToolText(operator?.characterName) === normalizeDefToolText(name));
+  if (matches.length !== 1) return { error: matches.length ? 'selected-operator-name-ambiguous' : 'selected-operator-not-found' };
+  const selected = matches[0];
+  const catalog = readMainWorkbenchJson(OPERATOR_CATALOG_STORAGE_KEY, {});
+  const catalogEntry = catalog && typeof catalog === 'object' ? catalog[selected.characterId] : null;
+  if (!catalogEntry || String(catalogEntry?.name || '') !== selected.characterName) return { error: 'selected-operator-id-name-mismatch' };
+  return { selected };
+}
+
+function computeDefPlanDerivedCharge(products, weapon, library) {
+  const equipment = products.reduce((sum, product) => sum + product.effects
+    .filter((effect) => effect.typeKey === 'ultimateChargeEfficiency')
+    .reduce((effectSum, effect) => effectSum + defPlanNumber(effect.value), 0), 0);
+  const weaponEffects = Object.values(weapon?.effects || {});
+  const weaponCharge = weaponEffects.filter((effect) => effect?.typeKey === 'ultimateChargeEfficiency')
+    .reduce((sum, effect) => sum + defPlanEffectValue(effect, Number(weapon?.level || 3)), 0);
+  const setBonus = [...new Set(products.map((product) => product.gearSetId))].reduce((sum, gearSetId) => {
+    const gearSet = Object.values(library?.gearSets || {}).find((set) => set?.gearSetId === gearSetId);
+    const count = products.filter((product) => product.gearSetId === gearSetId).length;
+    if (count < 3) return sum;
+    return sum + [...(gearSet?.threePieceBuff ? [gearSet.threePieceBuff] : []), ...Object.values(gearSet?.threePieceBuffs || {})]
+      .filter((buff) => buff?.typeKey === 'ultimateChargeEfficiency')
+      .reduce((buffSum, buff) => buffSum + defPlanPercent(buff?.value, String(buff?.unit || '')), 0);
+  }, 0);
+  return { base: 100, equipment: Number(equipment.toFixed(2)), weapon: Number(weaponCharge.toFixed(2)), setBonus: Number(setBonus.toFixed(2)), total: Number((100 + equipment + weaponCharge + setBonus).toFixed(2)), unit: 'percent' };
+}
+
+function defPlanCheckoutMatches(checkout) {
+  const current = readDefWorkbenchAxisContext()?.checkout || null;
+  const currentNode = current?.targetType === 'work-node' && current?.targetId
+    ? readRepositoryWorkNode(current.targetId)
+    : null;
+  const currentRevision = Number(currentNode?.contentRevision || currentNode?.updatedAt || current?.updatedAt);
+  return Boolean(checkout && current && currentNode
+    && current.targetType === checkout.targetType
+    && current.targetId === checkout.targetId
+    && Number.isFinite(currentRevision)
+    && currentRevision === Number(checkout.revision));
+}
+
+function buildDefGuideTeamLoadoutPlan(input = {}, options = {}) {
+  const sessionId = typeof input.__defSessionId === 'string' ? input.__defSessionId.trim() : '';
+  pruneDefTeamLoadoutPlans();
+  const source = guideLoadoutPlanSources.get(sessionId);
+  if (!source) return { ok: false, code: 'guide-plan-source-unavailable', component: 'team-loadout-plan', state: 'BLOCKED', nextAction: 'Read the named guide section in this same native session before preparing a plan.' };
+  const companion = readDefGuideLoadoutManifest(source);
+  if (!companion) return { ok: false, code: 'guide-plan-manifest-unavailable', component: 'team-loadout-plan', state: 'BLOCKED', nextAction: 'This allowlisted guide has no content-hash-verified structured loadout companion; no generic plan is inferred.' };
+  const snapshot = readMainWorkbenchSnapshotMirror();
+  const team = snapshot ? defSelectedTeamLoadoutFromSnapshot(snapshot) : null;
+  if (!team?.checkout?.targetId || !team.checkout?.revision) return { ok: false, code: 'team-loadout-checkout-unavailable', component: 'team-loadout-plan', state: 'BLOCKED', nextAction: 'Open a revisioned Work Node checkout and rebuild the plan.' };
+  const library = readDefEquipmentLibrary();
+  const weaponLibrary = readMainWorkbenchJson(WEAPON_LIBRARY_STORAGE_KEY, {});
+  const confirmed = new Set(options.confirmedDecisionIds || []);
+  const confirmedChoices = new Map((options.confirmedChoices || []).map((choice) => [choice.decisionId, choice.optionId]));
+  const unresolved = [];
+  const operators = companion.manifest.operators.map((target) => {
+    const resolvedOperator = resolveDefPlanSelectedOperator(team, target.characterName);
+    if (resolvedOperator.error) {
+      unresolved.push({ code: resolvedOperator.error, characterName: target.characterName, message: `${target.characterName} 无法以当前 selected team/catalog 同源精确解析。` });
+      return { characterName: target.characterName, exactProduct: { complete: false } };
+    }
+    const selected = resolvedOperator.selected;
+    const usedEquipmentIds = new Set();
+    const products = [];
+    for (const selection of target.equipment || []) {
+      const found = findDefPlanEquipment(library, selection, usedEquipmentIds);
+      if (found.error) {
+        unresolved.push({ code: found.error, characterId: selected.characterId, characterName: selected.characterName, slotKey: selection.slotKey, message: `${selected.characterName} 的 ${selection.slotKey} 无法由 companion manifest 和当前产品库精确解析。` });
+        continue;
+      }
+      usedEquipmentIds.add(found.product.equipmentId);
+      products.push({ slotKey: selection.slotKey, ...found.product });
+    }
+    const slots = ['armor', 'glove', 'accessory1', 'accessory2'];
+    if (products.length !== 4 || new Set(products.map((product) => product.slotKey)).size !== 4 || !slots.every((slot) => products.some((product) => product.slotKey === slot))) {
+      unresolved.push({ code: 'four-slot-plan-incomplete', characterId: selected.characterId, characterName: selected.characterName, message: `${selected.characterName} 未得到四个唯一精确装备槽位。` });
+    }
+    const selectedWeapon = selected.weapon || null;
+    const selectedWeaponCatalogMatches = selectedWeapon?.id || selectedWeapon?.name
+      ? Object.values(weaponLibrary || {}).filter((candidate) => (
+        (selectedWeapon?.id && candidate?.id === selectedWeapon.id)
+        || (selectedWeapon?.name && candidate?.name === selectedWeapon.name)
+      ))
+      : [];
+    const selectedWeaponProduct = selectedWeaponCatalogMatches.length === 1
+      ? { ...selectedWeaponCatalogMatches[0], level: selectedWeapon?.level ?? null, potential: selectedWeapon?.potential ?? null, skillLevels: selectedWeapon?.skillLevels ?? {} }
+      : selectedWeapon;
+    const manifestWeapon = target.weapon || { mode: 'preserve-current' };
+    let weapon = selectedWeaponProduct;
+    if (manifestWeapon.mode === 'exact-name') {
+      const matches = Object.values(weaponLibrary || {}).filter((candidate) => candidate?.name === manifestWeapon.name);
+      if (matches.length !== 1) unresolved.push({ code: 'weapon-product-unresolved', characterId: selected.characterId, characterName: selected.characterName, message: `${selected.characterName} 的 companion 武器未能在同源武器库精确解析。` });
+      else weapon = { ...matches[0], level: selectedWeapon?.level ?? manifestWeapon.level ?? 1, potential: selectedWeapon?.potential ?? null, skillLevels: selectedWeapon?.skillLevels ?? {} };
+    }
+    const counts = [...new Map(products.map((product) => [product.gearSetId, products.filter((candidate) => candidate.gearSetId === product.gearSetId).length])).entries()]
+      .map(([gearSetId, count]) => ({ gearSetId, count }));
+    const threePlusOne = counts.find((entry) => entry.count === 3) || null;
+    if (target.requireThreePlusOne && !threePlusOne) unresolved.push({ code: 'three-plus-one-unresolved', characterId: selected.characterId, characterName: selected.characterName, message: `${selected.characterName} 未满足 companion 指定的 3+1。` });
+    for (const decision of target.decisions || []) {
+      if (!confirmed.has(decision.decisionId)) unresolved.push({ code: 'requires-user-decision', decisionId: decision.decisionId, characterId: selected.characterId, characterName: selected.characterName, message: decision.message, options: decision.options });
+    }
+    const charge = computeDefPlanDerivedCharge(products, weapon, library);
+    return {
+      characterId: selected.characterId, characterName: selected.characterName,
+      weapon: weapon ? { id: String(weapon.id || ''), name: String(weapon.name || ''), level: weapon.level ?? null, potential: weapon.potential ?? null, skillLevels: weapon.skillLevels || {} } : null,
+      equipment: products,
+      threePlusOne: { required: Boolean(target.requireThreePlusOne), composition: counts, resolved: threePlusOne },
+      derived: { ultimateChargeEfficiency: charge },
+      exactProduct: { complete: products.length === 4, patch: { characterId: selected.characterId, characterName: selected.characterName, equipments: products.map((product) => ({ slotKey: product.slotKey, equipmentId: product.equipmentId, equipmentName: product.name, gearSetId: product.gearSetId, entryLevels: Object.fromEntries(product.effects.map((effect) => [effect.effectId, effect.level])) })) } },
+    };
+  });
+  const decisions = companion.manifest.operators.flatMap((target) => (target.decisions || []).map((decision) => ({ ...decision, characterName: target.characterName, status: confirmed.has(decision.decisionId) ? 'confirmed' : 'open', confirmedOptionId: confirmedChoices.get(decision.decisionId) || null })));
+  const confirmedDecisions = decisions.filter((decision) => decision.status === 'confirmed').map((decision) => ({ decisionId: decision.decisionId, optionId: decision.confirmedOptionId, message: decision.message, optionLabel: decision.options.find((option) => option.optionId === decision.confirmedOptionId)?.label || '' }));
+  const body = { protocolVersion: 1, contract: 'DefTeamLoadoutPlanV1', sessionId, sourceReferenceId: source.referenceId, sourceSectionId: source.sectionId, sourceContentHash: source.sourceContentHash, companionManifest: companion.manifestPath, checkout: team.checkout, team: { selectedCount: team.selectedCount, snapshotUpdatedAt: team.snapshotUpdatedAt }, operators, decisions, confirmedDecisionIds: [...confirmed].sort(), confirmedDecisions, unresolved };
+  const planHash = hashDefLoadoutPlan(body);
+  const plan = { ok: true, ...body, planId: `team-loadout-${planHash.slice(0, 16)}`, planHash, state: unresolved.length ? 'REQUIRES_CONFIRMATION' : 'READY', immutable: true, expiresAt: Date.now() + PREPARED_TEAM_LOADOUT_TTL_MS, nextAction: unresolved.length ? 'Use only the returned decisionId and optionId to confirm an explicit deviation; a new immutable plan will then be built.' : 'Request one native approval for this exact team diff.' };
+  preparedTeamLoadoutPlans.set(planHash, { ...plan, ownerSessionId: sessionId, checkoutBinding: team.checkout, expiresAt: plan.expiresAt, usedAt: null, usedResult: null });
+  return plan;
+}
+
+function reviseDefTeamLoadoutPlan(input = {}) {
+  const sessionId = typeof input.__defSessionId === 'string' ? input.__defSessionId.trim() : '';
+  const planHash = typeof input.planHash === 'string' ? input.planHash.trim() : '';
+  pruneDefTeamLoadoutPlans();
+  const original = preparedTeamLoadoutPlans.get(planHash);
+  if (!original) return { ok: false, code: 'team-loadout-plan-not-found', state: 'BLOCKED', component: 'team-loadout-plan', message: 'The plan is unavailable, expired, or belongs to a previous sidecar lifetime.' };
+  if (original.ownerSessionId !== sessionId) return { ok: false, code: 'team-loadout-plan-session-mismatch', state: 'BLOCKED', component: 'team-loadout-plan', message: 'A plan may be revised only by the native session that prepared it.' };
+  const source = guideLoadoutPlanSources.get(sessionId);
+  if (!source
+    || source.referenceId !== original.sourceReferenceId
+    || source.sectionId !== original.sourceSectionId
+    || source.sourceContentHash !== original.sourceContentHash) {
+    return { ok: false, code: 'team-loadout-plan-source-changed', state: 'BLOCKED', component: 'team-loadout-plan', message: 'The guide source binding changed after planning; reread the original source before creating a new plan.' };
+  }
+  const choices = Array.isArray(input.choices) ? input.choices : [];
+  const open = new Map((original.decisions || []).filter((decision) => decision.status === 'open').map((decision) => [decision.decisionId, decision]));
+  if (!choices.length || choices.some((choice) => !open.has(choice?.decisionId) || !open.get(choice.decisionId).options?.some((option) => option.optionId === choice.optionId))) {
+    return { ok: false, code: 'invalid-team-loadout-decision', state: 'BLOCKED', component: 'team-loadout-plan', message: 'Revision choices must use only decisionId/optionId pairs returned by this plan.' };
+  }
+  return buildDefGuideTeamLoadoutPlan(input, {
+    confirmedDecisionIds: [...new Set([...(original.confirmedDecisionIds || []), ...choices.map((choice) => choice.decisionId)])],
+    confirmedChoices: [...(original.confirmedDecisions || []).map((decision) => ({ decisionId: decision.decisionId, optionId: decision.optionId })), ...choices],
+  });
+}
+
+function prepareDefTeamLoadoutPlanApply(input = {}) {
+  const sessionId = typeof input.__defSessionId === 'string' ? input.__defSessionId.trim() : '';
+  const planHash = typeof input.planHash === 'string' ? input.planHash.trim() : '';
+  pruneDefTeamLoadoutPlans();
+  const plan = preparedTeamLoadoutPlans.get(planHash);
+  if (!plan) return { ok: false, code: 'team-loadout-plan-not-found', state: 'BLOCKED', component: 'team-loadout-plan', message: 'Plan hash is unavailable, expired, or belongs to another sidecar lifetime.' };
+  if (plan.ownerSessionId !== sessionId) return { ok: false, code: 'team-loadout-plan-session-mismatch', state: 'BLOCKED', component: 'team-loadout-plan', message: 'A plan may be applied only by the native session that prepared it.' };
+  if (plan.usedResult) return { ...plan.usedResult, idempotent: true };
+  if (!defPlanCheckoutMatches(plan.checkoutBinding)) return { ok: false, code: 'team-loadout-checkout-changed', state: 'BLOCKED', component: 'team-loadout-plan', message: 'Checkout target or revision changed after planning; no apply was started.' };
+  if (plan.state !== 'READY') return { ...plan, ok: true, approvalPatterns: [], nextAction: plan.nextAction };
+  const approvalPatterns = [
+    `团队计划: ${plan.planId}`, `Plan hash: ${plan.planHash}`, `来源: ${plan.sourceReferenceId} / ${plan.sourceSectionId} / ${plan.sourceContentHash}`,
+    `Checkout: ${plan.checkout?.targetId || '-'} @ r${plan.checkout?.revision || '-'}`,
+    ...plan.operators.flatMap((operator) => [
+      `干员: ${operator.characterName} (${operator.characterId})`,
+      `武器: ${operator.weapon?.name || '未变更/无'} · Lv${operator.weapon?.level ?? '-'}`,
+      ...operator.equipment.map((piece) => `${piece.slotKey}: ${piece.name} (${piece.equipmentId}) · ${piece.gearSetName}`),
+      `3+1: ${operator.threePlusOne?.composition?.map((entry) => `${entry.gearSetId}×${entry.count}`).join(' + ') || '无'}`,
+      `终结技充能效率: ${operator.derived?.ultimateChargeEfficiency?.total ?? '-'}%`,
+    ]),
+    ...plan.confirmedDecisions.map((decision) => `已确认偏差: ${decision.message} → ${decision.optionLabel || decision.optionId}`),
+  ];
+  return { ...plan, approvalPatterns, approvalDiff: { operators: plan.operators, decisions: plan.decisions, derived: plan.operators.map((operator) => ({ characterId: operator.characterId, derived: operator.derived })) } };
+}
+
+async function applyDefTeamLoadoutPlan(input = {}) {
+  const prepared = prepareDefTeamLoadoutPlanApply(input);
+  if (!prepared.ok || prepared.state !== 'READY' || prepared.idempotent) return prepared;
+  const stored = preparedTeamLoadoutPlans.get(prepared.planHash);
+  if (!stored || stored.usedAt) return stored?.usedResult ? { ...stored.usedResult, idempotent: true } : { ok: false, code: 'team-loadout-plan-consumed', state: 'BLOCKED', component: 'team-loadout-plan' };
+  const patches = prepared.operators.map((operator) => operator.exactProduct?.patch).filter(Boolean);
+  if (patches.length !== prepared.operators.length) {
+    return { ok: false, state: 'BLOCKED', code: 'team-loadout-patch-incomplete', planId: prepared.planId, planHash: prepared.planHash, nextAction: 'The reviewed plan does not contain one exact patch per operator; no apply was started.' };
+  }
+  stored.usedAt = Date.now();
+  const results = [];
+  let outcome;
+  for (const patch of patches) {
+    const preview = await executeDefOperatorConfigPrepare({ ...patch, __defSessionId: prepared.sessionId, teamPlanHash: prepared.planHash });
+    if (!preview.ok) { outcome = { ok: false, state: results.length ? 'PARTIAL' : 'BLOCKED', code: preview.code, planId: prepared.planId, planHash: prepared.planHash, results, nextAction: 'Serial application stopped before another operator; completed results are explicit and no retry is attempted.' }; break; }
+    const applied = await executeDefOperatorConfigApplyPrepared({ ...preview, input: patch, __defSessionId: prepared.sessionId, teamPlanHash: prepared.planHash });
+    results.push(applied);
+    if (!applied.ok) { outcome = { ok: false, state: 'PARTIAL', code: applied.code, planId: prepared.planId, planHash: prepared.planHash, results, nextAction: 'Serial application stopped at the first failure; do not describe this plan as APPLIED.' }; break; }
+  }
+  if (!outcome) outcome = { ok: true, state: 'APPLIED', planId: prepared.planId, planHash: prepared.planHash, results, postcondition: { pass: results.length === prepared.operators.length && results.every((result) => result.postcondition?.pass === true) } };
+  stored.usedResult = outcome;
+  return outcome;
 }
 
 function resolveDefSkills(input = {}) {
@@ -4929,6 +5233,8 @@ async function executeDefOperatorConfigPrepare(input = {}) {
     parentNodeId,
     parentRevision,
     workingHash,
+    sessionId: typeof input.__defSessionId === 'string' ? input.__defSessionId.trim() : '',
+    consumed: false,
     expiresAt: Date.now() + PREPARED_OPERATOR_CONFIG_TTL_MS,
   });
   return {
@@ -4960,6 +5266,13 @@ async function executeDefOperatorConfigApplyPrepared(input = {}) {
     || capability.parentNodeId !== parentNodeId || capability.parentRevision !== parentRevision) {
     return { ok: false, code: 'prepared-capability-invalid', component: 'operator-config', retryable: false, nextAction: 'Build a new reviewed preview; this apply capability is missing, expired, or does not match the child.' };
   }
+  const sessionId = typeof input.__defSessionId === 'string' ? input.__defSessionId.trim() : '';
+  if (capability.sessionId && capability.sessionId !== sessionId) {
+    return { ok: false, code: 'prepared-capability-session-mismatch', component: 'operator-config', retryable: false, nextAction: 'This prepared child belongs to a different native session.' };
+  }
+  if (capability.consumed) {
+    return { ok: false, code: 'prepared-capability-consumed', component: 'operator-config', retryable: false, nextAction: 'This prepared child has already begun an apply attempt; do not issue a second mutation.' };
+  }
   const node = readRepositoryWorkNode(nodeId);
   const parent = readRepositoryWorkNode(parentNodeId);
   const checkout = readDefWorkbenchAxisContext()?.checkout || null;
@@ -4969,6 +5282,7 @@ async function executeDefOperatorConfigApplyPrepared(input = {}) {
     || hashDefNodeValue(node.workingPayload) !== capability.workingHash) {
     return { ok: false, code: 'checkout-changed', component: 'operator-config', retryable: true, nextAction: 'Checkout or prepared revision changed during approval; no mutation was executed.', currentCheckoutTouched: false };
   }
+  capability.consumed = true;
   // Commit the reviewed child before touching the live renderer.  It remains
   // un-applied until the exact live mirror has converged.
   const committed = handleAiTimelineWorkNodeRequest('POST', `/api/ai-timeline-worknodes/${encodeURIComponent(nodeId)}/commit`, {
@@ -5042,6 +5356,10 @@ function discardDefPreparedOperatorConfig(input = {}) {
   if (!capability || capability.nodeId !== nodeId || capability.parentNodeId !== parentNodeId
     || capability.nodeRevision !== nodeRevision || capability.parentRevision !== parentRevision) {
     return { ok: false, code: 'prepared-capability-invalid', component: 'operator-config', retryable: false, nextAction: 'Discard requires the matching active prepared capability; no node was deleted.' };
+  }
+  const sessionId = typeof input.__defSessionId === 'string' ? input.__defSessionId.trim() : '';
+  if (capability.sessionId && capability.sessionId !== sessionId) {
+    return { ok: false, code: 'prepared-capability-session-mismatch', component: 'operator-config', retryable: false, nextAction: 'This prepared child belongs to a different native session.' };
   }
   const node = readRepositoryWorkNode(nodeId);
   const parent = readRepositoryWorkNode(parentNodeId);
@@ -5465,19 +5783,18 @@ function buildDefOperatorConfigPatchCommands(input = {}) {
   }
   const weaponCommand = normalizeDefToolWeaponPatch(input);
   const equipmentCommands = normalizeDefToolEquipmentCommands(input);
-  if (weaponCommand && equipmentCommands.length === 1) {
-    const { op: _weaponOp, characterId: _weaponCharacterId, characterName: _weaponCharacterName, ...weapon } = weaponCommand;
+  if (equipmentCommands.length === 1) {
+    const weapon = weaponCommand
+      ? Object.fromEntries(Object.entries(weaponCommand).filter(([key]) => !['op', 'characterId', 'characterName'].includes(key)))
+      : {};
     const { op: _equipmentOp, characterId: _equipmentCharacterId, characterName: _equipmentCharacterName, ...equipment } = equipmentCommands[0];
-    void _weaponOp;
-    void _weaponCharacterId;
-    void _weaponCharacterName;
     void _equipmentOp;
     void _equipmentCharacterId;
     void _equipmentCharacterName;
     commands.push({
       op: 'setOperatorConfig',
       ...compactOperatorCommandTarget(input),
-      ...weapon,
+      ...(weaponCommand ? weapon : {}),
       ...equipment,
       ...(isObject(input.operatorSkillLevels) ? { operatorSkillLevels: input.operatorSkillLevels } : {}),
     });
@@ -5633,8 +5950,12 @@ async function executeDefTool(name, input = {}, query = new URLSearchParams()) {
     'def.operator.config.prepare',
     'def.operator.config.apply_prepared',
     'def.operator.config.discard_prepared',
+    'def.team.loadout.plan.remember_guide',
+    'def.team.loadout.plan.revise',
+    'def.team.loadout.plan.apply.prepare',
   ]);
   const definition = getDefToolDefinition(name)
+    || ((name === 'def.team.loadout.plan.remember_guide' || name === 'def.team.loadout.plan.revise' || name === 'def.team.loadout.plan.apply.prepare') ? getDefToolDefinition('def.team.loadout.plan.prepare') : null)
     || (privateOperatorConfigContinuation.has(name) ? getDefToolDefinition('def.operator.config.patch') : null);
   if (!definition) {
     return failScript(404, 'def-tool-not-found', `Unknown DEF tool: ${name}`, {
@@ -5842,6 +6163,21 @@ async function executeDefTool(name, input = {}, query = new URLSearchParams()) {
       component: 'loadout-candidates',
       nextAction: 'Open the current DEF Workbench and wait for its snapshot mirror before retrying.',
     });
+  } else if (name === 'def.team.loadout.plan.remember_guide') {
+    result = rememberDefGuideLoadoutSource(input);
+    if (!result.ok) return failScript(400, result.code, result.message, { component: result.component });
+  } else if (name === 'def.team.loadout.plan.prepare') {
+    result = buildDefGuideTeamLoadoutPlan(input);
+    if (!result.ok) return failScript(409, result.code, result.message || 'Guide plan source is unavailable.', { component: result.component, state: result.state, nextAction: result.nextAction });
+  } else if (name === 'def.team.loadout.plan.revise') {
+    result = reviseDefTeamLoadoutPlan(input);
+    if (!result.ok) return failScript(409, result.code, result.message || 'Team loadout plan revision is unavailable.', { component: result.component, state: result.state, nextAction: result.nextAction });
+  } else if (name === 'def.team.loadout.plan.apply.prepare') {
+    result = prepareDefTeamLoadoutPlanApply(input);
+    if (!result.ok) return failScript(409, result.code, result.message || 'Team loadout plan is unavailable.', { component: result.component, state: result.state, nextAction: result.nextAction });
+  } else if (name === 'def.team.loadout.plan.apply') {
+    result = await applyDefTeamLoadoutPlan(input);
+    if (!result.ok) return failScript(409, result.code || 'team-loadout-plan-apply-failed', result.message || 'Team loadout plan was not applied.', { component: 'team-loadout-plan', state: result.state, nextAction: result.nextAction, results: result.results });
   } else if (name === 'def.workbench.damage_report') {
     result = { snapshotUpdatedAt: snapshot?.updatedAt || null, damageReport: snapshot?.damageReport || null };
   } else if (name === 'def.character.resolve') {
@@ -5996,7 +6332,9 @@ async function handleDefToolRequest(method, pathname, query, body) {
   }
   if (method === 'POST' && pathname === '/api/def-tools/call') {
     const name = typeof body?.tool === 'string' ? body.tool : typeof body?.name === 'string' ? body.name : '';
-    return await executeDefTool(name, body?.input || {}, query);
+    const input = body?.input && typeof body.input === 'object' ? { ...body.input } : {};
+    if (typeof body?.sessionId === 'string' && body.sessionId.trim()) input.__defSessionId = body.sessionId.trim();
+    return await executeDefTool(name, input, query);
   }
   return null;
 }

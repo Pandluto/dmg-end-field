@@ -37,3 +37,31 @@
 - [x] 建立并运行 `def-operator-config-postcondition@1.0.1` Harness candidate 与显式 preview scenario；candidate 未 promotion。广义“合适的四人配装”仍会触发超范围探索，已保留为限制而非冒充通过。
 - [ ] 建立可机器执行的 candidate promotion decision 后，交由人工 reviewer 决定是否 promotion。
 - [ ] 完成 Spec 8-1-3 的全部独立回归与 reviewer approval。
+
+## Addendum — content-bound four-person plan/apply (2026-07-15)
+
+- [x] 添加 content-hash-verified guide companion manifest；generic REST server 不含文章专用 roster、character id、装备结果或派生属性常量。
+- [x] 计划从当前 selected team 与同源 catalog 解析 exact id/name，四个唯一装备槽及产品事实源派生属性；非配套 reference fail-closed。
+- [x] Prepared plan 绑定 native session、reference/section/content hash、checkout target/revision、TTL/hash、CAS、single-use/idempotent；确认 choice 仅接受服务返回 id 并产生新 immutable hash。
+- [x] 团队 apply 只有一张全量 native approval diff，内部串行 patch 与每人 postcondition；首错 fail-stop，已完成前缀明确为 `PARTIAL`。
+- [~] 新 session native v1 回归：拒绝路径已完成（完整全队卡、用户拒绝、四人配置 snapshot 哈希不变）；批准路径发现真实 revision-CAS defect，未记为 PASS、未提交。详见下述 follow-up。
+
+### Native team-plan follow-up
+
+- OpenCode-only reload 后，运行中的 `/experimental/tool/ids` 已确认包含
+  `def_data_team_loadout_plan`、`def_team_loadout_plan_revise` 与
+  `def_team_loadout_plan_apply`。
+- 拒绝 run：`1f3d9754-091e-487b-8def-780d08a2c144` / session
+  `ses_09b3aa6c0ffe5564rwBhMbguYL`。search → exact section → 一次 prepare →
+  revise（`91d467…6645c8` 到 READY `998a20…5f3c2b`）后，Computer Use 观察并
+  点击一张 native full-team card 的 Reject；apply 以明确用户拒绝终止，四人
+  config before/after SHA-256 均为
+  `1597699d5c7635bf49ccb322d9af9f7e10063c4abe3ae1942f7ce42043461446`。
+- 批准 run：`11cc10dd-ff08-4e5a-80a7-03bd0aa84d15` / session
+  `ses_09b35aa4effenWrjYFagGXS3hp`。Allow once 后第一个内部 prepare 返回
+  `checkout-changed` HTTP 409，尚未 mutation；模型错误重试三次，且没有
+  per-operator patch call。根因是 team plan 绑定 UI checkout `updatedAt`，而
+  child prepare CAS 检查 repository Work Node `contentRevision`。
+- 已将计划 bind/verify 改为同一个 Work Node `contentRevision`；静态检查通过，
+  但当前 REST 进程尚未加载该源码。按当前授权不能重启 17321/sidecar，故批准、
+  postcondition 与两次页面重进仍待一次明确的最小 REST/sidecar reload 后重跑。

@@ -26,6 +26,7 @@ const DATA_RESOURCE_TOOLS = new Set([
   'def.workbench.list_characters',
   'def.team.loadouts.read',
   'def.loadout.candidates.read',
+  'def.team.loadout.plan.prepare',
   'def.workbench.damage_report',
   'def.damage.calculate',
   'def.damage.calculate_and_verify',
@@ -79,6 +80,9 @@ export const DEF_NATIVE_TARGETS = Object.freeze([
   { id: 'def.data.resource.operator', family: DEF_TOOL_FAMILY.DATA_RESOURCE, source: 'def-native', nativeBinding: 'def_data_operator', status: 'implemented', workspaceScope: 'data-resource' },
   { id: 'def.data.resource.team_loadouts', family: DEF_TOOL_FAMILY.DATA_RESOURCE, source: 'def-native', nativeBinding: 'def_data_team_loadouts', status: 'implemented', workspaceScope: 'data-resource' },
   { id: 'def.data.resource.loadout_candidates', family: DEF_TOOL_FAMILY.DATA_RESOURCE, source: 'def-native', nativeBinding: 'def_data_loadout_candidates', status: 'implemented', workspaceScope: 'data-resource' },
+  { id: 'def.data.resource.team_loadout_plan', family: DEF_TOOL_FAMILY.DATA_RESOURCE, source: 'def-native', nativeBinding: 'def_data_team_loadout_plan', status: 'implemented', workspaceScope: 'data-resource' },
+  { id: 'def.team.loadout.plan.revise', family: DEF_TOOL_FAMILY.NODE_CRUD, source: 'def-native', nativeBinding: 'def_team_loadout_plan_revise', status: 'implemented', workspaceScope: 'current-checkout', exposure: ['workbench'] },
+  { id: 'def.team.loadout.plan.apply', family: DEF_TOOL_FAMILY.NODE_CRUD, source: 'def-native', nativeBinding: 'def_team_loadout_plan_apply', status: 'implemented', workspaceScope: 'current-checkout', exposure: ['workbench'] },
   { id: 'def.data.resource.operator_catalog', family: DEF_TOOL_FAMILY.DATA_RESOURCE, source: 'def-native', nativeBinding: 'def_data_operator_catalog', status: 'implemented', workspaceScope: 'data-resource' },
   { id: 'def.data.resource.game_knowledge', family: DEF_TOOL_FAMILY.DATA_RESOURCE, source: 'def-native', nativeBinding: 'def_data_game_knowledge', status: 'implemented', workspaceScope: 'data-resource' },
   { id: 'def.data.resource.game_knowledge_section', family: DEF_TOOL_FAMILY.DATA_RESOURCE, source: 'def-native', nativeBinding: 'def_data_game_knowledge_section', status: 'implemented', workspaceScope: 'data-resource' },
@@ -98,6 +102,7 @@ function familyFor(id) {
 
 function dataTargetFor(id) {
   if (/loadout.*candidate|candidate.*loadout/.test(id)) return 'def.data.resource.loadout_candidates';
+  if (/loadout.*plan|plan.*loadout/.test(id)) return 'def.data.resource.team_loadout_plan';
   if (/team.*loadout|loadout.*team/.test(id)) return 'def.data.resource.team_loadouts';
   if (/knowledge.*section|section.*knowledge/.test(id)) return 'def.data.resource.game_knowledge_section';
   if (/knowledge/.test(id)) return 'def.data.resource.game_knowledge';

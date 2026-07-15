@@ -20,11 +20,11 @@ const nodeTimeline = 'node/working/timeline.json'
 const nodeBuffs = 'node/working/buffs.json'
 const nodeInputs = 'node/working/inputs.json'
 
-async function callDefTool(tool, input = {}) {
+async function callDefTool(tool, input = {}, context = null) {
   const response = await fetch(`${restBase}/api/def-tools/call`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ tool, input }),
+    body: JSON.stringify({ tool, input, ...(context?.sessionID ? { sessionId: context.sessionID } : {}) }),
   })
   const payload = await response.json()
   if (!response.ok || payload?.ok !== true || payload?.result?.ok === false) {
@@ -717,7 +717,14 @@ function dataResource(definition) {
     async execute(args, context) {
       context.metadata({ title: definition.title })
       const input = typeof definition.input === 'function' ? definition.input(args) : args
-      const result = await callDefTool(definition.tool, input)
+      const result = await callDefTool(definition.tool, input, context)
+      if (definition.tool === 'def.knowledge.game.section.read' && result?.ok && context?.sessionID) {
+        await callDefTool('def.team.loadout.plan.remember_guide', {
+          referenceId: result.referenceId,
+          sectionId: result.section?.sectionId,
+          content: result.content,
+        }, context)
+      }
       const transformed = typeof definition.transform === 'function' ? definition.transform(result) : result
       // Section reads enforce their own server-side character/cursor contract.
       // Do not silently apply the generic 600-character free-text limiter to
@@ -824,6 +831,45 @@ export const data_game_knowledge_section = dataResource({
     ...(cursor !== undefined ? { cursor } : {}),
   }),
 })
+
+export const data_team_loadout_plan = dataResource({
+  title: 'DEF guide loadout plan',
+  contract: 'DefTeamLoadoutPlanV1',
+  preserveContract: true,
+  description: 'Resolve the most recently exact-read named-guide section in this native session into one immutable team loadout plan. It uses the same product libraries as mutation, returns exact ids, 3+1 constraints, deviations and computed derived totals. Never use per-item catalog calls; do not apply.',
+  tool: 'def.team.loadout.plan.prepare',
+  args: {},
+  input: () => ({}),
+})
+
+export const team_loadout_plan_revise = {
+  description: 'Confirm only returned guide-plan decisionId/optionId pairs and produce a new immutable plan hash. This never applies configuration or requests permission.',
+  args: {
+    planHash: tool.schema.string().min(32).max(128),
+    choices: tool.schema.array(tool.schema.object({
+      decisionId: tool.schema.string().min(1).max(160),
+      optionId: tool.schema.string().min(1).max(160),
+    })).min(1).max(8),
+  },
+  async execute(args, context) {
+    const result = await callDefTool('def.team.loadout.plan.revise', args, context)
+    return { title: result.state === 'READY' ? 'DEF team loadout plan ready' : 'DEF team loadout plan requires confirmation', output: JSON.stringify(result, null, 2), metadata: { family: 'def-team-loadout-plan', state: result.state, planHash: result.planHash } }
+  },
+}
+
+export const team_loadout_plan_apply = {
+  description: 'Apply one READY DefTeamLoadoutPlanV1 through a single native approval. The server applies its exact operator patches serially and reports PARTIAL or APPLIED only from postconditions.',
+  args: { planHash: tool.schema.string().min(32).max(128) },
+  async execute(args, context) {
+    const prepared = await callDefTool('def.team.loadout.plan.apply.prepare', { planHash: args.planHash }, context)
+    if (prepared.state !== 'READY') {
+      return { title: 'DEF team loadout plan requires confirmation', output: JSON.stringify(prepared, null, 2), metadata: { family: 'def-team-loadout-plan', state: prepared.state } }
+    }
+    await context.ask({ permission: 'def_team_loadout_plan_apply', patterns: prepared.approvalPatterns || [prepared.planHash], always: [], metadata: { action: 'Apply reviewed team loadout plan', planId: prepared.planId, planHash: prepared.planHash, checkout: prepared.checkout, diff: prepared.approvalDiff } })
+    const result = await callDefTool('def.team.loadout.plan.apply', { planHash: prepared.planHash }, context)
+    return { title: result.state === 'APPLIED' ? 'DEF team loadout plan applied' : 'DEF team loadout plan incomplete', output: JSON.stringify(result, null, 2), metadata: { family: 'def-team-loadout-plan', state: result.state, postcondition: result.postcondition?.pass === true } }
+  },
+}
 
 export const data_weapon = dataResource({
   title: 'DEF weapon resource',

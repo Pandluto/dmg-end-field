@@ -1,0 +1,62 @@
+{
+  "contract": "DefGuideTeamLoadoutManifestV1",
+  "version": 1,
+  "referenceId": "【萌新推荐】弭弗x陈千语x埃特拉x阿列什 低配高伤&无脑循环打法教学.md",
+  "sectionId": "h2-三-装备养成推荐",
+  "sourceContentHash": "c29d3ea0e5405d88467640714e425c644c85cec896a2c25800980249e06bd3f1",
+  "operators": [
+    {
+      "characterName": "弭弗",
+      "weapon": { "mode": "preserve-current" },
+      "requireThreePlusOne": true,
+      "equipment": [
+        { "slotKey": "armor", "gearSetId": "gear-set-jiu-feng", "equipmentId": "equipment-jf-5", "name": "旧锋装甲", "entryLevel": 3 },
+        { "slotKey": "glove", "gearSetId": "gear-set-jiu-feng", "equipmentId": "equipment-jf-1", "name": "旧锋手甲", "entryLevel": 3 },
+        { "slotKey": "accessory1", "gearSetId": "gear-set-dian-jian", "equipmentId": "equipment-g-1-6", "name": "点剑定位信标", "entryLevel": 3 },
+        { "slotKey": "accessory2", "gearSetId": "gear-set-jiu-feng", "equipmentId": "equipment-jf-4", "name": "旧锋刺刃·壹型", "entryLevel": 3 }
+      ]
+    },
+    {
+      "characterName": "陈千语",
+      "weapon": { "mode": "preserve-current" },
+      "requireThreePlusOne": false,
+      "equipment": [
+        { "slotKey": "armor", "gearSetId": "gear-set-dian-jian", "equipmentId": "equipment-g-8", "name": "点剑轻装甲", "entryLevel": 3 },
+        { "slotKey": "glove", "gearSetId": "gear-set-dian-jian", "equipmentId": "equipment-g-1-1", "name": "点剑战术手甲", "entryLevel": 3 },
+        { "slotKey": "accessory1", "gearSetId": "gear-set-dian-jian", "equipmentId": "equipment-g-1-6", "name": "点剑定位信标", "entryLevel": 3 },
+        { "slotKey": "accessory2", "gearSetId": "gear-set-dian-jian", "equipmentId": "equipment-g-1-4", "name": "点剑短刃", "entryLevel": 3 }
+      ]
+    },
+    {
+      "characterName": "埃特拉",
+      "weapon": { "mode": "preserve-current" },
+      "requireThreePlusOne": true,
+      "equipment": [
+        { "slotKey": "armor", "gearSetId": "gear-set-dian-jian", "equipmentId": "equipment-g-8", "name": "点剑轻装甲", "entryLevel": 3 },
+        { "slotKey": "glove", "gearSetId": "gear-set-chang-xi", "equipmentId": "equipment-g-1-0-5", "name": "长息护手", "entryLevel": 3 },
+        { "slotKey": "accessory1", "gearSetId": "gear-set-chang-xi", "equipmentId": "equipment-g-1-0-7", "name": "长息蓄电核", "entryLevel": 3 },
+        { "slotKey": "accessory2", "gearSetId": "gear-set-chang-xi", "equipmentId": "equipment-g-1-0-9", "name": "长息辅助臂", "entryLevel": 3 }
+      ]
+    },
+    {
+      "characterName": "阿列什",
+      "weapon": { "mode": "preserve-current" },
+      "requireThreePlusOne": false,
+      "equipment": [
+        { "slotKey": "armor", "gearSetId": "gear-set-tuo-huang", "equipmentId": "equipment-g-5-6", "name": "拓荒护服", "entryLevel": 3 },
+        { "slotKey": "glove", "gearSetId": "gear-set-tuo-huang", "equipmentId": "equipment-g-5-8", "name": "拓荒纤维手套·壹型", "entryLevel": 3 },
+        { "slotKey": "accessory1", "gearSetId": "gear-set-chang-xi", "equipmentId": "equipment-g-1-0-7", "name": "长息蓄电核", "entryLevel": 3 },
+        { "slotKey": "accessory2", "gearSetId": "gear-set-chang-xi", "equipmentId": "equipment-g-1-0-9", "name": "长息辅助臂", "entryLevel": 3 }
+      ],
+      "decisions": [
+        {
+          "decisionId": "alieshi-scattered-charge-gear",
+          "message": "攻略仅要求阿列什散件成套、充能手并尽量全身充能，未给出一个 3+1 套装；请明确接受这个已披露偏差。",
+          "options": [
+            { "optionId": "accept-scattered-charge", "label": "接受散件充能方案", "description": "保留精确四槽与产品计算，不把散件说成攻略给出的 3+1。" }
+          ]
+        }
+      ]
+    }
+  ]
+}

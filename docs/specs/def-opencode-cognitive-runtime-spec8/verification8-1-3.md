@@ -316,3 +316,52 @@ not UI pixels, remains the authority for tool order and terminal state.
 Known limit: this repair provides guide-faithful recommendations, not a
 product-catalog id resolution or an apply flow; those are deliberately out of
 scope for this route and this addendum.
+
+## Addendum — team plan focused checks and native blocker (2026-07-15)
+
+Focused direct contract checks before the desktop bridge became unavailable:
+
+- remembered target reference/section/content produced `REQUIRES_CONFIRMATION`;
+  an invalid decision was rejected and the returned Alesh decision produced a
+  distinct READY plan hash;
+- exact selected ids were `mifu`, `chenqianyu`, `chr_0021_whiten`, and
+  `chr_0024_deepfin`; derived charge came from product effects (not a literal
+  `174.76`), including 206.8 for the two charge-focused products;
+- a different allowlisted guide returned
+  `guide-plan-manifest-unavailable`, with no ice-team fallback; cross-session
+  plan preparation returned 409; and the approval preview contained 37 full
+  diff pattern lines.
+
+Checks: `node --check` for all changed JS files, `git diff --check`,
+`node scripts/def-game-knowledge-contract-check.mjs`, and
+`npm run interop:check` passed. `npm run harness:check` currently fails before
+these changes are exercised with `HARNESS_IMMUTABLE_CONFLICT` for existing
+`def-stable@0.0.0` package evidence.
+
+Native v1 record is intentionally incomplete: after opening fresh visible
+sessions `ses_09b847cc3ffevy7XeFyD0rN0Ru` and
+`ses_09b7e280affeeRiSIXsbMbGiYh`, the local sidecar opened thousands
+of `SYN_SENT` connections to port 17321. `GET /def-agent/interop/v1/status`,
+`/state`, and the snapshot endpoint then timed out. The old prohibited session
+received no prompt; its outstanding native run was only stopped to remove the
+stale execution, without resolving the connection storm. Therefore there are
+no new testRunId/turnId, no rejection/approval claim, no persistence claim,
+and no commit for this addendum.
+
+## Native team-plan follow-up (2026-07-15)
+
+This supersedes only the connection-storm statement above; historical failed
+runs remain failures.
+
+| Path | v1 evidence | Result |
+| --- | --- | --- |
+| Reject | run `1f3d9754-091e-487b-8def-780d08a2c144`; session `ses_09b3aa6c0ffe5564rwBhMbguYL`; turns `2585deda-3e20-448f-a969-33e0cd5f50d0`, `aca4ed7f-d8bf-4d57-a9b0-8ec49235c0b0`, `400f699a-5e83-4f75-8fb4-5f3dcb34c330`, `73f7952a-63c3-40d7-a76b-1d58f38f1ecf` | Exact source read, one prepare, immutable revise `91d467…6645c8` → READY `998a20…5f3c2b`; visible native full-team approval card was rejected. Apply reports explicit user rejection; four-person config before/after SHA-256 is identical: `1597699d5c7635bf49ccb322d9af9f7e10063c4abe3ae1942f7ce42043461446`. |
+| Approve | run `11cc10dd-ff08-4e5a-80a7-03bd0aa84d15`; session `ses_09b35aa4effenWrjYFagGXS3hp`; READY `a9d0be…756fcf` | Visible Allow once card was clicked, but the first internal serial prepare stopped before mutation with `checkout-changed` / HTTP 409. The model made three prohibited retries; there were zero `def_operator_config_patch` calls and the four-person config hash did not change. This is **FAIL**, not APPLIED or persistent. |
+
+The failure identified a real contract mismatch: a team plan used UI checkout
+`updatedAt`, while `executeDefOperatorConfigPrepare` correctly CAS-checks the
+repository Work Node `contentRevision`. Source now uses that same node revision
+for plan creation and apply verification. `node --check` and `git diff --check`
+pass for the repair, but the already-running REST process has not loaded it.
+The remaining native approval/postcondition/persistence replay requires an
+explicitly authorized minimal REST/sidecar reload; no extra restart was made.
