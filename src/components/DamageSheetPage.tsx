@@ -384,10 +384,8 @@ function formatStructuredZoneFormula(hitResult: HitCalcResult, columnKey: string
     || columnKey === 'finalMultiplier';
   const baseValue = isSkillMultiplier
     ? hitResult.multiplier.base
-    : zone.multiplierProduct !== 0
-      ? zone.finalValue / zone.multiplierProduct - zone.additiveTotal
-      : 1;
-  return `${zone.multiplierProduct.toFixed(3)} × (${baseValue.toFixed(3)} + ${zone.additiveTotal.toFixed(3)}) = ${zone.finalValue.toFixed(3)}`;
+    : zone.finalValue - zone.additiveTotal * zone.multiplierProduct;
+  return `${baseValue.toFixed(3)} + ${zone.multiplierProduct.toFixed(3)} × ${zone.additiveTotal.toFixed(3)} = ${zone.finalValue.toFixed(3)}`;
 }
 
 function parsePercentText(value: string): number {

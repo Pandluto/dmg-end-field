@@ -188,15 +188,16 @@ function formatZoneFormula(
     return `${legacyBaseValue.toFixed(3)} + ${formatPercent(legacyAdditiveTotal)} = ${(legacyBaseValue + legacyAdditiveTotal).toFixed(3)}`;
   }
 
-  const baseValue = zone.multiplierProduct !== 0
-    ? zone.finalValue / zone.multiplierProduct - zone.additiveTotal
-    : legacyBaseValue;
+  const baseValue = zone.finalValue - zone.additiveTotal * zone.multiplierProduct;
   const multiplierText = zone.multiplierContributions.length > 0
     ? zone.multiplierContributions
         .map((contribution) => (contribution.multiplierCoefficient ?? contribution.effectiveValue).toFixed(3))
         .join(' × ')
     : zone.multiplierProduct.toFixed(3);
-  return `${multiplierText} × (${baseValue.toFixed(3)} + ${formatPercent(zone.additiveTotal)}) = ${zone.finalValue.toFixed(3)}`;
+  if (zone.multiplierContributions.length === 0) {
+    return `${baseValue.toFixed(3)} + ${formatPercent(zone.additiveTotal)} = ${zone.finalValue.toFixed(3)}`;
+  }
+  return `${baseValue.toFixed(3)} + ${multiplierText} × ${formatPercent(zone.additiveTotal)} = ${zone.finalValue.toFixed(3)}`;
 }
 
 function buildHitCards(

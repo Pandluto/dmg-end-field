@@ -74,8 +74,8 @@ assertClose(
     ...baseInput,
     buffs: [ordinary, coldMultiplier],
   }).vulnerability.finalValue,
-  1.32,
-  'element multiplier should multiply the whole matched vulnerability zone'
+  1.22,
+  'element multiplier should multiply only matched vulnerability bonuses'
 );
 
 assertClose(
@@ -83,8 +83,8 @@ assertClose(
     ...baseInput,
     buffs: [ordinary, magicMultiplier, coldMultiplier],
   }).vulnerability.finalValue,
-  1.452,
-  'multiple matched multipliers should multiply independently'
+  1.242,
+  'multiple matched multipliers should multiply vulnerability bonuses independently'
 );
 
 assertClose(
@@ -93,9 +93,25 @@ assertClose(
     buffs: [countable, magicMultiplier, coldMultiplier],
     stackCounts: { countable: 2 },
   }).vulnerability.finalValue,
-  1.694,
-  'countable additive contribution should resolve before multiplier aggregation'
+  1.484,
+  'countable additive contribution should resolve before multiplier aggregation without scaling the base zone value'
 );
+
+const allZoneMultiplierResult = calculateHitBuffZones({
+  ...baseInput,
+  buffs: [
+    buff('damage-bonus', 'iceDmgBonus', 0.16),
+    buff('fragile', 'iceFragile', 0.16),
+    buff('amplify', 'iceAmplify', 0.16),
+    buff('damage-bonus-multiplier', 'iceDmgBonus', undefined, { multiplier: { coefficient: 1.5 } }),
+    buff('fragile-multiplier', 'iceFragile', undefined, { multiplier: { coefficient: 1.5 } }),
+    buff('amplify-multiplier', 'iceAmplify', undefined, { multiplier: { coefficient: 1.5 } }),
+  ],
+});
+
+assertClose(allZoneMultiplierResult.damageBonus.finalValue, 1.24, 'damage bonus multiplier should not scale the base 1');
+assertClose(allZoneMultiplierResult.fragile.finalValue, 1.24, 'fragile multiplier should not scale the base 1');
+assertClose(allZoneMultiplierResult.amplify.finalValue, 1.24, 'amplify multiplier should not scale the base 1');
 
 assertClose(
   calculateHitBuffZones({

@@ -154,7 +154,9 @@ function createZoneResult(
     multiplierContributions,
     additiveTotal,
     multiplierProduct,
-    finalValue: multiplierProduct * (baseValue + additiveTotal),
+    // 乘算效果只放大该区的加成值，不能放大区间基础值（通常为 1）。
+    // 例如：16% 脆弱 ×1.5 = 1 + 0.16 × 1.5 = 1.24，而非 1.5 × (1 + 0.16)。
+    finalValue: baseValue + additiveTotal * multiplierProduct,
   };
 }
 
