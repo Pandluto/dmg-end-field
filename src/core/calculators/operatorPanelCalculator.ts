@@ -415,6 +415,8 @@ const EQUIPMENT_TOTAL_FIELDS = new Set([
   'agilityBoost',
   'intelligenceBoost',
   'willBoost',
+  'mainStat',
+  'subStat',
   'atkPercentBoost',
   'sourceSkillBoost',
   'ultimateChargeEfficiency',
@@ -438,6 +440,14 @@ const EQUIPMENT_TOTAL_FIELDS = new Set([
   'fireNatureDmgBonus',
   'allDmgBonus',
 ]);
+
+function normalizeEquipmentEffectTypeKey(effect: EquipmentEffectInput): string {
+  const typeKey = normalizeTypeKey(effect.typeKey);
+  // 前两词条的主/副能力是固定值，语义与武器 skill1 相同；最后一词条才是百分比。
+  if ((effect.effectId === 'effect1' || effect.effectId === 'effect2') && typeKey === 'mainStatBoost') return 'mainStat';
+  if ((effect.effectId === 'effect1' || effect.effectId === 'effect2') && typeKey === 'subStatBoost') return 'subStat';
+  return typeKey;
+}
 
 const OPERATOR_TOTAL_FIELDS = new Set([
   ...WEAPON_TOTAL_FIELDS,
@@ -816,7 +826,7 @@ function buildEquipmentSnapshot(input: OperatorPanelInput['equipment']): Equipme
   const totals: Record<string, number> = {};
   const pieces = (input?.pieces ?? []).map((piece) => {
     piece.effects.forEach((effect) => {
-      const typeKey = normalizeTypeKey(effect.typeKey);
+      const typeKey = normalizeEquipmentEffectTypeKey(effect);
       if (EQUIPMENT_TOTAL_FIELDS.has(typeKey)) {
         addTotal(totals, typeKey, effect.value, effect.unit);
       }
@@ -1268,8 +1278,8 @@ export function buildConfigSnapshot(input: OperatorPanelInput): ConfigSnapshot {
     abilityByField.agility += operatorBuffTotals.agilityBoost ?? 0;
     abilityByField.intelligence += operatorBuffTotals.intelligenceBoost ?? 0;
     abilityByField.will += operatorBuffTotals.willBoost ?? 0;
-    if (mainField) abilityByField[mainField] += mainStatFlatBonus + (weapon.totals.mainStat ?? 0) + (operatorBuffTotals.mainStat ?? 0);
-    if (subField) abilityByField[subField] += subStatFlatBonus + (weapon.totals.subStat ?? 0) + (operatorBuffTotals.subStat ?? 0);
+    if (mainField) abilityByField[mainField] += mainStatFlatBonus + (weapon.totals.mainStat ?? 0) + (equipment.totals.mainStat ?? 0) + (operatorBuffTotals.mainStat ?? 0);
+    if (subField) abilityByField[subField] += subStatFlatBonus + (weapon.totals.subStat ?? 0) + (equipment.totals.subStat ?? 0) + (operatorBuffTotals.subStat ?? 0);
 
     const mainStatScale = (weapon.totals.mainStatBoost ?? 0) + (equipment.totals.mainStatBoost ?? 0) + (operatorBuffTotals.mainStatBoost ?? 0);
     const subStatScale = (weapon.totals.subStatBoost ?? 0) + (equipment.totals.subStatBoost ?? 0) + (operatorBuffTotals.subStatBoost ?? 0);

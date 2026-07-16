@@ -117,6 +117,29 @@ const equipmentMainStatDecimalPercentSnapshot = buildConfigSnapshot({
 
 assertEqual(equipmentMainStatDecimalPercentSnapshot.panel.calc.mainStatBoost, 0.2691, 'equipment mainStatBoost should use decimal value directly');
 
+const equipmentNonFinalMainSubStatSnapshot = buildConfigSnapshot({
+  ...baseInput,
+  equipment: {
+    pieces: [
+      {
+        slotKey: 'accessory1',
+        equipmentId: 'flat-main-sub-stat-equipment',
+        name: 'Flat main/sub stat equipment',
+        effects: [
+          { effectId: 'effect1', label: '主能力', typeKey: 'mainStatBoost', level: 3, value: 18, unit: 'percent' },
+          { effectId: 'effect2', label: '副能力', typeKey: 'subStatBoost', level: 3, value: 35, unit: 'percent' },
+        ],
+      },
+    ],
+    setBuffs: [],
+  },
+});
+
+assertEqual(equipmentNonFinalMainSubStatSnapshot.panel.calc.mainStatBoost, 0, 'non-final main stat equipment effect should not be treated as a percentage');
+assertEqual(equipmentNonFinalMainSubStatSnapshot.panel.calc.subStatBoost, 0, 'non-final sub stat equipment effect should not be treated as a percentage');
+assertEqual(equipmentNonFinalMainSubStatSnapshot.panel.display.mainStatFinal, 88, 'non-final main stat equipment effect should add a fixed value');
+assertEqual(equipmentNonFinalMainSubStatSnapshot.panel.display.subStatFinal, 55, 'non-final sub stat equipment effect should add a fixed value');
+
 const operatorMainSubStatSnapshot = buildConfigSnapshot({
   ...baseInput,
   operator: {
