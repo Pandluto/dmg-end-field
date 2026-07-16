@@ -105,6 +105,22 @@ function normalizeLegacyEquipmentPercentValue(typeKey: string, unit: 'flat' | 'p
   return value;
 }
 
+function normalizeEquipmentEffectForOperatorConfig(
+  effectId: EquipmentEffectId,
+  typeKey: string,
+  unit: 'flat' | 'percent'
+): { typeKey: string; unit: 'flat' | 'percent' } {
+  // 装备前两词条的主/副能力与武器 skill1 一样，都是固定能力值；
+  // 只有最后一词条才是主/副能力百分比。
+  if ((effectId === 'effect1' || effectId === 'effect2') && typeKey === 'mainStatBoost') {
+    return { typeKey: 'mainStat', unit: 'flat' };
+  }
+  if ((effectId === 'effect1' || effectId === 'effect2') && typeKey === 'subStatBoost') {
+    return { typeKey: 'subStat', unit: 'flat' };
+  }
+  return { typeKey, unit };
+}
+
 interface WeaponSkillLevelData {
   value?: number;
   description?: string;
@@ -402,8 +418,12 @@ function normalizeEquipmentLibrary(raw: unknown): EquipmentLibrary {
       const effects = (['effect1', 'effect2', 'effect3'] as const).reduce<Partial<Record<EquipmentEffectId, EquipmentEffect>>>((acc, effectId) => {
         const rawEffect = itemValue.effects?.[effectId];
         if (!rawEffect) return acc;
-        const typeKey = String(rawEffect.typeKey || '');
-        const unit = rawEffect.unit === 'percent' ? 'percent' : 'flat';
+        const normalizedEffect = normalizeEquipmentEffectForOperatorConfig(
+          effectId,
+          String(rawEffect.typeKey || ''),
+          rawEffect.unit === 'percent' ? 'percent' : 'flat'
+        );
+        const { typeKey, unit } = normalizedEffect;
         acc[effectId] = {
           effectId,
           label: String(rawEffect.label || effectId),
