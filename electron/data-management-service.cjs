@@ -1620,14 +1620,14 @@ function createDataManagementService({ runtimeDataRoot, builtinCatalogPath, loca
         try {
           const workspace = loadWorkspacePayload(db, timelineId);
           return {
-            document: { id: timelineId, label: row.label, createdAt: row.created_at, updatedAt: row.updated_at, archivedAt: row.archived_at || null },
+            document: { id: timelineId, label: row.label, isTemporary: row.is_temporary === 1, createdAt: row.created_at, updatedAt: row.updated_at, archivedAt: row.archived_at || null },
             checkoutRef: workspace.checkoutRef,
             summary: summarizeTimelinePayload(workspace.payload),
             nodeCount,
           };
         } catch (error) {
           return {
-            document: { id: timelineId, label: row.label, createdAt: row.created_at, updatedAt: row.updated_at, archivedAt: row.archived_at || null },
+            document: { id: timelineId, label: row.label, isTemporary: row.is_temporary === 1, createdAt: row.created_at, updatedAt: row.updated_at, archivedAt: row.archived_at || null },
             checkoutRef: null,
             summary: { characterCount: 0, buttonCount: 0, buffCount: 0 },
             nodeCount,
@@ -1700,7 +1700,7 @@ function createDataManagementService({ runtimeDataRoot, builtinCatalogPath, loca
     const db = new DatabaseSync(paths.userDatabasePath);
     try {
       return transaction(db, () => {
-        const document = db.prepare('SELECT id, label FROM timeline_documents WHERE id = ? AND archived_at IS NULL').get(timelineId);
+        const document = db.prepare('SELECT id, label, is_temporary FROM timeline_documents WHERE id = ? AND archived_at IS NULL').get(timelineId);
         if (!document) throw dataManagementError('timeline-document-not-found', 'SQLite 工作区不存在。', { timelineId });
         const workspace = loadWorkspacePayload(db, timelineId);
         const values = workspaceValuesFromTimelinePayload(workspace.payload);
@@ -1719,7 +1719,7 @@ function createDataManagementService({ runtimeDataRoot, builtinCatalogPath, loca
           JSON.stringify({ targetType: workspace.checkoutRef.targetType, workspaceState: true }),
           updatedAt,
         );
-        return { document: { id: document.id, label: document.label }, payload: workspace.payload, checkoutRef: workspace.checkoutRef, workspace: { values, updatedAt } };
+        return { document: { id: document.id, label: document.label, isTemporary: document.is_temporary === 1 }, payload: workspace.payload, checkoutRef: workspace.checkoutRef, workspace: { values, updatedAt } };
       });
     } finally {
       db.close();

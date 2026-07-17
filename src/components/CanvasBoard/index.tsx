@@ -443,7 +443,9 @@ export function CanvasBoard({
   const {
     activeTimelineId,
     activeTimelineLabel,
+    activeTimelineIsTemporary,
     checkoutRef: activeCheckoutRef,
+    workingPayload: activeWorkingPayload,
     setWorkingPayload: setSessionWorkingPayload,
     activate: activateTimeline,
     refreshActiveDocument,
@@ -452,6 +454,7 @@ export function CanvasBoard({
   const isProcessingWorkbenchCommandRef = useRef(false);
   const isCheckoutBootstrapStartedRef = useRef(false);
   const isCheckoutBootstrapPendingRef = useRef(true);
+  const temporaryPromotionRef = useRef(activeTimelineIsTemporary);
 
   const canvasWidth = useCanvasWidth(canvasConfig.canvasWidthPercent);
   useSelectStart();
@@ -496,6 +499,10 @@ export function CanvasBoard({
   useEffect(() => {
     setSelectedWorkbenchNode(null);
   }, [activeTimelineId]);
+
+  useEffect(() => {
+    temporaryPromotionRef.current = activeTimelineIsTemporary;
+  }, [activeTimelineIsTemporary]);
 
   const closeWorkNodePanel = () => {
     setIsWorkNodePanelOpen(false);
@@ -691,6 +698,13 @@ export function CanvasBoard({
   useEffect(() => {
     if (!isTimelineSessionReady || isCheckoutBootstrapStartedRef.current || loadedCharacters.length === 0) return;
     isCheckoutBootstrapStartedRef.current = true;
+    if (activeTimelineIsTemporary) {
+      // 临时 SQLite 的实时工作副本已由 user.sqlite 持久化。刷新或重启时
+      // 不能用它创建时的空快照覆盖这份未保存的内容。
+      isCheckoutBootstrapPendingRef.current = false;
+      setCheckoutBootstrapRevision((revision) => revision + 1);
+      return;
+    }
     void (async () => {
       try {
         const repository = createTimelineRepositoryClient();
@@ -708,7 +722,7 @@ export function CanvasBoard({
         setCheckoutBootstrapRevision((revision) => revision + 1);
       }
     })();
-  }, [activeCheckoutRef, activeTimelineId, hydrateCheckoutRuntime, isTimelineSessionReady, loadedCharacters.length]);
+  }, [activeCheckoutRef, activeTimelineId, activeTimelineIsTemporary, hydrateCheckoutRuntime, isTimelineSessionReady, loadedCharacters.length]);
 
   const findCharacterForWorkbenchCommand = (command: Extract<MainWorkbenchCommand, { op: 'addSkillButton' | 'removeSkillButton' | 'addBuff' | 'removeBuff' | 'setOperatorWeapon' | 'setOperatorEquipment' | 'setOperatorConfig' }>) => {
     if ('characterId' in command && command.characterId) {
@@ -3274,7 +3288,36 @@ export function CanvasBoard({
     return repository;
   };
 
+  const promoteTemporaryTimeline = async (): Promise<boolean> => {
+    if (!temporaryPromotionRef.current) return true;
+
+    const label = window.prompt('首次保存前，请为这个 SQLite 工作区命名：', '')?.trim();
+    if (!label) {
+      if (label === '') alert('请输入 SQLite 工作区名称后再保存。');
+      return false;
+    }
+
+    try {
+      const document = await createTimelineRepositoryClient().ensureDocument({
+        id: activeTimelineId,
+        label,
+        isTemporary: false,
+      });
+      temporaryPromotionRef.current = false;
+      activateTimeline({
+        document,
+        checkoutRef: activeCheckoutRef,
+        workingPayload: activeWorkingPayload,
+      });
+      return true;
+    } catch (error) {
+      alert(`SQLite 工作区转正失败：${formatTimelineOperationError(error)}`);
+      return false;
+    }
+  };
+
   const handleSaveWorkNodeCheckpoint = async () => {
+    if (!await promoteTemporaryTimeline()) return;
     saveTimelineData();
     setSelectedCharacterIds(selectedCharacters.map((character) => character.id));
     const payload = getCurrentTimelineSnapshotPayload();
@@ -3333,7 +3376,8 @@ export function CanvasBoard({
     }
   };
 
-  const handleOpenSaveSnapshotModal = () => {
+  const handleOpenSaveSnapshotModal = async () => {
+    if (!await promoteTemporaryTimeline()) return;
     setSnapshotDraftName('');
     setIsSaveSnapshotModalOpen(true);
   };
@@ -4011,7 +4055,7 @@ export function CanvasBoard({
                     className={`timeline-snapshot-item timeline-document-item${workspace.document.id === activeTimelineId ? ' is-active' : ''}`}
                   >
                     <div className="timeline-snapshot-item-main">
-                      <strong>{workspace.document.label}</strong>
+                      <strong>{workspace.document.label}{workspace.document.isTemporary ? '（临时）' : ''}</strong>
                       <span>
                         {workspace.summary.characterCount} 干员 / {workspace.summary.buttonCount} 按钮 / {workspace.summary.buffCount} Buff
                       </span>

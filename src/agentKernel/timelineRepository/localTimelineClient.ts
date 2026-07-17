@@ -149,7 +149,7 @@ export function createTimelineRepositoryClient() {
       const response = await requestWithFallback<RepositoryResponse<{ documents: TimelineDocument[] }>>('/local-data/timeline-documents');
       return response.documents;
     },
-    async ensureDocument(input: Pick<TimelineDocument, 'id' | 'label'> & Partial<Pick<TimelineDocument, 'createdAt'>> & { preserveExistingLabel?: boolean }) {
+    async ensureDocument(input: Pick<TimelineDocument, 'id' | 'label'> & Partial<Pick<TimelineDocument, 'createdAt' | 'isTemporary'>> & { preserveExistingLabel?: boolean }) {
       const response = await requestWithFallback<RepositoryResponse<{ document: TimelineDocument }>>('/local-data/timeline-documents', 'POST', input);
       return response.document;
     },
@@ -162,7 +162,7 @@ export function createTimelineRepositoryClient() {
       return response.result;
     },
     async importDocumentBundle(input: {
-      document: Pick<TimelineDocument, 'id' | 'label'> & Partial<Pick<TimelineDocument, 'createdAt'>>;
+      document: Pick<TimelineDocument, 'id' | 'label'> & Partial<Pick<TimelineDocument, 'createdAt' | 'isTemporary'>>;
       snapshots: Array<{ id: string; label: string; createdAt?: number; payload: TimelineSnapshotPayload }>;
       workNodes?: Array<{
         id: string; parentNodeId?: string; branchId: string; label: string; description?: string; status: string; approvalPolicy: string;

@@ -8,6 +8,7 @@ const ACTIVE_TIMELINE_DOCUMENT_KEY = 'dmg.active-timeline-document-id';
 export type TimelineSessionSnapshot = {
   activeTimelineId: string;
   activeTimelineLabel: string;
+  activeTimelineIsTemporary: boolean;
   checkoutRef: TimelineCheckoutRef | null;
   workingPayload: TimelineSnapshotPayload | null;
   workingPayloadSource: 'checkout' | 'runtime' | null;
@@ -22,6 +23,7 @@ function readPersistedTimelineId(): string {
 let snapshot: TimelineSessionSnapshot = {
   activeTimelineId: readPersistedTimelineId(),
   activeTimelineLabel: '主排轴',
+  activeTimelineIsTemporary: false,
   checkoutRef: null,
   workingPayload: null,
   workingPayloadSource: null,
@@ -33,6 +35,7 @@ function publish(next: Omit<TimelineSessionSnapshot, 'revision'>): TimelineSessi
   if (
     next.activeTimelineId === snapshot.activeTimelineId
     && next.activeTimelineLabel === snapshot.activeTimelineLabel
+    && next.activeTimelineIsTemporary === snapshot.activeTimelineIsTemporary
     && next.checkoutRef?.timelineId === snapshot.checkoutRef?.timelineId
     && next.checkoutRef?.targetType === snapshot.checkoutRef?.targetType
     && next.checkoutRef?.targetId === snapshot.checkoutRef?.targetId
@@ -46,7 +49,7 @@ function publish(next: Omit<TimelineSessionSnapshot, 'revision'>): TimelineSessi
 }
 
 export function activateTimelineSession(input: {
-  document: Pick<TimelineDocument, 'id' | 'label'>;
+  document: Pick<TimelineDocument, 'id' | 'label'> & Partial<Pick<TimelineDocument, 'isTemporary'>>;
   checkoutRef: TimelineCheckoutRef | null;
   workingPayload: TimelineSnapshotPayload | null;
 }): TimelineSessionSnapshot {
@@ -59,6 +62,7 @@ export function activateTimelineSession(input: {
   return publish({
     activeTimelineId: input.document.id,
     activeTimelineLabel: input.document.label,
+    activeTimelineIsTemporary: Boolean(input.document.isTemporary),
     checkoutRef: input.checkoutRef,
     workingPayload: input.workingPayload,
     workingPayloadSource: input.workingPayload ? 'checkout' : null,
@@ -74,13 +78,14 @@ export function subscribeTimelineSession(listener: () => void): () => void {
   return () => listeners.delete(listener);
 }
 
-export function setActiveTimelineDocument(document: Pick<TimelineDocument, 'id' | 'label'>): TimelineSessionSnapshot {
+export function setActiveTimelineDocument(document: Pick<TimelineDocument, 'id' | 'label'> & Partial<Pick<TimelineDocument, 'isTemporary'>>): TimelineSessionSnapshot {
   if (typeof window !== 'undefined') {
     window.localStorage.setItem(ACTIVE_TIMELINE_DOCUMENT_KEY, document.id);
   }
   return publish({
     activeTimelineId: document.id,
     activeTimelineLabel: document.label,
+    activeTimelineIsTemporary: Boolean(document.isTemporary),
     checkoutRef: document.id === snapshot.activeTimelineId ? snapshot.checkoutRef : null,
     workingPayload: document.id === snapshot.activeTimelineId ? snapshot.workingPayload : null,
     workingPayloadSource: document.id === snapshot.activeTimelineId ? snapshot.workingPayloadSource : null,
@@ -92,6 +97,7 @@ export function setTimelineSessionCheckoutRef(checkoutRef: TimelineCheckoutRef |
   return publish({
     activeTimelineId: snapshot.activeTimelineId,
     activeTimelineLabel: snapshot.activeTimelineLabel,
+    activeTimelineIsTemporary: snapshot.activeTimelineIsTemporary,
     checkoutRef,
     workingPayload: snapshot.workingPayload,
     workingPayloadSource: snapshot.workingPayloadSource,
@@ -106,6 +112,7 @@ export function setTimelineSessionWorkingPayload(
   return publish({
     activeTimelineId: snapshot.activeTimelineId,
     activeTimelineLabel: snapshot.activeTimelineLabel,
+    activeTimelineIsTemporary: snapshot.activeTimelineIsTemporary,
     checkoutRef: snapshot.checkoutRef,
     workingPayload,
     workingPayloadSource,
@@ -119,6 +126,7 @@ export function resetActiveTimelineDocument(): TimelineSessionSnapshot {
   return publish({
     activeTimelineId: DEFAULT_TIMELINE_ID,
     activeTimelineLabel: '主排轴',
+    activeTimelineIsTemporary: false,
     checkoutRef: null,
     workingPayload: null,
     workingPayloadSource: null,
@@ -135,6 +143,7 @@ export async function refreshTimelineSessionDocument(): Promise<TimelineSessionS
     return publish({
       activeTimelineId: current.id,
       activeTimelineLabel: current.label,
+      activeTimelineIsTemporary: current.isTemporary,
       checkoutRef,
       workingPayload: snapshot.activeTimelineId === current.id ? snapshot.workingPayload : null,
       workingPayloadSource: snapshot.activeTimelineId === current.id ? snapshot.workingPayloadSource : null,
@@ -147,6 +156,7 @@ export async function refreshTimelineSessionDocument(): Promise<TimelineSessionS
     return publish({
       activeTimelineId: fallback.id,
       activeTimelineLabel: fallback.label,
+      activeTimelineIsTemporary: fallback.isTemporary,
       checkoutRef,
       workingPayload: null,
       workingPayloadSource: null,

@@ -9,6 +9,7 @@ export type TimelineCheckoutTarget =
 export interface TimelineDocument {
   id: string;
   label: string;
+  isTemporary: boolean;
   createdAt: number;
   updatedAt: number;
   archivedAt: number | null;

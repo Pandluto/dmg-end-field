@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useAppContext } from '../../context/AppContext';
-import { createEmptyTimelineData } from '../../core/services/timelineService';
+import { createEmptyTimelineData, reconcileSelectionChange } from '../../core/services/timelineService';
 import { loadLocalOperatorCharacters } from '../../core/services/localOperatorAdapter';
 import { LOCAL_LIBRARY_CHANGED_EVENT } from '../../aiCli/aiCliCommandService';
 import { Character } from '../../types';
@@ -9,6 +9,8 @@ import { APP_ROUTE_PATHS, navigateToAppPath } from '../../utils/appRoute';
 import { applyTimelineSnapshotPayload, type TimelineSnapshotPayload } from '../../utils/timelineSnapshotStorage';
 import { createTimelineRepositoryClient } from '../../agentKernel/timelineRepository/localTimelineClient';
 import { activateTimelineSession } from '../../agentKernel/timelineRepository/timelineSession';
+import { useTimelineSession } from '../../agentKernel/timelineRepository/useTimelineSession';
+import { flushUserWorkspaceState } from '../../utils/userWorkspaceBridge';
 import './SelectionPanel.css';
 
 const ELEMENT_LABELS: Record<string, string> = {
@@ -30,6 +32,7 @@ const ELEMENT_COLORS: Record<string, string> = {
 export function SelectionPanel() {
   const { state, dispatch } = useAppContext();
   const { selectedCharacters } = state;
+  const { activeTimelineId, activeTimelineIsTemporary } = useTimelineSession();
   const [localCharacters, setLocalCharacters] = useState<Character[]>([]);
   const [draftCharacterIds, setDraftCharacterIds] = useState<string[]>([]);
   const [query, setQuery] = useState('');
@@ -126,6 +129,20 @@ export function SelectionPanel() {
       return;
     }
 
+    const currentCharacterIds = new Set(selectedCharacters.map((character) => character.id));
+    const hasSharedCharacter = draftCharacters.some((character) => currentCharacterIds.has(character.id));
+
+    // 临时工作区只在“整队完全不同”时推倒重来。只要还保留任一干员，
+    // 就继续使用同一个 SQLite，并按既有的排轴重排规则同步数据。
+    if (activeTimelineIsTemporary && hasSharedCharacter) {
+      reconcileSelectionChange(selectedCharacters, draftCharacters);
+      await flushUserWorkspaceState();
+      dispatch({ type: 'CLEAR_SKILL_BUTTONS' });
+      dispatch({ type: 'SET_SELECTED_CHARACTERS', characters: draftCharacters });
+      dispatch({ type: 'SET_VIEW', view: 'canvas' });
+      return;
+    }
+
     setIsCreatingWorkspace(true);
     setWorkspaceError('');
     const createdAt = Date.now();
@@ -150,7 +167,7 @@ export function SelectionPanel() {
     try {
       const repository = createTimelineRepositoryClient();
       const imported = await repository.importDocumentBundle({
-        document: { id: timelineId, label: documentLabel, createdAt },
+        document: { id: timelineId, label: documentLabel, isTemporary: true, createdAt },
         snapshots: [{
           id: snapshotId,
           label: '初始排轴',
@@ -166,9 +183,21 @@ export function SelectionPanel() {
         updatedAt: createdAt,
       };
 
+      if (activeTimelineIsTemporary) {
+        try {
+          await repository.deleteDocument(activeTimelineId);
+        } catch (error) {
+          // 切换前未能清掉旧临时工作区时，回收刚创建的空工作区，避免
+          // 留下无法使用的孤立 SQLite 文档。
+          await repository.deleteDocument(imported.document.id).catch(() => undefined);
+          throw error;
+        }
+      }
+
       // 先同步 SQLite 工作副本和会话，再切画布；这样新画布不会从上一个
       // 工作区读取旧按钮表或旧 Work Node 树。
       applyTimelineSnapshotPayload(payload);
+      await flushUserWorkspaceState();
       activateTimelineSession({
         document: imported.document,
         checkoutRef,

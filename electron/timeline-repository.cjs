@@ -75,6 +75,7 @@ function createTimelineRepository({ databasePath }) {
     CREATE TABLE IF NOT EXISTS timeline_documents (
       id TEXT PRIMARY KEY,
       label TEXT NOT NULL,
+      is_temporary INTEGER NOT NULL DEFAULT 0,
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL,
       archived_at INTEGER
@@ -176,6 +177,12 @@ function createTimelineRepository({ databasePath }) {
     CREATE INDEX IF NOT EXISTS timeline_session_axis_bindings_timeline_idx ON timeline_session_axis_bindings(timeline_id, updated_at DESC);
     CREATE INDEX IF NOT EXISTS timeline_audit_events_timeline_created_idx ON timeline_audit_events(timeline_id, created_at DESC);
   `);
+  const timelineDocumentColumns = new Set(
+    db.prepare('PRAGMA table_info(timeline_documents)').all().map((column) => column.name),
+  );
+  if (!timelineDocumentColumns.has('is_temporary')) {
+    db.exec('ALTER TABLE timeline_documents ADD COLUMN is_temporary INTEGER NOT NULL DEFAULT 0;');
+  }
   const workNodeColumns = db.prepare('PRAGMA table_info(timeline_work_nodes)').all();
   if (!workNodeColumns.some((column) => column.name === 'description')) {
     db.exec("ALTER TABLE timeline_work_nodes ADD COLUMN description TEXT NOT NULL DEFAULT '';");
@@ -251,6 +258,7 @@ function createTimelineRepository({ databasePath }) {
     return row && {
       id: row.id,
       label: row.label,
+      isTemporary: row.is_temporary === 1,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
       archivedAt: row.archived_at || null,
@@ -340,14 +348,24 @@ function createTimelineRepository({ databasePath }) {
   function ensureDocument(input) {
     if (!input?.id || !input?.label) throw repositoryError('invalid-timeline-document', 400, 'Timeline document requires id and label.');
     const now = input.createdAt || Date.now();
+    const hasTemporaryState = Object.prototype.hasOwnProperty.call(input, 'isTemporary');
     return transaction(() => {
       db.prepare(`
-        INSERT INTO timeline_documents (id, label, created_at, updated_at, archived_at)
-        VALUES (?, ?, ?, ?, NULL)
+        INSERT INTO timeline_documents (id, label, is_temporary, created_at, updated_at, archived_at)
+        VALUES (?, ?, ?, ?, ?, NULL)
         ON CONFLICT(id) DO UPDATE SET
           label = CASE WHEN ? THEN timeline_documents.label ELSE excluded.label END,
+          is_temporary = CASE WHEN ? THEN excluded.is_temporary ELSE timeline_documents.is_temporary END,
           updated_at = excluded.updated_at
-      `).run(input.id, input.label, now, Date.now(), input.preserveExistingLabel ? 1 : 0);
+      `).run(
+        input.id,
+        input.label,
+        input.isTemporary ? 1 : 0,
+        now,
+        Date.now(),
+        input.preserveExistingLabel ? 1 : 0,
+        hasTemporaryState ? 1 : 0,
+      );
       return readDocument(db.prepare('SELECT * FROM timeline_documents WHERE id = ?').get(input.id));
     });
   }
@@ -624,9 +642,9 @@ function createTimelineRepository({ databasePath }) {
       }
       const now = input.document.createdAt || Date.now();
       db.prepare(`
-        INSERT INTO timeline_documents (id, label, created_at, updated_at, archived_at)
-        VALUES (?, ?, ?, ?, NULL)
-      `).run(documentId, input.document.label, now, now);
+        INSERT INTO timeline_documents (id, label, is_temporary, created_at, updated_at, archived_at)
+        VALUES (?, ?, ?, ?, ?, NULL)
+      `).run(documentId, input.document.label, input.document.isTemporary ? 1 : 0, now, now);
       const snapshots = input.snapshots.map((snapshot) => {
         const createdAt = snapshot.createdAt || now;
         const payloadHash = ensurePayload(snapshot.payload, createdAt);
