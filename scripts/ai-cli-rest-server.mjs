@@ -1547,6 +1547,20 @@ function handleTimelineRepositoryRequest(method, pathname, query, body) {
       return failScript(400, error?.code || 'timeline-archive-convert-failed', error instanceof Error ? error.message : String(error), error?.details);
     }
   }
+  if (method === 'POST' && pathname === '/api/timeline-archives/delete') {
+    try {
+      return { status: 200, body: { ok: true, result: getDataManagementService().deleteTimelineArchive(body) } };
+    } catch (error) {
+      return failScript(400, error?.code || 'timeline-archive-delete-failed', error instanceof Error ? error.message : String(error), error?.details);
+    }
+  }
+  if (method === 'POST' && pathname === '/api/timeline-archives/transfer') {
+    try {
+      return { status: 200, body: { ok: true, result: getDataManagementService().transferTimelineArchive(body) } };
+    } catch (error) {
+      return failScript(400, error?.code || 'timeline-archive-transfer-failed', error instanceof Error ? error.message : String(error), error?.details);
+    }
+  }
   if (method === 'POST' && pathname === '/api/timeline-archives/import-legacy-bundle') {
     try {
       return { status: 200, body: { ok: true, ...getDataManagementService().importLegacyTimelineBundleArchive(body) } };
@@ -1575,6 +1589,16 @@ function handleTimelineRepositoryRequest(method, pathname, query, body) {
       }) } };
     } catch (error) {
       return failScript(error?.code === 'timeline-document-not-found' ? 404 : 400, error?.code || 'timeline-workspace-export-failed', error instanceof Error ? error.message : String(error));
+    }
+  }
+  const workspaceDeleteMatch = /^\/api\/timeline-workspaces\/([^/]+)\/delete$/.exec(pathname);
+  if (method === 'POST' && workspaceDeleteMatch) {
+    try {
+      const result = getDataManagementService().deleteSqliteWorkspace({ timelineId: decodeURIComponent(workspaceDeleteMatch[1]) });
+      getAiTimelineWorkNodeStore().deleteTimeline(result.document.id);
+      return { status: 200, body: { ok: true, result } };
+    } catch (error) {
+      return failScript(error?.code === 'timeline-document-not-found' ? 404 : 400, error?.code || 'timeline-workspace-delete-failed', error instanceof Error ? error.message : String(error), error?.details);
     }
   }
   const repository = getTimelineRepository();

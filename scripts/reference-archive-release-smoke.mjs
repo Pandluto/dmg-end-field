@@ -88,6 +88,22 @@ assert.equal(service.listTimelineArchives({ source: 'local' }).some((entry) => e
 const referenceExport = service.exportSqliteWorkspaceArchive({ timelineId: convertedReference.document.id, kind: 'reference' });
 assert.equal(referenceExport.outbox, true);
 assert.equal(fs.existsSync(referenceExport.filePath), true);
+assert.equal(service.listTimelineArchives({ source: 'pending-reference' }).some((entry) => entry.archiveId === referenceExport.archive.archiveId), true);
+const pendingToLocal = service.transferTimelineArchive({
+  from: 'pending-reference', to: 'local', archiveId: referenceExport.archive.archiveId,
+});
+assert.equal(pendingToLocal.archive.library, 'local');
+assert.equal(service.listTimelineArchives({ source: 'pending-reference' }).some((entry) => entry.archiveId === referenceExport.archive.archiveId), false);
+assert.equal(service.listTimelineArchives({ source: 'local' }).some((entry) => entry.archiveId === referenceExport.archive.archiveId), true);
+const localToPending = service.transferTimelineArchive({
+  from: 'local', to: 'pending-reference', archiveId: referenceExport.archive.archiveId,
+});
+assert.equal(localToPending.archive.library, 'pending-reference');
+assert.equal(service.deleteTimelineArchive({ library: 'pending-reference', archiveId: referenceExport.archive.archiveId }).deleted, true);
+assert.equal(service.listTimelineArchives({ source: 'pending-reference' }).some((entry) => entry.archiveId === referenceExport.archive.archiveId), false);
+assert.throws(() => service.deleteTimelineArchive({ library: 'reference', archiveId: 'reference-tree' }), {
+  code: 'timeline-archive-library-readonly',
+});
 
 const flatArchive = {
   type: TIMELINE_ARCHIVE_TYPE,
@@ -105,6 +121,10 @@ assert.equal(convertedFlat.totalNodeCount, 1, 'a flat legacy archive creates onl
 assert.equal(convertedFlat.checkoutRef.targetId, convertedFlat.rootNodeId);
 service.applySqliteWorkspace({ timelineId: convertedFlat.document.id, updatedAt: 31 });
 assert.equal(JSON.parse(service.getWorkspaceState().values['def.selected-characters.v1'])[0].id, 'operator-flat');
+const deletedWorkspace = service.deleteSqliteWorkspace({ timelineId: convertedFlat.document.id });
+assert.equal(deletedWorkspace.document.id, convertedFlat.document.id);
+assert.equal(service.listSqliteWorkspaces().some((entry) => entry.document.id === convertedFlat.document.id), false);
+assert.equal(service.listTimelineArchives({ source: 'local' }).some((entry) => entry.archiveId === 'legacy-flat'), true, 'deleting SQLite must not delete local archives');
 
 const legacyBundle = {
   type: 'dmg.timeline-bundle.v2',

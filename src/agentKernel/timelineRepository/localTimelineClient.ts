@@ -70,11 +70,14 @@ export type TimelineRepositoryWorkNodeCommit = {
 };
 
 export type TimelineArchiveSource = 'local' | 'reference';
+export type TimelineArchiveLibrary = TimelineArchiveSource | 'pending-reference';
 
 export type TimelineArchiveSummary = {
   archiveId: string;
   label: string;
   source: TimelineArchiveSource;
+  /** Physical library. Pending reference archives are publish candidates, not downloaded references. */
+  library: TimelineArchiveLibrary;
   archiveVersion: number;
   createdAt: string;
   payloadHash?: string;
@@ -240,7 +243,7 @@ export function createTimelineRepositoryClient() {
       );
       return response.result;
     },
-    async listTimelineArchives(source: TimelineArchiveSource) {
+    async listTimelineArchives(source: TimelineArchiveLibrary) {
       const response = await requestWithFallback<RepositoryResponse<{ archives: TimelineArchiveSummary[] }>>(
         `/local-data/timeline-archives?source=${encodeURIComponent(source)}`,
       );
@@ -250,7 +253,7 @@ export function createTimelineRepositoryClient() {
       const response = await requestWithFallback<RepositoryResponse<{ workspaces: TimelineSqliteWorkspace[] }>>('/local-data/timeline-workspaces');
       return response.workspaces;
     },
-    async convertTimelineArchive(input: { source: TimelineArchiveSource; archiveId: string; payloadOnly?: boolean; label?: string; updatedAt?: number }) {
+    async convertTimelineArchive(input: { source: TimelineArchiveLibrary; archiveId: string; payloadOnly?: boolean; label?: string; updatedAt?: number }) {
       const response = await requestWithFallback<RepositoryResponse<TimelineWorkspaceApplyResult & {
         rootNodeId: string;
         importedNodeCount: number;
@@ -267,11 +270,31 @@ export function createTimelineRepositoryClient() {
       }>>('/local-data/timeline-archives/import-legacy-bundle', 'POST', input);
       return response;
     },
+    async deleteTimelineArchive(input: { library: Exclude<TimelineArchiveLibrary, 'reference'>; archiveId: string }) {
+      const response = await requestWithFallback<RepositoryResponse<{ result: { library: TimelineArchiveLibrary; archiveId: string; deleted: boolean } }>>(
+        '/local-data/timeline-archives/delete', 'POST', input,
+      );
+      return response.result;
+    },
+    async transferTimelineArchive(input: { from: Exclude<TimelineArchiveLibrary, 'reference'>; to: Exclude<TimelineArchiveLibrary, 'reference'>; archiveId: string }) {
+      const response = await requestWithFallback<RepositoryResponse<{ result: { from: TimelineArchiveLibrary; to: TimelineArchiveLibrary; archive: TimelineArchiveSummary; moved: boolean } }>>(
+        '/local-data/timeline-archives/transfer', 'POST', input,
+      );
+      return response.result;
+    },
     async applySqliteWorkspace(timelineId: string, updatedAt?: number) {
       const response = await requestWithFallback<RepositoryResponse<TimelineWorkspaceApplyResult>>(
         `/local-data/timeline-workspaces/${encodeURIComponent(timelineId)}/apply`, 'POST', { updatedAt },
       );
       return response;
+    },
+    async deleteSqliteWorkspace(timelineId: string) {
+      const response = await requestWithFallback<RepositoryResponse<{ result: {
+        document: TimelineDocument;
+        deletedNodeIds: string[];
+        deletedSnapshotCount: number;
+      } }>>(`/local-data/timeline-workspaces/${encodeURIComponent(timelineId)}/delete`, 'POST', {});
+      return response.result;
     },
     async exportSqliteWorkspaceArchive(input: { timelineId: string; kind: TimelineArchiveSource; label?: string }) {
       const response = await requestWithFallback<RepositoryResponse<{

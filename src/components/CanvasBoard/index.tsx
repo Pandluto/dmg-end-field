@@ -412,6 +412,7 @@ export function CanvasBoard({
   const [pendingImportShare, setPendingImportShare] = useState<TimelineShareFile | null>(null);
   const [pendingImportBundle, setPendingImportBundle] = useState<TimelineBundleV2 | null>(null);
   const [localTimelineArchives, setLocalTimelineArchives] = useState<TimelineArchiveSummary[]>([]);
+  const [pendingReferenceTimelineArchives, setPendingReferenceTimelineArchives] = useState<TimelineArchiveSummary[]>([]);
   const [referenceTimelineArchives, setReferenceTimelineArchives] = useState<TimelineArchiveSummary[]>([]);
   const [sqliteTimelineWorkspaces, setSqliteTimelineWorkspaces] = useState<TimelineSqliteWorkspace[]>([]);
   const [restorePanelTab, setRestorePanelTab] = useState<'archives' | 'sqlite'>('archives');
@@ -3232,12 +3233,14 @@ export function CanvasBoard({
   const refreshTimelineArchiveLibrary = async () => {
     const repository = createTimelineRepositoryClient();
     try {
-      const [localArchives, referenceArchives, workspaces] = await Promise.all([
+      const [localArchives, pendingReferenceArchives, referenceArchives, workspaces] = await Promise.all([
         repository.listTimelineArchives('local'),
+        repository.listTimelineArchives('pending-reference'),
         repository.listTimelineArchives('reference'),
         repository.listSqliteWorkspaces(),
       ]);
       setLocalTimelineArchives(localArchives);
+      setPendingReferenceTimelineArchives(pendingReferenceArchives);
       setReferenceTimelineArchives(referenceArchives);
       setSqliteTimelineWorkspaces(workspaces.sort((left, right) => (
         Number(right.document.id === activeTimelineId) - Number(left.document.id === activeTimelineId)
@@ -3245,6 +3248,7 @@ export function CanvasBoard({
       )));
     } catch (error) {
       setLocalTimelineArchives([]);
+      setPendingReferenceTimelineArchives([]);
       setReferenceTimelineArchives([]);
       setSqliteTimelineWorkspaces([]);
       throw error;
@@ -3376,7 +3380,7 @@ export function CanvasBoard({
     try {
       const repository = createTimelineRepositoryClient();
       const converted = await repository.convertTimelineArchive({
-        source: archive.source,
+        source: archive.library,
         archiveId: archive.archiveId,
         payloadOnly,
         updatedAt: Date.now(),
@@ -3386,7 +3390,12 @@ export function CanvasBoard({
       await refreshTimelineArchiveLibrary();
       setWorkNodeRefreshKey((current) => current + 1);
       setIsSnapshotModalOpen(false);
-      setWorkNodeSaveNotice(`已从${archive.source === 'reference' ? '参考' : '本地'}存档创建 SQLite 工作区：${converted.document.label}`);
+      const archiveKind = archive.library === 'reference'
+        ? '联网参考'
+        : archive.library === 'pending-reference'
+          ? '待发布参考'
+          : '本地';
+      setWorkNodeSaveNotice(`已从${archiveKind}存档创建 SQLite 工作区：${converted.document.label}`);
       window.setTimeout(() => setWorkNodeSaveNotice(''), 2200);
     } catch (error) {
       alert(`存档转换 SQLite 失败：${formatTimelineOperationError(error)}`);
@@ -3421,6 +3430,58 @@ export function CanvasBoard({
       window.setTimeout(() => setWorkNodeSaveNotice(''), 2400);
     } catch (error) {
       alert(`导出存档失败：${formatTimelineOperationError(error)}`);
+    }
+  };
+
+  const handleTransferTimelineArchive = async (archive: TimelineArchiveSummary, to: 'local' | 'pending-reference') => {
+    if (archive.library === 'reference') return;
+    const targetLabel = to === 'local' ? '本地存档' : '待发布参考存档';
+    const confirmed = window.confirm(`将“${archive.label}”转换为${targetLabel}？转换后会从原存档库移除。`);
+    if (!confirmed) return;
+    try {
+      await createTimelineRepositoryClient().transferTimelineArchive({
+        from: archive.library,
+        to,
+        archiveId: archive.archiveId,
+      });
+      await refreshTimelineArchiveLibrary();
+      setWorkNodeSaveNotice(`已转换为${targetLabel}：${archive.label}`);
+      window.setTimeout(() => setWorkNodeSaveNotice(''), 2200);
+    } catch (error) {
+      alert(`存档转换失败：${formatTimelineOperationError(error)}`);
+    }
+  };
+
+  const handleDeleteTimelineArchive = async (archive: TimelineArchiveSummary) => {
+    if (archive.library === 'reference') return;
+    const libraryLabel = archive.library === 'pending-reference' ? '待发布参考存档' : '本地存档';
+    const confirmed = window.confirm(`删除${libraryLabel}“${archive.label}”？此操作不会影响 SQLite 工作区，也不能撤销。`);
+    if (!confirmed) return;
+    try {
+      await createTimelineRepositoryClient().deleteTimelineArchive({ library: archive.library, archiveId: archive.archiveId });
+      await refreshTimelineArchiveLibrary();
+      setWorkNodeSaveNotice(`已删除${libraryLabel}：${archive.label}`);
+      window.setTimeout(() => setWorkNodeSaveNotice(''), 2200);
+    } catch (error) {
+      alert(`删除存档失败：${formatTimelineOperationError(error)}`);
+    }
+  };
+
+  const handleDeleteSqliteWorkspace = async (workspace: TimelineSqliteWorkspace) => {
+    if (workspace.document.id === activeTimelineId) {
+      alert('当前正在应用此 SQLite 工作区。请先应用另一工作区，再删除它。');
+      return;
+    }
+    const confirmed = window.confirm(`删除 SQLite 工作区“${workspace.document.label}”？其节点、恢复点和审计记录会一并删除；本地/待发布存档不会受影响。`);
+    if (!confirmed) return;
+    try {
+      await createTimelineRepositoryClient().deleteSqliteWorkspace(workspace.document.id);
+      await refreshTimelineArchiveLibrary();
+      setWorkNodeRefreshKey((current) => current + 1);
+      setWorkNodeSaveNotice(`已删除 SQLite 工作区：${workspace.document.label}`);
+      window.setTimeout(() => setWorkNodeSaveNotice(''), 2200);
+    } catch (error) {
+      alert(`删除 SQLite 工作区失败：${formatTimelineOperationError(error)}`);
     }
   };
 
@@ -3902,14 +3963,17 @@ export function CanvasBoard({
               <div className="timeline-snapshot-list timeline-document-list">
                 {([
                   ['本地存档', localTimelineArchives, 'local'],
+                  ['待发布参考存档', pendingReferenceTimelineArchives, 'pending-reference'],
                   ['参考存档（联网下载）', referenceTimelineArchives, 'reference'],
-                ] as const).map(([title, archives, source]) => (
-                  <React.Fragment key={source}>
+                ] as const).map(([title, archives, library]) => (
+                  <React.Fragment key={library}>
                     <div className="timeline-snapshot-empty">{title}</div>
                     {archives.length === 0 ? (
-                      <div className="timeline-snapshot-empty">暂无{source === 'local' ? '本地' : '参考'}存档。</div>
+                      <div className="timeline-snapshot-empty">
+                        暂无{library === 'local' ? '本地' : library === 'pending-reference' ? '待发布' : '联网参考'}存档。
+                      </div>
                     ) : archives.map((archive) => (
-                      <div key={`${source}-${archive.archiveId}`} className="timeline-snapshot-item timeline-document-item">
+                      <div key={`${library}-${archive.archiveId}`} className="timeline-snapshot-item timeline-document-item">
                         <div className="timeline-snapshot-item-main">
                           <strong>{archive.label}</strong>
                           <span>{archive.summary.characterCount} 干员 / {archive.summary.buttonCount} 按钮 / {archive.summary.buffCount} Buff</span>
@@ -3931,6 +3995,22 @@ export function CanvasBoard({
                               仅导入内容
                             </button>
                           )}
+                          {archive.library === 'local' && (
+                            <button type="button" className="btn-calculate" disabled={Boolean(archive.invalid)} onClick={() => void handleTransferTimelineArchive(archive, 'pending-reference')}>
+                              转为待发布
+                            </button>
+                          )}
+                          {archive.library === 'pending-reference' && (
+                            <button type="button" className="btn-calculate" disabled={Boolean(archive.invalid)} onClick={() => void handleTransferTimelineArchive(archive, 'local')}>
+                              转为本地
+                            </button>
+                          )}
+                          {archive.library !== 'reference' && (
+                            <button type="button" className="btn-calculate" onClick={() => void handleDeleteTimelineArchive(archive)}>
+                              删除
+                            </button>
+                          )}
+                          {archive.library === 'reference' && <span>联网来源只读</span>}
                         </div>
                       </div>
                     ))}
@@ -3985,6 +4065,15 @@ export function CanvasBoard({
                         onClick={() => void handleExportSqliteWorkspace(workspace, 'reference')}
                       >
                         导出待发布参考包
+                      </button>
+                      <button
+                        type="button"
+                        className="btn-calculate"
+                        disabled={workspace.document.id === activeTimelineId}
+                        title={workspace.document.id === activeTimelineId ? '请先应用另一工作区，再删除当前工作区。' : undefined}
+                        onClick={() => void handleDeleteSqliteWorkspace(workspace)}
+                      >
+                        删除
                       </button>
                     </div>
                   </div>

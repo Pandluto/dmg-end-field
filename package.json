@@ -96,6 +96,7 @@
     "scripts/ai-cli-rest-server.mjs",
     "scripts/build-data-catalog.mjs",
     "scripts/build-data-release-package.mjs",
+      "scripts/build-reference-archive-release.mjs",
       "scripts/build-image-release-manifest.mjs",
       "agent/server/**",
       "agent/runtime/**",

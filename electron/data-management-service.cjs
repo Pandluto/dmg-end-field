@@ -1002,22 +1002,23 @@ function createDataManagementService({ runtimeDataRoot, builtinCatalogPath, shel
     };
   }
 
-  function listLocalTimelineArchives() {
+  function listTimelineArchivesFromDirectory(directory, { expectedSource, library }) {
     ensureLayout();
-    return fs.readdirSync(paths.localArchiveDirectory, { withFileTypes: true })
+    return fs.readdirSync(directory, { withFileTypes: true })
       .filter((entry) => entry.isFile() && entry.name.endsWith('.json'))
       .map((entry) => {
         const archiveId = path.basename(entry.name, '.json');
         try {
-          return archiveSummary(readTimelineArchiveFile(path.join(paths.localArchiveDirectory, entry.name), {
-            expectedSource: 'local',
+          return archiveSummary(readTimelineArchiveFile(path.join(directory, entry.name), {
+            expectedSource,
             allowInvalidWorktree: true,
-          }), { fileName: entry.name });
+          }), { fileName: entry.name, library });
         } catch (error) {
           return {
             archiveId,
             label: archiveId,
-            source: 'local',
+            source: expectedSource,
+            library,
             archiveVersion: 0,
             createdAt: '',
             summary: { characterCount: 0, buttonCount: 0, buffCount: 0 },
@@ -1029,6 +1030,24 @@ function createDataManagementService({ runtimeDataRoot, builtinCatalogPath, shel
         }
       })
       .sort((left, right) => String(right.createdAt).localeCompare(String(left.createdAt)) || left.archiveId.localeCompare(right.archiveId));
+  }
+
+  function listLocalTimelineArchives() {
+    return listTimelineArchivesFromDirectory(paths.localArchiveDirectory, {
+      expectedSource: 'local',
+      library: 'local',
+    });
+  }
+
+  function listPendingReferenceTimelineArchives() {
+    // A pending archive has the same portable wire shape as a reference
+    // archive, but it has not been published or provenance-verified yet.
+    // Keep the library identity separate from archive.source so UI callers
+    // cannot accidentally present it as a downloaded reference.
+    return listTimelineArchivesFromDirectory(paths.referenceArchiveOutboxDirectory, {
+      expectedSource: 'reference',
+      library: 'pending-reference',
+    });
   }
 
   function readActiveReferenceArchiveRelease() {
@@ -1057,12 +1076,13 @@ function createDataManagementService({ runtimeDataRoot, builtinCatalogPath, shel
         return archiveSummary({
           ...archive,
           reference: { releaseId: active.releaseId, packageHash: active.manifest.package.sha256, downloadedAt: active.activatedAt || undefined },
-        }, { releaseId: active.releaseId });
+        }, { releaseId: active.releaseId, library: 'reference' });
       } catch (error) {
         return {
           archiveId,
           label: typeof entry?.label === 'string' ? entry.label : archiveId,
           source: 'reference',
+          library: 'reference',
           archiveVersion: Number(entry?.archiveVersion) || 0,
           createdAt: '',
           summary: { characterCount: 0, buttonCount: 0, buffCount: 0 },
@@ -1076,13 +1096,19 @@ function createDataManagementService({ runtimeDataRoot, builtinCatalogPath, shel
   }
 
   function getTimelineArchive({ source, archiveId, allowInvalidWorktree = false } = {}) {
-    if (!['local', 'reference'].includes(source)) throw dataManagementError('invalid-timeline-archive-source', '存档来源无效。');
+    if (!['local', 'pending-reference', 'reference'].includes(source)) throw dataManagementError('invalid-timeline-archive-source', '存档来源无效。');
     if (typeof archiveId !== 'string' || sanitizeArchiveId(archiveId) !== archiveId) {
       throw dataManagementError('invalid-timeline-archive-id', '排轴存档 ID 无效。');
     }
     if (source === 'local') {
       return readTimelineArchiveFile(timelineArchiveFilePath(paths.localArchiveDirectory, archiveId), {
         expectedSource: 'local',
+        allowInvalidWorktree,
+      });
+    }
+    if (source === 'pending-reference') {
+      return readTimelineArchiveFile(timelineArchiveFilePath(paths.referenceArchiveOutboxDirectory, archiveId), {
+        expectedSource: 'reference',
         allowInvalidWorktree,
       });
     }
@@ -1096,6 +1122,64 @@ function createDataManagementService({ runtimeDataRoot, builtinCatalogPath, shel
       ...archive,
       reference: { releaseId: active.releaseId, packageHash: active.manifest.package.sha256, downloadedAt: active.activatedAt || undefined },
     };
+  }
+
+  function getMutableTimelineArchiveLibrary(library) {
+    if (library === 'local') {
+      return { directory: paths.localArchiveDirectory, expectedSource: 'local' };
+    }
+    if (library === 'pending-reference') {
+      return { directory: paths.referenceArchiveOutboxDirectory, expectedSource: 'reference' };
+    }
+    throw dataManagementError('timeline-archive-library-readonly', '联网下载的参考存档为只读内容，不能在本机删除或转换。');
+  }
+
+  function deleteTimelineArchive({ library, archiveId } = {}) {
+    if (typeof archiveId !== 'string' || sanitizeArchiveId(archiveId) !== archiveId) {
+      throw dataManagementError('invalid-timeline-archive-id', '排轴存档 ID 无效。');
+    }
+    const target = getMutableTimelineArchiveLibrary(library);
+    const filePath = timelineArchiveFilePath(target.directory, archiveId);
+    if (!fs.existsSync(filePath)) {
+      throw dataManagementError('timeline-archive-not-found', '排轴存档不存在。', { library, archiveId });
+    }
+    // Do not parse before deletion: this also gives users a recovery path for
+    // malformed local/pending files surfaced by the library as invalid.
+    fs.rmSync(filePath, { force: false });
+    return { library, archiveId, deleted: true };
+  }
+
+  function transferTimelineArchive({ from, to, archiveId } = {}) {
+    if (!['local', 'pending-reference'].includes(from) || !['local', 'pending-reference'].includes(to)) {
+      throw dataManagementError('invalid-timeline-archive-transfer', '只能在本地存档与待发布存档之间转换。');
+    }
+    if (from === to) throw dataManagementError('invalid-timeline-archive-transfer', '存档转换的来源和目标不能相同。');
+    if (typeof archiveId !== 'string' || sanitizeArchiveId(archiveId) !== archiveId) {
+      throw dataManagementError('invalid-timeline-archive-id', '排轴存档 ID 无效。');
+    }
+    const sourceLibrary = getMutableTimelineArchiveLibrary(from);
+    const destinationLibrary = getMutableTimelineArchiveLibrary(to);
+    const sourcePath = timelineArchiveFilePath(sourceLibrary.directory, archiveId);
+    const destinationPath = timelineArchiveFilePath(destinationLibrary.directory, archiveId);
+    const sourceArchive = readTimelineArchiveFile(sourcePath, { expectedSource: sourceLibrary.expectedSource });
+    const converted = cloneJson(sourceArchive);
+    converted.source = destinationLibrary.expectedSource;
+    // Locally exported pending archives must not gain fake published
+    // provenance, and local archives must never retain reference provenance.
+    delete converted.reference;
+    const checked = normalizeTimelineArchive(converted, { expectedSource: destinationLibrary.expectedSource });
+    if (fs.existsSync(destinationPath)) {
+      const existing = readTimelineArchiveFile(destinationPath, { expectedSource: destinationLibrary.expectedSource });
+      if (stableJson(existing) !== stableJson(checked)) {
+        throw dataManagementError('timeline-archive-transfer-collision', '目标存档库已有相同 ID 但内容不同的存档，拒绝覆盖。', { from, to, archiveId });
+      }
+    } else {
+      writeJsonAtomically(destinationPath, checked);
+    }
+    // Write/validate the destination first. A failure to remove the origin
+    // leaves a recoverable duplicate instead of losing the only copy.
+    fs.rmSync(sourcePath, { force: false });
+    return { from, to, archive: archiveSummary(checked, { library: to }), moved: true };
   }
 
   function installReferenceArchiveRelease({ manifest, archivePath, manifestUrl = '' } = {}) {
@@ -1337,6 +1421,32 @@ function createDataManagementService({ runtimeDataRoot, builtinCatalogPath, shel
     }
   }
 
+  function deleteSqliteWorkspace({ timelineId } = {}) {
+    if (typeof timelineId !== 'string' || !timelineId.trim()) {
+      throw dataManagementError('invalid-timeline-workspace-id', 'SQLite 工作区 ID 无效。');
+    }
+    ensureUserDatabase();
+    const repository = createTimelineRepository({ databasePath: paths.userDatabasePath });
+    try {
+      // This deliberately removes only the selected TimelineDocument graph.
+      // user_workspace_state and the archive libraries are independent stores,
+      // so deleting a SQLite workspace never deletes a local or pending archive.
+      const result = repository.deleteDocument(timelineId);
+      const db = new DatabaseSync(paths.userDatabasePath);
+      try {
+        // Catalog references live in the same user database but deliberately
+        // have no FK to keep catalog history diagnosable. Once the owning
+        // document is explicitly deleted, its projection must go as well.
+        db.prepare(`DELETE FROM user_catalog_references WHERE owner_type = 'timeline-document' AND owner_id = ?`).run(timelineId);
+      } finally {
+        db.close();
+      }
+      return result;
+    } finally {
+      repository.close();
+    }
+  }
+
   function exportSqliteWorkspaceArchive({ timelineId, kind = 'local', label } = {}) {
     if (!['local', 'reference'].includes(kind)) throw dataManagementError('invalid-timeline-archive-source', '导出存档来源无效。');
     if (typeof timelineId !== 'string' || !timelineId.trim()) throw dataManagementError('invalid-timeline-workspace-id', 'SQLite 工作区 ID 无效。');
@@ -1384,7 +1494,12 @@ function createDataManagementService({ runtimeDataRoot, builtinCatalogPath, shel
       };
       const outputDirectory = kind === 'local' ? paths.localArchiveDirectory : paths.referenceArchiveOutboxDirectory;
       const written = writeTimelineArchive(outputDirectory, archive);
-      return { kind, outbox: kind === 'reference', filePath: written.filePath, archive: archiveSummary(written.archive) };
+      return {
+        kind,
+        outbox: kind === 'reference',
+        filePath: written.filePath,
+        archive: archiveSummary(written.archive, { library: kind === 'reference' ? 'pending-reference' : 'local' }),
+      };
     } finally {
       db.close();
     }
@@ -1466,9 +1581,9 @@ function createDataManagementService({ runtimeDataRoot, builtinCatalogPath, shel
       if (existing.payloadHash !== hashTimelinePayload(payload)) {
         throw dataManagementError('legacy-timeline-bundle-archive-collision', '旧 Timeline Bundle 已有同 ID 且内容不同的本地存档。');
       }
-      return { imported: false, reused: true, archive: archiveSummary(existing) };
+      return { imported: false, reused: true, archive: archiveSummary(existing, { library: 'local' }) };
     }
-    return { imported: true, reused: false, archive: archiveSummary(writeTimelineArchive(paths.localArchiveDirectory, archive).archive) };
+    return { imported: true, reused: false, archive: archiveSummary(writeTimelineArchive(paths.localArchiveDirectory, archive).archive, { library: 'local' }) };
   }
 
   function convertTimelineArchiveToWorkspace({ source, archiveId, payloadOnly = false, label, updatedAt = Date.now() } = {}) {
@@ -1499,7 +1614,7 @@ function createDataManagementService({ runtimeDataRoot, builtinCatalogPath, shel
           rootBaseHash,
           rootWorkingHash,
           `[archive-import] ${archive.label}`,
-          `由${source === 'reference' ? '参考存档' : '本地存档'}“${archive.archiveId}”转换。`,
+          `由${source === 'reference' ? '联网参考存档' : source === 'pending-reference' ? '待发布参考存档' : '本地存档'}“${archive.archiveId}”转换。`,
           updatedAt,
           updatedAt,
           updatedAt,
@@ -1876,9 +1991,9 @@ function createDataManagementService({ runtimeDataRoot, builtinCatalogPath, shel
           if (existing.payloadHash !== hashTimelinePayload(snapshot.payload)) {
             throw dataManagementError('legacy-timeline-archive-collision', `旧存档迁移目标冲突：${archiveId}`);
           }
-          return archiveSummary(existing);
+          return archiveSummary(existing, { library: 'local' });
         }
-        return archiveSummary(writeTimelineArchive(paths.localArchiveDirectory, legacyTimelineArchive).archive);
+        return archiveSummary(writeTimelineArchive(paths.localArchiveDirectory, legacyTimelineArchive).archive, { library: 'local' });
       });
       const details = {
         contentHash,
@@ -2021,12 +2136,16 @@ function createDataManagementService({ runtimeDataRoot, builtinCatalogPath, shel
     restoreWorkspaceSnapshot,
     listTimelineArchives: ({ source } = {}) => {
       if (source === 'local') return listLocalTimelineArchives();
+      if (source === 'pending-reference') return listPendingReferenceTimelineArchives();
       if (source === 'reference') return listReferenceTimelineArchives();
       throw dataManagementError('invalid-timeline-archive-source', '存档来源无效。');
     },
+    deleteTimelineArchive,
+    transferTimelineArchive,
     materializeLegacyTimelineSnapshotsAsLocalArchives,
     listSqliteWorkspaces,
     applySqliteWorkspace,
+    deleteSqliteWorkspace,
     exportSqliteWorkspaceArchive,
     importLegacyTimelineBundleArchive,
     convertTimelineArchiveToWorkspace,

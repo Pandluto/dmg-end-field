@@ -27,8 +27,10 @@
     pendingApplyResolve: null,
     desktopSettings: null,
     imageUpdate: null,
+    dataReleaseUpdate: null,
     imageReleaseBuilder: null,
     dataReleaseBuilder: null,
+    referenceArchiveReleaseBuilder: null,
   };
 
   const $ = (id) => document.getElementById(id);
@@ -1108,6 +1110,87 @@
     }
   };
 
+  const renderDataReleaseUpdateState = (payload) => {
+    state.dataReleaseUpdate = payload || null;
+    const status = payload?.status || 'idle';
+    const summary = payload?.latestSummary || null;
+    const statusMap = { idle: '已配置', checking: '检查中', downloading: '下载中', activating: '登记中', failed: '失败' };
+    const toneMap = { idle: 'ok', checking: 'warn', downloading: 'warn', activating: 'warn', failed: 'err' };
+    setBadge('data-update-badge', statusMap[status] || status, toneMap[status] || 'info');
+    setText('data-update-catalog-manifest-url', payload?.configuredCatalogManifestUrl || '未配置 catalog 清单地址');
+    setText('data-update-reference-manifest-url', payload?.configuredReferenceManifestUrl || '未配置参考存档清单地址');
+
+    const catalogVersion = payload?.currentCatalogVersion || '-';
+    const referenceReleaseId = payload?.currentReferenceReleaseId || '-';
+    setBadge('data-update-current-catalog', catalogVersion, catalogVersion === '-' ? 'info' : 'ok');
+    setBadge('data-update-current-reference', referenceReleaseId, referenceReleaseId === '-' ? 'info' : 'ok');
+    setText('data-update-current-catalog-detail', `${payload?.currentCatalogSource || 'unknown'}${payload?.lastUpdatedAt ? `；最近更新 ${formatTime(payload.lastUpdatedAt)}` : ''}`);
+    setText('data-update-current-reference-detail', payload?.currentReferenceActivatedAt ? `登记于 ${formatTime(payload.currentReferenceActivatedAt)}` : '尚未下载参考存档发布包。');
+
+    const catalog = summary?.catalog || null;
+    const reference = summary?.reference || null;
+    const remoteLines = [];
+    if (catalog?.available) remoteLines.push(`catalog ${catalog.dataVersion}${catalog.hasUpdate ? '（可更新）' : ''}`);
+    if (reference?.available) remoteLines.push(`参考存档 ${reference.releaseId} / ${reference.archiveCount || 0} 份${reference.hasUpdate ? '（可更新）' : ''}`);
+    const latestLabel = summary?.hasAnyPackage ? (summary.hasUpdate ? '可更新' : '最新') : '无数据包';
+    setBadge('data-update-latest', latestLabel, summary?.hasUpdate ? 'warn' : 'info');
+    setText('data-update-latest-detail', remoteLines.join('；') || summary?.updateMessage || '等待检查。');
+    const progress = payload?.progress;
+    const progressText = progress?.label
+      ? `${progress.label}${progress.percent !== null && progress.percent !== undefined ? ` · ${progress.percent}%` : ''}`
+      : '';
+    setText('data-update-status', [summary?.updateMessage || '等待检查数据 Release。', progressText, payload?.lastError ? `错误：${payload.lastError}` : ''].filter(Boolean).join('；'));
+
+    const applyButton = $('apply-data-release-update');
+    if (applyButton) {
+      applyButton.disabled = ['checking', 'downloading', 'activating'].includes(status)
+        || summary?.hasUpdate !== true;
+    }
+  };
+
+  const refreshDataReleaseUpdateState = async () => {
+    if (!runtime?.getDataReleaseUpdateState) {
+      renderDataReleaseUpdateState(null);
+      return null;
+    }
+    const payload = await runtime.getDataReleaseUpdateState();
+    renderDataReleaseUpdateState(payload);
+    return payload;
+  };
+
+  const checkDataReleaseUpdate = async (button) => {
+    if (!runtime?.checkDataReleaseUpdate) return;
+    setButtonBusy(button, true, '检查中');
+    try {
+      const result = await runtime.checkDataReleaseUpdate();
+      renderDataReleaseUpdateState(result?.state || null);
+      appendLog(`数据更新 | 检查完成 | ${result?.state?.latestSummary?.updateMessage || '无数据包或已是最新'}`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      appendLog(`数据更新 | 检查失败 | ${message}`);
+      await refreshDataReleaseUpdateState();
+    } finally {
+      setButtonBusy(button, false);
+    }
+  };
+
+  const applyDataReleaseUpdate = async (button) => {
+    if (!runtime?.applyDataReleaseUpdate) return;
+    setButtonBusy(button, true, '更新中');
+    try {
+      const result = await runtime.applyDataReleaseUpdate();
+      renderDataReleaseUpdateState(result?.state || null);
+      appendLog(`数据更新 | ${result?.state?.progress?.label || '已完成'}`);
+      await refreshDataManagement();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      appendLog(`数据更新 | 更新失败 | ${message}`);
+      await refreshDataReleaseUpdateState();
+    } finally {
+      setButtonBusy(button, false);
+    }
+  };
+
   const setInputValue = (id, value) => {
     const input = $(id);
     if (input) input.value = value || '';
@@ -1261,6 +1344,75 @@
     }
   };
 
+  const setReferenceArchiveReleaseBuilderStatus = (text, tone = 'info') => {
+    setText('reference-archive-release-builder-status', text);
+    const badgeText = tone === 'ok' ? '已生成' : tone === 'err' ? '失败' : tone === 'warn' ? '处理中' : '待生成';
+    setBadge('reference-archive-release-builder-badge', badgeText, tone);
+  };
+
+  const pickReferenceArchiveReleaseSource = async () => {
+    const result = await runtime?.pickReferenceArchiveReleaseSourceDir?.();
+    if (result?.ok) {
+      setInputValue('reference-archive-release-source', result.path);
+      setReferenceArchiveReleaseBuilderStatus(`待发布目录：${result.path}`);
+    }
+  };
+
+  const pickReferenceArchiveReleaseOutput = async () => {
+    const result = await runtime?.pickReferenceArchiveReleaseOutputDir?.();
+    if (result?.ok) {
+      setInputValue('reference-archive-release-output', result.path);
+      setReferenceArchiveReleaseBuilderStatus(`输出目录：${result.path}`);
+    }
+  };
+
+  const buildReferenceArchiveReleasePackage = async (button) => {
+    if (!runtime?.buildReferenceArchiveReleasePackage) {
+      setReferenceArchiveReleaseBuilderStatus('当前运行时不支持参考存档发布包助手。', 'err');
+      return;
+    }
+    const payload = {
+      source: getInputValue('reference-archive-release-source'),
+      output: getInputValue('reference-archive-release-output'),
+      releaseId: getInputValue('reference-archive-release-id'),
+      minShellVersion: getInputValue('reference-archive-release-min-shell'),
+    };
+    setButtonBusy(button, true, '生成中');
+    setReferenceArchiveReleaseBuilderStatus('正在生成参考存档发布包…', 'warn');
+    try {
+      const response = await runtime.buildReferenceArchiveReleasePackage(payload);
+      if (!response?.ok) throw new Error(response?.error || '生成失败');
+      state.referenceArchiveReleaseBuilder = response.result;
+      const result = response.result;
+      const archiveCount = Array.isArray(result.archives) ? result.archives.length : 0;
+      setReferenceArchiveReleaseBuilderStatus(
+        `生成完成：${result.releaseId}；${archiveCount} 份参考存档\nmanifest: ${result.manifestPath}${(result.packagePaths || []).map((item) => `\n${item}`).join('')}`,
+        'ok',
+      );
+      appendLog(`参考存档发布包 | 生成完成 | ${result.outputDir}`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setReferenceArchiveReleaseBuilderStatus(message, 'err');
+      appendLog(`参考存档发布包 | 生成失败 | ${message}`);
+    } finally {
+      setButtonBusy(button, false);
+    }
+  };
+
+  const revealReferenceArchiveReleaseOutput = async () => {
+    const output = getInputValue('reference-archive-release-output') || state.referenceArchiveReleaseBuilder?.outputDir;
+    if (!output) {
+      setReferenceArchiveReleaseBuilderStatus('请先选择输出目录。', 'err');
+      return;
+    }
+    const result = await runtime?.revealPath?.({ path: output });
+    if (result?.ok) {
+      appendLog(`参考存档发布包 | 已打开输出目录 | ${result.path || output}`);
+    } else {
+      setReferenceArchiveReleaseBuilderStatus(result?.error || `无法打开输出目录：${output}`, 'err');
+    }
+  };
+
   const revealImageDirectory = async () => {
     try {
       const result = await fetchLocalBridgeJson('/image-assets/reveal-directory', {
@@ -1305,6 +1457,7 @@
     const shellState = await runtime.getShellState();
     renderDesktopSettings(shellState.desktopSettings || null);
     renderImageUpdateState(shellState.imageUpdate || null);
+    renderDataReleaseUpdateState(shellState.dataReleaseUpdate || null);
     setBadge('shell-status-badge', '正常', 'ok');
     setBadge('shell-mini-status', '正常', 'ok');
     setBadge('nav-health-badge', '正常', 'ok');
@@ -1319,6 +1472,7 @@
       refreshAiRestStatus(),
       refreshDefAgentStatus(),
       refreshDataManagement(),
+      refreshDataReleaseUpdateState(),
       refreshImages(),
       refreshImageUpdateState(),
       refreshAgentRecords(),
@@ -1369,7 +1523,8 @@
       testDefAgentHi(event.currentTarget).catch((error) => appendLog(`DEF Agent hi 测试失败 | ${error instanceof Error ? error.message : String(error)}`));
     });
     $('refresh-data-management')?.addEventListener('click', () => {
-      refreshDataManagement().catch((error) => appendLog(`统一数据 | 刷新失败 | ${error instanceof Error ? error.message : String(error)}`));
+      Promise.all([refreshDataManagement(), refreshDataReleaseUpdateState()])
+        .catch((error) => appendLog(`统一数据 | 刷新失败 | ${error instanceof Error ? error.message : String(error)}`));
     });
     $('run-data-management-migration')?.addEventListener('click', (event) => {
       runDataManagementMigration(event.currentTarget).catch((error) => appendLog(`统一数据 | 旧档迁移失败 | ${error instanceof Error ? error.message : String(error)}`));
@@ -1385,6 +1540,12 @@
     });
     $('force-clear-image-update')?.addEventListener('click', (event) => {
       forceClearImageUpdate(event.currentTarget).catch((error) => appendLog(`图片更新 | 强制清除失败 | ${error instanceof Error ? error.message : String(error)}`));
+    });
+    $('check-data-release-update')?.addEventListener('click', (event) => {
+      checkDataReleaseUpdate(event.currentTarget).catch((error) => appendLog(`数据更新 | 检查失败 | ${error instanceof Error ? error.message : String(error)}`));
+    });
+    $('apply-data-release-update')?.addEventListener('click', (event) => {
+      applyDataReleaseUpdate(event.currentTarget).catch((error) => appendLog(`数据更新 | 更新失败 | ${error instanceof Error ? error.message : String(error)}`));
     });
     $('pick-image-release-source')?.addEventListener('click', () => {
       pickImageReleaseSource().catch((error) => appendLog(`图片发布包 | 选择源目录失败 | ${error instanceof Error ? error.message : String(error)}`));
@@ -1409,6 +1570,18 @@
     });
     $('reveal-data-release-output')?.addEventListener('click', () => {
       revealDataReleaseOutput().catch((error) => appendLog(`数据发布包 | 打开输出目录失败 | ${error instanceof Error ? error.message : String(error)}`));
+    });
+    $('pick-reference-archive-release-source')?.addEventListener('click', () => {
+      pickReferenceArchiveReleaseSource().catch((error) => appendLog(`参考存档发布包 | 选择待发布目录失败 | ${error instanceof Error ? error.message : String(error)}`));
+    });
+    $('pick-reference-archive-release-output')?.addEventListener('click', () => {
+      pickReferenceArchiveReleaseOutput().catch((error) => appendLog(`参考存档发布包 | 选择输出目录失败 | ${error instanceof Error ? error.message : String(error)}`));
+    });
+    $('build-reference-archive-release-package')?.addEventListener('click', (event) => {
+      buildReferenceArchiveReleasePackage(event.currentTarget).catch((error) => appendLog(`参考存档发布包 | 生成失败 | ${error instanceof Error ? error.message : String(error)}`));
+    });
+    $('reveal-reference-archive-release-output')?.addEventListener('click', () => {
+      revealReferenceArchiveReleaseOutput().catch((error) => appendLog(`参考存档发布包 | 打开输出目录失败 | ${error instanceof Error ? error.message : String(error)}`));
     });
     document.querySelectorAll('[data-desktop-scale]').forEach((button) => {
       button.addEventListener('click', (event) => {
