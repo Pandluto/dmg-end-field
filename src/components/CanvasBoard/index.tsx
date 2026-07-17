@@ -3449,6 +3449,9 @@ export function CanvasBoard({
       const applied = await repository.applySqliteWorkspace(workspace.document.id, Date.now());
       activateTimeline({ document: applied.document as TimelineDocument, checkoutRef: applied.checkoutRef, workingPayload: applied.payload });
       hydrateCheckoutRuntime(applied.payload);
+      // SQLite 恢复会替换整套干员与按钮数据；热重挂载一次主工作台，
+      // 清掉 CanvasArea / SkillSandbox 中可能保留的旧布局缓存。
+      refreshWorkbenchAfterCheckout();
       setIsSnapshotModalOpen(false);
       setWorkNodeRefreshKey((current) => current + 1);
       setWorkNodeSaveNotice(`已应用 SQLite 工作区：${workspace.document.label}`);
