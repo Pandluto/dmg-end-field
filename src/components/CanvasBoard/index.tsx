@@ -136,6 +136,14 @@ type TimelineDocumentListEntry = {
   summary: { characterCount: number; buttonCount: number; buffCount: number };
 };
 
+function isTimelineDocumentNotFound(error: unknown): boolean {
+  return Boolean(
+    error
+    && typeof error === 'object'
+    && (error as { code?: unknown }).code === 'timeline-document-not-found',
+  );
+}
+
 async function ensureTimelineDocumentExists(
   repository: ReturnType<typeof createTimelineRepositoryClient>,
   timelineId: string,
@@ -454,6 +462,7 @@ export function CanvasBoard({
   const [pendingImportTimelineId, setPendingImportTimelineId] = useState('');
   const [timelineSnapshots, setTimelineSnapshots] = useState<TimelineSnapshotListEntry[]>([]);
   const [timelineDocuments, setTimelineDocuments] = useState<TimelineDocumentListEntry[]>([]);
+  const [deletingTimelineDocumentId, setDeletingTimelineDocumentId] = useState('');
   const [restorePanelTab, setRestorePanelTab] = useState<'snapshots' | 'sqlite'>('snapshots');
   const [isBrowseMode, setIsBrowseMode] = useState(false);
   const [isInspectMode, setIsInspectMode] = useState(false);
@@ -466,6 +475,7 @@ export function CanvasBoard({
   const [selectedWorkbenchNode, setSelectedWorkbenchNode] = useState<WorkbenchSelectedNodeContext | null>(null);
   const [aiHoverZone, setAiHoverZone] = useState<'left' | 'right'>('right');
   const shouldRestoreTopZoneAfterAiRef = useRef(false);
+  const deletingTimelineDocumentRef = useRef(false);
   const [isRefreshingAvailableCandidates, setIsRefreshingAvailableCandidates] = useState(false);
   const [isBatchResistanceModalOpen, setIsBatchResistanceModalOpen] = useState(false);
   const [batchTargetResistance, setBatchTargetResistance] = useState<Required<HitResistanceInput>>(
@@ -3514,10 +3524,13 @@ export function CanvasBoard({
   };
 
   const handleDeleteTimelineDocument = async (entry: TimelineDocumentListEntry) => {
+    if (deletingTimelineDocumentRef.current) return;
     const confirmed = window.confirm(
       `删除 SQLite 排轴“${entry.document.label}”？\n将同时删除 ${entry.snapshotCount} 个快照和 ${entry.workNodeCount} 个工作节点，此操作不可撤销。`,
     );
     if (!confirmed) return;
+    deletingTimelineDocumentRef.current = true;
+    setDeletingTimelineDocumentId(entry.document.id);
     try {
       const repository = createTimelineRepositoryClient();
       await repository.deleteDocument(entry.document.id);
@@ -3552,7 +3565,18 @@ export function CanvasBoard({
       setWorkNodeSaveNotice(`已删除 SQLite 排轴：${entry.document.label}`);
       window.setTimeout(() => setWorkNodeSaveNotice(''), 2200);
     } catch (error) {
+      if (isTimelineDocumentNotFound(error)) {
+        setTimelineDocuments((current) => current.filter((candidate) => candidate.document.id !== entry.document.id));
+        setTimelineSnapshots((current) => current.filter((snapshot) => snapshot.timelineId !== entry.document.id));
+        void refreshTimelineSnapshotList();
+        setWorkNodeSaveNotice(`SQLite 排轴“${entry.document.label}”已不存在，列表已刷新`);
+        window.setTimeout(() => setWorkNodeSaveNotice(''), 2600);
+        return;
+      }
       alert(`删除 SQLite 排轴失败：${formatTimelineOperationError(error)}`);
+    } finally {
+      deletingTimelineDocumentRef.current = false;
+      setDeletingTimelineDocumentId('');
     }
   };
 
@@ -4228,9 +4252,10 @@ export function CanvasBoard({
                       <button
                         type="button"
                         className="btn-calculate timeline-snapshot-delete-btn"
+                        disabled={Boolean(deletingTimelineDocumentId)}
                         onClick={() => void handleDeleteTimelineDocument(entry)}
                       >
-                        删除
+                        {deletingTimelineDocumentId === entry.document.id ? '删除中…' : '删除'}
                       </button>
                     </div>
                   </div>
