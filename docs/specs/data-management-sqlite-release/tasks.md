@@ -99,6 +99,15 @@
 
 验收：Spec 的 10 条验收标准均有可复现的生产证据；旧数据始终可恢复，且主界面 Spec 仅依赖稳定 Repository API。
 
+## 2026-07-17：P1 事实源与双存档流程收口
+
+- [x] `user.sqlite` 新增当前工作副本；干员配置、用户 Buff、当前排轴、恢复后的工作副本均经主进程 API 读写，Renderer 只保留内存镜像。
+- [x] 恢复 SQLite 快照时在同一事务更新 CheckoutRef、当前工作副本、投影表和审计事件，再更新 Renderer 内存态。
+- [x] browser archive、`now-storage.json` 与旧本机/共享 JSON 首次迁移前备份；按单个逻辑存档幂等导入，并记录来源 hash、结果、备份路径和失败原因。
+- [x] Shell 移除本机/共享存档的新建、应用与删除流程，改为统一数据状态与旧档迁移诊断；旧介质不删除。
+- [x] 已通过数据管理、Timeline Bundle、Work Node SQLite/REST/备份恢复、Timeline 迁移 smoke，以及 Web 构建；Shell 数据页已用真实可见 UI 检查。
+- [ ] 尚未完成 T1/T2 数据网络发布客户端、T5 预载模板、完整多窗口/重启手测和旧介质删除决策；这些保持原任务验收门槛，不以本次 P1 收口替代。
+
 ## 推荐顺序
 
 `T0 → T1 → T2 → T3 → T4 → T5 → T6 → T7 → T8`

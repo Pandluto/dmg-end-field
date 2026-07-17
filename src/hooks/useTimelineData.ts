@@ -32,7 +32,7 @@ export function useTimelineData(selectedCharacters: { name: string }[]) {
 
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Debounce 保存到 sessionStorage
+  // Debounce 保存当前工作副本；桌面/本地桥接环境会落到 user.sqlite。
   useEffect(() => {
     if (saveTimerRef.current) {
       clearTimeout(saveTimerRef.current);
@@ -40,7 +40,7 @@ export function useTimelineData(selectedCharacters: { name: string }[]) {
     saveTimerRef.current = setTimeout(() => {
       const dataToSave = timelineDataRef.current;
       saveTimelineDataService(dataToSave);
-      console.log('[timeline] autosaved to sessionStorage');
+      console.log('[timeline] autosaved to workspace repository');
     }, 300);
 
     return () => {
@@ -129,7 +129,7 @@ export function useTimelineData(selectedCharacters: { name: string }[]) {
   const saveTimelineData = useCallback((): TimelineData => {
     const dataToSave = timelineDataRef.current;
     saveTimelineDataService(dataToSave);
-    console.log('[timeline] saved to sessionStorage', dataToSave);
+    console.log('[timeline] saved to workspace repository', dataToSave);
     return dataToSave;
   }, []);
 
@@ -141,7 +141,7 @@ export function useTimelineData(selectedCharacters: { name: string }[]) {
         setStorageJson(STORAGE_KEYS.TIMELINE_DATA, normalized);
       }
       setTimelineData(normalized);
-      console.log('[timeline] loaded from sessionStorage', normalized);
+      console.log('[timeline] loaded from workspace repository', normalized);
       console.log('  - selectedCharacters:', selectedCharacters.length);
       console.log('  - staffLines:', normalized.staffLines.length);
       normalized.staffLines.forEach((line, idx) => {

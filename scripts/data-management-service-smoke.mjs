@@ -46,6 +46,15 @@ assert.equal(service.readActiveCatalog().source, 'builtin');
 assert.equal(service.readActiveCatalog().dataVersion, 'builtin-v1');
 assert.deepEqual(service.getUserOperatorConfig('operator.last-rite')?.payload, { level: 90 });
 assert.deepEqual(service.getUserBuff('user-buff.demo')?.payload, { name: '用户 Buff' });
+const initialWorkspace = service.putWorkspaceState({
+  'def.selected-characters.v1': JSON.stringify(['operator.last-rite']),
+  'def.timeline.data.v1': JSON.stringify(payload.timelineData),
+  'def.skill-button.v1': JSON.stringify({}),
+  'def.all-buff-list.v1': JSON.stringify([{ id: 'user-buff.demo', name: '用户 Buff' }]),
+  'def.operator-config.page-cache.v1': JSON.stringify({ 'operator.last-rite': { level: 90 } }),
+}, 12);
+assert.equal(initialWorkspace.updatedAt, 12);
+assert.deepEqual(service.getWorkspaceState()?.values['def.selected-characters.v1'], JSON.stringify(['operator.last-rite']));
 
 const legacyDatabasePath = path.join(root, 'legacy-timeline.sqlite3');
 const { createTimelineRepository } = require('../electron/timeline-repository.cjs');
@@ -71,6 +80,45 @@ assert.equal(migratedRepository.getDocument('legacy-document')?.label, '旧排�
 assert.equal(migratedRepository.getCheckoutRef('legacy-document')?.targetId, 'legacy-snapshot');
 migratedRepository.close();
 assert.equal(migrationService.migrateLegacyTimelineRepository({ legacyDatabasePath }).reason, 'already-migrated');
+
+const legacyArchivePath = path.join(root, 'legacy-share-archive.json');
+fs.writeFileSync(legacyArchivePath, JSON.stringify({
+  type: 'def.localdata.archive.v1',
+  schemaVersion: 1,
+  id: 'share-archive',
+  name: '旧共享排轴',
+  createdAt: '2026-07-17T00:00:00.000Z',
+  exportedAt: '2026-07-17T00:00:00.000Z',
+  sections: ['timeline'],
+  storage: {
+    local: {
+      'def.timeline.snapshot-archive.v1': {
+        version: 'v1',
+        snapshots: [{ id: 'legacy-browser-snapshot', label: '浏览器旧快照', createdAt: 15, payload }],
+      },
+    },
+    session: {
+      'def.selected-characters.v1': JSON.stringify([]),
+      'def.timeline.data.v1': JSON.stringify(payload.timelineData),
+      'def.skill-button.v1': JSON.stringify({}),
+      'def.all-buff-list.v1': JSON.stringify([]),
+    },
+  },
+}), 'utf8');
+const archiveMigration = migrationService.migrateLegacyArchives({ sources: [{
+  legacyOrigin: 'shared-archive',
+  sourceName: 'legacy-share-archive.json',
+  filePath: legacyArchivePath,
+}] })[0];
+assert.equal(archiveMigration.migrated, true);
+assert.equal(fs.existsSync(legacyArchivePath), true, 'legacy archive must remain in place');
+assert.equal(fs.existsSync(archiveMigration.backupPath), true, 'legacy archive must be backed up before import');
+assert.equal(migrationService.migrateLegacyArchives({ sources: [{
+  legacyOrigin: 'shared-archive',
+  sourceName: 'legacy-share-archive.json',
+  filePath: legacyArchivePath,
+}] })[0].reason, 'already-migrated');
+assert.equal(migrationService.listLegacyMigrationRecords().some((entry) => entry.sourceName === 'legacy-share-archive.json' && entry.status === 'completed'), true);
 
 function buildRelease(version, attack) {
   const catalog = createCatalogDatabase(catalogInput(version, attack));
@@ -99,6 +147,17 @@ const clonedRepository = createTimelineRepository({ databasePath: service.paths.
 assert.equal(clonedRepository.getCheckoutRef('template-document')?.targetId, 'template-snapshot');
 assert.equal(clonedRepository.listAuditEvents('template-document').filter((event) => event.eventType === 'template.cloned').length, 1);
 clonedRepository.close();
+const restoredWorkspace = service.restoreWorkspaceSnapshot({
+  timelineId: 'template-document',
+  snapshotId: 'template-snapshot',
+  updatedAt: 22,
+});
+assert.equal(restoredWorkspace.checkoutRef.targetId, 'template-snapshot');
+assert.deepEqual(service.getWorkspaceState()?.values['def.selected-characters.v1'], JSON.stringify([]));
+const restoredWorkspaceRepository = createTimelineRepository({ databasePath: service.paths.userDatabasePath });
+assert.equal(restoredWorkspaceRepository.getCheckoutRef('template-document')?.targetId, 'template-snapshot');
+assert.equal(restoredWorkspaceRepository.listAuditEvents('template-document').filter((event) => event.eventType === 'snapshot.restored').length, 1);
+restoredWorkspaceRepository.close();
 assert.throws(() => service.clonePreloadedTemplate({
   templateId: 'template.demo', timelineId: 'template-rollback', snapshotId: 'template-snapshot', createdAt: 21,
 }), { code: 'timeline-snapshot-id-conflict' });

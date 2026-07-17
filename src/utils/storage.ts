@@ -22,6 +22,11 @@ import type {
   RuntimeOperatorTemplate,
   RuntimeOperatorTemplateMap,
 } from '../core/templates/operatorTemplate';
+import {
+  getUserWorkspaceStorageItem,
+  removeUserWorkspaceStorageItem,
+  setUserWorkspaceStorageItem,
+} from './userWorkspaceBridge';
 
 // 重新导出类型供外部使用
 export type { PersistedSkillButton, SkillButtonTable, BuffList };
@@ -40,6 +45,8 @@ const DEFAULT_SKILL_LEVEL_MODE_MAP: Record<SkillPanelKey, SkillLevelMode> = {
 export const safeSessionStorage = {
   getItem(key: string): string | null {
     if (!isClient) return null;
+    const workspaceValue = getUserWorkspaceStorageItem(key);
+    if (workspaceValue !== undefined) return workspaceValue;
     try {
       return window.sessionStorage.getItem(key);
     } catch (error) {
@@ -50,6 +57,7 @@ export const safeSessionStorage = {
 
   setItem(key: string, value: string): void {
     if (!isClient) return;
+    if (setUserWorkspaceStorageItem(key, value)) return;
     try {
       window.sessionStorage.setItem(key, value);
     } catch (error) {
@@ -59,6 +67,7 @@ export const safeSessionStorage = {
 
   removeItem(key: string): void {
     if (!isClient) return;
+    if (removeUserWorkspaceStorageItem(key)) return;
     try {
       window.sessionStorage.removeItem(key);
     } catch (error) {

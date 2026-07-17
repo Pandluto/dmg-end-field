@@ -459,6 +459,109 @@ function createTimelineRepository({ databasePath }) {
     });
   }
 
+  /**
+   * Imports one legacy archive as a single TimelineDocument.  The archive is
+   * deliberately kept as a document with recovery points instead of being
+   * applied to the current checkout: migration must never overwrite the
+   * user's current work while scanning old local/share media.
+   */
+  function importLegacyArchive(input) {
+    if (!input?.timelineId || !input?.documentLabel || !Array.isArray(input.snapshots) || input.snapshots.length === 0) {
+      throw repositoryError('invalid-legacy-timeline-archive', 400, 'Legacy archive requires a document and at least one snapshot.');
+    }
+    const createdAt = input.createdAt || Date.now();
+    return transaction(() => {
+      db.prepare(`
+        INSERT INTO timeline_documents (id, label, created_at, updated_at, archived_at)
+        VALUES (?, ?, ?, ?, NULL)
+        ON CONFLICT(id) DO UPDATE SET
+          label = timeline_documents.label,
+          updated_at = excluded.updated_at,
+          archived_at = NULL
+      `).run(input.timelineId, input.documentLabel, createdAt, createdAt);
+
+      const importedSnapshots = [];
+      for (let index = 0; index < input.snapshots.length; index += 1) {
+        const source = input.snapshots[index];
+        if (!source || source.payload === undefined) {
+          throw repositoryError('invalid-legacy-timeline-archive', 400, 'Legacy archive snapshot payload is missing.');
+        }
+        const snapshotCreatedAt = source.createdAt || createdAt;
+        const payloadHash = ensurePayload(source.payload, snapshotCreatedAt);
+        const existing = db.prepare(`
+          SELECT * FROM timeline_snapshots WHERE timeline_id = ? AND payload_hash = ?
+        `).get(input.timelineId, payloadHash);
+        if (existing) {
+          if (existing.archived_at !== null) {
+            db.prepare('UPDATE timeline_snapshots SET archived_at = NULL WHERE id = ?').run(existing.id);
+          }
+          importedSnapshots.push(readSnapshot(db.prepare('SELECT * FROM timeline_snapshots WHERE id = ?').get(existing.id), true));
+          continue;
+        }
+
+        const requestedId = typeof source.id === 'string' && source.id.trim()
+          ? source.id.trim()
+          : `${input.timelineId}-legacy-${index + 1}`;
+        let snapshotId = requestedId;
+        if (db.prepare('SELECT 1 FROM timeline_snapshots WHERE id = ?').get(snapshotId)) {
+          const baseId = `${requestedId}-${payloadHash.slice(-12)}`;
+          snapshotId = baseId;
+          let suffix = 2;
+          while (db.prepare('SELECT 1 FROM timeline_snapshots WHERE id = ?').get(snapshotId)) {
+            snapshotId = `${baseId}-${suffix}`;
+            suffix += 1;
+          }
+        }
+        db.prepare(`
+          INSERT INTO timeline_snapshots (id, timeline_id, payload_hash, label, created_at, archived_at)
+          VALUES (?, ?, ?, ?, ?, NULL)
+        `).run(
+          snapshotId,
+          input.timelineId,
+          payloadHash,
+          typeof source.label === 'string' && source.label.trim() ? source.label.trim() : `旧存档恢复点 ${index + 1}`,
+          snapshotCreatedAt,
+        );
+        writeAuditEvent({
+          timelineId: input.timelineId,
+          eventType: 'legacy.snapshot.imported',
+          subjectType: 'snapshot',
+          subjectId: snapshotId,
+          details: { legacyOrigin: input.legacyOrigin || null, payloadHash },
+          createdAt: snapshotCreatedAt,
+        });
+        importedSnapshots.push(readSnapshot(db.prepare('SELECT * FROM timeline_snapshots WHERE id = ?').get(snapshotId), true));
+      }
+
+      const checkoutSnapshot = importedSnapshots.at(-1);
+      db.prepare(`
+        INSERT INTO checkout_refs (timeline_id, target_type, target_id, updated_at)
+        VALUES (?, 'snapshot', ?, ?)
+        ON CONFLICT(timeline_id) DO UPDATE SET
+          target_type = excluded.target_type,
+          target_id = excluded.target_id,
+          updated_at = excluded.updated_at
+      `).run(input.timelineId, checkoutSnapshot.id, createdAt);
+      writeAuditEvent({
+        timelineId: input.timelineId,
+        eventType: 'legacy.archive.imported',
+        subjectType: 'document',
+        subjectId: input.timelineId,
+        details: {
+          legacyOrigin: input.legacyOrigin || null,
+          sourceHash: input.sourceHash || null,
+          snapshotCount: importedSnapshots.length,
+        },
+        createdAt,
+      });
+      return {
+        document: readDocument(db.prepare('SELECT * FROM timeline_documents WHERE id = ?').get(input.timelineId)),
+        snapshots: importedSnapshots,
+        checkoutRef: { timelineId: input.timelineId, targetType: 'snapshot', targetId: checkoutSnapshot.id, updatedAt: createdAt },
+      };
+    });
+  }
+
   function importDocumentBundle(input) {
     if (!input?.document?.id || !input?.document?.label || !Array.isArray(input.snapshots) || !input.snapshots.length) {
       const error = new Error('Timeline bundle import requires a document and at least one snapshot.');
@@ -1048,6 +1151,7 @@ function createTimelineRepository({ databasePath }) {
     ensureDocument,
     createOrReuseSnapshot,
     createDocumentFromTemplate,
+    importLegacyArchive,
     importDocumentBundle,
     exportDocumentBundle,
     setCheckoutRef,

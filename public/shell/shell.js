@@ -607,6 +607,76 @@
     renderSelectedArchiveSummary();
   };
 
+  const renderDataManagementState = (payload) => {
+    const migrations = Array.isArray(payload?.legacyMigrations) ? payload.legacyMigrations : [];
+    const completed = migrations.filter((entry) => entry.status === 'completed').length;
+    const failed = migrations.filter((entry) => entry.status === 'failed').length;
+    const activeCatalog = payload?.activeCatalog || null;
+    const catalogLabel = activeCatalog?.dataVersion || '-';
+    const catalogSource = activeCatalog?.source === 'active' ? '发布版本' : '内置版本';
+
+    setBadge('data-catalog-badge', activeCatalog ? catalogSource : '异常', activeCatalog ? 'ok' : 'err');
+    setText('data-catalog-status', activeCatalog
+      ? `${catalogLabel} · ${catalogSource}${activeCatalog.activatedAt ? ` · ${formatTime(activeCatalog.activatedAt)}` : ''}`
+      : (payload?.error || '无法读取 catalog'));
+    setBadge('data-userdb-badge', payload?.userDatabasePath ? '已连接' : '异常', payload?.userDatabasePath ? 'ok' : 'err');
+    setText('data-userdb-status', payload?.userDatabasePath || payload?.error || '无法定位 user.sqlite');
+    setBadge('data-migration-badge', String(migrations.length), failed ? 'err' : (completed ? 'ok' : 'info'));
+    setText('data-migration-status', migrations.length
+      ? `完成 ${completed}；失败 ${failed}；旧文件保持只读兼容。`
+      : '尚未发现需要迁移的旧文件。');
+
+    const list = $('legacy-migration-list');
+    if (list) {
+      list.innerHTML = migrations.length
+        ? migrations.map((entry) => {
+          const details = entry.details || {};
+          const status = entry.status === 'completed' ? '已迁移' : '失败';
+          const tone = entry.status === 'completed' ? 'ok' : 'err';
+          const detail = entry.status === 'completed'
+            ? `${details.snapshotCount || 0} 个恢复点 · 备份 ${details.backupPath || '-'}`
+            : (details.error || '迁移失败，请重试并查看日志。');
+          return `<div class="archive-item">
+            <div class="item-line"><span class="item-title">${escapeHtml(entry.sourceName || '-')}</span><span class="pill ${tone}">${status}</span></div>
+            <div class="item-line"><span class="item-meta">${escapeHtml(entry.legacyOrigin || '-')}</span><span class="item-meta">${escapeHtml(formatTime(entry.migratedAt))}</span></div>
+            <div class="item-line"><span class="item-meta">${escapeHtml(detail)}</span></div>
+          </div>`;
+        }).join('')
+        : '<div class="empty-state">没有旧档迁移记录。</div>';
+    }
+
+    setText('metric-archives', payload?.userDatabasePath ? 'SQLite' : '异常');
+    setText('metric-archives-foot', activeCatalog ? `${catalogLabel} · ${catalogSource}` : '未连接数据管理服务');
+    setText('metric-now-storage', String(migrations.length));
+    setText('metric-now-storage-foot', failed ? `${failed} 条需要处理` : `已完成 ${completed} 条`);
+  };
+
+  const refreshDataManagement = async () => {
+    if (!runtime?.getDataManagementState) {
+      renderDataManagementState({ ok: false, error: '当前环境不是 Electron Shell，无法读取 user.sqlite。' });
+      return;
+    }
+    const payload = await runtime.getDataManagementState();
+    renderDataManagementState(payload);
+    if (!payload?.ok) appendLog(`统一数据 | 读取失败 | ${payload?.error || '-'}`);
+  };
+
+  const runDataManagementMigration = async (button) => {
+    if (!runtime?.runDataManagementLegacyMigration) {
+      throw new Error('当前运行时不支持旧档迁移。');
+    }
+    setButtonBusy(button, true, '迁移中');
+    try {
+      const result = await runtime.runDataManagementLegacyMigration();
+      if (!result?.ok) throw new Error(result?.error || '旧档迁移失败');
+      renderDataManagementState(result.state || await runtime.getDataManagementState());
+      const migrated = Array.isArray(result.results) ? result.results.filter((entry) => entry?.migrated).length : 0;
+      appendLog(`统一数据 | 旧档迁移完成 | 新迁入 ${migrated} 条`);
+    } finally {
+      setButtonBusy(button, false);
+    }
+  };
+
   const refreshNowStorage = async () => {
     try {
       const payload = await fetchLocalBridgeJson('/local-data/now-storage');
@@ -1248,8 +1318,7 @@
       refreshShellState(),
       refreshAiRestStatus(),
       refreshDefAgentStatus(),
-      refreshArchives(),
-      refreshNowStorage(),
+      refreshDataManagement(),
       refreshImages(),
       refreshImageUpdateState(),
       refreshAgentRecords(),
@@ -1299,49 +1368,11 @@
     $('test-def-agent-hi')?.addEventListener('click', (event) => {
       testDefAgentHi(event.currentTarget).catch((error) => appendLog(`DEF Agent hi 测试失败 | ${error instanceof Error ? error.message : String(error)}`));
     });
-    $('refresh-archives')?.addEventListener('click', () => {
-      Promise.allSettled([refreshArchives(), refreshNowStorage()]).catch(() => {});
+    $('refresh-data-management')?.addEventListener('click', () => {
+      refreshDataManagement().catch((error) => appendLog(`统一数据 | 刷新失败 | ${error instanceof Error ? error.message : String(error)}`));
     });
-    document.querySelectorAll('[data-archive-filter]').forEach((button) => {
-      button.addEventListener('click', () => {
-        state.archiveFilter = button.getAttribute('data-archive-filter') || 'all';
-        renderArchiveList();
-      });
-    });
-    $('export-archive-local')?.addEventListener('click', () => {
-      exportArchive('local').catch((error) => {
-        setText('localdata-status', error instanceof Error ? error.message : String(error));
-        appendLog(`数据存档 | 保存到本机失败 | ${error instanceof Error ? error.message : String(error)}`);
-      });
-    });
-    $('export-archive-share')?.addEventListener('click', () => {
-      exportArchive('share').catch((error) => {
-        setText('localdata-status', error instanceof Error ? error.message : String(error));
-        appendLog(`数据存档 | 保存到共享失败 | ${error instanceof Error ? error.message : String(error)}`);
-      });
-    });
-    $('apply-archive')?.addEventListener('click', () => {
-      applyArchive().catch((error) => {
-        setText('localdata-status', error instanceof Error ? error.message : String(error));
-        appendLog(`数据存档 | 应用存档失败 | ${error instanceof Error ? error.message : String(error)}`);
-      });
-    });
-    $('delete-archive')?.addEventListener('click', () => {
-      deleteArchive().catch((error) => {
-        setText('localdata-status', error instanceof Error ? error.message : String(error));
-        appendLog(`数据存档 | 删除失败 | ${error instanceof Error ? error.message : String(error)}`);
-      });
-    });
-    $('reveal-archive')?.addEventListener('click', () => {
-      revealSelectedArchive().catch((error) => appendLog(`数据存档 | 定位失败 | ${error instanceof Error ? error.message : String(error)}`));
-    });
-    $('open-localdata')?.addEventListener('click', async () => {
-      const result = await runtime?.revealLocalDataArchive?.({ storageScope: 'local' });
-      appendLog(result?.ok ? `数据存档 | 已打开本机目录 | ${result.path || ''}` : `数据存档 | 打开本机目录失败 | ${result?.error || '-'}`);
-    });
-    $('open-sharedata')?.addEventListener('click', async () => {
-      const result = await runtime?.revealLocalDataArchive?.({ storageScope: 'share' });
-      appendLog(result?.ok ? `数据存档 | 已打开共享目录 | ${result.path || ''}` : `数据存档 | 打开共享目录失败 | ${result?.error || '-'}`);
+    $('run-data-management-migration')?.addEventListener('click', (event) => {
+      runDataManagementMigration(event.currentTarget).catch((error) => appendLog(`统一数据 | 旧档迁移失败 | ${error instanceof Error ? error.message : String(error)}`));
     });
     $('refresh-images')?.addEventListener('click', () => {
       refreshImages().catch((error) => appendLog(`图片资产 | 刷新失败 | ${error instanceof Error ? error.message : String(error)}`));

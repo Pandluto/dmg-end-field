@@ -76,7 +76,6 @@ import {
   applyTimelineSnapshotPayload,
   buildTimelineBundleV2,
   buildTimelineShareFileName,
-  clearLegacyTimelineSnapshotArchive,
   createTimelineSnapshotEntry,
   getCurrentTimelineSnapshotPayload,
   listTimelineSnapshots,
@@ -87,6 +86,7 @@ import {
   type TimelineBundleV2,
   type TimelineShareFile,
 } from '../../utils/timelineSnapshotStorage';
+import { restoreUserWorkspaceSnapshot } from '../../utils/userWorkspaceBridge';
 import './CanvasBoard.css';
 import { resolveRuntimeTemplateSkill } from '../../core/services/skillDamageTemplateResolver';
 import { createEmptyTimelineData } from '../../core/services/timelineService';
@@ -2203,19 +2203,20 @@ export function CanvasBoard({
             payload: snapshot.payload,
             createdAt: snapshot.createdAt,
           });
-          const restoredCheckoutRef = await repository.setCheckoutRef({
+          const restored = await restoreUserWorkspaceSnapshot({
             timelineId: targetTimelineId,
-            targetType: 'snapshot',
-            targetId: persisted.snapshot.id,
+            snapshotId: persisted.snapshot.id,
             updatedAt: Date.now(),
           });
+          const restoredPayload = restored.payload as TimelineSnapshotPayload;
+          const restoredCheckoutRef = restored.checkoutRef as TimelineCheckoutRef;
           activateTimeline({
             document: { id: targetTimelineId, label: snapshot.label },
             checkoutRef: restoredCheckoutRef,
-            workingPayload: snapshot.payload,
+            workingPayload: restoredPayload,
           });
-          hydrateCheckoutRuntime(snapshot.payload);
-          await ensureTimelineDocumentBaselineWorkNode(targetTimelineId, snapshot.payload, snapshot.label);
+          hydrateCheckoutRuntime(restoredPayload);
+          await ensureTimelineDocumentBaselineWorkNode(targetTimelineId, restoredPayload, snapshot.label);
           const doneEntry = patchMainWorkbenchCommand(commandEntry.id, {
             status: 'done',
             result: { snapshotId: snapshot.id, label: snapshot.label, reloaded: command.reload !== false },
@@ -3373,7 +3374,8 @@ export function CanvasBoard({
         createdAt: legacySnapshot.createdAt,
       });
     }
-    if (legacySnapshots.length > 0) clearLegacyTimelineSnapshotArchive();
+    // Keep browser-era media untouched after importing it. The data-management
+    // migration records and backup policy own its eventual retirement.
     return repository;
   };
 
@@ -3608,21 +3610,22 @@ export function CanvasBoard({
         payload: pendingRestoreSnapshot.payload,
         createdAt: pendingRestoreSnapshot.createdAt,
       });
-      const restoredCheckoutRef = await repository.setCheckoutRef({
+      const restored = await restoreUserWorkspaceSnapshot({
         timelineId: targetTimelineId,
-        targetType: 'snapshot',
-        targetId: persisted.snapshot.id,
+        snapshotId: persisted.snapshot.id,
         updatedAt: Date.now(),
       });
+      const restoredPayload = restored.payload as TimelineSnapshotPayload;
+      const restoredCheckoutRef = restored.checkoutRef as TimelineCheckoutRef;
       activateTimeline({
         document: { id: targetTimelineId, label: pendingRestoreSnapshot.label },
         checkoutRef: restoredCheckoutRef,
-        workingPayload: pendingRestoreSnapshot.payload,
+        workingPayload: restoredPayload,
       });
-      hydrateCheckoutRuntime(pendingRestoreSnapshot.payload);
+      hydrateCheckoutRuntime(restoredPayload);
       await ensureTimelineDocumentBaselineWorkNode(
         targetTimelineId,
-        pendingRestoreSnapshot.payload,
+        restoredPayload,
         pendingRestoreSnapshot.label,
       );
     } catch (error) {

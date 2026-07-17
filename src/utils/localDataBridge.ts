@@ -5,6 +5,7 @@ import {
   normalizeStoredOperatorConfigPageCache,
   normalizeStoredRuntimeOperatorTemplateMap,
 } from '../core/services/buffStorageNormalization';
+import { isUserWorkspaceBridgeActive } from './userWorkspaceBridge';
 
 type StorageAreaName = 'local' | 'session';
 type LocalDataSection = 'operators' | 'weapons' | 'equipments' | 'buffs' | 'timeline' | 'runtime' | 'all';
@@ -610,6 +611,11 @@ export async function bootstrapLocalDataBridge(): Promise<{ shouldRender: boolea
   if (typeof window === 'undefined') {
     return { shouldRender: true };
   }
+  if (isUserWorkspaceBridgeActive()) {
+    // SQLite is the current-workspace source of truth. Keep now-storage only
+    // for one-way legacy migration; it must not mirror every browser start.
+    return { shouldRender: true };
+  }
   if (window.desktopRuntime) {
     return { shouldRender: true };
   }
@@ -626,4 +632,3 @@ export async function bootstrapLocalDataBridge(): Promise<{ shouldRender: boolea
     return { shouldRender: true };
   }
 }
-

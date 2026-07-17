@@ -972,6 +972,56 @@ function startBridgeServer() {
         return;
       }
 
+      if (method === 'GET' && requestUrl.pathname === '/data-management/workspace') {
+        try {
+          const workspace = getDataManagementService().getWorkspaceState();
+          writeJson(response, 200, { ok: true, workspace });
+        } catch (error) {
+          writeJson(response, 500, { ok: false, error: { code: error?.code || 'data-management-workspace-read-failed', message: error instanceof Error ? error.message : String(error) } });
+        }
+        return;
+      }
+
+      if (method === 'POST' && requestUrl.pathname === '/data-management/workspace') {
+        try {
+          const payload = await readJsonRequest(request);
+          const workspace = getDataManagementService().putWorkspaceState(payload?.values, payload?.updatedAt);
+          writeJson(response, 200, { ok: true, workspace });
+        } catch (error) {
+          writeJson(response, 400, { ok: false, error: { code: error?.code || 'data-management-workspace-write-failed', message: error instanceof Error ? error.message : String(error) } });
+        }
+        return;
+      }
+
+      if (method === 'POST' && requestUrl.pathname === '/data-management/workspace/restore-snapshot') {
+        try {
+          const payload = await readJsonRequest(request);
+          const result = getDataManagementService().restoreWorkspaceSnapshot(payload);
+          writeJson(response, 200, { ok: true, ...result });
+        } catch (error) {
+          writeJson(response, error?.code === 'timeline-checkout-target-not-found' ? 404 : 400, {
+            ok: false,
+            error: { code: error?.code || 'data-management-workspace-restore-failed', message: error instanceof Error ? error.message : String(error) },
+          });
+        }
+        return;
+      }
+
+      if (method === 'POST' && requestUrl.pathname === '/data-management/migrate-browser-archive') {
+        try {
+          const payload = await readJsonRequest(request);
+          const results = getDataManagementService().migrateLegacyArchives({ sources: [{
+            legacyOrigin: 'browser-localStorage',
+            sourceName: typeof payload?.sourceName === 'string' ? payload.sourceName : 'browser-timeline-snapshot-archive.json',
+            raw: JSON.stringify(payload?.archive || {}),
+          }] });
+          writeJson(response, 200, { ok: true, results });
+        } catch (error) {
+          writeJson(response, 400, { ok: false, error: { code: error?.code || 'data-management-browser-migration-failed', message: error instanceof Error ? error.message : String(error) } });
+        }
+        return;
+      }
+
       if (method === 'GET' && requestUrl.pathname === '/local-data/ai-timeline-worknodes') {
         writeJson(response, 200, buildAiTimelineWorkNodeListResult());
         return;
@@ -1580,6 +1630,49 @@ ipcMain.handle('desktop:quit-app', () => {
 });
 ipcMain.handle('desktop:get-image-update-state', () => getImageUpdateStatePayload());
 ipcMain.handle('desktop:get-data-management-state', () => getDataManagementStatePayload());
+ipcMain.handle('desktop:get-user-workspace-state', () => {
+  try {
+    return { ok: true, workspace: getDataManagementService().getWorkspaceState() };
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : String(error), code: error?.code || 'data-management-workspace-read-failed' };
+  }
+});
+ipcMain.handle('desktop:put-user-workspace-state', (_event, payload) => {
+  try {
+    return { ok: true, workspace: getDataManagementService().putWorkspaceState(payload?.values, payload?.updatedAt) };
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : String(error), code: error?.code || 'data-management-workspace-write-failed' };
+  }
+});
+ipcMain.handle('desktop:restore-user-workspace-snapshot', (_event, payload) => {
+  try {
+    return { ok: true, ...getDataManagementService().restoreWorkspaceSnapshot(payload) };
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : String(error), code: error?.code || 'data-management-workspace-restore-failed' };
+  }
+});
+ipcMain.handle('desktop:migrate-browser-legacy-archive', (_event, payload) => {
+  try {
+    return {
+      ok: true,
+      results: getDataManagementService().migrateLegacyArchives({ sources: [{
+        legacyOrigin: 'browser-localStorage',
+        sourceName: typeof payload?.sourceName === 'string' ? payload.sourceName : 'browser-timeline-snapshot-archive.json',
+        raw: JSON.stringify(payload?.archive || {}),
+      }] }),
+    };
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : String(error), code: error?.code || 'data-management-browser-migration-failed' };
+  }
+});
+ipcMain.handle('desktop:run-data-management-legacy-migration', () => {
+  try {
+    const results = migrateLegacyDataManagementArchives();
+    return { ok: true, results, state: getDataManagementStatePayload() };
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : String(error), code: error?.code || 'data-management-legacy-migration-failed' };
+  }
+});
 ipcMain.handle('desktop:set-image-update-config', (_event, payload) => {
   const config = writeImageReleaseConfig(payload);
   return {
@@ -4347,6 +4440,46 @@ function getLegacyShareDataDirectory() {
   return path.join(__dirname, '..', 'data', 'sharedata');
 }
 
+function listLegacyArchiveMigrationSources(directory, legacyOrigin) {
+  if (!fs.existsSync(directory)) return [];
+  const excluded = new Set([
+    'active-localdata.json',
+    'now-storage.json',
+    'now-storage-state.json',
+    'ai-timeline-worknodes.json',
+  ]);
+  try {
+    return fs.readdirSync(directory, { withFileTypes: true })
+      .filter((entry) => entry.isFile() && entry.name.toLowerCase().endsWith('.json') && !excluded.has(entry.name.toLowerCase()))
+      .map((entry) => ({
+        legacyOrigin,
+        sourceName: entry.name,
+        filePath: path.join(directory, entry.name),
+      }));
+  } catch {
+    return [];
+  }
+}
+
+function getLegacyArchiveMigrationSources() {
+  const localDirectory = ensureLocalDataDirectory();
+  const shareDirectory = ensureShareDataDirectory();
+  const sources = [];
+  const nowStoragePath = getNowStoragePath();
+  if (fs.existsSync(nowStoragePath)) {
+    sources.push({ legacyOrigin: 'now-storage', sourceName: 'now-storage.json', filePath: nowStoragePath });
+  }
+  sources.push(...listLegacyArchiveMigrationSources(localDirectory, 'local-archive'));
+  sources.push(...listLegacyArchiveMigrationSources(shareDirectory, 'shared-archive'));
+  return sources;
+}
+
+function migrateLegacyDataManagementArchives() {
+  const service = getDataManagementService();
+  const sources = getLegacyArchiveMigrationSources();
+  return service.migrateLegacyArchives({ sources });
+}
+
 function seedRuntimeDataDirectory(targetDir, legacyDir) {
   if (isDev || fs.existsSync(targetDir) || !fs.existsSync(legacyDir)) {
     return;
@@ -4413,6 +4546,12 @@ function getDataManagementService() {
       legacyDatabasePath: getLegacyTimelineRepositoryPath(),
       legacyOrigin: 'timeline-repository.sqlite3',
     });
+    const archiveMigrationResults = dataManagementService.migrateLegacyArchives({
+      sources: getLegacyArchiveMigrationSources(),
+    });
+    archiveMigrationResults
+      .filter((result) => result.status === 'failed')
+      .forEach((result) => appendRuntimeLog('data-management-migration', `${result.legacyOrigin}/${result.sourceName}: ${result.error || 'failed'}`));
   }
   return dataManagementService;
 }
@@ -4430,6 +4569,7 @@ function getDataManagementStatePayload() {
       },
       userDatabasePath: service.paths.userDatabasePath,
       catalogRoot: service.paths.catalogRoot,
+      legacyMigrations: service.listLegacyMigrationRecords(),
       networkUpdateEnabled: false,
       networkUpdateReason: '数据发布公钥尚未配置；当前仅启用内置 catalog 与本地 user.sqlite。',
     };

@@ -304,6 +304,38 @@ interface DesktopRuntimeBridge {
   revealInExplorer?: (payload: ImageAssetRevealPayload) => Promise<ImageAssetRevealResult>;
   readEquipmentLibrary?: () => Promise<EquipmentLibraryFileOpResult>;
   writeEquipmentLibrary?: (payload: unknown) => Promise<EquipmentLibraryFileOpResult>;
+  getUserWorkspaceState?: () => Promise<{
+    ok: boolean;
+    workspace?: { values: Record<string, string | null>; updatedAt: number } | null;
+    error?: string;
+    code?: string;
+  }>;
+  putUserWorkspaceState?: (payload: { values: Record<string, string | null>; updatedAt?: number }) => Promise<{
+    ok: boolean;
+    workspace?: { values: Record<string, string | null>; updatedAt: number };
+    error?: string;
+    code?: string;
+  }>;
+  restoreUserWorkspaceSnapshot?: (payload: { timelineId: string; snapshotId: string; updatedAt?: number }) => Promise<{
+    ok: boolean;
+    payload?: unknown;
+    checkoutRef?: unknown;
+    error?: string;
+    code?: string;
+  }>;
+  migrateBrowserLegacyArchive?: (payload: { sourceName?: string; archive: unknown }) => Promise<{
+    ok: boolean;
+    results?: unknown[];
+    error?: string;
+    code?: string;
+  }>;
+  runDataManagementLegacyMigration?: () => Promise<{
+    ok: boolean;
+    results?: unknown[];
+    state?: unknown;
+    error?: string;
+    code?: string;
+  }>;
   listLocalDataArchives?: () => Promise<LocalDataOpResult>;
   saveLocalDataArchive?: (payload: LocalDataArchivePayload & { storageScope?: LocalDataStorageScope }) => Promise<LocalDataOpResult>;
   readLocalDataArchive?: (payload: { id?: string; fileName?: string; storageScope?: LocalDataStorageScope }) => Promise<LocalDataOpResult>;

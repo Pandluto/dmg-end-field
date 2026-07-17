@@ -1111,7 +1111,7 @@
             <div>
               <div class="eyebrow">Console Overview</div>
               <h1 class="page-title">本地能力总览</h1>
-              <p class="page-desc">Shell 负责本地桥接、数据存档、图片目录、AI REST 和桌面倍率适配。Web 主界面在浏览器中运行，数据由 Shell 统一同步和归档。</p>
+              <p class="page-desc">Shell 负责本地桥接、统一数据诊断、图片目录、AI REST 和桌面倍率适配。Web 主界面在浏览器中运行，工作副本和恢复点由 SQLite 统一管理。</p>
             </div>
             <div class="toolbar">
               <button id="open-browser-web" type="button" class="primary-button">打开浏览器 Web</button>
@@ -1122,7 +1122,7 @@
 
           <section class="grid-4">
             <article class="metric-card">
-              <div class="metric-label">数据存档</div>
+              <div class="metric-label">统一数据</div>
               <div class="metric-value" id="metric-archives">-</div>
               <div class="metric-foot" id="metric-archives-foot">读取中</div>
             </article>
@@ -1137,7 +1137,7 @@
               <div class="metric-foot" id="metric-agent-foot">等待 AI REST</div>
             </article>
             <article class="metric-card">
-              <div class="metric-label">当前数据</div>
+              <div class="metric-label">旧档迁移</div>
               <div class="metric-value" id="metric-now-storage">-</div>
               <div class="metric-foot" id="metric-now-storage-foot">读取中</div>
             </article>
@@ -1179,13 +1179,13 @@
             <div class="panel-header">
               <div>
                 <div class="panel-title">当前工作流</div>
-                <div class="panel-help">Web 负责业务编辑，Shell 负责本地资源。应用存档后刷新 Web 主界面即可生效。</div>
+                <div class="panel-help">Web 负责业务编辑与排轴恢复，Shell 负责本地资源与旧档迁移诊断。</div>
               </div>
             </div>
             <div class="grid-3">
-              <div class="empty-state">1. 在浏览器 Web 主界面编辑数据，Shell 会同步为当前数据。</div>
-              <div class="empty-state">2. 在 Shell 数据页把当前数据保存为本机存档或共享存档。</div>
-              <div class="empty-state">3. 在 Shell 选择存档并应用，刷新 Web 后生效。</div>
+              <div class="empty-state">1. 在浏览器 Web 主界面编辑数据，工作副本会写入 user.sqlite。</div>
+              <div class="empty-state">2. 在 Web 主界面创建、选择或恢复排轴文档与恢复点。</div>
+              <div class="empty-state">3. 如有旧本机/共享文件，在 Shell 数据页查看迁移结果并按需重试。</div>
             </div>
           </section>
         </div>
@@ -1219,29 +1219,28 @@
         <div id="page-localdata" class="page">
           <header class="page-header">
             <div>
-              <div class="eyebrow">Archive Manager</div>
-              <h1 class="page-title">数据存档</h1>
-              <p class="page-desc">这里管理浏览器 Web 的当前数据、个人备份和共享交接文件。日常只需要保存当前数据，或选择一个存档应用到 Web。</p>
+              <div class="eyebrow">Data Management</div>
+              <h1 class="page-title">统一数据</h1>
+              <p class="page-desc">当前工作副本、干员配置、用户 Buff、排轴、恢复点与审计均以 user.sqlite 为事实来源。创建和恢复排轴请在 Web 主界面完成。</p>
             </div>
             <div class="toolbar">
-              <button id="open-localdata" type="button" class="subtle-button">打开本机目录</button>
-              <button id="open-sharedata" type="button" class="subtle-button">打开共享目录</button>
-              <button id="refresh-archives" type="button">刷新</button>
+              <button id="run-data-management-migration" type="button" class="subtle-button">重试旧档迁移</button>
+              <button id="refresh-data-management" type="button">刷新</button>
             </div>
           </header>
 
           <section class="data-status-grid">
             <article class="status-card">
-              <div class="status-top"><span class="status-label">当前数据</span><span class="badge warn" id="now-storage-badge">检测</span></div>
-              <div class="status-detail" id="localdata-status">等待操作</div>
+              <div class="status-top"><span class="status-label">当前 catalog</span><span class="badge warn" id="data-catalog-badge">检测</span></div>
+              <div class="status-detail" id="data-catalog-status">读取中</div>
             </article>
             <article class="status-card">
-              <div class="status-top"><span class="status-label">存档数量</span><span class="badge info" id="archive-count-badge">-</span></div>
-              <div class="status-detail" id="archive-summary">读取中</div>
+              <div class="status-top"><span class="status-label">用户数据库</span><span class="badge warn" id="data-userdb-badge">检测</span></div>
+              <div class="status-detail" id="data-userdb-status">读取中</div>
             </article>
             <article class="status-card">
-              <div class="status-top"><span class="status-label">当前选择</span><span class="badge info" id="selected-archive-badge">未选择</span></div>
-              <div class="status-detail selected-summary" id="selected-archive-summary">从下方列表选择一个存档后，可以打开位置、删除或应用到当前数据。</div>
+              <div class="status-top"><span class="status-label">旧档迁移</span><span class="badge info" id="data-migration-badge">-</span></div>
+              <div class="status-detail selected-summary" id="data-migration-status">读取中</div>
             </article>
           </section>
 
@@ -1249,61 +1248,20 @@
             <article class="panel">
               <div class="panel-header">
                 <div>
-                  <div class="panel-title">存档列表</div>
-                  <div class="panel-help">本机存档用于个人回退；共享存档用于复制、交接和版本沉淀。</div>
-                </div>
-                <div class="archive-filter-tabs">
-                  <button class="filter-button is-active" type="button" data-archive-filter="all">全部</button>
-                  <button class="filter-button" type="button" data-archive-filter="local">本机</button>
-                  <button class="filter-button" type="button" data-archive-filter="share">共享</button>
+                  <div class="panel-title">迁移记录</div>
+                  <div class="panel-help">旧介质只读保留；每次迁移会在 user.sqlite 记录来源、哈希、备份位置、结果和失败原因。</div>
                 </div>
               </div>
-              <div class="archive-columns" id="archive-columns">
-                <div class="archive-column" data-archive-scope="local">
-                  <div class="archive-column-title"><span>本机存档</span><span class="pill info" id="local-archive-count">0</span></div>
-                  <div class="archive-list" id="archive-list-local"></div>
-                </div>
-                <div class="archive-column" data-archive-scope="share">
-                  <div class="archive-column-title"><span>共享存档</span><span class="pill info" id="share-archive-count">0</span></div>
-                  <div class="archive-list" id="archive-list-share"></div>
-                </div>
-              </div>
+              <div class="archive-list" id="legacy-migration-list"><div class="empty-state">读取中</div></div>
             </article>
-
             <article class="panel">
               <div class="panel-header">
                 <div>
-                  <div class="panel-title">存档操作</div>
-                  <div class="panel-help">保存会读取当前数据；应用会把选中存档设为 Web 下次刷新的数据。</div>
+                  <div class="panel-title">当前流程</div>
+                  <div class="panel-help">不再创建或应用双分支文件存档。排轴文档、恢复点、AI 草稿和 Bundle 由主界面 Repository API 管理。</div>
                 </div>
               </div>
-              <div class="action-stack">
-                <div class="action-block">
-                  <div class="action-title">保存当前数据</div>
-                  <input id="archive-name" type="text" placeholder="存档名称，留空自动生成" />
-                  <textarea id="archive-desc" placeholder="备注，可选"></textarea>
-                  <div class="toolbar">
-                    <button id="export-archive-local" type="button" class="primary-button">保存到本机</button>
-                    <button id="export-archive-share" type="button">保存到共享</button>
-                  </div>
-                </div>
-                <div class="action-block">
-                  <div class="action-title">应用选中存档</div>
-                  <div class="check-grid" id="import-sections">
-                    <label class="check-row"><input type="checkbox" value="operators" checked />干员</label>
-                    <label class="check-row"><input type="checkbox" value="weapons" checked />武器</label>
-                    <label class="check-row"><input type="checkbox" value="equipments" checked />装备</label>
-                    <label class="check-row"><input type="checkbox" value="buffs" checked />Buff</label>
-                    <label class="check-row"><input type="checkbox" value="timeline" checked />排轴</label>
-                    <label class="check-row"><input type="checkbox" value="runtime" />运行缓存</label>
-                  </div>
-                  <div class="toolbar">
-                    <button id="apply-archive" type="button" class="primary-button">应用这个存档</button>
-                    <button id="reveal-archive" type="button">打开所在位置</button>
-                    <button id="delete-archive" type="button" class="danger-button">删除选中</button>
-                  </div>
-                </div>
-              </div>
+              <div class="empty-state">旧文件不会被这次迁移删除；确认备份可恢复并经过稳定版本后，才会单独设计清理方案。</div>
             </article>
           </section>
         </div>
@@ -1568,23 +1526,6 @@
         </div>
       </section>
     </main>
-
-    <div class="modal-mask" id="apply-save-modal" aria-hidden="true">
-      <div class="modal" role="dialog" aria-modal="true" aria-labelledby="apply-save-title">
-        <div>
-          <div class="modal-title" id="apply-save-title">应用前是否保存当前数据？</div>
-          <div class="modal-desc">应用存档会替换 Web 下次刷新的数据。建议先保存当前数据，方便回退；也可以跳过保存直接应用。</div>
-        </div>
-        <input id="apply-save-name" type="text" placeholder="保存名称，留空自动生成" />
-        <textarea id="apply-save-desc" placeholder="备注，可选"></textarea>
-        <div class="toolbar">
-          <button id="apply-save-cancel" type="button">取消</button>
-          <button id="apply-save-skip" type="button">不保存，直接应用</button>
-          <button id="apply-save-local" type="button" class="primary-button">先保存到本机</button>
-          <button id="apply-save-share" type="button">先保存到共享</button>
-        </div>
-      </div>
-    </div>
 
     <script src="./shell.js?v=20260614-console-upgrade"></script>
   </body>

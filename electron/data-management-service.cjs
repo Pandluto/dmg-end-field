@@ -9,7 +9,22 @@ const { createTimelineRepository } = require('./timeline-repository.cjs');
 const DATA_RELEASE_MANIFEST_TYPE = 'dmg.data-release-manifest.v1';
 const CATALOG_PACKAGE_MANIFEST_TYPE = 'dmg.catalog-package.v1';
 const CATALOG_SCHEMA_VERSION = 1;
-const USER_SCHEMA_VERSION = 1;
+const USER_SCHEMA_VERSION = 2;
+const WORKSPACE_STATE_ID = 'current-workspace';
+const LEGACY_TIMELINE_SNAPSHOT_ARCHIVE_KEY = 'def.timeline.snapshot-archive.v1';
+const WORKSPACE_STORAGE_KEYS = {
+  selectedCharacters: 'def.selected-characters.v1',
+  timelineData: 'def.timeline.data.v1',
+  skillButtonTable: 'def.skill-button.v1',
+  allBuffList: 'def.all-buff-list.v1',
+  anomalyStateSnapshots: 'def.anomaly-state-snapshot-archive.v1',
+  characterInputMap: 'def.operator-config.character-input-map.v3',
+  characterComputedMap: 'def.operator-runtime.character-computed-map.v3',
+  characterDisplayCacheMap: 'def.operator-ui.character-display-cache.v3',
+  operatorConfigPageCache: 'def.operator-config.page-cache.v1',
+  activeCharacter: 'def.operator-config.active-character.v1',
+  selectedSkillButton: 'def.selected-skill-button',
+};
 const REQUIRED_CATALOG_TABLES = [
   'catalog_meta',
   'operators',
@@ -430,6 +445,9 @@ function createDataManagementService({ runtimeDataRoot, builtinCatalogPath, shel
         CREATE TABLE IF NOT EXISTS user_buffs (
           id TEXT PRIMARY KEY, payload TEXT NOT NULL, updated_at INTEGER NOT NULL
         ) STRICT;
+        CREATE TABLE IF NOT EXISTS user_workspace_state (
+          id TEXT PRIMARY KEY, payload TEXT NOT NULL, updated_at INTEGER NOT NULL
+        ) STRICT;
         CREATE TABLE IF NOT EXISTS user_catalog_references (
           owner_type TEXT NOT NULL, owner_id TEXT NOT NULL, catalog_type TEXT NOT NULL, catalog_id TEXT NOT NULL,
           catalog_version TEXT NOT NULL, created_at INTEGER NOT NULL,
@@ -470,6 +488,176 @@ function createDataManagementService({ runtimeDataRoot, builtinCatalogPath, shel
         ON CONFLICT(${idColumn}) DO UPDATE SET payload = excluded.payload, updated_at = excluded.updated_at
       `).run(id, JSON.stringify(payload), updatedAt);
       return { id, payload, updatedAt };
+    } finally {
+      db.close();
+    }
+  }
+
+  function normalizeWorkspaceValues(values) {
+    if (!values || typeof values !== 'object' || Array.isArray(values)) {
+      throw dataManagementError('invalid-user-workspace-state', '用户工作副本必须是键值对象。');
+    }
+    const normalized = {};
+    for (const [key, value] of Object.entries(values)) {
+      if (typeof key !== 'string' || !key.startsWith('def.')) continue;
+      if (value !== null && typeof value !== 'string') {
+        throw dataManagementError('invalid-user-workspace-state', `用户工作副本 ${key} 必须是字符串或 null。`);
+      }
+      normalized[key] = value;
+    }
+    return normalized;
+  }
+
+  function parseWorkspaceJson(values, key, fallback) {
+    const raw = values[key];
+    if (typeof raw !== 'string') return fallback;
+    try {
+      return JSON.parse(raw);
+    } catch {
+      return fallback;
+    }
+  }
+
+  function projectWorkspaceState(db, values, updatedAt) {
+    const pageCache = parseWorkspaceJson(values, WORKSPACE_STORAGE_KEYS.operatorConfigPageCache, {});
+    const characterInputMap = parseWorkspaceJson(values, WORKSPACE_STORAGE_KEYS.characterInputMap, {});
+    const characterComputedMap = parseWorkspaceJson(values, WORKSPACE_STORAGE_KEYS.characterComputedMap, {});
+    const characterDisplayMap = parseWorkspaceJson(values, WORKSPACE_STORAGE_KEYS.characterDisplayCacheMap, {});
+    const operatorIds = new Set([
+      ...Object.keys(pageCache && typeof pageCache === 'object' ? pageCache : {}),
+      ...Object.keys(characterInputMap && typeof characterInputMap === 'object' ? characterInputMap : {}),
+      ...Object.keys(characterComputedMap && typeof characterComputedMap === 'object' ? characterComputedMap : {}),
+      ...Object.keys(characterDisplayMap && typeof characterDisplayMap === 'object' ? characterDisplayMap : {}),
+    ]);
+    const upsertOperator = db.prepare(`
+      INSERT INTO user_operator_configs (operator_id, payload, updated_at) VALUES (?, ?, ?)
+      ON CONFLICT(operator_id) DO UPDATE SET payload = excluded.payload, updated_at = excluded.updated_at
+    `);
+    for (const operatorId of operatorIds) {
+      upsertOperator.run(operatorId, JSON.stringify({
+        page: pageCache?.[operatorId] ?? null,
+        input: characterInputMap?.[operatorId] ?? null,
+        computed: characterComputedMap?.[operatorId] ?? null,
+        display: characterDisplayMap?.[operatorId] ?? null,
+      }), updatedAt);
+    }
+
+    const buffs = parseWorkspaceJson(values, WORKSPACE_STORAGE_KEYS.allBuffList, []);
+    if (!Array.isArray(buffs)) return;
+    const upsertBuff = db.prepare(`
+      INSERT INTO user_buffs (id, payload, updated_at) VALUES (?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET payload = excluded.payload, updated_at = excluded.updated_at
+    `);
+    for (const buff of buffs) {
+      if (!buff || typeof buff !== 'object' || typeof buff.id !== 'string' || !buff.id.trim()) continue;
+      upsertBuff.run(buff.id.trim(), JSON.stringify(buff), updatedAt);
+    }
+  }
+
+  function putWorkspaceState(values, updatedAt = Date.now()) {
+    const normalized = normalizeWorkspaceValues(values);
+    ensureUserDatabase();
+    const db = new DatabaseSync(paths.userDatabasePath);
+    try {
+      transaction(db, () => {
+        db.prepare(`
+          INSERT INTO user_workspace_state (id, payload, updated_at) VALUES (?, ?, ?)
+          ON CONFLICT(id) DO UPDATE SET payload = excluded.payload, updated_at = excluded.updated_at
+        `).run(WORKSPACE_STATE_ID, JSON.stringify({ schemaVersion: 1, values: normalized }), updatedAt);
+        projectWorkspaceState(db, normalized, updatedAt);
+      });
+      return { values: normalized, updatedAt };
+    } finally {
+      db.close();
+    }
+  }
+
+  function getWorkspaceState() {
+    ensureUserDatabase();
+    const db = new DatabaseSync(paths.userDatabasePath, { readOnly: true });
+    try {
+      const row = db.prepare('SELECT payload, updated_at FROM user_workspace_state WHERE id = ?').get(WORKSPACE_STATE_ID);
+      if (!row) return null;
+      const parsed = JSON.parse(row.payload);
+      return {
+        values: normalizeWorkspaceValues(parsed?.values || {}),
+        updatedAt: row.updated_at,
+      };
+    } finally {
+      db.close();
+    }
+  }
+
+  function workspaceValuesFromTimelinePayload(payload) {
+    if (!payload || typeof payload !== 'object') {
+      throw dataManagementError('invalid-workspace-timeline-payload', '排轴恢复 payload 无效。');
+    }
+    const value = (key, fallback) => JSON.stringify(payload[key] === undefined ? fallback : payload[key]);
+    return {
+      [WORKSPACE_STORAGE_KEYS.selectedCharacters]: value('selectedCharacters', []),
+      [WORKSPACE_STORAGE_KEYS.timelineData]: value('timelineData', { staffLines: [] }),
+      [WORKSPACE_STORAGE_KEYS.skillButtonTable]: value('skillButtonTable', {}),
+      [WORKSPACE_STORAGE_KEYS.allBuffList]: value('allBuffList', []),
+      [WORKSPACE_STORAGE_KEYS.anomalyStateSnapshots]: JSON.stringify({
+        version: 'v1',
+        nextId: Array.isArray(payload.anomalyStateSnapshots)
+          ? payload.anomalyStateSnapshots.reduce((maxId, item) => Math.max(maxId, Number(item?.id) || 0), 0) + 1
+          : 1,
+        snapshots: payload.anomalyStateSnapshots || [],
+      }),
+      [WORKSPACE_STORAGE_KEYS.characterInputMap]: value('characterInputMap', {}),
+      [WORKSPACE_STORAGE_KEYS.characterComputedMap]: value('characterComputedMap', {}),
+      [WORKSPACE_STORAGE_KEYS.characterDisplayCacheMap]: value('characterDisplayCacheMap', {}),
+      [WORKSPACE_STORAGE_KEYS.operatorConfigPageCache]: value('operatorConfigPageCache', {}),
+    };
+  }
+
+  function restoreWorkspaceSnapshot({ timelineId, snapshotId, updatedAt = Date.now() } = {}) {
+    if (typeof timelineId !== 'string' || !timelineId.trim() || typeof snapshotId !== 'string' || !snapshotId.trim()) {
+      throw dataManagementError('invalid-workspace-snapshot-restore', '恢复工作副本需要排轴文档和恢复点 ID。');
+    }
+    ensureUserDatabase();
+    const db = new DatabaseSync(paths.userDatabasePath);
+    try {
+      return transaction(db, () => {
+        const row = db.prepare(`
+          SELECT snapshot.id, snapshot.timeline_id, payload.payload
+          FROM timeline_snapshots AS snapshot
+          JOIN timeline_payload_blobs AS payload ON payload.content_hash = snapshot.payload_hash
+          WHERE snapshot.id = ? AND snapshot.timeline_id = ? AND snapshot.archived_at IS NULL
+        `).get(snapshotId, timelineId);
+        if (!row) throw dataManagementError('timeline-checkout-target-not-found', 'SQLite 中未找到要恢复的排轴快照。', { timelineId, snapshotId });
+        const payload = JSON.parse(row.payload);
+        const values = workspaceValuesFromTimelinePayload(payload);
+        db.prepare(`
+          INSERT INTO checkout_refs (timeline_id, target_type, target_id, updated_at)
+          VALUES (?, 'snapshot', ?, ?)
+          ON CONFLICT(timeline_id) DO UPDATE SET
+            target_type = excluded.target_type,
+            target_id = excluded.target_id,
+            updated_at = excluded.updated_at
+        `).run(timelineId, snapshotId, updatedAt);
+        db.prepare(`
+          INSERT INTO user_workspace_state (id, payload, updated_at) VALUES (?, ?, ?)
+          ON CONFLICT(id) DO UPDATE SET payload = excluded.payload, updated_at = excluded.updated_at
+        `).run(WORKSPACE_STATE_ID, JSON.stringify({ schemaVersion: 1, values }), updatedAt);
+        projectWorkspaceState(db, values, updatedAt);
+        db.prepare(`
+          INSERT INTO timeline_audit_events (id, timeline_id, event_type, subject_type, subject_id, details, created_at)
+          VALUES (?, ?, 'snapshot.restored', 'snapshot', ?, ?, ?)
+        `).run(
+          `workspace-restore-${snapshotId}-${updatedAt}-${crypto.randomBytes(4).toString('hex')}`,
+          timelineId,
+          snapshotId,
+          JSON.stringify({ workspaceState: true }),
+          updatedAt,
+        );
+        return {
+          payload,
+          workspace: { values, updatedAt },
+          checkoutRef: { timelineId, targetType: 'snapshot', targetId: snapshotId, updatedAt },
+        };
+      });
     } finally {
       db.close();
     }
@@ -617,6 +805,198 @@ function createDataManagementService({ runtimeDataRoot, builtinCatalogPath, shel
     }
   }
 
+  function parseLegacyStorageValue(value, fallback) {
+    if (value === undefined || value === null) return fallback;
+    if (typeof value !== 'string') return value;
+    try {
+      return JSON.parse(value);
+    } catch {
+      return value;
+    }
+  }
+
+  function asRecord(value) {
+    return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+  }
+
+  function legacyArchivePayload(archive) {
+    const session = asRecord(archive?.storage?.session);
+    const local = asRecord(archive?.storage?.local);
+    const read = (key, fallback) => parseLegacyStorageValue(session[key], fallback);
+    const timelineData = read(WORKSPACE_STORAGE_KEYS.timelineData, { staffLines: [] });
+    const selectedCharacters = read(WORKSPACE_STORAGE_KEYS.selectedCharacters, []);
+    const skillButtonTable = read(WORKSPACE_STORAGE_KEYS.skillButtonTable, {});
+    const allBuffList = read(WORKSPACE_STORAGE_KEYS.allBuffList, []);
+    const anomalyArchive = read(WORKSPACE_STORAGE_KEYS.anomalyStateSnapshots, { version: 'v1', nextId: 1, snapshots: [] });
+    return {
+      selectedCharacters: Array.isArray(selectedCharacters) ? selectedCharacters : [],
+      timelineData: timelineData && typeof timelineData === 'object' ? timelineData : { staffLines: [] },
+      skillButtonTable: asRecord(skillButtonTable),
+      allBuffList: Array.isArray(allBuffList) ? allBuffList : [],
+      anomalyStateSnapshots: Array.isArray(anomalyArchive?.snapshots) ? anomalyArchive.snapshots : [],
+      characterInputMap: asRecord(read(WORKSPACE_STORAGE_KEYS.characterInputMap, {})),
+      characterComputedMap: asRecord(read(WORKSPACE_STORAGE_KEYS.characterComputedMap, {})),
+      characterDisplayCacheMap: asRecord(read(WORKSPACE_STORAGE_KEYS.characterDisplayCacheMap, {})),
+      operatorConfigPageCache: asRecord(read(WORKSPACE_STORAGE_KEYS.operatorConfigPageCache, {})),
+      // This is intentionally retained in the immutable payload so old editor
+      // data remains recoverable from user.sqlite even when it has no current
+      // Timeline field. The original media is also backed up separately.
+      legacyStorage: { local, session },
+    };
+  }
+
+  function legacyArchiveSnapshots(archive, sourceHash) {
+    const snapshots = [];
+    const local = asRecord(archive?.storage?.local);
+    const archiveValue = parseLegacyStorageValue(local[LEGACY_TIMELINE_SNAPSHOT_ARCHIVE_KEY], null);
+    if (Array.isArray(archiveValue?.snapshots)) {
+      archiveValue.snapshots.forEach((snapshot, index) => {
+        if (!snapshot?.payload || typeof snapshot.payload !== 'object') return;
+        snapshots.push({
+          id: typeof snapshot.id === 'string' ? snapshot.id : `legacy-snapshot-${sourceHash.slice(0, 12)}-${index + 1}`,
+          label: typeof snapshot.label === 'string' ? snapshot.label : `旧快照 ${index + 1}`,
+          createdAt: Number.isFinite(Number(snapshot.createdAt)) ? Number(snapshot.createdAt) : Date.now(),
+          payload: snapshot.payload,
+        });
+      });
+    }
+
+    const session = asRecord(archive?.storage?.session);
+    const hasCurrentWorkspace = Object.values(WORKSPACE_STORAGE_KEYS).some((key) => Object.prototype.hasOwnProperty.call(session, key));
+    if (hasCurrentWorkspace || snapshots.length === 0) {
+      const createdAt = Date.parse(archive?.createdAt || archive?.exportedAt || '') || Date.now();
+      snapshots.unshift({
+        id: `legacy-current-${sourceHash.slice(0, 16)}`,
+        label: typeof archive?.name === 'string' && archive.name.trim() ? `${archive.name.trim()}（当前态）` : '旧存档当前态',
+        createdAt,
+        payload: legacyArchivePayload(archive),
+      });
+    }
+    return snapshots;
+  }
+
+  function writeLegacyMigrationRecord({ sourceHash, legacyOrigin, sourceName, status, details, migratedAt }) {
+    const db = new DatabaseSync(paths.userDatabasePath);
+    try {
+      db.prepare(`
+        INSERT INTO legacy_migration_records (source_hash, legacy_origin, source_name, status, details, migrated_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+        ON CONFLICT(source_hash) DO UPDATE SET
+          legacy_origin = excluded.legacy_origin,
+          source_name = excluded.source_name,
+          status = excluded.status,
+          details = excluded.details,
+          migrated_at = excluded.migrated_at
+      `).run(sourceHash, legacyOrigin, sourceName, status, JSON.stringify(details), migratedAt);
+    } finally {
+      db.close();
+    }
+  }
+
+  function getLegacyMigrationRecord(sourceHash) {
+    const db = new DatabaseSync(paths.userDatabasePath, { readOnly: true });
+    try {
+      const row = db.prepare('SELECT status, details, migrated_at FROM legacy_migration_records WHERE source_hash = ?').get(sourceHash);
+      if (!row) return null;
+      return { status: row.status, details: JSON.parse(row.details), migratedAt: row.migrated_at };
+    } finally {
+      db.close();
+    }
+  }
+
+  function migrateLegacyArchiveSource(source) {
+    ensureUserDatabase();
+    const legacyOrigin = typeof source?.legacyOrigin === 'string' && source.legacyOrigin.trim() ? source.legacyOrigin.trim() : 'legacy-archive';
+    const sourceName = typeof source?.sourceName === 'string' && source.sourceName.trim() ? source.sourceName.trim() : 'legacy-archive.json';
+    let raw;
+    try {
+      raw = typeof source?.raw === 'string'
+        ? source.raw
+        : fs.readFileSync(source?.filePath, 'utf8');
+    } catch (error) {
+      return { migrated: false, skipped: false, sourceName, legacyOrigin, status: 'failed', error: error instanceof Error ? error.message : String(error) };
+    }
+    const contentHash = hashBufferSha256(Buffer.from(raw));
+    const sourceHash = `archive:${hashBufferSha256(Buffer.from(`${legacyOrigin}\u0000${sourceName}\u0000${contentHash}`))}`;
+    const existing = getLegacyMigrationRecord(sourceHash);
+    if (existing?.status === 'completed') {
+      return { migrated: false, skipped: true, reason: 'already-migrated', sourceHash, sourceName, legacyOrigin, ...existing };
+    }
+
+    const safeSourceName = path.basename(sourceName).replace(/[^A-Za-z0-9._-]+/g, '-').slice(0, 120) || 'legacy-archive.json';
+    const backupDirectory = path.join(paths.backupDirectory, `legacy-${contentHash.slice(0, 12)}`);
+    const backupPath = path.join(backupDirectory, safeSourceName);
+    const migratedAt = Date.now();
+    try {
+      fs.mkdirSync(backupDirectory, { recursive: true });
+      if (!fs.existsSync(backupPath)) fs.writeFileSync(backupPath, raw, 'utf8');
+      const archive = JSON.parse(raw);
+      if (!archive || archive.type !== 'def.localdata.archive.v1' || !archive.storage) {
+        throw dataManagementError('invalid-legacy-archive', '旧存档不是有效的 def.localdata.archive.v1。');
+      }
+      const snapshots = legacyArchiveSnapshots(archive, contentHash);
+      const timelineId = `legacy-${legacyOrigin.replace(/[^A-Za-z0-9._-]+/g, '-').slice(0, 40) || 'archive'}-${contentHash.slice(0, 16)}`;
+      const repository = createTimelineRepository({ databasePath: paths.userDatabasePath });
+      let result;
+      try {
+        result = repository.importLegacyArchive({
+          timelineId,
+          documentLabel: typeof archive.name === 'string' && archive.name.trim() ? archive.name.trim() : sourceName,
+          snapshots,
+          legacyOrigin,
+          sourceHash: contentHash,
+          createdAt: migratedAt,
+        });
+      } finally {
+        repository.close();
+      }
+      const details = {
+        contentHash,
+        backupPath,
+        documentId: result.document.id,
+        snapshotCount: result.snapshots.length,
+        originalPath: source.filePath ? path.resolve(source.filePath) : null,
+      };
+      writeLegacyMigrationRecord({ sourceHash, legacyOrigin, sourceName, status: 'completed', details, migratedAt });
+      return { migrated: true, skipped: false, sourceHash, sourceName, legacyOrigin, migratedAt, ...details };
+    } catch (error) {
+      const details = {
+        contentHash,
+        backupPath,
+        error: error instanceof Error ? error.message : String(error),
+        originalPath: source.filePath ? path.resolve(source.filePath) : null,
+      };
+      writeLegacyMigrationRecord({ sourceHash, legacyOrigin, sourceName, status: 'failed', details, migratedAt });
+      return { migrated: false, skipped: false, sourceHash, sourceName, legacyOrigin, status: 'failed', ...details };
+    }
+  }
+
+  function migrateLegacyArchives({ sources = [] } = {}) {
+    ensureUserDatabase();
+    if (!Array.isArray(sources)) throw dataManagementError('invalid-legacy-archive-sources', '旧存档迁移源必须是数组。');
+    return sources.map((source) => migrateLegacyArchiveSource(source));
+  }
+
+  function listLegacyMigrationRecords() {
+    ensureUserDatabase();
+    const db = new DatabaseSync(paths.userDatabasePath, { readOnly: true });
+    try {
+      return db.prepare(`
+        SELECT source_hash, legacy_origin, source_name, status, details, migrated_at
+        FROM legacy_migration_records ORDER BY migrated_at DESC, source_name ASC
+      `).all().map((row) => ({
+        sourceHash: row.source_hash,
+        legacyOrigin: row.legacy_origin,
+        sourceName: row.source_name,
+        status: row.status,
+        details: JSON.parse(row.details),
+        migratedAt: row.migrated_at,
+      }));
+    } finally {
+      db.close();
+    }
+  }
+
   function migrateLegacyTimelineRepository({ legacyDatabasePath, legacyOrigin = 'timeline-repository.sqlite3' } = {}) {
     ensureUserDatabase();
     if (!legacyDatabasePath || !fs.existsSync(legacyDatabasePath)) {
@@ -706,6 +1086,9 @@ function createDataManagementService({ runtimeDataRoot, builtinCatalogPath, shel
     putUserOperatorConfig: (operatorId, payload, updatedAt) => putUserRecord('user_operator_configs', operatorId, payload, updatedAt),
     getUserBuff: (id) => getUserRecord('user_buffs', id),
     putUserBuff: (id, payload, updatedAt) => putUserRecord('user_buffs', id, payload, updatedAt),
+    getWorkspaceState,
+    putWorkspaceState,
+    restoreWorkspaceSnapshot,
     readActiveCatalog,
     activateVersion,
     installRelease,
@@ -714,6 +1097,8 @@ function createDataManagementService({ runtimeDataRoot, builtinCatalogPath, shel
     getPreloadedTemplate,
     clonePreloadedTemplate,
     migrateLegacyTimelineRepository,
+    migrateLegacyArchives,
+    listLegacyMigrationRecords,
   };
 }
 

@@ -454,11 +454,6 @@ export function listTimelineSnapshots(): TimelineSnapshotEntry[] {
     .sort((left, right) => right.createdAt - left.createdAt);
 }
 
-/** Removes the pre-Spec-5 browser archive only after its caller has migrated it. */
-export function clearLegacyTimelineSnapshotArchive(): void {
-  if (!canUseLocalStorage()) return;
-  window.localStorage.removeItem(STORAGE_KEYS.TIMELINE_SNAPSHOT_ARCHIVE);
-}
 
 export function createTimelineSnapshotEntry(customLabel?: string): TimelineSnapshotEntry | null {
   const payload = readCurrentPayload();

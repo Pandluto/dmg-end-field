@@ -6,7 +6,11 @@ import type { SkillButton as RuntimeSkillButton, SkillButtonData, SkillType } fr
 import type { CharacterInputConfig, PersistedSkillButton, SkillButtonBuff } from '../types/storage';
 import { useAppContext } from '../context/AppContext';
 import { STORAGE_KEYS } from '../constants/storage-keys';
-import { getCharacterComputed, getCharacterConfig, getCharacterInput, getOperatorConfigPageCache } from '../utils/storage';
+import { getCharacterComputed, getCharacterConfig, getCharacterInput, getOperatorConfigPageCache, safeSessionStorage } from '../utils/storage';
+import {
+  getUserWorkspaceManagedKeys,
+  getUserWorkspaceStorageEntries,
+} from '../utils/userWorkspaceBridge';
 import { APP_ROUTE_PATHS, navigateToAppPath } from '../utils/appRoute';
 import { getAllBuffList, getBuffById, getSkillButtonById, getSkillButtonTable, loadTimelineData, upsertSkillButton } from '../core/repositories';
 import { buildAnomalyStateDerivedBuffs, buildAnomalyStateSnapshotBuffs } from '../core/services/anomalyStateBuffs';
@@ -1441,12 +1445,15 @@ function captureSessionSnapshot(label: string): void {
       sessionEntries.push([key, value]);
     }
   }
+  const workspaceEntries = getUserWorkspaceStorageEntries();
+  const workspaceKeys = new Set(workspaceEntries.map(([key]) => key));
+  const filteredEntries = sessionEntries.filter(([key]) => !workspaceKeys.has(key));
 
   const snapshot: UndoSnapshot = {
     id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
     createdAt: Date.now(),
     label,
-    sessionEntries,
+    sessionEntries: [...filteredEntries, ...workspaceEntries],
   };
 
   const nextSnapshots = [snapshot, ...readUndoSnapshots()].slice(0, DAMAGE_SHEET_UNDO_LIMIT);
@@ -1464,9 +1471,15 @@ function restoreUndoSnapshot(snapshotId: string): boolean {
     return false;
   }
 
-  window.sessionStorage.clear();
+  const browserSessionKeys: string[] = [];
+  for (let index = 0; index < window.sessionStorage.length; index += 1) {
+    const key = window.sessionStorage.key(index);
+    if (key) browserSessionKeys.push(key);
+  }
+  browserSessionKeys.forEach((key) => safeSessionStorage.removeItem(key));
+  getUserWorkspaceManagedKeys().forEach((key) => safeSessionStorage.removeItem(key));
   target.sessionEntries.forEach(([key, value]) => {
-    window.sessionStorage.setItem(key, value);
+    safeSessionStorage.setItem(key, value);
   });
 
   writeUndoSnapshots(snapshots.filter((item) => item.id !== snapshotId));

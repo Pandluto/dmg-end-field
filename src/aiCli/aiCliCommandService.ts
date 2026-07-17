@@ -68,6 +68,7 @@ import {
   openWeaponLibraryEntry,
   searchWeaponSurface,
 } from './weaponDataSurface';
+import { safeSessionStorage } from '../utils/storage';
 
 registerFillDomainAdapter(buffFillAdapter);
 registerFillDomainAdapter(weaponFillAdapter);
@@ -114,7 +115,7 @@ function readSessionJsonStorage<T>(key: string, fallback: T): T {
     return fallback;
   }
   try {
-    const raw = window.sessionStorage.getItem(key);
+    const raw = safeSessionStorage.getItem(key);
     return raw ? JSON.parse(raw) as T : fallback;
   } catch {
     return fallback;
@@ -130,7 +131,7 @@ function readOperatorInputMap(): Record<string, CliOperatorInput> {
 }
 
 function writeOperatorInputMap(map: Record<string, CliOperatorInput>) {
-  window.sessionStorage.setItem(CHARACTER_INPUT_MAP_STORAGE_KEY, JSON.stringify({
+  safeSessionStorage.setItem(CHARACTER_INPUT_MAP_STORAGE_KEY, JSON.stringify({
     version: '3',
     timestamp: Date.now(),
     data: map,
@@ -142,7 +143,7 @@ function readSelectedCharacterIds(): string[] {
 }
 
 function writeSelectedCharacterIds(ids: string[]) {
-  window.sessionStorage.setItem(SELECTED_CHARACTERS_STORAGE_KEY, JSON.stringify(ids));
+  safeSessionStorage.setItem(SELECTED_CHARACTERS_STORAGE_KEY, JSON.stringify(ids));
 }
 
 export function splitAiCliCommand(input: string) {
