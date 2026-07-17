@@ -2392,6 +2392,64 @@ function extractZipArchive(zipPath, destDir) {
   runSyncChecked('unzip', ['-q', zipPath, '-d', destDir]);
 }
 
+function normalizeBackslashArchivePaths(releaseDir) {
+  // Windows ZIP creators may store entry paths with `\\`. macOS `ditto` treats
+  // those as literal filename characters, leaving every image flat at the
+  // extraction root instead of recreating its directory hierarchy.
+  const entries = fs.readdirSync(releaseDir, { withFileTypes: true });
+  let normalizedCount = 0;
+
+  for (const entry of entries) {
+    if (!entry.name.includes('\\')) {
+      continue;
+    }
+
+    const isDirectoryMarker = entry.name.endsWith('\\');
+    const segments = entry.name.split('\\');
+    if (isDirectoryMarker) {
+      segments.pop();
+    }
+    if (segments.length === 0 || segments.some((segment) => !segment || segment === '.' || segment === '..')) {
+      throw new Error(`图片整包包含非法 Windows 路径: ${entry.name}`);
+    }
+
+    const source = path.join(releaseDir, entry.name);
+    const target = path.resolve(releaseDir, ...segments);
+    const resolvedReleaseDir = path.resolve(releaseDir);
+    if (!target.startsWith(resolvedReleaseDir + path.sep)) {
+      throw new Error(`图片整包包含越权 Windows 路径: ${entry.name}`);
+    }
+
+    if (isDirectoryMarker) {
+      if (fs.existsSync(target) && !fs.statSync(target).isDirectory()) {
+        throw new Error(`图片整包路径冲突: ${entry.name}`);
+      }
+      fs.mkdirSync(target, { recursive: true });
+      fs.rmSync(source, { recursive: true, force: true });
+      normalizedCount += 1;
+      continue;
+    }
+
+    if (!entry.isFile()) {
+      throw new Error(`图片整包包含不支持的 Windows 路径条目: ${entry.name}`);
+    }
+    fs.mkdirSync(path.dirname(target), { recursive: true });
+    if (fs.existsSync(target)) {
+      if (!fs.statSync(target).isFile() || hashFileSha256(source) !== hashFileSha256(target)) {
+        throw new Error(`图片整包路径冲突: ${entry.name}`);
+      }
+      fs.rmSync(source, { force: true });
+    } else {
+      fs.renameSync(source, target);
+    }
+    normalizedCount += 1;
+  }
+
+  if (normalizedCount > 0) {
+    appendRuntimeLog('assets-update', `normalized ${normalizedCount} Windows-style ZIP entries`);
+  }
+}
+
 function normalizeExtractedReleaseLayout(releaseDir) {
   const nestedAssetsDir = path.join(releaseDir, 'assets');
   if (!fs.existsSync(nestedAssetsDir) || !fs.statSync(nestedAssetsDir).isDirectory()) {
@@ -2552,6 +2610,7 @@ async function stageImageReleasePackage({ manifestUrl, releasePackage, stagingDi
       totalBytes: archiveBuffer.length,
     });
     extractZipArchive(archivePath, stagingDir);
+    normalizeBackslashArchivePaths(stagingDir);
     normalizeExtractedReleaseLayout(stagingDir);
   } finally {
     fs.rmSync(archivePath, { force: true });
