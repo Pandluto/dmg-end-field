@@ -3317,14 +3317,14 @@ export function CanvasBoard({
     }
   }
 
-  const handleSaveWorkNodeCheckpoint = async () => {
-    if (!await promoteTemporaryTimeline()) return;
+  const handleSaveWorkNodeCheckpoint = async (): Promise<boolean> => {
+    if (!await promoteTemporaryTimeline()) return false;
     saveTimelineData();
     setSelectedCharacterIds(selectedCharacters.map((character) => character.id));
     const payload = getCurrentTimelineSnapshotPayload();
     if (!payload) {
       alert('当前没有可保存到工作树的排轴数据');
-      return;
+      return false;
     }
 
     try {
@@ -3372,8 +3372,10 @@ export function CanvasBoard({
       setWorkNodeRefreshKey((current) => current + 1);
       setWorkNodeSaveNotice(parent ? '已保存为当前工作树的子节点' : '已保存为当前工作树的首个节点');
       window.setTimeout(() => setWorkNodeSaveNotice(''), 2200);
+      return true;
     } catch (error) {
       alert(`工作节点保存失败：${formatTimelineOperationError(error)}`);
+      return false;
     }
   };
 
@@ -3394,7 +3396,9 @@ export function CanvasBoard({
     try {
       // SQLite is the only directly usable form. Save the current working
       // state into its worktree before exporting an archive copy.
-      await handleSaveWorkNodeCheckpoint();
+      if (!await handleSaveWorkNodeCheckpoint()) {
+        return;
+      }
       const result = await createTimelineRepositoryClient().exportSqliteWorkspaceArchive({
         timelineId: activeTimelineId,
         kind: 'local',
