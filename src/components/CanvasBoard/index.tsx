@@ -135,6 +135,27 @@ async function ensureTimelineDocumentExists(
   return existing || repository.ensureDocument({ id: timelineId, label });
 }
 
+/**
+ * Checkpoint 只应记录内容变化，不应因每次落盘产生的 createdAt / updatedAt
+ * 噪声而制造重复节点。Payload 是可序列化数据，故可用稳定序列化比较。
+ */
+function serializeCheckpointPayload(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(serializeCheckpointPayload).join(',')}]`;
+  if (!value || typeof value !== 'object') return JSON.stringify(value);
+  return `{${Object.entries(value)
+    .filter(([key]) => key !== 'createdAt' && key !== 'updatedAt')
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([key, entry]) => `${JSON.stringify(key)}:${serializeCheckpointPayload(entry)}`)
+    .join(',')}}`;
+}
+
+function hasCheckpointPayloadChanged(
+  previousPayload: TimelineSnapshotPayload,
+  nextPayload: TimelineSnapshotPayload,
+): boolean {
+  return serializeCheckpointPayload(previousPayload) !== serializeCheckpointPayload(nextPayload);
+}
+
 const EMPTY_BATCH_TARGET_RESISTANCE: Required<HitResistanceInput> = {
   physicalResistance: 0,
   fireResistance: 0,
@@ -3335,6 +3356,16 @@ export function CanvasBoard({
         repository.getCheckoutRef(activeTimelineId),
       ]);
       const nodes = documentBundle.workNodes;
+      const checkoutPayload = checkoutRef?.targetType === 'work-node'
+        ? nodes.find((node) => node.id === checkoutRef.targetId)?.workingPayload
+        : checkoutRef?.targetType === 'snapshot'
+          ? documentBundle.snapshots.find((snapshot) => snapshot.id === checkoutRef.targetId)?.payload
+          : undefined;
+      if (nodes.length > 0 && checkoutPayload && !hasCheckpointPayloadChanged(checkoutPayload, payload)) {
+        setWorkNodeSaveNotice('当前工作区没有新改动，未新增工作节点');
+        window.setTimeout(() => setWorkNodeSaveNotice(''), 2200);
+        return true;
+      }
       const checkoutParent = checkoutRef?.targetType === 'work-node'
         ? nodes.find((node) => node.id === checkoutRef.targetId)
         : undefined;
