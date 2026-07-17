@@ -3463,6 +3463,11 @@ export function CanvasBoard({
 
   const handleExportSqliteWorkspace = async (workspace: TimelineSqliteWorkspace, kind: 'local' | 'shared') => {
     try {
+      // 非当前工作区的 checkout 已是其权威状态；当前工作区则可能还有
+      // 尚未写入节点树的编辑，导出前必须先建立 checkpoint。
+      if (workspace.document.id === activeTimelineId && !await handleSaveWorkNodeCheckpoint()) {
+        return;
+      }
       const result = await createTimelineRepositoryClient().exportSqliteWorkspaceArchive({
         timelineId: workspace.document.id,
         kind,
