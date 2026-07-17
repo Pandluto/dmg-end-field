@@ -1426,6 +1426,45 @@
             </div>
             <div class="empty-state" id="image-release-builder-status">等待选择目录并填写版本。</div>
           </section>
+
+          <section class="panel">
+            <div class="panel-header">
+              <div>
+                <div class="panel-title">数据发布包助手</div>
+                <div class="panel-help">从干员、武器、装备和系统 Buff 静态数据生成 catalog.sqlite、data-release-manifest.json 与全量 ZIP；可与图片工件一同上传到同一个 GitHub Release。</div>
+              </div>
+              <span class="badge info" id="data-release-builder-badge">待生成</span>
+            </div>
+            <div class="grid-3">
+              <article class="status-card">
+                <div class="status-top"><span class="status-label">数据源目录</span><span class="badge info">data</span></div>
+                <input id="data-release-source" type="text" placeholder="选择数据源目录，例如 public/data" />
+                <div class="toolbar"><button id="pick-data-release-source" type="button" class="subtle-button">选择源目录</button></div>
+              </article>
+              <article class="status-card">
+                <div class="status-top"><span class="status-label">输出目录</span><span class="badge info">release</span></div>
+                <input id="data-release-output" type="text" placeholder="选择发布包输出目录" />
+                <div class="toolbar"><button id="pick-data-release-output" type="button" class="subtle-button">选择输出目录</button></div>
+              </article>
+              <article class="status-card">
+                <div class="status-top"><span class="status-label">数据版本</span><span class="badge info">version</span></div>
+                <input id="data-release-version" type="text" placeholder="例如 v1.7.2-data.1" />
+                <input id="data-release-tag" type="text" placeholder="Release Tag，可留空" />
+              </article>
+            </div>
+            <div class="grid-3">
+              <article class="status-card">
+                <div class="status-top"><span class="status-label">兼容</span><span class="badge info">shell</span></div>
+                <input id="data-release-min-shell" type="text" placeholder="最低 Shell 版本，可留空" />
+                <div class="panel-help">首版只生成全量包；签名和远端下载不在此打包步骤执行。</div>
+              </article>
+            </div>
+            <div class="toolbar">
+              <button id="build-data-release-package" type="button" class="primary-button">生成数据发布包</button>
+              <button id="reveal-data-release-output" type="button" class="subtle-button">打开输出目录</button>
+            </div>
+            <div class="empty-state" id="data-release-builder-status">等待选择目录并填写数据版本。</div>
+          </section>
         </div>
 
         <div id="page-agent" class="page">

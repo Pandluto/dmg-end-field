@@ -1624,6 +1624,30 @@ ipcMain.handle('desktop:pick-image-release-output-dir', async () => {
   }
   return { ok: true, path: result.filePaths[0] };
 });
+ipcMain.handle('desktop:pick-data-release-source-dir', async () => {
+  const win = BrowserWindow.getFocusedWindow() || shellWindow;
+  if (!win) return { ok: false, error: '无活动窗口' };
+  const result = await dialog.showOpenDialog(win, {
+    title: '选择数据发布源目录',
+    properties: ['openDirectory'],
+  });
+  if (result.canceled || !result.filePaths?.[0]) {
+    return { ok: false, canceled: true, error: '已取消' };
+  }
+  return { ok: true, path: result.filePaths[0] };
+});
+ipcMain.handle('desktop:pick-data-release-output-dir', async () => {
+  const win = BrowserWindow.getFocusedWindow() || shellWindow;
+  if (!win) return { ok: false, error: '无活动窗口' };
+  const result = await dialog.showOpenDialog(win, {
+    title: '选择数据发布包输出目录',
+    properties: ['openDirectory', 'createDirectory'],
+  });
+  if (result.canceled || !result.filePaths?.[0]) {
+    return { ok: false, canceled: true, error: '已取消' };
+  }
+  return { ok: true, path: result.filePaths[0] };
+});
 ipcMain.handle('desktop:build-image-release-package', async (_event, payload) => {
   try {
     const scriptPath = path.join(__dirname, '..', 'scripts', 'build-image-release-manifest.mjs');
@@ -1640,6 +1664,25 @@ ipcMain.handle('desktop:build-image-release-package', async (_event, payload) =>
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     appendRuntimeLog('assets-release-builder', `failed ${message}`);
+    return { ok: false, error: message };
+  }
+});
+ipcMain.handle('desktop:build-data-release-package', async (_event, payload) => {
+  try {
+    const scriptPath = path.join(__dirname, '..', 'scripts', 'build-data-release-package.mjs');
+    const mod = await import(pathToFileURL(scriptPath).href);
+    const result = mod.buildDataReleasePackage({
+      source: payload?.source,
+      output: payload?.output,
+      dataVersion: payload?.dataVersion,
+      releaseTag: payload?.releaseTag,
+      minShellVersion: payload?.minShellVersion,
+    });
+    appendRuntimeLog('data-release-builder', `built ${result.dataVersion} -> ${result.outputDir}`);
+    return { ok: true, result };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    appendRuntimeLog('data-release-builder', `failed ${message}`);
     return { ok: false, error: message };
   }
 });

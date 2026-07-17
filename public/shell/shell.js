@@ -28,6 +28,7 @@
     desktopSettings: null,
     imageUpdate: null,
     imageReleaseBuilder: null,
+    dataReleaseBuilder: null,
   };
 
   const $ = (id) => document.getElementById(id);
@@ -1119,6 +1120,77 @@
     }
   };
 
+  const setDataReleaseBuilderStatus = (text, tone = 'info') => {
+    setText('data-release-builder-status', text);
+    const badgeText = tone === 'ok' ? '已生成' : tone === 'err' ? '失败' : tone === 'warn' ? '处理中' : '待生成';
+    setBadge('data-release-builder-badge', badgeText, tone);
+  };
+
+  const pickDataReleaseSource = async () => {
+    const result = await runtime?.pickDataReleaseSourceDir?.();
+    if (result?.ok) {
+      setInputValue('data-release-source', result.path);
+      setDataReleaseBuilderStatus(`源目录：${result.path}`);
+    }
+  };
+
+  const pickDataReleaseOutput = async () => {
+    const result = await runtime?.pickDataReleaseOutputDir?.();
+    if (result?.ok) {
+      setInputValue('data-release-output', result.path);
+      setDataReleaseBuilderStatus(`输出目录：${result.path}`);
+    }
+  };
+
+  const buildDataReleasePackage = async (button) => {
+    if (!runtime?.buildDataReleasePackage) {
+      setDataReleaseBuilderStatus('当前运行时不支持数据发布包助手。', 'err');
+      return;
+    }
+    const payload = {
+      source: getInputValue('data-release-source'),
+      output: getInputValue('data-release-output'),
+      dataVersion: getInputValue('data-release-version'),
+      releaseTag: getInputValue('data-release-tag'),
+      minShellVersion: getInputValue('data-release-min-shell'),
+    };
+    setButtonBusy(button, true, '生成中');
+    setDataReleaseBuilderStatus('正在生成数据发布包…', 'warn');
+    try {
+      const response = await runtime.buildDataReleasePackage(payload);
+      if (!response?.ok) throw new Error(response?.error || '生成失败');
+      state.dataReleaseBuilder = response.result;
+      const result = response.result;
+      const packageList = (result.packagePaths || []).map((item) => `\n${item}`).join('');
+      const catalog = result.catalog || {};
+      setDataReleaseBuilderStatus(
+        `生成完成：全量数据包 / ${result.dataVersion}；干员 ${catalog.operators || 0}，武器 ${catalog.weapons || 0}，装备 ${catalog.equipments || 0}，Buff ${catalog.buffs || 0}\nmanifest: ${result.manifestPath}${packageList}`,
+        'ok',
+      );
+      appendLog(`数据发布包 | 生成完成 | ${result.outputDir}`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setDataReleaseBuilderStatus(message, 'err');
+      appendLog(`数据发布包 | 生成失败 | ${message}`);
+    } finally {
+      setButtonBusy(button, false);
+    }
+  };
+
+  const revealDataReleaseOutput = async () => {
+    const output = getInputValue('data-release-output') || state.dataReleaseBuilder?.outputDir;
+    if (!output) {
+      setDataReleaseBuilderStatus('请先选择输出目录。', 'err');
+      return;
+    }
+    const result = await runtime?.revealPath?.({ path: output });
+    if (result?.ok) {
+      appendLog(`数据发布包 | 已打开输出目录 | ${result.path || output}`);
+    } else {
+      setDataReleaseBuilderStatus(result?.error || `无法打开输出目录：${output}`, 'err');
+    }
+  };
+
   const revealImageDirectory = async () => {
     try {
       const result = await fetchLocalBridgeJson('/image-assets/reveal-directory', {
@@ -1294,6 +1366,18 @@
     });
     $('reveal-image-release-output')?.addEventListener('click', () => {
       revealImageReleaseOutput().catch((error) => appendLog(`图片发布包 | 打开输出目录失败 | ${error instanceof Error ? error.message : String(error)}`));
+    });
+    $('pick-data-release-source')?.addEventListener('click', () => {
+      pickDataReleaseSource().catch((error) => appendLog(`数据发布包 | 选择源目录失败 | ${error instanceof Error ? error.message : String(error)}`));
+    });
+    $('pick-data-release-output')?.addEventListener('click', () => {
+      pickDataReleaseOutput().catch((error) => appendLog(`数据发布包 | 选择输出目录失败 | ${error instanceof Error ? error.message : String(error)}`));
+    });
+    $('build-data-release-package')?.addEventListener('click', (event) => {
+      buildDataReleasePackage(event.currentTarget).catch((error) => appendLog(`数据发布包 | 生成失败 | ${error instanceof Error ? error.message : String(error)}`));
+    });
+    $('reveal-data-release-output')?.addEventListener('click', () => {
+      revealDataReleaseOutput().catch((error) => appendLog(`数据发布包 | 打开输出目录失败 | ${error instanceof Error ? error.message : String(error)}`));
     });
     document.querySelectorAll('[data-desktop-scale]').forEach((button) => {
       button.addEventListener('click', (event) => {
