@@ -485,7 +485,8 @@ export function CanvasBoard({
     enterAiMode();
   };
 
-  const openWorkNodePanel = () => {
+  const openWorkNodePanel = async () => {
+    if (!await promoteTemporaryTimeline()) return;
     setPendingWorkNodeCheckoutId('');
     setWorkNodeRefreshKey((current) => current + 1);
     setIsWorkNodePanelOpen(true);
@@ -3288,7 +3289,7 @@ export function CanvasBoard({
     return repository;
   };
 
-  const promoteTemporaryTimeline = async (): Promise<boolean> => {
+  async function promoteTemporaryTimeline(): Promise<boolean> {
     if (!temporaryPromotionRef.current) return true;
 
     const label = window.prompt('首次保存前，请为这个 SQLite 工作区命名：', '')?.trim();
@@ -3314,7 +3315,7 @@ export function CanvasBoard({
       alert(`SQLite 工作区转正失败：${formatTimelineOperationError(error)}`);
       return false;
     }
-  };
+  }
 
   const handleSaveWorkNodeCheckpoint = async () => {
     if (!await promoteTemporaryTimeline()) return;

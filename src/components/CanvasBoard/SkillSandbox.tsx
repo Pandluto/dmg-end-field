@@ -53,7 +53,7 @@ interface SkillSandboxProps {
   /** 切换 AI 模式 */
   onToggleAiMode?: () => void;
   /** 打开 work node 节点树 */
-  onOpenWorkNodePanel?: () => void;
+  onOpenWorkNodePanel?: () => void | Promise<void>;
 }
 
 /** 技能显示标签（用于按钮右侧标注） */
