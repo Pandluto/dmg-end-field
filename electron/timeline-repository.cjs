@@ -410,6 +410,55 @@ function createTimelineRepository({ databasePath }) {
     });
   }
 
+  function createDocumentFromTemplate(input) {
+    if (!input?.timelineId || !input?.documentLabel || !input?.snapshotId || !input?.snapshotLabel || input.payload === undefined) {
+      throw repositoryError('invalid-timeline-template-clone', 400, 'Timeline template clone requires timelineId, labels, snapshotId, and payload.');
+    }
+    const createdAt = input.createdAt || Date.now();
+    return transaction(() => {
+      if (db.prepare('SELECT 1 FROM timeline_documents WHERE id = ?').get(input.timelineId)) {
+        throw repositoryError('timeline-document-already-exists', 409, `Timeline document already exists: ${input.timelineId}`);
+      }
+      if (db.prepare('SELECT 1 FROM timeline_snapshots WHERE id = ?').get(input.snapshotId)) {
+        throw repositoryError('timeline-snapshot-id-conflict', 409, `Timeline snapshot already exists: ${input.snapshotId}`);
+      }
+      db.prepare(`
+        INSERT INTO timeline_documents (id, label, created_at, updated_at, archived_at)
+        VALUES (?, ?, ?, ?, NULL)
+      `).run(input.timelineId, input.documentLabel, createdAt, createdAt);
+      const payloadHash = ensurePayload(input.payload, createdAt);
+      db.prepare(`
+        INSERT INTO timeline_snapshots (id, timeline_id, payload_hash, label, created_at, archived_at)
+        VALUES (?, ?, ?, ?, ?, NULL)
+      `).run(input.snapshotId, input.timelineId, payloadHash, input.snapshotLabel, createdAt);
+      db.prepare(`
+        INSERT INTO checkout_refs (timeline_id, target_type, target_id, updated_at)
+        VALUES (?, 'snapshot', ?, ?)
+      `).run(input.timelineId, input.snapshotId, createdAt);
+      writeAuditEvent({
+        timelineId: input.timelineId,
+        eventType: 'template.cloned',
+        subjectType: 'document',
+        subjectId: input.timelineId,
+        details: { templateId: input.templateId || null, catalogVersion: input.catalogVersion || null, payloadHash },
+        createdAt,
+      });
+      writeAuditEvent({
+        timelineId: input.timelineId,
+        eventType: 'snapshot.saved',
+        subjectType: 'snapshot',
+        subjectId: input.snapshotId,
+        details: { payloadHash, source: 'preloaded-template' },
+        createdAt,
+      });
+      return {
+        document: readDocument(db.prepare('SELECT * FROM timeline_documents WHERE id = ?').get(input.timelineId)),
+        snapshot: readSnapshot(db.prepare('SELECT * FROM timeline_snapshots WHERE id = ?').get(input.snapshotId), true),
+        checkoutRef: { timelineId: input.timelineId, targetType: 'snapshot', targetId: input.snapshotId, updatedAt: createdAt },
+      };
+    });
+  }
+
   function importDocumentBundle(input) {
     if (!input?.document?.id || !input?.document?.label || !Array.isArray(input.snapshots) || !input.snapshots.length) {
       const error = new Error('Timeline bundle import requires a document and at least one snapshot.');
@@ -998,6 +1047,7 @@ function createTimelineRepository({ databasePath }) {
     databasePath,
     ensureDocument,
     createOrReuseSnapshot,
+    createDocumentFromTemplate,
     importDocumentBundle,
     exportDocumentBundle,
     setCheckoutRef,

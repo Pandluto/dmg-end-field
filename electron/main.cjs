@@ -9,6 +9,7 @@ const { pathToFileURL } = require('url');
 const { tryServeDesktopApp } = require('./web-host.cjs');
 const { createAiTimelineWorkNodeStore } = require('./ai-timeline-work-node-store.cjs');
 const { createTimelineRepository } = require('./timeline-repository.cjs');
+const { createDataManagementService } = require('./data-management-service.cjs');
 const { buildNodeSidecarEnv: createNodeSidecarEnv } = require('./sidecar-runtime.cjs');
 const { createDefCodexInteropProtocol } = require('../agent/runtime/def-codex-interop.cjs');
 const {
@@ -949,6 +950,28 @@ function startBridgeServer() {
         return;
       }
 
+      if (method === 'GET' && requestUrl.pathname === '/data-management/state') {
+        writeJson(response, 200, getDataManagementStatePayload());
+        return;
+      }
+
+      if (method === 'GET' && requestUrl.pathname === '/data-management/catalog/templates') {
+        try {
+          const service = getDataManagementService();
+          writeJson(response, 200, {
+            ok: true,
+            activeCatalog: service.readActiveCatalog().dataVersion,
+            templates: service.listPreloadedTemplates(),
+          });
+        } catch (error) {
+          writeJson(response, 500, {
+            ok: false,
+            error: { code: error?.code || 'data-management-catalog-read-failed', message: error instanceof Error ? error.message : String(error) },
+          });
+        }
+        return;
+      }
+
       if (method === 'GET' && requestUrl.pathname === '/local-data/ai-timeline-worknodes') {
         writeJson(response, 200, buildAiTimelineWorkNodeListResult());
         return;
@@ -1537,6 +1560,7 @@ ipcMain.handle('desktop:get-shell-state', () => ({
   shellVisible: Boolean(shellWindow && !shellWindow.isDestroyed() && shellWindow.isVisible()),
   desktopSettings: getDesktopSettingsPayload(),
   imageUpdate: getImageUpdateStatePayload(),
+  dataManagement: getDataManagementStatePayload(),
 }));
 ipcMain.handle('desktop:get-settings', () => getDesktopSettingsPayload());
 ipcMain.handle('desktop:set-scale', (_event, scaleKey) => {
@@ -1555,6 +1579,7 @@ ipcMain.handle('desktop:quit-app', () => {
   return { ok: true };
 });
 ipcMain.handle('desktop:get-image-update-state', () => getImageUpdateStatePayload());
+ipcMain.handle('desktop:get-data-management-state', () => getDataManagementStatePayload());
 ipcMain.handle('desktop:set-image-update-config', (_event, payload) => {
   const config = writeImageReleaseConfig(payload);
   return {
@@ -4311,6 +4336,10 @@ function getAiTimelineWorkNodesPath() {
 }
 
 function getTimelineRepositoryPath() {
+  return getDataManagementService().paths.userDatabasePath;
+}
+
+function getLegacyTimelineRepositoryPath() {
   return path.join(getLocalDataDirectory(), 'timeline-repository.sqlite3');
 }
 
@@ -4320,6 +4349,55 @@ function getLegacyAiTimelineWorkNodesPath() {
 
 let aiTimelineWorkNodeStore = null;
 let timelineRepository = null;
+let dataManagementService = null;
+
+function getBuiltinCatalogPath() {
+  if (!app.isPackaged) {
+    return path.join(__dirname, '..', 'public', 'data', 'catalog.sqlite');
+  }
+  return path.join(process.resourcesPath, 'app.asar.unpacked', 'dist', 'data', 'catalog.sqlite');
+}
+
+function getDataManagementService() {
+  if (!dataManagementService) {
+    dataManagementService = createDataManagementService({
+      runtimeDataRoot: getRuntimeDataRoot(),
+      builtinCatalogPath: getBuiltinCatalogPath(),
+      shellVersion: app.getVersion(),
+    });
+    dataManagementService.ensureUserDatabase();
+    dataManagementService.migrateLegacyTimelineRepository({
+      legacyDatabasePath: getLegacyTimelineRepositoryPath(),
+      legacyOrigin: 'timeline-repository.sqlite3',
+    });
+  }
+  return dataManagementService;
+}
+
+function getDataManagementStatePayload() {
+  try {
+    const service = getDataManagementService();
+    const active = service.readActiveCatalog();
+    return {
+      ok: true,
+      activeCatalog: {
+        source: active.source,
+        dataVersion: active.dataVersion,
+        activatedAt: active.activatedAt,
+      },
+      userDatabasePath: service.paths.userDatabasePath,
+      catalogRoot: service.paths.catalogRoot,
+      networkUpdateEnabled: false,
+      networkUpdateReason: '数据发布公钥尚未配置；当前仅启用内置 catalog 与本地 user.sqlite。',
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      error: error instanceof Error ? error.message : String(error),
+      code: error?.code || 'data-management-initialization-failed',
+    };
+  }
+}
 
 function getAiTimelineWorkNodeStore() {
   if (!aiTimelineWorkNodeStore) {
@@ -5565,6 +5643,10 @@ app.whenReady().then(() => {
     app.setAppUserModelId('com.dmg.def');
   }
   Menu.setApplicationMenu(null);
+  const dataManagementState = getDataManagementStatePayload();
+  if (!dataManagementState.ok) {
+    appendRuntimeLog('data-management', `${dataManagementState.code}: ${dataManagementState.error}`);
+  }
   createTray();
   startBridgeServer();
 

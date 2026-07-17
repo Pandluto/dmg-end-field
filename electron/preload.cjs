@@ -12,6 +12,7 @@ contextBridge.exposeInMainWorld('desktopRuntime', {
   getDesktopSettings: () => ipcRenderer.invoke('desktop:get-settings'),
   setDesktopScale: (scaleKey) => ipcRenderer.invoke('desktop:set-scale', scaleKey),
   getImageUpdateState: () => ipcRenderer.invoke('desktop:get-image-update-state'),
+  getDataManagementState: () => ipcRenderer.invoke('desktop:get-data-management-state'),
   setImageUpdateConfig: (payload) => ipcRenderer.invoke('desktop:set-image-update-config', payload),
   checkImageUpdate: () => ipcRenderer.invoke('desktop:check-image-update'),
   applyImageUpdate: () => ipcRenderer.invoke('desktop:apply-image-update'),

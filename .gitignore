@@ -1,5 +1,6 @@
 node_modules
 dist
+public/data/catalog.sqlite
 release
 release-latest/
 .DS_Store
@@ -23,6 +24,9 @@ test-results/
 data/localdata/**
 !data/localdata/
 !data/localdata/.gitkeep
+data/catalog/**
+data/staging/**
+data/user/**
 .codex-remote-attachments/
 !scripts/extract-akedb-raw-index.mjs
 !scripts/research-filter-akedb.mjs
