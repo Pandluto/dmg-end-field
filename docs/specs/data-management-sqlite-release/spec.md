@@ -2,7 +2,7 @@
 
 ## 目标
 
-建立独立于主界面功能 Spec 的数据管理底座：SQLite 工作区是唯一可认证、可编辑、可直接应用的排轴形式；本地存档与参考存档是可搬运格式，只能转换为新的 SQLite 工作区。Shell 还应能像更新图片资源一样检查、下载、校验和登记参考存档发布包。
+建立独立于主界面功能 Spec 的数据管理底座：SQLite 工作区是唯一可认证、可编辑、可直接应用的排轴形式；本地存档与参考存档是可搬运格式，只能转换为新的 SQLite 工作区。Shell 还应能像更新图片资源一样检查、下载、校验和登记**统一的数据发布包**，其中静态数据与参考存档属于同一发布物。
 
 本 Spec 只规定数据来源、更新、持久化、迁移和导入导出边界。它不定义主界面具体布局；但调用方必须遵守“存档不能直接应用、SQLite 工作区才可应用”的接口与事务约束。
 
@@ -89,8 +89,8 @@
 ├─ localdata/
 │  └─ timeline-archives/<archive-id>.json # 本地排轴存档，独立于工作区
 ├─ reference-archives/
-│  ├─ versions/<release-id>/             # 已校验的参考存档发布包
-│  └─ active.json                        # 已登记的参考存档索引版本
+│  ├─ versions/<dataVersion>/            # 与同版本数据包一并校验的参考存档
+│  └─ active.json                        # 与 catalog 同版本的参考存档索引
 └─ staging/<release-id>/                 # 下载、解压、校验中的临时目录
 ```
 
@@ -196,36 +196,38 @@ type TimelineArchive = {
 
 ```text
 data-release-manifest.json
-catalog-<dataVersion>.zip
+data-<dataVersion>.zip
   ├─ catalog.sqlite
-  └─ manifest.json
+  ├─ manifest.json
+  └─ archives/<archiveId>.json     # 待发布参考存档，可为空
 ```
 
 以后可加增量包，但不得改变 manifest、暂存、校验和原子激活契约。
 
-### 参考存档发布包
+### 统一数据与参考存档发布包
 
-排轴存档发布与 catalog 发布是两个逻辑单元。catalog 包仍只承载静态游戏目录；**参考存档包只承载参考排轴存档**，不得包含本地存档、`user.sqlite`、用户配置或本机绝对路径。
+静态 catalog 与参考排轴存档是同一次发布的两个内容区，不能要求发布者选择第二个“待发布目录”，也不能让客户端检查两个数据 URL。待发布参考存档由数据管理服务固定维护；数据打包器在生成时自动收集它们。发布者只需选择静态数据源、输出目录并填写版本。
 
 ```text
-reference-archive-manifest.json
-reference-archives-<releaseId>.zip
+data-release-manifest.json
+data-<dataVersion>.zip
   ├─ manifest.json
-  └─ archives/<archiveId>.json
+  ├─ catalog.sqlite
+  └─ archives/<archiveId>.json     # 可为空
 ```
 
-`reference-archive-manifest.v1` 至少包含发布标识、生成时间、最低 Shell 版本、包名、大小、SHA-256、签名，以及每份存档的 `archiveId`、label、archiveVersion、payload hash、nodeCount、是否记录当前节点位置。Shell 下载后必须：
+`data-release-manifest.v1` 的 `referenceArchives` 数组记录每份参考存档的 `archiveId`、label、archiveVersion、payload hash、nodeCount 与是否记录当前节点位置。参考存档不得包含本地存档、`user.sqlite`、用户配置或本机绝对路径。
 
 ```text
-检查远端 manifest
-→ 校验签名、Shell 兼容性、包 hash 与路径限制
-→ 校验每份存档 schema、payload hash、节点树关系与 nodeCount
-→ 写入 reference-archives/versions/<releaseId>/
-→ 原子更新参考存档 active.json 索引
-→ 仅登记为只读“参考存档”，不自动转换、不自动应用
+检查唯一的 data-release-manifest.json
+→ 校验签名、Shell 兼容性、全量包 hash 与路径限制
+→ 校验 catalog.sqlite 和每份参考存档 schema、payload hash、节点树关系与 nodeCount
+→ 写入 catalog/versions/<dataVersion>/ 与 reference-archives/versions/<dataVersion>/
+→ 两侧均准备成功后，原子登记同一 dataVersion
+→ 仅将存档登记为只读“参考存档”，不自动转换、不自动应用
 ```
 
-发布地址可以与图片发布地址共用；发布索引未来可同时列出图片、catalog 与参考存档包，但每类包必须独立校验、独立激活和独立回滚。首版需要提供参考存档包打包器，并与实际发布地址完成下载、校验、登记联调。
+发布地址与图片发布地址共用：图片仍使用自己的图片 manifest；数据与参考存档只使用唯一的 `data-release-manifest.json`。当前 Release 可以只包含图片。首版提供统一数据发布包打包器，并与实际发布地址完成下载、校验、登记联调。
 
 ### Manifest
 
@@ -255,6 +257,14 @@ type DataReleaseManifestV1 = {
     buffs: number;
     preloadedTimelineTemplates: number;
   };
+  referenceArchives: Array<{
+    archiveId: string;
+    label: string;
+    archiveVersion: number;
+    payloadHash: string;
+    nodeCount: number;
+    hasCurrentNode: boolean;
+  }>;
 };
 ```
 
@@ -270,8 +280,9 @@ type DataReleaseManifestV1 = {
 → 校验包 SHA-256、压缩包路径、大小限制
 → 解压至 staging
 → 校验 catalog.sqlite SHA-256 + SQLite integrity_check + schema
+→ 校验并准备同包参考存档
 → 写入 versions/<version>/
-→ 原子更新 active.json
+→ 原子更新 catalog 与参考存档的同版本 active.json
 → 重新打开 catalog 连接并刷新只读查询缓存
 ```
 
@@ -338,5 +349,5 @@ type DataReleaseManifestV1 = {
 7. 旧本机/共享存档可迁移为本地存档、可审计、可重试；迁移失败不删除原文件。
 8. UI 明确区分本地存档、参考存档与 SQLite 工作区；存档列表只显示摘要和节点数量，节点树只在工作区中打开。
 9. SQLite 工作区导出存档会携带完整节点树与当前节点位置；旧版平铺快照转换后恰好产生一个导入根节点。
-10. 参考存档发布包只含参考存档；与实际发布地址的下载、校验、登记联调通过，且不会自动转换或应用。
+10. 一份数据发布包同时包含 catalog 与参考存档；Shell 仅检查一个数据 manifest URL，下载、校验、同版本登记联调通过，且不会自动转换或应用参考存档。
 11. 主界面功能 Spec 不需要包含本 Spec 的表结构、更新协议或迁移细节；它只依赖稳定 Repository API。

@@ -1224,7 +1224,7 @@
               <p class="page-desc">当前工作副本、干员配置、用户 Buff、排轴、恢复点与审计均以 user.sqlite 为事实来源。创建和恢复排轴请在 Web 主界面完成。</p>
             </div>
             <div class="toolbar">
-              <button id="run-data-management-migration" type="button" class="subtle-button">重试旧档迁移</button>
+              <button id="run-data-management-migration" type="button" class="subtle-button">重新扫描旧文件</button>
               <button id="refresh-data-management" type="button">刷新</button>
             </div>
           </header>
@@ -1239,7 +1239,7 @@
               <div class="status-detail" id="data-userdb-status">读取中</div>
             </article>
             <article class="status-card">
-              <div class="status-top"><span class="status-label">旧档迁移</span><span class="badge info" id="data-migration-badge">-</span></div>
+              <div class="status-top"><span class="status-label">旧文件导入</span><span class="badge info" id="data-migration-badge">-</span></div>
               <div class="status-detail selected-summary" id="data-migration-status">读取中</div>
             </article>
           </section>
@@ -1248,12 +1248,11 @@
             <div class="panel-header">
               <div>
                 <div class="panel-title">数据 Release 更新</div>
-                <div class="panel-help">与图片使用同一个 GitHub Release。会按需下载 catalog 全量包和联网参考存档全量包；仅有图片的 Release 会显示为“无数据包”。</div>
+                <div class="panel-help">与图片使用同一个 GitHub Release 和同一个数据清单地址。一个全量包同时更新 catalog 与联网参考存档；仅有图片的 Release 会显示为“无数据包”。</div>
               </div>
               <span class="badge info" id="data-update-badge">已配置</span>
             </div>
-            <div class="copy-line" id="data-update-catalog-manifest-url">读取中</div>
-            <div class="copy-line" id="data-update-reference-manifest-url">读取中</div>
+            <div class="copy-line" id="data-update-manifest-url">读取中</div>
             <div class="toolbar">
               <button id="check-data-release-update" type="button" class="subtle-button">检查更新</button>
               <button id="apply-data-release-update" type="button" class="primary-button">一键更新数据</button>
@@ -1279,8 +1278,8 @@
             <article class="panel">
               <div class="panel-header">
                 <div>
-                  <div class="panel-title">迁移记录</div>
-                  <div class="panel-help">旧介质只读保留；每次迁移会在 user.sqlite 记录来源、哈希、备份位置、结果和失败原因。</div>
+                  <div class="panel-title">旧文件导入状态</div>
+                  <div class="panel-help">这里说明哪些历史文件已变成本地存档、哪些需要处理。原文件不会被自动删除。</div>
                 </div>
               </div>
               <div class="archive-list" id="legacy-migration-list"><div class="empty-state">读取中</div></div>
@@ -1288,19 +1287,19 @@
             <article class="panel">
               <div class="panel-header">
                 <div>
-                  <div class="panel-title">当前流程</div>
-                  <div class="panel-help">不再创建或应用双分支文件存档。排轴文档、恢复点、AI 草稿和 Bundle 由主界面 Repository API 管理。</div>
+                  <div class="panel-title">现在如何使用</div>
+                  <div class="panel-help">SQLite 工作区是唯一可应用、可编辑的状态；本地与联网存档只能转换为新的 SQLite 工作区。</div>
                 </div>
               </div>
-              <div class="empty-state">旧文件不会被这次迁移删除；确认备份可恢复并经过稳定版本后，才会单独设计清理方案。</div>
+            <div class="empty-state">导入只是制作兼容副本，不会删除旧文件。之后可在主界面的“恢复排轴”中查看本地存档并转换为 SQLite 工作区。</div>
             </article>
           </section>
 
           <section class="panel">
             <div class="panel-header">
               <div>
-                <div class="panel-title">Catalog 数据发布包助手</div>
-                <div class="panel-help">从干员、武器、装备和系统 Buff 静态数据生成 catalog.sqlite、data-release-manifest.json 与全量 ZIP；上传到和图片相同的 GitHub Release。</div>
+                <div class="panel-title">数据与参考存档发布包助手</div>
+                <div class="panel-help">从静态游戏数据和数据管理服务中的待发布参考存档生成一个 data-release-manifest.json 与一个全量 ZIP；无需选择待发布目录，上传到和图片相同的 GitHub Release。</div>
               </div>
               <span class="badge info" id="data-release-builder-badge">待生成</span>
             </div>
@@ -1329,42 +1328,10 @@
               </article>
             </div>
             <div class="toolbar">
-              <button id="build-data-release-package" type="button" class="primary-button">生成 catalog 发布包</button>
+              <button id="build-data-release-package" type="button" class="primary-button">生成数据发布包</button>
               <button id="reveal-data-release-output" type="button" class="subtle-button">打开输出目录</button>
             </div>
-            <div class="empty-state" id="data-release-builder-status">等待选择目录并填写数据版本。</div>
-          </section>
-
-          <section class="panel">
-            <div class="panel-header">
-              <div>
-                <div class="panel-title">参考存档发布包助手</div>
-                <div class="panel-help">读取“待发布参考存档”，生成 reference-archive-manifest.json 与全量 ZIP。联网客户端一键更新后只读登记为参考存档。</div>
-              </div>
-              <span class="badge info" id="reference-archive-release-builder-badge">待生成</span>
-            </div>
-            <div class="grid-3">
-              <article class="status-card">
-                <div class="status-top"><span class="status-label">待发布存档目录</span><span class="badge info">outbox</span></div>
-                <input id="reference-archive-release-source" type="text" placeholder="选择参考存档待发布目录" />
-                <div class="toolbar"><button id="pick-reference-archive-release-source" type="button" class="subtle-button">选择待发布目录</button></div>
-              </article>
-              <article class="status-card">
-                <div class="status-top"><span class="status-label">输出目录</span><span class="badge info">release</span></div>
-                <input id="reference-archive-release-output" type="text" placeholder="选择发布包输出目录" />
-                <div class="toolbar"><button id="pick-reference-archive-release-output" type="button" class="subtle-button">选择输出目录</button></div>
-              </article>
-              <article class="status-card">
-                <div class="status-top"><span class="status-label">Release ID</span><span class="badge info">version</span></div>
-                <input id="reference-archive-release-id" type="text" placeholder="例如 v1.7.2" />
-                <input id="reference-archive-release-min-shell" type="text" placeholder="最低 Shell 版本，可留空" />
-              </article>
-            </div>
-            <div class="toolbar">
-              <button id="build-reference-archive-release-package" type="button" class="primary-button">生成参考存档发布包</button>
-              <button id="reveal-reference-archive-release-output" type="button" class="subtle-button">打开输出目录</button>
-            </div>
-            <div class="empty-state" id="reference-archive-release-builder-status">等待选择目录并填写 Release ID。</div>
+            <div class="empty-state" id="data-release-builder-status">选择静态数据源和输出目录后，填写数据版本即可生成统一发布包。</div>
           </section>
         </div>
 

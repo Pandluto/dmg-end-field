@@ -470,11 +470,38 @@ function validateDataReleaseManifest(manifest, { shellVersion, publicKey, requir
       throw dataManagementError('invalid-data-release-manifest', `catalog.${field} 无效。`);
     }
   }
+  const referenceArchives = manifest.referenceArchives === undefined ? [] : manifest.referenceArchives;
+  if (!Array.isArray(referenceArchives)) {
+    throw dataManagementError('invalid-data-release-manifest', '数据发布清单 referenceArchives 必须是数组。');
+  }
+  const archiveIds = new Set();
+  const normalizedReferenceArchives = referenceArchives.map((entry) => {
+    if (!entry || typeof entry !== 'object' || typeof entry.archiveId !== 'string' || sanitizeArchiveId(entry.archiveId) !== entry.archiveId) {
+      throw dataManagementError('invalid-data-release-reference-archive', '数据发布清单含无效参考存档 ID。');
+    }
+    if (archiveIds.has(entry.archiveId)) {
+      throw dataManagementError('duplicate-data-release-reference-archive', `数据发布清单含重复参考存档：${entry.archiveId}`);
+    }
+    archiveIds.add(entry.archiveId);
+    if (typeof entry.label !== 'string' || !entry.label.trim() || !Number.isInteger(entry.archiveVersion) || entry.archiveVersion < 1
+      || typeof entry.payloadHash !== 'string' || !/^sha256:[a-f0-9]{64}$/i.test(entry.payloadHash)
+      || !Number.isSafeInteger(entry.nodeCount) || entry.nodeCount < 0) {
+      throw dataManagementError('invalid-data-release-reference-archive', `数据发布清单参考存档条目无效：${entry.archiveId}`);
+    }
+    return {
+      archiveId: entry.archiveId,
+      label: entry.label.trim(),
+      archiveVersion: entry.archiveVersion,
+      payloadHash: entry.payloadHash.toLowerCase(),
+      nodeCount: entry.nodeCount,
+      hasCurrentNode: Boolean(entry.hasCurrentNode),
+    };
+  });
   if (shellVersion && manifest.minShellVersion && compareVersionNumberish(shellVersion, manifest.minShellVersion) < 0) {
     throw dataManagementError('data-release-shell-version-incompatible', `当前 Shell ${shellVersion} 不满足最低版本 ${manifest.minShellVersion}。`);
   }
   const signatureInfo = requireSignature ? verifyDataReleaseManifestSignature(manifest, publicKey) : null;
-  return { ...manifest, dataVersion, signatureInfo };
+  return { ...manifest, dataVersion, referenceArchives: normalizedReferenceArchives, signatureInfo };
 }
 
 function runChecked(command, args, options = {}) {
@@ -489,16 +516,21 @@ function runChecked(command, args, options = {}) {
   return result.stdout;
 }
 
-function assertSafeCatalogArchive(archivePath) {
+function assertSafeDataReleaseArchive(archivePath, referenceArchives = []) {
   const entries = runChecked('unzip', ['-Z1', archivePath]).split(/\r?\n/).filter(Boolean);
-  const expected = new Set(['catalog.sqlite', 'manifest.json']);
+  const expected = new Set([
+    'catalog.sqlite',
+    'manifest.json',
+    ...(referenceArchives.length ? ['archives/'] : []),
+    ...referenceArchives.map((entry) => `archives/${entry.archiveId}.json`),
+  ]);
   if (entries.length !== expected.size || new Set(entries).size !== entries.length || entries.some((entry) => !expected.has(entry))) {
-    throw dataManagementError('unsafe-data-release-archive', '数据发布包只能包含 catalog.sqlite 和 manifest.json。', { entries });
+    throw dataManagementError('unsafe-data-release-archive', '数据发布包包含未声明的文件。', { entries });
   }
 }
 
-function extractCatalogArchive(archivePath, destination) {
-  assertSafeCatalogArchive(archivePath);
+function extractDataReleaseArchive(archivePath, destination, referenceArchives = []) {
+  assertSafeDataReleaseArchive(archivePath, referenceArchives);
   fs.mkdirSync(destination, { recursive: true });
   if (process.platform === 'win32') {
     const escapedArchive = archivePath.replace(/'/g, "''");
@@ -509,12 +541,41 @@ function extractCatalogArchive(archivePath, destination) {
   }
 }
 
-function createDataReleasePackage({ catalogPath, outputDirectory, manifest: manifestInput, privateKey, keyId }) {
+function createDataReleasePackage({ catalogPath, outputDirectory, referenceArchiveDirectory, manifest: manifestInput, privateKey, keyId }) {
   const catalog = validateCatalogDatabase({ databasePath: catalogPath, expectedDataVersion: manifestInput?.dataVersion });
   const dataVersion = sanitizeVersion(manifestInput?.dataVersion);
   const outputDir = path.resolve(outputDirectory, dataVersion);
   if (fs.existsSync(outputDir)) throw dataManagementError('data-release-output-exists', `发布目录已存在：${outputDir}`);
-  const packageFileName = `catalog-${dataVersion}.zip`;
+  const referenceArchives = (() => {
+    if (!referenceArchiveDirectory) return [];
+    if (!fs.existsSync(referenceArchiveDirectory) || !fs.statSync(referenceArchiveDirectory).isDirectory()) {
+      throw dataManagementError('reference-archive-source-not-found', '待发布参考存档目录不存在。');
+    }
+    const seen = new Set();
+    return fs.readdirSync(referenceArchiveDirectory, { withFileTypes: true })
+      .filter((entry) => entry.isFile() && entry.name.endsWith('.json'))
+      .map((entry) => normalizeTimelineArchive(
+        JSON.parse(fs.readFileSync(path.join(referenceArchiveDirectory, entry.name), 'utf8')),
+        { expectedSource: 'reference' },
+      ))
+      .sort((left, right) => left.archiveId.localeCompare(right.archiveId))
+      .map((archive) => {
+        if (seen.has(archive.archiveId)) {
+          throw dataManagementError('duplicate-data-release-reference-archive', `待发布参考存档含重复 ID：${archive.archiveId}`);
+        }
+        seen.add(archive.archiveId);
+        return archive;
+      });
+  })();
+  const archiveEntries = referenceArchives.map((archive) => ({
+    archiveId: archive.archiveId,
+    label: archive.label,
+    archiveVersion: archive.archiveVersion,
+    payloadHash: archive.payloadHash,
+    nodeCount: archive.worktree?.nodeCount || 0,
+    hasCurrentNode: Boolean(archive.worktree?.currentNodeId),
+  }));
+  const packageFileName = `data-${dataVersion}.zip`;
   const temporaryDir = fs.mkdtempSync(path.join(os.tmpdir(), `dmg-catalog-${dataVersion}-`));
   try {
     fs.copyFileSync(catalogPath, path.join(temporaryDir, 'catalog.sqlite'));
@@ -523,10 +584,20 @@ function createDataReleasePackage({ catalogPath, outputDirectory, manifest: mani
       schemaVersion: 1,
       dataVersion,
       catalog: { sha256: catalog.sha256, schemaVersion: catalog.schemaVersion },
+      referenceArchives: archiveEntries,
     }, null, 2)}\n`, 'utf8');
+    if (referenceArchives.length) {
+      const archiveDirectory = path.join(temporaryDir, 'archives');
+      fs.mkdirSync(archiveDirectory, { recursive: true });
+      for (const archive of referenceArchives) {
+        const portableArchive = { ...archive };
+        delete portableArchive.reference;
+        writeJsonAtomically(path.join(archiveDirectory, `${archive.archiveId}.json`), portableArchive);
+      }
+    }
     fs.mkdirSync(outputDir, { recursive: true });
     const packagePath = path.join(outputDir, packageFileName);
-    runChecked('zip', ['-X', '-q', '-r', packagePath, '.'], { cwd: temporaryDir });
+    runChecked('zip', ['-X', '-q', '-r', packagePath, 'catalog.sqlite', 'manifest.json', ...(referenceArchives.length ? ['archives'] : [])], { cwd: temporaryDir });
     const unsignedManifest = {
       type: DATA_RELEASE_MANIFEST_TYPE,
       manifestVersion: 1,
@@ -537,6 +608,7 @@ function createDataReleasePackage({ catalogPath, outputDirectory, manifest: mani
       catalogSchemaVersion: catalog.schemaVersion,
       package: { fileName: packageFileName, packagePath: packageFileName, sizeBytes: fs.statSync(packagePath).size, sha256: hashFileSha256(packagePath) },
       catalog: { sha256: catalog.sha256, ...catalog.counts },
+      referenceArchives: archiveEntries,
     };
     const manifest = privateKey ? signDataReleaseManifest(unsignedManifest, privateKey, keyId) : unsignedManifest;
     validateDataReleaseManifest(manifest, { publicKey: privateKey ? crypto.createPublicKey(privateKey) : undefined });
@@ -1056,15 +1128,25 @@ function createDataManagementService({ runtimeDataRoot, builtinCatalogPath, shel
     if (!active?.releaseId) return null;
     const releaseId = sanitizeVersion(active.releaseId);
     const directory = path.join(paths.referenceArchiveVersionsDirectory, releaseId);
-    const manifest = readJsonIfExists(path.join(directory, 'reference-archive-manifest.json'));
-    if (!manifest) return null;
-    return { releaseId, directory, manifest, activatedAt: active.activatedAt || null };
+    const dataManifest = readJsonIfExists(path.join(directory, 'data-release-manifest.json'));
+    if (dataManifest) {
+      const manifest = validateDataReleaseManifest(dataManifest, { shellVersion, publicKey, requireSignature });
+      return { releaseId, directory, manifest, activatedAt: active.activatedAt || null, source: 'data-release' };
+    }
+    // Keep releases created by the previous, split-package implementation
+    // readable while new releases use the unified data package above.
+    const legacyManifest = readJsonIfExists(path.join(directory, 'reference-archive-manifest.json'));
+    if (!legacyManifest) return null;
+    const manifest = validateReferenceArchiveReleaseManifest(legacyManifest, { shellVersion, publicKey, requireSignature });
+    return { releaseId, directory, manifest, activatedAt: active.activatedAt || null, source: 'legacy-reference-release' };
   }
 
   function listReferenceTimelineArchives() {
     const active = readActiveReferenceArchiveRelease();
     if (!active) return [];
-    const archives = Array.isArray(active.manifest.archives) ? active.manifest.archives : [];
+    const archives = Array.isArray(active.manifest.referenceArchives)
+      ? active.manifest.referenceArchives
+      : (Array.isArray(active.manifest.archives) ? active.manifest.archives : []);
     return archives.map((entry) => {
       const archiveId = entry?.archiveId;
       if (typeof archiveId !== 'string') return null;
@@ -1737,6 +1819,40 @@ function createDataManagementService({ runtimeDataRoot, builtinCatalogPath, shel
     return readActiveCatalog();
   }
 
+  function activateUnifiedDataRelease(dataVersion, manifestUrl = '') {
+    const version = sanitizeVersion(dataVersion);
+    const referenceDirectory = path.join(paths.referenceArchiveVersionsDirectory, version);
+    let referenceManifest = readJsonIfExists(path.join(referenceDirectory, 'data-release-manifest.json'));
+    if (!referenceManifest) {
+      // Catalog-only packages created before the unified release format remain
+      // valid. When such a version is selected, materialize an empty reference
+      // index from its already verified catalog manifest instead of making
+      // rollback impossible.
+      const catalogManifest = readJsonIfExists(resolveCatalog(version).manifestPath);
+      if (!catalogManifest) {
+        throw dataManagementError('data-release-reference-archives-missing', '数据发布包的参考存档索引不存在。', { dataVersion: version });
+      }
+      const checkedCatalogManifest = validateDataReleaseManifest(catalogManifest, { shellVersion, publicKey, requireSignature });
+      if (checkedCatalogManifest.referenceArchives.length) {
+        throw dataManagementError('data-release-reference-archives-missing', '数据发布包的参考存档索引不完整。', { dataVersion: version });
+      }
+      fs.mkdirSync(referenceDirectory, { recursive: true });
+      writeJsonAtomically(path.join(referenceDirectory, 'data-release-manifest.json'), catalogManifest);
+      referenceManifest = catalogManifest;
+    }
+    const checkedManifest = validateDataReleaseManifest(referenceManifest, { shellVersion, publicKey, requireSignature });
+    if (checkedManifest.dataVersion !== version) {
+      throw dataManagementError('data-release-reference-archives-version-mismatch', '数据发布包的参考存档索引版本不一致。', { dataVersion: version });
+    }
+    writeJsonAtomically(paths.referenceArchiveActivePath, {
+      releaseId: version,
+      activatedAt: new Date().toISOString(),
+      manifestUrl,
+      source: 'data-release',
+    });
+    return activateVersion(version, manifestUrl);
+  }
+
   function installRelease({ manifest, archivePath, manifestUrl = '' }) {
     ensureLayout();
     const checkedManifest = validateDataReleaseManifest(manifest, { shellVersion, publicKey, requireSignature });
@@ -1749,35 +1865,83 @@ function createDataManagementService({ runtimeDataRoot, builtinCatalogPath, shel
       throw dataManagementError('data-release-package-sha256-mismatch', '数据发布包哈希校验失败。');
     }
     const target = resolveCatalog(checkedManifest.dataVersion);
+    const referenceTargetDirectory = path.join(paths.referenceArchiveVersionsDirectory, checkedManifest.dataVersion);
+    let catalogAlreadyInstalled = false;
+    let referenceAlreadyInstalled = false;
     if (fs.existsSync(target.directory)) {
       const installedManifest = readJsonIfExists(target.manifestPath);
       if (installedManifest?.catalog?.sha256 === checkedManifest.catalog.sha256 && installedManifest?.package?.sha256 === checkedManifest.package.sha256) {
-        return { installed: false, reused: true, active: activateVersion(checkedManifest.dataVersion, manifestUrl) };
+        catalogAlreadyInstalled = true;
+      } else {
+        throw dataManagementError('data-release-version-collision', `已安装的数据版本 ${checkedManifest.dataVersion} 与发布包内容不一致。`);
       }
-      throw dataManagementError('data-release-version-collision', `已安装的数据版本 ${checkedManifest.dataVersion} 与发布包内容不一致。`);
+    }
+    if (fs.existsSync(referenceTargetDirectory)) {
+      const installedReferenceManifest = readJsonIfExists(path.join(referenceTargetDirectory, 'data-release-manifest.json'));
+      if (installedReferenceManifest?.package?.sha256 === checkedManifest.package.sha256) {
+        referenceAlreadyInstalled = true;
+      } else {
+        throw dataManagementError('data-release-reference-archive-version-collision', `已安装的数据版本 ${checkedManifest.dataVersion} 的参考存档内容不一致。`);
+      }
     }
     const staging = fs.mkdtempSync(path.join(paths.stagingDirectory, `${checkedManifest.dataVersion}-`));
+    const referenceStaging = fs.mkdtempSync(path.join(paths.stagingDirectory, `reference-${checkedManifest.dataVersion}-`));
     try {
-      extractCatalogArchive(archivePath, staging);
+      extractDataReleaseArchive(archivePath, staging, checkedManifest.referenceArchives);
       const packageManifest = readJsonIfExists(path.join(staging, 'manifest.json'));
       if (!packageManifest || packageManifest.type !== CATALOG_PACKAGE_MANIFEST_TYPE || packageManifest.dataVersion !== checkedManifest.dataVersion
-        || packageManifest.catalog?.sha256 !== checkedManifest.catalog.sha256 || packageManifest.catalog?.schemaVersion !== checkedManifest.catalogSchemaVersion) {
+        || packageManifest.catalog?.sha256 !== checkedManifest.catalog.sha256 || packageManifest.catalog?.schemaVersion !== checkedManifest.catalogSchemaVersion
+        || stableJson(packageManifest.referenceArchives || []) !== stableJson(checkedManifest.referenceArchives)) {
         throw dataManagementError('data-release-inner-manifest-mismatch', '数据发布包内部 manifest 与外部清单不一致。');
       }
       validateCatalogDatabase({ databasePath: path.join(staging, 'catalog.sqlite'), expectedDataVersion: checkedManifest.dataVersion, expectedSha256: checkedManifest.catalog.sha256, expectedSchemaVersion: checkedManifest.catalogSchemaVersion });
+      for (const entry of checkedManifest.referenceArchives) {
+        const archive = readTimelineArchiveFile(path.join(staging, 'archives', `${entry.archiveId}.json`), { expectedSource: 'reference' });
+        if (archive.payloadHash !== entry.payloadHash || archive.label !== entry.label || archive.archiveVersion !== entry.archiveVersion
+          || (archive.worktree?.nodeCount || 0) !== entry.nodeCount || Boolean(archive.worktree?.currentNodeId) !== entry.hasCurrentNode) {
+          throw dataManagementError('data-release-reference-archive-mismatch', `数据发布包参考存档与清单不匹配：${entry.archiveId}`);
+        }
+        writeJsonAtomically(path.join(referenceStaging, 'archives', `${entry.archiveId}.json`), {
+          ...archive,
+          reference: {
+            releaseId: checkedManifest.dataVersion,
+            packageHash: checkedManifest.package.sha256,
+            downloadedAt: new Date().toISOString(),
+          },
+        });
+      }
+      // Keep the signed wire manifest byte-for-byte semantically identical in
+      // both release roots. `checkedManifest` contains local `signatureInfo`
+      // diagnostics and would invalidate the original signature if persisted.
+      writeJsonAtomically(path.join(referenceStaging, 'data-release-manifest.json'), manifest);
+      // The catalog version keeps only its SQLite artifact and manifest; the
+      // read-only reference library owns the extracted archive copies.
+      fs.rmSync(path.join(staging, 'archives'), { recursive: true, force: true });
       fs.rmSync(path.join(staging, 'manifest.json'), { force: true });
       writeJsonAtomically(path.join(staging, 'data-release-manifest.json'), manifest);
-      fs.mkdirSync(path.dirname(target.directory), { recursive: true });
-      fs.renameSync(staging, target.directory);
-      return { installed: true, reused: false, active: activateVersion(checkedManifest.dataVersion, manifestUrl) };
+      if (!catalogAlreadyInstalled) {
+        fs.mkdirSync(path.dirname(target.directory), { recursive: true });
+        fs.renameSync(staging, target.directory);
+      }
+      if (!referenceAlreadyInstalled) {
+        fs.mkdirSync(path.dirname(referenceTargetDirectory), { recursive: true });
+        fs.renameSync(referenceStaging, referenceTargetDirectory);
+      }
+      return {
+        installed: !catalogAlreadyInstalled || !referenceAlreadyInstalled,
+        reused: catalogAlreadyInstalled && referenceAlreadyInstalled,
+        active: activateUnifiedDataRelease(checkedManifest.dataVersion, manifestUrl),
+      };
     } catch (error) {
-      fs.rmSync(staging, { recursive: true, force: true });
       throw error;
+    } finally {
+      fs.rmSync(staging, { recursive: true, force: true });
+      fs.rmSync(referenceStaging, { recursive: true, force: true });
     }
   }
 
   function rollbackTo(dataVersion) {
-    return activateVersion(dataVersion, 'manual-rollback');
+    return activateUnifiedDataRelease(dataVersion, 'manual-rollback');
   }
 
   function listPreloadedTemplates() {

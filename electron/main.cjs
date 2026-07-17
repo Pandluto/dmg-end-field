@@ -1944,30 +1944,6 @@ ipcMain.handle('desktop:pick-data-release-output-dir', async () => {
   }
   return { ok: true, path: result.filePaths[0] };
 });
-ipcMain.handle('desktop:pick-reference-archive-release-source-dir', async () => {
-  const win = BrowserWindow.getFocusedWindow() || shellWindow;
-  if (!win) return { ok: false, error: '无活动窗口' };
-  const result = await dialog.showOpenDialog(win, {
-    title: '选择待发布参考存档目录',
-    properties: ['openDirectory'],
-  });
-  if (result.canceled || !result.filePaths?.[0]) {
-    return { ok: false, canceled: true, error: '已取消' };
-  }
-  return { ok: true, path: result.filePaths[0] };
-});
-ipcMain.handle('desktop:pick-reference-archive-release-output-dir', async () => {
-  const win = BrowserWindow.getFocusedWindow() || shellWindow;
-  if (!win) return { ok: false, error: '无活动窗口' };
-  const result = await dialog.showOpenDialog(win, {
-    title: '选择参考存档发布包输出目录',
-    properties: ['openDirectory', 'createDirectory'],
-  });
-  if (result.canceled || !result.filePaths?.[0]) {
-    return { ok: false, canceled: true, error: '已取消' };
-  }
-  return { ok: true, path: result.filePaths[0] };
-});
 ipcMain.handle('desktop:build-image-release-package', async (_event, payload) => {
   try {
     const scriptPath = path.join(__dirname, '..', 'scripts', 'build-image-release-manifest.mjs');
@@ -1994,6 +1970,8 @@ ipcMain.handle('desktop:build-data-release-package', async (_event, payload) => 
     const result = mod.buildDataReleasePackage({
       source: payload?.source,
       output: payload?.output,
+      // 发布候选由数据管理服务固定维护；发布者不需要、也不能另外挑选一个待发布目录。
+      referenceArchiveDirectory: getDataManagementService().paths.referenceArchiveOutboxDirectory,
       dataVersion: payload?.dataVersion,
       releaseTag: payload?.releaseTag,
       minShellVersion: payload?.minShellVersion,
@@ -2003,24 +1981,6 @@ ipcMain.handle('desktop:build-data-release-package', async (_event, payload) => 
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     appendRuntimeLog('data-release-builder', `failed ${message}`);
-    return { ok: false, error: message };
-  }
-});
-ipcMain.handle('desktop:build-reference-archive-release-package', async (_event, payload) => {
-  try {
-    const scriptPath = path.join(__dirname, '..', 'scripts', 'build-reference-archive-release.mjs');
-    const mod = await import(pathToFileURL(scriptPath).href);
-    const result = mod.buildReferenceArchiveReleasePackage({
-      source: payload?.source,
-      output: payload?.output,
-      releaseId: payload?.releaseId,
-      minShellVersion: payload?.minShellVersion,
-    });
-    appendRuntimeLog('reference-archive-release-builder', `built ${result.releaseId} -> ${result.outputDir}`);
-    return { ok: true, result };
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    appendRuntimeLog('reference-archive-release-builder', `failed ${message}`);
     return { ok: false, error: message };
   }
 });
@@ -3122,19 +3082,17 @@ function resolveSiblingReleaseManifestUrl(manifestName) {
   }
 }
 
-function resolveDataReleasePackageBaseUrl(manifestUrl, manifest, kind) {
-  const manifestName = kind === 'catalog' ? DATA_RELEASE_MANIFEST_NAME : REFERENCE_ARCHIVE_RELEASE_MANIFEST_NAME;
-  const defaultManifestUrl = `${DEFAULT_IMAGE_RELEASE_DOWNLOAD_ROOT}/latest/download/${manifestName}`;
-  const releaseTag = kind === 'catalog'
-    ? (typeof manifest?.releaseTag === 'string' && manifest.releaseTag.trim() ? manifest.releaseTag.trim() : manifest?.dataVersion)
-    : manifest?.releaseId;
+function resolveDataReleasePackageBaseUrl(manifestUrl, manifest) {
+  const defaultManifestUrl = `${DEFAULT_IMAGE_RELEASE_DOWNLOAD_ROOT}/latest/download/${DATA_RELEASE_MANIFEST_NAME}`;
+  const releaseTag = typeof manifest?.releaseTag === 'string' && manifest.releaseTag.trim()
+    ? manifest.releaseTag.trim()
+    : manifest?.dataVersion;
   if (!releaseTag || manifestUrl !== defaultManifestUrl) return manifestUrl;
-  return `${DEFAULT_IMAGE_RELEASE_DOWNLOAD_ROOT}/${encodeURIComponent(releaseTag)}/${manifestName}`;
+  return `${DEFAULT_IMAGE_RELEASE_DOWNLOAD_ROOT}/${encodeURIComponent(releaseTag)}/${DATA_RELEASE_MANIFEST_NAME}`;
 }
 
-async function loadOptionalDataReleaseManifest(kind) {
-  const manifestName = kind === 'catalog' ? DATA_RELEASE_MANIFEST_NAME : REFERENCE_ARCHIVE_RELEASE_MANIFEST_NAME;
-  const manifestUrl = resolveSiblingReleaseManifestUrl(manifestName);
+async function loadOptionalDataReleaseManifest() {
+  const manifestUrl = resolveSiblingReleaseManifestUrl(DATA_RELEASE_MANIFEST_NAME);
   const response = await fetchUrlRawWithRetry(manifestUrl, {
     timeoutMs: IMAGE_RELEASE_MANIFEST_TIMEOUT_MS,
     retries: 2,
@@ -3142,31 +3100,28 @@ async function loadOptionalDataReleaseManifest(kind) {
   // An image-only Release is a normal state. In particular, v1.7.2 may not
   // contain a data package yet, so 404 is not an update failure.
   if (response.statusCode === 404) {
-    return { kind, available: false, manifestUrl, manifest: null, packageBaseUrl: manifestUrl };
+    return { available: false, manifestUrl, manifest: null, packageBaseUrl: manifestUrl };
   }
   if (response.statusCode < 200 || response.statusCode >= 300) {
-    throw new Error(`${manifestName} 请求失败: HTTP ${response.statusCode}`);
+    throw new Error(`${DATA_RELEASE_MANIFEST_NAME} 请求失败: HTTP ${response.statusCode}`);
   }
   let parsed;
   try {
     parsed = JSON.parse(response.body.toString('utf-8') || '{}');
   } catch {
-    throw new Error(`${manifestName} 不是有效 JSON。`);
+    throw new Error(`${DATA_RELEASE_MANIFEST_NAME} 不是有效 JSON。`);
   }
-  const manifest = kind === 'catalog'
-    ? validateDataReleaseManifest(parsed, { shellVersion: app.getVersion() })
-    : validateReferenceArchiveReleaseManifest(parsed, { shellVersion: app.getVersion() });
+  const manifest = validateDataReleaseManifest(parsed, { shellVersion: app.getVersion() });
   const packageUrls = resolveReleasePackageDownloadUrls(
-    resolveDataReleasePackageBaseUrl(manifestUrl, manifest, kind),
+    resolveDataReleasePackageBaseUrl(manifestUrl, manifest),
     manifest.package,
   );
-  if (!packageUrls.length) throw new Error(`${manifestName} 缺少发布包下载地址。`);
+  if (!packageUrls.length) throw new Error(`${DATA_RELEASE_MANIFEST_NAME} 缺少发布包下载地址。`);
   return {
-    kind,
     available: true,
     manifestUrl,
     manifest,
-    packageBaseUrl: resolveDataReleasePackageBaseUrl(manifestUrl, manifest, kind),
+    packageBaseUrl: resolveDataReleasePackageBaseUrl(manifestUrl, manifest),
   };
 }
 
@@ -3183,7 +3138,7 @@ function getInstalledDataReleaseTargets() {
   };
 }
 
-function buildDataReleaseUpdateSummary(remoteCatalog, remoteReference) {
+function buildDataReleaseUpdateSummary(remote) {
   const installedTargets = getInstalledDataReleaseTargets();
   const current = {
     catalogVersion: installedTargets.catalogVersion,
@@ -3191,29 +3146,20 @@ function buildDataReleaseUpdateSummary(remoteCatalog, remoteReference) {
     referenceReleaseId: installedTargets.referenceReleaseId,
     referenceActivatedAt: installedTargets.referenceActivatedAt,
   };
-  const catalog = remoteCatalog.available ? {
+  const release = remote.available ? {
     available: true,
-    dataVersion: remoteCatalog.manifest.dataVersion,
-    releaseTag: remoteCatalog.manifest.releaseTag || '',
-    packageSizeBytes: Number(remoteCatalog.manifest.package.sizeBytes) || 0,
-    compatible: isShellVersionCompatible(remoteCatalog.manifest.minShellVersion),
-    hasUpdate: remoteCatalog.manifest.dataVersion !== current.catalogVersion,
-    manifestUrl: remoteCatalog.manifestUrl,
-  } : { available: false, hasUpdate: false, manifestUrl: remoteCatalog.manifestUrl };
-  const reference = remoteReference.available ? {
-    available: true,
-    releaseId: remoteReference.manifest.releaseId,
-    archiveCount: remoteReference.manifest.archives.length,
-    packageSizeBytes: Number(remoteReference.manifest.package.sizeBytes) || 0,
-    compatible: isShellVersionCompatible(remoteReference.manifest.minShellVersion),
-    hasUpdate: remoteReference.manifest.releaseId !== current.referenceReleaseId,
-    manifestUrl: remoteReference.manifestUrl,
-  } : { available: false, hasUpdate: false, manifestUrl: remoteReference.manifestUrl };
-  const hasUpdate = Boolean(catalog.hasUpdate || reference.hasUpdate);
-  const hasAnyPackage = Boolean(catalog.available || reference.available);
+    dataVersion: remote.manifest.dataVersion,
+    releaseTag: remote.manifest.releaseTag || '',
+    archiveCount: remote.manifest.referenceArchives.length,
+    packageSizeBytes: Number(remote.manifest.package.sizeBytes) || 0,
+    compatible: isShellVersionCompatible(remote.manifest.minShellVersion),
+    hasUpdate: remote.manifest.dataVersion !== current.catalogVersion || remote.manifest.dataVersion !== current.referenceReleaseId,
+    manifestUrl: remote.manifestUrl,
+  } : { available: false, hasUpdate: false, manifestUrl: remote.manifestUrl };
+  const hasUpdate = Boolean(release.hasUpdate);
+  const hasAnyPackage = Boolean(release.available);
   return {
-    catalog,
-    reference,
+    release,
     hasUpdate,
     hasAnyPackage,
     updateMessage: hasAnyPackage
@@ -3231,8 +3177,7 @@ function getDataReleaseUpdateStatePayload() {
     dataReleaseUpdateState.lastError = dataReleaseUpdateState.lastError || (error instanceof Error ? error.message : String(error));
   }
   return {
-    configuredCatalogManifestUrl: resolveSiblingReleaseManifestUrl(DATA_RELEASE_MANIFEST_NAME),
-    configuredReferenceManifestUrl: resolveSiblingReleaseManifestUrl(REFERENCE_ARCHIVE_RELEASE_MANIFEST_NAME),
+    configuredManifestUrl: resolveSiblingReleaseManifestUrl(DATA_RELEASE_MANIFEST_NAME),
     currentCatalogVersion: current.catalogVersion,
     currentCatalogSource: current.catalogSource,
     currentReferenceReleaseId: current.referenceReleaseId,
@@ -3246,21 +3191,13 @@ function getDataReleaseUpdateStatePayload() {
   };
 }
 
-async function loadDataReleaseUpdateTargets() {
-  const [remoteCatalog, remoteReference] = await Promise.all([
-    loadOptionalDataReleaseManifest('catalog'),
-    loadOptionalDataReleaseManifest('reference'),
-  ]);
-  return { remoteCatalog, remoteReference };
-}
-
 async function checkForDataReleaseUpdates() {
   dataReleaseUpdateState.status = 'checking';
   dataReleaseUpdateState.lastError = '';
   dataReleaseUpdateState.progress = null;
   try {
-    const { remoteCatalog, remoteReference } = await loadDataReleaseUpdateTargets();
-    dataReleaseUpdateState.latestSummary = buildDataReleaseUpdateSummary(remoteCatalog, remoteReference);
+    const remote = await loadOptionalDataReleaseManifest();
+    dataReleaseUpdateState.latestSummary = buildDataReleaseUpdateSummary(remote);
     dataReleaseUpdateState.status = 'idle';
     dataReleaseUpdateState.lastCheckedAt = Date.now();
     return getDataReleaseUpdateStatePayload();
@@ -3297,7 +3234,7 @@ async function downloadVerifiedDataReleasePackage({ remote, label }) {
   }
   const service = getDataManagementService();
   service.ensureLayout();
-  const stagingDirectory = fs.mkdtempSync(path.join(service.paths.stagingDirectory, `data-update-${remote.kind}-`));
+  const stagingDirectory = fs.mkdtempSync(path.join(service.paths.stagingDirectory, 'data-update-'));
   const archivePath = path.join(stagingDirectory, package.fileName);
   fs.writeFileSync(archivePath, archiveBuffer);
   return { stagingDirectory, archivePath };
@@ -3308,38 +3245,32 @@ async function applyDataReleaseUpdate() {
   dataReleaseUpdateState.lastError = '';
   dataReleaseUpdateState.progress = null;
   try {
-    const { remoteCatalog, remoteReference } = await loadDataReleaseUpdateTargets();
-    const summary = buildDataReleaseUpdateSummary(remoteCatalog, remoteReference);
+    const remote = await loadOptionalDataReleaseManifest();
+    const summary = buildDataReleaseUpdateSummary(remote);
     const service = getDataManagementService();
-    const applied = [];
-    for (const remote of [remoteCatalog, remoteReference]) {
-      const item = remote.kind === 'catalog' ? summary.catalog : summary.reference;
-      if (!remote.available || !item.hasUpdate) continue;
-      if (!item.compatible) {
-        throw new Error(`${remote.kind === 'catalog' ? '数据 catalog' : '参考存档'}要求更高版本的 Shell。`);
+    let applied = false;
+    if (remote.available && summary.release.hasUpdate) {
+      if (!summary.release.compatible) {
+        throw new Error('数据发布包要求更高版本的 Shell。');
       }
       dataReleaseUpdateState.status = 'downloading';
-      const label = remote.kind === 'catalog' ? '数据 catalog 全量包' : '参考存档全量包';
+      const label = '数据与参考存档全量包';
       const downloaded = await downloadVerifiedDataReleasePackage({ remote, label });
       try {
         dataReleaseUpdateState.status = 'activating';
         dataReleaseUpdateState.progress = { phase: 'activating', label: `登记${label}`, receivedBytes: 1, totalBytes: 1, percent: 100, updatedAt: Date.now() };
-        if (remote.kind === 'catalog') {
-          service.installRelease({ manifest: remote.manifest, archivePath: downloaded.archivePath, manifestUrl: remote.manifestUrl });
-        } else {
-          service.installReferenceArchiveRelease({ manifest: remote.manifest, archivePath: downloaded.archivePath, manifestUrl: remote.manifestUrl });
-        }
-        applied.push(remote.kind);
+        service.installRelease({ manifest: remote.manifest, archivePath: downloaded.archivePath, manifestUrl: remote.manifestUrl });
+        applied = true;
       } finally {
         fs.rmSync(downloaded.stagingDirectory, { recursive: true, force: true });
       }
     }
-    dataReleaseUpdateState.latestSummary = buildDataReleaseUpdateSummary(remoteCatalog, remoteReference);
+    dataReleaseUpdateState.latestSummary = buildDataReleaseUpdateSummary(remote);
     dataReleaseUpdateState.status = 'idle';
     dataReleaseUpdateState.lastCheckedAt = Date.now();
-    dataReleaseUpdateState.lastUpdatedAt = applied.length ? dataReleaseUpdateState.lastCheckedAt : dataReleaseUpdateState.lastUpdatedAt;
-    dataReleaseUpdateState.progress = { phase: 'done', label: applied.length ? `已更新：${applied.join('、')}` : '数据已是最新版本', receivedBytes: 1, totalBytes: 1, percent: 100, updatedAt: Date.now() };
-    appendRuntimeLog('data-release-update', applied.length ? `updated ${applied.join(',')}` : 'no update');
+    dataReleaseUpdateState.lastUpdatedAt = applied ? dataReleaseUpdateState.lastCheckedAt : dataReleaseUpdateState.lastUpdatedAt;
+    dataReleaseUpdateState.progress = { phase: 'done', label: applied ? '已更新数据与参考存档' : '数据已是最新版本', receivedBytes: 1, totalBytes: 1, percent: 100, updatedAt: Date.now() };
+    appendRuntimeLog('data-release-update', applied ? 'updated unified data release' : 'no update');
     return getDataReleaseUpdateStatePayload();
   } catch (error) {
     dataReleaseUpdateState.status = 'failed';
@@ -5064,7 +4995,7 @@ function getDataManagementStatePayload() {
       catalogRoot: service.paths.catalogRoot,
       legacyMigrations: service.listLegacyMigrationRecords(),
       networkUpdateEnabled: true,
-      networkUpdateReason: 'Shell 会从与图片相同的 Release 地址检查 data-release-manifest.json 与 reference-archive-manifest.json；当前 Release 可以只包含图片。',
+      networkUpdateReason: 'Shell 会从与图片相同的 Release 地址检查唯一的 data-release-manifest.json；当前 Release 可以只包含图片。',
     };
   } catch (error) {
     return {

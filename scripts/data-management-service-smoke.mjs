@@ -124,21 +124,36 @@ assert.equal(migrationService.migrateLegacyArchives({ sources: [{
 }] })[0].reason, 'already-migrated');
 assert.equal(migrationService.listLegacyMigrationRecords().some((entry) => entry.sourceName === 'legacy-share-archive.json' && entry.status === 'completed'), true);
 
-function buildRelease(version, attack) {
+function buildRelease(version, attack, { includeReferenceArchive = false } = {}) {
   const catalog = createCatalogDatabase(catalogInput(version, attack));
+  const referenceArchiveDirectory = path.join(root, `reference-archives-${version}`);
+  if (includeReferenceArchive) {
+    fs.mkdirSync(referenceArchiveDirectory, { recursive: true });
+    fs.writeFileSync(path.join(referenceArchiveDirectory, 'release-reference.json'), JSON.stringify({
+      type: 'dmg.timeline-archive.v1',
+      archiveVersion: 1,
+      source: 'reference',
+      archiveId: `release-reference-${version}`,
+      label: `发布参考存档 ${version}`,
+      createdAt: '2026-07-17T00:00:00.000Z',
+      payload,
+    }), 'utf8');
+  }
   return createDataReleasePackage({
     catalogPath: catalog.databasePath,
     outputDirectory: releaseRoot,
+    ...(includeReferenceArchive ? { referenceArchiveDirectory } : {}),
     manifest: { dataVersion: version, releaseTag: version, minShellVersion: '1.8.2' },
     privateKey,
     keyId: 'smoke-key',
   });
 }
 
-const releaseV2 = buildRelease('data-v2', 342);
+const releaseV2 = buildRelease('data-v2', 342, { includeReferenceArchive: true });
 const installedV2 = service.installRelease({ manifest: releaseV2.manifest, archivePath: releaseV2.packagePath, manifestUrl: 'file://smoke/v2' });
 assert.equal(installedV2.installed, true);
 assert.equal(installedV2.active.dataVersion, 'data-v2');
+assert.equal(service.listTimelineArchives({ source: 'reference' })[0]?.archiveId, 'release-reference-data-v2');
 assert.equal(service.listPreloadedTemplates()[0]?.id, 'template.demo');
 assert.equal(service.getPreloadedTemplate('template.demo').catalogVersion, 'data-v2');
 assert.equal(service.getPreloadedTemplate('template.demo').payload.timelineData.staffLines.length, 0);

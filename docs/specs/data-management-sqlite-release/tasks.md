@@ -124,9 +124,9 @@
 
 - [x] 本地存档与待发布参考存档均可删除；联网下载的参考存档保持只读，SQLite 工作区删除不会连带删除任一存档库。
 - [x] 本地存档与待发布参考存档可双向转换；转换先写入并校验目标，再移除来源，ID 冲突且内容不同会拒绝覆盖。
-- [x] Shell 数据页提供与图片同 Release 地址的 `data-release-manifest.json`、`reference-archive-manifest.json` 检查和一键更新；图片-only Release 显式显示“无数据包”。
-- [x] Catalog 数据包与参考存档发布包助手均移至 Shell「数据」标签页；两个包都保持全量 ZIP、哈希校验和 staging 安装链路。
-- [x] 已通过参考存档、数据管理、数据发布构建、Timeline Bundle smoke、TypeScript 检查和 Web 构建；运行中的开发主进程未重启，新的主进程 IPC 路由会在下次启动加载。
+- [x] Shell 数据页只从与图片同 Release 地址的 `data-release-manifest.json` 检查和一键更新；一个全量 ZIP 同时安装 catalog 与参考存档，图片-only Release 显式显示“无数据包”。
+- [x] Shell「数据」标签页只保留统一发布包助手；待发布参考存档由数据管理服务自动纳入，发布者只选择静态数据源、输出目录与版本。
+- [x] 已通过旧参考发布兼容、统一数据发布构建和安装、TypeScript 检查及 Web 构建；运行中的开发主进程未重启，新的主进程 IPC 路由会在下次启动加载。
 
 ## 推荐顺序
 

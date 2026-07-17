@@ -36,6 +36,9 @@ function parseArguments(argv) {
 export function buildDataReleasePackage(options = {}) {
   const source = requiredDirectory(options.source || path.join(repositoryRoot, 'public', 'data'), '数据源目录');
   const output = requiredDirectory(options.output, '输出目录');
+  const referenceArchiveDirectory = typeof options.referenceArchiveDirectory === 'string' && options.referenceArchiveDirectory.trim()
+    ? requiredDirectory(options.referenceArchiveDirectory, '待发布参考存档目录')
+    : '';
   const dataVersion = requiredVersion(options.dataVersion || options.version);
   const releaseTag = typeof options.releaseTag === 'string' && options.releaseTag.trim() ? options.releaseTag.trim() : dataVersion;
   const minShellVersion = typeof options.minShellVersion === 'string' ? options.minShellVersion.trim() : '';
@@ -46,16 +49,18 @@ export function buildDataReleasePackage(options = {}) {
     const release = createDataReleasePackage({
       catalogPath,
       outputDirectory: output,
+      referenceArchiveDirectory,
       manifest: { dataVersion, releaseTag, minShellVersion },
     });
     return {
-      mode: 'catalog-full',
+      mode: 'data-full',
       dataVersion,
       releaseTag,
       outputDir: release.outputDir,
       manifestPath: release.manifestPath,
       packagePaths: [release.packagePath],
       catalog: catalog.counts,
+      referenceArchiveCount: Array.isArray(release.manifest.referenceArchives) ? release.manifest.referenceArchives.length : 0,
       signed: false,
     };
   } finally {
@@ -69,6 +74,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     console.log(JSON.stringify(buildDataReleasePackage({
       source: args.source,
       output: args.output,
+      referenceArchiveDirectory: args.referenceArchiveDirectory || args.referenceArchives,
       dataVersion: args.dataVersion || args.version,
       releaseTag: args.releaseTag || args.tag,
       minShellVersion: args.minShellVersion || args.minShell,
