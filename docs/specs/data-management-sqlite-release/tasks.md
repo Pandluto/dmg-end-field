@@ -52,7 +52,7 @@
 
 - [x] 为服务增加数据包构建／安装、共享存档写入、旧包兼容和 SQLite 转换 smoke。
 - [x] 运行相关服务 smoke、TypeScript 检查和 Web 构建。
-- [ ] 使用真实 Electron Shell 与主界面确认数据页按钮切换、发布器无源目录、恢复标签、下载后的 Share Data 可见性。（已通过 Computer Use 确认主界面三标签、Shell 最新静态页按钮切换与无源目录发布器；常驻 Electron 主进程为改动前实例，待其按开发流程重启后复验 IPC 与实际 Share Data 列表。全程未写入用户数据。）
+- [x] 使用真实 Electron Shell 与主界面确认数据页按钮切换、发布器无源目录、恢复标签、下载后的 Share Data 可见性。（Computer Use：重启后的 Electron Shell 列出 1 个 Local Data 与 4 个 Share Data，Share Data 筛选可用；发布器无源目录；主界面本地／共享存档与 SQLite 三标签均可读取，且共享存档实际显示节点数量。全程未写入用户数据。）
 - [x] 逐项审计 Spec、Task、API、UI 文案和测试证据；列出已修复项与剩余非阻塞风险。
 
 验收：所有高风险数据流有可复现证据；任何验证失败不得宣称完成。
