@@ -1,135 +1,58 @@
-# 数据管理 SQLite 与网络发布：实施任务
+# 数据管理：SQLite、数据包、存档与 Release 实施任务
 
-## 基线与原则
+本 Task 实施 [Spec](spec.md)。范围仅为数据管理与恢复入口；不改变伤害计算、编辑器业务和主界面排轴编辑流程。
 
-本清单实施 [Spec](spec.md)，不改写主界面 Spec。2026-07-17 的独立工作树研究已证明分库、全量替换、版本钉死、原子激活/回滚、模板克隆、恢复事务和旧档幂等导入在技术上可行；这些只是 Demo 证据，**不能标记为生产功能已完成**。
+## UI 现状分析
 
-已确认的生产缺口是：Shell 尚无数据发布更新链路，Renderer 仍有正式 browser storage 写入，旧本机/共享存档尚未迁入统一 Repository，Shell 仍显示双存档语义。因此任务以先建立数据层，再迁移调用方，最后收敛 UI 和旧介质为顺序。
+- Shell 仍保留可用的 Local Data／Share Data 完整包保存、读取、应用、删除逻辑，但数据页被 catalog／参考存档面板覆盖，用户无法以正确的两类数据源进行操作。
+- Shell 发布器错误要求选择静态数据源目录，并将待发布参考存档自动塞入 catalog 包；这违背“从 Local Data 或 Share Data 选择一份发布”的业务规则。
+- 主界面恢复面板把“本地／待发布／联网／SQLite”并列；待发布和联网是旧实现泄漏，不是用户应见的对象分类。
+- 既有“应用数据”已经负责把完整包写入浏览器 storage；本任务将它收敛为唯一拆包入口，并把排轴部分导入共享存档。
 
-## T0：冻结边界、运行时布局与验收基线
+## T1：本地对象和兼容迁移
 
-- [ ] 定义 `DataManagementRepository`、`CatalogRepository`、`UserRepository` 和 `DataReleaseService` 的主进程 API、错误码与诊断结构。
-- [ ] 固定 `<runtime-data>/catalog`、`user`、`staging`、`backups` 的路径解析，不与现有 `data/localdata`、`data/sharedata` 混用。
-- [ ] 定义 catalog、user 两库 schema version、迁移版本、审计事件和 catalog 引用缺失诊断的兼容策略。
-- [ ] 将研究 Demo 的断言转为可在主工作树运行的测试基线；不依赖临时目录或手工检查。
-- [ ] 为现有 browser storage、本机/共享存档、`now-storage.json`、Timeline/Work Node SQLite 制作只读清单和迁移前备份计划。
+- [ ] 将存档库正式命名为 `local` 与 `shared`；移除 UI 与 API 中的 `pending-reference`／`reference` 产品语义。
+- [ ] 将运行时本地存档与共享存档放入独立目录；本地存档不得位于 Local Data 文件夹之下。
+- [ ] 兼容读取旧 `reference-archive-outbox`、旧 reference 安装目录和旧 `source: reference` 文件；首次读取前备份，幂等迁入共享存档。
+- [ ] 扩展完整数据包的 `timelineArchives` 存档部分；旧 timeline storage 字段可被解析但不改写原文件。
+- [ ] 实现共享存档整体写入 Local Data／Share Data 存档部分，写入前校验目标、写入失败不得损坏数据部分。
 
-验收：所有新写入入口都有唯一 Repository 归属；目录、错误和诊断语义可由 Renderer 和 Shell 稳定调用。
+验收：Local Data、Share Data、本地存档、共享存档是四个可独立列举的对象；旧文件仍在且可迁移。
 
-## T1：实现 catalog 构建、校验与只读查询
+## T2：应用数据与 SQLite／存档转换
 
-- [ ] 定义并创建 `catalog.sqlite` 的 `catalog_meta`、干员、武器、装备、系统 Buff、预载模板与不可变 payload 表。
-- [ ] 以稳定业务 ID 建立关联、外键和必要索引；禁止用显示名、路径或数组下标关联用户数据。
-- [ ] 实现 catalog 构建命令：由现有静态数据生成完整 SQLite 和 manifest 所需计数/hash。
-- [ ] 实现 SQLite `integrity_check`、schema version、必要表和 catalog SHA-256 校验。
-- [ ] 实现 builtin catalog 的只读打开、查询缓存和结构化“缺失目录项”诊断。
+- [ ] 为“应用数据”增加主进程服务：从 Local Data 或 Share Data 读取完整包，拆出数据部分和存档部分。
+- [ ] 数据部分沿用既有 Web storage 应用流程；存档部分导入共享存档，不直接应用到 SQLite。
+- [ ] SQLite 支持导出到本地存档和共享存档；共享存档支持转换为本地存档；两类存档均支持转换为新 SQLite 工作区。
+- [ ] 保持节点树导入根、checkout 映射、payload-only 降级、审计与删除隔离约束。
 
-验收：断网时 builtin catalog 可读取；删除或改名 catalog 条目不会删除用户记录，并能返回可读诊断。
+验收：应用完整包不会直接覆盖 SQLite；存档转换始终新建工作区且来源不删除。
 
-## T2：实现 Shell 全量数据发布与版本切换
+## T3：完整数据 Release
 
-- [ ] 实现 `data-release-manifest.v1` 生成、固定公钥签名和 Shell 端签名验证。
-- [ ] 实现远端 manifest 检查、版本比较、Shell 最低版本拦截和可读错误提示。
-- [ ] 实现全量 ZIP 下载至 staging，并限制路径穿越、文件数量、单文件大小和解压总大小。
-- [ ] 校验包 hash、catalog hash、SQLite 完整性和 schema 后，写入 `versions/<version>/`。
-- [ ] 通过原子 `active.json` 指针激活 catalog；失败时保留当前版本并记录诊断。
-- [ ] 实现重新打开 catalog 连接、刷新只读查询缓存，以及保留上一成功版本的回滚入口。
-- [ ] 实现同版本同 hash 重复安装幂等；发现同版本不同 hash 时拒绝并诊断。
+- [ ] 以一份已选 Local Data／Share Data 生成 `dmg.local-data-release-manifest.v1`、内部 manifest 和 ZIP；删除数据源目录选择。
+- [ ] 实现同图片 Release 地址下的数据 manifest 检查：图片-only Release 显示无数据包。
+- [ ] 下载后校验包大小、hash、ZIP 文件集合和内部 manifest；原子写入 Share Data。
+- [ ] 相同版本／hash 幂等；同版本不同 hash 拒绝；下载绝不自动应用数据或存档。
+- [ ] 保留输出目录选择、打开输出目录和结构化错误信息。
 
-验收：Shell 可检查、下载、校验、激活和回滚全量包；任意失败不影响当前 catalog 或 `user.sqlite`。
+验收：从任一数据列表选择一项即可生成发布包；下载结果仅进入 Share Data。
 
-## T3：建立统一 user.sqlite 与 Timeline Repository 接入
+## T4：UI 收敛
 
-- [ ] 在现有 Timeline SQLite schema 基础上创建/升级 `user.sqlite`，迁入 timeline document、payload blob、snapshot、Work Node、checkout 和审计表。
-- [ ] 新增 `user_operator_configs`、`user_buffs`、`user_schema_meta`、`legacy_migration_records` 与必要的 catalog 引用投影。
-- [ ] 保持 TimelineDocument、Snapshot、Work Node 和 CheckoutRef 的既有语义与事务约束；不得将 Snapshot 当作 Work Node。
-- [ ] 将保存、恢复和 AI checkout 收敛为同一个 `BEGIN IMMEDIATE` 事务，成功后再更新界面内存态。
-- [ ] 实现启动时由 active catalog 和 user checkout 重建应用状态；不能读取时显示数据层错误，禁止静默回写旧 storage。
+- [ ] Shell 数据页恢复 Local Data／Share Data 的按钮切换列表、保存、应用、删除与打开位置；显示下载来源和存档数量。
+- [ ] Shell 数据更新文案和状态改为“下载到 Share Data”；删除 catalog／参考存档卡片和数据源目录输入。
+- [ ] Shell 发布器改为已选数据项、版本、输出目录；生成器不可在未选项时执行。
+- [ ] 主界面恢复标签改为“本地存档／共享存档／SQLite”；改正按钮和提示文案，移除联网分类。
+- [ ] 两处存档列表只显示节点数量，不渲染节点树。
 
-验收：用户排轴、配置、Buff、Work Node、checkout 和审计只写入 `user.sqlite`；catalog 更新前后用户数据 hash 不变。
+验收：UI 的名称、可用操作和 Spec 三层流程一一对应，不出现旧产品术语。
 
-## T4：分批迁移 Renderer 写入并移除 browser storage 事实源
+## T5：验证与审计
 
-- [ ] 迁移角色个人配置 Repository 的正式读写到主进程 UserRepository，旧 storage 只保留只读兼容入口。
-- [ ] 迁移用户 Buff Repository 的正式读写到主进程 UserRepository，保留数据版本和错误回执。
-- [ ] 迁移当前排轴、快照和恢复后的工作副本，使刷新、重启和多窗口均由 `user.sqlite` 重建。
-- [ ] 移除 `timelineSnapshotStorage` 等运行时写路径；明确内存镜像的生命周期，禁止其成为事实源。
-- [ ] 为每一批迁移建立旧/新数据比对、失败回退和重复启动验证。
+- [ ] 为服务增加数据包构建／安装、共享存档写入、旧包兼容和 SQLite 转换 smoke。
+- [ ] 运行相关服务 smoke、TypeScript 检查和 Web 构建。
+- [ ] 使用真实 Electron Shell 与主界面确认数据页按钮切换、发布器无源目录、恢复标签、下载后的 Share Data 可见性。
+- [ ] 逐项审计 Spec、Task、API、UI 文案和测试证据；列出已修复项与剩余非阻塞风险。
 
-验收：新建或修改的角色配置、用户 Buff、排轴和快照不再以 `localStorage`、`sessionStorage` 或 `now-storage.json` 为正式写入目标。
-
-## T5：实现预载模板的用户副本流程
-
-- [ ] 从 catalog 的 `preloaded_timeline_templates` 提供只读模板列表和内容摘要。
-- [ ] 选择模板时，由 UserRepository 创建新的 TimelineDocument、初始 Snapshot、CheckoutRef 和审计事件。
-- [ ] 禁止 catalog 模板直接成为用户 checkout，禁止后续 catalog 更新修改已创建副本。
-- [ ] 为 catalog 版本删除/变更模板添加用户副本可恢复性与缺失引用诊断。
-
-验收：使用预载排轴后生成独立用户文档；更新或删除 catalog 模板不改变该文档与其恢复点。
-
-## T6：实现旧数据备份与可重试迁移
-
-- [ ] 在首次迁移前备份 browser archive、`now-storage.json`、本机/共享存档与现有 Timeline/Work Node SQLite，并记录备份位置。
-- [ ] 将当前可恢复排轴导入默认 TimelineDocument、Snapshot 和 CheckoutRef。
-- [ ] 逐个导入旧本机/共享存档，记录 `legacy_origin`、文件名、来源 hash、迁移时间、结果和失败原因。
-- [ ] 导入现有 Work Node，维持其与 TimelineDocument 的关系，并保护异常历史数据不被自动删除。
-- [ ] 以单个逻辑存档为事务边界实现幂等重试；迁移失败保留原文件并提供可见诊断。
-- [ ] 完成计数、payload hash、checkout 和 Work Node 关系的迁移后校验，再将旧介质降为只读兼容。
-
-验收：旧本机/共享存档可迁移、可审计、可重试；失败或中断不删除原文件、不制造半写入数据。
-
-## T7：收敛存档 UI 与导入导出边界
-
-- [ ] 将 Shell 和主界面的新建/保存/恢复入口统一为“当前排轴、排轴文档、恢复点、AI 草稿”语义。
-- [ ] 移除“本机存档 / 共享存档”作为持续读写和新建流程的双分支；旧文件只在迁移诊断中出现。
-- [ ] 保持 `dmg.timeline-bundle.v2` 导入导出可用，并将导入默认落为新的 TimelineDocument。
-- [ ] 导入时校验 schema、hash、引用完整性和本机路径泄漏；拒绝直接导入或覆盖 `user.sqlite` / `catalog.sqlite`。
-- [ ] 确认不新增云同步、协作、CRDT 或远程用户数据库能力。
-
-验收：UI 不再引导用户选择本机或共享存档；Bundle 仍可跨本地库导入，且不复制 SQLite 文件。
-
-## T8：端到端验证、灰度与旧介质清理决策
-
-- [ ] 为 catalog 生成、发布、签名、恶意 ZIP、损坏包、Shell 版本不兼容、激活/回滚和重复安装建立自动化测试。
-- [ ] 为 user.sqlite 的事务、catalog 隔离、缺失目录项、模板克隆、重启、多窗口和迁移幂等建立针对性 smoke。
-- [ ] 使用真实 Electron/Chrome UI 完成离线启动、数据更新、保存/恢复、预载模板、旧档迁移、Bundle 导入导出和错误诊断手测。
-- [ ] 回归现有 Timeline Repository、Bundle V2 和 Work Node SQLite smoke，确保不回退已交付排轴语义。
-- [ ] 将验收标准 1–10 逐项记录为“生产通过 / 不通过”，不得以 Demo 结果替代生产验证。
-- [ ] 至少经过一个稳定版本并核验备份可恢复后，再单独提出旧介质删除方案；本任务不执行删除。
-
-验收：Spec 的 10 条验收标准均有可复现的生产证据；旧数据始终可恢复，且主界面 Spec 仅依赖稳定 Repository API。
-
-## 2026-07-17：P1 事实源与双存档流程收口
-
-- [x] `user.sqlite` 新增当前工作副本；干员配置、用户 Buff、当前排轴、恢复后的工作副本均经主进程 API 读写，Renderer 只保留内存镜像。
-- [x] 恢复 SQLite 快照时在同一事务更新 CheckoutRef、当前工作副本、投影表和审计事件，再更新 Renderer 内存态。
-- [x] browser archive、`now-storage.json` 与旧本机/共享 JSON 首次迁移前备份；按单个逻辑存档幂等导入，并记录来源 hash、结果、备份路径和失败原因。
-- [x] Shell 移除本机/共享存档的新建、应用与删除流程，改为统一数据状态与旧档迁移诊断；旧介质不删除。
-- [x] 已通过数据管理、Timeline Bundle、Work Node SQLite/REST/备份恢复、Timeline 迁移 smoke，以及 Web 构建；Shell 数据页已用真实可见 UI 检查。
-- [ ] 尚未完成 T1/T2 数据网络发布客户端、T5 预载模板、完整多窗口/重启手测和旧介质删除决策；这些保持原任务验收门槛，不以本次 P1 收口替代。
-
-## T9：排轴存档搬运与 SQLite 工作区
-
-- [x] 定义版本化 `TimelineArchive`、本地存档目录、参考存档下载目录与只读摘要 API；存档列表不得返回节点树详情。
-- [x] 实现 SQLite 工作区导出为本地存档或待发布参考包；导出保留完整节点树、当前节点位置、payload hash 与节点数量，且不改变工作区。
-- [x] 实现本地/参考存档转换为新 SQLite 工作区的单事务操作：创建导入根、重映射有效节点树、映射 checkout，并写入工作副本和审计。
-- [x] 实现旧平铺快照、旧 Bundle、缺失当前节点、节点树不一致/损坏的兼容策略；默认不静默丢树，显式 payload-only 降级才允许继续。
-- [x] 实现仅含参考存档的发布包构建、校验、下载登记接口；不携带本地存档、`user.sqlite` 或用户配置，且不自动转换或应用。
-- [x] 将主界面恢复入口改为“存档库 / SQLite 工作区”：存档仅可转换，SQLite 才可应用；存档卡片仅显示节点数量。
-- [x] 覆盖导出、转换、节点数、旧版兼容、损坏拒绝、参考包登记的 smoke，并以真实主界面确认恢复入口与存档/SQLite 权限文案。常驻开发 Electron 未重启，完整按钮事务由服务 smoke 验证；下次启动将加载新主进程路由。
-
-验收：本地存档、参考存档、SQLite 工作区三者在来源、可应用权限和节点树展示边界上没有重叠；转换不覆盖已有工作区且可追溯。
-
-## 2026-07-17：存档库可维护性与 Shell 数据发布入口
-
-- [x] 本地存档与待发布参考存档均可删除；联网下载的参考存档保持只读，SQLite 工作区删除不会连带删除任一存档库。
-- [x] 本地存档与待发布参考存档可双向转换；转换先写入并校验目标，再移除来源，ID 冲突且内容不同会拒绝覆盖。
-- [x] Shell 数据页只从与图片同 Release 地址的 `data-release-manifest.json` 检查和一键更新；一个全量 ZIP 同时安装 catalog 与参考存档，图片-only Release 显式显示“无数据包”。
-- [x] Shell「数据」标签页只保留统一发布包助手；待发布参考存档由数据管理服务自动纳入，发布者只选择静态数据源、输出目录与版本。
-- [x] 已通过旧参考发布兼容、统一数据发布构建和安装、TypeScript 检查及 Web 构建；运行中的开发主进程未重启，新的主进程 IPC 路由会在下次启动加载。
-
-## 推荐顺序
-
-`T0 → T1 → T2 → T3 → T4 → T5 → T6 → T7 → T8`
-
-T0–T3 先建立不可覆盖用户数据的底座；T4–T6 再逐步迁移事实源和历史数据；T7 只在数据链路稳定后收敛 UI；T8 作为上线前门槛。
+验收：所有高风险数据流有可复现证据；任何验证失败不得宣称完成。
