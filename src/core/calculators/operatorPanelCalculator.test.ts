@@ -128,6 +128,7 @@ const equipmentNonFinalMainSubStatSnapshot = buildConfigSnapshot({
         effects: [
           { effectId: 'effect1', label: '主能力', typeKey: 'mainStatBoost', level: 3, value: 18, unit: 'percent' },
           { effectId: 'effect2', label: '副能力', typeKey: 'subStatBoost', level: 3, value: 35, unit: 'percent' },
+          { effectId: 'effect3', label: '物理伤害', typeKey: 'physicalDmgBonus', level: 3, value: 0, unit: 'percent' },
         ],
       },
     ],
@@ -139,6 +140,27 @@ assertEqual(equipmentNonFinalMainSubStatSnapshot.panel.calc.mainStatBoost, 0, 'n
 assertEqual(equipmentNonFinalMainSubStatSnapshot.panel.calc.subStatBoost, 0, 'non-final sub stat equipment effect should not be treated as a percentage');
 assertEqual(equipmentNonFinalMainSubStatSnapshot.panel.display.mainStatFinal, 88, 'non-final main stat equipment effect should add a fixed value');
 assertEqual(equipmentNonFinalMainSubStatSnapshot.panel.display.subStatFinal, 55, 'non-final sub stat equipment effect should add a fixed value');
+
+const equipmentFinalSubStatPercentSnapshot = buildConfigSnapshot({
+  ...baseInput,
+  equipment: {
+    pieces: [
+      {
+        slotKey: 'accessory1',
+        equipmentId: 'final-sub-stat-equipment',
+        name: 'Final sub stat equipment',
+        effects: [
+          { effectId: 'effect1', label: '物理伤害', typeKey: 'physicalDmgBonus', level: 3, value: 0, unit: 'percent' },
+          { effectId: 'effect2', label: '副能力', typeKey: 'subStatBoost', level: 0, value: 0.207, unit: 'percent' },
+        ],
+      },
+    ],
+    setBuffs: [],
+  },
+});
+
+assertEqual(equipmentFinalSubStatPercentSnapshot.panel.calc.subStatBoost, 0.207, 'level 0 final sub stat equipment effect should remain a percentage');
+assertEqual(equipmentFinalSubStatPercentSnapshot.panel.display.subStatFinal, 24, 'level 0 final sub stat equipment effect should apply as a percentage');
 
 const operatorMainSubStatSnapshot = buildConfigSnapshot({
   ...baseInput,

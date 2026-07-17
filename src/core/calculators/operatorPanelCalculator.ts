@@ -441,11 +441,17 @@ const EQUIPMENT_TOTAL_FIELDS = new Set([
   'allDmgBonus',
 ]);
 
-function normalizeEquipmentEffectTypeKey(effect: EquipmentEffectInput): string {
+function getLastEquipmentEffectId(effects: EquipmentEffectInput[]): string | undefined {
+  const effectIds = ['effect3', 'effect2', 'effect1'];
+  return effectIds.find((effectId) => effects.some((effect) => effect.effectId === effectId))
+    ?? effects[effects.length - 1]?.effectId;
+}
+
+function normalizeEquipmentEffectTypeKey(effect: EquipmentEffectInput, lastEffectId: string | undefined): string {
   const typeKey = normalizeTypeKey(effect.typeKey);
-  // 前两词条的主/副能力是固定值，语义与武器 skill1 相同；最后一词条才是百分比。
-  if ((effect.effectId === 'effect1' || effect.effectId === 'effect2') && typeKey === 'mainStatBoost') return 'mainStat';
-  if ((effect.effectId === 'effect1' || effect.effectId === 'effect2') && typeKey === 'subStatBoost') return 'subStat';
+  // 非最后一条的主/副能力是固定值，语义与武器 skill1 相同；实际最后一个存在的词条才是百分比。
+  if (effect.effectId !== lastEffectId && typeKey === 'mainStatBoost') return 'mainStat';
+  if (effect.effectId !== lastEffectId && typeKey === 'subStatBoost') return 'subStat';
   return typeKey;
 }
 
@@ -825,8 +831,9 @@ function buildWeaponSkillDetail(
 function buildEquipmentSnapshot(input: OperatorPanelInput['equipment']): EquipmentSnapshot {
   const totals: Record<string, number> = {};
   const pieces = (input?.pieces ?? []).map((piece) => {
+    const lastEffectId = getLastEquipmentEffectId(piece.effects);
     piece.effects.forEach((effect) => {
-      const typeKey = normalizeEquipmentEffectTypeKey(effect);
+      const typeKey = normalizeEquipmentEffectTypeKey(effect, lastEffectId);
       if (EQUIPMENT_TOTAL_FIELDS.has(typeKey)) {
         addTotal(totals, typeKey, effect.value, effect.unit);
       }

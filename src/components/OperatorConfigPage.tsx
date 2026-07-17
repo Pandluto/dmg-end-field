@@ -106,15 +106,16 @@ function normalizeLegacyEquipmentPercentValue(typeKey: string, unit: 'flat' | 'p
 
 function normalizeEquipmentEffectForOperatorConfig(
   effectId: EquipmentEffectId,
+  lastEffectId: EquipmentEffectId | undefined,
   typeKey: string,
   unit: 'flat' | 'percent'
 ): { typeKey: string; unit: 'flat' | 'percent' } {
-  // 装备前两词条的主/副能力与武器 skill1 一样，都是固定能力值；
-  // 只有最后一词条才是主/副能力百分比。
-  if ((effectId === 'effect1' || effectId === 'effect2') && typeKey === 'mainStatBoost') {
+  // 非最后一条的主/副能力与武器 skill1 一样，都是固定能力值；
+  // 实际最后一个存在的词条才是主/副能力百分比。
+  if (effectId !== lastEffectId && typeKey === 'mainStatBoost') {
     return { typeKey: 'mainStat', unit: 'flat' };
   }
-  if ((effectId === 'effect1' || effectId === 'effect2') && typeKey === 'subStatBoost') {
+  if (effectId !== lastEffectId && typeKey === 'subStatBoost') {
     return { typeKey: 'subStat', unit: 'flat' };
   }
   return { typeKey, unit };
@@ -419,11 +420,14 @@ function normalizeEquipmentLibrary(raw: unknown): EquipmentLibrary {
     const rawEquipments = setValue.equipments && typeof setValue.equipments === 'object' ? setValue.equipments : {};
     Object.entries(rawEquipments).forEach(([equipmentId, rawEquipment]) => {
       const itemValue = rawEquipment as Partial<EquipmentItem>;
-      const effects = (['effect1', 'effect2', 'effect3'] as const).reduce<Partial<Record<EquipmentEffectId, EquipmentEffect>>>((acc, effectId) => {
+      const effectIds = ['effect1', 'effect2', 'effect3'] as const;
+      const lastEffectId = [...effectIds].reverse().find((effectId) => Boolean(itemValue.effects?.[effectId]));
+      const effects = effectIds.reduce<Partial<Record<EquipmentEffectId, EquipmentEffect>>>((acc, effectId) => {
         const rawEffect = itemValue.effects?.[effectId];
         if (!rawEffect) return acc;
         const normalizedEffect = normalizeEquipmentEffectForOperatorConfig(
           effectId,
+          lastEffectId,
           String(rawEffect.typeKey || ''),
           rawEffect.unit === 'percent' ? 'percent' : 'flat'
         );
