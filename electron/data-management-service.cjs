@@ -1251,6 +1251,60 @@ function createDataManagementService({ runtimeDataRoot, builtinCatalogPath, shel
     }
   }
 
+  function materializeLegacyTimelineSnapshotsAsLocalArchives() {
+    ensureUserDatabase();
+    ensureLayout();
+    const db = new DatabaseSync(paths.userDatabasePath, { readOnly: true });
+    let snapshots;
+    try {
+      snapshots = db.prepare(`
+        SELECT snapshot.id, snapshot.timeline_id, snapshot.label, snapshot.created_at, payload.payload
+        FROM timeline_snapshots AS snapshot
+        JOIN timeline_payload_blobs AS payload ON payload.content_hash = snapshot.payload_hash
+        WHERE snapshot.archived_at IS NULL
+        ORDER BY snapshot.created_at ASC, snapshot.id ASC
+      `).all();
+    } finally {
+      db.close();
+    }
+    const result = { scanned: snapshots.length, created: 0, reused: 0, failed: [] };
+    for (const snapshot of snapshots) {
+      const identity = `${snapshot.timeline_id}\u0000${snapshot.id}`;
+      const archiveId = `legacy-sqlite-${hashBufferSha256(Buffer.from(identity)).slice(0, 24)}`;
+      try {
+        const payload = JSON.parse(snapshot.payload);
+        const archive = {
+          type: TIMELINE_ARCHIVE_TYPE,
+          archiveVersion: 1,
+          source: 'local',
+          archiveId,
+          label: typeof snapshot.label === 'string' && snapshot.label.trim() ? snapshot.label.trim() : snapshot.id,
+          createdAt: new Date(Number(snapshot.created_at) || Date.now()).toISOString(),
+          payload,
+        };
+        const filePath = timelineArchiveFilePath(paths.localArchiveDirectory, archiveId);
+        if (fs.existsSync(filePath)) {
+          const existing = readTimelineArchiveFile(filePath, { expectedSource: 'local' });
+          if (existing.payloadHash !== hashTimelinePayload(payload)) {
+            throw dataManagementError('legacy-sqlite-snapshot-archive-collision', `历史 SQLite 快照迁移目标冲突：${snapshot.id}`);
+          }
+          result.reused += 1;
+        } else {
+          writeTimelineArchive(paths.localArchiveDirectory, archive);
+          result.created += 1;
+        }
+      } catch (error) {
+        result.failed.push({
+          timelineId: snapshot.timeline_id,
+          snapshotId: snapshot.id,
+          code: error?.code || 'legacy-sqlite-snapshot-archive-failed',
+          message: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+    return result;
+  }
+
   function applySqliteWorkspace({ timelineId, updatedAt = Date.now() } = {}) {
     if (typeof timelineId !== 'string' || !timelineId.trim()) throw dataManagementError('invalid-timeline-workspace-id', 'SQLite 工作区 ID 无效。');
     ensureUserDatabase();
@@ -1970,6 +2024,7 @@ function createDataManagementService({ runtimeDataRoot, builtinCatalogPath, shel
       if (source === 'reference') return listReferenceTimelineArchives();
       throw dataManagementError('invalid-timeline-archive-source', '存档来源无效。');
     },
+    materializeLegacyTimelineSnapshotsAsLocalArchives,
     listSqliteWorkspaces,
     applySqliteWorkspace,
     exportSqliteWorkspaceArchive,

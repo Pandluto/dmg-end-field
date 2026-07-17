@@ -4705,6 +4705,10 @@ function getDataManagementService() {
     archiveMigrationResults
       .filter((result) => result.status === 'failed')
       .forEach((result) => appendRuntimeLog('data-management-migration', `${result.legacyOrigin}/${result.sourceName}: ${result.error || 'failed'}`));
+    const snapshotMaterialization = dataManagementService.materializeLegacyTimelineSnapshotsAsLocalArchives();
+    snapshotMaterialization.failed.forEach((result) => {
+      appendRuntimeLog('data-management-migration', `legacy SQLite snapshot ${result.timelineId}/${result.snapshotId}: ${result.message}`);
+    });
   }
   return dataManagementService;
 }

@@ -80,6 +80,10 @@ assert.equal(migratedRepository.getDocument('legacy-document')?.label, '旧排�
 assert.equal(migratedRepository.getCheckoutRef('legacy-document')?.targetId, 'legacy-snapshot');
 migratedRepository.close();
 assert.equal(migrationService.migrateLegacyTimelineRepository({ legacyDatabasePath }).reason, 'already-migrated');
+const materializedLegacySnapshots = migrationService.materializeLegacyTimelineSnapshotsAsLocalArchives();
+assert.equal(materializedLegacySnapshots.created, 1, 'legacy SQLite snapshots must become local archives without deleting their rows');
+assert.equal(migrationService.listTimelineArchives({ source: 'local' })[0]?.label, '旧恢复点');
+assert.equal(migrationService.materializeLegacyTimelineSnapshotsAsLocalArchives().reused, 1, 'legacy snapshot archive materialization must be idempotent');
 
 const legacyArchivePath = path.join(root, 'legacy-share-archive.json');
 fs.writeFileSync(legacyArchivePath, JSON.stringify({
