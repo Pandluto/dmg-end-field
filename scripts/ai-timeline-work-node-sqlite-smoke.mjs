@@ -24,7 +24,7 @@ function node(id, createdAt, options = {}) {
   return {
     id,
     ...(options.parentNodeId ? { parentNodeId: options.parentNodeId } : {}),
-    saveId: 'save-1',
+    saveId: options.saveId || 'save-1',
     branchId: options.branchId || id,
     createdAt,
     updatedAt: createdAt,
@@ -110,9 +110,22 @@ store.close();
 fs.writeFileSync(legacyJsonPath, '{broken legacy json');
 store = createAiTimelineWorkNodeStore({ databasePath, legacyJsonPath });
 assert.equal(store.list().nodes.length, 3);
+// Old persisted projections predate the cross-save parent guard. Recreate
+// that shape at the SQL layer to verify deletion removes the whole subtree and
+// every head that would otherwise restrict the parent delete.
+store.close();
+const crossSaveDb = new DatabaseSync(databasePath);
+crossSaveDb.prepare("UPDATE work_nodes SET save_id = 'cross-timeline-child-save' WHERE id = 'child'").run();
+crossSaveDb.prepare(`
+  INSERT INTO work_node_heads (save_id, current_node_id, revision, updated_at)
+  VALUES ('cross-timeline-child-save', 'child', 1, 1)
+`).run();
+crossSaveDb.close();
+store = createAiTimelineWorkNodeStore({ databasePath, legacyJsonPath });
 const deletedTimeline = store.deleteTimeline('save-1');
 assert.equal(deletedTimeline.deletedNodeIds.length, 3);
 assert.equal(store.list().nodes.length, 0);
+assert.equal(store.getHead('cross-timeline-child-save'), null);
 store.close();
 
 fs.rmSync(tempDirectory, { recursive: true, force: true });

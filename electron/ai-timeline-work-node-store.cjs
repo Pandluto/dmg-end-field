@@ -520,10 +520,29 @@ function createAiTimelineWorkNodeStore({ databasePath, legacyJsonPath }) {
 
   function deleteTimeline(saveId) {
     return transaction(() => {
-      const nodeIds = db.prepare('SELECT id FROM work_nodes WHERE save_id = ?').all(saveId).map((row) => row.id);
-      db.prepare('DELETE FROM work_node_heads WHERE save_id = ?').run(saveId);
-      db.prepare('DELETE FROM work_node_commits WHERE save_id = ?').run(saveId);
-      db.prepare('DELETE FROM work_nodes WHERE save_id = ?').run(saveId);
+      // Legacy projections can contain a child whose save_id differs from its
+      // parent. Deleting only rows matching save_id would leave that child (and
+      // potentially a head pointing at it), so SQLite correctly rejects the
+      // parent deletion. Treat the projected subtree as one disposable unit.
+      const nodeIds = db.prepare(`
+        WITH RECURSIVE subtree(id) AS (
+          SELECT id FROM work_nodes WHERE save_id = ?
+          UNION
+          SELECT node.id FROM work_nodes node JOIN subtree ON node.parent_id = subtree.id
+        )
+        SELECT id FROM subtree
+      `).all(saveId).map((row) => row.id);
+      if (nodeIds.length > 0) {
+        const placeholders = nodeIds.map(() => '?').join(', ');
+        db.prepare(`DELETE FROM work_node_heads WHERE save_id = ? OR current_node_id IN (${placeholders})`)
+          .run(saveId, ...nodeIds);
+        db.prepare(`DELETE FROM work_node_commits WHERE save_id = ? OR node_id IN (${placeholders})`)
+          .run(saveId, ...nodeIds);
+        db.prepare(`DELETE FROM work_nodes WHERE id IN (${placeholders})`).run(...nodeIds);
+      } else {
+        db.prepare('DELETE FROM work_node_heads WHERE save_id = ?').run(saveId);
+        db.prepare('DELETE FROM work_node_commits WHERE save_id = ?').run(saveId);
+      }
       const revision = bumpRevision();
       garbageCollectSnapshots();
       return { deletedNodeIds: nodeIds, revision };
