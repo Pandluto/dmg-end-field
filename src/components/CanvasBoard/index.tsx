@@ -415,7 +415,7 @@ export function CanvasBoard({
   const [pendingReferenceTimelineArchives, setPendingReferenceTimelineArchives] = useState<TimelineArchiveSummary[]>([]);
   const [referenceTimelineArchives, setReferenceTimelineArchives] = useState<TimelineArchiveSummary[]>([]);
   const [sqliteTimelineWorkspaces, setSqliteTimelineWorkspaces] = useState<TimelineSqliteWorkspace[]>([]);
-  const [restorePanelTab, setRestorePanelTab] = useState<'archives' | 'sqlite'>('archives');
+  const [restorePanelTab, setRestorePanelTab] = useState<'local' | 'pending-reference' | 'reference' | 'sqlite'>('local');
   const [isBrowseMode, setIsBrowseMode] = useState(false);
   const [isInspectMode, setIsInspectMode] = useState(false);
   const [isAiMode, setIsAiMode] = useState(false);
@@ -436,6 +436,13 @@ export function CanvasBoard({
   const [checkoutBootstrapRevision, setCheckoutBootstrapRevision] = useState(0);
   const [checkoutRenderRevision, setCheckoutRenderRevision] = useState(0);
   const [isTimelineSessionReady, setIsTimelineSessionReady] = useState(false);
+  const activeTimelineArchiveLibrary = restorePanelTab === 'local'
+    ? { title: '本地存档', emptyLabel: '本地', archives: localTimelineArchives, library: 'local' as const }
+    : restorePanelTab === 'pending-reference'
+      ? { title: '待发布参考存档', emptyLabel: '待发布', archives: pendingReferenceTimelineArchives, library: 'pending-reference' as const }
+      : restorePanelTab === 'reference'
+        ? { title: '参考存档（联网下载）', emptyLabel: '联网参考', archives: referenceTimelineArchives, library: 'reference' as const }
+        : null;
   const {
     activeTimelineId,
     activeTimelineLabel,
@@ -3364,7 +3371,7 @@ export function CanvasBoard({
   };
 
   const handleOpenSnapshotModal = () => {
-    setRestorePanelTab('archives');
+    setRestorePanelTab('local');
     void refreshTimelineArchiveLibrary().catch((error) => {
       setWorkNodeSaveNotice(`读取数据管理库失败：${formatTimelineOperationError(error)}`);
       window.setTimeout(() => setWorkNodeSaveNotice(''), 2600);
@@ -3939,82 +3946,71 @@ export function CanvasBoard({
             </div>
 
             <div className="timeline-restore-tabs" role="tablist" aria-label="恢复来源">
-              <button
-                type="button"
-                role="tab"
-                aria-selected={restorePanelTab === 'archives'}
-                className={restorePanelTab === 'archives' ? 'is-active' : ''}
-                onClick={() => setRestorePanelTab('archives')}
-              >
-                存档库
-              </button>
-              <button
-                type="button"
-                role="tab"
-                aria-selected={restorePanelTab === 'sqlite'}
-                className={restorePanelTab === 'sqlite' ? 'is-active' : ''}
-                onClick={() => setRestorePanelTab('sqlite')}
-              >
-                SQLite
-              </button>
+              {([
+                ['local', '本地存档'],
+                ['pending-reference', '待发布'],
+                ['reference', '联网存档'],
+                ['sqlite', 'SQLite'],
+              ] as const).map(([tab, label]) => (
+                <button
+                  key={tab}
+                  type="button"
+                  role="tab"
+                  aria-selected={restorePanelTab === tab}
+                  className={restorePanelTab === tab ? 'is-active' : ''}
+                  onClick={() => setRestorePanelTab(tab)}
+                >
+                  {label}
+                </button>
+              ))}
             </div>
 
-            {restorePanelTab === 'archives' && (
+            {activeTimelineArchiveLibrary && (
               <div className="timeline-snapshot-list timeline-document-list">
-                {([
-                  ['本地存档', localTimelineArchives, 'local'],
-                  ['待发布参考存档', pendingReferenceTimelineArchives, 'pending-reference'],
-                  ['参考存档（联网下载）', referenceTimelineArchives, 'reference'],
-                ] as const).map(([title, archives, library]) => (
-                  <React.Fragment key={library}>
-                    <div className="timeline-snapshot-empty">{title}</div>
-                    {archives.length === 0 ? (
-                      <div className="timeline-snapshot-empty">
-                        暂无{library === 'local' ? '本地' : library === 'pending-reference' ? '待发布' : '联网参考'}存档。
-                      </div>
-                    ) : archives.map((archive) => (
-                      <div key={`${library}-${archive.archiveId}`} className="timeline-snapshot-item timeline-document-item">
-                        <div className="timeline-snapshot-item-main">
-                          <strong>{archive.label}</strong>
-                          <span>{archive.summary.characterCount} 干员 / {archive.summary.buttonCount} 按钮 / {archive.summary.buffCount} Buff</span>
-                          <span>{archive.nodeCount} 个节点{archive.hasCurrentNode ? ' / 含当前节点定位' : ''}{archive.releaseId ? ` / 发布 ${archive.releaseId}` : ''}</span>
-                          {archive.worktreeDiagnostic && <span>节点树兼容问题：{archive.worktreeDiagnostic.message}</span>}
-                          {archive.invalid && <span>存档无效：{archive.invalid.message}</span>}
-                        </div>
-                        <div className="timeline-snapshot-item-actions">
-                          <button
-                            type="button"
-                            className="btn-save"
-                            disabled={Boolean(archive.invalid)}
-                            onClick={() => void handleConvertTimelineArchive(archive)}
-                          >
-                            转换为 SQLite
-                          </button>
-                          {archive.worktreeDiagnostic && (
-                            <button type="button" className="btn-calculate" onClick={() => void handleConvertTimelineArchive(archive, true)}>
-                              仅导入内容
-                            </button>
-                          )}
-                          {archive.library === 'local' && (
-                            <button type="button" className="btn-calculate" disabled={Boolean(archive.invalid)} onClick={() => void handleTransferTimelineArchive(archive, 'pending-reference')}>
-                              转为待发布
-                            </button>
-                          )}
-                          {archive.library === 'pending-reference' && (
-                            <button type="button" className="btn-calculate" disabled={Boolean(archive.invalid)} onClick={() => void handleTransferTimelineArchive(archive, 'local')}>
-                              转为本地
-                            </button>
-                          )}
-                          {archive.library !== 'reference' && (
-                            <button type="button" className="btn-calculate" onClick={() => void handleDeleteTimelineArchive(archive)}>
-                              删除
-                            </button>
-                          )}
-                          {archive.library === 'reference' && <span>联网来源只读</span>}
-                        </div>
-                      </div>
-                    ))}
-                  </React.Fragment>
+                <div className="timeline-snapshot-empty">{activeTimelineArchiveLibrary.title}</div>
+                {activeTimelineArchiveLibrary.archives.length === 0 ? (
+                  <div className="timeline-snapshot-empty">暂无{activeTimelineArchiveLibrary.emptyLabel}存档。</div>
+                ) : activeTimelineArchiveLibrary.archives.map((archive) => (
+                  <div key={`${activeTimelineArchiveLibrary.library}-${archive.archiveId}`} className="timeline-snapshot-item timeline-document-item">
+                    <div className="timeline-snapshot-item-main">
+                      <strong>{archive.label}</strong>
+                      <span>{archive.summary.characterCount} 干员 / {archive.summary.buttonCount} 按钮 / {archive.summary.buffCount} Buff</span>
+                      <span>{archive.nodeCount} 个节点{archive.hasCurrentNode ? ' / 含当前节点定位' : ''}{archive.releaseId ? ` / 发布 ${archive.releaseId}` : ''}</span>
+                      {archive.worktreeDiagnostic && <span>节点树兼容问题：{archive.worktreeDiagnostic.message}</span>}
+                      {archive.invalid && <span>存档无效：{archive.invalid.message}</span>}
+                    </div>
+                    <div className="timeline-snapshot-item-actions">
+                      <button
+                        type="button"
+                        className="btn-save"
+                        disabled={Boolean(archive.invalid)}
+                        onClick={() => void handleConvertTimelineArchive(archive)}
+                      >
+                        转换为 SQLite
+                      </button>
+                      {archive.worktreeDiagnostic && (
+                        <button type="button" className="btn-calculate" onClick={() => void handleConvertTimelineArchive(archive, true)}>
+                          仅导入内容
+                        </button>
+                      )}
+                      {archive.library === 'local' && (
+                        <button type="button" className="btn-calculate" disabled={Boolean(archive.invalid)} onClick={() => void handleTransferTimelineArchive(archive, 'pending-reference')}>
+                          转为待发布
+                        </button>
+                      )}
+                      {archive.library === 'pending-reference' && (
+                        <button type="button" className="btn-calculate" disabled={Boolean(archive.invalid)} onClick={() => void handleTransferTimelineArchive(archive, 'local')}>
+                          转为本地
+                        </button>
+                      )}
+                      {archive.library !== 'reference' && (
+                        <button type="button" className="btn-calculate" onClick={() => void handleDeleteTimelineArchive(archive)}>
+                          删除
+                        </button>
+                      )}
+                      {archive.library === 'reference' && <span>联网来源只读</span>}
+                    </div>
+                  </div>
                 ))}
               </div>
             )}
