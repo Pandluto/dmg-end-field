@@ -36,6 +36,8 @@ interface LocalDataExportOptions {
 interface LocalDataImportOptions {
   sections?: LocalDataSection[];
   reload?: boolean;
+  /** Preserve the SQLite-backed workbench while replacing editor libraries. */
+  preserveWorkspaceSession?: boolean;
 }
 
 const LOCAL_PREFIXES_BY_SECTION: Record<Exclude<LocalDataSection, 'all'>, string[]> = {
@@ -284,10 +286,16 @@ function buildArchive(options: LocalDataExportOptions = {}): LocalDataArchive {
 function applyArchive(archive: LocalDataArchive, options: LocalDataImportOptions = {}) {
   const sections = uniqueSections(options.sections ?? archive.sections);
   const localValues = filterStorageValues('local', archive.storage?.local, sections);
-  const sessionValues = filterStorageValues('session', archive.storage?.session, sections);
-  validateCurrentStorageCoverage(archive, sections, sessionValues);
+  const sessionValues = options.preserveWorkspaceSession
+    ? {}
+    : filterStorageValues('session', archive.storage?.session, sections);
+  if (!options.preserveWorkspaceSession) {
+    validateCurrentStorageCoverage(archive, sections, sessionValues);
+  }
   const removedLocalKeys = removeManagedKeys('local', sections);
-  const removedSessionKeys = removeManagedKeys('session', sections);
+  const removedSessionKeys = options.preserveWorkspaceSession
+    ? 0
+    : removeManagedKeys('session', sections);
   const localResult = applyStorage('local', localValues);
   const sessionResult = applyStorage('session', sessionValues);
   const failedKeys = [...localResult.failedKeys, ...sessionResult.failedKeys];
@@ -494,7 +502,10 @@ async function setNowStorageForceApply(forceApply: boolean): Promise<void> {
   }
 }
 
-async function syncNowStorageFromLocalBridge(options: { reloadMode?: 'scheduled' | 'immediate' } = {}): Promise<boolean> {
+async function syncNowStorageFromLocalBridge(options: {
+  reloadMode?: 'scheduled' | 'immediate';
+  preserveWorkspaceSession?: boolean;
+} = {}): Promise<boolean> {
   const result = await fetchBridgeJson<{
     ok: boolean;
     error?: string;
@@ -519,6 +530,12 @@ async function syncNowStorageFromLocalBridge(options: { reloadMode?: 'scheduled'
   });
 
   if (!result.state?.forceApply) {
+    if (options.preserveWorkspaceSession) {
+      // user.sqlite owns the current workbench state. It must not be mirrored
+      // to now-storage on every boot, but explicit data-package applies still
+      // continue through the forceApply branch below.
+      return false;
+    }
     const stateUpdatedAt = result.state?.updatedAt || null;
     if (
       stateUpdatedAt &&
@@ -576,7 +593,11 @@ async function syncNowStorageFromLocalBridge(options: { reloadMode?: 'scheduled'
   }
 
   try {
-    applyArchive(result.archive, { sections: result.archive.sections, reload: false });
+    applyArchive(result.archive, {
+      sections: result.archive.sections,
+      reload: false,
+      preserveWorkspaceSession: options.preserveWorkspaceSession,
+    });
     setHandledNowStorageForceAt(forceUpdatedAt);
     await setNowStorageForceApply(false).catch(() => undefined);
     if (reloadCount >= 1) {
@@ -612,12 +633,34 @@ export async function bootstrapLocalDataBridge(): Promise<{ shouldRender: boolea
     return { shouldRender: true };
   }
   if (isUserWorkspaceBridgeActive()) {
-    // SQLite is the current-workspace source of truth. Keep now-storage only
-    // for one-way legacy migration; it must not mirror every browser start.
-    return { shouldRender: true };
+    // SQLite owns only the current timeline workspace. A Shell "应用数据"
+    // request must still replace the independent editor libraries in
+    // localStorage; it deliberately leaves SQLite/session workspace values
+    // untouched.
+    try {
+      const reloadScheduled = await syncNowStorageFromLocalBridge({
+        reloadMode: 'immediate',
+        preserveWorkspaceSession: true,
+      });
+      return { shouldRender: !reloadScheduled };
+    } catch (error) {
+      console.warn('[localDataBridge] SQLite 工作区数据包应用失败', error);
+      return { shouldRender: true };
+    }
   }
   if (window.desktopRuntime) {
-    return { shouldRender: true };
+    // A degraded desktop startup may not have attached user.sqlite yet. It
+    // still has to honor an already-confirmed Shell data-package apply.
+    try {
+      const reloadScheduled = await syncNowStorageFromLocalBridge({
+        reloadMode: 'immediate',
+        preserveWorkspaceSession: true,
+      });
+      return { shouldRender: !reloadScheduled };
+    } catch (error) {
+      console.warn('[localDataBridge] 桌面数据包应用失败', error);
+      return { shouldRender: true };
+    }
   }
   if (isNowStorageBridgeStarted) {
     return { shouldRender: true };
