@@ -68,7 +68,6 @@ import {
   getOperatorConfigPageCache,
   getRuntimeOperatorTemplateById,
   safeSessionStorage,
-  setAllBuffList,
   setOperatorConfigPageCache,
   setSelectedCharacterIds,
 } from '../../utils/storage';
@@ -89,7 +88,6 @@ import {
 import { restoreUserWorkspaceSnapshot } from '../../utils/userWorkspaceBridge';
 import './CanvasBoard.css';
 import { resolveRuntimeTemplateSkill } from '../../core/services/skillDamageTemplateResolver';
-import { createEmptyTimelineData } from '../../core/services/timelineService';
 import { buildDamageReportSnapshot } from '../../core/services/damageReportService';
 import type { PersistedSkillButton } from '../../types/storage';
 import type { HitResistanceInput } from '../../types/storage';
@@ -117,31 +115,15 @@ import { planTimelineWorkNodeCheckoutLifecycle } from '../../agentKernel/timelin
 import { DEFAULT_TIMELINE_ID } from '../../core/domain/timeline';
 import type { TimelineCheckoutRef, TimelineDocument } from '../../core/domain/timeline';
 import { createTimelineRepositoryClient, formatTimelineOperationError } from '../../agentKernel/timelineRepository/localTimelineClient';
-import type { TimelineRepositoryBundleWorkNode } from '../../agentKernel/timelineRepository/localTimelineClient';
+import type {
+  TimelineArchiveSummary,
+  TimelineRepositoryBundleWorkNode,
+  TimelineSqliteWorkspace,
+} from '../../agentKernel/timelineRepository/localTimelineClient';
 import { useTimelineSession } from '../../agentKernel/timelineRepository/useTimelineSession';
 
 function getLegacySnapshotTimelineId(snapshotId: string): string {
   return `timeline-document-${snapshotId}`;
-}
-
-type TimelineSnapshotListEntry = TimelineSnapshotEntry & { timelineId: string };
-type TimelineDocumentListEntry = {
-  document: TimelineDocument;
-  checkoutRef: TimelineCheckoutRef | null;
-  targetType: 'snapshot' | 'work-node' | null;
-  targetId: string;
-  payload: TimelineSnapshotPayload | null;
-  snapshotCount: number;
-  workNodeCount: number;
-  summary: { characterCount: number; buttonCount: number; buffCount: number };
-};
-
-function isTimelineDocumentNotFound(error: unknown): boolean {
-  return Boolean(
-    error
-    && typeof error === 'object'
-    && (error as { code?: unknown }).code === 'timeline-document-not-found',
-  );
 }
 
 async function ensureTimelineDocumentExists(
@@ -365,35 +347,6 @@ function clonePersistedSkillButtonConfig(button: PersistedSkillButton): Pick<
   };
 }
 
-function formatPreciseTimestamp(timestamp: number): string {
-  const date = new Date(timestamp);
-  const year = date.getFullYear();
-  const month = `${date.getMonth() + 1}`.padStart(2, '0');
-  const day = `${date.getDate()}`.padStart(2, '0');
-  const hours = `${date.getHours()}`.padStart(2, '0');
-  const minutes = `${date.getMinutes()}`.padStart(2, '0');
-  const seconds = `${date.getSeconds()}`.padStart(2, '0');
-  const milliseconds = `${date.getMilliseconds()}`.padStart(3, '0');
-  return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}.${milliseconds}`;
-}
-
-function buildSnapshotBuffPreview(snapshot: TimelineSnapshotEntry): string[] {
-  const buffNames = snapshot.payload.allBuffList
-    .map((buff) => buff.displayName?.trim() || buff.name?.trim() || buff.id)
-    .filter((name, index, array) => Boolean(name) && array.indexOf(name) === index);
-
-  if (buffNames.length === 0) {
-    return ['无 Buff'];
-  }
-
-  const previewLimit = 8;
-  const preview = buffNames.slice(0, previewLimit);
-  if (buffNames.length > previewLimit) {
-    preview.push(`... 其余 ${buffNames.length - previewLimit} 项`);
-  }
-  return preview;
-}
-
 function buildSandboxSkillsFromRuntimeTemplate(characterId: string): SandboxSkill[] {
   const template = getRuntimeOperatorTemplateById(characterId);
   if (!template) {
@@ -456,14 +409,12 @@ export function CanvasBoard({
   const [shareScope, setShareScope] = useState<'snapshot' | 'branch' | 'document'>('snapshot');
   const [shareBranchRootId, setShareBranchRootId] = useState('');
   const [shareWorkNodes, setShareWorkNodes] = useState<TimelineRepositoryBundleWorkNode[]>([]);
-  const [pendingRestoreSnapshot, setPendingRestoreSnapshot] = useState<TimelineSnapshotListEntry | null>(null);
   const [pendingImportShare, setPendingImportShare] = useState<TimelineShareFile | null>(null);
   const [pendingImportBundle, setPendingImportBundle] = useState<TimelineBundleV2 | null>(null);
-  const [pendingImportTimelineId, setPendingImportTimelineId] = useState('');
-  const [timelineSnapshots, setTimelineSnapshots] = useState<TimelineSnapshotListEntry[]>([]);
-  const [timelineDocuments, setTimelineDocuments] = useState<TimelineDocumentListEntry[]>([]);
-  const [deletingTimelineDocumentId, setDeletingTimelineDocumentId] = useState('');
-  const [restorePanelTab, setRestorePanelTab] = useState<'snapshots' | 'sqlite'>('snapshots');
+  const [localTimelineArchives, setLocalTimelineArchives] = useState<TimelineArchiveSummary[]>([]);
+  const [referenceTimelineArchives, setReferenceTimelineArchives] = useState<TimelineArchiveSummary[]>([]);
+  const [sqliteTimelineWorkspaces, setSqliteTimelineWorkspaces] = useState<TimelineSqliteWorkspace[]>([]);
+  const [restorePanelTab, setRestorePanelTab] = useState<'archives' | 'sqlite'>('archives');
   const [isBrowseMode, setIsBrowseMode] = useState(false);
   const [isInspectMode, setIsInspectMode] = useState(false);
   const [isAiMode, setIsAiMode] = useState(false);
@@ -475,7 +426,6 @@ export function CanvasBoard({
   const [selectedWorkbenchNode, setSelectedWorkbenchNode] = useState<WorkbenchSelectedNodeContext | null>(null);
   const [aiHoverZone, setAiHoverZone] = useState<'left' | 'right'>('right');
   const shouldRestoreTopZoneAfterAiRef = useRef(false);
-  const deletingTimelineDocumentRef = useRef(false);
   const [isRefreshingAvailableCandidates, setIsRefreshingAvailableCandidates] = useState(false);
   const [isBatchResistanceModalOpen, setIsBatchResistanceModalOpen] = useState(false);
   const [batchTargetResistance, setBatchTargetResistance] = useState<Required<HitResistanceInput>>(
@@ -491,7 +441,6 @@ export function CanvasBoard({
     checkoutRef: activeCheckoutRef,
     setWorkingPayload: setSessionWorkingPayload,
     activate: activateTimeline,
-    resetActiveDocument,
     refreshActiveDocument,
   } = useTimelineSession();
   const shareImportInputRef = useRef<HTMLInputElement>(null);
@@ -3280,84 +3229,25 @@ export function CanvasBoard({
     setIsBatchResistanceModalOpen(false);
   };
 
-  const refreshTimelineSnapshotList = async () => {
+  const refreshTimelineArchiveLibrary = async () => {
+    const repository = createTimelineRepositoryClient();
     try {
-      const repository = await saveLegacySnapshotsToRepository();
-      const documents = await repository.listDocuments();
-      const timelineIds = [
-        activeTimelineId,
-        ...documents.map((document) => document.id).filter((timelineId) => timelineId !== activeTimelineId),
-      ];
-      const snapshots = (await Promise.all(timelineIds.map(async (timelineId) => (
-        (await repository.listSnapshots(timelineId)).map((snapshot) => ({ ...snapshot, timelineId }))
-      )))).flat();
-      const documentIds = new Set(documents.map((document) => document.id));
-      const repositoryEntries: TimelineSnapshotListEntry[] = snapshots.filter((snapshot) => !(
-        snapshot.timelineId === DEFAULT_TIMELINE_ID
-        && documentIds.has(getLegacySnapshotTimelineId(snapshot.id))
-      )).map((snapshot) => {
-        const payload = snapshot.payload!;
-        const buttonCount = payload.timelineData.staffLines.reduce((count, line) => count + (line.buttons?.length || 0), 0);
-        return { id: snapshot.id, timelineId: snapshot.timelineId, createdAt: snapshot.createdAt, label: snapshot.label, payload,
-          summary: { characterCount: payload.selectedCharacters.length, buttonCount, buffCount: payload.allBuffList.length } };
-      });
-      setTimelineSnapshots(repositoryEntries.sort((left, right) => right.createdAt - left.createdAt));
-      const documentEntries = await Promise.all(documents.map(async (document): Promise<TimelineDocumentListEntry> => {
-        const [bundle, checkoutRef] = await Promise.all([
-          repository.exportDocumentBundle(document.id),
-          repository.getCheckoutRef(document.id),
-        ]);
-        const fallbackSnapshot = [...bundle.snapshots].sort((left, right) => right.createdAt - left.createdAt)[0];
-        const fallbackWorkNode = [...bundle.workNodes].sort((left, right) => right.updatedAt - left.updatedAt)[0];
-        const repairedDocument = document.label === '主排轴'
-          && document.id.startsWith('timeline-document-')
-          && fallbackSnapshot?.label
-          ? await repository.ensureDocument({ id: document.id, label: fallbackSnapshot.label, createdAt: document.createdAt })
-          : document;
-        const targetSnapshot = checkoutRef?.targetType === 'snapshot'
-          ? bundle.snapshots.find((snapshot) => snapshot.id === checkoutRef.targetId)
-          : undefined;
-        const targetWorkNode = checkoutRef?.targetType === 'work-node'
-          ? bundle.workNodes.find((node) => node.id === checkoutRef.targetId)
-          : undefined;
-        const payload = targetSnapshot?.payload
-          || targetWorkNode?.workingPayload
-          || fallbackSnapshot?.payload
-          || fallbackWorkNode?.workingPayload
-          || null;
-        const targetType = checkoutRef?.targetType
-          || (fallbackSnapshot ? 'snapshot' : fallbackWorkNode ? 'work-node' : null);
-        const targetId = checkoutRef?.targetId || fallbackSnapshot?.id || fallbackWorkNode?.id || '';
-        return {
-          document: repairedDocument,
-          checkoutRef,
-          targetType,
-          targetId,
-          payload,
-          snapshotCount: bundle.snapshots.length,
-          workNodeCount: bundle.workNodes.length,
-          summary: payload ? {
-            characterCount: payload.selectedCharacters.length,
-            buttonCount: Object.keys(payload.skillButtonTable).length,
-            buffCount: payload.allBuffList.length,
-          } : { characterCount: 0, buttonCount: 0, buffCount: 0 },
-        };
-      }));
-      setTimelineDocuments(documentEntries.sort((left, right) => (
+      const [localArchives, referenceArchives, workspaces] = await Promise.all([
+        repository.listTimelineArchives('local'),
+        repository.listTimelineArchives('reference'),
+        repository.listSqliteWorkspaces(),
+      ]);
+      setLocalTimelineArchives(localArchives);
+      setReferenceTimelineArchives(referenceArchives);
+      setSqliteTimelineWorkspaces(workspaces.sort((left, right) => (
         Number(right.document.id === activeTimelineId) - Number(left.document.id === activeTimelineId)
         || right.document.updatedAt - left.document.updatedAt
       )));
-      const activeDocumentEntry = documentEntries.find((entry) => entry.document.id === activeTimelineId);
-      if (activeDocumentEntry) {
-        activateTimeline({
-          document: activeDocumentEntry.document,
-          checkoutRef: activeDocumentEntry.checkoutRef,
-          workingPayload: activeDocumentEntry.payload,
-        });
-      }
-    } catch {
-      setTimelineSnapshots(listTimelineSnapshots().map((snapshot) => ({ ...snapshot, timelineId: DEFAULT_TIMELINE_ID })));
-      setTimelineDocuments([]);
+    } catch (error) {
+      setLocalTimelineArchives([]);
+      setReferenceTimelineArchives([]);
+      setSqliteTimelineWorkspaces([]);
+      throw error;
     }
   };
 
@@ -3451,226 +3341,106 @@ export function CanvasBoard({
   const handleSaveTimelineSnapshot = async () => {
     saveTimelineData();
     setSelectedCharacterIds(selectedCharacters.map((character) => character.id));
-
-    const snapshot = createTimelineSnapshotEntry(snapshotDraftName);
-    if (!snapshot) {
-      alert('当前没有可保存的排轴数据');
-      return;
-    }
-
     try {
-      // A new save is the migration boundary for pre-Spec-5 browser archives.
-      // Import them first so future restores no longer depend on localStorage.
-      const repository = await saveLegacySnapshotsToRepository();
-      await ensureTimelineDocumentExists(repository, activeTimelineId, snapshot.label || activeTimelineLabel);
-      const saved = await repository.saveSnapshot({
-        id: snapshot.id,
+      // SQLite is the only directly usable form. Save the current working
+      // state into its worktree before exporting an archive copy.
+      await handleSaveWorkNodeCheckpoint();
+      const result = await createTimelineRepositoryClient().exportSqliteWorkspaceArchive({
         timelineId: activeTimelineId,
-        label: snapshot.label,
-        payload: snapshot.payload,
-        createdAt: snapshot.createdAt,
+        kind: 'local',
+        label: snapshotDraftName.trim() || activeTimelineLabel,
       });
-      const persistedSnapshot: TimelineSnapshotListEntry = {
-        ...snapshot,
-        timelineId: activeTimelineId,
-        id: saved.snapshot.id,
-        label: saved.snapshot.label,
-        createdAt: saved.snapshot.createdAt,
-      };
-      setTimelineSnapshots((current) => [persistedSnapshot, ...current.filter((item) => item.id !== saved.snapshot.id)]);
+      await refreshTimelineArchiveLibrary();
+      handleCloseSaveSnapshotModal();
+      setWorkNodeSaveNotice(`已导出本地存档：${result.archive.label}`);
+      window.setTimeout(() => setWorkNodeSaveNotice(''), 2200);
     } catch (error) {
-      alert(`快照保存失败：${formatTimelineOperationError(error)}`);
-      return;
+      alert(`导出本地存档失败：${formatTimelineOperationError(error)}`);
     }
-    handleCloseSaveSnapshotModal();
-    setWorkNodeSaveNotice(`快照已保存：${snapshot.label}`);
-    window.setTimeout(() => setWorkNodeSaveNotice(''), 2200);
   };
 
   const handleOpenSnapshotModal = () => {
-    setRestorePanelTab('snapshots');
-    void refreshTimelineSnapshotList();
+    setRestorePanelTab('archives');
+    void refreshTimelineArchiveLibrary().catch((error) => {
+      setWorkNodeSaveNotice(`读取数据管理库失败：${formatTimelineOperationError(error)}`);
+      window.setTimeout(() => setWorkNodeSaveNotice(''), 2600);
+    });
     setIsSnapshotModalOpen(true);
   };
 
   const handleCloseSnapshotModal = () => {
     setIsSnapshotModalOpen(false);
-    setPendingRestoreSnapshot(null);
   };
 
-  const handleOpenTimelineDocument = async (entry: TimelineDocumentListEntry) => {
-    if (!entry.payload || !entry.targetType || !entry.targetId) {
-      alert('该 SQLite 排轴文档还没有可打开的快照或工作节点');
-      return;
-    }
+  const handleConvertTimelineArchive = async (archive: TimelineArchiveSummary, payloadOnly = false) => {
     try {
       const repository = createTimelineRepositoryClient();
-      const checkoutRef = entry.checkoutRef || await repository.setCheckoutRef({
-          timelineId: entry.document.id,
-          targetType: entry.targetType,
-          targetId: entry.targetId,
-          updatedAt: Date.now(),
-        });
-      activateTimeline({ document: entry.document, checkoutRef, workingPayload: entry.payload });
-      hydrateCheckoutRuntime(entry.payload);
-      if (entry.workNodeCount === 0) {
-        await ensureTimelineDocumentBaselineWorkNode(entry.document.id, entry.payload, entry.document.label);
-      }
-      setWorkNodeRefreshKey((current) => current + 1);
-      setIsSnapshotModalOpen(false);
-      setWorkNodeSaveNotice(`已打开 SQLite 排轴：${entry.document.label}`);
-      window.setTimeout(() => setWorkNodeSaveNotice(''), 2200);
-    } catch (error) {
-      alert(`打开 SQLite 排轴失败：${formatTimelineOperationError(error)}`);
-    }
-  };
-
-  const handleDeleteTimelineDocument = async (entry: TimelineDocumentListEntry) => {
-    if (deletingTimelineDocumentRef.current) return;
-    const confirmed = window.confirm(
-      `删除 SQLite 排轴“${entry.document.label}”？\n将同时删除 ${entry.snapshotCount} 个快照和 ${entry.workNodeCount} 个工作节点，此操作不可撤销。`,
-    );
-    if (!confirmed) return;
-    deletingTimelineDocumentRef.current = true;
-    setDeletingTimelineDocumentId(entry.document.id);
-    try {
-      const repository = createTimelineRepositoryClient();
-      await repository.deleteDocument(entry.document.id);
-      if (entry.document.id === activeTimelineId) {
-        const fallback = timelineDocuments.find((candidate) => (
-          candidate.document.id !== entry.document.id && candidate.payload
-        ));
-        if (fallback) {
-          await handleOpenTimelineDocument(fallback);
-          return;
-        }
-        await repository.ensureDocument({ id: DEFAULT_TIMELINE_ID, label: '主排轴' });
-        const emptyTimeline = createEmptyTimelineData([]);
-        resetActiveDocument();
-        setSessionWorkingPayload(null, null);
-        setSelectedCharacterIds([]);
-        setAllBuffList([]);
-        setSkillButtonTable({});
-        saveTimelineRepo(emptyTimeline);
-        replaceTimelineData(emptyTimeline);
-        dispatch({ type: 'SET_SELECTED_CHARACTERS', characters: [] });
-        dispatch({ type: 'SET_SKILL_BUTTONS', buttons: [] });
-        setTimelineDocuments([]);
-        setTimelineSnapshots([]);
-        setIsSnapshotModalOpen(false);
-        setWorkNodeRefreshKey((current) => current + 1);
-        setWorkNodeSaveNotice(`已删除 SQLite 排轴：${entry.document.label}，当前已切换到空白排轴`);
-        window.setTimeout(() => setWorkNodeSaveNotice(''), 2600);
-        return;
-      }
-      await refreshTimelineSnapshotList();
-      setWorkNodeSaveNotice(`已删除 SQLite 排轴：${entry.document.label}`);
-      window.setTimeout(() => setWorkNodeSaveNotice(''), 2200);
-    } catch (error) {
-      if (isTimelineDocumentNotFound(error)) {
-        setTimelineDocuments((current) => current.filter((candidate) => candidate.document.id !== entry.document.id));
-        setTimelineSnapshots((current) => current.filter((snapshot) => snapshot.timelineId !== entry.document.id));
-        void refreshTimelineSnapshotList();
-        setWorkNodeSaveNotice(`SQLite 排轴“${entry.document.label}”已不存在，列表已刷新`);
-        window.setTimeout(() => setWorkNodeSaveNotice(''), 2600);
-        return;
-      }
-      alert(`删除 SQLite 排轴失败：${formatTimelineOperationError(error)}`);
-    } finally {
-      deletingTimelineDocumentRef.current = false;
-      setDeletingTimelineDocumentId('');
-    }
-  };
-
-  const handleRequestRestoreSnapshot = (snapshot: TimelineSnapshotListEntry) => {
-    setPendingRestoreSnapshot(snapshot);
-  };
-
-  const handleCancelRestoreSnapshot = () => {
-    setPendingRestoreSnapshot(null);
-  };
-
-  const handleConfirmRestoreSnapshot = async () => {
-    if (!pendingRestoreSnapshot) {
-      return;
-    }
-
-    try {
-      // A snapshot shown from the legacy archive has no repository row yet.  Upsert
-      // it before writing CheckoutRef so restoring an old save cannot fail with 404.
-      const repository = await saveLegacySnapshotsToRepository();
-      const targetTimelineId = pendingRestoreSnapshot.timelineId === DEFAULT_TIMELINE_ID
-        ? getLegacySnapshotTimelineId(pendingRestoreSnapshot.id)
-        : pendingRestoreSnapshot.timelineId;
-      await ensureTimelineDocumentExists(repository, targetTimelineId, pendingRestoreSnapshot.label);
-      const persisted = await repository.saveSnapshot({
-        id: pendingRestoreSnapshot.id,
-        timelineId: targetTimelineId,
-        label: pendingRestoreSnapshot.label,
-        payload: pendingRestoreSnapshot.payload,
-        createdAt: pendingRestoreSnapshot.createdAt,
-      });
-      const restored = await restoreUserWorkspaceSnapshot({
-        timelineId: targetTimelineId,
-        snapshotId: persisted.snapshot.id,
+      const converted = await repository.convertTimelineArchive({
+        source: archive.source,
+        archiveId: archive.archiveId,
+        payloadOnly,
         updatedAt: Date.now(),
       });
-      const restoredPayload = restored.payload as TimelineSnapshotPayload;
-      const restoredCheckoutRef = restored.checkoutRef as TimelineCheckoutRef;
-      activateTimeline({
-        document: { id: targetTimelineId, label: pendingRestoreSnapshot.label },
-        checkoutRef: restoredCheckoutRef,
-        workingPayload: restoredPayload,
-      });
-      hydrateCheckoutRuntime(restoredPayload);
-      await ensureTimelineDocumentBaselineWorkNode(
-        targetTimelineId,
-        restoredPayload,
-        pendingRestoreSnapshot.label,
-      );
-    } catch (error) {
-      alert(`恢复失败：${formatTimelineOperationError(error)}`);
-      return;
-    }
-
-    setPendingRestoreSnapshot(null);
-    setIsSnapshotModalOpen(false);
-    setWorkNodeRefreshKey((current) => current + 1);
-    setWorkNodeSaveNotice(`已恢复快照：${pendingRestoreSnapshot.label}`);
-    window.setTimeout(() => setWorkNodeSaveNotice(''), 2200);
-  };
-
-  const handleDeleteSnapshot = async (snapshotId: string) => {
-    try {
-      await createTimelineRepositoryClient().archiveSnapshot(snapshotId);
-      await refreshTimelineSnapshotList();
-      setWorkNodeSaveNotice('快照已删除');
+      activateTimeline({ document: converted.document as TimelineDocument, checkoutRef: converted.checkoutRef, workingPayload: converted.payload });
+      hydrateCheckoutRuntime(converted.payload);
+      await refreshTimelineArchiveLibrary();
+      setWorkNodeRefreshKey((current) => current + 1);
+      setIsSnapshotModalOpen(false);
+      setWorkNodeSaveNotice(`已从${archive.source === 'reference' ? '参考' : '本地'}存档创建 SQLite 工作区：${converted.document.label}`);
       window.setTimeout(() => setWorkNodeSaveNotice(''), 2200);
     } catch (error) {
-      alert(`删除快照失败：${formatTimelineOperationError(error)}`);
+      alert(`存档转换 SQLite 失败：${formatTimelineOperationError(error)}`);
+    }
+  };
+
+  const handleApplySqliteWorkspace = async (workspace: TimelineSqliteWorkspace) => {
+    try {
+      const repository = createTimelineRepositoryClient();
+      const applied = await repository.applySqliteWorkspace(workspace.document.id, Date.now());
+      activateTimeline({ document: applied.document as TimelineDocument, checkoutRef: applied.checkoutRef, workingPayload: applied.payload });
+      hydrateCheckoutRuntime(applied.payload);
+      setIsSnapshotModalOpen(false);
+      setWorkNodeRefreshKey((current) => current + 1);
+      setWorkNodeSaveNotice(`已应用 SQLite 工作区：${workspace.document.label}`);
+      window.setTimeout(() => setWorkNodeSaveNotice(''), 2200);
+    } catch (error) {
+      alert(`应用 SQLite 工作区失败：${formatTimelineOperationError(error)}`);
+    }
+  };
+
+  const handleExportSqliteWorkspace = async (workspace: TimelineSqliteWorkspace, kind: 'local' | 'reference') => {
+    try {
+      const result = await createTimelineRepositoryClient().exportSqliteWorkspaceArchive({
+        timelineId: workspace.document.id,
+        kind,
+      });
+      await refreshTimelineArchiveLibrary();
+      setWorkNodeSaveNotice(kind === 'reference'
+        ? `已导出待发布参考存档：${result.archive.label}`
+        : `已导出本地存档：${result.archive.label}`);
+      window.setTimeout(() => setWorkNodeSaveNotice(''), 2400);
+    } catch (error) {
+      alert(`导出存档失败：${formatTimelineOperationError(error)}`);
     }
   };
 
   const handleOpenShareModal = () => {
-    setShareDraftName('');
-    setShareScope('snapshot');
-    setShareBranchRootId('');
+    // New exports are TimelineArchive files. The old browser JSON share flow
+    // stays as a hidden compatibility reader only; it must not become a new
+    // direct-apply path around SQLite.
+    setRestorePanelTab('sqlite');
     setShareWorkNodes([]);
-    setIsShareModalOpen(true);
-    void createTimelineRepositoryClient().exportDocumentBundle(activeTimelineId)
-      .then((exported) => {
-        setShareWorkNodes(exported.workNodes);
-        const firstRoot = exported.workNodes.find((node) => !node.parentNodeId);
-        if (firstRoot) setShareBranchRootId(firstRoot.id);
-      })
-      .catch(() => undefined);
+    void refreshTimelineArchiveLibrary().catch((error) => {
+      setWorkNodeSaveNotice(`读取 SQLite 工作区失败：${formatTimelineOperationError(error)}`);
+      window.setTimeout(() => setWorkNodeSaveNotice(''), 2600);
+    });
+    setIsSnapshotModalOpen(true);
   };
 
   const handleCloseShareModal = () => {
     setIsShareModalOpen(false);
     setPendingImportShare(null);
     setPendingImportBundle(null);
-    setPendingImportTimelineId('');
     if (shareImportInputRef.current) {
       shareImportInputRef.current.value = '';
     }
@@ -3778,7 +3548,6 @@ export function CanvasBoard({
       const payload = bundle.payloads[snapshot.payloadIndex];
       setPendingImportShare({ type: 'timeline-share.v1', exportedAt: bundle.manifest.exportedAt, label: bundle.manifest.label, payload });
       setPendingImportBundle(bundle);
-      setPendingImportTimelineId(`imported-${Date.now()}`);
       event.target.value = '';
       return;
     }
@@ -3791,14 +3560,12 @@ export function CanvasBoard({
 
     setPendingImportShare(parsed);
     setPendingImportBundle(null);
-    setPendingImportTimelineId(`imported-${Date.now()}`);
     event.target.value = '';
   };
 
   const handleCancelImportShare = () => {
     setPendingImportShare(null);
     setPendingImportBundle(null);
-    setPendingImportTimelineId('');
   };
 
   const handleConfirmImportShare = async () => {
@@ -3806,77 +3573,31 @@ export function CanvasBoard({
       return;
     }
 
-    if (pendingImportTimelineId) {
-      const repository = createTimelineRepositoryClient();
-      const importedAt = Date.now();
-      const snapshotIdMap = new Map(pendingImportBundle?.snapshots.map((snapshot) => [snapshot.id, `imported-${snapshot.id}-${importedAt}`]) || []);
-      const nodeIdMap = new Map(pendingImportBundle?.workNodes?.map((node) => [node.id, `imported-${node.id}-${importedAt}`]) || []);
-      const bundleSnapshots = pendingImportBundle
-        ? pendingImportBundle.snapshots.map((snapshot) => ({
-          id: snapshotIdMap.get(snapshot.id)!,
-          label: snapshot.label,
-          createdAt: snapshot.createdAt,
-          payload: pendingImportBundle.payloads[snapshot.payloadIndex],
-        }))
-        : [{ id: `imported-snapshot-${importedAt}`, label: pendingImportShare.label, payload: pendingImportShare.payload }];
-      const bundleWorkNodes = pendingImportBundle?.workNodes?.map((node) => ({
-        id: nodeIdMap.get(node.id)!,
-        ...(node.parentNodeId ? { parentNodeId: nodeIdMap.get(node.parentNodeId)! } : {}),
-        branchId: node.branchId,
-        label: node.label,
-        status: node.status,
-        approvalPolicy: node.approvalPolicy,
-        riskFlags: node.riskFlags,
-        logs: node.logs,
-        createdAt: node.createdAt,
-        updatedAt: node.updatedAt,
-        basePayload: pendingImportBundle.payloads[node.basePayloadIndex],
-        workingPayload: pendingImportBundle.payloads[node.workingPayloadIndex],
-      }));
-      const bundleCommits = pendingImportBundle?.commits?.map((commit) => ({
-        id: `imported-${commit.id}-${importedAt}`,
-        nodeId: nodeIdMap.get(commit.nodeId)!,
-        timelineId: pendingImportTimelineId,
-        branchId: commit.branchId,
-        label: commit.label,
-        createdAt: commit.createdAt,
-        summary: commit.summary as import('../../agentKernel/timelineWorktree/types').TimelinePayloadDiffSummary,
-        riskFlags: commit.riskFlags as import('../../agentKernel/timelineWorktree/types').AiTimelineRiskFlag[],
-        approval: commit.approval as import('../../agentKernel/timelineWorktree/types').AiTimelineApproval,
-        checkoutApplied: commit.checkoutApplied,
-        ...(commit.checkout ? { checkout: commit.checkout as import('../../agentKernel/timelineWorktree/types').AiTimelineCheckout } : {}),
-        basePayload: pendingImportBundle.payloads[commit.basePayloadIndex],
-        appliedPayload: pendingImportBundle.payloads[commit.appliedPayloadIndex],
-      }));
-      const importedCheckoutRef = pendingImportBundle?.checkoutRef
-        ? {
-          targetType: pendingImportBundle.checkoutRef.targetType,
-          targetId: pendingImportBundle.checkoutRef.targetType === 'snapshot'
-            ? snapshotIdMap.get(pendingImportBundle.checkoutRef.targetId)!
-            : nodeIdMap.get(pendingImportBundle.checkoutRef.targetId)!,
-          updatedAt: pendingImportBundle.checkoutRef.updatedAt,
-        }
-        : undefined;
-      await repository.importDocumentBundle({
-        document: { id: pendingImportTimelineId, label: pendingImportShare.label },
-        snapshots: bundleSnapshots,
-        ...(bundleWorkNodes?.length ? { workNodes: bundleWorkNodes } : {}),
-        ...(bundleCommits?.length ? { commits: bundleCommits } : {}),
-        ...(importedCheckoutRef ? { checkoutRef: importedCheckoutRef } : {}),
-      });
+    const importedAt = Date.now();
+    const bundle = pendingImportBundle || {
+      type: 'dmg.timeline-bundle.v2' as const,
+      schemaVersion: 2 as const,
+      manifest: {
+        exportedAt: pendingImportShare.exportedAt,
+        scope: 'snapshot' as const,
+        timelineId: `legacy-share-${importedAt}`,
+        label: pendingImportShare.label,
+        payloadHash: 'legacy-timeline-share',
+      },
+      document: { id: `legacy-share-${importedAt}`, label: pendingImportShare.label },
+      payloads: [pendingImportShare.payload],
+      snapshots: [{ id: `legacy-share-snapshot-${importedAt}`, label: pendingImportShare.label, createdAt: pendingImportShare.exportedAt, payloadIndex: 0 }],
+    };
+    try {
+      const imported = await createTimelineRepositoryClient().importLegacyTimelineBundle({ bundle, sourceName: `${pendingImportShare.label}.json` });
       setPendingImportShare(null);
       setPendingImportBundle(null);
-      setPendingImportTimelineId('');
       setIsShareModalOpen(false);
-      setWorkNodeSaveNotice(`已导入为新的 SQLite 排轴：${pendingImportShare.label}`);
-      window.setTimeout(() => setWorkNodeSaveNotice(''), 2600);
-      return;
+      setWorkNodeSaveNotice(`已归档为本地存档：${imported.archive.label}；请在恢复 → 存档库中转换为 SQLite`);
+      window.setTimeout(() => setWorkNodeSaveNotice(''), 3200);
+    } catch (error) {
+      alert(`导入存档失败：${formatTimelineOperationError(error)}`);
     }
-    applyTimelineSnapshotPayload(pendingImportShare.payload);
-    setPendingImportShare(null);
-    setPendingImportBundle(null);
-    setPendingImportTimelineId('');
-    window.location.reload();
   };
 
   const handleOpenDamageReport = () => {
@@ -4149,7 +3870,7 @@ export function CanvasBoard({
             <div className="timeline-snapshot-modal-head">
               <div>
                 <h3>恢复排轴</h3>
-                <p>“快照”用于回退恢复点；“SQLite”用于直接打开完整排轴文档及其工作树。</p>
+                <p>存档不是可直接应用的状态：先转换为 SQLite 工作区；只有 SQLite 工作区可以直接应用。节点树仅显示数量。</p>
               </div>
               <button type="button" className="modal-close-btn" onClick={handleCloseSnapshotModal}>
                 关闭
@@ -4160,11 +3881,11 @@ export function CanvasBoard({
               <button
                 type="button"
                 role="tab"
-                aria-selected={restorePanelTab === 'snapshots'}
-                className={restorePanelTab === 'snapshots' ? 'is-active' : ''}
-                onClick={() => setRestorePanelTab('snapshots')}
+                aria-selected={restorePanelTab === 'archives'}
+                className={restorePanelTab === 'archives' ? 'is-active' : ''}
+                onClick={() => setRestorePanelTab('archives')}
               >
-                快照
+                存档库
               </button>
               <button
                 type="button"
@@ -4177,88 +3898,93 @@ export function CanvasBoard({
               </button>
             </div>
 
-            {restorePanelTab === 'snapshots' && (timelineSnapshots.length === 0 ? (
-              <div className="timeline-snapshot-empty">
-                当前还没有可恢复的快照。先点一次“保存”即可创建时间点。
-              </div>
-            ) : (
-              <div className="timeline-snapshot-list">
-                {timelineSnapshots.map((snapshot) => (
-                  <div key={snapshot.id} className="timeline-snapshot-item">
-                    <div className="timeline-snapshot-item-main">
-                      <strong>{snapshot.label}</strong>
-                      <span>
-                        {snapshot.summary.characterCount} 干员 / {snapshot.summary.buttonCount} 按钮 / {snapshot.summary.buffCount} Buff
-                      </span>
-                    </div>
-                    <div className="timeline-snapshot-hover-card">
-                      <div className="timeline-snapshot-hover-title">快照详情</div>
-                      <div className="timeline-snapshot-hover-line">保存时间：{formatPreciseTimestamp(snapshot.createdAt)}</div>
-                      <div className="timeline-snapshot-hover-line">快照 ID：{snapshot.id}</div>
-                      <div className="timeline-snapshot-hover-line">
-                        干员 {snapshot.summary.characterCount} / 按钮 {snapshot.summary.buttonCount} / Buff {snapshot.summary.buffCount}
+            {restorePanelTab === 'archives' && (
+              <div className="timeline-snapshot-list timeline-document-list">
+                {([
+                  ['本地存档', localTimelineArchives, 'local'],
+                  ['参考存档（联网下载）', referenceTimelineArchives, 'reference'],
+                ] as const).map(([title, archives, source]) => (
+                  <React.Fragment key={source}>
+                    <div className="timeline-snapshot-empty">{title}</div>
+                    {archives.length === 0 ? (
+                      <div className="timeline-snapshot-empty">暂无{source === 'local' ? '本地' : '参考'}存档。</div>
+                    ) : archives.map((archive) => (
+                      <div key={`${source}-${archive.archiveId}`} className="timeline-snapshot-item timeline-document-item">
+                        <div className="timeline-snapshot-item-main">
+                          <strong>{archive.label}</strong>
+                          <span>{archive.summary.characterCount} 干员 / {archive.summary.buttonCount} 按钮 / {archive.summary.buffCount} Buff</span>
+                          <span>{archive.nodeCount} 个节点{archive.hasCurrentNode ? ' / 含当前节点定位' : ''}{archive.releaseId ? ` / 发布 ${archive.releaseId}` : ''}</span>
+                          {archive.worktreeDiagnostic && <span>节点树兼容问题：{archive.worktreeDiagnostic.message}</span>}
+                          {archive.invalid && <span>存档无效：{archive.invalid.message}</span>}
+                        </div>
+                        <div className="timeline-snapshot-item-actions">
+                          <button
+                            type="button"
+                            className="btn-save"
+                            disabled={Boolean(archive.invalid)}
+                            onClick={() => void handleConvertTimelineArchive(archive)}
+                          >
+                            转换为 SQLite
+                          </button>
+                          {archive.worktreeDiagnostic && (
+                            <button type="button" className="btn-calculate" onClick={() => void handleConvertTimelineArchive(archive, true)}>
+                              仅导入内容
+                            </button>
+                          )}
+                        </div>
                       </div>
-                      <div className="timeline-snapshot-hover-section">Buff 内容</div>
-                      <div className="timeline-snapshot-hover-buffs">
-                        {buildSnapshotBuffPreview(snapshot).map((buffName) => (
-                          <span key={`${snapshot.id}-${buffName}`}>{buffName}</span>
-                        ))}
-                      </div>
-                    </div>
-                    <div className="timeline-snapshot-item-actions">
-                      <button type="button" className="btn-save" onClick={() => handleRequestRestoreSnapshot(snapshot)}>
-                        恢复
-                      </button>
-                      <button
-                        type="button"
-                        className="btn-calculate timeline-snapshot-delete-btn"
-                        onClick={() => handleDeleteSnapshot(snapshot.id)}
-                      >
-                        删除
-                      </button>
-                    </div>
-                  </div>
+                    ))}
+                  </React.Fragment>
                 ))}
               </div>
-            ))}
+            )}
 
-            {restorePanelTab === 'sqlite' && (timelineDocuments.length === 0 ? (
+            {restorePanelTab === 'sqlite' && (sqliteTimelineWorkspaces.length === 0 ? (
               <div className="timeline-snapshot-empty">
-                SQLite 中还没有可直接打开的排轴文档。
+                SQLite 中还没有可直接应用的工作区。请先从存档库转换，或继续编辑当前工作区。
               </div>
             ) : (
               <div className="timeline-snapshot-list timeline-document-list">
-                {timelineDocuments.map((entry) => (
+                {sqliteTimelineWorkspaces.map((workspace) => (
                   <div
-                    key={entry.document.id}
-                    className={`timeline-snapshot-item timeline-document-item${entry.document.id === activeTimelineId ? ' is-active' : ''}`}
+                    key={workspace.document.id}
+                    className={`timeline-snapshot-item timeline-document-item${workspace.document.id === activeTimelineId ? ' is-active' : ''}`}
                   >
                     <div className="timeline-snapshot-item-main">
-                      <strong>{entry.document.label}</strong>
+                      <strong>{workspace.document.label}</strong>
                       <span>
-                        {entry.summary.characterCount} 干员 / {entry.summary.buttonCount} 按钮 / {entry.summary.buffCount} Buff
+                        {workspace.summary.characterCount} 干员 / {workspace.summary.buttonCount} 按钮 / {workspace.summary.buffCount} Buff
                       </span>
                       <span>
-                        {entry.snapshotCount} 快照 / {entry.workNodeCount} 工作节点
-                        {entry.document.id === activeTimelineId ? ' / 当前打开' : ''}
+                        {workspace.nodeCount} 个节点
+                        {workspace.document.id === activeTimelineId ? ' / 当前应用' : ''}
                       </span>
+                      {workspace.invalid && <span>工作区异常：{workspace.invalid.message}</span>}
                     </div>
                     <div className="timeline-snapshot-item-actions">
                       <button
                         type="button"
                         className="btn-save"
-                        disabled={!entry.payload}
-                        onClick={() => void handleOpenTimelineDocument(entry)}
+                        disabled={Boolean(workspace.invalid)}
+                        onClick={() => void handleApplySqliteWorkspace(workspace)}
                       >
-                        打开
+                        应用
                       </button>
                       <button
                         type="button"
-                        className="btn-calculate timeline-snapshot-delete-btn"
-                        disabled={Boolean(deletingTimelineDocumentId)}
-                        onClick={() => void handleDeleteTimelineDocument(entry)}
+                        className="btn-calculate"
+                        disabled={Boolean(workspace.invalid)}
+                        onClick={() => void handleExportSqliteWorkspace(workspace, 'local')}
                       >
-                        {deletingTimelineDocumentId === entry.document.id ? '删除中…' : '删除'}
+                        导出本地存档
+                      </button>
+                      <button
+                        type="button"
+                        className="btn-calculate"
+                        disabled={Boolean(workspace.invalid)}
+                        onClick={() => void handleExportSqliteWorkspace(workspace, 'reference')}
+                      >
+                        导出待发布参考包
                       </button>
                     </div>
                   </div>
@@ -4274,8 +4000,8 @@ export function CanvasBoard({
           <div className="timeline-snapshot-modal timeline-snapshot-save-modal" onClick={(event) => event.stopPropagation()}>
             <div className="timeline-snapshot-modal-head">
               <div>
-                <h3>保存排轴快照</h3>
-                <p>可自定义快照名称；留空时自动使用当前时间。</p>
+                <h3>导出本地存档</h3>
+                <p>先保存当前工作节点，再从 SQLite 工作区导出本地存档。</p>
               </div>
               <button type="button" className="modal-close-btn" onClick={handleCloseSaveSnapshotModal}>
                 关闭
@@ -4283,7 +4009,7 @@ export function CanvasBoard({
             </div>
 
             <label className="timeline-snapshot-form-label" htmlFor="timeline-snapshot-name">
-              快照名称
+              存档名称
             </label>
             <input
               id="timeline-snapshot-name"
@@ -4291,7 +4017,7 @@ export function CanvasBoard({
               type="text"
               value={snapshotDraftName}
               onChange={(event) => setSnapshotDraftName(event.target.value)}
-              placeholder="留空则使用时间戳"
+              placeholder="留空则使用当前工作区名称"
               maxLength={60}
             />
 
@@ -4300,39 +4026,7 @@ export function CanvasBoard({
                 取消
               </button>
               <button type="button" className="btn-save" onClick={handleSaveTimelineSnapshot}>
-                保存
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {pendingRestoreSnapshot && (
-        <div className="timeline-snapshot-modal-overlay" onClick={handleCancelRestoreSnapshot}>
-          <div className="timeline-snapshot-confirm-modal" onClick={(event) => event.stopPropagation()}>
-            <div className="timeline-snapshot-modal-head">
-              <div>
-                <h3>确认恢复快照</h3>
-                <p>将覆盖当前排轴缓存，并在恢复后自动刷新界面。</p>
-              </div>
-              <button type="button" className="modal-close-btn" onClick={handleCancelRestoreSnapshot}>
-                关闭
-              </button>
-            </div>
-
-            <div className="timeline-snapshot-confirm-body">
-              <strong>{pendingRestoreSnapshot.label}</strong>
-              <span>
-                {pendingRestoreSnapshot.summary.characterCount} 干员 / {pendingRestoreSnapshot.summary.buttonCount} 按钮 / {pendingRestoreSnapshot.summary.buffCount} Buff
-              </span>
-            </div>
-
-            <div className="timeline-snapshot-form-actions">
-              <button type="button" className="btn-calculate" onClick={handleCancelRestoreSnapshot}>
-                取消
-              </button>
-              <button type="button" className="btn-save" onClick={handleConfirmRestoreSnapshot}>
-                确认恢复
+                导出本地存档
               </button>
             </div>
           </div>

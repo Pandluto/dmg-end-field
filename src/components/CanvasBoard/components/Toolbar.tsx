@@ -87,7 +87,7 @@ export function Toolbar({
       <div className="toolbar-right">
         <button className="btn-save" onClick={onSave}>保存</button>
         <button className="btn-save" onClick={onRestore}>恢复</button>
-        <button className="btn-save" onClick={onShare}>分享</button>
+        <button className="btn-save" onClick={onShare}>导出</button>
         <button className="btn-save" onClick={onTable}>表格</button>
         <button className="btn-calculate" onClick={onCalculate}>计算伤害</button>
       </div>

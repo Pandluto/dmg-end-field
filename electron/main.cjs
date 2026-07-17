@@ -1007,6 +1007,94 @@ function startBridgeServer() {
         return;
       }
 
+      if (method === 'GET' && requestUrl.pathname === '/local-data/timeline-archives') {
+        try {
+          const source = requestUrl.searchParams.get('source') || '';
+          const archives = getDataManagementService().listTimelineArchives({ source });
+          writeJson(response, 200, { ok: true, archives });
+        } catch (error) {
+          writeJson(response, 400, { ok: false, error: { code: error?.code || 'timeline-archive-list-failed', message: error instanceof Error ? error.message : String(error) } });
+        }
+        return;
+      }
+
+      if (method === 'GET' && requestUrl.pathname === '/local-data/timeline-workspaces') {
+        try {
+          writeJson(response, 200, { ok: true, workspaces: getDataManagementService().listSqliteWorkspaces() });
+        } catch (error) {
+          writeJson(response, 500, { ok: false, error: { code: error?.code || 'timeline-workspace-list-failed', message: error instanceof Error ? error.message : String(error) } });
+        }
+        return;
+      }
+
+      if (method === 'POST' && requestUrl.pathname === '/local-data/timeline-archives/convert') {
+        try {
+          const payload = await readJsonRequest(request);
+          const result = getDataManagementService().convertTimelineArchiveToWorkspace(payload);
+          writeJson(response, 200, { ok: true, ...result });
+        } catch (error) {
+          writeJson(response, 400, { ok: false, error: { code: error?.code || 'timeline-archive-convert-failed', message: error instanceof Error ? error.message : String(error), details: error?.details } });
+        }
+        return;
+      }
+
+      if (method === 'POST' && requestUrl.pathname === '/local-data/timeline-archives/import-legacy-bundle') {
+        try {
+          const payload = await readJsonRequest(request);
+          const result = getDataManagementService().importLegacyTimelineBundleArchive(payload);
+          writeJson(response, 200, { ok: true, ...result });
+        } catch (error) {
+          writeJson(response, 400, { ok: false, error: { code: error?.code || 'legacy-timeline-bundle-import-failed', message: error instanceof Error ? error.message : String(error), details: error?.details } });
+        }
+        return;
+      }
+
+      const timelineWorkspaceApplyMatch = /^\/local-data\/timeline-workspaces\/([^/]+)\/apply$/.exec(requestUrl.pathname);
+      if (method === 'POST' && timelineWorkspaceApplyMatch) {
+        try {
+          const payload = await readJsonRequest(request);
+          const result = getDataManagementService().applySqliteWorkspace({
+            timelineId: decodeURIComponent(timelineWorkspaceApplyMatch[1]),
+            updatedAt: payload?.updatedAt,
+          });
+          writeJson(response, 200, { ok: true, ...result });
+        } catch (error) {
+          writeJson(response, error?.code === 'timeline-document-not-found' ? 404 : 400, { ok: false, error: { code: error?.code || 'timeline-workspace-apply-failed', message: error instanceof Error ? error.message : String(error) } });
+        }
+        return;
+      }
+
+      const timelineWorkspaceExportMatch = /^\/local-data\/timeline-workspaces\/([^/]+)\/export-archive$/.exec(requestUrl.pathname);
+      if (method === 'POST' && timelineWorkspaceExportMatch) {
+        try {
+          const payload = await readJsonRequest(request);
+          const result = getDataManagementService().exportSqliteWorkspaceArchive({
+            timelineId: decodeURIComponent(timelineWorkspaceExportMatch[1]),
+            kind: payload?.kind,
+            label: payload?.label,
+          });
+          writeJson(response, 200, { ok: true, ...result });
+        } catch (error) {
+          writeJson(response, error?.code === 'timeline-document-not-found' ? 404 : 400, { ok: false, error: { code: error?.code || 'timeline-workspace-export-failed', message: error instanceof Error ? error.message : String(error) } });
+        }
+        return;
+      }
+
+      if (method === 'POST' && requestUrl.pathname === '/data-management/reference-archives/install') {
+        try {
+          const payload = await readJsonRequest(request);
+          const result = getDataManagementService().installReferenceArchiveRelease({
+            manifest: payload?.manifest,
+            archivePath: payload?.archivePath,
+            manifestUrl: payload?.manifestUrl,
+          });
+          writeJson(response, 200, { ok: true, ...result });
+        } catch (error) {
+          writeJson(response, 400, { ok: false, error: { code: error?.code || 'reference-archive-install-failed', message: error instanceof Error ? error.message : String(error), details: error?.details } });
+        }
+        return;
+      }
+
       if (method === 'POST' && requestUrl.pathname === '/data-management/migrate-browser-archive') {
         try {
           const payload = await readJsonRequest(request);
@@ -1651,6 +1739,41 @@ ipcMain.handle('desktop:restore-user-workspace-snapshot', (_event, payload) => {
     return { ok: false, error: error instanceof Error ? error.message : String(error), code: error?.code || 'data-management-workspace-restore-failed' };
   }
 });
+ipcMain.handle('desktop:list-timeline-archives', (_event, payload) => {
+  try {
+    return { ok: true, archives: getDataManagementService().listTimelineArchives({ source: payload?.source }) };
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : String(error), code: error?.code || 'timeline-archive-list-failed' };
+  }
+});
+ipcMain.handle('desktop:list-timeline-workspaces', () => {
+  try {
+    return { ok: true, workspaces: getDataManagementService().listSqliteWorkspaces() };
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : String(error), code: error?.code || 'timeline-workspace-list-failed' };
+  }
+});
+ipcMain.handle('desktop:convert-timeline-archive', (_event, payload) => {
+  try {
+    return { ok: true, ...getDataManagementService().convertTimelineArchiveToWorkspace(payload) };
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : String(error), code: error?.code || 'timeline-archive-convert-failed' };
+  }
+});
+ipcMain.handle('desktop:apply-timeline-workspace', (_event, payload) => {
+  try {
+    return { ok: true, ...getDataManagementService().applySqliteWorkspace(payload) };
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : String(error), code: error?.code || 'timeline-workspace-apply-failed' };
+  }
+});
+ipcMain.handle('desktop:export-timeline-workspace-archive', (_event, payload) => {
+  try {
+    return { ok: true, ...getDataManagementService().exportSqliteWorkspaceArchive(payload) };
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : String(error), code: error?.code || 'timeline-workspace-export-failed' };
+  }
+});
 ipcMain.handle('desktop:migrate-browser-legacy-archive', (_event, payload) => {
   try {
     return {
@@ -1741,6 +1864,18 @@ ipcMain.handle('desktop:pick-data-release-output-dir', async () => {
   }
   return { ok: true, path: result.filePaths[0] };
 });
+ipcMain.handle('desktop:pick-reference-archive-release-source-dir', async () => {
+  const win = BrowserWindow.getFocusedWindow() || shellWindow;
+  if (!win) return { ok: false, error: '无活动窗口' };
+  const result = await dialog.showOpenDialog(win, {
+    title: '选择待发布参考存档目录',
+    properties: ['openDirectory'],
+  });
+  if (result.canceled || !result.filePaths?.[0]) {
+    return { ok: false, canceled: true, error: '已取消' };
+  }
+  return { ok: true, path: result.filePaths[0] };
+});
 ipcMain.handle('desktop:build-image-release-package', async (_event, payload) => {
   try {
     const scriptPath = path.join(__dirname, '..', 'scripts', 'build-image-release-manifest.mjs');
@@ -1776,6 +1911,24 @@ ipcMain.handle('desktop:build-data-release-package', async (_event, payload) => 
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     appendRuntimeLog('data-release-builder', `failed ${message}`);
+    return { ok: false, error: message };
+  }
+});
+ipcMain.handle('desktop:build-reference-archive-release-package', async (_event, payload) => {
+  try {
+    const scriptPath = path.join(__dirname, '..', 'scripts', 'build-reference-archive-release.mjs');
+    const mod = await import(pathToFileURL(scriptPath).href);
+    const result = mod.buildReferenceArchiveReleasePackage({
+      source: payload?.source,
+      output: payload?.output,
+      releaseId: payload?.releaseId,
+      minShellVersion: payload?.minShellVersion,
+    });
+    appendRuntimeLog('reference-archive-release-builder', `built ${result.releaseId} -> ${result.outputDir}`);
+    return { ok: true, result };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    appendRuntimeLog('reference-archive-release-builder', `failed ${message}`);
     return { ok: false, error: message };
   }
 });

@@ -24,9 +24,11 @@ import {
 } from '../agent/runtime/def-node-workspace/codec.mjs';
 import workNodeStoreModule from '../electron/ai-timeline-work-node-store.cjs';
 import timelineRepositoryModule from '../electron/timeline-repository.cjs';
+import dataManagementServiceModule from '../electron/data-management-service.cjs';
 
 const { createAiTimelineWorkNodeStore } = workNodeStoreModule;
 const { createTimelineRepository } = timelineRepositoryModule;
+const { createDataManagementService } = dataManagementServiceModule;
 
 const HOST = '127.0.0.1';
 const PORT = Number(process.env.AI_CLI_REST_PORT || 17321);
@@ -45,6 +47,8 @@ const legacyAiTimelineWorkNodesPath = process.env.AI_TIMELINE_WORK_NODE_LEGACY_P
   || path.join(projectRoot, 'data', 'localdata', 'ai-timeline-worknodes.json');
 const timelineRepositoryPath = process.env.TIMELINE_REPOSITORY_DB_PATH
   || path.join(projectRoot, 'data', 'localdata', 'timeline-repository.sqlite3');
+const dataManagementRuntimeRoot = process.env.DATA_MANAGEMENT_RUNTIME_ROOT
+  || path.join(projectRoot, 'data');
 const defToolGovernancePath = process.env.DEF_TOOL_GOVERNANCE_PATH
   || path.join(projectRoot, 'data', 'localdata', 'def-tool-governance.json');
 const storageMode = process.env.AI_CLI_REST_STORAGE_MODE || 'now-storage';
@@ -556,6 +560,7 @@ function buildDefWorkNodeButtonTargets(payload) {
 
 let aiTimelineWorkNodeStore;
 let timelineRepository;
+let dataManagementService;
 
 function getAiTimelineWorkNodeStore() {
   if (!aiTimelineWorkNodeStore) {
@@ -573,6 +578,17 @@ function getTimelineRepository() {
     timelineRepository.migrateLegacyWorkNodeArchive(getAiTimelineWorkNodeStore().readArchive());
   }
   return timelineRepository;
+}
+
+function getDataManagementService() {
+  if (!dataManagementService) {
+    dataManagementService = createDataManagementService({
+      runtimeDataRoot: dataManagementRuntimeRoot,
+      builtinCatalogPath: path.join(projectRoot, 'public', 'data', 'catalog.sqlite'),
+    });
+    dataManagementService.ensureUserDatabase();
+  }
+  return dataManagementService;
 }
 
 function mirrorWorkNodeToTimelineRepository(node) {
@@ -1509,6 +1525,58 @@ function handleAiTimelineWorkNodeRequest(method, pathname, body) {
 }
 
 function handleTimelineRepositoryRequest(method, pathname, query, body) {
+  if (method === 'GET' && pathname === '/api/timeline-archives') {
+    try {
+      const source = query.get('source') || '';
+      return { status: 200, body: { ok: true, archives: getDataManagementService().listTimelineArchives({ source }) } };
+    } catch (error) {
+      return failScript(400, error?.code || 'timeline-archive-list-failed', error instanceof Error ? error.message : String(error));
+    }
+  }
+  if (method === 'GET' && pathname === '/api/timeline-workspaces') {
+    try {
+      return { status: 200, body: { ok: true, workspaces: getDataManagementService().listSqliteWorkspaces() } };
+    } catch (error) {
+      return failScript(500, error?.code || 'timeline-workspace-list-failed', error instanceof Error ? error.message : String(error));
+    }
+  }
+  if (method === 'POST' && pathname === '/api/timeline-archives/convert') {
+    try {
+      return { status: 200, body: { ok: true, ...getDataManagementService().convertTimelineArchiveToWorkspace(body) } };
+    } catch (error) {
+      return failScript(400, error?.code || 'timeline-archive-convert-failed', error instanceof Error ? error.message : String(error), error?.details);
+    }
+  }
+  if (method === 'POST' && pathname === '/api/timeline-archives/import-legacy-bundle') {
+    try {
+      return { status: 200, body: { ok: true, ...getDataManagementService().importLegacyTimelineBundleArchive(body) } };
+    } catch (error) {
+      return failScript(400, error?.code || 'legacy-timeline-bundle-import-failed', error instanceof Error ? error.message : String(error), error?.details);
+    }
+  }
+  const workspaceApplyMatch = /^\/api\/timeline-workspaces\/([^/]+)\/apply$/.exec(pathname);
+  if (method === 'POST' && workspaceApplyMatch) {
+    try {
+      return { status: 200, body: { ok: true, ...getDataManagementService().applySqliteWorkspace({
+        timelineId: decodeURIComponent(workspaceApplyMatch[1]),
+        updatedAt: body?.updatedAt,
+      }) } };
+    } catch (error) {
+      return failScript(error?.code === 'timeline-document-not-found' ? 404 : 400, error?.code || 'timeline-workspace-apply-failed', error instanceof Error ? error.message : String(error));
+    }
+  }
+  const workspaceExportMatch = /^\/api\/timeline-workspaces\/([^/]+)\/export-archive$/.exec(pathname);
+  if (method === 'POST' && workspaceExportMatch) {
+    try {
+      return { status: 200, body: { ok: true, ...getDataManagementService().exportSqliteWorkspaceArchive({
+        timelineId: decodeURIComponent(workspaceExportMatch[1]),
+        kind: body?.kind,
+        label: body?.label,
+      }) } };
+    } catch (error) {
+      return failScript(error?.code === 'timeline-document-not-found' ? 404 : 400, error?.code || 'timeline-workspace-export-failed', error instanceof Error ? error.message : String(error));
+    }
+  }
   const repository = getTimelineRepository();
   if (method === 'GET' && pathname === '/api/timeline-documents') {
     return { status: 200, body: { ok: true, protocolVersion: 1, documents: repository.listDocuments() } };

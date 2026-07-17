@@ -28,6 +28,8 @@ contextBridge.exposeInMainWorld('desktopRuntime', {
   pickDataReleaseSourceDir: () => ipcRenderer.invoke('desktop:pick-data-release-source-dir'),
   pickDataReleaseOutputDir: () => ipcRenderer.invoke('desktop:pick-data-release-output-dir'),
   buildDataReleasePackage: (payload) => ipcRenderer.invoke('desktop:build-data-release-package', payload),
+  pickReferenceArchiveReleaseSourceDir: () => ipcRenderer.invoke('desktop:pick-reference-archive-release-source-dir'),
+  buildReferenceArchiveReleasePackage: (payload) => ipcRenderer.invoke('desktop:build-reference-archive-release-package', payload),
   revealPath: (payload) => ipcRenderer.invoke('desktop:reveal-path', payload),
   quitApp: () => ipcRenderer.invoke('desktop:quit-app'),
   listImageAssets: () => ipcRenderer.invoke('desktop:list-image-assets'),

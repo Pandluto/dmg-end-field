@@ -69,6 +69,38 @@ export type TimelineRepositoryWorkNodeCommit = {
   appliedPayload?: TimelineSnapshotPayload;
 };
 
+export type TimelineArchiveSource = 'local' | 'reference';
+
+export type TimelineArchiveSummary = {
+  archiveId: string;
+  label: string;
+  source: TimelineArchiveSource;
+  archiveVersion: number;
+  createdAt: string;
+  payloadHash?: string;
+  summary: { characterCount: number; buttonCount: number; buffCount: number };
+  nodeCount: number;
+  hasCurrentNode: boolean;
+  releaseId?: string;
+  invalid?: { code: string; message: string };
+  worktreeDiagnostic?: { code: string; message: string };
+};
+
+export type TimelineSqliteWorkspace = {
+  document: TimelineDocument;
+  checkoutRef: TimelineCheckoutRef | null;
+  summary: { characterCount: number; buttonCount: number; buffCount: number };
+  nodeCount: number;
+  invalid?: { code: string; message: string };
+};
+
+type TimelineWorkspaceApplyResult = {
+  document: Pick<TimelineDocument, 'id' | 'label'>;
+  payload: TimelineSnapshotPayload;
+  checkoutRef: TimelineCheckoutRef;
+  workspace: { values: Record<string, string | null>; updatedAt: number };
+};
+
 async function readResponse<T>(response: Response): Promise<T> {
   const payload = await response.json();
   if (!response.ok || !payload?.ok) {
@@ -207,6 +239,51 @@ export function createTimelineRepositoryClient() {
         `/local-data/timeline-snapshots/${encodeURIComponent(snapshotId)}/archive`, 'POST', {},
       );
       return response.result;
+    },
+    async listTimelineArchives(source: TimelineArchiveSource) {
+      const response = await requestWithFallback<RepositoryResponse<{ archives: TimelineArchiveSummary[] }>>(
+        `/local-data/timeline-archives?source=${encodeURIComponent(source)}`,
+      );
+      return response.archives;
+    },
+    async listSqliteWorkspaces() {
+      const response = await requestWithFallback<RepositoryResponse<{ workspaces: TimelineSqliteWorkspace[] }>>('/local-data/timeline-workspaces');
+      return response.workspaces;
+    },
+    async convertTimelineArchive(input: { source: TimelineArchiveSource; archiveId: string; payloadOnly?: boolean; label?: string; updatedAt?: number }) {
+      const response = await requestWithFallback<RepositoryResponse<TimelineWorkspaceApplyResult & {
+        rootNodeId: string;
+        importedNodeCount: number;
+        totalNodeCount: number;
+        compatibility: Array<{ code: string; message: string }>;
+      }>>('/local-data/timeline-archives/convert', 'POST', input);
+      return response;
+    },
+    async importLegacyTimelineBundle(input: { bundle: unknown; sourceName?: string }) {
+      const response = await requestWithFallback<RepositoryResponse<{
+        imported: boolean;
+        reused: boolean;
+        archive: TimelineArchiveSummary;
+      }>>('/local-data/timeline-archives/import-legacy-bundle', 'POST', input);
+      return response;
+    },
+    async applySqliteWorkspace(timelineId: string, updatedAt?: number) {
+      const response = await requestWithFallback<RepositoryResponse<TimelineWorkspaceApplyResult>>(
+        `/local-data/timeline-workspaces/${encodeURIComponent(timelineId)}/apply`, 'POST', { updatedAt },
+      );
+      return response;
+    },
+    async exportSqliteWorkspaceArchive(input: { timelineId: string; kind: TimelineArchiveSource; label?: string }) {
+      const response = await requestWithFallback<RepositoryResponse<{
+        kind: TimelineArchiveSource;
+        outbox: boolean;
+        filePath: string;
+        archive: TimelineArchiveSummary;
+      }>>(`/local-data/timeline-workspaces/${encodeURIComponent(input.timelineId)}/export-archive`, 'POST', {
+        kind: input.kind,
+        label: input.label,
+      });
+      return response;
     },
   };
 }
