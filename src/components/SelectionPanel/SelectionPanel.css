@@ -185,6 +185,13 @@
   background: rgba(0, 0, 0, 0.04);
 }
 
+.selection-error {
+  margin: 8px 0 0;
+  color: #b42318;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
 .selection-toolbar {
   justify-content: space-between;
   gap: 12px;

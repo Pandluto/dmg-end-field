@@ -1,11 +1,14 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useAppContext } from '../../context/AppContext';
-import { reconcileSelectionChange } from '../../core/services/timelineService';
+import { createEmptyTimelineData } from '../../core/services/timelineService';
 import { loadLocalOperatorCharacters } from '../../core/services/localOperatorAdapter';
 import { LOCAL_LIBRARY_CHANGED_EVENT } from '../../aiCli/aiCliCommandService';
 import { Character } from '../../types';
 import { normalizeAssetUrl } from '../../utils/assetResolver';
 import { APP_ROUTE_PATHS, navigateToAppPath } from '../../utils/appRoute';
+import { applyTimelineSnapshotPayload, type TimelineSnapshotPayload } from '../../utils/timelineSnapshotStorage';
+import { createTimelineRepositoryClient } from '../../agentKernel/timelineRepository/localTimelineClient';
+import { activateTimelineSession } from '../../agentKernel/timelineRepository/timelineSession';
 import './SelectionPanel.css';
 
 const ELEMENT_LABELS: Record<string, string> = {
@@ -30,6 +33,8 @@ export function SelectionPanel() {
   const [localCharacters, setLocalCharacters] = useState<Character[]>([]);
   const [draftCharacterIds, setDraftCharacterIds] = useState<string[]>([]);
   const [query, setQuery] = useState('');
+  const [isCreatingWorkspace, setIsCreatingWorkspace] = useState(false);
+  const [workspaceError, setWorkspaceError] = useState('');
 
   const refreshLocalCharacters = () => {
     setLocalCharacters(loadLocalOperatorCharacters());
@@ -116,14 +121,67 @@ export function SelectionPanel() {
     setDraftCharacterIds([]);
   };
 
-  const handleConfirm = () => {
+  const handleConfirm = async () => {
     if (draftCharacters.length === 0) {
       return;
     }
-    reconcileSelectionChange(selectedCharacters, draftCharacters);
-    dispatch({ type: 'CLEAR_SKILL_BUTTONS' });
-    dispatch({ type: 'SET_SELECTED_CHARACTERS', characters: draftCharacters });
-    dispatch({ type: 'SET_VIEW', view: 'canvas' });
+
+    setIsCreatingWorkspace(true);
+    setWorkspaceError('');
+    const createdAt = Date.now();
+    const nonce = typeof crypto?.randomUUID === 'function'
+      ? crypto.randomUUID()
+      : Math.random().toString(36).slice(2, 12);
+    const timelineId = `timeline-${createdAt}-${nonce}`;
+    const snapshotId = `${timelineId}-initial`;
+    const documentLabel = `排轴 ${new Date(createdAt).toLocaleString('zh-CN', { hour12: false })}`;
+    const payload: TimelineSnapshotPayload = {
+      selectedCharacters: draftCharacters.map((character) => character.id),
+      timelineData: createEmptyTimelineData(draftCharacters),
+      skillButtonTable: {},
+      allBuffList: [],
+      anomalyStateSnapshots: [],
+      characterInputMap: {},
+      characterComputedMap: {},
+      characterDisplayCacheMap: {},
+      operatorConfigPageCache: {},
+    };
+
+    try {
+      const repository = createTimelineRepositoryClient();
+      const imported = await repository.importDocumentBundle({
+        document: { id: timelineId, label: documentLabel, createdAt },
+        snapshots: [{
+          id: snapshotId,
+          label: '初始排轴',
+          createdAt,
+          payload,
+        }],
+        checkoutRef: { targetType: 'snapshot', targetId: snapshotId, updatedAt: createdAt },
+      });
+      const checkoutRef = {
+        timelineId: imported.document.id,
+        targetType: 'snapshot' as const,
+        targetId: snapshotId,
+        updatedAt: createdAt,
+      };
+
+      // 先同步 SQLite 工作副本和会话，再切画布；这样新画布不会从上一个
+      // 工作区读取旧按钮表或旧 Work Node 树。
+      applyTimelineSnapshotPayload(payload);
+      activateTimelineSession({
+        document: imported.document,
+        checkoutRef,
+        workingPayload: payload,
+      });
+      dispatch({ type: 'CLEAR_SKILL_BUTTONS' });
+      dispatch({ type: 'SET_SELECTED_CHARACTERS', characters: draftCharacters });
+      dispatch({ type: 'SET_VIEW', view: 'canvas' });
+    } catch (error) {
+      setWorkspaceError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setIsCreatingWorkspace(false);
+    }
   };
 
   const openOperatorDraft = () => {
@@ -199,10 +257,11 @@ export function SelectionPanel() {
               type="button"
               className="selection-confirm-button"
               onClick={handleConfirm}
-              disabled={draftCharacters.length === 0}
+              disabled={draftCharacters.length === 0 || isCreatingWorkspace}
             >
-              开始排轴
+              {isCreatingWorkspace ? '正在创建 SQLite 工作区…' : '开始排轴'}
             </button>
+            {workspaceError && <p className="selection-error">创建 SQLite 工作区失败：{workspaceError}</p>}
           </aside>
 
           <section className="selection-library">

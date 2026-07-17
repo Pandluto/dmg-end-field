@@ -40,6 +40,9 @@ export function useTimelineData(selectedCharacters: { name: string }[]) {
     saveTimerRef.current = setTimeout(() => {
       const dataToSave = timelineDataRef.current;
       saveTimelineDataService(dataToSave);
+      // timeline.data 与 skill-button 总表分别写入。异步 UI 切换或历史数据
+      // 恢复期间，最后一次写入不能让两者留下不一致的快照。
+      ensureTimelineDataConsistency(selectedCharacters);
       console.log('[timeline] autosaved to workspace repository');
     }, 300);
 
@@ -48,7 +51,7 @@ export function useTimelineData(selectedCharacters: { name: string }[]) {
         clearTimeout(saveTimerRef.current);
       }
     };
-  }, [timelineData]);
+  }, [selectedCharacters, timelineData]);
 
   const addSkillButton = useCallback((buttonData: Omit<SkillButtonData, 'id' | 'nodeNumber'>, customId?: string): SkillButtonData => {
     const { newButton, newTimelineData } = addSkillButtonService(timelineDataRef.current, buttonData, customId);
@@ -129,9 +132,10 @@ export function useTimelineData(selectedCharacters: { name: string }[]) {
   const saveTimelineData = useCallback((): TimelineData => {
     const dataToSave = timelineDataRef.current;
     saveTimelineDataService(dataToSave);
-    console.log('[timeline] saved to workspace repository', dataToSave);
-    return dataToSave;
-  }, []);
+    const consistentData = ensureTimelineDataConsistency(selectedCharacters) ?? dataToSave;
+    console.log('[timeline] saved to workspace repository', consistentData);
+    return consistentData;
+  }, [selectedCharacters]);
 
   const loadTimelineData = useCallback((): TimelineData | null => {
     const parsed = ensureTimelineDataConsistency(selectedCharacters) ?? loadTimelineDataService();
