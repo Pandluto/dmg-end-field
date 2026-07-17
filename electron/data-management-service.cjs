@@ -7,6 +7,8 @@ const { DatabaseSync } = require('node:sqlite');
 const { createTimelineRepository } = require('./timeline-repository.cjs');
 
 const DATA_RELEASE_MANIFEST_TYPE = 'dmg.data-release-manifest.v1';
+const LOCAL_DATA_RELEASE_MANIFEST_TYPE = 'dmg.local-data-release-manifest.v1';
+const LOCAL_DATA_RELEASE_PACKAGE_MANIFEST_TYPE = 'dmg.local-data-release-package.v1';
 const CATALOG_PACKAGE_MANIFEST_TYPE = 'dmg.catalog-package.v1';
 const TIMELINE_ARCHIVE_TYPE = 'dmg.timeline-archive.v1';
 const REFERENCE_ARCHIVE_RELEASE_MANIFEST_TYPE = 'dmg.reference-archive-release-manifest.v1';
@@ -158,8 +160,8 @@ function normalizeTimelineArchive(value, { expectedSource, allowInvalidWorktree 
   if (!value || typeof value !== 'object' || value.type !== TIMELINE_ARCHIVE_TYPE || value.archiveVersion !== 1) {
     throw dataManagementError('invalid-timeline-archive', '排轴存档类型或版本无效。');
   }
-  if (!['local', 'reference'].includes(value.source)) {
-    throw dataManagementError('invalid-timeline-archive-source', '排轴存档来源必须是 local 或 reference。');
+  if (!['local', 'shared', 'reference'].includes(value.source)) {
+    throw dataManagementError('invalid-timeline-archive-source', '排轴存档来源必须是 local 或 shared。');
   }
   if (expectedSource && value.source !== expectedSource) {
     throw dataManagementError('timeline-archive-source-mismatch', '排轴存档来源与所在存档库不一致。');
@@ -623,6 +625,204 @@ function createDataReleasePackage({ catalogPath, outputDirectory, referenceArchi
   }
 }
 
+function normalizeLocalDataPackage(value) {
+  if (!value || typeof value !== 'object' || value.type !== 'def.localdata.archive.v1'
+    || !value.storage || typeof value.storage !== 'object') {
+    throw dataManagementError('invalid-local-data-package', '完整数据包必须是有效的 def.localdata.archive.v1。');
+  }
+  if (typeof value.id !== 'string' || !value.id.trim()) {
+    throw dataManagementError('invalid-local-data-package', '完整数据包缺少 id。');
+  }
+  const local = value.storage.local && typeof value.storage.local === 'object' && !Array.isArray(value.storage.local)
+    ? cloneJson(value.storage.local)
+    : {};
+  const session = value.storage.session && typeof value.storage.session === 'object' && !Array.isArray(value.storage.session)
+    ? cloneJson(value.storage.session)
+    : {};
+  const timelineArchives = value.timelineArchives === undefined
+    ? []
+    : (Array.isArray(value.timelineArchives) ? value.timelineArchives.map((archive) => cloneJson(archive)) : (() => {
+      throw dataManagementError('invalid-local-data-package', '完整数据包 timelineArchives 必须是数组。');
+    })());
+  return {
+    ...cloneJson(value),
+    id: value.id.trim(),
+    name: typeof value.name === 'string' && value.name.trim() ? value.name.trim() : value.id.trim(),
+    storage: { local, session },
+    ...(timelineArchives.length ? { timelineArchives } : {}),
+  };
+}
+
+function localDataPackageHash(dataPackage) {
+  return hashBufferSha256(Buffer.from(stableJson(normalizeLocalDataPackage(dataPackage))));
+}
+
+function validateLocalDataReleaseManifest(manifest, { shellVersion = '' } = {}) {
+  if (!manifest || typeof manifest !== 'object' || manifest.type !== LOCAL_DATA_RELEASE_MANIFEST_TYPE || manifest.manifestVersion !== 1) {
+    throw dataManagementError('invalid-local-data-release-manifest', '数据发布清单类型或版本无效。');
+  }
+  const dataVersion = sanitizeVersion(manifest.dataVersion);
+  if (typeof manifest.releaseTag !== 'string' || !manifest.releaseTag.trim()) {
+    throw dataManagementError('invalid-local-data-release-manifest', '数据发布清单缺少 releaseTag。');
+  }
+  const source = manifest.source;
+  if (!source || typeof source !== 'object' || !['local', 'share'].includes(source.scope)
+    || typeof source.id !== 'string' || !source.id.trim() || typeof source.fileName !== 'string' || !source.fileName.endsWith('.json')) {
+    throw dataManagementError('invalid-local-data-release-manifest', '数据发布清单来源无效。');
+  }
+  const packageInfo = manifest.package;
+  if (!packageInfo || typeof packageInfo !== 'object') throw dataManagementError('invalid-local-data-release-manifest', '数据发布清单缺少 package。');
+  assertPackageFileName(packageInfo.fileName);
+  assertSha256(packageInfo.sha256, 'package.sha256');
+  if (!Number.isSafeInteger(packageInfo.sizeBytes) || packageInfo.sizeBytes <= 0 || packageInfo.sizeBytes > DEFAULT_MAX_PACKAGE_BYTES) {
+    throw dataManagementError('invalid-local-data-release-package-size', '数据发布包大小无效或超过限制。');
+  }
+  const data = manifest.data;
+  if (!data || typeof data !== 'object' || !/^sha256:[a-f0-9]{64}$/i.test(data.sha256 || '')
+    || !Number.isSafeInteger(data.sizeBytes) || data.sizeBytes <= 0) {
+    throw dataManagementError('invalid-local-data-release-manifest', '数据发布清单 data 无效。');
+  }
+  if (shellVersion && manifest.minShellVersion && compareVersionNumberish(shellVersion, manifest.minShellVersion) < 0) {
+    throw dataManagementError('local-data-release-shell-version-incompatible', `当前 Shell ${shellVersion} 不满足最低版本 ${manifest.minShellVersion}。`);
+  }
+  return {
+    ...manifest,
+    dataVersion,
+    source: { scope: source.scope, id: source.id.trim(), fileName: path.basename(source.fileName) },
+    package: { ...packageInfo, sha256: assertSha256(packageInfo.sha256, 'package.sha256') },
+    data: { ...data, sha256: data.sha256.toLowerCase() },
+  };
+}
+
+function assertSafeLocalDataReleaseArchive(archivePath) {
+  const entries = runChecked('unzip', ['-Z1', archivePath]).split(/\r?\n/).filter(Boolean);
+  const expected = new Set(['manifest.json', 'data.json']);
+  if (entries.length !== expected.size || new Set(entries).size !== entries.length || entries.some((entry) => !expected.has(entry))) {
+    throw dataManagementError('unsafe-local-data-release-archive', '数据发布包只能包含 manifest.json 与 data.json。', { entries });
+  }
+}
+
+function extractLocalDataReleaseArchive(archivePath, destination) {
+  assertSafeLocalDataReleaseArchive(archivePath);
+  fs.mkdirSync(destination, { recursive: true });
+  if (process.platform === 'win32') {
+    const escapedArchive = archivePath.replace(/'/g, "''");
+    const escapedDestination = destination.replace(/'/g, "''");
+    runChecked('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', `Expand-Archive -LiteralPath '${escapedArchive}' -DestinationPath '${escapedDestination}' -Force`]);
+  } else {
+    runChecked('unzip', ['-q', archivePath, '-d', destination]);
+  }
+}
+
+function createLocalDataReleasePackage({ dataPackagePath, sourceScope, outputDirectory, manifest: manifestInput }) {
+  if (!dataPackagePath || !fs.existsSync(dataPackagePath) || !fs.statSync(dataPackagePath).isFile()) {
+    throw dataManagementError('local-data-release-source-not-found', '选择的数据包不存在。');
+  }
+  if (!['local', 'share'].includes(sourceScope)) throw dataManagementError('invalid-local-data-release-source', '发布来源必须是 Local Data 或 Share Data。');
+  if (!outputDirectory || !fs.existsSync(outputDirectory) || !fs.statSync(outputDirectory).isDirectory()) {
+    throw dataManagementError('local-data-release-output-not-found', '数据发布输出目录不存在。');
+  }
+  const dataVersion = sanitizeVersion(manifestInput?.dataVersion);
+  const dataPackage = normalizeLocalDataPackage(JSON.parse(fs.readFileSync(dataPackagePath, 'utf8')));
+  const dataJson = `${JSON.stringify(dataPackage, null, 2)}\n`;
+  const dataSha256 = hashBufferSha256(Buffer.from(stableJson(dataPackage)));
+  const outputDir = path.resolve(outputDirectory, dataVersion);
+  if (fs.existsSync(outputDir)) throw dataManagementError('local-data-release-output-exists', `发布目录已存在：${outputDir}`);
+  const temporaryDir = fs.mkdtempSync(path.join(os.tmpdir(), `dmg-local-data-${dataVersion}-`));
+  try {
+    const packageFileName = `data-${dataVersion}.zip`;
+    const innerManifest = {
+      type: LOCAL_DATA_RELEASE_PACKAGE_MANIFEST_TYPE,
+      manifestVersion: 1,
+      dataVersion,
+      source: { scope: sourceScope, id: dataPackage.id, fileName: path.basename(dataPackagePath) },
+      data: { sha256: `sha256:${dataSha256}`, sizeBytes: Buffer.byteLength(dataJson) },
+    };
+    writeJsonAtomically(path.join(temporaryDir, 'manifest.json'), innerManifest);
+    fs.writeFileSync(path.join(temporaryDir, 'data.json'), dataJson, 'utf8');
+    fs.mkdirSync(outputDir, { recursive: true });
+    const packagePath = path.join(outputDir, packageFileName);
+    runChecked('zip', ['-X', '-q', '-r', packagePath, 'manifest.json', 'data.json'], { cwd: temporaryDir });
+    const manifest = {
+      type: LOCAL_DATA_RELEASE_MANIFEST_TYPE,
+      manifestVersion: 1,
+      dataVersion,
+      releaseTag: typeof manifestInput?.releaseTag === 'string' && manifestInput.releaseTag.trim() ? manifestInput.releaseTag.trim() : dataVersion,
+      generatedAt: manifestInput?.generatedAt || new Date().toISOString(),
+      minShellVersion: typeof manifestInput?.minShellVersion === 'string' ? manifestInput.minShellVersion.trim() : '',
+      source: innerManifest.source,
+      package: { fileName: packageFileName, packagePath: packageFileName, sizeBytes: fs.statSync(packagePath).size, sha256: hashFileSha256(packagePath) },
+      data: innerManifest.data,
+    };
+    const checked = validateLocalDataReleaseManifest(manifest);
+    const manifestPath = path.join(outputDir, 'data-release-manifest.json');
+    writeJsonAtomically(manifestPath, checked);
+    return { outputDir, packagePath, manifestPath, manifest: checked };
+  } catch (error) {
+    fs.rmSync(outputDir, { recursive: true, force: true });
+    throw error;
+  } finally {
+    fs.rmSync(temporaryDir, { recursive: true, force: true });
+  }
+}
+
+function installLocalDataRelease({ manifest, archivePath, targetDirectory, shellVersion = '' }) {
+  const checked = validateLocalDataReleaseManifest(manifest, { shellVersion });
+  if (!archivePath || !fs.existsSync(archivePath) || !fs.statSync(archivePath).isFile()) {
+    throw dataManagementError('local-data-release-package-not-found', '下载的数据发布包不存在。');
+  }
+  const stats = fs.statSync(archivePath);
+  if (stats.size !== checked.package.sizeBytes || stats.size > DEFAULT_MAX_PACKAGE_BYTES || hashFileSha256(archivePath) !== checked.package.sha256) {
+    throw dataManagementError('local-data-release-package-integrity-failed', '下载的数据发布包完整性校验失败。');
+  }
+  if (!targetDirectory) throw dataManagementError('local-data-release-target-missing', 'Share Data 目录缺失。');
+  const staging = fs.mkdtempSync(path.join(os.tmpdir(), `dmg-local-data-install-${checked.dataVersion}-`));
+  try {
+    extractLocalDataReleaseArchive(archivePath, staging);
+    const inner = readJsonIfExists(path.join(staging, 'manifest.json'));
+    const dataPackage = normalizeLocalDataPackage(readJsonIfExists(path.join(staging, 'data.json')));
+    const expectedInner = {
+      type: LOCAL_DATA_RELEASE_PACKAGE_MANIFEST_TYPE,
+      manifestVersion: 1,
+      dataVersion: checked.dataVersion,
+    };
+    if (!inner || inner.type !== expectedInner.type || inner.manifestVersion !== expectedInner.manifestVersion
+      || inner.dataVersion !== expectedInner.dataVersion || inner.source?.id !== checked.source.id
+      || inner.source?.scope !== checked.source.scope || inner.data?.sha256 !== checked.data.sha256
+      || inner.data?.sizeBytes !== checked.data.sizeBytes || localDataPackageHash(dataPackage) !== checked.data.sha256.slice('sha256:'.length)) {
+      throw dataManagementError('local-data-release-inner-manifest-mismatch', '数据发布包内部内容与清单不一致。');
+    }
+    fs.mkdirSync(targetDirectory, { recursive: true });
+    const fileName = `release-${checked.dataVersion}-${sanitizeArchiveId(checked.source.id, 'data')}.json`;
+    const destination = path.join(targetDirectory, fileName);
+    const writeState = () => {
+      const statePath = path.join(targetDirectory, '.data-release-state.json');
+      const state = readJsonIfExists(statePath) || { versions: {} };
+      const versions = state.versions && typeof state.versions === 'object' ? state.versions : {};
+      writeJsonAtomically(statePath, {
+        versions: {
+          ...versions,
+          [checked.dataVersion]: { fileName, sha256: checked.data.sha256, downloadedAt: new Date().toISOString(), manifestUrl: '' },
+        },
+        activeVersion: checked.dataVersion,
+      });
+    };
+    if (fs.existsSync(destination)) {
+      const existing = normalizeLocalDataPackage(JSON.parse(fs.readFileSync(destination, 'utf8')));
+      if (localDataPackageHash(existing) !== checked.data.sha256.slice('sha256:'.length)) {
+        throw dataManagementError('local-data-release-version-collision', `Share Data 已有版本 ${checked.dataVersion} 但内容不同的数据包。`);
+      }
+      writeState();
+      return { installed: false, reused: true, fileName, path: destination, manifest: checked };
+    }
+    writeJsonAtomically(destination, dataPackage);
+    writeState();
+    return { installed: true, reused: false, fileName, path: destination, manifest: checked };
+  } finally {
+    fs.rmSync(staging, { recursive: true, force: true });
+  }
+}
+
 function validateReferenceArchiveReleaseManifest(manifest, { shellVersion, publicKey, requireSignature = Boolean(publicKey) } = {}) {
   if (!manifest || typeof manifest !== 'object'
     || manifest.type !== REFERENCE_ARCHIVE_RELEASE_MANIFEST_TYPE
@@ -760,7 +960,7 @@ function createReferenceArchiveReleasePackage({ sourceDirectory, outputDirectory
   }
 }
 
-function createDataManagementService({ runtimeDataRoot, builtinCatalogPath, shellVersion = '', publicKey, requireSignature = Boolean(publicKey) }) {
+function createDataManagementService({ runtimeDataRoot, builtinCatalogPath, localDataDirectory, shareDataDirectory, shellVersion = '', publicKey, requireSignature = Boolean(publicKey) }) {
   if (!runtimeDataRoot) throw dataManagementError('missing-runtime-data-root', '运行时数据根目录缺失。');
   const root = path.resolve(runtimeDataRoot);
   const paths = {
@@ -772,7 +972,11 @@ function createDataManagementService({ runtimeDataRoot, builtinCatalogPath, shel
     userDirectory: path.join(root, 'user'),
     userDatabasePath: path.join(root, 'user', 'user.sqlite'),
     backupDirectory: path.join(root, 'user', 'backups'),
-    localArchiveDirectory: path.join(root, 'localdata', 'timeline-archives'),
+    localDataDirectory: localDataDirectory ? path.resolve(localDataDirectory) : path.join(root, 'localdata'),
+    shareDataDirectory: shareDataDirectory ? path.resolve(shareDataDirectory) : path.join(root, 'sharedata'),
+    localArchiveDirectory: path.join(root, 'timeline-archives', 'local'),
+    sharedArchiveDirectory: path.join(root, 'timeline-archives', 'shared'),
+    legacyLocalArchiveDirectory: path.join(root, 'localdata', 'timeline-archives'),
     referenceArchiveRoot: path.join(root, 'reference-archives'),
     referenceArchiveVersionsDirectory: path.join(root, 'reference-archives', 'versions'),
     referenceArchiveActivePath: path.join(root, 'reference-archives', 'active.json'),
@@ -787,7 +991,10 @@ function createDataManagementService({ runtimeDataRoot, builtinCatalogPath, shel
       paths.versionsDirectory,
       paths.userDirectory,
       paths.backupDirectory,
+      paths.localDataDirectory,
+      paths.shareDataDirectory,
       paths.localArchiveDirectory,
+      paths.sharedArchiveDirectory,
       paths.referenceArchiveRoot,
       paths.referenceArchiveVersionsDirectory,
       paths.referenceArchiveOutboxDirectory,
@@ -1111,6 +1318,13 @@ function createDataManagementService({ runtimeDataRoot, builtinCatalogPath, shel
     });
   }
 
+  function listSharedTimelineArchives() {
+    return listTimelineArchivesFromDirectory(paths.sharedArchiveDirectory, {
+      expectedSource: 'shared',
+      library: 'shared',
+    });
+  }
+
   function listPendingReferenceTimelineArchives() {
     // A pending archive has the same portable wire shape as a reference
     // archive, but it has not been published or provenance-verified yet.
@@ -1178,13 +1392,19 @@ function createDataManagementService({ runtimeDataRoot, builtinCatalogPath, shel
   }
 
   function getTimelineArchive({ source, archiveId, allowInvalidWorktree = false } = {}) {
-    if (!['local', 'pending-reference', 'reference'].includes(source)) throw dataManagementError('invalid-timeline-archive-source', '存档来源无效。');
+    if (!['local', 'shared', 'pending-reference', 'reference'].includes(source)) throw dataManagementError('invalid-timeline-archive-source', '存档来源无效。');
     if (typeof archiveId !== 'string' || sanitizeArchiveId(archiveId) !== archiveId) {
       throw dataManagementError('invalid-timeline-archive-id', '排轴存档 ID 无效。');
     }
     if (source === 'local') {
       return readTimelineArchiveFile(timelineArchiveFilePath(paths.localArchiveDirectory, archiveId), {
         expectedSource: 'local',
+        allowInvalidWorktree,
+      });
+    }
+    if (source === 'shared') {
+      return readTimelineArchiveFile(timelineArchiveFilePath(paths.sharedArchiveDirectory, archiveId), {
+        expectedSource: 'shared',
         allowInvalidWorktree,
       });
     }
@@ -1213,6 +1433,9 @@ function createDataManagementService({ runtimeDataRoot, builtinCatalogPath, shel
     if (library === 'pending-reference') {
       return { directory: paths.referenceArchiveOutboxDirectory, expectedSource: 'reference' };
     }
+    if (library === 'shared') {
+      return { directory: paths.sharedArchiveDirectory, expectedSource: 'shared' };
+    }
     throw dataManagementError('timeline-archive-library-readonly', '联网下载的参考存档为只读内容，不能在本机删除或转换。');
   }
 
@@ -1232,8 +1455,8 @@ function createDataManagementService({ runtimeDataRoot, builtinCatalogPath, shel
   }
 
   function transferTimelineArchive({ from, to, archiveId } = {}) {
-    if (!['local', 'pending-reference'].includes(from) || !['local', 'pending-reference'].includes(to)) {
-      throw dataManagementError('invalid-timeline-archive-transfer', '只能在本地存档与待发布存档之间转换。');
+    if (!['local', 'shared', 'pending-reference'].includes(from) || !['local', 'shared', 'pending-reference'].includes(to)) {
+      throw dataManagementError('invalid-timeline-archive-transfer', '只能在本地存档与共享存档之间转换。');
     }
     if (from === to) throw dataManagementError('invalid-timeline-archive-transfer', '存档转换的来源和目标不能相同。');
     if (typeof archiveId !== 'string' || sanitizeArchiveId(archiveId) !== archiveId) {
@@ -1530,7 +1753,9 @@ function createDataManagementService({ runtimeDataRoot, builtinCatalogPath, shel
   }
 
   function exportSqliteWorkspaceArchive({ timelineId, kind = 'local', label } = {}) {
-    if (!['local', 'reference'].includes(kind)) throw dataManagementError('invalid-timeline-archive-source', '导出存档来源无效。');
+    // `reference` remains an internal compatibility path for old release
+    // tooling. Product callers only expose local/shared.
+    if (!['local', 'shared', 'reference'].includes(kind)) throw dataManagementError('invalid-timeline-archive-source', '导出存档来源无效。');
     if (typeof timelineId !== 'string' || !timelineId.trim()) throw dataManagementError('invalid-timeline-workspace-id', 'SQLite 工作区 ID 无效。');
     ensureUserDatabase();
     const db = new DatabaseSync(paths.userDatabasePath, { readOnly: true });
@@ -1574,13 +1799,15 @@ function createDataManagementService({ runtimeDataRoot, builtinCatalogPath, shel
           },
         } : {}),
       };
-      const outputDirectory = kind === 'local' ? paths.localArchiveDirectory : paths.referenceArchiveOutboxDirectory;
+      const outputDirectory = kind === 'local'
+        ? paths.localArchiveDirectory
+        : (kind === 'shared' ? paths.sharedArchiveDirectory : paths.referenceArchiveOutboxDirectory);
       const written = writeTimelineArchive(outputDirectory, archive);
       return {
         kind,
-        outbox: kind === 'reference',
+        outbox: kind === 'shared' || kind === 'reference',
         filePath: written.filePath,
-        archive: archiveSummary(written.archive, { library: kind === 'reference' ? 'pending-reference' : 'local' }),
+        archive: archiveSummary(written.archive, { library: kind === 'reference' ? 'pending-reference' : kind }),
       };
     } finally {
       db.close();
@@ -2186,6 +2413,122 @@ function createDataManagementService({ runtimeDataRoot, builtinCatalogPath, shel
     return sources.map((source) => migrateLegacyArchiveSource(source));
   }
 
+  function writeSharedTimelineArchive(rawArchive) {
+    const candidate = cloneJson(rawArchive);
+    candidate.source = 'shared';
+    delete candidate.reference;
+    const archive = normalizeTimelineArchive(candidate, { expectedSource: 'shared' });
+    const filePath = timelineArchiveFilePath(paths.sharedArchiveDirectory, archive.archiveId);
+    if (fs.existsSync(filePath)) {
+      const existing = readTimelineArchiveFile(filePath, { expectedSource: 'shared' });
+      if (stableJson(existing) !== stableJson(archive)) {
+        throw dataManagementError('shared-timeline-archive-collision', `共享存档已有同 ID 但内容不同的条目：${archive.archiveId}`);
+      }
+      return { archive: archiveSummary(existing, { library: 'shared' }), reused: true };
+    }
+    return { archive: archiveSummary(writeTimelineArchive(paths.sharedArchiveDirectory, archive).archive, { library: 'shared' }), reused: false };
+  }
+
+  function importDataPackageTimelineArchives({ dataPackage } = {}) {
+    const packageValue = normalizeLocalDataPackage(dataPackage);
+    const imported = [];
+    for (const archive of packageValue.timelineArchives || []) {
+      imported.push(writeSharedTimelineArchive(archive));
+    }
+    // Packages written before timelineArchives existed retain old browser
+    // snapshot fields. Apply Data is the only place that converts these
+    // historical fields into shared archives.
+    const legacyLocal = asRecord(packageValue.storage?.local);
+    const legacySession = asRecord(packageValue.storage?.session);
+    const hasLegacySnapshots = Array.isArray(parseLegacyStorageValue(legacyLocal[LEGACY_TIMELINE_SNAPSHOT_ARCHIVE_KEY], null)?.snapshots);
+    const hasLegacyTimelineWorkspace = [
+      WORKSPACE_STORAGE_KEYS.timelineData,
+      WORKSPACE_STORAGE_KEYS.skillButtonTable,
+    ].some((key) => Object.prototype.hasOwnProperty.call(legacySession, key));
+    if (!imported.length && (hasLegacySnapshots || hasLegacyTimelineWorkspace)) {
+      const sourceHash = localDataPackageHash(packageValue);
+      for (const [index, snapshot] of legacyArchiveSnapshots(packageValue, sourceHash).entries()) {
+        imported.push(writeSharedTimelineArchive({
+          type: TIMELINE_ARCHIVE_TYPE,
+          archiveVersion: 1,
+          source: 'shared',
+          archiveId: `package-${sourceHash.slice(0, 20)}-${index + 1}`,
+          label: snapshot.label,
+          createdAt: new Date(snapshot.createdAt).toISOString(),
+          payload: snapshot.payload,
+        }));
+      }
+    }
+    return { imported: imported.filter((entry) => !entry.reused).map((entry) => entry.archive), reused: imported.filter((entry) => entry.reused).map((entry) => entry.archive) };
+  }
+
+  function writeSharedTimelineArchivesToDataPackage({ dataPackagePath } = {}) {
+    if (!dataPackagePath || !fs.existsSync(dataPackagePath) || !fs.statSync(dataPackagePath).isFile()) {
+      throw dataManagementError('data-package-not-found', '目标数据包不存在。');
+    }
+    const packageValue = normalizeLocalDataPackage(JSON.parse(fs.readFileSync(dataPackagePath, 'utf8')));
+    const timelineArchives = fs.readdirSync(paths.sharedArchiveDirectory, { withFileTypes: true })
+      .filter((entry) => entry.isFile() && entry.name.endsWith('.json'))
+      .map((entry) => readTimelineArchiveFile(path.join(paths.sharedArchiveDirectory, entry.name), { expectedSource: 'shared' }))
+      .sort((left, right) => left.archiveId.localeCompare(right.archiveId));
+    const next = { ...packageValue, timelineArchives };
+    writeJsonAtomically(dataPackagePath, next);
+    return { path: dataPackagePath, archiveCount: timelineArchives.length, dataPackage: normalizeLocalDataPackage(next) };
+  }
+
+  function migrateLegacySharedArchiveLibraries() {
+    ensureLayout();
+    const results = [];
+    const migrateDirectory = (directory) => {
+      if (!fs.existsSync(directory)) return;
+      for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+        if (!entry.isFile() || !entry.name.endsWith('.json')) continue;
+        try {
+          const raw = JSON.parse(fs.readFileSync(path.join(directory, entry.name), 'utf8'));
+          const result = writeSharedTimelineArchive(raw);
+          results.push({ fileName: entry.name, ...result });
+        } catch (error) {
+          results.push({ fileName: entry.name, error: error instanceof Error ? error.message : String(error) });
+        }
+      }
+    };
+    const migrateLegacyLocalDirectory = () => {
+      if (!fs.existsSync(paths.legacyLocalArchiveDirectory)) return;
+      for (const entry of fs.readdirSync(paths.legacyLocalArchiveDirectory, { withFileTypes: true })) {
+        if (!entry.isFile() || !entry.name.endsWith('.json')) continue;
+        try {
+          const candidate = JSON.parse(fs.readFileSync(path.join(paths.legacyLocalArchiveDirectory, entry.name), 'utf8'));
+          candidate.source = 'local';
+          delete candidate.reference;
+          const archive = normalizeTimelineArchive(candidate, { expectedSource: 'local' });
+          const destination = timelineArchiveFilePath(paths.localArchiveDirectory, archive.archiveId);
+          if (fs.existsSync(destination)) {
+            const existing = readTimelineArchiveFile(destination, { expectedSource: 'local' });
+            if (stableJson(existing) !== stableJson(archive)) {
+              throw dataManagementError('legacy-local-timeline-archive-collision', `本地存档已有同 ID 但内容不同的条目：${archive.archiveId}`);
+            }
+            results.push({ fileName: entry.name, library: 'local', reused: true });
+          } else {
+            writeTimelineArchive(paths.localArchiveDirectory, archive);
+            results.push({ fileName: entry.name, library: 'local', reused: false });
+          }
+        } catch (error) {
+          results.push({ fileName: entry.name, library: 'local', error: error instanceof Error ? error.message : String(error) });
+        }
+      }
+    };
+    const migrateInstalledReferenceDirectories = () => {
+      if (!fs.existsSync(paths.referenceArchiveVersionsDirectory)) return;
+      for (const entry of fs.readdirSync(paths.referenceArchiveVersionsDirectory, { withFileTypes: true })) {
+        if (entry.isDirectory()) migrateDirectory(path.join(paths.referenceArchiveVersionsDirectory, entry.name, 'archives'));
+      }
+    };
+    migrateLegacyLocalDirectory();
+    migrateDirectory(paths.referenceArchiveOutboxDirectory);
+    migrateInstalledReferenceDirectories();
+    return results;
+  }
+
   function listLegacyMigrationRecords() {
     ensureUserDatabase();
     const db = new DatabaseSync(paths.userDatabasePath, { readOnly: true });
@@ -2300,6 +2643,7 @@ function createDataManagementService({ runtimeDataRoot, builtinCatalogPath, shel
     restoreWorkspaceSnapshot,
     listTimelineArchives: ({ source } = {}) => {
       if (source === 'local') return listLocalTimelineArchives();
+      if (source === 'shared') return listSharedTimelineArchives();
       if (source === 'pending-reference') return listPendingReferenceTimelineArchives();
       if (source === 'reference') return listReferenceTimelineArchives();
       throw dataManagementError('invalid-timeline-archive-source', '存档来源无效。');
@@ -2311,6 +2655,9 @@ function createDataManagementService({ runtimeDataRoot, builtinCatalogPath, shel
     applySqliteWorkspace,
     deleteSqliteWorkspace,
     exportSqliteWorkspaceArchive,
+    importDataPackageTimelineArchives,
+    writeSharedTimelineArchivesToDataPackage,
+    migrateLegacySharedArchiveLibraries,
     importLegacyTimelineBundleArchive,
     convertTimelineArchiveToWorkspace,
     installReferenceArchiveRelease,
@@ -2330,6 +2677,8 @@ function createDataManagementService({ runtimeDataRoot, builtinCatalogPath, shel
 module.exports = {
   CATALOG_SCHEMA_VERSION,
   DATA_RELEASE_MANIFEST_TYPE,
+  LOCAL_DATA_RELEASE_MANIFEST_TYPE,
+  LOCAL_DATA_RELEASE_PACKAGE_MANIFEST_TYPE,
   TIMELINE_ARCHIVE_TYPE,
   REFERENCE_ARCHIVE_RELEASE_MANIFEST_TYPE,
   REFERENCE_ARCHIVE_PACKAGE_MANIFEST_TYPE,
@@ -2337,6 +2686,10 @@ module.exports = {
   createCatalogDatabase,
   validateCatalogDatabase,
   createDataReleasePackage,
+  createLocalDataReleasePackage,
+  installLocalDataRelease,
+  validateLocalDataReleaseManifest,
+  normalizeLocalDataPackage,
   createReferenceArchiveReleasePackage,
   createDataManagementService,
   signDataReleaseManifest,

@@ -28,6 +28,7 @@
     "smoke:reference-archive-release": "node scripts/reference-archive-release-smoke.mjs",
     "smoke:data-catalog": "node scripts/data-catalog-build-smoke.mjs",
     "smoke:data-release-builder": "node scripts/data-release-builder-smoke.mjs",
+    "smoke:local-data-archive-flow": "node scripts/local-data-archive-flow-smoke.mjs",
     "dev": "npm run data:catalog && vite --host 127.0.0.1 --port 3030",
     "assets:release": "node scripts/build-image-release-manifest.mjs",
     "akedb:extract": "node scripts/extract-akedb-raw-index.mjs",

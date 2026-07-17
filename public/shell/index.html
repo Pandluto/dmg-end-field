@@ -527,6 +527,37 @@
         flex-wrap: wrap;
       }
 
+      .archive-filter-tabs .subtle-button.is-active {
+        background: #2b2924;
+        color: #fff;
+      }
+
+      .shell-modal {
+        position: fixed;
+        inset: 0;
+        z-index: 100;
+        display: none;
+        align-items: center;
+        justify-content: center;
+        padding: 20px;
+        background: rgba(20, 28, 34, 0.4);
+      }
+
+      .shell-modal.is-open {
+        display: flex;
+      }
+
+      .shell-modal-card {
+        width: min(560px, 100%);
+        display: grid;
+        gap: 12px;
+        padding: 18px;
+        border: 1px solid var(--line);
+        border-radius: 4px;
+        background: var(--surface);
+        box-shadow: 4px 4px 0 rgba(30, 83, 128, 0.18);
+      }
+
       .filter-button.is-active {
         background: #2b2924;
         color: #fff;
@@ -1221,7 +1252,7 @@
             <div>
               <div class="eyebrow">Data Management</div>
               <h1 class="page-title">统一数据</h1>
-              <p class="page-desc">当前工作副本、干员配置、用户 Buff、排轴、恢复点与审计均以 user.sqlite 为事实来源。创建和恢复排轴请在 Web 主界面完成。</p>
+              <p class="page-desc">前台只使用 SQLite 与浏览器 localStorage；Local Data、Share Data 与两类排轴存档均在本地数据层管理。</p>
             </div>
             <div class="toolbar">
               <button id="run-data-management-migration" type="button" class="subtle-button">重新扫描旧文件</button>
@@ -1231,8 +1262,8 @@
 
           <section class="data-status-grid">
             <article class="status-card">
-              <div class="status-top"><span class="status-label">当前 catalog</span><span class="badge warn" id="data-catalog-badge">检测</span></div>
-              <div class="status-detail" id="data-catalog-status">读取中</div>
+              <div class="status-top"><span class="status-label">前台数据</span><span class="badge info">localStorage</span></div>
+              <div class="status-detail">应用数据后写入浏览器 localStorage；排轴不在此处直接恢复。</div>
             </article>
             <article class="status-card">
               <div class="status-top"><span class="status-label">用户数据库</span><span class="badge warn" id="data-userdb-badge">检测</span></div>
@@ -1248,7 +1279,7 @@
             <div class="panel-header">
               <div>
                 <div class="panel-title">数据 Release 更新</div>
-                <div class="panel-help">与图片使用同一个 GitHub Release 和同一个数据清单地址。一个全量包同时更新 catalog 与联网参考存档；仅有图片的 Release 会显示为“无数据包”。</div>
+                <div class="panel-help">与图片使用同一个 GitHub Release 地址。下载器只把完整数据包写入 Share Data；不会自动应用数据或恢复排轴。</div>
               </div>
               <span class="badge info" id="data-update-badge">已配置</span>
             </div>
@@ -1259,12 +1290,8 @@
             </div>
             <section class="grid-3">
               <article class="status-card">
-                <div class="status-top"><span class="status-label">当前 catalog</span><span class="badge info" id="data-update-current-catalog">-</span></div>
-                <div class="status-detail" id="data-update-current-catalog-detail">读取中</div>
-              </article>
-              <article class="status-card">
-                <div class="status-top"><span class="status-label">当前参考存档</span><span class="badge info" id="data-update-current-reference">-</span></div>
-                <div class="status-detail" id="data-update-current-reference-detail">读取中</div>
+                <div class="status-top"><span class="status-label">已下载数据</span><span class="badge info" id="data-update-current-data">-</span></div>
+                <div class="status-detail" id="data-update-current-data-detail">读取中</div>
               </article>
               <article class="status-card">
                 <div class="status-top"><span class="status-label">远端数据</span><span class="badge info" id="data-update-latest">未检查</span></div>
@@ -1272,6 +1299,49 @@
               </article>
             </section>
             <div class="empty-state" id="data-update-status">等待检查数据 Release。</div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-header">
+              <div>
+                <div class="panel-title">数据包</div>
+                <div class="panel-help">本地数据与共享数据是完整包。先选择一份，再应用、发布或删除；应用时其中的排轴部分会进入共享存档。</div>
+              </div>
+              <span class="badge info" id="archive-count-badge">-</span>
+            </div>
+            <div class="toolbar">
+              <button type="button" class="subtle-button" data-archive-filter="local">本地数据</button>
+              <button type="button" class="subtle-button" data-archive-filter="share">共享数据</button>
+              <button type="button" class="subtle-button" data-archive-filter="all">全部</button>
+              <button id="refresh-data-packages" type="button" class="subtle-button">刷新列表</button>
+            </div>
+            <div class="data-workbench">
+              <article class="status-card" data-archive-scope="local">
+                <div class="status-top"><span class="status-label">本地数据</span><span class="badge info" id="local-archive-count">0</span></div>
+                <div class="archive-list" id="archive-list-local"><div class="empty-state">读取中</div></div>
+              </article>
+              <article class="status-card" data-archive-scope="share">
+                <div class="status-top"><span class="status-label">共享数据</span><span class="badge info" id="share-archive-count">0</span></div>
+                <div class="archive-list" id="archive-list-share"><div class="empty-state">读取中</div></div>
+              </article>
+            </div>
+            <div class="empty-state" id="selected-archive-summary">从列表选择一份数据。</div>
+            <div class="toolbar">
+              <button id="apply-archive" type="button" class="primary-button">应用数据</button>
+              <button id="write-shared-archives" type="button" class="subtle-button">写入共享存档</button>
+              <button id="reveal-archive" type="button" class="subtle-button">打开位置</button>
+              <button id="delete-archive" type="button" class="danger-button">删除数据包</button>
+            </div>
+            <div id="import-sections" hidden><input type="checkbox" value="all" checked /></div>
+            <div class="grid-3">
+              <article class="status-card">
+                <div class="status-top"><span class="status-label">保存当前数据</span><span class="badge info">完整包</span></div>
+                <input id="archive-name" type="text" placeholder="名称（可留空）" />
+                <input id="archive-desc" type="text" placeholder="说明（可留空）" />
+                <div class="toolbar"><button id="save-local-archive" type="button" class="subtle-button">保存到本地</button><button id="save-share-archive" type="button" class="subtle-button">保存到共享</button></div>
+              </article>
+            </div>
+            <div class="empty-state" id="localdata-status">读取中</div>
           </section>
 
           <section class="data-workbench">
@@ -1287,28 +1357,23 @@
             <article class="panel">
               <div class="panel-header">
                 <div>
-                  <div class="panel-title">现在如何使用</div>
-                  <div class="panel-help">SQLite 工作区是唯一可应用、可编辑的状态；本地与联网存档只能转换为新的 SQLite 工作区。</div>
+                <div class="panel-title">现在如何使用</div>
+                <div class="panel-help">SQLite 工作区是唯一可应用、可编辑的状态；本地／共享存档只能转换为新的 SQLite 工作区。</div>
                 </div>
               </div>
-            <div class="empty-state">导入只是制作兼容副本，不会删除旧文件。之后可在主界面的“恢复排轴”中查看本地存档并转换为 SQLite 工作区。</div>
+            <div class="empty-state">导入只是制作兼容副本，不会删除旧文件。之后可在主界面的“恢复排轴”中查看本地／共享存档并转换为 SQLite 工作区。</div>
             </article>
           </section>
 
           <section class="panel">
             <div class="panel-header">
               <div>
-                <div class="panel-title">数据与参考存档发布包助手</div>
-                <div class="panel-help">从静态游戏数据和数据管理服务中的待发布参考存档生成一个 data-release-manifest.json 与一个全量 ZIP；无需选择待发布目录，上传到和图片相同的 GitHub Release。</div>
+                <div class="panel-title">数据发布包助手</div>
+                <div class="panel-help">发布当前在数据包列表中选中的 Local Data 或 Share Data。填写版本和输出目录后生成 data-release-manifest.json 与一个全量 ZIP。</div>
               </div>
               <span class="badge info" id="data-release-builder-badge">待生成</span>
             </div>
             <div class="grid-3">
-              <article class="status-card">
-                <div class="status-top"><span class="status-label">数据源目录</span><span class="badge info">data</span></div>
-                <input id="data-release-source" type="text" placeholder="选择数据源目录，例如 public/data" />
-                <div class="toolbar"><button id="pick-data-release-source" type="button" class="subtle-button">选择源目录</button></div>
-              </article>
               <article class="status-card">
                 <div class="status-top"><span class="status-label">输出目录</span><span class="badge info">release</span></div>
                 <input id="data-release-output" type="text" placeholder="选择发布包输出目录" />
@@ -1331,7 +1396,7 @@
               <button id="build-data-release-package" type="button" class="primary-button">生成数据发布包</button>
               <button id="reveal-data-release-output" type="button" class="subtle-button">打开输出目录</button>
             </div>
-            <div class="empty-state" id="data-release-builder-status">选择静态数据源和输出目录后，填写数据版本即可生成统一发布包。</div>
+            <div class="empty-state" id="data-release-builder-status">先在上方选择一份数据，再填写输出目录和版本。</div>
           </section>
         </div>
 
@@ -1557,6 +1622,21 @@
         </div>
       </section>
     </main>
+
+    <div id="apply-save-modal" class="shell-modal" aria-hidden="true">
+      <div class="shell-modal-card" role="dialog" aria-modal="true" aria-labelledby="apply-save-title">
+        <div class="panel-title" id="apply-save-title">应用前保存当前数据？</div>
+        <div class="panel-help">数据包应用会覆盖浏览器 localStorage 的数据部分；共享存档已在读取时导入。可先把当前数据保存为 Local Data 或 Share Data。</div>
+        <input id="apply-save-name" type="text" placeholder="备份名称" />
+        <input id="apply-save-desc" type="text" placeholder="备份说明（可留空）" />
+        <div class="toolbar">
+          <button id="apply-save-local" type="button" class="primary-button">保存到本地后应用</button>
+          <button id="apply-save-share" type="button" class="subtle-button">保存到共享后应用</button>
+          <button id="apply-save-skip" type="button" class="subtle-button">直接应用</button>
+          <button id="apply-save-cancel" type="button" class="subtle-button">取消</button>
+        </div>
+      </div>
+    </div>
 
     <script src="./shell.js?v=20260614-console-upgrade"></script>
   </body>

@@ -1,13 +1,17 @@
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
-import { buildBuiltinDataCatalog } from './build-data-catalog.mjs';
 
 const require = createRequire(import.meta.url);
-const { createDataReleasePackage } = require('../electron/data-management-service.cjs');
-const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const { createLocalDataReleasePackage } = require('../electron/data-management-service.cjs');
+
+function requiredFile(value, label) {
+  if (typeof value !== 'string' || !value.trim()) throw new Error(`缺少 ${label}`);
+  const filePath = path.resolve(value.trim());
+  if (!fs.existsSync(filePath) || !fs.statSync(filePath).isFile()) throw new Error(`${label} 不存在：${filePath}`);
+  return filePath;
+}
 
 function requiredDirectory(value, label) {
   if (typeof value !== 'string' || !value.trim()) throw new Error(`缺少 ${label}`);
@@ -34,38 +38,29 @@ function parseArguments(argv) {
 }
 
 export function buildDataReleasePackage(options = {}) {
-  const source = requiredDirectory(options.source || path.join(repositoryRoot, 'public', 'data'), '数据源目录');
+  const source = requiredFile(options.source, '已选数据包');
+  const sourceScope = options.sourceScope === 'local' ? 'local' : 'share';
   const output = requiredDirectory(options.output, '输出目录');
-  const referenceArchiveDirectory = typeof options.referenceArchiveDirectory === 'string' && options.referenceArchiveDirectory.trim()
-    ? requiredDirectory(options.referenceArchiveDirectory, '待发布参考存档目录')
-    : '';
   const dataVersion = requiredVersion(options.dataVersion || options.version);
   const releaseTag = typeof options.releaseTag === 'string' && options.releaseTag.trim() ? options.releaseTag.trim() : dataVersion;
   const minShellVersion = typeof options.minShellVersion === 'string' ? options.minShellVersion.trim() : '';
-  const stagingDirectory = fs.mkdtempSync(path.join(os.tmpdir(), `dmg-data-release-${dataVersion}-`));
-  const catalogPath = path.join(stagingDirectory, 'catalog.sqlite');
-  try {
-    const catalog = buildBuiltinDataCatalog({ sourceRoot: source, outputPath: catalogPath, dataVersion });
-    const release = createDataReleasePackage({
-      catalogPath,
-      outputDirectory: output,
-      referenceArchiveDirectory,
-      manifest: { dataVersion, releaseTag, minShellVersion },
-    });
-    return {
-      mode: 'data-full',
-      dataVersion,
-      releaseTag,
-      outputDir: release.outputDir,
-      manifestPath: release.manifestPath,
-      packagePaths: [release.packagePath],
-      catalog: catalog.counts,
-      referenceArchiveCount: Array.isArray(release.manifest.referenceArchives) ? release.manifest.referenceArchives.length : 0,
-      signed: false,
-    };
-  } finally {
-    fs.rmSync(stagingDirectory, { recursive: true, force: true });
-  }
+  const release = createLocalDataReleasePackage({
+    dataPackagePath: source,
+    sourceScope,
+    outputDirectory: output,
+    manifest: { dataVersion, releaseTag, minShellVersion },
+  });
+  return {
+    mode: 'local-data-full',
+    dataVersion,
+    releaseTag,
+    sourceScope,
+    outputDir: release.outputDir,
+    manifestPath: release.manifestPath,
+    packagePaths: [release.packagePath],
+    source: release.manifest.source,
+    signed: false,
+  };
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
@@ -74,7 +69,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     console.log(JSON.stringify(buildDataReleasePackage({
       source: args.source,
       output: args.output,
-      referenceArchiveDirectory: args.referenceArchiveDirectory || args.referenceArchives,
+      sourceScope: args.sourceScope || args.scope,
       dataVersion: args.dataVersion || args.version,
       releaseTag: args.releaseTag || args.tag,
       minShellVersion: args.minShellVersion || args.minShell,

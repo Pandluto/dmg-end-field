@@ -339,6 +339,8 @@ interface DesktopRuntimeBridge {
   listLocalDataArchives?: () => Promise<LocalDataOpResult>;
   saveLocalDataArchive?: (payload: LocalDataArchivePayload & { storageScope?: LocalDataStorageScope }) => Promise<LocalDataOpResult>;
   readLocalDataArchive?: (payload: { id?: string; fileName?: string; storageScope?: LocalDataStorageScope }) => Promise<LocalDataOpResult>;
+  prepareDataPackageApply?: (payload: { id?: string; fileName?: string; storageScope?: LocalDataStorageScope }) => Promise<LocalDataOpResult & { sharedArchives?: unknown }>;
+  writeSharedArchivesToDataPackage?: (payload: { id?: string; fileName?: string; storageScope?: LocalDataStorageScope }) => Promise<LocalDataOpResult & { result?: { archiveCount?: number } }>;
   deleteLocalDataArchive?: (payload: { id?: string; fileName?: string; storageScope?: LocalDataStorageScope }) => Promise<LocalDataOpResult>;
   revealLocalDataArchive?: (payload?: { id?: string; fileName?: string; storageScope?: LocalDataStorageScope }) => Promise<LocalDataOpResult>;
   listAiTimelineWorkNodes?: () => Promise<AiTimelineWorkNodeOpResult>;

@@ -214,7 +214,7 @@
   const fetchLocalBridgeJson = (path, options = {}) => fetchJson(LOCAL_BRIDGE_ORIGIN, path, options);
   const fetchAiRestJson = (path, options = {}) => fetchJson(AI_CLI_REST_ORIGIN, path, options);
 
-  const getScopeLabel = (storageScope) => (storageScope === 'share' ? '共享存档' : '本机存档');
+  const getScopeLabel = (storageScope) => (storageScope === 'share' ? 'Share Data' : 'Local Data');
 
   const getScopeShortLabel = (storageScope) => (storageScope === 'share' ? '共享' : '本机');
 
@@ -260,12 +260,12 @@
     const selectedArchive = findSelectedArchive();
     const hasSelection = Boolean(selectedArchive);
     setBadge('selected-archive-badge', hasSelection ? '已选择' : '未选择', hasSelection ? 'ok' : 'info');
-    ['apply-archive', 'reveal-archive', 'delete-archive'].forEach((id) => {
+    ['apply-archive', 'write-shared-archives', 'reveal-archive', 'delete-archive'].forEach((id) => {
       const button = $(id);
       if (button) button.disabled = !hasSelection;
     });
     if (!hasSelection) {
-      setText('selected-archive-summary', '从下方列表选择一个存档后，可以打开位置、删除或应用到当前数据。');
+      setText('selected-archive-summary', '从下方列表选择一份数据包后，可以写入共享存档、打开位置、删除或应用数据。');
       return;
     }
     const scopeLabel = getScopeLabel(selectedArchive.storageScope);
@@ -554,7 +554,7 @@
     });
 
     if (state.archives.length === 0) {
-      localListElement.innerHTML = '<div class="empty-state">暂无本机存档。</div>';
+      localListElement.innerHTML = '<div class="empty-state">暂无 Local Data。</div>';
       shareListElement.innerHTML = '<div class="empty-state">暂无共享存档。</div>';
       setText('local-archive-count', '0');
       setText('share-archive-count', '0');
@@ -585,7 +585,7 @@
           </div>
           <div class="item-line">
             <span class="item-meta">${escapeHtml(updatedAt)}</span>
-            <span class="item-meta is-strong">${sectionCount} 组 / ${item.localKeys || 0}+${item.sessionKeys || 0} 项</span>
+            <span class="item-meta is-strong">${item.releaseDataVersion ? `Release ${escapeHtml(item.releaseDataVersion)} / ` : ''}${item.timelineArchiveCount || 0} 份存档 / ${sectionCount} 组 / ${item.localKeys || 0}+${item.sessionKeys || 0} 项</span>
           </div>
         </button>
       `;
@@ -594,8 +594,8 @@
 
     const localItems = state.archives.filter((item) => item.storageScope !== 'share');
     const shareItems = state.archives.filter((item) => item.storageScope === 'share');
-    localListElement.innerHTML = renderItems(localItems, '暂无本机存档。');
-    shareListElement.innerHTML = renderItems(shareItems, '暂无共享存档。');
+    localListElement.innerHTML = renderItems(localItems, '暂无 Local Data。');
+    shareListElement.innerHTML = renderItems(shareItems, '暂无 Share Data。');
     setText('local-archive-count', String(localItems.length));
     setText('share-archive-count', String(shareItems.length));
 
@@ -612,14 +612,6 @@
     const migrations = Array.isArray(payload?.legacyMigrations) ? payload.legacyMigrations : [];
     const completed = migrations.filter((entry) => entry.status === 'completed').length;
     const failed = migrations.filter((entry) => entry.status === 'failed').length;
-    const activeCatalog = payload?.activeCatalog || null;
-    const catalogLabel = activeCatalog?.dataVersion || '-';
-    const catalogSource = activeCatalog?.source === 'active' ? '发布版本' : '内置版本';
-
-    setBadge('data-catalog-badge', activeCatalog ? catalogSource : '异常', activeCatalog ? 'ok' : 'err');
-    setText('data-catalog-status', activeCatalog
-      ? `${catalogLabel} · ${catalogSource}${activeCatalog.activatedAt ? ` · ${formatTime(activeCatalog.activatedAt)}` : ''}`
-      : (payload?.error || '无法读取 catalog'));
     setBadge('data-userdb-badge', payload?.userDatabasePath ? '已连接' : '异常', payload?.userDatabasePath ? 'ok' : 'err');
     setText('data-userdb-status', payload?.userDatabasePath || payload?.error || '无法定位 user.sqlite');
     setBadge('data-migration-badge', failed ? `${failed} 需处理` : (completed ? '已导入' : '无需处理'), failed ? 'err' : (completed ? 'ok' : 'info'));
@@ -655,7 +647,7 @@
     }
 
     setText('metric-archives', payload?.userDatabasePath ? 'SQLite' : '异常');
-    setText('metric-archives-foot', activeCatalog ? `${catalogLabel} · ${catalogSource}` : '未连接数据管理服务');
+    setText('metric-archives-foot', payload?.userDatabasePath ? '排轴与节点树工作区' : '未连接数据管理服务');
     setText('metric-now-storage', String(migrations.length));
     setText('metric-now-storage-foot', failed ? `${failed} 个旧文件需要处理` : (completed ? `${completed} 个旧文件已导入` : '无需导入'));
   };
@@ -667,6 +659,7 @@
     }
     const payload = await runtime.getDataManagementState();
     renderDataManagementState(payload);
+    await refreshArchives();
     if (!payload?.ok) appendLog(`统一数据 | 读取失败 | ${payload?.error || '-'}`);
   };
 
@@ -764,6 +757,10 @@
       appendLog(`数据存档 | 保存失败 | ${saved.error || '-'}`);
       return null;
     }
+    if (runtime?.writeSharedArchivesToDataPackage && saved.meta?.fileName) {
+      const written = await runtime.writeSharedArchivesToDataPackage({ fileName: saved.meta.fileName, storageScope: scope });
+      if (!written?.ok) throw new Error(written?.error || '写入共享存档部分失败');
+    }
 
     state.selectedArchiveKey = saved.meta ? getArchiveKey(saved.meta) : null;
     state.activeArchiveKey = saved.state?.activeFileName
@@ -789,6 +786,10 @@
     const saved = await runtime.saveLocalDataArchive({ ...archive, storageScope: scope });
     if (!saved.ok) {
       throw new Error(saved.error || '保存存档失败');
+    }
+    if (runtime?.writeSharedArchivesToDataPackage && saved.meta?.fileName) {
+      const written = await runtime.writeSharedArchivesToDataPackage({ fileName: saved.meta.fileName, storageScope: scope });
+      if (!written?.ok) throw new Error(written?.error || '写入共享存档部分失败');
     }
     appendLog(`数据存档 | 应用前已保存当前数据到${scopeLabel} | ${saved.path || saved.meta?.fileName || ''}`);
     await refreshArchives();
@@ -828,24 +829,24 @@
       setText('localdata-status', '请先选择一个存档。');
       return;
     }
-    if (!runtime?.readLocalDataArchive) {
-      setText('localdata-status', '当前运行时不支持读取存档。');
+    if (!runtime?.readLocalDataArchive || !runtime?.prepareDataPackageApply) {
+      setText('localdata-status', '当前运行时不支持应用数据。');
       return;
     }
 
     const sections = getCheckedSections();
-    setText('localdata-status', '正在读取并应用存档...');
-    const loaded = await runtime.readLocalDataArchive({
+    setText('localdata-status', '正在预检数据包...');
+    const preview = await runtime.readLocalDataArchive({
       fileName: selectedArchive.fileName,
       storageScope: selectedArchive.storageScope,
     });
-    if (!loaded.ok || !loaded.archive) {
-      setText('localdata-status', loaded.error || '读取存档失败');
-      appendLog(`数据存档 | 读取失败 | ${loaded.error || '-'}`);
+    if (!preview?.ok || !preview.archive) {
+      setText('localdata-status', preview?.error || '读取数据包失败');
+      appendLog(`数据包 | 应用预检读取失败 | ${preview?.error || '-'}`);
       return;
     }
 
-    const coveragePlan = getImportCoveragePlan(loaded.archive, sections);
+    const coveragePlan = getImportCoveragePlan(preview.archive, sections);
     if (!coveragePlan.ok) {
       setText('localdata-status', coveragePlan.warning || '存档没有可导入分组。');
       appendLog(`数据存档 | 应用预检失败 | ${getArchiveKey(selectedArchive)} | ${coveragePlan.warning || '-'}`);
@@ -865,6 +866,18 @@
     }
 
     state.applyingArchive = true;
+    // Only Apply Data is allowed to split the package. Keep the archive
+    // import after the confirmation so cancelling leaves every store intact.
+    const loaded = await runtime.prepareDataPackageApply({
+      fileName: selectedArchive.fileName,
+      storageScope: selectedArchive.storageScope,
+    });
+    if (!loaded?.ok || !loaded.archive) {
+      setText('localdata-status', loaded?.error || '应用数据准备失败');
+      appendLog(`数据包 | 应用数据准备失败 | ${loaded?.error || '-'}`);
+      state.applyingArchive = false;
+      return;
+    }
     const importArchive = {
       ...loaded.archive,
       sections: coveragePlan.sections,
@@ -889,9 +902,10 @@
         }),
       });
       state.activeArchiveKey = getArchiveKey(selectedArchive);
-      const notice = coveragePlan.warning ? `；${coveragePlan.warning}` : '';
-      setText('localdata-status', `已应用到当前数据；刷新浏览器 Web 主界面后生效；当前应用：${state.activeArchiveKey}${notice}`);
-      appendLog(`数据存档 | 已应用存档 | ${state.activeArchiveKey} | ${coveragePlan.sections.join(' / ')}${notice}`);
+      const importedCount = Array.isArray(loaded.sharedArchives?.imported) ? loaded.sharedArchives.imported.length : 0;
+      const notice = [coveragePlan.warning, importedCount ? `已导入 ${importedCount} 份共享存档` : ''].filter(Boolean).join('；');
+      setText('localdata-status', `已应用数据；刷新浏览器 Web 主界面后生效；当前应用：${state.activeArchiveKey}${notice ? `；${notice}` : ''}`);
+      appendLog(`数据存档 | 已应用数据 | ${state.activeArchiveKey} | ${coveragePlan.sections.join(' / ')}${notice ? ` | ${notice}` : ''}`);
       await refreshNowStorage();
       renderArchiveList();
     } finally {
@@ -922,6 +936,27 @@
     }
     appendLog(`数据存档 | 已删除 | ${getArchiveKey(selectedArchive)}`);
     state.selectedArchiveKey = null;
+    await refreshArchives();
+  };
+
+  const writeSharedArchivesToSelectedDataPackage = async () => {
+    const selectedArchive = findSelectedArchive();
+    if (!selectedArchive) {
+      setText('localdata-status', '请先选择一份数据包。');
+      return;
+    }
+    if (!runtime?.writeSharedArchivesToDataPackage) {
+      setText('localdata-status', '当前运行时不支持写入共享存档。');
+      return;
+    }
+    setText('localdata-status', '正在把共享存档写入选中数据包…');
+    const result = await runtime.writeSharedArchivesToDataPackage({
+      fileName: selectedArchive.fileName,
+      storageScope: selectedArchive.storageScope,
+    });
+    if (!result?.ok) throw new Error(result?.error || '写入共享存档失败');
+    setText('localdata-status', `已写入 ${result.result?.archiveCount || 0} 份共享存档；数据部分未改动。`);
+    appendLog(`数据包 | 已写入共享存档 | ${getArchiveKey(selectedArchive)} | ${result.result?.archiveCount || 0} 份`);
     await refreshArchives();
   };
 
@@ -1126,16 +1161,15 @@
     setBadge('data-update-badge', statusMap[status] || status, toneMap[status] || 'info');
     setText('data-update-manifest-url', payload?.configuredManifestUrl || '未配置数据发布清单地址');
 
-    const catalogVersion = payload?.currentCatalogVersion || '-';
-    const referenceReleaseId = payload?.currentReferenceReleaseId || '-';
-    setBadge('data-update-current-catalog', catalogVersion, catalogVersion === '-' ? 'info' : 'ok');
-    setBadge('data-update-current-reference', referenceReleaseId, referenceReleaseId === '-' ? 'info' : 'ok');
-    setText('data-update-current-catalog-detail', `${payload?.currentCatalogSource || 'unknown'}${payload?.lastUpdatedAt ? `；最近更新 ${formatTime(payload.lastUpdatedAt)}` : ''}`);
-    setText('data-update-current-reference-detail', payload?.currentReferenceActivatedAt ? `随数据版本登记于 ${formatTime(payload.currentReferenceActivatedAt)}` : '当前数据版本尚未登记参考存档。');
+    const dataVersion = payload?.currentDataVersion || '-';
+    setBadge('data-update-current-data', dataVersion, dataVersion === '-' ? 'info' : 'ok');
+    setText('data-update-current-data-detail', payload?.currentDataFileName
+      ? `${payload.currentDataFileName}${payload?.currentDataDownloadedAt ? `；下载 ${formatTime(payload.currentDataDownloadedAt)}` : ''}`
+      : '尚未从 Release 下载数据包。');
 
     const release = summary?.release || null;
     const remoteLine = release?.available
-      ? `数据版本 ${release.dataVersion} / ${release.archiveCount || 0} 份参考存档${release.hasUpdate ? '（可更新）' : ''}`
+      ? `数据版本 ${release.dataVersion} / 来源 ${release.source?.scope === 'local' ? 'Local Data' : 'Share Data'}${release.hasUpdate ? '（可下载）' : ''}`
       : '';
     const latestLabel = summary?.hasAnyPackage ? (summary.hasUpdate ? '可更新' : '最新') : '无数据包';
     setBadge('data-update-latest', latestLabel, summary?.hasUpdate ? 'warn' : 'info');
@@ -1284,14 +1318,6 @@
     setBadge('data-release-builder-badge', badgeText, tone);
   };
 
-  const pickDataReleaseSource = async () => {
-    const result = await runtime?.pickDataReleaseSourceDir?.();
-    if (result?.ok) {
-      setInputValue('data-release-source', result.path);
-      setDataReleaseBuilderStatus(`源目录：${result.path}`);
-    }
-  };
-
   const pickDataReleaseOutput = async () => {
     const result = await runtime?.pickDataReleaseOutputDir?.();
     if (result?.ok) {
@@ -1305,8 +1331,14 @@
       setDataReleaseBuilderStatus('当前运行时不支持数据发布包助手。', 'err');
       return;
     }
+    const selectedArchive = findSelectedArchive();
+    if (!selectedArchive) {
+      setDataReleaseBuilderStatus('请先从本地数据或共享数据列表选择一份完整数据。', 'err');
+      return;
+    }
     const payload = {
-      source: getInputValue('data-release-source'),
+      sourceScope: selectedArchive.storageScope,
+      sourceFileName: selectedArchive.fileName,
       output: getInputValue('data-release-output'),
       dataVersion: getInputValue('data-release-version'),
       releaseTag: getInputValue('data-release-tag'),
@@ -1320,16 +1352,15 @@
       state.dataReleaseBuilder = response.result;
       const result = response.result;
       const packageList = (result.packagePaths || []).map((item) => `\n${item}`).join('');
-      const catalog = result.catalog || {};
       setDataReleaseBuilderStatus(
-        `生成完成：数据与参考存档全量包 / ${result.dataVersion}；干员 ${catalog.operators || 0}，武器 ${catalog.weapons || 0}，装备 ${catalog.equipments || 0}，Buff ${catalog.buffs || 0}；参考存档 ${result.referenceArchiveCount || 0} 份\nmanifest: ${result.manifestPath}${packageList}`,
+        `生成完成：${result.dataVersion} / ${selectedArchive.name || selectedArchive.fileName}\nmanifest: ${result.manifestPath}${packageList}`,
         'ok',
       );
-      appendLog(`数据与参考存档发布包 | 生成完成 | ${result.outputDir}`);
+      appendLog(`数据发布包 | 生成完成 | ${result.outputDir}`);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       setDataReleaseBuilderStatus(message, 'err');
-      appendLog(`数据与参考存档发布包 | 生成失败 | ${message}`);
+      appendLog(`数据发布包 | 生成失败 | ${message}`);
     } finally {
       setButtonBusy(button, false);
     }
@@ -1343,7 +1374,7 @@
     }
     const result = await runtime?.revealPath?.({ path: output });
     if (result?.ok) {
-      appendLog(`数据与参考存档发布包 | 已打开输出目录 | ${result.path || output}`);
+      appendLog(`数据发布包 | 已打开输出目录 | ${result.path || output}`);
     } else {
       setDataReleaseBuilderStatus(result?.error || `无法打开输出目录：${output}`, 'err');
     }
@@ -1459,8 +1490,35 @@
       testDefAgentHi(event.currentTarget).catch((error) => appendLog(`DEF Agent hi 测试失败 | ${error instanceof Error ? error.message : String(error)}`));
     });
     $('refresh-data-management')?.addEventListener('click', () => {
-      Promise.all([refreshDataManagement(), refreshDataReleaseUpdateState()])
+      Promise.all([refreshDataManagement(), refreshDataReleaseUpdateState(), refreshArchives()])
         .catch((error) => appendLog(`统一数据 | 刷新失败 | ${error instanceof Error ? error.message : String(error)}`));
+    });
+    $('refresh-data-packages')?.addEventListener('click', () => {
+      refreshArchives().catch((error) => appendLog(`数据包 | 刷新失败 | ${error instanceof Error ? error.message : String(error)}`));
+    });
+    $('save-local-archive')?.addEventListener('click', () => {
+      exportArchive('local').catch((error) => appendLog(`数据包 | 保存 Local Data 失败 | ${error instanceof Error ? error.message : String(error)}`));
+    });
+    $('save-share-archive')?.addEventListener('click', () => {
+      exportArchive('share').catch((error) => appendLog(`数据包 | 保存 Share Data 失败 | ${error instanceof Error ? error.message : String(error)}`));
+    });
+    $('apply-archive')?.addEventListener('click', () => {
+      applyArchive().catch((error) => appendLog(`数据包 | 应用失败 | ${error instanceof Error ? error.message : String(error)}`));
+    });
+    $('delete-archive')?.addEventListener('click', () => {
+      deleteArchive().catch((error) => appendLog(`数据包 | 删除失败 | ${error instanceof Error ? error.message : String(error)}`));
+    });
+    $('reveal-archive')?.addEventListener('click', () => {
+      revealSelectedArchive().catch((error) => appendLog(`数据包 | 定位失败 | ${error instanceof Error ? error.message : String(error)}`));
+    });
+    $('write-shared-archives')?.addEventListener('click', () => {
+      writeSharedArchivesToSelectedDataPackage().catch((error) => appendLog(`数据包 | 写入共享存档失败 | ${error instanceof Error ? error.message : String(error)}`));
+    });
+    document.querySelectorAll('[data-archive-filter]').forEach((button) => {
+      button.addEventListener('click', () => {
+        state.archiveFilter = button.getAttribute('data-archive-filter') || 'all';
+        renderArchiveList();
+      });
     });
     $('run-data-management-migration')?.addEventListener('click', (event) => {
       runDataManagementMigration(event.currentTarget).catch((error) => appendLog(`统一数据 | 旧档迁移失败 | ${error instanceof Error ? error.message : String(error)}`));
@@ -1494,9 +1552,6 @@
     });
     $('reveal-image-release-output')?.addEventListener('click', () => {
       revealImageReleaseOutput().catch((error) => appendLog(`图片发布包 | 打开输出目录失败 | ${error instanceof Error ? error.message : String(error)}`));
-    });
-    $('pick-data-release-source')?.addEventListener('click', () => {
-      pickDataReleaseSource().catch((error) => appendLog(`数据发布包 | 选择源目录失败 | ${error instanceof Error ? error.message : String(error)}`));
     });
     $('pick-data-release-output')?.addEventListener('click', () => {
       pickDataReleaseOutput().catch((error) => appendLog(`数据发布包 | 选择输出目录失败 | ${error instanceof Error ? error.message : String(error)}`));

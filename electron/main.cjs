@@ -11,7 +11,8 @@ const { createAiTimelineWorkNodeStore } = require('./ai-timeline-work-node-store
 const { createTimelineRepository } = require('./timeline-repository.cjs');
 const {
   createDataManagementService,
-  validateDataReleaseManifest,
+  installLocalDataRelease,
+  validateLocalDataReleaseManifest,
   validateReferenceArchiveReleaseManifest,
 } = require('./data-management-service.cjs');
 const { buildNodeSidecarEnv: createNodeSidecarEnv } = require('./sidecar-runtime.cjs');
@@ -1920,18 +1921,6 @@ ipcMain.handle('desktop:pick-image-release-output-dir', async () => {
   }
   return { ok: true, path: result.filePaths[0] };
 });
-ipcMain.handle('desktop:pick-data-release-source-dir', async () => {
-  const win = BrowserWindow.getFocusedWindow() || shellWindow;
-  if (!win) return { ok: false, error: '无活动窗口' };
-  const result = await dialog.showOpenDialog(win, {
-    title: '选择数据发布源目录',
-    properties: ['openDirectory'],
-  });
-  if (result.canceled || !result.filePaths?.[0]) {
-    return { ok: false, canceled: true, error: '已取消' };
-  }
-  return { ok: true, path: result.filePaths[0] };
-});
 ipcMain.handle('desktop:pick-data-release-output-dir', async () => {
   const win = BrowserWindow.getFocusedWindow() || shellWindow;
   if (!win) return { ok: false, error: '无活动窗口' };
@@ -1965,13 +1954,16 @@ ipcMain.handle('desktop:build-image-release-package', async (_event, payload) =>
 });
 ipcMain.handle('desktop:build-data-release-package', async (_event, payload) => {
   try {
+    const sourceScope = payload?.sourceScope === 'local' ? 'local' : 'share';
+    const sourceFileName = typeof payload?.sourceFileName === 'string' ? payload.sourceFileName : '';
+    if (!sourceFileName) throw new Error('请先从 Local Data 或 Share Data 选择一份数据。');
+    const sourcePath = resolveLocalDataPath({ fileName: sourceFileName, storageScope: sourceScope });
     const scriptPath = path.join(__dirname, '..', 'scripts', 'build-data-release-package.mjs');
     const mod = await import(pathToFileURL(scriptPath).href);
     const result = mod.buildDataReleasePackage({
-      source: payload?.source,
+      source: sourcePath,
+      sourceScope,
       output: payload?.output,
-      // 发布候选由数据管理服务固定维护；发布者不需要、也不能另外挑选一个待发布目录。
-      referenceArchiveDirectory: getDataManagementService().paths.referenceArchiveOutboxDirectory,
       dataVersion: payload?.dataVersion,
       releaseTag: payload?.releaseTag,
       minShellVersion: payload?.minShellVersion,
@@ -3111,7 +3103,7 @@ async function loadOptionalDataReleaseManifest() {
   } catch {
     throw new Error(`${DATA_RELEASE_MANIFEST_NAME} 不是有效 JSON。`);
   }
-  const manifest = validateDataReleaseManifest(parsed, { shellVersion: app.getVersion() });
+  const manifest = validateLocalDataReleaseManifest(parsed, { shellVersion: app.getVersion() });
   const packageUrls = resolveReleasePackageDownloadUrls(
     resolveDataReleasePackageBaseUrl(manifestUrl, manifest),
     manifest.package,
@@ -3126,34 +3118,34 @@ async function loadOptionalDataReleaseManifest() {
 }
 
 function getInstalledDataReleaseTargets() {
-  const service = getDataManagementService();
-  const activeCatalog = service.readActiveCatalog();
-  const referenceActive = readJsonFileIfExists(service.paths.referenceArchiveActivePath);
+  const statePath = path.join(getShareDataDirectory(), '.data-release-state.json');
+  const state = readJsonFileIfExists(statePath) || {};
+  const activeVersion = typeof state.activeVersion === 'string' ? state.activeVersion : null;
+  const active = activeVersion && state.versions && typeof state.versions === 'object'
+    ? state.versions[activeVersion]
+    : null;
   return {
-    service,
-    catalogVersion: activeCatalog.dataVersion || null,
-    catalogSource: activeCatalog.source || 'builtin',
-    referenceReleaseId: typeof referenceActive?.releaseId === 'string' ? referenceActive.releaseId : null,
-    referenceActivatedAt: referenceActive?.activatedAt || null,
+    dataVersion: activeVersion,
+    fileName: typeof active?.fileName === 'string' ? active.fileName : null,
+    downloadedAt: typeof active?.downloadedAt === 'string' ? active.downloadedAt : null,
   };
 }
 
 function buildDataReleaseUpdateSummary(remote) {
   const installedTargets = getInstalledDataReleaseTargets();
   const current = {
-    catalogVersion: installedTargets.catalogVersion,
-    catalogSource: installedTargets.catalogSource,
-    referenceReleaseId: installedTargets.referenceReleaseId,
-    referenceActivatedAt: installedTargets.referenceActivatedAt,
+    dataVersion: installedTargets.dataVersion,
+    fileName: installedTargets.fileName,
+    downloadedAt: installedTargets.downloadedAt,
   };
   const release = remote.available ? {
     available: true,
     dataVersion: remote.manifest.dataVersion,
     releaseTag: remote.manifest.releaseTag || '',
-    archiveCount: remote.manifest.referenceArchives.length,
+    source: remote.manifest.source,
     packageSizeBytes: Number(remote.manifest.package.sizeBytes) || 0,
     compatible: isShellVersionCompatible(remote.manifest.minShellVersion),
-    hasUpdate: remote.manifest.dataVersion !== current.catalogVersion || remote.manifest.dataVersion !== current.referenceReleaseId,
+    hasUpdate: remote.manifest.dataVersion !== current.dataVersion,
     manifestUrl: remote.manifestUrl,
   } : { available: false, hasUpdate: false, manifestUrl: remote.manifestUrl };
   const hasUpdate = Boolean(release.hasUpdate);
@@ -3170,7 +3162,7 @@ function buildDataReleaseUpdateSummary(remote) {
 }
 
 function getDataReleaseUpdateStatePayload() {
-  let current = { catalogVersion: null, catalogSource: 'unknown', referenceReleaseId: null, referenceActivatedAt: null };
+  let current = { dataVersion: null, fileName: null, downloadedAt: null };
   try {
     current = getInstalledDataReleaseTargets();
   } catch (error) {
@@ -3178,10 +3170,9 @@ function getDataReleaseUpdateStatePayload() {
   }
   return {
     configuredManifestUrl: resolveSiblingReleaseManifestUrl(DATA_RELEASE_MANIFEST_NAME),
-    currentCatalogVersion: current.catalogVersion,
-    currentCatalogSource: current.catalogSource,
-    currentReferenceReleaseId: current.referenceReleaseId,
-    currentReferenceActivatedAt: current.referenceActivatedAt,
+    currentDataVersion: current.dataVersion,
+    currentDataFileName: current.fileName,
+    currentDataDownloadedAt: current.downloadedAt,
     latestSummary: dataReleaseUpdateState.latestSummary || null,
     lastCheckedAt: dataReleaseUpdateState.lastCheckedAt || null,
     lastUpdatedAt: dataReleaseUpdateState.lastUpdatedAt || null,
@@ -3247,19 +3238,23 @@ async function applyDataReleaseUpdate() {
   try {
     const remote = await loadOptionalDataReleaseManifest();
     const summary = buildDataReleaseUpdateSummary(remote);
-    const service = getDataManagementService();
     let applied = false;
     if (remote.available && summary.release.hasUpdate) {
       if (!summary.release.compatible) {
         throw new Error('数据发布包要求更高版本的 Shell。');
       }
       dataReleaseUpdateState.status = 'downloading';
-      const label = '数据与参考存档全量包';
+      const label = '完整数据包';
       const downloaded = await downloadVerifiedDataReleasePackage({ remote, label });
       try {
         dataReleaseUpdateState.status = 'activating';
         dataReleaseUpdateState.progress = { phase: 'activating', label: `登记${label}`, receivedBytes: 1, totalBytes: 1, percent: 100, updatedAt: Date.now() };
-        service.installRelease({ manifest: remote.manifest, archivePath: downloaded.archivePath, manifestUrl: remote.manifestUrl });
+        installLocalDataRelease({
+          manifest: remote.manifest,
+          archivePath: downloaded.archivePath,
+          targetDirectory: getShareDataDirectory(),
+          shellVersion: app.getVersion(),
+        });
         applied = true;
       } finally {
         fs.rmSync(downloaded.stagingDirectory, { recursive: true, force: true });
@@ -3269,8 +3264,8 @@ async function applyDataReleaseUpdate() {
     dataReleaseUpdateState.status = 'idle';
     dataReleaseUpdateState.lastCheckedAt = Date.now();
     dataReleaseUpdateState.lastUpdatedAt = applied ? dataReleaseUpdateState.lastCheckedAt : dataReleaseUpdateState.lastUpdatedAt;
-    dataReleaseUpdateState.progress = { phase: 'done', label: applied ? '已更新数据与参考存档' : '数据已是最新版本', receivedBytes: 1, totalBytes: 1, percent: 100, updatedAt: Date.now() };
-    appendRuntimeLog('data-release-update', applied ? 'updated unified data release' : 'no update');
+    dataReleaseUpdateState.progress = { phase: 'done', label: applied ? '已下载完整数据包到 Share Data' : '数据已是最新版本', receivedBytes: 1, totalBytes: 1, percent: 100, updatedAt: Date.now() };
+    appendRuntimeLog('data-release-update', applied ? 'downloaded full data package to sharedata' : 'no update');
     return getDataReleaseUpdateStatePayload();
   } catch (error) {
     dataReleaseUpdateState.status = 'failed';
@@ -4860,37 +4855,14 @@ function getLegacyShareDataDirectory() {
   return path.join(__dirname, '..', 'data', 'sharedata');
 }
 
-function listLegacyArchiveMigrationSources(directory, legacyOrigin) {
-  if (!fs.existsSync(directory)) return [];
-  const excluded = new Set([
-    'active-localdata.json',
-    'now-storage.json',
-    'now-storage-state.json',
-    'ai-timeline-worknodes.json',
-  ]);
-  try {
-    return fs.readdirSync(directory, { withFileTypes: true })
-      .filter((entry) => entry.isFile() && entry.name.toLowerCase().endsWith('.json') && !excluded.has(entry.name.toLowerCase()))
-      .map((entry) => ({
-        legacyOrigin,
-        sourceName: entry.name,
-        filePath: path.join(directory, entry.name),
-      }));
-  } catch {
-    return [];
-  }
-}
-
 function getLegacyArchiveMigrationSources() {
-  const localDirectory = ensureLocalDataDirectory();
-  const shareDirectory = ensureShareDataDirectory();
   const sources = [];
   const nowStoragePath = getNowStoragePath();
   if (fs.existsSync(nowStoragePath)) {
     sources.push({ legacyOrigin: 'now-storage', sourceName: 'now-storage.json', filePath: nowStoragePath });
   }
-  sources.push(...listLegacyArchiveMigrationSources(localDirectory, 'local-archive'));
-  sources.push(...listLegacyArchiveMigrationSources(shareDirectory, 'shared-archive'));
+  // Local Data / Share Data are complete packages rather than archive
+  // libraries. Their timeline portions are parsed only by “应用数据”.
   return sources;
 }
 
@@ -4959,6 +4931,8 @@ function getDataManagementService() {
     dataManagementService = createDataManagementService({
       runtimeDataRoot: getRuntimeDataRoot(),
       builtinCatalogPath: getBuiltinCatalogPath(),
+      localDataDirectory: getLocalDataDirectory(),
+      shareDataDirectory: getShareDataDirectory(),
       shellVersion: app.getVersion(),
     });
     dataManagementService.ensureUserDatabase();
@@ -4976,6 +4950,9 @@ function getDataManagementService() {
     snapshotMaterialization.failed.forEach((result) => {
       appendRuntimeLog('data-management-migration', `legacy SQLite snapshot ${result.timelineId}/${result.snapshotId}: ${result.message}`);
     });
+    dataManagementService.migrateLegacySharedArchiveLibraries()
+      .filter((result) => result.error)
+      .forEach((result) => appendRuntimeLog('data-management-migration', `legacy shared archive ${result.fileName}: ${result.error}`));
   }
   return dataManagementService;
 }
@@ -4983,19 +4960,14 @@ function getDataManagementService() {
 function getDataManagementStatePayload() {
   try {
     const service = getDataManagementService();
-    const active = service.readActiveCatalog();
     return {
       ok: true,
-      activeCatalog: {
-        source: active.source,
-        dataVersion: active.dataVersion,
-        activatedAt: active.activatedAt,
-      },
       userDatabasePath: service.paths.userDatabasePath,
-      catalogRoot: service.paths.catalogRoot,
+      localDataPath: getLocalDataDirectory(),
+      shareDataPath: getShareDataDirectory(),
       legacyMigrations: service.listLegacyMigrationRecords(),
       networkUpdateEnabled: true,
-      networkUpdateReason: 'Shell 会从与图片相同的 Release 地址检查唯一的 data-release-manifest.json；当前 Release 可以只包含图片。',
+      networkUpdateReason: 'Shell 会从与图片相同的 Release 地址检查 data-release-manifest.json；当前 Release 可以只包含图片。',
     };
   } catch (error) {
     return {
@@ -5144,6 +5116,29 @@ function writeLocalDataState(activeFileName, activeStorageScope = 'local') {
   };
   fs.writeFileSync(getLocalDataStatePath(), `${JSON.stringify(state, null, 2)}\n`, 'utf-8');
   return state;
+}
+
+function clearLocalDataStateIfMatches(fileName, storageScope) {
+  const state = readLocalDataState();
+  if (state.activeFileName !== fileName || state.activeStorageScope !== storageScope) return state;
+  return writeLocalDataState(null, 'local');
+}
+
+function forgetDeletedShareDataRelease(fileName) {
+  const statePath = path.join(getShareDataDirectory(), '.data-release-state.json');
+  const state = readJsonFileIfExists(statePath);
+  if (!state?.versions || typeof state.versions !== 'object') return;
+  const versions = Object.fromEntries(Object.entries(state.versions).filter(([, value]) => value?.fileName !== fileName));
+  const activeVersion = typeof state.activeVersion === 'string' && versions[state.activeVersion]
+    ? state.activeVersion
+    : null;
+  const temporaryPath = `${statePath}.tmp-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`;
+  try {
+    fs.writeFileSync(temporaryPath, `${JSON.stringify({ versions, activeVersion }, null, 2)}\n`, 'utf-8');
+    fs.renameSync(temporaryPath, statePath);
+  } finally {
+    fs.rmSync(temporaryPath, { force: true });
+  }
 }
 
 function readNowStorageState() {
@@ -5910,6 +5905,12 @@ function buildLocalDataMeta(filePath, archive) {
   const resolved = path.resolve(filePath);
   const storageScope = resolved.startsWith(shareRoot + path.sep) ? 'share' : 'local';
   const directory = storageScope === 'share' ? shareRoot : localRoot;
+  const releaseState = storageScope === 'share'
+    ? readJsonFileIfExists(path.join(shareRoot, '.data-release-state.json'))
+    : null;
+  const releaseDataVersion = releaseState?.versions && typeof releaseState.versions === 'object'
+    ? Object.entries(releaseState.versions).find(([, value]) => value?.fileName === path.basename(filePath))?.[0] || null
+    : null;
   return {
     id: archive?.id || path.basename(filePath, '.json'),
     name: archive?.name || path.basename(filePath, '.json'),
@@ -5924,6 +5925,8 @@ function buildLocalDataMeta(filePath, archive) {
     sections: Array.isArray(archive?.sections) ? archive.sections : [],
     localKeys: archive?.storage?.local ? Object.keys(archive.storage.local).length : 0,
     sessionKeys: archive?.storage?.session ? Object.keys(archive.storage.session).length : 0,
+    timelineArchiveCount: Array.isArray(archive?.timelineArchives) ? archive.timelineArchives.length : 0,
+    releaseDataVersion,
     size: stat.size,
     updatedAt: stat.mtime.toISOString(),
   };
@@ -5941,7 +5944,7 @@ function listLocalDataArchives() {
   const listFromDirectory = (dir, storageScope) => fs.readdirSync(dir)
     .filter((fileName) => {
       const lowerName = fileName.toLowerCase();
-      return lowerName.endsWith('.json') &&
+      return !fileName.startsWith('.') && lowerName.endsWith('.json') &&
         lowerName !== 'active-localdata.json' &&
         lowerName !== 'now-storage.json' &&
         lowerName !== 'now-storage-state.json' &&
@@ -6090,6 +6093,24 @@ function syncEquipmentLibraryFileFromArchive(archive, sections) {
   return filePath;
 }
 
+function dataOnlyArchiveForApply(archive) {
+  const next = JSON.parse(JSON.stringify(archive));
+  const local = next?.storage?.local;
+  const session = next?.storage?.session;
+  if (local && typeof local === 'object') {
+    delete local['def.timeline.snapshot-archive.v1'];
+    delete local['def.main-workbench.snapshot.v1'];
+  }
+  if (session && typeof session === 'object') {
+    delete session['def.selected-characters.v1'];
+    delete session['def.selected-skill-button'];
+    delete session['def.timeline.data.v1'];
+    delete session['def.skill-button.v1'];
+    delete session['def.anomaly-state-snapshot-archive.v1'];
+  }
+  return next;
+}
+
 ipcMain.handle('desktop:list-local-data-archives', () => {
   try {
     return {
@@ -6136,11 +6157,42 @@ ipcMain.handle('desktop:read-local-data-archive', (_event, payload) => {
   }
 });
 
+ipcMain.handle('desktop:prepare-data-package-apply', (_event, payload) => {
+  try {
+    const filePath = resolveLocalDataPath(payload);
+    const archive = readLocalDataArchiveFile(filePath);
+    const imported = getDataManagementService().importDataPackageTimelineArchives({ dataPackage: archive });
+    return {
+      ok: true,
+      path: filePath,
+      archive: dataOnlyArchiveForApply(archive),
+      meta: buildLocalDataMeta(filePath, archive),
+      sharedArchives: imported,
+    };
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : String(error), code: error?.code || 'data-package-apply-prepare-failed' };
+  }
+});
+
+ipcMain.handle('desktop:write-shared-archives-to-data-package', (_event, payload) => {
+  try {
+    const filePath = resolveLocalDataPath(payload);
+    const result = getDataManagementService().writeSharedTimelineArchivesToDataPackage({ dataPackagePath: filePath });
+    return { ok: true, result, meta: buildLocalDataMeta(filePath, result.dataPackage) };
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : String(error), code: error?.code || 'shared-archives-write-failed' };
+  }
+});
+
 ipcMain.handle('desktop:delete-local-data-archive', (_event, payload) => {
   try {
     const filePath = resolveLocalDataPath(payload);
     if (fs.existsSync(filePath)) {
       fs.unlinkSync(filePath);
+      const fileName = path.basename(filePath);
+      const storageScope = payload?.storageScope === 'share' ? 'share' : 'local';
+      clearLocalDataStateIfMatches(fileName, storageScope);
+      if (storageScope === 'share') forgetDeletedShareDataRelease(fileName);
     }
     return { ok: true, path: filePath };
   } catch (error) {

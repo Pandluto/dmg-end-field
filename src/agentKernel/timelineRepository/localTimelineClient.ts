@@ -69,14 +69,18 @@ export type TimelineRepositoryWorkNodeCommit = {
   appliedPayload?: TimelineSnapshotPayload;
 };
 
-export type TimelineArchiveSource = 'local' | 'reference';
-export type TimelineArchiveLibrary = TimelineArchiveSource | 'pending-reference';
+/**
+ * Archives are local files. "shared" is the package/import transit library;
+ * it is not a remote, read-only reference library.
+ */
+export type TimelineArchiveSource = 'local' | 'shared';
+export type TimelineArchiveLibrary = TimelineArchiveSource;
 
 export type TimelineArchiveSummary = {
   archiveId: string;
   label: string;
   source: TimelineArchiveSource;
-  /** Physical library. Pending reference archives are publish candidates, not downloaded references. */
+  /** Physical archive library. */
   library: TimelineArchiveLibrary;
   archiveVersion: number;
   createdAt: string;
@@ -270,13 +274,13 @@ export function createTimelineRepositoryClient() {
       }>>('/local-data/timeline-archives/import-legacy-bundle', 'POST', input);
       return response;
     },
-    async deleteTimelineArchive(input: { library: Exclude<TimelineArchiveLibrary, 'reference'>; archiveId: string }) {
+    async deleteTimelineArchive(input: { library: TimelineArchiveLibrary; archiveId: string }) {
       const response = await requestWithFallback<RepositoryResponse<{ result: { library: TimelineArchiveLibrary; archiveId: string; deleted: boolean } }>>(
         '/local-data/timeline-archives/delete', 'POST', input,
       );
       return response.result;
     },
-    async transferTimelineArchive(input: { from: Exclude<TimelineArchiveLibrary, 'reference'>; to: Exclude<TimelineArchiveLibrary, 'reference'>; archiveId: string }) {
+    async transferTimelineArchive(input: { from: TimelineArchiveLibrary; to: TimelineArchiveLibrary; archiveId: string }) {
       const response = await requestWithFallback<RepositoryResponse<{ result: { from: TimelineArchiveLibrary; to: TimelineArchiveLibrary; archive: TimelineArchiveSummary; moved: boolean } }>>(
         '/local-data/timeline-archives/transfer', 'POST', input,
       );
