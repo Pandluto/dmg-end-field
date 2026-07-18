@@ -38,7 +38,7 @@
           <dl class="hero-facts">
             <div><dt>PAIN</dt><dd>攻略、配装、Buff 与排轴反复手改</dd></div>
             <div><dt>AI LOOP</dt><dd>查资料、算伤害、比较方案、生成草稿</dd></div>
-            <div><dt>CONTROL</dt><dd>本机事实源、节点审查与人工应用</dd></div>
+            <div><dt>CONTROL</dt><dd>本机事实源；高风险人工确认，低风险按策略执行</dd></div>
           </dl>
         </div>
         <div class="hero-visual">
@@ -76,7 +76,7 @@
           </article>
 
           <article class="atlas-feature atlas-report">
-            <div class="atlas-copy"><p class="step-index">03 / CALCULATE → REPORT</p><h3>计算之后，<br />还要把过程讲清楚。</h3><p>这里切换到另一份当前保存的四人案例（洛茜、汤汤、洁尔佩塔、佩丽卡）：报告将配装、两组完整排轴、角色伤害占比与累计时序拆为三页并列展示，方便从配置一路核验到结果。</p><div class="atlas-points"><span>独立当前案例</span><span>01 队伍配置</span><span>02 两组排轴</span><span>03 占比与时序</span><span>总伤 1,364,023</span></div></div>
+            <div class="atlas-copy"><p class="step-index">03 / CALCULATE → REPORT</p><h3>计算之后，<br />还要把过程讲清楚。</h3><p>这里展示一份已保存的四人案例（洛茜、汤汤、洁尔佩塔、佩丽卡）：报告将配装、两组完整排轴、角色伤害占比与累计时序拆为三页并列展示，方便从配置一路核验到结果。角色、数值与节点数量均是截图样例，不构成当前版本基准。</p><div class="atlas-points"><span>保存案例</span><span>01 队伍配置</span><span>02 两组排轴</span><span>03 占比与时序</span><span>样例总伤 1,364,023</span></div></div>
             <div class="report-pages" aria-label="当前伤害报告的三页并列展示">
               <figure class="screen-frame report-page"><div class="screen-bar"><i></i><i></i><i></i><b>01 / TEAM CONFIGURATION</b><span>●</span></div><img src="assets/real-current-damage-report.jpg" alt="当前伤害报告第 1 页：洛茜、汤汤、洁尔佩塔与佩丽卡的队伍配置和配装" loading="lazy" /><figcaption>01 / 四人配置与配装</figcaption></figure>
               <figure class="screen-frame report-page"><div class="screen-bar"><i></i><i></i><i></i><b>02 / TIMELINE OVERVIEW</b><span>●</span></div><img src="assets/real-current-damage-report-page2.jpg" alt="当前伤害报告第 2 页：两组四人技能排轴概览" loading="lazy" /><figcaption>02 / 两组排轴概览</figcaption></figure>
@@ -85,7 +85,7 @@
           </article>
 
           <article class="atlas-feature atlas-review">
-            <div class="atlas-copy"><p class="step-index">04 / PRESERVE → AI REVIEW</p><h3>AI 可以探索，<br />但每一次探索都有节点。</h3><p>保存、恢复、分支与 AI 协作都以可见工作面呈现。AI 的修改先以提案和工作节点留下，再由人工查看差异、风险与校验证据，决定应用、checkout 或回退。</p><div class="atlas-points"><span>DEF 数据助手</span><span>AI 草稿与校验</span><span>Work Node 节点树</span><span>恢复与回退点</span></div></div>
+            <div class="atlas-copy"><p class="step-index">04 / PRESERVE → AI REVIEW</p><h3>AI 可以探索，<br />但每一次探索都有节点。</h3><p>保存、恢复、分支与 AI 协作都以可见工作面呈现。高影响修改先以提案和工作节点留下，再由用户查看差异、风险与校验证据，决定应用、checkout 或回退；低风险操作则按明确策略执行并返回结果。</p><div class="atlas-points"><span>DEF 数据助手</span><span>AI 草稿与校验</span><span>Work Node 节点树</span><span>恢复与回退点</span></div></div>
             <div class="review-shots" aria-label="AI 协作与工作节点的实机截图">
               <figure class="screen-frame"><div class="screen-bar"><i></i><i></i><i></i><b>REAL AI DIALOGUE / DAMAGE QUERY</b><span>●</span></div><img src="assets/real-ai-damage-conversation.png" alt="排轴助手在实际工作台中调用伤害和节点工具，检索莱万汀技能伤害并在对话中给出排序结果" loading="lazy" /><figcaption>真实 AI 对话：调用伤害、节点和排轴工具，再把技能伤害排序与依据返回工作面。</figcaption></figure>
               <figure class="screen-frame"><div class="screen-bar"><i></i><i></i><i></i><b>WORK NODE TREE / REVIEW</b><span>●</span></div><img src="assets/work-node-tree.png" alt="工作节点树界面，显示草稿、校验和分支" loading="lazy" /><figcaption>草稿、校验与人工 checkpoint 均可审查。</figcaption></figure>
@@ -152,29 +152,29 @@
             <div class="architecture-verification"><b><span class="architecture-keyword">热插拔</span> 到底是什么？</b><span>不是聊到一半给 AI 换人格。每个新 session 创建时绑定自己的 <code>DefHarnessSessionBindingV1</code> 与内容 hash；通过或回滚只影响之后的新对话，所以可以比较，也能安全回退。</span><i>旧对话保持原样</i></div>
           </section>
           <section class="architecture-lane data-lane">
-            <div class="lane-heading"><b>04 / SQLITE NODE TREE + GITHUB RELEASE</b><span>攻略方案与图片资源，各走各的路</span></div>
+            <div class="lane-heading"><b>04 / DATA PACKAGE + SQLITE</b><span>完整数据包、排轴存档与图片资源，各走各的边界</span></div>
             <div class="architecture-data-grid">
               <div class="data-path">
-                <p class="data-path-title">你的攻略方案 / 本机事实源</p>
+                <p class="data-path-title">本机数据与排轴 / 直接工作态</p>
                 <div class="architecture-flow data-flow">
-                  <article class="architecture-node"><strong>一份排轴方案</strong><small>队伍 · 配装 · 按键 · Buff</small></article>
+                  <article class="architecture-node"><strong>Local / Share Data</strong><small>资料与排轴部分组成的完整数据包</small></article>
                   <i class="architecture-arrow">→</i>
-                  <article class="architecture-node node-emphasis"><strong><span class="architecture-keyword">SQLite</span></strong><small>内容 hash、原子导入与本机保存</small></article>
+                  <article class="architecture-node node-emphasis"><strong><span class="architecture-keyword">显式应用数据</span></strong><small>资料投影到浏览器；排轴部分进入共享存档</small></article>
                   <i class="architecture-arrow">→</i>
-                  <article class="architecture-node node-violet"><strong><span class="architecture-keyword">Work Node Tree</span></strong><small>把快照、草稿、Checkout 与审计串起来</small></article>
+                  <article class="architecture-node node-violet"><strong><span class="architecture-keyword">SQLite 工作区</span></strong><small>唯一可编辑、可直接应用的排轴状态</small></article>
                 </div>
-                <p class="lane-note">节点树不是装饰图：它把保存、恢复、AI 草稿、校验、审批与回退串起来，所以你随时知道这套攻略从哪里来、改过什么。</p>
+                <p class="lane-note">下载只会校验并写入 Share Data，不会自动覆盖页面或切换排轴。独立的本地/共享存档只能转换为新的 SQLite 工作区；工作区则可导出本地存档或预存到共享存档。节点树把保存、恢复、AI 草稿、校验、审批与回退串起来。</p>
               </div>
               <div class="release-path">
-                <p class="data-path-title"><span class="architecture-keyword inline-keyword">GitHub Release</span> / 图片资源更新</p>
-                <div class="release-flow"><span>GitHub Release</span><i>→</i><span>版本检查与下载</span><i>→</i><span>本地图片资源</span></div>
-                <p>立绘等图片走发布更新；你的排轴和攻略方案仍只在本机 SQLite 里保存。更新图片，不会覆盖你的方案。</p>
+                <p class="data-path-title"><span class="architecture-keyword inline-keyword">Release</span> / 图片与数据包独立更新</p>
+                <div class="release-flow"><span>版本检查与校验</span><i>→</i><span>图片资源或完整数据包</span><i>→</i><span>图片目录或 Share Data</span></div>
+                <p>图片更新不会覆盖方案；数据包下载也不会自动应用。应用程序安装包、图片资源与数据包使用独立的发布流程。</p>
               </div>
             </div>
           </section>
         </div>
         <div class="architecture-boundaries">
-          <p><b>你的方案在哪？</b>在本机 SQLite，不在浏览器缓存，也不依赖云端同步。</p>
+          <p><b>你的方案在哪？</b>当前排轴在本机 SQLite；已应用资料保留在浏览器数据投影，不依赖云端同步。</p>
           <p><b>AI 为什么不会乱来？</b>它没有任意 Shell 和文件权限，只能调用规定好的领域工具。</p>
           <p><b>更新 AI 凭什么可信？</b>候选能力要在真实会话中回放，通过修复、回归与安全检查后才由人批准。</p>
         </div>
