@@ -57,7 +57,7 @@ validation + replay + hidden regression
 
 ## 移交给 Spec 8-2
 
-YZ/游戏知识的批量整理、Knowledge Runtime 正式建设、skills/工具路由/玩家表达的持续蒸馏统一进入 Spec 8-2；Spec 8-1 只为这些训练提供协议、证据和验证基础。
+Spec 8-2 的首轮目标按最新用户口径调整为新数据架构下的 session/SQLite 权限收口：先移除 DEF OpenCode 隐式新建数据对象的能力，建立正式 SQLite 的不可漂移会话绑定，并拒绝临时 SQLite 进入 AI 模式。YZ/游戏知识、Knowledge Runtime、skills/工具路由与玩家表达的持续蒸馏延后到后续 8-2 批次；Spec 8-1 继续只为这些受控训练提供协议、证据和验证基础。
 
 ## 不进入 8-1 的内容
 
