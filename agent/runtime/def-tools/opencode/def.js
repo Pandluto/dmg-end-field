@@ -881,6 +881,15 @@ export const team_loadout_plan_apply = {
   description: 'Prepare one complete child candidate C from the current checkout P, request one native approval for the exact P-to-C diff, then atomically apply C and move checkout once. Rejection discards the uncommitted candidate; partial team application is never a normal result.',
   args: { planHash: tool.schema.string().min(32).max(128) },
   async execute(args, context) {
+    const pending = await callDefTool('def.team.loadout.plan.apply.reconcile', { planHash: args.planHash }, context)
+    if (pending.state !== 'NOT_PENDING') {
+      const outcome = pending.reconciliation || pending
+      return {
+        title: outcome.state === 'ROLLED_BACK' ? 'DEF delayed team command rolled back' : 'DEF team loadout plan requires reconciliation',
+        output: JSON.stringify(outcome, null, 2),
+        metadata: { family: 'def-team-loadout-plan', state: outcome.state, candidateNodeId: outcome.nodeId || null, postcondition: outcome.postcondition?.pass === true },
+      }
+    }
     const prepared = await callDefTool('def.team.loadout.plan.apply.prepare', { planHash: args.planHash }, context)
     if (prepared.state !== 'READY') {
       return { title: 'DEF team loadout plan requires confirmation', output: JSON.stringify(prepared, null, 2), metadata: { family: 'def-team-loadout-plan', state: prepared.state } }

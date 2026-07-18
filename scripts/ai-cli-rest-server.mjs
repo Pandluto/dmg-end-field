@@ -3496,9 +3496,61 @@ function teamCandidatePresentation(plan) {
   };
 }
 
+// This is intentionally narrower than resolveCanonicalWorkbenchCurrent(). It
+// exists only after one exact apply command timed out.  In that state the
+// renderer may already hold C while the persisted checkout correctly remains
+// P; the ordinary gate must reject that split, while this continuation owns
+// precisely the one recovery needed to converge it back to P.
+function resolvePendingTeamLoadoutReconciliation(input = {}) {
+  const sessionId = typeof input.__defSessionId === 'string' ? input.__defSessionId.trim() : '';
+  const planHash = typeof input.planHash === 'string' ? input.planHash.trim() : '';
+  pruneDefTeamLoadoutPlans();
+  const plan = preparedTeamLoadoutPlans.get(planHash);
+  if (!plan) return { ok: false, status: 404, code: 'team-loadout-plan-not-found', message: 'The team plan is unavailable or belongs to a previous sidecar lifetime.' };
+  if (!sessionId || plan.ownerSessionId !== sessionId) return { ok: false, status: 409, code: 'team-loadout-plan-session-mismatch', message: 'Only the native session that owns this plan may reconcile it.' };
+  const session = resolveBoundWorkbenchSession(input);
+  if (!session.ok) return session;
+  if (session.binding.host !== 'workbench' || session.binding.id !== plan.axisBindingId || session.binding.timelineId !== plan.timelineId) {
+    return workbenchBindingFailure('blocked-session-mismatch', 'The pending team plan does not belong to this bound Workbench session.');
+  }
+  if (!plan.pendingCommand) return { ok: true, pending: false, plan };
+  const candidate = plan.preparedCandidate;
+  const parent = candidate ? readRepositoryWorkNode(candidate.parentNodeId) : null;
+  const node = candidate ? readRepositoryWorkNode(candidate.nodeId) : null;
+  if (!candidate || !parent || !node
+    || parent.timelineId !== plan.timelineId || node.timelineId !== plan.timelineId
+    || Number(parent.contentRevision || parent.updatedAt) !== Number(candidate.parentRevision)
+    || Number(node.contentRevision || node.updatedAt) !== Number(candidate.nodeRevision)
+    || hashDefNodeValue(parent.workingPayload) !== candidate.parentWorkingHash
+    || hashDefNodeValue(node.workingPayload) !== candidate.workingHash) {
+    return workbenchBindingFailure('team-loadout-candidate-changed', 'The pending team candidate no longer matches its exact parent or revision.');
+  }
+  const snapshot = readMainWorkbenchSnapshotMirror();
+  const activeTimelineId = typeof snapshot?.activeTimelineId === 'string' ? snapshot.activeTimelineId.trim() : '';
+  const projectionTimelineId = typeof snapshot?.timelineId === 'string' ? snapshot.timelineId.trim() : '';
+  const checkout = getTimelineRepository().getCheckoutRef(plan.timelineId);
+  const projectionIsParent = workbenchProjectionMatchesCheckout(snapshot, parent.workingPayload);
+  const projectionIsCandidate = workbenchProjectionMatchesCheckout(snapshot, node.workingPayload);
+  if (activeTimelineId !== plan.timelineId || projectionTimelineId !== plan.timelineId
+    || checkout?.targetType !== 'work-node' || checkout.targetId !== parent.id
+    || (!projectionIsParent && !projectionIsCandidate)) {
+    return workbenchBindingFailure('team-loadout-reconciliation-context-changed', 'Pending reconciliation requires this exact bound timeline with checkout P and a projection of P or C.');
+  }
+  return {
+    ok: true,
+    pending: true,
+    plan,
+    session,
+    binding: session.binding,
+    document: session.document,
+    snapshot,
+    checkout,
+    projectionIsCandidate,
+    pendingCommandId: plan.pendingCommand.id,
+  };
+}
+
 async function prepareDefTeamLoadoutPlanApply(input = {}) {
-  const gate = input.__defCurrentGate || resolveCanonicalWorkbenchCurrent(input);
-  if (!gate.ok) return { ok: false, code: gate.code, state: 'BLOCKED', component: 'team-loadout-plan', message: gate.message };
   const sessionId = typeof input.__defSessionId === 'string' ? input.__defSessionId.trim() : '';
   const planHash = typeof input.planHash === 'string' ? input.planHash.trim() : '';
   pruneDefTeamLoadoutPlans();
@@ -3506,6 +3558,15 @@ async function prepareDefTeamLoadoutPlanApply(input = {}) {
   if (!plan) return { ok: false, code: 'team-loadout-plan-not-found', state: 'BLOCKED', component: 'team-loadout-plan', message: 'Plan hash is unavailable, expired, or belongs to another sidecar lifetime.' };
   if (plan.ownerSessionId !== sessionId) return { ok: false, code: 'team-loadout-plan-session-mismatch', state: 'BLOCKED', component: 'team-loadout-plan', message: 'A plan may be applied only by the native session that prepared it.' };
   if (plan.usedResult) return { ...plan.usedResult, idempotent: true };
+  const reconciliation = input.__defPendingTeamReconciliation;
+  if (reconciliation?.pending && reconciliation.plan === plan
+    && reconciliation.session?.binding?.id === plan.axisBindingId
+    && reconciliation.pendingCommandId === plan.pendingCommand?.id) {
+    const { pendingCommand, ...presentationPlan } = plan;
+    return { ...teamCandidatePresentation(presentationPlan), reconciliation: true, pendingCommandId: pendingCommand.id };
+  }
+  const gate = input.__defCurrentGate || resolveCanonicalWorkbenchCurrent(input);
+  if (!gate.ok) return { ok: false, code: gate.code, state: 'BLOCKED', component: 'team-loadout-plan', message: gate.message };
   // A timed-out renderer command remains bound to this exact session and
   // candidate.  Let apply re-observe it even if C has since become current;
   // the reconciliation path below still refuses a different timeline.
@@ -3611,10 +3672,10 @@ async function applyDefTeamLoadoutPlan(input = {}) {
   const stored = preparedTeamLoadoutPlans.get(prepared.planHash);
   if (!stored || (stored.usedAt && !stored.pendingCommand)) return stored?.usedResult ? { ...stored.usedResult, idempotent: true } : { ok: false, code: 'team-loadout-plan-consumed', state: 'BLOCKED', component: 'team-loadout-plan' };
   const candidate = stored.preparedCandidate;
-  if (!matchesAtomicTeamCandidateCapability(input, candidate)) {
+  if (!input.__defPendingTeamReconciliation && !matchesAtomicTeamCandidateCapability(input, candidate)) {
     return { ok: false, state: 'BLOCKED', code: 'team-loadout-capability-mismatch', planId: prepared.planId, planHash: prepared.planHash, nextAction: 'The approved candidate identity does not match the prepared team capability.' };
   }
-  const gate = input.__defCurrentGate || resolveCanonicalWorkbenchCurrent(input);
+  const gate = input.__defCurrentGate || input.__defPendingTeamReconciliation || resolveCanonicalWorkbenchCurrent(input);
   if (stored.pendingCommand && (!gate.ok
     || gate.binding.timelineId !== stored.timelineId
     || gate.binding.id !== stored.axisBindingId)) {
@@ -6813,6 +6874,19 @@ function applyDefToolInvocationPolicy(name, definition, input, invocation = {}) 
     }
     return { ok: true, input, policy };
   }
+  // This private continuation is the sole exception to the normal current
+  // projection gate.  It cannot create a plan, mint approval, or choose a
+  // command: it can only re-observe the server-stored exact pending command
+  // for its owning bound session and converge P/C back through guarded
+  // rollback.
+  if (name === 'def.team.loadout.plan.apply.reconcile') {
+    const reconciliation = resolvePendingTeamLoadoutReconciliation(input);
+    if (!reconciliation.ok) {
+      return { ok: false, response: failScript(reconciliation.status || 409, reconciliation.code, reconciliation.message, { state: reconciliation.state }) };
+    }
+    if (reconciliation.session?.binding?.host !== 'workbench') return deniedHost(reconciliation.session?.binding?.host || 'unknown');
+    return { ok: true, input: { ...input, __defPendingTeamReconciliation: reconciliation }, policy };
+  }
   // A decision is emitted only after OpenCode's native permission UI resolves.
   // A model-facing caller may request an approval record, but cannot mint the
   // capability that authorizes apply by posting an "approved" decision.
@@ -6858,8 +6932,11 @@ async function executeDefTool(name, input = {}, query = new URLSearchParams(), i
     'def.team.loadout.plan.revise',
     'def.team.loadout.plan.apply.prepare',
     'def.team.loadout.plan.apply.discard',
+    'def.team.loadout.plan.apply.reconcile',
   ]);
+  const privateTeamApplyContinuation = name === 'def.team.loadout.plan.apply.reconcile';
   const definition = getDefToolDefinition(name)
+    || (privateTeamApplyContinuation ? getDefToolDefinition('def.team.loadout.plan.apply') : null)
     || ((name === 'def.team.loadout.plan.remember_guide' || name === 'def.team.loadout.plan.revise' || name === 'def.team.loadout.plan.apply.prepare' || name === 'def.team.loadout.plan.apply.discard') ? getDefToolDefinition('def.team.loadout.plan.prepare') : null)
     || (privateOperatorConfigContinuation.has(name) ? getDefToolDefinition('def.operator.config.patch') : null);
   if (!definition) {
@@ -7134,6 +7211,17 @@ async function executeDefTool(name, input = {}, query = new URLSearchParams(), i
   } else if (name === 'def.team.loadout.plan.apply.discard') {
     result = discardPreparedTeamLoadoutPlan(input);
     if (!result.ok) return failScript(409, result.code, result.message || 'Prepared team loadout candidate could not be discarded.', { component: result.component, state: result.state, nextAction: result.nextAction });
+  } else if (name === 'def.team.loadout.plan.apply.reconcile') {
+    if (!input.__defPendingTeamReconciliation?.pending) {
+      result = { ok: true, state: 'NOT_PENDING', planHash: input.planHash };
+    } else {
+      const reconciliationResult = await applyDefTeamLoadoutPlan(input);
+      // Reconciliation states such as ROLLED_BACK are operational outcomes,
+      // not a second user approval failure.  Preserve the exact outcome under
+      // a successful private continuation envelope so the native adapter can
+      // report it without re-entering the public apply/permission path.
+      result = { ok: true, state: reconciliationResult.state, reconciliation: reconciliationResult };
+    }
   } else if (name === 'def.team.loadout.plan.apply') {
     result = await applyDefTeamLoadoutPlan(input);
     if (!result.ok) return failScript(409, result.code || 'team-loadout-plan-apply-failed', result.message || 'Team loadout plan was not applied.', { component: 'team-loadout-plan', state: result.state, nextAction: result.nextAction, results: result.results });
@@ -7247,6 +7335,53 @@ async function executeDefTool(name, input = {}, query = new URLSearchParams(), i
 }
 
 async function handleDefToolRequest(method, pathname, query, body, invocation = {}) {
+  // Deliberately unavailable outside the isolated contract child process.
+  // It seeds only the in-memory pending-plan map so the REST contract can
+  // exercise the real policy → continuation → guarded-rollback path without
+  // adding any production data-management capability.
+  if (process.env.DEF_CONTRACT_TEST_MODE === '1'
+    && method === 'POST' && pathname === '/api/def-contract-test/pending-team-reconciliation') {
+    if (!rawTransportAuthorized(invocation)) return denyRawTransport(pathname);
+    const planHash = typeof body?.planHash === 'string' ? body.planHash.trim() : '';
+    const sessionId = typeof body?.sessionId === 'string' ? body.sessionId.trim() : '';
+    const timelineId = typeof body?.timelineId === 'string' ? body.timelineId.trim() : '';
+    const axisBindingId = typeof body?.axisBindingId === 'string' ? body.axisBindingId.trim() : '';
+    const parentNodeId = typeof body?.parentNodeId === 'string' ? body.parentNodeId.trim() : '';
+    const candidateNodeId = typeof body?.candidateNodeId === 'string' ? body.candidateNodeId.trim() : '';
+    const pendingCommandId = typeof body?.pendingCommandId === 'string' ? body.pendingCommandId.trim() : '';
+    const parent = parentNodeId ? readRepositoryWorkNode(parentNodeId) : null;
+    const candidate = candidateNodeId ? readRepositoryWorkNode(candidateNodeId) : null;
+    if (!planHash || !sessionId || !timelineId || !axisBindingId || !pendingCommandId || !parent || !candidate
+      || parent.timelineId !== timelineId || candidate.timelineId !== timelineId) {
+      return failScript(400, 'invalid-contract-pending-team-plan', 'The isolated contract seed requires one bound P/C pair and exact pending command identity.');
+    }
+    const preparedCandidate = {
+      nodeId: candidate.id,
+      nodeRevision: Number(candidate.contentRevision || candidate.updatedAt),
+      workingHash: hashDefNodeValue(candidate.workingPayload),
+      parentNodeId: parent.id,
+      parentRevision: Number(parent.contentRevision || parent.updatedAt),
+      parentWorkingHash: hashDefNodeValue(parent.workingPayload),
+      finalConfigs: [],
+      diff: [],
+    };
+    preparedTeamLoadoutPlans.set(planHash, {
+      ok: true, state: 'READY', planId: `contract-${planHash}`, planHash,
+      ownerSessionId: sessionId, timelineId, axisBindingId,
+      operators: [], confirmedDecisions: [],
+      preparedCandidate, usedAt: Date.now(), usedResult: null,
+      pendingCommand: { id: pendingCommandId, parentSnapshot: cloneJson(readMainWorkbenchSnapshotMirror() || {}), observedAt: Date.now() },
+    });
+    writeMainWorkbenchCommandQueue([
+      ...readMainWorkbenchCommandQueue().filter((entry) => entry.id !== pendingCommandId),
+      normalizeMainWorkbenchCommandEntry({
+        id: pendingCommandId,
+        status: 'done',
+        command: { op: 'applyPreparedOperatorConfig', parentNodeId: parent.id, parentRevision: preparedCandidate.parentRevision, nodeId: candidate.id, nodeRevision: preparedCandidate.nodeRevision },
+      }),
+    ]);
+    return { status: 200, body: { ok: true, planHash, pendingCommandId } };
+  }
   if (method === 'GET' && pathname === '/api/def-tools/route-map') {
     return {
       status: 200,
