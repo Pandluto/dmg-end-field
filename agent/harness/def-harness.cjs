@@ -118,20 +118,32 @@ function normalizedPackageForHash(pkg) {
 function computePackageHash(pkg) { return sha256(stableJson(normalizedPackageForHash(pkg))); }
 function gitSourceEvidence(sourceDir) {
   const execute = (args) => spawnSync('git', ['-C', sourceDir, ...args], { encoding: 'utf8' });
+  const nulEntries = (value) => String(value || '').split('\0').filter(Boolean);
   const head = execute(['rev-parse', 'HEAD']);
   const status = execute(['status', '--porcelain', '--untracked-files=normal']);
   const tree = execute(['rev-parse', 'HEAD^{tree}']);
   if (head.status !== 0 || status.status !== 0 || tree.status !== 0) fail('HARNESS_GIT_EVIDENCE_UNAVAILABLE', 'Harness package build requires Git source evidence.', { component: 'package' });
   const sourceCommit = String(head.stdout || '').trim();
   const porcelain = String(status.stdout || '');
-  const diff = execute(['diff', '--no-ext-diff', '--binary', 'HEAD']);
-  const untracked = execute(['ls-files', '--others', '--exclude-standard']);
-  if (diff.status !== 0 || untracked.status !== 0) fail('HARNESS_GIT_EVIDENCE_UNAVAILABLE', 'Harness package build could not read Git workspace evidence.', { component: 'package' });
+  // Keep provenance sensitive to working-tree content without materializing a
+  // potentially multi-gigabyte binary patch in the Node process.
+  const diff = execute(['diff', '--raw', '--no-ext-diff', '--no-renames', '-z', 'HEAD']);
+  const changed = execute(['diff', '--name-only', '--no-ext-diff', '--no-renames', '-z', 'HEAD']);
+  const untracked = execute(['ls-files', '--others', '--exclude-standard', '-z']);
+  if (diff.status !== 0 || changed.status !== 0 || untracked.status !== 0) fail('HARNESS_GIT_EVIDENCE_UNAVAILABLE', 'Harness package build could not read Git workspace evidence.', { component: 'package' });
+  const workingFiles = [...new Set([...nulEntries(changed.stdout), ...nulEntries(untracked.stdout)])].sort();
+  const workingHashes = [];
+  for (const relativePath of workingFiles) {
+    if (!fs.existsSync(path.join(sourceDir, relativePath))) continue;
+    const hash = execute(['hash-object', '--', relativePath]);
+    if (hash.status !== 0) fail('HARNESS_GIT_EVIDENCE_UNAVAILABLE', 'Harness package build could not hash Git workspace evidence.', { component: 'package', path: relativePath });
+    workingHashes.push(`${relativePath}\0${String(hash.stdout || '').trim()}`);
+  }
   const workspaceEvidence = [
     String(tree.stdout || '').trim(),
     porcelain,
     String(diff.stdout || ''),
-    String(untracked.stdout || ''),
+    workingHashes.join('\n'),
   ].join('\n');
   return { sourceCommit, dirty: Boolean(porcelain.trim()), sourceTreeHash: sha256(workspaceEvidence) };
 }
