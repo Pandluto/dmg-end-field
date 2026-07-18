@@ -26,6 +26,7 @@
 ## 数据与 AI 边界
 
 - 排轴、快照、Work Node 与本地资料保存在本机；项目不提供云端排轴同步。
+- 完整数据包分为 Local Data 与 Share Data；网络下载只写入 Share Data。只有你明确“应用数据”后，资料才会投影到浏览器数据，包内排轴会导入共享存档；本地/共享存档需转换为新的 SQLite 工作区才可使用。
 - AI 运行时由桌面应用在本机启动，但模型推理使用你在 Shell 的 `Agent` 页面配置的 DeepSeek 兼容服务。使用 AI 前需要网络和 API Key；该次对话所需的提示与工作台上下文会发送给该模型服务。
 - 伤害结果基于当前本地资料、队伍配置与计算规则。游戏版本、资料或配置变化后，应重新核验结果。
 
@@ -38,6 +39,7 @@
 | 如何安装依赖、启动开发环境和打包 | [开发与启动](docs/guides/development.md) |
 | 核心技术为什么是这些，而不是一串泛泛的框架名 | [技术栈与技术选择](docs/technology-stack.md) |
 | 如何使用打包版完成配置、排轴与资料维护 | [使用指南](docs/guides/quick-start.md) |
+| 数据包、排轴存档和 SQLite 工作区如何分工 | [数据管理规格](docs/specs/data-management-sqlite-release/spec.md) |
 
 ## 说明
 
