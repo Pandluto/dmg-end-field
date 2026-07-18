@@ -142,6 +142,20 @@ try {
   assert.equal(validSnapshotRead.status, 200, JSON.stringify(validSnapshotRead.body));
   assert.deepEqual(validSnapshotRead.body.result.operators.map((operator) => operator.characterId), ['operator-snapshot']);
 
+  const snapshotRoot = await tool('def.worknode.create_from_current', { label: 'snapshot-root' }, 'session-snapshot');
+  assert.equal(snapshotRoot.status, 200, JSON.stringify(snapshotRoot.body));
+  assert.equal(snapshotRoot.body.result.source, 'current-checkout-snapshot');
+  assert.equal(snapshotRoot.body.result.node.parentNodeId, undefined);
+  assert.deepEqual(snapshotRoot.body.result.node.basePayload, snapshotPayload);
+  assert.deepEqual(snapshotRoot.body.result.node.workingPayload, snapshotPayload);
+  const snapshotNodeIds = nodeIds('formal-snapshot');
+  const snapshotParentInjection = await tool('def.worknode.create_from_current', {
+    label: 'must-not-claim-parent', parentNodeId: snapshotRoot.body.result.node.id,
+  }, 'session-snapshot');
+  assert.equal(snapshotParentInjection.status, 400, JSON.stringify(snapshotParentInjection.body));
+  assert.equal(snapshotParentInjection.body.result.code, 'blocked-session-mismatch');
+  assert.deepEqual(nodeIds('formal-snapshot'), snapshotNodeIds);
+
   const noCheckoutProjection = await request('/api/main-workbench/snapshot', {
     source: 'app', activeTimelineId: 'formal-no-checkout', timelineId: 'formal-no-checkout', checkout: null,
     selectedCharacters: [], skillButtons: [], operatorConfigs: [],

@@ -10,6 +10,7 @@ const {
   buildRendererCapabilityUrl,
   buildWorkbenchUpstreamSearch,
   createWorkbenchRendererCapability,
+  isAllowedWorkbenchRendererTransport,
   isAuthorizedWorkbenchRendererRequest,
 } = require('../electron/workbench-renderer-transport.cjs');
 
@@ -492,15 +493,10 @@ function proxySseUrl(url, clientRequest, clientResponse, options = {}) {
 
 async function proxyMainWorkbenchRendererTransport(request, response, requestUrl) {
   const method = request.method || 'GET';
-  const allowed = new Set([
-    'GET /api/main-workbench/snapshot',
-    'POST /api/main-workbench/snapshot',
-    'GET /api/main-workbench/commands',
-    'POST /api/main-workbench/commands/result',
-    'GET /api/main-workbench/commands/events',
-  ]);
-  if (!requestUrl.pathname.startsWith('/api/main-workbench/')) return false;
-  if (!allowed.has(`${method} ${requestUrl.pathname}`)
+  if (!requestUrl.pathname.startsWith('/api/main-workbench/')
+    && !requestUrl.pathname.startsWith('/api/ai-timeline-worknodes')
+    && !requestUrl.pathname.startsWith('/api/timeline-')) return false;
+  if (!isAllowedWorkbenchRendererTransport(method, requestUrl.pathname)
     || !isAuthorizedWorkbenchRendererRequest(request, requestUrl, workbenchRendererCapability, {
       bridgeHost: HOST,
       bridgePort: PORT,

@@ -1,9 +1,10 @@
 import type { TimelineAuditEvent, TimelineCheckoutRef, TimelineDocument, TimelineSnapshot } from '../../core/domain/timeline';
 import type { TimelineSnapshotPayload } from '../../utils/timelineSnapshotStorage';
 import type { AiTimelineApproval, AiTimelineCheckout, AiTimelineRiskFlag, TimelinePayloadDiffSummary } from '../timelineWorktree/types';
+import { withWorkbenchRendererCapability } from '../../utils/workbenchRendererCapability';
 
-const REST_BASE_URL = 'http://127.0.0.1:17321';
 const BRIDGE_BASE_URL = 'http://127.0.0.1:31457';
+const REST_BASE_URL = BRIDGE_BASE_URL;
 
 type RepositoryResponse<T> = { ok: true; path?: string } & T;
 export class TimelineRepositoryRequestError extends Error {
@@ -124,7 +125,7 @@ async function readResponse<T>(response: Response): Promise<T> {
 async function request<T>(baseUrl: string, pathname: string, method = 'GET', body?: unknown): Promise<T> {
   const response = await fetch(`${baseUrl}${pathname}`, {
     method,
-    headers: body === undefined ? undefined : { 'Content-Type': 'application/json' },
+    headers: withWorkbenchRendererCapability(body === undefined ? undefined : { 'Content-Type': 'application/json' }),
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   return readResponse<T>(response);

@@ -11,7 +11,9 @@ const {
   buildRendererCapabilityUrl,
   buildWorkbenchUpstreamSearch,
   createWorkbenchRendererCapability,
+  isAllowedWorkbenchRendererTransport,
   isAuthorizedWorkbenchRendererRequest,
+  isProtectedWorkbenchRendererLocalDataPath,
 } = require('../electron/workbench-renderer-transport.cjs');
 const nativeToken = 'interop-native-snapshot-token';
 const calls = [];
@@ -47,7 +49,11 @@ assert.equal(response.body.workbench.snapshotAvailable, true);
 const snapshotCall = calls.find((call) => call.url.includes('/main-workbench/snapshot'));
 assert.equal(snapshotCall?.headers?.['x-def-internal-token'], nativeToken);
 const mainSource = fs.readFileSync(new URL('../electron/main.cjs', import.meta.url), 'utf8');
+const rendererTransportSource = fs.readFileSync(new URL('../electron/workbench-renderer-transport.cjs', import.meta.url), 'utf8');
 const rendererSource = fs.readFileSync(new URL('../src/utils/mainWorkbenchControl.ts', import.meta.url), 'utf8');
+const rendererCapabilitySource = fs.readFileSync(new URL('../src/utils/workbenchRendererCapability.ts', import.meta.url), 'utf8');
+const workNodeClientSource = fs.readFileSync(new URL('../src/agentKernel/timelineWorktree/localNodeClient.ts', import.meta.url), 'utf8');
+const timelineClientSource = fs.readFileSync(new URL('../src/agentKernel/timelineRepository/localTimelineClient.ts', import.meta.url), 'utf8');
 assert(rendererSource.includes("MAIN_WORKBENCH_REST_BASE_URL = 'http://127.0.0.1:31457'"),
   'browser renderer transport must enter through Electron main, never call raw REST directly');
 const proxySource = mainSource.slice(
@@ -58,9 +64,11 @@ assert(proxySource.includes("'x-def-internal-token': defInternalGovernanceToken"
   'Electron renderer proxy must attach the native REST capability');
 assert(proxySource.includes('isAuthorizedWorkbenchRendererRequest'),
   'Electron renderer proxy must require the per-launch renderer capability');
-assert(proxySource.includes("'POST /api/main-workbench/snapshot'"));
-assert(proxySource.includes("'GET /api/main-workbench/commands/events'"));
+assert(rendererTransportSource.includes("'POST /api/main-workbench/snapshot'"));
+assert(rendererTransportSource.includes("'GET /api/main-workbench/commands/events'"));
 assert(!proxySource.includes('checkout-projection'), 'native checkout assertion must not be exposed to browser renderers');
+assert(!mainSource.includes('installDefRawTransportHeader'),
+  'Electron must not grant raw REST authority to every defaultSession renderer');
 
 const rendererCapability = createWorkbenchRendererCapability();
 assert.notEqual(rendererCapability, createWorkbenchRendererCapability(), 'renderer capability must rotate per process');
@@ -87,7 +95,17 @@ assert.equal(isAuthorizedWorkbenchRendererRequest(trustedOriginRequest, eventUrl
   'EventSource may carry the same capability in its query because it cannot set headers');
 assert.equal(buildWorkbenchUpstreamSearch(eventUrl), '?status=pending',
   'the renderer capability must never be forwarded to raw REST');
-assert(rendererSource.includes('rendererTransportHeaders(init.headers)'));
-assert(rendererSource.includes('rendererTransportEventUrl'));
-assert(rendererSource.includes('window.history.replaceState'), 'launch capability must be removed from the visible URL');
+assert.equal(isAllowedWorkbenchRendererTransport('GET', '/api/ai-timeline-worknodes/node-a/diff'), true);
+assert.equal(isAllowedWorkbenchRendererTransport('POST', '/api/ai-timeline-worknodes/node-a/commit'), true);
+assert.equal(isAllowedWorkbenchRendererTransport('POST', '/api/ai-timeline-worknodes/node-a/unknown'), false);
+assert.equal(isAllowedWorkbenchRendererTransport('POST', '/api/timeline-checkout-ref'), true);
+assert.equal(isProtectedWorkbenchRendererLocalDataPath('/local-data/timeline-documents'), true);
+assert.equal(isProtectedWorkbenchRendererLocalDataPath('/local-data/ai-timeline-worknodes/node-a'), true);
+assert(rendererSource.includes('withWorkbenchRendererCapability(init.headers)'));
+assert(rendererSource.includes('buildWorkbenchRendererEventUrl'));
+assert(rendererCapabilitySource.includes('window.history.replaceState'), 'launch capability must be removed from the visible URL');
+assert(workNodeClientSource.includes("const DEFAULT_REST_BASE_URL = DEFAULT_BRIDGE_BASE_URL"));
+assert(workNodeClientSource.includes('withWorkbenchRendererCapability'));
+assert(timelineClientSource.includes('const REST_BASE_URL = BRIDGE_BASE_URL'));
+assert(timelineClientSource.includes('withWorkbenchRendererCapability'));
 console.log('DEF Interop snapshot auth contract: PASS (Interop native token plus unforgeable renderer capability)');

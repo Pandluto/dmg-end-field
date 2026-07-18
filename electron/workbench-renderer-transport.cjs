@@ -51,12 +51,41 @@ function buildWorkbenchUpstreamSearch(requestUrl) {
   return serialized ? `?${serialized}` : '';
 }
 
+function isAllowedWorkbenchRendererTransport(method, pathname) {
+  const route = `${method} ${pathname}`;
+  if ((method === 'GET' || method === 'POST') && pathname.startsWith('/api/timeline-')) return true;
+  if (new Set([
+    'GET /api/main-workbench/snapshot',
+    'POST /api/main-workbench/snapshot',
+    'GET /api/main-workbench/commands',
+    'POST /api/main-workbench/commands/result',
+    'GET /api/main-workbench/commands/events',
+    'GET /api/ai-timeline-worknodes',
+    'POST /api/ai-timeline-worknodes/create',
+  ]).has(route)) return true;
+  const match = /^\/api\/ai-timeline-worknodes\/[^/]+(?:\/([^/]+))?$/.exec(pathname);
+  if (!match) return false;
+  if (method === 'GET') return !match[1] || match[1] === 'diff';
+  return method === 'POST' && new Set([
+    'update', 'delete', 'commit', 'checkout-applied', 'rollback-applied',
+  ]).has(match[1]);
+}
+
+function isProtectedWorkbenchRendererLocalDataPath(pathname) {
+  return pathname === '/local-data/ai-timeline-worknodes'
+    || pathname.startsWith('/local-data/ai-timeline-worknodes/')
+    || pathname === '/local-data/timeline-documents'
+    || pathname.startsWith('/local-data/timeline-');
+}
+
 module.exports = {
   WORKBENCH_RENDERER_CAPABILITY_HEADER,
   WORKBENCH_RENDERER_CAPABILITY_QUERY,
   buildRendererCapabilityUrl,
   buildWorkbenchUpstreamSearch,
   createWorkbenchRendererCapability,
+  isAllowedWorkbenchRendererTransport,
   isAuthorizedWorkbenchRendererRequest,
+  isProtectedWorkbenchRendererLocalDataPath,
   isTrustedWorkbenchRendererOrigin,
 };

@@ -11,9 +11,10 @@ import type {
   AiTimelineWorkNodeStatus,
   TimelinePayloadDiff,
 } from './types';
+import { withWorkbenchRendererCapability } from '../../utils/workbenchRendererCapability';
 
-const DEFAULT_REST_BASE_URL = 'http://127.0.0.1:17321';
 const DEFAULT_BRIDGE_BASE_URL = 'http://127.0.0.1:31457';
+const DEFAULT_REST_BASE_URL = DEFAULT_BRIDGE_BASE_URL;
 const LIST_CACHE_TTL_MS = 1500;
 
 let listRequestInFlight: Promise<AiTimelineWorkNodeListResponse> | null = null;
@@ -150,7 +151,7 @@ function readDesktopResult<T extends { ok: boolean; error?: string }>(payload: T
 async function postJson<T>(baseUrl: string, pathname: string, body: unknown): Promise<T> {
   const response = await fetch(buildUrl(baseUrl, pathname), {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: withWorkbenchRendererCapability({ 'Content-Type': 'application/json' }),
     body: JSON.stringify(body),
   });
   return readJsonResponse<T>(response);
@@ -207,6 +208,7 @@ async function getBridgeJson<T>(pathname: string): Promise<T | null> {
   try {
     const response = await fetch(buildUrl(DEFAULT_BRIDGE_BASE_URL, pathname), {
       cache: 'no-store',
+      headers: withWorkbenchRendererCapability(),
     });
     // In browser development the DEF shell owns 31457 while Electron is not
     // running. Its unrelated 404 must fall through to the REST compatibility
@@ -223,7 +225,7 @@ async function postBridgeJson<T>(pathname: string, body: unknown): Promise<T | n
   try {
     const response = await fetch(buildUrl(DEFAULT_BRIDGE_BASE_URL, pathname), {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: withWorkbenchRendererCapability({ 'Content-Type': 'application/json' }),
       body: JSON.stringify(body),
     });
     if (response.status === 404) return null;
@@ -244,6 +246,7 @@ export async function probeAiTimelineWorkNodeRuntime(baseUrl = DEFAULT_REST_BASE
   try {
     const response = await fetch(buildUrl(baseUrl, '/api/ai-timeline-worknodes'), {
       cache: 'no-store',
+      headers: withWorkbenchRendererCapability(),
       signal: controller.signal,
     });
     if (!response.ok) {
@@ -291,7 +294,9 @@ export function createAiTimelineWorkNodeClient(baseUrl = DEFAULT_REST_BASE_URL) 
         if (bridgeResult) {
           return toListResponse(bridgeResult);
         }
-        const response = await fetch(buildUrl(baseUrl, '/api/ai-timeline-worknodes'));
+        const response = await fetch(buildUrl(baseUrl, '/api/ai-timeline-worknodes'), {
+          headers: withWorkbenchRendererCapability(),
+        });
         const result = await readJsonResponse<{
           ok: true;
           path?: string;
@@ -343,7 +348,9 @@ export function createAiTimelineWorkNodeClient(baseUrl = DEFAULT_REST_BASE_URL) 
           node: bridgeResult.node as AiTimelineWorkNode,
         };
       }
-      const response = await fetch(buildUrl(baseUrl, `/api/ai-timeline-worknodes/${encodeURIComponent(id)}`));
+      const response = await fetch(buildUrl(baseUrl, `/api/ai-timeline-worknodes/${encodeURIComponent(id)}`), {
+        headers: withWorkbenchRendererCapability(),
+      });
       return readJsonResponse<AiTimelineWorkNodeResponse>(response);
     },
 
@@ -418,7 +425,9 @@ export function createAiTimelineWorkNodeClient(baseUrl = DEFAULT_REST_BASE_URL) 
         `/local-data/ai-timeline-worknodes/${encodeURIComponent(id)}/diff`,
       );
       if (bridgeResult) return bridgeResult;
-      const response = await fetch(buildUrl(baseUrl, `/api/ai-timeline-worknodes/${encodeURIComponent(id)}/diff`));
+      const response = await fetch(buildUrl(baseUrl, `/api/ai-timeline-worknodes/${encodeURIComponent(id)}/diff`), {
+        headers: withWorkbenchRendererCapability(),
+      });
       return readJsonResponse<AiTimelineWorkNodeDiffResponse>(response);
     },
 

@@ -1175,17 +1175,42 @@ function createDefWorkNodeFromPayload(payloadSource, input = {}) {
   // caller smuggle a different parent into this otherwise same-timeline fork.
   const gate = input.__defCurrentGate;
   if (gate) {
-    if (gate.binding?.timelineId !== timelineId || gate.checkout?.targetType !== 'work-node' || !gate.checkoutNodeId) {
-      return { ok: false, code: 'checkout-unavailable', message: 'Creating a Work Node requires the authenticated current Work Node checkout.' };
+    if (gate.binding?.timelineId !== timelineId || !gate.checkout || !gate.checkoutPayload) {
+      return { ok: false, code: 'checkout-unavailable', message: 'Creating a Work Node requires an authenticated current checkout.' };
     }
-    if (Object.prototype.hasOwnProperty.call(input, 'parentNodeId')
-      && String(input.parentNodeId || '').trim() !== gate.checkoutNodeId) {
-      return { ok: false, code: 'blocked-session-mismatch', message: 'A Work Node fork must use the authenticated current checkout as its parent.' };
+    const repository = getTimelineRepository();
+    const currentCheckout = repository.getCheckoutRef(timelineId);
+    if (!currentCheckout || currentCheckout.targetType !== gate.checkout.targetType
+      || currentCheckout.targetId !== gate.checkout.targetId
+      || Number(currentCheckout.updatedAt) !== Number(gate.checkout.updatedAt)) {
+      return { ok: false, code: 'checkout-changed', message: 'The current checkout changed before this Work Node was created.' };
     }
-    const authenticatedParent = getTimelineRepository().getWorkNode(gate.checkoutNodeId);
-    if (!authenticatedParent || authenticatedParent.timelineId !== timelineId
-      || Number(authenticatedParent.contentRevision || authenticatedParent.updatedAt) !== Number(gate.checkoutRevision)) {
-      return { ok: false, code: 'checkout-changed', message: 'The current checkout revision changed before this Work Node fork was created.' };
+    if (gate.checkout.targetType === 'work-node') {
+      if (!gate.checkoutNodeId) {
+        return { ok: false, code: 'checkout-unavailable', message: 'The authenticated Work Node checkout is unavailable.' };
+      }
+      if (Object.prototype.hasOwnProperty.call(input, 'parentNodeId')
+        && String(input.parentNodeId || '').trim() !== gate.checkoutNodeId) {
+        return { ok: false, code: 'blocked-session-mismatch', message: 'A Work Node fork must use the authenticated current checkout as its parent.' };
+      }
+      const authenticatedParent = repository.getWorkNode(gate.checkoutNodeId);
+      if (!authenticatedParent || authenticatedParent.timelineId !== timelineId
+        || Number(authenticatedParent.contentRevision || authenticatedParent.updatedAt) !== Number(gate.checkoutRevision)
+        || hashDefNodeValue(authenticatedParent.workingPayload) !== gate.checkoutPayloadHash) {
+        return { ok: false, code: 'checkout-changed', message: 'The current checkout revision changed before this Work Node fork was created.' };
+      }
+    } else if (gate.checkout.targetType === 'snapshot') {
+      if (typeof input.parentNodeId === 'string' && input.parentNodeId.trim()) {
+        return { ok: false, code: 'blocked-session-mismatch', message: 'The first Work Node created from a snapshot checkout cannot claim a Work Node parent.' };
+      }
+      const authenticatedSnapshot = repository.getSnapshot(gate.checkout.targetId);
+      if (!authenticatedSnapshot || authenticatedSnapshot.archivedAt || authenticatedSnapshot.timelineId !== timelineId
+        || authenticatedSnapshot.payloadHash !== gate.checkoutPayloadHash
+        || Number(currentCheckout.updatedAt) !== Number(gate.checkoutTargetRevision)) {
+        return { ok: false, code: 'checkout-changed', message: 'The authenticated snapshot changed before the first Work Node was created.' };
+      }
+    } else {
+      return { ok: false, code: 'checkout-unavailable', message: 'The authenticated checkout type cannot create a Work Node.' };
     }
   }
   const saveId = timelineId;
@@ -1339,6 +1364,13 @@ function resolveCanonicalWorkbenchCurrent(input = {}, { nodeId = '' } = {}) {
     projectionTimelineId,
     axisContext,
     checkout,
+    checkoutPayload,
+    checkoutPayloadHash: checkout.targetType === 'snapshot'
+      ? checkoutSnapshot.payloadHash
+      : hashDefNodeValue(checkoutPayload),
+    checkoutTargetRevision: checkout.targetType === 'work-node'
+      ? Number(checkoutNode?.contentRevision || 0) || null
+      : Number(checkout.updatedAt) || null,
     checkoutNodeId: checkout.targetType === 'work-node' ? checkout.targetId : null,
     checkoutRevision: checkout.targetType === 'work-node'
       ? Number(checkoutNode?.contentRevision || 0) || null
@@ -7013,7 +7045,14 @@ async function executeDefTool(name, input = {}, query = new URLSearchParams(), i
   if (name === 'def.worknode.create_from_current') {
     const session = input.__defCurrentGate || resolveCanonicalWorkbenchCurrent(input);
     if (!session.ok) return failScript(session.status, session.code, session.message, { state: session.state });
-    const result = createDefWorkNodeFromPayload(readDefCurrentTimelinePayloadSource(session.binding.timelineId), { ...input, timelineId: session.binding.timelineId });
+    const payloadSource = session.checkoutPayload ? {
+      payload: cloneJson(session.checkoutPayload),
+      source: `current-checkout-${session.checkout.targetType}`,
+      sourceId: session.checkout.targetId,
+      timelineId: session.binding.timelineId,
+      sourceUpdatedAt: session.checkout.updatedAt,
+    } : null;
+    const result = createDefWorkNodeFromPayload(payloadSource, { ...input, timelineId: session.binding.timelineId });
     return { status: result.ok ? 200 : 400, body: { ok: result.ok, protocolVersion: 1, tool: name, result } };
   }
   if (name === 'def.workbench.bind_session_axis') {

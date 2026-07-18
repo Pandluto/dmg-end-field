@@ -23,7 +23,9 @@ const {
   buildRendererCapabilityUrl,
   buildWorkbenchUpstreamSearch,
   createWorkbenchRendererCapability,
+  isAllowedWorkbenchRendererTransport,
   isAuthorizedWorkbenchRendererRequest,
+  isProtectedWorkbenchRendererLocalDataPath,
 } = require('./workbench-renderer-transport.cjs');
 const {
   app,
@@ -71,20 +73,6 @@ let defAgentProcess = null;
 let defAgentStartedAt = null;
 let isAppQuitting = false;
 let appTray = null;
-let defRawTransportHeaderInstalled = false;
-
-function installDefRawTransportHeader() {
-  if (defRawTransportHeaderInstalled) return;
-  defRawTransportHeaderInstalled = true;
-  session.defaultSession.webRequest.onBeforeSendHeaders({ urls: ['http://127.0.0.1:17321/api/*'] }, (details, callback) => {
-    let pathname = '';
-    try { pathname = new URL(details.url).pathname; } catch { /* keep request untouched */ }
-    if (/^\/api\/(?:ai-timeline-worknodes(?:\/|$)|timeline-(?:documents|work-nodes|checkout-ref|snapshots|archives|audit-events)(?:\/|$)|main-workbench(?:\/|$))/.test(pathname)) {
-      details.requestHeaders['x-def-internal-token'] = defInternalGovernanceToken;
-    }
-    callback({ requestHeaders: details.requestHeaders });
-  });
-}
 const defCodexInterop = createDefCodexInteropProtocol({
   profile: isDev ? 'development' : 'release',
   baseUrl: `http://${BRIDGE_HOST}:${BRIDGE_PORT}`,
@@ -605,15 +593,10 @@ function writeSse(response, eventName, payload) {
 
 async function proxyMainWorkbenchRendererTransport(request, response, requestUrl) {
   const method = request.method || 'GET';
-  const allowed = new Set([
-    'GET /api/main-workbench/snapshot',
-    'POST /api/main-workbench/snapshot',
-    'GET /api/main-workbench/commands',
-    'POST /api/main-workbench/commands/result',
-    'GET /api/main-workbench/commands/events',
-  ]);
-  if (!requestUrl.pathname.startsWith('/api/main-workbench/')) return false;
-  if (!allowed.has(`${method} ${requestUrl.pathname}`)
+  if (!requestUrl.pathname.startsWith('/api/main-workbench/')
+    && !requestUrl.pathname.startsWith('/api/ai-timeline-worknodes')
+    && !requestUrl.pathname.startsWith('/api/timeline-')) return false;
+  if (!isAllowedWorkbenchRendererTransport(method, requestUrl.pathname)
     || !isAuthorizedWorkbenchRendererRequest(request, requestUrl, workbenchRendererCapability, {
       bridgeHost: BRIDGE_HOST,
       bridgePort: BRIDGE_PORT,
@@ -895,6 +878,15 @@ function startBridgeServer() {
       if (method === 'OPTIONS') {
       response.writeHead(204, buildJsonHeaders(response));
         response.end();
+        return;
+      }
+
+      if (isProtectedWorkbenchRendererLocalDataPath(requestUrl.pathname)
+        && !isAuthorizedWorkbenchRendererRequest(request, requestUrl, workbenchRendererCapability, {
+          bridgeHost: BRIDGE_HOST,
+          bridgePort: BRIDGE_PORT,
+        })) {
+        writeJson(response, 403, { ok: false, error: { code: 'denied-renderer-transport', message: 'Workbench local-data transport is unavailable to this caller.' } });
         return;
       }
 
@@ -6387,7 +6379,6 @@ app.whenReady().then(() => {
     app.setAppUserModelId('com.dmg.def');
   }
   Menu.setApplicationMenu(null);
-  installDefRawTransportHeader();
   const dataManagementState = getDataManagementStatePayload();
   if (!dataManagementState.ok) {
     appendRuntimeLog('data-management', `${dataManagementState.code}: ${dataManagementState.error}`);

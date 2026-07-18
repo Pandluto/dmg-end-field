@@ -12,7 +12,7 @@ try {
   globalThis.fetch = async (input) => {
     const url = String(input);
     calls.push(url);
-    if (url.startsWith('http://127.0.0.1:31457')) {
+    if (url.includes('/local-data/')) {
       return jsonResponse({ ok: false, error: { code: 'route-not-found', message: 'not found' } }, 404);
     }
     return jsonResponse({ ok: true, documents: [{ id: 'rest-document', label: 'REST', createdAt: 1, updatedAt: 1 }] });
@@ -22,12 +22,12 @@ try {
   assert.equal((await client.listDocuments())[0]?.id, 'rest-document');
   assert.deepEqual(calls, [
     'http://127.0.0.1:31457/local-data/timeline-documents',
-    'http://127.0.0.1:17321/api/timeline-documents',
+    'http://127.0.0.1:31457/api/timeline-documents',
   ]);
 
   globalThis.fetch = async (input) => {
     const url = String(input);
-    if (url.startsWith('http://127.0.0.1:31457')) throw new TypeError('Failed to fetch');
+    if (url.includes('/local-data/')) throw new TypeError('Failed to fetch');
     return jsonResponse({ ok: true, documents: [] });
   };
   assert.deepEqual(await client.listDocuments(), []);
@@ -43,7 +43,7 @@ try {
   let fallbackCalled = false;
   globalThis.fetch = async (input) => {
     const url = String(input);
-    if (url.startsWith('http://127.0.0.1:17321')) fallbackCalled = true;
+    if (url.includes('/api/timeline-documents')) fallbackCalled = true;
     return jsonResponse({ ok: false, error: { code: 'timeline-invalid-request', message: 'invalid request' } }, 409);
   };
   await assert.rejects(
