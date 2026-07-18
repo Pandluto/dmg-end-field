@@ -17,6 +17,8 @@
      - [Spec 8-1-3：Codex 协议联调与初版验证](./def-opencode-cognitive-runtime-spec8/spec8-1-3.md)
    - [Spec 8-2：数据架构与会话权限收口](./def-opencode-cognitive-runtime-spec8/spec8-2.md)
      - [Task 8-2：收紧 DEF OpenCode 的 SQLite 与会话边界](./def-opencode-cognitive-runtime-spec8/task8-2.md)
+     - [Spec 8-2-1：当前工作区确定性与 Work Node 工作树统一返修](./def-opencode-cognitive-runtime-spec8/spec8-2-1.md)
+       - [Task 8-2-1：闭合当前正式 SQLite 与工作树边界](./def-opencode-cognitive-runtime-spec8/task8-2-1.md)
    - [Spec 8-3：进化产品化](./def-opencode-cognitive-runtime-spec8/spec8-3.md)
    - [预研究：认知运行时与游戏知识 Agent](./def-opencode-cognitive-runtime-spec8/research.md)
    - [预研究：Harness 自进化](./def-opencode-cognitive-runtime-spec8/harness-self-evolution-research.md)
