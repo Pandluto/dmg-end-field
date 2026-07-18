@@ -81,7 +81,17 @@ const MAIN_WORKBENCH_SUPPORTED_OP_SET = new Set(MAIN_WORKBENCH_SUPPORTED_OPS);
 // Ephemeral, unforgeable capability for a reviewed operator-config child.
 // A sidecar restart invalidates it safely; callers must build a fresh preview.
 const preparedOperatorConfigCapabilities = new Map();
+const approvedApplyCapabilities = new Map();
 const PREPARED_OPERATOR_CONFIG_TTL_MS = 15 * 60 * 1000;
+
+function consumeApprovedApplyCapability(input = {}, expected = {}) {
+  const token = typeof input.approvalCapability === 'string' ? input.approvalCapability : '';
+  const capability = approvedApplyCapabilities.get(token);
+  if (!capability || capability.used || capability.expiresAt <= Date.now()) return false;
+  if (Object.entries(expected).some(([key, value]) => value !== undefined && capability[key] !== value)) return false;
+  capability.used = true;
+  return true;
+}
 // Guide reads are deliberately session-scoped and in-memory. They are an
 // opaque hand-off between two native turns, never a filesystem capability or
 // a cross-session recommendation cache.
@@ -97,6 +107,20 @@ const PREPARED_TEAM_LOADOUT_APPROVAL_GRACE_MS = 4 * 60 * 60 * 1000;
 const defInternalGovernanceToken = typeof process.env.DEF_INTERNAL_GOVERNANCE_TOKEN === 'string'
   ? process.env.DEF_INTERNAL_GOVERNANCE_TOKEN.trim()
   : '';
+// Raw repository, Work Node and projection endpoints are renderer/native
+// transport, never a model-facing REST surface.  Keep the marker distinct
+// from the typed-tool policy: internal calls inside this process use the
+// opaque object; HTTP callers must prove possession of the native token.
+const INTERNAL_RAW_TRANSPORT = Object.freeze({ internalRawTransport: true });
+
+function rawTransportAuthorized(invocation = {}) {
+  return invocation?.internalRawTransport === true
+    || (Boolean(defInternalGovernanceToken) && invocation?.internalToken === defInternalGovernanceToken);
+}
+
+function denyRawTransport(pathname) {
+  return failScript(403, 'denied-internal-transport', `Raw DEF transport is unavailable to this caller: ${pathname}`);
+}
 
 function hashDefLoadoutPlan(value) {
   return createHash('sha256').update(JSON.stringify(value)).digest('hex');
@@ -321,7 +345,7 @@ function buildJsonHeaders() {
     'Content-Type': 'application/json; charset=utf-8',
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Methods': 'GET,POST,OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type',
+    'Access-Control-Allow-Headers': 'Content-Type, X-Def-Internal-Token',
   };
 }
 
@@ -1370,7 +1394,9 @@ function toAiTimelineWorkNodeCommitListItem(commit) {
   return item;
 }
 
-function handleAiTimelineWorkNodeRequest(method, pathname, body) {
+function handleAiTimelineWorkNodeRequest(method, pathname, body, invocation = {}) {
+  if (!pathname.startsWith('/api/ai-timeline-worknodes')) return null;
+  if (!rawTransportAuthorized(invocation)) return denyRawTransport(pathname);
   if (method === 'GET' && pathname === '/api/ai-timeline-worknodes') {
     const nodes = listRepositoryWorkNodes().sort((left, right) => (right.updatedAt || 0) - (left.updatedAt || 0));
     const commits = listRepositoryWorkNodeCommits().sort((left, right) => (right.createdAt || 0) - (left.createdAt || 0));
@@ -1556,7 +1582,7 @@ function handleAiTimelineWorkNodeRequest(method, pathname, body) {
       }
       throw error;
     }
-    return handleAiTimelineWorkNodeRequest('GET', '/api/ai-timeline-worknodes', null);
+    return handleAiTimelineWorkNodeRequest('GET', '/api/ai-timeline-worknodes', null, INTERNAL_RAW_TRANSPORT);
   }
 
   if (method === 'POST' && action === 'commit') {
@@ -1691,7 +1717,9 @@ function handleAiTimelineWorkNodeRequest(method, pathname, body) {
   return null;
 }
 
-function handleTimelineRepositoryRequest(method, pathname, query, body) {
+function handleTimelineRepositoryRequest(method, pathname, query, body, invocation = {}) {
+  if (!pathname.startsWith('/api/timeline-')) return null;
+  if (!rawTransportAuthorized(invocation)) return denyRawTransport(pathname);
   if (method === 'GET' && pathname === '/api/timeline-archives') {
     try {
       const source = query.get('source') || '';
@@ -3404,6 +3432,7 @@ function teamCandidatePresentation(plan) {
     parentNodeId: candidate.parentNodeId,
     parentRevision: candidate.parentRevision,
     parentWorkingHash: candidate.parentWorkingHash,
+    sessionBindingId: plan.axisBindingId,
     approvalPatterns,
     approvalDiff: candidate.diff,
   };
@@ -3483,7 +3512,7 @@ async function prepareDefTeamLoadoutPlanApply(input = {}) {
         workingPayload: candidatePayload,
         approvalPolicy: 'manual',
         riskFlags: [{ severity: 'warning', code: 'team-loadout-mutation', message: 'One native approval is required for this complete team candidate.' }],
-      });
+      }, INTERNAL_RAW_TRANSPORT);
       return created?.status === 200 && created?.body?.node
         ? { ok: true, value: created.body.node }
         : { ok: false, code: created?.body?.code || 'team-loadout-child-create-failed' };
@@ -3520,7 +3549,6 @@ async function applyDefTeamLoadoutPlan(input = {}) {
   if (!matchesAtomicTeamCandidateCapability(input, candidate)) {
     return { ok: false, state: 'BLOCKED', code: 'team-loadout-capability-mismatch', planId: prepared.planId, planHash: prepared.planHash, nextAction: 'The approved candidate identity does not match the prepared team capability.' };
   }
-  stored.usedAt = Date.now();
   const gate = input.__defCurrentGate || resolveCanonicalWorkbenchCurrent(input);
   const node = readRepositoryWorkNode(candidate.nodeId);
   const parent = readRepositoryWorkNode(candidate.parentNodeId);
@@ -3534,20 +3562,53 @@ async function applyDefTeamLoadoutPlan(input = {}) {
     stored.usedResult = outcome;
     return outcome;
   }
-  const committed = handleAiTimelineWorkNodeRequest('POST', `/api/ai-timeline-worknodes/${encodeURIComponent(node.id)}/commit`, {
-    label: `Approved team loadout ${stored.planId}`,
-    approval: { mode: 'manual', approvedBy: 'user', approvedAt: Date.now(), rationale: 'Native DEF complete team loadout approval.' },
-  });
-  if (committed?.status !== 200 || !committed?.body?.commit) {
-    const outcome = { ok: false, state: 'BLOCKED', code: committed?.body?.code || 'team-loadout-commit-failed', planId: stored.planId, planHash: stored.planHash, currentCheckoutTouched: false };
+  const sessionId = typeof input.__defSessionId === 'string' ? input.__defSessionId.trim() : '';
+  if (!consumeApprovedApplyCapability(input, {
+    sessionId,
+    timelineId: stored.timelineId,
+    axisBindingId: stored.axisBindingId,
+    sessionBindingId: stored.axisBindingId,
+    parentNodeId: candidate.parentNodeId,
+    parentRevision: candidate.parentRevision,
+    candidateNodeId: candidate.nodeId,
+    candidateRevision: candidate.nodeRevision,
+    workingHash: candidate.workingHash,
+    planId: stored.planId,
+    planHash: stored.planHash,
+  })) {
+    return { ok: false, state: 'BLOCKED', code: 'approval-capability-required', planId: stored.planId, planHash: stored.planHash, currentCheckoutTouched: false, nextAction: 'Native user approval for this exact team candidate is required before apply.' };
+  }
+  stored.usedAt = Date.now();
+  const definition = getDefToolDefinition('def.operator.config.patch');
+  const rollback = async (code, details = {}) => {
+    const enqueued = enqueueDefToolCommands(definition, [{
+      op: 'restoreAtomicTeamParent', parentNodeId: parent.id, parentRevision: candidate.parentRevision,
+    }], input);
+    const rollbackVerification = enqueued.status >= 200 && enqueued.status < 300 && enqueued.body?.commands?.[0]
+      ? await buildDefToolCommandVerification(enqueued.body.commands[0], input.waitMs)
+      : { pass: false, error: 'team-loadout-rollback-enqueue-failed' };
+    const restoredPayload = rollbackVerification?.result?.result?.restoredPayload;
+    const restored = Boolean(rollbackVerification.pass
+      && rollbackVerification?.result?.result?.parentNodeId === parent.id
+      && Number(rollbackVerification?.result?.result?.parentRevision) === candidate.parentRevision
+      && isObject(restoredPayload)
+      && hashDefNodeValue(restoredPayload) === candidate.parentWorkingHash);
+    const outcome = {
+      ok: false,
+      state: restored ? 'ROLLED_BACK' : 'RECONCILIATION_REQUIRED',
+      code,
+      planId: stored.planId,
+      planHash: stored.planHash,
+      currentCheckoutTouched: true,
+      rollback: { attempted: true, restored, verification: rollbackVerification },
+      ...details,
+    };
     stored.usedResult = outcome;
     return outcome;
-  }
-  const committedRevision = Number(committed.body.node?.contentRevision || committed.body.node?.updatedAt);
-  const definition = getDefToolDefinition('def.operator.config.patch');
+  };
   const enqueued = enqueueDefToolCommands(definition, [{
     op: 'applyPreparedOperatorConfig', parentNodeId: parent.id, parentRevision: candidate.parentRevision,
-    nodeId: node.id, nodeRevision: committedRevision,
+    nodeId: node.id, nodeRevision: candidate.nodeRevision,
   }], input);
   if (enqueued.status < 200 || enqueued.status >= 300 || !enqueued.body?.commands?.[0]) {
     const outcome = { ok: false, state: 'BLOCKED', code: 'team-loadout-apply-enqueue-failed', planId: stored.planId, planHash: stored.planHash, currentCheckoutTouched: false };
@@ -3556,23 +3617,24 @@ async function applyDefTeamLoadoutPlan(input = {}) {
   }
   const commandVerification = await buildDefToolCommandVerification(enqueued.body.commands[0], input.waitMs);
   if (!commandVerification.pass) {
-    const outcome = { ok: false, state: 'RECONCILIATION_REQUIRED', code: 'team-loadout-apply-failed', planId: stored.planId, planHash: stored.planHash, currentCheckoutTouched: false, commandVerification };
-    stored.usedResult = outcome;
-    return outcome;
+    return rollback('team-loadout-apply-failed', { commandVerification });
   }
   const liveVerification = await waitForExactDefOperatorConfigs(candidate.finalConfigs, input.snapshotWaitMs ?? 8000);
   if (!liveVerification.pass) {
-    const outcome = { ok: false, state: 'RECONCILIATION_REQUIRED', code: 'team-loadout-postcondition-failed', planId: stored.planId, planHash: stored.planHash, currentCheckoutTouched: false, commandVerification, postcondition: liveVerification };
-    stored.usedResult = outcome;
-    return outcome;
+    return rollback('team-loadout-postcondition-failed', { commandVerification, postcondition: liveVerification });
+  }
+  const committed = handleAiTimelineWorkNodeRequest('POST', `/api/ai-timeline-worknodes/${encodeURIComponent(node.id)}/commit`, {
+    label: `Approved team loadout ${stored.planId}`,
+    approval: { mode: 'manual', approvedBy: 'user', approvedAt: Date.now(), rationale: 'Native DEF complete team loadout approval.' },
+  }, INTERNAL_RAW_TRANSPORT);
+  if (committed?.status !== 200 || !committed?.body?.commit) {
+    return rollback(committed?.body?.code || 'team-loadout-commit-failed', { commandVerification, postcondition: liveVerification });
   }
   const applied = handleAiTimelineWorkNodeRequest('POST', `/api/ai-timeline-worknodes/${encodeURIComponent(node.id)}/checkout-applied`, {
     commitId: committed.body.commit.id, appliedBy: 'user', appliedAt: Date.now(), rationale: 'Native DEF complete team loadout applied exact reviewed payload.',
-  });
+  }, INTERNAL_RAW_TRANSPORT);
   if (applied?.status !== 200) {
-    const outcome = { ok: false, state: 'RECONCILIATION_REQUIRED', code: applied?.body?.code || 'team-loadout-checkout-apply-failed', planId: stored.planId, planHash: stored.planHash, currentCheckoutTouched: false };
-    stored.usedResult = outcome;
-    return outcome;
+    return rollback(applied?.body?.code || 'team-loadout-checkout-apply-failed', { commandVerification, postcondition: liveVerification, commitId: committed.body.commit.id });
   }
   const finalized = enqueueDefToolCommands(definition, [{ op: 'finalizePreparedOperatorConfig', nodeId: node.id, commitId: committed.body.commit.id }], input);
   const finalizeVerification = finalized.status >= 200 && finalized.status < 300 && finalized.body?.commands?.[0]
@@ -3585,18 +3647,21 @@ async function applyDefTeamLoadoutPlan(input = {}) {
     commitPayload: exactDefOperatorConfigMatches(extractDefOperatorConfig(committed.body.commit.appliedPayload, finalConfig.characterId), finalConfig),
   }));
   const pass = finalizeVerification.pass && exactResults.every((result) => result.live && result.checkoutPayload && result.commitPayload);
+  if (!pass) {
+    return rollback('team-loadout-finalize-failed', { commandVerification, finalizeVerification, postcondition: { pass: false, operators: exactResults }, commitId: committed.body.commit.id });
+  }
   const outcome = {
-    ok: pass,
-    state: pass ? 'APPLIED' : 'RECONCILIATION_REQUIRED',
-    code: pass ? 'applied' : 'team-loadout-postcondition-failed',
+    ok: true,
+    state: 'APPLIED',
+    code: 'applied',
     planId: stored.planId,
     planHash: stored.planHash,
     nodeId: node.id,
     commitId: committed.body.commit.id,
-    currentCheckoutTouched: pass,
+    currentCheckoutTouched: true,
     commandVerification,
     finalizeVerification,
-    postcondition: { pass, operators: exactResults },
+    postcondition: { pass: true, operators: exactResults },
   };
   stored.usedResult = outcome;
   return outcome;
@@ -3623,7 +3688,7 @@ function discardPreparedTeamLoadoutPlan(input = {}) {
     || gate.checkoutNodeId !== candidate.parentNodeId) {
     return { ok: false, state: 'BLOCKED', code: 'team-loadout-discard-precondition-failed', component: 'team-loadout-plan' };
   }
-  const deleted = handleAiTimelineWorkNodeRequest('POST', `/api/ai-timeline-worknodes/${encodeURIComponent(node.id)}/delete`, {});
+  const deleted = handleAiTimelineWorkNodeRequest('POST', `/api/ai-timeline-worknodes/${encodeURIComponent(node.id)}/delete`, {}, INTERNAL_RAW_TRANSPORT);
   const outcome = deleted?.status === 200
     ? { ok: true, state: 'REJECTED', code: 'discarded', planId: plan.planId, planHash: plan.planHash, nodeId: node.id, currentCheckoutTouched: false }
     : { ok: false, state: 'BLOCKED', code: deleted?.body?.code || 'team-loadout-discard-failed', component: 'team-loadout-plan' };
@@ -4880,6 +4945,15 @@ function createDefApprovalRequest(input = {}) {
     riskHash: typeof input.riskHash === 'string' ? input.riskHash : '',
     workingHash: typeof input.workingHash === 'string' ? input.workingHash : '',
     toolCallId: typeof input.toolCallId === 'string' ? input.toolCallId : '',
+    timelineId: typeof input.timelineId === 'string' ? input.timelineId : '',
+    axisBindingId: typeof input.axisBindingId === 'string' ? input.axisBindingId : '',
+    sessionBindingId: typeof input.sessionBindingId === 'string' ? input.sessionBindingId : '',
+    parentNodeId: typeof input.parentNodeId === 'string' ? input.parentNodeId : '',
+    parentRevision: Number.isFinite(Number(input.parentRevision)) ? Number(input.parentRevision) : null,
+    candidateNodeId: typeof input.candidateNodeId === 'string' ? input.candidateNodeId : '',
+    candidateRevision: Number.isFinite(Number(input.candidateRevision)) ? Number(input.candidateRevision) : null,
+    planId: typeof input.planId === 'string' ? input.planId : '',
+    planHash: typeof input.planHash === 'string' ? input.planHash : '',
   };
   writeDefToolGovernanceArchive({
     ...archive,
@@ -4949,7 +5023,25 @@ function recordDefApprovalDecision(input = {}) {
     decidedBy: updated.decidedBy,
     rationale: updated.rationale,
   });
-  return { ok: true, approval: updated };
+  const approvalCapability = decision === 'approved' ? crypto.randomUUID() : '';
+  if (approvalCapability) {
+    approvedApplyCapabilities.set(approvalCapability, {
+      sessionId: updated.sessionId,
+      timelineId: updated.timelineId,
+      axisBindingId: updated.axisBindingId,
+      sessionBindingId: updated.sessionBindingId,
+      parentNodeId: updated.parentNodeId,
+      parentRevision: updated.parentRevision,
+      candidateNodeId: updated.candidateNodeId || updated.workNodeId,
+      candidateRevision: updated.candidateRevision || updated.nodeRevision,
+      workingHash: updated.workingHash,
+      planId: updated.planId,
+      planHash: updated.planHash,
+      used: false,
+      expiresAt: Date.now() + PREPARED_OPERATOR_CONFIG_TTL_MS,
+    });
+  }
+  return { ok: true, approval: updated, ...(approvalCapability ? { approvalCapability } : {}) };
 }
 
 function buildDefToolDefinitions() {
@@ -5746,7 +5838,7 @@ async function executeDefOperatorConfigPrepare(input = {}) {
     workingPayload: preview.preparedPayload,
     approvalPolicy: 'manual',
     riskFlags: [{ severity: 'warning', code: 'operator-config-mutation', message: 'Native approval is required before this prepared operator configuration can be applied.' }],
-  });
+  }, INTERNAL_RAW_TRANSPORT);
   if (created?.status !== 200 || !created?.body?.node) {
     return { ok: false, code: created?.body?.code || 'operator-config-child-create-failed', component: 'operator-config', retryable: true, nextAction: 'No configuration was applied. Rebuild the preview after resolving the Work Node error.', create: created?.body || null };
   }
@@ -5817,13 +5909,25 @@ async function executeDefOperatorConfigApplyPrepared(input = {}) {
     || hashDefNodeValue(node.workingPayload) !== capability.workingHash) {
     return { ok: false, code: 'checkout-changed', component: 'operator-config', retryable: true, nextAction: 'Checkout or prepared revision changed during approval; no mutation was executed.', currentCheckoutTouched: false };
   }
+  if (!consumeApprovedApplyCapability(input, {
+    sessionId,
+    timelineId: gate.binding.timelineId,
+    axisBindingId: gate.binding.id,
+    parentNodeId,
+    parentRevision,
+    candidateNodeId: nodeId,
+    candidateRevision: nodeRevision,
+    workingHash: capability.workingHash,
+  })) {
+    return { ok: false, code: 'approval-capability-required', component: 'operator-config', retryable: false, nextAction: 'Native user approval for this exact candidate is required before apply.' };
+  }
   capability.consumed = true;
   // Commit the reviewed child before touching the live renderer.  It remains
   // un-applied until the exact live mirror has converged.
   const committed = handleAiTimelineWorkNodeRequest('POST', `/api/ai-timeline-worknodes/${encodeURIComponent(nodeId)}/commit`, {
     label: `Approved operator config ${finalConfig?.characterName || finalConfig?.characterId || ''}`,
     approval: { mode: 'manual', approvedBy: 'user', approvedAt: Date.now(), rationale: 'Native DEF operator configuration approval.' },
-  });
+  }, INTERNAL_RAW_TRANSPORT);
   if (committed?.status !== 200 || !committed?.body?.commit) {
     return { ok: false, code: committed?.body?.code || 'operator-config-commit-failed', component: 'operator-config', retryable: false, nextAction: 'No live mutation was executed; inspect the prepared child node before any recovery.' };
   }
@@ -5850,7 +5954,7 @@ async function executeDefOperatorConfigApplyPrepared(input = {}) {
   }
   const applied = handleAiTimelineWorkNodeRequest('POST', `/api/ai-timeline-worknodes/${encodeURIComponent(nodeId)}/checkout-applied`, {
     commitId: committed.body.commit.id, appliedBy: 'user', appliedAt: Date.now(), rationale: 'Native DEF operator configuration approval applied exact reviewed payload.',
-  });
+  }, INTERNAL_RAW_TRANSPORT);
   if (applied?.status !== 200) {
     return { ok: false, code: applied?.body?.code || 'operator-config-checkout-apply-failed', component: 'operator-config', retryable: true, nextAction: 'The live mirror changed but the reviewed commit was not marked checkout-applied. Do not report applied.' };
   }
@@ -5915,7 +6019,7 @@ function discardDefPreparedOperatorConfig(input = {}) {
     || latestCommit || hasPreparedChild || (checkout?.targetType === 'work-node' && checkout.targetId === nodeId)) {
     return { ok: false, code: 'prepared-discard-precondition-failed', component: 'operator-config', retryable: false, nextAction: 'The prepared child is no longer an uncommitted open/manual leaf; no node was deleted.' };
   }
-  const deleted = handleAiTimelineWorkNodeRequest('POST', `/api/ai-timeline-worknodes/${encodeURIComponent(nodeId)}/delete`, {});
+  const deleted = handleAiTimelineWorkNodeRequest('POST', `/api/ai-timeline-worknodes/${encodeURIComponent(nodeId)}/delete`, {}, INTERNAL_RAW_TRANSPORT);
   if (deleted?.status === 200) preparedOperatorConfigCapabilities.delete(preparedToken);
   return deleted?.status === 200
     ? { ok: true, nodeId, discarded: true }
@@ -6492,6 +6596,13 @@ function applyDefToolInvocationPolicy(name, definition, input, invocation = {}) 
     }
     return { ok: true, input, policy };
   }
+  // A decision is emitted only after OpenCode's native permission UI resolves.
+  // A model-facing caller may request an approval record, but cannot mint the
+  // capability that authorizes apply by posting an "approved" decision.
+  if (name === 'def.approval.record_decision'
+    && (!defInternalGovernanceToken || invocation.internalToken !== defInternalGovernanceToken)) {
+    return { ok: false, response: failScript(403, 'denied-approval-decision', 'Approval decisions are accepted only from the native permission continuation.') };
+  }
   if (policy.projectionAccess === DEF_PROJECTION_ACCESS.MIXED_CURRENT_PUBLIC) {
     const sessionId = typeof input.__defSessionId === 'string' ? input.__defSessionId.trim() : '';
     if (!sessionId) {
@@ -6978,7 +7089,11 @@ async function handleDefToolRequest(method, pathname, query, body, invocation = 
   return null;
 }
 
-function handleMainWorkbenchRequest(method, pathname, query, body) {
+function handleMainWorkbenchRequest(method, pathname, query, body, invocation = {}) {
+  // The mirror is canonical-gate input.  Unauthenticated HTTP must neither
+  // replay a projection nor inspect it as a side door into another timeline.
+  if (!pathname.startsWith('/api/main-workbench')) return null;
+  if (!rawTransportAuthorized(invocation)) return denyRawTransport(pathname);
   if (method === 'GET' && pathname === '/api/main-workbench/evidence') {
     const snapshot = readMainWorkbenchJson(MAIN_WORKBENCH_SNAPSHOT_KEY, null);
     return {
@@ -7412,13 +7527,14 @@ const server = http.createServer(async (request, response) => {
 
   try {
     const body = method === 'POST' ? await readJsonBody(request) : undefined;
-    const aiTimelineWorkNodeResponse = handleAiTimelineWorkNodeRequest(method, requestUrl.pathname, body);
+    const rawInvocation = { internalToken: typeof request.headers['x-def-internal-token'] === 'string' ? request.headers['x-def-internal-token'] : '' };
+    const aiTimelineWorkNodeResponse = handleAiTimelineWorkNodeRequest(method, requestUrl.pathname, body, rawInvocation);
     if (aiTimelineWorkNodeResponse) {
       writeJson(response, aiTimelineWorkNodeResponse.status, aiTimelineWorkNodeResponse.body);
       return;
     }
 
-    const timelineRepositoryResponse = handleTimelineRepositoryRequest(method, requestUrl.pathname, requestUrl.searchParams, body);
+    const timelineRepositoryResponse = handleTimelineRepositoryRequest(method, requestUrl.pathname, requestUrl.searchParams, body, rawInvocation);
     if (timelineRepositoryResponse) {
       writeJson(response, timelineRepositoryResponse.status, timelineRepositoryResponse.body);
       return;
@@ -7432,7 +7548,7 @@ const server = http.createServer(async (request, response) => {
       return;
     }
 
-    const mainWorkbenchResponse = handleMainWorkbenchRequest(method, requestUrl.pathname, requestUrl.searchParams, body);
+    const mainWorkbenchResponse = handleMainWorkbenchRequest(method, requestUrl.pathname, requestUrl.searchParams, body, rawInvocation);
     if (mainWorkbenchResponse) {
       writeJson(response, mainWorkbenchResponse.status, mainWorkbenchResponse.body);
       return;

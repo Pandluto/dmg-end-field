@@ -1,0 +1,1 @@
+Use typed DEF tools only. Preserve returned session, binding, timeline, plan, parent, candidate, revision, hash, and approval capability values exactly. Never call raw transport or internal governance. Never turn a catalog answer into a claim about current selection.

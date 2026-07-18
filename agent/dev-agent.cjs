@@ -357,9 +357,9 @@ function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function fetchJsonUrl(url) {
+function fetchJsonUrl(url, options = {}) {
   return new Promise((resolve, reject) => {
-    const request = http.get(url, (response) => {
+    const request = http.get(url, { headers: options.headers || {} }, (response) => {
       const chunks = [];
       response.on('data', (chunk) => chunks.push(chunk));
       response.on('end', () => {
@@ -964,7 +964,9 @@ const server = http.createServer(async (request, response) => {
   if (method === 'GET' && (requestUrl.pathname === '/current-data' || requestUrl.pathname === '/api/current-data')) {
     try {
       await startAiCliRest();
-      const upstream = await fetchJsonUrl('http://127.0.0.1:17321/api/main-workbench/snapshot');
+      const upstream = await fetchJsonUrl('http://127.0.0.1:17321/api/main-workbench/snapshot', {
+        headers: process.env.DEF_INTERNAL_GOVERNANCE_TOKEN ? { 'x-def-internal-token': process.env.DEF_INTERNAL_GOVERNANCE_TOKEN } : {},
+      });
       const available = upstream.status >= 200 && upstream.status < 300 && upstream.body?.ok !== false;
       writeJson(response, 200, {
         ok: true,

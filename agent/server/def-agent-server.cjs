@@ -1350,7 +1350,10 @@ const server = http.createServer(async (request, response) => {
       let workbenchContext = body.workbenchContext;
       if (body.skillId === 'workbench' && (!workbenchContext || typeof workbenchContext !== 'object')) {
         try {
-          const snapshotResponse = await fetch(`${defRestUrl}/api/main-workbench/snapshot`, { signal: AbortSignal.timeout(4000) });
+          const snapshotResponse = await fetch(`${defRestUrl}/api/main-workbench/snapshot`, {
+            signal: AbortSignal.timeout(4000),
+            headers: process.env.DEF_INTERNAL_GOVERNANCE_TOKEN ? { 'x-def-internal-token': process.env.DEF_INTERNAL_GOVERNANCE_TOKEN } : {},
+          });
           const snapshotBody = await snapshotResponse.json();
           const snapshot = snapshotBody?.snapshot || snapshotBody?.data || snapshotBody;
           if (snapshotResponse.ok && snapshotBody?.ok !== false) {

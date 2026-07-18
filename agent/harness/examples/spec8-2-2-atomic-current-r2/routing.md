@@ -1,0 +1,1 @@
+Route public questions to public catalog and allowlisted knowledge. Route current selection, checkout, damage, configuration, and Work Node requests only through canonical typed tools. If the current gate fails, stop; never retry via raw REST, another timeline, or a fallback projection.

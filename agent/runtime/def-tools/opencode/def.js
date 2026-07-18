@@ -23,7 +23,10 @@ const nodeInputs = 'node/working/inputs.json'
 async function callDefTool(tool, input = {}, context = null) {
   const response = await fetch(`${restBase}/api/def-tools/call`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: {
+      'content-type': 'application/json',
+      ...(process.env.DEF_INTERNAL_GOVERNANCE_TOKEN ? { 'x-def-internal-token': process.env.DEF_INTERNAL_GOVERNANCE_TOKEN } : {}),
+    },
     body: JSON.stringify({ tool, input, ...(context?.sessionID ? { sessionId: context.sessionID } : {}) }),
   })
   const payload = await response.json()
@@ -44,10 +47,13 @@ async function askWithApproval(context, input) {
     sessionId: context.sessionID,
     timelineId: input.timelineId,
     axisBindingId: input.axisBindingId,
+    sessionBindingId: input.sessionBindingId,
     parentNodeId: input.parentNodeId,
     parentRevision: input.parentRevision,
     candidateNodeId: input.candidateNodeId || input.nodeId,
     candidateRevision: input.candidateRevision || input.revision,
+    planId: input.planId,
+    planHash: input.planHash,
     nodeRevision: input.revision,
     diffHash: input.diffHash,
     riskHash: input.riskHash,
@@ -77,6 +83,8 @@ async function askWithApproval(context, input) {
         parentRevision: input.parentRevision ?? null,
         candidateNodeId: input.candidateNodeId || input.nodeId || null,
         candidateRevision: input.candidateRevision ?? input.revision ?? null,
+        planId: input.planId || null,
+        planHash: input.planHash || null,
         diff: input.diff,
         riskFlags: input.riskFlags || [],
         consequence: input.consequence,
@@ -92,13 +100,13 @@ async function askWithApproval(context, input) {
     }, context)
     throw error
   }
-  await callDefTool('def.approval.record_decision', {
+  const decided = await callDefTool('def.approval.record_decision', {
     approvalId: requested.approval.id,
     decision: 'approved',
     decidedBy: 'user',
     rationale: `${input.action} approved through OpenCode native permission UI.`,
   }, context)
-  return requested.approval
+  return { ...requested.approval, approvalCapability: decided.approvalCapability }
 }
 
 function formatOperatorConfigApprovalPatterns(prepared) {
@@ -884,24 +892,31 @@ export const team_loadout_plan_apply = {
       parentNodeId: prepared.parentNodeId,
       parentRevision: prepared.parentRevision,
       parentWorkingHash: prepared.parentWorkingHash,
+      sessionBindingId: prepared.sessionBindingId,
     }
     try {
-      await context.ask({
+      const approval = await askWithApproval(context, {
+        action: 'Apply one reviewed atomic team candidate',
+        summary: `Apply reviewed team candidate ${prepared.candidateNodeId} for plan ${prepared.planId}`,
         permission: 'def_team_loadout_plan_apply',
+        nodeId: prepared.candidateNodeId,
+        revision: prepared.candidateRevision,
+        workingHash: prepared.candidateWorkingHash,
+        timelineId: prepared.timelineId,
+        axisBindingId: prepared.axisBindingId,
+        sessionBindingId: prepared.sessionBindingId,
+        parentNodeId: prepared.parentNodeId,
+        parentRevision: prepared.parentRevision,
+        candidateNodeId: prepared.candidateNodeId,
+        candidateRevision: prepared.candidateRevision,
+        planId: prepared.planId,
+        planHash: prepared.planHash,
         patterns: prepared.approvalPatterns || [prepared.planHash, prepared.candidateWorkingHash],
-        always: [],
-        metadata: {
-          action: 'Apply one reviewed atomic team candidate',
-          sessionId: prepared.ownerSessionId,
-          sessionBindingId: prepared.sessionBindingId,
-          timelineId: prepared.timelineId,
-          axisBindingId: prepared.axisBindingId,
-          planId: prepared.planId,
-          planHash: prepared.planHash,
-          ...candidateIdentity,
-          diff: prepared.approvalDiff,
-        },
+        diff: prepared.approvalDiff,
+        riskFlags: [{ severity: 'warning', code: 'team-loadout-mutation', message: 'Applies one complete reviewed team candidate.' }],
+        consequence: 'The complete candidate is applied once only if its parent, candidate, and workspace identities still match.',
       })
+      candidateIdentity.approvalCapability = approval.approvalCapability
     } catch (error) {
       await callDefTool('def.team.loadout.plan.apply.discard', {
         planHash: prepared.planHash,
@@ -1068,7 +1083,7 @@ export const operator_config_patch = {
     }
     const prepared = await callDefTool('def.operator.config.prepare', input, context)
     try {
-      await askWithApproval(context, {
+      const approval = await askWithApproval(context, {
       action: 'Apply operator configuration',
       summary: `Apply reviewed operator weapon/equipment configuration for ${input.characterName || input.characterId || 'selected operator'}`,
       permission: 'def_operator_config_patch',
@@ -1090,7 +1105,7 @@ export const operator_config_patch = {
       await callDefTool('def.operator.config.discard_prepared', prepared, context)
       throw error
     }
-    const result = await callDefTool('def.operator.config.apply_prepared', { ...prepared, input }, context)
+    const result = await callDefTool('def.operator.config.apply_prepared', { ...prepared, input, approvalCapability: approval.approvalCapability }, context)
     return {
       title: 'DEF operator configuration applied',
       output: JSON.stringify(result, null, 2),

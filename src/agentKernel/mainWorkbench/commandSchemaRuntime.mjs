@@ -26,6 +26,7 @@ export const MAIN_WORKBENCH_SUPPORTED_OPS = [
   'previewOperatorConfig',
   'applyPreparedOperatorConfig',
   'finalizePreparedOperatorConfig',
+  'restoreAtomicTeamParent',
   'refreshSnapshot',
 ];
 
@@ -177,6 +178,11 @@ export function validateMainWorkbenchCommand(command) {
       || !Number.isFinite(Number(command.parentRevision))
       || !Number.isFinite(Number(command.nodeRevision))) {
       return { ok: false, code: 'invalid-main-workbench-apply-prepared-operator-config', message: 'applyPreparedOperatorConfig requires node ids and revisions.' };
+    }
+  }
+  if (command.op === 'restoreAtomicTeamParent') {
+    if (!hasAnyString(command, ['parentNodeId']) || !Number.isFinite(Number(command.parentRevision))) {
+      return { ok: false, code: 'invalid-main-workbench-restore-atomic-team-parent', message: 'restoreAtomicTeamParent requires parent identity and revision.' };
     }
   }
   if (command.op === 'checkoutAiTimelineWorkNode' && !hasAnyString(command, ['nodeId'])) {

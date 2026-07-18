@@ -289,6 +289,13 @@ export type MainWorkbenchCommand =
       commitId: string;
     }
   | {
+      // Internal reconciliation only. Restores the exact parent payload after
+      // an atomic candidate failed after touching the live Workbench.
+      op: 'restoreAtomicTeamParent';
+      parentNodeId: string;
+      parentRevision: number;
+    }
+  | {
       op: 'refreshSnapshot';
     };
 

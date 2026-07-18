@@ -119,6 +119,10 @@ await assertTeamSize(4);
   assert(!applySource.includes("'PARTIAL'"), 'atomic team apply must not retain the serial PARTIAL state');
   assert.equal((applySource.match(/checkout-applied/g) || []).length, 1, 'team apply must move checkout once');
   assert.equal((applySource.match(/applyPreparedOperatorConfig/g) || []).length, 1, 'team apply must send one complete payload command');
+  assert(applySource.includes('consumeApprovedApplyCapability'), 'team apply must consume a server-verifiable approval capability');
+  assert(applySource.includes('restoreAtomicTeamParent'), 'team apply must explicitly restore P after a post-apply failure');
+  assert(applySource.indexOf("op: 'applyPreparedOperatorConfig'") < applySource.indexOf("/commit`"), 'C must not be committed before the live C apply/verification begins');
+  assert(applySource.includes("state: restored ? 'ROLLED_BACK' : 'RECONCILIATION_REQUIRED'"), 'rollback failure must surface reconciliation rather than a false success');
 
   const nativeSource = fs.readFileSync(path.join(projectRoot, 'agent/runtime/def-tools/opencode/def.js'), 'utf8');
   const nativeStart = nativeSource.indexOf('export const team_loadout_plan_apply');
@@ -128,6 +132,7 @@ await assertTeamSize(4);
     assert(nativeApply.includes(key), `permission/apply capability must include ${key}`);
   }
   assert(nativeApply.includes('def.team.loadout.plan.apply.discard'), 'permission rejection must discard the uncommitted C');
+  assert(nativeApply.includes('approvalCapability'), 'native permission continuation must pass the one-time approval capability to apply');
 }
 
 console.log('DEF atomic team candidate contract: PASS (2-person, 4-person, zero-partial, stale capability)');

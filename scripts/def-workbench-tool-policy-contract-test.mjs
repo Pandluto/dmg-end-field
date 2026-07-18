@@ -125,6 +125,7 @@ async function legacy(tool, input = {}, sessionId = '') {
 async function mirror(timelineId, sentinel) {
   const response = await request('/api/main-workbench/snapshot', {
     method: 'POST',
+    internal: true,
     body: {
       activeTimelineId: timelineId,
       timelineId,
@@ -227,13 +228,13 @@ try {
   assert(!JSON.stringify(nodesA.body).includes('node-b-only'));
 
   const forgedTreeBefore = treeState();
-  const forgedQueueBefore = await request('/api/main-workbench/commands');
+  const forgedQueueBefore = await request('/api/main-workbench/commands', { internal: true });
   await mirror('formal-a', 'B');
   const forgedSameTimeline = await generic('def.character.resolve', {}, 'session-a');
   assert.equal(forgedSameTimeline.status, 409, JSON.stringify(forgedSameTimeline.body));
   assert.equal(forgedSameTimeline.body.error.code, 'blocked-session-mismatch');
   assert.deepEqual(treeState(), forgedTreeBefore);
-  assert.deepEqual((await request('/api/main-workbench/commands')).body, forgedQueueBefore.body);
+  assert.deepEqual((await request('/api/main-workbench/commands', { internal: true })).body, forgedQueueBefore.body);
   await mirror('formal-a', 'A');
 
   const publicCalls = [
@@ -256,15 +257,15 @@ try {
   }
 
   const treeBefore = treeState();
-  const queueBefore = await request('/api/main-workbench/commands');
+  const queueBefore = await request('/api/main-workbench/commands', { internal: true });
   const deniedDirectQueue = await request('/api/main-workbench/commands/enqueue', {
     method: 'POST', body: { command: { op: 'refreshSnapshot' }, sessionId: 'session-a' },
   });
   assert.equal(deniedDirectQueue.status, 403, JSON.stringify(deniedDirectQueue.body));
-  assert.equal(deniedDirectQueue.body.error.code, 'denied-direct-command-enqueue');
-  const snapshotBefore = await request('/api/main-workbench/snapshot');
+  assert.equal(deniedDirectQueue.body.error.code, 'denied-internal-transport');
+  const snapshotBefore = await request('/api/main-workbench/snapshot', { internal: true });
   await mirror('formal-b', 'B');
-  const mismatchSnapshot = await request('/api/main-workbench/snapshot');
+  const mismatchSnapshot = await request('/api/main-workbench/snapshot', { internal: true });
   const tools = currentRegistryTools();
   for (const tool of tools) {
     const input = tool.workspaceScope === DEF_WORKSPACE_SCOPE.WORKNODE_TREE ? { nodeId: 'node-a-only' } : {};
@@ -277,9 +278,9 @@ try {
     assert(!JSON.stringify(typedResult.body).includes('Operator B ONLY'), tool.name);
   }
   assert.deepEqual(treeState(), treeBefore);
-  const queueAfter = await request('/api/main-workbench/commands');
+  const queueAfter = await request('/api/main-workbench/commands', { internal: true });
   assert.deepEqual(queueAfter.body, queueBefore.body, 'current gate rejection must not enqueue commands');
-  const snapshotAfter = await request('/api/main-workbench/snapshot');
+  const snapshotAfter = await request('/api/main-workbench/snapshot', { internal: true });
   assert.deepEqual(snapshotAfter.body, mismatchSnapshot.body, 'current gate rejection must not mutate the snapshot mirror');
   assert.notDeepEqual(snapshotBefore.body, snapshotAfter.body, 'A/B fixture must actually differ');
 

@@ -1,0 +1,1 @@
+Build one operator child or one complete team C only from authenticated P. Permission is requested once for exact P-to-C. Apply consumes the returned capability once; a direct, forged, rejected, stale, or restarted approval cannot apply. Do not report applied until live values, commit, and checkout all converge.

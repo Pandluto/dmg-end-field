@@ -35,16 +35,19 @@ const child = spawn(process.execPath, ['scripts/ai-cli-rest-server.mjs'], {
     AI_TIMELINE_WORK_NODE_DB_PATH: path.join(root, 'nodes.sqlite'),
     TIMELINE_REPOSITORY_DB_PATH: path.join(root, 'timeline.sqlite'),
     DATA_MANAGEMENT_RUNTIME_ROOT: path.join(root, 'data'),
+    DEF_INTERNAL_GOVERNANCE_TOKEN: 'projection-bridge-native-host',
   },
   stdio: 'ignore',
 });
 
 const baseUrl = `http://127.0.0.1:${port}`;
+const internalToken = 'projection-bridge-native-host';
 
-async function request(pathname, { method = 'GET', body } = {}) {
+async function request(pathname, { method = 'GET', body, internal = false } = {}) {
   const response = await fetch(`${baseUrl}${pathname}`, {
     method,
-    ...(body === undefined ? {} : { headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }),
+    headers: { ...(body === undefined ? {} : { 'content-type': 'application/json' }), ...(internal ? { 'x-def-internal-token': internalToken } : {}) },
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   });
   return { status: response.status, body: await response.json() };
 }
@@ -65,10 +68,10 @@ try {
       selectedCharacters: [{ id: 'operator-a', name: 'Operator A' }], skillButtons: [],
       marker: index, updatedAt: Date.now(),
     };
-    const posted = await request('/api/main-workbench/snapshot', { method: 'POST', body: snapshot });
+    const posted = await request('/api/main-workbench/snapshot', { method: 'POST', body: snapshot, internal: true });
     assert.equal(posted.status, 200, JSON.stringify(posted.body));
   }
-  const current = await request('/api/main-workbench/snapshot');
+  const current = await request('/api/main-workbench/snapshot', { internal: true });
   assert.equal(current.status, 200);
   assert.equal(current.body.snapshot.timelineId, 'formal-a');
   assert.equal(current.body.snapshot.marker, 24);
@@ -77,8 +80,8 @@ try {
   const direct = await request('/api/main-workbench/commands/enqueue', { method: 'POST', body: { command: { op: 'refreshSnapshot' } } });
   assert.equal(direct.status, 403);
   const unknownResult = await request('/api/main-workbench/commands/result', { method: 'POST', body: { id: 'forged-command', status: 'done', result: { ok: true } } });
-  assert.equal(unknownResult.status, 404);
-  const queue = await request('/api/main-workbench/commands');
+  assert.equal(unknownResult.status, 403);
+  const queue = await request('/api/main-workbench/commands', { internal: true });
   assert.deepEqual(queue.body.commands, []);
 
   console.log('DEF Workbench projection bridge contract: PASS (ephemeral snapshot, immutable now-storage, closed queue injection)');

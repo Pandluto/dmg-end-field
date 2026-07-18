@@ -1004,6 +1004,31 @@ export function CanvasBoard({
     return { nodeId: node.id, commitId: commit.id, checkout: persistedCheckout, finalized: true };
   };
 
+  const restoreAtomicTeamParentFromWorkbenchCommand = async (
+    command: Extract<MainWorkbenchCommand, { op: 'restoreAtomicTeamParent' }>,
+  ) => {
+    const client = createAiTimelineWorkNodeClient();
+    const { node: parent } = await client.get(command.parentNodeId);
+    if (Number(parent.contentRevision || parent.updatedAt) !== Number(command.parentRevision)) {
+      throw makeOperatorConfigCommandError('checkout-changed', 'Atomic team rollback parent changed; refusing to restore a different checkout.');
+    }
+    const repository = createTimelineRepositoryClient();
+    const checkoutRef = {
+      timelineId: parent.timelineId || activeTimelineId,
+      targetType: 'work-node' as const,
+      targetId: parent.id,
+      updatedAt: Date.now(),
+    };
+    await repository.setCheckoutRef(checkoutRef);
+    const document = parent.timelineId === activeTimelineId
+      ? { id: activeTimelineId, label: activeTimelineLabel }
+      : (await repository.listDocuments()).find((entry) => entry.id === parent.timelineId) || { id: parent.timelineId, label: parent.label };
+    activateTimeline({ document, checkoutRef, workingPayload: parent.workingPayload });
+    hydrateCheckoutRuntime(parent.workingPayload);
+    refreshWorkbenchAfterCheckout();
+    return { restored: true, parentNodeId: parent.id, parentRevision: Number(parent.contentRevision || parent.updatedAt), checkout: checkoutRef, restoredPayload: parent.workingPayload };
+  };
+
   const setOperatorWeaponFromWorkbenchCommand = async (command: Extract<MainWorkbenchCommand, { op: 'setOperatorWeapon' }>) => {
     const weaponName = command.weaponName?.trim();
     if (!weaponName) {
@@ -1968,6 +1993,7 @@ export function CanvasBoard({
         'previewOperatorConfig',
         'applyPreparedOperatorConfig',
         'finalizePreparedOperatorConfig',
+        'restoreAtomicTeamParent',
         'refreshSnapshot',
       ])[0];
       if (!commandEntry) {
@@ -2349,6 +2375,13 @@ export function CanvasBoard({
 
         if (command.op === 'finalizePreparedOperatorConfig') {
           const result = await finalizePreparedOperatorConfigFromWorkbenchCommand(command);
+          const doneEntry = patchMainWorkbenchCommand(commandEntry.id, { status: 'done', result });
+          if (doneEntry) void pushMainWorkbenchCommandResult(doneEntry);
+          return;
+        }
+
+        if (command.op === 'restoreAtomicTeamParent') {
+          const result = await restoreAtomicTeamParentFromWorkbenchCommand(command);
           const doneEntry = patchMainWorkbenchCommand(commandEntry.id, { status: 'done', result });
           if (doneEntry) void pushMainWorkbenchCommandResult(doneEntry);
           return;

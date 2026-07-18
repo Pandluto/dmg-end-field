@@ -27,6 +27,7 @@ const {
   Tray,
   net,
   nativeImage,
+  session,
   shell,
 } = require('electron');
 
@@ -62,6 +63,20 @@ let defAgentProcess = null;
 let defAgentStartedAt = null;
 let isAppQuitting = false;
 let appTray = null;
+let defRawTransportHeaderInstalled = false;
+
+function installDefRawTransportHeader() {
+  if (defRawTransportHeaderInstalled) return;
+  defRawTransportHeaderInstalled = true;
+  session.defaultSession.webRequest.onBeforeSendHeaders({ urls: ['http://127.0.0.1:17321/api/*'] }, (details, callback) => {
+    let pathname = '';
+    try { pathname = new URL(details.url).pathname; } catch { /* keep request untouched */ }
+    if (/^\/api\/(?:ai-timeline-worknodes(?:\/|$)|timeline-(?:documents|work-nodes|checkout-ref|snapshots|archives|audit-events)(?:\/|$)|main-workbench(?:\/|$))/.test(pathname)) {
+      details.requestHeaders['x-def-internal-token'] = defInternalGovernanceToken;
+    }
+    callback({ requestHeaders: details.requestHeaders });
+  });
+}
 const defCodexInterop = createDefCodexInteropProtocol({
   profile: isDev ? 'development' : 'release',
   baseUrl: `http://${BRIDGE_HOST}:${BRIDGE_PORT}`,
@@ -6305,6 +6320,7 @@ app.whenReady().then(() => {
     app.setAppUserModelId('com.dmg.def');
   }
   Menu.setApplicationMenu(null);
+  installDefRawTransportHeader();
   const dataManagementState = getDataManagementStatePayload();
   if (!dataManagementState.ok) {
     appendRuntimeLog('data-management', `${dataManagementState.code}: ${dataManagementState.error}`);
