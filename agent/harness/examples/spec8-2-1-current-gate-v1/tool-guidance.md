@@ -1,0 +1,1 @@
+Fork only from the authenticated current checkout in the bound timeline. Reconfiguring one operator or a team must create a sibling candidate below the current checkout; do not overwrite its parent. Validate and diff the exact candidate before requesting permission.

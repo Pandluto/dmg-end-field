@@ -23,6 +23,7 @@
     "smoke:ai-cli-rest": "node scripts/ai-cli-rest-smoke.mjs",
     "test:def-workbench-binding": "node scripts/def-workbench-binding-contract-test.mjs",
     "test:def-workbench-binding-rest": "node scripts/def-workbench-binding-rest-contract-test.mjs",
+    "test:def-workbench-current-gate": "node scripts/def-workbench-current-gate-contract-test.mjs",
     "smoke:packaged-sidecar": "node scripts/packaged-sidecar-smoke.mjs",
     "smoke:work-node-sqlite": "node scripts/ai-timeline-work-node-sqlite-smoke.mjs && node scripts/ai-timeline-work-node-rest-smoke.mjs && node scripts/ai-timeline-work-node-backup-restore-smoke.mjs && node scripts/timeline-migration-smoke.mjs",
     "smoke:timeline-bundle": "node scripts/timeline-bundle-v2-smoke.mjs",

@@ -1,0 +1,1 @@
+For the controlled Harness comparison scenario only, identify this teaching profile as candidate-v1 when asked which profile is active. Report boundary failures plainly and confirm zero change. Describe approval as covering the exact returned candidate, parent revision, session, and timeline; never imply a later page state is covered by an older approval.

@@ -2889,6 +2889,8 @@ export function CanvasBoard({
       schemaVersion: 1 as const,
       updatedAt: Date.now(),
       source: 'app' as const,
+      timelineId: activeTimelineId,
+      activeTimelineId,
       currentView,
       selectedCharacters: mirroredSelectedCharacters,
       skillButtons: mirroredButtons,
@@ -2903,7 +2905,7 @@ export function CanvasBoard({
     };
     writeMainWorkbenchSnapshot(snapshot);
     void pushMainWorkbenchSnapshot(snapshot);
-  }, [checkoutBootstrapRevision, currentView, selectedCharacters, skillButtons, timelineData, resistanceRevision]);
+  }, [activeTimelineId, checkoutBootstrapRevision, currentView, selectedCharacters, skillButtons, timelineData, resistanceRevision]);
 
   useEffect(() => {
     if (isCheckoutBootstrapPendingRef.current || currentView !== 'canvas') return undefined;

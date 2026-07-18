@@ -1002,6 +1002,25 @@ async function removeNativeWorkbenchAxisBinding(binding) {
   }).catch(() => undefined);
 }
 
+// A create request owns its directory until the binding and initial context
+// have both succeeded.  If either step fails, make the just-created session
+// unrecoverable rather than leaving an orphan that could later be recovered
+// without the workspace gate.  This helper is intentionally only used with
+// the local `session` value returned by this request, never by recover.
+async function cleanupFailedNativeSessionCreate(session) {
+  if (!session?.directory || !session?.sessionID) return;
+  const binding = readNativeSessionBinding(session.directory, session.sessionID, { includeNodeRelation: false });
+  const runtime = runtimeSummary(readConfig().deepseek);
+  await fetch(`${runtime.serverUrl}/session/${encodeURIComponent(session.sessionID)}?directory=${encodeURIComponent(session.directory)}`, {
+    method: 'DELETE',
+    headers: { 'x-opencode-directory': encodeURIComponent(session.directory) },
+    signal: AbortSignal.timeout(OPENCODE_ACTION_TIMEOUT_MS),
+  }).catch(() => undefined);
+  deleteNativeQuestionRecords(session.sessionID);
+  await removeNativeWorkbenchAxisBinding(binding).catch(() => undefined);
+  fs.rmSync(session.directory, { recursive: true, force: true });
+}
+
 const server = http.createServer(async (request, response) => {
   const method = request.method || 'GET';
   const requestUrl = new URL(request.url || '/', `http://${HOST}:${PORT}`);
@@ -1034,18 +1053,24 @@ const server = http.createServer(async (request, response) => {
       const host = body.host === 'workbench' ? 'workbench' : 'ai-cli';
       const timelineId = typeof body.timelineId === 'string' ? body.timelineId.trim() : '';
       if (host === 'workbench') await assertWorkbenchTimelineAdmission(timelineId);
-      const session = await createNativeHostSession({
-        config: readConfig().deepseek,
-        host,
-        skillId: typeof body.skillId === 'string' ? body.skillId : undefined,
-        thinkingEffort: body.thinkingEffort,
-        harnessSelector: typeof body.harnessSelector === 'string' ? body.harnessSelector : 'stable',
-        timelineId,
-        boundNodeId: typeof body.boundNodeId === 'string' ? body.boundNodeId : '',
-      });
-      const binding = ensureNativeSessionAxisBinding(session.directory, session.sessionID);
-      const axisContext = await syncNativeWorkbenchAxisBinding(binding);
-      writeJson(response, 200, { ok: true, session: { ...session, axisContext } });
+      let session = null;
+      try {
+        session = await createNativeHostSession({
+          config: readConfig().deepseek,
+          host,
+          skillId: typeof body.skillId === 'string' ? body.skillId : undefined,
+          thinkingEffort: body.thinkingEffort,
+          harnessSelector: typeof body.harnessSelector === 'string' ? body.harnessSelector : 'stable',
+          timelineId,
+          boundNodeId: typeof body.boundNodeId === 'string' ? body.boundNodeId : '',
+        });
+        const binding = ensureNativeSessionAxisBinding(session.directory, session.sessionID);
+        const axisContext = await syncNativeWorkbenchAxisBinding(binding);
+        writeJson(response, 200, { ok: true, session: { ...session, axisContext } });
+      } catch (error) {
+        await cleanupFailedNativeSessionCreate(session);
+        throw error;
+      }
       return;
     }
 

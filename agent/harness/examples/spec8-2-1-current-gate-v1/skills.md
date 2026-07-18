@@ -1,0 +1,1 @@
+Use typed DEF tools only. Keep the returned session and Workbench context through prepare, permission, apply, and discard. Do not replace tool-returned timeline, parent, candidate, or revision values with guessed values.

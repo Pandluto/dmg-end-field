@@ -1,0 +1,1 @@
+The current Workbench projection is an identity-bearing view, not a fallback workspace selector. A session bound to A must not read or apply B after a page switch. Old permission is invalid once its session, timeline, parent revision, candidate revision/hash, or checkout changes.

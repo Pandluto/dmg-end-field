@@ -42,6 +42,12 @@ async function askWithApproval(context, input) {
     mode: 'blocking',
     workNodeId: input.nodeId,
     sessionId: context.sessionID,
+    timelineId: input.timelineId,
+    axisBindingId: input.axisBindingId,
+    parentNodeId: input.parentNodeId,
+    parentRevision: input.parentRevision,
+    candidateNodeId: input.candidateNodeId || input.nodeId,
+    candidateRevision: input.candidateRevision || input.revision,
     nodeRevision: input.revision,
     diffHash: input.diffHash,
     riskHash: input.riskHash,
@@ -65,6 +71,12 @@ async function askWithApproval(context, input) {
         action: input.action,
         nodeId: input.nodeId || null,
         revision: input.revision,
+        timelineId: input.timelineId || null,
+        axisBindingId: input.axisBindingId || null,
+        parentNodeId: input.parentNodeId || null,
+        parentRevision: input.parentRevision ?? null,
+        candidateNodeId: input.candidateNodeId || input.nodeId || null,
+        candidateRevision: input.candidateRevision ?? input.revision ?? null,
         diff: input.diff,
         riskFlags: input.riskFlags || [],
         consequence: input.consequence,
@@ -752,7 +764,7 @@ function batchLoadoutResource(definition) {
     args: definition.args,
     async execute(args, context) {
       context.metadata({ title: definition.title })
-      const result = await callDefTool(definition.tool, definition.input(args))
+      const result = await callDefTool(definition.tool, definition.input(args), context)
       // Both server contracts are structurally bounded (selected team and
       // limitPerOperator <= 4). Keep their nested effect values intact rather
       // than applying the generic depth limiter used by free-form searches.
@@ -1017,7 +1029,7 @@ export const operator_config_patch = {
     if (!input.weapon && !input.gearSetName && !input.gearSetId && !input.equipmentName && !input.equipmentId) {
       throw new Error('Provide an exact weapon or equipment selection before applying operator configuration.')
     }
-    const prepared = await callDefTool('def.operator.config.prepare', input)
+    const prepared = await callDefTool('def.operator.config.prepare', input, context)
     try {
       await askWithApproval(context, {
       action: 'Apply operator configuration',
@@ -1025,6 +1037,12 @@ export const operator_config_patch = {
       permission: 'def_operator_config_patch',
       nodeId: prepared.nodeId,
       revision: prepared.nodeRevision,
+      timelineId: prepared.timelineId,
+      axisBindingId: prepared.axisBindingId,
+      parentNodeId: prepared.parentNodeId,
+      parentRevision: prepared.parentRevision,
+      candidateNodeId: prepared.nodeId,
+      candidateRevision: prepared.nodeRevision,
       workingHash: prepared.workingHash,
       patterns: formatOperatorConfigApprovalPatterns(prepared),
       diff: { type: 'operator-config', requested: input, finalConfig: prepared.finalConfig, checkout: prepared.checkout },
@@ -1032,10 +1050,10 @@ export const operator_config_patch = {
       consequence: 'The approved child Work Node is committed and applied only if its checkout and revision still match this exact preview.',
       })
     } catch (error) {
-      await callDefTool('def.operator.config.discard_prepared', prepared)
+      await callDefTool('def.operator.config.discard_prepared', prepared, context)
       throw error
     }
-    const result = await callDefTool('def.operator.config.apply_prepared', { ...prepared, input })
+    const result = await callDefTool('def.operator.config.apply_prepared', { ...prepared, input }, context)
     return {
       title: 'DEF operator configuration applied',
       output: JSON.stringify(result, null, 2),

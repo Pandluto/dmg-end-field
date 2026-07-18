@@ -310,6 +310,10 @@ export interface MainWorkbenchSnapshot {
   schemaVersion: 1;
   updatedAt: number;
   source: 'app' | 'rest';
+  /** Immutable identity of the SQLite workspace that produced this projection. */
+  timelineId?: string;
+  /** Active Workbench identity; kept separate so the bridge can reject drift. */
+  activeTimelineId?: string;
   currentView?: 'selection' | 'canvas';
   selectedCharacters: Array<Pick<Character, 'id' | 'name' | 'element' | 'profession' | 'librarySource'>>;
   skillButtons: Array<{

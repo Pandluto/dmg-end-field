@@ -997,8 +997,10 @@ function buildDefAllBuffListFromMirror(buttons = []) {
   return [...buffMap.values()];
 }
 
-function readDefMainWorkbenchMirrorPayload() {
+function readDefMainWorkbenchMirrorPayload(expectedTimelineId = '') {
   const snapshot = readMainWorkbenchSnapshotMirror();
+  const timelineId = typeof snapshot?.timelineId === 'string' ? snapshot.timelineId.trim() : '';
+  if (!timelineId || (expectedTimelineId && timelineId !== expectedTimelineId)) return null;
   const selectedCharacters = Array.isArray(snapshot?.selectedCharacters) ? snapshot.selectedCharacters : [];
   if (selectedCharacters.length === 0) return null;
 
@@ -1052,13 +1054,18 @@ function readDefMainWorkbenchMirrorPayload() {
     payload,
     source: 'main-workbench-snapshot-mirror',
     sourceId: 'current-mirror',
+    timelineId,
     sourceUpdatedAt: snapshot?.updatedAt || null,
   };
 }
 
-function readDefCurrentTimelinePayloadSource() {
-  const payloadFromMirror = readDefMainWorkbenchMirrorPayload();
+function readDefCurrentTimelinePayloadSource(expectedTimelineId = '') {
+  const payloadFromMirror = readDefMainWorkbenchMirrorPayload(expectedTimelineId);
   if (payloadFromMirror) return payloadFromMirror;
+
+  // Legacy storage and "latest node" values have no authoritative workspace
+  // identity. They are intentionally unavailable to a bound DEF session.
+  if (expectedTimelineId) return null;
 
   const characterInputRaw = readMainWorkbenchSessionJson('def.operator-config.character-input-map.v3', {});
   const characterComputedRaw = readMainWorkbenchSessionJson('def.operator-runtime.character-computed-map.v3', {});
@@ -1110,13 +1117,36 @@ function createDefWorkNodeFromPayload(payloadSource, input = {}) {
     : typeof input.saveId === 'string' && input.saveId.trim()
       ? sanitizeWorkNodeId(input.saveId, 'timeline')
     : 'current-main-workbench';
+  if (payloadSource.timelineId && payloadSource.timelineId !== timelineId) {
+    return { ok: false, code: 'blocked-session-mismatch', message: 'Current Workbench projection does not belong to this session workspace.' };
+  }
+  // Calls made by a native Workbench session must fork exactly from the
+  // checkout which the canonical gate authenticated.  Do not let a payload
+  // caller smuggle a different parent into this otherwise same-timeline fork.
+  const gate = input.__defCurrentGate;
+  if (gate) {
+    if (gate.binding?.timelineId !== timelineId || gate.checkout?.targetType !== 'work-node' || !gate.checkoutNodeId) {
+      return { ok: false, code: 'checkout-unavailable', message: 'Creating a Work Node requires the authenticated current Work Node checkout.' };
+    }
+    if (Object.prototype.hasOwnProperty.call(input, 'parentNodeId')
+      && String(input.parentNodeId || '').trim() !== gate.checkoutNodeId) {
+      return { ok: false, code: 'blocked-session-mismatch', message: 'A Work Node fork must use the authenticated current checkout as its parent.' };
+    }
+    const authenticatedParent = getTimelineRepository().getWorkNode(gate.checkoutNodeId);
+    if (!authenticatedParent || authenticatedParent.timelineId !== timelineId
+      || Number(authenticatedParent.contentRevision || authenticatedParent.updatedAt) !== Number(gate.checkoutRevision)) {
+      return { ok: false, code: 'checkout-changed', message: 'The current checkout revision changed before this Work Node fork was created.' };
+    }
+  }
   const saveId = timelineId;
   const hasParentNodeInput = Object.prototype.hasOwnProperty.call(input, 'parentNodeId');
   const requestedParentNodeId = typeof input.parentNodeId === 'string' && input.parentNodeId.trim()
     ? sanitizeWorkNodeId(input.parentNodeId, 'ai-timeline-node')
     : undefined;
   const checkoutRef = getTimelineRepository().getCheckoutRef(timelineId);
-  const parentNodeId = hasParentNodeInput
+  const parentNodeId = gate?.checkoutNodeId
+    ? gate.checkoutNodeId
+    : hasParentNodeInput
     ? requestedParentNodeId
     : checkoutRef?.targetType === 'work-node' ? checkoutRef.targetId : undefined;
   const node = {
@@ -1158,29 +1188,18 @@ function createDefWorkNodeFromPayload(payloadSource, input = {}) {
 }
 
 function readDefWorkbenchAxisContext(input = {}) {
+  if (input.__defCurrentGate?.axisContext) return input.__defCurrentGate.axisContext;
   const repository = getTimelineRepository();
   const bindingId = typeof input.sessionBindingId === 'string' ? input.sessionBindingId.trim() : '';
   if (bindingId) {
     const context = repository.getSessionAxisContext(bindingId);
     if (context) return context;
   }
-  const timelineId = typeof input.timelineId === 'string' && input.timelineId.trim()
-    ? input.timelineId.trim()
-    : '';
-  if (!timelineId) return null;
-  const document = repository.getDocument(timelineId);
-  if (!document) return null;
-  const checkout = repository.getCheckoutRef(timelineId);
-  const nodes = repository.listWorkNodes(timelineId).map((node) => ({
-    id: node.id,
-    parentNodeId: node.parentNodeId || null,
-    branchId: node.branchId,
-    label: node.label,
-    description: node.description || '',
-    status: node.status,
-    updatedAt: node.updatedAt,
-  }));
-  return { binding: null, document, checkout, nodes };
+  // A timeline id supplied by a caller is not an axis identity.  Returning a
+  // context for it here used to make no-binding and cross-workspace callers
+  // appear legitimate.  The canonical gate is the only source of a current
+  // Workbench context; a direct binding lookup remains for bootstrap output.
+  return null;
 }
 
 function workbenchBindingFailure(code, message, status = 409) {
@@ -1211,6 +1230,51 @@ function resolveBoundWorkbenchSession(input = {}, { nodeId = '', allowMissingNod
     return { ok: true, binding, document };
   }
   return { ok: true, binding, document };
+}
+
+/**
+ * The one authoritative bridge from the active Workbench projection to a
+ * native DEF session.  Do not replace this with per-tool SQLite reads: the UI
+ * projection is valid only when it proves it belongs to the same formal
+ * workspace as the immutable session binding.
+ */
+function resolveCanonicalWorkbenchCurrent(input = {}, { nodeId = '' } = {}) {
+  const session = resolveBoundWorkbenchSession(input, { nodeId });
+  if (!session.ok) return session;
+  const snapshot = readMainWorkbenchSnapshotMirror();
+  const activeTimelineId = typeof snapshot?.activeTimelineId === 'string' ? snapshot.activeTimelineId.trim() : '';
+  const projectionTimelineId = typeof snapshot?.timelineId === 'string' ? snapshot.timelineId.trim() : '';
+  if (!activeTimelineId || !projectionTimelineId
+    || activeTimelineId !== projectionTimelineId
+    || activeTimelineId !== session.binding.timelineId) {
+    return workbenchBindingFailure('blocked-session-mismatch', 'The current Workbench projection does not match this DEF session binding.');
+  }
+  const axisContext = getTimelineRepository().getSessionAxisContext(session.binding.id);
+  const checkout = axisContext?.checkout || null;
+  if (!axisContext?.binding || axisContext.binding.timelineId !== session.binding.timelineId
+    || !axisContext.document || axisContext.document.isTemporary || axisContext.document.archivedAt
+    || (checkout && checkout.timelineId !== session.binding.timelineId)) {
+    return workbenchBindingFailure('blocked-binding-stale', 'The bound Workbench workspace is no longer available.');
+  }
+  if (checkout?.targetType === 'work-node') {
+    const checkoutNode = getTimelineRepository().getWorkNode(checkout.targetId);
+    if (!checkoutNode || checkoutNode.timelineId !== session.binding.timelineId) {
+      return workbenchBindingFailure('blocked-session-mismatch', 'The current checkout is outside this DEF session workspace.');
+    }
+  }
+  return {
+    ok: true,
+    ...session,
+    snapshot,
+    activeTimelineId,
+    projectionTimelineId,
+    axisContext,
+    checkout,
+    checkoutNodeId: checkout?.targetType === 'work-node' ? checkout.targetId : null,
+    checkoutRevision: checkout?.targetType === 'work-node'
+      ? Number(getTimelineRepository().getWorkNode(checkout.targetId)?.contentRevision || 0) || null
+      : null,
+  };
 }
 
 function normalizeWorkNodeDescription(value) {
@@ -2577,7 +2641,8 @@ function defSelectedTeamLoadoutFromSnapshot(snapshot, input = {}) {
       })) : [],
     };
   });
-  const axis = readDefWorkbenchAxisContext();
+  const gate = input.__defCurrentGate;
+  const axis = gate?.axisContext || null;
   const checkout = axis?.checkout || null;
   // The UI checkout timestamp identifies the selected target, but it is not
   // the optimistic-concurrency revision used by prepared operator-config
@@ -2598,7 +2663,7 @@ function defSelectedTeamLoadoutFromSnapshot(snapshot, input = {}) {
     },
     snapshotUpdatedAt: snapshot?.updatedAt || null,
     checkout: {
-      timelineId: checkout?.timelineId || axis?.document?.id || 'current-main-workbench',
+      timelineId: gate?.binding?.timelineId || '',
       targetType: checkout?.targetType || null,
       targetId: checkout?.targetId || null,
       revision: Number.isFinite(checkoutRevision) ? checkoutRevision : null,
@@ -2612,7 +2677,7 @@ function defSelectedTeamLoadoutFromSnapshot(snapshot, input = {}) {
 }
 
 function readDefSelectedTeamLoadouts(input = {}) {
-  const snapshot = readMainWorkbenchSnapshotMirror();
+  const snapshot = input.__defCurrentGate?.snapshot || readMainWorkbenchSnapshotMirror();
   if (!snapshot || typeof snapshot !== 'object') return null;
   return defSelectedTeamLoadoutFromSnapshot(snapshot, input);
 }
@@ -2643,7 +2708,7 @@ function compactDefLoadoutCandidateGearSet(gearSet = {}) {
 }
 
 function readDefLoadoutCandidates(input = {}) {
-  const snapshot = readMainWorkbenchSnapshotMirror();
+  const snapshot = input.__defCurrentGate?.snapshot || readMainWorkbenchSnapshotMirror();
   if (!snapshot || typeof snapshot !== 'object') return null;
   const team = defSelectedTeamLoadoutFromSnapshot(snapshot, input);
   const include = Array.isArray(input.include) && input.include.length
@@ -3118,8 +3183,8 @@ function computeDefPlanDerivedCharge(products, weapon, library) {
   return { base: 100, equipment: Number(equipment.toFixed(2)), weapon: Number(weaponCharge.toFixed(2)), setBonus: Number(setBonus.toFixed(2)), total: Number((100 + equipment + weaponCharge + setBonus).toFixed(2)), unit: 'percent' };
 }
 
-function defPlanCheckoutMatches(checkout) {
-  const current = readDefWorkbenchAxisContext()?.checkout || null;
+function defPlanCheckoutMatches(checkout, gate) {
+  const current = gate?.axisContext?.checkout || null;
   const currentNode = current?.targetType === 'work-node' && current?.targetId
     ? readRepositoryWorkNode(current.targetId)
     : null;
@@ -3132,14 +3197,16 @@ function defPlanCheckoutMatches(checkout) {
 }
 
 function buildDefGuideTeamLoadoutPlan(input = {}, options = {}) {
+  const gate = input.__defCurrentGate || resolveCanonicalWorkbenchCurrent(input);
+  if (!gate.ok) return { ok: false, code: gate.code, component: 'team-loadout-plan', state: 'BLOCKED', message: gate.message };
   const sessionId = typeof input.__defSessionId === 'string' ? input.__defSessionId.trim() : '';
   pruneDefTeamLoadoutPlans();
   const source = guideLoadoutPlanSources.get(sessionId);
   if (!source) return { ok: false, code: 'guide-plan-source-unavailable', component: 'team-loadout-plan', state: 'BLOCKED', nextAction: 'Read the named guide section in this same native session before preparing a plan.' };
   const companion = readDefGuideLoadoutManifest(source);
   if (!companion) return { ok: false, code: 'guide-plan-manifest-unavailable', component: 'team-loadout-plan', state: 'BLOCKED', nextAction: 'This allowlisted guide has no content-hash-verified structured loadout companion; no generic plan is inferred.' };
-  const snapshot = readMainWorkbenchSnapshotMirror();
-  const team = snapshot ? defSelectedTeamLoadoutFromSnapshot(snapshot) : null;
+  const snapshot = gate.snapshot;
+  const team = snapshot ? defSelectedTeamLoadoutFromSnapshot(snapshot, { ...input, __defCurrentGate: gate }) : null;
   if (!team?.checkout?.targetId || !team.checkout?.revision) return { ok: false, code: 'team-loadout-checkout-unavailable', component: 'team-loadout-plan', state: 'BLOCKED', nextAction: 'Open a revisioned Work Node checkout and rebuild the plan.' };
   const library = readDefEquipmentLibrary();
   const weaponLibrary = readMainWorkbenchJson(WEAPON_LIBRARY_STORAGE_KEY, {});
@@ -3204,20 +3271,26 @@ function buildDefGuideTeamLoadoutPlan(input = {}, options = {}) {
   });
   const decisions = companion.manifest.operators.flatMap((target) => (target.decisions || []).map((decision) => ({ ...decision, characterName: target.characterName, status: confirmed.has(decision.decisionId) ? 'confirmed' : 'open', confirmedOptionId: confirmedChoices.get(decision.decisionId) || null })));
   const confirmedDecisions = decisions.filter((decision) => decision.status === 'confirmed').map((decision) => ({ decisionId: decision.decisionId, optionId: decision.confirmedOptionId, message: decision.message, optionLabel: decision.options.find((option) => option.optionId === decision.confirmedOptionId)?.label || '' }));
-  const body = { protocolVersion: 1, contract: 'DefTeamLoadoutPlanV1', sessionId, sourceReferenceId: source.referenceId, sourceSectionId: source.sectionId, sourceContentHash: source.sourceContentHash, companionManifest: companion.manifestPath, checkout: team.checkout, team: { selectedCount: team.selectedCount, snapshotUpdatedAt: team.snapshotUpdatedAt }, operators, decisions, confirmedDecisionIds: [...confirmed].sort(), confirmedDecisions, unresolved };
+  const body = { protocolVersion: 1, contract: 'DefTeamLoadoutPlanV1', sessionId, timelineId: gate.binding.timelineId, axisBindingId: gate.binding.id, sourceReferenceId: source.referenceId, sourceSectionId: source.sectionId, sourceContentHash: source.sourceContentHash, companionManifest: companion.manifestPath, checkout: team.checkout, team: { selectedCount: team.selectedCount, snapshotUpdatedAt: team.snapshotUpdatedAt }, operators, decisions, confirmedDecisionIds: [...confirmed].sort(), confirmedDecisions, unresolved };
   const planHash = hashDefLoadoutPlan(body);
   const plan = { ok: true, ...body, planId: `team-loadout-${planHash.slice(0, 16)}`, planHash, state: unresolved.length ? 'REQUIRES_CONFIRMATION' : 'READY', immutable: true, expiresAt: Date.now() + PREPARED_TEAM_LOADOUT_TTL_MS, nextAction: unresolved.length ? 'Use only the returned decisionId and optionId to confirm an explicit deviation; a new immutable plan will then be built.' : 'Request one native approval for this exact team diff.' };
-  preparedTeamLoadoutPlans.set(planHash, { ...plan, ownerSessionId: sessionId, checkoutBinding: team.checkout, expiresAt: plan.expiresAt, usedAt: null, usedResult: null });
+  preparedTeamLoadoutPlans.set(planHash, { ...plan, ownerSessionId: sessionId, checkoutBinding: team.checkout, timelineId: gate.binding.timelineId, axisBindingId: gate.binding.id, expiresAt: plan.expiresAt, usedAt: null, usedResult: null });
   return plan;
 }
 
 function reviseDefTeamLoadoutPlan(input = {}) {
+  const gate = input.__defCurrentGate || resolveCanonicalWorkbenchCurrent(input);
+  if (!gate.ok) return { ok: false, code: gate.code, state: 'BLOCKED', component: 'team-loadout-plan', message: gate.message };
   const sessionId = typeof input.__defSessionId === 'string' ? input.__defSessionId.trim() : '';
   const planHash = typeof input.planHash === 'string' ? input.planHash.trim() : '';
   pruneDefTeamLoadoutPlans();
   const original = preparedTeamLoadoutPlans.get(planHash);
   if (!original) return { ok: false, code: 'team-loadout-plan-not-found', state: 'BLOCKED', component: 'team-loadout-plan', message: 'The plan is unavailable, expired, or belongs to a previous sidecar lifetime.' };
   if (original.ownerSessionId !== sessionId) return { ok: false, code: 'team-loadout-plan-session-mismatch', state: 'BLOCKED', component: 'team-loadout-plan', message: 'A plan may be revised only by the native session that prepared it.' };
+  if (original.timelineId !== gate.binding.timelineId || original.axisBindingId !== gate.binding.id
+    || !defPlanCheckoutMatches(original.checkoutBinding, gate)) {
+    return { ok: false, code: 'team-loadout-checkout-changed', state: 'BLOCKED', component: 'team-loadout-plan', message: 'The workspace or checkout changed after planning; create a new plan.' };
+  }
   const source = guideLoadoutPlanSources.get(sessionId);
   if (!source
     || source.referenceId !== original.sourceReferenceId
@@ -3237,6 +3310,8 @@ function reviseDefTeamLoadoutPlan(input = {}) {
 }
 
 function prepareDefTeamLoadoutPlanApply(input = {}) {
+  const gate = input.__defCurrentGate || resolveCanonicalWorkbenchCurrent(input);
+  if (!gate.ok) return { ok: false, code: gate.code, state: 'BLOCKED', component: 'team-loadout-plan', message: gate.message };
   const sessionId = typeof input.__defSessionId === 'string' ? input.__defSessionId.trim() : '';
   const planHash = typeof input.planHash === 'string' ? input.planHash.trim() : '';
   pruneDefTeamLoadoutPlans();
@@ -3244,7 +3319,8 @@ function prepareDefTeamLoadoutPlanApply(input = {}) {
   if (!plan) return { ok: false, code: 'team-loadout-plan-not-found', state: 'BLOCKED', component: 'team-loadout-plan', message: 'Plan hash is unavailable, expired, or belongs to another sidecar lifetime.' };
   if (plan.ownerSessionId !== sessionId) return { ok: false, code: 'team-loadout-plan-session-mismatch', state: 'BLOCKED', component: 'team-loadout-plan', message: 'A plan may be applied only by the native session that prepared it.' };
   if (plan.usedResult) return { ...plan.usedResult, idempotent: true };
-  if (!defPlanCheckoutMatches(plan.checkoutBinding)) return { ok: false, code: 'team-loadout-checkout-changed', state: 'BLOCKED', component: 'team-loadout-plan', message: 'Checkout target or revision changed after planning; no apply was started.' };
+  if (plan.timelineId !== gate.binding.timelineId || plan.axisBindingId !== gate.binding.id
+    || !defPlanCheckoutMatches(plan.checkoutBinding, gate)) return { ok: false, code: 'team-loadout-checkout-changed', state: 'BLOCKED', component: 'team-loadout-plan', message: 'Checkout target, revision, or workspace changed after planning; no apply was started.' };
   if (plan.state !== 'READY') return { ...plan, ok: true, approvalPatterns: [], nextAction: plan.nextAction };
   if (!plan.usedAt && Number(plan.approvalExpiresAt) <= Date.now()) {
     plan.approvalReservedAt = Date.now();
@@ -3278,9 +3354,9 @@ async function applyDefTeamLoadoutPlan(input = {}) {
   const results = [];
   let outcome;
   for (const patch of patches) {
-    const preview = await executeDefOperatorConfigPrepare({ ...patch, __defSessionId: prepared.sessionId, teamPlanHash: prepared.planHash });
+    const preview = await executeDefOperatorConfigPrepare({ ...patch, ...input, __defSessionId: prepared.sessionId, teamPlanHash: prepared.planHash });
     if (!preview.ok) { outcome = { ok: false, state: results.length ? 'PARTIAL' : 'BLOCKED', code: preview.code, planId: prepared.planId, planHash: prepared.planHash, results, nextAction: 'Serial application stopped before another operator; completed results are explicit and no retry is attempted.' }; break; }
-    const applied = await executeDefOperatorConfigApplyPrepared({ ...preview, input: patch, __defSessionId: prepared.sessionId, teamPlanHash: prepared.planHash });
+    const applied = await executeDefOperatorConfigApplyPrepared({ ...preview, ...input, input: patch, __defSessionId: prepared.sessionId, teamPlanHash: prepared.planHash });
     results.push(applied);
     if (!applied.ok) { outcome = { ok: false, state: 'PARTIAL', code: applied.code, planId: prepared.planId, planHash: prepared.planHash, results, nextAction: 'Serial application stopped at the first failure; do not describe this plan as APPLIED.' }; break; }
   }
@@ -4035,7 +4111,17 @@ function applyDefWorkNodePatchAndValidate(input = {}) {
   const dryRun = input.dryRun === true;
   let created = null;
   if (!nodeId) {
-    const createResult = createDefWorkNodeFromPayload(readDefCurrentTimelinePayloadSource(), input);
+    const gate = input.__defCurrentGate || resolveCanonicalWorkbenchCurrent(input);
+    if (!gate.ok) {
+      return {
+        ok: false, code: gate.code, message: gate.message, checkout: false,
+        currentCheckoutTouched: false, completedSteps: ['canonical-current-gate-failed'],
+      };
+    }
+    const createResult = createDefWorkNodeFromPayload(
+      readDefCurrentTimelinePayloadSource(gate.binding.timelineId),
+      { ...input, timelineId: gate.binding.timelineId, __defCurrentGate: gate },
+    );
     if (!createResult.ok) {
       return {
         ...createResult,
@@ -5104,8 +5190,12 @@ function verifyDefOperatorConfigPostconditions(snapshot, expectedTargets) {
   return verifyDefOperatorConfigTargets(configs, expectedTargets);
 }
 
-function verifyDefOperatorConfigCheckoutPostconditions(expectedTargets) {
-  const axis = readDefWorkbenchAxisContext();
+function verifyDefOperatorConfigCheckoutPostconditions(expectedTargets, input = {}) {
+  const gate = input.__defCurrentGate || resolveCanonicalWorkbenchCurrent(input);
+  if (!gate.ok) {
+    return { pass: false, code: gate.code, checkout: null, verification: { pass: false, results: [] } };
+  }
+  const axis = gate.axisContext;
   const checkout = axis?.checkout || null;
   if (checkout?.targetType !== 'work-node' || !checkout.targetId) {
     return {
@@ -5116,7 +5206,7 @@ function verifyDefOperatorConfigCheckoutPostconditions(expectedTargets) {
     };
   }
   const node = readRepositoryWorkNode(checkout.targetId);
-  if (!node?.workingPayload) {
+  if (!node?.workingPayload || node.timelineId !== gate.binding.timelineId) {
     return {
       pass: false,
       code: 'operator-config-checkout-unavailable',
@@ -5227,7 +5317,7 @@ async function executeDefOperatorConfigPatchAndVerify(definition, input = {}) {
       snapshotUpdatedAt: snapshot?.updatedAt || null,
     };
   }
-  const checkoutPersistence = verifyDefOperatorConfigCheckoutPostconditions(expectedTargets);
+  const checkoutPersistence = verifyDefOperatorConfigCheckoutPostconditions(expectedTargets, input);
   if (!checkoutPersistence.pass) {
     return {
       ok: false,
@@ -5328,6 +5418,8 @@ async function waitForExactDefOperatorConfig(finalConfig, waitMs) {
 }
 
 async function executeDefOperatorConfigPrepare(input = {}) {
+  const gate = resolveCanonicalWorkbenchCurrent(input);
+  if (!gate.ok) return { ok: false, code: gate.code, component: 'operator-config', retryable: false, nextAction: gate.message };
   const planned = buildDefOperatorConfigPreviewCommand(input);
   if (!planned.ok) return planned;
   const definition = getDefToolDefinition('def.operator.config.patch');
@@ -5343,8 +5435,8 @@ async function executeDefOperatorConfigPrepare(input = {}) {
   const parentNodeId = typeof preview.parentNodeId === 'string' ? preview.parentNodeId : '';
   const parentRevision = Number(preview.parentRevision);
   const parent = readRepositoryWorkNode(parentNodeId);
-  const checkout = readDefWorkbenchAxisContext()?.checkout || null;
-  if (!parent || checkout?.targetType !== 'work-node' || checkout.targetId !== parentNodeId || Number(parent.contentRevision || parent.updatedAt) !== parentRevision) {
+  const checkout = gate.checkout;
+  if (!parent || parent.timelineId !== gate.binding.timelineId || checkout?.targetType !== 'work-node' || checkout.targetId !== parentNodeId || Number(parent.contentRevision || parent.updatedAt) !== parentRevision) {
     return { ok: false, code: 'checkout-changed', component: 'operator-config', retryable: true, nextAction: 'The checkout changed during preview. Re-read it and request a new approval.', currentCheckoutTouched: false };
   }
   const created = handleAiTimelineWorkNodeRequest('POST', '/api/ai-timeline-worknodes/create', {
@@ -5371,6 +5463,8 @@ async function executeDefOperatorConfigPrepare(input = {}) {
     parentRevision,
     workingHash,
     sessionId: typeof input.__defSessionId === 'string' ? input.__defSessionId.trim() : '',
+    timelineId: gate.binding.timelineId,
+    axisBindingId: gate.binding.id,
     consumed: false,
     expiresAt: Date.now() + PREPARED_OPERATOR_CONFIG_TTL_MS,
   });
@@ -5383,6 +5477,8 @@ async function executeDefOperatorConfigPrepare(input = {}) {
     workingHash,
     parentNodeId,
     parentRevision,
+    timelineId: gate.binding.timelineId,
+    axisBindingId: gate.binding.id,
     checkout: { nodeId: parentNodeId, revision: parentRevision },
     finalConfig: preview.finalConfig,
     diff: diffTimelinePayloadsForWorkNode(node.basePayload, node.workingPayload),
@@ -5410,10 +5506,14 @@ async function executeDefOperatorConfigApplyPrepared(input = {}) {
   if (capability.consumed) {
     return { ok: false, code: 'prepared-capability-consumed', component: 'operator-config', retryable: false, nextAction: 'This prepared child has already begun an apply attempt; do not issue a second mutation.' };
   }
+  const gate = resolveCanonicalWorkbenchCurrent(input);
+  if (!gate.ok || capability.timelineId !== gate.binding.timelineId || capability.axisBindingId !== gate.binding.id) {
+    return { ok: false, code: gate.code || 'prepared-capability-session-mismatch', component: 'operator-config', retryable: false, nextAction: 'The current Workbench workspace changed after approval; no mutation was executed.' };
+  }
   const node = readRepositoryWorkNode(nodeId);
   const parent = readRepositoryWorkNode(parentNodeId);
-  const checkout = readDefWorkbenchAxisContext()?.checkout || null;
-  if (!node || !parent || checkout?.targetType !== 'work-node' || checkout.targetId !== parentNodeId
+  const checkout = gate.checkout;
+  if (!node || !parent || node.timelineId !== gate.binding.timelineId || parent.timelineId !== gate.binding.timelineId || checkout?.targetType !== 'work-node' || checkout.targetId !== parentNodeId
     || Number(parent.contentRevision || parent.updatedAt) !== parentRevision
     || Number(node.contentRevision || node.updatedAt) !== nodeRevision
     || hashDefNodeValue(node.workingPayload) !== capability.workingHash) {
@@ -5498,14 +5598,18 @@ function discardDefPreparedOperatorConfig(input = {}) {
   if (capability.sessionId && capability.sessionId !== sessionId) {
     return { ok: false, code: 'prepared-capability-session-mismatch', component: 'operator-config', retryable: false, nextAction: 'This prepared child belongs to a different native session.' };
   }
+  const gate = resolveCanonicalWorkbenchCurrent(input);
+  if (!gate.ok || capability.timelineId !== gate.binding.timelineId || capability.axisBindingId !== gate.binding.id) {
+    return { ok: false, code: gate.code || 'prepared-capability-session-mismatch', component: 'operator-config', retryable: false, nextAction: 'The current Workbench workspace changed; no prepared node was deleted.' };
+  }
   const node = readRepositoryWorkNode(nodeId);
   const parent = readRepositoryWorkNode(parentNodeId);
-  const checkout = readDefWorkbenchAxisContext()?.checkout || null;
+  const checkout = gate.checkout;
   const latestCommit = node ? getTimelineRepository().getLatestWorkNodeCommit(node.id) : null;
   const hasPreparedChild = node
     ? listRepositoryWorkNodes().some((candidate) => candidate.parentNodeId === node.id)
     : false;
-  if (!node || !parent || checkout?.targetType !== 'work-node' || checkout.targetId !== parentNodeId
+  if (!node || !parent || node.timelineId !== gate.binding.timelineId || parent.timelineId !== gate.binding.timelineId || checkout?.targetType !== 'work-node' || checkout.targetId !== parentNodeId
     || node.parentNodeId !== parentNodeId || node.status !== 'open' || node.approvalPolicy !== 'manual'
     || Number(node.contentRevision || node.updatedAt) !== nodeRevision
     || Number(parent.contentRevision || parent.updatedAt) !== parentRevision
@@ -6129,11 +6233,11 @@ async function executeDefTool(name, input = {}, query = new URLSearchParams()) {
   }
   if (name.startsWith('def.worknode.')) {
     const nodeId = typeof input.nodeId === 'string' ? input.nodeId.trim() : '';
-    const session = resolveBoundWorkbenchSession(input, { nodeId });
+    const session = resolveCanonicalWorkbenchCurrent(input, { nodeId });
     if (!session.ok) return failScript(session.status, session.code, session.message, { state: session.state });
     // The native session binding is the only timeline authority.  Compatibility
     // callers may omit timelineId, but they may never choose a replacement.
-    input = { ...input, timelineId: session.binding.timelineId };
+    input = { ...input, timelineId: session.binding.timelineId, __defCurrentGate: session };
   }
   if (name.startsWith('def.workbench.') && ![
     'def.workbench.bind_session_axis',
@@ -6141,14 +6245,23 @@ async function executeDefTool(name, input = {}, query = new URLSearchParams()) {
     'def.workbench.assert_session_axis',
     'def.workbench.assert_timeline_admission',
   ].includes(name)) {
-    const session = resolveBoundWorkbenchSession(input);
+    const session = resolveCanonicalWorkbenchCurrent(input);
     if (!session.ok) return failScript(session.status, session.code, session.message, { state: session.state });
-    input = { ...input, timelineId: session.binding.timelineId };
+    input = { ...input, timelineId: session.binding.timelineId, __defCurrentGate: session };
+  }
+  if ([
+    'def.team.loadouts.read', 'def.loadout.candidates.read', 'def.operator.config.read',
+    'def.operator.config.patch', 'def.operator.config.prepare', 'def.operator.config.apply_prepared', 'def.operator.config.discard_prepared',
+    'def.team.loadout.plan.prepare', 'def.team.loadout.plan.revise', 'def.team.loadout.plan.apply.prepare', 'def.team.loadout.plan.apply',
+  ].includes(name)) {
+    const session = resolveCanonicalWorkbenchCurrent(input);
+    if (!session.ok) return failScript(session.status, session.code, session.message, { state: session.state });
+    input = { ...input, timelineId: session.binding.timelineId, __defCurrentGate: session };
   }
   if (name === 'def.worknode.create_from_current') {
-    const session = resolveBoundWorkbenchSession(input);
+    const session = input.__defCurrentGate || resolveCanonicalWorkbenchCurrent(input);
     if (!session.ok) return failScript(session.status, session.code, session.message, { state: session.state });
-    const result = createDefWorkNodeFromPayload(readDefCurrentTimelinePayloadSource(), { ...input, timelineId: session.binding.timelineId });
+    const result = createDefWorkNodeFromPayload(readDefCurrentTimelinePayloadSource(session.binding.timelineId), { ...input, timelineId: session.binding.timelineId });
     return { status: result.ok ? 200 : 400, body: { ok: result.ok, protocolVersion: 1, tool: name, result } };
   }
   if (name === 'def.workbench.bind_session_axis') {
@@ -6182,7 +6295,7 @@ async function executeDefTool(name, input = {}, query = new URLSearchParams()) {
     return { status: 200, body: { ok: true, protocolVersion: 1, tool: name, result: { ok: true, ...result } } };
   }
   if (name === 'def.worknode.list') {
-    const session = resolveBoundWorkbenchSession(input);
+    const session = input.__defCurrentGate || resolveCanonicalWorkbenchCurrent(input);
     if (!session.ok) return failScript(session.status, session.code, session.message, { state: session.state });
     const limit = Math.max(1, Math.min(Number(input.limit || 50) || 50, 100));
     const nodes = listRepositoryWorkNodes()
@@ -6329,13 +6442,13 @@ async function executeDefTool(name, input = {}, query = new URLSearchParams()) {
     result = { tool: getDefToolDefinition(targetName) };
     if (!result.tool) return failScript(404, 'def-tool-not-found', `Unknown DEF tool: ${targetName}`);
   } else if (name === 'def.workbench.snapshot') {
-    const session = resolveBoundWorkbenchSession(input);
+    const session = input.__defCurrentGate || resolveCanonicalWorkbenchCurrent(input);
     if (!session.ok) return failScript(session.status, session.code, session.message, { state: session.state });
     const requestedBindingId = typeof input.sessionBindingId === 'string' ? input.sessionBindingId.trim() : '';
     if (!requestedBindingId || requestedBindingId !== session.binding.id) {
       return failScript(409, 'blocked-session-mismatch', 'The requested session-axis binding does not belong to this DEF session.');
     }
-    result = { snapshot, axisContext: readDefWorkbenchAxisContext({ sessionBindingId: session.binding.id }) };
+    result = { snapshot: session.snapshot, axisContext: session.axisContext };
   } else if (name === 'def.workbench.evidence') {
     result = buildMainWorkbenchEvidence(snapshot, {
       prompt: input.prompt || input.query || '',
