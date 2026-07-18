@@ -1,129 +1,44 @@
 # 这些概念在 DEF 里怎样落地
 
-DEF 没有重写一套 Agent。
+DEF 没有从空白页面重新实现一套 Agent。OpenCode 继续负责 Session、Agent Loop、工具协议和原生审批界面；项目补上终末地工作台所需的上下文、领域工具和产品状态边界。
 
-它沿用了 OpenCode 的：
+先认识后面会反复出现的几个项目名词：
 
-- Session；
-- Agent Loop；
-- 工具协议；
-- 原生审批界面。
+| 名称 | 在 DEF 里是什么 |
+| --- | --- |
+| Work Node | 一次修改使用的隔离草稿，先承载变化，不直接覆盖当前方案。 |
+| Checkout | 当前应用目标的引用，用来说明用户此刻站在哪个节点。 |
+| Sidecar | 把 OpenCode Runtime 接到 DEF 上下文和领域工具的适配层。 |
+| Postcondition | 操作完成后必须重新核对的产品结果。 |
 
-项目补充的是：
+## 读取：先回到产品事实
 
-- 产品上下文；
-- 领域工具；
-- 状态边界。
-
-几个项目词先放在这里：
-
-| 名称 | 含义 |
-|---|---|
-| Work Node | 一次修改使用的隔离草稿 |
-| Checkout | 指向当前应用目标的引用 |
-| Sidecar | OpenCode 与 DEF 的适配层 |
-| Postcondition | 执行后必须重新核对的条件 |
-
-## 读取产品事实
-
-Prompt 里的描述，
-不能代替当前产品状态。
-
-需要读取时间线或配置时，
-模型调用 DEF Typed Tool。
+模型不能把 Prompt 里的描述当成当前状态。需要查看时间线、角色或配装时，它调用 DEF Typed Tool；工具从本地领域接口读取真实数据，再把结构化结果送回 Session。
 
 ```text
-模型
-→ DEF Typed Tool
-→ 产品事实源
-→ Tool Result
-→ 模型
+模型 → DEF Typed Tool → 产品事实源 → Tool Result → 模型
 ```
 
-产品 Agent 没有任意 Shell。
+这条链路没有向产品 Agent 开放任意 Shell 和文件访问。模型看到的是工作台允许它读取的事实，不是整个电脑或项目目录。
 
-它也不能任意读取项目文件。
+## 修改：先在草稿里试
 
-模型只拿到产品允许的事实。
-
-## 修改先进入草稿
-
-修改不会直接写进界面。
-
-工具先生成预览，
-再写入 Work Node。
+写操作不会把模型参数直接塞进当前界面。Prepare 先在 Work Node 中形成可检查的变化，用户看到 Diff、风险和校验结果后，再通过 OpenCode 原生 Permission 决定是否批准。
 
 ```text
-Prepare
-→ Work Node
-→ Preview
-→ Approval
-→ Apply
-→ Postcondition
+Prepare → Work Node → Preview → Approval → Apply → Postcondition
 ```
 
-批准后，
-Apply 还会核对版本和目标。
+Apply 时还要核对 Session、节点版本和准备好的内容，避免用户批准 A，系统却因为状态变化执行了 B。接口返回以后，系统继续检查 Commit、Checkout 和真实界面；只有这些事实对得上，Agent 才能说“已经应用”。
 
-接口返回成功，
-不代表产品已经正确应用。
+Work Node、Checkout 这些名称属于 DEF，别的 Agent 产品未必照搬。真正值得带走的是两条原则：批准对象必须明确，接口成功不等于产品已经处在预期状态。
 
-需要同时检查：
+## 对话还要知道自己站在哪里
 
-- Work Node；
-- Commit；
-- 真实界面状态。
+普通聊天主要维护消息历史。DEF 还维护 Timeline、Work Node 和 Checkout；用户一旦切换节点，旧对话里关于“当前方案”的描述就可能过期。
 
-## Session 站在哪条时间线上
+因此 Session 会绑定明确的产品坐标。下一轮开始前，Adapter 刷新 Checkout 和选中节点；坐标改变时先重新绑定，再让模型继续。这解决的不是模型记忆，而是对话状态与产品状态是否仍指向同一份事实。
 
-普通聊天主要维护消息历史。
+Sidecar 负责创建和管理真正运行 Agent Loop 的 OpenCode Worker，把 DEF 上下文和工具接进去，却不复制另一套产品数据库。项目还保留外部观察协议，用真实用户语言发起 Turn，再从事件、工具记录和界面终态判断任务是否完成。
 
-DEF 还有 Timeline 和 Checkout。
-
-用户切换节点后，
-旧对话里的“当前状态”会过期。
-
-处理下一条消息前，
-系统刷新当前坐标。
-
-坐标变化时，
-Session 要先重新绑定。
-
-这是产品状态一致性问题。
-
-它不是模型记忆问题。
-
-## OpenCode 外面的适配层
-
-OpenCode Worker 负责运行：
-
-- Session；
-- Agent Loop。
-
-Sidecar 负责：
-
-- 管理 Worker；
-- 注入 DEF 上下文；
-- 接入领域工具。
-
-产品事实仍由 DEF 维护。
-
-Sidecar 不复制另一套事实源。
-
-外部观察入口会读取：
-
-- 事件；
-- 对话记录；
-- 问题；
-- 最终状态。
-
-黑盒测试只发送正常用户语言。
-
-工具记录和真实 UI，
-共同证明任务是否完成。
-
-运行中断后的处理见
-[状态、持久化与恢复](./06-state-persistence-recovery.md)。
-
-完整边界见
-[架构事实源](../../architecture/README.md)。
+顺着这条链继续往下，就会遇到最容易被忽略的部分：工具正在等审批时窗口关了，或 Apply 发出后响应丢了，系统究竟还能相信什么？下一页单独讲[运行中的状态、持久化与恢复](./06-state-persistence-recovery.md)。更精确的组件边界仍以[架构事实源](../../architecture/README.md)为准。

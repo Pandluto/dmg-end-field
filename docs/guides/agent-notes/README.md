@@ -1,30 +1,22 @@
 # Agent 开发随记
 
-这些笔记来自 DEF Agent 的开发过程。
+第一次给模型接上工具，很容易以为 Agent 已经做完了。等它真的开始读数据、改状态，问题才一个接一个出现：工具怎么描述，谁来批准修改，对话太长怎么办，程序中途退出又该从哪里继续。
 
-问题通常一个接一个出现：
+这组笔记沿着一次真实开发过程往下写。它不是术语大全，也不要求先懂 OpenCode；每一页只回答当前遇到的问题，再自然带出下一个概念。
 
-- 模型要调用工具；
-- 工具需要权限；
-- 对话变长，需要压缩；
-- 经验变多，需要 Skill。
+为了让前后说的是同一件事，文中会反复使用一个小任务：**读取当前配装，准备替换一名角色的武器，并说明最终是否真的换上。**
 
-第一次读，可以按目录顺序走。
+## 从哪里开始
 
-以后查概念，直接打开对应笔记。
+| 此刻遇到的问题 | 接着看 |
+| --- | --- |
+| 模型为什么回答得了问题，却不能自己完成操作 | [从聊天到 Agent](./00-chat-to-agent.md) |
+| 模型怎样准确调用程序里的能力 | [Tool Use：让模型碰到外部世界](./01-tool-use.md) |
+| 参数正确以后，谁来决定这次操作能不能做 | [Permission 与 Hook](./02-permission-and-hooks.md) |
+| 对话、知识与长期记忆应该放在哪里 | [上下文、Skill 与 Memory](./03-context-skill-memory.md) |
+| 任务变大以后，怎样规划和分工 | [Plan、Task 与 Subagent](./04-plan-task-subagent.md) |
+| 这些概念在当前项目里怎样连成一条链 | [这些概念在 DEF 里怎样落地](./05-def-and-opencode.md) |
+| 工具卡住、进程退出或响应丢失后怎么办 | [运行中的状态、持久化与恢复](./06-state-persistence-recovery.md) |
+| 哪些重复开发经验适合整理成 Skill | [开发者自己的 Skill](./07-developer-skill.md) |
 
-贯穿示例只有一个：
-
-> 读取当前配装，准备更换武器。
-
-1. [从聊天到 Agent](./00-chat-to-agent.md)
-2. [Tool Use：让模型碰到外部世界](./01-tool-use.md)
-3. [Permission 与 Hook](./02-permission-and-hooks.md)
-4. [上下文、Skill 与 Memory](./03-context-skill-memory.md)
-5. [Plan、Task 与 Subagent](./04-plan-task-subagent.md)
-6. [这些概念在 DEF 里怎样落地](./05-def-and-opencode.md)
-7. [运行中的状态、持久化与恢复](./06-state-persistence-recovery.md)
-8. [开发者自己的 Skill](./07-developer-skill.md)
-
-项目实现有变化时，
-以[架构事实源](../../architecture/README.md)为准。
+这里讲的是理解 Agent 所需的主干。项目实现继续变化时，以[架构事实源](../../architecture/README.md)为准。
