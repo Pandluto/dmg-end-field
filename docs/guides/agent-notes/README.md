@@ -20,3 +20,5 @@
 | 哪些重复开发经验适合整理成 Skill | [开发者自己的 Skill](./07-developer-skill.md) |
 
 这里讲的是理解 Agent 所需的主干。项目实现继续变化时，以[架构事实源](../../architecture/README.md)为准。
+
+如果想集中浏览并点击查看名词解释，可以使用[本地网页预览](./web/README.md)。

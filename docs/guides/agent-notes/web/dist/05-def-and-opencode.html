@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="color-scheme" content="light dark" />
+  <title>这些概念在 DEF 里怎样落地 · Agent 开发随记</title>
+  <link rel="stylesheet" href="styles.css" />
+  <script src="viewer.js" defer></script>
+</head>
+<body>
+  <div class="page-glow glow-one"></div>
+  <div class="page-glow glow-two"></div>
+  <button class="menu-button" aria-label="打开目录" onclick="document.body.classList.toggle('menu-open')">目录</button>
+  <header class="site-header">
+    <a class="brand" href="index.html">
+      <img src="app-icon.png" alt="终末地伤害工作台图标" />
+      <span>终末地伤害工作台</span>
+    </a>
+    <span class="header-section">AGENT NOTES / LOCAL PREVIEW</span>
+    <a class="header-link" href="https://github.com/Pandluto/dmg-end-field" target="_blank" rel="noreferrer">GitHub 源码 <span>↗</span></a>
+  </header>
+  <aside class="sidebar">
+    <div class="sidebar-head"><small><i></i> READING ROUTE</small><strong>Agent 开发随记</strong><p>从模型回答问题，一路读到工具、权限、状态和 Skill。</p></div>
+    <nav>
+  <a class="nav-item" href="README.html">
+    <span>◎</span>阅读入口
+  </a>
+  <a class="nav-item" href="00-chat-to-agent.html">
+    <span>01</span>从聊天到 Agent
+  </a>
+  <a class="nav-item" href="01-tool-use.html">
+    <span>02</span>Tool Use
+  </a>
+  <a class="nav-item" href="02-permission-and-hooks.html">
+    <span>03</span>Permission 与 Hook
+  </a>
+  <a class="nav-item" href="03-context-skill-memory.html">
+    <span>04</span>上下文、Skill 与 Memory
+  </a>
+  <a class="nav-item" href="04-plan-task-subagent.html">
+    <span>05</span>Plan、Task 与 Subagent
+  </a>
+  <a class="nav-item active" href="05-def-and-opencode.html">
+    <span>06</span>概念怎样落到 DEF
+  </a>
+  <a class="nav-item" href="06-state-persistence-recovery.html">
+    <span>07</span>状态、持久化与恢复
+  </a>
+  <a class="nav-item" href="07-developer-skill.html">
+    <span>08</span>开发者自己的 Skill
+  </a></nav>
+    <p class="sidebar-foot"><b>LOCAL PREVIEW</b><br />源文件仍为 Markdown</p>
+  </aside>
+  <main>
+    <div class="article-meta">
+      <div class="article-kicker"><span></span> 05-DEF-AND-OPENCODE / DEF AGENT RUNTIME</div>
+      <div class="glossary-hint"><b>?</b> 点击带点线的名词，可看简明解释</div>
+    </div>
+    <article class="markdown-body"><h1>这些概念在 DEF 里怎样落地</h1>
+<p>DEF 没有从空白页面重新实现一套 Agent。OpenCode 继续负责 Session、Agent Loop、工具协议和原生审批界面；项目补上终末地工作台所需的上下文、领域工具和产品状态边界。</p>
+<p>先认识后面会反复出现的几个项目名词：</p>
+<table>
+<thead>
+<tr>
+<th>名称</th>
+<th>在 DEF 里是什么</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Work Node</td>
+<td>一次修改使用的隔离草稿，先承载变化，不直接覆盖当前方案。</td>
+</tr>
+<tr>
+<td>Checkout</td>
+<td>当前应用目标的引用，用来说明用户此刻站在哪个节点。</td>
+</tr>
+<tr>
+<td>Sidecar</td>
+<td>把 OpenCode Runtime 接到 DEF 上下文和领域工具的适配层。</td>
+</tr>
+<tr>
+<td>Postcondition</td>
+<td>操作完成后必须重新核对的产品结果。</td>
+</tr>
+</tbody></table>
+<h2>读取：先回到产品事实</h2>
+<p>模型不能把 Prompt 里的描述当成当前状态。需要查看时间线、角色或配装时，它调用 DEF Typed Tool；工具从本地领域接口读取真实数据，再把结构化结果送回 Session。</p>
+<pre><code class="language-text">模型 → DEF Typed Tool → 产品事实源 → Tool Result → 模型
+</code></pre>
+<p>这条链路没有向产品 Agent 开放任意 Shell 和文件访问。模型看到的是工作台允许它读取的事实，不是整个电脑或项目目录。</p>
+<h2>修改：先在草稿里试</h2>
+<p>写操作不会把模型参数直接塞进当前界面。Prepare 先在 Work Node 中形成可检查的变化，用户看到 Diff、风险和校验结果后，再通过 OpenCode 原生 Permission 决定是否批准。</p>
+<pre><code class="language-text">Prepare → Work Node → Preview → Approval → Apply → Postcondition
+</code></pre>
+<p>Apply 时还要核对 Session、节点版本和准备好的内容，避免用户批准 A，系统却因为状态变化执行了 B。接口返回以后，系统继续检查 Commit、Checkout 和真实界面；只有这些事实对得上，Agent 才能说“已经应用”。</p>
+<p>Work Node、Checkout 这些名称属于 DEF，别的 Agent 产品未必照搬。真正值得带走的是两条原则：批准对象必须明确，接口成功不等于产品已经处在预期状态。</p>
+<h2>对话还要知道自己站在哪里</h2>
+<p>普通聊天主要维护消息历史。DEF 还维护 Timeline、Work Node 和 Checkout；用户一旦切换节点，旧对话里关于“当前方案”的描述就可能过期。</p>
+<p>因此 Session 会绑定明确的产品坐标。下一轮开始前，Adapter 刷新 Checkout 和选中节点；坐标改变时先重新绑定，再让模型继续。这解决的不是模型记忆，而是对话状态与产品状态是否仍指向同一份事实。</p>
+<p>Sidecar 负责创建和管理真正运行 Agent Loop 的 OpenCode Worker，把 DEF 上下文和工具接进去，却不复制另一套产品数据库。项目还保留外部观察协议，用真实用户语言发起 Turn，再从事件、工具记录和界面终态判断任务是否完成。</p>
+<p>顺着这条链继续往下，就会遇到最容易被忽略的部分：工具正在等审批时窗口关了，或 Apply 发出后响应丢了，系统究竟还能相信什么？下一页单独讲<a href="06-state-persistence-recovery.html">运行中的状态、持久化与恢复</a>。更精确的组件边界仍以<a href="https://github.com/Pandluto/dmg-end-field/blob/main/docs/architecture/README.md" target="_blank" rel="noreferrer">架构事实源</a>为准。</p>
+</article>
+    <footer><span>终末地伤害工作台</span><span>LOCAL · TRACEABLE · ASSISTED</span></footer>
+  </main>
+</body>
+</html>

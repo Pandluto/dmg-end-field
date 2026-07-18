@@ -1,0 +1,10 @@
+{
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "bun run generate.mjs"
+  },
+  "dependencies": {
+    "marked": "17.0.1"
+  }
+}
