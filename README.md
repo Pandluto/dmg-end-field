@@ -35,6 +35,7 @@
 | 想了解什么 | 从这里开始 |
 | --- | --- |
 | 想先看真实会话、排轴、报告与 AI 架构的完整展示 | [项目展示页](https://pandluto.github.io/dmg-end-field/) |
+| 想从真实开发过程理解 Agent、工具、状态和恢复 | [Agent 开发手记](https://pandluto.github.io/dmg-end-field/agent-notes/) |
 | 它如何把桌面界面、本地数据与 AI 协作接在一起 | [架构总览](docs/architecture/overview.md) |
 | 如何安装依赖、启动开发环境和打包 | [开发与启动](docs/guides/development.md) |
 | 核心技术为什么是这些，而不是一串泛泛的框架名 | [技术栈与技术选择](docs/technology-stack.md) |

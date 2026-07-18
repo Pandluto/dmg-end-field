@@ -48,13 +48,13 @@ const shell = ({ file, title, content }) => `<!doctype html>
       <img src="app-icon.png" alt="终末地伤害工作台图标" />
       <span>终末地伤害工作台</span>
     </a>
-    <span class="header-section">AGENT NOTES / LOCAL PREVIEW</span>
+    <span class="header-section">AGENT NOTES / READING EDITION</span>
     <a class="header-link" href="https://github.com/Pandluto/dmg-end-field" target="_blank" rel="noreferrer">GitHub 源码 <span>↗</span></a>
   </header>
   <aside class="sidebar">
     <div class="sidebar-head"><small><i></i> READING ROUTE</small><strong>Agent 开发随记</strong><p>从模型回答问题，一路读到工具、权限、状态和 Skill。</p></div>
     <nav>${navigation(file)}</nav>
-    <p class="sidebar-foot"><b>LOCAL PREVIEW</b><br />源文件仍为 Markdown</p>
+    <p class="sidebar-foot"><b>MARKDOWN SOURCE</b><br />正文由仓库中的 Markdown 生成</p>
   </aside>
   <main>
     <div class="article-meta">
