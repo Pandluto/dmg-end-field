@@ -19,6 +19,8 @@
      - [Task 8-2：收紧 DEF OpenCode 的 SQLite 与会话边界](./def-opencode-cognitive-runtime-spec8/task8-2.md)
      - [Spec 8-2-1：当前工作区确定性与 Work Node 工作树统一返修](./def-opencode-cognitive-runtime-spec8/spec8-2-1.md)
        - [Task 8-2-1：闭合当前正式 SQLite 与工作树边界](./def-opencode-cognitive-runtime-spec8/task8-2-1.md)
+     - [Spec 8-2-2：DEF current tool 全量准入与全队原子候选](./def-opencode-cognitive-runtime-spec8/spec8-2-2.md)
+       - [Task 8-2-2：封闭 current tool 侧门并落地全队候选 C](./def-opencode-cognitive-runtime-spec8/task8-2-2.md)
    - [Spec 8-3：进化产品化](./def-opencode-cognitive-runtime-spec8/spec8-3.md)
    - [预研究：认知运行时与游戏知识 Agent](./def-opencode-cognitive-runtime-spec8/research.md)
    - [预研究：Harness 自进化](./def-opencode-cognitive-runtime-spec8/harness-self-evolution-research.md)

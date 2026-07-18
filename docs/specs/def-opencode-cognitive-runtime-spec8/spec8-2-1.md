@@ -2,7 +2,7 @@
 
 ## 状态
 
-待实施。本规格是提交 `5c90caa` 的审计返修，不推翻 [Spec 8-2](./spec8-2.md) 已建立的正式 SQLite 准入和不可改绑原则，也不重做数据架构。
+已由提交 `5ad5a72` 完成 canonical current gate、A/B fork 防串线、单角色 continuation 和失败 session cleanup 的首轮实施。独立审计确认主门成立，但发现 current data/mutation 仍有未接 gate 的侧门、全队配装仍逐角色部分应用、真实 UI 与 Harness 行为证据未闭合。后续按 [Spec 8-2-2](./spec8-2-2.md) 返修；8-2-2 完成前，本规格不得验收或 promotion。
 
 关联任务：[Task 8-2-1：闭合当前正式 SQLite 与工作树边界](./task8-2-1.md)。
 

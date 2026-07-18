@@ -2,7 +2,7 @@
 
 ## 状态
 
-待实施。按 [Spec 8-2-1](./spec8-2-1.md) 返修提交 `5c90caa`。本任务不重做数据架构，不要求每个工具建立独立 SQLite reader，也不修改用户手动配装页面。
+已由提交 `5ad5a72` 完成首轮实施并通过现有自动检查。独立审计确认 canonical gate 与 fork 主路径有效，但 Task D、G、J、K、L 尚未完整闭合：部分 current data/mutation 未接 gate，全队配装没有单一候选 C，定向合同、真实 UI 和 Harness regression 证据不足。剩余工作转入 [Task 8-2-2](./task8-2-2.md)。
 
 ## 目标
 
