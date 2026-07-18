@@ -1,84 +1,91 @@
-# 运行中的状态、持久化与恢复
+# Agent 跑到一半怎么办
 
-`while True` 足够解释 Agent Loop，却解释不了“跑到一半怎么办”。模型可能一次返回多个 Tool Call，工具可能等待审批、执行失败或被取消；更麻烦的是，请求超时不一定代表副作用没有发生。
+顺利的时候，Agent Loop 看起来就是：模型调用工具，工具返回结果，模型继续回答。
 
-这些情况不适合继续塞进 Loop 的入门伪代码。回到当前项目看，它们也不是由一张巨大的状态机解决的。
+麻烦都发生在“跑到一半”。还是用前面的配装任务举例：
 
-## 同一次运行里有几层状态
-
-| 层 | 当前实现关心的状态 | 解决什么问题 |
-|---|---|---|
-| Session | `idle / busy / retry` | 会话现在是否正在生成，是否等待 Provider 重试。 |
-| Tool Part | `pending / running / completed / error` | 某个 Tool Call 收到了多少输入，是否开始、完成或失败。 |
-| Permission | 待处理请求以及 `once / always / reject` 回复 | 一次具体调用是否能继续。 |
-| Interop Turn | `accepted / completed / stopped / timeout / max-step / provider-error / bridge-error` | 外部测试或教师如何判断这一轮的终态。 |
-| 产品修改 | Work Node、revision、commit、Checkout 与 live 状态 | 副作用究竟准备到哪一步，是否真的应用。 |
-
-它们互相关联，但不应该压成一个枚举。比如工具等待用户批准时，Tool Part 仍然可以是 `running`；等待本身由 Permission 子系统保存，并不会凭空多出一个 `approval-pending` Tool 状态。
-
-```mermaid
-flowchart LR
-    P["Tool Part: pending"] --> R["running"]
-    R --> Q["Permission request"]
-    Q -->|once / always| R
-    Q -->|reject| E["error"]
-    R --> C["completed"]
-    R -->|异常或取消| E
-    C --> L["下一次 Agent Loop"]
-    E --> L
+```text
+读取当前配装
+→ 生成换武器的预览
+→ 等用户批准
+→ 应用修改
+→ 检查界面是否真的变了
 ```
 
-## Tool Call 怎样被记下来
+如果用户在审批时关掉窗口，或者 Apply 已经发出却迟迟没有响应，系统至少要回答三件事：刚才进行到哪里、哪些结果已经落盘、下一次还能不能继续。
 
-OpenCode 把 Tool Call 存成 Message 下的一种 Part。除了工具名和输入，还会记录 `sessionID`、`messageID`、`partID` 和 `callID`。其中 `callID` 用来把 Provider 发出的调用、后续 Tool Result 和错误对应起来。
+## 状态不是记在同一个地方
 
-状态变化不是只推给 UI：Processor 每收到 `tool-call`、`tool-result` 或 `tool-error` 事件，都会更新这条 Tool Part。完成状态会保存输出、起止时间、metadata 和附件；失败状态保存错误与起止时间。Message 和 Part 通过事件投影写入 OpenCode 的 SQLite，界面和后续 Loop 都从同一份记录重建上下文。
+当前项目没有拿一个大枚举包办所有状态。每一层只记自己负责的事情：
 
-同一条 Assistant Message 可以包含多个 Tool Part，每个 `callID` 独立关联自己的结果。Runtime 能同时追踪多个调用；DEF 的产品修改则在领域工具内部串行并 fail-stop，避免多个副作用一起失控。
+| 谁在记 | 它关心什么 |
+|---|---|
+| Session | 现在空闲、正在生成，还是等待 Provider 重试。 |
+| Tool Call | 参数是否收完、工具是否开始、最后完成还是报错。 |
+| Permission | 哪个请求还在等用户回答。 |
+| 产品数据 | 预览属于哪个 Work Node，当前 Checkout 在哪里，修改是否真正应用。 |
+| Interop | 外部测试看到的这一轮是完成、停止、超时还是失败。 |
 
-这解决了“发生过什么”，却没有保证任意执行都能从中间恢复。Tool handler 可能正在操作外部进程或产品界面，数据库里的一条 `running` 记录并不是它的执行检查点。
+这样拆开以后，一个常见现象就不奇怪了：工具卡片显示 `running`，同时界面弹出审批请求。工具没有多出一个“等待审批”的状态，只是它的执行停在 Permission 那一层。
 
-## 审批等待也是运行时状态
+## Tool Call 是一条不断更新的记录
 
-Permission 请求包含 request ID、Session、权限名、匹配范围、metadata 和关联工具。当前 OpenCode 实现把尚未回答的请求放在运行时内存 Map 里，用 Deferred 暂停工具执行。用户回复 `once`、`always` 或 `reject` 后，等待才会结束。
+模型发出 Tool Call 时，OpenCode 会在当前 Message 下面创建一条 Tool Part。它带着工具名、输入和一个 `callID`，状态从 `pending` 进入 `running`。结果回来以后，同一条记录再变成 `completed` 或 `error`。
 
-这意味着 Permission 事件可以被界面观察，批准规则也可以影响后续调用，但“正在等待的 Promise”本身不是可跨进程恢复的业务事务。Worker 如果在这时消失，正确做法不是假装审批仍会自动续上，而是重新读取 Session、产品状态和待处理问题，确认下一步。
+`callID` 很重要。同一轮里可以出现多个工具调用，结果返回的先后顺序也未必和发出时一样。程序靠它把每份结果送回正确的调用。
 
-## 取消时要把半截状态收口
+这些 Message 和 Part 会通过事件投影写进 SQLite。所以界面重开以后，仍然能画出“哪个工具成功、哪个工具失败”。但这只能证明发生过什么，并不能让一个执行到一半的 JavaScript 函数从原地继续。
 
-DEF Adapter 使用 AbortController，并调用 OpenCode 的 `/abort` 停止当前 Session。受控制的取消会继续走 Processor cleanup：尚未结束的 Tool Part 被写成 `error`，错误为 `Tool execution aborted`，metadata 标记 interrupted，Assistant Message 也补上完成或错误信息。
+## 等待审批时，真正停住的是什么
 
-这样 UI 不会永远显示一个正在运行的工具，下一次 Loop 也能识别被清理的孤立调用。它仍然只说明 Runtime 已停止等待；如果工具在取消前已经触发产品副作用，最终事实要回到产品状态检查。
+Permission 请求会记录 Session、权限名、目标范围和相关工具，然后把工具执行暂停。用户可以只允许这一次、以后都允许，或者拒绝。
 
-## 重试之前先分清失败发生在哪一层
+当前 OpenCode 把尚未回答的请求放在 Worker 内存里。换句话说，审批卡片虽然能被 UI 看到，背后等待答案的 Promise 却不是一个可以跨进程恢复的事务。Worker 如果在这时退出，重启后要重新检查 Session 和产品状态，不能假装原来的等待还在。
 
-Provider 的限流和部分 5xx 错误可以指数退避。重试期间 Session 进入 `retry`，记录 attempt、原因和下一次尝试时间；Context Overflow 则转向 Compaction，不作为普通网络错误重复请求。
+DEF 的修改操作还多做了一层：审批卡片展示本次 Work Node、Checkout 版本和具体差异。用户批准以后，Apply 会再次核对这些值。这样可以避免用户看的是 A，真正执行时目标已经变成 B。
 
-Tool Error 会落到对应 Tool Part，交给后续模型步骤判断。产品修改更谨慎：一次 Apply 超时，可能是“根本没执行”，也可能是“执行成功但响应丢了”。后者如果直接重试，会产生重复副作用。
+## 点了停止，也要把现场收好
 
-因此 DEF 的修改链路在执行前绑定 Session、父子 Work Node、revision、working payload hash 和有期限的 prepared capability。原生审批卡片展示本次 Work Node、Checkout revision 和具体配装差异；Apply 开始后 capability 会被标记为 consumed。Checkout、父子 revision 或 hash 有任何变化，就拒绝继续。响应不确定时先读取 commit、Checkout 和 live mirror 做 reconciliation，而不是让模型无界重发。
+用户停止任务时，DEF Adapter 会中断当前请求，并通知 OpenCode abort 这个 Session。Processor 随后把尚未结束的 Tool Part 标成错误，写下 `Tool execution aborted` 和 interrupted 标记。
 
-Turn 投递还有一层 correlation。Interop 使用调用方提供的 `clientTurnId` 识别重复请求；Sidecar 是否接受 Prompt 不确定时，不会立刻重发，而是观察 Transcript 中是否出现了本次 User Message，以及 Assistant 的 `parentID` 是否指向它。旧回答不能冒充本轮完成，已经进入 `stopped`、`timeout` 或 Provider Error 的终态也不会被晚到事件覆盖。
+这一步主要是收拾 Runtime 的现场：UI 不会永远挂着一个运行中的工具，后面的 Loop 也不会误以为它还在正常执行。
 
-批量修改也没有假装成全有或全无。当前实现按对象串行执行，第一处失败就停止；之前已经完成的结果明确返回 `PARTIAL`，不能被总结成全部成功。
+它不能倒转已经发生的副作用。工具在收到取消前如果已经改动产品，最终仍要读取 Work Node、Commit、Checkout 和界面状态确认结果。
 
-## 持久化不等于恢复执行栈
+## 超时不能一律重试
 
-当前项目持久保存了几类事实：Session 里的 Message/Part、Timeline Repository 里的 Work Node/Commit/Binding，以及浏览器侧已经应用的 live 状态。如果本地 Session Binding 仍在、上游 OpenCode Session 却返回 404，Adapter 可以在同一隔离目录重新创建 Session，并重新绑定原来的 Harness 与产品坐标。
+Provider 限流或部分服务错误，通常可以退避后重试。Session 会记下第几次尝试，以及下一次什么时候开始。上下文太长则走 Compaction，不会伪装成一次普通网络重试。
 
-它恢复的是身份和边界，不是把崩溃前的 JavaScript 调用栈接着跑。恢复以后仍要重新读取当前 Checkout、未完成 Tool Part、是否还有 Permission 请求和产品 Postcondition，再决定继续、放弃还是提示人工处理。
+Apply 超时更麻烦。它可能根本没有执行，也可能已经执行成功，只是响应丢了。后一种情况如果直接再发一次，就可能重复修改。
 
-Compaction 也遵循同样的分层。它可以摘要旧对话、裁剪旧 Tool Result，但审批事实和产品状态不应该只存在于模型摘要里。真正的修改事实仍在 Work Node、Commit、Checkout、审计记录和 live mirror 中；上下文压缩或 Session 恢复后，Agent 应重新读取这些事实源。
+DEF 为此给准备好的修改发放一次性凭证，并绑定 Session、父子 Work Node、revision 和内容 hash。Apply 一开始，凭证就会被标记为已使用。响应不确定时，系统先去看 Commit、Checkout 和 live 状态是否已经收敛，再决定怎样处理，而不是让模型重新调用一遍。
+
+批量修改也是同样的态度：逐个执行，第一处失败就停。前面已经完成的部分明确返回 `PARTIAL`，不会被一句“任务失败”抹掉，也不会被说成全部成功。
+
+对话提交还有另一把保险。Interop 为每轮使用稳定的 `clientTurnId`。Sidecar 有没有接到 Prompt 不确定时，它先去 Transcript 里找这条 User Message 和对应的 Assistant，而不是立即重发。旧回答不能拿来冒充这一轮的结果。
+
+## 重启能恢复记录，不能恢复执行栈
+
+项目里真正持久保存的是几本“账”：
+
+- OpenCode SQLite 记着 Session、Message 和 Tool Part；
+- Timeline Repository 记着 Work Node、Commit 和 Session Binding；
+- 浏览器侧保留已经应用的 live 状态。
+
+如果本地 Binding 还在，而对应的 OpenCode Session 找不到了，Adapter 可以重新创建 Session，并把原来的 Harness 和产品坐标绑回来。恢复的是身份和边界，不是崩溃前的调用栈。
+
+Compaction 也是这个道理。旧对话可以被摘要，旧 Tool Result 可以被裁剪，但“用户批准了什么”和“产品到底改成什么”不能只活在模型摘要里。恢复或压缩以后，Agent 仍要回到产品事实源重新读取。
+
+如果只记一句，可以记这个：
+
+> 消息库告诉我们说过什么，产品库告诉我们改了什么，运行时内存告诉我们现在正等什么。进程一旦消失，最后一项也会跟着消失。
 
 对应实现主要在：
 
-- `agent/vendor/opencode/packages/schema/src/v1/session.ts`
 - `agent/vendor/opencode/packages/opencode/src/session/processor.ts`
-- `agent/vendor/opencode/packages/opencode/src/session/prompt.ts`
 - `agent/vendor/opencode/packages/opencode/src/permission/index.ts`
 - `agent/runtime/def-opencode-adapter/index.cjs`
 - `agent/runtime/def-codex-interop.cjs`
 - `scripts/ai-cli-rest-server.mjs`
-- `electron/timeline-repository.cjs`
 
-测试和审计这些状态时，会反复读取相同证据、区分已确认事实与待验证假设。这类流程不适合全部硬编码进 Runtime，却值得交给 Codex 稳定复用，于是项目里有了[开发者自己的 Skill](./07-developer-skill.md)。
+这类状态排查会反复读取相同证据、区分已确认事实与猜测，适合整理成[开发者自己的 Skill](./07-developer-skill.md)。
