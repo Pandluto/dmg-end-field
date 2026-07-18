@@ -12,6 +12,7 @@
 4. [上下文、Skill 与 Memory](./03-context-skill-memory.md)
 5. [Plan、Task 与 Subagent](./04-plan-task-subagent.md)
 6. [这些概念在 DEF 里怎样落地](./05-def-and-opencode.md)
-7. [开发者自己的 Skill](./06-developer-skill.md)
+7. [运行中的状态、持久化与恢复](./06-state-persistence-recovery.md)
+8. [开发者自己的 Skill](./07-developer-skill.md)
 
 项目实现有变化时，以[架构事实源](../../architecture/README.md)为准。

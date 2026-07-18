@@ -45,4 +45,4 @@ Prepare → Work Node → Preview → Approval → Apply → Postcondition
 
 项目还保留了外部观察入口，用来读取事件、对话记录、问题和终态。黑盒测试只发送正常用户语言，再从工具记录和真实 UI 判断 Agent 是否完成任务，避免把预期答案提前泄露给执行者。
 
-这类测试和审计流程会反复读取相同证据、检查相同边界。它们不适合全部硬编码进 Runtime，却值得交给 Codex 稳定复用，于是项目里有了[开发者自己的 Skill](./06-developer-skill.md)。更精确的组件与数据边界仍在[架构事实源](../../architecture/README.md)。
+顺着这条链路再往下看，会遇到另一个问题：工具停在审批中、进程被取消或 Apply 响应不确定时，系统究竟记住了什么？这些细节单独记在[运行中的状态、持久化与恢复](./06-state-persistence-recovery.md)。更精确的组件与数据边界仍在[架构事实源](../../architecture/README.md)。
