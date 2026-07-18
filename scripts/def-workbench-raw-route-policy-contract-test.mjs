@@ -64,6 +64,9 @@ try {
   }
   assert.equal((await request('/api/ai-timeline-worknodes')).status, 403, 'raw reads cannot reveal another workspace tree');
   assert.equal((await request('/api/timeline-documents')).status, 403, 'raw documents cannot reveal workspaces');
+  const anonymousGovernance = await request('/api/def-tools/governance');
+  assert.equal(anonymousGovernance.status, 403, 'governance must not expose cross-session approval/question records');
+  assert.equal(anonymousGovernance.body.error?.code, 'denied-governance-read');
 
   const created = await request('/api/timeline-documents', { method: 'POST', internal: true, body: { id: 'formal-a', label: 'Formal A' } });
   assert.equal(created.status, 200, JSON.stringify(created.body));
@@ -73,6 +76,7 @@ try {
   });
   assert.equal(snapshot.status, 200, JSON.stringify(snapshot.body));
   assert.equal((await request('/api/main-workbench/snapshot', { internal: true })).body.snapshot.timelineId, 'formal-a');
+  assert.equal((await request('/api/def-tools/governance', { internal: true })).status, 200, 'native governance transport remains available');
 
   const createNode = await request('/api/ai-timeline-worknodes/create', {
     method: 'POST', internal: true,

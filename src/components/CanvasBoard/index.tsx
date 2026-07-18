@@ -1009,10 +1009,29 @@ export function CanvasBoard({
   ) => {
     const client = createAiTimelineWorkNodeClient();
     const { node: parent } = await client.get(command.parentNodeId);
-    if (Number(parent.contentRevision || parent.updatedAt) !== Number(command.parentRevision)) {
+    const { node: candidate } = await client.get(command.candidateNodeId);
+    if (parent.timelineId !== command.expectedTimelineId
+      || Number(parent.contentRevision || parent.updatedAt) !== Number(command.parentRevision)) {
       throw makeOperatorConfigCommandError('checkout-changed', 'Atomic team rollback parent changed; refusing to restore a different checkout.');
     }
+    if (candidate.timelineId !== command.expectedTimelineId
+      || Number(candidate.contentRevision || candidate.updatedAt) !== Number(command.candidateRevision)) {
+      throw makeOperatorConfigCommandError('checkout-changed', 'Atomic team rollback candidate changed; refusing to restore a different checkout.');
+    }
     const repository = createTimelineRepositoryClient();
+    const persistedCheckout = await repository.getCheckoutRef(command.expectedTimelineId);
+    if (persistedCheckout?.targetType !== 'work-node' || persistedCheckout.targetId !== command.expectedCheckoutNodeId
+      || activeTimelineId !== command.expectedTimelineId
+      || JSON.stringify(getCurrentTimelineSnapshotPayload()) !== JSON.stringify(candidate.workingPayload)) {
+      throw makeOperatorConfigCommandError('rollback-stale', 'Atomic team rollback no longer owns the live candidate or checkout; no restoration was performed.');
+    }
+    // Hydrate P before altering its persisted checkout. If the live/session
+    // payload is no longer exactly C, the check above exits without writes.
+    hydrateCheckoutRuntime(parent.workingPayload);
+    const sessionPayloadMatches = JSON.stringify(getCurrentTimelineSnapshotPayload()) === JSON.stringify(parent.workingPayload);
+    if (!sessionPayloadMatches) {
+      throw makeOperatorConfigCommandError('rollback-session-payload-mismatch', 'Atomic team rollback could not restore the session payload; checkout was left unchanged.');
+    }
     const checkoutRef = {
       timelineId: parent.timelineId || activeTimelineId,
       targetType: 'work-node' as const,
@@ -1024,9 +1043,16 @@ export function CanvasBoard({
       ? { id: activeTimelineId, label: activeTimelineLabel }
       : (await repository.listDocuments()).find((entry) => entry.id === parent.timelineId) || { id: parent.timelineId, label: parent.label };
     activateTimeline({ document, checkoutRef, workingPayload: parent.workingPayload });
-    hydrateCheckoutRuntime(parent.workingPayload);
     refreshWorkbenchAfterCheckout();
-    return { restored: true, parentNodeId: parent.id, parentRevision: Number(parent.contentRevision || parent.updatedAt), checkout: checkoutRef, restoredPayload: parent.workingPayload };
+    return {
+      restored: true,
+      parentNodeId: parent.id,
+      parentRevision: Number(parent.contentRevision || parent.updatedAt),
+      candidateNodeId: candidate.id,
+      candidateRevision: Number(candidate.contentRevision || candidate.updatedAt),
+      checkout: checkoutRef,
+      sessionPayloadMatches,
+    };
   };
 
   const setOperatorWeaponFromWorkbenchCommand = async (command: Extract<MainWorkbenchCommand, { op: 'setOperatorWeapon' }>) => {

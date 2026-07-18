@@ -181,8 +181,10 @@ export function validateMainWorkbenchCommand(command) {
     }
   }
   if (command.op === 'restoreAtomicTeamParent') {
-    if (!hasAnyString(command, ['parentNodeId']) || !Number.isFinite(Number(command.parentRevision))) {
-      return { ok: false, code: 'invalid-main-workbench-restore-atomic-team-parent', message: 'restoreAtomicTeamParent requires parent identity and revision.' };
+    if (!hasAnyString(command, ['parentNodeId', 'expectedTimelineId', 'expectedCheckoutNodeId', 'candidateNodeId'])
+      || !Number.isFinite(Number(command.parentRevision))
+      || !Number.isFinite(Number(command.candidateRevision))) {
+      return { ok: false, code: 'invalid-main-workbench-restore-atomic-team-parent', message: 'restoreAtomicTeamParent requires exact parent, candidate, timeline, checkout, and revisions.' };
     }
   }
   if (command.op === 'checkoutAiTimelineWorkNode' && !hasAnyString(command, ['nodeId'])) {

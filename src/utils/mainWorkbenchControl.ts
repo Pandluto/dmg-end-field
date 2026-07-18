@@ -294,6 +294,10 @@ export type MainWorkbenchCommand =
       op: 'restoreAtomicTeamParent';
       parentNodeId: string;
       parentRevision: number;
+      expectedTimelineId: string;
+      expectedCheckoutNodeId: string;
+      candidateNodeId: string;
+      candidateRevision: number;
     }
   | {
       op: 'refreshSnapshot';

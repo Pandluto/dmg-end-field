@@ -149,7 +149,9 @@ function createDefCodexInteropProtocol(options) {
 
   async function snapshot() {
     try {
-      const response = await options.fetchJson(options.snapshotUrl);
+      const response = await options.fetchJson(options.snapshotUrl, {
+        headers: options.snapshotHeaders || {},
+      });
       if (response.status >= 200 && response.status < 300 && response.body?.ok !== false) {
         const value = response.body?.snapshot || response.body?.data || response.body;
         return { available: true, value };

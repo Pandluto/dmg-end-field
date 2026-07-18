@@ -21,6 +21,7 @@ import {
 } from '../agent/runtime/def-tools/registry.mjs';
 import { DEF_TOOL_DEFINITION_BASE } from '../agent/runtime/def-tools/definitions.mjs';
 import { matchesAtomicTeamCandidateCapability, prepareAtomicTeamCandidate } from '../agent/runtime/def-tools/atomic-team-candidate.mjs';
+import { assessAtomicRollbackConvergence, assessAtomicRollbackPrecondition } from '../agent/runtime/def-tools/atomic-team-rollback.mjs';
 import {
   computeDefNodeSourceRisk,
   hashDefNodeValue,
@@ -1373,6 +1374,38 @@ function workbenchProjectionMatchesCheckout(snapshot, workingPayload) {
   return true;
 }
 
+async function waitForWorkbenchProjectionPayload(timelineId, workingPayload, waitMs) {
+  const deadline = Date.now() + normalizeDefVerifyWaitMs(waitMs, 8000);
+  let snapshot = readMainWorkbenchSnapshotMirror();
+  let pass = Boolean(snapshot
+    && snapshot.activeTimelineId === timelineId
+    && snapshot.timelineId === timelineId
+    && workbenchProjectionMatchesCheckout(snapshot, workingPayload));
+  while (!pass && Date.now() < deadline) {
+    await sleep(150);
+    snapshot = readMainWorkbenchSnapshotMirror();
+    pass = Boolean(snapshot
+      && snapshot.activeTimelineId === timelineId
+      && snapshot.timelineId === timelineId
+      && workbenchProjectionMatchesCheckout(snapshot, workingPayload));
+  }
+  return { pass, snapshot };
+}
+
+function workbenchDamageMatchesSnapshot(snapshot, expectedSnapshot) {
+  const normalize = (value) => {
+    const report = value?.damageReport;
+    if (!isObject(report)) return null;
+    return {
+      totalExpected: report.totalExpected ?? null,
+      totalNonCrit: report.totalNonCrit ?? null,
+      buttonCount: report.buttonCount ?? null,
+      buttons: Array.isArray(report.buttons) ? report.buttons : [],
+    };
+  };
+  return JSON.stringify(normalize(snapshot)) === JSON.stringify(normalize(expectedSnapshot));
+}
+
 function normalizeWorkNodeDescription(value) {
   return typeof value === 'string' ? value.trim().slice(0, 240) : '';
 }
@@ -1691,6 +1724,30 @@ function handleAiTimelineWorkNodeRequest(method, pathname, body, invocation = {}
     // A restore is an operation on the existing node, not a synthetic child
     // branch.  Synthetic "[restore]" nodes used to corrupt the visual tree and
     // made parent/child lineage lie about what actually happened.
+    const atomicParentNodeId = typeof body?.atomicParentNodeId === 'string' ? body.atomicParentNodeId.trim() : '';
+    const atomicCommitId = typeof body?.commitId === 'string' ? body.commitId.trim() : '';
+    const checkout = getTimelineRepository().getCheckoutRef(node.timelineId || node.saveId);
+    if (atomicParentNodeId) {
+      const parent = readRepositoryWorkNode(atomicParentNodeId);
+      const targetCommit = atomicCommitId ? getTimelineRepository().getWorkNodeCommit(atomicCommitId) : null;
+      if (!parent || parent.timelineId !== node.timelineId || !targetCommit || targetCommit.nodeId !== node.id
+        || checkout?.targetType !== 'work-node' || checkout.targetId !== parent.id) {
+        return failScript(409, 'atomic-rollback-stale', 'Atomic rollback no longer owns the current checkout; lifecycle was left unchanged.');
+      }
+      const nextCommit = { ...targetCommit, checkoutApplied: false, checkout: undefined, rollback };
+      const nextNode = {
+        ...node,
+        status: 'committed',
+        updatedAt: appliedAt,
+        logs: [makeWorkNodeLog('info', 'Reconciled atomic team candidate back to its committed, un-applied state.', {
+          ...rollback, sourceNodeId: node.id, parentNodeId: parent.id,
+        }), ...(Array.isArray(node.logs) ? node.logs : [])],
+      };
+      mirrorWorkNodeToTimelineRepository(nextNode);
+      mirrorWorkNodeCommitToTimelineRepository(nextCommit);
+      writeLegacyNodeProjection(nextNode);
+      return { status: 200, body: { ok: true, protocolVersion: 1, path: aiTimelineWorkNodesPath, node: nextNode, commit: nextCommit, rollback } };
+    }
     const nextNode = {
       ...node,
       status: 'ready',
@@ -3550,6 +3607,7 @@ async function applyDefTeamLoadoutPlan(input = {}) {
     return { ok: false, state: 'BLOCKED', code: 'team-loadout-capability-mismatch', planId: prepared.planId, planHash: prepared.planHash, nextAction: 'The approved candidate identity does not match the prepared team capability.' };
   }
   const gate = input.__defCurrentGate || resolveCanonicalWorkbenchCurrent(input);
+  const parentSnapshot = cloneJson(gate?.snapshot || {});
   const node = readRepositoryWorkNode(candidate.nodeId);
   const parent = readRepositoryWorkNode(candidate.parentNodeId);
   if (!gate.ok || gate.checkoutNodeId !== candidate.parentNodeId || !node || !parent
@@ -3580,19 +3638,78 @@ async function applyDefTeamLoadoutPlan(input = {}) {
   }
   stored.usedAt = Date.now();
   const definition = getDefToolDefinition('def.operator.config.patch');
+  let checkoutApplied = false;
+  let commitId = '';
   const rollback = async (code, details = {}) => {
+    // A failed command can mean "C was never written" (notably a late A→B
+    // checkout switch). Never compensate that case: proving C live is the
+    // prerequisite for touching either the UI or the checkout ref.
+    const candidateLive = await waitForWorkbenchProjectionPayload(stored.timelineId, node.workingPayload, 0);
+    const persistedCheckout = getTimelineRepository().getCheckoutRef(stored.timelineId);
+    const precondition = assessAtomicRollbackPrecondition({
+      candidateLive: candidateLive.pass,
+      checkout: persistedCheckout,
+      timelineId: stored.timelineId,
+      parentNodeId: parent.id,
+      candidateNodeId: node.id,
+    });
+    if (!precondition.attempt) {
+      const outcome = {
+        ok: false,
+        state: candidateLive.pass ? 'RECONCILIATION_REQUIRED' : 'BLOCKED',
+        code: candidateLive.pass ? 'team-loadout-rollback-precondition-failed' : code,
+        planId: stored.planId,
+        planHash: stored.planHash,
+        currentCheckoutTouched: false,
+        rollback: { attempted: false, reason: precondition.reason },
+        ...details,
+      };
+      stored.usedResult = outcome;
+      return outcome;
+    }
     const enqueued = enqueueDefToolCommands(definition, [{
-      op: 'restoreAtomicTeamParent', parentNodeId: parent.id, parentRevision: candidate.parentRevision,
+      op: 'restoreAtomicTeamParent',
+      parentNodeId: parent.id,
+      parentRevision: candidate.parentRevision,
+      expectedTimelineId: stored.timelineId,
+      expectedCheckoutNodeId: precondition.expectedCheckoutNodeId,
+      candidateNodeId: node.id,
+      candidateRevision: Number(node.contentRevision || node.updatedAt),
     }], input);
     const rollbackVerification = enqueued.status >= 200 && enqueued.status < 300 && enqueued.body?.commands?.[0]
       ? await buildDefToolCommandVerification(enqueued.body.commands[0], input.waitMs)
       : { pass: false, error: 'team-loadout-rollback-enqueue-failed' };
-    const restoredPayload = rollbackVerification?.result?.result?.restoredPayload;
-    const restored = Boolean(rollbackVerification.pass
+    const commandRestored = Boolean(rollbackVerification.pass
       && rollbackVerification?.result?.result?.parentNodeId === parent.id
       && Number(rollbackVerification?.result?.result?.parentRevision) === candidate.parentRevision
-      && isObject(restoredPayload)
-      && hashDefNodeValue(restoredPayload) === candidate.parentWorkingHash);
+      && rollbackVerification?.result?.result?.sessionPayloadMatches === true);
+    let lifecycleRestored = !checkoutApplied;
+    if (commandRestored && checkoutApplied) {
+      const lifecycle = handleAiTimelineWorkNodeRequest('POST', `/api/ai-timeline-worknodes/${encodeURIComponent(node.id)}/rollback-applied`, {
+        commitId,
+        atomicParentNodeId: parent.id,
+        appliedBy: 'system',
+        appliedAt: Date.now(),
+        rationale: 'Atomic team candidate reverted after post-apply failure.',
+      }, INTERNAL_RAW_TRANSPORT);
+      lifecycleRestored = lifecycle?.status === 200
+        && lifecycle?.body?.node?.status === 'committed'
+        && lifecycle?.body?.commit?.checkoutApplied === false;
+    }
+    const parentLive = commandRestored
+      ? await waitForWorkbenchProjectionPayload(stored.timelineId, parent.workingPayload, input.snapshotWaitMs ?? 8000)
+      : { pass: false, snapshot: null };
+    const damageRestored = parentLive.pass && workbenchDamageMatchesSnapshot(parentLive.snapshot, parentSnapshot);
+    const restoredCheckout = getTimelineRepository().getCheckoutRef(stored.timelineId);
+    const restored = assessAtomicRollbackConvergence({
+      commandRestored,
+      sessionPayloadMatches: rollbackVerification?.result?.result?.sessionPayloadMatches === true,
+      projectionRestored: parentLive.pass,
+      damageRestored,
+      lifecycleRestored,
+      checkout: restoredCheckout,
+      parentNodeId: parent.id,
+    });
     const outcome = {
       ok: false,
       state: restored ? 'ROLLED_BACK' : 'RECONCILIATION_REQUIRED',
@@ -3600,7 +3717,7 @@ async function applyDefTeamLoadoutPlan(input = {}) {
       planId: stored.planId,
       planHash: stored.planHash,
       currentCheckoutTouched: true,
-      rollback: { attempted: true, restored, verification: rollbackVerification },
+      rollback: { attempted: true, restored, verification: rollbackVerification, projection: parentLive, damageRestored, lifecycleRestored },
       ...details,
     };
     stored.usedResult = outcome;
@@ -3630,12 +3747,14 @@ async function applyDefTeamLoadoutPlan(input = {}) {
   if (committed?.status !== 200 || !committed?.body?.commit) {
     return rollback(committed?.body?.code || 'team-loadout-commit-failed', { commandVerification, postcondition: liveVerification });
   }
+  commitId = committed.body.commit.id;
   const applied = handleAiTimelineWorkNodeRequest('POST', `/api/ai-timeline-worknodes/${encodeURIComponent(node.id)}/checkout-applied`, {
     commitId: committed.body.commit.id, appliedBy: 'user', appliedAt: Date.now(), rationale: 'Native DEF complete team loadout applied exact reviewed payload.',
   }, INTERNAL_RAW_TRANSPORT);
   if (applied?.status !== 200) {
     return rollback(applied?.body?.code || 'team-loadout-checkout-apply-failed', { commandVerification, postcondition: liveVerification, commitId: committed.body.commit.id });
   }
+  checkoutApplied = true;
   const finalized = enqueueDefToolCommands(definition, [{ op: 'finalizePreparedOperatorConfig', nodeId: node.id, commitId: committed.body.commit.id }], input);
   const finalizeVerification = finalized.status >= 200 && finalized.status < 300 && finalized.body?.commands?.[0]
     ? await buildDefToolCommandVerification(finalized.body.commands[0], input.waitMs)
@@ -7044,6 +7163,9 @@ async function handleDefToolRequest(method, pathname, query, body, invocation = 
     return await executeDefTool('def.tool.list', {}, query, invocation);
   }
   if (method === 'GET' && pathname === '/api/def-tools/governance') {
+    if (!defInternalGovernanceToken || invocation.internalToken !== defInternalGovernanceToken) {
+      return failScript(403, 'denied-governance-read', 'DEF governance records are available only to the native host.');
+    }
     const archive = readDefToolGovernanceArchive();
     const limit = Math.max(1, Math.min(Number(query.get('limit') || 20) || 20, 100));
     const since = Number(query.get('since') || 0) || 0;

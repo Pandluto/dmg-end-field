@@ -1,4 +1,5 @@
 const http = require('http');
+const crypto = require('crypto');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
@@ -17,11 +18,13 @@ let aiCliRestStartedAt = null;
 let defAgentProcess = null;
 let defAgentStartedAt = null;
 let webOpenedAt = null;
+const defInternalGovernanceToken = process.env.DEF_INTERNAL_GOVERNANCE_TOKEN || crypto.randomUUID();
 const defCodexInterop = createDefCodexInteropProtocol({
   profile: process.env.DEF_CODEX_INTEROP_PROFILE || 'development',
   baseUrl: `http://${HOST}:${PORT}`,
   sidecarUrl: 'http://127.0.0.1:17322',
   snapshotUrl: 'http://127.0.0.1:17321/api/main-workbench/snapshot',
+  snapshotHeaders: { 'x-def-internal-token': defInternalGovernanceToken },
   auditFile: path.join(__dirname, '..', '.runtime', 'def-agent', 'def-codex-interop.audit.jsonl'),
   bridgeVersion: 'dev-agent',
   writeJson,
@@ -597,6 +600,7 @@ async function startAiCliRest() {
     env: {
       ...process.env,
       AI_CLI_REST_PORT: '17321',
+      DEF_INTERNAL_GOVERNANCE_TOKEN: defInternalGovernanceToken,
     },
     stdio: 'ignore',
     detached: false,
@@ -679,6 +683,7 @@ async function startDefAgent() {
       ...process.env,
       DEF_AGENT_PORT: '17322',
       DEF_OPENCODE_HOME: path.join(projectRoot, '.runtime', 'def-opencode'),
+      DEF_INTERNAL_GOVERNANCE_TOKEN: defInternalGovernanceToken,
     },
     stdio: 'ignore',
     detached: false,
@@ -965,7 +970,7 @@ const server = http.createServer(async (request, response) => {
     try {
       await startAiCliRest();
       const upstream = await fetchJsonUrl('http://127.0.0.1:17321/api/main-workbench/snapshot', {
-        headers: process.env.DEF_INTERNAL_GOVERNANCE_TOKEN ? { 'x-def-internal-token': process.env.DEF_INTERNAL_GOVERNANCE_TOKEN } : {},
+        headers: { 'x-def-internal-token': defInternalGovernanceToken },
       });
       const available = upstream.status >= 200 && upstream.status < 300 && upstream.body?.ok !== false;
       writeJson(response, 200, {
