@@ -11,6 +11,9 @@
 | Harness 基建 | `npm run harness:check` | 是 | 是 | 可选 | 不可变包、Registry、选择与安全边界 |
 | 知识合同 | `npm run check:knowledge` | 是 | 是 | 可选 | allowlist search → exact section read |
 | Web 构建 | `npm run build:web` | 是 | 是 | 可选 | 前端可生产构建 |
+| 数据管理服务 | `npm run smoke:data-management` | 否 | 否 | 开发时 | SQLite 用户库、迁移、数据包与存档服务的基础行为 |
+| 完整数据包发布 | `npm run smoke:data-release-builder` | 否 | 否 | 发布数据前 | 选择 Local/Share Data、生成 manifest/ZIP、hash 与安全文件集合 |
+| 数据应用与存档转换 | `npm run smoke:local-data-archive-flow` | 否 | 否 | 发布数据前 | 下载落入 Share Data、显式应用、共享存档写回和 SQLite 转换边界 |
 | OpenCode UI/runtime | `electron:build*` | 否 | 是 | 可选 | vendored UI、core binary 与安装包组成 |
 | 安装包 runtime | `npm run smoke:packaged-sidecar` | 否 | 是 | 可选 | Electron 共用的 sidecar 环境编排、asar 内源码、unpacked esbuild、OpenCode core 与可写 userData 路径可真实启动 |
 | Interop 聚焦检查 | `npm run interop:check` | 否 | 否 | 是 | 本地 bridge/session/tool 观察协议 |
@@ -25,3 +28,5 @@
 ## 发布门
 
 tag 触发工作流后，只有 version 校验、质量门和 Windows/macOS 打包均成功才创建 Draft Release。Draft 至少完成安装启动、AI 模式、一个只读 turn 和一个拒绝型 permission smoke 后，才可人工发布。
+
+数据包不由 tag 工作流自动生成。每次对外发布数据包前，应运行数据包相关 smoke，并在桌面 Shell 验收“下载只进入 Share Data”与“应用数据后才改变前台数据/导入共享存档”。

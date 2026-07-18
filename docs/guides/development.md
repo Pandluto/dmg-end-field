@@ -61,6 +61,9 @@ npm run electron:build:mac
 | --- | --- |
 | `npm test` | 核心计算与 Work Node codec 测试。 |
 | `npm run smoke:work-node-sqlite` | 验证 Work Node、SQLite、REST 与备份恢复链路。 |
+| `npm run smoke:data-management` | 验证用户 SQLite、数据包、迁移和排轴存档服务。 |
+| `npm run smoke:data-release-builder` | 验证从 Local Data/Share Data 生成完整数据包 Release。 |
+| `npm run smoke:local-data-archive-flow` | 验证下载、显式应用、共享存档和 SQLite 转换边界。 |
 | `npm run smoke:ai-cli-rest` | 验证 AI CLI REST 基础链路。 |
 | `npm run smoke:operator-config` | 启动 Electron 的干员配置 smoke 验证。 |
 

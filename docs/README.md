@@ -12,6 +12,7 @@
 - [架构事实源](./architecture/README.md)：当前系统、运行拓扑、数据与安全边界、CI/CD、ADR 和跨 Spec 审计。
 - [历史记录](./history/README.md)：无单一 Spec 归属的历史迭代记录。
 - [用户指南](./guides/quick-start.md)：面向使用者的产品说明。
+- [数据管理规格](./specs/data-management-sqlite-release/spec.md)：SQLite 工作区、数据包、存档与 Release 的当前边界。
 
 ## 文档归属规则
 

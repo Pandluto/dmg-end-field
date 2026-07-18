@@ -15,7 +15,7 @@ flowchart LR
   Worker --> Tools["DEF typed tools"]
   Tools --> Snapshot["Workbench Snapshot / REST"]
   Tools --> Repo["Timeline + Work Node Repository"]
-  Repo --> Store["SQLite / local product state"]
+  Repo --> Store["SQLite 工作区 / localStorage 数据投影"]
 
   Teacher["Codex + Computer Use"] --> Interop["DefCodexInteropProtocol v1"]
   Interop --> Worker
@@ -29,6 +29,7 @@ flowchart LR
 | --- | --- | --- | --- |
 | 产品前端 | `src/` | 排轴、角色配置、AI 模式宿主、真实 UI 状态 | 模拟 Agent transcript |
 | Electron shell | `electron/main.cjs` | 窗口、进程编排、本地 bridge、repository 接入 | Agent 领域推理 |
+| 数据管理服务 | `electron/data-management-service.cjs` | 用户 SQLite、数据包、排轴存档、迁移与数据包校验 | 直接操作渲染器 localStorage |
 | AI CLI REST | `scripts/ai-cli-rest-server.mjs` | snapshot、typed product operations、Work Node/CAS | 直接绕过审批修改 UI |
 | DEF sidecar | `agent/server/def-agent-server.cjs` | native session、OpenCode worker、plugin/tool 适配 | 复制一套产品事实源 |
 | Interop runtime | `agent/runtime/def-codex-interop.cjs` | turn、events、transcript、questions、幂等与关联 | 作为产品聊天 UI |
@@ -42,6 +43,7 @@ flowchart LR
 3. Interop 是诊断事实源，Computer Use 只确认真实界面可见，不替代工具与终态记录。
 4. Harness candidate 只影响新建并明确绑定的 session；已存在 session 保持固定 hash。
 5. 通用运行时代码不得依赖某一篇攻略的角色 ID、装备答案或计算结果。
+6. 完整数据包只能经“应用数据”拆分；下载只写入 Share Data，排轴存档必须先转换为新的 SQLite 工作区。
 
 ## 当前结构性债务
 
@@ -50,3 +52,4 @@ flowchart LR
 - vendored OpenCode 带来较重的安装和打包成本，需要独立缓存与上游升级策略。
 - Harness 自动诊断、hidden regression 和自动返修仍属于后续能力；promotion 保持人工决策。
 - 首次 GitHub Hosted Runner 的跨平台安装包尚需真实跑通后，才能把“工作流存在”升级为“发布链已生产验证”。
+- 数据管理服务仍保留读取旧 catalog/参考存档格式的兼容路径；新 UI 与新发布流程只以 Local Data、Share Data、本地存档和共享存档为产品对象。

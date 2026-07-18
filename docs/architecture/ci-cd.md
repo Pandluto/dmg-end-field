@@ -1,4 +1,4 @@
-# CI/CD 设计
+# CI/CD 与数据包发布
 
 ## CI
 
@@ -47,6 +47,18 @@ git push origin main "v$NEXT_VERSION"
 ```
 
 首次实际 tag 应视为 CD 的生产验收：记录两个 runner、产物名称、checksum、安装结果和 Draft 到发布的人工决定。没有这条证据前，文档只声称“发布流程已实现并经过本地静态验证”。
+
+## 数据包发布不是应用程序 CD
+
+数据包与 Electron 安装包使用同一类版本化发布地址，但不是由 `release.yml` 自动构建或安装的第二套应用产物。数据维护者在 Shell「数据」页选择一份 **Local Data** 或 **Share Data** 完整包，填写数据版本、可选 Release Tag/最低 Shell 版本和输出目录，生成：
+
+- `data-release-manifest.json`；
+- 仅含内部 `manifest.json` 与一份完整数据包 JSON 的 ZIP；
+- 包大小与 SHA-256。
+
+客户端下载时先校验 manifest、大小、hash 和 ZIP 文件集合，再原子写入 **Share Data**。下载不会自动应用数据、切换 SQLite 工作区或导入页面状态；这些副作用只会在用户明确选择“应用数据”后发生。因而数据包发布的人工验收应至少覆盖生成、完整性校验、下载落入 Share Data，以及显式应用后的 localStorage/共享存档结果。
+
+图片资源 Release 同样独立于这两条链路：它由 Shell 的图片更新流程处理，不能把图片更新成功误认为数据包或应用程序已更新。
 
 ## 供应链取舍
 

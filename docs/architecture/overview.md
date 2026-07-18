@@ -26,7 +26,24 @@ flowchart TB
   Harness["Harness\n版本化场景回放与比较"] -. 验证 .-> Adapter
 ```
 
-浏览器渲染层访问的是 `127.0.0.1` 的本地桥接，而不是云端 API；桥接连接 Electron 主进程、本地 SQLite 和本地 Agent。图片资源的版本检查与下载是另一条 GitHub Release 发布链路，不是排轴数据同步。
+浏览器渲染层访问的是 `127.0.0.1` 的本地桥接，而不是云端 API；桥接连接 Electron 主进程、本地 SQLite 和本地 Agent。图片资源、数据包和应用程序安装包各有独立的发布流程，不能互相替代。
+
+## 数据：完整包、存档与工作区
+
+主界面直接使用两种工作态：SQLite 保存当前可编辑的排轴/节点树，浏览器存储保存已经应用的角色、Buff、装备与武器数据。它们的可搬运边界则是完整数据包和独立排轴存档：
+
+```text
+Local Data / Share Data（完整数据包）
+  └─ “应用数据” → localStorage 数据投影 + 共享存档
+
+本地存档 / 共享存档（仅排轴与节点树）
+  └─ 转换 → 新 SQLite 工作区
+
+SQLite 工作区
+  └─ 导出本地存档 / 预存到共享存档
+```
+
+网络下载只会校验并写入 Share Data。它不会自动应用数据、替换当前 SQLite 工作区或改变浏览器状态；用户需要在 Shell 中明确应用。反过来，存档也不能直接覆盖当前页面，只能转换为新的 SQLite 工作区。这些规则让下载、试用、恢复与删除保持可追溯且互不误删。
 
 ## 排轴：从编辑器到可恢复文档
 
@@ -41,8 +58,8 @@ TimelineDocument
 ```
 
 - 完整配置按内容哈希保存；快照与 Work Node 引用同一份不可变 payload，便于去重和校验。
-- `localStorage`、`sessionStorage` 和旧 JSON 仅用于迁移或缓存，不是版本事实源。
-- 分享时从本地库生成版本化可移植包；导入会先校验 schema、哈希和引用，再原子写入为新文档。
+- `localStorage`、`sessionStorage` 是当前已应用资料的页面投影；SQLite 是当前排轴版本事实源。旧 JSON 仅用于兼容导入或完整数据包承载。
+- 分享时从已选 Local Data 或 Share Data 生成带版本的完整包；下载会先校验 schema、hash 与 ZIP 文件集合，再原子写入 Share Data。
 
 这也是 AI 必须先落到 Work Node 的原因：它可以探索另一种排轴，而不会把正在使用的正式方案直接覆盖掉。
 
