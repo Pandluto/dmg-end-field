@@ -973,6 +973,33 @@ async function syncNativeWorkbenchAxisBinding(binding) {
   return axisContext;
 }
 
+async function publishNativeWorkbenchCheckoutProjection(binding, context) {
+  if (!binding?.axisBindingId || binding.host !== 'workbench' || !binding.timelineId) {
+    const error = new Error('Workbench checkout projection requires an immutable native binding.');
+    error.code = 'BLOCKED_BINDING';
+    throw error;
+  }
+  await ensureDefRestService();
+  const response = await fetch(`${defRestUrl}/api/main-workbench/checkout-projection`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'x-def-internal-token': defInternalGovernanceToken },
+    body: JSON.stringify({
+      sessionBindingId: binding.axisBindingId,
+      sessionID: binding.sessionID,
+      timelineId: binding.timelineId,
+      projection: context,
+    }),
+    signal: AbortSignal.timeout(5000),
+  });
+  const payload = await response.json().catch(() => null);
+  if (!response.ok || payload?.ok !== true) {
+    const error = new Error(payload?.error?.message || payload?.message || 'native-checkout-projection-publish-failed');
+    error.code = payload?.error?.code || payload?.code || 'BLOCKED_SESSION_MISMATCH';
+    throw error;
+  }
+  return payload.snapshot;
+}
+
 async function assertWorkbenchTimelineAdmission(timelineId) {
   if (typeof timelineId !== 'string' || !timelineId.trim()) {
     const error = new Error('Workbench DEF session creation requires timelineId.');
@@ -1238,6 +1265,7 @@ const server = http.createServer(async (request, response) => {
         return;
       }
       const axisContext = await syncNativeWorkbenchAxisBinding(binding);
+      await publishNativeWorkbenchCheckoutProjection(binding, body.context);
       const saved = writeNativeWorkbenchContext(body.directory, body.sessionID, body.context);
       const checkoutState = updateNativeWorkbenchCheckoutState(binding, axisContext);
       writeJson(response, 200, { ok: true, context: saved, axisContext, checkoutState });

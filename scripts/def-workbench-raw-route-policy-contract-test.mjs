@@ -56,6 +56,7 @@ try {
     ['/api/timeline-documents', { id: 'forged-document', label: 'forged' }],
     ['/api/ai-timeline-worknodes/create', { timelineId: 'formal-a', basePayload: payload, workingPayload: payload }],
     ['/api/main-workbench/snapshot', { activeTimelineId: 'formal-a', timelineId: 'formal-a', updatedAt: Date.now() }],
+    ['/api/main-workbench/checkout-projection', { sessionBindingId: 'forged', sessionID: 'forged', timelineId: 'formal-a' }],
     ['/api/timeline-checkout-ref', { timelineId: 'formal-a', targetType: 'work-node', targetId: 'forged' }],
   ]) {
     const denied = await request(pathname, { method: 'POST', body });

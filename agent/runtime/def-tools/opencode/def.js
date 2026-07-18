@@ -31,8 +31,17 @@ async function callDefTool(tool, input = {}, context = null) {
   })
   const payload = await response.json()
   if (!response.ok || payload?.ok !== true || payload?.result?.ok === false) {
-    const error = new Error(payload?.result?.message || payload?.message || `${tool} failed with HTTP ${response.status}`)
-    error.code = payload?.result?.code || payload?.code || 'def-tool-failed'
+    // `/api/def-tools/call` wraps policy failures in `error`, while successful
+    // tool executions use `result`.  Preserve the structured policy contract
+    // so a canonical-gate 409 is never misreported to the model as a missing
+    // Work Node or an empty team.
+    const failure = payload?.result || payload?.error || payload
+    const code = failure?.code || payload?.code || 'def-tool-failed'
+    const message = failure?.message || payload?.message || `${tool} failed with HTTP ${response.status}`
+    const error = new Error(`${code}: ${message}`)
+    error.code = code
+    error.status = response.status
+    error.details = failure?.details || null
     throw error
   }
   return payload.result

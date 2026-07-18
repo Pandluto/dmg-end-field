@@ -158,7 +158,33 @@ function treeState() {
 try {
   await waitForReady();
 
+  // A browser renderer never receives the raw internal token.  Native context
+  // attach must therefore project the exact bound checkout through the
+  // token-protected native path, not leave a previous timeline mirror in place.
+  const hydratedProjection = await request('/api/main-workbench/checkout-projection', {
+    method: 'POST', internal: true,
+    body: {
+      sessionBindingId: 'axis-a', sessionID: 'session-a', timelineId: 'formal-a',
+      projection: { selectedCharacters: [{ id: 'operator-A', name: 'Operator A ONLY' }] },
+    },
+  });
+  assert.equal(hydratedProjection.status, 200, JSON.stringify(hydratedProjection.body));
+  assert.equal(hydratedProjection.body.snapshot.timelineId, 'formal-a');
+  assert.deepEqual(hydratedProjection.body.snapshot.selectedCharacters.map((character) => character.name), ['Operator A ONLY']);
+  const hydratedRead = await generic('def.character.resolve', { query: 'Operator A ONLY' }, 'session-a');
+  assert.equal(hydratedRead.status, 200, JSON.stringify(hydratedRead.body));
+  assert(JSON.stringify(hydratedRead.body).includes('Operator A ONLY'));
+
   const nativeServerSource = fs.readFileSync(path.join(process.cwd(), 'agent/server/def-agent-server.cjs'), 'utf8');
+  const contextRoute = nativeServerSource.slice(
+    nativeServerSource.indexOf("requestUrl.pathname === '/api/native/context'"),
+    nativeServerSource.indexOf("requestUrl.pathname === '/api/chat'"),
+  );
+  assert(contextRoute.includes('await publishNativeWorkbenchCheckoutProjection(binding, body.context);'),
+    'native context attach must publish the authenticated checkout projection before accepting the attachment');
+  assert(contextRoute.indexOf('await publishNativeWorkbenchCheckoutProjection(binding, body.context);')
+    < contextRoute.indexOf('writeNativeWorkbenchContext(body.directory, body.sessionID, body.context);'),
+  );
   assert.equal((nativeServerSource.match(/await cleanupFailedNativeSessionCreate\(session\);/g) || []).length, 1,
     'create cleanup must have exactly one call site');
   const createRoute = nativeServerSource.slice(

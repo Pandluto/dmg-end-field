@@ -156,6 +156,34 @@ function hasCheckpointPayloadChanged(
   return serializeCheckpointPayload(previousPayload) !== serializeCheckpointPayload(nextPayload);
 }
 
+function checkoutProjectionTeamMatches(
+  checkoutPayload: TimelineSnapshotPayload,
+  workingProjection: TimelineSnapshotPayload,
+): boolean {
+  const sameIds = (left: string[] = [], right: string[] = []) => (
+    left.length === right.length && left.every((value, index) => value === right[index])
+  );
+  if (!sameIds(checkoutPayload.selectedCharacters, workingProjection.selectedCharacters)) return false;
+  const checkoutButtons = checkoutPayload.skillButtonTable || {};
+  const projectedButtons = workingProjection.skillButtonTable || {};
+  const checkoutButtonIds = Object.keys(checkoutButtons).sort();
+  const projectedButtonIds = Object.keys(projectedButtons).sort();
+  if (!sameIds(checkoutButtonIds, projectedButtonIds)) return false;
+  return checkoutButtonIds.every((buttonId) => {
+    const checkoutButton = checkoutButtons[buttonId];
+    const projectedButton = projectedButtons[buttonId];
+    return Boolean(projectedButton)
+      && checkoutButton.characterId === projectedButton.characterId
+      && checkoutButton.skillType === projectedButton.skillType
+      && sameIds([...(checkoutButton.selectedBuff || [])].sort(), [...(projectedButton.selectedBuff || [])].sort());
+  });
+}
+
+function checkoutIdentity(checkoutRef: TimelineCheckoutRef | null): string {
+  if (!checkoutRef) return 'none';
+  return `${checkoutRef.timelineId}:${checkoutRef.targetType}:${checkoutRef.targetId}`;
+}
+
 const EMPTY_BATCH_TARGET_RESISTANCE: Required<HitResistanceInput> = {
   physicalResistance: 0,
   fireResistance: 0,
@@ -473,14 +501,24 @@ export function CanvasBoard({
   } = useTimelineSession();
   const shareImportInputRef = useRef<HTMLInputElement>(null);
   const isProcessingWorkbenchCommandRef = useRef(false);
-  const isCheckoutBootstrapStartedRef = useRef(false);
+  const checkoutBootstrapIdentityRef = useRef<string | null>(null);
   const isCheckoutBootstrapPendingRef = useRef(true);
+  const activeTimelineIdentityRef = useRef({
+    timelineId: activeTimelineId,
+    checkout: checkoutIdentity(activeCheckoutRef),
+    isTemporary: activeTimelineIsTemporary,
+  });
+  activeTimelineIdentityRef.current = {
+    timelineId: activeTimelineId,
+    checkout: checkoutIdentity(activeCheckoutRef),
+    isTemporary: activeTimelineIsTemporary,
+  };
   const temporaryPromotionRef = useRef(activeTimelineIsTemporary);
 
   const canvasWidth = useCanvasWidth(canvasConfig.canvasWidthPercent);
   useSelectStart();
 
-  const enterAiMode = () => {
+  const enterAiMode = async () => {
     if (!isTimelineSessionReady || !activeTimelineId || activeTimelineIsTemporary) {
       const message = activeTimelineIsTemporary
         ? '当前 SQLite 工作区尚未完成首次保存/命名，暂不能进入 AI 模式。'
@@ -489,12 +527,40 @@ export function CanvasBoard({
       window.setTimeout(() => setWorkNodeSaveNotice(''), 3200);
       return;
     }
-    shouldRestoreTopZoneAfterAiRef.current = isWorkbenchTopZoneOpen;
-    if (isWorkbenchTopZoneOpen) {
-      onWorkbenchTopZoneOpenChange?.(false);
+    const expectedIdentity = { ...activeTimelineIdentityRef.current };
+    try {
+      const { payload } = await readFormalCheckoutPayload(expectedIdentity.timelineId, activeCheckoutRef);
+      const currentIdentity = activeTimelineIdentityRef.current;
+      if (currentIdentity.timelineId !== expectedIdentity.timelineId
+        || currentIdentity.checkout !== expectedIdentity.checkout
+        || currentIdentity.isTemporary) {
+        throw new Error('当前 SQLite 或 checkout 已变化；未进入 AI 模式。');
+      }
+      // A native session is mounted only after the UI runtime has been reset
+      // to the persisted checkout.  This deliberately restores P instead of
+      // overwriting it with an uncheckpointed working projection.
+      hydrateCheckoutRuntime(payload);
+      await new Promise<void>((resolve) => window.requestAnimationFrame(() => {
+        window.requestAnimationFrame(() => resolve());
+      }));
+      const hydratedPayload = getCurrentTimelineSnapshotPayload();
+      const settledIdentity = activeTimelineIdentityRef.current;
+      if (!hydratedPayload || !checkoutProjectionTeamMatches(payload, hydratedPayload)
+        || settledIdentity.timelineId !== expectedIdentity.timelineId
+        || settledIdentity.checkout !== expectedIdentity.checkout) {
+        throw new Error('当前 UI 工作副本未能收敛到 checkout；未进入 AI 模式。');
+      }
+      shouldRestoreTopZoneAfterAiRef.current = isWorkbenchTopZoneOpen;
+      if (isWorkbenchTopZoneOpen) {
+        onWorkbenchTopZoneOpenChange?.(false);
+      }
+      setAiHoverZone('right');
+      setIsAiMode(true);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '无法读取当前正式 SQLite checkout；未进入 AI 模式。';
+      setWorkNodeSaveNotice(message);
+      window.setTimeout(() => setWorkNodeSaveNotice(''), 4200);
     }
-    setAiHoverZone('right');
-    setIsAiMode(true);
   };
 
   const exitAiMode = () => {
@@ -511,7 +577,7 @@ export function CanvasBoard({
       exitAiMode();
       return;
     }
-    enterAiMode();
+    void enterAiMode();
   };
 
   const openWorkNodePanel = async () => {
@@ -712,6 +778,31 @@ export function CanvasBoard({
     syncRuntimeSkillButtonsFromTimelineData(normalizedTimelineData, resolvedCharacters);
   }, [dispatch, loadedCharacters, normalizeTimelineData, replaceTimelineData, selectedCharacters, setSessionWorkingPayload, syncRuntimeSkillButtonsFromTimelineData]);
 
+  const readFormalCheckoutPayload = useCallback(async (
+    timelineId: string,
+    expectedCheckoutRef: TimelineCheckoutRef | null,
+  ) => {
+    if (!timelineId || !expectedCheckoutRef || expectedCheckoutRef.timelineId !== timelineId) {
+      throw new Error('当前正式 SQLite 没有可验证的 checkout；未进入 AI 模式。');
+    }
+    const repository = createTimelineRepositoryClient();
+    const exported = await repository.exportDocumentBundle(timelineId);
+    if (exported.document.id !== timelineId || exported.document.isTemporary || exported.document.archivedAt) {
+      throw new Error('当前 SQLite 已不可用于 AI 模式；未进入 AI 模式。');
+    }
+    const persistedCheckout = exported.checkoutRef;
+    if (!persistedCheckout || checkoutIdentity(persistedCheckout) !== checkoutIdentity(expectedCheckoutRef)) {
+      throw new Error('当前 checkout 已变化；未进入 AI 模式。');
+    }
+    const payload = persistedCheckout.targetType === 'snapshot'
+      ? exported.snapshots.find((snapshot) => snapshot.id === persistedCheckout.targetId)?.payload
+      : exported.workNodes.find((node) => node.id === persistedCheckout.targetId)?.workingPayload;
+    if (!payload) {
+      throw new Error('当前 checkout payload 不存在；未进入 AI 模式。');
+    }
+    return { payload, checkoutRef: persistedCheckout };
+  }, []);
+
   const refreshWorkbenchAfterCheckout = useCallback(() => {
     // A native DEF OpenCode checkout changes data outside the normal pointer-driven
     // canvas flow. Re-mount the data-bound canvas/sandbox once after hydration so
@@ -726,8 +817,11 @@ export function CanvasBoard({
   }, [refreshActiveDocument]);
 
   useEffect(() => {
-    if (!isTimelineSessionReady || isCheckoutBootstrapStartedRef.current || loadedCharacters.length === 0) return;
-    isCheckoutBootstrapStartedRef.current = true;
+    if (!isTimelineSessionReady || loadedCharacters.length === 0) return;
+    const bootstrapIdentity = `${activeTimelineId}:${checkoutIdentity(activeCheckoutRef)}:${activeTimelineIsTemporary ? 'temporary' : 'formal'}`;
+    if (checkoutBootstrapIdentityRef.current === bootstrapIdentity) return;
+    checkoutBootstrapIdentityRef.current = bootstrapIdentity;
+    isCheckoutBootstrapPendingRef.current = true;
     if (activeTimelineIsTemporary) {
       // 临时 SQLite 的实时工作副本已由 user.sqlite 持久化。刷新或重启时
       // 不能用它创建时的空快照覆盖这份未保存的内容。
@@ -737,22 +831,24 @@ export function CanvasBoard({
     }
     void (async () => {
       try {
-        const repository = createTimelineRepositoryClient();
-        const checkoutRef = activeCheckoutRef;
-        if (!checkoutRef) return;
-        const exported = await repository.exportDocumentBundle(activeTimelineId);
-        const payload = checkoutRef.targetType === 'snapshot'
-          ? exported.snapshots.find((snapshot) => snapshot.id === checkoutRef.targetId)?.payload
-          : exported.workNodes.find((node) => node.id === checkoutRef.targetId)?.workingPayload;
-        if (payload) hydrateCheckoutRuntime(payload);
+        const { payload } = await readFormalCheckoutPayload(activeTimelineId, activeCheckoutRef);
+        const currentIdentity = activeTimelineIdentityRef.current;
+        if (currentIdentity.timelineId === activeTimelineId
+          && currentIdentity.checkout === checkoutIdentity(activeCheckoutRef)
+          && !currentIdentity.isTemporary) {
+          hydrateCheckoutRuntime(payload);
+        }
       } catch {
-        // A first-run document legitimately has no checkout to hydrate.
+        // A first-run document legitimately has no checkout to hydrate.  AI
+        // admission re-reads this state and refuses to mount until it does.
       } finally {
-        isCheckoutBootstrapPendingRef.current = false;
-        setCheckoutBootstrapRevision((revision) => revision + 1);
+        if (checkoutBootstrapIdentityRef.current === bootstrapIdentity) {
+          isCheckoutBootstrapPendingRef.current = false;
+          setCheckoutBootstrapRevision((revision) => revision + 1);
+        }
       }
     })();
-  }, [activeCheckoutRef, activeTimelineId, activeTimelineIsTemporary, hydrateCheckoutRuntime, isTimelineSessionReady, loadedCharacters.length]);
+  }, [activeCheckoutRef, activeTimelineId, activeTimelineIsTemporary, hydrateCheckoutRuntime, isTimelineSessionReady, loadedCharacters.length, readFormalCheckoutPayload]);
 
   const findCharacterForWorkbenchCommand = (command: Extract<MainWorkbenchCommand, { op: 'addSkillButton' | 'removeSkillButton' | 'addBuff' | 'removeBuff' | 'setOperatorWeapon' | 'setOperatorEquipment' | 'setOperatorConfig' }>) => {
     if ('characterId' in command && command.characterId) {
