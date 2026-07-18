@@ -38,7 +38,17 @@ const glossary = [
   ["Abort", ["Abort", "abort"], "错误恢复", "中止仍在运行的请求，并清理 Runtime 中未完成的执行现场。", "未结束的 Tool Part 会被标记为中断或错误，避免界面永远运行中。", "Abort 不是产品事务回滚，已经发生的副作用仍需核对。"],
   ["clientTurnId", ["clientTurnId"], "错误恢复", "客户端为一次 Turn 分配的稳定身份，用于查询是否已经被服务端接收。", "Prompt 响应不确定时，先查 Transcript 中是否已有该 Turn，再决定是否重发。", "它避免重复投递用户请求，不负责关联单个 Tool Call。"],
   ["Transcript", ["Transcript"], "错误恢复", "按顺序保存的会话消息、工具事件与结果记录。", "外部联调协议用它确认 Prompt 是否进入 Session，以及 Agent 最终做了什么。", "Transcript 是历史证据，不是当前产品状态。"],
-  ["Harness", ["Harness"], "DEF 概念", "把角色、规则、工作流、工具指南、知识路由和响应策略组合成的运行包。", "新 Session 绑定确定的 Harness 内容 hash，候选升级不会中途改变旧会话。", "它调整 Agent 的运行方式，不是重新训练模型权重。"]
+  ["Harness", ["Harness"], "DEF 概念", "把角色、规则、工作流、工具指南、知识路由和响应策略组合成的运行包。", "新 Session 绑定确定的 Harness 内容 hash，候选升级不会中途改变旧会话。", "它调整 Agent 的运行方式，不是重新训练模型权重。"],
+  ["State Machine", ["state machine", "State Machine"], "运行机制", "把系统可处于的阶段及允许迁移明确下来，避免只凭一个开关继续执行。", "DEF 用它约束 AI 模式进入、工具执行、超时核对与恢复的顺序。", "它不是一定要安装的库；也不是把所有层状态塞进一个枚举。"],
+  ["Token", ["token", "Token"], "权限", "由系统签发、可验证范围与有效期的临时通行证。", "DEF 分别用内部访问令牌、会话归属和批准通行证保护不同边界。", "这里的 Token 不是模型生成文字时消耗的 token。"],
+  ["Cache", ["cache", "Cache"], "运行机制", "为了更快读取而保留的可重新生成副本。", "DEF 的页面工作副本缓存正在显示和编辑的队伍，但正式依据仍是 SQLite 当前节点。", "缓存可以过期，不能承担数据身份或正式写入权限。"],
+  ["Cache Invalidation", ["cache invalidation", "Cache Invalidation"], "运行机制", "当缓存对应的数据身份改变时，明确让旧副本失效的规则。", "切换 timeline、当前节点或正式工作区状态后，DEF 必须重新从当前正式节点加载页面工作副本。", "它不是定时刷新，更不是用旧页面内容覆盖正式节点。"],
+  ["SSE", ["SSE"], "运行机制", "服务器持续向客户端推送事件的单向连接。", "DEF 用它传递 Workbench command 的开始、执行和完成等进度。", "进度消息不等于操作已经满足最终产品结果。"],
+  ["Reconciliation", ["reconciliation", "Reconciliation"], "错误恢复", "超时或中断后按准确身份继续查明最终状态的后续核对过程。", "DEF 依 commandId、会话归属、timeline 和节点版本核对迟到命令是否真的写出候选结果。", "它不是盲目重试，更不能把未确定状态说成零变化。"],
+  ["Working Projection", ["working projection", "Working Projection"], "DEF 概念", "React 页面内存中正在展示和编辑的队伍、技能、Buff 与配装。", "它必须与 SQLite 当前正式节点收敛后，AI 才能读取或修改同一棵工作树。", "它是页面工作副本，不是 SQLite 正式节点，也不是 AI 会话归属。"],
+  ["Session Binding", ["session binding", "Session Binding"], "DEF 概念", "AI 会话与一条正式 timeline 的不可漂移归属关系。", "它限制 AI 只能读取和操作所属正式工作区的 Work Node 树。", "它不是当前页面缓存，也不能在 session 存续期间静默改绑。"],
+  ["Throughput", ["throughput", "Throughput"], "运行机制", "单位时间内系统处理请求或命令的能力，以及高并发时的排队压力。", "DEF 更关心同一会话、同一 timeline 的迟到命令不会撞到用户的新操作。", "它不只是服务很多用户的性能指标，也关乎单个桌面会话的并发安全。"],
+  ["Sliding Window", ["sliding window", "Sliding Window"], "运行机制", "只统计最近一小段时间内事件的限流、去重或计数方法。", "DEF 可以按会话和 timeline 管理重复读取、重复批准和频繁 SSE 重连。", "它是并发保护手段，不替代正式节点、会话归属和权限校验。"]
 ].map(([term, aliases, kind, meaning, project, contrast]) => ({ term, aliases, kind, meaning, project, contrast }))
 
 const entryByAlias = new Map()

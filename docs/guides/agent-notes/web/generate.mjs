@@ -18,6 +18,7 @@ const pages = [
   ["05-def-and-opencode.md", "概念怎样落到 DEF"],
   ["06-state-persistence-recovery.md", "状态、持久化与恢复"],
   ["07-developer-skill.md", "开发者自己的 Skill"],
+  ["08-workbench-state-machine.md", "AI 进入 Workbench 以后，谁才算“当前”"],
 ]
 
 const escapeHtml = (value) =>
