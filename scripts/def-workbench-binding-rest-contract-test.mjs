@@ -10,6 +10,7 @@ const { createTimelineRepository } = require('../electron/timeline-repository.cj
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'def-workbench-rest-'));
 const port = 18100 + Math.floor(Math.random() * 500);
 const databasePath = path.join(root, 'timeline.sqlite');
+const internalToken = 'binding-rest-contract-native-host';
 const repository = createTimelineRepository({ databasePath });
 repository.ensureDocument({ id: 'formal-a', label: 'Formal A' });
 repository.ensureDocument({ id: 'formal-b', label: 'Formal B' });
@@ -28,6 +29,7 @@ const child = spawn(process.execPath, ['scripts/ai-cli-rest-server.mjs'], {
     TIMELINE_REPOSITORY_DB_PATH: databasePath,
     DATA_MANAGEMENT_RUNTIME_ROOT: path.join(root, 'data'),
     DEF_TOOL_GOVERNANCE_PATH: path.join(root, 'governance.json'),
+    DEF_INTERNAL_GOVERNANCE_TOKEN: internalToken,
   },
   stdio: 'ignore',
 });
@@ -48,7 +50,7 @@ async function waitForReady() {
 async function call(tool, input) {
   const { sessionId, ...toolInput } = input || {};
   const response = await fetch(`http://127.0.0.1:${port}/api/def-tools/call`, {
-    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ tool, input: toolInput, ...(sessionId ? { sessionId } : {}) }),
+    method: 'POST', headers: { 'content-type': 'application/json', 'x-def-internal-token': internalToken }, body: JSON.stringify({ tool, input: toolInput, ...(sessionId ? { sessionId } : {}) }),
   });
   return { status: response.status, body: await response.json() };
 }

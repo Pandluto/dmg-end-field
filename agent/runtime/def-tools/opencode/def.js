@@ -870,16 +870,50 @@ export const team_loadout_plan_revise = {
 }
 
 export const team_loadout_plan_apply = {
-  description: 'Apply one READY DefTeamLoadoutPlanV1 through a single native approval. The server applies its exact operator patches serially and reports PARTIAL or APPLIED only from postconditions.',
+  description: 'Prepare one complete child candidate C from the current checkout P, request one native approval for the exact P-to-C diff, then atomically apply C and move checkout once. Rejection discards the uncommitted candidate; partial team application is never a normal result.',
   args: { planHash: tool.schema.string().min(32).max(128) },
   async execute(args, context) {
     const prepared = await callDefTool('def.team.loadout.plan.apply.prepare', { planHash: args.planHash }, context)
     if (prepared.state !== 'READY') {
       return { title: 'DEF team loadout plan requires confirmation', output: JSON.stringify(prepared, null, 2), metadata: { family: 'def-team-loadout-plan', state: prepared.state } }
     }
-    await context.ask({ permission: 'def_team_loadout_plan_apply', patterns: prepared.approvalPatterns || [prepared.planHash], always: [], metadata: { action: 'Apply reviewed team loadout plan', planId: prepared.planId, planHash: prepared.planHash, checkout: prepared.checkout, diff: prepared.approvalDiff } })
-    const result = await callDefTool('def.team.loadout.plan.apply', { planHash: prepared.planHash }, context)
-    return { title: result.state === 'APPLIED' ? 'DEF team loadout plan applied' : 'DEF team loadout plan incomplete', output: JSON.stringify(result, null, 2), metadata: { family: 'def-team-loadout-plan', state: result.state, postcondition: result.postcondition?.pass === true } }
+    const candidateIdentity = {
+      candidateNodeId: prepared.candidateNodeId,
+      candidateRevision: prepared.candidateRevision,
+      candidateWorkingHash: prepared.candidateWorkingHash,
+      parentNodeId: prepared.parentNodeId,
+      parentRevision: prepared.parentRevision,
+      parentWorkingHash: prepared.parentWorkingHash,
+    }
+    try {
+      await context.ask({
+        permission: 'def_team_loadout_plan_apply',
+        patterns: prepared.approvalPatterns || [prepared.planHash, prepared.candidateWorkingHash],
+        always: [],
+        metadata: {
+          action: 'Apply one reviewed atomic team candidate',
+          sessionId: prepared.ownerSessionId,
+          sessionBindingId: prepared.sessionBindingId,
+          timelineId: prepared.timelineId,
+          axisBindingId: prepared.axisBindingId,
+          planId: prepared.planId,
+          planHash: prepared.planHash,
+          ...candidateIdentity,
+          diff: prepared.approvalDiff,
+        },
+      })
+    } catch (error) {
+      await callDefTool('def.team.loadout.plan.apply.discard', {
+        planHash: prepared.planHash,
+        ...candidateIdentity,
+      }, context).catch(() => {})
+      throw error
+    }
+    const result = await callDefTool('def.team.loadout.plan.apply', {
+      planHash: prepared.planHash,
+      ...candidateIdentity,
+    }, context)
+    return { title: result.state === 'APPLIED' ? 'DEF team loadout plan applied' : 'DEF team loadout plan requires reconciliation', output: JSON.stringify(result, null, 2), metadata: { family: 'def-team-loadout-plan', state: result.state, candidateNodeId: prepared.candidateNodeId, postcondition: result.postcondition?.pass === true } }
   },
 }
 
@@ -892,15 +926,18 @@ export const data_weapon = dataResource({
 
 export const data_equipment = dataResource({
   title: 'DEF equipment resource',
-  description: 'Resolve trusted DEF equipment and gear-set data by id, name, or query.',
+  description: 'Resolve DEF equipment and gear-set data. Each result explicitly says whether it came from the current Workbench selection or the public catalog; catalog candidates are not currently equipped items.',
   tool: 'def.equipment.resolve',
   input: ({ query }) => ({ query, limit: 12 }),
   transform: (result) => ({
+    scope: result.scope,
+    source: result.source,
     query: result.query,
     ambiguity: result.ambiguity,
     suggestedQuestion: result.suggestedQuestion,
     candidates: Array.isArray(result.candidates) ? result.candidates.slice(0, 12).map((item) => ({
       kind: item.kind,
+      scope: item.scope,
       source: item.source,
       characterName: item.characterName,
       slotKey: item.slotKey,

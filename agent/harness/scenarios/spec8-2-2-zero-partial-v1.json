@@ -1,0 +1,9 @@
+{
+  "id": "spec8-2-2-zero-partial-v1",
+  "version": 1,
+  "fixtureMode": "clone-current",
+  "requiresSnapshot": true,
+  "turns": [{ "userText": "全队都按方案配，遇到哪个人不行就整队别动。" }],
+  "verification": { "mustKeepState": true },
+  "expect": { "slot": "workflows", "candidateContains": "no child and no partial state" }
+}

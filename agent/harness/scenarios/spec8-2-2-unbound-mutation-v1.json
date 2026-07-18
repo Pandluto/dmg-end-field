@@ -1,0 +1,8 @@
+{
+  "id": "spec8-2-2-unbound-mutation-v1",
+  "version": 1,
+  "fixtureMode": "empty",
+  "turns": [{ "userText": "给当前第一个技能加个增伤 Buff。" }],
+  "verification": { "mustKeepState": true },
+  "expect": { "slot": "responsePolicy", "candidateContains": "refused before queue, snapshot, tree, or checkout mutation" }
+}

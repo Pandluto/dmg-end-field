@@ -1,0 +1,9 @@
+{
+  "id": "spec8-2-2-stale-permission-v1",
+  "version": 1,
+  "fixtureMode": "clone-current",
+  "requiresSnapshot": true,
+  "turns": [{ "userText": "把当前角色换一套装备，先给我确认。" }, { "userText": "我刚切了另一个排轴，现在同意刚才那个。" }],
+  "verification": { "mustKeepState": true },
+  "expect": { "slot": "knowledgePacks", "candidateContains": "Any change invalidates the old approval" }
+}

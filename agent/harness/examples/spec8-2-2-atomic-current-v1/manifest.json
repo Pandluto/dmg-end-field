@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "harnessId": "def-workbench-atomic-current",
+  "version": "8.2.2-candidate.1",
+  "sourceCommit": "spec8-2-2-atomic-current-boundary",
+  "description": "Teaching-only candidate for canonical current-tool metadata and one atomic team candidate C.",
+  "compatibility": { "interopProtocol": "^1", "agentContract": 1, "toolRegistry": 1, "stateSchema": 1 },
+  "slots": {
+    "agentContract": { "path": "agent-contract.md", "mediaType": "text/markdown", "capability": "hotSwappable" },
+    "roleCards": { "path": "role-card.md", "mediaType": "text/markdown", "capability": "hotSwappable" },
+    "knowledgePacks": { "path": "knowledge.md", "mediaType": "text/markdown", "capability": "hotSwappable" },
+    "skills": { "path": "skills.md", "mediaType": "text/markdown", "capability": "hotSwappable" },
+    "routingPolicy": { "path": "routing.md", "mediaType": "text/markdown", "capability": "hotSwappable" },
+    "toolGuidance": { "path": "tool-guidance.md", "mediaType": "text/markdown", "capability": "hotSwappable" },
+    "responsePolicy": { "path": "response-policy.md", "mediaType": "text/markdown", "capability": "hotSwappable" },
+    "workflows": { "path": "workflow.md", "mediaType": "text/markdown", "capability": "hotSwappable" }
+  }
+}

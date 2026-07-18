@@ -1,0 +1,8 @@
+{
+  "id": "spec8-2-2-public-only-v1",
+  "version": 1,
+  "fixtureMode": "empty",
+  "turns": [{ "userText": "目录里有哪些长息装备？这些是我现在穿的吗？" }],
+  "verification": { "mustKeepState": true },
+  "expect": { "slot": "responsePolicy", "candidateContains": "Distinguish public-catalog from current-selection" }
+}

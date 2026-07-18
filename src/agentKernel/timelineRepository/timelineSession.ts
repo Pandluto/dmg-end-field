@@ -5,6 +5,29 @@ import { createTimelineRepositoryClient } from './localTimelineClient';
 
 const ACTIVE_TIMELINE_DOCUMENT_KEY = 'dmg.active-timeline-document-id';
 
+type TimelineIdentityStorage = Pick<Storage, 'getItem' | 'setItem'>;
+
+export function readTimelineIdFromStorages(
+  sessionStorage: TimelineIdentityStorage | null,
+  localStorage: TimelineIdentityStorage | null,
+): string {
+  return sessionStorage?.getItem(ACTIVE_TIMELINE_DOCUMENT_KEY)?.trim()
+    || localStorage?.getItem(ACTIVE_TIMELINE_DOCUMENT_KEY)?.trim()
+    || DEFAULT_TIMELINE_ID;
+}
+
+export function persistTimelineIdToStorages(
+  timelineId: string,
+  sessionStorage: TimelineIdentityStorage | null,
+  localStorage: TimelineIdentityStorage | null,
+): void {
+  // The active SQLite workspace is tab-local runtime identity.  localStorage
+  // remains a last-opened fallback for a fresh tab, but must never let another
+  // Workbench tab overwrite this tab's active projection after reload.
+  sessionStorage?.setItem(ACTIVE_TIMELINE_DOCUMENT_KEY, timelineId);
+  localStorage?.setItem(ACTIVE_TIMELINE_DOCUMENT_KEY, timelineId);
+}
+
 export type TimelineSessionSnapshot = {
   activeTimelineId: string;
   activeTimelineLabel: string;
@@ -17,7 +40,12 @@ export type TimelineSessionSnapshot = {
 
 function readPersistedTimelineId(): string {
   if (typeof window === 'undefined') return DEFAULT_TIMELINE_ID;
-  return window.localStorage.getItem(ACTIVE_TIMELINE_DOCUMENT_KEY)?.trim() || DEFAULT_TIMELINE_ID;
+  return readTimelineIdFromStorages(window.sessionStorage, window.localStorage);
+}
+
+function persistTimelineId(timelineId: string): void {
+  if (typeof window === 'undefined') return;
+  persistTimelineIdToStorages(timelineId, window.sessionStorage, window.localStorage);
 }
 
 let snapshot: TimelineSessionSnapshot = {
@@ -56,9 +84,7 @@ export function activateTimelineSession(input: {
   if (input.checkoutRef && input.checkoutRef.timelineId !== input.document.id) {
     throw new Error('Timeline session checkout must belong to the active document.');
   }
-  if (typeof window !== 'undefined') {
-    window.localStorage.setItem(ACTIVE_TIMELINE_DOCUMENT_KEY, input.document.id);
-  }
+  persistTimelineId(input.document.id);
   return publish({
     activeTimelineId: input.document.id,
     activeTimelineLabel: input.document.label,
@@ -79,9 +105,7 @@ export function subscribeTimelineSession(listener: () => void): () => void {
 }
 
 export function setActiveTimelineDocument(document: Pick<TimelineDocument, 'id' | 'label'> & Partial<Pick<TimelineDocument, 'isTemporary'>>): TimelineSessionSnapshot {
-  if (typeof window !== 'undefined') {
-    window.localStorage.setItem(ACTIVE_TIMELINE_DOCUMENT_KEY, document.id);
-  }
+  persistTimelineId(document.id);
   return publish({
     activeTimelineId: document.id,
     activeTimelineLabel: document.label,
@@ -120,9 +144,7 @@ export function setTimelineSessionWorkingPayload(
 }
 
 export function resetActiveTimelineDocument(): TimelineSessionSnapshot {
-  if (typeof window !== 'undefined') {
-    window.localStorage.setItem(ACTIVE_TIMELINE_DOCUMENT_KEY, DEFAULT_TIMELINE_ID);
-  }
+  persistTimelineId(DEFAULT_TIMELINE_ID);
   return publish({
     activeTimelineId: DEFAULT_TIMELINE_ID,
     activeTimelineLabel: '主排轴',
@@ -139,7 +161,7 @@ export async function refreshTimelineSessionDocument(): Promise<TimelineSessionS
   const current = documents.find((document) => document.id === snapshot.activeTimelineId);
   if (current) {
     const checkoutRef = await repository.getCheckoutRef(current.id);
-    if (typeof window !== 'undefined') window.localStorage.setItem(ACTIVE_TIMELINE_DOCUMENT_KEY, current.id);
+    persistTimelineId(current.id);
     return publish({
       activeTimelineId: current.id,
       activeTimelineLabel: current.label,
@@ -152,7 +174,7 @@ export async function refreshTimelineSessionDocument(): Promise<TimelineSessionS
   const fallback = documents[0];
   if (fallback) {
     const checkoutRef = await repository.getCheckoutRef(fallback.id);
-    if (typeof window !== 'undefined') window.localStorage.setItem(ACTIVE_TIMELINE_DOCUMENT_KEY, fallback.id);
+    persistTimelineId(fallback.id);
     return publish({
       activeTimelineId: fallback.id,
       activeTimelineLabel: fallback.label,

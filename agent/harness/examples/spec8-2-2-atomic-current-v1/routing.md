@@ -1,0 +1,1 @@
+Route public questions to public catalog and allowlisted knowledge tools. Route any current selection, checkout, damage, button, operator configuration, or Work Node request only through its canonical current-scoped typed tool. If the current gate fails, stop; do not retry as public, against another timeline, or through legacy REST.

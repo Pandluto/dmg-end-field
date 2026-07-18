@@ -1,4 +1,5 @@
 const crypto = require('crypto');
+const defInternalGovernanceToken = crypto.randomUUID();
 const fs = require('fs');
 const http = require('http');
 const https = require('https');
@@ -3527,6 +3528,7 @@ async function startAiCliRest() {
       DATA_MANAGEMENT_RUNTIME_ROOT: getRuntimeDataRoot(),
       DEF_TOOL_GOVERNANCE_PATH: path.join(getLocalDataDirectory(), 'def-tool-governance.json'),
       DEF_AGENT_SCRIPT_DIR: path.join(runtimeRoot, 'def-agent', 'scripts'),
+      DEF_INTERNAL_GOVERNANCE_TOKEN: defInternalGovernanceToken,
     }),
     stdio: 'ignore',
     detached: false,
@@ -3607,6 +3609,7 @@ async function startDefAgent() {
     cwd: getNodeSidecarCwd(),
     env: buildNodeSidecarEnv({
       DEF_AGENT_PORT: '17322',
+      DEF_INTERNAL_GOVERNANCE_TOKEN: defInternalGovernanceToken,
     }),
     stdio: 'ignore',
     detached: false,

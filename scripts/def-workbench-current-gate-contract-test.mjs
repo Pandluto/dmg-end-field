@@ -10,6 +10,7 @@ const { createTimelineRepository } = require('../electron/timeline-repository.cj
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'def-workbench-current-gate-'));
 const port = 18300 + Math.floor(Math.random() * 400);
 const databasePath = path.join(root, 'timeline.sqlite');
+const internalToken = 'current-gate-contract-native-host';
 const repository = createTimelineRepository({ databasePath });
 const payload = {
   selectedCharacters: [],
@@ -21,10 +22,11 @@ const payload = {
 };
 
 function seedTimeline(id, nodeId) {
+  const seededPayload = { ...payload, selectedCharacters: [`operator-${id.endsWith('-b') ? 'b' : 'a'}`] };
   repository.ensureDocument({ id, label: id });
   repository.importWorkNode({
     id: nodeId, timelineId: id, branchId: `${id}-main`, label: `${id} parent`,
-    status: 'ready', approvalPolicy: 'manual', basePayload: payload, workingPayload: payload,
+    status: 'ready', approvalPolicy: 'manual', basePayload: seededPayload, workingPayload: seededPayload,
     contentRevision: 100,
   });
   repository.setCheckoutRef({ timelineId: id, targetType: 'work-node', targetId: nodeId, updatedAt: 100 });
@@ -47,6 +49,7 @@ const child = spawn(process.execPath, ['scripts/ai-cli-rest-server.mjs'], {
     TIMELINE_REPOSITORY_DB_PATH: databasePath,
     DATA_MANAGEMENT_RUNTIME_ROOT: path.join(root, 'data'),
     DEF_TOOL_GOVERNANCE_PATH: path.join(root, 'governance.json'),
+    DEF_INTERNAL_GOVERNANCE_TOKEN: internalToken,
   },
   stdio: 'ignore',
 });
@@ -65,7 +68,7 @@ async function waitForReady() {
 
 async function request(pathname, body) {
   const response = await fetch(`http://127.0.0.1:${port}${pathname}`, {
-    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
+    method: 'POST', headers: { 'content-type': 'application/json', 'x-def-internal-token': internalToken }, body: JSON.stringify(body),
   });
   return { status: response.status, body: await response.json() };
 }

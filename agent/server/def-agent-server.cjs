@@ -1,6 +1,7 @@
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 const { spawn } = require('child_process');
 const { DatabaseSync } = require('node:sqlite');
 const {
@@ -40,6 +41,9 @@ const questionStorePath = path.join(projectRoot, '.runtime', 'def-agent', 'quest
 const OPENCODE_ACTION_TIMEOUT_MS = 5000;
 const startedAt = Date.now();
 const defRestUrl = process.env.DEF_REST_BASE_URL || 'http://127.0.0.1:17321';
+const defInternalGovernanceToken = typeof process.env.DEF_INTERNAL_GOVERNANCE_TOKEN === 'string' && process.env.DEF_INTERNAL_GOVERNANCE_TOKEN.trim()
+  ? process.env.DEF_INTERNAL_GOVERNANCE_TOKEN.trim()
+  : crypto.randomUUID();
 const DEF_WORKBENCH_MARK_SVG = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect x="4" y="4" width="24" height="24" fill="none" stroke="#111" stroke-width="1.5"/><path d="M10 10h12M10 16h8M10 22h12M20 13v6l3-3z" fill="none" stroke="#111" stroke-width="1.5" stroke-linecap="square" stroke-linejoin="miter"/></svg>';
 const DEF_WORKBENCH_MARK_DATA_URL = `data:image/svg+xml,${encodeURIComponent(DEF_WORKBENCH_MARK_SVG)}`;
 let defRestProcess = null;
@@ -63,7 +67,7 @@ async function ensureDefRestService() {
   if (!defRestProcess || defRestProcess.exitCode !== null) {
     defRestProcess = spawn(process.execPath, [path.join(projectRoot, 'scripts', 'ai-cli-rest-server.mjs')], {
       cwd: projectRoot,
-      env: { ...process.env, DEF_REST_BASE_URL: defRestUrl },
+      env: { ...process.env, DEF_REST_BASE_URL: defRestUrl, DEF_INTERNAL_GOVERNANCE_TOKEN: defInternalGovernanceToken },
       stdio: ['ignore', 'ignore', 'ignore'],
       windowsHide: true,
     });
@@ -922,7 +926,7 @@ async function syncNativeWorkbenchAxisBinding(binding) {
   await ensureDefRestService();
   const response = await fetch(`${defRestUrl}/api/def-tools/call`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: { 'content-type': 'application/json', 'x-def-internal-token': defInternalGovernanceToken },
     body: JSON.stringify({
       tool: 'def.workbench.bind_session_axis',
       input: {
@@ -937,11 +941,11 @@ async function syncNativeWorkbenchAxisBinding(binding) {
   });
   const payload = await response.json().catch(() => null);
   if (!response.ok || payload?.ok !== true || payload?.result?.ok === false) {
-    throw new Error(payload?.result?.message || payload?.message || 'native-session-axis-binding-failed');
+    throw new Error(payload?.result?.message || payload?.error?.message || payload?.message || 'native-session-axis-binding-failed');
   }
   const assertion = await fetch(`${defRestUrl}/api/def-tools/call`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: { 'content-type': 'application/json', 'x-def-internal-token': defInternalGovernanceToken },
     body: JSON.stringify({
       tool: 'def.workbench.assert_session_axis',
       input: { sessionBindingId: current.axisBindingId, sessionID: current.sessionID, host: 'workbench', timelineId: current.timelineId },
@@ -950,8 +954,8 @@ async function syncNativeWorkbenchAxisBinding(binding) {
   });
   const assertionPayload = await assertion.json().catch(() => null);
   if (!assertion.ok || assertionPayload?.ok !== true || assertionPayload?.result?.ok === false) {
-    const error = new Error(assertionPayload?.result?.message || assertionPayload?.message || assertionPayload?.error || 'native-session-binding-stale');
-    error.code = assertionPayload?.result?.code || assertionPayload?.code || 'BLOCKED_BINDING_STALE';
+    const error = new Error(assertionPayload?.result?.message || assertionPayload?.error?.message || assertionPayload?.message || 'native-session-binding-stale');
+    error.code = assertionPayload?.result?.code || assertionPayload?.error?.code || assertionPayload?.code || 'BLOCKED_BINDING_STALE';
     throw error;
   }
   const axisContext = payload.result.context || null;
@@ -978,14 +982,14 @@ async function assertWorkbenchTimelineAdmission(timelineId) {
   await ensureDefRestService();
   const response = await fetch(`${defRestUrl}/api/def-tools/call`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: { 'content-type': 'application/json', 'x-def-internal-token': defInternalGovernanceToken },
     body: JSON.stringify({ tool: 'def.workbench.assert_timeline_admission', input: { timelineId: timelineId.trim() } }),
     signal: AbortSignal.timeout(5000),
   });
   const payload = await response.json().catch(() => null);
   if (!response.ok || payload?.ok !== true || payload?.result?.ok === false) {
-    const error = new Error(payload?.result?.message || payload?.message || payload?.error || 'workbench-timeline-admission-failed');
-    error.code = payload?.result?.code || payload?.code || 'BLOCKED_BINDING';
+    const error = new Error(payload?.result?.message || payload?.error?.message || payload?.message || 'workbench-timeline-admission-failed');
+    error.code = payload?.result?.code || payload?.error?.code || payload?.code || 'BLOCKED_BINDING';
     throw error;
   }
   return payload.result.document;
@@ -996,8 +1000,8 @@ async function removeNativeWorkbenchAxisBinding(binding) {
   await ensureDefRestService();
   await fetch(`${defRestUrl}/api/def-tools/call`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ tool: 'def.workbench.unbind_session_axis', input: { sessionBindingId: binding.axisBindingId } }),
+    headers: { 'content-type': 'application/json', 'x-def-internal-token': defInternalGovernanceToken },
+    body: JSON.stringify({ tool: 'def.workbench.unbind_session_axis', input: { sessionBindingId: binding.axisBindingId, sessionID: binding.sessionID } }),
     signal: AbortSignal.timeout(5000),
   }).catch(() => undefined);
 }

@@ -1,0 +1,9 @@
+{
+  "id": "spec8-2-2-single-team-c-v1",
+  "version": 1,
+  "fixtureMode": "clone-current",
+  "requiresSnapshot": true,
+  "turns": [{ "userText": "按刚读的攻略给全队配装，先让我确认完整方案。" }],
+  "verification": { "mustKeepState": true },
+  "expect": { "slot": "toolGuidance", "candidateContains": "one complete child C" }
+}

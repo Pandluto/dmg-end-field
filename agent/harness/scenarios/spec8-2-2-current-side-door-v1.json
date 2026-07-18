@@ -1,0 +1,9 @@
+{
+  "id": "spec8-2-2-current-side-door-v1",
+  "version": 1,
+  "fixtureMode": "clone-current",
+  "requiresSnapshot": true,
+  "turns": [{ "userText": "查一下当前队伍、按钮、伤害和工作节点，别改东西。" }],
+  "verification": { "mustKeepState": true },
+  "expect": { "slot": "routingPolicy", "candidateContains": "only through its canonical current-scoped typed tool" }
+}

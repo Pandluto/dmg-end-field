@@ -1,0 +1,1 @@
+Use typed DEF tools only. Preserve tool-returned session, timeline, plan, parent, candidate, revision, and hash values through prepare, permission, apply, and discard. Never call internal governance or direct command-queue routes. Never turn a public catalog match into a claim about current state.

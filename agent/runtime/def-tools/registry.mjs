@@ -4,6 +4,131 @@ export const DEF_TOOL_FAMILY = Object.freeze({
   DATA_RESOURCE: 'def-data-resource',
 });
 
+export const DEF_WORKSPACE_SCOPE = Object.freeze({
+  PUBLIC: 'public',
+  SESSION_PRIVATE: 'session-private',
+  WORKBENCH_CURRENT: 'workbench-current',
+  WORKNODE_TREE: 'worknode-tree',
+  INTERNAL_GOVERNANCE: 'internal-governance',
+});
+
+export const DEF_PROJECTION_ACCESS = Object.freeze({
+  NONE: 'none',
+  PUBLIC_ONLY: 'public-only',
+  MIXED_CURRENT_PUBLIC: 'mixed-current-public',
+  CURRENT_READ: 'current-read',
+  CURRENT_WRITE: 'current-write',
+});
+
+const INTERNAL_GOVERNANCE_TOOLS = new Set([
+  'def.workbench.bind_session_axis',
+  'def.workbench.unbind_session_axis',
+  'def.workbench.assert_session_axis',
+  'def.workbench.assert_timeline_admission',
+]);
+
+const PUBLIC_TOOLS = new Set([
+  'def.tool.list',
+  'def.tool.describe',
+  'def.operator.catalog.search',
+  'def.knowledge.game.search',
+  'def.knowledge.game.section.read',
+  'def.weapon.resolve',
+]);
+
+const SESSION_PRIVATE_TOOLS = new Set([
+  'def.user.ask',
+  'def.user.record_answer',
+  'def.approval.request',
+  'def.approval.record_decision',
+  'def.team.loadout.plan.remember_guide',
+]);
+
+const PRIVATE_CURRENT_CONTINUATIONS = new Set([
+  'def.operator.config.prepare',
+  'def.operator.config.apply_prepared',
+  'def.operator.config.discard_prepared',
+  'def.team.loadout.plan.apply.prepare',
+  'def.team.loadout.plan.apply.discard',
+]);
+
+const MIXED_CURRENT_PUBLIC_TOOLS = new Set([
+  'def.buff.resolve',
+  'def.buff.search_candidates',
+  'def.equipment.resolve',
+  'def.gear.resolve',
+]);
+
+export function resolveDefToolAccessPolicy(name, tool = {}) {
+  if (INTERNAL_GOVERNANCE_TOOLS.has(name)) {
+    return Object.freeze({
+      workspaceScope: DEF_WORKSPACE_SCOPE.INTERNAL_GOVERNANCE,
+      projectionAccess: DEF_PROJECTION_ACCESS.NONE,
+      allowedHosts: [],
+      exposure: [],
+      requiresCheckout: false,
+      internalOnly: true,
+    });
+  }
+  if (PUBLIC_TOOLS.has(name)) {
+    return Object.freeze({
+      workspaceScope: DEF_WORKSPACE_SCOPE.PUBLIC,
+      projectionAccess: DEF_PROJECTION_ACCESS.PUBLIC_ONLY,
+      allowedHosts: ['workbench', 'ai-cli'],
+      exposure: ['workbench', 'ai-cli'],
+      requiresCheckout: false,
+      internalOnly: false,
+    });
+  }
+  if (SESSION_PRIVATE_TOOLS.has(name)) {
+    return Object.freeze({
+      workspaceScope: DEF_WORKSPACE_SCOPE.SESSION_PRIVATE,
+      projectionAccess: DEF_PROJECTION_ACCESS.NONE,
+      allowedHosts: ['workbench', 'ai-cli'],
+      exposure: ['workbench', 'ai-cli'],
+      requiresCheckout: false,
+      internalOnly: false,
+    });
+  }
+  if (MIXED_CURRENT_PUBLIC_TOOLS.has(name)) {
+    return Object.freeze({
+      workspaceScope: DEF_WORKSPACE_SCOPE.WORKBENCH_CURRENT,
+      projectionAccess: DEF_PROJECTION_ACCESS.MIXED_CURRENT_PUBLIC,
+      allowedHosts: ['workbench', 'ai-cli'],
+      exposure: ['workbench', 'ai-cli'],
+      requiresCheckout: false,
+      internalOnly: false,
+    });
+  }
+  const workNodeTree = tool.scope === 'appdata-work-node'
+    || name.startsWith('def.worknode.')
+    || NODE_CODE_TOOLS.has(name);
+  if (workNodeTree) {
+    return Object.freeze({
+      workspaceScope: DEF_WORKSPACE_SCOPE.WORKNODE_TREE,
+      projectionAccess: tool.riskLevel === 'read' ? DEF_PROJECTION_ACCESS.CURRENT_READ : DEF_PROJECTION_ACCESS.CURRENT_WRITE,
+      allowedHosts: ['workbench'],
+      exposure: ['workbench'],
+      requiresCheckout: true,
+      internalOnly: false,
+    });
+  }
+  const privateCurrentWrite = PRIVATE_CURRENT_CONTINUATIONS.has(name);
+  const currentWrite = tool.scope === 'current-checkout'
+    || Boolean(tool.commandOp)
+    || privateCurrentWrite;
+  return Object.freeze({
+    workspaceScope: DEF_WORKSPACE_SCOPE.WORKBENCH_CURRENT,
+    projectionAccess: privateCurrentWrite || (currentWrite && tool.riskLevel !== 'read')
+      ? DEF_PROJECTION_ACCESS.CURRENT_WRITE
+      : DEF_PROJECTION_ACCESS.CURRENT_READ,
+    allowedHosts: ['workbench'],
+    exposure: ['workbench'],
+    requiresCheckout: currentWrite,
+    internalOnly: false,
+  });
+}
+
 const NODE_CODE_TOOLS = new Set([
   'def.buff.add_to_buttons',
   'def.worknode.patch',
@@ -137,6 +262,7 @@ function migrationStatus(tool, canonicalTarget) {
 export function createDefToolRegistry(definitions) {
   const records = definitions.map((tool) => {
     const canonicalTarget = defaultCanonicalTarget(tool);
+    const access = resolveDefToolAccessPolicy(tool.name, tool);
     return Object.freeze({
       ...tool,
       id: tool.name,
@@ -144,14 +270,7 @@ export function createDefToolRegistry(definitions) {
       source: 'legacy-adapter',
       schema: tool.inputSchema || { type: 'object' },
       handler: `executeDefTool:${tool.name}`,
-      workspaceScope: tool.scope === 'appdata-work-node'
-        ? 'node-store'
-        : tool.scope === 'current-checkout'
-          ? 'current-checkout'
-          : familyFor(tool.name) === DEF_TOOL_FAMILY.DATA_RESOURCE
-            ? 'data-resource'
-            : 'node-store',
-      exposure: ['workbench', 'ai-cli'],
+      ...access,
       canonicalTarget,
       legacyAliases: [tool.name],
       legacyRoutes: [
@@ -177,7 +296,15 @@ export function assertDefToolRegistry(records) {
     if (!record.handler && !record.nativeBinding) errors.push(`tool without handler/native binding: ${record.id}`);
     if (!record.schema) errors.push(`tool without schema: ${record.id}`);
     if (!Array.isArray(record.legacyAliases) || record.legacyAliases.length === 0) errors.push(`tool without legacy alias: ${record.id}`);
+    if (!Object.values(DEF_WORKSPACE_SCOPE).includes(record.workspaceScope)) errors.push(`tool without valid workspace scope: ${record.id}`);
+    if (!Object.values(DEF_PROJECTION_ACCESS).includes(record.projectionAccess)) errors.push(`tool without valid projection access: ${record.id}`);
+    if (!Array.isArray(record.allowedHosts) || record.allowedHosts.some((host) => !['workbench', 'ai-cli'].includes(host))) errors.push(`tool with invalid allowed hosts: ${record.id}`);
     if (!Array.isArray(record.exposure) || record.exposure.some((host) => !['workbench', 'ai-cli'].includes(host))) errors.push(`tool with invalid exposure: ${record.id}`);
+    if ((record.projectionAccess === DEF_PROJECTION_ACCESS.CURRENT_READ || record.projectionAccess === DEF_PROJECTION_ACCESS.CURRENT_WRITE)
+      && record.workspaceScope !== DEF_WORKSPACE_SCOPE.WORKBENCH_CURRENT
+      && record.workspaceScope !== DEF_WORKSPACE_SCOPE.WORKNODE_TREE) errors.push(`current projection tool without current/tree scope: ${record.id}`);
+    if (record.commandOp && record.riskLevel !== 'read' && record.projectionAccess !== DEF_PROJECTION_ACCESS.CURRENT_WRITE) errors.push(`mutation command tool without current-write access: ${record.id}`);
+    if (record.internalOnly && record.exposure.length) errors.push(`internal tool exposed to model hosts: ${record.id}`);
     if (record.status === 'implemented' && !record.description) errors.push(`implemented tool without description: ${record.id}`);
   }
   if (errors.length) throw new Error(`Invalid DEF tool registry:\n${errors.join('\n')}`);
@@ -189,7 +316,7 @@ export function buildDefToolRouteMap(records) {
   const families = Object.values(DEF_TOOL_FAMILY).map((family) => ({
     id: family,
     legacyTools: records
-      .filter((tool) => tool.family === family)
+      .filter((tool) => tool.family === family && tool.exposure.length > 0)
       .map((tool) => ({
         id: tool.id,
         description: tool.description,
@@ -197,6 +324,9 @@ export function buildDefToolRouteMap(records) {
         schema: tool.schema,
         handler: tool.handler,
         workspaceScope: tool.workspaceScope,
+        projectionAccess: tool.projectionAccess,
+        allowedHosts: tool.allowedHosts,
+        requiresCheckout: tool.requiresCheckout,
         riskLevel: tool.riskLevel,
         approval: tool.approval,
         verification: tool.verification,
@@ -214,6 +344,8 @@ export function buildDefToolRouteMap(records) {
     diagnostics: {
       ok: true,
       legacyToolCount: records.length,
+      modelExposedLegacyToolCount: records.filter((tool) => tool.exposure.length > 0).length,
+      internalToolCount: records.filter((tool) => tool.internalOnly).length,
       nativeTargetCount: DEF_NATIVE_TARGETS.length,
       unclassified: [],
     },

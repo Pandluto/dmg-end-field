@@ -15,8 +15,12 @@ import { buildAiTimelineCheckoutDecision } from '../src/agentKernel/timelineWork
 import {
   buildDefToolRouteMap,
   createDefToolRegistry,
+  DEF_PROJECTION_ACCESS,
+  DEF_WORKSPACE_SCOPE,
+  resolveDefToolAccessPolicy,
 } from '../agent/runtime/def-tools/registry.mjs';
 import { DEF_TOOL_DEFINITION_BASE } from '../agent/runtime/def-tools/definitions.mjs';
+import { matchesAtomicTeamCandidateCapability, prepareAtomicTeamCandidate } from '../agent/runtime/def-tools/atomic-team-candidate.mjs';
 import {
   computeDefNodeSourceRisk,
   hashDefNodeValue,
@@ -63,6 +67,11 @@ const SCRIPT_MAX_STDERR = 64 * 1024;
 const MAIN_WORKBENCH_COMMAND_QUEUE_KEY = 'def.main-workbench.command-queue.v1';
 const MAIN_WORKBENCH_RESULT_LOG_KEY = 'def.main-workbench.result-log.v1';
 const MAIN_WORKBENCH_SNAPSHOT_KEY = 'def.main-workbench.snapshot.v1';
+const MAIN_WORKBENCH_TRANSIENT_STORAGE_KEYS = new Set([
+  MAIN_WORKBENCH_COMMAND_QUEUE_KEY,
+  MAIN_WORKBENCH_RESULT_LOG_KEY,
+  MAIN_WORKBENCH_SNAPSHOT_KEY,
+]);
 const EQUIPMENT_LIBRARY_STORAGE_KEY = 'def.equipment-sheet.library.v1';
 const OPERATOR_CATALOG_STORAGE_KEY = 'def.operator-editor.library.v1';
 const WEAPON_LIBRARY_STORAGE_KEY = 'def.weapon-sheet.library.v1';
@@ -85,6 +94,9 @@ const PREPARED_TEAM_LOADOUT_TTL_MS = 15 * 60 * 1000;
 // cannot turn into a spurious plan-not-found race.  The reservation is still
 // session-bound, sidecar-ephemeral, and consumed by the first apply attempt.
 const PREPARED_TEAM_LOADOUT_APPROVAL_GRACE_MS = 4 * 60 * 60 * 1000;
+const defInternalGovernanceToken = typeof process.env.DEF_INTERNAL_GOVERNANCE_TOKEN === 'string'
+  ? process.env.DEF_INTERNAL_GOVERNANCE_TOKEN.trim()
+  : '';
 
 function hashDefLoadoutPlan(value) {
   return createHash('sha256').update(JSON.stringify(value)).digest('hex');
@@ -157,6 +169,7 @@ class NowStorageLocalStorage {
     this.fallback = new FileStorage(fallbackFilePath);
     this.archiveFingerprint = null;
     this.archive = this.readArchive();
+    this.transient = new Map();
   }
 
   fingerprint() {
@@ -231,6 +244,9 @@ class NowStorageLocalStorage {
   }
 
   getItem(key) {
+    if (MAIN_WORKBENCH_TRANSIENT_STORAGE_KEYS.has(key) && this.transient.has(key)) {
+      return this.transient.get(key);
+    }
     this.refresh();
     if (!this.archive) {
       return this.fallback.getItem(key);
@@ -252,6 +268,10 @@ class NowStorageLocalStorage {
   }
 
   setItem(key, value) {
+    if (MAIN_WORKBENCH_TRANSIENT_STORAGE_KEYS.has(key)) {
+      this.transient.set(key, String(value));
+      return;
+    }
     this.refresh();
     const archive = this.ensureArchive();
     try {
@@ -264,6 +284,10 @@ class NowStorageLocalStorage {
   }
 
   removeItem(key) {
+    if (MAIN_WORKBENCH_TRANSIENT_STORAGE_KEYS.has(key)) {
+      this.transient.delete(key);
+      return;
+    }
     if (!this.archive) {
       this.fallback.removeItem(key);
       return;
@@ -1261,6 +1285,9 @@ function resolveCanonicalWorkbenchCurrent(input = {}, { nodeId = '' } = {}) {
     if (!checkoutNode || checkoutNode.timelineId !== session.binding.timelineId) {
       return workbenchBindingFailure('blocked-session-mismatch', 'The current checkout is outside this DEF session workspace.');
     }
+    if (!workbenchProjectionMatchesCheckout(snapshot, checkoutNode.workingPayload)) {
+      return workbenchBindingFailure('blocked-session-mismatch', 'The current Workbench payload does not match the authenticated checkout projection.');
+    }
   }
   return {
     ok: true,
@@ -1275,6 +1302,51 @@ function resolveCanonicalWorkbenchCurrent(input = {}, { nodeId = '' } = {}) {
       ? Number(getTimelineRepository().getWorkNode(checkout.targetId)?.contentRevision || 0) || null
       : null,
   };
+}
+
+function sortedStrings(values = []) {
+  return values.map((value) => String(value || '').trim()).filter(Boolean).sort();
+}
+
+function sameStrings(left = [], right = []) {
+  return JSON.stringify(sortedStrings(left)) === JSON.stringify(sortedStrings(right));
+}
+
+function workbenchProjectionMatchesCheckout(snapshot, workingPayload) {
+  if (!isObject(snapshot) || !isObject(workingPayload)) return false;
+  const selectedIds = (Array.isArray(snapshot.selectedCharacters) ? snapshot.selectedCharacters : [])
+    .map((character) => character?.id || character?.name);
+  if (!sameStrings(selectedIds, Array.isArray(workingPayload.selectedCharacters) ? workingPayload.selectedCharacters : [])) return false;
+
+  const expectedButtons = isObject(workingPayload.skillButtonTable) ? workingPayload.skillButtonTable : {};
+  const projectedButtons = Array.isArray(snapshot.skillButtons) ? snapshot.skillButtons : [];
+  if (!sameStrings(projectedButtons.map((button) => button?.id), Object.keys(expectedButtons))) return false;
+  for (const button of projectedButtons) {
+    const expected = expectedButtons[button?.id];
+    if (!expected
+      || String(button?.characterId || button?.characterName || '') !== String(expected.characterId || expected.characterName || '')
+      || String(button?.skillType || '') !== String(expected.skillType || '')
+      || !sameStrings(button?.selectedBuffIds || [], expected.selectedBuff || [])) return false;
+  }
+
+  const expectedConfigs = isObject(workingPayload.operatorConfigPageCache) ? workingPayload.operatorConfigPageCache : {};
+  const projectedConfigs = Array.isArray(snapshot.operatorConfigs) ? snapshot.operatorConfigs : [];
+  const expectedConfigIds = selectedIds.filter((id) => isObject(expectedConfigs[id]));
+  if (!sameStrings(projectedConfigs.map((config) => config?.characterId), expectedConfigIds)) return false;
+  for (const config of projectedConfigs) {
+    const expected = expectedConfigs[config?.characterId];
+    const expectedWeapon = expected?.weapon;
+    const projectedWeapon = config?.weapon;
+    if (!isObject(expectedWeapon) || !isObject(projectedWeapon)
+      || String(projectedWeapon.id || projectedWeapon.name || '') !== String(expectedWeapon.id || expectedWeapon.name || '')
+      || String(projectedWeapon.level ?? '') !== String(expectedWeapon.config?.level ?? '')
+      || String(projectedWeapon.potential ?? '') !== String(expectedWeapon.config?.potential ?? '')) return false;
+    const projectedPieces = Array.isArray(config.equipment) ? config.equipment : [];
+    const expectedPieces = Array.isArray(expected?.equipment?.pieces) ? expected.equipment.pieces : [];
+    const pieceIdentity = (piece) => `${String(piece?.slotKey || '')}:${String(piece?.equipmentId || piece?.id || '')}`;
+    if (!sameStrings(projectedPieces.map(pieceIdentity), expectedPieces.map(pieceIdentity))) return false;
+  }
+  return true;
 }
 
 function normalizeWorkNodeDescription(value) {
@@ -3309,7 +3381,35 @@ function reviseDefTeamLoadoutPlan(input = {}) {
   });
 }
 
-function prepareDefTeamLoadoutPlanApply(input = {}) {
+function teamCandidatePresentation(plan) {
+  const candidate = plan.preparedCandidate;
+  const approvalPatterns = [
+    `团队计划: ${plan.planId}`, `Plan hash: ${plan.planHash}`, `来源: ${plan.sourceReferenceId} / ${plan.sourceSectionId} / ${plan.sourceContentHash}`,
+    `Parent: ${candidate.parentNodeId} @ r${candidate.parentRevision}`,
+    `Candidate: ${candidate.nodeId} @ r${candidate.nodeRevision} / ${candidate.workingHash}`,
+    ...plan.operators.flatMap((operator) => [
+      `干员: ${operator.characterName} (${operator.characterId})`,
+      `武器: ${operator.weapon?.name || '未变更/无'} · Lv${operator.weapon?.level ?? '-'}`,
+      ...operator.equipment.map((piece) => `${piece.slotKey}: ${piece.name} (${piece.equipmentId}) · ${piece.gearSetName}`),
+      `3+1: ${operator.threePlusOne?.composition?.map((entry) => `${entry.gearSetId}×${entry.count}`).join(' + ') || '无'}`,
+      `终结技充能效率: ${operator.derived?.ultimateChargeEfficiency?.total ?? '-'}%`,
+    ]),
+    ...plan.confirmedDecisions.map((decision) => `已确认偏差: ${decision.message} → ${decision.optionLabel || decision.optionId}`),
+  ];
+  return {
+    ...plan,
+    candidateNodeId: candidate.nodeId,
+    candidateRevision: candidate.nodeRevision,
+    candidateWorkingHash: candidate.workingHash,
+    parentNodeId: candidate.parentNodeId,
+    parentRevision: candidate.parentRevision,
+    parentWorkingHash: candidate.parentWorkingHash,
+    approvalPatterns,
+    approvalDiff: candidate.diff,
+  };
+}
+
+async function prepareDefTeamLoadoutPlanApply(input = {}) {
   const gate = input.__defCurrentGate || resolveCanonicalWorkbenchCurrent(input);
   if (!gate.ok) return { ok: false, code: gate.code, state: 'BLOCKED', component: 'team-loadout-plan', message: gate.message };
   const sessionId = typeof input.__defSessionId === 'string' ? input.__defSessionId.trim() : '';
@@ -3322,46 +3422,215 @@ function prepareDefTeamLoadoutPlanApply(input = {}) {
   if (plan.timelineId !== gate.binding.timelineId || plan.axisBindingId !== gate.binding.id
     || !defPlanCheckoutMatches(plan.checkoutBinding, gate)) return { ok: false, code: 'team-loadout-checkout-changed', state: 'BLOCKED', component: 'team-loadout-plan', message: 'Checkout target, revision, or workspace changed after planning; no apply was started.' };
   if (plan.state !== 'READY') return { ...plan, ok: true, approvalPatterns: [], nextAction: plan.nextAction };
-  if (!plan.usedAt && Number(plan.approvalExpiresAt) <= Date.now()) {
-    plan.approvalReservedAt = Date.now();
-    plan.approvalExpiresAt = plan.approvalReservedAt + PREPARED_TEAM_LOADOUT_APPROVAL_GRACE_MS;
+  if (plan.preparedCandidate) {
+    const existing = readRepositoryWorkNode(plan.preparedCandidate.nodeId);
+    if (!existing || existing.timelineId !== plan.timelineId
+      || existing.parentNodeId !== plan.preparedCandidate.parentNodeId
+      || Number(existing.contentRevision || existing.updatedAt) !== plan.preparedCandidate.nodeRevision
+      || hashDefNodeValue(existing.workingPayload) !== plan.preparedCandidate.workingHash) {
+      return { ok: false, code: 'team-loadout-candidate-changed', state: 'BLOCKED', component: 'team-loadout-plan', message: 'The prepared team candidate changed; create a new plan.' };
+    }
+    return teamCandidatePresentation(plan);
   }
-  const approvalPatterns = [
-    `团队计划: ${plan.planId}`, `Plan hash: ${plan.planHash}`, `来源: ${plan.sourceReferenceId} / ${plan.sourceSectionId} / ${plan.sourceContentHash}`,
-    `Checkout: ${plan.checkout?.targetId || '-'} @ r${plan.checkout?.revision || '-'}`,
-    ...plan.operators.flatMap((operator) => [
-      `干员: ${operator.characterName} (${operator.characterId})`,
-      `武器: ${operator.weapon?.name || '未变更/无'} · Lv${operator.weapon?.level ?? '-'}`,
-      ...operator.equipment.map((piece) => `${piece.slotKey}: ${piece.name} (${piece.equipmentId}) · ${piece.gearSetName}`),
-      `3+1: ${operator.threePlusOne?.composition?.map((entry) => `${entry.gearSetId}×${entry.count}`).join(' + ') || '无'}`,
-      `终结技充能效率: ${operator.derived?.ultimateChargeEfficiency?.total ?? '-'}%`,
-    ]),
-    ...plan.confirmedDecisions.map((decision) => `已确认偏差: ${decision.message} → ${decision.optionLabel || decision.optionId}`),
-  ];
-  return { ...plan, approvalPatterns, approvalDiff: { operators: plan.operators, decisions: plan.decisions, derived: plan.operators.map((operator) => ({ characterId: operator.characterId, derived: operator.derived })) } };
+  const patches = plan.operators.map((operator) => operator.exactProduct?.patch).filter(Boolean);
+  if (patches.length !== plan.operators.length) {
+    return { ok: false, state: 'BLOCKED', code: 'team-loadout-patch-incomplete', planId: plan.planId, planHash: plan.planHash, nextAction: 'The reviewed plan does not contain one exact patch per operator; no candidate was created.' };
+  }
+  const parent = gate.checkoutNodeId ? readRepositoryWorkNode(gate.checkoutNodeId) : null;
+  const parentRevision = Number(parent?.contentRevision || parent?.updatedAt);
+  if (!parent || parent.timelineId !== gate.binding.timelineId || parent.id !== plan.checkoutBinding.targetId
+    || parentRevision !== Number(plan.checkoutBinding.revision)) {
+    return { ok: false, code: 'team-loadout-checkout-changed', state: 'BLOCKED', component: 'team-loadout-plan', message: 'The parent checkout changed before the team candidate was prepared.' };
+  }
+  const definition = getDefToolDefinition('def.operator.config.patch');
+  const atomic = await prepareAtomicTeamCandidate({
+    parentPayload: parent.workingPayload,
+    parentNodeId: parent.id,
+    parentRevision,
+    patches,
+    previewPatch: async (patch) => {
+      const planned = buildDefOperatorConfigPreviewCommand(patch);
+      if (!planned.ok) return planned;
+      const enqueued = enqueueDefToolCommands(definition, [{ op: 'previewOperatorConfig', request: planned.command }], input);
+      if (enqueued.status < 200 || enqueued.status >= 300 || !enqueued.body?.commands?.[0]) {
+        return { ok: false, code: 'team-loadout-preview-enqueue-failed' };
+      }
+      const verification = await buildDefToolCommandVerification(enqueued.body.commands[0], input.waitMs);
+      const preview = verification?.result?.result;
+      return {
+        ok: Boolean(verification.pass),
+        code: verification.pass ? 'previewed' : 'team-loadout-preview-failed',
+        parentNodeId: preview?.parentNodeId,
+        parentRevision: preview?.parentRevision,
+        preparedPayload: preview?.preparedPayload,
+        finalConfig: preview?.finalConfig,
+        evidence: { characterId: preview?.finalConfig?.characterId, commandId: enqueued.body.commands[0].id, verification },
+      };
+    },
+    createCandidate: ({ candidatePayload }) => {
+      const latestGate = resolveCanonicalWorkbenchCurrent(input);
+      const latestParent = readRepositoryWorkNode(parent.id);
+      if (!latestGate.ok || latestGate.binding.timelineId !== gate.binding.timelineId || latestGate.checkoutNodeId !== parent.id
+        || Number(latestParent?.contentRevision || latestParent?.updatedAt) !== parentRevision) {
+        return { ok: false, code: 'team-loadout-checkout-changed' };
+      }
+      const created = handleAiTimelineWorkNodeRequest('POST', '/api/ai-timeline-worknodes/create', {
+        timelineId: gate.binding.timelineId,
+        parentNodeId: parent.id,
+        branchId: `team-loadout-${Date.now()}`,
+        label: `[ai] team loadout ${plan.planId}`,
+        basePayload: parent.workingPayload,
+        workingPayload: candidatePayload,
+        approvalPolicy: 'manual',
+        riskFlags: [{ severity: 'warning', code: 'team-loadout-mutation', message: 'One native approval is required for this complete team candidate.' }],
+      });
+      return created?.status === 200 && created?.body?.node
+        ? { ok: true, value: created.body.node }
+        : { ok: false, code: created?.body?.code || 'team-loadout-child-create-failed' };
+    },
+  });
+  if (!atomic.ok) {
+    return { ...atomic, state: 'BLOCKED', component: 'team-loadout-plan', message: 'The complete team candidate could not be prepared; no child was created.' };
+  }
+  const node = atomic.candidate;
+  plan.preparedCandidate = {
+    schemaVersion: 1,
+    nodeId: node.id,
+    nodeRevision: Number(node.contentRevision || node.updatedAt),
+    workingHash: hashDefNodeValue(node.workingPayload),
+    parentNodeId: parent.id,
+    parentRevision,
+    parentWorkingHash: hashDefNodeValue(parent.workingPayload),
+    finalConfigs: atomic.finalConfigs,
+    diff: diffTimelinePayloadsForWorkNode(node.basePayload, node.workingPayload),
+    previewEvidence: atomic.previewEvidence,
+    createdAt: Date.now(),
+  };
+  plan.approvalReservedAt = Date.now();
+  plan.approvalExpiresAt = plan.approvalReservedAt + PREPARED_TEAM_LOADOUT_APPROVAL_GRACE_MS;
+  return teamCandidatePresentation(plan);
 }
 
 async function applyDefTeamLoadoutPlan(input = {}) {
-  const prepared = prepareDefTeamLoadoutPlanApply(input);
+  const prepared = await prepareDefTeamLoadoutPlanApply(input);
   if (!prepared.ok || prepared.state !== 'READY' || prepared.idempotent) return prepared;
   const stored = preparedTeamLoadoutPlans.get(prepared.planHash);
   if (!stored || stored.usedAt) return stored?.usedResult ? { ...stored.usedResult, idempotent: true } : { ok: false, code: 'team-loadout-plan-consumed', state: 'BLOCKED', component: 'team-loadout-plan' };
-  const patches = prepared.operators.map((operator) => operator.exactProduct?.patch).filter(Boolean);
-  if (patches.length !== prepared.operators.length) {
-    return { ok: false, state: 'BLOCKED', code: 'team-loadout-patch-incomplete', planId: prepared.planId, planHash: prepared.planHash, nextAction: 'The reviewed plan does not contain one exact patch per operator; no apply was started.' };
+  const candidate = stored.preparedCandidate;
+  if (!matchesAtomicTeamCandidateCapability(input, candidate)) {
+    return { ok: false, state: 'BLOCKED', code: 'team-loadout-capability-mismatch', planId: prepared.planId, planHash: prepared.planHash, nextAction: 'The approved candidate identity does not match the prepared team capability.' };
   }
   stored.usedAt = Date.now();
-  const results = [];
-  let outcome;
-  for (const patch of patches) {
-    const preview = await executeDefOperatorConfigPrepare({ ...patch, ...input, __defSessionId: prepared.sessionId, teamPlanHash: prepared.planHash });
-    if (!preview.ok) { outcome = { ok: false, state: results.length ? 'PARTIAL' : 'BLOCKED', code: preview.code, planId: prepared.planId, planHash: prepared.planHash, results, nextAction: 'Serial application stopped before another operator; completed results are explicit and no retry is attempted.' }; break; }
-    const applied = await executeDefOperatorConfigApplyPrepared({ ...preview, ...input, input: patch, __defSessionId: prepared.sessionId, teamPlanHash: prepared.planHash });
-    results.push(applied);
-    if (!applied.ok) { outcome = { ok: false, state: 'PARTIAL', code: applied.code, planId: prepared.planId, planHash: prepared.planHash, results, nextAction: 'Serial application stopped at the first failure; do not describe this plan as APPLIED.' }; break; }
+  const gate = input.__defCurrentGate || resolveCanonicalWorkbenchCurrent(input);
+  const node = readRepositoryWorkNode(candidate.nodeId);
+  const parent = readRepositoryWorkNode(candidate.parentNodeId);
+  if (!gate.ok || gate.checkoutNodeId !== candidate.parentNodeId || !node || !parent
+    || node.timelineId !== stored.timelineId || parent.timelineId !== stored.timelineId
+    || Number(node.contentRevision || node.updatedAt) !== candidate.nodeRevision
+    || Number(parent.contentRevision || parent.updatedAt) !== candidate.parentRevision
+    || hashDefNodeValue(node.workingPayload) !== candidate.workingHash
+    || hashDefNodeValue(parent.workingPayload) !== candidate.parentWorkingHash) {
+    const outcome = { ok: false, state: 'BLOCKED', code: gate.code || 'team-loadout-candidate-changed', planId: stored.planId, planHash: stored.planHash, currentCheckoutTouched: false };
+    stored.usedResult = outcome;
+    return outcome;
   }
-  if (!outcome) outcome = { ok: true, state: 'APPLIED', planId: prepared.planId, planHash: prepared.planHash, results, postcondition: { pass: results.length === prepared.operators.length && results.every((result) => result.postcondition?.pass === true) } };
+  const committed = handleAiTimelineWorkNodeRequest('POST', `/api/ai-timeline-worknodes/${encodeURIComponent(node.id)}/commit`, {
+    label: `Approved team loadout ${stored.planId}`,
+    approval: { mode: 'manual', approvedBy: 'user', approvedAt: Date.now(), rationale: 'Native DEF complete team loadout approval.' },
+  });
+  if (committed?.status !== 200 || !committed?.body?.commit) {
+    const outcome = { ok: false, state: 'BLOCKED', code: committed?.body?.code || 'team-loadout-commit-failed', planId: stored.planId, planHash: stored.planHash, currentCheckoutTouched: false };
+    stored.usedResult = outcome;
+    return outcome;
+  }
+  const committedRevision = Number(committed.body.node?.contentRevision || committed.body.node?.updatedAt);
+  const definition = getDefToolDefinition('def.operator.config.patch');
+  const enqueued = enqueueDefToolCommands(definition, [{
+    op: 'applyPreparedOperatorConfig', parentNodeId: parent.id, parentRevision: candidate.parentRevision,
+    nodeId: node.id, nodeRevision: committedRevision,
+  }], input);
+  if (enqueued.status < 200 || enqueued.status >= 300 || !enqueued.body?.commands?.[0]) {
+    const outcome = { ok: false, state: 'BLOCKED', code: 'team-loadout-apply-enqueue-failed', planId: stored.planId, planHash: stored.planHash, currentCheckoutTouched: false };
+    stored.usedResult = outcome;
+    return outcome;
+  }
+  const commandVerification = await buildDefToolCommandVerification(enqueued.body.commands[0], input.waitMs);
+  if (!commandVerification.pass) {
+    const outcome = { ok: false, state: 'RECONCILIATION_REQUIRED', code: 'team-loadout-apply-failed', planId: stored.planId, planHash: stored.planHash, currentCheckoutTouched: false, commandVerification };
+    stored.usedResult = outcome;
+    return outcome;
+  }
+  const liveVerification = await waitForExactDefOperatorConfigs(candidate.finalConfigs, input.snapshotWaitMs ?? 8000);
+  if (!liveVerification.pass) {
+    const outcome = { ok: false, state: 'RECONCILIATION_REQUIRED', code: 'team-loadout-postcondition-failed', planId: stored.planId, planHash: stored.planHash, currentCheckoutTouched: false, commandVerification, postcondition: liveVerification };
+    stored.usedResult = outcome;
+    return outcome;
+  }
+  const applied = handleAiTimelineWorkNodeRequest('POST', `/api/ai-timeline-worknodes/${encodeURIComponent(node.id)}/checkout-applied`, {
+    commitId: committed.body.commit.id, appliedBy: 'user', appliedAt: Date.now(), rationale: 'Native DEF complete team loadout applied exact reviewed payload.',
+  });
+  if (applied?.status !== 200) {
+    const outcome = { ok: false, state: 'RECONCILIATION_REQUIRED', code: applied?.body?.code || 'team-loadout-checkout-apply-failed', planId: stored.planId, planHash: stored.planHash, currentCheckoutTouched: false };
+    stored.usedResult = outcome;
+    return outcome;
+  }
+  const finalized = enqueueDefToolCommands(definition, [{ op: 'finalizePreparedOperatorConfig', nodeId: node.id, commitId: committed.body.commit.id }], input);
+  const finalizeVerification = finalized.status >= 200 && finalized.status < 300 && finalized.body?.commands?.[0]
+    ? await buildDefToolCommandVerification(finalized.body.commands[0], input.waitMs)
+    : { pass: false };
+  const exactResults = candidate.finalConfigs.map((finalConfig) => ({
+    characterId: finalConfig.characterId,
+    live: exactDefOperatorConfigMatches(normalizeLiveDefOperatorConfig(liveVerification.snapshot, finalConfig), finalConfig),
+    checkoutPayload: exactDefOperatorConfigMatches(extractDefOperatorConfig(node.workingPayload, finalConfig.characterId), finalConfig),
+    commitPayload: exactDefOperatorConfigMatches(extractDefOperatorConfig(committed.body.commit.appliedPayload, finalConfig.characterId), finalConfig),
+  }));
+  const pass = finalizeVerification.pass && exactResults.every((result) => result.live && result.checkoutPayload && result.commitPayload);
+  const outcome = {
+    ok: pass,
+    state: pass ? 'APPLIED' : 'RECONCILIATION_REQUIRED',
+    code: pass ? 'applied' : 'team-loadout-postcondition-failed',
+    planId: stored.planId,
+    planHash: stored.planHash,
+    nodeId: node.id,
+    commitId: committed.body.commit.id,
+    currentCheckoutTouched: pass,
+    commandVerification,
+    finalizeVerification,
+    postcondition: { pass, operators: exactResults },
+  };
   stored.usedResult = outcome;
+  return outcome;
+}
+
+function discardPreparedTeamLoadoutPlan(input = {}) {
+  const gate = input.__defCurrentGate || resolveCanonicalWorkbenchCurrent(input);
+  if (!gate.ok) return { ok: false, state: 'BLOCKED', code: gate.code, component: 'team-loadout-plan' };
+  const plan = preparedTeamLoadoutPlans.get(typeof input.planHash === 'string' ? input.planHash.trim() : '');
+  const sessionId = typeof input.__defSessionId === 'string' ? input.__defSessionId.trim() : '';
+  if (!plan || plan.ownerSessionId !== sessionId || !plan.preparedCandidate) {
+    return { ok: false, state: 'BLOCKED', code: 'team-loadout-candidate-unavailable', component: 'team-loadout-plan' };
+  }
+  const candidate = plan.preparedCandidate;
+  if (!matchesAtomicTeamCandidateCapability(input, candidate)) {
+    return { ok: false, state: 'BLOCKED', code: 'team-loadout-capability-mismatch', component: 'team-loadout-plan' };
+  }
+  const node = readRepositoryWorkNode(candidate.nodeId);
+  const hasCommit = node ? getTimelineRepository().getLatestWorkNodeCommit(node.id) : null;
+  const hasChild = node ? listRepositoryWorkNodes().some((item) => item.parentNodeId === node.id) : false;
+  if (!node || node.timelineId !== gate.binding.timelineId || node.parentNodeId !== candidate.parentNodeId
+    || Number(node.contentRevision || node.updatedAt) !== candidate.nodeRevision
+    || hashDefNodeValue(node.workingPayload) !== candidate.workingHash || hasCommit || hasChild
+    || gate.checkoutNodeId !== candidate.parentNodeId) {
+    return { ok: false, state: 'BLOCKED', code: 'team-loadout-discard-precondition-failed', component: 'team-loadout-plan' };
+  }
+  const deleted = handleAiTimelineWorkNodeRequest('POST', `/api/ai-timeline-worknodes/${encodeURIComponent(node.id)}/delete`, {});
+  const outcome = deleted?.status === 200
+    ? { ok: true, state: 'REJECTED', code: 'discarded', planId: plan.planId, planHash: plan.planHash, nodeId: node.id, currentCheckoutTouched: false }
+    : { ok: false, state: 'BLOCKED', code: deleted?.body?.code || 'team-loadout-discard-failed', component: 'team-loadout-plan' };
+  if (outcome.ok) {
+    plan.usedAt = Date.now();
+    plan.usedResult = outcome;
+  }
   return outcome;
 }
 
@@ -3437,7 +3706,8 @@ function buildDefResolvedBuffObject(source = {}) {
 
 function resolveDefBuffs(input = {}) {
   const query = normalizeDefToolText(input.query || input.name || input.text || '');
-  const snapshot = readMainWorkbenchSnapshotMirror();
+  const publicOnly = input.__defPublicOnly === true;
+  const snapshot = publicOnly ? null : (input.__defCurrentGate?.snapshot || readMainWorkbenchSnapshotMirror());
   const buttons = Array.isArray(snapshot?.skillButtons) ? snapshot.skillButtons : [];
   const buffMap = new Map();
   for (const button of buttons) {
@@ -3459,6 +3729,7 @@ function resolveDefBuffs(input = {}) {
         category: buff?.category || '',
         effectKind: buff?.effectKind || 'modifier',
         source: buff?.source || 'selected-button',
+        scope: 'current-selection',
         buff: resolvedBuff,
         refButtonIds: [],
       };
@@ -3496,6 +3767,7 @@ function resolveDefBuffs(input = {}) {
           category: 'positive',
           effectKind: 'modifier',
           source: 'equipment',
+          scope: 'current-selection',
           characterId: config?.characterId || '',
           characterName: config?.characterName || '',
           buff: resolvedBuff,
@@ -3534,6 +3806,7 @@ function resolveDefBuffs(input = {}) {
         category: setBuff?.category || 'condition',
         effectKind: setBuff?.effectKind || 'modifier',
         source: 'equipment',
+        scope: 'current-selection',
         characterId: config?.characterId || '',
         characterName: config?.characterName || '',
         buff: resolvedBuff,
@@ -3579,6 +3852,7 @@ function resolveDefBuffs(input = {}) {
         category: setBuff.category || 'condition',
         effectKind: setBuff.effectKind || 'modifier',
         source: 'equipment-library',
+        scope: 'public-catalog',
         buff: resolvedBuff,
         refButtonIds: [],
       });
@@ -3589,6 +3863,8 @@ function resolveDefBuffs(input = {}) {
     .map((buff) => ({ ...buff, confidence: normalizeDefToolText(`${buff.displayName || buff.name}`) === query ? 1 : 0.72 }));
   return {
     query,
+    scope: publicOnly ? 'public-catalog' : 'current-and-public',
+    source: publicOnly ? ['equipment-library'] : ['current-workbench-projection', 'equipment-library'],
     candidates,
     ambiguity: candidates.length !== 1,
     suggestedQuestion: candidates.length === 0
@@ -3601,11 +3877,15 @@ function resolveDefBuffs(input = {}) {
 
 function resolveDefEquipment(input = {}) {
   const query = normalizeDefToolText(input.query || input.name || input.text || '');
-  const snapshot = readMainWorkbenchSnapshotMirror();
+  const publicOnly = input.__defPublicOnly === true;
+  const snapshot = publicOnly ? null : (input.__defCurrentGate?.snapshot || readMainWorkbenchSnapshotMirror());
   const candidates = [];
   for (const config of Array.isArray(snapshot?.operatorConfigs) ? snapshot.operatorConfigs : []) {
     for (const equipment of Array.isArray(config?.equipment) ? config.equipment : []) {
       const candidate = {
+        kind: 'currentEquipment',
+        source: 'current-selection',
+        scope: 'current-selection',
         characterName: config?.characterName || '',
         slotKey: equipment?.slotKey || '',
         equipmentId: equipment?.equipmentId || '',
@@ -3633,6 +3913,7 @@ function resolveDefEquipment(input = {}) {
     candidates.push({
       kind: 'gearSet',
       source: 'equipment-library',
+      scope: 'public-catalog',
       ...compactSet,
       confidence: normalizeDefToolText(compactSet.name) === query || normalizeDefToolText(compactSet.gearSetId) === query ? 1 : 0.82,
       recommendation: compactSet.threePieceBuffs.length
@@ -3642,6 +3923,8 @@ function resolveDefEquipment(input = {}) {
   }
   return {
     query,
+    scope: publicOnly ? 'public-catalog' : 'current-and-public',
+    source: publicOnly ? ['equipment-library'] : ['current-workbench-projection', 'equipment-library'],
     candidates: candidates.sort((left, right) => (right.confidence || 0) - (left.confidence || 0)).slice(0, Math.max(1, Math.min(Number(input.limit || 12) || 12, 40))),
     ambiguity: candidates.length !== 1,
     suggestedQuestion: candidates.length > 1 ? '找到多个装备候选。请指定干员、槽位或装备名。' : '',
@@ -5417,6 +5700,21 @@ async function waitForExactDefOperatorConfig(finalConfig, waitMs) {
   return { snapshot, normalized, pass: exactDefOperatorConfigMatches(normalized, finalConfig) };
 }
 
+async function waitForExactDefOperatorConfigs(finalConfigs, waitMs) {
+  const expected = Array.isArray(finalConfigs) ? finalConfigs : [];
+  const deadline = Date.now() + normalizeDefVerifyWaitMs(waitMs, 8000);
+  let snapshot = readMainWorkbenchSnapshotMirror();
+  let normalized = expected.map((finalConfig) => normalizeLiveDefOperatorConfig(snapshot, finalConfig));
+  let pass = expected.length > 0 && expected.every((finalConfig, index) => exactDefOperatorConfigMatches(normalized[index], finalConfig));
+  while (!pass && Date.now() < deadline) {
+    await sleep(150);
+    snapshot = readMainWorkbenchSnapshotMirror();
+    normalized = expected.map((finalConfig) => normalizeLiveDefOperatorConfig(snapshot, finalConfig));
+    pass = expected.length > 0 && expected.every((finalConfig, index) => exactDefOperatorConfigMatches(normalized[index], finalConfig));
+  }
+  return { snapshot, normalized, pass };
+}
+
 async function executeDefOperatorConfigPrepare(input = {}) {
   const gate = resolveCanonicalWorkbenchCurrent(input);
   if (!gate.ok) return { ok: false, code: gate.code, component: 'operator-config', retryable: false, nextAction: gate.message };
@@ -6182,7 +6480,44 @@ function classifyDefCommandResult(entryOrBatch) {
   return { resultState: 'applied', reason: 'command-done' };
 }
 
-async function executeDefTool(name, input = {}, query = new URLSearchParams()) {
+function applyDefToolInvocationPolicy(name, definition, input, invocation = {}) {
+  const policy = resolveDefToolAccessPolicy(name, definition || { name });
+  const deniedHost = (host) => ({
+    ok: false,
+    response: failScript(403, 'denied-tool-host', `DEF tool ${name} is not available to host ${host}.`),
+  });
+  if (policy.workspaceScope === DEF_WORKSPACE_SCOPE.INTERNAL_GOVERNANCE) {
+    if (!defInternalGovernanceToken || invocation.internalToken !== defInternalGovernanceToken) {
+      return { ok: false, response: failScript(403, 'denied-internal-governance', 'This DEF governance capability is available only to the native host.') };
+    }
+    return { ok: true, input, policy };
+  }
+  if (policy.projectionAccess === DEF_PROJECTION_ACCESS.MIXED_CURRENT_PUBLIC) {
+    const sessionId = typeof input.__defSessionId === 'string' ? input.__defSessionId.trim() : '';
+    if (!sessionId) {
+      if (!policy.allowedHosts.includes('ai-cli')) return deniedHost('ai-cli');
+      return { ok: true, input: { ...input, __defPublicOnly: true }, policy };
+    }
+    const gate = resolveCanonicalWorkbenchCurrent(input);
+    if (!gate.ok) return { ok: false, response: failScript(gate.status, gate.code, gate.message, { state: gate.state }) };
+    if (!policy.allowedHosts.includes(gate.binding.host)) return deniedHost(gate.binding.host);
+    return { ok: true, input: { ...input, timelineId: gate.binding.timelineId, __defCurrentGate: gate, __defPublicOnly: false }, policy };
+  }
+  if (policy.workspaceScope === DEF_WORKSPACE_SCOPE.WORKBENCH_CURRENT
+    || policy.workspaceScope === DEF_WORKSPACE_SCOPE.WORKNODE_TREE) {
+    const nodeId = policy.workspaceScope === DEF_WORKSPACE_SCOPE.WORKNODE_TREE && typeof input.nodeId === 'string'
+      ? input.nodeId.trim()
+      : '';
+    const gate = resolveCanonicalWorkbenchCurrent(input, { nodeId });
+    if (!gate.ok) return { ok: false, response: failScript(gate.status, gate.code, gate.message, { state: gate.state }) };
+    if (!policy.allowedHosts.includes(gate.binding.host)) return deniedHost(gate.binding.host);
+    return { ok: true, input: { ...input, timelineId: gate.binding.timelineId, __defCurrentGate: gate }, policy };
+  }
+  if (!policy.allowedHosts.includes('ai-cli')) return deniedHost('ai-cli');
+  return { ok: true, input, policy };
+}
+
+async function executeDefTool(name, input = {}, query = new URLSearchParams(), invocation = {}) {
   // These three names are private continuations of the single public typed
   // operator-config tool.  They are intentionally not registry routes: only
   // the native adapter can call them after it has constructed a reviewed
@@ -6194,9 +6529,10 @@ async function executeDefTool(name, input = {}, query = new URLSearchParams()) {
     'def.team.loadout.plan.remember_guide',
     'def.team.loadout.plan.revise',
     'def.team.loadout.plan.apply.prepare',
+    'def.team.loadout.plan.apply.discard',
   ]);
   const definition = getDefToolDefinition(name)
-    || ((name === 'def.team.loadout.plan.remember_guide' || name === 'def.team.loadout.plan.revise' || name === 'def.team.loadout.plan.apply.prepare') ? getDefToolDefinition('def.team.loadout.plan.prepare') : null)
+    || ((name === 'def.team.loadout.plan.remember_guide' || name === 'def.team.loadout.plan.revise' || name === 'def.team.loadout.plan.apply.prepare' || name === 'def.team.loadout.plan.apply.discard') ? getDefToolDefinition('def.team.loadout.plan.prepare') : null)
     || (privateOperatorConfigContinuation.has(name) ? getDefToolDefinition('def.operator.config.patch') : null);
   if (!definition) {
     return failScript(404, 'def-tool-not-found', `Unknown DEF tool: ${name}`, {
@@ -6206,6 +6542,9 @@ async function executeDefTool(name, input = {}, query = new URLSearchParams()) {
   if (definition.status === 'planned') {
     return failScript(501, 'def-tool-planned', `DEF tool is planned but not implemented yet: ${name}`, { tool: definition });
   }
+  const authorized = applyDefToolInvocationPolicy(name, definition, input, invocation);
+  if (!authorized.ok) return authorized.response;
+  input = authorized.input;
   if (name === 'def.workbench.assert_session_axis') {
     const sessionID = typeof input.sessionID === 'string' ? input.sessionID.trim() : '';
     const bindingId = typeof input.sessionBindingId === 'string' ? input.sessionBindingId.trim() : '';
@@ -6230,33 +6569,6 @@ async function executeDefTool(name, input = {}, query = new URLSearchParams()) {
     if (!document || document.archivedAt) return failScript(404, 'blocked-binding', 'The requested SQLite workspace is unavailable.');
     if (document.isTemporary) return failScript(409, 'blocked-temporary-workspace', 'Temporary SQLite workspaces cannot open DEF AI mode.');
     return { status: 200, body: { ok: true, protocolVersion: 1, tool: name, result: { ok: true, document } } };
-  }
-  if (name.startsWith('def.worknode.')) {
-    const nodeId = typeof input.nodeId === 'string' ? input.nodeId.trim() : '';
-    const session = resolveCanonicalWorkbenchCurrent(input, { nodeId });
-    if (!session.ok) return failScript(session.status, session.code, session.message, { state: session.state });
-    // The native session binding is the only timeline authority.  Compatibility
-    // callers may omit timelineId, but they may never choose a replacement.
-    input = { ...input, timelineId: session.binding.timelineId, __defCurrentGate: session };
-  }
-  if (name.startsWith('def.workbench.') && ![
-    'def.workbench.bind_session_axis',
-    'def.workbench.unbind_session_axis',
-    'def.workbench.assert_session_axis',
-    'def.workbench.assert_timeline_admission',
-  ].includes(name)) {
-    const session = resolveCanonicalWorkbenchCurrent(input);
-    if (!session.ok) return failScript(session.status, session.code, session.message, { state: session.state });
-    input = { ...input, timelineId: session.binding.timelineId, __defCurrentGate: session };
-  }
-  if ([
-    'def.team.loadouts.read', 'def.loadout.candidates.read', 'def.operator.config.read',
-    'def.operator.config.patch', 'def.operator.config.prepare', 'def.operator.config.apply_prepared', 'def.operator.config.discard_prepared',
-    'def.team.loadout.plan.prepare', 'def.team.loadout.plan.revise', 'def.team.loadout.plan.apply.prepare', 'def.team.loadout.plan.apply',
-  ].includes(name)) {
-    const session = resolveCanonicalWorkbenchCurrent(input);
-    if (!session.ok) return failScript(session.status, session.code, session.message, { state: session.state });
-    input = { ...input, timelineId: session.binding.timelineId, __defCurrentGate: session };
   }
   if (name === 'def.worknode.create_from_current') {
     const session = input.__defCurrentGate || resolveCanonicalWorkbenchCurrent(input);
@@ -6290,7 +6602,12 @@ async function executeDefTool(name, input = {}, query = new URLSearchParams()) {
   }
   if (name === 'def.workbench.unbind_session_axis') {
     const bindingId = typeof input.sessionBindingId === 'string' ? input.sessionBindingId.trim() : '';
-    if (!bindingId) return failScript(400, 'invalid-session-axis-binding', 'sessionBindingId is required.');
+    const sessionID = typeof input.sessionID === 'string' ? input.sessionID.trim() : '';
+    if (!bindingId || !sessionID) return failScript(400, 'invalid-session-axis-binding', 'sessionBindingId and sessionID are required.');
+    const binding = getTimelineRepository().getSessionAxisBinding(bindingId);
+    if (!binding || binding.host !== 'workbench' || binding.opencodeSessionId !== sessionID) {
+      return failScript(409, 'blocked-session-mismatch', 'The requested binding does not belong to this Workbench session.');
+    }
     const result = getTimelineRepository().deleteSessionAxisBinding(bindingId);
     return { status: 200, body: { ok: true, protocolVersion: 1, tool: name, result: { ok: true, ...result } } };
   }
@@ -6436,11 +6753,11 @@ async function executeDefTool(name, input = {}, query = new URLSearchParams()) {
   const snapshot = readMainWorkbenchSnapshotMirror();
   let result = null;
   if (name === 'def.tool.list') {
-    result = { tools: DEF_TOOL_DEFINITIONS };
+    result = { tools: DEF_TOOL_DEFINITIONS.filter((tool) => tool.exposure.length > 0) };
   } else if (name === 'def.tool.describe') {
     const targetName = input.name || input.tool || query.get('name') || '';
     result = { tool: getDefToolDefinition(targetName) };
-    if (!result.tool) return failScript(404, 'def-tool-not-found', `Unknown DEF tool: ${targetName}`);
+    if (!result.tool || result.tool.exposure.length === 0) return failScript(404, 'def-tool-not-found', `Unknown DEF tool: ${targetName}`);
   } else if (name === 'def.workbench.snapshot') {
     const session = input.__defCurrentGate || resolveCanonicalWorkbenchCurrent(input);
     if (!session.ok) return failScript(session.status, session.code, session.message, { state: session.state });
@@ -6484,8 +6801,11 @@ async function executeDefTool(name, input = {}, query = new URLSearchParams()) {
     result = reviseDefTeamLoadoutPlan(input);
     if (!result.ok) return failScript(409, result.code, result.message || 'Team loadout plan revision is unavailable.', { component: result.component, state: result.state, nextAction: result.nextAction });
   } else if (name === 'def.team.loadout.plan.apply.prepare') {
-    result = prepareDefTeamLoadoutPlanApply(input);
+    result = await prepareDefTeamLoadoutPlanApply(input);
     if (!result.ok) return failScript(409, result.code, result.message || 'Team loadout plan is unavailable.', { component: result.component, state: result.state, nextAction: result.nextAction });
+  } else if (name === 'def.team.loadout.plan.apply.discard') {
+    result = discardPreparedTeamLoadoutPlan(input);
+    if (!result.ok) return failScript(409, result.code, result.message || 'Prepared team loadout candidate could not be discarded.', { component: result.component, state: result.state, nextAction: result.nextAction });
   } else if (name === 'def.team.loadout.plan.apply') {
     result = await applyDefTeamLoadoutPlan(input);
     if (!result.ok) return failScript(409, result.code || 'team-loadout-plan-apply-failed', result.message || 'Team loadout plan was not applied.', { component: 'team-loadout-plan', state: result.state, nextAction: result.nextAction, results: result.results });
@@ -6598,7 +6918,7 @@ async function executeDefTool(name, input = {}, query = new URLSearchParams()) {
   };
 }
 
-async function handleDefToolRequest(method, pathname, query, body) {
+async function handleDefToolRequest(method, pathname, query, body, invocation = {}) {
   if (method === 'GET' && pathname === '/api/def-tools/route-map') {
     return {
       status: 200,
@@ -6610,7 +6930,7 @@ async function handleDefToolRequest(method, pathname, query, body) {
     };
   }
   if (method === 'GET' && (pathname === '/api/def-tools' || pathname === '/api/def-tools/list')) {
-    return await executeDefTool('def.tool.list', {}, query);
+    return await executeDefTool('def.tool.list', {}, query, invocation);
   }
   if (method === 'GET' && pathname === '/api/def-tools/governance') {
     const archive = readDefToolGovernanceArchive();
@@ -6639,19 +6959,21 @@ async function handleDefToolRequest(method, pathname, query, body) {
     };
   }
   if (method === 'GET' && pathname === '/api/def-tools/describe') {
-    return await executeDefTool('def.tool.describe', { name: query.get('name') || '' }, query);
+    return await executeDefTool('def.tool.describe', { name: query.get('name') || '' }, query, invocation);
   }
   const callMatch = /^\/api\/def-tools\/([^/]+)\/call$/.exec(pathname);
   if (method === 'POST' && callMatch) {
     const name = decodeURIComponent(callMatch[1]);
-    const input = body && typeof body === 'object' && Object.prototype.hasOwnProperty.call(body, 'input') ? body.input : body;
-    return await executeDefTool(name, input || {}, query);
+    const rawInput = body && typeof body === 'object' && Object.prototype.hasOwnProperty.call(body, 'input') ? body.input : body;
+    const input = rawInput && typeof rawInput === 'object' ? { ...rawInput } : {};
+    if (typeof body?.sessionId === 'string' && body.sessionId.trim()) input.__defSessionId = body.sessionId.trim();
+    return await executeDefTool(name, input, query, invocation);
   }
   if (method === 'POST' && pathname === '/api/def-tools/call') {
     const name = typeof body?.tool === 'string' ? body.tool : typeof body?.name === 'string' ? body.name : '';
     const input = body?.input && typeof body.input === 'object' ? { ...body.input } : {};
     if (typeof body?.sessionId === 'string' && body.sessionId.trim()) input.__defSessionId = body.sessionId.trim();
-    return await executeDefTool(name, input, query);
+    return await executeDefTool(name, input, query, invocation);
   }
   return null;
 }
@@ -6735,6 +7057,12 @@ function handleMainWorkbenchRequest(method, pathname, query, body) {
   }
 
   if (method === 'POST' && pathname === '/api/main-workbench/commands/enqueue') {
+    // This legacy endpoint used to bypass tool schemas, registry metadata,
+    // current-gate admission, and approval continuations. All model-side
+    // command creation now goes through /api/def-tools/* and reaches the queue
+    // only after canonical policy evaluation.
+    return failScript(403, 'denied-direct-command-enqueue', 'Direct Workbench command enqueue is disabled; invoke a canonical DEF tool route.');
+    /* c8 ignore start -- retained response parser for one release of wire-format archaeology */
     const rawCommands = Array.isArray(body?.commands)
       ? body.commands
       : Array.isArray(body?.command)
@@ -6820,6 +7148,7 @@ function handleMainWorkbenchRequest(method, pathname, query, body) {
         batch: buildMainWorkbenchCommandBatchSummary(entries, batchId),
       },
     };
+    /* c8 ignore stop */
   }
 
   if (method === 'POST' && pathname === '/api/main-workbench/commands/result') {
@@ -6841,15 +7170,7 @@ function handleMainWorkbenchRequest(method, pathname, query, body) {
       return patched;
     });
     if (!patched) {
-      patched = normalizeMainWorkbenchCommandEntry({
-        id,
-        command: { op: 'refreshSnapshot' },
-        status: ['done', 'error', 'running', 'pending'].includes(body.status) ? body.status : 'done',
-        result: body.result,
-        error: body.error,
-        source: 'browser-result',
-      });
-      nextQueue.push(patched);
+      return failScript(404, 'main-workbench-command-not-found', 'A renderer result may update only an existing canonical command.');
     }
     writeMainWorkbenchCommandQueue(nextQueue);
     appendMainWorkbenchResult(patched);
@@ -7103,7 +7424,9 @@ const server = http.createServer(async (request, response) => {
       return;
     }
 
-    const defToolResponse = await handleDefToolRequest(method, requestUrl.pathname, requestUrl.searchParams, body);
+    const defToolResponse = await handleDefToolRequest(method, requestUrl.pathname, requestUrl.searchParams, body, {
+      internalToken: typeof request.headers['x-def-internal-token'] === 'string' ? request.headers['x-def-internal-token'] : '',
+    });
     if (defToolResponse) {
       writeJson(response, defToolResponse.status, defToolResponse.body);
       return;
