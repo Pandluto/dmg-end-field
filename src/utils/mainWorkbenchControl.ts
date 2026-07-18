@@ -11,12 +11,50 @@ export const MAIN_WORKBENCH_CONTROL_EVENT = 'def-main-workbench-control';
 // Electron bridge authenticates the local renderer and forwards only the
 // allowlisted projection/command transport to the token-protected REST host.
 export const MAIN_WORKBENCH_REST_BASE_URL = 'http://127.0.0.1:31457';
+const MAIN_WORKBENCH_RENDERER_CAPABILITY_HEADER = 'x-def-workbench-renderer-capability';
+const MAIN_WORKBENCH_RENDERER_CAPABILITY_QUERY = '__defWorkbenchRendererCapability';
+const MAIN_WORKBENCH_RENDERER_CAPABILITY_SESSION_KEY = 'def.main-workbench.renderer-capability.v1';
 const MAIN_WORKBENCH_REMOTE_PULL_TIMEOUT_MS = 300;
 const MAIN_WORKBENCH_REMOTE_PULL_COOLDOWN_MS = 15000;
 
 let nextRemoteWorkbenchPullAt = 0;
 let remoteWorkbenchPullInFlight: Promise<void> | null = null;
 let remoteWorkbenchCommandEventSource: EventSource | null = null;
+
+function readRendererCapability(): string {
+  if (typeof window === 'undefined') return '';
+  try {
+    const url = new URL(window.location.href);
+    const fromLaunch = url.searchParams.get(MAIN_WORKBENCH_RENDERER_CAPABILITY_QUERY)?.trim() || '';
+    if (fromLaunch) {
+      window.sessionStorage.setItem(MAIN_WORKBENCH_RENDERER_CAPABILITY_SESSION_KEY, fromLaunch);
+      url.searchParams.delete(MAIN_WORKBENCH_RENDERER_CAPABILITY_QUERY);
+      window.history.replaceState(window.history.state, document.title, `${url.pathname}${url.search}${url.hash}`);
+      return fromLaunch;
+    }
+    return window.sessionStorage.getItem(MAIN_WORKBENCH_RENDERER_CAPABILITY_SESSION_KEY)?.trim() || '';
+  } catch {
+    return '';
+  }
+}
+
+const mainWorkbenchRendererCapability = readRendererCapability();
+
+function rendererTransportHeaders(headers?: HeadersInit): Headers {
+  const result = new Headers(headers);
+  if (mainWorkbenchRendererCapability) {
+    result.set(MAIN_WORKBENCH_RENDERER_CAPABILITY_HEADER, mainWorkbenchRendererCapability);
+  }
+  return result;
+}
+
+function rendererTransportEventUrl(pathname: string): string {
+  const url = new URL(pathname, MAIN_WORKBENCH_REST_BASE_URL);
+  if (mainWorkbenchRendererCapability) {
+    url.searchParams.set(MAIN_WORKBENCH_RENDERER_CAPABILITY_QUERY, mainWorkbenchRendererCapability);
+  }
+  return url.toString();
+}
 
 export type MainWorkbenchCommandStatus = 'pending' | 'running' | 'done' | 'error';
 
@@ -596,6 +634,7 @@ async function fetchWithTimeout(input: RequestInfo | URL, init: RequestInit = {}
   try {
     return await window.fetch(input, {
       ...init,
+      headers: rendererTransportHeaders(init.headers),
       signal: init.signal || controller.signal,
     });
   } finally {
@@ -635,7 +674,7 @@ function importRemoteMainWorkbenchCommands(commands: QueuedMainWorkbenchCommand[
 function connectRemoteMainWorkbenchCommandEvents(): void {
   if (typeof window === 'undefined' || typeof window.EventSource !== 'function') return;
   remoteWorkbenchCommandEventSource?.close();
-  const eventSource = new window.EventSource(`${MAIN_WORKBENCH_REST_BASE_URL}/api/main-workbench/commands/events`);
+  const eventSource = new window.EventSource(rendererTransportEventUrl('/api/main-workbench/commands/events'));
   remoteWorkbenchCommandEventSource = eventSource;
   eventSource.addEventListener('main-workbench.commands', (event) => {
     try {
@@ -664,7 +703,7 @@ export async function pushMainWorkbenchCommandResult(entry: QueuedMainWorkbenchC
   try {
     await window.fetch(`${MAIN_WORKBENCH_REST_BASE_URL}/api/main-workbench/commands/result`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json; charset=utf-8' },
+      headers: rendererTransportHeaders({ 'Content-Type': 'application/json; charset=utf-8' }),
       body: JSON.stringify({
         id: entry.id,
         status: entry.status,
@@ -682,7 +721,7 @@ export async function pushMainWorkbenchSnapshot(snapshot: MainWorkbenchSnapshot)
   try {
     await window.fetch(`${MAIN_WORKBENCH_REST_BASE_URL}/api/main-workbench/snapshot`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json; charset=utf-8' },
+      headers: rendererTransportHeaders({ 'Content-Type': 'application/json; charset=utf-8' }),
       body: JSON.stringify({ snapshot }),
     });
   } catch {

@@ -19,6 +19,13 @@ const {
 const { buildNodeSidecarEnv: createNodeSidecarEnv } = require('./sidecar-runtime.cjs');
 const { createDefCodexInteropProtocol } = require('../agent/runtime/def-codex-interop.cjs');
 const {
+  WORKBENCH_RENDERER_CAPABILITY_HEADER,
+  buildRendererCapabilityUrl,
+  buildWorkbenchUpstreamSearch,
+  createWorkbenchRendererCapability,
+  isAuthorizedWorkbenchRendererRequest,
+} = require('./workbench-renderer-transport.cjs');
+const {
   app,
   BrowserWindow,
   dialog,
@@ -34,6 +41,7 @@ const {
 const DEV_SHELL_URL = 'http://127.0.0.1:3030/shell/index.html';
 const BRIDGE_HOST = '127.0.0.1';
 const BRIDGE_PORT = 31457;
+const workbenchRendererCapability = createWorkbenchRendererCapability();
 const PROD_SHELL_URL = `http://${BRIDGE_HOST}:${BRIDGE_PORT}/shell/index.html`;
 const SHELL_WIDTH = 1120;
 const SHELL_HEIGHT = 760;
@@ -383,8 +391,11 @@ function createShellWindow(options = {}) {
   return shellWindow;
 }
 
-function getBrowserWebUrl() {
-  return isDev ? 'http://127.0.0.1:3030/' : `http://${BRIDGE_HOST}:${BRIDGE_PORT}/`;
+function getBrowserWebUrl({ includeRendererCapability = false } = {}) {
+  const url = isDev ? 'http://127.0.0.1:3030/' : `http://${BRIDGE_HOST}:${BRIDGE_PORT}/`;
+  return includeRendererCapability
+    ? buildRendererCapabilityUrl(url, workbenchRendererCapability)
+    : url;
 }
 
 function destroyWebPrewarmWindow() {
@@ -401,7 +412,8 @@ function warmWebAppInHiddenWindow() {
     return;
   }
 
-  const url = getBrowserWebUrl();
+  const publicUrl = getBrowserWebUrl();
+  const url = getBrowserWebUrl({ includeRendererCapability: true });
   const startedAt = Date.now();
   webPrewarmWindow = new BrowserWindow(
     buildWindowOptions('web-prewarm', {
@@ -418,11 +430,11 @@ function warmWebAppInHiddenWindow() {
     webPrewarmWindow = null;
   });
   webPrewarmWindow.webContents.once('did-finish-load', () => {
-    appendRuntimeLog('web-prewarm', `did-finish-load elapsedMs=${Date.now() - startedAt} url=${url}`);
+    appendRuntimeLog('web-prewarm', `did-finish-load elapsedMs=${Date.now() - startedAt} url=${publicUrl}`);
     setTimeout(destroyWebPrewarmWindow, 1500);
   });
   webPrewarmWindow.webContents.once('did-fail-load', (_event, errorCode, errorDescription, validatedURL) => {
-    appendRuntimeLog('web-prewarm', `did-fail-load ${errorCode} ${errorDescription || '-'} ${validatedURL || url}`);
+    appendRuntimeLog('web-prewarm', `did-fail-load ${errorCode} ${errorDescription || '-'} ${validatedURL ? getBrowserWebUrl() : publicUrl}`);
     destroyWebPrewarmWindow();
   });
   webPrewarmWindow.webContents.on('console-message', (_event, level, message, line, sourceId) => {
@@ -430,13 +442,14 @@ function warmWebAppInHiddenWindow() {
   });
   setTimeout(() => {
     if (webPrewarmWindow && !webPrewarmWindow.isDestroyed()) {
-      appendRuntimeLog('web-prewarm', `timeout elapsedMs=${Date.now() - startedAt} url=${url}`);
+      appendRuntimeLog('web-prewarm', `timeout elapsedMs=${Date.now() - startedAt} url=${publicUrl}`);
       destroyWebPrewarmWindow();
     }
   }, 30000);
-  appendRuntimeLog('web-prewarm', `loadURL ${url}`);
+  appendRuntimeLog('web-prewarm', `loadURL ${publicUrl}`);
   webPrewarmWindow.loadURL(url).catch((error) => {
-    appendRuntimeLog('web-prewarm', `loadURL failed ${error instanceof Error ? error.message : String(error)}`);
+    const detail = (error instanceof Error ? error.message : String(error)).replaceAll(url, publicUrl);
+    appendRuntimeLog('web-prewarm', `loadURL failed ${detail}`);
     destroyWebPrewarmWindow();
   });
 }
@@ -508,7 +521,7 @@ function buildJsonHeaders(response) {
   return {
     'Content-Type': 'application/json; charset=utf-8',
     'Access-Control-Allow-Methods': 'GET,POST,OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+    'Access-Control-Allow-Headers': `Content-Type, Authorization, ${WORKBENCH_RENDERER_CAPABILITY_HEADER}`,
     ...( /^http:\/\/(127\.0\.0\.1|localhost)(:\d+)?$/i.test(origin) ? { 'Access-Control-Allow-Origin': origin, Vary: 'Origin' } : {}),
   };
 }
@@ -590,18 +603,6 @@ function writeSse(response, eventName, payload) {
   response.write(`data: ${JSON.stringify(payload)}\n\n`);
 }
 
-function isTrustedWorkbenchRendererRequest(request) {
-  const origin = String(request.headers.origin || '');
-  const referer = String(request.headers.referer || '');
-  const trustedOrigins = new Set([
-    'http://127.0.0.1:3030',
-    'http://localhost:3030',
-    `http://${BRIDGE_HOST}:${BRIDGE_PORT}`,
-  ]);
-  if (trustedOrigins.has(origin)) return true;
-  return [...trustedOrigins].some((trusted) => referer === `${trusted}/` || referer.startsWith(`${trusted}/`));
-}
-
 async function proxyMainWorkbenchRendererTransport(request, response, requestUrl) {
   const method = request.method || 'GET';
   const allowed = new Set([
@@ -612,11 +613,15 @@ async function proxyMainWorkbenchRendererTransport(request, response, requestUrl
     'GET /api/main-workbench/commands/events',
   ]);
   if (!requestUrl.pathname.startsWith('/api/main-workbench/')) return false;
-  if (!allowed.has(`${method} ${requestUrl.pathname}`) || !isTrustedWorkbenchRendererRequest(request)) {
+  if (!allowed.has(`${method} ${requestUrl.pathname}`)
+    || !isAuthorizedWorkbenchRendererRequest(request, requestUrl, workbenchRendererCapability, {
+      bridgeHost: BRIDGE_HOST,
+      bridgePort: BRIDGE_PORT,
+    })) {
     writeJson(response, 403, { ok: false, error: { code: 'denied-renderer-transport', message: 'Workbench renderer transport is unavailable to this caller.' } });
     return true;
   }
-  const upstreamUrl = `http://127.0.0.1:17321${requestUrl.pathname}${requestUrl.search}`;
+  const upstreamUrl = `http://127.0.0.1:17321${requestUrl.pathname}${buildWorkbenchUpstreamSearch(requestUrl)}`;
   if (method === 'GET' && requestUrl.pathname === '/api/main-workbench/commands/events') {
     proxySseUrl(upstreamUrl, request, response, {
       headers: { 'x-def-internal-token': defInternalGovernanceToken },
@@ -1520,9 +1525,9 @@ function startBridgeServer() {
       }
 
       if (method === 'POST' && requestUrl.pathname === '/open-browser-web') {
-        const url = getBrowserWebUrl();
-        await shell.openExternal(url);
-        writeJson(response, 200, { ok: true, url });
+        const publicUrl = getBrowserWebUrl();
+        await shell.openExternal(getBrowserWebUrl({ includeRendererCapability: true }));
+        writeJson(response, 200, { ok: true, url: publicUrl, rendererCapabilityInjected: true });
         return;
       }
 

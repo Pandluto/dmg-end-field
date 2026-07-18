@@ -5,6 +5,14 @@ import fs from 'node:fs';
 
 const require = createRequire(import.meta.url);
 const { createDefCodexInteropProtocol } = require('../agent/runtime/def-codex-interop.cjs');
+const {
+  WORKBENCH_RENDERER_CAPABILITY_HEADER,
+  WORKBENCH_RENDERER_CAPABILITY_QUERY,
+  buildRendererCapabilityUrl,
+  buildWorkbenchUpstreamSearch,
+  createWorkbenchRendererCapability,
+  isAuthorizedWorkbenchRendererRequest,
+} = require('../electron/workbench-renderer-transport.cjs');
 const nativeToken = 'interop-native-snapshot-token';
 const calls = [];
 const protocol = createDefCodexInteropProtocol({
@@ -48,7 +56,38 @@ const proxySource = mainSource.slice(
 );
 assert(proxySource.includes("'x-def-internal-token': defInternalGovernanceToken"),
   'Electron renderer proxy must attach the native REST capability');
+assert(proxySource.includes('isAuthorizedWorkbenchRendererRequest'),
+  'Electron renderer proxy must require the per-launch renderer capability');
 assert(proxySource.includes("'POST /api/main-workbench/snapshot'"));
 assert(proxySource.includes("'GET /api/main-workbench/commands/events'"));
 assert(!proxySource.includes('checkout-projection'), 'native checkout assertion must not be exposed to browser renderers');
-console.log('DEF Interop snapshot auth contract: PASS (Interop and browser renderer proxy carry native token)');
+
+const rendererCapability = createWorkbenchRendererCapability();
+assert.notEqual(rendererCapability, createWorkbenchRendererCapability(), 'renderer capability must rotate per process');
+const trustedOriginRequest = { headers: { origin: 'http://127.0.0.1:3030' } };
+const snapshotUrl = new URL('http://127.0.0.1:31457/api/main-workbench/snapshot');
+assert.equal(isAuthorizedWorkbenchRendererRequest(trustedOriginRequest, snapshotUrl, rendererCapability), false,
+  'a spoofable loopback Origin is not sufficient authorization');
+assert.equal(isAuthorizedWorkbenchRendererRequest({
+  headers: { origin: 'http://127.0.0.1:3030', [WORKBENCH_RENDERER_CAPABILITY_HEADER]: 'wrong' },
+}, snapshotUrl, rendererCapability), false);
+assert.equal(isAuthorizedWorkbenchRendererRequest({
+  headers: { origin: 'http://127.0.0.1:3030', [WORKBENCH_RENDERER_CAPABILITY_HEADER]: rendererCapability },
+}, snapshotUrl, rendererCapability), true);
+assert.equal(isAuthorizedWorkbenchRendererRequest({
+  headers: { origin: 'https://attacker.example' },
+}, new URL(buildRendererCapabilityUrl(snapshotUrl, rendererCapability)), rendererCapability), false,
+  'a leaked capability must still be rejected outside the trusted renderer origin');
+const eventUrl = new URL(buildRendererCapabilityUrl(
+  'http://127.0.0.1:31457/api/main-workbench/commands/events?status=pending',
+  rendererCapability,
+));
+assert.equal(eventUrl.searchParams.get(WORKBENCH_RENDERER_CAPABILITY_QUERY), rendererCapability);
+assert.equal(isAuthorizedWorkbenchRendererRequest(trustedOriginRequest, eventUrl, rendererCapability), true,
+  'EventSource may carry the same capability in its query because it cannot set headers');
+assert.equal(buildWorkbenchUpstreamSearch(eventUrl), '?status=pending',
+  'the renderer capability must never be forwarded to raw REST');
+assert(rendererSource.includes('rendererTransportHeaders(init.headers)'));
+assert(rendererSource.includes('rendererTransportEventUrl'));
+assert(rendererSource.includes('window.history.replaceState'), 'launch capability must be removed from the visible URL');
+console.log('DEF Interop snapshot auth contract: PASS (Interop native token plus unforgeable renderer capability)');

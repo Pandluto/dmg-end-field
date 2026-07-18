@@ -5,10 +5,18 @@ const os = require('os');
 const path = require('path');
 const { spawn, spawnSync } = require('child_process');
 const { createDefCodexInteropProtocol } = require('./runtime/def-codex-interop.cjs');
+const {
+  WORKBENCH_RENDERER_CAPABILITY_HEADER,
+  buildRendererCapabilityUrl,
+  buildWorkbenchUpstreamSearch,
+  createWorkbenchRendererCapability,
+  isAuthorizedWorkbenchRendererRequest,
+} = require('../electron/workbench-renderer-transport.cjs');
 
 const HOST = '127.0.0.1';
 const PORT = 31457;
 const DEFAULT_WEB_URL = 'http://127.0.0.1:3030';
+const workbenchRendererCapability = createWorkbenchRendererCapability();
 const shouldOpenWebOnBoot = process.argv.includes('--open-web');
 
 let shellProcess = null;
@@ -39,7 +47,7 @@ function buildJsonHeaders(response) {
   return {
     'Content-Type': 'application/json; charset=utf-8',
     'Access-Control-Allow-Methods': 'GET,POST,OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+    'Access-Control-Allow-Headers': `Content-Type, Authorization, ${WORKBENCH_RENDERER_CAPABILITY_HEADER}`,
     ...( /^http:\/\/(127\.0\.0\.1|localhost)(:\d+)?$/i.test(origin) ? { 'Access-Control-Allow-Origin': origin, Vary: 'Origin' } : {}),
   };
 }
@@ -415,7 +423,7 @@ async function waitForDefAgentHealth(expectedPid, timeoutMs = 15000) {
   throw new Error(`DEF agent health check timed out for pid ${expectedPid}`);
 }
 
-function postJsonUrl(url, payload) {
+function postJsonUrl(url, payload, options = {}) {
   return new Promise((resolve, reject) => {
     const body = JSON.stringify(payload || {});
     const requestUrl = new URL(url);
@@ -427,6 +435,7 @@ function postJsonUrl(url, payload) {
       headers: {
         'Content-Type': 'application/json; charset=utf-8',
         'Content-Length': Buffer.byteLength(body),
+        ...(options.headers || {}),
       },
     }, (response) => {
       const chunks = [];
@@ -451,20 +460,22 @@ function postJsonUrl(url, payload) {
   });
 }
 
-function proxySseUrl(url, clientRequest, clientResponse) {
+function proxySseUrl(url, clientRequest, clientResponse, options = {}) {
   const requestUrl = new URL(url);
   const upstream = http.request({
     hostname: requestUrl.hostname,
     port: requestUrl.port,
     path: `${requestUrl.pathname}${requestUrl.search}`,
     method: 'GET',
-    headers: { Accept: 'text/event-stream' },
+    headers: { Accept: 'text/event-stream', ...(options.headers || {}) },
   }, (upstreamResponse) => {
     clientResponse.writeHead(upstreamResponse.statusCode || 502, {
       'Content-Type': upstreamResponse.headers['content-type'] || 'text/event-stream; charset=utf-8',
       'Cache-Control': 'no-cache, no-transform',
       Connection: 'keep-alive',
-      'Access-Control-Allow-Origin': '*',
+      ...(options.origin
+        ? { 'Access-Control-Allow-Origin': options.origin, Vary: 'Origin' }
+        : { 'Access-Control-Allow-Origin': '*' }),
     });
     upstreamResponse.pipe(clientResponse);
   });
@@ -477,6 +488,41 @@ function proxySseUrl(url, clientRequest, clientResponse) {
   });
   clientRequest.on('close', () => upstream.destroy());
   upstream.end();
+}
+
+async function proxyMainWorkbenchRendererTransport(request, response, requestUrl) {
+  const method = request.method || 'GET';
+  const allowed = new Set([
+    'GET /api/main-workbench/snapshot',
+    'POST /api/main-workbench/snapshot',
+    'GET /api/main-workbench/commands',
+    'POST /api/main-workbench/commands/result',
+    'GET /api/main-workbench/commands/events',
+  ]);
+  if (!requestUrl.pathname.startsWith('/api/main-workbench/')) return false;
+  if (!allowed.has(`${method} ${requestUrl.pathname}`)
+    || !isAuthorizedWorkbenchRendererRequest(request, requestUrl, workbenchRendererCapability, {
+      bridgeHost: HOST,
+      bridgePort: PORT,
+    })) {
+    writeJson(response, 403, { ok: false, error: { code: 'denied-renderer-transport', message: 'Workbench renderer transport is unavailable to this caller.' } });
+    return true;
+  }
+  await startAiCliRest();
+  const upstreamUrl = `http://127.0.0.1:17321${requestUrl.pathname}${buildWorkbenchUpstreamSearch(requestUrl)}`;
+  if (method === 'GET' && requestUrl.pathname === '/api/main-workbench/commands/events') {
+    proxySseUrl(upstreamUrl, request, response, {
+      headers: { 'x-def-internal-token': defInternalGovernanceToken },
+      origin: String(request.headers.origin || ''),
+    });
+    return true;
+  }
+  const headers = { 'x-def-internal-token': defInternalGovernanceToken };
+  const upstream = method === 'POST'
+    ? await postJsonUrl(upstreamUrl, await readJsonBody(request), { headers })
+    : await fetchJsonUrl(upstreamUrl, { headers });
+  writeJson(response, upstream.status || 502, upstream.body);
+  return true;
 }
 
 function waitForProcessExit(child, timeoutMs = 5000) {
@@ -519,7 +565,10 @@ function killProcessTree(pid) {
 }
 
 function openBrowserWeb(url = DEFAULT_WEB_URL) {
-  spawn('cmd', ['/c', 'start', '', url], {
+  const launchUrl = url === DEFAULT_WEB_URL
+    ? buildRendererCapabilityUrl(url, workbenchRendererCapability)
+    : url;
+  spawn('cmd', ['/c', 'start', '', launchUrl], {
     cwd: path.resolve(__dirname, '..'),
     detached: true,
     stdio: 'ignore',
@@ -530,6 +579,7 @@ function openBrowserWeb(url = DEFAULT_WEB_URL) {
   return {
     opened: true,
     url,
+    rendererCapabilityInjected: url === DEFAULT_WEB_URL,
     openedAt: webOpenedAt,
   };
 }
@@ -763,6 +813,10 @@ const server = http.createServer(async (request, response) => {
     }
 
     if (await defCodexInterop.handle(request, response, requestUrl, readJsonBody)) {
+      return;
+    }
+
+    if (await proxyMainWorkbenchRendererTransport(request, response, requestUrl)) {
       return;
     }
 

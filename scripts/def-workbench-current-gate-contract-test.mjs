@@ -34,8 +34,17 @@ function seedTimeline(id, nodeId) {
 
 seedTimeline('formal-a', 'node-a');
 seedTimeline('formal-b', 'node-b');
+const snapshotPayload = { ...payload, selectedCharacters: ['operator-snapshot'] };
+repository.ensureDocument({ id: 'formal-snapshot', label: 'formal-snapshot' });
+repository.createOrReuseSnapshot({
+  id: 'snapshot-a', timelineId: 'formal-snapshot', label: 'snapshot-a', payload: snapshotPayload, createdAt: 100,
+});
+repository.setCheckoutRef({ timelineId: 'formal-snapshot', targetType: 'snapshot', targetId: 'snapshot-a', updatedAt: 100 });
+repository.ensureDocument({ id: 'formal-no-checkout', label: 'formal-no-checkout' });
 repository.ensureDocument({ id: 'temporary-a', label: 'temporary-a', isTemporary: true });
 repository.upsertSessionAxisBinding({ id: 'axis-a', timelineId: 'formal-a', host: 'workbench', opencodeSessionId: 'session-a' });
+repository.upsertSessionAxisBinding({ id: 'axis-snapshot', timelineId: 'formal-snapshot', host: 'workbench', opencodeSessionId: 'session-snapshot' });
+repository.upsertSessionAxisBinding({ id: 'axis-no-checkout', timelineId: 'formal-no-checkout', host: 'workbench', opencodeSessionId: 'session-no-checkout' });
 
 const child = spawn(process.execPath, ['scripts/ai-cli-rest-server.mjs'], {
   cwd: process.cwd(),
@@ -99,6 +108,49 @@ function nodeIds(timelineId) {
 
 try {
   await waitForReady();
+
+  await mirror('formal-a');
+
+  // Snapshot checkouts are a normal formal-workspace state.  They must pass
+  // the same payload, identity, and complete-Canvas checks as Work Nodes.
+  const forgedSnapshotProjection = await request('/api/main-workbench/snapshot', {
+    source: 'app', activeTimelineId: 'formal-snapshot', timelineId: 'formal-snapshot', checkout: repository.getCheckoutRef('formal-snapshot'),
+    selectedCharacters: [{ id: 'operator-forged', name: 'Operator forged' }], skillButtons: [], operatorConfigs: [],
+    damageReport: { generatedAt: 1, totalExpected: 0, totalNonCrit: 0, buttonCount: 0, buttons: [] }, updatedAt: Date.now(),
+  });
+  assert.equal(forgedSnapshotProjection.status, 200, JSON.stringify(forgedSnapshotProjection.body));
+  const forgedSnapshotRead = await tool('def.team.loadouts.read', {}, 'session-snapshot');
+  assert.equal(forgedSnapshotRead.status, 409, JSON.stringify(forgedSnapshotRead.body));
+  assert.equal(forgedSnapshotRead.body.error.code, 'blocked-session-mismatch');
+
+  const nonCanvasSnapshotProjection = await request('/api/main-workbench/snapshot', {
+    source: 'rest', activeTimelineId: 'formal-snapshot', timelineId: 'formal-snapshot', checkout: repository.getCheckoutRef('formal-snapshot'),
+    selectedCharacters: [{ id: 'operator-snapshot', name: 'Operator snapshot' }], skillButtons: [], operatorConfigs: [],
+    damageReport: { generatedAt: 1, totalExpected: 0, totalNonCrit: 0, buttonCount: 0, buttons: [] }, updatedAt: Date.now(),
+  });
+  assert.equal(nonCanvasSnapshotProjection.status, 200, JSON.stringify(nonCanvasSnapshotProjection.body));
+  const nonCanvasSnapshotRead = await tool('def.team.loadouts.read', {}, 'session-snapshot');
+  assert.equal(nonCanvasSnapshotRead.status, 409, JSON.stringify(nonCanvasSnapshotRead.body));
+
+  const validSnapshotProjection = await request('/api/main-workbench/snapshot', {
+    source: 'app', activeTimelineId: 'formal-snapshot', timelineId: 'formal-snapshot', checkout: repository.getCheckoutRef('formal-snapshot'),
+    selectedCharacters: [{ id: 'operator-snapshot', name: 'Operator snapshot' }], skillButtons: [], operatorConfigs: [],
+    damageReport: { generatedAt: 1, totalExpected: 0, totalNonCrit: 0, buttonCount: 0, buttons: [] }, updatedAt: Date.now(),
+  });
+  assert.equal(validSnapshotProjection.status, 200, JSON.stringify(validSnapshotProjection.body));
+  const validSnapshotRead = await tool('def.team.loadouts.read', {}, 'session-snapshot');
+  assert.equal(validSnapshotRead.status, 200, JSON.stringify(validSnapshotRead.body));
+  assert.deepEqual(validSnapshotRead.body.result.operators.map((operator) => operator.characterId), ['operator-snapshot']);
+
+  const noCheckoutProjection = await request('/api/main-workbench/snapshot', {
+    source: 'app', activeTimelineId: 'formal-no-checkout', timelineId: 'formal-no-checkout', checkout: null,
+    selectedCharacters: [], skillButtons: [], operatorConfigs: [],
+    damageReport: { generatedAt: 1, totalExpected: 0, totalNonCrit: 0, buttonCount: 0, buttons: [] }, updatedAt: Date.now(),
+  });
+  assert.equal(noCheckoutProjection.status, 200, JSON.stringify(noCheckoutProjection.body));
+  const noCheckoutRead = await tool('def.team.loadouts.read', {}, 'session-no-checkout');
+  assert.equal(noCheckoutRead.status, 409, JSON.stringify(noCheckoutRead.body));
+  assert.equal(noCheckoutRead.body.error.code, 'blocked-session-mismatch');
 
   await mirror('formal-a');
   const currentRead = await tool('def.worknode.list', {}, 'session-a');

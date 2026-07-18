@@ -1306,20 +1306,30 @@ function resolveCanonicalWorkbenchCurrent(input = {}, { nodeId = '' } = {}) {
     || (checkout && checkout.timelineId !== session.binding.timelineId)) {
     return workbenchBindingFailure('blocked-binding-stale', 'The bound Workbench workspace is no longer available.');
   }
-  if (checkout?.targetType === 'work-node') {
-    const checkoutNode = getTimelineRepository().getWorkNode(checkout.targetId);
-    if (!checkoutNode || checkoutNode.timelineId !== session.binding.timelineId) {
-      return workbenchBindingFailure('blocked-session-mismatch', 'The current checkout is outside this DEF session workspace.');
-    }
-    if (!workbenchProjectionMatchesCheckout(snapshot, checkoutNode.workingPayload)) {
-      return workbenchBindingFailure('blocked-session-mismatch', 'The current Workbench payload does not match the authenticated checkout projection.');
-    }
-    if (!workbenchProjectionMatchesCheckoutIdentity(snapshot, checkout)) {
-      return workbenchBindingFailure('blocked-session-mismatch', 'The current Workbench projection belongs to a different checkout.');
-    }
-    if (!isCompleteCanvasWorkbenchProjection(snapshot)) {
-      return workbenchBindingFailure('blocked-session-mismatch', 'The current Canvas has not published a complete checkout projection.');
-    }
+  if (!checkout) {
+    return workbenchBindingFailure('blocked-session-mismatch', 'The bound Workbench workspace has no authenticated checkout.');
+  }
+  const repository = getTimelineRepository();
+  const checkoutNode = checkout.targetType === 'work-node'
+    ? repository.getWorkNode(checkout.targetId)
+    : null;
+  const checkoutSnapshot = checkout.targetType === 'snapshot'
+    ? repository.getSnapshot(checkout.targetId)
+    : null;
+  const checkoutPayload = checkoutNode?.workingPayload || checkoutSnapshot?.payload || null;
+  const checkoutTargetTimelineId = checkoutNode?.timelineId || checkoutSnapshot?.timelineId || '';
+  if (!checkoutPayload || checkoutTargetTimelineId !== session.binding.timelineId
+    || checkoutSnapshot?.archivedAt) {
+    return workbenchBindingFailure('blocked-session-mismatch', 'The current checkout is outside this DEF session workspace or no longer available.');
+  }
+  if (!workbenchProjectionMatchesCheckout(snapshot, checkoutPayload)) {
+    return workbenchBindingFailure('blocked-session-mismatch', 'The current Workbench payload does not match the authenticated checkout projection.');
+  }
+  if (!workbenchProjectionMatchesCheckoutIdentity(snapshot, checkout)) {
+    return workbenchBindingFailure('blocked-session-mismatch', 'The current Workbench projection belongs to a different checkout.');
+  }
+  if (!isCompleteCanvasWorkbenchProjection(snapshot)) {
+    return workbenchBindingFailure('blocked-session-mismatch', 'The current Canvas has not published a complete checkout projection.');
   }
   return {
     ok: true,
@@ -1329,9 +1339,9 @@ function resolveCanonicalWorkbenchCurrent(input = {}, { nodeId = '' } = {}) {
     projectionTimelineId,
     axisContext,
     checkout,
-    checkoutNodeId: checkout?.targetType === 'work-node' ? checkout.targetId : null,
-    checkoutRevision: checkout?.targetType === 'work-node'
-      ? Number(getTimelineRepository().getWorkNode(checkout.targetId)?.contentRevision || 0) || null
+    checkoutNodeId: checkout.targetType === 'work-node' ? checkout.targetId : null,
+    checkoutRevision: checkout.targetType === 'work-node'
+      ? Number(checkoutNode?.contentRevision || 0) || null
       : null,
   };
 }
