@@ -9,7 +9,7 @@ interface MainWorkbenchAiPanelProps {
   timelineId: string;
   timelineLabel: string;
   timelineIsTemporary: boolean;
-  selectedWorkbenchNode: WorkbenchSelectedNodeContext | null;
+  checkoutWorkbenchNode: WorkbenchSelectedNodeContext | null;
   onExit: () => void;
   onWorkNodeChanged?: () => void;
 }
@@ -20,7 +20,7 @@ export function MainWorkbenchAiPanel({
   timelineId,
   timelineLabel,
   timelineIsTemporary,
-  selectedWorkbenchNode,
+  checkoutWorkbenchNode,
   onExit,
 }: MainWorkbenchAiPanelProps) {
   const workbenchContext = useMemo(() => ({
@@ -30,10 +30,10 @@ export function MainWorkbenchAiPanel({
       id: timelineId,
       name: timelineLabel,
     },
-    selectedWorkbenchNode: selectedWorkbenchNode ? {
-      id: selectedWorkbenchNode.nodeId,
-      name: selectedWorkbenchNode.name,
-      description: selectedWorkbenchNode.description,
+    selectedWorkbenchNode: checkoutWorkbenchNode ? {
+      id: checkoutWorkbenchNode.nodeId,
+      name: checkoutWorkbenchNode.name,
+      description: checkoutWorkbenchNode.description,
     } : null,
     selectedCharacters: selectedCharacters.map((character) => ({
       id: character.id,
@@ -54,7 +54,7 @@ export function MainWorkbenchAiPanel({
       nodeNumber: button.nodeNumber,
       position: button.position,
     })),
-  }), [selectedCharacters, selectedWorkbenchNode, skillButtons, timelineId, timelineLabel]);
+  }), [checkoutWorkbenchNode, selectedCharacters, skillButtons, timelineId, timelineLabel]);
 
   return (
     <DefOpenCodeView

@@ -7,7 +7,10 @@ export const MAIN_WORKBENCH_COMMAND_QUEUE_KEY = 'def.main-workbench.command-queu
 export const MAIN_WORKBENCH_RESULT_LOG_KEY = 'def.main-workbench.result-log.v1';
 export const MAIN_WORKBENCH_SNAPSHOT_KEY = 'def.main-workbench.snapshot.v1';
 export const MAIN_WORKBENCH_CONTROL_EVENT = 'def-main-workbench-control';
-export const MAIN_WORKBENCH_REST_BASE_URL = 'http://127.0.0.1:17321';
+// Browser Workbench renderers do not possess the native REST token.  The
+// Electron bridge authenticates the local renderer and forwards only the
+// allowlisted projection/command transport to the token-protected REST host.
+export const MAIN_WORKBENCH_REST_BASE_URL = 'http://127.0.0.1:31457';
 const MAIN_WORKBENCH_REMOTE_PULL_TIMEOUT_MS = 300;
 const MAIN_WORKBENCH_REMOTE_PULL_COOLDOWN_MS = 15000;
 
@@ -325,6 +328,12 @@ export interface MainWorkbenchSnapshot {
   timelineId?: string;
   /** Active Workbench identity; kept separate so the bridge can reject drift. */
   activeTimelineId?: string;
+  /** Exact persisted checkout from which the Canvas runtime was hydrated. */
+  checkout?: {
+    targetType: 'snapshot' | 'work-node';
+    targetId: string;
+    updatedAt: number;
+  } | null;
   currentView?: 'selection' | 'canvas';
   selectedCharacters: Array<Pick<Character, 'id' | 'name' | 'element' | 'profession' | 'librarySource'>>;
   skillButtons: Array<{

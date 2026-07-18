@@ -78,12 +78,16 @@ async function tool(tool, input = {}, sessionId = '') {
 }
 
 async function mirror(timelineId) {
+  const checkout = repository.getCheckoutRef(timelineId);
   const response = await request('/api/main-workbench/snapshot', {
+    source: 'app',
     activeTimelineId: timelineId,
     timelineId,
+    checkout,
     selectedCharacters: [{ id: 'operator-a', name: 'Operator A' }],
     skillButtons: [],
     operatorConfigs: [],
+    damageReport: { generatedAt: 1, totalExpected: 0, totalNonCrit: 0, buttonCount: 0, buttons: [] },
     updatedAt: Date.now(),
   });
   assert.equal(response.status, 200, JSON.stringify(response.body));
@@ -100,6 +104,28 @@ try {
   const currentRead = await tool('def.worknode.list', {}, 'session-a');
   assert.equal(currentRead.status, 200, JSON.stringify(currentRead.body));
   assert.deepEqual(currentRead.body.result.nodes.map((node) => node.id), ['node-a']);
+
+  // Matching payload content is insufficient: a projection published for an
+  // older checkout revision must not become current merely because the node's
+  // working payload happens to be unchanged.
+  repository.setCheckoutRef({ timelineId: 'formal-a', targetType: 'work-node', targetId: 'node-a', updatedAt: 101 });
+  const staleCheckoutIdentity = await tool('def.worknode.list', {}, 'session-a');
+  assert.equal(staleCheckoutIdentity.status, 409, JSON.stringify(staleCheckoutIdentity.body));
+  assert.equal(staleCheckoutIdentity.body.error.code, 'blocked-session-mismatch');
+  repository.setCheckoutRef({ timelineId: 'formal-a', targetType: 'work-node', targetId: 'node-a', updatedAt: 100 });
+  await mirror('formal-a');
+
+  // A checkout-shaped projection without the Canvas damage/runtime envelope is
+  // not a valid current projection, even when its team payload matches.
+  const incomplete = await request('/api/main-workbench/snapshot', {
+    source: 'app', activeTimelineId: 'formal-a', timelineId: 'formal-a', checkout: repository.getCheckoutRef('formal-a'),
+    selectedCharacters: [{ id: 'operator-a', name: 'Operator A' }], skillButtons: [], operatorConfigs: [], updatedAt: Date.now(),
+  });
+  assert.equal(incomplete.status, 200, JSON.stringify(incomplete.body));
+  const incompleteRead = await tool('def.worknode.list', {}, 'session-a');
+  assert.equal(incompleteRead.status, 409, JSON.stringify(incompleteRead.body));
+  assert.equal(incompleteRead.body.error.code, 'blocked-session-mismatch');
+  await mirror('formal-a');
 
   const fork = await tool('def.worknode.create_from_current', { label: 'same-tree fork' }, 'session-a');
   assert.equal(fork.status, 200, JSON.stringify(fork.body));

@@ -1314,6 +1314,12 @@ function resolveCanonicalWorkbenchCurrent(input = {}, { nodeId = '' } = {}) {
     if (!workbenchProjectionMatchesCheckout(snapshot, checkoutNode.workingPayload)) {
       return workbenchBindingFailure('blocked-session-mismatch', 'The current Workbench payload does not match the authenticated checkout projection.');
     }
+    if (!workbenchProjectionMatchesCheckoutIdentity(snapshot, checkout)) {
+      return workbenchBindingFailure('blocked-session-mismatch', 'The current Workbench projection belongs to a different checkout.');
+    }
+    if (!isCompleteCanvasWorkbenchProjection(snapshot)) {
+      return workbenchBindingFailure('blocked-session-mismatch', 'The current Canvas has not published a complete checkout projection.');
+    }
   }
   return {
     ok: true,
@@ -1375,95 +1381,39 @@ function workbenchProjectionMatchesCheckout(snapshot, workingPayload) {
   return true;
 }
 
-function buildCheckoutProjectionSnapshot(binding, checkout, workingPayload, projection = {}) {
-  if (!isObject(workingPayload) || !Array.isArray(workingPayload.selectedCharacters)
-    || !isObject(workingPayload.skillButtonTable)) return null;
-  const selectedFromUi = new Map(
-    (Array.isArray(projection?.selectedCharacters) ? projection.selectedCharacters : [])
-      .filter((character) => isObject(character) && typeof character.id === 'string' && character.id.trim())
-      .map((character) => [character.id.trim(), character]),
-  );
-  const selectedCharacters = workingPayload.selectedCharacters.map((characterId) => {
-    const id = String(characterId || '').trim();
-    const ui = selectedFromUi.get(id);
-    return {
-      id,
-      name: typeof ui?.name === 'string' && ui.name.trim() ? ui.name.trim() : id,
-      ...(typeof ui?.element === 'string' ? { element: ui.element } : {}),
-      ...(typeof ui?.profession === 'string' ? { profession: ui.profession } : {}),
-    };
-  });
-  if (selectedCharacters.some((character) => !character.id)) return null;
-  const skillButtons = Object.values(workingPayload.skillButtonTable).map((button) => ({
-    id: String(button?.id || ''),
-    characterId: String(button?.characterId || button?.characterName || ''),
-    characterName: String(button?.characterName || button?.characterId || ''),
-    skillType: String(button?.skillType || ''),
-    runtimeSkillId: button?.runtimeSkillId,
-    skillDisplayName: button?.skillDisplayName,
-    staffIndex: Number(button?.staffIndex || 0),
-    lineIndex: Number(button?.staffIndex || 0),
-    nodeIndex: Number(button?.nodeIndex || 0),
-    nodeNumber: Number(button?.nodeNumber || 0),
-    position: button?.position,
-    selectedBuffIds: Array.isArray(button?.selectedBuff) ? [...button.selectedBuff] : [],
-    selectedBuffs: [],
-  })).filter((button) => button.id && button.characterId && button.skillType);
-  const configCache = isObject(workingPayload.operatorConfigPageCache) ? workingPayload.operatorConfigPageCache : {};
-  const operatorConfigs = selectedCharacters.flatMap((character) => {
-    const config = configCache[character.id];
-    if (!isObject(config)) return [];
-    const weapon = isObject(config.weapon) ? config.weapon : {};
-    const weaponConfig = isObject(weapon.config) ? weapon.config : {};
-    const equipment = isObject(config.equipment) ? config.equipment : {};
-    return [{
-      characterId: character.id,
-      characterName: character.name,
-      weapon: {
-        id: String(weapon.id || weapon.name || ''),
-        name: String(weapon.name || weapon.id || ''),
-        level: weaponConfig.level ?? null,
-        potential: weaponConfig.potential ?? null,
-        skillLevels: isObject(weaponConfig.skillLevels) ? weaponConfig.skillLevels : {},
-      },
-      equipment: Array.isArray(equipment.pieces) ? equipment.pieces.map((piece) => ({
-        slotKey: piece?.slotKey,
-        equipmentId: piece?.equipmentId,
-        name: piece?.name,
-        part: piece?.part,
-        effects: Array.isArray(piece?.effects) ? piece.effects : [],
-      })) : [],
-    }];
-  });
-  return {
-    schemaVersion: 1,
-    source: 'native-checkout-hydrate',
-    updatedAt: Date.now(),
-    timelineId: binding.timelineId,
-    activeTimelineId: binding.timelineId,
-    currentView: 'canvas',
-    selectedCharacters,
-    skillButtons,
-    operatorConfigs,
-    damageReport: { generatedAt: null, totalExpected: null, totalNonCrit: null, buttonCount: skillButtons.length, buttons: [] },
-    checkout: { targetType: checkout.targetType, targetId: checkout.targetId, updatedAt: checkout.updatedAt },
-  };
+function workbenchProjectionMatchesCheckoutIdentity(snapshot, checkout) {
+  return isObject(snapshot?.checkout)
+    && snapshot.checkout.targetType === checkout?.targetType
+    && snapshot.checkout.targetId === checkout?.targetId
+    && Number(snapshot.checkout.updatedAt) === Number(checkout?.updatedAt);
 }
 
-async function waitForWorkbenchProjectionPayload(timelineId, workingPayload, waitMs) {
+function isCompleteCanvasWorkbenchProjection(snapshot) {
+  if (!isObject(snapshot) || snapshot.source !== 'app' || !isObject(snapshot.damageReport)
+    || !Array.isArray(snapshot.damageReport.buttons)) return false;
+  return (Array.isArray(snapshot.skillButtons) ? snapshot.skillButtons : []).every((button) => {
+    if (!Array.isArray(button?.selectedBuffIds) || !Array.isArray(button?.selectedBuffs)) return false;
+    const resolvedIds = new Set(button.selectedBuffs.map((buff) => String(buff?.id || '')).filter(Boolean));
+    return button.selectedBuffIds.every((buffId) => resolvedIds.has(String(buffId)));
+  });
+}
+
+async function waitForWorkbenchProjectionPayload(timelineId, workingPayload, waitMs, extraPredicate = null) {
   const deadline = Date.now() + normalizeDefVerifyWaitMs(waitMs, 8000);
   let snapshot = readMainWorkbenchSnapshotMirror();
   let pass = Boolean(snapshot
     && snapshot.activeTimelineId === timelineId
     && snapshot.timelineId === timelineId
-    && workbenchProjectionMatchesCheckout(snapshot, workingPayload));
+    && workbenchProjectionMatchesCheckout(snapshot, workingPayload)
+    && (!extraPredicate || extraPredicate(snapshot)));
   while (!pass && Date.now() < deadline) {
     await sleep(150);
     snapshot = readMainWorkbenchSnapshotMirror();
     pass = Boolean(snapshot
       && snapshot.activeTimelineId === timelineId
       && snapshot.timelineId === timelineId
-      && workbenchProjectionMatchesCheckout(snapshot, workingPayload));
+      && workbenchProjectionMatchesCheckout(snapshot, workingPayload)
+      && (!extraPredicate || extraPredicate(snapshot)));
   }
   return { pass, snapshot };
 }
@@ -7519,7 +7469,7 @@ async function handleDefToolRequest(method, pathname, query, body, invocation = 
   return null;
 }
 
-function handleMainWorkbenchRequest(method, pathname, query, body, invocation = {}) {
+async function handleMainWorkbenchRequest(method, pathname, query, body, invocation = {}) {
   // The mirror is canonical-gate input.  Unauthenticated HTTP must neither
   // replay a projection nor inspect it as a side door into another timeline.
   if (!pathname.startsWith('/api/main-workbench')) return null;
@@ -7541,12 +7491,17 @@ function handleMainWorkbenchRequest(method, pathname, query, body, invocation = 
     if (!node || node.timelineId !== binding.timelineId) {
       return failScript(409, 'blocked-session-mismatch', 'The native checkout projection request targets a Work Node outside its binding.');
     }
-    const snapshot = buildCheckoutProjectionSnapshot(binding, checkout, node.workingPayload, body?.projection);
-    if (!snapshot || !workbenchProjectionMatchesCheckout(snapshot, node.workingPayload)) {
-      return failScript(409, 'checkout-projection-unavailable', 'The bound checkout could not produce a canonical Workbench projection.');
+    const projection = await waitForWorkbenchProjectionPayload(
+      binding.timelineId,
+      node.workingPayload,
+      body?.waitMs ?? 4500,
+      (snapshot) => workbenchProjectionMatchesCheckoutIdentity(snapshot, checkout)
+        && isCompleteCanvasWorkbenchProjection(snapshot),
+    );
+    if (!projection.pass) {
+      return failScript(409, 'checkout-projection-unavailable', 'The Canvas has not published a complete projection for the bound checkout.');
     }
-    writeMainWorkbenchJson(MAIN_WORKBENCH_SNAPSHOT_KEY, snapshot);
-    return { status: 200, body: { ok: true, protocolVersion: 1, snapshot } };
+    return { status: 200, body: { ok: true, protocolVersion: 1, snapshot: projection.snapshot } };
   }
   if (method === 'GET' && pathname === '/api/main-workbench/evidence') {
     const snapshot = readMainWorkbenchJson(MAIN_WORKBENCH_SNAPSHOT_KEY, null);
@@ -8011,7 +7966,7 @@ const server = http.createServer(async (request, response) => {
       return;
     }
 
-    const mainWorkbenchResponse = handleMainWorkbenchRequest(method, requestUrl.pathname, requestUrl.searchParams, body, rawInvocation);
+    const mainWorkbenchResponse = await handleMainWorkbenchRequest(method, requestUrl.pathname, requestUrl.searchParams, body, rawInvocation);
     if (mainWorkbenchResponse) {
       writeJson(response, mainWorkbenchResponse.status, mainWorkbenchResponse.body);
       return;

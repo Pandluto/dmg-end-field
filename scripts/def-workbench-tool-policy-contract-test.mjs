@@ -123,21 +123,31 @@ async function legacy(tool, input = {}, sessionId = '') {
 }
 
 async function mirror(timelineId, sentinel) {
+  const checkout = repository.getCheckoutRef(timelineId);
   const response = await request('/api/main-workbench/snapshot', {
     method: 'POST',
     internal: true,
     body: {
+      source: 'app',
       activeTimelineId: timelineId,
       timelineId,
+      checkout,
       selectedCharacters: [{ id: `operator-${sentinel}`, name: `Operator ${sentinel} ONLY` }],
       skillButtons: [{ id: `button-${sentinel}`, characterId: `operator-${sentinel}`, characterName: `Operator ${sentinel} ONLY`, skillType: 'A', staffIndex: 0, lineIndex: 0, nodeIndex: 0, selectedBuffIds: [`buff-${sentinel}`], selectedBuffs: [{ id: `buff-${sentinel}`, name: `Buff ${sentinel} ONLY` }] }],
       operatorConfigs: [{ characterId: `operator-${sentinel}`, characterName: `Operator ${sentinel} ONLY`, weapon: { id: `weapon-${sentinel}`, name: `Weapon ${sentinel} ONLY`, level: 90, potential: '0潜' }, equipment: [{ slotKey: 'armor', equipmentId: `equipment-${sentinel}`, name: `Equipment ${sentinel} ONLY`, effects: [] }] }],
       selectedTeamLoadouts: [{ characterId: `operator-${sentinel}`, characterName: `Operator ${sentinel} ONLY`, weapon: { name: `Weapon ${sentinel} ONLY` }, equipment: [{ name: `Equipment ${sentinel} ONLY` }] }],
-      damageReport: { total: sentinel === 'A' ? 111111 : 999999, marker: `Damage ${sentinel} ONLY` },
+      damageReport: {
+        generatedAt: 1,
+        totalExpected: sentinel === 'A' ? 111111 : 999999,
+        totalNonCrit: sentinel === 'A' ? 101010 : 909090,
+        buttonCount: 1,
+        buttons: [{ buttonId: `button-${sentinel}`, totalExpected: sentinel === 'A' ? 111111 : 999999, marker: `Damage ${sentinel} ONLY` }],
+      },
       updatedAt: Date.now(),
     },
   });
   assert.equal(response.status, 200, JSON.stringify(response.body));
+  return response.body.snapshot;
 }
 
 function currentRegistryTools() {
@@ -158,31 +168,42 @@ function treeState() {
 try {
   await waitForReady();
 
-  // A browser renderer never receives the raw internal token.  Native context
-  // attach must therefore project the exact bound checkout through the
-  // token-protected native path, not leave a previous timeline mirror in place.
+  // Native context attachment may authenticate and await the Canvas projection,
+  // but it must never replace that full runtime projection with checkout-shaped
+  // placeholder data.
+  const fullCanvasProjection = await mirror('formal-a', 'A');
   const hydratedProjection = await request('/api/main-workbench/checkout-projection', {
     method: 'POST', internal: true,
     body: {
       sessionBindingId: 'axis-a', sessionID: 'session-a', timelineId: 'formal-a',
-      projection: { selectedCharacters: [{ id: 'operator-A', name: 'Operator A ONLY' }] },
+      waitMs: 0,
     },
   });
   assert.equal(hydratedProjection.status, 200, JSON.stringify(hydratedProjection.body));
-  assert.equal(hydratedProjection.body.snapshot.timelineId, 'formal-a');
-  assert.deepEqual(hydratedProjection.body.snapshot.selectedCharacters.map((character) => character.name), ['Operator A ONLY']);
+  assert.deepEqual(hydratedProjection.body.snapshot, fullCanvasProjection,
+    'native context attachment must return the exact Canvas snapshot without rewriting it');
+  assert.equal(hydratedProjection.body.snapshot.skillButtons[0].selectedBuffs[0].name, 'Buff A ONLY');
+  assert.equal(hydratedProjection.body.snapshot.operatorConfigs[0].weapon.name, 'Weapon A ONLY');
+  assert.equal(hydratedProjection.body.snapshot.damageReport.totalExpected, 111111);
+  const afterAttach = await request('/api/main-workbench/snapshot', { internal: true });
+  const { axisContext: _axisContext, ...persistedAfterAttach } = afterAttach.body.snapshot;
+  assert.deepEqual(persistedAfterAttach, fullCanvasProjection,
+    'native context attachment must leave the canonical mirror byte-for-byte equivalent');
   const hydratedRead = await generic('def.character.resolve', { query: 'Operator A ONLY' }, 'session-a');
   assert.equal(hydratedRead.status, 200, JSON.stringify(hydratedRead.body));
   assert(JSON.stringify(hydratedRead.body).includes('Operator A ONLY'));
+  const hydratedDamage = await generic('def.workbench.damage_report', {}, 'session-a');
+  assert.equal(hydratedDamage.status, 200, JSON.stringify(hydratedDamage.body));
+  assert.equal(hydratedDamage.body.result.damageReport.totalExpected, 111111);
 
   const nativeServerSource = fs.readFileSync(path.join(process.cwd(), 'agent/server/def-agent-server.cjs'), 'utf8');
   const contextRoute = nativeServerSource.slice(
     nativeServerSource.indexOf("requestUrl.pathname === '/api/native/context'"),
     nativeServerSource.indexOf("requestUrl.pathname === '/api/chat'"),
   );
-  assert(contextRoute.includes('await publishNativeWorkbenchCheckoutProjection(binding, body.context);'),
-    'native context attach must publish the authenticated checkout projection before accepting the attachment');
-  assert(contextRoute.indexOf('await publishNativeWorkbenchCheckoutProjection(binding, body.context);')
+  assert(contextRoute.includes('await awaitNativeWorkbenchCheckoutProjection(binding);'),
+    'native context attach must await the authenticated Canvas projection before accepting the attachment');
+  assert(contextRoute.indexOf('await awaitNativeWorkbenchCheckoutProjection(binding);')
     < contextRoute.indexOf('writeNativeWorkbenchContext(body.directory, body.sessionID, body.context);'),
   );
   assert.equal((nativeServerSource.match(/await cleanupFailedNativeSessionCreate\(session\);/g) || []).length, 1,

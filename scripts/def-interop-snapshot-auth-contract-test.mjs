@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 import { createRequire } from 'node:module';
+import fs from 'node:fs';
 
 const require = createRequire(import.meta.url);
 const { createDefCodexInteropProtocol } = require('../agent/runtime/def-codex-interop.cjs');
@@ -37,4 +38,17 @@ assert.equal(response.status, 200, JSON.stringify(response.body));
 assert.equal(response.body.workbench.snapshotAvailable, true);
 const snapshotCall = calls.find((call) => call.url.includes('/main-workbench/snapshot'));
 assert.equal(snapshotCall?.headers?.['x-def-internal-token'], nativeToken);
-console.log('DEF Interop snapshot auth contract: PASS (main-process snapshot fetch carries native token)');
+const mainSource = fs.readFileSync(new URL('../electron/main.cjs', import.meta.url), 'utf8');
+const rendererSource = fs.readFileSync(new URL('../src/utils/mainWorkbenchControl.ts', import.meta.url), 'utf8');
+assert(rendererSource.includes("MAIN_WORKBENCH_REST_BASE_URL = 'http://127.0.0.1:31457'"),
+  'browser renderer transport must enter through Electron main, never call raw REST directly');
+const proxySource = mainSource.slice(
+  mainSource.indexOf('async function proxyMainWorkbenchRendererTransport'),
+  mainSource.indexOf('function tryServeUserImageByRequestPath'),
+);
+assert(proxySource.includes("'x-def-internal-token': defInternalGovernanceToken"),
+  'Electron renderer proxy must attach the native REST capability');
+assert(proxySource.includes("'POST /api/main-workbench/snapshot'"));
+assert(proxySource.includes("'GET /api/main-workbench/commands/events'"));
+assert(!proxySource.includes('checkout-projection'), 'native checkout assertion must not be exposed to browser renderers');
+console.log('DEF Interop snapshot auth contract: PASS (Interop and browser renderer proxy carry native token)');

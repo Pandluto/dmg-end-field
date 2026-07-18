@@ -590,6 +590,62 @@ function writeSse(response, eventName, payload) {
   response.write(`data: ${JSON.stringify(payload)}\n\n`);
 }
 
+function isTrustedWorkbenchRendererRequest(request) {
+  const origin = String(request.headers.origin || '');
+  const referer = String(request.headers.referer || '');
+  const trustedOrigins = new Set([
+    'http://127.0.0.1:3030',
+    'http://localhost:3030',
+    `http://${BRIDGE_HOST}:${BRIDGE_PORT}`,
+  ]);
+  if (trustedOrigins.has(origin)) return true;
+  return [...trustedOrigins].some((trusted) => referer === `${trusted}/` || referer.startsWith(`${trusted}/`));
+}
+
+async function proxyMainWorkbenchRendererTransport(request, response, requestUrl) {
+  const method = request.method || 'GET';
+  const allowed = new Set([
+    'GET /api/main-workbench/snapshot',
+    'POST /api/main-workbench/snapshot',
+    'GET /api/main-workbench/commands',
+    'POST /api/main-workbench/commands/result',
+    'GET /api/main-workbench/commands/events',
+  ]);
+  if (!requestUrl.pathname.startsWith('/api/main-workbench/')) return false;
+  if (!allowed.has(`${method} ${requestUrl.pathname}`) || !isTrustedWorkbenchRendererRequest(request)) {
+    writeJson(response, 403, { ok: false, error: { code: 'denied-renderer-transport', message: 'Workbench renderer transport is unavailable to this caller.' } });
+    return true;
+  }
+  const upstreamUrl = `http://127.0.0.1:17321${requestUrl.pathname}${requestUrl.search}`;
+  if (method === 'GET' && requestUrl.pathname === '/api/main-workbench/commands/events') {
+    proxySseUrl(upstreamUrl, request, response, {
+      headers: { 'x-def-internal-token': defInternalGovernanceToken },
+      origin: String(request.headers.origin || ''),
+    });
+    return true;
+  }
+  const body = method === 'POST' ? JSON.stringify(await readJsonRequest(request)) : undefined;
+  const upstream = await fetchUrlRawWithRetry(upstreamUrl, {
+    method,
+    headers: {
+      'x-def-internal-token': defInternalGovernanceToken,
+      ...(body === undefined ? {} : {
+        'Content-Type': 'application/json; charset=utf-8',
+        'Content-Length': Buffer.byteLength(body),
+      }),
+    },
+    body,
+    timeoutMs: 10000,
+    retries: 0,
+  });
+  response.writeHead(upstream.statusCode || 502, {
+    ...buildJsonHeaders(response),
+    'Content-Type': upstream.headers['content-type'] || 'application/json; charset=utf-8',
+  });
+  response.end(upstream.body);
+  return true;
+}
+
 function tryServeUserImageByRequestPath({ method, requestPath, response }) {
   if (method !== 'GET' && method !== 'HEAD') {
     return false;
@@ -838,6 +894,10 @@ function startBridgeServer() {
       }
 
       if (await defCodexInterop.handle(request, response, requestUrl, readJsonRequest)) {
+        return;
+      }
+
+      if (await proxyMainWorkbenchRendererTransport(request, response, requestUrl)) {
         return;
       }
 
@@ -2118,20 +2178,20 @@ function postJsonUrl(url, payload) {
   });
 }
 
-function proxySseUrl(url, clientRequest, clientResponse) {
+function proxySseUrl(url, clientRequest, clientResponse, options = {}) {
   const requestUrl = new URL(url);
   const upstream = http.request({
     hostname: requestUrl.hostname,
     port: requestUrl.port,
     path: `${requestUrl.pathname}${requestUrl.search}`,
     method: 'GET',
-    headers: { Accept: 'text/event-stream' },
+    headers: { Accept: 'text/event-stream', ...(options.headers || {}) },
   }, (upstreamResponse) => {
     clientResponse.writeHead(upstreamResponse.statusCode || 502, {
       'Content-Type': upstreamResponse.headers['content-type'] || 'text/event-stream; charset=utf-8',
       'Cache-Control': 'no-cache, no-transform',
       Connection: 'keep-alive',
-      'Access-Control-Allow-Origin': '*',
+      ...(options.origin ? { 'Access-Control-Allow-Origin': options.origin, Vary: 'Origin' } : { 'Access-Control-Allow-Origin': '*' }),
     });
     upstreamResponse.pipe(clientResponse);
   });

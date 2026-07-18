@@ -41,7 +41,8 @@ const child = spawn(process.execPath, ['scripts/ai-cli-rest-server.mjs'], {
 });
 
 const snapshotFor = (payload) => ({
-  activeTimelineId: 'formal-a', timelineId: 'formal-a', selectedCharacters: [{ id: 'char-a', name: 'Character A' }], skillButtons: [],
+  source: 'app', activeTimelineId: 'formal-a', timelineId: 'formal-a', checkout: repository.getCheckoutRef('formal-a'),
+  selectedCharacters: [{ id: 'char-a', name: 'Character A' }], skillButtons: [],
   operatorConfigs: [{ characterId: 'char-a', weapon: { id: 'weapon-a', level: 1, potential: 0 }, equipment: payload.operatorConfigPageCache['char-a'].equipment.pieces }],
   damageReport: { totalExpected: 10, totalNonCrit: 9, buttonCount: 0, buttons: [] }, updatedAt: Date.now(),
 });

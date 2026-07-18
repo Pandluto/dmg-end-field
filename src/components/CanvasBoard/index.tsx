@@ -472,7 +472,7 @@ export function CanvasBoard({
   const [workNodeCameraResetKey, setWorkNodeCameraResetKey] = useState(0);
   const [workNodeSaveNotice, setWorkNodeSaveNotice] = useState('');
   const [pendingWorkNodeCheckoutId, setPendingWorkNodeCheckoutId] = useState('');
-  const [selectedWorkbenchNode, setSelectedWorkbenchNode] = useState<WorkbenchSelectedNodeContext | null>(null);
+  const [checkoutWorkbenchNode, setCheckoutWorkbenchNode] = useState<WorkbenchSelectedNodeContext | null>(null);
   const [aiHoverZone, setAiHoverZone] = useState<'left' | 'right'>('right');
   const shouldRestoreTopZoneAfterAiRef = useRef(false);
   const [isRefreshingAvailableCandidates, setIsRefreshingAvailableCandidates] = useState(false);
@@ -529,7 +529,7 @@ export function CanvasBoard({
     }
     const expectedIdentity = { ...activeTimelineIdentityRef.current };
     try {
-      const { payload } = await readFormalCheckoutPayload(expectedIdentity.timelineId, activeCheckoutRef);
+      const { payload, checkoutNode } = await readFormalCheckoutPayload(expectedIdentity.timelineId, activeCheckoutRef);
       const currentIdentity = activeTimelineIdentityRef.current;
       if (currentIdentity.timelineId !== expectedIdentity.timelineId
         || currentIdentity.checkout !== expectedIdentity.checkout
@@ -540,6 +540,7 @@ export function CanvasBoard({
       // to the persisted checkout.  This deliberately restores P instead of
       // overwriting it with an uncheckpointed working projection.
       hydrateCheckoutRuntime(payload);
+      setCheckoutWorkbenchNode(checkoutNode);
       await new Promise<void>((resolve) => window.requestAnimationFrame(() => {
         window.requestAnimationFrame(() => resolve());
       }));
@@ -589,11 +590,10 @@ export function CanvasBoard({
 
   const handleWorkNodeSelection = useCallback((node: WorkbenchSelectedNodeContext) => {
     setPendingWorkNodeCheckoutId(node.nodeId);
-    setSelectedWorkbenchNode(node);
   }, []);
 
   useEffect(() => {
-    setSelectedWorkbenchNode(null);
+    setCheckoutWorkbenchNode(null);
   }, [activeTimelineId]);
 
   useEffect(() => {
@@ -794,13 +794,24 @@ export function CanvasBoard({
     if (!persistedCheckout || checkoutIdentity(persistedCheckout) !== checkoutIdentity(expectedCheckoutRef)) {
       throw new Error('当前 checkout 已变化；未进入 AI 模式。');
     }
+    const checkoutWorkNode = persistedCheckout.targetType === 'work-node'
+      ? exported.workNodes.find((node) => node.id === persistedCheckout.targetId)
+      : null;
     const payload = persistedCheckout.targetType === 'snapshot'
       ? exported.snapshots.find((snapshot) => snapshot.id === persistedCheckout.targetId)?.payload
-      : exported.workNodes.find((node) => node.id === persistedCheckout.targetId)?.workingPayload;
+      : checkoutWorkNode?.workingPayload;
     if (!payload) {
       throw new Error('当前 checkout payload 不存在；未进入 AI 模式。');
     }
-    return { payload, checkoutRef: persistedCheckout };
+    return {
+      payload,
+      checkoutRef: persistedCheckout,
+      checkoutNode: checkoutWorkNode ? {
+        nodeId: checkoutWorkNode.id,
+        name: checkoutWorkNode.label,
+        description: checkoutWorkNode.description,
+      } : null,
+    };
   }, []);
 
   const refreshWorkbenchAfterCheckout = useCallback(() => {
@@ -831,12 +842,13 @@ export function CanvasBoard({
     }
     void (async () => {
       try {
-        const { payload } = await readFormalCheckoutPayload(activeTimelineId, activeCheckoutRef);
+        const { payload, checkoutNode } = await readFormalCheckoutPayload(activeTimelineId, activeCheckoutRef);
         const currentIdentity = activeTimelineIdentityRef.current;
         if (currentIdentity.timelineId === activeTimelineId
           && currentIdentity.checkout === checkoutIdentity(activeCheckoutRef)
           && !currentIdentity.isTemporary) {
           hydrateCheckoutRuntime(payload);
+          setCheckoutWorkbenchNode(checkoutNode);
         }
       } catch {
         // A first-run document legitimately has no checkout to hydrate.  AI
@@ -3046,6 +3058,11 @@ export function CanvasBoard({
       source: 'app' as const,
       timelineId: activeTimelineId,
       activeTimelineId,
+      checkout: activeCheckoutRef ? {
+        targetType: activeCheckoutRef.targetType,
+        targetId: activeCheckoutRef.targetId,
+        updatedAt: activeCheckoutRef.updatedAt,
+      } : null,
       currentView,
       selectedCharacters: mirroredSelectedCharacters,
       skillButtons: mirroredButtons,
@@ -3060,7 +3077,7 @@ export function CanvasBoard({
     };
     writeMainWorkbenchSnapshot(snapshot);
     void pushMainWorkbenchSnapshot(snapshot);
-  }, [activeTimelineId, checkoutBootstrapRevision, currentView, selectedCharacters, skillButtons, timelineData, resistanceRevision]);
+  }, [activeCheckoutRef, activeTimelineId, checkoutBootstrapRevision, currentView, selectedCharacters, skillButtons, timelineData, resistanceRevision]);
 
   useEffect(() => {
     if (isCheckoutBootstrapPendingRef.current || currentView !== 'canvas') return undefined;
@@ -4035,7 +4052,7 @@ export function CanvasBoard({
                 timelineId={activeTimelineId}
                 timelineLabel={activeTimelineLabel}
                 timelineIsTemporary={activeTimelineIsTemporary}
-                selectedWorkbenchNode={selectedWorkbenchNode}
+                checkoutWorkbenchNode={checkoutWorkbenchNode}
                 onExit={exitAiMode}
                 onWorkNodeChanged={refreshWorkNodePanel}
               />
