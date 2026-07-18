@@ -24,6 +24,38 @@ function isDevelopmentProfile(value) {
   return !['production', 'release'].includes(String(value || '').toLowerCase());
 }
 
+function resolveCanonicalWorkbenchTimelineId(value, native = null) {
+  const outer = value && typeof value === 'object' ? value : {};
+  const snapshot = outer.snapshot && typeof outer.snapshot === 'object' ? outer.snapshot : outer;
+  const candidates = [
+    snapshot.timelineId,
+    snapshot.activeTimelineId,
+    snapshot.checkout?.timelineId,
+    snapshot.checkoutRef?.timelineId,
+    native?.binding?.timelineId,
+    native?.axisContext?.binding?.timelineId,
+    native?.axisContext?.checkout?.timelineId,
+  ].map((item) => typeof item === 'string' ? item.trim() : '').filter(Boolean);
+  const unique = [...new Set(candidates)];
+  return unique.length === 1 ? unique[0] : '';
+}
+
+function readExactCheckoutPayload(bundle) {
+  const checkout = bundle?.checkoutRef;
+  if (!checkout?.targetId) return null;
+  if (checkout.targetType === 'work-node') {
+    const node = (Array.isArray(bundle.workNodes) ? bundle.workNodes : [])
+      .find((item) => item?.id === checkout.targetId);
+    return node?.workingPayload || node?.basePayload || null;
+  }
+  if (checkout.targetType === 'snapshot') {
+    const snapshot = (Array.isArray(bundle.snapshots) ? bundle.snapshots : [])
+      .find((item) => item?.id === checkout.targetId && !item?.archivedAt);
+    return snapshot?.payload || null;
+  }
+  return null;
+}
+
 function createDefCodexInteropProtocol(options) {
   const runs = new Map();
   const turnsByClient = new Map();
@@ -578,11 +610,23 @@ function createDefCodexInteropProtocol(options) {
       let boundNodeId = '';
       let fixture;
       if (fixtureMode === 'clone-current') {
-        const exported = await options.fetchJson(`${baseUrl}/local-data/timeline-bundles/export?timelineId=current-main-workbench`);
-        const sourceNodes = exported.body?.workNodes || [];
-        const checkoutId = exported.body?.checkoutRef?.targetType === 'work-node' ? exported.body.checkoutRef.targetId : '';
-        const sourceNode = sourceNodes.find((node) => node?.id === checkoutId) || sourceNodes[0];
-        const payload = sourceNode?.workingPayload || sourceNode?.basePayload;
+        const state = await snapshot();
+        const consumer = currentConsumer();
+        let native = null;
+        if (consumer?.directory) {
+          try {
+            const query = new URLSearchParams({ sessionID: consumer.sessionId, directory: consumer.directory });
+            const bootstrap = await options.fetchJson(`${options.sidecarUrl}/api/native/bootstrap?${query}`);
+            native = bootstrap.body?.ok ? bootstrap.body : null;
+          } catch {}
+        }
+        const sourceTimelineId = state.available
+          ? resolveCanonicalWorkbenchTimelineId(state.value, native)
+          : '';
+        const exported = sourceTimelineId
+          ? await options.fetchJson(`${baseUrl}/local-data/timeline-bundles/export?timelineId=${encodeURIComponent(sourceTimelineId)}`)
+          : { status: 409, body: null };
+        const payload = readExactCheckoutPayload(exported.body);
         if (exported.status < 200 || exported.status >= 300 || !payload) {
           reject(response, 409, createError('BLOCKED_ENVIRONMENT', 'A populated Harness fixture needs an available current Workbench payload.', 'fixture', { retryable: true })); return true;
         }
@@ -737,4 +781,12 @@ function createDefCodexInteropProtocol(options) {
   return { handle, audit, emit };
 }
 
-module.exports = { PROTOCOL, PROTOCOL_VERSION, CAPABILITIES, createError, createDefCodexInteropProtocol };
+module.exports = {
+  PROTOCOL,
+  PROTOCOL_VERSION,
+  CAPABILITIES,
+  createError,
+  createDefCodexInteropProtocol,
+  readExactCheckoutPayload,
+  resolveCanonicalWorkbenchTimelineId,
+};

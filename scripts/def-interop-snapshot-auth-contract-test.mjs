@@ -4,7 +4,11 @@ import { createRequire } from 'node:module';
 import fs from 'node:fs';
 
 const require = createRequire(import.meta.url);
-const { createDefCodexInteropProtocol } = require('../agent/runtime/def-codex-interop.cjs');
+const {
+  createDefCodexInteropProtocol,
+  readExactCheckoutPayload,
+  resolveCanonicalWorkbenchTimelineId,
+} = require('../agent/runtime/def-codex-interop.cjs');
 const {
   WORKBENCH_RENDERER_CAPABILITY_HEADER,
   WORKBENCH_RENDERER_CAPABILITY_QUERY,
@@ -18,6 +22,30 @@ const {
   isProtectedWorkbenchRendererLocalDataPath,
 } = require('../electron/workbench-renderer-transport.cjs');
 const nativeToken = 'interop-native-snapshot-token';
+assert.equal(resolveCanonicalWorkbenchTimelineId({
+  timelineId: 'formal-a',
+  activeTimelineId: 'formal-a',
+  checkout: { timelineId: 'formal-a' },
+}, { binding: { timelineId: 'formal-a' }, axisContext: { checkout: { timelineId: 'formal-a' } } }), 'formal-a');
+assert.equal(resolveCanonicalWorkbenchTimelineId({
+  timelineId: 'formal-a',
+  activeTimelineId: 'formal-b',
+}, null), '', 'Harness clone-current must fail closed when projection identities disagree');
+assert.deepEqual(readExactCheckoutPayload({
+  checkoutRef: { targetType: 'work-node', targetId: 'node-b' },
+  workNodes: [
+    { id: 'node-a', workingPayload: { marker: 'wrong-first-node' } },
+    { id: 'node-b', workingPayload: { marker: 'exact-checkout' } },
+  ],
+}), { marker: 'exact-checkout' });
+assert.deepEqual(readExactCheckoutPayload({
+  checkoutRef: { targetType: 'snapshot', targetId: 'snapshot-a' },
+  snapshots: [{ id: 'snapshot-a', payload: { marker: 'snapshot-checkout' } }],
+}), { marker: 'snapshot-checkout' });
+assert.equal(readExactCheckoutPayload({
+  checkoutRef: { targetType: 'work-node', targetId: 'missing' },
+  workNodes: [{ id: 'node-a', workingPayload: { marker: 'must-not-fallback' } }],
+}), null);
 const calls = [];
 const protocol = createDefCodexInteropProtocol({
   profile: 'development',
