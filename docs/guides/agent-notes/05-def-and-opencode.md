@@ -1,48 +1,129 @@
 # 这些概念在 DEF 里怎样落地
 
-DEF 没有从空白页面重新实现一套 Agent。会话、Agent Loop、工具协议和原生审批界面沿用 OpenCode；项目补的是产品上下文、领域工具和状态边界。
+DEF 没有重写一套 Agent。
 
-先把后面反复出现的四个名字放在一起，省得读到一半再找：
+它沿用了 OpenCode 的：
+
+- Session；
+- Agent Loop；
+- 工具协议；
+- 原生审批界面。
+
+项目补充的是：
+
+- 产品上下文；
+- 领域工具；
+- 状态边界。
+
+几个项目词先放在这里：
+
+| 名称 | 含义 |
+|---|---|
+| Work Node | 一次修改使用的隔离草稿 |
+| Checkout | 指向当前应用目标的引用 |
+| Sidecar | OpenCode 与 DEF 的适配层 |
+| Postcondition | 执行后必须重新核对的条件 |
+
+## 读取产品事实
+
+Prompt 里的描述，
+不能代替当前产品状态。
+
+需要读取时间线或配置时，
+模型调用 DEF Typed Tool。
 
 ```text
-Work Node  一次修改使用的隔离草稿
-Checkout   指向当前应用目标的引用，不是节点本身
-Sidecar    连接 OpenCode Runtime 与 DEF 上下文/工具的适配层
-Postcondition  执行后必须重新核对的结果条件
+模型
+→ DEF Typed Tool
+→ 产品事实源
+→ Tool Result
+→ 模型
 ```
 
-## 读操作先找到产品事实
+产品 Agent 没有任意 Shell。
 
-模型不能把 Prompt 里的描述当成当前产品状态。需要读取时间线、角色、配置或知识时，它调用 DEF Typed Tool；工具通过本地领域接口读取当前事实，再把结构化结果交还给模型。
+它也不能任意读取项目文件。
+
+模型只拿到产品允许的事实。
+
+## 修改先进入草稿
+
+修改不会直接写进界面。
+
+工具先生成预览，
+再写入 Work Node。
 
 ```text
-模型 → DEF Typed Tool → 产品事实源 → Tool Result → 模型
+Prepare
+→ Work Node
+→ Preview
+→ Approval
+→ Apply
+→ Postcondition
 ```
 
-这条链路没有向产品 Agent 开放任意 Shell 和任意文件访问。模型拿到的是产品允许它看到的事实，不是整个工作目录。
+批准后，
+Apply 还会核对版本和目标。
 
-## 写操作先进入草稿
+接口返回成功，
+不代表产品已经正确应用。
 
-修改比读取多一层。工具不会直接把模型参数写进当前界面，而是先准备预览，在 Work Node 里形成差异和风险信息，再通过 OpenCode 原生 Permission 请求用户批准。
+需要同时检查：
 
-批准后，Apply 仍要核对草稿版本和目标节点。执行完成也不能只看某个接口返回成功；Work Node、提交记录和真实界面状态需要重新对上，才能向模型报告已应用。最后这次核对就是 Postcondition。
+- Work Node；
+- Commit；
+- 真实界面状态。
 
-```text
-Prepare → Work Node → Preview → Approval → Apply → Postcondition
-```
+## Session 站在哪条时间线上
 
-这些名字属于项目实现，不要求其他 Agent 照搬。真正需要保留的是两条判断：用户批准的内容必须明确；接口返回成功不等于产品已经处在预期状态。
+普通聊天主要维护消息历史。
 
-## Session 还要知道自己站在哪条时间线上
+DEF 还有 Timeline 和 Checkout。
 
-普通聊天主要维护消息历史。DEF 还存在 Timeline、Work Node 和 Checkout。用户一旦切换节点，旧对话中关于“当前状态”的描述就可能过期。
+用户切换节点后，
+旧对话里的“当前状态”会过期。
 
-因此 Session 会绑定到明确的产品坐标轴。处理下一条消息前，系统刷新 Checkout 和选中节点；发现坐标变化时先重新绑定，再允许模型继续。它解决的不是模型记忆问题，而是对话状态和产品状态的一致性问题。
+处理下一条消息前，
+系统刷新当前坐标。
 
-## 原生 UI 外面还有一层适配
+坐标变化时，
+Session 要先重新绑定。
 
-界面继续使用 OpenCode 原生会话和审批体验。Sidecar 创建并管理 OpenCode Worker——真正运行 Session 和 Agent Loop 的本地进程——把当前 DEF 上下文注入会话，也把领域工具接进 Runtime。产品事实仍由 DEF 自己的存储和接口维护，Sidecar 不复制另一套事实源。
+这是产品状态一致性问题。
 
-项目还保留了外部观察入口，用来读取事件、对话记录、问题和终态。黑盒测试只发送正常用户语言，再从工具记录和真实 UI 判断 Agent 是否完成任务，避免把预期答案提前泄露给执行者。
+它不是模型记忆问题。
 
-顺着这条链路再往下看，会遇到另一个问题：工具停在审批中、进程被取消或 Apply 响应不确定时，系统究竟记住了什么？这些细节单独记在[运行中的状态、持久化与恢复](./06-state-persistence-recovery.md)。更精确的组件与数据边界仍在[架构事实源](../../architecture/README.md)。
+## OpenCode 外面的适配层
+
+OpenCode Worker 负责运行：
+
+- Session；
+- Agent Loop。
+
+Sidecar 负责：
+
+- 管理 Worker；
+- 注入 DEF 上下文；
+- 接入领域工具。
+
+产品事实仍由 DEF 维护。
+
+Sidecar 不复制另一套事实源。
+
+外部观察入口会读取：
+
+- 事件；
+- 对话记录；
+- 问题；
+- 最终状态。
+
+黑盒测试只发送正常用户语言。
+
+工具记录和真实 UI，
+共同证明任务是否完成。
+
+运行中断后的处理见
+[状态、持久化与恢复](./06-state-persistence-recovery.md)。
+
+完整边界见
+[架构事实源](../../architecture/README.md)。

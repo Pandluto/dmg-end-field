@@ -1,62 +1,145 @@
 # Agent 跑到一半怎么办
 
-真正麻烦的不是顺利完成，而是卡在中间：工具正在等审批，用户关掉了窗口；或者 Apply 已经发出，却迟迟没有响应。
+麻烦常发生在中间。
 
-这时系统要回答三件事：进行到哪里、什么已经落盘、下一次还能不能继续。
+例如：
+
+- 工具正在等审批；
+- 用户关掉了窗口；
+- Apply 发出后没有响应。
+
+此时要回答三件事：
+
+1. 进行到哪里？
+2. 什么已经落盘？
+3. 下一次能否继续？
 
 ## 几层状态，各记各的
 
-当前项目没有用一个大枚举包办所有状态：
+项目没有一个万能状态机。
 
-| 谁在记 | 它关心什么 |
+| 谁在记 | 关心什么 |
 |---|---|
-| Session / Interop | 会话正在生成、等待重试，还是已经完成、停止或失败。 |
-| Tool Part | 一次工具调用是 `pending`、`running`、`completed` 还是 `error`。 |
-| Permission | 哪个请求还在等待用户回答。 |
-| 产品数据 | Work Node、Checkout 和真实界面是否已经改变。 |
+| Session / Interop | 生成、重试和终态 |
+| Tool Part | 调用开始、完成或报错 |
+| Permission | 哪个请求还在等人 |
+| 产品数据 | 产品是否真的改变 |
 
-这些状态可以同时成立。比如工具卡片仍是 `running`，Permission 正在等用户批准；这不是第五种 Tool 状态，而是两层状态叠在一起。
+几层状态可以同时成立。
 
-## 记住调用，不等于接着执行
+工具卡片可能还是 `running`。
 
-OpenCode 会把 Tool Call 存成 Message 下的一条 Part。工具名、输入、状态和 `callID` 随执行不断更新，并通过事件投影写入 SQLite。多个工具同时出现时，`callID` 负责把结果送回各自的调用。
+Permission 同时等待批准。
 
-所以重开界面以后，系统仍能知道哪个工具完成、哪个工具报错。但数据库里的一条 `running` 记录，不是 JavaScript 函数的执行检查点。
+这不是新的 Tool 状态。
 
-审批等待更直接：当前 OpenCode 把尚未回答的 Permission 请求放在 Worker 内存里。Worker 一旦退出，背后等待答案的 Promise 也没了。恢复时只能重新检查 Session 和产品状态，不能从原来的等待点续上。
+只是两层状态叠在一起。
 
-## 停止不会撤销已经发生的事
+## 记住调用，不等于继续执行
 
-用户停止任务时，Runtime 会中断请求，并把没结束的 Tool Part 记成 `Tool execution aborted`。这样 UI 不会永远挂着一个运行中的工具，下一轮也不会把它当成正常结果。
+OpenCode 会保存 Tool Part。
 
-但 abort 收拾的是 Runtime 现场，不是产品回滚。工具在中断前如果已经产生副作用，最终结果仍要去 Work Node、Commit、Checkout 和 live 状态里确认。
+其中包括：
 
-## 不知道做没做，先别重试
+- 工具名；
+- 输入；
+- 状态；
+- `callID`。
 
-Provider 限流或部分服务错误可以退避后重试，因为它们还没有跨进产品修改链路。Apply 超时则不同：可能根本没执行，也可能已经执行成功，只是响应丢了。直接再发一次，可能造成重复修改。
+`callID` 用来匹配调用和结果。
 
-DEF 会给准备好的修改发放一次性凭证，并绑定当前 Session、Work Node 版本和内容。Apply 开始后凭证就被视为已使用；目标或版本发生变化，执行会被拒绝。响应不确定时，先核对 Commit、Checkout 和 live 状态，再决定继续还是人工处理。
+记录会投影到 SQLite。
 
-对话投递也使用类似思路：`clientTurnId` 给一轮请求稳定身份。Sidecar 是否收到 Prompt 不确定时，先去 Transcript 找对应消息，而不是马上重发。
+重开界面后，
+仍能看到工具结果。
 
-## 重启能找回记录，找不回调用栈
+但一条 `running` 记录，
+不是函数执行检查点。
 
-项目里持久保存了三本“账”：
+Permission 等待也在 Worker 内存里。
 
-- OpenCode SQLite 记着说过什么、调用过哪些工具；
-- Timeline Repository 记着 Work Node、Commit 和 Session Binding；
-- 浏览器侧状态说明用户眼前真正应用了什么。
+Worker 退出后，
+等待答案的 Promise 也会消失。
 
-Binding 仍在而 OpenCode Session 丢失时，Adapter 可以重新创建 Session，并绑回原来的 Harness 和产品坐标。恢复的是身份和边界，不是崩溃前的执行栈。
+恢复时只能重新检查事实。
 
-恢复以后，审批内容和产品结果仍要从事实源重读，不能只相信旧回答或摘要。
+## 停止不会回滚
 
-> 消息库告诉我们说过什么，产品库告诉我们改了什么，运行时内存告诉我们正在等什么。进程一旦消失，最后一项也会跟着消失。
+停止任务时，
+Runtime 会中断请求。
 
-对应实现主要在：
+未结束的 Tool Part 会记为：
 
-- `agent/vendor/opencode/packages/opencode/src/session/processor.ts`
-- `agent/vendor/opencode/packages/opencode/src/permission/index.ts`
-- `agent/runtime/def-opencode-adapter/index.cjs`
-- `agent/runtime/def-codex-interop.cjs`
-- `scripts/ai-cli-rest-server.mjs`
+`Tool execution aborted`
+
+这样 UI 不会一直显示运行中。
+
+下一轮也不会误用半截结果。
+
+但 abort 只收拾 Runtime。
+
+已经发生的产品修改，
+仍要重新核对。
+
+## 结果不确定，先别重试
+
+Provider 限流通常可以重试。
+
+Apply 超时不能直接重试。
+
+它可能没有执行。
+
+也可能执行成功，
+只是响应丢了。
+
+DEF 给每次修改一个单次凭证。
+
+凭证绑定当前 Session 和版本。
+
+Apply 开始后，
+凭证即视为已使用。
+
+响应不确定时，
+先检查三处事实：
+
+- Commit；
+- Checkout；
+- live 状态。
+
+对话投递也有稳定的
+`clientTurnId`。
+
+Prompt 是否送达不确定时，
+先查 Transcript。
+
+## 重启只能找回记录
+
+项目持久保存三本“账”：
+
+- 消息库：说过什么；
+- 产品库：改过什么；
+- 浏览器状态：眼前应用了什么。
+
+Session 丢失时，
+Adapter 可以重新创建它。
+
+原来的 Harness 和产品坐标，
+也可以重新绑定。
+
+恢复的是身份和边界。
+
+恢复不了崩溃前的调用栈。
+
+审批内容和产品结果，
+仍要从事实源重读。
+
+> 运行时内存记着正在等什么。
+> 进程消失，这部分也会消失。
+
+实现入口：
+
+- `session/processor.ts`
+- `permission/index.ts`
+- `def-opencode-adapter/index.cjs`
+- `def-codex-interop.cjs`
+- `ai-cli-rest-server.mjs`
