@@ -149,9 +149,10 @@ function readDesktopResult<T extends { ok: boolean; error?: string }>(payload: T
 }
 
 async function postJson<T>(baseUrl: string, pathname: string, body: unknown): Promise<T> {
-  const response = await fetch(buildUrl(baseUrl, pathname), {
+  const url = buildUrl(baseUrl, pathname);
+  const response = await fetch(url, {
     method: 'POST',
-    headers: withWorkbenchRendererCapability({ 'Content-Type': 'application/json' }),
+    headers: withWorkbenchRendererCapability(url, { 'Content-Type': 'application/json' }),
     body: JSON.stringify(body),
   });
   return readJsonResponse<T>(response);
@@ -206,9 +207,10 @@ function invalidateListCache() {
 
 async function getBridgeJson<T>(pathname: string): Promise<T | null> {
   try {
-    const response = await fetch(buildUrl(DEFAULT_BRIDGE_BASE_URL, pathname), {
+    const url = buildUrl(DEFAULT_BRIDGE_BASE_URL, pathname);
+    const response = await fetch(url, {
       cache: 'no-store',
-      headers: withWorkbenchRendererCapability(),
+      headers: withWorkbenchRendererCapability(url),
     });
     // In browser development the DEF shell owns 31457 while Electron is not
     // running. Its unrelated 404 must fall through to the REST compatibility
@@ -223,9 +225,10 @@ async function getBridgeJson<T>(pathname: string): Promise<T | null> {
 
 async function postBridgeJson<T>(pathname: string, body: unknown): Promise<T | null> {
   try {
-    const response = await fetch(buildUrl(DEFAULT_BRIDGE_BASE_URL, pathname), {
+    const url = buildUrl(DEFAULT_BRIDGE_BASE_URL, pathname);
+    const response = await fetch(url, {
       method: 'POST',
-      headers: withWorkbenchRendererCapability({ 'Content-Type': 'application/json' }),
+      headers: withWorkbenchRendererCapability(url, { 'Content-Type': 'application/json' }),
       body: JSON.stringify(body),
     });
     if (response.status === 404) return null;
@@ -244,9 +247,10 @@ export async function probeAiTimelineWorkNodeRuntime(baseUrl = DEFAULT_REST_BASE
   const controller = new AbortController();
   const timeoutId = globalThis.setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const response = await fetch(buildUrl(baseUrl, '/api/ai-timeline-worknodes'), {
+    const url = buildUrl(baseUrl, '/api/ai-timeline-worknodes');
+    const response = await fetch(url, {
       cache: 'no-store',
-      headers: withWorkbenchRendererCapability(),
+      headers: withWorkbenchRendererCapability(url),
       signal: controller.signal,
     });
     if (!response.ok) {
@@ -294,8 +298,9 @@ export function createAiTimelineWorkNodeClient(baseUrl = DEFAULT_REST_BASE_URL) 
         if (bridgeResult) {
           return toListResponse(bridgeResult);
         }
-        const response = await fetch(buildUrl(baseUrl, '/api/ai-timeline-worknodes'), {
-          headers: withWorkbenchRendererCapability(),
+        const url = buildUrl(baseUrl, '/api/ai-timeline-worknodes');
+        const response = await fetch(url, {
+          headers: withWorkbenchRendererCapability(url),
         });
         const result = await readJsonResponse<{
           ok: true;
@@ -348,8 +353,9 @@ export function createAiTimelineWorkNodeClient(baseUrl = DEFAULT_REST_BASE_URL) 
           node: bridgeResult.node as AiTimelineWorkNode,
         };
       }
-      const response = await fetch(buildUrl(baseUrl, `/api/ai-timeline-worknodes/${encodeURIComponent(id)}`), {
-        headers: withWorkbenchRendererCapability(),
+      const url = buildUrl(baseUrl, `/api/ai-timeline-worknodes/${encodeURIComponent(id)}`);
+      const response = await fetch(url, {
+        headers: withWorkbenchRendererCapability(url),
       });
       return readJsonResponse<AiTimelineWorkNodeResponse>(response);
     },
@@ -425,8 +431,9 @@ export function createAiTimelineWorkNodeClient(baseUrl = DEFAULT_REST_BASE_URL) 
         `/local-data/ai-timeline-worknodes/${encodeURIComponent(id)}/diff`,
       );
       if (bridgeResult) return bridgeResult;
-      const response = await fetch(buildUrl(baseUrl, `/api/ai-timeline-worknodes/${encodeURIComponent(id)}/diff`), {
-        headers: withWorkbenchRendererCapability(),
+      const url = buildUrl(baseUrl, `/api/ai-timeline-worknodes/${encodeURIComponent(id)}/diff`);
+      const response = await fetch(url, {
+        headers: withWorkbenchRendererCapability(url),
       });
       return readJsonResponse<AiTimelineWorkNodeDiffResponse>(response);
     },

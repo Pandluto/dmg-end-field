@@ -123,9 +123,10 @@ async function readResponse<T>(response: Response): Promise<T> {
 }
 
 async function request<T>(baseUrl: string, pathname: string, method = 'GET', body?: unknown): Promise<T> {
-  const response = await fetch(`${baseUrl}${pathname}`, {
+  const url = `${baseUrl}${pathname}`;
+  const response = await fetch(url, {
     method,
-    headers: withWorkbenchRendererCapability(body === undefined ? undefined : { 'Content-Type': 'application/json' }),
+    headers: withWorkbenchRendererCapability(url, body === undefined ? undefined : { 'Content-Type': 'application/json' }),
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   return readResponse<T>(response);

@@ -600,7 +600,7 @@ async function fetchWithTimeout(input: RequestInfo | URL, init: RequestInit = {}
   try {
     return await window.fetch(input, {
       ...init,
-      headers: withWorkbenchRendererCapability(init.headers),
+      headers: withWorkbenchRendererCapability(input, init.headers),
       signal: init.signal || controller.signal,
     });
   } finally {
@@ -670,9 +670,10 @@ export async function pullRemoteMainWorkbenchCommands(): Promise<void> {
 export async function pushMainWorkbenchCommandResult(entry: QueuedMainWorkbenchCommand): Promise<void> {
   if (typeof window === 'undefined' || typeof window.fetch !== 'function') return;
   try {
-    await window.fetch(`${MAIN_WORKBENCH_REST_BASE_URL}/api/main-workbench/commands/result`, {
+    const url = `${MAIN_WORKBENCH_REST_BASE_URL}/api/main-workbench/commands/result`;
+    await window.fetch(url, {
       method: 'POST',
-      headers: withWorkbenchRendererCapability({ 'Content-Type': 'application/json; charset=utf-8' }),
+      headers: withWorkbenchRendererCapability(url, { 'Content-Type': 'application/json; charset=utf-8' }),
       body: JSON.stringify({
         id: entry.id,
         status: entry.status,
@@ -688,9 +689,10 @@ export async function pushMainWorkbenchCommandResult(entry: QueuedMainWorkbenchC
 export async function pushMainWorkbenchSnapshot(snapshot: MainWorkbenchSnapshot): Promise<void> {
   if (typeof window === 'undefined' || typeof window.fetch !== 'function') return;
   try {
-    await window.fetch(`${MAIN_WORKBENCH_REST_BASE_URL}/api/main-workbench/snapshot`, {
+    const url = `${MAIN_WORKBENCH_REST_BASE_URL}/api/main-workbench/snapshot`;
+    await window.fetch(url, {
       method: 'POST',
-      headers: withWorkbenchRendererCapability({ 'Content-Type': 'application/json; charset=utf-8' }),
+      headers: withWorkbenchRendererCapability(url, { 'Content-Type': 'application/json; charset=utf-8' }),
       body: JSON.stringify({ snapshot }),
     });
   } catch {

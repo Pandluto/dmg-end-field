@@ -38,6 +38,23 @@ function isAuthorizedWorkbenchRendererRequest(request, requestUrl, expectedCapab
   return safeCapabilityEqual(readWorkbenchRendererCapability(request, requestUrl), expectedCapability);
 }
 
+function isAuthorizedWorkbenchNativeRequest(request, expectedToken) {
+  const token = request?.headers?.['x-def-internal-token'];
+  return safeCapabilityEqual(typeof token === 'string' ? token : '', expectedToken);
+}
+
+function buildProtectedWorkbenchNativeHeaders(url, expectedOrigin, token) {
+  try {
+    const target = new URL(url);
+    if (target.origin === expectedOrigin && isProtectedWorkbenchRendererLocalDataPath(target.pathname) && token) {
+      return { 'x-def-internal-token': token };
+    }
+  } catch {
+    // Invalid or relative targets receive no native authority.
+  }
+  return {};
+}
+
 function buildRendererCapabilityUrl(url, capability) {
   const target = new URL(url);
   target.searchParams.set(WORKBENCH_RENDERER_CAPABILITY_QUERY, capability);
@@ -81,10 +98,12 @@ function isProtectedWorkbenchRendererLocalDataPath(pathname) {
 module.exports = {
   WORKBENCH_RENDERER_CAPABILITY_HEADER,
   WORKBENCH_RENDERER_CAPABILITY_QUERY,
+  buildProtectedWorkbenchNativeHeaders,
   buildRendererCapabilityUrl,
   buildWorkbenchUpstreamSearch,
   createWorkbenchRendererCapability,
   isAllowedWorkbenchRendererTransport,
+  isAuthorizedWorkbenchNativeRequest,
   isAuthorizedWorkbenchRendererRequest,
   isProtectedWorkbenchRendererLocalDataPath,
   isTrustedWorkbenchRendererOrigin,

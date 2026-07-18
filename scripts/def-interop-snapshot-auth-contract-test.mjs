@@ -8,10 +8,12 @@ const { createDefCodexInteropProtocol } = require('../agent/runtime/def-codex-in
 const {
   WORKBENCH_RENDERER_CAPABILITY_HEADER,
   WORKBENCH_RENDERER_CAPABILITY_QUERY,
+  buildProtectedWorkbenchNativeHeaders,
   buildRendererCapabilityUrl,
   buildWorkbenchUpstreamSearch,
   createWorkbenchRendererCapability,
   isAllowedWorkbenchRendererTransport,
+  isAuthorizedWorkbenchNativeRequest,
   isAuthorizedWorkbenchRendererRequest,
   isProtectedWorkbenchRendererLocalDataPath,
 } = require('../electron/workbench-renderer-transport.cjs');
@@ -69,9 +71,30 @@ assert(rendererTransportSource.includes("'GET /api/main-workbench/commands/event
 assert(!proxySource.includes('checkout-projection'), 'native checkout assertion must not be exposed to browser renderers');
 assert(!mainSource.includes('installDefRawTransportHeader'),
   'Electron must not grant raw REST authority to every defaultSession renderer');
+assert(mainSource.includes('buildInteropNativeHeaders'),
+  'Interop fixture creation and cleanup must carry native authority into protected local-data routes');
 
 const rendererCapability = createWorkbenchRendererCapability();
 assert.notEqual(rendererCapability, createWorkbenchRendererCapability(), 'renderer capability must rotate per process');
+assert.equal(isAuthorizedWorkbenchNativeRequest({ headers: {} }, nativeToken), false);
+assert.equal(isAuthorizedWorkbenchNativeRequest({
+  headers: { 'x-def-internal-token': nativeToken },
+}, nativeToken), true, 'main-process Interop callbacks need native authority for protected local-data routes');
+assert.deepEqual(buildProtectedWorkbenchNativeHeaders(
+  'http://127.0.0.1:31457/local-data/timeline-documents',
+  'http://127.0.0.1:31457',
+  nativeToken,
+), { 'x-def-internal-token': nativeToken });
+assert.deepEqual(buildProtectedWorkbenchNativeHeaders(
+  'http://attacker.example/local-data/timeline-documents',
+  'http://127.0.0.1:31457',
+  nativeToken,
+), {}, 'native capability must never leave the exact Electron bridge origin');
+assert.deepEqual(buildProtectedWorkbenchNativeHeaders(
+  'http://127.0.0.1:31457/health',
+  'http://127.0.0.1:31457',
+  nativeToken,
+), {}, 'native capability must be limited to protected local-data routes');
 const trustedOriginRequest = { headers: { origin: 'http://127.0.0.1:3030' } };
 const snapshotUrl = new URL('http://127.0.0.1:31457/api/main-workbench/snapshot');
 assert.equal(isAuthorizedWorkbenchRendererRequest(trustedOriginRequest, snapshotUrl, rendererCapability), false,
@@ -101,9 +124,11 @@ assert.equal(isAllowedWorkbenchRendererTransport('POST', '/api/ai-timeline-workn
 assert.equal(isAllowedWorkbenchRendererTransport('POST', '/api/timeline-checkout-ref'), true);
 assert.equal(isProtectedWorkbenchRendererLocalDataPath('/local-data/timeline-documents'), true);
 assert.equal(isProtectedWorkbenchRendererLocalDataPath('/local-data/ai-timeline-worknodes/node-a'), true);
-assert(rendererSource.includes('withWorkbenchRendererCapability(init.headers)'));
+assert(rendererSource.includes('withWorkbenchRendererCapability(input, init.headers)'));
 assert(rendererSource.includes('buildWorkbenchRendererEventUrl'));
 assert(rendererCapabilitySource.includes('window.history.replaceState'), 'launch capability must be removed from the visible URL');
+assert(rendererCapabilitySource.includes('isWorkbenchRendererBridgeUrl'),
+  'renderer capability must be bound to the exact Electron bridge origin');
 assert(workNodeClientSource.includes("const DEFAULT_REST_BASE_URL = DEFAULT_BRIDGE_BASE_URL"));
 assert(workNodeClientSource.includes('withWorkbenchRendererCapability'));
 assert(timelineClientSource.includes('const REST_BASE_URL = BRIDGE_BASE_URL'));

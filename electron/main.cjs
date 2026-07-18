@@ -20,10 +20,12 @@ const { buildNodeSidecarEnv: createNodeSidecarEnv } = require('./sidecar-runtime
 const { createDefCodexInteropProtocol } = require('../agent/runtime/def-codex-interop.cjs');
 const {
   WORKBENCH_RENDERER_CAPABILITY_HEADER,
+  buildProtectedWorkbenchNativeHeaders,
   buildRendererCapabilityUrl,
   buildWorkbenchUpstreamSearch,
   createWorkbenchRendererCapability,
   isAllowedWorkbenchRendererTransport,
+  isAuthorizedWorkbenchNativeRequest,
   isAuthorizedWorkbenchRendererRequest,
   isProtectedWorkbenchRendererLocalDataPath,
 } = require('./workbench-renderer-transport.cjs');
@@ -73,6 +75,13 @@ let defAgentProcess = null;
 let defAgentStartedAt = null;
 let isAppQuitting = false;
 let appTray = null;
+function buildInteropNativeHeaders(url) {
+  return buildProtectedWorkbenchNativeHeaders(
+    url,
+    `http://${BRIDGE_HOST}:${BRIDGE_PORT}`,
+    defInternalGovernanceToken,
+  );
+}
 const defCodexInterop = createDefCodexInteropProtocol({
   profile: isDev ? 'development' : 'release',
   baseUrl: `http://${BRIDGE_HOST}:${BRIDGE_PORT}`,
@@ -84,8 +93,14 @@ const defCodexInterop = createDefCodexInteropProtocol({
   writeJson,
   writeSse,
   writeSseHeaders,
-  fetchJson: fetchJsonUrl,
-  postJson: postJsonUrl,
+  fetchJson: (url, options = {}) => fetchJsonUrl(url, {
+    ...options,
+    headers: { ...(options.headers || {}), ...buildInteropNativeHeaders(url) },
+  }),
+  postJson: (url, payload, options = {}) => postJsonUrl(url, payload, {
+    ...options,
+    headers: { ...(options.headers || {}), ...buildInteropNativeHeaders(url) },
+  }),
 });
 let savedDesktopScaleKey = DEFAULT_DESKTOP_SCALE_KEY;
 let activeDesktopScaleKey = DEFAULT_DESKTOP_SCALE_KEY;
@@ -882,6 +897,7 @@ function startBridgeServer() {
       }
 
       if (isProtectedWorkbenchRendererLocalDataPath(requestUrl.pathname)
+        && !isAuthorizedWorkbenchNativeRequest(request, defInternalGovernanceToken)
         && !isAuthorizedWorkbenchRendererRequest(request, requestUrl, workbenchRendererCapability, {
           bridgeHost: BRIDGE_HOST,
           bridgePort: BRIDGE_PORT,
@@ -2139,7 +2155,7 @@ async function waitForDefAgentHealth(expectedPid, timeoutMs = 15000) {
   throw new Error(`DEF agent health check timed out for pid ${expectedPid}`);
 }
 
-function postJsonUrl(url, payload) {
+function postJsonUrl(url, payload, options = {}) {
   return new Promise((resolve, reject) => {
     const body = JSON.stringify(payload || {});
     const requestUrl = new URL(url);
@@ -2149,6 +2165,7 @@ function postJsonUrl(url, payload) {
       path: `${requestUrl.pathname}${requestUrl.search}`,
       method: 'POST',
       headers: {
+        ...(options.headers || {}),
         'Content-Type': 'application/json; charset=utf-8',
         'Content-Length': Buffer.byteLength(body),
       },
