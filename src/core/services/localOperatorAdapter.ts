@@ -7,7 +7,11 @@ import {
 } from './operatorTemplateAdapter';
 import { normalizeAssetUrl } from '../../utils/assetResolver';
 
-const LOCAL_OPERATOR_LIBRARY_KEY = 'def.operator-editor.library.v1';
+export const LOCAL_OPERATOR_LIBRARY_STORAGE_KEY = 'def.operator-editor.library.v1';
+
+export function isLocalOperatorLibraryStorageKey(key: string | null): boolean {
+  return key === LOCAL_OPERATOR_LIBRARY_STORAGE_KEY;
+}
 
 // ============================================================================
 // 本地角色库读取（返回 Draft Map）
@@ -22,7 +26,7 @@ export function loadLocalOperatorDraftMap(): Record<string, OperatorDraft> {
     return {};
   }
 
-  const raw = window.localStorage.getItem(LOCAL_OPERATOR_LIBRARY_KEY);
+  const raw = window.localStorage.getItem(LOCAL_OPERATOR_LIBRARY_STORAGE_KEY);
   if (!raw) {
     return {};
   }

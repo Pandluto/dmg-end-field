@@ -38,6 +38,7 @@ import { STORAGE_KEYS } from '../constants/storage-keys';
 import { APP_ROUTE_PATHS, navigateToAppPath } from '../utils/appRoute';
 import {
   adaptRuntimeTemplateToLegacyCharacter,
+  isLocalOperatorLibraryStorageKey,
   loadLocalOperatorCharacters,
   loadLocalOperatorDraftMap,
 } from '../core/services/localOperatorAdapter';
@@ -372,6 +373,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const canvasLocalRefreshSignatureRef = useRef<string | null>(null);
   const loadedCharactersSignatureRef = useRef<string | null>(null);
   const isProcessingWorkbenchCommandRef = useRef(false);
+  const officialCharactersRequestRef = useRef<Promise<Character[]> | null>(null);
 
   const refreshSelectedLocalCharacters = useCallback((selectedCharacters: Character[]) => {
     const localDraftMap = loadLocalOperatorDraftMap();
@@ -404,39 +406,53 @@ export function AppProvider({ children }: { children: ReactNode }) {
    * - skillIconMap：四个技能的图标路径映射
    */
   const loadOfficialCharacters = useCallback(async (): Promise<Character[]> => {
-    const listResponse = await fetch(resolvePublicPath('data/characters/operators-list.json'), { cache: 'no-store' });
-    if (!listResponse.ok) {
-      console.warn('Failed to load operators-list.json');
-      return [];
+    if (officialCharactersRequestRef.current) {
+      return officialCharactersRequestRef.current;
     }
-    const operatorList: { name: string }[] = await listResponse.json();
-    const characters: Character[] = [];
 
-    for (const operator of operatorList) {
-      const fileName = `${operator.name}/${operator.name}.json`;
-      try {
-        const response = await fetch(resolvePublicPath(`data/characters/${fileName}`), { cache: 'no-store' });
-        if (response.ok) {
-          const data = await response.json();
-          const character = data as Character;
-          character.id = character.name;
-          character.avatarUrl = resolveAvatarUrl(character.name);
-          character.skillIconMap = {
-            A: resolveSkillIconUrl(character.name, 'A'),
-            B: resolveSkillIconUrl(character.name, 'B'),
-            E: resolveSkillIconUrl(character.name, 'E'),
-            Q: resolveSkillIconUrl(character.name, 'Q'),
-          };
-          character.librarySource = 'official';
-          character.sandboxSkills = buildOfficialSandboxSkills(character);
-          characters.push(character);
+    const request = (async () => {
+      const listResponse = await fetch(resolvePublicPath('data/characters/operators-list.json'), { cache: 'no-store' });
+      if (!listResponse.ok) {
+        console.warn('Failed to load operators-list.json');
+        return [];
+      }
+      const operatorList: { name: string }[] = await listResponse.json();
+      const characters: Character[] = [];
+
+      for (const operator of operatorList) {
+        const fileName = `${operator.name}/${operator.name}.json`;
+        try {
+          const response = await fetch(resolvePublicPath(`data/characters/${fileName}`), { cache: 'no-store' });
+          if (response.ok) {
+            const data = await response.json();
+            const character = data as Character;
+            character.id = character.name;
+            character.avatarUrl = resolveAvatarUrl(character.name);
+            character.skillIconMap = {
+              A: resolveSkillIconUrl(character.name, 'A'),
+              B: resolveSkillIconUrl(character.name, 'B'),
+              E: resolveSkillIconUrl(character.name, 'E'),
+              Q: resolveSkillIconUrl(character.name, 'Q'),
+            };
+            character.librarySource = 'official';
+            character.sandboxSkills = buildOfficialSandboxSkills(character);
+            characters.push(character);
+          }
+        } catch (error) {
+          console.warn(`Failed to load ${fileName}:`, error);
         }
-      } catch (error) {
-        console.warn(`Failed to load ${fileName}:`, error);
+      }
+
+      return characters;
+    })();
+    officialCharactersRequestRef.current = request;
+    try {
+      return await request;
+    } finally {
+      if (officialCharactersRequestRef.current === request) {
+        officialCharactersRequestRef.current = null;
       }
     }
-
-    return characters;
   }, []);
 
   const buildRestorableCharacterMap = useCallback((officialCharacters: Character[]) => {
@@ -735,7 +751,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     window.addEventListener(LOCAL_LIBRARY_CHANGED_EVENT, handleLocalChanged);
     // 跨页签：其他标签页写 localStorage 时触发的原生 storage 事件
     const handleStorage = (event: StorageEvent) => {
-      if (event.key && event.key.startsWith('def.')) {
+      if (isLocalOperatorLibraryStorageKey(event.key)) {
         void loadCharacters();
       }
     };

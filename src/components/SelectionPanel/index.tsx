@@ -1,7 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useAppContext } from '../../context/AppContext';
 import { createEmptyTimelineData, reconcileSelectionChange } from '../../core/services/timelineService';
-import { loadLocalOperatorCharacters } from '../../core/services/localOperatorAdapter';
+import {
+  isLocalOperatorLibraryStorageKey,
+  loadLocalOperatorCharacters,
+} from '../../core/services/localOperatorAdapter';
 import { LOCAL_LIBRARY_CHANGED_EVENT } from '../../aiCli/aiCliCommandService';
 import { Character } from '../../types';
 import { normalizeAssetUrl } from '../../utils/assetResolver';
@@ -50,7 +53,7 @@ export function SelectionPanel() {
     window.addEventListener(LOCAL_LIBRARY_CHANGED_EVENT, handleLocalChanged);
     // 跨页签：其他标签页写 localStorage 时触发的原生 storage 事件
     const handleStorage = (event: StorageEvent) => {
-      if (event.key && event.key.startsWith('def.')) {
+      if (isLocalOperatorLibraryStorageKey(event.key)) {
         refreshLocalCharacters();
       }
     };
