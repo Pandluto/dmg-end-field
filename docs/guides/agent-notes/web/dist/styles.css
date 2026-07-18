@@ -71,7 +71,16 @@ body::before {
 .sidebar-head small i, .article-kicker span { display: inline-block; width: 7px; height: 7px; margin-right: 7px; border-radius: 50%; background: var(--blue); box-shadow: 0 0 0 4px rgba(68,95,211,.12); }
 .sidebar-head strong { display: block; margin-top: 14px; color: var(--ink); font-size: 22px; letter-spacing: -.035em; }
 .sidebar-head p { margin: 9px 0 0; color: #748198; font-size: 11px; line-height: 1.75; }
-.sidebar nav { display: grid; gap: 5px; padding-top: 22px; }
+.sidebar nav {
+  display: grid;
+  flex: 1 1 auto;
+  min-height: 0;
+  gap: 5px;
+  padding: 22px 11px 8px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
 
 .nav-item {
   position: relative;
@@ -159,7 +168,10 @@ footer { width: min(100%,830px); display: flex; justify-content: space-between; 
   position: fixed;
   z-index: 20;
   width: min(430px, calc(100vw - 24px));
-  overflow: hidden;
+  max-height: calc(100vh - 24px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
   background: #fff;
   border: 1px solid #9aabe6;
   box-shadow: 0 24px 60px rgba(32,48,85,.24);
