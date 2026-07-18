@@ -1166,7 +1166,8 @@ function readDefWorkbenchAxisContext(input = {}) {
   }
   const timelineId = typeof input.timelineId === 'string' && input.timelineId.trim()
     ? input.timelineId.trim()
-    : 'current-main-workbench';
+    : '';
+  if (!timelineId) return null;
   const document = repository.getDocument(timelineId);
   if (!document) return null;
   const checkout = repository.getCheckoutRef(timelineId);
@@ -1180,6 +1181,36 @@ function readDefWorkbenchAxisContext(input = {}) {
     updatedAt: node.updatedAt,
   }));
   return { binding: null, document, checkout, nodes };
+}
+
+function workbenchBindingFailure(code, message, status = 409) {
+  return { ok: false, code, message, status, state: code.toUpperCase().replaceAll('-', '_') };
+}
+
+function resolveBoundWorkbenchSession(input = {}, { nodeId = '', allowMissingNode = false } = {}) {
+  const sessionID = typeof input.__defSessionId === 'string' ? input.__defSessionId.trim() : '';
+  if (!sessionID) return workbenchBindingFailure('blocked-binding', 'This Workbench tool requires an active bound DEF OpenCode session.', 403);
+  const repository = getTimelineRepository();
+  const binding = repository.getSessionAxisBindingBySession('workbench', sessionID);
+  if (!binding) return workbenchBindingFailure('blocked-binding-stale', 'This DEF OpenCode session no longer has a valid workspace binding.', 409);
+  const document = repository.getDocument(binding.timelineId);
+  if (!document || document.archivedAt || document.isTemporary) {
+    return workbenchBindingFailure('blocked-binding-stale', 'The SQLite workspace bound to this DEF session is no longer available.', 409);
+  }
+  const suppliedTimelineId = typeof input.timelineId === 'string' ? input.timelineId.trim() : '';
+  if (suppliedTimelineId && suppliedTimelineId !== binding.timelineId) {
+    return workbenchBindingFailure('blocked-session-mismatch', 'A DEF OpenCode session cannot access another SQLite workspace.', 409);
+  }
+  const resolvedNodeId = nodeId || (typeof input.nodeId === 'string' ? input.nodeId.trim() : '');
+  if (resolvedNodeId) {
+    const node = repository.getWorkNode(resolvedNodeId);
+    if (!node || node.timelineId !== binding.timelineId) {
+      return workbenchBindingFailure('blocked-session-mismatch', 'The requested Work Node is outside this session binding.', 409);
+    }
+  } else if (!allowMissingNode) {
+    return { ok: true, binding, document };
+  }
+  return { ok: true, binding, document };
 }
 
 function normalizeWorkNodeDescription(value) {
@@ -6071,32 +6102,78 @@ async function executeDefTool(name, input = {}, query = new URLSearchParams()) {
   if (definition.status === 'planned') {
     return failScript(501, 'def-tool-planned', `DEF tool is planned but not implemented yet: ${name}`, { tool: definition });
   }
+  if (name === 'def.workbench.assert_session_axis') {
+    const sessionID = typeof input.sessionID === 'string' ? input.sessionID.trim() : '';
+    const bindingId = typeof input.sessionBindingId === 'string' ? input.sessionBindingId.trim() : '';
+    const timelineId = typeof input.timelineId === 'string' ? input.timelineId.trim() : '';
+    if (!sessionID || !bindingId || input.host !== 'workbench' || !timelineId) {
+      return failScript(400, 'blocked-binding', 'Workbench binding assertion requires sessionBindingId, sessionID, host=workbench, and timelineId.');
+    }
+    const repository = getTimelineRepository();
+    const binding = repository.getSessionAxisBinding(bindingId);
+    const document = repository.getDocument(timelineId);
+    if (!binding || binding.host !== 'workbench' || binding.opencodeSessionId !== sessionID || binding.timelineId !== timelineId) {
+      return failScript(409, 'blocked-session-mismatch', 'The Workbench session binding does not match its SQLite workspace.');
+    }
+    if (!document || document.archivedAt) return failScript(409, 'blocked-binding-stale', 'The SQLite workspace bound to this DEF session is no longer available.');
+    if (document.isTemporary) return failScript(409, 'blocked-temporary-workspace', 'Temporary SQLite workspaces cannot be bound to DEF OpenCode.');
+    return { status: 200, body: { ok: true, protocolVersion: 1, tool: name, result: { ok: true, binding, document } } };
+  }
+  if (name === 'def.workbench.assert_timeline_admission') {
+    const timelineId = typeof input.timelineId === 'string' ? input.timelineId.trim() : '';
+    if (!timelineId) return failScript(400, 'blocked-binding', 'Workbench session creation requires timelineId.');
+    const document = getTimelineRepository().getDocument(timelineId);
+    if (!document || document.archivedAt) return failScript(404, 'blocked-binding', 'The requested SQLite workspace is unavailable.');
+    if (document.isTemporary) return failScript(409, 'blocked-temporary-workspace', 'Temporary SQLite workspaces cannot open DEF AI mode.');
+    return { status: 200, body: { ok: true, protocolVersion: 1, tool: name, result: { ok: true, document } } };
+  }
+  if (name.startsWith('def.worknode.')) {
+    const nodeId = typeof input.nodeId === 'string' ? input.nodeId.trim() : '';
+    const session = resolveBoundWorkbenchSession(input, { nodeId });
+    if (!session.ok) return failScript(session.status, session.code, session.message, { state: session.state });
+    // The native session binding is the only timeline authority.  Compatibility
+    // callers may omit timelineId, but they may never choose a replacement.
+    input = { ...input, timelineId: session.binding.timelineId };
+  }
+  if (name.startsWith('def.workbench.') && ![
+    'def.workbench.bind_session_axis',
+    'def.workbench.unbind_session_axis',
+    'def.workbench.assert_session_axis',
+    'def.workbench.assert_timeline_admission',
+  ].includes(name)) {
+    const session = resolveBoundWorkbenchSession(input);
+    if (!session.ok) return failScript(session.status, session.code, session.message, { state: session.state });
+    input = { ...input, timelineId: session.binding.timelineId };
+  }
   if (name === 'def.worknode.create_from_current') {
-    const result = createDefWorkNodeFromPayload(readDefCurrentTimelinePayloadSource(), input);
+    const session = resolveBoundWorkbenchSession(input);
+    if (!session.ok) return failScript(session.status, session.code, session.message, { state: session.state });
+    const result = createDefWorkNodeFromPayload(readDefCurrentTimelinePayloadSource(), { ...input, timelineId: session.binding.timelineId });
     return { status: result.ok ? 200 : 400, body: { ok: result.ok, protocolVersion: 1, tool: name, result } };
   }
   if (name === 'def.workbench.bind_session_axis') {
     const bindingId = typeof input.sessionBindingId === 'string' ? input.sessionBindingId.trim() : '';
     const sessionID = typeof input.sessionID === 'string' ? input.sessionID.trim() : '';
     const host = input.host === 'workbench' ? 'workbench' : '';
-    const timelineId = typeof input.timelineId === 'string' && input.timelineId.trim()
-      ? input.timelineId.trim()
-      : 'current-main-workbench';
-    if (!bindingId || !sessionID || !host) {
-      return failScript(400, 'invalid-session-axis-binding', 'sessionBindingId, sessionID, and host=workbench are required.');
+    const timelineId = typeof input.timelineId === 'string' && input.timelineId.trim() ? input.timelineId.trim() : '';
+    if (!bindingId || !sessionID || !host || !timelineId) {
+      return failScript(400, 'blocked-binding', 'sessionBindingId, sessionID, host=workbench, and timelineId are required.');
     }
     const repository = getTimelineRepository();
-    repository.ensureDocument({ id: timelineId, label: '主排轴', preserveExistingLabel: true });
-    const binding = repository.upsertSessionAxisBinding({
-      id: bindingId,
-      timelineId,
-      host,
-      opencodeSessionId: sessionID,
-      boundNodeId: typeof input.boundNodeId === 'string' && input.boundNodeId.trim()
-        ? input.boundNodeId.trim()
-        : null,
-    });
-    return { status: 200, body: { ok: true, protocolVersion: 1, tool: name, result: { ok: true, binding, context: repository.getSessionAxisContext(binding.id) } } };
+    try {
+      const binding = repository.upsertSessionAxisBinding({
+        id: bindingId,
+        timelineId,
+        host,
+        opencodeSessionId: sessionID,
+        boundNodeId: typeof input.boundNodeId === 'string' && input.boundNodeId.trim()
+          ? input.boundNodeId.trim()
+          : null,
+      });
+      return { status: 200, body: { ok: true, protocolVersion: 1, tool: name, result: { ok: true, binding, context: repository.getSessionAxisContext(binding.id) } } };
+    } catch (error) {
+      return failScript(error?.status || 409, error?.code || 'blocked-binding', error instanceof Error ? error.message : 'Workbench binding failed.');
+    }
   }
   if (name === 'def.workbench.unbind_session_axis') {
     const bindingId = typeof input.sessionBindingId === 'string' ? input.sessionBindingId.trim() : '';
@@ -6105,8 +6182,11 @@ async function executeDefTool(name, input = {}, query = new URLSearchParams()) {
     return { status: 200, body: { ok: true, protocolVersion: 1, tool: name, result: { ok: true, ...result } } };
   }
   if (name === 'def.worknode.list') {
+    const session = resolveBoundWorkbenchSession(input);
+    if (!session.ok) return failScript(session.status, session.code, session.message, { state: session.state });
     const limit = Math.max(1, Math.min(Number(input.limit || 50) || 50, 100));
     const nodes = listRepositoryWorkNodes()
+      .filter((node) => (node.timelineId || node.saveId) === session.binding.timelineId)
       .sort((left, right) => (right.updatedAt || 0) - (left.updatedAt || 0))
       .slice(0, limit)
       .map(toAiTimelineWorkNodeListItem);
@@ -6115,6 +6195,8 @@ async function executeDefTool(name, input = {}, query = new URLSearchParams()) {
   if (name === 'def.worknode.delete') {
     const nodeId = typeof input.nodeId === 'string' ? input.nodeId.trim() : '';
     if (!nodeId) return failScript(400, 'missing-node-id', 'def.worknode.delete requires nodeId.');
+    const session = resolveBoundWorkbenchSession(input, { nodeId });
+    if (!session.ok) return failScript(session.status, session.code, session.message, { state: session.state });
     try {
       const repository = getTimelineRepository();
       const legacyStore = getAiTimelineWorkNodeStore();
@@ -6180,6 +6262,8 @@ async function executeDefTool(name, input = {}, query = new URLSearchParams()) {
     return enqueueDefToolCommands(definition, commandsOrResponse, input);
   }
   if (name === 'def.worknode.checkout_and_verify') {
+    const session = resolveBoundWorkbenchSession(input, { nodeId: typeof input.nodeId === 'string' ? input.nodeId.trim() : '' });
+    if (!session.ok) return failScript(session.status, session.code, session.message, { state: session.state });
     return {
       status: 200,
       body: {
@@ -6191,6 +6275,8 @@ async function executeDefTool(name, input = {}, query = new URLSearchParams()) {
     };
   }
   if (name === 'def.worknode.restore_base_and_verify') {
+    const session = resolveBoundWorkbenchSession(input, { nodeId: typeof input.nodeId === 'string' ? input.nodeId.trim() : '' });
+    if (!session.ok) return failScript(session.status, session.code, session.message, { state: session.state });
     return {
       status: 200,
       body: {
@@ -6243,7 +6329,13 @@ async function executeDefTool(name, input = {}, query = new URLSearchParams()) {
     result = { tool: getDefToolDefinition(targetName) };
     if (!result.tool) return failScript(404, 'def-tool-not-found', `Unknown DEF tool: ${targetName}`);
   } else if (name === 'def.workbench.snapshot') {
-    result = { snapshot, axisContext: readDefWorkbenchAxisContext(input) };
+    const session = resolveBoundWorkbenchSession(input);
+    if (!session.ok) return failScript(session.status, session.code, session.message, { state: session.state });
+    const requestedBindingId = typeof input.sessionBindingId === 'string' ? input.sessionBindingId.trim() : '';
+    if (!requestedBindingId || requestedBindingId !== session.binding.id) {
+      return failScript(409, 'blocked-session-mismatch', 'The requested session-axis binding does not belong to this DEF session.');
+    }
+    result = { snapshot, axisContext: readDefWorkbenchAxisContext({ sessionBindingId: session.binding.id }) };
   } else if (name === 'def.workbench.evidence') {
     result = buildMainWorkbenchEvidence(snapshot, {
       prompt: input.prompt || input.query || '',
@@ -6339,10 +6431,16 @@ async function executeDefTool(name, input = {}, query = new URLSearchParams()) {
       };
     }
   } else if (name === 'def.worknode.read') {
+    const session = resolveBoundWorkbenchSession(input, { nodeId: typeof input.nodeId === 'string' ? input.nodeId.trim() : '' });
+    if (!session.ok) return failScript(session.status, session.code, session.message, { state: session.state });
     result = readDefWorkNode(input);
   } else if (name === 'def.worknode.sync_workspace') {
+    const session = resolveBoundWorkbenchSession(input, { nodeId: typeof input.nodeId === 'string' ? input.nodeId.trim() : '' });
+    if (!session.ok) return failScript(session.status, session.code, session.message, { state: session.state });
     result = syncDefWorkNodeWorkspace(input);
   } else if (name === 'def.worknode.validate') {
+    const session = resolveBoundWorkbenchSession(input, { nodeId: typeof input.nodeId === 'string' ? input.nodeId.trim() : '' });
+    if (!session.ok) return failScript(session.status, session.code, session.message, { state: session.state });
     result = validateDefWorkNode(input);
   } else if (name === 'def.verify.command_result') {
     const commandId = typeof input.commandId === 'string' ? input.commandId : '';

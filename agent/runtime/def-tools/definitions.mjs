@@ -6,6 +6,8 @@ export const DEF_TOOL_DEFINITION_BASE = Object.freeze([
   { name: 'def.tool.describe', scope: 'read', riskLevel: 'read', approval: 'none', status: 'implemented', description: 'Describe one DEF typed tool.' },
   { name: 'def.workbench.snapshot', scope: 'read', riskLevel: 'read', approval: 'none', status: 'implemented', description: 'Read the current checkout snapshot mirror.' },
   { name: 'def.workbench.bind_session_axis', scope: 'governance', riskLevel: 'read', approval: 'none', status: 'implemented', description: 'Persist a Workbench session binding to a timeline document and Work Node tree.' },
+  { name: 'def.workbench.assert_timeline_admission', scope: 'governance', riskLevel: 'read', approval: 'none', status: 'implemented', description: 'Validate that an existing non-temporary SQLite workspace may open a Workbench DEF session.' },
+  { name: 'def.workbench.assert_session_axis', scope: 'governance', riskLevel: 'read', approval: 'none', status: 'implemented', description: 'Validate an existing immutable Workbench session-to-SQLite binding.' },
   { name: 'def.workbench.unbind_session_axis', scope: 'governance', riskLevel: 'read', approval: 'none', status: 'implemented', description: 'Remove a persisted Workbench session-to-axis binding without deleting the timeline tree.' },
   { name: 'def.workbench.evidence', scope: 'read', riskLevel: 'read', approval: 'none', status: 'implemented', description: 'Read bounded current-checkout evidence for the model.' },
   { name: 'def.workbench.list_buttons', scope: 'read', riskLevel: 'read', approval: 'none', status: 'implemented', description: 'List skill buttons with stable ids and labels.' },

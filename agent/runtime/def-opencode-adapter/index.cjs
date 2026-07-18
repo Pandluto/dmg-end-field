@@ -768,6 +768,12 @@ function getNativeHarnessSystem(binding) {
 }
 
 async function createNativeHostSession({ config = {}, host = 'ai-cli', skillId, thinkingEffort = 'medium', harnessSelector = 'stable', timelineId = '', boundNodeId = '' } = {}) {
+  const normalizedTimelineId = typeof timelineId === 'string' ? timelineId.trim() : '';
+  if (host === 'workbench' && !normalizedTimelineId) {
+    const error = new Error('Workbench DEF sessions require an explicit timelineId.');
+    error.code = 'BLOCKED_BINDING';
+    throw error;
+  }
   const resolvedSkillId = host === 'workbench'
     ? 'workbench'
     : skillMap[skillId] && skillId !== 'workbench'
@@ -784,7 +790,7 @@ async function createNativeHostSession({ config = {}, host = 'ai-cli', skillId, 
   const profile = buildNativeHostProfile(host);
   const harnessBinding = defHarness.createSessionBinding({ sessionId: session.id, resolved: resolvedHarness });
   nativeHarnessBySession.set(session.id, { resolved: resolvedHarness, binding: harnessBinding });
-  writeSessionBinding(directory, { id: session.id, agent: selected.agent, skillId: resolvedSkillId, profile, harnessBinding, harnessWarning: resolvedHarness.error || null, timelineId, boundNodeId });
+  writeSessionBinding(directory, { id: session.id, agent: selected.agent, skillId: resolvedSkillId, profile, harnessBinding, harnessWarning: resolvedHarness.error || null, timelineId: normalizedTimelineId, boundNodeId });
   return {
     id: session.id,
     sessionID: session.id,
@@ -796,7 +802,7 @@ async function createNativeHostSession({ config = {}, host = 'ai-cli', skillId, 
     profile,
     harnessBinding,
     harnessWarning: resolvedHarness.error || null,
-    timelineId: typeof timelineId === 'string' && timelineId.trim() ? timelineId.trim() : undefined,
+    timelineId: normalizedTimelineId || undefined,
     boundNodeId: typeof boundNodeId === 'string' && boundNodeId.trim() ? boundNodeId.trim() : undefined,
     uiPath: `/${encodeDirectorySlug(directory)}/session/${encodeURIComponent(session.id)}`,
   };
@@ -905,7 +911,7 @@ function writeSessionBinding(directory, session) {
     ? existing.axisBindingId.trim()
     : `axis-${crypto.randomUUID()}`;
   fs.writeFileSync(path.join(directory, '.def-session.json'), `${JSON.stringify({
-    schemaVersion: 3,
+    schemaVersion: 4,
     sessionID: session.id,
     axisBindingId,
     directory,
@@ -1011,6 +1017,12 @@ function findNativeSessionBinding(sessionID) {
 function writeNativeWorkbenchContext(directory, sessionID, context) {
   const binding = ensureNativeSessionAxisBinding(directory, sessionID);
   if (!binding || binding.host !== 'workbench') return null;
+  const contextTimelineId = typeof context?.timeline?.id === 'string' ? context.timeline.id.trim() : '';
+  if (!binding.timelineId || !contextTimelineId || contextTimelineId !== binding.timelineId) {
+    const error = new Error('Workbench context timeline does not match the immutable session binding.');
+    error.code = 'BLOCKED_SESSION_MISMATCH';
+    throw error;
+  }
   const target = path.join(binding.directory, '.def-workbench-context.json');
   const temporary = `${target}.${process.pid}.${Date.now()}.tmp`;
   const payload = {

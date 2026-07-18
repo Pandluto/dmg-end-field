@@ -49,7 +49,7 @@ async function askWithApproval(context, input) {
     toolCallId: context.messageID,
     diffSummary: input.diff,
     riskFlags: input.riskFlags || [],
-  })
+  }, context)
   try {
     await context.ask({
       permission: input.permission,
@@ -77,7 +77,7 @@ async function askWithApproval(context, input) {
       decision: 'rejected',
       decidedBy: 'user',
       rationale: `${input.action} rejected through OpenCode native permission UI.`,
-    })
+    }, context)
     throw error
   }
   await callDefTool('def.approval.record_decision', {
@@ -85,7 +85,7 @@ async function askWithApproval(context, input) {
     decision: 'approved',
     decidedBy: 'user',
     rationale: `${input.action} approved through OpenCode native permission UI.`,
-  })
+  }, context)
   return requested.approval
 }
 
@@ -258,7 +258,7 @@ async function readWorkbenchState(context) {
   const target = inside(context.directory, workbenchContextFile)
   if (!fs.existsSync(target)) throw new Error('No live Workbench context is attached to this session.')
   const attached = JSON.parse(fs.readFileSync(target, 'utf8'))
-  const snapshot = await callDefTool('def.workbench.snapshot', { sessionBindingId: attached.axisBindingId })
+  const snapshot = await callDefTool('def.workbench.snapshot', { sessionBindingId: attached.axisBindingId }, context)
   const checkout = snapshot?.axisContext?.checkout || null
   const observation = writeSessionCheckoutObservation(context, checkout)
   return {
@@ -334,7 +334,7 @@ async function syncWorkspace(context) {
     expectedBaseHash: binding.baseHash,
     expectedWorkingHash: binding.workingHash,
     workspaceSource,
-  })
+  }, context)
   const nextBinding = { ...binding, revision: result.revision, workingHash: result.workingHash, synchronizedAt: Date.now() }
   nextBinding.sourceHash = hashDefNodeValue(workspaceSource)
   writeBinding(context, nextBinding)
@@ -368,7 +368,7 @@ export const node_code_materialize = {
     if (current?.nodeId !== args.nodeId && workspaceIsDirty(context, current)) {
       throw new Error(`Cannot replace ${current.nodeId} because node/working has unsynchronized edits. Sync, discard, or explicitly preserve that draft first.`)
     }
-    const read = await callDefTool('def.worknode.read', { nodeId: args.nodeId, includePayload: true })
+    const read = await callDefTool('def.worknode.read', { nodeId: args.nodeId, includePayload: true }, context)
     return { title: 'DEF node code workspace materialized', output: JSON.stringify(materialize(context, read.node, { checkoutAnchorNodeId: workbench?.checkoutNodeId }), null, 2), metadata: { family: 'def-node-code', nodeId: args.nodeId } }
   },
 }
@@ -420,7 +420,7 @@ export const node_code_discard = {
       workingHash: binding.workingHash,
       consequence: 'All unsynchronized node/working edits will be replaced from the repository Work Node.',
     })
-    const read = await callDefTool('def.worknode.read', { nodeId: binding.nodeId, includePayload: true })
+    const read = await callDefTool('def.worknode.read', { nodeId: binding.nodeId, includePayload: true }, context)
     return { title: 'DEF node code edits discarded', output: JSON.stringify(materialize(context, read.node, { checkoutAnchorNodeId: binding.checkoutAnchorNodeId }), null, 2), metadata: { family: 'def-node-code', nodeId: binding.nodeId } }
   },
 }
@@ -445,7 +445,7 @@ export const node_fork = {
       approvalPolicy: args.approvalPolicy,
       label: metadata.name,
       description: metadata.description,
-    })
+    }, context)
     return {
       title: 'DEF child node ready',
       output: JSON.stringify(materialize(context, created.node, { checkoutAnchorNodeId: workbench?.checkoutNodeId }), null, 2),
@@ -521,7 +521,7 @@ export const workbench_buttons = {
   },
   async execute(args, context) {
     context.metadata({ title: 'Find DEF timeline buttons' })
-    const result = await callDefTool('def.workbench.find_buttons', args)
+    const result = await callDefTool('def.workbench.find_buttons', args, context)
     return {
       title: 'DEF timeline button candidates',
       output: JSON.stringify(result, null, 2),
@@ -537,7 +537,7 @@ export const workbench_buff_ranking = {
   },
   async execute(args, context) {
     context.metadata({ title: 'Rank DEF timeline button Buffs' })
-    const result = await callDefTool('def.workbench.rank_buttons_by_buff', args)
+    const result = await callDefTool('def.workbench.rank_buttons_by_buff', args, context)
     return {
       title: 'DEF timeline Buff ranking',
       output: JSON.stringify(result, null, 2),
@@ -563,7 +563,7 @@ export const node_bind = {
     if (current?.nodeId !== nodeId && workspaceIsDirty(context, current)) {
       throw new Error(`Cannot replace ${current.nodeId} because node/working has unsynchronized edits. Sync, discard, or explicitly preserve that draft first.`)
     }
-    const read = await callDefTool('def.worknode.read', { nodeId, includePayload: true })
+    const read = await callDefTool('def.worknode.read', { nodeId, includePayload: true }, context)
     const materialized = materialize(context, read.node, { checkoutAnchorNodeId: workbench?.checkoutNodeId })
     if (workbench?.checkoutNodeId) markWorkbenchCheckoutReady(context, workbench.checkoutNodeId)
     return {
@@ -607,7 +607,7 @@ export const node_list = {
   args: { limit: { type: 'number', description: 'Maximum nodes, from 1 to 100.' } },
   async execute(args, context) {
     context.metadata({ title: 'List DEF child nodes' })
-    const result = await callDefTool('def.worknode.list', { limit: args.limit })
+    const result = await callDefTool('def.worknode.list', { limit: args.limit }, context)
     return {
       title: 'DEF child nodes',
       output: JSON.stringify(boundResourceValue(result), null, 2),
@@ -621,7 +621,7 @@ export const node_delete = {
   args: { nodeId: { type: 'string', description: 'Work Node id to delete.' } },
   async execute(args, context) {
     context.metadata({ title: 'Delete DEF child node' })
-    const read = await callDefTool('def.worknode.read', { nodeId: args.nodeId, includePayload: false })
+    const read = await callDefTool('def.worknode.read', { nodeId: args.nodeId, includePayload: false }, context)
     await askWithApproval(context, {
       action: 'Delete Work Node',
       summary: `Delete DEF Work Node ${args.nodeId}`,
@@ -630,7 +630,7 @@ export const node_delete = {
       revision: read.node?.contentRevision || read.node?.updatedAt,
       consequence: 'The Work Node subtree will be permanently deleted; the current checkout remains protected.',
     })
-    const result = await callDefTool('def.worknode.delete', { nodeId: args.nodeId })
+    const result = await callDefTool('def.worknode.delete', { nodeId: args.nodeId }, context)
     return {
       title: 'DEF child node deleted',
       output: JSON.stringify(result, null, 2),
@@ -664,7 +664,7 @@ export const node_use = {
       expectedRevision: binding.revision,
       expectedWorkingHash: binding.workingHash,
       reload: false,
-    })
+    }, context)
     if (used.currentCheckoutTouched === true) {
       writeBinding(context, { ...readBinding(context), checkoutAnchorNodeId: binding.nodeId })
     }
@@ -691,7 +691,7 @@ export const node_restore = {
       workingHash: binding.workingHash,
       consequence: 'The Work Node base snapshot becomes the current checkout after renderer verification.',
     })
-    const restored = await callDefTool('def.worknode.restore_base_and_verify', { nodeId: binding.nodeId, expectedRevision: binding.revision, reload: false })
+    const restored = await callDefTool('def.worknode.restore_base_and_verify', { nodeId: binding.nodeId, expectedRevision: binding.revision, reload: false }, context)
     return {
       title: restored.ok ? 'DEF node base restored' : 'DEF node restore pending',
       output: JSON.stringify(restored, null, 2),

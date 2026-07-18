@@ -1,0 +1,1 @@
+For requests about the current canvas, use the bound Workbench context. For a change, fork or continue a Work Node inside the bound tree, validate and diff it, then use the normal native approval path. Requests to create, name, promote, export, import, convert, transfer, or delete workspaces/archives are outside this assistant's route.

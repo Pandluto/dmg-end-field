@@ -8,6 +8,7 @@ type NativeSession = {
   uiPath: string;
   host: DefOpenCodeHost;
   directory: string;
+  timelineId?: string;
   agent?: string;
   profile?: {
     schemaVersion: number;
@@ -24,6 +25,8 @@ interface DefOpenCodeViewProps {
   title: string;
   onClose?: () => void;
   workbenchContext?: Record<string, unknown>;
+  timelineId?: string;
+  workbenchIsTemporary?: boolean;
 }
 
 const SIDECAR_PORT = 17322;
@@ -34,8 +37,10 @@ export function DefOpenCodeView({
   title,
   onClose,
   workbenchContext,
+  timelineId,
+  workbenchIsTemporary = false,
 }: DefOpenCodeViewProps) {
-  const [status, setStatus] = useState<'checking' | 'ready' | 'error'>('checking');
+  const [status, setStatus] = useState<'checking' | 'ready' | 'blocked' | 'error'>('checking');
   const [session, setSession] = useState<NativeSession | null>(null);
   const origin = useMemo(() => (
     host === 'workbench'
@@ -43,10 +48,11 @@ export function DefOpenCodeView({
       : `http://localhost:${SIDECAR_PORT}`
   ), [host]);
 
-  const storageKey = `def-opencode.native-session.${host}.v1`;
+  const normalizedTimelineId = typeof timelineId === 'string' ? timelineId.trim() : '';
+  const storageKey = `def-opencode.native-session.${host}${host === 'workbench' ? `.${encodeURIComponent(normalizedTimelineId)}` : ''}.v2`;
 
   const sessionExists = async (candidate: NativeSession) => {
-    if (!candidate.directory) return false;
+    if (!candidate.directory || (host === 'workbench' && candidate.timelineId !== normalizedTimelineId)) return false;
     const response = await fetch(
       `${origin}/api/native/bootstrap?sessionID=${encodeURIComponent(candidate.id)}&directory=${encodeURIComponent(candidate.directory)}`,
       { headers: { accept: 'application/json' } },
@@ -60,11 +66,11 @@ export function DefOpenCodeView({
     const response = await fetch(`${origin}/api/native/session`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ host }),
+      body: JSON.stringify({ host, ...(host === 'workbench' ? { timelineId: normalizedTimelineId } : {}) }),
     });
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const payload = await response.json() as { ok?: boolean; session?: NativeSession };
-    if (!payload.ok || !payload.session?.id || !payload.session.uiPath) throw new Error('Invalid native session response');
+    if (!payload.ok || !payload.session?.id || !payload.session.uiPath || (host === 'workbench' && payload.session.timelineId !== normalizedTimelineId)) throw new Error('Invalid native session response');
     window.localStorage.setItem(storageKey, JSON.stringify(payload.session));
     setSession(payload.session);
     setStatus('ready');
@@ -80,6 +86,13 @@ export function DefOpenCodeView({
   useEffect(() => {
     let disposed = false;
     const bootstrap = async () => {
+      if (host === 'workbench' && (workbenchIsTemporary || !normalizedTimelineId)) {
+        if (!disposed) {
+          setSession(null);
+          setStatus('blocked');
+        }
+        return;
+      }
       const ensureResponse = await fetch(`${origin}/api/runtime/ensure`, { method: 'POST' });
       if (!ensureResponse.ok) throw new Error(`HTTP ${ensureResponse.status}`);
       const stored = window.localStorage.getItem(storageKey);
@@ -107,10 +120,10 @@ export function DefOpenCodeView({
     };
     bootstrap().catch(() => { if (!disposed) setStatus('error'); });
     return () => { disposed = true; };
-  }, [host, origin, storageKey]);
+  }, [host, normalizedTimelineId, origin, storageKey, workbenchIsTemporary]);
 
   useEffect(() => {
-    if (host !== 'workbench' || !session || !workbenchContext) return;
+    if (host !== 'workbench' || !session || !workbenchContext || session.timelineId !== normalizedTimelineId) return;
     const controller = new AbortController();
     void fetch(`${origin}/api/native/context`, {
       method: 'POST',
@@ -119,10 +132,10 @@ export function DefOpenCodeView({
       signal: controller.signal,
     }).catch(() => undefined);
     return () => controller.abort();
-  }, [host, origin, session, workbenchContext]);
+  }, [host, normalizedTimelineId, origin, session, workbenchContext]);
 
   useEffect(() => {
-    if (host !== 'workbench' || !session) return;
+    if (host !== 'workbench' || !session || session.timelineId !== normalizedTimelineId) return;
     // A per-effect capability makes a delayed development cleanup unable to
     // close the consumer that replaced it.
     const consumerId = crypto.randomUUID();
@@ -143,7 +156,7 @@ export function DefOpenCodeView({
         body: JSON.stringify({ consumerId, renderSecret, sessionId: session.id }),
       }).catch(() => undefined);
     };
-  }, [host, origin, session]);
+  }, [host, normalizedTimelineId, origin, session]);
 
   return (
     <section
@@ -157,6 +170,10 @@ export function DefOpenCodeView({
           <button
             type="button"
             onClick={() => {
+              if (host === 'workbench' && (workbenchIsTemporary || !normalizedTimelineId)) {
+                setStatus('blocked');
+                return;
+              }
               setStatus('checking');
               void createNativeSession().catch(() => setStatus('error'));
             }}
@@ -169,6 +186,10 @@ export function DefOpenCodeView({
         {status === 'error' ? (
           <div className="def-opencode-view__status" role="alert">
             DEF OpenCode 服务未就绪。请确认本地 Agent sidecar 已启动。
+          </div>
+        ) : status === 'blocked' ? (
+          <div className="def-opencode-view__status" role="alert">
+            当前 SQLite 工作区尚未完成首次保存/命名，暂不能进入 AI 模式。
           </div>
         ) : session ? (
           <iframe

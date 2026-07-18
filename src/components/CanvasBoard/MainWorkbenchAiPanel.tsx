@@ -8,6 +8,7 @@ interface MainWorkbenchAiPanelProps {
   skillButtons: SkillButton[];
   timelineId: string;
   timelineLabel: string;
+  timelineIsTemporary: boolean;
   selectedWorkbenchNode: WorkbenchSelectedNodeContext | null;
   onExit: () => void;
   onWorkNodeChanged?: () => void;
@@ -18,6 +19,7 @@ export function MainWorkbenchAiPanel({
   skillButtons,
   timelineId,
   timelineLabel,
+  timelineIsTemporary,
   selectedWorkbenchNode,
   onExit,
 }: MainWorkbenchAiPanelProps) {
@@ -56,10 +58,13 @@ export function MainWorkbenchAiPanel({
 
   return (
     <DefOpenCodeView
+      key={`workbench-${timelineId}`}
       host="workbench"
       title="DEF 排轴助手"
       onClose={onExit}
       workbenchContext={workbenchContext}
+      timelineId={timelineId}
+      workbenchIsTemporary={timelineIsTemporary}
     />
   );
 }

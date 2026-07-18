@@ -505,6 +505,7 @@ async function proxyOpenCodeRequest(request, response) {
     const directory = target.searchParams.get('directory') || '';
     binding = readNativeSessionBinding(directory, sessionID);
     if (binding) {
+      if (binding.host === 'workbench') await syncNativeWorkbenchAxisBinding(binding);
       const incoming = await readJsonBody(request);
       const workbenchContext = binding.host === 'workbench'
         ? readNativeWorkbenchContext(binding)
@@ -650,6 +651,7 @@ async function sendNativeInteropPromptOnce(sessionID, body) {
     error.status = 404;
     throw error;
   }
+  await syncNativeWorkbenchAxisBinding(binding);
   const requestedHarness = typeof body?.harnessSelector === 'string' ? body.harnessSelector.trim() : '';
   if (requestedHarness) {
     const pinned = binding.harnessBinding?.harness;
@@ -912,7 +914,11 @@ function buildWorkbenchContextSystemPrompt(selectedNode, existingSystem) {
 async function syncNativeWorkbenchAxisBinding(binding) {
   if (!binding || binding.host !== 'workbench') return null;
   const current = binding.axisBindingId ? binding : ensureNativeSessionAxisBinding(binding.directory, binding.sessionID);
-  if (!current?.axisBindingId) return null;
+  if (!current?.axisBindingId || !current.timelineId) {
+    const error = new Error('Workbench DEF sessions require an immutable timeline binding.');
+    error.code = 'BLOCKED_BINDING';
+    throw error;
+  }
   await ensureDefRestService();
   const response = await fetch(`${defRestUrl}/api/def-tools/call`, {
     method: 'POST',
@@ -923,7 +929,7 @@ async function syncNativeWorkbenchAxisBinding(binding) {
         sessionBindingId: current.axisBindingId,
         sessionID: current.sessionID,
         host: 'workbench',
-        timelineId: binding.timelineId || 'current-main-workbench',
+        timelineId: current.timelineId,
         boundNodeId: binding.boundNodeId || undefined,
       },
     }),
@@ -933,6 +939,21 @@ async function syncNativeWorkbenchAxisBinding(binding) {
   if (!response.ok || payload?.ok !== true || payload?.result?.ok === false) {
     throw new Error(payload?.result?.message || payload?.message || 'native-session-axis-binding-failed');
   }
+  const assertion = await fetch(`${defRestUrl}/api/def-tools/call`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      tool: 'def.workbench.assert_session_axis',
+      input: { sessionBindingId: current.axisBindingId, sessionID: current.sessionID, host: 'workbench', timelineId: current.timelineId },
+    }),
+    signal: AbortSignal.timeout(5000),
+  });
+  const assertionPayload = await assertion.json().catch(() => null);
+  if (!assertion.ok || assertionPayload?.ok !== true || assertionPayload?.result?.ok === false) {
+    const error = new Error(assertionPayload?.result?.message || assertionPayload?.message || assertionPayload?.error || 'native-session-binding-stale');
+    error.code = assertionPayload?.result?.code || assertionPayload?.code || 'BLOCKED_BINDING_STALE';
+    throw error;
+  }
   const axisContext = payload.result.context || null;
   // Native sessions do not pass through the React-side attach endpoint.  The
   // local tool module still needs the same on-disk context attachment so its
@@ -940,12 +961,34 @@ async function syncNativeWorkbenchAxisBinding(binding) {
   writeNativeWorkbenchContext(current.directory, current.sessionID, {
     schemaVersion: 1,
     source: 'native-session-axis-binding',
-    timeline: { id: current.timelineId || 'current-main-workbench' },
+    timeline: { id: current.timelineId },
     selectedWorkbenchNode: null,
     axisContext,
   });
   updateNativeWorkbenchCheckoutState(current, axisContext);
   return axisContext;
+}
+
+async function assertWorkbenchTimelineAdmission(timelineId) {
+  if (typeof timelineId !== 'string' || !timelineId.trim()) {
+    const error = new Error('Workbench DEF session creation requires timelineId.');
+    error.code = 'BLOCKED_BINDING';
+    throw error;
+  }
+  await ensureDefRestService();
+  const response = await fetch(`${defRestUrl}/api/def-tools/call`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ tool: 'def.workbench.assert_timeline_admission', input: { timelineId: timelineId.trim() } }),
+    signal: AbortSignal.timeout(5000),
+  });
+  const payload = await response.json().catch(() => null);
+  if (!response.ok || payload?.ok !== true || payload?.result?.ok === false) {
+    const error = new Error(payload?.result?.message || payload?.message || payload?.error || 'workbench-timeline-admission-failed');
+    error.code = payload?.result?.code || payload?.code || 'BLOCKED_BINDING';
+    throw error;
+  }
+  return payload.result.document;
 }
 
 async function removeNativeWorkbenchAxisBinding(binding) {
@@ -989,13 +1032,15 @@ const server = http.createServer(async (request, response) => {
       await ensureDefRestService();
       const body = await readJsonBody(request);
       const host = body.host === 'workbench' ? 'workbench' : 'ai-cli';
+      const timelineId = typeof body.timelineId === 'string' ? body.timelineId.trim() : '';
+      if (host === 'workbench') await assertWorkbenchTimelineAdmission(timelineId);
       const session = await createNativeHostSession({
         config: readConfig().deepseek,
         host,
         skillId: typeof body.skillId === 'string' ? body.skillId : undefined,
         thinkingEffort: body.thinkingEffort,
         harnessSelector: typeof body.harnessSelector === 'string' ? body.harnessSelector : 'stable',
-        timelineId: typeof body.timelineId === 'string' ? body.timelineId : '',
+        timelineId,
         boundNodeId: typeof body.boundNodeId === 'string' ? body.boundNodeId : '',
       });
       const binding = ensureNativeSessionAxisBinding(session.directory, session.sessionID);
@@ -1008,6 +1053,8 @@ const server = http.createServer(async (request, response) => {
     if (method === 'POST' && nativeSessionRecovery) {
       const sessionID = decodeURIComponent(nativeSessionRecovery[1]);
       const body = await readJsonBody(request);
+      const existingBinding = readNativeSessionBinding(typeof body.directory === 'string' ? body.directory : '', sessionID, { includeNodeRelation: false });
+      if (existingBinding?.host === 'workbench') await syncNativeWorkbenchAxisBinding(existingBinding);
       const session = await recoverNativeHostSession({
         config: readConfig().deepseek,
         directory: typeof body.directory === 'string' ? body.directory : '',
@@ -1030,6 +1077,7 @@ const server = http.createServer(async (request, response) => {
         writeJson(response, 404, { ok: false, error: 'native-session-binding-not-found' });
         return;
       }
+      if (binding.host === 'workbench') await syncNativeWorkbenchAxisBinding(binding);
 
       const runtime = runtimeSummary(readConfig().deepseek);
       const answers = Array.isArray(body.answers) ? body.answers : [];
@@ -1154,13 +1202,14 @@ const server = http.createServer(async (request, response) => {
 
     if (method === 'POST' && requestUrl.pathname === '/api/native/context') {
       const body = await readJsonBody(request);
-      const saved = writeNativeWorkbenchContext(body.directory, body.sessionID, body.context);
-      if (!saved) {
-        writeJson(response, 403, { ok: false, error: 'invalid-workbench-session-binding' });
+      const binding = ensureNativeSessionAxisBinding(body.directory, body.sessionID);
+      const contextTimelineId = typeof body.context?.timeline?.id === 'string' ? body.context.timeline.id.trim() : '';
+      if (!binding || binding.host !== 'workbench' || !binding.timelineId || contextTimelineId !== binding.timelineId) {
+        writeJson(response, 409, { ok: false, error: 'Workbench context timeline does not match its immutable session binding.', code: 'BLOCKED_SESSION_MISMATCH' });
         return;
       }
-      const binding = ensureNativeSessionAxisBinding(body.directory, body.sessionID);
       const axisContext = await syncNativeWorkbenchAxisBinding(binding);
+      const saved = writeNativeWorkbenchContext(body.directory, body.sessionID, body.context);
       const checkoutState = updateNativeWorkbenchCheckoutState(binding, axisContext);
       writeJson(response, 200, { ok: true, context: saved, axisContext, checkoutState });
       return;
@@ -1403,6 +1452,7 @@ const server = http.createServer(async (request, response) => {
       const action = nativeQuestionDecision[2];
       const nativeSessionID = decodeURIComponent(readRequestHeader(request, 'x-def-question-session'));
       const nativeBinding = findNativeSessionBinding(nativeSessionID);
+      if (nativeBinding?.host === 'workbench') await syncNativeWorkbenchAxisBinding(nativeBinding);
       const directory = nativeBinding?.directory || requestedDirectory;
       const pending = await fetch(`${runtime.serverUrl}/question?directory=${encodeURIComponent(directory)}`).then((item) => item.json());
       const requestRecord = Array.isArray(pending) ? pending.find((item) => item?.id === requestID) : null;

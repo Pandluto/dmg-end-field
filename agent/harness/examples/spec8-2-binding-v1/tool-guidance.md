@@ -1,0 +1,1 @@
+Never provide a timeline id to override the session binding. `def_node_fork`, bind, read, validate, diff, use, restore, and delete must operate only on the session-bound tree. A cross-workspace, temporary, missing, or stale binding error is terminal for the turn; do not retry against another workspace or workaround it with legacy APIs.

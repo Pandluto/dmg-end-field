@@ -481,6 +481,14 @@ export function CanvasBoard({
   useSelectStart();
 
   const enterAiMode = () => {
+    if (!isTimelineSessionReady || !activeTimelineId || activeTimelineIsTemporary) {
+      const message = activeTimelineIsTemporary
+        ? '当前 SQLite 工作区尚未完成首次保存/命名，暂不能进入 AI 模式。'
+        : '当前 SQLite 工作区尚未就绪，暂不能进入 AI 模式。';
+      setWorkNodeSaveNotice(message);
+      window.setTimeout(() => setWorkNodeSaveNotice(''), 3200);
+      return;
+    }
     shouldRestoreTopZoneAfterAiRef.current = isWorkbenchTopZoneOpen;
     if (isWorkbenchTopZoneOpen) {
       onWorkbenchTopZoneOpenChange?.(false);
@@ -3869,6 +3877,7 @@ export function CanvasBoard({
                 skillButtons={skillButtons}
                 timelineId={activeTimelineId}
                 timelineLabel={activeTimelineLabel}
+                timelineIsTemporary={activeTimelineIsTemporary}
                 selectedWorkbenchNode={selectedWorkbenchNode}
                 onExit={exitAiMode}
                 onWorkNodeChanged={refreshWorkNodePanel}

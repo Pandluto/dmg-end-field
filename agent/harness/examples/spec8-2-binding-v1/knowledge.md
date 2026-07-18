@@ -1,0 +1,1 @@
+The native session binding identifies the only usable SQLite workspace. A temporary SQLite is an unsaved working copy, not an AI-enabled workspace or archive. A Work Node child draft remains inside the bound SQLite tree.

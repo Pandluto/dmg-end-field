@@ -340,6 +340,7 @@ function createTimelineRepository({ databasePath }) {
       timelineId: row.timeline_id,
       host: row.host,
       opencodeSessionId: row.opencode_session_id,
+      boundNodeId: row.bound_node_id || null,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     };
@@ -793,13 +794,25 @@ function createTimelineRepository({ databasePath }) {
       throw repositoryError('invalid-timeline-session-axis-binding', 400, 'Session axis binding requires id, timelineId, host, and opencodeSessionId.');
     }
     return transaction(() => {
-      const document = db.prepare('SELECT id FROM timeline_documents WHERE id = ? AND archived_at IS NULL').get(input.timelineId);
-      if (!document) throw repositoryError('timeline-document-not-found', 404, `Timeline document not found: ${input.timelineId}`);
+      const document = db.prepare('SELECT id, is_temporary FROM timeline_documents WHERE id = ? AND archived_at IS NULL').get(input.timelineId);
+      if (!document) throw repositoryError('blocked-binding', 404, 'The bound SQLite workspace is unavailable.');
+      if (document.is_temporary === 1) {
+        throw repositoryError('blocked-temporary-workspace', 409, 'Temporary SQLite workspaces cannot be bound to DEF OpenCode.');
+      }
+      const existing = readSessionAxisBinding(db.prepare('SELECT * FROM timeline_session_axis_bindings WHERE id = ?').get(input.id));
+      if (existing && (existing.timelineId !== input.timelineId || existing.host !== input.host || existing.opencodeSessionId !== input.opencodeSessionId)) {
+        throw repositoryError('blocked-session-mismatch', 409, 'A DEF OpenCode session binding cannot be rebound to another workspace.');
+      }
+      const sessionOwner = readSessionAxisBinding(db.prepare('SELECT * FROM timeline_session_axis_bindings WHERE host = ? AND opencode_session_id = ?').get(input.host, input.opencodeSessionId));
+      if (sessionOwner && sessionOwner.id !== input.id) {
+        throw repositoryError('blocked-session-mismatch', 409, 'This DEF OpenCode session already belongs to another workspace binding.');
+      }
       const boundNodeId = typeof input.boundNodeId === 'string' && input.boundNodeId.trim() ? input.boundNodeId.trim() : null;
       if (boundNodeId) {
         const node = db.prepare('SELECT id FROM timeline_work_nodes WHERE id = ? AND timeline_id = ?').get(boundNodeId, input.timelineId);
         if (!node) throw repositoryError('timeline-session-axis-node-not-found', 404, `Timeline Work Node not found for session binding: ${boundNodeId}`);
       }
+      if (existing && existing.boundNodeId === boundNodeId) return existing;
       const createdAt = input.createdAt || Date.now();
       const updatedAt = input.updatedAt || Date.now();
       db.prepare(`
@@ -821,7 +834,7 @@ function createTimelineRepository({ databasePath }) {
     const binding = readSessionAxisBinding(db.prepare('SELECT * FROM timeline_session_axis_bindings WHERE id = ?').get(bindingId));
     if (!binding) return null;
     const document = readDocument(db.prepare('SELECT * FROM timeline_documents WHERE id = ? AND archived_at IS NULL').get(binding.timelineId));
-    if (!document) return null;
+    if (!document || document.isTemporary) return null;
     const checkout = (() => {
       const row = db.prepare('SELECT * FROM checkout_refs WHERE timeline_id = ?').get(binding.timelineId);
       return row ? { timelineId: row.timeline_id, targetType: row.target_type, targetId: row.target_id, updatedAt: row.updated_at } : null;
@@ -1175,6 +1188,8 @@ function createTimelineRepository({ databasePath }) {
     setCheckoutRef,
     upsertSessionAxisBinding,
     getSessionAxisContext,
+    getSessionAxisBinding: (id) => readSessionAxisBinding(db.prepare('SELECT * FROM timeline_session_axis_bindings WHERE id = ?').get(id)),
+    getSessionAxisBindingBySession: (host, sessionID) => readSessionAxisBinding(db.prepare('SELECT * FROM timeline_session_axis_bindings WHERE host = ? AND opencode_session_id = ?').get(host, sessionID)),
     deleteSessionAxisBinding,
     appendAuditEvent,
     appendWorkNodePatch,
