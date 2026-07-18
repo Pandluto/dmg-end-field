@@ -64,6 +64,9 @@ try {
   }
   assert.equal((await request('/api/ai-timeline-worknodes')).status, 403, 'raw reads cannot reveal another workspace tree');
   assert.equal((await request('/api/timeline-documents')).status, 403, 'raw documents cannot reveal workspaces');
+  const anonymousSse = await request('/api/main-workbench/commands/events');
+  assert.equal(anonymousSse.status, 403, 'anonymous callers cannot subscribe to pending Workbench commands');
+  assert.equal(anonymousSse.body.error?.code, 'denied-internal-transport');
   const anonymousGovernance = await request('/api/def-tools/governance');
   assert.equal(anonymousGovernance.status, 403, 'governance must not expose cross-session approval/question records');
   assert.equal(anonymousGovernance.body.error?.code, 'denied-governance-read');
@@ -77,6 +80,13 @@ try {
   assert.equal(snapshot.status, 200, JSON.stringify(snapshot.body));
   assert.equal((await request('/api/main-workbench/snapshot', { internal: true })).body.snapshot.timelineId, 'formal-a');
   assert.equal((await request('/api/def-tools/governance', { internal: true })).status, 200, 'native governance transport remains available');
+  const sseAbort = new AbortController();
+  const nativeSse = await fetch(`${baseUrl}/api/main-workbench/commands/events`, {
+    headers: { 'x-def-internal-token': token, Origin: 'http://127.0.0.1:3030' }, signal: sseAbort.signal,
+  });
+  assert.equal(nativeSse.status, 200, 'native renderer transport may subscribe to its command stream');
+  assert.equal(nativeSse.headers.get('access-control-allow-origin'), 'http://127.0.0.1:3030');
+  sseAbort.abort();
 
   const createNode = await request('/api/ai-timeline-worknodes/create', {
     method: 'POST', internal: true,

@@ -22,6 +22,7 @@ import {
 import { DEF_TOOL_DEFINITION_BASE } from '../agent/runtime/def-tools/definitions.mjs';
 import { matchesAtomicTeamCandidateCapability, prepareAtomicTeamCandidate } from '../agent/runtime/def-tools/atomic-team-candidate.mjs';
 import { assessAtomicRollbackConvergence, assessAtomicRollbackPrecondition } from '../agent/runtime/def-tools/atomic-team-rollback.mjs';
+import { assessAtomicTeamApplyCommand } from '../agent/runtime/def-tools/atomic-team-command-state.mjs';
 import {
   computeDefNodeSourceRisk,
   hashDefNodeValue,
@@ -3640,6 +3641,15 @@ async function applyDefTeamLoadoutPlan(input = {}) {
   const definition = getDefToolDefinition('def.operator.config.patch');
   let checkoutApplied = false;
   let commitId = '';
+  const parentStillCanonical = async () => {
+    const parentProjection = await waitForWorkbenchProjectionPayload(stored.timelineId, parent.workingPayload, 0);
+    const current = resolveCanonicalWorkbenchCurrent(input);
+    return Boolean(parentProjection.pass
+      && current.ok
+      && current.binding.timelineId === stored.timelineId
+      && current.checkoutNodeId === parent.id
+      && getTimelineRepository().getCheckoutRef(stored.timelineId)?.targetId === parent.id);
+  };
   const rollback = async (code, details = {}) => {
     // A failed command can mean "C was never written" (notably a late A→B
     // checkout switch). Never compensate that case: proving C live is the
@@ -3734,7 +3744,56 @@ async function applyDefTeamLoadoutPlan(input = {}) {
   }
   const commandVerification = await buildDefToolCommandVerification(enqueued.body.commands[0], input.waitMs);
   if (!commandVerification.pass) {
-    return rollback('team-loadout-apply-failed', { commandVerification });
+    const commandStatus = commandVerification?.result?.status;
+    const candidateLive = await waitForWorkbenchProjectionPayload(stored.timelineId, node.workingPayload, 0);
+    const parentCanonical = candidateLive.pass ? false : await parentStillCanonical();
+    const commandState = assessAtomicTeamApplyCommand({
+      status: commandStatus,
+      candidateLive: candidateLive.pass,
+      parentCanonical,
+    });
+    if (commandState.kind === 'unresolved') {
+      const outcome = {
+        ok: false,
+        state: 'RECONCILIATION_REQUIRED',
+        code: commandState.code,
+        planId: stored.planId,
+        planHash: stored.planHash,
+        currentCheckoutTouched: null,
+        pendingCommandId: enqueued.body.commands[0].id,
+        commandVerification,
+        nextAction: 'The renderer command has not reached a terminal state. Do not report zero change; inspect or wait for this exact command before any new mutation.',
+      };
+      stored.usedResult = outcome;
+      return outcome;
+    }
+    if (commandState.kind === 'rollback') {
+      return rollback(commandState.code, { commandVerification });
+    }
+    if (commandState.kind === 'zero-change') {
+      const outcome = {
+        ok: false,
+        state: 'BLOCKED',
+        code: commandState.code,
+        planId: stored.planId,
+        planHash: stored.planHash,
+        currentCheckoutTouched: false,
+        commandVerification,
+      };
+      stored.usedResult = outcome;
+      return outcome;
+    }
+    const outcome = {
+      ok: false,
+      state: 'RECONCILIATION_REQUIRED',
+      code: commandState.code,
+      planId: stored.planId,
+      planHash: stored.planHash,
+      currentCheckoutTouched: null,
+      commandVerification,
+    };
+    stored.usedResult = outcome;
+    return outcome;
   }
   const liveVerification = await waitForExactDefOperatorConfigs(candidate.finalConfigs, input.snapshotWaitMs ?? 8000);
   if (!liveVerification.pass) {
@@ -7628,11 +7687,20 @@ const server = http.createServer(async (request, response) => {
   }
 
   if (method === 'GET' && requestUrl.pathname === '/api/main-workbench/commands/events') {
+    const invocation = { internalToken: typeof request.headers['x-def-internal-token'] === 'string' ? request.headers['x-def-internal-token'] : '' };
+    if (!rawTransportAuthorized(invocation)) {
+      const denied = denyRawTransport(requestUrl.pathname);
+      writeJson(response, denied.status, denied.body);
+      return;
+    }
+    const origin = typeof request.headers.origin === 'string' && /^http:\/\/(?:127\.0\.0\.1|localhost)(?::\d+)?$/i.test(request.headers.origin)
+      ? request.headers.origin
+      : '';
     response.writeHead(200, {
       'Content-Type': 'text/event-stream; charset=utf-8',
       'Cache-Control': 'no-cache, no-transform',
       'Connection': 'keep-alive',
-      'Access-Control-Allow-Origin': '*',
+      ...(origin ? { 'Access-Control-Allow-Origin': origin, Vary: 'Origin' } : {}),
     });
     response.write(': connected\n\n');
     mainWorkbenchCommandSseClients.add(response);

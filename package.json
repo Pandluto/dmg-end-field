@@ -30,6 +30,7 @@
     "test:def-workbench-approval-capability": "node scripts/def-workbench-approval-capability-contract-test.mjs",
     "test:def-team-atomic-candidate": "node scripts/def-team-atomic-candidate-contract-test.mjs",
     "test:def-team-rollback": "node scripts/def-team-rollback-contract-test.mjs",
+    "test:def-team-late-command": "node scripts/def-team-late-command-contract-test.mjs",
     "test:def-workbench-projection-bridge": "node scripts/def-workbench-projection-bridge-contract-test.mjs",
     "smoke:packaged-sidecar": "node scripts/packaged-sidecar-smoke.mjs",
     "smoke:work-node-sqlite": "node scripts/ai-timeline-work-node-sqlite-smoke.mjs && node scripts/ai-timeline-work-node-rest-smoke.mjs && node scripts/ai-timeline-work-node-backup-restore-smoke.mjs && node scripts/timeline-migration-smoke.mjs",
