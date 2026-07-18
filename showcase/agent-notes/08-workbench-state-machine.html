@@ -1,0 +1,281 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="color-scheme" content="light dark" />
+  <title>AI 进入 Workbench 以后，谁才算“当前” · Agent 开发随记</title>
+  <link rel="stylesheet" href="styles.css" />
+  <script src="viewer.js" defer></script>
+</head>
+<body>
+  <div class="page-glow glow-one"></div>
+  <div class="page-glow glow-two"></div>
+  <button class="menu-button" aria-label="打开目录" onclick="document.body.classList.toggle('menu-open')">目录</button>
+  <header class="site-header">
+    <a class="brand" href="index.html">
+      <img src="app-icon.png" alt="终末地伤害工作台图标" />
+      <span>终末地伤害工作台</span>
+    </a>
+    <span class="header-section">AGENT NOTES / READING EDITION</span>
+    <a class="header-link" href="https://github.com/Pandluto/dmg-end-field" target="_blank" rel="noreferrer">GitHub 源码 <span>↗</span></a>
+  </header>
+  <aside class="sidebar">
+    <div class="sidebar-head"><small><i></i> READING ROUTE</small><strong>Agent 开发随记</strong><p>从模型回答问题，一路读到工具、权限、状态和 Skill。</p></div>
+    <nav>
+  <a class="nav-item" href="README.html">
+    <span>◎</span>阅读入口
+  </a>
+  <a class="nav-item" href="00-chat-to-agent.html">
+    <span>01</span>从聊天到 Agent
+  </a>
+  <a class="nav-item" href="01-tool-use.html">
+    <span>02</span>Tool Use
+  </a>
+  <a class="nav-item" href="02-permission-and-hooks.html">
+    <span>03</span>Permission 与 Hook
+  </a>
+  <a class="nav-item" href="03-context-skill-memory.html">
+    <span>04</span>上下文、Skill 与 Memory
+  </a>
+  <a class="nav-item" href="04-plan-task-subagent.html">
+    <span>05</span>Plan、Task 与 Subagent
+  </a>
+  <a class="nav-item" href="05-def-and-opencode.html">
+    <span>06</span>概念怎样落到 DEF
+  </a>
+  <a class="nav-item" href="06-state-persistence-recovery.html">
+    <span>07</span>状态、持久化与恢复
+  </a>
+  <a class="nav-item" href="07-developer-skill.html">
+    <span>08</span>开发者自己的 Skill
+  </a>
+  <a class="nav-item active" href="08-workbench-state-machine.html">
+    <span>09</span>AI 进入 Workbench 以后，谁才算“当前”
+  </a></nav>
+    <p class="sidebar-foot"><b>MARKDOWN SOURCE</b><br />正文由仓库中的 Markdown 生成</p>
+  </aside>
+  <main>
+    <div class="article-meta">
+      <div class="article-kicker"><span></span> 08-WORKBENCH-STATE-MACHINE / DEF AGENT RUNTIME</div>
+      <div class="glossary-hint"><b>?</b> 点击带点线的名词，可看简明解释</div>
+    </div>
+    <article class="markdown-body"><h1>AI 进入 Workbench 以后，谁才算“当前”</h1>
+<p>给 Workbench 接入 AI 之后，系统不只是多了一个聊天窗口。</p>
+<p>AI 会读取队伍、准备候选配装、等待用户批准；用户也可能切换节点、关闭窗口，或者遇到命令超时。页面、SQLite 和 AI 会话如果各自留着一份“当前状态”，就会出现一个很危险的场面：用户看见的是一支队伍，AI 实际获准读取的却是另一支队伍。</p>
+<p>这篇记录一次真实修复，并借它说明几个常见技术概念在 DEF 里实际对应什么。</p>
+<h2>三份“当前状态”</h2>
+<p>Workbench 里最容易混淆的不是数据有没有保存，而是谁有资格代表“当前”。</p>
+<table>
+<thead>
+<tr>
+<th>中文名称</th>
+<th>项目名称</th>
+<th>它是什么</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>当前正式节点</td>
+<td>Checkout Work Node</td>
+<td>SQLite 中当前生效的 Work Node；它保存的是正式依据。</td>
+</tr>
+<tr>
+<td>页面工作副本</td>
+<td>Working Projection</td>
+<td>React 内存中正在展示、编辑的队伍、技能、Buff 和配装。</td>
+</tr>
+<tr>
+<td>AI 会话归属</td>
+<td>Session Binding</td>
+<td>AI 会话获准访问的正式数据轴和工作区。</td>
+</tr>
+</tbody></table>
+<p>它们本应描述同一支队伍：</p>
+<pre><code class="language-text">当前正式节点
+  ↓
+页面工作副本
+  ↓
+AI 会话归属
+</code></pre>
+<p>一次实际故障中，SQLite 当前正式节点保存的是“莱万汀、狼卫、艾尔黛拉、秋栗”，页面工作副本却显示“弭弗、黎风、陈千语、管理员”。AI 会话虽然绑定在正确的正式数据轴上，但工具发现页面与当前正式节点不一致后，按规则拒绝了读取。</p>
+<p>拒绝本身是正确的。真正的问题是：系统允许 AI 模式在数据尚未收敛时启动。</p>
+<h2>先收敛，再进入 AI 模式</h2>
+<p>现在，进入 AI 模式不是只检查“是否打开了正式 SQLite”，而要走完这条顺序：</p>
+<pre><code class="language-text">确认正式 SQLite
+  ↓
+读取当前正式节点
+  ↓
+把节点内容重新加载到页面
+  ↓
+确认页面工作副本与节点一致
+  ↓
+绑定或恢复 AI 会话
+  ↓
+允许 AI 读取或创建候选分支
+</code></pre>
+<p>其中的“重新加载到页面”由 <code>hydrateCheckoutRuntime()</code> 完成：它把当前正式节点中的队伍、技能按钮、Buff 和配装恢复到页面。</p>
+<p>这不是让 AI 覆盖用户数据，也不是直接覆盖当前正式节点。它恰好相反：以 SQLite 中已经保存的正式节点为准，让 React 页面回到同一份状态。</p>
+<p>如果用户希望保留页面中尚未保存的新队伍，正确做法不是覆盖当前正式节点，而是以它为父节点，创建同一棵树里的候选子分支。用户可以在新分支完成配置、对比和批准；没有批准前，原节点 P 不会被直接改写。</p>
+<blockquote>
+<p>页面工作副本可以帮助快速展示和编辑，但不能替代 SQLite 中的当前正式节点。</p>
+</blockquote>
+<h2>state machine（状态机）：系统知道自己能不能继续</h2>
+<p><code>state machine（状态机）</code> 是通用概念，意思是让系统明确自己正处于哪个阶段，以及下一步是否允许发生。</p>
+<p>在 DEF 里，它不是一个单独安装的库，而是由几层实际代码共同形成：</p>
+<ul>
+<li>React 页面维护是否进入 AI 模式、当前打开的工作区和当前页面工作副本；</li>
+<li>当前正式节点提供 SQLite 中的正式事实；</li>
+<li>AI 会话归属限制 Session 能操作哪条正式数据轴；</li>
+<li>主进程和本地服务决定工具调用是允许、拒绝，还是必须继续核对。</li>
+</ul>
+<p>进入 AI 模式可以简化为以下状态：</p>
+<pre><code class="language-text">未准备
+  → 正在读取当前正式节点
+  → 正在同步页面工作副本
+  → 已同步，可以使用 AI
+  → AI 工具执行中
+  → 完成 / 拒绝 / 等待后续核对
+</code></pre>
+<p>如果页面工作副本和当前正式节点不同，系统不允许跳过“正在同步”直接进入“可以使用 AI”。这次修复的重点不是放宽权限，而是让状态顺序正确：先收敛，再启用 AI。</p>
+<h2>token：不同动作，使用不同的通行证</h2>
+<p>这里的 <code>token</code> 不是模型生成文字所消耗的 Token，而是权限通行证。它们保护的对象不同。</p>
+<table>
+<thead>
+<tr>
+<th>技术名称</th>
+<th>中文作用</th>
+<th>在项目中限制什么</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Internal Token</td>
+<td>内部访问令牌</td>
+<td>保护主进程内部的 snapshot、命令事件和页面工作副本发布接口。</td>
+</tr>
+<tr>
+<td>Session Binding</td>
+<td>AI 会话归属</td>
+<td>限制一个 AI 会话只能访问它绑定的正式数据轴。</td>
+</tr>
+<tr>
+<td>Approval Capability</td>
+<td>批准通行证</td>
+<td>限制一次批准只能用于指定会话、当前节点和候选配装。</td>
+</tr>
+</tbody></table>
+<p>例如，用户批准一套配装时，系统不能只记“用户点过同意”。批准还要精确对应：哪个 AI 会话、哪条正式数据轴、哪个父节点 P，以及哪个候选节点 C 和候选版本。</p>
+<p>用户在批准后切到别的节点，旧批准就必须失效。否则，原本批准给 A 队伍的操作，可能在很晚之后写进 B 队伍。</p>
+<h2>cache invalidation（缓存失效）：页面何时不能再相信自己</h2>
+<p>页面工作副本本质上是一份 <code>cache（缓存）</code>。它让用户点角色、改技能、看伤害时不必每次都完整读取 SQLite。</p>
+<p>缓存的风险是过期。此前页面只在首次启动时加载过当前正式节点；后续即使切换 SQLite 或切换当前节点，页面也可能继续显示第一次的旧队伍。</p>
+<p>现在，以下三项共同构成页面工作副本的身份：</p>
+<pre><code class="language-text">当前正式数据轴
++ 当前正式节点
++ 当前 SQLite 是否为正式工作区
+</code></pre>
+<p>其中任何一项改变，旧页面工作副本就必须失效，并从新的当前正式节点重新加载。</p>
+<p>这就是 <code>cache invalidation（缓存失效）</code> 在这里的含义：不是每隔几秒盲目刷新，而是在数据身份改变时立即放弃旧副本。</p>
+<h2>工具也有自己的状态机</h2>
+<p>页面进入 AI 模式是一条状态流程；AI 调用工具是另一条状态流程。</p>
+<p>例如 AI 问“现在选中了哪些干员？”时，读取工具通常很短：</p>
+<pre><code class="language-text">AI 发起读取
+  → 校验 AI 会话归属、正式数据轴和当前正式节点
+  → 读取结果
+  → 返回结构化结果
+  → AI 根据结果回答
+</code></pre>
+<p>而创建候选配装、应用配置、等待用户批准等工具会更长：</p>
+<pre><code class="language-text">AI 发起操作
+  → 主进程接受命令
+  → 命令执行中
+  → 等待页面和正式数据生效
+  → 验证实际结果
+  → 成功 / 拒绝 / 等待后续核对
+</code></pre>
+<p>长工具需要精确的 <code>commandId（命令编号）</code>。它用来标识这一次操作，避免 AI、页面和主进程把多个异步结果混在一起。</p>
+<p>AI 不应因为“请求已经发出”就断言成功。它只能依据两种结果继续回答：</p>
+<ul>
+<li>命令已经到达终态：返回成功、拒绝或失败的结构化结果；</li>
+<li>命令尚未到达终态：返回“状态仍待核对”，并保留 commandId。</li>
+</ul>
+<p>第二种情况进入 <code>reconciliation（后续核对）</code>：系统持续确认这个精确命令最终有没有执行、有没有迟到创建候选 C，以及它是否仍对应原来的会话、数据轴和父节点。</p>
+<h2>工具中途中断：不要相信半途缓存</h2>
+<p>工具可能在中途断开：AI 面板关闭、页面切换、命令超时，或者 Electron 重启。</p>
+<p>此时，三类状态的处理方式不同：</p>
+<table>
+<thead>
+<tr>
+<th>状态</th>
+<th>保存位置</th>
+<th>中断后怎么处理</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>当前正式节点</td>
+<td>SQLite</td>
+<td>仍然是正式依据。</td>
+</tr>
+<tr>
+<td>页面工作副本</td>
+<td>React 内存</td>
+<td>失去可信度；下次进入 AI 前重新从当前正式节点加载。</td>
+</tr>
+<tr>
+<td>工具执行状态</td>
+<td>主进程命令记录</td>
+<td>保留 commandId，继续查询最终状态。</td>
+</tr>
+</tbody></table>
+<p>因此工具中断时，系统不能因为页面还显示旧内容，就认定工具没有改动；也不能因为命令发出过，就认定它一定成功。</p>
+<p>正确流程是：</p>
+<pre><code class="language-text">工具中断
+  ↓
+保留命令编号
+  ↓
+查询命令最终状态
+  ↓
+核对当前正式节点
+  ↓
+重新加载页面工作副本
+  ↓
+报告成功、零变化，或执行受保护的回滚
+</code></pre>
+<p>如果命令根本没有执行，当前正式节点仍是 P，页面重新加载即可。如果命令完整创建了候选 C，系统依据 C 的版本继续处理。如果状态仍不明确，系统继续后续核对，而不是相信任何中途缓存。</p>
+<blockquote>
+<p>工具执行过程中的页面状态只是草稿；只有 SQLite 中的当前正式节点和经过验证的命令终态，才有资格成为下一步的依据。</p>
+</blockquote>
+<h2>SSE、吞吐和滑动窗口分别解决什么</h2>
+<p><code>SSE（服务器推送）</code> 用于持续传递命令进度，例如命令开始、执行中、完成或失败。它是进度渠道，不是成功证明；最终结果仍需经过会话归属、当前正式节点和命令版本的核对。</p>
+<p><code>throughput（吞吐）</code> 在这个桌面项目中，不主要是“每秒服务多少用户”，而是“同一时间有多少操作可能相互撞车”。例如 AI 正根据节点 P 生成候选 C，用户已经切到节点 B，旧命令却很晚才返回。主进程必须确认该命令仍属于原来的会话、正式数据轴和父节点，不能让它影响 B。</p>
+<p><code>sliding window（滑动窗口）</code> 适合管理短时间内的重复行为，例如同一会话反复读取当前队伍、同一批准被重复提交，或 SSE 断线后频繁重连。它应按“AI 会话 + 正式数据轴”分别记账：重复读请求可以合并；重复写请求应拒绝或返回已有命令状态。</p>
+<p>这不是当前收敛修复的主体，也不应为了限流重做 Runtime。它是工具调用增多后，防止重复执行和状态混乱的下一道边界。</p>
+<h2>配置界面也要说人话</h2>
+<p>配置页不应把通用技术名词和项目数据对象混在一起。</p>
+<p>面向用户的区域应优先用中文业务对象：当前正式数据轴、当前正式节点、页面工作副本、AI 会话归属、候选配装分支、工具执行状态。需要排查时，再在说明中标注项目名称或代码名。</p>
+<p>例如：</p>
+<pre><code class="language-text">当前正式节点
+Checkout Work Node：SQLite 中当前生效的节点
+</code></pre>
+<p>通用技术设置可以保留标准英文，但必须说明它控制什么：</p>
+<pre><code class="language-text">Token TTL
+内部访问令牌的有效时间
+
+SSE reconnect
+命令状态连接中断后的重连策略
+
+Cache refresh
+当前正式节点变化后，页面工作副本的刷新策略
+</code></pre>
+<p>这样，用户首先看到的是“我当前操作哪支队伍、AI 能访问哪个工作区、数据是否已经同步”；开发者展开高级设置后，才需要面对 token、缓存或连接策略。</p>
+<h2>结语</h2>
+<p>Workbench 接入 AI，等于增加了一个会延迟执行、会重试、会中断恢复的协作者。</p>
+<p>SQLite 当前正式节点负责保存事实；页面工作副本负责快速展示；AI 会话归属负责限制访问范围；工具状态机负责处理执行过程；缓存失效和后续核对负责防止旧状态、迟到命令或中断操作悄悄改变数据。</p>
+<p>这些关系明确以后，AI 才能可靠地回答一个看似简单的问题：</p>
+<blockquote>
+<p>现在选中了哪些干员？</p>
+</blockquote>
+</article>
+    <footer><span>终末地伤害工作台</span><span>LOCAL · TRACEABLE · ASSISTED</span></footer>
+  </main>
+</body>
+</html>

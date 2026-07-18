@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="color-scheme" content="light dark" />
+  <title>Tool Use：让模型碰到外部世界 · Agent 开发随记</title>
+  <link rel="stylesheet" href="styles.css" />
+  <script src="viewer.js" defer></script>
+</head>
+<body>
+  <div class="page-glow glow-one"></div>
+  <div class="page-glow glow-two"></div>
+  <button class="menu-button" aria-label="打开目录" onclick="document.body.classList.toggle('menu-open')">目录</button>
+  <header class="site-header">
+    <a class="brand" href="index.html">
+      <img src="app-icon.png" alt="终末地伤害工作台图标" />
+      <span>终末地伤害工作台</span>
+    </a>
+    <span class="header-section">AGENT NOTES / READING EDITION</span>
+    <a class="header-link" href="https://github.com/Pandluto/dmg-end-field" target="_blank" rel="noreferrer">GitHub 源码 <span>↗</span></a>
+  </header>
+  <aside class="sidebar">
+    <div class="sidebar-head"><small><i></i> READING ROUTE</small><strong>Agent 开发随记</strong><p>从模型回答问题，一路读到工具、权限、状态和 Skill。</p></div>
+    <nav>
+  <a class="nav-item" href="README.html">
+    <span>◎</span>阅读入口
+  </a>
+  <a class="nav-item" href="00-chat-to-agent.html">
+    <span>01</span>从聊天到 Agent
+  </a>
+  <a class="nav-item active" href="01-tool-use.html">
+    <span>02</span>Tool Use
+  </a>
+  <a class="nav-item" href="02-permission-and-hooks.html">
+    <span>03</span>Permission 与 Hook
+  </a>
+  <a class="nav-item" href="03-context-skill-memory.html">
+    <span>04</span>上下文、Skill 与 Memory
+  </a>
+  <a class="nav-item" href="04-plan-task-subagent.html">
+    <span>05</span>Plan、Task 与 Subagent
+  </a>
+  <a class="nav-item" href="05-def-and-opencode.html">
+    <span>06</span>概念怎样落到 DEF
+  </a>
+  <a class="nav-item" href="06-state-persistence-recovery.html">
+    <span>07</span>状态、持久化与恢复
+  </a>
+  <a class="nav-item" href="07-developer-skill.html">
+    <span>08</span>开发者自己的 Skill
+  </a>
+  <a class="nav-item" href="08-workbench-state-machine.html">
+    <span>09</span>AI 进入 Workbench 以后，谁才算“当前”
+  </a></nav>
+    <p class="sidebar-foot"><b>MARKDOWN SOURCE</b><br />正文由仓库中的 Markdown 生成</p>
+  </aside>
+  <main>
+    <div class="article-meta">
+      <div class="article-kicker"><span></span> 01-TOOL-USE / DEF AGENT RUNTIME</div>
+      <div class="glossary-hint"><b>?</b> 点击带点线的名词，可看简明解释</div>
+    </div>
+    <article class="markdown-body"><h1>Tool Use：让模型碰到外部世界</h1>
+<p>模型不能直接读取当前配装，但程序可以。我们把这项能力包装成工具，告诉模型它叫什么、什么时候用、参数怎样填写；真正读取产品数据的函数仍留在程序里。</p>
+<p>一个最小工具通常有四部分：</p>
+<pre><code class="language-text">name         工具叫什么
+description  什么情况下应该用
+schema       参数长什么样
+handler      程序实际执行什么
+</code></pre>
+<p>例如，读取当前配装的工具可以这样描述：</p>
+<pre><code class="language-json">{
+  &quot;name&quot;: &quot;read_current_loadout&quot;,
+  &quot;description&quot;: &quot;读取当前时间线已经应用的配装&quot;,
+  &quot;parameters&quot;: {
+    &quot;type&quot;: &quot;object&quot;,
+    &quot;properties&quot;: {
+      &quot;character&quot;: { &quot;type&quot;: &quot;string&quot; }
+    },
+    &quot;required&quot;: [&quot;character&quot;]
+  }
+}
+</code></pre>
+<p>模型看到名称、描述和参数格式，可能返回 <code>{&quot;character&quot;:&quot;A&quot;}</code>。Runtime 先验证参数，再调用 handler；读取结果不会停在程序内部，而是作为 Tool Result 写回 Session，让模型据此决定下一步。</p>
+<h2>为什么工具要有类型</h2>
+<p>如果工具只接收一段随意文本，执行方还得重新猜模型的意思。<strong>Typed Tool</strong> 用 Schema 把输入收窄成明确结构：角色名放在哪里，哪些字段必填，数字和字符串能否混用，都可以在执行前检查。</p>
+<p>类型不只是为了少报错。稳定的调用对象还能被权限规则识别，被日志记录，也能在失败后重新定位。模型说过什么是一回事，程序准备执行什么则应该有一份清楚的结构。</p>
+<p>不过，Schema 只回答“参数是否合法”，不回答“这件事该不该做”。角色名填写正确，不代表模型可以直接替换武器；调用结构完整，也不等于用户已经批准。</p>
+<p>工具注册同样不代表每轮都向模型开放。Runtime 还会根据当前 Agent、Session、Skill 和权限，筛选本轮真正可用的工具。模型只能调用它此刻看得到的能力。</p>
+<p>到这里，模型终于能准确提出一次操作。接下来的问题是：读取可以直接完成，修改是否也能直接完成？这层边界记在 <a href="02-permission-and-hooks.html">Permission 与 Hook</a> 里。</p>
+</article>
+    <footer><span>终末地伤害工作台</span><span>LOCAL · TRACEABLE · ASSISTED</span></footer>
+  </main>
+</body>
+</html>

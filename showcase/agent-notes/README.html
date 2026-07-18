@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="color-scheme" content="light dark" />
+  <title>Agent 开发随记 · Agent 开发随记</title>
+  <link rel="stylesheet" href="styles.css" />
+  <script src="viewer.js" defer></script>
+</head>
+<body>
+  <div class="page-glow glow-one"></div>
+  <div class="page-glow glow-two"></div>
+  <button class="menu-button" aria-label="打开目录" onclick="document.body.classList.toggle('menu-open')">目录</button>
+  <header class="site-header">
+    <a class="brand" href="index.html">
+      <img src="app-icon.png" alt="终末地伤害工作台图标" />
+      <span>终末地伤害工作台</span>
+    </a>
+    <span class="header-section">AGENT NOTES / READING EDITION</span>
+    <a class="header-link" href="https://github.com/Pandluto/dmg-end-field" target="_blank" rel="noreferrer">GitHub 源码 <span>↗</span></a>
+  </header>
+  <aside class="sidebar">
+    <div class="sidebar-head"><small><i></i> READING ROUTE</small><strong>Agent 开发随记</strong><p>从模型回答问题，一路读到工具、权限、状态和 Skill。</p></div>
+    <nav>
+  <a class="nav-item active" href="README.html">
+    <span>◎</span>阅读入口
+  </a>
+  <a class="nav-item" href="00-chat-to-agent.html">
+    <span>01</span>从聊天到 Agent
+  </a>
+  <a class="nav-item" href="01-tool-use.html">
+    <span>02</span>Tool Use
+  </a>
+  <a class="nav-item" href="02-permission-and-hooks.html">
+    <span>03</span>Permission 与 Hook
+  </a>
+  <a class="nav-item" href="03-context-skill-memory.html">
+    <span>04</span>上下文、Skill 与 Memory
+  </a>
+  <a class="nav-item" href="04-plan-task-subagent.html">
+    <span>05</span>Plan、Task 与 Subagent
+  </a>
+  <a class="nav-item" href="05-def-and-opencode.html">
+    <span>06</span>概念怎样落到 DEF
+  </a>
+  <a class="nav-item" href="06-state-persistence-recovery.html">
+    <span>07</span>状态、持久化与恢复
+  </a>
+  <a class="nav-item" href="07-developer-skill.html">
+    <span>08</span>开发者自己的 Skill
+  </a>
+  <a class="nav-item" href="08-workbench-state-machine.html">
+    <span>09</span>AI 进入 Workbench 以后，谁才算“当前”
+  </a></nav>
+    <p class="sidebar-foot"><b>MARKDOWN SOURCE</b><br />正文由仓库中的 Markdown 生成</p>
+  </aside>
+  <main>
+    <div class="article-meta">
+      <div class="article-kicker"><span></span> README / DEF AGENT RUNTIME</div>
+      <div class="glossary-hint"><b>?</b> 点击带点线的名词，可看简明解释</div>
+    </div>
+    <article class="markdown-body"><h1>Agent 开发随记</h1>
+<p>第一次给模型接上工具，很容易以为 Agent 已经做完了。等它真的开始读数据、改状态，问题才一个接一个出现：工具怎么描述，谁来批准修改，对话太长怎么办，程序中途退出又该从哪里继续。</p>
+<p>这组笔记沿着一次真实开发过程往下写。它不是术语大全，也不要求先懂 OpenCode；每一页只回答当前遇到的问题，再自然带出下一个概念。</p>
+<p>为了让前后说的是同一件事，文中会反复使用一个小任务：<strong>读取当前配装，准备替换一名角色的武器，并说明最终是否真的换上。</strong></p>
+<h2>从哪里开始</h2>
+<table>
+<thead>
+<tr>
+<th>此刻遇到的问题</th>
+<th>接着看</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>模型为什么回答得了问题，却不能自己完成操作</td>
+<td><a href="00-chat-to-agent.html">从聊天到 Agent</a></td>
+</tr>
+<tr>
+<td>模型怎样准确调用程序里的能力</td>
+<td><a href="01-tool-use.html">Tool Use：让模型碰到外部世界</a></td>
+</tr>
+<tr>
+<td>参数正确以后，谁来决定这次操作能不能做</td>
+<td><a href="02-permission-and-hooks.html">Permission 与 Hook</a></td>
+</tr>
+<tr>
+<td>对话、知识与长期记忆应该放在哪里</td>
+<td><a href="03-context-skill-memory.html">上下文、Skill 与 Memory</a></td>
+</tr>
+<tr>
+<td>任务变大以后，怎样规划和分工</td>
+<td><a href="04-plan-task-subagent.html">Plan、Task 与 Subagent</a></td>
+</tr>
+<tr>
+<td>这些概念在当前项目里怎样连成一条链</td>
+<td><a href="05-def-and-opencode.html">这些概念在 DEF 里怎样落地</a></td>
+</tr>
+<tr>
+<td>工具卡住、进程退出或响应丢失后怎么办</td>
+<td><a href="06-state-persistence-recovery.html">运行中的状态、持久化与恢复</a></td>
+</tr>
+<tr>
+<td>哪些重复开发经验适合整理成 Skill</td>
+<td><a href="07-developer-skill.html">开发者自己的 Skill</a></td>
+</tr>
+<tr>
+<td>页面、正式节点和 AI 会话怎样避免各说各话</td>
+<td><a href="08-workbench-state-machine.html">AI 进入 Workbench 以后，谁才算“当前”</a></td>
+</tr>
+</tbody></table>
+<p>这里讲的是理解 Agent 所需的主干。项目实现继续变化时，以<a href="https://github.com/Pandluto/dmg-end-field/blob/main/docs/architecture/README.md" target="_blank" rel="noreferrer">架构事实源</a>为准。</p>
+<p>如果想集中浏览并点击查看名词解释，可以使用<a href="index.html">本地网页预览</a>。</p>
+</article>
+    <footer><span>终末地伤害工作台</span><span>LOCAL · TRACEABLE · ASSISTED</span></footer>
+  </main>
+</body>
+</html>
