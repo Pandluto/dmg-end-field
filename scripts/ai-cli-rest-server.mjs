@@ -22,7 +22,7 @@ import {
 import { DEF_TOOL_DEFINITION_BASE } from '../agent/runtime/def-tools/definitions.mjs';
 import { matchesAtomicTeamCandidateCapability, prepareAtomicTeamCandidate } from '../agent/runtime/def-tools/atomic-team-candidate.mjs';
 import { assessAtomicRollbackConvergence, assessAtomicRollbackPrecondition } from '../agent/runtime/def-tools/atomic-team-rollback.mjs';
-import { assessAtomicTeamApplyCommand } from '../agent/runtime/def-tools/atomic-team-command-state.mjs';
+import { observeAtomicTeamApplyCommand } from '../agent/runtime/def-tools/atomic-team-command-state.mjs';
 import {
   computeDefNodeSourceRisk,
   hashDefNodeValue,
@@ -142,7 +142,7 @@ function pruneDefTeamLoadoutPlans() {
   }
   for (const [planHash, prepared] of preparedTeamLoadoutPlans) {
     const approvalReservationActive = Number(prepared.approvalExpiresAt) > now;
-    if (prepared.expiresAt <= now && !approvalReservationActive && !prepared.usedResult) preparedTeamLoadoutPlans.delete(planHash);
+    if (prepared.expiresAt <= now && !approvalReservationActive && !prepared.usedResult && !prepared.pendingCommand) preparedTeamLoadoutPlans.delete(planHash);
   }
 }
 
@@ -3432,7 +3432,7 @@ function buildDefGuideTeamLoadoutPlan(input = {}, options = {}) {
   const body = { protocolVersion: 1, contract: 'DefTeamLoadoutPlanV1', sessionId, timelineId: gate.binding.timelineId, axisBindingId: gate.binding.id, sourceReferenceId: source.referenceId, sourceSectionId: source.sectionId, sourceContentHash: source.sourceContentHash, companionManifest: companion.manifestPath, checkout: team.checkout, team: { selectedCount: team.selectedCount, snapshotUpdatedAt: team.snapshotUpdatedAt }, operators, decisions, confirmedDecisionIds: [...confirmed].sort(), confirmedDecisions, unresolved };
   const planHash = hashDefLoadoutPlan(body);
   const plan = { ok: true, ...body, planId: `team-loadout-${planHash.slice(0, 16)}`, planHash, state: unresolved.length ? 'REQUIRES_CONFIRMATION' : 'READY', immutable: true, expiresAt: Date.now() + PREPARED_TEAM_LOADOUT_TTL_MS, nextAction: unresolved.length ? 'Use only the returned decisionId and optionId to confirm an explicit deviation; a new immutable plan will then be built.' : 'Request one native approval for this exact team diff.' };
-  preparedTeamLoadoutPlans.set(planHash, { ...plan, ownerSessionId: sessionId, checkoutBinding: team.checkout, timelineId: gate.binding.timelineId, axisBindingId: gate.binding.id, expiresAt: plan.expiresAt, usedAt: null, usedResult: null });
+  preparedTeamLoadoutPlans.set(planHash, { ...plan, ownerSessionId: sessionId, checkoutBinding: team.checkout, timelineId: gate.binding.timelineId, axisBindingId: gate.binding.id, expiresAt: plan.expiresAt, usedAt: null, usedResult: null, pendingCommand: null });
   return plan;
 }
 
@@ -3506,6 +3506,13 @@ async function prepareDefTeamLoadoutPlanApply(input = {}) {
   if (!plan) return { ok: false, code: 'team-loadout-plan-not-found', state: 'BLOCKED', component: 'team-loadout-plan', message: 'Plan hash is unavailable, expired, or belongs to another sidecar lifetime.' };
   if (plan.ownerSessionId !== sessionId) return { ok: false, code: 'team-loadout-plan-session-mismatch', state: 'BLOCKED', component: 'team-loadout-plan', message: 'A plan may be applied only by the native session that prepared it.' };
   if (plan.usedResult) return { ...plan.usedResult, idempotent: true };
+  // A timed-out renderer command remains bound to this exact session and
+  // candidate.  Let apply re-observe it even if C has since become current;
+  // the reconciliation path below still refuses a different timeline.
+  if (plan.pendingCommand) {
+    const { pendingCommand, ...presentationPlan } = plan;
+    return { ...teamCandidatePresentation(presentationPlan), reconciliation: true, pendingCommandId: pendingCommand.id };
+  }
   if (plan.timelineId !== gate.binding.timelineId || plan.axisBindingId !== gate.binding.id
     || !defPlanCheckoutMatches(plan.checkoutBinding, gate)) return { ok: false, code: 'team-loadout-checkout-changed', state: 'BLOCKED', component: 'team-loadout-plan', message: 'Checkout target, revision, or workspace changed after planning; no apply was started.' };
   if (plan.state !== 'READY') return { ...plan, ok: true, approvalPatterns: [], nextAction: plan.nextAction };
@@ -3602,16 +3609,30 @@ async function applyDefTeamLoadoutPlan(input = {}) {
   const prepared = await prepareDefTeamLoadoutPlanApply(input);
   if (!prepared.ok || prepared.state !== 'READY' || prepared.idempotent) return prepared;
   const stored = preparedTeamLoadoutPlans.get(prepared.planHash);
-  if (!stored || stored.usedAt) return stored?.usedResult ? { ...stored.usedResult, idempotent: true } : { ok: false, code: 'team-loadout-plan-consumed', state: 'BLOCKED', component: 'team-loadout-plan' };
+  if (!stored || (stored.usedAt && !stored.pendingCommand)) return stored?.usedResult ? { ...stored.usedResult, idempotent: true } : { ok: false, code: 'team-loadout-plan-consumed', state: 'BLOCKED', component: 'team-loadout-plan' };
   const candidate = stored.preparedCandidate;
   if (!matchesAtomicTeamCandidateCapability(input, candidate)) {
     return { ok: false, state: 'BLOCKED', code: 'team-loadout-capability-mismatch', planId: prepared.planId, planHash: prepared.planHash, nextAction: 'The approved candidate identity does not match the prepared team capability.' };
   }
   const gate = input.__defCurrentGate || resolveCanonicalWorkbenchCurrent(input);
-  const parentSnapshot = cloneJson(gate?.snapshot || {});
+  if (stored.pendingCommand && (!gate.ok
+    || gate.binding.timelineId !== stored.timelineId
+    || gate.binding.id !== stored.axisBindingId)) {
+    return {
+      ok: false,
+      state: 'RECONCILIATION_REQUIRED',
+      code: 'team-loadout-reconciliation-context-changed',
+      planId: stored.planId,
+      planHash: stored.planHash,
+      pendingCommandId: stored.pendingCommand.id,
+      currentCheckoutTouched: null,
+      nextAction: 'The exact delayed command is retained, but the current native session no longer targets its workspace. Do not touch the new workspace.',
+    };
+  }
+  const parentSnapshot = cloneJson(stored.pendingCommand?.parentSnapshot || gate?.snapshot || {});
   const node = readRepositoryWorkNode(candidate.nodeId);
   const parent = readRepositoryWorkNode(candidate.parentNodeId);
-  if (!gate.ok || gate.checkoutNodeId !== candidate.parentNodeId || !node || !parent
+  if (!gate.ok || (!stored.pendingCommand && gate.checkoutNodeId !== candidate.parentNodeId) || !node || !parent
     || node.timelineId !== stored.timelineId || parent.timelineId !== stored.timelineId
     || Number(node.contentRevision || node.updatedAt) !== candidate.nodeRevision
     || Number(parent.contentRevision || parent.updatedAt) !== candidate.parentRevision
@@ -3622,7 +3643,7 @@ async function applyDefTeamLoadoutPlan(input = {}) {
     return outcome;
   }
   const sessionId = typeof input.__defSessionId === 'string' ? input.__defSessionId.trim() : '';
-  if (!consumeApprovedApplyCapability(input, {
+  if (!stored.pendingCommand && !consumeApprovedApplyCapability(input, {
     sessionId,
     timelineId: stored.timelineId,
     axisBindingId: stored.axisBindingId,
@@ -3637,7 +3658,7 @@ async function applyDefTeamLoadoutPlan(input = {}) {
   })) {
     return { ok: false, state: 'BLOCKED', code: 'approval-capability-required', planId: stored.planId, planHash: stored.planHash, currentCheckoutTouched: false, nextAction: 'Native user approval for this exact team candidate is required before apply.' };
   }
-  stored.usedAt = Date.now();
+  if (!stored.pendingCommand) stored.usedAt = Date.now();
   const definition = getDefToolDefinition('def.operator.config.patch');
   let checkoutApplied = false;
   let commitId = '';
@@ -3674,6 +3695,7 @@ async function applyDefTeamLoadoutPlan(input = {}) {
         rollback: { attempted: false, reason: precondition.reason },
         ...details,
       };
+      stored.pendingCommand = null;
       stored.usedResult = outcome;
       return outcome;
     }
@@ -3730,46 +3752,46 @@ async function applyDefTeamLoadoutPlan(input = {}) {
       rollback: { attempted: true, restored, verification: rollbackVerification, projection: parentLive, damageRestored, lifecycleRestored },
       ...details,
     };
+    stored.pendingCommand = null;
     stored.usedResult = outcome;
     return outcome;
   };
-  const enqueued = enqueueDefToolCommands(definition, [{
-    op: 'applyPreparedOperatorConfig', parentNodeId: parent.id, parentRevision: candidate.parentRevision,
-    nodeId: node.id, nodeRevision: candidate.nodeRevision,
-  }], input);
-  if (enqueued.status < 200 || enqueued.status >= 300 || !enqueued.body?.commands?.[0]) {
-    const outcome = { ok: false, state: 'BLOCKED', code: 'team-loadout-apply-enqueue-failed', planId: stored.planId, planHash: stored.planHash, currentCheckoutTouched: false };
-    stored.usedResult = outcome;
-    return outcome;
-  }
-  const commandVerification = await buildDefToolCommandVerification(enqueued.body.commands[0], input.waitMs);
-  if (!commandVerification.pass) {
-    const commandStatus = commandVerification?.result?.status;
-    const candidateLive = await waitForWorkbenchProjectionPayload(stored.timelineId, node.workingPayload, 0);
-    const parentCanonical = candidateLive.pass ? false : await parentStillCanonical();
-    const commandState = assessAtomicTeamApplyCommand({
-      status: commandStatus,
-      candidateLive: candidateLive.pass,
-      parentCanonical,
+  const reconcileExactCommand = async (commandId) => {
+    const observed = await observeAtomicTeamApplyCommand({
+      commandId,
+      waitMs: input.waitMs,
+      waitForCommand: (id, waitMs) => buildDefToolCommandVerification({ id }, waitMs),
+      // A terminal queue entry can precede React snapshot publication.  Wait
+      // for C's canonical projection before deciding that a late write did
+      // not happen; a one-shot read would recreate the timeout race.
+      candidateIsLive: async () => (await waitForWorkbenchProjectionPayload(
+        stored.timelineId,
+        node.workingPayload,
+        input.snapshotWaitMs ?? 8000,
+      )).pass,
+      parentIsCanonical: parentStillCanonical,
     });
+    const { commandVerification, commandState } = observed;
     if (commandState.kind === 'unresolved') {
-      const outcome = {
+      stored.pendingCommand = {
+        ...(stored.pendingCommand || {}),
+        id: commandId,
+        parentSnapshot,
+        observedAt: Date.now(),
+      };
+      return {
         ok: false,
         state: 'RECONCILIATION_REQUIRED',
         code: commandState.code,
         planId: stored.planId,
         planHash: stored.planHash,
         currentCheckoutTouched: null,
-        pendingCommandId: enqueued.body.commands[0].id,
+        pendingCommandId: commandId,
         commandVerification,
-        nextAction: 'The renderer command has not reached a terminal state. Do not report zero change; inspect or wait for this exact command before any new mutation.',
+        nextAction: 'The renderer command has not reached a terminal state. Re-apply this exact plan to reconcile this exact command; do not start a new mutation.',
       };
-      stored.usedResult = outcome;
-      return outcome;
     }
-    if (commandState.kind === 'rollback') {
-      return rollback(commandState.code, { commandVerification });
-    }
+    if (commandState.kind === 'rollback') return rollback(commandState.code, { commandVerification, pendingCommandId: commandId });
     if (commandState.kind === 'zero-change') {
       const outcome = {
         ok: false,
@@ -3780,6 +3802,7 @@ async function applyDefTeamLoadoutPlan(input = {}) {
         currentCheckoutTouched: false,
         commandVerification,
       };
+      stored.pendingCommand = null;
       stored.usedResult = outcome;
       return outcome;
     }
@@ -3792,9 +3815,22 @@ async function applyDefTeamLoadoutPlan(input = {}) {
       currentCheckoutTouched: null,
       commandVerification,
     };
+    stored.pendingCommand = null;
+    stored.usedResult = outcome;
+    return outcome;
+  };
+  if (stored.pendingCommand) return reconcileExactCommand(stored.pendingCommand.id);
+  const enqueued = enqueueDefToolCommands(definition, [{
+    op: 'applyPreparedOperatorConfig', parentNodeId: parent.id, parentRevision: candidate.parentRevision,
+    nodeId: node.id, nodeRevision: candidate.nodeRevision,
+  }], input);
+  if (enqueued.status < 200 || enqueued.status >= 300 || !enqueued.body?.commands?.[0]) {
+    const outcome = { ok: false, state: 'BLOCKED', code: 'team-loadout-apply-enqueue-failed', planId: stored.planId, planHash: stored.planHash, currentCheckoutTouched: false };
     stored.usedResult = outcome;
     return outcome;
   }
+  const commandVerification = await buildDefToolCommandVerification(enqueued.body.commands[0], input.waitMs);
+  if (!commandVerification.pass) return reconcileExactCommand(enqueued.body.commands[0].id);
   const liveVerification = await waitForExactDefOperatorConfigs(candidate.finalConfigs, input.snapshotWaitMs ?? 8000);
   if (!liveVerification.pass) {
     return rollback('team-loadout-postcondition-failed', { commandVerification, postcondition: liveVerification });
@@ -3852,6 +3888,9 @@ function discardPreparedTeamLoadoutPlan(input = {}) {
   const sessionId = typeof input.__defSessionId === 'string' ? input.__defSessionId.trim() : '';
   if (!plan || plan.ownerSessionId !== sessionId || !plan.preparedCandidate) {
     return { ok: false, state: 'BLOCKED', code: 'team-loadout-candidate-unavailable', component: 'team-loadout-plan' };
+  }
+  if (plan.pendingCommand) {
+    return { ok: false, state: 'RECONCILIATION_REQUIRED', code: 'team-loadout-reconciliation-pending', component: 'team-loadout-plan', pendingCommandId: plan.pendingCommand.id };
   }
   const candidate = plan.preparedCandidate;
   if (!matchesAtomicTeamCandidateCapability(input, candidate)) {
