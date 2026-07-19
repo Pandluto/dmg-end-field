@@ -28,7 +28,7 @@ function formatBuffValue(effect: BuffEffectDraft) {
   }
   if (effect.multiplier) return `×${formatNumber(effect.multiplier.coefficient)}`;
   const value = Number(effect.value ?? 0);
-  return inferOperatorBuffUnit(effect.type || '') === 'percent' ? `${formatNumber(value)}%` : formatNumber(value);
+  return inferOperatorBuffUnit(effect.type || '') === 'percent' ? `${formatNumber(value * 100)}%` : formatNumber(value);
 }
 
 export function BuffResultPreview({ value }: Props) {

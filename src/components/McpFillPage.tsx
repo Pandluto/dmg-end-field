@@ -63,6 +63,24 @@ function manifestOf(proposal: LegacyFillReviewProposal | null): ReviewManifest {
   return (proposal?.review || {}) as ReviewManifest;
 }
 
+function proposalTargetLabel(proposal: LegacyFillReviewProposal) {
+  const manifest = manifestOf(proposal);
+  if (manifest.target?.displayName) return manifest.target.displayName;
+  if (proposal.domain === 'equipment' && manifest.normalizedDraft && typeof manifest.normalizedDraft === 'object') {
+    const gearSets = (manifest.normalizedDraft as { gearSets?: unknown }).gearSets;
+    if (gearSets && typeof gearSets === 'object' && !Array.isArray(gearSets)) {
+      const names = Object.values(gearSets).flatMap((value) => (
+        value && typeof value === 'object' && typeof (value as { name?: unknown }).name === 'string'
+          ? [(value as { name: string }).name]
+          : []
+      ));
+      if (names.length === 1) return names[0];
+      if (names.length > 1) return `${names[0]}等 ${names.length} 个套装`;
+    }
+  }
+  return manifest.target?.id || proposal.summary;
+}
+
 function belongsToFilter(proposal: LegacyFillReviewProposal, filter: QueueFilter) {
   if (filter === 'active') return ['pending', 'claimed', 'approved'].includes(proposal.lifecycleStatus);
   return true;
@@ -77,7 +95,7 @@ function displayTime(value: string) {
 }
 
 function actionCopy(action: ReviewAction, proposal: LegacyFillReviewProposal) {
-  const target = manifestOf(proposal).target?.displayName || manifestOf(proposal).target?.id || proposal.summary;
+  const target = proposalTargetLabel(proposal);
   if (action === 'confirm') return {
     eyebrow: '确认变更',
     title: `确认并写入“${target}”？`,
@@ -150,7 +168,7 @@ export function McpFillPage() {
       .filter((proposal) => {
         if (!needle) return true;
         const target = manifestOf(proposal).target;
-        return [proposal.proposalId, proposal.summary, proposal.ownerNamespace, proposal.domain, target?.id, target?.displayName]
+        return [proposal.proposalId, proposal.summary, proposal.ownerNamespace, proposal.domain, target?.id, proposalTargetLabel(proposal)]
           .filter(Boolean).join('\n').toLocaleLowerCase().includes(needle);
       })
       .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
@@ -232,7 +250,6 @@ export function McpFillPage() {
             {loading ? <div className="mcp-fill-empty">正在读取提案…</div> : null}
             {!loading && visibleProposals.length === 0 ? <div className="mcp-fill-empty">当前分类没有提案。</div> : null}
             {visibleProposals.map((proposal) => {
-              const itemManifest = manifestOf(proposal);
               return (
                 <button
                   key={proposal.proposalId}
@@ -241,7 +258,7 @@ export function McpFillPage() {
                   onClick={() => setSelected(proposal)}
                 >
                   <span className="mcp-fill-proposal-copy">
-                    <strong>{itemManifest.target?.displayName || itemManifest.target?.id || proposal.summary}</strong>
+                    <strong>{proposalTargetLabel(proposal)}</strong>
                     <small>{DOMAIN_LABELS[proposal.domain]} · {STATUS_LABELS[proposal.lifecycleStatus]} · {displayTime(proposal.updatedAt)}</small>
                   </span>
                   <i className={`mcp-fill-status-dot is-${proposal.lifecycleStatus}`} aria-hidden="true" />
