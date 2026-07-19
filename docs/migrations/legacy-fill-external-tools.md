@@ -11,7 +11,7 @@ The former Python flow maps to:
 1. `fill_get_current` and `fill_get_template` read a Host-published snapshot and core-generated schema;
 2. `fill_validate` normalizes and validates the explicit draft;
 3. `proposal_create` creates an owner-scoped, idempotent proposal;
-4. a real user reviews, confirms/rejects, and saves in Electron Host at `/mcp-fill`.
+4. a real user reviews and chooses **拒绝** or **确认并写入** in Electron Host at `/mcp-fill`; one confirmed Host action completes the internal approval/save audit sequence.
 
 `common_http.py` must not be ported as another REST wrapper. Use the private `LegacyFillMcpClientConfigV1` described in `docs/development/legacy-fill-mcp.md`, or run `scripts/legacy-fill-mcp-migration-demo.mjs`. The demo has no approval/save capability and never talks to port `17321`.
 

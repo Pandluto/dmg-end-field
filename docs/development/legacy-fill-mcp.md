@@ -12,6 +12,19 @@ Legacy Fill MCP is a direct Codex/standard-MCP-client integration. It is hosted 
 
 The authenticated token selects a stable `ownerNamespace`. MCP transport session IDs are transport-only and never become proposal owners. Names that contain DEF session, axis, timeline, Workbench, or DEF OpenCode identities are rejected as owners.
 
+## Product review workspace
+
+The canonical product route is `/#/mcp-fill`. The historical `/#/legacy-fill-review` URL remains a compatibility alias, and the protected desktop bridge accepts both `/open-mcp-fill` and `/open-legacy-fill-review`. New callers and documentation must use the MCP name.
+
+The page follows the product's Office/Excel workspace layout: proposal queue on the left, field Diff in the center, and validation, evidence, requested writes, base identity, and normalized content in the Host inspector on the right. It is a product page backed by Electron Host authority; it is not an MCP protocol inspector and is not hosted by DEF OpenCode.
+
+The user flow has two actions only:
+
+1. **拒绝** ends the proposal without changing product data.
+2. **确认并写入** opens one interactive confirmation. One trusted Host click performs the internal approve → save-begin → restricted domain write → reread/postcondition → save-result audit sequence.
+
+There is no Y/Y interaction and no separate user-facing approve/save step. The internal transitions remain separate revision- and digest-bound audit events, and MCP still cannot invoke any of them. Cancelling the confirmation has no side effect. An already-approved compatibility proposal can be rejected or completed through the same two product actions.
+
 ## Codex connection
 
 The STDIO facade is the simplest local Codex registration because Codex only needs the private config path:
