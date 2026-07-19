@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="color-scheme" content="light dark" />
-  <title>MCP 进入填表流程以后，谁握有写入权 · Agent 开发随记</title>
+  <title>MCP 作为另外一种解法 · Agent 开发随记</title>
   <link rel="stylesheet" href="styles.css" />
   <script src="viewer.js" defer></script>
 </head>
@@ -53,17 +53,17 @@
   <a class="nav-item" href="08-workbench-state-machine.html">
     <span>09</span>AI 进入 Workbench 以后，谁才算“当前”
   </a>
-  <a class="nav-item active" href="09-mcp-fill-authority-boundary.html">
-    <span>10</span>MCP 进入填表流程以后，谁握有写入权
+  <a class="nav-item active" href="09-mcp-as-another-solution.html">
+    <span>10</span>MCP 作为另外一种解法
   </a></nav>
     <p class="sidebar-foot"><b>MARKDOWN SOURCE</b><br />正文由仓库中的 Markdown 生成</p>
   </aside>
   <main>
     <div class="article-meta">
-      <div class="article-kicker"><span></span> 09-MCP-FILL-AUTHORITY-BOUNDARY / DEF AGENT RUNTIME</div>
+      <div class="article-kicker"><span></span> 09-MCP-AS-ANOTHER-SOLUTION / DEF AGENT RUNTIME</div>
       <div class="glossary-hint"><b>?</b> 点击带点线的名词，可看简明解释</div>
     </div>
-    <article class="markdown-body"><h1>MCP 进入填表流程以后，谁握有写入权</h1>
+    <article class="markdown-body"><h1>MCP 作为另外一种解法</h1>
 <p>最早的 AI 填表能力和 DEF local core 共享同一个 REST 服务。角色、武器、装备和 Buff 的校验逻辑依赖浏览器代码，提案也由旧 AI CLI 页面读取和处理。</p>
 <p>这套流程可以运行，但很难回答几个越来越重要的问题：外部 Codex 应该连接谁，标准 MCP 到底开放哪些能力，提案是谁创建的，以及谁有资格把它写进产品数据。</p>
 <p>这次开发没有给旧 REST 简单套一层 MCP。真正的工作，是先拆开计算、传输、提案和产品写入，再让每一层只拥有完成职责所需的权限。</p>

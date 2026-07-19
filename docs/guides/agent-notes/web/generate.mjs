@@ -19,7 +19,7 @@ const pages = [
   ["06-state-persistence-recovery.md", "状态、持久化与恢复"],
   ["07-developer-skill.md", "开发者自己的 Skill"],
   ["08-workbench-state-machine.md", "AI 进入 Workbench 以后，谁才算“当前”"],
-  ["09-mcp-fill-authority-boundary.md", "MCP 进入填表流程以后，谁握有写入权"],
+  ["09-mcp-as-another-solution.md", "MCP 作为另外一种解法"],
 ]
 
 const escapeHtml = (value) =>
