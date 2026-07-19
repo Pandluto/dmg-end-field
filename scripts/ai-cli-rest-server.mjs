@@ -31,6 +31,11 @@ import {
 import workNodeStoreModule from '../electron/ai-timeline-work-node-store.cjs';
 import timelineRepositoryModule from '../electron/timeline-repository.cjs';
 import dataManagementServiceModule from '../electron/data-management-service.cjs';
+import { createDefCoreRuntimeComposition } from './def-core/runtime-composition.mjs';
+import { createDefCoreRequestRouter } from './def-core/request-router.mjs';
+import { createDefCoreTransportState } from './def-core/transport-state.mjs';
+import { createDefCoreRuntimeState, createDefRawTransportPolicy } from './def-core/runtime-state.mjs';
+import { createDefCoreToolRegistry } from './def-core/tool-registry.mjs';
 
 const { createAiTimelineWorkNodeStore } = workNodeStoreModule;
 const { createTimelineRepository } = timelineRepositoryModule;
@@ -82,9 +87,20 @@ const GAME_KNOWLEDGE_LOADOUT_MANIFESTS_DIR = path.join(projectRoot, 'agent', 'ru
 const MAIN_WORKBENCH_SUPPORTED_OP_SET = new Set(MAIN_WORKBENCH_SUPPORTED_OPS);
 // Ephemeral, unforgeable capability for a reviewed operator-config child.
 // A sidecar restart invalidates it safely; callers must build a fresh preview.
-const preparedOperatorConfigCapabilities = new Map();
-const approvedApplyCapabilities = new Map();
-const PREPARED_OPERATOR_CONFIG_TTL_MS = 15 * 60 * 1000;
+const defCoreState = createDefCoreRuntimeState({
+  governanceToken: process.env.DEF_INTERNAL_GOVERNANCE_TOKEN,
+});
+const {
+  preparedOperatorConfigCapabilities,
+  approvedApplyCapabilities,
+  guideLoadoutPlanSources,
+  preparedTeamLoadoutPlans,
+  preparedOperatorConfigTtlMs: PREPARED_OPERATOR_CONFIG_TTL_MS,
+  preparedTeamLoadoutTtlMs: PREPARED_TEAM_LOADOUT_TTL_MS,
+  preparedTeamLoadoutApprovalGraceMs: PREPARED_TEAM_LOADOUT_APPROVAL_GRACE_MS,
+  governanceToken: defInternalGovernanceToken,
+  internalRawTransport: INTERNAL_RAW_TRANSPORT,
+} = defCoreState;
 
 function consumeApprovedApplyCapability(input = {}, expected = {}) {
   const token = typeof input.approvalCapability === 'string' ? input.approvalCapability : '';
@@ -97,32 +113,21 @@ function consumeApprovedApplyCapability(input = {}, expected = {}) {
 // Guide reads are deliberately session-scoped and in-memory. They are an
 // opaque hand-off between two native turns, never a filesystem capability or
 // a cross-session recommendation cache.
-const guideLoadoutPlanSources = new Map();
-const preparedTeamLoadoutPlans = new Map();
-const PREPARED_TEAM_LOADOUT_TTL_MS = 15 * 60 * 1000;
 // A native permission card can remain open longer than the short planning
 // TTL.  Once that exact immutable plan has produced its one review card, keep
 // only its server-side capability alive for a bounded grace period so approval
 // cannot turn into a spurious plan-not-found race.  The reservation is still
 // session-bound, sidecar-ephemeral, and consumed by the first apply attempt.
-const PREPARED_TEAM_LOADOUT_APPROVAL_GRACE_MS = 4 * 60 * 60 * 1000;
-const defInternalGovernanceToken = typeof process.env.DEF_INTERNAL_GOVERNANCE_TOKEN === 'string'
-  ? process.env.DEF_INTERNAL_GOVERNANCE_TOKEN.trim()
-  : '';
 // Raw repository, Work Node and projection endpoints are renderer/native
 // transport, never a model-facing REST surface.  Keep the marker distinct
 // from the typed-tool policy: internal calls inside this process use the
 // opaque object; HTTP callers must prove possession of the native token.
-const INTERNAL_RAW_TRANSPORT = Object.freeze({ internalRawTransport: true });
-
-function rawTransportAuthorized(invocation = {}) {
-  return invocation?.internalRawTransport === true
-    || (Boolean(defInternalGovernanceToken) && invocation?.internalToken === defInternalGovernanceToken);
-}
-
-function denyRawTransport(pathname) {
-  return failScript(403, 'denied-internal-transport', `Raw DEF transport is unavailable to this caller: ${pathname}`);
-}
+const defRawTransportPolicy = createDefRawTransportPolicy({
+  governanceToken: defInternalGovernanceToken,
+  fail: failScript,
+});
+const rawTransportAuthorized = defRawTransportPolicy.authorized;
+const denyRawTransport = defRawTransportPolicy.deny;
 
 function hashDefLoadoutPlan(value) {
   return createHash('sha256').update(JSON.stringify(value)).digest('hex');
@@ -608,38 +613,21 @@ function buildDefWorkNodeButtonTargets(payload) {
     ));
 }
 
-let aiTimelineWorkNodeStore;
-let timelineRepository;
-let dataManagementService;
-
-function getAiTimelineWorkNodeStore() {
-  if (!aiTimelineWorkNodeStore) {
-    aiTimelineWorkNodeStore = createAiTimelineWorkNodeStore({
-      databasePath: aiTimelineWorkNodesPath,
-      legacyJsonPath: legacyAiTimelineWorkNodesPath,
-    });
-  }
-  return aiTimelineWorkNodeStore;
-}
-
-function getTimelineRepository() {
-  if (!timelineRepository) {
-    timelineRepository = createTimelineRepository({ databasePath: timelineRepositoryPath });
-    timelineRepository.migrateLegacyWorkNodeArchive(getAiTimelineWorkNodeStore().readArchive());
-  }
-  return timelineRepository;
-}
-
-function getDataManagementService() {
-  if (!dataManagementService) {
-    dataManagementService = createDataManagementService({
-      runtimeDataRoot: dataManagementRuntimeRoot,
-      builtinCatalogPath: path.join(projectRoot, 'public', 'data', 'catalog.sqlite'),
-    });
-    dataManagementService.ensureUserDatabase();
-  }
-  return dataManagementService;
-}
+const defCoreRuntime = createDefCoreRuntimeComposition({
+  createAiTimelineWorkNodeStore,
+  createTimelineRepository,
+  createDataManagementService,
+  aiTimelineWorkNodesPath,
+  legacyAiTimelineWorkNodesPath,
+  timelineRepositoryPath,
+  dataManagementRuntimeRoot,
+  builtinCatalogPath: path.join(projectRoot, 'public', 'data', 'catalog.sqlite'),
+});
+const {
+  getAiTimelineWorkNodeStore,
+  getTimelineRepository,
+  getDataManagementService,
+} = defCoreRuntime;
 
 function mirrorWorkNodeToTimelineRepository(node) {
   if (!node || node.saveId?.startsWith('timeline-snapshot-') || /^\[snapshot\]/i.test(node.label || '')) return;
@@ -5597,11 +5585,15 @@ function buildDefToolDefinitions() {
   }));
 }
 
-const DEF_TOOL_REGISTRY = createDefToolRegistry(buildDefToolDefinitions());
-const DEF_TOOL_DEFINITIONS = DEF_TOOL_REGISTRY;
+const defCoreToolRegistry = createDefCoreToolRegistry({
+  buildDefinitions: buildDefToolDefinitions,
+  createRegistry: createDefToolRegistry,
+});
+const DEF_TOOL_REGISTRY = defCoreToolRegistry.definitions;
+const DEF_TOOL_DEFINITIONS = defCoreToolRegistry.definitions;
 
 function getDefToolDefinition(name) {
-  return DEF_TOOL_DEFINITIONS.find((tool) => tool.name === name) || null;
+  return defCoreToolRegistry.get(name);
 }
 
 function enqueueDefToolCommand(definition, input = {}) {
@@ -7845,7 +7837,6 @@ const { getAiCliRestDiagnostics } = await loadAiCliModules();
 const startupDiagnostics = getAiCliRestDiagnostics();
 
 const sseClients = new Set();
-const mainWorkbenchCommandSseClients = new Set();
 
 function writeSse(response, eventName, payload) {
   try {
@@ -7857,14 +7848,8 @@ function writeSse(response, eventName, payload) {
   }
 }
 
-function broadcastMainWorkbenchCommands(commands) {
-  const payload = { ok: true, protocolVersion: 1, commands };
-  for (const client of Array.from(mainWorkbenchCommandSseClients)) {
-    if (!writeSse(client, 'main-workbench.commands', payload)) {
-      mainWorkbenchCommandSseClients.delete(client);
-    }
-  }
-}
+const defCoreTransportState = createDefCoreTransportState({ writeSse });
+const broadcastMainWorkbenchCommands = defCoreTransportState.broadcastCommands;
 
 function broadcastAgentRecords() {
   loadAiCliModules()
@@ -7909,12 +7894,15 @@ const heartbeatTimer = setInterval(() => {
       sseClients.delete(client);
     }
   }
-  for (const client of mainWorkbenchCommandSseClients) {
-    if (!writeSse(client, 'heartbeat', { ok: true, now: Date.now() })) {
-      mainWorkbenchCommandSseClients.delete(client);
-    }
-  }
+  defCoreTransportState.heartbeat();
 }, 15000);
+
+const routeDefCoreRequest = createDefCoreRequestRouter({
+  handleAiTimelineWorkNodeRequest,
+  handleTimelineRepositoryRequest,
+  handleDefToolRequest,
+  handleMainWorkbenchRequest,
+});
 
 const server = http.createServer(async (request, response) => {
   const method = request.method || 'GET';
@@ -7980,14 +7968,14 @@ const server = http.createServer(async (request, response) => {
       ...(origin ? { 'Access-Control-Allow-Origin': origin, Vary: 'Origin' } : {}),
     });
     response.write(': connected\n\n');
-    mainWorkbenchCommandSseClients.add(response);
+    defCoreTransportState.addCommandClient(response);
     writeSse(response, 'main-workbench.commands', {
       ok: true,
       protocolVersion: 1,
       commands: readMainWorkbenchCommandQueue().filter((entry) => entry.status === 'pending'),
     });
     request.on('close', () => {
-      mainWorkbenchCommandSseClients.delete(response);
+      defCoreTransportState.removeCommandClient(response);
     });
     return;
   }
@@ -7995,29 +7983,15 @@ const server = http.createServer(async (request, response) => {
   try {
     const body = method === 'POST' ? await readJsonBody(request) : undefined;
     const rawInvocation = { internalToken: typeof request.headers['x-def-internal-token'] === 'string' ? request.headers['x-def-internal-token'] : '' };
-    const aiTimelineWorkNodeResponse = handleAiTimelineWorkNodeRequest(method, requestUrl.pathname, body, rawInvocation);
-    if (aiTimelineWorkNodeResponse) {
-      writeJson(response, aiTimelineWorkNodeResponse.status, aiTimelineWorkNodeResponse.body);
-      return;
-    }
-
-    const timelineRepositoryResponse = handleTimelineRepositoryRequest(method, requestUrl.pathname, requestUrl.searchParams, body, rawInvocation);
-    if (timelineRepositoryResponse) {
-      writeJson(response, timelineRepositoryResponse.status, timelineRepositoryResponse.body);
-      return;
-    }
-
-    const defToolResponse = await handleDefToolRequest(method, requestUrl.pathname, requestUrl.searchParams, body, {
-      internalToken: typeof request.headers['x-def-internal-token'] === 'string' ? request.headers['x-def-internal-token'] : '',
+    const defCoreResponse = await routeDefCoreRequest({
+      method,
+      pathname: requestUrl.pathname,
+      searchParams: requestUrl.searchParams,
+      body,
+      rawInvocation,
     });
-    if (defToolResponse) {
-      writeJson(response, defToolResponse.status, defToolResponse.body);
-      return;
-    }
-
-    const mainWorkbenchResponse = await handleMainWorkbenchRequest(method, requestUrl.pathname, requestUrl.searchParams, body, rawInvocation);
-    if (mainWorkbenchResponse) {
-      writeJson(response, mainWorkbenchResponse.status, mainWorkbenchResponse.body);
+    if (defCoreResponse) {
+      writeJson(response, defCoreResponse.status, defCoreResponse.body);
       return;
     }
 
@@ -8066,6 +8040,7 @@ const close = async () => {
     client.end();
   }
   sseClients.clear();
+  defCoreTransportState.close();
   await new Promise((resolve) => {
     server.close(() => resolve());
   });

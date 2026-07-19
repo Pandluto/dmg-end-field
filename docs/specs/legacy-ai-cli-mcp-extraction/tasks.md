@@ -1,6 +1,6 @@
 # Legacy AI CLI 独立化与 MCP 升级 Tasks
 
-> 状态：实现中；T0 已完成。
+> 状态：实现中；T0 已完成，T1 coding 已完成并等待最终受控装载黑盒复核。
 > 对应规格：`docs/specs/legacy-ai-cli-mcp-extraction/spec.md`。
 > 实施原则：每个 Task 独立提交；关键阶段未通过 DEF OpenCode 黑盒退出条件时不得进入下一阶段。
 
@@ -104,12 +104,13 @@ T0 不切生产行为。若 fixture 引入敏感/个人数据，删除该 fixtur
 
 ### 实施项
 
-- [ ] 将 Timeline Repository、Work Node store、data management、approval capability、tool registry、current gate、command/result/SSE state 的 composition 提取为显式模块。
-- [ ] 将 `/api/def-tools/*`、`/api/main-workbench/*`、`/api/timeline-*`、`/api/ai-timeline-worknodes*` handler 从顶层 HTTP 分发中抽出。
-- [ ] 让原脚本继续作为相同的 Node entrypoint，继续监听相同 host/port。
-- [ ] 保持 `DEF_INTERNAL_GOVERNANCE_TOKEN`、raw transport header、CORS/origin、structured error 语义。
-- [ ] 保持 Electron、sidecar 与 plugin 无需改 URL/env 即可运行。
-- [ ] 为 handler 增加显式依赖注入，禁止新模块反向 import legacy fill adapter。
+- [x] 将 Timeline Repository、Work Node store、data management、approval capability、tool registry、current gate、command/result/SSE state 的 composition 提取为显式模块。
+- [x] 将 `/api/def-tools/*`、`/api/main-workbench/*`、`/api/timeline-*`、`/api/ai-timeline-worknodes*` handler 从顶层 HTTP 分发中抽出。
+- [x] 让原脚本继续作为相同的 Node entrypoint，继续监听相同 host/port。
+- [x] 保持 `DEF_INTERNAL_GOVERNANCE_TOKEN`、raw transport header、CORS/origin、structured error 语义。
+- [x] 保持 Electron、sidecar 与 plugin 无需改 URL/env 即可运行。
+- [x] 为 handler 增加显式依赖注入，禁止新模块反向 import legacy fill adapter。
+- [ ] 在最终受控装载窗口完成 T1 自然话术黑盒复核；普通抽取验证不重启当前常驻开发实例。
 
 ### 禁止范围
 

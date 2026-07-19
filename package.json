@@ -23,6 +23,7 @@
     "smoke:ai-cli-rest": "node scripts/ai-cli-rest-smoke.mjs",
     "test:legacy-fill-wire": "node scripts/legacy-fill-wire-contract.mjs",
     "test:def-core-baseline": "node scripts/def-core-baseline-check.mjs",
+    "test:def-core-router": "node scripts/def-core-router-contract-test.mjs",
     "test:def-workbench-binding": "node scripts/def-workbench-binding-contract-test.mjs",
     "test:def-workbench-binding-rest": "node scripts/def-workbench-binding-rest-contract-test.mjs",
     "test:def-workbench-current-gate": "node scripts/def-workbench-current-gate-contract-test.mjs",
