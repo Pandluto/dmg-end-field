@@ -9,7 +9,7 @@ window.addEventListener('click', (event) => {
   if (!event.isTrusted || !(event.target instanceof Element)) return;
   const button = event.target.closest('[data-legacy-fill-user-action]');
   const action = button?.getAttribute('data-legacy-fill-user-action');
-  if (!button || !['approve', 'reject', 'save'].includes(action)) return;
+  if (!button || !['confirm', 'approve', 'reject', 'save'].includes(action)) return;
   const token = globalThis.crypto.randomUUID();
   trustedLegacyFillActions.set(token, { action, expiresAt: Date.now() + 2000 });
   button.setAttribute('data-legacy-fill-action-token', token);
@@ -37,6 +37,21 @@ contextBridge.exposeInMainWorld('desktopRuntime', {
   decideLegacyFillProposal: (payload, trustedActionToken) => {
     consumeLegacyFillAction(trustedActionToken, payload?.decision === 'approved' ? 'approve' : 'reject');
     return ipcRenderer.invoke('desktop:decide-legacy-fill-proposal', payload);
+  },
+  confirmAndBeginSaveLegacyFillProposal: async (payload, trustedActionToken) => {
+    consumeLegacyFillAction(trustedActionToken, 'confirm');
+    const decision = payload?.alreadyApproved
+      ? { ok: true, proposal: payload.proposal }
+      : await ipcRenderer.invoke('desktop:decide-legacy-fill-proposal', { ...payload, decision: 'approved' });
+    if (!decision?.ok || !decision?.proposal) return decision;
+    const begin = await ipcRenderer.invoke('desktop:begin-save-legacy-fill-proposal', {
+      ...payload,
+      expectedRevision: decision.proposal.revision,
+    });
+    if (!begin?.ok || !begin?.proposal || begin.proposal.lifecycleStatus === 'stale') return begin;
+    const saveCapability = globalThis.crypto.randomUUID();
+    legacyFillSaveContinuations.set(saveCapability, { proposalId: payload?.proposalId, expiresAt: Date.now() + 30000 });
+    return { ...begin, approvedProposal: decision.proposal, saveCapability };
   },
   beginSaveLegacyFillProposal: async (payload, trustedActionToken) => {
     consumeLegacyFillAction(trustedActionToken, 'save');

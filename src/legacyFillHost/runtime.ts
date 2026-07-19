@@ -13,6 +13,14 @@ export interface LegacyFillReviewProposal extends ReviewedProposal {
   createdAt: string;
   updatedAt: string;
 }
+
+export interface McpFillRuntimeState {
+  running: boolean;
+  pid: number | null;
+  startedAt: number | null;
+  url: string;
+  mcpUrl?: string;
+}
 const reviewSessions = new Map<string, { proposal: LegacyFillReviewProposal; reviewSessionId: string }>();
 
 function requireDesktopMethod<T extends keyof NonNullable<Window['desktopRuntime']>>(name: T) {
@@ -60,6 +68,11 @@ export async function listLegacyFillReviewProposals(): Promise<LegacyFillReviewP
   return (response.proposals || []) as LegacyFillReviewProposal[];
 }
 
+export async function getMcpFillRuntimeState(): Promise<McpFillRuntimeState> {
+  const response = await requireDesktopMethod('getLegacyFillServiceState')();
+  return response as McpFillRuntimeState;
+}
+
 export async function claimLegacyFillReview(proposal: LegacyFillReviewProposal) {
   const response = await requireDesktopMethod('claimLegacyFillProposal')({
     ownerNamespace: proposal.ownerNamespace,
@@ -100,6 +113,64 @@ export async function decideLegacyFillReview(event: Event, trustedActionToken: s
   });
   session.proposal = decided;
   return decided;
+}
+
+export async function confirmAndSaveLegacyFillReview(event: Event, trustedActionToken: string, proposalId: string) {
+  requireTrustedUserAction(event, trustedActionToken);
+  const session = reviewSessions.get(proposalId);
+  if (!session) throw new Error('Claim this Legacy Fill proposal in the product UI before confirming it');
+  const begin = await requireDesktopMethod('confirmAndBeginSaveLegacyFillProposal')({
+    ownerNamespace: session.proposal.ownerNamespace,
+    proposalId,
+    reviewSessionId: session.reviewSessionId,
+    expectedRevision: session.proposal.revision,
+    expectedManifestDigest: session.proposal.manifestDigest,
+    alreadyApproved: session.proposal.approvalStatus === 'Yes',
+    proposal: session.proposal,
+  }, trustedActionToken);
+  if (!begin.ok || !begin.proposal) throw responseError(begin, 'legacy-fill-proposal-confirm-save-begin-failed');
+  const saving = begin.proposal as LegacyFillReviewProposal;
+  if (saving.lifecycleStatus === 'stale') return { ok: false as const, proposal: saving, code: 'proposal-base-stale' };
+  const host = getLegacyFillHostGateway();
+  if (session.proposal.approvalStatus !== 'Yes') {
+    host.internal.recordDecision(host.internal.authority, {
+      proposalId,
+      reviewSessionId: session.reviewSessionId,
+      decision: 'approved',
+      proposalRevision: saving.revision,
+      manifestDigest: saving.manifestDigest,
+    });
+  }
+  host.internal.bindApprovedRevision(host.internal.authority, {
+    proposalId,
+    reviewSessionId: session.reviewSessionId,
+    proposalRevision: saving.revision,
+    manifestDigest: saving.manifestDigest,
+  });
+  session.proposal = saving;
+  const applied = await host.internal.applyReviewedProposal(host.internal.authority, {
+    proposal: saving,
+    reviewSessionId: session.reviewSessionId,
+    expectedRevision: saving.revision,
+    expectedManifestDigest: saving.manifestDigest,
+  });
+  if (applied.ok && window.desktopRuntime?.publishLegacyFillSnapshot) await window.desktopRuntime.publishLegacyFillSnapshot(applied.snapshot);
+  if (!begin.saveCapability) throw new Error('Legacy Fill confirm/save did not receive a Host continuation capability');
+  const recorded = await requireDesktopMethod('recordSaveLegacyFillProposal')({
+    ownerNamespace: saving.ownerNamespace,
+    proposalId,
+    reviewSessionId: session.reviewSessionId,
+    expectedRevision: saving.revision,
+    expectedManifestDigest: saving.manifestDigest,
+    ok: applied.ok,
+    result: applied.ok ? { targetId: applied.targetId } : {
+      code: applied.code,
+      error: 'error' in applied ? applied.error : undefined,
+    },
+  }, begin.saveCapability);
+  if (!recorded.ok || !recorded.proposal) throw responseError(recorded, 'legacy-fill-proposal-confirm-save-result-failed');
+  session.proposal = recorded.proposal as LegacyFillReviewProposal;
+  return { ...applied, proposal: session.proposal };
 }
 
 export async function saveLegacyFillReview(event: Event, trustedActionToken: string, proposalId: string) {

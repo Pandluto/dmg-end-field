@@ -152,7 +152,8 @@ export function createLegacyFillBrowserHostGateway(options: LegacyFillHostGatewa
   }) {
     requireAuthority(candidate);
     const review = reviews.get(input.proposalId);
-    if (!review || review.reviewSessionId !== input.reviewSessionId || review.decision !== 'pending') throw new TypeError('stale or unknown legacy fill review session');
+    const canRevokeApproval = review?.decision === 'approved' && input.decision === 'rejected';
+    if (!review || review.reviewSessionId !== input.reviewSessionId || (review.decision !== 'pending' && !canRevokeApproval)) throw new TypeError('stale or unknown legacy fill review session');
     review.decision = input.decision;
     if (input.proposalRevision !== undefined) review.proposalRevision = input.proposalRevision;
     if (input.manifestDigest !== undefined) review.manifestDigest = input.manifestDigest;

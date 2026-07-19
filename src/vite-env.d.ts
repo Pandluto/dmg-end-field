@@ -292,7 +292,7 @@ interface ImageAssetImportToDirResult {
 
 interface DesktopRuntimeBridge {
   role?: 'main' | 'shell' | string;
-  getLegacyFillServiceState?: () => Promise<{ running: boolean; pid: number | null; startedAt: number | null; url: string }>;
+  getLegacyFillServiceState?: () => Promise<{ running: boolean; pid: number | null; startedAt: number | null; url: string; mcpUrl?: string }>;
   publishLegacyFillSnapshot?: (payload: unknown) => Promise<{ ok: boolean; receipt?: unknown; code?: string; error?: string }>;
   listImageAssets?: () => Promise<ImageAssetEntry[]>;
   importImageAssets?: () => Promise<ImageAssetEntry[]>;
@@ -310,6 +310,7 @@ interface DesktopRuntimeBridge {
   inspectLegacyFillProposal?: (payload: { ownerNamespace: string; proposalId: string }) => Promise<{ ok: boolean; proposal?: unknown; audit?: unknown[]; error?: { code?: string; message?: string } }>;
   claimLegacyFillProposal?: (payload: unknown) => Promise<{ ok: boolean; proposal?: unknown; reviewSessionId?: string; error?: { code?: string; message?: string } }>;
   decideLegacyFillProposal?: (payload: unknown, trustedActionToken: string) => Promise<{ ok: boolean; proposal?: unknown; error?: { code?: string; message?: string } }>;
+  confirmAndBeginSaveLegacyFillProposal?: (payload: unknown, trustedActionToken: string) => Promise<{ ok: boolean; proposal?: unknown; approvedProposal?: unknown; saveCapability?: string; error?: { code?: string; message?: string } }>;
   beginSaveLegacyFillProposal?: (payload: unknown, trustedActionToken: string) => Promise<{ ok: boolean; proposal?: unknown; saveCapability?: string; error?: { code?: string; message?: string } }>;
   recordSaveLegacyFillProposal?: (payload: unknown, saveCapability: string) => Promise<{ ok: boolean; proposal?: unknown; error?: { code?: string; message?: string } }>;
   getUserWorkspaceState?: () => Promise<{

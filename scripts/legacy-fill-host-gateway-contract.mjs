@@ -73,6 +73,12 @@ assert.equal((await gateway.internal.applyReviewedProposal(gateway.internal.auth
   expectedRevision: 1, expectedManifestDigest: proposal.manifestDigest,
 })).code, 'proposal-base-stale');
 
+const revokedClaim = gateway.internal.claimProposal(gateway.internal.authority, { ...proposal, proposalId: 'proposal-revoked', approvalStatus: 'Yes' });
+const revoked = gateway.internal.recordDecision(gateway.internal.authority, {
+  proposalId: 'proposal-revoked', reviewSessionId: revokedClaim.reviewSessionId, decision: 'rejected',
+});
+assert.equal(revoked.decision, 'rejected', 'an approved proposal can still be explicitly rejected before Host save');
+
 const badDigest = { ...proposal, proposalId: 'proposal-digest', manifestDigest: 'sha256:bad' };
 const badClaim = gateway.internal.claimProposal(gateway.internal.authority, badDigest);
 gateway.internal.recordDecision(gateway.internal.authority, { proposalId: badDigest.proposalId, reviewSessionId: badClaim.reviewSessionId, decision: 'approved' });
@@ -133,14 +139,19 @@ assert.equal(postconditionStorage.getItem(LEGACY_FILL_STORAGE_KEYS.weapon.librar
 assert.equal(JSON.parse(postconditionStorage.getItem(LEGACY_FILL_STORAGE_KEYS.weapon.current)).id, 'weapon-old', 'postcondition failure rolls back current draft');
 
 const runtimeSource = fs.readFileSync(new URL('../src/legacyFillHost/runtime.ts', import.meta.url), 'utf8');
-const pageSource = fs.readFileSync(new URL('../src/components/LegacyFillReviewPage.tsx', import.meta.url), 'utf8');
+const pageSource = fs.readFileSync(new URL('../src/components/McpFillPage.tsx', import.meta.url), 'utf8');
 const preloadSource = fs.readFileSync(new URL('../electron/preload.cjs', import.meta.url), 'utf8');
 assert.match(runtimeSource, /event\?\.isTrusted/, 'approve/reject/save require trusted product UI events');
 assert.match(preloadSource, /event\.isTrusted/, 'preload only issues action capabilities from trusted click events');
 assert.match(preloadSource, /consumeLegacyFillAction/, 'decision/save bridge consumes a one-shot UI capability');
+assert.match(preloadSource, /confirmAndBeginSaveLegacyFillProposal/, 'one trusted product confirmation performs internal approve and save-begin steps');
 assert.match(preloadSource, /legacyFillSaveContinuations/, 'save result requires a short-lived continuation from save begin');
-for (const visibleField of ['逐字段 Diff', 'Normalized draft', 'Validation / warnings', 'Evidence', 'Requested writes', 'Manifest digest']) {
+for (const visibleField of ['字段 Diff', '标准化内容', '校验结果', '证据', '写入目标', 'Manifest digest']) {
   assert.equal(pageSource.includes(visibleField), true, `review UI exposes ${visibleField}`);
 }
+assert.equal(pageSource.includes('MCP 填表'), true, 'review UI has a dedicated MCP product identity');
+assert.equal(pageSource.includes('确认变更'), true, 'review UI uses an interactive product confirmation');
+assert.equal(pageSource.includes('确认并写入'), true, 'review UI does not expose internal approve/save steps as separate user work');
+assert.equal(pageSource.includes('Y/Y'), false, 'review UI does not expose the retired Y/Y interaction');
 assert.equal(pageSource.includes('DefOpenCodeView'), false, 'Legacy Fill review UI is not hosted by DEF OpenCode');
 process.stdout.write('[legacy-fill-host-gateway-contract] passed\n');
