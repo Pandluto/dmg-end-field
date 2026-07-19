@@ -29,6 +29,7 @@ type ReviewManifest = {
 type QueueFilter = 'active' | 'completed' | 'stale' | 'all';
 type ReviewAction = 'confirm' | 'reject';
 type Notice = { tone: 'info' | 'success' | 'warning' | 'error'; text: string };
+type ReviewDiffEntry = { path?: string; kind?: string; before?: unknown; after?: unknown };
 
 const DOMAIN_LABELS = {
   buff: 'BUFF',
@@ -53,6 +54,104 @@ const FILTERS: Array<{ id: QueueFilter; label: string }> = [
   { id: 'stale', label: '异常' },
   { id: 'all', label: '全部' },
 ];
+
+const FIELD_LABELS: Record<string, string> = {
+  id: '资料 ID',
+  name: '名称',
+  description: '说明',
+  rarity: '稀有度',
+  imgUrl: '图片',
+  skills: '技能',
+  effects: '效果',
+  levels: '等级数据',
+  attackGrowth: '攻击成长',
+  statType: '属性类型',
+  gearSets: '装备套装',
+  items: '条目',
+  value: '数值',
+  condition: '生效条件',
+  type: '武器类型',
+};
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+function fieldLabel(value: string) {
+  const key = value.replace(/^\/+/, '').split('/').filter(Boolean).at(-1) || '全部内容';
+  return FIELD_LABELS[key] || key.replace(/([a-z0-9])([A-Z])/g, '$1 $2').replace(/_/g, ' ');
+}
+
+function changeLabel(kind: string | undefined) {
+  if (kind === 'add') return '新增';
+  if (kind === 'remove') return '删除';
+  return '修改';
+}
+
+function compactValue(value: unknown, key = ''): string {
+  if (value === undefined) return '无';
+  if (value === null) return '未设置';
+  if (typeof value === 'boolean') return value ? '是' : '否';
+  if (typeof value === 'string') return value || '未填写';
+  if (typeof value === 'number') return String(value);
+  if (Array.isArray(value)) return value.length ? `${value.length} 项` : '空列表';
+  if (!isRecord(value)) return String(value);
+  const keys = Object.keys(value);
+  if (!keys.length) return '暂无内容';
+  const name = typeof value.name === 'string' ? value.name : '';
+  const counts = ['skills', 'effects', 'levels', 'items', 'gearSets']
+    .map((childKey) => isRecord(value[childKey]) ? `${Object.keys(value[childKey]).length} 个${FIELD_LABELS[childKey] || childKey}` : '')
+    .filter(Boolean);
+  if (name) return [name, ...counts].join(' · ');
+  return `${keys.length} 项${FIELD_LABELS[key] ? ` ${FIELD_LABELS[key]}` : '内容'}`;
+}
+
+function splitReadableDiff(entries: ReviewDiffEntry[]) {
+  return entries.flatMap((entry) => {
+    if ((entry.path || '/') !== '/' || (!isRecord(entry.before) && !isRecord(entry.after))) return [entry];
+    const before = isRecord(entry.before) ? entry.before : {};
+    const after = isRecord(entry.after) ? entry.after : {};
+    return Array.from(new Set([...Object.keys(before), ...Object.keys(after)]))
+      .filter((key) => JSON.stringify(before[key]) !== JSON.stringify(after[key]))
+      .map((key) => ({
+        path: `/${key}`,
+        kind: !(key in before) ? 'add' : !(key in after) ? 'remove' : 'replace',
+        before: before[key],
+        after: after[key],
+      }));
+  });
+}
+
+function StructuredValue({ value, depth = 0 }: { value: unknown; depth?: number }) {
+  if (!isRecord(value) && !Array.isArray(value)) {
+    return <span className={`mcp-fill-readable-value ${value === undefined || value === null ? 'is-empty' : ''}`}>{compactValue(value)}</span>;
+  }
+  if (Array.isArray(value)) {
+    if (!value.length) return <span className="mcp-fill-readable-value is-empty">空列表</span>;
+    return <div className="mcp-fill-value-chips">{value.slice(0, 8).map((item, index) => <span key={index}>{compactValue(item)}</span>)}</div>;
+  }
+  const entries = Object.entries(value);
+  if (!entries.length) return <span className="mcp-fill-readable-value is-empty">暂无内容</span>;
+  return (
+    <div className={`mcp-fill-structured-value is-depth-${Math.min(depth, 2)}`}>
+      {entries.slice(0, depth === 0 ? 10 : 6).map(([key, child]) => {
+        const nested = isRecord(child) || Array.isArray(child);
+        return (
+          <div className="mcp-fill-structured-row" key={key}>
+            <span>{fieldLabel(key)}</span>
+            {nested && depth < 2 ? (
+              <details>
+                <summary>{compactValue(child, key)}</summary>
+                <StructuredValue value={child} depth={depth + 1} />
+              </details>
+            ) : <strong>{compactValue(child, key)}</strong>}
+          </div>
+        );
+      })}
+      {entries.length > (depth === 0 ? 10 : 6) ? <small>另有 {entries.length - (depth === 0 ? 10 : 6)} 项</small> : null}
+    </div>
+  );
+}
 
 export function isMcpFillPath(pathname: string) {
   return pathname === APP_ROUTE_PATHS.mcpFill || pathname === APP_ROUTE_PATHS.legacyFillReview;
@@ -96,7 +195,7 @@ function actionCopy(action: ReviewAction, proposal: LegacyFillReviewProposal) {
   if (action === 'confirm') return {
     eyebrow: '确认变更',
     title: `确认并写入“${target}”？`,
-    body: '本地 Host 将完成审查、受限写入、重新读取目标并验证 postcondition。若资料库 revision 已变化，本次写入会被安全阻止。',
+    body: '系统会再次确认资料没有变化，再写入并核对结果。若资料已更新，本次写入会自动停止。',
     button: '确认并写入',
   };
   if (action === 'reject') return {
@@ -175,6 +274,7 @@ export function McpFillPage() {
 
   const canReview = Boolean(selected && ['pending', 'claimed', 'approved'].includes(selected.lifecycleStatus) && !selected.staleBase);
   const diff = manifest.diff || [];
+  const readableDiff = useMemo(() => splitReadableDiff(diff), [diff]);
   const errors = manifest.validation?.errors || [];
   const warnings = manifest.validation?.warnings || [];
 
@@ -216,7 +316,7 @@ export function McpFillPage() {
           <button className="mcp-fill-button" type="button" onClick={() => navigateToAppPath(APP_ROUTE_PATHS.home)}>返回主界面</button>
           <div className="mcp-fill-title-block">
             <h1>MCP 填表</h1>
-            <p>Codex 提案 · Web 交互确认 · 本地 Host 受限写入</p>
+            <p>Codex 提案 · 网页确认 · 安全写入</p>
           </div>
         </div>
         <div className="mcp-fill-topbar-right">
@@ -291,13 +391,13 @@ export function McpFillPage() {
 
         <section className="mcp-fill-diff-pane">
           <div className="mcp-fill-pane-title">
-            <div><span>字段 Diff</span><small>{selected ? `${diff.length} 项变更` : '未选择'}</small></div>
+            <div><span>内容变化</span><small>{selected ? `${readableDiff.length} 个字段` : '未选择'}</small></div>
           </div>
           {!selected ? <div className="mcp-fill-center-empty"><strong>选择一份提案</strong><span>查看 Codex 生成的结构化变更，并由产品 Host 确认或拒绝。</span></div> : (
             <>
               <div className="mcp-fill-document-header">
                 <div>
-                  <span>{DOMAIN_LABELS[selected.domain]} · {selected.ownerNamespace}</span>
+                  <span>{DOMAIN_LABELS[selected.domain]} · Codex 提案</span>
                   <h2>{manifest.target?.displayName || manifest.target?.id || selected.summary}</h2>
                   <p>{selected.summary}</p>
                 </div>
@@ -306,15 +406,18 @@ export function McpFillPage() {
                 </div>
               </div>
               <div className="mcp-fill-diff-table-wrap">
-                {diff.length === 0 ? <div className="mcp-fill-center-empty"><strong>没有字段差异</strong><span>这份提案与当前基础快照一致。</span></div> : (
+                {readableDiff.length === 0 ? <div className="mcp-fill-center-empty"><strong>没有内容变化</strong><span>这份提案与当前资料一致。</span></div> : (
                   <table className="mcp-fill-diff-table">
-                    <thead><tr><th>字段路径</th><th>变更前</th><th>变更后</th></tr></thead>
+                    <thead><tr><th>变化字段</th><th>现在的内容</th><th>准备写入</th></tr></thead>
                     <tbody>
-                      {diff.map((entry, index) => (
+                      {readableDiff.map((entry, index) => (
                         <tr key={`${entry.path}-${index}`}>
-                          <td><span className={`mcp-fill-change-kind is-${entry.kind || 'replace'}`}>{entry.kind || 'replace'}</span><code>{entry.path || '/'}</code></td>
-                          <td><pre>{displayValue(entry.before)}</pre></td>
-                          <td><pre>{displayValue(entry.after)}</pre></td>
+                          <td>
+                            <span className={`mcp-fill-change-kind is-${entry.kind || 'replace'}`}>{changeLabel(entry.kind)}</span>
+                            <strong title={entry.path || '/'}>{fieldLabel(entry.path || '/')}</strong>
+                          </td>
+                          <td><StructuredValue value={entry.before} /></td>
+                          <td><StructuredValue value={entry.after} /></td>
                         </tr>
                       ))}
                     </tbody>
@@ -323,8 +426,8 @@ export function McpFillPage() {
               </div>
               <footer className="mcp-fill-actionbar">
                 <div>
-                  <span>Manifest digest</span>
-                  <code title={selected.manifestDigest}>{shortIdentity(selected.manifestDigest, 12)}</code>
+                  <span>写入保护</span>
+                  <strong className="mcp-fill-safe-copy">版本与内容已绑定</strong>
                 </div>
                 <div className="mcp-fill-actions">
                   <button type="button" className="is-reject" onClick={() => setDialog('reject')} disabled={Boolean(busy) || !canReview}>拒绝</button>
@@ -336,23 +439,23 @@ export function McpFillPage() {
         </section>
 
         <aside className="mcp-fill-inspector">
-          <div className="mcp-fill-pane-title"><div><span>审查详情</span><small>Web Host bridge</small></div></div>
+          <div className="mcp-fill-pane-title"><div><span>审查详情</span><small>写入前确认</small></div></div>
           {!selected ? <div className="mcp-fill-empty">选择提案后显示校验、证据与写入边界。</div> : (
             <div className="mcp-fill-inspector-scroll">
               <section className="mcp-fill-inspector-section">
-                <h3>状态</h3>
+                <h3>处理状态</h3>
                 <dl className="mcp-fill-property-grid">
-                  <div><dt>审查</dt><dd>{manifest.review?.status || selected.approvalStatus}</dd></div>
-                  <div><dt>持久化</dt><dd>{manifest.persistence?.status || selected.saveStatus}</dd></div>
-                  <div><dt>Proposal</dt><dd>r{selected.revision}</dd></div>
-                  <div><dt>Schema</dt><dd>v{manifest.schemaVersion || 1}</dd></div>
+                  <div><dt>当前状态</dt><dd>{STATUS_LABELS[selected.lifecycleStatus]}</dd></div>
+                  <div><dt>写入结果</dt><dd>{selected.saveStatus === 'Yes' ? '已写入' : selected.saveStatus === 'No' ? '未写入' : '等待确认'}</dd></div>
+                  <div><dt>提案版本</dt><dd>r{selected.revision}</dd></div>
+                  <div><dt>内容格式</dt><dd>v{manifest.schemaVersion || 1}</dd></div>
                 </dl>
               </section>
 
               <section className="mcp-fill-inspector-section">
-                <h3>校验结果</h3>
+                <h3>内容检查</h3>
                 <div className={`mcp-fill-validation ${manifest.validation?.valid ? 'is-valid' : 'is-invalid'}`}>
-                  <strong>{manifest.validation?.valid ? '结构校验通过' : '结构校验未通过'}</strong>
+                  <strong>{manifest.validation?.valid ? '内容格式正确' : '内容需要修正'}</strong>
                   <span>{errors.length} 个错误 · {warnings.length} 个警告</span>
                 </div>
                 {errors.map((error, index) => <p className="mcp-fill-issue is-error" key={`error-${index}`}>{displayValue(error)}</p>)}
@@ -360,16 +463,16 @@ export function McpFillPage() {
               </section>
 
               <section className="mcp-fill-inspector-section">
-                <h3>写入目标</h3>
+                <h3>将写到哪里</h3>
                 {(manifest.requestedWrites || []).length === 0 ? <p className="mcp-fill-muted">未声明写入目标</p> : (manifest.requestedWrites || []).map((write, index) => (
                   <div className="mcp-fill-write-target" key={`${write.storageDomain}-${write.targetId}-${index}`}>
-                    <strong>{write.storageDomain || selected.domain}</strong><code>{write.targetId || manifest.target?.id}</code>
+                    <strong>{DOMAIN_LABELS[selected.domain]}资料库</strong><span>{write.targetId || manifest.target?.id}</span>
                   </div>
                 ))}
               </section>
 
               <section className="mcp-fill-inspector-section">
-                <h3>证据</h3>
+                <h3>提案依据</h3>
                 {(manifest.evidence || []).length === 0 ? <p className="mcp-fill-muted">没有附加证据</p> : (manifest.evidence || []).map((item, index) => (
                   <article className="mcp-fill-evidence" key={`${item.label}-${index}`}>
                     <strong>{item.label || `证据 ${index + 1}`}</strong>
@@ -380,20 +483,27 @@ export function McpFillPage() {
               </section>
 
               <section className="mcp-fill-inspector-section">
-                <h3>基础身份</h3>
-                <dl className="mcp-fill-identity-list">
-                  <div><dt>Target</dt><dd>{manifest.target?.id || '—'}</dd></div>
-                  <div><dt>Base revision</dt><dd>{manifest.baseSnapshot?.revision ?? selected.baseRevision}</dd></div>
-                  <div><dt>Snapshot</dt><dd title={manifest.baseSnapshot?.snapshotId}>{shortIdentity(manifest.baseSnapshot?.snapshotId)}</dd></div>
-                  <div><dt>Content hash</dt><dd title={manifest.baseSnapshot?.contentHash || selected.baseContentHash}>{shortIdentity(manifest.baseSnapshot?.contentHash || selected.baseContentHash)}</dd></div>
-                  <div><dt>Manifest digest</dt><dd title={selected.manifestDigest}>{shortIdentity(selected.manifestDigest)}</dd></div>
-                </dl>
+                <h3>写入安全检查</h3>
+                <div className={`mcp-fill-safety-card ${selected.staleBase ? 'is-stale' : 'is-safe'}`}>
+                  <strong>{selected.staleBase ? '资料已经变化，不能直接写入' : '资料版本一致，可以安全处理'}</strong>
+                  <span>提案基于资料版本 r{manifest.baseSnapshot?.revision ?? selected.baseRevision}；真正写入前还会再检查一次。</span>
+                </div>
+                <details className="mcp-fill-technical-details">
+                  <summary>查看技术校验信息</summary>
+                  <dl className="mcp-fill-identity-list">
+                    <div><dt>写入对象</dt><dd>{manifest.target?.id || '—'}</dd></div>
+                    <div><dt>基础快照</dt><dd title={manifest.baseSnapshot?.snapshotId}>{shortIdentity(manifest.baseSnapshot?.snapshotId)}</dd></div>
+                    <div><dt>内容指纹</dt><dd title={manifest.baseSnapshot?.contentHash || selected.baseContentHash}>{shortIdentity(manifest.baseSnapshot?.contentHash || selected.baseContentHash)}</dd></div>
+                    <div><dt>提案校验码</dt><dd title={selected.manifestDigest}>{shortIdentity(selected.manifestDigest)}</dd></div>
+                  </dl>
+                </details>
               </section>
 
-              <details className="mcp-fill-raw">
-                <summary>标准化内容</summary>
-                <pre>{displayValue(manifest.normalizedDraft ?? selected.normalized)}</pre>
-              </details>
+              <section className="mcp-fill-inspector-section mcp-fill-normalized">
+                <h3>整理后的提案内容</h3>
+                <p className="mcp-fill-muted">这是系统准备写入的内容摘要，可展开分组查看。</p>
+                <StructuredValue value={manifest.normalizedDraft ?? selected.normalized} />
+              </section>
             </div>
           )}
         </aside>
@@ -402,7 +512,7 @@ export function McpFillPage() {
       <footer className="mcp-fill-statusbar">
         <span>本页面是 Web 产品页，不是 MCP 协议界面</span>
         <span>Codex 只能读取、校验并创建提案</span>
-        <span>PID {runtime?.pid || '—'} · {runtime?.running ? 'ready' : 'offline'}</span>
+        <span>{runtime?.running ? '本地服务已连接' : '本地服务未连接'}</span>
       </footer>
 
       {selected && dialog && modalCopy ? (
@@ -413,8 +523,8 @@ export function McpFillPage() {
             <p>{modalCopy.body}</p>
             <dl>
               <div><dt>领域</dt><dd>{DOMAIN_LABELS[selected.domain]}</dd></div>
-              <div><dt>字段变化</dt><dd>{diff.length}</dd></div>
-              <div><dt>Proposal revision</dt><dd>r{selected.revision}</dd></div>
+              <div><dt>字段变化</dt><dd>{readableDiff.length}</dd></div>
+              <div><dt>提案版本</dt><dd>r{selected.revision}</dd></div>
             </dl>
             <div className="mcp-fill-dialog-actions">
               <button type="button" onClick={() => setDialog(null)} disabled={Boolean(busy)}>取消</button>

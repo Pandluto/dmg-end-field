@@ -44,10 +44,13 @@ Computer Use opened the authorized main Web app in Chrome, clicked the visible *
 
 - service ready at `17323/mcp`;
 - proposal queue and status filters;
-- structured field Diff;
-- validation result, evidence, requested write target, base revision/hash, manifest digest, and normalized content;
+- readable field-by-field changes with expandable nested groups instead of raw JSON;
+- content checks, proposal evidence, write target, safety status, and a visual normalized-content summary;
+- technical snapshot/hash/digest identities collapsed under **查看技术校验信息**;
 - only **拒绝** and **确认并写入** actions;
 - a full confirmation dialog describing the Host write and stale-revision safety boundary.
+
+A follow-up Computer Use pass verified the compact layout in Chrome at `http://127.0.0.1:3030/#/mcp-fill`: the overview ribbon stays within its fixed row, the root proposal payload is split into eight named fields, and the skills payload expands in place into labeled subfields without exposing a JSON block. Product copy no longer shows the proposal owner namespace, process PID, `postcondition`, or English revision/digest labels in the primary review flow.
 
 A direct standard MCP migration demo created synthetic proposal `fill-proposal-b2116d3f-237d-4f69-b8e3-a0424d6e5fae` with idempotency key `mcp-web-ui-20260719-correction`. In Chrome, the **确认并写入** dialog was opened and cancelled, proving cancellation caused no write. The **拒绝** dialog was then confirmed through the Web Host bridge. Final UI state was `rejected`, proposal revision 3, persistence `not-requested`, and the product notice stated that product data did not change.
 
