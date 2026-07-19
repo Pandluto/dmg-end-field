@@ -4,6 +4,7 @@ import type { BuffEffectKind, BuffExtraHitConfig, BuffMultiplier } from '../core
 import { normalizeBuffMultiplier, validateBuffMultiplierDefinition } from '../core/domain/buffMultiplier';
 import { getMultiplierSupportedBuffTypes } from '../core/domain/buffTypeRegistry';
 import { normalizeExtraHitConfig, validateExtraHitConfig } from '../core/services/buffExtraHit';
+import { createLegacyFillDomainCore, createLegacyFillProposalPayload, createLegacyFillSchemaTemplate } from '../legacyFillCore';
 
 export const OPERATOR_DRAFT_STORAGE_KEY = 'def.operator-editor.draft.v1';
 export const OPERATOR_LIBRARY_STORAGE_KEY = 'def.operator-editor.library.v1';
@@ -618,6 +619,24 @@ function preserveExistingOperatorAssets(payload: OperatorDraft): OperatorDraft {
   return existingDraft ? preserveExistingAssetUrls(payload, existingDraft) : payload;
 }
 
+export const operatorFillDomainCore = createLegacyFillDomainCore<OperatorDraft>({
+  domain: 'operator',
+  schemaVersion: 1,
+  schema: () => createLegacyFillSchemaTemplate({
+    domain: 'operator',
+    schemaVersion: 1,
+    payloadSchema: { formatName: 'ImportedOperatorDraft-compatible object' },
+  }),
+  normalize(candidate) {
+    const validation = validateOperatorDraftShape(candidate);
+    if (!validation.ok || !validation.normalized) throw new TypeError(validation.errors.join('; '));
+    return validation.normalized;
+  },
+  validate: validateOperatorDraftShape,
+  summarize: (payload) => `operator fill: name=${payload.name} skills=${Object.keys(payload.skills || {}).length}`,
+  targetId: (payload) => payload.id,
+});
+
 export const operatorFillAdapter: AgentFillDomainAdapter<OperatorDraft> = {
   domain: 'operator',
   workflow: 'operator.fill',
@@ -632,23 +651,23 @@ export const operatorFillAdapter: AgentFillDomainAdapter<OperatorDraft> = {
     return validateOperatorDraftShape(parsed.value);
   },
 
-  validateProposalPayload: validateOperatorDraftShape,
+  validateProposalPayload: operatorFillDomainCore.validate,
 
   createProposalPayload(validation, rawCommand): AgentFillProposalPayload<OperatorDraft> {
     const draft = preserveExistingOperatorAssets(validation.normalized!);
-    return {
+    return createLegacyFillProposalPayload({
       rawCommand,
       normalized: draft,
       summary: operatorFillAdapter.summarizeProposal(draft),
-    };
+    });
   },
 
   summarizeProposal(payload): string {
-    return `operator fill: name=${payload.name} skills=${Object.keys(payload.skills || {}).length}`;
+    return operatorFillDomainCore.summarize(payload);
   },
 
   getProposalTargetId(payload): string {
-    return payload.id;
+    return operatorFillDomainCore.targetId(payload);
   },
 
   buildTaskPackage() {

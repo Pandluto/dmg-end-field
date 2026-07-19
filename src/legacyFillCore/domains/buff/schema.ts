@@ -1,4 +1,4 @@
-import type { BuffExtraHitDamageType, BuffExtraHitSkillType, BuffExtraHitTrigger } from '../../core/domain/buff';
+import type { BuffExtraHitDamageType, BuffExtraHitSkillType, BuffExtraHitTrigger } from '../../../core/domain/buff';
 import { BUFF_EXTRA_HIT_RULE, BUFF_MODIFIER_TYPE_IDS } from './catalog';
 
 export interface JsonSchemaObject {

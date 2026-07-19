@@ -2,6 +2,7 @@ import { AI_CLI_PROTOCOL_VERSION } from './aiCliAgentTypes';
 import type { AgentFillDomainAdapter, AgentFillProposalPayload, AgentFillValidationResult } from './aiCliFillDomains';
 import type { BuffEffectKind, BuffExtraHitConfig } from '../core/domain/buff';
 import { normalizeExtraHitConfig, validateExtraHitConfig } from '../core/services/buffExtraHit';
+import { createLegacyFillDomainCore, createLegacyFillProposalPayload, createLegacyFillSchemaTemplate } from '../legacyFillCore';
 
 export const EQUIPMENT_DRAFT_STORAGE_KEY = 'def.equipment-sheet.draft.v1';
 export const EQUIPMENT_LIBRARY_STORAGE_KEY = 'def.equipment-sheet.library.v1';
@@ -432,6 +433,28 @@ function normalizeEquipmentLibrary(raw: Record<string, unknown>): EquipmentLibra
   };
 }
 
+export const equipmentFillDomainCore = createLegacyFillDomainCore<EquipmentLibrary>({
+  domain: 'equipment',
+  schemaVersion: 1,
+  schema: () => createLegacyFillSchemaTemplate({
+    domain: 'equipment',
+    schemaVersion: 1,
+    payloadSchema: { formatName: 'EquipmentFillAiDraft', gearSets: 'record' },
+  }),
+  normalize(candidate) {
+    const validation = validateEquipmentLibraryShape(candidate);
+    if (!validation.ok || !validation.normalized) throw new TypeError(validation.errors.join('; '));
+    return validation.normalized;
+  },
+  validate: validateEquipmentLibraryShape,
+  summarize(payload) {
+    const gearSetCount = Object.keys(payload.gearSets || {}).length;
+    const equipmentCount = Object.values(payload.gearSets || {}).reduce((sum, set) => sum + Object.keys(set.equipments || {}).length, 0);
+    return `equipment fill: gearSets=${gearSetCount} equipments=${equipmentCount}`;
+  },
+  targetId: (payload) => Object.keys(payload.gearSets || {}).sort().join('|'),
+});
+
 export const equipmentFillAdapter: AgentFillDomainAdapter<EquipmentLibrary> = {
   domain: 'equipment',
   workflow: 'equipment.fill',
@@ -447,26 +470,24 @@ export const equipmentFillAdapter: AgentFillDomainAdapter<EquipmentLibrary> = {
   },
 
   validateProposalPayload(payload): AgentFillValidationResult<EquipmentLibrary> {
-    return validateEquipmentLibraryShape(payload);
+    return equipmentFillDomainCore.validate(payload);
   },
 
   createProposalPayload(validation, rawCommand): AgentFillProposalPayload<EquipmentLibrary> {
     const draft = mergeEquipmentLibraryPatch(readEquipmentMergeBaseline(), validation.normalized!);
-    return {
+    return createLegacyFillProposalPayload({
       rawCommand,
       normalized: draft,
       summary: equipmentFillAdapter.summarizeProposal(draft),
-    };
+    });
   },
 
   summarizeProposal(payload): string {
-    const gearSetCount = Object.keys(payload.gearSets || {}).length;
-    const equipmentCount = Object.values(payload.gearSets || {}).reduce((sum, set) => sum + Object.keys(set.equipments || {}).length, 0);
-    return `equipment fill: gearSets=${gearSetCount} equipments=${equipmentCount}`;
+    return equipmentFillDomainCore.summarize(payload);
   },
 
   getProposalTargetId(payload): string {
-    return Object.keys(payload.gearSets || {}).sort().join('|');
+    return equipmentFillDomainCore.targetId(payload);
   },
 
   buildTaskPackage() {

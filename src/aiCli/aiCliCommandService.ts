@@ -1,4 +1,4 @@
-import { BUFF_MODIFIER_TYPE_IDS } from './buffFill/catalog';
+import { BUFF_MODIFIER_TYPE_IDS } from '../legacyFillCore/domains/buff/catalog';
 import type { BuffDraft, BuffEffectDraft, BuffItemDraft } from '../types/buffFill';
 import {
   AI_CLI_PROTOCOL_VERSION,

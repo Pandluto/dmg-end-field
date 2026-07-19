@@ -1,12 +1,9 @@
 import type { AiAgentProposalDomain, AiAgentWorkflow } from './aiCliAgentTypes';
+import type { LegacyFillValidationResult } from '../legacyFillCore';
 
 export type AgentFillCommandAction = 'task' | 'check' | 'apply';
 
-export interface AgentFillValidationResult<T = unknown> {
-  ok: boolean;
-  errors: string[];
-  normalized?: T;
-}
+export type AgentFillValidationResult<T = unknown> = LegacyFillValidationResult<T>;
 
 export interface AgentFillProposalPayload<T = unknown> {
   rawCommand: string;

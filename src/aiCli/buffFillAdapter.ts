@@ -1,11 +1,12 @@
 import buffSheetAiSystemPromptRaw from '../prompts/buff-sheet-ai-system-prompt.md?raw';
-import { buildBuffTypeCatalogPromptSection, BUFF_MODIFIER_TYPE_IDS } from './buffFill/catalog';
-import { createBuffFillAiDraftSchema } from './buffFill/schema';
-import { convertBuffFillAiDraftToBuffDraft, sanitizeBuffFillAiDraft, validateBuffFillAiDraft } from './buffFill/validator';
+import { buildBuffTypeCatalogPromptSection, BUFF_MODIFIER_TYPE_IDS } from '../legacyFillCore/domains/buff/catalog';
+import { createBuffFillAiDraftSchema } from '../legacyFillCore/domains/buff/schema';
+import { convertBuffFillAiDraftToBuffDraft, sanitizeBuffFillAiDraft, validateBuffFillAiDraft } from '../legacyFillCore/domains/buff/validator';
 import type { BuffDraft } from '../types/buffFill';
 import { normalizeStoredBuffDefinition } from '../core/services/buffStorageNormalization';
 import { AI_CLI_PROTOCOL_VERSION } from './aiCliAgentTypes';
 import type { AgentFillDomainAdapter, AgentFillProposalPayload, AgentFillValidationResult } from './aiCliFillDomains';
+import { createLegacyFillDomainCore, createLegacyFillProposalPayload, createLegacyFillSchemaTemplate } from '../legacyFillCore';
 
 export const BUFF_DRAFT_STORAGE_KEY = 'def.buff-editor.draft.v1';
 export const BUFF_LIBRARY_STORAGE_KEY = 'def.buff-editor.library.v1';
@@ -298,6 +299,24 @@ function parseAiFillResult(rawText: string, _options?: { skipSanitize?: boolean 
   return { draft: null, errors: Array.from(new Set(errors)) };
 }
 
+export const buffFillDomainCore = createLegacyFillDomainCore<BuffDraft>({
+  domain: 'buff',
+  schemaVersion: 1,
+  schema: () => createLegacyFillSchemaTemplate({ domain: 'buff', schemaVersion: 1, payloadSchema: createBuffFillAiDraftSchema() }),
+  normalize(candidate) {
+    const validation = validateBuffProposalPayload(candidate);
+    if (!validation.ok || !validation.normalized) throw new TypeError(validation.errors.join('; '));
+    return validation.normalized;
+  },
+  validate: validateBuffProposalPayload,
+  summarize(payload) {
+    const itemCount = Object.keys(payload.items).length;
+    const effectCount = Object.values(payload.items).reduce((sum, item) => sum + Object.keys(item.effects).length, 0);
+    return `buff fill: items=${itemCount} effects=${effectCount}`;
+  },
+  targetId: (payload) => payload.id,
+});
+
 export const buffFillAdapter: AgentFillDomainAdapter<BuffDraft> = {
   domain: 'buff',
   workflow: 'buff.fill',
@@ -317,21 +336,19 @@ export const buffFillAdapter: AgentFillDomainAdapter<BuffDraft> = {
     return { ok: true, errors: [], normalized: parsed.draft };
   },
 
-  validateProposalPayload: validateBuffProposalPayload,
+  validateProposalPayload: buffFillDomainCore.validate,
 
   createProposalPayload(validation, rawCommand): AgentFillProposalPayload<BuffDraft> {
     const draft = validation.normalized!;
-    return {
+    return createLegacyFillProposalPayload({
       rawCommand,
       normalized: draft,
       summary: buffFillAdapter.summarizeProposal(draft),
-    };
+    });
   },
 
   summarizeProposal(payload: BuffDraft): string {
-    const itemCount = Object.keys(payload.items).length;
-    const effectCount = Object.values(payload.items).reduce((sum, item) => sum + Object.keys(item.effects).length, 0);
-    return `buff fill: items=${itemCount} effects=${effectCount}`;
+    return buffFillDomainCore.summarize(payload);
   },
 
   buildTaskPackage() {

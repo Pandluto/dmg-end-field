@@ -1,5 +1,5 @@
 import type { BuffDraft } from '../types/buffFill';
-import { createBuffFillAiDraftSchema } from './buffFill/schema';
+import { createBuffFillAiDraftSchema } from '../legacyFillCore/domains/buff/schema';
 import {
   AI_CLI_PROTOCOL_VERSION,
   type AiAgentClient,

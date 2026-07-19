@@ -1,4 +1,4 @@
-import type { BuffExtraHitDamageType, BuffExtraHitTrigger } from '../../core/domain/buff';
+import type { BuffExtraHitDamageType, BuffExtraHitTrigger } from '../../../core/domain/buff';
 
 export type BuffModifierType =
   | 'atkPercentBoost'
