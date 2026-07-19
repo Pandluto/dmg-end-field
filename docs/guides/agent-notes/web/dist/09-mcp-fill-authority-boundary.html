@@ -1,0 +1,287 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="color-scheme" content="light dark" />
+  <title>MCP 进入填表流程以后，谁握有写入权 · Agent 开发随记</title>
+  <link rel="stylesheet" href="styles.css" />
+  <script src="viewer.js" defer></script>
+</head>
+<body>
+  <div class="page-glow glow-one"></div>
+  <div class="page-glow glow-two"></div>
+  <button class="menu-button" aria-label="打开目录" onclick="document.body.classList.toggle('menu-open')">目录</button>
+  <header class="site-header">
+    <a class="brand" href="index.html">
+      <img src="app-icon.png" alt="终末地伤害工作台图标" />
+      <span>终末地伤害工作台</span>
+    </a>
+    <span class="header-section">AGENT NOTES / READING EDITION</span>
+    <a class="header-link" href="https://github.com/Pandluto/dmg-end-field" target="_blank" rel="noreferrer">GitHub 源码 <span>↗</span></a>
+  </header>
+  <aside class="sidebar">
+    <div class="sidebar-head"><small><i></i> READING ROUTE</small><strong>Agent 开发随记</strong><p>从模型回答问题，一路读到工具、权限、状态、Skill 和 MCP。</p></div>
+    <nav>
+  <a class="nav-item" href="README.html">
+    <span>◎</span>阅读入口
+  </a>
+  <a class="nav-item" href="00-chat-to-agent.html">
+    <span>01</span>从聊天到 Agent
+  </a>
+  <a class="nav-item" href="01-tool-use.html">
+    <span>02</span>Tool Use
+  </a>
+  <a class="nav-item" href="02-permission-and-hooks.html">
+    <span>03</span>Permission 与 Hook
+  </a>
+  <a class="nav-item" href="03-context-skill-memory.html">
+    <span>04</span>上下文、Skill 与 Memory
+  </a>
+  <a class="nav-item" href="04-plan-task-subagent.html">
+    <span>05</span>Plan、Task 与 Subagent
+  </a>
+  <a class="nav-item" href="05-def-and-opencode.html">
+    <span>06</span>概念怎样落到 DEF
+  </a>
+  <a class="nav-item" href="06-state-persistence-recovery.html">
+    <span>07</span>状态、持久化与恢复
+  </a>
+  <a class="nav-item" href="07-developer-skill.html">
+    <span>08</span>开发者自己的 Skill
+  </a>
+  <a class="nav-item" href="08-workbench-state-machine.html">
+    <span>09</span>AI 进入 Workbench 以后，谁才算“当前”
+  </a>
+  <a class="nav-item active" href="09-mcp-fill-authority-boundary.html">
+    <span>10</span>MCP 进入填表流程以后，谁握有写入权
+  </a></nav>
+    <p class="sidebar-foot"><b>MARKDOWN SOURCE</b><br />正文由仓库中的 Markdown 生成</p>
+  </aside>
+  <main>
+    <div class="article-meta">
+      <div class="article-kicker"><span></span> 09-MCP-FILL-AUTHORITY-BOUNDARY / DEF AGENT RUNTIME</div>
+      <div class="glossary-hint"><b>?</b> 点击带点线的名词，可看简明解释</div>
+    </div>
+    <article class="markdown-body"><h1>MCP 进入填表流程以后，谁握有写入权</h1>
+<p>最早的 AI 填表能力和 DEF local core 共享同一个 REST 服务。角色、武器、装备和 Buff 的校验逻辑依赖浏览器代码，提案也由旧 AI CLI 页面读取和处理。</p>
+<p>这套流程可以运行，但很难回答几个越来越重要的问题：外部 Codex 应该连接谁，标准 MCP 到底开放哪些能力，提案是谁创建的，以及谁有资格把它写进产品数据。</p>
+<p>这次开发没有给旧 REST 简单套一层 MCP。真正的工作，是先拆开计算、传输、提案和产品写入，再让每一层只拥有完成职责所需的权限。</p>
+<h2>MCP 不是另一个 Agent</h2>
+<p><code>MCP（Model Context Protocol）</code> 是客户端与能力服务之间的标准连接协议。它规定怎样发现资源、调用工具和返回结构化结果，但不替客户端思考，也不会自动获得桌面应用的全部权限。</p>
+<p>在当前项目中，几个名称对应如下：</p>
+<table>
+<thead>
+<tr>
+<th>名称</th>
+<th>当前含义</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>MCP Client</td>
+<td>Codex 或其他标准 MCP 客户端，负责发起读取、校验和创建提案。</td>
+</tr>
+<tr>
+<td>MCP Server</td>
+<td>独立运行的 <code>legacy-fill-service</code>，提供受限的 Resources 和 Tools。</td>
+</tr>
+<tr>
+<td>Streamable HTTP</td>
+<td>MCP 的主要本地传输，入口是 <code>127.0.0.1:17323/mcp</code>。</td>
+</tr>
+<tr>
+<td>STDIO Facade</td>
+<td>从私有配置读取连接信息，再把标准输入输出转到同一个服务的本地适配器。</td>
+</tr>
+<tr>
+<td>Resource</td>
+<td>版本化、只读的模板、策略、示例或提案状态。</td>
+</tr>
+<tr>
+<td>Tool</td>
+<td>一次有明确输入和输出的操作，例如读取当前数据、校验草稿或创建提案。</td>
+</tr>
+</tbody></table>
+<p>MCP Client 和 DEF OpenCode 也是两条平行链。DEF OpenCode 仍通过自己的 Session、Harness 和 Typed Tools 操作 Workbench；它没有注册、代理或调用这个 MCP Server。MCP 抽离完成后，DEF 只作为零回归对象接受检查。</p>
+<pre><code class="language-text">Codex / 标准 MCP Client        DEF OpenCode
+          ↓                        ↓
+legacy-fill-service           DEF Sidecar + Typed Tools
+          ↓                        ↓
+填表提案与只读快照             Work Node / Timeline
+</code></pre>
+<p>两边都可能使用模型和工具，但身份、状态、权限与数据链路不能混用。</p>
+<h2>先把浏览器逻辑变成纯 Core</h2>
+<p>旧填表逻辑长期放在 <code>src/aiCli</code> 下，部分模块会直接接触 <code>localStorage</code>、浏览器类型或页面状态。如果 MCP Server 直接导入这些代码，它就会同时继承浏览器环境假设和产品写入路径。</p>
+<p>因此第一步是抽出 <code>legacy-fill-core</code>。它只负责四个领域的模板、规范化与校验：</p>
+<pre><code class="language-text">明确输入
+  → schema / template
+  → normalize
+  → validate
+  → 结构化结果或结构化错误
+</code></pre>
+<p>Core 不启动服务、不读取任意文件、不接触 localStorage，也不决定是否保存。浏览器旧调用方和独立服务都可以复用同一份领域逻辑，但各自的数据来源和权限仍由外层控制。</p>
+<p>这一区分解释了两个容易混淆的名称：</p>
+<ul>
+<li><code>legacy-fill-core</code> 是无宿主的领域逻辑；</li>
+<li><code>legacy-fill-service</code> 是持有 MCP transport、只读快照和 Proposal Repository 的本地服务。</li>
+</ul>
+<p>名字里都带 <code>legacy-fill</code>，不是说新实现仍把旧结构原样保留，而是标明它迁移的是历史 AI 填表能力，并与 DEF core 保持清楚边界。</p>
+<h2>MCP 可以创建提案，不能作出决定</h2>
+<p>当前 MCP 只开放七个 allowlisted tools：读取当前数据、搜索资料库、取得模板、校验草稿，以及创建、列出和查看提案。</p>
+<table>
+<thead>
+<tr>
+<th>Tool 名称</th>
+<th>它实际做什么</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>fill_get_current</code></td>
+<td>读取 Host 已发布的当前领域快照。</td>
+</tr>
+<tr>
+<td><code>fill_search_library</code></td>
+<td>在允许的领域资料中搜索候选。</td>
+</tr>
+<tr>
+<td><code>fill_get_template</code></td>
+<td>取得由 Core 生成的当前版本模板。</td>
+</tr>
+<tr>
+<td><code>fill_validate</code></td>
+<td>规范化并校验客户端明确提交的草稿。</td>
+</tr>
+<tr>
+<td><code>proposal_create</code></td>
+<td>把已校验内容写入所属 owner 的提案库。</td>
+</tr>
+<tr>
+<td><code>proposal_list</code></td>
+<td>列出当前 owner 可见的提案。</td>
+</tr>
+<tr>
+<td><code>proposal_inspect</code></td>
+<td>查看一份提案的审核内容与状态。</td>
+</tr>
+</tbody></table>
+<p>明确不存在的 MCP 能力包括：</p>
+<ul>
+<li>approve、reject 或 save；</li>
+<li>localStorage、now-storage 或任意产品存储写入；</li>
+<li>任意文件读取或脚本执行；</li>
+<li>DEF Tool、Work Node、Timeline 或原生 Permission；</li>
+<li>Host 内部 writer 和批准接口。</li>
+</ul>
+<p>这里的 <code>Proposal（提案）</code> 是一份已经通过 Core 校验、可以交给用户检查的候选结果。创建提案只说明“这份内容符合结构要求并已进入审核队列”，不说明用户同意，更不说明产品已经改变。</p>
+<pre><code class="language-text">MCP read / validate
+        ↓
+Proposal Create
+        ↓
+等待产品用户审核
+</code></pre>
+<p>每个鉴权客户端会映射到稳定的 <code>ownerNamespace</code>。它用于隔离不同 MCP Client 的提案；MCP transport session id 只负责一次连接，不能被拿来冒充提案 owner。DEF Session、Timeline 或 Workbench 身份也不会进入这个命名空间。</p>
+<p><code>Proposal Repository</code> 是提案的独立 SQLite 事实源；<code>Review Manifest</code> 则固定一次审核实际包含的领域、基线、候选内容和摘要。一个负责保存状态，一个负责回答“用户眼前审核的究竟是哪份内容”。</p>
+<h2>用户面对的是产品页，不是协议检查器</h2>
+<p>最初的 Host review 里程碑曾使用独立 Electron 审核窗口。随后产品入口收敛到主 Web 应用的 <code>/#/mcp-fill</code>，用户名称是 <strong>MCP 填表</strong>；旧 <code>/#/legacy-fill-review</code> 只保留为兼容别名，不再创建一套 Electron 产品窗口。</p>
+<p>页面左侧是可搜索的提案队列，右侧按武器、干员、Buff 或装备显示对应的产品结果。它不会把 normalized payload、revision digest、owner namespace、进程 PID 或 Host token 当作主要内容展示。</p>
+<p>用户只看到两个决定：</p>
+<ul>
+<li><strong>拒绝</strong>：结束提案，不改变产品数据；</li>
+<li><strong>确认并写入</strong>：经过一次确认，执行受保护的产品写入和结果核对。</li>
+</ul>
+<p>内部仍有 claim、approval、save-begin、write、reread、save-result 等阶段。把它们合成一次用户动作，是为了让交互简单；阶段本身没有被省略，因为审计、失败恢复和权限校验仍需要知道写入进行到哪里。</p>
+<h2>真正的写入权留在 Host</h2>
+<p>MCP Server 能证明提案来自谁、内容是什么，却不能证明主 Web 中的用户已经决定写入。真正的权限边界由受保护的 Web Host bridge 承担。</p>
+<p>用户确认时，主 Web renderer 向 Host 申请一个短时、一次性的 <code>Action Capability（操作通行证）</code>。它不只是“允许保存”，还精确绑定：</p>
+<pre><code class="language-text">proposal id
++ review session
++ current revision
++ review manifest digest
+</code></pre>
+<p>任一身份或版本变化，旧 capability 都会失效。这样可以避免用户看到并确认 A，系统却因为队列刷新或迟到请求写入 B。</p>
+<p><code>Event.isTrusted</code> 只能辅助判断事件来自真实浏览器交互，不能作为服务器证明。Host 真正信任的是受保护 renderer transport、review 绑定和一次性 capability，而不是客户端传来一句“用户点过确认”。</p>
+<p>写入完成后也不能只相信 writer 返回成功。Host 会重新读取目标领域，检查 Postcondition，再发布新的只读快照 revision，并记录 save-result。MCP 下一次读取时看到的是 Host 发布后的新事实，而不是它自己刚才提交的草稿。</p>
+<h2>Revision、Digest 与 CAS 各自保护什么</h2>
+<p>这一链路反复出现三个相近的名称：</p>
+<table>
+<thead>
+<tr>
+<th>名称</th>
+<th>保护的对象</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Revision</td>
+<td>提案或产品快照处于哪一版。</td>
+</tr>
+<tr>
+<td>Digest</td>
+<td>本次审核内容的稳定摘要，防止内容变了但名字没变。</td>
+</tr>
+<tr>
+<td>CAS</td>
+<td>只有当前版本仍等于预期版本时，才允许状态迁移或写入。</td>
+</tr>
+</tbody></table>
+<p>例如页面打开提案版本 2，用户确认前服务端已经把它更新到版本 3，那么版本 2 的 action capability 不能继续使用。CAS 拒绝这次旧写入，页面必须重新读取，让用户看到新的内容后再决定。</p>
+<p>这与 Workbench 中批准绑定 Session、父节点和候选版本是同一个原则：批准必须指向明确且未变化的对象。</p>
+<h2>写成功但回执丢了怎么办</h2>
+<p>产品写入可能已经成功，随后快照发布或 save-result 审计却因为页面关闭、服务重启或连接中断而失败。此时直接重写一遍，会制造重复副作用；直接标记失败，又会让提案记录与产品事实不一致。</p>
+<p>主 Web 因此保留一个持久化 <code>Outbox（待投递记录）</code>：</p>
+<pre><code class="language-text">领域写入成功
+  → 保存待发布结果
+  → 尝试更新快照与审计
+  → 中断时保留 Outbox
+  → 下次授权页面启动后 reconciliation
+</code></pre>
+<p>恢复时先重新读取产品事实，再补齐快照和审计，而不是盲目再次执行 writer。它延续了前一篇手记中的同一条经验：响应丢失不等于操作没有发生。</p>
+<h2>兼容代理为什么还在</h2>
+<p>历史调用方仍通过 <code>17321</code> REST 访问填表能力。当前实现把这些路由变成访问同一 Core 和 Proposal Repository 的 compatibility proxy，避免新旧链路形成双写事实源。</p>
+<p>这条代理仍存在，不代表它是推荐的新入口。新外部工作流应直接使用 MCP；旧 REST 只有在后续发布窗口获得明确产品确认后才会退役。<code>DEF local core</code> 的重命名也被单独门控，避免在能力拆分的同时制造无关迁移风险。</p>
+<p>当前几个对用户和开发者都重要的名称可以这样记：</p>
+<table>
+<thead>
+<tr>
+<th>名称</th>
+<th>应该怎样理解</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>MCP 填表</td>
+<td>主 Web 中的用户审核与写入产品入口。</td>
+</tr>
+<tr>
+<td>Legacy Fill MCP</td>
+<td>这组历史填表能力独立化后的开发主题和服务链。</td>
+</tr>
+<tr>
+<td><code>legacy-fill-core</code></td>
+<td>浏览器无关的领域模板、规范化和校验。</td>
+</tr>
+<tr>
+<td><code>legacy-fill-service</code></td>
+<td>独立 MCP、只读快照和提案存储服务。</td>
+</tr>
+<tr>
+<td>Host bridge</td>
+<td>产品内部受保护的审核和写入边界。</td>
+</tr>
+<tr>
+<td>Compatibility proxy</td>
+<td>暂时承接旧 REST 调用方的兼容入口。</td>
+</tr>
+<tr>
+<td>DEF OpenCode</td>
+<td>平行的 Workbench Agent Runtime，不是 MCP Host。</td>
+</tr>
+</tbody></table>
+<h2>结语</h2>
+<p>把一个功能接成 MCP，真正困难的部分通常不是让工具列表出现在客户端，而是决定哪些能力可以标准化开放，哪些决定必须留在产品内部。</p>
+<p>当前链路中，MCP 负责读、校验和准备提案；用户在 MCP 填表页面作出决定；Host 负责受控写入、回读和审计；Core 只维护领域规则；DEF OpenCode 继续走自己的 Agent 与 Work Node 链路。</p>
+<p>这些名字一旦各自指向稳定职责，系统才能同时做到可接入、可审核，也不会因为“支持 MCP”就把产品写入权一起交出去。</p>
+<p>实现、连接和验收细节仍以 <a href="https://github.com/Pandluto/dmg-end-field/blob/main/docs/specs/legacy-ai-cli-mcp-extraction/README.md" target="_blank" rel="noreferrer">Legacy Fill MCP 文档索引</a> 与 <a href="https://github.com/Pandluto/dmg-end-field/blob/main/docs/development/legacy-fill-mcp.md" target="_blank" rel="noreferrer">日常开发说明</a> 为准。</p>
+</article>
+    <footer><span>终末地伤害工作台</span><span>LOCAL · TRACEABLE · ASSISTED</span></footer>
+  </main>
+</body>
+</html>

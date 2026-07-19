@@ -48,7 +48,21 @@ const glossary = [
   ["Working Projection", ["working projection", "Working Projection"], "DEF 概念", "React 页面内存中正在展示和编辑的队伍、技能、Buff 与配装。", "它必须与 SQLite 当前正式节点收敛后，AI 才能读取或修改同一棵工作树。", "它是页面工作副本，不是 SQLite 正式节点，也不是 AI 会话归属。"],
   ["Session Binding", ["session binding", "Session Binding"], "DEF 概念", "AI 会话与一条正式 timeline 的不可漂移归属关系。", "它限制 AI 只能读取和操作所属正式工作区的 Work Node 树。", "它不是当前页面缓存，也不能在 session 存续期间静默改绑。"],
   ["Throughput", ["throughput", "Throughput"], "运行机制", "单位时间内系统处理请求或命令的能力，以及高并发时的排队压力。", "DEF 更关心同一会话、同一 timeline 的迟到命令不会撞到用户的新操作。", "它不只是服务很多用户的性能指标，也关乎单个桌面会话的并发安全。"],
-  ["Sliding Window", ["sliding window", "Sliding Window"], "运行机制", "只统计最近一小段时间内事件的限流、去重或计数方法。", "DEF 可以按会话和 timeline 管理重复读取、重复批准和频繁 SSE 重连。", "它是并发保护手段，不替代正式节点、会话归属和权限校验。"]
+  ["Sliding Window", ["sliding window", "Sliding Window"], "运行机制", "只统计最近一小段时间内事件的限流、去重或计数方法。", "DEF 可以按会话和 timeline 管理重复读取、重复批准和频繁 SSE 重连。", "它是并发保护手段，不替代正式节点、会话归属和权限校验。"],
+  ["MCP", ["MCP"], "标准协议", "让客户端发现资源、调用工具并接收结构化结果的标准连接协议。", "Codex 直接连接独立 legacy-fill-service；DEF OpenCode 不代理这条链路。", "MCP 不是另一个 Agent，也不会自动获得产品内部写入权。"],
+  ["MCP Client", ["MCP Client", "MCP client"], "标准协议", "连接 MCP Server、读取资源并发起工具调用的客户端。", "Codex 或其他标准客户端只能读取、校验和创建填表提案。", "客户端发起提案，不等于用户已经批准或保存。"],
+  ["MCP Server", ["MCP Server", "MCP server"], "标准协议", "按 MCP 合同暴露 Resources 与 Tools 的能力服务。", "legacy-fill-service 是独立本地 MCP Server，只开放填表 allowlist。", "它不是 DEF Sidecar，也不是拥有产品写入权的 Host。"],
+  ["Streamable HTTP", ["Streamable HTTP"], "传输", "通过 HTTP 请求和可持续响应承载 MCP 消息的传输方式。", "Legacy Fill MCP 的权威本地入口是 127.0.0.1:17323/mcp。", "它定义连接方式，不决定工具权限和产品授权。"],
+  ["STDIO Facade", ["STDIO Facade"], "传输", "用标准输入输出接收 MCP 消息，再转接到实际能力服务的适配程序。", "本项目的 facade 从私有配置读取服务地址和 token，连接同一个 legacy-fill-service。", "它不是第二套 MCP 数据库或另一套业务实现。"],
+  ["Resource", ["Resource", "Resources"], "标准协议", "由 MCP Server 提供、适合读取的命名内容或版本化材料。", "填表服务用它提供模板、策略、示例和 owner 范围内的提案状态。", "Resource 侧重读取；Tool 表达一次带参数的操作。"],
+  ["Proposal", ["Proposal", "proposal"], "审核", "经过结构校验、等待用户检查和决定的候选结果。", "MCP 可以创建提案，但不能批准、拒绝或写入产品。", "提案创建成功不表示产品数据已经改变。"],
+  ["Proposal Repository", ["Proposal Repository"], "审核", "独立保存提案内容、版本、状态和审计记录的事实源。", "legacy-fill-service 使用 SQLite Repository 隔离并持久化各 owner 的提案。", "它不保存 DEF Work Node，也不是产品领域数据本身。"],
+  ["Review Manifest", ["Review Manifest"], "审核", "固定一次审核实际对应的领域、基线、候选内容和摘要。", "Host capability 会绑定 manifest digest，避免审核内容变化后继续沿用旧批准。", "它描述审核对象，不负责自行授予写入权限。"],
+  ["Action Capability", ["Action Capability", "action capability"], "权限", "绑定明确对象、版本和有效期的一次性操作通行证。", "MCP 填表页面确认时，它绑定 proposal、review session、revision 和 manifest digest。", "它比笼统的登录态更窄，也不能被 MCP Client 自行签发。"],
+  ["Revision", ["Revision", "revision"], "并发控制", "表示提案或产品快照当前处于哪一版的递增身份。", "Host 用它拒绝页面基于旧提案发起的迟到写入。", "Revision 标识版本；Digest 标识内容摘要。"],
+  ["Digest", ["Digest", "digest"], "并发控制", "由内容计算出的稳定摘要，用于检查审核对象是否被替换或改变。", "Review manifest digest 会被绑定进一次性写入 capability。", "它用于内容身份校验，不是加密产品数据。"],
+  ["CAS", ["CAS"], "并发控制", "Compare-And-Set；只有当前版本仍等于预期版本时才执行更新。", "提案状态和 Host 写入用它阻止旧页面覆盖新 revision。", "CAS 防止竞态，不替代用户 Approval 和写后 Postcondition。"],
+  ["Outbox", ["Outbox"], "错误恢复", "在本地持久化尚未成功发布或确认的结果，供稍后继续投递。", "产品写入已成功但快照或审计中断时，MCP 填表页面用它恢复一致性。", "Outbox 用于补齐记录，不应盲目重做已经发生的领域写入。"]
 ].map(([term, aliases, kind, meaning, project, contrast]) => ({ term, aliases, kind, meaning, project, contrast }))
 
 const entryByAlias = new Map()

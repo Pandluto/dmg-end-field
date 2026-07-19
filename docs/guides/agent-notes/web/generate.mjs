@@ -19,6 +19,7 @@ const pages = [
   ["06-state-persistence-recovery.md", "状态、持久化与恢复"],
   ["07-developer-skill.md", "开发者自己的 Skill"],
   ["08-workbench-state-machine.md", "AI 进入 Workbench 以后，谁才算“当前”"],
+  ["09-mcp-fill-authority-boundary.md", "MCP 进入填表流程以后，谁握有写入权"],
 ]
 
 const escapeHtml = (value) =>
@@ -52,7 +53,7 @@ const shell = ({ file, title, content }) => `<!doctype html>
     <a class="header-link" href="https://github.com/Pandluto/dmg-end-field" target="_blank" rel="noreferrer">GitHub 源码 <span>↗</span></a>
   </header>
   <aside class="sidebar">
-    <div class="sidebar-head"><small><i></i> READING ROUTE</small><strong>Agent 开发随记</strong><p>从模型回答问题，一路读到工具、权限、状态和 Skill。</p></div>
+    <div class="sidebar-head"><small><i></i> READING ROUTE</small><strong>Agent 开发随记</strong><p>从模型回答问题，一路读到工具、权限、状态、Skill 和 MCP。</p></div>
     <nav>${navigation(file)}</nav>
     <p class="sidebar-foot"><b>MARKDOWN SOURCE</b><br />正文由仓库中的 Markdown 生成</p>
   </aside>
@@ -81,6 +82,8 @@ for (const [file, navTitle] of pages) {
   content = content.replaceAll('href="web/README.html"', 'href="index.html"')
   content = content.replaceAll(/href="\.\.\/\.\.\/architecture\/README\.md"/g,
     'href="https://github.com/Pandluto/dmg-end-field/blob/main/docs/architecture/README.md" target="_blank" rel="noreferrer"')
+  content = content.replaceAll(/href="\.\.\/\.\.\/([^"#]+)\.md(#[^"]*)?"/g, (_, target, hash = "") =>
+    `href="https://github.com/Pandluto/dmg-end-field/blob/main/docs/${target}.md${hash}" target="_blank" rel="noreferrer"`)
 
   await writeFile(path.join(outputDir, file.replace(/\.md$/, ".html")), shell({ file, title, content }))
 }

@@ -19,6 +19,7 @@
 | 工具卡住、进程退出或响应丢失后怎么办 | [运行中的状态、持久化与恢复](./06-state-persistence-recovery.md) |
 | 哪些重复开发经验适合整理成 Skill | [开发者自己的 Skill](./07-developer-skill.md) |
 | 页面、正式节点和 AI 会话怎样避免各说各话 | [AI 进入 Workbench 以后，谁才算“当前”](./08-workbench-state-machine.md) |
+| 标准 MCP 接进产品以后，谁能读取、谁能真正写入 | [MCP 进入填表流程以后，谁握有写入权](./09-mcp-fill-authority-boundary.md) |
 
 这里讲的是理解 Agent 所需的主干。项目实现继续变化时，以[架构事实源](../../architecture/README.md)为准。
 
