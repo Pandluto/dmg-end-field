@@ -3,7 +3,10 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { createLegacyFillProposalRepository } from './proposal-repository.mjs';
+import { createLegacyFillMcpOperations } from './mcp-operations.mjs';
+import { createLegacyFillMcpServer } from './mcp-server.mjs';
 
 const MAX_BODY_BYTES = 4 * 1024 * 1024;
 const DOMAINS = ['buff', 'weapon', 'operator', 'equipment'];
@@ -44,10 +47,13 @@ export function createLegacyFillService(options = {}) {
   const databasePath = path.resolve(options.databasePath);
   const registryPath = options.registryPath ? path.resolve(options.registryPath) : '';
   const repository = createLegacyFillProposalRepository({ databasePath });
+  const mcpClients = new Map(Object.entries(options.mcpClients || {}));
   const domainRuntimePath = path.resolve(options.domainRuntimePath || path.resolve('dist', 'legacy-fill', 'domain-runtime.mjs'));
   const startedAt = new Date().toISOString();
   let domainRuntime = null;
   let domainRuntimeError = '';
+  let mcpOperations = null;
+  let mcpRequestCount = 0;
   let compatibilityRequestCount = 0;
   let server;
   let closing = false;
@@ -71,13 +77,72 @@ export function createLegacyFillService(options = {}) {
         contentHash: snapshots[domain].contentHash,
         schemaVersion: snapshots[domain].schemaVersion,
       } : null])),
-      mcp: { enabled: false },
+      mcp: mcpOperations && mcpClients.size
+        ? { enabled: true, endpoint: '/mcp', authenticatedClients: mcpClients.size, requestCount: mcpRequestCount }
+        : { enabled: false },
       compatibilityRequestCount,
     };
   }
 
   function authorized(request) {
     return request.headers['x-legacy-fill-host-token'] === hostToken;
+  }
+
+  function validateMcpRequestAuthority(request) {
+    const hostHeader = String(request.headers.host || '').toLowerCase();
+    const allowedHosts = new Set([`${host}:${port}`.toLowerCase(), `localhost:${port}`, `127.0.0.1:${port}`]);
+    if (!allowedHosts.has(hostHeader)) {
+      const error = new Error('MCP Host header is not an allowed loopback authority');
+      error.status = 403;
+      error.code = 'mcp-invalid-host';
+      throw error;
+    }
+    const origin = typeof request.headers.origin === 'string' ? request.headers.origin : '';
+    if (origin) {
+      let parsed;
+      try { parsed = new URL(origin); } catch { parsed = null; }
+      if (!parsed || !['http:', 'https:'].includes(parsed.protocol) || !['127.0.0.1', 'localhost', '::1'].includes(parsed.hostname)) {
+        const error = new Error('MCP Origin must be absent or loopback');
+        error.status = 403;
+        error.code = 'mcp-invalid-origin';
+        throw error;
+      }
+    }
+    const authorization = String(request.headers.authorization || '');
+    const bearer = /^Bearer\s+(.+)$/i.exec(authorization)?.[1] || '';
+    const headerToken = typeof request.headers['x-legacy-fill-mcp-token'] === 'string' ? request.headers['x-legacy-fill-mcp-token'] : '';
+    const suppliedToken = bearer || headerToken;
+    for (const [token, ownerNamespace] of mcpClients) {
+      const left = Buffer.from(suppliedToken);
+      const right = Buffer.from(token);
+      if (left.length === right.length && left.length > 0 && crypto.timingSafeEqual(left, right)) return ownerNamespace;
+    }
+    const error = new Error('A valid Legacy Fill MCP client token is required');
+    error.status = 401;
+    error.code = 'mcp-client-auth-required';
+    throw error;
+  }
+
+  async function handleMcpRequest(request, response, method) {
+    if (!mcpOperations || !mcpClients.size) {
+      return writeJson(response, 503, { jsonrpc: '2.0', error: { code: -32001, message: 'Legacy Fill MCP is unavailable' }, id: null });
+    }
+    const ownerNamespace = validateMcpRequestAuthority(request);
+    if (method !== 'POST') {
+      response.writeHead(405, { Allow: 'POST', 'Content-Type': 'application/json; charset=utf-8' });
+      response.end(JSON.stringify({ jsonrpc: '2.0', error: { code: -32000, message: 'Method not allowed' }, id: null }));
+      return;
+    }
+    const body = await readJson(request);
+    const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
+    const mcpServer = createLegacyFillMcpServer({ operations: mcpOperations, ownerNamespace });
+    mcpRequestCount += 1;
+    try {
+      await mcpServer.connect(transport);
+      await transport.handleRequest(request, response, body);
+    } finally {
+      response.once('close', () => void mcpServer.close().catch(() => {}));
+    }
   }
 
   function publishSnapshot(payload) {
@@ -253,6 +318,7 @@ export function createLegacyFillService(options = {}) {
     const url = new URL(request.url || '/', `http://${host}:${port}`);
     try {
       if (method === 'GET' && url.pathname === '/health') return writeJson(response, 200, health());
+      if (url.pathname === '/mcp') return await handleMcpRequest(request, response, method);
       if (url.pathname.startsWith('/internal/') && !authorized(request)) {
         return writeJson(response, 403, { ok: false, error: { code: 'host-authority-required', message: 'Legacy Fill Host authority required' } });
       }
@@ -284,6 +350,22 @@ export function createLegacyFillService(options = {}) {
   async function listen() {
     try {
       domainRuntime = await import(`${pathToFileURL(domainRuntimePath).href}?v=${fs.statSync(domainRuntimePath).mtimeMs}`);
+      const fixturePath = path.resolve(options.fixturePath || path.resolve('docs', 'specs', 'legacy-ai-cli-mcp-extraction', 'fixtures', 'legacy-fill-wire-v1.json'));
+      const fixture = JSON.parse(fs.readFileSync(fixturePath, 'utf8'));
+      const examples = {
+        version: `v${fixture.fixtureVersion}`,
+        domains: Object.fromEntries(Object.entries(fixture.domains).map(([domain, value]) => [domain, { schemaVersion: 1, draft: value.draft }])),
+      };
+      const guide = {
+        version: 'v1',
+        kind: 'strategy-not-protocol',
+        rules: [
+          'Read the current snapshot and core-generated schema before drafting.',
+          'Validate before proposal_create and preserve evidence in the proposal.',
+          'Approval and final save require a real user action in the Electron Host review UI.',
+        ],
+      };
+      mcpOperations = createLegacyFillMcpOperations({ repository, domainRuntime, guide, examples });
     } catch (error) {
       domainRuntimeError = error instanceof Error ? error.message : String(error);
     }

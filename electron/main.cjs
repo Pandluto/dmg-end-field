@@ -816,12 +816,38 @@ function getDefAgentRuntimeInfo() {
 }
 
 function getLegacyFillServiceRuntimeInfo() {
+  const runtimeRoot = app.isPackaged
+    ? path.join(app.getPath('userData'), 'runtime', 'legacy-fill-service')
+    : path.join(__dirname, '..', '.runtime', 'legacy-fill-service');
   return {
     running: isLegacyFillServiceRunning(),
     pid: legacyFillServiceProcess?.pid ?? null,
     startedAt: legacyFillServiceStartedAt,
     url: 'http://127.0.0.1:17323',
+    mcpUrl: 'http://127.0.0.1:17323/mcp',
+    mcpClientConfigPath: path.join(runtimeRoot, 'mcp-client.json'),
   };
+}
+
+function ensureLegacyFillMcpClientConfig(runtimeRoot) {
+  const configPath = path.join(runtimeRoot, 'mcp-client.json');
+  try {
+    const current = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+    if (current?.contract === 'LegacyFillMcpClientConfigV1' && typeof current.token === 'string'
+      && typeof current.ownerNamespace === 'string' && current.token && current.ownerNamespace) return current;
+  } catch { /* create the private client config below */ }
+  const installationId = crypto.randomUUID();
+  const config = {
+    contract: 'LegacyFillMcpClientConfigV1',
+    transport: 'streamable-http',
+    url: 'http://127.0.0.1:17323/mcp',
+    token: crypto.randomUUID(),
+    ownerNamespace: `codex:${installationId}:desktop-default`,
+    createdAt: new Date().toISOString(),
+  };
+  fs.writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 });
+  try { fs.chmodSync(configPath, 0o600); } catch { /* best effort on platforms without chmod */ }
+  return config;
 }
 
 function getBridgeHealth() {
@@ -3750,15 +3776,18 @@ async function startLegacyFillService() {
     ? path.join(app.getPath('userData'), 'runtime', 'legacy-fill-service')
     : path.join(__dirname, '..', '.runtime', 'legacy-fill-service');
   fs.mkdirSync(runtimeRoot, { recursive: true });
+  const mcpClient = ensureLegacyFillMcpClientConfig(runtimeRoot);
   const scriptPath = path.join(__dirname, '..', 'scripts', 'legacy-fill-service.mjs');
   legacyFillServiceProcess = spawn(process.execPath, [scriptPath], {
     cwd: getNodeSidecarCwd(),
     env: buildLegacyFillServiceEnv({
       LEGACY_FILL_SERVICE_PORT: '17323',
       LEGACY_FILL_HOST_TOKEN: legacyFillHostToken,
+      LEGACY_FILL_MCP_CLIENTS_JSON: JSON.stringify({ [mcpClient.token]: mcpClient.ownerNamespace }),
       LEGACY_FILL_DATABASE_PATH: path.join(getLocalDataDirectory(), 'legacy-fill.sqlite3'),
       LEGACY_FILL_REGISTRY_PATH: path.join(runtimeRoot, 'registry.json'),
       LEGACY_FILL_DOMAIN_RUNTIME_PATH: path.join(__dirname, '..', 'dist', 'legacy-fill', 'domain-runtime.mjs'),
+      LEGACY_FILL_FIXTURE_PATH: path.join(__dirname, '..', 'docs', 'specs', 'legacy-ai-cli-mcp-extraction', 'fixtures', 'legacy-fill-wire-v1.json'),
     }),
     stdio: 'ignore',
     detached: false,

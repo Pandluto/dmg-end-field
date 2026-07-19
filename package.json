@@ -26,6 +26,7 @@
     "test:legacy-fill-repository": "node scripts/legacy-fill-proposal-repository-contract.mjs",
     "test:legacy-fill-host": "node --experimental-strip-types scripts/legacy-fill-host-gateway-contract.mjs",
     "smoke:legacy-fill-service": "node scripts/legacy-fill-service-smoke.mjs",
+    "test:legacy-fill-mcp": "npm run legacy-fill-runtime:build && node scripts/legacy-fill-mcp-contract.mjs",
     "legacy-fill-runtime:build": "node scripts/build-legacy-fill-runtime.mjs",
     "test:def-core-baseline": "node scripts/def-core-baseline-check.mjs",
     "test:def-core-router": "node scripts/def-core-router-contract-test.mjs",
@@ -79,13 +80,15 @@
     "electron:build:mac:dir": "npm run build && npm run build:opencode-runtime && electron-builder --mac dir --publish never"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "1.29.0",
     "exceljs": "^4.4.0",
     "fuse.js": "^7.3.0",
     "pinyin-pro": "^3.28.1",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "react-markdown": "^10.1.0",
-    "vite": "^7.3.6"
+    "vite": "^7.3.6",
+    "zod": "4.4.3"
   },
   "devDependencies": {
     "@playwright/test": "^1.60.0",
@@ -113,12 +116,14 @@
       "dist/**",
       "src/**",
       "electron/**",
-    "scripts/ai-cli-rest-server.mjs",
-    "scripts/legacy-fill-service.mjs",
-    "scripts/build-legacy-fill-runtime.mjs",
-    "scripts/build-data-catalog.mjs",
-    "scripts/build-data-release-package.mjs",
+      "scripts/ai-cli-rest-server.mjs",
+      "scripts/legacy-fill-service.mjs",
+      "scripts/legacy-fill-mcp-stdio.mjs",
+      "scripts/build-legacy-fill-runtime.mjs",
+      "scripts/build-data-catalog.mjs",
+      "scripts/build-data-release-package.mjs",
       "scripts/build-image-release-manifest.mjs",
+      "docs/specs/legacy-ai-cli-mcp-extraction/fixtures/legacy-fill-wire-v1.json",
       "agent/server/**",
       "agent/runtime/**",
       "!agent/runtime/def-node-workspace/codec.test.mjs",
@@ -127,11 +132,11 @@
       "!agent/dev-agent.cjs",
       "package.json"
     ],
-  "asarUnpack": [
-    "agent/runtime/opencode-core/bin/**",
-    "node_modules/@esbuild/**",
-    "dist/data/catalog.sqlite"
-  ],
+    "asarUnpack": [
+      "agent/runtime/opencode-core/bin/**",
+      "node_modules/@esbuild/**",
+      "dist/data/catalog.sqlite"
+    ],
     "electronLanguages": [
       "zh-CN"
     ],
