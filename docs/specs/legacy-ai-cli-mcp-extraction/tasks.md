@@ -298,13 +298,13 @@ Host gateway 此时保持 shadow/feature-disabled；回滚为旧领域 writer。
 
 ### 实施项
 
-- [ ] 建立不依赖 Vite/`src/**` 动态 SSR 的生产入口。
-- [ ] Electron 单实例启动和回收服务，定义独立 port discovery/registry。
-- [ ] 仅注入 fill service 所需路径/token；不注入 `DEF_INTERNAL_GOVERNANCE_TOKEN`。
-- [ ] Host 启动后发布最新 snapshot；服务暂不接管旧 REST writer。
-- [ ] legacy service 故障不得阻止 `17321`、sidecar、OpenCode 预热。
-- [ ] health 明确报告 DB/schema/snapshot readiness，不冒充 DEF readiness。
-- [ ] packaged build 只带 core/service/curated resources，不带桌面工具目录。
+- [x] 建立不依赖 Vite/`src/**` 动态 SSR 的生产入口。
+- [x] Electron 单实例启动和回收服务，定义独立 port discovery/registry。
+- [x] 仅注入 fill service 所需路径/token；不注入 `DEF_INTERNAL_GOVERNANCE_TOKEN`。
+- [x] Host 启动后发布最新 snapshot；服务暂不接管旧 REST writer。
+- [x] legacy service 故障不得阻止 `17321`、sidecar、OpenCode 预热。
+- [x] health 明确报告 DB/schema/snapshot readiness，不冒充 DEF readiness。
+- [x] packaged build 只带 core/service/curated resources，不带桌面工具目录。
 
 ### 禁止范围
 

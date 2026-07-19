@@ -292,6 +292,8 @@ interface ImageAssetImportToDirResult {
 
 interface DesktopRuntimeBridge {
   role?: 'main' | 'shell' | string;
+  getLegacyFillServiceState?: () => Promise<{ running: boolean; pid: number | null; startedAt: number | null; url: string }>;
+  publishLegacyFillSnapshot?: (payload: unknown) => Promise<{ ok: boolean; receipt?: unknown; code?: string; error?: string }>;
   listImageAssets?: () => Promise<ImageAssetEntry[]>;
   importImageAssets?: () => Promise<ImageAssetEntry[]>;
   importImageAssetsToDir?: (payload: ImageAssetImportToDirPayload) => Promise<ImageAssetImportToDirResult>;

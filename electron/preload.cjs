@@ -8,6 +8,8 @@ contextBridge.exposeInMainWorld('desktopRuntime', {
   platform: process.platform,
   role: roleFromArgs,
   getRole: () => ipcRenderer.invoke('desktop:get-role'),
+  getLegacyFillServiceState: () => ipcRenderer.invoke('desktop:get-legacy-fill-service-state'),
+  publishLegacyFillSnapshot: (payload) => ipcRenderer.invoke('desktop:publish-legacy-fill-snapshot', payload),
   getShellState: () => ipcRenderer.invoke('desktop:get-shell-state'),
   getDesktopSettings: () => ipcRenderer.invoke('desktop:get-settings'),
   setDesktopScale: (scaleKey) => ipcRenderer.invoke('desktop:set-scale', scaleKey),

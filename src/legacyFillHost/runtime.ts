@@ -10,6 +10,9 @@ export async function bootstrapLegacyFillHostGateway(): Promise<BrowserGateway |
     storage: window.localStorage,
     emit(event) {
       window.dispatchEvent(new CustomEvent(event.type, { detail: event.detail }));
+      if (event.type === 'legacy-fill.snapshot.published' && window.desktopRuntime?.publishLegacyFillSnapshot) {
+        void window.desktopRuntime.publishLegacyFillSnapshot(event.detail);
+      }
     },
   });
   const watchedKeys = new Set(Object.values(LEGACY_FILL_STORAGE_KEYS).flatMap((entry) => [entry.current, entry.library]));

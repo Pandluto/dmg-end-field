@@ -1,5 +1,6 @@
 const crypto = require('crypto');
 const defInternalGovernanceToken = crypto.randomUUID();
+const legacyFillHostToken = crypto.randomUUID();
 const fs = require('fs');
 const http = require('http');
 const https = require('https');
@@ -73,6 +74,8 @@ let aiCliRestProcess = null;
 let aiCliRestStartedAt = null;
 let defAgentProcess = null;
 let defAgentStartedAt = null;
+let legacyFillServiceProcess = null;
+let legacyFillServiceStartedAt = null;
 let isAppQuitting = false;
 let appTray = null;
 function buildInteropNativeHeaders(url) {
@@ -473,6 +476,7 @@ function scheduleStartupWarmups() {
   }
   startupWarmupScheduled = true;
   void warmAiRuntimeAtStartup();
+  void warmLegacyFillServiceAtStartup();
   setTimeout(warmWebAppInHiddenWindow, 300);
   setTimeout(() => warmImageAssetCache('startup'), 1200);
 }
@@ -789,6 +793,10 @@ function isDefAgentRunning() {
   return Boolean(defAgentProcess && defAgentProcess.exitCode === null && !defAgentProcess.killed);
 }
 
+function isLegacyFillServiceRunning() {
+  return Boolean(legacyFillServiceProcess && legacyFillServiceProcess.exitCode === null && !legacyFillServiceProcess.killed);
+}
+
 function getAiCliRestRuntimeInfo() {
   return {
     running: isAiCliRestRunning(),
@@ -807,6 +815,15 @@ function getDefAgentRuntimeInfo() {
   };
 }
 
+function getLegacyFillServiceRuntimeInfo() {
+  return {
+    running: isLegacyFillServiceRunning(),
+    pid: legacyFillServiceProcess?.pid ?? null,
+    startedAt: legacyFillServiceStartedAt,
+    url: 'http://127.0.0.1:17323',
+  };
+}
+
 function getBridgeHealth() {
   return {
     ok: true,
@@ -816,6 +833,7 @@ function getBridgeHealth() {
     shell: getShellRuntimeInfo(),
     aiCliRest: getAiCliRestRuntimeInfo(),
     defAgent: getDefAgentRuntimeInfo(),
+    legacyFillService: getLegacyFillServiceRuntimeInfo(),
     desktopSettings: getDesktopSettingsPayload(),
   };
 }
@@ -838,6 +856,21 @@ async function waitForAiCliRestHealth(expectedPid, timeoutMs = 15000) {
     await delay(250);
   }
   throw new Error(`AI CLI REST health check timed out for pid ${expectedPid}`);
+}
+
+async function waitForLegacyFillServiceHealth(expectedPid, timeoutMs = 15000) {
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < timeoutMs) {
+    try {
+      const health = await fetchJsonUrl('http://127.0.0.1:17323/health');
+      if (health.status === 200 && health.body?.ok === true && health.body?.pid === expectedPid
+        && health.body?.service === 'legacy-fill-service') return health.body;
+    } catch {
+      // The independent fill service may still be starting.
+    }
+    await delay(250);
+  }
+  throw new Error(`Legacy Fill service health check timed out for pid ${expectedPid}`);
 }
 
 function waitForProcessExit(child, timeoutMs = 5000) {
@@ -1819,6 +1852,7 @@ function startBridgeServer() {
 function stopServers() {
   stopAiCliRest();
   stopDefAgent();
+  stopLegacyFillService();
   if (bridgeServer) {
     bridgeServer.close();
     bridgeServer = null;
@@ -1826,6 +1860,19 @@ function stopServers() {
 }
 
 ipcMain.handle('desktop:get-role', (event) => getSenderRole(event));
+ipcMain.handle('desktop:get-legacy-fill-service-state', () => getLegacyFillServiceRuntimeInfo());
+ipcMain.handle('desktop:publish-legacy-fill-snapshot', async (_event, payload) => {
+  try {
+    const service = isLegacyFillServiceRunning() ? getLegacyFillServiceRuntimeInfo() : await startLegacyFillService();
+    if (service.ready === false) return { ok: false, code: 'legacy-fill-service-unavailable', error: service.error || service.reason };
+    const result = await postJsonUrl('http://127.0.0.1:17323/internal/snapshots/publish', payload, {
+      headers: { 'x-legacy-fill-host-token': legacyFillHostToken },
+    });
+    return result.body;
+  } catch (error) {
+    return { ok: false, code: 'legacy-fill-snapshot-publish-failed', error: error instanceof Error ? error.message : String(error) };
+  }
+});
 ipcMain.handle('desktop:get-shell-state', () => ({
   appName: app.getName(),
   appVersion: app.getVersion(),
@@ -3684,6 +3731,78 @@ async function stopAiCliRest() {
     startedAt: null,
     url: 'http://127.0.0.1:17321',
   };
+}
+
+function buildLegacyFillServiceEnv(extra = {}) {
+  const environment = { ...process.env, ELECTRON_RUN_AS_NODE: '1', ...extra };
+  for (const key of Object.keys(environment)) {
+    if (key.startsWith('DEF_') || key.startsWith('OPENCODE_')) delete environment[key];
+  }
+  return environment;
+}
+
+async function startLegacyFillService() {
+  if (isLegacyFillServiceRunning()) return { started: false, reason: 'already-running', ...getLegacyFillServiceRuntimeInfo() };
+  ensureLocalDataDirectory();
+  const runtimeRoot = app.isPackaged
+    ? path.join(app.getPath('userData'), 'runtime', 'legacy-fill-service')
+    : path.join(__dirname, '..', '.runtime', 'legacy-fill-service');
+  fs.mkdirSync(runtimeRoot, { recursive: true });
+  const scriptPath = path.join(__dirname, '..', 'scripts', 'legacy-fill-service.mjs');
+  legacyFillServiceProcess = spawn(process.execPath, [scriptPath], {
+    cwd: getNodeSidecarCwd(),
+    env: buildLegacyFillServiceEnv({
+      LEGACY_FILL_SERVICE_PORT: '17323',
+      LEGACY_FILL_HOST_TOKEN: legacyFillHostToken,
+      LEGACY_FILL_DATABASE_PATH: path.join(getLocalDataDirectory(), 'legacy-fill.sqlite3'),
+      LEGACY_FILL_REGISTRY_PATH: path.join(runtimeRoot, 'registry.json'),
+    }),
+    stdio: 'ignore',
+    detached: false,
+    windowsHide: true,
+  });
+  legacyFillServiceStartedAt = Date.now();
+  legacyFillServiceProcess.once('exit', (code, signal) => {
+    appendRuntimeLog('legacy-fill-service', `exit code=${code ?? '-'} signal=${signal || '-'}`);
+    legacyFillServiceProcess = null;
+    legacyFillServiceStartedAt = null;
+  });
+  try {
+    const health = await waitForLegacyFillServiceHealth(legacyFillServiceProcess.pid);
+    return { started: true, ready: true, reason: 'launched', health, ...getLegacyFillServiceRuntimeInfo() };
+  } catch (error) {
+    return { started: true, ready: false, reason: 'launched-health-timeout', error: error instanceof Error ? error.message : String(error), ...getLegacyFillServiceRuntimeInfo() };
+  }
+}
+
+async function stopLegacyFillService() {
+  if (!isLegacyFillServiceRunning()) return { stopped: false, reason: 'not-running', ...getLegacyFillServiceRuntimeInfo() };
+  const stoppingProcess = legacyFillServiceProcess;
+  try {
+    await postJsonUrl('http://127.0.0.1:17323/internal/shutdown', {}, {
+      headers: { 'x-legacy-fill-host-token': legacyFillHostToken },
+    });
+  } catch {
+    killProcessTree(stoppingProcess.pid);
+  }
+  const exit = await waitForProcessExit(stoppingProcess);
+  if (!exit.exited) {
+    killProcessTree(stoppingProcess.pid);
+    return { stopped: false, reason: 'exit-timeout', ...getLegacyFillServiceRuntimeInfo() };
+  }
+  return { stopped: true, reason: 'terminated', running: false, pid: null, startedAt: null, url: 'http://127.0.0.1:17323' };
+}
+
+async function warmLegacyFillServiceAtStartup() {
+  const startedAt = Date.now();
+  try {
+    const service = await startLegacyFillService();
+    appendRuntimeLog('legacy-fill-prewarm', `${service.ready === false ? 'unavailable' : 'ready'} elapsedMs=${Date.now() - startedAt} pid=${service.pid || '-'}`);
+    return service;
+  } catch (error) {
+    appendRuntimeLog('legacy-fill-prewarm', `unavailable elapsedMs=${Date.now() - startedAt} ${error instanceof Error ? error.message : String(error)}`);
+    return { ok: false, error: error instanceof Error ? error.message : String(error) };
+  }
 }
 
 async function startDefAgent() {
