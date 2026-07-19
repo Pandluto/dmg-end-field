@@ -11,9 +11,10 @@ function argument(name, fallback = '') {
 const configPath = path.resolve(argument('config', process.env.LEGACY_FILL_MCP_CLIENT_CONFIG || '.runtime/legacy-fill-service/mcp-client.json'));
 const domain = argument('domain');
 const draftPath = argument('draft');
+const fixtureId = argument('fixture-id');
 const idempotencyKey = argument('idempotency-key');
-if (!domain || !draftPath || !idempotencyKey) {
-  throw new Error('Usage: node scripts/legacy-fill-mcp-migration-demo.mjs --domain <domain> --draft <json> --idempotency-key <stable-key> [--config <mcp-client.json>]');
+if (!domain || (!draftPath && !fixtureId) || !idempotencyKey) {
+  throw new Error('Usage: node scripts/legacy-fill-mcp-migration-demo.mjs --domain <domain> (--draft <json> | --fixture-id <curated-id>) --idempotency-key <stable-key> [--config <mcp-client.json>]');
 }
 
 const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
@@ -21,7 +22,15 @@ if (config.contract !== 'LegacyFillMcpClientConfigV1' || config.transport !== 's
   || typeof config.url !== 'string' || typeof config.token !== 'string' || typeof config.ownerNamespace !== 'string') {
   throw new Error('Legacy Fill MCP client config is invalid');
 }
-const draft = JSON.parse(fs.readFileSync(path.resolve(draftPath), 'utf8'));
+let draft;
+if (draftPath) {
+  draft = JSON.parse(fs.readFileSync(path.resolve(draftPath), 'utf8'));
+} else {
+  const curated = JSON.parse(fs.readFileSync(path.resolve('src', 'legacyFillService', 'resources', 'golden-v1.json'), 'utf8'));
+  const fixture = curated.domains?.[domain]?.fixtures?.find((candidate) => candidate.id === fixtureId);
+  if (!fixture) throw new Error(`Curated fixture not found for ${domain}: ${fixtureId}`);
+  draft = fixture.draft;
+}
 const client = new Client({ name: 'legacy-fill-external-workflow-migration-demo', version: '1.0.0' }, { capabilities: {} });
 const transport = new StreamableHTTPClientTransport(new URL(config.url), {
   requestInit: { headers: { Authorization: `Bearer ${config.token}` } },

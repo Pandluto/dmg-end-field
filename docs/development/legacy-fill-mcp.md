@@ -37,11 +37,11 @@ To exercise the migrated external workflow with an explicit JSON draft:
 ```sh
 node scripts/legacy-fill-mcp-migration-demo.mjs \
   --domain weapon \
-  --draft /absolute/path/to/draft.json \
+  --fixture-id weapon-stacking-chiying-v1 \
   --idempotency-key workspace-task-stable-key
 ```
 
-This uses MCP read → template → validate → proposal creation and then stops. The printed next step is Electron Host review; the script cannot approve, reject, or save.
+Use `--draft /absolute/path/to/draft.json` instead of `--fixture-id` for an external workflow. This uses MCP read → template → validate → proposal creation and then stops. The printed next step is Electron Host review; the script cannot approve, reject, or save.
 
 ## Capability allowlist
 
