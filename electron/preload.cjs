@@ -1,5 +1,4 @@
 const { contextBridge, ipcRenderer } = require('electron');
-const crypto = require('crypto');
 
 const roleArgument = process.argv.find((value) => value.startsWith('--desktop-role='));
 const roleFromArgs = roleArgument ? roleArgument.split('=')[1] : 'unknown';
@@ -11,7 +10,7 @@ window.addEventListener('click', (event) => {
   const button = event.target.closest('[data-legacy-fill-user-action]');
   const action = button?.getAttribute('data-legacy-fill-user-action');
   if (!button || !['approve', 'reject', 'save'].includes(action)) return;
-  const token = crypto.randomUUID();
+  const token = globalThis.crypto.randomUUID();
   trustedLegacyFillActions.set(token, { action, expiresAt: Date.now() + 2000 });
   button.setAttribute('data-legacy-fill-action-token', token);
   setTimeout(() => {
@@ -43,7 +42,7 @@ contextBridge.exposeInMainWorld('desktopRuntime', {
     consumeLegacyFillAction(trustedActionToken, 'save');
     const response = await ipcRenderer.invoke('desktop:begin-save-legacy-fill-proposal', payload);
     if (!response?.ok || response?.proposal?.lifecycleStatus === 'stale') return response;
-    const saveCapability = crypto.randomUUID();
+    const saveCapability = globalThis.crypto.randomUUID();
     legacyFillSaveContinuations.set(saveCapability, { proposalId: payload?.proposalId, expiresAt: Date.now() + 30000 });
     return { ...response, saveCapability };
   },
