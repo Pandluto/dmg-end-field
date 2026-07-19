@@ -152,6 +152,8 @@ assert.match(runtimeSource, /event\?\.isTrusted/, 'approve/reject/save require t
 assert.match(electronMainSource, /issueMcpFillWebAction/, 'Web Host bridge issues short-lived action capabilities');
 assert.match(electronMainSource, /consumeMcpFillWebAction/, 'decision/save bridge consumes a one-shot Web UI capability');
 assert.match(electronMainSource, /mcpFillWebSaveContinuations/, 'save result requires a short-lived continuation from save begin');
+assert.match(runtimeSource, /LegacyFillSaveOutboxV1/, 'successful product writes persist a recovery outbox before audit completion');
+assert.match(electronMainSource, /\/proposals\/save\/reconcile/, 'authorized Web bootstrap can reconcile a durable successful write');
 assert.match(electronMainSource, /isAuthorizedWorkbenchRendererRequest/, 'Web Host bridge requires the protected browser renderer capability');
 assert.doesNotMatch(preloadSource, /confirmAndBeginSaveLegacyFillProposal/, 'MCP Fill is not exposed as a desktop preload product surface');
 for (const visibleField of ['处理结果', '内容检查通过']) {

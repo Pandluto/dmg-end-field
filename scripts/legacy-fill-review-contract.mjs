@@ -151,6 +151,12 @@ try {
   });
   assert.equal(saved.proposal.lifecycleStatus, 'applied');
   assert.equal(saved.proposal.review.persistence.status, 'saved');
+  const reconciledSaved = await hostAction('/internal/proposals/save/result', {
+    ownerNamespace, proposalId: savedId, expectedRevision: saving.proposal.revision,
+    expectedManifestDigest: pending.proposal.manifestDigest, reviewSessionId: savedSession, ok: true,
+    result: { postcondition: 'verified-after-retry' },
+  });
+  assert.equal(reconciledSaved.proposal.lifecycleStatus, 'applied', 'successful save result is idempotently replayable');
   const retried = await request('POST', '/api/weapon/fill/apply?client=review-contract', { requestId: 'review-saved', draft: fixture.domains.weapon.draft });
   assert.equal(retried.body.proposal.id, savedId);
   assert.equal(retried.body.proposal.save, 'Yes', 'retry cannot reuse an old confirmation to create new content');

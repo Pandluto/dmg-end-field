@@ -320,6 +320,15 @@ export function createLegacyFillService(options = {}) {
 
   function recordSaveResult(input) {
     const proposal = requireProposal(input);
+    if (input.ok === true && proposal.lifecycleStatus === 'applied' && proposal.approvalStatus === 'Yes' && proposal.saveStatus === 'Yes') {
+      const savedEvent = repository.proposalEvents(proposal.ownerNamespace, proposal.proposalId)
+        .filter((event) => event.eventType === 'proposal.saved').at(-1);
+      if (proposal.manifestDigest === input.expectedManifestDigest
+        && savedEvent?.event?.reviewSessionId === input.reviewSessionId
+        && savedEvent?.proposalRevision === Number(input.expectedRevision) + 1) {
+        return proposal;
+      }
+    }
     requireReviewSession(proposal, input.reviewSessionId);
     if (proposal.revision !== Number(input.expectedRevision) || proposal.manifestDigest !== input.expectedManifestDigest) {
       const error = new Error('Proposal revision or manifest digest changed before save result');

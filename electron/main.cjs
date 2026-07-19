@@ -759,6 +759,20 @@ async function handleMcpFillWebHost(request, response, requestUrl, method) {
     writeJson(response, result.status || 500, result.body);
     return true;
   }
+  if (method === 'POST' && requestUrl.pathname === '/mcp-fill-host/proposals/save/reconcile') {
+    const { snapshot, ...payload } = await readJsonRequest(request);
+    const published = await postJsonUrl('http://127.0.0.1:17323/internal/snapshots/publish', snapshot, { headers: hostHeaders });
+    if (!published.body?.ok) {
+      writeJson(response, published.status || 500, published.body);
+      return true;
+    }
+    const result = await postJsonUrl('http://127.0.0.1:17323/internal/proposals/save/result', {
+      ...payload,
+      ok: true,
+    }, { headers: hostHeaders });
+    writeJson(response, result.status || 500, { ...result.body, reconciled: Boolean(result.body?.ok) });
+    return true;
+  }
   if (method === 'POST' && requestUrl.pathname === '/mcp-fill-host/snapshots/publish') {
     const payload = await readJsonRequest(request);
     const result = await postJsonUrl('http://127.0.0.1:17323/internal/snapshots/publish', payload.snapshot, { headers: hostHeaders });

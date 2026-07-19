@@ -145,6 +145,10 @@ export function recordSaveMcpFillWebProposal(payload: McpFillBridgePayload, save
   return requestMcpFillHostBridge('/proposals/save-result', 'POST', { ...payload, saveCapability });
 }
 
+export function reconcileMcpFillWebSave(payload: McpFillBridgePayload) {
+  return requestMcpFillHostBridge('/proposals/save/reconcile', 'POST', payload);
+}
+
 export function publishMcpFillWebSnapshot(snapshot: unknown) {
   return requestMcpFillHostBridge('/snapshots/publish', 'POST', { snapshot });
 }
