@@ -235,7 +235,10 @@ export function createLegacyFillProposalRepository(options) {
         contract: 'ProposalReviewManifestV1', domain, targetId: input?.targetId || '', summary,
         baseSnapshot: input.baseSnapshot, payloadDigest: sha256Digest(normalized), schemaVersion: Number(input?.schemaVersion || 1),
       };
-      const manifestDigest = input?.manifestDigest || sha256Digest(review);
+      const manifestDigest = input?.manifestDigest || review.manifestDigest || sha256Digest(review);
+      if (review.manifestDigest && review.manifestDigest !== manifestDigest) {
+        throw new LegacyFillRepositoryError('manifest-digest-mismatch', 'Review manifest digest does not match proposal manifest digest');
+      }
       database.prepare(`INSERT INTO fill_proposals(
         proposal_id, owner_namespace, domain, schema_version, snapshot_id, base_identity, base_revision,
         base_content_hash, payload_json, validation_json, review_manifest_json, manifest_digest,

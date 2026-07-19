@@ -127,6 +127,39 @@ function proposalSummary(proposal, latestSnapshot) {
   };
 }
 
+function diffValues(before, after, path = '', output = []) {
+  if (canonicalJson(before) === canonicalJson(after)) return output;
+  const beforeObject = before && typeof before === 'object' && !Array.isArray(before);
+  const afterObject = after && typeof after === 'object' && !Array.isArray(after);
+  if (beforeObject && afterObject) {
+    const keys = [...new Set([...Object.keys(before), ...Object.keys(after)])].sort();
+    for (const key of keys) {
+      const escaped = key.replaceAll('~', '~0').replaceAll('/', '~1');
+      const nextPath = `${path}/${escaped}`;
+      if (!Object.hasOwn(before, key)) output.push({ path: nextPath, kind: 'add', after: after[key] });
+      else if (!Object.hasOwn(after, key)) output.push({ path: nextPath, kind: 'remove', before: before[key] });
+      else diffValues(before[key], after[key], nextPath, output);
+      if (output.length > 5000) fail('review-diff-too-large', 'proposal diff exceeds 5000 field changes');
+    }
+    return output;
+  }
+  if (before === undefined) output.push({ path: path || '/', kind: 'add', after });
+  else if (after === undefined) output.push({ path: path || '/', kind: 'remove', before });
+  else output.push({ path: path || '/', kind: 'replace', before, after });
+  return output;
+}
+
+function baseTarget(domain, snapshotValue, normalized, targetId) {
+  const library = snapshotValue.payload?.library || {};
+  if (domain !== 'equipment') return library[targetId];
+  const targetIds = targetId.split('|').filter(Boolean);
+  const gearSets = library.gearSets || {};
+  return {
+    ...(normalized && typeof normalized === 'object' ? normalized : {}),
+    gearSets: Object.fromEntries(targetIds.filter((id) => Object.hasOwn(gearSets, id)).map((id) => [id, gearSets[id]])),
+  };
+}
+
 export function createLegacyFillMcpOperations({ repository, domainRuntime, guide, examples }) {
   if (!repository || !domainRuntime) throw new TypeError('repository and domainRuntime are required');
 
@@ -204,20 +237,47 @@ export function createLegacyFillMcpOperations({ repository, domainRuntime, guide
     if (!validation.valid) fail('validation-failed', 'The draft does not satisfy the Legacy Fill schema', { validation });
     const targetId = domainRuntime.targetLegacyFillProposal(input.domain, validation.normalized);
     const summary = domainRuntime.summarizeLegacyFillProposal(input.domain, validation.normalized);
-    const review = {
+    const snapshotValue = snapshot(input.domain, input.baseSnapshot.snapshotId);
+    const before = baseTarget(input.domain, snapshotValue, validation.normalized, targetId);
+    const createdAt = new Date().toISOString();
+    const proposalId = `fill-proposal-${crypto.randomUUID()}`;
+    const validationManifest = {
+      valid: true,
+      errors: (validation.errors || []).map((message) => ({ code: 'validation-error', message: typeof message === 'string' ? message : JSON.stringify(message) })),
+      warnings: (validation.warnings || []).map((message) => ({ code: 'validation-warning', message: typeof message === 'string' ? message : JSON.stringify(message) })),
+      digest: validation.validationDigest,
+    };
+    const reviewWithoutDigest = {
       contract: 'ProposalReviewManifestV1',
+      manifestVersion: 1,
+      proposalId,
+      proposalRevision: 1,
+      ownerNamespace,
       domain: input.domain,
-      targetId,
+      operation: 'upsert',
+      createdAt,
       summary,
       schemaVersion: input.schemaVersion,
       baseSnapshot: input.baseSnapshot,
-      normalized: validation.normalized,
-      validation,
+      target: {
+        id: targetId,
+        ...(typeof validation.normalized?.name === 'string' ? { displayName: validation.normalized.name } : {}),
+        existsInBase: before !== undefined && (input.domain !== 'equipment' || Object.keys(before.gearSets || {}).length > 0),
+      },
       intent: input.intent || '',
+      normalizedDraft: validation.normalized,
+      diff: diffValues(before, validation.normalized),
+      validation: validationManifest,
       evidence: input.evidence || [],
-      payloadDigest: sha256Digest(validation.normalized),
+      requestedWrites: [{ storageDomain: input.domain, targetId }],
+      review: { status: 'pending' },
+      persistence: { status: 'not-requested' },
     };
+    const manifestDigest = sha256Digest(reviewWithoutDigest);
+    const review = { ...reviewWithoutDigest, manifestDigest };
     const created = repository.createProposal({
+      proposalId,
+      createdAt,
       ownerNamespace,
       idempotencyKey: input.idempotencyKey,
       domain: input.domain,
@@ -228,6 +288,7 @@ export function createLegacyFillMcpOperations({ repository, domainRuntime, guide
       normalized: validation.normalized,
       validation,
       review,
+      manifestDigest,
       summary,
       intent: input.intent || '',
       evidence: input.evidence || [],

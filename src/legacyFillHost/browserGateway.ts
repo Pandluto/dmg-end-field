@@ -167,7 +167,9 @@ export function createLegacyFillBrowserHostGateway(options: LegacyFillHostGatewa
     if (reviewState.manifestDigest !== input.expectedManifestDigest || proposal.manifestDigest !== input.expectedManifestDigest) {
       return { ok: false, code: 'proposal-manifest-digest-mismatch' };
     }
-    if (await digestLegacyFillValue(proposal.review) !== proposal.manifestDigest) {
+    const { manifestDigest: embeddedDigest, ...digestFields } = proposal.review;
+    if ((embeddedDigest !== undefined && embeddedDigest !== proposal.manifestDigest)
+      || await digestLegacyFillValue(embeddedDigest === undefined ? proposal.review : digestFields) !== proposal.manifestDigest) {
       return { ok: false, code: 'proposal-manifest-digest-invalid' };
     }
     const currentSnapshot = await readDomain(proposal.domain);

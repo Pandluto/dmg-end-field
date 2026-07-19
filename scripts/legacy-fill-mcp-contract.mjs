@@ -190,6 +190,14 @@ try {
   assert.equal(reviewPayload.proposal.proposalId, created.data.proposalId);
   assert.equal(reviewPayload.reviewManifest.evidence[0].text, 'synthetic fixture');
   assert.equal(reviewPayload.reviewManifest.intent, 'MCP contract proposal only');
+  assert.equal(reviewPayload.reviewManifest.manifestVersion, 1);
+  assert.equal(reviewPayload.reviewManifest.proposalId, created.data.proposalId);
+  assert.equal(reviewPayload.reviewManifest.ownerNamespace, ownerA);
+  assert.equal(reviewPayload.reviewManifest.review.status, 'pending');
+  assert.equal(reviewPayload.reviewManifest.persistence.status, 'not-requested');
+  assert.equal(reviewPayload.reviewManifest.requestedWrites[0].storageDomain, 'weapon');
+  assert.equal(Array.isArray(reviewPayload.reviewManifest.diff), true);
+  assert.equal(reviewPayload.reviewManifest.manifestDigest, reviewPayload.proposal.manifestDigest);
   const versionedResources = await httpA1.client.listResources();
   const resourceClasses = new Set(versionedResources.resources.map(({ uri }) => {
     const parsed = new URL(uri);
