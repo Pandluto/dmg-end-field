@@ -119,6 +119,7 @@
       "src/**",
       "electron/**",
       "scripts/ai-cli-rest-server.mjs",
+      "scripts/def-core/**",
       "scripts/legacy-fill-service.mjs",
       "scripts/legacy-fill-mcp-stdio.mjs",
       "scripts/build-legacy-fill-runtime.mjs",
