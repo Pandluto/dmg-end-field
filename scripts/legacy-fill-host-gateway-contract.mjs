@@ -140,6 +140,12 @@ assert.equal(JSON.parse(postconditionStorage.getItem(LEGACY_FILL_STORAGE_KEYS.we
 
 const runtimeSource = fs.readFileSync(new URL('../src/legacyFillHost/runtime.ts', import.meta.url), 'utf8');
 const pageSource = fs.readFileSync(new URL('../src/components/McpFillPage.tsx', import.meta.url), 'utf8');
+const resultPreviewSources = [
+  '../src/components/mcpFillResults/WeaponResultPreview.tsx',
+  '../src/components/mcpFillResults/OperatorResultPreview.tsx',
+  '../src/components/mcpFillResults/BuffResultPreview.tsx',
+  '../src/components/mcpFillResults/EquipmentResultPreview.tsx',
+].map((path) => fs.readFileSync(new URL(path, import.meta.url), 'utf8'));
 const electronMainSource = fs.readFileSync(new URL('../electron/main.cjs', import.meta.url), 'utf8');
 const preloadSource = fs.readFileSync(new URL('../electron/preload.cjs', import.meta.url), 'utf8');
 assert.match(runtimeSource, /event\?\.isTrusted/, 'approve/reject/save require trusted product UI events');
@@ -148,10 +154,15 @@ assert.match(electronMainSource, /consumeMcpFillWebAction/, 'decision/save bridg
 assert.match(electronMainSource, /mcpFillWebSaveContinuations/, 'save result requires a short-lived continuation from save begin');
 assert.match(electronMainSource, /isAuthorizedWorkbenchRendererRequest/, 'Web Host bridge requires the protected browser renderer capability');
 assert.doesNotMatch(preloadSource, /confirmAndBeginSaveLegacyFillProposal/, 'MCP Fill is not exposed as a desktop preload product surface');
-for (const visibleField of ['内容变化', '现在', '准备写入', '内容检查通过']) {
+for (const visibleField of ['处理结果', '内容检查通过']) {
   assert.equal(pageSource.includes(visibleField), true, `review UI exposes ${visibleField}`);
 }
-assert.equal(pageSource.includes('<MarkdownRenderer'), true, 'review UI renders proposal changes as a readable Markdown document');
+for (const componentName of ['WeaponResultPreview', 'OperatorResultPreview', 'BuffResultPreview', 'EquipmentResultPreview']) {
+  assert.equal(pageSource.includes(`<${componentName}`), true, `review UI routes ${componentName}`);
+}
+assert.equal(resultPreviewSources.every((source) => source.includes('mcp-domain-result')), true, 'each fill domain has a reusable read-only result component');
+assert.equal(resultPreviewSources[0].includes("sword: '单手剑'"), true, 'weapon result uses product weapon type labels');
+assert.equal(pageSource.includes('<MarkdownRenderer'), false, 'review UI no longer exposes a generic Markdown/JSON field tree');
 assert.equal(pageSource.includes('MCP 填表'), true, 'review UI has a dedicated MCP product identity');
 assert.equal(pageSource.includes('确认变更'), true, 'review UI uses an interactive product confirmation');
 assert.equal(pageSource.includes('确认并写入'), true, 'review UI does not expose internal approve/save steps as separate user work');

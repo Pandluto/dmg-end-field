@@ -8,20 +8,23 @@ import {
   type LegacyFillReviewProposal,
   type McpFillRuntimeState,
 } from '../legacyFillHost/runtime';
-import { MarkdownRenderer } from './MarkdownRenderer';
 import { APP_ROUTE_PATHS, navigateToAppPath } from '../utils/appRoute';
+import { BuffResultPreview } from './mcpFillResults/BuffResultPreview';
+import { EquipmentResultPreview } from './mcpFillResults/EquipmentResultPreview';
+import { OperatorResultPreview } from './mcpFillResults/OperatorResultPreview';
+import { WeaponResultPreview } from './mcpFillResults/WeaponResultPreview';
 import './McpFillPage.css';
+import './mcpFillResults/McpFillResultPreview.css';
 
 type ReviewManifest = {
   target?: { id?: string; displayName?: string; existsInBase?: boolean };
-  diff?: Array<{ path?: string; kind?: string; before?: unknown; after?: unknown }>;
+  normalizedDraft?: unknown;
   validation?: { valid?: boolean; errors?: unknown[]; warnings?: unknown[] };
 };
 
 type QueueFilter = 'active' | 'all';
 type ReviewAction = 'confirm' | 'reject';
 type Notice = { tone: 'info' | 'success' | 'warning' | 'error'; text: string };
-type ReviewDiffEntry = { path?: string; kind?: string; before?: unknown; after?: unknown };
 
 const DOMAIN_LABELS = {
   buff: 'BUFF',
@@ -45,123 +48,11 @@ const FILTERS: Array<{ id: QueueFilter; label: string }> = [
   { id: 'all', label: '全部' },
 ];
 
-const FIELD_LABELS: Record<string, string> = {
-  id: '资料 ID',
-  name: '名称',
-  description: '说明',
-  rarity: '稀有度',
-  imgUrl: '图片',
-  skills: '技能',
-  effects: '效果',
-  levels: '等级数据',
-  attackGrowth: '攻击成长',
-  statType: '属性类型',
-  gearSets: '装备套装',
-  items: '条目',
-  value: '数值',
-  condition: '生效条件',
-  type: '武器类型',
-};
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
-}
-
-function fieldLabel(value: string) {
-  const key = value.replace(/^\/+/, '').split('/').filter(Boolean).at(-1) || '全部内容';
-  return FIELD_LABELS[key] || key.replace(/([a-z0-9])([A-Z])/g, '$1 $2').replace(/_/g, ' ');
-}
-
-function changeLabel(kind: string | undefined) {
-  if (kind === 'add') return '新增';
-  if (kind === 'remove') return '删除';
-  return '修改';
-}
-
-function compactValue(value: unknown, key = ''): string {
-  if (value === undefined) return '无';
-  if (value === null) return '未设置';
-  if (typeof value === 'boolean') return value ? '是' : '否';
-  if (typeof value === 'string') return value || '未填写';
-  if (typeof value === 'number') return String(value);
-  if (Array.isArray(value)) return value.length ? `${value.length} 项` : '空列表';
-  if (!isRecord(value)) return String(value);
-  const keys = Object.keys(value);
-  if (!keys.length) return '暂无内容';
-  const name = typeof value.name === 'string' ? value.name : '';
-  const counts = ['skills', 'effects', 'levels', 'items', 'gearSets']
-    .map((childKey) => isRecord(value[childKey]) ? `${Object.keys(value[childKey]).length} 个${FIELD_LABELS[childKey] || childKey}` : '')
-    .filter(Boolean);
-  if (name) return [name, ...counts].join(' · ');
-  return `${keys.length} 项${FIELD_LABELS[key] ? ` ${FIELD_LABELS[key]}` : '内容'}`;
-}
-
-function splitReadableDiff(entries: ReviewDiffEntry[]) {
-  return entries.flatMap((entry) => {
-    if ((entry.path || '/') !== '/' || (!isRecord(entry.before) && !isRecord(entry.after))) return [entry];
-    const before = isRecord(entry.before) ? entry.before : {};
-    const after = isRecord(entry.after) ? entry.after : {};
-    return Array.from(new Set([...Object.keys(before), ...Object.keys(after)]))
-      .filter((key) => JSON.stringify(before[key]) !== JSON.stringify(after[key]))
-      .map((key) => ({
-        path: `/${key}`,
-        kind: !(key in before) ? 'add' : !(key in after) ? 'remove' : 'replace',
-        before: before[key],
-        after: after[key],
-      }));
-  });
-}
-
-function markdownText(value: unknown) {
-  return compactValue(value).replace(/([\\`*_{}[\]()#+.!|>-])/g, '\\$1');
-}
-
-function valueToMarkdown(value: unknown, depth = 0): string[] {
-  if (!isRecord(value) && !Array.isArray(value)) return [markdownText(value)];
-  if (Array.isArray(value)) {
-    if (!value.length) return ['_空列表_'];
-    return value.flatMap((item, index) => {
-      if (!isRecord(item) && !Array.isArray(item)) return [`- ${markdownText(item)}`];
-      return [`- **第 ${index + 1} 项**`, ...valueToMarkdown(item, depth + 1).map((line) => `  ${line}`)];
-    });
-  }
-  const entries = Object.entries(value);
-  if (!entries.length) return ['_暂无内容_'];
-  return entries.flatMap(([key, child]) => {
-    if (!isRecord(child) && !Array.isArray(child)) return [`- **${fieldLabel(key)}**：${markdownText(child)}`];
-    return [`- **${fieldLabel(key)}**（${markdownText(compactValue(child, key))}）`, ...valueToMarkdown(child, depth + 1).map((line) => `  ${line}`)];
-  });
-}
-
-function quoteMarkdown(lines: string[]) {
-  return lines.map((line) => `> ${line}`).join('\n');
-}
-
-function buildReviewMarkdown(proposal: LegacyFillReviewProposal, manifest: ReviewManifest, diff: ReviewDiffEntry[]) {
-  const title = manifest.target?.displayName || manifest.target?.id || proposal.summary;
-  const sections = diff.flatMap((entry) => [
-    `### ${changeLabel(entry.kind)} · ${fieldLabel(entry.path || '/')}`,
-    '',
-    '**现在**',
-    quoteMarkdown(valueToMarkdown(entry.before)),
-    '',
-    '**准备写入**',
-    ...valueToMarkdown(entry.after),
-    '',
-    '---',
-    '',
-  ]);
-  return [
-    `# ${markdownText(title)}`,
-    '',
-    `> ${markdownText(proposal.summary)}`,
-    '',
-    `**${DOMAIN_LABELS[proposal.domain]}** · ${STATUS_LABELS[proposal.lifecycleStatus]} · ${diff.length} 个变化字段`,
-    '',
-    '## 内容变化',
-    '',
-    ...(sections.length ? sections : ['这份提案与当前资料一致。']),
-  ].join('\n');
+function renderResultPreview(domain: LegacyFillReviewProposal['domain'], value: unknown) {
+  if (domain === 'weapon') return <WeaponResultPreview value={value} />;
+  if (domain === 'operator') return <OperatorResultPreview value={value} />;
+  if (domain === 'buff') return <BuffResultPreview value={value} />;
+  return <EquipmentResultPreview value={value} />;
 }
 
 export function isMcpFillPath(pathname: string) {
@@ -266,12 +157,6 @@ export function McpFillPage() {
   }, [filter, proposals, query]);
 
   const canReview = Boolean(selected && ['pending', 'claimed', 'approved'].includes(selected.lifecycleStatus) && !selected.staleBase);
-  const diff = manifest.diff || [];
-  const readableDiff = useMemo(() => splitReadableDiff(diff), [diff]);
-  const reviewMarkdown = useMemo(
-    () => selected ? buildReviewMarkdown(selected, manifest, readableDiff) : '',
-    [manifest, readableDiff, selected],
-  );
   const errorCount = manifest.validation?.errors?.length || 0;
   const warningCount = manifest.validation?.warnings?.length || 0;
 
@@ -368,12 +253,12 @@ export function McpFillPage() {
 
         <section className="mcp-fill-diff-pane">
           <div className="mcp-fill-pane-title">
-            <div><span>内容变化</span><small>{selected ? `${readableDiff.length} 个字段` : '未选择'}</small></div>
+            <div><span>处理结果</span><small>{selected ? STATUS_LABELS[selected.lifecycleStatus] : '未选择'}</small></div>
           </div>
-          {!selected ? <div className="mcp-fill-center-empty"><strong>选择一份提案</strong><span>查看 Codex 生成的结构化变更，并由产品 Host 确认或拒绝。</span></div> : (
+          {!selected ? <div className="mcp-fill-center-empty"><strong>选择一份提案</strong><span>查看整理后的产品结果，再确认或拒绝。</span></div> : (
             <>
-              <div className="mcp-fill-review-document ai-markdown">
-                <MarkdownRenderer text={reviewMarkdown} />
+              <div className="mcp-fill-result-scroll">
+                {renderResultPreview(selected.domain, manifest.normalizedDraft ?? selected.normalized)}
               </div>
               <footer className="mcp-fill-actionbar">
                 <div>
@@ -401,7 +286,7 @@ export function McpFillPage() {
             <p>{modalCopy.body}</p>
             <dl>
               <div><dt>领域</dt><dd>{DOMAIN_LABELS[selected.domain]}</dd></div>
-              <div><dt>字段变化</dt><dd>{readableDiff.length}</dd></div>
+              <div><dt>处理结果</dt><dd>已整理</dd></div>
               <div><dt>提案版本</dt><dd>r{selected.revision}</dd></div>
             </dl>
             <div className="mcp-fill-dialog-actions">

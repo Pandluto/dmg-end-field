@@ -4,7 +4,7 @@ Date: 2026-07-19 (Asia/Shanghai)
 
 ## Result
 
-The fill review surface is now a dedicated product route at `/#/mcp-fill`, exposed from the bottom tool navigation as **MCP 填表**. It replaces the old review component with a lightweight two-column Web flow: select a proposal, read its Markdown review, then confirm or reject it.
+The fill review surface is now a dedicated product route at `/#/mcp-fill`, exposed from the bottom tool navigation as **MCP 填表**. It uses a lightweight two-column Web flow: select a proposal, read its domain-specific product result, then confirm or reject it.
 
 The historical `/#/legacy-fill-review` page path remains a compatibility alias. The old `/open-mcp-fill` and `/open-legacy-fill-review` bridge endpoints now return the canonical Web route and do not create an Electron product window.
 
@@ -44,12 +44,12 @@ Computer Use opened the authorized main Web app in Chrome, clicked the visible *
 
 - service ready at `17323/mcp`;
 - a minimal searchable proposal queue with **待处理 / 全部** filters;
-- a Markdown document containing the proposal summary and readable field-by-field changes instead of a spreadsheet or raw JSON;
+- one of four reusable read-only result components for weapon, operator, Buff, or equipment proposals instead of a generic spreadsheet, Markdown field tree, or raw JSON;
 - a compact content-check and stale-version message next to the final actions;
 - only **拒绝** and **确认并写入** actions;
 - a full confirmation dialog describing the Host write and stale-revision safety boundary.
 
-A follow-up Computer Use pass verified the lightweight layout in Chrome at `http://127.0.0.1:3030/#/mcp-fill`: the old overview ribbon and inspector were removed, the root proposal payload is split into eight named Markdown sections, and nested skills render as ordinary Markdown lists without exposing a JSON block. Product copy no longer shows the proposal owner namespace, process PID, `postcondition`, revision/digest labels, normalized payload, or Host evidence internals in the primary review flow.
+A follow-up Computer Use pass verified the lightweight layout in Chrome at `http://127.0.0.1:3030/#/mcp-fill`: the old overview ribbon and inspector remain removed, and a weapon proposal is rendered by the extracted weapon result component. The fixture value `sword` is shown as the product label **单手剑**; nine weapon effect levels are compressed to `Lv.1 → Lv.9`; the page presents one weapon, three skills, and four effects as the result rather than exposing the normalized payload. Separate operator, Buff, and equipment TSX components use their corresponding normalized localStorage models and product terminology. Product copy does not show the proposal owner namespace, process PID, `postcondition`, revision/digest labels, normalized payload, or Host evidence internals in the primary review flow.
 
 A direct standard MCP migration demo created synthetic proposal `fill-proposal-b2116d3f-237d-4f69-b8e3-a0424d6e5fae` with idempotency key `mcp-web-ui-20260719-correction`. In Chrome, the **确认并写入** dialog was opened and cancelled, proving cancellation caused no write. The **拒绝** dialog was then confirmed through the Web Host bridge. Final UI state was `rejected`, proposal revision 3, persistence `not-requested`, and the product notice stated that product data did not change.
 
