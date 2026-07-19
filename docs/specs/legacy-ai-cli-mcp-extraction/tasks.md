@@ -200,14 +200,14 @@ T0 不切生产行为。若 fixture 引入敏感/个人数据，删除该 fixtur
 
 ### 实施项
 
-- [ ] 建立 `fill_snapshots`、`fill_proposals`、`fill_proposal_events`、`fill_idempotency_keys`、`fill_schema_meta`。
-- [ ] 开启 foreign keys、WAL、busy timeout，并让 migration 单事务执行。
-- [ ] 定义 owner namespace、proposal revision、expectedRevision CAS。
-- [ ] 实现同 owner + idempotency key + request digest 的重复返回；同 key 不同 digest conflict。
-- [ ] 实现 append-only audit 与 deterministic manifest digest。
-- [ ] 实现 stale base 标记，不执行 product write。
-- [ ] 数据库路径与 Timeline Repository、Work Node DB 完全分离。
-- [ ] 提供备份/恢复或可审计 export，为后续 migration 回滚使用。
+- [x] 建立 `fill_snapshots`、`fill_proposals`、`fill_proposal_events`、`fill_idempotency_keys`、`fill_schema_meta`。
+- [x] 开启 foreign keys、WAL、busy timeout，并让 migration 单事务执行。
+- [x] 定义 owner namespace、proposal revision、expectedRevision CAS。
+- [x] 实现同 owner + idempotency key + request digest 的重复返回；同 key 不同 digest conflict。
+- [x] 实现 append-only audit 与 deterministic manifest digest。
+- [x] 实现 stale base 标记，不执行 product write。
+- [x] 数据库路径与 Timeline Repository、Work Node DB 完全分离。
+- [x] 提供备份/恢复或可审计 export，为后续 migration 回滚使用。
 
 ### 禁止范围
 
