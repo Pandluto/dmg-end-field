@@ -24,7 +24,7 @@ type ReviewManifest = {
 };
 
 export function isLegacyFillReviewPath(pathname: string) {
-  return pathname === APP_ROUTE_PATHS.legacyFillReview;
+  return pathname === APP_ROUTE_PATHS.mcpFill || pathname === APP_ROUTE_PATHS.legacyFillReview;
 }
 
 function json(value: unknown) {

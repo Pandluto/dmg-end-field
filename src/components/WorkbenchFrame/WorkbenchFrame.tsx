@@ -10,7 +10,7 @@ import { safeSessionStorage } from '../../utils/storage';
 import {
   getLocalAgentHealth,
   requestCloseShell,
-  requestOpenLegacyFillReviewHost,
+  requestOpenMcpFillHost,
   requestOpenShell,
 } from '../../utils/localAgent';
 import './WorkbenchFrame.css';
@@ -169,15 +169,15 @@ export function WorkbenchFrame({ activeSkillButtonId = null }: WorkbenchFramePro
     navigateToAppPath(APP_ROUTE_PATHS.aiCli);
   }, []);
 
-  const handleOpenLegacyFillReview = useCallback(async () => {
+  const handleOpenMcpFill = useCallback(async () => {
     if (window.desktopRuntime) {
-      navigateToAppPath(APP_ROUTE_PATHS.legacyFillReview);
+      navigateToAppPath(APP_ROUTE_PATHS.mcpFill);
       return;
     }
     try {
-      await requestOpenLegacyFillReviewHost();
+      await requestOpenMcpFillHost();
     } catch (error) {
-      console.error('[legacy-fill-review] Electron Host window unavailable', error);
+      console.error('[mcp-fill] Electron Host window unavailable', error);
     }
   }, []);
 
@@ -253,8 +253,8 @@ export function WorkbenchFrame({ activeSkillButtonId = null }: WorkbenchFramePro
       >
         <span className="workbench-trigger-text">AI CLI</span>
       </button>
-      <button className="workbench-top-trigger workbench-bottom-nav-button" type="button" onClick={handleOpenLegacyFillReview}>
-        <span className="workbench-trigger-text">填表审查</span>
+      <button className="workbench-top-trigger workbench-bottom-nav-button" type="button" onClick={handleOpenMcpFill}>
+        <span className="workbench-trigger-text">MCP 填表</span>
       </button>
       <button className="workbench-top-trigger workbench-bottom-nav-button workbench-shell-button" type="button" onClick={handleToggleShell}>
         <span className="workbench-trigger-text">{shellStatus === 'visible' ? '收起Shell' : '打开Shell'}</span>

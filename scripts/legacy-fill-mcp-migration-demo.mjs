@@ -71,7 +71,7 @@ try {
     schemaVersion: template.schemaVersion,
     validation: { valid: validation.valid, errors: validation.errors, warnings: validation.warnings },
     proposal,
-    next: 'A real user must open /legacy-fill-review in Electron Host to claim, approve/reject, and save. MCP cannot do those actions.',
+    next: 'A real user must open /mcp-fill in Electron Host to inspect, confirm/reject, and save. MCP cannot do those actions.',
   }, null, 2)}\n`);
 } finally {
   await transport.close().catch(() => {});

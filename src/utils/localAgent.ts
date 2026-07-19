@@ -102,13 +102,16 @@ export async function requestCloseAiCliRest(): Promise<NonNullable<LocalAgentHea
   return payload.aiCliRest;
 }
 
-export async function requestOpenLegacyFillReviewHost(): Promise<{ opened: boolean; reason: string; title: string }> {
-  const url = `${LOCAL_AGENT_BASE_URL}/open-legacy-fill-review`;
+export async function requestOpenMcpFillHost(): Promise<{ opened: boolean; reason: string; title: string }> {
+  const url = `${LOCAL_AGENT_BASE_URL}/open-mcp-fill`;
   const response = await fetch(url, {
     method: 'POST',
     headers: withWorkbenchRendererCapability(url),
   });
-  if (!response.ok) throw new Error(`Open Legacy Fill Host review failed: ${response.status}`);
+  if (!response.ok) throw new Error(`Open MCP Fill workspace failed: ${response.status}`);
   const payload = await response.json() as { ok: boolean; review: { opened: boolean; reason: string; title: string } };
   return payload.review;
 }
+
+/** @deprecated Use requestOpenMcpFillHost. */
+export const requestOpenLegacyFillReviewHost = requestOpenMcpFillHost;

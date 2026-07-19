@@ -68,7 +68,7 @@ const APP_ICON_ICO_PATH = path.join(__dirname, 'assets', 'icon.ico');
 
 let shellWindow = null;
 let webPrewarmWindow = null;
-let legacyFillReviewWindow = null;
+let mcpFillWindow = null;
 let bridgeServer = null;
 let shellStartedAt = null;
 let aiCliRestProcess = null;
@@ -461,29 +461,29 @@ function warmWebAppInHiddenWindow() {
   });
 }
 
-function openLegacyFillReviewWindow() {
-  if (legacyFillReviewWindow && !legacyFillReviewWindow.isDestroyed()) {
-    if (legacyFillReviewWindow.isMinimized()) legacyFillReviewWindow.restore();
-    legacyFillReviewWindow.show();
-    legacyFillReviewWindow.focus();
-    return { opened: false, reason: 'already-open', title: legacyFillReviewWindow.getTitle() };
+function openMcpFillWindow() {
+  if (mcpFillWindow && !mcpFillWindow.isDestroyed()) {
+    if (mcpFillWindow.isMinimized()) mcpFillWindow.restore();
+    mcpFillWindow.show();
+    mcpFillWindow.focus();
+    return { opened: false, reason: 'already-open', title: mcpFillWindow.getTitle() };
   }
   const reviewUrl = new URL(getBrowserWebUrl({ includeRendererCapability: true }));
-  reviewUrl.hash = '/legacy-fill-review';
-  legacyFillReviewWindow = new BrowserWindow(buildWindowOptions('legacy-fill-review', {
-    width: 1280,
-    height: 860,
-    minWidth: 960,
-    minHeight: 680,
+  reviewUrl.hash = '/mcp-fill';
+  mcpFillWindow = new BrowserWindow(buildWindowOptions('mcp-fill', {
+    width: 1440,
+    height: 900,
+    minWidth: 1180,
+    minHeight: 760,
     show: true,
-    title: 'Legacy Fill Proposal Review',
-    backgroundColor: '#f6f7f9',
+    title: 'MCP 填表',
+    backgroundColor: '#f3f3f3',
   }));
-  legacyFillReviewWindow.on('closed', () => { legacyFillReviewWindow = null; });
-  legacyFillReviewWindow.loadURL(reviewUrl.href).catch((error) => {
-    appendRuntimeLog('legacy-fill-review', `load failed ${error instanceof Error ? error.message : String(error)}`);
+  mcpFillWindow.on('closed', () => { mcpFillWindow = null; });
+  mcpFillWindow.loadURL(reviewUrl.href).catch((error) => {
+    appendRuntimeLog('mcp-fill', `load failed ${error instanceof Error ? error.message : String(error)}`);
   });
-  return { opened: true, reason: 'created', title: 'Legacy Fill Proposal Review' };
+  return { opened: true, reason: 'created', title: 'MCP 填表' };
 }
 
 function warmImageAssetCache(reason = 'startup') {
@@ -1624,15 +1624,15 @@ function startBridgeServer() {
         return;
       }
 
-      if (method === 'POST' && requestUrl.pathname === '/open-legacy-fill-review') {
+      if (method === 'POST' && ['/open-mcp-fill', '/open-legacy-fill-review'].includes(requestUrl.pathname)) {
         if (!isAuthorizedWorkbenchRendererRequest(request, requestUrl, workbenchRendererCapability, {
           bridgeHost: BRIDGE_HOST,
           bridgePort: BRIDGE_PORT,
         })) {
-          writeJson(response, 403, { ok: false, error: { code: 'denied-renderer-transport', message: 'Legacy Fill Host review is unavailable to this caller.' } });
+          writeJson(response, 403, { ok: false, error: { code: 'denied-renderer-transport', message: 'MCP Fill Host workspace is unavailable to this caller.' } });
           return;
         }
-        writeJson(response, 200, { ok: true, review: openLegacyFillReviewWindow() });
+        writeJson(response, 200, { ok: true, review: openMcpFillWindow() });
         return;
       }
 

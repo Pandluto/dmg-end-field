@@ -16,10 +16,12 @@ let stderr = '';
 
 const electronMainSource = fs.readFileSync(path.join(root, 'electron/main.cjs'), 'utf8');
 const workbenchSource = fs.readFileSync(path.join(root, 'src/components/WorkbenchFrame/WorkbenchFrame.tsx'), 'utf8');
-assert.match(electronMainSource, /openLegacyFillReviewWindow/);
+assert.match(electronMainSource, /openMcpFillWindow/);
+assert.match(electronMainSource, /\/open-mcp-fill/);
 assert.match(electronMainSource, /\/open-legacy-fill-review/);
 assert.match(electronMainSource, /isAuthorizedWorkbenchRendererRequest\(request, requestUrl, workbenchRendererCapability/);
-assert.match(workbenchSource, /requestOpenLegacyFillReviewHost/);
+assert.match(workbenchSource, /requestOpenMcpFillHost/);
+assert.match(workbenchSource, /MCP 填表/);
 
 function start() {
   child = spawn(process.execPath, ['scripts/legacy-fill-service.mjs'], {

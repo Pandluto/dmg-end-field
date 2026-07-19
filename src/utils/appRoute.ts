@@ -10,6 +10,8 @@ export const APP_ROUTE_PATHS = {
   damageReportPpt: '/damage-report-ppt',
   imageManager: '/image-manager',
   aiCli: '/ai-cli',
+  mcpFill: '/mcp-fill',
+  /** @deprecated Compatibility alias for links created before the MCP product route was named. */
   legacyFillReview: '/legacy-fill-review',
 } as const;
 
