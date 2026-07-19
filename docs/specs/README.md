@@ -2,6 +2,12 @@
 
 本页是开发文档的主导航。目录按产品演进线组织，阶段顺序从早到晚排列；具体完成状态以各目录中的 `spec.md`、`tasks.md` 或 verification 为准。
 
+## Legacy Fill / MCP
+
+- [Legacy AI CLI 独立化、标准 MCP 与 Web 填表](./legacy-ai-cli-mcp-extraction/README.md)
+
+这条链路由 Codex 或其他标准 MCP client 直接使用，与 DEF OpenCode 平行，不通过 DEF session、tools 或运行时。
+
 ## DEF OpenCode / Agent
 
 1. [主界面初版](./def-opencode-main-workbench/spec.md)

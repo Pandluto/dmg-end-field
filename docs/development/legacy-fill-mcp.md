@@ -16,7 +16,7 @@ The authenticated token selects a stable `ownerNamespace`. MCP transport session
 
 The canonical product route is `/#/mcp-fill` inside the main browser Web app. The historical `/#/legacy-fill-review` URL remains a compatibility alias. The old protected `/open-mcp-fill` and `/open-legacy-fill-review` bridge calls now resolve the Web route without creating an Electron product window. New callers and documentation must use the MCP name.
 
-The page follows the product's Office/Excel workspace layout: proposal queue on the left, field Diff in the center, and validation, evidence, requested writes, base identity, and normalized content in the Host inspector on the right. It is a browser product page, not an MCP protocol inspector and not a DEF OpenCode page. Electron remains a headless local supervisor/Host bridge for the browser; it does not render a separate MCP Fill window.
+The page is a lightweight two-column product workspace: a searchable proposal queue on the left and one domain-specific result preview on the right. Weapon, operator, Buff, and equipment proposals reuse product terminology and presentation instead of exposing spreadsheet rows, raw JSON, normalized payloads, revision digests, or Host internals. It is a browser product page, not an MCP protocol inspector and not a DEF OpenCode page. Electron remains a headless local supervisor/Host bridge for the browser; it does not render a separate MCP Fill window.
 
 The user flow has two actions only:
 

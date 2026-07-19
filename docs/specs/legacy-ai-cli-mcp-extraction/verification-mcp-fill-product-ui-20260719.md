@@ -74,4 +74,4 @@ The implementation passed:
 - `npm run smoke:packaged-sidecar` (`PACKAGED_SIDECAR_OK`)
 - `git diff --check`
 
-The Host contract additionally verifies that the page contains the complete review fields, does not expose Y/Y, uses the trusted one-click confirm bridge, cannot write before approval, rejects stale revision/digest/base identities, rolls back writer/postcondition failure, and permits an approved compatibility proposal to be explicitly rejected before save.
+The Host contract additionally verifies that the page renders the four product result surfaces without exposing raw review internals, does not expose Y/Y, requires the protected renderer plus a review-bound one-use capability, cannot write before internal approval, rejects stale revision/digest/base identities, reconciles an interrupted successful write, rolls back writer/postcondition failure, and permits an approved compatibility proposal to be explicitly rejected before save.

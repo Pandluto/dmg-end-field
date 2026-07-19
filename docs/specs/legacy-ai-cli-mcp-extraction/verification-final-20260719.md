@@ -2,6 +2,8 @@
 
 Date: 2026-07-19 (Asia/Shanghai)
 
+Document status: final implementation and regression record. The review UI was subsequently simplified into the canonical Web product route; current UI evidence lives in [verification-mcp-fill-product-ui-20260719.md](./verification-mcp-fill-product-ui-20260719.md). T0–T9 stage documents remain historical evidence.
+
 ## Result and authority boundary
 
 T0–T9 are implemented. The production boundary is now:
@@ -12,7 +14,8 @@ Codex / standard MCP client
   -> isolated legacy-fill-service (17323)
   -> canonical proposal SQLite + Host-published read-only snapshots
 
-Electron Host review window
+Main Web app /#/mcp-fill
+  -> protected Web Host bridge
   -> Host-only claim / decision / save-begin / save-result
   -> domain-restricted browser/now-storage writer
   -> reread postcondition + audit + snapshot revision event
@@ -30,7 +33,7 @@ MCP and DEF OpenCode are parallel chains. Codex connected directly to MCP; DEF O
 
 T10 (compatibility retirement) and T11 (DEF local-core rename) remain deliberately gated. The current product requirement is to retain compatibility, and the specification forbids those tasks until a later release window plus explicit product confirmation.
 
-## Direct MCP migration and real Host UI
+## Direct MCP migration and current review surface
 
 The live migration demo used the direct MCP client path:
 
@@ -43,7 +46,7 @@ node scripts/legacy-fill-mcp-migration-demo.mjs \
 
 Result: validation passed and `proposal_create` created `fill-proposal-2b6e0490-920c-453a-9080-9430c29258b4`, returning its versioned review resource URI. No DEF endpoint or session was involved.
 
-The protected renderer bridge opened `/#/legacy-fill-review` in a dedicated Electron Host `BrowserWindow`. Computer Use confirmed the full manifest, field diff, evidence, revision and digest were visible. A real Host UI click claimed and rejected the synthetic proposal. Final state was `rejected`, revision 3, persistence `not-requested`, with save disabled. This safely exercised the user-authority boundary without writing product data.
+The original T8 milestone exercised the Host authority boundary in a dedicated Electron review window. That transitional surface has been replaced by the canonical `/#/mcp-fill` route in the main Web app; `/#/legacy-fill-review` remains only a compatibility alias, and the old open-window bridge now resolves the Web route without creating an Electron product window. The current page shows a lightweight queue plus weapon/operator/Buff/equipment result previews and exposes only **拒绝** and **确认并写入**. The protected renderer capability remains the Host authority boundary, while the one-use action capability is bound to proposal id, review session, revision, and manifest digest. See the linked product verification for the current Computer Use record and interrupted-save reconciliation evidence.
 
 The external `/Users/sailstellar/Desktop/agent填表数据工具` source remained read-only: 78 files, 27 hard-coded REST callers, tree-content SHA-256 `88dde779498917aa8dc31624e20567e7c167f6ae160d15af40f401ffb78db931`. Two curated, schema-versioned fixtures passed; no personal path, token, cache, request dump, or historical executable was packaged.
 
@@ -136,5 +139,6 @@ The release smoke first found that extracted `scripts/def-core/**` files were mi
 ## Completion status
 
 - T0–T9: complete, implemented, verified and committed.
+- MCP Fill Web product follow-up: complete; the transitional Electron review window was retired in favor of the canonical main Web route.
 - Unified DEF regression checklist: complete using live v1 blackbox plus deterministic mutation/permission/Work Node contracts.
 - T10/T11: intentionally not executed; they require a future release window and explicit product confirmation, and would contradict the current requirement to preserve the legacy REST compatibility proxy.
