@@ -148,10 +148,10 @@ assert.match(electronMainSource, /consumeMcpFillWebAction/, 'decision/save bridg
 assert.match(electronMainSource, /mcpFillWebSaveContinuations/, 'save result requires a short-lived continuation from save begin');
 assert.match(electronMainSource, /isAuthorizedWorkbenchRendererRequest/, 'Web Host bridge requires the protected browser renderer capability');
 assert.doesNotMatch(preloadSource, /confirmAndBeginSaveLegacyFillProposal/, 'MCP Fill is not exposed as a desktop preload product surface');
-for (const visibleField of ['内容变化', '整理后的提案内容', '内容检查', '提案依据', '将写到哪里', '写入安全检查']) {
+for (const visibleField of ['内容变化', '现在', '准备写入', '内容检查通过']) {
   assert.equal(pageSource.includes(visibleField), true, `review UI exposes ${visibleField}`);
 }
-assert.equal(pageSource.includes('<StructuredValue'), true, 'review UI renders structured values instead of raw JSON');
+assert.equal(pageSource.includes('<MarkdownRenderer'), true, 'review UI renders proposal changes as a readable Markdown document');
 assert.equal(pageSource.includes('MCP 填表'), true, 'review UI has a dedicated MCP product identity');
 assert.equal(pageSource.includes('确认变更'), true, 'review UI uses an interactive product confirmation');
 assert.equal(pageSource.includes('确认并写入'), true, 'review UI does not expose internal approve/save steps as separate user work');

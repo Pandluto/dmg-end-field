@@ -4,7 +4,7 @@ Date: 2026-07-19 (Asia/Shanghai)
 
 ## Result
 
-The fill review surface is now a dedicated product route at `/#/mcp-fill`, exposed from the bottom tool navigation as **MCP 填表**. It replaces the old review component and follows the repository's Office/Excel product layout rather than the AI CLI or DEF OpenCode layout.
+The fill review surface is now a dedicated product route at `/#/mcp-fill`, exposed from the bottom tool navigation as **MCP 填表**. It replaces the old review component with a lightweight two-column Web flow: select a proposal, read its Markdown review, then confirm or reject it.
 
 The historical `/#/legacy-fill-review` page path remains a compatibility alias. The old `/open-mcp-fill` and `/open-legacy-fill-review` bridge endpoints now return the canonical Web route and do not create an Electron product window.
 
@@ -27,7 +27,7 @@ DEF OpenCode
   -> not registered, called, or involved in this UI workflow
 ```
 
-The visible page explicitly says that it is a Web product page rather than the MCP protocol UI, and that Codex can only read, validate, and create proposals. The page shows the service state and canonical `http://127.0.0.1:17323/mcp` endpoint without exposing either bearer or Host tokens. Electron remains a background supervisor/Host bridge only.
+The page shows only the MCP service state; it does not expose bearer tokens, Host tokens, process identities, digests, or storage internals. Electron remains a background supervisor/Host bridge only.
 
 ## Interaction model
 
@@ -43,14 +43,13 @@ There is no Y/Y flow and no separate user-facing approve/save step. The internal
 Computer Use opened the authorized main Web app in Chrome, clicked the visible **MCP 填表** navigation entry, and confirmed that the same browser tab navigated to `http://127.0.0.1:3030/#/mcp-fill`. No Electron MCP Fill product window was created. The accessibility tree confirmed:
 
 - service ready at `17323/mcp`;
-- proposal queue and status filters;
-- readable field-by-field changes with expandable nested groups instead of raw JSON;
-- content checks, proposal evidence, write target, safety status, and a visual normalized-content summary;
-- technical snapshot/hash/digest identities collapsed under **查看技术校验信息**;
+- a minimal searchable proposal queue with **待处理 / 全部** filters;
+- a Markdown document containing the proposal summary and readable field-by-field changes instead of a spreadsheet or raw JSON;
+- a compact content-check and stale-version message next to the final actions;
 - only **拒绝** and **确认并写入** actions;
 - a full confirmation dialog describing the Host write and stale-revision safety boundary.
 
-A follow-up Computer Use pass verified the compact layout in Chrome at `http://127.0.0.1:3030/#/mcp-fill`: the overview ribbon stays within its fixed row, the root proposal payload is split into eight named fields, and the skills payload expands in place into labeled subfields without exposing a JSON block. Product copy no longer shows the proposal owner namespace, process PID, `postcondition`, or English revision/digest labels in the primary review flow.
+A follow-up Computer Use pass verified the lightweight layout in Chrome at `http://127.0.0.1:3030/#/mcp-fill`: the old overview ribbon and inspector were removed, the root proposal payload is split into eight named Markdown sections, and nested skills render as ordinary Markdown lists without exposing a JSON block. Product copy no longer shows the proposal owner namespace, process PID, `postcondition`, revision/digest labels, normalized payload, or Host evidence internals in the primary review flow.
 
 A direct standard MCP migration demo created synthetic proposal `fill-proposal-b2116d3f-237d-4f69-b8e3-a0424d6e5fae` with idempotency key `mcp-web-ui-20260719-correction`. In Chrome, the **确认并写入** dialog was opened and cancelled, proving cancellation caused no write. The **拒绝** dialog was then confirmed through the Web Host bridge. Final UI state was `rejected`, proposal revision 3, persistence `not-requested`, and the product notice stated that product data did not change.
 
