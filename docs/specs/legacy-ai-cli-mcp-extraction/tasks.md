@@ -152,10 +152,10 @@ T0 不切生产行为。若 fixture 引入敏感/个人数据，删除该 fixtur
 
 ### 实施项
 
-- [ ] 提取 Buff、Weapon、Operator、Equipment 的 domain type、schema、normalizer、validator。
+- [x] 提取 Buff、Weapon、Operator、Equipment 的 domain type、schema、normalizer、validator。
 - [x] 将 read/current/library 和 apply/save 从同一 adapter interface 拆为 pure domain adapter 与 storage/Host adapter。
 - [x] 提取 proposal type、base identity、review manifest 和 deterministic digest。
-- [ ] schema/template 从同一 core 生成，删除新增手抄 schema 的可能性。
+- [x] schema/template 从同一 core 生成，删除新增手抄 schema 的可能性。
 - [x] 保留旧 localStorage writer adapter，使旧 REST fixture 行为不变。
 - [x] 纯 core import 在没有 `window` 的 Node 进程中成功。
 - [x] 将 prompt `?raw`、浏览器事件、sessionStorage 选择态留在 core 之外。

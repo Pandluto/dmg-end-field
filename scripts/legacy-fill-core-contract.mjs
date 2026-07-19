@@ -34,6 +34,8 @@ const domain = createLegacyFillDomainCore({
   targetId: (payload) => payload.id,
 });
 assert.equal(domain.schema(), schema);
+assert.match(source, /payloadSchema: createOperatorFillDraftSchema\(\)/);
+assert.match(source, /payloadSchema: createEquipmentFillDraftSchema\(\)/);
 assert.deepEqual(createLegacyFillProposalPayload({ rawCommand: 'fill.apply {}', normalized: { id: 'fixture' }, summary: 'buff fixture' }), {
   rawCommand: 'fill.apply {}',
   normalized: { id: 'fixture' },

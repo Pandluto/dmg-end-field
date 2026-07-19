@@ -1,0 +1,647 @@
+import type { BuffEffectKind, BuffExtraHitConfig, BuffMultiplier } from '../../core/domain/buff';
+import { normalizeBuffMultiplier, validateBuffMultiplierDefinition } from '../../core/domain/buffMultiplier';
+import { getMultiplierSupportedBuffTypes } from '../../core/domain/buffTypeRegistry';
+import { normalizeExtraHitConfig, validateExtraHitConfig } from '../../core/services/buffExtraHit';
+import {
+  createLegacyFillDomainCore,
+  createLegacyFillSchemaTemplate,
+  type LegacyFillValidationResult,
+} from '..';
+
+const SKILL_LEVEL_KEYS = ['L1', 'L2', 'L3', 'L4', 'L5', 'L6', 'L7', 'L8', 'L9', 'M1', 'M2', 'M3'] as const;
+export const OPERATOR_ATTRIBUTE_LEVEL_KEYS = ['level1', 'level20', 'level40', 'level60', 'level80', 'level90'] as const;
+export const OPERATOR_ATTRIBUTE_KEYS = ['strength', 'agility', 'intelligence', 'will', 'atk', 'hp'] as const;
+export const OPERATOR_BUTTON_TYPES = ['A', 'B', 'E', 'Q', 'Dot'] as const;
+export const OPERATOR_HIT_SKILL_TYPES = ['A', 'B', 'E', 'Q', 'Dot'] as const;
+export const OPERATOR_ELEMENT_TYPES = ['physical', 'fire', 'ice', 'electric', 'nature'] as const;
+export const OPERATOR_ABILITY_TYPES = ['力量', '敏捷', '智识', '意志'] as const;
+export const OPERATOR_PROFESSION_TYPES = ['突击', '重装', '近卫', '辅助', '先锋', '术师'] as const;
+export const OPERATOR_WEAPON_TYPES = ['手铳', '双手剑', '长柄武器', '法术单元', '单手剑'] as const;
+export const OPERATOR_BUFF_GROUPS = ['talent', 'potential', 'skill'] as const;
+export const OPERATOR_BUFF_CATEGORIES = ['passive', 'condition', 'countable'] as const;
+export const OPERATOR_BUFF_VALUE_MODES = ['fixed', 'derived'] as const;
+export const OPERATOR_BUFF_DERIVED_SOURCES = ['hp', 'atk', 'strength', 'agility', 'intelligence', 'will', 'sourceSkill'] as const;
+export const OPERATOR_MULTIPLIER_SUPPORTED_BUFF_TYPES = getMultiplierSupportedBuffTypes();
+export const SUPPORTED_OPERATOR_EFFECT_TYPES = [
+  'atkPercentBoost',
+  'atk',
+  'flatAtk',
+  'mainStat',
+  'subStat',
+  'mainStatBoost',
+  'subStatBoost',
+  'allStatBoost',
+  'strengthBoost',
+  'agilityBoost',
+  'intelligenceBoost',
+  'willBoost',
+  'hpPercent',
+  'critRateBoost',
+  'critDmgBonusBoost',
+  'physicalDmgBonus',
+  'magicDmgBonus',
+  'fireDmgBonus',
+  'electricDmgBonus',
+  'iceDmgBonus',
+  'natureDmgBonus',
+  'allDmgBonus',
+  'skillDmgBonus',
+  'chainSkillDmgBonus',
+  'ultimateDmgBonus',
+  'normalAttackDmgBonus',
+  'dotDmgBonus',
+  'allSkillDmgBonus',
+  'imbalanceDmgBonus',
+  'physicalFragile',
+  'fireFragile',
+  'electricFragile',
+  'iceFragile',
+  'natureFragile',
+  'magicFragile',
+  'physicalVulnerability',
+  'fireVulnerability',
+  'electricVulnerability',
+  'iceVulnerability',
+  'natureVulnerability',
+  'magicVulnerability',
+  'physicalAmplify',
+  'magicAmplify',
+  'fireAmplify',
+  'electricAmplify',
+  'iceAmplify',
+  'natureAmplify',
+  'allCorrosion',
+  'physicalCorrosion',
+  'magicCorrosion',
+  'fireCorrosion',
+  'electricCorrosion',
+  'iceCorrosion',
+  'natureCorrosion',
+  'allResistanceIgnore',
+  'physicalResistanceIgnore',
+  'magicResistanceIgnore',
+  'fireResistanceIgnore',
+  'electricResistanceIgnore',
+  'iceResistanceIgnore',
+  'natureResistanceIgnore',
+  'comboDamageBonus',
+  'multiplierBonus',
+  'sourceSkillBoost',
+  'hp',
+  'ultimateChargeEfficiency',
+  'healingBonus',
+  'receivedHealingBonus',
+  'chainCooldownReduction',
+  'imbalanceEfficiency',
+  'damageReduction',
+];
+
+const ATTRIBUTE_LEVEL_KEYS = OPERATOR_ATTRIBUTE_LEVEL_KEYS;
+const ATTRIBUTE_KEYS = OPERATOR_ATTRIBUTE_KEYS;
+const BUTTON_TYPES = OPERATOR_BUTTON_TYPES;
+const HIT_SKILL_TYPES = OPERATOR_HIT_SKILL_TYPES;
+const ELEMENT_TYPES = OPERATOR_ELEMENT_TYPES;
+const ABILITY_TYPES = OPERATOR_ABILITY_TYPES;
+const PROFESSION_TYPES = OPERATOR_PROFESSION_TYPES;
+const WEAPON_TYPES = OPERATOR_WEAPON_TYPES;
+const BUFF_GROUPS = OPERATOR_BUFF_GROUPS;
+const BUFF_CATEGORIES = OPERATOR_BUFF_CATEGORIES;
+const BUFF_VALUE_MODES = OPERATOR_BUFF_VALUE_MODES;
+const BUFF_DERIVED_SOURCES = OPERATOR_BUFF_DERIVED_SOURCES;
+
+function normalizeEnumText(value: unknown) {
+  return typeof value === 'string'
+    ? value.normalize('NFKC').replace(/[\u200B-\u200D\uFEFF]/g, '').trim()
+    : '';
+}
+
+function findAllowedValue<T extends readonly string[]>(rawValue: unknown, allowed: T) {
+  const normalizedValue = normalizeEnumText(rawValue);
+  return allowed.find((value) => normalizeEnumText(value) === normalizedValue) as T[number] | undefined;
+}
+
+function formatInvalidEnum(field: string, rawValue: unknown, allowed: readonly string[]) {
+  const value = typeof rawValue === 'string' ? JSON.stringify(rawValue) : String(rawValue);
+  return `${field} unsupported: ${value}; must be one of ${allowed.join('/')}`;
+}
+
+type ButtonType = (typeof BUTTON_TYPES)[number];
+type HitSkillType = (typeof HIT_SKILL_TYPES)[number];
+type ElementType = (typeof ELEMENT_TYPES)[number];
+type SkillLevelKey = (typeof SKILL_LEVEL_KEYS)[number];
+type AttributeLevelKey = (typeof ATTRIBUTE_LEVEL_KEYS)[number];
+type AttributeKey = (typeof ATTRIBUTE_KEYS)[number];
+type OperatorBuffGroupKey = (typeof BUFF_GROUPS)[number];
+type OperatorBuffCategory = (typeof BUFF_CATEGORIES)[number];
+type OperatorBuffValueMode = (typeof BUFF_VALUE_MODES)[number];
+type OperatorBuffDerivedSource = (typeof BUFF_DERIVED_SOURCES)[number];
+
+interface OperatorBuffDerivedValue {
+  source: OperatorBuffDerivedSource;
+  perPointValue: number;
+}
+
+interface OperatorBuffEffect {
+  schemaVersion?: 2;
+  effectId: string;
+  name: string;
+  type: string;
+  category: OperatorBuffCategory;
+  value?: number;
+  maxStacks?: number;
+  unit?: 'flat' | 'percent' | string;
+  valueMode?: OperatorBuffValueMode;
+  derivedValue?: OperatorBuffDerivedValue;
+  description?: string;
+  raw?: string;
+  effectKind?: BuffEffectKind;
+  extraHitConfig?: BuffExtraHitConfig;
+  multiplier?: BuffMultiplier;
+}
+
+type OperatorBuffs = Record<OperatorBuffGroupKey, { effects: Record<string, OperatorBuffEffect> }>;
+type AttributeLevels = Record<AttributeKey, Record<AttributeLevelKey, number>>;
+
+interface HitMetaDraft {
+  displayName: string;
+  element: ElementType;
+  skillType: HitSkillType;
+  levels: Record<SkillLevelKey, number>;
+}
+
+interface SkillDraft {
+  displayName: string;
+  buttonType: ButtonType;
+  iconUrl: string;
+  hitCount: number;
+  hitMeta: Record<string, HitMetaDraft>;
+}
+
+export interface OperatorDraft {
+  id: string;
+  name: string;
+  avatarUrl: string;
+  rarity: number;
+  profession: string;
+  weapon: string;
+  element: string;
+  mainStat: string;
+  subStat: string;
+  level: number;
+  attributes: AttributeLevels;
+  skills: Record<string, SkillDraft>;
+  buffs: OperatorBuffs;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === 'object' && !Array.isArray(value);
+}
+
+function defaultAttributes(): AttributeLevels {
+  return Object.fromEntries(
+    ATTRIBUTE_KEYS.map((key) => [key, Object.fromEntries(ATTRIBUTE_LEVEL_KEYS.map((levelKey) => [levelKey, 0]))]),
+  ) as AttributeLevels;
+}
+
+function normalizeOperatorAttributes(rawAttributes: unknown): AttributeLevels {
+  if (!isRecord(rawAttributes)) return defaultAttributes();
+  return Object.fromEntries(
+    ATTRIBUTE_KEYS.map((attributeKey) => {
+      const rawLevels = isRecord(rawAttributes[attributeKey]) ? rawAttributes[attributeKey] : {};
+      return [
+        attributeKey,
+        Object.fromEntries(
+          ATTRIBUTE_LEVEL_KEYS.map((levelKey) => [levelKey, Number(rawLevels[levelKey] ?? 0)]),
+        ),
+      ];
+    }),
+  ) as AttributeLevels;
+}
+
+function validateOperatorAttributes(rawAttributes: unknown, errors: string[]) {
+  if (!isRecord(rawAttributes)) {
+    errors.push('attributes must be object');
+    return;
+  }
+
+  for (const [attributeKey, rawLevels] of Object.entries(rawAttributes)) {
+    if (!findAllowedValue(attributeKey, ATTRIBUTE_KEYS)) {
+      errors.push(formatInvalidEnum('attribute key', attributeKey, ATTRIBUTE_KEYS));
+      continue;
+    }
+    if (!isRecord(rawLevels)) {
+      errors.push(`attributes.${attributeKey} must be object`);
+      continue;
+    }
+    for (const [levelKey, value] of Object.entries(rawLevels)) {
+      if (!ATTRIBUTE_LEVEL_KEYS.includes(levelKey as never)) {
+        errors.push(`invalid attribute level key: attributes.${attributeKey}.${levelKey}; must be one of ${ATTRIBUTE_LEVEL_KEYS.join('/')}`);
+        continue;
+      }
+      if (typeof value !== 'number' || !Number.isFinite(value)) {
+        errors.push(`attributes.${attributeKey}.${levelKey} must be number`);
+      }
+    }
+  }
+}
+
+function defaultBuffs(): OperatorBuffs {
+  return {
+    talent: { effects: {} },
+    potential: { effects: {} },
+    skill: { effects: {} },
+  };
+}
+
+function normalizeOperatorBuffEffect(effectKey: string, rawEffect: Record<string, unknown>): OperatorBuffEffect {
+  const effectKind: BuffEffectKind = rawEffect.effectKind === 'extraHit' ? 'extraHit' : 'modifier';
+  const isLegacySkillMultiplier = rawEffect.type === 'multiplierMultiplier';
+  const normalizedCategory = findAllowedValue(rawEffect.category, BUFF_CATEGORIES)
+    || (normalizeEnumText(rawEffect.category) === 'positive' ? 'passive' : undefined);
+  const normalizedMultiplier = effectKind === 'extraHit'
+    ? undefined
+    : normalizeBuffMultiplier(rawEffect.multiplier)
+      ?? (isLegacySkillMultiplier && typeof rawEffect.value === 'number' && Number.isFinite(rawEffect.value) && rawEffect.value > 0
+        ? { coefficient: rawEffect.value }
+        : undefined);
+  const category = effectKind === 'extraHit'
+    ? (normalizedCategory === 'countable' ? 'countable' : 'passive')
+    : normalizedMultiplier
+      ? 'condition'
+      : (normalizedCategory ?? 'passive');
+  const valueMode: OperatorBuffValueMode = effectKind === 'extraHit' || category === 'countable'
+    ? 'fixed'
+    : rawEffect.valueMode === 'derived' ? 'derived' : 'fixed';
+  const rawDerivedValue = isRecord(rawEffect.derivedValue) ? rawEffect.derivedValue : {};
+  const rawDerivedSource = findAllowedValue(rawDerivedValue.source, BUFF_DERIVED_SOURCES);
+  const rawPerPointValue = rawDerivedValue.perPointValue ?? rawDerivedValue.scale;
+  return {
+    schemaVersion: 2,
+    effectId: typeof rawEffect.effectId === 'string' && rawEffect.effectId ? rawEffect.effectId : effectKey,
+    name: typeof rawEffect.name === 'string' && rawEffect.name ? rawEffect.name : effectKey,
+    type: effectKind === 'extraHit' ? '' : isLegacySkillMultiplier ? 'multiplierBonus' : String(rawEffect.type || ''),
+    category,
+    ...(!isLegacySkillMultiplier && typeof rawEffect.value === 'number' && Number.isFinite(rawEffect.value) ? { value: rawEffect.value } : {}),
+    ...(category === 'countable' && typeof rawEffect.maxStacks === 'number' && Number.isFinite(rawEffect.maxStacks)
+      ? { maxStacks: Math.max(1, Math.floor(rawEffect.maxStacks)) }
+      : {}),
+    ...(typeof rawEffect.unit === 'string' && rawEffect.unit ? { unit: rawEffect.unit } : {}),
+    valueMode,
+    ...(valueMode === 'derived' && rawDerivedSource && typeof rawPerPointValue === 'number' && Number.isFinite(rawPerPointValue)
+      ? { derivedValue: { source: rawDerivedSource, perPointValue: rawPerPointValue } }
+      : {}),
+    ...(typeof rawEffect.description === 'string' && rawEffect.description ? { description: rawEffect.description } : {}),
+    ...(typeof rawEffect.raw === 'string' && rawEffect.raw ? { raw: rawEffect.raw } : {}),
+    effectKind,
+    ...(normalizedMultiplier ? { multiplier: normalizedMultiplier } : {}),
+    ...(effectKind === 'extraHit'
+      ? { extraHitConfig: normalizeExtraHitConfig(rawEffect.extraHitConfig, `${effectKey}-extra-hit`) }
+      : {}),
+  };
+}
+
+function normalizeOperatorBuffs(rawBuffs: unknown): OperatorBuffs {
+  if (!isRecord(rawBuffs)) return defaultBuffs();
+  return Object.fromEntries(
+    BUFF_GROUPS.map((groupKey) => {
+      const rawGroup = isRecord(rawBuffs[groupKey]) ? rawBuffs[groupKey] : {};
+      const rawEffects = isRecord(rawGroup.effects) ? rawGroup.effects : {};
+      return [
+        groupKey,
+        {
+          effects: Object.fromEntries(
+            Object.entries(rawEffects)
+              .filter(([, rawEffect]) => isRecord(rawEffect))
+              .map(([effectKey, rawEffect]) => [effectKey, normalizeOperatorBuffEffect(effectKey, rawEffect as Record<string, unknown>)]),
+          ),
+        },
+      ];
+    }),
+  ) as OperatorBuffs;
+}
+
+export function createFallbackOperatorDraft(): OperatorDraft {
+  return {
+    id: 'custom-operator-001',
+    name: '新干员',
+    avatarUrl: '',
+    rarity: 6,
+    profession: '',
+    weapon: '',
+    element: 'physical',
+    mainStat: '',
+    subStat: '',
+    level: 90,
+    attributes: defaultAttributes(),
+    skills: {},
+    buffs: defaultBuffs(),
+  };
+}
+
+function buildTypedSkillKey(buttonType: ButtonType, index: number): string {
+  return `skill-${buttonType}-${index}`;
+}
+
+function normalizeOperatorSkillKeys(skills: Record<string, SkillDraft>): Record<string, SkillDraft> {
+  const nextSkills: Record<string, SkillDraft> = {};
+  const nextTypeIndexes: Record<ButtonType, number> = {
+    A: 0,
+    B: 0,
+    E: 0,
+    Q: 0,
+    Dot: 0,
+  };
+
+  Object.values(skills).forEach((skill) => {
+    const nextSkillKey = buildTypedSkillKey(skill.buttonType, nextTypeIndexes[skill.buttonType] += 1);
+    nextSkills[nextSkillKey] = skill;
+  });
+
+  return nextSkills;
+}
+
+export function formatOperatorLibrarySummary(library: Record<string, OperatorDraft>) {
+  return Object.entries(library)
+    .sort(([, a], [, b]) => (a.name || '').localeCompare(b.name || '', 'zh-CN'))
+    .map(([id, operator]) => ({
+      id,
+      name: operator.name || '',
+      rarity: Number(operator.rarity || 0),
+      profession: operator.profession || '',
+      element: operator.element || '',
+      skills: operator.skills ? Object.keys(operator.skills).length : 0,
+    }));
+}
+
+export function parseOperatorFillJsonPayload(rawPayload: unknown) {
+  if (typeof rawPayload !== 'string') {
+    return { value: null, errors: ['payload must be string'] };
+  }
+  try {
+    const parsed = JSON.parse(rawPayload.trim()) as Record<string, unknown>;
+    return { value: isRecord(parsed.draft) ? parsed.draft : parsed, errors: [] };
+  } catch (error) {
+    return { value: null, errors: [`JSON parse failed: ${error instanceof Error ? error.message : String(error)}`] };
+  }
+}
+
+export function validateOperatorDraftShape(raw: unknown): LegacyFillValidationResult<OperatorDraft> {
+  const errors: string[] = [];
+  if (!isRecord(raw)) return { ok: false, errors: ['root must be object'] };
+  const obj = raw;
+  if (typeof obj.id !== 'string' || !obj.id.trim()) errors.push('id must be non-empty string');
+  if (typeof obj.name !== 'string' || !obj.name.trim()) errors.push('name must be non-empty string');
+  if (typeof obj.rarity !== 'number' || !Number.isFinite(obj.rarity)) errors.push('rarity must be number');
+  if (!findAllowedValue(obj.profession, PROFESSION_TYPES)) errors.push(formatInvalidEnum('profession', obj.profession, PROFESSION_TYPES));
+  if (!findAllowedValue(obj.weapon, WEAPON_TYPES)) errors.push(formatInvalidEnum('weapon', obj.weapon, WEAPON_TYPES));
+  if (!findAllowedValue(obj.element, ELEMENT_TYPES)) errors.push(formatInvalidEnum('element', obj.element, ELEMENT_TYPES));
+  if (!findAllowedValue(obj.mainStat, ABILITY_TYPES)) errors.push(formatInvalidEnum('mainStat', obj.mainStat, ABILITY_TYPES));
+  if (!findAllowedValue(obj.subStat, ABILITY_TYPES)) errors.push(formatInvalidEnum('subStat', obj.subStat, ABILITY_TYPES));
+  validateOperatorAttributes(obj.attributes, errors);
+  if (!isRecord(obj.skills) || Object.keys(obj.skills).length === 0) {
+    errors.push('skills must be non-empty object');
+  } else {
+    for (const [skillKey, rawSkill] of Object.entries(obj.skills)) {
+      if (!isRecord(rawSkill)) {
+        errors.push(`skills.${skillKey} must be object`);
+        continue;
+      }
+      if (typeof rawSkill.displayName !== 'string') errors.push(`skills.${skillKey}.displayName must be string`);
+      if (!findAllowedValue(rawSkill.buttonType, BUTTON_TYPES)) errors.push(formatInvalidEnum(`skills.${skillKey}.buttonType`, rawSkill.buttonType, BUTTON_TYPES));
+      if (rawSkill.hitMeta !== undefined && !isRecord(rawSkill.hitMeta)) errors.push(`skills.${skillKey}.hitMeta must be object`);
+      if (isRecord(rawSkill.hitMeta)) {
+        for (const [hitKey, rawHit] of Object.entries(rawSkill.hitMeta)) {
+          if (!isRecord(rawHit)) {
+            errors.push(`skills.${skillKey}.hitMeta.${hitKey} must be object`);
+            continue;
+          }
+          if (typeof rawHit.displayName !== 'string') errors.push(`skills.${skillKey}.hitMeta.${hitKey}.displayName must be string`);
+          if (!findAllowedValue(rawHit.element, ELEMENT_TYPES)) errors.push(formatInvalidEnum(`skills.${skillKey}.hitMeta.${hitKey}.element`, rawHit.element, ELEMENT_TYPES));
+          if (!findAllowedValue(rawHit.skillType, HIT_SKILL_TYPES)) errors.push(formatInvalidEnum(`skills.${skillKey}.hitMeta.${hitKey}.skillType`, rawHit.skillType, HIT_SKILL_TYPES));
+          if (!isRecord(rawHit.levels)) errors.push(`skills.${skillKey}.hitMeta.${hitKey}.levels must be object`);
+          if (isRecord(rawHit.levels)) {
+            for (const [levelKey, value] of Object.entries(rawHit.levels)) {
+              if (!SKILL_LEVEL_KEYS.includes(levelKey as never)) errors.push(`invalid skill level key: ${levelKey}`);
+              if (typeof value !== 'number' || !Number.isFinite(value)) errors.push(`skills.${skillKey}.hitMeta.${hitKey}.levels.${levelKey} must be number`);
+            }
+          }
+        }
+      }
+    }
+  }
+  if (obj.buffs !== undefined) {
+    if (!isRecord(obj.buffs)) {
+      errors.push('buffs must be object');
+    } else {
+      for (const [groupKey, rawGroup] of Object.entries(obj.buffs)) {
+        if (!findAllowedValue(groupKey, BUFF_GROUPS)) errors.push(formatInvalidEnum('buff group', groupKey, BUFF_GROUPS));
+        if (!isRecord(rawGroup) || !isRecord(rawGroup.effects)) {
+          errors.push(`buffs.${groupKey}.effects must be object`);
+          continue;
+        }
+        for (const [effectKey, rawEffect] of Object.entries(rawGroup.effects)) {
+          if (!isRecord(rawEffect)) {
+            errors.push(`buffs.${groupKey}.effects.${effectKey} must be object`);
+            continue;
+          }
+          const effectKind = rawEffect.effectKind === undefined ? 'modifier' : rawEffect.effectKind;
+          if (effectKind !== 'modifier' && effectKind !== 'extraHit') {
+            errors.push(`buffs.${groupKey}.effects.${effectKey}.effectKind must be modifier or extraHit`);
+          }
+          if (effectKind === 'extraHit') {
+            validateExtraHitConfig(rawEffect.extraHitConfig, `buffs.${groupKey}.effects.${effectKey}.extraHitConfig`, errors);
+            if (rawEffect.valueMode === 'derived' || rawEffect.derivedValue !== undefined) {
+              errors.push(`buffs.${groupKey}.effects.${effectKey} extraHit does not support derivedValue`);
+            }
+          } else if (
+            typeof rawEffect.type !== 'string'
+            || (!SUPPORTED_OPERATOR_EFFECT_TYPES.includes(rawEffect.type) && rawEffect.type !== 'multiplierMultiplier')
+          ) {
+            errors.push(`unsupported operator buff type: ${String(rawEffect.type)}`);
+          }
+          const buffCategory = findAllowedValue(rawEffect.category, BUFF_CATEGORIES)
+            || (normalizeEnumText(rawEffect.category) === 'positive' ? 'passive' : undefined);
+          if (!buffCategory) errors.push(formatInvalidEnum(`buffs.${groupKey}.effects.${effectKey}.category`, rawEffect.category, BUFF_CATEGORIES));
+          if (effectKind === 'extraHit' && buffCategory === 'condition') {
+            errors.push(`buffs.${groupKey}.effects.${effectKey}.category must be passive or countable for extraHit`);
+          }
+          if (buffCategory === 'countable') {
+            if (typeof rawEffect.maxStacks !== 'number' || !Number.isFinite(rawEffect.maxStacks) || rawEffect.maxStacks <= 0) {
+              errors.push(`buffs.${groupKey}.effects.${effectKey}.maxStacks must be positive number when category is countable`);
+            }
+            if (rawEffect.valueMode === 'derived' || rawEffect.derivedValue !== undefined) {
+              errors.push(`buffs.${groupKey}.effects.${effectKey} countable does not support derivedValue`);
+            }
+          }
+          if (rawEffect.multiplier !== undefined) {
+            const multiplierErrors = validateBuffMultiplierDefinition({
+              type: rawEffect.type === 'multiplierMultiplier' ? 'multiplierBonus' : String(rawEffect.type || ''),
+              category: buffCategory,
+              effectKind: effectKind === 'extraHit' ? 'extraHit' : 'modifier',
+              multiplier: rawEffect.multiplier as BuffMultiplier,
+            });
+            multiplierErrors.forEach((message) => errors.push(`buffs.${groupKey}.effects.${effectKey}: ${message}`));
+          }
+          if (rawEffect.type === 'multiplierMultiplier') {
+            if (rawEffect.multiplier === undefined && (
+              typeof rawEffect.value !== 'number'
+              || !Number.isFinite(rawEffect.value)
+              || rawEffect.value <= 0
+            )) {
+              errors.push(`buffs.${groupKey}.effects.${effectKey}.value must be positive number for legacy multiplierMultiplier`);
+            }
+          }
+          if (effectKind !== 'extraHit' && rawEffect.value !== undefined && (typeof rawEffect.value !== 'number' || !Number.isFinite(rawEffect.value))) errors.push(`buffs.${groupKey}.effects.${effectKey}.value must be number`);
+          const valueMode = rawEffect.valueMode === undefined ? 'fixed' : findAllowedValue(rawEffect.valueMode, BUFF_VALUE_MODES);
+          if (!valueMode) errors.push(formatInvalidEnum(`buffs.${groupKey}.effects.${effectKey}.valueMode`, rawEffect.valueMode, BUFF_VALUE_MODES));
+          if (valueMode === 'derived') {
+            if (!isRecord(rawEffect.derivedValue)) {
+              errors.push(`buffs.${groupKey}.effects.${effectKey}.derivedValue must be object when valueMode is derived`);
+            } else {
+              if (!findAllowedValue(rawEffect.derivedValue.source, BUFF_DERIVED_SOURCES)) {
+                errors.push(formatInvalidEnum(`buffs.${groupKey}.effects.${effectKey}.derivedValue.source`, rawEffect.derivedValue.source, BUFF_DERIVED_SOURCES));
+              }
+              const rawPerPointValue = rawEffect.derivedValue.perPointValue ?? rawEffect.derivedValue.scale;
+              if (typeof rawPerPointValue !== 'number' || !Number.isFinite(rawPerPointValue)) {
+                errors.push(`buffs.${groupKey}.effects.${effectKey}.derivedValue.perPointValue must be number`);
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+  if (errors.length) return { ok: false, errors };
+  return { ok: true, errors: [], normalized: normalizeOperatorDraft(obj) };
+}
+
+export function normalizeOperatorDraft(obj: Record<string, unknown>): OperatorDraft {
+  const skills: Record<string, SkillDraft> = {};
+  for (const [skillKey, rawSkill] of Object.entries(obj.skills as Record<string, Record<string, unknown>>)) {
+    const hitMeta: Record<string, HitMetaDraft> = {};
+    if (isRecord(rawSkill.hitMeta)) {
+      for (const [hitKey, rawHit] of Object.entries(rawSkill.hitMeta)) {
+        if (!isRecord(rawHit)) continue;
+        hitMeta[hitKey] = {
+          displayName: String(rawHit.displayName || hitKey),
+          element: findAllowedValue(rawHit.element, ELEMENT_TYPES) as ElementType,
+          skillType: findAllowedValue(rawHit.skillType, HIT_SKILL_TYPES) as HitSkillType,
+          levels: Object.fromEntries(SKILL_LEVEL_KEYS.map((levelKey) => [levelKey, Number((rawHit.levels as Record<string, number> | undefined)?.[levelKey] ?? 0)])) as Record<SkillLevelKey, number>,
+        };
+      }
+    }
+    skills[skillKey] = {
+      displayName: String(rawSkill.displayName || skillKey),
+      buttonType: findAllowedValue(rawSkill.buttonType, BUTTON_TYPES) as ButtonType,
+      iconUrl: typeof rawSkill.iconUrl === 'string' ? rawSkill.iconUrl : '',
+      hitCount: Object.keys(hitMeta).length || Number(rawSkill.hitCount || 0) || 1,
+      hitMeta: Object.keys(hitMeta).length ? hitMeta : {
+        hit1: {
+          displayName: '第1击',
+          element: findAllowedValue(obj.element, ELEMENT_TYPES) as ElementType,
+          skillType: findAllowedValue(rawSkill.buttonType, BUTTON_TYPES) as ButtonType,
+          levels: Object.fromEntries(SKILL_LEVEL_KEYS.map((levelKey) => [levelKey, 0])) as Record<SkillLevelKey, number>,
+        },
+      },
+    };
+  }
+  return {
+    ...createFallbackOperatorDraft(),
+    id: String(obj.id),
+    name: String(obj.name),
+    avatarUrl: typeof obj.avatarUrl === 'string' ? obj.avatarUrl : '',
+    rarity: Number(obj.rarity),
+    profession: findAllowedValue(obj.profession, PROFESSION_TYPES) || String(obj.profession),
+    weapon: findAllowedValue(obj.weapon, WEAPON_TYPES) || String(obj.weapon),
+    element: findAllowedValue(obj.element, ELEMENT_TYPES) || String(obj.element),
+    mainStat: findAllowedValue(obj.mainStat, ABILITY_TYPES) || String(obj.mainStat),
+    subStat: findAllowedValue(obj.subStat, ABILITY_TYPES) || String(obj.subStat),
+    attributes: normalizeOperatorAttributes(obj.attributes),
+    skills: normalizeOperatorSkillKeys(skills),
+    buffs: normalizeOperatorBuffs(obj.buffs),
+  };
+}
+
+function hasText(value: unknown): value is string {
+  return typeof value === 'string' && value.trim() !== '';
+}
+
+export function preserveExistingOperatorAssetUrls(nextPayload: OperatorDraft, currentDraft: OperatorDraft): OperatorDraft {
+  const next = JSON.parse(JSON.stringify(nextPayload)) as OperatorDraft;
+  if (next.id === currentDraft.id && hasText(currentDraft.avatarUrl)) {
+    next.avatarUrl = currentDraft.avatarUrl;
+  }
+
+  for (const [skillKey, nextSkill] of Object.entries(next.skills || {})) {
+    const currentSkill = currentDraft.skills?.[skillKey]
+      ?? Object.values(currentDraft.skills || {}).find((skill) => (
+        skill.buttonType === nextSkill.buttonType
+        && skill.displayName === nextSkill.displayName
+      ))
+      ?? Object.values(currentDraft.skills || {}).find((skill) => skill.buttonType === nextSkill.buttonType);
+    if (next.id === currentDraft.id && hasText(currentSkill?.iconUrl)) {
+      nextSkill.iconUrl = currentSkill.iconUrl;
+    }
+  }
+
+  return next;
+}
+
+export function createOperatorFillDraftSchema(): Readonly<Record<string, unknown>> {
+  return Object.freeze({
+    formatName: 'ImportedOperatorDraft-compatible object',
+    id: 'string',
+    name: 'string',
+    rarity: 'number',
+    profession: OPERATOR_PROFESSION_TYPES,
+    weapon: OPERATOR_WEAPON_TYPES,
+    element: OPERATOR_ELEMENT_TYPES,
+    mainStat: OPERATOR_ABILITY_TYPES,
+    subStat: OPERATOR_ABILITY_TYPES,
+    attributes: `Record<${OPERATOR_ATTRIBUTE_KEYS.join('|')}, Record<${OPERATOR_ATTRIBUTE_LEVEL_KEYS.join('|')}, number>>; only these six key levels are accepted`,
+    skills: 'Record<skillKey, { displayName, buttonType, iconUrl, hitCount, hitMeta }>; skillKey is system-maintained and normalized to skill-{buttonType}-{per-type index}, e.g. skill-A-1 / skill-B-1 / skill-E-1 / skill-Q-1 / skill-Dot-1. Each buttonType counts from 1. Legacy skill-1 input is accepted but normalized.',
+    skillKeyNaming: 'Use skill-{buttonType}-{index}. The type comes from buttonType, not the old key text. Do not use plain A/B/E/Q/Dot as skill keys.',
+    buttonType: OPERATOR_BUTTON_TYPES,
+    hitSkillType: OPERATOR_HIT_SKILL_TYPES,
+    hitMeta: 'Record<hitKey, { displayName, element, skillType, levels }>; hit skillType accepts A/B/E/Q/Dot',
+    buffs: 'optional; talent/potential/skill groups only; each group is { effects: Record<effectKey, OperatorBuffEffect> }',
+    buffEffect: {
+      fields: ['effectId', 'name', 'effectKind?', 'type', 'category', 'value?', 'multiplier?', 'maxStacks?', 'unit?', 'valueMode?', 'derivedValue?', 'extraHitConfig?', 'description?', 'raw?'],
+      category: OPERATOR_BUFF_CATEGORIES,
+      multiplier: {
+        shape: '{ coefficient: number }',
+        supportedTypes: OPERATOR_MULTIPLIER_SUPPORTED_BUFF_TYPES,
+        rules: 'modifier only; category is always condition; coefficient must be positive; incompatible with category=countable; coefficient is a direct multiplier and must not be written to value',
+        canonicalSkillMultiplierType: 'multiplierBonus',
+        legacyAcceptedInput: 'type=multiplierMultiplier with positive value is accepted only for compatibility and normalized to type=multiplierBonus with multiplier.coefficient=value',
+      },
+      countable: 'category=countable requires maxStacks; countable only supports fixed value and no derivedValue; countable extraHit creates one independent damage segment per active stack',
+      extraHit: 'effectKind=extraHit requires extraHitConfig { key, damageType, skillType, baseMultiplier, imbalanceValue, cooldownSeconds, trigger }; category may be passive/countable; skillType is empty/A/B/E/Q/Dot; 250% is baseMultiplier=2.5; extraHit does not support derivedValue',
+      valueMode: OPERATOR_BUFF_VALUE_MODES,
+      derivedValue: {
+        meaning: 'source value derived Buff; runtime value = selected source value * perPointValue',
+        source: OPERATOR_BUFF_DERIVED_SOURCES,
+        perPointValue: 'number; 每点提升多少。Percent-like types still use decimal numbers, e.g. 每点 +0.10% => 0.001',
+        legacyAcceptedInput: 'derivedValue.scale is accepted during check/apply and normalized to perPointValue',
+      },
+    },
+  });
+}
+
+export const operatorFillDomainCore = createLegacyFillDomainCore<OperatorDraft>({
+  domain: 'operator',
+  schemaVersion: 1,
+  schema: () => createLegacyFillSchemaTemplate({
+    domain: 'operator',
+    schemaVersion: 1,
+    payloadSchema: createOperatorFillDraftSchema(),
+  }),
+  normalize(candidate) {
+    const validation = validateOperatorDraftShape(candidate);
+    if (!validation.ok || !validation.normalized) throw new TypeError(validation.errors.join('; '));
+    return validation.normalized;
+  },
+  validate: validateOperatorDraftShape,
+  summarize: (payload) => `operator fill: name=${payload.name} skills=${Object.keys(payload.skills || {}).length}`,
+  targetId: (payload) => payload.id,
+});
