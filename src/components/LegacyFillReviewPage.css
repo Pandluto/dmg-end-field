@@ -1,0 +1,42 @@
+.legacy-fill-review-page { min-height: 100vh; color: #18202b; background: #f4f6f8; font-family: Inter, "PingFang SC", sans-serif; }
+.legacy-fill-review-header { display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; padding: 28px 34px 22px; color: #f9fbff; background: #18202b; }
+.legacy-fill-review-header h1 { margin: 2px 0 6px; font-size: 28px; }
+.legacy-fill-review-header p { margin: 0; color: #bfc9d6; }
+.legacy-fill-review-eyebrow { text-transform: uppercase; letter-spacing: .12em; font-size: 11px; color: #7dd3a8 !important; }
+.legacy-fill-review-header-actions { display: flex; gap: 8px; }
+.legacy-fill-review-header button, .legacy-fill-review-actions button { border: 1px solid #465365; border-radius: 6px; padding: 9px 14px; color: inherit; background: #263142; cursor: pointer; }
+.legacy-fill-review-message { margin: 16px 24px 0; padding: 12px 16px; border: 1px solid #b7c8d9; border-radius: 6px; background: #fff; }
+.legacy-fill-review-layout { display: grid; grid-template-columns: 300px minmax(0, 1fr); gap: 18px; padding: 18px 24px 32px; }
+.legacy-fill-review-list, .legacy-fill-review-detail { border: 1px solid #d9e0e7; border-radius: 8px; background: #fff; box-shadow: 0 4px 16px rgba(26, 38, 52, .05); }
+.legacy-fill-review-list { align-self: start; padding: 14px; }
+.legacy-fill-review-list h2 { margin: 4px 6px 12px; font-size: 15px; }
+.legacy-fill-review-list > button { display: flex; width: 100%; flex-direction: column; gap: 4px; margin: 4px 0; padding: 11px; border: 0; border-radius: 6px; text-align: left; color: #253244; background: transparent; cursor: pointer; }
+.legacy-fill-review-list > button:hover, .legacy-fill-review-list > button.is-active { background: #e9f2ef; }
+.legacy-fill-review-list small { color: #6c7887; }
+.legacy-fill-review-detail { min-width: 0; padding: 22px; }
+.legacy-fill-review-placeholder, .legacy-fill-review-empty { color: #748091; }
+.legacy-fill-review-title-row { display: flex; justify-content: space-between; gap: 24px; }
+.legacy-fill-review-title-row p { margin: 0 0 4px; color: #697587; font-size: 12px; }
+.legacy-fill-review-title-row h2 { margin: 0; }
+.legacy-fill-review-badges { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; }
+.legacy-fill-review-badges span { align-self: start; border-radius: 999px; padding: 5px 9px; color: #315243; background: #e2f1e9; font-size: 12px; }
+.legacy-fill-review-card { margin-top: 16px; padding: 16px; border: 1px solid #dfe5eb; border-radius: 7px; background: #fbfcfd; }
+.legacy-fill-review-card h3 { margin: 0 0 10px; font-size: 14px; }
+.legacy-fill-review-card pre { max-height: 420px; margin: 0; padding: 12px; overflow: auto; border-radius: 5px; color: #dce7f3; background: #202936; font: 12px/1.55 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; word-break: break-word; }
+.identity-card dl { display: grid; gap: 8px; margin: 0; }
+.identity-card dl div { display: grid; grid-template-columns: 130px 1fr; gap: 12px; }
+.identity-card dt { color: #718093; }
+.identity-card dd { margin: 0; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; word-break: break-all; }
+.legacy-fill-review-diff { display: grid; gap: 8px; }
+.legacy-fill-review-diff article { border-left: 3px solid #7b8795; padding: 8px 10px; background: #fff; }
+.legacy-fill-review-diff article strong { display: block; margin-bottom: 6px; font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; }
+.legacy-fill-review-diff pre.before { margin-bottom: 5px; background: #3a282b; }
+.legacy-fill-review-diff pre.after { background: #20372e; }
+.legacy-fill-review-card.two-column { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.legacy-fill-review-actions { position: sticky; bottom: 0; display: flex; justify-content: flex-end; gap: 8px; margin: 18px -22px -22px; padding: 14px 22px; border-top: 1px solid #d9e0e7; background: rgba(255, 255, 255, .96); }
+.legacy-fill-review-actions button { color: #263142; background: #fff; }
+.legacy-fill-review-actions button.approve { color: #155f3a; border-color: #6aa986; background: #e8f5ee; }
+.legacy-fill-review-actions button.reject { color: #8a2934; border-color: #c8878e; background: #fbecef; }
+.legacy-fill-review-actions button.save { color: #fff; border-color: #2e6c52; background: #2e6c52; }
+.legacy-fill-review-actions button:disabled, .legacy-fill-review-header button:disabled { cursor: not-allowed; opacity: .45; }
+@media (max-width: 900px) { .legacy-fill-review-layout { grid-template-columns: 1fr; } .legacy-fill-review-card.two-column { grid-template-columns: 1fr; } }

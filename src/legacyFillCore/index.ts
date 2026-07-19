@@ -90,6 +90,24 @@ export async function digestLegacyFillValue(value: unknown): Promise<string> {
   return `sha256:${Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('')}`;
 }
 
+export function createLegacyFillReviewDigestPayload(manifest: Record<string, unknown>): Record<string, unknown> {
+  return {
+    manifestVersion: manifest.manifestVersion,
+    domain: manifest.domain,
+    operation: manifest.operation,
+    schemaVersion: manifest.schemaVersion,
+    baseSnapshot: manifest.baseSnapshot,
+    target: manifest.target,
+    intent: manifest.intent,
+    summary: manifest.summary,
+    normalizedDraft: manifest.normalizedDraft,
+    diff: manifest.diff,
+    validation: manifest.validation,
+    evidence: manifest.evidence,
+    requestedWrites: manifest.requestedWrites,
+  };
+}
+
 export function createLegacyFillDomainCore<T>(definition: LegacyFillDomainPort<T>): LegacyFillDomainPort<T> {
   if (!LEGACY_FILL_DOMAINS.includes(definition.domain)) throw new TypeError(`Unsupported legacy fill domain: ${definition.domain}`);
   if (!Number.isInteger(definition.schemaVersion) || definition.schemaVersion < 1) throw new TypeError('schemaVersion must be a positive integer');

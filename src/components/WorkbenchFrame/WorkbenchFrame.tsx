@@ -168,6 +168,10 @@ export function WorkbenchFrame({ activeSkillButtonId = null }: WorkbenchFramePro
     navigateToAppPath(APP_ROUTE_PATHS.aiCli);
   }, []);
 
+  const handleOpenLegacyFillReview = useCallback(() => {
+    navigateToAppPath(APP_ROUTE_PATHS.legacyFillReview);
+  }, []);
+
   const syncLocalAgentStatus = useCallback(async () => {
     try {
       const health = await getLocalAgentHealth();
@@ -239,6 +243,9 @@ export function WorkbenchFrame({ activeSkillButtonId = null }: WorkbenchFramePro
         title={window.desktopRuntime ? 'AI CLI 请在 Web 主界面中打开' : ''}
       >
         <span className="workbench-trigger-text">AI CLI</span>
+      </button>
+      <button className="workbench-top-trigger workbench-bottom-nav-button" type="button" onClick={handleOpenLegacyFillReview}>
+        <span className="workbench-trigger-text">填表审查</span>
       </button>
       <button className="workbench-top-trigger workbench-bottom-nav-button workbench-shell-button" type="button" onClick={handleToggleShell}>
         <span className="workbench-trigger-text">{shellStatus === 'visible' ? '收起Shell' : '打开Shell'}</span>

@@ -269,8 +269,31 @@ export function createLegacyFillProposalRepository(options) {
     return rows.map(mapProposal);
   }
 
+  function listAllProposals(options = {}) {
+    const limit = Math.max(1, Math.min(Number(options.limit || 500), 1000));
+    return database.prepare('SELECT owner_namespace, proposal_id FROM fill_proposals ORDER BY updated_at DESC, proposal_id LIMIT ?').all(limit)
+      .map((row) => inspectProposal(row.owner_namespace, row.proposal_id));
+  }
+
   function inspectProposal(ownerNamespace, proposalId) {
-    return mapProposal(database.prepare('SELECT * FROM fill_proposals WHERE owner_namespace = ? AND proposal_id = ?').get(ownerNamespace, proposalId));
+    const proposal = mapProposal(database.prepare('SELECT * FROM fill_proposals WHERE owner_namespace = ? AND proposal_id = ?').get(ownerNamespace, proposalId));
+    if (!proposal) return null;
+    const eventTypes = database.prepare(`SELECT event_type FROM fill_proposal_events
+      WHERE owner_namespace = ? AND proposal_id = ? ORDER BY event_id`).all(ownerNamespace, proposalId).map((event) => event.event_type);
+    const reviewStatus = proposal.approvalStatus === 'Yes' ? 'approved' : proposal.approvalStatus === 'No' ? 'rejected' : 'pending';
+    const lastSaveEvent = [...eventTypes].reverse().find((eventType) => ['proposal.save-started', 'proposal.saved', 'proposal.save-failed'].includes(eventType));
+    const persistenceStatus = lastSaveEvent === 'proposal.saved' ? 'saved'
+      : lastSaveEvent === 'proposal.save-failed' ? 'failed'
+        : lastSaveEvent === 'proposal.save-started' ? 'pending' : 'not-requested';
+    return {
+      ...proposal,
+      review: {
+        ...proposal.review,
+        proposalRevision: proposal.revision,
+        review: { ...(proposal.review?.review || {}), status: reviewStatus },
+        persistence: { ...(proposal.review?.persistence || {}), status: persistenceStatus },
+      },
+    };
   }
 
   function proposalEvents(ownerNamespace, proposalId) {
@@ -336,7 +359,7 @@ export function createLegacyFillProposalRepository(options) {
 
   return Object.freeze({
     databasePath, schemaVersion: SCHEMA_VERSION, publishSnapshot, getSnapshot, latestSnapshot,
-    createProposal, listProposals, inspectProposal, proposalEvents, updateProposal, markStale, exportAudit, diagnostics,
+    createProposal, listProposals, listAllProposals, inspectProposal, proposalEvents, updateProposal, markStale, exportAudit, diagnostics,
     close: () => database.close(),
   });
 }

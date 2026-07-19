@@ -1,6 +1,7 @@
 import {
   LEGACY_FILL_DOMAINS,
   canonicalLegacyFillJson,
+  createLegacyFillReviewDigestPayload,
   digestLegacyFillValue,
   type LegacyFillDomain,
 } from '../legacyFillCore/index.ts';
@@ -34,7 +35,7 @@ interface BrowserStorageLike {
   removeItem(key: string): void;
 }
 
-interface ReviewedProposal {
+export interface ReviewedProposal {
   proposalId: string;
   ownerNamespace: string;
   domain: LegacyFillDomain;
@@ -44,6 +45,7 @@ interface ReviewedProposal {
   normalized: unknown;
   baseRevision: number;
   baseContentHash: string;
+  approvalStatus?: 'Wait' | 'Yes' | 'No';
 }
 
 export interface LegacyFillHostGatewayOptions {
@@ -132,20 +134,37 @@ export function createLegacyFillBrowserHostGateway(options: LegacyFillHostGatewa
     if (candidate !== authority) throw new TypeError('legacy fill Host authority required');
   }
 
-  function claimProposal(candidate: unknown, proposal: ReviewedProposal) {
+  function claimProposal(candidate: unknown, proposal: ReviewedProposal, suppliedReviewSessionId?: string) {
     requireAuthority(candidate);
-    const reviewSessionId = `legacy-fill-review-${makeId()}`;
+    const reviewSessionId = suppliedReviewSessionId || `legacy-fill-review-${makeId()}`;
     reviews.set(proposal.proposalId, {
-      reviewSessionId, decision: 'pending', proposalRevision: proposal.revision, manifestDigest: proposal.manifestDigest,
+      reviewSessionId, decision: proposal.approvalStatus === 'Yes' ? 'approved' : 'pending', proposalRevision: proposal.revision, manifestDigest: proposal.manifestDigest,
     });
     return { reviewSessionId, proposalId: proposal.proposalId, proposalRevision: proposal.revision };
   }
 
-  function recordDecision(candidate: unknown, input: { proposalId: string; reviewSessionId: string; decision: 'approved' | 'rejected' }) {
+  function recordDecision(candidate: unknown, input: {
+    proposalId: string;
+    reviewSessionId: string;
+    decision: 'approved' | 'rejected';
+    proposalRevision?: number;
+    manifestDigest?: string;
+  }) {
     requireAuthority(candidate);
     const review = reviews.get(input.proposalId);
     if (!review || review.reviewSessionId !== input.reviewSessionId || review.decision !== 'pending') throw new TypeError('stale or unknown legacy fill review session');
     review.decision = input.decision;
+    if (input.proposalRevision !== undefined) review.proposalRevision = input.proposalRevision;
+    if (input.manifestDigest !== undefined) review.manifestDigest = input.manifestDigest;
+    return { ...review, proposalId: input.proposalId };
+  }
+
+  function bindApprovedRevision(candidate: unknown, input: { proposalId: string; reviewSessionId: string; proposalRevision: number; manifestDigest: string }) {
+    requireAuthority(candidate);
+    const review = reviews.get(input.proposalId);
+    if (!review || review.reviewSessionId !== input.reviewSessionId || review.decision !== 'approved') throw new TypeError('approved legacy fill review session required');
+    review.proposalRevision = input.proposalRevision;
+    review.manifestDigest = input.manifestDigest;
     return { ...review, proposalId: input.proposalId };
   }
 
@@ -167,16 +186,17 @@ export function createLegacyFillBrowserHostGateway(options: LegacyFillHostGatewa
     if (reviewState.manifestDigest !== input.expectedManifestDigest || proposal.manifestDigest !== input.expectedManifestDigest) {
       return { ok: false, code: 'proposal-manifest-digest-mismatch' };
     }
-    const { manifestDigest: embeddedDigest, ...digestFields } = proposal.review;
+    const { manifestDigest: embeddedDigest } = proposal.review;
     if ((embeddedDigest !== undefined && embeddedDigest !== proposal.manifestDigest)
-      || await digestLegacyFillValue(embeddedDigest === undefined ? proposal.review : digestFields) !== proposal.manifestDigest) {
+      || await digestLegacyFillValue(embeddedDigest === undefined ? proposal.review : createLegacyFillReviewDigestPayload(proposal.review)) !== proposal.manifestDigest) {
       return { ok: false, code: 'proposal-manifest-digest-invalid' };
     }
     const currentSnapshot = await readDomain(proposal.domain);
     if (currentSnapshot.revision !== proposal.baseRevision || currentSnapshot.contentHash !== proposal.baseContentHash) {
       return { ok: false, code: 'proposal-base-stale' };
     }
-    const expectedTarget = typeof proposal.review.targetId === 'string' ? proposal.review.targetId : '';
+    const target = proposal.review.target && typeof proposal.review.target === 'object' ? proposal.review.target as Record<string, unknown> : {};
+    const expectedTarget = typeof target.id === 'string' ? target.id : typeof proposal.review.targetId === 'string' ? proposal.review.targetId : '';
     if (!expectedTarget || proposalTarget(proposal.domain, proposal.normalized) !== expectedTarget) {
       return { ok: false, code: 'proposal-target-mismatch' };
     }
@@ -223,6 +243,6 @@ export function createLegacyFillBrowserHostGateway(options: LegacyFillHostGatewa
 
   return Object.freeze({
     publishSnapshot,
-    internal: Object.freeze({ authority, claimProposal, recordDecision, applyReviewedProposal, invalidateForNowStorageForceApply }),
+    internal: Object.freeze({ authority, claimProposal, recordDecision, bindApprovedRevision, applyReviewedProposal, invalidateForNowStorageForceApply }),
   });
 }

@@ -13,6 +13,7 @@ import { WeaponDraftSheetPage, isWeaponSheetPath } from './components/WeaponDraf
 import { EquipmentSheetPage, isEquipmentSheetPath } from './components/EquipmentSheetPage';
 import { ImageManagerPage, isImageManagerPath } from './components/ImageManagerPage';
 import { AiCliPage, isAiCliPath } from './components/AiCliPage';
+import { LegacyFillReviewPage, isLegacyFillReviewPath } from './components/LegacyFillReviewPage';
 import { OperatorConfigPage } from './components/OperatorConfigPage';
 import {
   APP_ROUTE_PATHS,
@@ -77,6 +78,10 @@ function App() {
 
   if (isAiCliPath(currentPath)) {
     return <AiCliPage />;
+  }
+
+  if (isLegacyFillReviewPath(currentPath)) {
+    return <LegacyFillReviewPage />;
   }
 
   if (currentPath === APP_ROUTE_PATHS.operatorConfig) {

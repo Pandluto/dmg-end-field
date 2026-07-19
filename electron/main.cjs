@@ -1887,6 +1887,46 @@ function stopServers() {
 
 ipcMain.handle('desktop:get-role', (event) => getSenderRole(event));
 ipcMain.handle('desktop:get-legacy-fill-service-state', () => getLegacyFillServiceRuntimeInfo());
+ipcMain.handle('desktop:list-legacy-fill-proposals', async () => {
+  const result = await fetchJsonUrl('http://127.0.0.1:17323/internal/proposals', {
+    headers: { 'x-legacy-fill-host-token': legacyFillHostToken },
+  });
+  return result.body;
+});
+ipcMain.handle('desktop:inspect-legacy-fill-proposal', async (_event, payload) => {
+  const ownerNamespace = encodeURIComponent(String(payload?.ownerNamespace || ''));
+  const proposalId = encodeURIComponent(String(payload?.proposalId || ''));
+  const result = await fetchJsonUrl(`http://127.0.0.1:17323/internal/proposals/${proposalId}?ownerNamespace=${ownerNamespace}`, {
+    headers: { 'x-legacy-fill-host-token': legacyFillHostToken },
+  });
+  return result.body;
+});
+ipcMain.handle('desktop:claim-legacy-fill-proposal', async (_event, payload) => {
+  const reviewSessionId = `legacy-fill-review-${crypto.randomUUID()}`;
+  const result = await postJsonUrl('http://127.0.0.1:17323/internal/proposals/claim', {
+    ...payload,
+    reviewSessionId,
+  }, { headers: { 'x-legacy-fill-host-token': legacyFillHostToken } });
+  return { ...result.body, ...(result.body?.ok ? { reviewSessionId } : {}) };
+});
+ipcMain.handle('desktop:decide-legacy-fill-proposal', async (_event, payload) => {
+  const result = await postJsonUrl('http://127.0.0.1:17323/internal/proposals/decision', payload, {
+    headers: { 'x-legacy-fill-host-token': legacyFillHostToken },
+  });
+  return result.body;
+});
+ipcMain.handle('desktop:begin-save-legacy-fill-proposal', async (_event, payload) => {
+  const result = await postJsonUrl('http://127.0.0.1:17323/internal/proposals/save/begin', payload, {
+    headers: { 'x-legacy-fill-host-token': legacyFillHostToken },
+  });
+  return result.body;
+});
+ipcMain.handle('desktop:record-save-legacy-fill-proposal', async (_event, payload) => {
+  const result = await postJsonUrl('http://127.0.0.1:17323/internal/proposals/save/result', payload, {
+    headers: { 'x-legacy-fill-host-token': legacyFillHostToken },
+  });
+  return result.body;
+});
 ipcMain.handle('desktop:publish-legacy-fill-snapshot', async (_event, payload) => {
   try {
     const service = isLegacyFillServiceRunning() ? getLegacyFillServiceRuntimeInfo() : await startLegacyFillService();

@@ -10,6 +10,7 @@ export const APP_ROUTE_PATHS = {
   damageReportPpt: '/damage-report-ppt',
   imageManager: '/image-manager',
   aiCli: '/ai-cli',
+  legacyFillReview: '/legacy-fill-review',
 } as const;
 
 export function getTimelineSkillDetailPath(buttonId: string): string {

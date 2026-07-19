@@ -306,6 +306,12 @@ interface DesktopRuntimeBridge {
   revealInExplorer?: (payload: ImageAssetRevealPayload) => Promise<ImageAssetRevealResult>;
   readEquipmentLibrary?: () => Promise<EquipmentLibraryFileOpResult>;
   writeEquipmentLibrary?: (payload: unknown) => Promise<EquipmentLibraryFileOpResult>;
+  listLegacyFillProposals?: () => Promise<{ ok: boolean; proposals?: unknown[]; error?: { code?: string; message?: string } }>;
+  inspectLegacyFillProposal?: (payload: { ownerNamespace: string; proposalId: string }) => Promise<{ ok: boolean; proposal?: unknown; audit?: unknown[]; error?: { code?: string; message?: string } }>;
+  claimLegacyFillProposal?: (payload: unknown) => Promise<{ ok: boolean; proposal?: unknown; reviewSessionId?: string; error?: { code?: string; message?: string } }>;
+  decideLegacyFillProposal?: (payload: unknown, trustedActionToken: string) => Promise<{ ok: boolean; proposal?: unknown; error?: { code?: string; message?: string } }>;
+  beginSaveLegacyFillProposal?: (payload: unknown, trustedActionToken: string) => Promise<{ ok: boolean; proposal?: unknown; saveCapability?: string; error?: { code?: string; message?: string } }>;
+  recordSaveLegacyFillProposal?: (payload: unknown, saveCapability: string) => Promise<{ ok: boolean; proposal?: unknown; error?: { code?: string; message?: string } }>;
   getUserWorkspaceState?: () => Promise<{
     ok: boolean;
     workspace?: { values: Record<string, string | null>; updatedAt: number } | null;

@@ -1,13 +1,16 @@
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
 import { digestLegacyFillValue } from '../src/legacyFillCore/index.ts';
 import { createLegacyFillBrowserHostGateway, LEGACY_FILL_STORAGE_KEYS } from '../src/legacyFillHost/browserGateway.ts';
 
 class MemoryStorage {
-  constructor(entries = {}) { this.values = new Map(Object.entries(entries)); this.failWrites = false; this.corruptWrites = false; }
+  constructor(entries = {}) { this.values = new Map(Object.entries(entries)); this.failWrites = false; this.corruptWrites = false; this.corruptWritesRemaining = 0; }
   getItem(key) { return this.values.has(key) ? this.values.get(key) : null; }
   setItem(key, value) {
     if (this.failWrites) { this.failWrites = false; throw new Error('injected writer failure'); }
-    this.values.set(key, this.corruptWrites ? '{"corrupt":true}' : String(value));
+    const corrupt = this.corruptWrites || this.corruptWritesRemaining > 0;
+    if (this.corruptWritesRemaining > 0) this.corruptWritesRemaining -= 1;
+    this.values.set(key, corrupt ? '{"corrupt":true}' : String(value));
   }
   removeItem(key) { this.values.delete(key); }
 }
@@ -46,7 +49,13 @@ const proposal = {
 
 assert.throws(() => gateway.internal.claimProposal({}, proposal), /Host authority required/);
 const claimed = gateway.internal.claimProposal(gateway.internal.authority, proposal);
+assert.equal((await gateway.internal.applyReviewedProposal(gateway.internal.authority, {
+  proposal, reviewSessionId: claimed.reviewSessionId, expectedRevision: 1, expectedManifestDigest: proposal.manifestDigest,
+})).code, 'host-review-not-approved');
 gateway.internal.recordDecision(gateway.internal.authority, { proposalId: proposal.proposalId, reviewSessionId: claimed.reviewSessionId, decision: 'approved' });
+assert.equal((await gateway.internal.applyReviewedProposal(gateway.internal.authority, {
+  proposal, reviewSessionId: claimed.reviewSessionId, expectedRevision: 2, expectedManifestDigest: proposal.manifestDigest,
+})).code, 'proposal-revision-conflict');
 const applied = await gateway.internal.applyReviewedProposal(gateway.internal.authority, {
   proposal, reviewSessionId: claimed.reviewSessionId, expectedRevision: 1, expectedManifestDigest: proposal.manifestDigest,
 });
@@ -54,6 +63,7 @@ assert.equal(applied.ok, true);
 assert.equal(JSON.parse(storage.getItem(LEGACY_FILL_STORAGE_KEYS.buff.library))['new-buff'].name, 'New Buff');
 assert.equal(JSON.parse(storage.getItem(LEGACY_FILL_STORAGE_KEYS.buff.current)).id, 'new-buff');
 assert.equal(applied.snapshot.domains.buff.revision, first.domains.buff.revision + 1);
+assert.equal(applied.snapshot.domains.weapon.revision, first.domains.weapon.revision, 'save changes only the target domain');
 assert.equal(events.filter((event) => event.type === 'legacy-fill.library.changed').length, 1);
 
 const staleClaim = gateway.internal.claimProposal(gateway.internal.authority, { ...proposal, proposalId: 'proposal-stale' });
@@ -97,4 +107,40 @@ const failedWrite = await failingGateway.internal.applyReviewedProposal(failingG
 });
 assert.equal(failedWrite.code, 'host-write-postcondition-failed');
 assert.equal(failingStorage.getItem(LEGACY_FILL_STORAGE_KEYS.operator.library), '{}');
+
+const postconditionStorage = new MemoryStorage({
+  [LEGACY_FILL_STORAGE_KEYS.weapon.current]: JSON.stringify({ id: 'weapon-old' }),
+  [LEGACY_FILL_STORAGE_KEYS.weapon.library]: JSON.stringify({}),
+});
+const postconditionGateway = createLegacyFillBrowserHostGateway({ storage: postconditionStorage, makeId: () => 'postcondition' });
+const postconditionSnapshot = await postconditionGateway.publishSnapshot();
+const postconditionNormalized = { id: 'weapon-new', name: 'Weapon New' };
+const postconditionReview = { domain: 'weapon', targetId: 'weapon-new' };
+const postconditionProposal = {
+  proposalId: 'proposal-postcondition', ownerNamespace: 'owner', domain: 'weapon', revision: 1,
+  manifestDigest: await digestLegacyFillValue(postconditionReview), review: postconditionReview, normalized: postconditionNormalized,
+  baseRevision: postconditionSnapshot.domains.weapon.revision, baseContentHash: postconditionSnapshot.domains.weapon.contentHash,
+};
+const postconditionClaim = postconditionGateway.internal.claimProposal(postconditionGateway.internal.authority, postconditionProposal);
+postconditionGateway.internal.recordDecision(postconditionGateway.internal.authority, { proposalId: postconditionProposal.proposalId, reviewSessionId: postconditionClaim.reviewSessionId, decision: 'approved' });
+postconditionStorage.corruptWritesRemaining = 1;
+const postconditionFailed = await postconditionGateway.internal.applyReviewedProposal(postconditionGateway.internal.authority, {
+  proposal: postconditionProposal, reviewSessionId: postconditionClaim.reviewSessionId, expectedRevision: 1,
+  expectedManifestDigest: postconditionProposal.manifestDigest,
+});
+assert.equal(postconditionFailed.code, 'host-write-postcondition-failed');
+assert.equal(postconditionStorage.getItem(LEGACY_FILL_STORAGE_KEYS.weapon.library), '{}', 'postcondition failure rolls back library');
+assert.equal(JSON.parse(postconditionStorage.getItem(LEGACY_FILL_STORAGE_KEYS.weapon.current)).id, 'weapon-old', 'postcondition failure rolls back current draft');
+
+const runtimeSource = fs.readFileSync(new URL('../src/legacyFillHost/runtime.ts', import.meta.url), 'utf8');
+const pageSource = fs.readFileSync(new URL('../src/components/LegacyFillReviewPage.tsx', import.meta.url), 'utf8');
+const preloadSource = fs.readFileSync(new URL('../electron/preload.cjs', import.meta.url), 'utf8');
+assert.match(runtimeSource, /event\?\.isTrusted/, 'approve/reject/save require trusted product UI events');
+assert.match(preloadSource, /event\.isTrusted/, 'preload only issues action capabilities from trusted click events');
+assert.match(preloadSource, /consumeLegacyFillAction/, 'decision/save bridge consumes a one-shot UI capability');
+assert.match(preloadSource, /legacyFillSaveContinuations/, 'save result requires a short-lived continuation from save begin');
+for (const visibleField of ['逐字段 Diff', 'Normalized draft', 'Validation / warnings', 'Evidence', 'Requested writes', 'Manifest digest']) {
+  assert.equal(pageSource.includes(visibleField), true, `review UI exposes ${visibleField}`);
+}
+assert.equal(pageSource.includes('DefOpenCodeView'), false, 'Legacy Fill review UI is not hosted by DEF OpenCode');
 process.stdout.write('[legacy-fill-host-gateway-contract] passed\n');

@@ -8,6 +8,7 @@ import {
 } from '../legacyFillCore/domains/weapon';
 import { operatorFillAdapter, operatorFillDomainCore } from '../aiCli/operatorFillAdapter';
 import { equipmentFillAdapter, equipmentFillDomainCore } from '../aiCli/equipmentFillAdapter';
+export { createLegacyFillReviewDigestPayload } from '../legacyFillCore/index';
 
 const domainCores = {
   weapon: weaponFillDomainCore,

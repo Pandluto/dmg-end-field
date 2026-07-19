@@ -209,10 +209,145 @@ export function createLegacyFillService(options = {}) {
     };
   }
 
+  function requireProposal(input) {
+    const ownerNamespace = typeof input?.ownerNamespace === 'string' ? input.ownerNamespace : '';
+    const proposalId = typeof input?.proposalId === 'string' ? input.proposalId : '';
+    const proposal = repository.inspectProposal(ownerNamespace, proposalId);
+    if (!proposal) {
+      const error = new Error('Legacy Fill proposal not found');
+      error.status = 404;
+      error.code = 'proposal-not-found';
+      throw error;
+    }
+    return proposal;
+  }
+
+  function requireReviewSession(proposal, reviewSessionId) {
+    const claim = repository.proposalEvents(proposal.ownerNamespace, proposal.proposalId)
+      .filter((event) => event.eventType === 'proposal.review-claimed').at(-1);
+    if (!claim || claim.event?.reviewSessionId !== reviewSessionId) {
+      const error = new Error('Legacy Fill review session is stale or unknown');
+      error.status = 409;
+      error.code = 'review-session-conflict';
+      throw error;
+    }
+  }
+
+  function claimReview(input) {
+    const proposal = requireProposal(input);
+    if (!['pending', 'claimed', 'approved'].includes(proposal.lifecycleStatus)) {
+      const error = new Error(`Proposal cannot be reviewed from ${proposal.lifecycleStatus}`);
+      error.status = 409;
+      error.code = 'proposal-not-reviewable';
+      throw error;
+    }
+    if (proposal.revision !== Number(input.expectedRevision) || proposal.manifestDigest !== input.expectedManifestDigest) {
+      const error = new Error('Proposal revision or manifest digest changed before claim');
+      error.status = 409;
+      error.code = 'proposal-review-cas-conflict';
+      throw error;
+    }
+    return repository.updateProposal({
+      ownerNamespace: proposal.ownerNamespace,
+      proposalId: proposal.proposalId,
+      expectedRevision: proposal.revision,
+      eventType: 'proposal.review-claimed',
+      patch: { lifecycleStatus: proposal.approvalStatus === 'Yes' ? 'approved' : 'claimed' },
+      event: { reviewSessionId: input.reviewSessionId, manifestDigest: proposal.manifestDigest },
+    });
+  }
+
+  function decideReview(input) {
+    const proposal = requireProposal(input);
+    requireReviewSession(proposal, input.reviewSessionId);
+    if (proposal.revision !== Number(input.expectedRevision) || proposal.manifestDigest !== input.expectedManifestDigest) {
+      const error = new Error('Proposal revision or manifest digest changed before decision');
+      error.status = 409;
+      error.code = 'proposal-review-cas-conflict';
+      throw error;
+    }
+    if (!['approved', 'rejected'].includes(input.decision)) {
+      const error = new Error('Review decision must be approved or rejected');
+      error.status = 400;
+      error.code = 'invalid-review-decision';
+      throw error;
+    }
+    return repository.updateProposal({
+      ownerNamespace: proposal.ownerNamespace,
+      proposalId: proposal.proposalId,
+      expectedRevision: proposal.revision,
+      eventType: input.decision === 'approved' ? 'proposal.review-approved' : 'proposal.review-rejected',
+      patch: input.decision === 'approved'
+        ? { lifecycleStatus: 'approved', approvalStatus: 'Yes', saveStatus: 'Wait' }
+        : { lifecycleStatus: 'rejected', approvalStatus: 'No', saveStatus: 'No' },
+      event: { reviewSessionId: input.reviewSessionId, manifestDigest: proposal.manifestDigest },
+    });
+  }
+
+  function beginSave(input) {
+    const proposal = requireProposal(input);
+    requireReviewSession(proposal, input.reviewSessionId);
+    if (proposal.lifecycleStatus !== 'approved' || proposal.approvalStatus !== 'Yes') {
+      const error = new Error('Proposal must be approved before save');
+      error.status = 409;
+      error.code = 'proposal-not-approved';
+      throw error;
+    }
+    if (proposal.revision !== Number(input.expectedRevision) || proposal.manifestDigest !== input.expectedManifestDigest) {
+      const error = new Error('Proposal revision or manifest digest changed before save');
+      error.status = 409;
+      error.code = 'proposal-save-cas-conflict';
+      throw error;
+    }
+    const latest = repository.latestSnapshot(proposal.domain);
+    if (!latest || latest.revision !== proposal.baseRevision || latest.contentHash !== proposal.baseContentHash) {
+      return repository.markStale({
+        ownerNamespace: proposal.ownerNamespace,
+        proposalId: proposal.proposalId,
+        expectedRevision: proposal.revision,
+        reason: 'Host library revision changed before save',
+      });
+    }
+    return repository.updateProposal({
+      ownerNamespace: proposal.ownerNamespace,
+      proposalId: proposal.proposalId,
+      expectedRevision: proposal.revision,
+      eventType: 'proposal.save-started',
+      patch: { lifecycleStatus: 'approved', approvalStatus: 'Yes', saveStatus: 'Wait' },
+      event: { reviewSessionId: input.reviewSessionId, manifestDigest: proposal.manifestDigest },
+    });
+  }
+
+  function recordSaveResult(input) {
+    const proposal = requireProposal(input);
+    requireReviewSession(proposal, input.reviewSessionId);
+    if (proposal.revision !== Number(input.expectedRevision) || proposal.manifestDigest !== input.expectedManifestDigest) {
+      const error = new Error('Proposal revision or manifest digest changed before save result');
+      error.status = 409;
+      error.code = 'proposal-save-result-cas-conflict';
+      throw error;
+    }
+    const ok = input.ok === true;
+    return repository.updateProposal({
+      ownerNamespace: proposal.ownerNamespace,
+      proposalId: proposal.proposalId,
+      expectedRevision: proposal.revision,
+      eventType: ok ? 'proposal.saved' : 'proposal.save-failed',
+      patch: ok
+        ? { lifecycleStatus: 'applied', approvalStatus: 'Yes', saveStatus: 'Yes' }
+        : { lifecycleStatus: 'approved', approvalStatus: 'Yes', saveStatus: 'No' },
+      event: {
+        reviewSessionId: input.reviewSessionId,
+        manifestDigest: proposal.manifestDigest,
+        result: input.result || null,
+      },
+    });
+  }
+
   async function handleCompatibilityRequest(method, url, body) {
     const domainMatch = /^\/api\/(buff|weapon|operator|equipment)\/(current|library|fill\/template|fill\/check|fill\/apply)(?:\/([^/]+))?$/.exec(url.pathname);
     if (domainMatch) {
-      if (!domainRuntime) {
+      if (!domainRuntime || !mcpOperations) {
         const error = new Error(domainRuntimeError || 'Legacy fill domain runtime is unavailable');
         error.status = 503;
         error.code = 'legacy-fill-domain-runtime-unavailable';
@@ -252,24 +387,19 @@ export function createLegacyFillService(options = {}) {
           return { status: 200, body: { ok: true, protocolVersion: 1, validation, effects: { writes: false } } };
         }
         const ownerNamespace = 'legacy-rest:compat';
-        const targetId = domainRuntime.targetLegacyFillProposal(domain, validation.normalized);
-        const summary = domainRuntime.summarizeLegacyFillProposal(domain, validation.normalized);
-        const created = repository.createProposal({
+        const created = mcpOperations.createProposal(ownerNamespace, {
           ownerNamespace,
           idempotencyKey: typeof body?.requestId === 'string' && body.requestId.trim() ? body.requestId.trim() : `legacy-${crypto.randomUUID()}`,
           domain,
           schemaVersion: 1,
           baseSnapshot: { snapshotId: snapshot.snapshotId, revision: snapshot.revision, contentHash: snapshot.contentHash },
-          baseIdentity: `${domain}:${targetId}`,
-          targetId,
-          normalized: validation.normalized,
-          validation,
-          summary,
+          draft,
           intent: 'legacy-rest-compatibility',
           evidence: [{ label: 'legacy client', text: url.searchParams.get('client') || body?.client || 'rest' }],
           rejectIfOwnerPending: true,
         });
-        return { status: 200, body: { ok: true, protocolVersion: 1, validation, effects: { writes: false }, proposal: compatibilityProposal(created.proposal) } };
+        const proposal = repository.inspectProposal(ownerNamespace, created.proposalId);
+        return { status: 200, body: { ok: true, protocolVersion: 1, validation, effects: { writes: false }, proposal: compatibilityProposal(proposal) } };
       }
     }
 
@@ -325,6 +455,26 @@ export function createLegacyFillService(options = {}) {
       if (method === 'POST' && url.pathname === '/internal/snapshots/publish') {
         const receipt = publishSnapshot(await readJson(request));
         return writeJson(response, 200, { ok: true, receipt });
+      }
+      if (method === 'GET' && url.pathname === '/internal/proposals') {
+        return writeJson(response, 200, { ok: true, proposals: repository.listAllProposals({ limit: Number(url.searchParams.get('limit') || 500) }) });
+      }
+      const internalProposalMatch = /^\/internal\/proposals\/([^/]+)$/.exec(url.pathname);
+      if (method === 'GET' && internalProposalMatch) {
+        const proposal = requireProposal({ ownerNamespace: url.searchParams.get('ownerNamespace'), proposalId: decodeURIComponent(internalProposalMatch[1]) });
+        return writeJson(response, 200, { ok: true, proposal, audit: repository.proposalEvents(proposal.ownerNamespace, proposal.proposalId) });
+      }
+      if (method === 'POST' && url.pathname === '/internal/proposals/claim') {
+        return writeJson(response, 200, { ok: true, proposal: claimReview(await readJson(request)) });
+      }
+      if (method === 'POST' && url.pathname === '/internal/proposals/decision') {
+        return writeJson(response, 200, { ok: true, proposal: decideReview(await readJson(request)) });
+      }
+      if (method === 'POST' && url.pathname === '/internal/proposals/save/begin') {
+        return writeJson(response, 200, { ok: true, proposal: beginSave(await readJson(request)) });
+      }
+      if (method === 'POST' && url.pathname === '/internal/proposals/save/result') {
+        return writeJson(response, 200, { ok: true, proposal: recordSaveResult(await readJson(request)) });
       }
       if (method === 'GET' && url.pathname === '/internal/audit/export') {
         return writeJson(response, 200, { ok: true, audit: repository.exportAudit() });

@@ -273,7 +273,7 @@ export function createLegacyFillMcpOperations({ repository, domainRuntime, guide
       review: { status: 'pending' },
       persistence: { status: 'not-requested' },
     };
-    const manifestDigest = sha256Digest(reviewWithoutDigest);
+    const manifestDigest = sha256Digest(domainRuntime.createLegacyFillReviewDigestPayload(reviewWithoutDigest));
     const review = { ...reviewWithoutDigest, manifestDigest };
     const created = repository.createProposal({
       proposalId,
@@ -292,6 +292,7 @@ export function createLegacyFillMcpOperations({ repository, domainRuntime, guide
       summary,
       intent: input.intent || '',
       evidence: input.evidence || [],
+      rejectIfOwnerPending: input.rejectIfOwnerPending === true,
     });
     const proposal = created.proposal;
     return {
