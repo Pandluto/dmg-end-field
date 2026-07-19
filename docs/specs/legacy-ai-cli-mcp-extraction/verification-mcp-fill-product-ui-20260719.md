@@ -17,7 +17,7 @@ Codex / standard MCP client
 
 MCP 填表 page in the main browser Web app
   -> protected loopback Web Host bridge
-  -> short-lived trusted interaction capability
+  -> short-lived, review-bound Host action capability
   -> claim + internal approval/save transitions
   -> restricted domain writer + reread postcondition
   -> proposal audit + Host snapshot revision
@@ -34,9 +34,9 @@ The page shows only the MCP service state; it does not expose bearer tokens, Hos
 The product now exposes exactly two proposal actions:
 
 - **拒绝**: opens a confirmation and closes the proposal without writing product data.
-- **确认并写入**: opens one confirmation. The single trusted click drives the internal approve, save-begin, domain-restricted write, reread/postcondition, snapshot publication, and save-result audit sequence.
+- **确认并写入**: opens one confirmation. The protected main Web renderer requests a one-use action capability bound to the current proposal, review session, revision, and manifest digest, then drives the internal approve, save-begin, domain-restricted write, reread/postcondition, snapshot publication, and save-result audit sequence.
 
-There is no Y/Y flow and no separate user-facing approve/save step. The internal transitions remain distinct CAS-protected audit records. Browser actions require the protected renderer capability plus a two-second one-use action capability, and save result still requires the short-lived continuation created by save-begin. MCP and ordinary REST callers have no access to those Host-only operations. The MCP Fill methods are not exposed through the Electron preload product API.
+There is no Y/Y flow and no separate user-facing approve/save step. The internal transitions remain distinct CAS-protected audit records. `Event.isTrusted` is a product-flow guard rather than server-attested proof of a click; Host authority comes from the protected main Web renderer capability. Browser actions additionally require a two-second, one-use capability bound to proposal/session/revision/digest, and save result still requires the short-lived continuation created by save-begin. MCP and ordinary REST callers have no access to those Host-only operations. The MCP Fill methods are not exposed through the Electron preload product API. A durable local outbox reconciles a successful product write if snapshot publication or save-result auditing is interrupted.
 
 ## Computer Use record
 

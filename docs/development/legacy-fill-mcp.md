@@ -21,9 +21,9 @@ The page follows the product's Office/Excel workspace layout: proposal queue on 
 The user flow has two actions only:
 
 1. **拒绝** ends the proposal without changing product data.
-2. **确认并写入** opens one interactive Web confirmation. One trusted browser click receives a short-lived, one-use local Host capability and performs the internal approve → save-begin → restricted domain write → reread/postcondition → save-result audit sequence.
+2. **确认并写入** opens one interactive Web confirmation. The protected main Web renderer requests a short-lived, one-use local Host capability bound to the proposal id, review session, revision, and manifest digest, then performs the internal approve → save-begin → restricted domain write → reread/postcondition → save-result audit sequence.
 
-There is no Y/Y interaction and no separate user-facing approve/save step. The internal transitions remain separate revision- and digest-bound audit events, and MCP still cannot invoke any of them. Cancelling the confirmation has no side effect. An already-approved compatibility proposal can be rejected or completed through the same two product actions.
+There is no Y/Y interaction and no separate user-facing approve/save step. `Event.isTrusted` is a product-flow guard, not server-side click attestation; the protected renderer capability is the Host authority boundary. The internal transitions remain separate revision- and digest-bound audit events, and MCP still cannot invoke any of them. Cancelling the confirmation has no side effect. An already-approved compatibility proposal can be rejected or completed through the same two product actions. If the product write succeeds but snapshot/audit publication is interrupted, a durable browser outbox reconciles that result on the next authorized page bootstrap.
 
 ## Codex connection
 
@@ -60,7 +60,7 @@ Use `--draft /absolute/path/to/draft.json` instead of `--fixture-id` for an exte
 
 Tools are limited to `fill_get_current`, `fill_search_library`, `fill_get_template`, `fill_validate`, `proposal_create`, `proposal_list`, and `proposal_inspect`. Resources are the eight versioned templates in the extraction Spec. They expose only Host snapshots, core schema/template, curated strategy/examples, and owner-scoped proposal review/status.
 
-There is deliberately no approve, reject, save, unsave, localStorage/now-storage write, file read, script execution, Host internal writer, or DEF proxy capability. The MCP server does not use MCP Tasks, sampling, or elicitation. A real user must review and decide a proposal in the protected main Web UI.
+There is deliberately no approve, reject, save, unsave, localStorage/now-storage write, file read, script execution, Host internal writer, or DEF proxy capability. The MCP server does not use MCP Tasks, sampling, or elicitation. A user reviews and decides a proposal in the protected main Web UI; MCP and ordinary REST callers cannot access that renderer-authorized Host bridge.
 
 ## Verification
 

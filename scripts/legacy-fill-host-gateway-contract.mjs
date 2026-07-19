@@ -151,6 +151,13 @@ const preloadSource = fs.readFileSync(new URL('../electron/preload.cjs', import.
 assert.match(runtimeSource, /event\?\.isTrusted/, 'approve/reject/save require trusted product UI events');
 assert.match(electronMainSource, /issueMcpFillWebAction/, 'Web Host bridge issues short-lived action capabilities');
 assert.match(electronMainSource, /consumeMcpFillWebAction/, 'decision/save bridge consumes a one-shot Web UI capability');
+for (const bindingField of ['reviewSessionId', 'expectedRevision', 'expectedManifestDigest']) {
+  assert.match(
+    electronMainSource,
+    new RegExp(`value\\.${bindingField} !== binding\\.${bindingField}`),
+    `Web action capability binds ${bindingField}`,
+  );
+}
 assert.match(electronMainSource, /mcpFillWebSaveContinuations/, 'save result requires a short-lived continuation from save begin');
 assert.match(runtimeSource, /LegacyFillSaveOutboxV1/, 'successful product writes persist a recovery outbox before audit completion');
 assert.match(electronMainSource, /\/proposals\/save\/reconcile/, 'authorized Web bootstrap can reconcile a durable successful write');

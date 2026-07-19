@@ -128,8 +128,13 @@ export function claimMcpFillWebProposal(payload: McpFillBridgePayload) {
   return requestMcpFillHostBridge('/proposals/claim', 'POST', payload);
 }
 
-export async function issueMcpFillWebAction(action: 'confirm' | 'reject', proposalId: string) {
-  const response = await requestMcpFillHostBridge('/actions/issue', 'POST', { action, proposalId });
+export async function issueMcpFillWebAction(action: 'confirm' | 'reject', binding: {
+  proposalId: string;
+  reviewSessionId: string;
+  expectedRevision: number;
+  expectedManifestDigest: string;
+}) {
+  const response = await requestMcpFillHostBridge('/actions/issue', 'POST', { action, ...binding });
   return String(response.actionCapability || '');
 }
 

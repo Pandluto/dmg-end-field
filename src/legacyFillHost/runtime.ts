@@ -47,6 +47,8 @@ type SaveOutboxEntry = {
 };
 
 function requireTrustedUserAction(event: Event) {
+  // Product-flow guard only: the protected main Web renderer capability is the
+  // Host authority boundary because browsers do not provide server-attested clicks.
   if (!event?.isTrusted) throw new Error('MCP Fill confirm/reject requires a trusted product UI event');
 }
 
@@ -146,7 +148,12 @@ export async function decideLegacyFillReview(event: Event, proposalId: string, d
   requireTrustedUserAction(event);
   const session = reviewSessions.get(proposalId);
   if (!session) throw new Error('Claim this Legacy Fill proposal in the product UI before deciding it');
-  const actionCapability = await issueMcpFillWebAction('reject', proposalId);
+  const actionCapability = await issueMcpFillWebAction('reject', {
+    proposalId,
+    reviewSessionId: session.reviewSessionId,
+    expectedRevision: session.proposal.revision,
+    expectedManifestDigest: session.proposal.manifestDigest,
+  });
   const response = await decideMcpFillWebProposal({
     ownerNamespace: session.proposal.ownerNamespace,
     proposalId,
@@ -173,7 +180,12 @@ export async function confirmAndSaveLegacyFillReview(event: Event, proposalId: s
   requireTrustedUserAction(event);
   const session = reviewSessions.get(proposalId);
   if (!session) throw new Error('Claim this Legacy Fill proposal in the product UI before confirming it');
-  const actionCapability = await issueMcpFillWebAction('confirm', proposalId);
+  const actionCapability = await issueMcpFillWebAction('confirm', {
+    proposalId,
+    reviewSessionId: session.reviewSessionId,
+    expectedRevision: session.proposal.revision,
+    expectedManifestDigest: session.proposal.manifestDigest,
+  });
   const begin = await confirmAndBeginSaveMcpFillWebProposal({
     ownerNamespace: session.proposal.ownerNamespace,
     proposalId,

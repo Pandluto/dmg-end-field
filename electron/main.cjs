@@ -655,23 +655,49 @@ async function proxyMainWorkbenchRendererTransport(request, response, requestUrl
   return true;
 }
 
-function issueMcpFillWebAction(action, proposalId) {
-  if (!['confirm', 'reject'].includes(action) || typeof proposalId !== 'string' || !proposalId) {
-    const error = new Error('MCP Fill Web action requires a supported action and proposal id');
+function normalizeMcpFillWebActionBinding(input) {
+  const binding = {
+    proposalId: input?.proposalId,
+    reviewSessionId: input?.reviewSessionId,
+    expectedRevision: Number(input?.expectedRevision),
+    expectedManifestDigest: input?.expectedManifestDigest,
+  };
+  if (typeof binding.proposalId !== 'string' || !binding.proposalId
+    || typeof binding.reviewSessionId !== 'string' || !binding.reviewSessionId
+    || !Number.isInteger(binding.expectedRevision) || binding.expectedRevision < 1
+    || typeof binding.expectedManifestDigest !== 'string' || !binding.expectedManifestDigest) {
+    const error = new Error('MCP Fill Web action requires a complete review binding');
     error.status = 400;
     error.code = 'invalid-mcp-fill-web-action';
     throw error;
   }
+  return binding;
+}
+
+function issueMcpFillWebAction(action, input) {
+  if (!['confirm', 'reject'].includes(action)) {
+    const error = new Error('MCP Fill Web action requires a supported action');
+    error.status = 400;
+    error.code = 'invalid-mcp-fill-web-action';
+    throw error;
+  }
+  const binding = normalizeMcpFillWebActionBinding(input);
   const token = crypto.randomUUID();
-  mcpFillWebActions.set(token, { action, proposalId, expiresAt: Date.now() + 2000 });
+  mcpFillWebActions.set(token, { action, ...binding, expiresAt: Date.now() + 2000 });
   setTimeout(() => mcpFillWebActions.delete(token), 2100);
   return token;
 }
 
-function consumeMcpFillWebAction(token, action, proposalId) {
+function consumeMcpFillWebAction(token, action, input) {
+  const binding = normalizeMcpFillWebActionBinding(input);
   const value = mcpFillWebActions.get(token);
   mcpFillWebActions.delete(token);
-  if (!value || value.action !== action || value.proposalId !== proposalId || value.expiresAt < Date.now()) {
+  if (!value || value.action !== action
+    || value.proposalId !== binding.proposalId
+    || value.reviewSessionId !== binding.reviewSessionId
+    || value.expectedRevision !== binding.expectedRevision
+    || value.expectedManifestDigest !== binding.expectedManifestDigest
+    || value.expiresAt < Date.now()) {
     const error = new Error('A fresh MCP Fill Web confirmation is required');
     error.status = 403;
     error.code = 'mcp-fill-web-action-required';
@@ -702,7 +728,7 @@ async function handleMcpFillWebHost(request, response, requestUrl, method) {
   }
   if (method === 'POST' && requestUrl.pathname === '/mcp-fill-host/actions/issue') {
     const payload = await readJsonRequest(request);
-    writeJson(response, 200, { ok: true, actionCapability: issueMcpFillWebAction(payload.action, payload.proposalId) });
+    writeJson(response, 200, { ok: true, actionCapability: issueMcpFillWebAction(payload.action, payload) });
     return true;
   }
   if (method === 'POST' && requestUrl.pathname === '/mcp-fill-host/proposals/claim') {
@@ -718,14 +744,14 @@ async function handleMcpFillWebHost(request, response, requestUrl, method) {
       writeJson(response, 403, { ok: false, error: { code: 'mcp-fill-web-decision-denied', message: 'Web review exposes reject or combined confirm-and-save only.' } });
       return true;
     }
-    consumeMcpFillWebAction(actionCapability, 'reject', payload.proposalId);
+    consumeMcpFillWebAction(actionCapability, 'reject', payload);
     const result = await postJsonUrl('http://127.0.0.1:17323/internal/proposals/decision', payload, { headers: hostHeaders });
     writeJson(response, result.status || 500, result.body);
     return true;
   }
   if (method === 'POST' && requestUrl.pathname === '/mcp-fill-host/proposals/confirm') {
     const { actionCapability, alreadyApproved, proposal, ...payload } = await readJsonRequest(request);
-    consumeMcpFillWebAction(actionCapability, 'confirm', payload.proposalId);
+    consumeMcpFillWebAction(actionCapability, 'confirm', payload);
     const decision = alreadyApproved
       ? { status: 200, body: { ok: true, proposal } }
       : await postJsonUrl('http://127.0.0.1:17323/internal/proposals/decision', { ...payload, decision: 'approved' }, { headers: hostHeaders });
