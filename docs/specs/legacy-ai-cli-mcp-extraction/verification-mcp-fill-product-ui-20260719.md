@@ -53,6 +53,8 @@ A follow-up Computer Use pass verified the lightweight layout in Chrome at `http
 
 A direct standard MCP migration demo created synthetic proposal `fill-proposal-b2116d3f-237d-4f69-b8e3-a0424d6e5fae` with idempotency key `mcp-web-ui-20260719-correction`. In Chrome, the **确认并写入** dialog was opened and cancelled, proving cancellation caused no write. The **拒绝** dialog was then confirmed through the Web Host bridge. Final UI state was `rejected`, proposal revision 3, persistence `not-requested`, and the product notice stated that product data did not change.
 
+A follow-up standard MCP check created weapon proposal `fill-proposal-019ce3ab-ee37-4dba-a860-39c6a2220ab4` with a flat agility range `20 → 156` and a legacy `critRate` range `0.025 → 0.195`. The real Chrome product page rendered them as `Lv.1 20 → Lv.9 156` and `Lv.1 2.5% → Lv.9 19.5%`, including the product label **暴击率**. The proposal was then rejected through the visible Web confirmation; pending count returned to zero and the product notice confirmed that product data had not changed. This workflow used the direct standard MCP client and Web product route only; DEF OpenCode was not involved.
+
 An unauthenticated request to `http://127.0.0.1:31457/mcp-fill-host/state` returned HTTP 403 with `denied-renderer-transport`, while the Shell-authorized Chrome tab loaded the same state successfully. This proves the bridge is not an ordinary local REST approval surface.
 
 ## Verification commands
