@@ -12,6 +12,7 @@ const timelineRepositoryPath = path.join(tempDirectory, 'timeline-repository.sql
 const legacyJsonPath = path.join(tempDirectory, 'legacy.json');
 const port = 18000 + (process.pid % 1000);
 const baseUrl = `http://127.0.0.1:${port}`;
+const internalToken = 'def-work-node-rest-smoke-native-token';
 const payload = {
   selectedCharacters: [],
   timelineData: { staffLines: [] },
@@ -38,6 +39,7 @@ const server = spawn(process.execPath, ['scripts/ai-cli-rest-server.mjs'], {
     AI_TIMELINE_WORK_NODE_LEGACY_PATH: legacyJsonPath,
     TIMELINE_REPOSITORY_DB_PATH: timelineRepositoryPath,
     AI_TIMELINE_DISABLE_LEGACY_PROJECTION: '1',
+    DEF_INTERNAL_GOVERNANCE_TOKEN: internalToken,
   },
   stdio: ['ignore', 'ignore', 'pipe'],
   windowsHide: true,
@@ -51,7 +53,10 @@ server.stderr.on('data', (chunk) => {
 async function request(method, pathname, body) {
   const response = await fetch(`${baseUrl}${pathname}`, {
     method,
-    headers: body === undefined ? undefined : { 'Content-Type': 'application/json' },
+    headers: {
+      'x-def-internal-token': internalToken,
+      ...(body === undefined ? {} : { 'Content-Type': 'application/json' }),
+    },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   return { status: response.status, body: await response.json() };
@@ -97,22 +102,9 @@ try {
     ],
   });
   assert.equal(validSnapshotMirror.status, 200, JSON.stringify(validSnapshotMirror.body));
-  const invalidGridPosition = await request('POST', '/api/def-tools/def.workbench.add_skill_button/call', {
-    characterId: 'operator-1', characterName: '测试干员', skillType: 'A', staffIndex: 0, nodeIndex: 18,
-  });
-  assert.equal(invalidGridPosition.status, 400, JSON.stringify(invalidGridPosition.body));
-  assert.equal(invalidGridPosition.body.error?.code, 'invalid-main-workbench-node-index');
-  const stagedBatch = await request('POST', '/api/def-tools/def.buff.add_to_buttons/call', {
-    buttonIds: ['button-a', 'button-b'],
-    buff: { id: 'buff-batch', displayName: '批量测试 Buff', category: 'positive' },
-  });
-  assert.equal(stagedBatch.status, 200, JSON.stringify(stagedBatch.body));
-  assert.equal(stagedBatch.body.result.currentCheckoutTouched, false);
-  assert.equal(stagedBatch.body.result.checkoutDecision.requiresManualApproval, true);
-  assert.equal(stagedBatch.body.result.diff.summary.changedButtonCount, 2);
-  const stagedNodes = await request('GET', '/api/timeline-work-nodes?timelineId=current-main-workbench');
-  assert.equal(stagedNodes.body.nodes.length, 1, JSON.stringify(stagedNodes.body));
-  assert.match(stagedNodes.body.nodes[0].label, /^\[ai\]/);
+  // Model-facing typed tools require a bound native DEF session and are
+  // covered by the dedicated binding/current-gate contracts. This smoke is
+  // intentionally scoped to the native raw Work Node/Timeline transport.
   const document = await request('POST', '/api/timeline-documents', { id: 'timeline-rest', label: 'REST 排轴' });
   assert.equal(document.status, 200, JSON.stringify(document.body));
   const snapshot = await request('POST', '/api/timeline-snapshots', {
@@ -236,7 +228,6 @@ try {
 
   list = await request('GET', '/api/ai-timeline-worknodes');
   assert.equal(list.body.nodes.filter((node) => node.timelineId === 'save-rest').length, 2);
-  assert.equal(list.body.nodes.some((node) => node.timelineId === 'current-main-workbench' && /^\[ai\]/.test(node.label)), true);
   assert.equal(list.body.headNodeId, 'branch');
   const legacyDb = new DatabaseSync(databasePath, { readOnly: true });
   assert.equal(legacyDb.prepare('SELECT COUNT(*) AS count FROM work_nodes').get().count, 0);
