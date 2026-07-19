@@ -14,14 +14,14 @@ The authenticated token selects a stable `ownerNamespace`. MCP transport session
 
 ## Product review workspace
 
-The canonical product route is `/#/mcp-fill`. The historical `/#/legacy-fill-review` URL remains a compatibility alias, and the protected desktop bridge accepts both `/open-mcp-fill` and `/open-legacy-fill-review`. New callers and documentation must use the MCP name.
+The canonical product route is `/#/mcp-fill` inside the main browser Web app. The historical `/#/legacy-fill-review` URL remains a compatibility alias. The old protected `/open-mcp-fill` and `/open-legacy-fill-review` bridge calls now resolve the Web route without creating an Electron product window. New callers and documentation must use the MCP name.
 
-The page follows the product's Office/Excel workspace layout: proposal queue on the left, field Diff in the center, and validation, evidence, requested writes, base identity, and normalized content in the Host inspector on the right. It is a product page backed by Electron Host authority; it is not an MCP protocol inspector and is not hosted by DEF OpenCode.
+The page follows the product's Office/Excel workspace layout: proposal queue on the left, field Diff in the center, and validation, evidence, requested writes, base identity, and normalized content in the Host inspector on the right. It is a browser product page, not an MCP protocol inspector and not a DEF OpenCode page. Electron remains a headless local supervisor/Host bridge for the browser; it does not render a separate MCP Fill window.
 
 The user flow has two actions only:
 
 1. **拒绝** ends the proposal without changing product data.
-2. **确认并写入** opens one interactive confirmation. One trusted Host click performs the internal approve → save-begin → restricted domain write → reread/postcondition → save-result audit sequence.
+2. **确认并写入** opens one interactive Web confirmation. One trusted browser click receives a short-lived, one-use local Host capability and performs the internal approve → save-begin → restricted domain write → reread/postcondition → save-result audit sequence.
 
 There is no Y/Y interaction and no separate user-facing approve/save step. The internal transitions remain separate revision- and digest-bound audit events, and MCP still cannot invoke any of them. Cancelling the confirmation has no side effect. An already-approved compatibility proposal can be rejected or completed through the same two product actions.
 
@@ -54,13 +54,13 @@ node scripts/legacy-fill-mcp-migration-demo.mjs \
   --idempotency-key workspace-task-stable-key
 ```
 
-Use `--draft /absolute/path/to/draft.json` instead of `--fixture-id` for an external workflow. This uses MCP read → template → validate → proposal creation and then stops. The printed next step is Electron Host review; the script cannot approve, reject, or save.
+Use `--draft /absolute/path/to/draft.json` instead of `--fixture-id` for an external workflow. This uses MCP read → template → validate → proposal creation and then stops. The printed next step is review in the main Web product; the script cannot approve, reject, or save.
 
 ## Capability allowlist
 
 Tools are limited to `fill_get_current`, `fill_search_library`, `fill_get_template`, `fill_validate`, `proposal_create`, `proposal_list`, and `proposal_inspect`. Resources are the eight versioned templates in the extraction Spec. They expose only Host snapshots, core schema/template, curated strategy/examples, and owner-scoped proposal review/status.
 
-There is deliberately no approve, reject, save, unsave, localStorage/now-storage write, file read, script execution, Host internal writer, or DEF proxy capability. The MCP server does not use MCP Tasks, sampling, or elicitation. A real user must review and decide a proposal in the Electron Host UI.
+There is deliberately no approve, reject, save, unsave, localStorage/now-storage write, file read, script execution, Host internal writer, or DEF proxy capability. The MCP server does not use MCP Tasks, sampling, or elicitation. A real user must review and decide a proposal in the protected main Web UI.
 
 ## Verification
 
