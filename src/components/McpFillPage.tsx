@@ -96,7 +96,7 @@ function actionCopy(action: ReviewAction, proposal: LegacyFillReviewProposal) {
   if (action === 'confirm') return {
     eyebrow: '确认变更',
     title: `确认并写入“${target}”？`,
-    body: 'Electron Host 将完成审查、受限写入、重新读取目标并验证 postcondition。若资料库 revision 已变化，本次写入会被安全阻止。',
+    body: '本地 Host 将完成审查、受限写入、重新读取目标并验证 postcondition。若资料库 revision 已变化，本次写入会被安全阻止。',
     button: '确认并写入',
   };
   if (action === 'reject') return {
@@ -181,19 +181,18 @@ export function McpFillPage() {
   const runAction = async (event: ReactMouseEvent<HTMLButtonElement>) => {
     if (!selected || !dialog) return;
     const action = dialog;
-    const actionToken = event.currentTarget.dataset.legacyFillActionToken || '';
     setBusy(action);
     try {
       const claimed = await claimLegacyFillReview(selected);
       let next: LegacyFillReviewProposal;
       if (action === 'confirm') {
-        const result = await confirmAndSaveLegacyFillReview(event.nativeEvent, actionToken, claimed.proposal.proposalId);
+        const result = await confirmAndSaveLegacyFillReview(event.nativeEvent, claimed.proposal.proposalId);
         next = result.proposal;
         setNotice(result.ok
           ? { tone: 'success', text: '写入完成：Host 已重新读取目标、验证结果并发布新的资料库 revision。' }
           : { tone: 'warning', text: result.code === 'proposal-base-stale' ? '资料库已发生变化，本次写入已安全阻止。请重新生成提案。' : `写入未完成：${result.code}` });
       } else {
-        next = await decideLegacyFillReview(event.nativeEvent, actionToken, claimed.proposal.proposalId, 'rejected');
+        next = await decideLegacyFillReview(event.nativeEvent, claimed.proposal.proposalId, 'rejected');
         setNotice({ tone: 'info', text: '已拒绝这份变更，产品资料没有发生变化。' });
       }
       setFilter('completed');
@@ -217,7 +216,7 @@ export function McpFillPage() {
           <button className="mcp-fill-button" type="button" onClick={() => navigateToAppPath(APP_ROUTE_PATHS.home)}>返回主界面</button>
           <div className="mcp-fill-title-block">
             <h1>MCP 填表</h1>
-            <p>Codex 提案 · Electron Host 交互确认 · 资料库受限写入</p>
+            <p>Codex 提案 · Web 交互确认 · 本地 Host 受限写入</p>
           </div>
         </div>
         <div className="mcp-fill-topbar-right">
@@ -337,7 +336,7 @@ export function McpFillPage() {
         </section>
 
         <aside className="mcp-fill-inspector">
-          <div className="mcp-fill-pane-title"><div><span>审查详情</span><small>Host authority</small></div></div>
+          <div className="mcp-fill-pane-title"><div><span>审查详情</span><small>Web Host bridge</small></div></div>
           {!selected ? <div className="mcp-fill-empty">选择提案后显示校验、证据与写入边界。</div> : (
             <div className="mcp-fill-inspector-scroll">
               <section className="mcp-fill-inspector-section">
@@ -401,7 +400,7 @@ export function McpFillPage() {
       </div>
 
       <footer className="mcp-fill-statusbar">
-        <span>本页面是产品 Host，不是 MCP 协议界面</span>
+        <span>本页面是 Web 产品页，不是 MCP 协议界面</span>
         <span>Codex 只能读取、校验并创建提案</span>
         <span>PID {runtime?.pid || '—'} · {runtime?.running ? 'ready' : 'offline'}</span>
       </footer>
@@ -422,7 +421,6 @@ export function McpFillPage() {
               <button
                 type="button"
                 className={`is-${dialog}`}
-                data-legacy-fill-user-action={dialog}
                 onClick={(event) => void runAction(event)}
                 disabled={Boolean(busy)}
               >

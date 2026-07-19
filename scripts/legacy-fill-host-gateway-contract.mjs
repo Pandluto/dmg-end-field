@@ -140,12 +140,14 @@ assert.equal(JSON.parse(postconditionStorage.getItem(LEGACY_FILL_STORAGE_KEYS.we
 
 const runtimeSource = fs.readFileSync(new URL('../src/legacyFillHost/runtime.ts', import.meta.url), 'utf8');
 const pageSource = fs.readFileSync(new URL('../src/components/McpFillPage.tsx', import.meta.url), 'utf8');
+const electronMainSource = fs.readFileSync(new URL('../electron/main.cjs', import.meta.url), 'utf8');
 const preloadSource = fs.readFileSync(new URL('../electron/preload.cjs', import.meta.url), 'utf8');
 assert.match(runtimeSource, /event\?\.isTrusted/, 'approve/reject/save require trusted product UI events');
-assert.match(preloadSource, /event\.isTrusted/, 'preload only issues action capabilities from trusted click events');
-assert.match(preloadSource, /consumeLegacyFillAction/, 'decision/save bridge consumes a one-shot UI capability');
-assert.match(preloadSource, /confirmAndBeginSaveLegacyFillProposal/, 'one trusted product confirmation performs internal approve and save-begin steps');
-assert.match(preloadSource, /legacyFillSaveContinuations/, 'save result requires a short-lived continuation from save begin');
+assert.match(electronMainSource, /issueMcpFillWebAction/, 'Web Host bridge issues short-lived action capabilities');
+assert.match(electronMainSource, /consumeMcpFillWebAction/, 'decision/save bridge consumes a one-shot Web UI capability');
+assert.match(electronMainSource, /mcpFillWebSaveContinuations/, 'save result requires a short-lived continuation from save begin');
+assert.match(electronMainSource, /isAuthorizedWorkbenchRendererRequest/, 'Web Host bridge requires the protected browser renderer capability');
+assert.doesNotMatch(preloadSource, /confirmAndBeginSaveLegacyFillProposal/, 'MCP Fill is not exposed as a desktop preload product surface');
 for (const visibleField of ['字段 Diff', '标准化内容', '校验结果', '证据', '写入目标', 'Manifest digest']) {
   assert.equal(pageSource.includes(visibleField), true, `review UI exposes ${visibleField}`);
 }

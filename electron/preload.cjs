@@ -2,72 +2,12 @@ const { contextBridge, ipcRenderer } = require('electron');
 
 const roleArgument = process.argv.find((value) => value.startsWith('--desktop-role='));
 const roleFromArgs = roleArgument ? roleArgument.split('=')[1] : 'unknown';
-const trustedLegacyFillActions = new Map();
-const legacyFillSaveContinuations = new Map();
-
-window.addEventListener('click', (event) => {
-  if (!event.isTrusted || !(event.target instanceof Element)) return;
-  const button = event.target.closest('[data-legacy-fill-user-action]');
-  const action = button?.getAttribute('data-legacy-fill-user-action');
-  if (!button || !['confirm', 'approve', 'reject', 'save'].includes(action)) return;
-  const token = globalThis.crypto.randomUUID();
-  trustedLegacyFillActions.set(token, { action, expiresAt: Date.now() + 2000 });
-  button.setAttribute('data-legacy-fill-action-token', token);
-  setTimeout(() => {
-    button.removeAttribute('data-legacy-fill-action-token');
-    trustedLegacyFillActions.delete(token);
-  }, 2000);
-}, true);
-
-function consumeLegacyFillAction(token, expectedAction) {
-  const value = trustedLegacyFillActions.get(token);
-  trustedLegacyFillActions.delete(token);
-  if (!value || value.action !== expectedAction || value.expiresAt < Date.now()) throw new Error('trusted Legacy Fill product UI action required');
-}
 
 contextBridge.exposeInMainWorld('desktopRuntime', {
   isElectron: true,
   platform: process.platform,
   role: roleFromArgs,
   getRole: () => ipcRenderer.invoke('desktop:get-role'),
-  getLegacyFillServiceState: () => ipcRenderer.invoke('desktop:get-legacy-fill-service-state'),
-  listLegacyFillProposals: () => ipcRenderer.invoke('desktop:list-legacy-fill-proposals'),
-  inspectLegacyFillProposal: (payload) => ipcRenderer.invoke('desktop:inspect-legacy-fill-proposal', payload),
-  claimLegacyFillProposal: (payload) => ipcRenderer.invoke('desktop:claim-legacy-fill-proposal', payload),
-  decideLegacyFillProposal: (payload, trustedActionToken) => {
-    consumeLegacyFillAction(trustedActionToken, payload?.decision === 'approved' ? 'approve' : 'reject');
-    return ipcRenderer.invoke('desktop:decide-legacy-fill-proposal', payload);
-  },
-  confirmAndBeginSaveLegacyFillProposal: async (payload, trustedActionToken) => {
-    consumeLegacyFillAction(trustedActionToken, 'confirm');
-    const decision = payload?.alreadyApproved
-      ? { ok: true, proposal: payload.proposal }
-      : await ipcRenderer.invoke('desktop:decide-legacy-fill-proposal', { ...payload, decision: 'approved' });
-    if (!decision?.ok || !decision?.proposal) return decision;
-    const begin = await ipcRenderer.invoke('desktop:begin-save-legacy-fill-proposal', {
-      ...payload,
-      expectedRevision: decision.proposal.revision,
-    });
-    if (!begin?.ok || !begin?.proposal || begin.proposal.lifecycleStatus === 'stale') return begin;
-    const saveCapability = globalThis.crypto.randomUUID();
-    legacyFillSaveContinuations.set(saveCapability, { proposalId: payload?.proposalId, expiresAt: Date.now() + 30000 });
-    return { ...begin, approvedProposal: decision.proposal, saveCapability };
-  },
-  beginSaveLegacyFillProposal: async (payload, trustedActionToken) => {
-    consumeLegacyFillAction(trustedActionToken, 'save');
-    const response = await ipcRenderer.invoke('desktop:begin-save-legacy-fill-proposal', payload);
-    if (!response?.ok || response?.proposal?.lifecycleStatus === 'stale') return response;
-    const saveCapability = globalThis.crypto.randomUUID();
-    legacyFillSaveContinuations.set(saveCapability, { proposalId: payload?.proposalId, expiresAt: Date.now() + 30000 });
-    return { ...response, saveCapability };
-  },
-  recordSaveLegacyFillProposal: (payload, saveCapability) => {
-    const continuation = legacyFillSaveContinuations.get(saveCapability);
-    legacyFillSaveContinuations.delete(saveCapability);
-    if (!continuation || continuation.proposalId !== payload?.proposalId || continuation.expiresAt < Date.now()) throw new Error('Legacy Fill save continuation is invalid or expired');
-    return ipcRenderer.invoke('desktop:record-save-legacy-fill-proposal', payload);
-  },
-  publishLegacyFillSnapshot: (payload) => ipcRenderer.invoke('desktop:publish-legacy-fill-snapshot', payload),
   getShellState: () => ipcRenderer.invoke('desktop:get-shell-state'),
   getDesktopSettings: () => ipcRenderer.invoke('desktop:get-settings'),
   setDesktopScale: (scaleKey) => ipcRenderer.invoke('desktop:set-scale', scaleKey),

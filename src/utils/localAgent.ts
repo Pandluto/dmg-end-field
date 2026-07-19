@@ -102,16 +102,49 @@ export async function requestCloseAiCliRest(): Promise<NonNullable<LocalAgentHea
   return payload.aiCliRest;
 }
 
-export async function requestOpenMcpFillHost(): Promise<{ opened: boolean; reason: string; title: string }> {
-  const url = `${LOCAL_AGENT_BASE_URL}/open-mcp-fill`;
+type McpFillBridgePayload = Record<string, unknown>;
+
+async function requestMcpFillHostBridge(pathname: string, method: 'GET' | 'POST' = 'GET', body?: McpFillBridgePayload) {
+  const url = `${LOCAL_AGENT_BASE_URL}/mcp-fill-host${pathname}`;
   const response = await fetch(url, {
-    method: 'POST',
-    headers: withWorkbenchRendererCapability(url),
+    method,
+    headers: withWorkbenchRendererCapability(url, body === undefined ? undefined : { 'content-type': 'application/json' }),
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   });
-  if (!response.ok) throw new Error(`Open MCP Fill workspace failed: ${response.status}`);
-  const payload = await response.json() as { ok: boolean; review: { opened: boolean; reason: string; title: string } };
-  return payload.review;
+  const payload = await response.json() as McpFillBridgePayload;
+  if (!response.ok && typeof payload.ok !== 'boolean') throw new Error(`MCP Fill Host bridge failed: ${response.status}`);
+  return payload;
 }
 
-/** @deprecated Use requestOpenMcpFillHost. */
-export const requestOpenLegacyFillReviewHost = requestOpenMcpFillHost;
+export function getMcpFillWebServiceState() {
+  return requestMcpFillHostBridge('/state');
+}
+
+export function listMcpFillWebProposals() {
+  return requestMcpFillHostBridge('/proposals');
+}
+
+export function claimMcpFillWebProposal(payload: McpFillBridgePayload) {
+  return requestMcpFillHostBridge('/proposals/claim', 'POST', payload);
+}
+
+export async function issueMcpFillWebAction(action: 'confirm' | 'reject', proposalId: string) {
+  const response = await requestMcpFillHostBridge('/actions/issue', 'POST', { action, proposalId });
+  return String(response.actionCapability || '');
+}
+
+export function decideMcpFillWebProposal(payload: McpFillBridgePayload, actionCapability: string) {
+  return requestMcpFillHostBridge('/proposals/decision', 'POST', { ...payload, actionCapability });
+}
+
+export function confirmAndBeginSaveMcpFillWebProposal(payload: McpFillBridgePayload, actionCapability: string) {
+  return requestMcpFillHostBridge('/proposals/confirm', 'POST', { ...payload, actionCapability });
+}
+
+export function recordSaveMcpFillWebProposal(payload: McpFillBridgePayload, saveCapability: string) {
+  return requestMcpFillHostBridge('/proposals/save-result', 'POST', { ...payload, saveCapability });
+}
+
+export function publishMcpFillWebSnapshot(snapshot: unknown) {
+  return requestMcpFillHostBridge('/snapshots/publish', 'POST', { snapshot });
+}

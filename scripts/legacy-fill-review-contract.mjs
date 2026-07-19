@@ -16,11 +16,13 @@ let stderr = '';
 
 const electronMainSource = fs.readFileSync(path.join(root, 'electron/main.cjs'), 'utf8');
 const workbenchSource = fs.readFileSync(path.join(root, 'src/components/WorkbenchFrame/WorkbenchFrame.tsx'), 'utf8');
-assert.match(electronMainSource, /openMcpFillWindow/);
+assert.doesNotMatch(electronMainSource, /function openMcpFillWindow/);
+assert.match(electronMainSource, /\/mcp-fill-host\/proposals/);
 assert.match(electronMainSource, /\/open-mcp-fill/);
 assert.match(electronMainSource, /\/open-legacy-fill-review/);
 assert.match(electronMainSource, /isAuthorizedWorkbenchRendererRequest\(request, requestUrl, workbenchRendererCapability/);
-assert.match(workbenchSource, /requestOpenMcpFillHost/);
+assert.match(workbenchSource, /navigateToAppPath\(APP_ROUTE_PATHS\.mcpFill\)/);
+assert.doesNotMatch(workbenchSource, /requestOpenMcpFillHost/);
 assert.match(workbenchSource, /MCP 填表/);
 
 function start() {

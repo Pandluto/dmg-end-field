@@ -10,7 +10,6 @@ import { safeSessionStorage } from '../../utils/storage';
 import {
   getLocalAgentHealth,
   requestCloseShell,
-  requestOpenMcpFillHost,
   requestOpenShell,
 } from '../../utils/localAgent';
 import './WorkbenchFrame.css';
@@ -169,16 +168,8 @@ export function WorkbenchFrame({ activeSkillButtonId = null }: WorkbenchFramePro
     navigateToAppPath(APP_ROUTE_PATHS.aiCli);
   }, []);
 
-  const handleOpenMcpFill = useCallback(async () => {
-    if (window.desktopRuntime) {
-      navigateToAppPath(APP_ROUTE_PATHS.mcpFill);
-      return;
-    }
-    try {
-      await requestOpenMcpFillHost();
-    } catch (error) {
-      console.error('[mcp-fill] Electron Host window unavailable', error);
-    }
+  const handleOpenMcpFill = useCallback(() => {
+    navigateToAppPath(APP_ROUTE_PATHS.mcpFill);
   }, []);
 
   const syncLocalAgentStatus = useCallback(async () => {

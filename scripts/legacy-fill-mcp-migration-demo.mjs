@@ -61,7 +61,7 @@ try {
       schemaVersion: current.schemaVersion,
       baseSnapshot,
       draft,
-      intent: 'Migrated external workflow: MCP read -> validate -> proposal_create -> Electron Host review',
+      intent: 'Migrated external workflow: MCP read -> validate -> proposal_create -> Web product review',
       evidence: [{ label: 'migration-demo', text: 'Draft supplied explicitly to the direct Codex/standard MCP client workflow.' }],
     },
   }), 'proposal_create');
@@ -71,7 +71,7 @@ try {
     schemaVersion: template.schemaVersion,
     validation: { valid: validation.valid, errors: validation.errors, warnings: validation.warnings },
     proposal,
-    next: 'A real user must open /mcp-fill in Electron Host to inspect, confirm/reject, and save. MCP cannot do those actions.',
+    next: 'A real user must open /mcp-fill in the main Web product to inspect and choose reject or confirm-and-save. MCP cannot do those actions.',
   }, null, 2)}\n`);
 } finally {
   await transport.close().catch(() => {});

@@ -68,7 +68,6 @@ const APP_ICON_ICO_PATH = path.join(__dirname, 'assets', 'icon.ico');
 
 let shellWindow = null;
 let webPrewarmWindow = null;
-let mcpFillWindow = null;
 let bridgeServer = null;
 let shellStartedAt = null;
 let aiCliRestProcess = null;
@@ -79,6 +78,8 @@ let legacyFillServiceProcess = null;
 let legacyFillServiceStartedAt = null;
 let isAppQuitting = false;
 let appTray = null;
+const mcpFillWebActions = new Map();
+const mcpFillWebSaveContinuations = new Map();
 function buildInteropNativeHeaders(url) {
   return buildProtectedWorkbenchNativeHeaders(
     url,
@@ -461,31 +462,6 @@ function warmWebAppInHiddenWindow() {
   });
 }
 
-function openMcpFillWindow() {
-  if (mcpFillWindow && !mcpFillWindow.isDestroyed()) {
-    if (mcpFillWindow.isMinimized()) mcpFillWindow.restore();
-    mcpFillWindow.show();
-    mcpFillWindow.focus();
-    return { opened: false, reason: 'already-open', title: mcpFillWindow.getTitle() };
-  }
-  const reviewUrl = new URL(getBrowserWebUrl({ includeRendererCapability: true }));
-  reviewUrl.hash = '/mcp-fill';
-  mcpFillWindow = new BrowserWindow(buildWindowOptions('mcp-fill', {
-    width: 1440,
-    height: 900,
-    minWidth: 1180,
-    minHeight: 760,
-    show: true,
-    title: 'MCP 填表',
-    backgroundColor: '#f3f3f3',
-  }));
-  mcpFillWindow.on('closed', () => { mcpFillWindow = null; });
-  mcpFillWindow.loadURL(reviewUrl.href).catch((error) => {
-    appendRuntimeLog('mcp-fill', `load failed ${error instanceof Error ? error.message : String(error)}`);
-  });
-  return { opened: true, reason: 'created', title: 'MCP 填表' };
-}
-
 function warmImageAssetCache(reason = 'startup') {
   const startedAt = Date.now();
   try {
@@ -676,6 +652,120 @@ async function proxyMainWorkbenchRendererTransport(request, response, requestUrl
     'Content-Type': upstream.headers['content-type'] || 'application/json; charset=utf-8',
   });
   response.end(upstream.body);
+  return true;
+}
+
+function issueMcpFillWebAction(action, proposalId) {
+  if (!['confirm', 'reject'].includes(action) || typeof proposalId !== 'string' || !proposalId) {
+    const error = new Error('MCP Fill Web action requires a supported action and proposal id');
+    error.status = 400;
+    error.code = 'invalid-mcp-fill-web-action';
+    throw error;
+  }
+  const token = crypto.randomUUID();
+  mcpFillWebActions.set(token, { action, proposalId, expiresAt: Date.now() + 2000 });
+  setTimeout(() => mcpFillWebActions.delete(token), 2100);
+  return token;
+}
+
+function consumeMcpFillWebAction(token, action, proposalId) {
+  const value = mcpFillWebActions.get(token);
+  mcpFillWebActions.delete(token);
+  if (!value || value.action !== action || value.proposalId !== proposalId || value.expiresAt < Date.now()) {
+    const error = new Error('A fresh MCP Fill Web confirmation is required');
+    error.status = 403;
+    error.code = 'mcp-fill-web-action-required';
+    throw error;
+  }
+}
+
+async function handleMcpFillWebHost(request, response, requestUrl, method) {
+  if (!requestUrl.pathname.startsWith('/mcp-fill-host/')) return false;
+  if (!isAuthorizedWorkbenchRendererRequest(request, requestUrl, workbenchRendererCapability, {
+    bridgeHost: BRIDGE_HOST,
+    bridgePort: BRIDGE_PORT,
+  })) {
+    writeJson(response, 403, { ok: false, error: { code: 'denied-renderer-transport', message: 'MCP Fill Web Host transport is unavailable to this caller.' } });
+    return true;
+  }
+
+  const hostHeaders = { 'x-legacy-fill-host-token': legacyFillHostToken };
+  if (method === 'GET' && requestUrl.pathname === '/mcp-fill-host/state') {
+    const state = getLegacyFillServiceRuntimeInfo();
+    writeJson(response, 200, { ok: true, state: { running: state.running, pid: state.pid, startedAt: state.startedAt, url: state.url, mcpUrl: state.mcpUrl } });
+    return true;
+  }
+  if (method === 'GET' && requestUrl.pathname === '/mcp-fill-host/proposals') {
+    const result = await fetchJsonUrl('http://127.0.0.1:17323/internal/proposals', { headers: hostHeaders });
+    writeJson(response, result.status || 500, result.body);
+    return true;
+  }
+  if (method === 'POST' && requestUrl.pathname === '/mcp-fill-host/actions/issue') {
+    const payload = await readJsonRequest(request);
+    writeJson(response, 200, { ok: true, actionCapability: issueMcpFillWebAction(payload.action, payload.proposalId) });
+    return true;
+  }
+  if (method === 'POST' && requestUrl.pathname === '/mcp-fill-host/proposals/claim') {
+    const payload = await readJsonRequest(request);
+    const reviewSessionId = `legacy-fill-review-${crypto.randomUUID()}`;
+    const result = await postJsonUrl('http://127.0.0.1:17323/internal/proposals/claim', { ...payload, reviewSessionId }, { headers: hostHeaders });
+    writeJson(response, result.status || 500, { ...result.body, ...(result.body?.ok ? { reviewSessionId } : {}) });
+    return true;
+  }
+  if (method === 'POST' && requestUrl.pathname === '/mcp-fill-host/proposals/decision') {
+    const { actionCapability, ...payload } = await readJsonRequest(request);
+    if (payload.decision !== 'rejected') {
+      writeJson(response, 403, { ok: false, error: { code: 'mcp-fill-web-decision-denied', message: 'Web review exposes reject or combined confirm-and-save only.' } });
+      return true;
+    }
+    consumeMcpFillWebAction(actionCapability, 'reject', payload.proposalId);
+    const result = await postJsonUrl('http://127.0.0.1:17323/internal/proposals/decision', payload, { headers: hostHeaders });
+    writeJson(response, result.status || 500, result.body);
+    return true;
+  }
+  if (method === 'POST' && requestUrl.pathname === '/mcp-fill-host/proposals/confirm') {
+    const { actionCapability, alreadyApproved, proposal, ...payload } = await readJsonRequest(request);
+    consumeMcpFillWebAction(actionCapability, 'confirm', payload.proposalId);
+    const decision = alreadyApproved
+      ? { status: 200, body: { ok: true, proposal } }
+      : await postJsonUrl('http://127.0.0.1:17323/internal/proposals/decision', { ...payload, decision: 'approved' }, { headers: hostHeaders });
+    if (!decision.body?.ok || !decision.body?.proposal) {
+      writeJson(response, decision.status || 500, decision.body);
+      return true;
+    }
+    const begin = await postJsonUrl('http://127.0.0.1:17323/internal/proposals/save/begin', {
+      ...payload,
+      expectedRevision: decision.body.proposal.revision,
+    }, { headers: hostHeaders });
+    if (!begin.body?.ok || !begin.body?.proposal || begin.body.proposal.lifecycleStatus === 'stale') {
+      writeJson(response, begin.status || 500, begin.body);
+      return true;
+    }
+    const saveCapability = crypto.randomUUID();
+    mcpFillWebSaveContinuations.set(saveCapability, { proposalId: payload.proposalId, expiresAt: Date.now() + 30000 });
+    setTimeout(() => mcpFillWebSaveContinuations.delete(saveCapability), 30100);
+    writeJson(response, 200, { ...begin.body, approvedProposal: decision.body.proposal, saveCapability });
+    return true;
+  }
+  if (method === 'POST' && requestUrl.pathname === '/mcp-fill-host/proposals/save-result') {
+    const { saveCapability, ...payload } = await readJsonRequest(request);
+    const continuation = mcpFillWebSaveContinuations.get(saveCapability);
+    mcpFillWebSaveContinuations.delete(saveCapability);
+    if (!continuation || continuation.proposalId !== payload.proposalId || continuation.expiresAt < Date.now()) {
+      writeJson(response, 403, { ok: false, error: { code: 'mcp-fill-save-continuation-invalid', message: 'MCP Fill save continuation is invalid or expired.' } });
+      return true;
+    }
+    const result = await postJsonUrl('http://127.0.0.1:17323/internal/proposals/save/result', payload, { headers: hostHeaders });
+    writeJson(response, result.status || 500, result.body);
+    return true;
+  }
+  if (method === 'POST' && requestUrl.pathname === '/mcp-fill-host/snapshots/publish') {
+    const payload = await readJsonRequest(request);
+    const result = await postJsonUrl('http://127.0.0.1:17323/internal/snapshots/publish', payload.snapshot, { headers: hostHeaders });
+    writeJson(response, result.status || 500, result.body);
+    return true;
+  }
+  writeJson(response, 404, { ok: false, error: { code: 'mcp-fill-web-host-route-not-found', message: 'Unknown MCP Fill Web Host route.' } });
   return true;
 }
 
@@ -996,6 +1086,10 @@ function startBridgeServer() {
       }
 
       if (await proxyMainWorkbenchRendererTransport(request, response, requestUrl)) {
+        return;
+      }
+
+      if (await handleMcpFillWebHost(request, response, requestUrl, method)) {
         return;
       }
 
@@ -1632,7 +1726,10 @@ function startBridgeServer() {
           writeJson(response, 403, { ok: false, error: { code: 'denied-renderer-transport', message: 'MCP Fill Host workspace is unavailable to this caller.' } });
           return;
         }
-        writeJson(response, 200, { ok: true, review: openMcpFillWindow() });
+        writeJson(response, 200, {
+          ok: true,
+          review: { opened: false, reason: 'web-route', title: 'MCP 填表', url: `${getBrowserWebUrl()}#/mcp-fill` },
+        });
         return;
       }
 
