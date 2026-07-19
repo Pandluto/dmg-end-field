@@ -8,6 +8,7 @@ const service = createLegacyFillService({
   hostToken: process.env.LEGACY_FILL_HOST_TOKEN,
   databasePath: process.env.LEGACY_FILL_DATABASE_PATH || path.resolve('.runtime', 'legacy-fill-service', 'legacy-fill.sqlite3'),
   registryPath: process.env.LEGACY_FILL_REGISTRY_PATH || path.resolve('.runtime', 'legacy-fill-service', 'registry.json'),
+  domainRuntimePath: process.env.LEGACY_FILL_DOMAIN_RUNTIME_PATH || path.resolve('dist', 'legacy-fill', 'domain-runtime.mjs'),
 });
 
 await service.listen();

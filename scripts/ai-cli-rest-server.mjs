@@ -63,6 +63,8 @@ const dataManagementRuntimeRoot = process.env.DATA_MANAGEMENT_RUNTIME_ROOT
 const defToolGovernancePath = process.env.DEF_TOOL_GOVERNANCE_PATH
   || path.join(projectRoot, 'data', 'localdata', 'def-tool-governance.json');
 const storageMode = process.env.AI_CLI_REST_STORAGE_MODE || 'now-storage';
+const legacyFillServiceUrl = process.env.LEGACY_FILL_SERVICE_URL || 'http://127.0.0.1:17323';
+const legacyFillCompatibilityProxyEnabled = process.env.LEGACY_FILL_COMPAT_PROXY_ENABLED !== '0';
 const serverStartedAt = new Date().toISOString();
 const SCRIPT_NAME_RE = /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,79}\.m?js$/;
 const SCRIPT_MAX_FILES = 3;
@@ -374,6 +376,33 @@ function failScript(status, code, message, details = undefined) {
       },
     },
   };
+}
+
+function isLegacyFillCompatibilityRoute(method, pathname, body) {
+  if (/^\/api\/(buff|weapon|operator|equipment)\/(current|library(?:\/[^/]+)?|fill\/(template|check|apply))$/.test(pathname)) return true;
+  if (method === 'GET' && pathname === '/api/ai-cli/spec') return true;
+  if (method === 'POST' && pathname === '/api/ai-cli/run' && typeof body?.command === 'string') {
+    return /^(proposal\.(list|show|clear|approve|reject|save|unsave)|y|n)(?:\s|$)/i.test(body.command.trim());
+  }
+  return false;
+}
+
+async function proxyLegacyFillCompatibilityRequest(method, requestUrl, body) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 8000);
+  try {
+    const response = await fetch(`${legacyFillServiceUrl}${requestUrl.pathname}${requestUrl.search}`, {
+      method,
+      headers: body === undefined ? undefined : { 'Content-Type': 'application/json; charset=utf-8' },
+      body: body === undefined ? undefined : JSON.stringify(body),
+      signal: controller.signal,
+    });
+    return { status: response.status, body: await response.json() };
+  } catch (error) {
+    return failScript(503, 'legacy-fill-service-unavailable', error instanceof Error ? error.message : String(error));
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 function makeId(prefix) {
@@ -7992,6 +8021,12 @@ const server = http.createServer(async (request, response) => {
     });
     if (defCoreResponse) {
       writeJson(response, defCoreResponse.status, defCoreResponse.body);
+      return;
+    }
+
+    if (legacyFillCompatibilityProxyEnabled && isLegacyFillCompatibilityRoute(method, requestUrl.pathname, body)) {
+      const compatibilityResponse = await proxyLegacyFillCompatibilityRequest(method, requestUrl, body);
+      writeJson(response, compatibilityResponse.status, compatibilityResponse.body);
       return;
     }
 

@@ -345,13 +345,13 @@ Host gateway 此时保持 shadow/feature-disabled；回滚为旧领域 writer。
 
 ### 实施项
 
-- [ ] domain current/library/template/check/apply 先逐类切到新 service。
-- [ ] `/api/ai-cli/spec` 只作为兼容生成文档，不再是新事实源。
-- [ ] proposal list/show 映射到新 repository；`clear` 仅在 compatibility REST 中将调用者 legacy owner 下的 pending proposal 记为取消/拒绝，不进入 MCP，也不获得批准/保存能力。
-- [ ] 每个 apply request 只由新 proposal repository 写一次。
-- [ ] requestId/client 迁移为 owner/idempotency 时保持可追溯映射。
-- [ ] 旧 response shape、status code 与 error code 在兼容窗口内保持。
-- [ ] legacy service 不可用时明确返回 unavailable；禁止先写旧 store 再补写新 DB。
+- [x] domain current/library/template/check/apply 先逐类切到新 service。
+- [x] `/api/ai-cli/spec` 只作为兼容生成文档，不再是新事实源。
+- [x] proposal list/show 映射到新 repository；`clear` 仅在 compatibility REST 中将调用者 legacy owner 下的 pending proposal 记为取消/拒绝，不进入 MCP，也不获得批准/保存能力。
+- [x] 每个 apply request 只由新 proposal repository 写一次。
+- [x] requestId/client 迁移为 owner/idempotency 时保持可追溯映射。
+- [x] 旧 response shape、status code 与 error code 在兼容窗口内保持。
+- [x] legacy service 不可用时明确返回 unavailable；禁止先写旧 store 再补写新 DB。
 
 ### 禁止范围
 

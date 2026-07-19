@@ -57,8 +57,26 @@ function assertWireRead(domain, kind, result, expectedFormat) {
 }
 
 const port = await getFreePort();
+const servicePort = await getFreePort();
 const runtimeRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'legacy-fill-wire-'));
 const baseUrl = `http://127.0.0.1:${port}`;
+const serviceUrl = `http://127.0.0.1:${servicePort}`;
+const serviceToken = 'legacy-fill-wire-host-token';
+const serviceChild = spawn(process.execPath, ['scripts/legacy-fill-service.mjs'], {
+  cwd: root,
+  env: {
+    PATH: process.env.PATH,
+    LEGACY_FILL_SERVICE_PORT: String(servicePort),
+    LEGACY_FILL_HOST_TOKEN: serviceToken,
+    LEGACY_FILL_DATABASE_PATH: path.join(runtimeRoot, 'legacy-fill.sqlite3'),
+    LEGACY_FILL_REGISTRY_PATH: path.join(runtimeRoot, 'legacy-fill-registry.json'),
+    LEGACY_FILL_DOMAIN_RUNTIME_PATH: path.join(root, 'dist', 'legacy-fill', 'domain-runtime.mjs'),
+  },
+  stdio: ['ignore', 'pipe', 'pipe'],
+  windowsHide: true,
+});
+let serviceStderr = '';
+serviceChild.stderr.on('data', (chunk) => { serviceStderr += chunk.toString(); });
 const env = {
   ...process.env,
   AI_CLI_REST_PORT: String(port),
@@ -72,6 +90,8 @@ const env = {
   DATA_MANAGEMENT_RUNTIME_ROOT: path.join(runtimeRoot, 'data'),
   DEF_TOOL_GOVERNANCE_PATH: path.join(runtimeRoot, 'def-tool-governance.json'),
   DEF_AGENT_SCRIPT_DIR: path.join(runtimeRoot, 'scripts'),
+  LEGACY_FILL_SERVICE_URL: serviceUrl,
+  LEGACY_FILL_COMPAT_PROXY_ENABLED: '1',
 };
 delete env.DEF_INTERNAL_GOVERNANCE_TOKEN;
 
@@ -87,6 +107,28 @@ child.stderr.on('data', (chunk) => { stderr += chunk.toString(); });
 const report = { fixtureVersion: fixture.fixtureVersion, domains: {}, forbiddenCommands: [] };
 
 try {
+  const serviceHealth = await waitForHealth(serviceUrl, serviceChild);
+  assert.equal(serviceHealth.service, 'legacy-fill-service');
+  const hostSnapshot = {
+    contract: 'LegacyFillSnapshotV1',
+    snapshotId: 'legacy-wire-host-snapshot',
+    publishedAt: '2026-07-19T00:00:00.000Z',
+    domains: Object.fromEntries(Object.entries(fixture.domains).map(([domain, contract]) => [domain, {
+      domain,
+      schemaVersion: 1,
+      revision: 1,
+      contentHash: `sha256:legacy-wire-${domain}`,
+      current: domain === 'equipment' ? { schemaVersion: 1, updatedAt: '', gearSets: {} } : null,
+      library: domain === 'equipment' ? { schemaVersion: 1, updatedAt: '', gearSets: {} } : {},
+      fixtureFormat: contract.currentFormat,
+    }])),
+  };
+  const snapshotResponse = await fetch(`${serviceUrl}/internal/snapshots/publish`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'x-legacy-fill-host-token': serviceToken },
+    body: JSON.stringify(hostSnapshot),
+  });
+  assert.equal(snapshotResponse.status, 200, await snapshotResponse.text());
   const health = await waitForHealth(baseUrl, child);
   assert.equal(health.ok, true);
   assert.equal(health.service, 'def-ai-cli-rest');
@@ -119,6 +161,14 @@ try {
     assert.equal(apply.payload.effects?.writes, fixture.invariants.applyWrites, `${domain}.apply writes`);
     assert.equal(apply.payload.proposal?.approval, fixture.invariants.approvalStatus, `${domain}.proposal approval`);
     assert.equal(apply.payload.proposal?.save, fixture.invariants.saveStatus, `${domain}.proposal save`);
+
+    const retried = await request(baseUrl, 'POST', `/api/${domain}/fill/apply?client=web-cli`, {
+      protocolVersion: fixture.protocolVersion,
+      requestId: `${requestId}-apply`,
+      draft: contract.draft,
+    });
+    assert.equal(retried.status, 200, `${domain}.idempotent retry status`);
+    assert.equal(retried.payload.proposal?.id, apply.payload.proposal.id, `${domain}.idempotent proposal id`);
 
     const blocked = await request(baseUrl, 'POST', `/api/${domain}/fill/apply?client=web-cli`, {
       protocolVersion: fixture.protocolVersion,
@@ -173,6 +223,12 @@ try {
     assert.equal(cleared.payload.ok, true, `${domain}.proposal.clear ok`);
   }
 
+  const serviceCountBeforeDefRoute = (await request(serviceUrl, 'GET', '/health')).payload.compatibilityRequestCount;
+  const defRoute = await request(baseUrl, 'GET', '/api/def-tools/route-map');
+  assert.equal(defRoute.status, 200, 'DEF route remains on 17321');
+  const serviceCountAfterDefRoute = (await request(serviceUrl, 'GET', '/health')).payload.compatibilityRequestCount;
+  assert.equal(serviceCountAfterDefRoute, serviceCountBeforeDefRoute, 'DEF route must not reach legacy fill service');
+
   for (const command of fixture.invariants.restForbiddenCommands) {
     const result = await request(baseUrl, 'POST', '/api/ai-cli/run', {
       protocolVersion: fixture.protocolVersion,
@@ -188,10 +244,16 @@ try {
   process.stdout.write('[legacy-fill-wire-contract] passed\n');
 } finally {
   child.kill('SIGTERM');
+  serviceChild.kill('SIGTERM');
   await Promise.race([
     new Promise((resolve) => child.once('exit', resolve)),
     delay(5_000),
   ]);
+  await Promise.race([
+    new Promise((resolve) => serviceChild.once('exit', resolve)),
+    delay(5_000),
+  ]);
   fs.rmSync(runtimeRoot, { recursive: true, force: true });
   if (stderr.trim()) process.stderr.write(stderr);
+  if (serviceStderr.trim()) process.stderr.write(serviceStderr);
 }

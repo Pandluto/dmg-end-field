@@ -13,6 +13,7 @@ export class LegacyFillRepositoryError extends Error {
     this.name = 'LegacyFillRepositoryError';
     this.code = code;
     this.details = details;
+    this.status = code.includes('conflict') || code === 'pending-proposals-blocking' ? 409 : code.includes('not-found') ? 404 : 400;
   }
 }
 
@@ -213,6 +214,12 @@ export function createLegacyFillProposalRepository(options) {
           });
         }
         return { ...parseJson(prior.response_json, {}), duplicate: true };
+      }
+
+      if (input?.rejectIfOwnerPending) {
+        const pending = database.prepare(`SELECT proposal_id FROM fill_proposals
+          WHERE owner_namespace = ? AND lifecycle_status IN ('pending','claimed') LIMIT 1`).get(ownerNamespace);
+        if (pending) throw new LegacyFillRepositoryError('pending-proposals-blocking', 'pending proposals block another fill.apply', { proposalId: pending.proposal_id });
       }
 
       const snapshot = getSnapshot(assertText(input?.baseSnapshot?.snapshotId, 'snapshot-id'));
