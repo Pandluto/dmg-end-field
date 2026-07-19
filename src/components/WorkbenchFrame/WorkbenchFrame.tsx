@@ -10,6 +10,7 @@ import { safeSessionStorage } from '../../utils/storage';
 import {
   getLocalAgentHealth,
   requestCloseShell,
+  requestOpenLegacyFillReviewHost,
   requestOpenShell,
 } from '../../utils/localAgent';
 import './WorkbenchFrame.css';
@@ -168,8 +169,16 @@ export function WorkbenchFrame({ activeSkillButtonId = null }: WorkbenchFramePro
     navigateToAppPath(APP_ROUTE_PATHS.aiCli);
   }, []);
 
-  const handleOpenLegacyFillReview = useCallback(() => {
-    navigateToAppPath(APP_ROUTE_PATHS.legacyFillReview);
+  const handleOpenLegacyFillReview = useCallback(async () => {
+    if (window.desktopRuntime) {
+      navigateToAppPath(APP_ROUTE_PATHS.legacyFillReview);
+      return;
+    }
+    try {
+      await requestOpenLegacyFillReviewHost();
+    } catch (error) {
+      console.error('[legacy-fill-review] Electron Host window unavailable', error);
+    }
   }, []);
 
   const syncLocalAgentStatus = useCallback(async () => {

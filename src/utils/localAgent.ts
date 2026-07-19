@@ -1,3 +1,5 @@
+import { withWorkbenchRendererCapability } from './workbenchRendererCapability';
+
 const LOCAL_AGENT_BASE_URL = 'http://127.0.0.1:31457';
 
 export interface LocalAgentHealth {
@@ -98,4 +100,15 @@ export async function requestCloseAiCliRest(): Promise<NonNullable<LocalAgentHea
   };
 
   return payload.aiCliRest;
+}
+
+export async function requestOpenLegacyFillReviewHost(): Promise<{ opened: boolean; reason: string; title: string }> {
+  const url = `${LOCAL_AGENT_BASE_URL}/open-legacy-fill-review`;
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: withWorkbenchRendererCapability(url),
+  });
+  if (!response.ok) throw new Error(`Open Legacy Fill Host review failed: ${response.status}`);
+  const payload = await response.json() as { ok: boolean; review: { opened: boolean; reason: string; title: string } };
+  return payload.review;
 }

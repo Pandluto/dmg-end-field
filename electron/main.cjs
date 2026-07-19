@@ -68,6 +68,7 @@ const APP_ICON_ICO_PATH = path.join(__dirname, 'assets', 'icon.ico');
 
 let shellWindow = null;
 let webPrewarmWindow = null;
+let legacyFillReviewWindow = null;
 let bridgeServer = null;
 let shellStartedAt = null;
 let aiCliRestProcess = null;
@@ -458,6 +459,31 @@ function warmWebAppInHiddenWindow() {
     appendRuntimeLog('web-prewarm', `loadURL failed ${detail}`);
     destroyWebPrewarmWindow();
   });
+}
+
+function openLegacyFillReviewWindow() {
+  if (legacyFillReviewWindow && !legacyFillReviewWindow.isDestroyed()) {
+    if (legacyFillReviewWindow.isMinimized()) legacyFillReviewWindow.restore();
+    legacyFillReviewWindow.show();
+    legacyFillReviewWindow.focus();
+    return { opened: false, reason: 'already-open', title: legacyFillReviewWindow.getTitle() };
+  }
+  const reviewUrl = new URL(getBrowserWebUrl({ includeRendererCapability: true }));
+  reviewUrl.hash = '/legacy-fill-review';
+  legacyFillReviewWindow = new BrowserWindow(buildWindowOptions('legacy-fill-review', {
+    width: 1280,
+    height: 860,
+    minWidth: 960,
+    minHeight: 680,
+    show: true,
+    title: 'Legacy Fill Proposal Review',
+    backgroundColor: '#f6f7f9',
+  }));
+  legacyFillReviewWindow.on('closed', () => { legacyFillReviewWindow = null; });
+  legacyFillReviewWindow.loadURL(reviewUrl.href).catch((error) => {
+    appendRuntimeLog('legacy-fill-review', `load failed ${error instanceof Error ? error.message : String(error)}`);
+  });
+  return { opened: true, reason: 'created', title: 'Legacy Fill Proposal Review' };
 }
 
 function warmImageAssetCache(reason = 'startup') {
@@ -1595,6 +1621,18 @@ function startBridgeServer() {
         const publicUrl = getBrowserWebUrl();
         await shell.openExternal(getBrowserWebUrl({ includeRendererCapability: true }));
         writeJson(response, 200, { ok: true, url: publicUrl, rendererCapabilityInjected: true });
+        return;
+      }
+
+      if (method === 'POST' && requestUrl.pathname === '/open-legacy-fill-review') {
+        if (!isAuthorizedWorkbenchRendererRequest(request, requestUrl, workbenchRendererCapability, {
+          bridgeHost: BRIDGE_HOST,
+          bridgePort: BRIDGE_PORT,
+        })) {
+          writeJson(response, 403, { ok: false, error: { code: 'denied-renderer-transport', message: 'Legacy Fill Host review is unavailable to this caller.' } });
+          return;
+        }
+        writeJson(response, 200, { ok: true, review: openLegacyFillReviewWindow() });
         return;
       }
 
