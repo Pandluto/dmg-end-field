@@ -2,6 +2,19 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { digestLegacyFillValue } from '../src/legacyFillCore/index.ts';
 import { createLegacyFillBrowserHostGateway, LEGACY_FILL_STORAGE_KEYS } from '../src/legacyFillHost/browserGateway.ts';
+import { formatWeaponSkillValueRange, normalizeWeaponSkillStatType } from '../src/components/mcpFillResults/weaponResultFormatting.ts';
+
+assert.equal(normalizeWeaponSkillStatType('critRate'), 'critRateBoost');
+assert.equal(
+  formatWeaponSkillValueRange('critRate', { '1': { value: 0.025 }, '9': { value: 0.195 } }),
+  'Lv.1 2.5% → Lv.9 19.5%',
+  'weapon skill percentages use product-facing percent values',
+);
+assert.equal(
+  formatWeaponSkillValueRange('agility', { '1': { value: 12 }, '9': { value: 42 } }),
+  'Lv.1 12 → Lv.9 42',
+  'flat weapon skill stats remain unscaled',
+);
 
 class MemoryStorage {
   constructor(entries = {}) { this.values = new Map(Object.entries(entries)); this.failWrites = false; this.corruptWrites = false; this.corruptWritesRemaining = 0; }

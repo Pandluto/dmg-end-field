@@ -1,6 +1,7 @@
-import type { WeaponDraft, WeaponEffectData, WeaponSkillData } from '../../legacyFillCore/domains/weapon';
+import type { WeaponDraft, WeaponEffectData } from '../../legacyFillCore/domains/weapon';
 import { normalizeAssetUrl } from '../../utils/assetResolver';
 import { getOperatorBuffTypeLabel, inferOperatorBuffUnit } from '../operatorDraftBuffModel';
+import { formatWeaponSkillValueRange, normalizeWeaponSkillStatType } from './weaponResultFormatting';
 
 type Props = { value: unknown };
 
@@ -61,18 +62,6 @@ function formatLevelRange(effect: WeaponEffectData) {
   return `Lv.${firstLevel} ${formatEffectValue(effect.type, firstValue)} → Lv.${lastLevel} ${formatEffectValue(effect.type, lastValue)}`;
 }
 
-function formatSkillValueRange(skill: WeaponSkillData) {
-  const entries = Object.entries(skill.levels || {})
-    .filter((entry): entry is [string, { value: number; description: string }] => typeof entry[1]?.value === 'number')
-    .sort(([a], [b]) => Number(a) - Number(b));
-  if (!entries.length) return '';
-  const [firstLevel, first] = entries[0];
-  const [lastLevel, last] = entries[entries.length - 1];
-  return firstLevel === lastLevel
-    ? `Lv.${firstLevel} ${formatNumber(first.value)}`
-    : `Lv.${firstLevel} ${formatNumber(first.value)} → Lv.${lastLevel} ${formatNumber(last.value)}`;
-}
-
 export function WeaponResultPreview({ value }: Props) {
   const draft = asWeaponDraft(value);
   if (!draft) return <div className="mcp-result-empty">这份武器结果暂时无法预览。</div>;
@@ -114,12 +103,13 @@ export function WeaponResultPreview({ value }: Props) {
         <div className="mcp-result-card-list">
           {skills.map(([skillKey, skill]) => {
             const skillEffects = Object.values(skill.effects || {});
-            const valueRange = formatSkillValueRange(skill);
+            const normalizedStatType = normalizeWeaponSkillStatType(skill.statType || '');
+            const valueRange = formatWeaponSkillValueRange(normalizedStatType, skill.levels);
             return (
               <article className="mcp-result-card" key={skillKey}>
                 <div className="mcp-result-card-heading">
                   <div><small>{skillKey === 'skill1' ? '能力值' : skillKey === 'skill2' ? '属性' : '特效'}</small><h3>{skill.name}</h3></div>
-                  <span>{STAT_LABELS[skill.statType] || getOperatorBuffTypeLabel(skill.statType || '')}</span>
+                  <span>{STAT_LABELS[skill.statType] || getOperatorBuffTypeLabel(normalizedStatType)}</span>
                 </div>
                 {valueRange ? <p className="mcp-result-range">{valueRange}</p> : null}
                 {skillEffects.length ? (
