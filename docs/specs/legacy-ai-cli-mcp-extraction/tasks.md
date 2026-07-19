@@ -249,14 +249,14 @@ T0 不切生产行为。若 fixture 引入敏感/个人数据，删除该 fixtur
 
 ### 实施项
 
-- [ ] 从真实已加载产品状态生成 `LegacyFillSnapshotV1`。
-- [ ] 每领域记录 schemaVersion、revision、contentHash、current/library。
-- [ ] 定义 Host-only claim/decision/apply internal API，不暴露给普通 MCP transport。
-- [ ] 四领域 writer 只接受合法 proposal target，不接受任意 storage key/value。
-- [ ] 保存前校验 proposal revision、manifest digest 和 base library revision。
-- [ ] 保存后重新读取目标条目，比较 normalized postcondition。
-- [ ] postcondition 通过后发布 `library.changed` 与新 snapshot/revision。
-- [ ] now-storage `forceApply` 导入完成后使旧 proposal stale；一般 browser → now-storage 方向不变。
+- [x] 从真实已加载产品状态生成 `LegacyFillSnapshotV1`。
+- [x] 每领域记录 schemaVersion、revision、contentHash、current/library。
+- [x] 定义 Host-only claim/decision/apply internal API，不暴露给普通 MCP transport。
+- [x] 四领域 writer 只接受合法 proposal target，不接受任意 storage key/value。
+- [x] 保存前校验 proposal revision、manifest digest 和 base library revision。
+- [x] 保存后重新读取目标条目，比较 normalized postcondition。
+- [x] postcondition 通过后发布 `library.changed` 与新 snapshot/revision。
+- [x] now-storage `forceApply` 导入完成后使旧 proposal stale；一般 browser → now-storage 方向不变。
 
 ### 禁止范围
 

@@ -5,6 +5,7 @@ import { AppProvider } from './context/AppContext'
 import { bootstrapLocalDataBridge } from './utils/localDataBridge'
 import { installMainWorkbenchWindowApi } from './utils/mainWorkbenchControl'
 import { bootstrapUserWorkspaceBridge } from './utils/userWorkspaceBridge'
+import { bootstrapLegacyFillHostGateway } from './legacyFillHost/runtime'
 
 // Refreshing the browser must not be blocked by a stale workbench unload guard.
 // Keep the original handler here for a deliberate future re-enable.
@@ -21,6 +22,7 @@ async function bootstrap() {
     return;
   }
   installMainWorkbenchWindowApi();
+  await bootstrapLegacyFillHostGateway();
 
   ReactDOM.createRoot(document.getElementById('root')!).render(
     <React.StrictMode>
