@@ -1,7 +1,7 @@
 # AKEDatabase Fill Tool References
 
-This directory stores curated references copied from:
+The former copied `CLAUDE.md` protocol manual and `golden-examples.md` were removed because they duplicated and drifted from the browser-neutral core and direct Legacy Fill MCP schemas.
 
-`C:\Users\zsk86\Desktop\AKEDatabase-main\agent填表数据工具`
+This DEF runtime directory intentionally contains no MCP client configuration, schema, field whitelist, historical request/response, external absolute path, or executable caller. DEF OpenCode and Legacy Fill MCP are parallel and do not call each other.
 
-The wrapper skill intentionally does not copy every temporary script or JSON payload from the source folder. Use the source path only when historical evidence is explicitly needed.
+The only retained reference is the separately reviewable removal proposal for this compatibility notice.

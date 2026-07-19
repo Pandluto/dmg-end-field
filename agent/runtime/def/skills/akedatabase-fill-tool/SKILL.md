@@ -1,36 +1,29 @@
 ---
 name: akedatabase-fill-tool
-description: Use the installed AKEDatabase agent fill data tool reference for DEF operator, weapon, equipment, check, apply, and proposal workflows.
+description: Boundary notice for legacy AKEDatabase fill requests; the replacement is a direct external Codex MCP connection, not a DEF OpenCode capability.
 slash: false
 ---
 
 # akedatabase-fill-tool
 
-Use this skill when the task needs the external AKEDatabase fill-data tool knowledge base.
+This skill is a temporary compatibility notice only. It does not provide a fill protocol or a tool route inside DEF OpenCode.
 
-Installed source:
+## Boundary
 
-`C:\Users\zsk86\Desktop\AKEDatabase-main\agent填表数据工具`
+- Legacy Fill MCP is a separate local service for Codex and standard MCP clients.
+- DEF OpenCode does not register, host, proxy, or call that MCP server.
+- Never translate a fill request into a DEF typed tool, Work Node mutation, permission question, Timeline event, or DEF session action.
+- Never use the old REST scripts, copied schema prose, or historical request JSON as a protocol source.
 
-Trust order:
+## What to tell the user
 
-1. Current app adapters in `C:\Users\zsk86\Desktop\dmg\dmg-end-field\src\aiCli`.
-2. `GET /api/ai-cli/spec`.
-3. This installed skill.
-4. Historical examples and scripts in the installed source directory.
+For fill work, direct the user to connect Codex to the standalone `legacy-fill-service` MCP configuration documented by the desktop product. The external Codex workflow is:
 
-Core rules:
+1. read a versioned snapshot/schema/template resource;
+2. call `fill_validate`;
+3. call `proposal_create` with a stable idempotency key;
+4. let the real user review and save in the Electron Host page.
 
-- Prefer structured REST fill endpoints over command-string emulation.
-- `fill.check` validates only.
-- `fill.apply` creates a proposal only.
-- Proposal approval and save stay in Web CLI `/ai-cli`.
-- Do not direct-write application storage.
-- Do not expose implementation details to shallow users unless asked.
+MCP cannot approve, reject, save, write storage, read arbitrary files, execute scripts, or proxy DEF tools. Do not attempt to perform these steps from this DEF runtime Skill.
 
-Reference files copied from the installed source:
-
-- `references/CLAUDE.md`: current truth manual from the external tool directory.
-- `references/golden-examples.md`: examples for common correct fills and mistakes.
-
-When using this skill, load only the relevant section from the references and produce a compact next action or draft proposal.
+The copied legacy protocol/schema references were removed. This notice should itself be removed in a separately confirmed retirement once no historical prompt depends on the Skill name; see `references/removal-proposal.md`.

@@ -32,6 +32,17 @@ codex mcp add legacy-fill-http \
 
 The desktop app must be running so its independently supervised `legacy-fill-service` is available. A failed/unavailable MCP endpoint never prevents DEF core or DEF OpenCode from starting.
 
+To exercise the migrated external workflow with an explicit JSON draft:
+
+```sh
+node scripts/legacy-fill-mcp-migration-demo.mjs \
+  --domain weapon \
+  --draft /absolute/path/to/draft.json \
+  --idempotency-key workspace-task-stable-key
+```
+
+This uses MCP read → template → validate → proposal creation and then stops. The printed next step is Electron Host review; the script cannot approve, reject, or save.
+
 ## Capability allowlist
 
 Tools are limited to `fill_get_current`, `fill_search_library`, `fill_get_template`, `fill_validate`, `proposal_create`, `proposal_list`, and `proposal_inspect`. Resources are the eight versioned templates in the extraction Spec. They expose only Host snapshots, core schema/template, curated strategy/examples, and owner-scoped proposal review/status.
@@ -44,6 +55,7 @@ Run:
 
 ```sh
 npm run test:legacy-fill-mcp
+npm run test:legacy-fill-curated
 ```
 
 The contract uses two Streamable HTTP clients and one STDIO client, verifies shared daemon state and owner isolation, checks the exact tool/resource allowlists, exercises pagination and structured errors, rejects DNS-rebinding/Origin/auth failures, proves product snapshot hashes remain unchanged, and verifies persistence/idempotency across daemon restart.

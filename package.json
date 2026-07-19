@@ -27,6 +27,7 @@
     "test:legacy-fill-host": "node --experimental-strip-types scripts/legacy-fill-host-gateway-contract.mjs",
     "smoke:legacy-fill-service": "node scripts/legacy-fill-service-smoke.mjs",
     "test:legacy-fill-mcp": "npm run legacy-fill-runtime:build && node scripts/legacy-fill-mcp-contract.mjs",
+    "test:legacy-fill-curated": "npm run legacy-fill-runtime:build && node scripts/legacy-fill-curated-resources-contract.mjs",
     "test:legacy-fill-review": "npm run legacy-fill-runtime:build && node scripts/legacy-fill-review-contract.mjs && node --experimental-strip-types scripts/legacy-fill-host-gateway-contract.mjs",
     "legacy-fill-runtime:build": "node scripts/build-legacy-fill-runtime.mjs",
     "test:def-core-baseline": "node scripts/def-core-baseline-check.mjs",

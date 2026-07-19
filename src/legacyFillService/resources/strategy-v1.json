@@ -1,0 +1,18 @@
+{
+  "version": "v1",
+  "kind": "strategy-not-protocol",
+  "source": "curated-from-akedatabase-legacy-notes",
+  "rules": [
+    "Read the Host-published current or library snapshot before drafting.",
+    "Read the core-generated schema/template for the selected domain; never infer a field whitelist from this strategy.",
+    "Do not invent an effect type when the schema or template does not support it.",
+    "Treat passive, conditional, and countable classifications as semantic choices supported by evidence; stack-count heuristics are review strategy, not protocol.",
+    "Preserve level-specific values instead of repeating a maximum-level value across every level.",
+    "Run fill_validate before proposal_create and attach concise source evidence.",
+    "After a real user saves in the Electron Host, reread the next Host snapshot instead of assuming the write succeeded."
+  ],
+  "separation": {
+    "protocolSource": "legacy-fill-core and MCP tool schemas",
+    "strategyIsProtocol": false
+  }
+}

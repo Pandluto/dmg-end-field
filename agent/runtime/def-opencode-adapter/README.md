@@ -19,7 +19,7 @@ Runtime responsibilities:
 - inject DEF Shell 05 Agent DeepSeek provider config through `OPENCODE_CONFIG_CONTENT`
 - pass DeepSeek thinking mode through OpenCode agent request options
 - register DEF native skills through OpenCode `skills.paths`
-- expose the installed AKEDatabase fill-data tool as `akedatabase-fill-tool`
+- retain a temporary `akedatabase-fill-tool` boundary notice for historical DEF prompts; it exposes no fill protocol or MCP route
 - create OpenCode sessions through `/session`
 - send user prompts through `/session/:sessionID/message`
 - subscribe to real OpenCode events through `/event`
@@ -29,7 +29,8 @@ Runtime responsibilities:
 Native skill sources:
 
 - `agent/runtime/def/skills`
-- installed external source: `C:\Users\zsk86\Desktop\AKEDatabase-main\agent填表数据工具`
-- wrapper skill: `agent/runtime/def/skills/akedatabase-fill-tool/SKILL.md`
+- temporary boundary notice: `agent/runtime/def/skills/akedatabase-fill-tool/SKILL.md`
+
+Legacy Fill MCP is a parallel Codex/standard-client service. This adapter does not register, host, proxy, configure, or call it.
 
 `agent/runtime/opencode-core/index.cjs` is now only a compatibility shim.

@@ -351,7 +351,7 @@ export function createLegacyFillMcpOperations({ repository, domainRuntime, guide
       assertDomain(segments[1]);
       const example = examples.domains[segments[1]];
       if (!example) fail('resource-not-found', 'Golden fixture not found');
-      return { fixtureVersion: examples.version, schemaVersion: example.schemaVersion, domain: segments[1], draft: example.draft };
+      return { fixtureVersion: examples.version, schemaVersion: example.schemaVersion, domain: segments[1], fixtures: example.fixtures || [] };
     }
     if (value.hostname === 'proposals' && segments.length === 3 && ['review', 'status'].includes(segments[2])) {
       const [ownerNamespace, proposalId, kind] = segments;
@@ -372,7 +372,7 @@ export function createLegacyFillMcpOperations({ repository, domainRuntime, guide
         resources.push(`legacy-fill://schema/${latest.schemaVersion}/${domain}`);
         resources.push(`legacy-fill://template/${latest.schemaVersion}/${domain}`);
       }
-      resources.push(`legacy-fill://examples/${examples.version}/${domain}`);
+      if (examples.domains[domain]) resources.push(`legacy-fill://examples/${examples.version}/${domain}`);
     }
     resources.push(`legacy-fill://guides/strategy/${guide.version}`);
     for (const proposal of repository.listProposals(ownerNamespace, { limit: 500 })) {

@@ -17,7 +17,8 @@ const service = createLegacyFillService({
   databasePath: process.env.LEGACY_FILL_DATABASE_PATH || path.resolve('.runtime', 'legacy-fill-service', 'legacy-fill.sqlite3'),
   registryPath: process.env.LEGACY_FILL_REGISTRY_PATH || path.resolve('.runtime', 'legacy-fill-service', 'registry.json'),
   domainRuntimePath: process.env.LEGACY_FILL_DOMAIN_RUNTIME_PATH || path.resolve('dist', 'legacy-fill', 'domain-runtime.mjs'),
-  fixturePath: process.env.LEGACY_FILL_FIXTURE_PATH || path.resolve('docs', 'specs', 'legacy-ai-cli-mcp-extraction', 'fixtures', 'legacy-fill-wire-v1.json'),
+  strategyPath: process.env.LEGACY_FILL_STRATEGY_PATH || path.resolve('src', 'legacyFillService', 'resources', 'strategy-v1.json'),
+  goldenPath: process.env.LEGACY_FILL_GOLDEN_PATH || path.resolve('src', 'legacyFillService', 'resources', 'golden-v1.json'),
 });
 
 await service.listen();

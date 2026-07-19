@@ -500,21 +500,10 @@ export function createLegacyFillService(options = {}) {
   async function listen() {
     try {
       domainRuntime = await import(`${pathToFileURL(domainRuntimePath).href}?v=${fs.statSync(domainRuntimePath).mtimeMs}`);
-      const fixturePath = path.resolve(options.fixturePath || path.resolve('docs', 'specs', 'legacy-ai-cli-mcp-extraction', 'fixtures', 'legacy-fill-wire-v1.json'));
-      const fixture = JSON.parse(fs.readFileSync(fixturePath, 'utf8'));
-      const examples = {
-        version: `v${fixture.fixtureVersion}`,
-        domains: Object.fromEntries(Object.entries(fixture.domains).map(([domain, value]) => [domain, { schemaVersion: 1, draft: value.draft }])),
-      };
-      const guide = {
-        version: 'v1',
-        kind: 'strategy-not-protocol',
-        rules: [
-          'Read the current snapshot and core-generated schema before drafting.',
-          'Validate before proposal_create and preserve evidence in the proposal.',
-          'Approval and final save require a real user action in the Electron Host review UI.',
-        ],
-      };
+      const strategyPath = path.resolve(options.strategyPath || path.resolve('src', 'legacyFillService', 'resources', 'strategy-v1.json'));
+      const goldenPath = path.resolve(options.goldenPath || path.resolve('src', 'legacyFillService', 'resources', 'golden-v1.json'));
+      const guide = JSON.parse(fs.readFileSync(strategyPath, 'utf8'));
+      const examples = JSON.parse(fs.readFileSync(goldenPath, 'utf8'));
       mcpOperations = createLegacyFillMcpOperations({ repository, domainRuntime, guide, examples });
     } catch (error) {
       domainRuntimeError = error instanceof Error ? error.message : String(error);
