@@ -1,0 +1,1 @@
+Use typed roster, weapon and equipment resources to prepare an ordinary loadout. Do not load timeline-workbench, materialize node code, read workspace files or edit inputs.json as recovery for def_operator_config_patch. Those capabilities cannot replace the native Operator Configuration approval and postcondition path.

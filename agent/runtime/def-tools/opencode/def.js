@@ -7,6 +7,7 @@ import path from 'node:path'
 // entrypoint; bare package subpaths are not resolved from this repository.
 import { tool } from '../../../vendor/opencode/node_modules/@opencode-ai/plugin/src/tool.ts'
 import { decodeDefNodePayload, hashDefNodeValue } from '../../def-node-workspace/codec.mjs'
+import { executeDefOperatorConfigAtomic } from './operator-config-input.mjs'
 
 const restBase = process.env.DEF_REST_BASE_URL || 'http://127.0.0.1:17321'
 const bindingFile = '.def-node.json'
@@ -1088,7 +1089,7 @@ export const data_damage = dataResource({
 })
 
 export const operator_config_patch = {
-  description: 'Apply one explicitly approved weapon or equipment change to a selected operator through the typed Workbench route. Use only after the user has reviewed the proposed loadout and asked to apply it. The tool waits for the real operator-config mirror; a queued command alone is never success.',
+  description: 'Apply one complete, explicitly reviewed operator configuration through a single typed preview, native approval and atomic apply. Put all named equipment pieces in equipments and call this tool once; never split one reviewed loadout into one mutation per slot. If this tool errors, it must be the final tool call of the turn: immediately report the error, with no context/bind/materialize/read/edit call and no retry unless the error itself explicitly provides retryable=true plus a concrete safe nextAction.',
   args: {
     // These must be actual optional Zod fields.  The legacy JSON-schema
     // adapter marks every property required, which coerced a model that was
@@ -1111,70 +1112,26 @@ export const operator_config_patch = {
     equipmentEntry1Level: tool.schema.number().int().min(0).max(3).optional().describe('Level for the first actual equipment entry.'),
     equipmentEntry2Level: tool.schema.number().int().min(0).max(3).optional().describe('Level for the second actual equipment entry.'),
     equipmentEntry3Level: tool.schema.number().int().min(0).max(3).optional().describe('Level for the third actual equipment entry.'),
+    equipments: tool.schema.array(tool.schema.object({
+      equipmentId: tool.schema.string().min(1).max(180).describe('Exact stable equipment id returned by the equipment resolver.'),
+      equipmentName: tool.schema.string().min(1).max(180).optional().describe('Exact catalog name, used only as an approval display aid.'),
+      slotKey: tool.schema.enum(['armor', 'accessory2', 'accessory1', 'glove']).describe('Exact target slot for this piece.'),
+      equipmentEntryLevel: tool.schema.number().int().min(0).max(3).optional().describe('Default level for every real entry on this piece; omit for Lv3.'),
+      equipmentEntry1Level: tool.schema.number().int().min(0).max(3).optional(),
+      equipmentEntry2Level: tool.schema.number().int().min(0).max(3).optional(),
+      equipmentEntry3Level: tool.schema.number().int().min(0).max(3).optional(),
+    })).min(1).max(4).optional().describe('The complete reviewed equipment selection. Use one item per target slot and submit all pieces in this single mutation.'),
     operatorSkillA: tool.schema.enum(['L9', 'M3']).optional().describe('Operator A skill level.'),
     operatorSkillB: tool.schema.enum(['L9', 'M3']).optional().describe('Operator B skill level.'),
     operatorSkillE: tool.schema.enum(['L9', 'M3']).optional().describe('Operator E skill level.'),
     operatorSkillQ: tool.schema.enum(['L9', 'M3']).optional().describe('Operator Q skill level.'),
   },
   async execute(args, context) {
-    const weapon = typeof args.weaponName === 'string' && args.weaponName.trim()
-      ? { name: args.weaponName.trim(), ...(typeof args.weaponPotential === 'string' ? { potential: args.weaponPotential } : {}), ...(args.weaponLevel !== undefined ? { level: args.weaponLevel } : {}), skillLevels: {
-        ...(args.weaponSkill1Level !== undefined ? { skill1: args.weaponSkill1Level } : {}),
-        ...(args.weaponSkill2Level !== undefined ? { skill2: args.weaponSkill2Level } : {}),
-        ...(args.weaponSkill3Level !== undefined ? { skill3: args.weaponSkill3Level } : {}),
-      } }
-      : undefined
-    const input = {
-      ...(typeof args.characterId === 'string' && args.characterId.trim() ? { characterId: args.characterId.trim() } : {}),
-      ...(typeof args.characterName === 'string' && args.characterName.trim() ? { characterName: args.characterName.trim() } : {}),
-      ...(weapon ? { weapon } : {}),
-      ...(typeof args.gearSetName === 'string' && args.gearSetName.trim() ? { gearSetName: args.gearSetName.trim() } : {}),
-      ...(typeof args.gearSetId === 'string' && args.gearSetId.trim() ? { gearSetId: args.gearSetId.trim() } : {}),
-      ...(typeof args.equipmentName === 'string' && args.equipmentName.trim() ? { equipmentName: args.equipmentName.trim() } : {}),
-      ...(typeof args.equipmentId === 'string' && args.equipmentId.trim() ? { equipmentId: args.equipmentId.trim() } : {}),
-      ...(typeof args.slotKey === 'string' && args.slotKey.trim() ? { slotKey: args.slotKey.trim() } : {}),
-      ...(args.fillSlots === true ? { fillSlots: true } : {}),
-      ...(args.equipmentEntryLevel !== undefined ? { equipmentEntryLevel: args.equipmentEntryLevel } : {}),
-      ...((args.equipmentEntry1Level !== undefined || args.equipmentEntry2Level !== undefined || args.equipmentEntry3Level !== undefined) ? { equipmentEntryLevels: {
-        ...(args.equipmentEntry1Level !== undefined ? { effect1: args.equipmentEntry1Level } : {}),
-        ...(args.equipmentEntry2Level !== undefined ? { effect2: args.equipmentEntry2Level } : {}),
-        ...(args.equipmentEntry3Level !== undefined ? { effect3: args.equipmentEntry3Level } : {}),
-      } } : {}),
-      ...((args.operatorSkillA || args.operatorSkillB || args.operatorSkillE || args.operatorSkillQ) ? { operatorSkillLevels: {
-        ...(args.operatorSkillA ? { A: args.operatorSkillA } : {}),
-        ...(args.operatorSkillB ? { B: args.operatorSkillB } : {}),
-        ...(args.operatorSkillE ? { E: args.operatorSkillE } : {}),
-        ...(args.operatorSkillQ ? { Q: args.operatorSkillQ } : {}),
-      } } : {}),
-    }
-    if (!input.weapon && !input.gearSetName && !input.gearSetId && !input.equipmentName && !input.equipmentId) {
-      throw new Error('Provide an exact weapon or equipment selection before applying operator configuration.')
-    }
-    const prepared = await callDefTool('def.operator.config.prepare', input, context)
-    try {
-      const approval = await askWithApproval(context, {
-      action: 'Apply operator configuration',
-      summary: `Apply reviewed operator weapon/equipment configuration for ${input.characterName || input.characterId || 'selected operator'}`,
-      permission: 'def_operator_config_patch',
-      nodeId: prepared.nodeId,
-      revision: prepared.nodeRevision,
-      timelineId: prepared.timelineId,
-      axisBindingId: prepared.axisBindingId,
-      parentNodeId: prepared.parentNodeId,
-      parentRevision: prepared.parentRevision,
-      candidateNodeId: prepared.nodeId,
-      candidateRevision: prepared.nodeRevision,
-      workingHash: prepared.workingHash,
-      patterns: formatOperatorConfigApprovalPatterns(prepared),
-      diff: { type: 'operator-config', requested: input, finalConfig: prepared.finalConfig, checkout: prepared.checkout },
-      riskFlags: [{ severity: 'warning', code: 'operator-config-mutation', message: 'Changes the visible operator weapon and/or equipment configuration.' }],
-      consequence: 'The approved child Work Node is committed and applied only if its checkout and revision still match this exact preview.',
-      })
-    } catch (error) {
-      await callDefTool('def.operator.config.discard_prepared', prepared, context)
-      throw error
-    }
-    const result = await callDefTool('def.operator.config.apply_prepared', { ...prepared, input, approvalCapability: approval.approvalCapability }, context)
+    const result = await executeDefOperatorConfigAtomic(args, context, {
+      callDefTool,
+      askWithApproval,
+      formatApprovalPatterns: formatOperatorConfigApprovalPatterns,
+    })
     return {
       title: 'DEF operator configuration applied',
       output: JSON.stringify(result, null, 2),

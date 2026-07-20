@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "harnessId": "def-operator-config-atomic-failfast",
+  "version": "1.0.3",
+  "sourceCommit": "runtime-generated-from-git",
+  "description": "Teach one-approval atomic operator configuration and bounded fail-fast recovery.",
+  "compatibility": { "interopProtocol": "^1", "agentContract": 1, "toolRegistry": 1, "stateSchema": 1 },
+  "slots": {
+    "agentContract": { "path": "agent-contract.md", "mediaType": "text/markdown", "capability": "hotSwappable" },
+    "roleCards": { "path": "role-card.md", "mediaType": "text/markdown", "capability": "hotSwappable" },
+    "knowledgePacks": { "path": "knowledge.md", "mediaType": "text/markdown", "capability": "hotSwappable" },
+    "skills": { "path": "skills.md", "mediaType": "text/markdown", "capability": "hotSwappable" },
+    "routingPolicy": { "path": "routing.md", "mediaType": "text/markdown", "capability": "hotSwappable" },
+    "toolGuidance": { "path": "tool-guidance.md", "mediaType": "text/markdown", "capability": "hotSwappable" },
+    "responsePolicy": { "path": "response-policy.md", "mediaType": "text/markdown", "capability": "hotSwappable" },
+    "workflows": { "path": "workflow.md", "mediaType": "text/markdown", "capability": "hotSwappable" }
+  }
+}

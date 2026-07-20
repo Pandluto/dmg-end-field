@@ -1,0 +1,21 @@
+{
+  "id": "operator-config-atomic-failfast-v1",
+  "version": 1,
+  "fixtureMode": "empty",
+  "requiresSnapshot": false,
+  "turns": [
+    { "userText": "给赛希换上骑士精神和这四件装备：长息轻护甲·壹型、长息蓄电核、拓荒增量供氧栓·壹型、长息护手·壹型，全部拉满，先给我确认。" },
+    { "userText": "确认，就按这套应用。" }
+  ],
+  "verification": {
+    "requiredTools": ["def_data_weapon", "def_data_equipment", "def_operator_config_patch"],
+    "forbiddenTools": ["def_data_operator", "def_data_team_loadouts", "def_workbench_context", "def_node_bind", "def_node_code_materialize", "read", "edit"],
+    "maxRepeatedToolCalls": { "def_data_weapon": 1, "def_data_equipment": 1, "def_operator_config_patch": 1 },
+    "forbiddenAssistantText": ["逐一应用", "先试一件", "让我直接修改"],
+    "mustKeepStateBeforeApproval": true
+  },
+  "expect": {
+    "slot": "toolGuidance",
+    "candidateContains": "one equipments array"
+  }
+}

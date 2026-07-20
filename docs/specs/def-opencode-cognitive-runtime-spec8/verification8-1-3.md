@@ -460,3 +460,59 @@ Passing checks: `npm run test:def-equipment-resource`,
 `npm run test:def-workbench-tool-policy` (50 current/tree tools),
 `npm run interop:check`, `npm run harness:check`, `npm run typecheck`,
 `npm run check:repo`, focused `node --check`, and `git diff --check`.
+
+## Atomic operator configuration and fail-fast recovery (2026-07-20)
+
+The hand-tested source session `ses_0820bbb0cffer7Cm9uk26BvG9O` resolved the
+requested operator, weapon and four equipment items, but every approved
+configuration failed before apply. Six native approvals returned normally and
+then hit `approval is not defined`: the OpenCode adapter declared `approval`
+inside its `try` block and read it outside that scope. Because the exception
+also occurred outside the rejection cleanup block, six prepared operator-config
+children remained open. A seventh invalid patch, Work Node materialization,
+seven file reads and an attempted `inputs.json` edit followed instead of a
+bounded failure report. Checkout remained on the original node and no apply
+postcondition passed.
+
+The adapter now delegates to an isolated atomic helper whose approval
+capability remains in scope from prepare through apply and whose approval
+failure path discards the exact prepared child. The typed schema exposes a
+maximum-four `equipments` array, so one reviewed weapon and all equipment slots
+enter one preview, one permission and one apply. The focused contract verifies
+the full four-piece input mapping, one prepare/approval/apply sequence,
+approval-capability propagation, rejection cleanup and absence of partial
+mutation.
+
+Candidate Harness `def-operator-config-atomic-failfast@1.0.3`, content hash
+`e45c58b06c16d7b606eda83639eadabed65d408aec168e825171d4074ddb9340`,
+is registered only at `candidate/operator-config-atomic-failfast`. It teaches
+one batched catalog resolution, exact max-level fields, one atomic patch and a
+hard stop after any patch error. It forbids context/bind/materialize/read/edit
+fallbacks and unsupported causal guesses. Stable was not promoted.
+
+Final Pure Blackbox failure-path evidence:
+
+| Evidence | Value |
+| --- | --- |
+| run / session | `native-harness-run-756cbb24-2aac-480b-b3e3-e92174c944b1` / `ses_081f4d99dffeqxJIFT1hLx92cc` |
+| testRunId / turns | `35e7ec80-b9f5-4bab-af96-735a144a2b82`; `e73039f8-5540-4b24-80c2-db6331627306`, `48ee80c9-eeaa-4549-b5b7-dbc90a956b75` |
+| preview tools | one operator catalog lookup, one exact weapon lookup and one four-name equipment batch; preview included Lv90, 9/9/4, PMAX and equipment Lv3 |
+| mutation | exactly one `def_operator_config_patch` containing the weapon and all four stable equipment ids/slots; no split mutation |
+| terminal | hidden fixture returned `blocked-session-mismatch`; the error was the final tool event and the assistant immediately reported the supported next action |
+| forbidden recovery | zero context, bind, materialize, read, edit or retry calls |
+| state | both turns completed, questions empty, fixture cleanup passed, revision unchanged and `pending:null` before/after |
+
+This is a PASS for the atomic input contract and fail-fast Harness policy, not
+evidence of an approved real mutation. The candidate fixture is intentionally
+not the active visible Workbench projection, and no native permission was
+accepted on the user's behalf. A fresh visible-session replay must still prove
+one approval, the exact live/checkout/commit postcondition, rejection cleanup
+against the running adapter, and persistence after leaving and reopening the
+configuration page. The six historical open children were not deleted because
+that cleanup requires a separate user decision.
+
+Passing checks: `npm run test:def-operator-config-atomic`,
+`npm run test:def-equipment-resource`, `npm run test:def-workbench-tool-policy`
+(50 current/tree tools), `npm run interop:check`, `npm run harness:check`,
+`npm run typecheck`, `npm run check:repo`, focused `node --check`, and
+`git diff --check`.
