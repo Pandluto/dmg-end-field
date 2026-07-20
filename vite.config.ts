@@ -35,6 +35,16 @@ export default defineConfig({
   },
   server: {
     port: 3030,
+    proxy: {
+      '/data-management': 'http://127.0.0.1:31457',
+      '/api/main-workbench': 'http://127.0.0.1:31457',
+      '/api/ai-timeline-worknodes': 'http://127.0.0.1:31457',
+      '/api/timeline-': 'http://127.0.0.1:31457',
+      '/local-data': 'http://127.0.0.1:31457',
+      '/current-data': 'http://127.0.0.1:31457',
+      '/assets': 'http://127.0.0.1:31457',
+      '/user-images': 'http://127.0.0.1:31457',
+    },
     watch: {
       ignored: ['**/data/localdata/**', '**/.dbg/**', '**/agent/vendor/**'],
     },
