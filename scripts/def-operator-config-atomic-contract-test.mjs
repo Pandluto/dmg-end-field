@@ -89,6 +89,8 @@ assert.match(restSource, /parentNodeId:\s*structuralParentNodeId \|\| null/);
 assert.match(restSource, /label:\s*nodeMetadata\.title/);
 assert.match(restSource, /description:\s*nodeMetadata\.description/);
 assert.match(restSource, /sameOptionalNodeId\(node\.parentNodeId, capability\.structuralParentNodeId\)/);
+assert.match(restSource, /verifyDefTimelinePreserved\(parent\.workingPayload, preview\.preparedPayload\)/);
+assert.match(restSource, /visibleTimeline = verifyVisibleTimelineButtons/);
 
 const treeNodeSource = fs.readFileSync(new URL('../src/components/CanvasBoard/WorkNodeTreeNode.tsx', import.meta.url), 'utf8');
 assert.match(treeNodeSource, /work-node-tree-hover-card/);
@@ -97,6 +99,8 @@ const workbenchSource = fs.readFileSync(new URL('../src/components/CanvasBoard/i
 assert.match(workbenchSource, /label: command\.label\?\.trim\(\) \|\|/);
 assert.match(workbenchSource, /description: command\.description\?\.trim\(\) \|\| ''/);
 assert.doesNotMatch(workbenchSource, /`\[ai\] \$\{command\.label\.trim\(\)\}`/);
+assert.match(workbenchSource, /operator-config-timeline-invalid/);
+assert.match(workbenchSource, /validateTimelinePayload\(child\.node\.workingPayload\)/);
 
 console.log(JSON.stringify({
   ok: true,

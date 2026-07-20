@@ -2,9 +2,9 @@ import type { TimelineSnapshotPayload } from '../../utils/timelineSnapshotStorag
 import type { AiTimelineValidationIssue, AiTimelineValidationResult } from './types';
 
 function collectTimelineButtonEntries(payload: TimelineSnapshotPayload) {
-  return payload.timelineData.staffLines.flatMap((staffLine) => (
+  return payload.timelineData.staffLines.flatMap((staffLine, staffOffset) => (
     Array.isArray(staffLine.buttons)
-      ? staffLine.buttons.map((button) => ({ button, staffIndex: button.staffIndex }))
+      ? staffLine.buttons.map((button, buttonOffset) => ({ button, staffLine, staffOffset, buttonOffset }))
       : []
   ));
 }
@@ -42,16 +42,64 @@ export function validateTimelinePayload(payload: TimelineSnapshotPayload): AiTim
       issues.push(issue('table-button-missing-timeline-entry', `skillButtonTable button ${buttonId} is missing from timelineData.`, `timelineData.${buttonId}`));
     }
   }
+  const validSkillTypes = new Set(['A', 'B', 'E', 'Q', 'Dot']);
+  const selectedCharacters = new Set(payload.selectedCharacters);
+  const staffIndices = new Set<number>();
+  for (const [staffOffset, staffLine] of payload.timelineData.staffLines.entries()) {
+    if (!Number.isInteger(staffLine.staffIndex) || staffLine.staffIndex < 0 || staffLine.staffIndex >= payload.selectedCharacters.length) {
+      issues.push(issue('invalid-staff-index', `Staff line ${staffOffset} has an invalid staffIndex.`, `timelineData.staffLines.${staffOffset}.staffIndex`));
+    } else if (staffIndices.has(staffLine.staffIndex)) {
+      issues.push(issue('duplicate-staff-index', `Staff line index ${staffLine.staffIndex} appears more than once.`, `timelineData.staffLines.${staffOffset}.staffIndex`));
+    } else {
+      staffIndices.add(staffLine.staffIndex);
+    }
+    if (!staffLine.characterName?.trim()) {
+      issues.push(issue('invalid-staff-character-name', `Staff line ${staffOffset} has no characterName.`, `timelineData.staffLines.${staffOffset}.characterName`));
+    }
+  }
+
   const seenTimelineButtonIds = new Set<string>();
-  for (const { button, staffIndex } of timelineButtonEntries) {
+  for (const { button, staffLine, staffOffset, buttonOffset } of timelineButtonEntries) {
+    const buttonPath = `timelineData.staffLines.${staffOffset}.buttons.${buttonOffset}`;
     if (seenTimelineButtonIds.has(button.id)) {
       issues.push(issue('duplicate-timeline-button-entry', `Timeline button ${button.id} appears in more than one staff line.`, 'timelineData.staffLines'));
       continue;
     }
     seenTimelineButtonIds.add(button.id);
     const tableButton = payload.skillButtonTable[button.id];
-    if (tableButton && tableButton.staffIndex !== staffIndex) {
-      issues.push(issue('timeline-button-staff-mismatch', `Timeline button ${button.id} is on staff ${staffIndex}, but its table entry targets staff ${tableButton.staffIndex}.`, 'timelineData.staffLines'));
+    if (!button.characterId?.trim() || !selectedCharacters.has(button.characterId)) {
+      issues.push(issue('invalid-button-character-id', `Timeline button ${button.id} has no selected characterId.`, `${buttonPath}.characterId`));
+    }
+    if (!button.characterName?.trim() || button.characterName !== staffLine.characterName) {
+      issues.push(issue('invalid-button-character-name', `Timeline button ${button.id} does not match its staff line characterName.`, `${buttonPath}.characterName`));
+    }
+    if (!validSkillTypes.has(button.skillType)) {
+      issues.push(issue('invalid-button-skill-type', `Timeline button ${button.id} needs skillType A, B, E, Q, or Dot.`, `${buttonPath}.skillType`));
+    }
+    const effectiveLineIndex = button.lineIndex ?? button.staffIndex;
+    if (button.staffIndex !== staffLine.staffIndex || effectiveLineIndex !== staffLine.staffIndex) {
+      issues.push(issue('timeline-button-staff-mismatch', `Timeline button ${button.id} must target persistent line ${staffLine.staffIndex}.`, buttonPath));
+    }
+    if (payload.selectedCharacters[staffLine.staffIndex] !== button.characterId) {
+      issues.push(issue('timeline-button-character-staff-mismatch', `Timeline button ${button.id} character does not match selectedCharacters[${staffLine.staffIndex}].`, `${buttonPath}.characterId`));
+    }
+    if (!Number.isInteger(button.nodeIndex) || button.nodeIndex < 0) {
+      issues.push(issue('invalid-button-node-index', `Timeline button ${button.id} has an invalid nodeIndex.`, `${buttonPath}.nodeIndex`));
+    }
+    if (tableButton) {
+      for (const property of ['id', 'characterId', 'characterName', 'skillType', 'staffIndex', 'nodeIndex', 'nodeNumber'] as const) {
+        if (tableButton[property] !== button[property]) {
+          issues.push(issue('timeline-button-table-identity-mismatch', `Timeline button ${button.id} ${property} differs from skillButtonTable.`, `${buttonPath}.${property}`));
+        }
+      }
+      if ((tableButton.lineIndex ?? tableButton.staffIndex) !== effectiveLineIndex) {
+        issues.push(issue('timeline-button-table-identity-mismatch', `Timeline button ${button.id} lineIndex differs from skillButtonTable.`, `${buttonPath}.lineIndex`));
+      }
+      const timelineBuffIds = [...(button.buffIds || [])].sort();
+      const tableBuffIds = [...(tableButton.selectedBuff || [])].sort();
+      if (JSON.stringify(timelineBuffIds) !== JSON.stringify(tableBuffIds)) {
+        issues.push(issue('timeline-button-table-buff-mismatch', `Timeline button ${button.id} Buff ids differ from skillButtonTable.`, `${buttonPath}.buffIds`));
+      }
     }
   }
 

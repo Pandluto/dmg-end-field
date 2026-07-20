@@ -11,5 +11,17 @@ export default async function DefToolsPlugin() {
     }
     tool[target.nativeBinding] = definition
   }
-  return { tool }
+  return {
+    tool,
+    event: async ({ event }) => {
+      definitions.recordDefToolEventFailure(event)
+    },
+    'chat.message': async (input, output) => {
+      const turnId = output?.message?.id || input?.messageID
+      definitions.beginDefToolTurn(input?.sessionID, turnId)
+    },
+    'tool.execute.before': async (input) => {
+      definitions.assertDefToolTurnNotBlocked(input?.sessionID, input?.tool)
+    },
+  }
 }

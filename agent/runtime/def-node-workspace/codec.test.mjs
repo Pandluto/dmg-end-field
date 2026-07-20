@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { decodeDefNodePayload, rebuildDefNodePayload, validateDefNodeSource } from './codec.mjs'
+import { decodeDefNodePayload, rebuildDefNodePayload, validateDefNodeSource, validateDefTimelinePayload } from './codec.mjs'
 
 function payload() {
   const button = {
@@ -9,6 +9,7 @@ function payload() {
     characterName: '干员一',
     skillType: 'E',
     staffIndex: 0,
+    lineIndex: 0,
     nodeIndex: 0,
     nodeNumber: 1,
     position: { x: 10, y: 20 },
@@ -67,4 +68,24 @@ test('rejects duplicate slots and missing Buff references', () => {
   const codes = validateDefNodeSource(source).map((issue) => issue.code)
   assert.ok(codes.includes('button-slot-conflict'))
   assert.ok(codes.includes('button-buff-missing'))
+})
+
+test('rejects buttons without renderable character and skill identity', () => {
+  const source = decodeDefNodePayload(payload())
+  source.timeline.staffLines[0].buttons[0] = { id: 'button-1', nodeIndex: 0, skillKey: 'operator-1-B' }
+  const codes = validateDefNodeSource(source).map((issue) => issue.code)
+  assert.ok(codes.includes('button-character-id-invalid'))
+  assert.ok(codes.includes('button-character-name-invalid'))
+  assert.ok(codes.includes('button-skill-type-invalid'))
+  assert.ok(codes.includes('button-staff-index-mismatch'))
+  assert.ok(codes.includes('button-line-index-mismatch'))
+})
+
+test('rejects timeline and skillButtonTable identity divergence', () => {
+  const invalid = payload()
+  invalid.timelineData.staffLines[0].buttons[0].skillType = 'Q'
+  invalid.timelineData.staffLines[0].buttons[0].lineIndex = 1
+  const codes = validateDefTimelinePayload(invalid).map((issue) => issue.code)
+  assert.ok(codes.includes('timeline-button-skillType-mismatch'))
+  assert.ok(codes.includes('timeline-button-lineIndex-mismatch'))
 })

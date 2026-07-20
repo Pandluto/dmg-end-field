@@ -344,6 +344,7 @@ export interface SkillButtonData {
   characterName: string;   // 干员名称（如：陈千语）
   skillType: SkillType;    // 技能类型 A/B/E/Q
   staffIndex: number;      // 干员索引（0=管理员, 1=干员2, 2=干员3, 3=干员4）
+  lineIndex?: number;      // 持久化干员行索引；新 payload 与 staffIndex 一致
   nodeIndex: number;       // 节点索引（0 ~ N）
   nodeNumber: number;      // 节点编号（1 ~ 50, 51 ~ 100, ...）
   position: Position;      // 位置坐标

@@ -23,6 +23,44 @@ fs.writeFileSync(nowStoragePath, `${JSON.stringify(archive)}\n`);
 
 const digest = () => createHash('sha256').update(fs.readFileSync(nowStoragePath)).digest('hex');
 const beforeDigest = digest();
+const canvasSource = fs.readFileSync(path.join(process.cwd(), 'src/components/CanvasBoard/index.tsx'), 'utf8');
+const workbenchControlSource = fs.readFileSync(path.join(process.cwd(), 'src/utils/mainWorkbenchControl.ts'), 'utf8');
+assert.match(workbenchControlSource, /const memoryJsonStorage = new Map<string, unknown>\(\)/,
+  'renderer command coordination needs an in-memory fallback when localStorage is full');
+assert.match(workbenchControlSource, /memoryJsonStorage\.has\(key\)[\s\S]*canUseLocalStorage\(\)/,
+  'the in-memory command copy must take precedence over the localStorage recovery mirror');
+assert.match(workbenchControlSource, /memoryJsonStorage\.set\(key, value\)[\s\S]*localStorage\.setItem/,
+  'transient command writes must survive localStorage quota failures');
+assert.match(workbenchControlSource, /MAIN_WORKBENCH_REMOTE_SNAPSHOT_HEARTBEAT_MS[\s\S]*await pushMainWorkbenchSnapshot\(snapshot\)/,
+  'a live renderer must republish its canonical snapshot after a sidecar reconnect');
+assert.match(canvasSource, /document\.visibilityState !== 'visible'/,
+  'hidden Workbench tabs must not overwrite the foreground projection');
+assert.match(canvasSource, /projectionVisibilityRevision/,
+  'returning a Workbench tab to the foreground must republish its projection');
+assert.match(canvasSource, /isCheckoutMutationPendingRef\.current/,
+  'transient hydrate state must not publish as a canonical projection');
+assert.match(canvasSource, /flushSync\(commitReactRuntime\)/,
+  'renderer checkout must commit React button state before polling the visible DOM');
+const checkoutHandlerSource = canvasSource.slice(
+  canvasSource.indexOf('const checkoutAiTimelineWorkNodeFromCommand'),
+  canvasSource.indexOf('const ensureTimelineDocumentBaselineWorkNode'),
+);
+assert.match(checkoutHandlerSource, /workbench-renderer-not-visible/,
+  'a hidden renderer must fail closed before checkout');
+assert(checkoutHandlerSource.indexOf('visiblePostcondition = await waitForVisibleCanvasButtons')
+  < checkoutHandlerSource.indexOf('client.markCheckoutApplied'),
+  'foreground DOM visibility must be proven before SQLite is marked checkout-applied');
+const skillButtonSource = fs.readFileSync(path.join(process.cwd(), 'src/components/CanvasBoard/SkillButton.tsx'), 'utf8');
+assert.match(skillButtonSource, /data-skill-button-id=\{button\.id\}/,
+  'each rendered Canvas button needs a stable DOM identity for visible postconditions');
+const restServerSource = fs.readFileSync(path.join(process.cwd(), 'scripts/ai-cli-rest-server.mjs'), 'utf8');
+const workNodeApplyStart = restServerSource.indexOf('async function executeDefWorkNodeApplyAndVerify');
+const workNodeApplyEnd = restServerSource.indexOf('async function executeDefDamageCalculateAndVerify', workNodeApplyStart);
+const workNodeApplySource = restServerSource.slice(workNodeApplyStart, workNodeApplyEnd);
+assert.match(workNodeApplySource, /const applied = commandVerification\.pass[\s\S]*snapshotVerification\.pass[\s\S]*staffIndexVerification\.pass/,
+  'work-node success language must derive from the complete visible postcondition');
+assert.match(workNodeApplySource, /message: applied[\s\S]*canonical visible projection matches the reviewed payload/,
+  'a fully applied node must not emit a contradictory projection-mismatch warning');
 const child = spawn(process.execPath, ['scripts/ai-cli-rest-server.mjs'], {
   cwd: process.cwd(),
   env: {
@@ -62,6 +100,9 @@ async function waitForReady() {
 
 try {
   await waitForReady();
+  const initial = await request('/api/main-workbench/snapshot', { internal: true });
+  assert.equal(initial.status, 200);
+  assert.equal(initial.body.snapshot, null, 'a restarted sidecar must fail closed instead of exposing stale now-storage projection data');
   for (let index = 0; index < 25; index += 1) {
     const snapshot = {
       activeTimelineId: 'formal-a', timelineId: 'formal-a',

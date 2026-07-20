@@ -31,4 +31,21 @@ for (const identity of ['sessionId', 'timelineId', 'axisBindingId', 'parentNodeI
 }
 assert(native.includes('approvalCapability: decided.approvalCapability'), 'native continuation must receive a server-minted capability, not infer approval locally');
 
+const nodeUseStart = native.indexOf('export const node_use');
+const nodeUseEnd = native.indexOf('export const node_restore', nodeUseStart);
+const nodeUse = native.slice(nodeUseStart, nodeUseEnd);
+assert(nodeUse.includes('const approval = await askWithApproval'), 'node use must retain the native approval continuation result');
+assert(nodeUse.includes('approvalCapability: approval.approvalCapability'), 'node use must forward the server-minted one-time capability');
+const workNodeApplyStart = server.indexOf('async function executeDefWorkNodeApplyAndVerify');
+const workNodeApplyEnd = server.indexOf('async function executeDefDamageCalculateAndVerify', workNodeApplyStart);
+const workNodeApply = server.slice(workNodeApplyStart, workNodeApplyEnd);
+assert(workNodeApply.includes('consumeApprovedApplyCapability'), 'manual work-node checkout must consume native approval');
+for (const identity of ['sessionId', 'timelineId', 'axisBindingId', 'candidateNodeId', 'candidateRevision', 'workingHash']) {
+  assert(workNodeApply.includes(identity), `work-node approval capability must bind ${identity}`);
+}
+assert(workNodeApply.indexOf('consumeApprovedApplyCapability') < workNodeApply.indexOf('enqueueDefToolCommand'),
+  'work-node approval must be consumed before the renderer command is enqueued');
+assert(workNodeApply.includes("mode: 'manual'") && workNodeApply.includes("approvedBy: 'user'"),
+  'renderer checkout must receive the recorded manual approval outcome');
+
 console.log('DEF approval capability contract: PASS (native-only decision, exact one-time apply binding)');

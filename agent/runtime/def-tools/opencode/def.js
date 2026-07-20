@@ -20,8 +20,83 @@ const nodeSelection = 'node/working/selection.json'
 const nodeTimeline = 'node/working/timeline.json'
 const nodeBuffs = 'node/working/buffs.json'
 const nodeInputs = 'node/working/inputs.json'
+const defToolFailureBudget = new Map()
+const activeDefToolTurns = new Map()
+
+function defToolFailureScope(context) {
+  const sessionId = typeof context?.sessionID === 'string' ? context.sessionID : 'unknown-session'
+  const turnId = activeDefToolTurns.get(sessionId)
+    || (typeof context?.messageID === 'string' ? context.messageID : 'unknown-message')
+  return `${sessionId}:${turnId}`
+}
+
+export function beginDefToolTurn(sessionID, turnID) {
+  if (typeof sessionID !== 'string' || !sessionID || typeof turnID !== 'string' || !turnID) return
+  activeDefToolTurns.set(sessionID, turnID)
+  for (const key of defToolFailureBudget.keys()) {
+    if (key.startsWith(`${sessionID}:`) && key !== `${sessionID}:${turnID}`) defToolFailureBudget.delete(key)
+  }
+}
+
+function normalizeToolFailureCode(error) {
+  const text = String(error || '').trim()
+  if (/prevents you from using this specific tool call|permission/i.test(text)) {
+    if (/external_directory/i.test(text)) return 'denied-external-directory'
+    return 'denied-tool-permission'
+  }
+  const match = /^([a-z0-9][a-z0-9-]{2,80})\s*:/i.exec(text)
+  return match ? match[1].toLowerCase() : 'tool-execution-failed'
+}
+
+function recordTurnFailure({ sessionID, toolName, code, callID }) {
+  const turnId = activeDefToolTurns.get(sessionID)
+  if (!turnId || !code) return null
+  const scope = `${sessionID}:${turnId}`
+  const prior = defToolFailureBudget.get(scope)
+  const stableCallId = typeof callID === 'string' && callID ? callID : ''
+  if (stableCallId && prior?.seenCallIds?.has(stableCallId)) return prior
+  const sameFailure = prior?.code === code
+  const count = sameFailure ? prior.count + 1 : 1
+  const seenCallIds = sameFailure ? new Set(prior?.seenCallIds || []) : new Set()
+  if (stableCallId) seenCallIds.add(stableCallId)
+  const next = { tool: toolName, code, count, blocked: count >= 2, seenCallIds, updatedAt: Date.now() }
+  defToolFailureBudget.set(scope, next)
+  if (defToolFailureBudget.size > 512) defToolFailureBudget.delete(defToolFailureBudget.keys().next().value)
+  return next
+}
+
+export function recordDefToolEventFailure(event) {
+  if (event?.type !== 'message.part.updated') return
+  const part = event?.properties?.part
+  if (part?.type !== 'tool' || part?.state?.status !== 'error') return
+  recordTurnFailure({
+    sessionID: part.sessionID,
+    toolName: part.tool,
+    code: normalizeToolFailureCode(part.state.error),
+    callID: part.callID,
+  })
+}
+
+export function assertDefToolTurnNotBlocked(sessionID, toolName) {
+  const turnId = activeDefToolTurns.get(sessionID)
+  if (!turnId) return
+  const budget = defToolFailureBudget.get(`${sessionID}:${turnId}`)
+  if (!budget?.blocked) return
+  const error = new Error(`def-tool-retry-limit-reached: ${budget.tool} failed twice with ${budget.code}. All tool use is stopped for this user turn; report that the requested change was not applied before ${toolName}.`)
+  error.code = 'def-tool-retry-limit-reached'
+  error.details = { tool: budget.tool, attemptedTool: toolName, originalCode: budget.code, attempts: budget.count }
+  throw error
+}
 
 async function callDefTool(tool, input = {}, context = null) {
+  const failureScope = defToolFailureScope(context)
+  const budget = defToolFailureBudget.get(failureScope)
+  if (budget?.blocked) {
+    const error = new Error(`def-tool-retry-limit-reached: ${budget.tool} already failed twice with ${budget.code}. All tool use is stopped for this user turn; report that the requested change was not applied before ${tool}.`)
+    error.code = 'def-tool-retry-limit-reached'
+    error.details = { tool: budget.tool, attemptedTool: tool, originalCode: budget.code, attempts: budget.count }
+    throw error
+  }
   const response = await fetch(`${restBase}/api/def-tools/call`, {
     method: 'POST',
     headers: {
@@ -38,13 +113,26 @@ async function callDefTool(tool, input = {}, context = null) {
     // Work Node or an empty team.
     const failure = payload?.result || payload?.error || payload
     const code = failure?.code || payload?.code || 'def-tool-failed'
-    const message = failure?.message || payload?.message || `${tool} failed with HTTP ${response.status}`
-    const error = new Error(`${code}: ${message}`)
-    error.code = code
+    const message = failure?.message || failure?.note || payload?.message || `${tool} failed with HTTP ${response.status}`
+    const recorded = recordTurnFailure({
+      sessionID: context?.sessionID,
+      toolName: tool,
+      code,
+      callID: context?.callID,
+    })
+    const count = recorded?.count || 1
+    const blocked = recorded?.blocked === true
+    const error = new Error(blocked
+      ? `def-tool-retry-limit-reached: ${tool} failed twice with ${code}. Stop tool use and report that the requested change was not applied at this stage. Last error: ${message}`
+      : `${code}: ${message}`)
+    error.code = blocked ? 'def-tool-retry-limit-reached' : code
     error.status = response.status
-    error.details = failure?.details || null
+    error.details = blocked
+      ? { tool, originalCode: code, attempts: count, lastFailure: failure }
+      : failure
     throw error
   }
+  if (budget && budget.tool === tool && !budget.blocked) defToolFailureBudget.delete(failureScope)
   return payload.result
 }
 
@@ -228,6 +316,20 @@ function writeBinding(context, binding) {
   return binding
 }
 
+function readWorkbenchApprovalIdentity(context, binding) {
+  const target = inside(context.directory, workbenchContextFile)
+  let attached = null
+  try {
+    if (fs.existsSync(target)) attached = JSON.parse(fs.readFileSync(target, 'utf8'))
+  } catch {
+    attached = null
+  }
+  return {
+    timelineId: binding.saveId || attached?.context?.timeline?.id || '',
+    axisBindingId: attached?.axisBindingId || attached?.context?.axisContext?.binding?.id || '',
+  }
+}
+
 function activeCheckoutNodeId(snapshot) {
   const checkout = snapshot?.axisContext?.checkout
   return checkout?.targetType === 'work-node' && typeof checkout.targetId === 'string' && checkout.targetId
@@ -248,6 +350,8 @@ function writeSessionCheckoutObservation(context, checkout) {
     ? session.workbenchCheckoutState
     : {}
   session.workbenchCheckout = next
+  if (next?.targetType === 'work-node') session.boundNodeId = next.targetId
+  else delete session.boundNodeId
   session.workbenchCheckoutState = {
     phase: changed ? 'checkout-changed' : (existing.phase === 'checkout-changed' ? 'checkout-changed' : 'ready'),
     current: next,
@@ -287,6 +391,13 @@ function requireWorkbenchCheckoutReady(context) {
   throw error
 }
 
+function requireWorkbenchSelectionMatchesCheckout(workbench) {
+  if (!workbench || workbench.selectionMatchesCheckout) return
+  const error = new Error(`Workbench UI selection ${workbench.selectedNodeId || 'none'} does not match authoritative checkout ${workbench.checkoutNodeId || 'none'}. Select/use the checkout node, refresh context, then retry the mutation.`)
+  error.code = 'def-workbench-selection-checkout-mismatch'
+  throw error
+}
+
 async function readWorkbenchState(context) {
   const target = inside(context.directory, workbenchContextFile)
   if (!fs.existsSync(target)) throw new Error('No live Workbench context is attached to this session.')
@@ -294,11 +405,17 @@ async function readWorkbenchState(context) {
   const snapshot = await callDefTool('def.workbench.snapshot', { sessionBindingId: attached.axisBindingId }, context)
   const checkout = snapshot?.axisContext?.checkout || null
   const observation = writeSessionCheckoutObservation(context, checkout)
+  const selectedNodeId = typeof attached?.context?.selectedWorkbenchNode?.id === 'string'
+    ? attached.context.selectedWorkbenchNode.id.trim()
+    : null
+  const checkoutNodeId = activeCheckoutNodeId(snapshot)
   return {
     attached,
     snapshot,
     checkout,
-    checkoutNodeId: activeCheckoutNodeId(snapshot),
+    checkoutNodeId,
+    selectedNodeId,
+    selectionMatchesCheckout: !selectedNodeId || selectedNodeId === checkoutNodeId,
     checkoutChanged: observation.changed,
     previousCheckout: observation.previous,
     checkoutPhase: observation.phase,
@@ -323,6 +440,7 @@ async function readBindingForCurrentCheckout(context) {
   const workbench = await readOptionalWorkbenchState(context)
   if (!workbench) return { binding, workbench: null }
   requireWorkbenchCheckoutReady(context)
+  requireWorkbenchSelectionMatchesCheckout(workbench)
   if (!binding.checkoutAnchorNodeId && workbench.checkoutNodeId) {
     if (binding.nodeId !== workbench.checkoutNodeId) {
       const error = new Error(`The active Workbench checkout is ${workbench.checkoutNodeId}, but this legacy workspace is materialized for ${binding.nodeId}. Call def_node_bind with nodeId="" before continuing; unsynchronized edits were preserved.`)
@@ -396,7 +514,10 @@ export const node_code_materialize = {
   args: { nodeId: { type: 'string', description: 'Existing Work Node id.' } },
   async execute(args, context) {
     const workbench = await readOptionalWorkbenchState(context)
-    if (workbench) requireWorkbenchCheckoutReady(context)
+    if (workbench) {
+      requireWorkbenchCheckoutReady(context)
+      requireWorkbenchSelectionMatchesCheckout(workbench)
+    }
     const current = fs.existsSync(inside(context.directory, bindingFile)) ? readBinding(context) : null
     if (current?.nodeId !== args.nodeId && workspaceIsDirty(context, current)) {
       throw new Error(`Cannot replace ${current.nodeId} because node/working has unsynchronized edits. Sync, discard, or explicitly preserve that draft first.`)
@@ -464,20 +585,23 @@ export const node_fork = {
     name: { type: 'string', description: 'Short phrase naming this change, for example "调整莱万汀燃烬顺序". Do not use ids or timestamps.' },
     description: { type: 'string', description: 'Concise description of the intended timeline change and scope.' },
     placement: { type: 'string', enum: ['child', 'horizontal-branch'], description: 'Use child for timeline edits. Use horizontal-branch when replacing a selected operator so the new state appears beside the current configuration.' },
-    approvalPolicy: { type: 'string', enum: ['auto-low-risk', 'ask-on-risk', 'manual'], description: 'Approval policy for using this node.' },
+    approvalPolicy: { type: 'string', enum: ['auto-low-risk', 'ask-on-risk', 'manual'], description: 'Approval policy for using this node. Defaults to manual for Agent-created timeline mutations.' },
   },
   async execute(args, context) {
     const placement = args.placement === 'horizontal-branch' ? 'horizontal-branch' : 'child'
     context.metadata({ title: placement === 'horizontal-branch' ? 'Fork DEF horizontal branch' : 'Fork DEF child node' })
     const metadata = readForkMetadata(args)
     const workbench = await readOptionalWorkbenchState(context)
-    if (workbench) requireWorkbenchCheckoutReady(context)
+    if (workbench) {
+      requireWorkbenchCheckoutReady(context)
+      requireWorkbenchSelectionMatchesCheckout(workbench)
+    }
     const current = fs.existsSync(inside(context.directory, bindingFile)) ? readBinding(context) : null
     if (workspaceIsDirty(context, current)) {
       throw new Error(`Cannot fork over ${current.nodeId} because node/working has unsynchronized edits. Sync, discard, or explicitly preserve that draft first.`)
     }
     const created = await callDefTool('def.worknode.create_from_current', {
-      approvalPolicy: args.approvalPolicy,
+      approvalPolicy: args.approvalPolicy || 'manual',
       label: metadata.name,
       description: metadata.description,
       placement,
@@ -507,6 +631,8 @@ export const workbench_context = {
         (binding.checkoutAnchorNodeId && binding.checkoutAnchorNodeId !== workbench.checkoutNodeId)
         || (!binding.checkoutAnchorNodeId && binding.nodeId !== workbench.checkoutNodeId)
       )),
+      selectedNodeId: workbench.selectedNodeId,
+      selectionMatchesCheckout: workbench.selectionMatchesCheckout,
       reasoningEffort: workbench.checkoutChanged ? 'high' : 'normal',
       phase: workbench.checkoutPhase,
     }
@@ -590,10 +716,13 @@ export const node_bind = {
   async execute(args, context) {
     context.metadata({ title: 'Bind DEF child node' })
     const workbench = await readOptionalWorkbenchState(context)
-    const nodeId = typeof args.nodeId === 'string' && args.nodeId.trim() ? args.nodeId.trim() : workbench?.checkoutNodeId
+    const explicitlyRequestedNodeId = typeof args.nodeId === 'string' && args.nodeId.trim() ? args.nodeId.trim() : ''
+    const nodeId = explicitlyRequestedNodeId || workbench?.checkoutNodeId
     if (!nodeId) throw new Error('No current Workbench Work Node is checked out. Provide nodeId explicitly.')
-    if (workbench?.checkoutNodeId && nodeId !== workbench.checkoutNodeId) {
-      throw new Error(`The Workbench is currently checked out at ${workbench.checkoutNodeId}. Bind that active checkout instead of ${nodeId}.`)
+    if (explicitlyRequestedNodeId && workbench?.checkoutPhase === 'checkout-changed') {
+      const error = new Error(`Workbench checkout changed to ${workbench.checkoutNodeId || 'an unknown node'}. Bind it first with nodeId="", then bind the explicitly requested draft.`)
+      error.code = 'def-workbench-checkout-rebind-required'
+      throw error
     }
     const current = fs.existsSync(inside(context.directory, bindingFile)) ? readBinding(context) : null
     if (current?.nodeId !== nodeId && workspaceIsDirty(context, current)) {
@@ -682,12 +811,15 @@ export const node_use = {
     context.metadata({ title: 'Use DEF child node' })
     const synced = await syncWorkspace(context)
     const binding = readBinding(context)
-    await askWithApproval(context, {
+    const approvalIdentity = readWorkbenchApprovalIdentity(context, binding)
+    const approval = await askWithApproval(context, {
       action: 'Apply Work Node',
       summary: `Apply DEF Work Node ${binding.nodeId} to the main Workbench`,
       permission: 'def_node_use',
       nodeId: binding.nodeId,
       revision: binding.revision,
+      timelineId: approvalIdentity.timelineId,
+      axisBindingId: approvalIdentity.axisBindingId,
       diffHash: hashDefNodeValue(synced.diff),
       riskHash: hashDefNodeValue(synced.riskFlags || []),
       workingHash: binding.workingHash,
@@ -699,6 +831,7 @@ export const node_use = {
       nodeId: binding.nodeId,
       expectedRevision: binding.revision,
       expectedWorkingHash: binding.workingHash,
+      approvalCapability: approval.approvalCapability,
       reload: false,
     }, context)
     if (used.currentCheckoutTouched === true) {
@@ -718,16 +851,24 @@ export const node_restore = {
   async execute(_args, context) {
     context.metadata({ title: 'Restore DEF node base' })
     const { binding } = await readBindingForCurrentCheckout(context)
-    await askWithApproval(context, {
+    const approvalIdentity = readWorkbenchApprovalIdentity(context, binding)
+    const approval = await askWithApproval(context, {
       action: 'Restore Work Node base',
       summary: `Restore immutable base for DEF Work Node ${binding.nodeId}`,
       permission: 'def_node_restore',
       nodeId: binding.nodeId,
       revision: binding.revision,
+      timelineId: approvalIdentity.timelineId,
+      axisBindingId: approvalIdentity.axisBindingId,
       workingHash: binding.workingHash,
       consequence: 'The Work Node base snapshot becomes the current checkout after renderer verification.',
     })
-    const restored = await callDefTool('def.worknode.restore_base_and_verify', { nodeId: binding.nodeId, expectedRevision: binding.revision, reload: false }, context)
+    const restored = await callDefTool('def.worknode.restore_base_and_verify', {
+      nodeId: binding.nodeId,
+      expectedRevision: binding.revision,
+      approvalCapability: approval.approvalCapability,
+      reload: false,
+    }, context)
     return {
       title: restored.ok ? 'DEF node base restored' : 'DEF node restore pending',
       output: JSON.stringify(restored, null, 2),

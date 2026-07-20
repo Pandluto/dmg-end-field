@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { flushSync } from 'react-dom';
 import { useAppContext } from '../../context/AppContext';
 import { SkillSandbox } from './SkillSandbox';
 import { MainWorkbenchAiPanel } from './MainWorkbenchAiPanel';
@@ -281,12 +282,23 @@ function buildMainWorkbenchSnapshotSignature(
   selectedCharacters: MainWorkbenchSnapshot['selectedCharacters'],
   skillButtons: MainWorkbenchSnapshot['skillButtons'],
   operatorConfigs: MainWorkbenchSnapshot['operatorConfigs'] = [],
+  skillCatalog: MainWorkbenchSnapshot['skillCatalog'] = [],
 ): string {
   return JSON.stringify({
     selectedCharacters: selectedCharacters.map((character) => ({
       id: character.id,
       name: character.name,
     })),
+    skillCatalog: [...skillCatalog]
+      .sort((a, b) => `${a.characterId}:${a.skillId}`.localeCompare(`${b.characterId}:${b.skillId}`))
+      .map((skill) => ({
+        characterId: skill.characterId,
+        characterName: skill.characterName,
+        skillId: skill.skillId,
+        skillType: skill.skillType,
+        skillDisplayName: skill.skillDisplayName,
+        source: skill.source,
+      })),
     skillButtons: [...skillButtons]
       .sort((a, b) => a.id.localeCompare(b.id))
       .map((button) => ({
@@ -298,6 +310,8 @@ function buildMainWorkbenchSnapshotSignature(
         skillDisplayName: button.skillDisplayName,
         staffIndex: button.staffIndex,
         lineIndex: button.lineIndex,
+        persistenceStaffIndex: button.lineIndex,
+        persistenceNodeIndex: button.staffIndex * GRID_NODE_COUNT + (button.nodeIndex ?? 0),
         nodeIndex: button.nodeIndex,
         nodeNumber: button.nodeNumber,
         selectedBuffIds: [...button.selectedBuffIds].sort(),
@@ -396,6 +410,82 @@ function clonePersistedSkillButtonConfig(button: PersistedSkillButton): Pick<
   };
 }
 
+function buildVisibleTimelineMirrors(
+  characters: Character[],
+  visibleButtons: SkillButton[],
+  previousPayload: TimelineSnapshotPayload,
+): Pick<TimelineSnapshotPayload, 'timelineData' | 'skillButtonTable'> {
+  const previousTable = previousPayload.skillButtonTable || {};
+  const now = Date.now();
+  const skillButtonTable = Object.fromEntries(visibleButtons.map((button) => {
+    const lineIndex = button.lineIndex;
+    const character = characters[lineIndex];
+    if (!character || character.id !== button.characterId || character.name !== button.characterName) {
+      throw new Error(`VISIBLE_TIMELINE_IDENTITY_MISMATCH: ${button.id} 无法解析到当前干员行。`);
+    }
+    const trustedSkill = resolveRuntimeTemplateSkill(button);
+    if (!trustedSkill || trustedSkill.buttonType !== button.skillType) {
+      throw new Error(`VISIBLE_TIMELINE_SKILL_UNTRUSTED: ${button.id} 的 ${button.skillType} 无法在干员技能目录中解析。`);
+    }
+    const previous = previousTable[button.id];
+    const persistentNodeIndex = button.staffIndex * GRID_NODE_COUNT + (button.nodeIndex ?? 0);
+    const selectedBuff = [...(previous?.selectedBuff ?? [])];
+    const persisted: PersistedSkillButton = {
+      id: button.id,
+      characterId: button.characterId,
+      characterName: button.characterName,
+      skillType: button.skillType,
+      staffIndex: lineIndex,
+      lineIndex,
+      nodeIndex: persistentNodeIndex,
+      nodeNumber: persistentNodeIndex + 1,
+      position: { ...button.position },
+      runtimeSkillId: trustedSkill.id,
+      skillDisplayName: trustedSkill.displayName,
+      skillIconUrl: button.skillIconUrl,
+      customHits: button.customHits,
+      selectedBuff,
+      ...(previous ? clonePersistedSkillButtonConfig(previous) : {}),
+      createdAt: previous?.createdAt ?? now,
+      updatedAt: now,
+    };
+    return [button.id, persisted];
+  }));
+  const timelineData: TimelineData = {
+    version: previousPayload.timelineData.version || '1.0.0',
+    createdAt: previousPayload.timelineData.createdAt || now,
+    updatedAt: now,
+    staffLines: characters.map((character, lineIndex) => {
+      const buttons = Object.values(skillButtonTable)
+        .filter((button) => button.staffIndex === lineIndex)
+        .map((button) => ({
+          id: button.id,
+          characterId: button.characterId || character.id,
+          characterName: button.characterName,
+          skillType: button.skillType as SkillButtonType,
+          staffIndex: lineIndex,
+          lineIndex,
+          nodeIndex: button.nodeIndex,
+          nodeNumber: button.nodeNumber,
+          position: { ...button.position },
+          runtimeSkillId: button.runtimeSkillId,
+          skillDisplayName: button.skillDisplayName,
+          skillIconUrl: button.skillIconUrl,
+          customHits: button.customHits,
+          buffIds: [...button.selectedBuff],
+        }))
+        .sort((left, right) => left.nodeIndex - right.nodeIndex);
+      return {
+        staffIndex: lineIndex,
+        characterName: character.name,
+        occupiedNodes: buttons.map((button) => button.nodeIndex),
+        buttons,
+      };
+    }),
+  };
+  return { timelineData, skillButtonTable };
+}
+
 function buildSandboxSkillsFromRuntimeTemplate(characterId: string): SandboxSkill[] {
   const template = getRuntimeOperatorTemplateById(characterId);
   if (!template) {
@@ -458,6 +548,7 @@ export function CanvasBoard({
   const [shareScope, setShareScope] = useState<'snapshot' | 'branch' | 'document'>('snapshot');
   const [shareBranchRootId, setShareBranchRootId] = useState('');
   const [shareWorkNodes, setShareWorkNodes] = useState<TimelineRepositoryBundleWorkNode[]>([]);
+  const [projectionVisibilityRevision, setProjectionVisibilityRevision] = useState(0);
   const [pendingImportShare, setPendingImportShare] = useState<TimelineShareFile | null>(null);
   const [pendingImportBundle, setPendingImportBundle] = useState<TimelineBundleV2 | null>(null);
   const [localTimelineArchives, setLocalTimelineArchives] = useState<TimelineArchiveSummary[]>([]);
@@ -501,6 +592,7 @@ export function CanvasBoard({
   } = useTimelineSession();
   const shareImportInputRef = useRef<HTMLInputElement>(null);
   const isProcessingWorkbenchCommandRef = useRef(false);
+  const isCheckoutMutationPendingRef = useRef(false);
   const checkoutBootstrapIdentityRef = useRef<string | null>(null);
   const isCheckoutBootstrapPendingRef = useRef(true);
   const activeTimelineIdentityRef = useRef({
@@ -647,7 +739,7 @@ export function CanvasBoard({
   const restoredSignatureRef = useRef<string | null>(null);
   const previousViewRef = useRef(currentView);
 
-  const syncRuntimeSkillButtonsFromTimelineData = useCallback((dataToRestore: TimelineData, characters = selectedCharacters) => {
+  const buildRuntimeSkillButtonsFromTimelineData = useCallback((dataToRestore: TimelineData, characters = selectedCharacters) => {
     const restoredButtons: SkillButton[] = [];
     const gridStackElement = canvasRef.current?.querySelector('.canvas-grid-stack');
     const gridContentOffsetX = canvasRef.current && gridStackElement
@@ -658,7 +750,10 @@ export function CanvasBoard({
       buttons.forEach((btn) => {
         const character = characters.find((item) => item.name === btn.characterName || item.id === btn.characterId);
         const lineIndex = characters.findIndex((item) => item.name === btn.characterName || item.id === btn.characterId);
-        const restoredLineIndex = lineIndex >= 0 ? lineIndex : 0;
+        if (!character || lineIndex < 0 || (btn.characterId && btn.characterId !== character.id) || btn.characterName !== character.name) {
+          throw new Error(`CHECKOUT_TIMELINE_IDENTITY_MISMATCH: ${btn.id} 无法解析到当前干员行。`);
+        }
+        const restoredLineIndex = lineIndex;
         const timelineNodeIndex = typeof btn.nodeIndex === 'number' && Number.isFinite(btn.nodeIndex) ? btn.nodeIndex : 0;
         // Persisted staffIndex identifies the character row. The horizontal
         // grid group is encoded in the global nodeIndex (0..14, 15..29, ...).
@@ -689,6 +784,9 @@ export function CanvasBoard({
           customHits: btn.customHits,
           element: character?.element,
         });
+        if (!resolvedRuntimeSkill || resolvedRuntimeSkill.buttonType !== btn.skillType) {
+          throw new Error(`CHECKOUT_TIMELINE_SKILL_UNTRUSTED: ${btn.id} 的 ${btn.skillType} 无法在 ${character.name} 的可信技能目录中解析。`);
+        }
         restoredButtons.push({
           id: btn.id,
           characterId: restoredButtonCharacterId,
@@ -702,20 +800,22 @@ export function CanvasBoard({
           isDragging: false,
           isSelected: false,
           isFromSandbox: true,
-          runtimeSkillId: resolvedRuntimeSkill?.id ?? btn.runtimeSkillId,
-          skillDisplayName: resolvedRuntimeSkill?.displayName || btn.skillDisplayName,
-          skillIconUrl: resolvedRuntimeSkill?.iconUrl ?? btn.skillIconUrl ?? resolveSkillIconUrl(btn.characterName, btn.skillType),
+          runtimeSkillId: resolvedRuntimeSkill.id,
+          skillDisplayName: resolvedRuntimeSkill.displayName,
+          skillIconUrl: resolvedRuntimeSkill.iconUrl ?? btn.skillIconUrl ?? resolveSkillIconUrl(btn.characterName, btn.skillType),
           customHits: btn.customHits,
           element: character?.element,
         });
       });
     });
-    dispatch({ type: 'SET_SKILL_BUTTONS', buttons: restoredButtons });
-  }, [dispatch, selectedCharacters]);
+    return restoredButtons;
+  }, [selectedCharacters]);
 
-  const hydrateCheckoutRuntime = useCallback((payload: TimelineSnapshotPayload) => {
-    setSessionWorkingPayload(payload, 'checkout');
-    applyTimelineSnapshotPayload(payload);
+  const hydrateCheckoutRuntime = useCallback((payload: TimelineSnapshotPayload, options: { flushRender?: boolean } = {}) => {
+    const validation = validateTimelinePayload(payload);
+    if (!validation.ok) {
+      throw new Error(`CHECKOUT_RUNTIME_HYDRATION_FAILED: ${validation.issues.map((issue) => issue.message).join('；')}`);
+    }
     const nextCharacters = payload.selectedCharacters
       .map((id) => loadedCharacters.find((character) => character.id === id || character.name === id))
       .filter((character): character is Character => Boolean(character));
@@ -752,6 +852,7 @@ export function CanvasBoard({
             characterName: button.characterName,
             skillType: button.skillType as SkillButtonType,
             staffIndex: button.staffIndex,
+            lineIndex: button.lineIndex ?? button.staffIndex,
             nodeIndex: button.nodeIndex,
             nodeNumber: calculateNodeNumber(button.nodeIndex),
             position: button.position,
@@ -770,13 +871,29 @@ export function CanvasBoard({
         };
       }),
     };
-    setSkillButtonTable(normalizedSkillButtonTable);
     const normalizedTimelineData = normalizeTimelineData(canonicalTimelineData, resolvedCharacters);
+    // Build and validate every visible runtime button before mutating any
+    // sessionStorage or React state. A trusted-skill/identity failure must
+    // leave the previous checkout projection byte-for-byte intact.
+    const restoredButtons = buildRuntimeSkillButtonsFromTimelineData(normalizedTimelineData, resolvedCharacters);
+    setSessionWorkingPayload(payload, 'checkout');
+    applyTimelineSnapshotPayload(payload);
+    setSkillButtonTable(normalizedSkillButtonTable);
     saveTimelineRepo(normalizedTimelineData);
-    replaceTimelineData(normalizedTimelineData);
-    dispatch({ type: 'SET_SELECTED_CHARACTERS', characters: resolvedCharacters });
-    syncRuntimeSkillButtonsFromTimelineData(normalizedTimelineData, resolvedCharacters);
-  }, [dispatch, loadedCharacters, normalizeTimelineData, replaceTimelineData, selectedCharacters, setSessionWorkingPayload, syncRuntimeSkillButtonsFromTimelineData]);
+    const commitReactRuntime = () => {
+      replaceTimelineData(normalizedTimelineData);
+      dispatch({ type: 'SET_SELECTED_CHARACTERS', characters: resolvedCharacters });
+      dispatch({ type: 'SET_SKILL_BUTTONS', buttons: restoredButtons });
+    };
+    // Renderer commands run inside a long-lived async queue callback. React
+    // may otherwise retain these updates in its automatic batch while the
+    // command is already polling the DOM, producing a false 0/old-button
+    // postcondition and rolling the valid payload back. Only command-driven
+    // visible checkout uses flushSync; bootstrap/effect hydration stays
+    // deferred to avoid flushing from a lifecycle callback.
+    if (options.flushRender) flushSync(commitReactRuntime);
+    else commitReactRuntime();
+  }, [buildRuntimeSkillButtonsFromTimelineData, dispatch, loadedCharacters, normalizeTimelineData, replaceTimelineData, selectedCharacters, setSessionWorkingPayload]);
 
   const readFormalCheckoutPayload = useCallback(async (
     timelineId: string,
@@ -821,6 +938,23 @@ export function CanvasBoard({
     // This is intentionally not a browser reload and does not recreate OpenCode.
     setCheckoutRenderRevision((revision) => revision + 1);
     setWorkNodeRefreshKey((revision) => revision + 1);
+  }, []);
+
+  const waitForVisibleCanvasButtons = useCallback(async (expectedIds: string[], waitMs = 3000) => {
+    const expected = [...expectedIds].sort();
+    const deadline = Date.now() + waitMs;
+    let actual: string[] = [];
+    do {
+      await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()));
+      actual = [...(canvasRef.current?.querySelectorAll<HTMLElement>('[data-skill-button-id]') ?? [])]
+        .map((element) => element.dataset.skillButtonId || '')
+        .filter(Boolean)
+        .sort();
+      if (JSON.stringify(actual) === JSON.stringify(expected)) {
+        return { pass: true, expected, actual };
+      }
+    } while (Date.now() < deadline && document.visibilityState === 'visible');
+    return { pass: false, expected, actual };
   }, []);
 
   useEffect(() => {
@@ -942,6 +1076,13 @@ export function CanvasBoard({
     if (!originalPayload) {
       throw makeOperatorConfigCommandError('operator-config-payload-unavailable', '无法读取当前角色配置的完整 checkout payload。');
     }
+    const originalTimelineValidation = validateTimelinePayload(originalPayload);
+    if (!originalTimelineValidation.ok) {
+      throw makeOperatorConfigCommandError(
+        'operator-config-timeline-invalid',
+        `当前 checkout 排轴镜像不一致：${originalTimelineValidation.issues.map((issue) => issue.message).join('；')}`,
+      );
+    }
     const weaponName = command.weaponName?.trim() || '';
     const hasEquipment = Boolean(command.equipments?.length || command.equipmentId || command.equipmentName || command.gearSetId || command.gearSetName);
     const selections = hasEquipment
@@ -1033,6 +1174,13 @@ export function CanvasBoard({
           } as typeof preparedPayload.characterInputMap[string]['skillLevels'],
         },
       };
+      const preparedTimelineValidation = validateTimelinePayload(preparedPayload);
+      if (!preparedTimelineValidation.ok) {
+        throw makeOperatorConfigCommandError(
+          'operator-config-timeline-invalid',
+          `配置预览没有保留有效排轴：${preparedTimelineValidation.issues.map((issue) => issue.message).join('；')}`,
+        );
+      }
       const finalConfig = {
         characterId: character.id,
         characterName: character.name,
@@ -1076,6 +1224,13 @@ export function CanvasBoard({
     const child = await client.get(command.nodeId);
     if (Number(child.node.contentRevision || child.node.updatedAt) !== Number(command.nodeRevision)) {
       throw makeOperatorConfigCommandError('checkout-changed', '待审批 Work Node 已变化；未执行角色配置。');
+    }
+    const childTimelineValidation = validateTimelinePayload(child.node.workingPayload);
+    if (!childTimelineValidation.ok) {
+      throw makeOperatorConfigCommandError(
+        'operator-config-timeline-invalid',
+        `待审批配置分支排轴镜像不一致：${childTimelineValidation.issues.map((issue) => issue.message).join('；')}`,
+      );
     }
     applyTimelineSnapshotPayload(child.node.workingPayload);
     setSessionWorkingPayload(child.node.workingPayload, 'checkout');
@@ -1789,6 +1944,9 @@ export function CanvasBoard({
     saveTimelineData();
     setSelectedCharacterIds(selectedCharacters.map((character) => character.id));
     const currentPayload = getCurrentTimelineSnapshotPayload();
+    if (!currentPayload) {
+      throw new Error('当前 Canvas runtime payload 不可用，checkout 未应用');
+    }
     const currentDiff = currentPayload ? diffTimelinePayloads(currentPayload, node.workingPayload).summary : null;
     const commits = (await client.list()).commits
       .filter((commit) => commit.nodeId === node.id)
@@ -1819,38 +1977,68 @@ export function CanvasBoard({
       throw new Error(`AI work node checkout commit missing: ${node.id}`);
     }
 
+    if (document.visibilityState !== 'visible') {
+      throw new Error('workbench-renderer-not-visible: 前台 Canvas 不可见，checkout 未应用');
+    }
+    const repository = createTimelineRepositoryClient();
+    const previousCheckoutRef = activeCheckoutRef ? { ...activeCheckoutRef } : null;
+    const previousDocument = { id: activeTimelineId, label: activeTimelineLabel };
+    const previousCheckoutNode = checkoutWorkbenchNode;
+    const expectedVisibleIds = Object.keys(node.workingPayload.skillButtonTable || {}).sort();
+    let checkoutRefUpdated = false;
     let applied: Awaited<ReturnType<ReturnType<typeof createAiTimelineWorkNodeClient>['markCheckoutApplied']>> | null = null;
     let checkoutMarkError: string | undefined;
-    if (lifecyclePlan.markCheckoutApplied) {
-      try {
-        applied = await client.markCheckoutApplied(node.id, {
-          commitId: commit.id,
-          appliedAt: Date.now(),
-          appliedBy: command.approval?.approvedBy || (isManualApproval ? 'user' : 'ai'),
-          rationale: command.approval?.rationale || 'Renderer checkout applied to current main workbench timeline.',
-        });
-      } catch (error) {
-        checkoutMarkError = error instanceof Error ? error.message : String(error);
+    let visiblePostcondition = { pass: false, expected: expectedVisibleIds, actual: [] as string[] };
+    let checkoutApplied = false;
+    isCheckoutMutationPendingRef.current = true;
+    try {
+      // First prove that the foreground Canvas can hydrate and render the exact
+      // reviewed ids. SQLite checkout/applied state is written only after this
+      // visible postcondition succeeds.
+      hydrateCheckoutRuntime(node.workingPayload, { flushRender: true });
+      refreshWorkbenchAfterCheckout();
+      visiblePostcondition = await waitForVisibleCanvasButtons(expectedVisibleIds);
+      if (!visiblePostcondition.pass || document.visibilityState !== 'visible') {
+        throw new Error(`checkout-visible-postcondition-failed: expected=${visiblePostcondition.expected.join(',')} actual=${visiblePostcondition.actual.join(',')}`);
       }
-    }
-
-    const checkoutApplied = lifecyclePlan.reuseAppliedCommit || Boolean(applied?.commit.checkoutApplied);
-    if (checkoutApplied) {
-      const checkoutUpdatedAt = applied?.commit.checkout?.appliedAt || Date.now();
       const checkoutRef = {
         timelineId: node.timelineId || activeTimelineId,
         targetType: 'work-node',
         targetId: node.id,
-        updatedAt: checkoutUpdatedAt,
+        updatedAt: Date.now(),
       } as const;
-      await createTimelineRepositoryClient().setCheckoutRef(checkoutRef);
-      const document = node.timelineId === activeTimelineId
-        ? { id: activeTimelineId, label: activeTimelineLabel }
-        : (await createTimelineRepositoryClient().listDocuments()).find((entry) => entry.id === node.timelineId)
+      await repository.setCheckoutRef(checkoutRef);
+      checkoutRefUpdated = true;
+      const documentEntry = node.timelineId === activeTimelineId
+        ? previousDocument
+        : (await repository.listDocuments()).find((entry) => entry.id === node.timelineId)
           || { id: node.timelineId, label: node.label };
-      activateTimeline({ document, checkoutRef, workingPayload: node.workingPayload });
-      hydrateCheckoutRuntime(node.workingPayload);
+      activateTimeline({ document: documentEntry, checkoutRef, workingPayload: node.workingPayload });
+      setCheckoutWorkbenchNode({ nodeId: node.id, name: node.label, description: node.description || '' });
+      if (lifecyclePlan.markCheckoutApplied) {
+        applied = await client.markCheckoutApplied(node.id, {
+          commitId: commit.id,
+          appliedAt: Date.now(),
+          appliedBy: command.approval?.approvedBy || (isManualApproval ? 'user' : 'ai'),
+          rationale: command.approval?.rationale || 'Foreground renderer hydrated and displayed the exact reviewed timeline.',
+        });
+      }
+      checkoutApplied = lifecyclePlan.reuseAppliedCommit || Boolean(applied?.commit.checkoutApplied);
+      if (!checkoutApplied) throw new Error('checkout-applied-record-missing: visible Canvas was restored but SQLite apply record did not commit');
+    } catch (error) {
+      checkoutMarkError = error instanceof Error ? error.message : String(error);
+      if (checkoutRefUpdated && previousCheckoutRef) {
+        await repository.setCheckoutRef(previousCheckoutRef).catch(() => undefined);
+      }
+      activateTimeline({ document: previousDocument, checkoutRef: previousCheckoutRef, workingPayload: currentPayload });
+      setCheckoutWorkbenchNode(previousCheckoutNode);
+      hydrateCheckoutRuntime(currentPayload, { flushRender: true });
       refreshWorkbenchAfterCheckout();
+      await waitForVisibleCanvasButtons(Object.keys(currentPayload.skillButtonTable || {}));
+      throw error;
+    } finally {
+      isCheckoutMutationPendingRef.current = false;
+      setProjectionVisibilityRevision((revision) => revision + 1);
     }
 
     if (command.reload === true) {
@@ -1863,6 +2051,7 @@ export function CanvasBoard({
       status: applied?.node.status || node.status,
       checkoutApplied,
       checkoutMarkError,
+      visiblePostcondition,
       reloaded: command.reload === true,
       riskFlags: riskFlags.map((risk) => ({ severity: risk.severity, code: risk.code, message: risk.message })),
       checkoutDecision,
@@ -2096,6 +2285,11 @@ export function CanvasBoard({
   };
 
   const processMainWorkbenchCanvasCommand = async () => {
+    // Only the foreground Workbench may claim renderer commands. Hidden tabs
+    // can carry stale sessionStorage and must never advance SQLite checkout.
+    if (document.visibilityState !== 'visible') {
+      return;
+    }
     if (isProcessingWorkbenchCommandRef.current) {
       return;
     }
@@ -2549,10 +2743,11 @@ export function CanvasBoard({
             characterId: button.characterId,
             characterName: button.characterName,
             skillType: button.skillType,
-            staffIndex: button.staffIndex,
-            nodeIndex: button.nodeIndex ?? 0,
-            nodeNumber: button.nodeNumber ?? ((button.nodeIndex ?? 0) + 1),
-            position: { x: 80 + (button.nodeIndex ?? 0) * 22, y: 60 + button.staffIndex * 300 },
+            staffIndex: button.persistenceStaffIndex,
+            lineIndex: button.persistenceStaffIndex,
+            nodeIndex: button.persistenceNodeIndex,
+            nodeNumber: button.persistenceNodeIndex + 1,
+            position: { x: 80 + (button.nodeIndex ?? 0) * 22, y: 60 + button.lineIndex * 300 },
             runtimeSkillId: button.runtimeSkillId,
             skillDisplayName: button.skillDisplayName,
             selectedBuff: [...(button.selectedBuffIds ?? [])],
@@ -2567,16 +2762,17 @@ export function CanvasBoard({
             updatedAt: Date.now(),
             staffLines: selectedCharacters.map((character, index) => {
               const buttons = mirroredSkillButtons
-                .filter((button) => button.staffIndex === index || button.characterId === character.id || button.characterName === character.name)
+                .filter((button) => button.persistenceStaffIndex === index && button.characterId === character.id)
                 .map((button) => ({
                   id: button.id,
                   characterId: button.characterId,
                   characterName: button.characterName,
                   skillType: button.skillType as SkillButtonType,
-                  staffIndex: button.staffIndex,
-                  nodeIndex: button.nodeIndex ?? 0,
-                  nodeNumber: button.nodeNumber ?? ((button.nodeIndex ?? 0) + 1),
-                  position: { x: 80 + (button.nodeIndex ?? 0) * 22, y: 60 + button.staffIndex * 300 },
+                  staffIndex: button.persistenceStaffIndex,
+                  lineIndex: button.persistenceStaffIndex,
+                  nodeIndex: button.persistenceNodeIndex,
+                  nodeNumber: button.persistenceNodeIndex + 1,
+                  position: { x: 80 + (button.nodeIndex ?? 0) * 22, y: 60 + button.lineIndex * 300 },
                   runtimeSkillId: button.runtimeSkillId,
                   skillDisplayName: button.skillDisplayName,
                   buffIds: [...(button.selectedBuffIds ?? [])],
@@ -2610,6 +2806,7 @@ export function CanvasBoard({
                   characterName: button.characterName,
                   skillType: button.skillType as SkillButtonType,
                   staffIndex: button.staffIndex,
+                  lineIndex: button.lineIndex ?? button.staffIndex,
                   nodeIndex: button.nodeIndex,
                   nodeNumber: button.nodeNumber,
                   position: button.position,
@@ -2884,9 +3081,21 @@ export function CanvasBoard({
   }, [isAiMode]);
 
   useEffect(() => {
+    const publishWhenVisible = () => {
+      if (document.visibilityState === 'visible') setProjectionVisibilityRevision((revision) => revision + 1);
+    };
+    document.addEventListener('visibilitychange', publishWhenVisible);
+    return () => document.removeEventListener('visibilitychange', publishWhenVisible);
+  }, []);
+
+  useEffect(() => {
     if (currentView !== 'canvas') {
       return;
     }
+    // Multiple local Workbench tabs may remain mounted. Only the foreground
+    // tab may publish the canonical projection; otherwise a hidden stale tab
+    // can overwrite the active timeline and trip every session gate mid-turn.
+    if (document.visibilityState !== 'visible') return;
     const timelineButtons = timelineData.staffLines.flatMap((staffLine) =>
       (Array.isArray(staffLine.buttons) ? staffLine.buttons : []).map((button) => ({
         ...button,
@@ -2911,6 +3120,8 @@ export function CanvasBoard({
             skillDisplayName: button.skillDisplayName,
             staffIndex: button.staffIndex,
             lineIndex: button.lineIndex,
+            persistenceStaffIndex: button.lineIndex,
+            persistenceNodeIndex: button.staffIndex * GRID_NODE_COUNT + (button.nodeIndex ?? 0),
             nodeIndex: button.nodeIndex,
             nodeNumber: button.nodeNumber,
             selectedBuffIds: [...(persistedButton?.selectedBuff ?? [])],
@@ -2940,10 +3151,12 @@ export function CanvasBoard({
             skillType: button.skillType as SkillButtonType,
             runtimeSkillId: button.runtimeSkillId,
             skillDisplayName: button.skillDisplayName,
-            staffIndex: button.staffIndex,
-            lineIndex: selectedCharacters.findIndex((character) => character.name === button.characterName),
-            nodeIndex: button.nodeIndex,
-            nodeNumber: button.nodeNumber,
+            staffIndex: Math.floor(button.nodeIndex / GRID_NODE_COUNT),
+            lineIndex: button.staffIndex,
+            persistenceStaffIndex: button.staffIndex,
+            persistenceNodeIndex: button.nodeIndex,
+            nodeIndex: button.nodeIndex % GRID_NODE_COUNT,
+            nodeNumber: calculateNodeNumber(button.nodeIndex % GRID_NODE_COUNT),
             selectedBuffIds: [...(persistedButton?.selectedBuff ?? [])],
             selectedBuffs: getBuffsByButtonId(button.id).map((buff) => ({
               id: buff.id,
@@ -2961,35 +3174,7 @@ export function CanvasBoard({
             })),
           };
         })
-      : Object.values(persistedButtonTable).map((button) => ({
-          id: button.id,
-          characterId: button.characterId ?? '',
-          characterName: button.characterName,
-          skillType: button.skillType as SkillButtonType,
-          runtimeSkillId: button.runtimeSkillId,
-          skillDisplayName: button.skillDisplayName,
-          staffIndex: button.staffIndex,
-          lineIndex: selectedCharacters.findIndex((character) => (
-            character.id === button.characterId || character.name === button.characterName
-          )),
-          nodeIndex: button.nodeIndex,
-          nodeNumber: button.nodeNumber,
-          selectedBuffIds: [...(button.selectedBuff ?? [])],
-          selectedBuffs: getBuffsByButtonId(button.id).map((buff) => ({
-            id: buff.id,
-            name: buff.name,
-            displayName: buff.displayName,
-            sourceName: buff.sourceName,
-            level: buff.level,
-            type: buff.type,
-            value: buff.value,
-            description: buff.description,
-            source: buff.source,
-            condition: buff.condition,
-            category: buff.category,
-            effectKind: buff.effectKind,
-          })),
-        }));
+      : [];
     const mirroredSelectedCharacters: MainWorkbenchSnapshot['selectedCharacters'] = selectedCharacters.map((character) => ({
       id: character.id,
       name: character.name,
@@ -2997,6 +3182,17 @@ export function CanvasBoard({
       profession: character.profession,
       librarySource: character.librarySource,
     }));
+    const mirroredSkillCatalog: NonNullable<MainWorkbenchSnapshot['skillCatalog']> = selectedCharacters.flatMap((character) => {
+      const skills = buildSandboxSkillsFromRuntimeTemplate(character.id);
+      return skills.map((skill) => ({
+        characterId: character.id,
+        characterName: character.name,
+        skillId: skill.id,
+        skillType: skill.buttonType,
+        skillDisplayName: skill.displayName,
+        source: skill.source,
+      }));
+    });
     const mirroredOperatorConfigs: MainWorkbenchSnapshot['operatorConfigs'] = selectedCharacters.flatMap((character) => {
       const configSnapshot = operatorConfigCache[character.id];
       if (!configSnapshot) return [];
@@ -3037,11 +3233,11 @@ export function CanvasBoard({
         operatorSkillLevels: configSnapshot.operator.skillConfig,
       }];
     });
-    if (isCheckoutBootstrapPendingRef.current) return;
+    if (isCheckoutBootstrapPendingRef.current || isCheckoutMutationPendingRef.current) return;
     const previousSnapshot = readMainWorkbenchSnapshot();
-    const currentSignature = buildMainWorkbenchSnapshotSignature(mirroredSelectedCharacters, mirroredButtons, mirroredOperatorConfigs);
+    const currentSignature = buildMainWorkbenchSnapshotSignature(mirroredSelectedCharacters, mirroredButtons, mirroredOperatorConfigs, mirroredSkillCatalog);
     const previousSignature = previousSnapshot
-      ? buildMainWorkbenchSnapshotSignature(previousSnapshot.selectedCharacters, previousSnapshot.skillButtons, previousSnapshot.operatorConfigs)
+      ? buildMainWorkbenchSnapshotSignature(previousSnapshot.selectedCharacters, previousSnapshot.skillButtons, previousSnapshot.operatorConfigs, previousSnapshot.skillCatalog)
       : '';
     const canReusePreviousDamageReport = computedDamageReport.buttonCount === 0 &&
       mirroredButtons.length > 0 &&
@@ -3064,6 +3260,7 @@ export function CanvasBoard({
       } : null,
       currentView,
       selectedCharacters: mirroredSelectedCharacters,
+      skillCatalog: mirroredSkillCatalog,
       skillButtons: mirroredButtons,
       damageReport: {
         generatedAt: damageReport.generatedAt,
@@ -3076,7 +3273,7 @@ export function CanvasBoard({
     };
     writeMainWorkbenchSnapshot(snapshot);
     void pushMainWorkbenchSnapshot(snapshot);
-  }, [activeCheckoutRef, activeTimelineId, checkoutBootstrapRevision, currentView, selectedCharacters, skillButtons, timelineData, resistanceRevision]);
+  }, [activeCheckoutRef, activeTimelineId, checkoutBootstrapRevision, currentView, projectionVisibilityRevision, selectedCharacters, skillButtons, timelineData, resistanceRevision]);
 
   useEffect(() => {
     if (isCheckoutBootstrapPendingRef.current || currentView !== 'canvas') return undefined;
@@ -3521,8 +3718,30 @@ export function CanvasBoard({
 
   const handleSaveWorkNodeCheckpoint = async (): Promise<boolean> => {
     if (!await promoteTemporaryTimeline()) return false;
-    saveTimelineData();
     setSelectedCharacterIds(selectedCharacters.map((character) => character.id));
+    if (!activeCheckoutRef) {
+      const currentPayload = getCurrentTimelineSnapshotPayload();
+      if (!currentPayload) {
+        alert('当前没有可保存到工作树的排轴数据');
+        return false;
+      }
+      try {
+        const visibleMirrors = buildVisibleTimelineMirrors(selectedCharacters, skillButtons, currentPayload);
+        const canonicalPayload = { ...currentPayload, ...visibleMirrors };
+        const validation = validateTimelinePayload(canonicalPayload);
+        if (!validation.ok) {
+          throw new Error(validation.issues.map((issue) => issue.message).join('；'));
+        }
+        setSkillButtonTable(visibleMirrors.skillButtonTable);
+        saveTimelineRepo(visibleMirrors.timelineData);
+        replaceTimelineData(visibleMirrors.timelineData);
+      } catch (error) {
+        alert(`工作节点保存失败：${error instanceof Error ? error.message : String(error)}`);
+        return false;
+      }
+    } else {
+      saveTimelineData();
+    }
     const payload = getCurrentTimelineSnapshotPayload();
     if (!payload) {
       alert('当前没有可保存到工作树的排轴数据');

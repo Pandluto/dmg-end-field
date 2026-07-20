@@ -24,14 +24,25 @@ For a capability question such as “你可以排轴吗”, answer directly and 
 
 ## Mutations
 
-1. Fork with `def_node_fork`, or bind an explicitly selected existing node with `def_node_bind`. Never list nodes and bind an arbitrary/latest node just because it exists; if the user did not name a node, fork from the current checkout.
+1. Fork with `def_node_fork`, or bind an explicitly selected existing node with `def_node_bind`. An explicitly named ready draft may differ from the current checkout: binding it only materializes its isolated workspace and records the checkout as its anchor; it does not apply the draft. If a checkout transition guard is active, first bind `nodeId=""`, refresh context, then bind the explicitly named draft before validation/use. Never list nodes and bind an arbitrary/latest node just because it exists; if the user did not name a node, fork from the current checkout.
 2. Read `node/working/*.json` before editing. Files below `node/base`, `node/context`, `node/generated`, and the manifest are read-only.
 3. Use native `edit` or `apply_patch` on the normalized working source for flexible node changes. The codec rebuilds storage mirrors; do not translate the request into legacy button-command JSON or Patch DSL.
+   Every new timeline button must carry the exact trusted `characterId`, `characterName`, canonical `skillType` (`A/B/E/Q/Dot`), persistent `staffIndex`, matching `lineIndex`, and global `nodeIndex`. `skillKey` is never a substitute for `skillType`. If an exact identity cannot be resolved, stop and report that the draft was not applied.
+   Prefer the live Workbench snapshot `skillCatalog`: an exact `characterId + skillType + skillDisplayName` entry is already trusted, and its `skillId` is the required `runtimeSkillId`. Do not call `def_data_skill` for a skill that resolves exactly in that catalog. Call `def_data_skill` only when the requested skill is absent from the live catalog. `customHits`, icon URLs, runtime snapshots, damage multipliers, and other calculation metadata are optional for timeline placement and must never block button creation. A working timeline button follows this minimal shape: `{ "id": "agent-short-id", "characterId": "stable-operator-id", "characterName": "干员名", "skillType": "A|B|E|Q|Dot", "runtimeSkillId": "trusted-skill-id", "skillDisplayName": "可信技能名", "staffIndex": 0, "lineIndex": 0, "nodeIndex": 0, "nodeNumber": 1, "selectedBuff": [] }`. `staffIndex` and `lineIndex` are the selected-character row; `nodeIndex` is the global horizontal slot.
 4. Run `def_node_sync_validate` and inspect the returned diff/risk evidence.
 5. If the user says 先看看、先不要应用、预览 or equivalent, stop after validation/diff.
 6. Only call `def_node_use` when the user explicitly requests application or clearly approves the reviewed result.
 
+Create Agent-authored timeline mutation nodes with `approvalPolicy=manual`. “重新发出审核”, “重新提交审批”, “提交审核” and equivalent language always require a fresh native pending approval. Never reuse an auto-approved checkout or describe a queue state/button count as approval or visible success.
+After validation succeeds for one of those approval phrases, call `def_node_use` in the same turn so the native approval request is actually created and blocks for the user's decision. Do not stop at a textual “待审批” summary, and do not call a separate approval resource. If interop state still reports `pending=null`, say the approval was not issued.
+
 Use trusted resource tools to resolve operator, skill, weapon, equipment and Buff ids. Never invent official resource ids.
+
+Treat checkout, UI selection, and the session-axis bound node as one guarded identity. If `def_workbench_context` reports a checkout transition, `requiresRebind`, or a selection/checkout mismatch, call `def_node_bind` with an empty node id and read context again before any mutation. After convergence, an existing draft that the user explicitly named may be bound for review/use; do not materialize an arbitrary or inferred older node to work around the mismatch.
+
+Retry one typed-tool failure at most once after changing the failing input or refreshing authoritative context. If the same failure code occurs twice, stop all tool calls and tell the user the change was not applied, which stage failed, and the single next recovery action. Do not continue until max-step.
+
+The native `skill` tool already returns this complete Skill. Never inspect the runtime Skill directory with `read`, `glob`, or `grep`. Generic file tools are only for the current session's `node/working/*.json`; after one outside-session permission denial, do not try another path or file tool for that resource.
 
 Weapon and equipment assignment does not use `node/working/inputs.json`. Resolve exact candidates through the trusted weapon/equipment resources, show the loadout first, then only after the user explicitly asks to apply use `def_operator_config_patch` once per selected operator. Its native approval and live operator-config postcondition are the completion proof; a Work Node validation, diff, checkout, or queued command is never proof that the visible loadout changed.
 

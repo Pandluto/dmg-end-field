@@ -361,6 +361,7 @@ export interface PersistedSkillButton {
   characterName: string;                // 干员名称
   skillType: string;                    // 技能类型 A/B/E/Q
   staffIndex: number;                   // 干员索引
+  lineIndex?: number;                   // 持久化干员行索引；用于 typed Work Node 可见性校验
   nodeIndex: number;                    // 节点索引
   nodeNumber: number;                   // 节点编号
   position: { x: number; y: number };   // 位置坐标

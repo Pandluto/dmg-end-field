@@ -29,6 +29,7 @@ const {
   findNativeSessionBinding,
   writeNativeWorkbenchContext,
 } = require('../runtime/def-opencode-adapter/index.cjs');
+const { isDirectCurrentNodeQuestion } = require('../runtime/def-opencode-adapter/harness-turn-router.cjs');
 
 const HOST = '127.0.0.1';
 const PORT = Number(process.env.DEF_AGENT_PORT || 17322);
@@ -509,16 +510,27 @@ async function proxyOpenCodeRequest(request, response) {
     const directory = target.searchParams.get('directory') || '';
     binding = readNativeSessionBinding(directory, sessionID);
     if (binding) {
-      if (binding.host === 'workbench') await syncNativeWorkbenchAxisBinding(binding);
+      const axisContext = binding.host === 'workbench' ? await syncNativeWorkbenchAxisBinding(binding) : null;
       const incoming = await readJsonBody(request);
+      const userText = Array.isArray(incoming.parts)
+        ? incoming.parts.filter((part) => part?.type === 'text').map((part) => String(part.text || '')).join('\n').trim()
+        : '';
       const workbenchContext = binding.host === 'workbench'
         ? readNativeWorkbenchContext(binding)
         : null;
-      const harness = getNativeHarnessSystem(binding);
+      const harness = getNativeHarnessSystem(binding, userText);
+      const checkoutState = binding.host === 'workbench' ? updateNativeWorkbenchCheckoutState(binding, axisContext) : null;
+      const selectedSystem = binding.host === 'workbench'
+        ? buildWorkbenchContextSystemPrompt(workbenchContext, [harness.system, incoming.system].filter(Boolean).join('\n\n'))
+        : incoming.system;
       rewrittenBody = Buffer.from(JSON.stringify({
         ...incoming,
         agent: binding.agent,
-        ...(binding.host === 'workbench' ? { system: buildWorkbenchContextSystemPrompt(workbenchContext, [harness.system, incoming.system].filter(Boolean).join('\n\n')) } : {}),
+        ...(binding.host === 'workbench' ? {
+          system: checkoutState
+            ? buildWorkbenchCheckoutSystemPrompt(checkoutState, selectedSystem, incoming.parts)
+            : selectedSystem,
+        } : {}),
       }), 'utf8');
     }
   }
@@ -655,7 +667,6 @@ async function sendNativeInteropPromptOnce(sessionID, body) {
     error.status = 404;
     throw error;
   }
-  await syncNativeWorkbenchAxisBinding(binding);
   const requestedHarness = typeof body?.harnessSelector === 'string' ? body.harnessSelector.trim() : '';
   if (requestedHarness) {
     const pinned = binding.harnessBinding?.harness;
@@ -682,15 +693,20 @@ async function sendNativeInteropPromptOnce(sessionID, body) {
     ? body.diagnostic
     : null;
   const runtime = await ensureRuntime(readConfig().deepseek);
+  const axisContext = await syncNativeWorkbenchAxisBinding(binding);
+  const checkoutState = updateNativeWorkbenchCheckoutState(binding, axisContext);
   const workbenchContext = readNativeWorkbenchContext(binding);
-  const harness = getNativeHarnessSystem(binding);
+  const harness = getNativeHarnessSystem(binding, rawUserText);
   const diagnosticSystem = diagnostic
     ? `Diagnostic ingress. Purpose: ${String(diagnostic.purpose || '').slice(0, 240)}. Scope: ${String(diagnostic.scope || '').slice(0, 240)}. Mutation allowed: ${diagnostic.mutationAllowed === true}. This diagnostic marker is not user text.`
     : undefined;
+  const selectedSystem = buildWorkbenchContextSystemPrompt(workbenchContext, [harness.system, diagnosticSystem].filter(Boolean).join('\n\n'));
   const payload = {
     agent: binding.agent,
     model: { providerID: 'deepseek', modelID: sanitizeDeepSeekConfig(readConfig().deepseek).model },
-    system: buildWorkbenchContextSystemPrompt(workbenchContext, [harness.system, diagnosticSystem].filter(Boolean).join('\n\n')),
+    system: checkoutState
+      ? buildWorkbenchCheckoutSystemPrompt(checkoutState, selectedSystem, [{ type: 'text', text: rawUserText }])
+      : selectedSystem,
     parts: [{ type: 'text', text: rawUserText }],
   };
   const response = await fetch(
@@ -718,6 +734,8 @@ async function sendNativeInteropPromptOnce(sessionID, body) {
       { role: 'user', text: rawUserText },
     ],
     harnessBinding: harness.binding,
+    sessionHarnessBinding: harness.sessionBinding || harness.binding,
+    harnessRoute: harness.turnRoute || null,
     harnessWarning: harness.warning,
   };
 }
@@ -832,6 +850,8 @@ function updateNativeWorkbenchCheckoutState(binding, axisContext) {
     : {};
   const phase = changed ? 'checkout-changed' : (existing.phase === 'checkout-changed' ? 'checkout-changed' : 'ready');
   session.workbenchCheckout = current;
+  if (current?.targetType === 'work-node') session.boundNodeId = current.targetId;
+  else delete session.boundNodeId;
   session.workbenchCheckoutState = {
     phase,
     current,
@@ -859,6 +879,13 @@ function buildWorkbenchCheckoutSystemPrompt(state, existingSystem, parts) {
     `Current checkout: ${currentNode?.label || 'unnamed node'} (${state.current?.targetId || 'none'}).`,
     `Checkout state: ${state.phase}.`,
     'Do not use, repeat, or reconcile any older transcript claim about a bound node or latest applied node.',
+    'The current user message is the only active task. Never repeat a previously completed equipment/configuration result unless the user explicitly asks for it.',
+    'If the UI-selected node, session-axis boundNodeId, and current checkout do not identify the same Work Node, treat checkout as authoritative and do not mutate until def_workbench_context plus def_node_bind(nodeId="") converges them.',
+    'If the same typed-tool failure code occurs twice in this turn, stop calling tools and report that the requested change was not applied, including the failing stage and one recovery action.',
+    'The same retry fuse applies to generic tool failures such as outside-session file permission denials. After one such denial, do not try another path or generic file tool for that resource.',
+    'A loaded Skill is complete. Never scan, glob, grep, or read its runtime directory; use the Skill content and trusted def_data resources.',
+    'Never report a mutation as successful from queue state or record count alone. Native approval and the exact visible postcondition must both pass.',
+    'For 重新发出审核 / 重新提交审批 / 提交审核 / wait for my personal approval, validation alone is not enough: call def_node_use in this turn to create the native pending approval. Never say 待审批 if interop pending is null.',
   ];
   if (state.phase === 'checkout-changed') {
     lines.push(
@@ -872,7 +899,7 @@ function buildWorkbenchCheckoutSystemPrompt(state, existingSystem, parts) {
   const userText = Array.isArray(parts)
     ? parts.filter((part) => part?.type === 'text').map((part) => String(part.text || '')).join('\n')
     : '';
-  if (/当前节点|当前.*节点|现在.*节点/.test(userText)) {
+  if (isDirectCurrentNodeQuestion(userText)) {
     lines.push(
       'DIRECT CURRENT-NODE CONTRACT: call def_workbench_current_node before replying.',
       'Reply with exactly its label and nodeId. Do not mention axis bindings, node cursors, parents, latest-applied nodes, summaries, or any earlier answer.',
@@ -899,7 +926,7 @@ function readNativeWorkbenchContext(binding) {
 function buildWorkbenchContextSystemPrompt(selectedNode, existingSystem) {
   const lines = [
     'DEF WORKBENCH LIVE SELECTION (authoritative system context; not user text):',
-    'This value is refreshed from the Work Node tree before every user message. Treat every older transcript claim about the current node as stale.',
+    'This value is refreshed from the Work Node tree before every user message. Treat every older transcript claim about the current node as stale. The outer authoritative checkout state wins if the identities differ.',
   ];
   if (selectedNode) {
     lines.push(
@@ -924,24 +951,34 @@ async function syncNativeWorkbenchAxisBinding(binding) {
     throw error;
   }
   await ensureDefRestService();
-  const response = await fetch(`${defRestUrl}/api/def-tools/call`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json', 'x-def-internal-token': defInternalGovernanceToken },
-    body: JSON.stringify({
-      tool: 'def.workbench.bind_session_axis',
-      input: {
-        sessionBindingId: current.axisBindingId,
-        sessionID: current.sessionID,
-        host: 'workbench',
-        timelineId: current.timelineId,
-        boundNodeId: binding.boundNodeId || undefined,
-      },
-    }),
-    signal: AbortSignal.timeout(5000),
-  });
-  const payload = await response.json().catch(() => null);
-  if (!response.ok || payload?.ok !== true || payload?.result?.ok === false) {
-    throw new Error(payload?.result?.message || payload?.error?.message || payload?.message || 'native-session-axis-binding-failed');
+  const bindAxis = async (boundNodeId = '') => {
+    const response = await fetch(`${defRestUrl}/api/def-tools/call`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-def-internal-token': defInternalGovernanceToken },
+      body: JSON.stringify({
+        tool: 'def.workbench.bind_session_axis',
+        input: {
+          sessionBindingId: current.axisBindingId,
+          sessionID: current.sessionID,
+          host: 'workbench',
+          timelineId: current.timelineId,
+          boundNodeId: boundNodeId || undefined,
+        },
+      }),
+      signal: AbortSignal.timeout(5000),
+    });
+    const payload = await response.json().catch(() => null);
+    if (!response.ok || payload?.ok !== true || payload?.result?.ok === false) {
+      throw new Error(payload?.result?.message || payload?.error?.message || payload?.message || 'native-session-axis-binding-failed');
+    }
+    return payload;
+  };
+  let payload = await bindAxis();
+  const checkoutNodeId = payload?.result?.context?.checkout?.targetType === 'work-node'
+    ? payload.result.context.checkout.targetId
+    : '';
+  if (checkoutNodeId && payload?.result?.binding?.boundNodeId !== checkoutNodeId) {
+    payload = await bindAxis(checkoutNodeId);
   }
   const assertion = await fetch(`${defRestUrl}/api/def-tools/call`, {
     method: 'POST',
@@ -1276,7 +1313,7 @@ const server = http.createServer(async (request, response) => {
     if (method === 'POST' && nativeInteropPrompt) {
       const sessionID = decodeURIComponent(nativeInteropPrompt[1]);
       const result = await sendNativeInteropPrompt(sessionID, await readJsonBody(request));
-      writeJson(response, 202, { ok: true, sessionId: sessionID, ingressMode: result.ingressMode, acceptedAt: result.acceptedAt, nativeUserMessageId: result.nativeUserMessageId || undefined, providerVisibleMessages: result.providerVisibleMessages, harnessBinding: result.harnessBinding || null, harnessWarning: result.harnessWarning || null, idempotent: result.idempotent === true });
+      writeJson(response, 202, { ok: true, sessionId: sessionID, ingressMode: result.ingressMode, acceptedAt: result.acceptedAt, nativeUserMessageId: result.nativeUserMessageId || undefined, providerVisibleMessages: result.providerVisibleMessages, harnessBinding: result.harnessBinding || null, sessionHarnessBinding: result.sessionHarnessBinding || null, harnessRoute: result.harnessRoute || null, harnessWarning: result.harnessWarning || null, idempotent: result.idempotent === true });
       return;
     }
 

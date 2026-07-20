@@ -29,6 +29,7 @@ import {
   computeDefNodeSourceRisk,
   hashDefNodeValue,
   rebuildDefNodePayload,
+  validateDefTimelinePayload,
 } from '../agent/runtime/def-node-workspace/codec.mjs';
 import workNodeStoreModule from '../electron/ai-timeline-work-node-store.cjs';
 import timelineRepositoryModule from '../electron/timeline-repository.cjs';
@@ -90,6 +91,7 @@ const WEAPON_LIBRARY_STORAGE_KEY = 'def.weapon-sheet.library.v1';
 const GAME_KNOWLEDGE_REFERENCES_DIR = path.join(projectRoot, 'agent', 'runtime', 'def', 'skills', 'game-knowledge', 'references');
 const GAME_KNOWLEDGE_LOADOUT_MANIFESTS_DIR = path.join(projectRoot, 'agent', 'runtime', 'def', 'skills', 'game-knowledge', 'loadout-plans');
 const MAIN_WORKBENCH_SUPPORTED_OP_SET = new Set(MAIN_WORKBENCH_SUPPORTED_OPS);
+const DEF_GRID_NODE_COUNT = 15;
 // Ephemeral, unforgeable capability for a reviewed operator-config branch.
 // A sidecar restart invalidates it safely; callers must build a fresh preview.
 const defCoreState = createDefCoreRuntimeState({
@@ -280,8 +282,8 @@ class NowStorageLocalStorage {
   }
 
   getItem(key) {
-    if (MAIN_WORKBENCH_TRANSIENT_STORAGE_KEYS.has(key) && this.transient.has(key)) {
-      return this.transient.get(key);
+    if (MAIN_WORKBENCH_TRANSIENT_STORAGE_KEYS.has(key)) {
+      return this.transient.has(key) ? this.transient.get(key) : null;
     }
     this.refresh();
     if (!this.archive) {
@@ -921,61 +923,49 @@ function validateWorkNodePayloadIssues(payload, fieldName) {
   const issues = [];
   validateDefCharacterInputMap(payload.characterInputMap, `${fieldName}.characterInputMap`, issues);
   validateDefOperatorConfigPageCache(payload.operatorConfigPageCache, `${fieldName}.operatorConfigPageCache`, issues);
-  const timelineButtonEntries = (Array.isArray(payload.timelineData?.staffLines) ? payload.timelineData.staffLines : [])
-    .flatMap((staffLine) => (Array.isArray(staffLine?.buttons)
-      ? staffLine.buttons.map((button) => ({ button, staffIndex: button?.staffIndex }))
-      : []));
-  const timelineButtonIds = new Set(timelineButtonEntries.map(({ button }) => button?.id).filter(Boolean));
-  const tableButtonIds = new Set(Object.keys(isObject(payload.skillButtonTable) ? payload.skillButtonTable : {}));
-  for (const buttonId of timelineButtonIds) {
-    if (!tableButtonIds.has(buttonId)) {
-      issues.push({
-        code: 'timeline-button-missing-table-entry',
-        message: `Timeline button ${buttonId} is missing from skillButtonTable.`,
-        path: `${fieldName}.skillButtonTable.${buttonId}`,
-      });
-    }
+  issues.push(...validateDefTimelinePayload(payload, fieldName));
+  return issues;
+}
+
+function validateDefTimelineAgainstSkillCatalog(payload, snapshot, fieldName = 'payload') {
+  const buttons = Object.values(isObject(payload?.skillButtonTable) ? payload.skillButtonTable : {});
+  if (buttons.length === 0) return [];
+  const catalog = Array.isArray(snapshot?.skillCatalog) ? snapshot.skillCatalog : [];
+  if (catalog.length === 0) {
+    return [{
+      code: 'trusted-skill-catalog-empty',
+      path: `${fieldName}.skillButtonTable`,
+      message: 'Visible trusted skill catalog is empty; timeline buttons cannot be verified for hydration.',
+    }];
   }
-  for (const buttonId of tableButtonIds) {
-    if (!timelineButtonIds.has(buttonId)) {
+  const issues = [];
+  for (const button of buttons) {
+    const path = `${fieldName}.skillButtonTable.${button?.id || 'unknown'}`;
+    const typedCandidates = catalog.filter((skill) =>
+      String(skill?.characterId || '') === String(button?.characterId || '')
+      && String(skill?.characterName || '') === String(button?.characterName || '')
+      && String(skill?.skillType || '') === String(button?.skillType || ''));
+    const runtimeSkillId = String(button?.runtimeSkillId || '').trim();
+    const skillDisplayName = String(button?.skillDisplayName || '').trim();
+    const exact = runtimeSkillId
+      ? typedCandidates.find((skill) => String(skill?.skillId || '') === runtimeSkillId)
+      : typedCandidates.length === 1 ? typedCandidates[0] : null;
+    if (!exact) {
       issues.push({
-        code: 'table-button-missing-timeline-entry',
-        message: `skillButtonTable button ${buttonId} is missing from timelineData.`,
-        path: `${fieldName}.timelineData.${buttonId}`,
-      });
-    }
-  }
-  const seenTimelineButtonIds = new Set();
-  for (const { button, staffIndex } of timelineButtonEntries) {
-    if (!button?.id) continue;
-    if (seenTimelineButtonIds.has(button.id)) {
-      issues.push({
-        code: 'duplicate-timeline-button-entry',
-        message: `Timeline button ${button.id} appears in more than one staff line.`,
-        path: `${fieldName}.timelineData.staffLines`,
+        code: runtimeSkillId ? 'button-runtime-skill-untrusted' : 'button-runtime-skill-ambiguous',
+        path: `${path}.runtimeSkillId`,
+        message: runtimeSkillId
+          ? `Button ${button?.id || 'unknown'} runtimeSkillId ${runtimeSkillId} is not in the selected operator's trusted skill catalog.`
+          : `Button ${button?.id || 'unknown'} needs an exact runtimeSkillId because its character and skillType do not resolve uniquely.`,
       });
       continue;
     }
-    seenTimelineButtonIds.add(button.id);
-    const tableButton = payload.skillButtonTable[button.id];
-    if (tableButton && tableButton.staffIndex !== staffIndex) {
+    if (skillDisplayName && skillDisplayName !== String(exact.skillDisplayName || '')) {
       issues.push({
-        code: 'timeline-button-staff-mismatch',
-        message: `Timeline button ${button.id} is on staff ${staffIndex}, but its table entry targets staff ${tableButton.staffIndex}.`,
-        path: `${fieldName}.timelineData.staffLines`,
+        code: 'button-skill-display-name-mismatch',
+        path: `${path}.skillDisplayName`,
+        message: `Button ${button?.id || 'unknown'} skillDisplayName does not match the trusted skill catalog.`,
       });
-    }
-  }
-  const buffIds = new Set((Array.isArray(payload.allBuffList) ? payload.allBuffList : []).map((buff) => buff?.id).filter(Boolean));
-  for (const [buttonId, button] of Object.entries(isObject(payload.skillButtonTable) ? payload.skillButtonTable : {})) {
-    for (const buffId of Array.isArray(button?.selectedBuff) ? button.selectedBuff : []) {
-      if (!buffIds.has(buffId)) {
-        issues.push({
-          code: 'button-selected-buff-missing',
-          message: `Button ${buttonId} references missing Buff ${buffId}.`,
-          path: `${fieldName}.skillButtonTable.${buttonId}.selectedBuff`,
-        });
-      }
     }
   }
   return issues;
@@ -1016,14 +1006,19 @@ function normalizeMirrorButtonNumber(value, fallback = 0) {
 }
 
 function buildDefTimelineButtonFromMirror(button = {}) {
-  const nodeIndex = normalizeMirrorButtonNumber(button.nodeIndex, 0);
-  const staffIndex = normalizeMirrorButtonNumber(button.staffIndex ?? button.lineIndex, 0);
+  const staffIndex = normalizeMirrorButtonNumber(button.persistenceStaffIndex ?? button.lineIndex, 0);
+  const localNodeIndex = normalizeMirrorButtonNumber(button.nodeIndex, 0);
+  const nodeIndex = normalizeMirrorButtonNumber(
+    button.persistenceNodeIndex,
+    normalizeMirrorButtonNumber(button.staffIndex, 0) * DEF_GRID_NODE_COUNT + localNodeIndex,
+  );
   return {
     id: String(button.id || button.buttonId || makeId('mirror-button')),
     ...(button.characterId ? { characterId: String(button.characterId) } : {}),
     characterName: String(button.characterName || ''),
     skillType: String(button.skillType || 'A'),
     staffIndex,
+    lineIndex: staffIndex,
     nodeIndex,
     nodeNumber: normalizeMirrorButtonNumber(button.nodeNumber, nodeIndex + 1),
     position: isObject(button.position)
@@ -1085,8 +1080,8 @@ function readDefMainWorkbenchMirrorPayload(expectedTimelineId = '') {
   const operatorConfigPageCache = readMainWorkbenchSessionJson('def.operator-config.page-cache.v1', {});
   const staffLines = selectedCharacters.slice(0, 4).map((character, index) => {
     const lineButtons = buttons
-      .filter((button) => Number.isInteger(Number(button?.lineIndex))
-        ? Number(button.lineIndex) === index
+      .filter((button) => Number.isInteger(Number(button?.persistenceStaffIndex ?? button?.lineIndex))
+        ? Number(button.persistenceStaffIndex ?? button.lineIndex) === index
         : String(button?.characterId || button?.characterName || '') === String(character?.id || character?.name || ''))
       .map(buildDefTimelineButtonFromMirror)
       .sort((left, right) => left.nodeIndex - right.nodeIndex);
@@ -1426,9 +1421,17 @@ function workbenchProjectionMatchesCheckout(snapshot, workingPayload) {
   if (!sameStrings(projectedButtons.map((button) => button?.id), Object.keys(expectedButtons))) return false;
   for (const button of projectedButtons) {
     const expected = expectedButtons[button?.id];
+    const projectedStaffIndex = Number(button?.persistenceStaffIndex ?? button?.lineIndex);
+    const projectedNodeIndex = Number(button?.persistenceNodeIndex
+      ?? (Number(button?.staffIndex) * DEF_GRID_NODE_COUNT + Number(button?.nodeIndex)));
     if (!expected
-      || String(button?.characterId || button?.characterName || '') !== String(expected.characterId || expected.characterName || '')
+      || !String(button?.characterId || '').trim()
+      || !String(button?.characterName || '').trim()
+      || String(button.characterId) !== String(expected.characterId || '')
+      || String(button.characterName) !== String(expected.characterName || '')
       || String(button?.skillType || '') !== String(expected.skillType || '')
+      || projectedStaffIndex !== Number(expected.staffIndex)
+      || projectedNodeIndex !== Number(expected.nodeIndex)
       || !sameStrings(button?.selectedBuffIds || [], expected.selectedBuff || [])) return false;
   }
 
@@ -1463,7 +1466,19 @@ function isCompleteCanvasWorkbenchProjection(snapshot) {
   if (!isObject(snapshot) || snapshot.source !== 'app' || !isObject(snapshot.damageReport)
     || !Array.isArray(snapshot.damageReport.buttons)) return false;
   return (Array.isArray(snapshot.skillButtons) ? snapshot.skillButtons : []).every((button) => {
-    if (!Array.isArray(button?.selectedBuffIds) || !Array.isArray(button?.selectedBuffs)) return false;
+    const persistenceStaffIndex = Number(button?.persistenceStaffIndex ?? button?.lineIndex);
+    const persistenceNodeIndex = Number(button?.persistenceNodeIndex
+      ?? (Number(button?.staffIndex) * DEF_GRID_NODE_COUNT + Number(button?.nodeIndex)));
+    if (!String(button?.id || '').trim()
+      || !String(button?.characterId || '').trim()
+      || !String(button?.characterName || '').trim()
+      || !['A', 'B', 'E', 'Q', 'Dot'].includes(String(button?.skillType || ''))
+      || !Number.isInteger(Number(button?.staffIndex)) || Number(button.staffIndex) < 0
+      || !Number.isInteger(Number(button?.lineIndex)) || Number(button.lineIndex) < 0
+      || !Number.isInteger(Number(button?.nodeIndex)) || Number(button.nodeIndex) < 0
+      || !Number.isInteger(persistenceStaffIndex) || persistenceStaffIndex < 0
+      || !Number.isInteger(persistenceNodeIndex) || persistenceNodeIndex < 0
+      || !Array.isArray(button?.selectedBuffIds) || !Array.isArray(button?.selectedBuffs)) return false;
     const resolvedIds = new Set(button.selectedBuffs.map((buff) => String(buff?.id || '')).filter(Boolean));
     return button.selectedBuffIds.every((buffId) => resolvedIds.has(String(buffId)));
   });
@@ -4222,13 +4237,37 @@ function resolveDefSkills(input = {}) {
   const query = normalizeDefToolText(rawQuery);
   const requestedSkillType = normalizeDefToolText(input.skillType || inferDefSkillTypeFromText(rawQuery));
   const requestedCharacter = normalizeDefToolText(input.characterName || input.character || '');
+  const snapshot = readMainWorkbenchSnapshotMirror();
   const buttons = listDefWorkbenchButtons({ limit: 200 }).buttons;
   const bySkill = new Map();
+  for (const skill of Array.isArray(snapshot?.skillCatalog) ? snapshot.skillCatalog : []) {
+    const characterId = String(skill.characterId || '').trim();
+    const characterName = String(skill.characterName || '').trim();
+    const skillId = String(skill.skillId || '').trim();
+    const skillType = String(skill.skillType || '').trim();
+    const skillDisplayName = String(skill.skillDisplayName || '').trim();
+    if (!characterId || !characterName || !skillId || !['A', 'B', 'E', 'Q', 'Dot'].includes(skillType) || !skillDisplayName) continue;
+    const key = `${characterId}:${skillId}`;
+    bySkill.set(key, {
+      characterId,
+      characterName,
+      skillId,
+      skillType,
+      skillDisplayName,
+      source: String(skill.source || 'runtime-template'),
+      buttonCount: 0,
+      exampleButtonId: null,
+    });
+  }
   for (const button of buttons) {
-    const key = `${button.characterName}:${button.skillType}:${button.skillDisplayName}`;
+    const key = button.runtimeSkillId
+      ? `${button.characterId}:${button.runtimeSkillId}`
+      : `${button.characterName}:${button.skillType}:${button.skillDisplayName}`;
     if (!bySkill.has(key)) {
       bySkill.set(key, {
+        characterId: button.characterId,
         characterName: button.characterName,
+        skillId: button.runtimeSkillId || null,
         skillType: button.skillType,
         skillDisplayName: button.skillDisplayName,
         buttonCount: 0,
@@ -4239,9 +4278,12 @@ function resolveDefSkills(input = {}) {
   }
   const candidates = [...bySkill.values()]
     .filter((skill) => !requestedSkillType || normalizeDefToolText(skill.skillType) === requestedSkillType)
-    .filter((skill) => !requestedCharacter || normalizeDefToolText(skill.characterName).includes(requestedCharacter))
-    .filter((skill) => !query || requestedSkillType || normalizeDefToolText(`${skill.characterName} ${skill.skillType} ${skill.skillDisplayName}`).includes(query))
-    .map((skill) => ({ ...skill, confidence: normalizeDefToolText(skill.skillDisplayName) === query || normalizeDefToolText(skill.skillType) === requestedSkillType ? 1 : 0.7 }));
+    .filter((skill) => !requestedCharacter || normalizeDefToolText(`${skill.characterId || ''} ${skill.characterName}`).includes(requestedCharacter))
+    .filter((skill) => !query || requestedSkillType || normalizeDefToolText(`${skill.characterId || ''} ${skill.characterName} ${skill.skillId || ''} ${skill.skillType} ${skill.skillDisplayName}`).includes(query))
+    .map((skill) => ({
+      ...skill,
+      confidence: normalizeDefToolText(skill.skillDisplayName) === query || normalizeDefToolText(skill.skillId) === query || normalizeDefToolText(skill.skillType) === requestedSkillType ? 1 : 0.7,
+    }));
   return {
     query,
     candidates,
@@ -5144,7 +5186,10 @@ function applyDefWorkNodePatchAndValidate(input = {}) {
   }
 
   if (isObject(workingPayload.timelineData)) workingPayload.timelineData.updatedAt = Date.now();
-  const validationIssues = validateWorkNodePayloadIssues(workingPayload, 'workingPayload');
+  const validationIssues = [
+    ...validateWorkNodePayloadIssues(workingPayload, 'workingPayload'),
+    ...validateDefTimelineAgainstSkillCatalog(workingPayload, input.__defCurrentGate?.snapshot || readMainWorkbenchSnapshotMirror(), 'workingPayload'),
+  ];
   if (validationIssues.length) {
     return {
       ok: false,
@@ -5329,7 +5374,10 @@ function syncDefWorkNodeWorkspace(input = {}) {
       currentCheckoutTouched: false,
     };
   }
-  const issues = validateWorkNodePayloadIssues(workingPayload, 'workingPayload');
+  const issues = [
+    ...validateWorkNodePayloadIssues(workingPayload, 'workingPayload'),
+    ...validateDefTimelineAgainstSkillCatalog(workingPayload, input.__defCurrentGate?.snapshot || readMainWorkbenchSnapshotMirror(), 'workingPayload'),
+  ];
   if (issues.length) {
     return {
       ok: false,
@@ -6055,6 +6103,55 @@ function snapshotButtonCount(snapshot = readMainWorkbenchSnapshotMirror()) {
   return Array.isArray(snapshot?.skillButtons) ? snapshot.skillButtons.length : 0;
 }
 
+function timelineButtonIdentityFromPayload(button = {}) {
+  return {
+    id: String(button.id || ''),
+    characterId: String(button.characterId || ''),
+    characterName: String(button.characterName || ''),
+    skillType: String(button.skillType || ''),
+    staffIndex: Number(button.staffIndex),
+    lineIndex: Number(button.lineIndex ?? button.staffIndex),
+    nodeIndex: Number(button.nodeIndex),
+  };
+}
+
+function timelineButtonIdentityFromSnapshot(button = {}) {
+  const staffIndex = Number(button.persistenceStaffIndex ?? button.lineIndex);
+  return {
+    id: String(button.id || ''),
+    characterId: String(button.characterId || ''),
+    characterName: String(button.characterName || ''),
+    skillType: String(button.skillType || ''),
+    staffIndex,
+    lineIndex: staffIndex,
+    nodeIndex: Number(button.persistenceNodeIndex
+      ?? (Number(button.staffIndex) * DEF_GRID_NODE_COUNT + Number(button.nodeIndex))),
+  };
+}
+
+function sortedTimelineButtonIdentities(values, mapper) {
+  return (Array.isArray(values) ? values : []).map(mapper).sort((left, right) => left.id.localeCompare(right.id));
+}
+
+function verifyVisibleTimelineButtons(payload, snapshot) {
+  const expected = sortedTimelineButtonIdentities(
+    Object.values(isObject(payload?.skillButtonTable) ? payload.skillButtonTable : {}),
+    timelineButtonIdentityFromPayload,
+  );
+  const actual = sortedTimelineButtonIdentities(snapshot?.skillButtons, timelineButtonIdentityFromSnapshot);
+  const expectedIdentityComplete = expected.every((button) => button.id && button.characterId && button.characterName
+    && ['A', 'B', 'E', 'Q', 'Dot'].includes(button.skillType)
+    && Number.isInteger(button.staffIndex) && button.staffIndex >= 0
+    && Number.isInteger(button.lineIndex) && button.lineIndex >= 0
+    && Number.isInteger(button.nodeIndex) && button.nodeIndex >= 0);
+  return {
+    pass: expectedIdentityComplete && JSON.stringify(expected) === JSON.stringify(actual),
+    expectedIdentityComplete,
+    expected,
+    actual,
+  };
+}
+
 async function waitForDefSnapshotButtonCount(expectedButtonCount, waitMs) {
   const deadline = Date.now() + normalizeDefVerifyWaitMs(waitMs, 4000);
   let snapshot = readMainWorkbenchSnapshotMirror();
@@ -6359,6 +6456,29 @@ function exactDefOperatorConfigMatches(actual, expected) {
   return JSON.stringify(actual) === JSON.stringify(expected);
 }
 
+function defTimelineDomain(payload = {}) {
+  return {
+    selectedCharacters: payload.selectedCharacters || [],
+    timelineData: payload.timelineData || { staffLines: [] },
+    skillButtonTable: payload.skillButtonTable || {},
+    allBuffList: payload.allBuffList || [],
+    anomalyStateSnapshots: payload.anomalyStateSnapshots || [],
+  };
+}
+
+function verifyDefTimelinePreserved(before, after) {
+  const beforeIssues = validateDefTimelinePayload(before, 'beforePayload');
+  const afterIssues = validateDefTimelinePayload(after, 'afterPayload');
+  return {
+    pass: beforeIssues.length === 0 && afterIssues.length === 0
+      && JSON.stringify(defTimelineDomain(before)) === JSON.stringify(defTimelineDomain(after)),
+    beforeIssues,
+    afterIssues,
+    beforeButtonIds: Object.keys(isObject(before?.skillButtonTable) ? before.skillButtonTable : {}).sort(),
+    afterButtonIds: Object.keys(isObject(after?.skillButtonTable) ? after.skillButtonTable : {}).sort(),
+  };
+}
+
 function normalizeLiveDefOperatorConfig(snapshot, finalConfig) {
   const live = Array.isArray(snapshot?.operatorConfigs)
     ? snapshot.operatorConfigs.find((config) => config?.characterId === finalConfig?.characterId) || null
@@ -6429,6 +6549,22 @@ async function executeDefOperatorConfigPrepare(input = {}) {
   if (!parent || parent.timelineId !== gate.binding.timelineId || checkout?.targetType !== 'work-node' || checkout.targetId !== parentNodeId || Number(parent.contentRevision || parent.updatedAt) !== parentRevision) {
     return { ok: false, code: 'checkout-changed', component: 'operator-config', retryable: true, nextAction: 'The checkout changed during preview. Re-read it and request a new approval.', currentCheckoutTouched: false };
   }
+  const timelinePreservation = verifyDefTimelinePreserved(parent.workingPayload, preview.preparedPayload);
+  const timelineCatalogIssues = [
+    ...validateDefTimelineAgainstSkillCatalog(parent.workingPayload, gate.snapshot, 'parentPayload'),
+    ...validateDefTimelineAgainstSkillCatalog(preview.preparedPayload, gate.snapshot, 'preparedPayload'),
+  ];
+  if (!timelinePreservation.pass || timelineCatalogIssues.length) {
+    return {
+      ok: false,
+      code: 'operator-config-timeline-invariant-failed',
+      component: 'operator-config',
+      retryable: false,
+      nextAction: 'The operator preview did not preserve the exact validated timeline; no branch was created.',
+      timelinePreservation,
+      timelineCatalogIssues,
+    };
+  }
   const structuralParentNodeId = horizontalConfigurationParent(parent);
   const created = handleAiTimelineWorkNodeRequest('POST', '/api/ai-timeline-worknodes/create', {
     timelineId: parent.timelineId || parent.saveId,
@@ -6479,6 +6615,7 @@ async function executeDefOperatorConfigPrepare(input = {}) {
     nodePlacement: 'horizontal-branch',
     finalConfig: preview.finalConfig,
     diff: diffTimelinePayloadsForWorkNode(node.basePayload, node.workingPayload),
+    timelinePreservation,
     commandVerification: verification,
   };
 }
@@ -6516,6 +6653,14 @@ async function executeDefOperatorConfigApplyPrepared(input = {}) {
     || Number(node.contentRevision || node.updatedAt) !== nodeRevision
     || hashDefNodeValue(node.workingPayload) !== capability.workingHash) {
     return { ok: false, code: 'checkout-changed', component: 'operator-config', retryable: true, nextAction: 'Checkout or prepared revision changed during approval; no mutation was executed.', currentCheckoutTouched: false };
+  }
+  const timelinePreservation = verifyDefTimelinePreserved(parent.workingPayload, node.workingPayload);
+  const timelineCatalogIssues = [
+    ...validateDefTimelineAgainstSkillCatalog(parent.workingPayload, gate.snapshot, 'parentPayload'),
+    ...validateDefTimelineAgainstSkillCatalog(node.workingPayload, gate.snapshot, 'preparedPayload'),
+  ];
+  if (!timelinePreservation.pass || timelineCatalogIssues.length) {
+    return { ok: false, code: 'operator-config-timeline-invariant-failed', component: 'operator-config', retryable: false, nextAction: 'The reviewed branch no longer preserves the exact trusted timeline; no mutation was executed.', currentCheckoutTouched: false, timelinePreservation, timelineCatalogIssues };
   }
   if (!consumeApprovedApplyCapability(input, {
     sessionId,
@@ -6582,14 +6727,23 @@ async function executeDefOperatorConfigApplyPrepared(input = {}) {
     checkoutPayload: exactDefOperatorConfigMatches(payloadNormalized, finalConfig),
     commitPayload: exactDefOperatorConfigMatches(commitNormalized, finalConfig),
   };
-  const pass = exact.liveMirror && exact.checkoutPayload && exact.commitPayload;
+  const visibleProjection = await waitForWorkbenchProjectionPayload(
+    node.timelineId,
+    node.workingPayload,
+    input.snapshotWaitMs ?? 8000,
+    (snapshot) => snapshot?.checkout?.targetType === 'work-node' && snapshot.checkout.targetId === node.id,
+  );
+  const visibleTimeline = verifyVisibleTimelineButtons(node.workingPayload, visibleProjection.snapshot);
+  const pass = exact.liveMirror && exact.checkoutPayload && exact.commitPayload
+    && timelinePreservation.pass && visibleProjection.pass && visibleTimeline.pass;
   if (pass) preparedOperatorConfigCapabilities.delete(preparedToken);
   return {
     ok: pass, component: 'operator-config', code: pass ? 'applied' : 'postcondition-failed', retryable: !pass,
     nextAction: pass ? 'None.' : 'Inspect live mirror, branch working payload, and checkoutApplied commit; do not describe the change as applied.',
     nodeId, commitId: committed.body.commit.id, nodeTitle: node.label, nodeDescription: node.description || '', nodePlacement: 'horizontal-branch',
     structuralParentNodeId: capability.structuralParentNodeId || null,
-    finalConfig, commandVerification, finalizeVerification, postcondition: { pass, exact, live: liveNormalized, checkoutPayload: payloadNormalized, commitPayload: commitNormalized },
+    finalConfig, commandVerification, finalizeVerification,
+    postcondition: { pass, exact, timelinePreservation, visibleProjection: visibleProjection.pass, visibleTimeline, live: liveNormalized, checkoutPayload: payloadNormalized, commitPayload: commitNormalized },
   };
 }
 
@@ -6669,14 +6823,61 @@ async function executeDefWorkNodeApplyAndVerify(name, input = {}, restore = fals
       currentCheckoutTouched: false,
     };
   }
+  const checkoutDecision = buildAiTimelineCheckoutDecision({
+    approvalPolicy: node.approvalPolicy,
+    riskFlags: Array.isArray(node.riskFlags) ? node.riskFlags : [],
+    diff: diffTimelinePayloadsForWorkNode(node.basePayload, node.workingPayload),
+  });
+  let rendererApproval;
+  if (checkoutDecision.requiresManualApproval) {
+    const gate = input.__defCurrentGate;
+    const approved = consumeApprovedApplyCapability(input, {
+      sessionId: typeof input.__defSessionId === 'string' ? input.__defSessionId.trim() : '',
+      timelineId: gate?.binding?.timelineId || node.timelineId || node.saveId,
+      axisBindingId: gate?.binding?.id || '',
+      candidateNodeId: nodeId,
+      candidateRevision: actualRevision,
+      workingHash: actualWorkingHash,
+    });
+    if (!approved) {
+      return {
+        ok: false,
+        code: 'worknode-approval-capability-invalid',
+        message: 'The reviewed Work Node requires a fresh native approval bound to this exact revision and payload.',
+        nodeId,
+        currentCheckoutTouched: false,
+      };
+    }
+    rendererApproval = {
+      mode: 'manual',
+      approvedBy: 'user',
+      rationale: 'Approved through the native DEF permission continuation.',
+    };
+  }
   const before = readMainWorkbenchSnapshotMirror();
   const expectedPayload = restore ? node.basePayload : node.workingPayload;
   const expectedSummary = summarizeTimelinePayload(expectedPayload);
+  const payloadFieldName = restore ? 'basePayload' : 'workingPayload';
+  const payloadIssues = [
+    ...validateDefTimelinePayload(expectedPayload, payloadFieldName),
+    ...validateDefTimelineAgainstSkillCatalog(expectedPayload, before, payloadFieldName),
+  ];
+  if (payloadIssues.length) {
+    return {
+      ok: false,
+      code: 'worknode-visible-payload-invalid',
+      message: payloadIssues.map((issue) => issue.message).join('; '),
+      nodeId,
+      validation: { ok: false, issues: payloadIssues },
+      currentCheckoutTouched: false,
+    };
+  }
   const definition = getDefToolDefinition(restore ? 'def.worknode.restore_base' : 'def.worknode.checkout');
   const commandInput = {
     ...input,
     nodeId,
     reload: input.reload === true ? true : false,
+    ...(rendererApproval ? { approval: rendererApproval } : {}),
   };
   const enqueued = enqueueDefToolCommand(definition, commandInput);
   if (enqueued.status < 200 || enqueued.status >= 300 || !enqueued.body?.command) {
@@ -6689,12 +6890,25 @@ async function executeDefWorkNodeApplyAndVerify(name, input = {}, restore = fals
     };
   }
   const commandVerification = await buildDefToolCommandVerification(enqueued.body.command, input.waitMs);
-  const after = commandVerification.pass
-    ? await waitForDefSnapshotButtonCount(expectedSummary.buttonCount, input.snapshotWaitMs ?? 5000)
-    : readMainWorkbenchSnapshotMirror();
-  const snapshotVerification = verifyDefSnapshotDelta(after, {
+  const projection = commandVerification.pass
+    ? await waitForWorkbenchProjectionPayload(
+      node.timelineId || node.saveId || 'current-main-workbench',
+      expectedPayload,
+      input.snapshotWaitMs ?? 5000,
+      (snapshot) => snapshot?.checkout?.targetType === 'work-node' && snapshot.checkout.targetId === nodeId,
+    )
+    : { pass: false, snapshot: readMainWorkbenchSnapshotMirror() };
+  const after = projection.snapshot;
+  const countVerification = verifyDefSnapshotDelta(after, {
     expected: { buttonCount: { equals: expectedSummary.buttonCount } },
   });
+  const visibleButtonVerification = verifyVisibleTimelineButtons(expectedPayload, after);
+  const snapshotVerification = {
+    pass: countVerification.pass && projection.pass && visibleButtonVerification.pass,
+    count: countVerification,
+    projectionPass: projection.pass,
+    visibleButtons: visibleButtonVerification,
+  };
   const expectedStaffCounts = Object.values(isObject(expectedPayload?.skillButtonTable) ? expectedPayload.skillButtonTable : {})
     .reduce((counts, button) => {
       const staffIndex = Number(button?.staffIndex);
@@ -6703,7 +6917,7 @@ async function executeDefWorkNodeApplyAndVerify(name, input = {}, restore = fals
     }, {});
   const actualStaffCounts = (Array.isArray(after?.skillButtons) ? after.skillButtons : [])
     .reduce((counts, button) => {
-      const staffIndex = Number(button?.staffIndex);
+      const staffIndex = Number(button?.persistenceStaffIndex ?? button?.lineIndex);
       if (Number.isInteger(staffIndex) && staffIndex >= 0) counts[staffIndex] = (counts[staffIndex] || 0) + 1;
       return counts;
     }, {});
@@ -6720,8 +6934,22 @@ async function executeDefWorkNodeApplyAndVerify(name, input = {}, restore = fals
     pass: checkoutRef?.targetType === 'work-node' && checkoutRef.targetId === nodeId,
     actual: checkoutRef || null,
   };
+  const rendererError = typeof commandVerification?.result?.error === 'string'
+    ? commandVerification.result.error
+    : '';
+  const applied = commandVerification.pass
+    && checkoutVerification.pass
+    && snapshotVerification.pass
+    && staffIndexVerification.pass;
   return {
-    ok: commandVerification.pass && checkoutVerification.pass,
+    ok: applied,
+    code: applied ? 'applied' : 'visible-postcondition-failed',
+    message: applied
+      ? 'Renderer checkout completed and the canonical visible projection matches the reviewed payload.'
+      : rendererError || (commandVerification.pass
+        ? 'Renderer command completed but the canonical visible projection did not match the reviewed payload.'
+        : 'Renderer checkout command did not complete successfully.'),
+    rendererError,
     currentCheckoutTouched: commandVerification.pass,
     nodeId,
     mode: restore ? 'restore_base' : 'checkout',
@@ -6731,12 +6959,15 @@ async function executeDefWorkNodeApplyAndVerify(name, input = {}, restore = fals
     after: { buttonCount: snapshotButtonCount(after), snapshotUpdatedAt: after?.updatedAt || null },
     expectedSummary,
     snapshotVerification,
+    visibleButtonVerification,
     staffIndexVerification,
     checkoutVerification,
     reload: commandInput.reload,
-    note: commandVerification.pass
-      ? 'Command reached terminal success state and the persisted checkout ref was checked.'
-      : 'Command was not confirmed within waitMs; do not report applied as complete.',
+    note: applied
+      ? 'Command reached terminal success and every persisted button identity was observed in the canonical Canvas projection.'
+      : commandVerification.pass
+        ? 'The command completed, but one or more checkout, projection, identity, or staff-line postconditions failed; report not fully applied.'
+        : 'Command was not confirmed within waitMs; do not report applied as complete.',
   };
 }
 

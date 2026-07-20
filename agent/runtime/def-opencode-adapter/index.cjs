@@ -8,6 +8,7 @@ const { pathToFileURL } = require('url');
 const { EventEmitter } = require('events');
 const { spawn, spawnSync } = require('child_process');
 const defHarness = require('../../harness/def-harness.cjs');
+const { routeNativeTurnHarness } = require('./harness-turn-router.cjs');
 
 const DEFAULT_DEEPSEEK_BASE_URL = 'https://api.deepseek.com';
 const DEFAULT_DEEPSEEK_MODEL = 'deepseek-v4-pro';
@@ -264,12 +265,15 @@ function buildAgentPrompt(skillId) {
       '- @N-L is immutable coordinate notation: nodeIndex=N-1 and lineIndex=L-1. Before editing or saying that a coordinate is empty, call def_workbench_buttons with both exact indices. If it returns no candidate, report that it is empty; never reinterpret it as an ordinal or choose another button.',
       '- For “which skill has the most Buffs”, call def_workbench_buff_ranking with the character name and report its first result. Never manually count, mix drafts with checkout, or infer a visible-range cutoff.',
       '- Mutations happen in an isolated Work Node copied from the current checkout, never directly in the checkout. Timeline edits use a child; selected-operator, weapon, and equipment configuration changes use a horizontal sibling branch.',
-      '- If this session has no draft workspace, call def_node_fork. Before calling it, compose a concise Chinese change name and one-sentence scope description; both are Agent-written and must never use ids, timestamps, [ai] prefixes, or generic fixed names. Use placement=child for timeline edits and placement=horizontal-branch only when replacing a selected operator. To continue the active checkout after a manual switch, call def_node_bind with nodeId="".',
+      '- If this session has no draft workspace, call def_node_fork. Before calling it, compose a concise Chinese change name and one-sentence scope description; both are Agent-written and must never use ids, timestamps, [ai] prefixes, or generic fixed names. Use placement=child for timeline edits and placement=horizontal-branch only when replacing a selected operator. To continue the active checkout after a manual switch, call def_node_bind with nodeId="". After that guard converges, if the user explicitly named a different existing ready draft, bind that exact node before validation/use; never call def_node_use while still bound to the checkout anchor.',
       '- An unambiguous mutation request authorizes creating and editing the correctly placed isolated draft immediately. Never ask whether to fork or preview. 先看看 means complete rebuild/validation/diff, then stop before approval/use.',
       '- Use native read/edit/apply_patch only on node/working/*.json. The codec rebuilds storage mirrors; node/base, node/context, node/generated, and manifest are read-only.',
       '- Native file tools are allowed only inside this session directory. Never access project source, another session, or another node directory.',
+      '- The skill tool returns the complete selected Skill instructions. After it succeeds, never glob, grep, list, or read the runtime Skill directory. Use the loaded instructions plus trusted def_data_* resources. If any generic file tool is denied outside the session directory once, do not try another path or file tool for that resource.',
+      '- The live Workbench snapshot skillCatalog is a trusted selected-operator catalog. If it contains an exact characterId + skillType + skillDisplayName match, use its skillId directly as runtimeSkillId and do not call def_data_skill for that skill. customHits, icon URLs, runtime snapshots, and damage multipliers are optional button metadata; never block or loop while trying to obtain them. def_data_skill returning no candidate does not invalidate an exact local skillCatalog entry.',
       '- After editing, call def_node_sync_validate. Use def_node_diff when the user needs review evidence.',
       '- Call def_node_use only after validation and any required approval. It is the only normal step that may touch current checkout.',
+      '- When the current user says 重新发出审核, 重新提交审批, 提交审核, or asks you to wait for their personal approval, validation is not the terminal step. Call def_node_use in that same turn; it creates the real native pending approval and blocks. Never claim 待审批 when no native pending approval exists.',
       '- Do not translate a completed node file back into button-by-button commands or a legacy Patch DSL.',
       '- Weapon and equipment assignment is not a Work Node inputs.json edit. Resolve exact trusted candidates, show the proposed loadout, then after the user asks to apply call def_operator_config_patch once per operator. Supply a short Agent-written nodeTitle and a concise nodeDescription for the visible horizontal configuration branch; do not use a fixed operator-config title. Its native approval and live operator-config postcondition are required; never treat Work Node checkout, queue acknowledgement, or validation alone as loadout success.',
       '',
@@ -285,6 +289,7 @@ function buildAgentPrompt(skillId) {
       '- HARD GUIDE ROUTE: For a request that explicitly names a community guide/author/攻略（例如 YZ 的某篇攻略）or asks what that guide says, first call def_data_game_knowledge once with the user wording, then def_data_game_knowledge_section exactly once using that candidate’s exactReadPolicy.requiredSectionId (or recommendedSection.sectionId only if no policy exists). Do not call def_data_team_loadouts when the returned guide title itself identifies the four-person roster: the title is the sole roster source for this answer. Only if a returned guide does not identify its requested roster may team state be read once before its single section read. Then stop tool use and answer. A later user confirmation such as “那你配装吧” must call def_data_team_loadout_plan exactly once; it reuses this session’s exact guide section and never searches the guide or catalog again. If its state is REQUIRES_CONFIRMATION, show every returned decision and option exactly, then stop. After the user plainly chooses an offered option, call def_team_loadout_plan_revise with only that returned decisionId/optionId; if its new state is READY and the user asked to equip, call def_team_loadout_plan_apply exactly once. Never guess a decision id, substitute products, apply a non-READY plan, or call per-item resources. exactReadPolicy is a hard execution limit, not advice: never read a second section, including 阵容概述. “先让我确认” means a source-faithful draft only; it never authorizes mapping guide names to product-library ids or preparing an application. For a four-person build question, list the four names exactly as the matched title gives them, but never say or imply that they equal, match, differ from, or are equipped by the current team. State only verbatim-level facts from that one section; preserve its names, thresholds, and notation exactly (for example, never rename 专1+ as M1+). Mark anything absent as 待确认. End at the draft itself—do not promise, propose, or describe any later application, current-state comparison, catalog lookup, or next tool call. Never call def_data_loadout_candidates, def_data_weapon, def_data_equipment, any per-person resource, file tool, permission, or Work Node tool after this route starts.',
       '- For any other read-only current-team weapons/equipment recommendation or “先让我确认” request, first call def_data_team_loadouts once, then def_data_loadout_candidates once with the whole-team goal. After that candidate bundle, make a provisional recommendation from its compatible candidates and missingReasons. Do not query one operator at a time, search a weapon by an operator name, materialize/fork/edit/use a Work Node, or request permission. Only when that bundle explicitly returns evidence.state=section-read-required for the user-requested guide evidence may you call def_data_game_knowledge_section exactly once with that exact referenceId + sectionId; use the section facts only and do not make another search.',
       '- Within one turn, never repeat the same data resource with the same input. A reference search is for recall; after it returns a matching reference, do not try aliases, pinyin, abbreviations, or keyword searches against that guide. Use its exact section reader once, then report scoped missing facts rather than guessing.',
+      '- Any two tool failures with the same root code in one user turn end tool use for that turn, including generic file permission denials. Report 未应用, the failing stage, and one recovery action; never continue until max-step.',
       '- A confirmed named-guide plan uses def_team_loadout_plan_apply exactly once, never four def_operator_config_patch calls. Give its horizontal branch a concise Agent-written nodeTitle and nodeDescription rather than a fixed team-loadout label. It owns one native approval and serial server application. A timeline mutation is not complete until node validation passes and, when requested, def_node_use confirms the checkout. An operator loadout mutation is complete only when its plan postcondition reports APPLIED.',
       '- Ask only when the target or approval is genuinely ambiguous. Do not invent operator, equipment, skill, or Buff data.',
       '- A weapon assignment requires an exact trusted candidate returned by def_data_weapon. If that resource returns no candidate for a requested operator/loadout, do not fork or edit a “full weapon and equipment” draft, do not claim a weapon was assigned, and report the loadout as blocked by unavailable weapon data. Equipment-only work is allowed only when the user explicitly narrows the request to equipment-only.',
@@ -746,23 +751,34 @@ function resolveNativeHarness(selector = 'stable') {
   return nativeHarnessLoader.resolve(selector || 'stable');
 }
 
-function getNativeHarnessSystem(binding) {
+function getNativeHarnessSystem(binding, userText = '') {
   const pinned = binding?.harnessBinding;
   if (!pinned?.harness?.harnessId || !pinned?.harness?.version || !pinned?.harness?.contentHash) return { system: '', binding: null, warning: null };
-  let loaded = nativeHarnessBySession.get(binding.sessionID);
+  const turnRoute = routeNativeTurnHarness(binding, userText);
+  const cacheKey = `${binding.sessionID}:${turnRoute.selector}`;
+  let loaded = nativeHarnessBySession.get(cacheKey);
   if (!loaded) {
-    const resolved = nativeHarnessLoader.resolve(`${pinned.harness.harnessId}@${pinned.harness.version}`);
-    if (resolved.ref.contentHash !== pinned.harness.contentHash) {
+    const resolved = turnRoute.selector === pinned.selector
+      ? nativeHarnessLoader.resolve(`${pinned.harness.harnessId}@${pinned.harness.version}`)
+      : nativeHarnessLoader.resolve(turnRoute.selector);
+    if (turnRoute.selector === pinned.selector && resolved.ref.contentHash !== pinned.harness.contentHash) {
       const error = new Error('native-harness-binding-hash-mismatch');
       error.code = 'HARNESS_HASH_MISMATCH';
       throw error;
     }
-    loaded = { resolved, binding: pinned };
-    nativeHarnessBySession.set(binding.sessionID, loaded);
+    loaded = {
+      resolved,
+      binding: turnRoute.selector === pinned.selector
+        ? pinned
+        : defHarness.createSessionBinding({ sessionId: binding.sessionID, resolved }),
+    };
+    nativeHarnessBySession.set(cacheKey, loaded);
   }
   return {
     system: defHarness.composeHarnessSystem(loaded.binding, loaded.resolved.artifactView),
     binding: loaded.binding,
+    sessionBinding: pinned,
+    turnRoute,
     warning: binding.harnessWarning || null,
   };
 }
@@ -789,7 +805,7 @@ async function createNativeHostSession({ config = {}, host = 'ai-cli', skillId, 
   const session = await requestJson('POST', `${serverUrl}/session?${query}`, payload, undefined, 15000);
   const profile = buildNativeHostProfile(host);
   const harnessBinding = defHarness.createSessionBinding({ sessionId: session.id, resolved: resolvedHarness });
-  nativeHarnessBySession.set(session.id, { resolved: resolvedHarness, binding: harnessBinding });
+  nativeHarnessBySession.set(`${session.id}:${harnessBinding.selector}`, { resolved: resolvedHarness, binding: harnessBinding });
   writeSessionBinding(directory, { id: session.id, agent: selected.agent, skillId: resolvedSkillId, profile, harnessBinding, harnessWarning: resolvedHarness.error || null, timelineId: normalizedTimelineId, boundNodeId });
   return {
     id: session.id,
@@ -852,7 +868,7 @@ async function recoverNativeHostSession({ config = {}, directory, sessionID } = 
     throw error;
   }
   const harnessBinding = defHarness.createSessionBinding({ sessionId: session.id, resolved: resolvedHarness });
-  nativeHarnessBySession.set(session.id, { resolved: resolvedHarness, binding: harnessBinding });
+  nativeHarnessBySession.set(`${session.id}:${harnessBinding.selector}`, { resolved: resolvedHarness, binding: harnessBinding });
   writeSessionBinding(binding.directory, { id: session.id, agent: selected.agent, skillId: resolvedSkillId, profile, harnessBinding, harnessWarning: resolvedHarness.error || null, timelineId: binding.timelineId, boundNodeId: binding.boundNodeId });
   return {
     id: session.id,

@@ -41,15 +41,20 @@ export function DefOpenCodeView({
   workbenchIsTemporary = false,
 }: DefOpenCodeViewProps) {
   const [status, setStatus] = useState<'checking' | 'ready' | 'blocked' | 'error'>('checking');
+  const [statusError, setStatusError] = useState('');
   const [session, setSession] = useState<NativeSession | null>(null);
   const origin = useMemo(() => (
     host === 'workbench'
       ? `http://127.0.0.1:${SIDECAR_PORT}`
       : `http://localhost:${SIDECAR_PORT}`
   ), [host]);
+  const developmentHarnessSelector = useMemo(() => {
+    if (!import.meta.env.DEV || typeof window === 'undefined') return '';
+    return new URL(window.location.href).searchParams.get('__defHarnessSelector')?.trim() || '';
+  }, []);
 
   const normalizedTimelineId = typeof timelineId === 'string' ? timelineId.trim() : '';
-  const storageKey = `def-opencode.native-session.${host}${host === 'workbench' ? `.${encodeURIComponent(normalizedTimelineId)}` : ''}.v2`;
+  const storageKey = `def-opencode.native-session.${host}${host === 'workbench' ? `.${encodeURIComponent(normalizedTimelineId)}` : ''}${developmentHarnessSelector ? `.${encodeURIComponent(developmentHarnessSelector)}` : ''}.v2`;
 
   const sessionExists = async (candidate: NativeSession) => {
     if (!candidate.directory || (host === 'workbench' && candidate.timelineId !== normalizedTimelineId)) return false;
@@ -66,13 +71,30 @@ export function DefOpenCodeView({
     const response = await fetch(`${origin}/api/native/session`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ host, ...(host === 'workbench' ? { timelineId: normalizedTimelineId } : {}) }),
+      body: JSON.stringify({
+        host,
+        ...(host === 'workbench' ? { timelineId: normalizedTimelineId } : {}),
+        ...(developmentHarnessSelector ? { harnessSelector: developmentHarnessSelector } : {}),
+      }),
     });
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const payload = await response.json() as { ok?: boolean; session?: NativeSession };
     if (!payload.ok || !payload.session?.id || !payload.session.uiPath || (host === 'workbench' && payload.session.timelineId !== normalizedTimelineId)) throw new Error('Invalid native session response');
-    window.localStorage.setItem(storageKey, JSON.stringify(payload.session));
+    // The native session already exists once this response succeeds. A full
+    // browser cache must not discard that live session or make the AI panel
+    // look offline merely because its optional recovery handle cannot persist.
+    try {
+      window.localStorage.setItem(storageKey, JSON.stringify(payload.session));
+    } catch (error) {
+      console.warn('[DefOpenCodeView] native session recovery cache unavailable:', error);
+      try {
+        window.sessionStorage.setItem(storageKey, JSON.stringify(payload.session));
+      } catch (sessionError) {
+        console.warn('[DefOpenCodeView] tab session recovery cache unavailable:', sessionError);
+      }
+    }
     setSession(payload.session);
+    setStatusError('');
     setStatus('ready');
   };
 
@@ -95,7 +117,7 @@ export function DefOpenCodeView({
       }
       const ensureResponse = await fetch(`${origin}/api/runtime/ensure`, { method: 'POST' });
       if (!ensureResponse.ok) throw new Error(`HTTP ${ensureResponse.status}`);
-      const stored = window.localStorage.getItem(storageKey);
+      const stored = window.localStorage.getItem(storageKey) || window.sessionStorage.getItem(storageKey);
       if (stored) {
         try {
           const parsed = JSON.parse(stored) as NativeSession;
@@ -115,10 +137,16 @@ export function DefOpenCodeView({
           // Invalid or obsolete persisted sessions are replaced below.
         }
         window.localStorage.removeItem(storageKey);
+        window.sessionStorage.removeItem(storageKey);
       }
       if (!disposed) await createNativeSession();
     };
-    bootstrap().catch(() => { if (!disposed) setStatus('error'); });
+    bootstrap().catch((error) => {
+      if (!disposed) {
+        setStatusError(error instanceof Error ? error.message : String(error));
+        setStatus('error');
+      }
+    });
     return () => { disposed = true; };
   }, [host, normalizedTimelineId, origin, storageKey, workbenchIsTemporary]);
 
@@ -175,7 +203,11 @@ export function DefOpenCodeView({
                 return;
               }
               setStatus('checking');
-              void createNativeSession().catch(() => setStatus('error'));
+              setStatusError('');
+              void createNativeSession().catch((error) => {
+                setStatusError(error instanceof Error ? error.message : String(error));
+                setStatus('error');
+              });
             }}
           >
             新建 DEF 会话
@@ -185,7 +217,7 @@ export function DefOpenCodeView({
       <div className="def-opencode-view__body">
         {status === 'error' ? (
           <div className="def-opencode-view__status" role="alert">
-            DEF OpenCode 服务未就绪。请确认本地 Agent sidecar 已启动。
+            DEF OpenCode 服务未就绪。{statusError || '请确认本地 Agent sidecar 已启动。'}
           </div>
         ) : status === 'blocked' ? (
           <div className="def-opencode-view__status" role="alert">

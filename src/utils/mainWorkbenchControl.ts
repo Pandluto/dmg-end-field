@@ -17,10 +17,12 @@ export const MAIN_WORKBENCH_CONTROL_EVENT = 'def-main-workbench-control';
 export const MAIN_WORKBENCH_REST_BASE_URL = 'http://127.0.0.1:31457';
 const MAIN_WORKBENCH_REMOTE_PULL_TIMEOUT_MS = 300;
 const MAIN_WORKBENCH_REMOTE_PULL_COOLDOWN_MS = 15000;
+const MAIN_WORKBENCH_REMOTE_SNAPSHOT_HEARTBEAT_MS = 2000;
 
 let nextRemoteWorkbenchPullAt = 0;
 let remoteWorkbenchPullInFlight: Promise<void> | null = null;
 let remoteWorkbenchCommandEventSource: EventSource | null = null;
+let lastRemoteWorkbenchSnapshotPushAt = 0;
 
 export type MainWorkbenchCommandStatus = 'pending' | 'running' | 'done' | 'error';
 
@@ -340,6 +342,15 @@ export interface MainWorkbenchSnapshot {
   } | null;
   currentView?: 'selection' | 'canvas';
   selectedCharacters: Array<Pick<Character, 'id' | 'name' | 'element' | 'profession' | 'librarySource'>>;
+  /** Trusted runtime-template skills for the currently selected operators. */
+  skillCatalog?: Array<{
+    characterId: string;
+    characterName: string;
+    skillId: string;
+    skillType: SkillButtonType;
+    skillDisplayName: string;
+    source?: string;
+  }>;
   skillButtons: Array<{
     id: string;
     characterId: string;
@@ -349,6 +360,10 @@ export interface MainWorkbenchSnapshot {
     skillDisplayName?: string;
     staffIndex: number;
     lineIndex: number;
+    /** Persistent character row used by TimelineSnapshotPayload. */
+    persistenceStaffIndex: number;
+    /** Persistent global slot: visual group * GRID_NODE_COUNT + local nodeIndex. */
+    persistenceNodeIndex: number;
     nodeIndex?: number;
     nodeNumber?: number;
     selectedBuffIds: string[];
@@ -428,7 +443,15 @@ function canUseLocalStorage(): boolean {
   return typeof window !== 'undefined' && Boolean(window.localStorage);
 }
 
+// The renderer command bridge must keep working when unrelated persisted app data
+// fills localStorage. localStorage is only a recovery mirror for this transient state;
+// the in-page copy is authoritative after the first write.
+const memoryJsonStorage = new Map<string, unknown>();
+
 function readJsonStorage<T>(key: string, fallback: T): T {
+  if (memoryJsonStorage.has(key)) {
+    return memoryJsonStorage.get(key) as T;
+  }
   if (!canUseLocalStorage()) return fallback;
   try {
     const raw = window.localStorage.getItem(key);
@@ -440,6 +463,7 @@ function readJsonStorage<T>(key: string, fallback: T): T {
 }
 
 function writeJsonStorage(key: string, value: unknown): void {
+  memoryJsonStorage.set(key, value);
   if (!canUseLocalStorage()) return;
   try {
     window.localStorage.setItem(key, JSON.stringify(value));
@@ -616,6 +640,14 @@ async function pullRemoteMainWorkbenchCommandsOnce(): Promise<void> {
     });
     if (!response.ok) return;
     const payload = await response.json() as { commands?: QueuedMainWorkbenchCommand[] };
+    const now = Date.now();
+    if (now - lastRemoteWorkbenchSnapshotPushAt >= MAIN_WORKBENCH_REMOTE_SNAPSHOT_HEARTBEAT_MS) {
+      const snapshot = readMainWorkbenchSnapshot();
+      if (snapshot) {
+        lastRemoteWorkbenchSnapshotPushAt = now;
+        await pushMainWorkbenchSnapshot(snapshot);
+      }
+    }
     if (!Array.isArray(payload.commands) || payload.commands.length === 0) return;
 
     importRemoteMainWorkbenchCommands(payload.commands);

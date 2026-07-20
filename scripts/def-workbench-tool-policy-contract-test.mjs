@@ -63,6 +63,15 @@ function seedTimeline(timelineId, nodeId, sentinel) {
 
 seedTimeline('formal-a', 'node-a-only', 'A');
 seedTimeline('formal-b', 'node-b-only', 'B');
+const invalidTimelinePayload = fixturePayload('A');
+invalidTimelinePayload.timelineData.staffLines[0].buttons = [{ id: 'button-invalid', nodeIndex: 0, skillKey: 'operator-A-B' }];
+invalidTimelinePayload.timelineData.staffLines[0].occupiedNodes = [0];
+invalidTimelinePayload.skillButtonTable = { 'button-invalid': { id: 'button-invalid', nodeIndex: 0, skillKey: 'operator-A-B', selectedBuff: [] } };
+repository.importWorkNode({
+  id: 'node-invalid-timeline', timelineId: 'formal-a', parentNodeId: 'node-a-only', branchId: 'invalid-timeline', label: 'Invalid timeline node',
+  status: 'ready', approvalPolicy: 'manual', basePayload: fixturePayload('A'), workingPayload: invalidTimelinePayload,
+  contentRevision: 303,
+});
 repository.ensureDocument({ id: 'temporary-a', label: 'Temporary A', isTemporary: true });
 repository.upsertSessionAxisBinding({ id: 'axis-a', timelineId: 'formal-a', host: 'workbench', opencodeSessionId: 'session-a' });
 repository.ensureDocument({ id: 'missing-formal', label: 'Soon stale' });
@@ -133,6 +142,14 @@ async function mirror(timelineId, sentinel) {
       timelineId,
       checkout,
       selectedCharacters: [{ id: `operator-${sentinel}`, name: `Operator ${sentinel} ONLY` }],
+      skillCatalog: [{
+        characterId: `operator-${sentinel}`,
+        characterName: `Operator ${sentinel} ONLY`,
+        skillId: `skill-${sentinel}`,
+        skillType: 'A',
+        skillDisplayName: `Trusted Skill ${sentinel} ONLY`,
+        source: 'contract-runtime-template',
+      }],
       skillButtons: [{ id: `button-${sentinel}`, characterId: `operator-${sentinel}`, characterName: `Operator ${sentinel} ONLY`, skillType: 'A', staffIndex: 0, lineIndex: 0, nodeIndex: 0, selectedBuffIds: [`buff-${sentinel}`], selectedBuffs: [{ id: `buff-${sentinel}`, name: `Buff ${sentinel} ONLY` }] }],
       operatorConfigs: [{ characterId: `operator-${sentinel}`, characterName: `Operator ${sentinel} ONLY`, weapon: { id: `weapon-${sentinel}`, name: `Weapon ${sentinel} ONLY`, level: 90, potential: '0潜' }, equipment: [{ slotKey: 'armor', equipmentId: `equipment-${sentinel}`, name: `Equipment ${sentinel} ONLY`, effects: [] }] }],
       selectedTeamLoadouts: [{ characterId: `operator-${sentinel}`, characterName: `Operator ${sentinel} ONLY`, weapon: { name: `Weapon ${sentinel} ONLY` }, equipment: [{ name: `Equipment ${sentinel} ONLY` }] }],
@@ -195,6 +212,26 @@ try {
   const hydratedDamage = await generic('def.workbench.damage_report', {}, 'session-a');
   assert.equal(hydratedDamage.status, 200, JSON.stringify(hydratedDamage.body));
   assert.equal(hydratedDamage.body.result.damageReport.totalExpected, 111111);
+  const trustedSkills = await generic('def.skill.resolve', { query: 'Operator A ONLY' }, 'session-a');
+  assert.equal(trustedSkills.status, 200, JSON.stringify(trustedSkills.body));
+  assert.equal(trustedSkills.body.result.candidates.some((candidate) => candidate.skillId === 'skill-A'), true,
+    'selected operator skills must be resolvable even when they have not been placed on the timeline');
+
+  const rejectedInvalidCheckout = await generic('def.worknode.checkout_and_verify', {
+    nodeId: 'node-invalid-timeline', expectedRevision: 303, expectedWorkingHash: 'not-needed-for-invalid-shape',
+  }, 'session-a');
+  assert.equal(rejectedInvalidCheckout.status, 200, JSON.stringify(rejectedInvalidCheckout.body));
+  assert.equal(rejectedInvalidCheckout.body.result.ok, false);
+  assert.equal(rejectedInvalidCheckout.body.result.code, 'worknode-use-hash-conflict');
+  const invalidNode = repository.getWorkNode('node-invalid-timeline');
+  const rejectedInvalidShape = await generic('def.worknode.checkout_and_verify', {
+    nodeId: 'node-invalid-timeline', expectedRevision: 303,
+    expectedWorkingHash: (await import('../agent/runtime/def-node-workspace/codec.mjs')).hashDefNodeValue(invalidNode.workingPayload),
+  }, 'session-a');
+  assert.equal(rejectedInvalidShape.status, 200, JSON.stringify(rejectedInvalidShape.body));
+  assert.equal(rejectedInvalidShape.body.result.ok, false);
+  assert.equal(rejectedInvalidShape.body.result.code, 'worknode-visible-payload-invalid');
+  assert.equal(repository.getCheckoutRef('formal-a').targetId, 'node-a-only', 'invalid button identity must not touch checkout');
 
   const nativeServerSource = fs.readFileSync(path.join(process.cwd(), 'agent/server/def-agent-server.cjs'), 'utf8');
   const contextRoute = nativeServerSource.slice(

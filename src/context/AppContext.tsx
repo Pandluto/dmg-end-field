@@ -35,6 +35,7 @@ import {
   setSelectedCharacterIds,
 } from '../utils/storage';
 import { STORAGE_KEYS } from '../constants/storage-keys';
+import { GRID_NODE_COUNT } from '../core/calculators/gridSnapLayout';
 import { APP_ROUTE_PATHS, navigateToAppPath } from '../utils/appRoute';
 import {
   adaptRuntimeTemplateToLegacyCharacter,
@@ -86,6 +87,8 @@ function buildSelectionWorkbenchSnapshot(
         skillDisplayName: button.skillDisplayName,
         staffIndex: button.staffIndex,
         lineIndex: button.lineIndex,
+        persistenceStaffIndex: button.lineIndex,
+        persistenceNodeIndex: button.staffIndex * GRID_NODE_COUNT + (button.nodeIndex ?? 0),
         nodeIndex: button.nodeIndex,
         nodeNumber: button.nodeNumber,
         selectedBuffIds: [],
@@ -93,11 +96,16 @@ function buildSelectionWorkbenchSnapshot(
     : previousButtons;
   const mirroredButtons = sourceButtons
     .filter((button) => selectedKeys.has(button.characterId) || selectedKeys.has(button.characterName))
-    .map((button) => ({
-      ...button,
-      lineIndex: selectedLineIndex.get(button.characterId) ?? selectedLineIndex.get(button.characterName) ?? button.lineIndex,
-      selectedBuffIds: [...(button.selectedBuffIds ?? [])],
-    }));
+    .map((button) => {
+      const lineIndex = selectedLineIndex.get(button.characterId) ?? selectedLineIndex.get(button.characterName) ?? button.lineIndex;
+      return {
+        ...button,
+        lineIndex,
+        persistenceStaffIndex: lineIndex,
+        persistenceNodeIndex: button.staffIndex * GRID_NODE_COUNT + (button.nodeIndex ?? 0),
+        selectedBuffIds: [...(button.selectedBuffIds ?? [])],
+      };
+    });
   const previousDamageReport = previousSnapshot?.damageReport;
   const canReuseDamageReport = Boolean(previousDamageReport) &&
     previousSnapshot?.skillButtons?.length === mirroredButtons.length &&
